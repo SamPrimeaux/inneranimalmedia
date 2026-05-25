@@ -1,3 +1,5 @@
+import { userHasMembership, resolveFirstMembershipWorkspaceId } from './membership.js';
+
 function trimOrNull(v) {
   if (v == null) return null;
   const s = String(v).trim();
@@ -64,22 +66,9 @@ export async function resolveDefaultWorkspaceForTenant(env, tenantId) {
  * @param {string} userId
  * @param {string} workspaceId
  */
+/** Membership plane: `memberships` (account_id = auth_users.id). */
 export async function userHasWorkspaceMembership(env, userId, workspaceId) {
-  const uid = trimOrNull(userId);
-  const wid = trimOrNull(workspaceId);
-  if (!env?.DB || !uid || !wid) return false;
-  try {
-    const row = await env.DB.prepare(
-      `SELECT workspace_id FROM workspace_members
-       WHERE user_id = ? AND workspace_id = ? AND COALESCE(is_active, 1) = 1
-       LIMIT 1`,
-    )
-      .bind(uid, wid)
-      .first();
-    return !!row?.workspace_id;
-  } catch {
-    return false;
-  }
+  return userHasMembership(env, userId, workspaceId);
 }
 
 /**

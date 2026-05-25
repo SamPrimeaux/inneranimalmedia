@@ -18,6 +18,7 @@ import {
 import { scheduleRecordMcpToolExecution } from '../core/mcp-tool-execution.js';
 import { scheduleToolCallLog } from '../core/agentsam-ops-ledger.js';
 import { pickRunSpineIds } from '../core/run-spine-ids.js';
+import { supabasePostJson } from './health/supabaseRest.js';
 
 /** Must match CHECK on agentsam_command_run.intent_category (or NULL). */
 const VALID_INTENT_CATEGORIES = [
@@ -1020,8 +1021,12 @@ export async function executeCommand(env, ctx, o) {
   let sessionWorkspace = null;
   if (!wid && sessionId) {
     const srow = await env.DB
-      .prepare(`SELECT workspace_id FROM agent_sessions WHERE id = ? LIMIT 1`)
-      .bind(sessionId)
+      .prepare(
+        `SELECT workspace_id FROM agentsam_agent_run
+         WHERE id = ? OR conversation_id = ?
+         LIMIT 1`,
+      )
+      .bind(sessionId, sessionId)
       .first()
       .catch(() => null);
     sessionWorkspace = srow?.workspace_id != null ? String(srow.workspace_id).trim() : null;
@@ -1301,19 +1306,12 @@ export async function executeCommand(env, ctx, o) {
       .catch(() => {}),
   );
 
-  const sbUrl = env.SUPABASE_URL;
-  const sbKey = env.SUPABASE_SERVICE_ROLE_KEY;
-  if (sbUrl && sbKey) {
+  if (env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY) {
     ctx.waitUntil(
-      fetch(`${sbUrl}/rest/v1/agentsam_tool_call_events`, {
-        method: 'POST',
-        headers: {
-          apikey: sbKey,
-          Authorization: `Bearer ${sbKey}`,
-          'Content-Type': 'application/json',
-          Prefer: 'resolution=merge-duplicates',
-        },
-        body: JSON.stringify({
+      supabasePostJson(
+        env,
+        '/rest/v1/agentsam_tool_call_events',
+        {
           tool_name: cmd.mapped_command,
           tool_category: cmd.category,
           session_id: sessionId,
@@ -1324,8 +1322,9 @@ export async function executeCommand(env, ctx, o) {
           success: true,
           duration_ms: 0,
           created_at: new Date().toISOString(),
-        }),
-      }).catch(() => {}),
+        },
+        'agentsam',
+      ).catch(() => {}),
     );
   }
 

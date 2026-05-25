@@ -3,7 +3,7 @@
  * Fails closed on missing tenancy or illegal workspace override.
  */
 
-import { resolveIamActorContext } from './identity.js';
+import { resolveAuth } from './auth.js';
 import { userHasWorkspaceMembership } from './workspace-provisioning.js';
 
 function trim(v) {
@@ -88,21 +88,36 @@ export async function resolveActorContext(request, env, options = {}) {
     };
   }
 
-  const iam = await resolveIamActorContext(request, env);
   const workspaceIdParam = opts.workspaceIdParam != null ? trim(opts.workspaceIdParam) : '';
 
-  const userId = trim(iam?.userId);
-  const tenantId = trim(iam?.tenantId);
-  let workspaceId = trim(iam?.workspaceId);
-  const personUuid = iam?.personUuid != null && trim(iam.personUuid) !== '' ? trim(iam.personUuid) : null;
-  const sessionId = iam?.sessionId != null && trim(iam.sessionId) !== '' ? trim(iam.sessionId) : null;
-  const isSuperadmin = Number(iam?.actor?.is_superadmin) === 1;
+  let auth = null;
+  try {
+    auth = await resolveAuth(request, env, {
+      required: true,
+      workspaceIdOverride: workspaceIdParam || null,
+    });
+  } catch (e) {
+    return {
+      ok: false,
+      code: 'ACTOR_CONTEXT_MISSING',
+      message: e?.message || 'unauthorized',
+    };
+  }
+
+  const userId = trim(auth?.userId);
+  const tenantId = trim(auth?.tenantId);
+  let workspaceId = trim(auth?.workspaceId);
+  const personUuid =
+    auth?.personUuid != null && trim(auth.personUuid) !== '' ? trim(auth.personUuid) : null;
+  const sessionId =
+    auth?.sessionId != null && trim(auth.sessionId) !== '' ? trim(auth.sessionId) : null;
+  const isSuperadmin = !!auth?.isSuperadmin;
 
   if (!userId || !tenantId || !workspaceId) {
     return {
       ok: false,
       code: 'ACTOR_CONTEXT_MISSING',
-      message: iam?.error || 'missing userId, tenantId, or workspaceId',
+      message: 'missing userId, tenantId, or workspaceId',
     };
   }
 
@@ -116,6 +131,12 @@ export async function resolveActorContext(request, env, options = {}) {
     workspaceId = workspaceIdParam;
   }
 
+  const roles = auth?.membership?.role ? [String(auth.membership.role)] : [];
+  const scopes = [];
+  if (auth?.capabilities?.canRunPty) scopes.push('pty');
+  if (auth?.capabilities?.canRunMcp) scopes.push('mcp');
+  if (auth?.capabilities?.canDeploy) scopes.push('deploy');
+
   return {
     ok: true,
     userId,
@@ -127,8 +148,8 @@ export async function resolveActorContext(request, env, options = {}) {
     agentId: opts.agentId != null ? trim(opts.agentId) || null : null,
     actorType: 'user',
     actorSource: trim(opts.actorSource) || 'dashboard',
-    roles: [],
-    scopes: [],
+    roles,
+    scopes,
     isSuperadmin,
   };
 }

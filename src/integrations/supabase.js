@@ -1,5 +1,5 @@
 /**
- * Supabase PostgREST writers for Agent Sam observability tables (public schema).
+ * Supabase PostgREST writers for Agent Sam observability tables (agentsam schema).
  */
 
 import {
@@ -11,7 +11,7 @@ import {
 import { deriveProvider } from '../core/memory.js';
 
 /**
- * Insert one row into public.agentsam_routing_decisions (non-blocking callers should not await).
+ * Insert one row into agentsam.agentsam_routing_decisions (non-blocking callers should not await).
  * @param {any} env
  * @param {Record<string, unknown>} payload
  */
@@ -22,7 +22,7 @@ export async function writeSupabaseRoutingDecision(env, payload) {
     const mk = row.selected_model ?? row.model_key ?? row.selectedModel ?? row.modelKey;
     row.provider = deriveProvider(mk != null ? String(mk) : null) ?? 'unknown';
   }
-  return supabasePostJson(env, '/rest/v1/agentsam_routing_decisions', row, 'public');
+  return supabasePostJson(env, '/rest/v1/agentsam_routing_decisions', row, 'agentsam');
 }
 
 /**
@@ -42,7 +42,7 @@ export async function patchSupabaseRoutingDecision(env, runGroupId, patch) {
     const res = await fetch(url, {
       method: 'PATCH',
       headers: {
-        ...supabaseHeaders(env, 'public'),
+        ...supabaseHeaders(env, 'agentsam'),
         'Content-Type': 'application/json',
         Prefer: 'return=minimal',
       },

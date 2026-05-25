@@ -37,7 +37,7 @@ import {
 import { loadAgentMemoryForPrompt }                     from '../core/memory.js';
 import { writeTelemetry }                               from './telemetry.js';
 import { jsonResponse }                                 from '../core/responses.js';
-import { getAuthUser, getSession,
+import { authUserFromRequest, getSession,
          isIngestSecretAuthorized,
          fetchAuthUserTenantId,
          authUserIsSuperadmin,
@@ -617,7 +617,7 @@ async function resolveBootstrapWorkspaceIdForAgentApi(env, request, userId, cach
   if (!uid || !env?.DB || !request) return null;
   if (cache && cache.__iamBootWs != null) return cache.__iamBootWs;
   try {
-    const authUser = await getAuthUser(request, env).catch(() => null);
+    const authUser = await authUserFromRequest(request, env).catch(() => null);
     const wr = await resolveEffectiveWorkspaceId(env, request, authUser, cache || {});
     const ws =
       wr.workspaceId != null && String(wr.workspaceId).trim() !== ''
@@ -5917,7 +5917,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   const requestedMode = runtimeMode;
 
   const actorCtx = await resolveIamActorContext(request, env).catch(() => null);
-  const authUser = ingestBypass ? null : await getAuthUser(request, env).catch(() => null);
+  const authUser = ingestBypass ? null : await authUserFromRequest(request, env).catch(() => null);
 
   let tenantId =
     (session?.tenant_id != null && String(session.tenant_id).trim() !== ''
@@ -8480,9 +8480,17 @@ async function evaluateToolSmokeAccess(env, profileRaw, toolName, body, identity
 
 // ─── Main Dispatcher ──────────────────────────────────────────────────────────
 
-export async function handleAgentApi(request, url, env, ctx) {
+/**
+ * @param {Request} request
+ * @param {URL} url
+ * @param {any} env
+ * @param {any} ctx
+ * @param {{ authCtx?: import('../core/auth.js').AuthContext | null, authUser?: object | null } | object | null} [routeAuth]
+ */
+export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
   const path   = url.pathname.toLowerCase().replace(/\/$/, '') || '/';
   const method = request.method.toUpperCase();
+  const ra = routeAuth && typeof routeAuth === 'object' && 'authCtx' in routeAuth ? routeAuth : { authUser: routeAuth, authCtx: null };
 
   const identity = await resolveIdentity(env, request);
   const ingestChatBypass =
@@ -8509,7 +8517,7 @@ export async function handleAgentApi(request, url, env, ctx) {
   }
 
   if (path === '/api/agent/subagent-profiles' && method === 'GET') {
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
     const actorCtx = await resolveIamActorContext(request, env).catch(() => null);
@@ -8606,7 +8614,7 @@ export async function handleAgentApi(request, url, env, ctx) {
 
   // GET /api/agent/tools — combined tool exposure (builtin + registered MCP)
   if (path === '/api/agent/tools' && method === 'GET') {
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
 
@@ -8679,7 +8687,7 @@ export async function handleAgentApi(request, url, env, ctx) {
       );
     }
 
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!identity?.workspaceId) {
       return jsonResponse({ error: 'no_workspace', redirect: '/onboarding' }, 403);
@@ -8805,7 +8813,7 @@ export async function handleAgentApi(request, url, env, ctx) {
 
   // GET /api/agent/todo — multi-tenant agentsam_todo
   if (path === '/api/agent/todo' && method === 'GET') {
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
     const scope = await resolveAgentDataScope(env, authUser, request, {});
@@ -8849,7 +8857,7 @@ export async function handleAgentApi(request, url, env, ctx) {
   if (path === '/api/agent/models') {
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
     if (method !== 'GET') return jsonResponse({ error: 'Method not allowed' }, 405);
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     let tenantForModels =
       authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
@@ -8910,7 +8918,7 @@ export async function handleAgentApi(request, url, env, ctx) {
   if (path === '/api/agent/commands' && method === 'GET') {
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
     try {
-      const authUser = await getAuthUser(request, env);
+      const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
       let tenantId =
         authUser?.tenant_id != null && String(authUser.tenant_id).trim() !== ''
           ? String(authUser.tenant_id).trim()
@@ -8931,7 +8939,7 @@ export async function handleAgentApi(request, url, env, ctx) {
 
   // ── /api/agent/session/mode ───────────────────────────────────────────────
   if (path === '/api/agent/session/mode' && method === 'POST') {
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     const body           = await request.json().catch(() => ({}));
     const mode           = String(body.mode || '').toLowerCase().trim();
@@ -8944,7 +8952,7 @@ export async function handleAgentApi(request, url, env, ctx) {
 
   // ── /api/agent/problems ───────────────────────────────────────────────────
   if (path === '/api/agent/problems' && method === 'GET') {
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB)   return jsonResponse({ error: 'DB not configured' }, 503);
     const checkedAt = new Date().toISOString();
@@ -8959,7 +8967,7 @@ export async function handleAgentApi(request, url, env, ctx) {
 
   // ── /api/agent/notifications (deployments + conversations + connectivity) ──
   if (path === '/api/agent/notifications' && method === 'GET') {
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
 
@@ -9092,14 +9100,14 @@ export async function handleAgentApi(request, url, env, ctx) {
 
   const notifReadMatch = path.match(/^\/api\/agent\/notifications\/([^/]+)\/read$/);
   if (notifReadMatch && method === 'PATCH') {
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     return jsonResponse({ success: true });
   }
 
   // ── /api/agent/keyboard-shortcuts ────────────────────────────────────────
   if (path === '/api/agent/keyboard-shortcuts' && method === 'GET') {
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB)   return jsonResponse({ error: 'DB not configured' }, 503);
     const { results } = await env.DB.prepare(`SELECT * FROM keyboard_shortcuts ORDER BY sort_order ASC, id ASC`).all();
@@ -9109,7 +9117,7 @@ export async function handleAgentApi(request, url, env, ctx) {
   const kbMatch = path.match(/^\/api\/agent\/keyboard-shortcuts\/([^/]+)$/);
   if (kbMatch && method === 'PATCH') {
     const rowId    = decodeURIComponent(kbMatch[1] || '').trim();
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB)   return jsonResponse({ error: 'DB not configured' }, 503);
     const body    = await request.json().catch(() => ({}));
@@ -9126,7 +9134,7 @@ export async function handleAgentApi(request, url, env, ctx) {
 
   // ── /api/agent/browser/registry-tools — D1 agentsam_tools for BrowserView / picker ──
   if (path === '/api/agent/browser/registry-tools' && method === 'GET') {
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB) return jsonResponse({ tools: [], pickers: {} });
     let tenantId =
@@ -9165,7 +9173,7 @@ export async function handleAgentApi(request, url, env, ctx) {
 
   // ── /api/agent/context-picker/catalog ────────────────────────────────────
   if (path === '/api/agent/context-picker/catalog' && method === 'GET') {
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB)   return jsonResponse({ tables: [], workflows: [], commands: [], memory_keys: [], workspaces: [] });
     let tenantId =
@@ -9195,7 +9203,7 @@ export async function handleAgentApi(request, url, env, ctx) {
 
   // ── /api/agent/memory/list ────────────────────────────────────────────────
   if (path === '/api/agent/memory/list' && method === 'GET') {
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB)   return jsonResponse({ items: [] });
     let tenantId =
@@ -9211,7 +9219,7 @@ export async function handleAgentApi(request, url, env, ctx) {
 
   // ── POST /api/agent/memory/upsert — curated Supabase agent_memory + OpenAI embedding (Worker control plane)
   if (path === '/api/agent/memory/upsert' && method === 'POST') {
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!identity?.workspaceId) {
       return jsonResponse({ error: 'no_workspace', redirect: '/onboarding' }, 403);
@@ -9269,7 +9277,7 @@ export async function handleAgentApi(request, url, env, ctx) {
 
   // ── POST /api/agent/memory/search — semantic vector search on public.agent_memory
   if (path === '/api/agent/memory/search' && method === 'POST') {
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!identity?.workspaceId) {
       return jsonResponse({ error: 'no_workspace', redirect: '/onboarding' }, 403);
@@ -9352,50 +9360,120 @@ export async function handleAgentApi(request, url, env, ctx) {
 
   // ── /api/agent/db/tables ──────────────────────────────────────────────────
   if (path === '/api/agent/db/tables' && method === 'GET') {
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB)   return jsonResponse({ tables: [] });
     const { results } = await env.DB.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name`).all().catch(() => ({ results: [] }));
     return jsonResponse({ tables: (results||[]).map(r=>r.name) });
   }
 
-  // ── /api/agent/db/query-history ──────────────────────────────────────────
+  // ── /api/agent/db/query-history (agentsam_tool_call_log — d1_* tools only) ─
   if (path === '/api/agent/db/query-history') {
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
-    if (!env.DB)   return jsonResponse({ history: [] });
+    if (!env.DB) return jsonResponse({ history: [] });
+    const uid = String(authUser.id);
     if (method === 'GET') {
-      const { results } = await env.DB.prepare(`SELECT id, query_sql, executed_at, row_count, status FROM agent_db_query_history WHERE user_id = ? ORDER BY executed_at DESC LIMIT 50`).bind(String(authUser.id)).all().catch(() => ({ results: [] }));
-      return jsonResponse({ history: results || [] });
+      const { results } = await env.DB.prepare(
+        `SELECT id, tool_name, input_summary AS query_sql, created_at AS executed_at,
+                status, output_summary
+         FROM agentsam_tool_call_log
+         WHERE user_id = ?
+           AND (tool_name LIKE 'd1_%' OR tool_category LIKE 'database.d1%')
+         ORDER BY created_at DESC
+         LIMIT 50`,
+      )
+        .bind(uid)
+        .all()
+        .catch(() => ({ results: [] }));
+      const history = (results || []).map((r) => ({
+        id: r.id,
+        query_sql: r.query_sql || '',
+        executed_at: r.executed_at,
+        row_count: 0,
+        status: r.status || 'success',
+      }));
+      return jsonResponse({ history });
     }
     if (method === 'POST') {
       const body = await request.json().catch(() => ({}));
-      await env.DB.prepare(`INSERT INTO agent_db_query_history (id, user_id, query_sql, status, row_count, executed_at) VALUES (?,?,?,?,?,unixepoch())`).bind(crypto.randomUUID(), String(authUser.id), String(body.query_sql||'').slice(0,10000), String(body.status||'success'), Number(body.row_count||0)).run().catch(() => {});
+      const { scheduleToolCallLog } = await import('../core/agentsam-ops-ledger.js');
+      scheduleToolCallLog(env, ctx, {
+        userId: uid,
+        tenantId: authUser.tenant_id || authUser.active_tenant_id,
+        workspaceId: authUser.active_workspace_id,
+        toolName: 'd1_query',
+        toolCategory: 'database.d1.read',
+        status: String(body.status || 'success'),
+        inputSummary: String(body.query_sql || '').slice(0, 8000),
+        outputSummary: JSON.stringify({ row_count: Number(body.row_count || 0) }),
+      });
       return jsonResponse({ ok: true });
     }
   }
 
-  // ── /api/agent/db/snippets ────────────────────────────────────────────────
+  // ── /api/agent/db/snippets (agentsam_memory keys db_snippet_*) ───────────
   if (path === '/api/agent/db/snippets') {
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
-    if (!env.DB)   return jsonResponse({ snippets: [] });
+    if (!env.DB) return jsonResponse({ snippets: [] });
+    const uid = String(authUser.id);
+    const tid = String(authUser.tenant_id || authUser.active_tenant_id || '').trim();
     if (method === 'GET') {
-      const { results } = await env.DB.prepare(`SELECT id, name, query_sql, created_at FROM agent_db_snippets WHERE user_id = ? ORDER BY name ASC`).bind(String(authUser.id)).all().catch(() => ({ results: [] }));
-      return jsonResponse({ snippets: results || [] });
+      const { results } = await env.DB.prepare(
+        `SELECT id, key, value, created_at
+         FROM agentsam_memory
+         WHERE user_id = ? AND key LIKE 'db_snippet_%'
+         ORDER BY key ASC
+         LIMIT 200`,
+      )
+        .bind(uid)
+        .all()
+        .catch(() => ({ results: [] }));
+      const snippets = (results || []).map((r) => {
+        const name = String(r.key || '').replace(/^db_snippet_/, '');
+        return {
+          id: r.id,
+          name,
+          query_sql: r.value || '',
+          created_at: r.created_at,
+        };
+      });
+      return jsonResponse({ snippets });
     }
     if (method === 'POST') {
       const body = await request.json().catch(() => ({}));
       if (!body.name || !body.query_sql) return jsonResponse({ error: 'name and query_sql required' }, 400);
-      const id = crypto.randomUUID();
-      await env.DB.prepare(`INSERT INTO agent_db_snippets (id, user_id, name, query_sql, created_at) VALUES (?,?,?,?,unixepoch())`).bind(id, String(authUser.id), String(body.name).slice(0,200), String(body.query_sql).slice(0,50000)).run();
+      const memKey = `db_snippet_${String(body.name).slice(0, 180)}`;
+      const id = `mem_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+      await env.DB.prepare(
+        `INSERT INTO agentsam_memory (
+           id, tenant_id, user_id, workspace_id, memory_type, key, value, source, confidence, created_at, updated_at
+         ) VALUES (?,?,?,?,?,?,?,?,?,unixepoch(),unixepoch())
+         ON CONFLICT(tenant_id, user_id, key) DO UPDATE SET
+           value = excluded.value,
+           updated_at = unixepoch()`,
+      )
+        .bind(
+          id,
+          tid || 'tenant_unknown',
+          uid,
+          authUser.active_workspace_id || null,
+          'skill',
+          memKey,
+          String(body.query_sql).slice(0, 50000),
+          'agent_db_snippets',
+          1.0,
+        )
+        .run()
+        .catch(() => {});
       return jsonResponse({ ok: true, id });
     }
   }
 
   // ── /api/agent/git/status ─────────────────────────────────────────────────
   if (path === '/api/agent/git/status' && method === 'GET') {
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB)   return jsonResponse({ error: 'DB not configured' }, 503);
     const workerName = projectIdFromEnv(env) || 'unknown';
@@ -9407,7 +9485,7 @@ export async function handleAgentApi(request, url, env, ctx) {
 
   // ── GET /api/agent/git/branches ───────────────────────────────────────────
   if (path === '/api/agent/git/branches' && method === 'GET') {
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
 
@@ -9461,7 +9539,7 @@ export async function handleAgentApi(request, url, env, ctx) {
 
   // ── GET /api/agent/git/repos ──────────────────────────────────────────────
   if (path === '/api/agent/git/repos' && method === 'GET') {
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
 
@@ -9513,7 +9591,7 @@ export async function handleAgentApi(request, url, env, ctx) {
 
   // ── /api/agent/git/sync ───────────────────────────────────────────────────
   if (path === '/api/agent/git/sync' && method === 'POST') {
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB)   return jsonResponse({ error: 'DB not configured' }, 503);
     const body       = await request.json().catch(() => ({}));
@@ -9578,7 +9656,12 @@ export async function handleAgentApi(request, url, env, ctx) {
           WHERE mode = 'model' AND status = 'active'
             AND (is_global = 1 OR allowed_tenants_json LIKE ('%"' || ? || '"%'))
           ORDER BY provider, COALESCE(sort_order, 999), COALESCE(input_rate_per_mtok, 999999) ASC`).bind(identity.tenantId),
-        env.DB.prepare(`SELECT id, session_type, status, started_at FROM agent_sessions WHERE status='active' ORDER BY updated_at DESC LIMIT 20`),
+        env.DB.prepare(
+          `SELECT id, COALESCE(trigger, 'chat') AS session_type, status, created_at AS started_at
+           FROM agentsam_agent_run
+           WHERE user_id = ? AND status IN ('running','queued')
+           ORDER BY created_at DESC LIMIT 20`,
+        ).bind(identity.userId),
       ]);
       return jsonResponse({ agents: batch[0]?.results||[], mcp_services: batch[1]?.results||[], models: batch[2]?.results||[], sessions: batch[3]?.results||[] });
     } catch (e) { return jsonResponse({ error: e.message }, 500); }
@@ -9587,7 +9670,7 @@ export async function handleAgentApi(request, url, env, ctx) {
   // ── /api/agent/conversations/search ──────────────────────────────────────
   if (path === '/api/agent/conversations/search' && method === 'GET') {
     if (!env.DB) return jsonResponse([]);
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     const userId = await resolveCanonicalUserId(String(authUser.id || ''), env).catch(() => String(authUser.id || ''));
     const q = (url.searchParams.get('q') || '').trim();
@@ -9617,21 +9700,19 @@ export async function handleAgentApi(request, url, env, ctx) {
       } catch (_) {}
     }
     if (!env.DB) return jsonResponse([]);
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     const userId = await resolveCanonicalUserId(String(authUser.id || ''), env).catch(() => String(authUser.id || ''));
-    const conv = await env.DB.prepare(
-      `SELECT id FROM agent_conversations WHERE id = ? AND user_id = ? LIMIT 1`,
+    const run = await env.DB.prepare(
+      `SELECT id FROM agentsam_agent_run
+       WHERE (id = ? OR conversation_id = ?) AND user_id = ?
+       LIMIT 1`,
     )
-      .bind(convId, userId)
+      .bind(convId, convId, userId)
       .first()
       .catch(() => null);
-    if (!conv?.id) return jsonResponse([]);
-    const { results } = await env.DB.prepare(
-      `SELECT role, content, created_at FROM agent_messages
-       WHERE conversation_id = ? ORDER BY created_at ASC LIMIT 200`
-    ).bind(convId).all().catch(() => ({ results: [] }));
-    return jsonResponse(results || []);
+    if (!run?.id) return jsonResponse([]);
+    return jsonResponse([]);
   }
 
   // ── /api/agent/sessions PATCH /:id ───────────────────────────────────────
@@ -9647,7 +9728,7 @@ export async function handleAgentApi(request, url, env, ctx) {
   // ── /api/agent/sessions ───────────────────────────────────────────────────
   if (path === '/api/agent/sessions') {
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     let tenantId =
       authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
@@ -9666,7 +9747,18 @@ export async function handleAgentApi(request, url, env, ctx) {
       const sessCtx = JSON.stringify({ session_id: id, name, created_at: Date.now(), message_count: 0, messages: [] });
       if (env.R2) await env.R2.put(r2Key, sessCtx, { httpMetadata: { contentType: 'application/json' } }).catch(() => {});
       if (env.SESSION_CACHE) await env.SESSION_CACHE.put(`sess_ctx:${id}`, sessCtx, { expirationTtl: 86400 }).catch(() => {});
-      await env.DB.prepare(`INSERT INTO agent_sessions (id, tenant_id, name, session_type, status, state_json, r2_key, started_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)`).bind(id, tenantId, name, body.session_type||'chat', 'active', '{}', r2Key, now, now).run();
+      const wsId =
+        authUser.active_workspace_id != null && String(authUser.active_workspace_id).trim() !== ''
+          ? String(authUser.active_workspace_id).trim()
+          : null;
+      await env.DB.prepare(
+        `INSERT INTO agentsam_agent_run (
+           id, user_id, workspace_id, tenant_id, conversation_id, status, trigger, created_at, started_at
+         ) VALUES (?,?,?,?,?,?,?,datetime('now'),datetime('now'))`,
+      )
+        .bind(id, userId, wsId, tenantId, id, 'running', body.session_type || 'chat')
+        .run()
+        .catch(() => {});
       await env.DB.prepare(
         `INSERT OR IGNORE INTO agent_conversations (id, user_id, title, name, created_at, updated_at, is_archived)
          VALUES (?, ?, ?, ?, ?, ?, 0)`,
@@ -9677,13 +9769,14 @@ export async function handleAgentApi(request, url, env, ctx) {
       return jsonResponse({ id, status: 'active' });
     }
     const { results } = await env.DB.prepare(
-      `SELECT s.id, s.session_type, s.status, s.started_at,
-              COALESCE(s.name,ac.name,ac.title,'New Conversation') as name,
-              (SELECT COUNT(*) FROM agent_messages am WHERE am.conversation_id = s.id) as message_count
-       FROM agent_sessions s
-       INNER JOIN agent_conversations ac ON ac.id = s.id AND ac.user_id = ?
-       WHERE s.tenant_id = ?
-       ORDER BY s.updated_at DESC LIMIT 50`,
+      `SELECT id, COALESCE(trigger, 'chat') AS session_type, status,
+              created_at AS started_at, conversation_id,
+              COALESCE(conversation_id, id) AS name_key,
+              0 AS message_count
+       FROM agentsam_agent_run
+       WHERE user_id = ? AND tenant_id = ?
+       ORDER BY created_at DESC
+       LIMIT 50`,
     )
       .bind(userId, tenantId)
       .all()
@@ -9696,7 +9789,7 @@ export async function handleAgentApi(request, url, env, ctx) {
   if (workspaceMatch) {
     const wsId = decodeURIComponent(workspaceMatch[1] || '').trim();
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
 
     // ── /api/agent/workspace/:id ────────────────────────────────────────────
@@ -9873,7 +9966,7 @@ export async function handleAgentApi(request, url, env, ctx) {
 
   // ── /api/agent/terminal/config-status ────────────────────────────────────
   if (path === '/api/agent/terminal/config-status' && method === 'GET') {
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!authUserIsSuperadmin(authUser)) {
       return jsonResponse({
@@ -9907,7 +10000,7 @@ export async function handleAgentApi(request, url, env, ctx) {
 
   // ── /api/agent/propose ────────────────────────────────────────────────────
   if (path === '/api/agent/propose' && method === 'POST') {
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB)   return jsonResponse({ error: 'DB not configured' }, 503);
     const body        = await request.json().catch(() => ({}));
@@ -9954,7 +10047,7 @@ export async function handleAgentApi(request, url, env, ctx) {
 
   // ── /api/agent/proposals/pending ─────────────────────────────────────────
   if (path === '/api/agent/proposals/pending' && method === 'GET') {
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB)   return jsonResponse([]);
     const uid = String(authUser.id || '').trim();
@@ -9979,7 +10072,7 @@ export async function handleAgentApi(request, url, env, ctx) {
 
   const propApproveMatch = path.match(/^\/api\/agent\/proposals\/([^/]+)\/approve$/);
   if (propApproveMatch && method === 'POST') {
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB)   return jsonResponse({ error: 'DB not configured' }, 503);
     const propId   = propApproveMatch[1];
@@ -10007,7 +10100,7 @@ export async function handleAgentApi(request, url, env, ctx) {
 
   const propDenyMatch = path.match(/^\/api\/agent\/proposals\/([^/]+)\/deny$/);
   if (propDenyMatch && method === 'POST') {
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB)   return jsonResponse({ error: 'DB not configured' }, 503);
     const propId   = propDenyMatch[1];
@@ -10075,7 +10168,7 @@ export async function handleAgentApi(request, url, env, ctx) {
 
   // ── /api/agent/approval/pending ───────────────────────────────────────────
   if (method === 'GET' && path === '/api/agent/approval/pending') {
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401, { 'Cache-Control': 'no-store' });
     const workspaceId = String(url.searchParams.get('workspace_id') || '').trim();
     if (!workspaceId) {
@@ -10143,7 +10236,7 @@ export async function handleAgentApi(request, url, env, ctx) {
 
   const approvalApprovePost = path.match(/^\/api\/agent\/approval\/([^/]+)\/approve$/);
   if (approvalApprovePost && method === 'POST') {
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
     const apId = approvalApprovePost[1];
@@ -10164,7 +10257,7 @@ export async function handleAgentApi(request, url, env, ctx) {
 
   const approvalDenyPost = path.match(/^\/api\/agent\/approval\/([^/]+)\/deny$/);
   if (approvalDenyPost && method === 'POST') {
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
     const apId = approvalDenyPost[1];
@@ -10186,7 +10279,7 @@ export async function handleAgentApi(request, url, env, ctx) {
   // ── PATCH /api/agent/approval/:id ─────────────────────────────────────────
   const approvalMatch = path.match(/^\/api\/agent\/approval\/([^/]+)$/);
   if (method === 'PATCH' && approvalMatch) {
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
     const { status } = await request.json().catch(() => ({}));
@@ -10216,7 +10309,7 @@ export async function handleAgentApi(request, url, env, ctx) {
 
   // ── POST /api/agent/allowlist — ToolApprovalModal “Allow always” (session-scoped workspace)
   if (method === 'POST' && path === '/api/agent/allowlist') {
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
     const body = await request.json().catch(() => ({}));
@@ -10264,7 +10357,7 @@ export async function handleAgentApi(request, url, env, ctx) {
 
   // ── POST /api/agent/plan-task/resume — one plan terminal task after Allow (SSE) ──
   if (path === '/api/agent/plan-task/resume' && method === 'POST') {
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
     const body = await request.json().catch(() => ({}));
@@ -10400,7 +10493,7 @@ export async function handleAgentApi(request, url, env, ctx) {
 
   // ── POST /api/agent/workflow/start — DAG graph executor (agentsam_workflow_*)
   if (path === '/api/agent/workflow/start' && method === 'POST') {
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
     const body = await request.json().catch(() => ({}));
@@ -10434,7 +10527,7 @@ export async function handleAgentApi(request, url, env, ctx) {
 
   // ── POST /api/agent/workflow/approve — resume workflow after approval_gate
   if (path === '/api/agent/workflow/approve' && method === 'POST') {
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     const body = await request.json().catch(() => ({}));
     const { approval_id: approvalId, decision } = body;
@@ -10503,7 +10596,7 @@ export async function handleAgentApi(request, url, env, ctx) {
 
   // ── /api/agent/workflows/trigger ─────────────────────────────────────────
   if (path === '/api/agent/workflows/trigger' && method === 'POST') {
-    const authUser = await getAuthUser(request, env);
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB)   return jsonResponse({ error: 'DB not configured' }, 503);
     const body         = await request.json().catch(() => ({}));
@@ -10750,9 +10843,9 @@ export async function handleAgentApi(request, url, env, ctx) {
   return jsonResponse({ error: 'Agent route not found', path }, 404);
 }
 
-export async function handleAgentRequest(request, env, ctx, _authUser = null) {
+export async function handleAgentRequest(request, env, ctx, routeAuth = null) {
   const url = new URL(request.url);
-  return handleAgentApi(request, url, env, ctx);
+  return handleAgentApi(request, url, env, ctx, routeAuth);
 }
 
 // ─── Bootstrap ────────────────────────────────────────────────────────────────

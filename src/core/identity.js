@@ -5,7 +5,7 @@
  * Returns null if session is missing or expired.
  * Callers must handle null as 401 — never substitute defaults.
  */
-import { getSession, getAuthUser, fetchAuthUserTenantId } from './auth.js';
+import { getSession, authContextToLegacyUser, peekRequestAuth, getRequestAuth, fetchAuthUserTenantId } from './auth.js';
 import {
   resolveDefaultWorkspaceForTenant,
   ensureUserTenantWorkspace,
@@ -137,7 +137,14 @@ export async function resolveIdentity(env, request) {
   let workspaceSlug = null;
   let defaultModelId = null;
 
-  const user = ctx.actor || (await getAuthUser(request, env).catch(() => null));
+  let user = ctx.actor;
+  if (!user) {
+    let authCtx = peekRequestAuth(request);
+    if (authCtx === undefined) {
+      authCtx = await getRequestAuth(request, env, { required: false }).catch(() => null);
+    }
+    if (authCtx) user = authContextToLegacyUser(authCtx);
+  }
 
   if (workspaceIdResolved) {
     try {

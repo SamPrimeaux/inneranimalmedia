@@ -5,7 +5,7 @@
  * Worker → env.HYPERDRIVE.connectionString → Supabase Postgres
  * Use this instead of Supabase REST for all workflow/debug writes.
  *
- * Tables (Supabase public schema):
+ * Tables (Supabase agentsam schema):
  *   agentsam_workflow_runs
  *   agentsam_workflow_steps
  *   agentsam_workflow_events
@@ -32,9 +32,13 @@ export function canUseSupabaseWorkflowDebug(env) { return isHyperdriveUsable(env
 // ── Workflow Runs ────────────────────────────────────────────────────────────
 
 export async function createWorkflowRun(env, payload = {}) {
+  const workflowKey = String(payload.workflow_key || '').trim();
+  if (!workflowKey) {
+    return { ok: false, rows: [], error: 'workflow_key_required' };
+  }
   const id = payload.id || payload.d1_run_id || textId('run');
   const sql = `
-    INSERT INTO public.agentsam_workflow_runs (
+    INSERT INTO agentsam.agentsam_workflow_runs (
       id, d1_run_id, tenant_id, workspace_id, workflow_id, workflow_key,
       display_name, trigger_type, status, session_id, conversation_id, user_id,
       run_group_id, mode, provider, model_key,
@@ -51,10 +55,10 @@ export async function createWorkflowRun(env, payload = {}) {
     )
     ON CONFLICT (id) DO UPDATE SET
       status            = EXCLUDED.status,
-      workflow_key      = COALESCE(EXCLUDED.workflow_key,      public.agentsam_workflow_runs.workflow_key),
-      display_name      = COALESCE(EXCLUDED.display_name,      public.agentsam_workflow_runs.display_name),
-      input_json        = COALESCE(EXCLUDED.input_json,        public.agentsam_workflow_runs.input_json),
-      metadata          = public.agentsam_workflow_runs.metadata || EXCLUDED.metadata,
+      workflow_key      = COALESCE(EXCLUDED.workflow_key,      agentsam.agentsam_workflow_runs.workflow_key),
+      display_name      = COALESCE(EXCLUDED.display_name,      agentsam.agentsam_workflow_runs.display_name),
+      input_json        = COALESCE(EXCLUDED.input_json,        agentsam.agentsam_workflow_runs.input_json),
+      metadata          = agentsam.agentsam_workflow_runs.metadata || EXCLUDED.metadata,
       updated_at        = now(),
       supabase_synced_at = now()
     RETURNING *;`;
@@ -64,8 +68,8 @@ export async function createWorkflowRun(env, payload = {}) {
     payload.tenant_id || env?.TENANT_ID || '',
     payload.workspace_id || (() => { throw new Error('[workflow-debug-store] workspace_id is required'); })(),
     payload.workflow_id  || null,
-    payload.workflow_key || 'agent_chat_tool_session',
-    payload.display_name || 'Agent Chat Tool Session',
+    workflowKey,
+    payload.display_name || workflowKey,
     payload.trigger_type || 'agent',
     payload.status       || 'running',
     payload.session_id        || null,
@@ -99,7 +103,7 @@ export async function createWorkflowRun(env, payload = {}) {
 export async function updateWorkflowRun(env, runId, patch = {}) {
   if (!runId) return { ok: false, rows: [], error: 'missing_run_id' };
   const sql = `
-    UPDATE public.agentsam_workflow_runs SET
+    UPDATE agentsam.agentsam_workflow_runs SET
       status            = COALESCE($2,         status),
       output_json       = COALESCE($3::jsonb,  output_json),
       step_results_json = COALESCE($4::jsonb,  step_results_json),
@@ -140,7 +144,7 @@ export async function updateWorkflowRun(env, runId, patch = {}) {
 
 export async function appendWorkflowStep(env, payload = {}) {
   const sql = `
-    INSERT INTO public.agentsam_workflow_steps (
+    INSERT INTO agentsam.agentsam_workflow_steps (
       id, run_id, tenant_id, workspace_id,
       step_index, step_key, step_type, status,
       tool_key, command_key, provider, model_key,
@@ -186,7 +190,7 @@ export async function appendWorkflowEvents(env, events = []) {
     const rows = [];
     for (const ev of clean) {
       const r = await client.query(`
-        INSERT INTO public.agentsam_workflow_events (
+        INSERT INTO agentsam.agentsam_workflow_events (
           id, run_id, step_id, tenant_id, workspace_id,
           event_type, event_level, message, payload_json
         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)
@@ -213,7 +217,7 @@ export async function appendWorkflowEvents(env, events = []) {
 
 export async function captureDebugSnapshot(env, payload = {}) {
   const sql = `
-    INSERT INTO public.agentsam_debug_snapshots (
+    INSERT INTO agentsam.agentsam_debug_snapshots (
       id, tenant_id, workspace_id, run_id, snapshot_key, source, status,
       request_json, response_json, environment_json, notes
     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb,$11)
@@ -241,15 +245,15 @@ export async function getWorkflowDebugTrace(env, runId) {
 
   return runHyperdriveTransaction(env, async (client) => {
     const run = await client.query(
-      `SELECT * FROM public.agentsam_workflow_runs WHERE id=$1 OR d1_run_id=$1 LIMIT 1`,
+      `SELECT * FROM agentsam.agentsam_workflow_runs WHERE id=$1 OR d1_run_id=$1 LIMIT 1`,
       [runId],
     );
     const actualId = run.rows?.[0]?.id || runId;
 
     const [steps, events, snapshots] = await Promise.all([
-      client.query(`SELECT * FROM public.agentsam_workflow_steps  WHERE run_id=$1 ORDER BY step_index ASC, created_at ASC`, [actualId]),
-      client.query(`SELECT * FROM public.agentsam_workflow_events WHERE run_id=$1 ORDER BY created_at ASC`,                 [actualId]),
-      client.query(`SELECT * FROM public.agentsam_debug_snapshots WHERE run_id=$1 ORDER BY created_at DESC`,               [actualId]),
+      client.query(`SELECT * FROM agentsam.agentsam_workflow_steps  WHERE run_id=$1 ORDER BY step_index ASC, created_at ASC`, [actualId]),
+      client.query(`SELECT * FROM agentsam.agentsam_workflow_events WHERE run_id=$1 ORDER BY created_at ASC`,                 [actualId]),
+      client.query(`SELECT * FROM agentsam.agentsam_debug_snapshots WHERE run_id=$1 ORDER BY created_at DESC`,               [actualId]),
     ]);
 
     return {
@@ -269,8 +273,8 @@ export async function getRecentWorkflowRuns(env, options = {}) {
   const wsId  = options.workspace_id || null;
 
   const sql = wsId
-    ? `SELECT * FROM public.agentsam_workflow_runs WHERE workspace_id=$1 ORDER BY created_at DESC LIMIT $2`
-    : `SELECT * FROM public.agentsam_workflow_runs ORDER BY created_at DESC LIMIT $1`;
+    ? `SELECT * FROM agentsam.agentsam_workflow_runs WHERE workspace_id=$1 ORDER BY created_at DESC LIMIT $2`
+    : `SELECT * FROM agentsam.agentsam_workflow_runs ORDER BY created_at DESC LIMIT $1`;
 
   return runHyperdriveQuery(env, sql, wsId ? [wsId, limit] : [limit]);
 }

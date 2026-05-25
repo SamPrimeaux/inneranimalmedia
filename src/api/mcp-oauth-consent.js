@@ -15,6 +15,7 @@ import {
   MCP_OAUTH_CODE_TTL_SECONDS,
   resolveMcpConnectingApp,
   loadMcpOAuthConsentToolManifest,
+  MCP_CANONICAL_CLIENT_ID,
 } from './mcp-oauth-shared.js';
 import {
   issueMcpConsentCsrf,
@@ -312,6 +313,29 @@ export async function approveIamMcpAuthorization(env, authorizationId, iamUser, 
       resolvedWorkspaceId === String(env.WORKSPACE_ID || '').trim());
   if (!resolvedWorkspaceId || !allowedWs) return { ok: false, error: 'invalid_workspace' };
   const workspaceIdFinal = resolvedWorkspaceId;
+
+  if (String(row.client_id || '') === MCP_CANONICAL_CLIENT_ID) {
+    const { resolveExternalClientKeyFromRedirect, assertUserMayUseExternalClient } = await import(
+      '../core/mcp-oauth-external-clients.js'
+    );
+    const externalClientKey = await resolveExternalClientKeyFromRedirect(env, row.redirect_uri, row.client_id);
+    const extAllow = await assertUserMayUseExternalClient(env, {
+      userId: iamUser.id,
+      workspaceId: workspaceIdFinal,
+      externalClientKey,
+      oauthClientId: row.client_id,
+    });
+    if (!extAllow.ok) {
+      return { ok: false, error: extAllow.code || 'external_client_not_allowed' };
+    }
+    const { recordExternalClientAllowlistOnConsent } = await import('../core/mcp-oauth-external-clients.js');
+    await recordExternalClientAllowlistOnConsent(env, {
+      userId: iamUser.id,
+      workspaceId: workspaceIdFinal,
+      tenantId: String(row.tenant_id || iamUser.tenant_id || '').trim() || null,
+      externalClientKey,
+    });
+  }
 
   const scopes = mcpOAuthParseScopeList(row.scope);
   if (scopes.includes('mcp:tools')) {

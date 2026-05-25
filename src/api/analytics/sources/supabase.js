@@ -15,7 +15,7 @@ async function pgHasColumn(env, tableName, colName) {
       env,
       `SELECT 1 AS ok
        FROM information_schema.columns
-       WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2
+       WHERE table_schema = 'agentsam' AND table_name = $1 AND column_name = $2
        LIMIT 1`,
       [tableName, colName],
     );
@@ -80,7 +80,7 @@ export async function supabaseCountLatest(env, tableName, { tenantId = null, ran
   try {
     const countR = await runHyperdriveQuery(
       env,
-      `SELECT COUNT(*)::int AS c FROM public.${ident} ${whereSql}`,
+      `SELECT COUNT(*)::int AS c FROM agentsam.${ident} ${whereSql}`,
       params,
     );
     if (!countR.ok) {
@@ -98,7 +98,7 @@ export async function supabaseCountLatest(env, tableName, { tenantId = null, ran
     if (timeCol) {
       const latestR = await runHyperdriveQuery(
         env,
-        `SELECT MAX(${pgQuoteIdent(timeCol)}) AS latest FROM public.${ident} ${whereSql}`,
+        `SELECT MAX(${pgQuoteIdent(timeCol)}) AS latest FROM agentsam.${ident} ${whereSql}`,
         params,
       );
       if (latestR.ok) latest = latestR.rows?.[0]?.latest ?? null;

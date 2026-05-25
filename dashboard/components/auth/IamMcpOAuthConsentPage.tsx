@@ -4,7 +4,7 @@
  * Route: /oauth/mcp/consent?authorization_id=oaa_*
  *
  * D1 facts (verified live):
- *   client_id        = iam_mcp_inneranimalmedia
+ *   client_id        = MCP canonical OAuth client (from API / D1)
  *   display_name     = "Inner Animal Media MCP Server"
  *   redirect_uri     = https://mcp.inneranimalmedia.com/auth/callback
  *   scopes           = iam:profile, iam:workspaces, iam:agent, mcp:tools, mcp:userinfo
@@ -22,10 +22,6 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
-import {
-  McpToolPreferenceControl,
-  type McpToolPreference,
-} from "../mcp/McpToolPreferenceControl";
 
 /** Footer company signature — do not use for app/MCP identity. */
 const IAM_FOOTER_LOGO_URL =
@@ -44,7 +40,7 @@ function cn(...classes: Array<string | false | null | undefined>) {
 // ---------------------------------------------------------------------------
 
 interface OAuthClient {
-  client_id: string;           // iam_mcp_inneranimalmedia
+  client_id: string;
   display_name: string;        // Inner Animal Media MCP Server
   logo_url: string | null;     // null in live D1
   homepage_url: string | null; // https://mcp.inneranimalmedia.com
@@ -180,7 +176,7 @@ const SCOPE_META: Record<string, Omit<ScopeInfo, "scope">> = {
   },
   "mcp:tools": {
     label: "Approved MCP tools",
-    description: "Call only the MCP tools listed below for your account (scope: mcp:tools).",
+    description: "Allow your MCP client to call approved Inner Animal Media MCP tools.",
     sensitive: true,
   },
   "mcp:userinfo": {
@@ -348,10 +344,6 @@ async function submitConsent(
   workspaceId: string,
   action: "approve" | "deny",
   consentCsrf: string,
-  opts?: {
-    tool_preferences?: Record<string, McpToolPreference>;
-    review_tools_expanded?: boolean;
-  }
 ): Promise<{ redirect_url?: string }> {
   const res = await fetch("/api/oauth/mcp/consent", {
     method: "POST",
@@ -362,8 +354,6 @@ async function submitConsent(
       workspace_id: workspaceId,
       action,
       consent_csrf: consentCsrf,
-      tool_preferences: opts?.tool_preferences,
-      review_tools_expanded: Boolean(opts?.review_tools_expanded),
     }),
   });
   if (res.redirected) {
@@ -390,71 +380,6 @@ function ScopePill({ scope }: { scope: ScopeInfo }) {
         <span className="scope-desc">{scope.description}</span>
       </div>
     </li>
-  );
-}
-
-function ReviewToolPermissionsSection({
-  groups,
-  summary,
-  preferences,
-  onPreferenceChange,
-  reviewExpanded,
-  onReviewExpandedChange,
-}: {
-  groups: ConsentToolGroup[];
-  summary: ConsentToolSummary;
-  preferences: Record<string, McpToolPreference>;
-  onPreferenceChange: (groupKey: string, value: McpToolPreference) => void;
-  reviewExpanded: boolean;
-  onReviewExpandedChange: (open: boolean) => void;
-}) {
-  if (!groups.length) return null;
-
-  return (
-    <section className="review-tools-section">
-      <button
-        type="button"
-        className="review-tools-toggle"
-        aria-expanded={reviewExpanded}
-        onClick={() => onReviewExpandedChange(!reviewExpanded)}
-      >
-        <span className="review-tools-toggle-label">Review tool permissions</span>
-        <span className="review-tools-toggle-hint">
-          {reviewExpanded ? "Hide" : "Optional"} · {summary.total} tools
-        </span>
-      </button>
-      {!reviewExpanded ? (
-        <p className="review-tools-collapsed-note">
-          Authorize uses safe defaults: read-only tool groups allowed; write groups blocked unless
-          you expand and change them.
-        </p>
-      ) : (
-        <div className="review-tools-panel">
-          <p className="tools-summary">
-            Choose access per group. Write tools need <code>iam:agent</code> scope on the client.
-          </p>
-          <ul className="review-group-list">
-            {groups.map((g) => (
-              <li key={g.group_key} className="review-group-row">
-                <div className="review-group-meta">
-                  <span className="review-group-name">{g.label}</span>
-                  <span className="review-group-counts">
-                    {g.tools.length} tool{g.tools.length === 1 ? "" : "s"}
-                    {g.read_count > 0 ? ` · ${g.read_count} read` : ""}
-                    {g.write_count > 0 ? ` · ${g.write_count} write` : ""}
-                  </span>
-                </div>
-                <McpToolPreferenceControl
-                  compact
-                  value={preferences[g.group_key] || "deny"}
-                  onChange={(v) => onPreferenceChange(g.group_key, v)}
-                />
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </section>
   );
 }
 
@@ -543,8 +468,6 @@ export default function IamMcpOAuthConsentPage({
 }: IamMcpOAuthConsentPageProps) {
   const [state, setState] = useState<ConsentState>({ phase: "loading" });
   const [selectedWorkspace, setSelectedWorkspace] = useState<string>("");
-  const [reviewToolsExpanded, setReviewToolsExpanded] = useState(false);
-  const [groupPreferences, setGroupPreferences] = useState<Record<string, McpToolPreference>>({});
 
   // ── Load consent data ────────────────────────────────────────────────────
   useEffect(() => {
@@ -573,12 +496,6 @@ export default function IamMcpOAuthConsentPage({
           return;
         }
         setSelectedWorkspace(defaultWs);
-        const tools = data.allowed_tools ?? [];
-        const groups = data.tool_groups?.length ? data.tool_groups : clientGroupTools(tools);
-        const safe = (data.safe_default_preferences ||
-          buildClientSafeDefaults(groups, data.scopes)) as Record<string, McpToolPreference>;
-        setGroupPreferences(safe);
-        setReviewToolsExpanded(false);
         setState({ phase: "ready", data });
       })
       .catch((err: Error) => {
@@ -595,7 +512,7 @@ export default function IamMcpOAuthConsentPage({
     const prevBodyColor = body.style.color;
     html.style.background = "#0b1220";
     body.style.background = "#0b1220";
-    body.style.color = "#f1f5f9";
+    body.style.color = "#24292f";
     return () => {
       html.style.background = prevHtmlBg;
       body.style.background = prevBodyBg;
@@ -621,10 +538,6 @@ export default function IamMcpOAuthConsentPage({
         selectedWorkspace,
         "approve",
         frozen.consent_csrf || "",
-        {
-          tool_preferences: reviewToolsExpanded ? groupPreferences : undefined,
-          review_tools_expanded: reviewToolsExpanded,
-        }
       );
       if (result.redirect_url) {
         window.location.href = result.redirect_url;
@@ -634,7 +547,7 @@ export default function IamMcpOAuthConsentPage({
     } catch (err: any) {
       setState({ phase: "error", message: err.message });
     }
-  }, [authorizationId, selectedWorkspace, state, reviewToolsExpanded, groupPreferences]);
+  }, [authorizationId, selectedWorkspace, state]);
 
   const handleDeny = useCallback(async () => {
     if (!authorizationId || state.phase !== "ready") return;
@@ -698,24 +611,16 @@ export default function IamMcpOAuthConsentPage({
               const data = state.data;
 
               const isSubmitting = state.phase === "submitting";
-              const { copy, app: connectingApp } = resolveClientContext(data);
+              const { copy } = resolveClientContext(data);
               const tools = data.allowed_tools ?? [];
-              const toolGroups = data.tool_groups?.length
-                ? data.tool_groups
-                : clientGroupTools(tools);
-              const summary = data.tool_summary ?? { total: tools.length, read: 0, write: 0 };
               const displayScopes = scopesForDisplay(
                 data.scopes,
                 copy.displayName,
                 tools.length > 0,
               );
               const signedIn = data.signed_in_email || "";
-              const requireAllowlist = Number(data.require_allowlist_for_mcp || 0) === 1;
               return (
-                <div
-                  className="consent-main"
-                  style={{ ["--app-accent" as string]: connectingApp.accent }}
-                >
+                <div className="consent-main">
                   <div className="client-block">
                     <div className="client-logo client-logo--brand">
                       <img
@@ -761,19 +666,6 @@ export default function IamMcpOAuthConsentPage({
                       ))}
                     </ul>
                   </section>
-
-                  {(data.scopes.some((s) => s.scope === "mcp:tools") || toolGroups.length > 0) && (
-                    <ReviewToolPermissionsSection
-                      groups={toolGroups}
-                      summary={summary}
-                      preferences={groupPreferences}
-                      onPreferenceChange={(groupKey, value) =>
-                        setGroupPreferences((prev) => ({ ...prev, [groupKey]: value }))
-                      }
-                      reviewExpanded={reviewToolsExpanded}
-                      onReviewExpandedChange={setReviewToolsExpanded}
-                    />
-                  )}
 
                   <div className="consent-trust-note" role="note">
                     Write actions, terminal commands, deployments, and database changes
@@ -834,41 +726,40 @@ export function IamMcpOAuthConsentPageStateful(props: IamMcpOAuthConsentPageProp
 }
 
 // ---------------------------------------------------------------------------
-// Styles — official IAM MCP OAuth consent (dark tile #0b1220)
+// Styles — light industry-standard consent card on dark page chrome
 // ---------------------------------------------------------------------------
 
 const STYLES = `
   .consent-root {
     --c-bg: #0b1220;
-    --c-surface: #0f172a;
-    --c-border: #1e293b;
-    --c-border-subtle: #334155;
-    --c-text: #f1f5f9;
-    --c-muted: #94a3b8;
-    --c-accent: #38bdf8;
-    --c-accent-hover: #7dd3fc;
-    --c-approve-bg: #22c55e;
-    --c-approve-hover: #16a34a;
-    --c-approve-text: #052e16;
-    --c-dot: #38bdf8;
-    --c-dot-sensitive: #fb923c;
-    --c-success: #4ade80;
-    --c-error: #f87171;
-    --r-card: 16px;
-    --r-btn: 10px;
-    --shadow-card: 0 28px 100px rgba(0,0,0,0.55);
+    --c-surface: #ffffff;
+    --c-border: #d0d7de;
+    --c-border-subtle: #d8dee4;
+    --c-text: #1f2328;
+    --c-muted: #656d76;
+    --c-accent: #0969da;
+    --c-approve-bg: #2da44e;
+    --c-approve-hover: #2c974b;
+    --c-approve-text: #ffffff;
+    --c-dot: #0969da;
+    --c-dot-sensitive: #bf8700;
+    --c-success: #1a7f37;
+    --c-error: #cf222e;
+    --r-card: 12px;
+    --r-btn: 8px;
+    --shadow-card: 0 16px 48px rgba(0, 0, 0, 0.35);
     --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
 
     position: fixed;
     inset: 0;
     z-index: 10000;
     overflow-y: auto;
-    color-scheme: dark;
+    color-scheme: light;
     min-height: 100dvh;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: radial-gradient(900px 500px at 80% -20%, rgba(56,189,248,0.18), transparent 50%), var(--c-bg) !important;
+    background: var(--c-bg) !important;
     padding: 32px 16px;
     font-family: var(--font-sans);
     color: var(--c-text);
@@ -897,7 +788,7 @@ const STYLES = `
   .consent-header {
     padding: 16px 24px;
     border-bottom: 1px solid var(--c-border);
-    background: #0b1220;
+    background: #ffffff;
   }
 
   .iam-brand {
@@ -917,12 +808,11 @@ const STYLES = `
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 40px;
-    height: 40px;
-    border-radius: 12px;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
     border: 1px solid var(--c-border);
-    background: #0b1220;
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+    background: #f6f8fa;
     flex-shrink: 0;
   }
 
@@ -936,10 +826,10 @@ const STYLES = `
   }
 
   .iam-name {
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
     color: var(--c-muted);
-    letter-spacing: 0.02em;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
   }
 
@@ -1077,8 +967,8 @@ const STYLES = `
   .client-logo {
     width: 48px;
     height: 48px;
-    border-radius: 12px;
-    background: #0b1220;
+    border-radius: 10px;
+    background: #f6f8fa;
     border: 1px solid var(--c-border);
     display: flex;
     align-items: center;
@@ -1088,9 +978,8 @@ const STYLES = `
   }
 
   .client-logo--brand {
-    background: #0b1220;
+    background: #f6f8fa;
     border-color: var(--c-border);
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
   }
 
   .client-logo-img {
@@ -1156,13 +1045,13 @@ const STYLES = `
   }
 
   .consent-trust-note {
-    font-size: 12px;
+    font-size: 13px;
     line-height: 1.45;
     color: var(--c-muted);
-    padding: 10px 12px;
-    border-radius: 10px;
+    padding: 12px 14px;
+    border-radius: 8px;
     border: 1px solid var(--c-border);
-    background: rgba(2, 6, 23, 0.6);
+    background: #f6f8fa;
   }
 
   .review-tools-section {
@@ -1440,13 +1329,14 @@ const STYLES = `
   }
 
   .btn--approve {
-    background: linear-gradient(135deg, var(--c-approve-bg), #16a34a);
-    color: #ecfdf5;
-    border-color: rgba(34, 197, 94, 0.35);
+    background: var(--c-approve-bg);
+    color: var(--c-approve-text);
+    border-color: var(--c-approve-bg);
   }
 
   .btn--approve:hover:not(:disabled) {
     background: var(--c-approve-hover);
+    border-color: var(--c-approve-hover);
   }
 
   .btn--cancel-link {
@@ -1488,7 +1378,7 @@ const STYLES = `
     padding: 16px 24px 20px;
     border-top: 1px solid var(--c-border-subtle);
     text-align: center;
-    background: #0b1220;
+    background: #ffffff;
     display: flex;
     flex-direction: column;
     align-items: center;

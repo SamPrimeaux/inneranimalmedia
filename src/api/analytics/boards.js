@@ -245,7 +245,7 @@ export async function handleAnalyticsModelsRoutingDecisions(request, url, env, {
   const r = await supabaseQuery(
     env,
     `SELECT *
-     FROM public.agentsam_routing_decisions
+     FROM agentsam.agentsam_routing_decisions
      WHERE ($1::text IS NULL OR tenant_id = $1)
        AND created_at >= now() - ${pgInterval(range)}
      ORDER BY created_at DESC
@@ -278,7 +278,7 @@ export async function handleAnalyticsModelsEvals(request, url, env, { tenantId }
   const r = await supabaseQuery(
     env,
     `SELECT *
-     FROM public.agentsam_eval_runs
+     FROM agentsam.agentsam_eval_runs
      WHERE ($1::text IS NULL OR tenant_id = $1)
        AND created_at >= now() - ${pgInterval(range)}
      ORDER BY created_at DESC

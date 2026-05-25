@@ -155,6 +155,8 @@ export async function mirrorAgentsamD1PlanToSupabasePublic(env, planId) {
     Authorization: `Bearer ${key}`,
     'Content-Type': 'application/json',
     Prefer: 'resolution=merge-duplicates,return=minimal',
+    'Accept-Profile': 'agentsam',
+    'Content-Profile': 'agentsam',
   };
 
   const postUpsert = async (table, rows, onConflict = 'id') => {

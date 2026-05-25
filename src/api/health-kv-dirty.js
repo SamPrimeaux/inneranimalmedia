@@ -8,8 +8,6 @@ import {
   readOverviewBundleDirtyFlag,
 } from '../core/overview-bundle-kv.js';
 
-const DEFAULT_TENANT_ID = 'tenant_sam_primeaux';
-
 /**
  * @param {Request} request
  * @param {any} env
@@ -27,7 +25,10 @@ export async function handleHealthKvDirty(request, env) {
   const tenantId =
     url.searchParams.get('tenant_id')?.trim() ||
     url.searchParams.get('tenantId')?.trim() ||
-    DEFAULT_TENANT_ID;
+    String(env.TENANT_ID || '').trim();
+  if (!tenantId) {
+    return jsonResponse({ error: 'tenant_required', detail: 'pass ?tenant_id= or set TENANT_ID var' }, 400);
+  }
 
   /** @type {Record<string, { set: boolean, age_seconds?: number }>} */
   const dirty_flags = {};

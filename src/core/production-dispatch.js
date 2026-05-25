@@ -60,6 +60,7 @@ import { handleMoviemodeApi } from '../api/moviemode-api.js';
  * @property {object} env
  * @property {ExecutionContext} ctx
  * @property {unknown} authUser
+ * @property {import('./auth.js').AuthContext | null} [authCtx]
  * @property {unknown} identity
  * @property {string} methodUpper
  * @property {string} pathLower Normalized path (lower case)
@@ -78,10 +79,13 @@ export async function dispatchProductionDomainRoutes(rc) {
     env,
     ctx,
     authUser,
+    authCtx = null,
     identity,
     methodUpper,
     pathLower,
   } = rc;
+
+  const routeAuth = { authCtx, authUser };
 
   if (pathLower.startsWith('/api/agentsam/browser/trust')) {
     return handleBrowserTrust(request, env);
@@ -183,14 +187,14 @@ export async function dispatchProductionDomainRoutes(rc) {
     const postAgentFirst = pathLower.startsWith('/api/agent') && methodUpper === 'POST';
     let postAgentRes = null;
     if (postAgentFirst) {
-      postAgentRes = await handleAgentRequest(request, env, ctx, authUser);
+      postAgentRes = await handleAgentRequest(request, env, ctx, routeAuth);
       if (postAgentRes.status !== 404) return postAgentRes;
     }
     const dashRes = await handleDashboardApi(request, url, env, ctx);
     if (dashRes.status !== 404) return dashRes;
     if (pathLower.startsWith('/api/agent')) {
       if (postAgentFirst && postAgentRes) return postAgentRes;
-      const agentRes = await handleAgentRequest(request, env, ctx, authUser);
+      const agentRes = await handleAgentRequest(request, env, ctx, routeAuth);
       if (agentRes.status !== 404) return agentRes;
     }
   }

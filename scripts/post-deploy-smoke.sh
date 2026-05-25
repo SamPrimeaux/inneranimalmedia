@@ -17,6 +17,9 @@ set +a
 
 fail() { echo "[smoke] FAIL: $*"; return 1; }
 
+echo "[smoke] guard:identity (OAuth/auth tier)"
+npm run guard:identity --silent || fail "hardcoded identity in OAuth/auth paths — see .cursor/rules/no-hardcoded-identity-auth-protocol.mdc"
+
 echo "[smoke] GET $BASE_URL/api/health"
 code="$(curl -sS -o /tmp/iam-smoke-health.txt -w '%{http_code}' "$BASE_URL/api/health" || true)"
 [[ "$code" == "200" ]] || fail "health HTTP $code"

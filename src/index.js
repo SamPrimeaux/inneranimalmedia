@@ -6,7 +6,9 @@
 import { dispatchProductionDomainRoutes } from './core/router.js';
 import { recordWorkerAnalyticsError, writeTelemetry } from './api/telemetry';
 import {
-  getAuthUser,
+  primeRequestAuth,
+  peekRequestAuth,
+  authContextToLegacyUser,
   jsonResponse,
   getSession,
   isIngestSecretAuthorized,
@@ -117,6 +119,7 @@ export default {
           { status: 404, headers: { 'Content-Type': 'text/html;charset=UTF-8' } },
         );
       }
+      await primeRequestAuth(request, env);
       const identity = await resolveIdentity(env, request);
       // Canonical auth URLs first — before health, assets, dashboard shell, or legacy fallthrough.
       // Preserve query string (e.g. next=). No-store so stale HTML is not cached at /login.
@@ -507,8 +510,9 @@ export default {
         }
       }
 
-      // 2. Global Request Context
-      const authUser = await getAuthUser(request, env);
+      // 2. Global Request Context (auth primed at front door — no re-query)
+      const authCtx = peekRequestAuth(request);
+      const authUser = authCtx ? authContextToLegacyUser(authCtx) : null;
 
       if (pathLower === '/api/mcp/token/create' && methodUpper === 'POST') {
         if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
@@ -823,6 +827,7 @@ export default {
         env,
         ctx,
         authUser,
+        authCtx: authCtx ?? null,
         identity,
         methodUpper,
         pathLower,

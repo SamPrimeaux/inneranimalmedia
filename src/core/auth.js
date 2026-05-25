@@ -4,6 +4,9 @@
  * Canonical Identity: auth_users.id (au_ prefix).
  */
 import { workspaceSlugFromTenantId } from '../api/provisioning.js';
+import { loadAgentSamUserPolicy } from './agent-policy.js';
+import { validateMcpToken } from './mcp-auth.js';
+import { loadMembership, resolveFirstMembershipWorkspaceId } from './membership.js';
 import {
   resolveDefaultWorkspaceForTenant,
   userHasWorkspaceMembership,
@@ -181,9 +184,11 @@ export function authUserIsSuperadmin(authUser) {
 
 /** Session + auth user for handlers that need both. */
 export async function getSamContext(request, env) {
-  const session = await getSession(env, request).catch(() => null);
-  const authUser = await getAuthUser(request, env);
-  return { session, authUser };
+  const authCtx = await getRequestAuth(request, env, { required: false });
+  const session =
+    authCtx?.sessionRaw ?? (await getSession(env, request).catch(() => null));
+  const authUser = authCtx ? authContextToLegacyUser(authCtx) : null;
+  return { session, authUser, authCtx };
 }
 
 /**
@@ -499,19 +504,7 @@ export async function resolveWorkspaceIdAtLogin(env, userRow, opts = {}) {
   }
 
   if (!candidate && userId && env?.DB) {
-    try {
-      const row = await env.DB.prepare(
-        `SELECT workspace_id FROM workspace_members
-         WHERE user_id = ? AND COALESCE(is_active, 1) = 1
-         ORDER BY created_at ASC
-         LIMIT 1`,
-      )
-        .bind(userId)
-        .first();
-      candidate = trimSessionField(row?.workspace_id);
-    } catch {
-      /* ignore */
-    }
+    candidate = await resolveFirstMembershipWorkspaceId(env, userId);
   }
 
   if (!candidate && tenantId) {
@@ -672,56 +665,279 @@ export async function writeIamSessionToKv(env, sessionId, userId, tenantId, expi
   } catch (e) { }
 }
 
-export async function getAuthUser(request, env) {
-  const session = await getSession(env, request);
-  if (!session) return null;
+/** Per-request auth resolution cache (primed once at Worker front door). */
+const requestAuthCache = new WeakMap();
 
-  const authId = session.user_id; // au_ prefix
-  
-  if (env.DB && authId) {
-    try {
-      const row = await env.DB.prepare(
-        `SELECT * FROM auth_users WHERE id = ? LIMIT 1`
-      ).bind(authId).first();
+/**
+ * Resolve auth once per request and cache on the Request object.
+ * Safe to call multiple times; later calls are no-ops.
+ * @param {Request} request
+ * @param {any} env
+ */
+export async function primeRequestAuth(request, env) {
+  if (!request || requestAuthCache.has(request)) return;
+  try {
+    const ctx = await resolveAuth(request, env, { required: false });
+    requestAuthCache.set(request, ctx ?? null);
+  } catch {
+    requestAuthCache.set(request, null);
+  }
+}
 
-      if (row) {
-        const sessionWorkspaceId =
-          trimSessionField(session.workspace_id) || trimSessionField(session.workspaceId) || null;
-        const sessionTenantId =
-          trimSessionField(session.tenant_id) || trimSessionField(session.tenantId) || null;
-        return {
-          id:            row.id,          // au_ prefix — canonical
-          auth_id:       row.id,          // legacy compat
-          user_id:       row.id,          // alias for tool / MCP scope resolution
-          person_uuid:   row.person_uuid,
-          email:         row.email,
-          name:          row.name,
-          display_name:  row.display_name ?? row.name ?? null,
-          avatar_url:    row.avatar_url ?? null,
-          tenant_id:     row.tenant_id,
-          active_tenant_id: sessionTenantId || row.active_tenant_id || null,
-          active_workspace_id: sessionWorkspaceId || row.active_workspace_id || null,
-          supabase_user_id: row.supabase_user_id ?? null,
-          is_superadmin: row.is_superadmin ? 1 : 0,
-          session_id:    session.session_id,
-          expires_at:    session.expires_at ? (typeof session.expires_at === 'number' ? session.expires_at : new Date(session.expires_at).getTime()) : null,
-        };
-      }
-    } catch (e) {
-      console.warn('[getAuthUser Error]', e.message);
+/**
+ * @param {Request} request
+ * @returns {AuthContext | null | undefined} undefined if not primed
+ */
+export function peekRequestAuth(request) {
+  if (!request || !requestAuthCache.has(request)) return undefined;
+  return requestAuthCache.get(request) ?? null;
+}
+
+/**
+ * Cached AuthContext for this request (primes on first access if needed).
+ * @param {Request} request
+ * @param {any} env
+ * @param {{ required?: boolean, workspaceIdOverride?: string | null }} [opts]
+ * @returns {Promise<AuthContext | null>}
+ */
+export async function getRequestAuth(request, env, opts = {}) {
+  if (request && requestAuthCache.has(request)) {
+    const cached = requestAuthCache.get(request);
+    if (cached) return cached;
+    if (!opts.required) return null;
+    throw new AuthError('Unauthorized', { status: 401, code: 'SESSION_MISSING' });
+  }
+  const ctx = await resolveAuth(request, env, opts);
+  if (request) requestAuthCache.set(request, ctx ?? null);
+  return ctx;
+}
+
+/**
+ * Legacy user object from front-door AuthContext (no extra identity queries).
+ * @param {Request} request
+ * @param {any} env
+ * @param {AuthContext | null | undefined} [authCtx]
+ * @param {object | null} [routeAuthUser]
+ */
+export async function authUserFromRequest(request, env, authCtx = undefined, routeAuthUser = null) {
+  if (routeAuthUser) return routeAuthUser;
+  if (authCtx !== undefined) {
+    return authCtx ? authContextToLegacyUser(authCtx) : null;
+  }
+  const peeked = peekRequestAuth(request);
+  if (peeked !== undefined) {
+    return peeked ? authContextToLegacyUser(peeked) : null;
+  }
+  const ctx = await getRequestAuth(request, env, { required: false });
+  return ctx ? authContextToLegacyUser(ctx) : null;
+}
+
+/** Unified auth failure for handlers that require identity. */
+export class AuthError extends Error {
+  /**
+   * @param {string} message
+   * @param {{ status?: number, code?: string }} [opts]
+   */
+  constructor(message, opts = {}) {
+    super(message);
+    this.name = 'AuthError';
+    this.status = opts.status ?? 401;
+    this.code = opts.code ?? 'UNAUTHORIZED';
+  }
+}
+
+/**
+ * @typedef {{
+ *   userId: string,
+ *   email: string | null,
+ *   name: string | null,
+ *   displayName: string | null,
+ *   personUuid: string | null,
+ *   tenantId: string | null,
+ *   workspaceId: string | null,
+ *   sessionId: string | null,
+ *   isSuperadmin: boolean,
+ *   authType: 'session' | 'mcp',
+ *   membership: { role: string, can_run_pty: number, can_run_mcp: number, can_deploy: number, org_id: string | null } | null,
+ *   policy: Record<string, unknown>,
+ *   capabilities: { canRunPty: boolean, canRunMcp: boolean, canDeploy: boolean },
+ *   sessionRaw?: object | null,
+ * }} AuthContext
+ */
+
+function extractBearerToken(request) {
+  const auth = request?.headers?.get?.('Authorization');
+  if (!auth || !String(auth).toLowerCase().startsWith('bearer ')) return null;
+  const t = String(auth).slice(7).trim();
+  return t || null;
+}
+
+/**
+ * Map AuthContext → legacy getAuthUser shape (compat for existing handlers).
+ * @param {AuthContext} ctx
+ */
+export function authContextToLegacyUser(ctx) {
+  return {
+    id: ctx.userId,
+    auth_id: ctx.userId,
+    user_id: ctx.userId,
+    person_uuid: ctx.personUuid,
+    email: ctx.email,
+    name: ctx.name,
+    display_name: ctx.displayName,
+    avatar_url: null,
+    tenant_id: ctx.tenantId,
+    active_tenant_id: ctx.tenantId,
+    active_workspace_id: ctx.workspaceId,
+    supabase_user_id: null,
+    is_superadmin: ctx.isSuperadmin ? 1 : 0,
+    session_id: ctx.sessionId,
+    expires_at: null,
+    capabilities: ctx.capabilities,
+    membership_role: ctx.membership?.role ?? null,
+  };
+}
+
+/**
+ * Single auth gate: session or MCP bearer → auth_users → memberships → agentsam_user_policy.
+ * @param {Request} request
+ * @param {any} env
+ * @param {{ required?: boolean, workspaceIdOverride?: string | null }} [opts]
+ * @returns {Promise<AuthContext | null>}
+ */
+export async function resolveAuth(request, env, opts = {}) {
+  if (request && requestAuthCache.has(request) && !opts.workspaceIdOverride) {
+    const cached = requestAuthCache.get(request);
+    if (cached) return cached;
+    if (!opts.required) return null;
+    throw new AuthError('Unauthorized', { status: 401, code: 'SESSION_MISSING' });
+  }
+
+  const required = opts.required !== false;
+  const bearer = extractBearerToken(request);
+  let authType = 'session';
+  let userId = '';
+  let tenantId = null;
+  let workspaceId = null;
+  let sessionId = null;
+  let sessionRaw = null;
+
+  if (bearer) {
+    const mcp = await validateMcpToken(env, bearer);
+    const mcpUserId = mcp?.userId != null ? trimSessionField(mcp.userId) : '';
+    if (mcpUserId) {
+      authType = 'mcp';
+      userId = mcpUserId;
+      tenantId = trimSessionField(mcp.tenantId) || null;
+      workspaceId = trimSessionField(mcp.workspaceId) || null;
     }
   }
 
-  return {
-    id: authId,
-    auth_id: authId,
-    user_id: authId,
-    email: session.email || session._session_user_id || null,
-    tenant_id: session.tenant_id || null,
-    is_superadmin: 0,
-    session_id: session.session_id,
-    expires_at: session.expires_at ? (typeof session.expires_at === 'number' ? session.expires_at : new Date(session.expires_at).getTime()) : null,
+  if (!userId) {
+    sessionRaw = await getSession(env, request);
+    if (!sessionRaw) {
+      if (required) throw new AuthError('Unauthorized', { status: 401, code: 'SESSION_MISSING' });
+      return null;
+    }
+    userId = trimSessionField(sessionRaw.user_id);
+    sessionId = trimSessionField(sessionRaw.session_id) || null;
+    if (!tenantId) tenantId = trimSessionField(sessionRaw.tenant_id) || null;
+    if (!workspaceId) {
+      workspaceId =
+        trimSessionField(sessionRaw.workspace_id) || trimSessionField(sessionRaw.workspaceId) || null;
+    }
+  }
+
+  if (!userId) {
+    if (required) throw new AuthError('Unauthorized', { status: 401, code: 'USER_MISSING' });
+    return null;
+  }
+
+  let row = null;
+  if (env?.DB) {
+    try {
+      row = await env.DB.prepare(`SELECT * FROM auth_users WHERE id = ? LIMIT 1`).bind(userId).first();
+    } catch (e) {
+      console.warn('[resolveAuth]', e?.message || e);
+    }
+  }
+
+  if (!row?.id) {
+    if (required) throw new AuthError('Unauthorized', { status: 401, code: 'USER_NOT_FOUND' });
+    return null;
+  }
+
+  const isSuperadmin = Number(row.is_superadmin) === 1;
+  if (!tenantId) {
+    tenantId =
+      trimSessionField(row.active_tenant_id) || trimSessionField(row.tenant_id) || null;
+  }
+
+  const headerWs = trimSessionField(request?.headers?.get?.('x-iam-workspace-id'));
+  const overrideWs = trimSessionField(opts.workspaceIdOverride);
+  if (overrideWs) {
+    if (isSuperadmin || (await userHasWorkspaceMembership(env, userId, overrideWs))) {
+      workspaceId = overrideWs;
+    }
+  } else if (headerWs) {
+    if (isSuperadmin || (await userHasWorkspaceMembership(env, userId, headerWs))) {
+      workspaceId = headerWs;
+    }
+  }
+
+  if (!workspaceId) {
+    workspaceId =
+      trimSessionField(row.active_workspace_id) ||
+      (tenantId ? await resolveDefaultWorkspaceForTenant(env, tenantId) : null) ||
+      (await resolveFirstMembershipWorkspaceId(env, userId));
+  }
+
+  if (!workspaceId && tenantId) {
+    workspaceId = workspaceSlugFromTenantId(tenantId);
+  }
+
+  const membership = workspaceId ? await loadMembership(env, userId, workspaceId) : null;
+  const policy = await loadAgentSamUserPolicy(env, userId, workspaceId || '');
+
+  const policyPty = Number(policy?.can_run_pty) === 1;
+  const memPty = Number(membership?.can_run_pty) === 1;
+  const capabilities = {
+    canRunPty: isSuperadmin || policyPty || memPty,
+    canRunMcp: isSuperadmin || Number(membership?.can_run_mcp) === 1,
+    canDeploy: isSuperadmin || Number(membership?.can_deploy) === 1,
   };
+
+  const out = {
+    userId: String(row.id),
+    email: row.email != null ? String(row.email) : null,
+    name: row.name != null ? String(row.name) : null,
+    displayName: row.display_name ?? row.name ?? null,
+    personUuid: row.person_uuid != null ? String(row.person_uuid) : null,
+    tenantId,
+    workspaceId: workspaceId || null,
+    sessionId,
+    isSuperadmin,
+    authType,
+    membership,
+    policy,
+    capabilities,
+    sessionRaw,
+  };
+  if (request && !opts.workspaceIdOverride) {
+    requestAuthCache.set(request, out);
+  }
+  return out;
+}
+
+/** @deprecated Prefer getRequestAuth / authUserFromRequest; uses per-request cache when primed. */
+export async function getAuthUser(request, env) {
+  try {
+    return await authUserFromRequest(request, env);
+  } catch (e) {
+    if (e instanceof AuthError) return null;
+    console.warn('[getAuthUser]', e?.message || e);
+    return null;
+  }
 }
 
 /**

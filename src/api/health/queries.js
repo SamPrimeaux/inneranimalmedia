@@ -32,10 +32,10 @@ const LIMIT = 80;
 export async function fetchAgentHealthSupabase(env) {
   const baseSel = `select=*&order=created_at.desc.nullslast&limit=${LIMIT}`;
   const [stream, routing, toolCalls, errors] = await Promise.all([
-    supabaseGetJson(env, `/rest/v1/agentsam_stream_events?${baseSel}`, 'public'),
-    supabaseGetJson(env, `/rest/v1/agentsam_routing_decisions?${baseSel}`, 'public'),
-    supabaseGetJson(env, `/rest/v1/agentsam_tool_call_events?${baseSel}`, 'public'),
-    supabaseGetJson(env, `/rest/v1/agentsam_error_events?${baseSel}`, 'public'),
+    supabaseGetJson(env, `/rest/v1/agentsam_stream_events?${baseSel}`, 'agentsam'),
+    supabaseGetJson(env, `/rest/v1/agentsam_routing_decisions?${baseSel}`, 'agentsam'),
+    supabaseGetJson(env, `/rest/v1/agentsam_tool_call_events?${baseSel}`, 'agentsam'),
+    supabaseGetJson(env, `/rest/v1/agentsam_error_events?${baseSel}`, 'agentsam'),
   ]);
 
   const stream_events = Array.isArray(stream.data) ? stream.data : [];
@@ -237,9 +237,9 @@ export async function fetchMcpHealthRows(env) {
 export async function fetchModelsHealth(env) {
   const lim = `limit=${LIMIT}`;
   const [snapshots, routing, streams] = await Promise.all([
-    supabaseGetJson(env, `/rest/v1/agentsam_model_cost_snapshots?select=*&order=captured_at.desc.nullslast&${lim}`, 'public'),
-    supabaseGetJson(env, `/rest/v1/agentsam_routing_decisions?select=*&order=created_at.desc.nullslast&${lim}`, 'public'),
-    supabaseGetJson(env, `/rest/v1/agentsam_stream_events?select=*&order=created_at.desc.nullslast&${lim}`, 'public'),
+    supabaseGetJson(env, `/rest/v1/agentsam_model_cost_snapshots?select=*&order=captured_at.desc.nullslast&${lim}`, 'agentsam'),
+    supabaseGetJson(env, `/rest/v1/agentsam_routing_decisions?select=*&order=created_at.desc.nullslast&${lim}`, 'agentsam'),
+    supabaseGetJson(env, `/rest/v1/agentsam_stream_events?select=*&order=created_at.desc.nullslast&${lim}`, 'agentsam'),
   ]);
 
   const sn = Array.isArray(snapshots.data) ? snapshots.data : [];

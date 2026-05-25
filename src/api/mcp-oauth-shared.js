@@ -433,13 +433,16 @@ export async function buildMcpOAuthTokenEntitlements(env, clientId, grantedScope
 }
 
 /** Map tool_key → access_class JSON for mcp_workspace_tokens.allowed_domains_json reuse. */
-export function oauthToolAccessDomainsPayload(entitlements, policyMeta = {}) {
-  return JSON.stringify({
+export function oauthToolAccessDomainsPayload(entitlements, policyMeta = {}, externalClientKey = null) {
+  const payload = {
     oauth_client_id: entitlements.oauthClientId,
     oauth_tool_access: entitlements.oauthToolAccess,
     require_allowlist_for_mcp: Number(policyMeta.require_allowlist_for_mcp || 0) === 1 ? 1 : 0,
     tool_risk_level_max: String(policyMeta.tool_risk_level_max || 'high'),
-  });
+  };
+  const ext = externalClientKey != null ? String(externalClientKey).trim() : '';
+  if (ext) payload.external_client_key = ext;
+  return JSON.stringify(payload);
 }
 
 /**

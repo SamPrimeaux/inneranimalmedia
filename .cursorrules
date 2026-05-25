@@ -1,6 +1,21 @@
 # Inner Animal Media — Cursor Rules
-# Synced to D1: agentsam_rules_document (ws_inneranimalmedia)
-# Last updated: 2026-05-23 (rule_database_tool_surfaces_d1_supabase)
+# Synced to D1: agentsam_rules_document
+# Last updated: 2026-05-25 (rule_no_hardcoded_identity_auth_protocol)
+
+## RULE: No hardcoded identity or auth protocol (LOCKED)
+**ID:** rule_no_hardcoded_identity_auth_protocol | **Priority:** ALWAYS
+
+Never hardcode `au_*`, `ws_*`, or `tenant_*` in `src/`, `dashboard/`, or MCP `src/` request paths.
+OAuth external clients (`chatgpt`, `claude`) and user allowlists are **D1-driven**; user rows are written at
+OAuth consent from session — **not** migration-seeded operator ids.
+
+- OAuth client key: import `MCP_CANONICAL_CLIENT_ID` from `mcp-oauth-shared.js` only.
+- Run `./scripts/guard-no-hardcoded-identity.sh` before ship.
+- Quality flag: `HARDCODED_IDENTITY`.
+
+Canonical rule row: `agentsam_rules_document.id = rule_no_hardcoded_identity_auth_protocol`.
+
+---
 
 ## RULE: agentsam_* D1 table names — always use full prefix
 **ID:** rule_agentsam_table_namespace | **Priority:** ALWAYS

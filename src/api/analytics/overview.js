@@ -205,7 +205,7 @@ async function loadWorkflowRunFromSupabase(env, runId) {
     env,
     `SELECT id, run_group_id, model_used, input_tokens, output_tokens, cost_usd,
             step_results_json, status, tenant_id
-     FROM public.agentsam_workflow_runs
+     FROM agentsam.agentsam_workflow_runs
      WHERE id = $1
      LIMIT 1`,
     [runId],
@@ -546,7 +546,7 @@ export async function handleAnalyticsOverview(request, url, env, { tenantId, wor
     const errTry = await supabaseQuery(
       env,
       `SELECT COUNT(*)::int AS c
-       FROM public.agentsam_error_events
+       FROM agentsam.agentsam_error_events
        WHERE ($1::text IS NULL OR tenant_id = $1)
          AND (resolved IS NOT TRUE)
          AND created_at >= now() - ${pgRangeInterval(range)}`,
@@ -559,7 +559,7 @@ export async function handleAnalyticsOverview(request, url, env, { tenantId, wor
     } else {
       const errTry2 = await supabaseQuery(
         env,
-        `SELECT COUNT(*)::int AS c FROM public.agentsam_error_events LIMIT 1`,
+        `SELECT COUNT(*)::int AS c FROM agentsam.agentsam_error_events LIMIT 1`,
         [],
       );
       if (!errTry2.ok) {
@@ -675,7 +675,7 @@ export async function handleAnalyticsOverview(request, url, env, { tenantId, wor
       `SELECT
          COUNT(*)::int AS total,
          SUM(CASE WHEN COALESCE(passed::text,'') IN ('true','t','1') THEN 1 ELSE 0 END)::int AS passed
-       FROM public.agentsam_eval_runs
+       FROM agentsam.agentsam_eval_runs
        WHERE ($1::text IS NULL OR tenant_id = $1)
          AND created_at >= now() - ${evInterval}`,
       [tid],
@@ -686,7 +686,7 @@ export async function handleAnalyticsOverview(request, url, env, { tenantId, wor
         `SELECT
            COUNT(*)::int AS total,
            SUM(CASE WHEN COALESCE(passed::text,'') IN ('true','t','1') THEN 1 ELSE 0 END)::int AS passed
-         FROM public.agentsam_eval_runs
+         FROM agentsam.agentsam_eval_runs
          WHERE ($1::text IS NULL OR tenant_id = $1)
            AND run_at::timestamptz >= now() - ${evInterval}`,
         [tid],
@@ -703,7 +703,7 @@ export async function handleAnalyticsOverview(request, url, env, { tenantId, wor
     } else {
       const ev2 = await supabaseQuery(
         env,
-        `SELECT COUNT(*)::int AS c FROM public.agentsam_eval_runs LIMIT 1`,
+        `SELECT COUNT(*)::int AS c FROM agentsam.agentsam_eval_runs LIMIT 1`,
         [],
       );
       if (!ev2.ok) {
@@ -982,7 +982,7 @@ export async function handleAnalyticsOverview(request, url, env, { tenantId, wor
     let inbox = await supabaseQuery(
       env,
       `SELECT created_at, severity, message, run_group_id, resolved
-       FROM public.agentsam_error_events
+       FROM agentsam.agentsam_error_events
        WHERE ($1::text IS NULL OR tenant_id = $1)
        ORDER BY created_at DESC NULLS LAST
        LIMIT 40`,
@@ -992,7 +992,7 @@ export async function handleAnalyticsOverview(request, url, env, { tenantId, wor
       inbox = await supabaseQuery(
         env,
         `SELECT created_at, message, run_group_id
-         FROM public.agentsam_error_events
+         FROM agentsam.agentsam_error_events
          WHERE ($1::text IS NULL OR tenant_id = $1)
          ORDER BY created_at DESC NULLS LAST
          LIMIT 40`,
@@ -1040,7 +1040,7 @@ export async function handleAnalyticsOverview(request, url, env, { tenantId, wor
     const rc = await supabaseQuery(
       env,
       `SELECT COALESCE(SUM(estimated_cost_usd), 0) AS s
-       FROM public.agentsam_routing_decisions
+       FROM agentsam.agentsam_routing_decisions
        WHERE ($1::text IS NULL OR tenant_id = $1)
          AND created_at >= now() - ${pgRangeInterval(range)}`,
       [tid],

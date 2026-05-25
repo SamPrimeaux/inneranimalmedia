@@ -33,6 +33,7 @@ import { handleSettingsWorkspaceApi } from './settings-workspace.js';
 import { encryptApiKeyForStorage } from './provisioning.js';
 import { userCanAccessWorkspace, canUsePlatformAssetsR2Upload } from '../core/cms-theme-resolve.js';
 import { generateMcpToken } from '../core/mcp-auth.js';
+import { MCP_CANONICAL_CLIENT_ID } from './mcp-oauth-shared.js';
 
 /** Deep-merge `cms_pipeline` into `workspaces.settings_json` (no new tables). */
 function mergeCmsPipelineIntoWorkspaceSettings(existingJson, patchPipeline) {
@@ -1632,7 +1633,7 @@ export async function handleSettingsRequest(request, env, ctx) {
         userId: agentsamUserId,
         workspaceId: workspaceId || '',
         tenantId: String(policyRow?.tenant_id || authUser?.tenant_id || '').trim(),
-        clientId: 'iam_mcp_inneranimalmedia',
+        clientId: MCP_CANONICAL_CLIENT_ID,
         grantedScopes: ['mcp:tools', 'iam:agent', 'iam:profile'],
       });
       mcp_tool_groups = manifest.tool_groups?.length
@@ -1936,14 +1937,14 @@ export async function handleSettingsRequest(request, env, ctx) {
         userId: agentsamUserId,
         workspaceId: workspaceId || '',
         tenantId: String(authUser?.tenant_id || '').trim(),
-        clientId: String(body.client_id || 'iam_mcp_inneranimalmedia'),
+        clientId: String(body.client_id || MCP_CANONICAL_CLIENT_ID),
         grantedScopes: ['mcp:tools', 'iam:agent', 'iam:profile'],
       });
       const result = await persistMcpAllowlistFromGroupPreferences(env, {
         userId: agentsamUserId,
         workspaceId: workspaceId || '',
         tenantId: String(authUser?.tenant_id || '').trim(),
-        clientId: String(body.client_id || 'iam_mcp_inneranimalmedia'),
+        clientId: String(body.client_id || MCP_CANONICAL_CLIENT_ID),
         catalogTools: manifest.tools || [],
         groupPreferences: prefs,
       });

@@ -122,7 +122,9 @@ export async function handleIntegrationsRequest(request, envArg, ctxArg, authUse
 
     if (!pathLower.startsWith('/api/integrations')) return null;
 
-    const authUser = providedAuthUser || await getAuthUser(request, env);
+    const authUser =
+      providedAuthUser ||
+      (await import('../core/auth.js').then((m) => m.authUserFromRequest(request, env)));
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
 
     await ensureIntegrationTables(env, resolveTenantId(authUser, env));

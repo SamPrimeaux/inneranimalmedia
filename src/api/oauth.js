@@ -883,6 +883,24 @@ async function handleMcpOAuthAuthorize(request, env, _ctx) {
   if (!tenantId) return mcpOAuthJsonError('invalid_tenant', 400);
 
   const workspaceId = await mcpOAuthResolveWorkspaceId(env, authUser, url);
+
+  let externalClientKey = null;
+  if (clientId === MCP_CANONICAL_CLIENT_ID) {
+    const { resolveExternalClientKeyFromRedirect, assertUserMayUseExternalClient } = await import(
+      '../core/mcp-oauth-external-clients.js'
+    );
+    externalClientKey = await resolveExternalClientKeyFromRedirect(env, redirectCheck.url.href, clientId);
+    const extAllow = await assertUserMayUseExternalClient(env, {
+      userId: authUser.id,
+      workspaceId,
+      externalClientKey,
+      oauthClientId: clientId,
+    });
+    if (!extAllow.ok) {
+      return mcpOAuthJsonError(extAllow.code || 'external_client_not_allowed', 403);
+    }
+  }
+
   const now = mcpOAuthNow();
   const expiresAt = now + MCP_OAUTH_AUTHZ_TTL_SECONDS;
   const authorizationId = `oaa_${crypto.randomUUID().replace(/-/g, '')}`;
@@ -890,6 +908,7 @@ async function handleMcpOAuthAuthorize(request, env, _ctx) {
   const authMetadata = JSON.stringify({
     resource: resourceCheck.resource,
     audience: resourceCheck.resource,
+    ...(externalClientKey ? { external_client_key: externalClientKey } : {}),
   });
 
   await env.DB.prepare(
@@ -922,6 +941,7 @@ async function handleMcpOAuthAuthorize(request, env, _ctx) {
       client_id: clientId,
       authorization_id: authorizationId,
       resource: resourceCheck.resource,
+      external_client_key: externalClientKey,
     },
   });
 
@@ -1065,7 +1085,25 @@ async function handleMcpOAuthToken(request, env, _ctx) {
     ? JSON.stringify(intersected.keys)
     : '[]';
   const entitlements = await buildMcpOAuthTokenEntitlements(env, row.client_id, scope, intersected.keys);
-  const domainsPayload = oauthToolAccessDomainsPayload(entitlements, intersected.policy);
+  let externalClientKey = null;
+  try {
+    const authz = await env.DB.prepare(
+      `SELECT metadata_json FROM oauth_authorizations WHERE authorization_code_hash = ? LIMIT 1`,
+    )
+      .bind(codeHash)
+      .first();
+    const meta = parseMcpOAuthAuthorizationMetadata(authz?.metadata_json);
+    externalClientKey = meta.external_client_key || null;
+  } catch (_) {}
+  if (!externalClientKey && row.redirect_uri) {
+    const { resolveExternalClientKeyFromRedirect } = await import('../core/mcp-oauth-external-clients.js');
+    externalClientKey = await resolveExternalClientKeyFromRedirect(env, row.redirect_uri, row.client_id);
+  }
+  const domainsPayload = oauthToolAccessDomainsPayload(
+    entitlements,
+    intersected.policy,
+    externalClientKey,
+  );
 
   await logAuthEvent(env, {
     request,

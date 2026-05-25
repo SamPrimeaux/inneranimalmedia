@@ -77,7 +77,8 @@ export async function loadAgentSamUserPolicy(env, userId, workspaceId = '') {
               COALESCE(max_tool_chain_depth, 15) AS max_tool_chain_depth,
               COALESCE(max_spawn_depth, 2) AS max_spawn_depth,
               max_cost_per_call_usd, max_cost_per_session_usd,
-              COALESCE(legacy_terminal_tool, 1) AS legacy_terminal_tool
+              COALESCE(legacy_terminal_tool, 1) AS legacy_terminal_tool,
+              COALESCE(can_run_pty, 0) AS can_run_pty
        FROM agentsam_user_policy WHERE user_id = ? AND workspace_id = ? LIMIT 1`;
   const legacySql = `SELECT auto_run_mode, mcp_tools_protection, file_deletion_protection, external_file_protection
        FROM agentsam_user_policy WHERE user_id = ? AND workspace_id = ? LIMIT 1`;
