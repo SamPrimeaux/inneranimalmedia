@@ -40,6 +40,7 @@ import { handleAnthropicWebhook } from './api/webhooks/anthropic.js';
 import { recordAgentsamWebhookEvent } from './core/webhook-events-writer.js';
 import { getDashboardR2Object, getDashboardSpaHtmlShell } from './core/dashboard-r2-assets.js';
 import { resolveGitHubToken } from './core/github-token.js';
+import { scheduleAgentsamErrorLog } from './core/agentsam-error-log.js';
 
 function getMimeType(key) {
   if (key.endsWith('.js'))    return 'application/javascript';
@@ -921,6 +922,49 @@ export default {
    */
   async scheduled(event, env, ctx) {
     ctx.waitUntil(handleScheduled(event, env, ctx));
+    ctx.waitUntil(
+      (async () => {
+        try {
+          const tokenSweep = await env.DB?.prepare(
+            `DELETE FROM mcp_workspace_tokens
+             WHERE expires_at IS NOT NULL AND expires_at < datetime('now')`,
+          ).run();
+          const codeSweep = await env.DB?.prepare(
+            `DELETE FROM oauth_authorization_codes
+             WHERE expires_at IS NOT NULL AND expires_at < datetime('now')`,
+          ).run();
+          console.log(
+            '[cron] oauth expiry cleanup',
+            JSON.stringify({
+              cron: event?.cron ?? null,
+              mcp_workspace_tokens_deleted: Number(tokenSweep?.meta?.changes) || 0,
+              oauth_authorization_codes_deleted: Number(codeSweep?.meta?.changes) || 0,
+            }),
+          );
+        } catch (e) {
+          scheduleAgentsamErrorLog(env, ctx, {
+            workspaceId:
+              typeof env?.WORKSPACE_ID === 'string' && env.WORKSPACE_ID.trim()
+                ? env.WORKSPACE_ID.trim()
+                : 'ws_inneranimalmedia',
+            tenantId:
+              typeof env?.TENANT_ID === 'string' && env.TENANT_ID.trim()
+                ? env.TENANT_ID.trim()
+                : 'tenant_inneranimalmedia',
+            sessionId: null,
+            errorCode: 'oauth_expiry_cleanup_failed',
+            errorType: 'scheduled_cron',
+            errorMessage: e?.message != null ? String(e.message) : String(e),
+            source: 'scheduled_oauth_cleanup',
+            sourceId: event?.cron != null ? String(event.cron) : null,
+            contextJson: JSON.stringify({
+              cron: event?.cron ?? null,
+              task: 'oauth_expiry_cleanup',
+            }),
+          });
+        }
+      })(),
+    );
   },
 
   /**
