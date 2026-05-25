@@ -39,6 +39,7 @@ import {
   insertCuratedAgentMemory,
   searchCuratedAgentMemory,
 } from './rag.js';
+import { LANES, queryLanes, writeToLane } from '../core/rag-lanes.js';
 import { loadAgentMemoryForPrompt }                     from '../core/memory.js';
 import { writeTelemetry }                               from './telemetry.js';
 import { jsonResponse }                                 from '../core/responses.js';
@@ -7200,6 +7201,23 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     : { matches: [] };
   const ragContext   = (ragResult.matches || []).join('\n\n');
   const contextBlock = ragContext ? `\n\nRelevant context:\n${ragContext}` : '';
+  let laneRagContext = '';
+  if (needsRag) {
+    try {
+      const ragResults = await queryLanes(env, {
+        workspace_id_d1: resolvedWorkspaceId ?? workspaceId,
+        query_text: message,
+        lanes: [LANES.memory.name, LANES.schema.name, LANES.code.name],
+        top_k: 3,
+      });
+      if (ragResults.length > 0) {
+        const block =
+          '\n\n## Retrieved context\n' +
+          ragResults.map((r) => `### ${r.title}\n${r.content}`).join('\n\n');
+        laneRagContext = block.length > 3000 ? block.slice(0, 3000) : block;
+      }
+    } catch (_) {}
+  }
 
   const promptBuildOptions = {
     sessionId,
@@ -7246,6 +7264,9 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         promptBuildOptions,
       );
     }
+  }
+  if (laneRagContext) {
+    systemPrompt = `${systemPrompt}${laneRagContext}`;
   }
   if (!minimalAskChat && includeMemory) {
     try {
@@ -7905,6 +7926,22 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           );
         }
         routingArmOutcomeLogged = true;
+      }
+      if (ctx?.waitUntil && resolvedWorkspaceId && String(lastAssistantStreamText || '').trim()) {
+        ctx.waitUntil(
+          writeToLane(env, LANES.memory.name, {
+            workspace_id_d1: resolvedWorkspaceId,
+            title: `Chat - ${new Date().toISOString().slice(0, 10)}`,
+            content: `User: ${String(message || '').trim()}\n\nAgent: ${String(lastAssistantStreamText).trim()}`,
+            source_type: 'agent_memory',
+            source_ref: `chat.${sessionId ?? chatAgentRunId ?? 'na'}.${Date.now()}`,
+            metadata: {
+              session_id: sessionId ?? null,
+              run_id: chatAgentRunId ?? null,
+              task_type: resolvedRoutingTaskType ?? null,
+            },
+          }).catch((err) => console.warn('[rag] memory write failed', err?.message))
+        );
       }
 
       if (succeeded && lastAssistantStreamText && inferArtifactFromAssistantText(lastAssistantStreamText)) {
