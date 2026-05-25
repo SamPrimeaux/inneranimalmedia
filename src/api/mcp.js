@@ -4,8 +4,14 @@
  */
 import { getAuthUser, jsonResponse, fetchAuthUserTenantId } from '../core/auth.js';
 import { resolveIamActorContext, resolveIdentity } from '../core/identity.js';
-import { selectAgentsamMcpToolRow, selectAgentsamMcpToolsList } from '../core/agentsam-mcp-tools.js';
-import { queryBrandedMcpCatalog, inferMcpCapabilityLane } from '../core/mcp-tools-branded.js';
+import { selectAgentsamMcpToolsList } from '../core/agentsam-mcp-tools.js';
+import { inferMcpCapabilityLane } from '../core/mcp-tools-branded.js';
+import {
+  listAgentsamToolsForContext,
+  loadAgentsamToolRow,
+  mapCatalogRowsToAgentTools,
+  toolCategoriesFromLanes,
+} from '../core/agentsam-tools-catalog.js';
 import { validateMcpToken } from '../core/mcp-auth.js';
 import { maxAgentsamWorkflowTimeoutSeconds, AGENTSAM_MCP_WORKFLOWS } from '../core/agentsam-workflows.js';
 import { AGENTSAM_WORKFLOW_RUNS_TABLE } from '../core/agentsam-supabase-sync.js';
@@ -494,12 +500,7 @@ export async function handleMcpApi(request, url, env, ctx) {
 
       let toolRow = null;
       try {
-        toolRow = await selectAgentsamMcpToolRow(env.DB, {
-          userId: actorCtx?.userId,
-          tenantId: actorCtx?.tenantId,
-          workspaceId: actorCtx?.workspaceId,
-          personUuid: actorCtx?.personUuid,
-        }, toolName);
+        toolRow = await loadAgentsamToolRow(env, toolName);
       } catch (_) {}
       const resolved = await resolveMcpServerForTool(env, {
         tenantId: actorCtx?.tenantId,
@@ -834,7 +835,27 @@ export async function handleMcpApi(request, url, env, ctx) {
           : await inferMcpCapabilityLane(message, '', '', mode || 'agent', env.DB);
       let tools = [];
       try {
-        tools = await queryBrandedMcpCatalog(env.DB, { lane, limit, includeSchema });
+        const actorCtx = await resolveIamActorContext(request, env).catch(() => null);
+        const categories = toolCategoriesFromLanes([lane]);
+        if (!categories.length) {
+          return jsonResponse({ ok: true, lane, mode, limit, include_schema: includeSchema, source: 'agentsam_tools', tools: [] });
+        }
+        const rows = await listAgentsamToolsForContext(env, {
+          workspaceId: actorCtx?.workspaceId,
+          tenantId: actorCtx?.tenantId,
+          userId: actorCtx?.userId,
+          categories,
+          modeSlug: mode || null,
+          limit,
+        });
+        const mapped = mapCatalogRowsToAgentTools(rows);
+        tools = mapped.map((t) => ({
+          tool_name: t.name,
+          tool_key: t.tool_key,
+          description: t.description,
+          tool_category: t.tool_category,
+          ...(includeSchema ? { input_schema: t.input_schema } : {}),
+        }));
       } catch (e) {
         return jsonResponse({ error: String(e?.message || e), tools: [] }, 500);
       }
@@ -844,7 +865,7 @@ export async function handleMcpApi(request, url, env, ctx) {
         mode,
         limit,
         include_schema: includeSchema,
-        source: tools.length ? 'v_agentsam_mcp_tools_branded' : 'empty',
+        source: 'agentsam_tools',
         tools,
       });
     }
@@ -895,12 +916,7 @@ export async function handleMcpApi(request, url, env, ctx) {
       let row = null;
       try {
         const actorCtx = await resolveIamActorContext(request, env).catch(() => null);
-        row = await selectAgentsamMcpToolRow(env.DB, {
-          userId: actorCtx?.userId,
-          tenantId: actorCtx?.tenantId,
-          workspaceId: actorCtx?.workspaceId,
-          personUuid: actorCtx?.personUuid,
-        }, toolName);
+        row = await loadAgentsamToolRow(env, toolName);
       } catch (e) {
         return jsonResponse({ error: String(e?.message || e) }, 500);
       }
