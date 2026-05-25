@@ -19,6 +19,7 @@ import {
 } from '../core/pty-workspace-paths.js';
 import { dispatchComplete,
          dispatchStream }    from '../core/provider.js';
+import { resolveModelForTask } from '../core/resolveModel.js';
 import { computeTerminalSessionAuthTokenHash, sha256HexUtf8, mintSessionToken } from '../core/terminal.js';
 
 // ── Token validation ───────────────────────────────────────────────────────────
@@ -226,20 +227,28 @@ Complete this task or provide a specific actionable response.`,
 
     const userPrompt = prompts[mode] || prompts.ask;
 
-    // P3: default nano matches catalog; prefer agent_mode_configs / catalog-only resolution long-term.
     let modelKey = 'gpt-5.4-nano';
     try {
-      const modeSlug = mode === 'agent' ? 'agent' : 'ask';
-      const modeRow = await env.DB?.prepare(
-        `SELECT gate_model, escalation_model FROM agent_mode_configs
-         WHERE slug = ? AND is_active = 1 LIMIT 1`
-      ).bind(modeSlug).first();
-
-      if (mode === 'agent' && modeRow?.escalation_model) {
-        modelKey = modeRow.escalation_model;
-      } else if (modeRow?.gate_model) {
-        modelKey = modeRow.gate_model;
+      let workspaceId =
+        body?.workspace_id != null && String(body.workspace_id).trim() !== ''
+          ? String(body.workspace_id).trim()
+          : env.WORKSPACE_ID != null && String(env.WORKSPACE_ID).trim() !== ''
+            ? String(env.WORKSPACE_ID).trim()
+            : '';
+      if (!workspaceId && session_id && env.DB) {
+        const sess = await env.DB.prepare(
+          'SELECT workspace_id FROM terminal_sessions WHERE id = ? LIMIT 1',
+        )
+          .bind(session_id)
+          .first();
+        workspaceId = sess?.workspace_id != null ? String(sess.workspace_id).trim() : '';
       }
+      const resolved = await resolveModelForTask(env, {
+        task_type: 'terminal_execution',
+        mode: 'agent',
+        workspace_id: workspaceId,
+      });
+      modelKey = resolved.model_key;
     } catch (_) {}
 
     const systemPrompt = `You are a developer assistant embedded in the IAM terminal.

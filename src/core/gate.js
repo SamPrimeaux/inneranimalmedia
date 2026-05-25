@@ -1,40 +1,70 @@
-export async function runModeGate(env, userMessage, modeSlug) {
-  const mode = await env.DB.prepare(
-    'SELECT * FROM agent_mode_configs WHERE slug = ? AND is_active = 1'
-  ).bind(modeSlug ?? 'agent').first();
+import { resolveModelForTask } from './resolveModel.js';
 
-  if (!mode || !env.OPENAI_API_KEY) {
+export async function runModeGate(env, userMessage, modeSlug, workspaceId = null) {
+  const ws =
+    workspaceId != null && String(workspaceId).trim() !== ''
+      ? String(workspaceId).trim()
+      : null;
+
+  let gateModel = 'gpt-5.4-nano';
+  let escalationModel = 'gpt-5.4';
+  if (env?.DB && ws) {
+    try {
+      const gateResolved = await resolveModelForTask(env, {
+        task_type: 'gate',
+        mode: 'auto',
+        workspace_id: ws,
+      });
+      gateModel = gateResolved.model_key;
+      const escResolved = await resolveModelForTask(env, {
+        task_type: 'gate',
+        mode: 'agent',
+        workspace_id: ws,
+      });
+      escalationModel = escResolved.model_key;
+    } catch (_) {}
+  }
+
+  const mode = {
+    slug: modeSlug ?? 'agent',
+    gate_model: gateModel,
+    escalation_model: escalationModel,
+    escalation_threshold: 0.8,
+    gate_prompt: null,
+  };
+
+  if (!env.OPENAI_API_KEY) {
     return { model: 'gpt-5.4', provider: 'openai', reasoning_effort: 'none', rewritten_prompt: userMessage };
   }
 
   let gateResult = null;
-  try {
-    // P3: direct /v1/responses; future: resolve gate model via catalog + dispatchComplete / Responses adapter.
-    const gateResp = await fetch('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.OPENAI_API_KEY}` },
-      body: JSON.stringify({
-        model: mode.gate_model ?? 'gpt-5.4-nano',
-        input: [
-          { role: 'system', content: mode.gate_prompt },
-          { role: 'user', content: userMessage.slice(0, 4000) }
-        ],
-        reasoning: { effort: 'none' },
-        text: { verbosity: 'low' },
-        max_output_tokens: 512,
-      })
-    });
-    if (gateResp.ok) {
-      const d = await gateResp.json();
-      gateResult = JSON.parse((d.output_text ?? '').replace(/```json|```/g, '').trim());
-    }
-  } catch (_) {}
+  if (mode.gate_prompt) {
+    try {
+      // P3: direct /v1/responses; future: resolve gate model via catalog + dispatchComplete / Responses adapter.
+      const gateResp = await fetch('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.OPENAI_API_KEY}` },
+        body: JSON.stringify({
+          model: gateModel,
+          input: [
+            { role: 'system', content: mode.gate_prompt },
+            { role: 'user', content: userMessage.slice(0, 4000) }
+          ],
+          reasoning: { effort: 'none' },
+          text: { verbosity: 'low' },
+          max_output_tokens: 512,
+        })
+      });
+      if (gateResp.ok) {
+        const d = await gateResp.json();
+        gateResult = JSON.parse((d.output_text ?? '').replace(/```json|```/g, '').trim());
+      }
+    } catch (_) {}
+  }
 
   const complexity = gateResult?.complexity ?? 0.5;
   const shouldEscalate = gateResult?.escalate === true || complexity >= (mode.escalation_threshold ?? 0.8);
-  const resolvedModel = shouldEscalate
-    ? (mode.escalation_model ?? 'gpt-5.4')
-    : (mode.gate_model ?? 'gpt-5.4');
+  const resolvedModel = shouldEscalate ? escalationModel : gateModel;
 
   const taskType = gateResult?.task_type ?? 'agent_chat';
   const routingRule = await env.DB.prepare(

@@ -1043,16 +1043,8 @@ function normalizeModeToolPolicy(raw) {
   };
 }
 
-async function loadModeToolPolicy(env, modeSlug) {
-  if (!env.DB) return { allowTools: [], denyTools: [], requireApprovalTools: [] };
-  try {
-    const row = await env.DB.prepare(
-      'SELECT tool_policy_json FROM agent_mode_configs WHERE slug = ? AND is_active = 1 LIMIT 1'
-    ).bind(modeSlug || 'ask').first();
-    return normalizeModeToolPolicy(row?.tool_policy_json);
-  } catch (_) {
-    return { allowTools: [], denyTools: [], requireApprovalTools: [] };
-  }
+async function loadModeToolPolicy(_env, _modeSlug) {
+  return { allowTools: [], denyTools: [], requireApprovalTools: [] };
 }
 
 /**
@@ -2265,7 +2257,7 @@ async function dispatchToolCallWithBudget(env, toolName, input, context, budgetM
 
 // ─── Request-scoped Context Loaders ──────────────────────────────────────────
 
-async function loadModeConfig(env, modeSlug) {
+async function loadModeConfig(env, modeSlug, workspaceId = null) {
   const slug = (modeSlug || 'auto').toLowerCase();
   const defaults = {
     slug,
@@ -2284,15 +2276,32 @@ async function loadModeConfig(env, modeSlug) {
   };
   if (!env.DB) return defaults;
 
+  const ws =
+    workspaceId != null && String(workspaceId).trim() !== ''
+      ? String(workspaceId).trim()
+      : null;
+  if (!ws) return defaults;
+
   try {
-    const row = await env.DB.prepare(
-      `SELECT gate_model, gate_reasoning_effort,
-              escalation_model, escalation_threshold, tool_policy_json, system_prompt_fragment
-       FROM agent_mode_configs WHERE slug = ? AND is_active = 1 LIMIT 1`
-    ).bind(slug).first();
-    const cfg = row || {};
-    return { ...defaults, ...cfg, slug };
-  } catch (_) { return defaults; }
+    const gateResolved = await resolveModelForTask(env, {
+      task_type: 'gate',
+      mode: 'auto',
+      workspace_id: ws,
+    });
+    const escResolved = await resolveModelForTask(env, {
+      task_type: 'gate',
+      mode: 'agent',
+      workspace_id: ws,
+    });
+    return {
+      ...defaults,
+      slug,
+      gate_model: gateResolved.model_key,
+      escalation_model: escResolved.model_key,
+    };
+  } catch (_) {
+    return defaults;
+  }
 }
 
 async function resolveDefaultModel(env, tenantId) {
@@ -5444,7 +5453,7 @@ export async function mcpPanelAgentChatSse(env, request, ctx, panel) {
 
   const requestedMode = 'agent';
   const [modeConfig, userPolicy] = await Promise.all([
-    loadModeConfig(env, requestedMode),
+    loadModeConfig(env, requestedMode, workspaceId),
     loadAgentSamUserPolicy(env, userId, workspaceId),
   ]);
 
@@ -6001,7 +6010,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       requestedMode,
       promptRouteIntentSlug,
     );
-    const modeConfig = await loadModeConfig(env, 'ask');
+    const modeConfig = await loadModeConfig(env, 'ask', workspaceId);
     const askSystemPrompt = await buildSystemPrompt(
       env,
       tenantId,
@@ -6085,7 +6094,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   }
 
   const [modeConfig, userPolicy, agentMeta] = await Promise.all([
-    loadModeConfig(env, requestedMode),
+    loadModeConfig(env, requestedMode, workspaceId),
     loadAgentSamUserPolicy(env, userId, workspaceId),
     body.agentId ? getAgentMetadata(env, body.agentId) : Promise.resolve(null),
   ]);
@@ -8903,15 +8912,13 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
 
   // ── /api/agent/modes ──────────────────────────────────────────────────────
   if (path === '/api/agent/modes' && method === 'GET') {
-    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
-    try {
-      const { results } = await env.DB.prepare(
-        `SELECT slug, display_name AS label, description, color_hex AS color, icon,
-                temperature, auto_run, max_tool_calls
-         FROM agent_mode_configs WHERE is_active = 1 ORDER BY sort_order`
-      ).all();
-      return jsonResponse(results || []);
-    } catch (e) { return jsonResponse({ error: e?.message }, 500); }
+    return jsonResponse([
+      { slug: 'agent', label: 'Agent', description: 'Execute and open surfaces', color: null, icon: null, temperature: 0.7, auto_run: 0, max_tool_calls: 15 },
+      { slug: 'plan', label: 'Plan', description: 'Design technical plans', color: null, icon: null, temperature: 0.7, auto_run: 0, max_tool_calls: 15 },
+      { slug: 'debug', label: 'Debug', description: 'Inspect, prove, and fix', color: null, icon: null, temperature: 0.7, auto_run: 0, max_tool_calls: 15 },
+      { slug: 'ask', label: 'Ask', description: 'Talk and answer questions', color: null, icon: null, temperature: 0.7, auto_run: 0, max_tool_calls: 15 },
+      { slug: 'auto', label: 'Auto', description: 'Automatic routing', color: null, icon: null, temperature: 0.7, auto_run: 0, max_tool_calls: 15 },
+    ]);
   }
 
   // ── /api/agent/commands — agentsam_commands (show_in_slash); legacy agentsam_slash_commands retired
