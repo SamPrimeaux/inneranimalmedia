@@ -150,19 +150,6 @@ def resolve_workspace_uuid(config: dict[str, str]) -> str:
     return str(rows[0]["id"])
 
 
-def fetch_columns(config: dict[str, str], table: str) -> set[str]:
-    query = urllib.parse.urlencode({"schema": "agentsam", "limit": "10000"})
-    rows = supabase_get(f"/pg/columns?{query}", config) or []
-    cols = set()
-    for row in rows:
-        schema_name = str(row.get("schema") or row.get("table_schema") or "").strip()
-        table_name = str(row.get("table") or row.get("table_name") or "").strip()
-        col_name = str(row.get("name") or row.get("column_name") or "").strip()
-        if schema_name == "agentsam" and table_name == table and col_name:
-            cols.add(col_name)
-    return cols
-
-
 def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
@@ -241,55 +228,34 @@ def vectorize_upsert(config: dict[str, str], row_id: str, embedding: list[float]
             raise RuntimeError(f"Vectorize upsert failed for {row_id}")
 
 
-def build_payload(columns: set[str], workspace_uuid: str, row_id: str, title: str, memory_key: str,
+def build_payload(workspace_uuid: str, row_id: str, title: str, memory_key: str,
                   content: str, content_hash: str, embedding: list[float], metadata: dict[str, Any]) -> dict[str, Any]:
     now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    payload: dict[str, Any] = {}
-    if "id" in columns:
-        payload["id"] = row_id
-    if "workspace_id" in columns:
-        payload["workspace_id"] = workspace_uuid
-    if "title" in columns:
-        payload["title"] = title
-    if "memory_key" in columns:
-        payload["memory_key"] = memory_key
-    if "content" in columns:
-        payload["content"] = content
-    if "source" in columns:
-        payload["source"] = "system_seed"
-    if "source_type" in columns:
-        payload["source_type"] = "system_seed"
-    if "source_ref" in columns:
-        payload["source_ref"] = f"seed.{memory_key}"
-    if "metadata" in columns:
-        payload["metadata"] = metadata
-    if "content_hash" in columns:
-        payload["content_hash"] = content_hash
-    if "embedding" in columns:
-        payload["embedding"] = vector_literal(embedding)
-    if "embedding_model" in columns:
-        payload["embedding_model"] = OPENAI_EMBED_MODEL
-    if "embedding_dims" in columns:
-        payload["embedding_dims"] = OPENAI_EMBED_DIMS
-    if "vectorize_binding" in columns:
-        payload["vectorize_binding"] = "AGENTSAM_VECTORIZE_MEMORY"
-    if "vectorize_index" in columns:
-        payload["vectorize_index"] = VECTORIZE_INDEX
-    if "vectorize_id" in columns:
-        payload["vectorize_id"] = row_id
-    if "embedded_at" in columns:
-        payload["embedded_at"] = now_iso
-    if "updated_at" in columns:
-        payload["updated_at"] = now_iso
-    return payload
+    return {
+        "id": row_id,
+        "workspace_id": workspace_uuid,
+        "title": title,
+        "memory_key": memory_key,
+        "content": content,
+        "source": "system_seed",
+        "source_type": "system_seed",
+        "source_ref": f"seed.{memory_key}",
+        "metadata": metadata,
+        "content_hash": content_hash,
+        "embedding": vector_literal(embedding),
+        "embedding_model": OPENAI_EMBED_MODEL,
+        "embedding_dims": OPENAI_EMBED_DIMS,
+        "vectorize_binding": "AGENTSAM_VECTORIZE_MEMORY",
+        "vectorize_index": VECTORIZE_INDEX,
+        "vectorize_id": row_id,
+        "embedded_at": now_iso,
+        "updated_at": now_iso,
+    }
 
 
 def main() -> int:
     config = env_config()
     workspace_uuid = resolve_workspace_uuid(config)
-    columns = fetch_columns(config, SUPABASE_TABLE)
-    if not columns:
-        raise SystemExit(f"Unable to resolve columns for {SUPABASE_TABLE}")
 
     count = 0
     for idx, (area, content) in enumerate(FACTS, start=1):
@@ -305,7 +271,6 @@ def main() -> int:
         embedding = openai_embed(content, config)
         row_id = str(existing.get("id")) if existing and existing.get("id") else str(uuid.uuid4())
         payload = build_payload(
-            columns,
             workspace_uuid,
             row_id,
             title,
