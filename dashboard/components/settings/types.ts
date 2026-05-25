@@ -71,8 +71,16 @@ export type AgentsSettingsResponse = {
   allowlists: {
     commands: string[];
     domains: string[];
-    mcp: Array<{ tool_key: string; notes?: string | null }>;
+    mcp: Array<{ tool_key: string; notes?: string | null; preference?: string | null }>;
   };
+  mcp_tool_groups?: Array<{
+    group_key: string;
+    label: string;
+    read_count: number;
+    write_count: number;
+    tools: Array<{ tool_key: string; label: string; access_class: string }>;
+  }>;
+  mcp_group_preferences?: Record<string, string>;
 };
 
 export type LlmVaultRow = {

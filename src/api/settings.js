@@ -1590,14 +1590,25 @@ export async function handleSettingsRequest(request, env, ctx) {
         .then((r) => r.results || [])
         .catch(() => []),
       env.DB.prepare(
-        `SELECT tool_key, NULL AS notes FROM agentsam_mcp_allowlist
-         WHERE user_id = ? AND workspace_id = ?
-         ORDER BY tool_key ASC`,
+        `SELECT tool_key, COALESCE(preference, 'allow') AS preference, notes
+           FROM agentsam_mcp_allowlist
+          WHERE user_id = ? AND workspace_id = ?
+          ORDER BY tool_key ASC`,
       )
         .bind(agentsamUserId, workspaceId || null)
         .all()
         .then((r) => r.results || [])
-        .catch(() => []),
+        .catch(() =>
+          env.DB.prepare(
+            `SELECT tool_key, NULL AS notes FROM agentsam_mcp_allowlist
+               WHERE user_id = ? AND workspace_id = ?
+               ORDER BY tool_key ASC`,
+          )
+            .bind(agentsamUserId, workspaceId || null)
+            .all()
+            .then((r2) => r2.results || [])
+            .catch(() => []),
+        ),
       env.DB.prepare(
         `SELECT * FROM agentsam_subagent_profile
          WHERE user_id = ? AND workspace_id = ?
@@ -1608,6 +1619,32 @@ export async function handleSettingsRequest(request, env, ctx) {
         .then((r) => r.results || [])
         .catch(() => []),
     ]);
+
+    let mcp_tool_groups = [];
+    let mcp_group_preferences = {};
+    try {
+      const { loadMcpOAuthConsentToolManifest } = await import('./mcp-oauth-shared.js');
+      const {
+        groupMcpToolsForPreferences,
+        inferGroupPreferenceFromAllowlist,
+      } = await import('../core/mcp-tool-preference.js');
+      const manifest = await loadMcpOAuthConsentToolManifest(env, {
+        userId: agentsamUserId,
+        workspaceId: workspaceId || '',
+        tenantId: String(policyRow?.tenant_id || authUser?.tenant_id || '').trim(),
+        clientId: 'iam_mcp_inneranimalmedia',
+        grantedScopes: ['mcp:tools', 'iam:agent', 'iam:profile'],
+      });
+      mcp_tool_groups = manifest.tool_groups?.length
+        ? manifest.tool_groups
+        : groupMcpToolsForPreferences(manifest.tools || []);
+      const allowed = new Set(
+        mcpRows.map((r) => String(r.tool_key || '').trim()).filter(Boolean),
+      );
+      for (const g of mcp_tool_groups) {
+        mcp_group_preferences[g.group_key] = inferGroupPreferenceFromAllowlist(g.tools, allowed);
+      }
+    } catch (_) {}
 
     return jsonResponse({
       workspace_id: workspaceId || null,
@@ -1623,9 +1660,15 @@ export async function handleSettingsRequest(request, env, ctx) {
         commands: cmdRows.map((r) => String(r.command || '').trim()).filter(Boolean),
         domains: domainRows.map((r) => String(r.host || '').trim()).filter(Boolean),
         mcp: mcpRows
-          .map((r) => ({ tool_key: String(r.tool_key || '').trim(), notes: r.notes ?? null }))
+          .map((r) => ({
+            tool_key: String(r.tool_key || '').trim(),
+            notes: r.notes ?? null,
+            preference: r.preference != null ? String(r.preference) : null,
+          }))
           .filter((x) => x.tool_key),
       },
+      mcp_tool_groups,
+      mcp_group_preferences,
     });
   }
 
@@ -1857,6 +1900,56 @@ export async function handleSettingsRequest(request, env, ctx) {
         .bind(agentsamUserId, workspaceId || null, host)
         .run();
       return jsonResponse({ ok: true });
+    }
+  }
+
+  if (pathLower === '/api/settings/agents/mcp/preferences' && (method === 'PUT' || method === 'PATCH')) {
+    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    const body = await request.json().catch(() => ({}));
+    const workspaceId =
+      body.workspace_id != null && String(body.workspace_id).trim() !== ''
+        ? String(body.workspace_id).trim()
+        : await resolveRequestWorkspaceId(env, authUser, url);
+    const prefs =
+      body.group_preferences && typeof body.group_preferences === 'object'
+        ? body.group_preferences
+        : body.tool_preferences && typeof body.tool_preferences === 'object'
+          ? body.tool_preferences
+          : null;
+    if (!prefs) return jsonResponse({ error: 'group_preferences object required' }, 400);
+
+    const stored = await env.DB.prepare(
+      `SELECT user_id FROM agentsam_user_policy
+       WHERE workspace_id = ?
+         AND user_id IN (${agentsamUserCandidates.map(() => '?').join(', ')})
+       LIMIT 1`,
+    )
+      .bind(workspaceId || null, ...agentsamUserCandidates)
+      .first()
+      .catch(() => null);
+    const agentsamUserId = stored?.user_id ? String(stored.user_id) : String(canonicalAuthId || sessionUserId);
+
+    try {
+      const { loadMcpOAuthConsentToolManifest } = await import('./mcp-oauth-shared.js');
+      const { persistMcpAllowlistFromGroupPreferences } = await import('../core/mcp-tool-preference.js');
+      const manifest = await loadMcpOAuthConsentToolManifest(env, {
+        userId: agentsamUserId,
+        workspaceId: workspaceId || '',
+        tenantId: String(authUser?.tenant_id || '').trim(),
+        clientId: String(body.client_id || 'iam_mcp_inneranimalmedia'),
+        grantedScopes: ['mcp:tools', 'iam:agent', 'iam:profile'],
+      });
+      const result = await persistMcpAllowlistFromGroupPreferences(env, {
+        userId: agentsamUserId,
+        workspaceId: workspaceId || '',
+        tenantId: String(authUser?.tenant_id || '').trim(),
+        clientId: String(body.client_id || 'iam_mcp_inneranimalmedia'),
+        catalogTools: manifest.tools || [],
+        groupPreferences: prefs,
+      });
+      return jsonResponse({ ok: true, ...result });
+    } catch (e) {
+      return jsonResponse({ error: String(e?.message || e) }, 500);
     }
   }
 

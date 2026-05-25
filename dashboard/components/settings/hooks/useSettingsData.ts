@@ -155,6 +155,10 @@ export function useSettingsData({
   const [agentsCommands, setAgentsCommands] = useState<string[]>([]);
   const [agentsDomains, setAgentsDomains] = useState<string[]>([]);
   const [agentsMcp, setAgentsMcp] = useState<Array<{ tool_key: string; notes?: string | null }>>([]);
+  const [agentsMcpGroups, setAgentsMcpGroups] = useState<
+    AgentsSettingsResponse['mcp_tool_groups']
+  >([]);
+  const [agentsMcpGroupPrefs, setAgentsMcpGroupPrefs] = useState<Record<string, string>>({});
   const [agentsSubagents, setAgentsSubagents] = useState<Array<Record<string, unknown>>>([]);
 
   const [newCommand, setNewCommand] = useState('');
@@ -496,6 +500,12 @@ export function useSettingsData({
       setAgentsCommands(Array.isArray(d.allowlists?.commands) ? d.allowlists.commands : []);
       setAgentsDomains(Array.isArray(d.allowlists?.domains) ? d.allowlists.domains : []);
       setAgentsMcp(Array.isArray(d.allowlists?.mcp) ? d.allowlists.mcp : []);
+      setAgentsMcpGroups(Array.isArray(d.mcp_tool_groups) ? d.mcp_tool_groups : []);
+      setAgentsMcpGroupPrefs(
+        d.mcp_group_preferences && typeof d.mcp_group_preferences === 'object'
+          ? d.mcp_group_preferences
+          : {},
+      );
       setAgentsSubagents(Array.isArray(d.subagents) ? d.subagents : []);
     } catch (e) {
       setAgentsError(e instanceof Error ? e.message : 'Failed to load Agents settings');
@@ -503,6 +513,8 @@ export function useSettingsData({
       setAgentsCommands([]);
       setAgentsDomains([]);
       setAgentsMcp([]);
+      setAgentsMcpGroups([]);
+      setAgentsMcpGroupPrefs({});
       setAgentsSubagents([]);
     } finally {
       setAgentsLoading(false);
@@ -1034,6 +1046,28 @@ export function useSettingsData({
     [],
   );
 
+  const saveAgentsMcpGroupPreferences = useCallback(
+    async (groupPreferences: Record<string, string>) => {
+      try {
+        setAgentsError(null);
+        const r = await fetch('/api/settings/agents/mcp/preferences', {
+          method: 'PUT',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            workspace_id: agentsWorkspaceId || (workspaceId || ''),
+            group_preferences: groupPreferences,
+          }),
+        });
+        if (!r.ok) throw new Error(await r.text());
+        await loadAgentsSettings(agentsWorkspaceId || workspaceId);
+      } catch (e) {
+        setAgentsError(e instanceof Error ? e.message : 'Failed to save MCP tool preferences');
+      }
+    },
+    [agentsWorkspaceId, workspaceId, loadAgentsSettings],
+  );
+
   const toggleMcpRegisteredTool = useCallback(
     async (id: string, v: boolean, prevEnabled: boolean) => {
       setMcpToggleError((p) => ({ ...p, [id]: null }));
@@ -1435,6 +1469,10 @@ export function useSettingsData({
     agentsCommands,
     agentsDomains,
     agentsMcp,
+    agentsMcpGroups,
+    agentsMcpGroupPrefs,
+    setAgentsMcpGroupPrefs,
+    saveAgentsMcpGroupPreferences,
     newCommand,
     setNewCommand,
     newDomain,

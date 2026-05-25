@@ -194,6 +194,9 @@ async function parseConsentBody(request, url) {
       action: a === 'approve' || a === 'deny' ? a : pathAction,
       workspaceId: String(j.workspace_id || '').trim(),
       consentCsrf: String(j.consent_csrf || j.consentCsrf || '').trim(),
+      toolPreferences:
+        j.tool_preferences && typeof j.tool_preferences === 'object' ? j.tool_preferences : null,
+      reviewToolsExpanded: Boolean(j.review_tools_expanded),
     };
   }
   const fd = await request.formData().catch(() => null);
@@ -280,6 +283,8 @@ export async function handleIamMcpOAuthConsentApi(request, env) {
     scopes,
     scope_labels: scopes.map(scopeLabel),
     allowed_tools: toolManifest.tools,
+    tool_groups: toolManifest.tool_groups || [],
+    safe_default_preferences: toolManifest.safe_default_preferences || {},
     tool_summary: toolManifest.summary,
     require_allowlist_for_mcp: toolManifest.require_allowlist_for_mcp ? 1 : 0,
     redirect_uri: row.redirect_uri,
@@ -293,7 +298,7 @@ export async function handleIamMcpOAuthConsentApi(request, env) {
   return res;
 }
 
-export async function approveIamMcpAuthorization(env, authorizationId, iamUser, workspaceId) {
+export async function approveIamMcpAuthorization(env, authorizationId, iamUser, workspaceId, options = {}) {
   const loaded = await loadAuthorization(env, authorizationId, iamUser.id);
   if (!loaded.ok) return { ok: false, error: loaded.error };
   const row = loaded.row;
@@ -307,6 +312,40 @@ export async function approveIamMcpAuthorization(env, authorizationId, iamUser, 
       resolvedWorkspaceId === String(env.WORKSPACE_ID || '').trim());
   if (!resolvedWorkspaceId || !allowedWs) return { ok: false, error: 'invalid_workspace' };
   const workspaceIdFinal = resolvedWorkspaceId;
+
+  const scopes = mcpOAuthParseScopeList(row.scope);
+  if (scopes.includes('mcp:tools')) {
+    try {
+      const toolManifest = await loadMcpOAuthConsentToolManifest(env, {
+        userId: iamUser.id,
+        workspaceId: workspaceIdFinal,
+        tenantId: String(row.tenant_id || iamUser.tenant_id || '').trim(),
+        clientId: row.client_id,
+        grantedScopes: scopes,
+      });
+      const { persistMcpAllowlistFromGroupPreferences, buildSafeDefaultMcpGroupPreferences } =
+        await import('../core/mcp-tool-preference.js');
+      const groups = toolManifest.tool_groups?.length
+        ? toolManifest.tool_groups
+        : (await import('../core/mcp-tool-preference.js')).groupMcpToolsForPreferences(
+            toolManifest.tools || [],
+          );
+      const prefsIn =
+        options.tool_preferences && typeof options.tool_preferences === 'object'
+          ? options.tool_preferences
+          : buildSafeDefaultMcpGroupPreferences(groups, { hasAgentScope: scopes.includes('iam:agent') });
+      await persistMcpAllowlistFromGroupPreferences(env, {
+        userId: iamUser.id,
+        workspaceId: workspaceIdFinal,
+        tenantId: String(row.tenant_id || iamUser.tenant_id || '').trim(),
+        clientId: row.client_id,
+        catalogTools: toolManifest.tools || [],
+        groupPreferences: prefsIn,
+      });
+    } catch (e) {
+      return { ok: false, error: 'allowlist_persist_failed', detail: String(e?.message || e) };
+    }
+  }
 
   const codePlain = mcpOAuthRandomToken('mcp_code', 24);
   const codeHash = await mcpOAuthSha256Hex(codePlain);
@@ -382,7 +421,8 @@ export async function denyIamMcpAuthorization(env, authorizationId, iamUser) {
 
 export async function handleIamMcpOAuthConsentPage(request, env) {
   const url = new URL(request.url);
-  const { authorizationId, action, workspaceId, consentCsrf } = await parseConsentBody(request, url);
+  const { authorizationId, action, workspaceId, consentCsrf, toolPreferences } =
+    await parseConsentBody(request, url);
 
   if (!isIamMcpAuthorizationId(authorizationId)) {
     return new Response('Invalid IAM MCP authorization id', { status: 400 });
@@ -437,7 +477,9 @@ export async function handleIamMcpOAuthConsentPage(request, env) {
       return Response.redirect(denied.redirect_url, 302);
     }
 
-    const approved = await approveIamMcpAuthorization(env, authorizationId, iamUser, workspaceId);
+    const approved = await approveIamMcpAuthorization(env, authorizationId, iamUser, workspaceId, {
+      tool_preferences: toolPreferences || undefined,
+    });
     if (!approved.ok) {
       if (acceptJson) return mcpOAuthJsonError(approved.error, 400);
       const workspaces = await listUserWorkspaces(env, iamUser.id);

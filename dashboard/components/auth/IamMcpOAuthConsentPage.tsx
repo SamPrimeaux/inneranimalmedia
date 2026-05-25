@@ -22,6 +22,10 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import {
+  McpToolPreferenceControl,
+  type McpToolPreference,
+} from "../mcp/McpToolPreferenceControl";
 
 /** Footer company signature — do not use for app/MCP identity. */
 const IAM_FOOTER_LOGO_URL =
@@ -108,6 +112,7 @@ interface ConsentToolRow {
   tool_key: string;
   label: string;
   access_class: "read" | "write";
+  tool_category?: string;
   risk_level?: string;
   requires_approval?: boolean;
 }
@@ -116,6 +121,14 @@ interface ConsentToolSummary {
   total: number;
   read: number;
   write: number;
+}
+
+interface ConsentToolGroup {
+  group_key: string;
+  label: string;
+  read_count: number;
+  write_count: number;
+  tools: ConsentToolRow[];
 }
 
 interface ConsentData {
@@ -131,6 +144,8 @@ interface ConsentData {
   /** Double-submit CSRF — must match __Host-mcp_oauth_consent_csrf cookie on POST */
   consent_csrf?: string;
   allowed_tools?: ConsentToolRow[];
+  tool_groups?: ConsentToolGroup[];
+  safe_default_preferences?: Record<string, McpToolPreference>;
   tool_summary?: ConsentToolSummary;
   require_allowlist_for_mcp?: number;
 }
@@ -208,6 +223,44 @@ function scopesForDisplay(
       }
       return s;
     });
+}
+
+function buildClientSafeDefaults(
+  groups: ConsentToolGroup[],
+  scopes: ScopeInfo[],
+): Record<string, McpToolPreference> {
+  const hasAgent = scopes.some((s) => s.scope === "iam:agent");
+  const out: Record<string, McpToolPreference> = {};
+  for (const g of groups) {
+    if (g.write_count > 0 && !hasAgent) out[g.group_key] = "deny";
+    else if (g.write_count > 0) out[g.group_key] = "read";
+    else out[g.group_key] = "read";
+  }
+  return out;
+}
+
+function clientGroupTools(tools: ConsentToolRow[]): ConsentToolGroup[] {
+  const map = new Map<string, ConsentToolGroup>();
+  for (const t of tools) {
+    const access_class = t.access_class === "write" ? "write" : "read";
+    const group_key = (t.tool_category || (access_class === "write" ? "write" : "general"))
+      .toLowerCase()
+      .replace(/[^a-z0-9_]+/g, "_");
+    if (!map.has(group_key)) {
+      map.set(group_key, {
+        group_key,
+        label: group_key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+        tools: [],
+        read_count: 0,
+        write_count: 0,
+      });
+    }
+    const g = map.get(group_key)!;
+    g.tools.push(t);
+    if (access_class === "write") g.write_count += 1;
+    else g.read_count += 1;
+  }
+  return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label));
 }
 
 function pickDefaultWorkspace(data: ConsentData): string {
@@ -294,7 +347,11 @@ async function submitConsent(
   authorizationId: string,
   workspaceId: string,
   action: "approve" | "deny",
-  consentCsrf: string
+  consentCsrf: string,
+  opts?: {
+    tool_preferences?: Record<string, McpToolPreference>;
+    review_tools_expanded?: boolean;
+  }
 ): Promise<{ redirect_url?: string }> {
   const res = await fetch("/api/oauth/mcp/consent", {
     method: "POST",
@@ -305,6 +362,8 @@ async function submitConsent(
       workspace_id: workspaceId,
       action,
       consent_csrf: consentCsrf,
+      tool_preferences: opts?.tool_preferences,
+      review_tools_expanded: Boolean(opts?.review_tools_expanded),
     }),
   });
   if (res.redirected) {
@@ -334,61 +393,66 @@ function ScopePill({ scope }: { scope: ScopeInfo }) {
   );
 }
 
-function ConsentToolsSection({
-  tools,
+function ReviewToolPermissionsSection({
+  groups,
   summary,
-  clientLabel,
-  requireAllowlist,
+  preferences,
+  onPreferenceChange,
+  reviewExpanded,
+  onReviewExpandedChange,
 }: {
-  tools: ConsentToolRow[];
+  groups: ConsentToolGroup[];
   summary: ConsentToolSummary;
-  clientLabel: string;
-  requireAllowlist: boolean;
+  preferences: Record<string, McpToolPreference>;
+  onPreferenceChange: (groupKey: string, value: McpToolPreference) => void;
+  reviewExpanded: boolean;
+  onReviewExpandedChange: (open: boolean) => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const show = expanded ? tools : tools.slice(0, 8);
-  const hasMore = tools.length > 8;
+  if (!groups.length) return null;
 
   return (
-    <section className="tools-section" aria-labelledby="tools-heading">
-      <h2 id="tools-heading" className="section-label">
-        Approved MCP tools
-      </h2>
-      <p className="tools-scope-note">
-        Scope <code>mcp:tools</code> — {clientLabel} may call only these tools for your account.
-      </p>
-      <p className="tools-summary">
-        {summary.total} tool{summary.total === 1 ? "" : "s"} for this connection
-        {summary.read > 0 ? ` · ${summary.read} read` : ""}
-        {summary.write > 0 ? ` · ${summary.write} write` : ""}
-        {requireAllowlist ? " · filtered by your Settings allowlist" : ""}
-      </p>
-      {tools.length === 0 ? (
-        <p className="tools-empty">
-          No MCP tools are available for your account with the current allowlist and scopes.
-          Adjust Settings → Network or reconnect after adding tools.
+    <section className="review-tools-section">
+      <button
+        type="button"
+        className="review-tools-toggle"
+        aria-expanded={reviewExpanded}
+        onClick={() => onReviewExpandedChange(!reviewExpanded)}
+      >
+        <span className="review-tools-toggle-label">Review tool permissions</span>
+        <span className="review-tools-toggle-hint">
+          {reviewExpanded ? "Hide" : "Optional"} · {summary.total} tools
+        </span>
+      </button>
+      {!reviewExpanded ? (
+        <p className="review-tools-collapsed-note">
+          Authorize uses safe defaults: read-only tool groups allowed; write groups blocked unless
+          you expand and change them.
         </p>
       ) : (
-        <ul className="tool-list">
-          {show.map((t) => (
-            <li key={t.tool_key} className="tool-row">
-              <span className={cn("tool-badge", t.access_class === "write" && "tool-badge--write")}>
-                {t.access_class}
-              </span>
-              <span className="tool-label" title={t.tool_key}>
-                {t.label}
-              </span>
-              {t.requires_approval ? (
-                <span className="tool-tag">approval</span>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      )}
-      {hasMore && (
-        <button type="button" className="tools-expand" onClick={() => setExpanded((v) => !v)}>
-          {expanded ? "Show fewer" : `Show all ${tools.length} tools`}
-        </button>
+        <div className="review-tools-panel">
+          <p className="tools-summary">
+            Choose access per group. Write tools need <code>iam:agent</code> scope on the client.
+          </p>
+          <ul className="review-group-list">
+            {groups.map((g) => (
+              <li key={g.group_key} className="review-group-row">
+                <div className="review-group-meta">
+                  <span className="review-group-name">{g.label}</span>
+                  <span className="review-group-counts">
+                    {g.tools.length} tool{g.tools.length === 1 ? "" : "s"}
+                    {g.read_count > 0 ? ` · ${g.read_count} read` : ""}
+                    {g.write_count > 0 ? ` · ${g.write_count} write` : ""}
+                  </span>
+                </div>
+                <McpToolPreferenceControl
+                  compact
+                  value={preferences[g.group_key] || "deny"}
+                  onChange={(v) => onPreferenceChange(g.group_key, v)}
+                />
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </section>
   );
@@ -479,6 +543,8 @@ export default function IamMcpOAuthConsentPage({
 }: IamMcpOAuthConsentPageProps) {
   const [state, setState] = useState<ConsentState>({ phase: "loading" });
   const [selectedWorkspace, setSelectedWorkspace] = useState<string>("");
+  const [reviewToolsExpanded, setReviewToolsExpanded] = useState(false);
+  const [groupPreferences, setGroupPreferences] = useState<Record<string, McpToolPreference>>({});
 
   // ── Load consent data ────────────────────────────────────────────────────
   useEffect(() => {
@@ -507,6 +573,12 @@ export default function IamMcpOAuthConsentPage({
           return;
         }
         setSelectedWorkspace(defaultWs);
+        const tools = data.allowed_tools ?? [];
+        const groups = data.tool_groups?.length ? data.tool_groups : clientGroupTools(tools);
+        const safe = (data.safe_default_preferences ||
+          buildClientSafeDefaults(groups, data.scopes)) as Record<string, McpToolPreference>;
+        setGroupPreferences(safe);
+        setReviewToolsExpanded(false);
         setState({ phase: "ready", data });
       })
       .catch((err: Error) => {
@@ -548,7 +620,11 @@ export default function IamMcpOAuthConsentPage({
         authorizationId,
         selectedWorkspace,
         "approve",
-        frozen.consent_csrf || ""
+        frozen.consent_csrf || "",
+        {
+          tool_preferences: reviewToolsExpanded ? groupPreferences : undefined,
+          review_tools_expanded: reviewToolsExpanded,
+        }
       );
       if (result.redirect_url) {
         window.location.href = result.redirect_url;
@@ -558,7 +634,7 @@ export default function IamMcpOAuthConsentPage({
     } catch (err: any) {
       setState({ phase: "error", message: err.message });
     }
-  }, [authorizationId, selectedWorkspace, state]);
+  }, [authorizationId, selectedWorkspace, state, reviewToolsExpanded, groupPreferences]);
 
   const handleDeny = useCallback(async () => {
     if (!authorizationId || state.phase !== "ready") return;
@@ -624,6 +700,9 @@ export default function IamMcpOAuthConsentPage({
               const isSubmitting = state.phase === "submitting";
               const { copy, app: connectingApp } = resolveClientContext(data);
               const tools = data.allowed_tools ?? [];
+              const toolGroups = data.tool_groups?.length
+                ? data.tool_groups
+                : clientGroupTools(tools);
               const summary = data.tool_summary ?? { total: tools.length, read: 0, write: 0 };
               const displayScopes = scopesForDisplay(
                 data.scopes,
@@ -683,12 +762,16 @@ export default function IamMcpOAuthConsentPage({
                     </ul>
                   </section>
 
-                  {(data.scopes.some((s) => s.scope === "mcp:tools") || tools.length > 0) && (
-                    <ConsentToolsSection
-                      tools={tools}
+                  {(data.scopes.some((s) => s.scope === "mcp:tools") || toolGroups.length > 0) && (
+                    <ReviewToolPermissionsSection
+                      groups={toolGroups}
                       summary={summary}
-                      clientLabel={copy.displayName}
-                      requireAllowlist={requireAllowlist}
+                      preferences={groupPreferences}
+                      onPreferenceChange={(groupKey, value) =>
+                        setGroupPreferences((prev) => ({ ...prev, [groupKey]: value }))
+                      }
+                      reviewExpanded={reviewToolsExpanded}
+                      onReviewExpandedChange={setReviewToolsExpanded}
                     />
                   )}
 
@@ -1080,6 +1163,91 @@ const STYLES = `
     border-radius: 10px;
     border: 1px solid var(--c-border);
     background: rgba(2, 6, 23, 0.6);
+  }
+
+  .review-tools-section {
+    border-top: 1px solid var(--c-border-subtle);
+    padding-top: 12px;
+    margin-top: 4px;
+  }
+
+  .review-tools-toggle {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--c-border);
+    background: rgba(2, 6, 23, 0.45);
+    color: var(--c-text);
+    cursor: pointer;
+    font-family: var(--font-sans);
+  }
+
+  .review-tools-toggle:hover {
+    border-color: var(--c-border-subtle);
+    background: rgba(30, 41, 59, 0.35);
+  }
+
+  .review-tools-toggle-label {
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .review-tools-toggle-hint {
+    font-size: 11px;
+    color: var(--c-muted);
+  }
+
+  .review-tools-collapsed-note {
+    font-size: 12px;
+    color: var(--c-muted);
+    margin: 10px 0 0;
+    line-height: 1.45;
+  }
+
+  .review-tools-panel {
+    margin-top: 12px;
+  }
+
+  .review-group-list {
+    list-style: none;
+    margin: 10px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-height: 280px;
+    overflow-y: auto;
+  }
+
+  .review-group-row {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--c-border);
+    background: rgba(2, 6, 23, 0.5);
+  }
+
+  .review-group-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .review-group-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--c-text);
+  }
+
+  .review-group-counts {
+    font-size: 11px;
+    color: var(--c-muted);
   }
 
   .tools-section {
