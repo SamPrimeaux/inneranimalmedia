@@ -39,6 +39,12 @@ import {
   mcpOAuthSafePathWithSearch,
   mcpOAuthValidateRedirectUri,
   iamMcpOAuthAuthorizationServerMetadata,
+  IAM_MCP_RESOURCE_URL,
+  MCP_CANONICAL_CLIENT_ID,
+  resolveMcpOAuthResourceParam,
+  assertMcpOAuthResourceMatches,
+  normalizeMcpOAuthResourceUrl,
+  parseMcpOAuthAuthorizationMetadata,
   mcpOAuthLoadClient,
   mcpOAuthRedirectAllowed,
   mcpOAuthScopeAllowed,
@@ -796,6 +802,7 @@ async function mcpOAuthReadBody(request) {
       redirect_uri: String(j.redirect_uri || j.redirectUri || ''),
       code_verifier: String(j.code_verifier || j.codeVerifier || ''),
       client_id: String(j.client_id || j.clientId || ''),
+      resource: resolveMcpOAuthResourceParam(j),
     };
   }
 
@@ -807,6 +814,7 @@ async function mcpOAuthReadBody(request) {
     redirect_uri: String(form.get('redirect_uri') || ''),
     code_verifier: String(form.get('code_verifier') || ''),
     client_id: String(form.get('client_id') || ''),
+    resource: resolveMcpOAuthResourceParam(form),
   };
 }
 
@@ -854,6 +862,15 @@ async function handleMcpOAuthAuthorize(request, env, _ctx) {
     return mcpOAuthJsonError('invalid_scope', 400);
   }
 
+  let resourceRaw = resolveMcpOAuthResourceParam(url.searchParams);
+  if (!resourceRaw && clientId === MCP_CANONICAL_CLIENT_ID) {
+    resourceRaw = IAM_MCP_RESOURCE_URL;
+  }
+  const resourceCheck = assertMcpOAuthResourceMatches(resourceRaw);
+  if (!resourceCheck.ok) {
+    return mcpOAuthJsonError(resourceCheck.error, 400);
+  }
+
   const tenantId = await mcpOAuthResolveTenantId(env, authUser);
   if (!tenantId) return mcpOAuthJsonError('invalid_tenant', 400);
 
@@ -862,11 +879,16 @@ async function handleMcpOAuthAuthorize(request, env, _ctx) {
   const expiresAt = now + MCP_OAUTH_AUTHZ_TTL_SECONDS;
   const authorizationId = `oaa_${crypto.randomUUID().replace(/-/g, '')}`;
 
+  const authMetadata = JSON.stringify({
+    resource: resourceCheck.resource,
+    audience: resourceCheck.resource,
+  });
+
   await env.DB.prepare(
     `INSERT INTO oauth_authorizations (
        id, client_id, user_id, tenant_id, workspace_id, redirect_uri, scope, state,
        code_challenge, code_challenge_method, status, expires_at, metadata_json, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, '{}', unixepoch(), unixepoch())`,
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, unixepoch(), unixepoch())`,
   )
     .bind(
       authorizationId,
@@ -880,6 +902,7 @@ async function handleMcpOAuthAuthorize(request, env, _ctx) {
       codeChallenge,
       codeChallengeMethod,
       expiresAt,
+      authMetadata,
     )
     .run();
 
@@ -887,7 +910,11 @@ async function handleMcpOAuthAuthorize(request, env, _ctx) {
     request,
     eventType: 'iam_mcp_oauth_authorize_pending',
     userId: authUser.id,
-    metadata: { client_id: clientId, authorization_id: authorizationId },
+    metadata: {
+      client_id: clientId,
+      authorization_id: authorizationId,
+      resource: resourceCheck.resource,
+    },
   });
 
   const consent = new URL('/oauth/mcp/consent', url.origin);
@@ -980,14 +1007,37 @@ async function handleMcpOAuthToken(request, env, _ctx) {
   const client = await mcpOAuthLoadClient(env, row.client_id);
   const tenantId = String(row.tenant_id || authRow?.tenant_id || env.TENANT_ID || '');
   let workspaceId = env.WORKSPACE_ID || '';
+  let boundResource = IAM_MCP_RESOURCE_URL;
   try {
     const authz = await env.DB.prepare(
-      `SELECT workspace_id FROM oauth_authorizations WHERE authorization_code_hash = ? LIMIT 1`,
+      `SELECT workspace_id, metadata_json FROM oauth_authorizations WHERE authorization_code_hash = ? LIMIT 1`,
     )
       .bind(codeHash)
       .first();
     workspaceId = String(authz?.workspace_id || workspaceId || '');
+    const meta = parseMcpOAuthAuthorizationMetadata(authz?.metadata_json);
+    if (meta.resource) boundResource = String(meta.resource);
+    else if (meta.audience) boundResource = String(meta.audience);
   } catch (_) {}
+
+  const tokenResourceRaw = body.resource || boundResource;
+  const resourceCheck = assertMcpOAuthResourceMatches(tokenResourceRaw);
+  if (!resourceCheck.ok) {
+    await logMcpOAuthTokenFailure(env, request, resourceCheck.error, {
+      client_id: body.client_id || row.client_id,
+    });
+    return mcpOAuthJsonError(resourceCheck.error, 400);
+  }
+  if (
+    body.resource &&
+    normalizeMcpOAuthResourceUrl(body.resource) !== normalizeMcpOAuthResourceUrl(boundResource)
+  ) {
+    await logMcpOAuthTokenFailure(env, request, 'resource_mismatch', {
+      client_id: body.client_id || row.client_id,
+    });
+    return mcpOAuthJsonError('invalid_resource', 400);
+  }
+
   const scope = String(row.scope || mcpOAuthNormalizeScope('', client));
   const accessToken = mcpOAuthRandomToken('mcp_oauth', 32);
   const tokenHash = await mcpOAuthSha256Hex(accessToken);
@@ -1025,8 +1075,8 @@ async function handleMcpOAuthToken(request, env, _ctx) {
        (id, workspace_id, tenant_id, label, token_hash, allowed_tools,
         repo_path, github_repo, rate_limit_per_hour, is_active, created_at, expires_at, user_id,
         token_type, created_by, scopes_json, allowed_capability_keys_json,
-        allowed_lanes_json, allowed_risk_levels_json, allowed_domains_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, unixepoch(), ?, ?, ?, ?, ?, ?, ?, ?)`,
+        allowed_lanes_json, allowed_risk_levels_json, allowed_domains_json, audience)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, unixepoch(), ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       `tok_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`,
@@ -1047,6 +1097,7 @@ async function handleMcpOAuthToken(request, env, _ctx) {
       JSON.stringify(entitlements.lanes),
       JSON.stringify(entitlements.riskLevels),
       domainsPayload,
+      resourceCheck.resource,
     )
     .run();
 
@@ -1055,6 +1106,7 @@ async function handleMcpOAuthToken(request, env, _ctx) {
     token_type: 'Bearer',
     expires_in: tokenTtl,
     scope,
+    resource: resourceCheck.resource,
   });
 }
 

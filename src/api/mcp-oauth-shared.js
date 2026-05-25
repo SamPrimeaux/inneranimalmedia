@@ -3,6 +3,57 @@ import { jsonResponse } from '../core/auth.js';
 export const MCP_CANONICAL_CLIENT_ID = 'iam_mcp_inneranimalmedia';
 export const IAM_OAUTH_ISSUER = 'https://inneranimalmedia.com';
 export const IAM_MCP_RESOURCE_URL = 'https://mcp.inneranimalmedia.com/mcp';
+
+/** Normalize resource/audience URL for comparison (RFC 8707). */
+export function normalizeMcpOAuthResourceUrl(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  try {
+    const u = new URL(s);
+    u.hash = '';
+    u.search = '';
+    let path = u.pathname || '/';
+    if (path.length > 1 && path.endsWith('/')) path = path.slice(0, -1);
+    u.pathname = path || '/';
+    return u.href;
+  } catch {
+    return s.replace(/\/$/, '');
+  }
+}
+
+/** Read `resource` or legacy `audience` from URLSearchParams or token body object. */
+export function resolveMcpOAuthResourceParam(source) {
+  if (!source) return '';
+  if (typeof source.get === 'function') {
+    return String(source.get('resource') || source.get('audience') || '').trim();
+  }
+  return String(source.resource || source.audience || '').trim();
+}
+
+/**
+ * Validate resource indicator against canonical MCP resource URL.
+ * @returns {{ ok: true, resource: string } | { ok: false, error: string }}
+ */
+export function assertMcpOAuthResourceMatches(raw) {
+  const normalized = normalizeMcpOAuthResourceUrl(raw);
+  const expected = normalizeMcpOAuthResourceUrl(IAM_MCP_RESOURCE_URL);
+  if (!normalized) {
+    return { ok: false, error: 'missing_resource' };
+  }
+  if (normalized !== expected) {
+    return { ok: false, error: 'invalid_resource' };
+  }
+  return { ok: true, resource: expected };
+}
+
+export function parseMcpOAuthAuthorizationMetadata(metadataJson) {
+  try {
+    const j = JSON.parse(String(metadataJson || '{}'));
+    return j && typeof j === 'object' ? j : {};
+  } catch {
+    return {};
+  }
+}
 export const MCP_OAUTH_CODE_TTL_SECONDS = 10 * 60;
 /** OAuth access tokens — 24h (override per deploy via env.MCP_OAUTH_TOKEN_TTL_SECONDS). */
 export const MCP_OAUTH_TOKEN_TTL_SECONDS = 60 * 60 * 24;
