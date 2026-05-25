@@ -436,7 +436,7 @@ export async function loadActiveCatalogModelKeysOrdered(env) {
   }
 }
 
-async function loadRouteRequirementsRow(env, routeKey) {
+export async function loadRouteRequirementsRow(env, routeKey) {
   const rk = routeKey != null ? String(routeKey).trim() : '';
   if (!rk || !env?.DB) return null;
   const cols = await pragmaTableInfo(env.DB, 'agentsam_route_requirements');

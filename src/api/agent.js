@@ -116,6 +116,7 @@ import {
   loadChatRoutingArmsModelKeyOrder,
   queryRoutingArmsCandidates,
   resolveRoutingTaskType,
+  loadRouteRequirementsRow,
   selectAutoModel,
   recordRoutingArmOutcome,
   isAnthropicSmoketestQuickstartBatch,
@@ -6794,18 +6795,14 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   const threshold = Number(modeConfig?.escalation_threshold);
   const escalationThreshold = Number.isFinite(threshold) ? threshold : 0;
 
-  /** Only force tool-capable models + provider tool arrays when intent clearly needs execution surfaces. */
-  const TASK_TYPES_REQUIRING_TOOL_CAPABLE_MODEL = new Set([
-    'agent',
-    'multitask',
-    'debug',
-  ]);
-  const taskTypeKey = String(intentResult?.taskType || '').toLowerCase();
-  const agentWantsToolExecution =
-    TASK_TYPES_REQUIRING_TOOL_CAPABLE_MODEL.has(taskTypeKey) ||
-    (requestedMode === 'ask' && explicitSurfaceOrWorkflowIntent) ||
-    imageCapabilityIntent ||
-    videoCapabilityIntent;
+  const routeKeyForRequirements = (() => {
+    const fromRoute = promptRouteRow?.route_key != null ? String(promptRouteRow.route_key).trim() : '';
+    if (fromRoute) return fromRoute;
+    const fromBody = body?.route_key != null ? String(body.route_key).trim() : '';
+    return fromBody || null;
+  })();
+  const routeRequirementsRow = await loadRouteRequirementsRow(env, routeKeyForRequirements);
+  const agentWantsToolExecution = Number(routeRequirementsRow?.requires_tools) === 1;
   const toolsBuiltCount = tools.length;
 
   if (agentLikeTooling && !agentWantsToolExecution) {

@@ -102,8 +102,9 @@ export function normalizeCanonicalTaskType(task_type) {
   const tt = String(task_type ?? 'ask').trim().toLowerCase();
   if (CANONICAL_TASK_TYPES.includes(tt)) return tt;
   if (tt === 'subagent_dispatch') return 'multitask';
-  if (tt === 'plan') return 'plan';
+  if (tt === 'plan' || tt === 'research') return 'plan';
   if (tt === 'debug' || tt === 'debug_live_page' || tt === 'browser_ui_repair') return 'debug';
+  if (tt === 'embedding') return 'ask';
   if (
     [
       'chat',
