@@ -377,6 +377,81 @@ export async function intersectOAuthToolsWithUserPolicy(env, scope, clientId) {
   return { keys, policy, requireAllowlist, oauthKeys };
 }
 
+/**
+ * Tools shown on MCP OAuth consent (same intersection as token issue).
+ * @param {any} env
+ * @param {{ userId: string, workspaceId: string, tenantId?: string, clientId: string, grantedScopes: string[] }} input
+ */
+export async function loadMcpOAuthConsentToolManifest(env, input) {
+  const clientId = String(input?.clientId || MCP_CANONICAL_CLIENT_ID);
+  const scopeSet = new Set((input?.grantedScopes || []).map((s) => String(s).trim()).filter(Boolean));
+  const empty = {
+    tools: [],
+    summary: { total: 0, read: 0, write: 0 },
+    require_allowlist_for_mcp: false,
+  };
+  if (!scopeSet.has('mcp:tools')) return empty;
+
+  const { keys, requireAllowlist } = await intersectOAuthToolsWithUserPolicy(env, {
+    userId: input.userId,
+    workspaceId: input.workspaceId,
+    tenantId: input.tenantId,
+    clientId,
+  }, clientId);
+
+  const allow = new Set(keys);
+  let rows = (await loadMcpOAuthAllowlistRows(env, clientId)).filter((r) => allow.has(r.tool_key));
+  if (!scopeSet.has('iam:agent')) {
+    rows = rows.filter((r) => r.access_class !== 'write');
+  }
+
+  if (!rows.length) {
+    return { tools: [], summary: { total: 0, read: 0, write: 0 }, require_allowlist_for_mcp: requireAllowlist };
+  }
+
+  const meta = new Map();
+  if (env?.DB) {
+    const placeholders = rows.map(() => '?').join(',');
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT tool_key,
+                COALESCE(NULLIF(trim(display_name), ''), tool_key) AS label,
+                COALESCE(risk_level, 'low') AS risk_level,
+                COALESCE(requires_approval, 0) AS requires_approval
+           FROM agentsam_mcp_tools
+          WHERE tool_key IN (${placeholders})
+            AND COALESCE(is_active, 1) = 1`,
+      )
+        .bind(...rows.map((r) => r.tool_key))
+        .all();
+      for (const r of results || []) {
+        const k = String(r.tool_key || '').trim();
+        if (!k) continue;
+        meta.set(k, r);
+      }
+    } catch (_) {}
+  }
+
+  const tools = rows.map((r) => {
+    const m = meta.get(r.tool_key);
+    return {
+      tool_key: r.tool_key,
+      label: String(m?.label || r.tool_key),
+      access_class: r.access_class,
+      risk_level: String(m?.risk_level || 'low'),
+      requires_approval: Number(m?.requires_approval) === 1,
+    };
+  });
+
+  const read = tools.filter((t) => t.access_class === 'read').length;
+  const write = tools.filter((t) => t.access_class === 'write').length;
+  return {
+    tools,
+    summary: { total: tools.length, read, write },
+    require_allowlist_for_mcp: requireAllowlist,
+  };
+}
+
 /** Workspace github_repo + repo_path for MCP token rows (per-user isolation). */
 export async function loadWorkspaceMcpTokenBindings(env, workspaceId) {
   if (!env?.DB || !workspaceId) return { github_repo: null, repo_path: null, tenant_id: null };

@@ -164,8 +164,8 @@ const SCOPE_META: Record<string, Omit<ScopeInfo, "scope">> = {
     sensitive: true,
   },
   "mcp:tools": {
-    label: "MCP tools",
-    description: "Invoke only the tools listed below for your account.",
+    label: "Approved MCP tools",
+    description: "Call only the MCP tools listed below for your account (scope: mcp:tools).",
     sensitive: true,
   },
   "mcp:userinfo": {
@@ -194,7 +194,7 @@ function scopesForDisplay(
 ): ScopeInfo[] {
   return scopes
     .filter((s) => {
-      if (s.scope === "iam:workspaces" || s.scope === "iam:agent") return false;
+      if (s.scope === "iam:agent") return false;
       if (hasToolManifest && s.scope === "mcp:tools") return false;
       return true;
     })
@@ -202,7 +202,7 @@ function scopesForDisplay(
       if (s.scope === "mcp:tools") {
         return {
           ...s,
-          label: "MCP tools",
+          label: "Approved MCP tools",
           description: `Allow ${clientDisplayName} to call only the MCP tools listed for your account.`,
         };
       }
@@ -352,8 +352,11 @@ function ConsentToolsSection({
   return (
     <section className="tools-section" aria-labelledby="tools-heading">
       <h2 id="tools-heading" className="section-label">
-        MCP tools {clientLabel} may call
+        Approved MCP tools
       </h2>
+      <p className="tools-scope-note">
+        Scope <code>mcp:tools</code> — {clientLabel} may call only these tools for your account.
+      </p>
       <p className="tools-summary">
         {summary.total} tool{summary.total === 1 ? "" : "s"} for this connection
         {summary.read > 0 ? ` · ${summary.read} read` : ""}
@@ -1083,6 +1086,18 @@ const STYLES = `
     border-top: 1px solid var(--c-border-subtle);
     padding-top: 16px;
     margin-top: 4px;
+  }
+
+  .tools-scope-note {
+    font-size: 12px;
+    color: var(--c-muted);
+    margin: 0 0 8px;
+    line-height: 1.45;
+  }
+
+  .tools-scope-note code {
+    font-size: 11px;
+    color: var(--c-accent);
   }
 
   .tools-summary {
