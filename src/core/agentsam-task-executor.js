@@ -1148,7 +1148,7 @@ Rules:
         try {
           if (resolved?.routing_arm_id && agentApiModule?.recordArmOutcome) {
             await agentApiModule.recordArmOutcome(
-              env, ctx, resolved.routing_arm_id, !!genResult?.ok ?? true,
+              env, ctx, resolved.routing_arm_id, genResult?.ok ?? true,
               { model_key: resolved.model_key }
             );
           }
@@ -1292,7 +1292,7 @@ Rules:
         try {
           if (resolved?.routing_arm_id && agentApiModule?.recordArmOutcome) {
             await agentApiModule.recordArmOutcome(
-              env, ctx, resolved.routing_arm_id, !!result?.ok ?? true,
+              env, ctx, resolved.routing_arm_id, result?.ok ?? true,
               { model_key: resolved.model_key }
             );
           }
@@ -1593,7 +1593,7 @@ Rules:
         try {
           if (resolved?.routing_arm_id && agentApiModule?.recordArmOutcome) {
             await agentApiModule.recordArmOutcome(
-              env, ctx, resolved.routing_arm_id, !!result?.ok ?? true,
+              env, ctx, resolved.routing_arm_id, result?.ok ?? true,
               { model_key: resolved.model_key }
             );
           }
@@ -1640,7 +1640,7 @@ Rules:
           try {
             if (resolved?.routing_arm_id && agentApiModule?.recordArmOutcome) {
               await agentApiModule.recordArmOutcome(
-                env, ctx, resolved.routing_arm_id, !!result?.ok ?? true,
+                env, ctx, resolved.routing_arm_id, result?.ok ?? true,
                 { model_key: resolved.model_key }
               );
             }
@@ -1668,7 +1668,7 @@ Rules:
         try {
           if (resolved?.routing_arm_id && agentApiModule?.recordArmOutcome) {
             await agentApiModule.recordArmOutcome(
-              env, ctx, resolved.routing_arm_id, !!result?.ok ?? true,
+              env, ctx, resolved.routing_arm_id, result?.ok ?? true,
               { model_key: resolved.model_key }
             );
           }
