@@ -7,12 +7,12 @@
  * terminal agents) MUST call resolveModelForTask() and consume the returned
  * ResolvedModel. Nobody decides provider from a raw string.
  *
- * Resolution chain (first match wins, never returns null):
+ * Resolution chain (first match wins unless emergency fallback is exhausted):
  *   A. Explicit routing_arm_id        → honor caller's arm directly
  *   B. Explicit requested_model_key   → respect user/UI picker choice
  *   C. Thompson sampling              → Beta(α,β) draw across eligible arms
  *   D. Global arm policy              → agentsam_routing_arms (no workspace)
- *   E. JS emergency hardstop          → EMERGENCY_POLICY (last resort, warns)
+ *   E. D1 emergency arm fallback      → agentsam_routing_arms (last resort, warns)
  *
  * Deploy: npm run deploy:full
  */
@@ -125,20 +125,31 @@ export function normalizeCanonicalTaskType(task_type) {
   return 'agent';
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 5. Emergency JS policy (Path E — last resort only)
-//    These are NEVER the primary routing decision.
-//    Thompson arms and DB policy take precedence.
-//    Canonical task_types only: agent | ask | multitask | plan | debug
-// ─────────────────────────────────────────────────────────────────────────────
-
-const EMERGENCY_POLICY = {
-  ask:       { primary: 'gpt-5.4-nano',  fallback: 'gemini-2.5-flash-lite' },
-  agent:     { primary: 'gpt-5.4-mini',  fallback: 'gemini-2.5-flash'      },
-  plan:      { primary: 'gpt-5.4-mini',  fallback: 'gemini-2.5-flash'      },
-  debug:     { primary: 'gpt-5.4',       fallback: 'claude-sonnet-4-6'     },
-  multitask: { primary: 'gpt-5.4',       fallback: 'gpt-5.4-mini'          },
-};
+async function resolveEmergencyModel(db, task_type) {
+  try {
+    const row = await db.prepare(
+      `SELECT model_key FROM agentsam_routing_arms
+       WHERE task_type = ?
+         AND is_active = 1 AND is_eligible = 1
+         AND COALESCE(is_paused, 0) = 0
+         AND COALESCE(budget_exhausted, 0) = 0
+       ORDER BY priority DESC, decayed_score DESC
+       LIMIT 1`,
+    ).bind(task_type).first();
+    if (row?.model_key) return row.model_key;
+  } catch (_) {}
+  try {
+    const fallback = await db.prepare(
+      `SELECT model_key FROM agentsam_routing_arms
+       WHERE task_type = 'ask'
+         AND is_active = 1 AND is_eligible = 1
+         AND COALESCE(is_paused, 0) = 0
+       ORDER BY priority DESC LIMIT 1`,
+    ).first();
+    return fallback?.model_key ?? null;
+  } catch (_) {}
+  return null;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 6. Core model loader
@@ -523,30 +534,26 @@ export async function resolveModelForTask(env, {
       }
     }
 
-    // ── Path E: JS emergency hardstop ───────────────────────────────────────
+    // ── Path E: D1 emergency arm fallback ───────────────────────────────────
     source = 'emergency';
-    const policy = EMERGENCY_POLICY[normalizedTaskType]
-      ?? EMERGENCY_POLICY['ask'];
+    const emergencyModelKey = await resolveEmergencyModel(db, normalizedTaskType);
 
-    console.warn(`[resolveModel] E EMERGENCY task=${normalizedTaskType} mode=${mode} — no arms or global policy found. Seed agentsam_routing_arms.`);
+    console.warn(`[resolveModel] E EMERGENCY task=${normalizedTaskType} mode=${mode} — no arms or global policy found.`);
 
-    for (const [key, src] of [
-      [policy?.primary,  'emergency'],
-      [policy?.fallback, 'emergency_fallback'],
-    ]) {
-      if (!key) continue;
-      try {
-        const resolved = await loadModelRecord(db, key, src, null, cap);
-        _log(resolved, t0, 'E');
-        return resolved;
-      } catch (e) {
-        console.warn(`[resolveModel] E emergency model="${key}" failed: ${e.message}`);
-      }
+    if (!emergencyModelKey) {
+      console.warn('[resolveModel] emergency fallback exhausted');
+      return null;
     }
 
-    throw new ResolutionError('RESOLUTION_EXHAUSTED',
-      `all paths failed for task_type="${normalizedTaskType}" mode="${mode}"`,
-      { task_type: normalizedTaskType, mode, workspace_id });
+    try {
+      const resolved = await loadModelRecord(db, emergencyModelKey, 'emergency', null, cap);
+      _log(resolved, t0, 'E');
+      return resolved;
+    } catch (e) {
+      console.warn(`[resolveModel] E emergency model="${emergencyModelKey}" failed: ${e.message}`);
+      console.warn('[resolveModel] emergency fallback exhausted');
+      return null;
+    }
 
   } catch (e) {
     if (e instanceof ResolutionError) throw e;
