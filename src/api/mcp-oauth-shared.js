@@ -74,8 +74,30 @@ export function iamMcpOAuthAuthorizationServerMetadata() {
     response_types_supported: ['code'],
     grant_types_supported: ['authorization_code'],
     code_challenge_methods_supported: ['S256'],
-    scopes_supported: ['iam:profile', 'iam:workspaces', 'iam:agent', 'mcp:tools', 'mcp:userinfo'],
+    scopes_supported: [
+      'openid',
+      'iam:profile',
+      'iam:workspaces',
+      'iam:agent',
+      'mcp:tools',
+      'mcp:userinfo',
+    ],
     token_endpoint_auth_methods_supported: ['none', 'client_secret_post'],
+    subject_types_supported: ['public'],
+    id_token_signing_alg_values_supported: ['HS256'],
+  };
+}
+
+/** OpenID Connect Discovery 1.0 */
+export function iamMcpOpenIdConfiguration() {
+  const base = iamMcpOAuthAuthorizationServerMetadata();
+  return {
+    ...base,
+    scopes_supported: base.scopes_supported,
+    claims_supported: ['sub', 'iss', 'aud', 'azp', 'exp', 'iat', 'email', 'name', 'resource'],
+    response_types_supported: ['code'],
+    subject_types_supported: ['public'],
+    id_token_signing_alg_values_supported: ['HS256'],
   };
 }
 
@@ -467,6 +489,7 @@ export async function loadMcpOAuthConsentToolManifest(env, input) {
       const { results } = await env.DB.prepare(
         `SELECT tool_key,
                 COALESCE(NULLIF(trim(display_name), ''), tool_key) AS label,
+                COALESCE(NULLIF(trim(tool_category), ''), 'general') AS tool_category,
                 COALESCE(risk_level, 'low') AS risk_level,
                 COALESCE(requires_approval, 0) AS requires_approval
            FROM agentsam_mcp_tools
@@ -489,6 +512,7 @@ export async function loadMcpOAuthConsentToolManifest(env, input) {
       tool_key: r.tool_key,
       label: String(m?.label || r.tool_key),
       access_class: r.access_class,
+      tool_category: String(m?.tool_category || 'general'),
       risk_level: String(m?.risk_level || 'low'),
       requires_approval: Number(m?.requires_approval) === 1,
     };
@@ -496,8 +520,29 @@ export async function loadMcpOAuthConsentToolManifest(env, input) {
 
   const read = tools.filter((t) => t.access_class === 'read').length;
   const write = tools.filter((t) => t.access_class === 'write').length;
+
+  let tool_groups = [];
+  try {
+    const { groupMcpToolsForPreferences, buildSafeDefaultMcpGroupPreferences } = await import(
+      '../core/mcp-tool-preference.js'
+    );
+    tool_groups = groupMcpToolsForPreferences(tools);
+    const safe_defaults = buildSafeDefaultMcpGroupPreferences(tool_groups, {
+      hasAgentScope: scopeSet.has('iam:agent'),
+    });
+    return {
+      tools,
+      tool_groups,
+      safe_default_preferences: safe_defaults,
+      summary: { total: tools.length, read, write },
+      require_allowlist_for_mcp: requireAllowlist,
+    };
+  } catch (_) {}
+
   return {
     tools,
+    tool_groups,
+    safe_default_preferences: {},
     summary: { total: tools.length, read, write },
     require_allowlist_for_mcp: requireAllowlist,
   };

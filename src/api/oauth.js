@@ -39,6 +39,8 @@ import {
   mcpOAuthSafePathWithSearch,
   mcpOAuthValidateRedirectUri,
   iamMcpOAuthAuthorizationServerMetadata,
+  iamMcpOpenIdConfiguration,
+  IAM_OAUTH_ISSUER,
   IAM_MCP_RESOURCE_URL,
   MCP_CANONICAL_CLIENT_ID,
   resolveMcpOAuthResourceParam,
@@ -49,6 +51,7 @@ import {
   mcpOAuthRedirectAllowed,
   mcpOAuthScopeAllowed,
   mcpOAuthNormalizeScope,
+  mcpOAuthParseScopeList,
   loadMcpOAuthExternalAllowedToolsJson,
   loadWorkspaceMcpTokenBindings,
   buildMcpOAuthTokenEntitlements,
@@ -58,6 +61,7 @@ import {
 } from './mcp-oauth-shared.js';
 import { checkMcpOAuthRateLimit } from './mcp-oauth-rate-limit.js';
 import { logAuthEvent } from '../core/auth-events.js';
+import { signIamOidcIdToken, buildIamMcpIdTokenClaims } from '../core/mcp-oidc-id-token.js';
 
 function mcpOAuthRequestMeta(request) {
   return {
@@ -1101,13 +1105,40 @@ async function handleMcpOAuthToken(request, env, _ctx) {
     )
     .run();
 
-  return jsonResponse({
+  const scopeList = mcpOAuthParseScopeList(scope);
+  const tokenBody = {
     access_token: accessToken,
     token_type: 'Bearer',
     expires_in: tokenTtl,
     scope,
     resource: resourceCheck.resource,
-  });
+  };
+
+  if (scopeList.includes('openid')) {
+    try {
+      tokenBody.id_token = await signIamOidcIdToken(
+        env,
+        buildIamMcpIdTokenClaims({
+          issuer: IAM_OAUTH_ISSUER,
+          userId,
+          email: authRow?.email || null,
+          name: authRow?.name || null,
+          clientId: row.client_id,
+          audience: resourceCheck.resource,
+          authTime: now,
+        }),
+        tokenTtl,
+      );
+    } catch (e) {
+      await logMcpOAuthTokenFailure(env, request, 'id_token_sign_failed', {
+        client_id: row.client_id,
+        detail: String(e?.message || e),
+      });
+      return mcpOAuthJsonError('server_error', 500);
+    }
+  }
+
+  return jsonResponse(tokenBody);
 }
 
 async function handleMcpOAuthUserinfo(request, env, _ctx) {
@@ -1181,6 +1212,9 @@ export async function handleIamOAuthWellKnown(request) {
   const pathLower = url.pathname.toLowerCase().replace(/\/$/, '');
   if (pathLower === '/.well-known/oauth-authorization-server') {
     return jsonResponse(iamMcpOAuthAuthorizationServerMetadata());
+  }
+  if (pathLower === '/.well-known/openid-configuration') {
+    return jsonResponse(iamMcpOpenIdConfiguration());
   }
   return null;
 }

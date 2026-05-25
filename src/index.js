@@ -407,7 +407,11 @@ export default {
         return handleIamMcpOAuthConsentPage(request, env);
       }
 
-      if (request.method === 'GET' && pathLower === '/.well-known/oauth-authorization-server') {
+      if (
+        request.method === 'GET' &&
+        (pathLower === '/.well-known/oauth-authorization-server' ||
+          pathLower === '/.well-known/openid-configuration')
+      ) {
         const { handleIamOAuthWellKnown } = await import('./api/oauth.js');
         const wk = await handleIamOAuthWellKnown(request);
         if (wk) return wk;
