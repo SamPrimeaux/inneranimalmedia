@@ -17,6 +17,7 @@ import { pragmaTableInfo } from './retention.js';
 import { resolveCanonicalUserId } from '../api/auth.js';
 import { insertExecutionDependencyGraphEdge } from '../api/command-run-telemetry.js';
 import { extractBrowserNavigateUrl } from './extract-browser-url.js';
+import * as agentApiModule from '../api/agent.js';
 
 const TIER_ORDER = ['micro', 'flash', 'standard', 'power', 'reasoning'];
 
@@ -514,6 +515,7 @@ async function dispatchNode(env, node, input, runContext) {
             ? String(runContext.runMeta.workspaceId).trim()
             : '';
         let resolvedCatalogKey = config.model_key || null;
+        let resolvedArm = null;
         if (!resolvedCatalogKey && env?.DB && wsId) {
           try {
             const resolved = await resolveModelForTask(env, {
@@ -525,6 +527,7 @@ async function dispatchNode(env, node, input, runContext) {
                   ? String(runContext.runMeta.tenantId).trim()
                   : undefined,
             });
+            resolvedArm = resolved;
             resolvedCatalogKey = resolved?.model_key ?? null;
           } catch (resolveErr) {
             console.warn('[workflow] resolveModelForTask', resolveErr?.message ?? resolveErr);
@@ -571,7 +574,13 @@ async function dispatchNode(env, node, input, runContext) {
           || result?.output
           || JSON.stringify(result);
 
-        return { ok: true, output: { result: text, model: result?.model, tokens: result?.usage } };
+        return {
+          ok: true,
+          output: { result: text, model: result?.model, tokens: result?.usage },
+          model: result?.model,
+          tokens: result?.usage,
+          resolvedArm,
+        };
       } catch (e) {
         return { ok: false, error: `agent node failed: ${e?.message ?? e}` };
       }
@@ -842,15 +851,6 @@ function pickUsageFromNodeOutput(nodeOutput) {
   return { tin, tout, cost };
 }
 
-function pickModelFromNodeOutput(nodeOutput) {
-  const o = nodeOutput?.output;
-  if (!o || typeof o !== 'object') return null;
-  const u = o.usage && typeof o.usage === 'object' ? o.usage : o;
-  const m = o.model_key ?? o.model ?? u.model_key ?? u.model ?? null;
-  if (m == null || String(m).trim() === '') return null;
-  return String(m).slice(0, 500);
-}
-
 function firstUrlFromWorkflowNodeInput(nodeInput) {
   const u = extractBrowserNavigateUrl(nodeInput);
   return u || undefined;
@@ -1102,6 +1102,7 @@ export async function executeWorkflowGraph(env, opts) {
     onStream = null,
     onRunCreated = null,
     run_group_id: optsRunGroupId,
+    ctx = null,
   } = opts;
 
   const runGroupId =
@@ -1334,12 +1335,28 @@ export async function executeWorkflowGraph(env, opts) {
 
     ffCompleteExecutionStep(env.DB, stepCols, stepId, nodeStartTime, nodeOutput);
 
-    const usage = pickUsageFromNodeOutput(nodeOutput);
-    totalInputTokens += usage.tin;
-    totalOutputTokens += usage.tout;
-    totalCostUsd += usage.cost;
-    const stepModel = pickModelFromNodeOutput(nodeOutput);
-    if (stepModel) lastModelUsed = stepModel;
+    const nodeResult = nodeOutput;
+    const usage = nodeResult?.output?.usage
+               ?? nodeResult?.output?.tokens
+               ?? nodeResult?.tokens
+               ?? nodeResult?.usage
+               ?? {};
+    totalInputTokens  += usage.input_tokens  ?? usage.prompt_tokens     ?? 0;
+    totalOutputTokens += usage.output_tokens ?? usage.completion_tokens ?? 0;
+    totalCostUsd      += usage.cost_usd      ?? usage.cost              ?? 0;
+    if (nodeResult?.output?.model ?? nodeResult?.model) {
+      lastModelUsed = nodeResult?.output?.model ?? nodeResult?.model;
+    }
+    try {
+      const resolvedArm = nodeResult?.resolvedArm ?? null;
+      const armId = resolvedArm?.routing_arm_id ?? null;
+      if (armId && agentApiModule?.recordArmOutcome) {
+        await agentApiModule.recordArmOutcome(
+          env, ctx, armId, !!nodeResult?.ok,
+          { model_key: resolvedArm?.model_key }
+        );
+      }
+    } catch (_) {}
 
     previousStepId = stepId;
 
