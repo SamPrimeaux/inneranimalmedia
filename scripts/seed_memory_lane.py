@@ -88,12 +88,15 @@ def json_request(method: str, url: str, *, headers: dict[str, str], payload: Any
         return resp.status, json.loads(raw) if raw else None
 
 
-def supabase_headers(key: str, *, prefer: str | None = None) -> dict[str, str]:
+def supabase_headers(key: str, *, prefer: str | None = None, write: bool = False) -> dict[str, str]:
     headers = {
         "apikey": key,
         "Authorization": f"Bearer {key}",
         "Accept": "application/json",
+        "Accept-Profile": "agentsam",
     }
+    if write:
+        headers["Content-Profile"] = "agentsam"
     if prefer:
         headers["Prefer"] = prefer
     return headers
@@ -113,6 +116,7 @@ def supabase_post(path: str, payload: Any, config: dict[str, str]) -> Any:
         headers=supabase_headers(
             config["supabase_key"],
             prefer="resolution=merge-duplicates,return=representation",
+            write=True,
         ),
         payload=payload,
     )
@@ -124,7 +128,11 @@ def supabase_patch(path: str, payload: Any, config: dict[str, str]) -> Any:
     _, data = json_request(
         "PATCH",
         url,
-        headers=supabase_headers(config["supabase_key"], prefer="return=representation"),
+        headers=supabase_headers(
+            config["supabase_key"],
+            prefer="return=representation",
+            write=True,
+        ),
         payload=payload,
     )
     return data
