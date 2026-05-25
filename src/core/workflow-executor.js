@@ -154,10 +154,10 @@ async function executePrimitive(env, executorKind, handlerKey, config, input, no
 
     case 'agent_llm': {
       const paramRoot = buildWorkflowParamRoot(input, runContext);
-      const taskType = normalizeCanonicalTaskType(
-        config.task_type || runContext?.workflowMeta?.default_task_type || 'agent',
-      );
-      const mode = config.mode || runContext?.workflowMeta?.default_mode || 'agent';
+      const taskType =
+        normalizeCanonicalTaskType(config.task_type ?? runContext?.workflowMeta?.default_task_type ?? null)
+        ?? 'agent';
+      const mode = config.mode ?? runContext?.workflowMeta?.default_mode ?? null;
       const userMsg =
         typeof input === 'string'
           ? input
@@ -506,12 +506,14 @@ async function dispatchNode(env, node, input, runContext) {
       try {
         // Derive task_type: prefer agentsam_workflows.default_task_type, then handler_key, then fallback
         const hkParts = String(handlerKey || '').split('.');
-        const taskType = normalizeCanonicalTaskType(
-          runContext?.workflowMeta?.default_task_type
-          || hkParts[1]
-          || hkParts[0]
-          || 'agent',
-        );
+        const taskType =
+          normalizeCanonicalTaskType(
+            runContext?.workflowMeta?.default_task_type
+            ?? hkParts[1]
+            ?? hkParts[0]
+            ?? null,
+          )
+          ?? 'agent';
         const mode = runContext?.workflowMeta?.default_mode ?? null;
 
         const wsId =
