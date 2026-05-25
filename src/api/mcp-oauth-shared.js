@@ -455,6 +455,51 @@ export async function intersectOAuthToolsWithUserPolicy(env, scope, clientId) {
   return { keys, policy, requireAllowlist, oauthKeys };
 }
 
+function normalizeMcpPermissionGroup(raw, accessClass) {
+  const s = String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  if (s) return s;
+  return String(accessClass || '').toLowerCase() === 'write' ? 'write' : 'general';
+}
+
+function mcpPermissionGroupIcon(groupKey, accessClass) {
+  const g = normalizeMcpPermissionGroup(groupKey, accessClass);
+  if (g === 'discover' || g === 'search' || g === 'research') return 'search';
+  if (g === 'observe' || g === 'inspect') return 'eye';
+  if (g === 'develop' || g === 'code' || g === 'github') return 'code';
+  if (g === 'database' || g === 'd1') return 'database';
+  if (g === 'storage' || g === 'r2') return 'archive';
+  if (g === 'operate' || g === 'workflow' || g === 'agent') return 'wrench';
+  if (g === 'write') return 'pencil';
+  return String(accessClass || '').toLowerCase() === 'write' ? 'pencil' : 'shield';
+}
+
+function buildMcpConsentServices(clientName, tools) {
+  /** @type {Map<string, { group: string, icon: string, items: string[] }>} */
+  const groups = new Map();
+  for (const tool of tools || []) {
+    const group = normalizeMcpPermissionGroup(tool.permission_group || tool.tool_category, tool.access_class);
+    if (!groups.has(group)) {
+      groups.set(group, {
+        group,
+        icon: mcpPermissionGroupIcon(group, tool.access_class),
+        items: [],
+      });
+    }
+    const entry = groups.get(group);
+    const item = String(tool.label || tool.tool_key || '').trim();
+    if (item && !entry.items.includes(item)) entry.items.push(item);
+  }
+  return {
+    name: String(clientName || 'MCP client'),
+    permissions: Array.from(groups.values()).sort((a, b) => a.group.localeCompare(b.group)),
+  };
+}
+
 /**
  * Tools shown on MCP OAuth consent (same intersection as token issue).
  * @param {any} env
@@ -466,6 +511,7 @@ export async function loadMcpOAuthConsentToolManifest(env, input) {
   const empty = {
     tools: [],
     summary: { total: 0, read: 0, write: 0 },
+    services: { name: String(input?.clientDisplayName || clientId), permissions: [] },
     require_allowlist_for_mcp: false,
   };
   if (!scopeSet.has('mcp:tools')) return empty;
@@ -484,7 +530,12 @@ export async function loadMcpOAuthConsentToolManifest(env, input) {
   }
 
   if (!rows.length) {
-    return { tools: [], summary: { total: 0, read: 0, write: 0 }, require_allowlist_for_mcp: requireAllowlist };
+    return {
+      tools: [],
+      summary: { total: 0, read: 0, write: 0 },
+      services: { name: String(input?.clientDisplayName || clientId), permissions: [] },
+      require_allowlist_for_mcp: requireAllowlist,
+    };
   }
 
   const meta = new Map();
@@ -496,7 +547,48 @@ export async function loadMcpOAuthConsentToolManifest(env, input) {
                 COALESCE(NULLIF(trim(display_name), ''), tool_key) AS label,
                 COALESCE(NULLIF(trim(tool_category), ''), 'general') AS tool_category,
                 COALESCE(risk_level, 'low') AS risk_level,
-                COALESCE(requires_approval, 0) AS requires_approval
+                COALESCE(requires_approval, 0) AS requires_approval,
+                COALESCE(
+                  NULLIF(
+                    trim((
+                      SELECT ca.capability_lane
+                        FROM agentsam_capability_aliases ca
+                       WHERE ca.match_kind = 'tool_key'
+                         AND ca.match_value = agentsam_mcp_tools.tool_key
+                         AND COALESCE(ca.is_active, 1) = 1
+                       ORDER BY COALESCE(ca.priority, 999) ASC, ca.abstract_capability ASC
+                       LIMIT 1
+                    )),
+                    ''
+                  ),
+                  NULLIF(trim(tool_category), ''),
+                  CASE
+                    WHEN EXISTS (
+                      SELECT 1
+                        FROM agentsam_capability_aliases ca
+                       WHERE ca.match_kind = 'tool_key'
+                         AND ca.match_value = agentsam_mcp_tools.tool_key
+                         AND COALESCE(ca.is_active, 1) = 1
+                         AND ca.abstract_capability IS NOT NULL
+                         AND trim(ca.abstract_capability) != ''
+                       ORDER BY COALESCE(ca.priority, 999) ASC, ca.abstract_capability ASC
+                       LIMIT 1
+                    )
+                    THEN (
+                      SELECT ca.abstract_capability
+                        FROM agentsam_capability_aliases ca
+                       WHERE ca.match_kind = 'tool_key'
+                         AND ca.match_value = agentsam_mcp_tools.tool_key
+                         AND COALESCE(ca.is_active, 1) = 1
+                         AND ca.abstract_capability IS NOT NULL
+                         AND trim(ca.abstract_capability) != ''
+                       ORDER BY COALESCE(ca.priority, 999) ASC, ca.abstract_capability ASC
+                       LIMIT 1
+                    )
+                    ELSE NULL
+                  END,
+                  'general'
+                ) AS permission_group
            FROM agentsam_mcp_tools
           WHERE tool_key IN (${placeholders})
             AND COALESCE(is_active, 1) = 1`,
@@ -517,7 +609,8 @@ export async function loadMcpOAuthConsentToolManifest(env, input) {
       tool_key: r.tool_key,
       label: String(m?.label || r.tool_key),
       access_class: r.access_class,
-      tool_category: String(m?.tool_category || 'general'),
+      tool_category: String(m?.permission_group || m?.tool_category || 'general'),
+      permission_group: normalizeMcpPermissionGroup(m?.permission_group || m?.tool_category, r.access_class),
       risk_level: String(m?.risk_level || 'low'),
       requires_approval: Number(m?.requires_approval) === 1,
     };
@@ -525,6 +618,7 @@ export async function loadMcpOAuthConsentToolManifest(env, input) {
 
   const read = tools.filter((t) => t.access_class === 'read').length;
   const write = tools.filter((t) => t.access_class === 'write').length;
+  const services = buildMcpConsentServices(input?.clientDisplayName || clientId, tools);
 
   let tool_groups = [];
   try {
@@ -540,6 +634,7 @@ export async function loadMcpOAuthConsentToolManifest(env, input) {
       tool_groups,
       safe_default_preferences: safe_defaults,
       summary: { total: tools.length, read, write },
+      services,
       require_allowlist_for_mcp: requireAllowlist,
     };
   } catch (_) {}
@@ -549,6 +644,7 @@ export async function loadMcpOAuthConsentToolManifest(env, input) {
     tool_groups,
     safe_default_preferences: {},
     summary: { total: tools.length, read, write },
+    services,
     require_allowlist_for_mcp: requireAllowlist,
   };
 }

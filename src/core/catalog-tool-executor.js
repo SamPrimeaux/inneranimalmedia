@@ -16,6 +16,172 @@ function parseInput(input) {
   return { value: input };
 }
 
+function stableSortValue(value) {
+  if (Array.isArray(value)) return value.map(stableSortValue);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort()
+        .map((key) => [key, stableSortValue(value[key])]),
+    );
+  }
+  return value;
+}
+
+async function sha256Hex(value) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(value || '')));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function safeJsonString(value, fallback = '{}') {
+  try {
+    return JSON.stringify(value ?? null);
+  } catch {
+    return fallback;
+  }
+}
+
+function summarizeOutput(output) {
+  const text =
+    output?.content?.[0]?.text ??
+    output?.text ??
+    output?.message ??
+    output?.error ??
+    safeJsonString(output, '');
+  return String(text || '').slice(0, 1000) || null;
+}
+
+function extractUsageMetrics(output, fallbackModel = null, fallbackProvider = null) {
+  const usage =
+    output?.usage && typeof output.usage === 'object'
+      ? output.usage
+      : output?.body?.usage && typeof output.body.usage === 'object'
+        ? output.body.usage
+        : null;
+  const inputTokens = Math.max(
+    0,
+    Math.floor(
+      Number(
+        usage?.input_tokens ??
+          usage?.prompt_tokens ??
+          usage?.inputTokens ??
+          output?.input_tokens ??
+          output?.body?.input_tokens ??
+          0,
+      ) || 0,
+    ),
+  );
+  const outputTokens = Math.max(
+    0,
+    Math.floor(
+      Number(
+        usage?.output_tokens ??
+          usage?.completion_tokens ??
+          usage?.outputTokens ??
+          output?.output_tokens ??
+          output?.body?.output_tokens ??
+          0,
+      ) || 0,
+    ),
+  );
+  const totalCostUsd =
+    Number(
+      usage?.cost_usd ??
+        usage?.costUsd ??
+        output?.cost_usd ??
+        output?.body?.cost_usd ??
+        output?.costUsd ??
+        output?.body?.costUsd ??
+        0,
+    ) || 0;
+  const inputCostUsd = Number(usage?.input_cost_usd ?? usage?.inputCostUsd ?? 0) || 0;
+  const outputCostUsd = Number(usage?.output_cost_usd ?? usage?.outputCostUsd ?? 0) || 0;
+  const modelUsed =
+    output?.model_key ??
+    output?.modelKey ??
+    output?.body?.model_key ??
+    output?.body?.modelKey ??
+    output?.model ??
+    output?.body?.model ??
+    fallbackModel;
+  const provider =
+    output?.provider ??
+    output?.body?.provider ??
+    fallbackProvider;
+  return {
+    inputTokens,
+    outputTokens,
+    inputCostUsd,
+    outputCostUsd,
+    totalCostUsd,
+    modelUsed: modelUsed != null ? String(modelUsed).trim() || null : null,
+    provider: provider != null ? String(provider).trim() || null : null,
+  };
+}
+
+async function writeTelemetryError(env, runContext, source, error) {
+  if (!env?.DB) return;
+  try {
+    await env.DB.prepare(
+      `INSERT INTO agentsam_error_log
+         (workspace_id, tenant_id, session_id, error_type, error_message, source, created_at)
+       VALUES (?,?,?,?,?,?,unixepoch())`,
+    )
+      .bind(
+        String(runContext?.workspaceId ?? runContext?.workspace_id ?? 'unknown').trim() || 'unknown',
+        String(runContext?.tenantId ?? runContext?.tenant_id ?? 'system').trim() || 'system',
+        runContext?.conversationId ?? runContext?.conversation_id ?? runContext?.sessionId ?? runContext?.session_id ?? null,
+        'db_write_failure',
+        String(error?.message || error || 'telemetry_failed').slice(0, 1000),
+        source,
+      )
+      .run();
+  } catch (_) {}
+}
+
+async function insertToolCallLog(env, payload, runContext) {
+  const stmt = await env.DB.prepare(
+    `INSERT INTO agentsam_tool_call_log
+      (tenant_id, workspace_id, user_id, agent_run_id,
+       tool_name, tool_key, handler_key, capability_key,
+       agentsam_tools_id, routing_arm_id, conversation_id,
+       status, input_json, output_json,
+       input_summary, output_summary,
+       input_tokens, output_tokens,
+       input_cost_usd, output_cost_usd, cost_usd,
+       duration_ms, timed_out, tool_category)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  )
+    .bind(
+      payload.tenantId,
+      payload.workspaceId,
+      payload.userId,
+      payload.agentRunId,
+      payload.toolName,
+      payload.toolKey,
+      payload.handlerKey,
+      payload.capabilityKey,
+      payload.agentsamToolsId,
+      payload.routingArmId,
+      payload.conversationId,
+      payload.status,
+      payload.inputJson,
+      payload.outputJson,
+      payload.inputSummary,
+      payload.outputSummary,
+      payload.inputTokens,
+      payload.outputTokens,
+      payload.inputCostUsd,
+      payload.outputCostUsd,
+      payload.totalCostUsd,
+      payload.durationMs,
+      payload.timedOut ? 1 : 0,
+      payload.toolCategory,
+    )
+    .run();
+  return String(stmt?.meta?.last_row_id ?? stmt?.lastRowId ?? '') || null;
+}
+
 function bindingBucket(env, bindingName) {
   const key = String(bindingName || 'DB').trim();
   if (key === 'ASSETS' || key === 'DASHBOARD') return env.DASHBOARD || env.ASSETS;
@@ -100,12 +266,272 @@ export async function executeMcpCatalogRow(env, mcpRow, params, runContext) {
  * @param {{ value?: string, auth_source?: string }} credentials
  */
 export async function executeCatalogTool(env, row, config, input, runContext, credentials) {
+  const rawInput = parseInput(input);
   const handlerType = String(row.handler_type || '').toLowerCase();
   const params = {
-    ...parseInput(input),
+    ...rawInput,
     workspace_id: runContext.workspaceId ?? runContext.workspace_id,
     tenant_id: runContext.tenantId ?? runContext.tenant_id,
     user_id: runContext.userId ?? runContext.user_id,
+  };
+  const toolKey = String(row.tool_key || row.tool_name || '').trim();
+  const toolName = String(row.tool_name || row.tool_key || '').trim();
+  const workspaceId = String(runContext.workspaceId ?? runContext.workspace_id ?? '').trim();
+  const tenantId = String(runContext.tenantId ?? runContext.tenant_id ?? '').trim() || null;
+  const userId = String(runContext.userId ?? runContext.user_id ?? '').trim() || null;
+  const agentRunId =
+    runContext.agentRunId ?? runContext.agent_run_id ?? null;
+  const routingArmId =
+    runContext.routingArmId ?? runContext.routing_arm_id ?? null;
+  const conversationId =
+    runContext.conversationId ??
+    runContext.conversation_id ??
+    runContext.sessionId ??
+    runContext.session_id ??
+    null;
+  const sortedInput = stableSortValue(rawInput);
+  const sortedInputJson = safeJsonString(sortedInput);
+  const cacheKey = toolKey && workspaceId ? await sha256Hex(toolKey + sortedInputJson) : null;
+  const inputHash = sortedInputJson ? await sha256Hex(sortedInputJson) : null;
+
+  if (env?.DB && toolKey && cacheKey && workspaceId) {
+    try {
+      const cached = await env.DB.prepare(
+        `SELECT output_json, id FROM agentsam_tool_cache
+         WHERE tool_key = ? AND cache_key = ? AND workspace_id = ?
+           AND (expires_at IS NULL OR expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+         LIMIT 1`,
+      )
+        .bind(toolKey, cacheKey, workspaceId)
+        .first();
+      if (cached?.output_json) {
+        try {
+          await env.DB.prepare(
+            `UPDATE agentsam_tool_cache SET
+               hit_count = hit_count + 1,
+               last_used_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+               updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+             WHERE id = ?`,
+          )
+            .bind(cached.id)
+            .run();
+        } catch (e) {
+          await writeTelemetryError(env, runContext, 'agentsam_tool_cache.update', e);
+        }
+
+        const cachedBody = JSON.parse(String(cached.output_json));
+        const usage = extractUsageMetrics(cachedBody, params.model ?? config.default_model ?? null, config.default_provider ?? null);
+        try {
+          await insertToolCallLog(
+            env,
+            {
+              tenantId,
+              workspaceId,
+              userId,
+              agentRunId,
+              toolName,
+              toolKey,
+              handlerKey: row.handler_key ?? null,
+              capabilityKey: row.capability_key ?? null,
+              agentsamToolsId: row.id ?? null,
+              routingArmId,
+              conversationId,
+              status: 'success',
+              inputJson: safeJsonString(rawInput),
+              outputJson: safeJsonString(cachedBody),
+              inputSummary: 'cache_hit',
+              outputSummary: summarizeOutput(cachedBody),
+              inputTokens: usage.inputTokens,
+              outputTokens: usage.outputTokens,
+              inputCostUsd: usage.inputCostUsd,
+              outputCostUsd: usage.outputCostUsd,
+              totalCostUsd: usage.totalCostUsd,
+              durationMs: 0,
+              timedOut: false,
+              toolCategory: row.tool_category ?? null,
+            },
+            runContext,
+          );
+        } catch (e) {
+          await writeTelemetryError(env, runContext, 'agentsam_tool_call_log.cache_hit', e);
+        }
+        return { ok: true, body: cachedBody };
+      }
+    } catch (e) {
+      await writeTelemetryError(env, runContext, 'agentsam_tool_cache.lookup', e);
+    }
+  }
+
+  const started = Date.now();
+  let result = null;
+
+  const finalizeTelemetry = async (success, output, errorMessage = null) => {
+    if (!env?.DB) return;
+    const durationMs = Math.max(0, Date.now() - started);
+    const timedOut = false;
+    const usage = extractUsageMetrics(
+      output,
+      params.model ?? config.default_model ?? null,
+      config.default_provider ?? null,
+    );
+    const outputJson = safeJsonString(output);
+    const outputSummary = summarizeOutput(output);
+    let toolCallLogId = null;
+
+    try {
+      toolCallLogId = await insertToolCallLog(
+        env,
+        {
+          tenantId,
+          workspaceId,
+          userId,
+          agentRunId,
+          toolName,
+          toolKey,
+          handlerKey: row.handler_key ?? null,
+          capabilityKey: row.capability_key ?? null,
+          agentsamToolsId: row.id ?? null,
+          routingArmId,
+          conversationId,
+          status: success ? 'success' : 'error',
+          inputJson: safeJsonString(rawInput),
+          outputJson,
+          inputSummary: null,
+          outputSummary,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          inputCostUsd: usage.inputCostUsd,
+          outputCostUsd: usage.outputCostUsd,
+          totalCostUsd: usage.totalCostUsd,
+          durationMs,
+          timedOut,
+          toolCategory: row.tool_category ?? null,
+        },
+        runContext,
+      );
+    } catch (e) {
+      await writeTelemetryError(env, runContext, 'agentsam_tool_call_log', e);
+    }
+
+    try {
+      await env.DB.prepare(
+        `INSERT INTO agentsam_tool_chain
+          (tenant_id, workspace_id, user_id, agent_run_id,
+           tool_name, tool_id, routing_arm_id, conversation_id,
+           parent_chain_id, depth,
+           tool_status, input_json, result_json,
+           error_message, input_tokens, output_tokens,
+           cost_usd, duration_ms, timed_out)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      )
+        .bind(
+          tenantId,
+          workspaceId,
+          userId,
+          agentRunId,
+          toolName,
+          row.id ?? null,
+          routingArmId,
+          conversationId,
+          runContext.parentChainId ?? runContext.parent_chain_id ?? null,
+          Number(runContext.chainDepth ?? runContext.depth ?? 0) || 0,
+          success ? 'completed' : 'failed',
+          safeJsonString(rawInput),
+          outputJson,
+          errorMessage ?? null,
+          usage.inputTokens,
+          usage.outputTokens,
+          usage.totalCostUsd,
+          durationMs,
+          timedOut ? 1 : 0,
+        )
+        .run();
+    } catch (e) {
+      await writeTelemetryError(env, runContext, 'agentsam_tool_chain', e);
+    }
+
+    if (success && config.cacheable !== false && cacheKey && inputHash && workspaceId) {
+      try {
+        const ttlSeconds = row?.token_budget_per_call ? 300 : 60;
+        await env.DB.prepare(
+          `INSERT OR REPLACE INTO agentsam_tool_cache
+            (workspace_id, tenant_id, tool_key, tool_category,
+             cache_key, input_hash,
+             input_json, output_json, output_summary,
+             token_savings_estimate, execution_ms,
+             model_used, provider,
+             cache_strategy, expires_at,
+             source_type, source_identifier)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'ttl',
+             strftime('%Y-%m-%dT%H:%M:%fZ','now', '+' || ? || ' seconds'),
+             'tool_call_log', ?)`,
+        )
+          .bind(
+            workspaceId,
+            tenantId,
+            toolKey,
+            row.tool_category ?? null,
+            cacheKey,
+            inputHash,
+            safeJsonString(rawInput),
+            outputJson,
+            outputSummary,
+            usage.inputTokens + usage.outputTokens,
+            durationMs,
+            usage.modelUsed ?? null,
+            usage.provider ?? null,
+            ttlSeconds,
+            toolCallLogId,
+          )
+          .run();
+      } catch (e) {
+        await writeTelemetryError(env, runContext, 'agentsam_tool_cache', e);
+      }
+    }
+
+    try {
+      await env.DB.prepare(
+        `INSERT OR IGNORE INTO agentsam_performance_eto_events
+          (id, tenant_id, workspace_id, user_id,
+           source_table, source_id,
+           agent_run_id, tool_call_id, routing_arm_id,
+           task_type, model_key, provider,
+           input_tokens, output_tokens, cost_usd, latency_ms,
+           success, failure, timed_out,
+           is_training_eligible, reward_score,
+           alpha_delta, beta_delta, evidence_json)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      )
+        .bind(
+          `pete_${crypto.randomUUID().replace(/-/g, '').slice(0, 8)}`,
+          tenantId,
+          workspaceId,
+          userId,
+          'agentsam_tool_call_log',
+          toolCallLogId,
+          agentRunId,
+          toolCallLogId,
+          routingArmId,
+          runContext.taskType ?? runContext.task_type ?? 'tool_call',
+          usage.modelUsed ?? null,
+          usage.provider ?? null,
+          usage.inputTokens,
+          usage.outputTokens,
+          usage.totalCostUsd,
+          durationMs,
+          success ? 1 : 0,
+          success ? 0 : 1,
+          timedOut ? 1 : 0,
+          usage.inputTokens > 0 || usage.outputTokens > 0 ? 1 : 0,
+          success ? 1.0 : 0.0,
+          success ? 0.1 : 0.0,
+          success ? 0.0 : 0.1,
+          safeJsonString({ toolKey, handlerType, durationMs }),
+        )
+        .run();
+    } catch (e) {
+      await writeTelemetryError(env, runContext, 'agentsam_performance_eto_events', e);
+    }
   };
 
   switch (handlerType) {
@@ -113,46 +539,56 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
       const op = String(config.operation || 'query').toLowerCase();
       const sql = String(params.sql || params.query || '').trim();
       if (!sql) {
-        return { ok: false, error: `d1 tool requires sql in input (operation=${op})` };
+        result = { ok: false, error: `d1 tool requires sql in input (operation=${op})` };
+        break;
       }
       try {
         if (op === 'execute' || op === 'write') {
           const out = await d1_write({ sql, params: params.params }, env);
-          return { ok: true, body: out };
+          result = { ok: true, body: out };
+          break;
         }
         if (op === 'introspect' || op === 'schema') {
           const out = await dbToolHandlers.d1_schema_introspect(params, env);
-          if (out?.error) return { ok: false, error: String(out.error) };
-          return { ok: true, body: out };
+          result = out?.error ? { ok: false, error: String(out.error) } : { ok: true, body: out };
+          break;
         }
         const rows = await d1_query({ sql, params: params.params }, env);
-        return { ok: true, body: { rows } };
+        result = { ok: true, body: { rows } };
       } catch (e) {
-        return { ok: false, error: e?.message ?? String(e) };
+        result = { ok: false, error: e?.message ?? String(e) };
       }
+      break;
     }
 
     case 'hyperdrive':
     case 'supabase': {
       if (!isHyperdriveUsable(env)) {
-        return { ok: false, error: 'Hyperdrive binding unavailable' };
+        result = { ok: false, error: 'Hyperdrive binding unavailable' };
+        break;
       }
       const sql = String(params.sql || params.query || '').trim();
-      if (!sql) return { ok: false, error: 'hyperdrive/supabase tool requires sql in input' };
+      if (!sql) {
+        result = { ok: false, error: 'hyperdrive/supabase tool requires sql in input' };
+        break;
+      }
       const out = await runHyperdriveQuery(env, sql, Array.isArray(params.params) ? params.params : []);
-      if (!out.ok) return { ok: false, error: out.error };
-      return { ok: true, body: { rows: out.rows } };
+      result = !out.ok ? { ok: false, error: out.error } : { ok: true, body: { rows: out.rows } };
+      break;
     }
 
     case 'terminal': {
       const cmd = String(params.command || params.cmd || config.command_template || '').trim();
-      if (!cmd) return { ok: false, error: 'terminal tool requires command in input' };
+      if (!cmd) {
+        result = { ok: false, error: 'terminal tool requires command in input' };
+        break;
+      }
       const out = await termHandlers.run_command(
         { command: cmd, session_id: params.session_id },
         env,
       );
-      if (out?.error) return { ok: false, error: String(out.error) };
-      return { ok: true, body: out };
+      result = out?.error ? { ok: false, error: String(out.error) } : { ok: true, body: out };
+      break;
     }
 
     case 'r2': {
@@ -162,12 +598,13 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         storageHandlers[op] ||
         storageHandlers.r2_write;
       if (typeof fn !== 'function') {
-        return { ok: false, error: `r2 operation not supported: ${op}` };
+        result = { ok: false, error: `r2 operation not supported: ${op}` };
+        break;
       }
       const bucket = bindingBucket(env, config.binding);
       const out = await fn({ ...params, bucket }, env);
-      if (out?.error) return { ok: false, error: String(out.error) };
-      return { ok: true, body: out };
+      result = out?.error ? { ok: false, error: String(out.error) } : { ok: true, body: out };
+      break;
     }
 
     case 'ai': {
@@ -175,11 +612,12 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
       const fnKey = op === 'embed' ? 'ai_embed' : op === 'compare' ? 'ai_compare' : 'ai_complete';
       const fn = aiOpsHandlers[fnKey];
       if (typeof fn !== 'function') {
-        return { ok: false, error: `ai operation not supported: ${op}` };
+        result = { ok: false, error: `ai operation not supported: ${op}` };
+        break;
       }
       const out = await fn(params, env);
-      if (out?.error) return { ok: false, error: String(out.error) };
-      return { ok: true, body: out };
+      result = out?.error ? { ok: false, error: String(out.error) } : { ok: true, body: out };
+      break;
     }
 
     case 'http': {
@@ -213,14 +651,17 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         json = { raw: text.slice(0, 8000) };
       }
       if (!res.ok) {
-        return { ok: false, error: `HTTP ${res.status}: ${text.slice(0, 500)}`, status: res.status, body: json };
+        result = { ok: false, error: `HTTP ${res.status}: ${text.slice(0, 500)}`, status: res.status, body: json };
+        break;
       }
-      return { ok: true, status: res.status, body: json };
+      result = { ok: true, status: res.status, body: json };
+      break;
     }
 
     case 'github': {
       if (!credentials?.value) {
-        return { ok: false, error: 'github tool requires resolved credential' };
+        result = { ok: false, error: 'github tool requires resolved credential' };
+        break;
       }
       const apiBase = String(config.api_base || 'https://api.github.com').replace(/\/$/, '');
       let path = String(config.endpoint || '/');
@@ -252,9 +693,11 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         json = { raw: text.slice(0, 8000) };
       }
       if (!res.ok) {
-        return { ok: false, error: `GitHub ${res.status}: ${text.slice(0, 500)}`, status: res.status, body: json };
+        result = { ok: false, error: `GitHub ${res.status}: ${text.slice(0, 500)}`, status: res.status, body: json };
+        break;
       }
-      return { ok: true, status: res.status, body: json };
+      result = { ok: true, status: res.status, body: json };
+      break;
     }
 
     case 'mybrowser': {
@@ -262,11 +705,12 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
       const { handlers: webHandlers } = await import('../tools/builtin/web.js');
       const fn = webHandlers[toolName];
       if (typeof fn !== 'function') {
-        return { ok: false, error: `mybrowser handler not registered for tool_key=${toolName}` };
+        result = { ok: false, error: `mybrowser handler not registered for tool_key=${toolName}` };
+        break;
       }
       const out = await fn(params, env);
-      if (out?.error) return { ok: false, error: String(out.error) };
-      return { ok: true, body: out };
+      result = out?.error ? { ok: false, error: String(out.error) } : { ok: true, body: out };
+      break;
     }
 
     case 'mcp':
@@ -282,11 +726,12 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         const fsOp = op === 'write' || op === 'put' ? 'write_file' : 'read_file';
         const fn = fsHandlers[fsOp];
         if (typeof fn !== 'function') {
-          return { ok: false, error: `filesystem operation not available: ${fsOp}` };
+          result = { ok: false, error: `filesystem operation not available: ${fsOp}` };
+          break;
         }
         const out = await fn(params, env, runContext);
-        if (out?.error) return { ok: false, error: String(out.error) };
-        return { ok: true, body: out };
+        result = out?.error ? { ok: false, error: String(out.error) } : { ok: true, body: out };
+        break;
       }
 
       const moduleKey = String(config.module || config.executor_module || '').toLowerCase();
@@ -295,22 +740,24 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         const memKey = String(config.handler || row.tool_key || '').trim();
         const fn = memoryHandlers[memKey];
         if (typeof fn !== 'function') {
-          return { ok: false, error: `memory handler not registered: ${memKey}` };
+          result = { ok: false, error: `memory handler not registered: ${memKey}` };
+          break;
         }
         const out = await fn(params, env, runContext);
-        if (out?.error) return { ok: false, error: String(out.error) };
-        return { ok: true, body: out };
+        result = out?.error ? { ok: false, error: String(out.error) } : { ok: true, body: out };
+        break;
       }
       if (moduleKey === 'context' || String(config.executor || '').includes('context')) {
         const { handlers: contextHandlers } = await import('../tools/builtin/context.js');
         const ctxKey = String(config.handler || config.tool_name || row.tool_key || '').trim();
         const fn = contextHandlers[ctxKey];
         if (typeof fn !== 'function') {
-          return { ok: false, error: `context handler not registered: ${ctxKey}` };
+          result = { ok: false, error: `context handler not registered: ${ctxKey}` };
+          break;
         }
         const out = await fn(params, env);
-        if (out?.error) return { ok: false, error: String(out.error) };
-        return { ok: true, body: out };
+        result = out?.error ? { ok: false, error: String(out.error) } : { ok: true, body: out };
+        break;
       }
 
       const mcpUrl = String(row.mcp_service_url || config.mcp_service_url || '').trim();
@@ -320,20 +767,23 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
           tool_name: row.tool_name || row.tool_key,
           mcp_service_url: mcpUrl,
         };
-        return executeMcpCatalogRow(env, syntheticRow, params, runContext);
+        result = await executeMcpCatalogRow(env, syntheticRow, params, runContext);
+        break;
       }
 
       if (String(config.binding || '').toLowerCase() === 'internal') {
-        return {
+        result = {
           ok: false,
           error: `internal binding tool_key=${row.tool_key} requires handler_config.module or mcp_service_url`,
         };
+        break;
       }
 
-      return {
+      result = {
         ok: false,
         error: `handler_config not routable for tool_key=${row.tool_key} (need operation+filesystem, module, or mcp_service_url)`,
       };
+      break;
     }
 
     case 'filesystem': {
@@ -341,19 +791,23 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
       if (op === 'write' || op === 'put') {
         const { handlers: fsHandlers } = await import('../tools/fs.js');
         const out = await fsHandlers.write_file?.(params, env, runContext);
-        if (out?.error) return { ok: false, error: String(out.error) };
-        return { ok: true, body: out };
+        result = out?.error ? { ok: false, error: String(out.error) } : { ok: true, body: out };
+        break;
       }
       const { handlers: fsHandlers } = await import('../tools/fs.js');
       const out = await fsHandlers.read_file?.(params, env, runContext);
-      if (out?.error) return { ok: false, error: String(out.error) };
-      return { ok: true, body: out };
+      result = out?.error ? { ok: false, error: String(out.error) } : { ok: true, body: out };
+      break;
     }
 
     default:
-      return {
+      result = {
         ok: false,
         error: `unsupported agentsam_tools.handler_type=${handlerType} (configure handler_config or add executor)`,
       };
+      break;
   }
+
+  await finalizeTelemetry(result?.ok === true, result?.body ?? result, result?.ok === true ? null : result?.error || null);
+  return result;
 }

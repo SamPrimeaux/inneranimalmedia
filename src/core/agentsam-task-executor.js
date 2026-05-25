@@ -37,6 +37,116 @@ async function resolveTaskExecutorModelKey(env, workspaceId) {
   return resolved;
 }
 
+function extractCodexUsage(result) {
+  const usage =
+    result?.usage && typeof result.usage === 'object'
+      ? result.usage
+      : result?.response?.usage && typeof result.response.usage === 'object'
+        ? result.response.usage
+        : null;
+  if (!usage) {
+    return {
+      usageAvailable: false,
+      inputTokens: 0,
+      outputTokens: 0,
+      costUsd: 0,
+    };
+  }
+  return {
+    usageAvailable: true,
+    inputTokens: Math.max(
+      0,
+      Math.floor(
+        Number(
+          usage.input_tokens ??
+            usage.inputTokens ??
+            usage.prompt_tokens ??
+            usage.promptTokens ??
+            0,
+        ) || 0,
+      ),
+    ),
+    outputTokens: Math.max(
+      0,
+      Math.floor(
+        Number(
+          usage.output_tokens ??
+            usage.outputTokens ??
+            usage.completion_tokens ??
+            usage.completionTokens ??
+            0,
+        ) || 0,
+      ),
+    ),
+    costUsd: Number(usage.cost_usd ?? usage.costUsd ?? result?.cost_usd ?? result?.costUsd ?? 0) || 0,
+  };
+}
+
+function scheduleCodexTaskCompletionMetrics(env, ctx, input) {
+  if (!env?.DB) return;
+  const runId = `run_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+  const etoId = `eto_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+  const op = (async () => {
+    const usage = extractCodexUsage(input.result);
+    const startedAt = String(input.startedAt || new Date().toISOString());
+    const completedAt = new Date().toISOString();
+    const modelKey = input.modelKey != null ? String(input.modelKey).trim() : '';
+    const userId = input.userId != null ? String(input.userId).trim() : '';
+    const workspaceId = input.workspaceId != null ? String(input.workspaceId).trim() : '';
+    const tenantId =
+      input.tenantId != null && String(input.tenantId).trim() !== ''
+        ? String(input.tenantId).trim()
+        : null;
+    if (!modelKey || !userId || !workspaceId) return;
+
+    await env.DB.prepare(
+      `INSERT INTO agentsam_agent_run
+        (id, user_id, workspace_id, tenant_id, status, trigger,
+         model_id, task_type, input_tokens, output_tokens,
+         cost_usd, started_at, completed_at, created_at)
+       VALUES (?, ?, ?, ?, 'completed', 'codex_task', ?,
+               'codex', ?, ?, ?, ?, ?, datetime('now'))`,
+    )
+      .bind(
+        runId,
+        userId,
+        workspaceId,
+        tenantId,
+        modelKey,
+        usage.inputTokens,
+        usage.outputTokens,
+        usage.costUsd,
+        startedAt,
+        completedAt,
+      )
+      .run();
+
+    await env.DB.prepare(
+      `INSERT INTO agentsam_performance_eto_events
+        (id, source_table, source_id, agent_run_id, task_type,
+         model_key, provider, input_tokens, output_tokens,
+         cost_usd, success, is_training_eligible, created_at)
+       VALUES (?, 'agentsam_agent_run', ?, ?, 'codex',
+               ?, 'openai', ?, ?, ?, 1, ?, datetime('now'))`,
+    )
+      .bind(
+        etoId,
+        runId,
+        runId,
+        modelKey,
+        usage.inputTokens,
+        usage.outputTokens,
+        usage.costUsd,
+        usage.usageAvailable ? 1 : 0,
+      )
+      .run();
+  })().catch((e) => {
+    console.warn('[codex_task_metrics]', e?.message ?? e);
+  });
+  if (ctx?.waitUntil) ctx.waitUntil(op);
+  else void op;
+}
+
 /**
  * Tenant/workspace for plan execution: caller params → agentsam_plans → logged-in user (auth_users.tenant_id).
  */
@@ -1022,6 +1132,7 @@ Rules:
 - content must be the entire file (not a diff).`;
         const resolved = await resolveTaskExecutorModelKey(env, workspaceId);
         const modelKey = resolved.model_key;
+        const llmStartedAt = new Date().toISOString();
         const genResult = await dispatchComplete(env, {
           modelKey,
           taskType: 'agent',
@@ -1042,6 +1153,14 @@ Rules:
             );
           }
         } catch (_) {}
+        scheduleCodexTaskCompletionMetrics(env, ctx, {
+          userId,
+          workspaceId,
+          tenantId,
+          modelKey,
+          result: genResult,
+          startedAt: llmStartedAt,
+        });
         const genRaw = genResult?.text || genResult?.output_text || '';
         let parsedGen = null;
         try {
@@ -1157,6 +1276,7 @@ Rules:
       if (task.handler_type === 'agent' || !task.handler_type) {
         const resolved = await resolveTaskExecutorModelKey(env, workspaceId);
         const modelKey = resolved.model_key;
+        const llmStartedAt = new Date().toISOString();
         const result = await dispatchComplete(env, {
           modelKey,
           taskType: 'agent',
@@ -1177,6 +1297,14 @@ Rules:
             );
           }
         } catch (_) {}
+        scheduleCodexTaskCompletionMetrics(env, ctx, {
+          userId,
+          workspaceId,
+          tenantId,
+          modelKey,
+          result,
+          startedAt: llmStartedAt,
+        });
         output = result?.text || result?.output_text || '';
       } else if (terminalLike) {
         const cmd = shellCommandForTerminalTask(task).trim();
@@ -1454,6 +1582,7 @@ Rules:
         }
         const resolved = await resolveTaskExecutorModelKey(env, workspaceId);
         const modelKey = resolved.model_key;
+        const llmStartedAt = new Date().toISOString();
         const result = await dispatchComplete(env, {
           modelKey,
           systemPrompt:
@@ -1469,6 +1598,14 @@ Rules:
             );
           }
         } catch (_) {}
+        scheduleCodexTaskCompletionMetrics(env, ctx, {
+          userId,
+          workspaceId,
+          tenantId,
+          modelKey,
+          result,
+          startedAt: llmStartedAt,
+        });
         output = result?.text || result?.output_text || '';
       } else if (task.handler_type === 'mcp_tool') {
         const wk = String(task.handler_key || '').trim();
@@ -1493,6 +1630,7 @@ Rules:
         } else {
           const resolved = await resolveTaskExecutorModelKey(env, workspaceId);
           const modelKey = resolved.model_key;
+          const llmStartedAt = new Date().toISOString();
           const result = await dispatchComplete(env, {
             modelKey,
             systemPrompt: TASK_AGENT_SYSTEM,
@@ -1507,11 +1645,20 @@ Rules:
               );
             }
           } catch (_) {}
+          scheduleCodexTaskCompletionMetrics(env, ctx, {
+            userId,
+            workspaceId,
+            tenantId,
+            modelKey,
+            result,
+            startedAt: llmStartedAt,
+          });
           output = result?.text || result?.output_text || '';
         }
       } else {
         const resolved = await resolveTaskExecutorModelKey(env, workspaceId);
         const modelKey = resolved.model_key;
+        const llmStartedAt = new Date().toISOString();
         const result = await dispatchComplete(env, {
           modelKey,
           systemPrompt: TASK_AGENT_SYSTEM,
@@ -1526,6 +1673,14 @@ Rules:
             );
           }
         } catch (_) {}
+        scheduleCodexTaskCompletionMetrics(env, ctx, {
+          userId,
+          workspaceId,
+          tenantId,
+          modelKey,
+          result,
+          startedAt: llmStartedAt,
+        });
         output = result?.text || result?.output_text || '';
       }
 

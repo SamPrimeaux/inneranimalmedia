@@ -260,6 +260,7 @@ export async function handleIamMcpOAuthConsentApi(request, env) {
     workspaceId: defaultWorkspaceId || String(iamUser.workspace_id || '').trim(),
     tenantId: String(row.tenant_id || iamUser.tenant_id || '').trim(),
     clientId: row.client_id,
+    clientDisplayName: client?.display_name || client?.name || row.client_display_name || row.client_id,
     grantedScopes: scopes,
   });
 
@@ -287,6 +288,7 @@ export async function handleIamMcpOAuthConsentApi(request, env) {
     tool_groups: toolManifest.tool_groups || [],
     safe_default_preferences: toolManifest.safe_default_preferences || {},
     tool_summary: toolManifest.summary,
+    services: toolManifest.services || { name: client?.display_name || client?.name || row.client_id, permissions: [] },
     require_allowlist_for_mcp: toolManifest.require_allowlist_for_mcp ? 1 : 0,
     redirect_uri: row.redirect_uri,
     connecting_app: resolveMcpConnectingApp(row.redirect_uri),
@@ -345,6 +347,7 @@ export async function approveIamMcpAuthorization(env, authorizationId, iamUser, 
         workspaceId: workspaceIdFinal,
         tenantId: String(row.tenant_id || iamUser.tenant_id || '').trim(),
         clientId: row.client_id,
+        clientDisplayName: row.client_display_name || row.client_id,
         grantedScopes: scopes,
       });
       const { persistMcpAllowlistFromGroupPreferences, buildSafeDefaultMcpGroupPreferences } =
@@ -459,11 +462,19 @@ export async function handleIamMcpOAuthConsentPage(request, env) {
     return Response.redirect(`${url.origin}/auth/login?${q.toString()}`, 302);
   }
 
-  const acceptJson =
+  const isApiConsentPath = url.pathname === '/api/oauth/mcp/consent';
+  const wantsJson =
     String(request.headers.get('Accept') || '').includes('application/json') ||
-    url.pathname.includes('/api/oauth/mcp/consent');
+    String(request.headers.get('Content-Type') || '').includes('application/json');
+  const acceptJson = wantsJson || (request.method === 'POST' && isApiConsentPath);
 
-  if (request.method === 'GET' && acceptJson && url.pathname === '/api/oauth/mcp/consent') {
+  if (request.method === 'GET' && !wantsJson && isApiConsentPath) {
+    const u = new URL('/oauth/mcp/consent', url.origin);
+    u.searchParams.set('authorization_id', authorizationId);
+    return Response.redirect(u.toString(), 302);
+  }
+
+  if (request.method === 'GET' && acceptJson && isApiConsentPath) {
     return handleIamMcpOAuthConsentApi(request, env);
   }
 
