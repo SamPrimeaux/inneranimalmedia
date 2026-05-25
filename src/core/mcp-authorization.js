@@ -3,7 +3,7 @@
  */
 
 import { assertActorContext } from './runtime-actor.js';
-import { selectAgentsamMcpToolRow } from './agentsam-mcp-tools.js';
+import { loadAgentsamToolRow } from './agentsam-tools-catalog.js';
 import {
   loadAgentSamUserPolicy,
   isToolAllowedByAllowlist,
@@ -86,10 +86,11 @@ export async function authorizeMcpTool(env, input) {
     isSuperadmin: actor.isSuperadmin,
   };
 
-  const mcpRow = await selectAgentsamMcpToolRow(env.DB, scope, toolKey);
-  if (!mcpRow) {
+  const catalogRow = await loadAgentsamToolRow(env, toolKey);
+  if (!catalogRow) {
     return deny('MCP_TOOL_NOT_REGISTERED');
   }
+  const mcpRow = { ...catalogRow, enabled: Number(catalogRow.is_active ?? 1) };
 
   const policy = await loadAgentSamUserPolicy(env, actor.userId, actor.workspaceId);
   const effectiveRisk = trim(input.riskLevel) || trim(mcpRow.risk_level) || 'low';

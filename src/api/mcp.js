@@ -4,13 +4,13 @@
  */
 import { getAuthUser, jsonResponse, fetchAuthUserTenantId } from '../core/auth.js';
 import { resolveIamActorContext, resolveIdentity } from '../core/identity.js';
-import { selectAgentsamMcpToolsList } from '../core/agentsam-mcp-tools.js';
 import { inferMcpCapabilityLane } from '../core/mcp-tools-branded.js';
 import {
   listAgentsamToolsForContext,
   loadAgentsamToolRow,
   mapCatalogRowsToAgentTools,
   toolCategoriesFromLanes,
+  DEFAULT_AGENT_TOOL_LIST_LIMIT,
 } from '../core/agentsam-tools-catalog.js';
 import { validateMcpToken } from '../core/mcp-auth.js';
 import { maxAgentsamWorkflowTimeoutSeconds, AGENTSAM_MCP_WORKFLOWS } from '../core/agentsam-workflows.js';
@@ -875,38 +875,33 @@ export async function handleMcpApi(request, url, env, ctx) {
       let tools = [];
       try {
         const actorCtx = await resolveIamActorContext(request, env).catch(() => null);
-        const rows = await selectAgentsamMcpToolsList(env.DB, {
-          userId: actorCtx?.userId,
-          tenantId: actorCtx?.tenantId,
-          workspaceId: actorCtx?.workspaceId,
-          personUuid: actorCtx?.personUuid,
-        }, 500);
-        const r = { results: rows };
-        const filtered = await filterToolRowsByPanel(panelAgent, r.results || [], env, actorCtx?.workspaceId, actorCtx?.tenantId);
+        const categories = toolCategoriesFromLanes(['develop']);
+        const rows = categories.length
+          ? await listAgentsamToolsForContext(env, {
+              workspaceId: actorCtx?.workspaceId,
+              tenantId: actorCtx?.tenantId,
+              userId: actorCtx?.userId,
+              categories,
+              limit: DEFAULT_AGENT_TOOL_LIST_LIMIT,
+            })
+          : [];
+        const filtered = await filterToolRowsByPanel(
+          panelAgent,
+          rows,
+          env,
+          actorCtx?.workspaceId,
+          actorCtx?.tenantId,
+        );
         tools = filtered.map((t) => ({
-          tool_name: t.tool_name,
+          tool_name: t.tool_name || t.tool_key,
+          tool_key: t.tool_key,
           description: t.description || '',
           category: t.tool_category || 'execute',
         }));
-      } catch (_) {
-        try {
-          const actorCtx = await resolveIamActorContext(request, env).catch(() => null);
-          const rows = await selectAgentsamMcpToolsList(env.DB, {
-            userId: actorCtx?.userId,
-            tenantId: actorCtx?.tenantId,
-            workspaceId: actorCtx?.workspaceId,
-            personUuid: actorCtx?.personUuid,
-          }, 500);
-          const r = { results: rows };
-          const filtered = await filterToolRowsByPanel(panelAgent, r.results || [], env, actorCtx?.workspaceId, actorCtx?.tenantId);
-          tools = filtered.map((t) => ({
-            tool_name: t.tool_name,
-            description: '',
-            category: t.tool_category || 'execute',
-          }));
-        } catch (__) {}
+      } catch (e) {
+        console.warn('[GET /api/mcp/tools]', e?.message ?? e);
       }
-      return jsonResponse({ tools });
+      return jsonResponse({ tools, source: 'agentsam_tools' });
     }
 
     const toolDetailMatch = pathLower.match(/^\/api\/mcp\/tools\/([^/]+)$/);

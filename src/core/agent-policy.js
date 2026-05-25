@@ -289,21 +289,23 @@ export async function isToolAllowedByAllowlist(env, policy, scope, toolName, mcp
   const { matched, path } = await findMcpAllowlistMatch(env?.DB, scope, name);
   if (matched) return { allowed: true, reason: null, path };
 
-  if (scope?.isSuperadmin && mcpRow && Number(mcpRow.enabled ?? 0) === 1) {
+  const rowActive =
+    mcpRow && Number(mcpRow.enabled ?? mcpRow.is_active ?? 0) === 1;
+  if (scope?.isSuperadmin && rowActive) {
     if (tenantMatchesRow(tid, mcpRow.tenant_id) && (!trimId(mcpRow.workspace_id) || trimId(mcpRow.workspace_id) === ws)) {
       return { allowed: true, reason: null, path: 'superadmin_scoped_mcp_tool' };
     }
   }
 
   const n = await mcpAllowlistRowCount(env?.DB, scope);
-  if (n === 0 && mcpRow && Number(mcpRow.enabled ?? 0) === 1 && tenantMatchesRow(tid, mcpRow.tenant_id)) {
+  if (n === 0 && rowActive && tenantMatchesRow(tid, mcpRow.tenant_id)) {
     const rw = trimId(mcpRow.workspace_id);
     if (!rw || rw === ws) {
       return { allowed: true, reason: null, path: 'workspace_mcp_registry_fallback' };
     }
   }
 
-  if (mcpRow && Number(mcpRow.enabled ?? 0) === 1 && tenantMatchesRow(tid, mcpRow.tenant_id)) {
+  if (rowActive && tenantMatchesRow(tid, mcpRow.tenant_id)) {
     const rw = trimId(mcpRow.workspace_id);
     if (!rw || rw === ws) {
       return { allowed: true, reason: null, path: 'scoped_mcp_tool_row' };

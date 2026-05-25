@@ -9,7 +9,7 @@ import {
   WORKSPACE_CONTEXT_MISSING,
 } from './bootstrap.js';
 import { resolvePtyTenantIdForUser } from './pty-workspace-paths.js';
-import { selectAgentsamMcpToolRow } from './agentsam-mcp-tools.js';
+import { loadAgentsamToolRow } from './agentsam-tools-catalog.js';
 import { loadAgentSamUserPolicy } from './agent-policy.js';
 import { runTerminalCommand } from './terminal.js';
 import { scheduleRecordMcpToolExecution } from './mcp-tool-execution.js';
@@ -123,14 +123,9 @@ export async function executeScopedAgentTerminalRun(request, env, ctx, url, body
     const canPty = capabilities.can_run_pty === true || capabilities.terminal === true;
     if (!canPty) return { response: null, error: 'Terminal not permitted', status: 403 };
 
-    const mcpRow = await selectAgentsamMcpToolRow(env.DB, {
-      userId: uid,
-      tenantId,
-      workspaceId: targetWorkspace,
-      personUuid: personUuid || null,
-    }, 'terminal_execute');
+    const catalogRow = await loadAgentsamToolRow(env, 'terminal_execute');
     const legacyOk = Number(policy.legacy_terminal_tool ?? 0) === 1;
-    if (!mcpRow && !legacyOk) {
+    if (!catalogRow && !legacyOk) {
       return { response: null, error: 'terminal_execute not registered for this workspace', status: 403 };
     }
 

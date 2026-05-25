@@ -44,7 +44,7 @@ import { getAuthUser, getSession,
          platformTenantIdFromEnv }    from '../core/auth.js';
 import { resolveGitHubToken } from '../core/github-token.js';
 import { resolveIdentity, resolveIamActorContext } from '../core/identity.js';
-import { selectAgentsamMcpToolRow, selectAgentsamMcpToolsList } from '../core/agentsam-mcp-tools.js';
+import { selectAgentsamMcpToolsList } from '../core/agentsam-mcp-tools.js';
 import { maxModelToolsForAgentTask } from '../core/mcp-tools-branded.js';
 import {
   resolveAgentChatRouteToolRequirements,
@@ -8448,43 +8448,15 @@ async function evaluateToolSmokeAccess(env, profileRaw, toolName, body, identity
         },
       };
     }
-    const mcpRow = await selectAgentsamMcpToolRow(
-      env.DB,
-      {
-        userId: identity.userId,
-        tenantId: identity.tenantId,
-        workspaceId: identity.workspaceId,
-        personUuid: identity.personUuid ?? null,
-      },
-      toolName,
-    );
-    let requiresApproval = mcpRow != null ? Number(mcpRow.requires_approval || 0) === 1 : false;
-    if (!mcpRow?.id) {
-      try {
-        const tRow = await env.DB
-          .prepare(
-            `SELECT id, requires_approval FROM agentsam_tools
-             WHERE lower(trim(tool_name)) = ? AND COALESCE(is_active, 1) = 1
-             LIMIT 1`,
-          )
-          .bind(toolName.toLowerCase())
-          .first();
-        if (tRow?.id) requiresApproval = Number(tRow.requires_approval || 0) === 1;
-        if (!tRow?.id) {
-          return {
-            kind: 'error',
-            status: 403,
-            payload: { error: 'blocked_by_policy', reason: 'tool_not_in_registry', profile: p },
-          };
-        }
-      } catch {
-        return {
-          kind: 'error',
-          status: 403,
-          payload: { error: 'blocked_by_policy', reason: 'tool_registry_lookup_failed', profile: p },
-        };
-      }
+    const catalogRow = await loadAgentsamToolRow(env, toolName);
+    if (!catalogRow?.id) {
+      return {
+        kind: 'error',
+        status: 403,
+        payload: { error: 'blocked_by_policy', reason: 'tool_not_in_registry', profile: p },
+      };
     }
+    const requiresApproval = Number(catalogRow.requires_approval || 0) === 1;
     if (!requiresApproval) {
       return {
         kind: 'error',
