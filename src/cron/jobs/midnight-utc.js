@@ -13,6 +13,7 @@ import { runRetentionPurge } from '../retention-purge.js';
 import { archiveOldConversations } from './archive-old-conversations.js';
 import { sendDailyDigest } from './daily-digest.js';
 import { writeDailySnapshot } from './write-daily-snapshot.js';
+import { scheduleAgentsamErrorLog } from '../../core/agentsam-error-log.js';
 
 const CRON_MIDNIGHT = '0 0 * * *';
 const CRON_ONE_AM = '0 1 * * *';
@@ -69,6 +70,83 @@ export async function runMidnightUtcJobs(env, ctx) {
     ctx.waitUntil(cronLedgerWrap(env, 'retention_purge', CRON_MIDNIGHT, () => runRetentionPurge(env)));
   }
   if (env?.DB) {
+    ctx.waitUntil(
+      cronLedgerWrap(env, 'oauth_expiry_cleanup', CRON_MIDNIGHT, async () => {
+        try {
+          const codeSweep = await env.DB.prepare(
+            `DELETE FROM oauth_authorization_codes
+             WHERE expires_at IS NOT NULL AND expires_at < unixepoch()`,
+          ).run();
+          const tokenSweep = await env.DB.prepare(
+            `DELETE FROM mcp_workspace_tokens
+             WHERE expires_at IS NOT NULL AND expires_at < unixepoch()`,
+          ).run();
+          const authSweep = await env.DB.prepare(
+            `DELETE FROM oauth_authorizations
+             WHERE expires_at IS NOT NULL
+               AND expires_at < unixepoch()
+               AND status IN ('pending','denied','expired')`,
+          ).run();
+          const refreshSweep = await env.DB.prepare(
+            `DELETE FROM oauth_refresh_tokens
+             WHERE expires_at IS NOT NULL AND expires_at < unixepoch()`,
+          ).run();
+          const nonceSweep = await env.DB.prepare(
+            `DELETE FROM oauth_state_nonces
+             WHERE expires_at IS NOT NULL AND expires_at < unixepoch()`,
+          ).run();
+          const rowsWritten =
+            (Number(codeSweep?.meta?.changes) || 0) +
+            (Number(tokenSweep?.meta?.changes) || 0) +
+            (Number(authSweep?.meta?.changes) || 0) +
+            (Number(refreshSweep?.meta?.changes) || 0) +
+            (Number(nonceSweep?.meta?.changes) || 0);
+          console.log(
+            '[cron] oauth expiry cleanup',
+            JSON.stringify({
+              oauth_authorization_codes_deleted: Number(codeSweep?.meta?.changes) || 0,
+              mcp_workspace_tokens_deleted: Number(tokenSweep?.meta?.changes) || 0,
+              oauth_authorizations_deleted: Number(authSweep?.meta?.changes) || 0,
+              oauth_refresh_tokens_deleted: Number(refreshSweep?.meta?.changes) || 0,
+              oauth_state_nonces_deleted: Number(nonceSweep?.meta?.changes) || 0,
+            }),
+          );
+          return {
+            rowsRead: 5,
+            rowsWritten,
+            metadata: {
+              oauth_authorization_codes_deleted: Number(codeSweep?.meta?.changes) || 0,
+              mcp_workspace_tokens_deleted: Number(tokenSweep?.meta?.changes) || 0,
+              oauth_authorizations_deleted: Number(authSweep?.meta?.changes) || 0,
+              oauth_refresh_tokens_deleted: Number(refreshSweep?.meta?.changes) || 0,
+              oauth_state_nonces_deleted: Number(nonceSweep?.meta?.changes) || 0,
+            },
+          };
+        } catch (e) {
+          scheduleAgentsamErrorLog(env, ctx, {
+            workspaceId:
+              typeof env?.WORKSPACE_ID === 'string' && env.WORKSPACE_ID.trim()
+                ? env.WORKSPACE_ID.trim()
+                : 'ws_inneranimalmedia',
+            tenantId:
+              typeof env?.TENANT_ID === 'string' && env.TENANT_ID.trim()
+                ? env.TENANT_ID.trim()
+                : 'tenant_inneranimalmedia',
+            sessionId: null,
+            errorCode: 'oauth_expiry_cleanup_failed',
+            errorType: 'scheduled_cron',
+            errorMessage: e?.message != null ? String(e.message) : String(e),
+            source: 'oauth_expiry_cleanup',
+            sourceId: CRON_MIDNIGHT,
+            contextJson: JSON.stringify({
+              cron: CRON_MIDNIGHT,
+              task: 'oauth_expiry_cleanup',
+            }),
+          });
+          throw e;
+        }
+      }),
+    );
     ctx.waitUntil(
       cronLedgerWrap(env, 'master_daily_retention', CRON_MIDNIGHT, () => runMasterDailyRetention(env)),
     );
