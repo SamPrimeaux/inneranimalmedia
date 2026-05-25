@@ -79,10 +79,23 @@ Migration **406** (script: `scripts/migration_406.py`) backfills display names, 
 
 Personal MCP bearer tokens (Cursor `/auth/connect`) keep **full** scoped catalog unless `allowed_tools` is set on the token row.
 
-## Enforcement
+## Enforcement (OAuth external clients)
 
-1. **Token issue** (`src/api/oauth.js`) — sets `mcp_workspace_tokens.allowed_tools` JSON from allowlist.
-2. **MCP server** (`tools/list` + `tools/call`) — `token_type = oauth` or non-null `allowed_tools` filters to the list.
+Order on **`tools/call`** (`inneranimalmedia-mcp-server` `mcp-oauth-guards.js`):
+
+1. OAuth **scopes** + client `access_class` (`agentsam_mcp_oauth_tool_allowlist`)
+2. **Personal allowlist** — `agentsam_mcp_allowlist` when `agentsam_user_policy.require_allowlist_for_mcp = 1` (IAM Settings → Network)
+3. **Policy risk cap** — `tool_risk_level_max` vs `agentsam_mcp_tools.risk_level`
+4. **Guardrails** — `agentsam_guardrails` / `agentsam_guardrail_rulesets` with `applies_to = mcp_tool` → `agentsam_guardrail_events`
+5. Tool **`requires_approval`** + privileged handler patterns
+6. **Browser trust** — `agentsam_browser_trusted_origin` for browser/playwright tools
+
+**Token issue** (`src/api/oauth.js` + `mcp-oauth-shared.js`):
+
+- `allowed_tools` = intersection of `agentsam_mcp_oauth_tool_allowlist` and user allowlist (when policy requires it)
+- `allowed_domains_json` carries `require_allowlist_for_mcp` + `tool_risk_level_max` for runtime policy refresh
+
+**MCP server** (`tools/list` + `tools/call`) — `token_type = oauth` filters to `allowed_tools`; runtime re-checks allowlist + guardrails even if token was minted earlier.
 
 ## Adjusting the list
 
