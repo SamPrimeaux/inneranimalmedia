@@ -1084,7 +1084,7 @@ async function handleMcpOAuthToken(request, env, _ctx) {
         repo_path, github_repo, rate_limit_per_hour, is_active, created_at, expires_at, user_id,
         token_type, created_by, scopes_json, allowed_capability_keys_json,
         allowed_lanes_json, allowed_risk_levels_json, allowed_domains_json, audience)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, unixepoch(), ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, unixepoch(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       `tok_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`,
