@@ -90,3 +90,18 @@ export async function dispatchByToolCode(env, toolCodeOrKey, input, runContext =
     result: out.body,
   };
 }
+
+/**
+ * Adapter-friendly wrapper — returns tool output or { error } (no runBuiltinTool).
+ * @param {any} env
+ * @param {string} toolKey
+ * @param {unknown} input
+ * @param {Record<string, unknown>} runContext
+ */
+export async function dispatchCatalogToolResult(env, toolKey, input, runContext = {}) {
+  const out = await dispatchByToolCode(env, toolKey, input, runContext);
+  if (out?.ok === false) {
+    return { error: out.error ?? 'dispatch_failed' };
+  }
+  return out.result ?? out;
+}

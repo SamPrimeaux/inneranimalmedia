@@ -1,7 +1,7 @@
 /**
- * Browser capability adapter — uses runBuiltinTool + trusted-origin checks only.
+ * Browser capability adapter — catalog dispatch + trusted-origin checks only.
  */
-import { runBuiltinTool } from '../../tools/ai-dispatch.js';
+import { dispatchCatalogToolResult } from '../dispatch-by-tool-code.js';
 import { assertBrowserTrustedOrigin } from '../agentsam-ops-ledger.js';
 import {
   loadAvailableToolsForCapability,
@@ -145,7 +145,12 @@ export async function runBrowserCapabilityAction(p) {
   console.log('[browser-capability] surface_open', JSON.stringify({ url, runId }));
   emit('surface_open', surfacePayload);
   emit('agent_surface_open', { ...surfacePayload });
-  const navRes = await runBuiltinTool(env, navigateName, baseParams);
+  const navRes = await dispatchCatalogToolResult(env, navigateName, baseParams, {
+    tenantId,
+    workspaceId,
+    userId,
+    workflow_run_id: workflowKey ? runId : null,
+  });
   emit('browser_navigate', {
     url: toolResultOk(navRes) && navRes?.url ? String(navRes.url) : url,
     run_id: runId,
@@ -170,7 +175,11 @@ export async function runBrowserCapabilityAction(p) {
 
   let contentRes = null;
   if (contentName && !gateApproval(contentName)) {
-    contentRes = await runBuiltinTool(env, contentName, baseParams);
+    contentRes = await dispatchCatalogToolResult(env, contentName, baseParams, {
+      tenantId,
+      workspaceId,
+      userId,
+    });
     pushStep('content', {
       ok: toolResultOk(contentRes),
       tool: contentName,
@@ -186,7 +195,11 @@ export async function runBrowserCapabilityAction(p) {
 
   let shotRes = null;
   if (shotName && !gateApproval(shotName)) {
-    shotRes = await runBuiltinTool(env, shotName, baseParams);
+    shotRes = await dispatchCatalogToolResult(env, shotName, baseParams, {
+      tenantId,
+      workspaceId,
+      userId,
+    });
     pushStep('screenshot', {
       ok: toolResultOk(shotRes),
       tool: shotName,

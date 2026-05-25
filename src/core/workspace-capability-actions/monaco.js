@@ -2,7 +2,7 @@
  * Minimal Monaco / code-surface adapter — UI open + draft artifact only (no silent repo writes).
  */
 import { loadAvailableToolsForCapability, toolRequiresApproval } from '../tool-registry.js';
-import { runBuiltinTool } from '../../tools/ai-dispatch.js';
+import { dispatchCatalogToolResult } from '../dispatch-by-tool-code.js';
 
 function guessLanguage(path) {
   const p = String(path || '').toLowerCase();
@@ -82,13 +82,13 @@ export async function runMonacoCapabilityAction(p) {
   ) {
     pendingWrite = false;
     try {
-      writeResult = await runBuiltinTool(env, writeTool, {
+      writeResult = await dispatchCatalogToolResult(env, writeTool, {
         user_id: userId,
         workspace_id: workspaceId,
         path: targetPath,
         content: `// Draft from workspace capability runtime\n// User message (trimmed):\n// ${String(message).slice(0, 2000)}\n`,
         session: { user_id: userId, workspace_id: workspaceId },
-      });
+      }, { tenantId, workspaceId, userId });
     } catch (e) {
       writeResult = { error: e?.message || String(e) };
       pendingWrite = true;

@@ -1,8 +1,8 @@
 /**
- * DB-driven browser.capture_context — resolves tools from agentsam_tools / agentsam_mcp_tools,
+ * DB-driven browser.capture_context — resolves tools from agentsam_tools,
  * merges dashboard browserContext (selected element, route, viewport), and returns structured capture.
  */
-import { runBuiltinTool } from '../tools/ai-dispatch.js';
+import { dispatchCatalogToolResult } from './dispatch-by-tool-code.js';
 import { assertBrowserTrustedOrigin } from './agentsam-ops-ledger.js';
 import { loadAvailableToolsForCapability, isTrustedBrowserReadTool } from './tool-registry.js';
 
@@ -82,9 +82,10 @@ export async function executeBrowserCaptureContext(env, input, runContext) {
     captured_at: new Date().toISOString(),
   };
 
+  const ctx = { tenantId, workspaceId, userId };
   const navigateName = pickTool(registry, ['browser_navigate', 'cdt_navigate_page']);
   if (navigateName) {
-    const navRes = await runBuiltinTool(env, navigateName, baseParams);
+    const navRes = await dispatchCatalogToolResult(env, navigateName, baseParams, ctx);
     toolsUsed.navigate = navigateName;
     capture.navigate = navRes;
     if (!toolResultOk(navRes)) {
@@ -94,38 +95,38 @@ export async function executeBrowserCaptureContext(env, input, runContext) {
 
   const contentName = pickTool(registry, ['browser_content']);
   if (contentName) {
-    const contentRes = await runBuiltinTool(env, contentName, baseParams);
+    const contentRes = await dispatchCatalogToolResult(env, contentName, baseParams, ctx);
     toolsUsed.content = contentName;
     capture.content = contentRes;
   }
 
   const consoleName = pickTool(registry, ['cdt_list_console_messages']);
   if (consoleName) {
-    const consoleRes = await runBuiltinTool(env, consoleName, { ...baseParams, limit: 100 });
+    const consoleRes = await dispatchCatalogToolResult(env, consoleName, { ...baseParams, limit: 100 }, ctx);
     toolsUsed.console = consoleName;
     capture.console = consoleRes;
   }
 
   const networkName = pickTool(registry, ['cdt_list_network_requests']);
   if (networkName) {
-    const networkRes = await runBuiltinTool(env, networkName, { ...baseParams, limit: 100 });
+    const networkRes = await dispatchCatalogToolResult(env, networkName, { ...baseParams, limit: 100 }, ctx);
     toolsUsed.network = networkName;
     capture.network = networkRes;
   }
 
   const snapshotName = pickTool(registry, ['cdt_take_snapshot']);
   if (snapshotName && !capture.selected_element) {
-    const snapRes = await runBuiltinTool(env, snapshotName, {
+    const snapRes = await dispatchCatalogToolResult(env, snapshotName, {
       ...baseParams,
       interestingOnly: true,
-    });
+    }, ctx);
     toolsUsed.snapshot = snapshotName;
     capture.dom_snapshot = snapRes;
   }
 
   const shotName = pickTool(registry, ['playwright_screenshot', 'browser_screenshot', 'cdt_take_screenshot']);
   if (shotName && isTrustedBrowserReadTool(shotName)) {
-    const shotRes = await runBuiltinTool(env, shotName, baseParams);
+    const shotRes = await dispatchCatalogToolResult(env, shotName, baseParams, ctx);
     toolsUsed.screenshot = shotName;
     capture.screenshot = shotRes;
   }

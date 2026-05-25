@@ -2,7 +2,7 @@
  * Real implementations for workflow graph node types (db_query, script, eval, ui.*, mcp_tool helpers).
  * Used by workflow-executor dispatchNode and agent-step handler_key registry.
  */
-import { runBuiltinTool } from '../tools/ai-dispatch.js';
+import { dispatchByToolCode } from './dispatch-by-tool-code.js';
 import { runHyperdriveQuery, isHyperdriveUsable } from './hyperdrive-query.js';
 import { appendWorkflowEvent } from './agentsam-workflow-debug-store.js';
 import { pragmaTableInfo } from './retention.js';
@@ -627,14 +627,21 @@ export function registerWorkflowStepHandlers() {
   for (const key of Object.keys(MCP_HANDLER_TOOL_ALIASES)) {
     registerAgentStepHandler(key, async (env, { input, runContext, node, smoke }) => {
       if (smoke) return { ok: true, output: { smoke: true, skipped: true } };
-      const toolRes = await runBuiltinTool(
+      const ctx = workflowHandlerContext(env, runContext, node);
+      const toolRes = await dispatchByToolCode(
         env,
         MCP_HANDLER_TOOL_ALIASES[key],
         flattenWorkflowInput(input),
-        runContext,
+        {
+          tenantId: ctx.tenantId,
+          workspaceId: ctx.workspaceId,
+          userId: ctx.userId,
+          runId: ctx.runId,
+          workflowKey: ctx.workflowKey,
+        },
       );
-      if (toolRes?.error) return { ok: false, error: String(toolRes.error) };
-      return { ok: true, output: toolRes };
+      if (toolRes?.ok === false) return { ok: false, error: String(toolRes.error || 'dispatch_failed') };
+      return { ok: true, output: toolRes.result ?? toolRes };
     });
   }
   for (const hk of [

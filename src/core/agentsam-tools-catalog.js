@@ -471,3 +471,51 @@ export async function selectAgentsamToolsForChatRuntime(db, runtimeCtx, opts = {
   );
   return mapCatalogRowsToAgentTools(rawRows);
 }
+
+/**
+ * List only explicit tool_key rows (OAuth allowlist / token allowed_tools).
+ * @param {any} env
+ * @param {Set<string>} allowlistKeys lowercased tool_key / display_name / tool_name
+ * @param {{ workspaceId?: string, limit?: number, riskLevelMax?: string|null }} opts
+ */
+export async function listAgentsamToolsByKeys(env, allowlistKeys, opts = {}) {
+  if (!env?.DB || !allowlistKeys?.size) return [];
+  const keys = [...allowlistKeys].map((k) => trim(k)).filter(Boolean);
+  if (!keys.length) return [];
+  const lim = Math.max(1, Math.min(MAX_AGENT_TOOL_LIST_LIMIT, Number(opts.limit) || keys.length));
+  const placeholders = keys.map(() => '?').join(',');
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT tool_key, tool_name, display_name, tool_category, description,
+              input_schema, handler_config, capability_key, risk_level, requires_approval,
+              modes_json, workspace_scope, handler_type, is_degraded, mcp_service_url
+       FROM agentsam_tools
+       WHERE COALESCE(is_active, 1) = 1
+         AND COALESCE(is_degraded, 0) = 0
+         AND (
+           lower(tool_key) IN (${placeholders})
+           OR lower(tool_name) IN (${placeholders})
+           OR lower(display_name) IN (${placeholders})
+         )
+       ORDER BY COALESCE(sort_priority, 50) ASC, tool_name ASC
+       LIMIT ?`,
+    )
+      .bind(...keys.map((k) => k.toLowerCase()), ...keys.map((k) => k.toLowerCase()), ...keys.map((k) => k.toLowerCase()), lim * 2)
+      .all();
+    const ws = trim(opts.workspaceId);
+    const out = [];
+    for (const row of results || []) {
+      if (!rowMatchesWorkspaceScope(row, ws)) continue;
+      if (!rowWithinRiskCap(row, opts.riskLevelMax)) continue;
+      const cfg = parseHandlerConfig(row.handler_config);
+      const v = validateHandlerConfigForExecution(row, cfg);
+      if (!v.ok) continue;
+      out.push(row);
+      if (out.length >= lim) break;
+    }
+    return out;
+  } catch (e) {
+    console.warn('[agentsam-tools-catalog] listByKeys', e?.message ?? e);
+    return [];
+  }
+}

@@ -1,7 +1,7 @@
 /**
  * Minimal Excalidraw adapter — open surface, structured scene in output, optional builtin tools.
  */
-import { runBuiltinTool } from '../../tools/ai-dispatch.js';
+import { dispatchCatalogToolResult } from '../dispatch-by-tool-code.js';
 import { loadAvailableToolsForCapability, toolRequiresApproval } from '../tool-registry.js';
 
 function buildSimpleScene(message) {
@@ -107,11 +107,11 @@ export async function runExcalidrawCapabilityAction(p) {
 
   let openRes = null;
   if (has('excalidraw_open') && !toolRequiresApproval('excalidraw_open', registry.find((r) => r.tool_name === 'excalidraw_open'))) {
-    openRes = await runBuiltinTool(env, 'excalidraw_open', {
+    openRes = await dispatchCatalogToolResult(env, 'excalidraw_open', {
       user_id: userId,
       workspace_id: workspaceId,
       session: { user_id: userId, workspace_id: workspaceId },
-    });
+    }, { tenantId, workspaceId, userId });
   }
   pushStep('excalidraw_open', {
     ok: !openRes?.error,
@@ -122,12 +122,12 @@ export async function runExcalidrawCapabilityAction(p) {
 
   let addRes = null;
   if (has('excalidraw_add_elements') && !toolRequiresApproval('excalidraw_add_elements', registry.find((r) => r.tool_name === 'excalidraw_add_elements'))) {
-    addRes = await runBuiltinTool(env, 'excalidraw_add_elements', {
+    addRes = await dispatchCatalogToolResult(env, 'excalidraw_add_elements', {
       elements: scene.elements,
       user_id: userId,
       workspace_id: workspaceId,
       session: { user_id: userId, workspace_id: workspaceId },
-    });
+    }, { tenantId, workspaceId, userId });
   }
   pushStep('excalidraw_add_elements', {
     ok: !addRes?.error,
@@ -139,12 +139,12 @@ export async function runExcalidrawCapabilityAction(p) {
 
   let exportRes = null;
   if (has('excalidraw_export') && !toolRequiresApproval('excalidraw_export', registry.find((r) => r.tool_name === 'excalidraw_export'))) {
-    exportRes = await runBuiltinTool(env, 'excalidraw_export', {
+    exportRes = await dispatchCatalogToolResult(env, 'excalidraw_export', {
       scene,
       user_id: userId,
       workspace_id: workspaceId,
       session: { user_id: userId, workspace_id: workspaceId },
-    });
+    }, { tenantId, workspaceId, userId });
   }
   pushStep('excalidraw_export', {
     ok: !exportRes?.error,

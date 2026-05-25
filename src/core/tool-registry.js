@@ -1,6 +1,5 @@
 /**
- * Merge agentsam_tools + agentsam_mcp_tools for capability runtime tool selection.
- * Dedupes by tool_name with workspace / tenant / user scope preference.
+ * agentsam_tools-only capability tool selection (workspace_scope JSON).
  */
 
 /** @typedef {'browser'|'monaco'|'excalidraw'|'d1'|'terminal'|'github'} CapabilityFamily */
@@ -62,20 +61,13 @@ function toolMatchesFamily(toolName, category, family) {
  * @param {{ workspace_id?: string|null, tenant_id?: string|null, user_id?: string|null }} row
  * @param {{ workspaceId: string, tenantId: string, userId: string }} scope
  */
-function scopeRank(row, scope) {
-  const ws = String(scope.workspaceId || '').trim();
-  const tn = String(scope.tenantId || '').trim();
-  const uid = String(scope.userId || '').trim();
-  const rw = row.workspace_id != null ? String(row.workspace_id).trim() : '';
-  const rt = row.tenant_id != null ? String(row.tenant_id).trim() : '';
-  const ru = row.user_id != null ? String(row.user_id).trim() : '';
-
-  let r = 0;
-  if (rw && rw === ws) r += 100;
-  if (rt && rt === tn) r += 40;
-  if (ru && ru === uid) r += 80;
-  if (!rw && !rt) r += 5; // global MCP row
-  return r;
+function rowMatchesWorkspaceScope(row, workspaceId) {
+  const ws = String(workspaceId || '').trim();
+  const scope = parseJsonField(row.workspace_scope, ['*']);
+  const arr = Array.isArray(scope) ? scope : ['*'];
+  if (arr.includes('*')) return true;
+  if (!ws) return false;
+  return arr.some((x) => String(x || '').trim() === ws);
 }
 
 /**
@@ -97,69 +89,34 @@ export async function loadAvailableToolsForCapability(env, tenantId, workspaceId
   /** @type {Map<string, Record<string, unknown>>} */
   const byName = new Map();
 
-  const upsert = (row, source) => {
-    const toolName = String(row.tool_name || row.tool_key || '').trim();
-    if (!toolName) return;
-    if (!toolMatchesFamily(toolName, row.tool_category, capabilityFamily)) return;
-
-    const isActive =
-      row.is_active === undefined || row.is_active === null
-        ? true
-        : Number(row.is_active) === 1;
-    const enabled =
-      row.enabled === undefined || row.enabled === null ? true : Number(row.enabled) === 1;
-    if (!isActive || !enabled) return;
-
-    const normalized = {
-      tool_name: toolName,
-      tool_category: String(row.tool_category || '').trim() || null,
-      handler_type: String(row.handler_type || 'builtin').trim(),
-      risk_level: String(row.risk_level || 'low').trim(),
-      requires_approval: Number(row.requires_approval) === 1,
-      input_schema: parseJsonField(row.input_schema, {}),
-      schema_hint: row.schema_hint != null ? String(row.schema_hint) : null,
-      handler_config: parseJsonField(row.handler_config, {}),
-      workspace_id: row.workspace_id ?? null,
-      tenant_id: row.tenant_id ?? null,
-      user_id: row.user_id ?? null,
-      _source: source,
-      _rank: source === 'agentsam_tools' ? 10 + scopeRank(row, scope) : 50 + scopeRank(row, scope),
-    };
-
-    const prev = byName.get(toolName);
-    if (!prev || Number(normalized._rank) > Number(prev._rank)) {
-      byName.set(toolName, normalized);
-    }
-  };
-
+  const out = [];
   try {
     const { results: tRows } = await env.DB.prepare(
-      `SELECT tool_name, tool_category, handler_type, risk_level, requires_approval,
-              input_schema, schema_hint, handler_config, is_active
+      `SELECT tool_name, tool_key, tool_category, handler_type, risk_level, requires_approval,
+              input_schema, schema_hint, handler_config, workspace_scope, is_active, is_degraded
        FROM agentsam_tools
-       WHERE COALESCE(is_active, 1) = 1`,
+       WHERE COALESCE(is_active, 1) = 1 AND COALESCE(is_degraded, 0) = 0`,
     ).all();
-    for (const r of tRows || []) upsert(r, 'agentsam_tools');
+    for (const row of tRows || []) {
+      const toolName = String(row.tool_name || row.tool_key || '').trim();
+      if (!toolName || !toolMatchesFamily(toolName, row.tool_category, capabilityFamily)) continue;
+      if (!rowMatchesWorkspaceScope(row, scope.workspaceId)) continue;
+      out.push({
+        tool_name: toolName,
+        tool_category: String(row.tool_category || '').trim() || null,
+        handler_type: String(row.handler_type || '').trim(),
+        risk_level: String(row.risk_level || 'low').trim(),
+        requires_approval: Number(row.requires_approval) === 1,
+        input_schema: parseJsonField(row.input_schema, {}),
+        schema_hint: row.schema_hint != null ? String(row.schema_hint) : null,
+        handler_config: parseJsonField(row.handler_config, {}),
+      });
+    }
   } catch (e) {
     console.warn('[tool-registry] agentsam_tools', e?.message ?? e);
   }
 
-  try {
-    const { results: mRows } = await env.DB.prepare(
-      `SELECT tool_name, tool_key, tool_category, handler_type, risk_level, requires_approval,
-              input_schema, schema_hint, handler_config, workspace_id, tenant_id, user_id,
-              is_active, enabled
-       FROM agentsam_mcp_tools
-       WHERE COALESCE(is_active, 1) = 1 AND COALESCE(enabled, 1) = 1`,
-    ).all();
-    for (const r of mRows || []) upsert(r, 'agentsam_mcp_tools');
-  } catch (e) {
-    console.warn('[tool-registry] agentsam_mcp_tools', e?.message ?? e);
-  }
-
-  return Array.from(byName.values())
-    .map(({ _source, _rank, ...rest }) => rest)
-    .sort((a, b) => String(a.tool_name).localeCompare(String(b.tool_name)));
+  return out.sort((a, b) => String(a.tool_name).localeCompare(String(b.tool_name)));
 }
 
 /**
