@@ -374,7 +374,7 @@ async function appendTriggeredRulesToSystemPrompt(env, systemPrompt, opts = {}) 
  */
 async function appendSkillsAndRulesToSystemPrompt(env, ctx, systemPrompt, opts) {
   const {
-    userId, tenantId, workspaceId, conversationId,
+    userId, tenantId, workspaceId, conversationId, taskType,
   } = opts;
   if (!env?.DB) return systemPrompt;
   const uid = userId != null ? String(userId).trim() : '';
@@ -384,13 +384,19 @@ async function appendSkillsAndRulesToSystemPrompt(env, ctx, systemPrompt, opts) 
   let skillRows = [];
   try {
     const sRes = await env.DB.prepare(
-      `SELECT id, name, content_markdown FROM agentsam_skill
-       WHERE user_id = ? AND is_active = 1
+      `SELECT id, name, content_markdown, always_apply, token_estimate
+       FROM agentsam_skill
+       WHERE is_active = 1
+         AND (
+           always_apply = 1
+           OR (user_id = ? AND user_id != '')
+           OR task_types_json LIKE ?
+         )
          AND (workspace_id = ? OR workspace_id IS NULL OR TRIM(COALESCE(workspace_id, '')) = '')
        ORDER BY always_apply DESC, sort_order ASC
-       LIMIT 8`,
+       LIMIT 10`,
     )
-      .bind(uid, ws)
+      .bind(uid, `%"${taskType ?? ''}"%`, ws)
       .all();
     skillRows = sRes.results || [];
     if (skillRows.length) {
@@ -403,6 +409,19 @@ async function appendSkillsAndRulesToSystemPrompt(env, ctx, systemPrompt, opts) 
     }
   } catch (e) {
     console.warn('[agent] skills prompt query', e?.message ?? e);
+  }
+
+  if (skillRows.length && env?.DB) {
+    const ids = skillRows.map((r) => r.id);
+    env.DB.prepare(
+      `UPDATE agentsam_skill
+       SET invocation_count = invocation_count + 1,
+           last_invoked_at = datetime('now')
+       WHERE id IN (${ids.map(() => '?').join(',')})`,
+    )
+      .bind(...ids)
+      .run()
+      .catch(() => {});
   }
 
   if (skillRows.length && ctx?.waitUntil) {
@@ -7318,6 +7337,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         tenantId: tenantId ?? resolvedTenantId ?? null,
         workspaceId,
         conversationId: sessionId,
+        taskType: intentResult?.taskType ?? null,
       });
     } catch (e) {
       console.warn('[agent] skills/rules prompt enrich', e?.message ?? e);
