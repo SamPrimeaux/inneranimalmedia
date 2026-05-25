@@ -502,6 +502,7 @@ function buildMcpConsentServices(clientName, tools) {
 
 /**
  * Tools shown on MCP OAuth consent (same intersection as token issue).
+ * Server-side only; the consent frontend does not receive workspace identifiers.
  * @param {any} env
  * @param {{ userId: string, workspaceId: string, tenantId?: string, clientId: string, grantedScopes: string[] }} input
  */

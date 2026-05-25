@@ -70,20 +70,6 @@ async function listUserWorkspaces(env, userId) {
   }
 }
 
-/** First membership workspace, else auth user / env default — no UI picker required. */
-async function resolveDefaultMcpWorkspaceId(env, iamUser, workspaceId) {
-  const explicit = String(workspaceId || '').trim();
-  if (explicit) return explicit;
-
-  const workspaces = await listUserWorkspaces(env, iamUser?.id);
-  if (workspaces.length) return workspaces[0].id;
-
-  const fallback = String(
-    iamUser?.workspace_id || iamUser?.active_workspace_id || env.WORKSPACE_ID || env.DEFAULT_WORKSPACE_ID || '',
-  ).trim();
-  return fallback || null;
-}
-
 async function loadAuthorization(env, authorizationId, userId) {
   const row = await env.DB.prepare(
     `SELECT a.*, c.display_name AS client_display_name, c.logo_url AS client_logo_url,
@@ -118,16 +104,9 @@ function iamMcpConsentHtml(opts) {
     connectingApp,
     scopes,
     signedInEmail,
-    workspaces,
     errorMessage,
   } = opts;
   const app = connectingApp || resolveMcpConnectingApp(redirectUri);
-  const wsOptions = (workspaces || [])
-    .map(
-      (w) =>
-        `<option value="${escapeHtml(w.id)}">${escapeHtml(w.name)}${w.subtitle ? ` — ${escapeHtml(w.subtitle)}` : ''}</option>`,
-    )
-    .join('');
   const scopeItems = (scopes || [])
     .map((s) => `<li>${escapeHtml(scopeLabel(s))}</li>`)
     .join('');
@@ -165,8 +144,6 @@ button{flex:1;min-width:120px;padding:13px 16px;border-radius:12px;font-weight:7
 <ul>${scopeItems || '<li>Standard MCP access</li>'}</ul>
 <form method="post" action="/api/auth/oauth/consent/approve">
   <input type="hidden" name="authorization_id" value="${escapeHtml(authorizationId)}"/>
-  <label for="workspace_id">Workspace to grant access</label>
-  <select id="workspace_id" name="workspace_id" required>${wsOptions}</select>
   <div class="actions">
     <button type="submit" formaction="/api/auth/oauth/consent/deny" class="btn-cancel" formnovalidate>Decline</button>
     <button type="submit" class="btn-ok">Authorize</button>
@@ -183,7 +160,6 @@ async function parseConsentBody(request, url) {
     return {
       authorizationId: url.searchParams.get('authorization_id')?.trim() || '',
       action: pathAction === 'approve' || pathAction === 'deny' ? pathAction : '',
-      workspaceId: '',
     };
   }
   const ct = (request.headers.get('Content-Type') || '').toLowerCase();
@@ -193,7 +169,6 @@ async function parseConsentBody(request, url) {
     return {
       authorizationId: String(j.authorization_id || '').trim(),
       action: a === 'approve' || a === 'deny' ? a : pathAction,
-      workspaceId: String(j.workspace_id || '').trim(),
       consentCsrf: String(j.consent_csrf || j.consentCsrf || '').trim(),
       toolPreferences:
         j.tool_preferences && typeof j.tool_preferences === 'object' ? j.tool_preferences : null,
@@ -206,11 +181,10 @@ async function parseConsentBody(request, url) {
     return {
       authorizationId: String(fd.get('authorization_id') || '').trim(),
       action: raw === 'approve' || raw === 'deny' ? raw : pathAction,
-      workspaceId: String(fd.get('workspace_id') || '').trim(),
       consentCsrf: String(fd.get('consent_csrf') || '').trim(),
     };
   }
-  return { authorizationId: '', action: pathAction, workspaceId: '', consentCsrf: '' };
+  return { authorizationId: '', action: pathAction, consentCsrf: '' };
 }
 
 /**
@@ -251,13 +225,11 @@ export async function handleIamMcpOAuthConsentApi(request, env) {
   }
 
   const row = loaded.row;
-  const workspaces = await listUserWorkspaces(env, iamUser.id);
-  const defaultWorkspaceId = await resolveDefaultMcpWorkspaceId(env, iamUser, null);
   const scopes = mcpOAuthParseScopeList(row.scope);
   const client = await mcpOAuthLoadClient(env, row.client_id);
   const toolManifest = await loadMcpOAuthConsentToolManifest(env, {
     userId: iamUser.id,
-    workspaceId: defaultWorkspaceId || String(iamUser.workspace_id || '').trim(),
+    workspaceId: String(row.workspace_id || '').trim(),
     tenantId: String(row.tenant_id || iamUser.tenant_id || '').trim(),
     clientId: row.client_id,
     clientDisplayName: client?.display_name || client?.name || row.client_display_name || row.client_id,
@@ -292,8 +264,6 @@ export async function handleIamMcpOAuthConsentApi(request, env) {
     require_allowlist_for_mcp: toolManifest.require_allowlist_for_mcp ? 1 : 0,
     redirect_uri: row.redirect_uri,
     connecting_app: resolveMcpConnectingApp(row.redirect_uri),
-    workspaces,
-    default_workspace_id: defaultWorkspaceId,
     expires_at: row.expires_at,
     signed_in_email: iamUser.email || null,
   });
@@ -301,18 +271,16 @@ export async function handleIamMcpOAuthConsentApi(request, env) {
   return res;
 }
 
-export async function approveIamMcpAuthorization(env, authorizationId, iamUser, workspaceId, options = {}) {
+export async function approveIamMcpAuthorization(env, authorizationId, iamUser, _workspaceId, options = {}) {
   const loaded = await loadAuthorization(env, authorizationId, iamUser.id);
   if (!loaded.ok) return { ok: false, error: loaded.error };
   const row = loaded.row;
 
-  const resolvedWorkspaceId = await resolveDefaultMcpWorkspaceId(env, iamUser, workspaceId);
+  const resolvedWorkspaceId = String(row.workspace_id || '').trim();
   const workspaces = await listUserWorkspaces(env, iamUser.id);
   const allowedWs =
     resolvedWorkspaceId &&
-    (workspaces.some((w) => w.id === resolvedWorkspaceId) ||
-      resolvedWorkspaceId === String(iamUser?.workspace_id || '').trim() ||
-      resolvedWorkspaceId === String(env.WORKSPACE_ID || '').trim());
+    workspaces.some((w) => w.id === resolvedWorkspaceId);
   if (!resolvedWorkspaceId || !allowedWs) return { ok: false, error: 'invalid_workspace' };
   const workspaceIdFinal = resolvedWorkspaceId;
 
@@ -448,7 +416,7 @@ export async function denyIamMcpAuthorization(env, authorizationId, iamUser) {
 
 export async function handleIamMcpOAuthConsentPage(request, env) {
   const url = new URL(request.url);
-  const { authorizationId, action, workspaceId, consentCsrf, toolPreferences } =
+  const { authorizationId, action, consentCsrf, toolPreferences } =
     await parseConsentBody(request, url);
 
   if (!isIamMcpAuthorizationId(authorizationId)) {
@@ -512,12 +480,11 @@ export async function handleIamMcpOAuthConsentPage(request, env) {
       return Response.redirect(denied.redirect_url, 302);
     }
 
-    const approved = await approveIamMcpAuthorization(env, authorizationId, iamUser, workspaceId, {
+    const approved = await approveIamMcpAuthorization(env, authorizationId, iamUser, null, {
       tool_preferences: toolPreferences || undefined,
     });
     if (!approved.ok) {
       if (acceptJson) return mcpOAuthJsonError(approved.error, 400);
-      const workspaces = await listUserWorkspaces(env, iamUser.id);
       const loaded = await loadAuthorization(env, authorizationId, iamUser.id);
       return new Response(
         iamMcpConsentHtml({
@@ -527,7 +494,6 @@ export async function handleIamMcpOAuthConsentPage(request, env) {
           connectingApp: resolveMcpConnectingApp(loaded.row?.redirect_uri),
           scopes: mcpOAuthParseScopeList(loaded.row?.scope),
           signedInEmail: iamUser.email,
-          workspaces,
           errorMessage: approved.error,
         }),
         { status: 400, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } },
@@ -550,7 +516,6 @@ export async function handleIamMcpOAuthConsentPage(request, env) {
   }
 
   const loaded = await loadAuthorization(env, authorizationId, iamUser.id);
-  const workspaces = await listUserWorkspaces(env, iamUser.id);
   if (!loaded.ok) {
     const msg =
       loaded.error === 'expired'
@@ -563,7 +528,6 @@ export async function handleIamMcpOAuthConsentPage(request, env) {
         redirectUri: '',
         scopes: [],
         signedInEmail: iamUser.email,
-        workspaces,
         errorMessage: msg,
       }),
       { status: 404, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } },
@@ -585,8 +549,7 @@ export async function handleIamMcpOAuthConsentPage(request, env) {
       connectingApp: resolveMcpConnectingApp(loaded.row.redirect_uri),
       scopes: mcpOAuthParseScopeList(loaded.row.scope),
       signedInEmail: iamUser.email,
-      workspaces,
-      errorMessage: workspaces.length ? '' : 'No workspaces available for this account.',
+      errorMessage: '',
     }),
     { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } },
   );

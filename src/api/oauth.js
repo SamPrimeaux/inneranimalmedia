@@ -774,29 +774,21 @@ async function mcpOAuthResolveTenantId(env, authUser) {
   return null;
 }
 
-async function mcpOAuthResolveWorkspaceId(env, authUser, url) {
-  const requested = String(url.searchParams.get('workspace_id') || '').trim();
-  if (requested) return requested;
-
-  const direct = String(authUser?.workspace_id || authUser?.active_workspace_id || env.WORKSPACE_ID || env.DEFAULT_WORKSPACE_ID || '').trim();
-  if (direct) return direct;
-
-  if (env.DB && authUser?.id) {
-    try {
-      const row = await env.DB.prepare(
-        `SELECT workspace_id
-           FROM workspace_members
-          WHERE user_id = ?
-          ORDER BY joined_at ASC
-          LIMIT 1`,
-      )
-        .bind(authUser.id)
-        .first();
-      if (row?.workspace_id) return String(row.workspace_id);
-    } catch (_) {}
-  }
-
-  return null;
+async function resolveCanonicalWorkspace(env, userId) {
+  const row = await env.DB.prepare(`
+    SELECT 
+      COALESCE(
+        au.default_workspace_id,
+        au.active_workspace_id,
+        (SELECT wm.workspace_id FROM workspace_members wm 
+         WHERE wm.user_id = au.id AND wm.is_active = 1 
+         AND wm.role = 'owner' 
+         ORDER BY wm.created_at ASC LIMIT 1)
+      ) as workspace_id
+    FROM auth_users au
+    WHERE au.id = ?
+  `).bind(userId).first();
+  return row?.workspace_id ?? null;
 }
 
 async function mcpOAuthReadBody(request) {
@@ -882,7 +874,8 @@ async function handleMcpOAuthAuthorize(request, env, _ctx) {
   const tenantId = await mcpOAuthResolveTenantId(env, authUser);
   if (!tenantId) return mcpOAuthJsonError('invalid_tenant', 400);
 
-  const workspaceId = await mcpOAuthResolveWorkspaceId(env, authUser, url);
+  const workspaceId = await resolveCanonicalWorkspace(env, authUser.id);
+  if (!workspaceId) return mcpOAuthJsonError('invalid_workspace', 400);
 
   let externalClientKey = null;
   if (clientId === MCP_CANONICAL_CLIENT_ID) {
@@ -1002,9 +995,7 @@ async function handleMcpOAuthToken(request, env, _ctx) {
   if (!rl.ok) return mcpOAuthJsonError(rl.error, 429, { retry_after: rl.retry_after });
 
   const body = await mcpOAuthReadBody(request);
-  if (body.grant_type && body.grant_type !== 'authorization_code') {
-    return mcpOAuthJsonError('unsupported_grant_type', 400);
-  }
+  if (body.grant_type && body.grant_type !== 'authorization_code') return mcpOAuthJsonError('unsupported_grant_type', 400);
   if (!body.code) return mcpOAuthJsonError('missing_code', 400);
   if (!body.code_verifier) return mcpOAuthJsonError('missing_code_verifier', 400);
   if (!body.redirect_uri) return mcpOAuthJsonError('missing_redirect_uri', 400);
@@ -1034,15 +1025,20 @@ async function handleMcpOAuthToken(request, env, _ctx) {
 
   const client = await mcpOAuthLoadClient(env, row.client_id);
   const tenantId = String(row.tenant_id || authRow?.tenant_id || env.TENANT_ID || '');
-  let workspaceId = env.WORKSPACE_ID || '';
+  const workspaceId = await resolveCanonicalWorkspace(env, userId);
+  if (!workspaceId) {
+    await logMcpOAuthTokenFailure(env, request, 'invalid_workspace', {
+      client_id: body.client_id || row.client_id,
+    });
+    return mcpOAuthJsonError('invalid_workspace', 400);
+  }
   let boundResource = IAM_MCP_RESOURCE_URL;
   try {
     const authz = await env.DB.prepare(
-      `SELECT workspace_id, metadata_json FROM oauth_authorizations WHERE authorization_code_hash = ? LIMIT 1`,
+      `SELECT metadata_json FROM oauth_authorizations WHERE authorization_code_hash = ? LIMIT 1`,
     )
       .bind(codeHash)
       .first();
-    workspaceId = String(authz?.workspace_id || workspaceId || '');
     const meta = parseMcpOAuthAuthorizationMetadata(authz?.metadata_json);
     if (meta.resource) boundResource = String(meta.resource);
     else if (meta.audience) boundResource = String(meta.audience);
@@ -1650,4 +1646,3 @@ export async function getUserSupabaseToken(env, userId, workspaceId = null) {
     metadata: meta,
   };
 }
-

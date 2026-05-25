@@ -13,15 +13,16 @@
  *
  * API contract (backend — POST migration_399):
  *   GET  /api/oauth/mcp/consent?authorization_id=oaa_*
- *        → { client, scopes[], workspaces[], expires_at, status }
+ *        → { client, scopes[], expires_at, status }
  *   POST /api/oauth/mcp/consent
- *        body: { authorization_id, workspace_id, action: "approve"|"deny" }
+ *        body: { authorization_id, action: "approve"|"deny" }
  *        approve → 302 mcp.inneranimalmedia.com/auth/callback?code=&state=
  *        deny    → 302 error=access_denied
  *
  */
 
 import { useState, useEffect, useCallback } from "react";
+import type { McpToolPreference } from "../mcp/McpToolPreferenceControl";
 
 /** Footer company signature — do not use for app/MCP identity. */
 const IAM_FOOTER_LOGO_URL =
@@ -51,13 +52,6 @@ interface ScopeInfo {
   label: string;
   description: string;
   sensitive: boolean;
-}
-
-interface Workspace {
-  id: string;        // ws_* from workspaces table
-  name: string;
-  tenant_id: string;
-  workspace_type: string;
 }
 
 type McpClientKey = "cursor" | "claude" | "chatgpt" | "default";
@@ -130,10 +124,8 @@ interface ConsentToolGroup {
 interface ConsentData {
   client: OAuthClient;
   scopes: ScopeInfo[];
-  workspaces: Workspace[];
   redirect_uri?: string | null;
   connecting_app?: ConnectingAppInfo;
-  default_workspace_id?: string | null;
   signed_in_email?: string | null;
   expires_at: number;
   status: "pending" | "approved" | "denied" | "expired";
@@ -259,14 +251,6 @@ function clientGroupTools(tools: ConsentToolRow[]): ConsentToolGroup[] {
   return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label));
 }
 
-function pickDefaultWorkspace(data: ConsentData): string {
-  return (
-    data.default_workspace_id ||
-    data.workspaces[0]?.id ||
-    ""
-  );
-}
-
 const DEFAULT_CONNECTING_APP: ConnectingAppInfo = {
   key: "default",
   label: "your MCP client",
@@ -341,7 +325,6 @@ async function fetchConsentData(authorizationId: string): Promise<ConsentData> {
 
 async function submitConsent(
   authorizationId: string,
-  workspaceId: string,
   action: "approve" | "deny",
   consentCsrf: string,
 ): Promise<{ redirect_url?: string }> {
@@ -351,7 +334,6 @@ async function submitConsent(
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify({
       authorization_id: authorizationId,
-      workspace_id: workspaceId,
       action,
       consent_csrf: consentCsrf,
     }),
@@ -467,7 +449,6 @@ export default function IamMcpOAuthConsentPage({
   authorizationId,
 }: IamMcpOAuthConsentPageProps) {
   const [state, setState] = useState<ConsentState>({ phase: "loading" });
-  const [selectedWorkspace, setSelectedWorkspace] = useState<string>("");
 
   // ── Load consent data ────────────────────────────────────────────────────
   useEffect(() => {
@@ -487,15 +468,6 @@ export default function IamMcpOAuthConsentPage({
           setState({ phase: "error", message: "expired" });
           return;
         }
-        const defaultWs = pickDefaultWorkspace(data);
-        if (!defaultWs) {
-          setState({
-            phase: "error",
-            message: "No workspace is available for this account. Contact your administrator.",
-          });
-          return;
-        }
-        setSelectedWorkspace(defaultWs);
         setState({ phase: "ready", data });
       })
       .catch((err: Error) => {
@@ -529,13 +501,12 @@ export default function IamMcpOAuthConsentPage({
 
   // ── Actions ──────────────────────────────────────────────────────────────
   const handleApprove = useCallback(async () => {
-    if (!authorizationId || !selectedWorkspace || state.phase !== "ready") return;
+    if (!authorizationId || state.phase !== "ready") return;
     const frozen = state.data;
     setState({ phase: "submitting", data: frozen });
     try {
       const result = await submitConsent(
         authorizationId,
-        selectedWorkspace,
         "approve",
         frozen.consent_csrf || "",
       );
@@ -547,7 +518,7 @@ export default function IamMcpOAuthConsentPage({
     } catch (err: any) {
       setState({ phase: "error", message: err.message });
     }
-  }, [authorizationId, selectedWorkspace, state]);
+  }, [authorizationId, state]);
 
   const handleDeny = useCallback(async () => {
     if (!authorizationId || state.phase !== "ready") return;
@@ -556,7 +527,6 @@ export default function IamMcpOAuthConsentPage({
     try {
       await submitConsent(
         authorizationId,
-        selectedWorkspace || "_denied",
         "deny",
         frozen.consent_csrf || ""
       );
@@ -564,7 +534,7 @@ export default function IamMcpOAuthConsentPage({
     } catch {
       setState({ phase: "denied", connectingApp: resolveClientContext(frozen).app });
     }
-  }, [authorizationId, selectedWorkspace, state]);
+  }, [authorizationId, state]);
 
   // ── Render ───────────────────────────────────────────────────────────────
   return (
