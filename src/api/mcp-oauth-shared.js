@@ -302,10 +302,14 @@ export async function loadMcpOAuthAllowlistRows(env, clientId = MCP_CANONICAL_CL
  * Derive narrow token entitlements from granted OAuth scopes + client allowlist.
  * Avoids broad mcp.* / agent.* defaults on OAuth-issued rows.
  */
-export async function buildMcpOAuthTokenEntitlements(env, clientId, grantedScopeStr) {
+export async function buildMcpOAuthTokenEntitlements(env, clientId, grantedScopeStr, allowedToolKeys = null) {
   const scopes = mcpOAuthParseScopeList(grantedScopeStr);
   const scopeSet = new Set(scopes);
-  const rows = await loadMcpOAuthAllowlistRows(env, clientId);
+  let rows = await loadMcpOAuthAllowlistRows(env, clientId);
+  if (Array.isArray(allowedToolKeys) && allowedToolKeys.length) {
+    const allow = new Set(allowedToolKeys.map((k) => String(k || '').trim()).filter(Boolean));
+    rows = rows.filter((r) => allow.has(r.tool_key));
+  }
 
   const hasMcpTools = scopeSet.has('mcp:tools');
   const hasAgent = scopeSet.has('iam:agent');
@@ -354,11 +358,23 @@ export async function buildMcpOAuthTokenEntitlements(env, clientId, grantedScope
 }
 
 /** Map tool_key → access_class JSON for mcp_workspace_tokens.allowed_domains_json reuse. */
-export function oauthToolAccessDomainsPayload(entitlements) {
+export function oauthToolAccessDomainsPayload(entitlements, policyMeta = {}) {
   return JSON.stringify({
     oauth_client_id: entitlements.oauthClientId,
     oauth_tool_access: entitlements.oauthToolAccess,
+    require_allowlist_for_mcp: Number(policyMeta.require_allowlist_for_mcp || 0) === 1 ? 1 : 0,
+    tool_risk_level_max: String(policyMeta.tool_risk_level_max || 'high'),
   });
+}
+
+/**
+ * Intersect OAuth client allowlist with user agentsam_mcp_allowlist when policy requires it.
+ */
+export async function intersectOAuthToolsWithUserPolicy(env, scope, clientId) {
+  const { filterOAuthToolKeysForUser } = await import('../core/mcp-oauth-user-policy.js');
+  const oauthKeys = (await loadMcpOAuthExternalToolKeys(env, clientId)) || [];
+  const { keys, policy, requireAllowlist } = await filterOAuthToolKeysForUser(env, scope, oauthKeys);
+  return { keys, policy, requireAllowlist, oauthKeys };
 }
 
 /** Workspace github_repo + repo_path for MCP token rows (per-user isolation). */

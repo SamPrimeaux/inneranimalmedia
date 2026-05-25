@@ -48,6 +48,7 @@ import {
   buildMcpOAuthTokenEntitlements,
   oauthToolAccessDomainsPayload,
   resolveMcpOAuthTokenTtlSeconds,
+  intersectOAuthToolsWithUserPolicy,
 } from './mcp-oauth-shared.js';
 import { checkMcpOAuthRateLimit } from './mcp-oauth-rate-limit.js';
 import { logAuthEvent } from '../core/auth-events.js';
@@ -993,11 +994,20 @@ async function handleMcpOAuthToken(request, env, _ctx) {
   const now = mcpOAuthNow();
   const tokenTtl = resolveMcpOAuthTokenTtlSeconds(env);
   const expiresAt = now + tokenTtl;
-  const oauthAllowedToolsJson =
-    (await loadMcpOAuthExternalAllowedToolsJson(env, row.client_id)) || null;
   const wsBindings = await loadWorkspaceMcpTokenBindings(env, workspaceId);
-  const entitlements = await buildMcpOAuthTokenEntitlements(env, row.client_id, scope);
-  const domainsPayload = oauthToolAccessDomainsPayload(entitlements);
+  const actorScope = {
+    userId,
+    workspaceId,
+    tenantId: wsBindings.tenant_id || tenantId,
+    personUuid: authRow?.person_uuid || null,
+    clientId: row.client_id,
+  };
+  const intersected = await intersectOAuthToolsWithUserPolicy(env, actorScope, row.client_id);
+  const oauthAllowedToolsJson = intersected.keys.length
+    ? JSON.stringify(intersected.keys)
+    : '[]';
+  const entitlements = await buildMcpOAuthTokenEntitlements(env, row.client_id, scope, intersected.keys);
+  const domainsPayload = oauthToolAccessDomainsPayload(entitlements, intersected.policy);
 
   await logAuthEvent(env, {
     request,
