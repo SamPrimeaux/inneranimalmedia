@@ -116,7 +116,6 @@ SELECT
     'agentsam_skill',
     'agentsam_skill_invocation',
     'agentsam_skill_revision',
-    'agentsam_slash_commands',
     'agentsam_subagent_profile',
     'agentsam_subscription_registry',
     'agentsam_task_slos',

@@ -6,7 +6,7 @@ _Generated: 2026-05-16 03:39_
 - [ ] Call selectAutoModel() in the appropriate workflow.
 - [ ] Ensure Provider waterfall executes in the correct order.
 - [ ] Implement frontend data pumping to tables instead of seeding.
-- [ ] Review agentsam_slash_commands for redundancy and consolidate.
+- [x] Review agentsam_slash_commands for redundancy and consolidate (migration 410 → agentsam_commands).
 
 ## WIRE
 - [ ] Wire agentsam_approval_queue to the workflow lifecycle.
