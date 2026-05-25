@@ -39,7 +39,8 @@ import {
   insertCuratedAgentMemory,
   searchCuratedAgentMemory,
 } from './rag.js';
-import { LANES, queryLanes, writeToLane } from '../core/rag-lanes.js';
+import { LANES, writeToLane } from '../core/rag-lanes.js';
+import { retrieveContextPack } from '../core/rag-retrieve.js';
 import { loadAgentMemoryForPrompt }                     from '../core/memory.js';
 import { writeTelemetry }                               from './telemetry.js';
 import { jsonResponse }                                 from '../core/responses.js';
@@ -7282,16 +7283,29 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   let laneRagContext = '';
   if (needsRag) {
     try {
-      const ragResults = await queryLanes(env, {
-        workspace_id_d1: resolvedWorkspaceId ?? workspaceId,
-        query_text: message,
-        lanes: [LANES.memory.name, LANES.schema.name, LANES.code.name],
-        top_k: 3,
+      const taskType = normalizeCanonicalTaskType(intentResult?.taskType ?? 'ask');
+      const ragIntent =
+        taskType === 'agent'
+          ? 'code'
+          : taskType === 'plan'
+            ? 'architecture'
+            : taskType === 'debug'
+              ? 'code'
+              : taskType === 'ask'
+                ? 'mixed'
+                : 'mixed';
+      const pack = await retrieveContextPack(env, {
+        workspaceId: workspaceId,
+        query: message,
+        intent: ragIntent,
+        maxChunks: 6,
       });
-      if (ragResults.length > 0) {
+      if (pack.chunks.length > 0) {
         const block =
           '\n\n## Retrieved context\n' +
-          ragResults.map((r) => `### ${r.title}\n${r.content}`).join('\n\n');
+          pack.chunks
+            .map((chunk) => `### ${chunk.title ?? chunk.lane}\n${String(chunk.content ?? '').slice(0, 800)}`)
+            .join('\n\n');
         laneRagContext = block.length > 3000 ? block.slice(0, 3000) : block;
       }
     } catch (_) {}

@@ -20,7 +20,7 @@ export const LANES = {
   schema: {
     name: 'schema',
     vectorize: 'AGENTSAM_VECTORIZE_SCHEMA',
-    supabase_table: 'agentsam_database_schema_oai3large_1536',
+    supabase_table: 'agentsam_schema_oai3large_1536',
   },
   archive: {
     name: 'archive',

@@ -28,7 +28,7 @@ ENV_FILES = [
     ROOT / ".env",
 ]
 WORKSPACE_KEY = "ws_inneranimalmedia"
-SUPABASE_TABLE = "agentsam_database_schema_oai3large_1536"
+SUPABASE_TABLE = "agentsam_schema_oai3large_1536"
 VECTORIZE_INDEX = "agentsam-schema-oai3large-1536"
 OPENAI_EMBED_MODEL = "text-embedding-3-large"
 OPENAI_EMBED_DIMS = 1536
@@ -213,11 +213,26 @@ def existing_schema_row(config: dict[str, str], workspace_uuid: str, source_ref:
     return rows[0] if rows else None
 
 
-def upsert_supabase_schema_row(config: dict[str, str], row: dict[str, Any]) -> dict[str, Any]:
-    query = urllib.parse.urlencode({"on_conflict": "workspace_id,source_ref"})
-    data = supabase_post(f"/rest/v1/{SUPABASE_TABLE}?{query}", [row], config)
+def supabase_patch(path: str, payload: Any, config: dict[str, str]) -> Any:
+    url = f"{config['supabase_url']}{path}"
+    _, data = json_request(
+        "PATCH",
+        url,
+        headers=supabase_headers(config["supabase_key"], prefer="return=representation"),
+        payload=payload,
+    )
+    return data
+
+
+def save_supabase_schema_row(config: dict[str, str], row: dict[str, Any], existing_id: str | None) -> dict[str, Any]:
+    if existing_id:
+        data = supabase_patch(f"/rest/v1/{SUPABASE_TABLE}?id=eq.{existing_id}", row, config)
+        if not isinstance(data, list) or not data:
+            raise RuntimeError(f"Supabase patch returned no row for {row['source_ref']}")
+        return data[0]
+    data = supabase_post(f"/rest/v1/{SUPABASE_TABLE}", [row], config)
     if not isinstance(data, list) or not data:
-        raise RuntimeError(f"Supabase upsert returned no row for {row['source_ref']}")
+        raise RuntimeError(f"Supabase insert returned no row for {row['source_ref']}")
     return data[0]
 
 
@@ -262,7 +277,11 @@ def build_d1_entries(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "title": f"D1 Table: {table_name}",
             "content": f"D1 Table: {table_name}\n\nSchema:\n{sql}",
             "source_ref": f"d1.{table_name}",
-            "source_type": "database_summary",
+            "database_kind": "d1",
+            "database_name": "inneranimalmedia-business",
+            "schema_name": None,
+            "object_name": table_name,
+            "object_type": "table",
             "metadata": {
                 "db": "d1",
                 "table_name": table_name,
@@ -301,7 +320,11 @@ def build_supabase_entries(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 + "\n".join(cols)
             ),
             "source_ref": f"supabase.agentsam.{table_name}",
-            "source_type": "database_summary",
+            "database_kind": "supabase",
+            "database_name": "agentsam",
+            "schema_name": "agentsam",
+            "object_name": table_name,
+            "object_type": "table",
             "metadata": {
                 "db": "supabase",
                 "schema": "agentsam",
@@ -327,18 +350,28 @@ def ingest_entry(config: dict[str, str], workspace_uuid: str, entry: dict[str, A
     payload = {
         "id": row_id,
         "workspace_id": workspace_uuid,
+        "database_kind": entry["database_kind"],
+        "database_name": entry.get("database_name"),
+        "schema_name": entry.get("schema_name"),
+        "object_name": entry["object_name"],
+        "object_type": entry["object_type"],
         "title": title,
         "content": content,
-        "source_type": entry["source_type"],
         "source_ref": source_ref,
         "metadata": entry["metadata"],
         "content_hash": content_hash,
         "embedding": vector_literal(embedding),
+        "vectorize_binding": "AGENTSAM_VECTORIZE_SCHEMA",
+        "vectorize_index": VECTORIZE_INDEX,
         "vectorize_id": row_id,
         "embedded_at": now_iso,
         "updated_at": now_iso,
     }
-    saved = upsert_supabase_schema_row(config, payload)
+    saved = save_supabase_schema_row(
+        config,
+        payload,
+        str(existing.get("id")) if existing and existing.get("id") else None,
+    )
     vectorize_upsert(
         config,
         str(saved.get("id") or row_id),
@@ -346,7 +379,7 @@ def ingest_entry(config: dict[str, str], workspace_uuid: str, entry: dict[str, A
         {
             "workspace_id": WORKSPACE_KEY,
             "source_ref": source_ref,
-            "source_type": entry["source_type"],
+            "source_type": entry["object_type"],
             "title": title,
         },
     )
