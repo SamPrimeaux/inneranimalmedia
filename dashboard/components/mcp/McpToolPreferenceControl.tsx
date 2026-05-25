@@ -1,4 +1,6 @@
-import { cn } from "../../lib/utils";
+function cn(...classes: Array<string | false | null | undefined>) {
+  return classes.filter(Boolean).join(" ");
+}
 
 export type McpToolPreference = "deny" | "read" | "ask" | "allow";
 
