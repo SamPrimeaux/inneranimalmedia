@@ -154,7 +154,6 @@ def resolve_workspace_uuid(config: dict[str, str]) -> str:
 def probe_table_or_die(config: dict[str, str], table: str) -> None:
     query = urllib.parse.urlencode({
         "select": "id",
-        "id": "is.null",
         "limit": "1",
     })
     url = f"{config['supabase_url']}/rest/v1/{table}?{query}"
