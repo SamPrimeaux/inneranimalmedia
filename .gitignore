@@ -122,6 +122,14 @@ scripts/generated-sites/
 !.env.agentsam.example
 analytics/codebase-index/
 
+# Generated audit outputs
+handler_type_audit_*.txt
+audit_report.md
+reports/
+
+# Agent runtime state
+.agents/
+
 # Audit outputs — never commit
 scripts/audit/*.json
 scripts/audit/*.ndjson
