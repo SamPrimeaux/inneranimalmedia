@@ -1,4 +1,4 @@
-import { resolveModelForTask } from './resolveModel.js';
+import { resolveModelForTask, normalizeCanonicalTaskType } from './resolveModel.js';
 
 export async function runModeGate(env, userMessage, modeSlug, workspaceId = null) {
   const ws =
@@ -11,13 +11,13 @@ export async function runModeGate(env, userMessage, modeSlug, workspaceId = null
   if (env?.DB && ws) {
     try {
       const gateResolved = await resolveModelForTask(env, {
-        task_type: 'gate',
+        task_type: normalizeCanonicalTaskType('gate'),
         mode: 'auto',
         workspace_id: ws,
       });
       gateModel = gateResolved.model_key;
       const escResolved = await resolveModelForTask(env, {
-        task_type: 'gate',
+        task_type: normalizeCanonicalTaskType('gate'),
         mode: 'agent',
         workspace_id: ws,
       });

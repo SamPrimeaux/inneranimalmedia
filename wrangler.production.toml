@@ -100,6 +100,21 @@ index_name = "ai-search-inneranimalmedia-autorag"
 binding = "AGENTSAMVECTORIZE"
 index_name = "inneranimalmedia-vectors"
 
+[[vectorize]]
+binding = "AGENTSAM_VECTORIZE_COURSES"
+index_name = "agentsam-courses-oai3large-1536"
+
+[[vectorize]]
+binding = "AGENTSAM_VECTORIZE_CODE"
+index_name = "agentsam-codebase-oai3large-1536"
+
+[[vectorize]]
+binding = "AGENTSAM_VECTORIZE_SCHEMA"
+index_name = "agentsam-schema-oai3large-1536"
+
+[[vectorize]]
+binding = "AGENTSAM_VECTORIZE_MEMORY"
+index_name = "agentsam-memory-oai3large-1536"
 
 [[kv_namespaces]]
 binding = "KV"

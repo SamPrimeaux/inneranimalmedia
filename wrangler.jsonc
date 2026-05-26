@@ -50,7 +50,7 @@
 		},
 		{
 			"binding": "AUTORAG_BUCKET",
-			"bucket_name": "autorag"
+			"bucket_name": "inneranimalmedia-autorag"
 		},
 		{
 			"binding": "DOCS_BUCKET",
@@ -90,6 +90,26 @@
 		{
 			"binding": "AGENTSAMVECTORIZE",
 			"index_name": "inneranimalmedia-vectors",
+			"remote": true
+		},
+		{
+			"binding": "AGENTSAM_VECTORIZE_CODE",
+			"index_name": "agentsam-codebase-oai3large-1536",
+			"remote": true
+		},
+		{
+			"binding": "AGENTSAM_VECTORIZE_SCHEMA",
+			"index_name": "agentsam-schema-oai3large-1536",
+			"remote": true
+		},
+		{
+			"binding": "AGENTSAM_VECTORIZE_MEMORY",
+			"index_name": "agentsam-memory-oai3large-1536",
+			"remote": true
+		},
+		{
+			"binding": "AGENTSAM_VECTORIZE_COURSES",
+			"index_name": "agentsam-courses-oai3large-1536",
 			"remote": true
 		}
 	],
@@ -175,6 +195,9 @@
 		"CLOUDFLARE_IMAGES_ACCOUNT_HASH": "g7wf09fCONpnidkRnR_5vw",
 		"GITHUB_CLIENT_ID": "Ov23li6BZYxjVtGUWibX",
 		"GOOGLE_CLIENT_ID": "427617292678-gf3u47lpf876q7miq31hel2ms6tcr2f8.apps.googleusercontent.com",
+		// ⚠️ MULTI-TENANT WARNING: These are Sam's operator defaults only.
+		// Future tenants must resolve workspace from authenticated identity.
+		// Tracked for removal in: docs/autorag/AUTORAG_ARCHITECTURE.md §Workspace Identity
 		"TENANT_ID": "tenant_sam_primeaux",
 		"WORKSPACE_ID": "ws_inneranimalmedia",
 		"DEPLOY_ENV": "production"
