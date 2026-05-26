@@ -10,6 +10,9 @@ import {
 } from '../../core/auth.js';
 import { syncRunToSupabase, buildCadCreationsPrefix } from './sync.js';
 import { handleDesignStudioScenesApi } from './scenes.js';
+import { normalizeGlbPublicUrl } from '../../core/glb-public-url.js';
+
+const CMS_ASSETS = 'cms_assets';
 
 const WORKFLOW_RUNS = 'agentsam_workflow_runs';
 const BLUEPRINTS = 'designstudio_design_blueprints';
@@ -44,6 +47,51 @@ function internalSecretOk(request, env) {
   const authHeader = request.headers.get('Authorization') || request.headers.get('X-Internal-Secret') || '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : authHeader.trim();
   return token === String(secret).trim();
+}
+
+function parseCmsAssetMetadata(raw) {
+  if (raw == null || raw === '') return {};
+  if (typeof raw === 'object') return raw;
+  try {
+    return JSON.parse(String(raw));
+  } catch (_) {
+    return {};
+  }
+}
+
+function mapDesignStudioAssetRow(row) {
+  const meta = parseCmsAssetMetadata(row?.metadata);
+  const scaleRaw = meta.scale;
+  const scale =
+    typeof scaleRaw === 'number' && Number.isFinite(scaleRaw)
+      ? scaleRaw
+      : Number(scaleRaw);
+  return {
+    id: String(row.id),
+    label:
+      meta.label != null && String(meta.label).trim() !== ''
+        ? String(meta.label).trim()
+        : String(row.filename || row.id),
+    public_url: normalizeGlbPublicUrl(row.public_url),
+    icon: meta.icon != null ? String(meta.icon) : null,
+    scale: Number.isFinite(scale) && scale > 0 ? scale : 1,
+    tags: row.tags ?? null,
+  };
+}
+
+function filenameFromPublicUrl(publicUrl, fallbackLabel) {
+  try {
+    const u = new URL(publicUrl, 'https://inneranimalmedia.com');
+    const base = u.pathname.split('/').pop();
+    if (base && base.includes('.')) return base;
+  } catch (_) {
+    /* ignore */
+  }
+  const safe = String(fallbackLabel || 'asset')
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]+/g, '_')
+    .slice(0, 80);
+  return safe.endsWith('.glb') ? safe : `${safe || 'asset'}.glb`;
 }
 
 async function resolveTenantId(env, authUser) {
@@ -165,6 +213,133 @@ export async function handleDesignStudioApi(request, url, env, _ctx) {
   try {
     const scenesRes = await handleDesignStudioScenesApi(request, url, env);
     if (scenesRes) return scenesRes;
+
+    const assetOneMatch = pathLower.match(/^\/api\/designstudio\/assets\/([^/]+)$/);
+
+    if (pathLower === '/api/designstudio/assets' && method === 'GET') {
+      const authUser = await getAuthUser(request, env);
+      if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+      if (!env.DB) return jsonResponse({ error: 'Database not configured' }, 503);
+
+      const category = (url.searchParams.get('category') || '').trim();
+      if (!category) return jsonResponse({ error: 'category required' }, 400);
+
+      const isLiveParam = url.searchParams.get('is_live');
+      let sql = `SELECT id, filename, tags, public_url, metadata, category, created_by
+        FROM ${CMS_ASSETS}
+        WHERE category = ?`;
+      const binds = [category];
+      if (isLiveParam === '1') {
+        sql += ' AND is_live = 1';
+      }
+      if (category === '3d_studio_user') {
+        sql += ' AND created_by = ?';
+        binds.push(String(authUser.id));
+      }
+      sql += ' ORDER BY created_at ASC';
+
+      const { results } = await env.DB.prepare(sql).bind(...binds).all();
+      const mapped = (results || []).map((row) => mapDesignStudioAssetRow(row));
+      return jsonResponse({ results: mapped }, 200);
+    }
+
+    if (pathLower === '/api/designstudio/assets' && method === 'POST') {
+      const authUser = await getAuthUser(request, env);
+      if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+      if (!env.DB) return jsonResponse({ error: 'Database not configured' }, 503);
+
+      let body = {};
+      try {
+        body = await request.json();
+      } catch (_) {
+        return jsonResponse({ error: 'Invalid JSON' }, 400);
+      }
+
+      const label = String(body.label || body.name || '').trim();
+      const publicUrl = String(body.public_url || body.url || '').trim();
+      if (!label) return jsonResponse({ error: 'label required' }, 400);
+      if (!publicUrl) return jsonResponse({ error: 'public_url required' }, 400);
+
+      const tenantId = await resolveTenantId(env, authUser);
+      const assetId = `ds_user_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+      const filename = filenameFromPublicUrl(publicUrl, label);
+      const scaleRaw = body.scale;
+      const scale =
+        typeof scaleRaw === 'number' && Number.isFinite(scaleRaw) && scaleRaw > 0
+          ? scaleRaw
+          : 1;
+      const metadata = JSON.stringify({
+        label,
+        icon: body.icon != null ? String(body.icon) : 'link',
+        scale,
+      });
+      let pathValue = publicUrl;
+      try {
+        pathValue = new URL(publicUrl, 'https://inneranimalmedia.com').pathname || publicUrl;
+      } catch (_) {
+        /* keep raw */
+      }
+
+      await env.DB.prepare(
+        `INSERT INTO ${CMS_ASSETS} (
+          id, tenant_id, filename, original_filename, path, size, mime_type, category,
+          tags, r2_key, public_url, metadata, created_by, is_live, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, datetime('now'), datetime('now'))`,
+      )
+        .bind(
+          assetId,
+          tenantId,
+          filename,
+          filename,
+          pathValue,
+          0,
+          'model/gltf-binary',
+          '3d_studio_user',
+          'designstudio,user',
+          pathValue,
+          publicUrl,
+          metadata,
+          String(authUser.id),
+        )
+        .run();
+
+      return jsonResponse(
+        {
+          ok: true,
+          asset: mapDesignStudioAssetRow({
+            id: assetId,
+            filename,
+            public_url: publicUrl,
+            metadata,
+            tags: 'designstudio,user',
+          }),
+        },
+        201,
+      );
+    }
+
+    if (assetOneMatch && method === 'DELETE') {
+      const authUser = await getAuthUser(request, env);
+      if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+      if (!env.DB) return jsonResponse({ error: 'Database not configured' }, 503);
+
+      const assetId = assetOneMatch[1];
+      const row = await env.DB.prepare(
+        `SELECT id, category, created_by FROM ${CMS_ASSETS} WHERE id = ? LIMIT 1`,
+      )
+        .bind(assetId)
+        .first();
+      if (!row) return jsonResponse({ error: 'Not found' }, 404);
+      if (String(row.category) !== '3d_studio_user') {
+        return jsonResponse({ error: 'Only user assets may be deleted' }, 403);
+      }
+      if (String(row.created_by) !== String(authUser.id)) {
+        return jsonResponse({ error: 'Forbidden' }, 403);
+      }
+
+      await env.DB.prepare(`DELETE FROM ${CMS_ASSETS} WHERE id = ?`).bind(assetId).run();
+      return jsonResponse({ ok: true, id: assetId }, 200);
+    }
 
     const eventsMatch = pathLower.match(/^\/api\/designstudio\/runs\/([^/]+)\/events$/);
     if (eventsMatch && method === 'GET') {

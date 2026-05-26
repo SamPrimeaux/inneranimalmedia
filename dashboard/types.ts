@@ -89,6 +89,7 @@ export interface CustomAsset {
   id: string;
   name: string;
   url: string;
+  scale?: number;
 }
 
 export interface ProjectConfig {

@@ -51,6 +51,47 @@ import {
 
 type PendingGlbState = { pendingGlb?: { url: string; name: string } };
 
+type StudioStockAsset = {
+  id: string;
+  name: string;
+  url: string;
+  scale: number;
+  iconKey: string | null;
+};
+
+function parseStudioAssetApiRow(row: {
+  id?: string;
+  label?: string;
+  public_url?: string;
+  icon?: string | null;
+  scale?: number;
+}): StudioStockAsset | null {
+  const id = String(row.id || '').trim();
+  const url = normalizeGlbUrl(row.public_url);
+  if (!id || !url) return null;
+  const name = String(row.label || id).trim() || id;
+  const scale =
+    typeof row.scale === 'number' && Number.isFinite(row.scale) && row.scale > 0 ? row.scale : 1;
+  const iconKey = row.icon != null && String(row.icon).trim() ? String(row.icon).trim() : null;
+  return { id, name, url, scale, iconKey };
+}
+
+function studioAssetIcon(iconKey: string | null): React.ReactNode {
+  const k = String(iconKey || '').toLowerCase();
+  switch (k) {
+    case 'shield':
+      return <Shield size={14} />;
+    case 'activity':
+      return <Activity size={14} />;
+    case 'plane':
+      return <Plane size={14} />;
+    case 'link':
+      return <Link size={14} />;
+    default:
+      return <Box size={14} />;
+  }
+}
+
 function DesignStudioLeftPanel(props: {
   activeProject: ProjectType;
   onSwitchProject: (type: ProjectType) => void;
@@ -61,8 +102,8 @@ function DesignStudioLeftPanel(props: {
   onUpdateSceneConfig: (config: Partial<SceneConfig>) => void;
   onSpawnModel: (name: string, url: string, scale: number) => void;
   customAssets: CustomAsset[];
-  onAddCustomAsset: (name: string, url: string) => void;
-  onRemoveCustomAsset: (id: string) => void;
+  onAddCustomAsset: (name: string, url: string) => void | Promise<void>;
+  onRemoveCustomAsset: (id: string) => void | Promise<void>;
   sceneName: string;
   onSceneNameChange: (name: string) => void;
   savedScenes: { id: string; name: string; entity_count: number; updated_at: number }[];
@@ -97,6 +138,8 @@ function DesignStudioLeftPanel(props: {
   const [chessPieces, setChessPieces] = useState<
     { type: string; name: string; white_url: string; black_url: string }[]
   >([]);
+  const [stockAssets, setStockAssets] = useState<StudioStockAsset[]>([]);
+  const [stockAssetsLoading, setStockAssetsLoading] = useState(true);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -146,6 +189,22 @@ function DesignStudioLeftPanel(props: {
       .catch((e) => console.warn('[Piece Armory] fetch failed', e));
   }, []);
 
+  useEffect(() => {
+    setStockAssetsLoading(true);
+    fetch('/api/designstudio/assets?category=3d_studio&is_live=1', { credentials: 'include' })
+      .then((r) => r.json())
+      .then((data) => {
+        const rows = Array.isArray(data?.results) ? data.results : [];
+        setStockAssets(
+          rows
+            .map((row: Parameters<typeof parseStudioAssetApiRow>[0]) => parseStudioAssetApiRow(row))
+            .filter((a): a is StudioStockAsset => a != null),
+        );
+      })
+      .catch((e) => console.warn('[Asset Library] stock fetch failed', e))
+      .finally(() => setStockAssetsLoading(false));
+  }, []);
+
   const projects = [
     { id: ProjectType.CHESS, name: 'Games', icon: <Gamepad2 size={20} />, desc: '3D Physics Chess' },
     { id: ProjectType.CAD, name: 'Agent Sam', icon: <Layers size={20} />, desc: 'Precision Blueprints' },
@@ -170,27 +229,6 @@ function DesignStudioLeftPanel(props: {
     { id: '#0a0a0f', name: 'Void', icon: <Palette size={12} /> },
   ];
 
-  const assetGallery = [
-    {
-      name: 'IAM Footer',
-      url: 'https://pub-e733f82cb31c4f34b6a719e749d0416d.r2.dev/inneranimalmediafooterglb.glb',
-      icon: <Shield size={14} />,
-      scale: 1.5,
-    },
-    {
-      name: 'Kinetic Symmetry',
-      url: 'https://pub-e733f82cb31c4f34b6a719e749d0416d.r2.dev/Kinetic_Symmetry_0831084700_generate%20(1).glb',
-      icon: <Activity size={14} />,
-      scale: 2,
-    },
-    {
-      name: 'Meshy Jet',
-      url: 'https://pub-e733f82cb31c4f34b6a719e749d0416d.r2.dev/Meshy_AI_Jet_in_Flight_0104205113_texture.glb',
-      icon: <Plane size={14} />,
-      scale: 1.2,
-    },
-  ];
-
   const handleQuickSpawn = () => {
     if (newAssetUrl) {
       onSpawnModel(newAssetName || 'Imported Asset', newAssetUrl, 1);
@@ -204,13 +242,17 @@ function DesignStudioLeftPanel(props: {
     }
   };
 
-  const handleAddAsset = (e: React.FormEvent) => {
+  const handleAddAsset = async (e: React.FormEvent) => {
     e.preventDefault();
     if (newAssetName && newAssetUrl) {
-      onAddCustomAsset(newAssetName, newAssetUrl);
-      setNewAssetName('');
-      setNewAssetUrl('');
-      setIsAdding(false);
+      try {
+        await onAddCustomAsset(newAssetName, newAssetUrl);
+        setNewAssetName('');
+        setNewAssetUrl('');
+        setIsAdding(false);
+      } catch (err) {
+        console.warn('[Asset Library] save failed', err);
+      }
     }
   };
 
@@ -429,30 +471,41 @@ function DesignStudioLeftPanel(props: {
 
           <p className="text-[9px] font-bold text-[var(--text-muted)] uppercase mb-1">Stock Presets</p>
           <div className="grid grid-cols-1 gap-2">
-            {assetGallery.map((asset) => (
+            {stockAssetsLoading && (
+              <p className="text-[10px] text-[var(--text-muted)] px-2 py-1">Loading presets…</p>
+            )}
+            {!stockAssetsLoading && stockAssets.length === 0 && (
+              <p className="text-[10px] text-[var(--text-muted)] px-2 py-1">
+                No live stock assets in D1 (<code className="font-mono">3d_studio</code>).
+              </p>
+            )}
+            {stockAssets.map((asset) => (
               <button
                 type="button"
-                key={asset.url}
+                key={asset.id}
                 onClick={() => onSpawnModel(asset.name, asset.url, asset.scale)}
                 className="flex items-center gap-3 p-2 rounded-xl bg-[var(--bg-panel)] border border-[var(--border-subtle)] hover:bg-[var(--bg-hover)] text-[10px] font-bold uppercase text-left"
               >
-                <span className="text-emerald-400">{asset.icon}</span>
+                <span className="text-emerald-400">{studioAssetIcon(asset.iconKey)}</span>
                 {asset.name}
               </button>
             ))}
+            {customAssets.length > 0 && (
+              <p className="text-[9px] font-bold text-[var(--text-muted)] uppercase mb-1 mt-2">Your Assets</p>
+            )}
             {customAssets.map((asset) => (
               <div key={asset.id} className="group relative flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => onSpawnModel(asset.name, asset.url, 1)}
+                  onClick={() => onSpawnModel(asset.name, asset.url, asset.scale ?? 1)}
                   className="flex-1 flex items-center gap-3 p-2 rounded-xl bg-[var(--bg-panel)] border border-[var(--border-subtle)] text-[10px] font-bold uppercase text-left"
                 >
-                  <Link size={14} className="text-[var(--solar-cyan)] shrink-0" />
+                  <span className="text-[var(--solar-cyan)] shrink-0">{studioAssetIcon('link')}</span>
                   {asset.name}
                 </button>
                 <button
                   type="button"
-                  onClick={() => onRemoveCustomAsset(asset.id)}
+                  onClick={() => void onRemoveCustomAsset(asset.id)}
                   className="p-2 text-red-400 opacity-0 group-hover:opacity-100 hover:bg-red-500/10 rounded-lg"
                   title="Remove"
                 >
@@ -671,6 +724,25 @@ export const DesignStudioPage: React.FC = () => {
     refreshSceneList();
   }, [refreshSceneList]);
 
+  const refreshUserAssets = useCallback(() => {
+    fetch('/api/designstudio/assets?category=3d_studio_user&is_live=1', { credentials: 'include' })
+      .then((r) => r.json())
+      .then((data) => {
+        const rows = Array.isArray(data?.results) ? data.results : [];
+        setCustomAssets(
+          rows
+            .map((row: Parameters<typeof parseStudioAssetApiRow>[0]) => parseStudioAssetApiRow(row))
+            .filter((a): a is StudioStockAsset => a != null)
+            .map((a) => ({ id: a.id, name: a.name, url: a.url, scale: a.scale })),
+        );
+      })
+      .catch((e) => console.warn('[Asset Library] user assets fetch failed', e));
+  }, []);
+
+  useEffect(() => {
+    refreshUserAssets();
+  }, [refreshUserAssets]);
+
   useEffect(() => {
     if (!containerRef.current) return;
     const engine = new VoxelEngine(containerRef.current, (s) => setAppState(s), (c) => setVoxelCount(c));
@@ -768,13 +840,45 @@ export const DesignStudioPage: React.FC = () => {
     });
   }, []);
 
-  const handleAddCustomAsset = useCallback((name: string, url: string) => {
-    setCustomAssets((prev) => [...prev, { id: `custom_${Date.now()}`, name, url }]);
-  }, []);
+  const handleAddCustomAsset = useCallback(
+    async (name: string, url: string) => {
+      const res = await fetch('/api/designstudio/assets', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label: name, public_url: url }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof (data as { error?: string }).error === 'string'
+            ? (data as { error: string }).error
+            : 'Failed to save asset',
+        );
+      }
+      refreshUserAssets();
+    },
+    [refreshUserAssets],
+  );
 
-  const handleRemoveCustomAsset = useCallback((id: string) => {
-    setCustomAssets((prev) => prev.filter((a) => a.id !== id));
-  }, []);
+  const handleRemoveCustomAsset = useCallback(
+    async (id: string) => {
+      const res = await fetch(`/api/designstudio/assets/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof (data as { error?: string }).error === 'string'
+            ? (data as { error: string }).error
+            : 'Failed to remove asset',
+        );
+      }
+      refreshUserAssets();
+    },
+    [refreshUserAssets],
+  );
 
   const handleImportGlbFile = useCallback((file: File) => {
     const url = URL.createObjectURL(file);
