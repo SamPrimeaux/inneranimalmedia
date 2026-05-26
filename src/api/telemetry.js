@@ -12,6 +12,7 @@ import {
   resolveCanonicalModelKey,
 } from '../core/model-pricing.js';
 import { resolveModelKeyFromProviderId } from '../core/model-catalog-cost.js';
+import { syncUsageTokenColumns, usageEventExtraColumnSql } from '../core/usage-event-writer.js';
 
 /**
  * Standardizes provider names for the spend ledger.
@@ -94,6 +95,9 @@ export async function writeTelemetry(env, data, modelRates) {
     success,
     computedCostUsdOverride,
     routingArmId,
+    taskType,
+    task_type,
+    mode,
   } = data;
 
   const rawModel = model != null ? String(model).trim() : '';
@@ -150,7 +154,10 @@ export async function writeTelemetry(env, data, modelRates) {
   const tokIn =
     Math.floor((Number(inputTokens) || 0) + (Number(cacheReadTokens) || 0) + (Number(cacheWriteTokens) || 0));
   const tokOut = Math.floor(Number(outputTokens) || 0);
-  const totalTok = tokIn + tokOut;
+  const tokens = syncUsageTokenColumns(tokIn, tokOut);
+  const resolvedTaskType =
+    (taskType ?? task_type) != null ? String(taskType ?? task_type).trim() : '';
+  const resolvedMode = mode != null ? String(mode).trim() : '';
 
   try {
     const usageCols = await pragmaTableInfo(env.DB, 'agentsam_usage_events');
@@ -167,15 +174,23 @@ export async function writeTelemetry(env, data, modelRates) {
       routingArmId != null &&
       String(routingArmId).trim() !== '' &&
       usageCols.has('routing_arm_id');
+    const extra = usageEventExtraColumnSql(usageCols, {
+      tokens_in: tokens.tokens_in,
+      tokens_out: tokens.tokens_out,
+      task_type: resolvedTaskType,
+      mode: resolvedMode,
+    });
+    const extraCols = extra.names.length ? `, ${extra.names.join(', ')}` : '';
+    const extraPh = extra.names.length ? `, ${extra.placeholders.join(', ')}` : '';
 
     if (armCol) {
       await env.DB.prepare(
         `INSERT INTO agentsam_usage_events (
           id, tenant_id, workspace_id${uidMid}, session_id, agent_name, provider, model, model_key,
           tokens_in, tokens_out, total_tokens, cost_usd, status,
-          event_type, duration_ms, routing_arm_id,
+          event_type, duration_ms, routing_arm_id${extraCols},
           created_at
-        ) VALUES (?,?,?,?${uidMidPh},?,?,?,?,?,?,?,?,?,?,?,?,unixepoch())`,
+        ) VALUES (?,?,?,?${uidMidPh},?,?,?,?,?,?,?,?,?,?,?,?${extraPh},unixepoch())`,
       ).bind(
         telemetryId,
         tidInsert,
@@ -186,23 +201,24 @@ export async function writeTelemetry(env, data, modelRates) {
         String(provider || 'unknown'),
         rawModel || 'unknown',
         catalogModelKey || rawModel || 'unknown',
-        tokIn,
-        tokOut,
-        totalTok,
+        tokens.tokens_in,
+        tokens.tokens_out,
+        tokens.total_tokens,
         estimatedCost ?? 0,
         success ? 'ok' : 'error',
         'agent_chat',
         latencyMs != null && Number.isFinite(Number(latencyMs)) ? Math.floor(Number(latencyMs)) : null,
         String(routingArmId).trim().slice(0, 120),
+        ...extra.binds,
       ).run();
     } else {
       await env.DB.prepare(
         `INSERT INTO agentsam_usage_events (
           id, tenant_id, workspace_id${uidMid}, session_id, agent_name, provider, model, model_key,
           tokens_in, tokens_out, total_tokens, cost_usd, status,
-          event_type, duration_ms,
+          event_type, duration_ms${extraCols},
           created_at
-        ) VALUES (?,?,?,?${uidMidPh},?,?,?,?,?,?,?,?,?,?,?,unixepoch())`,
+        ) VALUES (?,?,?,?${uidMidPh},?,?,?,?,?,?,?,?,?,?,?${extraPh},unixepoch())`,
       ).bind(
         telemetryId,
         tidInsert,
@@ -213,13 +229,14 @@ export async function writeTelemetry(env, data, modelRates) {
         String(provider || 'unknown'),
         rawModel || 'unknown',
         catalogModelKey || rawModel || 'unknown',
-        tokIn,
-        tokOut,
-        totalTok,
+        tokens.tokens_in,
+        tokens.tokens_out,
+        tokens.total_tokens,
         estimatedCost ?? 0,
         success ? 'ok' : 'error',
         'agent_chat',
         latencyMs != null && Number.isFinite(Number(latencyMs)) ? Math.floor(Number(latencyMs)) : null,
+        ...extra.binds,
       ).run();
     }
 
@@ -248,30 +265,6 @@ export async function writeTelemetry(env, data, modelRates) {
         toutRoll,
         estimatedCost || 0
       ).run().catch(e => console.warn('[ai_provider_usage] rollup failed:', e.message));
-
-      await env.DB.prepare(`
-        INSERT OR IGNORE INTO agentsam_usage_events (
-          tenant_id, workspace_id, session_id, agent_name, provider, model, model_key,
-          tokens_in, tokens_out, total_tokens, cost_usd, status, event_type,
-          ref_table, ref_id, created_at
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, unixepoch())
-      `).bind(
-        tidInsert,
-        wsInsert,
-        sid,
-        'rollup-agent',
-        spFixed,
-        'rollup',
-        'rollup',
-        tinRoll,
-        toutRoll,
-        totRoll,
-        estimatedCost || 0,
-        'ok',
-        'provider_daily_rollup',
-        'ai_provider_usage',
-        rowId,
-      ).run().catch(e => console.warn('[agentsam_usage_events ai_provider mirror]', e.message));
     }
 
     if (mid && (estimatedCost ?? 0) > 0) {
@@ -310,14 +303,22 @@ export async function insertAiGenerationLog(env, opts) {
   const now = Math.floor(Date.now() / 1000);
   
   try {
-    const tin = Math.floor(Number(opts.inputTokens) || 0);
-    const tout = Math.floor(Number(opts.outputTokens) || 0);
+    const tokens = syncUsageTokenColumns(opts.inputTokens, opts.outputTokens);
     const mk = String(opts.model || 'unknown').trim() || 'unknown';
+    const usageCols = await pragmaTableInfo(env.DB, 'agentsam_usage_events');
+    const extra = usageEventExtraColumnSql(usageCols, {
+      tokens_in: tokens.tokens_in,
+      tokens_out: tokens.tokens_out,
+      task_type: opts.taskType ?? opts.task_type ?? 'generation',
+      mode: opts.mode ?? 'agent',
+    });
+    const extraCols = extra.names.length ? `, ${extra.names.join(', ')}` : '';
+    const extraPh = extra.names.length ? `, ${extra.placeholders.join(', ')}` : '';
     await env.DB.prepare(
       `INSERT INTO agentsam_usage_events (
         id, tenant_id, workspace_id, agent_name, provider, model, model_key,
-        tokens_in, tokens_out, total_tokens, cost_usd, status, event_type, tool_name, created_at
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        tokens_in, tokens_out, total_tokens, cost_usd, status, event_type, tool_name${extraCols}, created_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?${extraPh},?)`
     ).bind(
       id,
       tid,
@@ -326,13 +327,14 @@ export async function insertAiGenerationLog(env, opts) {
       'course_generation',
       mk,
       mk,
-      tin,
-      tout,
-      tin + tout,
+      tokens.tokens_in,
+      tokens.tokens_out,
+      tokens.total_tokens,
       Number(opts.computedCostUsd) || 0,
       (opts.status || 'completed').toLowerCase() === 'completed' ? 'ok' : 'error',
       String(opts.generationType || 'generation').slice(0, 120),
       String(opts.prompt || '').slice(0, 200),
+      ...extra.binds,
       now,
     ).run();
 

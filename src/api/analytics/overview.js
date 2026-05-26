@@ -380,6 +380,8 @@ export async function handleAnalyticsOverview(request, url, env, { tenantId, wor
     usageWhere.push('workspace_id = ?');
     usageBinds.push(wid);
   }
+  // Exclude legacy provider_daily_rollup mirror rows (model_key = 'rollup')
+  usageWhere.push("(model_key IS NULL OR model_key != 'rollup')");
   const usageWhereSql = usageWhere.join(' AND ');
 
   const usageCols = await pragmaTableInfo(db, 'agentsam_usage_events');

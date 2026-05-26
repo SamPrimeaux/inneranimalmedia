@@ -6,6 +6,54 @@
  */
 import { scheduleMirrorUsageEventToSupabase } from './hyperdrive-write.js';
 
+/** Mirror tokens_in/out → input_tokens/output_tokens for analytics queries. */
+export function syncUsageTokenColumns(tokensIn, tokensOut) {
+  const tin = Math.max(0, Math.floor(Number(tokensIn) || 0));
+  const tout = Math.max(0, Math.floor(Number(tokensOut) || 0));
+  return {
+    tokens_in: tin,
+    tokens_out: tout,
+    input_tokens: tin,
+    output_tokens: tout,
+    total_tokens: tin + tout,
+  };
+}
+
+/**
+ * Optional extra INSERT columns when schema has attribution / token mirror cols.
+ * @param {Set<string>} cols - pragma_table_info names (lowercase)
+ */
+export function usageEventExtraColumnSql(cols, { tokens_in, tokens_out, task_type, mode }) {
+  const synced = syncUsageTokenColumns(tokens_in, tokens_out);
+  const names = [];
+  const placeholders = [];
+  const binds = [];
+
+  if (cols.has('input_tokens')) {
+    names.push('input_tokens');
+    placeholders.push('?');
+    binds.push(synced.input_tokens);
+  }
+  if (cols.has('output_tokens')) {
+    names.push('output_tokens');
+    placeholders.push('?');
+    binds.push(synced.output_tokens);
+  }
+  const tt = task_type != null ? String(task_type).trim() : '';
+  if (cols.has('task_type') && tt) {
+    names.push('task_type');
+    placeholders.push('?');
+    binds.push(tt.slice(0, 120));
+  }
+  const md = mode != null ? String(mode).trim() : '';
+  if (cols.has('mode') && md) {
+    names.push('mode');
+    placeholders.push('?');
+    binds.push(md.slice(0, 64));
+  }
+  return { names, placeholders, binds };
+}
+
 /**
  * @param {Object} env - Worker env bindings (env.DB required)
  * @param {Object} params
@@ -27,6 +75,8 @@ import { scheduleMirrorUsageEventToSupabase } from './hyperdrive-write.js';
  * @param {string} [params.tool_name]    - if event_type=tool_call
  * @param {string} [params.status]       - "ok" | "error" | "timeout"
  * @param {string} [params.reason]       - error message if status=error
+ * @param {string} [params.task_type]    - canonical task type from classifyIntent
+ * @param {string} [params.mode]         - execution mode (ask, agent, auto, …)
  */
 export async function writeUsageEvent(env, params, ctx = null) {
   const {
@@ -49,6 +99,8 @@ export async function writeUsageEvent(env, params, ctx = null) {
     tool_name    = null,
     status       = 'ok',
     reason       = null,
+    task_type    = null,
+    mode         = null,
   } = params;
 
   // hard requirement — skip silently rather than throw
@@ -57,29 +109,37 @@ export async function writeUsageEvent(env, params, ctx = null) {
     return null;
   }
 
+  const tokens = syncUsageTokenColumns(tokens_in, tokens_out);
+  const taskTypeVal = task_type != null ? String(task_type).trim().slice(0, 120) : null;
+  const modeVal = mode != null ? String(mode).trim().slice(0, 64) : null;
+
   try {
     const result = await env.DB.prepare(`
       INSERT INTO agentsam_usage_events (
         tenant_id, workspace_id, user_id, session_id,
         provider, model, model_key,
-        tokens_in, tokens_out, total_tokens, cost_usd, duration_ms,
+        tokens_in, tokens_out, input_tokens, output_tokens, total_tokens, cost_usd, duration_ms,
         event_type, tool_name, status, reason,
         ref_table, ref_id, routing_arm_id, plan_id,
+        task_type, mode,
         agent_name, created_at
       ) VALUES (
         ?, ?, ?, ?,
         ?, ?, ?,
-        ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?,
         ?, ?, ?, ?,
+        ?, ?,
         'agent-sam', unixepoch()
       )
     `).bind(
       tenant_id, workspace_id, user_id, session_id,
       provider, model, model_key,
-      tokens_in, tokens_out, (tokens_in + tokens_out), cost_usd, duration_ms,
+      tokens.tokens_in, tokens.tokens_out, tokens.input_tokens, tokens.output_tokens,
+      tokens.total_tokens, cost_usd, duration_ms,
       event_type, tool_name, status, reason,
-      ref_table, ref_id, routing_arm_id, plan_id
+      ref_table, ref_id, routing_arm_id, plan_id,
+      taskTypeVal, modeVal,
     ).run();
 
     let d1Id = null;
@@ -99,10 +159,10 @@ export async function writeUsageEvent(env, params, ctx = null) {
       provider,
       model,
       model_key,
-      tokens_in,
-      tokens_out,
-      input_tokens: tokens_in,
-      output_tokens: tokens_out,
+      tokens_in: tokens.tokens_in,
+      tokens_out: tokens.tokens_out,
+      input_tokens: tokens.input_tokens,
+      output_tokens: tokens.output_tokens,
       cost_usd,
       status,
       tool_name,
@@ -131,7 +191,9 @@ export async function writeUsageEventFromStream(env, {
   cost_usd,       // pre-calculated by your cost estimator
   duration_ms,    // Date.now() - start_time
   ref_table, ref_id,
-}) {
+  task_type,
+  mode,
+}, ctx = null) {
   return writeUsageEvent(env, {
     workspace_id, tenant_id, user_id, session_id,
     model, model_key, provider, routing_arm_id, plan_id,
@@ -142,6 +204,8 @@ export async function writeUsageEventFromStream(env, {
     duration_ms,
     ref_table,
     ref_id,
+    task_type,
+    mode,
     status: 'ok',
-  });
+  }, ctx);
 }

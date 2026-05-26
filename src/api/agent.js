@@ -127,7 +127,7 @@ import {
   SCOUT_TASK_TYPES,
 } from '../core/model-catalog-capabilities.js';
 import { listAgentsamSlashCommands } from '../core/agentsam-command-catalog.js';
-import { writeUsageEvent } from '../core/usage-event-writer.js';
+import { writeUsageEvent, usageEventExtraColumnSql } from '../core/usage-event-writer.js';
 import { fireAgentHooks } from '../core/hook-dispatcher.js';
 import { triggerEvalAfterNRuns } from '../core/eval-runner.js';
 import {
@@ -3325,6 +3325,8 @@ function scheduleAgentsamUsageEventFromChat(env, ctx, opts) {
     streamFailed,
     refId,
     routingArmId,
+    taskType,
+    mode,
   } = opts;
   if (!tenantId || !workspaceId) return;
   ctx.waitUntil(
@@ -3335,6 +3337,14 @@ function scheduleAgentsamUsageEventFromChat(env, ctx, opts) {
       const mk = modelKey ?? 'unknown';
       const tin = Math.floor(Number(inputTokens) || 0);
       const tout = Math.floor(Number(outputTokens) || 0);
+      const extra = usageEventExtraColumnSql(cols, {
+        tokens_in: tin,
+        tokens_out: tout,
+        task_type: taskType,
+        mode,
+      });
+      const extraCols = extra.names.length ? `, ${extra.names.join(', ')}` : '';
+      const extraPh = extra.names.length ? `, ${extra.placeholders.join(', ')}` : '';
       let computedCost = Number(costUsd) || 0;
       if (!computedCost && (tin > 0 || tout > 0)) {
         const priced = await estimateModelRunCostUsd(env.DB, {
@@ -3364,11 +3374,11 @@ function scheduleAgentsamUsageEventFromChat(env, ctx, opts) {
             INSERT OR IGNORE INTO agentsam_usage_events
               (id, tenant_id, workspace_id, user_id, session_id,
                agent_name, provider, model${midExtra}, tokens_in, tokens_out${tokExtra},
-               cost_usd, status${postStatus}, ref_table, ref_id, routing_arm_id, created_at)
+               cost_usd, status${postStatus}, ref_table, ref_id, routing_arm_id${extraCols}, created_at)
             VALUES
               ('ue_' || lower(hex(randomblob(8))),?,?,?,?,
                'iam_agent',?,?${midExtraPh},?,?${tokExtraPh},
-               ?,?${postStatusPh}, 'agentsam_agent_run', ?, ?, unixepoch())
+               ?,?${postStatusPh}, 'agentsam_agent_run', ?, ?, ?${extraPh}, unixepoch())
           `).bind(
             tenantId,
             workspaceId,
@@ -3385,17 +3395,18 @@ function scheduleAgentsamUsageEventFromChat(env, ctx, opts) {
             ...(hasEv ? ['agent_chat_sse'] : []),
             refId ?? 'na',
             arm,
+            ...extra.binds,
           ).run();
         } else {
           await env.DB.prepare(`
             INSERT OR IGNORE INTO agentsam_usage_events
               (id, tenant_id, workspace_id, user_id, session_id,
                agent_name, provider, model${midExtra}, tokens_in, tokens_out${tokExtra},
-               cost_usd, status${postStatus}, ref_table, ref_id, created_at)
+               cost_usd, status${postStatus}, ref_table, ref_id${extraCols}, created_at)
             VALUES
               ('ue_' || lower(hex(randomblob(8))),?,?,?,?,
                'iam_agent',?,?${midExtraPh},?,?${tokExtraPh},
-               ?,?${postStatusPh}, 'agentsam_agent_run', ?, unixepoch())
+               ?,?${postStatusPh}, 'agentsam_agent_run', ?, ?${extraPh}, unixepoch())
           `).bind(
             tenantId,
             workspaceId,
@@ -3411,6 +3422,7 @@ function scheduleAgentsamUsageEventFromChat(env, ctx, opts) {
             streamFailed ? 'error' : 'ok',
             ...(hasEv ? ['agent_chat_sse'] : []),
             refId ?? 'na',
+            ...extra.binds,
           ).run();
         }
       } catch (e) {
@@ -4964,6 +4976,8 @@ async function runAgentToolLoop(env, ctx, emit, params) {
             success: true,
             routingArmId: aid,
             latencyMs: Date.now() - loopT0,
+            taskType: routingTaskType || 'ask',
+            mode: mode || 'agent',
           },
           null,
         );
@@ -6050,6 +6064,24 @@ async function agentChatDirectSseHandler(env, ctx, opts) {
           fallbackReason: null,
           modelsTried: [loopStats?.modelKey || modelKey],
           quickstartBatch: null,
+        });
+      }
+      if (tenantId && workspaceId && (inputTokens > 0 || outputTokens > 0)) {
+        scheduleAgentsamUsageEventFromChat(env, ctx, {
+          tenantId,
+          workspaceId,
+          userId,
+          conversationId: sessionId ? String(sessionId) : null,
+          resolvedProvider: providerForModelKey(loopStats?.modelKey || modelKey),
+          modelKey: loopStats?.modelKey || modelKey,
+          inputTokens,
+          outputTokens,
+          costUsd,
+          streamFailed: !finalSuccess || timedOut,
+          refId: chatAgentRunId ?? 'na',
+          routingArmId,
+          taskType: routingTaskType ?? 'ask',
+          mode: 'ask',
         });
       }
       if (routingArmId) {
@@ -8213,13 +8245,14 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
               routing_arm_id: outcomeArmId,
               plan_id: body?.planId ?? body?.plan_id ?? null,
               event_type: 'agent_run_complete',
-              reason: resolvedRoutingTaskType ?? 'ask',
+              task_type: resolvedRoutingTaskType ?? 'ask',
+              mode: requestedMode ?? 'auto',
               tokens_in: finalInputTokens,
               tokens_out: finalOutputTokens,
               cost_usd: realCostUsd,
               duration_ms: Date.now() - chatT0,
               status: succeeded ? 'ok' : 'error',
-            }).catch(e => console.warn('[usage_events]', e?.message ?? e))
+            }, ctx).catch(e => console.warn('[usage_events]', e?.message ?? e))
           );
           // Fire registered hooks for this run
           ctx.waitUntil(
@@ -8395,7 +8428,9 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         costUsd: realCostUsd,
         streamFailed: !succeeded,
         refId: chatAgentRunId ?? 'na',
-          routingArmId: outcomeArmId ?? usageRoutingArmId,
+        routingArmId: outcomeArmId ?? usageRoutingArmId,
+        taskType: resolvedRoutingTaskType ?? 'ask',
+        mode: requestedMode ?? 'auto',
       });
 
       // Thompson reward: agentsam_performance_eto_events via scheduleAgentsamChatAgentRunInsert.
@@ -8580,6 +8615,8 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         streamFailed: !partialSuccess,
         refId: chatAgentRunId ?? 'na',
         routingArmId: routingArmIdForRun,
+        taskType: resolvedRoutingTaskType ?? 'ask',
+        mode: requestedMode ?? 'auto',
       });
       if (tenantId) {
         scheduleInsertAgentCost(env, ctx, {
