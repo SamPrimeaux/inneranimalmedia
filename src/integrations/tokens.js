@@ -1,5 +1,18 @@
 import { resolveApiKey } from '../core/vault.js';
 import { getIntegrationOAuthRow } from '../core/user-oauth-token.js';
+import {
+  OPENAI_PLATFORM_DEFAULT_SECRET,
+  resolveOpenAiApiKey,
+  resolveOpenAiSecretKeyName,
+} from './openai-credentials.js';
+
+export {
+  OPENAI_PLATFORM_DEFAULT_SECRET,
+  OPENAI_AGENTSAM_GPT_TIER_SECRET,
+  resolveOpenAiApiKey,
+  resolveOpenAiSecretKeyName,
+  modelKeyUsesAgentsamGptServiceKey,
+} from './openai-credentials.js';
 
 /**
  * OAuth row for integration routes (GitHub, Google Drive, etc.):
@@ -16,8 +29,29 @@ export async function resolveModelApiKey(env, provider, modelKey, userId) {
   const p = String(provider || '').trim().toLowerCase();
   const uid = userId != null && String(userId).trim() !== '' ? String(userId).trim() : null;
 
+  let catalogSecret = null;
+  if (env?.DB && modelKey) {
+    try {
+      const row = await env.DB.prepare(
+        `SELECT secret_key_name
+         FROM agentsam_ai
+         WHERE (provider = ? OR api_platform = ? OR model_key = ?)
+         ORDER BY COALESCE(is_active, 1) DESC
+         LIMIT 1`,
+      )
+        .bind(provider, provider, modelKey)
+        .first();
+      catalogSecret = row?.secret_key_name ? String(row.secret_key_name).trim() : null;
+    } catch (_) {
+      /* no row */
+    }
+  }
+
+  if (p === 'openai') {
+    return resolveOpenAiApiKey(env, modelKey, uid, { secretKeyName: catalogSecret });
+  }
+
   const defaultName =
-    p === 'openai' ? 'OPENAI_API_KEY' :
     p === 'anthropic' ? 'ANTHROPIC_API_KEY' :
     (p === 'google' || p === 'gemini') ? 'GOOGLE_AI_API_KEY' : null;
 
@@ -32,23 +66,9 @@ export async function resolveModelApiKey(env, provider, modelKey, userId) {
     }
   }
 
-  if (env?.DB && modelKey) {
-    try {
-      const row = await env.DB.prepare(
-        `SELECT secret_key_name
-         FROM agentsam_ai
-         WHERE (provider = ? OR api_platform = ? OR model_key = ?)
-         ORDER BY COALESCE(is_active, 1) DESC
-         LIMIT 1`
-      ).bind(provider, provider, modelKey).first();
-      const keyName = row?.secret_key_name ? String(row.secret_key_name).trim() : '';
-      if (keyName) {
-        const fromRow = await resolveApiKey(env, uid, keyName);
-        if (fromRow) return fromRow;
-      }
-    } catch (_) {
-      /* no row */
-    }
+  if (catalogSecret) {
+    const fromRow = await resolveApiKey(env, uid, catalogSecret);
+    if (fromRow) return fromRow;
   }
   return null;
 }

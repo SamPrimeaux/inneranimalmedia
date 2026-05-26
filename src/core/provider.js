@@ -8,6 +8,7 @@ import { chatWithToolsOpenAI,
          chatWithToolsOpenAIResponses,
          completeWithOpenAI,
          completeWithOpenAIResponsesNonStream }  from '../integrations/openai.js';
+import { resolveOpenAiApiKey } from '../integrations/openai-credentials.js';
 import { chatWithToolsGemini, completeWithGemini } from '../integrations/gemini.js';
 import { chatWithToolsVertex } from '../integrations/vertex.js';
 import { jsonResponse }        from './responses.js';
@@ -464,6 +465,7 @@ export async function dispatchStream(env, request, params) {
     messages,
     tools,
     userId,
+    secretKeyName: meta?.secret_key_name ?? null,
     openaiPreviousResponseId: params.openaiPreviousResponseId ?? null,
     ...options,
     ...(maxOutputTokens != null ? { maxOutputTokens } : {}),
@@ -535,6 +537,7 @@ export async function dispatchComplete(env, params) {
     messages,
     tools,
     userId,
+    secretKeyName: meta?.secret_key_name ?? null,
     reasoningEffort: options.reasoningEffort || 'none',
     verbosity: options.verbosity || 'low',
     ...(maxOutputTokens != null ? { maxOutputTokens } : {}),
@@ -638,13 +641,6 @@ async function dispatchWorkersAI(env, request, params) {
       (await pickFallbackCatalogModelKey(env.DB, false)) ||
       (await pickFallbackCatalogModelKey(env.DB, true));
     console.warn('[provider] Workers AI → OpenAI fallback', fbKey || '(none)', reason?.message || String(reason));
-    const openaiKey = await resolveApiKey(env, userId, 'OPENAI_API_KEY');
-    if (!openaiKey) {
-      return jsonResponse(
-        { error: 'Workers AI failed and OpenAI is not configured', detail: String(reason?.message || reason) },
-        503,
-      );
-    }
     if (!fbKey) {
       return jsonResponse(
         {
@@ -655,6 +651,15 @@ async function dispatchWorkersAI(env, request, params) {
       );
     }
     const fbMeta = await resolveModelMeta(env, fbKey);
+    const openaiKey = await resolveOpenAiApiKey(env, fbKey, userId, {
+      secretKeyName: fbMeta?.secret_key_name,
+    });
+    if (!openaiKey) {
+      return jsonResponse(
+        { error: 'Workers AI failed and OpenAI is not configured', detail: String(reason?.message || reason) },
+        503,
+      );
+    }
     return chatWithToolsOpenAI(env, request, {
       ...params,
       modelKey: fbKey,
@@ -662,6 +667,7 @@ async function dispatchWorkersAI(env, request, params) {
         fbMeta?.provider_model_id != null && String(fbMeta.provider_model_id).trim() !== ''
           ? String(fbMeta.provider_model_id).trim()
           : null,
+      secretKeyName: fbMeta?.secret_key_name ?? null,
     });
   };
 
@@ -749,6 +755,7 @@ async function dispatchWorkersAI(env, request, params) {
                 fbMeta?.provider_model_id != null && String(fbMeta.provider_model_id).trim() !== ''
                   ? String(fbMeta.provider_model_id).trim()
                   : null,
+              secretKeyName: fbMeta?.secret_key_name ?? null,
             })
           : null;
         if (fb instanceof Response && fb.ok && fb.body) {

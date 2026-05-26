@@ -1,10 +1,10 @@
 /**
  * Integration Layer: OpenAI
  * Streaming chat completions via api.openai.com.
- * Key resolved via resolveModelApiKey (BYOK / agentsam_ai.secret_key_name / env).
+ * Key resolved via resolveOpenAiApiKey (OPENAI_API_KEY vs AGENTSAMGPT_SERVICEKEY + BYOK).
  * Proxies OpenAI SSE stream directly — frontend handles choices[0].delta.content format.
  */
-import { resolveModelApiKey } from './tokens.js';
+import { resolveOpenAiApiKey } from './openai-credentials.js';
 import {
   applyOpenAiChatCompletionsOutputLimit,
   applyOpenAiResponsesTokenLimit,
@@ -183,7 +183,9 @@ export async function chatWithToolsOpenAI(env, request, params) {
       ? String(providerModelId).trim()
       : String(modelKey || '').trim();
 
-  const apiKey = await resolveModelApiKey(env, 'openai', modelKey, userId);
+  const apiKey = await resolveOpenAiApiKey(env, modelKey, userId, {
+    secretKeyName: params.secretKeyName ?? params.secret_key_name,
+  });
   if (!apiKey) return jsonResponse({ error: 'OpenAI API key not configured' }, 503);
   if (!modelForApi) return jsonResponse({ error: 'modelKey required' }, 400);
 
@@ -257,7 +259,9 @@ export async function chatWithToolsOpenAIResponses(env, request, params) {
       ? String(providerModelId).trim()
       : String(modelKey || '').trim();
 
-  const apiKey = await resolveModelApiKey(env, 'openai', modelKey, userId);
+  const apiKey = await resolveOpenAiApiKey(env, modelKey, userId, {
+    secretKeyName: params.secretKeyName ?? params.secret_key_name,
+  });
   if (!apiKey) return jsonResponse({ error: 'OpenAI API key not configured' }, 503);
   if (!modelForApi) return jsonResponse({ error: 'modelKey required' }, 400);
 
@@ -342,7 +346,9 @@ export async function completeWithOpenAIResponsesNonStream(env, params) {
       ? String(providerModelId).trim()
       : String(modelKey || '').trim();
 
-  const apiKey = await resolveModelApiKey(env, 'openai', modelKey, userId);
+  const apiKey = await resolveOpenAiApiKey(env, modelKey, userId, {
+    secretKeyName: params.secretKeyName ?? params.secret_key_name,
+  });
   if (!apiKey) throw new Error('OpenAI API key not configured');
   if (!modelForApi) throw new Error('modelKey required');
 
@@ -414,7 +420,9 @@ export async function completeWithOpenAI(env, params) {
       ? String(providerModelId).trim()
       : String(modelKey || '').trim();
 
-  const apiKey = await resolveModelApiKey(env, 'openai', modelKey, userId);
+  const apiKey = await resolveOpenAiApiKey(env, modelKey, userId, {
+    secretKeyName: params.secretKeyName ?? params.secret_key_name,
+  });
   if (!apiKey) throw new Error('OpenAI API key not configured');
 
   const oaiMessages = buildOpenAIMessages(systemPrompt, messages);
@@ -452,7 +460,9 @@ export async function generateImageOpenAI(env, params) {
   const resolvedModelKey = modelKey != null ? String(modelKey).trim() : '';
   if (!resolvedModelKey) throw new Error('modelKey required for OpenAI image generation');
 
-  const apiKey = await resolveModelApiKey(env, 'openai', resolvedModelKey, userId);
+  const apiKey = await resolveOpenAiApiKey(env, resolvedModelKey, userId, {
+    secretKeyName: params.secretKeyName ?? params.secret_key_name,
+  });
   if (!apiKey) throw new Error('OpenAI API key not configured');
 
   const res = await fetch(`${OPENAI_BASE}/images/generations`, {

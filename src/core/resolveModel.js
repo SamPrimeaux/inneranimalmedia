@@ -18,6 +18,12 @@
  */
 
 export { openAiChatCompletionsUsesMaxCompletionTokens } from '../integrations/openai-token-params.js';
+export {
+  OPENAI_AGENTSAM_GPT_TIER_SECRET,
+  OPENAI_PLATFORM_DEFAULT_SECRET,
+  resolveOpenAiApiKey,
+  resolveOpenAiSecretKeyName,
+} from '../integrations/openai-credentials.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. Provider normalizer
@@ -193,7 +199,7 @@ async function resolveEmergencyModel(db, task_type) {
  * @property {number}   output_price_per_1m
  * // Runtime
  * @property {number}   timeout_ms
- * @property {string|null} secret_key_name  - env var holding the API key
+ * @property {string|null} secret_key_name  - Wrangler secret name (OPENAI_API_KEY or AGENTSAMGPT_SERVICEKEY)
  * @property {string}   reasoning_effort  - low|medium|high
  */
 

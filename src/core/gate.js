@@ -1,3 +1,4 @@
+import { resolveOpenAiApiKey } from '../integrations/openai-credentials.js';
 import { resolveModelForTask, normalizeCanonicalTaskType } from './resolveModel.js';
 
 export async function runModeGate(env, userMessage, modeSlug, workspaceId = null) {
@@ -33,7 +34,10 @@ export async function runModeGate(env, userMessage, modeSlug, workspaceId = null
     gate_prompt: null,
   };
 
-  if (!env.OPENAI_API_KEY) {
+  const gateApiKey = await resolveOpenAiApiKey(env, gateModel, null, {
+    secretKeyName: null,
+  });
+  if (!gateApiKey) {
     return { model: 'gpt-5.4', provider: 'openai', reasoning_effort: 'none', rewritten_prompt: userMessage };
   }
 
@@ -43,7 +47,7 @@ export async function runModeGate(env, userMessage, modeSlug, workspaceId = null
       // P3: direct /v1/responses; future: resolve gate model via catalog + dispatchComplete / Responses adapter.
       const gateResp = await fetch('https://api.openai.com/v1/responses', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.OPENAI_API_KEY}` },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${gateApiKey}` },
         body: JSON.stringify({
           model: gateModel,
           input: [
