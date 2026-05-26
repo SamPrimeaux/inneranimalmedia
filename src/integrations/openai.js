@@ -5,6 +5,10 @@
  * Proxies OpenAI SSE stream directly — frontend handles choices[0].delta.content format.
  */
 import { resolveModelApiKey } from './tokens.js';
+import {
+  applyOpenAiChatCompletionsOutputLimit,
+  applyOpenAiResponsesTokenLimit,
+} from './openai-token-params.js';
 import { jsonResponse } from '../core/responses.js';
 
 const OPENAI_BASE = 'https://api.openai.com/v1';
@@ -189,7 +193,7 @@ export async function chatWithToolsOpenAI(env, request, params) {
   const reasoningEffort = params.reasoningEffort || null;
   const verbosity       = params.verbosity       || null;
 
-  const body = {
+  let body = {
     model:    modelForApi,
     messages: oaiMessages,
     stream:   true,
@@ -197,6 +201,9 @@ export async function chatWithToolsOpenAI(env, request, params) {
     ...(reasoningEffort    ? { reasoning: { effort: reasoningEffort } } : {}),
     ...(verbosity          ? { text:      { verbosity }               } : {}),
   };
+  if (params.maxOutputTokens != null) {
+    body = applyOpenAiChatCompletionsOutputLimit(body, modelForApi, params.maxOutputTokens);
+  }
 
   let upstream;
   try {
@@ -258,7 +265,7 @@ export async function chatWithToolsOpenAIResponses(env, request, params) {
   const input = buildOpenAIResponsesInput(messages, prev || null);
   const oaiTools = toOpenAIResponsesTools(tools);
 
-  const body = {
+  let body = {
     model: modelForApi,
     input,
     stream: true,
@@ -268,6 +275,9 @@ export async function chatWithToolsOpenAIResponses(env, request, params) {
     ...(reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
     ...(verbosity ? { text: { verbosity } } : {}),
   };
+  if (params.maxOutputTokens != null) {
+    body = applyOpenAiResponsesTokenLimit(body, params.maxOutputTokens);
+  }
 
   let upstream;
   try {
@@ -340,7 +350,7 @@ export async function completeWithOpenAIResponsesNonStream(env, params) {
   const input = buildOpenAIResponsesInput(messages, prev || null);
   const oaiTools = toOpenAIResponsesTools(tools);
 
-  const body = {
+  let body = {
     model: modelForApi,
     input,
     stream: false,
@@ -350,6 +360,9 @@ export async function completeWithOpenAIResponsesNonStream(env, params) {
     ...(reasoningEffort ? { reasoning: { effort: reasoningEffort } } : {}),
     ...(verbosity ? { text: { verbosity } } : {}),
   };
+  if (params.maxOutputTokens != null) {
+    body = applyOpenAiResponsesTokenLimit(body, params.maxOutputTokens);
+  }
 
   let res;
   try {
@@ -407,14 +420,19 @@ export async function completeWithOpenAI(env, params) {
   const oaiMessages = buildOpenAIMessages(systemPrompt, messages);
   const oaiTools    = toOpenAITools(tools);
 
+  let body = {
+    model:    modelForApi,
+    messages: oaiMessages,
+    ...(oaiTools?.length ? { tools: oaiTools } : {}),
+  };
+  if (params.maxOutputTokens != null) {
+    body = applyOpenAiChatCompletionsOutputLimit(body, modelForApi, params.maxOutputTokens);
+  }
+
   const res = await fetch(`${OPENAI_BASE}/chat/completions`, {
     method:  'POST',
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body:    JSON.stringify({
-      model:    modelForApi,
-      messages: oaiMessages,
-      ...(oaiTools?.length ? { tools: oaiTools } : {}),
-    }),
+    body:    JSON.stringify(body),
   });
 
   if (!res.ok) {

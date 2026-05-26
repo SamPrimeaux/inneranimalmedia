@@ -453,6 +453,10 @@ export async function dispatchStream(env, request, params) {
       ? String(meta.provider_model_id).trim()
       : null;
   const modelForUpstream = providerModelId || modelKey;
+  const catalogMaxOut = Number(meta?.max_output_tokens ?? meta?.output_max_tokens ?? 0);
+  const optMaxOut = Number(options.maxOutputTokens ?? 0);
+  const maxOutputTokens =
+    optMaxOut > 0 ? optMaxOut : catalogMaxOut > 0 ? catalogMaxOut : undefined;
   const dp = {
     modelKey,
     providerModelId,
@@ -462,6 +466,7 @@ export async function dispatchStream(env, request, params) {
     userId,
     openaiPreviousResponseId: params.openaiPreviousResponseId ?? null,
     ...options,
+    ...(maxOutputTokens != null ? { maxOutputTokens } : {}),
   };
 
   switch (platform) {
@@ -518,6 +523,11 @@ export async function dispatchComplete(env, params) {
       ? String(meta.provider_model_id).trim()
       : null;
   const modelForUpstream = providerModelId || modelKey;
+  const catalogMaxOut = Number(meta?.max_output_tokens ?? meta?.output_max_tokens ?? 0);
+  const optMaxOut = Number(options.maxOutputTokens ?? 0);
+  const maxOutputTokens =
+    optMaxOut > 0 ? optMaxOut : catalogMaxOut > 0 ? catalogMaxOut : undefined;
+
   const completeOpts = {
     modelKey,
     providerModelId,
@@ -527,6 +537,7 @@ export async function dispatchComplete(env, params) {
     userId,
     reasoningEffort: options.reasoningEffort || 'none',
     verbosity: options.verbosity || 'low',
+    ...(maxOutputTokens != null ? { maxOutputTokens } : {}),
   };
 
   if (platform === 'openai' || platform === 'openai_chat_completions') {

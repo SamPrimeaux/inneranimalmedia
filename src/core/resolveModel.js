@@ -17,6 +17,8 @@
  * Deploy: npm run deploy:full
  */
 
+export { openAiChatCompletionsUsesMaxCompletionTokens } from '../integrations/openai-token-params.js';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. Provider normalizer
 //    Canonical output: openai | anthropic | google | workers_ai | ollama
@@ -183,7 +185,8 @@ async function resolveEmergencyModel(db, task_type) {
  * @property {boolean}  supports_thinking
  * // Context
  * @property {number}   context_window
- * @property {number}   max_output_tokens
+ * @property {number}   max_output_tokens — applied in provider dispatch; chat/completions maps
+ *   GPT-5.x/o-series to max_completion_tokens via openai-token-params.js (not max_tokens).
  * // Pricing (per 1M tokens in USD)
  * @property {number}   input_price_per_1m
  * @property {number}   cached_input_price_per_1m
