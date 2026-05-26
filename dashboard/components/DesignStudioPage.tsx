@@ -34,6 +34,7 @@ import {
   ChevronLeft,
 } from 'lucide-react';
 import { VoxelEngine } from '../services/VoxelEngine';
+import { normalizeGlbUrl, normalizeChessPieceUrls } from '../lib/glbAssets';
 import { UIOverlay } from './UIOverlay';
 import { ToolLauncherBar } from './ToolLauncherBar';
 import {
@@ -62,6 +63,12 @@ function DesignStudioLeftPanel(props: {
   customAssets: CustomAsset[];
   onAddCustomAsset: (name: string, url: string) => void;
   onRemoveCustomAsset: (id: string) => void;
+  sceneName: string;
+  onSceneNameChange: (name: string) => void;
+  savedScenes: { id: string; name: string; entity_count: number; updated_at: number }[];
+  sceneBusy: boolean;
+  onSaveScene: () => void;
+  onLoadScene: (id: string) => void;
 }) {
   const {
     activeProject,
@@ -75,6 +82,12 @@ function DesignStudioLeftPanel(props: {
     customAssets,
     onAddCustomAsset,
     onRemoveCustomAsset,
+    sceneName,
+    onSceneNameChange,
+    savedScenes,
+    sceneBusy,
+    onSaveScene,
+    onLoadScene,
   } = props;
 
   const [newAssetName, setNewAssetName] = useState('');
@@ -120,12 +133,14 @@ function DesignStudioLeftPanel(props: {
           }
         }
         setChessPieces(
-          Object.values(map).map((p) => ({
-            type: p.type,
-            name: p.name,
-            white_url: p.white_url || '',
-            black_url: p.black_url || '',
-          })),
+          Object.values(map).map((p) =>
+            normalizeChessPieceUrls({
+              type: p.type,
+              name: p.name,
+              white_url: p.white_url || '',
+              black_url: p.black_url || '',
+            }),
+          ),
         );
       })
       .catch((e) => console.warn('[Piece Armory] fetch failed', e));
@@ -253,6 +268,44 @@ function DesignStudioLeftPanel(props: {
               </button>
             ))}
           </div>
+        </section>
+
+        <section className="bg-[var(--bg-hover)] p-4 rounded-2xl border border-[var(--border-subtle)] space-y-3">
+          <div className="flex items-center gap-2 mb-1">
+            <Package size={14} className="text-[var(--solar-cyan)]" />
+            <p className="text-[10px] font-black text-[var(--text-muted)] uppercase tracking-[0.2em]">Scene</p>
+          </div>
+          <input
+            type="text"
+            placeholder="Scene name"
+            className="w-full bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded-xl px-3 py-2 text-[11px]"
+            value={sceneName}
+            onChange={(e) => onSceneNameChange(e.target.value)}
+          />
+          <button
+            type="button"
+            disabled={sceneBusy}
+            onClick={onSaveScene}
+            className="w-full bg-[var(--solar-cyan)] text-black py-2 rounded-xl text-[10px] font-black uppercase disabled:opacity-40"
+          >
+            {sceneBusy ? 'Saving…' : 'Save Scene'}
+          </button>
+          {savedScenes.length > 0 && (
+            <div className="max-h-32 overflow-y-auto space-y-1">
+              {savedScenes.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  disabled={sceneBusy}
+                  onClick={() => onLoadScene(s.id)}
+                  className="w-full text-left px-2 py-1.5 rounded-lg text-[10px] font-bold bg-[var(--bg-panel)] border border-[var(--border-subtle)] hover:border-[var(--solar-cyan)]/40"
+                >
+                  {s.name}{' '}
+                  <span className="text-[var(--text-muted)] font-mono">({s.entity_count})</span>
+                </button>
+              ))}
+            </div>
+          )}
         </section>
 
         <section className="bg-gradient-to-br from-indigo-500/10 to-blue-500/5 p-4 rounded-2xl border border-[var(--border-subtle)] space-y-3">
@@ -591,6 +644,33 @@ export const DesignStudioPage: React.FC = () => {
     showPhysicsDebug: false,
   });
 
+  const [savedScenes, setSavedScenes] = useState<
+    { id: string; name: string; entity_count: number; updated_at: number }[]
+  >([]);
+  const [sceneName, setSceneName] = useState('');
+  const [sceneBusy, setSceneBusy] = useState(false);
+
+  const refreshSceneList = useCallback(() => {
+    fetch('/api/designstudio/scenes', { credentials: 'include' })
+      .then((r) => r.json())
+      .then((data) => {
+        const rows = Array.isArray(data?.scenes) ? data.scenes : [];
+        setSavedScenes(
+          rows.map((s: { id: string; name: string; entity_count: number; updated_at: number }) => ({
+            id: s.id,
+            name: s.name,
+            entity_count: s.entity_count,
+            updated_at: s.updated_at,
+          })),
+        );
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    refreshSceneList();
+  }, [refreshSceneList]);
+
   useEffect(() => {
     if (!containerRef.current) return;
     const engine = new VoxelEngine(containerRef.current, (s) => setAppState(s), (c) => setVoxelCount(c));
@@ -681,7 +761,7 @@ export const DesignStudioPage: React.FC = () => {
       id: `asset_${Date.now()}`,
       name,
       type: 'prop',
-      modelUrl: url,
+      modelUrl: normalizeGlbUrl(url),
       scale,
       position: { x: (Math.random() - 0.5) * 10, y: 10, z: (Math.random() - 0.5) * 10 },
       behavior: { type: 'dynamic', mass: 10, restitution: 0.2 },
@@ -723,9 +803,70 @@ export const DesignStudioPage: React.FC = () => {
 
   const onClear = useCallback(() => {
     engineRef.current?.clearWorld();
+    if (activeProject === ProjectType.CHESS) {
+      engineRef.current?.setProjectType(ProjectType.CHESS);
+    }
     setUndoStack([]);
     setRedoStack([]);
-  }, []);
+  }, [activeProject]);
+
+  const handleSaveScene = useCallback(async () => {
+    if (!engineRef.current) return;
+    setSceneBusy(true);
+    try {
+      const entities = engineRef.current.exportEntities();
+      const res = await fetch('/api/designstudio/scenes', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          name: sceneName.trim() || `Scene ${new Date().toLocaleString()}`,
+          project_type: activeProject,
+          entities,
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      refreshSceneList();
+    } catch (e) {
+      console.warn('[DesignStudio] save scene failed', e);
+    } finally {
+      setSceneBusy(false);
+    }
+  }, [activeProject, sceneName, refreshSceneList]);
+
+  const handleLoadScene = useCallback(async (sceneId: string) => {
+    if (!engineRef.current) return;
+    setSceneBusy(true);
+    try {
+      const res = await fetch(`/api/designstudio/scenes/${encodeURIComponent(sceneId)}/entities`, {
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      await engineRef.current.loadEntities(data.entities || [], { keepBoard: true });
+      setUndoStack([]);
+      setRedoStack([]);
+    } catch (e) {
+      console.warn('[DesignStudio] load scene failed', e);
+    } finally {
+      setSceneBusy(false);
+    }
+  }, [refreshSceneList]);
+
+  useEffect(() => {
+    if (!engineReady || !engineRef.current) return;
+    const tick = window.setInterval(() => {
+      const entities = engineRef.current?.exportEntities();
+      if (!entities?.length) return;
+      void fetch('/api/designstudio/scenes/autosave', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ project_type: activeProject, entities }),
+      }).catch(() => {});
+    }, 60_000);
+    return () => window.clearInterval(tick);
+  }, [engineReady, activeProject]);
 
   return (
     <div
@@ -745,6 +886,12 @@ export const DesignStudioPage: React.FC = () => {
         customAssets={customAssets}
         onAddCustomAsset={handleAddCustomAsset}
         onRemoveCustomAsset={handleRemoveCustomAsset}
+        sceneName={sceneName}
+        onSceneNameChange={setSceneName}
+        savedScenes={savedScenes}
+        sceneBusy={sceneBusy}
+        onSaveScene={handleSaveScene}
+        onLoadScene={handleLoadScene}
       />
 
       <div className="flex-1 min-w-0 min-h-0 relative">

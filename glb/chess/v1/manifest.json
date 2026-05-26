@@ -1,0 +1,141 @@
+{
+  "version": "v1",
+  "created_at": "2026-04-27T00:00:00.000Z",
+  "base_url": "https://inneranimalmedia.com/assets/glb/chess/v1",
+  "assets": [
+    {
+      "type": "board",
+      "side": null,
+      "name": "board_main",
+      "path": "board/board_main.glb",
+      "url": "https://inneranimalmedia.com/assets/glb/chess/v1/board/board_main.glb",
+      "size_bytes": 58740,
+      "sha256": "34f6e99688e3ce63c3ee78ac0d60ce0014076612228940401f802de5763d5aaf",
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "type": "piece",
+      "side": "black",
+      "name": "bishop",
+      "path": "pieces/black/bishop.glb",
+      "url": "https://inneranimalmedia.com/assets/glb/chess/v1/pieces/black/bishop.glb",
+      "size_bytes": 4540,
+      "sha256": "79a873f3a2b4726b692e4b32d3b782be9fc3ce8d05538c627f60ad41b874d615",
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "type": "piece",
+      "side": "black",
+      "name": "king",
+      "path": "pieces/black/king.glb",
+      "url": "https://inneranimalmedia.com/assets/glb/chess/v1/pieces/black/king.glb",
+      "size_bytes": 13672,
+      "sha256": "df8ee999d109e2644cebac1672f31b15d10fc85c7a20f7defb36f1fc8729e81d",
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "type": "piece",
+      "side": "black",
+      "name": "knight",
+      "path": "pieces/black/knight.glb",
+      "url": "https://inneranimalmedia.com/assets/glb/chess/v1/pieces/black/knight.glb",
+      "size_bytes": 2860,
+      "sha256": "86271fa17481c1872397e81ef63b5f2bfc3801a89c729d62263c811c1bc7a379",
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "type": "piece",
+      "side": "black",
+      "name": "pawn",
+      "path": "pieces/black/pawn.glb",
+      "url": "https://inneranimalmedia.com/assets/glb/chess/v1/pieces/black/pawn.glb",
+      "size_bytes": 13424,
+      "sha256": "99bb45f760ab3e5b92d729860e2cd683029ab8d197cbdd19fe0fade28f9cfd65",
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "type": "piece",
+      "side": "black",
+      "name": "queen",
+      "path": "pieces/black/queen.glb",
+      "url": "https://inneranimalmedia.com/assets/glb/chess/v1/pieces/black/queen.glb",
+      "size_bytes": 84600,
+      "sha256": "57fe06990d65e97b8691c1ec89760ebf2a0fd190f10b082eb6221cef60cdb6ab",
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "type": "piece",
+      "side": "black",
+      "name": "rook",
+      "path": "pieces/black/rook.glb",
+      "url": "https://inneranimalmedia.com/assets/glb/chess/v1/pieces/black/rook.glb",
+      "size_bytes": 2888,
+      "sha256": "33bbd95d0a3dc471f88dc0bad3182be198f7f77eaf9d076844aeb55bce34c4d0",
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "type": "piece",
+      "side": "white",
+      "name": "bishop",
+      "path": "pieces/white/bishop.glb",
+      "url": "https://inneranimalmedia.com/assets/glb/chess/v1/pieces/white/bishop.glb",
+      "size_bytes": 4532,
+      "sha256": "9c4281ff71db4cb9a098b13bc44ceed86752561e1fb1e5c849e51edd019cbc6f",
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "type": "piece",
+      "side": "white",
+      "name": "king",
+      "path": "pieces/white/king.glb",
+      "url": "https://inneranimalmedia.com/assets/glb/chess/v1/pieces/white/king.glb",
+      "size_bytes": 13664,
+      "sha256": "e0847ab78013c8b1415ac3aa7e446589f5a35ee58a1e220b48f6e3d50c3f860e",
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "type": "piece",
+      "side": "white",
+      "name": "knight",
+      "path": "pieces/white/knight.glb",
+      "url": "https://inneranimalmedia.com/assets/glb/chess/v1/pieces/white/knight.glb",
+      "size_bytes": 2852,
+      "sha256": "14f865cb0fad95f5df51f16eb5bce663b8800c5aa26e28dec8c55ef4294b140d",
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "type": "piece",
+      "side": "white",
+      "name": "pawn",
+      "path": "pieces/white/pawn.glb",
+      "url": "https://inneranimalmedia.com/assets/glb/chess/v1/pieces/white/pawn.glb",
+      "size_bytes": 13436,
+      "sha256": "65808eed2860732d2d2da530357b8d5a49d35e5fa830d3ba8002111ff0ec0110",
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "type": "piece",
+      "side": "white",
+      "name": "queen",
+      "path": "pieces/white/queen.glb",
+      "url": "https://inneranimalmedia.com/assets/glb/chess/v1/pieces/white/queen.glb",
+      "size_bytes": 84336,
+      "sha256": "8dcee37445136d13849aadc3e49b43b5415da7e11dad061062aa36f5183e93cf",
+      "content_type": "model/gltf-binary"
+    },
+    {
+      "type": "piece",
+      "side": "white",
+      "name": "rook",
+      "path": "pieces/white/rook.glb",
+      "url": "https://inneranimalmedia.com/assets/glb/chess/v1/pieces/white/rook.glb",
+      "size_bytes": 2884,
+      "sha256": "a10a6a29a1e546e7999538f40ff021e1afb3e78a7c827ca3a97ea2b3fd70fd87",
+      "content_type": "model/gltf-binary"
+    }
+  ],
+  "loader_hints": {
+    "draco": false,
+    "ktx2": false
+  }
+}

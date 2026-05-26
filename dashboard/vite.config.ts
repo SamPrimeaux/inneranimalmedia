@@ -80,6 +80,7 @@ export default defineConfig(({ mode }) => {
       host: '0.0.0.0',
       proxy: {
         '/api': 'http://127.0.0.1:8787',
+        '/assets': 'http://127.0.0.1:8787',
       },
     },
     plugins: [

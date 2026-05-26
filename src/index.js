@@ -380,10 +380,15 @@ export default {
           key.toLowerCase().endsWith('.gltf') ? 'model/gltf+json' :
           null;
 
+        const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS' };
+        if (request.method === 'OPTIONS') {
+          return new Response(null, { status: 204, headers: cors });
+        }
         return new Response(obj.body, {
           headers: {
             'Content-Type': obj.httpMetadata?.contentType || inferred || 'application/octet-stream',
             'Cache-Control': 'public, max-age=3600',
+            ...cors,
           },
         });
       }

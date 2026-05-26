@@ -9,6 +9,7 @@ import {
   fallbackSystemTenantId,
 } from '../../core/auth.js';
 import { syncRunToSupabase, buildCadCreationsPrefix } from './sync.js';
+import { handleDesignStudioScenesApi } from './scenes.js';
 
 const WORKFLOW_RUNS = 'agentsam_workflow_runs';
 const BLUEPRINTS = 'designstudio_design_blueprints';
@@ -162,6 +163,9 @@ export async function handleDesignStudioApi(request, url, env, _ctx) {
   const method = (request.method || 'GET').toUpperCase();
 
   try {
+    const scenesRes = await handleDesignStudioScenesApi(request, url, env);
+    if (scenesRes) return scenesRes;
+
     const eventsMatch = pathLower.match(/^\/api\/designstudio\/runs\/([^/]+)\/events$/);
     if (eventsMatch && method === 'GET') {
       const authUser = await getAuthUser(request, env);

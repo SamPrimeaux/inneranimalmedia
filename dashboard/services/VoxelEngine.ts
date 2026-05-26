@@ -9,25 +9,21 @@ import * as CANNON from 'cannon-es';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { AppState, GameEntity, ProjectType, SceneConfig, CADTool, VoxelData, CADPlane } from '../types';
+import { chessPieceGlbPath, normalizeGlbUrl } from '../lib/glbAssets';
 
-const CHESS_MODELS = {
-  black: {
-    bishop: '/assets/chess/v1/pieces/black/bishop.glb',
-    king: '/assets/chess/v1/pieces/black/king.glb',
-    knight: '/assets/chess/v1/pieces/black/knight.glb',
-    pawn: '/assets/chess/v1/pieces/black/pawn.glb',
-    queen: '/assets/chess/v1/pieces/black/queen.glb',
-    rook: '/assets/chess/v1/pieces/black/rook.glb',
-  },
-  white: {
-    bishop: '/assets/chess/v1/pieces/white/bishop.glb',
-    king: '/assets/chess/v1/pieces/white/king.glb',
-    knight: '/assets/chess/v1/pieces/white/knight.glb',
-    pawn: '/assets/chess/v1/pieces/white/pawn.glb',
-    queen: '/assets/chess/v1/pieces/white/queen.glb',
-    rook: '/assets/chess/v1/pieces/white/rook.glb',
+const CHESS_PIECES = ['bishop', 'king', 'knight', 'pawn', 'queen', 'rook'] as const;
+
+function buildChessModels(): Record<'black' | 'white', Record<string, string>> {
+  const out: Record<'black' | 'white', Record<string, string>> = { black: {}, white: {} };
+  for (const color of ['black', 'white'] as const) {
+    for (const piece of CHESS_PIECES) {
+      out[color][piece] = chessPieceGlbPath(color, piece);
+    }
   }
-};
+  return out;
+}
+
+const CHESS_MODELS = buildChessModels();
 
 export class VoxelEngine {
   private container: HTMLElement;
@@ -574,9 +570,39 @@ export class VoxelEngine {
   }
 
   private async loadModel(url: string): Promise<any> {
+    const src = normalizeGlbUrl(url);
     return new Promise((resolve, reject) => {
-      this.gltfLoader.load(url.trim(), resolve, undefined, reject);
+      this.gltfLoader.load(src, resolve, undefined, (err) => {
+        console.error('[VoxelEngine] GLB load failed:', src, err);
+        reject(err);
+      });
     });
+  }
+
+  /** Serializable entity list for scene_snapshots / R2. */
+  public exportEntities(): GameEntity[] {
+    return Array.from(this.entities.values()).map((e) => {
+      const d = { ...e.data };
+      if (d.modelUrl) d.modelUrl = normalizeGlbUrl(d.modelUrl);
+      return d;
+    });
+  }
+
+  /** Replace scene contents from saved entities (skips chess_board id on chess project). */
+  public async loadEntities(entities: GameEntity[], opts?: { keepBoard?: boolean }): Promise<void> {
+    const keepBoard = opts?.keepBoard ?? this.projectType === ProjectType.CHESS;
+    const preserve = keepBoard ? ['chess_board'] : [];
+    for (const id of Array.from(this.entities.keys())) {
+      if (!preserve.includes(id)) this.removeEntity(id);
+    }
+    for (const entity of entities) {
+      if (preserve.includes(entity.id)) continue;
+      const normalized: GameEntity = {
+        ...entity,
+        modelUrl: entity.modelUrl ? normalizeGlbUrl(entity.modelUrl) : entity.modelUrl,
+      };
+      await this.spawnEntity(normalized);
+    }
   }
 
   public removeEntity(id: string) {
@@ -639,7 +665,7 @@ export class VoxelEngine {
   }
 
   public exportForBlender(): void {
-    const payload = Array.from(this.entities.values()).map((e) => e.data);
+    const payload = this.exportEntities();
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

@@ -1,5 +1,6 @@
 // src/api/games.js
 import { jsonResponse } from '../core/responses.js';
+import { normalizeGlbPublicUrl } from '../core/glb-public-url.js';
 
 export async function handleGamesApi(request, url, env, _ctx, authUser) {
   const path = url.pathname.toLowerCase();
@@ -13,7 +14,11 @@ export async function handleGamesApi(request, url, env, _ctx, authUser) {
       WHERE category = 'chess' AND is_live = 1
       ORDER BY id
     `).all();
-    return jsonResponse({ results });
+    const normalized = (results || []).map((row) => ({
+      ...row,
+      public_url: normalizeGlbPublicUrl(row.public_url),
+    }));
+    return jsonResponse({ results: normalized });
   }
 
   // POST /api/games/rooms — create a room
