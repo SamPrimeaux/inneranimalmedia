@@ -1,0 +1,6 @@
+Proprietary — Inner Animal Media / Inner Animals LLC.
+
+This field guide and skill content are for internal use in the inneranimalmedia repository
+unless otherwise licensed. Do not redistribute without permission.
+
+See SKILL.md frontmatter for usage scope.
