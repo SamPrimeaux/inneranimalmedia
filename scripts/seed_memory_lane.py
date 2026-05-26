@@ -211,6 +211,7 @@ def existing_memory_row(config: dict[str, str], workspace_uuid: str, content_has
         "content_hash": f"eq.{content_hash}",
         "limit": "1",
     })
+    print(f"[debug] probe url: /rest/v1/agentsam_memory_oai3large_1536?{query}")
     rows = supabase_get(f"/rest/v1/{SUPABASE_TABLE}?{query}", config) or []
     return rows[0] if rows else None
 

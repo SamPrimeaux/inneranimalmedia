@@ -170,6 +170,18 @@ if [ -f "docs/knowledge/skills/theme-factory.md" ]; then
   echo "Uploaded theme-factory skill"
 fi
 
+# 10. DOCX skill (from repo)
+if [ -f "docs/knowledge/skills/docx.md" ]; then
+  $WRANGLER_CMD $BUCKET/knowledge/skills/docx.md --file=docs/knowledge/skills/docx.md --content-type=text/markdown $REMOTE
+  echo "Uploaded docx skill"
+fi
+
+# 11. MCP OAuth field guide (from repo)
+if [ -f "docs/knowledge/skills/mcp-oauth-field-guide.md" ]; then
+  $WRANGLER_CMD $BUCKET/knowledge/skills/mcp-oauth-field-guide.md --file=docs/knowledge/skills/mcp-oauth-field-guide.md --content-type=text/markdown $REMOTE
+  echo "Uploaded mcp-oauth-field-guide skill"
+fi
+
 echo ""
 echo "Uploaded knowledge files to autorag bucket"
 echo ""

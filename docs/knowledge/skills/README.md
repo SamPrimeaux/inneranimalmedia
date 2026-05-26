@@ -9,6 +9,8 @@ Skills in this folder are loaded into the repo and can be pushed to R2 for AutoR
 - **web-artifacts-builder** — Elaborate multi-component claude.ai HTML artifacts with React, Tailwind, shadcn/ui. Use for complex artifacts (state, routing, shadcn); not for simple single-file HTML/JSX.
 - **webapp-testing** — Test local web apps with Playwright; verify frontend, debug UI, capture screenshots, view logs. Use with_server.py for lifecycle; run scripts with --help first.
 - **theme-factory** — Style slides, docs, reports, or HTML with preset themes (10 options) or generate a custom theme on-the-fly. Show theme-showcase.pdf, get choice, apply colors/fonts from themes/.
+- **docx** — Create, read, edit, and analyze Word `.docx` files (docx-js, unpack/edit/pack XML, tracked changes, comments, TOC, tables). Use for reports, memos, letters, and templates — not PDFs or spreadsheets.
+- **mcp-oauth-field-guide** — MCP, OAuth 2.1, and multi-tenant identity isolation field guide (derive-don't-receive, PKCE, token lifecycle, two-worker architecture, customer safety SQL). Use when debugging OAuth tokens, workspace scoping, or onboarding external MCP clients.
 
 ## Uploading to AutoRAG
 

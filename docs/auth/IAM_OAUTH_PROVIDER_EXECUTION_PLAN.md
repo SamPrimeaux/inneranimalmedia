@@ -1,5 +1,7 @@
 # IAM OAuth Provider + MCP — Execution Plan (D1-verified)
 
+**Field guide (mental models + customer checklist):** `skills/mcp-oauth-field-guide/SKILL.md` (also `docs/knowledge/skills/mcp-oauth-field-guide.md` for AutoRAG).
+
 **Database:** `inneranimalmedia-business` (remote, queried 2026-05-24)  
 **Source of truth:** Remote D1 only — not repo assumptions.
 
