@@ -983,11 +983,19 @@ export const DesignStudioPage: React.FC = () => {
     const tick = window.setInterval(() => {
       const entities = engineRef.current?.exportEntities();
       if (!entities?.length) return;
+      const wsId =
+        (typeof window !== 'undefined' &&
+          (window as Window & { __IAM_WORKSPACE_ID__?: string }).__IAM_WORKSPACE_ID__) ||
+        '';
       void fetch('/api/designstudio/scenes/autosave', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ project_type: activeProject, entities }),
+        body: JSON.stringify({
+          project_type: activeProject,
+          entities,
+          ...(wsId && wsId !== 'global' ? { workspace_id: wsId } : {}),
+        }),
       }).catch(() => {});
     }, 60_000);
     return () => window.clearInterval(tick);

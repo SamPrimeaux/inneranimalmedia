@@ -96,6 +96,11 @@ async function putEntitiesR2(env, r2Key, entities) {
   return body.length;
 }
 
+/** Rolling autosave must not 500 the dashboard poll loop — skip quietly when context/storage is unavailable. */
+function autosaveSkippedResponse(reason = 'skipped') {
+  return jsonResponse({ ok: true, skipped: true, reason });
+}
+
 async function getEntitiesR2(env, r2Key) {
   if (!env?.ASSETS?.get) throw new Error('ASSETS R2 binding not configured');
   const obj = await env.ASSETS.get(r2Key);
@@ -187,76 +192,81 @@ export async function handleDesignStudioScenesApi(request, url, env) {
 
   // PUT /api/designstudio/scenes/autosave
   if (pathLower === '/api/designstudio/scenes/autosave' && method === 'PUT') {
-    let body = {};
     try {
-      body = await request.json();
-    } catch {
-      return jsonResponse({ error: 'Invalid JSON' }, 400);
-    }
-    const actor = await resolveActor(request, env, body.workspace_id);
-    if (actor.error) return actor.error;
+      let body = {};
+      try {
+        body = await request.json();
+      } catch {
+        return autosaveSkippedResponse('invalid_json');
+      }
+      const actor = await resolveActor(request, env, body.workspace_id);
+      if (actor.error) return autosaveSkippedResponse('session_unresolved');
 
-    const entities = body.entities;
-    if (!Array.isArray(entities)) return jsonResponse({ error: 'entities array required' }, 400);
+      const entities = body.entities;
+      if (!Array.isArray(entities)) return autosaveSkippedResponse('entities_required');
 
-    const r2Key = sceneEntitiesR2Key(actor.workspaceId, null, true);
-    const entityCount = entities.length;
-    const now = Math.floor(Date.now() / 1000);
-    const publicUrl = scenePublicUrl(request, r2Key);
-    const projectType = trim(body.project_type) || 'SANDBOX';
+      const r2Key = sceneEntitiesR2Key(actor.workspaceId, null, true);
+      const entityCount = entities.length;
+      const now = Math.floor(Date.now() / 1000);
+      const publicUrl = scenePublicUrl(request, r2Key);
+      const projectType = trim(body.project_type) || 'SANDBOX';
 
-    await putEntitiesR2(env, r2Key, entities);
+      await putEntitiesR2(env, r2Key, entities);
 
-    const existing = await env.DB.prepare(
-      `SELECT id FROM ${TABLE} WHERE user_id = ? AND workspace_id = ? AND is_autosave = 1 LIMIT 1`,
-    )
-      .bind(actor.userId, actor.workspaceId)
-      .first();
-
-    let sceneId;
-    if (existing?.id) {
-      sceneId = String(existing.id);
-      await env.DB.prepare(
-        `UPDATE ${TABLE}
-         SET entity_count = ?, r2_key = ?, public_url = ?, project_type = ?, updated_at = ?
-         WHERE id = ? AND user_id = ? AND workspace_id = ?`,
+      const existing = await env.DB.prepare(
+        `SELECT id FROM ${TABLE} WHERE user_id = ? AND workspace_id = ? AND is_autosave = 1 LIMIT 1`,
       )
-        .bind(entityCount, r2Key, publicUrl, projectType, now, sceneId, actor.userId, actor.workspaceId)
-        .run();
-    } else {
-      sceneId = newSceneId();
-      await env.DB.prepare(
-        `INSERT INTO ${TABLE}
-           (id, workspace_id, user_id, tenant_id, name, project_type, entity_count,
-            r2_key, r2_bucket, public_url, is_autosave, version, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'Autosave', ?, ?, ?, ?, ?, 1, 1, ?, ?)`,
-      )
-        .bind(
-          sceneId,
-          actor.workspaceId,
-          actor.userId,
-          actor.tenantId,
-          projectType,
-          entityCount,
-          r2Key,
-          R2_BUCKET,
-          publicUrl,
-          now,
-          now,
+        .bind(actor.userId, actor.workspaceId)
+        .first();
+
+      let sceneId;
+      if (existing?.id) {
+        sceneId = String(existing.id);
+        await env.DB.prepare(
+          `UPDATE ${TABLE}
+           SET entity_count = ?, r2_key = ?, public_url = ?, project_type = ?, updated_at = ?
+           WHERE id = ? AND user_id = ? AND workspace_id = ?`,
         )
-        .run();
-    }
+          .bind(entityCount, r2Key, publicUrl, projectType, now, sceneId, actor.userId, actor.workspaceId)
+          .run();
+      } else {
+        sceneId = newSceneId();
+        await env.DB.prepare(
+          `INSERT INTO ${TABLE}
+             (id, workspace_id, user_id, tenant_id, name, project_type, entity_count,
+              r2_key, r2_bucket, public_url, is_autosave, version, created_at, updated_at)
+           VALUES (?, ?, ?, ?, 'Autosave', ?, ?, ?, ?, ?, 1, 1, ?, ?)`,
+        )
+          .bind(
+            sceneId,
+            actor.workspaceId,
+            actor.userId,
+            actor.tenantId,
+            projectType,
+            entityCount,
+            r2Key,
+            R2_BUCKET,
+            publicUrl,
+            now,
+            now,
+          )
+          .run();
+      }
 
-    return jsonResponse({
-      ok: true,
-      scene: {
-        id: sceneId,
-        r2_key: r2Key,
-        public_url: publicUrl,
-        entity_count: entityCount,
-        is_autosave: true,
-      },
-    });
+      return jsonResponse({
+        ok: true,
+        scene: {
+          id: sceneId,
+          r2_key: r2Key,
+          public_url: publicUrl,
+          entity_count: entityCount,
+          is_autosave: true,
+        },
+      });
+    } catch (e) {
+      console.warn('[designstudio autosave]', e?.message || e);
+      return autosaveSkippedResponse('autosave_failed');
+    }
   }
 
   // PUT /api/designstudio/scenes — named save (new or update by id)
