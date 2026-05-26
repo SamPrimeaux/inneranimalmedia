@@ -20,6 +20,11 @@ export function normalizeGlbPublicUrl(input) {
     }
     const m = u.pathname.match(/\/glb\/chess\/v1\/(.+)$/i);
     if (m) return `/assets/glb/chess/v1/${m[1]}`;
+
+    if (u.hostname.includes('pub-e733f82cb31c4f34b6a719e749d0416d.r2.dev')) {
+      const tail = decodeURIComponent(u.pathname.replace(/^\/+/, ''));
+      if (tail) return `/assets/glb/${tail}`;
+    }
   } catch (_) {}
 
   return s;

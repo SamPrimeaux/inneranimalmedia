@@ -374,7 +374,12 @@ export default {
       // 1a. Same-origin R2 assets passthrough (GLB, images, etc.)
       // Example: /assets/chess/v1/pieces/white/king.glb -> ASSETS.get('chess/v1/pieces/white/king.glb')
       if (pathLower.startsWith('/assets/') && env.ASSETS) {
-        const key = path.slice('/assets/'.length).replace(/^\/+/, '');
+        let key = path.slice('/assets/'.length).replace(/^\/+/, '');
+        try {
+          key = decodeURIComponent(key);
+        } catch (_) {
+          /* use raw key */
+        }
         if (!key || key.includes('..')) return new Response('Bad request', { status: 400 });
 
         const obj = await env.ASSETS.get(key);

@@ -44,6 +44,12 @@ export function normalizeGlbUrl(input: string | null | undefined): string {
 
     const m = u.pathname.match(/\/glb\/chess\/v1\/(.+)$/i);
     if (m) return `${CANONICAL_CHESS_BASE}/${m[1]}`;
+
+    // Legacy pub R2 bucket — serve via Worker /assets/glb/* (CORS-safe for GLTFLoader).
+    if (u.hostname.includes('pub-e733f82cb31c4f34b6a719e749d0416d.r2.dev')) {
+      const tail = decodeURIComponent(u.pathname.replace(/^\/+/, ''));
+      if (tail) return `/assets/glb/${tail}`;
+    }
   } catch {
     /* keep raw */
   }

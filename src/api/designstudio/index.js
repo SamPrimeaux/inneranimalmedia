@@ -239,7 +239,15 @@ export async function handleDesignStudioApi(request, url, env, _ctx) {
       sql += ' ORDER BY created_at ASC';
 
       const { results } = await env.DB.prepare(sql).bind(...binds).all();
-      const mapped = (results || []).map((row) => mapDesignStudioAssetRow(row));
+      const seen = new Set();
+      const mapped = [];
+      for (const row of results || []) {
+        const item = mapDesignStudioAssetRow(row);
+        const dedupeKey = String(item.public_url || '').trim().toLowerCase();
+        if (!dedupeKey || seen.has(dedupeKey)) continue;
+        seen.add(dedupeKey);
+        mapped.push(item);
+      }
       return jsonResponse({ results: mapped }, 200);
     }
 
