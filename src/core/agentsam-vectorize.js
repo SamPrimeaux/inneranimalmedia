@@ -8,6 +8,7 @@ import {
   resolveAgentsamEmbeddingSpec,
   resolveAgentsamEmbeddingSpecForDimensions,
 } from './agentsam-vectorize-index.js';
+import { resolveOpenAiApiKey } from '../integrations/openai-credentials.js';
 
 export const AGENTSAM_VECTOR_DIM = 1536;
 
@@ -49,7 +50,8 @@ export async function createAgentsamEmbedding(env, text, opts = {}) {
     return { embedding: emb, provider: 'workers_ai', model: spec.model };
   }
 
-  if (!env?.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY required for Agent Sam embeddings');
+  const openAiKey = await resolveOpenAiApiKey(env, spec.model, opts.userId ?? null);
+  if (!openAiKey) throw new Error('OpenAI API key required for Agent Sam embeddings');
   const base = String(env.OPENAI_API_BASE_URL || 'https://api.openai.com/v1')
     .trim()
     .replace(/\/$/, '');
@@ -60,7 +62,7 @@ export async function createAgentsamEmbedding(env, text, opts = {}) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+      Authorization: `Bearer ${openAiKey}`,
     },
     body: JSON.stringify(body),
   });

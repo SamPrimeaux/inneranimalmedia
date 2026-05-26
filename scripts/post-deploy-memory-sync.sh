@@ -47,7 +47,7 @@ ON CONFLICT(id) DO UPDATE SET
   updated_at = excluded.updated_at;
 "
 
-# ── Supabase build_deploy_events → triggers agent_memory auto-embed ───
+# ── Supabase agentsam.agentsam_deploy_events (agentsam schema profile) ───
 SUPABASE_URL="${SUPABASE_URL:-https://dpmuvynqixblxsilnlut.supabase.co}"
 # Guard against stale refs lingering in the shell env (wrong host causes curl DNS failures).
 for stale in tcczxkatmodtxfuulvsr sexdnwlyuhkyvseunqlx; do
@@ -65,7 +65,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 if [ -f "${REPO_ROOT}/.deploy-run-context.json" ]; then
-  echo "[post-deploy] deploy ledger active (.deploy-run-context.json) — skipping duplicate build_deploy_events POST"
+  echo "[post-deploy] deploy ledger active (.deploy-run-context.json) — skipping duplicate agentsam_deploy_events POST"
 elif [ -z "$SUPABASE_SERVICE_KEY" ]; then
   echo "[post-deploy] SUPABASE_SERVICE_ROLE_KEY unset — skipping Supabase insert" >&2
 else
@@ -73,56 +73,49 @@ else
   if command -v jq >/dev/null 2>&1; then
     PAYLOAD=$(
       jq -n \
-        --arg id "$DEPLOY_ID" \
         --arg ws "$WORKSPACE_ID" \
-        --arg tid "$TENANT_ID" \
         --arg sha "$DEPLOY_FULL_SHA" \
         --arg msg "$DEPLOY_MSG" \
         --arg time "$DEPLOY_TIME" \
-        --arg uid "$USER_ID" \
         '{
-          id: $id,
           workspace_id: $ws,
-          tenant_id: $tid,
-          event_type: "deploy_passed",
-          git_commit_sha: $sha,
-          git_branch: "main",
-          git_message: $msg,
-          status: "passed",
-          trigger_source: "deploy_full_script",
-          deployed_by: $uid,
-          completed_at: $time,
-          environment: "production"
+          worker_name: "inneranimalmedia",
+          worker_version: null,
+          deploy_status: "passed",
+          commit_sha: $sha,
+          notes: $msg,
+          metadata: { sync_source: "post_deploy_memory_sync", git_branch: "main" },
+          created_at: $time
         }'
     )
-    curl -sS -X POST "${SUPABASE_URL}/rest/v1/build_deploy_events" \
+    curl -sS -X POST "${SUPABASE_URL}/rest/v1/agentsam_deploy_events" \
       -H "apikey: ${SUPABASE_SERVICE_KEY}" \
       -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
       -H "Content-Type: application/json" \
+      -H "Accept-Profile: agentsam" \
+      -H "Content-Profile: agentsam" \
       -H "Prefer: return=minimal" \
       -d "$PAYLOAD"
   else
-    curl -sS -X POST "${SUPABASE_URL}/rest/v1/build_deploy_events" \
+    curl -sS -X POST "${SUPABASE_URL}/rest/v1/agentsam_deploy_events" \
       -H "apikey: ${SUPABASE_SERVICE_KEY}" \
       -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
       -H "Content-Type: application/json" \
+      -H "Accept-Profile: agentsam" \
+      -H "Content-Profile: agentsam" \
       -H "Prefer: return=minimal" \
       -d "{
-        \"id\":             \"${DEPLOY_ID}\",
         \"workspace_id\":   \"${WORKSPACE_ID}\",
-        \"tenant_id\":      \"${TENANT_ID}\",
-        \"event_type\":     \"deploy_passed\",
-        \"git_commit_sha\": \"${DEPLOY_FULL_SHA}\",
-        \"git_branch\":     \"main\",
-        \"git_message\":    \"${DEPLOY_MSG_ESC}\",
-        \"status\":         \"passed\",
-        \"trigger_source\": \"deploy_full_script\",
-        \"deployed_by\":    \"${USER_ID}\",
-        \"completed_at\":   \"${DEPLOY_TIME}\",
-        \"environment\":    \"production\"
+        \"worker_name\":    \"inneranimalmedia\",
+        \"worker_version\": null,
+        \"deploy_status\":  \"passed\",
+        \"commit_sha\":     \"${DEPLOY_FULL_SHA}\",
+        \"notes\":          \"${DEPLOY_MSG_ESC}\",
+        \"metadata\":       {\"sync_source\":\"post_deploy_memory_sync\",\"git_branch\":\"main\"},
+        \"created_at\":     \"${DEPLOY_TIME}\"
       }"
   fi
-  echo "[post-deploy] Supabase build_deploy_events inserted → agent_memory trigger chain fired"
+  echo "[post-deploy] Supabase agentsam_deploy_events inserted"
 fi
 
 echo "[post-deploy] complete — ${DEPLOY_HASH}"

@@ -31,7 +31,6 @@ import {
   resolveWorkspaceCapabilityShellWorkflowId,
   isWorkspaceCapabilityActionIntent,
 } from '../core/workspace-capability-actions/index.js';
-import { syncWorkflowRunToSupabase } from '../core/agentsam-supabase-sync.js';
 import { scheduleMirrorAgentsamPlanToSupabasePublic } from '../core/agentsam-plan-supabase-public-sync.js';
 import {
   unifiedRagSearch,

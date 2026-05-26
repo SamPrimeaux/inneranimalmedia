@@ -160,10 +160,12 @@ export interface ChatAssistantProps {
   editorCursorColumn?: number;
   /** SSE: agent tool `r2_write` emits `r2_file_updated` for Monaco sync */
   onR2FileUpdated?: (event: { type: 'r2_file_updated'; bucket: string; key: string }) => void;
-  /** SSE: `browser_navigate` opens the Browser tab (MYBROWSER screenshot preview) */
+  /** SSE: `browser_navigate` / `surface_open` opens the Browser tab (embedded iframe; automation optional) */
   onBrowserNavigate?: (event: {
     type: 'browser_navigate';
     url: string;
+    /** When true, BrowserView may show MYBROWSER/CDT screenshot preview instead of iframe-only. */
+    automation?: boolean;
     screenshot_url?: string;
     page_text?: string;
     title?: string;

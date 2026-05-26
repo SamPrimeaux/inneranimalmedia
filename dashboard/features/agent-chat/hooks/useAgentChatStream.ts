@@ -59,6 +59,14 @@ function isBrowserScreenshotToolName(name: string): boolean {
   return n === 'cdt_take_screenshot' || n === 'playwright_screenshot' || n === 'browser_screenshot';
 }
 
+function isCdtBrowserToolName(name: string): boolean {
+  return String(name || '').trim().toLowerCase().startsWith('cdt_');
+}
+
+function parseBrowserToolAutomationFlag(inp: Record<string, unknown>): boolean {
+  return inp.automation === true || inp.use_automation === true || inp.automate === true;
+}
+
 function mapTaskCompleteStatus(status: string | undefined): ExecutionPlanTask['status'] {
   if (status === 'done') return 'done';
   if (status === 'skipped') return 'skipped';
@@ -205,6 +213,7 @@ export type ConsumeAgentChatSseContext = {
   onBrowserNavigate?: (event: {
     type: 'browser_navigate';
     url: string;
+    automation?: boolean;
     screenshot_url?: string;
     page_text?: string;
     title?: string;
@@ -264,6 +273,8 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
   let activeToolTraceId: string | null = null;
   /** URL from browser tool `tool_start` input_preview — used on `tool_done`. */
   let pendingBrowserToolUrl: string | null = null;
+  /** `browser_open_url` with automation=true — MYBROWSER preview; passive opens use embedded iframe only. */
+  let pendingBrowserToolAutomation = false;
   /** Last `tool_output` chunk for the active browser navigation tool. */
   let lastBrowserToolOutputChunk: string | null = null;
   let activeBrowserNavTool = false;
@@ -1059,7 +1070,6 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             onBrowserNavigate?.({
               type: 'browser_navigate',
               url: navUrl,
-              screenshot_url: typeof d.screenshot_url === 'string' ? d.screenshot_url : undefined,
               page_text: typeof d.page_text === 'string' ? d.page_text : undefined,
               title: typeof d.title === 'string' ? d.title : undefined,
             });
@@ -1077,6 +1087,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           onThinkingEvent?.({ type: 'tool_start', tool_name: tn });
           patchIamAgentStreamDebug({ last_tool_name: tn || null });
           pendingBrowserToolUrl = null;
+          pendingBrowserToolAutomation = false;
           lastBrowserToolOutputChunk = null;
           lastBrowserScreenshotOutputChunk = null;
           activeBrowserScreenshotTool = isBrowserScreenshotToolName(tn);
@@ -1093,6 +1104,8 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
                 (typeof inp.page_url === 'string' && inp.page_url.trim()) ||
                 '';
               if (u) pendingBrowserToolUrl = sanitizeBrowserNavigateUrl(u) || u;
+              pendingBrowserToolAutomation =
+                parseBrowserToolAutomationFlag(inp) || isCdtBrowserToolName(tn);
             } catch {
               /* ignore */
             }
@@ -1177,6 +1190,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           });
           activeToolTraceId = null;
           pendingBrowserToolUrl = null;
+          pendingBrowserToolAutomation = false;
           lastBrowserToolOutputChunk = null;
           lastBrowserScreenshotOutputChunk = null;
           activeBrowserNavTool = false;
@@ -1289,16 +1303,22 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             }
             const safeNav = sanitizeBrowserNavigateUrl(navUrl);
             if (safeNav && !/\/api\/r2\/file\b/i.test(safeNav)) {
-              const preview = parseBrowserNavigatePreview(
-                typeof d.output_preview === 'string' ? d.output_preview : lastBrowserToolOutputChunk,
-              );
+              const automation =
+                pendingBrowserToolAutomation || isCdtBrowserToolName(doneToolName);
+              const preview = automation
+                ? parseBrowserNavigatePreview(
+                    typeof d.output_preview === 'string' ? d.output_preview : lastBrowserToolOutputChunk,
+                  )
+                : {};
               onBrowserNavigate?.({
                 type: 'browser_navigate',
                 url: safeNav,
+                automation,
                 ...preview,
               });
             }
             pendingBrowserToolUrl = null;
+            pendingBrowserToolAutomation = false;
             lastBrowserToolOutputChunk = null;
             activeBrowserNavTool = false;
           } else if (
@@ -1307,6 +1327,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             doneToolName === 'browser_navigate'
           ) {
             pendingBrowserToolUrl = null;
+            pendingBrowserToolAutomation = false;
             lastBrowserToolOutputChunk = null;
             activeBrowserNavTool = false;
           }

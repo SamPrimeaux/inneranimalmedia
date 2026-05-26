@@ -8,6 +8,7 @@ import { handlers as termHandlers } from '../tools/terminal.js';
 import { handlers as storageHandlers } from '../tools/builtin/storage.js';
 import { handlers as aiOpsHandlers } from '../tools/builtin/ai-ops.js';
 import { runHyperdriveQuery, isHyperdriveUsable } from './hyperdrive-query.js';
+import { scheduleMirrorToolCallEventToSupabase } from './hyperdrive-write.js';
 import { resolveMcpServerForTool } from './mcp-servers.js';
 
 function parseInput(input) {
@@ -532,6 +533,21 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
     } catch (e) {
       await writeTelemetryError(env, runContext, 'agentsam_performance_eto_events', e);
     }
+
+    try {
+      scheduleMirrorToolCallEventToSupabase(env, runContext.ctx ?? null, {
+        workspace_id: workspaceId,
+        run_id: agentRunId ?? runContext.run_id ?? runContext.workflow_run_id ?? null,
+        tool_key: toolKey,
+        tool_name: toolName,
+        tool_category: row.tool_category ?? null,
+        status: success ? 'completed' : 'failed',
+        input_tokens: usage.inputTokens,
+        output_tokens: usage.outputTokens,
+        cost_usd: usage.totalCostUsd,
+        duration_ms: durationMs,
+      });
+    } catch (_) {}
   };
 
   switch (handlerType) {

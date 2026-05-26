@@ -12,6 +12,7 @@
 
 import { isIngestSecretAuthorized, verifyInternalApiSecret, jsonResponse } from '../core/auth.js';
 import { fireHooks } from './cicd-event.js';
+import { scheduleMirrorDeployEventToSupabase } from '../core/hyperdrive-write.js';
 
 function isPostDeployAuthorized(request, env) {
   if (isIngestSecretAuthorized(request, env)) return true;
@@ -119,6 +120,31 @@ export async function handlePostDeploy(request, env, ctx) {
         console.warn('[post-deploy] fireHooks post_deploy', e?.message || e),
       ),
     );
+
+    const workspaceId =
+      typeof body.workspace_id === 'string' && body.workspace_id.trim()
+        ? body.workspace_id.trim()
+        : env.DEFAULT_WORKSPACE_ID != null && String(env.DEFAULT_WORKSPACE_ID).trim()
+          ? String(env.DEFAULT_WORKSPACE_ID).trim()
+          : '';
+    if (workspaceId) {
+      scheduleMirrorDeployEventToSupabase(env, ctx, {
+        workspace_id: workspaceId,
+        worker_name: 'inneranimalmedia',
+        worker_version: workerVersion,
+        deploy_status: 'passed',
+        commit_sha: gitHash,
+        notes: `post-deploy ${environment} v${version}`,
+        metadata: {
+          environment,
+          git_hash: gitHash,
+          dashboard_version: version,
+          keys_written: keysWritten,
+          sync_source: 'post-deploy-handler',
+        },
+        created_at: now,
+      });
+    }
   }
 
   return jsonResponse({

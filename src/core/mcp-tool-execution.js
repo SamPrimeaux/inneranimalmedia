@@ -4,6 +4,7 @@
  */
 
 import { scheduleAgentsamErrorLog } from './agentsam-error-log.js';
+import { scheduleMirrorToolCallEventToSupabase } from './hyperdrive-write.js';
 import { recordSpan } from './tracer.js';
 import { resolveCanonicalUserId } from '../api/auth.js';
 import { pickRunSpineIds } from './run-spine-ids.js';
@@ -507,6 +508,25 @@ export async function recordMcpToolExecution(env, fields) {
     )
       .bind(...binds)
       .run();
+
+    const st = String(normalized.status || '').toLowerCase();
+    const terminal = ['completed', 'success', 'failed', 'error', 'cancelled'].includes(st);
+    if (terminal && workspaceId) {
+      scheduleMirrorToolCallEventToSupabase(env, null, {
+        id,
+        workspace_id: workspaceId,
+        run_id: normalized.run_group_id ?? normalized.session_id ?? null,
+        tool_key: normalized.tool_key ?? normalized.tool_name ?? 'mcp_tool',
+        tool_name: normalized.tool_name ?? normalized.tool_key ?? 'mcp_tool',
+        tool_category: normalized.tool_category ?? 'mcp',
+        status: Number(normalized.success) === 1 || st === 'completed' || st === 'success' ? 'completed' : 'failed',
+        input_tokens: Number(normalized.input_tokens) || 0,
+        output_tokens: Number(normalized.output_tokens) || 0,
+        cost_usd: Number(normalized.cost_usd) || 0,
+        duration_ms: Number(normalized.duration_ms ?? normalized.latency_ms) || 0,
+      });
+    }
+
     return id;
   } catch (e) {
     console.warn('[recordMcpToolExecution] prod insert failed', e?.message ?? e);

@@ -2173,6 +2173,7 @@ const App: React.FC = () => {
     (event: {
       type: 'browser_navigate';
       url: string;
+      automation?: boolean;
       screenshot_url?: string;
       page_text?: string;
       title?: string;
@@ -2183,16 +2184,18 @@ const App: React.FC = () => {
       if (/\/api\/r2\/file\b/i.test(url)) {
         return;
       }
+      const automation = event.automation === true;
       window.dispatchEvent(
         new CustomEvent('iam:agent-open-surface', {
-          detail: { surface: 'browser', url },
+          detail: { surface: 'browser', url, automation },
         }),
       );
       window.dispatchEvent(
         new CustomEvent('iam-browser-navigate', {
           detail: {
             url,
-            screenshot_url: event.screenshot_url,
+            automation,
+            ...(automation && event.screenshot_url ? { screenshot_url: event.screenshot_url } : {}),
             page_text: event.page_text,
             title: event.title,
           },

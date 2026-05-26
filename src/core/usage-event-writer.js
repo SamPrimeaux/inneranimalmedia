@@ -4,6 +4,7 @@
  * Call once per AI model invocation after streaming completes.
  * One row = one model call.
  */
+import { scheduleMirrorUsageEventToSupabase } from './hyperdrive-write.js';
 
 /**
  * @param {Object} env - Worker env bindings (env.DB required)
@@ -27,7 +28,7 @@
  * @param {string} [params.status]       - "ok" | "error" | "timeout"
  * @param {string} [params.reason]       - error message if status=error
  */
-export async function writeUsageEvent(env, params) {
+export async function writeUsageEvent(env, params, ctx = null) {
   const {
     model        = 'unknown',
     model_key    = null,
@@ -80,6 +81,36 @@ export async function writeUsageEvent(env, params) {
       event_type, tool_name, status, reason,
       ref_table, ref_id, routing_arm_id, plan_id
     ).run();
+
+    let d1Id = null;
+    try {
+      const row = await env.DB.prepare(
+        `SELECT id, created_at FROM agentsam_usage_events WHERE rowid = last_insert_rowid() LIMIT 1`,
+      ).first();
+      d1Id = row?.id != null ? String(row.id) : null;
+    } catch (_) {}
+
+    scheduleMirrorUsageEventToSupabase(env, ctx, {
+      d1_id: d1Id,
+      tenant_id,
+      workspace_id,
+      user_id,
+      session_id,
+      provider,
+      model,
+      model_key,
+      tokens_in,
+      tokens_out,
+      input_tokens: tokens_in,
+      output_tokens: tokens_out,
+      cost_usd,
+      status,
+      tool_name,
+      ref_table,
+      ref_id,
+      event_type,
+      created_at: Math.floor(Date.now() / 1000),
+    });
 
     return result?.meta?.last_row_id ?? null;
   } catch (e) {
