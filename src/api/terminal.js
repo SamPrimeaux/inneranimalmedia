@@ -19,7 +19,7 @@ import {
 } from '../core/pty-workspace-paths.js';
 import { dispatchComplete,
          dispatchStream }    from '../core/provider.js';
-import { resolveModelForTask } from '../core/resolveModel.js';
+import { resolveModelForTask, normalizeCanonicalTaskType } from '../core/resolveModel.js';
 import { computeTerminalSessionAuthTokenHash, sha256HexUtf8, mintSessionToken } from '../core/terminal.js';
 
 // ── Token validation ───────────────────────────────────────────────────────────
@@ -229,13 +229,8 @@ Complete this task or provide a specific actionable response.`,
 
     let modelKey = 'gpt-5.4-nano';
     try {
-      let workspaceId =
-        body?.workspace_id != null && String(body.workspace_id).trim() !== ''
-          ? String(body.workspace_id).trim()
-          : env.WORKSPACE_ID != null && String(env.WORKSPACE_ID).trim() !== ''
-            ? String(env.WORKSPACE_ID).trim()
-            : '';
-      if (!workspaceId && session_id && env.DB) {
+      let workspaceId = '';
+      if (session_id && env.DB) {
         const sess = await env.DB.prepare(
           'SELECT workspace_id FROM terminal_sessions WHERE id = ? LIMIT 1',
         )
@@ -243,8 +238,11 @@ Complete this task or provide a specific actionable response.`,
           .first();
         workspaceId = sess?.workspace_id != null ? String(sess.workspace_id).trim() : '';
       }
+      if (!workspaceId) {
+        return jsonResponse({ error: 'unauthorized' }, 401);
+      }
       const resolved = await resolveModelForTask(env, {
-        task_type: 'terminal_execution',
+        task_type: normalizeCanonicalTaskType('terminal_execution'),
         mode: 'agent',
         workspace_id: workspaceId,
       });

@@ -25,9 +25,9 @@ export async function handleHealthKvDirty(request, env) {
   const tenantId =
     url.searchParams.get('tenant_id')?.trim() ||
     url.searchParams.get('tenantId')?.trim() ||
-    String(env.TENANT_ID || '').trim();
+    'system'; // system-scoped: internal path with no authenticated user context
   if (!tenantId) {
-    return jsonResponse({ error: 'tenant_required', detail: 'pass ?tenant_id= or set TENANT_ID var' }, 400);
+    return jsonResponse({ error: 'tenant_required', detail: 'pass ?tenant_id=' }, 400);
   }
 
   /** @type {Record<string, { set: boolean, age_seconds?: number }>} */

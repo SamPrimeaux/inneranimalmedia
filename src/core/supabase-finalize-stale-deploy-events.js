@@ -51,7 +51,7 @@ export async function finalizeStaleDeployEvents(opts) {
     cutoff_iso: cutoffIso,
   };
 
-  if (!supabaseUrl || !serviceKey || !tenantId || !workspaceId) {
+  if (!supabaseUrl || !serviceKey || !tenantId || !workspaceId || tenantId === 'system' || workspaceId === 'system') {
     return { ...empty, skipped: true, reason: 'missing_scope_or_supabase' };
   }
 
@@ -226,8 +226,15 @@ function extractRunGroupId(row) {
 export async function finalizeStaleDeployEventsFromWorker(env, o) {
   const supabaseUrl = env?.SUPABASE_URL && String(env.SUPABASE_URL).trim().replace(/\/$/, '');
   const serviceKey = env?.SUPABASE_SERVICE_ROLE_KEY && String(env.SUPABASE_SERVICE_ROLE_KEY).trim();
-  const tenantId = env?.TENANT_ID && String(env.TENANT_ID).trim();
-  const workspaceId = env?.WORKSPACE_ID && String(env.WORKSPACE_ID).trim();
+  // system-scoped: no authenticated user context at this path
+  const tenantId =
+    env?.TENANT_ID != null && String(env.TENANT_ID).trim() !== ''
+      ? String(env.TENANT_ID).trim()
+      : 'system';
+  const workspaceId =
+    env?.WORKSPACE_ID != null && String(env.WORKSPACE_ID).trim() !== ''
+      ? String(env.WORKSPACE_ID).trim()
+      : 'system';
 
   return finalizeStaleDeployEvents({
     supabaseUrl,

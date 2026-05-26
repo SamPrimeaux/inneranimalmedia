@@ -140,7 +140,7 @@ export async function writeTelemetry(env, data, modelRates) {
   const tidInsert = mid || 'default';
   const wsInsert =
     (workspaceId != null && String(workspaceId).trim() !== '' ? String(workspaceId).trim() : null) ||
-    (typeof env?.WORKSPACE_ID === 'string' && env.WORKSPACE_ID.trim() ? env.WORKSPACE_ID.trim() : null);
+    'system'; // system-scoped: no authenticated user context at this path
   if (!wsInsert) {
     // Hard requirement: never write authenticated telemetry with null/blank workspace_id.
     // If caller didn't provide a workspace and platform isn't configured, skip.
@@ -303,7 +303,7 @@ export async function insertAiGenerationLog(env, opts) {
   if (!tid) return;
   const wsInsert =
     (opts.workspaceId != null && String(opts.workspaceId).trim() !== '' ? String(opts.workspaceId).trim() : null) ||
-    (typeof env?.WORKSPACE_ID === 'string' && env.WORKSPACE_ID.trim() ? env.WORKSPACE_ID.trim() : null);
+    'system'; // system-scoped: no authenticated user context at this path
   if (!wsInsert) return;
 
   const id = opts.explicitId || 'aigl_' + crypto.randomUUID().replace(/-/g, '').slice(0, 24);

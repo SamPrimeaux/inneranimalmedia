@@ -922,7 +922,7 @@ async function handleBlueBubblesWebhook(request, env, ctx) {
 
             // Note: In a full implementation, we might trigger an asynchronous agent reasoning task here.
         }
-        await recordIntegrationEvent(env, env.TENANT_ID || fallbackSystemTenantId(env), 'bluebubbles', 'webhook_received', sender, `iMessage webhook received from ${sender}`, { hook_matched: !!hook, chatGuid });
+        await recordIntegrationEvent(env, 'system', 'bluebubbles', 'webhook_received', sender, `iMessage webhook received from ${sender}`, { hook_matched: !!hook, chatGuid });
         
         return jsonResponse({ 
             status: 'received', 
@@ -1003,7 +1003,7 @@ async function handleResendWebhook(request, env, ctx) {
                 Math.floor(Date.now() / 1000)
             ).run();
         }
-        await recordIntegrationEvent(env, env.TENANT_ID || fallbackSystemTenantId(env), 'resend', 'webhook_received', senderEmail, `Inbound email webhook received from ${senderEmail}`, { hook_matched: !!hook, subject });
+        await recordIntegrationEvent(env, 'system', 'resend', 'webhook_received', senderEmail, `Inbound email webhook received from ${senderEmail}`, { hook_matched: !!hook, subject });
 
         return jsonResponse({ 
             status: 'received', 

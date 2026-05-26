@@ -369,80 +369,256 @@ async function appendTriggeredRulesToSystemPrompt(env, systemPrompt, opts = {}) 
   return `${systemPrompt}\n\n## Rules\n${blocks.join('\n\n')}\n`;
 }
 
+function skillTokenEstimate(row) {
+  const te = Number(row?.token_estimate);
+  if (Number.isFinite(te) && te > 0) return Math.floor(te);
+  const body = String(row?.content_markdown || '');
+  return body ? Math.max(1, Math.ceil(body.length / 4)) : 0;
+}
+
+function normalizeBlendedTaskTypes(taskTypes, taskType) {
+  const out = new Set();
+  if (Array.isArray(taskTypes)) {
+    for (const t of taskTypes) {
+      const s = String(t ?? '').trim();
+      if (s) out.add(s);
+    }
+  }
+  const single = String(taskType ?? '').trim();
+  if (single) out.add(single);
+  return [...out];
+}
+
 /**
- * Appends active skills to the system prompt; records skill invocations (waitUntil).
+ * Tier 1 (always_apply + token budget) + Tier 2/3 (json_each task/route match + budget).
+ * Single loader for agent chat — replaces loadSkillsForTaskType + appendSkills duplicate queries.
+ */
+async function loadBlendedSkillsForRequest(env, opts = {}) {
+  if (!env?.DB) return { skills: [], tier1Tokens: 0, tier23Tokens: 0 };
+  const {
+    userId,
+    workspaceId,
+    routeKey = null,
+    taskTypes = [],
+    taskType = null,
+    tier1Budget = 800,
+    tier23Budget = 2000,
+    maxSkills = 6,
+  } = opts;
+  const uid = userId != null ? String(userId).trim() : '';
+  const ws = workspaceId != null ? String(workspaceId).trim() : '';
+  if (!ws) return { skills: [], tier1Tokens: 0, tier23Tokens: 0 };
+
+  const types = normalizeBlendedTaskTypes(taskTypes, taskType);
+  const rk = String(routeKey ?? '').trim();
+  const selected = [];
+  const seen = new Set();
+  let tier1Tokens = 0;
+  let tier23Tokens = 0;
+
+  const pushRow = (row, tier) => {
+    const id = String(row?.id ?? '');
+    if (!id || seen.has(id) || selected.length >= maxSkills) return false;
+    const cost = skillTokenEstimate(row);
+    if (tier === 1) {
+      if (tier1Tokens + cost > tier1Budget) return false;
+      tier1Tokens += cost;
+    } else {
+      if (tier23Tokens + cost > tier23Budget) return false;
+      tier23Tokens += cost;
+    }
+    seen.add(id);
+    selected.push({ ...row, _blended_tier: tier });
+    return true;
+  };
+
+  try {
+    const tier1Res = await env.DB.prepare(
+      `SELECT id, name, content_markdown, always_apply, token_estimate,
+              retrieval_strategy, file_path, sort_order
+       FROM agentsam_skill
+       WHERE is_active = 1
+         AND always_apply = 1
+         AND (workspace_id = ? OR workspace_id IS NULL OR TRIM(COALESCE(workspace_id, '')) = '')
+       ORDER BY sort_order ASC`,
+    )
+      .bind(ws)
+      .all();
+    for (const row of tier1Res.results || []) {
+      if (selected.length >= maxSkills) break;
+      pushRow(row, 1);
+    }
+  } catch (e) {
+    console.warn('[agent] blended_skills tier1', e?.message ?? e);
+  }
+
+  if (selected.length >= maxSkills) {
+    return { skills: selected, tier1Tokens, tier23Tokens };
+  }
+
+  const matchParts = [];
+  const binds = [ws];
+  if (uid) {
+    matchParts.push(`(user_id = ? AND TRIM(COALESCE(user_id, '')) != '')`);
+    binds.push(uid);
+  }
+  if (rk) {
+    matchParts.push(
+      `EXISTS (
+         SELECT 1 FROM json_each(COALESCE(NULLIF(TRIM(route_keys_json), ''), '[]')) je
+         WHERE je.value = ?
+       )`,
+    );
+    binds.push(rk);
+  }
+  if (types.length) {
+    const ph = types.map(() => '?').join(', ');
+    matchParts.push(
+      `EXISTS (
+         SELECT 1 FROM json_each(COALESCE(NULLIF(TRIM(task_types_json), ''), '[]')) je
+         WHERE je.value IN (${ph})
+       )`,
+    );
+    binds.push(...types);
+  }
+  if (!matchParts.length) {
+    return { skills: selected, tier1Tokens, tier23Tokens };
+  }
+
+  try {
+    const tier23Res = await env.DB.prepare(
+      `SELECT id, name, content_markdown, always_apply, token_estimate,
+              retrieval_strategy, file_path, sort_order, user_id
+       FROM agentsam_skill
+       WHERE is_active = 1
+         AND always_apply = 0
+         AND (workspace_id = ? OR workspace_id IS NULL OR TRIM(COALESCE(workspace_id, '')) = '')
+         AND (${matchParts.join(' OR ')})
+       ORDER BY sort_order ASC`,
+    )
+      .bind(...binds)
+      .all();
+    for (const row of tier23Res.results || []) {
+      if (selected.length >= maxSkills) break;
+      pushRow(row, 23);
+    }
+  } catch (e) {
+    console.warn('[agent] blended_skills tier23', e?.message ?? e);
+  }
+
+  return { skills: selected, tier1Tokens, tier23Tokens };
+}
+
+function formatBlendedSkillsPromptBlock(skillRows) {
+  if (!skillRows?.length) return '';
+  const blocks = skillRows.map((r) => {
+    const title = String(r.name || r.id || 'skill');
+    const body = String(r.content_markdown || '').trim();
+    if (!body) return `### ${title}\n(skill content loaded via ${String(r.retrieval_strategy || 'db')})\n`;
+    return `### ${title}\n${body}`;
+  });
+  return `\n## Skills\n${blocks.join('\n\n')}\n`;
+}
+
+async function recordBlendedSkillInvocations(env, ctx, skillRows, opts) {
+  if (!skillRows?.length || !env?.DB) return;
+  const {
+    userId, tenantId, workspaceId, conversationId,
+  } = opts;
+  const uid = String(userId ?? '').trim();
+  const ws = String(workspaceId ?? '').trim();
+  if (!uid || !ws) return;
+  const ids = skillRows.map((r) => r.id);
+  env.DB.prepare(
+    `UPDATE agentsam_skill
+     SET invocation_count = invocation_count + 1,
+         last_invoked_at = datetime('now')
+     WHERE id IN (${ids.map(() => '?').join(',')})`,
+  )
+    .bind(...ids)
+    .run()
+    .catch(() => {});
+  if (!ctx?.waitUntil) return;
+  const conv = conversationId != null ? String(conversationId) : null;
+  ctx.waitUntil(
+    Promise.all(
+      skillRows.map((row) =>
+        env.DB.prepare(
+          `INSERT INTO agentsam_skill_invocation
+           (skill_id, user_id, workspace_id, conversation_id, trigger_method, success, tenant_id)
+           VALUES (?, ?, ?, ?, ?, 1, ?)`,
+        )
+          .bind(
+            String(row.id),
+            uid,
+            ws,
+            conv,
+            row._blended_tier === 1 ? 'always_apply' : 'blended',
+            tenantId ?? null,
+          )
+          .run()
+          .catch((e) => console.warn('[agentsam_skill_invocation]', e?.message ?? e)),
+      ),
+    ).catch(() => {}),
+  );
+}
+
+/**
+ * Appends blended skills to the system prompt; records invocations (waitUntil).
  * Rules are injected in buildSystemPrompt via appendTriggeredRulesToSystemPrompt (D1 triggers).
  */
 async function appendSkillsAndRulesToSystemPrompt(env, ctx, systemPrompt, opts) {
   const {
-    userId, tenantId, workspaceId, conversationId, taskType,
+    userId,
+    tenantId,
+    workspaceId,
+    conversationId,
+    taskType,
+    routeKey = null,
+    taskTypes = null,
+    tier1Budget = 800,
+    tier23Budget = 2000,
+    maxSkills = 6,
+    preloadedSkills = null,
   } = opts;
   if (!env?.DB) return systemPrompt;
   const uid = userId != null ? String(userId).trim() : '';
   const ws = workspaceId != null ? String(workspaceId).trim() : '';
   if (!uid || !ws) return systemPrompt;
-  let extra = '';
-  let skillRows = [];
-  try {
-    const sRes = await env.DB.prepare(
-      `SELECT id, name, content_markdown, always_apply, token_estimate
-       FROM agentsam_skill
-       WHERE is_active = 1
-         AND (
-           always_apply = 1
-           OR (user_id = ? AND user_id != '')
-           OR task_types_json LIKE ?
-         )
-         AND (workspace_id = ? OR workspace_id IS NULL OR TRIM(COALESCE(workspace_id, '')) = '')
-       ORDER BY always_apply DESC, sort_order ASC
-       LIMIT 10`,
-    )
-      .bind(uid, `%"${taskType ?? ''}"%`, ws)
-      .all();
-    skillRows = sRes.results || [];
-    if (skillRows.length) {
-      const blocks = skillRows.map((r) => {
-        const title = String(r.name || r.id || 'skill');
-        const body = String(r.content_markdown || '');
-        return `### ${title}\n${body}`;
+
+  let skillRows = preloadedSkills;
+  if (!skillRows) {
+    try {
+      const blended = await loadBlendedSkillsForRequest(env, {
+        userId: uid,
+        workspaceId: ws,
+        routeKey,
+        taskTypes: taskTypes ?? (taskType ? [taskType] : []),
+        taskType,
+        tier1Budget,
+        tier23Budget,
+        maxSkills,
       });
-      extra += `\n## Skills\n${blocks.join('\n\n')}\n`;
+      skillRows = blended.skills;
+    } catch (e) {
+      console.warn('[agent] blended_skills prompt', e?.message ?? e);
+      return systemPrompt;
     }
+  }
+  if (!skillRows?.length) return systemPrompt;
+
+  try {
+    await recordBlendedSkillInvocations(env, ctx, skillRows, {
+      userId: uid,
+      tenantId,
+      workspaceId: ws,
+      conversationId,
+    });
   } catch (e) {
-    console.warn('[agent] skills prompt query', e?.message ?? e);
+    console.warn('[agent] blended_skills invocation', e?.message ?? e);
   }
 
-  if (skillRows.length && env?.DB) {
-    const ids = skillRows.map((r) => r.id);
-    env.DB.prepare(
-      `UPDATE agentsam_skill
-       SET invocation_count = invocation_count + 1,
-           last_invoked_at = datetime('now')
-       WHERE id IN (${ids.map(() => '?').join(',')})`,
-    )
-      .bind(...ids)
-      .run()
-      .catch(() => {});
-  }
-
-  if (skillRows.length && ctx?.waitUntil) {
-    const conv = conversationId != null ? String(conversationId) : null;
-    ctx.waitUntil(
-      Promise.all(
-        skillRows.map((row) =>
-          env.DB.prepare(
-            `INSERT INTO agentsam_skill_invocation
-             (skill_id, user_id, workspace_id, conversation_id, trigger_method, success, tenant_id)
-             VALUES (?, ?, ?, ?, 'auto', 1, ?)`,
-          )
-            .bind(String(row.id), uid, ws, conv, tenantId ?? null)
-            .run()
-            .catch((e) => console.warn('[agentsam_skill_invocation]', e?.message ?? e)),
-        ),
-      ).catch(() => {}),
-    );
-  }
-
+  const extra = formatBlendedSkillsPromptBlock(skillRows);
   return extra ? `${systemPrompt}${extra}` : systemPrompt;
 }
 
@@ -2572,27 +2748,6 @@ async function loadCapabilityAliasToolKeysForTask(env, taskType) {
   }
 }
 
-/**
- * Global skills with always_apply=1 (tenant/workspace agnostic).
- * @param {any} env
- */
-async function loadGlobalAlwaysApplySkills(env) {
-  if (!env?.DB) return [];
-  try {
-    const { results } = await env.DB.prepare(
-      `SELECT id, name, content_markdown
-       FROM agentsam_skill
-       WHERE is_active = 1 AND always_apply = 1
-       ORDER BY sort_order ASC
-       LIMIT 8`,
-    ).all();
-    return results || [];
-  } catch (e) {
-    console.warn('[agent] always_apply_skills', e?.message ?? e);
-    return [];
-  }
-}
-
 export async function recordArmOutcome(env, ctx, armId, success, routingInfo) {
   if (!env.DB || !armId) return;
   try {
@@ -2634,28 +2789,6 @@ export async function recordArmOutcome(env, ctx, armId, success, routingInfo) {
     }
   } catch (e) {
     console.warn('[routing] recordArmOutcome failed:', e?.message);
-  }
-}
-
-async function loadSkillsForTaskType(env, taskType, workspaceId) {
-  if (!env.DB) return [];
-  try {
-    const { results } = await env.DB.prepare(
-      `SELECT id, name, content_markdown
-      FROM agentsam_skill
-      WHERE is_active = 1
-        AND (always_apply = 1
-             OR route_keys_json LIKE ?
-             OR task_types_json LIKE ?)
-        AND (workspace_id = ? OR workspace_id IS NULL OR trim(COALESCE(workspace_id,'')) = '')
-      ORDER BY always_apply DESC, sort_order ASC
-      LIMIT 6`,
-    )
-      .bind(`%"${taskType}"%`, `%"${taskType}"%`, workspaceId)
-      .all();
-    return results || [];
-  } catch {
-    return [];
   }
 }
 
@@ -3673,7 +3806,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
             modelKey: String(modelKey || ''),
             taskType: String(routingTaskType || 'ask'),
             mode: String(mode || 'agent'),
-            workspaceId: routingWs || env.WORKSPACE_ID || '',
+            workspaceId: routingWs || '',
             agentSlug: agentSlugParam != null ? String(agentSlugParam).trim() : '',
           })
         )?.armId ?? null
@@ -6197,6 +6330,11 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         workspaceId,
         conversationId: session?.session_id ?? body.sessionId ?? body.session_id ?? null,
         taskType: intentResult?.taskType ?? promptRouteIntentSlug,
+        routeKey: promptRouteRow?.route_key ?? null,
+        taskTypes: [intentResult?.taskType ?? promptRouteIntentSlug].filter(Boolean),
+        tier1Budget: 800,
+        tier23Budget: 2000,
+        maxSkills: 6,
       });
     } catch (e) {
       console.warn('[agent] ask_fast skills/rules prompt enrich', e?.message ?? e);
@@ -6317,34 +6455,11 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   }
 
   let capabilityAliasToolKeys = [];
-  let globalAlwaysApplySkills = [];
   if (env?.DB && intentResult?.taskType) {
     try {
-      [capabilityAliasToolKeys, globalAlwaysApplySkills] = await Promise.all([
-        loadCapabilityAliasToolKeysForTask(env, intentResult.taskType),
-        loadGlobalAlwaysApplySkills(env),
-      ]);
+      capabilityAliasToolKeys = await loadCapabilityAliasToolKeysForTask(env, intentResult.taskType);
     } catch (_) {
       /* non-fatal */
-    }
-    if (ctx?.waitUntil && globalAlwaysApplySkills.length && userId && workspaceId) {
-      const uid = String(userId).trim();
-      const ws = String(workspaceId).trim();
-      const conv = sessionId != null ? String(sessionId) : null;
-      ctx.waitUntil(
-        Promise.all(
-          globalAlwaysApplySkills.map((row) =>
-            env.DB.prepare(
-              `INSERT INTO agentsam_skill_invocation
-               (skill_id, user_id, workspace_id, conversation_id, trigger_method, success, tenant_id)
-               VALUES (?, ?, ?, ?, 'always_apply', 1, ?)`,
-            )
-              .bind(String(row.id), uid, ws, conv, tenantId ?? null)
-              .run()
-              .catch((e) => console.warn('[agentsam_skill_invocation]', e?.message ?? e)),
-          ),
-        ).catch(() => {}),
-      );
     }
   }
 
@@ -7485,44 +7600,43 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
   if (!minimalAskChat) {
     try {
-      let skillRows = await loadSkillsForTaskType(env, intentResult.taskType, workspaceId);
-      if (globalAlwaysApplySkills.length) {
-        const seen = new Set(skillRows.map((s) => String(s.id)));
-        for (const row of globalAlwaysApplySkills) {
-          if (!seen.has(String(row.id))) {
-            skillRows.unshift(row);
-            seen.add(String(row.id));
-          }
-        }
-      }
+      const blendedTaskType = intentResult?.taskType ?? null;
+      const blended = await loadBlendedSkillsForRequest(env, {
+        userId,
+        workspaceId,
+        routeKey: routeKeyForRun,
+        taskTypes: blendedTaskType ? [blendedTaskType] : [],
+        taskType: blendedTaskType,
+        tier1Budget: 800,
+        tier23Budget: 2000,
+        maxSkills: 6,
+      });
+      let skillRows = blended.skills;
       if (isSkillCreatorIntakeMessage(message)) {
         const creator = await loadSkillCreatorSkillRow(env);
         if (creator?.content_markdown && !skillRows.some((s) => s.id === creator.id)) {
-          skillRows.unshift(creator);
+          skillRows = [{ ...creator, _blended_tier: 23 }, ...skillRows].slice(0, 6);
         }
         systemPrompt =
           `${systemPrompt}\n\n## Skill creation mode\n` +
           'Interview the user before planning or editing files. Ask what the skill should do, when it should trigger, and whether it is a Cursor skill (.cursor/skills) or an Agent Sam D1 skill. ' +
           'Do not auto-run a multi-step implementation plan until requirements are confirmed.';
       }
-      const skillContext = skillRows
-        .map((s) => `## Skill: ${s.name}\n${s.content_markdown}`)
-        .join('\n\n---\n\n');
-      if (skillContext) {
-        systemPrompt = `${skillContext}\n\n---\n\n${systemPrompt}`;
-      }
-    } catch (_) { /* skills-by-task must not break chat */ }
-
-    try {
       systemPrompt = await appendSkillsAndRulesToSystemPrompt(env, ctx, systemPrompt, {
         userId,
         tenantId: tenantId ?? resolvedTenantId ?? null,
         workspaceId,
         conversationId: sessionId,
-        taskType: intentResult?.taskType ?? null,
+        taskType: blendedTaskType,
+        routeKey: routeKeyForRun,
+        taskTypes: blendedTaskType ? [blendedTaskType] : [],
+        tier1Budget: 800,
+        tier23Budget: 2000,
+        maxSkills: 6,
+        preloadedSkills: skillRows,
       });
     } catch (e) {
-      console.warn('[agent] skills/rules prompt enrich', e?.message ?? e);
+      console.warn('[agent] blended skills prompt enrich', e?.message ?? e);
     }
   }
 

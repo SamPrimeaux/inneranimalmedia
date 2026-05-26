@@ -15,9 +15,9 @@ function genModelId(provider, modelKey) {
 export async function syncProviderModels(env, provider, apiKey, meta = {}) {
   if (!env?.DB || !apiKey) return;
   const p = String(provider || '').trim();
-  const tenantId = String(meta.tenantId || env.TENANT_ID || '').trim();
+  const tenantId = String(meta.tenantId || 'system').trim();
   if (!tenantId) {
-    console.warn('[model-sync] skip syncProviderModels: no tenant_id (pass meta.tenantId or env.TENANT_ID)');
+    console.warn('[model-sync] skip syncProviderModels: no tenant_id (pass meta.tenantId)');
     return;
   }
   const createdBy = String(meta.createdBy || 'apikey_sync').trim() || 'apikey_sync';

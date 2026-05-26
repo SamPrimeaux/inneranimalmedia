@@ -113,9 +113,7 @@ async function ensureMeetChatChannelId(db, env, { workspaceId, tenantId, created
   const tId =
     tenantId != null && String(tenantId).trim() !== ''
       ? String(tenantId).trim()
-      : env?.TENANT_ID != null && String(env.TENANT_ID).trim() !== ''
-        ? String(env.TENANT_ID).trim()
-        : null;
+      : 'system'; // system-scoped: no authenticated user context at this path
   const by = createdBy ?? null;
 
   const inserts = [

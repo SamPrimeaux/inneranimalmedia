@@ -650,14 +650,16 @@ export async function rollupDeploymentsWeekly(env) {
     return { ok: true, skipped: true, reason: 'weekly_runs_sunday_utc_only' };
   }
 
+  // system-scoped cron: no authenticated user context at this path
   const tenantId =
-    typeof env?.TENANT_ID === 'string' && env.TENANT_ID.trim() ? env.TENANT_ID.trim() : null;
+    typeof env?.TENANT_ID === 'string' && env.TENANT_ID.trim() ? env.TENANT_ID.trim() : 'system';
   const workspaceId =
-    typeof env?.WORKSPACE_ID === 'string' && env.WORKSPACE_ID.trim() ? env.WORKSPACE_ID.trim() : null;
+    typeof env?.WORKSPACE_ID === 'string' && env.WORKSPACE_ID.trim() ? env.WORKSPACE_ID.trim() : 'system';
+  const hasScopedDeployContext = tenantId !== 'system' && workspaceId !== 'system';
 
   let finalizeMeta = null;
   let finBegun = null;
-  if (tenantId && workspaceId && env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY) {
+  if (hasScopedDeployContext && env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY) {
     finBegun = await startCronRun(env, {
       jobName: 'finalize_stale_deploy_events',
       cronExpression: '0 1 * * sun',

@@ -27,6 +27,7 @@ export function resolveWebhookTenantId(env, override) {
   if (typeof env?.SUPABASE_WEBHOOK_TENANT_ID === 'string' && env.SUPABASE_WEBHOOK_TENANT_ID.trim()) {
     return env.SUPABASE_WEBHOOK_TENANT_ID.trim();
   }
+  // system-scoped: no authenticated user context at this path
   if (typeof env?.TENANT_ID === 'string' && env.TENANT_ID.trim()) return env.TENANT_ID.trim();
   return 'system';
 }

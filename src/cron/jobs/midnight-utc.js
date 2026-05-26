@@ -127,11 +127,11 @@ export async function runMidnightUtcJobs(env, ctx) {
             workspaceId:
               typeof env?.WORKSPACE_ID === 'string' && env.WORKSPACE_ID.trim()
                 ? env.WORKSPACE_ID.trim()
-                : 'ws_inneranimalmedia',
+                : 'system',
             tenantId:
               typeof env?.TENANT_ID === 'string' && env.TENANT_ID.trim()
                 ? env.TENANT_ID.trim()
-                : 'tenant_inneranimalmedia',
+                : 'system',
             sessionId: null,
             errorCode: 'oauth_expiry_cleanup_failed',
             errorType: 'scheduled_cron',
@@ -153,7 +153,8 @@ export async function runMidnightUtcJobs(env, ctx) {
     ctx.waitUntil(
       cronLedgerWrap(env, 'security_scan_nightly', CRON_MIDNIGHT, () =>
         runSecurityScan(env, {
-          tenantId: env.TENANT_ID,
+          // system-scoped cron — no user context
+          tenantId: env.TENANT_ID ?? 'system',
           scanSources: ['agent_messages', 'terminal_history', 'agentsam_mcp_tool_execution'],
           triggeredBy: 'nightly_cron',
         }),

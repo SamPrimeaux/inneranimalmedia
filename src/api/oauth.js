@@ -1354,7 +1354,10 @@ export async function handleOAuthApi(request, env, ctx) {
 
     const state = crypto.randomUUID();
     const returnTo = safeReturnTo(url.searchParams.get('return_to'));
-    const workspace_id = String(url.searchParams.get('workspace_id') || '').trim() || String(env.WORKSPACE_ID || '').trim() || '';
+    const workspace_id = await resolveCanonicalWorkspace(env, userId);
+    if (!workspace_id) {
+      return jsonResponse({ error: 'invalid_workspace' }, 400);
+    }
     const redirectUriMgmt = provider === 'supabase' ? supabaseManagementOAuthRedirectUri(request, env) : null;
     await kvPutIntegrationOAuthState(env, provider, state, {
       user_id: userId,

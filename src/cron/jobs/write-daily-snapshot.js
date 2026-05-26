@@ -10,8 +10,9 @@ function cronExprForSnapshotReason(reason) {
 
 export async function writeDailySnapshot(env, reason = 'cron') {
   if (!env?.DB) return;
-  const tid = (typeof env?.TENANT_ID === 'string' && env.TENANT_ID.trim()) ? env.TENANT_ID.trim() : null;
-  const wid = (typeof env?.WORKSPACE_ID === 'string' && env.WORKSPACE_ID.trim()) ? env.WORKSPACE_ID.trim() : null;
+  // system-scoped cron: no authenticated user context at this path
+  const tid = (typeof env?.TENANT_ID === 'string' && env.TENANT_ID.trim()) ? env.TENANT_ID.trim() : 'system';
+  const wid = (typeof env?.WORKSPACE_ID === 'string' && env.WORKSPACE_ID.trim()) ? env.WORKSPACE_ID.trim() : 'system';
   const begun = await startCronRun(env, {
     jobName: 'write_daily_snapshot',
     cronExpression: cronExprForSnapshotReason(reason),
@@ -77,7 +78,7 @@ export async function writeDailySnapshot(env, reason = 'cron') {
   rowsWritten += 1;
 
   // workspace_usage_metrics
-  const _wsId = (typeof env?.WORKSPACE_ID === 'string' && env.WORKSPACE_ID.trim()) ? env.WORKSPACE_ID.trim() : null;
+  const _wsId = (typeof env?.WORKSPACE_ID === 'string' && env.WORKSPACE_ID.trim()) ? env.WORKSPACE_ID.trim() : 'system';
   const _tid = (typeof env?.TENANT_ID === 'string' && env.TENANT_ID.trim()) ? env.TENANT_ID.trim() : 'system';
   const [_wai, _wtc, _wmc, _wdc] = await Promise.all([
     env.DB.prepare("SELECT COUNT(*) as c,COALESCE(SUM(tokens_input+tokens_output),0) as t,COALESCE(SUM(cost_estimate),0) as cost FROM agentsam_usage_events WHERE date=date('now')").first().catch(() => null),
@@ -85,7 +86,7 @@ export async function writeDailySnapshot(env, reason = 'cron') {
     env.DB.prepare("SELECT COUNT(*) as c FROM agentsam_mcp_tool_execution WHERE created_at>=datetime('now','-1 day')").first().catch(() => null),
     env.DB.prepare("SELECT COUNT(*) as c FROM deployment_tracking WHERE created_at>=date('now')").first().catch(() => null),
   ]);
-  if (_wsId) {
+  if (_wsId !== 'system') {
     await env.DB.prepare("INSERT OR REPLACE INTO workspace_usage_metrics (workspace_id,metric_date,ai_calls,tokens_used,cost_estimate_cents,tool_calls,mcp_calls,deployments_count,rollup_source,updated_at) VALUES (?,date('now'),?,?,?,?,?,?,'daily_cron',unixepoch())").bind(_wsId, _wai?.c || 0, _wai?.t || 0, (_wai?.cost || 0) * 100, _wtc?.c || 0, _wmc?.c || 0, _wdc?.c || 0).run().catch(() => { });
     rowsWritten += 1;
   }

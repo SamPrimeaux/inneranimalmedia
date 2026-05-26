@@ -822,9 +822,7 @@ export async function upsertAgentsamMemory(env, row) {
   const workspaceId =
     row.workspaceId != null && String(row.workspaceId).trim() !== ''
       ? String(row.workspaceId).trim()
-      : env?.WORKSPACE_ID != null && String(env.WORKSPACE_ID).trim() !== ''
-        ? String(env.WORKSPACE_ID).trim()
-        : 'system';
+      : 'system'; // system-scoped: no authenticated user context at this path
   const memoryType = row.memoryType != null ? String(row.memoryType) : 'fact';
   const key = row.key != null ? String(row.key) : '';
   const value = row.value != null ? String(row.value) : '';

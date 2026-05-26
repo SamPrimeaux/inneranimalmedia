@@ -274,9 +274,7 @@ export async function syncRunToSupabase(env, runId, options = {}) {
   }
   if (!Array.isArray(stepResults)) stepResults = [];
 
-  const tenantId = String(
-    row.tenant_id || (env.TENANT_ID != null ? String(env.TENANT_ID).trim() : '') || 'system',
-  );
+  const tenantId = String(row.tenant_id || 'system');
   const workspaceIdRaw =
     (options.workspaceId != null && String(options.workspaceId).trim()) ||
     (row.workspace_id != null && String(row.workspace_id).trim()) ||
