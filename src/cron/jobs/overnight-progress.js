@@ -37,7 +37,7 @@ export async function runOvernightCronStep(env) {
 
   const begun = await startCronRun(env, {
     jobName: 'overnight_progress_step',
-    cronExpression: '*/30 * * * *',
+    cronExpression: '0 0 * * *',
     tenantId: null,
     workspaceId: null,
   });

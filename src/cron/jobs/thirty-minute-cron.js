@@ -1,31 +1,39 @@
 /** Every 30 minutes (worker.js parity). */
 
 import { completeCronRun, failCronRun, startCronRun } from '../../core/cron-run-ledger.js';
-import { runOvernightCronStep } from './overnight-progress.js';
 import {
   reconcileRoutingArmsFromAgentRuns,
   rollupAgentsamModelRoutingMemory,
   enforceEvalSlosPauseArms,
   enforceTaskSlosFromRoutingMemory,
   syncRoutingArmPauseFromDrift,
-  runRoutingAnalyticsRollups,
 } from '../../core/routing-cron.js';
 import { applyEtoToRoutingArms } from '../../core/performance-eto.js';
 import { scanErrorLogThresholds } from '../../core/error-log-escalation.js';
 
 const CRON_30 = '*/30 * * * *';
 
-/** Mark long-running ledger rows as failed (no completion recorded). */
-export async function sweepStaleCronRuns(env) {
-  if (!env?.DB) return;
-  const begun = await startCronRun(env, {
-    jobName: 'agentsam_cron_runs_stuck_sweep',
-    cronExpression: CRON_30,
-    tenantId: null,
-    workspaceId: null,
-  });
-  const runId = begun?.runId ?? null;
-  const startedAt = begun?.startedAt ?? Date.now();
+/**
+ * Mark long-running ledger rows as failed (no completion recorded).
+ * @param {any} env
+ * @param {{ cronExpression?: string, skipLedger?: boolean }} [opts]
+ */
+export async function sweepStaleCronRuns(env, opts = {}) {
+  if (!env?.DB) return { rowsWritten: 0 };
+  const cronExpression = opts.cronExpression ?? CRON_30;
+  const skipLedger = opts.skipLedger === true;
+  let runId = null;
+  let startedAt = Date.now();
+  if (!skipLedger) {
+    const begun = await startCronRun(env, {
+      jobName: 'agentsam_cron_runs_stuck_sweep',
+      cronExpression,
+      tenantId: null,
+      workspaceId: null,
+    });
+    runId = begun?.runId ?? null;
+    startedAt = begun?.startedAt ?? Date.now();
+  }
   try {
     const r = await env.DB.prepare(
       `UPDATE agentsam_cron_runs SET status='failed', error_message='timeout - no completion recorded'
@@ -39,9 +47,11 @@ export async function sweepStaleCronRuns(env) {
         metadata: { stuck_rows_marked: rowsWritten },
       });
     }
+    return { rowsWritten };
   } catch (e) {
     if (runId) await failCronRun(env, runId, startedAt, e);
     console.warn('[sweepStaleCronRuns]', e?.message ?? e);
+    throw e;
   }
 }
 
@@ -75,11 +85,13 @@ export async function sweepExpiredApprovalQueue(env) {
   }
 }
 
+const CRON_HOURLY = '0 * * * *';
+
 export async function processQueues(env) {
   if (!env.DB) return;
   const begun = await startCronRun(env, {
     jobName: 'agent_request_queue_drain',
-    cronExpression: CRON_30,
+    cronExpression: CRON_HOURLY,
     tenantId: null,
     workspaceId: null,
   });
@@ -161,15 +173,8 @@ export async function sweepStaleTerminalSessions(env) {
 }
 
 export async function runThirtyMinuteJobs(env, ctx) {
-  ctx.waitUntil(
-    (async () => {
-      await sweepStaleCronRuns(env);
-      // routing jobs moved to hourly cron
-    })(),
-  );
+  // Stuck sweep + overnight progress moved to daily (midnight UTC) — was 48×/day with 0 writes.
   ctx.waitUntil(sweepExpiredApprovalQueue(env));
-  ctx.waitUntil(processQueues(env));
-  ctx.waitUntil(runOvernightCronStep(env));
   ctx.waitUntil(sweepStaleTerminalSessions(env));
 }
 
@@ -179,7 +184,8 @@ export async function runHourlyRoutingJobs(env, ctx) {
   ctx.waitUntil(enforceTaskSlosFromRoutingMemory(env).catch(e => console.warn('[cron/hourly] enforceSlos', e?.message)));
   ctx.waitUntil(enforceEvalSlosPauseArms(env, { lookbackDays: 7 }).catch(e => console.warn('[cron/hourly] enforceEvalSlos', e?.message)));
   ctx.waitUntil(syncRoutingArmPauseFromDrift(env).catch(e => console.warn('[cron/hourly] syncPause', e?.message)));
-  ctx.waitUntil(runRoutingAnalyticsRollups(env).catch(e => console.warn('[cron/hourly] analyticsRollup', e?.message)));
+  // routing_analytics_rollups disabled — duplicated execution_performance rollup with 0 writes.
+  ctx.waitUntil(processQueues(env).catch((e) => console.warn('[cron/hourly] agent_request_queue_drain', e?.message)));
   ctx.waitUntil(scanErrorLogThresholds(env).catch(e => console.warn('[cron/hourly] errorLogThresholds', e?.message)));
   ctx.waitUntil(applyEtoToRoutingArms(env, {}).catch(e => console.warn('[cron/hourly] applyEtoToRoutingArms', e?.message)));
 }

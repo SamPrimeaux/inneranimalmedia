@@ -1,13 +1,15 @@
 import { completeCronRun, failCronRun, startCronRun } from '../../core/cron-run-ledger.js';
 import { runMasterDailyRetention } from '../../core/retention.js';
 import { runSecurityScan } from '../../core/security-scan.js';
+import { runMidnightUsageRollupPipeline } from '../../core/agentsam-midnight-rollup-pipeline.js';
 import {
   compactAgentsamToolCallLogToStats,
   rollupExecutionPerformanceMetrics,
   rollupOtlpTracesDaily,
-  rollupUsageEventsDaily,
   runAgentsamMemoryDecay,
 } from '../../core/memory.js';
+import { sweepStaleCronRuns } from './thirty-minute-cron.js';
+import { runOvernightCronStep } from './overnight-progress.js';
 import { runEtoPipeline } from '../../core/performance-eto.js';
 import { runRetentionPurge } from '../retention-purge.js';
 import { archiveOldConversations } from './archive-old-conversations.js';
@@ -178,15 +180,16 @@ export async function runMidnightUtcJobs(env, ctx) {
       ),
     );
     ctx.waitUntil(
-      cronLedgerWrap(env, 'rollup_usage_events_daily', CRON_MIDNIGHT, async () => {
-        try {
-          await rollupUsageEventsDaily(env);
-        } catch (e) {
-          console.warn('[cron] agentsam_usage_rollups_daily', e?.message ?? e);
-          throw e;
-        }
-      }),
+      cronLedgerWrap(env, 'rollup_usage_events_daily', CRON_MIDNIGHT, () =>
+        runMidnightUsageRollupPipeline(env),
+      ),
     );
+    ctx.waitUntil(
+      cronLedgerWrap(env, 'agentsam_cron_runs_stuck_sweep', CRON_MIDNIGHT, () =>
+        sweepStaleCronRuns(env, { cronExpression: CRON_MIDNIGHT, skipLedger: true }),
+      ),
+    );
+    ctx.waitUntil(runOvernightCronStep(env));
   }
   if (env?.DB && env?.R2) {
     ctx.waitUntil(

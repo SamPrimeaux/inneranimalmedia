@@ -602,23 +602,10 @@ export async function rollupExecutionPerformanceMetrics(env) {
   }
 }
 
-/** Roll up yesterday's agentsam_usage_events into agentsam_usage_rollups_daily (midnight UTC cron). */
+/** @deprecated Use runMidnightUsageRollupPipeline — retained for imports/tests. */
 export async function rollupUsageEventsDaily(env) {
-  if (!env?.DB) return;
-  await env.DB.prepare(`
-    INSERT OR REPLACE INTO agentsam_usage_rollups_daily
-      (tenant_id, workspace_id, day, ai_calls,
-       tokens_in, tokens_out, cost_usd,
-       error_count, rollup_source, rolled_up_at)
-    SELECT tenant_id, workspace_id, DATE(created_at, 'unixepoch'),
-      COUNT(*), SUM(tokens_in), SUM(tokens_out),
-      ROUND(SUM(cost_usd),6),
-      SUM(CASE WHEN status='error' THEN 1 ELSE 0 END),
-      'daily_cron', unixepoch()
-    FROM agentsam_usage_events
-    WHERE DATE(created_at, 'unixepoch') = DATE('now','-1 day')
-    GROUP BY tenant_id, workspace_id, DATE(created_at, 'unixepoch')
-  `).run();
+  const { runMidnightUsageRollupPipeline } = await import('./agentsam-midnight-rollup-pipeline.js');
+  return runMidnightUsageRollupPipeline(env);
 }
 
 /**
