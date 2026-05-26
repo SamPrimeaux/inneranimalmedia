@@ -1,0 +1,85 @@
+{
+  "status": 200,
+  "body": {
+    "id": "resp_0e7cc8d3276271fc016a1441ac50dc8196a172ad92d3167895",
+    "object": "response",
+    "created_at": 1779712428,
+    "status": "incomplete",
+    "background": false,
+    "billing": {
+      "payer": "openai"
+    },
+    "completed_at": null,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": {
+      "reason": "max_output_tokens"
+    },
+    "instructions": "Return JSON only. Be concrete and testable.",
+    "max_output_tokens": 500,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-nano-2026-03-17",
+    "moderation": null,
+    "output": [
+      {
+        "id": "msg_0e7cc8d3276271fc016a1441acf13081968689fbfcfdc7c294",
+        "type": "message",
+        "status": "incomplete",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "{\n  \"title\": \"Validation Gates after workspace_write_file / workspace_apply_patch\",\n  \"version\": \"1.0\",\n  \"scope\": {\n    \"triggered_after\": [\n      \"workspace_write_file\",\n      \"workspace_apply_patch\"\n    ],\n    \"applies_to\": [\n      \"JS/TS code changes\",\n      \"SQL migrations\",\n      \"Cloudflare Worker code\",\n      \"Dashboard/browser UI code\"\n    ],\n    \"non_goals\": [\n      \"No runtime execution of untrusted code outside controlled checks\",\n      \"No production deployment unless all gates pass\"\n    ]\n  },\n  \"inputs\": {\n    \"required_context\": [\n      \"repo_path\",\n      \"changed_files (list of file paths)\",\n      \"operation_type ('write'|'patch')\",\n      \"patch_or_content_summary\",\n      \"package_manager (npm|pnpm|yarn|bun)\",\n      \"node_version\",\n      \"db_migration_dir (e.g., migrations/ or db/migrations/)\",\n      \"cloudflare_worker_entry (e.g., src/worker.ts|worker.ts)\",\n      \"dashboard_entry (e.g., dashboard/ or src/dashboard/)\",\n      \"current_commit_sha\"\n    ],\n    \"optional_context\": [\n      \"lockfile_hash\",\n      \"secrets_access_status (true/false)\",\n      \"existing_test_command\"\n    ]\n  },\n  \"exclusion\": {\n    \"excludeModelKeys\": {\n      \"description\": \"Do not apply validation gates to files/segments that are part of model-key or secret-key handling. Treat them as non-executable and skip content-based validations that would leak or interpret secrets.\",\n      \"policy\": {\n        \"exclude_if_path_matches_any\": [\n          \"(?i).*(key|secret|token|private|credential|credentials|apikey|api[_-]?key|jwt[_-]?secret|client[_-]?secret|signing[_-]?key).*\",\n          \"(?i).*(env|\\\\.env(\\\\.|$)|secrets).*\",\n          \"(?i).*\\\\/model[_-]?keys\\\\/.*\",\n          \"(?i).*\\\\.pem$\",\n          \"(?i).*\\\\.p8$\"\n        ],\n        \"exclude_if_file_contains_keys_markers\": [\n          \"(?i)AWS_ACCESS_KEY_ID\",\n          \"(?i)AWS_SECRET_ACCESS_KEY\",\n          \"(?i)API_KEY\",\n          \"(?i)SECRET\",\n          \"(?"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": "in_memory",
+    "reasoning": {
+      "context": "current_turn",
+      "effort": "none",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": false,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 57,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 500,
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "total_tokens": 557
+    },
+    "user": null,
+    "metadata": {
+      "run_id": "agentsam_eval_20260525_123232",
+      "workspace_id": "ws_inneranimalmedia",
+      "tenant_id": "tenant_sam_primeaux",
+      "task_key": "validation_gate",
+      "profile_slug": "implementer"
+    }
+  }
+}

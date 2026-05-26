@@ -1,0 +1,85 @@
+{
+  "status": 200,
+  "body": {
+    "id": "resp_097aa5a44431cbb6016a14418a2c648197a3f65081f1f1e030",
+    "object": "response",
+    "created_at": 1779712394,
+    "status": "incomplete",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": null,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": {
+      "reason": "max_output_tokens"
+    },
+    "instructions": "Return JSON only. Design strict API contracts.",
+    "max_output_tokens": 500,
+    "max_tool_calls": null,
+    "model": "gpt-5.3-codex",
+    "moderation": null,
+    "output": [
+      {
+        "id": "msg_097aa5a44431cbb6016a14418aa28081979e133043ebb316fa",
+        "type": "message",
+        "status": "incomplete",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "{\n  \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n  \"$id\": \"https://api.example.com/schemas/agentsam_spawn_profile.result.json\",\n  \"title\": \"agentsam_spawn_profile Result Contract\",\n  \"type\": \"object\",\n  \"additionalProperties\": false,\n  \"required\": [\n    \"status\",\n    \"profile_slug\",\n    \"model_key\",\n    \"summary\",\n    \"artifacts\",\n    \"files_changed\",\n    \"diff_stats\",\n    \"validation\",\n    \"cost\",\n    \"tokens\",\n    \"latency_ms\",\n    \"child_run_id\",\n    \"parent_run_id\"\n  ],\n  \"properties\": {\n    \"status\": {\n      \"type\": \"string\",\n      \"description\": \"Terminal outcome of the spawn operation.\",\n      \"enum\": [\n        \"success\",\n        \"partial_success\",\n        \"failed\",\n        \"cancelled\",\n        \"timed_out\",\n        \"validation_failed\"\n      ]\n    },\n    \"profile_slug\": {\n      \"type\": \"string\",\n      \"description\": \"Stable profile identifier created or targeted by the spawn process.\",\n      \"pattern\": \"^[a-z0-9]+(?:-[a-z0-9]+)*$\",\n      \"minLength\": 3,\n      \"maxLength\": 80\n    },\n    \"model_key\": {\n      \"type\": \"string\",\n      \"description\": \"Model identifier used for profile generation.\",\n      \"minLength\": 1,\n      \"maxLength\": 128\n    },\n    \"summary\": {\n      \"type\": \"string\",\n      \"description\": \"Human-readable execution summary.\",\n      \"minLength\": 1,\n      \"maxLength\": 4000\n    },\n    \"artifacts\": {\n      \"type\": \"array\",\n      \"description\": \"Generated artifacts and metadata.\",\n      \"items\": {\n        \"type\": \"object\",\n        \"additionalProperties\": false,\n        \"required\": [\n          \"name\",\n          \"type\",\n          \"uri\",\n          \"size_bytes\",\n          \"sha256\"\n        ],\n        \"properties\": {\n          \"name\": {\n            \"type\": \"string\",\n            \"minLength\": 1,\n            \"maxLength\": 256\n          },\n          \"type\": {\n            \"type\": \"string\",\n            \"enum\": [\n              \"profile_json\",\n              \"config_yaml\",\n              \"prompt_template\",\n              \""
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": "in_memory",
+    "reasoning": {
+      "context": "current_turn",
+      "effort": "none",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": false,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 65,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 500,
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "total_tokens": 565
+    },
+    "user": null,
+    "metadata": {
+      "run_id": "agentsam_eval_20260525_123232",
+      "workspace_id": "ws_inneranimalmedia",
+      "tenant_id": "tenant_sam_primeaux",
+      "task_key": "spawn_contract",
+      "profile_slug": "implementer"
+    }
+  }
+}

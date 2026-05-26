@@ -1,0 +1,52 @@
+{
+  "pragma_checks": [
+    {
+      "description": "Verify foreign key pragma is ON",
+      "sql": "PRAGMA foreign_keys;",
+      "expected_result": 1
+    },
+    {
+      "description": "Check integrity of the database",
+      "sql": "PRAGMA integrity_check;",
+      "expected_result": "ok"
+    }
+  ],
+  "row_count_checks": [
+    {
+      "table": "agentsam_subagent_profile",
+      "description": "Ensure table is not empty and within expected operational range",
+      "sql": "SELECT COUNT(*) FROM agentsam_subagent_profile;",
+      "pass_criteria": "Row count >= 1"
+    },
+    {
+      "table": "agentsam_routing_arms",
+      "description": "Ensure table has at least one row if expected for routing support",
+      "sql": "SELECT COUNT(*) FROM agentsam_routing_arms;",
+      "pass_criteria": "Row count >= 1"
+    },
+    {
+      "table": "agentsam_model_eval_observations",
+      "description": "Ensure there are evaluation observations present",
+      "sql": "SELECT COUNT(*) FROM agentsam_model_eval_observations;",
+      "pass_criteria": "Row count >= 1"
+    }
+  ],
+  "foreign_key_checks": [
+    {
+      "description": "List all foreign key violations in the database",
+      "sql": "PRAGMA foreign_key_check;",
+      "pass_criteria": "Query returns zero rows (no violations)"
+    },
+    {
+      "description": "Verify referenced subagent_ids in agentsam_subagent_profile are present in agentsam_routing_arms (if such a relationship exists)",
+      "sql": "SELECT subagent_id FROM agentsam_subagent_profile WHERE subagent_id NOT IN (SELECT subagent_id FROM agentsam_routing_arms);",
+      "pass_criteria": "Query returns zero rows"
+    },
+    {
+      "description": "Verify referenced model_eval_id in agentsam_model_eval_observations are present (if foreign keys defined)",
+      "sql": "SELECT model_eval_id FROM agentsam_model_eval_observations WHERE model_eval_id NOT IN (SELECT id FROM some_model_eval_table);",
+      "pass_criteria": "Query returns zero rows"
+    }
+  ],
+  "pass_criteria": {
+    "pragma_checks": "All PRAGMA checks should return expected values (foreign

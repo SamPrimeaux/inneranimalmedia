@@ -1,0 +1,68 @@
+{
+  "name": "agent_spawn_profile_result",
+  "type": "object",
+  "required": [
+    "status",
+    "profile_slug",
+    "model_key",
+    "summary",
+    "artifacts",
+    "files_changed",
+    "diff_stats",
+    "validation",
+    "cost",
+    "tokens",
+    "latency_ms",
+    "child_run_id",
+    "parent_run_id"
+  ],
+  "properties": {
+    "status": {
+      "type": "string",
+      "description": "Overall completion status for the spawn_profile operation.",
+      "enum": ["success", "partial_success", "failed", "invalid_input"]
+    },
+    "profile_slug": {
+      "type": "string",
+      "description": "Unique identifier for the created/selected profile."
+    },
+    "model_key": {
+      "type": "string",
+      "description": "Model identifier used by the agent for this profile spawn."
+    },
+    "summary": {
+      "type": "string",
+      "description": "Human-readable summary of what the agent did and outcomes."
+    },
+    "artifacts": {
+      "type": "array",
+      "description": "Generated outputs, registrable assets, and/or references produced by the agent.",
+      "items": {
+        "type": "object",
+        "required": ["artifact_type", "artifact_id", "location", "metadata"],
+        "properties": {
+          "artifact_type": {
+            "type": "string",
+            "description": "Type/category of artifact (e.g., 'profile', 'config', 'patch', 'report', 'log', 'dataset_ref', 'schema')."
+          },
+          "artifact_id": {
+            "type": "string",
+            "description": "Stable identifier for the artifact within the run."
+          },
+          "location": {
+            "type": "object",
+            "description": "Where the artifact can be retrieved/stored.",
+            "required": ["kind", "ref"],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": ["inline", "uri", "object_store", "workspace_path", "db_record"],
+                "description": "Storage/reference kind."
+              },
+              "ref": {
+                "type": "string",
+                "description": "Reference string/URI/path/DB key."
+              }
+            }
+          },
+          "

@@ -16,6 +16,7 @@ import { validateMcpToken } from '../core/mcp-auth.js';
 import { maxAgentsamWorkflowTimeoutSeconds, AGENTSAM_MCP_WORKFLOWS } from '../core/agentsam-workflows.js';
 import { AGENTSAM_WORKFLOW_RUNS_TABLE } from '../core/agentsam-supabase-sync.js';
 import { scheduleRecordMcpToolExecution } from '../core/mcp-tool-execution.js';
+import { scheduleMirrorToolCallEventToSupabase } from '../core/hyperdrive-write.js';
 import { resolveActorContext } from '../core/actor-context.js';
 import { authorizeMcpTool } from '../core/mcp-authorization.js';
 import { resolveMcpServerForTool } from '../core/mcp-servers.js';
@@ -533,11 +534,42 @@ export async function handleMcpApi(request, url, env, ctx) {
         body: JSON.stringify(rpcBody),
       });
 
+      const invokeStarted = Date.now();
       const out = await res.json().catch(() => ({}));
+      const invokeDurationMs = Math.max(0, Date.now() - invokeStarted);
       if (!res.ok) {
+        scheduleMirrorToolCallEventToSupabase(env, ctx, {
+          workspace_id: actorCtx?.workspaceId,
+          run_id: actorCtx?.sessionId ?? null,
+          tool_key: toolName,
+          tool_name: toolName,
+          tool_category: toolRow?.tool_category ?? 'mcp',
+          status: 'failed',
+          duration_ms: invokeDurationMs,
+        });
         return jsonResponse({ error: out?.error || out?.message || res.statusText, status: res.status, raw: out }, 502);
       }
-      if (out && out.error) return jsonResponse({ error: out.error }, 502);
+      if (out && out.error) {
+        scheduleMirrorToolCallEventToSupabase(env, ctx, {
+          workspace_id: actorCtx?.workspaceId,
+          run_id: actorCtx?.sessionId ?? null,
+          tool_key: toolName,
+          tool_name: toolName,
+          tool_category: toolRow?.tool_category ?? 'mcp',
+          status: 'failed',
+          duration_ms: invokeDurationMs,
+        });
+        return jsonResponse({ error: out.error }, 502);
+      }
+      scheduleMirrorToolCallEventToSupabase(env, ctx, {
+        workspace_id: actorCtx?.workspaceId,
+        run_id: actorCtx?.sessionId ?? null,
+        tool_key: toolName,
+        tool_name: toolName,
+        tool_category: toolRow?.tool_category ?? 'mcp',
+        status: 'completed',
+        duration_ms: invokeDurationMs,
+      });
       return jsonResponse(out?.result ?? out);
     }
 

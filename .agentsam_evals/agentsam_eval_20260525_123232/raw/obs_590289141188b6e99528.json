@@ -1,0 +1,83 @@
+{
+  "status": 200,
+  "body": {
+    "id": "resp_093642a667f2fb15016a14419c74008197b2f98c61e1db5280",
+    "object": "response",
+    "created_at": 1779712412,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "openai"
+    },
+    "completed_at": 1779712413,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "Return JSON only. Be concise.",
+    "max_output_tokens": 500,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-nano-2026-03-17",
+    "moderation": null,
+    "output": [
+      {
+        "id": "msg_093642a667f2fb15016a14419d2a9481979ad9129e297139fb",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "{\n  \"task_type\": \"implement write-access tooling and validation gates\",\n  \"recommended_profile\": \"backend/infra engineer with tooling & safety/guardrails experience\",\n  \"should_write_files\": true,\n  \"risk\": \"medium\"\n}"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": "in_memory",
+    "reasoning": {
+      "context": "current_turn",
+      "effort": "none",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": false,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 48,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 54,
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "total_tokens": 102
+    },
+    "user": null,
+    "metadata": {
+      "run_id": "agentsam_eval_20260525_123232",
+      "workspace_id": "ws_inneranimalmedia",
+      "tenant_id": "tenant_sam_primeaux",
+      "task_key": "simple_router",
+      "profile_slug": "orchestrator"
+    }
+  }
+}

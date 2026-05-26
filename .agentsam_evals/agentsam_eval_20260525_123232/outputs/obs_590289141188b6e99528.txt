@@ -1,0 +1,6 @@
+{
+  "task_type": "implement write-access tooling and validation gates",
+  "recommended_profile": "backend/infra engineer with tooling & safety/guardrails experience",
+  "should_write_files": true,
+  "risk": "medium"
+}

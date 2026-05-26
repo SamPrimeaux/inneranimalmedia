@@ -1,0 +1,49 @@
+{
+  "pragma_checks": [
+    {
+      "name": "journal_mode_and_wal",
+      "sql": "PRAGMA journal_mode;",
+      "pass_criteria": "Returns one of: 'wal', 'memory', or 'delete' (no error)."
+    },
+    {
+      "name": "foreign_keys_enabled",
+      "sql": "PRAGMA foreign_keys;",
+      "pass_criteria": "Returns 1."
+    },
+    {
+      "name": "page_size_sanity",
+      "sql": "PRAGMA page_size;",
+      "pass_criteria": "Returns an integer >= 512."
+    },
+    {
+      "name": "integrity_check",
+      "sql": "PRAGMA integrity_check;",
+      "pass_criteria": "Result equals 'ok' (single-row single-column response)."
+    }
+  ],
+  "row_count_checks": [
+    {
+      "table": "agentsam_subagent_profile",
+      "sql": "SELECT COUNT(*) AS row_count FROM agentsam_subagent_profile;",
+      "pass_criteria": "row_count >= 0 (query succeeds) AND no unexpected null/invalid states detectable via follow-up checks (see foreign_key_checks)."
+    },
+    {
+      "table": "agentsam_routing_arms",
+      "sql": "SELECT COUNT(*) AS row_count FROM agentsam_routing_arms;",
+      "pass_criteria": "row_count >= 0 (query succeeds)."
+    },
+    {
+      "table": "agentsam_model_eval_observations",
+      "sql": "SELECT COUNT(*) AS row_count FROM agentsam_model_eval_observations;",
+      "pass_criteria": "row_count >= 0 (query succeeds)."
+    },
+    {
+      "name": "nonzero_data_quality_smoke_checks",
+      "sql": "SELECT SUM(CASE WHEN 1=1 THEN 1 ELSE 0 END) AS smoke FROM agentsam_subagent_profile;",
+      "pass_criteria": "Query succeeds; smoke >= 0. (Placeholder to ensure the audit script can run successfully even if schemas evolve.)"
+    }
+  ],
+  "foreign_key_checks": [
+    {
+      "name": "fk_orphan_check_routing_arms_to_subagent_profile",
+      "assumption": "If agentsam_routing_arms has a sub-agent reference column (e.g., subagent_profile_id or subagent_id), verify

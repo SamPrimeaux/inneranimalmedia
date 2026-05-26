@@ -18,6 +18,7 @@ import { resolveCanonicalUserId } from '../api/auth.js';
 import { insertExecutionDependencyGraphEdge } from '../api/command-run-telemetry.js';
 import { extractBrowserNavigateUrl } from './extract-browser-url.js';
 import * as agentApiModule from '../api/agent.js';
+import { scheduleSyncWorkflowRunToSupabase } from './agentsam-supabase-sync.js';
 
 const TIER_ORDER = ['micro', 'flash', 'standard', 'power', 'reasoning'];
 
@@ -1500,6 +1501,15 @@ export async function executeWorkflowGraph(env, opts) {
     )
     .run()
     .catch(() => null);
+
+  try {
+    const runRow = await env.DB.prepare(`SELECT * FROM agentsam_workflow_runs WHERE id = ? LIMIT 1`)
+      .bind(runId)
+      .first();
+    if (runRow) scheduleSyncWorkflowRunToSupabase(env, ctx, runRow);
+  } catch (e) {
+    console.warn('[workflow-executor] scheduleSyncWorkflowRunToSupabase', e?.message ?? e);
+  }
 
   return {
     ok: runOk,

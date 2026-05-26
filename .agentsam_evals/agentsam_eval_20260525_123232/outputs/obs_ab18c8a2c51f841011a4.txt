@@ -1,0 +1,8 @@
+```json
+{
+  "task_type": "feature_addition",
+  "recommended_profile": "developer",
+  "should_write_files": true,
+  "risk": "medium"
+}
+```

@@ -1,0 +1,85 @@
+{
+  "status": 200,
+  "body": {
+    "id": "resp_0b3acc12e3fe4c41016a1441958fcc819596bd4d49732e4549",
+    "object": "response",
+    "created_at": 1779712405,
+    "status": "incomplete",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": null,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": {
+      "reason": "max_output_tokens"
+    },
+    "instructions": "Return JSON only. Be concrete and testable.",
+    "max_output_tokens": 500,
+    "max_tool_calls": null,
+    "model": "gpt-5.3-codex",
+    "moderation": null,
+    "output": [
+      {
+        "id": "msg_0b3acc12e3fe4c41016a144196033c81959e5fcf61af0ea24f",
+        "type": "message",
+        "status": "incomplete",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "{\n  \"name\": \"post_write_validation_gates\",\n  \"version\": \"1.0.0\",\n  \"trigger\": {\n    \"events\": [\n      \"workspace_write_file\",\n      \"workspace_apply_patch\"\n    ],\n    \"scope\": \"changed_files_only_with_dependency_expansion\"\n  },\n  \"pipeline\": [\n    {\n      \"id\": \"collect_changes\",\n      \"description\": \"Enumerate changed files and infer impacted areas.\",\n      \"inputs\": [\n        \"git diff --name-only --relative HEAD\",\n        \"workspace changed paths\"\n      ],\n      \"outputs\": [\n        \"changedFiles\",\n        \"impactedPackages\",\n        \"requiresDbChecks\",\n        \"requiresWorkerChecks\",\n        \"requiresDashboardChecks\"\n      ],\n      \"rules\": [\n        {\n          \"if\": \"any(changedFiles match '**/*.{js,jsx,ts,tsx,mjs,cjs}')\",\n          \"set\": \"impactedPackages=resolveFromWorkspaceGraph(changedFiles)\"\n        },\n        {\n          \"if\": \"any(changedFiles match 'migrations/**/*.sql' or '**/*migration*.sql' or 'db/**/*.sql')\",\n          \"set\": \"requiresDbChecks=true\"\n        },\n        {\n          \"if\": \"any(changedFiles under 'workers/**' or 'cloudflare/**' or contains wrangler.toml)\",\n          \"set\": \"requiresWorkerChecks=true\"\n        },\n        {\n          \"if\": \"any(changedFiles under 'dashboard/**' or 'web/**' or 'frontend/**')\",\n          \"set\": \"requiresDashboardChecks=true\"\n        }\n      ]\n    },\n    {\n      \"id\": \"format_and_lint_js_ts\",\n      \"runWhen\": \"any(changedFiles match '**/*.{js,jsx,ts,tsx,mjs,cjs}')\",\n      \"commands\": [\n        \"pnpm -s prettier --check ${changedFiles:js_ts}\",\n        \"pnpm -s eslint --max-warnings=0 ${changedFiles:js_ts}\"\n      ],\n      \"passCriteria\": [\n        \"exitCode == 0\"\n      ],\n      \"artifacts\": [\n        \"eslint_report.json\",\n        \"prettier_report.txt\"\n      ]\n    },\n    {\n      \"id\": \"typecheck_and_unit_tests\",\n      \"runWhen\": \"any(changedFiles match '**/*.{ts,tsx}')\",\n      \"commands\": [\n        \"pnpm -"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": "in_memory",
+    "reasoning": {
+      "context": "current_turn",
+      "effort": "none",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": false,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 57,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 500,
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "total_tokens": 557
+    },
+    "user": null,
+    "metadata": {
+      "run_id": "agentsam_eval_20260525_123232",
+      "workspace_id": "ws_inneranimalmedia",
+      "tenant_id": "tenant_sam_primeaux",
+      "task_key": "validation_gate",
+      "profile_slug": "implementer"
+    }
+  }
+}

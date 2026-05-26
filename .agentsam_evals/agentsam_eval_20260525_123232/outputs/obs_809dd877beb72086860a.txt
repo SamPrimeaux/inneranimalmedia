@@ -1,0 +1,72 @@
+{
+  "pragma_checks": [
+    {
+      "sql": "PRAGMA table_info('agentsam_subagent_profile');",
+      "verify": [
+        "Expected columns exist with correct names",
+        "Column types and NOT NULL flags match schema expectations",
+        "Primary key designation matches expected schema"
+      ]
+    },
+    {
+      "sql": "PRAGMA table_info('agentsam_routing_arms');",
+      "verify": [
+        "Expected columns exist with correct names",
+        "Column types and NOT NULL flags match schema expectations",
+        "Primary key designation matches expected schema"
+      ]
+    },
+    {
+      "sql": "PRAGMA table_info('agentsam_model_eval_observations');",
+      "verify": [
+        "Expected columns exist with correct names",
+        "Column types and NOT NULL flags match schema expectations",
+        "Primary key designation matches expected schema"
+      ]
+    },
+    {
+      "sql": "PRAGMA index_list('agentsam_subagent_profile');",
+      "verify": [
+        "Required indexes exist",
+        "Unique indexes are present where expected"
+      ]
+    },
+    {
+      "sql": "PRAGMA index_list('agentsam_routing_arms');",
+      "verify": [
+        "Required indexes exist",
+        "Unique indexes are present where expected"
+      ]
+    },
+    {
+      "sql": "PRAGMA index_list('agentsam_model_eval_observations');",
+      "verify": [
+        "Required indexes exist",
+        "Unique indexes are present where expected"
+      ]
+    },
+    {
+      "sql": "PRAGMA foreign_key_list('agentsam_subagent_profile');",
+      "verify": [
+        "Declared foreign keys match intended parent tables and columns",
+        "ON UPDATE / ON DELETE actions match design"
+      ]
+    },
+    {
+      "sql": "PRAGMA foreign_key_list('agentsam_routing_arms');",
+      "verify": [
+        "Declared foreign keys match intended parent tables and columns",
+        "ON UPDATE / ON DELETE actions match design"
+      ]
+    },
+    {
+      "sql": "PRAGMA foreign_key_list('agentsam_model_eval_observations');",
+      "verify": [
+        "Declared foreign keys match intended parent tables and columns",
+        "ON UPDATE / ON DELETE actions match design"
+      ]
+    },
+    {
+      "sql": "PRAGMA quick_check;",
+      "verify": [
+        "Database returns '

@@ -1,0 +1,82 @@
+{
+  "status": 200,
+  "body": {
+    "id": "resp_02c35bfa67dd0151016a1441e474a88197ba368d2405cd5f25",
+    "object": "response",
+    "created_at": 1779712484,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "openai"
+    },
+    "completed_at": 1779712488,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "Return JSON only. You are a strict code reviewer.",
+    "max_output_tokens": 500,
+    "max_tool_calls": null,
+    "model": "gpt-4.1-2025-04-14",
+    "moderation": null,
+    "output": [
+      {
+        "id": "msg_02c35bfa67dd0151016a1441e4a31081979ff3322e90322d04",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "{\n  \"accept\": false,\n  \"issues\": [\n    \"No evidence that the file write is restricted to paths under `resolveIamWorkspaceRoot`. Path traversal or improper root resolution may allow writes outside intended root.\",\n    \"Missing checks to ensure `access_mode` is set to `read_write` before permitting a write.\",\n    \"Missing checks to ensure `sandbox_mode` is `workspace-write` before write operations.\",\n    \"No visible logging for file hash before and after write, which is needed for tracking changes and potential forensic review.\",\n    \"No validation step after file is written, which could lead to corrupted or malicious writes being accepted.\"\n  ],\n  \"required_tests\": [\n    \"Attempt to write outside `resolveIamWorkspaceRoot`, ensure it is denied.\",\n    \"Try to write with `access_mode` other than `read_write`, verify write is rejected.\",\n    \"Try to write with `sandbox_mode` other than `workspace-write`, ensure it is prohibited.\",\n    \"Check logs for hash values before and after write, confirming both are present and correct.\",\n    \"Introduce an invalid file and confirm post-write validation catches and rejects it.\"\n  ],\n  \"security_notes\": [\n    \"Enforcing root path is critical to prevent privilege escalation and workspace breakout.\",\n    \"Access and sandbox mode gating prevents abuse of the API in restricted contexts.\",\n    \"Hash logging prevents tampering and enables auditing.\",\n    \"Post-write validation helps detect malformed or malicious file writes.\"\n  ],\n  \"thompson_reward_hint\": \"Reward implementations that strictly enforce root restriction, access and sandbox modes, and log hashes pre/post write; deduct for missing any of those or for weak validation.\"\n}"
+          }
+        ],
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": "in_memory",
+    "reasoning": {
+      "context": null,
+      "effort": null,
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": false,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 1.0,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 84,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 340,
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "total_tokens": 424
+    },
+    "user": null,
+    "metadata": {
+      "run_id": "agentsam_eval_20260525_123232",
+      "workspace_id": "ws_inneranimalmedia",
+      "tenant_id": "tenant_sam_primeaux",
+      "task_key": "code_review",
+      "profile_slug": "code-reviewer"
+    }
+  }
+}

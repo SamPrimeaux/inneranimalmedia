@@ -1,0 +1,82 @@
+{
+  "status": 200,
+  "body": {
+    "id": "resp_0bf192f05e2405e2016a1441ca7cc081979fa6ebcb83573696",
+    "object": "response",
+    "created_at": 1779712458,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "openai"
+    },
+    "completed_at": 1779712465,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "Return JSON only. Be concrete and testable.",
+    "max_output_tokens": 500,
+    "max_tool_calls": null,
+    "model": "gpt-4.1-mini-2025-04-14",
+    "moderation": null,
+    "output": [
+      {
+        "id": "msg_0bf192f05e2405e2016a1441cbd8a881978569f7c7a7666c7b",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "```json\n{\n  \"validationGates\": [\n    {\n      \"stage\": \"after_workspace_write_file\",\n      \"checks\": [\n        {\n          \"type\": \"js_ts_lint_and_build\",\n          \"description\": \"Run lint and build checks on JS/TS files written in workspace\",\n          \"failurePolicy\": \"fail-on-error\",\n          \"excludeModelKeys\": [\"*.test.ts\", \"*.spec.ts\"]\n        },\n        {\n          \"type\": \"sql_migration_validation\",\n          \"description\": \"Validate SQL migration files for syntax and compatibility\",\n          \"failurePolicy\": \"fail-on-error\",\n          \"excludeModelKeys\": [\"deprecated_migrations/*\"]\n        },\n        {\n          \"type\": \"cloudflare_worker_syntax_check\",\n          \"description\": \"Validate Cloudflare Worker scripts for syntax and bundling errors\",\n          \"failurePolicy\": \"fail-on-error\",\n          \"excludeModelKeys\": []\n        }\n      ]\n    },\n    {\n      \"stage\": \"after_workspace_apply_patch\",\n      \"checks\": [\n        {\n          \"type\": \"dashboard_browser_smoke_test\",\n          \"description\": \"Run automated dashboard and browser integration checks to verify patch correctness\",\n          \"failurePolicy\": \"warn-on-error\",\n          \"excludeModelKeys\": [\"experimental_features/*\"]\n        },\n        {\n          \"type\": \"js_ts_runtime_validation\",\n          \"description\": \"Run runtime tests on JS/TS code after patch applied\",\n          \"failurePolicy\": \"fail-on-error\",\n          \"excludeModelKeys\": [\"docs/**\"]\n        },\n        {\n          \"type\": \"sql_migration_runtime_check\",\n          \"description\": \"Apply SQL migration in test environment and verify\",\n          \"failurePolicy\": \"fail-on-error\",\n          \"excludeModelKeys\": [\"rollback_scripts/*\"]\n        }\n      ]\n    }\n  ]\n}\n```"
+          }
+        ],
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": "in_memory",
+    "reasoning": {
+      "context": null,
+      "effort": null,
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": false,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 1.0,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 58,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 372,
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "total_tokens": 430
+    },
+    "user": null,
+    "metadata": {
+      "run_id": "agentsam_eval_20260525_123232",
+      "workspace_id": "ws_inneranimalmedia",
+      "tenant_id": "tenant_sam_primeaux",
+      "task_key": "validation_gate",
+      "profile_slug": "implementer"
+    }
+  }
+}

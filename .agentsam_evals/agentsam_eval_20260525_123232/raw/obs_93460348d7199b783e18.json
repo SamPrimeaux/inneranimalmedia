@@ -1,0 +1,83 @@
+{
+  "status": 200,
+  "body": {
+    "id": "resp_034993b351412f38016a144163c7fc8190a7258e30060140f6",
+    "object": "response",
+    "created_at": 1779712355,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "openai"
+    },
+    "completed_at": 1779712359,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "Return JSON only. Focus on Cloudflare D1 verification.",
+    "max_output_tokens": 500,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-mini-2026-03-17",
+    "moderation": null,
+    "output": [
+      {
+        "id": "msg_034993b351412f38016a144164428881908ab70f764da19c7b",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "{\"pragma_checks\":[\"Run PRAGMA table_info('agentsam_subagent_profile');\",\"Run PRAGMA table_info('agentsam_routing_arms');\",\"Run PRAGMA table_info('agentsam_model_eval_observations');\",\"Run PRAGMA foreign_key_list('agentsam_subagent_profile');\",\"Run PRAGMA foreign_key_list('agentsam_routing_arms');\",\"Run PRAGMA foreign_key_list('agentsam_model_eval_observations');\",\"Run PRAGMA foreign_keys; to confirm enforcement is enabled.\",\"If available, run PRAGMA integrity_check; for a broader D1/SQLite consistency check.\"],\"row_count_checks\":[\"SELECT COUNT(*) AS cnt FROM agentsam_subagent_profile;\",\"SELECT COUNT(*) AS cnt FROM agentsam_routing_arms;\",\"SELECT COUNT(*) AS cnt FROM agentsam_model_eval_observations;\",\"Compare counts against expected baselines or recent deployment snapshots.\",\"If tables are time-partitioned or append-only, verify row growth matches expected ingestion volume.\"],\"foreign_key_checks\":[\"Confirm every non-null FK value in agentsam_subagent_profile matches a parent row via LEFT JOIN ... WHERE parent.id IS NULL.\",\"Confirm every non-null FK value in agentsam_routing_arms matches its parent profile/agent rows via LEFT JOIN ... WHERE parent.id IS NULL.\",\"Confirm every non-null FK value in agentsam_model_eval_observations matches its parent model/eval/entity rows via LEFT JOIN ... WHERE parent.id IS NULL.\",\"Run PRAGMA foreign_key_check; and ensure it returns zero rows.\",\"Check for orphaned rows after deletes/updates, especially where ON DELETE/UPDATE rules are expected.\"],\"pass_criteria\":[\"PRAGMA foreign_keys returns 1 and PRAGMA foreign_key_check returns no violations.\",\"All three tables exist and PRAGMA table_info returns the expected columns, types, NOT NULL constraints, defaults, and primary key definitions.\",\"Row counts are non-negative and fall within expected thresholds for the environment or deployment baseline.\",\"No orphaned foreign key references are found in any of the three tables.\",\"PRAGMA integrity_check returns ok, or no blocking errors are reported if integrity_check is unavailable in the workflow.\"]}"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": "in_memory",
+    "reasoning": {
+      "context": "current_turn",
+      "effort": "none",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": false,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 69,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 435,
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "total_tokens": 504
+    },
+    "user": null,
+    "metadata": {
+      "run_id": "agentsam_eval_20260525_123232",
+      "workspace_id": "ws_inneranimalmedia",
+      "tenant_id": "tenant_sam_primeaux",
+      "task_key": "d1_audit",
+      "profile_slug": "d1-auditor"
+    }
+  }
+}

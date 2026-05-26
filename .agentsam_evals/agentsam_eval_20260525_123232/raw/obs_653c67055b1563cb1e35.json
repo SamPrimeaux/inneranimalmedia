@@ -1,0 +1,85 @@
+{
+  "status": 200,
+  "body": {
+    "id": "resp_01fc55296cb70e40016a14417ab3048195a9febaafb5224108",
+    "object": "response",
+    "created_at": 1779712378,
+    "status": "incomplete",
+    "background": false,
+    "billing": {
+      "payer": "developer"
+    },
+    "completed_at": null,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": {
+      "reason": "max_output_tokens"
+    },
+    "instructions": "Return JSON only. Focus on Cloudflare D1 verification.",
+    "max_output_tokens": 500,
+    "max_tool_calls": null,
+    "model": "gpt-5.3-codex",
+    "moderation": null,
+    "output": [
+      {
+        "id": "msg_01fc55296cb70e40016a14417b1f948195a30fe14e6277d6f1",
+        "type": "message",
+        "status": "incomplete",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "{\n  \"pragma_checks\": [\n    {\n      \"name\": \"foreign_keys_enabled\",\n      \"sql\": \"PRAGMA foreign_keys;\",\n      \"expected\": \"1\"\n    },\n    {\n      \"name\": \"table_info_agentsam_subagent_profile\",\n      \"sql\": \"PRAGMA table_info('agentsam_subagent_profile');\",\n      \"verify\": [\n        \"expected columns exist\",\n        \"types and nullability align with schema\",\n        \"primary key designation is correct\"\n      ]\n    },\n    {\n      \"name\": \"table_info_agentsam_routing_arms\",\n      \"sql\": \"PRAGMA table_info('agentsam_routing_arms');\",\n      \"verify\": [\n        \"expected columns exist\",\n        \"types and nullability align with schema\",\n        \"primary key designation is correct\"\n      ]\n    },\n    {\n      \"name\": \"table_info_agentsam_model_eval_observations\",\n      \"sql\": \"PRAGMA table_info('agentsam_model_eval_observations');\",\n      \"verify\": [\n        \"expected columns exist\",\n        \"types and nullability align with schema\",\n        \"primary key designation is correct\"\n      ]\n    },\n    {\n      \"name\": \"foreign_key_list_agentsam_subagent_profile\",\n      \"sql\": \"PRAGMA foreign_key_list('agentsam_subagent_profile');\",\n      \"verify\": [\n        \"all expected FK constraints present\",\n        \"referenced table/column mappings are correct\",\n        \"ON UPDATE/ON DELETE actions match design\"\n      ]\n    },\n    {\n      \"name\": \"foreign_key_list_agentsam_routing_arms\",\n      \"sql\": \"PRAGMA foreign_key_list('agentsam_routing_arms');\",\n      \"verify\": [\n        \"all expected FK constraints present\",\n        \"referenced table/column mappings are correct\",\n        \"ON UPDATE/ON DELETE actions match design\"\n      ]\n    },\n    {\n      \"name\": \"foreign_key_list_agentsam_model_eval_observations\",\n      \"sql\": \"PRAGMA foreign_key_list('agentsam_model_eval_observations');\",\n      \"verify\": [\n        \"all expected FK constraints present\",\n        \"referenced table/column mappings are correct\",\n        \"ON UPDATE/ON DELETE actions match design\"\n      ]\n    },\n    {\n      \"name\": \"index_list_and_index_info\",\n      \"sql\": [\n        \"PRAGMA index_list('agentsam_subagent_profile');\",\n        \""
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": "in_memory",
+    "reasoning": {
+      "context": "current_turn",
+      "effort": "none",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": false,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 69,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 500,
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "total_tokens": 569
+    },
+    "user": null,
+    "metadata": {
+      "run_id": "agentsam_eval_20260525_123232",
+      "workspace_id": "ws_inneranimalmedia",
+      "tenant_id": "tenant_sam_primeaux",
+      "task_key": "d1_audit",
+      "profile_slug": "d1-auditor"
+    }
+  }
+}

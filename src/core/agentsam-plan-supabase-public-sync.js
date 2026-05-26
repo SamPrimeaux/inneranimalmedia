@@ -1,27 +1,26 @@
 /**
- * Mirrors a proven D1 agent_chat_plan workflow run to Supabase public.* tables
- * using the same payload shape as scripts/agentsam-supabase-direct-sync.py
- * (PostgREST upsert; no agentsam schema profile).
- *
- * Also upserts public.agentsam_plans + public.agentsam_plan_tasks from D1 when
- * mirrorAgentsamD1PlanToSupabasePublic runs (live parity with D1 operational state).
+ * Mirrors D1 agent_chat_plan workflow runs and plan rows to Supabase agentsam.* tables
+ * via Hyperdrive SQL (no PostgREST).
  */
 
 import { patchD1WorkflowRunSupabaseMirrorState } from './agentsam-supabase-sync.js';
+import { isHyperdriveUsable, runHyperdriveQuery, runHyperdriveTransaction } from './hyperdrive-query.js';
+import {
+  appendWorkflowEvents,
+  captureDebugSnapshot,
+  createWorkflowRun,
+  updateWorkflowRun,
+} from './agentsam-workflow-debug-store.js';
 
 const WORKFLOW_KEY = 'agent_chat_plan';
 const WORKFLOW_D1_ID = 'wf_agent_chat_plan';
 
-function supabaseRestBase(env) {
-  const raw = env?.SUPABASE_URL;
-  if (!raw || !String(raw).trim()) return null;
-  return String(raw).replace(/\/$/, '');
-}
-
-function supabaseServiceRole(env) {
-  const key = env?.SUPABASE_SERVICE_ROLE_KEY;
-  if (!key || !String(key).trim()) return null;
-  return String(key).trim();
+function j(value, fallback) {
+  try {
+    return JSON.stringify(value ?? fallback);
+  } catch {
+    return JSON.stringify(fallback);
+  }
 }
 
 function maybeJson(v, fallback) {
@@ -142,37 +141,93 @@ export function mapD1PlanTaskToSupabasePublicRow(task) {
  * @param {string} planId
  * @returns {Promise<{ ok: boolean, error?: string }>}
  */
+async function hyperdriveUpsertPlanRows(env, planRow, taskRows) {
+  if (!isHyperdriveUsable(env)) return { ok: false, error: 'hyperdrive_unavailable' };
+
+  const planSql = `
+    INSERT INTO agentsam.agentsam_plans (
+      id, plan_date, title, status, morning_brief, session_notes, eod_summary,
+      available_providers, blocked_providers, budget_snapshot, default_model,
+      carry_over_from, carry_over_count, tasks_total, tasks_done, tasks_blocked,
+      created_at, updated_at
+    ) VALUES (
+      $1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb,$11,$12,$13,$14,$15,$16,$17::timestamptz,$18::timestamptz
+    )
+    ON CONFLICT (id) DO UPDATE SET
+      plan_date = EXCLUDED.plan_date,
+      title = EXCLUDED.title,
+      status = EXCLUDED.status,
+      session_notes = EXCLUDED.session_notes,
+      tasks_total = EXCLUDED.tasks_total,
+      tasks_done = EXCLUDED.tasks_done,
+      tasks_blocked = EXCLUDED.tasks_blocked,
+      updated_at = EXCLUDED.updated_at`;
+
+  const pr = await runHyperdriveQuery(env, planSql, [
+    planRow.id,
+    planRow.plan_date,
+    planRow.title,
+    planRow.status,
+    planRow.morning_brief,
+    planRow.session_notes,
+    planRow.eod_summary,
+    j(planRow.available_providers, []),
+    j(planRow.blocked_providers, []),
+    j(planRow.budget_snapshot, {}),
+    planRow.default_model,
+    planRow.carry_over_from,
+    planRow.carry_over_count,
+    planRow.tasks_total,
+    planRow.tasks_done,
+    planRow.tasks_blocked,
+    planRow.created_at,
+    planRow.updated_at,
+  ]);
+  if (!pr.ok) return { ok: false, error: pr.error || 'agentsam_plans_upsert_failed' };
+
+  for (const task of taskRows) {
+    const taskSql = `
+      INSERT INTO agentsam.agentsam_plan_tasks (
+        id, plan_id, order_index, title, description, priority, category, status,
+        files_involved, tables_involved, routes_involved,
+        estimated_minutes, actual_minutes, blocked_reason, notes, created_at, completed_at
+      ) VALUES (
+        $1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11::jsonb,$12,$13,$14,$15,$16::timestamptz,$17::timestamptz
+      )
+      ON CONFLICT (id) DO UPDATE SET
+        status = EXCLUDED.status,
+        notes = EXCLUDED.notes,
+        completed_at = EXCLUDED.completed_at`;
+    const tr = await runHyperdriveQuery(env, taskSql, [
+      task.id,
+      task.plan_id,
+      task.order_index,
+      task.title,
+      task.description,
+      task.priority,
+      task.category,
+      task.status,
+      j(task.files_involved, []),
+      j(task.tables_involved, []),
+      j(task.routes_involved, []),
+      task.estimated_minutes,
+      task.actual_minutes,
+      task.blocked_reason,
+      task.notes,
+      task.created_at,
+      task.completed_at,
+    ]);
+    if (!tr.ok) return { ok: false, error: tr.error || 'agentsam_plan_tasks_upsert_failed' };
+  }
+
+  return { ok: true };
+}
+
 export async function mirrorAgentsamD1PlanToSupabasePublic(env, planId) {
   const pid = String(planId || '').trim();
   const db = env?.DB;
-  const base = supabaseRestBase(env);
-  const key = supabaseServiceRole(env);
   if (!pid || !db) return { ok: false, error: 'missing_db_or_plan' };
-  if (!base || !key) return { ok: false, error: 'supabase_env_missing' };
-
-  const headers = {
-    apikey: key,
-    Authorization: `Bearer ${key}`,
-    'Content-Type': 'application/json',
-    Prefer: 'resolution=merge-duplicates,return=minimal',
-    'Accept-Profile': 'agentsam',
-    'Content-Profile': 'agentsam',
-  };
-
-  const postUpsert = async (table, rows, onConflict = 'id') => {
-    if (!rows?.length) return { ok: true, skipped: true };
-    const q = `?on_conflict=${encodeURIComponent(onConflict)}`;
-    const res = await fetch(`${base}/rest/v1/${table}${q}`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(rows),
-    });
-    const text = await res.text();
-    if (!res.ok) {
-      return { ok: false, error: `${table} HTTP ${res.status}: ${text.slice(0, 2000)}` };
-    }
-    return { ok: true };
-  };
+  if (!isHyperdriveUsable(env)) return { ok: false, error: 'hyperdrive_unavailable' };
 
   try {
     const plan = await db.prepare(`SELECT * FROM agentsam_plans WHERE id = ? LIMIT 1`).bind(pid).first();
@@ -189,17 +244,7 @@ export async function mirrorAgentsamD1PlanToSupabasePublic(env, planId) {
       .map((t) => mapD1PlanTaskToSupabasePublicRow(t))
       .filter(Boolean);
 
-    const pr = await postUpsert('agentsam_plans', [planRow]);
-    if (!pr.ok) return pr;
-
-    const chunk = 40;
-    for (let i = 0; i < tasks.length; i += chunk) {
-      const slice = tasks.slice(i, i + chunk);
-      const tr = await postUpsert('agentsam_plan_tasks', slice);
-      if (!tr.ok) return tr;
-    }
-
-    return { ok: true };
+    return hyperdriveUpsertPlanRows(env, planRow, tasks);
   } catch (e) {
     const msg = e?.message != null ? String(e.message) : String(e);
     return { ok: false, error: msg };
@@ -235,32 +280,8 @@ function normalizeWorkspace(v) {
 export async function mirrorAgentChatPlanD1RunToSupabasePublic(env, runId) {
   const rid = String(runId || '').trim();
   const db = env?.DB;
-  const base = supabaseRestBase(env);
-  const key = supabaseServiceRole(env);
   if (!db || !rid) return { ok: false, error: 'missing_db_or_run' };
-  if (!base || !key) return { ok: false, error: 'supabase_env_missing' };
-
-  const headers = {
-    apikey: key,
-    Authorization: `Bearer ${key}`,
-    'Content-Type': 'application/json',
-    Prefer: 'resolution=merge-duplicates,return=representation',
-  };
-
-  const upsert = async (table, rows, onConflict = 'id') => {
-    if (!rows?.length) return { ok: true, skipped: true };
-    const q = `?on_conflict=${encodeURIComponent(onConflict)}`;
-    const res = await fetch(`${base}/rest/v1/${table}${q}`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(rows),
-    });
-    const text = await res.text();
-    if (!res.ok) {
-      return { ok: false, error: `${table} HTTP ${res.status}: ${text.slice(0, 2000)}` };
-    }
-    return { ok: true };
-  };
+  if (!isHyperdriveUsable(env)) return { ok: false, error: 'hyperdrive_unavailable' };
 
   try {
     const workflow = await db
@@ -529,21 +550,178 @@ export async function mirrorAgentChatPlanD1RunToSupabasePublic(env, runId) {
       notes: 'D1 to Supabase direct parity sync for Agent Sam workflow run.',
     };
 
-    const order = [
-      ['agentsam_workflows', workflowRow],
-      ['agentsam_workflow_runs', runRow],
-      ['agentsam_workflow_steps', stepRows],
-      ['agentsam_workflow_events', eventRows],
-      ['agentsam_debug_snapshots', [snapshotRow]],
-    ];
+    const wfSql = `
+      INSERT INTO agentsam.agentsam_workflows (
+        id, d1_workflow_id, tenant_id, workspace_id, workflow_key, name, description,
+        status, trigger_type, definition_json, metadata
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb)
+      ON CONFLICT (id) DO UPDATE SET
+        workflow_key = EXCLUDED.workflow_key,
+        name = EXCLUDED.name,
+        definition_json = EXCLUDED.definition_json,
+        metadata = agentsam.agentsam_workflows.metadata || EXCLUDED.metadata`;
+    const wfHd = await runHyperdriveQuery(env, wfSql, [
+      workflowRow.id,
+      workflowRow.d1_workflow_id,
+      workflowRow.tenant_id,
+      workflowRow.workspace_id,
+      workflowRow.workflow_key,
+      workflowRow.name,
+      workflowRow.description,
+      workflowRow.status,
+      workflowRow.trigger_type,
+      j(workflowRow.definition_json, {}),
+      j(workflowRow.metadata, {}),
+    ]);
+    if (!wfHd.ok) {
+      const err = wfHd.error || 'agentsam_workflows_upsert_failed';
+      await patchD1WorkflowRunSupabaseMirrorState(env, rid, { ok: false, error: err });
+      return { ok: false, error: err };
+    }
 
-    for (const [table, payload] of order) {
-      const rows = Array.isArray(payload) ? payload : [payload];
-      const r = await upsert(table, rows.filter(Boolean));
-      if (!r.ok) {
-        await patchD1WorkflowRunSupabaseMirrorState(env, rid, { ok: false, error: r.error || table });
-        return { ok: false, error: r.error };
+    const runHd = await createWorkflowRun(env, {
+      id: runRow.id,
+      d1_run_id: runRow.d1_run_id,
+      tenant_id: runRow.tenant_id,
+      workspace_id: runRow.workspace_id,
+      workflow_id: runRow.workflow_id,
+      workflow_key: runRow.workflow_key,
+      display_name: runRow.display_name,
+      trigger_type: runRow.trigger_type,
+      status: runRow.status,
+      session_id: runRow.session_id,
+      conversation_id: runRow.conversation_id,
+      user_id: runRow.user_id,
+      run_group_id: runRow.run_group_id,
+      mode: runRow.mode,
+      provider: runRow.provider,
+      model_key: runRow.model_key,
+      input_json: runRow.input_json,
+      output_json: runRow.output_json,
+      step_results_json: runRow.step_results_json,
+      steps_completed: runRow.steps_completed,
+      steps_total: runRow.steps_total,
+      error_message: runRow.error_message,
+      model_used: runRow.model_used,
+      input_tokens: runRow.input_tokens,
+      output_tokens: runRow.output_tokens,
+      total_tokens: runRow.total_tokens,
+      cost_usd: runRow.cost_usd,
+      estimated_cost_usd: runRow.estimated_cost_usd,
+      duration_ms: runRow.duration_ms,
+      latency_ms: runRow.latency_ms,
+      environment: runRow.environment,
+      metadata: runRow.metadata,
+      started_at: runRow.started_at,
+      completed_at: runRow.completed_at,
+    });
+    if (!runHd.ok) {
+      const terminal = ['completed', 'failed', 'cancelled'].includes(String(runRow.status || ''));
+      const retry = terminal
+        ? await updateWorkflowRun(env, runRow.id, {
+            status: runRow.status,
+            output_json: runRow.output_json,
+            step_results_json: runRow.step_results_json,
+            steps_completed: runRow.steps_completed,
+            steps_total: runRow.steps_total,
+            error_message: runRow.error_message,
+            input_tokens: runRow.input_tokens,
+            output_tokens: runRow.output_tokens,
+            total_tokens: runRow.total_tokens,
+            cost_usd: runRow.cost_usd,
+            duration_ms: runRow.duration_ms,
+            completed_at: runRow.completed_at,
+            metadata: runRow.metadata,
+          })
+        : runHd;
+      if (!retry?.ok) {
+        const err = retry?.error || 'agentsam_workflow_runs_upsert_failed';
+        await patchD1WorkflowRunSupabaseMirrorState(env, rid, { ok: false, error: err });
+        return { ok: false, error: err };
       }
+    }
+
+    const stepsHd = await runHyperdriveTransaction(env, async (client) => {
+      for (const step of stepRows) {
+        await client.query(
+          `INSERT INTO agentsam.agentsam_workflow_steps (
+            id, run_id, tenant_id, workspace_id, step_index, step_key, step_type, status,
+            tool_key, command_key, provider, model_key,
+            input_json, output_json, error_message, latency_ms, metadata
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14::jsonb,$15,$16,$17::jsonb)
+          ON CONFLICT (id) DO UPDATE SET
+            status = EXCLUDED.status,
+            output_json = EXCLUDED.output_json,
+            error_message = EXCLUDED.error_message`,
+          [
+            step.id,
+            step.run_id,
+            step.tenant_id,
+            step.workspace_id,
+            step.step_index,
+            step.step_key,
+            step.step_type,
+            step.status,
+            step.tool_key,
+            step.command_key,
+            step.provider,
+            step.model_key,
+            j(step.input_json, {}),
+            j(step.output_json, {}),
+            step.error_message,
+            step.latency_ms,
+            j(step.metadata, {}),
+          ],
+        );
+      }
+      return { rows: stepRows };
+    });
+    if (!stepsHd.ok) {
+      await patchD1WorkflowRunSupabaseMirrorState(env, rid, {
+        ok: false,
+        error: stepsHd.error || 'agentsam_workflow_steps_upsert_failed',
+      });
+      return { ok: false, error: stepsHd.error };
+    }
+
+    const eventsHd = await appendWorkflowEvents(env, eventRows.map((ev) => ({
+      id: ev.id,
+      run_id: ev.run_id,
+      step_id: ev.step_id,
+      tenant_id: ev.tenant_id,
+      workspace_id: ev.workspace_id,
+      event_type: ev.event_type,
+      event_level: ev.event_level,
+      message: ev.message,
+      payload_json: ev.payload_json,
+    })));
+    if (!eventsHd.ok) {
+      await patchD1WorkflowRunSupabaseMirrorState(env, rid, {
+        ok: false,
+        error: eventsHd.error || 'agentsam_workflow_events_upsert_failed',
+      });
+      return { ok: false, error: eventsHd.error };
+    }
+
+    const snapHd = await captureDebugSnapshot(env, {
+      id: snapshotRow.id,
+      tenant_id: snapshotRow.tenant_id,
+      workspace_id: snapshotRow.workspace_id,
+      run_id: snapshotRow.run_id,
+      snapshot_key: snapshotRow.snapshot_key,
+      source: snapshotRow.source,
+      status: snapshotRow.status,
+      request_json: snapshotRow.request_json,
+      response_json: snapshotRow.response_json,
+      environment_json: snapshotRow.environment_json,
+      notes: snapshotRow.notes,
+    });
+    if (!snapHd.ok) {
+      await patchD1WorkflowRunSupabaseMirrorState(env, rid, {
+        ok: false,
+        error: snapHd.error || 'agentsam_debug_snapshots_upsert_failed',
+      });
+      return { ok: false, error: snapHd.error };
     }
 
     if (plan?.id) {

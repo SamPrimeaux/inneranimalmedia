@@ -1,0 +1,52 @@
+```json
+{
+  "validationGates": [
+    {
+      "stage": "after_workspace_write_file",
+      "checks": [
+        {
+          "type": "js_ts_lint_and_build",
+          "description": "Run lint and build checks on JS/TS files written in workspace",
+          "failurePolicy": "fail-on-error",
+          "excludeModelKeys": ["*.test.ts", "*.spec.ts"]
+        },
+        {
+          "type": "sql_migration_validation",
+          "description": "Validate SQL migration files for syntax and compatibility",
+          "failurePolicy": "fail-on-error",
+          "excludeModelKeys": ["deprecated_migrations/*"]
+        },
+        {
+          "type": "cloudflare_worker_syntax_check",
+          "description": "Validate Cloudflare Worker scripts for syntax and bundling errors",
+          "failurePolicy": "fail-on-error",
+          "excludeModelKeys": []
+        }
+      ]
+    },
+    {
+      "stage": "after_workspace_apply_patch",
+      "checks": [
+        {
+          "type": "dashboard_browser_smoke_test",
+          "description": "Run automated dashboard and browser integration checks to verify patch correctness",
+          "failurePolicy": "warn-on-error",
+          "excludeModelKeys": ["experimental_features/*"]
+        },
+        {
+          "type": "js_ts_runtime_validation",
+          "description": "Run runtime tests on JS/TS code after patch applied",
+          "failurePolicy": "fail-on-error",
+          "excludeModelKeys": ["docs/**"]
+        },
+        {
+          "type": "sql_migration_runtime_check",
+          "description": "Apply SQL migration in test environment and verify",
+          "failurePolicy": "fail-on-error",
+          "excludeModelKeys": ["rollback_scripts/*"]
+        }
+      ]
+    }
+  ]
+}
+```

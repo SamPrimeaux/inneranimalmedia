@@ -1,0 +1,82 @@
+{
+  "status": 200,
+  "body": {
+    "id": "resp_052eb40ace2273d9016a1441d6b8ec81909a56d8bd881870b5",
+    "object": "response",
+    "created_at": 1779712470,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "openai"
+    },
+    "completed_at": 1779712473,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "Return JSON only. You are a strict code reviewer.",
+    "max_output_tokens": 500,
+    "max_tool_calls": null,
+    "model": "gpt-4.1-nano-2025-04-14",
+    "moderation": null,
+    "output": [
+      {
+        "id": "msg_052eb40ace2273d9016a1441d7a858819090fdf77f3322fcaa",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "{\n  \"accept\": false,\n  \"issues\": [\n    \"Function 'workspace_write_file' must enforce that writing only occurs under 'resolveIamWorkspaceRoot'.\",\n    \"Access mode must be explicitly checked to be 'read_write'.\",\n    \"Sandbox mode should be validated to be 'workspace-write'.\",\n    \"Logging should occur before and after the hash computation.\",\n    \"Validation step after write is required to ensure correctness.\",\n    \"No code snippets or implementation details are provided for review.\"\n  ],\n  \"required_tests\": [\n    \"Test that 'workspace_write_file' blocks or rejects attempts outside 'resolveIamWorkspaceRoot'.\",\n    \"Test for enforcement of 'access_mode=read_write'.\",\n    \"Test for enforcement of 'sandbox_mode=workspace-write'.\",\n    \"Verify logging occurs appropriately before and after hash computation.\",\n    \"Verify that validation is performed after writing to the file.\"\n  ],\n  \"security_notes\": [\n    \"Ensuring write permissions are restricted to specific workspace roots prevents directory traversal or unauthorized modifications.\",\n    \"Logging before and after hash computation helps in auditing and detecting tampering.\",\n    \"Validation after write ensures integrity and correctness of the operation.\"\n  ],\n  \"thompson_reward_hint\": \"Implement comprehensive validation and logging checks to prevent permission misuse and ensure data integrity.\"\n}"
+          }
+        ],
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": "in_memory",
+    "reasoning": {
+      "context": null,
+      "effort": null,
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": false,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 1.0,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 84,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 266,
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "total_tokens": 350
+    },
+    "user": null,
+    "metadata": {
+      "run_id": "agentsam_eval_20260525_123232",
+      "workspace_id": "ws_inneranimalmedia",
+      "tenant_id": "tenant_sam_primeaux",
+      "task_key": "code_review",
+      "profile_slug": "code-reviewer"
+    }
+  }
+}

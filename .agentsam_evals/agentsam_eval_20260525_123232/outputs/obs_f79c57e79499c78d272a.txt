@@ -1,0 +1,44 @@
+{
+  "status": "string",                  // Status of the spawn operation (e.g., "success", "failed")
+  "profile_slug": "string",            // Unique identifier/slug of the spawned profile
+  "model_key": "string",               // Key/identifier of the model used
+  "summary": "string",                 // Short summary of the result
+  "artifacts": [                       // List of artifact objects created or affected
+    {
+      "artifact_id": "string",
+      "name": "string",
+      "type": "string",
+      "uri": "string"
+    }
+  ],
+  "files_changed": [                   // Array of files that were changed
+    "string"
+  ],
+  "diff_stats": {                      // Statistics related to the file differences/changes
+    "files_changed": 0,
+    "lines_added": 0,
+    "lines_deleted": 0
+  },
+  "validation": {                      // Validation results object
+    "passed": true,
+    "issues": [
+      {
+        "type": "string",
+        "message": "string",
+        "location": "string"
+      }
+    ]
+  },
+  "cost": {                            // Cost metrics object
+    "usd": 0.0,
+    "credits": 0.0
+  },
+  "tokens": {                          // Token usage statistics
+    "prompt": 0,
+    "completion": 0,
+    "total": 0
+  },
+  "latency_ms": 0,                     // Latency in milliseconds
+  "child_run_id": "string",            // Unique identifier of the child run
+  "parent_run_id": "string"            // Unique identifier of the parent run
+}

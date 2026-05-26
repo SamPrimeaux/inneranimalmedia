@@ -1,0 +1,84 @@
+{
+  "status": 200,
+  "body": {
+    "id": "resp_0737bfafeba9cc34016a1441d9435881909216cb32031469d9",
+    "object": "response",
+    "created_at": 1779712473,
+    "status": "incomplete",
+    "background": false,
+    "billing": {
+      "payer": "openai"
+    },
+    "completed_at": null,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": {
+      "reason": "max_output_tokens"
+    },
+    "instructions": "Return JSON only. Design strict API contracts.",
+    "max_output_tokens": 500,
+    "max_tool_calls": null,
+    "model": "gpt-4.1-nano-2025-04-14",
+    "moderation": null,
+    "output": [
+      {
+        "id": "msg_0737bfafeba9cc34016a1441d988e881909f12ef0e7e8b436f",
+        "type": "message",
+        "status": "incomplete",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "```json\n{\n  \"type\": \"object\",\n  \"properties\": {\n    \"status\": {\n      \"type\": \"string\",\n      \"description\": \"The current status of the agent spawn profile operation.\"\n    },\n    \"profile_slug\": {\n      \"type\": \"string\",\n      \"description\": \"Unique identifier or slug for the spawned profile.\"\n    },\n    \"model_key\": {\n      \"type\": \"string\",\n      \"description\": \"Key representing the AI model used.\"\n    },\n    \"summary\": {\n      \"type\": \"string\",\n      \"description\": \"Brief summary or overview of the spawn operation.\"\n    },\n    \"artifacts\": {\n      \"type\": \"array\",\n      \"items\": {\n        \"type\": \"string\"\n      },\n      \"description\": \"List of generated artifacts from the spawn process.\"\n    },\n    \"files_changed\": {\n      \"type\": \"integer\",\n      \"description\": \"Number of files changed during the spawn operation.\"\n    },\n    \"diff_stats\": {\n      \"type\": \"object\",\n      \"properties\": {\n        \"insertions\": {\n          \"type\": \"integer\",\n          \"description\": \"Number of lines inserted.\"\n        },\n        \"deletions\": {\n          \"type\": \"integer\",\n          \"description\": \"Number of lines deleted.\"\n        }\n      },\n      \"required\": [\"insertions\", \"deletions\"],\n      \"description\": \"Statistics of code differences.\"\n    },\n    \"validation\": {\n      \"type\": \"boolean\",\n      \"description\": \"Indicates whether the spawn profile passed validation.\"\n    },\n    \"cost\": {\n      \"type\": \"number\",\n      \"description\": \"Cost associated with the spawn process (e.g., in credits or currency).\"\n    },\n    \"tokens\": {\n      \"type\": \"integer\",\n      \"description\": \"Number of tokens consumed during the operation.\"\n    },\n    \"latency_ms\": {\n      \"type\": \"integer\",\n      \"description\": \"Time taken for the operation in milliseconds.\"\n    },\n    \"child_run_id\": {\n      \"type\": \"string\",\n      \"description\": \"Identifier for the child run/process, if applicable.\"\n    },\n    \"parent_run_id\": {\n      \"type\": \"string\",\n      \"description\": \"Identifier for the parent run/process, if applicable.\"\n    }\n  },\n  \"required\": [\n    \"status\",\n    \"profile_slug\",\n    \"model_key\",\n   "
+          }
+        ],
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": "in_memory",
+    "reasoning": {
+      "context": null,
+      "effort": null,
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": false,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 1.0,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 66,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 500,
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "total_tokens": 566
+    },
+    "user": null,
+    "metadata": {
+      "run_id": "agentsam_eval_20260525_123232",
+      "workspace_id": "ws_inneranimalmedia",
+      "tenant_id": "tenant_sam_primeaux",
+      "task_key": "spawn_contract",
+      "profile_slug": "implementer"
+    }
+  }
+}

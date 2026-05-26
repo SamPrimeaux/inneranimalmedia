@@ -1,0 +1,81 @@
+{
+  "status": 200,
+  "body": {
+    "id": "resp_0155f91de7ca5e12016a1443c30a408196a2af2ccc1a4feb6f",
+    "object": "response",
+    "created_at": 1779712963,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "openai"
+    },
+    "completed_at": 1779712983,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "You are Agent Sam's code-generation evaluator. Follow the user's output format exactly. Return only the requested JSON where requested.",
+    "max_output_tokens": 6500,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-mini-2026-03-17",
+    "moderation": null,
+    "output": [
+      {
+        "id": "msg_0155f91de7ca5e12016a1443c35df48196a8e8a6bb58bc9b94",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "{\n  \"files\": [\n    {\n      \"path\": \"package.json\",\n      \"content\": \"{\\n  \\\"name\\\": \\\"agent-sam-command-center\\\",\\n  \\\"private\\\": true,\\n  \\\"version\\\": \\\"1.0.0\\\",\\n  \\\"type\\\": \\\"module\\\",\\n  \\\"scripts\\\": {\\n    \\\"dev\\\": \\\"vite\\\",\\n    \\\"build\\\": \\\"tsc -b && vite build\\\",\\n    \\\"preview\\\": \\\"vite preview\\\"\\n  },\\n  \\\"dependencies\\\": {\\n    \\\"react\\\": \\\"^18.3.1\\\",\\n    \\\"react-dom\\\": \\\"^18.3.1\\\"\\n  },\\n  \\\"devDependencies\\\": {\\n    \\\"@types/react\\\": \\\"^18.3.12\\\",\\n    \\\"@types/react-dom\\\": \\\"^18.3.1\\\",\\n    \\\"@vitejs/plugin-react\\\": \\\"^4.3.3\\\",\\n    \\\"typescript\\\": \\\"^5.6.3\\\",\\n    \\\"vite\\\": \\\"^5.4.10\\\"\\n  }\\n}\"\n    },\n    {\n      \"path\": \"index.html\",\n      \"content\": \"<!doctype html>\\n<html lang=\\\"en\\\">\\n  <head>\\n    <meta charset=\\\"UTF-8\\\" />\\n    <meta name=\\\"viewport\\\" content=\\\"width=device-width, initial-scale=1.0\\\" />\\n    <title>Agent Sam Command Center</title>\\n    <meta name=\\\"description\\\" content=\\\"Agent Sam Command Center - Thompson routing overview, lab, and eval report.\\\" />\\n  </head>\\n  <body>\\n    <div id=\\\"root\\\"></div>\\n    <script type=\\\"module\\\" src=\\\"/src/main.tsx\\\"></script>\\n  </body>\\n</html>\\n\"\n    },\n    {\n      \"path\": \"src/main.tsx\",\n      \"content\": \"import React from 'react';\\nimport ReactDOM from 'react-dom/client';\\nimport App from './App';\\nimport './App.css';\\n\\nReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(\\n  <React.StrictMode>\\n    <App />\\n  </React.StrictMode>\\n);\\n\"\n    },\n    {\n      \"path\": \"src/App.tsx\",\n      \"content\": \"import { useMemo, useState } from 'react';\\n\\ntype Page = 'overview' | 'routing' | 'report';\\n\\nconst metrics = [\\n  { label: 'Pass rate', value: '96.4%', trend: '+1.8%' },\\n  { label: 'Latency', value: '182 ms', trend: '-24 ms' },\\n  { label: 'Cost / 1k', value: '$0.18', trend: '-12%' },\\n  { label: 'Alpha / Beta', value: '0.72 / 0.28', trend: 'Stable' }\\n];\\n\\nconst candidates = [\\n  { name: 'gpt-5.3-codex', score: '0.94', role: 'Primary reasoning' },\\n  { name: 'gpt-5.4-mini', score: '0.89', role: 'Fast fallback' },\\n  { name: 'gpt-5.4-nano', score: '0.81', role: 'Low-cost router' }\\n];\\n\\nexport default function App() {\\n  const [page, setPage] = useState<Page>('overview');\\n  const activeTitle = useMemo(() => {\\n    if (page === 'routing') return 'Routing Lab';\\n    if (page === 'report') return 'Eval Report';\\n    return 'Overview';\\n  }, [page]);\\n\\n  return (\\n    <div className=\\\"app-shell\\\">\\n      <aside className=\\\"sidebar\\\">\\n        <div>\\n          <div className=\\\"brand-badge\\\">Agent Sam</div>\\n          <h1>Command Center</h1>\\n          <p className=\\\"sidebar-copy\\\">Thompson routing, evals, and model ops in one control surface.</p>\\n        </div>\\n\\n        <nav className=\\\"nav\\\">\\n          <button className={page === 'overview' ? 'nav-btn active' : 'nav-btn'} onClick={() => setPage('overview')}>Overview</button>\\n          <button className={page === 'routing' ? 'nav-btn active' : 'nav-btn'} onClick={() => setPage('routing')}>Routing Lab</button>\\n          <button className={page === 'report' ? 'nav-btn active' : 'nav-btn'} onClick={() => setPage('report')}>Eval Report</button>\\n        </nav>\\n\\n        <div className=\\\"sidebar-foot\\\">\\n          <span className=\\\"status-dot\\\" /> Live mock telemetry\\n        </div>\\n      </aside>\\n\\n      <main className=\\\"main\\\">\\n        <header className=\\\"topbar\\\">\\n          <div>\\n            <p className=\\\"eyebrow\\\">Agent Sam Command Center</p>\\n            <h2>{activeTitle}</h2>\\n          </div>\\n          <div className=\\\"topbar-chip\\\">npm run build ready</div>\\n        </header>\\n\\n        {page === 'overview' && (\\n          <section className=\\\"page-grid\\\">\\n            <section className=\\\"hero card gradient\\\">\\n              <div>\\n                <p className=\\\"eyebrow\\\">Thompson routing</p>\\n                <h3>Confident model selection with crisp observability.</h3>\\n                <p>\\n                  Track pass rate, latency, cost, and alpha/beta routing decisions across the Agent Sam stack.\\n                </p>\\n              </div>\\n              <div className=\\\"hero-panel\\\">\\n                <div className=\\\"ring\\\">96.4%</div>\\n                <div>\\n                  <div className=\\\"mini-label\\\">Top candidate</div>\\n                  <strong>gpt-5.3-codex</strong>\\n                </div>\\n              </div>\\n            </section>\\n\\n            <section className=\\\"metrics-row\\\">\\n              {metrics.map((m) => (\\n                <article className=\\\"card metric-card\\\" key={m.label}>\\n                  <span>{m.label}</span>\\n                  <strong>{m.value}</strong>\\n                  <small>{m.trend}</small>\\n                </article>\\n              ))}\\n            </section>\\n\\n            <section className=\\\"card content-card\\\">\\n              <h4>Candidate pool</h4>\\n              <div className=\\\"candidate-list\\\">\\n                {candidates.map((c) => (\\n                  <div className=\\\"candidate-row\\\" key={c.name}>\\n                    <div>\\n                      <strong>{c.name}</strong>\\n                      <p>{c.role}</p>\\n                    </div>\\n                    <span>{c.score}</span>\\n                  </div>\\n                ))}\\n              </div>\\n            </section>\\n          </section>\\n        )}\\n\\n        {page === 'routing' && (\\n          <section className=\\\"page-grid two-col\\\">\\n            <article className=\\\"card content-card\\\">\\n              <h4>Routing controls</h4>\\n              <div className=\\\"stack\\\">\\n                <div className=\\\"pill-row\\\">\\n                  <span className=\\\"pill active\\\">alpha = 0.72</span>\\n                  <span className=\\\"pill\\\">beta = 0.28</span>\\n                  <span className=\\\"pill\\\">guardrail: on</span>\\n                </div>\\n                <div className=\\\"lab-box\\\">\\n                  <p className=\\\"eyebrow\\\">Decision snapshot</p>\\n                  <h3>Route complex prompts to gpt-5.3-codex, cheap requests to gpt-5.4-nano.</h3>\\n                  <p>gpt-5.4-mini remains the fallback for balanced speed and quality.</p>\\n                </div>\\n              </div>\\n            </article>\\n\\n            <article className=\\\"card content-card\\\">\\n              <h4>Live ladder</h4>\\n              <div className=\\\"ladder\\\">\\n                <div><span>gpt-5.3-codex</span><em>0.94</em></div>\\n                <div><span>gpt-5.4-mini</span><em>0.89</em></div>\\n                <div><span>gpt-5.4-nano</span><em>0.81</em></div>\\n              </div>\\n            </article>\\n          </section>\\n        )}\\n\\n        {page === 'report' && (\\n          <section className=\\\"page-grid\\\">\\n            <article className=\\\"card content-card report-card\\\">\\n              <h4>Eval summary</h4>\\n              <div className=\\\"report-grid\\\">\\n                <div><span>Pass rate</span><strong>96.4%</strong></div>\\n                <div><span>Latency p95</span><strong>244 ms</strong></div>\\n                <div><span>Cost delta</span><strong>-12%</strong></div>\\n                <div><span>Routing drift</span><strong>0.03</strong></div>\\n              </div>\\n            </article>\\n            <article className=\\\"card content-card\\\">\\n              <h4>Notes</h4>\\n              <ul className=\\\"notes-list\\\">\\n                <li>gpt-5.3-codex leads accuracy-sensitive traffic.</li>\\n                <li>gpt-5.4-mini is consistent under burst load.</li>\\n                <li>gpt-5.4-nano preserves budget on short tasks.</li>\\n              </ul>\\n            </article>\\n          </section>\\n        )}\\n      </main>\\n    </div>\\n  );\\n}\\n\"\n    },\n    {\n      \"path\": \"src/App.css\",\n      \"content\": \":root {\\n  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;\\n  color: #e8ecff;\\n  background: radial-gradient(circle at top, #1d2b5a 0%, #0b1020 45%, #070b14 100%);\\n  line-height: 1.5;\\n  font-weight: 400;\\n}\\n\\n* { box-sizing: border-box; }\\nbody { margin: 0; min-width: 320px; background: transparent; }\\nbutton { font: inherit; }\\n\\n.app-shell {\\n  min-height: 100vh;\\n  display: grid;\\n  grid-template-columns: 280px 1fr;\\n}\\n\\n.sidebar {\\n  padding: 28px;\\n  background: rgba(7, 11, 20, 0.72);\\n  border-right: 1px solid rgba(255,255,255,0.08);\\n  backdrop-filter: blur(18px);\\n  display: flex;\\n  flex-direction: column;\\n  justify-content: space-between;\\n}\\n\\n.brand-badge, .topbar-chip, .pill, .status-dot, .metric-card, .card { border-radius: 18px; }\\n.brand-badge {\\n  width: fit-content;\\n  padding: 8px 12px;\\n  background: linear-gradient(135deg, #7c5cff, #33d6ff);\\n  color: white;\\n  font-weight: 700;\\n}\\n.sidebar h1, .topbar h2, .hero h3, .content-card h4 { margin: 0; }\\n.sidebar-copy, .hero p, .lab-box p, .notes-list { color: rgba(232,236,255,0.78); }\\n.nav { display: grid; gap: 10px; margin: 28px 0; }\\n.nav-btn {\\n  border: 1px solid rgba(255,255,255,0.1);\\n  background: rgba(255,255,255,0.04);\\n  color: #e8ecff;\\n  padding: 12px 14px;\\n  text-align: left;\\n  cursor: pointer;\\n}\\n.nav-btn.active { background: linear-gradient(135deg, rgba(124,92,255,0.35), rgba(51,214,255,0.22)); }\\n.sidebar-foot { display: flex; gap: 10px; align-items: center; color: rgba(232,236,255,0.7); }\\n.status-dot { width: 10px; height: 10px; background: #40f0a5; box-shadow: 0 0 18px #40f0a5; }\\n\\n.main { padding: 28px; }\\n.topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 22px; }\\n.eyebrow { text-transform: uppercase; letter-spacing: 0.16em; font-size: 0.72rem; color: #8fb6ff; margin: 0 0 6px; }\\n.topbar-chip { padding: 10px 14px; background: rgba(255,255,255,0.08); }\\n.page-grid { display: grid; gap: 18px; }\\n.two-col { grid-template-columns: 1.2fr 0.8fr; }\\n.card {\\n  padding: 22px;\\n  background: rgba(10, 16, 32, 0.72);\\n  border: 1px solid rgba(255,255,255,0.08);\\n  box-shadow: 0 18px 60px rgba(0,0,0,0.28);\\n}\\n.gradient { background: linear-gradient(135deg, rgba(124,92,255,0.28), rgba(51,214,255,0.12)); }\\n.hero { display: flex; justify-content: space-between; gap: 20px; align-items: center; }\\n.hero-panel { display: grid; gap: 12px; justify-items: center; min-width: 180px; }\\n.ring {\\n  width: 120px; height: 120px; border-radius: 50%; display: grid; place-items: center;\\n  background: conic-gradient(#33d6ff 0 96%, rgba(255,255,255,0.15) 96% 100%);\\n  color: #06111f; font-weight: 800; font-size: 1.4rem;\\n}\\n.metrics-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; }\\n.metric-card span, .candidate-row p, .report-grid span { color: rgba(232,236,255,0.7); }\\n.metric-card strong, .candidate-row span, .report-grid strong { font-size: 1.5rem; display: block; margin-top: 8px; }\\n.content-card { display: grid; gap: 16px; }\\n.candidate-list, .ladder, .report-grid { display: grid; gap: 12px; }\\n.candidate-row, .ladder div, .report-grid div {\\n  display: flex; justify-content: space-between; align-items: center;\\n  padding: 14px 16px; background: rgba(255,255,255,0.04); border-radius: 14px;\\n}\\n.pill-row { display: flex; gap: 10px; flex-wrap: wrap; }\\n.pill { padding: 8px 12px; background: rgba(255,255,255,0.06); }\\n.pill.active { background: rgba(64,240,165,0.15); color: #c9ffe9; }\\n.lab-box { padding: 18px; border-radius: 16px; background: rgba(255,255,255,0.04); }\\n.notes-list { margin: 0; padding-left: 18px; }\\n.stack { display: grid; gap: 16px; }\\n\\n@media (max-width: 900px) {\\n  .app-shell { grid-template-columns: 1fr; }\\n  .sidebar { border-right: 0; border-bottom: 1px solid rgba(255,255,255,0.08); }\\n  .metrics-row, .two-col { grid-template-columns: 1fr; }\\n  .hero { flex-direction: column; align-items: flex-start; }\\n  .topbar { flex-direction: column; align-items: flex-start; gap: 12px; }\\n}\\n\"\n    },\n    {\n      \"path\": \"src/vite-env.d.ts\",\n      \"content\": \"/// <reference types=\\\"vite/client\\\" />\\n\"\n    }\n  ],\n  \"notes\": \"Single-file local-state navigation between three polished pages; no external UI libraries or Tailwind. Layout includes responsive sidebar/topbar, hero, metric cards, and Thompson routing mock data with all required model names. Build should work with standard Vite React + TypeScript setup via npm install && npm run build.\"\n}"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": "in_memory",
+    "reasoning": {
+      "context": "current_turn",
+      "effort": "none",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": false,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 399,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 3810,
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "total_tokens": 4209
+    },
+    "user": null,
+    "metadata": {
+      "run_id": "vite_battle_20260525_124034",
+      "role": "architect",
+      "contest": "vite_code_battle"
+    }
+  }
+}

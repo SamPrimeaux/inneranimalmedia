@@ -1,0 +1,82 @@
+{
+  "status": 200,
+  "body": {
+    "id": "resp_069170ed7e53824a016a1441b05fec8193994422680815e4c9",
+    "object": "response",
+    "created_at": 1779712432,
+    "status": "completed",
+    "background": false,
+    "billing": {
+      "payer": "openai"
+    },
+    "completed_at": 1779712433,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": null,
+    "instructions": "Return JSON only. Be concise.",
+    "max_output_tokens": 500,
+    "max_tool_calls": null,
+    "model": "gpt-4.1-mini-2025-04-14",
+    "moderation": null,
+    "output": [
+      {
+        "id": "msg_069170ed7e53824a016a1441b175208193a57433d1203da53a",
+        "type": "message",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "```json\n{\n  \"task_type\": \"feature_addition\",\n  \"recommended_profile\": \"developer\",\n  \"should_write_files\": true,\n  \"risk\": \"medium\"\n}\n```"
+          }
+        ],
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": "in_memory",
+    "reasoning": {
+      "context": null,
+      "effort": null,
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": false,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 1.0,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 49,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 40,
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "total_tokens": 89
+    },
+    "user": null,
+    "metadata": {
+      "run_id": "agentsam_eval_20260525_123232",
+      "workspace_id": "ws_inneranimalmedia",
+      "tenant_id": "tenant_sam_primeaux",
+      "task_key": "simple_router",
+      "profile_slug": "orchestrator"
+    }
+  }
+}

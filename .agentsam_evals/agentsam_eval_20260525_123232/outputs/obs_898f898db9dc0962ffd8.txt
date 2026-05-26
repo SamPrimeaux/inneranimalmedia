@@ -1,0 +1,88 @@
+{
+  "name": "agentsam_spawn_profile.result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "status",
+    "profile_slug",
+    "model_key",
+    "summary",
+    "artifacts",
+    "files_changed",
+    "diff_stats",
+    "validation",
+    "cost",
+    "tokens",
+    "latency_ms",
+    "child_run_id",
+    "parent_run_id"
+  ],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": [
+        "success",
+        "failure",
+        "partial"
+      ],
+      "description": "Overall execution status for the spawned profile run."
+    },
+    "profile_slug": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Stable identifier for the spawned profile."
+    },
+    "model_key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Model configuration key used by the spawned run."
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable summary of the run outcome."
+    },
+    "artifacts": {
+      "type": "array",
+      "description": "Structured outputs produced by the run.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "type",
+          "uri"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "type": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uri": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sha256": {
+            "type": "string",
+            "minLength": 1
+          },
+          "size_bytes": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "files_changed": {
+      "type": "array",
+      "description": "Repository files changed by the run.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "change_type

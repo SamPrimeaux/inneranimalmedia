@@ -1,0 +1,64 @@
+{
+  "name": "post_write_validation_gates",
+  "version": "1.0.0",
+  "trigger": {
+    "events": [
+      "workspace_write_file",
+      "workspace_apply_patch"
+    ],
+    "scope": "changed_files_only_with_dependency_expansion"
+  },
+  "pipeline": [
+    {
+      "id": "collect_changes",
+      "description": "Enumerate changed files and infer impacted areas.",
+      "inputs": [
+        "git diff --name-only --relative HEAD",
+        "workspace changed paths"
+      ],
+      "outputs": [
+        "changedFiles",
+        "impactedPackages",
+        "requiresDbChecks",
+        "requiresWorkerChecks",
+        "requiresDashboardChecks"
+      ],
+      "rules": [
+        {
+          "if": "any(changedFiles match '**/*.{js,jsx,ts,tsx,mjs,cjs}')",
+          "set": "impactedPackages=resolveFromWorkspaceGraph(changedFiles)"
+        },
+        {
+          "if": "any(changedFiles match 'migrations/**/*.sql' or '**/*migration*.sql' or 'db/**/*.sql')",
+          "set": "requiresDbChecks=true"
+        },
+        {
+          "if": "any(changedFiles under 'workers/**' or 'cloudflare/**' or contains wrangler.toml)",
+          "set": "requiresWorkerChecks=true"
+        },
+        {
+          "if": "any(changedFiles under 'dashboard/**' or 'web/**' or 'frontend/**')",
+          "set": "requiresDashboardChecks=true"
+        }
+      ]
+    },
+    {
+      "id": "format_and_lint_js_ts",
+      "runWhen": "any(changedFiles match '**/*.{js,jsx,ts,tsx,mjs,cjs}')",
+      "commands": [
+        "pnpm -s prettier --check ${changedFiles:js_ts}",
+        "pnpm -s eslint --max-warnings=0 ${changedFiles:js_ts}"
+      ],
+      "passCriteria": [
+        "exitCode == 0"
+      ],
+      "artifacts": [
+        "eslint_report.json",
+        "prettier_report.txt"
+      ]
+    },
+    {
+      "id": "typecheck_and_unit_tests",
+      "runWhen": "any(changedFiles match '**/*.{ts,tsx}')",
+      "commands": [
+        "pnpm -

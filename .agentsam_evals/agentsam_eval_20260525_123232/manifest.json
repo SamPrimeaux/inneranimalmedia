@@ -1,0 +1,13 @@
+{
+  "run_id": "agentsam_eval_20260525_123232",
+  "created_at": "2026-05-25T12:35:10.662008+00:00",
+  "artifact_dir": "/Users/samprimeaux/inneranimalmedia/.agentsam_evals/agentsam_eval_20260525_123232",
+  "jsonl": "/Users/samprimeaux/inneranimalmedia/.agentsam_evals/agentsam_eval_20260525_123232/results.jsonl",
+  "csv": "/Users/samprimeaux/inneranimalmedia/.agentsam_evals/agentsam_eval_20260525_123232/summary.csv",
+  "report": "/Users/samprimeaux/inneranimalmedia/.agentsam_evals/agentsam_eval_20260525_123232/REPORT.md",
+  "sql": "/Users/samprimeaux/inneranimalmedia/.agentsam_evals/agentsam_eval_20260525_123232/seed_agentsam_model_eval_observations.sql",
+  "rows": 33,
+  "passed": 31,
+  "failed": 2,
+  "estimated_cost_usd": 0.0529738
+}

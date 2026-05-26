@@ -1,0 +1,62 @@
+```json
+{
+  "validationGates": [
+    {
+      "name": "PostWorkspaceWriteValidation",
+      "triggers": ["workspace_write_file", "workspace_apply_patch"],
+      "steps": [
+        {
+          "name": "JS/TS Validation",
+          "type": "script",
+          "script": "validateJavaScriptOrTypeScript()",
+          "description": "Run custom validation scripts to ensure code standards and syntax correctness."
+        },
+        {
+          "name": "SQL Migration Validation",
+          "type": "script",
+          "script": "validateSQLMigration()",
+          "description": "Verify SQL migration scripts for syntax correctness and potential rollback issues."
+        },
+        {
+          "name": "Cloudflare Worker Validation",
+          "type": "script",
+          "script": "validateCloudflareWorkerDeployment()",
+          "description": "Check Cloudflare Worker code deployability and adherence to policies."
+        },
+        {
+          "name": "Dashboard/Browser Checks",
+          "type": "ui",
+          "checks": [
+            "linting",
+            "unitTests",
+            "e2eTests",
+            "performanceMetrics"
+          ],
+          "description": "Ensure code passes linting, tests, and performance benchmarks before deployment."
+        }
+      ],
+      "failurePolicy": {
+        "onFailure": "block",
+        "notification": "notifyTeam"
+      }
+    },
+    {
+      "name": "ExclusionModelKeysPolicy",
+      "description": "Ensure that specified model keys are excluded from deployment or change sets.",
+      "criteria": [
+        {
+          "type": "policyCheck",
+          "rule": "excludeModelKeys",
+          "parameters": {
+            "excludedKeys": ["internalId", "secretToken", "debugFlag"]
+          }
+        }
+      ],
+      "failurePolicy": {
+        "onFailure": "block",
+        "notification": "alertSecurityTeam"
+      }
+    }
+  ]
+}
+```

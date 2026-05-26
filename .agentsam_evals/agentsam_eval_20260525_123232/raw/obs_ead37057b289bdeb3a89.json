@@ -1,0 +1,85 @@
+{
+  "status": 200,
+  "body": {
+    "id": "resp_0c11f03dff998026016a1441a257d88197a925e59ebfab06d3",
+    "object": "response",
+    "created_at": 1779712418,
+    "status": "incomplete",
+    "background": false,
+    "billing": {
+      "payer": "openai"
+    },
+    "completed_at": null,
+    "error": null,
+    "frequency_penalty": 0.0,
+    "incomplete_details": {
+      "reason": "max_output_tokens"
+    },
+    "instructions": "Return JSON only. You are a strict code reviewer.",
+    "max_output_tokens": 500,
+    "max_tool_calls": null,
+    "model": "gpt-5.4-nano-2026-03-17",
+    "moderation": null,
+    "output": [
+      {
+        "id": "msg_0c11f03dff998026016a1441a2bbc08197bf71d9f729ee37cc",
+        "type": "message",
+        "status": "incomplete",
+        "content": [
+          {
+            "type": "output_text",
+            "annotations": [],
+            "logprobs": [],
+            "text": "{\n  \"accept\": false,\n  \"issues\": [\n    \"No behavior payload provided beyond constraints; cannot verify implementation details (e.g., call graph, authorization checks, sandbox enforcement, hashing, or validation flow).\",\n    \"Missing explicit requirement: 'workspace_write_file must only write under resolveIamWorkspaceRoot' is not confirmed. Ensure all write paths are derived from resolveIamWorkspaceRoot and are canonicalized/validated to prevent path traversal (e.g., reject ../, absolute paths, symlinks escaping root).\",\n    \"Missing enforcement: require access_mode=read_write. Ensure caller/session cannot bypass this (e.g., server-side guard, not client-side).\",\n    \"Missing enforcement: sandbox_mode=workspace-write must be required. Ensure the sandbox_mode is checked server-side and not inferred or ignored.\",\n    \"Missing logging requirement: 'log before/after hash'. Ensure hashing is done over the exact bytes written (and for 'after' either the file contents post-write or the committed buffer). Define hash algorithm and include correlation identifiers (workspace id, file path within root).\",\n    \"Ordering ambiguity: requirement says 'then run validation'. Ensure validation occurs after the write+hash logging and uses the written content, not pre-write buffer.\",\n    \"No snapshot-based expectations: File snapshots: [] provided; if snapshots are part of tests, they\u2019re absent. Add tests/fixtures capturing pre/post file state to verify correctness.\"\n  ],\n  \"required_tests\": [\n    \"Path traversal rejection: attempt to write to paths like ../../etc/passwd, /abs/path, and paths with encoded traversal; verify no write occurs and access is denied.\",\n    \"Root confinement: attempt to write to a symlink located under resolveIamWorkspaceRoot that points outside the root; verify write is rejected (or symlink resolved and validated to still stay within root).\",\n    \"Access mode enforcement: with access_mode != read_write (e.g., read_only), verify the operation fails before any filesystem mutation.\",\n    \"Sandbox mode enforcement: with sandbox_mode != workspace-write, verify the operation fails before any filesystem mutation.\",\n    \"Before/after hash logging: verify logs contain both hashes and that 'before' corresponds to pre-write content (or empty if nonexistent) and 'after' corresponds to post-write content.\",\n    \"Validation ordering: verify validation runs after the write and after hash logging; include instrumentation to assert order.\",\n    \"Atomicity/rollback (if applicable):"
+          }
+        ],
+        "phase": "final_answer",
+        "role": "assistant"
+      }
+    ],
+    "parallel_tool_calls": true,
+    "presence_penalty": 0.0,
+    "previous_response_id": null,
+    "prompt_cache_key": null,
+    "prompt_cache_retention": "in_memory",
+    "reasoning": {
+      "context": "current_turn",
+      "effort": "none",
+      "summary": null
+    },
+    "safety_identifier": null,
+    "service_tier": "default",
+    "store": false,
+    "temperature": 1.0,
+    "text": {
+      "format": {
+        "type": "text"
+      },
+      "verbosity": "medium"
+    },
+    "tool_choice": "auto",
+    "tools": [],
+    "top_logprobs": 0,
+    "top_p": 0.98,
+    "truncation": "disabled",
+    "usage": {
+      "input_tokens": 83,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 500,
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "total_tokens": 583
+    },
+    "user": null,
+    "metadata": {
+      "run_id": "agentsam_eval_20260525_123232",
+      "workspace_id": "ws_inneranimalmedia",
+      "tenant_id": "tenant_sam_primeaux",
+      "task_key": "code_review",
+      "profile_slug": "code-reviewer"
+    }
+  }
+}

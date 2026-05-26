@@ -1,0 +1,6 @@
+{
+  "task_type": "Configuration Update",
+  "recommended_profile": "DevOps/SRE Engineer",
+  "should_write_files": true,
+  "risk": "Medium"
+}

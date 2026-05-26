@@ -1,0 +1,75 @@
+```json
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "description": "The current status of the agent spawn profile operation."
+    },
+    "profile_slug": {
+      "type": "string",
+      "description": "Unique identifier or slug for the spawned profile."
+    },
+    "model_key": {
+      "type": "string",
+      "description": "Key representing the AI model used."
+    },
+    "summary": {
+      "type": "string",
+      "description": "Brief summary or overview of the spawn operation."
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "List of generated artifacts from the spawn process."
+    },
+    "files_changed": {
+      "type": "integer",
+      "description": "Number of files changed during the spawn operation."
+    },
+    "diff_stats": {
+      "type": "object",
+      "properties": {
+        "insertions": {
+          "type": "integer",
+          "description": "Number of lines inserted."
+        },
+        "deletions": {
+          "type": "integer",
+          "description": "Number of lines deleted."
+        }
+      },
+      "required": ["insertions", "deletions"],
+      "description": "Statistics of code differences."
+    },
+    "validation": {
+      "type": "boolean",
+      "description": "Indicates whether the spawn profile passed validation."
+    },
+    "cost": {
+      "type": "number",
+      "description": "Cost associated with the spawn process (e.g., in credits or currency)."
+    },
+    "tokens": {
+      "type": "integer",
+      "description": "Number of tokens consumed during the operation."
+    },
+    "latency_ms": {
+      "type": "integer",
+      "description": "Time taken for the operation in milliseconds."
+    },
+    "child_run_id": {
+      "type": "string",
+      "description": "Identifier for the child run/process, if applicable."
+    },
+    "parent_run_id": {
+      "type": "string",
+      "description": "Identifier for the parent run/process, if applicable."
+    }
+  },
+  "required": [
+    "status",
+    "profile_slug",
+    "model_key",

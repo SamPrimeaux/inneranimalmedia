@@ -1,0 +1,6 @@
+{
+  "task_type": "workspace_configuration",
+  "recommended_profile": "sre",
+  "should_write_files": true,
+  "risk": "medium"
+}

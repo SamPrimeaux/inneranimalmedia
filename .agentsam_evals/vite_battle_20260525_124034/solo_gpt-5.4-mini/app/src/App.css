@@ -1,0 +1,109 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background:
+    radial-gradient(circle at top left, rgba(114, 9, 183, 0.35), transparent 28%),
+    radial-gradient(circle at top right, rgba(72, 149, 239, 0.24), transparent 26%),
+    linear-gradient(180deg, #07111f 0%, #081426 55%, #050a12 100%);
+  color: #e7eefc;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; min-height: 100vh; }
+button, input { font: inherit; }
+button { cursor: pointer; }
+
+.app-shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 280px 1fr;
+}
+
+.sidebar {
+  padding: 24px;
+  border-right: 1px solid rgba(255,255,255,0.08);
+  background: rgba(3, 8, 17, 0.55);
+  backdrop-filter: blur(16px);
+}
+
+.brand { display: flex; gap: 12px; align-items: center; margin-bottom: 28px; }
+.brand-mark {
+  width: 48px; height: 48px; border-radius: 16px; display: grid; place-items: center;
+  background: linear-gradient(135deg, #7c3aed, #22c55e);
+  color: white; font-weight: 800; box-shadow: 0 18px 40px rgba(124, 58, 237, 0.28);
+}
+.brand-title { font-weight: 800; letter-spacing: 0.2px; }
+.brand-subtitle, .sidebar-copy, .metric-detail, .progress-role, .lab-copy, .candidate-role, .hero-copy, .sidebar-label { color: rgba(231, 238, 252, 0.7); }
+.nav { display: grid; gap: 10px; }
+.nav-item, .segment {
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.04);
+  color: #e7eefc;
+  padding: 12px 14px;
+  border-radius: 14px;
+  text-align: left;
+}
+.nav-item.active, .segment.active { background: linear-gradient(135deg, rgba(124,58,237,0.4), rgba(37,99,235,0.24)); border-color: rgba(165,180,252,0.35); }
+.sidebar-panel, .card { border: 1px solid rgba(255,255,255,0.08); background: rgba(8, 15, 28, 0.72); box-shadow: 0 24px 70px rgba(0,0,0,0.25); }
+.sidebar-panel { margin-top: 24px; padding: 18px; border-radius: 20px; }
+.sidebar-value { font-size: 1.15rem; font-weight: 800; margin: 8px 0; }
+.main { padding: 28px; }
+.hero {
+  display: grid; grid-template-columns: 1.5fr 0.9fr; gap: 20px; align-items: stretch; margin-bottom: 24px;
+}
+.hero h1 { margin: 10px 0 12px; font-size: clamp(2.2rem, 4vw, 4.4rem); line-height: 0.98; }
+.eyebrow { text-transform: uppercase; letter-spacing: 0.16em; font-size: 0.78rem; color: #9cc2ff; }
+.hero-card {
+  padding: 22px; border-radius: 26px; background: linear-gradient(135deg, rgba(124,58,237,0.28), rgba(14,165,233,0.18));
+  border: 1px solid rgba(255,255,255,0.1); display: flex; flex-direction: column; justify-content: center;
+}
+.hero-card-value { font-size: 1.6rem; font-weight: 800; margin: 6px 0 14px; }
+.chip, .status-box, .candidate-badge { display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; }
+.hero-chip-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.chip { padding: 7px 11px; background: rgba(255,255,255,0.09); border: 1px solid rgba(255,255,255,0.08); }
+.page { display: grid; gap: 22px; }
+.grid { display: grid; gap: 18px; }
+.metrics-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.content-grid { grid-template-columns: 1.3fr 0.9fr; }
+.lab-grid { grid-template-columns: 1fr 0.8fr; }
+.card { border-radius: 24px; padding: 22px; }
+.metric-card { min-height: 150px; }
+.metric-label, .stat-label, .sidebar-label { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.12em; }
+.metric-value, .stat-value { font-size: 2rem; font-weight: 850; margin: 10px 0 8px; }
+.panel h2 { margin: 0 0 10px; font-size: 1.25rem; }
+.progress-list, .candidate-list { display: grid; gap: 14px; margin-top: 18px; }
+.progress-row, .candidate-item, .report-row { display: grid; grid-template-columns: 1.2fr 1.6fr auto; gap: 14px; align-items: center; }
+.progress-bar-wrap { height: 12px; border-radius: 999px; background: rgba(255,255,255,0.08); overflow: hidden; }
+.progress-bar { height: 100%; border-radius: inherit; background: linear-gradient(90deg, #7c3aed, #22c55e); }
+.progress-score, .candidate-badge { font-weight: 800; }
+.signal-list { margin: 16px 0 0; padding-left: 18px; color: rgba(231,238,252,0.82); display: grid; gap: 10px; }
+.accent-panel { background: linear-gradient(180deg, rgba(10,18,35,0.92), rgba(13,23,44,0.82)); }
+.control { display: grid; gap: 12px; margin: 18px 0 22px; }
+.control-row { display: flex; justify-content: space-between; align-items: center; }
+input[type='range'] { width: 100%; accent-color: #8b5cf6; }
+.segmented { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
+.segment { padding: 10px 14px; border-radius: 999px; }
+.lab-result { padding: 18px; border-radius: 18px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); }
+.lab-route { font-size: 1.8rem; font-weight: 850; margin: 8px 0; }
+.candidate-item { padding: 14px 0; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.candidate-item:last-child { border-bottom: 0; }
+.candidate-badge { width: 42px; height: 42px; background: rgba(255,255,255,0.08); }
+.report-panel { display: grid; gap: 20px; }
+.report-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.report-stats > div { padding: 16px; border-radius: 18px; background: rgba(255,255,255,0.05); }
+.report-table { display: grid; gap: 10px; }
+.report-row { padding: 12px 14px; border-radius: 14px; background: rgba(255,255,255,0.04); }
+.report-row.header { background: transparent; color: rgba(231,238,252,0.72); text-transform: uppercase; font-size: 0.82rem; letter-spacing: 0.12em; }
+.status-box { margin-top: 18px; padding: 12px 16px; width: fit-content; gap: 10px; background: rgba(34,197,94,0.12); border: 1px solid rgba(34,197,94,0.25); }
+.status-dot { width: 10px; height: 10px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 0 6px rgba(34,197,94,0.14); }
+
+@media (max-width: 980px) {
+  .app-shell, .hero, .metrics-grid, .content-grid, .lab-grid, .report-stats { grid-template-columns: 1fr; }
+  .sidebar { border-right: 0; border-bottom: 1px solid rgba(255,255,255,0.08); }
+}
+
+@media (max-width: 640px) {
+  .main, .sidebar { padding: 18px; }
+  .card, .hero-card, .sidebar-panel { border-radius: 20px; }
+  .progress-row, .candidate-item, .report-row { grid-template-columns: 1fr; }
+}
