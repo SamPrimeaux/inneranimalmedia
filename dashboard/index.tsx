@@ -13,7 +13,12 @@ void bootstrapSupabaseFromSession();
 const rootElement = document.getElementById('root');
 if (!rootElement) throw new Error("Could not find root element to mount to");
 
-ReactDOM.createRoot(rootElement).render(
+type DashboardRoot = ReturnType<typeof ReactDOM.createRoot>;
+const w = window as Window & { __IAM_DASHBOARD_ROOT__?: DashboardRoot };
+if (!w.__IAM_DASHBOARD_ROOT__) {
+  w.__IAM_DASHBOARD_ROOT__ = ReactDOM.createRoot(rootElement);
+}
+w.__IAM_DASHBOARD_ROOT__.render(
   <React.StrictMode>
     <BrowserRouter>
       <EditorProvider>

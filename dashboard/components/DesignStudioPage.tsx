@@ -80,6 +80,7 @@ function studioAssetIcon(iconKey: string | null): React.ReactNode {
   const k = String(iconKey || '').toLowerCase();
   switch (k) {
     case 'shield':
+    case 'building':
       return <Shield size={14} />;
     case 'activity':
       return <Activity size={14} />;
@@ -195,11 +196,16 @@ function DesignStudioLeftPanel(props: {
       .then((r) => r.json())
       .then((data) => {
         const rows = Array.isArray(data?.results) ? data.results : [];
-        setStockAssets(
-          rows
-            .map((row: Parameters<typeof parseStudioAssetApiRow>[0]) => parseStudioAssetApiRow(row))
-            .filter((a): a is StudioStockAsset => a != null),
-        );
+        const parsed = rows
+          .map((row: Parameters<typeof parseStudioAssetApiRow>[0]) => parseStudioAssetApiRow(row))
+          .filter((a): a is StudioStockAsset => a != null);
+        const byUrl = new Map<string, StudioStockAsset>();
+        for (const a of parsed) {
+          const k = a.url.trim().toLowerCase();
+          if (!k || byUrl.has(k)) continue;
+          byUrl.set(k, a);
+        }
+        setStockAssets(Array.from(byUrl.values()));
       })
       .catch((e) => console.warn('[Asset Library] stock fetch failed', e))
       .finally(() => setStockAssetsLoading(false));
@@ -469,8 +475,15 @@ function DesignStudioLeftPanel(props: {
             </form>
           )}
 
-          <p className="text-[9px] font-bold text-[var(--text-muted)] uppercase mb-1">Stock Presets</p>
-          <div className="grid grid-cols-1 gap-2">
+          <p className="text-[9px] font-bold text-[var(--text-muted)] uppercase mb-1">
+            Stock Presets
+            {!stockAssetsLoading && stockAssets.length > 0 ? (
+              <span className="text-[var(--text-muted)] font-normal normal-case ml-1">
+                ({stockAssets.length})
+              </span>
+            ) : null}
+          </p>
+          <div className="grid grid-cols-1 gap-2 max-h-[220px] overflow-y-auto pr-1">
             {stockAssetsLoading && (
               <p className="text-[10px] text-[var(--text-muted)] px-2 py-1">Loading presets…</p>
             )}
@@ -744,8 +757,9 @@ export const DesignStudioPage: React.FC = () => {
   }, [refreshUserAssets]);
 
   useEffect(() => {
-    if (!containerRef.current) return;
-    const engine = new VoxelEngine(containerRef.current, (s) => setAppState(s), (c) => setVoxelCount(c));
+    const container = containerRef.current;
+    if (!container || engineRef.current) return;
+    const engine = new VoxelEngine(container, (s) => setAppState(s), (c) => setVoxelCount(c));
     engineRef.current = engine;
     engine.setOnEntityCreated((entity) => {
       setUndoStack((prev) => [...prev, entity]);
@@ -829,15 +843,22 @@ export const DesignStudioPage: React.FC = () => {
   }, []);
 
   const handleSpawnModel = useCallback((name: string, url: string, scale: number) => {
-    engineRef.current?.spawnEntity({
-      id: `asset_${Date.now()}`,
-      name,
-      type: 'prop',
-      modelUrl: normalizeGlbUrl(url),
-      scale,
-      position: { x: (Math.random() - 0.5) * 10, y: 10, z: (Math.random() - 0.5) * 10 },
-      behavior: { type: 'dynamic', mass: 10, restitution: 0.2 },
-    });
+    const normalized = normalizeGlbUrl(url);
+    if (!normalized) {
+      console.warn('[DesignStudio] spawn skipped: empty GLB url', name);
+      return;
+    }
+    void engineRef.current
+      ?.spawnEntity({
+        id: `asset_${Date.now()}`,
+        name,
+        type: 'prop',
+        modelUrl: normalized,
+        scale,
+        position: { x: (Math.random() - 0.5) * 10, y: 10, z: (Math.random() - 0.5) * 10 },
+        behavior: { type: 'dynamic', mass: 10, restitution: 0.2 },
+      })
+      .catch((err) => console.warn('[DesignStudio] spawn failed', name, normalized, err));
   }, []);
 
   const handleAddCustomAsset = useCallback(

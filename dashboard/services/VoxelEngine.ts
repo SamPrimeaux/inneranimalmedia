@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { AppState, GameEntity, ProjectType, SceneConfig, CADTool, VoxelData, CADPlane } from '../types';
 import { chessPieceGlbPath, normalizeGlbUrl } from '../lib/glbAssets';
 
@@ -81,6 +82,9 @@ export class VoxelEngine {
 
     this.gltfLoader = new GLTFLoader();
     this.gltfLoader.setCrossOrigin('anonymous');
+    const dracoLoader = new DRACOLoader();
+    dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
+    this.gltfLoader.setDRACOLoader(dracoLoader);
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x0f111a);
