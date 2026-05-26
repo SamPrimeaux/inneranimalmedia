@@ -297,6 +297,57 @@ export async function handleThemesApi(request, url, env, ctx) {
       return jsonResponse({ themes });
     }
 
+    // ── GET /api/user/preferences (theme_preset for agent.html / dashboard fallback) ──
+    if (pathLower === "/api/user/preferences" && method === "GET") {
+      const authUser = await getAuthUser(request, env).catch(() => null);
+      if (!authUser) return jsonResponse({ error: "Unauthorized" }, 401);
+
+      let workspaceId =
+        url.searchParams.get("workspace_id")?.trim() ||
+        url.searchParams.get("workspace")?.trim() ||
+        "";
+      if (!workspaceId) {
+        workspaceId = await fetchDefaultWorkspaceId(env, authUser);
+      }
+
+      if (workspaceId) {
+        const ok = await userCanAccessWorkspace(env, authUser, workspaceId);
+        if (!ok) return jsonResponse({ error: "Forbidden" }, 403);
+      }
+
+      const tenantId = await resolveTenantIdForCmsThemeOps(env, authUser, workspaceId || null);
+      const resolved = await resolveActiveCmsThemeRow(env, {
+        tenantId,
+        authUser,
+        workspaceId: workspaceId || null,
+        projectId: url.searchParams.get("project_id")?.trim() || null,
+      });
+
+      let themeRow = resolved.row;
+      if (!themeRow) {
+        themeRow = await env.DB.prepare(
+          `SELECT * FROM cms_themes WHERE is_system = 1 AND slug = 'dark' LIMIT 1`,
+        ).first();
+      }
+
+      const payload =
+        buildActiveThemeApiPayload(themeRow) ||
+        ({
+          name: "dark",
+          slug: "dark",
+          is_dark: true,
+          data: {},
+          theme_channel: "live",
+        });
+
+      return jsonResponse({
+        theme_preset: payload.slug || "dark",
+        theme: payload.slug || "dark",
+        workspace_id: workspaceId || null,
+        resolved_from: resolved.resolved_from,
+      });
+    }
+
     // ── GET /api/themes/active ──
     if (pathLower === "/api/themes/active" && method === "GET") {
       const authUser = await getAuthUser(request, env).catch(() => null);

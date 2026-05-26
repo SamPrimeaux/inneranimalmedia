@@ -40,7 +40,7 @@ export function ThemeBrowser({ workspaceId }: ThemeBrowserProps): React.ReactEle
     setLoading(true);
     try {
       const [listRes, activeRes] = await Promise.all([
-        fetch(`/api/themes${qs}`),
+        fetch(`/api/themes${qs}`, { credentials: 'include' }),
         fetch(`/api/themes/active${qs}`, { credentials: 'include' }),
       ]);
       const listJson = (await listRes.json()) as ThemesApiResponse;

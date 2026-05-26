@@ -311,19 +311,86 @@ function activeThemeUrl(workspaceId: string | null | undefined): string {
     : '/api/themes/active';
 }
 
+function preferencesUrl(workspaceId: string | null | undefined): string {
+  const ws = workspaceId?.trim() || '';
+  return ws
+    ? `/api/user/preferences?workspace_id=${encodeURIComponent(ws)}`
+    : '/api/user/preferences';
+}
+
+type CatalogThemeRow = {
+  slug?: string;
+  name?: string;
+  is_dark?: boolean;
+  config?: unknown;
+};
+
+function catalogRowToActivePayload(row: CatalogThemeRow): CmsActiveThemePayload | null {
+  const slug = row.slug?.trim();
+  if (!slug) return null;
+  let config: Record<string, unknown> = {};
+  const raw = row.config;
+  if (typeof raw === 'string') {
+    try {
+      config = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      config = {};
+    }
+  } else if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    config = raw as Record<string, unknown>;
+  }
+  const cssVars = (config.cssVars ?? config.css_vars) as Record<string, string> | undefined;
+  const data: Record<string, string> = {};
+  if (cssVars && typeof cssVars === 'object') {
+    for (const [k, v] of Object.entries(cssVars)) {
+      if (typeof v === 'string') data[k] = v;
+    }
+  } else {
+    for (const [k, v] of Object.entries(config)) {
+      if (k.startsWith('--') && typeof v === 'string') data[k] = v;
+    }
+  }
+  return {
+    slug,
+    name: row.name ?? slug,
+    is_dark: row.is_dark === true,
+    data,
+    theme_channel: 'live',
+  };
+}
+
+/** GET /api/themes/active, else catalog + GET /api/user/preferences theme_preset. */
+async function fetchActiveThemePayload(
+  workspaceId: string | null | undefined,
+  init?: { signal?: AbortSignal },
+): Promise<CmsActiveThemePayload | null> {
+  const fetchInit = { credentials: 'same-origin' as const, signal: init?.signal, cache: 'no-store' as const };
+
+  const activeRes = await fetch(activeThemeUrl(workspaceId), fetchInit);
+  if (activeRes.ok) {
+    return (await activeRes.json()) as CmsActiveThemePayload;
+  }
+
+  const prefRes = await fetch(preferencesUrl(workspaceId), fetchInit);
+  if (!prefRes.ok) return null;
+  const prefs = (await prefRes.json()) as { theme_preset?: string };
+  const slug = prefs.theme_preset?.trim();
+  if (!slug) return null;
+
+  const themesRes = await fetch('/api/themes', fetchInit);
+  if (!themesRes.ok) return null;
+  const list = (await themesRes.json()) as { themes?: CatalogThemeRow[] };
+  const row = (list.themes || []).find((t) => t.slug === slug);
+  return row ? catalogRowToActivePayload(row) : null;
+}
+
 /** Load active theme from API and apply to :root. Returns parsed payload or null. */
 export async function fetchAndApplyActiveCmsTheme(
   workspaceId: string | null | undefined,
   init?: { signal?: AbortSignal },
 ): Promise<CmsActiveThemePayload | null> {
-  const res = await fetch(activeThemeUrl(workspaceId), {
-    credentials: 'same-origin',
-    signal: init?.signal,
-    cache: 'no-store',
-  });
-  if (!res.ok) return null;
-  const raw = (await res.json()) as CmsActiveThemePayload;
-  if (init?.signal?.aborted) return null;
+  const raw = await fetchActiveThemePayload(workspaceId, init);
+  if (!raw || init?.signal?.aborted) return null;
   applyCmsThemeToDocument(raw);
   return raw;
 }
@@ -332,10 +399,8 @@ export async function fetchAndApplyActiveCmsTheme(
 export async function fetchActiveCmsThemeSlug(
   workspaceId: string | null | undefined,
 ): Promise<string | null> {
-  const res = await fetch(activeThemeUrl(workspaceId), { credentials: 'same-origin' });
-  if (!res.ok) return null;
-  const raw = (await res.json()) as { slug?: string };
-  return typeof raw.slug === 'string' ? raw.slug : null;
+  const raw = await fetchActiveThemePayload(workspaceId);
+  return typeof raw?.slug === 'string' ? raw.slug : null;
 }
 
 /** First paint: prefer cache for `inneranimalmedia_theme_last_ws` so the correct workspace bucket loads before React resolves membership. */

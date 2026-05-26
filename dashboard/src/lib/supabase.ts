@@ -4,6 +4,8 @@ declare global {
   interface Window {
     __SUPABASE_URL__?: string;
     __SUPABASE_ANON_KEY__?: string;
+    /** Single GoTrueClient across dashboard chunks / HMR (avoids duplicate instance warning). */
+    __IAM_SUPABASE_CLIENT__?: SupabaseClient;
   }
 }
 
@@ -41,10 +43,22 @@ function readBootstrapCredentials(): { url: string; anonKey: string } | null {
 }
 
 function attachClient(url: string, anonKey: string): SupabaseClient {
+  if (typeof window !== 'undefined' && window.__IAM_SUPABASE_CLIENT__) {
+    _client = window.__IAM_SUPABASE_CLIENT__;
+    return _client;
+  }
   if (!_client) {
     _client = createClient(url, anonKey, {
+      auth: {
+        storageKey: 'iam-dashboard-auth',
+        persistSession: true,
+        detectSessionInUrl: false,
+      },
       realtime: { params: { eventsPerSecond: 2 } },
     });
+    if (typeof window !== 'undefined') {
+      window.__IAM_SUPABASE_CLIENT__ = _client;
+    }
   }
   return _client;
 }

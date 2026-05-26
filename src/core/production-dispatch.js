@@ -276,7 +276,7 @@ export async function dispatchProductionDomainRoutes(rc) {
     return handleDrawApi(request, url, env, ctx);
   }
 
-  if (pathLower.startsWith('/api/themes')) {
+  if (pathLower.startsWith('/api/themes') || pathLower === '/api/user/preferences') {
     return handleThemesApi(request, url, env, ctx);
   }
 
