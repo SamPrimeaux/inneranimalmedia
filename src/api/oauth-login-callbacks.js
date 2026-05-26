@@ -36,13 +36,8 @@ export async function revokeIncomingCookieSession(request, env, reason = 'oauth_
   }
 }
 
-/** Clear stale host/domain session cookies, then set the new canonical host-only session. */
+/** Clear stale domain-scoped session cookies, then set canonical host-only session (set last). */
 export function appendBrowserLoginSessionCookies(headers, sessionId) {
-  headers.append(
-    'Set-Cookie',
-    `${AUTH_COOKIE_NAME}=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`,
-  );
-  headers.append('Set-Cookie', `${AUTH_COOKIE_NAME}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`);
   headers.append(
     'Set-Cookie',
     `${AUTH_COOKIE_NAME}=; Domain=.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`,
@@ -50,6 +45,10 @@ export function appendBrowserLoginSessionCookies(headers, sessionId) {
   headers.append(
     'Set-Cookie',
     `${AUTH_COOKIE_NAME}=; Domain=.sandbox.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`,
+  );
+  headers.append(
+    'Set-Cookie',
+    `${AUTH_COOKIE_NAME}=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`,
   );
 }
 
