@@ -79,7 +79,7 @@ import { AuthResetPage } from './components/auth/AuthResetPage';
 import AuthOAuthConsentPage from './components/auth/AuthOAuthConsentPage';
 import MountIamMcpConsent from './components/auth/MountIamMcpConsent';
 import { OnboardingPage } from './components/onboarding/OnboardingPage';
-import { Bot, Home, Files, Search, GitBranch, Settings, PanelLeft, PanelLeftClose, PanelRightClose, Terminal as TermIcon, Network, Layers, Monitor, ChevronDown, Bug, Github, Database, FolderOpen, FolderCode, Globe, PenTool, Cloud, X as XIcon, PanelBottom, Eye, MessageSquare, MoreHorizontal, ChevronLeft, Link2, HardDrive, Package, Palette, History, Wrench, Camera, Image, Mail, GraduationCap, ChartColumnIncreasing, Library, FileCode2 } from 'lucide-react';
+import { Bot, Home, Files, Search, GitBranch, Settings, PanelLeft, PanelLeftClose, PanelRightClose, Terminal as TermIcon, Network, Layers, Monitor, ChevronDown, Bug, Github, Database, FolderOpen, FolderCode, Globe, PenTool, Cloud, X as XIcon, PanelBottom, Eye, MessageSquare, MoreHorizontal, ChevronLeft, Link2, HardDrive, Package, Palette, History, Wrench, Camera, Image, Mail, GraduationCap, ChartColumnIncreasing, Library, FileCode2, Rocket } from 'lucide-react';
 import { SetiFileIcon } from './src/components/SetiFileIcon';
 const ProjectManagement = lazy(() => import('./pages/projects/ProjectManagement'));
 
@@ -110,7 +110,9 @@ const MovieModeStudio = lazy(() =>
 const ExcalidrawView = lazy(() =>
   import('./components/ExcalidrawView').then((m) => ({ default: m.ExcalidrawView })),
 );
-const LaunchDeskPage = lazy(() => import('./pages/LaunchDeskPage'));
+const LaunchDeskPage = lazy(() =>
+  import('./pages/LaunchDeskPage').then((m) => ({ default: m.LaunchDeskPage })),
+);
 
 function DashboardRoutesFallback() {
   return (
@@ -2789,6 +2791,13 @@ const App: React.FC = () => {
                 active={location.pathname === '/dashboard/workflows'}
                 onClick={() => navigate('/dashboard/workflows')}
               />
+              <ActivityRailItem
+                icon={Rocket}
+                label="Launch Desk"
+                expanded={sidebarRailExpanded}
+                active={location.pathname === '/dashboard/launch-desk'}
+                onClick={() => navigate('/dashboard/launch-desk')}
+              />
               <ActivityRailItem icon={GraduationCap} label="Learn" expanded={sidebarRailExpanded} active={location.pathname === '/dashboard/learn'} onClick={() => navigate('/dashboard/learn')} />
               <ActivityRailItem
                   icon={Palette}
@@ -3010,7 +3019,14 @@ const App: React.FC = () => {
                       <Route path="/dashboard/library" element={<LibraryPage />} />
                       <Route path="/dashboard/projects" element={<ProjectManagement />} />
                       <Route path="/dashboard/tasks" element={<TasksPage />} />
-                      <Route path="/dashboard/launch-desk" element={<LaunchDeskPage />} />
+                      <Route
+                        path="/dashboard/launch-desk"
+                        element={
+                          <div className="flex-1 min-h-0 min-w-0 overflow-auto">
+                            <LaunchDeskPage />
+                          </div>
+                        }
+                      />
                       <Route path="/dashboard/analytics" element={<Navigate to="/dashboard/analytics/overview" replace />} />
                       <Route path="/dashboard/analytics/:tab" element={<AnalyticsPage />} />
                       <Route path="/dashboard/health" element={<Navigate to="/dashboard/analytics/overview" replace />} />
@@ -3509,6 +3525,7 @@ const App: React.FC = () => {
               <MobileMoreRow icon={Layers} label="Tools & MCP" onClick={() => { setMobileMoreOpen(false); toggleActivity('mcps'); }} />
               <MobileMoreRow icon={Cloud} label="Cloud Sync" onClick={() => { setMobileMoreOpen(false); toggleActivity('drive'); }} />
               <MobileMoreRow icon={Monitor} label="Engine View" onClick={() => { setMobileMoreOpen(false); navigate('/dashboard/designstudio'); }} />
+              <MobileMoreRow icon={Rocket} label="Launch Desk" onClick={() => { setMobileMoreOpen(false); navigate('/dashboard/launch-desk'); }} />
             </div>
           </div>
         </>
