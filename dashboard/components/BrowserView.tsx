@@ -7,7 +7,7 @@
  * Features:
  *  - Permission gate (Deny / Allow Once / Always Allow) via agentsam_browser_trusted_origin
  *  - Agent active glow when CDT tools are running
- *  - MYBROWSER (Playwright) preview: screenshot + page text for any URL (no iframe embed)
+ *  - MYBROWSER (Playwright) preview: screenshot for any URL (no iframe embed)
  *  - CSS Inspector (Components panel) — snapshot / same-origin when available
  *  - DevTools panel — console + network via cdt_* tools
  *  - Element picker — hover/highlight/select, populates chat
@@ -206,8 +206,6 @@ type BrowserInvokeResult = Record<string, unknown> & {
   ok?: boolean;
   url?: string;
   screenshot_url?: string;
-  page_text?: string;
-  text?: string;
   title?: string;
 };
 
@@ -231,11 +229,7 @@ function pickNavigatePreview(data: BrowserInvokeResult) {
     (typeof data.screenshot_url === 'string' && data.screenshot_url) ||
     (typeof data.result_url === 'string' && data.result_url) ||
     '';
-  const page_text =
-    (typeof data.page_text === 'string' && data.page_text) ||
-    (typeof data.text === 'string' && data.text) ||
-    '';
-  return { screenshot_url: screenshot_url || null, page_text: page_text || null };
+  return { screenshot_url: screenshot_url || null };
 }
 
 // ─── Shared button ────────────────────────────────────────────────────────────
@@ -983,7 +977,6 @@ const PICKER_SCRIPT = `
 
 type BrowserPreviewPayload = {
   screenshot_url: string;
-  page_text?: string | null;
   title?: string | null;
 };
 
@@ -1017,7 +1010,6 @@ const BrowserPane: React.FC<PaneProps> = ({
   const [inputVal,       setInputVal]       = useState(() => normalize(initialUrl || DEFAULT_URL));
   const [loading,        setLoading]        = useState(false);
   const [navigateError,  setNavigateError]  = useState<string | null>(null);
-  const [,               setPageText]       = useState<string | null>(initialPreview?.page_text ?? null);
   const [mode,           setMode]           = useState<PaneMode>('browse');
   const [menuOpen,       setMenuOpen]       = useState(false);
   const [copied,         setCopied]         = useState(false);
@@ -1320,14 +1312,12 @@ const BrowserPane: React.FC<PaneProps> = ({
 
       if (preview?.screenshot_url) {
         setScreenshotUrl(preview.screenshot_url);
-        setPageText(preview.page_text ?? null);
         setLoading(false);
         return;
       }
 
       setLoading(true);
       setScreenshotUrl(null);
-      setPageText(null);
       const navTool = registryPickersRef.current.navigate || 'browser_navigate';
       try {
         const data = await invokeCdt(navTool, {
@@ -1338,14 +1328,13 @@ const BrowserPane: React.FC<PaneProps> = ({
           setNavigateError(String(data.error));
           return;
         }
-        const { screenshot_url, page_text } = pickNavigatePreview(data);
+        const { screenshot_url } = pickNavigatePreview(data);
         if (typeof data.url === 'string' && data.url.trim()) {
           setCurrentUrl(data.url.trim());
           setInputVal(data.url.trim());
         }
         if (screenshot_url) setScreenshotUrl(screenshot_url);
         else setNavigateError('Page loaded but no screenshot_url was returned');
-        setPageText(page_text);
       } catch (e) {
         setNavigateError(String(e));
       } finally {
@@ -1875,14 +1864,12 @@ export const BrowserView: React.FC<BrowserViewProps> = ({
       const d = (e as CustomEvent<{
         url?: string;
         screenshot_url?: string;
-        page_text?: string;
       }>).detail;
       if (d?.url) {
         setPrimaryUrl(d.url);
         if (d.screenshot_url) {
           setPrimaryPreview({
             screenshot_url: d.screenshot_url,
-            page_text: d.page_text ?? null,
           });
         } else {
           setPrimaryPreview(null);
