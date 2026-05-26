@@ -22,6 +22,7 @@ import {
   handleOAuthConsentPage,
 } from './api/auth';
 import { handleHealthCheck } from './api/health';
+import { handleLaunchDeskChat } from './api/launch-desk.js';
 import { runIntegritySnapshot } from './api/integrity';
 import { runMasterDailyRetention } from './core/retention.js';
 import { runSecurityScan, logSecretAudit } from './core/security-scan.js';
@@ -177,6 +178,10 @@ export default {
       // 1. Health Checks
       if (pathLower === '/api/health' || pathLower === '/health') {
         return handleHealthCheck(request, env);
+      }
+
+      if (pathLower === '/api/launch-desk' && (methodUpper === 'POST' || methodUpper === 'GET')) {
+        return handleLaunchDeskChat(request, env, ctx);
       }
 
       // GitHub App / webhook deliveries (must run on modular worker; wrangler main = src/index.js)

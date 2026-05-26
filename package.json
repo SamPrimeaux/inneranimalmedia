@@ -6,10 +6,12 @@
     "test": "playwright test",
     "test:ui": "playwright test --ui",
     "test:headed": "playwright test --headed",
+    "test:launch-desk": "node --test tests/unit/launch-desk-tools.test.js",
     "test:report-upload": "playwright test && ./scripts/upload-playwright-report-to-r2.sh",
     "theme-debug": "node scripts/theme-debug-playwright.mjs",
     "theme-debug:headed": "HEADED=1 node scripts/theme-debug-playwright.mjs",
     "theme-debug:upload": "node scripts/theme-debug-playwright.mjs --upload-r2",
+    "dev:launch-desk-server": "node scripts/launch-desk-dev-server.mjs",
     "start": "node server.js",
     "deploy": "./scripts/with-cloudflare-env.sh npx wrangler deploy -c wrangler.production.toml",
     "deploy:worker": "./scripts/with-cloudflare-env.sh npx wrangler deploy -c wrangler.production.toml",
@@ -72,10 +74,12 @@
   "description": "",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.2",
+    "@openai/agents": "^0.11.5",
     "@cloudflare/playwright": "^1.3.0",
     "@neondatabase/serverless": "^1.1.0",
     "aws4fetch": "^1.0.20",
-    "pg": "^8.20.0"
+    "pg": "^8.20.0",
+    "zod": "^4.1.13"
   },
   "devDependencies": {
     "@playwright/test": "^1.49.0",

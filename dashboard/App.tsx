@@ -110,6 +110,7 @@ const MovieModeStudio = lazy(() =>
 const ExcalidrawView = lazy(() =>
   import('./components/ExcalidrawView').then((m) => ({ default: m.ExcalidrawView })),
 );
+const LaunchDeskPage = lazy(() => import('./pages/LaunchDeskPage'));
 
 function DashboardRoutesFallback() {
   return (
@@ -3009,6 +3010,7 @@ const App: React.FC = () => {
                       <Route path="/dashboard/library" element={<LibraryPage />} />
                       <Route path="/dashboard/projects" element={<ProjectManagement />} />
                       <Route path="/dashboard/tasks" element={<TasksPage />} />
+                      <Route path="/dashboard/launch-desk" element={<LaunchDeskPage />} />
                       <Route path="/dashboard/analytics" element={<Navigate to="/dashboard/analytics/overview" replace />} />
                       <Route path="/dashboard/analytics/:tab" element={<AnalyticsPage />} />
                       <Route path="/dashboard/health" element={<Navigate to="/dashboard/analytics/overview" replace />} />
