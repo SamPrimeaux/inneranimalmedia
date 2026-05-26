@@ -151,6 +151,23 @@ export async function runMidnightUtcJobs(env, ctx) {
       cronLedgerWrap(env, 'master_daily_retention', CRON_MIDNIGHT, () => runMasterDailyRetention(env)),
     );
     ctx.waitUntil(
+      cronLedgerWrap(env, 'close_stale_work_sessions', CRON_MIDNIGHT, async () => {
+        const res = await env.DB.prepare(`
+          UPDATE work_sessions
+          SET ended_at = unixepoch()
+          WHERE ended_at IS NULL
+            AND started_at < unixepoch() - 86400
+        `).run().catch(() => null);
+        return {
+          rowsRead: 0,
+          rowsWritten: Number(res?.meta?.changes) || 0,
+          metadata: {
+            work_sessions_closed: Number(res?.meta?.changes) || 0,
+          },
+        };
+      }),
+    );
+    ctx.waitUntil(
       cronLedgerWrap(env, 'security_scan_nightly', CRON_MIDNIGHT, () =>
         runSecurityScan(env, {
           // system-scoped cron — no user context

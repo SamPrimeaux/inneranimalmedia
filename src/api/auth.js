@@ -29,10 +29,9 @@ import { logAuthEvent } from '../core/auth-events.js';
 import { buildCanonicalAuthMe } from './auth-me.js';
 import {
   appendBrowserLoginSessionCookies,
-  autoStartWorkSession,
   finalizeInboundOAuth,
 } from './oauth-login-callbacks.js';
-import { upsertOauthToken } from './oauth.js';
+import { upsertOauthToken, resolveCanonicalWorkspace } from './oauth.js';
 
 /**
  * Primary Auth Dispatcher
@@ -127,15 +126,35 @@ export async function handleAuthApi(request, url, env) {
 /**
  * POST /api/auth/agent-session/mint
  * Auth: Worker secret AGENT_SESSION_MINT_SECRET (Bearer or X-Agent-Session-Mint-Secret).
- * Body: { user_id?, user_email?, ttl_seconds? } — or rely on env AGENT_SESSION_DEFAULT_USER_ID.
+ * Body: { user_id?, user_email?, workspace_id?, ttl_seconds? } — or rely on env AGENT_SESSION_DEFAULT_USER_ID.
+ * Caller user must be workspace owner (workspace_members.role = 'owner').
  * Returns a short-lived session id (same as browser `session` cookie value).
  */
+async function isWorkspaceOwner(env, workspaceId, userId) {
+  if (!env?.DB || !workspaceId || !userId) return false;
+  const row = await env.DB.prepare(
+    `SELECT role FROM workspace_members
+     WHERE workspace_id = ? AND user_id = ? AND COALESCE(is_active, 1) = 1
+     LIMIT 1`,
+  )
+    .bind(String(workspaceId).trim(), String(userId).trim())
+    .first()
+    .catch(() => null);
+  return String(row?.role || '') === 'owner';
+}
+
 async function handleAgentSessionMint(request, env) {
   if (!env?.DB) return jsonResponse({ error: 'Database not configured' }, 503);
   if (!env.AGENT_SESSION_MINT_SECRET || String(env.AGENT_SESSION_MINT_SECRET).trim() === '') {
     return jsonResponse({ error: 'Agent session mint is not configured' }, 503);
   }
   if (!verifyAgentSessionMintSecret(request, env)) {
+    await logAuthEvent(env, {
+      request,
+      eventType: 'auth_agent_session_mint_denied',
+      status: 'fail',
+      metadata: { reason: 'bad_mint_secret' },
+    });
     return jsonResponse({ error: 'Unauthorized' }, 401);
   }
 
@@ -177,7 +196,12 @@ async function handleAgentSessionMint(request, env) {
     );
   }
 
-  const userCheck = await env.DB.prepare(`SELECT id FROM auth_users WHERE id = ? LIMIT 1`)
+  const workspaceId = String(body.workspace_id || body.workspaceId || env.WORKSPACE_ID || '').trim();
+  if (!workspaceId) {
+    return jsonResponse({ error: 'workspace_id is required' }, 400);
+  }
+
+  const userCheck = await env.DB.prepare(`SELECT id, email FROM auth_users WHERE id = ? LIMIT 1`)
     .bind(userId)
     .first()
     .catch(() => null);
@@ -185,14 +209,72 @@ async function handleAgentSessionMint(request, env) {
     return jsonResponse({ error: 'user not found' }, 404);
   }
 
+  const userEmail = String(userCheck.email || '').trim().toLowerCase();
+  if (userEmail === 'ai@inneranimalmedia.com') {
+    ttlSeconds = Math.min(ttlSeconds, DEFAULT_AGENT_SESSION_TTL_SECONDS);
+  }
+
+  const ownerOk = await isWorkspaceOwner(env, workspaceId, userId);
+  if (!ownerOk) {
+    await logAuthEvent(env, {
+      request,
+      eventType: 'auth_agent_session_mint_denied',
+      status: 'fail',
+      userId,
+      metadata: { reason: 'not_workspace_owner', workspace_id: workspaceId, user_id: userId },
+    });
+    return jsonResponse({ error: 'Unauthorized' }, 401);
+  }
+
   try {
     const sessionId = await createLoginSession(request, env, userId, 'agent_mint', { ttlSeconds });
+    const tenantId =
+      String(body.tenant_id || body.tenantId || '').trim() ||
+      (await resolveTenantAtLogin(env, userId).catch(() => null)) ||
+      null;
+    const wsForSession = await resolveCanonicalWorkspace(env, userId);
+    try {
+      await env.DB.prepare(`
+        INSERT OR IGNORE INTO work_sessions (
+          session_id, user_id, tenant_id, workspace_id,
+          started_at, last_activity_at, page_context
+        ) VALUES (?, ?, ?, ?, unixepoch(), unixepoch(), ?)
+      `).bind(
+        sessionId,
+        userId,
+        tenantId ?? null,
+        wsForSession ?? null,
+        'agent_mint',
+      ).run();
+      await env.DB.prepare(`
+        INSERT INTO time_entries (
+          user_id, tenant_id, workspace_id,
+          description, hours, source,
+          work_session_id, started_at, ended_at, billable
+        ) VALUES (?, ?, ?, ?, ?, 'auto', ?, unixepoch(), unixepoch(), 0)
+      `).bind(
+        userId,
+        tenantId ?? null,
+        wsForSession ?? null,
+        'Agent session — admin invoked',
+        0,
+        sessionId,
+      ).run();
+    } catch (e) {
+      console.warn('[work_session] create failed (non-fatal):', e?.message);
+    }
     const expiresAtMs = Date.now() + ttlSeconds * 1000;
     await logAuthEvent(env, {
       request,
       eventType: 'auth_agent_session_minted',
       status: 'ok',
-      metadata: { ttl_seconds: ttlSeconds, user_id: userId },
+      userId,
+      metadata: {
+        ttl_seconds: ttlSeconds,
+        user_id: userId,
+        workspace_id: workspaceId,
+        target_email: userEmail || null,
+      },
     });
     return jsonResponse({
       ok: true,
@@ -203,6 +285,17 @@ async function handleAgentSessionMint(request, env) {
       expires_at: new Date(expiresAtMs).toISOString(),
     });
   } catch (e) {
+    await logAuthEvent(env, {
+      request,
+      eventType: 'auth_agent_session_mint_denied',
+      status: 'fail',
+      userId,
+      metadata: {
+        reason: 'mint_failed',
+        workspace_id: workspaceId,
+        error: String(e?.message || e).slice(0, 200),
+      },
+    });
     console.warn('[agent-session/mint]', e?.message ?? e);
     return jsonResponse({ error: e?.message || 'mint_failed' }, 500);
   }
@@ -319,6 +412,24 @@ async function handleBackupCodeLogin(request, _url, env) {
       return jsonResponse({ error: 'Account provisioning failed', reason: identityOk?.reason }, 503);
     }
     const sessionId = await createLoginSession(request, env, authUserRow.id, 'backup_code');
+    const tenantId = await resolveTenantAtLogin(env, authUserRow.id).catch(() => null);
+    try {
+      const wsForSession = await resolveCanonicalWorkspace(env, authUserRow.id);
+      await env.DB.prepare(`
+        INSERT OR IGNORE INTO work_sessions (
+          session_id, user_id, tenant_id, workspace_id,
+          started_at, last_activity_at, page_context
+        ) VALUES (?, ?, ?, ?, unixepoch(), unixepoch(), ?)
+      `).bind(
+        sessionId,
+        authUserRow.id,
+        tenantId ?? null,
+        wsForSession ?? null,
+        request.url ? new URL(request.url).pathname : '/api/auth/login',
+      ).run();
+    } catch (e) {
+      console.warn('[work_session] create failed (non-fatal):', e?.message);
+    }
     return redirectWithLoginSession(request, sessionId);
   }
 
@@ -367,6 +478,24 @@ async function handleBackupCodeLogin(request, _url, env) {
   }
 
   const sessionId = await createLoginSession(request, env, authUserRow.id, 'backup_code');
+  const tenantId = await resolveTenantAtLogin(env, authUserRow.id).catch(() => null);
+  try {
+    const wsForSession = await resolveCanonicalWorkspace(env, authUserRow.id);
+    await env.DB.prepare(`
+      INSERT OR IGNORE INTO work_sessions (
+        session_id, user_id, tenant_id, workspace_id,
+        started_at, last_activity_at, page_context
+      ) VALUES (?, ?, ?, ?, unixepoch(), unixepoch(), ?)
+    `).bind(
+      sessionId,
+      authUserRow.id,
+      tenantId ?? null,
+      wsForSession ?? null,
+      request.url ? new URL(request.url).pathname : '/api/auth/login',
+    ).run();
+  } catch (e) {
+    console.warn('[work_session] create failed (non-fatal):', e?.message);
+  }
   return redirectWithLoginSession(request, sessionId);
 }
 
@@ -550,7 +679,23 @@ async function handleEmailSignup(request, url, env) {
 
   const sessionId = await createLoginSession(request, env, authUserId, 'email_signup');
   const tid = await resolveTenantAtLogin(env, authUserId).catch(() => null);
-  autoStartWorkSession(env, authUserId, tid, url.pathname).catch(() => {});
+  try {
+    const wsForSession = await resolveCanonicalWorkspace(env, authUserId);
+    await env.DB.prepare(`
+      INSERT OR IGNORE INTO work_sessions (
+        session_id, user_id, tenant_id, workspace_id,
+        started_at, last_activity_at, page_context
+      ) VALUES (?, ?, ?, ?, unixepoch(), unixepoch(), ?)
+    `).bind(
+      sessionId,
+      authUserId,
+      tid ?? null,
+      wsForSession ?? null,
+      url.pathname,
+    ).run();
+  } catch (e) {
+    console.warn('[work_session] create failed (non-fatal):', e?.message);
+  }
 
   await logAuthEvent(env, {
     request,
@@ -626,6 +771,15 @@ async function handleLogout(request, url, env) {
   response.headers.append('Set-Cookie', `${AUTH_COOKIE_NAME}=; Domain=.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`);
   response.headers.append('Set-Cookie', `${AUTH_COOKIE_NAME}=; Domain=.sandbox.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`);
 
+  if (sessionId && env?.DB) {
+    env.DB.prepare(`
+      UPDATE work_sessions
+      SET ended_at = unixepoch()
+      WHERE session_id = ?
+        AND ended_at IS NULL
+    `).bind(sessionId).run().catch(() => {});
+  }
+
   return response;
 }
 
@@ -634,6 +788,24 @@ async function handleLogout(request, url, env) {
  */
 async function finishLogin(request, url, env, userId, redirectPath) {
   const sessionId = await createLoginSession(request, env, userId, 'email');
+  const tenantId = await resolveTenantAtLogin(env, userId).catch(() => null);
+  try {
+    const wsForSession = await resolveCanonicalWorkspace(env, userId);
+    await env.DB.prepare(`
+      INSERT OR IGNORE INTO work_sessions (
+        session_id, user_id, tenant_id, workspace_id,
+        started_at, last_activity_at, page_context
+      ) VALUES (?, ?, ?, ?, unixepoch(), unixepoch(), ?)
+    `).bind(
+      sessionId,
+      userId,
+      tenantId ?? null,
+      wsForSession ?? null,
+      url.pathname,
+    ).run();
+  } catch (e) {
+    console.warn('[work_session] create failed (non-fatal):', e?.message);
+  }
 
   const next =
     sanitizeBrowserNextPath(

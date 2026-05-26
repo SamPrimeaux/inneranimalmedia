@@ -774,7 +774,7 @@ async function mcpOAuthResolveTenantId(env, authUser) {
   return null;
 }
 
-async function resolveCanonicalWorkspace(env, userId) {
+export async function resolveCanonicalWorkspace(env, userId) {
   const row = await env.DB.prepare(`
     SELECT 
       COALESCE(

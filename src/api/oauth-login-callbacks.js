@@ -14,6 +14,7 @@ import {
 import { ensureIdentityPlaneBeforeSession } from '../core/ensureIdentityPlaneBeforeSession.js';
 import { ensureAppUser } from '../core/ensureAppUser.js';
 import { upsertOauthToken } from '../core/oauth-token-store.js';
+import { resolveCanonicalWorkspace } from './oauth.js';
 
 function oauthOrigin(url) {
   return url.origin || 'https://inneranimalmedia.com';
@@ -94,7 +95,8 @@ export function oauthPostLoginGlobeRedirectUrl(originBase, returnToFullUrl) {
   return `${originBase}/auth/login?globe_exit=1&next=${encodeURIComponent(path)}`;
 }
 
-/** Match worker.js autoStartWorkSession */
+// DEPRECATED: use canonical work_session INSERT pattern with the real browser session id.
+// See finalizeInboundOAuth(...) Phase 2A implementation.
 export async function autoStartWorkSession(env, userId, tenantId, pageContext) {
   if (!env?.DB) return null;
   const sessionId = 'ws_' + String(userId || '').slice(-8) + '_' + Date.now();
@@ -109,108 +111,6 @@ export async function autoStartWorkSession(env, userId, tenantId, pageContext) {
 
 function googleClientSecret(env) {
   return env.GOOGLE_OAUTH_CLIENT_SECRET || env.GOOGLE_CLIENT_SECRET || '';
-}
-
-/**
- * Best-effort time tracking + analytics after OAuth login. Never throws.
- * @param {*} db — env.DB (D1)
- * @param {string} browserSessionId — `auth_sessions.id` from createLoginSession (cookie session UUID)
- * @param {string} userId — auth_users.id
- */
-export async function tryOAuthLoginTimeTracking(db, browserSessionId, userId) {
-  if (!db || !browserSessionId || !userId) return;
-  try {
-    let au = null;
-    try {
-      au = await db
-        .prepare(`SELECT tenant_id, active_workspace_id FROM auth_users WHERE id = ? LIMIT 1`)
-        .bind(userId)
-        .first();
-    } catch (_) {
-      au = null;
-    }
-    const tenantId = au?.tenant_id ?? null;
-    const activeWs = au?.active_workspace_id ?? null;
-
-    const wsSessionId =
-      'wss_' +
-      Array.from(crypto.getRandomValues(new Uint8Array(8)))
-        .map((b) => b.toString(16).padStart(2, '0'))
-        .join('');
-
-    await db
-      .prepare(
-        `INSERT INTO work_sessions
-           (session_id, user_id, tenant_id, workspace_id,
-            started_at, last_activity_at, created_at)
-         VALUES (?, ?, ?, ?, unixepoch(), unixepoch(), unixepoch())`,
-      )
-      .bind(wsSessionId, userId, tenantId, activeWs)
-      .run();
-
-    await db
-      .prepare(
-        `UPDATE auth_sessions SET workspace_id = ?, work_session_id = ?
-         WHERE id = ?`,
-      )
-      .bind(activeWs ?? null, wsSessionId, browserSessionId)
-      .run();
-
-    await db
-      .prepare(
-        `INSERT INTO time_entries
-           (user_id, tenant_id, workspace_id, description,
-            source, work_session_id, started_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'auto', ?, unixepoch(), unixepoch(), unixepoch())`,
-      )
-      .bind(
-        userId,
-        tenantId,
-        activeWs,
-        'Login session — ' + new Date().toISOString().slice(0, 10),
-        wsSessionId,
-      )
-      .run();
-
-    await db
-      .prepare(
-        `INSERT INTO agentsam_analytics
-           (tenant_id, workspace_id, period, period_date,
-            total_sessions, computed_at)
-         VALUES (?, ?, 'session', ?, 1, unixepoch())
-         ON CONFLICT(tenant_id, workspace_id, period, period_date)
-         DO UPDATE SET
-           total_sessions = total_sessions + 1,
-           computed_at = unixepoch()`,
-      )
-      .bind(tenantId, activeWs ?? 'ws_unknown', new Date().toISOString().slice(0, 10))
-      .run();
-
-    const existingProfile = await db
-      .prepare(`SELECT id FROM agentsam_subagent_profile WHERE user_id = ? LIMIT 1`)
-      .bind(userId)
-      .first();
-
-    if (!existingProfile) {
-      await db
-        .prepare(
-          `INSERT INTO agentsam_subagent_profile
-             (id, user_id, workspace_id, tenant_id, slug,
-              display_name, description, icon, agent_type,
-              personality_tone, is_active, is_platform_global)
-           VALUES (
-             'sub_' || lower(hex(randomblob(8))),
-             ?, ?, ?, 'agent-sam',
-             'Agent Sam', 'Default AI assistant', 'robot',
-             'assistant', 'professional', 1, 0
-           )`,
-        )
-        .bind(userId, activeWs ?? '', tenantId)
-        .run();
-    }
-  } catch (e) {
-    console.error('[time_tracking] failed to create work session:', e?.message ?? e);
-  }
 }
 
 /**
@@ -307,9 +207,81 @@ export async function finalizeInboundOAuth(env, request, input) {
     return { ok: false, error: 'session_failed' };
   }
 
-  await tryOAuthLoginTimeTracking(env.DB, sessionId, authUserId);
   const tenantId = await resolveTenantAtLogin(env, authUserId).catch(() => null);
-  autoStartWorkSession(env, authUserId, tenantId, pageContext).catch(() => {});
+  const workspaceId = await resolveCanonicalWorkspace(env, authUserId);
+  const sessionDate = new Date().toISOString().slice(0, 10);
+  try {
+    await env.DB.prepare(`
+      INSERT OR IGNORE INTO work_sessions (
+        session_id, user_id, tenant_id, workspace_id,
+        started_at, last_activity_at, page_context
+      ) VALUES (?, ?, ?, ?, unixepoch(), unixepoch(), ?)
+    `).bind(
+      sessionId,
+      authUserId,
+      tenantId ?? null,
+      workspaceId ?? null,
+      pageContext,
+    ).run();
+  } catch (e) {
+    console.warn(`[finalizeInboundOAuth/${provider}] work_sessions insert failed`, e?.message ?? e);
+  }
+  await env.DB.prepare(`
+    UPDATE auth_sessions
+    SET workspace_id = ?, work_session_id = ?
+    WHERE id = ?
+  `).bind(
+    workspaceId ?? null,
+    sessionId,
+    sessionId,
+  ).run().catch(() => {});
+  await env.DB.prepare(`
+    INSERT INTO time_entries
+      (user_id, tenant_id, workspace_id, description,
+       source, work_session_id, started_at, created_at, updated_at)
+    VALUES (?, ?, ?, ?, 'auto', ?, unixepoch(), unixepoch(), unixepoch())
+  `).bind(
+    authUserId,
+    tenantId ?? null,
+    workspaceId ?? null,
+    'Login session — ' + sessionDate,
+    sessionId,
+  ).run().catch(() => {});
+  await env.DB.prepare(`
+    INSERT INTO agentsam_analytics
+      (tenant_id, workspace_id, period, period_date,
+       total_sessions, computed_at)
+    VALUES (?, ?, 'session', ?, 1, unixepoch())
+    ON CONFLICT(tenant_id, workspace_id, period, period_date)
+    DO UPDATE SET
+      total_sessions = total_sessions + 1,
+      computed_at = unixepoch()
+  `).bind(
+    tenantId ?? null,
+    workspaceId ?? 'ws_unknown',
+    sessionDate,
+  ).run().catch(() => {});
+  const existingProfile = await env.DB.prepare(
+    `SELECT id FROM agentsam_subagent_profile WHERE user_id = ? LIMIT 1`,
+  ).bind(authUserId).first().catch(() => null);
+  if (!existingProfile) {
+    await env.DB.prepare(`
+      INSERT INTO agentsam_subagent_profile
+        (id, user_id, workspace_id, tenant_id, slug,
+         display_name, description, icon, agent_type,
+         personality_tone, is_active, is_platform_global)
+      VALUES (
+        'sub_' || lower(hex(randomblob(8))),
+        ?, ?, ?, 'agent-sam',
+        'Agent Sam', 'Default AI assistant', 'robot',
+        'assistant', 'professional', 1, 0
+      )
+    `).bind(
+      authUserId,
+      workspaceId ?? '',
+      tenantId ?? null,
+    ).run().catch(() => {});
+  }
 
   return { ok: true, authUserId, sessionId, tenantId };
 }
@@ -419,7 +391,10 @@ export async function handleGitHubLoginOAuthCallback(request, url, env, options 
           account_identifier: ghLogin,
           account_email: email ?? null,
           account_display: name ?? null,
-          workspace_id: null,
+          workspace_id:
+            sessionUser?.active_workspace_id ||
+            sessionUser?.default_workspace_id ||
+            null,
           metadata_json: null,
         }, { skipRegistry: true });
       } catch (e) {
@@ -448,6 +423,7 @@ export async function handleGitHubLoginOAuthCallback(request, url, env, options 
     );
   }
   const { authUserId: userId, sessionId, tenantId: tidGh } = finalizedGh;
+  const workspaceId = await resolveCanonicalWorkspace(env, userId);
   const ghLogin = (userInfo.login || '').toString() || 'github';
   if (tokens.access_token && env.DB) {
     try {
@@ -464,7 +440,7 @@ export async function handleGitHubLoginOAuthCallback(request, url, env, options 
         account_identifier: ghLogin,
         account_email: oauthEmail ?? null,
         account_display: name ?? null,
-        workspace_id: null,
+        workspace_id: workspaceId || null,
         metadata_json: null,
       }, { skipRegistry: true });
     } catch (e) {

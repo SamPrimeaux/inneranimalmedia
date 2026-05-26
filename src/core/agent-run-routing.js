@@ -447,6 +447,41 @@ export function scheduleAgentsamChatAgentRunInsert(env, ctx, p) {
           quickstartBatch: p.quickstartBatch ?? null,
           qualityScore: p.qualityScore ?? null,
         });
+
+        if (p.success && p.conversationId != null && String(p.conversationId).trim() !== '') {
+          const sessionId = String(p.conversationId).trim();
+          const runDurationMs = Math.max(0, Math.floor(Number(p.durationMs) || 0));
+          if (runDurationMs > 0) {
+            const runSeconds = Math.floor(runDurationMs / 1000);
+            const endedAt = Math.floor(Date.now() / 1000);
+            const startedAt = Math.floor((Date.now() - runDurationMs) / 1000);
+            await env.DB.prepare(`
+              UPDATE work_sessions
+              SET last_activity_at = unixepoch(),
+                  total_active_seconds = total_active_seconds + ?
+              WHERE session_id = ?
+            `).bind(runSeconds, sessionId).run().catch(() => {});
+
+            await env.DB.prepare(`
+              INSERT INTO time_entries (
+                user_id, tenant_id, workspace_id,
+                description, hours, source,
+                work_session_id, agent_run_id,
+                started_at, ended_at, billable
+              ) VALUES (?, ?, ?, ?, ?, 'auto', ?, ?, ?, ?, 0)
+            `).bind(
+              uid,
+              p.tenantId ?? null,
+              ws,
+              'Agent run — ' + (p.taskType || 'agent'),
+              runDurationMs / 3_600_000,
+              sessionId,
+              runId,
+              startedAt,
+              endedAt,
+            ).run().catch(() => {});
+          }
+        }
         return;
       }
 
