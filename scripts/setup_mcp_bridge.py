@@ -126,11 +126,22 @@ def update_claude_desktop(config_path: Path, server_key: str, url: str, token: s
         except json.JSONDecodeError:
             print("  ⚠ Claude Desktop config malformed — rebuilding")
 
+    # Claude Desktop does not accept url+headers; use mcp-remote (same as Cloudflare MCP entries).
+    bearer = token if str(token).startswith("Bearer ") else f"Bearer {token}"
     config.setdefault("mcpServers", {})[server_key] = {
-        "url": url,
-        "headers": {
-            "Authorization": f"Bearer {token}"
-        }
+        "command": "npx",
+        "args": [
+            "-y",
+            "mcp-remote",
+            url,
+            "--header",
+            "Authorization:${IAM_MCP_BEARER}",
+            "--transport",
+            "http-only",
+        ],
+        "env": {
+            "IAM_MCP_BEARER": bearer,
+        },
     }
 
     config_path.parent.mkdir(parents=True, exist_ok=True)
