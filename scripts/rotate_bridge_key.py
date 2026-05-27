@@ -452,15 +452,32 @@ def _rotate_bridge_tokens_transaction(
     new_hash: str,
     old_id: Optional[str],
 ) -> str:
+    """Revoke prior bridge row (if any) and insert a new active token row.
+
+    Cloudflare D1 HTTP `query` rejects SQL `BEGIN`/`COMMIT` (Durable Objects
+    transaction API only). Use separate statements; id is minted in Python so
+    we do not rely on `RETURNING` across a transaction block.
+    """
+    new_id = f"tok_iam_bridge_{secrets.token_hex(6)}"
     if old_id:
-        sql = f"""
-BEGIN IMMEDIATE;
+        _cf_d1_query(
+            account_id=account_id,
+            database_id=database_id,
+            api_token=api_token,
+            sql="""
 UPDATE mcp_workspace_tokens
 SET is_active = 0,
     revoked_at = unixepoch(),
-    revoked_by = '{REVOKED_BY}'
-WHERE id = ?;
-
+    revoked_by = ?
+WHERE id = ?
+""".strip(),
+            params=[REVOKED_BY, old_id],
+        )
+        _cf_d1_query(
+            account_id=account_id,
+            database_id=database_id,
+            api_token=api_token,
+            sql="""
 INSERT INTO mcp_workspace_tokens (
   id,
   workspace_id,
@@ -475,26 +492,27 @@ INSERT INTO mcp_workspace_tokens (
   audience,
   created_at
 ) VALUES (
-  'tok_iam_bridge_' || substr(hex(randomblob(6)),1,12),
-  ?,
-  ?,
-  '{BRIDGE_TOKEN_LABEL}',
-  ?,
-  'service',
-  1,
-  ?,
-  '{CREATED_BY}',
-  '{BRIDGE_SCOPES_JSON}',
-  '{BRIDGE_AUDIENCE}',
-  unixepoch()
+  ?, ?, ?, ?, ?, 'service', 1, ?, ?, ?, ?, unixepoch()
 )
-RETURNING id;
-COMMIT;
-""".strip()
-        params: List[Any] = [old_id, OPS_WORKSPACE_ID, OPS_TENANT_ID, new_hash, old_id]
+""".strip(),
+            params=[
+                new_id,
+                OPS_WORKSPACE_ID,
+                OPS_TENANT_ID,
+                BRIDGE_TOKEN_LABEL,
+                new_hash,
+                old_id,
+                CREATED_BY,
+                BRIDGE_SCOPES_JSON,
+                BRIDGE_AUDIENCE,
+            ],
+        )
     else:
-        sql = f"""
-BEGIN IMMEDIATE;
+        _cf_d1_query(
+            account_id=account_id,
+            database_id=database_id,
+            api_token=api_token,
+            sql="""
 INSERT INTO mcp_workspace_tokens (
   id,
   workspace_id,
@@ -509,35 +527,21 @@ INSERT INTO mcp_workspace_tokens (
   audience,
   created_at
 ) VALUES (
-  'tok_iam_bridge_' || substr(hex(randomblob(6)),1,12),
-  ?,
-  ?,
-  '{BRIDGE_TOKEN_LABEL}',
-  ?,
-  'service',
-  1,
-  NULL,
-  '{CREATED_BY}',
-  '{BRIDGE_SCOPES_JSON}',
-  '{BRIDGE_AUDIENCE}',
-  unixepoch()
+  ?, ?, ?, ?, ?, 'service', 1, NULL, ?, ?, ?, unixepoch()
 )
-RETURNING id;
-COMMIT;
-""".strip()
-        params = [OPS_WORKSPACE_ID, OPS_TENANT_ID, new_hash]
-
-    j = _cf_d1_query(
-        account_id=account_id,
-        database_id=database_id,
-        api_token=api_token,
-        sql=sql,
-        params=params,
-    )
-    rows = _pick_first_result_rows(j)
-    if not rows or not rows[0].get("id"):
-        raise SystemExit("D1 bridge rotation failed: INSERT did not return id.")
-    return str(rows[0]["id"]).strip()
+""".strip(),
+            params=[
+                new_id,
+                OPS_WORKSPACE_ID,
+                OPS_TENANT_ID,
+                BRIDGE_TOKEN_LABEL,
+                new_hash,
+                CREATED_BY,
+                BRIDGE_SCOPES_JSON,
+                BRIDGE_AUDIENCE,
+            ],
+        )
+    return new_id
 
 
 def _log_agent_mint_rotation_audit(
