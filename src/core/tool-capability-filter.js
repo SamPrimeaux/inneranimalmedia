@@ -4,6 +4,10 @@
 
 import { hasImageGenerationIntent, hasVideoGenerationIntent } from '../tools/image_generation.js';
 import { getCapabilityTools } from './capability-tools.js';
+import {
+  isCodeImplementationIntent,
+  isCodeImplementationToolName,
+} from './code-implementation-intent.js';
 
 function parseJsonSafe(value, fallback = null) {
   if (value == null || value === '') return fallback;
@@ -237,6 +241,8 @@ export async function filterToolsForCapabilityDecision(env, tools, capabilityDec
       'd1_write',
       'd1_batch_write',
     ]);
+  } else if (d.should_use_monaco || isCodeImplementationIntent(msg)) {
+    next = tools.filter((t) => isCodeImplementationToolName(t.name));
   } else if (d.should_use_browser) {
     next = tools.filter((t) => isBrowserToolName(t.name));
   } else if (d.should_use_github || wantsGh) {

@@ -553,20 +553,21 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
   switch (handlerType) {
     case 'd1': {
       const op = String(config.operation || 'query').toLowerCase();
-      const sql = String(params.sql || params.query || '').trim();
-      if (!sql) {
-        result = { ok: false, error: `d1 tool requires sql in input (operation=${op})` };
-        break;
-      }
       try {
-        if (op === 'execute' || op === 'write') {
-          const out = await d1_write({ sql, params: params.params }, env);
-          result = { ok: true, body: out };
-          break;
-        }
         if (op === 'introspect' || op === 'schema') {
           const out = await dbToolHandlers.d1_schema_introspect(params, env);
           result = out?.error ? { ok: false, error: String(out.error) } : { ok: true, body: out };
+          break;
+        }
+
+        const sql = String(params.sql || params.query || '').trim();
+        if (!sql) {
+          result = { ok: false, error: `d1 tool requires sql in input (operation=${op})` };
+          break;
+        }
+        if (op === 'execute' || op === 'write') {
+          const out = await d1_write({ sql, params: params.params }, env);
+          result = { ok: true, body: out };
           break;
         }
         const rows = await d1_query({ sql, params: params.params }, env);

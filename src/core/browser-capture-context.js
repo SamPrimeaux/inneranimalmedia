@@ -29,9 +29,24 @@ function toolResultOk(res) {
 }
 
 function extractUrl(flat) {
-  const bc = flat.browserContext && typeof flat.browserContext === 'object' ? flat.browserContext : null;
+  const bc =
+    (flat.browserContext && typeof flat.browserContext === 'object' ? flat.browserContext : null) ||
+    (flat.browser_context && typeof flat.browser_context === 'object' ? flat.browser_context : null);
   const fromCtx = bc?.url != null ? String(bc.url).trim() : '';
   if (fromCtx) return fromCtx;
+  const ws =
+    flat.workspaceContext && typeof flat.workspaceContext === 'object'
+      ? flat.workspaceContext
+      : flat.workspace_context && typeof flat.workspace_context === 'object'
+        ? flat.workspace_context
+        : null;
+  const fromWs =
+    ws?.browserUrl != null
+      ? String(ws.browserUrl).trim()
+      : ws?.browser_url != null
+        ? String(ws.browser_url).trim()
+        : '';
+  if (fromWs) return fromWs;
   const fromFlat = flat.url != null ? String(flat.url).trim() : '';
   if (fromFlat) return fromFlat;
   const m = String(flat.message || flat.prompt || '').match(/https?:\/\/[^\s)>'"<]+/i);

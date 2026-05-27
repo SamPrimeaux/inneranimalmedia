@@ -3,6 +3,10 @@
  * Does not invoke tools; only returns structured hints for system prompt + SSE UI.
  */
 import { resolveModelApiKey } from '../integrations/tokens.js';
+import {
+  isCodeImplementationIntent,
+  messageExplicitlyRequestsBrowserInspection,
+} from './code-implementation-intent.js';
 
 /** Cheap classifier — same family as routing arms default (gemini-2.5-flash-lite). */
 const GEMINI_CLASSIFIER_MODEL = 'gemini-2.5-flash-lite';
@@ -27,26 +31,30 @@ const DEFAULT_DECISION = {
 function heuristicDecision(message, browserContext) {
   const m = String(message || '').toLowerCase();
   const urlInMessage = /https?:\/\/[^\s]+/i.test(m);
-  const ctxUrl = browserContext && typeof browserContext === 'object' && browserContext.url;
   const playwrightCue = /\b(playwright|@playwright\/test|npx playwright|e2e test|smoke test|browser test)\b/i.test(
     m,
   );
+  const codeCue = isCodeImplementationIntent(m);
+  const explicitBrowserInspect = messageExplicitlyRequestsBrowserInspection(m);
   const browserCue =
     !playwrightCue &&
-    (/\b(inspect|verify|screenshot|debug|live page|looks broken|visual|render|dom|open this url|check the page|why does)\b/i.test(
-      m,
-    ) ||
-      !!ctxUrl ||
-      urlInMessage);
+    !codeCue &&
+    (explicitBrowserInspect ||
+      (urlInMessage &&
+        /\b(inspect|screenshot|navigate|debug\s+the\s+site|open\s+this\s+url|check\s+the\s+page)\b/i.test(m)));
   const excalCue = /\b(diagram|wireframe|draw|excalidraw|flowchart|map architecture|system map|sketch)\b/i.test(m);
   const monacoCue =
+    codeCue ||
     /\b(edit|refactor|patch|implement|fix the code|component|monaco|this file|landing page file|create a file)\b/i.test(
       m,
     );
   const artifactCue = /\b(publish|artifact|r2|upload|deploy asset|register the artifact|store in library)\b/i.test(m);
   const d1Cue = /\b(d1|hyperdrive|query the db|agentsam_|workflow_runs|select from)\b/i.test(m);
-  const githubCue = /\bgithub\b|github\.com\/|pull request|\.git\b/i.test(m);
-  const terminalCue = /\b(run tests|wrangler|npm run|curl |deploy|execute script|terminal)\b/i.test(m);
+  const githubCue =
+    codeCue || /\bgithub\b|github\.com\/|pull request|\.git\b/i.test(m);
+  const terminalCue =
+    codeCue ||
+    /\b(run tests|wrangler|npm run|curl |deploy|execute script|terminal)\b/i.test(m);
 
   /** @type {string[]} */
   const required = [];
@@ -55,16 +63,17 @@ function heuristicDecision(message, browserContext) {
   if (browserCue) required.push('browser');
   if (excalCue) required.push('excalidraw');
   if (monacoCue) required.push('monaco');
-  if (artifactCue) required.push('artifact');
+  if (artifactCue || codeCue) required.push('artifact');
   if (d1Cue) required.push('d1');
   if (githubCue) required.push('github');
   if (terminalCue) optional.push('terminal');
+  if (codeCue && !artifactCue) optional.push('artifact');
   if (playwrightCue) optional.push('terminal');
 
   let default_surface = 'chat';
-  if (browserCue && !excalCue && !monacoCue) default_surface = 'browser';
+  if (monacoCue && !browserCue) default_surface = 'monaco';
+  else if (browserCue && !excalCue && !monacoCue) default_surface = 'browser';
   else if (excalCue && !browserCue) default_surface = 'excalidraw';
-  else if (monacoCue && !browserCue) default_surface = 'monaco';
 
   return {
     intent: playwrightCue
@@ -82,7 +91,7 @@ function heuristicDecision(message, browserContext) {
     should_use_browser: browserCue,
     should_use_excalidraw: excalCue,
     should_use_monaco: monacoCue,
-    should_use_artifact_r2: artifactCue,
+    should_use_artifact_r2: artifactCue || codeCue,
     should_use_d1: d1Cue,
     should_use_github: githubCue,
     should_use_terminal: terminalCue || playwrightCue,

@@ -4,6 +4,8 @@
  */
 import { brandedRowMatchesRouteCapability } from './agentsam-capability-aliases.js';
 import { parseHandlerConfig } from './resolve-credential.js';
+import { agentsamPlanInputSchema } from './mcp-plan-schema.js';
+import { agentsamMemorySearchInputSchema } from './mcp-memory-search-schema.js';
 
 /** Lightweight lane inference (avoids mcp-tools-branded → retention import chain in Node smoke). */
 function inferLaneFromMessage(message, modeSlug) {
@@ -103,10 +105,22 @@ export async function inferToolCategoriesForContext(lane, message, modeSlug, db 
  * @param {Record<string, unknown>|null} row
  */
 export function inputSchemaFromAgentsamToolRow(row) {
+  const tk = trim(row?.tool_key || row?.tool_name).toLowerCase();
+  if (tk === 'agentsam_plan') return agentsamPlanInputSchema();
+  if (tk === 'agentsam_memory_search') return agentsamMemorySearchInputSchema();
+
   const parsed = parseJsonSafe(row?.input_schema, null);
   if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
     const o = { ...parsed };
     if (!o.type) o.type = 'object';
+    if (Array.isArray(o.required) && o.required.includes('query') && tk.includes('memory_search')) {
+      o.required = o.required.filter((f) => String(f).toLowerCase() !== 'query');
+      if (!o.required.length) delete o.required;
+    }
+    if (Array.isArray(o.required) && o.required.includes('goal') && tk === 'agentsam_plan') {
+      o.required = o.required.filter((f) => String(f).toLowerCase() !== 'goal');
+      if (!o.required.length) delete o.required;
+    }
     return o;
   }
   const hc = parseHandlerConfig(row?.handler_config);

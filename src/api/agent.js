@@ -156,6 +156,11 @@ import {
   capabilityRouterPromptBlock,
 } from '../core/capability-router.js';
 import { filterToolsForCapabilityDecision } from '../core/tool-capability-filter.js';
+import {
+  CODE_IMPLEMENTATION_TOOL_NAMES,
+  isCodeImplementationIntent,
+  messageExplicitlyRequestsBrowserInspection,
+} from '../core/code-implementation-intent.js';
 import { userCanAccessWorkspace } from '../core/cms-theme-resolve.js';
 
 /**
@@ -1273,10 +1278,24 @@ const BROWSER_CAPABILITY_TOOL_NAMES = [
 ];
 
 function shouldEnsureBrowserCapabilityTools(message, intentResult, capabilityDecision, promptRouteRow) {
+  if (
+    isCodeImplementationIntent(message) &&
+    !messageExplicitlyRequestsBrowserInspection(message)
+  ) {
+    return false;
+  }
   if (String(intentResult?.taskType || '').toLowerCase() === 'browser') return true;
   if (messageHasBrowserUrlNavigation(message)) return true;
   if (capabilityDecision?.should_use_browser === true) return true;
   if (String(promptRouteRow?.route_key || '').toLowerCase() === 'browser') return true;
+  return false;
+}
+
+function shouldEnsureCodeCapabilityTools(message, intentResult, capabilityDecision) {
+  if (messageExplicitlyRequestsBrowserInspection(message)) return false;
+  if (isCodeImplementationIntent(message)) return true;
+  if (capabilityDecision?.should_use_monaco === true) return true;
+  if (String(intentResult?.taskType || '').toLowerCase() === 'code') return true;
   return false;
 }
 
@@ -1442,16 +1461,33 @@ function capabilityFamiliesFromUserMessage(message, intentResult) {
   ) {
     fams.push('d1');
   }
-  if (/\bgithub\b|github\.com\/|raw\.githubusercontent/i.test(m)) fams.push('github');
-  if (/\bterminal\b|run_command|\brun ls\b|\bwrangler\b|\bnpm run\b|\bbash\b/i.test(m) || tt.includes('shell')) {
-    fams.push('terminal');
+  if (
+    isCodeImplementationIntent(message) ||
+    /\bgithub\b|github\.com\/|raw\.githubusercontent/i.test(m)
+  ) {
+    fams.push('github');
   }
   if (
-    messageHasBrowserUrlNavigation(m) ||
-    /\b(browser|screenshot|inspect).*\bhttps?:\/\//i.test(m) ||
-    (extractBrowserNavigateUrl(m) && /\b(inspect|screenshot|navigate|open|visit)\b/i.test(m))
+    isCodeImplementationIntent(message) ||
+    /\bterminal\b|run_command|\brun ls\b|\bwrangler\b|\bnpm run\b|\bbash\b/i.test(m) ||
+    tt.includes('shell')
   ) {
-    fams.push('browser');
+    fams.push('terminal');
+  }
+  if (isCodeImplementationIntent(message)) {
+    fams.push('r2');
+  }
+  if (
+    !isCodeImplementationIntent(message) ||
+    messageExplicitlyRequestsBrowserInspection(message)
+  ) {
+    if (
+      messageHasBrowserUrlNavigation(m) ||
+      /\b(browser|screenshot|inspect).*\bhttps?:\/\//i.test(m) ||
+      (extractBrowserNavigateUrl(m) && /\b(inspect|screenshot|navigate|open|visit)\b/i.test(m))
+    ) {
+      fams.push('browser');
+    }
   }
   if (hasImageGenerationIntent(message)) fams.push('image');
   if (hasVideoGenerationIntent(message)) fams.push('video');
@@ -1479,7 +1515,15 @@ function agentToolFamily(t) {
   if (n === 'd1_query' || n.startsWith('d1_') || c.includes('d1') || c.includes('database')) return 'd1';
   if (n.startsWith('github_') || n === 'github_file' || c.includes('github')) return 'github';
   if (n === 'terminal_run' || n === 'terminal_execute' || n === 'run_command' || n === 'bash' || c.includes('terminal')) return 'terminal';
-  if (n.startsWith('r2_') || c.includes('r2') || c.includes('storage')) return 'r2';
+  if (
+    n === 'workspace_read_file' ||
+    n.startsWith('workspace_') ||
+    n.startsWith('r2_') ||
+    c.includes('r2') ||
+    c.includes('storage')
+  ) {
+    return 'r2';
+  }
   if (n.startsWith('browser_') || n.startsWith('cdt_') || n.startsWith('playwright_') || n === 'browser_content' || c.includes('browser')) return 'browser';
   if (n.startsWith('imgx_') || c.includes('image') || (c.includes('media') && !n.startsWith('moviemode_') && !n.startsWith('veo_'))) {
     return 'image';
@@ -1497,8 +1541,15 @@ function requestedFamiliesForAgentTools(message, intentResult, capabilityDecisio
   if (d.should_use_d1) fams.add('d1');
   if (d.should_use_github) fams.add('github');
   if (d.should_use_terminal) fams.add('terminal');
-  if (d.should_use_browser) fams.add('browser');
-  if (d.should_use_artifact_r2) fams.add('r2');
+  if (d.should_use_artifact_r2 || d.should_use_monaco) fams.add('r2');
+  if (isCodeImplementationIntent(message) && !messageExplicitlyRequestsBrowserInspection(message)) {
+    fams.add('github');
+    fams.add('terminal');
+    fams.add('r2');
+    fams.delete('browser');
+  } else if (d.should_use_browser) {
+    fams.add('browser');
+  }
   if (hasImageGenerationIntent(message)) fams.add('image');
   if (hasVideoGenerationIntent(message)) fams.add('video');
 
@@ -1686,7 +1737,9 @@ async function enrichToolsFromAgentsamCatalog(env, tools, mode, effectiveMaxTool
     }
   }
   const seen = new Set(out.map((x) => x.name));
-  const minimumBar = [...AGENT_CHAT_MINIMUM_AGENTSAM_TOOLS];
+  const minimumBar = opts.codeImplementationIntent
+    ? [...CODE_IMPLEMENTATION_TOOL_NAMES]
+    : [...AGENT_CHAT_MINIMUM_AGENTSAM_TOOLS];
   if (opts.imageCapabilityIntent && imageCapabilityTools.length) {
     for (const t of imageCapabilityTools) {
       if (!minimumBar.includes(t)) minimumBar.unshift(t);
@@ -1770,6 +1823,31 @@ async function ensureVideoCapabilityTools(env, tools, videoCapabilityIntent, eff
     workspaceId,
     mode,
   );
+}
+
+/** Guarantee Monaco / GitHub / R2 / terminal tools for in-repo implementation work. */
+async function ensureCodeCapabilityTools(env, tools, effectiveMaxTools) {
+  if (!env?.DB || !Array.isArray(tools)) return tools;
+  const have = new Set(tools.map((t) => agentToolNameOf(t)).filter(Boolean));
+  const missing = CODE_IMPLEMENTATION_TOOL_NAMES.filter((n) => !have.has(n));
+  if (!missing.length) return tools;
+  const rows = await fetchAgentsamToolRowsByName(env, missing);
+  const out = [...tools];
+  const seen = new Set(have);
+  for (const row of rows) {
+    const nm = String(row.tool_name || '');
+    if (!nm || seen.has(nm)) continue;
+    if (out.length >= effectiveMaxTools) break;
+    seen.add(nm);
+    out.unshift({
+      name: nm,
+      description: String(row.description || nm).slice(0, 4000),
+      input_schema: inputSchemaFromAgentsamToolRow(row),
+      tool_category: String(row.tool_category || 'builtin'),
+      requires_approval: Number(row.requires_approval || 0) === 1,
+    });
+  }
+  return out;
 }
 
 /** Guarantee browser_navigate survives lane/cap narrowing when URL navigation is intended. */
@@ -2864,30 +2942,49 @@ async function resolveWorkflowForMessage(env, taskType, message, workspaceId, op
   if (isD1SqlIntent(message)) {
     return null;
   }
+  const codeWork =
+    isCodeImplementationIntent(message) && !messageExplicitlyRequestsBrowserInspection(message);
   const dashboardRoute =
     opts.dashboardRoute != null ? String(opts.dashboardRoute).trim() : '';
+  if (codeWork) {
+    try {
+      const wf = await env.DB.prepare(
+        `SELECT id, workflow_key, display_name, default_task_type,
+                risk_level, requires_approval
+         FROM agentsam_workflows
+         WHERE workflow_key = ? AND COALESCE(is_active, 1) = 1 LIMIT 1`,
+      )
+        .bind('i-am-builder-monaco')
+        .first();
+      if (wf) return wf;
+    } catch {
+      /* fall through */
+    }
+  }
   if (dashboardRoute === '/dashboard/agent' || dashboardRoute.startsWith('/dashboard/agent/')) {
-    const intentRaw = taskType != null ? String(taskType).trim() : '';
-    const intent = intentRaw && intentRaw.toLowerCase() !== 'auto' ? intentRaw : '*';
-    const wfKey = await resolveWorkflowFromSurfaceMetadata(env, '/dashboard/agent', intent);
-    if (wfKey) {
-      try {
-        const wf = await env.DB.prepare(
-          `SELECT id, workflow_key, display_name, default_task_type,
-                  risk_level, requires_approval
-           FROM agentsam_workflows
-           WHERE workflow_key = ? AND COALESCE(is_active, 1) = 1 LIMIT 1`,
-        )
-          .bind(wfKey)
-          .first();
-        if (wf) return wf;
-      } catch (e) {
-        console.warn('[agent] resolveWorkflowForMessage agent_surface', e?.message ?? e);
+    if (!codeWork) {
+      const intentRaw = taskType != null ? String(taskType).trim() : '';
+      const intent = intentRaw && intentRaw.toLowerCase() !== 'auto' ? intentRaw : '*';
+      const wfKey = await resolveWorkflowFromSurfaceMetadata(env, '/dashboard/agent', intent);
+      if (wfKey) {
+        try {
+          const wf = await env.DB.prepare(
+            `SELECT id, workflow_key, display_name, default_task_type,
+                    risk_level, requires_approval
+             FROM agentsam_workflows
+             WHERE workflow_key = ? AND COALESCE(is_active, 1) = 1 LIMIT 1`,
+          )
+            .bind(wfKey)
+            .first();
+          if (wf) return wf;
+        } catch (e) {
+          console.warn('[agent] resolveWorkflowForMessage agent_surface', e?.message ?? e);
+        }
       }
     }
   }
   const t = String(message || '').toLowerCase();
-  if (userExplicitlyRequestsMonacoEditor(message)) {
+  if (userExplicitlyRequestsMonacoEditor(message) || codeWork) {
     try {
       const wf = await env.DB.prepare(
         `SELECT id, workflow_key, display_name, default_task_type,
@@ -2903,6 +3000,10 @@ async function resolveWorkflowForMessage(env, taskType, message, workspaceId, op
     }
   }
   const keywordMap = [
+    [
+      /\b(implement|build|scaffold|wire)\b.{0,48}\b(dashboard|page|component|route|module|feature)\b/i,
+      'i-am-builder-monaco',
+    ],
     [/\b(excalidraw|draw|diagram|wireframe|flowchart)\b/, 'i-am-architect-excalidraw'],
     [/\b(architect|plan|design spec)\b/, 'i-am-architect-plan'],
     [/\b(playwright|screenshot|browser test|e2e)\b/, 'i-am-inspector-playwright'],
@@ -5258,11 +5359,15 @@ function resolveSurfaceWorkflowForMessage(message, requestedMode) {
   }
 
   if (isDebug) {
+    if (isCodeImplementationIntent(raw) && !messageExplicitlyRequestsBrowserInspection(raw)) {
+      return { route: 'monaco', reason: 'debug_code_implementation_surface' };
+    }
     const dbgBrowser =
       /\bopen\s+(the\s+)?browser\b/i.test(t) ||
       /\bdebug\s+this\s+site\b/i.test(t) ||
       (/\b(debug|inspect)\b/i.test(t) &&
-        /\b(url|site|page|dashboard|browser|dom|console|network)\b/i.test(t)) ||
+        /\b(url|site|page|browser|dom|console|network)\b/i.test(t) &&
+        !/\b(route|component|migration|\.tsx|app\.tsx)\b/i.test(t)) ||
       /\b(screenshot|screen\s*grab)\b/i.test(t) ||
       /\binspect\s+https?:\/\//i.test(t) ||
       (!!extractBrowserNavigateUrl(t) && /\b(inspect|debug|browser)\b/i.test(t));
@@ -5271,6 +5376,13 @@ function resolveSurfaceWorkflowForMessage(message, requestedMode) {
   }
 
   if (!isAgentLike) return null;
+
+  if (
+    isCodeImplementationIntent(raw) &&
+    !messageExplicitlyRequestsBrowserInspection(raw)
+  ) {
+    return { route: 'monaco', reason: 'agent_code_implementation_surface' };
+  }
 
   const excal =
     /\bopen\s+excalidraw\b/i.test(t) ||
@@ -5283,12 +5395,14 @@ function resolveSurfaceWorkflowForMessage(message, requestedMode) {
   if (excal) return { route: 'excalidraw', reason: 'agent_excalidraw_surface' };
 
   const browser =
+    messageExplicitlyRequestsBrowserInspection(raw) ||
     /\bopen\s+(the\s+)?browser\b/i.test(t) ||
     /\bdebug\s+this\s+site\b/i.test(t) ||
     /\binspect\s+(the\s+)?(site|page)\b/i.test(t) ||
     /\bdebug\s+(the\s+)?(site|page)\b/i.test(t) ||
     (/\b(debug|inspect)\b/i.test(t) &&
-      /\b(site|page|url|dashboard|browser|dom|console|network)\b/i.test(t)) ||
+      /\b(site|page|url|browser|dom|console|network)\b/i.test(t) &&
+      !/\b(route|component|migration|\.tsx|app\.tsx|components\/)\b/i.test(t)) ||
     /\b(screenshot|screen\s*grab)\b/i.test(t) ||
     /\bcapture\s+(the\s+)?page\b/i.test(t) ||
     (/\bnavigate\b/i.test(t) && /\b(to\s+)?(url|page|site|https?:)/i.test(t)) ||
@@ -6642,6 +6756,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       const actor = authUser || { id: userId, tenant_id: tenantId, email: null };
       return executeWorkflowAndStream(env, workflowMatch.workflow_key, message, actor, workspaceId, ctx, {
         runtimeMode: requestedMode,
+        browserContext: browserContextPayload,
       });
     }
   }
@@ -6961,10 +7076,12 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   }
 
   if (agentLikeTooling && env.DB) {
+    const codeImplementationIntent = shouldEnsureCodeCapabilityTools(message, intentResult, null);
     tools = await enrichToolsFromAgentsamCatalog(env, tools, requestedMode, effectiveMaxTools, {
       imageCapabilityIntent,
       videoCapabilityIntent,
       workspaceId,
+      codeImplementationIntent,
     });
 
     if (promptRouteRow) {
@@ -6972,6 +7089,10 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     }
 
     tools = filterAgentToolsForRequest(env, tools, message, intentResult).slice(0, effectiveMaxTools);
+
+    if (codeImplementationIntent) {
+      tools = await ensureCodeCapabilityTools(env, tools, effectiveMaxTools);
+    }
 
     if (shouldEnsureBrowserCapabilityTools(message, intentResult, null, promptRouteRow)) {
       const beforeBrowser = tools.map(agentToolNameOf).filter(Boolean);
@@ -7087,6 +7208,9 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           workspaceId,
           requestedMode,
         );
+      }
+      if (shouldEnsureCodeCapabilityTools(message, intentResult, capabilityDecision)) {
+        tools = await ensureCodeCapabilityTools(env, tools, effectiveMaxTools);
       }
       if (shouldEnsureBrowserCapabilityTools(message, intentResult, capabilityDecision, promptRouteRow)) {
         tools = await ensureBrowserCapabilityTools(env, tools, effectiveMaxTools);
