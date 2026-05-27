@@ -120,26 +120,34 @@ export async function assertUserMayUseExternalClient(env, input) {
     }
 
     const { results: userRows } = await env.DB.prepare(
-      `SELECT client_key FROM agentsam_mcp_oauth_user_client_allowlist
-        WHERE user_id = ? AND workspace_id = ? AND COALESCE(is_active, 1) = 1`,
+      `SELECT client_key, is_active FROM agentsam_mcp_oauth_user_client_allowlist
+        WHERE user_id = ? AND workspace_id = ?`,
     )
       .bind(userId, workspaceId)
       .all();
 
-    if (!userRows?.length) {
-      return { ok: true, enforced: false, client_key: clientKey };
-    }
-
-    const allowed = new Set(userRows.map((r) => trim(r.client_key)).filter(Boolean));
-    if (!allowed.has(clientKey)) {
+    const rows = userRows || [];
+    const revoked = rows.some(
+      (r) => trim(r.client_key) === clientKey && Number(r.is_active) === 0,
+    );
+    if (revoked) {
       return {
         ok: false,
         code: 'external_client_not_allowed',
-        message:
-          `External MCP client "${clientKey}" is not on your allowlist. Add it in IAM (agentsam_mcp_oauth_user_client_allowlist) or Settings.`,
+        message: `External MCP client "${clientKey}" was revoked for this workspace.`,
       };
     }
-    return { ok: true, enforced: true, client_key: clientKey };
+
+    const allowed = new Set(
+      rows.filter((r) => Number(r.is_active) !== 0).map((r) => trim(r.client_key)).filter(Boolean),
+    );
+    // Platform registry is the gate; per-user rows are granted at consent (see recordExternalClientAllowlistOnConsent).
+    // Do not block a new registry client because the user already connected a different external app.
+    return {
+      ok: true,
+      enforced: allowed.has(clientKey),
+      client_key: clientKey,
+    };
   } catch (e) {
     return { ok: false, code: 'allowlist_lookup_failed', message: String(e?.message || e) };
   }

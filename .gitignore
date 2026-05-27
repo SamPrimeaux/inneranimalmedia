@@ -17,6 +17,7 @@ supabase/.temp/
 
 # build/cache/logs
 .wrangler/
+.worker-dist/
 .cache/
 tmp/
 *.log
