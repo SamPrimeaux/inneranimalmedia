@@ -13,6 +13,8 @@ import {
   DEFAULT_AGENT_TOOL_LIST_LIMIT,
 } from '../core/agentsam-tools-catalog.js';
 import { validateMcpToken } from '../core/mcp-auth.js';
+import { buildOAuthToolsList } from '../core/mcp-tool-resolve.js';
+import { MCP_CANONICAL_CLIENT_ID } from './mcp-oauth-shared.js';
 import { maxAgentsamWorkflowTimeoutSeconds, AGENTSAM_MCP_WORKFLOWS } from '../core/agentsam-workflows.js';
 import { AGENTSAM_WORKFLOW_RUNS_TABLE } from '../core/agentsam-supabase-sync.js';
 import { scheduleRecordMcpToolExecution } from '../core/mcp-tool-execution.js';
@@ -263,6 +265,53 @@ async function resolveAgentIdFromIntent(env, prompt) {
   return { agentId, routedBy };
 }
 
+function mcpJsonRpcResponse(id, result, status = 200) {
+  return new Response(JSON.stringify({ jsonrpc: '2.0', id: id ?? null, result }), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+function mcpJsonRpcError(id, message, code = -32000, status = 400) {
+  return new Response(
+    JSON.stringify({ jsonrpc: '2.0', id: id ?? null, error: { code, message } }),
+    { status, headers: { 'Content-Type': 'application/json' } },
+  );
+}
+
+/** Load mcp_workspace_tokens row for JSON-RPC /mcp (tools/list OAuth path only). */
+async function loadMcpWorkspaceTokenRow(env, bearer, mcpIdentity) {
+  if (!env?.DB || !mcpIdentity) return null;
+  try {
+    if (mcpIdentity.tokenId) {
+      return await env.DB.prepare(
+        `SELECT id, workspace_id, tenant_id, user_id, allowed_tools, token_type
+           FROM mcp_workspace_tokens
+          WHERE id = ? AND COALESCE(is_active, 0) = 1
+          LIMIT 1`,
+      )
+        .bind(mcpIdentity.tokenId)
+        .first();
+    }
+    if (!bearer || bearer.includes('.')) return null;
+    const hashBuf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(bearer));
+    const hexHash = Array.from(new Uint8Array(hashBuf))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+    return await env.DB.prepare(
+      `SELECT id, workspace_id, tenant_id, user_id, allowed_tools, token_type
+         FROM mcp_workspace_tokens
+        WHERE token_hash = ? AND COALESCE(is_active, 0) = 1
+        LIMIT 1`,
+    )
+      .bind(hexHash)
+      .first();
+  } catch (e) {
+    console.warn('[mcp] loadMcpWorkspaceTokenRow', e?.message ?? e);
+    return null;
+  }
+}
+
 /**
  * Main dispatcher for MCP-related API routes (/api/mcp/*).
  */
@@ -285,11 +334,42 @@ export async function handleMcpApi(request, url, env, ctx) {
           { status: 401, headers: { 'Content-Type': 'application/json' } }
         );
       }
+
+      const bodyText = await request.text();
+      let rpc = null;
+      try {
+        rpc = JSON.parse(bodyText || '{}');
+      } catch {
+        return mcpJsonRpcError(null, 'Invalid JSON-RPC body', -32700, 400);
+      }
+
+      const rpcMethod = String(rpc?.method || '').trim();
+      const rpcId = rpc?.id ?? null;
+
+      if (rpcMethod === 'tools/list') {
+        const resolvedToken = await loadMcpWorkspaceTokenRow(env, bearer, mcpIdentity);
+        if (String(resolvedToken?.token_type || '').toLowerCase() === 'oauth') {
+          let tokenTools = [];
+          try {
+            tokenTools = JSON.parse(resolvedToken.allowed_tools ?? '[]');
+          } catch {
+            tokenTools = [];
+          }
+          if (!Array.isArray(tokenTools)) tokenTools = [];
+          const tools = await buildOAuthToolsList(
+            env.DB,
+            tokenTools,
+            MCP_CANONICAL_CLIENT_ID,
+          );
+          return mcpJsonRpcResponse(rpcId, { tools });
+        }
+      }
+
       const upstream = String(env.MCP_SERVICE_URL || 'https://mcp.inneranimalmedia.com/mcp').trim();
       const res = await fetch(upstream, {
         method: 'POST',
         headers: request.headers,
-        body: request.body,
+        body: bodyText,
         redirect: 'manual',
       });
       return res;
