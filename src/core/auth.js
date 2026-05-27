@@ -835,6 +835,21 @@ export async function resolveAuth(request, env, opts = {}) {
       userId = mcpUserId;
       tenantId = trimSessionField(mcp.tenantId) || null;
       workspaceId = trimSessionField(mcp.workspaceId) || null;
+    } else {
+      const bridgeOk =
+        (env.AGENTSAM_BRIDGE_KEY && bearer === String(env.AGENTSAM_BRIDGE_KEY).trim()) ||
+        (env.MCP_AUTH_TOKEN && bearer === String(env.MCP_AUTH_TOKEN).trim());
+      if (bridgeOk) {
+        const hdrUser = trimSessionField(request?.headers?.get?.('X-User-Id'));
+        const hdrWs = trimSessionField(request?.headers?.get?.('X-Workspace-Id'));
+        const hdrTn = trimSessionField(request?.headers?.get?.('X-Tenant-Id'));
+        if (hdrUser && hdrUser.startsWith('au_')) {
+          authType = 'mcp';
+          userId = hdrUser;
+          workspaceId = hdrWs || workspaceId;
+          tenantId = hdrTn || tenantId;
+        }
+      }
     }
   }
 

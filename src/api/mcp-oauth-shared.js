@@ -70,6 +70,7 @@ export function iamMcpOAuthAuthorizationServerMetadata() {
     issuer: IAM_OAUTH_ISSUER,
     authorization_endpoint: `${IAM_OAUTH_ISSUER}/api/oauth/authorize`,
     token_endpoint: `${IAM_OAUTH_ISSUER}/api/oauth/token`,
+    registration_endpoint: `${IAM_OAUTH_ISSUER}/api/oauth/register`,
     userinfo_endpoint: `${IAM_OAUTH_ISSUER}/api/oauth/userinfo`,
     response_types_supported: ['code'],
     grant_types_supported: ['authorization_code'],
@@ -156,7 +157,7 @@ export function mcpOAuthParseScopeList(raw) {
 export async function mcpOAuthLoadClient(env, clientId) {
   if (!env.DB) return null;
   return env.DB.prepare(
-    `SELECT client_id, display_name, name, logo_url, homepage_url, redirect_uris,
+    `SELECT client_id, client_secret_hash, display_name, name, logo_url, homepage_url, redirect_uris,
             allowed_scopes, requires_pkce, is_active, token_endpoint_auth_method
        FROM oauth_clients
       WHERE client_id = ? AND is_active = 1

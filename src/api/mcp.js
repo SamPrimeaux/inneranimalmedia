@@ -13,7 +13,6 @@ import {
   DEFAULT_AGENT_TOOL_LIST_LIMIT,
 } from '../core/agentsam-tools-catalog.js';
 import { validateMcpToken } from '../core/mcp-auth.js';
-import { buildOAuthToolsList } from '../core/mcp-tool-resolve.js';
 import { MCP_CANONICAL_CLIENT_ID } from './mcp-oauth-shared.js';
 import { maxAgentsamWorkflowTimeoutSeconds, AGENTSAM_MCP_WORKFLOWS } from '../core/agentsam-workflows.js';
 import { AGENTSAM_WORKFLOW_RUNS_TABLE } from '../core/agentsam-supabase-sync.js';
@@ -346,24 +345,8 @@ export async function handleMcpApi(request, url, env, ctx) {
       const rpcMethod = String(rpc?.method || '').trim();
       const rpcId = rpc?.id ?? null;
 
-      if (rpcMethod === 'tools/list') {
-        const resolvedToken = await loadMcpWorkspaceTokenRow(env, bearer, mcpIdentity);
-        if (String(resolvedToken?.token_type || '').toLowerCase() === 'oauth') {
-          let tokenTools = [];
-          try {
-            tokenTools = JSON.parse(resolvedToken.allowed_tools ?? '[]');
-          } catch {
-            tokenTools = [];
-          }
-          if (!Array.isArray(tokenTools)) tokenTools = [];
-          const tools = await buildOAuthToolsList(
-            env.DB,
-            tokenTools,
-            MCP_CANONICAL_CLIENT_ID,
-          );
-          return mcpJsonRpcResponse(rpcId, { tools });
-        }
-      }
+      // tools/list: always proxy to MCP worker (canonical schemas live there).
+      // OAuth shortcut via buildOAuthToolsList was serving stale agentsam_mcp_tools input_schema.
 
       const upstream = String(env.MCP_SERVICE_URL || 'https://mcp.inneranimalmedia.com/mcp').trim();
       const res = await fetch(upstream, {

@@ -810,6 +810,7 @@ async function mcpOAuthReadBody(request) {
       redirect_uri: String(j.redirect_uri || j.redirectUri || ''),
       code_verifier: String(j.code_verifier || j.codeVerifier || ''),
       client_id: String(j.client_id || j.clientId || ''),
+      client_secret: String(j.client_secret || j.clientSecret || ''),
       resource: resolveMcpOAuthResourceParam(j),
     };
   }
@@ -822,8 +823,205 @@ async function mcpOAuthReadBody(request) {
     redirect_uri: String(form.get('redirect_uri') || ''),
     code_verifier: String(form.get('code_verifier') || ''),
     client_id: String(form.get('client_id') || ''),
+    client_secret: String(form.get('client_secret') || ''),
     resource: resolveMcpOAuthResourceParam(form),
   };
+}
+
+function readOAuthClientBasicAuth(request) {
+  const auth = String(request.headers.get('Authorization') || '').trim();
+  if (!auth.toLowerCase().startsWith('basic ')) return { clientId: '', clientSecret: '' };
+  const encoded = auth.slice(6).trim();
+  if (!encoded) return { clientId: '', clientSecret: '' };
+  try {
+    const decoded = atob(encoded);
+    const sep = decoded.indexOf(':');
+    if (sep < 0) return { clientId: '', clientSecret: '' };
+    return {
+      clientId: decoded.slice(0, sep),
+      clientSecret: decoded.slice(sep + 1),
+    };
+  } catch {
+    return { clientId: '', clientSecret: '' };
+  }
+}
+
+function parseOAuthRegistrationBody(raw) {
+  const body = raw && typeof raw === 'object' ? raw : {};
+  const redirectUrisRaw = body.redirect_uris;
+  const redirectUris = Array.isArray(redirectUrisRaw)
+    ? redirectUrisRaw.map((u) => String(u || '').trim()).filter(Boolean)
+    : [];
+  const grantTypesRaw = body.grant_types;
+  const grantTypes = Array.isArray(grantTypesRaw)
+    ? grantTypesRaw.map((g) => String(g || '').trim()).filter(Boolean)
+    : ['authorization_code'];
+  const responseTypesRaw = body.response_types;
+  const responseTypes = Array.isArray(responseTypesRaw)
+    ? responseTypesRaw.map((g) => String(g || '').trim()).filter(Boolean)
+    : ['code'];
+  const requestedMethod = String(body.token_endpoint_auth_method || '').trim().toLowerCase();
+  const tokenEndpointAuthMethod = requestedMethod || 'none';
+  const requestedScopes = Array.isArray(body.scope)
+    ? body.scope.map((s) => String(s || '').trim()).filter(Boolean)
+    : mcpOAuthParseScopeList(String(body.scope || ''));
+
+  return {
+    clientName: String(body.client_name || body.software_name || '').trim(),
+    logoUri: String(body.logo_uri || '').trim(),
+    clientUri: String(body.client_uri || '').trim(),
+    policyUri: String(body.policy_uri || '').trim(),
+    tosUri: String(body.tos_uri || '').trim(),
+    redirectUris,
+    grantTypes,
+    responseTypes,
+    tokenEndpointAuthMethod,
+    requestedScopes,
+  };
+}
+
+async function handleMcpOAuthRegister(request, env, _ctx) {
+  if (!env.DB) return mcpOAuthJsonError('database_not_configured', 503);
+  const authUser = await getAuthUser(request, env);
+
+  const rl = await checkMcpOAuthRateLimit(env, request, 'register', 30);
+  if (!rl.ok) return mcpOAuthJsonError(rl.error, 429, { retry_after: rl.retry_after });
+
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== 'object') {
+    return mcpOAuthJsonError('invalid_client_metadata', 400);
+  }
+
+  const parsed = parseOAuthRegistrationBody(body);
+  if (!parsed.clientName) return mcpOAuthJsonError('invalid_client_name', 400);
+  if (!parsed.redirectUris.length) return mcpOAuthJsonError('invalid_redirect_uris', 400);
+  if (!parsed.grantTypes.includes('authorization_code')) {
+    return mcpOAuthJsonError('unsupported_grant_type', 400);
+  }
+  if (!parsed.responseTypes.includes('code')) {
+    return mcpOAuthJsonError('unsupported_response_type', 400);
+  }
+  if (!['none', 'client_secret_post', 'client_secret_basic'].includes(parsed.tokenEndpointAuthMethod)) {
+    return mcpOAuthJsonError('invalid_token_endpoint_auth_method', 400);
+  }
+
+  const validatedRedirects = [];
+  for (const redirect of parsed.redirectUris) {
+    const check = mcpOAuthValidateRedirectUri(redirect, null, env);
+    if (!check.ok || !check.url?.href) return mcpOAuthJsonError(check.error || 'invalid_redirect_uri', 400);
+    validatedRedirects.push(check.url.href);
+  }
+
+  const normalizedRedirectUris = Array.from(new Set(validatedRedirects));
+
+  // For unauthenticated Dynamic Client Registration (ChatGPT/Claude hosted connectors),
+  // restrict registration to approved external connector callbacks only.
+  if (!authUser) {
+    const allOk = normalizedRedirectUris.every((href) => {
+      try {
+        const u = new URL(href);
+        const host = u.hostname.toLowerCase();
+        const path = u.pathname.toLowerCase();
+        return (
+          (host === 'chatgpt.com' && path.startsWith('/connector/oauth/')) ||
+          (host === 'claude.ai' && path.includes('/api/mcp/auth_callback')) ||
+          (host === 'claude.com' && path.includes('/api/mcp/auth_callback'))
+        );
+      } catch {
+        return false;
+      }
+    });
+    if (!allOk) return mcpOAuthJsonError('redirect_uri_not_allowed', 400);
+
+    // Hosted connectors should be public + PKCE only (no client secret).
+    parsed.tokenEndpointAuthMethod = 'none';
+  }
+
+  const allowedScopeSet = new Set([
+    'openid',
+    'iam:profile',
+    'iam:workspaces',
+    'iam:agent',
+    'mcp:tools',
+    'mcp:userinfo',
+  ]);
+  const selectedScopes = parsed.requestedScopes.length
+    ? parsed.requestedScopes.filter((s) => allowedScopeSet.has(s))
+    : ['iam:profile', 'iam:workspaces', 'mcp:tools', 'mcp:userinfo'];
+  if (!selectedScopes.length) return mcpOAuthJsonError('invalid_scope', 400);
+
+  const userId = authUser ? integrationUserId(authUser) : 'system_dcr';
+  const tenantId = authUser
+    ? await mcpOAuthResolveTenantId(env, authUser)
+    : String(env?.TENANT_ID || env?.DEFAULT_TENANT_ID || '').trim();
+  if (!userId || !tenantId) return mcpOAuthJsonError('dcr_not_configured', 503);
+
+  const createdAt = mcpOAuthNow();
+  const clientId = `iam_dcr_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
+  const issuedClientSecret = mcpOAuthRandomToken('ocs', 24);
+  const clientSecretHash = await mcpOAuthSha256Hex(issuedClientSecret);
+  const requiresPkce = 1;
+
+  await env.DB.prepare(
+    `INSERT INTO oauth_clients (
+       id, client_id, client_secret_hash, name, display_name, description,
+       owner_account_id, tenant_id, redirect_uris, allowed_scopes, grant_types,
+       token_endpoint_auth_method, client_type, is_active, is_first_party, requires_pkce,
+       logo_url, homepage_url, privacy_policy_url, terms_url, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?)`,
+  )
+    .bind(
+      `oac_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`,
+      clientId,
+      clientSecretHash,
+      parsed.clientName,
+      parsed.clientName,
+      'OAuth client registered via /api/oauth/register',
+      userId,
+      tenantId,
+      JSON.stringify(normalizedRedirectUris),
+      JSON.stringify(Array.from(new Set(selectedScopes))),
+      JSON.stringify(['authorization_code']),
+      parsed.tokenEndpointAuthMethod,
+      parsed.tokenEndpointAuthMethod === 'none' ? 'public' : 'confidential',
+      requiresPkce,
+      parsed.logoUri || null,
+      parsed.clientUri || null,
+      parsed.policyUri || null,
+      parsed.tosUri || null,
+      createdAt,
+      createdAt,
+    )
+    .run();
+
+  await logAuthEvent(env, {
+    request,
+    eventType: 'iam_mcp_oauth_client_registered',
+    userId,
+    metadata: {
+      client_id: clientId,
+      token_endpoint_auth_method: parsed.tokenEndpointAuthMethod,
+      redirect_uri_count: normalizedRedirectUris.length,
+    },
+  });
+
+  const response = {
+    client_id: clientId,
+    client_id_issued_at: createdAt,
+    client_name: parsed.clientName,
+    redirect_uris: normalizedRedirectUris,
+    grant_types: ['authorization_code'],
+    response_types: ['code'],
+    scope: Array.from(new Set(selectedScopes)).join(' '),
+    token_endpoint_auth_method: parsed.tokenEndpointAuthMethod,
+  };
+
+  if (parsed.tokenEndpointAuthMethod !== 'none') {
+    response.client_secret = issuedClientSecret;
+    response.client_secret_expires_at = 0;
+  }
+
+  return jsonResponse(response, 201);
 }
 
 async function handleMcpOAuthAuthorize(request, env, _ctx) {
@@ -1032,6 +1230,29 @@ async function handleMcpOAuthToken(request, env, _ctx) {
     .catch(() => null);
 
   const client = await mcpOAuthLoadClient(env, row.client_id);
+  if (!client) return mcpOAuthJsonError('invalid_client', 400);
+  const tokenAuthMethod = String(client.token_endpoint_auth_method || 'none').toLowerCase();
+  if (tokenAuthMethod === 'client_secret_post') {
+    if (!body.client_id || !body.client_secret) return mcpOAuthJsonError('invalid_client', 401);
+    const gotSecretHash = await mcpOAuthSha256Hex(body.client_secret);
+    if (gotSecretHash !== String(client.client_secret_hash || '')) {
+      return mcpOAuthJsonError('invalid_client', 401);
+    }
+  } else if (tokenAuthMethod === 'client_secret_basic') {
+    const basic = readOAuthClientBasicAuth(request);
+    const presentedClientId = String(basic.clientId || '').trim();
+    const presentedSecret = String(basic.clientSecret || '').trim();
+    if (!presentedClientId || !presentedSecret) return mcpOAuthJsonError('invalid_client', 401);
+    if (presentedClientId !== String(row.client_id || '').trim()) return mcpOAuthJsonError('invalid_client', 401);
+    const gotSecretHash = await mcpOAuthSha256Hex(presentedSecret);
+    if (gotSecretHash !== String(client.client_secret_hash || '')) {
+      return mcpOAuthJsonError('invalid_client', 401);
+    }
+  } else if (tokenAuthMethod === 'none') {
+    if (body.client_id && String(body.client_id).trim() !== String(row.client_id || '').trim()) {
+      return mcpOAuthJsonError('invalid_client', 401);
+    }
+  }
   const tenantId = String(row.tenant_id || authRow?.tenant_id || env.TENANT_ID || '');
   const workspaceId = await resolveCanonicalWorkspace(env, userId);
   if (!workspaceId) {
@@ -1278,6 +1499,9 @@ export async function handleOAuthApi(request, env, ctx) {
   }
   if (pathLower === '/api/oauth/token' && method === 'POST') {
     return handleMcpOAuthToken(request, env, ctx);
+  }
+  if (pathLower === '/api/oauth/register' && method === 'POST') {
+    return handleMcpOAuthRegister(request, env, ctx);
   }
   if (pathLower === '/api/oauth/userinfo' && method === 'GET') {
     return handleMcpOAuthUserinfo(request, env, ctx);
