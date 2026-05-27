@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { User, Bot, Loader2, ChevronRight } from 'lucide-react';
+import { User, Bot, Loader2, ChevronRight, FileText } from 'lucide-react';
 import { SetiFileIcon } from '../../../src/components/SetiFileIcon';
 import type { ActiveFile } from '../../../types';
 import type {

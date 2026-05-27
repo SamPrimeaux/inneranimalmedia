@@ -128,12 +128,28 @@ function Card({ children, className = "" }: { children: React.ReactNode; classNa
   );
 }
 
-function SectionTitle({ title, action }: { title: string; action?: string }) {
+const INACTIVE_CONTROL = "opacity-40 cursor-not-allowed pointer-events-none";
+
+function SectionTitle({
+  title,
+  action,
+  actionInactive,
+}: {
+  title: string;
+  action?: string;
+  actionInactive?: boolean;
+}) {
   return (
     <div className="flex items-center justify-between gap-4 px-5 pt-5">
       <h2 className="text-sm font-semibold tracking-tight text-[var(--dashboard-text)]">{title}</h2>
       {action ? (
-        <button className="inline-flex items-center gap-1 text-xs font-medium text-cyan-300 hover:text-cyan-200">
+        <button
+          type="button"
+          className={classNames(
+            "inline-flex items-center gap-1 text-xs font-medium text-cyan-300 hover:text-cyan-200",
+            actionInactive && INACTIVE_CONTROL,
+          )}
+        >
           {action}
           <ArrowRight className="h-3.5 w-3.5" />
         </button>
@@ -199,7 +215,10 @@ function ProjectCard({ project }: { project: OverviewProject }) {
         </div>
         <button
           type="button"
-          className="rounded-lg border border-[var(--dashboard-border)] p-2 text-[var(--dashboard-muted)] opacity-60 hover:opacity-100"
+          className={classNames(
+            "rounded-lg border border-[var(--dashboard-border)] p-2 text-[var(--dashboard-muted)]",
+            INACTIVE_CONTROL,
+          )}
           aria-label="More"
         >
           <MoreHorizontal className="h-4 w-4" />
@@ -233,7 +252,7 @@ function ProjectCard({ project }: { project: OverviewProject }) {
         </div>
         <div>
           <div className="mb-1 flex justify-between text-[11px] text-[var(--dashboard-muted)]">
-            <span>Budget (tokens)</span>
+            <span>Token Budget</span>
             <span>
               {project.budgetUsed.toLocaleString()} / {project.budgetTotal.toLocaleString()}
             </span>
@@ -392,15 +411,17 @@ export default function ProjectManagement() {
               </div>
               <h1 className="mt-2 text-3xl font-semibold tracking-tight text-[var(--dashboard-text)] md:text-4xl">Project Management</h1>
               <p className="mt-2 max-w-3xl text-sm text-[var(--dashboard-muted)]">
-                Portfolio health, plan tasks, usage burn, and milestones — backed by D1 via{" "}
-                <code className="rounded bg-[var(--dashboard-panel)] px-1">/api/projects/overview</code>.
+                Portfolio health, plan tasks, and milestones
               </p>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                className="inline-flex items-center gap-2 rounded-xl border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)]/60 px-3 py-2 text-sm text-[var(--dashboard-text)] hover:bg-[var(--dashboard-panel)]"
+                className={classNames(
+                  "inline-flex items-center gap-2 rounded-xl border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)]/60 px-3 py-2 text-sm text-[var(--dashboard-text)] hover:bg-[var(--dashboard-panel)]",
+                  INACTIVE_CONTROL,
+                )}
               >
                 <CalendarDays className="h-4 w-4" />
                 Last 14 Days
@@ -429,7 +450,7 @@ export default function ProjectManagement() {
               icon={ListChecks}
               label="Open Tasks"
               value={kpis ? String(kpis.open_tasks) : "—"}
-              sublabel="Plan tasks in flight"
+              sublabel="Open + blocked tasks"
               tone="emerald"
             />
             <KpiCard
@@ -450,7 +471,7 @@ export default function ProjectManagement() {
               icon={Flame}
               label="Budget Burn"
               value={kpis ? money(kpis.budget_burn) : "—"}
-              sublabel={kpis ? `${money(kpis.budget_allocated)} allocated (workspace)` : ""}
+              sublabel={kpis ? "30d AI spend" : ""}
               tone="amber"
             />
             <KpiCard
@@ -503,7 +524,7 @@ export default function ProjectManagement() {
 
             <div className="grid gap-5 xl:col-span-4">
               <Card>
-                <SectionTitle title="Workload Mix" action="Balance" />
+                <SectionTitle title="Workload Mix" action="Balance" actionInactive />
                 <div className="grid grid-cols-2 gap-2 p-5">
                   <div className="h-48">
                     <ResponsiveContainer width="100%" height="100%">
@@ -532,7 +553,7 @@ export default function ProjectManagement() {
               </Card>
 
               <Card>
-                <SectionTitle title="Milestone Timeline" action="View Roadmap" />
+                <SectionTitle title="Milestone Timeline" action="View Roadmap" actionInactive />
                 <div className="space-y-4 p-5">
                   {milestones.map((milestone) => (
                     <div key={milestone.id} className="flex gap-3">
@@ -566,7 +587,7 @@ export default function ProjectManagement() {
 
           <section className="grid gap-5 xl:grid-cols-12">
             <Card className="xl:col-span-4">
-              <SectionTitle title="Sprint Velocity" action="Inspect" />
+              <SectionTitle title="Sprint Velocity" action="Inspect" actionInactive />
               <div className="h-72 p-5">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={velocityData}>
@@ -583,7 +604,7 @@ export default function ProjectManagement() {
             </Card>
 
             <Card className="xl:col-span-4">
-              <SectionTitle title="Usage Burndown (30d cost)" action="Open Sprint" />
+              <SectionTitle title="Usage Burndown (30d cost)" action="Open Sprint" actionInactive />
               <div className="h-72 p-5">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={burnData}>
@@ -662,26 +683,35 @@ export default function ProjectManagement() {
             <div className="flex flex-col gap-3 px-5 pt-5 md:flex-row md:items-center md:justify-between">
               <div>
                 <h2 className="text-sm font-semibold text-[var(--dashboard-text)]">Priority Task Queue</h2>
-                <p className="mt-1 text-xs text-[var(--dashboard-muted)]">Recent plan tasks linked to projects (sample).</p>
+                <p className="mt-1 text-xs text-[var(--dashboard-muted)]">Recent plan tasks linked to projects.</p>
               </div>
               <div className="flex gap-2">
                 <button
                   type="button"
-                  className="inline-flex items-center gap-2 rounded-xl border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)]/60 px-3 py-2 text-sm text-[var(--dashboard-muted)] hover:bg-[var(--dashboard-panel)]"
+                  className={classNames(
+                    "inline-flex items-center gap-2 rounded-xl border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)]/60 px-3 py-2 text-sm text-[var(--dashboard-muted)] hover:bg-[var(--dashboard-panel)]",
+                    INACTIVE_CONTROL,
+                  )}
                 >
                   <LayoutGrid className="h-4 w-4" />
                   Board
                 </button>
                 <button
                   type="button"
-                  className="inline-flex items-center gap-2 rounded-xl border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)]/60 px-3 py-2 text-sm text-[var(--dashboard-muted)] hover:bg-[var(--dashboard-panel)]"
+                  className={classNames(
+                    "inline-flex items-center gap-2 rounded-xl border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)]/60 px-3 py-2 text-sm text-[var(--dashboard-muted)] hover:bg-[var(--dashboard-panel)]",
+                    INACTIVE_CONTROL,
+                  )}
                 >
                   <Users className="h-4 w-4" />
                   Assign
                 </button>
                 <button
                   type="button"
-                  className="inline-flex items-center gap-2 rounded-xl border border-cyan-300/25 bg-cyan-400/10 px-3 py-2 text-sm font-medium text-cyan-100 hover:bg-cyan-400/15"
+                  className={classNames(
+                    "inline-flex items-center gap-2 rounded-xl border border-cyan-300/25 bg-cyan-400/10 px-3 py-2 text-sm font-medium text-cyan-100 hover:bg-cyan-400/15",
+                    INACTIVE_CONTROL,
+                  )}
                 >
                   <Plus className="h-4 w-4" />
                   Add Task
@@ -728,8 +758,7 @@ export default function ProjectManagement() {
               <CheckCircle2 className="h-5 w-5 text-emerald-300" />
               <h3 className="mt-4 text-base font-semibold text-[var(--dashboard-text)]">Next proof point</h3>
               <p className="mt-2 text-sm leading-6 text-[var(--dashboard-muted)]">
-                Wire edit flows to PATCH /api/projects/:id and expand nested endpoints once `project_costs` keys are reconciled to TEXT
-                project ids.
+                Close the highest-priority blocked tasks and confirm milestones reflect real goal progress before the next deploy.
               </p>
             </Card>
           </section>

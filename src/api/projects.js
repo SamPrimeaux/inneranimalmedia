@@ -362,20 +362,24 @@ async function handleOverview(request, url, env, authUser) {
     value: Math.round((count / totalCat) * 1000) / 10,
   }));
 
-  const milestones = (goalsRows || []).slice(0, 20).map((g) => ({
-    id: String(g.id),
-    projectId: String(g.project_id),
-    title: g.goal_name || 'Goal',
-    date: g.created_at ? new Date(Number(g.created_at) * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—',
-    status:
-      String(g.status || '').toLowerCase() === 'complete'
+  const milestones = (goalsRows || []).slice(0, 20).map((g) => {
+    const milestoneDateRaw = g.target_date || g.due_date || g.deadline || g.created_at;
+    return {
+      id: String(g.id),
+      projectId: String(g.project_id),
+      title: g.goal_name || 'Goal',
+      date: milestoneDateRaw
+        ? new Date(Number(milestoneDateRaw) * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+        : '—',
+      status: ['complete', 'completed', 'done'].includes(String(g.status || '').toLowerCase())
         ? 'done'
-        : Number(g.current_progress_percent) > 70
+        : String(g.status || '').toLowerCase() === 'in_progress' || Number(g.current_progress_percent) >= 50
           ? 'current'
-          : Number(g.current_progress_percent) < 25
-            ? 'risk'
-            : 'upcoming',
-  }));
+          : Number(g.current_progress_percent) >= 25
+            ? 'upcoming'
+            : 'risk',
+    };
+  });
 
   const velocity_week = [];
   const burn_week = [];
@@ -470,7 +474,15 @@ async function handleOverview(request, url, env, authUser) {
       projectId,
       owner: '—',
       status: String(t.status || 'todo').toLowerCase(),
-      priority: String(t.priority || 'P1'),
+      priority: ['P0', 'P1', 'P2', 'P3'].includes(String(t.priority))
+        ? String(t.priority)
+        : Number(t.priority) === 0
+          ? 'P0'
+          : Number(t.priority) === 1
+            ? 'P1'
+            : Number(t.priority) === 2
+              ? 'P2'
+              : 'P3',
       due: '—',
       estimateHours: Number(t.actual_minutes || 0) / 60 || 0,
     };
