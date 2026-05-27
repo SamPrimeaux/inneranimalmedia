@@ -19,6 +19,29 @@ const IAM_ORIGIN = (process.env.IAM_ORIGIN || 'https://inneranimalmedia.com').re
 const CLIENT_ID = 'iam_mcp_inneranimalmedia';
 const REDIRECT_URI = 'https://mcp.inneranimalmedia.com/auth/callback';
 
+function mergeCookieHeader(baseCookie, response) {
+  const jar = new Map();
+  for (const part of String(baseCookie || '').split(';')) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq <= 0) continue;
+    jar.set(trimmed.slice(0, eq), trimmed.slice(eq + 1));
+  }
+  const setCookies =
+    typeof response?.headers?.getSetCookie === 'function'
+      ? response.headers.getSetCookie()
+      : [];
+  for (const sc of setCookies) {
+    const nameValue = String(sc).split(';')[0].trim();
+    const eq = nameValue.indexOf('=');
+    if (eq > 0) jar.set(nameValue.slice(0, eq), nameValue.slice(eq + 1));
+  }
+  return Array.from(jar.entries())
+    .map(([k, v]) => `${k}=${v}`)
+    .join('; ');
+}
+
 function loadEnv() {
   const p = path.join(REPO_ROOT, '.env.cloudflare');
   if (!existsSync(p)) return;
@@ -117,33 +140,47 @@ async function main() {
     { headers: { Cookie: cookie, Accept: 'application/json' } },
   );
   const consentJson = await consentJsonRes.json().catch(() => ({}));
+  const consentCsrf = consentJson.consent_csrf || consentJson.consentCsrf;
+  const workspaceId = consentJson.workspace_id || consentJson.workspaces?.[0]?.id || null;
+  const cookieWithCsrf = mergeCookieHeader(cookie, consentJsonRes);
   report.steps.push({
     step: 'consent_get',
     status: consentJsonRes.status,
-    workspaces: consentJson.workspaces?.length ?? 0,
     client: consentJson.client?.name,
+    has_consent_csrf: !!consentCsrf,
+    error: consentJson.error,
   });
 
-  const workspaceId = consentJson.workspaces?.[0]?.id;
-  if (!workspaceId) {
-    console.error('No workspace for consent');
+  if (!consentJsonRes.ok || !consentCsrf) {
+    console.error('Consent GET failed or missing consent_csrf', consentJson);
     writeReport(report);
     process.exit(1);
   }
 
   const approveRes = await fetch(`${IAM_ORIGIN}/api/oauth/mcp/consent`, {
     method: 'POST',
-    headers: { Cookie: cookie, 'Content-Type': 'application/json', Accept: 'application/json' },
+    headers: {
+      Cookie: cookieWithCsrf,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
     body: JSON.stringify({
       authorization_id: authorizationId,
       workspace_id: workspaceId,
       action: 'approve',
+      consent_csrf: consentCsrf,
     }),
   });
   const approveJson = await approveRes.json().catch(() => ({}));
   report.steps.push({ step: 'consent_approve', status: approveRes.status, approveJson });
 
-  const callbackUrl = new URL(approveJson.redirect_url || '');
+  if (!approveRes.ok || !approveJson.redirect_url) {
+    console.error('consent approve missing redirect_url', approveJson);
+    writeReport(report);
+    process.exit(1);
+  }
+
+  const callbackUrl = new URL(approveJson.redirect_url);
   const code = callbackUrl.searchParams.get('code');
   if (!code) {
     console.error('No code in redirect_url', approveJson);
