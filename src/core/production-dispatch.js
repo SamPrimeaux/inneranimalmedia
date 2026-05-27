@@ -36,6 +36,7 @@ import { handleEmailApi } from '../api/email.js';
 import { handleLearnApi } from '../api/learn.js';
 import { handleOnboardingApi } from '../api/onboarding.js';
 import { handleAuthApi } from '../api/auth.js';
+import { jsonResponse } from './auth.js';
 import { handleSearchApi } from '../api/search.js';
 import { handleIntakeApi } from '../api/intake.js';
 import { handleCadApi } from '../api/cad.js';
@@ -245,6 +246,21 @@ export async function dispatchProductionDomainRoutes(rc) {
   if (pathLower === '/api/internal/agentsam-vectorize/describe' && methodUpper === 'GET') {
     const { handleAgentsamVectorizeDescribe } = await import('../api/agentsam-vectorize-describe.js');
     return handleAgentsamVectorizeDescribe(request, env);
+  }
+
+  if (pathLower === '/api/internal/cron-self-test' && methodUpper === 'POST') {
+    const { handleCronSelfTest } = await import('../api/cron-self-test.js');
+    return handleCronSelfTest(request, env, ctx);
+  }
+
+  if (pathLower === '/api/internal/google/refresh-token' && methodUpper === 'POST') {
+    const { isInternalSecretAuthorized, handleGoogleTokenRefresh } = await import(
+      '../api/internal-google-refresh.js'
+    );
+    if (!isInternalSecretAuthorized(request, env)) {
+      return jsonResponse({ error: 'unauthorized' }, 401);
+    }
+    return handleGoogleTokenRefresh(env, request);
   }
 
   if (pathLower.startsWith('/api/internal/designstudio/') || pathLower.startsWith('/api/designstudio/')) {

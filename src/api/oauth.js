@@ -53,6 +53,7 @@ import {
   mcpOAuthNormalizeScope,
   mcpOAuthParseScopeList,
   loadMcpOAuthExternalAllowedToolsJson,
+  loadMcpOAuthExternalToolKeys,
   loadWorkspaceMcpTokenBindings,
   buildMcpOAuthTokenEntitlements,
   oauthToolAccessDomainsPayload,
@@ -1306,10 +1307,13 @@ async function handleMcpOAuthToken(request, env, _ctx) {
     clientId: row.client_id,
   };
   const intersected = await intersectOAuthToolsWithUserPolicy(env, actorScope, row.client_id);
-  const oauthAllowedToolsJson = intersected.keys.length
-    ? JSON.stringify(intersected.keys)
-    : '[]';
-  const entitlements = await buildMcpOAuthTokenEntitlements(env, row.client_id, scope, intersected.keys);
+  let tokenToolKeys = intersected.keys;
+  if (!tokenToolKeys.length) {
+    const fallbackKeys = await loadMcpOAuthExternalToolKeys(env, MCP_CANONICAL_CLIENT_ID);
+    if (fallbackKeys?.length) tokenToolKeys = fallbackKeys;
+  }
+  const oauthAllowedToolsJson = tokenToolKeys.length ? JSON.stringify(tokenToolKeys) : '[]';
+  const entitlements = await buildMcpOAuthTokenEntitlements(env, row.client_id, scope, tokenToolKeys);
   let externalClientKey = null;
   try {
     const authz = await env.DB.prepare(

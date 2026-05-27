@@ -340,7 +340,12 @@ export async function loadMcpOAuthExternalToolKeys(env, clientId = MCP_CANONICAL
     const keys = (results || [])
       .map((r) => String(r.tool_key || '').trim())
       .filter(Boolean);
-    return keys.length ? keys : null;
+    if (keys.length) return keys;
+    const canonical = String(clientId || MCP_CANONICAL_CLIENT_ID).trim();
+    if (canonical && canonical !== MCP_CANONICAL_CLIENT_ID) {
+      return loadMcpOAuthExternalToolKeys(env, MCP_CANONICAL_CLIENT_ID);
+    }
+    return null;
   } catch (_) {
     return null;
   }

@@ -13,6 +13,18 @@ function trim(v) {
   return v == null ? '' : String(v).trim();
 }
 
+/** External OAuth comms tools — always on token allowlist when on client catalog (ChatGPT discovery). */
+const PLATFORM_OAUTH_COMMS_TOOL_KEYS = new Set(['agentsam_notify', 'agentsam_send_email']);
+
+const OAUTH_EMAIL_TOOL_ALIASES = {
+  agentsam_email_send: 'agentsam_send_email',
+};
+
+function normalizeOAuthToolKey(key) {
+  const k = trim(key).toLowerCase();
+  return OAUTH_EMAIL_TOOL_ALIASES[k] || k;
+}
+
 /**
  * Strict allowlist for OAuth — no workspace registry fallback when user policy requires allowlist.
  * @param {any} env
@@ -48,7 +60,8 @@ export async function isOAuthUserToolAllowed(env, policy, scope, toolKey) {
  * @returns {Promise<{ keys: string[], policy: object, requireAllowlist: boolean }>}
  */
 export async function filterOAuthToolKeysForUser(env, scope, oauthToolKeys) {
-  const keys = (oauthToolKeys || []).map((k) => trim(k)).filter(Boolean);
+  const keys = (oauthToolKeys || []).map((k) => normalizeOAuthToolKey(k)).filter(Boolean);
+  const oauthSet = new Set(keys);
   const policy = await loadAgentSamUserPolicy(env, scope.userId, scope.workspaceId);
   const requireAllowlist = Number(policy.require_allowlist_for_mcp || 0) === 1;
 
@@ -60,6 +73,9 @@ export async function filterOAuthToolKeysForUser(env, scope, oauthToolKeys) {
   for (const toolKey of keys) {
     const allow = await isOAuthUserToolAllowed(env, policy, scope, toolKey);
     if (allow.allowed) out.push(toolKey);
+  }
+  for (const comms of PLATFORM_OAUTH_COMMS_TOOL_KEYS) {
+    if (oauthSet.has(comms) && !out.includes(comms)) out.push(comms);
   }
   return { keys: out, policy, requireAllowlist: true };
 }

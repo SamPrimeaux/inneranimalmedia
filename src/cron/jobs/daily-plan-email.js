@@ -3,6 +3,10 @@ import { cronTenantId } from '../cron-tenant.js';
 
 export async function sendDailyPlanEmail(env) {
   if (!env.DB || !env.RESEND_API_KEY) return;
+  if (!env.RESEND_FROM?.trim() || !env.RESEND_TO?.trim()) {
+    console.warn('[daily-plan-email] RESEND_FROM or RESEND_TO not set, skipping');
+    return;
+  }
   const planTid = cronTenantId(env);
   if (!planTid) {
     console.warn('[daily-plan] TENANT_ID not configured; skip');
@@ -23,9 +27,9 @@ export async function sendDailyPlanEmail(env) {
         WHERE tenant_id=? AND status IN ('todo','in_progress','blocked')
         ORDER BY CASE priority WHEN 'urgent' THEN 0 WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END, updated_at DESC LIMIT 10`).bind(planTid).all(),
       env.DB.prepare(
-        `SELECT run_id, env, status, branch, commit_hash, notes, completed_at
+        `SELECT run_id, environment, status, git_commit_sha, notes, completed_at
          FROM cicd_pipeline_runs
-         ORDER BY datetime(COALESCE(completed_at, '1970-01-01')) DESC
+         ORDER BY COALESCE(completed_at, 0) DESC
          LIMIT 8`
       ).all(),
       env.DB.prepare(
