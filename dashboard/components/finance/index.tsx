@@ -1,241 +1,183 @@
-// dashboard/components/finance/index.tsx
-// Finance dashboard page — SPA module, route: /dashboard/finance
-// Visual reference: OpenAI platform usage dashboard
+// Finance dashboard -- route: /dashboard/finance
 
 import React, { useState, useCallback } from 'react';
 import { cn } from '../../lib/utils';
 import { TabId } from './types';
-import { TAB_LABELS } from './constants';
+import { TAB_LABELS, SpendRange } from './constants';
 import {
   useFinanceSummary,
-  useSpendByModel,
   useSpendByDay,
   useFinanceBudgets,
-  useSpendAlerts,
   useTransactions,
+  useFinanceProviders,
+  useOverviewBundleSlice,
 } from './hooks/useFinanceData';
 import { SpendOverview } from './panels/SpendOverview';
-import { SpendByModelChart } from './panels/SpendByModelChart';
 import { SpendByDayChart } from './panels/SpendByDayChart';
+import { ClientRevenueChart } from './panels/ClientRevenueChart';
+import { MonthlyPlChart } from './panels/MonthlyPlChart';
 import { TransactionsTable } from './panels/TransactionsTable';
 import { CsvImportZone } from './panels/CsvImportZone';
-import { AlertFeed } from './panels/AlertFeed';
 import { BudgetManager } from './panels/BudgetManager';
+import { ModelIntelligenceCard } from '../overview/panels/ModelIntelligenceCard';
 
-// ── Skeleton ──────────────────────────────────────────────────────────────────
 function Skeleton({ className }: { className?: string }) {
   return <div className={cn('animate-pulse rounded-xl bg-white/[0.06]', className)} />;
 }
 
-function LoadingGrid() {
-  return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-        {[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-32" />)}
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-        {[0, 1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-48" />)}
-      </div>
-    </div>
-  );
-}
-
-// ── Tabs config ───────────────────────────────────────────────────────────────
-const TABS: TabId[] = ['by-model', 'by-day', 'transactions', 'import', 'alerts'];
-
-// ── Main component ────────────────────────────────────────────────────────────
 export default function FinanceDashboard() {
-  const [activeTab, setActiveTab] = useState<TabId>('by-model');
+  const [activeTab, setActiveTab] = useState<TabId>('transactions');
+  const [spendRange, setSpendRange] = useState<SpendRange>('30d');
 
-  const summary    = useFinanceSummary();
-  const byModel    = useSpendByModel();
-  const byDay      = useSpendByDay();
+  const summary = useFinanceSummary();
+  const providersRes = useFinanceProviders();
+  const byDay = useSpendByDay(spendRange);
   const budgetsRes = useFinanceBudgets();
-  const alertsRes  = useSpendAlerts();
-  const txnsRes    = useTransactions();
+  const txnsRes = useTransactions();
+  const bundleRes = useOverviewBundleSlice();
 
-  const alertCount =
-    alertsRes.status === 'ok' ? alertsRes.data.alerts.length : 0;
+  const colorMap =
+    providersRes.status === 'ok' ? providersRes.data.colorMap : {};
 
   const handleTxnRefresh = useCallback(() => {
     if (txnsRes.status === 'ok' || txnsRes.status === 'error') {
-      (txnsRes as any).refetch?.();
+      (txnsRes as { refetch?: () => void }).refetch?.();
     }
   }, [txnsRes]);
 
-  const handleAlertRefresh = useCallback(() => {
-    (alertsRes as any).refetch?.();
-  }, [alertsRes]);
-
   const handleBudgetRefresh = useCallback(() => {
-    (budgetsRes as any).refetch?.();
+    (budgetsRes as { refetch?: () => void }).refetch?.();
   }, [budgetsRes]);
 
+  const refreshAll = useCallback(() => {
+    (summary as { refetch?: () => void }).refetch?.();
+    (providersRes as { refetch?: () => void }).refetch?.();
+    (byDay as { refetch?: () => void }).refetch?.();
+    (bundleRes as { refetch?: () => void }).refetch?.();
+  }, [summary, providersRes, byDay, bundleRes]);
+
   const isLoading = summary.status === 'loading' || summary.status === 'idle';
+  const bundle =
+    bundleRes.status === 'ok' ? bundleRes.data : null;
+
+  const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+  const rangeLabel = `${monthStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
 
   return (
-    <div className="min-h-screen bg-[#071318] text-white">
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between px-6 py-5 border-b border-white/[0.06]">
+    <div className="min-h-screen bg-[color:var(--dashboard-canvas)] text-[color:var(--dashboard-text)] overflow-y-auto">
+      <div className="flex items-center justify-between px-6 py-5 border-b border-[color:var(--dashboard-border)]">
         <div>
-          <h1 className="text-xl font-semibold text-white tracking-tight">Finance</h1>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Spend ledger · AI cost tracking · Bank transactions
+          <h1 className="text-xl font-semibold tracking-tight">Finance</h1>
+          <p className="text-xs text-[color:var(--dashboard-muted)] mt-0.5">
+            Usage rollups, client revenue, finance_transactions
           </p>
         </div>
-
         <div className="flex items-center gap-2">
-          {/* Date range label (read-only for now; hook into date picker as phase 2) */}
-          <div className="flex items-center gap-1.5 bg-white/[0.05] border border-white/10 rounded-lg px-3 py-1.5 text-xs text-slate-300">
-            <span className="opacity-60">📅</span>
-            <span>
-              {new Date(new Date().getFullYear(), new Date().getMonth(), 1)
-                .toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-              {' – '}
-              {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-            </span>
+          <div className="flex items-center gap-1.5 rounded-lg border border-[color:var(--dashboard-border)] bg-[color:var(--dashboard-card)] px-3 py-1.5 text-xs text-[color:var(--dashboard-muted)]">
+            <span>{rangeLabel}</span>
           </div>
           <button
-            onClick={() => {
-              (summary as any).refetch?.();
-              (byModel as any).refetch?.();
-              (byDay as any).refetch?.();
-            }}
-            className="p-1.5 text-slate-500 hover:text-white hover:bg-white/[0.05] rounded-lg transition-colors"
+            type="button"
+            onClick={refreshAll}
+            className="p-1.5 rounded-lg text-[color:var(--dashboard-muted)] hover:text-[color:var(--dashboard-text)] hover:bg-[color:var(--dashboard-card)] transition-colors"
             title="Refresh"
+            aria-label="Refresh"
           >
-            ↺
+            <span className="text-sm font-semibold">Refresh</span>
           </button>
         </div>
       </div>
 
-      {/* ── Body ───────────────────────────────────────────────────────────── */}
-      <div className="px-6 py-6 space-y-6">
-        {/* KPI strip */}
+      <div className="px-6 py-6 space-y-6 max-w-[1600px]">
         {isLoading ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
             {[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-32" />)}
           </div>
         ) : summary.status === 'error' ? (
-          <div className="bg-rose-500/10 border border-rose-500/20 rounded-xl px-5 py-4 text-sm text-rose-400">
+          <div className="rounded-xl border border-[color:var(--color-danger-strong)] px-5 py-4 text-sm text-[color:var(--color-danger-strong)]">
             Failed to load summary: {summary.message}
           </div>
         ) : (
-          <SpendOverview
-            summary={summary.data}
-            budgets={budgetsRes.status === 'ok' ? budgetsRes.data.budgets : []}
-            alertCount={alertCount}
+          <SpendOverview summary={summary.data} alertCount={0} />
+        )}
+
+        {byDay.status === 'loading' || byDay.status === 'idle' ? (
+          <Skeleton className="h-96" />
+        ) : byDay.status === 'error' ? (
+          <div className="text-[color:var(--color-danger-strong)] text-sm">{byDay.message}</div>
+        ) : (
+          <SpendByDayChart
+            data={byDay.data}
+            colorMap={colorMap}
+            range={spendRange}
+            onRangeChange={setSpendRange}
           />
         )}
 
-        {/* ── Tab bar ─────────────────────────────────────────────────────── */}
-        <div className="flex items-center gap-0 border-b border-white/[0.06]">
-          {TABS.map((tab) => {
-            const isAlerts = tab === 'alerts';
-            return (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={cn(
-                  'relative px-4 py-2.5 text-sm font-medium transition-colors flex items-center gap-1.5',
-                  activeTab === tab
-                    ? 'text-white'
-                    : 'text-slate-500 hover:text-slate-300'
-                )}
-              >
-                {TAB_LABELS[tab]}
-                {isAlerts && alertCount > 0 && (
-                  <span className="text-[9px] font-bold bg-amber-500 text-black rounded-full px-1.5 py-0.5 min-w-[16px] text-center leading-none">
-                    {alertCount}
-                  </span>
-                )}
-                {activeTab === tab && (
-                  <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-violet-500 rounded-t-full" />
-                )}
-              </button>
-            );
-          })}
+        {bundleRes.status === 'loading' || bundleRes.status === 'idle' ? (
+          <Skeleton className="h-80" />
+        ) : (
+          <ModelIntelligenceCard
+            perfRows={bundle?.model_leaderboard}
+            costLatency={bundle?.cost_latency}
+            arms={bundle?.routing_arms}
+            routingTimeseries={bundle?.routing_timeseries}
+            providerColorMap={colorMap}
+          />
+        )}
+
+        {summary.status === 'ok' && (
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            <ClientRevenueChart rows={summary.data.client_revenue} />
+            <MonthlyPlChart rows={summary.data.monthly_pl} />
+          </div>
+        )}
+
+        <div className="flex items-center gap-0 border-b border-[color:var(--dashboard-border)]">
+          {(['transactions', 'budgets'] as TabId[]).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setActiveTab(tab)}
+              className={cn(
+                'relative px-4 py-2.5 text-sm font-medium transition-colors',
+                activeTab === tab
+                  ? 'text-[color:var(--dashboard-text)]'
+                  : 'text-[color:var(--dashboard-muted)] hover:text-[color:var(--dashboard-text)]',
+              )}
+            >
+              {TAB_LABELS[tab]}
+              {activeTab === tab && (
+                <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-[color:var(--accent-secondary)] rounded-t-full" />
+              )}
+            </button>
+          ))}
         </div>
 
-        {/* ── Tab content ─────────────────────────────────────────────────── */}
-
-        {activeTab === 'by-model' && (
-          <>
-            {byModel.status === 'loading' || byModel.status === 'idle' ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-                {[0, 1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-48" />)}
-              </div>
-            ) : byModel.status === 'error' ? (
-              <div className="text-rose-400 text-sm">{byModel.message}</div>
-            ) : (
-              <SpendByModelChart data={byModel.data} />
-            )}
-          </>
-        )}
-
-        {activeTab === 'by-day' && (
-          <>
-            {byDay.status === 'loading' || byDay.status === 'idle' ? (
-              <Skeleton className="h-96" />
-            ) : byDay.status === 'error' ? (
-              <div className="text-rose-400 text-sm">{byDay.message}</div>
-            ) : (
-              <SpendByDayChart data={byDay.data} />
-            )}
-          </>
-        )}
-
         {activeTab === 'transactions' && (
-          <>
+          <div className="space-y-4">
+            <CsvImportZone onSuccess={handleTxnRefresh} />
             {txnsRes.status === 'loading' || txnsRes.status === 'idle' ? (
               <Skeleton className="h-80" />
             ) : txnsRes.status === 'error' ? (
-              <div className="text-rose-400 text-sm">{txnsRes.message}</div>
+              <div className="text-[color:var(--color-danger-strong)] text-sm">{txnsRes.message}</div>
             ) : (
               <TransactionsTable
                 transactions={txnsRes.data.transactions}
                 onRefresh={handleTxnRefresh}
               />
             )}
-          </>
-        )}
-
-        {activeTab === 'import' && (
-          <CsvImportZone onSuccess={handleTxnRefresh} />
-        )}
-
-        {activeTab === 'alerts' && (
-          <div className="grid grid-cols-1 xl:grid-cols-[1fr_400px] gap-6">
-            {/* Alert feed */}
-            <div>
-              {alertsRes.status === 'loading' || alertsRes.status === 'idle' ? (
-                <div className="space-y-3">
-                  {[0, 1, 2].map((i) => <Skeleton key={i} className="h-24" />)}
-                </div>
-              ) : alertsRes.status === 'error' ? (
-                <div className="text-rose-400 text-sm">{alertsRes.message}</div>
-              ) : (
-                <AlertFeed
-                  alerts={alertsRes.data.alerts}
-                  onRefresh={handleAlertRefresh}
-                />
-              )}
-            </div>
-
-            {/* Budget manager lives alongside alerts (same "ops" zone) */}
-            <div>
-              {budgetsRes.status === 'loading' || budgetsRes.status === 'idle' ? (
-                <Skeleton className="h-64" />
-              ) : budgetsRes.status === 'error' ? (
-                <div className="text-rose-400 text-sm">{budgetsRes.message}</div>
-              ) : (
-                <BudgetManager
-                  budgets={budgetsRes.data.budgets}
-                  onRefresh={handleBudgetRefresh}
-                />
-              )}
-            </div>
           </div>
+        )}
+
+        {activeTab === 'budgets' && (
+          budgetsRes.status === 'loading' || budgetsRes.status === 'idle' ? (
+            <Skeleton className="h-64" />
+          ) : budgetsRes.status === 'error' ? (
+            <div className="text-[color:var(--color-danger-strong)] text-sm">{budgetsRes.message}</div>
+          ) : (
+            <BudgetManager budgets={budgetsRes.data.budgets} onRefresh={handleBudgetRefresh} />
+          )
         )}
       </div>
     </div>

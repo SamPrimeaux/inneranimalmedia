@@ -1,8 +1,8 @@
 import { useMemo } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { DashboardBundle } from "../types";
-import { T, fmt, spendPivot } from "../constants";
-import { Sparkline, Skel, Ico } from "../primitives";
+import { T, fmt } from "../constants";
+import { Sparkline, Skel } from "../primitives";
 
 const GRID_STYLE = `
 .ov-pillars {
@@ -15,7 +15,7 @@ const GRID_STYLE = `
   .ov-pillars { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (min-width: 1024px) {
-  .ov-pillars { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .ov-pillars { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 .ov-pillar {
   text-align: left;
@@ -39,43 +39,6 @@ const GRID_STYLE = `
   outline: 2px solid var(--accent-secondary, #2dd4bf);
   outline-offset: 2px;
 }
-.ov-pillar-wrap--spend {
-  position: relative;
-  min-width: 0;
-}
-.ov-pillar-wrap--spend > .ov-pillar {
-  width: 100%;
-}
-.ov-pillar-refresh {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--dashboard-muted, var(--text-muted, #8aa0aa));
-  opacity: 0.55;
-  cursor: pointer;
-  transition: opacity 0.15s ease, color 0.15s ease;
-}
-.ov-pillar-refresh:hover:not(:disabled) {
-  opacity: 1;
-  color: var(--accent-secondary, var(--solar-cyan, #2dd4bf));
-}
-.ov-pillar-refresh:disabled {
-  cursor: wait;
-  opacity: 0.35;
-}
-.ov-pillar-refresh svg {
-  width: 16px;
-  height: 16px;
-}
 `;
 
 type Pillar = {
@@ -85,34 +48,10 @@ type Pillar = {
   secondary?: string;
   tertiary?: string;
   badge?: string;
-  trendPct?: number | null;
-  spark?: number[];
   href: string;
   scrollId: string;
+  spark?: number[];
 };
-
-function trendBadge(pct: number | null | undefined) {
-  if (pct == null || !Number.isFinite(pct) || pct === 0) return null;
-  const up = pct > 0;
-  return (
-    <span
-      style={{
-        fontSize: 9,
-        fontWeight: 700,
-        color: up ? T.red : T.green,
-        marginLeft: 6,
-      }}
-    >
-      {up ? "+" : ""}
-      {pct.toFixed(1)}%
-    </span>
-  );
-}
-
-function sumSpendSpark(rows: NonNullable<DashboardBundle["spend_by_day_provider"]>): number[] {
-  const pivoted = spendPivot(rows);
-  return pivoted.map((r) => r.openai + r.anthropic + r.google + r.meta + r.other);
-}
 
 function sumWfSpark(ts: NonNullable<DashboardBundle["workflow_timeseries"]>): number[] {
   return ts.map((r) => (Number(r.succeeded) || 0) + (Number(r.failed) || 0) + (Number(r.running) || 0));
@@ -125,14 +64,9 @@ function seriesHasNonZero(values: number[]) {
 export function OpsPillars({
   bundle,
   loading,
-  onRefreshSpend,
-  refreshingSpend = false,
 }: {
   bundle: DashboardBundle | null;
   loading: boolean;
-  /** Same handler as the former top-bar Refresh (reloads overview bundle / spend). */
-  onRefreshSpend?: () => void;
-  refreshingSpend?: boolean;
 }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -141,12 +75,6 @@ export function OpsPillars({
   const k = bundle?.kpis ?? {};
 
   const pillars: Pillar[] = useMemo(() => {
-    const monthlyBurn = Number(k.monthly_burn_usd) || 0;
-    const priorBurn = Number(k.prior_monthly_burn_usd) || 0;
-    const burnTrend =
-      priorBurn > 0 && live ? ((monthlyBurn - priorBurn) / priorBurn) * 100 : null;
-
-    const tokens7 = Number(k.tokens_7d) || 0;
     const agentCalls7 = Number(k.agent_calls_7d) || 0;
     const mcpToday = Number(k.mcp_calls_today) || 0;
     const wfOk = Number(k.workflow_runs_today_success) || 0;
@@ -161,32 +89,15 @@ export function OpsPillars({
     const push7 = Number(k.github_push_events_7d) || 0;
     const deployOk = Number(bundle?.deployment_stats?.succeeded) || 0;
 
-    const spendSpark =
-      bundle?.spend_by_day_provider?.length && seriesHasNonZero(sumSpendSpark(bundle.spend_by_day_provider))
-        ? sumSpendSpark(bundle.spend_by_day_provider)
-        : undefined;
     const wfSpark =
       bundle?.workflow_timeseries?.length && seriesHasNonZero(sumWfSpark(bundle.workflow_timeseries))
         ? sumWfSpark(bundle.workflow_timeseries)
         : undefined;
 
-    const showTokens = live ? tokens7 > 0 : false;
-    const showAgentCalls = live ? agentCalls7 > 0 : false;
     const showPush = live ? push7 > 0 : false;
     const showDeploys = live ? deployOk > 0 : false;
 
     return [
-      {
-        id: "spend",
-        title: "Spend and usage",
-        primary: live ? fmt.usd(monthlyBurn) : "--",
-        secondary: showTokens ? `${fmt.tok(tokens7)} tokens` : undefined,
-        tertiary: showAgentCalls ? `${fmt.num(agentCalls7)} calls` : undefined,
-        trendPct: burnTrend,
-        spark: spendSpark,
-        href: "/dashboard/analytics/costs",
-        scrollId: "spend-chart",
-      },
       {
         id: "execution",
         title: "Execution",
@@ -232,78 +143,49 @@ export function OpsPillars({
     <>
       <style>{GRID_STYLE}</style>
       <div className="ov-pillars" role="group" aria-label="Operations pillars">
-        {pillars.map((p) => {
-          const body = (
-            <>
-              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: T.muted }}>
-                {p.title}
-              </div>
-              {loading ? (
-                <>
-                  <Skel h={22} w="50%" />
-                  <Skel h={32} />
-                </>
-              ) : (
-                <>
-                  <div style={{ display: "flex", alignItems: "baseline", flexWrap: "wrap", gap: 4 }}>
-                    <span style={{ fontSize: 20, fontWeight: 700, letterSpacing: "-0.02em" }}>{p.primary}</span>
-                    {trendBadge(p.trendPct)}
-                    {p.badge ? (
-                      <span
-                        style={{
-                          fontSize: 9,
-                          fontWeight: 600,
-                          color: T.accent,
-                          background: `color-mix(in srgb, ${T.accent} 12%, transparent)`,
-                          padding: "2px 8px",
-                          borderRadius: 20,
-                          marginLeft: "auto",
-                        }}
-                      >
-                        {p.badge}
-                      </span>
-                    ) : null}
-                  </div>
-                  {p.spark && p.spark.length >= 2 ? (
-                    <Sparkline data={p.spark} color={T.accent} h={32} w={120} />
+        {pillars.map((p) => (
+          <button key={p.id} type="button" className="ov-pillar" onClick={() => handleClick(p)} data-pillar={p.id}>
+            <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: T.muted }}>
+              {p.title}
+            </div>
+            {loading ? (
+              <>
+                <Skel h={22} w="50%" />
+                <Skel h={32} />
+              </>
+            ) : (
+              <>
+                <div style={{ display: "flex", alignItems: "baseline", flexWrap: "wrap", gap: 4 }}>
+                  <span style={{ fontSize: 20, fontWeight: 700, letterSpacing: "-0.02em" }}>{p.primary}</span>
+                  {p.badge ? (
+                    <span
+                      style={{
+                        fontSize: 9,
+                        fontWeight: 600,
+                        color: T.accent,
+                        background: `color-mix(in srgb, ${T.accent} 12%, transparent)`,
+                        padding: "2px 8px",
+                        borderRadius: 20,
+                        marginLeft: "auto",
+                      }}
+                    >
+                      {p.badge}
+                    </span>
                   ) : null}
-                  {p.secondary ? (
-                    <div style={{ fontSize: 10, color: T.muted }}>{p.secondary}</div>
-                  ) : null}
-                  {p.tertiary ? (
-                    <div style={{ fontSize: 10, color: T.muted }}>{p.tertiary}</div>
-                  ) : null}
-                </>
-              )}
-            </>
-          );
-
-          if (p.id === "spend" && onRefreshSpend) {
-            return (
-              <div key={p.id} className="ov-pillar-wrap--spend" data-pillar={p.id}>
-                <button
-                  type="button"
-                  className="ov-pillar-refresh"
-                  aria-label="Refresh spend and usage"
-                  title="Refresh spend and usage"
-                  disabled={refreshingSpend || loading}
-                  onClick={() => onRefreshSpend()}
-                >
-                  {Ico.refresh}
-                </button>
-                <button type="button" className="ov-pillar" style={{ width: "100%", border: "none" }} onClick={() => handleClick(p)}>
-                  {body}
-                </button>
-              </div>
-            );
-          }
-
-          return (
-            <button key={p.id} type="button" className="ov-pillar" onClick={() => handleClick(p)} data-pillar={p.id}>
-              {body}
-            </button>
-          );
-        })}
+                </div>
+                {p.spark && p.spark.length >= 2 ? (
+                  <Sparkline data={p.spark} color={T.accent} h={32} w={120} />
+                ) : null}
+                {p.secondary ? (
+                  <div style={{ fontSize: 10, color: T.muted }}>{p.secondary}</div>
+                ) : null}
+                {p.tertiary ? (
+                  <div style={{ fontSize: 10, color: T.muted }}>{p.tertiary}</div>
+                ) : null}
+              </>
+            )}
+          </button>
+        ))}
       </div>
     </>
   );

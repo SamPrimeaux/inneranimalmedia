@@ -247,15 +247,11 @@ async function handleOverviewKpiStrip(authUser, env) {
 
     const [
       apiCallsRow,
-      tokensRow,
-      costRow,
       toolCallsRow,
       mcpCallsRow,
       deploymentsRow,
     ] = await Promise.all([
       safeFirst(`SELECT COUNT(*) as c FROM worker_analytics WHERE date(created_at) = date(?)`, today),
-      safeFirst(`SELECT COALESCE(SUM(COALESCE(tokens_in,0)+COALESCE(tokens_out,0)),0) as t FROM spend_ledger WHERE date(occurred_at) = date(?)`, today),
-      safeFirst(`SELECT COALESCE(SUM(COALESCE(amount_usd,0)),0) as c FROM spend_ledger WHERE date(occurred_at) = date(?)`, today),
       safeFirst(`SELECT COUNT(*) as c FROM agentsam_mcp_tool_execution WHERE date(created_at) = date(?)`, today),
       safeFirst(
         `SELECT COUNT(*) as c FROM agentsam_usage_events WHERE date(datetime(created_at, 'unixepoch')) = date(?)`,
@@ -266,15 +262,13 @@ async function handleOverviewKpiStrip(authUser, env) {
 
     return jsonResponse({
       api_calls: Number(apiCallsRow?.c || 0),
-      tokens_used: Number(tokensRow?.t || 0),
-      cost_usd: Number(costRow?.c || 0),
       tool_calls: Number(toolCallsRow?.c || 0),
       mcp_calls: Number(mcpCallsRow?.c || 0),
       deployments: Number(deploymentsRow?.c || 0),
       user_id: userId || null,
     });
   } catch (_) {
-    return jsonResponse({ api_calls: 0, tokens_used: 0, cost_usd: 0, tool_calls: 0, mcp_calls: 0, deployments: 0 });
+    return jsonResponse({ api_calls: 0, tool_calls: 0, mcp_calls: 0, deployments: 0 });
   }
 }
 

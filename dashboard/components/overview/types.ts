@@ -53,7 +53,6 @@ export type DashboardBundleMeta = {
 export type DashboardBundle = {
   ok?: boolean;
   kpis?: Record<string, number | null | undefined>;
-  spend_by_day_provider?: Array<{ day: string; provider: string; cost_usd: number }>;
   workflow_by_day_status?: Array<{ day: string; status: string; c: number }>;
   workflow_status_pie?: Array<{ status: string; c: number }>;
   workflow_stats?: Array<{

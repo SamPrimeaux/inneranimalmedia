@@ -75,7 +75,6 @@ export async function handleOverviewDashboardBundle(authUser, env, url) {
     tenant_id: tid || null,
     workspace_id: workspaceId || null,
     kpis: {},
-    spend_by_day_provider: [],
     workflow_by_day_status: [],
     workflow_status_pie: [],
     workflow_stats: [],
@@ -119,22 +118,14 @@ export async function handleOverviewDashboardBundle(authUser, env, url) {
   const TW = workspaceId ? [tid, workspaceId] : T;
 
   // ── KPI strip ───────────────────────────────────────────────────────────
-  const monthlyBurn = await first(
+  const monthStart = new Date();
+  const monthStartIso = `${monthStart.getFullYear()}-${String(monthStart.getMonth() + 1).padStart(2, '0')}-01`;
+  const mtdSpend = await first(
     db,
     `SELECT COALESCE(SUM(cost_usd), 0) AS v
-     FROM agentsam_usage_events
-     WHERE tenant_id = ?
-       AND created_at >= unixepoch(datetime('now','start of month'))${usageWs}`,
-    TW,
-  );
-  const priorMonthlyBurn = await first(
-    db,
-    `SELECT COALESCE(SUM(cost_usd), 0) AS v
-     FROM agentsam_usage_events
-     WHERE tenant_id = ?
-       AND created_at >= unixepoch('now', '-60 days')
-       AND created_at < unixepoch('now', '-30 days')${usageWs}`,
-    TW,
+     FROM agentsam_usage_rollups_daily
+     WHERE tenant_id = ? AND day >= ?${workspaceId ? ' AND workspace_id = ?' : ''}`,
+    workspaceId ? [tid, monthStartIso, workspaceId] : [tid, monthStartIso],
   );
   const agentCalls7d = await first(
     db,
@@ -212,8 +203,7 @@ export async function handleOverviewDashboardBundle(authUser, env, url) {
   );
 
   out.kpis = {
-    monthly_burn_usd: Number(monthlyBurn?.v ?? 0) || 0,
-    prior_monthly_burn_usd: Number(priorMonthlyBurn?.v ?? 0) || 0,
+    mtd_spend_usd: Number(mtdSpend?.v ?? 0) || 0,
     agent_calls_7d: Number(agentCalls7d?.c ?? 0) || 0,
     tokens_7d: Number(tokens7d?.t ?? 0) || 0,
     mcp_calls_today: Number(mcpToday?.c ?? 0) || 0,
@@ -225,18 +215,6 @@ export async function handleOverviewDashboardBundle(authUser, env, url) {
     workflow_runs_today_success: Number(wfToday?.success ?? 0) || 0,
     workflow_runs_today_failed: Number(wfToday?.failed ?? 0) || 0,
   };
-
-  // ── AI spend by day + provider ──────────────────────────────────────────
-  out.spend_by_day_provider = await all(
-    db,
-    `SELECT date(datetime(created_at, 'unixepoch')) AS day,
-            COALESCE(provider,'unknown') AS provider,
-            COALESCE(SUM(cost_usd), 0) AS cost_usd
-     FROM agentsam_usage_events
-     WHERE tenant_id = ? AND created_at >= unixepoch('now', '-7 days')${usageWs}
-     GROUP BY 1, 2 ORDER BY 1 ASC`,
-    TW,
-  );
 
   // ── Workflow runs: stats (donut + by-key bars) + daily stack ─────────────
   out.workflow_stats = await all(

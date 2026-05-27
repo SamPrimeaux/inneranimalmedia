@@ -1,76 +1,45 @@
 // dashboard/components/finance/types.ts
-// All shapes aligned to GET /api/finance/* response JSON
+// Shapes aligned to canonical GET /api/finance/* responses
 
-export type TabId = 'by-model' | 'by-day' | 'transactions' | 'import' | 'alerts';
+export type TabId = 'transactions' | 'budgets';
 
-// ── /api/finance/summary ──────────────────────────────────────────────────────
+export type SpendRange = '7d' | '30d' | 'mtd';
+
+// ── /api/finance/summary (canonical rollups + P&L) ───────────────────────────
 export interface FinanceSummary {
-  month_in: number;
-  month_out: number;
-  month_net: number;
-  prior_month_out: number;
-  prior_month_in: number;
-  tech_spend: number;
-  ai_spend_total: number;
-  alert_count: number;
-  monthly: MonthlyBucket[];
-  by_category: CategoryBucket[];
-  accounts: FinancialAccount[];
-  spend_ledger: { total: number; entries: SpendLedgerEntry[]; by_provider: any[] };
-  ai_spend: { total_usd: number; count: number; rows: AiSpendEntry[] };
+  ai_spend_mtd: number;
+  tokens_mtd: number;
+  mrr: number;
+  net_cashflow_last_month: number;
+  last_pl_period: { year: number; month: number } | null;
+  monthly_pl: MonthlyPlRow[];
+  client_revenue: ClientRevenueRow[];
+  daily_spend_sparkline: DailySpendSpark[];
 }
 
-export interface MonthlyBucket {
-  month: string; // 'YYYY-MM'
-  income: number;
-  expenses: number;
-  net: number;
+export interface MonthlyPlRow {
+  year: number;
+  month: number;
+  total_income: number;
+  total_expenses: number;
+  net_cashflow: number;
 }
 
-export interface CategoryBucket {
-  category: string;
-  total: number;
-  count: number;
+export interface ClientRevenueRow {
+  client_name: string;
+  monthly_recurring_revenue: number;
+  payment_status: string;
+  onboarding_status: string;
 }
 
-export interface FinancialAccount {
-  id: number;
-  name: string;
-  type: string;
-  balance: number;
-  currency: string;
-}
-
-export interface SpendLedgerEntry {
-  model_key: string;
-  provider_slug: string;
-  amount_usd: number;
-  period: string;
-}
-
-export interface AiSpendEntry {
-  model_key: string;
-  total_usd: number;
-  request_count: number;
-}
-
-// ── /api/finance/spend-by-model ───────────────────────────────────────────────
-export interface SpendByModelRow {
-  model_key: string;
-  provider_slug: string;
-  total_usd: number;
-  request_count: number;
-  day: string; // YYYY-MM-DD, present when daily=true
-}
-
-export interface SpendByModelData {
-  rows: SpendByModelRow[];
-  models: string[]; // unique model_keys
+export interface DailySpendSpark {
+  day: string;
+  cost_usd: number;
 }
 
 // ── /api/finance/spend-by-day ─────────────────────────────────────────────────
 export interface SpendByDayRow {
-  date: string; // YYYY-MM-DD
+  date: string;
   provider_slug: string;
   total_usd: number;
   request_count: number;
@@ -84,18 +53,21 @@ export interface SpendByDayData {
 
 // ── /api/finance/budgets ──────────────────────────────────────────────────────
 export interface FinanceBudget {
-  id: number;
+  id: number | string;
   tenant_id: string;
   workspace_id: string | null;
   budget_name: string;
   budget_type: 'monthly' | 'weekly' | 'daily' | 'total';
   target_usd: number;
   actual_usd: number;
-  period: string; // YYYY-MM
+  period: string;
   model_filter: string | null;
   provider_filter: string | null;
   notes: string | null;
   created_at: string;
+  category_id?: string | null;
+  category_name?: string | null;
+  category_color?: string | null;
 }
 
 // ── /api/finance/alerts ───────────────────────────────────────────────────────
@@ -115,13 +87,13 @@ export interface SpendAlert {
   created_at: string;
 }
 
-// ── /api/finance/transactions ─────────────────────────────────────────────────
+// ── /api/finance/transactions (finance_transactions) ──────────────────────────
 export interface Transaction {
-  id: number;
+  id: number | string;
   tenant_id: string;
   workspace_id: string | null;
-  account_id: number | null;
-  category_id: number | null;
+  account_id: number | string | null;
+  category_id: number | string | null;
   amount: number;
   direction: 'in' | 'out';
   description: string;
@@ -130,10 +102,10 @@ export interface Transaction {
   source: string;
   category_name?: string;
   account_name?: string;
+  source_upload_id?: string | null;
 }
 
-// ── UI-only ───────────────────────────────────────────────────────────────────
 export interface DateRange {
-  from: string; // YYYY-MM-DD
+  from: string;
   to: string;
 }

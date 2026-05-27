@@ -31,27 +31,6 @@ export const T = {
   radius: "var(--border-radius, 10px)",
 };
 
-/** Provider chart / bar colors — CSS vars only (see ops-overview-shell or theme). */
-export const PROVIDER_COLORS = {
-  anthropic: "var(--color-provider-anthropic, var(--accent-orange, var(--color-warning-strong, var(--solar-yellow, #e6ac00))))",
-  openai: "var(--color-provider-openai, var(--accent-green, var(--color-success-strong, var(--solar-green, #22c55e))))",
-  google: "var(--color-provider-google, var(--accent-blue, var(--color-primary, var(--solar-blue, #3a9fe8))))",
-  workers_ai: "var(--color-provider-workers-ai, var(--accent-purple, var(--solar-violet, #7c83d4)))",
-  meta: "var(--color-provider-meta, var(--accent-blue, var(--solar-blue, #3a9fe8)))",
-  mistral: "var(--color-provider-mistral, var(--accent-orange, var(--solar-yellow, #e6ac00)))",
-  other: "var(--color-provider-other, var(--dashboard-muted, var(--text-muted, #8aa0aa)))",
-} as const;
-
-export const PC: Record<string, string> = {
-  openai: PROVIDER_COLORS.openai,
-  anthropic: PROVIDER_COLORS.anthropic,
-  google: PROVIDER_COLORS.google,
-  workers_ai: PROVIDER_COLORS.workers_ai,
-  meta: PROVIDER_COLORS.meta,
-  mistral: PROVIDER_COLORS.mistral,
-  other: PROVIDER_COLORS.other,
-};
-
 /** Canonical provider groups for Model Intelligence bar chart (x-axis). */
 export const MODEL_PROVIDER_GROUPS = [
   { key: "anthropic", label: "Anthropic" },
@@ -130,30 +109,6 @@ export const seedArr = (base: number, len = 9) =>
 
 export const STEP_COLORS = [T.accent, T.blue, T.violet, T.amber, T.green];
 
-export function spendPivot(rows: NonNullable<DashboardBundle["spend_by_day_provider"]>) {
-  type Bucket = { date: string; openai: number; anthropic: number; google: number; meta: number; other: number };
-  const bucket = (p: string) => {
-    const x = String(p || "").toLowerCase();
-    if (x.includes("openai")) return "openai" as const;
-    if (x.includes("anthropic")) return "anthropic" as const;
-    if (x.includes("google")) return "google" as const;
-    if (x.includes("meta") || x.includes("llama")) return "meta" as const;
-    return "other" as const;
-  };
-  const byDay = new Map<string, Bucket>();
-  for (const r of rows) {
-    const short = String(r.day || "").slice(5);
-    if (!short) continue;
-    let row = byDay.get(short);
-    if (!row) {
-      row = { date: short, openai: 0, anthropic: 0, google: 0, meta: 0, other: 0 };
-      byDay.set(short, row);
-    }
-    row[bucket(String(r.provider))] += Number(r.cost_usd || 0);
-  }
-  return [...byDay.values()].sort((a, b) => a.date.localeCompare(b.date));
-}
-
 export function workflowStackRows(rows: NonNullable<DashboardBundle["workflow_by_day_status"]>) {
   const byDay = new Map<string, { date: string; succeeded: number; failed: number; running: number }>();
   for (const r of rows) {
@@ -194,11 +149,12 @@ export function provSlug(p: string): string {
   return "other";
 }
 
-/** Map provider label to `PC` key (substring match on known slugs). */
+const PROVIDER_SLUG_KEYS = ["openai", "anthropic", "google", "workers_ai", "mistral", "meta"] as const;
+
+/** Map provider label to slug key (substring match on known slugs). */
 export function providerPcKey(provider: string): string {
   const s = String(provider || "").toLowerCase().trim();
-  for (const k of Object.keys(PC)) {
-    if (k === "other") continue;
+  for (const k of PROVIDER_SLUG_KEYS) {
     if (s.includes(k)) return k;
   }
   return provSlug(provider);

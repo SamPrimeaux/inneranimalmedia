@@ -2,40 +2,25 @@
 
 export const API = {
   summary:       '/api/finance/summary',
-  spendByModel:  '/api/finance/spend-by-model',
   spendByDay:    '/api/finance/spend-by-day',
+  providers:     '/api/finance/providers',
   budgets:       '/api/finance/budgets',
   alerts:        '/api/finance/alerts',
   resolveAlert:  (id: number) => `/api/finance/alerts/${id}/resolve`,
   transactions:  '/api/finance/transactions',
   importCsv:     '/api/finance/import-csv',
   health:        '/api/finance/health',
+  dashboardBundle: '/api/overview/dashboard-bundle',
 } as const;
 
-// Provider → display color (matches OpenAI purple palette shifted to IAM teal)
-export const PROVIDER_COLORS: Record<string, string> = {
-  openai:      '#7c6df0',
-  anthropic:   '#e07d54',
-  workers_ai:  '#38bdf8',
-  google:      '#4ade80',
-  groq:        '#facc15',
-  unknown:     '#6b7280',
+export type SpendRange = '7d' | '30d' | 'mtd';
+
+export const TAB_LABELS: Record<string, string> = {
+  transactions: 'Transactions',
+  budgets: 'Budgets',
 };
 
-// Model key highlight rules (orange = over-spend risk)
-export const HOT_MODEL_PATTERNS = [/codex/i, /5[_-]?4/i, /o3/i, /o4/i];
-
-export function isHotModel(modelKey: string): boolean {
-  return HOT_MODEL_PATTERNS.some((re) => re.test(modelKey));
-}
-
-export const SEVERITY_COLORS: Record<string, string> = {
-  info:     '#38bdf8',
-  warning:  '#f59e0b',
-  critical: '#ef4444',
-};
-
-// ── Formatters ────────────────────────────────────────────────────────────────
+// Formatters (no color literals)
 export const fmt = {
   usd: (n: number, compact = false): string => {
     if (compact && Math.abs(n) >= 1000) {
@@ -61,16 +46,7 @@ export const fmt = {
   },
 };
 
-// Current calendar month as YYYY-MM
 export function currentMonth(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 }
-
-export const TAB_LABELS: Record<string, string> = {
-  'by-model':     'By Model',
-  'by-day':       'By Day',
-  'transactions': 'Transactions',
-  'import':       'Import CSV',
-  'alerts':       'Alerts',
-};

@@ -9,12 +9,11 @@ import type { ActivityData, AgentActivity, DashboardBundle, DeployData, KpiStrip
 import { T, dashboardBundleUrl } from "./constants";
 import { QuickNav } from "./panels/QuickNav";
 import { OpsPillars } from "./panels/OpsPillars";
-import { SpendChart } from "./panels/SpendChart";
+import { MtdSpendStrip } from "./panels/MtdSpendStrip";
 import { WorkflowRunsChart } from "./panels/WorkflowRunsChart";
 import { ToolWaterfall } from "./panels/ToolWaterfall";
 import { ErrorInbox } from "./panels/ErrorInbox";
 import { TokensChart } from "./panels/TokensChart";
-import { ModelIntelligenceCard } from "./panels/ModelIntelligenceCard";
 import { DeploymentsTimeline } from "./panels/DeploymentsTimeline";
 import { SystemHealth } from "./panels/SystemHealth";
 import { OverviewLowerGrid } from "./panels/OverviewLowerGrid";
@@ -209,18 +208,9 @@ export default function OverviewPage() {
       <div className="ov-wrap" style={{ fontFamily: T.font, background: T.bg, color: T.text, minHeight: "100vh", padding: "22px 26px", overflowX: "hidden" }}>
         <QuickNav />
 
-        <OpsPillars bundle={bundle} loading={loading} onRefreshSpend={load} refreshingSpend={loading} />
+        <MtdSpendStrip bundle={bundle} loading={loading} />
 
-        <ModelIntelligenceCard
-          perfRows={bundle?.model_leaderboard}
-          costLatency={bundle?.cost_latency}
-          arms={bundle?.routing_arms}
-          routingTimeseries={bundle?.routing_timeseries}
-        />
-
-        <div id="spend-chart" style={{ marginBottom: 10 }}>
-          <SpendChart spendRows={bundle?.spend_by_day_provider} />
-        </div>
+        <OpsPillars bundle={bundle} loading={loading} />
 
         <OverviewLowerGrid>
           <div id="workflow-runs">

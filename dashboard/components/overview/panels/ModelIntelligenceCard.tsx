@@ -11,7 +11,8 @@ import {
   Legend,
 } from "recharts";
 import type { DashboardBundle } from "../types";
-import { T, PC, fmt, providerPcKey, MODEL_PROVIDER_GROUPS } from "../constants";
+import { T, fmt, providerPcKey, MODEL_PROVIDER_GROUPS } from "../constants";
+import { lookupProviderColor, normalizeProviderKey } from "../../../lib/providerColors";
 import { Card, Ico, NavLink } from "../primitives";
 import { PulseEmpty } from "./PulseEmpty";
 import { OVERVIEW_LINKS } from "../overviewLinks";
@@ -55,9 +56,12 @@ function costDriftPct(realized: number | null | undefined, listIn: number | null
   return Math.round(pct * 10) / 10;
 }
 
-function mapProviderGroup(pk: string): (typeof MODEL_PROVIDER_GROUPS)[number]["key"] {
-  if (pk === "anthropic" || pk === "openai" || pk === "google" || pk === "workers_ai") return pk;
-  return "workers_ai";
+function mapProviderGroup(pk: string): (typeof MODEL_PROVIDER_GROUPS)[number]["key"] | null {
+  const nk = normalizeProviderKey(pk);
+  if (nk === "anthropic" || nk === "openai" || nk === "google" || nk === "cloudflare") {
+    return nk === "cloudflare" ? "workers_ai" : nk;
+  }
+  return null;
 }
 
 function ProviderChartTooltip({
@@ -95,12 +99,16 @@ function ProviderChartTooltip({
 export function ModelIntelligenceCard({
   perfRows,
   costLatency,
+  providerColorMap = {},
 }: {
   perfRows?: DashboardBundle["model_leaderboard"];
   costLatency?: DashboardBundle["cost_latency"];
   arms?: DashboardBundle["routing_arms"];
   routingTimeseries?: DashboardBundle["routing_timeseries"];
+  providerColorMap?: Record<string, string>;
 }) {
+  const colorFor = (providerKey: string) =>
+    lookupProviderColor(providerColorMap, providerPcKey(providerKey)) ?? T.accent;
   const [tab, setTab] = useState<TabId>("by_provider");
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
 
@@ -136,17 +144,19 @@ export function ModelIntelligenceCard({
   const { providerChartRows, modelBarKeys } = useMemo(() => {
     const keys = new Set<string>();
     const rows = MODEL_PROVIDER_GROUPS.map((g) => {
+      if (!lookupProviderColor(providerColorMap, g.key)) return null;
       const row: Record<string, string | number> = { provider: g.label, pk: g.key };
       for (const r of lbRows) {
-        if (mapProviderGroup(r.pk) !== g.key) continue;
+        const grp = mapProviderGroup(r.pk);
+        if (grp !== g.key) continue;
         const barKey = r.modelKey.replace(/[^a-zA-Z0-9_]/g, "_").slice(0, 32) || "model";
         keys.add(barKey);
         row[barKey] = ((row[barKey] as number) || 0) + r.runs;
       }
       return row;
-    });
+    }).filter(Boolean) as Array<Record<string, string | number>>;
     return { providerChartRows: rows, modelBarKeys: [...keys] };
-  }, [lbRows]);
+  }, [lbRows, providerColorMap]);
 
   const costLatencySorted = useMemo(() => {
     const fromLb = lbRows.map((r) => ({
@@ -259,16 +269,16 @@ export function ModelIntelligenceCard({
                     fill={T.accent}
                   >
                     {providerChartRows.map((row, idx) => (
-                      <Cell key={`${key}-${idx}`} fill={PC[String(row.pk)] || PC.other} />
+                      <Cell key={`${key}-${idx}`} fill={colorFor(String(row.pk))} />
                     ))}
                   </Bar>
                 ))}
               </BarChart>
             </ResponsiveContainer>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 8, marginBottom: selectedProvider ? 10 : 0, fontSize: 9 }}>
-              {MODEL_PROVIDER_GROUPS.map((g) => (
+              {MODEL_PROVIDER_GROUPS.filter((g) => lookupProviderColor(providerColorMap, g.key)).map((g) => (
                 <span key={g.key} style={{ display: "inline-flex", alignItems: "center", gap: 5, color: T.muted }}>
-                  <span style={{ width: 8, height: 8, borderRadius: 2, background: PC[g.key] || PC.other }} />
+                  <span style={{ width: 8, height: 8, borderRadius: 2, background: lookupProviderColor(providerColorMap, g.key)! }} />
                   {g.label}
                 </span>
               ))}
@@ -364,7 +374,7 @@ export function ModelIntelligenceCard({
                   />
                   <Bar dataKey="costPer1k" name="Cost / 1K" radius={[0, 3, 3, 0]} barSize={10}>
                     {costLatencySorted.map((entry, idx) => (
-                      <Cell key={`c-${entry.modelFull}-${idx}`} fill={PC[entry.pk] || PC.other} />
+                      <Cell key={`c-${entry.modelFull}-${idx}`} fill={colorFor(entry.pk)} />
                     ))}
                   </Bar>
                 </BarChart>
@@ -383,7 +393,7 @@ export function ModelIntelligenceCard({
                   />
                   <Bar dataKey="latMs" name="Latency" radius={[0, 3, 3, 0]} barSize={10}>
                     {costLatencySorted.map((entry, idx) => (
-                      <Cell key={`l-${entry.modelFull}-${idx}`} fill={PC[entry.pk] || PC.other} />
+                      <Cell key={`l-${entry.modelFull}-${idx}`} fill={colorFor(entry.pk)} />
                     ))}
                   </Bar>
                 </BarChart>

@@ -1,9 +1,9 @@
 // dashboard/components/finance/panels/TransactionsTable.tsx
+// Read-only finance_transactions list (CSV import via Import tab)
 
 import React, { useState, useMemo } from 'react';
 import { cn } from '../../../lib/utils';
 import { Transaction } from '../types';
-import { addTransaction } from '../hooks/useFinanceData';
 import { fmt as fmtConst } from '../constants';
 
 interface Props {
@@ -11,19 +11,9 @@ interface Props {
   onRefresh: () => void;
 }
 
-export function TransactionsTable({ transactions, onRefresh }: Props) {
+export function TransactionsTable({ transactions }: Props) {
   const [search, setSearch] = useState('');
   const [dirFilter, setDirFilter] = useState<'all' | 'in' | 'out'>('all');
-  const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState({
-    description: '',
-    amount: '',
-    direction: 'out' as 'in' | 'out',
-    transaction_date: new Date().toISOString().slice(0, 10),
-    source: 'manual',
-  });
-  const [saving, setSaving] = useState(false);
-  const [saveErr, setSaveErr] = useState('');
 
   const filtered = useMemo(() => {
     return transactions.filter((t) => {
@@ -37,33 +27,8 @@ export function TransactionsTable({ transactions, onRefresh }: Props) {
     });
   }, [transactions, search, dirFilter]);
 
-  async function handleAdd() {
-    setSaving(true);
-    setSaveErr('');
-    try {
-      await addTransaction({
-        description: form.description,
-        amount: parseFloat(form.amount),
-        direction: form.direction,
-        transaction_date: form.transaction_date,
-        source: form.source,
-        account_id: null,
-        category_id: null,
-        merchant: null,
-      });
-      setAdding(false);
-      setForm({ description: '', amount: '', direction: 'out', transaction_date: new Date().toISOString().slice(0, 10), source: 'manual' });
-      onRefresh();
-    } catch (e: any) {
-      setSaveErr(e.message);
-    } finally {
-      setSaving(false);
-    }
-  }
-
   return (
     <div className="bg-[#0d2128] border border-white/[0.06] rounded-xl overflow-hidden">
-      {/* Toolbar */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-white/[0.06]">
         <input
           type="text"
@@ -81,68 +46,24 @@ export function TransactionsTable({ transactions, onRefresh }: Props) {
                 'px-3 py-1.5 text-xs font-medium transition-colors capitalize',
                 dirFilter === d
                   ? 'bg-violet-600 text-white'
-                  : 'bg-white/[0.04] text-slate-400 hover:text-white hover:bg-white/[0.07]'
+                  : 'bg-white/[0.04] text-slate-400 hover:text-white hover:bg-white/[0.07]',
               )}
             >
               {d === 'all' ? 'All' : d === 'in' ? '↑ In' : '↓ Out'}
             </button>
           ))}
         </div>
-        <button
-          onClick={() => setAdding((p) => !p)}
-          className="px-3 py-1.5 text-xs font-medium bg-violet-600 hover:bg-violet-500 text-white rounded-lg transition-colors"
-        >
-          + Add
-        </button>
       </div>
 
-      {/* Add row */}
-      {adding && (
-        <div className="flex flex-wrap items-center gap-2 px-4 py-3 bg-white/[0.03] border-b border-white/[0.06]">
-          <input
-            placeholder="Description"
-            value={form.description}
-            onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-            className="flex-1 min-w-[160px] bg-white/[0.05] border border-white/10 rounded px-2 py-1 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-violet-500/50"
-          />
-          <input
-            type="number"
-            placeholder="Amount"
-            value={form.amount}
-            onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
-            className="w-28 bg-white/[0.05] border border-white/10 rounded px-2 py-1 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-violet-500/50"
-          />
-          <select
-            value={form.direction}
-            onChange={(e) => setForm((f) => ({ ...f, direction: e.target.value as 'in' | 'out' }))}
-            className="bg-white/[0.05] border border-white/10 rounded px-2 py-1 text-sm text-white focus:outline-none"
-          >
-            <option value="out">Out</option>
-            <option value="in">In</option>
-          </select>
-          <input
-            type="date"
-            value={form.transaction_date}
-            onChange={(e) => setForm((f) => ({ ...f, transaction_date: e.target.value }))}
-            className="bg-white/[0.05] border border-white/10 rounded px-2 py-1 text-sm text-white focus:outline-none"
-          />
-          <button
-            onClick={handleAdd}
-            disabled={saving || !form.description || !form.amount}
-            className="px-3 py-1 text-xs font-medium bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white rounded transition-colors"
-          >
-            {saving ? 'Saving…' : 'Save'}
-          </button>
-          {saveErr && <span className="text-xs text-rose-400">{saveErr}</span>}
-        </div>
-      )}
+      <p className="px-4 py-2 text-[11px] text-slate-500 border-b border-white/[0.04]">
+        Canonical table: finance_transactions. Add rows via Import CSV tab only.
+      </p>
 
-      {/* Table */}
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-white/[0.06]">
-              {['Date', 'Description', 'Category', 'Account', 'Amount'].map((h) => (
+              {['Date', 'Description', 'Category', 'Source', 'Amount'].map((h) => (
                 <th
                   key={h}
                   className="text-left text-[10px] uppercase tracking-wider text-slate-500 px-4 py-2.5 font-medium"
@@ -161,7 +82,7 @@ export function TransactionsTable({ transactions, onRefresh }: Props) {
               </tr>
             ) : (
               filtered.map((t) => (
-                <tr key={t.id} className="border-b border-white/[0.03] hover:bg-white/[0.03] transition-colors">
+                <tr key={String(t.id)} className="border-b border-white/[0.03] hover:bg-white/[0.03] transition-colors">
                   <td className="px-4 py-2.5 text-slate-400 text-xs tabular-nums whitespace-nowrap">
                     {fmtConst.date(t.transaction_date)}
                   </td>
@@ -180,12 +101,12 @@ export function TransactionsTable({ transactions, onRefresh }: Props) {
                       <span className="text-slate-600 text-xs">—</span>
                     )}
                   </td>
-                  <td className="px-4 py-2.5 text-slate-400 text-xs">{t.account_name ?? '—'}</td>
+                  <td className="px-4 py-2.5 text-slate-400 text-xs capitalize">{t.source}</td>
                   <td className="px-4 py-2.5 tabular-nums whitespace-nowrap">
                     <span
                       className={cn(
                         'font-semibold',
-                        t.direction === 'in' ? 'text-emerald-400' : 'text-rose-400'
+                        t.direction === 'in' ? 'text-emerald-400' : 'text-rose-400',
                       )}
                     >
                       {t.direction === 'in' ? '+' : '-'}
