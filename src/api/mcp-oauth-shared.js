@@ -357,9 +357,31 @@ export async function loadMcpOAuthExternalAllowedToolsJson(env, clientId = MCP_C
   return keys?.length ? JSON.stringify(keys) : null;
 }
 
+/**
+ * DCR OAuth clients (iam_dcr_*) often have zero allowlist rows — use canonical catalog.
+ */
+export async function resolveMcpOAuthCatalogClientId(env, clientId) {
+  const cid = String(clientId || MCP_CANONICAL_CLIENT_ID).trim() || MCP_CANONICAL_CLIENT_ID;
+  if (!env?.DB) return MCP_CANONICAL_CLIENT_ID;
+  if (cid === MCP_CANONICAL_CLIENT_ID) return cid;
+  try {
+    const row = await env.DB.prepare(
+      `SELECT COUNT(*) AS c
+         FROM agentsam_mcp_oauth_tool_allowlist
+        WHERE client_id = ?
+          AND COALESCE(is_active, 1) = 1`,
+    )
+      .bind(cid)
+      .first();
+    if (Number(row?.c) > 0) return cid;
+  } catch (_) {}
+  return MCP_CANONICAL_CLIENT_ID;
+}
+
 /** Allowlist rows with access_class for OAuth token entitlements + MCP runtime guards. */
 export async function loadMcpOAuthAllowlistRows(env, clientId = MCP_CANONICAL_CLIENT_ID) {
   if (!env?.DB) return [];
+  const catalogClientId = await resolveMcpOAuthCatalogClientId(env, clientId);
   try {
     const { results } = await env.DB.prepare(
       `SELECT tool_key, access_class
@@ -368,7 +390,7 @@ export async function loadMcpOAuthAllowlistRows(env, clientId = MCP_CANONICAL_CL
           AND COALESCE(is_active, 1) = 1
         ORDER BY sort_order ASC, tool_key ASC`,
     )
-      .bind(String(clientId || MCP_CANONICAL_CLIENT_ID))
+      .bind(catalogClientId)
       .all();
     return (results || []).map((r) => ({
       tool_key: String(r.tool_key || '').trim(),
@@ -386,7 +408,8 @@ export async function loadMcpOAuthAllowlistRows(env, clientId = MCP_CANONICAL_CL
 export async function buildMcpOAuthTokenEntitlements(env, clientId, grantedScopeStr, allowedToolKeys = null) {
   const scopes = mcpOAuthParseScopeList(grantedScopeStr);
   const scopeSet = new Set(scopes);
-  let rows = await loadMcpOAuthAllowlistRows(env, clientId);
+  const catalogClientId = await resolveMcpOAuthCatalogClientId(env, clientId);
+  let rows = await loadMcpOAuthAllowlistRows(env, catalogClientId);
   if (Array.isArray(allowedToolKeys) && allowedToolKeys.length) {
     const allow = new Set(allowedToolKeys.map((k) => String(k || '').trim()).filter(Boolean));
     rows = rows.filter((r) => allow.has(r.tool_key));
@@ -394,6 +417,8 @@ export async function buildMcpOAuthTokenEntitlements(env, clientId, grantedScope
 
   const hasMcpTools = scopeSet.has('mcp:tools');
   const hasAgent = scopeSet.has('iam:agent');
+  // oauth_tool_access must list write tools for connector discovery; tools/call still gates iam:agent.
+  const oauthToolAccessRows = rows;
 
   const capabilityKeys = [];
   if (scopeSet.has('iam:profile')) capabilityKeys.push('iam.profile.read');
@@ -433,9 +458,25 @@ export async function buildMcpOAuthTokenEntitlements(env, clientId, grantedScope
     capabilityKeys: capabilityKeys.length ? capabilityKeys : ['mcp.oauth.connected'],
     lanes: Array.from(lanes),
     riskLevels: Array.from(riskLevels),
-    oauthToolAccess: Object.fromEntries(rows.map((r) => [r.tool_key, r.access_class])),
-    oauthClientId: String(clientId || MCP_CANONICAL_CLIENT_ID),
+    oauthToolAccess: Object.fromEntries(
+      oauthToolAccessRows.map((r) => [r.tool_key, r.access_class]),
+    ),
+    oauthClientId: catalogClientId,
   };
+}
+
+/**
+ * When token allowlist includes write-class tools, grant iam:agent so tools/call can execute them.
+ */
+export function augmentMcpOAuthScopeForWriteTools(scopeStr, allowlistRows, tokenToolKeys) {
+  const scopeList = mcpOAuthParseScopeList(scopeStr);
+  if (scopeList.includes('iam:agent')) return scopeStr;
+  const keys = new Set((tokenToolKeys || []).map((k) => String(k || '').trim()).filter(Boolean));
+  const writeOnToken = (allowlistRows || []).some(
+    (r) => r.access_class === 'write' && keys.has(r.tool_key),
+  );
+  if (!writeOnToken) return scopeStr;
+  return [...scopeList, 'iam:agent'].join(' ');
 }
 
 /** Map tool_key → access_class JSON for mcp_workspace_tokens.allowed_domains_json reuse. */

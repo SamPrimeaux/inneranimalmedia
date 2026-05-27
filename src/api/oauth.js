@@ -59,6 +59,8 @@ import {
   oauthToolAccessDomainsPayload,
   resolveMcpOAuthTokenTtlSeconds,
   intersectOAuthToolsWithUserPolicy,
+  loadMcpOAuthAllowlistRows,
+  augmentMcpOAuthScopeForWriteTools,
 } from './mcp-oauth-shared.js';
 import { checkMcpOAuthRateLimit } from './mcp-oauth-rate-limit.js';
 import { logAuthEvent } from '../core/auth-events.js';
@@ -1312,8 +1314,15 @@ async function handleMcpOAuthToken(request, env, _ctx) {
     const fallbackKeys = await loadMcpOAuthExternalToolKeys(env, MCP_CANONICAL_CLIENT_ID);
     if (fallbackKeys?.length) tokenToolKeys = fallbackKeys;
   }
+  const allowlistRows = await loadMcpOAuthAllowlistRows(env, row.client_id);
+  const scopeWithAgent = augmentMcpOAuthScopeForWriteTools(scope, allowlistRows, tokenToolKeys);
   const oauthAllowedToolsJson = tokenToolKeys.length ? JSON.stringify(tokenToolKeys) : '[]';
-  const entitlements = await buildMcpOAuthTokenEntitlements(env, row.client_id, scope, tokenToolKeys);
+  const entitlements = await buildMcpOAuthTokenEntitlements(
+    env,
+    row.client_id,
+    scopeWithAgent,
+    tokenToolKeys,
+  );
   let externalClientKey = null;
   try {
     const authz = await env.DB.prepare(
@@ -1367,7 +1376,7 @@ async function handleMcpOAuthToken(request, env, _ctx) {
       userId,
       'oauth',
       userId,
-      JSON.stringify(scope.split(/\s+/).filter(Boolean)),
+      JSON.stringify(scopeWithAgent.split(/\s+/).filter(Boolean)),
       JSON.stringify(entitlements.capabilityKeys),
       JSON.stringify(entitlements.lanes),
       JSON.stringify(entitlements.riskLevels),
