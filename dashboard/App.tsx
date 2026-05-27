@@ -79,13 +79,14 @@ import { AuthResetPage } from './components/auth/AuthResetPage';
 import AuthOAuthConsentPage from './components/auth/AuthOAuthConsentPage';
 import MountIamMcpConsent from './components/auth/MountIamMcpConsent';
 import { OnboardingPage } from './components/onboarding/OnboardingPage';
-import { Bot, Home, Files, Search, GitBranch, Settings, PanelLeft, PanelLeftClose, PanelRightClose, Terminal as TermIcon, Network, Layers, Monitor, ChevronDown, Bug, Github, Database, FolderOpen, FolderCode, Globe, PenTool, Cloud, X as XIcon, PanelBottom, Eye, MessageSquare, MoreHorizontal, ChevronLeft, Link2, HardDrive, Package, Palette, History, Wrench, Camera, Image, Mail, GraduationCap, ChartColumnIncreasing, Library, FileCode2, Rocket } from 'lucide-react';
+import { Bot, Home, Files, Search, GitBranch, Settings, PanelLeft, PanelLeftClose, PanelRightClose, Terminal as TermIcon, Network, Layers, Monitor, ChevronDown, Bug, Github, Database, FolderOpen, FolderCode, Globe, PenTool, Cloud, X as XIcon, PanelBottom, Eye, MessageSquare, MoreHorizontal, ChevronLeft, Link2, HardDrive, Package, Palette, History, Wrench, Camera, Image, Mail, GraduationCap, ChartColumnIncreasing, Library, FileCode2, Rocket, BarChart2 } from 'lucide-react';
 import { SetiFileIcon } from './src/components/SetiFileIcon';
 const ProjectManagement = lazy(() => import('./pages/projects/ProjectManagement'));
 
 /** Route-level code splitting: heavy dashboard pages load on demand; shell + /dashboard/agent stay eager. */
 const CalendarPage = lazy(() => import('./components/CalendarPage').then((m) => ({ default: m.CalendarPage })));
 const OverviewPage = lazy(() => import('./components/overview'));
+const FinanceDashboard = lazy(() => import('./components/finance'));
 const HealthPage = lazy(() => import('./pages/HealthPage').then((m) => ({ default: m.HealthPage })));
 const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage').then((m) => ({ default: m.AnalyticsPage })));
 const RedirectHealthToAnalytics = lazy(() =>
@@ -2770,6 +2771,13 @@ const App: React.FC = () => {
           >
               <ActivityRailItem icon={Home} label="Overview" expanded={sidebarRailExpanded} active={location.pathname === '/dashboard/overview'} onClick={() => navigate('/dashboard/overview')} />
               <ActivityRailItem
+                icon={BarChart2}
+                label="Finance"
+                expanded={sidebarRailExpanded}
+                active={location.pathname === '/dashboard/finance'}
+                onClick={() => navigate('/dashboard/finance')}
+              />
+              <ActivityRailItem
                 icon={Library}
                 label="Library"
                 expanded={sidebarRailExpanded}
@@ -3016,6 +3024,7 @@ const App: React.FC = () => {
                     <Routes>
                       <Route path="/dashboard/calendar" element={<CalendarPage />} />
                       <Route path="/dashboard/overview" element={<OverviewPage />} />
+                      <Route path="/dashboard/finance" element={<FinanceDashboard />} />
                       <Route path="/dashboard/library" element={<LibraryPage />} />
                       <Route path="/dashboard/projects" element={<ProjectManagement />} />
                       <Route path="/dashboard/tasks" element={<TasksPage />} />

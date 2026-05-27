@@ -2318,7 +2318,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             className={`flex flex-col bg-[var(--scene-bg)] border rounded-xl transition-all shadow-inner overflow-visible ${
               composerDragging
                 ? 'border-[var(--solar-cyan)]/70 ring-1 ring-[var(--solar-cyan)]/35'
-                : 'border-[var(--dashboard-border)] focus-within:border-[var(--solar-cyan)]/60'
+                : 'border-[var(--dashboard-border)] focus-within:border-[var(--solar-cyan)]/80 focus-within:ring-2 focus-within:ring-[var(--solar-cyan)]/20 focus-within:shadow-[0_0_12px_color-mix(in_srgb,var(--solar-cyan)_18%,transparent)]'
             }`}
             onDragEnter={(e) => {
               e.preventDefault();

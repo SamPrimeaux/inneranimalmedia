@@ -30,7 +30,7 @@ export async function handleFinanceApi(request, url, env, ctx) {
                 if (segments[1] && (method === 'PATCH' || method === 'PUT' || method === 'DELETE')) {
                     return handleFinanceTransactionMutate(request, env, segments[1], method);
                 }
-                if (method === 'GET') return handleFinanceTransactionsList(url, env);
+                if (method === 'GET') return handleFinanceTransactionsList(url, env, authUser);
                 if (method === 'POST') return handleFinanceTransactionCreate(request, env);
             }
 
@@ -40,6 +40,24 @@ export async function handleFinanceApi(request, url, env, ctx) {
             if (segments[0] === 'categories') return handleFinanceCategories(env);
             if (segments[0] === 'accounts') return handleFinanceAccounts(env);
             if (segments[0] === 'ai-spend') return handleFinanceAiSpend(url, env);
+            if (segments[0] === 'spend-by-model' && method === 'GET') {
+                return handleFinanceSpendByModel(env, authUser);
+            }
+            if (segments[0] === 'spend-by-day' && method === 'GET') {
+                return handleFinanceSpendByDay(env, authUser);
+            }
+            if (segments[0] === 'budgets' && method === 'GET') {
+                return handleFinanceBudgetsGet(env, authUser);
+            }
+            if (segments[0] === 'budgets' && method === 'POST') {
+                return handleFinanceBudgetsPost(request, env, authUser);
+            }
+            if (segments[0] === 'alerts' && method === 'GET') {
+                return handleFinanceAlertsGet(env, authUser);
+            }
+            if (segments[0] === 'alerts' && segments[1] && segments[2] === 'resolve' && method === 'POST') {
+                return handleFinanceAlertResolve(env, authUser, segments[1]);
+            }
             if (segments[0] === 'import-csv' && method === 'POST') return handleFinanceImportCsv(request, env);
         }
 
@@ -181,13 +199,141 @@ async function handleFinanceAiSpend(url, env) {
     });
 }
 
-async function handleFinanceTransactionsList(url, env) {
+function isMissingTableError(error) {
+    const msg = String(error?.message || error || '').toLowerCase();
+    return msg.includes('no such table');
+}
+
+async function handleFinanceSpendByModel(env, authUser) {
+    try {
+        const tenantId = authUser?.tenant_id ?? null;
+        const { results } = await env.DB.prepare(`
+            SELECT
+                model_key,
+                provider as provider_slug,
+                SUM(amount_usd) as total_usd,
+                COUNT(*) as request_count,
+                strftime('%Y-%m-%d', datetime(occurred_at, 'unixepoch')) as day
+            FROM spend_ledger
+            WHERE tenant_id = ? AND occurred_at >= (unixepoch() - 30 * 86400)
+            GROUP BY model_key, provider_slug, day
+            ORDER BY total_usd DESC
+        `).bind(tenantId).all();
+        const rows = results || [];
+        const models = [...new Set(rows.map((row) => row.model_key).filter(Boolean))];
+        return jsonResponse({ rows, models });
+    } catch (error) {
+        if (isMissingTableError(error)) return jsonResponse({ rows: [], models: [] });
+        throw error;
+    }
+}
+
+async function handleFinanceSpendByDay(env, authUser) {
+    try {
+        const tenantId = authUser?.tenant_id ?? null;
+        const { results } = await env.DB.prepare(`
+            SELECT
+                strftime('%Y-%m-%d', datetime(occurred_at, 'unixepoch')) as date,
+                provider as provider_slug,
+                SUM(amount_usd) as total_usd,
+                COUNT(*) as request_count
+            FROM spend_ledger
+            WHERE tenant_id = ? AND occurred_at >= (unixepoch() - 30 * 86400)
+            GROUP BY date, provider_slug
+            ORDER BY date ASC
+        `).bind(tenantId).all();
+        const rows = results || [];
+        const providers = [...new Set(rows.map((row) => row.provider_slug).filter(Boolean))];
+        const dates = [...new Set(rows.map((row) => row.date).filter(Boolean))];
+        return jsonResponse({ rows, providers, dates });
+    } catch (error) {
+        if (isMissingTableError(error)) return jsonResponse({ rows: [], providers: [], dates: [] });
+        throw error;
+    }
+}
+
+async function handleFinanceBudgetsGet(env, authUser) {
+    try {
+        const tenantId = authUser?.tenant_id ?? null;
+        const { results } = await env.DB.prepare(`
+            SELECT id, tenant_id, month, category_id, budget_cents, created_at, updated_at
+            FROM finance_budgets
+            WHERE tenant_id = ?
+            ORDER BY created_at DESC
+        `).bind(tenantId).all();
+        return jsonResponse({ budgets: results || [] });
+    } catch (error) {
+        if (isMissingTableError(error)) return jsonResponse({ budgets: [] });
+        throw error;
+    }
+}
+
+async function handleFinanceBudgetsPost(request, env, authUser) {
+    const body = await request.json().catch(() => ({}));
+    const tenantId = authUser?.tenant_id ?? null;
+    const {
+        month,
+        category_id,
+        budget_cents,
+    } = body;
+    await env.DB.prepare(
+        `INSERT INTO finance_budgets (tenant_id, month, category_id, budget_cents, created_at, updated_at)
+         VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))`
+    ).bind(tenantId, month ?? null, category_id ?? null, budget_cents ?? 0).run();
+    return jsonResponse({ ok: true });
+}
+
+async function handleFinanceAlertsGet(env, authUser) {
+    try {
+        const { results } = await env.DB.prepare(`
+            SELECT *
+            FROM spend_alerts
+            WHERE resolved = 0
+            ORDER BY created_at DESC
+        `).all();
+        return jsonResponse({ alerts: results || [] });
+    } catch (error) {
+        if (isMissingTableError(error)) return jsonResponse({ alerts: [] });
+        throw error;
+    }
+}
+
+async function handleFinanceAlertResolve(env, authUser, id) {
+    await env.DB.prepare(`
+        UPDATE spend_alerts
+        SET resolved = 1, resolved_at = datetime('now')
+        WHERE id = ?
+    `).bind(id).run();
+    return jsonResponse({ ok: true });
+}
+
+async function handleFinanceTransactionsList(url, env, authUser) {
     const limit = parseInt(url.searchParams.get('limit') || '100', 10);
+    const tenantId = authUser?.tenant_id ?? null;
     const { results } = await env.DB.prepare(`
-        SELECT id, transaction_date, description, category, amount, account_id, merchant, note
-        FROM financial_transactions ORDER BY transaction_date DESC, id DESC LIMIT ?
-    `).bind(limit).all();
-    return jsonResponse({ success: true, transactions: results || [] });
+        SELECT id, tenant_id, account_id, date, amount_cents, direction, merchant, description, category_id, source_type, created_at
+        FROM finance_transactions
+        WHERE tenant_id = ?
+        ORDER BY date DESC, id DESC
+        LIMIT ?
+    `).bind(tenantId, limit).all();
+
+    const transactions = (results || []).map((row) => ({
+        id: row.id,
+        tenant_id: row.tenant_id,
+        account_id: row.account_id,
+        date: row.date,
+        amount_cents: row.amount_cents,
+        amount: Number(row.amount_cents ?? 0) / 100,
+        direction: ['debit', 'expense'].includes(String(row.direction || '').toLowerCase()) ? 'out' : 'in',
+        raw_direction: row.direction,
+        merchant: row.merchant,
+        description: row.description,
+        category_id: row.category_id,
+        source_type: row.source_type,
+        created_at: row.created_at,
+    }));
+    return jsonResponse({ success: true, transactions });
 }
 
 async function handleFinanceTransactionGet(env, id) {
