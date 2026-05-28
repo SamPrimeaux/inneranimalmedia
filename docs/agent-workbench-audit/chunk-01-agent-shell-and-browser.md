@@ -3,13 +3,39 @@
 **Audience:** Agent team (frontend repair, backend alignment, QA).  
 **Rule:** Every behavior below is tied to **files in this repo**. If code diverges, trust the repo.
 
+**Canonical UI package:** **`dashboard/`** only. There is no `agent-dashboard/` directory in this monorepo; do not use `docs/AGENT_DASHBOARD.md` build paths (`cd agent-dashboard`, `agent-dashboard.js`, etc.) for repair work here.
+
+---
+
+## 0. `dashboard/` — build, deploy, and URL
+
+| Step | Command / artifact | Live reference |
+|------|-------------------|----------------|
+| Dev server | `cd dashboard && npm run dev` | `dashboard/package.json` scripts |
+| Production bundle | `cd dashboard && npm run build` | Output: **`dashboard/dist/`** |
+| Ship to R2 | `npm run deploy:frontend` (repo root) | `scripts/deploy-frontend.sh`: `DIST=dashboard/dist`, `PREFIX=static/dashboard/app` |
+| Asset base URL | `/static/dashboard/app/` | `dashboard/vite.config.ts` `base` |
+| Client route | `/dashboard/agent` | `dashboard/lib/agentRoutes.ts` — same SPA as `/dashboard/overview`, etc. |
+| Legacy R2 URLs | `/static/dashboard/agent/*` still resolve | `src/core/dashboard-r2-assets.js` maps `agent/` → `app/` keys |
+
+**Agent shell code-splitting:** `dashboard/App.tsx` comment ~line 86 — heavy dashboard pages are lazy-loaded; **agent shell + `/dashboard/agent` stay eager** (imports `BrowserView`, `ChatAssistant`, `WorkspaceDashboard` at top of `App.tsx`).
+
+**Stale paths to ignore**
+
+| Do not use | Use instead |
+|------------|-------------|
+| `agent-dashboard/` source tree | `dashboard/` |
+| `agent-dashboard/agent-dashboard/dist/` | `dashboard/dist/` |
+| `static/dashboard/agent/agent-dashboard.js` (legacy bundle name) | Vite chunks under `static/dashboard/app/` (e.g. `dashboard.js` per built `index.html`) |
+| `dashboard/agent.html` + standalone `agent-dashboard.js` (if present locally) | Production shell: Worker serves SPA HTML from R2 `static/dashboard/app*`; routing is in `dashboard/App.tsx` |
+
 ---
 
 ## 1. Scope of this chunk
 
 | In scope | Out of scope (later chunks) |
 |----------|-----------------------------|
-| What `/dashboard/agent` mounts and keeps alive | R2 listing/open/save (`LocalExplorer`, `/api/r2/*`) |
+| What `/dashboard/agent` mounts in **`dashboard/App.tsx`** | R2 listing/open/save (`dashboard/components/LocalExplorer.tsx`, `/api/r2/*`) |
 | Activity sidebar panels on the agent path | GitHub OAuth + repo tree (`GitHubExplorer`) |
 | Main workbench tabs (Workspace, code, browser, …) | Full ChatAssistant SSE protocol |
 | `BrowserView` passive iframe vs automation preview | PTY terminal session lifecycle |
@@ -28,9 +54,9 @@
 | `isAgentShellPath(pathname)` | `true` for agent home, quickstart, or any path under `/dashboard/agent/` |
 | `isAgentHomePath(pathname)` | Exact match on `/dashboard/agent` only |
 
-**Implication:** On agent shell paths, `dashboard/App.tsx` does **not** render lazy `<Routes>` for other dashboard pages in the main editor column—it renders the IDE workbench (tabs + `BrowserView` + optional quickstart overlay).
+**Implication:** On agent shell paths, **`dashboard/App.tsx`** does **not** render lazy `<Routes>` for other dashboard pages in the main editor column—it renders the IDE workbench (tabs + `BrowserView` + optional quickstart overlay). All of this lives in the **`dashboard/`** Vite app, not a separate `agent-dashboard` package.
 
-**Eager imports (not code-split):** `BrowserView`, core agent shell—see `dashboard/App.tsx` import block (~lines 36–41). Heavy pages use `React.lazy`; agent shell stays mounted.
+**Eager imports (not code-split):** `BrowserView`, `ChatAssistant`, `WorkspaceDashboard` — top of **`dashboard/App.tsx`** (~lines 9–41). Other dashboard routes use `React.lazy` in the same file (~line 86+).
 
 ---
 
@@ -317,9 +343,15 @@ Verify in repo before closing.
 
 ## 9. Verification commands (no production deploy required)
 
-From repo root:
+From repo root (all paths under **`dashboard/`**):
 
 ```bash
+# Confirm no agent-dashboard package in tree
+test ! -d agent-dashboard && echo "OK: use dashboard/ only"
+
+# Build output
+ls dashboard/dist/index.html 2>/dev/null || (cd dashboard && npm run build)
+
 # Route helpers
 rg -n "isAgentShellPath|AGENT_HOME_PATH" dashboard/lib/agentRoutes.ts dashboard/App.tsx
 
