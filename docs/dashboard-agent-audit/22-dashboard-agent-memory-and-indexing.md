@@ -23,6 +23,23 @@ surface: /dashboard/agent
 
 **Not** Supabase `agent_memory` (vectors) — separate lane per workspace rules.
 
+## Dashboard-agent-audit ingest (canonical lane)
+
+**Lane `memory`:** OpenAI **`text-embedding-3-large` @ 1536** → Vectorize **`agentsam-memory-oai3large-1536`** (paired Supabase `agentsam_memory_oai3large_1536` when ingested via Worker `writeToLane`).
+
+```bash
+# Review chunks (43 sections from 26 audit files — last run 2026-05-28)
+python3 scripts/ingest_dashboard_agent_audit_vectorize.py
+
+python3 scripts/ingest_dashboard_agent_audit_vectorize.py --write-approval
+
+OPENAI_API_KEY=... CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... \
+  python3 scripts/ingest_dashboard_agent_audit_vectorize.py \
+  --lane memory --embed --upsert --approve --verify
+```
+
+Script: `scripts/ingest_dashboard_agent_audit_vectorize.py` (default `--lane memory`). Lane map: `26-vector-lanes-reference.md`.
+
 ## Semantic / codebase index (Supabase + queues)
 
 | Job | Handler | Target |
