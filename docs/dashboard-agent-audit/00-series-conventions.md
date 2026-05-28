@@ -23,7 +23,7 @@ Every claim must trace to code that serves `/dashboard/agent`. No D1 dumps, no f
 | **Deep** | 07, 09, 10, 12, 13, 14, 16, 02, 22 | End-to-end UI → API → Worker → D1/tool |
 | **Foundational** | 00–03 | Shell, deploy, mobile |
 | **Reference** | 04–06, 08, 11, 15, 17–20 | 2–5 KB route/component pointers only |
-| **Intelligence** | 21–25 | Routing, memory, workflows, validation, backlog |
+| **Intelligence** | 21–26 | Routing, memory, workflows, validation, backlog, vector lanes |
 
 ## Trace format (deep chunks)
 
