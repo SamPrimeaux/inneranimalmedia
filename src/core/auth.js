@@ -187,7 +187,7 @@ export async function getSamContext(request, env) {
   const authCtx = await getRequestAuth(request, env, { required: false });
   const session =
     authCtx?.sessionRaw ?? (await getSession(env, request).catch(() => null));
-  const authUser = authCtx ? authContextToLegacyUser(authCtx) : null;
+  const authUser = authCtx ? userFromAuthContext(authCtx) : null;
   return { session, authUser, authCtx };
 }
 
@@ -727,14 +727,14 @@ export async function getRequestAuth(request, env, opts = {}) {
 export async function authUserFromRequest(request, env, authCtx = undefined, routeAuthUser = null) {
   if (routeAuthUser) return routeAuthUser;
   if (authCtx !== undefined) {
-    return authCtx ? authContextToLegacyUser(authCtx) : null;
+    return authCtx ? userFromAuthContext(authCtx) : null;
   }
   const peeked = peekRequestAuth(request);
   if (peeked !== undefined) {
-    return peeked ? authContextToLegacyUser(peeked) : null;
+    return peeked ? userFromAuthContext(peeked) : null;
   }
   const ctx = await getRequestAuth(request, env, { required: false });
-  return ctx ? authContextToLegacyUser(ctx) : null;
+  return ctx ? userFromAuthContext(ctx) : null;
 }
 
 /** Unified auth failure for handlers that require identity. */
@@ -778,30 +778,48 @@ function extractBearerToken(request) {
 }
 
 /**
- * Map AuthContext → legacy getAuthUser shape (compat for existing handlers).
+ * Canonical user object from resolveAuth() AuthContext.
  * @param {AuthContext} ctx
  */
-export function authContextToLegacyUser(ctx) {
+function userFromAuthContext(ctx) {
+  const userId = trimSessionField(ctx?.userId);
+  if (!userId) return null;
+
+  const authType = trimSessionField(ctx?.authType) || 'session';
+  const tenantId = trimSessionField(ctx?.tenantId) || null;
+  const workspaceId = trimSessionField(ctx?.workspaceId) || null;
+
+  if (authType === 'session' && (!tenantId || !workspaceId)) {
+    return null;
+  }
+
   return {
-    id: ctx.userId,
-    auth_id: ctx.userId,
-    user_id: ctx.userId,
-    person_uuid: ctx.personUuid,
-    email: ctx.email,
-    name: ctx.name,
-    display_name: ctx.displayName,
-    avatar_url: null,
-    tenant_id: ctx.tenantId,
-    active_tenant_id: ctx.tenantId,
-    active_workspace_id: ctx.workspaceId,
-    supabase_user_id: null,
+    id: userId,
+    auth_id: userId,
+    user_id: userId,
+    tenant_id: tenantId,
+    active_tenant_id: tenantId,
+    workspace_id: workspaceId,
+    active_workspace_id: workspaceId,
     is_superadmin: ctx.isSuperadmin ? 1 : 0,
-    session_id: ctx.sessionId,
-    expires_at: null,
-    capabilities: ctx.capabilities,
+    auth_type: authType,
+    capabilities: ctx.capabilities ?? {
+      canRunPty: false,
+      canRunMcp: false,
+      canDeploy: false,
+    },
+    session_id: ctx.sessionId ?? null,
+    person_uuid: ctx.personUuid ?? null,
+    email: ctx.email ?? null,
+    name: ctx.name ?? null,
+    display_name: ctx.displayName ?? null,
+    avatar_url: null,
     membership_role: ctx.membership?.role ?? null,
   };
 }
+
+/** @deprecated Prefer getAuthUser(); canonical mapper alias for primed AuthContext. */
+export { userFromAuthContext as authContextToLegacyUser };
 
 /**
  * Single auth gate: session or MCP bearer → auth_users → memberships → agentsam_user_policy.
@@ -949,10 +967,16 @@ export async function resolveAuth(request, env, opts = {}) {
   return out;
 }
 
-/** @deprecated Prefer getRequestAuth / authUserFromRequest; uses per-request cache when primed. */
-export async function getAuthUser(request, env) {
+/**
+ * Canonical identity resolver for handlers (session, MCP, bridge).
+ * @param {Request} request
+ * @param {any} env
+ * @param {{ required?: boolean, workspaceIdOverride?: string | null }} [opts]
+ */
+export async function getAuthUser(request, env, opts = {}) {
   try {
-    return await authUserFromRequest(request, env);
+    const ctx = await getRequestAuth(request, env, { required: false, ...opts });
+    return ctx ? userFromAuthContext(ctx) : null;
   } catch (e) {
     if (e instanceof AuthError) return null;
     console.warn('[getAuthUser]', e?.message || e);

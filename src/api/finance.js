@@ -23,13 +23,19 @@ function safeAll(db, sql, binds = []) {
     return db.prepare(sql).bind(...binds).all().catch(() => ({ results: [] }));
 }
 
-function rollupScope(authUser) {
+function buildScopeWhere(authUser, opts = {}) {
+    const prefix = opts.alias ? `${opts.alias}.` : '';
     const tenantId = authUser?.tenant_id ?? null;
-    const workspaceId = authUser?.workspace_id ?? null;
+    const workspaceId = authUser?.workspace_id ?? authUser?.active_workspace_id ?? null;
     if (tenantId && workspaceId) {
-        return { sql: 'tenant_id = ? AND workspace_id = ?', binds: [tenantId, workspaceId] };
+        return {
+            sql: `${prefix}tenant_id = ? AND ${prefix}workspace_id = ?`,
+            binds: [tenantId, workspaceId],
+        };
     }
-    if (tenantId) return { sql: 'tenant_id = ?', binds: [tenantId] };
+    if (tenantId) {
+        return { sql: `${prefix}tenant_id = ?`, binds: [tenantId] };
+    }
     return { sql: '1=1', binds: [] };
 }
 
@@ -115,7 +121,7 @@ export async function handleFinanceApi(request, url, env, ctx) {
 
 async function handleFinanceSummary(url, env, authUser) {
     const monthStart = currentMonthStart();
-    const scope = rollupScope(authUser);
+    const { sql: scopeSql, binds: scopeBinds } = buildScopeWhere(authUser);
     const tenantId = authUser?.tenant_id ?? null;
 
     const usageMtd = await safeQuery(
@@ -123,8 +129,8 @@ async function handleFinanceSummary(url, env, authUser) {
         `SELECT COALESCE(SUM(cost_usd), 0) AS ai_spend_mtd,
                 COALESCE(SUM(tokens_in + tokens_out), 0) AS tokens_mtd
          FROM agentsam_usage_rollups_daily
-         WHERE ${scope.sql} AND day >= ?`,
-        [...scope.binds, monthStart],
+         WHERE ${scopeSql} AND day >= ?`,
+        [...scopeBinds, monthStart],
     );
 
     const mrrRow = await safeQuery(
@@ -168,10 +174,10 @@ async function handleFinanceSummary(url, env, authUser) {
         env.DB,
         `SELECT day, COALESCE(SUM(cost_usd), 0) AS cost_usd
          FROM agentsam_usage_rollups_daily
-         WHERE ${scope.sql} AND day >= date('now', '-30 days')
+         WHERE ${scopeSql} AND day >= date('now', '-30 days')
          GROUP BY day
          ORDER BY day ASC`,
-        scope.binds,
+        scopeBinds,
     );
 
     return jsonResponse({
@@ -236,22 +242,22 @@ async function handleFinanceAccounts(env) {
 
 async function handleFinanceAiSpend(url, env, authUser) {
     const monthStart = currentMonthStart();
-    const scope = rollupScope(authUser);
+    const { sql: scopeSql, binds: scopeBinds } = buildScopeWhere(authUser);
     const summary = await safeQuery(
         env.DB,
         `SELECT COALESCE(SUM(cost_usd), 0) AS total, COUNT(*) AS count
          FROM agentsam_usage_rollups_daily
-         WHERE ${scope.sql} AND day >= ?`,
-        [...scope.binds, monthStart],
+         WHERE ${scopeSql} AND day >= ?`,
+        [...scopeBinds, monthStart],
     );
     const list = await safeAll(
         env.DB,
         `SELECT day AS occurred_at, cost_usd AS amount_usd, provider_breakdown_json
          FROM agentsam_usage_rollups_daily
-         WHERE ${scope.sql} AND day >= ?
+         WHERE ${scopeSql} AND day >= ?
          ORDER BY day DESC
          LIMIT 100`,
-        [...scope.binds, monthStart],
+        [...scopeBinds, monthStart],
     );
     return jsonResponse({
         success: true,
@@ -269,7 +275,7 @@ function isMissingTableError(error) {
 async function handleFinanceSpendByModel(env, authUser) {
     try {
         const monthStart = currentMonthStart();
-        const scope = rollupScope(authUser);
+        const { sql: scopeSql, binds: scopeBinds } = buildScopeWhere(authUser, { alias: 'r' });
         const { results } = await env.DB.prepare(`
             SELECT
                 j.key AS model_key,
@@ -279,11 +285,11 @@ async function handleFinanceSpendByModel(env, authUser) {
                 SUM(CAST(json_extract(j.value, '$.requests') AS INTEGER)) AS request_count
             FROM agentsam_usage_rollups_daily r,
                  json_each(COALESCE(r.provider_breakdown_json, '{}')) j
-            WHERE ${scope.sql.replace(/\btenant_id\b/g, 'r.tenant_id').replace(/\bworkspace_id\b/g, 'r.workspace_id')}
+            WHERE ${scopeSql}
               AND r.day >= ?
             GROUP BY j.key, r.day
             ORDER BY total_usd DESC
-        `).bind(...scope.binds, monthStart).all();
+        `).bind(...scopeBinds, monthStart).all();
         const rows = results || [];
         const models = [...new Set(rows.map((row) => row.model_key).filter(Boolean))];
         return jsonResponse({ rows, models });
@@ -346,8 +352,7 @@ async function handleFinanceSpendByDay(url, env, authUser) {
     try {
         const range = url.searchParams.get('range') || '30d';
         const dayFilter = spendByDayRangeClause(range);
-        const scope = rollupScope(authUser);
-        const scopeSql = scope.sql.replace(/\btenant_id\b/g, 'r.tenant_id').replace(/\bworkspace_id\b/g, 'r.workspace_id');
+        const { sql: scopeSql, binds: scopeBinds } = buildScopeWhere(authUser, { alias: 'r' });
         const tenantId = authUser?.tenant_id ?? null;
 
         const [{ results }, { results: dailyTotals }] = await Promise.all([
@@ -368,14 +373,14 @@ async function handleFinanceSpendByDay(url, env, authUser) {
             GROUP BY r.day, provider_slug
             HAVING provider_slug != '' AND provider_slug != 'unknown'
             ORDER BY r.day ASC
-        `).bind(...scope.binds).all(),
+        `).bind(...scopeBinds).all(),
             env.DB.prepare(`
             SELECT r.day AS date, ROUND(SUM(r.cost_usd), 6) AS total_usd
             FROM agentsam_usage_rollups_daily r
             WHERE ${scopeSql} AND ${dayFilter}
             GROUP BY r.day
             ORDER BY r.day ASC
-        `).bind(...scope.binds).all(),
+        `).bind(...scopeBinds).all(),
         ]);
 
         const rows = results || [];
