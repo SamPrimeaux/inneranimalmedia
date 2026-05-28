@@ -3,7 +3,8 @@
  * Stores session messages and RAG context cache.
  */
 import { DurableObject } from "cloudflare:workers";
-import { getDefaultTerminalConnection } from "../core/terminal.js";
+import { getSelectedTerminalConnection } from "../core/terminal.js";
+import { handleTerminalSlashCommand } from "../core/terminal-slash.js";
 import {
   resolveActiveBootstrap,
   WORKSPACE_CONTEXT_MISSING,
@@ -12,6 +13,7 @@ import { assertWorkspaceTokenForPty } from "../core/workspace-tokens.js";
 import {
   resolvePtyTenantIdForUser,
   buildPtySessionWorkingDir,
+  resolveTerminalCwd,
 } from "../core/pty-workspace-paths.js";
 import {
   computeTerminalSessionAuthTokenHash,
@@ -57,9 +59,16 @@ function normalizeShellOverride(raw) {
   const s = String(raw || "").trim();
   if (!s) return null;
   const lower = s.toLowerCase();
-  const nick = { zsh: "/bin/zsh", bash: "/bin/bash", sh: "/bin/sh" };
+  const nick = {
+    zsh: "/bin/zsh",
+    bash: "/bin/bash",
+    sh: "/bin/sh",
+    powershell: "powershell",
+    pwsh: "pwsh",
+  };
   if (nick[lower]) return nick[lower];
   if (s.startsWith("/") && /^\/[\w/.-]{1,64}$/.test(s)) return s;
+  if (/^(powershell|pwsh)$/i.test(s)) return lower;
   return null;
 }
 
@@ -147,6 +156,12 @@ export class AgentChatSqlV1 extends DurableObject {
     this._ptyOutFlushTimer = null;
     /** @type {string | null} PTY shell from browser query (?shell=); applied on connectPty. */
     this.terminalShellOverride = null;
+    /** Target routing from /terminal/ws query params. */
+    this.requestedTargetType = "platform_vm";
+    this.requestedConnectionId = "";
+    /** Selected terminal_connections row for current session. */
+    this.selectedTerminalConnection = null;
+    this.selectedTargetType = "platform_vm";
   }
 
   async resolvePtyTenantForSession(userId) {
@@ -155,10 +170,14 @@ export class AgentChatSqlV1 extends DurableObject {
     return await resolvePtyTenantIdForUser(this.env, null, userId || this.ptSessionUserId);
   }
 
-  applyPtyWorkingDir(tenantId, userId) {
-    const wd = buildPtySessionWorkingDir(this.env, { tenantId, userId });
-    this.ptyWorkingDir = wd;
-    return wd;
+  applyPtyWorkingDir(tenantId, userId, connection = null) {
+    const cwdResult = resolveTerminalCwd(this.env, {
+      connection: connection || this.selectedTerminalConnection,
+      tenantId,
+      userId,
+    });
+    this.ptyWorkingDir = cwdResult.cwd;
+    return cwdResult.cwd;
   }
 
   closeTerminalSessionInD1() {
@@ -580,9 +599,29 @@ export class AgentChatSqlV1 extends DurableObject {
         headers: { "Content-Type": "application/json" },
       });
     }
-    this.applyPtyWorkingDir(tenantForRow, this.ptSessionUserId);
+
+    if (this.env?.DB) {
+      try {
+        const sel = await getSelectedTerminalConnection(this.env.DB, {
+          userId: this.ptSessionUserId,
+          workspaceId,
+          tenantId: tenantForRow,
+          connectionId: this.requestedConnectionId || null,
+          targetType: this.requestedTargetType || "platform_vm",
+        });
+        this.selectedTerminalConnection = sel.connection;
+        if (sel.connection?.target_type) {
+          this.selectedTargetType = String(sel.connection.target_type).trim();
+        }
+      } catch (_) {}
+    }
+
+    this.applyPtyWorkingDir(tenantForRow, this.ptSessionUserId, this.selectedTerminalConnection);
 
     this.terminalShellOverride = normalizeShellOverride(url.searchParams.get("shell"));
+    this.requestedTargetType = (url.searchParams.get("target_type") || "platform_vm").trim();
+    this.requestedConnectionId = (url.searchParams.get("connection_id") || "").trim();
+    this.selectedTargetType = this.requestedTargetType || "platform_vm";
 
     const webSocketPair = new WebSocketPair();
     const [client, server] = Object.values(webSocketPair);
@@ -778,10 +817,21 @@ export class AgentChatSqlV1 extends DurableObject {
     }
     let conn = null;
     try {
-      conn = await getDefaultTerminalConnection(this.env.DB, uid, wid);
+      const sel = await getSelectedTerminalConnection(this.env.DB, {
+        userId: uid,
+        workspaceId: wid,
+        tenantId: tid,
+        connectionId: this.requestedConnectionId || null,
+        targetType: this.requestedTargetType || "platform_vm",
+      });
+      conn = sel.connection;
+      this.selectedTerminalConnection = conn;
+      this.selectedTargetType = String(conn?.target_type || this.requestedTargetType || "platform_vm").trim();
     } catch (_) {}
-    const shellVal = String(conn?.shell || "/bin/zsh").trim() || "/bin/zsh";
+    const shellVal = String(this.terminalShellOverride || conn?.shell || "/bin/zsh").trim() || "/bin/zsh";
     const connectionId = conn?.id != null && String(conn.id).trim() !== "" ? String(conn.id).trim() : null;
+    const cwdResult = resolveTerminalCwd(this.env, { connection: conn, tenantId: tid, userId: uid });
+    const cwdVal = cwdResult.cwd || "";
     if (conn?.auth_mode === 'token_mint') {
       const existingMint = this.ptSessionMintedToken != null ? String(this.ptSessionMintedToken).trim() : '';
       if (existingMint) {
@@ -801,8 +851,8 @@ export class AgentChatSqlV1 extends DurableObject {
     const agentSessionId = this.state?.id?.toString?.() || this.ctx?.id?.toString?.() || null;
     try {
       await this.env.DB.prepare(
-        `INSERT INTO terminal_sessions (id, tenant_id, user_id, workspace_id, person_uuid, tunnel_url, cols, rows, shell, cwd, status, auth_token_hash, created_at, updated_at, connection_id, agent_session_id)
-         VALUES (?, ?, ?, ?, ?, '', 220, 50, ?, '', 'active', ?, ?, ?, ?, ?)
+        `INSERT INTO terminal_sessions (id, tenant_id, user_id, workspace_id, person_uuid, tunnel_url, cols, rows, shell, cwd, status, auth_token_hash, prefs_json, created_at, updated_at, connection_id, agent_session_id)
+         VALUES (?, ?, ?, ?, ?, '', 220, 50, ?, ?, 'active', ?, '{}', ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            tenant_id = excluded.tenant_id,
            user_id = excluded.user_id,
@@ -810,12 +860,13 @@ export class AgentChatSqlV1 extends DurableObject {
            person_uuid = excluded.person_uuid,
            auth_token_hash = COALESCE(excluded.auth_token_hash, auth_token_hash),
            shell = COALESCE(excluded.shell, shell),
+           cwd = COALESCE(NULLIF(excluded.cwd, ''), cwd),
            connection_id = COALESCE(excluded.connection_id, connection_id),
            agent_session_id = COALESCE(excluded.agent_session_id, agent_session_id),
            status = 'active',
            updated_at = excluded.updated_at`,
       )
-        .bind(sessionId, tid, uid, wid, pid, shellVal, authHash || null, now, now, connectionId, agentSessionId)
+        .bind(sessionId, tid, uid, wid, pid, shellVal, cwdVal, authHash || null, now, now, connectionId, agentSessionId)
         .run();
     } catch (e) {
       console.warn("[terminal_sessions upsert]", e?.message);
@@ -891,28 +942,54 @@ export class AgentChatSqlV1 extends DurableObject {
     let tid = await this.resolvePtyTenantForSession(uid);
     tid = tid != null ? String(tid).trim() : "";
     if (!tid) throw new Error("PTY tenant_id missing");
-    this.applyPtyWorkingDir(tid, uid);
 
-    let resolvedWsUrl = null;
-    let token = String(this.env?.PTY_AUTH_TOKEN || this.env?.TERMINAL_SECRET || "").trim();
     let conn = null;
     if (this.env?.DB) {
       try {
-        conn = await getDefaultTerminalConnection(this.env.DB, uid, wid);
-        if (conn?.ws_url?.trim()) resolvedWsUrl = conn.ws_url.trim();
-        const secretName = String(conn?.auth_token_secret_name || "").trim();
-        if (secretName && this.env[secretName] != null) {
-          const t = String(this.env[secretName]).trim();
-          if (t) token = t;
-        }
-      } catch (_) {}
+        const sel = await getSelectedTerminalConnection(this.env.DB, {
+          userId: uid,
+          workspaceId: wid,
+          tenantId: tid,
+          connectionId: this.requestedConnectionId || null,
+          targetType: this.requestedTargetType || "platform_vm",
+        });
+        conn = sel.connection;
+        this.selectedTerminalConnection = conn;
+        if (sel.error === "connection_forbidden") throw new Error("connection_forbidden");
+        if (sel.error === "unsupported_target_type") throw new Error("unsupported_target_type");
+      } catch (e) {
+        if (e?.message === "connection_forbidden" || e?.message === "unsupported_target_type") throw e;
+      }
     }
-    const shellOpt = String(this.terminalShellOverride || conn?.shell || "/bin/zsh").trim() || "/bin/zsh";
 
-    const cwdOpt = String(this.ptyWorkingDir || buildPtySessionWorkingDir(this.env, { tenantId: tid, userId: uid }) || "").trim();
+    const targetType = String(
+      conn?.target_type || this.selectedTargetType || this.requestedTargetType || "platform_vm",
+    ).trim();
 
-    // VPC Service path (private — `PTY_SERVICE` tunnels to localhost:3099; no worker-side auth headers)
-    if (this.env?.PTY_SERVICE) {
+    if (targetType === "ssh_target") throw new Error("ssh_target_not_enabled");
+    if (targetType === "sandbox") throw new Error("sandbox_not_enabled");
+
+    this.selectedTargetType = targetType;
+    this.applyPtyWorkingDir(tid, uid, conn);
+
+    let resolvedWsUrl = null;
+    let token = String(this.env?.PTY_AUTH_TOKEN || this.env?.TERMINAL_SECRET || "").trim();
+    if (conn?.ws_url?.trim()) resolvedWsUrl = conn.ws_url.trim();
+    const secretName = String(conn?.auth_token_secret_name || "").trim();
+    if (secretName && this.env[secretName] != null) {
+      const t = String(this.env[secretName]).trim();
+      if (t) token = t;
+    }
+
+    const shellOpt =
+      String(this.terminalShellOverride || conn?.shell || "/bin/zsh").trim() || "/bin/zsh";
+    const cwdResult = resolveTerminalCwd(this.env, { connection: conn, tenantId: tid, userId: uid });
+    const cwdOpt = cwdResult.cwd != null ? String(cwdResult.cwd).trim() : "";
+
+    const usePtyService = targetType === "platform_vm" && !!this.env?.PTY_SERVICE;
+
+    // VPC Service path — authoritative only for platform_vm
+    if (usePtyService) {
       try {
         const vpcUrl = new URL("http://localhost:3099/terminal");
         vpcUrl.searchParams.set("tenant_id", tid);
@@ -980,13 +1057,21 @@ export class AgentChatSqlV1 extends DurableObject {
       }
     }
 
-    // Fallback: public tunnel (TERMINAL_WS_URL secret)
-    // Per-workspace URL takes priority over global secret; then D1 default connection
-    const workspaceUrl = this.workspaceSettings?.terminal_ws_url;
-    const rawUrl = workspaceUrl || resolvedWsUrl || String(this.env?.TERMINAL_WS_URL || "").trim();
+    // Public tunnel / connection ws_url fallback
+    const workspaceUrl =
+      targetType === "platform_vm" ? this.workspaceSettings?.terminal_ws_url : null;
+    let rawUrl = null;
+    if (targetType === "user_hosted_tunnel") {
+      rawUrl = resolvedWsUrl;
+      if (!rawUrl) throw new Error("user_hosted_tunnel_unreachable");
+    } else {
+      rawUrl = workspaceUrl || resolvedWsUrl || String(this.env?.TERMINAL_WS_URL || "").trim();
+    }
     if (!rawUrl || !token) {
       throw new Error(
-        "PTY backend is not configured — set PTY_SERVICE (vpc_services) or TERMINAL_WS_URL + PTY_AUTH_TOKEN",
+        targetType === "user_hosted_tunnel"
+          ? "user_hosted_tunnel_unreachable"
+          : "PTY backend is not configured — set PTY_SERVICE (vpc_services) or TERMINAL_WS_URL + PTY_AUTH_TOKEN",
       );
     }
     let wsUrl = normalizeWebSocketUrl(rawUrl);
@@ -1015,7 +1100,7 @@ export class AgentChatSqlV1 extends DurableObject {
       }
     });
     if (wsResp.status !== 101 || !wsResp.webSocket) {
-      throw new Error(`PTY connect failed: ${wsResp.status}`);
+      throw new Error(`websocket_attach_failed: PTY connect failed (${wsResp.status})`);
     }
     const pty = wsResp.webSocket;
     pty.accept();
@@ -1059,7 +1144,9 @@ export class AgentChatSqlV1 extends DurableObject {
   }
 
   async executePtyCommand(command) {
-    if (this.env?.PTY_SERVICE) {
+    const targetType = String(this.selectedTargetType || "platform_vm").trim();
+    const usePtyService = targetType === "platform_vm" && !!this.env?.PTY_SERVICE;
+    if (usePtyService) {
       try {
         const res = await this.env.PTY_SERVICE.fetch(
           new Request("http://localhost:3099/exec", {
@@ -1086,13 +1173,29 @@ export class AgentChatSqlV1 extends DurableObject {
     let dbTok = null;
     const execUid = String(this.ptSessionUserId || "").trim();
     const execWid = String(this.workspaceId || "").trim();
-    if (this.env?.DB) {
+    const execTarget = String(this.selectedTargetType || "platform_vm").trim();
+    let conn = this.selectedTerminalConnection;
+    if (!conn && this.env?.DB) {
       try {
-        const conn = await getDefaultTerminalConnection(this.env.DB, execUid, execWid);
-        if (conn?.ws_url?.trim()) execBase = conn.ws_url.trim();
-        const sn = String(conn?.auth_token_secret_name || "").trim();
-        if (sn && this.env[sn] != null) dbTok = String(this.env[sn]).trim();
+        const sel = await getSelectedTerminalConnection(this.env.DB, {
+          userId: execUid,
+          workspaceId: execWid,
+          tenantId: String(this.ptSessionTenantId || "").trim() || null,
+          connectionId: this.requestedConnectionId || null,
+          targetType: execTarget,
+        });
+        conn = sel.connection;
       } catch (_) {}
+    }
+    if (execTarget === "user_hosted_tunnel") {
+      execBase = conn?.ws_url?.trim() || "";
+      if (!execBase) throw new Error("user_hosted_tunnel_unreachable");
+    } else if (conn?.ws_url?.trim()) {
+      execBase = conn.ws_url.trim();
+    }
+    if (conn) {
+      const sn = String(conn.auth_token_secret_name || "").trim();
+      if (sn && this.env[sn] != null) dbTok = String(this.env[sn]).trim();
     }
     const execUrl = normalizeExecHttpUrl(execBase);
     if (!execUrl) throw new Error("Terminal /exec endpoint is not configured");
@@ -1219,9 +1322,45 @@ export class AgentChatSqlV1 extends DurableObject {
 
     if (mode === "pty") {
       try {
+        const raw = messageToString(message);
+        let slashLine = null;
+        try {
+          const parsed = JSON.parse(raw);
+          if (parsed?.type === "slash" && typeof parsed?.line === "string") {
+            slashLine = parsed.line.trim();
+          } else if (
+            parsed?.type === "input" &&
+            typeof parsed?.data === "string" &&
+            /^\/[a-zA-Z]/.test(parsed.data.trim())
+          ) {
+            slashLine = parsed.data.trim();
+          } else if (parsed?.type === "resize") {
+            await this.ensurePtyConnected();
+            if (this.ptyWs && this.ptyWs.readyState === 1) {
+              this.ptyWs.send(JSON.stringify(parsed));
+            }
+            return;
+          }
+        } catch (_) {
+          if (/^\/[a-zA-Z]/.test(raw.trim())) slashLine = raw.trim();
+        }
+
+        if (slashLine) {
+          const sid = await this.getOrCreateTerminalSessionId();
+          const tenantId = await this.resolvePtyTenantForSession(this.ptSessionUserId);
+          await handleTerminalSlashCommand(this.env, {
+            line: slashLine,
+            userId: this.ptSessionUserId,
+            workspaceId: this.workspaceId,
+            tenantId,
+            sessionId: sid,
+            broadcast: (text) => this.broadcastTerminalOutput(text),
+          });
+          return;
+        }
+
         await this.ensurePtyConnected();
         if (!this.ptyWs || this.ptyWs.readyState !== 1) throw new Error("PTY socket not ready");
-        const raw = messageToString(message);
         let recordLine = null;
         try {
           const parsed = JSON.parse(raw);

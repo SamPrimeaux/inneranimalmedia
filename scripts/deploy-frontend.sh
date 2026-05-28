@@ -172,6 +172,9 @@ if command -v jq >/dev/null 2>&1; then
   rm -f "$_cur_manifest_json"
 fi
 
+echo "→ Embedding sitemap HTML for Worker bundle..."
+node "$REPO_ROOT/scripts/embed-sitemap-html.mjs"
+
 echo "→ Deploying worker..."
 DEPLOY_STARTED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 DEPLOY_START_EPOCH=$(date +%s)

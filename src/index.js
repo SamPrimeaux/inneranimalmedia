@@ -41,6 +41,7 @@ import { handleAnthropicWebhook } from './api/webhooks/anthropic.js';
 import { recordAgentsamWebhookEvent } from './core/webhook-events-writer.js';
 import { getDashboardR2Object, getDashboardSpaHtmlShell } from './core/dashboard-r2-assets.js';
 import { resolveGitHubToken } from './core/github-token.js';
+import { handleSitemapPage, handleSitemapXml } from './public-pages/sitemap-route.js';
 
 function getMimeType(key) {
   if (key.endsWith('.js'))    return 'application/javascript';
@@ -302,6 +303,13 @@ export default {
           { ok: false, available: false, reason: 'iam_collab_binding_missing' },
           200,
         );
+      }
+
+      if (pathLower === '/sitemap.xml') {
+        return handleSitemapXml();
+      }
+      if (pathLower === '/sitemap' || pathLower === '/sitemap/') {
+        return handleSitemapPage(env.ASSETS);
       }
 
       const ASSET_ROUTES = {

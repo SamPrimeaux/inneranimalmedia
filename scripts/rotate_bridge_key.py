@@ -4,7 +4,16 @@ Rotate platform secrets across Wrangler workers + local .env.cloudflare.
 
 Targets:
   - AGENTSAM_BRIDGE_KEY (iam_bk_* + mcp_workspace_tokens hash row)
+  - INTERNAL_API_SECRET (iam_internal_* + secret_audit_log hash only; both workers)
   - AGENT_SESSION_MINT_SECRET (iam_agent_mint_* + secret_audit_log hash only)
+
+Usage:
+  python3 scripts/rotate_bridge_key.py --platform-pair   # bridge, then INTERNAL_API_SECRET
+  python3 scripts/rotate_bridge_key.py --bridge-only
+  python3 scripts/rotate_bridge_key.py --internal-only
+  bash scripts/rotate-iam-mcp-platform-secrets.sh          # same as --platform-pair (prompts)
+
+Does NOT rotate OPENAI_API_KEY — set that on the MCP worker separately.
 
 Safety:
 - stdlib only
@@ -22,6 +31,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import subprocess
 import sys
 import time
@@ -237,36 +247,107 @@ def _cleanup_nonfatal(
         return 0
 
 
-def _send_rotation_email(*, internal_secret: Optional[str], subject: str, html_body: str) -> None:
-    if not internal_secret or str(internal_secret).strip() == "":
-        print("⚠ Email skipped: INTERNAL_API_SECRET not set")
+def _send_rotation_email(
+    *,
+    internal_secret: Optional[str],
+    bridge_secret: Optional[str],
+    subject: str,
+    html_body: str,
+) -> None:
+    """Best-effort Resend notification; never aborts rotation."""
+    bearer_candidates: List[str] = []
+    for candidate in (internal_secret, bridge_secret):
+        if candidate and str(candidate).strip():
+            v = str(candidate).strip()
+            if v not in bearer_candidates:
+                bearer_candidates.append(v)
+    if not bearer_candidates:
+        print("⚠ Email skipped: INTERNAL_API_SECRET / AGENTSAM_BRIDGE_KEY not set")
         return
+
     payload = json.dumps(
         {"to": EMAIL_TO, "subject": subject, "html": html_body},
         ensure_ascii=False,
-    ).encode("utf-8")
-    req = urllib.request.Request(
-        EMAIL_SEND_URL,
-        data=payload,
-        method="POST",
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {str(internal_secret).strip()}",
-        },
     )
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            status = getattr(resp, "status", 200)
-            body = resp.read().decode("utf-8", errors="replace")
-            if 200 <= int(status) < 300:
+
+    # Prefer curl — Cloudflare often returns 1010 for bare urllib (no User-Agent).
+    curl_bin = shutil.which("curl")
+    if curl_bin:
+        for bearer in bearer_candidates:
+            try:
+                p = subprocess.run(
+                    [
+                        curl_bin,
+                        "-sS",
+                        "-X",
+                        "POST",
+                        EMAIL_SEND_URL,
+                        "-H",
+                        "Content-Type: application/json",
+                        "-H",
+                        f"Authorization: Bearer {bearer}",
+                        "-H",
+                        "User-Agent: inneranimalmedia-rotate-bridge-key/1.0",
+                        "-d",
+                        payload,
+                        "-w",
+                        "\n%{http_code}",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=20,
+                    check=False,
+                )
+            except Exception as e:
+                print(f"⚠ Email notification failed (curl): {e}")
+                continue
+            out = (p.stdout or "").rstrip()
+            lines = out.splitlines()
+            status_line = lines[-1] if lines else ""
+            body = "\n".join(lines[:-1]) if len(lines) > 1 else ""
+            try:
+                status = int(status_line.strip())
+            except ValueError:
+                status = 0
+            if p.returncode == 0 and 200 <= status < 300:
                 print(f"✓ Email notification sent → {EMAIL_TO}")
                 return
+            if "error code: 1010" in body.lower() or status == 403:
+                continue
             print(f"⚠ Email notification failed: HTTP {status} {body[:500]}")
-    except urllib.error.HTTPError as e:
-        err_body = e.read().decode("utf-8", errors="replace") if e.fp else str(e)
-        print(f"⚠ Email notification failed: HTTP {e.code} {err_body[:500]}")
-    except Exception as e:
-        print(f"⚠ Email notification failed: {e}")
+            return
+        print("⚠ Email notification failed: Cloudflare edge block (1010) or auth — rotation still OK")
+        return
+
+    payload_bytes = payload.encode("utf-8")
+    for bearer in bearer_candidates:
+        req = urllib.request.Request(
+            EMAIL_SEND_URL,
+            data=payload_bytes,
+            method="POST",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {bearer}",
+                "User-Agent": "inneranimalmedia-rotate-bridge-key/1.0",
+            },
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                status = getattr(resp, "status", 200)
+                body = resp.read().decode("utf-8", errors="replace")
+                if 200 <= int(status) < 300:
+                    print(f"✓ Email notification sent → {EMAIL_TO}")
+                    return
+                print(f"⚠ Email notification failed: HTTP {status} {body[:500]}")
+        except urllib.error.HTTPError as e:
+            err_body = e.read().decode("utf-8", errors="replace") if e.fp else str(e)
+            if e.code == 403 and "1010" in err_body:
+                continue
+            print(f"⚠ Email notification failed: HTTP {e.code} {err_body[:500]}")
+            return
+        except Exception as e:
+            print(f"⚠ Email notification failed: {e}")
+            return
 
 
 def _html_bridge_rotation_email(
@@ -285,6 +366,41 @@ def _html_bridge_rotation_email(
   <tr><td>D1 rows cleaned</td><td>{cleanup_count} expired tokens deleted</td></tr>
   <tr><td>Timestamp</td><td>{html.escape(iso_timestamp)}</td></tr>
 </table>
+{SECURITY_INCIDENT_HTML}"""
+
+
+def _html_internal_rotation_email(*, cleanup_count: int, iso_timestamp: str) -> str:
+    return f"""<h2>Internal API Secret Rotated</h2>
+<table>
+  <tr><td>Key</td><td>INTERNAL_API_SECRET</td></tr>
+  <tr><td>Workers updated</td><td>inneranimalmedia, inneranimalmedia-mcp-server</td></tr>
+  <tr><td>D1 audit rows cleaned</td><td>{cleanup_count} expired rows deleted</td></tr>
+  <tr><td>Timestamp</td><td>{html.escape(iso_timestamp)}</td></tr>
+</table>
+<p>Update local deploy shells: <code>.env.cloudflare</code> was rewritten. OAuth MCP tokens are unchanged — reconnect only if you also rotated bridge.</p>
+{SECURITY_INCIDENT_HTML}"""
+
+
+def _html_platform_pair_rotation_email(
+    *,
+    bridge: Dict[str, Any],
+    internal: Dict[str, Any],
+    iso_timestamp: str,
+) -> str:
+    return f"""<h2>Platform Secret Pair Rotated</h2>
+<h3>AGENTSAM_BRIDGE_KEY</h3>
+<table>
+  <tr><td>New token ID</td><td>{html.escape(str(bridge.get("new_token_id") or ""))}</td></tr>
+  <tr><td>Rotated from</td><td>{html.escape(str(bridge.get("old_token_id") or ""))}</td></tr>
+  <tr><td>Expired tokens cleaned</td><td>{int(bridge.get("cleanup_count") or 0)}</td></tr>
+</table>
+<h3>INTERNAL_API_SECRET</h3>
+<table>
+  <tr><td>Workers updated</td><td>inneranimalmedia, inneranimalmedia-mcp-server</td></tr>
+  <tr><td>Audit rows cleaned</td><td>{int(internal.get("cleanup_count") or 0)}</td></tr>
+</table>
+<p><strong>Timestamp:</strong> {html.escape(iso_timestamp)}</p>
+<p>OPENAI_API_KEY was not rotated — set on MCP worker manually if needed.</p>
 {SECURITY_INCIDENT_HTML}"""
 
 
@@ -346,19 +462,19 @@ WHERE is_active = 0
 
 
 def _cleanup_expired_secret_audit_rotations(
-    *, account_id: str, database_id: str, api_token: str
+    *, account_id: str, database_id: str, api_token: str, secret_id: str
 ) -> int:
     # D1 column is secret_id (not key_name).
     return _cleanup_nonfatal(
         account_id=account_id,
         database_id=database_id,
         api_token=api_token,
-        sql="""
+        sql=f"""
 DELETE FROM secret_audit_log
 WHERE created_at < unixepoch() - 7776000
-  AND secret_id = 'AGENT_SESSION_MINT_SECRET'
+  AND secret_id = '{secret_id}'
 """.strip(),
-        ok_message="✓ Cleanup: {n} expired AGENT_SESSION_MINT_SECRET audit rows hard deleted",
+        ok_message=f"✓ Cleanup: {{n}} expired {secret_id} audit rows hard deleted",
         warn_label="secret_audit_log",
     )
 
@@ -544,11 +660,12 @@ INSERT INTO mcp_workspace_tokens (
     return new_id
 
 
-def _log_agent_mint_rotation_audit(
+def _log_wrangler_secret_rotation_audit(
     *,
     account_id: str,
     database_id: str,
     api_token: str,
+    secret_id: str,
     new_hash: str,
     new_last4: str,
     previous_hash: Optional[str],
@@ -557,7 +674,7 @@ def _log_agent_mint_rotation_audit(
     audit_id = f"saudit_rot_{secrets.token_hex(6)}"
     notes = json.dumps(
         {
-            "secret": "AGENT_SESSION_MINT_SECRET",
+            "secret": secret_id,
             "key_hash_sha256": new_hash,
             "previous_key_hash_sha256": previous_hash,
             "rotated_by": REVOKED_BY,
@@ -580,7 +697,7 @@ INSERT INTO secret_audit_log (
   created_at
 ) VALUES (
   ?,
-  'AGENT_SESSION_MINT_SECRET',
+  ?,
   'wrangler_secret',
   ?,
   NULL,
@@ -599,6 +716,7 @@ INSERT INTO secret_audit_log (
         sql=sql,
         params=[
             audit_id,
+            secret_id,
             OPS_TENANT_ID,
             CREATED_BY,
             previous_last4,
@@ -609,13 +727,35 @@ INSERT INTO secret_audit_log (
     return audit_id
 
 
-def _fetch_previous_mint_hash(
-    *, account_id: str, database_id: str, api_token: str
+def _log_agent_mint_rotation_audit(
+    *,
+    account_id: str,
+    database_id: str,
+    api_token: str,
+    new_hash: str,
+    new_last4: str,
+    previous_hash: Optional[str],
+    previous_last4: Optional[str],
+) -> str:
+    return _log_wrangler_secret_rotation_audit(
+        account_id=account_id,
+        database_id=database_id,
+        api_token=api_token,
+        secret_id="AGENT_SESSION_MINT_SECRET",
+        new_hash=new_hash,
+        new_last4=new_last4,
+        previous_hash=previous_hash,
+        previous_last4=previous_last4,
+    )
+
+
+def _fetch_previous_secret_audit_hash(
+    *, account_id: str, database_id: str, api_token: str, secret_id: str
 ) -> Tuple[Optional[str], Optional[str]]:
     sql = """
 SELECT notes, new_last4
 FROM secret_audit_log
-WHERE secret_id = 'AGENT_SESSION_MINT_SECRET'
+WHERE secret_id = ?
   AND event_type = 'rotation'
 ORDER BY created_at DESC
 LIMIT 1
@@ -625,6 +765,7 @@ LIMIT 1
         database_id=database_id,
         api_token=api_token,
         sql=sql,
+        params=[secret_id],
     )
     rows = _pick_first_result_rows(j)
     if not rows:
@@ -640,6 +781,17 @@ LIMIT 1
             pass
     prev_last4 = str(rows[0].get("new_last4") or "").strip() or None
     return prev_hash, prev_last4
+
+
+def _fetch_previous_mint_hash(
+    *, account_id: str, database_id: str, api_token: str
+) -> Tuple[Optional[str], Optional[str]]:
+    return _fetch_previous_secret_audit_hash(
+        account_id=account_id,
+        database_id=database_id,
+        api_token=api_token,
+        secret_id="AGENT_SESSION_MINT_SECRET",
+    )
 
 
 def _generate_key(prefix: str) -> Tuple[str, str]:
@@ -722,6 +874,76 @@ def _rotate_bridge(
     }
 
 
+def _rotate_internal_api_secret(
+    *,
+    repo_root: Path,
+    mcp_repo: Path,
+    mcp_cfg: Path,
+    env_path: Path,
+    account_id: str,
+    database_id: str,
+    api_token: str,
+    dry_run: bool,
+) -> Tuple[int, Optional[Dict[str, Any]], Optional[str]]:
+    """Rotate INTERNAL_API_SECRET on both workers; audit hash in D1 only (no mcp_workspace_tokens row)."""
+    new_key, new_hash = _generate_key("iam_internal")
+    ok_main, ok_mcp = _push_both_workers(
+        repo_root=repo_root,
+        mcp_repo=mcp_repo,
+        mcp_cfg=mcp_cfg,
+        secret_name="INTERNAL_API_SECRET",
+        new_key=new_key,
+        dry_run=dry_run,
+    )
+    if not ok_main:
+        print("✗ INTERNAL_API_SECRET — inneranimalmedia worker failed")
+        return 1, None, None
+    if not ok_mcp:
+        print("✓ INTERNAL_API_SECRET — inneranimalmedia worker — ok")
+        print("✗ INTERNAL_API_SECRET — inneranimalmedia-mcp-server — failed")
+        return 1, None, None
+
+    if dry_run:
+        print(f"✓ INTERNAL_API_SECRET generated: {_mask_key(new_key)}")
+        print("✓ Wrangler secret:   inneranimalmedia worker — ok")
+        print("✓ Wrangler secret:   inneranimalmedia-mcp-server — ok")
+        print("✓ D1 audit:          [dry-run] would insert secret_audit_log (hash only)")
+        print("✓ Cleanup:           [dry-run] would purge INTERNAL_API_SECRET audit rows >90 days")
+        print("✓ .env.cloudflare:   [dry-run] would update INTERNAL_API_SECRET")
+        return 0, None, new_key
+
+    prev_hash, prev_last4 = _fetch_previous_secret_audit_hash(
+        account_id=account_id,
+        database_id=database_id,
+        api_token=api_token,
+        secret_id="INTERNAL_API_SECRET",
+    )
+    audit_id = _log_wrangler_secret_rotation_audit(
+        account_id=account_id,
+        database_id=database_id,
+        api_token=api_token,
+        secret_id="INTERNAL_API_SECRET",
+        new_hash=new_hash,
+        new_last4=_last4(new_key),
+        previous_hash=prev_hash,
+        previous_last4=prev_last4,
+    )
+    cleanup_count = _cleanup_expired_secret_audit_rotations(
+        account_id=account_id,
+        database_id=database_id,
+        api_token=api_token,
+        secret_id="INTERNAL_API_SECRET",
+    )
+    _update_env_line(env_path, "INTERNAL_API_SECRET", new_key, dry_run=False)
+
+    print(f"✓ INTERNAL_API_SECRET generated: {_mask_key(new_key)}")
+    print("✓ Wrangler secret:   inneranimalmedia worker — ok")
+    print("✓ Wrangler secret:   inneranimalmedia-mcp-server — ok")
+    print(f"✓ D1 audit:          secret_audit_log {audit_id} (hash only)")
+    print("✓ .env.cloudflare:   INTERNAL_API_SECRET updated")
+    return 0, {"cleanup_count": cleanup_count, "audit_id": audit_id}, new_key
+
+
 def _rotate_agent_mint(
     *,
     repo_root: Path,
@@ -775,6 +997,7 @@ def _rotate_agent_mint(
         account_id=account_id,
         database_id=database_id,
         api_token=api_token,
+        secret_id="AGENT_SESSION_MINT_SECRET",
     )
     _update_env_line(env_path, "AGENT_SESSION_MINT_SECRET", new_key, dry_run=False)
 
@@ -788,7 +1011,10 @@ def _rotate_agent_mint(
 
 def main() -> int:
     ap = argparse.ArgumentParser(
-        description="Rotate AGENTSAM_BRIDGE_KEY and/or AGENT_SESSION_MINT_SECRET."
+        description=(
+            "Rotate platform Wrangler secrets on inneranimalmedia + inneranimalmedia-mcp-server, "
+            "update D1 audit/token rows, and rewrite .env.cloudflare."
+        )
     )
     ap.add_argument("--dry-run", action="store_true", help="Print what would happen, no writes.")
     ap.add_argument("--force", action="store_true", help="Skip confirmation prompt.")
@@ -796,7 +1022,17 @@ def main() -> int:
     target.add_argument(
         "--bridge-only",
         action="store_true",
-        help="Rotate AGENTSAM_BRIDGE_KEY only (default).",
+        help="Rotate AGENTSAM_BRIDGE_KEY only (default when no other flag).",
+    )
+    target.add_argument(
+        "--internal-only",
+        action="store_true",
+        help="Rotate INTERNAL_API_SECRET only (both workers + secret_audit_log).",
+    )
+    target.add_argument(
+        "--platform-pair",
+        action="store_true",
+        help="Rotate AGENTSAM_BRIDGE_KEY then INTERNAL_API_SECRET (recommended IAM+MCP sync).",
     )
     target.add_argument(
         "--agent-mint-only",
@@ -806,16 +1042,28 @@ def main() -> int:
     target.add_argument(
         "--all",
         action="store_true",
-        help="Rotate both secrets in one run.",
+        help="Rotate AGENTSAM_BRIDGE_KEY + AGENT_SESSION_MINT_SECRET (legacy full rotation).",
     )
     args = ap.parse_args()
 
-    rotate_bridge = args.all or args.bridge_only or (not args.agent_mint_only and not args.all)
-    rotate_agent_mint = args.all or args.agent_mint_only
+    rotate_bridge = False
+    rotate_internal = False
+    rotate_agent_mint = False
 
-    if args.agent_mint_only:
-        rotate_bridge = False
+    if args.platform_pair:
+        rotate_bridge = True
+        rotate_internal = True
+    elif args.all:
+        rotate_bridge = True
         rotate_agent_mint = True
+    elif args.internal_only:
+        rotate_internal = True
+    elif args.agent_mint_only:
+        rotate_agent_mint = True
+    elif args.bridge_only:
+        rotate_bridge = True
+    else:
+        rotate_bridge = True
 
     repo_root = Path.cwd()
     _repo_root_guard(repo_root)
@@ -833,9 +1081,11 @@ def main() -> int:
         _env_get("D1_DATABASE_ID", D1_DATABASE_ID_DEFAULT, envfile),
     )
 
-    targets = []
+    targets: List[str] = []
     if rotate_bridge:
         targets.append("AGENTSAM_BRIDGE_KEY")
+    if rotate_internal:
+        targets.append("INTERNAL_API_SECRET")
     if rotate_agent_mint:
         targets.append("AGENT_SESSION_MINT_SECRET")
 
@@ -843,8 +1093,9 @@ def main() -> int:
         raise SystemExit("No rotation target selected.")
 
     if not args.dry_run and not args.force:
-        print("About to rotate: " + ", ".join(targets))
+        print("About to rotate (in order): " + ", ".join(targets))
         print("Wrangler secrets on inneranimalmedia + inneranimalmedia-mcp-server; then D1; then .env.cloudflare.")
+        print("OPENAI_API_KEY is not touched — set on MCP worker separately if needed.")
         resp = input("Proceed? [y/N] ").strip().lower()
         if resp not in ("y", "yes"):
             print("Aborted.")
@@ -855,6 +1106,7 @@ def main() -> int:
 
     internal_secret = _env_get("INTERNAL_API_SECRET", None, envfile)
     bridge_email_info: Optional[Dict[str, Any]] = None
+    internal_email_info: Optional[Dict[str, Any]] = None
     agent_mint_email_info: Optional[Dict[str, Any]] = None
 
     if rotate_bridge:
@@ -871,6 +1123,23 @@ def main() -> int:
         )
         if rc != 0:
             return rc
+
+    if rotate_internal:
+        print("\n--- INTERNAL_API_SECRET ---")
+        rc, internal_email_info, new_internal = _rotate_internal_api_secret(
+            repo_root=repo_root,
+            mcp_repo=mcp_repo,
+            mcp_cfg=mcp_cfg,
+            env_path=env_path,
+            account_id=account_id,
+            database_id=database_id,
+            api_token=api_token,
+            dry_run=args.dry_run,
+        )
+        if rc != 0:
+            return rc
+        if new_internal:
+            internal_secret = new_internal
 
     if rotate_agent_mint:
         print("\n--- AGENT_SESSION_MINT_SECRET ---")
@@ -889,9 +1158,23 @@ def main() -> int:
 
     if not args.dry_run:
         iso_ts = _iso_timestamp()
-        if args.all and bridge_email_info and agent_mint_email_info:
+        envfile_after = _load_env_file(env_path)
+        bridge_for_email = _env_get("AGENTSAM_BRIDGE_KEY", None, envfile_after)
+        if args.platform_pair and bridge_email_info and internal_email_info:
             _send_rotation_email(
                 internal_secret=internal_secret,
+                bridge_secret=bridge_for_email,
+                subject=f"[IAM] Platform Secrets Rotated (bridge + internal) — {iso_ts}",
+                html_body=_html_platform_pair_rotation_email(
+                    bridge=bridge_email_info,
+                    internal=internal_email_info,
+                    iso_timestamp=iso_ts,
+                ),
+            )
+        elif args.all and bridge_email_info and agent_mint_email_info:
+            _send_rotation_email(
+                internal_secret=internal_secret,
+                bridge_secret=bridge_for_email,
                 subject=f"[IAM] Full Secret Rotation Complete — {iso_ts}",
                 html_body=_html_full_rotation_email(
                     bridge=bridge_email_info,
@@ -899,9 +1182,10 @@ def main() -> int:
                     iso_timestamp=iso_ts,
                 ),
             )
-        elif bridge_email_info and not args.agent_mint_only:
+        elif bridge_email_info and rotate_bridge and not rotate_internal and not rotate_agent_mint:
             _send_rotation_email(
                 internal_secret=internal_secret,
+                bridge_secret=bridge_for_email,
                 subject=f"[IAM] AGENTSAM_BRIDGE_KEY Rotated — {iso_ts}",
                 html_body=_html_bridge_rotation_email(
                     new_token_id=str(bridge_email_info["new_token_id"]),
@@ -910,9 +1194,20 @@ def main() -> int:
                     iso_timestamp=iso_ts,
                 ),
             )
+        elif internal_email_info and rotate_internal and not rotate_bridge:
+            _send_rotation_email(
+                internal_secret=internal_secret,
+                bridge_secret=bridge_for_email,
+                subject=f"[IAM] INTERNAL_API_SECRET Rotated — {iso_ts}",
+                html_body=_html_internal_rotation_email(
+                    cleanup_count=int(internal_email_info.get("cleanup_count") or 0),
+                    iso_timestamp=iso_ts,
+                ),
+            )
         elif agent_mint_email_info:
             _send_rotation_email(
                 internal_secret=internal_secret,
+                bridge_secret=bridge_for_email,
                 subject=f"[IAM] AGENT_SESSION_MINT_SECRET Rotated — {iso_ts}",
                 html_body=_html_agent_mint_rotation_email(
                     cleanup_count=int(agent_mint_email_info.get("cleanup_count") or 0),
@@ -920,7 +1215,9 @@ def main() -> int:
                 ),
             )
 
-    print("\n⚠  Run deploy:full to activate post-deploy hooks")
+    if not args.dry_run:
+        print("\n✓ Wrangler secrets are live immediately (no deploy required for auth).")
+        print("  Optional: npm run deploy:full only if you also need a Worker code release.")
     return 0
 
 

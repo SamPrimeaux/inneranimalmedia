@@ -32,65 +32,537 @@ export async function computeTerminalSessionAuthTokenHash(env, sessionId) {
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+export const VALID_TARGET_TYPES = ['platform_vm', 'user_hosted_tunnel', 'ssh_target', 'sandbox'];
+
+export const DEFAULT_TERMINAL_PREFS = {
+  terminal_mode: 'shell',
+  terminal_ai_enabled: false,
+  active_agent_slug: null,
+  active_model_key: null,
+  assist_modes: ['ask', 'explain', 'error', 'fix'],
+};
+
 const TERMINAL_CONN_SELECT = `
   id, ws_url, auth_token_secret_name, connection_type, ollama_url,
-  shell, platform, user_id, auth_mode, token_verify_endpoint`;
+  shell, platform, user_id, workspace_id, tenant_id, auth_mode, token_verify_endpoint,
+  target_type, target_priority, self_service_enabled, last_health_status, last_health_at,
+  health_error, cwd_strategy, is_default, is_active, updated_at`;
+
+/**
+ * Authoritative terminal_connections row selection for routing.
+ * Never selects another user's machine.
+ *
+ * @param {import('@cloudflare/workers-types').D1Database | null} db
+ * @param {{
+ *   userId?: string | null,
+ *   workspaceId?: string | null,
+ *   tenantId?: string | null,
+ *   connectionId?: string | null,
+ *   targetType?: string | null,
+ * }} opts
+ * @returns {Promise<{ connection: Record<string, unknown> | null, error: string | null }>}
+ */
+export async function getSelectedTerminalConnection(db, opts = {}) {
+  if (!db) return { connection: null, error: 'connection_missing' };
+
+  const uid =
+    opts.userId != null && String(opts.userId).trim() !== '' ? String(opts.userId).trim() : null;
+  const wid =
+    opts.workspaceId != null && String(opts.workspaceId).trim() !== ''
+      ? String(opts.workspaceId).trim()
+      : null;
+  const tid =
+    opts.tenantId != null && String(opts.tenantId).trim() !== ''
+      ? String(opts.tenantId).trim()
+      : null;
+  const tt =
+    opts.targetType != null && String(opts.targetType).trim() !== ''
+      ? String(opts.targetType).trim()
+      : null;
+
+  if (tt && !VALID_TARGET_TYPES.includes(tt)) {
+    return { connection: null, error: 'unsupported_target_type' };
+  }
+
+  try {
+    const connectionId =
+      opts.connectionId != null && String(opts.connectionId).trim() !== ''
+        ? String(opts.connectionId).trim()
+        : null;
+
+    if (connectionId) {
+      const row = await db
+        .prepare(
+          `SELECT ${TERMINAL_CONN_SELECT}
+           FROM terminal_connections
+           WHERE id = ? AND is_active = 1
+           LIMIT 1`,
+        )
+        .bind(connectionId)
+        .first();
+      if (!row) return { connection: null, error: 'connection_missing' };
+      const rowWid = row.workspace_id != null ? String(row.workspace_id).trim() : '';
+      if (wid && rowWid && rowWid !== wid) {
+        return { connection: null, error: 'connection_forbidden' };
+      }
+      const rowUid = row.user_id != null ? String(row.user_id).trim() : '';
+      if (rowUid && uid && rowUid !== uid) {
+        return { connection: null, error: 'connection_forbidden' };
+      }
+      if (tt) {
+        const rowTt = String(row.target_type || 'platform_vm').trim();
+        if (rowTt !== tt) return { connection: null, error: 'connection_forbidden' };
+      }
+      return { connection: row, error: null };
+    }
+
+    if (uid && wid) {
+      let sql = `SELECT ${TERMINAL_CONN_SELECT}
+         FROM terminal_connections
+         WHERE user_id = ? AND workspace_id = ? AND is_active = 1`;
+      const binds = [uid, wid];
+      if (tt) {
+        sql += ' AND target_type = ?';
+        binds.push(tt);
+      }
+      if (tid) {
+        sql += " AND (tenant_id = ? OR tenant_id IS NULL OR tenant_id = '')";
+        binds.push(tid);
+      }
+      sql += ' ORDER BY is_default DESC, target_priority ASC, updated_at DESC LIMIT 1';
+      const row = await db.prepare(sql).bind(...binds).first();
+      if (row) return { connection: row, error: null };
+
+      let sharedSql = `SELECT ${TERMINAL_CONN_SELECT}
+         FROM terminal_connections
+         WHERE workspace_id = ? AND (user_id IS NULL OR user_id = '') AND is_active = 1`;
+      const sharedBinds = [wid];
+      if (tt) {
+        sharedSql += ' AND target_type = ?';
+        sharedBinds.push(tt);
+      }
+      if (tid) {
+        sharedSql += " AND (tenant_id = ? OR tenant_id IS NULL OR tenant_id = '')";
+        sharedBinds.push(tid);
+      }
+      sharedSql += ' ORDER BY is_default DESC, target_priority ASC, updated_at DESC LIMIT 1';
+      const shared = await db.prepare(sharedSql).bind(...sharedBinds).first();
+      if (shared) return { connection: shared, error: null };
+    }
+
+    return { connection: null, error: 'connection_missing' };
+  } catch (e) {
+    console.warn('[getSelectedTerminalConnection]', e?.message ?? e);
+    return { connection: null, error: 'connection_missing' };
+  }
+}
 
 /**
  * Resolve PTY bridge row from D1 (terminal_connections).
- * Priority: user+workspace active → workspace-shared (user_id NULL) → global is_default.
- * Falls back to env.TERMINAL_WS_URL when absent downstream.
+ * Wrapper around getSelectedTerminalConnection — defaults to platform_vm.
  *
  * @param {import('@cloudflare/workers-types').D1Database | null} db
  * @param {string | null | undefined} userId
  * @param {string | null | undefined} workspaceId
+ * @param {{ targetType?: string | null, connectionId?: string | null, tenantId?: string | null }} [opts]
  */
-export async function getDefaultTerminalConnection(db, userId = null, workspaceId = null) {
-  if (!db) return null;
-  const uid =
-    userId != null && String(userId).trim() !== '' ? String(userId).trim() : null;
-  const wid =
-    workspaceId != null && String(workspaceId).trim() !== ''
-      ? String(workspaceId).trim()
-      : null;
-  try {
-    if (uid && wid) {
-      const row = await db
-        .prepare(
-          `SELECT ${TERMINAL_CONN_SELECT}
-           FROM terminal_connections
-           WHERE user_id = ? AND workspace_id = ? AND is_active = 1
-           LIMIT 1`,
-        )
-        .bind(uid, wid)
-        .first();
-      if (row) return row;
-    }
-    if (wid) {
-      const row = await db
-        .prepare(
-          `SELECT ${TERMINAL_CONN_SELECT}
-           FROM terminal_connections
-           WHERE workspace_id = ? AND user_id IS NULL AND is_active = 1
-           LIMIT 1`,
-        )
-        .bind(wid)
-        .first();
-      if (row) return row;
-    }
-    const conn = await db
-      .prepare(
-        `SELECT ${TERMINAL_CONN_SELECT}
-         FROM terminal_connections
-         WHERE is_default = 1 AND is_active = 1
-         LIMIT 1`,
-      )
-      .first();
-    return conn ?? null;
-  } catch (e) {
-    console.warn('[getDefaultTerminalConnection]', e?.message ?? e);
-    return null;
+export async function getDefaultTerminalConnection(db, userId = null, workspaceId = null, opts = {}) {
+  const targetType = opts.targetType != null ? opts.targetType : 'platform_vm';
+  const sel = await getSelectedTerminalConnection(db, {
+    userId,
+    workspaceId,
+    tenantId: opts.tenantId ?? null,
+    connectionId: opts.connectionId ?? null,
+    targetType,
+  });
+  if (sel.connection) return sel.connection;
+  if (targetType !== 'platform_vm') {
+    const fallback = await getSelectedTerminalConnection(db, {
+      userId,
+      workspaceId,
+      tenantId: opts.tenantId ?? null,
+      connectionId: opts.connectionId ?? null,
+      targetType: null,
+    });
+    return fallback.connection;
   }
+  return null;
+}
+
+export function parseTerminalPrefs(json) {
+  const base = { ...DEFAULT_TERMINAL_PREFS, assist_modes: [...DEFAULT_TERMINAL_PREFS.assist_modes] };
+  try {
+    const parsed = JSON.parse(json || '{}');
+    if (parsed && typeof parsed === 'object') {
+      return { ...base, ...parsed };
+    }
+  } catch (_) {}
+  return base;
+}
+
+export async function loadTerminalSessionPrefs(env, sessionId) {
+  if (!env?.DB || !sessionId) return parseTerminalPrefs('{}');
+  try {
+    const row = await env.DB.prepare(
+      'SELECT prefs_json FROM terminal_sessions WHERE id = ? LIMIT 1',
+    )
+      .bind(String(sessionId).trim())
+      .first();
+    return parseTerminalPrefs(row?.prefs_json);
+  } catch (_) {
+    return parseTerminalPrefs('{}');
+  }
+}
+
+export async function saveTerminalSessionPrefs(env, sessionId, prefs, userId, workspaceId) {
+  if (!env?.DB || !sessionId || !userId || !workspaceId) return false;
+  try {
+    const row = await env.DB.prepare(
+      'SELECT user_id, workspace_id FROM terminal_sessions WHERE id = ? LIMIT 1',
+    )
+      .bind(String(sessionId).trim())
+      .first();
+    if (!row) return false;
+    if (String(row.user_id).trim() !== String(userId).trim()) return false;
+    if (String(row.workspace_id).trim() !== String(workspaceId).trim()) return false;
+    await env.DB.prepare(
+      'UPDATE terminal_sessions SET prefs_json = ?, updated_at = unixepoch() WHERE id = ?',
+    )
+      .bind(JSON.stringify(prefs), String(sessionId).trim())
+      .run();
+    return true;
+  } catch (e) {
+    console.warn('[saveTerminalSessionPrefs]', e?.message ?? e);
+    return false;
+  }
+}
+
+export async function userCanUseTerminalAi(env, userId, workspaceId) {
+  if (!env?.DB || !userId || !workspaceId) return false;
+  try {
+    const policy = await env.DB.prepare(
+      'SELECT terminal_ai_enabled FROM agentsam_user_policy WHERE user_id = ? AND workspace_id = ? LIMIT 1',
+    )
+      .bind(String(userId).trim(), String(workspaceId).trim())
+      .first();
+    return Number(policy?.terminal_ai_enabled) === 1;
+  } catch (_) {
+    return false;
+  }
+}
+
+export async function loadTerminalAgentCatalog(env, { userId, workspaceId, tenantId = null }) {
+  if (!env?.DB || !userId) return [];
+  const uid = String(userId).trim();
+  const wid = workspaceId != null ? String(workspaceId).trim() : '';
+  try {
+    const rows = await env.DB.prepare(
+      `SELECT slug, display_name, description, default_model_id
+       FROM agentsam_subagent_profile
+       WHERE is_active = 1
+         AND (
+           COALESCE(is_platform_global, 0) = 1
+           OR (user_id = ? AND (workspace_id = ? OR workspace_id IS NULL OR workspace_id = ''))
+         )
+       ORDER BY display_name ASC, slug ASC`,
+    )
+      .bind(uid, wid)
+      .all();
+    return rows?.results ?? [];
+  } catch (e) {
+    console.warn('[loadTerminalAgentCatalog]', e?.message ?? e);
+    return [];
+  }
+}
+
+export async function loadTerminalModelCatalog(env, { userId, workspaceId }) {
+  if (!env?.DB) return [];
+  let tierMax = 4;
+  if (userId && workspaceId) {
+    try {
+      const policy = await env.DB.prepare(
+        'SELECT allowed_model_tier_max FROM agentsam_user_policy WHERE user_id = ? AND workspace_id = ? LIMIT 1',
+      )
+        .bind(String(userId).trim(), String(workspaceId).trim())
+        .first();
+      if (policy?.allowed_model_tier_max != null) {
+        tierMax = Number(policy.allowed_model_tier_max);
+      }
+    } catch (_) {}
+  }
+  const sizeClassTier = { nano: 0, mini: 1, small: 1, standard: 2, medium: 2, pro: 3, large: 3, max: 4, opus: 4 };
+  try {
+    const rows = await env.DB.prepare(
+      `SELECT
+         ai.model_key,
+         ai.display_name,
+         ai.provider,
+         ai.sort_order,
+         ai.size_class,
+         mc.context_window,
+         mc.max_output_tokens,
+         mc.supports_tools,
+         mc.supports_streaming,
+         mc.supports_json_mode,
+         mc.supports_reasoning,
+         mc.is_active,
+         mc.is_degraded,
+         mc.budget_exhausted
+       FROM agentsam_ai ai
+       LEFT JOIN agentsam_model_catalog mc ON mc.model_key = ai.model_key
+       WHERE ai.mode = 'model'
+         AND COALESCE(ai.show_in_picker, 0) = 1
+         AND COALESCE(ai.picker_eligible, 1) = 1
+         AND ai.status = 'active'
+         AND ai.model_key IS NOT NULL
+         AND COALESCE(mc.is_active, 1) = 1
+         AND COALESCE(mc.is_degraded, 0) = 0
+         AND COALESCE(mc.budget_exhausted, 0) = 0
+       ORDER BY ai.sort_order ASC, ai.display_name ASC`,
+    ).all();
+    const results = rows?.results ?? [];
+    return results.filter((m) => {
+      const sc = m.size_class != null ? String(m.size_class).trim().toLowerCase() : '';
+      const tier = sc && sizeClassTier[sc] != null ? sizeClassTier[sc] : 0;
+      return tier <= tierMax;
+    });
+  } catch (e) {
+    console.warn('[loadTerminalModelCatalog]', e?.message ?? e);
+    return [];
+  }
+}
+
+/**
+ * Validate prefs update against policy + D1 catalogs before persist.
+ */
+export async function validateTerminalSessionPrefsUpdate(env, { userId, workspaceId, tenantId, prefs }) {
+  const next = parseTerminalPrefs(JSON.stringify(prefs));
+  if (next.terminal_ai_enabled) {
+    const allowed = await userCanUseTerminalAi(env, userId, workspaceId);
+    if (!allowed) {
+      return { ok: false, error: 'terminal_ai_not_enabled', prefs: null };
+    }
+  }
+  if (next.active_agent_slug) {
+    const agents = await loadTerminalAgentCatalog(env, { userId, workspaceId, tenantId });
+    if (!agents.some((a) => a.slug === next.active_agent_slug)) {
+      return { ok: false, error: 'invalid_agent_slug', prefs: null };
+    }
+  }
+  if (next.active_model_key) {
+    const models = await loadTerminalModelCatalog(env, { userId, workspaceId });
+    if (!models.some((m) => m.model_key === next.active_model_key)) {
+      return { ok: false, error: 'invalid_model_key', prefs: null };
+    }
+  }
+  if (next.terminal_mode === 'agentsam' && !next.terminal_ai_enabled) {
+    next.terminal_ai_enabled = true;
+  }
+  if (next.terminal_mode === 'shell') {
+    next.terminal_ai_enabled = false;
+  }
+  return { ok: true, prefs: next, error: null };
+}
+
+async function checkOllamaReachable(env, connection) {
+  const url = String(connection?.ollama_url || env?.OLLAMA_URL || '').trim();
+  if (!url) return false;
+  try {
+    const base = url.replace(/\/+$/, '');
+    const res = await fetch(`${base}/api/tags`, {
+      method: 'GET',
+      signal: AbortSignal.timeout(2500),
+    });
+    return res.ok;
+  } catch (_) {
+    return false;
+  }
+}
+
+function connectionDbBridgeOk(env, conn) {
+  if (!conn) return false;
+  const wsPart = String(conn.ws_url || '').trim();
+  const secretName = String(conn.auth_token_secret_name || '').trim();
+  const tok =
+    secretName && env[secretName] != null ? String(env[secretName]).trim() : '';
+  return !!(wsPart && tok) || String(conn.auth_mode || '').trim() === 'token_mint';
+}
+
+/**
+ * Build /api/agent/terminal/config-status payload (safe diagnostics only).
+ */
+export async function buildTerminalConfigStatus(env, authUser, twCfg, query = {}) {
+  const baseDisabled = {
+    terminal_enabled: false,
+    terminal_configured: false,
+    control_plane_available: false,
+    direct_wss_available: false,
+    error_code: null,
+  };
+
+  if (!authUser?.id) {
+    return { ...baseDisabled, error_code: 'auth_missing' };
+  }
+  if (!twCfg?.workspaceId) {
+    return { ...baseDisabled, error_code: twCfg?.error === 'Forbidden' ? 'policy_denied' : 'workspace_missing' };
+  }
+
+  const userId = String(authUser.id).trim();
+  const workspaceId = String(twCfg.workspaceId).trim();
+  const canPty = await userCanRunPtyFromPolicy(env, userId, workspaceId);
+  if (!canPty) {
+    return { ...baseDisabled, error_code: 'policy_denied' };
+  }
+
+  let tenantId = await resolvePtyTenantIdForUser(env, authUser, userId);
+  tenantId = tenantId != null ? String(tenantId).trim() : '';
+  if (!tenantId) {
+    return { ...baseDisabled, terminal_enabled: false, error_code: 'tenant_missing' };
+  }
+
+  const targetTypeRaw = (query.target_type || query.targetType || 'platform_vm').trim();
+  const targetType = VALID_TARGET_TYPES.includes(targetTypeRaw) ? targetTypeRaw : null;
+  if (!targetType) {
+    return {
+      ...baseDisabled,
+      terminal_enabled: true,
+      user_id: userId,
+      workspace_id: workspaceId,
+      tenant_id: tenantId,
+      can_run_pty: true,
+      error_code: 'unsupported_target_type',
+    };
+  }
+
+  const connectionId = (query.connection_id || query.connectionId || '').trim() || null;
+  const sel = await getSelectedTerminalConnection(env.DB, {
+    userId,
+    workspaceId,
+    tenantId,
+    connectionId,
+    targetType,
+  });
+
+  if (sel.error === 'connection_forbidden') {
+    return {
+      terminal_enabled: true,
+      terminal_configured: false,
+      control_plane_available: !!env.AGENT_SESSION,
+      direct_wss_available: false,
+      user_id: userId,
+      workspace_id: workspaceId,
+      tenant_id: tenantId,
+      can_run_pty: true,
+      selected_target_type: targetType,
+      error_code: 'connection_forbidden',
+    };
+  }
+
+  if (sel.error === 'unsupported_target_type') {
+    return {
+      terminal_enabled: true,
+      terminal_configured: false,
+      control_plane_available: !!env.AGENT_SESSION,
+      direct_wss_available: false,
+      user_id: userId,
+      workspace_id: workspaceId,
+      tenant_id: tenantId,
+      can_run_pty: true,
+      error_code: 'unsupported_target_type',
+    };
+  }
+
+  const conn = sel.connection;
+  let errorCode = sel.error;
+
+  if (targetType === 'ssh_target') errorCode = errorCode || 'ssh_target_not_enabled';
+  if (targetType === 'sandbox') errorCode = errorCode || 'sandbox_not_enabled';
+
+  const vpcPty = !!env.PTY_SERVICE;
+  const httpsUrl = (env.TERMINAL_WS_URL || '').trim();
+  const secret = (env.TERMINAL_SECRET || env.PTY_AUTH_TOKEN || '').trim();
+  const dbBridgeOk = connectionDbBridgeOk(env, conn);
+  const wsUrlPresent = !!(conn?.ws_url && String(conn.ws_url).trim());
+
+  let routeWillUsePtyService = false;
+  let routeWillUseConnectionWsUrl = false;
+
+  if (targetType === 'platform_vm') {
+    routeWillUsePtyService = vpcPty;
+    routeWillUseConnectionWsUrl = !vpcPty && wsUrlPresent;
+    if (!vpcPty && !httpsUrl && !secret && !dbBridgeOk && !wsUrlPresent) {
+      errorCode = errorCode || 'pty_backend_unconfigured';
+    }
+  } else if (targetType === 'user_hosted_tunnel') {
+    routeWillUsePtyService = false;
+    routeWillUseConnectionWsUrl = wsUrlPresent;
+    if (!wsUrlPresent) errorCode = errorCode || 'connection_missing';
+  }
+
+  const { resolveTerminalCwd } = await import('./pty-workspace-paths.js');
+  const cwdResult = resolveTerminalCwd(env, {
+    connection: conn,
+    tenantId,
+    userId,
+  });
+
+  const terminalConfigured =
+    targetType === 'ssh_target' || targetType === 'sandbox'
+      ? false
+      : targetType === 'platform_vm'
+        ? !!(vpcPty || (httpsUrl && secret) || dbBridgeOk || wsUrlPresent)
+        : wsUrlPresent;
+
+  return {
+    terminal_enabled: true,
+    terminal_configured: terminalConfigured,
+    control_plane_available: !!env.AGENT_SESSION,
+    direct_wss_available: false,
+    user_id: userId,
+    workspace_id: workspaceId,
+    tenant_id: tenantId,
+    can_run_pty: true,
+    selected_target_type: targetType,
+    selected_connection_id: conn?.id ?? null,
+    selected_connection_platform: conn?.platform ?? null,
+    selected_connection_shell: conn?.shell ?? null,
+    selected_connection_auth_mode: conn?.auth_mode ?? null,
+    selected_connection_ws_url_present: wsUrlPresent,
+    route_will_use_pty_service: routeWillUsePtyService,
+    route_will_use_connection_ws_url: routeWillUseConnectionWsUrl,
+    self_service_enabled: Number(conn?.self_service_enabled) === 1,
+    cwd: cwdResult.cwd,
+    cwd_strategy: cwdResult.strategy,
+    db_bridge_ok: dbBridgeOk,
+    pty_service_bound: vpcPty,
+    terminal_ws_url_configured: !!httpsUrl,
+    error_code: errorCode,
+  };
+}
+
+export async function buildTerminalCatalogResponse(env, authUser, workspaceId) {
+  const userId = String(authUser.id).trim();
+  const wid = String(workspaceId).trim();
+  const aiAllowed = await userCanUseTerminalAi(env, userId, wid);
+  const tenantId = await resolvePtyTenantIdForUser(env, authUser, userId);
+  const sel = await getSelectedTerminalConnection(env.DB, {
+    userId,
+    workspaceId: wid,
+    tenantId,
+    targetType: 'platform_vm',
+  });
+  const ollamaReachable = await checkOllamaReachable(env, sel.connection);
+  const agents = aiAllowed
+    ? await loadTerminalAgentCatalog(env, { userId, workspaceId: wid, tenantId })
+    : [];
+  const models = aiAllowed ? await loadTerminalModelCatalog(env, { userId, workspaceId: wid }) : [];
+  return {
+    ai_allowed: aiAllowed,
+    ai_enabled_default: false,
+    agents,
+    models,
+    ollama_reachable: ollamaReachable,
+  };
 }
 
 /**

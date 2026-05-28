@@ -10480,6 +10480,7 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     }
   }
 
+  // Legacy fallback; production GET /api/agent/terminal/config-status is handled by src/api/dashboard.js through production-dispatch before this handler.
   // ── /api/agent/terminal/config-status ────────────────────────────────────
   if (path === '/api/agent/terminal/config-status' && method === 'GET') {
     const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);

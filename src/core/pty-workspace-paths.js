@@ -71,6 +71,42 @@ export function buildPtySessionWorkingDir(env, { tenantId, userId }) {
 }
 
 /**
+ * Resolve PTY cwd from connection target + cwd_strategy.
+ * @param {any} env
+ * @param {{ connection?: Record<string, unknown> | null, tenantId: string, userId: string }} ctx
+ * @returns {{ cwd: string | null, strategy: string }}
+ */
+export function resolveTerminalCwd(env, { connection = null, tenantId, userId }) {
+  const targetType = String(connection?.target_type || 'platform_vm').trim();
+  const strategy = String(connection?.cwd_strategy || 'platform_workspace').trim() || 'platform_workspace';
+  const platform = String(connection?.platform || 'linux').trim().toLowerCase();
+  const isWindows = platform === 'windows' || platform === 'win32';
+
+  if (strategy === 'custom') {
+    return { cwd: null, strategy, unsupported: true };
+  }
+
+  if (targetType === 'platform_vm' || strategy === 'platform_workspace') {
+    const cwd = buildPtySessionWorkingDir(env, { tenantId, userId });
+    return { cwd, strategy: strategy === 'custom' ? 'platform_workspace' : strategy };
+  }
+
+  if (targetType === 'user_hosted_tunnel') {
+    if (strategy === 'user_home' || strategy === 'host_default') {
+      return { cwd: null, strategy };
+    }
+    if (strategy === 'platform_workspace' && !isWindows) {
+      const cwd = buildPtySessionWorkingDir(env, { tenantId, userId });
+      return { cwd, strategy };
+    }
+    return { cwd: null, strategy };
+  }
+
+  const cwd = buildPtySessionWorkingDir(env, { tenantId, userId });
+  return { cwd, strategy };
+}
+
+/**
  * @param {string|null|undefined} candidate
  * @param {string|null|undefined} workspaceRoot
  */

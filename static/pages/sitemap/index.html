@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sitemap | Inner Animal Media</title>
+  <meta name="description" content="Browse all public pages on Inner Animal Media — products, services, account access, and legal.">
+  <link rel="canonical" href="https://inneranimalmedia.com/sitemap">
+  <style>
+    :root {
+      --bg: #050713;
+      --ink: #f8fbff;
+      --muted: #9daac2;
+      --line: rgba(255, 255, 255, 0.12);
+      --cyan: #67e8ff;
+      --blue: #2f7bff;
+      --panel: rgba(255, 255, 255, 0.06);
+      --header-offset: 96px;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: Inter, system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.5;
+    }
+    a { color: var(--cyan); text-decoration: none; transition: color 0.2s; }
+    a:hover { color: #fff; text-decoration: underline; }
+    .iam-sitemap {
+      padding: calc(var(--header-offset) + 48px) clamp(20px, 5vw, 48px) 80px;
+      max-width: 1080px;
+      margin: 0 auto;
+    }
+    .iam-sitemap-hero {
+      margin-bottom: 48px;
+      padding-bottom: 32px;
+      border-bottom: 1px solid var(--line);
+    }
+    .eyebrow {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--cyan);
+      margin: 0 0 12px;
+    }
+    .iam-sitemap-hero h1 {
+      font-size: clamp(36px, 6vw, 56px);
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      line-height: 1.05;
+      margin: 0 0 16px;
+    }
+    .iam-sitemap-hero p {
+      margin: 0;
+      font-size: 17px;
+      color: var(--muted);
+      max-width: 52ch;
+    }
+    .iam-sitemap-meta {
+      margin-top: 20px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .iam-sitemap-meta a { font-weight: 500; }
+    .iam-sitemap-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 28px;
+    }
+    .iam-sitemap-section {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      padding: 24px 26px 28px;
+      backdrop-filter: blur(12px);
+    }
+    .iam-sitemap-section h2 {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--cyan);
+      margin: 0 0 18px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--line);
+    }
+    .iam-sitemap-section ul {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+    .iam-sitemap-section li {
+      margin: 0 0 14px;
+      padding: 0;
+    }
+    .iam-sitemap-section li:last-child { margin-bottom: 0; }
+    .iam-sitemap-section a {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--ink);
+      text-decoration: none;
+      display: inline-block;
+    }
+    .iam-sitemap-section a:hover {
+      color: var(--cyan);
+      text-decoration: none;
+    }
+    .iam-sitemap-section .desc {
+      display: block;
+      margin-top: 4px;
+      font-size: 13px;
+      font-weight: 400;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+    .iam-sitemap-note {
+      margin-top: 40px;
+      padding: 18px 22px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: rgba(47, 123, 255, 0.08);
+      font-size: 14px;
+      color: var(--muted);
+    }
+    .iam-sitemap-note strong { color: var(--ink); font-weight: 600; }
+    @media (max-width: 640px) {
+      .iam-sitemap { padding-top: calc(var(--header-offset) + 28px); }
+      .iam-sitemap-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="iam-sitemap">
+    <header class="iam-sitemap-hero">
+      <p class="eyebrow">Inner Animal Media</p>
+      <h1>Sitemap</h1>
+      <p>Every public page on inneranimalmedia.com. Use this index to navigate the site or share direct links with your team.</p>
+      <p class="iam-sitemap-meta">
+        Machine-readable index:
+        <a href="/sitemap.xml">sitemap.xml</a>
+        · Updated May 2026
+      </p>
+    </header>
+
+    <div class="iam-sitemap-grid">
+      <section class="iam-sitemap-section" aria-labelledby="sitemap-company">
+        <h2 id="sitemap-company">Company</h2>
+        <ul>
+          <li>
+            <a href="/">Home</a>
+            <span class="desc">Brand, platform overview, and primary entry point.</span>
+          </li>
+          <li>
+            <a href="/work">Work</a>
+            <span class="desc">Selected projects and case highlights.</span>
+          </li>
+          <li>
+            <a href="/about">About</a>
+            <span class="desc">Mission, team, and how we build.</span>
+          </li>
+          <li>
+            <a href="/services">Services</a>
+            <span class="desc">Product design, engineering, and AI systems.</span>
+          </li>
+          <li>
+            <a href="/contact">Contact</a>
+            <span class="desc">Start a conversation or request a consult.</span>
+          </li>
+          <li>
+            <a href="/pricing">Pricing</a>
+            <span class="desc">Plans and packaging for teams and founders.</span>
+          </li>
+          <li>
+            <a href="/games">Games</a>
+            <span class="desc">Interactive experiences and chess.</span>
+          </li>
+        </ul>
+      </section>
+
+      <section class="iam-sitemap-section" aria-labelledby="sitemap-account">
+        <h2 id="sitemap-account">Account</h2>
+        <ul>
+          <li>
+            <a href="/auth/login">Sign in</a>
+            <span class="desc">Access your workspace and dashboard.</span>
+          </li>
+          <li>
+            <a href="/auth/signup">Create account</a>
+            <span class="desc">Register for Inner Animal Media.</span>
+          </li>
+          <li>
+            <a href="/auth/reset">Reset password</a>
+            <span class="desc">Recover access to your account.</span>
+          </li>
+        </ul>
+      </section>
+
+      <section class="iam-sitemap-section" aria-labelledby="sitemap-legal">
+        <h2 id="sitemap-legal">Legal</h2>
+        <ul>
+          <li>
+            <a href="/privacy">Privacy Policy</a>
+            <span class="desc">How we collect and use data.</span>
+          </li>
+          <li>
+            <a href="/terms">Terms of Service</a>
+            <span class="desc">Platform terms and acceptable use.</span>
+          </li>
+          <li>
+            <a href="/sitemap">Sitemap</a>
+            <span class="desc">This page — human-readable site index.</span>
+          </li>
+        </ul>
+      </section>
+    </div>
+
+    <p class="iam-sitemap-note">
+      <strong>Workspace &amp; dashboard</strong> — Product tools (overview, projects, analytics, Agent Sam, and settings)
+      live at <code style="color:var(--cyan);font-size:12px">/dashboard/*</code> and require a signed-in session.
+      They are not listed here as public URLs; sign in to open your workspace.
+    </p>
+  </div>
+</body>
+</html>

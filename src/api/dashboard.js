@@ -11,9 +11,15 @@ import {
 import { getIntegrationToken } from '../integrations/tokens.js';
 import { getWorkspaceTheme, normalizeThemeSlug } from '../core/themes.js';
 import {
-    getDefaultTerminalConnection,
+    getSelectedTerminalConnection,
     mintSessionToken,
     userCanRunPtyFromPolicy,
+    buildTerminalConfigStatus,
+    buildTerminalCatalogResponse,
+    loadTerminalSessionPrefs,
+    saveTerminalSessionPrefs,
+    parseTerminalPrefs,
+    validateTerminalSessionPrefsUpdate,
 } from '../core/terminal.js';
 import { handleTerminalApi } from './terminal.js';
 import { executeScopedAgentTerminalRun } from '../core/agent-terminal-run.js';
@@ -317,48 +323,71 @@ export async function handleDashboardApi(request, url, env, ctx) {
         const authUser = await getAuthUser(request, env);
         if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
         const twCfg = await resolveTerminalWorkspaceId(env, request, authUser, url.searchParams.get('workspace_id'));
-        const canPtyCfg =
-            twCfg.workspaceId && (await userCanRunPtyFromPolicy(env, authUser.id, twCfg.workspaceId));
-        if (!canPtyCfg) {
-            return jsonResponse({
-                terminal_enabled: false,
-                terminal_configured: false,
-                control_plane_available: false,
-                direct_wss_available: false,
-            });
-        }
-
-        const vpcPty = !!env.PTY_SERVICE;
-        const httpsUrl = (env.TERMINAL_WS_URL || '').trim();
-        const secret = (env.TERMINAL_SECRET || '').trim();
-        let dbBridgeOk = false;
-        if (env.DB) {
-            try {
-                const wsCtx =
-                    authUser.active_workspace_id != null && String(authUser.active_workspace_id).trim() !== ''
-                        ? String(authUser.active_workspace_id).trim()
-                        : null;
-                const conn = await getDefaultTerminalConnection(
-                    env.DB,
-                    authUser.id,
-                    twCfg.workspaceId || wsCtx,
-                );
-                const wsPart = String(conn?.ws_url || '').trim();
-                const secretName = String(conn?.auth_token_secret_name || '').trim();
-                const tok = secretName && env[secretName] != null
-                    ? String(env[secretName]).trim()
-                    : '';
-                dbBridgeOk = !!(wsPart && tok) || String(conn?.auth_mode || '').trim() === 'token_mint';
-            } catch (_) {
-                dbBridgeOk = false;
-            }
-        }
-        return jsonResponse({
-            terminal_enabled: true,
-            terminal_configured: !!(vpcPty || (httpsUrl && secret) || dbBridgeOk),
-            control_plane_available: !!env.AGENT_SESSION,
-            direct_wss_available: false,
+        const payload = await buildTerminalConfigStatus(env, authUser, twCfg, {
+            target_type: url.searchParams.get('target_type'),
+            connection_id: url.searchParams.get('connection_id'),
         });
+        return jsonResponse(payload);
+    }
+
+    // ── /api/agent/terminal/catalog ───────────────────────────────────────────
+    if (pathLower === '/api/agent/terminal/catalog' && method === 'GET') {
+        const authUser = await getAuthUser(request, env);
+        if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+        const twCat = await resolveTerminalWorkspaceId(env, request, authUser, url.searchParams.get('workspace_id'));
+        if (!twCat.workspaceId) {
+            return jsonResponse({ error: WORKSPACE_CONTEXT_MISSING }, 400);
+        }
+        const canPtyCat = await userCanRunPtyFromPolicy(env, authUser.id, twCat.workspaceId);
+        if (!canPtyCat) {
+            return jsonResponse({ error: 'terminal_not_enabled' }, 403);
+        }
+        const catalog = await buildTerminalCatalogResponse(env, authUser, twCat.workspaceId);
+        return jsonResponse(catalog);
+    }
+
+    // ── POST /api/agent/terminal/session/prefs ────────────────────────────────
+    if (pathLower === '/api/agent/terminal/session/prefs' && method === 'POST') {
+        const authUser = await getAuthUser(request, env);
+        if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+        const twPrefs = await resolveTerminalWorkspaceId(env, request, authUser, null);
+        if (!twPrefs.workspaceId) {
+            return jsonResponse({ error: WORKSPACE_CONTEXT_MISSING }, 400);
+        }
+        const canPtyPrefs = await userCanRunPtyFromPolicy(env, authUser.id, twPrefs.workspaceId);
+        if (!canPtyPrefs) {
+            return jsonResponse({ error: 'terminal_not_enabled' }, 403);
+        }
+        const body = await request.json().catch(() => ({}));
+        const sessionId = String(body?.terminal_session_id || body?.session_id || '').trim();
+        if (!sessionId) return jsonResponse({ error: 'terminal_session_id required' }, 400);
+        const existing = await loadTerminalSessionPrefs(env, sessionId);
+        const merged = parseTerminalPrefs(JSON.stringify({
+            ...existing,
+            ...(body.terminal_mode != null ? { terminal_mode: body.terminal_mode } : {}),
+            ...(body.terminal_ai_enabled != null ? { terminal_ai_enabled: !!body.terminal_ai_enabled } : {}),
+            ...(body.active_agent_slug !== undefined ? { active_agent_slug: body.active_agent_slug } : {}),
+            ...(body.active_model_key !== undefined ? { active_model_key: body.active_model_key } : {}),
+        }));
+        const tenantId = await resolvePtyTenantIdForUser(env, authUser, authUser.id);
+        const validated = await validateTerminalSessionPrefsUpdate(env, {
+            userId: authUser.id,
+            workspaceId: twPrefs.workspaceId,
+            tenantId,
+            prefs: merged,
+        });
+        if (!validated.ok) {
+            return jsonResponse({ error: validated.error || 'invalid_prefs' }, 400);
+        }
+        const ok = await saveTerminalSessionPrefs(
+            env,
+            sessionId,
+            validated.prefs,
+            authUser.id,
+            twPrefs.workspaceId,
+        );
+        if (!ok) return jsonResponse({ error: 'session_not_found_or_forbidden' }, 403);
+        return jsonResponse({ ok: true, prefs: validated.prefs });
     }
 
     // ACTIVE PATH: browser connects here for terminal websocket.
@@ -402,6 +431,10 @@ export async function handleDashboardApi(request, url, env, ctx) {
         /** Forward shell preference for iam-pty (e.g. /bin/zsh vs /bin/bash). Validated in DO. */
         const shellQ = (url.searchParams.get('shell') || '').trim();
         if (shellQ) doUrl.searchParams.set('shell', shellQ);
+        const targetTypeQ = (url.searchParams.get('target_type') || 'platform_vm').trim();
+        if (targetTypeQ) doUrl.searchParams.set('target_type', targetTypeQ);
+        const connectionIdQ = (url.searchParams.get('connection_id') || '').trim();
+        if (connectionIdQ) doUrl.searchParams.set('connection_id', connectionIdQ);
         const termCtx = await resolveTerminalIdentityContext(env, authUser);
         if (!termCtx.tenantId) {
             return jsonResponse({ error: 'TENANT_CONTEXT_REQUIRED', code: 'TENANT_CONTEXT_REQUIRED' }, 403);
@@ -412,13 +445,33 @@ export async function handleDashboardApi(request, url, env, ctx) {
             const sessionId = `term_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
             const { rawToken, tokenHash } = await mintSessionToken();
             const now = Math.floor(Date.now() / 1000);
+            const connSel = await getSelectedTerminalConnection(env.DB, {
+                userId,
+                workspaceId,
+                tenantId: termCtx.tenantId,
+                connectionId: connectionIdQ || null,
+                targetType: targetTypeQ || 'platform_vm',
+            });
+            const connId =
+                connSel.connection?.id != null ? String(connSel.connection.id).trim() : null;
+            const shellForSession =
+                String(connSel.connection?.shell || shellQ || '/bin/zsh').trim() || '/bin/zsh';
+            const { resolveTerminalCwd } = await import('../core/pty-workspace-paths.js');
+            const cwdResolved = resolveTerminalCwd(env, {
+                connection: connSel.connection,
+                tenantId: termCtx.tenantId,
+                userId,
+            });
+            const cwdForSession = cwdResolved.cwd || termCtx.workingDir || '';
             await env.DB.prepare(
                 `INSERT INTO terminal_sessions
-                   (id, tenant_id, user_id, workspace_id, person_uuid, tunnel_url, cols, rows, shell, cwd, status, auth_token_hash, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?, '', 220, 50, '/bin/zsh', ?, 'active', ?, ?, ?)
+                   (id, tenant_id, user_id, workspace_id, person_uuid, tunnel_url, cols, rows, shell, cwd, status, auth_token_hash, prefs_json, connection_id, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, '', 220, 50, ?, ?, 'active', ?, '{}', ?, ?, ?)
                  ON CONFLICT(id) DO UPDATE SET
                    auth_token_hash = excluded.auth_token_hash,
                    tenant_id = excluded.tenant_id,
+                   connection_id = COALESCE(excluded.connection_id, connection_id),
+                   shell = COALESCE(excluded.shell, shell),
                    cwd = COALESCE(excluded.cwd, cwd),
                    status = 'active',
                    updated_at = excluded.updated_at`,
@@ -429,8 +482,10 @@ export async function handleDashboardApi(request, url, env, ctx) {
                     userId,
                     workspaceId,
                     termCtx.personUuid,
-                    termCtx.workingDir || '',
+                    shellForSession,
+                    cwdForSession,
                     tokenHash,
+                    connId,
                     now,
                     now,
                 )

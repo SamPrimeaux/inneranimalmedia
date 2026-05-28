@@ -20,12 +20,24 @@ import os, sys, re, json, time, hashlib, argparse, uuid, urllib.request, urllib.
 # ── Config ────────────────────────────────────────────────────────────────────
 OPENAI_API_KEY  = os.environ["OPENAI_API_KEY"]
 SUPABASE_URL    = os.environ["SUPABASE_URL"].rstrip("/")
-SUPABASE_KEY    = os.environ["SUPABASE_SERVICE_KEY"]   # service role — bypasses RLS
+SUPABASE_KEY    = (
+    os.environ.get("SUPABASE_SERVICE_KEY")
+    or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+    or os.environ.get("SUPABASE_SERVICE_ROLE")
+)
+if not SUPABASE_KEY:
+    raise KeyError(
+        "Missing Supabase service key env var. Set SUPABASE_SERVICE_ROLE_KEY (preferred) "
+        "or SUPABASE_SERVICE_KEY."
+    )
 CF_API_TOKEN    = os.environ["CLOUDFLARE_API_TOKEN"]
 CF_ACCOUNT_ID   = "ede6590ac0d2fb7daf155b35653457b2"
 D1_DATABASE_ID  = "cf87b717-d4e2-4cf8-bab0-a81268e32d49"
-R2_BUCKET       = "inneranimalmedia-autorag"
-R2_PUBLIC_BASE  = "https://rag.inneranimalmedia.com"   # custom domain — now useful
+
+# Canonical bucket for rag.inneranimalmedia.com custom domain.
+R2_BUCKET       = os.environ.get("AUTORAG_R2_BUCKET", "inneranimalmedia-autorag")
+# Canonical public base used in source_url (may be bot-challenged for curl, but is the contract).
+R2_PUBLIC_BASE  = os.environ.get("AUTORAG_PUBLIC_BASE", "https://rag.inneranimalmedia.com")
 WORKSPACE_ID    = "fa1f12a8-c841-4b79-a26c-d53a78b17dac"
 USER_ID         = "6cbd71f8-1d57-4530-9736-9bf03be1adad"
 EMBED_MODEL     = "text-embedding-3-large"
@@ -248,12 +260,15 @@ def now_iso():
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 # ── Lane: R2 documents ────────────────────────────────────────────────────────
-def ingest_r2_lane(lane):
+def ingest_r2_lane(lane, only_keys=None):
     cfg    = LANE_CONFIG[lane]
     table  = cfg["table"]
     prefix = cfg["r2_prefix"]
 
     keys = [k for k in r2_list(prefix) if k.endswith((".txt", ".md"))]
+    if only_keys:
+        only = set([k.strip() for k in only_keys if k and k.strip()])
+        keys = [k for k in keys if k in only]
     print(f"\n── {lane}  ({len(keys)} files) → {table}")
 
     # Build all chunks first
@@ -384,38 +399,47 @@ def main():
         default="all")
     parser.add_argument("--dry-run", action="store_true",
         help="List what would be ingested without embedding or writing")
+    parser.add_argument("--include-schema", action="store_true",
+        help="Allow database schema ingestion (FROZEN by default)")
+    parser.add_argument("--i-understand-schema-is-not-stable", action="store_true",
+        help="Required acknowledgement for schema ingestion")
+    parser.add_argument("--only-key", action="append", default=[],
+        help="Ingest only this exact R2 object key (repeatable). Example: --only-key docs/supabase/AGENTSAM_RAG_LANE_SCHEMA_REFERENCE.md")
     args = parser.parse_args()
 
     if args.dry_run:
         for lane, cfg in LANE_CONFIG.items():
             keys = [k for k in r2_list(cfg["r2_prefix"]) if k.endswith((".txt",".md"))]
             print(f"  {lane}: {len(keys)} files → {cfg['table']}")
-        ddls = d1_query("SELECT name FROM sqlite_master WHERE type='table' AND sql IS NOT NULL")
-        print(f"  schema: {len(ddls)} tables → agentsam_database_schema_oai3large_1536")
+        print("  schema: (frozen) agentsam_database_schema_oai3large_1536")
+        print("    Skipping database_schema lane: schema re-ingestion is frozen until data model stabilizes.")
         return
 
     if args.lane in ("recipes", "all"):
-        ingest_r2_lane("recipes")
+        ingest_r2_lane("recipes", only_keys=args.only_key)
     if args.lane in ("knowledge", "all"):
-        ingest_r2_lane("knowledge")
+        ingest_r2_lane("knowledge", only_keys=args.only_key)
     if args.lane in ("docs", "all"):
-        ingest_r2_lane("docs")
+        ingest_r2_lane("docs", only_keys=args.only_key)
     if args.lane in ("context", "all"):
-        ingest_r2_lane("context")
+        ingest_r2_lane("context", only_keys=args.only_key)
     if args.lane in ("courses", "all"):
-        ingest_r2_lane("courses")
+        ingest_r2_lane("courses", only_keys=args.only_key)
     if args.lane in ("memory", "all"):
-        ingest_r2_lane("memory")
+        ingest_r2_lane("memory", only_keys=args.only_key)
     if args.lane in ("plans", "all"):
-        ingest_r2_lane("plans")
+        ingest_r2_lane("plans", only_keys=args.only_key)
     if args.lane in ("roadmap", "all"):
-        ingest_r2_lane("roadmap")
+        ingest_r2_lane("roadmap", only_keys=args.only_key)
     if args.lane in ("studentprofiles", "all"):
-        ingest_r2_lane("studentprofiles")
+        ingest_r2_lane("studentprofiles", only_keys=args.only_key)
     if args.lane in ("workflows", "all"):
-        ingest_r2_lane("workflows")
+        ingest_r2_lane("workflows", only_keys=args.only_key)
     if args.lane in ("schema", "all"):
-        ingest_schema()
+        if not (args.include_schema and args.i_understand_schema_is_not_stable):
+            print("Skipping database_schema lane: schema re-ingestion is frozen until data model stabilizes.")
+        else:
+            ingest_schema()
 
     print("\n✓ ingest complete")
 

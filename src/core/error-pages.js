@@ -67,12 +67,12 @@ a:hover{background:rgba(0,229,255,.07)}
   <h1>${title}</h1>
   <p class="desc">${displayMsg}</p>
   ${displayUrl ? `<div class="url">${displayUrl}</div>` : ''}
-  <a href="/dashboard/agent">
+  <a href="/">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
       stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <path d="m15 18-6-6 6-6"/>
     </svg>
-    Back to Agent Sam
+    Back to home
   </a>
 </div>
 </body>

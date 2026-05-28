@@ -280,7 +280,7 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
                 if (data.endsWith('\r') || data.endsWith('\n')) {
                   const cmd = data.replace(/[\r\n]+$/, '').trim();
                   if (cmd.startsWith('/')) {
-                    ws.send(JSON.stringify({ type: 'input', data }));
+                    ws.send(JSON.stringify({ type: 'slash', line: cmd }));
                     return;
                   }
                 }
