@@ -1,5 +1,9 @@
 # Deploy runbook (Inner Animal Media)
 
+> **Source path (2026-05-28):** Canonical Agent UI is **`dashboard/`** (`dashboard/App.tsx`), not `agent-dashboard/`. Deploy: `npm run deploy:frontend` → `dashboard/dist` → R2 `static/dashboard/app/`. See **[AGENT_DASHBOARD.md](./AGENT_DASHBOARD.md)**. Content below may reference retired paths.
+
+---
+
 All commands assume repo root: `inneranimalmedia/`. Load credentials via `./scripts/with-cloudflare-env.sh` (reads `.env.cloudflare` at repo root).
 
 ## Production worker (inneranimalmedia)

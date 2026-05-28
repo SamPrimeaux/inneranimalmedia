@@ -1,5 +1,9 @@
 # Worker.js modular extraction audit
 
+> **Source path (2026-05-28):** Canonical Agent UI is **`dashboard/`** (`dashboard/App.tsx`), not `agent-dashboard/`. Deploy: `npm run deploy:frontend` → `dashboard/dist` → R2 `static/dashboard/app/`. See **[AGENT_DASHBOARD.md](./AGENT_DASHBOARD.md)**. Content below may reference retired paths.
+
+---
+
 **Date:** 2026-05-01  
 **Scope:** Read-only analysis. No `worker.js` or runtime behavior was modified for this document.  
 **Goal:** Map `worker.js` to extraction targets, classify dead vs active paths, and define a phased migration that preserves production behavior.

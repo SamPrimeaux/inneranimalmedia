@@ -1,5 +1,9 @@
 # Sandbox Worker — Cloudflare Workers Builds
 
+> **Source path (2026-05-28):** Canonical Agent UI is **`dashboard/`** (`dashboard/App.tsx`), not `agent-dashboard/`. Deploy: `npm run deploy:frontend` → `dashboard/dist` → R2 `static/dashboard/app/`. See **[AGENT_DASHBOARD.md](./AGENT_DASHBOARD.md)**. Content below may reference retired paths.
+
+---
+
 Worker name: **inneranimal-dashboard** (`wrangler.jsonc`). Production uses **`wrangler.production.toml`** only; do not point production Builds at this file.
 
 **No git submodules:** the dashboard app lives under **`agent-dashboard/`** in this repo. Workers Builds only needs a normal clone (no `submodule update`).

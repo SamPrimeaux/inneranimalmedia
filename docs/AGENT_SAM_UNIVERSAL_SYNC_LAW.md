@@ -1,5 +1,9 @@
 # Agent Sam — D1 audit (repo-derived) and Universal Sync Law
 
+> **Source path (2026-05-28):** Canonical Agent UI is **`dashboard/`** (`dashboard/App.tsx`), not `agent-dashboard/`. Deploy: `npm run deploy:frontend` → `dashboard/dist` → R2 `static/dashboard/app/`. See **[AGENT_DASHBOARD.md](./AGENT_DASHBOARD.md)**. Content below may reference retired paths.
+
+---
+
 **Scope:** This audit is built from **migrations/** and **`worker.js` references** in this monorepo. It does **not** replace `PRAGMA table_info` on production D1. If live D1 has extra columns or tables, treat this doc as **intent + wiring map** and reconcile with Studio.
 
 **Naming note:** There is **`cicd_active_workflows`** (view, referenced in older docs/TOMORROW), not `cicd_active_log`. **`cicd_recent_completions`** is a **VIEW** over `cicd` (filter completed + recent `actual_completion_date`). You cannot INSERT into views.

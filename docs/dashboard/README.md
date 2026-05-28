@@ -1,5 +1,9 @@
 # Dashboard routes — file map and sizes
 
+> **Source path (2026-05-28):** Canonical Agent UI is **`dashboard/`** (`dashboard/App.tsx`), not `agent-dashboard/`. Deploy: `npm run deploy:frontend` → `dashboard/dist` → R2 `static/dashboard/app/`. See **[AGENT_DASHBOARD.md](./AGENT_DASHBOARD.md)**. Content below may reference retired paths.
+
+---
+
 This document maps production URLs under `https://inneranimalmedia.com/dashboard/*` to **source files** in this repo and gives **byte-accurate sizes** from a local workspace scan (TypeScript/HTML sources; built artifacts from `agent-dashboard/agent-dashboard/dist` when present).
 
 ## Architecture (short)

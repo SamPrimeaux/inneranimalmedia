@@ -1,5 +1,9 @@
 # End-to-end overnight test (IAM) — definition
 
+> **Source path (2026-05-28):** Canonical Agent UI is **`dashboard/`** (`dashboard/App.tsx`), not `agent-dashboard/`. Deploy: `npm run deploy:frontend` → `dashboard/dist` → R2 `static/dashboard/app/`. See **[AGENT_DASHBOARD.md](./AGENT_DASHBOARD.md)**. Content below may reference retired paths.
+
+---
+
 **What “E2E” means here:** one orchestrated run proves **(1)** API + internal auth, **(2)** a real paid chat with **verifiable token + cost rows in D1**, **(3)** a **production build artifact on TOOLS R2** with a **public URL you can open**.
 
 The old `overnight-api-suite.mjs` alone is **smoke + D1 snapshots**, not this full bar.

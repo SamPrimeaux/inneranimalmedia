@@ -1,5 +1,9 @@
 # Agent Dashboard: Side Drawer, Footer, Send-In-Input, Monaco & File Viewer
 
+> **Source path (2026-05-28):** Canonical Agent UI is **`dashboard/`** (`dashboard/App.tsx`), not `agent-dashboard/`. Deploy: `npm run deploy:frontend` → `dashboard/dist` → R2 `static/dashboard/app/`. See **[AGENT_DASHBOARD.md](./AGENT_DASHBOARD.md)**. Content below may reference retired paths.
+
+---
+
 **Purpose:** Single plan for footer-at-bottom, Cursor-style send button, moving Files/Search/Monaco into the flexfit side drawer. Stored in repo so you can push to remote and resume after any chat interruption.
 
 **Where this lives:** `docs/plans/AGENT_SIDEDRAWER_FOOTER_MONACO_PLAN.md` (this file). Commit and push to your remote so it is the source of truth.

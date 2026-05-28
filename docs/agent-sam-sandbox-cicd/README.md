@@ -1,5 +1,9 @@
 # inneranimalmedia.com — Sandbox CI/CD R2 registry
 
+> **Source path (2026-05-28):** Canonical Agent UI is **`dashboard/`** (`dashboard/App.tsx`), not `agent-dashboard/`. Deploy: `npm run deploy:frontend` → `dashboard/dist` → R2 `static/dashboard/app/`. See **[AGENT_DASHBOARD.md](./AGENT_DASHBOARD.md)**. Content below may reference retired paths.
+
+---
+
 Bucket **`agent-sam-sandbox-cicd`** is the **canonical production–sandbox registry** for the Inner Animal Media application suite (historically also referred to in MeauxCAD-era tooling). It is a durable, versioned mirror of the application lifecycle: auditable source snapshots, CI build output, and runtime assets served by the **sandbox worker** `inneranimal-dashboard` at `https://inneranimal-dashboard.meauxbility.workers.dev/`.
 
 **Bindings (this repo):** `wrangler.jsonc` sets **`ASSETS`** and **`DASHBOARD`** to **`agent-sam-sandbox-cicd`**. `scripts/deploy-sandbox.sh` uploads the Vite build and dashboard HTML to this bucket, then deploys the worker.

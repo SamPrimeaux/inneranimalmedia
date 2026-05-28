@@ -1,5 +1,9 @@
 # Cursor handoff: D1 + CICD orchestration (deploys, webhooks, workflows, quality, R2)
 
+> **Source path (2026-05-28):** Canonical Agent UI is **`dashboard/`** (`dashboard/App.tsx`), not `agent-dashboard/`. Deploy: `npm run deploy:frontend` → `dashboard/dist` → R2 `static/dashboard/app/`. See **[AGENT_DASHBOARD.md](./AGENT_DASHBOARD.md)**. Content below may reference retired paths.
+
+---
+
 Paste the **block at the end** into a new Cursor chat. Use this file as the canonical playbook when touching **inneranimalmedia-business** D1, **sandbox** Workers, or **promotion** to production.
 
 ---

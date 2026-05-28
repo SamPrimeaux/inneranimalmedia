@@ -187,6 +187,6 @@ Rotate and scope tokens per environment (lab vs prod) where Cloudflare and provi
 
 **Fix (HTML/CSS):** On the agent page, `body` gets class **`agent-ide-standalone`**, which **hides** `.topbar` and `.sidenav` and sizes **`.main-content.agent-page-main`** to `calc(100vh - 24px)` so the React surface fills the viewport (status bar only). See `dashboard/agent.html` inline styles.
 
-**Full parity with meauxcad** (Explorer tree + Monaco center + right agent) still requires **porting or embedding** the meauxcad `App` layout into `agent-dashboard` or a dedicated route — not only CSS.
+**Current production layout:** Explorer + Monaco + agent column ship in **`dashboard/App.tsx`** (same SPA as `/dashboard/overview`). MeauxCAD/aitestsuite remains a **lab** for experiments; port approved changes into **`dashboard/`**, then **`cd dashboard && npm run build`** and **`npm run deploy:frontend`** (or **`./scripts/deploy-sandbox.sh`** for sandbox).
 
-**Deploy:** `cd agent-dashboard && npm run build:vite-only && cd .. && ./scripts/deploy-sandbox.sh`; upload **`dashboard/agent.html`** to R2 whenever it changes (same as other dashboard HTML).
+**Deploy:** `cd dashboard && npm run build` → `dashboard/dist` → **`npm run deploy:frontend`** (prod `static/dashboard/app/`) or **`./scripts/deploy-sandbox.sh`** (sandbox `static/dashboard/agent/`). Legacy **`dashboard/agent.html`** may still be uploaded for shell keys; SPA routing is in the Vite bundle. See **`docs/AGENT_DASHBOARD.md`**.

@@ -1,5 +1,9 @@
 # plan_iam_dashboard_v2 — IAM dashboard MPA, DB-first, full functionality
 
+> **Source path (2026-05-28):** Canonical Agent UI is **`dashboard/`** (`dashboard/App.tsx`), not `agent-dashboard/`. Deploy: `npm run deploy:frontend` → `dashboard/dist` → R2 `static/dashboard/app/`. See **[AGENT_DASHBOARD.md](./AGENT_DASHBOARD.md)**. Content below may reference retired paths.
+
+---
+
 **Status:** planning  
 **Supersedes nothing yet:** `plan_iam_dashboard_v1` remains the historical roadmap; v2 is the **next-generation shell + settings IA + theme system** track. Add companion rows in `roadmap_plans` / `roadmap_steps` when Sam approves the SQL appendix.
 

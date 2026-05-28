@@ -1,5 +1,9 @@
 # Full session summary (2026-03-23 / 2026-03-24 window)
 
+> **Source path (2026-05-28):** Canonical Agent UI is **`dashboard/`** (`dashboard/App.tsx`), not `agent-dashboard/`. Deploy: `npm run deploy:frontend` → `dashboard/dist` → R2 `static/dashboard/app/`. See **[AGENT_DASHBOARD.md](./AGENT_DASHBOARD.md)**. Content below may reference retired paths.
+
+---
+
 Grounded in **`docs/cursor-session-log.md`**, **`docs/autorag-knowledge/sessions/2026-03-23-session-summary.md`**, and **`git log`** at repo HEAD **b2dbc7e75178592561920d5667da6d8dc0f3b232** (short **b2dbc7e**).
 
 ## Shipped features (high level)

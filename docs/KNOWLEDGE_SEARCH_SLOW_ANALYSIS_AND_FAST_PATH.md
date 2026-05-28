@@ -1,5 +1,9 @@
 # Why Agent Sam Codebase Search Is Slow (2+ min) vs Cursor Instant
 
+> **Source path (2026-05-28):** Canonical Agent UI is **`dashboard/`** (`dashboard/App.tsx`), not `agent-dashboard/`. Deploy: `npm run deploy:frontend` → `dashboard/dist` → R2 `static/dashboard/app/`. See **[AGENT_DASHBOARD.md](./AGENT_DASHBOARD.md)**. Content below may reference retired paths.
+
+---
+
 ## 1. How `knowledge_search` currently works (code path in worker.js)
 
 ### Entry points (three call sites)

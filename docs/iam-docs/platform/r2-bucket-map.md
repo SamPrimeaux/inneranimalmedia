@@ -1,5 +1,9 @@
 # R2 bucket map (Inner Animal Media)
 
+> **Source path (2026-05-28):** Canonical Agent UI is **`dashboard/`** (`dashboard/App.tsx`), not `agent-dashboard/`. Deploy: `npm run deploy:frontend` → `dashboard/dist` → R2 `static/dashboard/app/`. See **[AGENT_DASHBOARD.md](./AGENT_DASHBOARD.md)**. Content below may reference retired paths.
+
+---
+
 Bindings from **`wrangler.production.toml`** (production). Sandbox **`wrangler.jsonc`** mirrors most bindings but uses **`agent-sam-sandbox-cicd`** for ASSETS/DASHBOARD instead of split buckets below.
 
 | Binding | Bucket name | Purpose |

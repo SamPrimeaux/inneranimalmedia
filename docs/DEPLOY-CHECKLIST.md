@@ -1,5 +1,9 @@
 # Production deploy checklist (Inner Animal Media / `inneranimalmedia` worker)
 
+> **Source path (2026-05-28):** Canonical Agent UI is **`dashboard/`** (`dashboard/App.tsx`), not `agent-dashboard/`. Deploy: `npm run deploy:frontend` → `dashboard/dist` → R2 `static/dashboard/app/`. See **[AGENT_DASHBOARD.md](./AGENT_DASHBOARD.md)**. Content below may reference retired paths.
+
+---
+
 Use this before any production deploy. Do not skip steps; Sam must type **deploy approved** before commands that ship to Cloudflare.
 
 ## 1. Preconditions
