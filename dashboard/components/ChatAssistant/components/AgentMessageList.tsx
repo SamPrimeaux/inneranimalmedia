@@ -20,7 +20,7 @@ import type { WorkflowLedgerState } from '../types';
 import type { AgentToolTraceRow } from '../execution/types';
 import { ExecutionTimeline } from '../execution/ExecutionTimeline';
 import { ArtifactChipList } from '../execution/ArtifactChipList';
-import { AgentPresenceLogo } from '../../agent-presence/AgentPresenceLogo';
+import { AgentPresenceLogo } from '../../../features/agent-presence/AgentPresenceLogo';
 import { AgentPlanChecklist } from './AgentPlanChecklist';
 import { AgentImageGenerationCard } from '../../../components/AgentImageGenerationCard';
 import { EmailArtifactCard } from '../artifacts/EmailArtifactCard';

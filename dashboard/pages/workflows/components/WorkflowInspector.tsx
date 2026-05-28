@@ -1,6 +1,6 @@
 import React from 'react';
 import type { InspectorTab, WorkflowGraph } from '../workflowTypes';
-import type { WorkflowRunState } from '../../../features/agent-chat/components/WorkflowRunBoard';
+import type { WorkflowRunState } from '../../../components/ChatAssistant/components/WorkflowRunBoard';
 import { WorkflowConfigPanel } from './WorkflowConfigPanel';
 import { WorkflowRunPanel } from './WorkflowRunPanel';
 import { WorkflowCostPanel } from './WorkflowCostPanel';

@@ -84,7 +84,7 @@ export function EmailArtifactCard({ artifact }: EmailArtifactCardProps) {
         borderTop: '0.5px solid var(--color-border-tertiary, rgba(255,255,255,0.07))',
       }}>
         <div style={{ paddingTop: '10px', paddingBottom: '10px' }}>
-          <AgentChatMarkdown>{body}</AgentChatMarkdown>
+          <AgentChatMarkdown source={body} />
         </div>
       </div>
 

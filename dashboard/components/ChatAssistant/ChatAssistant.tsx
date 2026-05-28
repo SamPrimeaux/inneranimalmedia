@@ -66,6 +66,7 @@ import {
   LS_GH_REPO,
   MENTION_CONTEXT_HEADER,
   CHAT_ATTACH_MAX_TOTAL_BYTES,
+  CHAT_REQUEST_MAX_BYTES,
   MOBILE_CHAT_COMPOSER_BOTTOM_PAD,
   COMPOSER_TEXTAREA_MAX_PX_NARROW,
   COMPOSER_TEXTAREA_MAX_PX_WIDE,
@@ -96,10 +97,10 @@ import {
   parseAndDispatchDatabaseStudioActions,
   tryDispatchDbApplyFromAssistantMessage,
 } from '../../src/lib/databaseStudioEvents';
-import '../agent-presence/presenceMotion.css';
-import '../agent-presence/presenceIcons.css';
-import { useAgentPresence, AgentPresenceLogo, AgentPresenceStatus } from '../agent-presence';
-import { derivePresenceState } from '../agent-presence/iamDerivePresenceState';
+import '../../features/agent-presence/presenceMotion.css';
+import '../../features/agent-presence/presenceIcons.css';
+import { useAgentPresence, AgentPresenceLogo, AgentPresenceStatus } from '../../features/agent-presence';
+import { derivePresenceState } from '../../features/agent-presence/iamDerivePresenceState';
 
 type ChatRoutingSendOpts = {
   modelKey?: string;
@@ -1148,9 +1149,10 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       setThinkingState(prev => {
         if (!prev) return prev;
         const exists = prev.steps.find(s => s.id === id);
+        const stepStatus: 'error' | 'done' = ev.ok === false ? 'error' : 'done';
         const updated = exists
-          ? prev.steps.map(s => s.id === id ? { ...s, status: (ev.ok === false ? 'error' : 'done') as const, preview: ev.output_preview?.slice(0, 120) } : s)
-          : [...prev.steps, { id, name: id, status: (ev.ok === false ? 'error' : 'done') as const, preview: ev.output_preview?.slice(0, 120) }];
+          ? prev.steps.map(s => s.id === id ? { ...s, status: stepStatus, preview: ev.output_preview?.slice(0, 120) } : s)
+          : [...prev.steps, { id, name: id, status: stepStatus, preview: ev.output_preview?.slice(0, 120) }];
         return { ...prev, steps: updated };
       });
     } else if (ev.type === 'tool_error') {

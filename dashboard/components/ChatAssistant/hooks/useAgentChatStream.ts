@@ -219,7 +219,7 @@ export type ConsumeAgentChatSseContext = {
     title?: string;
   }) => void;
   onR2FileUpdated?: (event: { type: 'r2_file_updated'; bucket: string; key: string }) => void;
-  onFileSelect?: (file: { name: string; content: string; originalContent?: string }) => void;
+  onFileSelect?: (file: { name: string; content: string; originalContent?: string; workspacePath?: string }) => void;
   /** Full tool-approval side effects (state + queue drain), matching prior ChatAssistant inline behavior. */
   onToolApprovalRequest: (tool: ToolApprovalPayload) => void;
   /** When true, merge streamed text into the existing last assistant bubble (e.g. plan-task resume after Allow). */

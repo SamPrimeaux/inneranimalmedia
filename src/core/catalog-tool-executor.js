@@ -231,9 +231,22 @@ export async function executeMcpCatalogRow(env, mcpRow, params, runContext) {
   }, mcpRow);
 
   if (url) {
+    const headers = { 'Content-Type': 'application/json' };
+    const mcpToken = env?.MCP_AUTH_TOKEN != null ? String(env.MCP_AUTH_TOKEN).trim() : '';
+    const internalSecret = env?.INTERNAL_API_SECRET != null ? String(env.INTERNAL_API_SECRET).trim() : '';
+    const bridgeKey = env?.AGENTSAM_BRIDGE_KEY != null ? String(env.AGENTSAM_BRIDGE_KEY).trim() : '';
+    if (mcpToken) {
+      headers.Authorization = `Bearer ${mcpToken}`;
+    } else if (internalSecret) {
+      headers.Authorization = `Bearer ${internalSecret}`;
+      headers['X-Internal-Secret'] = internalSecret;
+    } else if (bridgeKey) {
+      headers['X-Bridge-Key'] = bridgeKey;
+    }
+
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({
         jsonrpc: '2.0',
         id: 1,

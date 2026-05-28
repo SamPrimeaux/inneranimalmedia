@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import type { ImageGenerationPhase } from '../features/agent-chat/types';
+import type { ImageGenerationPhase } from './ChatAssistant/types';
 
 export type ProgressiveImagePreviewProps = {
   phase: ImageGenerationPhase;

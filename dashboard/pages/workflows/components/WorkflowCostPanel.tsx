@@ -3,7 +3,7 @@ import { Loader2 } from 'lucide-react';
 import type { WorkflowGraph, WorkflowRunDetail } from '../workflowTypes';
 import { fetchWorkflowRun } from '../lib/workflowApi';
 import { pickModelFields } from '../lib/workflowGraphAdapter';
-import type { WorkflowRunState } from '../../../features/agent-chat/components/WorkflowRunBoard';
+import type { WorkflowRunState } from '../../../components/ChatAssistant/components/WorkflowRunBoard';
 
 function fmtUsd(v: unknown): string {
   const n = Number(v);

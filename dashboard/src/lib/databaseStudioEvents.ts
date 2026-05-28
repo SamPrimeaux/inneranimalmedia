@@ -157,7 +157,7 @@ export function parseAndDispatchDatabaseStudioActions(
   if (typeof window === 'undefined') return;
   const defaultDs: DatabaseDatasource = opts.datasource === 'hyperdrive' ? 'hyperdrive' : 'd1';
   let m: RegExpExecArray | null;
-  const re = new IAM_DB_ACTION_RE;
+  const re = new RegExp(IAM_DB_ACTION_RE);
   while ((m = re.exec(content)) !== null) {
     const obj = parseIamDbActionBlock(m[1]);
     if (!obj) continue;

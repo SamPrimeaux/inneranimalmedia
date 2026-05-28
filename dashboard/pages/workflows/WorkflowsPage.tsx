@@ -20,7 +20,7 @@ import { WorkflowInspector } from './components/WorkflowInspector';
 import {
   useWorkflowRunner,
   type WorkflowRow,
-} from '../../features/agent-chat/components/WorkflowRunBoard';
+} from '../../components/ChatAssistant/components/WorkflowRunBoard';
 
 type WfEdgeLite = { id: string; from: string; to: string };
 

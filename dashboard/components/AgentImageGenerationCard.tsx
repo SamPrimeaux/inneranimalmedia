@@ -5,7 +5,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { IAM_AGENT_CHAT_COMPOSE } from '../agentChatConstants';
-import type { ImageGenerationState } from '../features/agent-chat/types';
+import type { ImageGenerationState } from './ChatAssistant/types';
 import { ProgressiveImagePreview } from './ProgressiveImagePreview';
 import '../styles/image-generation.css';
 

@@ -1260,7 +1260,7 @@ export const LocalExplorer: React.FC<{
                                                                   void openR2Key(b, o.key);
                                                               }}
                                                           >
-                                                              <SetiFileIcon filename={node.name} size={12} />
+                                                              <SetiFileIcon filename={o.key} size={12} />
                                                           </button>
                                                       )}
                                                       <button

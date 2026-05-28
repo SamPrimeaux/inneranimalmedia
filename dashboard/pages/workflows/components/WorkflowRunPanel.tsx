@@ -6,7 +6,7 @@ import { pickModelFields } from '../lib/workflowGraphAdapter';
 import {
   WorkflowApprovalGate,
   type WorkflowRunState,
-} from '../../../features/agent-chat/components/WorkflowRunBoard';
+} from '../../../components/ChatAssistant/components/WorkflowRunBoard';
 
 type Props = {
   runState: WorkflowRunState;

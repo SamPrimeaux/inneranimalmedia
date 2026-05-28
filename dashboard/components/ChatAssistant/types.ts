@@ -150,7 +150,7 @@ export interface ChatAssistantProps {
   activeFileContent?: string;
   messages: Message[];
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
-  onFileSelect?: (file: Pick<ActiveFile, 'name' | 'content'> & Partial<ActiveFile>) => void;
+  onFileSelect?: (file: Pick<ActiveFile, 'name' | 'content'> & Partial<ActiveFile> & { workspacePath?: string }) => void;
   onRunInTerminal?: (cmd: string) => void;
   activeFileName?: string;
   /** Full open-file metadata so @file / @monaco can include tool routing (r2_read, r2_write, github_file). */
