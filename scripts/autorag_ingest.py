@@ -4,6 +4,8 @@ autorag_ingest.py — R2 content + D1 schema → Supabase RAG tables
 stdlib only (+ openai, supabase-py already in your env)
 
 Columns mapped to ACTUAL Supabase schemas (verified 2026-05-27).
+Insert contract: docs/supabase/AGENTSAM_RAG_LANE_SCHEMA_REFERENCE.md
+Runtime policy: docs/autorag/AUTORAG_KNOWLEDGE_RETRIEVAL_RUNTIME_CONTRACT.md
 
 Usage:
   python3 autorag_ingest.py --lane schema
