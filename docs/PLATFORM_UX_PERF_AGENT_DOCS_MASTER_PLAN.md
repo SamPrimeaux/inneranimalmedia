@@ -1,5 +1,9 @@
 # Platform master plan: mobile UX, performance, agent data, observability, documentation
 
+> **Source path (2026-05-28):** Canonical Agent UI is **`dashboard/`** (`dashboard/App.tsx`), not `agent-dashboard/`. Deploy: `npm run deploy:frontend` → `dashboard/dist` → R2 `static/dashboard/app/`. See **[AGENT_DASHBOARD.md](./AGENT_DASHBOARD.md)**. Content below may reference retired paths.
+
+---
+
 This document is the **single architectural briefing** for ten parallel workstreams. It assumes the **agent-dashboard** React app (`agent-dashboard/src/`, Vite build → `dist/agent-dashboard.js` / `.css`, served from R2 at `agent-sam/static/dashboard/agent/`) and the **main Worker** (`worker.js`, deployed as `inneranimalmedia` per `wrangler.production.toml`). It references **D1** (`inneranimalmedia-business` binding `env.DB` in production unless noted).
 
 ---

@@ -1,5 +1,9 @@
 # Cursor handoff: sandbox worker (`inneranimal-dashboard`) + R2 `agent-sam-sandbox-cicd`
 
+> **Source path (2026-05-28):** Canonical Agent UI is **`dashboard/`** (`dashboard/App.tsx`), not `agent-dashboard/`. Deploy: `npm run deploy:frontend` → `dashboard/dist` → R2 `static/dashboard/app/`. See **[AGENT_DASHBOARD.md](./AGENT_DASHBOARD.md)**. Content below may reference retired paths.
+
+---
+
 Use this when fixing **sandbox-only** UI, bindings, or R2 layout for  
 `https://inneranimal-dashboard.meauxbility.workers.dev/`.  
 **Do not** use this to change production `inneranimalmedia` without a separate promote flow and Sam approval.

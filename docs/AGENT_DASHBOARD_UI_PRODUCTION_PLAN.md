@@ -68,10 +68,10 @@ Use this plan if connection is lost. Execute in order; then run `./agent-dashboa
 
 | File | Changes |
 |------|--------|
-| `dashboard/agent.html` | Flush main-content; hide footer on agent page (CSS + class); cache v=5 |
-| `agent-dashboard/src/AgentDashboard.jsx` | Agent popup + Auto/model left; gauges/icons right; default preview closed/empty; Preview/Code icons in panel header; drag handle 12px + body userSelect/cursor during drag |
-| `agent-dashboard/src/index.css` | Optional: shared styles for focus/accessibility |
-| `worker.js` | Agent Sam system prompt |
+| `dashboard/App.tsx` | Agent shell layout, tabs, activity sidebar, chat panel wiring |
+| `dashboard/components/ChatAssistant/` | Agent popup, model picker, stream, tool traces |
+| `dashboard/index.html` / Vite build | SPA shell; version marker `dashboard-v:N` when injected |
+| `src/index.js` (Worker) | Agent Sam routes, `/api/agent/chat`, system prompts |
 
 ---
 

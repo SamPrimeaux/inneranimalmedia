@@ -1,5 +1,9 @@
 # Current State Audit & Planning Overview
 
+> **Source path (2026-05-28):** Canonical Agent UI is **`dashboard/`** (`dashboard/App.tsx`), not `agent-dashboard/`. Deploy: `npm run deploy:frontend` → `dashboard/dist` → R2 `static/dashboard/app/`. See **[AGENT_DASHBOARD.md](./AGENT_DASHBOARD.md)**. Content below may reference retired paths.
+
+---
+
 **Generated:** 2026-03-09 (post-deploy)  
 **Purpose:** True current state snapshot to plan next pages/functions to fix or build.
 

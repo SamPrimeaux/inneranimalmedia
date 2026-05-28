@@ -1,5 +1,9 @@
 # CICD first run: master shell handoff (single source of truth)
 
+> **Source path (2026-05-28):** Canonical Agent UI is **`dashboard/`** (`dashboard/App.tsx`), not `agent-dashboard/`. Deploy: `npm run deploy:frontend` → `dashboard/dist` → R2 `static/dashboard/app/`. See **[AGENT_DASHBOARD.md](./AGENT_DASHBOARD.md)**. Content below may reference retired paths.
+
+---
+
 Give this entire file to Claude (or any coding agent) as the **only** briefing document for rebuilding the IAM workspace shell as a **production-grade** React + TypeScript app and completing the **first full 3-step CICD cycle** without stubs.
 
 **If the deliverable violates the gates in section 2, do not ship it.**

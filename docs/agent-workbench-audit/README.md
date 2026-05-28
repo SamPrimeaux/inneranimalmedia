@@ -10,7 +10,7 @@
 |----------|-------------------|
 | Where is `/dashboard/agent` implemented? | **`dashboard/`** — React SPA rooted at `dashboard/App.tsx`, React Router routes inside the same bundle as the rest of the IAM dashboard. |
 | Is `agent-dashboard/` the source? | **No.** That path is **not present** in this monorepo. Do not clone, build, or deploy from `agent-dashboard/` for current work. |
-| What about `docs/AGENT_DASHBOARD.md`? | **Stale** for this tree — it still names `agent-dashboard/`; treat **`dashboard/`** and this chunk series as authoritative until that doc is rewritten. |
+| Canonical doc | **`docs/AGENT_DASHBOARD.md`** (updated 2026-05-28) — build, deploy, Worker asset aliases, path migration table. |
 | Local dev | `cd dashboard && npm run dev` (Vite port 3000, proxies `/api` → Worker). |
 | Production build | `cd dashboard && npm run build` → output **`dashboard/dist/`**. |
 | Production deploy | Repo root **`npm run deploy:frontend`** (`scripts/deploy-frontend.sh`) uploads **`dashboard/dist`** to R2 prefix **`static/dashboard/app/`** (see script `DIST` / `PREFIX`). |

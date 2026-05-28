@@ -1,5 +1,9 @@
 # Agent Sam — Capabilities and Tracking Audit (Evidence-Based)
 
+> **Source path (2026-05-28):** Canonical Agent UI is **`dashboard/`** (`dashboard/App.tsx`), not `agent-dashboard/`. Deploy: `npm run deploy:frontend` → `dashboard/dist` → R2 `static/dashboard/app/`. See **[AGENT_DASHBOARD.md](./AGENT_DASHBOARD.md)**. Content below may reference retired paths.
+
+---
+
 **Date:** 2026-03-17  
 **Scope:** worker.js, agent-dashboard (React), D1 cost/telemetry/tools. Evidence only; line numbers and grep results included.
 

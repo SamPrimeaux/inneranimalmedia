@@ -1,5 +1,9 @@
 # Agent Sam — Full capability inventory (audit)
 
+> **Source path (2026-05-28):** Canonical Agent UI is **`dashboard/`** (`dashboard/App.tsx`), not `agent-dashboard/`. Deploy: `npm run deploy:frontend` → `dashboard/dist` → R2 `static/dashboard/app/`. See **[AGENT_DASHBOARD.md](./AGENT_DASHBOARD.md)**. Content below may reference retired paths.
+
+---
+
 **Date:** 2026-03-09  
 **Scope:** Read-only audit of live R2 agent dashboard, worker routes, D1, and R2 buckets (agent-sam + **iam-platform**).  
 **Purpose:** Know where we are before redesign; credentials are set in `.env.cloudflare` (gitignored).

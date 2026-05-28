@@ -1,5 +1,9 @@
 # Platform sprint overview — 2026-03-24 / 2026-03-25
 
+> **Source path (2026-05-28):** Canonical Agent UI is **`dashboard/`** (`dashboard/App.tsx`), not `agent-dashboard/`. Deploy: `npm run deploy:frontend` → `dashboard/dist` → R2 `static/dashboard/app/`. See **[AGENT_DASHBOARD.md](./AGENT_DASHBOARD.md)**. Content below may reference retired paths.
+
+---
+
 **Scope:** Inner Animal Media agent dashboard (`agent-dashboard/`), main worker (`worker.js`), R2 (`agent-sam`, `iam-docs`), D1, Cloudflare AI Search / Vectorize / pgvector context.  
 **Audience:** Sam, Agent Sam, future Cursor sessions.  
 **Repo:** `inneranimalmedia-agentsam-dashboard` (march1st-inneranimalmedia).  

@@ -1,5 +1,9 @@
 # Agent dashboard — full technical specification (wireframe + API/DB + phased rebuild)
 
+> **Source path (2026-05-28):** Canonical Agent UI is **`dashboard/`** (`dashboard/App.tsx`), not `agent-dashboard/`. Deploy: `npm run deploy:frontend` → `dashboard/dist` → R2 `static/dashboard/app/`. See **[AGENT_DASHBOARD.md](./AGENT_DASHBOARD.md)**. Content below may reference retired paths.
+
+---
+
 **Status:** planning / technical decision record  
 **Scope:** `/dashboard/agent` — `dashboard/agent.html` + Vite bundle (`agent-dashboard.js`) — `AgentDashboard.jsx`, `FloatingPreviewPanel.jsx`, `SettingsPanel.jsx`, `worker.js` routes.  
 **Companion docs:** `docs/specs/AGENT_SETTINGS_15_TABS_WIREFRAME.txt`, `plan_iam_dashboard_v2` (if present).

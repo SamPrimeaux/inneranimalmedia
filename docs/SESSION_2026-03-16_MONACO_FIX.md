@@ -1,5 +1,9 @@
 # Session 2026-03-16 — Monaco Disposal Fix + Disk Cleanup (v=50)
 
+> **Source path (2026-05-28):** Canonical Agent UI is **`dashboard/`** (`dashboard/App.tsx`), not `agent-dashboard/`. Deploy: `npm run deploy:frontend` → `dashboard/dist` → R2 `static/dashboard/app/`. See **[AGENT_DASHBOARD.md](./AGENT_DASHBOARD.md)**. Content below may reference retired paths.
+
+---
+
 ## Accomplishments
 
 - **Disk Space Recovery:** Freed 120GB by deleting Cursor snapshots (124GB → 7GB)

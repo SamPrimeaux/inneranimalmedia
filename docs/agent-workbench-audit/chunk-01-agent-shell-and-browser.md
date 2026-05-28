@@ -3,7 +3,7 @@
 **Audience:** Agent team (frontend repair, backend alignment, QA).  
 **Rule:** Every behavior below is tied to **files in this repo**. If code diverges, trust the repo.
 
-**Canonical UI package:** **`dashboard/`** only. There is no `agent-dashboard/` directory in this monorepo; do not use `docs/AGENT_DASHBOARD.md` build paths (`cd agent-dashboard`, `agent-dashboard.js`, etc.) for repair work here.
+**Canonical UI package:** **`dashboard/`** only. There is no `agent-dashboard/` directory in this monorepo. Build/deploy commands: **`docs/AGENT_DASHBOARD.md`**.
 
 ---
 

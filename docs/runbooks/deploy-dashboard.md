@@ -1,8 +1,10 @@
 # Runbook: Deploy Dashboard
 
-**Last updated:** 2026-05-01  
+**Last updated:** 2026-05-28  
 **Owner:** Sam Primeaux  
 **Estimated time:** 5–10 minutes
+
+> **Build source:** `dashboard/` → `dashboard/dist`. Production R2 canonical prefix: **`static/dashboard/app/`**. Sandbox uploads may use **`static/dashboard/agent/`** (`scripts/deploy-sandbox.sh`). See **`docs/AGENT_DASHBOARD.md`**.
 
 ## When to use this
 

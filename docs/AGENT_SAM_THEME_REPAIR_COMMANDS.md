@@ -1,5 +1,9 @@
 # Agent Sam / Terminal: Theme repair commands for R2-only dashboard pages
 
+> **Source path (2026-05-28):** Canonical Agent UI is **`dashboard/`** (`dashboard/App.tsx`), not `agent-dashboard/`. Deploy: `npm run deploy:frontend` → `dashboard/dist` → R2 `static/dashboard/app/`. See **[AGENT_DASHBOARD.md](./AGENT_DASHBOARD.md)**. Content below may reference retired paths.
+
+---
+
 Use these to add **full theme logic** (early script + API theme script + shell) to dashboard pages that exist only in R2 or need repair. After running, verify at `https://inneranimalmedia.com/dashboard/<segment>`.
 
 ## Prerequisites
