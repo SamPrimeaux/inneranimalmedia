@@ -1,5 +1,7 @@
 # Chunk 01 — Agent shell layout & BrowserView (iframe vs MYBROWSER)
 
+**Scope:** Served **`/dashboard/agent`** only — UI from **`dashboard/`**, APIs listed in this chunk. **Not** `agent-dashboard/`. See [chunk-00-series-scope.md](./chunk-00-series-scope.md).
+
 **Audience:** Agent team (frontend repair, backend alignment, QA).  
 **Rule:** Every behavior below is tied to **files in this repo**. If code diverges, trust the repo.
 
