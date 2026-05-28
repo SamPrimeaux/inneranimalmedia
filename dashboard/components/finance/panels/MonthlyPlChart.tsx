@@ -1,9 +1,32 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
 import { MonthlyPlRow } from '../types';
 import { fmt } from '../constants';
+
+/** Recharts SVG fills ignore bare CSS vars; resolve from :root at runtime. */
+function usePlChartColors() {
+  const [colors, setColors] = useState({ income: 'green', expenses: 'red', net: 'cyan' });
+
+  useEffect(() => {
+    const cs = getComputedStyle(document.documentElement);
+    const pick = (...names: string[]) => {
+      for (const n of names) {
+        const v = cs.getPropertyValue(n).trim();
+        if (v) return v;
+      }
+      return '';
+    };
+    setColors({
+      income: pick('--color-success-strong', '--solar-green', '--accent-green') || 'green',
+      expenses: pick('--color-danger-strong', '--solar-red', '--accent-danger') || 'red',
+      net: pick('--accent-secondary', '--solar-cyan') || 'cyan',
+    });
+  }, []);
+
+  return colors;
+}
 
 interface Props {
   rows: MonthlyPlRow[];
@@ -14,6 +37,8 @@ function monthLabel(year: number, month: number): string {
 }
 
 export function MonthlyPlChart({ rows }: Props) {
+  const plColors = usePlChartColors();
+
   const data = useMemo(() => {
     const list = Array.isArray(rows) ? rows : [];
     return list.map((r) => ({
@@ -50,9 +75,9 @@ export function MonthlyPlChart({ rows }: Props) {
             }}
           />
           <Legend wrapperStyle={{ fontSize: 11, color: 'var(--dashboard-muted)' }} />
-          <Bar dataKey="income" name="Income" fill="var(--color-success-strong)" radius={[3, 3, 0, 0]} />
-          <Bar dataKey="expenses" name="Expenses" fill="var(--color-danger-strong)" radius={[3, 3, 0, 0]} />
-          <Line type="monotone" dataKey="net" name="Net" stroke="var(--accent-secondary)" strokeWidth={2} dot={{ r: 3 }} />
+          <Bar dataKey="income" name="Income" fill={plColors.income} radius={[3, 3, 0, 0]} />
+          <Bar dataKey="expenses" name="Expenses" fill={plColors.expenses} radius={[3, 3, 0, 0]} />
+          <Line type="monotone" dataKey="net" name="Net" stroke={plColors.net} strokeWidth={2} dot={{ r: 3, fill: plColors.net }} />
         </ComposedChart>
       </ResponsiveContainer>
     </div>

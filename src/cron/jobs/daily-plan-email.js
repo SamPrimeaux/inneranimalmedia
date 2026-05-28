@@ -51,13 +51,18 @@ export async function sendDailyPlanEmail(env) {
       safe(env.DB.prepare(`SELECT key, value, updated_at FROM project_memory
         WHERE project_id='inneranimalmedia' AND key='OVERNIGHT_API_SUITE_LAST' LIMIT 1`).first()),
       safe(env.DB.prepare(
-        `SELECT COALESCE(SUM(requests), 0) AS calls,
-          COALESCE(SUM(tokens_input), 0) AS tokens_in,
-          COALESCE(SUM(tokens_output), 0) AS tokens_out,
+        `SELECT COALESCE(SUM(ai_calls), 0) AS calls,
+          COALESCE(SUM(tokens_in), 0) AS tokens_in,
+          COALESCE(SUM(tokens_out), 0) AS tokens_out,
           ROUND(COALESCE(SUM(cost_usd), 0), 4) AS cost_usd,
-          COUNT(DISTINCT provider) AS models_used
-         FROM ai_provider_usage
-         WHERE date = date('now')`
+          (
+            SELECT COUNT(DISTINCT j.key)
+            FROM agentsam_usage_rollups_daily r2,
+                 json_each(COALESCE(r2.provider_breakdown_json, '{}')) j
+            WHERE r2.day = date('now')
+          ) AS models_used
+         FROM agentsam_usage_rollups_daily
+         WHERE day = date('now')`
       ).first()),
       // Today's plan from agentsam_plans + tasks
       safe(env.DB.prepare(
@@ -114,7 +119,7 @@ ${JSON.stringify(proposals.results)}
 OVERNIGHT API SUITE (last run; written by scripts/overnight-api-suite.mjs with WRITE_OVERNIGHT_TO_D1=1):
 ${JSON.stringify(overnightSuite || {})}
 
-AI PROVIDER USAGE TODAY (ai_provider_usage; UTC calendar date):
+AI USAGE TODAY (agentsam_usage_rollups_daily; UTC calendar date):
 ${JSON.stringify(telemetryToday || {})}
 
 Write a plain-text morning briefing email with these exact sections:

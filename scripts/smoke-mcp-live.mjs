@@ -137,7 +137,10 @@ function validateCatalogRow(row) {
   }
   if (handlerType === 'builtin') return { ok: true };
   if (handlerType === 'd1' && trim(cfg.sql)) return { ok: true };
-  if (handlerType === 'http' && (trim(cfg.url) || trim(cfg.base_url) || trim(cfg.endpoint))) {
+  if (
+    handlerType === 'http' &&
+    (trim(cfg.url) || trim(cfg.base_url) || trim(cfg.endpoint) || trim(cfg.path))
+  ) {
     return { ok: true };
   }
   if (handlerType === 'proxy' && (trim(cfg.proxy_tool) || trim(cfg.fallback))) return { ok: true };

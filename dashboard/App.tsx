@@ -3021,10 +3021,18 @@ const App: React.FC = () => {
               {!isAgentShellPath(location.pathname) ? (
                 <div className="flex-1 min-h-0 min-w-0 overflow-hidden bg-[var(--dashboard-canvas)] flex flex-col">
                   <Suspense fallback={<DashboardRoutesFallback />}>
+                    <div className="flex flex-1 flex-col min-h-0 min-w-0">
                     <Routes>
                       <Route path="/dashboard/calendar" element={<CalendarPage />} />
                       <Route path="/dashboard/overview" element={<OverviewPage />} />
-                      <Route path="/dashboard/finance" element={<FinanceDashboard />} />
+                      <Route
+                        path="/dashboard/finance"
+                        element={
+                          <div className="flex-1 min-h-0 min-w-0 overflow-y-auto overscroll-y-contain">
+                            <FinanceDashboard />
+                          </div>
+                        }
+                      />
                       <Route path="/dashboard/library" element={<LibraryPage />} />
                       <Route path="/dashboard/projects" element={<ProjectManagement />} />
                       <Route path="/dashboard/tasks" element={<TasksPage />} />
@@ -3083,6 +3091,7 @@ const App: React.FC = () => {
                         }
                       />
                     </Routes>
+                    </div>
                   </Suspense>
                 </div>
               ) : (

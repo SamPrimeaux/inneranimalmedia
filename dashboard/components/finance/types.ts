@@ -45,10 +45,17 @@ export interface SpendByDayRow {
   request_count: number;
 }
 
+export interface SpendByDayDailyTotal {
+  date: string;
+  total_usd: number;
+}
+
 export interface SpendByDayData {
   rows: SpendByDayRow[];
   providers: string[];
   dates: string[];
+  daily_totals?: SpendByDayDailyTotal[];
+  provider_colors?: Record<string, string>;
 }
 
 // ── /api/finance/budgets ──────────────────────────────────────────────────────

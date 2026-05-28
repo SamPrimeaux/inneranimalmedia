@@ -58,6 +58,10 @@ import {
 } from '../core/agentsam-route-tool-resolver.js';
 import { resolveEffectiveWorkspaceId } from '../core/bootstrap.js';
 import {
+  readAgentBootstrapCache,
+  writeAgentBootstrapCache,
+} from '../core/agent-bootstrap-project-context.js';
+import {
   loadAgentSamUserPolicy,
   isToolAllowedByAllowlist,
   isToolAllowedByPolicyRisk,
@@ -11364,12 +11368,18 @@ export async function handleAgentRequest(request, env, ctx, routeAuth = null) {
 
 async function handleAgentBootstrapRequest(request, env, ctx, identity) {
   try {
-    const userId   = identity?.userId || 'system';
-    const cacheKey = `bootstrap_${userId}`;
-    if (env.DB) {
-      const cached = await env.DB.prepare(`SELECT compiled_context FROM ai_compiled_context_cache WHERE context_hash = ? AND (expires_at IS NULL OR expires_at > unixepoch())`).bind(cacheKey).first().catch(() => null);
-      if (cached?.compiled_context) {
-        return new Response(cached.compiled_context, { headers: { 'Content-Type': 'application/json', 'X-Cache': 'HIT' } });
+    const userId = identity?.userId || 'system';
+    const tenantId =
+      identity?.tenantId ||
+      (await fetchAuthUserTenantId(env, userId)) ||
+      platformTenantIdFromEnv(env) ||
+      null;
+    if (env.DB && tenantId) {
+      const cached = await readAgentBootstrapCache(env.DB, { tenantId, userId });
+      if (cached) {
+        return new Response(cached, {
+          headers: { 'Content-Type': 'application/json', 'X-Cache': 'HIT', 'X-Context-Store': 'agentsam_project_context' },
+        });
       }
     }
     const today     = new Date().toISOString().slice(0, 10);
@@ -11389,12 +11399,18 @@ async function handleAgentBootstrapRequest(request, env, ctx, identity) {
       if (row?.value) todayTodo = String(row.value);
     }
     const context = { daily_log: dailyLog || null, yesterday_log: yesterdayLog || null, schema_and_records_memory: schemaMemory || null, today_todo: todayTodo || null, date: today };
-    if (env.DB && ctx?.waitUntil) {
+    if (env.DB && ctx?.waitUntil && tenantId) {
       ctx.waitUntil(
-        env.DB.prepare(`INSERT INTO ai_compiled_context_cache (id, context_hash, context_type, compiled_context, source_context_ids_json, token_count, tenant_id, created_at, last_accessed_at, expires_at) VALUES (?,?,'bootstrap',?,'[]',0,?,unixepoch(),unixepoch(),unixepoch()+1800) ON CONFLICT(context_hash) DO UPDATE SET compiled_context=excluded.compiled_context, expires_at=excluded.expires_at, last_accessed_at=unixepoch()`).bind(cacheKey, cacheKey, JSON.stringify(context), identity?.tenantId || null).run().catch(() => {})
+        writeAgentBootstrapCache(env.DB, {
+          tenantId,
+          workspaceId: identity?.workspaceId ?? null,
+          userId,
+          payload: context,
+          createdBy: userId,
+        }),
       );
     }
-    return jsonResponse(context);
+    return jsonResponse(context, 200, { 'X-Context-Store': 'agentsam_project_context' });
   } catch (e) {
     return jsonResponse({ error: String(e.message || e) }, 500);
   }

@@ -108,6 +108,41 @@ export async function rollupAgentsamUsageDaily(env) {
       ? `date(datetime(created_at, 'unixepoch')) = date('now','-1 day')`
       : '1=0';
 
+  const tenantMatch = telCols.has('tenant_id')
+    ? `COALESCE(t2.tenant_id, '${DEFAULT_TENANT}') = COALESCE(t.tenant_id, '${DEFAULT_TENANT}')`
+    : '1=1';
+  const wsMatch = telCols.has('workspace_id')
+    ? `COALESCE(t2.workspace_id, 'default') = COALESCE(t.workspace_id, 'default')`
+    : '1=1';
+
+  const providerBreakdownExpr = `
+    COALESCE(
+      (SELECT json_group_object(prov, breakdown_obj)
+       FROM (
+         SELECT
+           CASE
+             WHEN LOWER(COALESCE(NULLIF(TRIM(t2.provider), ''), 'unknown')) IN ('workers_ai', 'cloudflare')
+               THEN 'cloudflare_workers_ai'
+             WHEN LOWER(COALESCE(NULLIF(TRIM(t2.provider), ''), 'unknown')) = 'unknown'
+               THEN NULL
+             ELSE LOWER(COALESCE(NULLIF(TRIM(t2.provider), ''), 'unknown'))
+           END AS prov,
+           json_object(
+             'requests', COUNT(*),
+             'tokens_in', SUM(COALESCE(t2.tokens_in, 0)),
+             'tokens_out', SUM(COALESCE(t2.tokens_out, 0)),
+             'cost_usd', SUM(COALESCE(t2.cost_usd, 0))
+           ) AS breakdown_obj
+         FROM agentsam_usage_events t2
+         WHERE date(datetime(t2.created_at, 'unixepoch')) = date('now','-1 day')
+           AND ${tenantMatch}
+           AND ${wsMatch}
+         GROUP BY prov
+         HAVING prov IS NOT NULL
+       )),
+      '{}'
+    )`;
+
   const sql = `
     INSERT INTO agentsam_usage_rollups_daily (
       tenant_id, workspace_id, day, ai_calls, tokens_in, tokens_out, cost_usd,
@@ -129,7 +164,7 @@ export async function rollupAgentsamUsageDaily(env) {
       (SELECT COUNT(*) FROM deployments WHERE ${depDay}) AS deployments,
       (SELECT COUNT(*) FROM agentsam_webhook_events WHERE ${whDay}) AS webhook_events,
       (SELECT COUNT(*) FROM worker_analytics_errors WHERE ${errDay}) AS error_count,
-      '{}' AS provider_breakdown_json,
+      ${providerBreakdownExpr} AS provider_breakdown_json,
       '[]' AS top_tools_json,
       'nightly_cron' AS rollup_source,
       unixepoch() AS rolled_up_at
@@ -156,7 +191,14 @@ export async function rollupAgentsamUsageDaily(env) {
 
   try {
     const r = await env.DB.prepare(sql).run();
-    return { ok: true, changes: r.meta?.changes ?? r.changes ?? 0 };
+    let breakdownRepair = { repaired: 0 };
+    try {
+      const { repairRollupProviderBreakdowns } = await import('./agentsam-usage-rollups-daily.js');
+      breakdownRepair = await repairRollupProviderBreakdowns(env.DB, { daysBack: 35 });
+    } catch (repairErr) {
+      console.warn('[rollupAgentsamUsageDaily] breakdown repair failed', repairErr?.message || repairErr);
+    }
+    return { ok: true, changes: r.meta?.changes ?? r.changes ?? 0, breakdown_repair: breakdownRepair };
   } catch (e) {
     return { ok: false, error: String(e?.message || e) };
   }

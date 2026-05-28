@@ -56,13 +56,18 @@ export async function sendDailyDigest(env) {
       hookHealth,
     ] = await Promise.all([
       safe(env.DB.prepare(
-        `SELECT COALESCE(SUM(requests), 0) AS calls,
-          COALESCE(SUM(tokens_input), 0) AS tokens_in,
-          COALESCE(SUM(tokens_output), 0) AS tokens_out,
+        `SELECT COALESCE(SUM(ai_calls), 0) AS calls,
+          COALESCE(SUM(tokens_in), 0) AS tokens_in,
+          COALESCE(SUM(tokens_out), 0) AS tokens_out,
           ROUND(COALESCE(SUM(cost_usd), 0), 4) AS cost_usd,
-          COUNT(DISTINCT provider) AS models_used
-         FROM ai_provider_usage
-         WHERE date = date('now')`
+          (
+            SELECT COUNT(DISTINCT j.key)
+            FROM agentsam_usage_rollups_daily r2,
+                 json_each(COALESCE(r2.provider_breakdown_json, '{}')) j
+            WHERE r2.day = date('now')
+          ) AS models_used
+         FROM agentsam_usage_rollups_daily
+         WHERE day = date('now')`
       ).first()),
       safe(env.DB.prepare(
         `SELECT COUNT(*) AS total,
@@ -126,10 +131,13 @@ export async function sendDailyDigest(env) {
          WHERE is_archived = 1 AND r2_context_key IS NOT NULL AND r2_context_key != ''`
       ).first()),
       safe(env.DB.prepare(
-        `SELECT provider, ROUND(SUM(cost_usd), 4) AS cost_usd
-         FROM ai_provider_usage
-         WHERE date = date('now') AND provider IS NOT NULL
-         GROUP BY provider
+        `SELECT j.key AS provider,
+                ROUND(SUM(CAST(json_extract(j.value, '$.cost_usd') AS REAL)), 4) AS cost_usd
+         FROM agentsam_usage_rollups_daily r,
+              json_each(COALESCE(r.provider_breakdown_json, '{}')) j
+         WHERE r.day = date('now')
+         GROUP BY j.key
+         HAVING provider IS NOT NULL AND provider != ''
          ORDER BY cost_usd DESC
          LIMIT 3`
       ).all()),
@@ -266,7 +274,7 @@ Write 3-5 sentences: AI spend and deploy activity, then one sentence on what to 
 <h1>IAM Daily Digest</h1>
 <p>${esc(digestText)}</p>
 
-<h2>1. Today's AI spend (ai_provider_usage)</h2>
+<h2>1. Today's AI spend (agentsam_usage_rollups_daily)</h2>
 <p>Cost USD: <strong>${esc(tt.cost_usd)}</strong> | Calls: ${esc(tt.calls)} | Tokens in/out: ${esc(tt.tokens_in)} / ${esc(tt.tokens_out)} | Models used: ${esc(tt.models_used)}</p>
 <h3>Top providers</h3>${provHtml}
 
@@ -373,7 +381,8 @@ ${hookHtml}
           ).bind(digestMemTid, 'agent-sam-primary', f.type, f.key, f.value, f.score).run().catch(() => { });
         }
       }
-      await env.DB.prepare('DELETE FROM ai_compiled_context_cache').run().catch(() => { });
+      const { purgeStaleAgentBootstrapCache } = await import('../../core/agent-bootstrap-project-context.js');
+      await purgeStaleAgentBootstrapCache(env.DB, { maxAgeSec: 0 });
 
       const digestSummary = `Spend $${tt.cost_usd ?? 0} | Deploys ${dt.total ?? 0} | MCP ${mcpToday?.calls ?? 0} | RAG ${ragToday?.queries ?? 0}`;
       await env.DB.prepare(

@@ -64,7 +64,7 @@ export default function FinanceDashboard() {
   const rangeLabel = `${monthStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
 
   return (
-    <div className="min-h-screen bg-[color:var(--dashboard-canvas)] text-[color:var(--dashboard-text)] overflow-y-auto">
+    <div className="min-h-full w-full bg-[color:var(--dashboard-canvas)] text-[color:var(--dashboard-text)]">
       <div className="flex items-center justify-between px-6 py-5 border-b border-[color:var(--dashboard-border)]">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Finance</h1>
@@ -88,7 +88,7 @@ export default function FinanceDashboard() {
         </div>
       </div>
 
-      <div className="px-6 py-6 space-y-6 max-w-[1600px]">
+      <div className="px-6 py-6 pb-24 space-y-6 max-w-[1600px]">
         {isLoading ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
             {[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-32" />)}

@@ -1152,7 +1152,7 @@ async function handleMcpOAuthAuthorize(request, env, _ctx) {
   return Response.redirect(consent.href, 302);
 }
 
-async function mcpOAuthConsumeAuthorizationCode(env, body) {
+async function mcpOAuthValidateAuthorizationCode(env, body) {
   const codeHash = await mcpOAuthSha256Hex(body.code);
   const row = await env.DB.prepare(
     `SELECT code, user_id, tenant_id, client_id, redirect_uri, code_challenge, code_challenge_method,
@@ -1184,6 +1184,43 @@ async function mcpOAuthConsumeAuthorizationCode(env, body) {
     return { ok: false, error: 'invalid_client' };
   }
 
+  return { ok: true, row, codeHash };
+}
+
+/** @returns {Promise<Response|null>} */
+async function assertMcpOAuthTokenClientAuth(request, body, client, expectedClientId) {
+  const tokenAuthMethod = String(client?.token_endpoint_auth_method || 'none').toLowerCase();
+  if (tokenAuthMethod === 'client_secret_post') {
+    if (!body.client_id || !body.client_secret) return mcpOAuthJsonError('invalid_client', 401);
+    const gotSecretHash = await mcpOAuthSha256Hex(body.client_secret);
+    if (gotSecretHash !== String(client.client_secret_hash || '')) {
+      return mcpOAuthJsonError('invalid_client', 401);
+    }
+  } else if (tokenAuthMethod === 'client_secret_basic') {
+    const basic = readOAuthClientBasicAuth(request);
+    const presentedClientId = String(basic.clientId || '').trim();
+    const presentedSecret = String(basic.clientSecret || '').trim();
+    if (!presentedClientId || !presentedSecret) return mcpOAuthJsonError('invalid_client', 401);
+    if (presentedClientId !== String(expectedClientId || '').trim()) {
+      return mcpOAuthJsonError('invalid_client', 401);
+    }
+    const gotSecretHash = await mcpOAuthSha256Hex(presentedSecret);
+    if (gotSecretHash !== String(client.client_secret_hash || '')) {
+      return mcpOAuthJsonError('invalid_client', 401);
+    }
+  } else if (tokenAuthMethod === 'none') {
+    if (body.client_id && String(body.client_id).trim() !== String(expectedClientId || '').trim()) {
+      return mcpOAuthJsonError('invalid_client', 401);
+    }
+  }
+  return null;
+}
+
+async function mcpOAuthConsumeAuthorizationCode(env, body) {
+  const validated = await mcpOAuthValidateAuthorizationCode(env, body);
+  if (!validated.ok) return validated;
+
+  const { row, codeHash } = validated;
   const consumed = await env.DB.prepare(
     `UPDATE oauth_authorization_codes SET used = 1 WHERE code = ? AND used = 0`,
   )
@@ -1209,15 +1246,38 @@ async function handleMcpOAuthToken(request, env, _ctx) {
   if (!body.code_verifier) return mcpOAuthJsonError('missing_code_verifier', 400);
   if (!body.redirect_uri) return mcpOAuthJsonError('missing_redirect_uri', 400);
 
-  const exchanged = await mcpOAuthConsumeAuthorizationCode(env, body);
-  if (!exchanged.ok) {
-    await logMcpOAuthTokenFailure(env, request, exchanged.error, {
+  const validated = await mcpOAuthValidateAuthorizationCode(env, body);
+  if (!validated.ok) {
+    await logMcpOAuthTokenFailure(env, request, validated.error, {
       client_id: body.client_id || null,
     });
-    return mcpOAuthJsonError(exchanged.error, 400);
+    return mcpOAuthJsonError(validated.error, 400);
   }
-  const row = exchanged.row;
-  const codeHash = exchanged.codeHash;
+  const row = validated.row;
+  const codeHash = validated.codeHash;
+
+  const client = await mcpOAuthLoadClient(env, row.client_id);
+  if (!client) return mcpOAuthJsonError('invalid_client', 400);
+  const clientAuthErr = await assertMcpOAuthTokenClientAuth(request, body, client, row.client_id);
+  if (clientAuthErr) {
+    await logMcpOAuthTokenFailure(env, request, 'invalid_client', {
+      client_id: body.client_id || row.client_id,
+      token_endpoint_auth_method: client.token_endpoint_auth_method,
+    });
+    return clientAuthErr;
+  }
+
+  const consumed = await env.DB.prepare(
+    `UPDATE oauth_authorization_codes SET used = 1 WHERE code = ? AND used = 0`,
+  )
+    .bind(codeHash)
+    .run();
+  if (!consumed?.meta?.changes) {
+    await logMcpOAuthTokenFailure(env, request, 'invalid_grant_consumed', {
+      client_id: body.client_id || row.client_id,
+    });
+    return mcpOAuthJsonError('invalid_grant_consumed', 400);
+  }
 
   const userId = String(row.user_id || '').trim();
   if (!userId) return mcpOAuthJsonError('invalid_user', 400);
@@ -1231,31 +1291,6 @@ async function handleMcpOAuthToken(request, env, _ctx) {
     .bind(userId)
     .first()
     .catch(() => null);
-
-  const client = await mcpOAuthLoadClient(env, row.client_id);
-  if (!client) return mcpOAuthJsonError('invalid_client', 400);
-  const tokenAuthMethod = String(client.token_endpoint_auth_method || 'none').toLowerCase();
-  if (tokenAuthMethod === 'client_secret_post') {
-    if (!body.client_id || !body.client_secret) return mcpOAuthJsonError('invalid_client', 401);
-    const gotSecretHash = await mcpOAuthSha256Hex(body.client_secret);
-    if (gotSecretHash !== String(client.client_secret_hash || '')) {
-      return mcpOAuthJsonError('invalid_client', 401);
-    }
-  } else if (tokenAuthMethod === 'client_secret_basic') {
-    const basic = readOAuthClientBasicAuth(request);
-    const presentedClientId = String(basic.clientId || '').trim();
-    const presentedSecret = String(basic.clientSecret || '').trim();
-    if (!presentedClientId || !presentedSecret) return mcpOAuthJsonError('invalid_client', 401);
-    if (presentedClientId !== String(row.client_id || '').trim()) return mcpOAuthJsonError('invalid_client', 401);
-    const gotSecretHash = await mcpOAuthSha256Hex(presentedSecret);
-    if (gotSecretHash !== String(client.client_secret_hash || '')) {
-      return mcpOAuthJsonError('invalid_client', 401);
-    }
-  } else if (tokenAuthMethod === 'none') {
-    if (body.client_id && String(body.client_id).trim() !== String(row.client_id || '').trim()) {
-      return mcpOAuthJsonError('invalid_client', 401);
-    }
-  }
   const tenantId = String(row.tenant_id || authRow?.tenant_id || env.TENANT_ID || '');
   const workspaceId = await resolveCanonicalWorkspace(env, userId);
   if (!workspaceId) {

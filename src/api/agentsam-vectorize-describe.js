@@ -8,9 +8,17 @@ import {
   resolveAgentsamEmbeddingSpec,
 } from '../core/agentsam-vectorize-index.js';
 
+function isVectorizeDescribeAuthorized(request, env) {
+  if (verifyInternalApiSecret(request, env)) return true;
+  const auth = request.headers.get('Authorization') || '';
+  const bearer = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+  const bridge = env?.AGENTSAM_BRIDGE_KEY != null ? String(env.AGENTSAM_BRIDGE_KEY).trim() : '';
+  return !!(bridge && bearer && bearer === bridge);
+}
+
 /** @param {Request} request @param {any} env */
 export async function handleAgentsamVectorizeDescribe(request, env) {
-  if (!verifyInternalApiSecret(request, env)) {
+  if (!isVectorizeDescribeAuthorized(request, env)) {
     return jsonResponse({ error: 'Unauthorized' }, 401);
   }
 

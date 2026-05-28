@@ -300,30 +300,103 @@ function spendByDayRangeClause(range) {
     return `r.day >= date('now', '-30 days')`;
 }
 
+function normalizeRollupProviderSlug(key) {
+    const x = String(key || '').trim().toLowerCase();
+    if (!x || x === 'unknown') return '';
+    if (x === 'workers_ai' || x === 'cloudflare') return 'cloudflare_workers_ai';
+    return x;
+}
+
+/** @param {import('@cloudflare/workers-types').D1Database} db @param {string | null} tenantId */
+async function loadFinanceProviderColorMap(db, tenantId) {
+    if (!db || !tenantId) return {};
+    const { results } = await db
+        .prepare(
+            `SELECT id, color, ai_keywords
+             FROM finance_categories
+             WHERE kind = 'provider' AND tenant_id = ?`,
+        )
+        .bind(tenantId)
+        .all()
+        .catch(() => ({ results: [] }));
+    /** @type {Record<string, string>} */
+    const map = {};
+    for (const row of results || []) {
+        const color = String(row.color || '').trim();
+        if (!color) continue;
+        let keys = [];
+        try {
+            const parsed = JSON.parse(String(row.ai_keywords || '[]'));
+            keys = Array.isArray(parsed) ? parsed : [];
+        } catch {
+            keys = [];
+        }
+        for (const k of keys) {
+            const nk = normalizeRollupProviderSlug(k);
+            if (nk) map[nk] = color;
+        }
+        const slug = String(row.id || '').replace(/^cat_provider_/, '');
+        const nk = normalizeRollupProviderSlug(slug);
+        if (nk) map[nk] = color;
+    }
+    return map;
+}
+
 async function handleFinanceSpendByDay(url, env, authUser) {
     try {
         const range = url.searchParams.get('range') || '30d';
         const dayFilter = spendByDayRangeClause(range);
         const scope = rollupScope(authUser);
-        const { results } = await env.DB.prepare(`
+        const scopeSql = scope.sql.replace(/\btenant_id\b/g, 'r.tenant_id').replace(/\bworkspace_id\b/g, 'r.workspace_id');
+        const tenantId = authUser?.tenant_id ?? null;
+
+        const [{ results }, { results: dailyTotals }] = await Promise.all([
+            env.DB.prepare(`
             SELECT
                 r.day AS date,
-                j.key AS provider_slug,
+                CASE
+                  WHEN LOWER(j.key) IN ('workers_ai', 'cloudflare') THEN 'cloudflare_workers_ai'
+                  ELSE LOWER(j.key)
+                END AS provider_slug,
                 ROUND(SUM(CAST(json_extract(j.value, '$.cost_usd') AS REAL)), 6) AS total_usd,
                 SUM(CAST(json_extract(j.value, '$.requests') AS INTEGER)) AS request_count
             FROM agentsam_usage_rollups_daily r,
                  json_each(COALESCE(r.provider_breakdown_json, '{}')) j
-            WHERE ${scope.sql.replace(/\btenant_id\b/g, 'r.tenant_id').replace(/\bworkspace_id\b/g, 'r.workspace_id')}
+            WHERE ${scopeSql}
               AND ${dayFilter}
-            GROUP BY r.day, j.key
+              AND j.key IS NOT NULL AND TRIM(j.key) != ''
+            GROUP BY r.day, provider_slug
+            HAVING provider_slug != '' AND provider_slug != 'unknown'
             ORDER BY r.day ASC
-        `).bind(...scope.binds).all();
+        `).bind(...scope.binds).all(),
+            env.DB.prepare(`
+            SELECT r.day AS date, ROUND(SUM(r.cost_usd), 6) AS total_usd
+            FROM agentsam_usage_rollups_daily r
+            WHERE ${scopeSql} AND ${dayFilter}
+            GROUP BY r.day
+            ORDER BY r.day ASC
+        `).bind(...scope.binds).all(),
+        ]);
+
         const rows = results || [];
-        const providers = [...new Set(rows.map((row) => row.provider_slug).filter(Boolean))];
+        const providers = [...new Set(rows.map((row) => normalizeRollupProviderSlug(row.provider_slug)).filter(Boolean))];
         const dates = [...new Set(rows.map((row) => row.date).filter(Boolean))];
-        return jsonResponse({ rows, providers, dates, range });
+        const provider_colors = await loadFinanceProviderColorMap(env.DB, tenantId);
+
+        return jsonResponse({
+            rows,
+            providers,
+            dates,
+            range,
+            daily_totals: dailyTotals || [],
+            provider_colors,
+        });
     } catch (error) {
-        if (isMissingTableError(error)) return jsonResponse({ rows: [], providers: [], dates: [], range: '30d' });
+        if (isMissingTableError(error)) {
+            return jsonResponse({
+                rows: [], providers: [], dates: [], range: '30d', daily_totals: [], provider_colors: {},
+            });
+        }
         throw error;
     }
 }

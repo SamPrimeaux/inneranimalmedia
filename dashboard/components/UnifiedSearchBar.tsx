@@ -407,6 +407,7 @@ export const UnifiedSearchBar: React.FC<{
   const [q, setQ] = useState('');
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState<PaletteItem[]>([]);
+  const [recentSearches, setRecentSearches] = useState<PaletteItem[]>([]);
   const [active, setActive] = useState(0);
   const [sourceChip, setSourceChip] = useState<SourceChipId>('all');
   const [commandSections, setCommandSections] = useState<CommandSection[]>([]);
@@ -450,7 +451,7 @@ export const UnifiedSearchBar: React.FC<{
   const loadDefault = useCallback(async () => {
     setLoading(true);
     try {
-      const [buckets, sessions, deploys, vectors] = await Promise.all([
+      const [buckets, sessions, deploys, vectors, recentRes] = await Promise.all([
         fetchBoundR2Buckets(),
         fetchJson<
           { id?: string; name?: string; message_count?: number; started_at?: number }[]
@@ -461,7 +462,26 @@ export const UnifiedSearchBar: React.FC<{
         fetchJson<{ indexes?: { display_name?: string; binding_name?: string; index_name?: string }[] }>(
           '/api/storage/vectors',
         ),
+        fetch('/api/unified-search/recent', { credentials: 'same-origin' }),
       ]);
+
+      const recentItems: PaletteItem[] = [];
+      if (recentRes.ok) {
+        const recentJson = (await recentRes.json()) as {
+          items?: { query?: string; result_kind?: string }[];
+        };
+        for (const [i, row] of (recentJson.items || []).entries()) {
+          const queryText = String(row?.query || '').trim();
+          if (!queryText) continue;
+          recentItems.push({
+            id: `recent-${i}-${queryText.slice(0, 40)}`,
+            category: 'search',
+            title: queryText,
+            subtitle: row.result_kind ? `Last opened: ${row.result_kind}` : 'Recent search',
+          });
+        }
+      }
+      setRecentSearches(recentItems);
 
       const resourceRows: PaletteItem[] = buckets.slice(0, 6).map((name) => ({
         id: `res-r2-${name}`,
@@ -769,6 +789,7 @@ export const UnifiedSearchBar: React.FC<{
     setOpen(false);
     setQ('');
     setItems([]);
+    setRecentSearches([]);
     setCommandSections([]);
     setSourceChip('all');
     setActive(0);
@@ -821,7 +842,7 @@ export const UnifiedSearchBar: React.FC<{
 
   const applyItem = useCallback(
     (item: PaletteItem, searchQuery: string) => {
-      if (item.category === 'tip') {
+      if (item.category === 'tip' || item.category === 'search') {
         setQ(item.title);
         return;
       }
@@ -833,7 +854,10 @@ export const UnifiedSearchBar: React.FC<{
         body: JSON.stringify({
           query: searchQuery,
           result_kind: item.category,
+          search_type: item.category,
           opened_id: item.id,
+          clicked_result_id: item.id,
+          source: 'dashboard',
         }),
       }).catch(() => {});
 
@@ -932,6 +956,9 @@ export const UnifiedSearchBar: React.FC<{
       const deploys = filtered.filter((i) => i.category === 'deploy');
       const tips = SEARCH_TIPS;
       return [
+        ...(recentSearches.length
+          ? [{ key: 'recent', label: 'Recent searches', rows: recentSearches }]
+          : []),
         { key: 'resources', label: 'Resources', rows: resources },
         { key: 'chats', label: 'Recent chats', rows: chats },
         { key: 'deploys', label: 'Recent deploys', rows: deploys },
@@ -941,7 +968,7 @@ export const UnifiedSearchBar: React.FC<{
 
     const title = sectionTitle(mode, sourceChip, !!q.trim());
     return [{ key: 'main', label: title || 'Results', rows: filtered }];
-  }, [items, mode, q, sourceChip, commandSections]);
+  }, [items, mode, q, sourceChip, commandSections, recentSearches]);
 
   const flatList = useMemo(() => displaySections.flatMap((s) => s.rows), [displaySections]);
 

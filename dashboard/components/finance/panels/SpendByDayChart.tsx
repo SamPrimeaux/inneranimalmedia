@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer,
@@ -21,13 +21,26 @@ const RANGE_OPTIONS: { id: SpendRange; label: string }[] = [
   { id: 'mtd', label: 'MTD' },
 ];
 
+const TOTAL_SERIES_KEY = '_total';
+
 function daysForRange(range: SpendRange): number {
   if (range === '7d') return 7;
-  if (range === 'mtd') {
-    const now = new Date();
-    return now.getDate();
-  }
+  if (range === 'mtd') return new Date().getDate();
   return 30;
+}
+
+function mergeColorMaps(a: Record<string, string>, b: Record<string, string>): Record<string, string> {
+  return { ...a, ...b };
+}
+
+function useAccentColor(): string {
+  const [color, setColor] = useState('cyan');
+  useEffect(() => {
+    const cs = getComputedStyle(document.documentElement);
+    const v = cs.getPropertyValue('--accent-secondary').trim() || cs.getPropertyValue('--solar-cyan').trim();
+    if (v) setColor(v);
+  }, []);
+  return color;
 }
 
 const CustomTooltip = ({ active, payload, label }: {
@@ -45,7 +58,9 @@ const CustomTooltip = ({ active, payload, label }: {
         <div key={p.dataKey} className="flex items-center justify-between gap-4 py-0.5">
           <div className="flex items-center gap-1.5">
             <div className="w-2 h-2 rounded-full shrink-0" style={{ background: p.color }} />
-            <span className="text-[color:var(--dashboard-text)] capitalize">{p.dataKey}</span>
+            <span className="text-[color:var(--dashboard-text)] capitalize">
+              {p.dataKey === TOTAL_SERIES_KEY ? 'Total' : p.dataKey}
+            </span>
           </div>
           <span className="font-semibold text-[color:var(--dashboard-text)]">{fmt.usd(p.value)}</span>
         </div>
@@ -59,7 +74,13 @@ const CustomTooltip = ({ active, payload, label }: {
 };
 
 export function SpendByDayChart({ data, colorMap, range, onRangeChange }: Props) {
-  const { chartData, providers } = useMemo(() => {
+  const accent = useAccentColor();
+  const effectiveColors = useMemo(
+    () => mergeColorMaps(colorMap, data?.provider_colors ?? {}),
+    [colorMap, data?.provider_colors],
+  );
+
+  const { chartData, providers, mode } = useMemo(() => {
     const dateMap: Record<string, Record<string, number>> = {};
     const rows = Array.isArray(data?.rows) ? data.rows : [];
     const providerSet = new Set<string>();
@@ -67,7 +88,7 @@ export function SpendByDayChart({ data, colorMap, range, onRangeChange }: Props)
     rows.forEach((r) => {
       const slug = normalizeProviderKey(String(r.provider_slug ?? ''));
       if (!slug || isBlockedProviderKey(slug)) return;
-      const color = lookupProviderColor(colorMap, slug);
+      const color = lookupProviderColor(effectiveColors, slug);
       if (!color) return;
       providerSet.add(slug);
       if (!dateMap[r.date]) dateMap[r.date] = {};
@@ -75,27 +96,59 @@ export function SpendByDayChart({ data, colorMap, range, onRangeChange }: Props)
     });
 
     const providerList = [...providerSet];
-    const chartData: Array<Record<string, unknown>> = [];
     const dayCount = daysForRange(range);
+    const chartData: Array<Record<string, unknown>> = [];
+
+    if (providerList.length > 0) {
+      for (let i = dayCount - 1; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const key = d.toISOString().slice(0, 10);
+        const row: Record<string, unknown> = { date: key };
+        providerList.forEach((p) => { row[p] = dateMap[key]?.[p] ?? 0; });
+        chartData.push(row);
+      }
+      return { chartData, providers: providerList, mode: 'providers' as const };
+    }
+
+    const totals = Array.isArray(data?.daily_totals) ? data.daily_totals : [];
+    const totalsByDate: Record<string, number> = {};
+    totals.forEach((t) => {
+      if (t.date) totalsByDate[t.date] = Number(t.total_usd) || 0;
+    });
 
     for (let i = dayCount - 1; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
       const key = d.toISOString().slice(0, 10);
-      const row: Record<string, unknown> = { date: key };
-      providerList.forEach((p) => { row[p] = dateMap[key]?.[p] ?? 0; });
-      chartData.push(row);
+      chartData.push({
+        date: key,
+        [TOTAL_SERIES_KEY]: totalsByDate[key] ?? 0,
+      });
     }
 
-    return { chartData, providers: providerList };
-  }, [data, colorMap, range]);
+    const hasTotal = chartData.some((row) => Number(row[TOTAL_SERIES_KEY]) > 0);
+    return {
+      chartData,
+      providers: hasTotal ? [TOTAL_SERIES_KEY] : [],
+      mode: 'total' as const,
+    };
+  }, [data, effectiveColors, range]);
+
+  const colorForSeries = (key: string) => {
+    if (key === TOTAL_SERIES_KEY) return accent;
+    return lookupProviderColor(effectiveColors, key) ?? accent;
+  };
 
   return (
     <div className="rounded-xl border border-[color:var(--dashboard-border)] bg-[color:var(--dashboard-panel)] p-6">
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <div>
           <h3 className="text-sm font-semibold text-[color:var(--dashboard-text)]">AI Spend Over Time</h3>
-          <p className="text-xs text-[color:var(--dashboard-muted)] mt-0.5">agentsam_usage_rollups_daily by provider</p>
+          <p className="text-xs text-[color:var(--dashboard-muted)] mt-0.5">
+            agentsam_usage_rollups_daily by provider
+            {mode === 'total' ? ' (daily total; provider breakdown repairing)' : ''}
+          </p>
         </div>
         <div className="flex rounded-lg overflow-hidden border border-[color:var(--dashboard-border)]">
           {RANGE_OPTIONS.map((opt) => (
@@ -122,7 +175,7 @@ export function SpendByDayChart({ data, colorMap, range, onRangeChange }: Props)
           <AreaChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
             <defs>
               {providers.map((p) => {
-                const c = lookupProviderColor(colorMap, p)!;
+                const c = colorForSeries(p);
                 return (
                   <linearGradient key={p} id={`grad-${p}`} x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor={c} stopOpacity={0.3} />
@@ -152,16 +205,16 @@ export function SpendByDayChart({ data, colorMap, range, onRangeChange }: Props)
               iconType="circle"
               iconSize={8}
               wrapperStyle={{ fontSize: '11px', color: 'var(--dashboard-muted)', paddingTop: '12px' }}
-              formatter={(v: string) => v.charAt(0).toUpperCase() + v.slice(1)}
+              formatter={(v: string) => (v === TOTAL_SERIES_KEY ? 'Total' : v.charAt(0).toUpperCase() + v.slice(1))}
             />
             {providers.map((p) => {
-              const stroke = lookupProviderColor(colorMap, p)!;
+              const stroke = colorForSeries(p);
               return (
                 <Area
                   key={p}
                   type="monotone"
                   dataKey={p}
-                  stackId="1"
+                  stackId={mode === 'providers' ? '1' : undefined}
                   stroke={stroke}
                   fill={`url(#grad-${p})`}
                   strokeWidth={1.5}

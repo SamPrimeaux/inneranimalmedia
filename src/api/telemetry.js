@@ -13,6 +13,7 @@ import {
 } from '../core/model-pricing.js';
 import { resolveModelKeyFromProviderId } from '../core/model-catalog-cost.js';
 import { syncUsageTokenColumns, usageEventExtraColumnSql } from '../core/usage-event-writer.js';
+import { incrementAgentsamUsageRollupsDaily } from '../core/agentsam-usage-rollups-daily.js';
 
 /**
  * Standardizes provider names for the spend ledger.
@@ -240,32 +241,15 @@ export async function writeTelemetry(env, data, modelRates) {
       ).run();
     }
 
-    // PHASE 4B — ai_provider_usage rollup (correct schema: tokens_input/tokens_output/cost_usd/requests)
-    // SCHEMA FIX: actual table has NO model or tenant_id column. UNIQUE(provider, date) declared inline.
-    // Previous upsert used wrong column names (total_requests, total_tokens_in, etc.) and
-    // conflict target (id) — it was silently failing on every call after the first row.
-    {
-      const spFixed = spendLedgerProvider(String(provider || 'unknown'));
-      const dateStr = new Date().toISOString().slice(0, 10);
-      const rowId = `${spFixed}-${dateStr}`;
-      const tinRoll = Math.floor((inputTokens || 0) + (cacheReadTokens || 0));
-      const toutRoll = Math.floor(outputTokens || 0);
-      const totRoll = tinRoll + toutRoll;
-      await env.DB.prepare(`
-        INSERT INTO ai_provider_usage (id, provider, date, requests, tokens_input, tokens_output, cost_usd)
-        VALUES (?, ?, ?, 1, ?, ?, ?)
-        ON CONFLICT(provider, date) DO UPDATE SET
-          requests      = requests + 1,
-          tokens_input  = tokens_input  + excluded.tokens_input,
-          tokens_output = tokens_output + excluded.tokens_output,
-          cost_usd      = cost_usd + excluded.cost_usd
-      `).bind(
-        rowId, spFixed, dateStr,
-        tinRoll,
-        toutRoll,
-        estimatedCost || 0
-      ).run().catch(e => console.warn('[ai_provider_usage] rollup failed:', e.message));
-    }
+    await incrementAgentsamUsageRollupsDaily(env.DB, {
+      tenantId: tidInsert,
+      workspaceId: wsInsert,
+      provider: String(provider || 'unknown'),
+      tokensIn: tokIn,
+      tokensOut: tokOut,
+      costUsd: estimatedCost || 0,
+      rollupSource: 'telemetry',
+    });
 
     if (mid && (estimatedCost ?? 0) > 0) {
       const spFixed = spendLedgerProvider(String(provider || 'unknown'));

@@ -2,11 +2,35 @@
  * Unified Cmd+K search — D1 + Supabase pgvector (Hyperdrive).
  */
 import { jsonResponse } from '../core/responses.js';
-import { getAuthUser } from '../core/auth.js';
+import { getAuthUser, fetchAuthUserTenantId, platformTenantIdFromEnv } from '../core/auth.js';
 import { isHyperdriveUsable, runHyperdriveQuery } from '../core/hyperdrive-query.js';
 import { documentsSourceFilterSql, normalizeSourceFilters } from '../core/unified-source-filters.js';
 import { resolveGitHubToken } from '../core/github-token.js';
 import { logSemanticSearch } from './rag.js';
+
+/** @param {any} authUser */
+function resolveSearchAnalyticsWorkspaceId(authUser) {
+  const ws =
+    authUser?.active_workspace_id ??
+    authUser?.workspace_id ??
+    authUser?.activeWorkspaceId ??
+    null;
+  return ws != null && String(ws).trim() !== '' ? String(ws).trim() : null;
+}
+
+/** @param {any} env @param {any} authUser @param {string|null} userId */
+async function resolveSearchAnalyticsTenantId(env, authUser, userId) {
+  const fromUser =
+    authUser?.tenant_id != null && String(authUser.tenant_id).trim() !== ''
+      ? String(authUser.tenant_id).trim()
+      : null;
+  if (fromUser) return fromUser;
+  if (userId) {
+    const tid = await fetchAuthUserTenantId(env, userId);
+    if (tid && String(tid).trim()) return String(tid).trim();
+  }
+  return platformTenantIdFromEnv(env) || null;
+}
 
 /**
  * Must match `public.documents.embed_model` + `vector(1024)` ingest (Workers AI bge-m3).
@@ -472,24 +496,29 @@ export async function handleUnifiedSearchApi(request, url, env) {
     return jsonResponse({ error: 'Unauthorized' }, 401);
   }
   const userId = authUser.id ? String(authUser.id) : null;
+  const workspaceId = resolveSearchAnalyticsWorkspaceId(authUser);
+  const tenantId = await resolveSearchAnalyticsTenantId(env, authUser, userId);
 
   if (method === 'GET' && pathLower === '/api/unified-search/recent') {
-    if (!env.DB) return jsonResponse({ items: [] });
+    if (!env.DB || !tenantId || !userId) return jsonResponse({ items: [] });
     try {
-      const uid = userId || '';
       const { results } = await env.DB.prepare(
-        `SELECT query, result_kind, opened_id, created_at
+        `SELECT query, search_type, clicked_result_id, created_at
          FROM ai_search_analytics
          WHERE user_id = ?
+           AND tenant_id = ?
+           AND COALESCE(workspace_id, '') = COALESCE(?, '')
          ORDER BY created_at DESC
          LIMIT 10`,
       )
-        .bind(uid)
+        .bind(userId, tenantId, workspaceId)
         .all();
       const items = (results || []).map((r) => ({
         query: r.query,
-        result_kind: r.result_kind,
-        opened_id: r.opened_id,
+        result_kind: r.search_type,
+        opened_id: r.clicked_result_id,
+        search_type: r.search_type,
+        clicked_result_id: r.clicked_result_id,
       }));
       return jsonResponse({ items });
     } catch (e) {
@@ -500,6 +529,7 @@ export async function handleUnifiedSearchApi(request, url, env) {
 
   if (method === 'POST' && pathLower === '/api/unified-search/track') {
     if (!env.DB) return jsonResponse({ ok: false }, 503);
+    if (!tenantId || !userId) return jsonResponse({ ok: false, error: 'tenant_or_user_required' }, 400);
     let body = {};
     try {
       body = await request.json();
@@ -507,15 +537,50 @@ export async function handleUnifiedSearchApi(request, url, env) {
       body = {};
     }
     const query = String(body.query || '').slice(0, 500);
-    const resultKind = body.result_kind != null ? String(body.result_kind).slice(0, 64) : null;
-    const openedId = body.opened_id != null ? String(body.opened_id).slice(0, 500) : null;
+    const searchType =
+      body.search_type != null
+        ? String(body.search_type).slice(0, 64)
+        : body.result_kind != null
+          ? String(body.result_kind).slice(0, 64)
+          : 'palette_open';
+    const clickedResultId =
+      body.clicked_result_id != null
+        ? String(body.clicked_result_id).slice(0, 500)
+        : body.opened_id != null
+          ? String(body.opened_id).slice(0, 500)
+          : null;
+    const resultsCount =
+      body.results_count != null && Number.isFinite(Number(body.results_count))
+        ? Math.max(0, Math.floor(Number(body.results_count)))
+        : 0;
+    const latencyMs =
+      body.latency_ms != null && Number.isFinite(Number(body.latency_ms))
+        ? Math.max(0, Math.floor(Number(body.latency_ms)))
+        : null;
+    const source =
+      body.source != null && String(body.source).trim() !== ''
+        ? String(body.source).trim().slice(0, 64)
+        : 'dashboard';
     const id = crypto.randomUUID();
     try {
       await env.DB.prepare(
-        `INSERT INTO ai_search_analytics (id, user_id, query, result_kind, opened_id, created_at)
-         VALUES (?, ?, ?, ?, ?, unixepoch())`,
+        `INSERT INTO ai_search_analytics (
+           id, tenant_id, workspace_id, user_id, query,
+           results_count, clicked_result_id, search_type, latency_ms, source, created_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch())`,
       )
-        .bind(id, userId || '', query, resultKind, openedId)
+        .bind(
+          id,
+          tenantId,
+          workspaceId,
+          userId,
+          query,
+          resultsCount,
+          clickedResultId,
+          searchType,
+          latencyMs,
+          source,
+        )
         .run();
     } catch (e) {
       console.warn('[unified-search/track]', e?.message ?? e);
