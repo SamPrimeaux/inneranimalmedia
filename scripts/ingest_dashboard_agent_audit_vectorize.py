@@ -378,7 +378,8 @@ def main() -> int:
             f"Agent Sam /dashboard/agent production audit. {title}. "
             f"File: {stem}.md. Lane: {args.lane}. "
         )
-        for i, ch in enumerate(chunk_text(body, args.target_tokens, args.overlap_tokens)):
+        file_chunks = chunk_text(body, args.target_tokens, args.overlap_tokens)
+        for i, ch in enumerate(file_chunks):
             vid = make_vector_id(prefix, i, ch["hash"])
             text_embed = ctx + ch["text"]
             md: dict[str, Any] = {
