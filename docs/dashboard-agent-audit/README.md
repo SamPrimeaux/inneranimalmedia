@@ -77,6 +77,7 @@ Canonical deploy doc: **`docs/AGENT_DASHBOARD.md`**
 | Upload script | `scripts/upload-dashboard-agent-audit-to-autorag.sh` |
 | Manifest | [r2-upload-manifest.json](./r2-upload-manifest.json) |
 | Upload status | [r2-upload-notes.md](./r2-upload-notes.md) — **pending** (2026-05-28: cloud agent token 401) |
+| Credentials | [r2-upload-credentials.md](./r2-upload-credentials.md) — **Cursor Secrets** or local `.env.cloudflare` (never commit) |
 
 After upload succeeds, mark relevant chunks **R2 mirrored** and re-index per chunk 22.
 

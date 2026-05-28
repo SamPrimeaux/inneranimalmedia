@@ -29,10 +29,22 @@
    ```
    - **Failed:** `401 Unauthorized` / `Invalid access token [code: 9109]` — token in this environment lacks R2 object write (or account mismatch).
 
+## Where to set `CLOUDFLARE_API_TOKEN`
+
+**Do not commit tokens.** See **[r2-upload-credentials.md](./r2-upload-credentials.md)**:
+
+| Who | Where |
+|-----|--------|
+| **Cursor Cloud Agent** | Cursor → **Settings** → **Secrets** (or [cursor.com/dashboard/cloud-agents](https://cursor.com/dashboard/cloud-agents)) — add `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID`, then restart the agent |
+| **Local operator** | Repo root **`.env.cloudflare`** (copy from `.env.cloudflare.example`, gitignored) + `./scripts/with-cloudflare-env.sh` |
+
+Required account ID: **`ede6590ac0d2fb7daf155b35653457b2`**. Token needs **Workers R2 Storage → Edit** on **`inneranimalmedia-autorag`**.
+
 ## Repo tooling for retry
 
 | Artifact | Purpose |
 |----------|---------|
+| [r2-upload-credentials.md](./r2-upload-credentials.md) | Where to set secrets (Cloud Agent vs local) |
 | [r2-upload-manifest.json](./r2-upload-manifest.json) | Full file list + object keys |
 | [../scripts/upload-dashboard-agent-audit-to-autorag.sh](../scripts/upload-dashboard-agent-audit-to-autorag.sh) | Batch upload all `*.md` in this directory |
 

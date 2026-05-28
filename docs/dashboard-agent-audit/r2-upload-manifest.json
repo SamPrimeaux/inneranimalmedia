@@ -139,6 +139,11 @@
       "content_type": "text/markdown"
     },
     {
+      "source": "docs/dashboard-agent-audit/r2-upload-credentials.md",
+      "key": "knowledge/agentsam/dashboard-agent-audit/r2-upload-credentials.md",
+      "content_type": "text/markdown"
+    },
+    {
       "source": "docs/dashboard-agent-audit/r2-upload-notes.md",
       "key": "knowledge/agentsam/dashboard-agent-audit/r2-upload-notes.md",
       "content_type": "text/markdown"
