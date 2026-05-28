@@ -23,6 +23,13 @@ Every chunk answers: *What does a user hitting `/dashboard/agent` actually load,
 | Worker entry | `src/index.js` → `src/core/production-dispatch.js` |
 | E2E | `tests/e2e/dashboard-agent-workbench.spec.ts` |
 
+## Autonomy conventions (live target)
+
+- **Read-only tools** (grep, file read, D1 SELECT, knowledge search, audit/trace) should **not** open `ToolApprovalModal` when catalog + policy allow auto-run — see chunk 12, `src/core/agent-policy.js` (`BUILTIN_SAFE_WITH_REQUIRE_ALLOWLIST`), backlog **B12-001**.
+- **Write / deploy / terminal / MYBROWSER automation** stay approval- or policy-gated.
+- Operator slash namespace: **`/agentsam` only** — never `/buddy` (chunk 21).
+- Served UI source: **`dashboard/` only** — never `agent-dashboard/` for live repair work.
+
 ## What is ALREADY engineered
 
 - Single SPA serves `/dashboard/agent` with eager-loaded agent shell (not a separate `agent-dashboard` bundle).

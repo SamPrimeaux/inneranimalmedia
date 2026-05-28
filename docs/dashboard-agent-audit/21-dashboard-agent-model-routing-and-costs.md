@@ -39,6 +39,26 @@ Slash commands (product spec for this chunk):
 
 **Verification:** `rg '/agentsam ' dashboard src` — expect no composer slash router until implemented.
 
+
+### Provider lanes (live Worker — not slash commands)
+
+| Lane | Role on `/dashboard/agent` |
+|------|------------------------------|
+| **D1 `agentsam_model_catalog`** | Canonical provider + model_key resolution (no hardcoded hot-path strings) |
+| **GPT / Anthropic / Google APIs** | Routed via catalog + `agentsam_routing_arms` / prompt routes |
+| **Workers AI** | `@cf/` and Workers AI bindings when catalog row points there |
+| **Local Ollama** | Intended via bridge/local connector — **not** full composer UX until B14-002 + `/agentsam local status` |
+| **Tier gating** | `agentsam_model_tier` / workspace cost tier — free / test / pro exposure in UI TBD (B21-002) |
+
+### Effort, budgets, runaway prevention (partial)
+
+- **Effort / reasoning:** D1 `agentsam_ai.effort`, gate fields in `src/api/agent.js` (`gate_reasoning_effort`) — not exposed as `/agentsam effort` in UI yet.
+- **Cost ceilings:** `agentsam_user_policy.max_cost_per_call_usd`, `max_cost_per_session_usd` — enforcement must surface in SSE errors (B21-002).
+- **Tool budgets:** `dispatchToolCallWithBudget` wall-clock race in `src/api/agent.js`; browser/terminal spend should roll into session totals.
+- **Premium model tracking:** `agentsam_agent_run`, workflow run `cost_usd` / token fields — observability exists; operator dashboard on agent page incomplete.
+
+**Do NOT use `/buddy`.** All future slash commands: **`/agentsam` namespace only.**
+
 ## What is ALREADY engineered
 
 - Server-side model resolution from D1 catalog (Worker), not fixed strings in dashboard bundle.

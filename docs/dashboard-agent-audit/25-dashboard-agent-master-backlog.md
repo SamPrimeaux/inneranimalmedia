@@ -29,6 +29,7 @@ Every item must improve **inneranimalmedia.com/dashboard/agent** or its direct d
 | **B03-003** | 0 | Single active surface mobile routing | `App.tsx` narrow branch | One full-screen surface at a time | Device test |
 | **B07-001** | 0 | workspace_state active file sync | `dashboard/src/ideWorkspace.ts`, `PUT /api/agent/workspace/:id` | Persisted bundle includes active editor file metadata | PUT body inspect |
 | **B07-002** | 0 | Patch apply loop completion | `ChatAssistant`, `ToolApprovalModal`, Monaco | Agent patch → review → apply → save closes loop | E2E script |
+| **B12-001** | 0 | Read-only inspection without approval modal | `agent.js`, `agent-policy.js`, `ToolApprovalModal` | grep/read/search/audit auto-run | Tool trace no `tool_blocked` for read-only |
 | **B09-001** | 0 | Structured autonomous progress feed | `useAgentChatStream.ts`, `AgentMessageList.tsx` | “Read files / searched / worked Ns” not spinner chaos | SSE fixture test |
 | **B13-001** | 1 | browser_navigate failure triage | `browser-cdp.js`, `useAgentChatStream` | Failures show actionable error; no silent iframe | Tool trace |
 | **B14-001** | 1 | Mobile terminal operator cards | `XTermShell.tsx` | Terminal usable on phone (cards, not raw xterm only) | Mobile |

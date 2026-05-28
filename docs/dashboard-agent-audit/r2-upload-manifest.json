@@ -1,0 +1,147 @@
+{
+  "bucket": "inneranimalmedia-autorag",
+  "prefix": "knowledge/agentsam/dashboard-agent-audit/",
+  "source_dir": "docs/dashboard-agent-audit",
+  "files": [
+    {
+      "source": "docs/dashboard-agent-audit/00-series-conventions.md",
+      "key": "knowledge/agentsam/dashboard-agent-audit/00-series-conventions.md",
+      "content_type": "text/markdown"
+    },
+    {
+      "source": "docs/dashboard-agent-audit/01-dashboard-agent-shell.md",
+      "key": "knowledge/agentsam/dashboard-agent-audit/01-dashboard-agent-shell.md",
+      "content_type": "text/markdown"
+    },
+    {
+      "source": "docs/dashboard-agent-audit/02-dashboard-agent-deploy-and-r2-assets.md",
+      "key": "knowledge/agentsam/dashboard-agent-audit/02-dashboard-agent-deploy-and-r2-assets.md",
+      "content_type": "text/markdown"
+    },
+    {
+      "source": "docs/dashboard-agent-audit/03-dashboard-agent-mobile-operator-ux.md",
+      "key": "knowledge/agentsam/dashboard-agent-audit/03-dashboard-agent-mobile-operator-ux.md",
+      "content_type": "text/markdown"
+    },
+    {
+      "source": "docs/dashboard-agent-audit/04-dashboard-agent-local-filesystem.md",
+      "key": "knowledge/agentsam/dashboard-agent-audit/04-dashboard-agent-local-filesystem.md",
+      "content_type": "text/markdown"
+    },
+    {
+      "source": "docs/dashboard-agent-audit/05-dashboard-agent-r2-file-plane.md",
+      "key": "knowledge/agentsam/dashboard-agent-audit/05-dashboard-agent-r2-file-plane.md",
+      "content_type": "text/markdown"
+    },
+    {
+      "source": "docs/dashboard-agent-audit/06-dashboard-agent-github-plane.md",
+      "key": "knowledge/agentsam/dashboard-agent-audit/06-dashboard-agent-github-plane.md",
+      "content_type": "text/markdown"
+    },
+    {
+      "source": "docs/dashboard-agent-audit/07-dashboard-agent-monaco-and-save-matrix.md",
+      "key": "knowledge/agentsam/dashboard-agent-audit/07-dashboard-agent-monaco-and-save-matrix.md",
+      "content_type": "text/markdown"
+    },
+    {
+      "source": "docs/dashboard-agent-audit/08-dashboard-agent-google-drive.md",
+      "key": "knowledge/agentsam/dashboard-agent-audit/08-dashboard-agent-google-drive.md",
+      "content_type": "text/markdown"
+    },
+    {
+      "source": "docs/dashboard-agent-audit/09-dashboard-agent-chat-sse-stream.md",
+      "key": "knowledge/agentsam/dashboard-agent-audit/09-dashboard-agent-chat-sse-stream.md",
+      "content_type": "text/markdown"
+    },
+    {
+      "source": "docs/dashboard-agent-audit/10-dashboard-agent-surface-routing.md",
+      "key": "knowledge/agentsam/dashboard-agent-audit/10-dashboard-agent-surface-routing.md",
+      "content_type": "text/markdown"
+    },
+    {
+      "source": "docs/dashboard-agent-audit/11-dashboard-agent-workspace-context.md",
+      "key": "knowledge/agentsam/dashboard-agent-audit/11-dashboard-agent-workspace-context.md",
+      "content_type": "text/markdown"
+    },
+    {
+      "source": "docs/dashboard-agent-audit/12-dashboard-agent-approvals-and-tool-runs.md",
+      "key": "knowledge/agentsam/dashboard-agent-audit/12-dashboard-agent-approvals-and-tool-runs.md",
+      "content_type": "text/markdown"
+    },
+    {
+      "source": "docs/dashboard-agent-audit/13-dashboard-agent-browser-tools-backend.md",
+      "key": "knowledge/agentsam/dashboard-agent-audit/13-dashboard-agent-browser-tools-backend.md",
+      "content_type": "text/markdown"
+    },
+    {
+      "source": "docs/dashboard-agent-audit/14-dashboard-agent-terminal-and-pty.md",
+      "key": "knowledge/agentsam/dashboard-agent-audit/14-dashboard-agent-terminal-and-pty.md",
+      "content_type": "text/markdown"
+    },
+    {
+      "source": "docs/dashboard-agent-audit/15-dashboard-agent-local-git-source-panel.md",
+      "key": "knowledge/agentsam/dashboard-agent-audit/15-dashboard-agent-local-git-source-panel.md",
+      "content_type": "text/markdown"
+    },
+    {
+      "source": "docs/dashboard-agent-audit/16-dashboard-agent-mcp-and-integrations.md",
+      "key": "knowledge/agentsam/dashboard-agent-audit/16-dashboard-agent-mcp-and-integrations.md",
+      "content_type": "text/markdown"
+    },
+    {
+      "source": "docs/dashboard-agent-audit/17-dashboard-agent-knowledge-and-search.md",
+      "key": "knowledge/agentsam/dashboard-agent-audit/17-dashboard-agent-knowledge-and-search.md",
+      "content_type": "text/markdown"
+    },
+    {
+      "source": "docs/dashboard-agent-audit/18-dashboard-agent-home-and-recents.md",
+      "key": "knowledge/agentsam/dashboard-agent-audit/18-dashboard-agent-home-and-recents.md",
+      "content_type": "text/markdown"
+    },
+    {
+      "source": "docs/dashboard-agent-audit/19-dashboard-agent-draw-and-media-tabs.md",
+      "key": "knowledge/agentsam/dashboard-agent-audit/19-dashboard-agent-draw-and-media-tabs.md",
+      "content_type": "text/markdown"
+    },
+    {
+      "source": "docs/dashboard-agent-audit/20-dashboard-agent-command-palette.md",
+      "key": "knowledge/agentsam/dashboard-agent-audit/20-dashboard-agent-command-palette.md",
+      "content_type": "text/markdown"
+    },
+    {
+      "source": "docs/dashboard-agent-audit/21-dashboard-agent-model-routing-and-costs.md",
+      "key": "knowledge/agentsam/dashboard-agent-audit/21-dashboard-agent-model-routing-and-costs.md",
+      "content_type": "text/markdown"
+    },
+    {
+      "source": "docs/dashboard-agent-audit/22-dashboard-agent-memory-and-indexing.md",
+      "key": "knowledge/agentsam/dashboard-agent-audit/22-dashboard-agent-memory-and-indexing.md",
+      "content_type": "text/markdown"
+    },
+    {
+      "source": "docs/dashboard-agent-audit/23-dashboard-agent-automation-workflows.md",
+      "key": "knowledge/agentsam/dashboard-agent-audit/23-dashboard-agent-automation-workflows.md",
+      "content_type": "text/markdown"
+    },
+    {
+      "source": "docs/dashboard-agent-audit/24-dashboard-agent-e2e-validation.md",
+      "key": "knowledge/agentsam/dashboard-agent-audit/24-dashboard-agent-e2e-validation.md",
+      "content_type": "text/markdown"
+    },
+    {
+      "source": "docs/dashboard-agent-audit/25-dashboard-agent-master-backlog.md",
+      "key": "knowledge/agentsam/dashboard-agent-audit/25-dashboard-agent-master-backlog.md",
+      "content_type": "text/markdown"
+    },
+    {
+      "source": "docs/dashboard-agent-audit/README.md",
+      "key": "knowledge/agentsam/dashboard-agent-audit/README.md",
+      "content_type": "text/markdown"
+    },
+    {
+      "source": "docs/dashboard-agent-audit/r2-upload-notes.md",
+      "key": "knowledge/agentsam/dashboard-agent-audit/r2-upload-notes.md",
+      "content_type": "text/markdown"
+    }
+  ]
+}

@@ -63,6 +63,9 @@ Mobile users hitting **https://inneranimalmedia.com/dashboard/agent** get the **
 
 ### Desired mobile experience (target — not all built)
 
+- **No approval popups** for read-only repo inspection (grep, read, search, audit) — align with chunk 12 / B12-001
+- **Concurrent agent sessions** visible (runs list + cost) — partial via sessions UI; not operator-grade on mobile
+
 - Operator-first, session-first, **one active surface**
 - Persistent composer; expandable execution logs
 - Patch review cards; task progress feed

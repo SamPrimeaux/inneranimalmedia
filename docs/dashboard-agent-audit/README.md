@@ -12,6 +12,20 @@ The goal is to:
 - improve reliability and mobile usability
 - evolve the current platform into a dependable agent operating environment
 
+### Quality bar (operator UX target)
+
+Cursor-level **autonomous orchestration** is the baseline, not a stretch goal:
+
+| Target | Meaning for `/dashboard/agent` |
+|--------|--------------------------------|
+| **I ask, system executes** | Chat drives tools without manual terminal for basic repo inspection |
+| **Read-only inspection auto-runs** | Grep, read, search, audit, trace, summarize — **no approval modal** when risk is read-only |
+| **No Monaco for read-only audits** | Diff/preview cards on mobile; full IDE opt-in |
+| **Clean loading + progress** | Structured feed (files read, search, duration), stop button, visible model/cost |
+| **Mobile-first operator** | Session-first; one active surface; Chat / Diff / Preview / Logs |
+| **Concurrent sessions** | Multiple agent runs visible with cost awareness |
+| **Intentional browser automation** | iframe default; MYBROWSER only when explicit (chunk 01) |
+
 ---
 
 ## Primary rule
@@ -49,6 +63,22 @@ Canonical deploy doc: **`docs/AGENT_DASHBOARD.md`**
 | **Repair in progress** | Active fix branch |
 | **Repaired** | Fix merged + validation recorded |
 | **Embedded into production workflow** | Runbook / deploy / E2E updated |
+| **R2 mirrored** | Copy uploaded to `inneranimalmedia-autorag` under `knowledge/agentsam/dashboard-agent-audit/` |
+
+---
+
+## R2 knowledge mirror
+
+| Field | Value |
+|-------|--------|
+| Bucket | `inneranimalmedia-autorag` |
+| Prefix | `knowledge/agentsam/dashboard-agent-audit/` |
+| Repo source | `docs/dashboard-agent-audit/` |
+| Upload script | `scripts/upload-dashboard-agent-audit-to-autorag.sh` |
+| Manifest | [r2-upload-manifest.json](./r2-upload-manifest.json) |
+| Upload status | [r2-upload-notes.md](./r2-upload-notes.md) — **pending** (2026-05-28: cloud agent token 401) |
+
+After upload succeeds, mark relevant chunks **R2 mirrored** and re-index per chunk 22.
 
 ---
 
@@ -173,3 +203,5 @@ Production spot-check (with session): `curl -sI https://inneranimalmedia.com/das
 | 25 | [25-dashboard-agent-master-backlog.md](./25-dashboard-agent-master-backlog.md) |
 
 **Last verified against repo:** 2026-05-28
+
+**Next chunk recommended for full write:** [02-dashboard-agent-deploy-and-r2-assets.md](./02-dashboard-agent-deploy-and-r2-assets.md) (B02-001 stale bundles) or [09-dashboard-agent-chat-sse-stream.md](./09-dashboard-agent-chat-sse-stream.md) (B09-001 progress feed).

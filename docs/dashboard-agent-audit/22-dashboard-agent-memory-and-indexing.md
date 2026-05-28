@@ -21,6 +21,17 @@ Agent chat may invoke memory tools and RAG lanes configured in D1/MCP. Operators
 | Supabase semantic | `agent_memory` (pgvector) — separate schema from D1; mirror rules in `.cursor/rules` |
 | RAG lanes | `src/core/rag-lanes.js` |
 | Vectorize index | Worker `env.VECTORIZE` — `indexMemoryMarkdownToVectorize` in worker (markdown prefixes under R2 memory paths — **not** full `dashboard/` source tree by default) |
+### Canonical R2 path for this audit series
+
+| Field | Value |
+|-------|--------|
+| Bucket | `inneranimalmedia-autorag` |
+| Prefix | `knowledge/agentsam/dashboard-agent-audit/` |
+| Repo mirror | `docs/dashboard-agent-audit/*.md` |
+| Upload | `scripts/upload-dashboard-agent-audit-to-autorag.sh` + [r2-upload-manifest.json](./r2-upload-manifest.json) |
+
+Post-approval embedding: after user approves a write tool or deploy, Worker should queue index of changed paths into Vectorize/AutoRAG — **conceptual**; not production-dependable until B22-001 auth fixed.
+
 | R2 bucket | `inneranimalmedia-autorag` / autorag paths (operational; confirm in wrangler bindings) |
 | Alignment sync | `src/core/alignment-sync.js` — optional `agentsam_memory` writes |
 | Dashboard schema hint | `dashboard/schema.json` — `agent_workspace_state` (IDE persist, not embeddings) |
