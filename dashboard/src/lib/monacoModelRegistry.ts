@@ -16,6 +16,7 @@ export const MONACO_LANG_MAP: Record<string, string> = {
   html: 'html',
   htm: 'html',
   md: 'markdown',
+  markdown: 'markdown',
   mdx: 'markdown',
   py: 'python',
   sh: 'shell',

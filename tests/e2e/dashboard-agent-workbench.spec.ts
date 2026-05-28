@@ -1,6 +1,6 @@
 /**
  * Live /dashboard/agent workbench smoke: real session cookie, real composer, real POST /api/agent/chat SSE.
- * Reads window.__IAM_AGENT_LAST_STREAM_DEBUG (see dashboard/features/agent-chat/streamDebug.ts).
+ * Reads window.__IAM_AGENT_LAST_STREAM_DEBUG (see dashboard/components/ChatAssistant/streamDebug.ts).
  */
 import { test, expect } from '@playwright/test';
 import * as fs from 'fs';

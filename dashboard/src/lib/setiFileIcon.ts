@@ -84,6 +84,7 @@ export function monacoLanguageIdFromFilename(filename: string): string | undefin
     json: 'json',
     jsonc: 'jsonc',
     md: 'markdown',
+    markdown: 'markdown',
     mdx: 'markdown',
     css: 'css',
     scss: 'scss',

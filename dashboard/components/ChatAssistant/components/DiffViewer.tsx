@@ -21,6 +21,7 @@ const LANG_MAP: Record<string, string> = {
   css: 'css',
   html: 'html',
   md: 'markdown',
+  markdown: 'markdown',
   py: 'python',
   sql: 'sql',
   sh: 'shell',

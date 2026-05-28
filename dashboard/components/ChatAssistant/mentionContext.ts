@@ -65,6 +65,7 @@ function languageFromFileName(fileName: string): string {
     cjs: 'javascript',
     json: 'json',
     md: 'markdown',
+    markdown: 'markdown',
     mdx: 'mdx',
     html: 'html',
     htm: 'html',
