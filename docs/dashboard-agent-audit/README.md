@@ -76,10 +76,10 @@ Canonical deploy doc: **`docs/AGENT_DASHBOARD.md`**
 | Repo source | `docs/dashboard-agent-audit/` |
 | Upload script | `scripts/upload-dashboard-agent-audit-to-autorag.sh` |
 | Manifest | [r2-upload-manifest.json](./r2-upload-manifest.json) |
-| Upload status | [r2-upload-notes.md](./r2-upload-notes.md) — **pending** (2026-05-28: cloud agent token 401) |
+| Upload status | [r2-upload-notes.md](./r2-upload-notes.md) — **R2 mirrored** (2026-05-28, 29 files) |
 | Credentials | [r2-upload-credentials.md](./r2-upload-credentials.md) — **Cursor Secrets** or local `.env.cloudflare` (never commit) |
 
-After upload succeeds, mark relevant chunks **R2 mirrored** and re-index per chunk 22.
+**Status:** R2 mirror complete (2026-05-28). Optional next step: re-index AutoRAG / Vectorize per chunk 22.
 
 ---
 
