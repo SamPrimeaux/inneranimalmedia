@@ -653,6 +653,73 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         result = out?.error ? { ok: false, error: String(out.error) } : { ok: true, body: out };
         break;
       }
+      if (dispatcher === 'semantic_retrieval') {
+        const { dispatchSemanticRetrieval } = await import('./semantic-retrieval-dispatch.js');
+        const lane = String(
+          config.semantic_lane || config.execution_lane || toolKey || '',
+        ).trim();
+        const query = String(params.query || params.q || '').trim();
+        if (!query) {
+          result = { ok: false, error: 'semantic_retrieval requires query' };
+          break;
+        }
+        const out = await dispatchSemanticRetrieval(env, {
+          lane,
+          query,
+          workspace_id: workspaceId,
+          tenant_id: tenantId,
+          user_id: userId,
+          agent_run_id: agentRunId,
+          top_k: Math.min(Math.max(Number(params.top_k ?? params.topK ?? 6) || 6, 1), 24),
+        });
+        result = { ok: out?.ok !== false, body: out };
+        break;
+      }
+      if (dispatcher === 'database_assistant') {
+        const { dispatchDatabaseAssistant } = await import('./database-assistant-dispatch.js');
+        const operation = String(
+          params.operation || config.operation || 'inspect_schema',
+        ).trim();
+        const out = await dispatchDatabaseAssistant(env, {
+          operation,
+          authUser: runContext.authUser ?? runContext.user ?? null,
+          tenant_id: tenantId,
+          workspace_id: workspaceId,
+          schema: String(params.schema || config.schema || 'agentsam').trim() || 'agentsam',
+          table: params.table != null ? String(params.table).trim() : '',
+          sql: params.sql != null ? String(params.sql) : '',
+          migration_sql: params.migration_sql != null ? String(params.migration_sql) : '',
+          approval_id: params.approval_id ?? null,
+          agent_run_id: agentRunId,
+        });
+        result = { ok: out?.ok !== false, body: out };
+        break;
+      }
+      if (dispatcher === 'legacy_unified_rag' || config.legacy_unified_rag === true) {
+        const { legacyUnifiedRagSearch } = await import('../api/rag.js');
+        const query = String(params.query || params.q || '').trim();
+        if (!query) {
+          result = { ok: false, error: 'legacy_unified_rag requires query' };
+          break;
+        }
+        const out = await legacyUnifiedRagSearch(env, query, {
+          topK: Number(params.top_k ?? params.topK ?? 8) || 8,
+          tenantId,
+          workspaceId,
+          sessionId: conversationId,
+          caller: `catalog_tool:${toolKey}`,
+        });
+        result = {
+          ok: true,
+          body: {
+            legacy: true,
+            matches: out.matches || [],
+            results: out.results || [],
+            count: out.count || 0,
+          },
+        };
+        break;
+      }
       const op = String(config.operation || config.ai_operation || 'complete').toLowerCase();
       const fnKey = op === 'embed' ? 'ai_embed' : op === 'compare' ? 'ai_compare' : 'ai_complete';
       const fn = aiOpsHandlers[fnKey];

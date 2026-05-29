@@ -119,6 +119,11 @@ export async function dispatchProductionDomainRoutes(rc) {
     return handleUnifiedSearchApi(request, url, env);
   }
 
+  if (pathLower === '/api/public/sync') {
+    const { handlePublicSyncApi } = await import('../api/public-sync.js');
+    return handlePublicSyncApi(request, env);
+  }
+
   if (pathLower.startsWith('/api/calendar')) {
     return handleCalendarApi(request, url, env, ctx);
   }
