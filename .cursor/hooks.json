@@ -1,0 +1,9 @@
+{
+  "hooks": [
+    {
+      "event": "beforeShellExecution",
+      "command": "node scripts/cursor-shell-guard.js",
+      "timeout": 5000
+    }
+  ]
+}

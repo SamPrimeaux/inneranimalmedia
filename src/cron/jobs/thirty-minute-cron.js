@@ -10,6 +10,7 @@ import {
 } from '../../core/routing-cron.js';
 import { applyEtoToRoutingArms } from '../../core/performance-eto.js';
 import { scanErrorLogThresholds } from '../../core/error-log-escalation.js';
+import { runMcpServerHealthCron } from './mcp-server-health.js';
 
 const CRON_30 = '*/30 * * * *';
 
@@ -176,6 +177,7 @@ export async function runThirtyMinuteJobs(env, ctx) {
   // Stuck sweep + overnight progress moved to daily (midnight UTC) — was 48×/day with 0 writes.
   ctx.waitUntil(sweepExpiredApprovalQueue(env));
   ctx.waitUntil(sweepStaleTerminalSessions(env));
+  ctx.waitUntil(runMcpServerHealthCron(env).catch((e) => console.warn('[cron] mcp_server_health', e?.message ?? e)));
 }
 
 export async function runHourlyRoutingJobs(env, ctx) {

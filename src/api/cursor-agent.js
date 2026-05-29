@@ -3,6 +3,7 @@
  */
 import { getAuthUser, jsonResponse } from '../core/auth.js';
 import { getVaultSecrets, secretFromVault } from '../core/vault.js';
+import { pragmaTableInfo } from '../core/retention.js';
 
 const CURSOR_API_BASE = 'https://api.cursor.com/v1';
 const CURSOR_WEBHOOK_URL = 'https://inneranimalmedia.com/api/webhooks/cursor';
@@ -56,7 +57,13 @@ export function buildCursorPromptFromChat(systemPrompt, messages) {
 
 /**
  * @param {any} env
- * @param {{ prompt: string, model: string, repo?: string | null, branch?: string }} opts
+ * @param {{
+ *   prompt: string,
+ *   model: string,
+ *   repo?: string | null,
+ *   branch?: string,
+ *   agentRunId?: string | null,
+ * }} opts
  */
 export async function spawnCursorCloudAgent(env, opts) {
   const apiKey = resolveCursorApiKey(env);
@@ -71,6 +78,10 @@ export async function spawnCursorCloudAgent(env, opts) {
   const repo = opts.repo != null ? String(opts.repo).trim() : '';
   const branch = opts.branch != null ? String(opts.branch).trim() : 'main';
   const webhookSecret = await resolveCursorWebhookSecret(env);
+  const mcpToken =
+    env?.MCP_INTERNAL_TOKEN != null && String(env.MCP_INTERNAL_TOKEN).trim() !== ''
+      ? String(env.MCP_INTERNAL_TOKEN).trim()
+      : apiKey;
 
   const spawnRes = await fetch(`${CURSOR_API_BASE}/agents`, {
     method: 'POST',
@@ -91,6 +102,15 @@ export async function spawnCursorCloudAgent(env, opts) {
             },
           }
         : {}),
+      mcp_servers: {
+        inneranimalmedia: {
+          type: 'http',
+          url: 'https://mcp.inneranimalmedia.com/mcp',
+          headers: {
+            Authorization: `Bearer ${mcpToken}`,
+          },
+        },
+      },
     }),
   });
 
@@ -117,9 +137,23 @@ export async function spawnCursorCloudAgent(env, opts) {
     return { ok: false, status: 502, error: 'Cursor API missing agent id', detail: raw.slice(0, 200) };
   }
 
+  const externalId = String(agentId);
+  const agentRunId = opts.agentRunId != null ? String(opts.agentRunId).trim() : '';
+  if (env?.DB && agentRunId) {
+    const colSet = await pragmaTableInfo(env.DB, 'agentsam_agent_run');
+    if (colSet.has('external_agent_id')) {
+      await env.DB.prepare(
+        `UPDATE agentsam_agent_run SET external_agent_id = ? WHERE id = ?`,
+      )
+        .bind(externalId, agentRunId)
+        .run()
+        .catch(() => {});
+    }
+  }
+
   return {
     ok: true,
-    agentId: String(agentId),
+    agentId: externalId,
     status: agentData.status || 'running',
     model,
   };
@@ -278,9 +312,12 @@ export async function dispatchCursorComposerStream(env, _request, params) {
       : modelKey;
   const prompt = buildCursorPromptFromChat(params.systemPrompt, params.messages);
 
+  const agentRunId = params.agentRunId ?? params.agent_run_id ?? null;
+
   const spawned = await spawnCursorCloudAgent(env, {
     prompt,
     model: providerModelId,
+    agentRunId: agentRunId != null ? String(agentRunId) : null,
   });
   if (!spawned.ok) {
     return jsonResponse(
@@ -288,8 +325,6 @@ export async function dispatchCursorComposerStream(env, _request, params) {
       spawned.status === 400 ? 400 : 502,
     );
   }
-
-  const agentRunId = params.agentRunId ?? params.agent_run_id ?? null;
   if (env.DB && agentRunId) {
     await env.DB.prepare(
       `UPDATE agentsam_agent_run SET status = 'running', model_id = ? WHERE id = ?`,

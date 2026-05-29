@@ -44,6 +44,7 @@ import { handleDesignStudioApi } from '../api/designstudio/index.js';
 import { handleStudioSessionApi } from '../api/studio-session.js';
 import { handleStatusBundle } from '../api/status-bundle.js';
 import { handleCursorAgentApi } from '../api/cursor-agent.js';
+import { handleCursorAcpMessage } from '../api/cursor-acp.js';
 import { handleCalendarApi } from '../api/calendar.js';
 import { handleHealthApi } from '../api/health/index.js';
 import { handleAnalyticsApi } from '../api/analytics/index.js';
@@ -170,6 +171,9 @@ export async function dispatchProductionDomainRoutes(rc) {
   }
   if (pathLower.startsWith('/api/artifacts')) {
     return handleStudioSessionApi(request, url, env, ctx);
+  }
+  if (pathLower === '/api/cursor/acp' && methodUpper === 'POST') {
+    return handleCursorAcpMessage(request, env, ctx);
   }
   if (pathLower.startsWith('/api/cursor/')) {
     return handleCursorAgentApi(request, url, env, ctx);

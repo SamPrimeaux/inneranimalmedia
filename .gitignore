@@ -26,7 +26,11 @@ tmp/
 .DS_Store
 ._*
 .vscode/
-.cursor/
+.cursor/*
+!.cursor/mcp.json
+!.cursor/hooks.json
+!.cursor/agents/
+!.cursor/agents/**
 
 # generated dashboard build
 dashboard/dist/
