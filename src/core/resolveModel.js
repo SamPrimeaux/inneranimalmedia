@@ -105,6 +105,22 @@ export class ResolutionError extends Error {
 
 const CANONICAL_TASK_TYPES = ['agent', 'ask', 'multitask', 'plan', 'debug'];
 
+/** Map UI/default mode "auto" to D1 routing arm mode (arms use task_type names, not "auto"). */
+export function resolveRoutingMode(task_type, mode = 'auto') {
+  const m = String(mode || 'auto').trim().toLowerCase();
+  if (m !== 'auto') return m;
+  const tt = String(task_type || '').trim().toLowerCase();
+  if (CANONICAL_TASK_TYPES.includes(tt)) return tt;
+  return 'auto';
+}
+
+/** Legacy catalog uses task_type "chat"; canonical resolver uses "ask". */
+function routingTaskTypeCandidates(task_type) {
+  const tt = String(task_type || 'ask').trim().toLowerCase();
+  if (tt === 'ask') return ['ask', 'chat'];
+  return [tt];
+}
+
 /** Locked chat/orchestration task_type contract — map legacy values before D1 arm lookup. */
 export function normalizeCanonicalTaskType(task_type) {
   const tt = String(task_type ?? 'ask').trim().toLowerCase();
@@ -343,6 +359,30 @@ async function selectThompsonArm(db, {
   require_tools,
 }) {
   const wsId = workspace_id ?? '';
+  const modesToTry = [...new Set([mode, 'auto', 'agent', 'ask'].filter(Boolean))];
+  const taskTypesToTry = routingTaskTypeCandidates(task_type);
+
+  for (const tryTaskType of taskTypesToTry) {
+    for (const tryMode of modesToTry) {
+      const ranked = await _selectThompsonArmOnce(db, {
+        task_type: tryTaskType,
+        mode: tryMode,
+        workspace_id: wsId,
+        require_tools,
+      });
+      if (ranked?.length) return ranked;
+    }
+  }
+  return null;
+}
+
+async function _selectThompsonArmOnce(db, {
+  task_type,
+  mode,
+  workspace_id,
+  require_tools,
+}) {
+  const wsId = workspace_id ?? '';
 
   const { results: arms } = await db.prepare(`
     SELECT
@@ -396,34 +436,44 @@ async function selectThompsonArm(db, {
 //    No hardcoded model strings here — this is entirely data-driven.
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function queryGlobalPolicyArm(db, { task_type, mode, require_tools }) {
-  // Try exact mode, then 'auto', then any mode for this task
-  for (const tryMode of [mode, 'auto', null]) {
-    const modeClause = tryMode != null ? 'AND ra.mode = ?' : '';
-    const binds = tryMode != null
-      ? [task_type, tryMode]
-      : [task_type];
+async function queryGlobalPolicyArm(db, { task_type, mode, workspace_id, require_tools }) {
+  const wsId = String(workspace_id || '').trim();
+  const modesToTry = [...new Set([mode, 'auto', 'agent', 'ask', null])];
+  const taskTypesToTry = routingTaskTypeCandidates(task_type);
 
-    const arm = await db.prepare(`
-      SELECT ra.id, ra.model_key
-      FROM agentsam_routing_arms ra
-      INNER JOIN agentsam_model_catalog mc
-        ON mc.model_key = ra.model_key
-       AND mc.is_active = 1
-       AND mc.is_degraded = 0
-      WHERE ra.task_type = ?
-        ${modeClause}
-        AND ra.is_active = 1
-        AND ra.is_eligible = 1
-        AND ra.is_paused = 0
-        AND ra.budget_exhausted = 0
-        AND (ra.workspace_id IS NULL OR ra.workspace_id = '')
-        ${require_tools ? 'AND mc.supports_tools = 1' : ''}
-      ORDER BY ra.priority DESC, ra.decayed_score DESC
-      LIMIT 1
-    `).bind(...binds).first().catch(() => null);
+  for (const tryTaskType of taskTypesToTry) {
+    for (const tryMode of modesToTry) {
+      const modeClause = tryMode != null ? 'AND ra.mode = ?' : '';
+      const binds = tryMode != null ? [tryTaskType, tryMode] : [tryTaskType];
+      const wsClause = wsId
+        ? 'AND (ra.workspace_id = ? OR ra.workspace_id = \'\' OR ra.workspace_id IS NULL)'
+        : 'AND (ra.workspace_id IS NULL OR ra.workspace_id = \'\')';
+      if (wsId) binds.push(wsId);
 
-    if (arm) return arm;
+      const arm = await db.prepare(`
+        SELECT ra.id, ra.model_key
+        FROM agentsam_routing_arms ra
+        INNER JOIN agentsam_model_catalog mc
+          ON mc.model_key = ra.model_key
+         AND mc.is_active = 1
+         AND mc.is_degraded = 0
+        WHERE ra.task_type = ?
+          ${modeClause}
+          AND ra.is_active = 1
+          AND ra.is_eligible = 1
+          AND ra.is_paused = 0
+          AND ra.budget_exhausted = 0
+          ${wsClause}
+          ${require_tools ? 'AND mc.supports_tools = 1' : ''}
+        ORDER BY
+          CASE WHEN ra.workspace_id = ? THEN 0 ELSE 1 END,
+          ra.priority DESC,
+          ra.decayed_score DESC
+        LIMIT 1
+      `).bind(...binds, wsId || '').first().catch(() => null);
+
+      if (arm) return arm;
+    }
   }
   return null;
 }
@@ -461,6 +511,7 @@ export async function resolveModelForTask(env, {
   if (!task_type) throw new ResolutionError('MISSING_TASK_TYPE', 'task_type is required');
 
   const normalizedTaskType = normalizeCanonicalTaskType(task_type);
+  const routingMode = resolveRoutingMode(normalizedTaskType, mode);
 
   const db  = env.DB;
   const t0  = Date.now();
@@ -498,7 +549,7 @@ export async function resolveModelForTask(env, {
     // ── Path C: Thompson sampling across eligible arms ──────────────────────
     source = 'thompson';
     const candidates = await selectThompsonArm(db, {
-      task_type: normalizedTaskType, mode, workspace_id, require_tools,
+      task_type: normalizedTaskType, mode: routingMode, workspace_id, require_tools,
     });
 
     if (candidates && candidates.length > 0) {
@@ -533,7 +584,12 @@ export async function resolveModelForTask(env, {
 
     // ── Path D: DB global policy (workspace-agnostic arms) ──────────────────
     source = 'policy';
-    const globalArm = await queryGlobalPolicyArm(db, { task_type: normalizedTaskType, mode, require_tools });
+    const globalArm = await queryGlobalPolicyArm(db, {
+      task_type: normalizedTaskType,
+      mode: routingMode,
+      workspace_id,
+      require_tools,
+    });
     if (globalArm) {
       try {
         const resolved = await loadModelRecord(db, globalArm.model_key, 'policy', globalArm.id, cap);

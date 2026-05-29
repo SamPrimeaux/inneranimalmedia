@@ -368,6 +368,7 @@ export async function createPlan(
   try {
     const resolved = await resolveModelForTask(env, {
       task_type: 'plan',
+      mode: 'agent',
       workspace_id:
         workspaceId != null && String(workspaceId).trim() !== '' ? String(workspaceId).trim() : null,
       require_tools: true,

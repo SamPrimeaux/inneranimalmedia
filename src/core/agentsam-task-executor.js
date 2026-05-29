@@ -25,6 +25,7 @@ const TASK_AGENT_SYSTEM = `You are Agent Sam executing a specific task. Complete
 async function resolveTaskExecutorModelKey(env, workspaceId) {
   const resolved = await resolveModelForTask(env, {
     task_type: 'agent',
+    mode: 'agent',
     workspace_id:
       workspaceId != null && String(workspaceId).trim() !== ''
         ? String(workspaceId).trim()
