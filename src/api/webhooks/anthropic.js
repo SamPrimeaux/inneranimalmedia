@@ -5,7 +5,7 @@
 import { jsonResponse } from '../../core/auth.js';
 import { getVaultSecrets, secretFromVault } from '../../core/vault.js';
 import { verifyAnthropicWebhookSignature } from '../../core/anthropic-webhook-verify.js';
-import { recordAgentsamWebhookEvent } from '../../core/webhook-events-writer.js';
+import { ingestWebhookEventAndDispatch } from '../../core/webhook-ingest-dispatch.js';
 
 /**
  * @param {Request} request
@@ -61,7 +61,7 @@ export async function handleAnthropicWebhook(request, env, ctx) {
     (typeof env?.TENANT_ID === 'string' && env.TENANT_ID.trim()) ||
     'system';
 
-  await recordAgentsamWebhookEvent(env, ctx, {
+  await ingestWebhookEventAndDispatch(env, ctx, {
     tenantId,
     provider: 'anthropic',
     eventType,

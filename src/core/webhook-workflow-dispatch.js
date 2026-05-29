@@ -4,7 +4,16 @@
 import { pragmaTableInfo } from './retention.js';
 import { executeWorkflowGraph } from './workflow-executor.js';
 
-const DISPATCH_PROVIDERS = new Set(['github', 'cloudflare', 'cursor', 'supabase']);
+const DISPATCH_PROVIDERS = new Set([
+  'github',
+  'cloudflare',
+  'cursor',
+  'supabase',
+  'openai',
+  'anthropic',
+  'resend',
+  'internal',
+]);
 
 /**
  * Cursor sends camelCase (`statusChange`); registry stores snake_case (`status_change`).
@@ -54,7 +63,14 @@ export async function dispatchWebhookRegistryWorkflow(env, ctx, opts) {
     ['agent_finish', 'commit', 'deploy', 'review_complete', 'status_change'].includes(
       normalizedEventType,
     );
-  if (!githubDispatch && !cfDispatch && !cursorDispatch && provider !== 'supabase') {
+  const passthroughDispatch = ['openai', 'anthropic', 'resend', 'internal'].includes(provider);
+  if (
+    !githubDispatch &&
+    !cfDispatch &&
+    !cursorDispatch &&
+    provider !== 'supabase' &&
+    !passthroughDispatch
+  ) {
     return { ok: false, reason: 'event_type_skipped' };
   }
 

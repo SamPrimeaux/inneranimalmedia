@@ -6,7 +6,8 @@ import {
   overviewDirtySectionsForWebhook,
   setOverviewBundleDirty,
 } from '../../core/overview-bundle-kv.js';
-import { recordAgentsamWebhookEvent, resolveWebhookTenantId } from '../../core/webhook-events-writer.js';
+import { resolveWebhookTenantId } from '../../core/webhook-events-writer.js';
+import { ingestWebhookEventAndDispatch } from '../../core/webhook-ingest-dispatch.js';
 
 /** @param {string} a @param {string} b */
 function timingSafeEqualUtf8(a, b) {
@@ -66,7 +67,7 @@ export async function handleSupabaseWebhook(request, env, ctx) {
   }
 
   if (routedType === 'workflow_eval_result') {
-    await recordAgentsamWebhookEvent(env, ctx, {
+    await ingestWebhookEventAndDispatch(env, ctx, {
       tenantId:
         typeof body?.tenant_id === 'string' && body.tenant_id.trim()
           ? body.tenant_id.trim()
@@ -103,7 +104,7 @@ export async function handleSupabaseWebhook(request, env, ctx) {
     ctx.waitUntil(
       (async () => {
         const eventType = `${body.type ?? ''}:${body.table ?? ''}`;
-        await recordAgentsamWebhookEvent(env, null, {
+        await ingestWebhookEventAndDispatch(env, ctx, {
           tenantId: webhookTenant,
           provider: 'supabase',
           eventType,

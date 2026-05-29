@@ -74,27 +74,12 @@ export async function handleIntegrationsRequest(request, envArg, ctxArg, authUse
     const method = request.method.toUpperCase();
 
     if (method === 'POST' && request.headers.get('X-GitHub-Event')) {
-        const eventType = request.headers.get('X-GitHub-Event') || 'unknown';
-        const eventId = request.headers.get('X-GitHub-Delivery') || null;
-        const raw = await request.text().catch(() => '');
-        let body = {};
-        try {
-            body = raw ? JSON.parse(raw) : {};
-        } catch {
-            body = { _unparsed: raw.slice(0, 8000) };
-        }
-        const tid = fallbackSystemTenantId(env);
-        const { recordAgentsamWebhookEvent } = await import('../core/webhook-events-writer.js');
-        await recordAgentsamWebhookEvent(env, ctx, {
-            tenantId: tid,
-            provider: 'github',
-            eventType,
-            eventId,
-            payload: body,
-            endpointPath: '/api/webhooks/github',
-            signatureValid: true,
-        });
-        return jsonResponse({ ok: true });
+        return jsonResponse(
+            {
+                error: 'Use signed endpoint POST /api/webhooks/github (X-Hub-Signature-256 required)',
+            },
+            400,
+        );
     }
 
     // 1. BlueBubbles Webhook Gate
@@ -108,7 +93,7 @@ export async function handleIntegrationsRequest(request, envArg, ctxArg, authUse
         if (env.RESEND_WEBHOOK_SECRET && secret !== env.RESEND_WEBHOOK_SECRET) {
             return jsonResponse({ error: 'Invalid webhook secret' }, 403);
         }
-        return handleResendWebhook(request, env, ctx);
+        return handleResendWebhook(request, env, ctx, pathLower);
     }
 
     // 3. Resend Inbound Email Hook (Explicit path)
@@ -117,7 +102,7 @@ export async function handleIntegrationsRequest(request, envArg, ctxArg, authUse
         if (env.RESEND_INBOUND_WEBHOOK_SECRET && secret !== env.RESEND_INBOUND_WEBHOOK_SECRET) {
             return jsonResponse({ error: 'Invalid inbound secret' }, 403);
         }
-        return handleResendWebhook(request, env, ctx);
+        return handleResendWebhook(request, env, ctx, pathLower);
     }
 
     if (!pathLower.startsWith('/api/integrations')) return null;
@@ -972,7 +957,7 @@ function timingSafeEqual(a, b) {
  * 🧱 handleResendWebhook: Inbound Email Reply Hub
  * Processes inbound emails from Resend and matches them to active agent hooks.
  */
-async function handleResendWebhook(request, env, ctx) {
+async function handleResendWebhook(request, env, ctx, endpointPath = '/api/webhooks/resend') {
     try {
         const body = await request.json();
         const { from, subject, text, to } = body.data || body; // Format varies based on Resend setup
@@ -1004,6 +989,24 @@ async function handleResendWebhook(request, env, ctx) {
             ).run();
         }
         await recordIntegrationEvent(env, 'system', 'resend', 'webhook_received', senderEmail, `Inbound email webhook received from ${senderEmail}`, { hook_matched: !!hook, subject });
+
+        const { ingestWebhookEventAndDispatch } = await import('../core/webhook-ingest-dispatch.js');
+        const pathNorm = String(endpointPath || '/api/webhooks/resend').toLowerCase();
+        const eventType =
+            body?.type != null
+                ? String(body.type)
+                : pathNorm.includes('inbound')
+                  ? 'email_inbound'
+                  : 'webhook_received';
+        await ingestWebhookEventAndDispatch(env, ctx, {
+            tenantId: fallbackSystemTenantId(env),
+            provider: 'resend',
+            eventType,
+            payload: body,
+            endpointPath: pathNorm,
+            signatureValid: true,
+            metadata: { hook_matched: !!hook, subject: subject ?? null, from: senderEmail },
+        });
 
         return jsonResponse({ 
             status: 'received', 

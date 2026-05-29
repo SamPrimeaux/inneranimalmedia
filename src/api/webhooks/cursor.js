@@ -3,11 +3,7 @@
  */
 import { jsonResponse } from '../../core/auth.js';
 import { getVaultSecrets, secretFromVault } from '../../core/vault.js';
-import {
-  insertAgentsamWebhookEvent,
-  markAgentsamWebhookEventProcessed,
-} from '../../core/webhook-events-writer.js';
-import { dispatchWebhookRegistryWorkflow } from '../../core/webhook-workflow-dispatch.js';
+import { ingestWebhookEventAndDispatch } from '../../core/webhook-ingest-dispatch.js';
 
 /** @param {string} a @param {string} b */
 function timingSafeEqualUtf8(a, b) {
@@ -81,7 +77,7 @@ export async function handleCursorWebhook(request, env, ctx) {
     payload?.type || payload?.event || payload?.event_type || 'unknown',
   ).trim();
 
-  const ins = await insertAgentsamWebhookEvent(env, {
+  await ingestWebhookEventAndDispatch(env, ctx, {
     provider: 'cursor',
     eventType,
     eventId: payload?.id != null ? String(payload.id) : null,
@@ -92,19 +88,9 @@ export async function handleCursorWebhook(request, env, ctx) {
       agent_id: payload?.agent_id ?? payload?.agentId ?? null,
       status: payload?.status ?? null,
     },
+    tenantId: payload?.tenant_id ?? null,
+    workspaceId: payload?.workspace_id ?? null,
   });
-
-  if (ins?.ok && ins?.id) {
-    await markAgentsamWebhookEventProcessed(env, ins.id);
-    await dispatchWebhookRegistryWorkflow(env, ctx, {
-      eventId: ins.id,
-      provider: 'cursor',
-      eventType,
-      payload,
-      tenantId: payload?.tenant_id ?? null,
-      workspaceId: payload?.workspace_id ?? null,
-    });
-  }
 
   return jsonResponse({ ok: true });
 }

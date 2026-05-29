@@ -39,6 +39,9 @@ import {
 import { handleGithubWebhook } from './api/webhooks/github.js';
 import { handleAnthropicWebhook } from './api/webhooks/anthropic.js';
 import { handleCursorWebhook } from './api/webhooks/cursor.js';
+import { handleOpenAiWebhook } from './api/webhooks/openai.js';
+import { handleInternalWebhook } from './api/webhooks/internal.js';
+import { handleCloudflareWebhook } from './api/webhooks/cloudflare.js';
 import { recordAgentsamWebhookEvent } from './core/webhook-events-writer.js';
 import { getDashboardR2Object, getDashboardSpaHtmlShell } from './core/dashboard-r2-assets.js';
 import { resolveGitHubToken } from './core/github-token.js';
@@ -200,31 +203,16 @@ export default {
       }
 
       if (pathLower === '/api/webhooks/openai' || pathLower === '/api/hooks/openai') {
-        const sig  = request.headers.get('x-openai-signature') || '';
-        const raw  = await request.text();
-        const key  = env.OPENAI_WEBHOOK_SECRET || '';
-        if (key) {
-          const enc = new TextEncoder();
-          const ck  = await crypto.subtle.importKey(
-            'raw', enc.encode(key), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
-          );
-          const mac = await crypto.subtle.sign('HMAC', ck, enc.encode(raw));
-          const hex = Array.from(new Uint8Array(mac))
-            .map(b => b.toString(16).padStart(2,'0')).join('');
-          if (sig !== hex) return new Response('Unauthorized', { status: 401 });
-        }
-        let payload = {};
-        try { payload = JSON.parse(raw); } catch (_) {}
-        await recordAgentsamWebhookEvent(env, ctx, {
-          provider: 'openai',
-          eventType: String(payload?.type || 'unknown'),
-          payload,
-          endpointPath: pathLower,
-          signatureValid: true,
-        });    return new Response(JSON.stringify({ ok: true }),
-          { headers: { 'Content-Type': 'application/json' } });
+        return handleOpenAiWebhook(request, env, ctx);
       }
 
+      if (pathLower === '/api/webhooks/internal' && methodUpper === 'POST') {
+        return handleInternalWebhook(request, env, ctx);
+      }
+
+      if (pathLower === '/api/webhooks/cloudflare' && methodUpper === 'POST') {
+        return handleCloudflareWebhook(request, env, ctx);
+      }
 
       if (pathLower === '/api/webhooks/supabase' || pathLower === '/api/hooks/supabase') {
         const { handleSupabaseWebhook } = await import('./api/webhooks/supabase.js');

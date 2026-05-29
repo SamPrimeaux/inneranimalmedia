@@ -3,11 +3,7 @@
  */
 import { jsonResponse } from '../../core/auth.js';
 import { getVaultSecrets, secretFromVault } from '../../core/vault.js';
-import {
-  insertAgentsamWebhookEvent,
-  markAgentsamWebhookEventProcessed,
-} from '../../core/webhook-events-writer.js';
-import { dispatchWebhookRegistryWorkflow } from '../../core/webhook-workflow-dispatch.js';
+import { ingestWebhookEventAndDispatch } from '../../core/webhook-ingest-dispatch.js';
 
 /** @param {string} a @param {string} b */
 function timingSafeEqualUtf8(a, b) {
@@ -132,7 +128,7 @@ export async function handleGithubWebhook(request, env, ctx) {
     (typeof env?.TENANT_ID === 'string' && env.TENANT_ID.trim()) ||
     'system';
 
-  const ins = await insertAgentsamWebhookEvent(env, {
+  await ingestWebhookEventAndDispatch(env, ctx, {
     tenantId,
     provider: 'github',
     eventType,
@@ -148,17 +144,6 @@ export async function handleGithubWebhook(request, env, ctx) {
       author_username: authorFromPayload(payload),
     },
   });
-
-  if (ins?.ok && ins?.id) {
-    await markAgentsamWebhookEventProcessed(env, ins.id);
-    await dispatchWebhookRegistryWorkflow(env, ctx, {
-      eventId: ins.id,
-      provider: 'github',
-      eventType,
-      payload,
-      tenantId,
-    });
-  }
 
   return jsonResponse({ ok: true });
 }
