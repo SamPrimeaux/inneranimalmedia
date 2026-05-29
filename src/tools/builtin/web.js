@@ -27,7 +27,19 @@ async function invokeBrowserOp(env, toolName, params) {
                 origin: targetOriginInput,
             });
         } catch (e) {
-            return { error: e.message, blocked: true };
+            let origin = targetOriginInput;
+            try {
+                const raw = String(targetOriginInput);
+                origin = new URL(raw.startsWith('http') ? raw : `https://${raw}`).origin;
+            } catch {
+                /* keep raw */
+            }
+            return {
+                error: e?.message != null ? String(e.message) : String(e),
+                blocked: true,
+                code: 'browser_origin_not_trusted',
+                origin,
+            };
         }
     }
 

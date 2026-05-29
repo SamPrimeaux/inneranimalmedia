@@ -1,0 +1,36 @@
+-- 453: Codemode meta tool row (validation + tools/list); execution is Worker bridge only.
+INSERT OR IGNORE INTO agentsam_tools (
+  id,
+  tool_key,
+  tool_name,
+  display_name,
+  description,
+  tool_category,
+  handler_type,
+  handler_config,
+  input_schema,
+  risk_level,
+  requires_approval,
+  is_active,
+  is_degraded,
+  sort_priority,
+  created_at,
+  updated_at
+) VALUES (
+  'tool_codemode_meta',
+  'codemode',
+  'codemode',
+  'Code Mode',
+  'Run JavaScript that orchestrates IAM catalog tools inside an isolated Worker sandbox (env.LOADER).',
+  'agent',
+  'http',
+  '{"auth_source":"none","operation":"noop","module":"codemode"}',
+  '{"type":"object","properties":{"code":{"type":"string","description":"Async arrow function body"}},"required":["code"]}',
+  'low',
+  0,
+  1,
+  0,
+  5,
+  unixepoch(),
+  unixepoch()
+);

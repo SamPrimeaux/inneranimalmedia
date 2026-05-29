@@ -175,28 +175,40 @@ interface AreaSelection {
   active: boolean;
 }
 
-// ─── Trust API ────────────────────────────────────────────────────────────────
+// ─── Trust API (IAM session + workspace header — same contract as MCP OAuth consent) ─
 
-async function checkTrust(origin: string): Promise<boolean> {
+function browserTrustHeaders(workspaceId?: string | null): Record<string, string> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', Accept: 'application/json' };
+  const ws = workspaceId != null ? String(workspaceId).trim() : '';
+  if (ws) headers['x-iam-workspace-id'] = ws;
+  return headers;
+}
+
+async function checkTrust(origin: string, workspaceId?: string | null): Promise<boolean> {
   try {
     const r = await fetch(`/api/agentsam/browser/trust?origin=${encodeURIComponent(origin)}`, {
       credentials: 'same-origin',
+      headers: browserTrustHeaders(workspaceId),
     });
-    if (!r.ok) return true; // endpoint not yet wired → allow by default
+    if (!r.ok) return false;
     const d = await r.json().catch(() => ({}));
     return !!d.trusted;
-  } catch { return true; }
+  } catch {
+    return false;
+  }
 }
 
-async function writeTrust(origin: string, scope: TrustScope): Promise<void> {
+async function writeTrust(origin: string, scope: TrustScope, workspaceId?: string | null): Promise<void> {
   try {
     await fetch('/api/agentsam/browser/trust', {
-      method:      'POST',
-      headers:     { 'Content-Type': 'application/json' },
+      method: 'POST',
+      headers: browserTrustHeaders(workspaceId),
       credentials: 'same-origin',
-      body:        JSON.stringify({ origin, trust_scope: scope }),
+      body: JSON.stringify({ origin, trust_scope: scope }),
     });
-  } catch { /* non-blocking */ }
+  } catch {
+    /* non-blocking */
+  }
 }
 
 // ─── MYBROWSER tool invoke (session cookie → /api/browser/invoke) ───────────
@@ -282,7 +294,7 @@ const PermissionGate: React.FC<{
         <div className="flex flex-col gap-4 border-b border-[var(--border-subtle)] px-6 pt-6 pb-5">
           <div className="flex items-center justify-between">
             <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-[var(--text-muted)]">
-              Browser Trust
+              Inner Animal Media — Browser access
             </p>
             <p className="text-[10px] font-mono text-[var(--text-muted)]">
               Step {step} of 2
@@ -299,10 +311,10 @@ const PermissionGate: React.FC<{
           </div>
           <div className="text-center">
             <p className="text-[16px] font-semibold text-[var(--text-main)]">
-              Trust this browser destination?
+              Allow browser access to this origin?
             </p>
             <p className="mt-1 text-[11px] leading-relaxed text-[var(--text-muted)]">
-              Agent Sam wants to open a page outside the current trust list. Review the origin and choose how long the grant should last.
+              Same approval flow as MCP OAuth: review the destination, then grant session or persistent trust before MYBROWSER tools run.
             </p>
           </div>
         </div>
@@ -1032,6 +1044,13 @@ const BrowserPane: React.FC<PaneProps> = ({
 
   const inputRef     = useRef<HTMLInputElement>(null);
   const registryPickersRef = useRef(registryPickers);
+  const trustWorkspaceId = useMemo(() => {
+    const wid =
+      typeof window !== 'undefined'
+        ? String((window as unknown as { __IAM_WORKSPACE_ID__?: string }).__IAM_WORKSPACE_ID__ || '').trim()
+        : '';
+    return wid && wid !== 'global' ? wid : null;
+  }, []);
   useEffect(() => {
     registryPickersRef.current = registryPickers;
   }, [registryPickers]);
@@ -1304,6 +1323,22 @@ const BrowserPane: React.FC<PaneProps> = ({
     new Promise(resolve => setTrustRequest({ url, resolve })),
   []);
 
+  useEffect(() => {
+    const onTrustRequired = (e: Event) => {
+      const d = (e as CustomEvent<{ origin?: string; url?: string }>).detail;
+      const raw = d?.url || d?.origin;
+      if (!raw || typeof raw !== 'string') return;
+      void requestTrust(raw).then((scope) => {
+        if (!scope) return;
+        const o = originOf(raw);
+        if (scope === 'persistent') void writeTrust(o, 'persistent', trustWorkspaceId);
+        setSessionTrusted((prev) => new Set([...prev, o]));
+      });
+    };
+    window.addEventListener('iam-browser-trust-required', onTrustRequired);
+    return () => window.removeEventListener('iam-browser-trust-required', onTrustRequired);
+  }, [requestTrust, trustWorkspaceId]);
+
   /** MYBROWSER / CDT automation preview — not used for passive URL opens or surface_open. */
   const loadAutomationPreview = useCallback(
     async (targetUrl: string, preview?: BrowserPreviewPayload | null) => {
@@ -1358,11 +1393,11 @@ const BrowserPane: React.FC<PaneProps> = ({
       const origin = originOf(n);
 
       if (!sessionTrusted.has(origin)) {
-        const trusted = await checkTrust(origin);
+        const trusted = await checkTrust(origin, trustWorkspaceId);
         if (!trusted) {
           const scope = await requestTrust(n);
           if (!scope) return;
-          if (scope === 'persistent') await writeTrust(origin, 'persistent');
+          if (scope === 'persistent') await writeTrust(origin, 'persistent', trustWorkspaceId);
           setSessionTrusted((prev) => new Set([...prev, origin]));
         } else {
           setSessionTrusted((prev) => new Set([...prev, origin]));
@@ -1391,11 +1426,11 @@ const BrowserPane: React.FC<PaneProps> = ({
         const n = normalize(s);
         const origin = originOf(n);
         if (!sessionTrusted.has(origin)) {
-          const trusted = await checkTrust(origin);
+          const trusted = await checkTrust(origin, trustWorkspaceId);
           if (!trusted) {
             const scope = await requestTrust(n);
             if (!scope) return;
-            if (scope === 'persistent') await writeTrust(origin, 'persistent');
+            if (scope === 'persistent') await writeTrust(origin, 'persistent', trustWorkspaceId);
             setSessionTrusted((prev) => new Set([...prev, origin]));
           } else {
             setSessionTrusted((prev) => new Set([...prev, origin]));

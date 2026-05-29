@@ -1056,6 +1056,25 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
         if (
           data &&
           typeof data === 'object' &&
+          (data as { type?: string }).type === 'browser_trust_required'
+        ) {
+          const d = data as { origin?: string; url?: string; tool_name?: string };
+          const origin = typeof d.origin === 'string' ? d.origin : '';
+          const url =
+            origin ||
+            (typeof d.url === 'string' && d.url.trim() ? d.url.trim() : '');
+          if (url && typeof window !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent('iam-browser-trust-required', {
+                detail: { origin: url, url, tool_name: d.tool_name },
+              }),
+            );
+          }
+          continue;
+        }
+        if (
+          data &&
+          typeof data === 'object' &&
           (data as { type?: string }).type === 'browser_navigate' &&
           typeof (data as { url?: string }).url === 'string'
         ) {

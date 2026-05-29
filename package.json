@@ -43,6 +43,7 @@
     "smoke:mcp": "node scripts/mcp-smoke.mjs",
     "smoke:mcp-oauth-d1-r2": "node scripts/mcp-oauth-d1-r2-smoke.mjs",
     "smoke:agentsam-tools-catalog": "node scripts/agentsam-tools-catalog-smoke.mjs",
+    "smoke:codemode": "node scripts/codemode-smoke.mjs",
     "smoke:code-execution-e2e": "node scripts/test-code-execution-e2e.mjs",
     "smoke:database-sql-safety": "node scripts/database-sql-safety-smoke.mjs",
     "smoke:database-table-filters": "node scripts/database-table-filters-smoke.mjs",
@@ -82,9 +83,11 @@
   "description": "",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.2",
-    "@openai/agents": "^0.11.5",
+    "@cloudflare/codemode": "^0.3.8",
     "@cloudflare/playwright": "^1.3.0",
     "@neondatabase/serverless": "^1.1.0",
+    "@openai/agents": "^0.11.5",
+    "ai": "^6.0.193",
     "aws4fetch": "^1.0.20",
     "pg": "^8.20.0",
     "zod": "^4.1.13"

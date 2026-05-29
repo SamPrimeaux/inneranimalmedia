@@ -149,6 +149,180 @@ function agentRunUnixNow() {
   return Math.floor(Date.now() / 1000);
 }
 
+const CHAT_MODES = new Set(['ask', 'agent', 'plan', 'debug', 'auto']);
+
+/** Normalized chat body mode for `agentsam_agent_run.mode`. */
+export function normalizeChatRunMode(mode) {
+  const m = mode != null ? String(mode).trim().toLowerCase() : '';
+  return CHAT_MODES.has(m) ? m : 'auto';
+}
+
+/**
+ * @param {Record<string, unknown>|null|undefined} spine
+ * @returns {{ agent_run_id: string|null, routing_arm_id: string|null, mode: string|null }}
+ */
+export function normalizeChatDispatchSpine(spine) {
+  if (!spine || typeof spine !== 'object') {
+    return { agent_run_id: null, routing_arm_id: null, mode: null };
+  }
+  const agentRunId =
+    spine.agent_run_id != null
+      ? String(spine.agent_run_id).trim()
+      : spine.agentRunId != null
+        ? String(spine.agentRunId).trim()
+        : '';
+  const routingArmId =
+    spine.routing_arm_id != null
+      ? String(spine.routing_arm_id).trim()
+      : spine.routingArmId != null
+        ? String(spine.routingArmId).trim()
+        : '';
+  const modeRaw = spine.mode != null ? String(spine.mode).trim() : '';
+  return {
+    agent_run_id: agentRunId || null,
+    routing_arm_id: routingArmId || null,
+    mode: modeRaw ? normalizeChatRunMode(modeRaw) : null,
+  };
+}
+
+/**
+ * Beta bandit + Welford quality on `agentsam_routing_arms` from a finalized `agentsam_agent_run` row.
+ * @param {any} env
+ * @param {string} agentRunId
+ */
+export async function applyThompsonLoopFromAgentRun(env, agentRunId) {
+  const runId = agentRunId != null ? String(agentRunId).trim() : '';
+  if (!env?.DB || !runId) return;
+
+  const runCols = await pragmaTableInfo(env.DB, 'agentsam_agent_run');
+  const armCols = await pragmaTableInfo(env.DB, 'agentsam_routing_arms');
+  if (!runCols.size || !armCols.has('success_alpha') || !armCols.has('success_beta')) return;
+
+  const selectCols = ['routing_arm_id', 'status'];
+  if (runCols.has('quality_score')) selectCols.push('quality_score');
+
+  let run;
+  try {
+    run = await env.DB.prepare(
+      `SELECT ${selectCols.join(', ')} FROM agentsam_agent_run WHERE id = ? LIMIT 1`,
+    )
+      .bind(runId)
+      .first();
+  } catch (e) {
+    console.warn('[routing_arms] thompson_loop read run', e?.message ?? e);
+    return;
+  }
+
+  const routingArmId =
+    run?.routing_arm_id != null ? String(run.routing_arm_id).trim() : '';
+  if (!routingArmId) return;
+
+  const status = run?.status != null ? String(run.status).trim().toLowerCase() : '';
+  const succeeded = status === 'completed' || status === 'success';
+  const successDelta = succeeded ? 1 : 0;
+  const failureDelta = succeeded ? 0 : 1;
+  const qualityScore = Number(run?.quality_score);
+  const q = Number.isFinite(qualityScore) ? Math.max(0, Math.min(1, qualityScore)) : 0;
+
+  try {
+    if (armCols.has('avg_quality_score') && armCols.has('quality_n') && armCols.has('total_executions')) {
+      await env.DB.prepare(
+        `UPDATE agentsam_routing_arms
+         SET success_alpha = success_alpha + ?,
+             success_beta = success_beta + ?,
+             total_executions = total_executions + 1,
+             avg_quality_score = ((avg_quality_score * quality_n) + ?) / (quality_n + 1),
+             quality_n = quality_n + 1,
+             updated_at = unixepoch()
+         WHERE id = ?`,
+      )
+        .bind(successDelta, failureDelta, q, routingArmId)
+        .run();
+    } else {
+      await env.DB.prepare(
+        `UPDATE agentsam_routing_arms
+         SET success_alpha = success_alpha + ?,
+             success_beta = success_beta + ?,
+             total_executions = COALESCE(total_executions, 0) + 1,
+             updated_at = unixepoch()
+         WHERE id = ?`,
+      )
+        .bind(successDelta, failureDelta, routingArmId)
+        .run();
+    }
+  } catch (e) {
+    console.warn('[routing_arms] thompson_loop_from_agent_run', e?.message ?? e);
+  }
+}
+
+/**
+ * PRAGMA-safe step row keyed on `agentsam_agent_run.id` (not workflow execution_id).
+ * @param {any} env
+ * @param {{
+ *   agentRunId: string,
+ *   routingArmId?: string | null,
+ *   nodeKey: string,
+ *   nodeType?: string,
+ *   status: string,
+ *   latencyMs?: number,
+ *   outputJson?: string | null,
+ *   errorJson?: string | null,
+ * }} p
+ */
+export async function insertAgentRunExecutionStep(env, p) {
+  const agentRunId = p?.agentRunId != null ? String(p.agentRunId).trim() : '';
+  if (!env?.DB || !agentRunId) return null;
+
+  const stepCols = await pragmaTableInfo(env.DB, 'agentsam_execution_steps');
+  if (!stepCols.size || !stepCols.has('agent_run_id') || !stepCols.has('execution_id')) return null;
+
+  const stepId = `estep_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+  const nowSec = Math.floor(Date.now() / 1000);
+  const dur = Math.max(0, Math.floor(Number(p.latencyMs) || 0));
+  const startedSec = Math.max(0, nowSec - Math.floor(dur / 1000));
+
+  const parts = [];
+  const vals = [];
+  const binds = [];
+  const q = (name, val) => {
+    if (!stepCols.has(name)) return;
+    parts.push(name);
+    vals.push('?');
+    binds.push(val);
+  };
+
+  q('id', stepId);
+  q('agent_run_id', agentRunId);
+  if (stepCols.has('execution_id')) q('execution_id', agentRunId);
+  q('node_key', String(p.nodeKey || 'step').slice(0, 500));
+  q('node_type', String(p.nodeType || 'tool').slice(0, 80));
+  q('status', String(p.status || 'success').slice(0, 40));
+  if (p.outputJson != null && stepCols.has('output_json')) q('output_json', String(p.outputJson).slice(0, 16000));
+  if (p.errorJson != null && stepCols.has('error_json')) q('error_json', String(p.errorJson).slice(0, 8000));
+  q('latency_ms', dur);
+  q('started_at', startedSec);
+  q('completed_at', nowSec);
+  if (stepCols.has('created_at_unix')) q('created_at_unix', nowSec);
+  if (stepCols.has('created_at')) {
+    parts.push('created_at');
+    vals.push(`datetime('now')`);
+  }
+
+  if (parts.length < 4) return null;
+
+  try {
+    await env.DB.prepare(
+      `INSERT INTO agentsam_execution_steps (${parts.join(', ')}) VALUES (${vals.join(', ')})`,
+    )
+      .bind(...binds)
+      .run();
+    return stepId;
+  } catch (e) {
+    console.warn('[agentsam_execution_steps] agent_run step', e?.message ?? e);
+    return null;
+  }
+}
+
 export function newChatAgentRunId(opts = {}) {
   const hex = crypto.randomUUID().replace(/-/g, '').slice(0, 12);
   const raw = opts?.label != null ? String(opts.label).trim() : '';
@@ -236,6 +410,7 @@ export function scheduleAgentsamChatAgentRunStart(env, ctx, p) {
       add('workspace_id', ws);
       add('conversation_id', p.conversationId != null ? String(p.conversationId).slice(0, 200) : null);
       add('routing_arm_id', p.routingArmId != null ? String(p.routingArmId).slice(0, 120) : null);
+      add('mode', p.mode != null ? normalizeChatRunMode(p.mode) : null);
       add('task_type', p.taskType != null ? String(p.taskType).slice(0, 120) : null);
       add(
         'trigger',
@@ -373,6 +548,9 @@ export function scheduleAgentsamChatAgentRunInsert(env, ctx, p) {
               : null,
         );
         pushSet('task_type', p.taskType != null ? String(p.taskType).slice(0, 120) : null);
+        if (p.mode != null && String(p.mode).trim() !== '') {
+          pushSet('mode', normalizeChatRunMode(p.mode));
+        }
         pushSet('conversation_id', p.conversationId != null ? String(p.conversationId).slice(0, 200) : null);
         if (p.workflowRunId != null && String(p.workflowRunId).trim() !== '') {
           pushSet('workflow_run_id', String(p.workflowRunId).trim().slice(0, 120));
@@ -402,6 +580,7 @@ export function scheduleAgentsamChatAgentRunInsert(env, ctx, p) {
         binds.push(runId);
         try {
           await env.DB.prepare(`UPDATE agentsam_agent_run SET ${sets.join(', ')} WHERE id = ?`).bind(...binds).run();
+          await applyThompsonLoopFromAgentRun(env, runId);
         } catch (e) {
           console.warn('[agentsam_agent_run] chat finalize update', e?.message ?? e);
         }

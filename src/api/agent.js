@@ -86,7 +86,9 @@ import {
 } from '../core/mcp-tool-execution.js';
 import { recordSpan } from '../core/tracer.js';
 import {
+  insertAgentRunExecutionStep,
   newChatAgentRunId,
+  normalizeChatDispatchSpine,
   scheduleAgentsamChatAgentRunInsert,
   scheduleAgentsamChatAgentRunStart,
 } from '../core/agent-run-routing.js';
@@ -97,6 +99,13 @@ import { getAgentMetadata, logSkillInvocation,
          getActivePromptByWeight, getPromptMetadata }   from './agentsam.js';
 import { normalizeToolName } from '../tools/ai-dispatch.js';
 import { dispatchByToolCode } from '../core/dispatch-by-tool-code.js';
+import {
+  shouldUseCodemodeForRequest,
+  getOrBuildCodemodeRuntime,
+  buildHybridCodemodeManifest,
+  enqueueCodemodePendingActions,
+  CODEMODE_TOOL_NAME,
+} from '../core/codemode-agent-bridge.js';
 import {
   selectAgentsamToolsForAgentChat,
   selectAgentsamToolsForChatRuntime,
@@ -1986,6 +1995,13 @@ function createChatToolSessionLedger(p) {
   const runId = chatAgentRunId != null ? String(chatAgentRunId).trim() : '';
   if (!runId || !tenantId || !workspaceId) return null;
 
+  const routingArmId =
+    p.routingArmId != null
+      ? String(p.routingArmId).trim()
+      : p.routing_arm_id != null
+        ? String(p.routing_arm_id).trim()
+        : null;
+
   return {
     runId,
     steps: [],
@@ -1997,12 +2013,13 @@ function createChatToolSessionLedger(p) {
     sessionId: sessionId != null ? String(sessionId) : null,
     conversationId: sessionId != null ? String(sessionId) : null,
     chatAgentRunId: runId,
+    routingArmId: routingArmId || null,
     requestedMode: requestedMode != null ? String(requestedMode) : 'agent',
   };
 }
 
 /** @returns {Promise<null>} execution_step id (unused; tool rows via scheduleAgentsamToolCallLog). */
-async function appendChatToolSessionLedgerStep(_env, emit, ledger, stepEntry) {
+async function appendChatToolSessionLedgerStep(env, emit, ledger, stepEntry) {
   if (!ledger?.runId) return null;
   ledger.steps.push(stepEntry);
   emit('workflow_step', {
@@ -2015,6 +2032,26 @@ async function appendChatToolSessionLedgerStep(_env, emit, ledger, stepEntry) {
     ok: stepEntry.ok,
     output_preview: String(stepEntry.output_preview || '').slice(0, 4000),
   });
+  if (env?.DB) {
+    const dur = Math.max(0, Math.floor(Number(stepEntry.duration_ms) || 0));
+    const outJson = JSON.stringify({
+      ok: !!stepEntry.ok,
+      output_preview: String(stepEntry.output_preview || '').slice(0, 12000),
+      duration_ms: dur,
+    }).slice(0, 16000);
+    const errJson = stepEntry.ok
+      ? null
+      : JSON.stringify({ message: String(stepEntry.error || 'failed').slice(0, 4000) }).slice(0, 8000);
+    void insertAgentRunExecutionStep(env, {
+      agentRunId: ledger.runId,
+      nodeKey: stepEntry.tool_name,
+      nodeType: 'mcp_tool',
+      status: stepEntry.ok ? 'success' : 'failed',
+      latencyMs: dur,
+      outputJson: outJson,
+      errorJson: errJson,
+    });
+  }
   return null;
 }
 
@@ -2252,6 +2289,23 @@ async function validateToolCall(env, modeSlug, toolName, mcpRuntimeContext = {},
   const routeKeyOut = (rk) =>
     (rk != null && String(rk).trim() !== '' ? String(rk).trim() : null) || ctxRouteKey || null;
   const name = String(toolName || '').trim();
+  if (name === CODEMODE_TOOL_NAME && env?.LOADER) {
+    return {
+      allowed: true,
+      reason: 'allowed',
+      riskLevel: 'low',
+      requiresConfirmation: false,
+      mcpToolId: null,
+      toolKey: CODEMODE_TOOL_NAME,
+      capabilityKey: null,
+      handlerKey: null,
+      routeKey: routeKeyOut(null),
+      serverKey: null,
+      mcpServerId: null,
+      agentsamMcpToolsId: null,
+      agentsamToolsId: null,
+    };
+  }
   if (!name) {
     return {
       allowed: false,
@@ -3892,6 +3946,8 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     runStartedAt: runStartedAtParam,
     maxRuntimeMs: maxRuntimeMsParam,
     chatAgentRunId,
+    dispatchSpine: dispatchSpineParam = null,
+    codemodeRuntime: codemodeRuntimeParam = null,
     /** @type {Record<string, unknown>|null|undefined} */
     promptAuditContext: promptAuditContextParam,
     cacheWriteTtl: cacheWriteTtlParam,
@@ -3914,32 +3970,23 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     doneGuard.emitted = true;
     emit('done', payload);
   };
-  // Resolve arm from DB when caller doesn't supply one (shared with chat request spine).
-  const _resolvedArmId =
-    routingArmIdParam == null || String(routingArmIdParam).trim() === ''
-      ? (
-          await resolveRoutingArmByModelKey(env, {
-            modelKey: String(modelKey || ''),
-            taskType: String(routingTaskType || 'ask'),
-            mode: String(mode || 'agent'),
-            workspaceId: routingWs || '',
-            agentSlug: agentSlugParam != null ? String(agentSlugParam).trim() : '',
-          })
-        )?.armId ?? null
-      : routingArmIdParam;
-  const routingArmIdStr = _resolvedArmId != null ? String(_resolvedArmId).trim() : '';
-  const thompsonMkStr = thompsonModelKeyParam != null ? String(thompsonModelKeyParam).trim() : '';
+  const dispatchSpine = normalizeChatDispatchSpine(
+    dispatchSpineParam && typeof dispatchSpineParam === 'object'
+      ? dispatchSpineParam
+      : {
+          agent_run_id: chatAgentRunId,
+          routing_arm_id: routingArmIdParam,
+          mode,
+        },
+  );
+  const routingArmIdStr = dispatchSpine.routing_arm_id || '';
   const runSpineIds = {
-    agent_run_id: chatAgentRunId != null ? String(chatAgentRunId).trim() : null,
+    agent_run_id: dispatchSpine.agent_run_id,
     conversation_id: sessionId != null ? String(sessionId).trim() : null,
+    routing_arm_id: routingArmIdStr || null,
   };
 
-  const attributedRoutingArmId = () =>
-    // accept arm if it was DB-resolved (no thompsonMkStr required) or if thompson model matches
-    routingArmIdStr && (
-      !thompsonMkStr ||
-      String(modelKey) === thompsonMkStr
-    ) ? routingArmIdStr : null;
+  const attributedRoutingArmId = () => routingArmIdStr || null;
 
   const routeArmOutcome = (success) => {
     const aid = attributedRoutingArmId();
@@ -4074,6 +4121,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
               binds.push(val);
             };
             q('execution_id', eidFail);
+            q('agent_run_id', runSpineIds.agent_run_id);
             q('node_key', 'model_dispatch_failed');
             q('node_type', 'model');
             q('status', 'failed');
@@ -4711,6 +4759,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
             modelKey,
             stepsTotal: effectiveMaxToolCalls,
             chatAgentRunId,
+            routingArmId: attributedRoutingArmId(),
             requestedMode: mode,
           });
           if (chatToolLedger) {
@@ -4748,7 +4797,34 @@ async function runAgentToolLoop(env, ctx, emit, params) {
       const toolBudgetMs = resolveToolExecutionBudgetMs(call.name, call.input);
       try {
         let execResult;
-        if (isImageGenerationTool(call.name)) {
+        if (call.name === CODEMODE_TOOL_NAME && codemodeRuntimeParam?.execute) {
+          execResult = await codemodeRuntimeParam.execute(call.input || {});
+          if (execResult?.ok === false) {
+            execErr = new Error(String(execResult.error || 'codemode_execution_failed'));
+          }
+          if (execResult?.pending_actions?.length) {
+            const proposalIds = await enqueueCodemodePendingActions(
+              env,
+              ctx,
+              {
+                tenantId,
+                workspaceId,
+                userId,
+                sessionId,
+                agent_run_id: chatAgentRunId,
+                conversationId: sessionId,
+              },
+              execResult.pending_actions,
+            );
+            if (proposalIds.length) {
+              emit('approval_required', {
+                proposal_ids: proposalIds,
+                tool_name: CODEMODE_TOOL_NAME,
+                message: 'Codemode queued actions require approval.',
+              });
+            }
+          }
+        } else if (isImageGenerationTool(call.name)) {
           execResult = await streamImageGenerationSse(emit, env, call.name, call.input || {}, {
             authUser: { id: userId },
             workspaceId,
@@ -4779,6 +4855,19 @@ async function runAgentToolLoop(env, ctx, emit, params) {
           else if (Array.isArray(execResult.results)) toolRows = execResult.results;
         }
         toolOutput = typeof execResult === 'string' ? execResult : JSON.stringify(execResult);
+        if (
+          execResult &&
+          typeof execResult === 'object' &&
+          (execResult.code === 'browser_origin_not_trusted' ||
+            String(execResult.error || '').includes('Browser origin not trusted'))
+        ) {
+          emit('browser_trust_required', {
+            origin: execResult.origin ?? null,
+            tool_name: call.name,
+            message:
+              'Trust this origin in the IAM browser consent modal (Browser tab), then retry.',
+          });
+        }
         if (call.name === 'excalidraw_plan_map_create') {
           try {
             const parsed =
@@ -7387,6 +7476,59 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     resolvedRoutingTaskType = 'agent';
   }
 
+  const rawBodyTaskType = String(body?.task_type ?? body?.taskType ?? '')
+    .trim()
+    .toLowerCase();
+  const useCodemodeManifest = shouldUseCodemodeForRequest(env, {
+    agentLikeTooling,
+    resolvedRoutingTaskType,
+    rawBodyTaskType,
+  });
+
+  let codemodeRuntime = null;
+  if (useCodemodeManifest) {
+    try {
+      let codemodeAllowlist = null;
+      if (workspaceId && userId) {
+        codemodeAllowlist = await collectAllowlistToolKeysForScope(env.DB, {
+          userId,
+          workspaceId,
+          tenantId,
+          personUuid: mcpRuntimeContext.personUuid,
+        });
+      }
+      const toolKeysForCodemode = tools.map(agentToolNameOf).filter(Boolean);
+      codemodeRuntime = await getOrBuildCodemodeRuntime(
+        env,
+        {
+          workspaceId,
+          tenantId,
+          userId,
+          sessionId,
+          conversationId: sessionId,
+        },
+        { toolKeys: toolKeysForCodemode, allowlistKeys: codemodeAllowlist },
+      );
+      tools = buildHybridCodemodeManifest(tools, codemodeRuntime, {
+        browserDispatchToolsActive,
+        imageCapabilityIntent,
+        videoCapabilityIntent,
+      });
+      console.log(
+        '[agent] codemode_toolset_ready',
+        JSON.stringify({
+          inner_tools: codemodeRuntime.toolCount,
+          sidecar_tools: tools.length - 1,
+          raw_body_task_type: rawBodyTaskType,
+          resolved_routing_task_type: resolvedRoutingTaskType,
+        }),
+      );
+    } catch (e) {
+      console.warn('[agent] codemode_toolset_build_failed', e?.message ?? e);
+      codemodeRuntime = null;
+    }
+  }
+
   const routeKeyForRun = (() => {
     const fromRoute = promptRouteRow?.route_key != null ? String(promptRouteRow.route_key).trim() : '';
     if (fromRoute) return fromRoute;
@@ -7432,9 +7574,12 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     }
   }
 
+  const routingTaskTypeForPick =
+    codemodeRuntime != null ? 'multitask' : resolvedRoutingTaskType;
+
   const routingPick = !explicitRow
     ? await routingPickFromResolveModelForTask(env, {
-        taskType: resolvedRoutingTaskType,
+        taskType: routingTaskTypeForPick,
         mode: requestedMode,
         workspaceId: workspaceId || '',
         tenantId,
@@ -7620,6 +7765,19 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     if (forcedPick?.armId) routingArmIdForRun = String(forcedPick.armId).trim();
   }
 
+  /** Stable id for D1 `agentsam_agent_run` + SSE — minted at dispatch (with Thompson arm). */
+  const chatAgentRunId =
+    env.DB && userId && resolvedWorkspaceId
+      ? newChatAgentRunId(quickstartBatch ? { label: quickstartBatch } : {})
+      : null;
+  const chatDispatchSpine = chatAgentRunId
+    ? {
+        agent_run_id: chatAgentRunId,
+        routing_arm_id: routingArmIdForRun,
+        mode: requestedMode,
+      }
+    : null;
+
   console.log(
     '[agent] routing_model',
     JSON.stringify({
@@ -7803,6 +7961,16 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     systemPrompt = appendSubagentProfileToSystemPrompt(systemPrompt, subagentProfileRow);
   }
 
+  if (codemodeRuntime) {
+    systemPrompt +=
+      '\n\n## Code Mode (codemode tool)\n' +
+      'Use the `codemode` tool to run JavaScript that orchestrates catalog tools as `codemode.<tool_key>(args)`.\n' +
+      'Write a single async arrow function only (no TypeScript, no named function declarations).\n' +
+      'Example: `async () => { const rows = await codemode.d1_query({ sql: "SELECT 1 AS n" }); return rows; }`\n' +
+      'Tools that require human approval, browser automation (MYBROWSER), or image/video generation are **not** inside the sandbox — call those native tools directly when needed.\n' +
+      'If the sandbox returns `pending_actions`, those are queued for approval automatically; do not retry blocked writes silently.';
+  }
+
   if (!minimalAskChat && capabilityDecision) {
     systemPrompt += `\n\n${capabilityRouterPromptBlock(capabilityDecision)}`;
   }
@@ -7822,12 +7990,6 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     const t = raw != null ? String(raw).trim().toLowerCase() : '';
     return t === '1h' ? '1h' : '5m';
   })();
-
-  /** Stable id for D1 `agentsam_agent_run` + SSE `context.agent_run_id` (POST /api/agent/chat). */
-  const chatAgentRunId =
-    env.DB && userId && resolvedWorkspaceId
-      ? newChatAgentRunId(quickstartBatch ? { label: quickstartBatch } : {})
-      : null;
 
   const encoder = new TextEncoder();
   const { readable, writable } = new TransformStream();
@@ -8206,7 +8368,8 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
               routingTaskType: resolvedRoutingTaskType,
               qualityScore: confidence,
               mcpRuntimeContext,
-              routingArmId: routingArmIdForRun,
+              routingArmId: chatDispatchSpine?.routing_arm_id ?? routingArmIdForRun,
+              dispatchSpine: chatDispatchSpine,
               agentSlug: subagentProfileRow?.id ?? null,
               thompsonModelKey: thompsonRow?.model_key ?? null,
               doneGuard,
@@ -8219,6 +8382,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
                   ? String(promptRouteRow.route_key).trim()
                   : null,
               cacheWriteTtl: cacheWriteTtlForChat,
+              codemodeRuntime,
             }),
             maxRunMsChat + 5000
           );
@@ -8353,12 +8517,6 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         : null;
 
       if (outcomeArmId) {
-        await recordArmOutcome(env, ctx, outcomeArmId, succeeded, {
-          taskType: resolvedRoutingTaskType ?? 'ask',
-          mode: requestedMode ?? 'auto',
-          modelKey: lastLoopStats?.modelKey ?? tried[tried.length - 1] ?? fallbackModelKeys[0],
-          workspaceId: workspaceId ?? resolvedWorkspaceId,
-        });
         // Write usage event for rollup + billing
         if (ctx?.waitUntil) {
           ctx.waitUntil(

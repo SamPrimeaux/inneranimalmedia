@@ -9,6 +9,11 @@
 	"workers_dev": true,
 	"preview_urls": true,
 	"no_bundle": false,
+	"worker_loaders": [
+		{
+			"binding": "LOADER"
+		}
+	],
 	"build": {
 		"command": ""
 	},

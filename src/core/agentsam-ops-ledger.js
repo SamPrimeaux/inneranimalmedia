@@ -67,6 +67,10 @@ function safeJson(value, fallback = '{}') {
   }
 }
 
+function agentRunUnixNow() {
+  return Math.floor(Date.now() / 1000);
+}
+
 /**
  * @param {any} env
  * @param {any} ctx
@@ -224,6 +228,7 @@ export function scheduleToolCallLog(env, ctx, fields) {
       server_key: pick('serverKey', 'server_key') ?? undefined,
       approval_id: pick('approvalId', 'approval_id') ?? undefined,
       policy_decision_json: policyJson ?? undefined,
+      created_at_unix: agentRunUnixNow(),
     };
 
     const { parts, binds } = buildInsertParts(meta, v);
@@ -235,6 +240,23 @@ export function scheduleToolCallLog(env, ctx, fields) {
       )
         .bind(...binds)
         .run();
+
+      const toolCatalogId = pick('agentsamToolsId', 'agentsam_tools_id');
+      if (toolCatalogId != null && String(toolCatalogId).trim() !== '') {
+        const toolCols = await pragmaTableColumnMeta(env.DB, 'agentsam_tools');
+        const hasUse = toolCols.some((c) => c.name === 'use_count');
+        const hasLast = toolCols.some((c) => c.name === 'last_used_at');
+        if (hasUse || hasLast) {
+          const sets = [];
+          if (hasUse) sets.push('use_count = use_count + 1');
+          if (hasLast) sets.push('last_used_at = unixepoch()');
+          await env.DB.prepare(
+            `UPDATE agentsam_tools SET ${sets.join(', ')} WHERE id = ?`,
+          )
+            .bind(String(toolCatalogId).trim().slice(0, 200))
+            .run();
+        }
+      }
     } catch (e) {
       reportHelperFailure(env, ctx, 'scheduleToolCallLog', e, { tenantId: tid, workspaceId: ws, sessionId: fields.sessionId });
     }
