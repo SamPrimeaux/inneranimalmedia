@@ -1,14 +1,19 @@
 {
+  "_comment": "Documentation only — merge into YOUR .cursor/mcp.json by hand; do not let agents overwrite that file.",
   "mcpServers": {
     "inneranimalmedia": {
+      "type": "http",
       "url": "https://mcp.inneranimalmedia.com/mcp",
       "headers": {
-        "Authorization": "Bearer PASTE_MCP_AUTH_TOKEN_HERE"
+        "Authorization": "Bearer ${CURSOR_MCP_TOKEN}"
       }
     },
     "chrome-devtools": {
       "command": "npx",
       "args": ["-y", "chrome-devtools-mcp@latest"]
+    },
+    "gemini-api-docs-mcp": {
+      "url": "https://gemini-api-docs-mcp.dev"
     }
   }
 }

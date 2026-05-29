@@ -290,3 +290,12 @@ bound to the authenticated user/workspace (never platform-wide reads for non-sup
 `user_secrets`, `user_api_keys`, `mcp_workspace_tokens`, `terminal_connections`, `terminal_sessions`
 
 Database Studio (`/api/d1/*`) must use `resolveUserWorkspaceBinding` — never `env.DB` for non-owner users.
+
+---
+
+## RULE: Never overwrite `.cursor/mcp.json` (LOCKED)
+**ID:** rule_cursor_mcp_json_hands_off | **Priority:** ALWAYS
+
+- **Never** create, replace, or rewrite `.cursor/mcp.json` unless the user explicitly asks to **append** one server after reading the file first.
+- Personal MCP servers (e.g. `chrome-devtools`, `gemini-api-docs-mcp`) are developer-owned — do not remove them.
+- IAM `inneranimalmedia` belongs in `docs/cursor-mcp-config.example.json` / `docs/cursor-mcp-local.example.json` or the developer's gitignored `.cursor/mcp.local.json` — not committed into `.cursor/mcp.json` by agents.

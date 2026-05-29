@@ -27,7 +27,6 @@ tmp/
 ._*
 .vscode/
 .cursor/*
-!.cursor/mcp.json
 !.cursor/hooks.json
 !.cursor/agents/
 !.cursor/agents/**

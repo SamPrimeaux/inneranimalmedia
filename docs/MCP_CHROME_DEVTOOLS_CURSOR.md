@@ -9,11 +9,18 @@ The Cloudflare **InnerAnimal MCP** (`mcp.inneranimalmedia.com`) and **chrome-dev
 
 Agent Sam in the dashboard does not embed Chrome DevTools; you combine both in **Cursor** so the same agent can call IAM tools and browser automation tools.
 
-## 1. Copy the example merge
+## 1. Your personal `.cursor/mcp.json` (do not overwrite)
 
-- Tracked template: `docs/cursor-mcp-config.example.json`
-- Install path (not committed; gitignored): **project** `.cursor/mcp.json` or **global** `~/.cursor/mcp.json`
-- Replace `PASTE_MCP_AUTH_TOKEN_HERE` with the same value as `MCP_AUTH_TOKEN` (see `AGENTS.md` / vault). Never commit the real token.
+**Never commit or replace** project `.cursor/mcp.json` — it is your local tool config (e.g. `chrome-devtools`, `gemini-api-docs-mcp`).
+
+To add IAM MCP without touching that file:
+
+1. Copy `docs/cursor-mcp-local.example.json` → `.cursor/mcp.local.json` (gitignored), **or**
+2. Merge the `inneranimalmedia` block from `docs/cursor-mcp-config.example.json` into your existing `.cursor/mcp.json` by hand.
+
+- Tracked template (docs only): `docs/cursor-mcp-config.example.json`
+- Optional local overlay: `.cursor/mcp.local.json` (see example file in repo)
+- Replace `PASTE_MCP_AUTH_TOKEN_HERE` / `${CURSOR_MCP_TOKEN}` with your MCP bearer (see `AGENTS.md` / vault). Never commit the real token.
 
 ## 2. Optional: slim + headless
 
