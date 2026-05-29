@@ -1,4 +1,15 @@
--- 453: Register web_fetch (URL text extraction — not MYBROWSER, not search_web).
+-- 455: D1 CHECK constraint has no 'builtin' — use ai + dispatcher for open-web tools.
+UPDATE agentsam_tools
+SET
+  tool_category = 'research.web',
+  handler_type = 'ai',
+  description = 'Open-web discovery (public internet). Lane: open_web_search. Uses Tavily when TAVILY_API_KEY is set. Not for repo grep, D1, or browser DOM.',
+  handler_config = '{"dispatcher":"search_web","auth_source":"platform","capability":"open_web_search","source_file":"src/tools/builtin/web.js"}',
+  is_active = 1,
+  is_degraded = 0,
+  updated_at = unixepoch()
+WHERE tool_key = 'search_web';
+
 INSERT OR IGNORE INTO agentsam_tools (
   id, tool_key, tool_code, tool_name, display_name, tool_category, handler_type,
   handler_config, risk_level, requires_approval, workspace_scope, is_active, is_degraded
@@ -8,7 +19,9 @@ INSERT OR IGNORE INTO agentsam_tools (
   '{"dispatcher":"web_fetch","auth_source":"platform","source_file":"src/tools/builtin/web.js"}',
   'low', 0, '["*"]', 1, 0
 );
-UPDATE agentsam_tools SET
+
+UPDATE agentsam_tools
+SET
   tool_key = 'web_fetch',
   display_name = 'Web Fetch',
   description = 'Fetch a known public URL and return text (no browser render). Use for docs pages, raw GitHub, API references.',
