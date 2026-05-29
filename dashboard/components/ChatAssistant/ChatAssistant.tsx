@@ -35,7 +35,6 @@ import {
   Layers,
   ShieldCheck,
   Play,
-  Users,
 } from 'lucide-react';
 import { ProjectType } from '../../types';
 import type { ActiveFile } from '../../types';
@@ -75,9 +74,7 @@ import {
   AUTO_MODEL_KEY,
   LS_AGENT_CHAT_MODEL_KEY,
   LS_AGENT_CHAT_MODE,
-  LS_AGENT_CHAT_SUBAGENT_SLUG,
   isAutoModelSelection,
-  type ChatSubagentProfileRow,
 } from './types';
 import { buildMentionContext, isChatTextCodeFile, readFileAsText, getEditorDisplayPath, getEditorLightweightPath } from './mentionContext';
 import {
@@ -186,7 +183,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const attachButtonRef = useRef<HTMLButtonElement>(null);
   const modeButtonRef = useRef<HTMLButtonElement>(null);
   const modelButtonRef = useRef<HTMLButtonElement>(null);
-  const subagentButtonRef = useRef<HTMLButtonElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -195,18 +191,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const [attachMenuStyle, setAttachMenuStyle] = useState<React.CSSProperties | null>(null);
   const [modeMenuStyle, setModeMenuStyle] = useState<React.CSSProperties | null>(null);
   const [modelPickerStyle, setModelPickerStyle] = useState<React.CSSProperties | null>(null);
-  const [subagentPickerStyle, setSubagentPickerStyle] = useState<React.CSSProperties | null>(null);
-  const [subagentProfiles, setSubagentProfiles] = useState<ChatSubagentProfileRow[]>([]);
-  const [selectedSubagentSlug, setSelectedSubagentSlug] = useState<string>(() => {
-    if (typeof localStorage === 'undefined') return '';
-    try {
-      return localStorage.getItem(LS_AGENT_CHAT_SUBAGENT_SLUG) || '';
-    } catch {
-      return '';
-    }
-  });
-  const [isSubagentPickerOpen, setIsSubagentPickerOpen] = useState(false);
-
   const [modes] = useState(AGENT_MODES);
   const [mode, setMode] = useState<AgentMode>(() => {
     if (typeof localStorage === 'undefined') return 'agent';
@@ -648,10 +632,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     setModelPickerStyle(measureAboveAnchor(modelButtonRef.current, 280, 360, 320));
   }, []);
 
-  const measureSubagentPickerMenu = useCallback(() => {
-    setSubagentPickerStyle(measureAboveAnchor(subagentButtonRef.current, 240, 360, 300));
-  }, []);
-
   useLayoutEffect(() => {
     if (!attachMenuOpen) {
       setAttachMenuStyle(null);
@@ -698,21 +678,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   }, [isModelPickerOpen, measureModelPickerMenu]);
 
   useLayoutEffect(() => {
-    if (!isSubagentPickerOpen) {
-      setSubagentPickerStyle(null);
-      return;
-    }
-    measureSubagentPickerMenu();
-    const h = () => measureSubagentPickerMenu();
-    window.addEventListener('resize', h);
-    window.addEventListener('scroll', h, true);
-    return () => {
-      window.removeEventListener('resize', h);
-      window.removeEventListener('scroll', h, true);
-    };
-  }, [isSubagentPickerOpen, measureSubagentPickerMenu]);
-
-  useLayoutEffect(() => {
     if (!mentionOpen && !slashOpen) return;
     const clampW = slashOpen ? 320 : 280;
     const st = measureAboveAnchor(textareaRef.current, 220, 280, clampW);
@@ -746,54 +711,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       /* ignore */
     }
   }, [selectedModelKey]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(LS_AGENT_CHAT_SUBAGENT_SLUG, selectedSubagentSlug);
-    } catch {
-      /* ignore */
-    }
-  }, [selectedSubagentSlug]);
-
-  useEffect(() => {
-    const ws =
-      workspaceId?.trim() ||
-      (typeof window !== 'undefined'
-        ? String((window as unknown as { __IAM_WORKSPACE_ID__?: string }).__IAM_WORKSPACE_ID__ || '').trim()
-        : '');
-    const qp = ws ? `?workspace_id=${encodeURIComponent(ws)}` : '';
-    fetch(`/api/agent/subagent-profiles${qp}`, { credentials: 'same-origin' })
-      .then((r) => r.json())
-      .then((data: ChatSubagentProfileRow[] | { profiles?: ChatSubagentProfileRow[] }) => {
-        const rows = Array.isArray(data)
-          ? data
-          : Array.isArray(data?.profiles)
-            ? data.profiles
-            : [];
-        setSubagentProfiles(
-          rows
-            .map((row) => ({
-              id: String(row.id || ''),
-              slug: String(row.slug || '').trim(),
-              display_name: String(row.display_name || row.slug || '').trim(),
-              description: row.description != null ? String(row.description) : '',
-              default_model_id: row.default_model_id ?? null,
-              agent_type: row.agent_type != null ? String(row.agent_type) : 'custom',
-              access_mode: row.access_mode != null ? String(row.access_mode) : 'read_write',
-              is_platform_global: Number(row.is_platform_global ?? 0),
-            }))
-            .filter((row) => row.slug),
-        );
-      })
-      .catch(() => setSubagentProfiles([]));
-  }, [workspaceId]);
-
-  useEffect(() => {
-    if (!selectedSubagentSlug) return;
-    if (!subagentProfiles.some((p) => p.slug === selectedSubagentSlug)) {
-      setSelectedSubagentSlug('');
-    }
-  }, [selectedSubagentSlug, subagentProfiles]);
 
   useEffect(() => {
     fetch('/api/agent/models?show_in_picker=1', { credentials: 'same-origin' })
@@ -852,13 +769,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     const row = chatModels.find((m) => m.model_key === selectedModelKey);
     return row?.name || selectedModelKey || 'Auto';
   }, [chatModels, selectedModelKey]);
-
-  const selectedSubagentProfile = useMemo(
-    () => subagentProfiles.find((p) => p.slug === selectedSubagentSlug) ?? null,
-    [subagentProfiles, selectedSubagentSlug],
-  );
-
-  const subagentPickerLabel = selectedSubagentProfile?.display_name || 'Agent Sam';
 
   const modeIcon = useMemo(() => {
     const sz = 12;
@@ -1487,11 +1397,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     }
     if (sendOpts?.apply_eto_after_run) {
       form.append('apply_eto_after_run', 'true');
-    }
-    if (selectedSubagentProfile) {
-      form.append('subagent', 'true');
-      form.append('subagent_slug', selectedSubagentProfile.slug);
-      form.append('subagent_profile_id', selectedSubagentProfile.id);
     }
     try {
       const browserCtxPayload: Record<string, unknown> = {
@@ -2399,7 +2304,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                   onClick={() => {
                     setIsModeOpen((o) => !o);
                     setIsModelPickerOpen(false);
-                    setIsSubagentPickerOpen(false);
                     setAttachMenuOpen(false);
                   }}
                   className={`${composerPillClass} max-w-[9rem]`}
@@ -2413,33 +2317,10 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                 </button>
                 <button
                   type="button"
-                  ref={subagentButtonRef}
-                  onClick={() => {
-                    setIsSubagentPickerOpen((o) => !o);
-                    setIsModeOpen(false);
-                    setIsModelPickerOpen(false);
-                    setAttachMenuOpen(false);
-                  }}
-                  className={`${composerPillClass} max-w-[9rem] ${selectedSubagentProfile ? 'ring-1 ring-[var(--solar-cyan)]/35' : ''}`}
-                  title={
-                    selectedSubagentProfile
-                      ? `Subagent: ${selectedSubagentProfile.display_name} (${selectedSubagentProfile.slug})`
-                      : 'Subagent: default Agent Sam'
-                  }
-                  aria-expanded={isSubagentPickerOpen}
-                  aria-haspopup="listbox"
-                >
-                  <Users size={12} className="shrink-0 opacity-70" />
-                  <span className="truncate">{subagentPickerLabel}</span>
-                  <ChevronDown size={12} className="shrink-0 opacity-60" />
-                </button>
-                <button
-                  type="button"
                   ref={modelButtonRef}
                   onClick={() => {
                     setIsModelPickerOpen((o) => !o);
                     setIsModeOpen(false);
-                    setIsSubagentPickerOpen(false);
                     setAttachMenuOpen(false);
                   }}
                   className={`${composerPillClass} max-w-[10rem]`}
@@ -2705,77 +2586,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             </button>
           </div>,
           document.body
-        )}
-
-      {typeof document !== 'undefined' &&
-        isSubagentPickerOpen &&
-        subagentPickerStyle &&
-        createPortal(
-          <div
-            className="flex max-h-[min(320px,calc(100dvh-6rem))] min-w-0 flex-col overflow-y-auto overflow-x-hidden rounded-xl border border-[var(--dashboard-border)] bg-[var(--scene-bg)] py-1 text-[0.6875rem] shadow-2xl"
-            style={subagentPickerStyle}
-            role="listbox"
-            aria-label="Subagent picker"
-          >
-            <div className="border-b border-[var(--dashboard-border)]/70 px-3 py-2 text-[9px] font-black uppercase tracking-[0.15em] text-[var(--dashboard-muted)]">
-              Subagents — this chat only
-            </div>
-            <button
-              type="button"
-              className={`mx-1 flex w-full min-w-0 items-start gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-[var(--dashboard-panel)] ${
-                !selectedSubagentSlug ? 'bg-[var(--dashboard-panel)]' : ''
-              }`}
-              onClick={() => {
-                setSelectedSubagentSlug('');
-                setIsSubagentPickerOpen(false);
-              }}
-            >
-              <Infinity size={14} className="mt-0.5 shrink-0 text-[var(--dashboard-muted)]" />
-              <div className="min-w-0 flex-1">
-                <div className={`text-[11px] font-bold ${!selectedSubagentSlug ? 'text-[var(--solar-cyan)]' : 'text-[var(--dashboard-text)]'}`}>
-                  Agent Sam
-                </div>
-                <div className="text-[9px] text-[var(--dashboard-muted)]">Default workspace agent</div>
-              </div>
-            </button>
-            {subagentProfiles.map((p) => (
-              <button
-                key={p.id || p.slug}
-                type="button"
-                className={`mx-1 flex w-full min-w-0 items-start gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-[var(--dashboard-panel)] ${
-                  selectedSubagentSlug === p.slug ? 'bg-[var(--dashboard-panel)]' : ''
-                }`}
-                onClick={() => {
-                  setSelectedSubagentSlug(p.slug);
-                  setIsSubagentPickerOpen(false);
-                  if (p.default_model_id && isAutoModelSelection(selectedModelKey)) {
-                    setSelectedModelKey(String(p.default_model_id));
-                  }
-                }}
-              >
-                <Users
-                  size={14}
-                  className={`mt-0.5 shrink-0 ${selectedSubagentSlug === p.slug ? 'text-[var(--solar-cyan)]' : 'text-[var(--dashboard-muted)]'}`}
-                />
-                <div className="min-w-0 flex-1">
-                  <div
-                    className={`text-[11px] font-bold truncate ${
-                      selectedSubagentSlug === p.slug ? 'text-[var(--solar-cyan)]' : 'text-[var(--dashboard-text)]'
-                    }`}
-                  >
-                    {p.display_name}
-                  </div>
-                  <div className="text-[9px] text-[var(--dashboard-muted)] font-mono truncate">{p.slug}</div>
-                </div>
-              </button>
-            ))}
-            {subagentProfiles.length === 0 ? (
-              <div className="px-3 py-3 text-[10px] text-[var(--dashboard-muted)]">
-                No subagents yet. Create one under Settings → Rules &amp; Skills → Subagents.
-              </div>
-            ) : null}
-          </div>,
-          document.body,
         )}
 
       {typeof document !== 'undefined' &&

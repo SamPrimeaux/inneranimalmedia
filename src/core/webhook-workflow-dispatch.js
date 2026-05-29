@@ -7,6 +7,17 @@ import { executeWorkflowGraph } from './workflow-executor.js';
 const DISPATCH_PROVIDERS = new Set(['github', 'cloudflare', 'cursor', 'supabase']);
 
 /**
+ * Cursor sends camelCase (`statusChange`); registry stores snake_case (`status_change`).
+ * @param {string} eventType
+ */
+export function normalizeWebhookEventType(eventType) {
+  return String(eventType || '')
+    .trim()
+    .replace(/([a-z])([A-Z])/g, '$1_$2')
+    .toLowerCase();
+}
+
+/**
  * @param {any} env
  * @param {any} [ctx]
  * @param {{
@@ -22,6 +33,7 @@ export async function dispatchWebhookRegistryWorkflow(env, ctx, opts) {
   if (!env?.DB) return { ok: false, reason: 'no_db' };
   const provider = String(opts.provider || '').trim().toLowerCase();
   const eventType = String(opts.eventType || '').trim();
+  const normalizedEventType = normalizeWebhookEventType(eventType);
   const eventId = String(opts.eventId || '').trim();
   if (!provider || !eventId) return { ok: false, reason: 'missing_ids' };
 
@@ -31,13 +43,17 @@ export async function dispatchWebhookRegistryWorkflow(env, ctx, opts) {
 
   const githubDispatch =
     provider === 'github' &&
-    ['push', 'pull_request', 'check_suite', 'check_run', 'workflow_run'].includes(eventType);
+    ['push', 'pull_request', 'check_suite', 'check_run', 'workflow_run'].includes(normalizedEventType);
   const cfDispatch =
     provider === 'cloudflare' &&
-    (eventType.includes('build') || eventType.includes('deploy') || eventType.includes('success'));
+    (normalizedEventType.includes('build') ||
+      normalizedEventType.includes('deploy') ||
+      normalizedEventType.includes('success'));
   const cursorDispatch =
     provider === 'cursor' &&
-    ['agent_finish', 'commit', 'deploy', 'review_complete', 'status_change'].includes(eventType);
+    ['agent_finish', 'commit', 'deploy', 'review_complete', 'status_change'].includes(
+      normalizedEventType,
+    );
   if (!githubDispatch && !cfDispatch && !cursorDispatch && provider !== 'supabase') {
     return { ok: false, reason: 'event_type_skipped' };
   }
@@ -45,8 +61,10 @@ export async function dispatchWebhookRegistryWorkflow(env, ctx, opts) {
   let workflowKey = null;
   let endpointRow = null;
   try {
+    const webhookCols = await pragmaTableInfo(env.DB, 'agentsam_webhooks');
+    const selectAllowed = webhookCols.has('allowed_events') ? ', allowed_events' : '';
     endpointRow = await env.DB.prepare(
-      `SELECT id, workflow_key, tenant_id, workspace_id
+      `SELECT id, workflow_key, tenant_id, workspace_id${selectAllowed}
        FROM agentsam_webhooks
        WHERE provider = ? AND is_active = 1
          AND workflow_key IS NOT NULL AND TRIM(workflow_key) != ''
@@ -62,6 +80,22 @@ export async function dispatchWebhookRegistryWorkflow(env, ctx, opts) {
   }
 
   if (!workflowKey) return { ok: false, reason: 'no_workflow_key' };
+
+  if (endpointRow?.allowed_events != null && String(endpointRow.allowed_events).trim() !== '') {
+    let allowed = [];
+    try {
+      const parsed = JSON.parse(String(endpointRow.allowed_events));
+      allowed = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      allowed = [];
+    }
+    if (allowed.length > 0) {
+      const allowedNorm = allowed.map((e) => normalizeWebhookEventType(String(e)));
+      if (!allowedNorm.includes(normalizedEventType)) {
+        return { ok: false, reason: 'event_not_allowed', event_type: normalizedEventType };
+      }
+    }
+  }
 
   const wf = await env.DB.prepare(
     `SELECT workflow_key FROM agentsam_workflows
@@ -96,7 +130,8 @@ export async function dispatchWebhookRegistryWorkflow(env, ctx, opts) {
         input: {
           webhook_event_id: eventId,
           provider,
-          event_type: eventType,
+          event_type: normalizedEventType,
+          event_type_raw: eventType,
           payload: opts.payload ?? null,
         },
         tenantId,

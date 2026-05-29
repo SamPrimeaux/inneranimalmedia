@@ -2,13 +2,31 @@
  * Cursor Cloud Agents API — spawn, stream, status routes + provider dispatch (cursor_sdk).
  */
 import { getAuthUser, jsonResponse } from '../core/auth.js';
+import { getVaultSecrets, secretFromVault } from '../core/vault.js';
 
 const CURSOR_API_BASE = 'https://api.cursor.com/v1';
+const CURSOR_WEBHOOK_URL = 'https://inneranimalmedia.com/api/webhooks/cursor';
 
 /** @param {any} env */
 export function resolveCursorApiKey(env) {
   const key = env?.CURSOR_API_KEY || env?.CURSOR_API_TOKEN;
   return key != null && String(key).trim() !== '' ? String(key).trim() : null;
+}
+
+/** @param {any} env */
+export async function resolveCursorWebhookSecret(env) {
+  let secret = env?.CURSOR_WEBHOOK_SECRET;
+  if (secret != null && String(secret).trim() !== '') return String(secret).trim();
+  if (env?.DB && (env?.VAULT_KEY || env?.VAULT_MASTER_KEY)) {
+    try {
+      const vault = await getVaultSecrets(env);
+      secret = secretFromVault(vault, env, 'CURSOR_WEBHOOK_SECRET');
+      if (secret != null && String(secret).trim() !== '') return String(secret).trim();
+    } catch {
+      /* vault unavailable */
+    }
+  }
+  return null;
 }
 
 /**
@@ -52,6 +70,7 @@ export async function spawnCursorCloudAgent(env, opts) {
   const model = String(opts.model || 'composer-2.5').trim();
   const repo = opts.repo != null ? String(opts.repo).trim() : '';
   const branch = opts.branch != null ? String(opts.branch).trim() : 'main';
+  const webhookSecret = await resolveCursorWebhookSecret(env);
 
   const spawnRes = await fetch(`${CURSOR_API_BASE}/agents`, {
     method: 'POST',
@@ -64,6 +83,14 @@ export async function spawnCursorCloudAgent(env, opts) {
       model,
       ...(repo ? { repository: repo, branch } : {}),
       stream: true,
+      ...(webhookSecret
+        ? {
+            webhook: {
+              url: CURSOR_WEBHOOK_URL,
+              secret: webhookSecret,
+            },
+          }
+        : {}),
     }),
   });
 
