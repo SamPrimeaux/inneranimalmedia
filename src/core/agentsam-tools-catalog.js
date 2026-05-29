@@ -3,6 +3,7 @@
  * Policy allowlists (mcp_workspace_tokens, agentsam_mcp_allowlist) intersect here; execution stays in dispatch-by-tool-code.
  */
 import { brandedRowMatchesRouteCapability } from './agentsam-capability-aliases.js';
+import { listAgentsamMcpToolsForServerKeys } from './agentsam-mcp-tools.js';
 import { parseHandlerConfig } from './resolve-credential.js';
 import { agentsamPlanInputSchema } from './mcp-plan-schema.js';
 import { agentsamMemorySearchInputSchema } from './mcp-memory-search-schema.js';
@@ -40,6 +41,121 @@ export const EXECUTABLE_HANDLER_TYPES = new Set([
 ]);
 
 /** Route capability_lane → agentsam_tools.tool_category */
+/** @param {unknown} raw JSON array on agentsam_prompt_routes.mcp_template */
+export function parseMcpTemplateServerKeys(raw) {
+  if (raw == null || raw === '') return [];
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (!Array.isArray(parsed)) return [];
+    return [...new Set(parsed.map((k) => trim(k)).filter(Boolean))];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * @param {import('@cloudflare/workers-types').D1Database} db
+ * @param {string|null|undefined} routeKey
+ * @param {string|null|undefined} [tenantId]
+ */
+export async function loadPromptRouteMcpServerKeys(db, routeKey, tenantId = null) {
+  const rk = trim(routeKey).toLowerCase();
+  if (!db || !rk) return [];
+  const tid = trim(tenantId);
+  try {
+    const row = await db
+      .prepare(
+        `SELECT mcp_template FROM agentsam_prompt_routes
+         WHERE is_active = 1 AND route_key = ?
+           AND (tenant_id IS NULL OR tenant_id = ?)
+         ORDER BY CASE WHEN tenant_id IS NOT NULL THEN 0 ELSE 1 END,
+                  COALESCE(priority, 0) ASC
+         LIMIT 1`,
+      )
+      .bind(rk, tid)
+      .first();
+    return parseMcpTemplateServerKeys(row?.mcp_template);
+  } catch (e) {
+    console.warn('[agentsam-tools-catalog] loadPromptRouteMcpServerKeys', e?.message ?? e);
+    return [];
+  }
+}
+
+const MCP_TEMPLATE_SCORE_BOOST = 500;
+
+/**
+ * @param {Record<string, unknown>} m
+ * @param {string} [serverUrl]
+ */
+function mcpTemplateRowToCatalogRaw(m, serverUrl = '') {
+  const sk = trim(m.server_key);
+  const serviceUrl = trim(m.mcp_service_url) || trim(serverUrl);
+  return {
+    tool_key: trim(m.tool_key) || trim(m.tool_name),
+    tool_name: trim(m.tool_name),
+    description: m.description,
+    input_schema: m.input_schema,
+    tool_category: trim(m.tool_category) || 'cloudflare',
+    capability_key: trim(m.capability_key) || sk,
+    risk_level: trim(m.risk_level) || 'low',
+    requires_approval: m.requires_approval,
+    handler_type: 'mcp',
+    mcp_service_url: serviceUrl,
+    handler_config: JSON.stringify({
+      auth_source: 'platform',
+      server_key: sk,
+      mcp_service_url: serviceUrl,
+    }),
+    workspace_scope: '["*"]',
+    __mcp_template: 1,
+  };
+}
+
+/**
+ * @param {import('@cloudflare/workers-types').D1Database} db
+ * @param {{ userId?: string, tenantId?: string, workspaceId?: string, personUuid?: string }} runtimeCtx
+ * @param {string[]} serverKeys
+ * @param {number} [limit]
+ */
+async function loadCatalogRowsForMcpTemplate(db, runtimeCtx, serverKeys, limit = 48) {
+  const mcpRows = await listAgentsamMcpToolsForServerKeys(db, runtimeCtx, serverKeys, limit);
+  const out = [];
+  const seen = new Set();
+  for (const m of mcpRows) {
+    const nm = trim(m.tool_name);
+    if (!nm || seen.has(nm)) continue;
+    seen.add(nm);
+    if (m.agentsam_tools_id) {
+      let linked = null;
+      try {
+        linked = await db
+          .prepare(
+            `SELECT id, tool_key, tool_code, tool_name, display_name, handler_type, handler_config, handler_key,
+                    linked_mcp_tool_id, mcp_service_url, tool_category, input_schema, risk_level,
+                    requires_approval, workspace_scope, modes_json, is_active, is_degraded
+             FROM agentsam_tools
+             WHERE id = ? AND COALESCE(is_active, 1) = 1 AND COALESCE(is_degraded, 0) = 0
+             LIMIT 1`,
+          )
+          .bind(String(m.agentsam_tools_id))
+          .first();
+      } catch {
+        linked = null;
+      }
+      if (linked) {
+        out.push({
+          ...linked,
+          __mcp_template: 1,
+          mcp_service_url: trim(m.mcp_service_url) || trim(m.server_url) || trim(linked.mcp_service_url),
+        });
+        continue;
+      }
+    }
+    out.push(mcpTemplateRowToCatalogRaw(m, trim(m.server_url)));
+  }
+  return out;
+}
+
 export const LANE_TO_TOOL_CATEGORIES = {
   develop: ['terminal', 'filesystem', 'd1', 'github', 'deploy', 'cloudflare', 'agent', 'storage'],
   inspect: ['browser', 'ui'],
@@ -359,6 +475,7 @@ export function mapCatalogRowsToAgentTools(rows) {
  *   outputLimit?: number,
  *   allowlistKeys?: Set<string>|null,
  *   riskLevelMax?: string|null,
+ *   mcpServerKeys?: string[]|null,
  * }} opts
  */
 export async function selectAgentsamToolsForAgentChat(db, runtimeCtx, opts) {
@@ -367,6 +484,8 @@ export async function selectAgentsamToolsForAgentChat(db, runtimeCtx, opts) {
   if (!req || (req.max_tools != null && Number(req.max_tools) === 0) || outputLimit === 0) {
     return { rows: [], missingRequiredCapabilities: [], usedLegacyFallback: false };
   }
+
+  const mcpServerKeys = [...new Set((opts.mcpServerKeys || []).map((k) => trim(k)).filter(Boolean))];
 
   const lanes = (req?.allowed_lanes || []).filter(Boolean);
   let categories = toolCategoriesFromLanes(lanes);
@@ -377,6 +496,10 @@ export async function selectAgentsamToolsForAgentChat(db, runtimeCtx, opts) {
       opts.modeSlug,
       db,
     );
+  }
+  if (mcpServerKeys.length) {
+    const cfCats = toolCategoriesFromLanes(['operate', 'observe', 'admin', 'develop']);
+    categories = [...new Set([...categories, 'cloudflare', ...cfCats])];
   }
   if (!categories.length) {
     return { rows: [], missingRequiredCapabilities: [], usedLegacyFallback: false };
@@ -428,8 +551,35 @@ export async function selectAgentsamToolsForAgentChat(db, runtimeCtx, opts) {
     return { rows: [], missingRequiredCapabilities: missing, usedLegacyFallback: false };
   }
 
+  if (mcpServerKeys.length) {
+    const templateLimit = Math.max(outputLimit, Math.min(96, catalogLimit));
+    const templateRows = await loadCatalogRowsForMcpTemplate(db, runtimeCtx, mcpServerKeys, templateLimit);
+    const existingNames = new Set(candidates.map((c) => trim(c.raw.tool_name)).filter(Boolean));
+    for (const raw of templateRows) {
+      const nm = trim(raw.tool_name);
+      if (!nm) continue;
+      let blockedRow = false;
+      for (const b of blocked) {
+        if (brandedRowMatchesRouteCapability(raw, b)) {
+          blockedRow = true;
+          break;
+        }
+      }
+      if (blockedRow) continue;
+      if (!rowPassesAllowlist(raw, opts.allowlistKeys ?? null)) continue;
+      if (!rowWithinRiskCap(raw, opts.riskLevelMax)) continue;
+      if (existingNames.has(nm)) {
+        const idx = candidates.findIndex((c) => trim(c.raw.tool_name) === nm);
+        if (idx >= 0) candidates[idx] = { raw, row: mapCatalogRowsToAgentTools([raw])[0] };
+        continue;
+      }
+      existingNames.add(nm);
+      candidates.push({ raw, row: mapCatalogRowsToAgentTools([raw])[0] });
+    }
+  }
+
   const score = ({ raw }) => {
-    let s = 0;
+    let s = Number(raw?.__mcp_template) === 1 ? MCP_TEMPLATE_SCORE_BOOST : 0;
     for (const c of reqCaps) {
       if (brandedRowMatchesRouteCapability(raw, c)) s += 100;
     }

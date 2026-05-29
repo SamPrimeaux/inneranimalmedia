@@ -110,6 +110,8 @@ import {
   selectAgentsamToolsForAgentChat,
   selectAgentsamToolsForChatRuntime,
   loadAgentsamToolRow,
+  parseMcpTemplateServerKeys,
+  loadPromptRouteMcpServerKeys,
 } from '../core/agentsam-tools-catalog.js';
 import {
   isImageGenerationTool,
@@ -2210,6 +2212,11 @@ async function loadToolsForRequest(env, modeSlug, _intent, opts = {}) {
     }
   }
 
+  let mcpServerKeys = parseMcpTemplateServerKeys(opts.mcpTemplate);
+  if (!mcpServerKeys.length && opts.routeKey) {
+    mcpServerKeys = await loadPromptRouteMcpServerKeys(env.DB, opts.routeKey, opts.tenantId);
+  }
+
   if (opts.agentChat && useBranded) {
     routeToolRequirements = await resolveAgentChatRouteToolRequirements(env, {
       routeKey: opts.routeKey,
@@ -2242,6 +2249,7 @@ async function loadToolsForRequest(env, modeSlug, _intent, opts = {}) {
       catalogLimit,
       outputLimit: mergedMax,
       allowlistKeys,
+      mcpServerKeys,
     });
     if (det.missingRequiredCapabilities?.length) {
       const miss = det.missingRequiredCapabilities;
@@ -7198,6 +7206,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     taskType: String(intentResult?.taskType || ''),
     agentChat: agentLikeTooling,
     routeKey: promptRouteRow?.route_key != null ? String(promptRouteRow.route_key) : null,
+    mcpTemplate: promptRouteRow?.mcp_template ?? null,
     promptRouteMaxTools:
       promptRouteRow?.max_tools != null && String(promptRouteRow.max_tools).trim() !== ''
         ? Number(promptRouteRow.max_tools)
