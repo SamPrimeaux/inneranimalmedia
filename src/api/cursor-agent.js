@@ -393,11 +393,13 @@ Branch: ${branch}`;
         }
       }
 
+      const agentRunId = 'arun_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
       const spawned = await spawnCursorCloudAgent(env, {
         prompt: fullPrompt,
         model,
         repo,
         branch,
+        agentRunId,
       });
       if (!spawned.ok) {
         return jsonResponse(
@@ -407,18 +409,23 @@ Branch: ${branch}`;
       }
 
       if (env.DB) {
+        const colSet = await pragmaTableInfo(env.DB, 'agentsam_agent_run');
+        const extCol = colSet.has('external_agent_id') ? ', external_agent_id' : '';
+        const extVal = colSet.has('external_agent_id') ? ', ?' : '';
+        const binds = [
+          agentRunId,
+          authUser.id,
+          spawned.agentId,
+          model,
+          plan_id || null,
+        ];
+        if (colSet.has('external_agent_id')) binds.push(spawned.agentId);
         await env.DB.prepare(`
         INSERT INTO agentsam_agent_run
-          (id, user_id, agent_id, status, trigger, model_id, conversation_id, created_at)
-        VALUES (?, ?, ?, 'running', 'cursor_api', ?, ?, datetime('now'))
+          (id, user_id, agent_id, status, trigger, model_id, conversation_id, created_at${extCol})
+        VALUES (?, ?, ?, 'running', 'cursor_api', ?, ?, datetime('now')${extVal})
       `)
-          .bind(
-            'arun_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12),
-            authUser.id,
-            spawned.agentId,
-            model,
-            plan_id || null,
-          )
+          .bind(...binds)
           .run()
           .catch(() => {});
       }
