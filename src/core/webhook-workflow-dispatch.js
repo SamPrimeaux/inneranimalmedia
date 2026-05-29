@@ -15,6 +15,21 @@ const DISPATCH_PROVIDERS = new Set([
   'internal',
 ]);
 
+/** Queue / legacy provider labels → agentsam_webhooks.provider */
+const PROVIDER_ALIASES = {
+  my_queue: 'cloudflare',
+  cf_queue: 'cloudflare',
+  cloudflare_queue: 'cloudflare',
+};
+
+/**
+ * @param {string} provider
+ */
+export function resolveWebhookRegistryProvider(provider) {
+  const p = String(provider || '').trim().toLowerCase();
+  return PROVIDER_ALIASES[p] ?? p;
+}
+
 /**
  * Cursor sends camelCase (`statusChange`); registry stores snake_case (`status_change`).
  * @param {string} eventType
@@ -40,38 +55,15 @@ export function normalizeWebhookEventType(eventType) {
  */
 export async function dispatchWebhookRegistryWorkflow(env, ctx, opts) {
   if (!env?.DB) return { ok: false, reason: 'no_db' };
-  const provider = String(opts.provider || '').trim().toLowerCase();
+  const providerRaw = String(opts.provider || '').trim().toLowerCase();
+  const lookupProvider = resolveWebhookRegistryProvider(providerRaw);
   const eventType = String(opts.eventType || '').trim();
   const normalizedEventType = normalizeWebhookEventType(eventType);
   const eventId = String(opts.eventId || '').trim();
-  if (!provider || !eventId) return { ok: false, reason: 'missing_ids' };
+  if (!lookupProvider || !eventId) return { ok: false, reason: 'missing_ids' };
 
-  if (!DISPATCH_PROVIDERS.has(provider)) {
+  if (!DISPATCH_PROVIDERS.has(lookupProvider)) {
     return { ok: false, reason: 'provider_not_dispatch_enabled' };
-  }
-
-  const githubDispatch =
-    provider === 'github' &&
-    ['push', 'pull_request', 'check_suite', 'check_run', 'workflow_run'].includes(normalizedEventType);
-  const cfDispatch =
-    provider === 'cloudflare' &&
-    (normalizedEventType.includes('build') ||
-      normalizedEventType.includes('deploy') ||
-      normalizedEventType.includes('success'));
-  const cursorDispatch =
-    provider === 'cursor' &&
-    ['agent_finish', 'commit', 'deploy', 'review_complete', 'status_change'].includes(
-      normalizedEventType,
-    );
-  const passthroughDispatch = ['openai', 'anthropic', 'resend', 'internal'].includes(provider);
-  if (
-    !githubDispatch &&
-    !cfDispatch &&
-    !cursorDispatch &&
-    provider !== 'supabase' &&
-    !passthroughDispatch
-  ) {
-    return { ok: false, reason: 'event_type_skipped' };
   }
 
   let workflowKey = null;
@@ -86,7 +78,7 @@ export async function dispatchWebhookRegistryWorkflow(env, ctx, opts) {
          AND workflow_key IS NOT NULL AND TRIM(workflow_key) != ''
        ORDER BY rowid ASC LIMIT 1`,
     )
-      .bind(provider)
+      .bind(lookupProvider)
       .first();
     workflowKey =
       endpointRow?.workflow_key != null ? String(endpointRow.workflow_key).trim() : null;
@@ -145,7 +137,8 @@ export async function dispatchWebhookRegistryWorkflow(env, ctx, opts) {
         workflowKey,
         input: {
           webhook_event_id: eventId,
-          provider,
+          provider: lookupProvider,
+          provider_raw: providerRaw,
           event_type: normalizedEventType,
           event_type_raw: eventType,
           payload: opts.payload ?? null,

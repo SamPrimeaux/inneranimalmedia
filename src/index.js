@@ -978,19 +978,19 @@ export default {
           await handleCodebaseIndexSyncFromQueue(env, body, ctx);
           msg.ack();
           if (env?.DB) {
-            const wheId = `whe_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`;
-            const payloadJson = JSON.stringify({
-              ...(typeof body === 'object' && body ? body : {}),
-              workspace_id: workspaceId,
-            });
+            const { ingestWebhookEventAndDispatch } = await import('./core/webhook-ingest-dispatch.js');
             ctx.waitUntil(
-              recordAgentsamWebhookEvent(env, null, {
-                id: wheId,
+              ingestWebhookEventAndDispatch(env, ctx, {
                 tenantId,
-                provider: 'my_queue',
+                workspaceId,
+                provider: isCfSystem ? 'cloudflare' : 'internal',
                 eventType: String(body?.type ?? 'unknown'),
-                payloadJson,
-                metadata: { workspace_id: workspaceId },
+                payload: {
+                  ...(typeof body === 'object' && body ? body : {}),
+                  workspace_id: workspaceId,
+                },
+                endpointPath: '/queue',
+                signatureValid: true,
               }).catch((e) => console.warn('[queue webhook_events]', e?.message ?? e)),
             );
           }

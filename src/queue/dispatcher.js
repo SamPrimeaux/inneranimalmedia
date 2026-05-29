@@ -18,20 +18,29 @@ function normalizeQueueBody(msg) {
   return {};
 }
 
-async function recordWebhookEvent(env, tenantId, workspaceId, body) {
+/**
+ * @param {any} env
+ * @param {ExecutionContext} ctx
+ * @param {string} tenantId
+ * @param {string} workspaceId
+ * @param {Record<string, unknown>} body
+ */
+async function recordWebhookEvent(env, ctx, tenantId, workspaceId, body) {
   if (!env?.DB || !tenantId || !workspaceId) return;
-  const { recordAgentsamWebhookEvent } = await import('../core/webhook-events-writer.js');
-  const payloadJson = JSON.stringify({
-    ...(typeof body === 'object' && body ? body : {}),
-    workspace_id: workspaceId,
-  });
-  await recordAgentsamWebhookEvent(env, null, {
+  const isCfSystem = typeof body?.type === 'string' && body.type.startsWith('cf.workers');
+  const provider = isCfSystem ? 'cloudflare' : 'my_queue';
+  const { ingestWebhookEventAndDispatch } = await import('../core/webhook-ingest-dispatch.js');
+  await ingestWebhookEventAndDispatch(env, ctx, {
     tenantId,
     workspaceId,
-    provider: 'my_queue',
+    provider,
     eventType: String(body?.type ?? 'unknown'),
-    payloadJson,
-    markProcessed: true,
+    payload: {
+      ...(typeof body === 'object' && body ? body : {}),
+      workspace_id: workspaceId,
+    },
+    endpointPath: '/api/webhooks/cloudflare',
+    signatureValid: true,
   });
 }
 
@@ -103,7 +112,7 @@ export async function dispatchQueueMessage(env, ctx, queueMsg) {
       return { handled: true, kind: 'codebase_index_sync_skipped' };
     }
     await handleCodebaseIndexSyncFromQueue(env, body, ctx);
-    await recordWebhookEvent(env, tenantId, workspaceId, body);
+    await recordWebhookEvent(env, ctx, tenantId, workspaceId, body);
     return { handled: true, kind: 'codebase_index_sync' };
   }
 
@@ -125,7 +134,7 @@ export async function dispatchQueueMessage(env, ctx, queueMsg) {
   }
 
   if (tenantId && workspaceId) {
-    await recordWebhookEvent(env, tenantId, workspaceId, body);
+    await recordWebhookEvent(env, ctx, tenantId, workspaceId, body);
   }
 
   const kind = typeof body.type === 'string' ? body.type : 'unknown';
