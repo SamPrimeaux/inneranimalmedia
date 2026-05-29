@@ -8,6 +8,7 @@ import { scheduleMirrorToolCallEventToSupabase } from './hyperdrive-write.js';
 import { recordSpan } from './tracer.js';
 import { resolveCanonicalUserId } from '../api/auth.js';
 import { pickRunSpineIds } from './run-spine-ids.js';
+import { loadAgentsamToolPolicyKeySet } from './agentsam-tool-policy-keys.js';
 
 /** SHA-256 hex of canonical JSON for tool-cache keys (Workers Web Crypto). */
 export async function hashToolInputJson(obj) {
@@ -23,11 +24,19 @@ export async function hashToolInputJson(obj) {
   }
 }
 
-const NON_CACHEABLE_TOOLS = new Set(['terminal_execute', 'deploy', 'r2_delete', 'd1_write', 'excalidraw_plan_map_create']);
+const NON_CACHEABLE_TOOLS_FALLBACK = new Set([
+  'terminal_execute',
+  'deploy',
+  'r2_delete',
+  'd1_write',
+  'excalidraw_plan_map_create',
+]);
 
-function toolExecutionIsCacheable(toolName) {
+async function toolExecutionIsCacheable(env, toolName) {
   const n = String(toolName || '').trim();
-  if (!n || NON_CACHEABLE_TOOLS.has(n)) return false;
+  if (!n) return false;
+  const deny = await loadAgentsamToolPolicyKeySet(env, 'non_cacheable', NON_CACHEABLE_TOOLS_FALLBACK);
+  if (deny.has(n)) return false;
   return true;
 }
 
@@ -37,7 +46,7 @@ function toolExecutionIsCacheable(toolName) {
  * @returns {Promise<{ hit: false } | { hit: true, value: unknown }>}
  */
 export async function tryReadAgentsamToolCache(env, o) {
-  if (!env?.DB || !toolExecutionIsCacheable(o?.toolName)) return { hit: false };
+  if (!env?.DB || !(await toolExecutionIsCacheable(env, o?.toolName))) return { hit: false };
   const ws =
     o.workspaceId != null && String(o.workspaceId).trim() !== ''
       ? String(o.workspaceId).trim()
@@ -87,7 +96,7 @@ export async function tryReadAgentsamToolCache(env, o) {
  * }} o
  */
 export async function writeAgentsamToolCacheAfterSuccess(env, o) {
-  if (!env?.DB || !toolExecutionIsCacheable(o?.toolName)) return;
+  if (!env?.DB || !(await toolExecutionIsCacheable(env, o?.toolName))) return;
   if (o?.execErr) return;
   const ws =
     o.workspaceId != null && String(o.workspaceId).trim() !== ''

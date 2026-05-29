@@ -192,27 +192,22 @@ async function executePrimitive(env, executorKind, handlerKey, config, input, no
     }
 
     case 'mcp_tool': {
-      const toolKey = config.tool_key || handlerKey;
-      const hkStr = String(toolKey || '').trim();
-      const parts = hkStr.split('.');
-      const splitKey = parts.length > 1 ? parts[parts.length - 1] : hkStr;
-      const underscoreKey = hkStr.replace(/\./g, '_');
-      const toolRow = env.DB
-        ? await env.DB.prepare(
-            `SELECT tool_key, mcp_service_url, handler_type, handler_config
-             FROM agentsam_mcp_tools
-             WHERE (tool_key = ? OR tool_key = ? OR tool_key = ?)
-               AND is_active = 1 AND enabled = 1
-             LIMIT 1`,
-          )
-            .bind(splitKey, underscoreKey, hkStr)
-            .first()
-            .catch(() => null)
-        : null;
-      if (!toolRow) {
-        return { ok: false, error: `mcp_tool not found in agentsam_mcp_tools: ${handlerKey}` };
+      const toolKey = String(config.tool_key || handlerKey || '').trim();
+      if (!toolKey) {
+        return { ok: false, error: 'mcp_tool executor missing tool_key in handler_config_json' };
       }
-      return executeWorkflowMcpTool(env, toolRow, input, runContext, hkStr);
+      const paramRoot = buildWorkflowParamRoot(input, runContext);
+      const { resolveCatalogToolParams } = await import('./extract-browser-url.js');
+      const toolParams = resolveCatalogToolParams(config, paramRoot);
+      const { dispatchByToolCode } = await import('./dispatch-by-tool-code.js');
+      const toolRes = await dispatchByToolCode(env, toolKey, toolParams, {
+        ...runContext,
+        workspaceId: runContext?.runMeta?.workspaceId ?? runContext?.workspace_id,
+        tenantId: runContext?.runMeta?.tenantId ?? runContext?.tenant_id,
+        userId: runContext?.canonicalUserId ?? runContext?.runMeta?.userId,
+      });
+      if (toolRes?.error) return { ok: false, error: String(toolRes.error) };
+      return { ok: toolRes?.ok !== false, output: toolRes?.result ?? toolRes };
     }
 
     case 'agent_step': {

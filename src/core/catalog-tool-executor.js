@@ -192,33 +192,6 @@ function bindingBucket(env, bindingName) {
 
 /**
  * @param {any} env
- * @param {string | null | undefined} linkedId
- * @param {string | null | undefined} toolKey
- */
-async function loadMcpToolRow(env, linkedId, toolKey) {
-  if (!env?.DB) return null;
-  if (linkedId) {
-    const byId = await env.DB.prepare(
-      `SELECT * FROM agentsam_mcp_tools WHERE id = ? AND COALESCE(is_active,1)=1 AND COALESCE(enabled,1)=1 LIMIT 1`,
-    )
-      .bind(String(linkedId).trim())
-      .first();
-    if (byId) return byId;
-  }
-  const key = String(toolKey || '').trim();
-  if (!key) return null;
-  return env.DB.prepare(
-    `SELECT * FROM agentsam_mcp_tools
-     WHERE COALESCE(is_active,1)=1 AND COALESCE(enabled,1)=1
-       AND (tool_key = ? OR tool_name = ? OR capability_key = ?)
-     LIMIT 1`,
-  )
-    .bind(key, key, key)
-    .first();
-}
-
-/**
- * @param {any} env
  * @param {Record<string, unknown>} mcpRow
  * @param {Record<string, unknown>} params
  * @param {Record<string, unknown>} runContext

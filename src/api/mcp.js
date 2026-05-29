@@ -1028,54 +1028,25 @@ export async function handleMcpApi(request, url, env, ctx) {
       const body = await request.json().catch(() => ({}));
       if (!body || typeof body !== 'object') return jsonResponse({ error: 'JSON body required' }, 400);
 
-      const existing = await env.DB.prepare(
-        `SELECT tool_name FROM agentsam_mcp_tools WHERE tool_name = ? LIMIT 1`,
-      )
-        .bind(toolName)
-        .first();
-      if (!existing) return jsonResponse({ error: 'Tool not found' }, 404);
+      const { patchAgentsamToolCatalogAndMirror } = await import('../core/agentsam-mcp-registry-sync.js');
+      const patch = {};
+      if (body.tool_category != null) patch.tool_category = String(body.tool_category);
+      if (body.mcp_service_url != null) patch.mcp_service_url = String(body.mcp_service_url);
+      if (body.description != null) patch.description = String(body.description);
+      if (body.input_schema != null) patch.input_schema = body.input_schema;
+      if (body.requires_approval != null) patch.requires_approval = body.requires_approval;
+      if (body.enabled != null) patch.is_active = body.enabled;
+      if (body.handler_config != null) patch.handler_config = body.handler_config;
+      if (body.handler_type != null) patch.handler_type = String(body.handler_type);
+      if (body.risk_level != null) patch.risk_level = String(body.risk_level);
+      if (body.modes_json != null) patch.modes_json = body.modes_json;
 
-      const sets = [];
-      const binds = [];
-      const push = (col, val) => {
-        sets.push(`${col} = ?`);
-        binds.push(val);
-      };
-      if (body.tool_category != null) push('tool_category', String(body.tool_category));
-      if (body.mcp_service_url != null) push('mcp_service_url', String(body.mcp_service_url));
-      if (body.description != null) push('description', String(body.description));
-      if (body.input_schema != null) {
-        const s =
-          typeof body.input_schema === 'string'
-            ? body.input_schema
-            : JSON.stringify(body.input_schema);
-        push('input_schema', s);
+      const result = await patchAgentsamToolCatalogAndMirror(env, toolName, patch);
+      if (!result.ok) {
+        const status = result.error === 'Tool not found in agentsam_tools' ? 404 : 400;
+        return jsonResponse({ error: result.error }, status);
       }
-      if (body.requires_approval != null) {
-        const n = Number(body.requires_approval);
-        push('requires_approval', Number.isFinite(n) ? n : body.requires_approval ? 1 : 0);
-      }
-      if (body.enabled != null) {
-        const n = Number(body.enabled);
-        push('enabled', Number.isFinite(n) ? n : body.enabled ? 1 : 0);
-      }
-
-      if (sets.length === 0) return jsonResponse({ error: 'No allowed fields to update' }, 400);
-      sets.push('updated_at = unixepoch()');
-      binds.push(toolName);
-      try {
-        await env.DB.prepare(
-          `UPDATE agentsam_mcp_tools SET ${sets.join(', ')} WHERE tool_name = ?`,
-        )
-          .bind(...binds)
-          .run();
-      } catch (e) {
-        return jsonResponse({ error: String(e?.message || e) }, 500);
-      }
-      const updated = await env.DB.prepare(`SELECT * FROM agentsam_mcp_tools WHERE tool_name = ? LIMIT 1`)
-        .bind(toolName)
-        .first();
-      return jsonResponse({ ok: true, tool: updated });
+      return jsonResponse({ ok: true, tool: result.tool, mirror: result.mirror, source: 'agentsam_tools' });
     }
 
     if (pathLower === '/api/mcp/commands' && method === 'GET') {

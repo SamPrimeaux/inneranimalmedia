@@ -1,19 +1,22 @@
 /**
  * agentsam_user_policy + allowlist enforcement for MCP and builtins.
  *
+ * Tool registry SSOT: agentsam_tools (agentsam_mcp_tools is a deprecating mirror).
+ * Policy baselines: agentsam_tool_policy_keys (migration 450).
+ *
  * Empty allowlist when require_allowlist_for_mcp=1:
- * Treat registered agentsam_mcp_tools rows for this tenant/workspace/user scope
- * as the effective allowlist (workspace-owned tool registrations). Builtins that are not
- * MCP-backed are governed by mode policy only, not the MCP allowlist table.
+ * Treat active agentsam_tools rows for this tenant/workspace scope as registry fallback.
  *
  * Allowlist match order (require_allowlist_for_mcp = 1):
- *   a) user_id + workspace_id + tool_key (+ tenant consistent when row has tenant_id)
- *   b) person_uuid + workspace_id + tool_key (+ tenant consistent)
- *   c) tenant_id + workspace_id + tool_key (workspace-scoped tenant row)
- *   d) superadmin: active agentsam_mcp_tools row for actor tenant + workspace (no user allowlist required)
- *   e) scoped agentsam_mcp_tools enabled row (normal users)
- *   f) baseline builtins (BUILTIN_SAFE_WITH_REQUIRE_ALLOWLIST)
+ *   a) user_id + workspace_id + tool_key
+ *   b) person_uuid + workspace_id + tool_key
+ *   c) tenant_id + workspace_id + tool_key
+ *   d) superadmin: active agentsam_tools row for actor tenant + workspace
+ *   e) scoped agentsam_tools row (normal users)
+ *   f) baseline keys from agentsam_tool_policy_keys (builtin_safe_allowlist)
  */
+
+import { loadAgentsamToolPolicyKeySet } from './agentsam-tool-policy-keys.js';
 
 const RISK_ORDER = { none: 0, low: 1, medium: 2, high: 3, critical: 4 };
 
@@ -272,12 +275,24 @@ export async function isToolAllowedByAllowlist(env, policy, scope, toolName, mcp
   const name = trimId(toolName);
   if (!name) return { allowed: false, reason: 'missing_tool', path: null };
 
-  if (BUILTIN_SAFE_WITH_REQUIRE_ALLOWLIST.has(name)) {
+  const baselineSafe = await loadAgentsamToolPolicyKeySet(
+    env,
+    'builtin_safe_allowlist',
+    BUILTIN_SAFE_WITH_REQUIRE_ALLOWLIST,
+  );
+  if (baselineSafe.has(name)) {
     return { allowed: true, reason: 'baseline_builtin', path: 'baseline_builtin' };
   }
 
-  if (opts.agentMode && AGENT_CHAT_ESSENTIAL_TOOL_KEYS.has(name)) {
-    return { allowed: true, reason: 'agent_chat_essential', path: 'agent_chat_essential' };
+  if (opts.agentMode) {
+    const chatEssential = await loadAgentsamToolPolicyKeySet(
+      env,
+      'agent_chat_essential',
+      AGENT_CHAT_ESSENTIAL_TOOL_KEYS,
+    );
+    if (chatEssential.has(name)) {
+      return { allowed: true, reason: 'agent_chat_essential', path: 'agent_chat_essential' };
+    }
   }
 
   const ws = trimId(scope?.workspaceId);
