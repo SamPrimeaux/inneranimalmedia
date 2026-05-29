@@ -1,0 +1,73 @@
+---
+description: LOCKED — no hardcoded user/workspace/tenant/OAuth identity in live Worker or dashboard code
+alwaysApply: true
+---
+
+# RULE: No hardcoded identity or auth protocol (LOCKED)
+
+**ID:** `rule_no_hardcoded_identity_auth_protocol` | **Priority:** ALWAYS | **D1:** `agentsam_rules_document`
+
+This agreement is **non-negotiable**. Violations are treated as **security defects** (wrong tenant isolation, wrong allowlist rows, consent bound to the wrong user).
+
+## Forbidden in live code paths
+
+Never embed these as **literals** in `src/`, `dashboard/`, or MCP server `src/` (request handlers, guards, consent, token issue, tool dispatch):
+
+| Pattern | Examples (forbidden) |
+|---------|----------------------|
+| User ids | `au_871d920d1233cbd1`, any `au_[hex]` |
+| Workspace ids | `ws_inneranimalmedia`, any `ws_[slug]` used as runtime default |
+| Tenant ids | `tenant_sam_primeaux`, any `tenant_*` used as runtime default |
+| Operator email | `sam@inneranimalmedia.com`, `info@inneranimals.com` in logic branches |
+| Migration seeds | `INSERT … allowlist` / `user_policy` with specific `au_*` + `ws_*` for one human |
+
+```js
+// ❌ NEVER — hot path
+const workspaceId = 'ws_inneranimalmedia';
+.bind('au_871d920d1233cbd1', 'ws_inneranimalmedia');
+if (user.email === 'sam@inneranimalmedia.com') …
+
+// ✅ ALWAYS — resolve from session / token / authorization row
+const userId = authUser.id;
+const workspaceId = row.workspace_id ?? (await resolveRequestWorkspaceId(env, authUser, url));
+const tenantId = authRow.tenant_id ?? workspaceRow.tenant_id;
+```
+
+## Allowed literals (not “identity”)
+
+- **OAuth registry key:** `MCP_CANONICAL_CLIENT_ID` from `mcp-oauth-shared.js` only (maps to D1 `oauth_clients.client_id`) — do not duplicate the string elsewhere.
+- **Scope names:** `iam:profile`, `mcp:tools`, `iam:agent` (protocol strings).
+- **Table/column names:** `auth_users`, `agentsam_mcp_oauth_tool_allowlist`, etc.
+- **Public URLs:** `https://mcp.inneranimalmedia.com`, issuer hostnames (not user-specific).
+
+## Auth / MCP protocol must be D1-driven
+
+| Concern | Source of truth | Runtime reads |
+|---------|-----------------|---------------|
+| OAuth client | `oauth_clients` | `mcpOAuthLoadClient(env, clientId)` |
+| External app (ChatGPT/Claude) | `agentsam_mcp_oauth_external_client_registry` | `resolveExternalClientKeyFromRedirect` |
+| User may connect ChatGPT/Claude | `agentsam_mcp_oauth_user_client_allowlist` | `assertUserMayUseExternalClient` — rows from **consent approve**, never migration-seeded `au_*` |
+| OAuth tool surface | `agentsam_mcp_oauth_tool_allowlist` | `loadMcpOAuthExternalToolKeys` |
+| User tool allowlist | `agentsam_mcp_allowlist` | `findMcpAllowlistMatch` / session scope |
+| Workspace on token | `oauth_authorizations.workspace_id` | token issue + `mcp_workspace_tokens` |
+
+No second copy of allowlists, client lists, or “Sam’s workspace” in JavaScript.
+
+## Migrations
+
+- **Platform registry only:** `INSERT` into `agentsam_mcp_oauth_external_client_registry` (`chatgpt`, `claude`, `cursor`) — no `user_id`.
+- **Never** seed `agentsam_mcp_oauth_user_client_allowlist` with operator `au_*` in SQL. First grant happens at OAuth consent (`recordExternalClientAllowlistOnConsent`).
+- One-off data repair: resolve `user_id` from `auth_users` by email in a documented script — not copied into committed migration `VALUES`.
+
+## Validation (required before ship)
+
+```bash
+npm run guard:identity          # OAuth/auth tier — must pass (CI gate)
+npm run guard:identity:all      # Full repo audit (legacy HTML may still fail)
+```
+
+OAuth tier scans: `src/api/oauth.js`, `src/api/mcp-oauth*`, `src/core/mcp-oauth*`, `settings.js` (MCP paths), `migrations/`, MCP `mcp-oauth*` + `index.js`. Bridge/health use `env.WORKSPACE_ID` / `env.TENANT_ID` (wrangler vars), not JS literals.
+
+## Quality flag
+
+`HARDCODED_IDENTITY` — any PR or deploy that introduces forbidden literals. Block merge until removed or moved to D1 + dynamic resolve.

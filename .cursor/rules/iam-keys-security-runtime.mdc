@@ -1,0 +1,53 @@
+---
+description: User API keys — audit, findings, shield rules (exact production columns)
+globs:
+  - src/api/settings-api-keys.js
+  - src/core/keys-security.js
+  - src/core/security-scan.js
+  - migrations/378_security_shield_rules_all_tenants.sql
+---
+
+# Keys security runtime (production schemas)
+
+**Canonical `secret_id`:** `user_secrets.id` (`user_api_keys.vault_secret_id`). Never use `user_api_keys.id` for audit/findings.
+
+## secret_audit_log
+
+- PK: `id` (`saudit_` prefix)
+- Every write: `secret_id`, `secret_source='user_secrets'`, `tenant_id`, `user_id`, `event_type`, `ip_address`, `user_agent`
+- Rotate: `previous_last4`, `new_last4`
+- Agent use: `triggered_by='agent_sam'`, `terminal_session_id` when available
+- Closure: `resolved=1`, `resolved_at=unixepoch()`, `resolved_notes`
+
+Event types: `key_created`, `key_validated_pass`, `key_validated_fail`, `key_revealed`, `key_rotated`, `key_deleted`, `key_used_by_agent`
+
+Audit is observability only — log failures to console, do not block the operation.
+
+## security_findings
+
+Required on insert: `id`, `tenant_id`, `source_type='api_key'`, `source_ref=secret_id`, `finding_type`, `severity`, `fingerprint`, `created_by=user_id`, `user_id`, `workspace_id`, `secret_id`
+
+`fingerprint = sha256(tenant_id + secret_id + finding_type)` (hex)
+
+Status: `open` → `triaged` → `fixed` | `false_positive`
+
+On validate pass: `UPDATE security_findings SET status='fixed', resolved_at=unixepoch() WHERE secret_id=? AND tenant_id=? AND status='open'`
+
+`metadata_json`: `{ checks, warnings, latency_ms }`
+
+## security_shield_rules
+
+- `tenant_id` required; `user_id` NULL = all users in tenant
+- `rule_type` enum: `key_expiry_warning`, `rotation_due`, `test_failure`, `exposure_pattern`, `untested_key_age`, `null_value_registered`, `audit_anomaly`
+- On trigger: `last_triggered_at=unixepoch()`, `trigger_count=trigger_count+1`
+- `notify_channels`: `dashboard` → finding row; `email` → `sendPlatformEmail`
+
+## Provisioning
+
+`provisionIdentitySignup` must call `buildDefaultShieldRuleStatements(env, tenantId)` in its batch.
+
+Migration `378_security_shield_rules_all_tenants.sql` seeds all existing tenants (idempotent).
+
+## Implementation module
+
+Use `handleKeySecurityAfterOp` from `src/core/keys-security.js` after create/validate/reveal/rotate/delete; `getUserBYOKey` fires `agent_use` audit.

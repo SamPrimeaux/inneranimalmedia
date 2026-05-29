@@ -1,0 +1,286 @@
+{
+    "Contents": [
+        {
+            "Key": "knowledge/agentsam/dashboard-agent-audit/00-series-conventions.md",
+            "LastModified": "2026-05-28T10:46:01.185000+00:00",
+            "ETag": "\"9e0588926fafe9cf79aaaa3b20c82764\"",
+            "Size": 2511,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "knowledge/agentsam/dashboard-agent-audit/01-dashboard-agent-shell.md",
+            "LastModified": "2026-05-28T10:46:02.688000+00:00",
+            "ETag": "\"2c86f510b7c16b945ccbdba762be39ed\"",
+            "Size": 2609,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "knowledge/agentsam/dashboard-agent-audit/02-dashboard-agent-deploy-and-r2-assets.md",
+            "LastModified": "2026-05-28T10:46:04.217000+00:00",
+            "ETag": "\"91dd772400ed921e9b96a008cf0869b0\"",
+            "Size": 2708,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "knowledge/agentsam/dashboard-agent-audit/03-dashboard-agent-mobile-operator-ux.md",
+            "LastModified": "2026-05-28T10:46:05.801000+00:00",
+            "ETag": "\"95aa6f2ccfde0511fa58ac4bd8064d1a\"",
+            "Size": 2060,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "knowledge/agentsam/dashboard-agent-audit/04-dashboard-agent-auth-session.md",
+            "LastModified": "2026-05-28T10:46:08.156000+00:00",
+            "ETag": "\"f7d42c3f2d6dca8a28f292bdd3333896\"",
+            "Size": 735,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "knowledge/agentsam/dashboard-agent-audit/04-dashboard-agent-local-filesystem.md",
+            "LastModified": "2026-05-28T10:26:46.383000+00:00",
+            "ETag": "\"c7aa47ca1d6d824dcf4adb061b72661b\"",
+            "Size": 1447,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "knowledge/agentsam/dashboard-agent-audit/05-dashboard-agent-r2-file-plane.md",
+            "LastModified": "2026-05-28T10:26:47.815000+00:00",
+            "ETag": "\"00d726873d14fddeb2c8c22cbd8d20ae\"",
+            "Size": 1489,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "knowledge/agentsam/dashboard-agent-audit/05-dashboard-agent-workspace-launcher.md",
+            "LastModified": "2026-05-28T10:46:09.612000+00:00",
+            "ETag": "\"ab5511f04dcd7584135c2bf79399bf01\"",
+            "Size": 653,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "knowledge/agentsam/dashboard-agent-audit/06-dashboard-agent-explorer-sources.md",
+            "LastModified": "2026-05-28T10:46:11.073000+00:00",
+            "ETag": "\"b3514e01f7326c2552fee8bbacc93a2d\"",
+            "Size": 605,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "knowledge/agentsam/dashboard-agent-audit/06-dashboard-agent-github-plane.md",
+            "LastModified": "2026-05-28T10:26:51.077000+00:00",
+            "ETag": "\"d601a494002a56c772d8427169846a15\"",
+            "Size": 1428,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "knowledge/agentsam/dashboard-agent-audit/07-dashboard-agent-monaco-and-save-matrix.md",
+            "LastModified": "2026-05-28T10:46:12.585000+00:00",
+            "ETag": "\"8aefc751450215f735d44606664d5d7a\"",
+            "Size": 3167,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "knowledge/agentsam/dashboard-agent-audit/08-dashboard-agent-database-panel.md",
+            "LastModified": "2026-05-28T10:46:14.148000+00:00",
+            "ETag": "\"27257a1b010c53ccc6b71c8855cc77f7\"",
+            "Size": 622,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "knowledge/agentsam/dashboard-agent-audit/08-dashboard-agent-google-drive.md",
+            "LastModified": "2026-05-28T10:26:54.170000+00:00",
+            "ETag": "\"6e0af5dab5acbbd9c684dac74c3a9554\"",
+            "Size": 1243,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "knowledge/agentsam/dashboard-agent-audit/09-dashboard-agent-chat-sse-stream.md",
+            "LastModified": "2026-05-28T10:46:15.640000+00:00",
+            "ETag": "\"87a97422e49d4db28f17d6750495d4be\"",
+            "Size": 3543,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "knowledge/agentsam/dashboard-agent-audit/10-dashboard-agent-surface-routing.md",
+            "LastModified": "2026-05-28T10:46:17.098000+00:00",
+            "ETag": "\"2fbf3133d3da50c3264dd20d3b8c7475\"",
+            "Size": 2201,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "knowledge/agentsam/dashboard-agent-audit/11-dashboard-agent-unified-search.md",
+            "LastModified": "2026-05-28T10:46:18.611000+00:00",
+            "ETag": "\"6c38a39a1bdc526b2187204620cf5d5c\"",
+            "Size": 590,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "knowledge/agentsam/dashboard-agent-audit/11-dashboard-agent-workspace-context.md",
+            "LastModified": "2026-05-28T10:27:01.220000+00:00",
+            "ETag": "\"b003fb0e3e0efbda7b44f3ac5f5299a0\"",
+            "Size": 1625,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "knowledge/agentsam/dashboard-agent-audit/12-dashboard-agent-approvals-and-tool-runs.md",
+            "LastModified": "2026-05-28T10:46:20.084000+00:00",
+            "ETag": "\"a4afbba394adf019e8757587394ed91e\"",
+            "Size": 2499,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "knowledge/agentsam/dashboard-agent-audit/13-dashboard-agent-browser-tools-backend.md",
+            "LastModified": "2026-05-28T10:46:21.560000+00:00",
+            "ETag": "\"3002c7f722c5dfcab4d77973cc3e621c\"",
+            "Size": 2263,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "knowledge/agentsam/dashboard-agent-audit/14-dashboard-agent-terminal-and-pty.md",
+            "LastModified": "2026-05-28T10:46:23.014000+00:00",
+            "ETag": "\"6eefad07f117671832b5cf57a354dde4\"",
+            "Size": 2387,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "knowledge/agentsam/dashboard-agent-audit/15-dashboard-agent-excalidraw-design.md",
+            "LastModified": "2026-05-28T10:46:24.438000+00:00",
+            "ETag": "\"23789b257b4231ed00d0d7111bd2029f\"",
+            "Size": 623,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "knowledge/agentsam/dashboard-agent-audit/15-dashboard-agent-local-git-source-panel.md",
+            "LastModified": "2026-05-28T10:27:07.761000+00:00",
+            "ETag": "\"9a98c8c870b885f01658caf1e8c2d06a\"",
+            "Size": 1132,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "knowledge/agentsam/dashboard-agent-audit/16-dashboard-agent-mcp-and-integrations.md",
+            "LastModified": "2026-05-28T10:46:26.014000+00:00",
+            "ETag": "\"638a4f59a0709d101a93748da01502d9\"",
+            "Size": 2074,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "knowledge/agentsam/dashboard-agent-audit/17-dashboard-agent-knowledge-and-search.md",
+            "LastModified": "2026-05-28T10:27:12.021000+00:00",
+            "ETag": "\"74f0ed1429ceddce4c3d762f79ae159f\"",
+            "Size": 1204,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "knowledge/agentsam/dashboard-agent-audit/17-dashboard-agent-settings-policy.md",
+            "LastModified": "2026-05-28T10:46:27.499000+00:00",
+            "ETag": "\"4369bd4a532e7225ec1ca44c1e45a47b\"",
+            "Size": 725,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "knowledge/agentsam/dashboard-agent-audit/18-dashboard-agent-analytics-telemetry-ui.md",
+            "LastModified": "2026-05-28T10:46:29.062000+00:00",
+            "ETag": "\"9256b4c3974591d2cb1d30c9e6daa4b7\"",
+            "Size": 683,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "knowledge/agentsam/dashboard-agent-audit/18-dashboard-agent-home-and-recents.md",
+            "LastModified": "2026-05-28T10:27:13.546000+00:00",
+            "ETag": "\"1acef7b6b6f0ed0751fa54299fcdd3ce\"",
+            "Size": 1217,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "knowledge/agentsam/dashboard-agent-audit/19-dashboard-agent-draw-and-media-tabs.md",
+            "LastModified": "2026-05-28T10:27:15.094000+00:00",
+            "ETag": "\"66bf7133cd3dc2a6cc323d47efc793eb\"",
+            "Size": 1222,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "knowledge/agentsam/dashboard-agent-audit/19-dashboard-agent-github-drive-oauth.md",
+            "LastModified": "2026-05-28T10:46:30.471000+00:00",
+            "ETag": "\"6a493731877c382426f829cba2ad5756\"",
+            "Size": 738,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "knowledge/agentsam/dashboard-agent-audit/20-dashboard-agent-command-palette.md",
+            "LastModified": "2026-05-28T10:27:16.631000+00:00",
+            "ETag": "\"498a1a99433f57c4cc777b8275e1828d\"",
+            "Size": 1144,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "knowledge/agentsam/dashboard-agent-audit/20-dashboard-agent-status-problems.md",
+            "LastModified": "2026-05-28T10:46:31.839000+00:00",
+            "ETag": "\"d250dd26987d7a072e37a85557a27e2b\"",
+            "Size": 688,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "knowledge/agentsam/dashboard-agent-audit/21-dashboard-agent-model-routing-and-costs.md",
+            "LastModified": "2026-05-28T10:46:33.331000+00:00",
+            "ETag": "\"1697ea7c0ad2759d309116194c340d10\"",
+            "Size": 2107,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "knowledge/agentsam/dashboard-agent-audit/22-dashboard-agent-memory-and-indexing.md",
+            "LastModified": "2026-05-28T10:46:34.764000+00:00",
+            "ETag": "\"cdf339678f523fdfe64a06f780951c9d\"",
+            "Size": 1991,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "knowledge/agentsam/dashboard-agent-audit/23-dashboard-agent-automation-workflows.md",
+            "LastModified": "2026-05-28T10:46:37.140000+00:00",
+            "ETag": "\"b90412a687996583d8f4799648853fa8\"",
+            "Size": 1874,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "knowledge/agentsam/dashboard-agent-audit/24-dashboard-agent-e2e-validation.md",
+            "LastModified": "2026-05-28T10:46:59.408000+00:00",
+            "ETag": "\"07129a1db7e6b5cdc340d4b086f8d732\"",
+            "Size": 1895,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "knowledge/agentsam/dashboard-agent-audit/25-dashboard-agent-master-backlog.md",
+            "LastModified": "2026-05-28T10:46:40.356000+00:00",
+            "ETag": "\"f33ef3058de4afb18634e13ac70f2cb4\"",
+            "Size": 2632,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "knowledge/agentsam/dashboard-agent-audit/README.md",
+            "LastModified": "2026-05-28T10:28:12.268000+00:00",
+            "ETag": "\"30cfc0b0321cfc2b4c7a44163f9b32a3\"",
+            "Size": 10040,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "knowledge/agentsam/dashboard-agent-audit/r2-upload-credentials.md",
+            "LastModified": "2026-05-28T10:27:25.793000+00:00",
+            "ETag": "\"b2ae02756e990755b84709efdd18a66d\"",
+            "Size": 4974,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "knowledge/agentsam/dashboard-agent-audit/r2-upload-manifest.json",
+            "LastModified": "2026-05-28T10:47:03.719000+00:00",
+            "ETag": "\"a091ace213b01483cdf7d9352aa2d6ad\"",
+            "Size": 1525,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "knowledge/agentsam/dashboard-agent-audit/r2-upload-notes.md",
+            "LastModified": "2026-05-28T10:47:01.206000+00:00",
+            "ETag": "\"58ab925a526101f838566210f9df2bff\"",
+            "Size": 1098,
+            "StorageClass": "STANDARD"
+        }
+    ],
+    "RequestCharged": null,
+    "Prefix": "knowledge/agentsam/dashboard-agent-audit/"
+}

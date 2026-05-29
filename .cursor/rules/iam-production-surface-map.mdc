@@ -1,0 +1,165 @@
+---
+description: >-
+  Production URL → code map, repo filetree orientation, Worker bindings, and
+  Wrangler secret labels for inneranimalmedia.com. Load when routing, onboarding
+  agents, auditing surfaces, or answering "where does this URL live?"
+alwaysApply: false
+---
+
+# IAM production surface map (inneranimalmedia.com)
+
+**Canonical Worker entry:** `src/index.js` (not `worker.js`).  
+**Deploy:** `npm run deploy:full` → `scripts/deploy-frontend.sh` (Vite → R2 `static/dashboard/app/` + `wrangler deploy -c wrangler.production.toml`).
+
+## How agents should ask for / refresh the filetree
+
+Do **not** guess routes or folder layout from memory. Use this order:
+
+1. **This rule** — URL → file map below.
+2. **Worker public HTML map** — `ASSET_ROUTES` in `src/index.js` (~line 307).
+3. **Dashboard React routes** — `dashboard/App.tsx` (`<Routes>` ~3025+; auth routes ~353+).
+4. **API dispatch** — `src/core/production-dispatch.js` → `src/api/*.js`.
+5. **Regenerate stale API index (optional):** `npm run generate:route-map` → `docs/codebase-index/ws_inneranimalmedia/route-map.md` (may lag; verify against `src/index.js`).
+6. **Tree commands (repo root only):**
+   ```bash
+   pwd  # must end with inneranimalmedia
+   find src/api src/core dashboard/pages dashboard/components -maxdepth 2 -type d | sort
+   ls -1 src/api/*.js | wc -l
+   ```
+
+## Repo layout (runtime)
+
+| Area | Path | Ships to |
+|------|------|----------|
+| Worker + routing | `src/index.js`, `src/core/production-dispatch.js` | Cloudflare Worker |
+| HTTP handlers | `src/api/` (~113 modules) | Worker |
+| Agent / workflow core | `src/core/workflow-executor.js`, `src/core/provider.js`, `src/do/` | Worker |
+| Dashboard SPA | `dashboard/` (Vite React) | R2 `inneranimalmedia` prefix `static/dashboard/app/` |
+| Public marketing HTML | R2 **`ASSETS`** keys under `pages/*` (not in git; mapped in Worker) | `env.ASSETS` |
+| Migrations / D1 truth | `migrations/*.sql` | D1 `inneranimalmedia-business` |
+| MCP server (separate worker) | `inneranimalmedia-mcp-server/` (sibling deploy) | `mcp.inneranimalmedia.com` |
+
+**Dashboard build output:** `dashboard/dist/` → uploaded as `/static/dashboard/app/*`. SPA shell: `dashboard.html` (or index) via `getDashboardSpaHtmlShell()` in Worker.
+
+## Auth model (important)
+
+| Path prefix | Server gate | Notes |
+|-------------|-------------|-------|
+| `/dashboard`, `/dashboard/*` | **Session required** in `src/index.js` (~763–771); else redirect `/auth/login?next=…` | SPA fallback only for `/dashboard/*`, `/onboarding/*`, `/oauth/mcp/consent` |
+| `/api/*` (most) | Per-handler session / token | See handler |
+| Public marketing (`/`, `/work`, …) | **No** dashboard session | Served from `ASSET_ROUTES` + `env.ASSETS` |
+| `/auth/login`, `/auth/signup`, `/auth/reset` | Public HTML shells | Worker `ASSET_ROUTES`; React also mounts auth in `App.tsx` |
+
+**Not an auth bypass:** `/sitemap` returns **404** (globe page). The 404 template links to `/dashboard/agent` (“Back to Agent Sam”) — logged-in users land in dashboard; anonymous users get login redirect. Fix: add real `/sitemap.xml` + change 404 CTA to `/` for public paths.
+
+## Production URLs → code
+
+### Public site (marketing + auth shells)
+
+| URL | Worker `ASSET_ROUTES` key | R2 / notes |
+|-----|---------------------------|------------|
+| `/` | (special) `index-v3.html` or `index.html` | `env.ASSETS` |
+| `/work` | `pages/work/index.html` | ASSETS |
+| `/about` | `pages/about/index.html` | ASSETS |
+| `/services` | `pages/services/index.html` | ASSETS |
+| `/contact` | `pages/contact/index.html` | ASSETS |
+| `/games` | `pages/games/index.html` | ASSETS |
+| `/pricing` | `pages/pricing/index.html` | ASSETS |
+| `/privacy` | `pages/privacy/index.html` | ASSETS |
+| `/terms` | `pages/terms/index.html` | ASSETS |
+| `/sitemap` | `static/pages/sitemap/index.html` + `src/public-pages/sitemap-route.js` | Worker `GET /sitemap`; bundle via `npm run embed:sitemap-html` |
+| `/sitemap.xml` | `src/public-pages/sitemap-xml.js` | Worker XML index (public URLs only) |
+| `/auth/login` | `pages/auth/login.html` | + `dashboard/components/auth/AuthSignInPage.tsx` |
+| `/auth/signup` | `pages/auth/signup.html` | + `AuthSignUpPage.tsx` |
+| `/auth/reset` | `pages/auth/reset.html` | + `AuthResetPage.tsx`; alias `/reset-password` in SPA |
+
+### Dashboard (session-gated SPA)
+
+| URL | React route / component |
+|-----|-------------------------|
+| `/dashboard/overview` | `OverviewPage` — `dashboard/components/OverviewPage.tsx` |
+| `/dashboard/projects` | `ProjectManagement` — `dashboard/pages/projects/` |
+| `/dashboard/tasks` | `TasksPage` — `dashboard/pages/tasks/` |
+| `/dashboard/library` | `LibraryPage` — `dashboard/pages/library/` |
+| `/dashboard/finance` | Finance panels — `dashboard/components/finance/` |
+| `/dashboard/analytics/overview` | `AnalyticsPage` + tab `overview` — `dashboard/pages/AnalyticsPage.tsx`, `components/analytics/tabs/OverviewTab.tsx` |
+| `/dashboard/analytics/:tab` | **11 tabs** — `dashboard/components/analytics/analyticsRegistry.ts` |
+| `/dashboard/agent` | Agent shell (eager) — `dashboard/lib/agentRoutes.ts`, `ChatAssistant` |
+| `/dashboard/workflows` | `WorkflowsPage` — `dashboard/pages/workflows/` |
+| `/dashboard/launch-desk` | Launch desk — `src/api/launch-desk.js` + dashboard page |
+| `/dashboard/learn` | `LearnPage` — `dashboard/components/LearnPage.tsx` |
+| `/dashboard/designstudio` | `DesignStudioPage` — `src/api/designstudio/` |
+| `/dashboard/mcp` | `McpPage` — `src/api/mcp.js` |
+| `/dashboard/database` | `DatabasePage` — D1 studio UI |
+| `/dashboard/meet` | `MeetPage` — `src/api/meet.js` |
+| `/dashboard/images` | Images workspace |
+| `/dashboard/mail` | `MailPage` — `src/api/mail.js` |
+| `/dashboard/settings/:sectionSlug` | `SettingsPanel` — slugs in `dashboard/components/settings/settingsConstants.ts` |
+
+**Analytics tabs (consolidation target — today 11 routes, one shell):**  
+`overview`, `agent`, `workers`, `mcp`, `models`, `databases`, `advisors`, `deploys`, `costs`, `rag`, `codebase` — registry: `analyticsRegistry.ts`; APIs under `src/api/analytics/`.
+
+**Settings slugs:** `general`, `agents`, `ai-models`, `tools`, `rules`, `workspace`, `hooks`, `github`, `cicd`, `network`, `themes`, `storage`, `security`, `keys`, `billing`, `notifications`, `docs`, `integrations`.
+
+## Worker bindings (`wrangler.production.toml`)
+
+| Binding | Type | Resource (label) |
+|---------|------|------------------|
+| `AI` | Workers AI | — |
+| `MYBROWSER` | Browser | — |
+| `ASSETS` | R2 | `inneranimalmedia` (public pages, `/assets/*`) |
+| `DASHBOARD` | R2 | `inneranimalmedia` (SPA static) |
+| `AUTORAG_BUCKET` | R2 | `inneranimalmedia-autorag` |
+| `DOCS_BUCKET` | R2 | `iam-docs` |
+| `R2` | R2 | `iam-platform` |
+| `TOOLS` | R2 | `tools` |
+| `EMAIL` | R2 | `inneranimalmedia-email-archive` |
+| `DB` | D1 | `inneranimalmedia-business` |
+| `HYPERDRIVE` | Hyperdrive | Supabase Postgres lane |
+| `VECTORIZE` | Vectorize | `ai-search-inneranimalmedia-autorag` |
+| `AGENTSAMVECTORIZE` | Vectorize | `inneranimalmedia-vectors` |
+| `AGENTSAM_VECTORIZE_*` | Vectorize | courses / codebase / schema / memory indexes |
+| `KV` | KV | session/metadata |
+| `SESSION_CACHE` | KV | session cache |
+| `IAM_COLLAB` | DO | `IAMCollaborationSession` |
+| `CHESS_SESSION` | DO | `ChessRoom` |
+| `AGENT_SESSION` | DO | `AgentChatSqlV1` |
+| `PTY_SERVICE` | VPC | remote PTY |
+| `MY_QUEUE` | Queue | producer + consumer |
+| `WAE` | Analytics Engine | `inneranimalmedia` |
+
+**Vars in toml (non-secret):** `TENANT_ID`, `WORKSPACE_ID`, `DEPLOY_ENV`, OAuth client IDs, RAG embedding config, etc.
+
+## Wrangler secret labels (names only — never commit values)
+
+**Tier 1 — platform (fixed set, ~8–15 keys):**
+
+- `VAULT_MASTER_KEY` — encrypt `user_secrets` / OAuth tokens in D1
+- `TOKEN_SIGNING_KEY` — session + MCP token HMAC
+- `PTY_AUTH_TOKEN` — terminal bridge auth
+- `AGENTSAM_BRIDGE_KEY` — telemetry ingest / bridge
+- `SESSION_SIGNING_SECRET` — optional session crypto
+- `INTERNAL_API_SECRET` — internal webhooks / CI hooks
+- OAuth: `GITHUB_CLIENT_SECRET`, `GOOGLE_CLIENT_SECRET` / `GOOGLE_OAUTH_CLIENT_SECRET`, `CLOUDFLARE_OAUTH_CLIENT_*`, `SUPABASE_OAUTH_CLIENT_*`, MCP OAuth secrets
+
+**Tier 2 — provider APIs (platform):**
+
+- `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_AI_API_KEY`
+- `RESEND_API_KEY`, `RESEND_FROM`, `RESEND_TO`
+- `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_URL`, `SUPABASE_WEBHOOK_SECRET`, `SUPABASE_DB_WEBHOOK_SECRET`
+- `CLOUDFLARE_API_TOKEN`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`
+- `GITHUB_APP_PRIVATE_KEY`, `GITHUB_TOKEN` (legacy), `MCP_AUTH_TOKEN`, `MCP_SERVICE_URL` (optional)
+
+**Tier 3 — per-user (D1 only, not Wrangler):** `user_secrets`, `user_api_keys`, `mcp_workspace_tokens` — encrypted with `VAULT_MASTER_KEY`.
+
+List live secrets: `npx wrangler secret list -c wrangler.production.toml` (names only).
+
+## Prompt template for Cursor / Ask mode
+
+```text
+Using .cursor/rules/iam-production-surface-map.mdc:
+1) Map URL <path> to Worker vs dashboard file.
+2) List bindings touched and D1 tables (agentsam_* prefix).
+3) Note auth gate (public / session / API key).
+Do not invent routes — cite src/index.js ASSET_ROUTES or App.tsx Routes.
+```
