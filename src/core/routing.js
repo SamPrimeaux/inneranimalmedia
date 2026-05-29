@@ -475,7 +475,9 @@ export function armMatchesRouteRequirements(arm, req) {
   const minQ = Number(req.min_quality_score);
   if (Number.isFinite(minQ) && minQ > 0) {
     const aq = Number(arm.avg_quality_score);
-    if (!Number.isFinite(aq) || aq < minQ) return false;
+    const qn = Number(arm.quality_n);
+    const coldStart = !Number.isFinite(qn) || qn < 5;
+    if (!coldStart && (!Number.isFinite(aq) || aq < minQ)) return false;
   }
   const maxLat = Number(req.max_latency_p50_ms);
   if (Number.isFinite(maxLat) && maxLat > 0) {

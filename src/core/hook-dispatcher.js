@@ -3,6 +3,8 @@
  * Fires registered agentsam_hook rows for a given event_type (or legacy trigger).
  * Writes to agentsam_hook_execution with tenant/workspace scope.
  */
+import { pragmaTableInfo } from './retention.js';
+import { fetchActiveProjectContextBlocks } from './agent-prompt-context.js';
 
 const HOOK_SELECT = `
   SELECT
@@ -34,6 +36,66 @@ const HOOK_SELECT = `
   ORDER BY COALESCE(priority, 100) ASC, created_at ASC
 `;
 
+/**
+ * @param {any} env
+ * @param {Record<string, unknown>} payload
+ * @param {Record<string, unknown>} hook
+ * @param {string} exId
+ * @param {number} durationMs
+ * @param {string} outcome
+ * @param {string | null} errorMsg
+ */
+async function insertHookExecution(env, payload, hook, exId, durationMs, outcome, errorMsg) {
+  const cols = await pragmaTableInfo(env.DB, 'agentsam_hook_execution');
+  const agentRunId = payload.agent_run_id ?? payload.agentRunId ?? null;
+  if (cols.has('agent_run_id') && cols.has('metadata_json')) {
+    await env.DB.prepare(
+      `INSERT INTO agentsam_hook_execution
+         (id, hook_id, event_type, tenant_id, workspace_id, user_id, status, error,
+          payload_json, duration_ms, agent_run_id, metadata_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+    )
+      .bind(
+        exId,
+        hook.id,
+        hook.event_type,
+        payload.tenant_id ?? hook.tenant_id ?? null,
+        payload.workspace_id ?? hook.workspace_id ?? null,
+        payload.user_id ?? hook.user_id ?? 'system',
+        outcome,
+        errorMsg,
+        JSON.stringify(payload).slice(0, 4096),
+        durationMs,
+        agentRunId,
+        JSON.stringify({ hook_key: hook.hook_key, handler_type: hook.handler_type }).slice(
+          0,
+          4096,
+        ),
+      )
+      .run();
+    return;
+  }
+  await env.DB.prepare(
+    `INSERT INTO agentsam_hook_execution
+       (id, hook_id, event_type, tenant_id, workspace_id, user_id, status, error,
+        payload_json, duration_ms, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+  )
+    .bind(
+      exId,
+      hook.id,
+      hook.event_type,
+      payload.tenant_id ?? hook.tenant_id ?? null,
+      payload.workspace_id ?? hook.workspace_id ?? null,
+      payload.user_id ?? hook.user_id ?? 'system',
+      outcome,
+      errorMsg,
+      JSON.stringify(payload).slice(0, 4096),
+      durationMs,
+    )
+    .run();
+}
+
 export async function fireAgentHooks(env, ctx, eventType, payload = {}) {
   if (!env?.DB) return;
 
@@ -49,35 +111,19 @@ export async function fireAgentHooks(env, ctx, eventType, payload = {}) {
       let errorMsg = null;
 
       try {
-        await dispatchHook(env, hook, payload);
+        await dispatchHook(env, hook, payload, ctx);
       } catch (e) {
         outcome = 'error';
         errorMsg = e?.message ?? String(e);
         console.warn('[hook-dispatcher]', hook.hook_key, errorMsg);
       }
 
+      const durationMs = Date.now() - t0;
       if (ctx?.waitUntil) {
         ctx.waitUntil(
-          env.DB.prepare(
-            `INSERT INTO agentsam_hook_execution
-             (id, hook_id, event_type, tenant_id, workspace_id, user_id, status, error,
-              payload_json, duration_ms, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
-          )
-            .bind(
-              exId,
-              hook.id,
-              eventType,
-              payload.tenant_id ?? hook.tenant_id ?? null,
-              payload.workspace_id ?? hook.workspace_id ?? null,
-              payload.user_id ?? hook.user_id ?? 'system',
-              outcome,
-              errorMsg,
-              JSON.stringify(payload).slice(0, 4096),
-              Date.now() - t0,
-            )
-            .run()
-            .catch((e) => console.warn('[hook-dispatcher] execution write', e?.message)),
+          insertHookExecution(env, payload, hook, exId, durationMs, outcome, errorMsg).catch((e) =>
+            console.warn('[hook-dispatcher] execution write', e?.message),
+          ),
         );
         ctx.waitUntil(
           env.DB.prepare(
@@ -90,6 +136,10 @@ export async function fireAgentHooks(env, ctx, eventType, payload = {}) {
             .run()
             .catch(() => {}),
         );
+      } else {
+        await insertHookExecution(env, payload, hook, exId, durationMs, outcome, errorMsg).catch(
+          () => {},
+        );
       }
     }
   } catch (e) {
@@ -97,7 +147,7 @@ export async function fireAgentHooks(env, ctx, eventType, payload = {}) {
   }
 }
 
-async function dispatchHook(env, hook, payload) {
+async function dispatchHook(env, hook, payload, ctx) {
   let cfg = {};
   try {
     cfg =
@@ -127,6 +177,77 @@ async function dispatchHook(env, hook, payload) {
       const pr = await postAgentSamDeployHook(env);
       if (pr.error) throw new Error(pr.error);
       if (!pr.ok) throw new Error(`deploy hook HTTP ${pr.status}`);
+      break;
+    }
+    case 'agent_call': {
+      const routeKey = cfg.route_key != null ? String(cfg.route_key).trim() : 'debug';
+      const ws =
+        payload.workspace_id != null ? String(payload.workspace_id).trim() : '';
+      if (!ws) break;
+      const { executeCommand } = await import('../api/command-run-telemetry.js');
+      const cmd = await env.DB.prepare(
+        `SELECT id FROM agentsam_commands
+         WHERE route_key = ? AND COALESCE(is_active, 1) = 1
+         ORDER BY COALESCE(sort_order, 50) ASC LIMIT 1`,
+      )
+        .bind(routeKey)
+        .first()
+        .catch(() => null);
+      if (!cmd?.id) {
+        console.warn('[hook] agent_call no command for route', routeKey);
+        break;
+      }
+      await executeCommand(env, ctx, {
+        commandId: String(cmd.id),
+        userId: payload.user_id,
+        tenantId: payload.tenant_id,
+        workspaceId: ws,
+        sessionId: payload.session_id ?? payload.conversation_id ?? null,
+        agentRunId: payload.agent_run_id ?? payload.agentRunId ?? null,
+        skipApprovalGate: cfg.validate_only === true,
+        args: { hook_payload: payload.error ?? payload.message ?? payload },
+      });
+      break;
+    }
+    case 'context_load': {
+      const ws =
+        payload.workspace_id != null ? String(payload.workspace_id).trim() : '';
+      if (!ws) break;
+      const blocks = await fetchActiveProjectContextBlocks(env, {
+        workspaceId: ws,
+        tenantId: payload.tenant_id,
+        limit: 3,
+      });
+      if (env.DB && blocks.length) {
+        let digestText = blocks.map((b) => b.text).join('\n\n').slice(0, 6000);
+        const digestCols = await pragmaTableInfo(env.DB, 'agentsam_context_digest');
+        if (digestCols.size && digestCols.has('digest_text')) {
+          const existing = await env.DB.prepare(
+            `SELECT id FROM agentsam_context_digest
+             WHERE workspace_id = ? AND digest_type = 'session'
+             ORDER BY created_at DESC LIMIT 1`,
+          )
+            .bind(ws)
+            .first()
+            .catch(() => null);
+          if (existing?.id) {
+            await env.DB.prepare(
+              `UPDATE agentsam_context_digest SET digest_text = ?, updated_at = datetime('now') WHERE id = ?`,
+            )
+              .bind(digestText, existing.id)
+              .run()
+              .catch(() => {});
+          } else if (digestCols.has('id')) {
+            await env.DB.prepare(
+              `INSERT INTO agentsam_context_digest (id, workspace_id, digest_type, digest_text, created_at)
+               VALUES (?, ?, 'session', ?, datetime('now'))`,
+            )
+              .bind(`acd_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`, ws, digestText)
+              .run()
+              .catch(() => {});
+          }
+        }
+      }
       break;
     }
     case 'log_only':

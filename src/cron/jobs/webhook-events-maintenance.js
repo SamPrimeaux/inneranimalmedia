@@ -67,6 +67,33 @@ export async function runWebhookEventsMaintenanceCron(env) {
   }
 
   try {
+    const weekRes = await env.DB.prepare(
+      `INSERT OR REPLACE INTO agentsam_webhook_weekly (
+         id, tenant_id, week_start, week_end, total_events, processed_count, failed_count,
+         per_source_json, per_event_type_json, rolled_up_at
+       )
+       SELECT
+         'aww_' || COALESCE(tenant_id, 'system') || '_' || strftime('%Y-W%W', datetime(received_at_unix, 'unixepoch')),
+         COALESCE(tenant_id, 'system'),
+         strftime('%Y-W%W', datetime(received_at_unix, 'unixepoch')),
+         date(datetime(received_at_unix, 'unixepoch', 'weekday 6')),
+         COUNT(*),
+         SUM(CASE WHEN status = 'processed' THEN 1 ELSE 0 END),
+         SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END),
+         '{}',
+         '{}',
+         unixepoch()
+       FROM agentsam_webhook_events
+       WHERE received_at_unix < (unixepoch() - 604800)
+       GROUP BY COALESCE(tenant_id, 'system'), strftime('%Y-W%W', datetime(received_at_unix, 'unixepoch'))`,
+    ).run();
+    rowsWritten += Number(weekRes?.meta?.changes ?? weekRes?.changes ?? 0) || 0;
+    console.log('[cron] agentsam_webhook_weekly rollup changes:', weekRes?.meta?.changes ?? weekRes?.changes ?? 0);
+  } catch (e) {
+    console.warn('[cron] agentsam_webhook_weekly rollup', e?.message ?? e);
+  }
+
+  try {
     if (runId) {
       await completeCronRun(env, runId, startedAt, {
         rowsRead,

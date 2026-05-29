@@ -919,7 +919,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     if (!res.ok) return [];
     const data = await res.json();
     const arr = Array.isArray(data) ? data : [];
-    const items = arr.map((r: { slug: string; description?: string }) => ({
+    const items = arr.map((r: { id?: string; slug: string; description?: string }) => ({
+      id: r.id,
       slug: r.slug,
       description: r.description ?? null,
     }));
@@ -1072,6 +1073,32 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     setSlashOpen(false);
     slashQueryRef.current = null;
     insertAtCursor(next, pos, pos);
+
+    void (async () => {
+      try {
+        const res = await fetch('/api/agent/commands/execute', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            slug: cmd.slug,
+            command_id: cmd.id,
+            session_id: conversationId || undefined,
+            conversation_id: conversationId || undefined,
+            agent_run_id: agentRunId?.trim() || undefined,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 202 && (data.approval_id || data.command_run_id)) {
+          onApprovalRequired?.(data.command_run_id || data.approval_id);
+        }
+        if (!res.ok && data?.error) {
+          console.warn('[slash-command]', data.error);
+        }
+      } catch (e) {
+        console.warn('[slash-command] execute failed', e);
+      }
+    })();
   };
 
   const stripEmptyAssistantTail = useCallback((prev: Message[]) => {

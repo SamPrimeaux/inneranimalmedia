@@ -383,7 +383,7 @@ async function appendTriggeredRulesToSystemPrompt(env, systemPrompt, opts = {}) 
     const body = String(r.body_markdown || '');
     return `### ${title}\n${body}`;
   });
-  return `${systemPrompt}\n\n## Rules\n${blocks.join('\n\n')}\n`;
+  return `${systemPrompt}\n\n## Workspace Rules\n${blocks.join('\n\n')}\n`;
 }
 
 function skillTokenEstimate(row) {
@@ -1017,13 +1017,41 @@ const VECTOR_CONTEXT_EMBED_MODEL = '@cf/baai/bge-m3';
  * Uses Workers AI to embed the message (free tier, ~2ms).
  * Returns grouped results by source lane.
  */
-async function resolveVectorContext(env, message, _taskType) {
+async function resolveVectorContext(env, message, _taskType, options = {}) {
+  const text = String(message || '').trim();
+  if (!text) return {};
+
+  const routeKey = options?.routeKey != null ? String(options.routeKey).trim() : '';
+  const workspaceId =
+    options?.workspaceId != null ? String(options.workspaceId).trim() : '';
+
+  if (workspaceId && routeKey) {
+    try {
+      const { queryRouteRagLanes } = await import('../core/rag-lanes.js');
+      const laneHits = await queryRouteRagLanes(env, {
+        workspace_id_d1: workspaceId,
+        query_text: text,
+        route_key: routeKey,
+        top_k: 8,
+      });
+      if (laneHits?.length) {
+        return {
+          lane_chunks: laneHits.map((h) => ({
+            lane: h.lane,
+            label: h.title || h.source_ref,
+            description: (h.content || '').slice(0, 400),
+            score: h.score,
+          })),
+        };
+      }
+    } catch (e) {
+      console.warn('[vectorContext] route lanes', e?.message ?? e);
+    }
+  }
+
   if (!env.VECTORIZE || !env.AI) return {};
 
   try {
-    const text = String(message || '').trim();
-    if (!text) return {};
-
     const embResult = await env.AI.run(VECTOR_CONTEXT_EMBED_MODEL, { text: [text] });
     const embedding = embResult?.data?.[0] ?? embResult?.result?.[0];
     if (!Array.isArray(embedding) || !embedding.length) return {};
@@ -1069,6 +1097,12 @@ function buildVectorContextBlock(ctx) {
   if (ctx.memory?.length) {
     lines.push('## Prior Context');
     ctx.memory.forEach((m) => lines.push(`- ${m.label || m.memory_type}: ${m.description || ''}`));
+  }
+  if (ctx.lane_chunks?.length) {
+    lines.push('## Retrieved Knowledge');
+    ctx.lane_chunks.forEach((c) =>
+      lines.push(`- [${c.lane}] ${c.label || 'chunk'}: ${c.description || ''}`),
+    );
   }
   if (ctx.workflows?.length) {
     lines.push('## Available Workflows');
@@ -1120,13 +1154,35 @@ async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeConfig, 
     const includeVectorRag = Number(promptRouteRow?.include_rag ?? 1) === 1;
     const msg = String(options?.message ?? '').trim();
     if (!includeVectorRag || !msg) return systemPrompt;
-    const vectorCtx = await resolveVectorContext(env, msg, options?.taskType ?? null);
+    const vectorCtx = await resolveVectorContext(env, msg, options?.taskType ?? null, {
+      routeKey: promptRouteRow?.route_key ?? options?.routeKey ?? null,
+      workspaceId: options?.workspaceId ?? null,
+      tenantId: options?.tenantId ?? null,
+      userId: options?.userId ?? null,
+    });
     const vectorBlock = buildVectorContextBlock(vectorCtx);
     return vectorBlock ? `${systemPrompt}${vectorBlock}` : systemPrompt;
   };
 
-  const finalizeSystemPrompt = async (systemPrompt) =>
-    appendVectorContextBlock(await appendRulesContextBlock(systemPrompt));
+  const appendProjectContextBlock = async (systemPrompt) => {
+    if (minimalAsk || !options?.workspaceId) return systemPrompt;
+    try {
+      const { appendActiveProjectsToSystemPrompt } = await import('../core/agent-prompt-context.js');
+      return appendActiveProjectsToSystemPrompt(env, systemPrompt, {
+        workspaceId: options.workspaceId,
+        tenantId: options.tenantId,
+      });
+    } catch (e) {
+      console.warn('[agent] project_context inject', e?.message ?? e);
+      return systemPrompt;
+    }
+  };
+
+  const finalizeSystemPrompt = async (systemPrompt) => {
+    let out = await appendRulesContextBlock(systemPrompt);
+    out = await appendProjectContextBlock(out);
+    return appendVectorContextBlock(out);
+  };
 
   if (cachedPrompt != null) {
     return finalizeSystemPrompt(cachedPrompt);
@@ -4088,6 +4144,9 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         temperature,
         userId,
         tenantId,
+        workspaceId: routingWs || null,
+        agentRunId: chatAgentRunId ?? null,
+        routingArmId: routingArmIdParam ?? null,
         taskType: routingTaskType || 'ask',
         mode: mode || 'auto',
         openaiPreviousResponseId,
@@ -4465,6 +4524,9 @@ async function runAgentToolLoop(env, ctx, emit, params) {
             temperature,
             userId,
             tenantId,
+            workspaceId: routingWs || null,
+            agentRunId: chatAgentRunId ?? null,
+            routingArmId: routingArmIdParam ?? null,
             taskType: routingTaskType || 'ask',
             mode: mode || 'auto',
             anthropicContainerId: containerId,
@@ -7770,6 +7832,18 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     env.DB && userId && resolvedWorkspaceId
       ? newChatAgentRunId(quickstartBatch ? { label: quickstartBatch } : {})
       : null;
+  if (chatAgentRunId && ctx?.waitUntil) {
+    ctx.waitUntil(
+      fireAgentHooks(env, ctx, 'start', {
+        tenant_id: tenantId ?? null,
+        workspace_id: workspaceId,
+        user_id: userId,
+        agent_run_id: chatAgentRunId,
+        conversation_id: sessionId ?? null,
+        session_id: sessionId ?? null,
+      }).catch((e) => console.warn('[hook-dispatcher] start', e?.message ?? e)),
+    );
+  }
   const chatDispatchSpine = chatAgentRunId
     ? {
         agent_run_id: chatAgentRunId,
@@ -8545,6 +8619,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
             fireAgentHooks(env, ctx, 'agent_run_complete', {
               tenant_id: tenantId ?? null,
               workspace_id: workspaceId,
+              agent_run_id: chatAgentRunId ?? null,
               run_id: chatAgentRunId ?? null,
               model_key: lastLoopStats?.modelKey ?? tried[tried.length - 1] ?? null,
               arm_id: outcomeArmId,
@@ -9586,6 +9661,66 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
       { slug: 'ask', label: 'Ask', description: 'Talk and answer questions', color: null, icon: null, temperature: 0.7, auto_run: 0, max_tool_calls: 15 },
       { slug: 'auto', label: 'Auto', description: 'Automatic routing', color: null, icon: null, temperature: 0.7, auto_run: 0, max_tool_calls: 15 },
     ]);
+  }
+
+  // ── /api/agent/commands/execute — slash palette dispatch (command_run + use_count)
+  if (path === '/api/agent/commands/execute' && method === 'POST') {
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {
+      body = {};
+    }
+    const slug = String(body.slug ?? body.command_slug ?? '').trim();
+    const commandId = String(body.command_id ?? body.commandId ?? '').trim();
+    if (!slug && !commandId) {
+      return jsonResponse({ error: 'slug_or_command_id_required' }, 400);
+    }
+    const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, body);
+    const workspaceId = wsRes?.workspaceId != null ? String(wsRes.workspaceId).trim() : '';
+    if (!workspaceId) return jsonResponse({ error: 'WORKSPACE_CONTEXT_MISSING' }, 400);
+    let tenantId =
+      authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
+        ? String(authUser.tenant_id).trim()
+        : null;
+    if (!tenantId) tenantId = await fetchAuthUserTenantId(env, authUser.id);
+    let cmdRow = null;
+    if (commandId) {
+      cmdRow = await env.DB.prepare(
+        `SELECT * FROM agentsam_commands WHERE id = ? AND COALESCE(is_active, 1) = 1 LIMIT 1`,
+      )
+        .bind(commandId)
+        .first();
+    } else {
+      cmdRow = await env.DB.prepare(
+        `SELECT * FROM agentsam_commands WHERE slug = ? AND COALESCE(is_active, 1) = 1 LIMIT 1`,
+      )
+        .bind(slug.startsWith('/') ? slug : `/${slug}`)
+        .first();
+      if (!cmdRow) {
+        cmdRow = await env.DB.prepare(
+          `SELECT * FROM agentsam_commands WHERE slug = ? AND COALESCE(is_active, 1) = 1 LIMIT 1`,
+        )
+          .bind(slug.replace(/^\//, ''))
+          .first();
+      }
+    }
+    if (!cmdRow?.id) return jsonResponse({ error: 'command_not_found' }, 404);
+    const { executeCommand } = await import('./command-run-telemetry.js');
+    const out = await executeCommand(env, ctx, {
+      commandId: String(cmdRow.id),
+      userId: authUser.id,
+      tenantId,
+      workspaceId,
+      sessionId: body.session_id ?? body.conversation_id ?? body.sessionId ?? null,
+      agentRunId: body.agent_run_id ?? body.agentRunId ?? null,
+      args: body.args && typeof body.args === 'object' ? body.args : {},
+      taskType: body.task_type ?? cmdRow.task_type ?? null,
+      skipApprovalGate: body.skip_approval === true,
+    });
+    return jsonResponse(out, out?.ok ? 200 : out?.error === 'pending_approval' ? 202 : 400);
   }
 
   // ── /api/agent/commands — agentsam_commands (show_in_slash); legacy agentsam_slash_commands retired

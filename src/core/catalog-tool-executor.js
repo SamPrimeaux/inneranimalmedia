@@ -276,20 +276,21 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
     runContext.sessionId ??
     runContext.session_id ??
     null;
-  const sortedInput = stableSortValue(rawInput);
-  const sortedInputJson = safeJsonString(sortedInput);
-  const cacheKey = toolKey && workspaceId ? await sha256Hex(toolKey + sortedInputJson) : null;
-  const inputHash = sortedInputJson ? await sha256Hex(sortedInputJson) : null;
+  const { buildMcpToolCacheKey } = await import('./tool-cache-key.js');
+  const cacheKey = await buildMcpToolCacheKey(workspaceId, toolKey, rawInput);
+  const inputHash = cacheKey
+    ? cacheKey.split(':').pop() || null
+    : null;
 
   if (env?.DB && toolKey && cacheKey && workspaceId) {
     try {
       const cached = await env.DB.prepare(
         `SELECT output_json, id FROM agentsam_tool_cache
-         WHERE tool_key = ? AND cache_key = ? AND workspace_id = ?
+         WHERE cache_key = ?
            AND (expires_at IS NULL OR expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now'))
          LIMIT 1`,
       )
-        .bind(toolKey, cacheKey, workspaceId)
+        .bind(cacheKey)
         .first();
       if (cached?.output_json) {
         try {

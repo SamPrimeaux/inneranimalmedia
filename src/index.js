@@ -38,6 +38,7 @@ import {
 } from './api/oauth-login-callbacks.js';
 import { handleGithubWebhook } from './api/webhooks/github.js';
 import { handleAnthropicWebhook } from './api/webhooks/anthropic.js';
+import { handleCursorWebhook } from './api/webhooks/cursor.js';
 import { recordAgentsamWebhookEvent } from './core/webhook-events-writer.js';
 import { getDashboardR2Object, getDashboardSpaHtmlShell } from './core/dashboard-r2-assets.js';
 import { resolveGitHubToken } from './core/github-token.js';
@@ -192,6 +193,10 @@ export default {
 
       if (pathLower === '/api/webhooks/anthropic' && methodUpper === 'POST') {
         return handleAnthropicWebhook(request, env, ctx);
+      }
+
+      if (pathLower === '/api/webhooks/cursor' && methodUpper === 'POST') {
+        return handleCursorWebhook(request, env, ctx);
       }
 
       if (pathLower === '/api/webhooks/openai' || pathLower === '/api/hooks/openai') {

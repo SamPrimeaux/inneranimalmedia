@@ -20,7 +20,7 @@ export const LANES = {
   schema: {
     name: 'schema',
     vectorize: 'AGENTSAM_VECTORIZE_SCHEMA',
-    supabase_table: 'agentsam_schema_oai3large_1536',
+    supabase_table: 'agentsam_database_schema_oai3large_1536',
   },
   archive: {
     name: 'archive',
@@ -235,4 +235,124 @@ export async function queryLanes(env, opts = {}) {
 
   results.sort((a, b) => b.score - a.score);
   return results;
+}
+
+const ROUTE_LANE_MAP = {
+  db_write: ['schema', 'memory'],
+  db_read: ['schema', 'memory'],
+  debug: ['schema', 'memory'],
+  cf_ops: ['schema', 'memory'],
+  ask: ['docs', 'memory'],
+  agent_spawn: ['docs', 'memory'],
+  research: ['docs', 'memory'],
+};
+
+/**
+ * pgvector cosine search on a single Supabase agentsam.* lane (Hyperdrive).
+ * @param {any} env
+ * @param {'schema'|'docs'|'memory'} laneName
+ * @param {string} d1WorkspaceId
+ * @param {string} queryText
+ * @param {{ topK?: number }} [opts]
+ */
+export async function queryPgvectorLane(env, laneName, d1WorkspaceId, queryText, opts = {}) {
+  const lane = resolveLaneConfig(laneName);
+  if (!lane?.supabase_table || lane.name === 'archive') return [];
+  const ws = String(d1WorkspaceId || '').trim();
+  const q = String(queryText || '').trim();
+  if (!ws || !q) return [];
+
+  const workspaceId = await resolveSupabaseWorkspaceId(env, ws);
+  if (!workspaceId) return [];
+
+  const t0 = Date.now();
+  const { embedding } = await createAgentsamEmbedding(env, q);
+  const topK = Math.min(Math.max(1, Number(opts.topK) || 4), 12);
+  const vecLit = vectorLiteral(embedding);
+  const sql = `
+    SELECT title, content, source_ref,
+           1 - (embedding <=> $1::vector) AS score
+      FROM agentsam.${lane.supabase_table}
+     WHERE workspace_id = $2::uuid
+       AND embedding IS NOT NULL
+     ORDER BY embedding <=> $1::vector
+     LIMIT $3`;
+
+  const r = await runHyperdriveQuery(env, sql, [vecLit, workspaceId, topK]);
+  const latencyMs = Date.now() - t0;
+  const rows = (r?.rows || []).map((row) => ({
+    lane: lane.name,
+    title: String(row.title || '').trim(),
+    content: String(row.content || '').trim(),
+    score: Number(row.score) || 0,
+    source_ref: String(row.source_ref || '').trim(),
+  }));
+
+  try {
+    const { logAiSearchAnalytics } = await import('./agent-prompt-context.js');
+    await logAiSearchAnalytics(env, 'supabase_pgvector', lane.name, {
+      workspaceId: ws,
+      query: q,
+      resultsCount: rows.length,
+      latencyMs,
+    });
+  } catch {
+    /* non-fatal */
+  }
+
+  return rows;
+}
+
+/**
+ * Route-aware multi-lane RAG (Vectorize + pgvector), capped for prompt injection.
+ * @param {any} env
+ * @param {{ workspace_id_d1?: string, query_text?: string, route_key?: string | null, top_k?: number }} opts
+ */
+export async function queryRouteRagLanes(env, opts = {}) {
+  const routeKey = opts.route_key != null ? String(opts.route_key).trim() : '';
+  const laneNames = ROUTE_LANE_MAP[routeKey] || ['memory'];
+  const topK = Math.min(Math.max(1, Number(opts.top_k) || 8), 12);
+
+  const vectorLaneNames = laneNames.filter((n) => {
+    const lane = resolveLaneConfig(n);
+    return lane?.vectorize && typeof env?.[lane.vectorize]?.query === 'function';
+  });
+  const vectorHits = vectorLaneNames.length
+    ? await queryLanes(env, {
+        workspace_id_d1: opts.workspace_id_d1,
+        query_text: opts.query_text,
+        lanes: vectorLaneNames,
+        top_k: Math.ceil(topK / 2),
+      })
+    : [];
+
+  const pgTasks = [];
+  if (laneNames.includes('schema')) {
+    pgTasks.push(
+      queryPgvectorLane(env, 'schema', opts.workspace_id_d1, opts.query_text, {
+        topK: Math.ceil(topK / 2),
+      }),
+    );
+  }
+  if (laneNames.includes('docs')) {
+    pgTasks.push(
+      queryPgvectorLane(env, 'docs', opts.workspace_id_d1, opts.query_text, {
+        topK: Math.ceil(topK / 2),
+      }),
+    );
+  }
+  const pgChunks = (await Promise.all(pgTasks)).flat();
+
+  const merged = [...vectorHits, ...pgChunks];
+  merged.sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0));
+  const seen = new Set();
+  const out = [];
+  for (const hit of merged) {
+    const key = `${hit.lane}:${hit.source_ref || hit.title}:${(hit.content || '').slice(0, 80)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(hit);
+    if (out.length >= topK) break;
+  }
+  return out;
 }

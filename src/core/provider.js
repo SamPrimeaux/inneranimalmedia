@@ -17,6 +17,7 @@ import { pickRoutingArmByThompson } from './thompson.js';
 import { isThompsonRoutingSamplingEnabled } from './routing-thompson-flag.js';
 import { pragmaTableInfo }     from './retention.js';
 import { queryRoutingArmsCandidates, filterArmsForRouteKey } from './routing.js';
+import { dispatchCursorComposerStream } from '../api/cursor-agent.js';
 
 /** Thrown when Ollama is skipped so the agent model chain can try the next provider (no SSE error text). */
 export const OLLAMA_SKIP_MESSAGE = 'ollama_skip';
@@ -504,10 +505,18 @@ export async function dispatchStream(env, request, params) {
             : {}),
         },
       });
+    case 'cursor_sdk':
+      return dispatchCursorComposerStream(env, request, {
+        ...dp,
+        agentRunId: params.agentRunId ?? params.agent_run_id ?? null,
+        routingArmId: params.routingArmId ?? params.routing_arm_id ?? null,
+        workspaceId: params.workspaceId ?? params.workspace_id ?? null,
+        tenantId: params.tenantId ?? params.tenant_id ?? null,
+      });
     default:
       throw new Error(
         `[dispatchProviderChat] unsupported api_platform: "${platform}" for model "${modelKey}". ` +
-        `Check agentsam_model_catalog.api_platform — expected one of: openai, openai_chat_completions, openai_responses, anthropic, gemini_api, vertex, workers_ai, ollama.`
+        `Check agentsam_model_catalog.api_platform — expected one of: openai, openai_chat_completions, openai_responses, anthropic, gemini_api, vertex, workers_ai, ollama, cursor_sdk.`
       );
   }
 }

@@ -218,7 +218,7 @@ export type StagedAttachment = {
 };
 
 export type PickerItem = { id: string; label: string; kind: string };
-export type SlashCmd = { slug: string; description: string | null };
+export type SlashCmd = { id?: string; slug: string; description: string | null };
 
 export type ToolApprovalPayload = {
   name: string;

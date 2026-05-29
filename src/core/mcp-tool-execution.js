@@ -55,9 +55,9 @@ export async function tryReadAgentsamToolCache(env, o) {
   const tenantId =
     o.tenantId != null && String(o.tenantId).trim() !== '' ? String(o.tenantId).trim() : null;
   const toolName = String(o.toolName || '').trim();
-  const inputHash = await hashToolInputJson(o.toolInput ?? {});
-  if (!inputHash) return { hit: false };
-  const cacheKey = `${ws}:${toolName}:${inputHash}`;
+  const { buildMcpToolCacheKey } = await import('./tool-cache-key.js');
+  const cacheKey = await buildMcpToolCacheKey(ws, toolName, o.toolInput ?? {});
+  if (!cacheKey) return { hit: false };
   try {
     const cached = await env.DB.prepare(
       `SELECT output_json FROM agentsam_tool_cache
@@ -106,9 +106,10 @@ export async function writeAgentsamToolCacheAfterSuccess(env, o) {
   const tenantId =
     o.tenantId != null && String(o.tenantId).trim() !== '' ? String(o.tenantId).trim() : null;
   const toolName = String(o.toolName || '').trim();
+  const { buildMcpToolCacheKey } = await import('./tool-cache-key.js');
+  const cacheKey = await buildMcpToolCacheKey(ws, toolName, o.toolInput ?? {});
+  if (!cacheKey) return;
   const inputHash = await hashToolInputJson(o.toolInput ?? {});
-  if (!inputHash) return;
-  const cacheKey = `${ws}:${toolName}:${inputHash}`;
   const inputJson = JSON.stringify(o.toolInput ?? {}).slice(0, 4000);
   const outputJson = JSON.stringify(o.toolOutput ?? null).slice(0, 10000);
   const durationMs = Math.max(0, Math.floor(Number(o.durationMs) || 0));
