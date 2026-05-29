@@ -276,21 +276,22 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
     runContext.sessionId ??
     runContext.session_id ??
     null;
-  const { buildMcpToolCacheKey } = await import('./tool-cache-key.js');
-  const cacheKey = await buildMcpToolCacheKey(workspaceId, toolKey, rawInput);
-  const inputHash = cacheKey
-    ? cacheKey.split(':').pop() || null
-    : null;
+  const { buildAgentsamToolCacheKey, isToolCacheEligible } = await import('./tool-cache-key.js');
+  const cacheEligible = isToolCacheEligible(toolKey);
+  const { cacheKey, inputHash } = cacheEligible
+    ? await buildAgentsamToolCacheKey(toolKey, rawInput)
+    : { cacheKey: null, inputHash: null };
 
-  if (env?.DB && toolKey && cacheKey && workspaceId) {
+  if (env?.DB && toolKey && cacheKey && workspaceId && cacheEligible) {
     try {
       const cached = await env.DB.prepare(
         `SELECT output_json, id FROM agentsam_tool_cache
          WHERE cache_key = ?
-           AND (expires_at IS NULL OR expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+           AND workspace_id = ?
+           AND (expires_at IS NULL OR expires_at > datetime('now'))
          LIMIT 1`,
       )
-        .bind(cacheKey)
+        .bind(cacheKey, workspaceId)
         .first();
       if (cached?.output_json) {
         try {
@@ -438,7 +439,7 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
       await writeTelemetryError(env, runContext, 'agentsam_tool_chain', e);
     }
 
-    if (success && config.cacheable !== false && cacheKey && inputHash && workspaceId) {
+    if (success && cacheEligible && config.cacheable !== false && cacheKey && inputHash && workspaceId) {
       try {
         const ttlSeconds = row?.token_budget_per_call ? 300 : 60;
         await env.DB.prepare(
@@ -535,6 +536,25 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         duration_ms: durationMs,
       });
     } catch (_) {}
+
+    if (success && toolKey) {
+      const bumpTools = env.DB.prepare(
+        `UPDATE agentsam_tools
+         SET use_count = COALESCE(use_count, 0) + 1,
+             last_used_at = datetime('now'),
+             updated_at = datetime('now')
+         WHERE tool_key = ? AND COALESCE(is_active, 1) = 1`,
+      )
+        .bind(toolKey)
+        .run()
+        .catch(() => {});
+      const wu = runContext?.ctx;
+      if (wu && typeof wu.waitUntil === 'function') {
+        wu.waitUntil(bumpTools);
+      } else {
+        await bumpTools;
+      }
+    }
   };
 
   switch (handlerType) {

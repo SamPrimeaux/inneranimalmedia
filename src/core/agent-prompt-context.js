@@ -15,8 +15,6 @@ function estimateTokens(text) {
 export async function fetchActiveProjectContextBlocks(env, opts = {}) {
   if (!env?.DB) return [];
   const ws = opts.workspaceId != null ? String(opts.workspaceId).trim() : '';
-  if (!ws) return [];
-  const tid = opts.tenantId != null ? String(opts.tenantId).trim() : '';
   const limit = Math.min(Math.max(1, Number(opts.limit) || 3), 5);
 
   try {
@@ -25,12 +23,11 @@ export async function fetchActiveProjectContextBlocks(env, opts = {}) {
               current_blockers, priority, status
        FROM agentsam_project_context
        WHERE status = 'active'
-         AND (workspace_id = ? OR workspace_id IS NULL OR TRIM(COALESCE(workspace_id, '')) = '')
-         AND (tenant_id = ? OR tenant_id IS NULL OR TRIM(COALESCE(tenant_id, '')) = '')
+         AND (workspace_id = ? OR workspace_id IS NULL)
        ORDER BY COALESCE(priority, 0) DESC, updated_at DESC
        LIMIT ${limit}`,
     )
-      .bind(ws, tid || '')
+      .bind(ws || null)
       .all();
     return (results || []).map((r) => {
       const parts = [
@@ -63,7 +60,7 @@ export async function bumpProjectContextTokensUsed(env, blocks) {
     if (!delta || !b.id) continue;
     await env.DB.prepare(
       `UPDATE agentsam_project_context
-       SET tokens_used = COALESCE(tokens_used, 0) + ?,
+       SET tokens_used = MIN(COALESCE(tokens_used, 0) + ?, 1000000),
            updated_at = unixepoch()
        WHERE id = ?`,
     )
@@ -82,7 +79,9 @@ export async function appendActiveProjectsToSystemPrompt(env, systemPrompt, opts
   const blocks = await fetchActiveProjectContextBlocks(env, opts);
   if (!blocks.length) return systemPrompt;
   const body = blocks.map((b) => b.text).join('\n\n');
-  void bumpProjectContextTokensUsed(env, blocks);
+  if (body.trim()) {
+    void bumpProjectContextTokensUsed(env, blocks);
+  }
   return `${systemPrompt}\n\n## Active Projects\n${body}\n`;
 }
 

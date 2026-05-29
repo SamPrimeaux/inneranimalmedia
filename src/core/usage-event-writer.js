@@ -6,6 +6,36 @@
  */
 import { scheduleMirrorUsageEventToSupabase } from './hyperdrive-write.js';
 
+/**
+ * Resolve billing provider for a dispatched model_key (catalog / agentsam_ai), not routing arm default.
+ * @param {any} env
+ * @param {string|null|undefined} modelKey
+ * @param {string|null|undefined} armProvider
+ */
+export async function resolveProviderForModelKey(env, modelKey, armProvider = null) {
+  const mk = modelKey != null ? String(modelKey).trim() : '';
+  if (!mk || !env?.DB) {
+    return armProvider != null ? String(armProvider).trim() : 'unknown';
+  }
+  try {
+    const aiRow = await env.DB.prepare(
+      `SELECT provider FROM agentsam_ai WHERE model_key = ? LIMIT 1`,
+    )
+      .bind(mk)
+      .first();
+    if (aiRow?.provider) return String(aiRow.provider).trim();
+  } catch (_) {}
+  try {
+    const catRow = await env.DB.prepare(
+      `SELECT provider FROM agentsam_model_catalog WHERE model_key = ? AND is_active = 1 LIMIT 1`,
+    )
+      .bind(mk)
+      .first();
+    if (catRow?.provider) return String(catRow.provider).trim();
+  } catch (_) {}
+  return armProvider != null ? String(armProvider).trim() : 'unknown';
+}
+
 /** Mirror tokens_in/out → input_tokens/output_tokens for analytics queries. */
 export function syncUsageTokenColumns(tokensIn, tokensOut) {
   const tin = Math.max(0, Math.floor(Number(tokensIn) || 0));
@@ -112,6 +142,12 @@ export async function writeUsageEvent(env, params, ctx = null) {
   const tokens = syncUsageTokenColumns(tokens_in, tokens_out);
   const taskTypeVal = task_type != null ? String(task_type).trim().slice(0, 120) : null;
   const modeVal = mode != null ? String(mode).trim().slice(0, 64) : null;
+  const resolvedModelKey = model_key != null ? String(model_key).trim() : '';
+  const actualProvider = await resolveProviderForModelKey(
+    env,
+    resolvedModelKey || model,
+    provider,
+  );
 
   try {
     const result = await env.DB.prepare(`
@@ -134,7 +170,7 @@ export async function writeUsageEvent(env, params, ctx = null) {
       )
     `).bind(
       tenant_id, workspace_id, user_id, session_id,
-      provider, model, model_key,
+      actualProvider, model, model_key || resolvedModelKey || model,
       tokens.tokens_in, tokens.tokens_out, tokens.input_tokens, tokens.output_tokens,
       tokens.total_tokens, cost_usd, duration_ms,
       event_type, tool_name, status, reason,
@@ -156,9 +192,9 @@ export async function writeUsageEvent(env, params, ctx = null) {
       workspace_id,
       user_id,
       session_id,
-      provider,
+      provider: actualProvider,
       model,
-      model_key,
+      model_key: model_key || resolvedModelKey || model,
       tokens_in: tokens.tokens_in,
       tokens_out: tokens.tokens_out,
       input_tokens: tokens.input_tokens,

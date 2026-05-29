@@ -992,10 +992,12 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           credentials: 'include',
           body: JSON.stringify({
             slug: cmd.slug,
+            command_slug: cmd.slug,
             command_id: cmd.id,
             session_id: conversationId || undefined,
             conversation_id: conversationId || undefined,
             agent_run_id: agentRunId?.trim() || undefined,
+            workspace_id: workspaceId?.trim() || undefined,
           }),
         });
         const data = await res.json().catch(() => ({}));

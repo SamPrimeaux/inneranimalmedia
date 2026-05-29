@@ -61,10 +61,12 @@ export async function tryReadAgentsamToolCache(env, o) {
   try {
     const cached = await env.DB.prepare(
       `SELECT output_json FROM agentsam_tool_cache
-       WHERE cache_key = ? AND (expires_at IS NULL OR expires_at > datetime('now'))
+       WHERE cache_key = ?
+         AND workspace_id = ?
+         AND (expires_at IS NULL OR expires_at > datetime('now'))
        LIMIT 1`,
     )
-      .bind(cacheKey)
+      .bind(cacheKey, ws)
       .first();
     const out = cached?.output_json != null ? String(cached.output_json) : '';
     if (!out) return { hit: false };
@@ -72,9 +74,9 @@ export async function tryReadAgentsamToolCache(env, o) {
       .prepare(
         `UPDATE agentsam_tool_cache SET hit_count = COALESCE(hit_count, 0) + 1,
          last_used_at = datetime('now'), updated_at = datetime('now')
-         WHERE cache_key = ?`,
+         WHERE cache_key = ? AND workspace_id = ?`,
       )
-      .bind(cacheKey)
+      .bind(cacheKey, ws)
       .run()
       .catch(() => {});
     return { hit: true, value: JSON.parse(out) };

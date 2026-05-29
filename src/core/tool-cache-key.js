@@ -3,6 +3,30 @@
  */
 import { hashToolInputJson } from './mcp-tool-execution.js';
 
+/** Tools with side effects — never read/write agentsam_tool_cache. */
+export const NON_CACHEABLE_TOOL_KEYS = new Set([
+  'agentsam_memory_save',
+  'agentsam_memory_write',
+  'agentsam_todo_add',
+  'agentsam_r2_upload',
+  'agentsam_notify',
+  'agentsam_send_email',
+  'terminal_execute',
+  'deploy',
+  'r2_delete',
+  'd1_write',
+  'excalidraw_plan_map_create',
+]);
+
+/**
+ * @param {string} toolKey
+ */
+export function isToolCacheEligible(toolKey) {
+  const tk = String(toolKey || '').trim();
+  if (!tk) return false;
+  return !NON_CACHEABLE_TOOL_KEYS.has(tk);
+}
+
 /**
  * Stable sort for cache fingerprinting (matches catalog-tool-executor).
  * @param {unknown} value
@@ -18,31 +42,34 @@ export function stableSortValue(value) {
 }
 
 /**
+ * @param {unknown} toolInput
+ */
+export function stableSortedJson(toolInput) {
+  const sorted = stableSortValue(toolInput ?? {});
+  return typeof sorted === 'string' ? sorted : JSON.stringify(sorted === undefined ? {} : sorted);
+}
+
+/**
  * @param {string} toolKey
  * @param {unknown} toolInput
  */
 export async function buildAgentsamToolCacheKey(toolKey, toolInput) {
   const tk = String(toolKey || '').trim();
-  if (!tk) return { cacheKey: null, inputHash: null };
-  const sorted = stableSortValue(toolInput ?? {});
-  const inputJson =
-    typeof sorted === 'string' ? sorted : JSON.stringify(sorted === undefined ? {} : sorted);
-  const inputHash = await hashToolInputJson(sorted);
+  if (!tk || !isToolCacheEligible(tk)) return { cacheKey: null, inputHash: null };
+  const inputJson = stableSortedJson(toolInput);
+  const inputHash = await hashToolInputJson(toolInput ?? {});
   const cacheKey = await hashToolInputJson(`${tk}:${inputJson}`);
   return { cacheKey, inputHash, inputJson };
 }
 
 /**
- * MCP path: workspace-scoped prefix (legacy rows may exist under this shape).
- * @param {string} workspaceId
+ * Deterministic cache key: sha256(tool_key + ':' + stableSortedJson(input)).
+ * Workspace is enforced at lookup time, not in the key material.
+ * @param {string} _workspaceId
  * @param {string} toolName
  * @param {unknown} toolInput
  */
-export async function buildMcpToolCacheKey(workspaceId, toolName, toolInput) {
-  const ws = String(workspaceId || '').trim();
-  const tn = String(toolName || '').trim();
-  if (!ws || !tn) return null;
-  const inputHash = await hashToolInputJson(toolInput ?? {});
-  if (!inputHash) return null;
-  return `${ws}:${tn}:${inputHash}`;
+export async function buildMcpToolCacheKey(_workspaceId, toolName, toolInput) {
+  const { cacheKey } = await buildAgentsamToolCacheKey(toolName, toolInput);
+  return cacheKey;
 }

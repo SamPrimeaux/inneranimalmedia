@@ -12,7 +12,11 @@ import {
   resolveCanonicalModelKey,
 } from '../core/model-pricing.js';
 import { resolveModelKeyFromProviderId } from '../core/model-catalog-cost.js';
-import { syncUsageTokenColumns, usageEventExtraColumnSql } from '../core/usage-event-writer.js';
+import {
+  resolveProviderForModelKey,
+  syncUsageTokenColumns,
+  usageEventExtraColumnSql,
+} from '../core/usage-event-writer.js';
 import { incrementAgentsamUsageRollupsDaily } from '../core/agentsam-usage-rollups-daily.js';
 
 /**
@@ -159,6 +163,7 @@ export async function writeTelemetry(env, data, modelRates) {
   const resolvedTaskType =
     (taskType ?? task_type) != null ? String(taskType ?? task_type).trim() : '';
   const resolvedMode = mode != null ? String(mode).trim() : '';
+  const actualProvider = await resolveProviderForModelKey(env, catalogModelKey || rawModel, provider);
 
   try {
     const usageCols = await pragmaTableInfo(env.DB, 'agentsam_usage_events');
@@ -199,7 +204,7 @@ export async function writeTelemetry(env, data, modelRates) {
         ...(hasUid ? [uidUsage] : []),
         sid,
         'agent-sam',
-        String(provider || 'unknown'),
+        actualProvider,
         rawModel || 'unknown',
         catalogModelKey || rawModel || 'unknown',
         tokens.tokens_in,
@@ -227,7 +232,7 @@ export async function writeTelemetry(env, data, modelRates) {
         ...(hasUid ? [uidUsage] : []),
         sid,
         'agent-sam',
-        String(provider || 'unknown'),
+        actualProvider,
         rawModel || 'unknown',
         catalogModelKey || rawModel || 'unknown',
         tokens.tokens_in,

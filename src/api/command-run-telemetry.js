@@ -1053,6 +1053,32 @@ export async function executeCommand(env, ctx, o) {
       ? await resolveCanonicalUserId(String(userId).trim(), env)
       : null;
 
+  const mappedForAllowlist =
+    cmd.mapped_command != null ? String(cmd.mapped_command).trim() : '';
+  if (mappedForAllowlist && canonicalCmdUser) {
+    const allowlistScope = await env.DB.prepare(
+      `SELECT COUNT(*) AS c FROM agentsam_command_allowlist
+       WHERE user_id = ? AND workspace_id = ?`,
+    )
+      .bind(canonicalCmdUser, resolvedWorkspace)
+      .first()
+      .catch(() => null);
+    const scopedRows = Number(allowlistScope?.c) || 0;
+    if (scopedRows > 0) {
+      const allowed = await env.DB.prepare(
+        `SELECT 1 FROM agentsam_command_allowlist
+         WHERE user_id = ? AND workspace_id = ? AND command = ?
+         LIMIT 1`,
+      )
+        .bind(canonicalCmdUser, resolvedWorkspace, mappedForAllowlist)
+        .first()
+        .catch(() => null);
+      if (!allowed) {
+        return { ok: false, error: 'command_not_allowlisted' };
+      }
+    }
+  }
+
   const tidForRun =
     tenantId != null && String(tenantId).trim() !== '' ? String(tenantId).trim() : (env?.TENANT_ID || '');
   const { agentRunId, commandRunId, conversationId } = resolveCommandPipelineSpine({
@@ -1292,19 +1318,51 @@ export async function executeCommand(env, ctx, o) {
     .run()
     .catch(() => {});
 
-  ctx.waitUntil(
-    env.DB
-      .prepare(
-        `UPDATE agentsam_commands SET
-        use_count = COALESCE(use_count, 0) + 1,
-        last_used_at = datetime('now'),
-        updated_at = datetime('now')
-      WHERE id = ?`,
-      )
+  const bumpCommandUse = env.DB.prepare(
+    `UPDATE agentsam_commands SET
+       use_count = COALESCE(use_count, 0) + 1,
+       last_used_at = datetime('now'),
+       updated_at = datetime('now')
+     WHERE id = ?`,
+  )
+    .bind(commandId)
+    .run()
+    .catch(() => {});
+
+  if (dispatchOk) {
+    const bumpSuccess = env.DB.prepare(
+      `UPDATE agentsam_commands SET
+         success_count = COALESCE(success_count, 0) + 1,
+         avg_duration_ms = (
+           COALESCE(avg_duration_ms, 0) * COALESCE(success_count, 0) + ?
+         ) / (COALESCE(success_count, 0) + 1),
+         updated_at = datetime('now')
+       WHERE id = ?`,
+    )
+      .bind(durationMs, commandId)
+      .run()
+      .catch(() => {});
+    if (ctx && typeof ctx.waitUntil === 'function') {
+      ctx.waitUntil(Promise.all([bumpCommandUse, bumpSuccess]));
+    } else {
+      await Promise.all([bumpCommandUse, bumpSuccess]);
+    }
+  } else {
+    const bumpFailure = env.DB.prepare(
+      `UPDATE agentsam_commands SET
+         failure_count = COALESCE(failure_count, 0) + 1,
+         updated_at = datetime('now')
+       WHERE id = ?`,
+    )
       .bind(commandId)
       .run()
-      .catch(() => {}),
-  );
+      .catch(() => {});
+    if (ctx && typeof ctx.waitUntil === 'function') {
+      ctx.waitUntil(Promise.all([bumpCommandUse, bumpFailure]));
+    } else {
+      await Promise.all([bumpCommandUse, bumpFailure]);
+    }
+  }
 
   if (env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY) {
     ctx.waitUntil(

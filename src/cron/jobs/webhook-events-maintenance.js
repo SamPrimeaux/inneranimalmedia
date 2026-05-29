@@ -15,8 +15,8 @@ export async function runWebhookEventsMaintenanceCron(env) {
   try {
     const del = await env.DB.prepare(
       `DELETE FROM agentsam_webhook_events
-       WHERE processed_at < datetime('now', '-30 days')
-       AND status IN ('processed','ignored','duplicate')`
+       WHERE received_at_unix < (unixepoch() - 30 * 86400)
+         AND status IN ('processed','ignored','duplicate')`,
     ).run();
     rowsWritten += Number(del.meta?.changes ?? del.changes ?? 0) || 0;
     console.log('[cron] agentsam_webhook_events cleanup changes:', del.meta?.changes ?? del.changes ?? 0);
@@ -27,9 +27,9 @@ export async function runWebhookEventsMaintenanceCron(env) {
     const upd = await env.DB.prepare(
       `UPDATE agentsam_webhook_events
        SET payload_json = NULL
-       WHERE processed_at < datetime('now', '-7 days')
-       AND status = 'processed'
-       AND payload_json IS NOT NULL`
+       WHERE received_at_unix < (unixepoch() - 7 * 86400)
+         AND status = 'processed'
+         AND payload_json IS NOT NULL`,
     ).run();
     rowsWritten += Number(upd.meta?.changes ?? upd.changes ?? 0) || 0;
     console.log('[cron] agentsam_webhook_events payload compression changes:', upd.meta?.changes ?? upd.changes ?? 0);
@@ -67,25 +67,64 @@ export async function runWebhookEventsMaintenanceCron(env) {
   }
 
   try {
+    const currentWeekStart = `(unixepoch() - ((CAST(strftime('%w', 'now') AS INTEGER) + 6) % 7) * 86400)
+      - (CAST(strftime('%H', 'now') AS INTEGER) * 3600)
+      - (CAST(strftime('%M', 'now') AS INTEGER) * 60)
+      - CAST(strftime('%S', 'now') AS INTEGER)`;
     const weekRes = await env.DB.prepare(
       `INSERT OR REPLACE INTO agentsam_webhook_weekly (
-         id, tenant_id, week_start, week_end, total_events, processed_count, failed_count,
-         per_source_json, per_event_type_json, rolled_up_at
+         id, tenant_id, workspace_id, week_start, week_end, provider,
+         total_received, total_processed, total_failed, rolled_up_at
        )
        SELECT
-         'aww_' || COALESCE(tenant_id, 'system') || '_' || strftime('%Y-W%W', datetime(received_at_unix, 'unixepoch')),
-         COALESCE(tenant_id, 'system'),
-         strftime('%Y-W%W', datetime(received_at_unix, 'unixepoch')),
-         date(datetime(received_at_unix, 'unixepoch', 'weekday 6')),
+         'whw_' || lower(hex(randomblob(6))),
+         COALESCE(e.tenant_id, 'system'),
+         COALESCE(NULLIF(TRIM(e.workspace_id), ''), '__tenant__'),
+         e.week_start,
+         date(e.week_start, '+6 days'),
+         e.provider,
          COUNT(*),
-         SUM(CASE WHEN status = 'processed' THEN 1 ELSE 0 END),
-         SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END),
-         '{}',
-         '{}',
+         SUM(CASE WHEN e.status = 'processed' THEN 1 ELSE 0 END),
+         SUM(CASE WHEN e.status = 'failed' THEN 1 ELSE 0 END),
          unixepoch()
-       FROM agentsam_webhook_events
-       WHERE received_at_unix < (unixepoch() - 604800)
-       GROUP BY COALESCE(tenant_id, 'system'), strftime('%Y-W%W', datetime(received_at_unix, 'unixepoch'))`,
+       FROM (
+         SELECT
+           tenant_id,
+           workspace_id,
+           provider,
+           status,
+           received_at_unix,
+           strftime('%Y-%m-%d',
+             datetime(
+               received_at_unix
+               - ((CAST(strftime('%w', datetime(received_at_unix, 'unixepoch')) AS INTEGER) + 6) % 7) * 86400
+               - (CAST(strftime('%H', datetime(received_at_unix, 'unixepoch')) AS INTEGER) * 3600)
+               - (CAST(strftime('%M', datetime(received_at_unix, 'unixepoch')) AS INTEGER) * 60)
+               - CAST(strftime('%S', datetime(received_at_unix, 'unixepoch')) AS INTEGER),
+               'unixepoch'
+             )
+           ) AS week_start,
+           (received_at_unix
+             - ((CAST(strftime('%w', datetime(received_at_unix, 'unixepoch')) AS INTEGER) + 6) % 7) * 86400
+             - (CAST(strftime('%H', datetime(received_at_unix, 'unixepoch')) AS INTEGER) * 3600)
+             - (CAST(strftime('%M', datetime(received_at_unix, 'unixepoch')) AS INTEGER) * 60)
+             - CAST(strftime('%S', datetime(received_at_unix, 'unixepoch')) AS INTEGER)
+           ) AS week_start_unix
+         FROM agentsam_webhook_events
+         WHERE received_at_unix IS NOT NULL
+       ) e
+       WHERE e.week_start_unix < ${currentWeekStart}
+         AND NOT EXISTS (
+           SELECT 1 FROM agentsam_webhook_weekly w
+           WHERE w.tenant_id = COALESCE(e.tenant_id, 'system')
+             AND w.workspace_id = COALESCE(NULLIF(TRIM(e.workspace_id), ''), '__tenant__')
+             AND w.week_start = e.week_start
+             AND w.provider = e.provider
+         )
+       GROUP BY COALESCE(e.tenant_id, 'system'),
+                COALESCE(NULLIF(TRIM(e.workspace_id), ''), '__tenant__'),
+                e.week_start,
+                e.provider`,
     ).run();
     rowsWritten += Number(weekRes?.meta?.changes ?? weekRes?.changes ?? 0) || 0;
     console.log('[cron] agentsam_webhook_weekly rollup changes:', weekRes?.meta?.changes ?? weekRes?.changes ?? 0);

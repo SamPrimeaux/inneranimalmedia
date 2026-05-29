@@ -142,7 +142,11 @@ import {
   SCOUT_TASK_TYPES,
 } from '../core/model-catalog-capabilities.js';
 import { listAgentsamSlashCommands } from '../core/agentsam-command-catalog.js';
-import { writeUsageEvent, usageEventExtraColumnSql } from '../core/usage-event-writer.js';
+import {
+  resolveProviderForModelKey,
+  writeUsageEvent,
+  usageEventExtraColumnSql,
+} from '../core/usage-event-writer.js';
 import { fireAgentHooks } from '../core/hook-dispatcher.js';
 import { triggerEvalAfterNRuns } from '../core/eval-runner.js';
 import {
@@ -5222,6 +5226,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     const aid = attributedRoutingArmId();
     ctx.waitUntil?.(
       (async () => {
+        const telemetryProvider = await resolveProviderForModelKey(env, modelKey, null);
         const out = await writeTelemetry(
           env,
           {
@@ -5229,7 +5234,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
             tenantId,
             workspaceId: routingWs || undefined,
             userId,
-            provider: 'anthropic',
+            provider: telemetryProvider,
             model: modelKey,
             inputTokens: totalUsage.input_tokens,
             outputTokens: totalUsage.output_tokens,
@@ -8602,15 +8607,21 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       if (outcomeArmId) {
         // Write usage event for rollup + billing
         if (ctx?.waitUntil) {
+          const finalMk = lastLoopStats?.modelKey ?? tried[tried.length - 1] ?? null;
+          const usageProvider = await resolveProviderForModelKey(
+            env,
+            finalMk,
+            routingPick?.provider ?? chainRows[0]?.provider ?? null,
+          );
           ctx.waitUntil(
             writeUsageEvent(env, {
               workspace_id: workspaceId,
               tenant_id: tenantId ?? null,
               user_id: userId,
               session_id: sessionId ?? null,
-              model: lastLoopStats?.modelKey ?? tried[tried.length - 1] ?? null,
-              model_key: lastLoopStats?.modelKey ?? tried[tried.length - 1] ?? null,
-              provider: routingPick?.provider ?? chainRows[0]?.provider ?? null,
+              model: finalMk,
+              model_key: finalMk,
+              provider: usageProvider,
               routing_arm_id: outcomeArmId,
               plan_id: body?.planId ?? body?.plan_id ?? null,
               event_type: 'agent_run_complete',
