@@ -30,6 +30,8 @@ tmp/
 !.cursor/hooks.json
 !.cursor/agents/
 !.cursor/agents/**
+!.cursor/rules/
+!.cursor/rules/cloudflare*.mdc
 
 # generated dashboard build
 dashboard/dist/
