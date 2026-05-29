@@ -5,7 +5,7 @@ INSERT OR IGNORE INTO agentsam_tools (
   is_active, is_degraded, workspace_scope, is_global, updated_at
 ) VALUES (
   'ast_search_web_global',
-  'search_web', 'search_web', 'Web Search', 'research.web', 'builtin',
+  'search_web', 'search_web', 'Web Search', 'research.web', 'ai',
   'Search the public web via Tavily for live facts, pricing, and documentation.',
   '{"dispatcher":"search_web","source_file":"src/tools/builtin/web.js"}',
   'low', 0, 1, 0, '["*"]', 1, unixepoch()
@@ -14,7 +14,7 @@ INSERT OR IGNORE INTO agentsam_tools (
 UPDATE agentsam_tools
 SET
   tool_key = 'search_web',
-  handler_type = 'builtin',
+  handler_type = 'ai',
   workspace_scope = '["*"]',
   is_active = 1,
   is_degraded = 0,
