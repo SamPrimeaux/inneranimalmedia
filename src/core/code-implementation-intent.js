@@ -2,14 +2,18 @@
  * Shared heuristics: repo / file implementation work vs live browser inspection.
  * Used by capability-router, tool-capability-filter, and agent workflow preflight.
  */
-import { stripActiveFileEnvelopeForIntent } from './active-file-envelope.js';
+import { stripUserTextForIntent } from './active-file-envelope.js';
+
+function stripForIntent(message) {
+  return stripUserTextForIntent(message);
+}
 
 /**
  * Read-only repo/code lookup — direct tool loop (fs_search_files / rg), never Monaco workflow.
  * @param {unknown} message
  */
 export function isReadOnlyRepoSearchIntent(message) {
-  const m = stripActiveFileEnvelopeForIntent(message).toLowerCase();
+  const m = stripForIntent(message).toLowerCase();
   if (!m) return false;
   if (messageExplicitlyRequestsBrowserInspection(m)) return false;
 
@@ -49,7 +53,7 @@ export function shouldSkipSurfaceWorkflowPreflight(message, requestedMode = 'age
  * @param {unknown} message
  */
 export function requiresWorkflowExecutionIntent(message) {
-  const m = stripActiveFileEnvelopeForIntent(message).toLowerCase();
+  const m = stripForIntent(message).toLowerCase();
   if (!m) return false;
   return (
     /\b(run|start|execute)\s+(the\s+)?(\w+\s+)?workflow\b/i.test(m) ||
@@ -86,7 +90,7 @@ export const CODE_IMPLEMENTATION_TOOL_NAMES = [
  * @param {unknown} message
  */
 export function isCodeImplementationIntent(message) {
-  const m = stripActiveFileEnvelopeForIntent(message).toLowerCase();
+  const m = stripForIntent(message).toLowerCase();
   if (!m) return false;
 
   if (messageExplicitlyRequestsBrowserInspection(m)) return false;

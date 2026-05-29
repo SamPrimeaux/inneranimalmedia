@@ -9,9 +9,22 @@ import {
   classifyAgentExecutionLane,
   messageRequestsWorkspaceGrep,
 } from '../../src/core/agent-lane-router.js';
-import { formatActiveFileForAgent, parseActiveFileEnvelope } from '../../src/core/active-file-envelope.js';
+import {
+  formatActiveFileForAgent,
+  parseActiveFileEnvelope,
+  stripUserTextForIntent,
+} from '../../src/core/active-file-envelope.js';
 
 const USER_QUERY = 'Find resolveModelForTask in my repo and show the file path.';
+
+const ON_DEMAND_CONTEXT_BLOCK = `
+
+--- On-demand context (this message only) ---
+### Agent tool targets (read/write this buffer)
+If the user asks to change, save, or sync this file, call the matching tool with the exact ids below.
+- r2_write / github_file for persistence
+read/write this buffer
+`;
 
 test('repo search with active file envelope does not trigger code implementation / monaco path', () => {
   const envelope = parseActiveFileEnvelope({
@@ -43,5 +56,35 @@ test('explicit workflow execution is not skipped', () => {
   assert.equal(
     shouldSkipSurfaceWorkflowPreflight('run the monaco workflow to patch agent.js', 'agent'),
     false,
+  );
+});
+
+test('on-demand context with CRLF separators does not flip repo search intent', () => {
+  const augmented = `${USER_QUERY}\r\n\r\n--- On-demand context (this message only) ---\r\nread/write\r\nsave\r\nsync`;
+  assert.equal(stripUserTextForIntent(augmented), USER_QUERY);
+  assert.equal(isReadOnlyRepoSearchIntent(augmented), true);
+  assert.equal(isCodeImplementationIntent(augmented), false);
+  assert.equal(shouldSkipSurfaceWorkflowPreflight(augmented, 'agent'), true);
+});
+
+test('on-demand context block does not flip repo search into code implementation', () => {
+  const augmented = `${USER_QUERY}${ON_DEMAND_CONTEXT_BLOCK}`;
+  assert.equal(stripUserTextForIntent(augmented), USER_QUERY);
+  assert.equal(isReadOnlyRepoSearchIntent(augmented), true);
+  assert.equal(isCodeImplementationIntent(augmented), false);
+  assert.equal(shouldSkipSurfaceWorkflowPreflight(augmented, 'agent'), true);
+});
+
+test('production monaco-missing error text must not apply to read-only repo search', () => {
+  const augmented = `${USER_QUERY}${ON_DEMAND_CONTEXT_BLOCK}`;
+  const wouldStreamMonacoMissing =
+    !shouldSkipSurfaceWorkflowPreflight(augmented, 'agent') &&
+    isCodeImplementationIntent(augmented);
+  assert.equal(wouldStreamMonacoMissing, false);
+  const monacoMissingLabel = 'monaco workflow is missing';
+  assert.equal(
+    wouldStreamMonacoMissing ? `**${monacoMissingLabel}**` : '',
+    '',
+    'read-only repo search must not produce monaco workflow missing response',
   );
 });

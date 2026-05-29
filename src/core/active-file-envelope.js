@@ -53,12 +53,21 @@ function pick(v) {
 /**
  * @param {ReturnType<typeof parseActiveFileEnvelope>} envelope
  */
-/** User message only — strip injected active-file block for intent heuristics. */
-export function stripActiveFileEnvelopeForIntent(message) {
-  const raw = String(message || '');
+/**
+ * User message only — strip dashboard-injected blocks before intent heuristics.
+ * Ignores on-demand context ("save", "r2_write", "github_file", etc.) and active-file envelope.
+ * @param {unknown} message
+ */
+export function stripUserTextForIntent(message) {
+  let raw = String(message || '').split(/\r?\n\r?\n--- On-demand context/i)[0] ?? '';
   const idx = raw.indexOf('[Active file envelope');
-  if (idx >= 0) return raw.slice(0, idx).trim();
+  if (idx >= 0) raw = raw.slice(0, idx);
   return raw.trim();
+}
+
+/** @deprecated Prefer stripUserTextForIntent — same implementation. */
+export function stripActiveFileEnvelopeForIntent(message) {
+  return stripUserTextForIntent(message);
 }
 
 export function formatActiveFileForAgent(envelope) {

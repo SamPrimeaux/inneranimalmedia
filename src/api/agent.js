@@ -193,6 +193,7 @@ import {
   messageExplicitlyRequestsBrowserInspection,
   shouldSkipSurfaceWorkflowPreflight,
 } from '../core/code-implementation-intent.js';
+import { stripUserTextForIntent } from '../core/active-file-envelope.js';
 import {
   buildAgentChatResolvedContext,
   mergeResolvedContextIntoRunContext,
@@ -5885,6 +5886,45 @@ function stripSurfaceA11yTools(tools) {
   });
 }
 
+function isAgentLikeSurfacePreflightMode(requestedMode) {
+  const mode = String(requestedMode || 'agent').trim().toLowerCase();
+  return mode === 'agent' || mode === 'debug' || mode === 'multitask' || mode === 'ask';
+}
+
+function logSurfacePreflightIntentDebug(message, requestedMode) {
+  const strippedUserText = stripUserTextForIntent(message);
+  const tagged = resolveSurfaceWorkflowForMessage(message, requestedMode);
+  console.log(
+    '[agent] surface_preflight_intent_debug',
+    JSON.stringify({
+      userText: String(message || '').slice(0, 200),
+      strippedUserText: strippedUserText.slice(0, 200),
+      isReadOnlyRepoSearchIntent: isReadOnlyRepoSearchIntent(message),
+      isCodeImplementationIntent: isCodeImplementationIntent(message),
+      shouldSkipSurfaceWorkflowPreflight: shouldSkipSurfaceWorkflowPreflight(message, requestedMode),
+      reason: tagged?.reason ?? null,
+    }),
+  );
+}
+
+function shouldBypassSurfaceWorkflowPreflight(message, requestedMode) {
+  if (!isAgentLikeSurfacePreflightMode(requestedMode)) return false;
+  return isReadOnlyRepoSearchIntent(message);
+}
+
+function logSurfaceWorkflowPreflightBypass(requestedMode, missingSurface, surfaceRouteReason, message) {
+  console.log(
+    '[agent] surface_workflow_preflight_bypass',
+    JSON.stringify({
+      reason: 'read_only_workspace_grep',
+      requestedMode,
+      missingSurface,
+      surfaceRouteReason: surfaceRouteReason ?? null,
+      activeFilePresent: /\[Active file envelope/i.test(String(message || '')),
+    }),
+  );
+}
+
 /**
  * Map surface route to concrete workflow_key (or missing).
  * @returns {Promise<null | { kind: 'execute', workflowKey: string, reason: string } | { kind: 'missing_workflow', surface: string, reason: string }>}
@@ -5896,6 +5936,10 @@ async function resolveSurfaceWorkflowPreflightExecution(env, message, requestedM
   if (tagged.route === 'monaco') {
     const key = await resolveWorkflowFromSurfaceMetadata(env, 'monaco', '*');
     if (key) return { kind: 'execute', workflowKey: key, reason: tagged.reason };
+    if (shouldBypassSurfaceWorkflowPreflight(message, requestedMode)) {
+      logSurfaceWorkflowPreflightBypass(requestedMode, 'monaco', tagged.reason, message);
+      return null;
+    }
     return { kind: 'missing_workflow', surface: 'monaco', reason: tagged.reason };
   }
   if (tagged.route === 'browser') {
@@ -6873,6 +6917,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     browserContextPayload = null;
   }
 
+  logSurfacePreflightIntentDebug(message, requestedMode);
   const surfacePreflight = await resolveSurfaceWorkflowPreflightExecution(
     env,
     message,
@@ -6911,10 +6956,18 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     });
   }
   if (surfacePreflight?.kind === 'missing_workflow') {
-    if (surfacePreflight.surface === 'browser') {
+    if (shouldBypassSurfaceWorkflowPreflight(message, requestedMode)) {
+      logSurfaceWorkflowPreflightBypass(
+        requestedMode,
+        surfacePreflight.surface,
+        surfacePreflight.reason,
+        message,
+      );
+    } else if (surfacePreflight.surface === 'browser') {
       return streamBrowserPreflightNoWorkflow(message, browserContextPayload);
+    } else {
+      return streamPreflightSurfaceWorkflowMissing(surfacePreflight.surface, message);
     }
-    return streamPreflightSurfaceWorkflowMissing(surfacePreflight.surface, message);
   }
 
   const [modeConfig, userPolicy, agentMeta] = await Promise.all([
