@@ -4,7 +4,7 @@ SET
   tool_category = 'research.web',
   handler_type = 'ai',
   description = 'Open-web discovery (public internet). Lane: open_web_search. Uses Tavily when TAVILY_API_KEY is set. Not for repo grep, D1, or browser DOM.',
-  handler_config = '{"dispatcher":"search_web","auth_source":"platform","capability":"open_web_search","source_file":"src/tools/builtin/web.js"}',
+  handler_config = '{"execution_lane":"open_web_search","web_backend":"tavily","dispatch_target":"search_web","dispatcher":"search_web","auth_source":"platform","not_browser":true,"not_workspace_search":true,"source_file":"src/tools/builtin/web.js"}',
   is_active = 1,
   is_degraded = 0,
   updated_at = unixepoch()
@@ -16,7 +16,7 @@ INSERT OR IGNORE INTO agentsam_tools (
 ) VALUES (
   'ast_web_fetch_global',
   'web_fetch', 'web_fetch', 'web_fetch', 'Web Fetch', 'research.web', 'ai',
-  '{"dispatcher":"web_fetch","auth_source":"platform","source_file":"src/tools/builtin/web.js"}',
+  '{"execution_lane":"web_fetch","dispatch_target":"web_fetch","dispatcher":"web_fetch","auth_source":"platform","not_browser":true,"not_workspace_search":true,"source_file":"src/tools/builtin/web.js"}',
   'low', 0, '["*"]', 1, 0
 );
 
@@ -27,7 +27,7 @@ SET
   description = 'Fetch a known public URL and return text (no browser render). Use for docs pages, raw GitHub, API references.',
   tool_category = 'research.web',
   handler_type = 'ai',
-  handler_config = '{"dispatcher":"web_fetch","auth_source":"platform","source_file":"src/tools/builtin/web.js"}',
+  handler_config = '{"execution_lane":"web_fetch","dispatch_target":"web_fetch","dispatcher":"web_fetch","auth_source":"platform","not_browser":true,"not_workspace_search":true,"source_file":"src/tools/builtin/web.js"}',
   is_active = 1,
   is_degraded = 0,
   updated_at = unixepoch()

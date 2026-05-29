@@ -39,6 +39,7 @@ export const EXECUTABLE_HANDLER_TYPES = new Set([
   'filesystem',
   'mybrowser',
   'builtin',
+  'websearch',
 ]);
 
 /** Route capability_lane → agentsam_tools.tool_category */
@@ -284,8 +285,21 @@ export function validateHandlerConfigForExecution(row, config) {
     case 'supabase':
     case 'terminal':
     case 'r2':
+    case 'websearch':
+      if (!trim(config.dispatch_target) && !trim(config.dispatcher)) {
+        return {
+          ok: false,
+          error: `handler_config.dispatch_target required for tool_key=${toolKey}`,
+        };
+      }
+      break;
     case 'ai':
-      if (trim(config.dispatcher)) {
+      if (
+        trim(config.execution_lane) === 'open_web_search' ||
+        trim(config.execution_lane) === 'web_fetch' ||
+        trim(config.dispatch_target) ||
+        trim(config.dispatcher)
+      ) {
         break;
       }
       if (!trim(config.auth_source)) {

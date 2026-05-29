@@ -10,6 +10,7 @@ import { handlers as aiOpsHandlers } from '../tools/builtin/ai-ops.js';
 import { runHyperdriveQuery, isHyperdriveUsable } from './hyperdrive-query.js';
 import { scheduleMirrorToolCallEventToSupabase } from './hyperdrive-write.js';
 import { resolveMcpServerForTool } from './mcp-servers.js';
+import { executeOpenWebCatalogDispatch, isOpenWebCatalogConfig } from './open-web-catalog-dispatch.js';
 
 function parseInput(input) {
   if (input == null) return {};
@@ -631,17 +632,19 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
       break;
     }
 
+    case 'websearch': {
+      result = await executeOpenWebCatalogDispatch(env, config, params, runContext, toolKey);
+      break;
+    }
+
     case 'ai': {
+      if (isOpenWebCatalogConfig(config, toolKey)) {
+        result = await executeOpenWebCatalogDispatch(env, config, params, runContext, toolKey);
+        break;
+      }
       const dispatcher = String(config.dispatcher || '').trim();
       if (dispatcher === 'search_web' || dispatcher === 'web_fetch') {
-        const { handlers: webHandlers } = await import('../tools/builtin/web.js');
-        const fn = webHandlers[dispatcher];
-        if (typeof fn !== 'function') {
-          result = { ok: false, error: `web dispatcher not registered: ${dispatcher}` };
-          break;
-        }
-        const out = await fn(params, env, runContext);
-        result = out?.error ? { ok: false, error: String(out.error) } : { ok: true, body: out };
+        result = await executeOpenWebCatalogDispatch(env, config, params, runContext, toolKey);
         break;
       }
       const op = String(config.operation || config.ai_operation || 'complete').toLowerCase();
