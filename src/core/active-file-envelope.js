@@ -53,10 +53,18 @@ function pick(v) {
 /**
  * @param {ReturnType<typeof parseActiveFileEnvelope>} envelope
  */
+/** User message only — strip injected active-file block for intent heuristics. */
+export function stripActiveFileEnvelopeForIntent(message) {
+  const raw = String(message || '');
+  const idx = raw.indexOf('[Active file envelope');
+  if (idx >= 0) return raw.slice(0, idx).trim();
+  return raw.trim();
+}
+
 export function formatActiveFileForAgent(envelope) {
   if (!envelope) return null;
   const lines = [
-    '[Active file envelope — editor selection. Prefer this path for read/patch/grep scope unless the user names another file.]',
+    '[Active file envelope — editor selection. Prefer this path for read or grep scope unless the user names another file.]',
     `source: ${envelope.source}`,
     `path: ${envelope.path || '(none)'}`,
   ];

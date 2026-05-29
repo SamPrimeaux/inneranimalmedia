@@ -189,8 +189,14 @@ import {
 import {
   CODE_IMPLEMENTATION_TOOL_NAMES,
   isCodeImplementationIntent,
+  isReadOnlyRepoSearchIntent,
   messageExplicitlyRequestsBrowserInspection,
+  shouldSkipSurfaceWorkflowPreflight,
 } from '../core/code-implementation-intent.js';
+import {
+  buildAgentChatResolvedContext,
+  mergeResolvedContextIntoRunContext,
+} from '../core/agent-chat-resolved-context.js';
 import { userCanAccessWorkspace } from '../core/cms-theme-resolve.js';
 
 /**
@@ -3164,6 +3170,9 @@ async function resolveWorkflowForMessage(env, taskType, message, workspaceId, op
   if (isD1SqlIntent(message)) {
     return null;
   }
+  if (isReadOnlyRepoSearchIntent(message)) {
+    return null;
+  }
   const codeWork =
     isCodeImplementationIntent(message) && !messageExplicitlyRequestsBrowserInspection(message);
   const dashboardRoute =
@@ -4116,6 +4125,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     promptAuditContext: promptAuditContextParam,
     cacheWriteTtl: cacheWriteTtlParam,
     activeFileEnvelope: activeFileEnvelopeParam = null,
+    resolvedContext: resolvedContextParam = null,
   } = params;
   const cacheWriteTtlForBilling =
     cacheWriteTtlParam != null && String(cacheWriteTtlParam).trim() !== ''
@@ -4152,6 +4162,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     routing_arm_id: routingArmIdStr || null,
     openWebBudget,
     activeFileEnvelope: activeFileEnvelopeParam,
+    resolvedContext: resolvedContextParam,
     ctx,
   };
 
@@ -5019,16 +5030,19 @@ async function runAgentToolLoop(env, ctx, emit, params) {
             env,
             call.name,
             toolInput,
-            {
-              sessionId,
-              tenantId,
-              userId,
-              workspaceId,
-              personUuid: mcpCtx.personUuid,
-              isSuperadmin: mcpCtx.isSuperadmin,
-              request,
-              ...runSpineIds,
-            },
+            mergeResolvedContextIntoRunContext(
+              {
+                sessionId,
+                tenantId,
+                userId,
+                workspaceId,
+                personUuid: mcpCtx.personUuid,
+                isSuperadmin: mcpCtx.isSuperadmin,
+                request,
+                ...runSpineIds,
+              },
+              resolvedContextParam,
+            ),
             toolBudgetMs,
           );
         }
@@ -5652,6 +5666,8 @@ function resolveSurfaceWorkflowForMessage(message, requestedMode) {
   const t = raw.toLowerCase();
   if (!t) return null;
 
+  if (shouldSkipSurfaceWorkflowPreflight(raw, mode)) return null;
+
   if (mode === 'plan') return null;
 
   const isAsk = mode === 'ask';
@@ -5874,6 +5890,7 @@ function stripSurfaceA11yTools(tools) {
  * @returns {Promise<null | { kind: 'execute', workflowKey: string, reason: string } | { kind: 'missing_workflow', surface: string, reason: string }>}
  */
 async function resolveSurfaceWorkflowPreflightExecution(env, message, requestedMode, _browserContext) {
+  if (shouldSkipSurfaceWorkflowPreflight(message, requestedMode)) return null;
   const tagged = resolveSurfaceWorkflowForMessage(message, requestedMode);
   if (!tagged) return null;
   if (tagged.route === 'monaco') {
@@ -6905,6 +6922,16 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     loadAgentSamUserPolicy(env, userId, workspaceId),
     body.agentId ? getAgentMetadata(env, body.agentId) : Promise.resolve(null),
   ]);
+
+  const agentChatResolvedContext = await buildAgentChatResolvedContext(env, {
+    request,
+    userId,
+    tenantId,
+    workspaceId,
+    workSessionId: body.work_session_id ?? body.workSessionId ?? session?.work_session_id ?? null,
+    sessionId,
+    userPolicy,
+  });
 
   kickoffModelTierMigration(env, ctx);
 
@@ -8685,6 +8712,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
               cacheWriteTtl: cacheWriteTtlForChat,
               codemodeRuntime,
               activeFileEnvelope: activeFileEnvelope ?? body.activeFileEnvelope ?? null,
+              resolvedContext: agentChatResolvedContext,
             }),
             maxRunMsChat + 5000
           );

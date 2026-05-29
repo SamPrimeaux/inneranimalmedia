@@ -9,7 +9,11 @@
  *   internal_knowledge_search — D1/R2/Vectorize/internal docs (not Tavily)
  */
 
-import { isCodeImplementationIntent, messageExplicitlyRequestsBrowserInspection } from './code-implementation-intent.js';
+import {
+  isCodeImplementationIntent,
+  isReadOnlyRepoSearchIntent,
+  messageExplicitlyRequestsBrowserInspection,
+} from './code-implementation-intent.js';
 import {
   isSimpleGreeting,
   messageRequestsInternalKnowledge,
@@ -104,11 +108,13 @@ export function messageRequestsWorkspaceGrep(message) {
     return false;
   }
   return (
-    isCodeImplementationIntent(message) ||
+    isReadOnlyRepoSearchIntent(message) ||
     /\b(grep|ripgrep|\brg\b|find in (the )?codebase|which file|where is .{0,80} defined|search.{0,20}src\/|locate.{0,20}function|workspace_grep|fs_search)\b/i.test(
       m,
     ) ||
-    /\b(resolveModel|agentChatSseHandler|agentsam_)[\w.]*\b/i.test(m)
+    /\b(resolveModel|agentChatSseHandler|agentsam_)[\w.]*\b/i.test(m) ||
+    (isCodeImplementationIntent(message) &&
+      /\b(grep|ripgrep|\brg\b|find in (the )?codebase|which file|where is)\b/i.test(m))
   );
 }
 

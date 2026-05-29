@@ -2,6 +2,64 @@
  * Shared heuristics: repo / file implementation work vs live browser inspection.
  * Used by capability-router, tool-capability-filter, and agent workflow preflight.
  */
+import { stripActiveFileEnvelopeForIntent } from './active-file-envelope.js';
+
+/**
+ * Read-only repo/code lookup — direct tool loop (fs_search_files / rg), never Monaco workflow.
+ * @param {unknown} message
+ */
+export function isReadOnlyRepoSearchIntent(message) {
+  const m = stripActiveFileEnvelopeForIntent(message).toLowerCase();
+  if (!m) return false;
+  if (messageExplicitlyRequestsBrowserInspection(m)) return false;
+
+  const searchVerb =
+    /\b(find|search|locate|grep|ripgrep|\brg\b|where is|which file|look for)\b/i.test(m) ||
+    /\bshow (?:me )?(?:the )?file path\b/i.test(m);
+  if (!searchVerb) return false;
+
+  const writeWorkflow =
+    /\b(implement|patch|apply patch|save|sync|persist|deploy|commit|create pr|refactor|scaffold|wire up|edit and save|update the file)\b/i.test(
+      m,
+    );
+  if (writeWorkflow) return false;
+
+  const repoScope =
+    /\b(in (my )?repo|codebase|workspace|defined|function|class|import|route|symbol)\b/i.test(m) ||
+    /\b(resolveModel|agentChatSseHandler|loadModeToolPolicy|search_web|fs_search)[\w]*/i.test(m);
+
+  return repoScope || /\b(in (my )?repo|show (?:the )?file path)\b/i.test(m);
+}
+
+/**
+ * Skip surface workflow preflight — use direct tools (lane router + catalog).
+ * @param {unknown} message
+ * @param {string} [requestedMode]
+ */
+export function shouldSkipSurfaceWorkflowPreflight(message, requestedMode = 'agent') {
+  if (isReadOnlyRepoSearchIntent(message)) return true;
+  const mode = String(requestedMode || 'agent').toLowerCase();
+  if (mode === 'plan') return false;
+  if (requiresWorkflowExecutionIntent(message)) return false;
+  return false;
+}
+
+/**
+ * User explicitly wants a named workflow graph, not a direct tool call.
+ * @param {unknown} message
+ */
+export function requiresWorkflowExecutionIntent(message) {
+  const m = stripActiveFileEnvelopeForIntent(message).toLowerCase();
+  if (!m) return false;
+  return (
+    /\b(run|start|execute)\s+(the\s+)?(\w+\s+)?workflow\b/i.test(m) ||
+    /\bexecute (the\s+)?plan\b/i.test(m) ||
+    /\b(apply|submit)\s+(this\s+)?patch\b/i.test(m) ||
+    /\b(save|sync|persist)\s+(this\s+)?file\b/i.test(m) ||
+    /\bmultitask workflow\b/i.test(m) ||
+    /\b(run|start)\s+multitask\b/i.test(m)
+  );
+}
 
 /** Tools Agent Sam should prefer when implementing or editing code in-repo. */
 export const CODE_IMPLEMENTATION_TOOL_NAMES = [
@@ -28,10 +86,11 @@ export const CODE_IMPLEMENTATION_TOOL_NAMES = [
  * @param {unknown} message
  */
 export function isCodeImplementationIntent(message) {
-  const m = String(message || '').toLowerCase();
+  const m = stripActiveFileEnvelopeForIntent(message).toLowerCase();
   if (!m) return false;
 
   if (messageExplicitlyRequestsBrowserInspection(m)) return false;
+  if (isReadOnlyRepoSearchIntent(message)) return false;
 
   return (
     /\b(implement|refactor|patch|scaffold|wire\s+(up|in)|add\s+route|create\s+(the\s+)?files?)\b/i.test(m) ||
