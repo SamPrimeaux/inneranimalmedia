@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   isReadOnlyRepoSearchIntent,
+  isReadOnlyFileContextIntent,
   isCodeImplementationIntent,
   shouldSkipSurfaceWorkflowPreflight,
 } from '../../src/core/code-implementation-intent.js';
@@ -9,6 +10,7 @@ import {
   classifyAgentExecutionLane,
   messageRequestsWorkspaceGrep,
 } from '../../src/core/agent-lane-router.js';
+import { messageRequestsInternalKnowledge } from '../../src/core/tavily-open-web-search.js';
 import {
   formatActiveFileForAgent,
   parseActiveFileEnvelope,
@@ -73,6 +75,32 @@ test('on-demand context block does not flip repo search into code implementation
   assert.equal(isReadOnlyRepoSearchIntent(augmented), true);
   assert.equal(isCodeImplementationIntent(augmented), false);
   assert.equal(shouldSkipSurfaceWorkflowPreflight(augmented, 'agent'), true);
+});
+
+test('read-only file context with on-demand tool hints does not select internal knowledge', () => {
+  const augmented = `describe this README in the monaco${ON_DEMAND_CONTEXT_BLOCK}`;
+  assert.equal(messageRequestsInternalKnowledge(augmented), false);
+  const lane = classifyAgentExecutionLane(augmented, { requestedMode: 'agent' });
+  assert.equal(lane.primary_lane, 'read_only_file_context');
+});
+
+test('describe README in monaco is read-only file context — no workflow preflight', () => {
+  const message = 'describe this README in the monaco';
+  const augmented = `${message}\n\n--- On-demand context (this message only) ---\nread/write this buffer\nsave\nsync`;
+  assert.equal(isReadOnlyFileContextIntent(message), true);
+  assert.equal(isReadOnlyFileContextIntent(augmented), true);
+  assert.equal(isCodeImplementationIntent(message), false);
+  assert.equal(isCodeImplementationIntent(augmented), false);
+  assert.equal(shouldSkipSurfaceWorkflowPreflight(augmented, 'agent'), true);
+  const lane = classifyAgentExecutionLane(augmented, { requestedMode: 'agent' });
+  assert.notEqual(lane.primary_lane, 'workspace_grep');
+});
+
+test('monaco with write cue still counts as code implementation', () => {
+  const message = 'edit and save this file in monaco';
+  assert.equal(isReadOnlyFileContextIntent(message), false);
+  assert.equal(isCodeImplementationIntent(message), true);
+  assert.equal(shouldSkipSurfaceWorkflowPreflight(message, 'agent'), false);
 });
 
 test('production monaco-missing error text must not apply to read-only repo search', () => {

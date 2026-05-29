@@ -3262,6 +3262,13 @@ const App: React.FC = () => {
                             isActive={activeTab === 'browser'}
                             url={browserUrl}
                             addressDisplay={browserAddressDisplay}
+                            onUrlCommitted={(url) => {
+                              const n = url.trim();
+                              if (!n || n === browserUrl) return;
+                              setBrowserAddressDisplay(null);
+                              setBrowserTabTitle(null);
+                              setBrowserUrl(n);
+                            }}
                             agentRunId={activeAgentRunId}
                             workspaceContext={agentWorkspaceContext}
                           />

@@ -9,6 +9,39 @@ function stripForIntent(message) {
 }
 
 /**
+ * Read-only explain/summarize/describe current file (Monaco buffer / active file) — no workflow.
+ * @param {unknown} message
+ */
+export function isReadOnlyFileContextIntent(message) {
+  const m = stripForIntent(message).toLowerCase();
+  if (!m) return false;
+  if (messageExplicitlyRequestsBrowserInspection(m)) return false;
+  if (isReadOnlyRepoSearchIntent(message)) return false;
+
+  const writeCue =
+    /\b(edit|change|modify|patch|save|sync|persist|write|apply|refactor|implement|generate and persist|commit|deploy|update the file|scaffold|wire\s+(up|in)|fix and save)\b/i.test(
+      m,
+    );
+  if (writeCue) return false;
+
+  const readCue =
+    /\b(describe|explain|summarize|summarise|what is|what does|what's|read|inspect|review|overview of|tell me about|walk me through)\b/i.test(
+      m,
+    );
+  if (!readCue) return false;
+
+  const fileCue =
+    /\b(this\s+)?(file|readme|code|buffer|current file|active file)\b/i.test(m) ||
+    /\b(the\s+)?readme\b/i.test(m) ||
+    /\bin (the )?monaco\b/i.test(m) ||
+    /\bmonaco\s+(file|buffer|editor)\b/i.test(m) ||
+    /\bREADME\.md\b/i.test(m) ||
+    /\b\.(md|tsx|jsx|ts|js|py|json|css)\b/i.test(m);
+
+  return fileCue;
+}
+
+/**
  * Read-only repo/code lookup — direct tool loop (fs_search_files / rg), never Monaco workflow.
  * @param {unknown} message
  */
@@ -42,6 +75,7 @@ export function isReadOnlyRepoSearchIntent(message) {
  */
 export function shouldSkipSurfaceWorkflowPreflight(message, requestedMode = 'agent') {
   if (isReadOnlyRepoSearchIntent(message)) return true;
+  if (isReadOnlyFileContextIntent(message)) return true;
   const mode = String(requestedMode || 'agent').toLowerCase();
   if (mode === 'plan') return false;
   if (requiresWorkflowExecutionIntent(message)) return false;
@@ -95,12 +129,15 @@ export function isCodeImplementationIntent(message) {
 
   if (messageExplicitlyRequestsBrowserInspection(m)) return false;
   if (isReadOnlyRepoSearchIntent(message)) return false;
+  if (isReadOnlyFileContextIntent(message)) return false;
 
   return (
     /\b(implement|refactor|patch|scaffold|wire\s+(up|in)|add\s+route|create\s+(the\s+)?files?)\b/i.test(m) ||
     /\b(build|ship|deliver)\b.{0,40}\b(dashboard|component|page|module|feature|migration|repo)\b/i.test(m) ||
     /\b(dashboard\/[\w/-]+|components\/|migrations\/|app\.tsx|index\.tsx|\.tsx\b|\.jsx\b|\.ts\b|\.js\b)\b/i.test(m) ||
-    /\b(monaco|github_file|r2_write|terminal_run|terminal_execute|workspace_read_file)\b/i.test(m) ||
+    /\b(r2_write|github_create_file|github_update_file|terminal_run|terminal_execute)\b/i.test(m) ||
+    (/\bmonaco\b/i.test(m) &&
+      /\b(edit|change|modify|patch|save|sync|persist|write|apply|update)\b/i.test(m)) ||
     /\b(spend_alerts|finance_budgets|finance\.js|overview-bundle)\b/i.test(m) ||
     (/\b(edit|fix|update)\b/i.test(m) &&
       /\b(file|files|route|component|handler|migration|sql)\b/i.test(m))

@@ -5,8 +5,10 @@
 import { resolveModelApiKey } from '../integrations/tokens.js';
 import {
   isCodeImplementationIntent,
+  isReadOnlyFileContextIntent,
   messageExplicitlyRequestsBrowserInspection,
 } from './code-implementation-intent.js';
+import { stripUserTextForIntent } from './active-file-envelope.js';
 import {
   messageRequestsBrowserInspect,
   messageRequestsOpenWebSearch,
@@ -39,12 +41,34 @@ const DEFAULT_DECISION = {
 };
 
 function heuristicDecision(message, browserContext = null) {
-  const m = String(message || '').toLowerCase();
+  if (isReadOnlyFileContextIntent(message)) {
+    return {
+      intent: 'read_only_file_context',
+      needs_capabilities: [],
+      optional_capabilities: ['github', 'artifact'],
+      default_surface: 'monaco',
+      should_use_browser: false,
+      should_use_excalidraw: false,
+      should_use_monaco: false,
+      should_use_artifact_r2: false,
+      should_use_d1: false,
+      should_use_github: false,
+      should_use_terminal: false,
+      should_use_open_web_search: false,
+      should_use_web_fetch: false,
+      should_use_workspace_grep: false,
+      execution_lane: 'read_only_file_context',
+      risk_level: 'low',
+      approval_required: false,
+      reason: 'active_file_read_describe',
+    };
+  }
+  const m = stripUserTextForIntent(message).toLowerCase();
   const urlInMessage = /https?:\/\/[^\s]+/i.test(m);
   const playwrightCue = /\b(playwright|@playwright\/test|npx playwright|e2e test|smoke test|browser test)\b/i.test(
     m,
   );
-  const codeCue = isCodeImplementationIntent(m);
+  const codeCue = isCodeImplementationIntent(message);
   const explicitBrowserInspect = messageExplicitlyRequestsBrowserInspection(m);
   const openWebCue =
     !codeCue && messageRequestsOpenWebSearch(m) && !messageRequestsWebFetch(m);
@@ -63,7 +87,9 @@ function heuristicDecision(message, browserContext = null) {
   const excalCue = /\b(diagram|wireframe|draw|excalidraw|flowchart|map architecture|system map|sketch)\b/i.test(m);
   const monacoCue =
     codeCue ||
-    /\b(edit|refactor|patch|implement|fix the code|component|monaco|this file|landing page file|create a file)\b/i.test(
+    (/\bmonaco\b/i.test(m) &&
+      /\b(edit|change|modify|patch|save|sync|persist|write|apply|implement|refactor)\b/i.test(m)) ||
+    /\b(edit|refactor|patch|implement|fix the code|component|this file|landing page file|create a file)\b/i.test(
       m,
     );
   const artifactCue = /\b(publish|artifact|r2|upload|deploy asset|register the artifact|store in library)\b/i.test(m);

@@ -6,23 +6,68 @@
  *   web_fetch       — known URL text extraction
  *   browser_inspect — MYBROWSER render / screenshot / click
  *   workspace_grep  — repo/code search (PTY rg / fs_search_files)
- *   internal_knowledge_search — D1/R2/Vectorize/internal docs (not Tavily)
+ *   internal_knowledge_search — legacy bucket (prefer explicit semantic_* lanes)
+ *   code_semantic_search | schema_semantic_search | memory_semantic_search |
+ *   docs_knowledge_search | deep_archive_search — canonical 1536 lanes
+ *   database_assistant — Hyperdrive/D1 schema + read-only SQL (+ approval DDL)
  */
 
 import {
   isCodeImplementationIntent,
+  isReadOnlyFileContextIntent,
   isReadOnlyRepoSearchIntent,
   messageExplicitlyRequestsBrowserInspection,
 } from './code-implementation-intent.js';
+import { stripUserTextForIntent } from './active-file-envelope.js';
 import {
   isSimpleGreeting,
   messageRequestsInternalKnowledge,
   resolveOpenWebSearchBackend,
 } from './tavily-open-web-search.js';
+import { classifyDatabaseAssistantIntent, classifySemanticLane } from './semantic-lane-classifier.js';
 
 export { resolveOpenWebSearchBackend };
 
-/** @typedef {'open_web_search'|'web_fetch'|'browser_inspect'|'workspace_grep'|'internal_knowledge_search'|'none'} ExecutionLane */
+/** @typedef {'read_only_file_context'|'open_web_search'|'web_fetch'|'browser_inspect'|'workspace_grep'|'internal_knowledge_search'|'code_semantic_search'|'schema_semantic_search'|'memory_semantic_search'|'docs_knowledge_search'|'deep_archive_search'|'database_assistant'|'none'} ExecutionLane */
+
+export const SEMANTIC_EXECUTION_LANES = new Set([
+  'code_semantic_search',
+  'schema_semantic_search',
+  'memory_semantic_search',
+  'docs_knowledge_search',
+  'deep_archive_search',
+]);
+
+export const SEMANTIC_TOOL_NAMES = new Set([
+  'code_semantic_search',
+  'schema_semantic_search',
+  'memory_semantic_search',
+  'docs_knowledge_search',
+  'deep_archive_search',
+]);
+
+/** Legacy public.* unified RAG tools — not offered in normal Agent chat. */
+export const LEGACY_UNIFIED_RAG_TOOL_NAMES = new Set([
+  'knowledge_search',
+  'rag_search',
+  'ss_search_knowledge',
+]);
+
+export const DATABASE_ASSISTANT_TOOL_NAMES = new Set([
+  'hyperdrive_schema_inspect',
+  'hyperdrive_readonly_query',
+  'd1_schema_inspect',
+  'd1_readonly_query',
+  'database_explain_query',
+  'database_propose_migration',
+  'database_validate_migration',
+  'database_apply_approved_migration',
+  'database_generate_rollback',
+  'database_inspect_rls',
+  'database_inspect_indexes',
+  'hyperdrive_schema',
+  'd1_schema_introspect',
+]);
 
 const LANE_LOG_PREFIX = '[agent] execution_lane_selected';
 
@@ -112,7 +157,9 @@ export function messageRequestsWorkspaceGrep(message) {
     /\b(grep|ripgrep|\brg\b|find in (the )?codebase|which file|where is .{0,80} defined|search.{0,20}src\/|locate.{0,20}function|workspace_grep|fs_search)\b/i.test(
       m,
     ) ||
-    /\b(resolveModel|agentChatSseHandler|agentsam_)[\w.]*\b/i.test(m) ||
+    /\b(resolveModel|agentChatSseHandler)\b/i.test(m) ||
+    (/\bagentsam_[\w.]+\b/i.test(m) &&
+      /\b(find|grep|search|locate|defined|in (my )?repo|which file)\b/i.test(m)) ||
     (isCodeImplementationIntent(message) &&
       /\b(grep|ripgrep|\brg\b|find in (the )?codebase|which file|where is)\b/i.test(m))
   );
@@ -180,7 +227,7 @@ export function modeAllowsOpenWebSearchForMessage(mode, primaryLane, message) {
  * }} [opts]
  */
 export function classifyAgentExecutionLane(message, opts = {}) {
-  const msg = String(message || '').trim();
+  const msg = stripUserTextForIntent(message).trim();
   const requestedMode = String(opts.requestedMode || 'agent').toLowerCase();
   const browserContext =
     opts.browserContext && typeof opts.browserContext === 'object' ? opts.browserContext : null;
@@ -190,21 +237,33 @@ export function classifyAgentExecutionLane(message, opts = {}) {
   let primary_lane = 'none';
   let reason = 'no_lane_match';
 
-  if (messageRequestsInternalKnowledge(msg)) {
-    primary_lane = 'internal_knowledge_search';
-    reason = 'internal_platform_knowledge';
+  if (isReadOnlyFileContextIntent(message)) {
+    primary_lane = 'read_only_file_context';
+    reason = 'active_file_read_describe';
   } else if (messageRequestsWorkspaceGrep(msg)) {
     primary_lane = 'workspace_grep';
     reason = 'repo_code_symbol_search';
-  } else if (messageRequestsWebFetch(msg)) {
-    primary_lane = 'web_fetch';
-    reason = 'known_url_fetch';
-  } else if (messageRequestsBrowserInspect(msg, browserContext) || cap.should_use_browser) {
-    primary_lane = 'browser_inspect';
-    reason = cap.should_use_browser ? 'capability_router_browser' : 'browser_inspect_heuristic';
-  } else if (messageRequestsOpenWebSearch(msg)) {
-    primary_lane = 'open_web_search';
-    reason = 'public_web_research';
+  } else if (classifyDatabaseAssistantIntent(msg)) {
+    primary_lane = 'database_assistant';
+    reason = 'database_schema_or_sql_assistant';
+  } else {
+    const semanticLane = classifySemanticLane(msg);
+    if (semanticLane) {
+      primary_lane = semanticLane;
+      reason = `semantic_lane_${semanticLane}`;
+    } else if (messageRequestsInternalKnowledge(msg)) {
+      primary_lane = 'docs_knowledge_search';
+      reason = 'internal_platform_knowledge_docs_lane';
+    } else if (messageRequestsWebFetch(msg)) {
+      primary_lane = 'web_fetch';
+      reason = 'known_url_fetch';
+    } else if (messageRequestsBrowserInspect(msg, browserContext) || cap.should_use_browser) {
+      primary_lane = 'browser_inspect';
+      reason = cap.should_use_browser ? 'capability_router_browser' : 'browser_inspect_heuristic';
+    } else if (messageRequestsOpenWebSearch(msg)) {
+      primary_lane = 'open_web_search';
+      reason = 'public_web_research';
+    }
   }
 
   const open_web_allowed =
@@ -290,7 +349,7 @@ export function filterToolsForExecutionLane(tools, laneResult, opts = {}) {
   const lane = laneResult?.primary_lane || 'none';
   const backendOk = opts.openWebBackend?.available === true;
 
-  let out = tools;
+  let out = tools.filter((t) => !LEGACY_UNIFIED_RAG_TOOL_NAMES.has(String(t?.name || '').trim()));
 
   if (!backendOk) {
     out = out.filter((t) => !isOpenWebSearchToolName(String(t?.name || '')));
@@ -301,6 +360,9 @@ export function filterToolsForExecutionLane(tools, laneResult, opts = {}) {
   }
 
   switch (lane) {
+    case 'read_only_file_context':
+      out = out.filter((t) => isCodeRepoReadToolName(String(t?.name || '')));
+      break;
     case 'workspace_grep':
       out = out.filter((t) => {
         const n = String(t?.name || '');
@@ -311,10 +373,27 @@ export function filterToolsForExecutionLane(tools, laneResult, opts = {}) {
       out = out.filter((t) => {
         const n = String(t?.name || '');
         return (
-          /^(d1_|hyperdrive_|supabase_|context_|knowledge_|rag_)/i.test(n) ||
-          n === 'agentsam_memory_search' ||
+          SEMANTIC_TOOL_NAMES.has(n) ||
+          DATABASE_ASSISTANT_TOOL_NAMES.has(n) ||
+          /^(d1_|hyperdrive_|supabase_|context_)/i.test(n) ||
           isCodeRepoReadToolName(n)
         );
+      });
+      break;
+    case 'code_semantic_search':
+    case 'schema_semantic_search':
+    case 'memory_semantic_search':
+    case 'docs_knowledge_search':
+    case 'deep_archive_search':
+      out = out.filter((t) => {
+        const n = String(t?.name || '');
+        return n === lane || SEMANTIC_TOOL_NAMES.has(n) || isCodeRepoReadToolName(n);
+      });
+      break;
+    case 'database_assistant':
+      out = out.filter((t) => {
+        const n = String(t?.name || '');
+        return DATABASE_ASSISTANT_TOOL_NAMES.has(n) || /^d1_/.test(n) || /^hyperdrive_/.test(n);
       });
       break;
     case 'web_fetch':
@@ -333,7 +412,13 @@ export function filterToolsForExecutionLane(tools, laneResult, opts = {}) {
       break;
   }
 
-  if (lane === 'workspace_grep' || lane === 'internal_knowledge_search') {
+  if (
+    lane === 'read_only_file_context' ||
+    lane === 'workspace_grep' ||
+    lane === 'internal_knowledge_search' ||
+    SEMANTIC_EXECUTION_LANES.has(lane) ||
+    lane === 'database_assistant'
+  ) {
     out = out.filter((t) => !isOpenWebSearchToolName(String(t?.name || '')));
     out = out.filter((t) => !isBrowserInspectToolName(String(t?.name || '')));
   }

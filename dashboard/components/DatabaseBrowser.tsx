@@ -28,6 +28,26 @@ function quoteIdent(name: string): string {
   return `"${String(name).replace(/"/g, '""')}"`;
 }
 
+type TableEntry = { name: string; table_schema?: string };
+
+function qualifiedFromTable(table: TableEntry) {
+  const schema = table.table_schema?.trim() || 'agentsam';
+  return `${schema}.${quoteIdent(table.name)}`;
+}
+
+function normalizeHyperTables(payload: unknown): TableEntry[] {
+  const data = payload as { tables?: unknown[] };
+  if (!Array.isArray(data?.tables)) return [];
+  return data.tables
+    .map((item) => {
+      if (typeof item === 'string') return { name: item, table_schema: 'agentsam' };
+      const row = item as { name?: string; table_name?: string; table_schema?: string };
+      const name = String(row.name ?? row.table_name ?? '').trim();
+      return { name, table_schema: row.table_schema ?? 'agentsam' };
+    })
+    .filter((t) => t.name);
+}
+
 export type DatabaseExplorerJump = {
   token: number;
   /** Prefill console (takes precedence over table). */
@@ -45,7 +65,7 @@ export const DatabaseBrowser: React.FC<{
   const [view, setView] = useState<DBView>('console');
   const [dbTarget, setDbTarget] = useState<DBTarget>('d1');
   const [hyperdriveOk, setHyperdriveOk] = useState<boolean | null>(null);
-  const [tables, setTables] = useState<string[]>([]);
+  const [tables, setTables] = useState<TableEntry[]>([]);
   const [tableFilter, setTableFilter] = useState('');
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -250,8 +270,13 @@ export const DatabaseBrowser: React.FC<{
     if (qs) {
       pushConsoleSql(qs);
     } else if (tbl) {
-      const qi = quoteIdent(tbl);
-      pushConsoleSql(`SELECT * FROM ${qi} LIMIT 100;`);
+      const target = explorerJump.dbTarget ?? dbTarget;
+      if (target === 'hyperdrive') {
+        const entry = tables.find((t) => t.name === tbl) ?? { name: tbl, table_schema: 'agentsam' };
+        pushConsoleSql(`SELECT * FROM ${qualifiedFromTable(entry)} LIMIT 100;`);
+      } else {
+        pushConsoleSql(`SELECT * FROM ${quoteIdent(tbl)} LIMIT 100;`);
+      }
     }
     onExplorerJumpConsumed?.();
   }, [explorerJump?.token, explorerJump?.querySql, explorerJump?.table, explorerJump?.dbTarget, pushConsoleSql, onExplorerJumpConsumed]);
@@ -273,7 +298,7 @@ export const DatabaseBrowser: React.FC<{
       const endpoint = dbTarget === 'hyperdrive' ? '/api/hyperdrive/tables' : '/api/agent/db/tables';
       const res = await fetch(endpoint, { credentials: 'same-origin' });
       const data = await res.json();
-      setTables(Array.isArray(data.tables) ? data.tables : []);
+      setTables(dbTarget === 'hyperdrive' ? normalizeHyperTables(data) : (Array.isArray(data.tables) ? data.tables.map((n: string) => ({ name: n })) : []));
     } catch (err) {
       console.error('fetchTables:', err);
       setTables([]);
@@ -282,10 +307,13 @@ export const DatabaseBrowser: React.FC<{
     }
   };
 
-  const handleTableClick = (tableName: string) => {
-    setSelectedTable(tableName);
-    const qi = quoteIdent(tableName);
-    pushConsoleSql(`SELECT * FROM ${qi} LIMIT 100;`);
+  const handleTableClick = (table: TableEntry) => {
+    setSelectedTable(table.name);
+    if (dbTarget === 'hyperdrive') {
+      pushConsoleSql(`SELECT * FROM ${qualifiedFromTable(table)} LIMIT 100;`);
+    } else {
+      pushConsoleSql(`SELECT * FROM ${quoteIdent(table.name)} LIMIT 100;`);
+    }
   };
 
   const handleSqliteMasterClick = () => {
@@ -296,11 +324,14 @@ export const DatabaseBrowser: React.FC<{
   const handleInformationSchemaClick = () => {
     setSelectedTable('information_schema.tables');
     pushConsoleSql(
-      `SELECT * FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name LIMIT 100;`,
+      `SELECT table_schema, table_name FROM information_schema.tables WHERE table_schema IN ('agentsam','public') AND table_type = 'BASE TABLE' ORDER BY table_schema, table_name LIMIT 100;`,
     );
   };
 
-  const filteredTables = tables.filter((t) => t.toLowerCase().includes(tableFilter.toLowerCase()));
+  const filteredTables = tables.filter((t) => {
+    const label = `${t.table_schema ?? 'agentsam'}.${t.name}`.toLowerCase();
+    return label.includes(tableFilter.toLowerCase()) || t.name.toLowerCase().includes(tableFilter.toLowerCase());
+  });
 
   const conn = KNOWN_CONNECTIONS[dbTarget];
 
@@ -419,7 +450,7 @@ export const DatabaseBrowser: React.FC<{
 
               {filteredTables.map((table) => (
                 <div
-                  key={table}
+                  key={`${table.table_schema ?? 'agentsam'}:${table.name}`}
                   role="button"
                   tabIndex={0}
                   onClick={() => handleTableClick(table)}
@@ -427,17 +458,22 @@ export const DatabaseBrowser: React.FC<{
                     if (e.key === 'Enter' || e.key === ' ') handleTableClick(table);
                   }}
                   className={`group flex items-center gap-2.5 px-3 py-1.5 hover:bg-[var(--bg-hover)] cursor-pointer rounded-md text-[0.75rem] transition-all relative ${
-                    selectedTable === table ? 'bg-[var(--bg-hover)] text-[var(--solar-blue)] font-bold' : 'text-[var(--text-main)]'
+                    selectedTable === table.name ? 'bg-[var(--bg-hover)] text-[var(--solar-blue)] font-bold' : 'text-[var(--text-main)]'
                   }`}
                 >
-                  {selectedTable === table && (
+                  {selectedTable === table.name && (
                     <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-4 bg-[var(--solar-blue)] rounded-r-sm" />
                   )}
                   <TableIcon
                     size={13}
-                    className={`shrink-0 ${selectedTable === table ? 'text-[var(--solar-blue)]' : 'text-[var(--text-muted)] group-hover:text-[var(--solar-blue)]'}`}
+                    className={`shrink-0 ${selectedTable === table.name ? 'text-[var(--solar-blue)]' : 'text-[var(--text-muted)] group-hover:text-[var(--solar-blue)]'}`}
                   />
-                  <span className="truncate">{table}</span>
+                  <span className="truncate font-mono text-[11px]">
+                    {dbTarget === 'hyperdrive' && table.table_schema && table.table_schema !== 'agentsam' ? (
+                      <span className="text-[var(--text-muted)]">{table.table_schema}.</span>
+                    ) : null}
+                    {table.name}
+                  </span>
                   <div className="ml-auto opacity-0 group-hover:opacity-40">
                     <ChevronRight size={10} />
                   </div>

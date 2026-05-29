@@ -721,7 +721,7 @@ export async function runUnifiedRagQuery(env, { query, tenantId, threshold, limi
 }
 
 /**
- * Agent-facing RAG (replaces Vectorize / D1 chunk leg).
+ * Legacy unified RAG — public.search_all_context @ 1024. Not for normal Agent chat.
  */
 export async function unifiedRagSearch(env, query, opts = {}) {
   const q = String(query || '').trim();
@@ -789,6 +789,20 @@ export async function unifiedRagSearch(env, query, opts = {}) {
     count: sliced.length,
     _meta: { duration_ms: latencyMs },
   };
+}
+
+/**
+ * Explicit legacy/admin compat only — logs legacy_unified_rag_used.
+ */
+export async function legacyUnifiedRagSearch(env, query, opts = {}) {
+  console.warn(
+    '[rag] legacy_unified_rag_used',
+    JSON.stringify({
+      path: opts?.caller ?? 'legacyUnifiedRagSearch',
+      query_len: String(query || '').length,
+    }),
+  );
+  return unifiedRagSearch(env, query, opts);
 }
 
 export function chunkMarkdown(text, maxChars = RAG_CHUNK_MAX_CHARS, overlap = RAG_CHUNK_OVERLAP) {

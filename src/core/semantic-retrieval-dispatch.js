@@ -1,0 +1,414 @@
+/**
+ * Canonical Agent Sam semantic retrieval — 1536 Vectorize lanes + Hyperdrive pgvector fallback.
+ * No env.VECTORIZE / AGENTSAMVECTORIZE / public.* in normal Agent chat paths.
+ */
+import { createAgentsamEmbedding } from './agentsam-vectorize.js';
+import { runHyperdriveQuery, isHyperdriveUsable } from './hyperdrive-query.js';
+import { resolveSupabaseWorkspaceId, LANES } from './rag-lanes.js';
+
+export const SEMANTIC_LANE_KEYS = Object.freeze([
+  'code_semantic_search',
+  'schema_semantic_search',
+  'memory_semantic_search',
+  'docs_knowledge_search',
+  'deep_archive_search',
+]);
+
+/** @type {Record<string, { laneKey: string, ragLane: string|null, binding: string|null, tables: string[], dims: number }>} */
+export const SEMANTIC_LANE_REGISTRY = Object.freeze({
+  code_semantic_search: {
+    laneKey: 'code_semantic_search',
+    ragLane: 'code',
+    binding: 'AGENTSAM_VECTORIZE_CODE',
+    tables: ['agentsam_codebase_chunks_oai3large_1536', 'agentsam_codebase_files_oai3large_1536'],
+    dims: 1536,
+  },
+  schema_semantic_search: {
+    laneKey: 'schema_semantic_search',
+    ragLane: 'schema',
+    binding: 'AGENTSAM_VECTORIZE_SCHEMA',
+    tables: ['agentsam_database_schema_oai3large_1536', 'agentsam_schema_oai3large_1536'],
+    dims: 1536,
+  },
+  memory_semantic_search: {
+    laneKey: 'memory_semantic_search',
+    ragLane: 'memory',
+    binding: 'AGENTSAM_VECTORIZE_MEMORY',
+    tables: ['agentsam_memory_oai3large_1536'],
+    dims: 1536,
+  },
+  docs_knowledge_search: {
+    laneKey: 'docs_knowledge_search',
+    ragLane: 'docs',
+    binding: 'AGENTSAM_VECTORIZE_COURSES',
+    tables: ['agentsam_documents_oai3large_1536'],
+    dims: 1536,
+  },
+  deep_archive_search: {
+    laneKey: 'deep_archive_search',
+    ragLane: 'archive',
+    binding: null,
+    tables: ['agentsam_deep_archive_oai3large_3072'],
+    dims: 3072,
+  },
+});
+
+const EMBEDDING_MODEL_1536 = 'text-embedding-3-large';
+const EMBEDDING_MODEL_3072 = 'text-embedding-3-large';
+
+/** @param {string} text */
+export async function semanticQueryHash(text) {
+  const bytes = new TextEncoder().encode(String(text ?? ''));
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest))
+    .map((n) => n.toString(16).padStart(2, '0'))
+    .join('')
+    .slice(0, 32);
+}
+
+/** @param {number[]} embedding */
+function vectorLiteral(embedding) {
+  if (!Array.isArray(embedding) || !embedding.length) throw new Error('embedding required');
+  return `[${embedding.join(',')}]`;
+}
+
+/**
+ * @param {string} laneKey
+ * @returns {{ provider: string, model: string, dimensions: number }}
+ */
+export function embeddingSpecForSemanticLane(laneKey) {
+  const reg = SEMANTIC_LANE_REGISTRY[laneKey];
+  if (!reg) throw new Error(`unknown semantic lane: ${laneKey}`);
+  const dims = reg.dims;
+  return {
+    provider: 'openai',
+    model: dims === 3072 ? EMBEDDING_MODEL_3072 : EMBEDDING_MODEL_1536,
+    dimensions: dims,
+  };
+}
+
+/**
+ * @param {number[]} embedding
+ * @param {number} expected
+ */
+function assertEmbeddingDimensions(embedding, expected) {
+  if (!Array.isArray(embedding) || embedding.length !== expected) {
+    const err = new Error(`embedding dimension mismatch: expected ${expected}, got ${embedding?.length ?? 0}`);
+    err.code = 'semantic_lane_degraded';
+    throw err;
+  }
+}
+
+/**
+ * @param {any} env
+ * @param {string} laneKey
+ * @param {number[]} embedding
+ * @param {string} d1WorkspaceId
+ * @param {string} workspaceUuid
+ * @param {number} topK
+ */
+async function queryVectorizeLane(env, laneKey, embedding, d1WorkspaceId, workspaceUuid, topK) {
+  const reg = SEMANTIC_LANE_REGISTRY[laneKey];
+  const ragLane = reg.ragLane ? LANES[reg.ragLane] : null;
+  if (!reg.binding || !ragLane?.vectorize) return { hits: [], backend: 'vectorize', skipped: 'no_binding' };
+  const binding = env?.[reg.binding];
+  if (typeof binding?.query !== 'function') {
+    return { hits: [], backend: 'vectorize', skipped: 'binding_unavailable' };
+  }
+  const result = await binding.query(embedding, {
+    topK,
+    filter: { workspace_id: { $eq: d1WorkspaceId } },
+    returnMetadata: 'all',
+  });
+  const matches = result?.matches || result?.result?.matches || [];
+  const hits = [];
+  for (const match of matches) {
+    const row = await hydrateVectorHit(env, ragLane, workspaceUuid, match);
+    if (row) hits.push(row);
+  }
+  return { hits, backend: 'cloudflare_vectorize', binding: reg.binding, table: ragLane.supabase_table };
+}
+
+/**
+ * @param {any} env
+ * @param {{ supabase_table: string }} ragLane
+ * @param {string} workspaceUuid
+ * @param {any} match
+ */
+async function hydrateVectorHit(env, ragLane, workspaceUuid, match) {
+  const sourceRef = String(match?.metadata?.source_ref ?? '').trim();
+  const rowId = match?.id != null ? String(match.id).trim() : '';
+  if (!sourceRef && !rowId) return null;
+  const sql = `
+    SELECT id, title, content, source_ref, file_path, memory_key, metadata
+      FROM agentsam.${ragLane.supabase_table}
+     WHERE workspace_id = $1::uuid
+       AND (($2 <> '' AND id::text = $2) OR ($3 <> '' AND source_ref = $3) OR ($3 <> '' AND memory_key = $3))
+     LIMIT 1`;
+  const r = await runHyperdriveQuery(env, sql, [workspaceUuid, rowId, sourceRef]);
+  const found = r?.rows?.[0];
+  if (!found?.content && !found?.title) return null;
+  return {
+    id: String(found.id ?? rowId),
+    title: String(found.title ?? found.memory_key ?? match?.metadata?.title ?? '').trim(),
+    content: String(found.content ?? '').trim(),
+    source_ref: String(found.source_ref ?? found.memory_key ?? sourceRef).trim(),
+    file_path: found.file_path != null ? String(found.file_path) : null,
+    score: Number(match?.score ?? 0),
+    metadata: found.metadata && typeof found.metadata === 'object' ? found.metadata : match?.metadata ?? {},
+  };
+}
+
+/**
+ * @param {any} env
+ * @param {string} laneKey
+ * @param {number[]} embedding
+ * @param {string} workspaceUuid
+ * @param {number} topK
+ */
+async function queryPgvectorLane(env, laneKey, embedding, workspaceUuid, topK) {
+  const reg = SEMANTIC_LANE_REGISTRY[laneKey];
+  if (laneKey === 'deep_archive_search') {
+    const r = await runHyperdriveQuery(
+      env,
+      'SELECT * FROM agentsam.agentsam_match_deep_archive_oai3large_3072_ann($1::vector, $2::uuid, $3::int, $4::int, $5::float)',
+      [vectorLiteral(embedding), workspaceUuid, topK, 80, 0.65],
+    );
+    if (!r.ok) return { hits: [], backend: 'pgvector', error: r.error };
+    const hits = (r.rows || []).map((row) => ({
+      id: String(row.id ?? ''),
+      title: String(row.title ?? 'archive').trim(),
+      content: String(row.content ?? '').trim(),
+      source_ref: row.source_ref != null ? String(row.source_ref) : null,
+      file_path: row.source_path != null ? String(row.source_path) : null,
+      score: Number(row.similarity ?? 0),
+      metadata: row.metadata && typeof row.metadata === 'object' ? row.metadata : {},
+    }));
+    return { hits, backend: 'pgvector', table: reg.tables[0] };
+  }
+
+  const primaryTable = reg.tables[0];
+  const ragLane = reg.ragLane ? LANES[reg.ragLane] : null;
+  const table = ragLane?.supabase_table || primaryTable;
+  const titleCol = table.includes('memory') ? 'memory_key' : 'title';
+  const sql = `
+    SELECT id,
+           COALESCE(${titleCol}, '') AS title,
+           content,
+           source_ref,
+           1 - (embedding <=> $1::vector) AS score
+      FROM agentsam.${table}
+     WHERE workspace_id = $2::uuid
+       AND embedding IS NOT NULL
+     ORDER BY embedding <=> $1::vector
+     LIMIT $3`;
+  const r = await runHyperdriveQuery(env, sql, [vectorLiteral(embedding), workspaceUuid, topK]);
+  if (!r.ok) return { hits: [], backend: 'pgvector', error: r.error, table };
+  const hits = (r.rows || []).map((row) => ({
+    id: String(row.id ?? ''),
+    title: String(row.title ?? '').trim(),
+    content: String(row.content ?? '').trim(),
+    source_ref: row.source_ref != null ? String(row.source_ref) : null,
+    file_path: null,
+    score: Number(row.score ?? 0),
+    metadata: {},
+  }));
+  return { hits, backend: 'pgvector', table };
+}
+
+/**
+ * @param {any} env
+ * @param {{
+ *   lane: string,
+ *   query: string,
+ *   workspace_id: string,
+ *   tenant_id?: string,
+ *   user_id?: string,
+ *   agent_run_id?: string,
+ *   top_k?: number,
+ * }} opts
+ */
+export async function dispatchSemanticRetrieval(env, opts) {
+  const lane = String(opts.lane || '').trim();
+  const query = String(opts.query || '').trim();
+  const workspaceIdD1 = String(opts.workspace_id || '').trim();
+  const topK = Math.min(Math.max(1, Number(opts.top_k) || 6), 20);
+  const t0 = Date.now();
+  const queryHash = await semanticQueryHash(query);
+
+  const reg = SEMANTIC_LANE_REGISTRY[lane];
+  if (!reg || !query || !workspaceIdD1) {
+    return {
+      ok: false,
+      lane,
+      backend: 'none',
+      binding: null,
+      table: null,
+      query_hash: queryHash,
+      results: [],
+      result_count: 0,
+      duration_ms: Date.now() - t0,
+      fallback_used: false,
+      degraded_reason: !reg ? 'unknown_lane' : 'missing_query_or_workspace',
+      error: 'invalid_dispatch_input',
+    };
+  }
+
+  if (!isHyperdriveUsable(env)) {
+    return {
+      ok: false,
+      lane,
+      backend: 'hyperdrive',
+      binding: reg.binding,
+      table: reg.tables[0],
+      query_hash: queryHash,
+      results: [],
+      result_count: 0,
+      duration_ms: Date.now() - t0,
+      fallback_used: false,
+      degraded_reason: 'hyperdrive_unavailable',
+      error: 'hyperdrive_unavailable',
+    };
+  }
+
+  const workspaceUuid = await resolveSupabaseWorkspaceId(env, workspaceIdD1);
+  if (!workspaceUuid) {
+    return {
+      ok: false,
+      lane,
+      backend: 'hyperdrive',
+      binding: reg.binding,
+      table: reg.tables[0],
+      query_hash: queryHash,
+      results: [],
+      result_count: 0,
+      duration_ms: Date.now() - t0,
+      fallback_used: false,
+      degraded_reason: 'workspace_unresolved',
+      error: 'workspace_unresolved',
+    };
+  }
+
+  let embedding;
+  try {
+    const spec = embeddingSpecForSemanticLane(lane);
+    ({ embedding } = await createAgentsamEmbedding(env, query, { spec }));
+    assertEmbeddingDimensions(embedding, spec.dimensions);
+  } catch (e) {
+    return {
+      ok: false,
+      lane,
+      backend: 'none',
+      binding: reg.binding,
+      table: reg.tables[0],
+      query_hash: queryHash,
+      results: [],
+      result_count: 0,
+      duration_ms: Date.now() - t0,
+      fallback_used: false,
+      degraded_reason: e?.code === 'semantic_lane_degraded' ? 'dimension_mismatch' : 'embedding_failed',
+      error: e?.message ? String(e.message) : String(e),
+    };
+  }
+
+  let backend = 'cloudflare_vectorize';
+  let binding = reg.binding;
+  let table = reg.tables[0];
+  let fallbackUsed = false;
+  let hits = [];
+
+  if (lane !== 'deep_archive_search' && reg.binding) {
+    const vz = await queryVectorizeLane(env, lane, embedding, workspaceIdD1, workspaceUuid, topK);
+    hits = vz.hits || [];
+    backend = vz.backend;
+    binding = vz.binding ?? reg.binding;
+    table = vz.table ?? table;
+    if (!hits.length && !vz.skipped) {
+      fallbackUsed = true;
+    }
+  }
+
+  if (!hits.length) {
+    const pg = await queryPgvectorLane(env, lane, embedding, workspaceUuid, topK);
+    hits = pg.hits || [];
+    backend = pg.backend;
+    table = pg.table ?? table;
+    if (lane === 'deep_archive_search') binding = null;
+    fallbackUsed = lane === 'deep_archive_search' || fallbackUsed || Boolean(pg.error);
+  }
+
+  const results = hits.map((h) => ({
+    lane,
+    id: h.id,
+    title: h.title,
+    content: h.content,
+    source_ref: h.source_ref,
+    file_path: h.file_path,
+    score: h.score,
+    metadata: h.metadata ?? {},
+  }));
+
+  const durationMs = Date.now() - t0;
+
+  scheduleSemanticSearchLog(env, {
+    workspaceUuid,
+    userId: opts.user_id,
+    query,
+    queryHash,
+    lane,
+    backend,
+    binding,
+    table,
+    resultCount: results.length,
+    durationMs,
+    fallbackUsed,
+    agentRunId: opts.agent_run_id,
+  }).catch(() => {});
+
+  return {
+    ok: results.length > 0,
+    lane,
+    backend,
+    binding,
+    table,
+    query_hash: queryHash,
+    results,
+    result_count: results.length,
+    duration_ms: durationMs,
+    fallback_used: fallbackUsed,
+    degraded_reason: results.length ? null : 'no_hits',
+    error: results.length ? null : 'no_results',
+  };
+}
+
+/**
+ * @param {any} env
+ * @param {Record<string, unknown>} row
+ */
+async function scheduleSemanticSearchLog(env, row) {
+  if (!isHyperdriveUsable(env)) return;
+  const sql = `INSERT INTO agentsam.agentsam_search_log (
+      workspace_id, user_id, query_text, result_count, duration_ms, search_type, metadata
+    ) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7::jsonb)`;
+  const meta = {
+    lane: row.lane,
+    backend: row.backend,
+    binding: row.binding,
+    table: row.table,
+    query_hash: row.queryHash,
+    fallback_used: row.fallbackUsed === true,
+    agent_run_id: row.agentRunId ?? null,
+  };
+  let userUuid = null;
+  const uid = row.userId != null ? String(row.userId) : '';
+  if (/^[0-9a-f-]{36}$/i.test(uid)) userUuid = uid;
+  await runHyperdriveQuery(env, sql, [
+    row.workspaceUuid,
+    userUuid,
+    String(row.query || '').slice(0, 4000),
+    Number(row.resultCount) || 0,
+    Number(row.durationMs) || 0,
+    String(row.lane || 'semantic'),
+    JSON.stringify(meta),
+  ]);
+}

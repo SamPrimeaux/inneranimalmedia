@@ -45,10 +45,13 @@ test('smoke D: repo symbol → workspace_grep', () => {
   assert.equal(messageRequestsOpenWebSearch(msg), false);
 });
 
-test('smoke E: agentsam table question → internal knowledge', () => {
+test('smoke E: agentsam table question → docs or schema semantic lane', () => {
   const msg = 'What does agentsam_routing_arms do?';
   const lane = classifyAgentExecutionLane(msg, { requestedMode: 'agent' });
-  assert.equal(lane.primary_lane, 'internal_knowledge_search');
+  assert.ok(
+    lane.primary_lane === 'docs_knowledge_search' ||
+      lane.primary_lane === 'schema_semantic_search',
+  );
   assert.equal(messageRequestsInternalKnowledge(msg), true);
   assert.equal(messageRequestsOpenWebSearch(msg), false);
 });

@@ -17,6 +17,31 @@ function pgQuoteIdent(ident) {
   return `"${s.replace(/"/g, '""')}"`;
 }
 
+const HYPERDRIVE_LIST_SCHEMAS = ['agentsam', 'public'];
+const HYPERDRIVE_DEFAULT_SCHEMA = 'agentsam';
+
+/**
+ * @param {string} tableRaw
+ * @param {string|null} [schemaParam]
+ */
+function parseHyperdriveTableRef(tableRaw, schemaParam = null) {
+  const raw = String(tableRaw || '').trim();
+  const schemaFromQuery = schemaParam != null ? String(schemaParam).trim() : '';
+  if (raw.includes('.')) {
+    const [schema, table] = raw.split('.', 2);
+    return { schema: schema.trim() || HYPERDRIVE_DEFAULT_SCHEMA, table: table.trim() };
+  }
+  if (schemaFromQuery) {
+    return { schema: schemaFromQuery, table: raw };
+  }
+  return { schema: HYPERDRIVE_DEFAULT_SCHEMA, table: raw };
+}
+
+/** @param {string} schema @param {string} table */
+function qualifiedTableSql(schema, table) {
+  return `${pgQuoteIdent(schema)}.${pgQuoteIdent(table)}`;
+}
+
 /**
  * Generic POST body executor — read-only for non-superadmin; DML/DDL superadmin only.
  * @param {Request} request
@@ -69,10 +94,12 @@ async function executeHyperdriveSqlFromRequest(request, env) {
   const result = await runHyperdriveQuery(env, trimmed, params);
   const executionMs = Date.now() - t0;
   if (!result.ok) {
+    const detail = result.error ?? 'unknown';
     return jsonResponse(
       {
-        error: 'Hyperdrive query failed',
-        detail: result.error ?? 'unknown',
+        error: detail,
+        message: detail,
+        detail,
         results: [],
         rows: [],
       },
@@ -145,23 +172,35 @@ export async function handleHyperdriveRoutes(request, url, env) {
   }
 
   if (pathLower === '/api/hyperdrive/tables' && method === 'GET') {
-    const sql = `SELECT table_name, table_type
+    const schemaFilter = url.searchParams.get('schema');
+    const schemas =
+      schemaFilter && HYPERDRIVE_LIST_SCHEMAS.includes(schemaFilter)
+        ? [schemaFilter]
+        : HYPERDRIVE_LIST_SCHEMAS;
+    const placeholders = schemas.map((_, i) => `$${i + 1}`).join(', ');
+    const sql = `SELECT table_schema, table_name, table_type
       FROM information_schema.tables
-      WHERE table_schema = 'public'
-      ORDER BY table_name`;
+      WHERE table_schema IN (${placeholders})
+        AND table_type = 'BASE TABLE'
+      ORDER BY CASE table_schema WHEN 'agentsam' THEN 0 ELSE 1 END, table_name`;
     try {
-      const result = await runHyperdriveQuery(env, sql, []);
+      const result = await runHyperdriveQuery(env, sql, schemas);
       if (!result.ok) throw new Error(result.error || 'query_failed');
       const rows = result.rows ?? [];
       const tables = rows
-        .map((r) => ({
-          name: String(r.table_name || '').trim(),
-          table_name: String(r.table_name || '').trim(),
-          table_schema: 'public',
-          table_type: r.table_type ?? null,
-        }))
+        .map((r) => {
+          const tableSchema = String(r.table_schema || HYPERDRIVE_DEFAULT_SCHEMA).trim();
+          const tableName = String(r.table_name || '').trim();
+          return {
+            name: tableName,
+            table_name: tableName,
+            table_schema: tableSchema,
+            qualified_name: `${tableSchema}.${tableName}`,
+            table_type: r.table_type ?? null,
+          };
+        })
         .filter((r) => r.name);
-      return jsonResponse({ tables });
+      return jsonResponse({ tables, default_schema: HYPERDRIVE_DEFAULT_SCHEMA });
     } catch (e) {
       return jsonResponse({
         tables: [],
@@ -174,8 +213,13 @@ export async function handleHyperdriveRoutes(request, url, env) {
   const tableRoute = url.pathname.match(/^\/api\/hyperdrive\/table\/([^/]+)\/(schema|data)$/i);
   if (tableRoute && method === 'GET') {
     const tableRaw = decodeURIComponent(tableRoute[1]);
+    const { schema: tableSchema, table: tableName } = parseHyperdriveTableRef(
+      tableRaw,
+      url.searchParams.get('schema'),
+    );
     try {
-      pgQuoteIdent(tableRaw);
+      pgQuoteIdent(tableName);
+      pgQuoteIdent(tableSchema);
     } catch {
       return jsonResponse({ error: 'Invalid table name' }, 400);
     }
@@ -197,22 +241,22 @@ export async function handleHyperdriveRoutes(request, url, env) {
                  JOIN information_schema.key_column_usage kcu
                    ON kcu.constraint_name = tc.constraint_name
                   AND kcu.table_schema = tc.table_schema
-                WHERE tc.table_schema = 'public'
-                  AND tc.table_name = $1
+                WHERE tc.table_schema = $1
+                  AND tc.table_name = $2
                   AND tc.constraint_type = 'PRIMARY KEY'
              ) pk ON pk.column_name = c.column_name
-            WHERE c.table_schema = 'public'
-              AND c.table_name = $1
+            WHERE c.table_schema = $1
+              AND c.table_name = $2
             ORDER BY c.ordinal_position`,
-          [tableRaw],
+          [tableSchema, tableName],
         );
         if (!colsR.ok) throw new Error(colsR.error || 'schema_columns_failed');
         const idxR = await runHyperdriveQuery(env,
           `SELECT indexname AS name, indexdef AS sql
              FROM pg_indexes
-            WHERE schemaname = 'public' AND tablename = $1
+            WHERE schemaname = $1 AND tablename = $2
             ORDER BY indexname`,
-          [tableRaw],
+          [tableSchema, tableName],
         );
         if (!idxR.ok) throw new Error(idxR.error || 'schema_indexes_failed');
         const fkR = await runHyperdriveQuery(env,
@@ -228,9 +272,9 @@ export async function handleHyperdriveRoutes(request, url, env) {
                ON ccu.constraint_name = tc.constraint_name
               AND ccu.table_schema = tc.table_schema
             WHERE tc.constraint_type = 'FOREIGN KEY'
-              AND tc.table_schema = 'public'
-              AND tc.table_name = $1`,
-          [tableRaw],
+              AND tc.table_schema = $1
+              AND tc.table_name = $2`,
+          [tableSchema, tableName],
         );
         if (!fkR.ok) throw new Error(fkR.error || 'schema_fk_failed');
         return jsonResponse({
@@ -247,16 +291,16 @@ export async function handleHyperdriveRoutes(request, url, env) {
     const limit = Math.max(1, Math.min(200, Number(url.searchParams.get('limit') || '50')));
     const sort = String(url.searchParams.get('sort') || '').trim();
     const dir = String(url.searchParams.get('dir') || 'asc').toLowerCase() === 'desc' ? 'DESC' : 'ASC';
-    const identQuoted = pgQuoteIdent(tableRaw);
+    const tableRefSql = qualifiedTableSql(tableSchema, tableName);
     const filters = parseDatabaseFiltersJson(url.searchParams.get('filter'));
 
     const colsR = await runHyperdriveQuery(
       env,
       `SELECT column_name AS name
          FROM information_schema.columns
-        WHERE table_schema = 'public' AND table_name = $1
+        WHERE table_schema = $1 AND table_name = $2
         ORDER BY ordinal_position`,
-      [tableRaw],
+      [tableSchema, tableName],
     );
     if (!colsR.ok) throw new Error(colsR.error || 'schema_columns_failed');
     const columnAllowlist = new Set(
@@ -287,14 +331,14 @@ export async function handleHyperdriveRoutes(request, url, env) {
     try {
       const countRes = await runHyperdriveQuery(
         env,
-        `SELECT COUNT(*)::int AS count FROM public.${identQuoted}${built.where}`,
+        `SELECT COUNT(*)::int AS count FROM ${tableRefSql}${built.where}`,
         filterValues,
       );
       if (!countRes.ok) throw new Error(countRes.error || 'count_failed');
       const total = Number(countRes.rows?.[0]?.count ?? 0);
       const rowsRes = await runHyperdriveQuery(
         env,
-        `SELECT * FROM public.${identQuoted}${built.where}${order} LIMIT ${limitParam} OFFSET ${offsetParam}`,
+        `SELECT * FROM ${tableRefSql}${built.where}${order} LIMIT ${limitParam} OFFSET ${offsetParam}`,
         [...filterValues, limit, offset],
       );
       if (!rowsRes.ok) throw new Error(rowsRes.error || 'select_failed');

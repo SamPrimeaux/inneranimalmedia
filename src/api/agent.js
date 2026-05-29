@@ -33,13 +33,13 @@ import {
 } from '../core/workspace-capability-actions/index.js';
 import { scheduleMirrorAgentsamPlanToSupabasePublic } from '../core/agentsam-plan-supabase-public-sync.js';
 import {
-  unifiedRagSearch,
+  legacyUnifiedRagSearch,
   handleAgentMemorySync,
   insertCuratedAgentMemory,
   searchCuratedAgentMemory,
 } from './rag.js';
 import { LANES, writeToLane } from '../core/rag-lanes.js';
-import { retrieveContextPack } from '../core/rag-retrieve.js';
+import { resolveAgentChatLaneContextBlock } from '../core/agent-chat-lane-context.js';
 import { loadAgentMemoryForPrompt }                     from '../core/memory.js';
 import { writeTelemetry }                               from './telemetry.js';
 import { jsonResponse }                                 from '../core/responses.js';
@@ -189,6 +189,7 @@ import {
 import {
   CODE_IMPLEMENTATION_TOOL_NAMES,
   isCodeImplementationIntent,
+  isReadOnlyFileContextIntent,
   isReadOnlyRepoSearchIntent,
   messageExplicitlyRequestsBrowserInspection,
   shouldSkipSurfaceWorkflowPreflight,
@@ -594,7 +595,7 @@ async function recordBlendedSkillInvocations(env, ctx, skillRows, opts) {
             uid,
             ws,
             conv,
-            row._blended_tier === 1 ? 'always_apply' : 'blended',
+            row._blended_tier === 1 ? 'always_apply' : 'auto',
             tenantId ?? null,
           )
           .run()
@@ -892,6 +893,22 @@ async function resolvePromptRouteRowForAgentChat(env, tenantId, modeSlug, intent
       .toLowerCase()
       .trim() || 'auto';
   let row = await resolveAgentsamPromptRoute(env, tenantId, modeSlug, promptRouteIntentSlug);
+  if (isReadOnlyFileContextIntent(message)) {
+    const rk = String(row?.route_key || '').toLowerCase();
+    if (rk === 'browser') {
+      const askRow =
+        (await resolveAgentsamPromptRoute(env, tenantId, modeSlug, 'ask')) ||
+        (await resolveAgentsamPromptRoute(env, tenantId, modeSlug, 'chat'));
+      if (askRow && String(askRow.route_key || '').toLowerCase() !== 'browser') {
+        console.log(
+          '[agent] prompt_route_read_only_file_override',
+          JSON.stringify({ from: rk, to: askRow.route_key }),
+        );
+        row = askRow;
+      }
+    }
+    return row;
+  }
   const taskType = String(intentResult?.taskType || '').toLowerCase();
   const needsBrowserRoute = taskType === 'browser' || messageHasBrowserUrlNavigation(message);
   if (!needsBrowserRoute || row?.route_key === 'browser') return row;
@@ -1033,112 +1050,6 @@ function isSimpleAskMessage(message = "") {
   return ["hi","hello","hey","yo","sup","thanks","thank you","ok","okay","test","ping"].includes(s);
 }
 
-/** Workers AI embed for Vectorize lane queries (must match index dimensions). */
-const VECTOR_CONTEXT_EMBED_MODEL = '@cf/baai/bge-m3';
-
-/**
- * Query Vectorize for semantically relevant context before building system prompt.
- * Uses Workers AI to embed the message (free tier, ~2ms).
- * Returns grouped results by source lane.
- */
-async function resolveVectorContext(env, message, _taskType, options = {}) {
-  const text = String(message || '').trim();
-  if (!text) return {};
-
-  const routeKey = options?.routeKey != null ? String(options.routeKey).trim() : '';
-  const workspaceId =
-    options?.workspaceId != null ? String(options.workspaceId).trim() : '';
-
-  if (workspaceId && routeKey) {
-    try {
-      const { queryRouteRagLanes } = await import('../core/rag-lanes.js');
-      const laneHits = await queryRouteRagLanes(env, {
-        workspace_id_d1: workspaceId,
-        query_text: text,
-        route_key: routeKey,
-        top_k: 8,
-      });
-      if (laneHits?.length) {
-        return {
-          lane_chunks: laneHits.map((h) => ({
-            lane: h.lane,
-            label: h.title || h.source_ref,
-            description: (h.content || '').slice(0, 400),
-            score: h.score,
-          })),
-        };
-      }
-    } catch (e) {
-      console.warn('[vectorContext] route lanes', e?.message ?? e);
-    }
-  }
-
-  if (!env.VECTORIZE || !env.AI) return {};
-
-  try {
-    const embResult = await env.AI.run(VECTOR_CONTEXT_EMBED_MODEL, { text: [text] });
-    const embedding = embResult?.data?.[0] ?? embResult?.result?.[0];
-    if (!Array.isArray(embedding) || !embedding.length) return {};
-
-    const [skills, tools, routes, memory, workflows] = await Promise.all([
-      env.VECTORIZE.query(embedding, { topK: 3, filter: { source: 'skill' }, returnMetadata: 'all' }),
-      env.VECTORIZE.query(embedding, { topK: 2, filter: { source: 'tool' }, returnMetadata: 'all' }),
-      env.VECTORIZE.query(embedding, { topK: 2, filter: { source: 'route' }, returnMetadata: 'all' }),
-      env.VECTORIZE.query(embedding, { topK: 3, filter: { source: 'memory' }, returnMetadata: 'all' }),
-      env.VECTORIZE.query(embedding, { topK: 2, filter: { source: 'workflow' }, returnMetadata: 'all' }),
-    ]);
-
-    const THRESHOLD = 0.72;
-
-    const filter = (hits) => (hits?.matches || [])
-      .filter((h) => h.score >= THRESHOLD)
-      .map((h) => h.metadata);
-
-    return {
-      skills: filter(skills),
-      tools: filter(tools),
-      routes: filter(routes),
-      memory: filter(memory),
-      workflows: filter(workflows),
-    };
-  } catch (e) {
-    console.warn('[vectorContext] failed:', e?.message ?? e);
-    return {};
-  }
-}
-
-/**
- * Convert vector context hits into a prompt block.
- * Hard cap: ~400 chars total — never blows prompt budget.
- */
-function buildVectorContextBlock(ctx) {
-  const lines = [];
-
-  if (ctx.skills?.length) {
-    lines.push('## Relevant Skills');
-    ctx.skills.forEach((s) => lines.push(`- ${s.label || s.name}: ${s.description || s.slug || ''}`));
-  }
-  if (ctx.memory?.length) {
-    lines.push('## Prior Context');
-    ctx.memory.forEach((m) => lines.push(`- ${m.label || m.memory_type}: ${m.description || ''}`));
-  }
-  if (ctx.lane_chunks?.length) {
-    lines.push('## Retrieved Knowledge');
-    ctx.lane_chunks.forEach((c) =>
-      lines.push(`- [${c.lane}] ${c.label || 'chunk'}: ${c.description || ''}`),
-    );
-  }
-  if (ctx.workflows?.length) {
-    lines.push('## Available Workflows');
-    ctx.workflows.forEach((w) => lines.push(`- ${w.label || w.workflow_key || w.name}`));
-  }
-
-  const block = lines.join('\n');
-  if (block.length <= 50) return '';
-  const prefixed = `\n\n${block}`;
-  return prefixed.length > 400 ? prefixed.slice(0, 400) : prefixed;
-}
-
 async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeConfig, promptRouteRow = null, options = {}) {
   const _kv = env.SESSION_CACHE ?? null;
   const _wsId = options?.workspaceId ?? '';
@@ -1174,20 +1085,6 @@ async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeConfig, 
   const appendRulesContextBlock = async (systemPrompt) =>
     appendTriggeredRulesToSystemPrompt(env, systemPrompt, rulesPromptOpts);
 
-  const appendVectorContextBlock = async (systemPrompt) => {
-    const includeVectorRag = Number(promptRouteRow?.include_rag ?? 1) === 1;
-    const msg = String(options?.message ?? '').trim();
-    if (!includeVectorRag || !msg) return systemPrompt;
-    const vectorCtx = await resolveVectorContext(env, msg, options?.taskType ?? null, {
-      routeKey: promptRouteRow?.route_key ?? options?.routeKey ?? null,
-      workspaceId: options?.workspaceId ?? null,
-      tenantId: options?.tenantId ?? null,
-      userId: options?.userId ?? null,
-    });
-    const vectorBlock = buildVectorContextBlock(vectorCtx);
-    return vectorBlock ? `${systemPrompt}${vectorBlock}` : systemPrompt;
-  };
-
   const appendProjectContextBlock = async (systemPrompt) => {
     if (minimalAsk || !options?.workspaceId) return systemPrompt;
     try {
@@ -1205,7 +1102,7 @@ async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeConfig, 
   const finalizeSystemPrompt = async (systemPrompt) => {
     let out = await appendRulesContextBlock(systemPrompt);
     out = await appendProjectContextBlock(out);
-    return appendVectorContextBlock(out);
+    return out;
   };
 
   if (cachedPrompt != null) {
@@ -1372,6 +1269,7 @@ const BROWSER_CAPABILITY_TOOL_NAMES = [
 ];
 
 function shouldEnsureBrowserCapabilityTools(message, intentResult, capabilityDecision, promptRouteRow) {
+  if (isReadOnlyFileContextIntent(message)) return false;
   if (messageRequestsOpenWebSearch(message) || messageRequestsWebFetch(message)) {
     return false;
   }
@@ -1403,7 +1301,11 @@ function shouldEnsureCodeCapabilityTools(message, intentResult, capabilityDecisi
 }
 
 function inferIntentHeuristically(text) {
-  const t = String(text || '').trim().toLowerCase();
+  const stripped = stripUserTextForIntent(text);
+  if (isReadOnlyFileContextIntent(stripped)) {
+    return { taskType: 'ask', mode: 'agent' };
+  }
+  const t = stripped.toLowerCase();
   if (!t) return { taskType: 'ask', mode: 'auto' };
 
   const is = (pattern) => pattern.test(t);
@@ -1459,7 +1361,8 @@ function inferIntentHeuristically(text) {
   const hasSearchCode = is(/(grep|find in codebase|which file|where is|search.*src|find.*function|locate.*file|find.*component|codebase.*search|search.*codebase)/);
 
   // ── Code ops (lower priority than db_write) ───────────────────────────────
-  const hasCode      = is(/(edit file|fix file|create file|implement|monaco|worker\.js|\.js|\.ts|\.jsx|\.tsx|function\s+\w|class\s+\w|component)/);
+  const hasCode      = is(/(edit file|fix file|create file|implement|worker\.js|\.js|\.ts|\.jsx|\.tsx|function\s+\w|class\s+\w|component)/) ||
+    (is(/\bmonaco\b/) && is(/\b(edit|change|modify|patch|save|sync|write|apply)\b/));
   const hasRefactor  = is(/(refactor|restructure|rename|reorganize|extract function|clean up code|move file|split|decompose)/);
   const hasReview    = is(/(review|code review|audit|check quality|analyze.*code|quality check|is this correct)/);
   const hasExplain   = is(/(explain|what is|how does|describe|tell me about|what does|how do i|walk me through|break down|eli5|summarize how)/);
@@ -1556,29 +1459,29 @@ async function classifyIntent(_env, lastMessageText) {
 /** Heuristic capability families for merging registry tools before routing (runs before nano capability router). */
 function capabilityFamiliesFromUserMessage(message, intentResult) {
   const m = String(message || '').toLowerCase();
-  const fams = [];
+  const fams = new Set();
   const tt = String(intentResult?.taskType || '').toLowerCase();
   if (
     /\bd1\b|agentsam_|hyperdrive|\bsql\b|query the (?:d1 )?database|from agentsam_/i.test(m) ||
     tt.includes('sql')
   ) {
-    fams.push('d1');
+    fams.add('d1');
   }
   if (
     isCodeImplementationIntent(message) ||
     /\bgithub\b|github\.com\/|raw\.githubusercontent/i.test(m)
   ) {
-    fams.push('github');
+    fams.add('github');
   }
   if (
     isCodeImplementationIntent(message) ||
     /\bterminal\b|run_command|\brun ls\b|\bwrangler\b|\bnpm run\b|\bbash\b/i.test(m) ||
     tt.includes('shell')
   ) {
-    fams.push('terminal');
+    fams.add('terminal');
   }
   if (isCodeImplementationIntent(message)) {
-    fams.push('r2');
+    fams.add('r2');
   }
   if (
     !isCodeImplementationIntent(message) ||
@@ -1589,25 +1492,25 @@ function capabilityFamiliesFromUserMessage(message, intentResult) {
       /\b(browser|screenshot|inspect).*\bhttps?:\/\//i.test(m) ||
       (extractBrowserNavigateUrl(m) && /\b(inspect|screenshot|navigate|open|visit)\b/i.test(m))
     ) {
-      fams.push('browser');
+      fams.add('browser');
     }
   }
-  if (hasImageGenerationIntent(message)) fams.push('image');
-  if (hasVideoGenerationIntent(message)) fams.push('video');
+  if (hasImageGenerationIntent(message)) fams.add('image');
+  if (hasVideoGenerationIntent(message)) fams.add('video');
   if (messageRequestsOpenWebSearch(message) && !messageRequestsBrowserInspect(message)) {
-    fams.push('openweb');
+    fams.add('openweb');
     fams.delete('browser');
   }
   if (messageRequestsWebFetch(message)) {
-    fams.push('webfetch');
+    fams.add('webfetch');
     fams.delete('browser');
   }
   if (messageRequestsWorkspaceGrep(message)) {
-    fams.push('workspace_grep');
+    fams.add('workspace_grep');
     fams.delete('browser');
     fams.delete('openweb');
   }
-  return [...new Set(fams)];
+  return [...fams];
 }
 
 /** D1 agentsam_tools-backed minimum bar + schema source of truth for agent chat. */
@@ -5900,6 +5803,7 @@ function logSurfacePreflightIntentDebug(message, requestedMode) {
       userText: String(message || '').slice(0, 200),
       strippedUserText: strippedUserText.slice(0, 200),
       isReadOnlyRepoSearchIntent: isReadOnlyRepoSearchIntent(message),
+      isReadOnlyFileContextIntent: isReadOnlyFileContextIntent(message),
       isCodeImplementationIntent: isCodeImplementationIntent(message),
       shouldSkipSurfaceWorkflowPreflight: shouldSkipSurfaceWorkflowPreflight(message, requestedMode),
       reason: tagged?.reason ?? null,
@@ -5909,14 +5813,20 @@ function logSurfacePreflightIntentDebug(message, requestedMode) {
 
 function shouldBypassSurfaceWorkflowPreflight(message, requestedMode) {
   if (!isAgentLikeSurfacePreflightMode(requestedMode)) return false;
-  return isReadOnlyRepoSearchIntent(message);
+  return isReadOnlyRepoSearchIntent(message) || isReadOnlyFileContextIntent(message);
+}
+
+function surfaceWorkflowPreflightBypassReason(message) {
+  if (isReadOnlyRepoSearchIntent(message)) return 'read_only_workspace_grep';
+  if (isReadOnlyFileContextIntent(message)) return 'read_only_file_context';
+  return 'read_only_surface';
 }
 
 function logSurfaceWorkflowPreflightBypass(requestedMode, missingSurface, surfaceRouteReason, message) {
   console.log(
     '[agent] surface_workflow_preflight_bypass',
     JSON.stringify({
-      reason: 'read_only_workspace_grep',
+      reason: surfaceWorkflowPreflightBypassReason(message),
       requestedMode,
       missingSurface,
       surfaceRouteReason: surfaceRouteReason ?? null,
@@ -7415,8 +7325,6 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   } else {
     effectiveMaxTools = Math.min(effectiveMaxTools, 8, 12);
   }
-  const skipRagFromRoute = Number(promptRouteRow?.include_rag) === 0;
-
   const personUuid =
     (actorCtx?.personUuid != null && String(actorCtx.personUuid).trim() !== ''
       ? String(actorCtx.personUuid).trim()
@@ -7578,7 +7486,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   if (agentLikeTooling && !ingestBypass) {
     try {
       const classifyMessage = (() => {
-        const base = gate.rewritten_query || message;
+        const base = stripUserTextForIntent(gate.rewritten_query || message);
         const sel = browserContextPayload?.selected_element;
         if (sel && typeof sel === 'object') {
           const tag = sel.tagName ?? sel.tag;
@@ -7647,6 +7555,22 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       });
       const laneLog = formatExecutionLaneLogPayload(executionLane, openWebBackend);
       console.log('[agent] execution_lane_selected', JSON.stringify(laneLog));
+      if (executionLane.primary_lane === 'read_only_file_context' && activeFileEnvelope) {
+        console.log(
+          '[agent] active_file_context_selected',
+          JSON.stringify({
+            source: activeFileEnvelope.source,
+            path: activeFileEnvelope.path,
+            has_content_preview: false,
+            read_tool: activeFileEnvelope.github_path
+              ? 'github_file'
+              : activeFileEnvelope.r2_key
+                ? 'r2_read'
+                : 'workspace_read_file',
+            reason: 'read_only_file_context',
+          }),
+        );
+      }
       tools = filterToolsForExecutionLane(tools, executionLane, { openWebBackend });
       tools = await ensureWebLaneTools(env, tools, effectiveMaxTools, executionLane, openWebBackend);
       if (executionLane.primary_lane === 'workspace_grep') {
@@ -8170,47 +8094,31 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     !includeMemory &&
     !includeWorkspace;
 
-  const needsRag = includeRag && (requestedMode === 'agent' || requestedMode === 'ask');
-
-  const ragResult = needsRag
-    ? await unifiedRagSearch(env, message, {
-        topK: modeConfig.context_strategy === 'minimal' ? 3 : 8,
-        tenantId,
-        workspaceId: workspaceId || null,
-        sessionId: sessionId ?? null,
-      })
-    : { matches: [] };
-  const ragContext   = (ragResult.matches || []).join('\n\n');
-  const contextBlock = ragContext ? `\n\nRelevant context:\n${ragContext}` : '';
-  let laneRagContext = '';
-  if (needsRag) {
-    try {
-      const taskType = normalizeCanonicalTaskType(intentResult?.taskType ?? 'ask');
-      const ragIntent =
-        taskType === 'agent'
-          ? 'code'
-          : taskType === 'plan'
-            ? 'architecture'
-            : taskType === 'debug'
-              ? 'code'
-              : taskType === 'ask'
-                ? 'mixed'
-                : 'mixed';
-      const pack = await retrieveContextPack(env, {
-        workspaceId: workspaceId,
-        query: message,
-        intent: ragIntent,
-        maxChunks: 6,
-      });
-      if (pack.chunks.length > 0) {
-        const block =
-          '\n\n## Retrieved context\n' +
-          pack.chunks
-            .map((chunk) => `### ${chunk.title ?? chunk.lane}\n${String(chunk.content ?? '').slice(0, 800)}`)
-            .join('\n\n');
-        laneRagContext = block.length > 3000 ? block.slice(0, 3000) : block;
-      }
-    } catch (_) {}
+  const laneRetrievalEligible =
+    includeRag && (requestedMode === 'agent' || requestedMode === 'ask');
+  const contextBlock = '';
+  let laneContextBlock = '';
+  if (laneRetrievalEligible) {
+    const laneCtx = await resolveAgentChatLaneContextBlock(env, {
+      message,
+      includeRag: true,
+      workspaceId: workspaceId || null,
+      tenantId,
+      userId,
+      authUser,
+      agentRunId: chatAgentRunId ?? null,
+    });
+    laneContextBlock = laneCtx.block || '';
+    if (laneCtx.source) {
+      console.info(
+        '[agent-chat] lane_context',
+        JSON.stringify({
+          lane: laneCtx.lane,
+          source: laneCtx.source,
+          agent_run_id: chatAgentRunId ?? null,
+        }),
+      );
+    }
   }
 
   const promptBuildOptions = {
@@ -8259,8 +8167,8 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       );
     }
   }
-  if (laneRagContext) {
-    systemPrompt = `${systemPrompt}${laneRagContext}`;
+  if (laneContextBlock) {
+    systemPrompt = `${systemPrompt}\n\n${laneContextBlock}`;
   }
   if (!minimalAskChat && includeMemory) {
     try {
@@ -8276,7 +8184,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     } catch (_) { /* memory must not break sessions */ }
   }
 
-  if (!minimalAskChat) {
+  if (!minimalAskChat && !isReadOnlyFileContextIntent(message)) {
     try {
       const blendedTaskType = intentResult?.taskType ?? null;
       const blended = await loadBlendedSkillsForRequest(env, {
@@ -8472,7 +8380,11 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       });
     }
     const surf = String(capabilityDecision.default_surface || 'chat');
-    if (surf === 'browser' && capabilityDecision.should_use_browser) {
+    if (
+      surf === 'browser' &&
+      capabilityDecision.should_use_browser &&
+      !isReadOnlyFileContextIntent(message)
+    ) {
       emit('surface_open', { surface: 'browser', reason: capabilityDecision.reason });
       emit('agent_surface_open', { surface: 'browser', reason: capabilityDecision.reason });
     } else if (surf === 'excalidraw' && capabilityDecision.should_use_excalidraw) {
@@ -11739,18 +11651,24 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     return jsonResponse({ ok: true, run_id: runId, status: 'pending' });
   }
 
-  // ── /api/agent/rag/query ──────────────────────────────────────────────────
+  // ── /api/agent/rag/query (legacy compat — not normal Agent chat) ───────────
   if (path === '/api/agent/rag/query' && method === 'POST') {
     const body  = await request.json().catch(() => ({}));
     const query = (body.query || body.q || '').trim();
     if (!query) return jsonResponse({ error: 'query required', matches: [], results: [], count: 0 }, 400);
-    const out = await unifiedRagSearch(env, query, {
+    const out = await legacyUnifiedRagSearch(env, query, {
       topK: body.top_k || 8,
       tenantId: identity?.tenantId ?? null,
       workspaceId: identity?.workspaceId ?? null,
       sessionId: identity?.sessionId ?? null,
+      caller: '/api/agent/rag/query',
     });
-    return jsonResponse({ matches: out.matches||[], results: out.results||[], count: out.count||0 });
+    return jsonResponse({
+      legacy: true,
+      matches: out.matches || [],
+      results: out.results || [],
+      count: out.count || 0,
+    });
   }
 
   // ── /api/agent/workers-ai/image ───────────────────────────────────────────

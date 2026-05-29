@@ -86,8 +86,11 @@ function safeClassText(el: { className?: unknown } | null | undefined): string {
 }
 
 function normalize(raw: string): string {
-  const s = raw.trim();
+  let s = raw.trim();
   if (!s) return DEFAULT_URL;
+  if (/^\/https?:\/\//i.test(s)) s = s.replace(/^\/+/, '');
+  const nestedAbs = s.match(/^https?:\/\/[^/]+\/(https?:\/\/.+)$/i);
+  if (nestedAbs?.[1]) s = nestedAbs[1];
   if (/^(blob:|data:|about:)/i.test(s)) return s;
   if (!/^https?:\/\//i.test(s)) {
     if (s.includes('.') || s.startsWith('localhost')) return `https://${s}`;
@@ -999,6 +1002,7 @@ interface PaneProps {
   label?:          'A' | 'B';
   onClose?:        () => void;
   onSplit?:        (url: string) => void;
+  onUrlCommitted?: (url: string) => void;
   isSplit?:        boolean;
   autoFocus?:      boolean;
   agentActive?:    boolean;
@@ -1013,6 +1017,7 @@ const BrowserPane: React.FC<PaneProps> = ({
   label,
   onClose,
   onSplit,
+  onUrlCommitted,
   isSplit,
   autoFocus,
   agentActive = false,
@@ -1389,8 +1394,10 @@ const BrowserPane: React.FC<PaneProps> = ({
     async (raw: string) => {
       const s = raw.trim();
       if (!s || isVirtual(s)) return;
+      console.log('[browser] url_requested', JSON.stringify({ raw: s.slice(0, 240) }));
       const n = normalize(s);
       const origin = originOf(n);
+      console.log('[browser] url_resolved', JSON.stringify({ url: n.slice(0, 240), origin }));
 
       if (!sessionTrusted.has(origin)) {
         const trusted = await checkTrust(origin, trustWorkspaceId);
@@ -1407,6 +1414,7 @@ const BrowserPane: React.FC<PaneProps> = ({
       setIframeUrl(n);
       setCurrentUrl(n);
       setInputVal(addressDisplay?.trim() && /^(blob:|data:)/i.test(n) ? addressDisplay : n);
+      onUrlCommitted?.(n);
       setLoading(true);
       setMode('browse');
       setScreenshotUrl(null);
@@ -1415,7 +1423,7 @@ const BrowserPane: React.FC<PaneProps> = ({
       setInspectedEl(null);
       setIframeBlocked(false);
     },
-    [sessionTrusted, requestTrust, addressDisplay],
+    [sessionTrusted, requestTrust, addressDisplay, onUrlCommitted],
   );
 
   const navigate = useCallback(
@@ -1980,6 +1988,8 @@ const BrowserPane: React.FC<PaneProps> = ({
 interface BrowserViewProps {
   url?:            string;
   addressDisplay?: string | null;
+  /** Persist user-entered URL to parent state (survives tab remounts). */
+  onUrlCommitted?: (url: string) => void;
   /** When false, no collab HTTP probe or WebSocket (avoids IAM_COLLAB churn when panel is hidden). */
   isActive?:       boolean;
   /** `agentsam_agent_run.id` from chat SSE — full-page screenshot POST only. */
@@ -1990,6 +2000,7 @@ interface BrowserViewProps {
 export const BrowserView: React.FC<BrowserViewProps> = ({
   url: urlFromParent,
   addressDisplay,
+  onUrlCommitted,
   isActive = false,
   agentRunId = null,
   workspaceContext: _workspaceContext = null,
@@ -2203,6 +2214,7 @@ export const BrowserView: React.FC<BrowserViewProps> = ({
           label={secondaryUrl ? 'A' : undefined}
           isSplit={!!secondaryUrl}
           onSplit={url => setSecondaryUrl(url)}
+          onUrlCommitted={onUrlCommitted}
           agentActive={agentActive}
           agentRunId={agentRunId}
         />

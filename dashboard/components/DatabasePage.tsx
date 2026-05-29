@@ -117,6 +117,26 @@ function quoteIdent(name: string) {
   return `"${name.replace(/"/g, '""')}"`;
 }
 
+function qualifiedTableRef(table: TableMeta, datasource: Datasource): string {
+  if (datasource === 'd1') return quoteIdent(table.name);
+  const schema = table.table_schema?.trim() || 'agentsam';
+  return `${schema}.${quoteIdent(table.name)}`;
+}
+
+function tableDisplayLabel(table: TableMeta, datasource: Datasource): string {
+  if (datasource === 'd1' || !table.table_schema || table.table_schema === 'agentsam') {
+    return table.name;
+  }
+  return `${table.table_schema}.${table.name}`;
+}
+
+function tableApiPath(table: TableMeta | { name: string; table_schema?: string }, datasource: Datasource, suffix: string) {
+  const base = datasource === 'd1' ? '/api/d1/table' : '/api/hyperdrive/table';
+  const schema = table.table_schema?.trim() || 'agentsam';
+  const q = datasource === 'hyperdrive' ? `?schema=${encodeURIComponent(schema)}` : '';
+  return `${base}/${encodeURIComponent(table.name)}/${suffix}${q}`;
+}
+
 function readStoredDatasource(): Datasource {
   try {
     const v = localStorage.getItem(LS_DATASOURCE);
@@ -124,7 +144,7 @@ function readStoredDatasource(): Datasource {
   } catch {
     /* ignore */
   }
-  return 'd1';
+  return 'hyperdrive';
 }
 
 function readStoredResultsHeight(): number {
@@ -297,7 +317,15 @@ export const DatabasePage: React.FC = () => {
 
   const activeTables = tables[datasource];
   const datasourceLabel = datasource === 'd1' ? 'Cloudflare D1 (SQLite)' : 'Supabase via Hyperdrive (Postgres)';
-  const selectedTableSqlName = selectedTable ? quoteIdent(selectedTable) : '';
+  const selectedTableMeta = useMemo(
+    () => (selectedTable ? activeTables.find((t) => t.name === selectedTable) : undefined),
+    [activeTables, selectedTable],
+  );
+  const selectedTableSqlName = selectedTableMeta
+    ? qualifiedTableRef(selectedTableMeta, datasource)
+    : selectedTable
+      ? qualifiedTableRef({ name: selectedTable, table_schema: 'agentsam' }, datasource)
+      : '';
   const pk = useMemo(() => schema.find(isPrimaryKey)?.name || '', [schema]);
   const canWriteRows = isSuperadmin && capLoaded;
   const canEditDataCell = canWriteRows && datasource === 'd1' && Boolean(pk) && Boolean(selectedTable);
@@ -334,8 +362,12 @@ export const DatabasePage: React.FC = () => {
             : '';
   const filteredTables = useMemo(() => {
     const q = tableSearch.trim().toLowerCase();
-    return q ? activeTables.filter((t) => t.name.toLowerCase().includes(q)) : activeTables;
-  }, [activeTables, tableSearch]);
+    if (!q) return activeTables;
+    return activeTables.filter((t) => {
+      const label = tableDisplayLabel(t, datasource).toLowerCase();
+      return label.includes(q) || t.name.toLowerCase().includes(q);
+    });
+  }, [activeTables, datasource, tableSearch]);
   const insertSql = useMemo(() => {
     if (!selectedTable) return '';
     const pairs = schema
@@ -346,11 +378,6 @@ export const DatabasePage: React.FC = () => {
     const vals = pairs.map(([, value]) => (value.toLowerCase() === 'null' ? 'NULL' : `'${value.replace(/'/g, "''")}'`)).join(', ');
     return `INSERT INTO ${selectedTableSqlName} (${cols}) VALUES (${vals});`;
   }, [insertValues, schema, selectedTable, selectedTableSqlName]);
-
-  const selectedTableMeta = useMemo(
-    () => (selectedTable ? activeTables.find((t) => t.name === selectedTable) : undefined),
-    [activeTables, selectedTable],
-  );
 
   const loadThemeAccent = useCallback(async () => {
     const root = document.documentElement;
@@ -443,9 +470,9 @@ export const DatabasePage: React.FC = () => {
     async (table: string) => {
       setLoadingMain(true);
       try {
-        const base = datasource === 'd1' ? '/api/d1/table' : '/api/hyperdrive/table';
+        const meta = activeTables.find((t) => t.name === table) ?? { name: table, table_schema: 'agentsam' };
         const payload = await fetchJson<{ columns?: SchemaColumn[]; schema?: SchemaColumn[]; indexes?: IndexMeta[]; foreign_keys?: RelationMeta[] }>(
-          `${base}/${encodeURIComponent(table)}/schema`,
+          tableApiPath(meta, datasource, 'schema'),
         );
         setSchema(payload.columns || payload.schema || []);
         setIndexes(payload.indexes || []);
@@ -454,7 +481,7 @@ export const DatabasePage: React.FC = () => {
         setLoadingMain(false);
       }
     },
-    [datasource],
+    [activeTables, datasource],
   );
 
   useEffect(() => {
@@ -742,14 +769,15 @@ export const DatabasePage: React.FC = () => {
   }, []);
 
   const selectTableSql = useCallback(
-    (name: string, pageNum = 1) => {
+    (table: TableMeta | string, pageNum = 1) => {
       const offset = (Math.max(1, pageNum) - 1) * PAGE_SIZE;
-      if (datasource === 'd1') {
-        return `SELECT * FROM ${quoteIdent(name)} LIMIT ${PAGE_SIZE} OFFSET ${offset};`;
-      }
-      return `SELECT * FROM public.${quoteIdent(name)} LIMIT ${PAGE_SIZE} OFFSET ${offset};`;
+      const meta =
+        typeof table === 'string'
+          ? activeTables.find((t) => t.name === table) ?? { name: table, table_schema: 'agentsam' }
+          : table;
+      return `SELECT * FROM ${qualifiedTableRef(meta, datasource)} LIMIT ${PAGE_SIZE} OFFSET ${offset};`;
     },
-    [datasource],
+    [activeTables, datasource],
   );
 
   const tableBrowseTotalPages = useMemo(() => {
@@ -762,8 +790,8 @@ export const DatabasePage: React.FC = () => {
 
   useEffect(() => {
     const sqlForTable = (name: string, ds: Datasource) => {
-      if (ds === 'd1') return `SELECT * FROM ${quoteIdent(name)} LIMIT 50;`;
-      return `SELECT * FROM public.${quoteIdent(name)} LIMIT 50;`;
+      const meta = tables[ds].find((t) => t.name === name) ?? { name, table_schema: 'agentsam' };
+      return `SELECT * FROM ${qualifiedTableRef(meta, ds)} LIMIT 50;`;
     };
 
     const onApply = (ev: Event) => {
@@ -938,14 +966,14 @@ export const DatabasePage: React.FC = () => {
         setLoadingMain(true);
         setDataError(null);
         try {
-          const base = datasource === 'd1' ? '/api/d1/table' : '/api/hyperdrive/table';
+          const meta = selectedTableMeta ?? { name: selectedTable, table_schema: 'agentsam' };
           const qs = new URLSearchParams({ page: String(nextPage), limit: String(PAGE_SIZE) });
           if (sortCol) qs.set('sort', sortCol);
           if (sortCol) qs.set('dir', sortDir);
           qs.set('filter', serializeDatabaseFilters(filters));
-          const payload = await fetchJson<DataResponse>(
-            `${base}/${encodeURIComponent(selectedTable)}/data?${qs.toString()}`,
-          );
+          const dataPath = tableApiPath(meta, datasource, 'data');
+          const dataUrl = `${dataPath}${dataPath.includes('?') ? '&' : '?'}${qs.toString()}`;
+          const payload = await fetchJson<DataResponse>(dataUrl);
           setData(payload);
           syncDataResponseToGrid(payload);
           setSelectedRows(new Set());
@@ -960,7 +988,18 @@ export const DatabasePage: React.FC = () => {
       setSql(statement);
       await requestRunSql(statement);
     },
-    [datasource, filters, page, requestRunSql, selectedTable, selectTableSql, sortCol, sortDir, syncDataResponseToGrid],
+    [
+      datasource,
+      filters,
+      page,
+      requestRunSql,
+      selectedTable,
+      selectedTableMeta,
+      selectTableSql,
+      sortCol,
+      sortDir,
+      syncDataResponseToGrid,
+    ],
   );
 
   const onPickTable = (name: string) => {
@@ -993,8 +1032,10 @@ export const DatabasePage: React.FC = () => {
     if (columnCache[table] || columnLoading[table]) return;
     setColumnLoading((c) => ({ ...c, [table]: true }));
     try {
-      const base = datasource === 'd1' ? '/api/d1/table' : '/api/hyperdrive/table';
-      const payload = await fetchJson<{ columns?: SchemaColumn[]; schema?: SchemaColumn[] }>(`${base}/${encodeURIComponent(table)}/schema`);
+      const meta = activeTables.find((t) => t.name === table) ?? { name: table, table_schema: 'agentsam' };
+      const payload = await fetchJson<{ columns?: SchemaColumn[]; schema?: SchemaColumn[] }>(
+        tableApiPath(meta, datasource, 'schema'),
+      );
       const cols = payload.columns || payload.schema || [];
       setColumnCache((c) => ({ ...c, [table]: cols }));
     } catch {
@@ -1297,7 +1338,12 @@ export const DatabasePage: React.FC = () => {
                     }`}
                   >
                     <TableIcon size={12} className="shrink-0 opacity-70" />
-                    <span className="min-w-0 truncate">{highlightSearchMatchAll(table.name, tableSearch)}</span>
+                    <span className="min-w-0 truncate font-mono text-[11px]">
+                      {table.table_schema && datasource === 'hyperdrive' && table.table_schema !== 'agentsam' ? (
+                        <span className="text-[var(--text-muted)]">{table.table_schema}.</span>
+                      ) : null}
+                      {highlightSearchMatchAll(table.name, tableSearch)}
+                    </span>
                   </button>
                   <button
                     type="button"

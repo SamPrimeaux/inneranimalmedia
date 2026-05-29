@@ -1,6 +1,9 @@
 /**
  * Tavily-backed open_web_search — budget caps, cache, telemetry (no raw API keys in logs).
  */
+import { stripUserTextForIntent } from './active-file-envelope.js';
+import { isReadOnlyFileContextIntent, isReadOnlyRepoSearchIntent } from './code-implementation-intent.js';
+
 async function sha256Hex(value) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(value || '')));
   return Array.from(new Uint8Array(buf))
@@ -99,7 +102,8 @@ export function messageRequestsExplicitDeepResearch(message) {
  * @param {unknown} message
  */
 export function messageRequestsInternalKnowledge(message) {
-  const m = String(message || '').toLowerCase();
+  if (isReadOnlyFileContextIntent(message) || isReadOnlyRepoSearchIntent(message)) return false;
+  const m = stripUserTextForIntent(message).toLowerCase();
   if (!m) return false;
   if (/\b(vectorize|ai search index|hyperdrive|supabase mirror|agentsam_|d1 table|migration \d+|r2:\/\/|r2 key|monaco buffer|workspace file index|github repo file|inneranimalmedia-business)\b/i.test(m)) {
     return true;
