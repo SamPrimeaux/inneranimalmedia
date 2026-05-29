@@ -7,6 +7,12 @@ import {
   isCodeImplementationIntent,
   messageExplicitlyRequestsBrowserInspection,
 } from './code-implementation-intent.js';
+import {
+  messageRequestsBrowserInspect,
+  messageRequestsOpenWebSearch,
+  messageRequestsWebFetch,
+  messageRequestsWorkspaceGrep,
+} from './agent-lane-router.js';
 
 /** Cheap classifier — same family as routing arms default (gemini-2.5-flash-lite). */
 const GEMINI_CLASSIFIER_MODEL = 'gemini-2.5-flash-lite';
@@ -23,12 +29,16 @@ const DEFAULT_DECISION = {
   should_use_d1: false,
   should_use_terminal: false,
   should_use_github: false,
+  should_use_open_web_search: false,
+  should_use_web_fetch: false,
+  should_use_workspace_grep: false,
+  execution_lane: 'none',
   risk_level: 'low',
   approval_required: false,
   reason: 'default',
 };
 
-function heuristicDecision(message, browserContext) {
+function heuristicDecision(message, browserContext = null) {
   const m = String(message || '').toLowerCase();
   const urlInMessage = /https?:\/\/[^\s]+/i.test(m);
   const playwrightCue = /\b(playwright|@playwright\/test|npx playwright|e2e test|smoke test|browser test)\b/i.test(
@@ -36,10 +46,18 @@ function heuristicDecision(message, browserContext) {
   );
   const codeCue = isCodeImplementationIntent(m);
   const explicitBrowserInspect = messageExplicitlyRequestsBrowserInspection(m);
+  const openWebCue =
+    !codeCue && messageRequestsOpenWebSearch(m) && !messageRequestsWebFetch(m);
+  const webFetchCue = messageRequestsWebFetch(m);
+  const workspaceGrepCue = messageRequestsWorkspaceGrep(m);
   const browserCue =
     !playwrightCue &&
     !codeCue &&
+    !openWebCue &&
+    !webFetchCue &&
+    !workspaceGrepCue &&
     (explicitBrowserInspect ||
+      messageRequestsBrowserInspect(m, browserContext) ||
       (urlInMessage &&
         /\b(inspect|screenshot|navigate|debug\s+the\s+site|open\s+this\s+url|check\s+the\s+page)\b/i.test(m)));
   const excalCue = /\b(diagram|wireframe|draw|excalidraw|flowchart|map architecture|system map|sketch)\b/i.test(m);
@@ -69,6 +87,9 @@ function heuristicDecision(message, browserContext) {
   if (terminalCue) optional.push('terminal');
   if (codeCue && !artifactCue) optional.push('artifact');
   if (playwrightCue) optional.push('terminal');
+  if (openWebCue) optional.push('open_web_search');
+  if (webFetchCue) optional.push('web_fetch');
+  if (workspaceGrepCue) optional.push('workspace_grep');
 
   let default_surface = 'chat';
   if (monacoCue && !browserCue) default_surface = 'monaco';
@@ -95,6 +116,18 @@ function heuristicDecision(message, browserContext) {
     should_use_d1: d1Cue,
     should_use_github: githubCue,
     should_use_terminal: terminalCue || playwrightCue,
+    should_use_open_web_search: openWebCue,
+    should_use_web_fetch: webFetchCue,
+    should_use_workspace_grep: workspaceGrepCue,
+    execution_lane: workspaceGrepCue
+      ? 'workspace_grep'
+      : webFetchCue
+        ? 'web_fetch'
+        : browserCue
+          ? 'browser_inspect'
+          : openWebCue
+            ? 'open_web_search'
+            : 'none',
     risk_level: playwrightCue || terminalCue || artifactCue ? 'high' : browserCue ? 'medium' : 'low',
     approval_required: !!(playwrightCue || terminalCue || artifactCue),
     reason: 'heuristic_keyword_fallback',
@@ -140,6 +173,10 @@ function normalizeDecision(raw) {
     should_use_d1: !!raw.should_use_d1,
     should_use_github: !!raw.should_use_github,
     should_use_terminal: !!raw.should_use_terminal,
+    should_use_open_web_search: !!raw.should_use_open_web_search,
+    should_use_web_fetch: !!raw.should_use_web_fetch,
+    should_use_workspace_grep: !!raw.should_use_workspace_grep,
+    execution_lane: String(raw.execution_lane || 'none').slice(0, 32),
     risk_level: String(raw.risk_level || 'low').slice(0, 16),
     approval_required: !!raw.approval_required,
     reason: String(raw.reason || '').slice(0, 500),
@@ -177,10 +214,15 @@ Rules:
 - should_use_d1 true for SQL/schema/workflow run data inspection.
 - should_use_github true for repo file edits, PRs, GitHub API tasks.
 - should_use_terminal true for run/build/test/deploy/script execution (often approval).
+- should_use_open_web_search true only for public internet discovery (latest news, external API docs) — NOT repo grep, NOT D1, NOT MYBROWSER.
+- should_use_web_fetch true when user gives a URL to read/fetch/extract (no browser render).
+- should_use_workspace_grep true for find-in-repo, grep, ripgrep, symbol lookup in codebase — NEVER use open_web_search for these.
+- execution_lane: one of open_web_search | web_fetch | browser_inspect | workspace_grep | none.
 - default_surface is one of: chat, browser, monaco, excalidraw (primary UI focus).
-- Never set should_use_browser true for pure conceptual questions with no page/URL/visual angle.
+- Never set should_use_browser true for pure conceptual questions, public web research, or repo symbol search.
+- Never set should_use_open_web_search true for live UI inspection (use browser) or codebase search (use workspace_grep).
 Output shape:
-{"intent":"slug","needs_capabilities":[],"optional_capabilities":[],"default_surface":"chat","should_use_browser":false,"should_use_excalidraw":false,"should_use_monaco":false,"should_use_artifact_r2":false,"should_use_d1":false,"should_use_github":false,"should_use_terminal":false,"risk_level":"low|medium|high|critical","approval_required":false,"reason":"short"}`;
+{"intent":"slug","needs_capabilities":[],"optional_capabilities":[],"default_surface":"chat","should_use_browser":false,"should_use_excalidraw":false,"should_use_monaco":false,"should_use_artifact_r2":false,"should_use_d1":false,"should_use_github":false,"should_use_terminal":false,"should_use_open_web_search":false,"should_use_web_fetch":false,"should_use_workspace_grep":false,"execution_lane":"none","risk_level":"low|medium|high|critical","approval_required":false,"reason":"short"}`;
 
   const user = JSON.stringify(
     {
@@ -237,6 +279,9 @@ export function capabilityRouterPromptBlock(decision) {
     '- D1: when should_use_d1 is true, prefer read-only D1/query tools unless user explicitly requests writes (approval).',
     '- GitHub: when should_use_github is true, use github_* tools (OAuth-linked account required).',
     '- Terminal/scripts: when should_use_terminal is true, use terminal/script tools and honor approval gates (Playwright/e2e runs are terminal-backed and must not auto-run).',
+    '- Open web: when execution_lane is open_web_search, use search_web (public discovery) — not MYBROWSER.',
+    '- Web fetch: when execution_lane is web_fetch, use web_fetch for the given URL — not browser_navigate.',
+    '- Workspace grep: when execution_lane is workspace_grep, use fs_search_files / workspace tools — not search_web.',
     '',
     JSON.stringify(d, null, 2),
   ].join('\n');

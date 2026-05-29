@@ -5,6 +5,7 @@
 
 import { assertFetchDomainAllowed } from '../../core/auth.js';
 import { assertBrowserTrustedOrigin } from '../../core/agentsam-ops-ledger.js';
+import { executeTavilyOpenWebSearch } from '../../core/tavily-open-web-search.js';
 import { runPlaywrightScreenshotJob } from '../../integrations/playwright.js';
 import { runBrowserBuiltinTool } from '../../integrations/browser-cdp.js';
 
@@ -69,22 +70,83 @@ async function invokeBrowserOp(env, toolName, params) {
 
 export const handlers = {
     // ── Search & Audit ───────────────────────────────────────────────────
-    async search_web(params, env) {
-        const apiKey = env.TAVILY_API_KEY || env.SEARCH_API_KEY;
-        if (!apiKey) return { error: 'Search API key missing' };
-        const gate = await assertFetchDomainAllowed(
-            env,
-            params.user_id ?? params.session?.user_id,
-            params.workspace_id ?? params.session?.workspace_id ?? params.session?.workspaceId,
-            'https://api.tavily.com/search',
-        );
-        if (!gate.ok) return { error: gate.error };
-        const res = await fetch('https://api.tavily.com/search', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ api_key: apiKey, query: params.query, search_depth: 'advanced' }),
-        });
-        return await res.json();
+    async search_web(params, env, runContext = {}) {
+        const merged = {
+            ...params,
+            user_id: params.user_id ?? params.session?.user_id ?? runContext.userId ?? runContext.user_id,
+            workspace_id:
+                params.workspace_id ??
+                params.session?.workspace_id ??
+                params.session?.workspaceId ??
+                runContext.workspaceId ??
+                runContext.workspace_id,
+            tenant_id: params.tenant_id ?? params.session?.tenant_id ?? runContext.tenantId ?? runContext.tenant_id,
+            agent_run_id:
+                params.agent_run_id ??
+                params.agentRunId ??
+                runContext.agentRunId ??
+                runContext.agent_run_id,
+        };
+        const ctx = {
+            ...runContext,
+            workspaceId: merged.workspace_id,
+            workspace_id: merged.workspace_id,
+            tenantId: merged.tenant_id,
+            tenant_id: merged.tenant_id,
+            userId: merged.user_id,
+            user_id: merged.user_id,
+            agentRunId: merged.agent_run_id,
+            agent_run_id: merged.agent_run_id,
+            openWebBudget: runContext.openWebBudget ?? params.openWebBudget,
+        };
+        return executeTavilyOpenWebSearch(env, merged, ctx);
+    },
+
+    /**
+     * Fetch a known public URL and return text (not MYBROWSER — no render/DOM).
+     */
+    async web_fetch(params, env) {
+        const rawUrl = String(params.url ?? params.href ?? params.target_url ?? '').trim();
+        if (!rawUrl) return { error: 'url required', lane: 'web_fetch' };
+        let url = rawUrl;
+        if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
+        const uid = params.user_id ?? params.session?.user_id;
+        const ws =
+            params.workspace_id ?? params.session?.workspace_id ?? params.session?.workspaceId;
+        const gate = await assertFetchDomainAllowed(env, uid, ws, url);
+        if (!gate.ok) return { error: gate.error, lane: 'web_fetch', blocked: true };
+        try {
+            const res = await fetch(url, {
+                method: 'GET',
+                headers: {
+                    Accept: 'text/html,application/json,text/plain,*/*',
+                    'User-Agent': 'IAM-AgentSam/1.0 (+https://inneranimalmedia.com)',
+                },
+                redirect: 'follow',
+            });
+            const contentType = res.headers.get('content-type') || '';
+            const maxBytes = 120_000;
+            if (!/text\/|application\/json|application\/xml|application\/javascript/i.test(contentType)) {
+                return {
+                    error: 'non_text_content',
+                    lane: 'web_fetch',
+                    url,
+                    status: res.status,
+                    content_type: contentType,
+                };
+            }
+            const text = (await res.text()).slice(0, maxBytes);
+            return {
+                lane: 'web_fetch',
+                url: res.url || url,
+                status: res.status,
+                content_type: contentType,
+                text_length: text.length,
+                text,
+            };
+        } catch (e) {
+            return { error: String(e?.message || e), lane: 'web_fetch', url };
+        }
     },
 
     async a11y_audit(params, env) {

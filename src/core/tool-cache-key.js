@@ -5,6 +5,7 @@ import { hashToolInputJson } from './mcp-tool-execution.js';
 
 /** Tools with side effects — never read/write agentsam_tool_cache. */
 export const NON_CACHEABLE_TOOL_KEYS = new Set([
+  'search_web',
   'agentsam_memory_save',
   'agentsam_memory_write',
   'agentsam_todo_add',

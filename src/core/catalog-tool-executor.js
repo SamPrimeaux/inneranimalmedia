@@ -632,6 +632,18 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
     }
 
     case 'ai': {
+      const dispatcher = String(config.dispatcher || '').trim();
+      if (dispatcher === 'search_web' || dispatcher === 'web_fetch') {
+        const { handlers: webHandlers } = await import('../tools/builtin/web.js');
+        const fn = webHandlers[dispatcher];
+        if (typeof fn !== 'function') {
+          result = { ok: false, error: `web dispatcher not registered: ${dispatcher}` };
+          break;
+        }
+        const out = await fn(params, env, runContext);
+        result = out?.error ? { ok: false, error: String(out.error) } : { ok: true, body: out };
+        break;
+      }
       const op = String(config.operation || config.ai_operation || 'complete').toLowerCase();
       const fnKey = op === 'embed' ? 'ai_embed' : op === 'compare' ? 'ai_compare' : 'ai_complete';
       const fn = aiOpsHandlers[fnKey];
@@ -640,6 +652,19 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         break;
       }
       const out = await fn(params, env);
+      result = out?.error ? { ok: false, error: String(out.error) } : { ok: true, body: out };
+      break;
+    }
+
+    case 'builtin': {
+      const dispatcher = String(config.dispatcher || toolKey || '').trim();
+      const { handlers: webHandlers } = await import('../tools/builtin/web.js');
+      const fn = webHandlers[dispatcher];
+      if (typeof fn !== 'function') {
+        result = { ok: false, error: `builtin dispatcher not registered: ${dispatcher}` };
+        break;
+      }
+      const out = await fn(params, env, runContext);
       result = out?.error ? { ok: false, error: String(out.error) } : { ok: true, body: out };
       break;
     }
@@ -732,7 +757,7 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         result = { ok: false, error: `mybrowser handler not registered for tool_key=${toolName}` };
         break;
       }
-      const out = await fn(params, env);
+      const out = await fn(params, env, runContext);
       result = out?.error ? { ok: false, error: String(out.error) } : { ok: true, body: out };
       break;
     }

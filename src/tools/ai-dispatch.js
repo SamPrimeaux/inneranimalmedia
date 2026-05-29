@@ -116,12 +116,17 @@ export async function runBuiltinTool(env, toolName, params, runContext = {}) {
     }
 
     switch (true) {
-        // ── CATEGORY: browser / web (31 Tools) ───────────────────────────
+        // ── Open web (not MYBROWSER) ─────────────────────────────────────
+        case toolName === 'search_web':
+        case toolName === 'web_fetch':
+            if (webHandlers[toolName]) return await webHandlers[toolName](params, env, runContext);
+            return { error: `Unknown web tool: ${toolName}` };
+
+        // ── CATEGORY: browser / DOM inspect (MYBROWSER) ───────────────────
         case toolName.startsWith('cdt_'):
         case toolName.startsWith('browser_'):
         case toolName === 'playwright_screenshot':
         case toolName === 'preview_in_browser':
-        case toolName === 'web_search':
             {
                 const browserParams = mergeBrowserRunContext(params, runContext);
                 if (webHandlers[toolName]) return await webHandlers[toolName](browserParams, env);

@@ -176,6 +176,17 @@ import {
 } from '../core/capability-router.js';
 import { filterToolsForCapabilityDecision } from '../core/tool-capability-filter.js';
 import {
+  classifyAgentExecutionLane,
+  filterToolsForExecutionLane,
+  formatExecutionLaneLogPayload,
+  messageRequestsBrowserInspect,
+  messageRequestsOpenWebSearch,
+  messageRequestsWebFetch,
+  messageRequestsWorkspaceGrep,
+  resolveOpenWebSearchBackend,
+  WORKSPACE_GREP_TOOL_NAMES,
+} from '../core/agent-lane-router.js';
+import {
   CODE_IMPLEMENTATION_TOOL_NAMES,
   isCodeImplementationIntent,
   messageExplicitlyRequestsBrowserInspection,
@@ -1353,6 +1364,12 @@ const BROWSER_CAPABILITY_TOOL_NAMES = [
 ];
 
 function shouldEnsureBrowserCapabilityTools(message, intentResult, capabilityDecision, promptRouteRow) {
+  if (messageRequestsOpenWebSearch(message) || messageRequestsWebFetch(message)) {
+    return false;
+  }
+  if (messageRequestsWorkspaceGrep(message) && !messageExplicitlyRequestsBrowserInspection(message)) {
+    return false;
+  }
   if (
     isCodeImplementationIntent(message) &&
     !messageExplicitlyRequestsBrowserInspection(message)
@@ -1368,7 +1385,10 @@ function shouldEnsureBrowserCapabilityTools(message, intentResult, capabilityDec
 
 function shouldEnsureCodeCapabilityTools(message, intentResult, capabilityDecision) {
   if (messageExplicitlyRequestsBrowserInspection(message)) return false;
+  if (messageRequestsOpenWebSearch(message) && !messageRequestsWorkspaceGrep(message)) return false;
+  if (messageRequestsWebFetch(message)) return false;
   if (isCodeImplementationIntent(message)) return true;
+  if (messageRequestsWorkspaceGrep(message)) return true;
   if (capabilityDecision?.should_use_monaco === true) return true;
   if (String(intentResult?.taskType || '').toLowerCase() === 'code') return true;
   return false;
@@ -1467,13 +1487,13 @@ function inferIntentHeuristically(text) {
   if (hasR2)          return { taskType: 'agent', mode: 'agent' };
   if (hasCfOps)       return { taskType: 'agent', mode: 'agent' };
   if (hasShell && !hasCode) return { taskType: 'agent', mode: 'agent' };
-  if (hasBrowser)     return { taskType: 'agent', mode: 'agent' };
-  if (hasWebSearch)   return { taskType: 'agent', mode: 'agent' };
+  if (hasBrowser)     return { taskType: 'browser', mode: 'agent' };
+  if (hasWebSearch)   return { taskType: 'web_search', mode: 'agent' };
   if (hasVectorize)   return { taskType: 'agent', mode: 'agent' };
   if (hasGitHub)      return { taskType: 'agent', mode: 'agent' };
   if (hasSql)         return { taskType: 'agent', mode: 'agent' };
   if (hasDebug)       return { taskType: 'debug', mode: 'agent' };
-  if (hasSearchCode)  return { taskType: 'agent', mode: 'agent' };
+  if (hasSearchCode)  return { taskType: 'search_code', mode: 'agent' };
   if (hasRefactor)    return { taskType: 'agent', mode: 'agent' };
   if (hasReview)      return { taskType: 'agent', mode: 'agent' };
   if (hasCode)        return { taskType: 'agent', mode: 'agent' };
@@ -1566,6 +1586,19 @@ function capabilityFamiliesFromUserMessage(message, intentResult) {
   }
   if (hasImageGenerationIntent(message)) fams.push('image');
   if (hasVideoGenerationIntent(message)) fams.push('video');
+  if (messageRequestsOpenWebSearch(message) && !messageRequestsBrowserInspect(message)) {
+    fams.push('openweb');
+    fams.delete('browser');
+  }
+  if (messageRequestsWebFetch(message)) {
+    fams.push('webfetch');
+    fams.delete('browser');
+  }
+  if (messageRequestsWorkspaceGrep(message)) {
+    fams.push('workspace_grep');
+    fams.delete('browser');
+    fams.delete('openweb');
+  }
   return [...new Set(fams)];
 }
 
@@ -1599,6 +1632,9 @@ function agentToolFamily(t) {
   ) {
     return 'r2';
   }
+  if (n === 'search_web') return 'openweb';
+  if (n === 'web_fetch') return 'webfetch';
+  if (WORKSPACE_GREP_TOOL_NAMES.has(n)) return 'workspace_grep';
   if (n.startsWith('browser_') || n.startsWith('cdt_') || n.startsWith('playwright_') || n === 'browser_content' || c.includes('browser')) return 'browser';
   if (n.startsWith('imgx_') || c.includes('image') || (c.includes('media') && !n.startsWith('moviemode_') && !n.startsWith('veo_'))) {
     return 'image';
@@ -1616,6 +1652,19 @@ function requestedFamiliesForAgentTools(message, intentResult, capabilityDecisio
   if (d.should_use_d1) fams.add('d1');
   if (d.should_use_github) fams.add('github');
   if (d.should_use_terminal) fams.add('terminal');
+  if (d.should_use_open_web_search) {
+    fams.add('openweb');
+    fams.delete('browser');
+  }
+  if (d.should_use_web_fetch) {
+    fams.add('webfetch');
+    fams.delete('browser');
+  }
+  if (d.should_use_workspace_grep) {
+    fams.add('workspace_grep');
+    fams.delete('browser');
+    fams.delete('openweb');
+  }
   if (d.should_use_artifact_r2 || d.should_use_monaco) fams.add('r2');
   if (isCodeImplementationIntent(message) && !messageExplicitlyRequestsBrowserInspection(message)) {
     fams.add('github');
@@ -1650,6 +1699,10 @@ function filterAgentToolsForRequest(env, tools, message, intentResult, capabilit
 
     // Important: for explicit D1/database asks, do not let generic agentsam_* or ai_* tools steal the turn.
     if (hardD1Ask) return false;
+
+    if (wanted.has('workspace_grep') && fam === 'workspace_grep') return true;
+    if (wanted.has('openweb') && fam === 'openweb') return true;
+    if (wanted.has('webfetch') && fam === 'webfetch') return true;
 
     return fam === 'general';
   });
@@ -1919,6 +1972,40 @@ async function ensureCodeCapabilityTools(env, tools, effectiveMaxTools) {
       description: String(row.description || nm).slice(0, 4000),
       input_schema: inputSchemaFromAgentsamToolRow(row),
       tool_category: String(row.tool_category || 'builtin'),
+      requires_approval: Number(row.requires_approval || 0) === 1,
+    });
+  }
+  return out;
+}
+
+/** Inject open-web / web_fetch catalog tools when lane routing requires them. */
+async function ensureWebLaneTools(env, tools, effectiveMaxTools, laneResult, openWebBackend) {
+  if (!env?.DB || !Array.isArray(tools) || !laneResult) return tools;
+  const lane = laneResult.primary_lane;
+  const names = [];
+  if (lane === 'open_web_search' && laneResult.open_web_allowed && openWebBackend?.available) {
+    names.push('search_web');
+  }
+  if (lane === 'web_fetch' || lane === 'open_web_search') {
+    names.push('web_fetch');
+  }
+  if (!names.length) return tools;
+  const have = new Set(tools.map((t) => agentToolNameOf(t)).filter(Boolean));
+  const missing = names.filter((n) => !have.has(n));
+  if (!missing.length) return tools;
+  const rows = await fetchAgentsamToolRowsByName(env, missing);
+  const out = [...tools];
+  const seen = new Set(have);
+  for (const row of rows) {
+    const nm = String(row.tool_name || '');
+    if (!nm || seen.has(nm)) continue;
+    if (out.length >= effectiveMaxTools) break;
+    seen.add(nm);
+    out.unshift({
+      name: nm,
+      description: String(row.description || nm).slice(0, 4000),
+      input_schema: inputSchemaFromAgentsamToolRow(row),
+      tool_category: String(row.tool_category || 'research'),
       requires_approval: Number(row.requires_approval || 0) === 1,
     });
   }
@@ -2635,6 +2722,8 @@ function resolveToolExecutionBudgetMs(toolName, input) {
     if (Number.isFinite(rawTimeout) && rawTimeout > 0 && rawTimeout < 30000) return Math.floor(rawTimeout);
     return 30000;
   }
+  if (n === 'search_web') return 12_000;
+  if (n === 'web_fetch') return 15_000;
   if (n === 'excalidraw_plan_map_create') return 15000;
   if (n.startsWith('github_')) {
     if (Number.isFinite(rawTimeout) && rawTimeout > 0 && rawTimeout < 30000) return Math.floor(rawTimeout);
@@ -4048,10 +4137,12 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         },
   );
   const routingArmIdStr = dispatchSpine.routing_arm_id || '';
+  const openWebBudget = { turnCalls: 0, runCalls: 0 };
   const runSpineIds = {
     agent_run_id: dispatchSpine.agent_run_id,
     conversation_id: sessionId != null ? String(sessionId).trim() : null,
     routing_arm_id: routingArmIdStr || null,
+    openWebBudget,
   };
 
   const attributedRoutingArmId = () => routingArmIdStr || null;
@@ -4868,9 +4959,9 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         input_preview: JSON.stringify(call.input || {}).slice(0, 200),
       });
       let toolRows = null;
+      let execResult = null;
       const toolBudgetMs = resolveToolExecutionBudgetMs(call.name, call.input);
       try {
-        let execResult;
         if (call.name === CODEMODE_TOOL_NAME && codemodeRuntimeParam?.execute) {
           execResult = await codemodeRuntimeParam.execute(call.input || {});
           if (execResult?.ok === false) {
@@ -5011,6 +5102,50 @@ async function runAgentToolLoop(env, ctx, emit, params) {
               artifact_id: String(parsed.artifact_id),
               public_url: parsed.public_url != null ? String(parsed.public_url) : null,
             };
+          }
+        } catch (_) {
+          /* ignore */
+        }
+      }
+      if (call.name === 'search_web') {
+        try {
+          const parsed = (() => {
+            if (execResult && typeof execResult === 'object') return execResult;
+            return JSON.parse(String(toolOutput || '{}'));
+          })();
+          const tel = parsed?.telemetry;
+          if (tel && typeof tel === 'object') {
+            toolDoneExtra = {
+              lane: 'open_web_search',
+              backend: tel.backend ?? parsed.provider ?? 'tavily',
+              cache_hit: !!parsed.cache_hit,
+              search_depth: tel.search_depth ?? 'basic',
+              result_count: tel.result_count ?? 0,
+              estimated_credits: tel.estimated_credits ?? 1,
+            };
+            console.log(
+              '[agent] execution_lane_selected',
+              JSON.stringify({
+                lane: 'open_web_search',
+                backend: toolDoneExtra.backend,
+                reason: parsed.cache_hit ? 'tavily_cache_hit' : 'tavily_search_complete',
+                cache_hit: toolDoneExtra.cache_hit,
+                max_results: parsed.max_results ?? 5,
+                search_depth: toolDoneExtra.search_depth,
+                query_hash: tel.query_hash ?? null,
+                duration_ms: tel.duration_ms ?? toolDurMs,
+              }),
+            );
+            if (!execErr) {
+              emit('execution_lane_selected', {
+                lane: 'open_web_search',
+                backend: toolDoneExtra.backend,
+                reason: parsed.cache_hit ? 'tavily_cache_hit' : 'tavily_search_complete',
+                cache_hit: toolDoneExtra.cache_hit,
+                max_results: parsed.max_results ?? 5,
+                search_depth: toolDoneExtra.search_depth,
+              });
+            }
           }
         } catch (_) {
           /* ignore */
@@ -7393,6 +7528,38 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         effectiveMaxTools,
         browserContextPayload?.dashboard_route,
       );
+
+      const laneMessage = gate.rewritten_query || message;
+      const executionLane = classifyAgentExecutionLane(laneMessage, {
+        requestedMode,
+        browserContext: browserContextPayload,
+        capabilityDecision,
+      });
+      const openWebBackend = await resolveOpenWebSearchBackend(env, {
+        modelKey: body?.model != null ? String(body.model).trim() : null,
+        tenantId,
+      });
+      const laneLog = formatExecutionLaneLogPayload(executionLane, openWebBackend);
+      console.log('[agent] execution_lane_selected', JSON.stringify(laneLog));
+      tools = filterToolsForExecutionLane(tools, executionLane, { openWebBackend });
+      tools = await ensureWebLaneTools(env, tools, effectiveMaxTools, executionLane, openWebBackend);
+      if (executionLane.primary_lane === 'workspace_grep') {
+        tools = await ensureCodeCapabilityTools(env, tools, effectiveMaxTools);
+      }
+      if (executionLane.primary_lane === 'browser_inspect') {
+        tools = await ensureBrowserCapabilityTools(env, tools, effectiveMaxTools);
+      }
+      capabilityDecision = {
+        ...(capabilityDecision || {}),
+        execution_lane: executionLane.primary_lane,
+        execution_lane_reason: executionLane.reason,
+        open_web_search_tier: openWebBackend.tier,
+        open_web_search_available: openWebBackend.available,
+        open_web_backend: openWebBackend.open_web_backend ?? openWebBackend.tier ?? 'none',
+        open_web_max_results: 5,
+        open_web_search_depth: 'basic',
+        open_web_cache_hit: false,
+      };
     } catch (e) {
       console.warn('[agent] capability_tool_filter', e?.message ?? e);
     }
@@ -8183,6 +8350,21 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
     emit('capability_selected', { decision: capabilityDecision, tool_families: capFamilies });
     emit('agent_capability_selected', { decision: capabilityDecision, tool_families: capFamilies });
+    if (capabilityDecision?.execution_lane) {
+      emit('execution_lane_selected', {
+        lane: capabilityDecision.execution_lane,
+        reason: capabilityDecision.execution_lane_reason,
+        backend:
+          capabilityDecision.execution_lane === 'open_web_search'
+            ? capabilityDecision.open_web_backend ?? capabilityDecision.open_web_search_tier ?? 'none'
+            : capabilityDecision.execution_lane,
+        cache_hit: !!capabilityDecision.open_web_cache_hit,
+        max_results: capabilityDecision.open_web_max_results ?? 5,
+        search_depth: capabilityDecision.open_web_search_depth ?? 'basic',
+        open_web_search_tier: capabilityDecision.open_web_search_tier,
+        open_web_search_available: capabilityDecision.open_web_search_available,
+      });
+    }
     const surf = String(capabilityDecision.default_surface || 'chat');
     if (surf === 'browser' && capabilityDecision.should_use_browser) {
       emit('surface_open', { surface: 'browser', reason: capabilityDecision.reason });

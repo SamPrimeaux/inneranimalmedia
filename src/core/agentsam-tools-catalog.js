@@ -38,6 +38,7 @@ export const EXECUTABLE_HANDLER_TYPES = new Set([
   'workspace.reader',
   'filesystem',
   'mybrowser',
+  'builtin',
 ]);
 
 /** Route capability_lane → agentsam_tools.tool_category */
@@ -284,6 +285,18 @@ export function validateHandlerConfigForExecution(row, config) {
     case 'terminal':
     case 'r2':
     case 'ai':
+      if (trim(config.dispatcher)) {
+        break;
+      }
+      if (!trim(config.auth_source)) {
+        return { ok: false, error: `handler_config.auth_source required for tool_key=${toolKey}` };
+      }
+      break;
+    case 'builtin':
+      if (!trim(config.dispatcher)) {
+        return { ok: false, error: `handler_config.dispatcher required for tool_key=${toolKey}` };
+      }
+      break;
     case 'github':
     case 'filesystem':
       if (!trim(config.auth_source)) {

@@ -5,6 +5,9 @@
 
 /** Tools Agent Sam should prefer when implementing or editing code in-repo. */
 export const CODE_IMPLEMENTATION_TOOL_NAMES = [
+  'fs_search_files',
+  'workspace_search',
+  'workspace_grep',
   'workspace_read_file',
   'r2_read',
   'r2_write',
@@ -84,7 +87,15 @@ export function isCodeImplementationToolName(toolName) {
   if (n === 'terminal_run' || n === 'terminal_execute' || n === 'run_command' || n === 'bash') {
     return true;
   }
-  if (n === 'workspace_read_file' || n.startsWith('workspace_')) return true;
+  if (
+    n === 'fs_search_files' ||
+    n === 'workspace_search' ||
+    n === 'workspace_grep' ||
+    n === 'workspace_read_file' ||
+    n.startsWith('workspace_')
+  ) {
+    return true;
+  }
   if (n.startsWith('d1_')) return true;
   return false;
 }

@@ -8,6 +8,16 @@ import {
   isCodeImplementationIntent,
   isCodeImplementationToolName,
 } from './code-implementation-intent.js';
+import {
+  isBrowserInspectToolName,
+  isOpenWebSearchToolName,
+  isWebFetchToolName,
+  isWorkspaceGrepToolName,
+  messageRequestsBrowserInspect,
+  messageRequestsOpenWebSearch,
+  messageRequestsWebFetch,
+  messageRequestsWorkspaceGrep,
+} from './agent-lane-router.js';
 
 function parseJsonSafe(value, fallback = null) {
   if (value == null || value === '') return fallback;
@@ -121,14 +131,7 @@ function inferAgentManagementIntent(message) {
 }
 
 function isBrowserToolName(name) {
-  const n = String(name || '');
-  return (
-    n.startsWith('browser_') ||
-    n.startsWith('cdt_') ||
-    n === 'playwright_screenshot' ||
-    n === 'preview_in_browser' ||
-    n === 'web_search'
-  );
+  return isBrowserInspectToolName(String(name || ''));
 }
 
 function isGithubToolName(name) {
@@ -218,7 +221,8 @@ async function mergeVideoCapabilityTools(env, narrowed, originalTools, userMessa
  */
 export async function filterToolsForCapabilityDecision(env, tools, capabilityDecision, userMessage, opts = {}) {
   const requestedMode = opts.requestedMode != null ? String(opts.requestedMode).toLowerCase() : 'agent';
-  if (requestedMode !== 'agent' || !Array.isArray(tools)) return tools;
+  const laneFilterModes = new Set(['agent', 'debug', 'multitask', 'plan']);
+  if (!laneFilterModes.has(requestedMode) || !Array.isArray(tools)) return tools;
 
   const before = tools.map((t) => String(t?.name || '')).filter(Boolean);
   const d = capabilityDecision && typeof capabilityDecision === 'object' ? capabilityDecision : {};
@@ -241,9 +245,17 @@ export async function filterToolsForCapabilityDecision(env, tools, capabilityDec
       'd1_write',
       'd1_batch_write',
     ]);
+  } else if (messageRequestsWorkspaceGrep(msg)) {
+    next = tools.filter(
+      (t) => isWorkspaceGrepToolName(t.name) || isCodeImplementationToolName(t.name),
+    );
+  } else if (messageRequestsWebFetch(msg)) {
+    next = tools.filter((t) => isWebFetchToolName(t.name) || isOpenWebSearchToolName(t.name));
+  } else if (messageRequestsOpenWebSearch(msg) && !messageRequestsBrowserInspect(msg)) {
+    next = tools.filter((t) => isOpenWebSearchToolName(t.name) || isWebFetchToolName(t.name));
   } else if (d.should_use_monaco || isCodeImplementationIntent(msg)) {
     next = tools.filter((t) => isCodeImplementationToolName(t.name));
-  } else if (d.should_use_browser) {
+  } else if (d.should_use_browser || messageRequestsBrowserInspect(msg)) {
     next = tools.filter((t) => isBrowserToolName(t.name));
   } else if (d.should_use_github || wantsGh) {
     next = tools.filter((t) => isGithubToolName(t.name));
