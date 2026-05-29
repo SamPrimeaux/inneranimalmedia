@@ -257,11 +257,20 @@ export async function executeMcpCatalogRow(env, mcpRow, params, runContext) {
           attemptedKey,
           ctx: runContext,
         });
-        return { ok: false, ...fail };
+        return {
+          ok: false,
+          error: fail.error ?? 'reauth_required',
+          failed_tool: fail.failed_tool ?? toolName,
+          attempted_key: fail.attempted_key,
+          manual_fallback: fail.manual_fallback,
+          reauth_required: true,
+          body: fail,
+        };
       }
       return {
         ok: false,
         error: `mcp HTTP ${status}: ${res?._err?.message ?? toolName}`,
+        failed_tool: toolName,
         reauth_required: status === 401,
       };
     }
@@ -998,7 +1007,28 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
           agentId: runContext.agentId ?? runContext.agent_id,
           sessionId: runContext.sessionId ?? runContext.session_id,
         };
-        const out = await fn(params, env, memCtx);
+        let memParams = params;
+        if (op === 'memory_write') {
+          memParams = {
+            ...params,
+            key: params.key ?? params.memory_key ?? params.memoryKey,
+            value: params.value ?? params.content ?? params.body,
+            memory_type: params.memory_type ?? params.memoryType ?? 'fact',
+            source: params.source ?? `mcp:${toolKey}`,
+          };
+        }
+        if (op === 'memory_search') {
+          const { DEFAULT_MEMORY_SEARCH_QUERY } = await import('./mcp-memory-search-schema.js');
+          memParams = {
+            ...params,
+            query:
+              params.query ??
+              params.q ??
+              (params.top_k ? DEFAULT_MEMORY_SEARCH_QUERY : ''),
+            limit: params.limit ?? params.top_k ?? 20,
+          };
+        }
+        const out = await fn(memParams, env, memCtx);
         result = out?.error ? { ok: false, error: String(out.error), body: out } : { ok: true, body: out };
         break;
       }

@@ -533,6 +533,7 @@ export async function recordMcpMemoryAuthFailure(env, o) {
     ok: false,
     error: 'reauth_required',
     reauth_required: true,
+    failed_tool: o.toolName,
     tool_name: o.toolName,
     attempted_key: o.attemptedKey,
     user_message:

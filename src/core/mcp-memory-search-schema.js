@@ -4,7 +4,8 @@
  */
 
 export const DEFAULT_MEMORY_SEARCH_QUERY = 'recent relevant workspace memory';
-export const DEFAULT_MEMORY_NAMESPACE = 'agentsam-memory-oai3large-1536';
+/** Legacy Vectorize label — D1 + private PG search ignore this. */
+export const DEFAULT_MEMORY_NAMESPACE = 'agentsam-private-managed';
 
 /** @type {Record<string, unknown>} */
 export const CANONICAL_AGENTSAM_MEMORY_SEARCH_INPUT_SCHEMA = {
@@ -13,12 +14,12 @@ export const CANONICAL_AGENTSAM_MEMORY_SEARCH_INPUT_SCHEMA = {
     query: {
       type: 'string',
       description:
-        'Natural language query to embed and search. Defaults to recent relevant workspace memory when omitted.',
+        'Substring search against D1 + agentsam.agentsam_memory (no Vectorize). Defaults to recent workspace memory when omitted.',
     },
     namespace: {
       type: 'string',
       default: DEFAULT_MEMORY_NAMESPACE,
-      description: 'Legacy Vectorize namespace label (D1 search ignores; kept for connector compatibility).',
+      description: 'Legacy connector field (ignored; private managed memory does not use Vectorize).',
     },
     top_k: {
       type: 'integer',

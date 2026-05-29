@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 /**
+ * @deprecated Use scripts/backfill-agentsam-memory-private-pg.mjs instead.
+ * This script wrote to public.agent_memory — banned for private managed memory (cf9f466+).
+ *
  * Mirror recent D1 agentsam_memory → Supabase public.agent_memory for semantic recall.
  * Dedupes via metadata.sync_key = d1_memory:<id>
  *

@@ -5,6 +5,7 @@
  */
 import { inputSchemaFromAgentsamToolRow } from '../src/core/agentsam-tools-catalog.js';
 import { agentsamMemorySearchInputSchema } from '../src/core/mcp-memory-search-schema.js';
+import { agentsamMemorySaveInputSchema } from '../src/core/mcp-memory-save-schema.js';
 import { agentsamPlanInputSchema } from '../src/core/mcp-plan-schema.js';
 
 function assertNoRequired(name, schema) {
@@ -15,6 +16,14 @@ function assertNoRequired(name, schema) {
 
 assertNoRequired('agentsam_plan', agentsamPlanInputSchema());
 assertNoRequired('agentsam_memory_search', agentsamMemorySearchInputSchema());
+
+const saveSchema = agentsamMemorySaveInputSchema();
+if (!saveSchema.properties?.memory_type?.enum?.includes('policy')) {
+  throw new Error('agentsam_memory_save schema missing policy type');
+}
+if (!saveSchema.required?.includes('key')) {
+  throw new Error('agentsam_memory_save schema must require key');
+}
 assertNoRequired(
   'agentsam_plan stale row',
   inputSchemaFromAgentsamToolRow({

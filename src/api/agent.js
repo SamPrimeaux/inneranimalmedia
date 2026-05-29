@@ -10242,23 +10242,169 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     return jsonResponse({ tables, workflows, commands, memory_keys, workspaces });
   }
 
-  // ── /api/agent/memory/list ────────────────────────────────────────────────
+  // ── /api/agent/memory/list — D1 compatibility (edge cache keys) ─────────
   if (path === '/api/agent/memory/list' && method === 'GET') {
     const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
-    if (!env.DB)   return jsonResponse({ items: [] });
+    if (!env.DB)   return jsonResponse({ items: [], surface: 'd1_compat' });
     let tenantId =
       authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
         ? String(authUser.tenant_id).trim()
         : null;
     if (!tenantId) tenantId = await fetchAuthUserTenantId(env, authUser.id);
     if (!tenantId && authUser.email) tenantId = await fetchAuthUserTenantId(env, authUser.email);
-    if (!tenantId) return jsonResponse({ items: [] });
-    const { results } = await env.DB.prepare(`SELECT key, memory_type, importance_score FROM agentsam_memory WHERE tenant_id = ? ORDER BY COALESCE(importance_score,0) DESC LIMIT 200`).bind(tenantId).all().catch(() => ({ results: [] }));
-    return jsonResponse({ items: (results||[]).filter(r=>r.key) });
+    if (!tenantId) return jsonResponse({ items: [], surface: 'd1_compat' });
+    const surface = String(url.searchParams.get('surface') || 'd1').toLowerCase();
+    if (surface === 'private' && identity?.workspaceId && identity?.userId) {
+      const { searchPrivateAgentsamMemory } = await import('../core/agentsam-private-memory.js');
+      const priv = await searchPrivateAgentsamMemory(env, {
+        tenantId,
+        workspaceId: identity.workspaceId,
+        userId: identity.userId,
+        limit: 200,
+      });
+      return jsonResponse({
+        surface: 'private',
+        items: (priv.results ?? []).map((r) => ({
+          key: r.memory_key,
+          memory_type: r.memory_type,
+          summary: r.summary,
+          importance: r.importance,
+          updated_at: r.updated_at,
+        })),
+      });
+    }
+    const { results } = await env.DB.prepare(
+      `SELECT key, memory_type, COALESCE(importance, importance_score, 5) AS importance_score, sync_key
+       FROM agentsam_memory WHERE tenant_id = ? ORDER BY COALESCE(importance, importance_score, 0) DESC LIMIT 200`,
+    )
+      .bind(tenantId)
+      .all()
+      .catch(() => ({ results: [] }));
+    return jsonResponse({ surface: 'd1_compat', items: (results || []).filter((r) => r.key) });
   }
 
-  // ── POST /api/agent/memory/upsert — curated Supabase agent_memory + OpenAI embedding (Worker control plane)
+  // ── GET /api/agent/memory/private/list — canonical private managed memory ─
+  if (path === '/api/agent/memory/private/list' && method === 'GET') {
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    if (!identity?.workspaceId || !identity?.userId || !identity?.tenantId) {
+      return jsonResponse({ error: 'no_workspace' }, 403);
+    }
+    const { searchPrivateAgentsamMemory } = await import('../core/agentsam-private-memory.js');
+    const limit = Math.min(Number(url.searchParams.get('limit') || 100), 200);
+    const memoryType = url.searchParams.get('memory_type') || undefined;
+    const out = await searchPrivateAgentsamMemory(env, {
+      tenantId: identity.tenantId,
+      workspaceId: identity.workspaceId,
+      userId: identity.userId,
+      memoryType,
+      limit,
+    });
+    return jsonResponse({ ok: out.ok, surface: 'private', count: out.results?.length ?? 0, items: out.results ?? [] });
+  }
+
+  // ── POST /api/agent/memory/private/search — no Vectorize ─────────────────
+  if (path === '/api/agent/memory/private/search' && method === 'POST') {
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    if (!identity?.workspaceId || !identity?.userId || !identity?.tenantId) {
+      return jsonResponse({ error: 'no_workspace' }, 403);
+    }
+    const body = await request.json().catch(() => ({}));
+    const q = String(body.query ?? body.q ?? '').trim();
+    const { searchPrivateAgentsamMemory } = await import('../core/agentsam-private-memory.js');
+    const out = await searchPrivateAgentsamMemory(env, {
+      tenantId: identity.tenantId,
+      workspaceId: identity.workspaceId,
+      userId: identity.userId,
+      query: q || undefined,
+      memoryType: body.memory_type ?? body.memoryType,
+      memoryKey: body.memory_key ?? body.key,
+      limit: body.limit ?? 20,
+    });
+    return jsonResponse({
+      ok: out.ok,
+      surface: 'private',
+      tier: out.tier,
+      query: q,
+      count: out.results?.length ?? 0,
+      results: out.results ?? [],
+    });
+  }
+
+  // ── POST /api/agent/memory/private/upsert — D1 + private PG mirror ─────
+  if (path === '/api/agent/memory/private/upsert' && method === 'POST') {
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    if (!identity?.workspaceId || !identity?.userId || !identity?.tenantId) {
+      return jsonResponse({ error: 'no_workspace' }, 403);
+    }
+    const body = await request.json().catch(() => ({}));
+    const key = String(body.key ?? body.memory_key ?? '').trim();
+    const value = String(body.value ?? body.content ?? '').trim();
+    if (!key || !value) return jsonResponse({ error: 'key_and_value_required' }, 400);
+    const { memoryWrite } = await import('../tools/memory.js');
+    const out = await memoryWrite(
+      {
+        key,
+        value,
+        memory_type: body.memory_type ?? 'fact',
+        tags: body.tags ?? [],
+        source: body.source ?? 'dashboard_private_api',
+        confidence: body.confidence ?? 1,
+        ttl_days: body.ttl_days,
+      },
+      env,
+      {
+        tenantId: identity.tenantId,
+        userId: identity.userId,
+        workspaceId: identity.workspaceId,
+        sessionId: body.session_id ?? null,
+      },
+    );
+    return jsonResponse({ ...out, surface: 'private' }, out.error ? 400 : 200);
+  }
+
+  // ── POST /api/agent/memory/maintenance — report only ─────────────────────
+  if (path === '/api/agent/memory/maintenance' && method === 'POST') {
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    if (!identity?.workspaceId || !identity?.tenantId) {
+      return jsonResponse({ error: 'no_workspace' }, 403);
+    }
+    const { runAgentsamMemoryMaintenance } = await import('../core/agentsam-memory-maintenance.js');
+    const report = await runAgentsamMemoryMaintenance(env, {
+      tenantId: identity.tenantId,
+      workspaceId: identity.workspaceId,
+      userId: identity.userId,
+    });
+    return jsonResponse(report);
+  }
+
+  // ── POST /api/agent/memory/private/backfill — D1 → private PG (owner) ───
+  if (path === '/api/agent/memory/private/backfill' && method === 'POST') {
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    if (!authUserIsSuperadmin(authUser)) {
+      return jsonResponse({ error: 'forbidden' }, 403);
+    }
+    if (!identity?.workspaceId || !identity?.tenantId || !identity?.userId) {
+      return jsonResponse({ error: 'no_workspace' }, 403);
+    }
+    const body = await request.json().catch(() => ({}));
+    const { backfillPrivateMemoryFromD1 } = await import('../core/agentsam-private-memory-backfill.js');
+    const report = await backfillPrivateMemoryFromD1(env, {
+      tenantId: identity.tenantId,
+      workspaceId: identity.workspaceId,
+      userId: body.all_users ? undefined : identity.userId,
+      limit: body.limit ?? 500,
+      dryRun: body.dry_run === true,
+    });
+    return jsonResponse(report, report.ok ? 200 : 500);
+  }
+
+  // ── POST /api/agent/memory/upsert — LEGACY public.agent_memory + embedding
   if (path === '/api/agent/memory/upsert' && method === 'POST') {
     const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
@@ -10306,6 +10452,9 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
         embed_model: result.embed_model,
         workspace_id,
         tenant_id,
+        memory_lane: 'legacy_public_agent_memory',
+        deprecation:
+          'Use POST /api/agent/memory/private/upsert for managed operational memory (agentsam.agentsam_memory).',
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -10316,7 +10465,7 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     }
   }
 
-  // ── POST /api/agent/memory/search — semantic vector search on public.agent_memory
+  // ── POST /api/agent/memory/search — LEGACY semantic search on public.agent_memory
   if (path === '/api/agent/memory/search' && method === 'POST') {
     const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
@@ -10356,6 +10505,9 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
         tenant_id: tenant_id || null,
         count: results.length,
         results,
+        memory_lane: 'legacy_public_agent_memory',
+        deprecation:
+          'Use POST /api/agent/memory/private/search for managed memory without Vectorize.',
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);

@@ -41,3 +41,34 @@
 ## External AI sync
 
 Same contract for Cursor (`alignment_sync`), MCP (`mcp:chatgpt`, `mcp:claude`), deploy hooks, dashboard.
+
+## HTTP APIs
+
+| Route | Surface |
+|-------|---------|
+| `GET /api/agent/memory/private/list` | Private PG list |
+| `POST /api/agent/memory/private/search` | Private search (no Vectorize) |
+| `POST /api/agent/memory/private/upsert` | D1 + PG mirror |
+| `POST /api/agent/memory/maintenance` | Report-only maintenance |
+| `GET /api/agent/memory/list?surface=d1\|private` | D1 compat or private |
+| `POST /api/agent/memory/upsert` | Legacy `public.agent_memory` + embed |
+| `POST /api/agent/memory/search` | Legacy `public.agent_memory` vector |
+
+## Dashboard UI (deferred)
+
+Three tabs recommended: **Private memory**, **D1 compat**, **Public learning** (`public.iam_*` only). APIs above are sufficient until UI ships.
+
+## Backfill
+
+**Production (preferred):** `POST /api/agent/memory/private/backfill` (superadmin, uses Worker Hyperdrive).
+
+**Local script** (requires valid `SUPABASE_DB_URL` in `.env.cloudflare`):
+
+```bash
+./scripts/with-cloudflare-env.sh node scripts/backfill-agentsam-memory-private-pg.mjs
+./scripts/with-cloudflare-env.sh node scripts/backfill-agentsam-memory-private-pg.mjs --dry-run --limit 80
+```
+
+## Maintenance
+
+`src/core/agentsam-memory-maintenance.js` — report duplicates, stale `state:*`, D1↔PG drift. No silent deletion of decisions. Invoke via `POST /api/agent/memory/maintenance`.
