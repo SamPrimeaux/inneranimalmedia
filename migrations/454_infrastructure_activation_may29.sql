@@ -36,4 +36,5 @@ INSERT OR IGNORE INTO agentsam_tool_policy_keys (id, policy_kind, tool_key, sort
   ('atpk_nc_agentsam_r2_upload', 'non_cacheable', 'agentsam_r2_upload', 90, 'write path'),
   ('atpk_nc_agentsam_notify', 'non_cacheable', 'agentsam_notify', 100, 'write path');
 
-ALTER TABLE agentsam_webhook_events ADD COLUMN workflow_run_id TEXT;
+-- workflow_run_id: applied on remote before this file (see PRAGMA table_info). SQLite has no ADD COLUMN IF NOT EXISTS.
+-- ALTER TABLE agentsam_webhook_events ADD COLUMN workflow_run_id TEXT;
