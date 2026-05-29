@@ -233,9 +233,22 @@ export async function dispatchCustomerCloudflare(env, opts) {
       requires_approval: true,
       applied: false,
     }),
-    r2_list: async () => handlers.list_r2_buckets(),
-    r2_read: async () => ({ ok: false, error: 'r2_read_use_storage_api_path' }),
-    r2_write: async () => ({ ok: false, error: 'r2_write_requires_policy_and_approval' }),
+    r2_list: async () => ({
+      ok: false,
+      error: 'r2_list_not_supported',
+      user_message:
+        'Cloudflare OAuth lists accounts/D1 — not R2 object keys. Use r2_read/r2_write with your R2 API keys in Settings → Storage.',
+    }),
+    r2_read: async () => ({
+      ok: false,
+      error: 'use_r2_catalog_tools',
+      user_message: 'Use agentsam r2_read / r2_write / r2_delete with bucket + key (user R2 credentials).',
+    }),
+    r2_write: async () => ({
+      ok: false,
+      error: 'use_r2_catalog_tools',
+      user_message: 'Use r2_write with bucket + key after connecting R2 in Settings → Storage.',
+    }),
   };
 
   const handler = handlers[operation];

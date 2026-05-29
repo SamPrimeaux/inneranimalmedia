@@ -11,6 +11,10 @@ import { runHyperdriveQuery, isHyperdriveUsable } from './hyperdrive-query.js';
 import { scheduleMirrorToolCallEventToSupabase } from './hyperdrive-write.js';
 import { resolveMcpServerForTool } from './mcp-servers.js';
 import { executeOpenWebCatalogDispatch, isOpenWebCatalogConfig } from './open-web-catalog-dispatch.js';
+import { authUserIsSuperadmin } from './auth.js';
+import { mergeR2S3EnvFromUserStorage } from './user-storage-r2-credentials.js';
+import { executeR2CatalogOperation, isR2ListLikeOperation } from '../tools/builtin/r2-object-crud.js';
+import { getR2Binding } from '../api/r2-api.js';
 
 function parseInput(input) {
   if (input == null) return {};
@@ -659,18 +663,60 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
     }
 
     case 'r2': {
+      const authUser = runContext.authUser ?? runContext.user ?? null;
       const op = String(config.operation || config.r2_operation || 'write').toLowerCase();
-      const fn =
-        storageHandlers[`r2_${op}`] ||
-        storageHandlers[op] ||
-        storageHandlers.r2_write;
-      if (typeof fn !== 'function') {
-        result = { ok: false, error: `r2 operation not supported: ${op}` };
+      const authSource = String(config.auth_source || 'platform').toLowerCase();
+      const isOwner = authUserIsSuperadmin(authUser);
+
+      if (isR2ListLikeOperation(op)) {
+        result = {
+          ok: false,
+          error: 'r2_list_not_supported',
+          body: {
+            user_message:
+              'Use r2_read, r2_write, or r2_delete with explicit bucket + key. Object listing is not an agent tool (Wrangler: get/put/delete only).',
+          },
+        };
         break;
       }
-      const bucket = bindingBucket(env, config.binding);
-      const out = await fn({ ...params, bucket }, env);
-      result = out?.error ? { ok: false, error: String(out.error) } : { ok: true, body: out };
+
+      if (authSource === 'platform' && !isOwner) {
+        result = {
+          ok: false,
+          error: 'platform_r2_owner_only',
+          body: {
+            user_message:
+              'IAM platform R2 bindings are owner-only. Connect your Cloudflare R2 API keys in Settings → Storage to use your buckets.',
+          },
+        };
+        break;
+      }
+
+      const effectiveEnv = await mergeR2S3EnvFromUserStorage(env, authUser);
+      if (authSource === 'customer' && !effectiveEnv.R2_ACCESS_KEY_ID && !getR2Binding(effectiveEnv, params.bucket)) {
+        result = {
+          ok: false,
+          error: 'customer_r2_not_connected',
+          body: {
+            user_message: 'Connect your Cloudflare R2 access key + secret in Settings → Storage before R2 tools run.',
+          },
+        };
+        break;
+      }
+
+      const bucket =
+        params.bucket != null
+          ? String(params.bucket)
+          : config.binding != null
+            ? String(config.binding)
+            : 'inneranimalmedia';
+      const out = await executeR2CatalogOperation(
+        effectiveEnv,
+        { ...params, bucket },
+        config,
+        op,
+      );
+      result = out?.ok === false ? { ok: false, error: String(out.error || 'r2_failed'), body: out } : { ok: true, body: out };
       break;
     }
 
