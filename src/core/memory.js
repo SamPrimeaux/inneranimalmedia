@@ -257,13 +257,28 @@ export async function loadAgentMemoryForPrompt(env, tenantId, ctx = {}) {
   if (cached != null) return cached;
 
   // Race both sources against the hard timeout
+  const userId =
+    ctx?.userId != null && String(ctx.userId).trim() !== ''
+      ? String(ctx.userId).trim()
+      : ctx?.user_id != null && String(ctx.user_id).trim() !== ''
+        ? String(ctx.user_id).trim()
+        : null;
+
   const work = async () => {
     const parts = await Promise.all([
       // D1 key/value facts — always fast
       loadD1Memory(env, tenantId, workspaceId),
-      // Supabase semantic — only for longer messages
+      // Private agentsam.agentsam_memory — no public.search_all_context / no Vectorize required
       isLongMessage
-        ? searchSupabaseContext(env, userMessage, tenantId, workspaceId, sessionId)
+        ? import('./agentsam-private-memory.js').then(({ loadPrivateMemoryForPrompt }) =>
+            loadPrivateMemoryForPrompt(env, {
+              tenantId,
+              workspaceId,
+              userId,
+              userMessage,
+              limit: 12,
+            }),
+          )
         : Promise.resolve(''),
     ]);
 
@@ -801,36 +816,87 @@ export async function runAgentsamMemoryDecay(env) {
   }
 }
 
-/** Upsert a row; optional caller for future task-outcome writes. */
-export async function upsertAgentsamMemory(env, row) {
-  if (!env?.DB) return;
+/** Upsert a row; mirrors to private agentsam.agentsam_memory when Hyperdrive is available. */
+export async function upsertAgentsamMemory(env, row, opts = {}) {
+  if (!env?.DB) return { ok: false, error: 'no_d1' };
   const tenantId = row.tenantId != null ? String(row.tenantId) : null;
   const userId = row.userId != null ? String(row.userId) : null;
   const workspaceId =
     row.workspaceId != null && String(row.workspaceId).trim() !== ''
       ? String(row.workspaceId).trim()
-      : 'system'; // system-scoped: no authenticated user context at this path
+      : null;
   const memoryType = row.memoryType != null ? String(row.memoryType) : 'fact';
   const key = row.key != null ? String(row.key) : '';
   const value = row.value != null ? String(row.value) : '';
-  if (!tenantId || !userId || !key || !value) return;
+  const source = row.source != null ? String(row.source) : 'agent_sam';
+  if (!tenantId || !userId || !key || !value) return { ok: false, error: 'missing_fields' };
+
+  const syncKey = `${tenantId}:${userId}:${key}`;
+  const summary =
+    row.summary != null ? String(row.summary) : value.slice(0, 400);
+  const title = row.title != null ? String(row.title) : null;
+  const importance = Math.min(10, Math.max(1, Math.floor(Number(row.importance ?? 5))));
+  const isPinned = row.isPinned || row.is_pinned ? 1 : 0;
+  let tagsJson = '[]';
+  if (row.tags != null) {
+    tagsJson =
+      typeof row.tags === 'string' ? row.tags : JSON.stringify(row.tags);
+  }
+
+  let d1Row = null;
   try {
     await env.DB.prepare(
       `INSERT INTO agentsam_memory (
-         tenant_id, user_id, workspace_id, memory_type, key, value, source,
+         tenant_id, user_id, workspace_id, memory_type, key, value,
+         title, summary, source, tags, sync_key, importance, is_pinned,
          confidence, decay_score, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, 'agent_sam', 1.0, 1.0, unixepoch())
-       ON CONFLICT(user_id, workspace_id, key) DO UPDATE SET
-         tenant_id = excluded.tenant_id,
-          value = excluded.value,
-          source = excluded.source,
-          confidence = excluded.confidence,
-          decay_score = excluded.decay_score,
-          updated_at = unixepoch()`,
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1.0, 1.0, unixepoch())
+       ON CONFLICT(tenant_id, user_id, key) DO UPDATE SET
+         workspace_id = COALESCE(excluded.workspace_id, agentsam_memory.workspace_id),
+         memory_type = excluded.memory_type,
+         value = excluded.value,
+         title = COALESCE(excluded.title, agentsam_memory.title),
+         summary = COALESCE(excluded.summary, agentsam_memory.summary),
+         source = excluded.source,
+         tags = excluded.tags,
+         sync_key = excluded.sync_key,
+         importance = excluded.importance,
+         is_pinned = excluded.is_pinned,
+         confidence = excluded.confidence,
+         decay_score = excluded.decay_score,
+         updated_at = unixepoch()`,
     )
-      .run()
-      .catch(() => {});
+      .bind(
+        tenantId,
+        userId,
+        workspaceId,
+        memoryType,
+        key,
+        value,
+        title,
+        summary,
+        source,
+        tagsJson,
+        syncKey,
+        importance,
+        isPinned,
+      )
+      .run();
+
+    d1Row = await env.DB.prepare(
+      `SELECT * FROM agentsam_memory WHERE tenant_id = ? AND user_id = ? AND key = ? LIMIT 1`,
+    )
+      .bind(tenantId, userId, key)
+      .first();
   } catch (e) {
     console.warn('[agentsam_memory] upsertAgentsamMemory', e?.message ?? e);
+    return { ok: false, error: String(e?.message ?? e) };
   }
+
+  if (d1Row && workspaceId) {
+    const { mirrorD1MemoryToPrivatePg } = await import('./agentsam-private-memory.js');
+    const mirror = await mirrorD1MemoryToPrivatePg(env, d1Row, opts);
+    return { ok: true, key, mirror };
+  }
+  return { ok: true, key };
 }

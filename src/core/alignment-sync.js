@@ -153,19 +153,24 @@ export async function recordAlignmentSnapshot(env, ctx, payload) {
       payload.todoId != null && String(payload.todoId).trim()
         ? `alignment:${String(payload.todoId).trim()}`
         : `alignment:${runId.slice(-12)}`;
-    await upsertAgentsamMemory(env, {
-      tenantId,
-      userId,
-      workspaceId,
-      memoryType: 'project',
-      key: memKey,
-      value: JSON.stringify({
-        ...summaryObj,
-        workflow_run_id: runId,
-        supabase_run_id: supabaseRunId,
-        supabase_sync_status: syncStatus,
-      }),
-    });
+    await upsertAgentsamMemory(
+      env,
+      {
+        tenantId,
+        userId,
+        workspaceId,
+        memoryType: 'project',
+        key: memKey,
+        value: JSON.stringify({
+          ...summaryObj,
+          workflow_run_id: runId,
+          supabase_run_id: supabaseRunId,
+          supabase_sync_status: syncStatus,
+        }),
+        source: 'alignment_sync',
+      },
+      { ctx },
+    );
   }
 
   return {

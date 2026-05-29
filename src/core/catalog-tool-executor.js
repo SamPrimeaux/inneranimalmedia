@@ -203,9 +203,12 @@ function bindingBucket(env, bindingName) {
  */
 export async function executeMcpCatalogRow(env, mcpRow, params, runContext) {
   const toolName = String(mcpRow.tool_key || mcpRow.tool_name || '').trim();
+  const tenantId = String(runContext.tenantId ?? runContext.tenant_id ?? '').trim();
+  const userId = String(runContext.userId ?? runContext.user_id ?? '').trim();
+  const workspaceId = String(runContext.workspaceId ?? runContext.workspace_id ?? '').trim();
   const { url } = await resolveMcpServerForTool(env, {
-    tenantId: runContext.tenantId ?? runContext.tenant_id,
-    workspaceId: runContext.workspaceId ?? runContext.workspace_id,
+    tenantId,
+    workspaceId,
   }, mcpRow);
 
   if (url) {
@@ -234,9 +237,32 @@ export async function executeMcpCatalogRow(env, mcpRow, params, runContext) {
     }).catch((e) => ({ ok: false, status: 0, _err: e }));
 
     if (!res?.ok) {
+      const status = res?.status ?? 0;
+      if (
+        status === 401 &&
+        /memory/i.test(toolName) &&
+        tenantId &&
+        userId &&
+        workspaceId
+      ) {
+        const { recordMcpMemoryAuthFailure } = await import('./agentsam-private-memory.js');
+        const attemptedKey = String(
+          params?.key ?? params?.memory_key ?? params?.memoryKey ?? 'unknown',
+        );
+        const fail = await recordMcpMemoryAuthFailure(env, {
+          tenantId,
+          workspaceId,
+          userId,
+          toolName,
+          attemptedKey,
+          ctx: runContext,
+        });
+        return { ok: false, ...fail };
+      }
       return {
         ok: false,
-        error: `mcp HTTP ${res?.status ?? 0}: ${res?._err?.message ?? toolName}`,
+        error: `mcp HTTP ${status}: ${res?._err?.message ?? toolName}`,
+        reauth_required: status === 401,
       };
     }
     const body = await res.json().catch(() => ({}));
@@ -952,6 +978,30 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
     case 'proxy':
     case 'workspace.reader': {
       const op = String(config.operation || '').toLowerCase();
+      const memOps = new Set([
+        'memory_write',
+        'memory_search',
+        'memory_read',
+        'memory_delete',
+      ]);
+      if (memOps.has(op)) {
+        const { handlers: memoryHandlers } = await import('../tools/memory.js');
+        const fn = memoryHandlers[op];
+        if (typeof fn !== 'function') {
+          result = { ok: false, error: `memory handler not registered: ${op}` };
+          break;
+        }
+        const memCtx = {
+          tenantId,
+          userId,
+          workspaceId,
+          agentId: runContext.agentId ?? runContext.agent_id,
+          sessionId: runContext.sessionId ?? runContext.session_id,
+        };
+        const out = await fn(params, env, memCtx);
+        result = out?.error ? { ok: false, error: String(out.error), body: out } : { ok: true, body: out };
+        break;
+      }
       if (
         handlerType === 'workspace.reader' ||
         ['read', 'list', 'grep', 'write', 'search'].includes(op)

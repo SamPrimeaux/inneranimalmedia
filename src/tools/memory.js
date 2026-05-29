@@ -1,9 +1,9 @@
 /**
- * Tool: Memory (D1-backed)
- * Reads, writes, searches, and expires entries in agentsam_memory.
- * Mirrors the Anthropic BetaLocalFilesystemMemoryTool interface but backed by D1.
- * All ops are scoped to (tenant_id, user_id) — never cross-tenant.
+ * Tool: Memory — D1 edge cache + mirror to private agentsam.agentsam_memory (Hyperdrive).
+ * Never writes public.agent_memory. Vectorize not required.
+ * All ops scoped to (tenant_id, user_id) — never cross-tenant.
  */
+import { mirrorD1MemoryToPrivatePg, searchPrivateAgentsamMemory } from '../core/agentsam-private-memory.js';
 
 // ---------------------------------------------------------------------------
 // Tool schemas — registered with the model via buildAnthropicMessagesTools
@@ -29,7 +29,16 @@ export const MEMORY_TOOL_SCHEMAS = [
         },
         memory_type: {
           type: 'string',
-          enum: ['fact', 'preference', 'project', 'skill', 'error', 'decision'],
+          enum: [
+            'fact',
+            'preference',
+            'project',
+            'skill',
+            'error',
+            'decision',
+            'policy',
+            'state',
+          ],
           description: 'Category of memory.',
         },
         tags: {
@@ -83,7 +92,16 @@ export const MEMORY_TOOL_SCHEMAS = [
         },
         memory_type: {
           type: 'string',
-          enum: ['fact', 'preference', 'project', 'skill', 'error', 'decision'],
+          enum: [
+            'fact',
+            'preference',
+            'project',
+            'skill',
+            'error',
+            'decision',
+            'policy',
+            'state',
+          ],
           description: 'Filter by memory type.',
         },
         tags: {
@@ -168,15 +186,20 @@ export async function memoryWrite(input, env, context = {}) {
   const expiresAt = ttl_days != null ? now + Math.round(ttl_days * 86400) : null;
   const tagsJson = JSON.stringify(Array.isArray(tags) ? tags : []);
 
+  const syncKey = `${tenantId}:${userId}:${key}`;
+  const summary = value.slice(0, 400);
+
   await env.DB.prepare(
     `INSERT INTO agentsam_memory
        (tenant_id, user_id, workspace_id, key, value, memory_type, source,
-        confidence, tags, expires_at, agent_id, session_id, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        summary, sync_key, confidence, tags, expires_at, agent_id, session_id, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(tenant_id, user_id, key) DO UPDATE SET
        value         = excluded.value,
        memory_type   = excluded.memory_type,
        source        = excluded.source,
+       summary       = excluded.summary,
+       sync_key      = excluded.sync_key,
        confidence    = excluded.confidence,
        tags          = excluded.tags,
        expires_at    = excluded.expires_at,
@@ -185,12 +208,43 @@ export async function memoryWrite(input, env, context = {}) {
        updated_at    = excluded.updated_at`
   )
     .bind(
-      tenantId, userId, workspaceId ?? null, key, value, memory_type,
-      source, confidence, tagsJson, expiresAt, agentId ?? null, sessionId ?? null, now
+      tenantId,
+      userId,
+      workspaceId ?? null,
+      key,
+      value,
+      memory_type,
+      source,
+      summary,
+      syncKey,
+      confidence,
+      tagsJson,
+      expiresAt,
+      agentId ?? null,
+      sessionId ?? null,
+      now,
     )
     .run();
 
-  return { ok: true, key, memory_type, expires_at: expiresAt };
+  const d1Row = await env.DB.prepare(
+    `SELECT * FROM agentsam_memory WHERE tenant_id = ? AND user_id = ? AND key = ? LIMIT 1`,
+  )
+    .bind(tenantId, userId, key)
+    .first();
+
+  let mirror = { ok: false, scheduled: false };
+  if (d1Row && workspaceId) {
+    mirror = await mirrorD1MemoryToPrivatePg(env, d1Row, { ctx: context });
+  }
+
+  return {
+    ok: true,
+    key,
+    memory_type,
+    expires_at: expiresAt,
+    sync_key: syncKey,
+    private_mirror: mirror,
+  };
 }
 
 /**
@@ -295,19 +349,45 @@ export async function memorySearch(input, env, context = {}) {
 
   binds.push(cap);
 
-  const rows = await env.DB
-    .prepare(
-      `SELECT key, value, memory_type, source, confidence, tags, recall_count, updated_at
+  if (workspaceId) {
+    const privateOut = await searchPrivateAgentsamMemory(env, {
+      tenantId,
+      workspaceId,
+      userId,
+      query: query || undefined,
+      memoryType: memory_type || undefined,
+      limit: cap,
+    });
+    if (privateOut.ok && privateOut.results?.length) {
+      return {
+        results: privateOut.results.map((r) => ({
+          key: r.memory_key,
+          value: r.content,
+          memory_type: r.memory_type,
+          source: r.source,
+          confidence: r.confidence,
+          tags: Array.isArray(r.tags) ? r.tags : [],
+          summary: r.summary,
+          updated_at: r.updated_at,
+        })),
+        count: privateOut.results.length,
+        tier: privateOut.tier,
+      };
+    }
+  }
+
+  const rows = await env.DB.prepare(
+    `SELECT key, value, memory_type, source, confidence, tags, recall_count, updated_at
        FROM agentsam_memory
        WHERE ${conditions.join(' AND ')}
        ORDER BY recall_count DESC, last_recalled_at DESC NULLS LAST
-       LIMIT ?`
-    )
+       LIMIT ?`,
+  )
     .bind(...binds)
     .all();
 
   return {
-    results: (rows.results ?? []).map(r => ({
+    results: (rows.results ?? []).map((r) => ({
       key: r.key,
       value: r.value,
       memory_type: r.memory_type,
@@ -318,6 +398,7 @@ export async function memorySearch(input, env, context = {}) {
       updated_at: r.updated_at,
     })),
     count: (rows.results ?? []).length,
+    tier: 'd1_fallback',
   };
 }
 

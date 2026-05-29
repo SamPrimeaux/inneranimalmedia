@@ -8181,6 +8181,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         sessionId,
         agentId: body.agentId || null,
         workspaceId: workspaceId || null,
+        userId: authUser?.id ?? identity?.userId ?? null,
       });
       if (mem && String(mem).trim()) {
         systemPrompt = `${systemPrompt}\n\n${String(mem).trim()}`;
