@@ -1339,8 +1339,9 @@ function normalizeModeToolPolicy(raw) {
   };
 }
 
-async function loadModeToolPolicy(_env, _modeSlug) {
-  return { allowTools: [], denyTools: [], requireApprovalTools: [] };
+async function loadModeToolPolicy(env, modeSlug, opts = {}) {
+  const { loadModeToolPolicy: loadPolicy } = await import('../core/agent-mode-tool-policy.js');
+  return loadPolicy(env, modeSlug, opts);
 }
 
 /**
@@ -2270,7 +2271,10 @@ async function loadAgentsamMcpToolsWorkspaceLibrary(env, workspaceId, limit = 20
 async function loadToolsForRequest(env, modeSlug, _intent, opts = {}) {
   const lim = Math.max(0, Math.min(200, Number(opts.limit ?? 20) || 20));
   if (!env.DB) return { tools: [], toolRoutingError: null, routeToolRequirements: null };
-  const policy = await loadModeToolPolicy(env, modeSlug);
+  const policy = await loadModeToolPolicy(env, modeSlug, {
+    routeKey: opts.routeKey,
+    taskType: opts.taskType,
+  });
   const mcpScope = {
     userId: opts.userId,
     tenantId: opts.tenantId,
@@ -2501,7 +2505,10 @@ async function validateToolCall(env, modeSlug, toolName, mcpRuntimeContext = {},
     };
   }
 
-  const policy = await loadModeToolPolicy(env, modeSlug);
+  const policy = await loadModeToolPolicy(env, modeSlug, {
+    routeKey: opts.routeKey,
+    taskType: opts.taskType,
+  });
   if (policy.denyTools.includes(name)) {
     return {
       allowed: false,
@@ -4108,6 +4115,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     /** @type {Record<string, unknown>|null|undefined} */
     promptAuditContext: promptAuditContextParam,
     cacheWriteTtl: cacheWriteTtlParam,
+    activeFileEnvelope: activeFileEnvelopeParam = null,
   } = params;
   const cacheWriteTtlForBilling =
     cacheWriteTtlParam != null && String(cacheWriteTtlParam).trim() !== ''
@@ -4143,6 +4151,8 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     conversation_id: sessionId != null ? String(sessionId).trim() : null,
     routing_arm_id: routingArmIdStr || null,
     openWebBudget,
+    activeFileEnvelope: activeFileEnvelopeParam,
+    ctx,
   };
 
   const attributedRoutingArmId = () => routingArmIdStr || null;
@@ -4998,10 +5008,17 @@ async function runAgentToolLoop(env, ctx, emit, params) {
             origin: (env.IAM_ORIGIN || request?.url ? new URL(request.url).origin : '').replace(/\/$/, ''),
           });
         } else {
+          let toolInput = call.input && typeof call.input === 'object' ? { ...call.input } : {};
+          if (call.name === 'fs_search_files' && activeFileEnvelopeParam) {
+            const { defaultSearchPathFromActiveFile } = await import('../core/active-file-envelope.js');
+            if (!toolInput.path && !toolInput.glob_path) {
+              toolInput.path = defaultSearchPathFromActiveFile(activeFileEnvelopeParam);
+            }
+          }
           execResult = await dispatchToolCallWithBudget(
             env,
             call.name,
-            call.input,
+            toolInput,
             {
               sessionId,
               tenantId,
@@ -6688,6 +6705,15 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   if (!workspaceId) return jsonResponse({ error: 'WORKSPACE_CONTEXT_MISSING' }, 400);
   // All PTY execution paths MUST have an authenticated userId
   if (!userId) return jsonResponse({ error: 'UNAUTHENTICATED_USER' }, 401);
+
+  let activeFileEnvelope = null;
+  try {
+    const { parseActiveFileEnvelope } = await import('../core/active-file-envelope.js');
+    activeFileEnvelope = parseActiveFileEnvelope(body);
+    if (activeFileEnvelope) body.activeFileEnvelope = activeFileEnvelope;
+  } catch (e) {
+    console.warn('[agent] active_file_envelope_parse', e?.message ?? e);
+  }
 
   /** Custom / platform subagent profile (composer slug or profile id). */
   let subagentProfileRow = null;
@@ -8536,6 +8562,11 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
             chatMessagesBase = [...chatMessagesBase, { role: 'user', content: wsCtxText }];
           }
         }
+        const { formatActiveFileForAgent } = await import('../core/active-file-envelope.js');
+        const activeFileText = formatActiveFileForAgent(activeFileEnvelope);
+        if (activeFileText) {
+          chatMessagesBase = [...chatMessagesBase, { role: 'user', content: activeFileText }];
+        }
       } catch (wsCtxErr) {
         console.warn('[agent] workspace_context_format', wsCtxErr?.message ?? wsCtxErr);
       }
@@ -8653,6 +8684,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
                   : null,
               cacheWriteTtl: cacheWriteTtlForChat,
               codemodeRuntime,
+              activeFileEnvelope: activeFileEnvelope ?? body.activeFileEnvelope ?? null,
             }),
             maxRunMsChat + 5000
           );

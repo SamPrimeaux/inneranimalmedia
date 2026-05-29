@@ -11,6 +11,7 @@ import { signR2Request, r2ObjectPathForS3 } from '../../core/r2.js';
 import { getUserGithubToken, githubCommitHandshake } from '../../integrations/github.js';
 import { getIntegrationToken } from '../../integrations/tokens.js';
 import { resolveOAuthAccessToken } from '../../api/oauth.js';
+import { executeFsSearchFiles } from '../../core/fs-search-files.js';
 
 function toolContext(params, runContext = {}) {
   const sess = params?.session && typeof params.session === 'object' ? params.session : {};
@@ -436,6 +437,10 @@ export const handlers = {
 
   async apply_change_set(params, env, runContext) {
     return applyChangeSetImpl(params, env, runContext);
+  },
+
+  async fs_search_files(params, env, runContext) {
+    return executeFsSearchFiles(env, params, runContext);
   },
 };
 

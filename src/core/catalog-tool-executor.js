@@ -647,6 +647,12 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         result = await executeOpenWebCatalogDispatch(env, config, params, runContext, toolKey);
         break;
       }
+      if (dispatcher === 'fs_search_files') {
+        const { executeFsSearchFiles } = await import('./fs-search-files.js');
+        const out = await executeFsSearchFiles(env, params, runContext);
+        result = out?.error ? { ok: false, error: String(out.error) } : { ok: true, body: out };
+        break;
+      }
       const op = String(config.operation || config.ai_operation || 'complete').toLowerCase();
       const fnKey = op === 'embed' ? 'ai_embed' : op === 'compare' ? 'ai_compare' : 'ai_complete';
       const fn = aiOpsHandlers[fnKey];

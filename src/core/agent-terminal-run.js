@@ -19,12 +19,24 @@ import { resolveCanonicalUserId } from '../api/auth.js';
 function isLikelySafeShellCommand(cmd) {
   const c = String(cmd || '').trim();
   if (!c) return false;
+  if (/[\r\n;|&`$<>]/.test(c)) return false;
+  if (
+    /^cd inneranimalmedia && rg --json --max-count \d+ --max-columns \d+ --glob '!\.git\/\*' -e '/.test(c) &&
+    c.length <= 12000
+  ) {
+    return true;
+  }
   return (
     /^(pwd|whoami|hostname|date|uname)(\s|$)/i.test(c) ||
     /^echo\s+/i.test(c) ||
     /^ls(\s|$)/i.test(c) ||
     /^printenv(\s|$)/i.test(c) ||
-    (/^python3(\d(\.\d+)?)?\s+-m\s+py_compile\s+/i.test(c) && !/[\r\n]/.test(c) && c.length <= 12000)
+    /^git status(\s|$)/i.test(c) ||
+    /^git diff(\s|$)/i.test(c) ||
+    /^git log -n \d+(\s|$)/i.test(c) ||
+    /^node --check \S+\.(js|mjs|cjs)(\s|$)/i.test(c) ||
+    /^npm run (build|test|lint)(\s|$)/i.test(c) ||
+    (/^python3(\d(\.\d+)?)?\s+-m\s+py_compile\s+/i.test(c) && c.length <= 12000)
   );
 }
 
