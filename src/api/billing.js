@@ -107,7 +107,7 @@ function safeJsonString(v) {
 async function logAgentsamWebhookEvent(env, eventType, rawBody, tenantId = null) {
   const { insertAgentsamWebhookEvent } = await import('../core/webhook-events-writer.js');
   await insertAgentsamWebhookEvent(env, {
-    tenantId: tenantId || fallbackSystemTenantId(env),
+    tenantId: tenantId ?? null,
     provider: 'stripe',
     eventType: eventType || 'unknown',
     payloadJson: rawBody,
@@ -120,7 +120,7 @@ async function logAgentsamWebhookEvent(env, eventType, rawBody, tenantId = null)
 async function logAgentsamWebhookPayloadJson(env, eventType, payloadObj, tenantId = null) {
   const { insertAgentsamWebhookEvent } = await import('../core/webhook-events-writer.js');
   await insertAgentsamWebhookEvent(env, {
-    tenantId: tenantId || fallbackSystemTenantId(env),
+    tenantId: tenantId ?? null,
     provider: 'stripe',
     eventType: `${eventType}:parsed`,
     payloadJson: safeJsonString(payloadObj),
@@ -650,8 +650,13 @@ async function dispatchStripeEvent(env, event) {
   }
 }
 
-/** @param {Request} request @param {any} env */
-async function handleStripeWebhook(request, env) {
+/**
+ * Stripe billing webhooks — signature verify, audit row, registry workflow dispatch.
+ * @param {Request} request
+ * @param {any} env
+ * @param {import('@cloudflare/workers-types').ExecutionContext} [ctx]
+ */
+export async function handleStripeWebhook(request, env, ctx) {
   const secret = env.STRIPE_WEBHOOK_SECRET;
   if (!secret || String(secret).trim() === '') {
     return jsonResponse({ error: 'Webhook secret not configured' }, 500);
@@ -668,7 +673,31 @@ async function handleStripeWebhook(request, env) {
     return jsonResponse({ error: 'Invalid JSON' }, 400);
   }
 
-  await logAgentsamWebhookEvent(env, event?.type, rawBody);
+  let tenantId = null;
+  const obj = event?.data?.object;
+  const customerRef =
+    obj && typeof obj === 'object'
+      ? obj.customer ?? obj.customer_id ?? null
+      : null;
+  if (customerRef) {
+    tenantId = await tenantIdFromStripeCustomer(
+      env,
+      typeof customerRef === 'string' ? customerRef : String(customerRef?.id ?? ''),
+    );
+  }
+
+  const { ingestWebhookEventAndDispatch } = await import('../core/webhook-ingest-dispatch.js');
+  await ingestWebhookEventAndDispatch(env, ctx, {
+    tenantId,
+    workspaceId: null,
+    provider: 'stripe',
+    eventType: event?.type || 'unknown',
+    eventId: event?.id != null ? String(event.id) : null,
+    payload: event,
+    endpointPath: '/api/webhooks/stripe',
+    signatureValid: true,
+  });
+
   try {
     await dispatchStripeEvent(env, event);
   } catch (e) {
@@ -717,7 +746,7 @@ export async function handleBillingApi(request, url, env, _ctx) {
   if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
 
   if (pathLower === '/api/webhooks/stripe' && method === 'POST') {
-    return handleStripeWebhook(request, env);
+    return handleStripeWebhook(request, env, _ctx);
   }
 
   if (pathLower === '/api/billing/plans' && method === 'GET') {

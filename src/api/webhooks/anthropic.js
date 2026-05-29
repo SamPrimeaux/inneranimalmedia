@@ -56,13 +56,9 @@ export async function handleAnthropicWebhook(request, env, ctx) {
     typeof data?.type === 'string' && data.type ? data.type : 'unknown';
   const topLevelEventId = typeof event.id === 'string' ? event.id : null;
 
-  const tenantId =
-    (typeof env?.ANTHROPIC_WEBHOOK_TENANT_ID === 'string' && env.ANTHROPIC_WEBHOOK_TENANT_ID.trim()) ||
-    (typeof env?.TENANT_ID === 'string' && env.TENANT_ID.trim()) ||
-    'system';
-
   await ingestWebhookEventAndDispatch(env, ctx, {
-    tenantId,
+    tenantId: null,
+    workspaceId: null,
     provider: 'anthropic',
     eventType,
     eventId: topLevelEventId,

@@ -45,6 +45,7 @@ import { handleStudioSessionApi } from '../api/studio-session.js';
 import { handleStatusBundle } from '../api/status-bundle.js';
 import { handleCursorAgentApi } from '../api/cursor-agent.js';
 import { handleCursorAcpMessage } from '../api/cursor-acp.js';
+import { handleStripeWebhook } from '../api/billing.js';
 import { handleCalendarApi } from '../api/calendar.js';
 import { handleHealthApi } from '../api/health/index.js';
 import { handleAnalyticsApi } from '../api/analytics/index.js';
@@ -136,6 +137,10 @@ export async function dispatchProductionDomainRoutes(rc) {
 
   if (pathLower.startsWith('/api/moviemode/') || pathLower.startsWith('/api/media/assets')) {
     return handleMoviemodeApi(request, url, env, ctx);
+  }
+
+  if (pathLower === '/api/webhooks/stripe' && methodUpper === 'POST') {
+    return handleStripeWebhook(request, env, ctx);
   }
 
   if (

@@ -16,20 +16,17 @@ export function newWebhookEventId() {
  * @param {any} env
  * @param {string | null | undefined} [override]
  */
-export function resolveWebhookTenantId(env, override) {
-  if (override != null && String(override).trim() !== '') return String(override).trim();
-  if (typeof env?.ANTHROPIC_WEBHOOK_TENANT_ID === 'string' && env.ANTHROPIC_WEBHOOK_TENANT_ID.trim()) {
-    return env.ANTHROPIC_WEBHOOK_TENANT_ID.trim();
-  }
-  if (typeof env?.GITHUB_WEBHOOK_TENANT_ID === 'string' && env.GITHUB_WEBHOOK_TENANT_ID.trim()) {
-    return env.GITHUB_WEBHOOK_TENANT_ID.trim();
-  }
-  if (typeof env?.SUPABASE_WEBHOOK_TENANT_ID === 'string' && env.SUPABASE_WEBHOOK_TENANT_ID.trim()) {
-    return env.SUPABASE_WEBHOOK_TENANT_ID.trim();
-  }
-  // system-scoped: no authenticated user context at this path
-  if (typeof env?.TENANT_ID === 'string' && env.TENANT_ID.trim()) return env.TENANT_ID.trim();
-  return 'system';
+/**
+ * Webhook audit tenant — only explicit caller context (never env.TENANT_ID fallback).
+ * Platform provider events pass null; user-scoped payloads pass tenant_id from body/session.
+ * @param {unknown} _env
+ * @param {string | null | undefined} override
+ */
+export function resolveWebhookTenantId(_env, override) {
+  if (override == null) return null;
+  const s = String(override).trim();
+  if (!s || s === 'system') return null;
+  return s;
 }
 
 /**
@@ -103,6 +100,10 @@ export async function insertAgentsamWebhookEvent(env, opts) {
 
   const id = opts.id != null ? String(opts.id).trim() : newWebhookEventId();
   const tenantId = resolveWebhookTenantId(env, opts.tenantId);
+  const workspaceId =
+    opts.workspaceId != null && String(opts.workspaceId).trim() !== ''
+      ? String(opts.workspaceId).trim()
+      : null;
   const receivedUnix = Math.floor(Date.now() / 1000);
 
   let endpointId = opts.endpointId != null ? String(opts.endpointId).trim() : '';
@@ -146,7 +147,7 @@ export async function insertAgentsamWebhookEvent(env, opts) {
 
   add('id', id);
   add('tenant_id', tenantId);
-  add('workspace_id', opts.workspaceId != null ? String(opts.workspaceId).trim() : null);
+  add('workspace_id', workspaceId);
   add('endpoint_id', endpointId || null);
   add('provider', provider);
   add('event_type', eventType.slice(0, 200));

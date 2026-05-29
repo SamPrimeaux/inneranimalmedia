@@ -999,7 +999,8 @@ async function handleResendWebhook(request, env, ctx, endpointPath = '/api/webho
                   ? 'email_inbound'
                   : 'webhook_received';
         await ingestWebhookEventAndDispatch(env, ctx, {
-            tenantId: fallbackSystemTenantId(env),
+            tenantId: null,
+            workspaceId: null,
             provider: 'resend',
             eventType,
             payload: body,

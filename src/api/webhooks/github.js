@@ -123,13 +123,9 @@ export async function handleGithubWebhook(request, env, ctx) {
 
   const eventType = request.headers.get('X-GitHub-Event') || 'unknown';
   const deliveryId = request.headers.get('X-GitHub-Delivery') || null;
-  const tenantId =
-    (typeof env?.GITHUB_WEBHOOK_TENANT_ID === 'string' && env.GITHUB_WEBHOOK_TENANT_ID.trim()) ||
-    (typeof env?.TENANT_ID === 'string' && env.TENANT_ID.trim()) ||
-    'system';
-
   await ingestWebhookEventAndDispatch(env, ctx, {
-    tenantId,
+    tenantId: null,
+    workspaceId: null,
     provider: 'github',
     eventType,
     eventId: deliveryId,

@@ -75,11 +75,9 @@ export async function handleOpenAiWebhook(request, env, ctx) {
   }
 
   const eventType = String(payload?.type || 'unknown').trim();
-  const tenantId =
-    typeof env?.TENANT_ID === 'string' && env.TENANT_ID.trim() ? env.TENANT_ID.trim() : 'system';
-
   await ingestWebhookEventAndDispatch(env, ctx, {
-    tenantId,
+    tenantId: null,
+    workspaceId: null,
     provider: 'openai',
     eventType,
     eventId: payload?.id != null ? String(payload.id) : null,

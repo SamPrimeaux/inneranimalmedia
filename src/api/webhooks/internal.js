@@ -72,12 +72,15 @@ export async function handleInternalWebhook(request, env, ctx) {
   const tenantId =
     typeof payload?.tenant_id === 'string' && payload.tenant_id.trim()
       ? payload.tenant_id.trim()
-      : typeof env?.TENANT_ID === 'string' && env.TENANT_ID.trim()
-        ? env.TENANT_ID.trim()
-        : 'system';
+      : null;
+  const workspaceId =
+    typeof payload?.workspace_id === 'string' && payload.workspace_id.trim()
+      ? payload.workspace_id.trim()
+      : null;
 
   await ingestWebhookEventAndDispatch(env, ctx, {
     tenantId,
+    workspaceId,
     provider: 'internal',
     eventType,
     eventId: payload?.id != null ? String(payload.id) : null,

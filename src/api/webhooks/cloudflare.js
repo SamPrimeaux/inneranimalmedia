@@ -50,11 +50,9 @@ export async function handleCloudflareWebhook(request, env, ctx) {
   const eventType = String(
     payload?.type || payload?.event_type || payload?.status || 'build_event',
   ).trim();
-  const tenantId =
-    typeof env?.TENANT_ID === 'string' && env.TENANT_ID.trim() ? env.TENANT_ID.trim() : 'system';
-
   await ingestWebhookEventAndDispatch(env, ctx, {
-    tenantId,
+    tenantId: null,
+    workspaceId: null,
     provider: 'cloudflare',
     eventType,
     payload,

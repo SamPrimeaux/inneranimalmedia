@@ -26,13 +26,13 @@ function normalizeQueueBody(msg) {
  * @param {Record<string, unknown>} body
  */
 async function recordWebhookEvent(env, ctx, tenantId, workspaceId, body) {
-  if (!env?.DB || !tenantId || !workspaceId) return;
+  if (!env?.DB) return;
   const isCfSystem = typeof body?.type === 'string' && body.type.startsWith('cf.workers');
-  const provider = isCfSystem ? 'cloudflare' : 'my_queue';
+  const provider = isCfSystem ? 'cloudflare' : 'internal';
   const { ingestWebhookEventAndDispatch } = await import('../core/webhook-ingest-dispatch.js');
   await ingestWebhookEventAndDispatch(env, ctx, {
-    tenantId,
-    workspaceId,
+    tenantId: isCfSystem ? null : tenantId ?? null,
+    workspaceId: isCfSystem ? null : workspaceId ?? null,
     provider,
     eventType: String(body?.type ?? 'unknown'),
     payload: {

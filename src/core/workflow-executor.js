@@ -23,6 +23,45 @@ import { scheduleSyncWorkflowRunToSupabase } from './agentsam-supabase-sync.js';
 const TIER_ORDER = ['micro', 'flash', 'standard', 'power', 'reasoning'];
 
 /**
+ * Tenant override first, then platform-global workflow (tenant_id IS NULL).
+ * @param {import('@cloudflare/workers-types').D1Database} db
+ * @param {string} workflowKey
+ * @param {string | null | undefined} tenantId
+ */
+export async function resolveAgentsamWorkflowRow(db, workflowKey, tenantId) {
+  if (!db) return null;
+  const key = String(workflowKey || '').trim();
+  if (!key) return null;
+  const tid = tenantId != null && String(tenantId).trim() !== '' ? String(tenantId).trim() : '';
+
+  if (tid) {
+    const tenantWf = await db
+      .prepare(
+        `SELECT * FROM agentsam_workflows
+         WHERE workflow_key = ? AND tenant_id = ? AND COALESCE(is_active, 1) = 1
+         LIMIT 1`,
+      )
+      .bind(key, tid)
+      .first()
+      .catch(() => null);
+    if (tenantWf) return tenantWf;
+  }
+
+  return db
+    .prepare(
+      `SELECT * FROM agentsam_workflows
+       WHERE workflow_key = ?
+         AND COALESCE(is_platform_global, 0) = 1
+         AND tenant_id IS NULL
+         AND COALESCE(is_active, 1) = 1
+       LIMIT 1`,
+    )
+    .bind(key)
+    .first()
+    .catch(() => null);
+}
+
+/**
  * MCP catalog row that owns agentsam_workflow_nodes.workflow_id (D1 FK).
  * Prefers tenant + workspace match, then tenant-scoped, then platform-global rows.
  */
@@ -1116,11 +1155,7 @@ export async function executeWorkflowGraph(env, opts) {
 
   const triggerType = await normalizeTriggerType(env.DB, triggerTypeRaw);
 
-  const workflow = await env.DB.prepare(
-    `SELECT * FROM agentsam_workflows WHERE workflow_key = ? AND is_active = 1 LIMIT 1`,
-  )
-    .bind(workflowKey)
-    .first();
+  const workflow = await resolveAgentsamWorkflowRow(env.DB, workflowKey, tenantId);
   if (!workflow) return { ok: false, error: `workflow not found: ${workflowKey}` };
 
   const mcpRow = await resolveMcpWorkflowRow(env.DB, workflowKey, tenantId, workspaceId);

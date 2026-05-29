@@ -2,7 +2,7 @@
  * After agentsam_webhook_events insert — trigger registry workflow_key when configured.
  */
 import { pragmaTableInfo } from './retention.js';
-import { executeWorkflowGraph } from './workflow-executor.js';
+import { executeWorkflowGraph, resolveAgentsamWorkflowRow } from './workflow-executor.js';
 
 const DISPATCH_PROVIDERS = new Set([
   'github',
@@ -13,6 +13,7 @@ const DISPATCH_PROVIDERS = new Set([
   'anthropic',
   'resend',
   'internal',
+  'stripe',
 ]);
 
 /** Queue / legacy provider labels → agentsam_webhooks.provider */
@@ -105,31 +106,23 @@ export async function dispatchWebhookRegistryWorkflow(env, ctx, opts) {
     }
   }
 
-  const wf = await env.DB.prepare(
-    `SELECT workflow_key FROM agentsam_workflows
-     WHERE workflow_key = ? AND COALESCE(is_active, 1) = 1 LIMIT 1`,
-  )
-    .bind(workflowKey)
-    .first()
-    .catch(() => null);
-  if (!wf?.workflow_key) {
-    return { ok: false, reason: 'workflow_not_found', workflow_key: workflowKey };
-  }
-
   const tenantId =
     opts.tenantId != null && String(opts.tenantId).trim() !== ''
       ? String(opts.tenantId).trim()
-      : endpointRow?.tenant_id != null
+      : endpointRow?.tenant_id != null && String(endpointRow.tenant_id).trim() !== ''
         ? String(endpointRow.tenant_id).trim()
-        : env.TENANT_ID != null
-          ? String(env.TENANT_ID).trim()
-          : null;
+        : null;
   const workspaceId =
     opts.workspaceId != null && String(opts.workspaceId).trim() !== ''
       ? String(opts.workspaceId).trim()
-      : endpointRow?.workspace_id != null
+      : endpointRow?.workspace_id != null && String(endpointRow.workspace_id).trim() !== ''
         ? String(endpointRow.workspace_id).trim()
         : null;
+
+  const wf = await resolveAgentsamWorkflowRow(env.DB, workflowKey, tenantId);
+  if (!wf?.workflow_key) {
+    return { ok: false, reason: 'workflow_not_found', workflow_key: workflowKey };
+  }
 
   const run = async () => {
     try {

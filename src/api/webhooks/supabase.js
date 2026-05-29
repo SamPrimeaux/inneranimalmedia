@@ -71,7 +71,11 @@ export async function handleSupabaseWebhook(request, env, ctx) {
       tenantId:
         typeof body?.tenant_id === 'string' && body.tenant_id.trim()
           ? body.tenant_id.trim()
-          : resolveWebhookTenantId(env),
+          : null,
+      workspaceId:
+        typeof body?.workspace_id === 'string' && body.workspace_id.trim()
+          ? body.workspace_id.trim()
+          : null,
       provider: 'supabase',
       eventType: routedType,
       payload: body,
@@ -85,9 +89,13 @@ export async function handleSupabaseWebhook(request, env, ctx) {
 
   const record = body.record && typeof body.record === 'object' ? body.record : body;
   const webhookTenant =
-    (typeof record?.tenant_id === 'string' && record.tenant_id.trim())
+    typeof record?.tenant_id === 'string' && record.tenant_id.trim()
       ? record.tenant_id.trim()
-      : resolveWebhookTenantId(env);
+      : null;
+  const webhookWorkspace =
+    typeof record?.workspace_id === 'string' && record.workspace_id.trim()
+      ? record.workspace_id.trim()
+      : null;
 
   const dirtySections = overviewDirtySectionsForWebhook(body.table, body.type);
   if (dirtySections.length && ctx?.waitUntil) {
@@ -106,6 +114,7 @@ export async function handleSupabaseWebhook(request, env, ctx) {
         const eventType = `${body.type ?? ''}:${body.table ?? ''}`;
         await ingestWebhookEventAndDispatch(env, ctx, {
           tenantId: webhookTenant,
+          workspaceId: webhookWorkspace,
           provider: 'supabase',
           eventType,
           payload: body,

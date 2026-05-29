@@ -959,14 +959,6 @@ export default {
       let tenantId = body?.tenantId ?? body?.tenant_id;
       let workspaceId = body?.workspaceId ?? body?.workspace_id;
       const isCfSystem = typeof body?.type === 'string' && body.type.startsWith('cf.workers');
-      if (isCfSystem) {
-        // Explicitly system-scoped queue messages may use platform env bindings.
-        tenantId = typeof env?.TENANT_ID === 'string' && env.TENANT_ID.trim() ? env.TENANT_ID.trim() : tenantId;
-        workspaceId =
-          typeof env?.WORKSPACE_ID === 'string' && env.WORKSPACE_ID.trim()
-            ? env.WORKSPACE_ID.trim()
-            : workspaceId;
-      }
 
       if (body?.type === 'codebase_index_sync') {
         try {
@@ -981,8 +973,8 @@ export default {
             const { ingestWebhookEventAndDispatch } = await import('./core/webhook-ingest-dispatch.js');
             ctx.waitUntil(
               ingestWebhookEventAndDispatch(env, ctx, {
-                tenantId,
-                workspaceId,
+                tenantId: isCfSystem ? null : tenantId ?? null,
+                workspaceId: isCfSystem ? null : workspaceId ?? null,
                 provider: isCfSystem ? 'cloudflare' : 'internal',
                 eventType: String(body?.type ?? 'unknown'),
                 payload: {
