@@ -9,6 +9,7 @@ import {
   resolveDatabaseRuntimeContext,
 } from './database-operation-policy.js';
 import { classifyDatabaseSqlStatement } from './database-sql-safety.js';
+import { assertDataPlaneAccess, logDataPlaneSecurityEvent } from './data-plane-access-guard.js';
 
 const AGENTSAM_SCHEMA = 'agentsam';
 const DEFAULT_LIST_SCHEMAS = ['agentsam', 'public'];
@@ -165,6 +166,37 @@ export async function dispatchDatabaseAssistant(env, opts) {
   const ctx = resolveDbAssistantContext(opts.authUser, opts);
   const schema = String(opts.schema || AGENTSAM_SCHEMA).trim() || AGENTSAM_SCHEMA;
   const table = opts.table != null ? String(opts.table).trim() : '';
+
+  const platformAccess = assertDataPlaneAccess(
+    {
+      is_owner: ctx.is_owner,
+      is_superadmin: ctx.is_superadmin,
+      user_id: ctx.user_id,
+      tenant_id: ctx.tenant_id,
+      workspace_id: ctx.workspace_id,
+    },
+    'platform_supabase_agentsam',
+    operation,
+    { sql: opts.sql, migration_sql: opts.migration_sql },
+  );
+  if (!platformAccess.allowed) {
+    logDataPlaneSecurityEvent('access_denied', {
+      surface: 'dispatchDatabaseAssistant',
+      reason: platformAccess.reason,
+      operation,
+      user_id: ctx.user_id,
+    });
+    return {
+      ok: false,
+      operation,
+      backend: 'hyperdrive',
+      duration_ms: Date.now() - t0,
+      error: platformAccess.error,
+      reason: platformAccess.reason,
+      user_message: platformAccess.user_message,
+      degraded_reason: platformAccess.reason,
+    };
+  }
 
   if (!isSchemaAllowedForContext(schema, ctx)) {
     return {

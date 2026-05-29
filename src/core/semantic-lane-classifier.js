@@ -151,5 +151,20 @@ export function classifyDatabaseAssistantIntent(message) {
     return 'run_readonly_sql';
   }
 
+  if (
+    /\b(my supabase|my (postgres|database|db|project)|explain my (table|schema))\b/i.test(m) ||
+    (/\b(select|explain)\b/i.test(m) && /\bfrom\b/i.test(m) && !/\bagentsam[._]/i.test(m))
+  ) {
+    return 'run_readonly_sql';
+  }
+
+  if (/\b(public examples?|public learning|iam learning|public\.iam_)\b/i.test(m)) {
+    return 'inspect_schema';
+  }
+
+  if (/\b(create|add).{0,40}(table|column)\b/i.test(m) && /\bmy\b/i.test(m)) {
+    return 'propose_migration';
+  }
+
   return null;
 }

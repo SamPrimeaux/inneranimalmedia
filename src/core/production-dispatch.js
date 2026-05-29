@@ -167,6 +167,11 @@ export async function dispatchProductionDomainRoutes(rc) {
     return handleD1DashboardRoutes(request, url, env);
   }
 
+  if (pathLower.startsWith('/api/data-plane')) {
+    const { handleCustomerDataPlaneApi } = await import('../api/customer-data-plane-api.js');
+    return handleCustomerDataPlaneApi(request, url, env);
+  }
+
   if (pathLower === '/api/dashboard/status-bundle' && request.method === 'GET') {
     return handleStatusBundle(request, url, env, ctx);
   }

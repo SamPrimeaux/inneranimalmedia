@@ -7571,7 +7571,11 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           }),
         );
       }
-      tools = filterToolsForExecutionLane(tools, executionLane, { openWebBackend });
+      const isPlatformOwner =
+        !ingestBypass &&
+        (authUserIsSuperadmin(authUser) ||
+          String(authUser?.role || '').trim().toLowerCase() === 'owner');
+      tools = filterToolsForExecutionLane(tools, executionLane, { openWebBackend, isPlatformOwner });
       tools = await ensureWebLaneTools(env, tools, effectiveMaxTools, executionLane, openWebBackend);
       if (executionLane.primary_lane === 'workspace_grep') {
         tools = await ensureCodeCapabilityTools(env, tools, effectiveMaxTools);

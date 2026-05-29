@@ -21,7 +21,7 @@ import { authUserIsSuperadmin } from './auth.js';
  * }} DatabaseRuntimeContext */
 
 const OWNER_PLATFORM_SCHEMAS = ['agentsam'];
-const NON_OWNER_ALLOWED_SCHEMAS = ['agentsam'];
+const NON_OWNER_ALLOWED_SCHEMAS = ['public'];
 
 const BLOCKED_PATTERNS = [
   /\bauth\.users\b/i,
@@ -188,5 +188,133 @@ export function isSchemaAllowedForContext(schemaName, ctx) {
   if (ctx.is_owner || ctx.is_superadmin) {
     return ctx.allowed_schemas.includes(schema) || schema === 'information_schema' || schema === 'pg_catalog';
   }
+  if (schema === 'agentsam' || schema.startsWith('agentsam')) {
+    return false;
+  }
   return NON_OWNER_ALLOWED_SCHEMAS.includes(schema);
+}
+
+/** @typedef {'platform'|'customer'|'public_learning'} DataPlaneOwnerType */
+
+/**
+ * @typedef {{
+ *   owner_type: DataPlaneOwnerType,
+ *   user_role?: string|null,
+ *   is_owner?: boolean,
+ *   is_superadmin?: boolean,
+ *   tenant_id?: string|null,
+ *   workspace_id?: string|null,
+ *   operation_type?: string|null,
+ *   sql?: string|null,
+ *   sql_class?: string|null,
+ *   provider?: string|null,
+ *   schema?: string|null,
+ *   table?: string|null,
+ *   explicit_approval_id?: string|null,
+ * }} DataPlanePolicyContext
+ */
+
+const PUBLIC_LEARNING_TABLE_RE = /^iam_[a-z0-9_]+$/i;
+
+/**
+ * Data-plane aware policy (platform / customer BYO / public.iam_* learning).
+ *
+ * @param {DataPlanePolicyContext} input
+ */
+export function evaluateDataPlaneOperation(input) {
+  const ownerType = input.owner_type || 'customer';
+  const sql = input.sql != null ? String(input.sql).trim() : '';
+  const operationType = String(input.operation_type || '').toLowerCase();
+  const explicitApproval =
+    input.explicit_approval_id != null && String(input.explicit_approval_id).trim();
+  const isOwner = input.is_owner === true || input.is_superadmin === true;
+
+  if (ownerType === 'public_learning') {
+    if (sql) {
+      for (const re of BLOCKED_PATTERNS) {
+        if (re.test(sql)) {
+          return { allowed: false, read_only: true, requires_approval: false, reason: 'blocked_sql_pattern' };
+        }
+      }
+      const opClass = classifyDatabaseOperation(sql);
+      if (opClass !== 'read_only') {
+        return {
+          allowed: false,
+          read_only: false,
+          requires_approval: false,
+          reason: 'public_learning_read_only',
+        };
+      }
+      if (!/\biam_/i.test(sql) && !/\bpublic\./i.test(sql)) {
+        return {
+          allowed: false,
+          read_only: true,
+          requires_approval: false,
+          reason: 'public_learning_scope',
+        };
+      }
+    }
+    if (input.table && !PUBLIC_LEARNING_TABLE_RE.test(String(input.table))) {
+      return {
+        allowed: false,
+        read_only: true,
+        requires_approval: false,
+        reason: 'public_learning_table_allowlist',
+      };
+    }
+    return { allowed: true, read_only: true, requires_approval: false, reason: 'public_learning_ok' };
+  }
+
+  if (ownerType === 'platform') {
+    if (!isOwner) {
+      return {
+        allowed: false,
+        read_only: false,
+        requires_approval: false,
+        reason: 'platform_raw_access_owner_only',
+      };
+    }
+    if (sql) {
+      return evaluateDatabaseOperation(sql, resolveDatabaseRuntimeContext({ role: 'owner' }, {}), {
+        explicitApprovalId: explicitApproval,
+      });
+    }
+    return { allowed: true, read_only: false, requires_approval: false, reason: 'platform_owner_ok' };
+  }
+
+  if (ownerType === 'customer') {
+    if (sql) {
+      for (const re of BLOCKED_PATTERNS) {
+        if (re.test(sql)) {
+          return { allowed: false, read_only: false, requires_approval: false, reason: 'blocked_sql_pattern' };
+        }
+      }
+      const opClass = classifyDatabaseOperation(sql);
+      if (opClass === 'read_only') {
+        return { allowed: true, read_only: true, requires_approval: false, reason: 'customer_read_only_ok' };
+      }
+      if (!explicitApproval) {
+        return {
+          allowed: false,
+          read_only: false,
+          requires_approval: true,
+          reason: 'customer_mutation_requires_approval',
+        };
+      }
+      return { allowed: true, read_only: false, requires_approval: true, reason: 'customer_approved_mutation' };
+    }
+    if (/^(apply|ddl|dml|delete|update|insert|drop|alter|create)/i.test(operationType)) {
+      if (!explicitApproval) {
+        return {
+          allowed: false,
+          read_only: false,
+          requires_approval: true,
+          reason: 'customer_mutation_requires_approval',
+        };
+      }
+    }
+    return { allowed: true, read_only: true, requires_approval: false, reason: 'customer_ok' };
+  }
+
+  return { allowed: false, read_only: false, requires_approval: false, reason: 'unknown_owner_type' };
 }

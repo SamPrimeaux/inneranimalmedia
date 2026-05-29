@@ -341,15 +341,35 @@ export function isBrowserInspectToolName(name) {
  *
  * @param {any[]} tools
  * @param {ReturnType<typeof classifyAgentExecutionLane>} laneResult
- * @param {{ openWebBackend?: { available: boolean } }} [opts]
+ * @param {{ openWebBackend?: { available: boolean }, isPlatformOwner?: boolean }} [opts]
  */
 export function filterToolsForExecutionLane(tools, laneResult, opts = {}) {
   if (!Array.isArray(tools) || !tools.length) return tools;
 
   const lane = laneResult?.primary_lane || 'none';
   const backendOk = opts.openWebBackend?.available === true;
+  const isPlatformOwner = opts.isPlatformOwner === true;
 
   let out = tools.filter((t) => !LEGACY_UNIFIED_RAG_TOOL_NAMES.has(String(t?.name || '').trim()));
+
+  if (!isPlatformOwner) {
+    out = out.filter((t) => {
+      const n = String(t?.name || '').trim();
+      if (/^(d1_|hyperdrive_|platform_)/i.test(n)) return false;
+      if (n === 'platform_hyperdrive_agentsam_query' || n === 'platform_d1_query') return false;
+      let cfg = t?.handler_config;
+      if (typeof cfg === 'string') {
+        try {
+          cfg = JSON.parse(cfg);
+        } catch {
+          cfg = null;
+        }
+      }
+      if (cfg && (cfg.admin_only === true || cfg.admin_only === 1)) return false;
+      if (cfg && String(cfg.data_plane || '').startsWith('platform_')) return false;
+      return true;
+    });
+  }
 
   if (!backendOk) {
     out = out.filter((t) => !isOpenWebSearchToolName(String(t?.name || '')));
@@ -393,7 +413,17 @@ export function filterToolsForExecutionLane(tools, laneResult, opts = {}) {
     case 'database_assistant':
       out = out.filter((t) => {
         const n = String(t?.name || '');
-        return DATABASE_ASSISTANT_TOOL_NAMES.has(n) || /^d1_/.test(n) || /^hyperdrive_/.test(n);
+        if (/^(customer_|public_learning_)/i.test(n)) return true;
+        if (!isPlatformOwner) {
+          return /^(customer_|public_learning_)/i.test(n);
+        }
+        return (
+          DATABASE_ASSISTANT_TOOL_NAMES.has(n) ||
+          /^d1_/.test(n) ||
+          /^hyperdrive_/.test(n) ||
+          /^customer_/.test(n) ||
+          /^public_learning_/.test(n)
+        );
       });
       break;
     case 'web_fetch':

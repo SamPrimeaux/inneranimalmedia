@@ -53,6 +53,7 @@ import { rowKeyForRow, type SelectedGridCell } from './database/databaseGridType
 import '../components/database/database-page.css';
 
 type Datasource = 'd1' | 'hyperdrive';
+type StudioSection = 'platform_d1' | 'platform_hyperdrive' | 'public_learning' | 'customer_supabase';
 type MetaPanel = 'schema' | 'indexes' | 'relations';
 type SortDir = 'asc' | 'desc';
 type LoadStatus = 'idle' | 'loading' | 'ok' | 'error';
@@ -301,6 +302,11 @@ export const DatabasePage: React.FC = () => {
   const [editingCell, setEditingCell] = useState<{ rowKey: string; col: string; value: string } | null>(null);
 
   const [isSuperadmin, setIsSuperadmin] = useState(false);
+  const [studioSection, setStudioSection] = useState<StudioSection>('public_learning');
+  const [dataPlaneBanner, setDataPlaneBanner] = useState('');
+  const [learningTables, setLearningTables] = useState<TableMeta[]>([]);
+  const [learningStatus, setLearningStatus] = useState<LoadStatus>('idle');
+  const [supabaseConnected, setSupabaseConnected] = useState(false);
   const [capLoaded, setCapLoaded] = useState(false);
   const [pageReady, setPageReady] = useState(false);
   const [hyperHealthBad, setHyperHealthBad] = useState(false);
@@ -315,8 +321,18 @@ export const DatabasePage: React.FC = () => {
 
   const sqlRunning = sqlRunState === 'running';
 
-  const activeTables = tables[datasource];
-  const datasourceLabel = datasource === 'd1' ? 'Cloudflare D1 (SQLite)' : 'Supabase via Hyperdrive (Postgres)';
+  const activeTables =
+    !isSuperadmin && studioSection === 'public_learning'
+      ? learningTables
+      : tables[datasource];
+  const datasourceLabel =
+    !isSuperadmin && studioSection === 'public_learning'
+      ? 'Public learning (public.iam_*)'
+      : !isSuperadmin && studioSection === 'customer_supabase'
+        ? 'My Supabase project'
+        : datasource === 'd1'
+          ? 'Cloudflare D1 (SQLite)'
+          : 'Supabase via Hyperdrive (Postgres)';
   const selectedTableMeta = useMemo(
     () => (selectedTable ? activeTables.find((t) => t.name === selectedTable) : undefined),
     [activeTables, selectedTable],
@@ -411,11 +427,51 @@ export const DatabasePage: React.FC = () => {
   const loadCapabilities = useCallback(async () => {
     try {
       const payload = await fetchJson<{ capabilities?: { is_superadmin?: boolean } }>('/api/integrations/summary');
-      setIsSuperadmin(payload.capabilities?.is_superadmin === true);
+      const superadmin = payload.capabilities?.is_superadmin === true;
+      setIsSuperadmin(superadmin);
+      if (!superadmin) {
+        setStudioSection('public_learning');
+      }
     } catch {
       setIsSuperadmin(false);
+      setStudioSection('public_learning');
     } finally {
       setCapLoaded(true);
+    }
+  }, []);
+
+  const loadDataPlaneContext = useCallback(async () => {
+    try {
+      const ctx = await fetchJson<{
+        banner?: string;
+        active_data_plane?: string;
+        connections?: { supabase?: boolean };
+      }>('/api/data-plane/context');
+      if (ctx.banner) setDataPlaneBanner(ctx.banner);
+      setSupabaseConnected(ctx.connections?.supabase === true);
+      if (!isSuperadmin && ctx.active_data_plane === 'customer_supabase' && ctx.connections?.supabase) {
+        setStudioSection('customer_supabase');
+      }
+    } catch {
+      setDataPlaneBanner('Explore public learning tables or connect your Supabase project.');
+    }
+  }, [isSuperadmin]);
+
+  const loadPublicLearningTables = useCallback(async () => {
+    setLearningStatus('loading');
+    try {
+      const payload = await fetchJson<{ tables?: Array<{ name: string; table_schema?: string }> }>(
+        '/api/data-plane/public-learning/tables',
+      );
+      const list = (payload.tables || []).map((t) => ({
+        name: String(t.name || ''),
+        table_schema: t.table_schema || 'public',
+      }));
+      setLearningTables(list.filter((t) => t.name));
+      setLearningStatus('ok');
+    } catch {
+      setLearningTables([]);
+      setLearningStatus('error');
     }
   }, []);
 
@@ -492,13 +548,23 @@ export const DatabasePage: React.FC = () => {
     let cancelled = false;
     (async () => {
       await loadCapabilities();
-      await loadAllTables();
+      await loadDataPlaneContext();
+      if (!cancelled) {
+        const superRes = await fetchJson<{ capabilities?: { is_superadmin?: boolean } }>(
+          '/api/integrations/summary',
+        ).catch(() => ({ capabilities: { is_superadmin: false } }));
+        if (superRes.capabilities?.is_superadmin) {
+          await loadAllTables();
+        } else {
+          await loadPublicLearningTables();
+        }
+      }
       if (!cancelled) setPageReady(true);
     })();
     return () => {
       cancelled = true;
     };
-  }, [loadAllTables, loadCapabilities]);
+  }, [loadAllTables, loadCapabilities, loadDataPlaneContext, loadPublicLearningTables]);
 
   useEffect(() => {
     let cancelled = false;
@@ -592,7 +658,14 @@ export const DatabasePage: React.FC = () => {
       setSqlError(null);
       const t0 = performance.now();
       try {
-        const endpoint = datasource === 'd1' ? '/api/d1/query' : '/api/hyperdrive/query';
+        const endpoint =
+          !isSuperadmin && studioSection === 'public_learning'
+            ? '/api/data-plane/public-learning/query'
+            : !isSuperadmin && studioSection === 'customer_supabase'
+              ? '/api/data-plane/customer-supabase/query'
+              : datasource === 'd1'
+                ? '/api/d1/query'
+                : '/api/hyperdrive/query';
         const payload = await fetchJson<{ rows?: Record<string, unknown>[]; results?: Record<string, unknown>[]; error?: string }>(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -628,7 +701,7 @@ export const DatabasePage: React.FC = () => {
         setLastRowsRead(0);
       }
     },
-    [datasource],
+    [datasource, isSuperadmin, studioSection],
   );
 
   const requestRunSql = useCallback(
@@ -669,7 +742,7 @@ export const DatabasePage: React.FC = () => {
       }
       void executeSqlInternal(raw, { studioApproved: true, destructiveConfirmed: gate.requiresConfirmTyping });
     },
-    [datasourceLabel, executeSqlInternal, isSuperadmin],
+    [datasourceLabel, executeSqlInternal, isSuperadmin, studioSection],
   );
 
   const confirmSqlModalRun = useCallback(() => {
@@ -1189,11 +1262,13 @@ export const DatabasePage: React.FC = () => {
   }, [refreshTableRows, selectedTable]);
 
   const onboardingEligible = capLoaded && pageReady && !isSuperadmin;
-  const showD1Setup = onboardingEligible && (d1OnboardingRequired || d1Status === 'error');
-  const showHyperSetup = onboardingEligible && hyperHealthBad;
-  const dsNeedsSetup = datasource === 'd1' ? showD1Setup : showHyperSetup;
-  const bothDisconnected = showD1Setup && showHyperSetup;
-  const sidebarEmptyMuted = onboardingEligible && (datasource === 'd1' ? showD1Setup : showHyperSetup);
+  const showD1Setup = false;
+  const showHyperSetup = onboardingEligible && studioSection === 'customer_supabase' && !supabaseConnected;
+  const showLearningSetup = onboardingEligible && studioSection === 'public_learning' && learningStatus === 'error';
+  const dsNeedsSetup = studioSection === 'customer_supabase' ? showHyperSetup : showLearningSetup;
+  const bothDisconnected =
+    onboardingEligible && !supabaseConnected && learningStatus === 'error';
+  const sidebarEmptyMuted = onboardingEligible && dsNeedsSetup;
 
   const setupContent =
     !pageReady || isSuperadmin
@@ -1203,15 +1278,15 @@ export const DatabasePage: React.FC = () => {
           <div className="flex h-full items-stretch justify-center gap-4 p-8">
             <div className="w-full max-w-md">
               <SetupCard
-                title="No D1 connected"
-                body="Connect your Cloudflare account to use Database Studio — your workspace D1 binding will appear here once linked."
-                to="/dashboard/settings/storage"
+                title="Public learning"
+                body="Explore safe public.iam_* examples while you connect your own database."
+                to="/dashboard/database"
               />
             </div>
             <div className="w-full max-w-md">
               <SetupCard
-                title="Supabase not connected"
-                body="Connect Hyperdrive / Supabase in integrations so Postgres tables appear here."
+                title="Connect your Supabase"
+                body="Link Supabase OAuth in integrations, then select your project as the workspace default."
                 to="/dashboard/settings/integrations"
               />
             </div>
@@ -1221,16 +1296,16 @@ export const DatabasePage: React.FC = () => {
           ? (
             <div className="flex h-full items-center justify-center p-8">
               <div className="w-full max-w-lg">
-                {datasource === 'd1' ? (
+                {studioSection === 'customer_supabase' ? (
                   <SetupCard
-                    title="Cloudflare D1 not configured"
-                    body="We could not load the D1 table list. Check storage bindings and try again."
-                    to="/dashboard/settings/storage"
+                    title="Supabase not connected"
+                    body="Connect Supabase via OAuth, select a project for this workspace, then return here."
+                    to="/dashboard/settings/integrations"
                   />
                 ) : (
                   <SetupCard
-                    title="Supabase not connected"
-                    body="We could not reach Postgres via Hyperdrive. Finish Supabase setup in integrations."
+                    title="Public learning unavailable"
+                    body="Could not load public.iam_* tables. Try again or connect your own Supabase."
                     to="/dashboard/settings/integrations"
                   />
                 )}
@@ -1241,33 +1316,72 @@ export const DatabasePage: React.FC = () => {
 
   return (
     <div className="database-page relative flex h-full min-h-0 overflow-hidden">
+      {dataPlaneBanner ? (
+        <div className="absolute left-0 right-0 top-0 z-20 border-b border-[var(--border-subtle)] bg-[var(--bg-panel)] px-4 py-2 text-[11px] text-[var(--text-muted)]">
+          {dataPlaneBanner}
+        </div>
+      ) : null}
       <aside className="flex w-[220px] shrink-0 flex-col border-r border-[var(--database-border)] bg-[var(--database-panel)]">
         <div className="border-b border-[var(--border-subtle)] p-3">
           <div className="flex rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] p-0.5">
-            <button
-              type="button"
-              onClick={() => {
-                setSidebarSource('d1');
-                setSelectedTable(null);
-              }}
-              className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-black tracking-widest ${
-                sidebarSource === 'd1' ? 'bg-[var(--color-accent,var(--solar-cyan))]/15 text-[var(--color-accent,var(--solar-cyan))]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)]'
-              }`}
-            >
-              D1
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setSidebarSource('hyperdrive');
-                setSelectedTable(null);
-              }}
-              className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-black tracking-widest ${
-                sidebarSource === 'hyperdrive' ? 'bg-[var(--color-accent,var(--solar-cyan))]/15 text-[var(--color-accent,var(--solar-cyan))]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)]'
-              }`}
-            >
-              Supabase
-            </button>
+            {isSuperadmin ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSidebarSource('d1');
+                    setStudioSection('platform_d1');
+                    setSelectedTable(null);
+                  }}
+                  className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-black tracking-widest ${
+                    sidebarSource === 'd1' ? 'bg-[var(--color-accent,var(--solar-cyan))]/15 text-[var(--color-accent,var(--solar-cyan))]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)]'
+                  }`}
+                >
+                  D1
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSidebarSource('hyperdrive');
+                    setStudioSection('platform_hyperdrive');
+                    setSelectedTable(null);
+                  }}
+                  className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-black tracking-widest ${
+                    sidebarSource === 'hyperdrive' ? 'bg-[var(--color-accent,var(--solar-cyan))]/15 text-[var(--color-accent,var(--solar-cyan))]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)]'
+                  }`}
+                >
+                  Platform
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStudioSection('public_learning');
+                    setSelectedTable(null);
+                    void loadPublicLearningTables();
+                  }}
+                  className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-black tracking-widest ${
+                    studioSection === 'public_learning' ? 'bg-[var(--color-accent,var(--solar-cyan))]/15 text-[var(--color-accent,var(--solar-cyan))]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)]'
+                  }`}
+                >
+                  Learning
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStudioSection('customer_supabase');
+                    setSelectedTable(null);
+                  }}
+                  className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-black tracking-widest ${
+                    studioSection === 'customer_supabase' ? 'bg-[var(--color-accent,var(--solar-cyan))]/15 text-[var(--color-accent,var(--solar-cyan))]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)]'
+                  }`}
+                >
+                  My DB
+                </button>
+              </>
+            )}
           </div>
           <div className="mt-2 flex items-center justify-between gap-2">
             <button

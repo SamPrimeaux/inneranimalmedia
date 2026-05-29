@@ -55,6 +55,18 @@ async function executeHyperdriveSqlFromRequest(request, env) {
   const authUser = await getAuthUser(request, env);
   if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
 
+  if (!authUserIsSuperadmin(authUser)) {
+    return jsonResponse(
+      {
+        error: 'platform_hyperdrive_owner_only',
+        onboarding_required: true,
+        message:
+          'IAM platform Supabase (agentsam.*) is owner-only. Use /api/data-plane/* for your connected project or public learning.',
+      },
+      403,
+    );
+  }
+
   let body = {};
   try {
     body = await request.json();
@@ -145,6 +157,21 @@ export async function handleHyperdriveRoutes(request, url, env) {
 
   const authUser = await getAuthUser(request, env);
   if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+
+  const isSuperadmin = authUserIsSuperadmin(authUser);
+  if (!isSuperadmin) {
+    return jsonResponse(
+      {
+        error: 'platform_hyperdrive_owner_only',
+        onboarding_required: true,
+        message:
+          'IAM platform Supabase (agentsam.*) is owner-only. Connect your Supabase project or explore public learning tables.',
+        data_plane_options: ['public_learning', 'customer_supabase', 'customer_cloudflare_d1'],
+        active_data_plane: 'public_learning',
+      },
+      403,
+    );
+  }
 
   if (pathLower === '/api/hyperdrive' && method === 'POST') {
     return handleHyperdriveApi(request, env);

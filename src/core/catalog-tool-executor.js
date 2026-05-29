@@ -560,6 +560,31 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
 
   switch (handlerType) {
     case 'd1': {
+      const { assertDataPlaneAccess } = await import('./data-plane-access-guard.js');
+      const { authUserIsSuperadmin } = await import('./auth.js');
+      const authUser = runContext.authUser ?? runContext.user ?? null;
+      const isSuperadmin = authUserIsSuperadmin(authUser);
+      const d1Access = assertDataPlaneAccess(
+        {
+          is_owner: isSuperadmin || String(authUser?.role || '').toLowerCase() === 'owner',
+          is_superadmin: isSuperadmin,
+          user_id: userId,
+          workspace_id: workspaceId,
+          tenant_id: tenantId,
+        },
+        'platform_d1',
+        String(config.operation || 'query'),
+        { sql: params.sql || params.query },
+      );
+      if (!d1Access.allowed) {
+        result = {
+          ok: false,
+          error: d1Access.error,
+          reason: d1Access.reason,
+          user_message: d1Access.user_message,
+        };
+        break;
+      }
       const op = String(config.operation || 'query').toLowerCase();
       try {
         if (op === 'introspect' || op === 'schema') {
@@ -588,17 +613,34 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
 
     case 'hyperdrive':
     case 'supabase': {
-      if (!isHyperdriveUsable(env)) {
-        result = { ok: false, error: 'Hyperdrive binding unavailable' };
-        break;
-      }
       const sql = String(params.sql || params.query || '').trim();
       if (!sql) {
         result = { ok: false, error: 'hyperdrive/supabase tool requires sql in input' };
         break;
       }
-      const out = await runHyperdriveQuery(env, sql, Array.isArray(params.params) ? params.params : []);
-      result = !out.ok ? { ok: false, error: out.error } : { ok: true, body: { rows: out.rows } };
+      const authUser = runContext.authUser ?? runContext.user ?? null;
+      const { dispatchCustomerDataPlaneOperation } = await import('./customer-data-plane-dispatch.js');
+      const routed = await dispatchCustomerDataPlaneOperation(env, {
+        operation: 'run_readonly_sql',
+        sql,
+        message: sql,
+        authUser,
+        user_id: userId,
+        tenant_id: tenantId,
+        workspace_id: workspaceId,
+        agent_run_id: agentRunId,
+        requested_provider: config.data_plane || config.provider || null,
+      });
+      if (!routed.ok) {
+        result = {
+          ok: false,
+          error: routed.error || 'access_denied',
+          reason: routed.reason,
+          user_message: routed.user_message,
+        };
+        break;
+      }
+      result = { ok: true, body: { rows: routed.rows || [], data_plane: routed.data_plane } };
       break;
     }
 
@@ -676,16 +718,37 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         break;
       }
       if (dispatcher === 'database_assistant') {
-        const { dispatchDatabaseAssistant } = await import('./database-assistant-dispatch.js');
+        const { authUserIsSuperadmin } = await import('./auth.js');
+        const authUser = runContext.authUser ?? runContext.user ?? null;
+        const isOwner =
+          authUserIsSuperadmin(authUser) ||
+          String(authUser?.role || '').toLowerCase() === 'owner';
+        const cfgPlane = String(config.data_plane || '').trim();
+        if ((config.admin_only === true || config.admin_only === 1 || cfgPlane.startsWith('platform_')) && !isOwner) {
+          result = {
+            ok: false,
+            error: 'access_denied',
+            reason: 'platform_tool_owner_only',
+          };
+          break;
+        }
+      }
+      if (dispatcher === 'database_assistant' || dispatcher === 'customer_data_plane') {
+        const { dispatchCustomerDataPlaneOperation } = await import('./customer-data-plane-dispatch.js');
         const operation = String(
           params.operation || config.operation || 'inspect_schema',
         ).trim();
-        const out = await dispatchDatabaseAssistant(env, {
+        const dataPlane = String(params.data_plane || config.data_plane || '').trim() || null;
+        const out = await dispatchCustomerDataPlaneOperation(env, {
           operation,
+          message: params.message != null ? String(params.message) : '',
+          requested_provider: params.provider || config.provider || null,
+          data_plane: dataPlane,
           authUser: runContext.authUser ?? runContext.user ?? null,
+          user_id: userId,
           tenant_id: tenantId,
           workspace_id: workspaceId,
-          schema: String(params.schema || config.schema || 'agentsam').trim() || 'agentsam',
+          schema: String(params.schema || config.schema || '').trim() || undefined,
           table: params.table != null ? String(params.table).trim() : '',
           sql: params.sql != null ? String(params.sql) : '',
           migration_sql: params.migration_sql != null ? String(params.migration_sql) : '',

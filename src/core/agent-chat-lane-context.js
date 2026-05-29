@@ -6,7 +6,10 @@ import {
   classifyDatabaseAssistantIntent,
 } from './semantic-lane-classifier.js';
 import { dispatchSemanticRetrieval } from './semantic-retrieval-dispatch.js';
-import { dispatchDatabaseAssistant } from './database-assistant-dispatch.js';
+import {
+  dispatchCustomerDataPlaneOperation,
+  resolveCustomerDataPlane,
+} from './customer-data-plane-dispatch.js';
 
 export const LANE_CONTEXT_HEADINGS = Object.freeze({
   code_semantic_search: '## Code semantic context',
@@ -47,24 +50,55 @@ function extractReadonlySql(text) {
  * @param {unknown} dbIntent
  * @param {string} message
  */
-function mapDatabaseIntentToOperation(dbIntent, message) {
-  const table = extractAgentsamTableName(message);
+/**
+ * @param {string} message
+ */
+function extractCustomerTableName(message) {
+  const m = String(message || '').match(/\b(?:table|from)\s+([a-z_][a-z0-9_]*)\b/i);
+  return m ? m[1].toLowerCase() : null;
+}
+
+/**
+ * @param {string} dbIntent
+ * @param {string} message
+ * @param {Awaited<ReturnType<typeof resolveCustomerDataPlane>>} plane
+ */
+function mapDatabaseIntentToOperation(dbIntent, message, plane) {
+  const agentsamTable = extractAgentsamTableName(message);
+  const customerTable = extractCustomerTableName(message);
+  const schema =
+    plane.data_plane === 'public_learning'
+      ? 'public'
+      : plane.data_plane === 'customer_supabase'
+        ? 'public'
+        : 'agentsam';
+
   switch (dbIntent) {
     case 'explain_table':
-      return table
-        ? { operation: 'describe_table', table, schema: 'agentsam' }
-        : { operation: 'inspect_schema', schema: 'agentsam' };
+      if (plane.data_plane === 'public_learning') {
+        return { operation: 'describe_table', table: agentsamTable || 'iam_tool_cards', schema };
+      }
+      if (plane.data_plane === 'customer_supabase') {
+        return customerTable
+          ? { operation: 'describe_table', table: customerTable, schema }
+          : { operation: 'inspect_schema', schema };
+      }
+      return agentsamTable
+        ? { operation: 'describe_table', table: agentsamTable, schema }
+        : { operation: 'inspect_schema', schema };
     case 'inspect_schema':
-      return { operation: 'inspect_schema', schema: 'agentsam' };
+      return plane.data_plane === 'public_learning'
+        ? { operation: 'list_tables', schema }
+        : { operation: 'inspect_schema', schema };
     case 'run_readonly_sql': {
       const sql = extractReadonlySql(message);
-      return sql ? { operation: 'run_readonly_sql', sql, schema: 'agentsam' } : null;
+      return sql ? { operation: 'run_readonly_sql', sql, schema } : null;
     }
     case 'propose_migration':
       return {
         operation: 'propose_migration',
         migration_sql: String(message || '').slice(0, 4000),
-        schema: 'agentsam',
+        schema,
       };
     default:
       return null;
@@ -96,12 +130,15 @@ function formatSemanticBlock(lane, results) {
 /**
  * @param {Record<string, unknown>} payload
  */
-function formatDatabaseBlock(payload) {
+function formatDatabaseBlock(payload, plane) {
   const heading = LANE_CONTEXT_HEADINGS.database_assistant;
+  const banner = plane?.data_plane
+    ? `Active data plane: ${plane.data_plane}${plane.project_ref ? ` (${plane.project_ref})` : ''}${plane.degraded_reason ? ` [${plane.degraded_reason}]` : ''}\n\n`
+    : '';
   const summary = JSON.stringify(payload, null, 0)
     .replace(/\s+/g, ' ')
-    .slice(0, MAX_LANE_BLOCK_CHARS - heading.length - 4);
-  return `${heading}\n\n${summary}`;
+    .slice(0, MAX_LANE_BLOCK_CHARS - heading.length - banner.length - 4);
+  return `${heading}\n\n${banner}${summary}`;
 }
 
 /**
@@ -137,29 +174,70 @@ export async function resolveAgentChatLaneContextBlock(env, opts = {}) {
 
   const dbIntent = classifyDatabaseAssistantIntent(message);
   if (dbIntent) {
-    const mapped = mapDatabaseIntentToOperation(dbIntent, message);
+    const userId = opts.userId != null ? String(opts.userId) : String(opts.authUser?.id || '');
+    const plane = await resolveCustomerDataPlane(env, {
+      user_id: userId,
+      tenant_id: opts.tenantId ?? null,
+      workspace_id: workspaceId,
+      message,
+      operation_type: dbIntent,
+      authUser: opts.authUser ?? null,
+    });
+
+    const mapped = mapDatabaseIntentToOperation(dbIntent, message, plane);
     if (!mapped) {
       return { block: '', lane: 'database_assistant', source: 'database_assistant_skipped' };
     }
     try {
-      const out = await dispatchDatabaseAssistant(env, {
+      const out = await dispatchCustomerDataPlaneOperation(env, {
         ...mapped,
+        message,
         authUser: opts.authUser ?? null,
+        user_id: userId,
         tenant_id: opts.tenantId ?? null,
         workspace_id: workspaceId,
         agent_run_id: opts.agentRunId ?? null,
+        data_plane: plane.data_plane,
       });
       if (!out?.ok) {
         console.warn(
           '[agent-chat] database_assistant_degraded',
-          JSON.stringify({ intent: dbIntent, error: out?.error, degraded: out?.degraded_reason }),
+          JSON.stringify({
+            intent: dbIntent,
+            data_plane: plane.data_plane,
+            error: out?.error,
+            reason: out?.reason,
+            degraded: out?.degraded_reason || plane.degraded_reason,
+          }),
         );
+        const denyMsg =
+          out?.user_message ||
+          (out?.error === 'customer_database_not_connected'
+            ? 'Connect your Supabase or Cloudflare D1 in integrations before querying your database.'
+            : out?.error === 'access_denied' || plane.data_plane === 'platform_access_denied'
+              ? 'IAM platform database access is owner-only. Use public learning examples or connect your own database.'
+              : '');
+        if (denyMsg) {
+          return {
+            block: `${LANE_CONTEXT_HEADINGS.database_assistant}\n\n${denyMsg}`,
+            lane: 'database_assistant',
+            source: 'data_plane_access_denied',
+          };
+        }
         return { block: '', lane: 'database_assistant', source: 'database_assistant_degraded' };
       }
+      console.info(
+        '[agent-chat] data_plane_used',
+        JSON.stringify({
+          data_plane: out.data_plane || plane.data_plane,
+          operation: mapped.operation,
+          owner_type: plane.owner_type,
+        }),
+      );
       return {
-        block: formatDatabaseBlock({ operation: mapped.operation, ...out }),
+        block: formatDatabaseBlock({ operation: mapped.operation, ...out }, plane),
         lane: 'database_assistant',
-        source: 'dispatchDatabaseAssistant',
+        source: 'dispatchCustomerDataPlaneOperation',
       };
     } catch (e) {
       console.warn('[agent-chat] database_assistant', e?.message ?? e);
