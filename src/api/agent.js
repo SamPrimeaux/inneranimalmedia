@@ -9352,6 +9352,8 @@ function isAgentApiPublic(path, method) {
   if (path === '/api/agent/telemetry') return true;
   if (path === '/api/agent/cicd') return true;
   if (path === '/api/agent/mcp') return true;
+  // Webhook signature or bridge/session auth enforced inside handleAgentMemorySync / sync handler
+  if (path === '/api/agent/memory/sync' && method === 'POST') return true;
   return false;
 }
 
