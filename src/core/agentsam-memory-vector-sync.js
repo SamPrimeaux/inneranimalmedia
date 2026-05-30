@@ -9,7 +9,8 @@ import { completeCronRun, failCronRun, startCronRun } from './cron-run-ledger.js
 
 export const MEMORY_VECTOR_SYNC_MAX_ROWS = 50;
 const CRON_HOURLY = '0 * * * *';
-const PG_TABLE = 'agentsam_memory_oai3large_1536';
+const VECTORIZE_BINDING = 'AGENTSAM_VECTORIZE_MEMORY';
+const VECTORIZE_INDEX = 'agentsam-memory-oai3large-1536';
 const EMBED_SPEC = Object.freeze({
   provider: 'openai',
   model: 'text-embedding-3-large',
@@ -156,44 +157,85 @@ export async function runAgentsamMemoryVectorSync(env, opts = {}) {
         const source = String(row.source || 'agent_sam').slice(0, 120);
         const createdAt = unixToIso(row.created_at);
         const updatedAt = unixToIso(row.updated_at);
+        const metadataJson = JSON.stringify(metadata);
+        const pgRowId = pgRow?.id != null ? String(pgRow.id) : crypto.randomUUID();
 
-        const upsert = await runHyperdriveQuery(
-          env,
-          `INSERT INTO agentsam.${PG_TABLE} (
-             workspace_id, user_id, oauth_client_id, memory_key, content, title,
-             embedding, source, metadata, created_at, updated_at, embedded_at
-           ) VALUES (
-             $1::uuid, $2, $3, $4, $5, $6,
-             $7::vector(1536), $8, $9::jsonb, $10::timestamptz, $11::timestamptz, now()
-           )
-           ON CONFLICT (memory_key) DO UPDATE SET
-             workspace_id = EXCLUDED.workspace_id,
-             user_id = EXCLUDED.user_id,
-             content = EXCLUDED.content,
-             title = EXCLUDED.title,
-             embedding = EXCLUDED.embedding,
-             source = EXCLUDED.source,
-             metadata = EXCLUDED.metadata,
-             embedded_at = now(),
-             updated_at = now()`,
-          [
-            workspaceUuid,
-            null,
-            null,
-            memoryKey,
-            content,
-            title,
-            vector,
-            source,
-            JSON.stringify(metadata),
-            createdAt,
-            updatedAt,
-          ],
-        );
-        if (!upsert.ok) {
+        const write = pgRow?.id
+          ? await runHyperdriveQuery(
+              env,
+              `UPDATE agentsam.${PG_TABLE}
+                  SET content = $2,
+                      title = $3,
+                      embedding = $4::vector(1536),
+                      source = $5,
+                      metadata = $6::jsonb,
+                      embedded_at = now(),
+                      updated_at = now()
+                WHERE id = $1::uuid
+                RETURNING id`,
+              [pgRowId, content, title, vector, source, metadataJson],
+            )
+          : await runHyperdriveQuery(
+              env,
+              `INSERT INTO agentsam.${PG_TABLE} (
+                 id, workspace_id, user_id, oauth_client_id, memory_key, content, title,
+                 embedding, source, metadata, created_at, updated_at,
+                 vectorize_binding, vectorize_index, embedded_at
+               ) VALUES (
+                 $1::uuid, $2::uuid, $3, $4, $5, $6, $7,
+                 $8::vector(1536), $9, $10::jsonb, $11::timestamptz, $12::timestamptz,
+                 $13, $14, now()
+               )
+               RETURNING id`,
+              [
+                pgRowId,
+                workspaceUuid,
+                null,
+                null,
+                memoryKey,
+                content,
+                title,
+                vector,
+                source,
+                metadataJson,
+                createdAt,
+                updatedAt,
+                VECTORIZE_BINDING,
+                VECTORIZE_INDEX,
+              ],
+            );
+
+        if (!write.ok) {
           failed += 1;
-          errors.push({ id: row.id, error: upsert.error || 'upsert_failed' });
+          errors.push({ id: row.id, error: write.error || 'pg_write_failed' });
           continue;
+        }
+
+        const savedId = String(write.rows?.[0]?.id ?? pgRowId);
+        if (typeof env?.[VECTORIZE_BINDING]?.upsert === 'function') {
+          try {
+            await env[VECTORIZE_BINDING].upsert([
+              {
+                id: savedId,
+                values: embedding,
+                metadata: {
+                  workspace_id: d1WorkspaceId,
+                  memory_key: memoryKey,
+                  title: title || memoryKey,
+                  source,
+                },
+              },
+            ]);
+            await runHyperdriveQuery(
+              env,
+              `UPDATE agentsam.${PG_TABLE}
+                  SET vectorize_id = $1, updated_at = now()
+                WHERE id = $2::uuid`,
+              [savedId, savedId],
+            );
+          } catch (e) {
+            console.warn('[memory-vector-sync] vectorize upsert:', e?.message ?? e);
+          }
         }
 
         await env.DB.prepare(`UPDATE agentsam_memory SET embedded_at = unixepoch() WHERE id = ?`)
