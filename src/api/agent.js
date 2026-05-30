@@ -195,6 +195,7 @@ import {
   shouldAllowAgentChatWorkflowGraph,
   shouldSkipSurfaceWorkflowPreflight,
 } from '../core/code-implementation-intent.js';
+import { stripUserTextForIntent } from '../core/active-file-envelope.js';
 import {
   buildHandoffPrimingUserMessage,
   executeAgentHandoffFromLoop,
