@@ -852,7 +852,6 @@ export async function purgeHotLogs(env) {
     { table: 'routing_decisions', days: 30, prefs: ['created_at'] },
     { table: 'rag_query_log', days: 60, prefs: ['created_at'] },
     { table: 'rag_ingest_log', days: 60, prefs: ['created_at'] },
-    { table: 'email_logs', days: 90, prefs: ['created_at'] },
   ];
 
   for (const spec of specs) {

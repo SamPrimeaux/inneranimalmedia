@@ -37,6 +37,70 @@ function safeJsonParse(raw) {
   }
 }
 
+function looksLikeGmailMessageId(id) {
+  const s = String(id || '').trim();
+  return /^[0-9a-f]{10,}$/i.test(s);
+}
+
+function mapEmailLogRow(logRow) {
+  return {
+    id: String(logRow.id),
+    from_address: String(logRow.from_email || logRow.from_address || ''),
+    to_address: String(logRow.to_email || logRow.to_address || ''),
+    subject: String(logRow.subject || '(no subject)'),
+    date_received: String(logRow.created_at || ''),
+    is_read: 1,
+    is_starred: 0,
+    is_archived: 0,
+    category: String(logRow.status || 'sent'),
+    has_attachments: 0,
+  };
+}
+
+async function loadSentLogBody(env, authUser, logId, logRow) {
+  const archive = env.EMAIL || env.EMAIL_ARCHIVE;
+  if (archive) {
+    try {
+      const obj = await archive.get(`sent/${logId}.json`);
+      if (obj) {
+        const payload = safeJsonParse(await obj.text());
+        if (payload) {
+          const html = payload.html != null ? String(payload.html).trim() : '';
+          const text = payload.text != null ? String(payload.text).trim() : '';
+          if (html) return html;
+          if (text) return text;
+        }
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+
+  const extId = logRow?.resend_id ? String(logRow.resend_id).trim() : '';
+  if (!extId || !looksLikeGmailMessageId(extId)) return null;
+
+  const gmailTok = await getGmailTokenRow(env, authUser);
+  const gmailAccessToken = gmailTok ? await resolveOAuthAccessToken(env, gmailTok) : null;
+  if (!gmailAccessToken) return null;
+
+  const got = await gmailGetMessage(env, gmailTok, extId, 'full');
+  if (!got.ok || !got.msg) return null;
+  const bodies = extractGmailBodies(got.msg);
+  return bodies.html || bodies.text || (got.msg?.snippet ? String(got.msg.snippet) : null);
+}
+
+async function archiveSentEmailPayload(env, logId, payload) {
+  const archive = env.EMAIL || env.EMAIL_ARCHIVE;
+  if (!archive) return;
+  try {
+    await archive.put(`sent/${logId}.json`, JSON.stringify(payload), {
+      httpMetadata: { contentType: 'application/json' },
+    });
+  } catch (e) {
+    console.warn('[mail/send] R2 archive put failed', e?.message ?? e);
+  }
+}
+
 async function readJsonBody(request) {
   try {
     return await request.json();
@@ -655,6 +719,24 @@ export async function handleMailApi(request, url, env, ctx) {
       const id = decodeURIComponent(url.pathname.split('/').pop() || '').trim();
       if (!id) return jsonResponse({ error: 'Not found' }, 404);
 
+      const logRow = await env.DB.prepare(
+        `SELECT id, from_email, to_email, from_address, to_address, subject, status, resend_id, created_at
+         FROM email_logs
+         WHERE id = ?
+         LIMIT 1`,
+      ).bind(id).first();
+      if (logRow) {
+        const body = await loadSentLogBody(env, authUser, id, logRow);
+        return jsonResponse({
+          email: mapEmailLogRow(logRow),
+          body,
+          attachments: [],
+          thread: [],
+          metadata: { source: 'email_logs', status: logRow.status },
+          source: 'sent',
+        });
+      }
+
       const gmailTok = await getGmailTokenRow(env, authUser);
       const gmailAccessToken = gmailTok ? await resolveOAuthAccessToken(env, gmailTok) : null;
       if (gmailAccessToken) {
@@ -1020,15 +1102,26 @@ export async function handleMailApi(request, url, env, ctx) {
         if (!sent.ok) return jsonResponse({ error: sent.error }, sent.status || 502);
         // Also log to email_logs for Sent UI.
         const logId = crypto.randomUUID();
+        const gmailMsgId = String(sent.json?.id || '');
         try {
           await env.DB.prepare(
             `INSERT INTO email_logs (id, to_email, from_email, subject, status, resend_id, created_at, updated_at)
              VALUES (?, ?, ?, ?, 'sent', ?, datetime('now'), datetime('now'))`
-          ).bind(logId, to, from, subject, String(sent.json?.id || '')).run();
+          ).bind(logId, to, from, subject, gmailMsgId).run();
         } catch {
           // ignore
         }
-        return jsonResponse({ ok: true, provider: 'gmail', id: String(sent.json?.id || ''), log_id: logId });
+        await archiveSentEmailPayload(env, logId, {
+          id: logId,
+          resend_id: gmailMsgId,
+          from,
+          to,
+          subject,
+          html: html || null,
+          text: text || null,
+          sent_at: new Date().toISOString(),
+        });
+        return jsonResponse({ ok: true, provider: 'gmail', id: gmailMsgId, log_id: logId });
       }
 
       const platformSend = await sendPlatformEmail(env, {
@@ -1050,8 +1143,7 @@ export async function handleMailApi(request, url, env, ctx) {
           ? data.id.trim()
           : crypto?.randomUUID?.() || 'sent';
       const logId = crypto.randomUUID();
-      const archive = env.EMAIL || env.EMAIL_ARCHIVE;
-      const archivePayload = JSON.stringify({
+      const archivePayload = {
         id: logId,
         resend_id: resendId,
         from,
@@ -1060,7 +1152,7 @@ export async function handleMailApi(request, url, env, ctx) {
         html: html || null,
         text: text || null,
         sent_at: new Date().toISOString(),
-      });
+      };
 
       try {
         const ins = await env.DB.prepare(
@@ -1074,15 +1166,7 @@ export async function handleMailApi(request, url, env, ctx) {
         console.warn('[mail/send] email_logs insert failed', e?.message ?? e);
       }
 
-      if (archive) {
-        try {
-          await archive.put(`sent/${logId}.json`, archivePayload, {
-            httpMetadata: { contentType: 'application/json' },
-          });
-        } catch (e) {
-          console.warn('[mail/send] R2 archive put failed', e?.message ?? e);
-        }
-      }
+      await archiveSentEmailPayload(env, logId, archivePayload);
 
       return jsonResponse({ ok: true, id: resendId, log_id: logId });
     }

@@ -7,7 +7,7 @@ import { runMidnightUtcJobs } from './jobs/midnight-utc.js';
 import { runFinancialCommandCron } from './jobs/financial-command-cron.js';
 import { sendDailyPlanEmail } from './jobs/daily-plan-email.js';
 import { runWeeklyRollup } from './jobs/weekly-rollup.js';
-import { runSpendLedgerRollup } from './jobs/spend-ledger-rollup.js';
+import { runFirstOfMonthJobs } from './jobs/first-of-month.js';
 import { scheduleSixAmRagJobs } from './jobs/rag-six-am.js';
 import { writeDailySnapshot } from './jobs/write-daily-snapshot.js';
 import { runThirtyMinuteJobs, runHourlyRoutingJobs } from './jobs/thirty-minute-cron.js';
@@ -154,7 +154,7 @@ export async function handleScheduled(event, env, ctx) {
       break;
 
     case '0 0 1 * *':
-      ctx.waitUntil(runSpendLedgerRollup(env));
+      ctx.waitUntil(runFirstOfMonthJobs(env));
       break;
 
     default:

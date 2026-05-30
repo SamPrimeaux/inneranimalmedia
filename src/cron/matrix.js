@@ -14,5 +14,5 @@
  * | `0 9 * * 1`     | `runIntegritySnapshot(env, 'cron')` |
  * | `0 1 * * sun`   | `runWeeklyRollup` — active workspaces → `agentsam_analytics` |
  * | `30 13 * * *`   | `sendDailyPlanEmail` |
- * | `0 0 1 * *`     | `runSpendLedgerRollup` |
+ * | `0 0 1 * *`     | `runFirstOfMonthJobs` — `runEmailMonthlyRollup` (email_logs → rollups, R2 sent/ prune, received_emails trim) then `runSpendLedgerRollup` |
  */

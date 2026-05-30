@@ -150,6 +150,29 @@ function folderTitle(folder: Folder) {
   return 'Templates';
 }
 
+const MAIL_SIDEBAR_W_KEY = 'iam_mail_sidebar_w';
+const MAIL_DETAIL_W_KEY = 'iam_mail_detail_w';
+const MAIL_SIDEBAR_MIN = 160;
+const MAIL_SIDEBAR_MAX = 360;
+const MAIL_DETAIL_MIN = 280;
+const MAIL_DETAIL_MAX = 720;
+const MAIL_RESIZE_HANDLE_W = 6;
+
+function clampMailPanel(n: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, Math.round(n)));
+}
+
+function readStoredMailWidth(key: string, fallback: number, min: number, max: number) {
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const v = Number(localStorage.getItem(key));
+    if (Number.isFinite(v)) return clampMailPanel(v, min, max);
+  } catch {
+    /* ignore */
+  }
+  return fallback;
+}
+
 const styles = {
   outer: {
     display: 'flex',
@@ -160,29 +183,36 @@ const styles = {
     fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif',
   } as React.CSSProperties,
   sidebar: {
-    width: 220,
     flexShrink: 0,
     background: 'var(--bg-panel)',
-    borderRight: '1px solid var(--border-subtle)',
+    borderRight: 'none',
     display: 'flex',
     flexDirection: 'column',
     minHeight: 0,
   } as React.CSSProperties,
   center: {
     flex: 1,
-    minWidth: 0,
-    borderRight: '1px solid var(--border-subtle)',
+    minWidth: 200,
+    borderRight: 'none',
     display: 'flex',
     flexDirection: 'column',
     minHeight: 0,
   } as React.CSSProperties,
   detail: {
-    width: 440,
     flexShrink: 0,
     display: 'flex',
     flexDirection: 'column',
     minHeight: 0,
     background: 'var(--bg-app)',
+  } as React.CSSProperties,
+  resizeHandle: {
+    flexShrink: 0,
+    width: MAIL_RESIZE_HANDLE_W,
+    cursor: 'col-resize',
+    touchAction: 'none',
+    position: 'relative',
+    zIndex: 2,
+    background: 'transparent',
   } as React.CSSProperties,
 };
 
@@ -217,10 +247,73 @@ export function MailPage() {
   const [sendError, setSendError] = useState<string | null>(null);
   const [filterCategory, setFilterCategory] = useState<string | null>(null);
   const [threadOpen, setThreadOpen] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(() => readStoredMailWidth(MAIL_SIDEBAR_W_KEY, 220, MAIL_SIDEBAR_MIN, MAIL_SIDEBAR_MAX));
+  const [detailWidth, setDetailWidth] = useState(() => readStoredMailWidth(MAIL_DETAIL_W_KEY, 440, MAIL_DETAIL_MIN, MAIL_DETAIL_MAX));
   const { toasts, add: toast, remove: removeToast } = useToast();
 
   const detailAbortRef = useRef<AbortController | null>(null);
   const listAbortRef = useRef<AbortController | null>(null);
+
+  const startPanelResize = useCallback((edge: 'sidebar' | 'detail', e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const target = e.currentTarget;
+    const pointerId = e.pointerId;
+    try {
+      target.setPointerCapture(pointerId);
+    } catch {
+      /* ignore */
+    }
+    document.body.classList.add('is-resizing');
+    const startX = e.clientX;
+    const startSidebar = sidebarWidth;
+    const startDetail = detailWidth;
+    let done = false;
+
+    const finish = () => {
+      if (done) return;
+      done = true;
+      document.body.classList.remove('is-resizing');
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+      try {
+        target.releasePointerCapture(pointerId);
+      } catch {
+        /* ignore */
+      }
+    };
+
+    const onMove = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return;
+      const dx = ev.clientX - startX;
+      if (edge === 'sidebar') {
+        const next = clampMailPanel(startSidebar + dx, MAIL_SIDEBAR_MIN, MAIL_SIDEBAR_MAX);
+        setSidebarWidth(next);
+        try {
+          localStorage.setItem(MAIL_SIDEBAR_W_KEY, String(next));
+        } catch {
+          /* ignore */
+        }
+        return;
+      }
+      const next = clampMailPanel(startDetail - dx, MAIL_DETAIL_MIN, MAIL_DETAIL_MAX);
+      setDetailWidth(next);
+      try {
+        localStorage.setItem(MAIL_DETAIL_W_KEY, String(next));
+      } catch {
+        /* ignore */
+      }
+    };
+
+    const onUp = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return;
+      finish();
+    };
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+  }, [sidebarWidth, detailWidth]);
 
   const categories = useMemo(() => {
     const rows = Array.isArray(stats.categories) ? stats.categories : [];
@@ -400,7 +493,7 @@ export function MailPage() {
       return;
     }
 
-    if (folder === 'sent' || folder === 'templates') {
+    if (folder === 'templates') {
       setEmailDetail(null);
       setThreadOpen(false);
       return;
@@ -435,7 +528,7 @@ export function MailPage() {
 
   const reload = useCallback(() => {
     void loadFolder();
-    if (selectedEmail && folder !== 'sent' && folder !== 'templates') {
+    if (selectedEmail && folder !== 'templates') {
       setSelectedEmail((p) => (p ? { ...p } : p));
     }
   }, [loadFolder, selectedEmail, folder]);
@@ -622,7 +715,7 @@ export function MailPage() {
   return (
     <div style={styles.outer}>
       {/* LEFT SIDEBAR */}
-      <div style={styles.sidebar}>
+      <div style={{ ...styles.sidebar, width: sidebarWidth }}>
         <div style={{ padding: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
           <button
             type="button"
@@ -748,6 +841,25 @@ export function MailPage() {
             </div>
           )}
         </div>
+      </div>
+
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize mail folders panel"
+        title="Drag to resize folders panel"
+        style={styles.resizeHandle}
+        onPointerDown={(e) => startPanelResize('sidebar', e)}
+      >
+        <span
+          aria-hidden
+          style={{
+            pointerEvents: 'none',
+            position: 'absolute',
+            inset: '0 2px',
+            borderLeft: '1px solid var(--border-subtle)',
+          }}
+        />
       </div>
 
       {/* CENTER LIST */}
@@ -1106,8 +1218,27 @@ export function MailPage() {
         )}
       </div>
 
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize reading pane"
+        title="Drag to resize reading pane"
+        style={styles.resizeHandle}
+        onPointerDown={(e) => startPanelResize('detail', e)}
+      >
+        <span
+          aria-hidden
+          style={{
+            pointerEvents: 'none',
+            position: 'absolute',
+            inset: '0 2px',
+            borderLeft: '1px solid var(--border-subtle)',
+          }}
+        />
+      </div>
+
       {/* RIGHT DETAIL */}
-      <div style={styles.detail}>
+      <div style={{ ...styles.detail, width: detailWidth }}>
         {!selectedEmail ? (
           <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <div style={{ textAlign: 'center', padding: 16, color: 'var(--text-muted)' }}>
