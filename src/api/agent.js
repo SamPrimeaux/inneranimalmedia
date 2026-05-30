@@ -195,7 +195,7 @@ import {
   shouldAllowAgentChatWorkflowGraph,
   shouldSkipSurfaceWorkflowPreflight,
 } from '../core/code-implementation-intent.js';
-import { stripUserTextForIntent } from '../core/active-file-envelope.js';
+import { stripUserTextForIntent, activeFileBlocksImageGeneration, extractOpenFileContentFromMessage } from '../core/active-file-envelope.js';
 import {
   buildHandoffPrimingUserMessage,
   executeAgentHandoffFromLoop,
@@ -6736,7 +6736,13 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   try {
     const { parseActiveFileEnvelope } = await import('../core/active-file-envelope.js');
     activeFileEnvelope = parseActiveFileEnvelope(body);
-    if (activeFileEnvelope) body.activeFileEnvelope = activeFileEnvelope;
+    if (activeFileEnvelope) {
+      if (!activeFileEnvelope.content) {
+        const extracted = extractOpenFileContentFromMessage(message);
+        if (extracted) activeFileEnvelope.content = extracted;
+      }
+      body.activeFileEnvelope = activeFileEnvelope;
+    }
   } catch (e) {
     console.warn('[agent] active_file_envelope_parse', e?.message ?? e);
   }
@@ -7030,6 +7036,8 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       message,
     );
 
+  const activeCodeFileOpen = activeFileBlocksImageGeneration(activeFileEnvelope);
+
   /** Ask mode still needs tools when the user is asking for D1/schema truth, not chat guesses. */
   const askDataPlaneIntent =
     requestedMode === 'ask' &&
@@ -7037,9 +7045,15 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       message,
     );
 
-  const imageCapabilityIntent = hasImageGenerationIntent(message) && !isCodeImplementationIntent(message);
-  const videoCapabilityIntent = hasVideoGenerationIntent(message);
-  const directImageIntent = isPrimaryImageGenerationIntent(message);
+  const intentMessageForMedia = stripUserTextForIntent(message);
+  let imageCapabilityIntent =
+    hasImageGenerationIntent(intentMessageForMedia) && !isCodeImplementationIntent(intentMessageForMedia);
+  const videoCapabilityIntent = hasVideoGenerationIntent(intentMessageForMedia);
+  let directImageIntent = isPrimaryImageGenerationIntent(intentMessageForMedia);
+  if (activeCodeFileOpen) {
+    imageCapabilityIntent = false;
+    directImageIntent = false;
+  }
 
   const allowImmediateWorkflowMatch =
     requestedMode === 'agent' ||
@@ -7597,7 +7611,11 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         !ingestBypass &&
         (authUserIsSuperadmin(authUser) ||
           String(authUser?.role || '').trim().toLowerCase() === 'owner');
-      tools = filterToolsForExecutionLane(tools, executionLane, { openWebBackend, isPlatformOwner });
+      tools = filterToolsForExecutionLane(tools, executionLane, {
+        openWebBackend,
+        isPlatformOwner,
+        activeCodeFileOpen,
+      });
       tools = await ensureWebLaneTools(env, tools, effectiveMaxTools, executionLane, openWebBackend);
       if (executionLane.primary_lane === 'workspace_grep') {
         tools = await ensureCodeCapabilityTools(env, tools, effectiveMaxTools);

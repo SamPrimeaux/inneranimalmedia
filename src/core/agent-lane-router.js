@@ -19,6 +19,7 @@ import {
   messageExplicitlyRequestsBrowserInspection,
 } from './code-implementation-intent.js';
 import { stripUserTextForIntent } from './active-file-envelope.js';
+import { IMAGE_GEN_TOOL_NAMES } from '../tools/image_generation.js';
 import {
   isSimpleGreeting,
   messageRequestsInternalKnowledge,
@@ -341,7 +342,7 @@ export function isBrowserInspectToolName(name) {
  *
  * @param {any[]} tools
  * @param {ReturnType<typeof classifyAgentExecutionLane>} laneResult
- * @param {{ openWebBackend?: { available: boolean }, isPlatformOwner?: boolean }} [opts]
+ * @param {{ openWebBackend?: { available: boolean }, isPlatformOwner?: boolean, activeCodeFileOpen?: boolean }} [opts]
  */
 export function filterToolsForExecutionLane(tools, laneResult, opts = {}) {
   if (!Array.isArray(tools) || !tools.length) return tools;
@@ -349,6 +350,7 @@ export function filterToolsForExecutionLane(tools, laneResult, opts = {}) {
   const lane = laneResult?.primary_lane || 'none';
   const backendOk = opts.openWebBackend?.available === true;
   const isPlatformOwner = opts.isPlatformOwner === true;
+  const activeCodeFileOpen = opts.activeCodeFileOpen === true;
 
   let out = tools.filter((t) => !LEGACY_UNIFIED_RAG_TOOL_NAMES.has(String(t?.name || '').trim()));
 
@@ -455,6 +457,10 @@ export function filterToolsForExecutionLane(tools, laneResult, opts = {}) {
 
   if (lane === 'open_web_search' || lane === 'web_fetch') {
     out = out.filter((t) => !isBrowserInspectToolName(String(t?.name || '')));
+  }
+
+  if (activeCodeFileOpen) {
+    out = out.filter((t) => !IMAGE_GEN_TOOL_NAMES.has(String(t?.name || '').trim()));
   }
 
   return out;

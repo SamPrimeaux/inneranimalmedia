@@ -1472,6 +1472,12 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       form.append('active_file_github_branch', activeFile.githubBranch ?? '');
       form.append('active_file_drive_id', activeFile.driveFileId ?? '');
       form.append('active_file_workspace_path', activeFile.workspacePath ?? '');
+      if (activeFileContent != null && activeFileContent !== '') {
+        form.append(
+          'active_file_content',
+          activeFileContent.slice(0, 48000),
+        );
+      }
     }
 
     const applyAssistantError = (msg: string) => {

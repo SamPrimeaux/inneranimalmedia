@@ -161,7 +161,7 @@ export function isCodeImplementationIntent(message) {
   if (isReadOnlyFileContextIntent(message)) return false;
 
   return (
-    /\b(implement|refactor|patch|scaffold|wire\s+(up|in)|add\s+route|create\s+(the\s+)?files?)\b/i.test(m) ||
+    /\b(implement|refactor(?:ing|ed)?|patch|scaffold|wire\s+(up|in)|add\s+route|create\s+(the\s+)?files?)\b/i.test(m) ||
     /\b(build|ship|deliver)\b.{0,40}\b(dashboard|component|page|module|feature|migration|repo)\b/i.test(m) ||
     /\b(dashboard\/[\w/-]+|components\/|migrations\/|app\.tsx|index\.tsx|\.tsx\b|\.jsx\b|\.ts\b|\.js\b)\b/i.test(m) ||
     /\b(r2_write|github_create_file|github_update_file|terminal_run|terminal_execute)\b/i.test(m) ||

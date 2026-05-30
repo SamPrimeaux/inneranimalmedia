@@ -4,6 +4,7 @@
  */
 
 import { generateImageOpenAI, normalizeOpenAiImageQuality } from '../integrations/openai.js';
+import { stripUserTextForIntent } from '../core/active-file-envelope.js';
 import { isCodeImplementationIntent } from '../core/code-implementation-intent.js';
 import { resolveModelApiKey } from '../integrations/tokens.js';
 import { getR2Binding } from '../api/r2-api.js';
@@ -59,7 +60,7 @@ export function isExplicitImagePlanningIntent(message) {
  * @param {string} message
  */
 export function hasImageGenerationIntent(message) {
-  const m = String(message || '').trim();
+  const m = stripUserTextForIntent(message).trim();
   if (!m || isExplicitImagePlanningIntent(m)) return false;
 
   if (matchesCoreImageGenerationPatterns(m)) return true;
@@ -115,7 +116,7 @@ function matchesCoreImageGenerationPatterns(m) {
  * @param {string} message
  */
 export function isPrimaryImageGenerationIntent(message) {
-  const m = String(message || '').trim();
+  const m = stripUserTextForIntent(message).trim();
   if (!hasImageGenerationIntent(m)) return false;
   if (isCodeImplementationIntent(m)) return false;
   if (COMBINED_WORK_RE.test(m) && m.split(/\s+/).filter(Boolean).length > 14) return false;
