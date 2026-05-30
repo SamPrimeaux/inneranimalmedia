@@ -9,6 +9,7 @@ import { completeCronRun, failCronRun, startCronRun } from './cron-run-ledger.js
 
 export const MEMORY_VECTOR_SYNC_MAX_ROWS = 50;
 const CRON_HOURLY = '0 * * * *';
+const PG_TABLE = 'agentsam_memory_oai3large_1536';
 const VECTORIZE_BINDING = 'AGENTSAM_VECTORIZE_MEMORY';
 const VECTORIZE_INDEX = 'agentsam-memory-oai3large-1536';
 const EMBED_SPEC = Object.freeze({
