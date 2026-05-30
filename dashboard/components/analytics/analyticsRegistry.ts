@@ -1,111 +1,27 @@
-import { lazy } from 'react';
+/** Single-page analytics cockpit — tab sub-routes removed (Sprint 1). */
+export const ANALYTICS_PAGE = {
+  id: 'analytics',
+  route: '/dashboard/analytics',
+  label: 'Analytics',
+  status: 'live' as const,
+  dataSources: [
+    'systemPulse',
+    'executionPerf',
+    'toolCalls',
+    'errorLog',
+    'modelLeaderboard',
+    'mcpTools',
+    'routingArms',
+  ],
+  sections: [
+    { id: 'platform-pulse', label: 'Platform pulse' },
+    { id: 'model-intelligence', label: 'Model intelligence' },
+    { id: 'tool-reliability', label: 'Tool reliability' },
+    { id: 'routing-intelligence', label: 'Routing intelligence' },
+  ],
+};
 
-export interface AnalyticsTab {
-  id: string;
-  label: string;
-  dataSources: string[];
-  status: 'live' | 'beta' | 'coming_soon';
-  component: React.LazyExoticComponent<any>;
-}
+/** @deprecated Tab nav removed — kept empty so legacy imports do not break. */
+export const ANALYTICS_TABS: [] = [];
 
-export type AnalyticsTabId =
-  | 'overview'
-  | 'agent'
-  | 'workers'
-  | 'mcp'
-  | 'models'
-  | 'databases'
-  | 'd1'
-  | 'advisors'
-  | 'deploys'
-  | 'costs'
-  | 'rag'
-  | 'codebase';
-
-export const ANALYTICS_TABS: Array<AnalyticsTab & { id: AnalyticsTabId }> = [
-  {
-    id: 'overview',
-    label: 'Overview',
-    status: 'live',
-    dataSources: ['systemPulse', 'workflowRuns', 'toolCalls', 'errorInbox', 'deployHealth', 'dataHealth'],
-    component: lazy(() => import('./tabs/OverviewTab')),
-  },
-  {
-    id: 'agent',
-    label: 'Agent',
-    status: 'live',
-    dataSources: ['workflowRuns', 'workflowGraph', 'dependencyGraph', 'executionPerf', 'errorInbox', 'guardrails', 'approvals', 'skills'],
-    component: lazy(() => import('./tabs/AgentTab')),
-  },
-  {
-    id: 'workers',
-    label: 'Workers',
-    status: 'live',
-    dataSources: ['workersSummary', 'r2Inventory', 'dashboardVersions', 'dataHealth'],
-    component: lazy(() => import('./tabs/WorkersTab')),
-  },
-  {
-    id: 'mcp',
-    label: 'MCP',
-    status: 'live',
-    dataSources: ['toolCalls'],
-    component: lazy(() => import('./tabs/McpTab')),
-  },
-  {
-    id: 'models',
-    label: 'Models',
-    status: 'live',
-    dataSources: [
-      'modelLeaderboard',
-      'modelsDrift',
-      'modelsPromptCache',
-      'routingArms',
-      'supabaseRoutingDecisions',
-      'supabaseEvalRuns',
-    ],
-    component: lazy(() => import('./tabs/ModelsTab')),
-  },
-  {
-    id: 'databases',
-    label: 'Databases',
-    status: 'beta',
-    dataSources: ['executionPerf', 'dataHealth'],
-    component: lazy(() => import('./tabs/DatabasesTab')),
-  },
-  {
-    id: 'advisors',
-    label: 'Advisors',
-    status: 'live',
-    dataSources: ['d1ErrorLog', 'advisorsFindings', 'advisorsGuardrails', 'dataHealth', 'supabaseErrorEvents'],
-    component: lazy(() => import('./tabs/AdvisorsTab')),
-  },
-  {
-    id: 'deploys',
-    label: 'Deploys',
-    status: 'live',
-    dataSources: ['deployHealth', 'dashboardVersions'],
-    component: lazy(() => import('./tabs/DeploysTab')),
-  },
-  {
-    id: 'costs',
-    label: 'Costs',
-    status: 'live',
-    dataSources: ['costTrend', 'modelLeaderboard', 'systemPulse', 'promptCache'],
-    component: lazy(() => import('./tabs/CostsTab')),
-  },
-  {
-    id: 'rag',
-    label: 'RAG',
-    status: 'live',
-    dataSources: ['ragHealth'],
-    component: lazy(() => import('./tabs/RagTab')),
-  },
-  {
-    id: 'codebase',
-    label: 'Codebase',
-    status: 'live',
-    dataSources: ['codebaseHealth'],
-    component: lazy(() => import('./tabs/CodebaseTab')),
-  },
-];
-
+export type AnalyticsTabId = typeof ANALYTICS_PAGE.id;

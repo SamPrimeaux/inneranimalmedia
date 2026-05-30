@@ -2789,7 +2789,7 @@ const App: React.FC = () => {
                 label="Analytics"
                 expanded={sidebarRailExpanded}
                 active={location.pathname.startsWith('/dashboard/analytics')}
-                onClick={() => navigate('/dashboard/analytics/overview')}
+                onClick={() => navigate('/dashboard/analytics')}
               />
               <ActivityRailItem icon={Bot} label="Agent" expanded={sidebarRailExpanded} active={isAgentShellPath(location.pathname)} onClick={() => navigate(AGENT_HOME_PATH)} />
               <ActivityRailItem
@@ -3044,11 +3044,11 @@ const App: React.FC = () => {
                           </div>
                         }
                       />
-                      <Route path="/dashboard/analytics" element={<Navigate to="/dashboard/analytics/overview" replace />} />
-                      <Route path="/dashboard/analytics/:tab" element={<AnalyticsPage />} />
-                      <Route path="/dashboard/health" element={<Navigate to="/dashboard/analytics/overview" replace />} />
+                      <Route path="/dashboard/analytics" element={<AnalyticsPage />} />
+                      <Route path="/dashboard/analytics/*" element={<Navigate to="/dashboard/analytics" replace />} />
+                      <Route path="/dashboard/health" element={<Navigate to="/dashboard/analytics" replace />} />
                       <Route path="/dashboard/health/:tab" element={<RedirectHealthToAnalytics />} />
-                      <Route path="/dashboard/health/*" element={<Navigate to="/dashboard/analytics/overview" replace />} />
+                      <Route path="/dashboard/health/*" element={<Navigate to="/dashboard/analytics" replace />} />
                       <Route path="/dashboard/learn" element={<LearnPage />} />
                       <Route path="/dashboard/workflows" element={<WorkflowsPage />} />
                       <Route path="/dashboard/database" element={<DatabasePage />} />

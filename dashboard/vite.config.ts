@@ -1,4 +1,5 @@
 import path from 'path';
+import fs from 'node:fs';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { visualizer } from 'rollup-plugin-visualizer';
@@ -87,14 +88,17 @@ export default defineConfig(({ mode }) => {
       react(),
       {
         name: 'restore-dashboard-shell-css-href',
-        enforce: 'post',
-        transformIndexHtml(html) {
-          return html
-            .replaceAll(
-              '/static/dashboard/app/static/dashboard/shell.css',
-              '/static/dashboard/shell.css',
-            )
-            .replaceAll('dashboard2.css', 'dashboard.css');
+        apply: 'build',
+        transformIndexHtml: {
+          order: 'post',
+          handler(html) {
+            return html
+              .replaceAll(
+                '/static/dashboard/app/static/dashboard/shell.css',
+                '/static/dashboard/shell.css',
+              )
+              .replaceAll('dashboard2.css', 'dashboard.css');
+          },
         },
       },
       {
@@ -151,6 +155,38 @@ export default defineConfig(({ mode }) => {
           parts.sort((a, b) => (a.name === 'dashboard.css' ? -1 : b.name === 'dashboard.css' ? 1 : 0));
           const merged = parts.map((p) => p.source).join('\n');
           this.emitFile({ type: 'asset', fileName: 'dashboard.css', source: merged });
+        },
+      },
+      {
+        name: 'rewrite-dashboard2-css-refs',
+        apply: 'build',
+        enforce: 'post',
+        renderChunk(code) {
+          if (!code.includes('dashboard2.css')) return null;
+          return code.replaceAll('dashboard2.css', 'dashboard.css');
+        },
+        generateBundle(_options, bundle) {
+          for (const item of Object.values(bundle)) {
+            if (item.type === 'chunk' && item.code.includes('dashboard2.css')) {
+              item.code = item.code.replaceAll('dashboard2.css', 'dashboard.css');
+            } else if (
+              item.type === 'asset' &&
+              typeof item.source === 'string' &&
+              item.source.includes('dashboard2.css')
+            ) {
+              item.source = item.source.replaceAll('dashboard2.css', 'dashboard.css');
+            }
+          }
+        },
+        writeBundle(options, bundle) {
+          const outDir = options.dir || path.resolve(__dirname, 'dist');
+          for (const fileName of Object.keys(bundle)) {
+            if (!/\.(?:js|html|css)$/.test(fileName)) continue;
+            const filePath = path.join(outDir, fileName);
+            const raw = fs.readFileSync(filePath, 'utf8');
+            if (!raw.includes('dashboard2.css')) continue;
+            fs.writeFileSync(filePath, raw.replaceAll('dashboard2.css', 'dashboard.css'), 'utf8');
+          }
         },
       },
       ...(analyze

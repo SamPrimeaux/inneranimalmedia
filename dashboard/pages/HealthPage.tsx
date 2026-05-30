@@ -42,7 +42,7 @@ export const HealthPage: React.FC = () => {
   useEffect(() => {
     const t = params.tab?.toLowerCase().trim();
     if (t && !TAB_IDS.has(t)) {
-      navigate('/dashboard/analytics/overview', { replace: true });
+      navigate('/dashboard/analytics', { replace: true });
     }
   }, [params.tab, navigate]);
 
