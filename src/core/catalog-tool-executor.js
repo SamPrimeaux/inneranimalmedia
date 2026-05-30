@@ -753,7 +753,7 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         };
         break;
       }
-      const bucket = await resolveRegisteredR2BucketName(env, bucketRaw);
+      let bucket = await resolveRegisteredR2BucketName(env, bucketRaw);
 
       if (authSource === 'platform' && isOwner) {
         const bucketCheck = await assertOwnerPlatformR2Bucket(env, bucket);
