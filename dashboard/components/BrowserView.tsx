@@ -117,25 +117,59 @@ function originOf(url: string): string {
   try { return new URL(url).origin; } catch { return url; }
 }
 
-/** Poll job list until screenshot completes (modular worker exposes GET /api/playwright). */
-async function pollPlaywrightScreenshotJob(jobId: string, signal: AbortSignal): Promise<string | null> {
-  const MAX_ATTEMPTS = 28;
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    if (signal.aborted) return null;
-    await new Promise((r) => setTimeout(r, 1000));
-    try {
-      const r = await fetch('/api/playwright', { credentials: 'same-origin', signal });
-      const j = await r.json().catch(() => ({})) as { jobs?: Array<{ id?: string; status?: string; result_url?: string; error?: string }> };
-      const jobs = Array.isArray(j.jobs) ? j.jobs : [];
-      const row = jobs.find((x) => String(x.id) === jobId);
-      if (!row) return null; // job not found — stale, bail out
-      if (row?.status === 'completed' && row.result_url) return String(row.result_url);
-      if (row?.status === 'error') throw new Error(row.error || 'Screenshot job failed');
-    } catch (e) {
-      if (e instanceof Error && e.name === 'AbortError') return null;
-    }
-  }
+const SCREENSHOT_TIMEOUT_MSG = 'Screenshot timed out, retry';
+
+type PlaywrightJobSnapshot = {
+  id?: string;
+  status?: string;
+  result_url?: string;
+  screenshot_url?: string;
+  error?: string;
+};
+
+function pickScreenshotUrl(data: Record<string, unknown> | PlaywrightJobSnapshot | null | undefined): string | null {
+  if (!data) return null;
+  if (typeof data.screenshot_url === 'string' && data.screenshot_url) return data.screenshot_url;
+  if (typeof data.result_url === 'string' && data.result_url) return data.result_url;
   return null;
+}
+
+function pickInvokeScreenshotUrl(data: Record<string, unknown>): string | null {
+  const direct = pickScreenshotUrl(data);
+  if (direct) return direct;
+  if (typeof data.screenshotUrl === 'string' && data.screenshotUrl) return data.screenshotUrl;
+  const result = data.result;
+  if (result && typeof result === 'object') return pickScreenshotUrl(result as Record<string, unknown>);
+  return null;
+}
+
+function sleepMs(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException('Aborted', 'AbortError'));
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      window.clearTimeout(timer);
+      signal.removeEventListener('abort', onAbort);
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
+    signal.addEventListener('abort', onAbort);
+  });
+}
+
+/** Single job fetch — one retry after pending POST (no polling loop). */
+async function fetchPlaywrightJobOnce(jobId: string, signal: AbortSignal): Promise<PlaywrightJobSnapshot | null> {
+  const r = await fetch(`/api/playwright/${encodeURIComponent(jobId)}`, {
+    credentials: 'same-origin',
+    signal,
+  });
+  if (!r.ok) return null;
+  return (await r.json().catch(() => null)) as PlaywrightJobSnapshot | null;
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -1526,13 +1560,15 @@ const BrowserPane: React.FC<PaneProps> = ({
   );
 
   // ── Sync parent URL prop → iframe or MYBROWSER preview (agent / user navigation) ─
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
   useEffect(() => {
     if (!initialUrl?.trim()) return;
-    void navigate(normalize(initialUrl), {
+    void navigateRef.current(normalize(initialUrl), {
       preview: initialPreview?.screenshot_url ? initialPreview : null,
       automation: Boolean(initialPreview?.screenshot_url),
     });
-  }, [initialUrl, initialPreview, navigate]);
+  }, [initialUrl, initialPreview]);
 
   // ── Screenshot (Playwright) ─────────────────────────────────────────────────
   const runScreenshot = useCallback(async (clip?: { x: number; y: number; width: number; height: number }) => {
@@ -1561,23 +1597,34 @@ const BrowserPane: React.FC<PaneProps> = ({
         signal:      ac.signal,
       });
       const data = await res.json().catch(() => ({})) as Record<string, unknown>;
-      let url =
-        (data.screenshot_url as string | undefined) ||
-        (data.screenshotUrl as string | undefined) ||
-        (data.result_url as string | undefined) ||
-        ((data.result as Record<string, unknown> | undefined)?.screenshot_url as string | undefined);
+      let url = pickInvokeScreenshotUrl(data);
       const statusStr = String(data.status || '');
-      const jobId = data.id != null ? String(data.id) : '';
-      if (!url && statusStr === 'pending' && jobId) {
-        url = (await pollPlaywrightScreenshotJob(jobId, ac.signal)) || undefined;
-      }
+
       if (!url && res.ok && statusStr === 'pending') {
-        setScreenshotErr('Capture timed out after 30s. The job may still finish — check recent browser jobs or retry.');
-        return;
+        const jobId = data.id != null ? String(data.id) : '';
+        if (!jobId) {
+          setScreenshotErr(SCREENSHOT_TIMEOUT_MSG);
+          return;
+        }
+        await sleepMs(5000, ac.signal);
+        const job = await fetchPlaywrightJobOnce(jobId, ac.signal);
+        if (!job) {
+          setScreenshotErr(SCREENSHOT_TIMEOUT_MSG);
+          return;
+        }
+        if (job.status === 'error' || job.status === 'failed') {
+          throw new Error(String(job.error || 'Screenshot job failed'));
+        }
+        url = pickScreenshotUrl(job) || undefined;
+        if (!url && String(job?.status || '') === 'pending') {
+          setScreenshotErr(SCREENSHOT_TIMEOUT_MSG);
+          return;
+        }
       }
+
       if (!res.ok || !url) {
         if (ac.signal.aborted) {
-          setScreenshotErr('Capture timed out after 30s. Try again or capture a smaller viewport.');
+          setScreenshotErr(SCREENSHOT_TIMEOUT_MSG);
           return;
         }
         throw new Error(String(data.error || 'No screenshot URL returned'));
@@ -1585,7 +1632,7 @@ const BrowserPane: React.FC<PaneProps> = ({
       setScreenshotUrl(url);
     } catch (e) {
       if (e instanceof Error && e.name === 'AbortError') {
-        setScreenshotErr('Capture timed out after 30s. Try again or use area capture with a smaller region.');
+        setScreenshotErr(SCREENSHOT_TIMEOUT_MSG);
       } else {
         setScreenshotErr(String(e));
       }
@@ -2087,7 +2134,6 @@ export const BrowserView: React.FC<BrowserViewProps> = ({
   const [secondaryUrl,    setSecondaryUrl]    = useState<string | null>(null);
   const [agentActive,   setAgentActive]   = useState(false);
   const [collabBridge, setCollabBridge] = useState<'live' | 'offline' | 'unavailable'>('live');
-  const [jobsPollErr, setJobsPollErr] = useState<string | null>(null);
 
   useEffect(() => { if (urlFromParent?.trim()) setPrimaryUrl(urlFromParent); }, [urlFromParent]);
 
@@ -2121,36 +2167,6 @@ export const BrowserView: React.FC<BrowserViewProps> = ({
   }, []);
 
   // ── WebSocket bridge to IAM_COLLAB (exponential backoff; no retry storm on stub/503) ─
-  useEffect(() => {
-    if (!isActive) {
-      setJobsPollErr(null);
-      return;
-    }
-    let cancelled = false;
-    const pollJobs = async () => {
-      let lastErr: string | null = null;
-      for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-          const r = await fetch('/api/playwright', { credentials: 'same-origin' });
-          const j = await r.json().catch(() => ({})) as { error?: string };
-          if (!r.ok) throw new Error(j.error || r.statusText);
-          if (!cancelled) setJobsPollErr(null);
-          return;
-        } catch (e) {
-          lastErr = e instanceof Error ? e.message : String(e);
-          if (attempt < 2) await new Promise((res) => setTimeout(res, 1000));
-        }
-      }
-      if (!cancelled) setJobsPollErr(lastErr);
-    };
-    void pollJobs();
-    const interval = window.setInterval(() => { if (document.visibilityState === 'visible') void pollJobs(); }, 60000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, [isActive]);
-
   useEffect(() => {
     if (!isActive) {
       setCollabBridge('live');
@@ -2270,14 +2286,6 @@ export const BrowserView: React.FC<BrowserViewProps> = ({
           {collabBridge === 'unavailable'
             ? 'Collaboration bridge unavailable (live sync off).'
             : 'Collaboration offline — live browser sync paused.'}
-        </div>
-      )}
-      {jobsPollErr && (
-        <div
-          className="shrink-0 px-2 py-1 text-[10px] text-center border-b border-[var(--border-subtle)] bg-amber-500/10 text-amber-200"
-          role="status"
-        >
-          Failed to fetch browser jobs after retries: {jobsPollErr}
         </div>
       )}
       <div className="flex w-full min-h-0 flex-1 overflow-hidden">

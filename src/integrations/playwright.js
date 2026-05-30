@@ -317,6 +317,7 @@ export async function handleBrowserRequest(request, url, env) {
  * Handle Playwright Job tracking (/api/playwright/*).
  *
  * - GET /api/playwright — list jobs for current user (requires user_id column; see migration 281).
+ * - GET /api/playwright/:id — single job status (user-scoped; one-shot retry from BrowserView).
  * - POST /api/playwright/screenshot — create job row, run MYBROWSER queue handler inline, return result.
  */
 export async function handlePlaywrightJobApi(request, env, url) {
@@ -391,7 +392,25 @@ export async function handlePlaywrightJobApi(request, env, url) {
         return jsonResponse({ id: out.id, status: 'pending', result_url: null });
     }
 
-    // ── GET /api/playwright (job list for BrowserView polling) ──────────────
+    // ── GET /api/playwright/:id (single job — user-scoped, no list scan) ─────
+    const jobIdMatch = pathNorm.match(/^\/api\/playwright\/([^/]+)$/);
+    if (method === 'GET' && jobIdMatch) {
+        const jobId = decodeURIComponent(jobIdMatch[1]);
+        try {
+            const row = await env.DB.prepare(
+                `SELECT id, url, status, result_url, created_at, completed_at, error
+                 FROM playwright_jobs WHERE id = ? AND user_id = ? LIMIT 1`,
+            )
+                .bind(jobId, authUser.id)
+                .first();
+            if (!row) return jsonResponse({ error: 'Job not found' }, 404);
+            return jsonResponse(row);
+        } catch (e) {
+            return jsonResponse({ error: 'Failed to fetch browser job', detail: e.message }, 500);
+        }
+    }
+
+    // ── GET /api/playwright (job list) ───────────────────────────────────────
     if (method === 'GET' && pathNorm === '/api/playwright') {
         try {
             const { results } = await env.DB.prepare(
