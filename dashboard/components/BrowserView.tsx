@@ -1105,9 +1105,9 @@ const BrowserPane: React.FC<PaneProps> = ({
   agentActive = false,
   agentRunId = null,
 }) => {
-  const [iframeUrl,      setIframeUrl]      = useState(() => normalize(initialUrl || DEFAULT_URL));
-  const [currentUrl,     setCurrentUrl]     = useState(() => normalize(initialUrl || DEFAULT_URL));
-  const [inputVal,       setInputVal]       = useState(() => normalize(initialUrl || DEFAULT_URL));
+  const [iframeUrl,      setIframeUrl]      = useState('');
+  const [currentUrl,     setCurrentUrl]     = useState(() => (initialUrl?.trim() ? normalize(initialUrl) : ''));
+  const [inputVal,       setInputVal]       = useState(() => (initialUrl?.trim() ? normalize(initialUrl) : ''));
   const [loading,        setLoading]        = useState(false);
   const [iframeBlocked,  setIframeBlocked]  = useState(false);
   const [navigateError,  setNavigateError]  = useState<string | null>(null);
@@ -1131,6 +1131,7 @@ const BrowserPane: React.FC<PaneProps> = ({
 
   const inputRef     = useRef<HTMLInputElement>(null);
   const registryPickersRef = useRef(registryPickers);
+  const registryPickersFetchedRef = useRef(false);
   const trustWorkspaceId = useMemo(() => {
     const wid =
       typeof window !== 'undefined'
@@ -1150,6 +1151,20 @@ const BrowserPane: React.FC<PaneProps> = ({
   useEffect(() => {
     currentUrlRef.current = currentUrl;
   }, [currentUrl]);
+
+  const hasLiveView = Boolean(iframeUrl?.trim());
+
+  const loadRegistryPickersIfNeeded = useCallback(async () => {
+    if (registryPickersFetchedRef.current) return;
+    const wid =
+      typeof window !== 'undefined'
+        ? String((window as unknown as { __IAM_WORKSPACE_ID__?: string }).__IAM_WORKSPACE_ID__ || '').trim()
+        : '';
+    if (!wid || wid === 'global') return;
+    registryPickersFetchedRef.current = true;
+    const pickers = await fetchBrowserRegistryPickers(wid);
+    setRegistryPickers(pickers);
+  }, []);
 
   /** Latest BrowserView URL/viewport for ChatAssistant `browserContext` (user visual context, not server automation). */
   useEffect(() => {
@@ -1179,15 +1194,6 @@ const BrowserPane: React.FC<PaneProps> = ({
       return false;
     }
   }, [currentUrl]);
-
-  useEffect(() => {
-    const wid =
-      typeof window !== 'undefined'
-        ? String((window as unknown as { __IAM_WORKSPACE_ID__?: string }).__IAM_WORKSPACE_ID__ || '').trim()
-        : '';
-    if (!wid || wid === 'global') return;
-    void fetchBrowserRegistryPickers(wid).then(setRegistryPickers);
-  }, []);
 
   const injectPickerScript = useCallback(() => {
     const urlNow = currentUrlRef.current;
@@ -1239,6 +1245,10 @@ const BrowserPane: React.FC<PaneProps> = ({
   }
 
   useEffect(() => { if (autoFocus) inputRef.current?.focus(); }, [autoFocus]);
+
+  useEffect(() => {
+    if (devToolsOpen) void loadRegistryPickersIfNeeded();
+  }, [devToolsOpen, loadRegistryPickersIfNeeded]);
 
   // ── Close menu on outside click ─────────────────────────────────────────────
   useEffect(() => {
@@ -1548,6 +1558,7 @@ const BrowserPane: React.FC<PaneProps> = ({
     async (raw: string, opts?: { preview?: BrowserPreviewPayload | null; automation?: boolean }) => {
       const s = raw.trim();
       if (!s || isVirtual(s)) return;
+      await loadRegistryPickersIfNeeded();
       const n = normalize(s);
       if (!(await ensureOriginTrust(n))) return;
       if (opts?.automation === true || Boolean(opts?.preview?.screenshot_url)) {
@@ -1556,7 +1567,7 @@ const BrowserPane: React.FC<PaneProps> = ({
       }
       await openBrowserRunLiveView(raw);
     },
-    [ensureOriginTrust, loadAutomationPreview, openBrowserRunLiveView],
+    [ensureOriginTrust, loadAutomationPreview, loadRegistryPickersIfNeeded, openBrowserRunLiveView],
   );
 
   // ── Sync parent URL prop → iframe or MYBROWSER preview (agent / user navigation) ─
@@ -1572,6 +1583,7 @@ const BrowserPane: React.FC<PaneProps> = ({
 
   // ── Screenshot (Playwright) ─────────────────────────────────────────────────
   const runScreenshot = useCallback(async (clip?: { x: number; y: number; width: number; height: number }) => {
+    await loadRegistryPickersIfNeeded();
     setMode('screenshot');
     setScreenshotLoad(true);
     setScreenshotUrl(null);
@@ -1640,7 +1652,7 @@ const BrowserPane: React.FC<PaneProps> = ({
       window.clearTimeout(to);
       setScreenshotLoad(false);
     }
-  }, [currentUrl, agentRunId]);
+  }, [currentUrl, agentRunId, loadRegistryPickersIfNeeded]);
 
   // ── Hard reload ─────────────────────────────────────────────────────────────
   const hardReload = useCallback(() => {
@@ -1907,6 +1919,7 @@ const BrowserPane: React.FC<PaneProps> = ({
               onMouseUp={mode === 'area' ? endArea : undefined}
             >
               <div className="flex flex-1 min-h-0 relative flex-col overflow-hidden">
+                {hasLiveView && (
                 <iframe
                   ref={iframeRef}
                   key={iframeUrl}
@@ -1926,6 +1939,17 @@ const BrowserPane: React.FC<PaneProps> = ({
                   }}
                   onError={() => { setLoading(false); setIframeBlocked(true); }}
                 />
+                )}
+
+                {!hasLiveView && !screenshotUrl && !loading && !navigateError && mode === 'browse' && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-6 text-center bg-[var(--bg-app)]">
+                    <Globe size={32} strokeWidth={1.5} className="text-[var(--text-muted)]" />
+                    <p className="text-sm font-medium text-[var(--text-muted)]">Browser</p>
+                    <p className="text-[11px] text-[var(--text-muted)] max-w-sm leading-relaxed">
+                      Enter a URL above, or instruct the Agent to navigate and use the browser
+                    </p>
+                  </div>
+                )}
 
                 {loading && mode === 'browse' && !screenshotUrl && (
                   <div className="absolute top-0 left-0 right-0 bottom-0 z-[6] flex flex-col items-center justify-center gap-3 bg-[var(--bg-app)]/90">
@@ -2122,20 +2146,18 @@ interface BrowserViewProps {
 }
 
 export const BrowserView: React.FC<BrowserViewProps> = ({
-  url: urlFromParent,
+  url: _urlFromParent,
   addressDisplay,
   onUrlCommitted,
   isActive = false,
   agentRunId = null,
   workspaceContext: _workspaceContext = null,
 }) => {
-  const [primaryUrl,      setPrimaryUrl]      = useState(urlFromParent || DEFAULT_URL);
+  const [primaryUrl,      setPrimaryUrl]      = useState('');
   const [primaryPreview,  setPrimaryPreview]  = useState<BrowserPreviewPayload | null>(null);
   const [secondaryUrl,    setSecondaryUrl]    = useState<string | null>(null);
   const [agentActive,   setAgentActive]   = useState(false);
   const [collabBridge, setCollabBridge] = useState<'live' | 'offline' | 'unavailable'>('live');
-
-  useEffect(() => { if (urlFromParent?.trim()) setPrimaryUrl(urlFromParent); }, [urlFromParent]);
 
   // ── Window event listeners (Agent Sam navigation) ───────────────────────────
   useEffect(() => {
@@ -2302,6 +2324,7 @@ export const BrowserView: React.FC<BrowserViewProps> = ({
           onUrlCommitted={onUrlCommitted}
           agentActive={agentActive}
           agentRunId={agentRunId}
+          autoFocus
         />
       </div>
       {secondaryUrl && (
