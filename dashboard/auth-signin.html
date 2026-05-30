@@ -324,7 +324,13 @@
 <body>
 <script>
 (function () {
-    var nextParam = new URLSearchParams(window.location.search).get('next');
+    var qs = new URLSearchParams(window.location.search);
+    var flow = qs.get('flow');
+    var challenge = qs.get('challenge');
+    var nextParam = qs.get('next');
+    if (flow === 'oauth' && challenge && challenge.indexOf('olc_') === 0) {
+        nextParam = '/api/oauth/login-challenge/resume?challenge=' + encodeURIComponent(challenge);
+    }
     if (nextParam && nextParam.startsWith('/') && !nextParam.startsWith('//')) {
         document.cookie = 'iam_oauth_next=' + encodeURIComponent(nextParam) + '; Path=/; Max-Age=600; Secure; SameSite=Lax';
     }
@@ -442,9 +448,13 @@
 <script>
 (function() {
     var qs = new URLSearchParams(window.location.search);
+    var flow = qs.get('flow');
+    var challenge = qs.get('challenge');
     var nextParam = qs.get('next');
     var oauthDest = '/dashboard/overview';
-    if (nextParam && nextParam.startsWith('/') && !nextParam.startsWith('//')) {
+    if (flow === 'oauth' && challenge && challenge.indexOf('olc_') === 0) {
+        oauthDest = '/api/oauth/login-challenge/resume?challenge=' + encodeURIComponent(challenge);
+    } else if (nextParam && nextParam.startsWith('/') && !nextParam.startsWith('//')) {
         if (nextParam.indexOf('/dashboard/settings/integrations') !== 0) {
             oauthDest = nextParam;
         }
@@ -480,6 +490,8 @@
             token_exchange_failed: 'Could not complete sign-in with the provider.',
             userinfo_failed: 'Could not read your profile from the provider.',
             provision_failed: 'Account setup failed. Contact support if this persists.',
+            oauth_challenge_expired: 'OAuth sign-in session expired. Restart the connector install from ChatGPT or Claude.',
+            oauth_challenge_invalid: 'Invalid OAuth sign-in link. Restart the connector install.',
             oauth_not_configured: 'Supabase sign-in is not configured on this deployment.'
         }[err] || 'Sign-in failed. Try again.';
         var oauthEl = document.getElementById('oauthErrorMsg');
@@ -518,7 +530,13 @@
 
         try {
             var origin = window.location.origin;
-            var nextParam = new URLSearchParams(window.location.search).get('next');
+            var submitQs = new URLSearchParams(window.location.search);
+            var submitFlow = submitQs.get('flow');
+            var submitChallenge = submitQs.get('challenge');
+            var nextParam = submitQs.get('next');
+            if (submitFlow === 'oauth' && submitChallenge && submitChallenge.indexOf('olc_') === 0) {
+                nextParam = '/api/oauth/login-challenge/resume?challenge=' + encodeURIComponent(submitChallenge);
+            }
             var res = await fetch(origin + '/api/auth/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },

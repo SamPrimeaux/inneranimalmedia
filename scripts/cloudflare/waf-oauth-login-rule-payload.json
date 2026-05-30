@@ -1,0 +1,42 @@
+{
+  "_meta": {
+    "zone_id": "0bab48636c1bea4be4ea61c0c7787c3e",
+    "zone_name": "inneranimalmedia.com",
+    "ruleset_id": "55c2b90770494ce0b7175adc1ae97573",
+    "ruleset_name": "Bypass auth pages",
+    "phase": "http_request_firewall_custom",
+    "instructions": "Phase 1a: apply log rule. After Security Events confirm matches, swap action to skip with action_parameters below."
+  },
+  "new_rule_log_phase": {
+    "description": "Allow MCP OAuth login and authorize paths (log phase)",
+    "expression": "(http.host eq \"inneranimalmedia.com\" and (http.request.uri.path eq \"/auth/login\" or http.request.uri.path eq \"/api/oauth/authorize\" or http.request.uri.path eq \"/auth/callback\" or starts_with(http.request.uri.path, \"/auth/callback/\")) and (http.request.uri.query contains \"response_type=code\" or http.request.uri.query contains \"client_id=\" or http.request.uri.query contains \"code_challenge=\" or http.request.uri.query contains \"flow=oauth\" or http.request.uri.query contains \"challenge=\" or http.request.uri.query contains \"redirect_uri=https%3A%2F%2Fchatgpt.com\" or http.request.uri.query contains \"redirect_uri=https%253A%252F%252Fchatgpt.com\"))",
+    "action": "log",
+    "enabled": true,
+    "logging": {
+      "enabled": true
+    }
+  },
+  "new_rule_skip_phase": {
+    "description": "Allow MCP OAuth login and authorize paths",
+    "expression": "(http.host eq \"inneranimalmedia.com\" and (http.request.uri.path eq \"/auth/login\" or http.request.uri.path eq \"/api/oauth/authorize\" or http.request.uri.path eq \"/auth/callback\" or starts_with(http.request.uri.path, \"/auth/callback/\")) and (http.request.uri.query contains \"response_type=code\" or http.request.uri.query contains \"client_id=\" or http.request.uri.query contains \"code_challenge=\" or http.request.uri.query contains \"flow=oauth\" or http.request.uri.query contains \"challenge=\" or http.request.uri.query contains \"redirect_uri=https%3A%2F%2Fchatgpt.com\" or http.request.uri.query contains \"redirect_uri=https%253A%252F%252Fchatgpt.com\"))",
+    "action": "skip",
+    "action_parameters": {
+      "phases": [
+        "http_request_sbfm",
+        "http_request_firewall_managed",
+        "http_ratelimit"
+      ],
+      "products": [
+        "bic",
+        "securityLevel",
+        "uaBlock"
+      ],
+      "ruleset": "current"
+    },
+    "enabled": true,
+    "logging": {
+      "enabled": true
+    }
+  },
+  "apply_command_after_confirmation": "./scripts/cloudflare/apply-waf-oauth-login-rule.sh log"
+}

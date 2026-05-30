@@ -36,7 +36,6 @@ import {
   mcpOAuthPkceS256,
   mcpOAuthRandomToken,
   mcpOAuthJsonError,
-  mcpOAuthSafePathWithSearch,
   mcpOAuthValidateRedirectUri,
   iamMcpOAuthAuthorizationServerMetadata,
   iamMcpOpenIdConfiguration,
@@ -1036,9 +1035,17 @@ async function handleMcpOAuthAuthorize(request, env, _ctx) {
   const url = new URL(request.url);
   const authUser = await getAuthUser(request, env);
   if (!authUser) {
-    const login = new URL('/auth/login', url.origin);
-    login.searchParams.set('next', mcpOAuthSafePathWithSearch(url));
-    return Response.redirect(login.href, 302);
+    const { createMcpOAuthLoginChallengeFromAuthorizeUrl } = await import('./mcp-oauth-login-challenge.js');
+    try {
+      const challengeId = await createMcpOAuthLoginChallengeFromAuthorizeUrl(env, url);
+      const login = new URL('/auth/login', url.origin);
+      login.searchParams.set('flow', 'oauth');
+      login.searchParams.set('challenge', challengeId);
+      return Response.redirect(login.href, 302);
+    } catch (err) {
+      console.error('[mcp_oauth_authorize] login challenge store failed:', err?.message || err);
+      return mcpOAuthJsonError('oauth_login_challenge_unavailable', 503);
+    }
   }
 
   const responseType = String(url.searchParams.get('response_type') || 'code').toLowerCase();
@@ -1544,6 +1551,10 @@ export async function handleOAuthApi(request, env, ctx) {
 
   if (pathLower === '/api/oauth/authorize' && method === 'GET') {
     return handleMcpOAuthAuthorize(request, env, ctx);
+  }
+  if (pathLower === '/api/oauth/login-challenge/resume' && method === 'GET') {
+    const { handleMcpOAuthLoginChallengeResume } = await import('./mcp-oauth-login-challenge.js');
+    return handleMcpOAuthLoginChallengeResume(request, env);
   }
   if (pathLower === '/api/oauth/token' && method === 'POST') {
     return handleMcpOAuthToken(request, env, ctx);

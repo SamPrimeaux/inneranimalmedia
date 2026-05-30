@@ -15,6 +15,7 @@ import { ensureIdentityPlaneBeforeSession } from '../core/ensureIdentityPlaneBef
 import { ensureAppUser } from '../core/ensureAppUser.js';
 import { upsertOauthToken } from '../core/oauth-token-store.js';
 import { resolveCanonicalWorkspace } from './oauth.js';
+import { isMcpOAuthLoginChallengeResumePath } from './mcp-oauth-login-challenge.js';
 
 function oauthOrigin(url) {
   return url.origin || 'https://inneranimalmedia.com';
@@ -62,7 +63,8 @@ function safeDashboardLoginRedirectPath(originBase, returnTo) {
   if (!returnTo || typeof returnTo !== 'string') return DASHBOARD_LOGIN_FALLBACK;
   const t = returnTo.trim();
   if (!t) return DASHBOARD_LOGIN_FALLBACK;
-  if (t.startsWith('/') && !t.startsWith('//') && !t.includes(':')) {
+  if (t.startsWith('/') && !t.startsWith('//') && !t.includes('://')) {
+    if (isMcpOAuthLoginChallengeResumePath(t)) return t;
     if (t.startsWith('/dashboard/settings/integrations')) return DASHBOARD_LOGIN_FALLBACK;
     if (!t.startsWith('/dashboard')) return DASHBOARD_LOGIN_FALLBACK;
     return t;
@@ -91,6 +93,9 @@ export function oauthPostLoginGlobeRedirectUrl(originBase, returnToFullUrl) {
   }
   if (!path.startsWith('/') || path.startsWith('//')) path = '/dashboard/overview';
   if (path.startsWith('/dashboard/settings/integrations')) path = '/dashboard/overview';
+  if (!isMcpOAuthLoginChallengeResumePath(path) && !path.startsWith('/dashboard')) {
+    path = '/dashboard/overview';
+  }
   return `${originBase}/auth/login?globe_exit=1&next=${encodeURIComponent(path)}`;
 }
 
