@@ -37,6 +37,30 @@ const PROVIDER_COLORS: Record<string, string> = {
   cloudflare: '#f38020',
 };
 
+const INSIGHT_PROVIDER_COLORS: Record<string, string> = {
+  anthropic: '#E8713D',
+  openai: '#8B5CF6',
+  google: '#10B981',
+  workers_ai: '#F59E0B',
+};
+
+const WIN_COLOR = '#10B981';
+const LOSS_COLOR = '#EF4444';
+const WARN_COLOR = '#F59E0B';
+
+const colorFor = (p: unknown) => INSIGHT_PROVIDER_COLORS[String(p || '').toLowerCase()] ?? '#6B7280';
+
+type InsightSection = { ok: boolean; rows: Record<string, unknown>[]; error?: string };
+
+type InsightsPayload = {
+  routing_eto?: InsightSection;
+  model_quality?: InsightSection;
+  tool_stats?: InsightSection;
+  model_evals?: InsightSection;
+  deploy_health?: InsightSection;
+  model_drift?: InsightSection;
+};
+
 const RANGE_DEFAULT: Range = '7d';
 
 async function getJson<T>(url: string): Promise<T | null> {
@@ -53,6 +77,14 @@ function fmtPct(n: unknown): string {
   const v = Number(n);
   if (!Number.isFinite(v)) return '—';
   return `${Math.round(v * 10) / 10}%`;
+}
+
+/** D1 rates may be 0–1 or 0–100. */
+function rateToPercent(n: unknown): number {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return 0;
+  if (v > 0 && v <= 1) return v * 100;
+  return v;
 }
 
 function fmtMs(n: unknown): string {
@@ -114,6 +146,126 @@ function providerColor(provider: string): string {
   return PROVIDER_COLORS[key] || '#64748b';
 }
 
+function statusBadgeColor(statusOrSeverity: string): string {
+  const s = String(statusOrSeverity || '').toLowerCase();
+  if (['success', 'ok', 'healthy', 'passed'].some((k) => s.includes(k))) return WIN_COLOR;
+  if (['failure', 'error', 'regression', 'breaking', 'failed'].some((k) => s.includes(k))) return LOSS_COLOR;
+  return WARN_COLOR;
+}
+
+function toolRateBarColor(ratePct: number): string {
+  if (ratePct >= 90) return WIN_COLOR;
+  if (ratePct >= 70) return WARN_COLOR;
+  return LOSS_COLOR;
+}
+
+function fmtReward(n: unknown): string {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return '—';
+  return String(Math.round(v * 100) / 100);
+}
+
+function sectionHasData(section: InsightSection | undefined): boolean {
+  return Boolean(section?.ok && (section.rows?.length ?? 0) > 0);
+}
+
+function InsightCardShell({
+  cardClass,
+  label,
+  hero,
+  children,
+  loading,
+  empty,
+}: {
+  cardClass: string;
+  label: string;
+  hero: React.ReactNode;
+  children: React.ReactNode;
+  loading: boolean;
+  empty: boolean;
+}) {
+  return (
+    <article
+      className={`relative flex min-h-[160px] min-w-0 flex-col rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-4 ${cardClass}`}
+    >
+      <div className="absolute right-3 top-3 rounded-full border border-[var(--border-subtle)] px-2 py-0.5 text-[9px] uppercase tracking-wide text-[var(--text-muted)]">
+        Last 7d
+      </div>
+      {loading ? (
+        <div className="flex flex-1 flex-col gap-3 animate-pulse">
+          <div className="h-3 w-24 rounded bg-[var(--border-subtle)]" />
+          <div className="card-hero-number h-10 w-32 rounded bg-[var(--border-subtle)]" />
+          <div className="card-chart mt-auto flex-1 rounded bg-[var(--border-subtle)]" />
+        </div>
+      ) : (
+        <>
+          <p className="text-[10px] font-medium uppercase tracking-widest text-[var(--text-muted)]">{label}</p>
+          <div className="card-hero-number mt-1 tabular-nums text-[var(--text)]">{hero}</div>
+          <div className="card-chart mt-3 min-h-0 overflow-hidden">{empty ? <InsightEmpty /> : children}</div>
+        </>
+      )}
+    </article>
+  );
+}
+
+function InsightEmpty() {
+  return (
+    <div className="flex h-full min-h-[80px] flex-col items-center justify-center gap-1 text-center">
+      <span className="card-hero-number text-[var(--text-muted)]">—</span>
+      <span className="text-[11px] text-[var(--text-muted)]">No data yet</span>
+    </div>
+  );
+}
+
+const ANALYTICS_BENTO_CSS = `
+.analytics-bento {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  padding: 12px;
+  width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
+  box-sizing: border-box;
+}
+@media (min-width: 768px) {
+  .analytics-bento {
+    grid-template-columns: repeat(6, 1fr);
+    gap: 16px;
+  }
+  .analytics-bento .card-routing { grid-column: span 4; grid-row: span 2; }
+  .analytics-bento .card-quality { grid-column: span 2; grid-row: span 2; }
+  .analytics-bento .card-tools { grid-column: span 2; }
+  .analytics-bento .card-evals { grid-column: span 2; }
+  .analytics-bento .card-deploy { grid-column: span 2; }
+  .analytics-bento .card-drift { grid-column: span 6; }
+}
+@media (min-width: 1024px) {
+  .analytics-bento {
+    grid-template-columns: repeat(12, 1fr);
+    gap: 20px;
+  }
+  .analytics-bento .card-routing { grid-column: span 5; grid-row: span 2; }
+  .analytics-bento .card-quality { grid-column: span 4; grid-row: span 2; }
+  .analytics-bento .card-tools { grid-column: span 3; grid-row: span 2; }
+  .analytics-bento .card-evals { grid-column: span 4; }
+  .analytics-bento .card-deploy { grid-column: span 4; }
+  .analytics-bento .card-drift { grid-column: span 4; }
+}
+.analytics-bento .card-hero-number {
+  font-size: clamp(1.25rem, 3vw, 2.25rem);
+  font-weight: 700;
+  line-height: 1;
+}
+.analytics-bento .card-chart {
+  height: clamp(80px, 15vw, 180px);
+}
+.analytics-bento .card-list-item:nth-child(n+4) { display: none; }
+@media (min-width: 768px) {
+  .analytics-bento .card-list-item:nth-child(n+4) { display: flex; }
+}
+`;
+
 function SectionShell({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] overflow-hidden">
@@ -153,6 +305,21 @@ export const AnalyticsPage: React.FC = () => {
   const [leaderboard, setLeaderboard] = useState<Record<string, unknown> | null>(null);
   const [mcpTools, setMcpTools] = useState<Record<string, unknown> | null>(null);
   const [routingArms, setRoutingArms] = useState<Record<string, unknown> | null>(null);
+  const [insights, setInsights] = useState<InsightsPayload | null>(null);
+  const [insightsLoaded, setInsightsLoaded] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const data = await getJson<InsightsPayload>('/api/analytics/insights');
+      if (cancelled) return;
+      setInsights(data);
+      setInsightsLoaded(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const load = useCallback(async () => {
     const q = `range=${range}`;
@@ -286,6 +453,150 @@ export const AnalyticsPage: React.FC = () => {
       .slice(0, 20);
   }, [mcpTools]);
 
+  const routingHeroReward = useMemo(() => {
+    const rows = insights?.routing_eto?.rows || [];
+    const scores = rows.map((r) => Number(r.reward_score)).filter((v) => Number.isFinite(v));
+    if (!scores.length) return null;
+    const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+    return Math.round(avg * 100) / 100;
+  }, [insights]);
+
+  const routingActivityByModel = useMemo(() => {
+    const rows = insights?.routing_eto?.rows || [];
+    const byModel = new Map<string, { success: number; failure: number }>();
+    for (const row of rows) {
+      const key = String(row.model_key || '(unknown)');
+      const prev = byModel.get(key) || { success: 0, failure: 0 };
+      prev.success += Number(row.success) || 0;
+      prev.failure += Number(row.failure) || 0;
+      byModel.set(key, prev);
+    }
+    return [...byModel.entries()]
+      .map(([model_key, v]) => ({
+        model_key,
+        success: v.success,
+        failure: v.failure,
+        total: v.success + v.failure,
+      }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 10);
+  }, [insights]);
+
+  const modelQualityBars = useMemo(() => {
+    const rows = insights?.model_quality?.rows || [];
+    return rows.slice(0, 8).map((row) => ({
+      model_key: String(row.model_key || '(unknown)'),
+      provider: String(row.provider || ''),
+      success: rateToPercent(row.success_rate),
+      toolSuccess: rateToPercent(row.tool_success_rate ?? row.code_pass_rate),
+    }));
+  }, [insights]);
+
+  const modelQualityHero = useMemo(() => {
+    const rows = insights?.model_quality?.rows || [];
+    if (!rows.length) return null;
+    const best = [...rows].sort(
+      (a, b) => rateToPercent(b.success_rate) - rateToPercent(a.success_rate),
+    )[0];
+    return best ? String(best.model_key || '(unknown)') : null;
+  }, [insights]);
+
+  const toolStatsBars = useMemo(() => {
+    const rows = insights?.tool_stats?.rows || [];
+    return rows.slice(0, 12).map((row) => ({
+      tool_name: String(row.tool_name || '(unknown)'),
+      rate: rateToPercent(row.success_rate),
+      calls: Number(row.total_calls) || 0,
+    }));
+  }, [insights]);
+
+  const toolStatsHeroRate = useMemo(() => {
+    const rows = insights?.tool_stats?.rows || [];
+    if (!rows.length) return null;
+    const rates = rows.map((r) => rateToPercent(r.success_rate)).filter((v) => Number.isFinite(v));
+    if (!rates.length) return null;
+    return Math.round((rates.reduce((a, b) => a + b, 0) / rates.length) * 10) / 10;
+  }, [insights]);
+
+  const evalPassFailByModel = useMemo(() => {
+    const rows = insights?.model_evals?.rows || [];
+    const byModel = new Map<string, { passed: number; failed: number }>();
+    for (const row of rows) {
+      const key = String(row.model_key || '(unknown)');
+      const prev = byModel.get(key) || { passed: 0, failed: 0 };
+      if (Number(row.passed) === 1) prev.passed += 1;
+      else prev.failed += 1;
+      byModel.set(key, prev);
+    }
+    return [...byModel.entries()]
+      .map(([model_key, v]) => ({
+        model_key,
+        passed: v.passed,
+        failed: v.failed,
+        total: v.passed + v.failed,
+        rate: v.passed + v.failed > 0 ? Math.round((v.passed / (v.passed + v.failed)) * 1000) / 10 : 0,
+      }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 8);
+  }, [insights]);
+
+  const evalHeroPassRate = useMemo(() => {
+    const rows = insights?.model_evals?.rows || [];
+    if (!rows.length) return null;
+    const passed = rows.filter((r) => Number(r.passed) === 1).length;
+    return Math.round((passed / rows.length) * 1000) / 10;
+  }, [insights]);
+
+  const deployRows = useMemo(() => {
+    const rows = insights?.deploy_health?.rows || [];
+    return rows.slice(0, 12).map((r, idx) => {
+      const status = String(r.status ?? 'unknown');
+      const tsRaw = r.checked_at ?? r.last_checked_at;
+      let ts: number | null = null;
+      if (typeof tsRaw === 'number') ts = tsRaw > 1e12 ? tsRaw : tsRaw * 1000;
+      else if (tsRaw != null) {
+        const parsed = Date.parse(String(tsRaw));
+        ts = Number.isFinite(parsed) ? parsed : null;
+      }
+      return {
+        id: String(r.id || `${r.worker_name}-${idx}`),
+        worker_name: String(r.worker_name || '(worker)'),
+        status,
+        response_ms: Number(r.response_time_ms),
+        ts,
+        badgeColor: statusBadgeColor(status),
+      };
+    });
+  }, [insights]);
+
+  const deployHeroStatus = useMemo(() => {
+    const rows = insights?.deploy_health?.rows || [];
+    if (!rows.length) return null;
+    return String(rows[0]?.status ?? '—');
+  }, [insights]);
+
+  const driftRows = useMemo(() => {
+    const rows = insights?.model_drift?.rows || [];
+    return rows.slice(0, 12).map((r, idx) => {
+      const detected = r.detected_at;
+      let ts: number | null = null;
+      if (typeof detected === 'number') ts = detected > 1e12 ? detected : detected * 1000;
+      return {
+        id: String(r.model_key || idx),
+        model_key: String(r.model_key || '(unknown)'),
+        severity: String(r.severity || 'info'),
+        delta_pct: Number(r.delta_pct),
+        ts,
+        badgeColor: statusBadgeColor(String(r.severity || '')),
+      };
+    });
+  }, [insights]);
+
+  const driftHeroCount = useMemo(() => {
+    const rows = insights?.model_drift?.rows || [];
+    return rows.length;
+  }, [insights]);
+
   const routingArmBars = useMemo(() => {
     const rows = (routingArms?.rows as RoutingArmRow[]) || [];
     return rows
@@ -315,6 +626,221 @@ export const AnalyticsPage: React.FC = () => {
     <div className="ov-wrap flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden w-full">
       <AnalyticsHeader layout={layout} layoutLoadedAt={layoutLoadedAt} />
       <div className="flex-1 min-h-0 overflow-auto p-3 space-y-4">
+        <div className="analytics-bento">
+          <style>{ANALYTICS_BENTO_CSS}</style>
+
+          <InsightCardShell
+            cardClass="card-routing"
+            label="Routing activity"
+            hero={
+              routingHeroReward != null && sectionHasData(insights?.routing_eto)
+                ? fmtReward(routingHeroReward)
+                : '—'
+            }
+            loading={!insightsLoaded}
+            empty={!sectionHasData(insights?.routing_eto)}
+          >
+            <div className="flex h-full flex-col gap-2 overflow-auto pr-1">
+              {routingActivityByModel.map((m) => {
+                const denom = Math.max(m.total, 1);
+                const successPct = (m.success / denom) * 100;
+                const failurePct = (m.failure / denom) * 100;
+                return (
+                  <div key={m.model_key} className="space-y-1">
+                    <div className="flex items-center justify-between gap-2 text-[10px]">
+                      <span className="truncate font-mono text-[var(--text)]">{m.model_key}</span>
+                      <span className="tabular-nums text-[var(--text-muted)]">
+                        {m.success}↑ {m.failure}↓
+                      </span>
+                    </div>
+                    <div className="flex h-2 overflow-hidden rounded-full bg-[var(--border-subtle)]">
+                      <div className="h-full" style={{ width: `${successPct}%`, backgroundColor: WIN_COLOR }} />
+                      <div className="h-full" style={{ width: `${failurePct}%`, backgroundColor: LOSS_COLOR }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </InsightCardShell>
+
+          <InsightCardShell
+            cardClass="card-quality"
+            label="Model quality"
+            hero={
+              modelQualityHero && sectionHasData(insights?.model_quality) ? modelQualityHero : '—'
+            }
+            loading={!insightsLoaded}
+            empty={!sectionHasData(insights?.model_quality)}
+          >
+            <div className="flex h-full flex-col gap-2.5 overflow-auto pr-1">
+              {modelQualityBars.map((m) => (
+                <div key={m.model_key} className="space-y-1">
+                  <div className="flex items-center justify-between gap-2 text-[10px]">
+                    <span className="truncate font-mono text-[var(--text)]">{m.model_key}</span>
+                    <span style={{ color: colorFor(m.provider) }} className="shrink-0 text-[9px] uppercase">
+                      {m.provider || '—'}
+                    </span>
+                  </div>
+                  <div className="space-y-0.5">
+                    <div className="flex h-1.5 overflow-hidden rounded-full bg-[var(--border-subtle)]">
+                      <div
+                        className="h-full rounded-full"
+                        style={{
+                          width: `${Math.min(Math.max(m.success, 0), 100)}%`,
+                          backgroundColor: colorFor(m.provider),
+                        }}
+                      />
+                    </div>
+                    <div className="flex h-1.5 overflow-hidden rounded-full bg-[var(--border-subtle)]">
+                      <div
+                        className="h-full rounded-full opacity-70"
+                        style={{
+                          width: `${Math.min(Math.max(m.toolSuccess, 0), 100)}%`,
+                          backgroundColor: colorFor(m.provider),
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-between text-[9px] text-[var(--text-muted)] tabular-nums">
+                    <span>success {fmtPct(m.success)}</span>
+                    <span>tools {fmtPct(m.toolSuccess)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </InsightCardShell>
+
+          <InsightCardShell
+            cardClass="card-tools"
+            label="Tool reliability"
+            hero={
+              toolStatsHeroRate != null && sectionHasData(insights?.tool_stats)
+                ? `${toolStatsHeroRate}%`
+                : '—'
+            }
+            loading={!insightsLoaded}
+            empty={!sectionHasData(insights?.tool_stats)}
+          >
+            <div className="flex h-full flex-col gap-2 overflow-auto pr-1">
+              {toolStatsBars.map((t) => (
+                <div key={t.tool_name} className="space-y-1">
+                  <div className="flex items-center justify-between gap-2 text-[10px]">
+                    <span className="truncate font-mono text-[var(--text)]">{t.tool_name}</span>
+                    <span className="tabular-nums" style={{ color: toolRateBarColor(t.rate) }}>
+                      {fmtPct(t.rate)}
+                    </span>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-[var(--border-subtle)]">
+                    <div
+                      className="h-full rounded-full"
+                      style={{
+                        width: `${Math.min(Math.max(t.rate, 0), 100)}%`,
+                        backgroundColor: toolRateBarColor(t.rate),
+                      }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </InsightCardShell>
+
+          <InsightCardShell
+            cardClass="card-evals"
+            label="Eval results"
+            hero={
+              evalHeroPassRate != null && sectionHasData(insights?.model_evals) ? `${evalHeroPassRate}%` : '—'
+            }
+            loading={!insightsLoaded}
+            empty={!sectionHasData(insights?.model_evals)}
+          >
+            <div className="flex h-full flex-col gap-2 overflow-auto pr-1">
+              {evalPassFailByModel.map((m) => {
+                const denom = Math.max(m.total, 1);
+                const passPct = (m.passed / denom) * 100;
+                const failPct = (m.failed / denom) * 100;
+                return (
+                  <div key={m.model_key} className="space-y-1">
+                    <div className="flex items-center justify-between gap-2 text-[10px]">
+                      <span className="truncate font-mono text-[var(--text)]">{m.model_key}</span>
+                      <span className="tabular-nums text-[var(--text-muted)]">{m.rate}%</span>
+                    </div>
+                    <div className="flex h-2 overflow-hidden rounded-full bg-[var(--border-subtle)]">
+                      <div className="h-full" style={{ width: `${passPct}%`, backgroundColor: WIN_COLOR }} />
+                      <div className="h-full" style={{ width: `${failPct}%`, backgroundColor: LOSS_COLOR }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </InsightCardShell>
+
+          <InsightCardShell
+            cardClass="card-deploy"
+            label="Worker health"
+            hero={
+              deployHeroStatus && sectionHasData(insights?.deploy_health) ? deployHeroStatus : '—'
+            }
+            loading={!insightsLoaded}
+            empty={!sectionHasData(insights?.deploy_health)}
+          >
+            <ul className="flex h-full flex-col gap-1.5 overflow-auto pr-1">
+              {deployRows.map((d) => (
+                <li
+                  key={d.id}
+                  className="card-list-item flex-col gap-0.5 rounded border border-[var(--border-subtle)] px-2 py-1.5 text-[10px]"
+                >
+                  <div className="flex w-full items-center justify-between gap-2">
+                    <span className="truncate font-mono text-[var(--text)]">{d.worker_name}</span>
+                    <span
+                      className="shrink-0 rounded px-1.5 py-0.5 text-[9px] uppercase"
+                      style={{ color: d.badgeColor, backgroundColor: `${d.badgeColor}22` }}
+                    >
+                      {d.status}
+                    </span>
+                  </div>
+                  <div className="flex w-full items-center justify-between gap-2 text-[9px] text-[var(--text-muted)] tabular-nums">
+                    <span>{Number.isFinite(d.response_ms) ? `${Math.round(d.response_ms)} ms` : '—'}</span>
+                    <span>{d.ts != null ? new Date(d.ts).toLocaleString() : '—'}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </InsightCardShell>
+
+          <InsightCardShell
+            cardClass="card-drift"
+            label="Model drift"
+            hero={
+              sectionHasData(insights?.model_drift) ? fmtCount(driftHeroCount) : '—'
+            }
+            loading={!insightsLoaded}
+            empty={!sectionHasData(insights?.model_drift)}
+          >
+            <ul className="flex h-full flex-col gap-1.5 overflow-auto pr-1">
+              {driftRows.map((d) => (
+                <li
+                  key={d.id}
+                  className="card-list-item flex w-full items-center justify-between gap-2 rounded border border-[var(--border-subtle)] px-2 py-1.5 text-[10px]"
+                >
+                  <span className="truncate font-mono text-[var(--text)]">{d.model_key}</span>
+                  <span
+                    className="shrink-0 rounded px-1.5 py-0.5 text-[9px] uppercase"
+                    style={{ color: d.badgeColor, backgroundColor: `${d.badgeColor}22` }}
+                  >
+                    {d.severity}
+                  </span>
+                  <span className="shrink-0 tabular-nums text-[var(--text-muted)]">
+                    {Number.isFinite(d.delta_pct) ? `${Math.round(d.delta_pct * 10) / 10}%` : '—'}
+                  </span>
+                  <span className="shrink-0 text-[9px] text-[var(--text-muted)] tabular-nums">
+                    {d.ts != null ? new Date(d.ts).toLocaleString() : '—'}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </InsightCardShell>
+        </div>
+
         <SectionShell title="Platform pulse">
           <KpiStrip tiles={kpiTiles} />
         </SectionShell>

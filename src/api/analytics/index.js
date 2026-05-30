@@ -2,6 +2,7 @@ import { jsonResponse, fetchAuthUserTenantId } from '../../core/auth.js';
 import { handleAnalyticsLayout } from './layout.js';
 import { handleAnalyticsSourceHealth } from './source-health.js';
 import { handleAnalyticsOverview } from './overview.js';
+import { handleAnalyticsInsights } from './insights.js';
 import { handleAnalyticsRag } from './rag.js';
 import { handleAnalyticsCodebase } from './codebase.js';
 import {
@@ -83,6 +84,10 @@ export async function handleAnalyticsApi(request, url, env, ctx, authUser, ident
 
   if (pathLower === '/api/analytics/overview' && request.method === 'GET') {
     return handleAnalyticsOverview(request, url, env, { tenantId, workspaceId });
+  }
+
+  if (pathLower === '/api/analytics/insights' && request.method === 'GET') {
+    return handleAnalyticsInsights(request, url, env, { tenantId, workspaceId });
   }
 
   if (pathLower === '/api/analytics/rag' && request.method === 'GET') {
