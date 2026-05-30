@@ -195,7 +195,7 @@ import {
   shouldAllowAgentChatWorkflowGraph,
   shouldSkipSurfaceWorkflowPreflight,
 } from '../core/code-implementation-intent.js';
-import { stripUserTextForIntent, activeFileBlocksImageGeneration, extractOpenFileContentFromMessage, applyActiveFileDefaultsToToolInput } from '../core/active-file-envelope.js';
+import { stripUserTextForIntent, activeFileBlocksImageGeneration, extractOpenFileContentFromMessage, applyActiveFileDefaultsToToolInput, activeFileIsLocalWorkspaceBuffer, activeFileIsGithubBound } from '../core/active-file-envelope.js';
 import {
   buildHandoffPrimingUserMessage,
   executeAgentHandoffFromLoop,
@@ -1901,8 +1901,10 @@ async function ensureCodeCapabilityTools(env, tools, effectiveMaxTools) {
 async function ensureActiveFileCapabilityTools(env, tools, effectiveMaxTools, envelope) {
   if (!env?.DB || !Array.isArray(tools) || !envelope) return tools;
   const names = [];
-  if (envelope.github_repo && envelope.github_path) {
+  if (activeFileIsGithubBound(envelope)) {
     names.push('github_file', 'github_update_file');
+  } else if (activeFileIsLocalWorkspaceBuffer(envelope)) {
+    names.push('fs_search_files', 'terminal_execute');
   }
   if (envelope.r2_key) {
     names.push('r2_read', 'r2_write');
@@ -6781,7 +6783,9 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       body.activeFileEnvelope = activeFileEnvelope;
     }
     const githubRepoContext = String(body.github_repo_context || body.githubRepoContext || '').trim();
-    if (githubRepoContext) {
+    if (githubRepoContext) body.selectedGithubRepoContext = githubRepoContext;
+    const localBufferOpen = activeFileIsLocalWorkspaceBuffer(activeFileEnvelope);
+    if (githubRepoContext && !localBufferOpen) {
       if (activeFileEnvelope) {
         if (!activeFileEnvelope.github_repo) activeFileEnvelope.github_repo = githubRepoContext;
       } else {

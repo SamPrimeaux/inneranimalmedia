@@ -107,6 +107,7 @@ export function readFileAsText(file: File): Promise<string> {
 function formatAgentToolRouting(activeFile: ActiveFile | null | undefined): string {
   const lines: string[] = [
     '### Agent tool targets (read/write this buffer)',
+    'When ### Open file (editor) content appears below, use it directly — do not github_file to re-fetch the open buffer.',
     'If the user asks to change, save, or sync this file, call the matching tool with the exact ids below — do not only paste code in chat when persistence is requested.',
   ];
   if (!activeFile) {
@@ -138,7 +139,12 @@ function formatAgentToolRouting(activeFile: ActiveFile | null | undefined): stri
       '- Local file (File System Access in the browser): the worker cannot write to this path directly. Use terminal_execute if the repo exists in the user PTY, or ask the user to save in the editor.',
     );
   }
-  if (!activeFile.r2Key && !activeFile.githubPath && !activeFile.driveFileId && !activeFile.handle) {
+  if (activeFile.workspacePath && !activeFile.githubPath && !activeFile.r2Key) {
+    lines.push(
+      `- Local workspace buffer: workspace_path="${activeFile.workspacePath}". Content is in ### Open file (editor) — analyze it in chat; persist with terminal_execute or open from GitHub explorer for github_update_file.`,
+    );
+  }
+  if (!activeFile.r2Key && !activeFile.githubPath && !activeFile.driveFileId && !activeFile.handle && !activeFile.workspacePath) {
     lines.push(
       '- New buffer with no storage binding. To persist, use r2_write with an explicit bucket and key the user names, or ask where to save.',
     );

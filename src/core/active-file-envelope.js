@@ -117,6 +117,26 @@ export function stripActiveFileEnvelopeForIntent(message) {
  * @param {unknown} message
  */
 /**
+ * True when the open buffer is bound to a specific GitHub path (not just a selected repo pill).
+ * @param {ReturnType<typeof parseActiveFileEnvelope>|null|undefined} envelope
+ */
+export function activeFileIsGithubBound(envelope) {
+  return !!(envelope?.github_repo && envelope?.github_path);
+}
+
+/**
+ * Local IDE buffer (workspace path) without GitHub/R2 binding.
+ * @param {ReturnType<typeof parseActiveFileEnvelope>|null|undefined} envelope
+ */
+export function activeFileIsLocalWorkspaceBuffer(envelope) {
+  if (!envelope?.workspace_path) return false;
+  if (activeFileIsGithubBound(envelope)) return false;
+  if (envelope.r2_key) return false;
+  const src = String(envelope.source || '').toLowerCase();
+  return src === 'local' || src === 'buffer' || src === 'unknown';
+}
+
+/**
  * Canonical display path for an open editor buffer (GitHub owner/repo/path when bound).
  * @param {ReturnType<typeof parseActiveFileEnvelope>|null|undefined} envelope
  */
@@ -139,6 +159,7 @@ export function applyActiveFileDefaultsToToolInput(toolName, toolInput, envelope
   const out = { ...toolInput };
   const n = String(toolName || '').toLowerCase();
   if (n.startsWith('github_') || n === 'github_file') {
+    if (!activeFileIsGithubBound(envelope)) return out;
     if (!out.repo && envelope.github_repo) out.repo = envelope.github_repo;
     if (!out.path && !out.file_path && envelope.github_path) out.path = envelope.github_path;
     if (!out.branch && envelope.github_branch) out.branch = envelope.github_branch;
@@ -152,11 +173,21 @@ export function applyActiveFileDefaultsToToolInput(toolName, toolInput, envelope
 
 function formatActiveFileToolTargets(envelope) {
   const lines = ['### Tool targets for this buffer'];
-  if (envelope.github_repo && envelope.github_path) {
+  const hasContent = envelope.content != null && String(envelope.content).trim() !== '';
+  if (hasContent) {
+    lines.push(
+      '- The fenced code in this message IS the live Monaco buffer. Answer from it directly — do NOT call github_file to verify unless the user asks to compare with remote.',
+    );
+  }
+  if (activeFileIsGithubBound(envelope)) {
     const branch = envelope.github_branch ? `, branch="${envelope.github_branch}"` : '';
     lines.push(
       `- GitHub read: github_file({ repo: "${envelope.github_repo}", path: "${envelope.github_path}"${branch} })`,
       `- GitHub write: github_update_file({ repo: "${envelope.github_repo}", path: "${envelope.github_path}", content: "<full file>", message: "<commit msg>"${branch} })`,
+    );
+  } else if (activeFileIsLocalWorkspaceBuffer(envelope)) {
+    lines.push(
+      `- Local workspace file: workspace_path="${envelope.workspace_path}". Content is in this message. Persist via terminal_execute if the repo is on PTY, or open the file from GitHub explorer to use github_update_file.`,
     );
   }
   if (envelope.r2_key) {
@@ -194,7 +225,7 @@ export function formatActiveFileForAgent(envelope) {
     `source: ${envelope.source}`,
     `path: ${path}`,
   ];
-  if (envelope.github_repo) meta.push(`github_repo: ${envelope.github_repo}`);
+  if (envelope.github_repo && activeFileIsGithubBound(envelope)) meta.push(`github_repo: ${envelope.github_repo}`);
   if (envelope.github_path) meta.push(`github_path: ${envelope.github_path}`);
   if (envelope.github_branch) meta.push(`github_branch: ${envelope.github_branch}`);
   if (envelope.r2_bucket) meta.push(`r2_bucket: ${envelope.r2_bucket}`);

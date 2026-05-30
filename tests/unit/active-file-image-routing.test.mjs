@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {
   activeFileBlocksImageGeneration,
   activeFilePathLooksLikeCode,
+  activeFileIsGithubBound,
+  activeFileIsLocalWorkspaceBuffer,
   applyActiveFileDefaultsToToolInput,
   extractOpenFileContentFromMessage,
   formatActiveFileForAgent,
@@ -60,16 +62,34 @@ test('formatActiveFileForAgent includes github repo and write tool hints with co
   assert.match(text, /export function App/);
 });
 
-test('applyActiveFileDefaultsToToolInput fills github repo and path', () => {
+test('local workspace buffer does not get github tool defaults from selected repo alone', () => {
   const envelope = parseActiveFileEnvelope({
-    active_file_github_repo: 'SamPrimeaux/chrystal-clear-insurance',
-    active_file_github_path: 'src/main.jsx',
-    active_file_github_branch: 'main',
+    active_file_source: 'local',
+    active_file_workspace_path: 'src/components/main.jsx',
+    active_file_path: 'src/components/main.jsx',
+    active_file_content: 'export function App() {}',
   });
-  const out = applyActiveFileDefaultsToToolInput('github_update_file', {}, envelope);
+  assert.ok(activeFileIsLocalWorkspaceBuffer(envelope));
+  assert.equal(activeFileIsGithubBound(envelope), false);
+  const out = applyActiveFileDefaultsToToolInput(
+    'github_file',
+    { repo: 'SamPrimeaux/chrystal-clear-insurance', path: 'src/main.jsx' },
+    envelope,
+  );
   assert.equal(out.repo, 'SamPrimeaux/chrystal-clear-insurance');
   assert.equal(out.path, 'src/main.jsx');
-  assert.equal(out.branch, 'main');
+});
+
+test('github-bound envelope applies repo/path defaults', () => {
+  const envelope = parseActiveFileEnvelope({
+    active_file_source: 'github',
+    active_file_github_repo: 'SamPrimeaux/chrystal-clear-insurance',
+    active_file_github_path: 'src/components/main.jsx',
+  });
+  assert.ok(activeFileIsGithubBound(envelope));
+  const out = applyActiveFileDefaultsToToolInput('github_update_file', {}, envelope);
+  assert.equal(out.repo, 'SamPrimeaux/chrystal-clear-insurance');
+  assert.equal(out.path, 'src/components/main.jsx');
 });
 
 test('extractOpenFileContentFromMessage pulls editor buffer from on-demand block', () => {

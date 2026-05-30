@@ -1360,8 +1360,17 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           attachContextFiles: attachContextFiles.length ? attachContextFiles : undefined,
         });
     const ghCtx = githubRepoContext?.trim();
+    const openIsLocal =
+      activeFile &&
+      !activeFile.githubPath &&
+      !activeFile.r2Key &&
+      !!(activeFile.workspacePath?.trim() || activeFile.handle);
     if (ghCtx) {
-      messageForApi += `${MENTION_CONTEXT_HEADER}### Selected GitHub repository\nThe user chose **${ghCtx}** as the active repo in the dashboard. Prefer \`github_file\` with repo="${ghCtx}" when reading files, and direct them to the Deploy/GitHub panel to browse or open files.`;
+      messageForApi += `${MENTION_CONTEXT_HEADER}### Selected GitHub repository\nThe user chose **${ghCtx}** as context for remote repo work.${
+        openIsLocal
+          ? ' A **local workspace file** is open in Monaco — use ### Open file (editor) content as authoritative; do NOT github_file to verify the open buffer. Use github_file only for other paths under this repo when the user asks.'
+          : ` Prefer github_file with repo="${ghCtx}" when reading remote files not already open in the editor.`
+      }`;
     }
 
     const snap =
