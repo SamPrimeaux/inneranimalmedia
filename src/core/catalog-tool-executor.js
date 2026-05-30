@@ -12,6 +12,13 @@ import { scheduleMirrorToolCallEventToSupabase } from './hyperdrive-write.js';
 import { resolveMcpServerForTool } from './mcp-servers.js';
 import { executeOpenWebCatalogDispatch, isOpenWebCatalogConfig } from './open-web-catalog-dispatch.js';
 import { authUserIsSuperadmin } from './auth.js';
+import {
+  assertOwnerPlatformR2Bucket,
+  isPlatformOwner,
+  ownerHasPlatformR2Transport,
+  resolveRegisteredR2BucketName,
+  resolveToolRunAuthUser,
+} from './platform-owner-r2-access.js';
 import { mergeR2S3EnvFromUserStorage } from './user-storage-r2-credentials.js';
 import { executeR2CatalogOperation, isR2ListLikeOperation } from '../tools/builtin/r2-object-crud.js';
 import { getR2Binding } from '../api/r2-api.js';
@@ -698,10 +705,10 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
     }
 
     case 'r2': {
-      const authUser = runContext.authUser ?? runContext.user ?? null;
+      const authUser = await resolveToolRunAuthUser(env, runContext);
       const op = String(config.operation || config.r2_operation || 'write').toLowerCase();
       const authSource = String(config.auth_source || 'platform').toLowerCase();
-      const isOwner = authUserIsSuperadmin(authUser);
+      const isOwner = await isPlatformOwner(env, authUser);
 
       if (isR2ListLikeOperation(op)) {
         result = {
@@ -727,8 +734,46 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         break;
       }
 
+      const bucketRaw =
+        params.bucket != null
+          ? String(params.bucket)
+          : config.binding != null
+            ? String(config.binding)
+            : config.default_bucket != null
+              ? String(config.default_bucket)
+              : '';
+      if (!bucketRaw.trim()) {
+        result = {
+          ok: false,
+          error: 'bucket_required',
+          body: {
+            user_message:
+              'R2 tools require an explicit bucket parameter registered in D1 (r2_bucket_list / r2_bucket_bindings / project_storage).',
+          },
+        };
+        break;
+      }
+      const bucket = await resolveRegisteredR2BucketName(env, bucketRaw);
+
+      if (authSource === 'platform' && isOwner) {
+        const bucketCheck = await assertOwnerPlatformR2Bucket(env, bucket);
+        if (!bucketCheck.ok) {
+          result = {
+            ok: false,
+            error: String(bucketCheck.error || 'platform_r2_bucket_not_registered'),
+            body: {
+              bucket: bucketCheck.bucket,
+              allowed_preview: bucketCheck.allowed_preview,
+              user_message: bucketCheck.user_message,
+            },
+          };
+          break;
+        }
+        bucket = bucketCheck.bucket;
+      }
+
       const effectiveEnv = await mergeR2S3EnvFromUserStorage(env, authUser);
-      if (authSource === 'customer' && !effectiveEnv.R2_ACCESS_KEY_ID && !getR2Binding(effectiveEnv, params.bucket)) {
+      if (authSource === 'customer' && !effectiveEnv.R2_ACCESS_KEY_ID && !getR2Binding(effectiveEnv, bucket)) {
         result = {
           ok: false,
           error: 'customer_r2_not_connected',
@@ -739,12 +784,18 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         break;
       }
 
-      const bucket =
-        params.bucket != null
-          ? String(params.bucket)
-          : config.binding != null
-            ? String(config.binding)
-            : 'inneranimalmedia';
+      if (authSource === 'platform' && isOwner) {
+        const transport = await ownerHasPlatformR2Transport(effectiveEnv, authUser, bucket);
+        if (!transport.ok) {
+          result = {
+            ok: false,
+            error: 'platform_r2_transport_unavailable',
+            body: { user_message: transport.user_message, bucket },
+          };
+          break;
+        }
+      }
+
       const out = await executeR2CatalogOperation(
         effectiveEnv,
         { ...params, bucket },

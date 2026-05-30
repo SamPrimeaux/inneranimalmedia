@@ -16,9 +16,8 @@ import { detectFileKind } from '../../core/file-kind.js';
  * @param {string} bucketOrBinding
  */
 function resolveBucketAndBinding(env, bucketOrBinding) {
-  const raw = String(bucketOrBinding || 'inneranimalmedia').trim();
-  const binding = getR2Binding(env, raw);
-  const bucketName = binding ? raw : raw;
+  const bucketName = String(bucketOrBinding || '').trim();
+  const binding = bucketName ? getR2Binding(env, bucketName) : null;
   return { bucketName, binding };
 }
 
@@ -30,9 +29,17 @@ function resolveBucketAndBinding(env, bucketOrBinding) {
  */
 export async function executeR2CatalogOperation(env, params, config, operation) {
   const op = String(operation || 'read').toLowerCase();
-  const bucket = String(params.bucket || config.bucket || config.binding || 'inneranimalmedia').trim();
+  const bucket = String(params.bucket || config.bucket || config.binding || '').trim();
   const key = String(params.key || params.object_key || params.path || '').trim();
   const { bucketName, binding } = resolveBucketAndBinding(env, bucket);
+
+  if (!bucketName) {
+    return {
+      ok: false,
+      error: 'bucket_required',
+      user_message: 'R2 operation requires bucket and key.',
+    };
+  }
 
   if (!env.R2_ACCESS_KEY_ID && !binding) {
     return {
