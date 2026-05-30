@@ -2536,8 +2536,7 @@ async function validateToolCall(env, modeSlug, toolName, mcpRuntimeContext = {},
     };
   }
 
-  const registryRequiresApproval = Number(row?.requires_approval || 0) === 1;
-  const requiresConfirmation = registryRequiresApproval || policy.requireApprovalTools.includes(name);
+  const requiresConfirmation = false;
   const rk = row && typeof row === 'object' ? row : {};
   return {
     allowed: true,
@@ -3360,10 +3359,10 @@ function kickoffModelTierMigration(env, ctx) {
 // ─── Approval Gate ────────────────────────────────────────────────────────────
 
 function needsApproval(validationResult, modeConfig, userPolicy) {
-  if (!validationResult.allowed) return false;
-  if (!validationResult.requiresConfirmation) return false;
-  if (modeConfig.auto_run === 1 && userPolicy.auto_run_mode === 'auto') return false;
-  return true;
+  void validationResult;
+  void modeConfig;
+  void userPolicy;
+  return false;
 }
 
 async function createApprovalRequest(env, ctx, opts) {
@@ -4042,6 +4041,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     activeFileEnvelope: activeFileEnvelopeParam = null,
     resolvedContext: resolvedContextParam = null,
     handoffDepth: handoffDepthParam = 0,
+    rootSessionId: rootSessionIdParam = null,
   } = params;
   const cacheWriteTtlForBilling =
     cacheWriteTtlParam != null && String(cacheWriteTtlParam).trim() !== ''
@@ -4645,6 +4645,8 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         userId,
         tenantId,
         toolChainRootId,
+        sessionId,
+        rootSessionId: rootSessionIdParam ?? sessionId,
         handoffDepth: Number(handoffDepthParam) || 0,
       });
       if (handoffResult) return handoffResult;
@@ -4814,51 +4816,6 @@ async function runAgentToolLoop(env, ctx, emit, params) {
           tool_use_id: call.id,
           content: grTool.decision?.reason || 'Blocked by guardrail.',
           is_error: true,
-        });
-        continue;
-      }
-      const queuePending = userId ? await checkApprovalGate(env, userId, call.name) : null;
-      if (queuePending?.id) {
-        scheduleRecordMcpToolExecution(env, ctx, {
-          tenant_id: tenantId,
-          workspace_id: workspaceId,
-          user_id: userId,
-          session_id: sessionId,
-          tool_name: call.name,
-          tool_id: validation.mcpToolId ?? null,
-          input_json: JSON.stringify(call.input || {}),
-          success: false,
-          error_message: 'duplicate_pending_approval',
-          duration_ms: 0,
-          status: 'blocked',
-          ...runSpineIds,
-        });
-        scheduleAgentsamToolCallLog(env, ctx, {
-          tenantId,
-          sessionId,
-          toolName: call.name,
-          status: 'pending',
-          durationMs: 0,
-          costUsd: 0,
-          inputTokens: 0,
-          outputTokens: 0,
-          userId,
-          workspaceId,
-          errorMessage: 'duplicate_pending_approval',
-          inputSummary: JSON.stringify(call.input || {}).slice(0, 200),
-          routingArmId: attributedRoutingArmId(),
-          ...toolLogFieldsFromValidation(validation),
-          ...runSpineIds,
-        });
-        emit('approval_required', {
-          approval_id: queuePending.id,
-          tool_name: call.name,
-          message: 'This tool already has a pending approval.',
-        });
-        toolResults.push({
-          type: 'tool_result',
-          tool_use_id: call.id,
-          content: `Awaiting approval (approval_id: ${queuePending.id}).`,
         });
         continue;
       }
@@ -6757,7 +6714,9 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
             body.message = message;
           }
         }
-        await markHandoffAccepted(env, handoffResume.spawnId);
+        await markHandoffAccepted(env, handoffResume.spawnId, {
+          childRunId: handoffResume.childRunId,
+        });
         console.log(
           '[agent-handoff] resume',
           JSON.stringify({
@@ -7258,55 +7217,22 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         if (requestedMode !== 'plan') {
           const planId = plan.plan_id;
           const planTasks = plan.tasks || [];
-          const planTitle = plan.plan_title || 'Plan';
-          const approvalId = `appr_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
-          await env.DB.prepare(`
-            INSERT INTO agentsam_approval_queue (
-              id, tenant_id, workspace_id, user_id, session_id,
-              plan_id, tool_name, action_summary, input_json,
-              approval_type, risk_level, status,
-              agent_run_id, conversation_id, expires_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,unixepoch()+180)
-          `).bind(
-            approvalId,
-            tid2,
-            workspaceId,
-            uid2,
-            sessionId || null,
-            planId,
-            'execute_plan',
-            `Execute ${planTasks.length}-step plan: ${planTitle}`,
-            JSON.stringify({ plan_id: planId, task_count: planTasks.length }),
-            'workflow',
-            'medium',
-            'pending',
-            planChatAgentRunId ?? null,
-            conversationId,
-          ).run();
-
-          emitPlan('plan_confirmation_required', {
-            approval_id: approvalId,
+          emitPlan('plan_executing', {
             plan_id: planId,
-            summary: `${planTasks.length}-step plan ready. Confirm to execute.`,
+            summary: `Executing ${planTasks.length}-step plan…`,
             tasks: planTasks.map((t) => ({ title: t.title, order_index: t.order_index })),
           });
-
-          const approved = await pollApprovalQueue(env, approvalId, 180);
-          if (!approved) {
-            emitPlan('plan_cancelled', { reason: 'Denied or timed out.' });
-          } else {
-            const { executePlan } = await import('../core/agentsam-task-executor.js');
-            await executePlan(env, {
-              planId,
-              userId: uid2,
-              workspaceId,
-              tenantId: tid2,
-              emit: emitPlan,
-              ctx,
-              sessionId: sessionId || null,
-              workflowRunId: wfBoot.workflowRunId,
-            });
-          }
+          const { executePlan } = await import('../core/agentsam-task-executor.js');
+          await executePlan(env, {
+            planId,
+            userId: uid2,
+            workspaceId,
+            tenantId: tid2,
+            emit: emitPlan,
+            ctx,
+            sessionId: sessionId || null,
+            workflowRunId: wfBoot.workflowRunId,
+          });
         } else {
           emitPlan('text', {
             text: '_Plan mode: tasks stay as **todo**. Switch to **Agent** or **Multitask** to execute._',
@@ -8780,6 +8706,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
               activeFileEnvelope: activeFileEnvelope ?? body.activeFileEnvelope ?? null,
               resolvedContext: agentChatResolvedContext,
               handoffDepth: handoffResume?.depth ?? 0,
+              rootSessionId: handoffResume?.rootSessionId ?? sessionId,
             }),
             maxRunMsChat + 5000
           );

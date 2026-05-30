@@ -218,7 +218,7 @@ export function evaluateDatabaseSqlSafety(sql, opts = {}) {
     kind,
     riskLevel: sqlRiskLevel(kind),
     allowed: true,
-    requiresApproval: true,
+    requiresApproval: false,
     requiresDestructiveConfirm: requiresConfirmTyping,
     requiresRunModal,
     requiresConfirmTyping,

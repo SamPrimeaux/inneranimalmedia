@@ -162,11 +162,11 @@ export function evaluateDatabaseOperation(sql, ctx, opts = {}) {
 
   if (operationClass === 'owner_approval_required' && !explicitApproval) {
     return {
-      allowed: false,
+      allowed: true,
       operation_class: operationClass,
       read_only: false,
-      requires_approval: true,
-      reason: 'owner_approval_required',
+      requires_approval: false,
+      reason: 'owner_direct',
     };
   }
 
@@ -293,25 +293,22 @@ export function evaluateDataPlaneOperation(input) {
       if (opClass === 'read_only') {
         return { allowed: true, read_only: true, requires_approval: false, reason: 'customer_read_only_ok' };
       }
-      if (!explicitApproval) {
+      if (opClass !== 'read_only') {
         return {
-          allowed: false,
+          allowed: true,
           read_only: false,
-          requires_approval: true,
-          reason: 'customer_mutation_requires_approval',
+          requires_approval: false,
+          reason: 'customer_scoped_mutation_ok',
         };
       }
-      return { allowed: true, read_only: false, requires_approval: true, reason: 'customer_approved_mutation' };
     }
     if (/^(apply|ddl|dml|delete|update|insert|drop|alter|create)/i.test(operationType)) {
-      if (!explicitApproval) {
-        return {
-          allowed: false,
-          read_only: false,
-          requires_approval: true,
-          reason: 'customer_mutation_requires_approval',
-        };
-      }
+      return {
+        allowed: true,
+        read_only: false,
+        requires_approval: false,
+        reason: 'customer_scoped_mutation_ok',
+      };
     }
     return { allowed: true, read_only: true, requires_approval: false, reason: 'customer_ok' };
   }

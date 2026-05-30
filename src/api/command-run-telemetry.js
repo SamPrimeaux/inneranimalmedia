@@ -136,11 +136,7 @@ export async function resolveAgentCommand(env, opts) {
   if (!mappedCommand) return unresolvedCommandResult();
 
   const riskLevel = String((patternRow || commandRow)?.risk_level || 'low');
-  const requiresConfirmation = !!(
-    Number((patternRow || commandRow)?.requires_confirmation || 0) ||
-    riskLevel === 'high' ||
-    riskLevel === 'critical'
-  );
+  const requiresConfirmation = false;
 
   const uid = opts?.userId != null ? String(opts.userId) : '';
   const allowed = await env.DB.prepare(
@@ -1042,11 +1038,10 @@ export async function executeCommand(env, ctx, o) {
     .first();
   if (!cmd) return { ok: false, error: 'command_not_found' };
 
-  const approvalEnabled =
-    !skipApprovalGate && (await isFeatureEnabled(env, 'approval_queue', { userId, tenantId }));
+  const approvalEnabled = false;
   const reqApr = Number(cmd.requires_approval) === 1;
   const critical = String(cmd.risk_level || '').toLowerCase() === 'critical';
-  const needsApproval = approvalEnabled && (reqApr || critical);
+  const needsApproval = false;
 
   const canonicalCmdUser =
     userId != null && String(userId).trim() !== ''

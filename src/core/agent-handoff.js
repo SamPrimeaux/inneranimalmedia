@@ -35,34 +35,91 @@ export async function upsertHandoffContextDigest(env, workspaceId, digestText, o
   const id = `cd_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
   const rawSize = sourceMaterial.length;
   const reducedSize = digestText.length;
+  const sessionId = opts.sessionId != null ? String(opts.sessionId).trim() : null;
+  const nextSessionId = opts.nextSessionId != null ? String(opts.nextSessionId).trim() : null;
+  const parentRunId = opts.parentRunId != null ? String(opts.parentRunId).trim() : null;
 
   try {
     if (cols.has('source_hash') && cols.has('digest_hash')) {
+      const insertCols = [
+        'id',
+        'workspace_id',
+        'digest_type',
+        'source_hash',
+        'digest_hash',
+        'raw_size_bytes',
+        'reduced_size_bytes',
+        'digest_text',
+        'generation_model',
+        'namespace',
+        'created_at',
+        'updated_at',
+      ];
+      const placeholders = [
+        '?',
+        '?',
+        '?',
+        '?',
+        '?',
+        '?',
+        '?',
+        '?',
+        '?',
+        "'agent_handoff'",
+        "datetime('now')",
+        "datetime('now')",
+      ];
+      const binds = [
+        id,
+        workspaceId,
+        digestType,
+        sourceHash,
+        digestHash,
+        rawSize,
+        reducedSize,
+        digestText,
+        opts.generationModel ?? null,
+      ];
+      if (sessionId && cols.has('session_id')) {
+        insertCols.push('session_id');
+        placeholders.push('?');
+        binds.push(sessionId);
+      }
+      if (nextSessionId && cols.has('next_session_id')) {
+        insertCols.push('next_session_id');
+        placeholders.push('?');
+        binds.push(nextSessionId);
+      }
+      if (parentRunId && cols.has('parent_run_id')) {
+        insertCols.push('parent_run_id');
+        placeholders.push('?');
+        binds.push(parentRunId);
+      }
       await env.DB.prepare(
-        `INSERT INTO agentsam_context_digest (
-           id, workspace_id, digest_type, source_hash, digest_hash,
-           raw_size_bytes, reduced_size_bytes, digest_text,
-           generation_model, namespace, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'agent_handoff', datetime('now'), datetime('now'))`,
+        `INSERT INTO agentsam_context_digest (${insertCols.join(', ')})
+         VALUES (${placeholders.join(', ')})`,
       )
-        .bind(
-          id,
-          workspaceId,
-          digestType,
-          sourceHash,
-          digestHash,
-          rawSize,
-          reducedSize,
-          digestText,
-          opts.generationModel ?? null,
-        )
+        .bind(...binds)
         .run();
     } else {
+      const insertCols = ['id', 'workspace_id', 'digest_type', 'digest_text', 'created_at'];
+      const placeholders = ['?', '?', '?', '?', "datetime('now')"];
+      const binds = [id, workspaceId, digestType, digestText];
+      if (sessionId && cols.has('session_id')) {
+        insertCols.push('session_id');
+        placeholders.push('?');
+        binds.push(sessionId);
+      }
+      if (nextSessionId && cols.has('next_session_id')) {
+        insertCols.push('next_session_id');
+        placeholders.push('?');
+        binds.push(nextSessionId);
+      }
       await env.DB.prepare(
-        `INSERT INTO agentsam_context_digest (id, workspace_id, digest_type, digest_text, created_at)
-         VALUES (?, ?, ?, ?, datetime('now'))`,
+        `INSERT INTO agentsam_context_digest (${insertCols.join(', ')})
+         VALUES (${placeholders.join(', ')})`,
       )
-        .bind(id, workspaceId, digestType, digestText)
+        .bind(...binds)
         .run();
     }
     return id;
@@ -130,8 +187,8 @@ export async function evaluateAgentHandoffPressure(env, p) {
   const arm = armLookup?.arm ?? null;
   const meta = await resolveModelMeta(env, modelKey);
   const contextWindow =
-    Number(meta?.context_max_tokens) ||
     Number(meta?.context_window) ||
+    Number(meta?.context_max_tokens) ||
     Number(meta?.output_max_tokens) ||
     128000;
 
@@ -191,6 +248,10 @@ export async function evaluateAgentHandoffPressure(env, p) {
  *   parentSlug: string,
  *   fallbackModelKey: string,
  *   workspaceId: string,
+ *   parentSessionId: string,
+ *   rootSessionId?: string,
+ *   reason?: 'budget' | 'context',
+ *   urgency?: 'low' | 'medium' | 'high',
  *   goal?: string,
  *   messages?: unknown[],
  *   executedToolNames?: string[],
@@ -205,24 +266,37 @@ export async function initiateHandoff(env, p) {
   const parentSlug = String(p.parentSlug || '').trim();
   const childSlug = String(p.fallbackModelKey || '').trim();
   const workspaceId = String(p.workspaceId || '').trim();
-  if (!env?.DB || !parentRunId || !parentSlug || !childSlug || !workspaceId) {
+  const parentSessionId = String(p.parentSessionId || '').trim();
+  const tenantId = String(p.tenantId || '').trim();
+  if (!env?.DB || !parentRunId || !parentSlug || !childSlug || !workspaceId || !parentSessionId || !tenantId) {
     throw new Error('initiateHandoff: missing required fields');
   }
 
   const depth = Math.max(1, Math.min(MAX_HANDOFF_DEPTH, Number(p.depth) || 1));
+  const rootSessionId = String(p.rootSessionId || parentSessionId).trim();
+  const reason = p.reason === 'context' || p.triggeredBy === 'context' ? 'context' : 'budget';
+  const urgency =
+    p.urgency === 'low' || p.urgency === 'high' || p.urgency === 'medium' ? p.urgency : 'medium';
   const remainingGoal = extractRemainingGoal(p.messages) || String(p.goal || '').trim();
   const digestText = buildHandoffContextDigest({
     goal: remainingGoal,
     messages: p.messages,
     executedToolNames: p.executedToolNames,
-    triggeredBy: p.triggeredBy,
+    triggeredBy: p.triggeredBy ?? reason,
     parentModelKey: parentSlug,
     childModelKey: childSlug,
   });
 
+  const childSessionId = crypto.randomUUID();
+  const childRunId = newChatAgentRunId({ label: 'handoff' });
+  const spawnId = `spawn_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
+
   const digestId = await upsertHandoffContextDigest(env, workspaceId, digestText, {
     digestType: 'handoff',
     generationModel: parentSlug,
+    sessionId: parentSessionId,
+    nextSessionId: childSessionId,
+    parentRunId,
     sourceMaterial: JSON.stringify({
       parent_run_id: parentRunId,
       goal: remainingGoal,
@@ -230,41 +304,31 @@ export async function initiateHandoff(env, p) {
     }),
   });
 
-  const childSessionId = crypto.randomUUID();
-  const childRunId = newChatAgentRunId({ label: 'handoff' });
-  const spawnId = `spawn_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-  const messagePayload = {
-    summary: digestText.slice(0, 2000),
-    remainingGoal,
-    contextDigest: digestText,
-    digest_id: digestId,
-    triggeredBy: p.triggeredBy ?? 'budget',
-    next_session_id: childSessionId,
-    fallback_model_key: childSlug,
-    parent_model_key: parentSlug,
-  };
-
   await env.DB.prepare(
     `INSERT INTO agentsam_spawn_session (
-       id, parent_run_id, child_run_id, parent_slug, child_slug,
-       depth, message, status, workspace_id, created_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, unixepoch())`,
+       id, workspace_id, tenant_id, parent_run_id, child_run_id,
+       parent_session_id, child_session_id, root_session_id,
+       fallback_model_key, reason, urgency, depth, status, created_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', unixepoch())`,
   )
     .bind(
       spawnId,
-      parentRunId,
-      childSessionId,
-      parentSlug,
-      childSlug,
-      depth,
-      JSON.stringify(messagePayload),
       workspaceId,
+      tenantId,
+      parentRunId,
+      childRunId,
+      parentSessionId,
+      childSessionId,
+      rootSessionId,
+      childSlug,
+      reason,
+      urgency,
+      depth,
     )
     .run();
 
-  if (p.userId && p.tenantId) {
+  if (p.userId) {
     const userId = String(p.userId).trim();
-    const tenantId = String(p.tenantId).trim();
     await env.DB.prepare(
       `INSERT INTO agentsam_agent_run (
          id, user_id, workspace_id, tenant_id, conversation_id, status, trigger,
@@ -290,9 +354,21 @@ export async function initiateHandoff(env, p) {
     childRunId,
     digestId,
     digestText,
-    messagePayload,
+    remainingGoal,
     fallbackModelKey: childSlug,
+    rootSessionId,
+    reason,
+    urgency,
+    depth,
   };
+}
+
+/**
+ * @param {string} digestText
+ */
+function parseRemainingGoalFromDigest(digestText) {
+  const match = String(digestText || '').match(/^remaining_goal:\s*(.+)$/m);
+  return match?.[1]?.trim() ?? '';
 }
 
 /**
@@ -305,56 +381,50 @@ export async function resolvePendingHandoffForSession(env, p) {
   const workspaceId = p.workspaceId != null ? String(p.workspaceId).trim() : '';
   if (!env?.DB || !sessionId) return null;
   try {
-    let row = await env.DB.prepare(
-      `SELECT id, parent_run_id, child_run_id, parent_slug, child_slug, depth, message, status, workspace_id
+    const row = await env.DB.prepare(
+      `SELECT id, parent_run_id, child_run_id, parent_session_id, child_session_id,
+              root_session_id, fallback_model_key, reason, urgency, depth, status, workspace_id
        FROM agentsam_spawn_session
-       WHERE status = 'pending' AND child_run_id = ?
+       WHERE status = 'pending' AND child_session_id = ?
        ${workspaceId ? 'AND workspace_id = ?' : ''}
        ORDER BY created_at DESC LIMIT 1`,
     )
       .bind(...(workspaceId ? [sessionId, workspaceId] : [sessionId]))
       .first();
-    if (!row?.id) {
-      row = await env.DB.prepare(
-        `SELECT id, parent_run_id, child_run_id, parent_slug, child_slug, depth, message, status, workspace_id
-         FROM agentsam_spawn_session
-         WHERE status = 'pending'
-           AND json_extract(message, '$.next_session_id') = ?
-         ${workspaceId ? 'AND workspace_id = ?' : ''}
-         ORDER BY created_at DESC LIMIT 1`,
-      )
-        .bind(...(workspaceId ? [sessionId, workspaceId] : [sessionId]))
-        .first();
-    }
     if (!row?.id) return null;
-    const payload = (() => {
-      try {
-        return JSON.parse(String(row.message || '{}'));
-      } catch {
-        return {};
-      }
-    })();
+
+    let contextDigest = '';
+    let remainingGoal = '';
+    const digestSessionId =
+      row.parent_session_id != null ? String(row.parent_session_id) : sessionId;
+    const digestRow = await env.DB.prepare(
+      `SELECT digest_text FROM agentsam_context_digest
+       WHERE session_id = ? AND digest_type = 'handoff'
+       ORDER BY created_at DESC LIMIT 1`,
+    )
+      .bind(digestSessionId)
+      .first()
+      .catch(() => null);
+    if (digestRow?.digest_text) {
+      contextDigest = String(digestRow.digest_text);
+      remainingGoal = parseRemainingGoalFromDigest(contextDigest);
+    }
+
     return {
       spawnId: String(row.id),
       parentRunId: row.parent_run_id != null ? String(row.parent_run_id) : null,
-      childSlug: row.child_slug != null ? String(row.child_slug) : null,
-      parentSlug: row.parent_slug != null ? String(row.parent_slug) : null,
+      childRunId: row.child_run_id != null ? String(row.child_run_id) : null,
+      parentSessionId: row.parent_session_id != null ? String(row.parent_session_id) : null,
+      rootSessionId: row.root_session_id != null ? String(row.root_session_id) : null,
+      parentSlug: null,
+      childSlug: row.fallback_model_key != null ? String(row.fallback_model_key) : null,
       depth: Number(row.depth) || 1,
-      payload,
-      contextDigest:
-        payload.contextDigest != null
-          ? String(payload.contextDigest)
-          : payload.summary != null
-            ? String(payload.summary)
-            : '',
-      remainingGoal:
-        payload.remainingGoal != null ? String(payload.remainingGoal) : '',
+      reason: row.reason != null ? String(row.reason) : null,
+      urgency: row.urgency != null ? String(row.urgency) : null,
+      contextDigest,
+      remainingGoal,
       fallbackModelKey:
-        payload.fallback_model_key != null
-          ? String(payload.fallback_model_key)
-          : row.child_slug != null
-            ? String(row.child_slug)
-            : null,
+        row.fallback_model_key != null ? String(row.fallback_model_key) : null,
     };
   } catch (e) {
     console.warn('[agent-handoff] resolve_pending', e?.message ?? e);
@@ -372,7 +442,9 @@ export async function markHandoffAccepted(env, spawnId, opts = {}) {
   const cols = await pragmaTableInfo(env.DB, 'agentsam_spawn_session');
   const sets = [`status = 'accepted'`];
   const binds = [];
-  if (cols.has('completed_at')) {
+  if (cols.has('accepted_at')) {
+    sets.push('accepted_at = unixepoch()');
+  } else if (cols.has('completed_at')) {
     sets.push('completed_at = unixepoch()');
   }
   if (opts.childRunId && cols.has('child_run_id')) {
@@ -423,6 +495,10 @@ export async function executeAgentHandoffFromLoop(env, ctx, emit, safeDone, p) {
     parentSlug: String(p.modelKey),
     fallbackModelKey: evaluation.fallbackModelKey,
     workspaceId: String(p.workspaceId),
+    parentSessionId: String(p.sessionId || ''),
+    rootSessionId: p.rootSessionId != null ? String(p.rootSessionId) : String(p.sessionId || ''),
+    reason: evaluation.reason === 'context' ? 'context' : 'budget',
+    urgency: evaluation.urgency,
     goal: p.goal,
     messages: p.conversationMessages,
     executedToolNames: p.executedToolNames,
