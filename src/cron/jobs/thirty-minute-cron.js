@@ -11,6 +11,7 @@ import {
 import { applyEtoToRoutingArms } from '../../core/performance-eto.js';
 import { scanErrorLogThresholds } from '../../core/error-log-escalation.js';
 import { runMcpServerHealthCron } from './mcp-server-health.js';
+import { runAgentsamMemoryVectorSync } from '../../core/agentsam-memory-vector-sync.js';
 
 const CRON_30 = '*/30 * * * *';
 
@@ -190,4 +191,9 @@ export async function runHourlyRoutingJobs(env, ctx) {
   ctx.waitUntil(processQueues(env).catch((e) => console.warn('[cron/hourly] agent_request_queue_drain', e?.message)));
   ctx.waitUntil(scanErrorLogThresholds(env).catch(e => console.warn('[cron/hourly] errorLogThresholds', e?.message)));
   ctx.waitUntil(applyEtoToRoutingArms(env, {}).catch(e => console.warn('[cron/hourly] applyEtoToRoutingArms', e?.message)));
+  ctx.waitUntil(
+    runAgentsamMemoryVectorSync(env, { cronExpression: CRON_HOURLY }).catch((e) =>
+      console.warn('[cron/hourly] agentsam_memory_oai3large_1536_sync', e?.message ?? e),
+    ),
+  );
 }

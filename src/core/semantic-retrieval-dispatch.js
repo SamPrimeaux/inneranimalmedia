@@ -190,8 +190,24 @@ async function queryPgvectorLane(env, laneKey, embedding, workspaceUuid, topK) {
   const primaryTable = reg.tables[0];
   const ragLane = reg.ragLane ? LANES[reg.ragLane] : null;
   const table = ragLane?.supabase_table || primaryTable;
-  const titleCol = table.includes('memory') ? 'memory_key' : 'title';
-  const sql = `
+  const isMemoryLane = laneKey === 'memory_semantic_search' || table.includes('memory_oai3large');
+  const dims = reg.dims === 3072 ? 3072 : 1536;
+
+  let sql;
+  if (isMemoryLane) {
+    sql = `
+    SELECT id, workspace_id, user_id, oauth_client_id, memory_key, content,
+           title, source, metadata, created_at, updated_at,
+           vectorize_binding, vectorize_index, vectorize_id, embedded_at,
+           1 - (embedding <=> $1::vector(${dims})) AS score
+      FROM agentsam.${table}
+     WHERE workspace_id = $2::uuid
+       AND embedding IS NOT NULL
+     ORDER BY embedding <=> $1::vector(${dims})
+     LIMIT $3`;
+  } else {
+    const titleCol = table.includes('memory') ? 'memory_key' : 'title';
+    sql = `
     SELECT id,
            COALESCE(${titleCol}, '') AS title,
            content,
@@ -202,17 +218,32 @@ async function queryPgvectorLane(env, laneKey, embedding, workspaceUuid, topK) {
        AND embedding IS NOT NULL
      ORDER BY embedding <=> $1::vector
      LIMIT $3`;
+  }
+
   const r = await runHyperdriveQuery(env, sql, [vectorLiteral(embedding), workspaceUuid, topK]);
   if (!r.ok) return { hits: [], backend: 'pgvector', error: r.error, table };
-  const hits = (r.rows || []).map((row) => ({
-    id: String(row.id ?? ''),
-    title: String(row.title ?? '').trim(),
-    content: String(row.content ?? '').trim(),
-    source_ref: row.source_ref != null ? String(row.source_ref) : null,
-    file_path: null,
-    score: Number(row.score ?? 0),
-    metadata: {},
-  }));
+  const hits = (r.rows || []).map((row) => {
+    if (isMemoryLane) {
+      return {
+        id: String(row.id ?? ''),
+        title: String(row.title ?? row.memory_key ?? '').trim(),
+        content: String(row.content ?? '').trim(),
+        source_ref: row.memory_key != null ? String(row.memory_key) : null,
+        file_path: null,
+        score: Number(row.score ?? 0),
+        metadata: row.metadata && typeof row.metadata === 'object' ? row.metadata : {},
+      };
+    }
+    return {
+      id: String(row.id ?? ''),
+      title: String(row.title ?? '').trim(),
+      content: String(row.content ?? '').trim(),
+      source_ref: row.source_ref != null ? String(row.source_ref) : null,
+      file_path: null,
+      score: Number(row.score ?? 0),
+      metadata: {},
+    };
+  });
   return { hits, backend: 'pgvector', table };
 }
 
@@ -316,6 +347,7 @@ export async function dispatchSemanticRetrieval(env, opts) {
   let table = reg.tables[0];
   let fallbackUsed = false;
   let hits = [];
+  let pgError = null;
 
   if (lane !== 'deep_archive_search' && reg.binding) {
     const vz = await queryVectorizeLane(env, lane, embedding, workspaceIdD1, workspaceUuid, topK);
@@ -333,8 +365,9 @@ export async function dispatchSemanticRetrieval(env, opts) {
     hits = pg.hits || [];
     backend = pg.backend;
     table = pg.table ?? table;
+    pgError = pg.error ? String(pg.error) : null;
     if (lane === 'deep_archive_search') binding = null;
-    fallbackUsed = lane === 'deep_archive_search' || fallbackUsed || Boolean(pg.error);
+    fallbackUsed = lane === 'deep_archive_search' || fallbackUsed || Boolean(pgError);
   }
 
   const results = hits.map((h) => ({
@@ -365,8 +398,25 @@ export async function dispatchSemanticRetrieval(env, opts) {
     agentRunId: opts.agent_run_id,
   }).catch(() => {});
 
+  if (pgError) {
+    return {
+      ok: false,
+      lane,
+      backend,
+      binding,
+      table,
+      query_hash: queryHash,
+      results: [],
+      result_count: 0,
+      duration_ms: durationMs,
+      fallback_used: fallbackUsed,
+      degraded_reason: 'pgvector_error',
+      error: pgError,
+    };
+  }
+
   return {
-    ok: results.length > 0,
+    ok: true,
     lane,
     backend,
     binding,
@@ -377,7 +427,7 @@ export async function dispatchSemanticRetrieval(env, opts) {
     duration_ms: durationMs,
     fallback_used: fallbackUsed,
     degraded_reason: results.length ? null : 'no_hits',
-    error: results.length ? null : 'no_results',
+    error: null,
   };
 }
 

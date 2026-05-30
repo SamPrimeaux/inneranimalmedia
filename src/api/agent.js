@@ -10620,9 +10620,28 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     }
   }
 
-  // ── /api/agent/memory/sync ────────────────────────────────────────────────
+  // ── /api/agent/memory/sync — Supabase webhook OR manual D1→pgvector sync ──
   if (path === '/api/agent/memory/sync' && method === 'POST') {
-    return handleAgentMemorySync(request, env);
+    const webhookSig =
+      request.headers.get('x-supabase-signature') ||
+      request.headers.get('X-Supabase-Signature') ||
+      '';
+    if (webhookSig) {
+      return handleAgentMemorySync(request, env);
+    }
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
+    const bearer = String(request.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '').trim();
+    const bridgeOk =
+      env.AGENTSAM_BRIDGE_KEY && bearer === String(env.AGENTSAM_BRIDGE_KEY).trim();
+    if (!authUser && !bridgeOk) return jsonResponse({ error: 'Unauthorized' }, 401);
+    const { runAgentsamMemoryVectorSync } = await import('../core/agentsam-memory-vector-sync.js');
+    try {
+      const out = await runAgentsamMemoryVectorSync(env, { skipLedger: true });
+      return jsonResponse(out);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return jsonResponse({ ok: false, error: msg, embedded: 0, skipped: 0, failed: 0 }, 500);
+    }
   }
 
   // ── /api/agent/alignment-sync — D1 workflow run + Supabase mirror (+ agentsam_memory) ──
