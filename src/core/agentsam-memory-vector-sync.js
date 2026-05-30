@@ -147,6 +147,7 @@ export async function runAgentsamMemoryVectorSync(env, opts = {}) {
         const vector = vectorLiteral(embedding);
         const metadata = {
           d1_id: String(row.id),
+          user_id_d1: String(row.user_id || ''),
           memory_type: String(row.memory_type || 'fact'),
           tenant_id: String(row.tenant_id || ''),
           sync_key: String(row.sync_key || ''),
@@ -177,7 +178,7 @@ export async function runAgentsamMemoryVectorSync(env, opts = {}) {
              updated_at = now()`,
           [
             workspaceUuid,
-            String(row.user_id || ''),
+            null,
             null,
             memoryKey,
             content,
