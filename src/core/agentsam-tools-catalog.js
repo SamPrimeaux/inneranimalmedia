@@ -8,6 +8,7 @@ import { parseHandlerConfig } from './resolve-credential.js';
 import { agentsamPlanInputSchema } from './mcp-plan-schema.js';
 import { agentsamMemorySearchInputSchema } from './mcp-memory-search-schema.js';
 import { agentsamMemorySaveInputSchema } from './mcp-memory-save-schema.js';
+import { agentsamMemoryVectorWriteInputSchema } from './mcp-memory-vector-write-schema.js';
 
 /** Lightweight lane inference (avoids mcp-tools-branded → retention import chain in Node smoke). */
 function inferLaneFromMessage(message, modeSlug) {
@@ -227,9 +228,8 @@ export function inputSchemaFromAgentsamToolRow(row) {
   const tk = trim(row?.tool_key || row?.tool_name).toLowerCase();
   if (tk === 'agentsam_plan') return agentsamPlanInputSchema();
   if (tk === 'agentsam_memory_search') return agentsamMemorySearchInputSchema();
-  if (tk === 'agentsam_memory_save' || tk === 'agentsam_memory_write') {
-    return agentsamMemorySaveInputSchema();
-  }
+  if (tk === 'agentsam_memory_save') return agentsamMemorySaveInputSchema();
+  if (tk === 'agentsam_memory_write') return agentsamMemoryVectorWriteInputSchema();
 
   const parsed = parseJsonSafe(row?.input_schema, null);
   if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {

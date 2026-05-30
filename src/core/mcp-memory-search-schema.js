@@ -37,6 +37,20 @@ export const CANONICAL_AGENTSAM_MEMORY_SEARCH_INPUT_SCHEMA = {
       default: 'auto',
       description: 'Legacy provider hint (D1 search ignores; kept for connector compatibility).',
     },
+    memory_type: {
+      type: 'string',
+      enum: [
+        'fact',
+        'preference',
+        'project',
+        'skill',
+        'error',
+        'decision',
+        'policy',
+        'state',
+      ],
+      description: 'Optional filter for managed memory category (D1 + agentsam.agentsam_memory).',
+    },
   },
   additionalProperties: false,
 };

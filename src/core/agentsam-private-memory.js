@@ -4,6 +4,7 @@
  * Vectorize optional (embedding NULL by default).
  */
 import { isHyperdriveUsable, runHyperdriveQuery } from './hyperdrive-query.js';
+import { resolveManagedMemoryType } from './mcp-memory-type-compat.js';
 
 export const MANAGED_MEMORY_TYPES = [
   'fact',
@@ -46,7 +47,8 @@ export function normalizePrivateMemoryInput(input) {
   const content = String(
     input.content ?? input.value ?? input.body ?? '',
   ).trim();
-  const memoryType = String(input.memory_type ?? input.memoryType ?? 'fact').trim();
+  const resolved = resolveManagedMemoryType(input);
+  const memoryType = resolved.memory_type;
   let valueJson = input.value_json ?? input.valueJson ?? {};
   if (typeof valueJson === 'string') {
     try {
@@ -67,6 +69,9 @@ export function normalizePrivateMemoryInput(input) {
     }
   }
   if (!Array.isArray(tags)) tags = [];
+  if (resolved.tags?.length) {
+    tags = [...new Set([...tags, ...resolved.tags])];
+  }
 
   return {
     tenant_id: String(input.tenant_id ?? input.tenantId ?? '').trim(),

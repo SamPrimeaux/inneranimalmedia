@@ -63,7 +63,8 @@ Migration **406** (script: `scripts/migration_406.py`) backfills display names, 
 |------|---------|
 | `agentsam_run` | Run Agent Sam (handler: `agentsam_run_agent`; approval flags in registry) |
 | `agentsam_plan`, `agentsam_todo_add`, `agentsam_todo_update` | Planning / todos |
-| `agentsam_memory_save` | Persist memory |
+| `agentsam_memory_save` | Private managed memory (D1 + `agentsam.agentsam_memory`); types include **policy** / **state** |
+| `agentsam_memory_write` | **Vectorize semantic** write only — not operational KV (see `docs/agentsam_knowledge/mcp_memory_schema_refresh.md`) |
 | `agentsam_github_create_file`, `agentsam_github_create_branch`, `agentsam_github_create_pr`, `agentsam_github_merge_pr` | GitHub write (repo-bound) |
 | `agentsam_github_create_repo` | Create repo on **your** GitHub account |
 | `agentsam_db_write` | D1 mutations — SQL must include your `tenant_id` or `workspace_id` |

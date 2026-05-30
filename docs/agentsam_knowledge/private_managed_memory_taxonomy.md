@@ -23,6 +23,8 @@
 | `state` | Current production snapshot (overwrite) | `state:production` |
 | `fact` | Stable facts | `fact:canonical_supabase_schema` |
 
+**MCP tools:** use `agentsam_memory_save` (not `agentsam_memory_write`, which is Vectorize-only). See `docs/agentsam_knowledge/mcp_memory_schema_refresh.md`.
+
 ## Retrieval tiers
 
 1. **Tier 0** — D1 hot cache (`loadD1Memory`)

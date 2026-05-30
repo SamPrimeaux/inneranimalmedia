@@ -1,6 +1,7 @@
 /**
- * Canonical MCP input schema for agentsam_memory_save / agentsam_memory_write.
- * Keep in sync with inneranimalmedia-mcp-server when present.
+ * Canonical MCP input schema for agentsam_memory_save (private managed memory).
+ * Vectorize semantic writes: mcp-memory-vector-write-schema.js (agentsam_memory_write).
+ * Keep in sync with inneranimalmedia-mcp-server/src/mcp-memory-save-schema.js.
  */
 
 /** @type {Record<string, unknown>} */

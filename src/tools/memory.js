@@ -4,6 +4,7 @@
  * All ops scoped to (tenant_id, user_id) — never cross-tenant.
  */
 import { mirrorD1MemoryToPrivatePg, searchPrivateAgentsamMemory } from '../core/agentsam-private-memory.js';
+import { resolveManagedMemoryType, normalizeMemoryTags } from '../core/mcp-memory-type-compat.js';
 
 // ---------------------------------------------------------------------------
 // Tool schemas — registered with the model via buildAnthropicMessagesTools
@@ -172,15 +173,16 @@ export async function memoryWrite(input, env, context = {}) {
     return { error: 'memory_write requires tenantId and userId in context' };
   }
 
+  const resolved = resolveManagedMemoryType(input);
   const {
     key,
     value,
-    memory_type = 'fact',
-    tags = [],
     confidence = 1.0,
     ttl_days,
     source = 'agent',
   } = input;
+  const memory_type = resolved.memory_type;
+  const tags = normalizeMemoryTags(resolved.tags.length ? resolved.tags : input.tags);
 
   const now = nowUnix();
   const expiresAt = ttl_days != null ? now + Math.round(ttl_days * 86400) : null;

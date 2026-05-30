@@ -1009,11 +1009,14 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         };
         let memParams = params;
         if (op === 'memory_write') {
+          const { resolveManagedMemoryType } = await import('./mcp-memory-type-compat.js');
+          const resolved = resolveManagedMemoryType(params);
           memParams = {
             ...params,
             key: params.key ?? params.memory_key ?? params.memoryKey,
             value: params.value ?? params.content ?? params.body,
-            memory_type: params.memory_type ?? params.memoryType ?? 'fact',
+            memory_type: resolved.memory_type,
+            tags: resolved.tags?.length ? resolved.tags : params.tags,
             source: params.source ?? `mcp:${toolKey}`,
           };
         }
