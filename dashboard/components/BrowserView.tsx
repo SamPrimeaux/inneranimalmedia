@@ -7,7 +7,8 @@
  * Features:
  *  - Permission gate (Deny / Allow Once / Always Allow) via agentsam_browser_trusted_origin
  *  - Agent active glow when CDT tools are running
- *  - Embedded iframe browser by default; MYBROWSER (Playwright) only on explicit automation
+ *  - Manual browsing: POST /api/browser/session → embed live.browser.run devtoolsFrontendUrl
+ *  - Agent automation: MYBROWSER screenshot preview via /api/browser/invoke
  *  - CSS Inspector (Components panel) — snapshot / same-origin when available
  *  - DevTools panel — console + network via cdt_* tools
  *  - Element picker — hover/highlight/select, populates chat
@@ -214,6 +215,53 @@ async function writeTrust(origin: string, scope: TrustScope, workspaceId?: strin
   }
 }
 
+type BrowserRunSessionResponse = {
+  ok?: boolean;
+  error?: string;
+  session_id?: string;
+  devtools_frontend_url?: string;
+  url?: string;
+  title?: string | null;
+};
+
+async function createBrowserRunLiveSession(
+  url: string,
+  workspaceId?: string | null,
+  sessionId?: string | null,
+): Promise<BrowserRunSessionResponse> {
+  const r = await fetch('/api/browser/session', {
+    method: 'POST',
+    headers: browserTrustHeaders(workspaceId),
+    credentials: 'same-origin',
+    body: JSON.stringify({
+      url,
+      ...(sessionId ? { session_id: sessionId } : {}),
+    }),
+  });
+  const data = (await r.json().catch(() => ({}))) as BrowserRunSessionResponse;
+  if (!r.ok) {
+    return { error: data?.error || r.statusText };
+  }
+  return data;
+}
+
+async function deleteBrowserRunLiveSession(
+  sessionId: string,
+  workspaceId?: string | null,
+): Promise<void> {
+  if (!sessionId) return;
+  try {
+    await fetch('/api/browser/session', {
+      method: 'DELETE',
+      headers: browserTrustHeaders(workspaceId),
+      credentials: 'same-origin',
+      body: JSON.stringify({ session_id: sessionId }),
+    });
+  } catch {
+    /* non-blocking */
+  }
+}
+
 // ─── MYBROWSER tool invoke (session cookie → /api/browser/invoke) ───────────
 
 type BrowserInvokeResult = Record<string, unknown> & {
@@ -317,7 +365,7 @@ const PermissionGate: React.FC<{
               Allow browser access to this origin?
             </p>
             <p className="mt-1 text-[11px] leading-relaxed text-[var(--text-muted)]">
-              Same approval flow as MCP OAuth: review the destination, then grant session or persistent trust before MYBROWSER tools run.
+              Same approval flow as MCP OAuth: review the destination, then grant session or persistent trust before Browser Run live view or automation tools run.
             </p>
           </div>
         </div>
@@ -1061,6 +1109,7 @@ const BrowserPane: React.FC<PaneProps> = ({
   }, [registryPickers]);
   const menuRef      = useRef<HTMLDivElement>(null);
   const iframeRef    = useRef<HTMLIFrameElement>(null);
+  const browserRunSessionRef = useRef<string | null>(null);
   const areaOverRef  = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const currentUrlRef = useRef(currentUrl);
@@ -1390,87 +1439,100 @@ const BrowserPane: React.FC<PaneProps> = ({
     [addressDisplay, agentRunId],
   );
 
-  const navigateEmbedded = useCallback(
+  const releaseBrowserRunSession = useCallback(async () => {
+    const sid = browserRunSessionRef.current;
+    if (!sid) return;
+    browserRunSessionRef.current = null;
+    await deleteBrowserRunLiveSession(sid, trustWorkspaceId);
+  }, [trustWorkspaceId]);
+
+  useEffect(() => () => {
+    void releaseBrowserRunSession();
+  }, [releaseBrowserRunSession]);
+
+  /** Browser Run Live View (live.browser.run) — manual URL bar / passive navigation. */
+  const openBrowserRunLiveView = useCallback(
     async (raw: string) => {
       const s = raw.trim();
       if (!s || isVirtual(s)) return;
-      console.log('[browser] url_requested', JSON.stringify({ raw: s.slice(0, 240) }));
       const n = normalize(s);
-      const origin = originOf(n);
-      console.log('[browser] url_resolved', JSON.stringify({ url: n.slice(0, 240), origin }));
+      console.log('[browser] live_view_requested', JSON.stringify({ url: n.slice(0, 240) }));
 
-      if (!sessionTrusted.has(origin)) {
-        const trusted = await checkTrust(origin, trustWorkspaceId);
-        if (!trusted) {
-          const scope = await requestTrust(n);
-          if (!scope) return;
-          if (scope === 'persistent') await writeTrust(origin, 'persistent', trustWorkspaceId);
-          setSessionTrusted((prev) => new Set([...prev, origin]));
-        } else {
-          setSessionTrusted((prev) => new Set([...prev, origin]));
-        }
-      }
-
-      setIframeUrl(n);
-      setCurrentUrl(n);
-      setInputVal(addressDisplay?.trim() && /^(blob:|data:)/i.test(n) ? addressDisplay : n);
-      onUrlCommitted?.(n);
-      setLoading(true);
-      setMode('browse');
+      setNavigateError(null);
       setScreenshotUrl(null);
       setScreenshotErr(null);
-      setNavigateError(null);
+      setMode('browse');
       setInspectedEl(null);
       setIframeBlocked(false);
+      setLoading(true);
+
+      try {
+        const data = await createBrowserRunLiveSession(
+          n,
+          trustWorkspaceId,
+          browserRunSessionRef.current,
+        );
+        if (data.error || !data.devtools_frontend_url) {
+          setNavigateError(data.error || 'Browser Run session did not return a live view URL');
+          return;
+        }
+        browserRunSessionRef.current = data.session_id || browserRunSessionRef.current;
+        const destUrl = data.url?.trim() || n;
+        setIframeUrl(data.devtools_frontend_url);
+        setCurrentUrl(destUrl);
+        setInputVal(addressDisplay?.trim() && /^(blob:|data:)/i.test(destUrl) ? addressDisplay : destUrl);
+        onUrlCommitted?.(destUrl);
+      } catch (e) {
+        setNavigateError(String(e));
+      } finally {
+        setLoading(false);
+      }
     },
-    [sessionTrusted, requestTrust, addressDisplay, onUrlCommitted],
+    [addressDisplay, onUrlCommitted, trustWorkspaceId],
+  );
+
+  const ensureOriginTrust = useCallback(
+    async (url: string): Promise<boolean> => {
+      const n = normalize(url);
+      const origin = originOf(n);
+      if (sessionTrusted.has(origin)) return true;
+      const trusted = await checkTrust(origin, trustWorkspaceId);
+      if (trusted) {
+        setSessionTrusted((prev) => new Set([...prev, origin]));
+        return true;
+      }
+      const scope = await requestTrust(n);
+      if (!scope) return false;
+      if (scope === 'persistent') await writeTrust(origin, 'persistent', trustWorkspaceId);
+      setSessionTrusted((prev) => new Set([...prev, origin]));
+      return true;
+    },
+    [sessionTrusted, requestTrust, trustWorkspaceId],
   );
 
   const navigate = useCallback(
     async (raw: string, opts?: { preview?: BrowserPreviewPayload | null; automation?: boolean }) => {
-      if (opts?.automation) {
-        const s = raw.trim();
-        if (!s || isVirtual(s)) return;
-        const n = normalize(s);
-        const origin = originOf(n);
-        if (!sessionTrusted.has(origin)) {
-          const trusted = await checkTrust(origin, trustWorkspaceId);
-          if (!trusted) {
-            const scope = await requestTrust(n);
-            if (!scope) return;
-            if (scope === 'persistent') await writeTrust(origin, 'persistent', trustWorkspaceId);
-            setSessionTrusted((prev) => new Set([...prev, origin]));
-          } else {
-            setSessionTrusted((prev) => new Set([...prev, origin]));
-          }
-        }
-        await loadAutomationPreview(n, opts.preview ?? null);
+      const s = raw.trim();
+      if (!s || isVirtual(s)) return;
+      const n = normalize(s);
+      if (!(await ensureOriginTrust(n))) return;
+      if (opts?.automation === true || Boolean(opts?.preview?.screenshot_url)) {
+        await loadAutomationPreview(n, opts?.preview ?? null);
         return;
       }
-      await navigateEmbedded(raw);
+      await openBrowserRunLiveView(raw);
     },
-    [sessionTrusted, requestTrust, loadAutomationPreview, navigateEmbedded],
+    [ensureOriginTrust, loadAutomationPreview, openBrowserRunLiveView],
   );
 
-  // ── Sync parent URL prop → embedded iframe (passive agent / user navigation) ─
+  // ── Sync parent URL prop → iframe or MYBROWSER preview (agent / user navigation) ─
   useEffect(() => {
     if (!initialUrl?.trim()) return;
-    if (initialPreview?.screenshot_url) {
-      void navigate(normalize(initialUrl), { preview: initialPreview, automation: true });
-      return;
-    }
-    const n = normalize(initialUrl);
-    setIframeUrl(n);
-    setCurrentUrl(n);
-    setInputVal(addressDisplay?.trim() && /^(blob:|data:)/i.test(n) ? addressDisplay : n);
-    setMode('browse');
-    setScreenshotUrl(null);
-    setScreenshotErr(null);
-    setNavigateError(null);
-    setInspectedEl(null);
-    setIframeBlocked(false);
-    setLoading(true);
-  }, [initialUrl, initialPreview, addressDisplay, navigate]);
+    void navigate(normalize(initialUrl), {
+      preview: initialPreview?.screenshot_url ? initialPreview : null,
+      automation: Boolean(initialPreview?.screenshot_url),
+    });
+  }, [initialUrl, initialPreview, navigate]);
 
   // ── Screenshot (Playwright) ─────────────────────────────────────────────────
   const runScreenshot = useCallback(async (clip?: { x: number; y: number; width: number; height: number }) => {
@@ -1535,12 +1597,9 @@ const BrowserPane: React.FC<PaneProps> = ({
 
   // ── Hard reload ─────────────────────────────────────────────────────────────
   const hardReload = useCallback(() => {
-    const current = iframeUrl;
-    setIframeUrl('about:blank');
-    setIframeBlocked(false);
-    requestAnimationFrame(() => setTimeout(() => setIframeUrl(current), 50));
+    void openBrowserRunLiveView(currentUrl);
     setMenuOpen(false);
-  }, [iframeUrl]);
+  }, [currentUrl, openBrowserRunLiveView]);
 
   // ── Clear helpers ───────────────────────────────────────────────────────────
   const clearBrowserData = useCallback((what: 'history' | 'cookies' | 'cache') => {
@@ -1805,7 +1864,8 @@ const BrowserPane: React.FC<PaneProps> = ({
                   ref={iframeRef}
                   key={iframeUrl}
                   src={iframeUrl}
-                  title="Embedded browser"
+                  title="Browser Run live view"
+                  allow="clipboard-read; clipboard-write"
                   sandbox="allow-same-origin allow-scripts allow-popups allow-forms allow-downloads allow-modals"
                   style={{ zoom: zoom !== 100 ? zoom / 100 : undefined }}
                   className={`w-full flex-1 min-h-0 border-0 bg-white transition-opacity duration-150 ${
@@ -1815,19 +1875,36 @@ const BrowserPane: React.FC<PaneProps> = ({
                   }`}
                   onLoad={() => {
                     setLoading(false);
-                    try {
-                      const u = iframeRef.current?.contentWindow?.location?.href;
-                      if (u && u !== 'about:blank') {
-                        setCurrentUrl(u);
-                        setInputVal(u);
-                      }
-                    } catch { /* cross-origin */ }
                     if (mode === 'picker') injectPickerScript();
                   }}
                   onError={() => { setLoading(false); setIframeBlocked(true); }}
                 />
 
-                {iframeBlocked && mode === 'browse' && !screenshotUrl && (
+                {loading && mode === 'browse' && !screenshotUrl && (
+                  <div className="absolute top-0 left-0 right-0 bottom-0 z-[6] flex flex-col items-center justify-center gap-3 bg-[var(--bg-app)]/90">
+                    <Loader2 size={20} className="animate-spin text-[var(--color-primary)]" />
+                    <p className="text-[11px] text-[var(--text-muted)]">Starting Browser Run live view…</p>
+                  </div>
+                )}
+
+                {navigateError && mode === 'browse' && !screenshotUrl && (
+                  <div className="absolute top-0 left-0 right-0 bottom-0 z-10 flex flex-col min-h-0 bg-[var(--bg-app)] p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <AlertTriangle size={14} className="text-red-400 shrink-0" />
+                      <span className="text-[11px] font-semibold text-red-400">Browser Run live view failed</span>
+                    </div>
+                    <pre className="text-[10px] text-red-400/90 font-mono bg-[var(--bg-panel)] rounded p-3 whitespace-pre-wrap flex-1 overflow-auto">{navigateError}</pre>
+                    <button
+                      type="button"
+                      onClick={() => void openBrowserRunLiveView(currentUrl)}
+                      className="mt-3 text-[10px] text-[var(--color-primary)] underline self-start"
+                    >
+                      Retry live view
+                    </button>
+                  </div>
+                )}
+
+                {iframeBlocked && mode === 'browse' && !screenshotUrl && !navigateError && (
                   <div className="absolute top-0 left-0 right-0 bottom-0 z-10 flex flex-col min-h-0 bg-[var(--bg-app)]">
                     <BlockedPage url={currentUrl} onScreenshot={runScreenshot} />
                   </div>
@@ -1863,11 +1940,11 @@ const BrowserPane: React.FC<PaneProps> = ({
                           onClick={() => {
                             setScreenshotUrl(null);
                             setNavigateError(null);
-                            void navigateEmbedded(currentUrl);
+                            void navigate(currentUrl);
                           }}
                           className="ml-3 text-[10px] text-[var(--text-muted)] underline"
                         >
-                          Open embedded browser
+                          Open live view
                         </button>
                       </div>
                     )}
@@ -2024,7 +2101,7 @@ export const BrowserView: React.FC<BrowserViewProps> = ({
       }>).detail;
       if (d?.url) {
         setPrimaryUrl(d.url);
-        if (d.automation && d.screenshot_url) {
+        if (d.screenshot_url) {
           setPrimaryPreview({ screenshot_url: d.screenshot_url });
         } else {
           setPrimaryPreview(null);

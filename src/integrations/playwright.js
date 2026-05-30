@@ -2,7 +2,11 @@ import { jsonResponse } from '../core/responses.js';
 import { getAuthUser } from '../core/auth.js';
 import { assertBrowserTrustedOrigin } from '../core/agentsam-ops-ledger.js';
 import { handlePlaywrightQueueJob } from '../queue/playwright-queue-job.js';
-import { runBrowserBuiltinTool, closeBrowserRunSession, resolveBrowserRunScopeId } from './browser-cdp.js';
+import { runBrowserBuiltinTool, closeBrowserRunSession, resolveBrowserRunScopeId, resolveBrowserToolUrl } from './browser-cdp.js';
+import {
+    openBrowserRunLiveView,
+    deleteBrowserRunSession as deleteCfBrowserRunSession,
+} from './browser-run-session.js';
 
 /**
  * Shared screenshot job runner (POST /api/playwright/screenshot and agent builtin tools).
@@ -172,6 +176,87 @@ export async function handleBrowserRequest(request, url, env) {
         if (!scopeId) return jsonResponse({ error: 'agent_run_id or workflow_run_id required' }, 400);
         const result = await closeBrowserRunSession(env, scopeId);
         return jsonResponse(result);
+    }
+
+    // ── POST /api/browser/session — Browser Run Live View (live.browser.run embed) ─
+    if (pathNorm === '/api/browser/session' && method === 'POST') {
+        const authUser = await getAuthUser(request, env);
+        if (!authUser?.id) return jsonResponse({ error: 'Unauthorized' }, 401);
+
+        let body = {};
+        try {
+            body = await request.json();
+        } catch {
+            body = {};
+        }
+
+        const targetUrl = resolveBrowserToolUrl(body);
+        if (!targetUrl) return jsonResponse({ error: 'url required' }, 400);
+
+        const workspaceId =
+            body.workspace_id != null
+                ? String(body.workspace_id).trim()
+                : request.headers.get('x-iam-workspace-id') || null;
+
+        try {
+            await assertBrowserTrustedOrigin(env, {
+                userId: String(authUser.id),
+                workspaceId,
+                origin: targetUrl,
+            });
+        } catch (e) {
+            return jsonResponse({ error: String(e?.message || e), blocked: true }, 403);
+        }
+
+        const keepAliveRaw = body.keep_alive_ms ?? body.keep_alive;
+        const keepAliveMs =
+            keepAliveRaw != null && Number.isFinite(Number(keepAliveRaw))
+                ? Number(keepAliveRaw)
+                : undefined;
+        const reuseSessionId =
+            body.session_id != null ? String(body.session_id).trim() : '';
+
+        const out = await openBrowserRunLiveView(env, {
+            url: targetUrl,
+            sessionId: reuseSessionId || null,
+            keepAliveMs,
+        });
+        if (!out.ok) {
+            const status = out.status === 401 || out.status === 403 ? out.status : 502;
+            return jsonResponse({ error: out.error || 'Browser Run session failed' }, status);
+        }
+
+        return jsonResponse({
+            ok: true,
+            session_id: out.session_id,
+            devtools_frontend_url: out.devtools_frontend_url,
+            url: out.url,
+            title: out.title ?? null,
+            target_id: out.target_id ?? null,
+        });
+    }
+
+    // ── DELETE /api/browser/session — release Browser Run CDP session ─────────
+    if (pathNorm === '/api/browser/session' && method === 'DELETE') {
+        const authUser = await getAuthUser(request, env);
+        if (!authUser?.id) return jsonResponse({ error: 'Unauthorized' }, 401);
+
+        let body = {};
+        try {
+            body = await request.json();
+        } catch {
+            body = {};
+        }
+        const sessionId = String(
+            body.session_id ?? body.sessionId ?? url.searchParams.get('session_id') ?? '',
+        ).trim();
+        if (!sessionId) return jsonResponse({ error: 'session_id required' }, 400);
+
+        const out = await deleteCfBrowserRunSession(env, { sessionId });
+        if (!out.ok) {
+            return jsonResponse({ error: out.error || 'Failed to close Browser Run session' }, 502);
+        }
+        return jsonResponse({ ok: true, session_id: sessionId, status: out.status ?? 'closing' });
     }
 
     // ── POST /api/browser/invoke — session auth; MYBROWSER tools (no MCP hop) ─

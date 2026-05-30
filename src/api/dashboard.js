@@ -32,6 +32,7 @@ import { chatWithToolsVertex } from '../integrations/vertex.js';
 import { handleCanvasApi } from '../integrations/canvas.js';
 import { handleHyperdriveRoutes } from '../integrations/hyperdrive.js';
 import { handleBrowserRequest, handlePlaywrightJobApi } from '../integrations/playwright.js';
+import { handleBrowserRunQuickActionsRoute } from './browser-run-quickactions-route.js';
 import { handleGitHubApi, resolveGitHubToken } from '../integrations/github.js';
 import { handleAgentArtifactsApi } from './agent-artifacts.js';
 
@@ -686,6 +687,11 @@ export async function handleDashboardApi(request, url, env, ctx) {
     // ── /api/hyperdrive/* (Postgres via Hyperdrive — SQL CRUD + table browser) ─
     if (pathLower.startsWith('/api/hyperdrive')) {
         return handleHyperdriveRoutes(request, url, env);
+    }
+
+    // ── /api/browser/run/:action (Browser Run Quick Actions) ─────────────────
+    if (/^\/api\/browser\/run\/[^/]+\/?$/i.test(pathLower)) {
+        return handleBrowserRunQuickActionsRoute(request, url, env);
     }
 
     // ── /api/browser (Playwright Rendering) ──────────────────────────────────

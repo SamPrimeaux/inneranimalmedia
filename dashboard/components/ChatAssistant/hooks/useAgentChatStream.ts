@@ -1322,13 +1322,14 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             }
             const safeNav = sanitizeBrowserNavigateUrl(navUrl);
             if (safeNav && !/\/api\/r2\/file\b/i.test(safeNav)) {
+              const preview = parseBrowserNavigatePreview(
+                typeof d.output_preview === 'string' ? d.output_preview : lastBrowserToolOutputChunk,
+              );
               const automation =
-                pendingBrowserToolAutomation || isCdtBrowserToolName(doneToolName);
-              const preview = automation
-                ? parseBrowserNavigatePreview(
-                    typeof d.output_preview === 'string' ? d.output_preview : lastBrowserToolOutputChunk,
-                  )
-                : {};
+                pendingBrowserToolAutomation ||
+                isCdtBrowserToolName(doneToolName) ||
+                doneToolName === 'browser_navigate' ||
+                Boolean(preview.screenshot_url);
               onBrowserNavigate?.({
                 type: 'browser_navigate',
                 url: safeNav,

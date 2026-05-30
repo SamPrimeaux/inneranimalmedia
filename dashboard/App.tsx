@@ -2199,7 +2199,7 @@ const App: React.FC = () => {
           detail: {
             url,
             automation,
-            ...(automation && event.screenshot_url ? { screenshot_url: event.screenshot_url } : {}),
+            ...(event.screenshot_url ? { screenshot_url: event.screenshot_url } : {}),
             page_text: event.page_text,
             title: event.title,
           },
