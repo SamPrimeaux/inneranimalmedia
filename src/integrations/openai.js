@@ -452,6 +452,30 @@ export async function completeWithOpenAI(env, params) {
 }
 
 /**
+ * Map legacy DALL-E quality values to the model family OpenAI expects.
+ * gpt-image-* accepts low | medium | high | auto — not dall-e-3's standard | hd.
+ * @param {string} modelKey
+ * @param {string | undefined | null} quality
+ * @returns {string | undefined}
+ */
+export function normalizeOpenAiImageQuality(modelKey, quality) {
+  const mk = String(modelKey || '').trim().toLowerCase();
+  const q = String(quality || '').trim().toLowerCase();
+  if (mk.startsWith('gpt-image') || mk === 'chatgpt-image-latest') {
+    const allowed = new Set(['low', 'medium', 'high', 'auto']);
+    if (allowed.has(q)) return q;
+    if (q === 'hd') return 'high';
+    return 'auto';
+  }
+  if (mk === 'dall-e-3') {
+    return q === 'hd' ? 'hd' : 'standard';
+  }
+  if (mk.startsWith('dall-e-2')) return undefined;
+  if (q === 'hd' || q === 'standard') return q;
+  return q || 'standard';
+}
+
+/**
  * Generate an image via OpenAI DALL-E.
  * Returns { url, revised_prompt } or throws on error.
  */
@@ -465,10 +489,20 @@ export async function generateImageOpenAI(env, params) {
   });
   if (!apiKey) throw new Error('OpenAI API key not configured');
 
+  const normalizedQuality = normalizeOpenAiImageQuality(resolvedModelKey, quality);
+  const body = { model: resolvedModelKey, prompt, size, n };
+  if (normalizedQuality) body.quality = normalizedQuality;
+
+  // #region agent log
+  const _dbgImageReq = { modelKey: resolvedModelKey, qualityIn: quality, qualityOut: normalizedQuality ?? null };
+  console.log('[debug-6a3d77] openai_image_request', JSON.stringify(_dbgImageReq));
+  fetch('http://127.0.0.1:7420/ingest/5e7c84bf-da6f-4db9-b6e9-6f241ecb8591',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6a3d77'},body:JSON.stringify({sessionId:'6a3d77',location:'openai.js:generateImageOpenAI',message:'openai_image_request',data:_dbgImageReq,timestamp:Date.now(),hypothesisId:'B'})}).catch(()=>{});
+  // #endregion
+
   const res = await fetch(`${OPENAI_BASE}/images/generations`, {
     method:  'POST',
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ model: resolvedModelKey, prompt, size, quality, n }),
+    body:    JSON.stringify(body),
   });
 
   if (!res.ok) {

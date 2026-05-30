@@ -5845,8 +5845,16 @@ async function resolveSurfaceWorkflowPreflightExecution(env, message, requestedM
   if (!tagged) return null;
   if (tagged.route === 'monaco') {
     const key = await resolveWorkflowFromSurfaceMetadata(env, 'monaco', '*');
+    // #region agent log
+    const _dbgMonaco = { resolvedKey: key || null, reason: tagged.reason, codeImplementation: isCodeImplementationIntent(message), readOnlyBypass: shouldBypassSurfaceWorkflowPreflight(message, requestedMode) };
+    console.log('[debug-6a3d77] monaco_preflight', JSON.stringify(_dbgMonaco));
+    fetch('http://127.0.0.1:7420/ingest/5e7c84bf-da6f-4db9-b6e9-6f241ecb8591',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6a3d77'},body:JSON.stringify({sessionId:'6a3d77',location:'agent.js:resolveSurfaceWorkflowPreflightExecution',message:'monaco_preflight',data:_dbgMonaco,timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
     if (key) return { kind: 'execute', workflowKey: key, reason: tagged.reason };
-    if (shouldBypassSurfaceWorkflowPreflight(message, requestedMode)) {
+    if (
+      shouldBypassSurfaceWorkflowPreflight(message, requestedMode) ||
+      isCodeImplementationIntent(message)
+    ) {
       logSurfaceWorkflowPreflightBypass(requestedMode, 'monaco', tagged.reason, message);
       return null;
     }
@@ -6982,9 +6990,15 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       message,
     );
 
-  const imageCapabilityIntent = hasImageGenerationIntent(message);
+  const imageCapabilityIntent = hasImageGenerationIntent(message) && !isCodeImplementationIntent(message);
   const videoCapabilityIntent = hasVideoGenerationIntent(message);
   const directImageIntent = isPrimaryImageGenerationIntent(message);
+
+  // #region agent log
+  const _dbgIntent = { imageCapabilityIntent, directImageIntent, codeImplementation: isCodeImplementationIntent(message), requestedMode, msgPreview: String(message || '').slice(0, 120) };
+  console.log('[debug-6a3d77] intent_routing', JSON.stringify(_dbgIntent));
+  fetch('http://127.0.0.1:7420/ingest/5e7c84bf-da6f-4db9-b6e9-6f241ecb8591',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6a3d77'},body:JSON.stringify({sessionId:'6a3d77',location:'agent.js:agentChatSseHandler',message:'intent_routing',data:_dbgIntent,timestamp:Date.now(),hypothesisId:'C'})}).catch(()=>{});
+  // #endregion
 
   const allowImmediateWorkflowMatch =
     requestedMode === 'agent' ||

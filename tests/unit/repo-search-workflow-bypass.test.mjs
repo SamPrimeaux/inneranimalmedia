@@ -96,7 +96,7 @@ test('describe README in monaco is read-only file context — no workflow prefli
   assert.notEqual(lane.primary_lane, 'workspace_grep');
 });
 
-test('monaco with write cue still counts as code implementation', () => {
+test('code implementation with write cue still counts as code implementation', () => {
   const message = 'edit and save this file in monaco';
   assert.equal(isReadOnlyFileContextIntent(message), false);
   assert.equal(isCodeImplementationIntent(message), true);

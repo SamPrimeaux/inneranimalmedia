@@ -3,7 +3,8 @@
  * Used by /api/images/generate|edit and agent chat SSE tool paths.
  */
 
-import { generateImageOpenAI } from '../integrations/openai.js';
+import { generateImageOpenAI, normalizeOpenAiImageQuality } from '../integrations/openai.js';
+import { isCodeImplementationIntent } from '../core/code-implementation-intent.js';
 import { resolveModelApiKey } from '../integrations/tokens.js';
 import { getR2Binding } from '../api/r2-api.js';
 import { resolvePrimaryUploadPrefix } from '../core/media-r2-access.js';
@@ -116,6 +117,7 @@ function matchesCoreImageGenerationPatterns(m) {
 export function isPrimaryImageGenerationIntent(message) {
   const m = String(message || '').trim();
   if (!hasImageGenerationIntent(m)) return false;
+  if (isCodeImplementationIntent(m)) return false;
   if (COMBINED_WORK_RE.test(m) && m.split(/\s+/).filter(Boolean).length > 14) return false;
   return matchesCoreImageGenerationPatterns(m);
 }
@@ -493,7 +495,7 @@ async function generateOpenAI(env, opts) {
     modelKey,
     prompt: opts.prompt,
     size: dims.openAiSize,
-    quality: opts.quality || 'standard',
+    quality: normalizeOpenAiImageQuality(modelKey, opts.quality || 'standard'),
     n: 1,
     userId: opts.userId,
   });
