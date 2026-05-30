@@ -493,12 +493,6 @@ export async function generateImageOpenAI(env, params) {
   const body = { model: resolvedModelKey, prompt, size, n };
   if (normalizedQuality) body.quality = normalizedQuality;
 
-  // #region agent log
-  const _dbgImageReq = { modelKey: resolvedModelKey, qualityIn: quality, qualityOut: normalizedQuality ?? null };
-  console.log('[debug-6a3d77] openai_image_request', JSON.stringify(_dbgImageReq));
-  fetch('http://127.0.0.1:7420/ingest/5e7c84bf-da6f-4db9-b6e9-6f241ecb8591',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6a3d77'},body:JSON.stringify({sessionId:'6a3d77',location:'openai.js:generateImageOpenAI',message:'openai_image_request',data:_dbgImageReq,timestamp:Date.now(),hypothesisId:'B'})}).catch(()=>{});
-  // #endregion
-
   const res = await fetch(`${OPENAI_BASE}/images/generations`, {
     method:  'POST',
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },

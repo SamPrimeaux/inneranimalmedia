@@ -69,16 +69,47 @@ export function isReadOnlyRepoSearchIntent(message) {
 }
 
 /**
+ * User is on the workflows dashboard (registry / editor / run surfaces).
+ * @param {unknown} dashboardRoute
+ */
+export function isWorkflowsDashboardRoute(dashboardRoute) {
+  const r = dashboardRoute != null ? String(dashboardRoute).trim().toLowerCase() : '';
+  return r === '/dashboard/workflows' || r.startsWith('/dashboard/workflows/');
+}
+
+/**
+ * Agent chat may auto-start a registered workflow graph only when the user
+ * explicitly asks for workflow execution or is on the workflows dashboard.
+ * @param {unknown} message
+ * @param {{ dashboardRoute?: unknown, dashboard_route?: unknown, workflowKey?: unknown, workflow_key?: unknown }} [opts]
+ */
+export function shouldAllowAgentChatWorkflowGraph(message, opts = {}) {
+  if (requiresWorkflowExecutionIntent(message)) return true;
+  const route =
+    opts.dashboardRoute != null
+      ? String(opts.dashboardRoute).trim()
+      : opts.dashboard_route != null
+        ? String(opts.dashboard_route).trim()
+        : '';
+  if (isWorkflowsDashboardRoute(route)) return true;
+  const wfKey = opts.workflowKey ?? opts.workflow_key;
+  if (wfKey != null && String(wfKey).trim()) return true;
+  return false;
+}
+
+/**
  * Skip surface workflow preflight — use direct tools (lane router + catalog).
  * @param {unknown} message
  * @param {string} [requestedMode]
+ * @param {{ dashboardRoute?: unknown, dashboard_route?: unknown }} [opts]
  */
-export function shouldSkipSurfaceWorkflowPreflight(message, requestedMode = 'agent') {
+export function shouldSkipSurfaceWorkflowPreflight(message, requestedMode = 'agent', opts = {}) {
   if (isReadOnlyRepoSearchIntent(message)) return true;
   if (isReadOnlyFileContextIntent(message)) return true;
   const mode = String(requestedMode || 'agent').toLowerCase();
   if (mode === 'plan') return false;
   if (requiresWorkflowExecutionIntent(message)) return false;
+  if (!shouldAllowAgentChatWorkflowGraph(message, opts)) return true;
   return false;
 }
 
@@ -90,10 +121,8 @@ export function requiresWorkflowExecutionIntent(message) {
   const m = stripForIntent(message).toLowerCase();
   if (!m) return false;
   return (
-    /\b(run|start|execute)\s+(the\s+)?(\w+\s+)?workflow\b/i.test(m) ||
+    /\b(run|start|execute)\s+(the\s+)?([\w-]+\s+)?workflow\b/i.test(m) ||
     /\bexecute (the\s+)?plan\b/i.test(m) ||
-    /\b(apply|submit)\s+(this\s+)?patch\b/i.test(m) ||
-    /\b(save|sync|persist)\s+(this\s+)?file\b/i.test(m) ||
     /\bmultitask workflow\b/i.test(m) ||
     /\b(run|start)\s+multitask\b/i.test(m)
   );

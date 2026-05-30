@@ -4,6 +4,7 @@ import {
   isReadOnlyRepoSearchIntent,
   isReadOnlyFileContextIntent,
   isCodeImplementationIntent,
+  shouldAllowAgentChatWorkflowGraph,
   shouldSkipSurfaceWorkflowPreflight,
 } from '../../src/core/code-implementation-intent.js';
 import {
@@ -96,10 +97,33 @@ test('describe README in monaco is read-only file context — no workflow prefli
   assert.notEqual(lane.primary_lane, 'workspace_grep');
 });
 
-test('code implementation with write cue still counts as code implementation', () => {
+test('code implementation with write cue skips workflow preflight outside workflows dashboard', () => {
   const message = 'edit and save this file in monaco';
   assert.equal(isReadOnlyFileContextIntent(message), false);
   assert.equal(isCodeImplementationIntent(message), true);
+  assert.equal(shouldSkipSurfaceWorkflowPreflight(message, 'agent'), true);
+  assert.equal(shouldAllowAgentChatWorkflowGraph(message, { dashboardRoute: '/dashboard/agent' }), false);
+  assert.equal(
+    shouldSkipSurfaceWorkflowPreflight(message, 'agent', { dashboardRoute: '/dashboard/workflows' }),
+    false,
+  );
+  assert.equal(
+    shouldAllowAgentChatWorkflowGraph(message, { dashboardRoute: '/dashboard/workflows' }),
+    true,
+  );
+});
+
+test('scaffold vite react demo uses direct tool loop — no workflow graph hijack', () => {
+  const message =
+    'Implement the Chrystal Clear Insurance hero component in App.jsx and wire the quote form';
+  assert.equal(isCodeImplementationIntent(message), true);
+  assert.equal(shouldAllowAgentChatWorkflowGraph(message, { dashboardRoute: '/dashboard/overview' }), false);
+  assert.equal(shouldSkipSurfaceWorkflowPreflight(message, 'agent', { dashboardRoute: '/dashboard/overview' }), true);
+});
+
+test('explicit run workflow phrase allows workflow graph on any dashboard route', () => {
+  const message = 'run the monaco workflow to patch agent.js';
+  assert.equal(shouldAllowAgentChatWorkflowGraph(message, { dashboardRoute: '/dashboard/agent' }), true);
   assert.equal(shouldSkipSurfaceWorkflowPreflight(message, 'agent'), false);
 });
 

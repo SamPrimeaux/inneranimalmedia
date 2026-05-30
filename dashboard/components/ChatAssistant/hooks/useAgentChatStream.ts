@@ -204,6 +204,12 @@ export type ConsumeAgentChatSseContext = {
   setToolTraceRows?: React.Dispatch<React.SetStateAction<AgentToolTraceRow[]>>;
   /** When a streamed monaco invoke opens a `.py` draft in the editor. */
   onPythonDraftOpened?: (fileName: string) => void;
+  /** Budget handoff — child session + cheaper model tier. */
+  onAgentHandoff?: (payload: {
+    next_session_id: string;
+    fallback_model_key?: string;
+    reason?: string;
+  }) => void;
   setConversationId: React.Dispatch<React.SetStateAction<string>>;
   stripEmptyAssistantTail: (prev: Message[]) => Message[];
   loadSessions: () => void;
@@ -243,6 +249,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
     setWorkflowLedger,
     setToolTraceRows,
     onPythonDraftOpened,
+    onAgentHandoff,
     setConversationId,
     stripEmptyAssistantTail,
     loadSessions,
@@ -347,6 +354,41 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
         markFirstSse();
 
         const evType = (data as { type?: string }).type;
+        if (evType === 'handoff' && data && typeof data === 'object') {
+          const h = data as {
+            type?: string;
+            next_session_id?: string;
+            fallback_model_key?: string;
+            reason?: string;
+          };
+          const nextId =
+            typeof h.next_session_id === 'string' && h.next_session_id.trim()
+              ? h.next_session_id.trim()
+              : '';
+          if (nextId) {
+            try {
+              localStorage.setItem(LS_AGENT_CHAT_CONVERSATION_ID, nextId);
+            } catch {
+              /* ignore */
+            }
+            setConversationId(nextId);
+            loadSessions();
+            onAgentHandoff?.({
+              next_session_id: nextId,
+              fallback_model_key:
+                typeof h.fallback_model_key === 'string' ? h.fallback_model_key.trim() : undefined,
+              reason: typeof h.reason === 'string' ? h.reason.trim() : undefined,
+            });
+          }
+          onThinkingEvent?.({
+            type: 'handoff',
+            text:
+              h.fallback_model_key && h.reason
+                ? `Handoff → ${h.fallback_model_key} (${h.reason})`
+                : 'Handoff to cheaper model tier…',
+          });
+          continue;
+        }
         if (evType === 'context' && data && typeof data === 'object') {
           const ctx = data as Record<string, unknown>;
           const spineRunId =

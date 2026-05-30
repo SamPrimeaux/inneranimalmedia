@@ -106,6 +106,9 @@ type ChatRoutingSendOpts = {
   quickstart_batch?: string;
   apply_eto_after_run?: boolean;
   workspace_id?: string;
+  /** Handoff child session — bypass stale React conversationId on auto-continue. */
+  conversationIdOverride?: string;
+  handoffResume?: boolean;
 };
 
 function routingSendOptsFromDetail(detail?: QuickstartThreadDetail | null): ChatRoutingSendOpts | undefined {
@@ -1377,7 +1380,20 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       return w && w !== 'global' ? w : '';
     })();
 
-    const effectiveConvId = conversationId || (() => { const id = crypto.randomUUID(); setConversationId(id); try { localStorage.setItem(LS_AGENT_CHAT_CONVERSATION_ID, id); } catch (_) {} return id; })();
+    const effectiveConvId =
+      sendOpts?.conversationIdOverride?.trim() ||
+      conversationId ||
+      (() => {
+        const id = crypto.randomUUID();
+        setConversationId(id);
+        try {
+          localStorage.setItem(LS_AGENT_CHAT_CONVERSATION_ID, id);
+        } catch (_) {}
+        return id;
+      })();
+    if (sendOpts?.conversationIdOverride?.trim() && sendOpts.conversationIdOverride.trim() !== conversationId) {
+      setConversationId(sendOpts.conversationIdOverride.trim());
+    }
     const form = new FormData();
     form.append('message', messageForApi);
     form.append('mode', mode);
@@ -1499,6 +1515,10 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
       const reader = response.body.getReader();
       streamReaderRef.current = reader;
+      let handoffResume: {
+        next_session_id: string;
+        fallback_model_key?: string;
+      } | null = null;
       await consumeAgentChatSseBody({
         signal,
         reader,
@@ -1519,6 +1539,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         onFileSelect: onFileSelect
           ? (f) => onFileSelect({ name: f.name, content: f.content, originalContent: f.originalContent ?? '' })
           : undefined,
+        onAgentHandoff: (payload) => {
+          handoffResume = payload;
+        },
         onToolApprovalRequest: (tool) => {
           setPendingToolApproval({ tool });
           setIsLoading(false);
@@ -1531,6 +1554,25 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           }
         },
       });
+      streamReaderRef.current = null;
+      if (handoffResume?.next_session_id) {
+        const childSession = handoffResume.next_session_id;
+        const fallbackModel = handoffResume.fallback_model_key?.trim();
+        setConversationId(childSession);
+        try {
+          localStorage.setItem(LS_AGENT_CHAT_CONVERSATION_ID, childSession);
+        } catch {
+          /* ignore */
+        }
+        streamFinalizedRef.current = false;
+        abortControllerRef.current = new AbortController();
+        await handleSendRef.current('Continue', {
+          conversationIdOverride: childSession,
+          handoffResume: true,
+          ...(fallbackModel ? { modelKey: fallbackModel } : {}),
+        });
+        return;
+      }
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
         patchIamAgentStreamDebug({ abort_at: Date.now() });

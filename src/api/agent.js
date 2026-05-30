@@ -192,9 +192,16 @@ import {
   isReadOnlyFileContextIntent,
   isReadOnlyRepoSearchIntent,
   messageExplicitlyRequestsBrowserInspection,
+  shouldAllowAgentChatWorkflowGraph,
   shouldSkipSurfaceWorkflowPreflight,
 } from '../core/code-implementation-intent.js';
-import { stripUserTextForIntent } from '../core/active-file-envelope.js';
+import {
+  buildHandoffPrimingUserMessage,
+  executeAgentHandoffFromLoop,
+  markHandoffAccepted,
+  patchAgentRunBudgetProgress,
+  resolvePendingHandoffForSession,
+} from '../core/agent-handoff.js';
 import {
   buildAgentChatResolvedContext,
   mergeResolvedContextIntoRunContext,
@@ -3077,10 +3084,13 @@ async function resolveWorkflowForMessage(env, taskType, message, workspaceId, op
   if (isReadOnlyRepoSearchIntent(message)) {
     return null;
   }
-  const codeWork =
-    isCodeImplementationIntent(message) && !messageExplicitlyRequestsBrowserInspection(message);
   const dashboardRoute =
     opts.dashboardRoute != null ? String(opts.dashboardRoute).trim() : '';
+  if (!shouldAllowAgentChatWorkflowGraph(message, { dashboardRoute })) {
+    return null;
+  }
+  const codeWork =
+    isCodeImplementationIntent(message) && !messageExplicitlyRequestsBrowserInspection(message);
   if (codeWork) {
     try {
       const wf = await env.DB.prepare(
@@ -4030,6 +4040,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     cacheWriteTtl: cacheWriteTtlParam,
     activeFileEnvelope: activeFileEnvelopeParam = null,
     resolvedContext: resolvedContextParam = null,
+    handoffDepth: handoffDepthParam = 0,
   } = params;
   const cacheWriteTtlForBilling =
     cacheWriteTtlParam != null && String(cacheWriteTtlParam).trim() !== ''
@@ -4600,6 +4611,44 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     }
 
     conversationMessages.push({ role: 'assistant', content: assistantContent });
+
+    if (chatAgentRunId && routingWs && env?.DB) {
+      const progressCost = await fetchModelCostUsd(
+        env,
+        modelKey,
+        totalUsage.input_tokens,
+        totalUsage.output_tokens,
+        totalUsage.cache_read_input_tokens,
+      );
+      ctx.waitUntil?.(
+        patchAgentRunBudgetProgress(env, String(chatAgentRunId), {
+          inputTokens: totalUsage.input_tokens,
+          outputTokens: totalUsage.output_tokens,
+          costUsd: progressCost,
+          status: 'running',
+        }),
+      );
+      const handoffResult = await executeAgentHandoffFromLoop(env, ctx, emit, safeDone, {
+        chatAgentRunId,
+        modelKey,
+        workspaceId: routingWs,
+        routingTaskType,
+        mode,
+        agentSlug: agentSlugParam,
+        totalUsage,
+        toolCallsUsed,
+        executedToolNames,
+        turnCount,
+        conversationMessages,
+        goal: messages?.[0]?.content ?? null,
+        userId,
+        tenantId,
+        toolChainRootId,
+        handoffDepth: Number(handoffDepthParam) || 0,
+      });
+      if (handoffResult) return handoffResult;
+    }
+
     const clientToolCalls = pendingToolCalls.filter((c) => !c._server);
     if (!clientToolCalls.length) {
       if (routingWs) {
@@ -5839,17 +5888,16 @@ function logSurfaceWorkflowPreflightBypass(requestedMode, missingSurface, surfac
  * Map surface route to concrete workflow_key (or missing).
  * @returns {Promise<null | { kind: 'execute', workflowKey: string, reason: string } | { kind: 'missing_workflow', surface: string, reason: string }>}
  */
-async function resolveSurfaceWorkflowPreflightExecution(env, message, requestedMode, _browserContext) {
-  if (shouldSkipSurfaceWorkflowPreflight(message, requestedMode)) return null;
+async function resolveSurfaceWorkflowPreflightExecution(env, message, requestedMode, browserContext) {
+  const dashboardRoute =
+    browserContext && typeof browserContext === 'object' && browserContext.dashboard_route != null
+      ? String(browserContext.dashboard_route).trim()
+      : '';
+  if (shouldSkipSurfaceWorkflowPreflight(message, requestedMode, { dashboardRoute })) return null;
   const tagged = resolveSurfaceWorkflowForMessage(message, requestedMode);
   if (!tagged) return null;
   if (tagged.route === 'monaco') {
     const key = await resolveWorkflowFromSurfaceMetadata(env, 'monaco', '*');
-    // #region agent log
-    const _dbgMonaco = { resolvedKey: key || null, reason: tagged.reason, codeImplementation: isCodeImplementationIntent(message), readOnlyBypass: shouldBypassSurfaceWorkflowPreflight(message, requestedMode) };
-    console.log('[debug-6a3d77] monaco_preflight', JSON.stringify(_dbgMonaco));
-    fetch('http://127.0.0.1:7420/ingest/5e7c84bf-da6f-4db9-b6e9-6f241ecb8591',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6a3d77'},body:JSON.stringify({sessionId:'6a3d77',location:'agent.js:resolveSurfaceWorkflowPreflightExecution',message:'monaco_preflight',data:_dbgMonaco,timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
     if (key) return { kind: 'execute', workflowKey: key, reason: tagged.reason };
     if (
       shouldBypassSurfaceWorkflowPreflight(message, requestedMode) ||
@@ -6685,6 +6733,45 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   // All PTY execution paths MUST have an authenticated userId
   if (!userId) return jsonResponse({ error: 'UNAUTHENTICATED_USER' }, 401);
 
+  let handoffResume = null;
+  if (sessionId && env.DB) {
+    try {
+      handoffResume = await resolvePendingHandoffForSession(env, {
+        sessionId: String(sessionId),
+        workspaceId,
+      });
+      if (handoffResume?.fallbackModelKey) {
+        body.model = handoffResume.fallbackModelKey;
+        body.model_key = handoffResume.fallbackModelKey;
+        body.handoff_resume = true;
+        const primer = buildHandoffPrimingUserMessage(handoffResume);
+        if (primer && !body._handoff_priming_applied) {
+          body._handoff_priming_applied = true;
+          const trimmedMsg = String(message || '').trim();
+          if (!trimmedMsg || trimmedMsg.length < 24 || /^continue$/i.test(trimmedMsg)) {
+            message = primer;
+            body.message = primer;
+          } else {
+            message = `${primer}\n\n---\nUser follow-up:\n${trimmedMsg}`;
+            body.message = message;
+          }
+        }
+        await markHandoffAccepted(env, handoffResume.spawnId);
+        console.log(
+          '[agent-handoff] resume',
+          JSON.stringify({
+            session_id: sessionId,
+            spawn_id: handoffResume.spawnId,
+            model: handoffResume.fallbackModelKey,
+            depth: handoffResume.depth,
+          }),
+        );
+      }
+    } catch (e) {
+      console.warn('[agent-handoff] resume_pickup', e?.message ?? e);
+    }
+  }
+
   let activeFileEnvelope = null;
   try {
     const { parseActiveFileEnvelope } = await import('../core/active-file-envelope.js');
@@ -6993,12 +7080,6 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   const imageCapabilityIntent = hasImageGenerationIntent(message) && !isCodeImplementationIntent(message);
   const videoCapabilityIntent = hasVideoGenerationIntent(message);
   const directImageIntent = isPrimaryImageGenerationIntent(message);
-
-  // #region agent log
-  const _dbgIntent = { imageCapabilityIntent, directImageIntent, codeImplementation: isCodeImplementationIntent(message), requestedMode, msgPreview: String(message || '').slice(0, 120) };
-  console.log('[debug-6a3d77] intent_routing', JSON.stringify(_dbgIntent));
-  fetch('http://127.0.0.1:7420/ingest/5e7c84bf-da6f-4db9-b6e9-6f241ecb8591',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'6a3d77'},body:JSON.stringify({sessionId:'6a3d77',location:'agent.js:agentChatSseHandler',message:'intent_routing',data:_dbgIntent,timestamp:Date.now(),hypothesisId:'C'})}).catch(()=>{});
-  // #endregion
 
   const allowImmediateWorkflowMatch =
     requestedMode === 'agent' ||
@@ -8697,9 +8778,16 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
               codemodeRuntime,
               activeFileEnvelope: activeFileEnvelope ?? body.activeFileEnvelope ?? null,
               resolvedContext: agentChatResolvedContext,
+              handoffDepth: handoffResume?.depth ?? 0,
             }),
             maxRunMsChat + 5000
           );
+          if (lastLoopStats?.handoff) {
+            succeeded = true;
+            lastAssistantStreamText = streamAccum;
+            lastSucceededArmId = attemptArmId || lastSucceededArmId;
+            break;
+          }
           if (textEmitted <= 0 && (lastLoopStats?.toolCallsUsed ?? 0) === 0) {
             throw new Error('empty_stream');
           }
