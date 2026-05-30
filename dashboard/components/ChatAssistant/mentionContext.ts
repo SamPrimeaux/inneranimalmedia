@@ -122,8 +122,10 @@ function formatAgentToolRouting(activeFile: ActiveFile | null | undefined): stri
     );
   }
   if (activeFile.githubRepo && activeFile.githubPath) {
+    const branch = activeFile.githubBranch ? ` branch="${activeFile.githubBranch}"` : '';
     lines.push(
-      `- GitHub: github_file with repo="${activeFile.githubRepo}" path="${activeFile.githubPath}" for read. Commits may require a separate flow or user action if write is not available.`,
+      `- GitHub read: github_file({ repo: "${activeFile.githubRepo}", path: "${activeFile.githubPath}"${branch} })`,
+      `- GitHub write: github_update_file({ repo: "${activeFile.githubRepo}", path: "${activeFile.githubPath}", content: "<full file text>", message: "<commit message>"${branch} }) — call this when the user asks to patch/save/commit.`,
     );
   }
   if (activeFile.driveFileId) {

@@ -1470,6 +1470,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       form.append('active_file_github_repo', activeFile.githubRepo ?? '');
       form.append('active_file_github_path', activeFile.githubPath ?? '');
       form.append('active_file_github_branch', activeFile.githubBranch ?? '');
+      if (activeFile.githubSha) form.append('active_file_github_sha', activeFile.githubSha);
       form.append('active_file_drive_id', activeFile.driveFileId ?? '');
       form.append('active_file_workspace_path', activeFile.workspacePath ?? '');
       if (activeFileContent != null && activeFileContent !== '') {
@@ -1479,6 +1480,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         );
       }
     }
+    const ghCtxForm = githubRepoContext?.trim();
+    if (ghCtxForm) form.append('github_repo_context', ghCtxForm);
 
     const applyAssistantError = (msg: string) => {
       setMessages((prev) => [...stripEmptyAssistantTail(prev), { role: 'assistant', content: msg }]);

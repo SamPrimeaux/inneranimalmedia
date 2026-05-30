@@ -979,44 +979,40 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
     }
 
     case 'github': {
-      if (!credentials?.value) {
-        result = { ok: false, error: 'github tool requires resolved credential' };
-        break;
-      }
-      const apiBase = String(config.api_base || 'https://api.github.com').replace(/\/$/, '');
-      let path = String(config.endpoint || '/');
-      const repo = String(config.repo || params.repo || '');
-      if (repo.includes('/')) {
-        const [owner, name] = repo.split('/');
-        path = path.replace('{owner}', owner).replace('{repo}', name);
-      }
-      path = path.replace('{path}', encodeURIComponent(String(params.path || params.file_path || '')));
-      const url = `${apiBase}${path.startsWith('/') ? '' : '/'}${path}`;
-      const method = String(config.method || 'GET').toUpperCase();
-      const headers = {
-        Accept: 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28',
-        'User-Agent': 'InnerAnimalMedia-AgentSam',
-        Authorization: `Bearer ${credentials.value}`,
+      const op = String(config.operation || '').toLowerCase();
+      const { handlers: ghHandlers } = await import('../tools/builtin/github-worker.js');
+      const opMap = {
+        get_file: 'github_get_file',
+        read_file: 'github_get_file',
+        list_repos: 'github_repos',
+        update_file: 'github_update_file',
+        create_file: 'github_update_file',
+        create_pr: 'github_create_pr',
       };
-      const init = { method, headers };
-      if (method !== 'GET' && method !== 'HEAD') {
-        init.body = JSON.stringify(params.body ?? params);
-        headers['Content-Type'] = 'application/json';
-      }
-      const res = await fetch(url, init);
-      const text = await res.text().catch(() => '');
-      let json = null;
-      try {
-        json = text ? JSON.parse(text) : null;
-      } catch {
-        json = { raw: text.slice(0, 8000) };
-      }
-      if (!res.ok) {
-        result = { ok: false, error: `GitHub ${res.status}: ${text.slice(0, 500)}`, status: res.status, body: json };
+      let handlerName = opMap[op] || null;
+      if (!handlerName && toolKey === 'github_file') handlerName = 'github_get_file';
+      if (!handlerName && toolKey === 'github_update_file') handlerName = 'github_update_file';
+      if (!handlerName && toolKey === 'github_create_file') handlerName = 'github_update_file';
+      if (!handlerName && toolKey === 'github_repos') handlerName = 'github_repos';
+      if (!handlerName && toolKey === 'github_create_pr') handlerName = 'github_create_pr';
+      if (!handlerName) {
+        result = {
+          ok: false,
+          error: `unsupported_github_operation:${op || 'unknown'}`,
+          body: { user_message: `GitHub operation "${op || 'unknown'}" is not configured for ${toolKey}.` },
+        };
         break;
       }
-      result = { ok: true, status: res.status, body: json };
+      const fn = ghHandlers[handlerName];
+      if (typeof fn !== 'function') {
+        result = { ok: false, error: `github_handler_missing:${handlerName}` };
+        break;
+      }
+      const envelope = runContext.activeFileEnvelope || runContext.activeFile || null;
+      const { applyActiveFileDefaultsToToolInput } = await import('./active-file-envelope.js');
+      const ghParams = applyActiveFileDefaultsToToolInput(toolKey, params, envelope);
+      const out = await fn(ghParams, env);
+      result = out?.error ? { ok: false, error: String(out.error), body: out } : { ok: true, body: out };
       break;
     }
 

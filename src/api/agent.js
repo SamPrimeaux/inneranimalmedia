@@ -195,7 +195,7 @@ import {
   shouldAllowAgentChatWorkflowGraph,
   shouldSkipSurfaceWorkflowPreflight,
 } from '../core/code-implementation-intent.js';
-import { stripUserTextForIntent, activeFileBlocksImageGeneration, extractOpenFileContentFromMessage } from '../core/active-file-envelope.js';
+import { stripUserTextForIntent, activeFileBlocksImageGeneration, extractOpenFileContentFromMessage, applyActiveFileDefaultsToToolInput } from '../core/active-file-envelope.js';
 import {
   buildHandoffPrimingUserMessage,
   executeAgentHandoffFromLoop,
@@ -1877,6 +1877,39 @@ async function ensureCodeCapabilityTools(env, tools, effectiveMaxTools) {
   if (!env?.DB || !Array.isArray(tools)) return tools;
   const have = new Set(tools.map((t) => agentToolNameOf(t)).filter(Boolean));
   const missing = CODE_IMPLEMENTATION_TOOL_NAMES.filter((n) => !have.has(n));
+  if (!missing.length) return tools;
+  const rows = await fetchAgentsamToolRowsByName(env, missing);
+  const out = [...tools];
+  const seen = new Set(have);
+  for (const row of rows) {
+    const nm = String(row.tool_name || '');
+    if (!nm || seen.has(nm)) continue;
+    if (out.length >= effectiveMaxTools) break;
+    seen.add(nm);
+    out.unshift({
+      name: nm,
+      description: String(row.description || nm).slice(0, 4000),
+      input_schema: inputSchemaFromAgentsamToolRow(row),
+      tool_category: String(row.tool_category || 'builtin'),
+      requires_approval: Number(row.requires_approval || 0) === 1,
+    });
+  }
+  return out;
+}
+
+/** Inject GitHub/R2 tools when the editor has an open bound buffer. */
+async function ensureActiveFileCapabilityTools(env, tools, effectiveMaxTools, envelope) {
+  if (!env?.DB || !Array.isArray(tools) || !envelope) return tools;
+  const names = [];
+  if (envelope.github_repo && envelope.github_path) {
+    names.push('github_file', 'github_update_file');
+  }
+  if (envelope.r2_key) {
+    names.push('r2_read', 'r2_write');
+  }
+  if (!names.length) return tools;
+  const have = new Set(tools.map((t) => agentToolNameOf(t)).filter(Boolean));
+  const missing = names.filter((n) => !have.has(n));
   if (!missing.length) return tools;
   const rows = await fetchAgentsamToolRowsByName(env, missing);
   const out = [...tools];
@@ -4931,17 +4964,20 @@ async function runAgentToolLoop(env, ctx, emit, params) {
           });
         } else {
           let toolInput = call.input && typeof call.input === 'object' ? { ...call.input } : {};
-          if (call.name === 'fs_search_files' && activeFileEnvelopeParam) {
-            const { defaultSearchPathFromActiveFile } = await import('../core/active-file-envelope.js');
-            if (!toolInput.path && !toolInput.glob_path) {
+          if (activeFileEnvelopeParam) {
+            const { defaultSearchPathFromActiveFile, applyActiveFileDefaultsToToolInput } = await import(
+              '../core/active-file-envelope.js'
+            );
+            if (call.name === 'fs_search_files' && !toolInput.path && !toolInput.glob_path) {
               toolInput.path = defaultSearchPathFromActiveFile(activeFileEnvelopeParam);
             }
+            toolInput = applyActiveFileDefaultsToToolInput(call.name, toolInput, activeFileEnvelopeParam);
           }
           execResult = await dispatchToolCallWithBudget(
             env,
             call.name,
             toolInput,
-            mergeResolvedContextIntoRunContext(
+              mergeResolvedContextIntoRunContext(
               {
                 sessionId,
                 tenantId,
@@ -4950,6 +4986,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
                 personUuid: mcpCtx.personUuid,
                 isSuperadmin: mcpCtx.isSuperadmin,
                 request,
+                activeFileEnvelope: activeFileEnvelopeParam,
                 ...runSpineIds,
               },
               resolvedContextParam,
@@ -6743,6 +6780,18 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       }
       body.activeFileEnvelope = activeFileEnvelope;
     }
+    const githubRepoContext = String(body.github_repo_context || body.githubRepoContext || '').trim();
+    if (githubRepoContext) {
+      if (activeFileEnvelope) {
+        if (!activeFileEnvelope.github_repo) activeFileEnvelope.github_repo = githubRepoContext;
+      } else {
+        activeFileEnvelope = parseActiveFileEnvelope({
+          active_file_source: 'github',
+          active_file_github_repo: githubRepoContext,
+        });
+        if (activeFileEnvelope) body.activeFileEnvelope = activeFileEnvelope;
+      }
+    }
   } catch (e) {
     console.warn('[agent] active_file_envelope_parse', e?.message ?? e);
   }
@@ -7616,6 +7665,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         isPlatformOwner,
         activeCodeFileOpen,
       });
+      tools = await ensureActiveFileCapabilityTools(env, tools, effectiveMaxTools, activeFileEnvelope);
       tools = await ensureWebLaneTools(env, tools, effectiveMaxTools, executionLane, openWebBackend);
       if (executionLane.primary_lane === 'workspace_grep') {
         tools = await ensureCodeCapabilityTools(env, tools, effectiveMaxTools);

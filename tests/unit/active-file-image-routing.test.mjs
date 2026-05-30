@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   activeFileBlocksImageGeneration,
   activeFilePathLooksLikeCode,
+  applyActiveFileDefaultsToToolInput,
   extractOpenFileContentFromMessage,
   formatActiveFileForAgent,
   parseActiveFileEnvelope,
@@ -45,14 +46,30 @@ test('active code file envelope blocks image generation lane guard', () => {
   assert.ok(activeFileBlocksImageGeneration(envelope));
 });
 
-test('formatActiveFileForAgent includes fenced content when present', () => {
+test('formatActiveFileForAgent includes github repo and write tool hints with content', () => {
   const envelope = parseActiveFileEnvelope({
-    active_file_path: 'styles.css',
-    active_file_content: '.root { color: red; }',
+    active_file_source: 'github',
+    active_file_github_repo: 'SamPrimeaux/chrystal-clear-insurance',
+    active_file_github_path: 'src/main.jsx',
+    active_file_github_branch: 'main',
+    active_file_content: 'export function App() {}',
   });
   const text = formatActiveFileForAgent(envelope);
-  assert.match(text, /^Active file: styles\.css/);
-  assert.match(text, /\.root \{ color: red; \}/);
+  assert.match(text, /SamPrimeaux\/chrystal-clear-insurance\/src\/main\.jsx/);
+  assert.match(text, /github_update_file/);
+  assert.match(text, /export function App/);
+});
+
+test('applyActiveFileDefaultsToToolInput fills github repo and path', () => {
+  const envelope = parseActiveFileEnvelope({
+    active_file_github_repo: 'SamPrimeaux/chrystal-clear-insurance',
+    active_file_github_path: 'src/main.jsx',
+    active_file_github_branch: 'main',
+  });
+  const out = applyActiveFileDefaultsToToolInput('github_update_file', {}, envelope);
+  assert.equal(out.repo, 'SamPrimeaux/chrystal-clear-insurance');
+  assert.equal(out.path, 'src/main.jsx');
+  assert.equal(out.branch, 'main');
 });
 
 test('extractOpenFileContentFromMessage pulls editor buffer from on-demand block', () => {
