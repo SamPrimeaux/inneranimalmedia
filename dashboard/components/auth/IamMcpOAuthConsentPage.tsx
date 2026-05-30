@@ -675,7 +675,17 @@ export default function IamMcpOAuthConsentPage({
               loading="lazy"
               decoding="async"
             />
-            <span className="consent-footer-note">Authorization secured by Inner Animal Media</span>
+            <span className="consent-footer-note">
+              Authorization secured by{" "}
+              <a
+                href="https://inneranimalmedia.com/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="consent-footer-link"
+              >
+                Inner Animal Media
+              </a>
+            </span>
           </footer>
         </div>
       </div>
@@ -1368,6 +1378,17 @@ const STYLES = `
     font-size: 11px;
     color: var(--c-muted);
     line-height: 1.4;
+  }
+
+  .consent-footer-link {
+    color: inherit;
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .consent-footer-link:hover {
+    color: var(--c-text);
   }
 
   @media (max-width: 480px) {
