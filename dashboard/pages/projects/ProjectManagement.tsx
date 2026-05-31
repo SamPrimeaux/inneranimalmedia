@@ -6,7 +6,7 @@ import type { KanbanTask } from "../../api/kanban";
 import { fetchKanbanTasks } from "../../api/kanban";
 import NewProjectModal from "../../components/projects/NewProjectModal";
 import { useWorkspace } from "../../src/context/WorkspaceContext";
-import TodaysWorkPanel from "../../src/components/projects/TodaysWorkPanel";
+import AgendaPanel from "../../src/components/projects/AgendaPanel";
 import WorkspaceKanban from "../../src/components/kanban/WorkspaceKanban";
 
 type ProjectStatusUi = "active" | "blocked" | "review" | "complete" | "planning";
@@ -238,8 +238,6 @@ export default function ProjectManagement() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [expandedProjectId, setExpandedProjectId] = useState<string | null>(null);
-  const [highlightedKanbanTaskId, setHighlightedKanbanTaskId] = useState<string | null>(null);
-
   const refreshOverview = useCallback(async (ws: string | null) => {
     setLoading(true);
     setLoadError(null);
@@ -282,8 +280,8 @@ export default function ProjectManagement() {
   }
 
   return (
-    <main className="h-full min-h-0 overflow-y-auto bg-[var(--dashboard-bg)] text-[var(--dashboard-text)]">
-      <div className="mx-auto w-full max-w-[1680px] px-6 py-6 pb-24">
+    <main className="flex h-full min-h-0 flex-col overflow-y-auto bg-[var(--dashboard-bg)] text-[var(--dashboard-text)]">
+      <div className="mx-auto w-full min-w-0 max-w-[1680px] shrink-0 px-6 py-6">
         {loadError ? (
           <div className="mb-4 rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">{loadError}</div>
         ) : null}
@@ -291,8 +289,7 @@ export default function ProjectManagement() {
           <div className="mb-4 text-sm text-[var(--dashboard-muted)]">Loading portfolio…</div>
         ) : null}
 
-        <div className="space-y-5">
-          <section className="grid gap-5 xl:grid-cols-12">
+        <section className="grid gap-5 xl:grid-cols-12">
             <Card className="xl:col-span-8">
               <div className="flex flex-col gap-3 px-5 pt-5 md:flex-row md:items-center md:justify-between">
                 <div>
@@ -345,12 +342,13 @@ export default function ProjectManagement() {
             </Card>
 
             <div className="xl:col-span-4">
-              <TodaysWorkPanel onHighlightKanbanTask={setHighlightedKanbanTaskId} />
+              <AgendaPanel />
             </div>
           </section>
+      </div>
 
-          <WorkspaceKanban workspaceId={workspaceId} highlightedTaskId={highlightedKanbanTaskId} />
-        </div>
+      <div className="min-h-0 min-w-0 w-full flex-1 border-t border-[var(--dashboard-border)] pb-24">
+        <WorkspaceKanban workspaceId={workspaceId} />
       </div>
 
       <NewProjectModal

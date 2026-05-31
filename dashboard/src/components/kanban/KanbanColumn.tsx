@@ -12,6 +12,8 @@ type Props = {
   onMove: (taskId: string, status: TaskStatus) => void;
   columnOptions: Array<{ id: TaskStatus; title: string }>;
   cardRefs?: React.MutableRefObject<Record<string, HTMLButtonElement | null>>;
+  /** Taller columns for /projects fullscreen kanban */
+  workspaceLayout?: boolean;
 };
 
 export default function KanbanColumn({
@@ -23,9 +25,14 @@ export default function KanbanColumn({
   onMove,
   columnOptions,
   cardRefs,
+  workspaceLayout = false,
 }: Props) {
+  const columnShellClass = workspaceLayout
+    ? "flex min-h-[min(560px,calc(100dvh-15rem))] max-h-[calc(100dvh-12rem)] w-[min(320px,85vw)] shrink-0 flex-col rounded-2xl border border-white/10 bg-white/[0.035] sm:w-[300px] md:w-[320px]"
+    : "flex max-h-[calc(100vh-320px)] min-h-[560px] w-[320px] shrink-0 flex-col rounded-2xl border border-white/10 bg-white/[0.035]";
+
   return (
-    <div className="flex max-h-[calc(100vh-320px)] min-h-[560px] w-[320px] shrink-0 flex-col rounded-2xl border border-white/10 bg-white/[0.035]">
+    <div className={columnShellClass}>
       <div className="flex items-start justify-between gap-3 border-b border-white/10 p-4">
         <div>
           <div className="flex items-center gap-2">

@@ -12,6 +12,8 @@ type Props = {
   highlightedTaskId?: string | null;
   onSelectTask: (task: BoardTask) => void;
   onMove: (taskId: string, status: TaskStatus) => void;
+  /** Full-width horizontal board for /dashboard/projects */
+  workspaceLayout?: boolean;
 };
 
 export default function KanbanBoard({
@@ -21,6 +23,7 @@ export default function KanbanBoard({
   highlightedTaskId,
   onSelectTask,
   onMove,
+  workspaceLayout = false,
 }: Props) {
   const cardRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
@@ -38,8 +41,16 @@ export default function KanbanBoard({
 
   const blockedTasks = tasks.filter((task) => task.status === "blocked");
 
+  const boardClass = workspaceLayout
+    ? "flex w-max min-w-full gap-4 pb-2"
+    : "flex gap-4 overflow-x-auto pb-4";
+
+  const blockedShellClass = workspaceLayout
+    ? "flex min-h-[min(560px,calc(100dvh-15rem))] max-h-[calc(100dvh-12rem)] w-[min(320px,85vw)] shrink-0 flex-col rounded-2xl border border-rose-400/20 bg-rose-400/[0.035] sm:w-[300px] md:w-[320px]"
+    : "flex max-h-[calc(100vh-320px)] min-h-[560px] w-[320px] shrink-0 flex-col rounded-2xl border border-rose-400/20 bg-rose-400/[0.035]";
+
   return (
-    <div className="flex gap-4 overflow-x-auto pb-4">
+    <div className={boardClass}>
       {columns.map((column) => {
         const colTasks = tasks.filter((task) => task.status === column.id);
         return (
@@ -53,11 +64,12 @@ export default function KanbanBoard({
             onMove={onMove}
             columnOptions={columnOptions}
             cardRefs={cardRefs}
+            workspaceLayout={workspaceLayout}
           />
         );
       })}
 
-      <div className="flex max-h-[calc(100vh-320px)] min-h-[560px] w-[320px] shrink-0 flex-col rounded-2xl border border-rose-400/20 bg-rose-400/[0.035]">
+      <div className={blockedShellClass}>
         <div className="flex items-start justify-between gap-3 border-b border-rose-400/15 p-4">
           <div>
             <div className="flex items-center gap-2">
