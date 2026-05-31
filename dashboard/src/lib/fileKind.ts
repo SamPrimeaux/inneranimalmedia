@@ -75,12 +75,14 @@ export function detectFileKind(input: {
   const size = input.size ?? null;
 
   if (BINARY_ONLY_EXT.has(ext)) return 'binary';
-  if (isBinaryFile(input.name || input.key || '', size)) return 'binary';
 
+  // Previewable media — classify before isBinaryFile (MP4/MOV are binary for Monaco but video for FilePreview / MovieMode).
   if (ct.startsWith('image/') || IMAGE_EXT.has(ext)) return 'image';
   if (ct.startsWith('video/') || VIDEO_EXT.has(ext)) return 'video';
   if (ct.startsWith('audio/') || AUDIO_EXT.has(ext)) return 'audio';
   if (ct === 'application/pdf' || ext === 'pdf') return 'pdf';
+
+  if (isBinaryFile(input.name || input.key || '', size)) return 'binary';
 
   if (
     ct.startsWith('text/') ||
