@@ -1173,7 +1173,12 @@ async function buildSystemPrompt(env, tenantId, mode, contextBlock, modeConfig, 
     if (!minimalAsk && includeActivePlan && env.DB) {
       const planWs =
         options.workspaceId ||
-        (await resolveBootstrapWorkspaceIdForAgentApi(env, request, options.userId, options.cache));
+        (await resolveBootstrapWorkspaceIdForAgentApi(
+          env,
+          options.request ?? null,
+          options.userId,
+          options.cache,
+        ));
       const planContext = await fetchActivePlanContextFragment(env, tenantId, {
         ...options,
         workspaceId: planWs,
@@ -2461,8 +2466,13 @@ async function validateToolCall(env, modeSlug, toolName, mcpRuntimeContext = {},
   }
 
   const policy = await loadModeToolPolicy(env, modeSlug, {
-    routeKey: opts.routeKey,
-    taskType: opts.taskType,
+    routeKey: ctxRouteKey || null,
+    taskType:
+      mcpRuntimeContext.taskType != null && String(mcpRuntimeContext.taskType).trim() !== ''
+        ? String(mcpRuntimeContext.taskType).trim()
+        : mcpRuntimeContext.task_type != null && String(mcpRuntimeContext.task_type).trim() !== ''
+          ? String(mcpRuntimeContext.task_type).trim()
+          : null,
   });
   if (policy.denyTools.includes(name)) {
     return {
@@ -6917,7 +6927,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
   const { taskType: heuristicTaskType, mode: heuristicMode } = inferIntentHeuristically(message);
   const intentResult = {
-    taskType: normalizeCanonicalTaskType(heuristicTaskType || 'ask'),
+    taskType: normalizeCanonicalTaskType(requestedMode),
     mode: heuristicMode || requestedMode,
   };
   const bodyTaskTypePin =
@@ -7305,6 +7315,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     workspaceId,
     personUuid,
     sessionId,
+    taskType: normalizeCanonicalTaskType(requestedMode),
     isSuperadmin: !ingestBypass && authUserIsSuperadmin(authUser),
     routeKey:
       promptRouteRow?.route_key != null && String(promptRouteRow.route_key).trim() !== ''
@@ -7940,6 +7951,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   }
 
   const promptBuildOptions = {
+    request,
     sessionId,
     planId: body.planId ?? body.plan_id ?? null,
     taskId: body.taskId ?? body.task_id ?? null,
@@ -8175,7 +8187,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         subagentProfileId: subagentProfileRow?.id ?? null,
         modelKey: fallbackModelKeys[0] || null,
         selectedModel: fallbackModelKeys[0] || null,
-        taskType: resolvedRoutingTaskType ?? intentResult?.taskType ?? null,
+        taskType: normalizeCanonicalTaskType(requestedMode),
         mode: requestedMode,
         intent: intentSlug,
         trigger: quickstartBatch || 'chat_sse',
