@@ -1,8 +1,17 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   getTrustedRecentWorkspaceId,
   prepareRecentWorkspacesForSession,
+  persistRecentWorkspaceSwitch,
 } from "../recentWorkspacesStorage";
+import {
+  clearIamWorkspaceSession,
+  patchIamWorkspaceSessionCurrent,
+  readIamWorkspaceSession,
+  writeIamWorkspaceSession,
+  type IamWorkspaceSessionPayload,
+  type IamWorkspaceSettingsRow,
+} from "../iamWorkspaceStorage";
 
 export type WorkspaceRow = {
   id: string;
@@ -20,39 +29,105 @@ type WorkspaceContextValue = {
   displayName: string | null;
   setDisplayName: (name: string | null) => void;
   loading: boolean;
+  /** Re-fetch GET /api/settings/workspaces and refresh sessionStorage + context. */
+  refreshWorkspaces: (opts?: { force?: boolean }) => Promise<void>;
+  /** Switch active workspace: updates context, sessionStorage, and optionally syncs server. */
+  switchWorkspace: (
+    id: string,
+    meta?: { displayName?: string; slug?: string; github_repo?: string | null; sync?: boolean },
+  ) => Promise<void>;
 };
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
 
+function rowDisplayName(row: IamWorkspaceSettingsRow): string | null {
+  const dn = typeof row.display_name === "string" ? row.display_name.trim() : "";
+  if (dn) return dn;
+  const n = typeof row.name === "string" ? row.name.trim() : "";
+  if (n) return n;
+  const slug = typeof row.slug === "string" ? row.slug.trim() : "";
+  return slug || null;
+}
+
+function mapSettingsRow(row: IamWorkspaceSettingsRow): WorkspaceRow {
+  const name = rowDisplayName(row) || row.id;
+  const slug =
+    typeof row.slug === "string" && row.slug.trim()
+      ? row.slug.trim()
+      : row.id.replace(/^ws_/, "") || row.id;
+  return {
+    id: row.id,
+    name,
+    slug,
+    status: typeof row.status === "string" && row.status.trim() ? row.status.trim() : "active",
+    github_repo: row.github_repo ?? null,
+  };
+}
+
 function pickActiveWorkspace(
-  list: Array<{ id: string; display_name?: string; slug?: string }>,
+  list: IamWorkspaceSettingsRow[],
   settingsCurrent: string | null | undefined,
   userId: string | null,
 ): { id: string; displayName: string | null } | null {
   const rows = list.filter((w) => w && typeof w.id === "string");
   if (rows.length === 0) return null;
   const byId = (id: string) => rows.find((w) => w.id === id);
-  const trimName = (w: (typeof rows)[0]) => {
-    const dn = typeof w.display_name === "string" ? w.display_name.trim() : "";
-    return dn || (typeof w.slug === "string" && w.slug.trim() ? w.slug.trim() : null);
-  };
 
   const cur = typeof settingsCurrent === "string" ? settingsCurrent.trim() : "";
   if (cur) {
     const row = byId(cur);
-    if (row) return { id: row.id, displayName: trimName(row) };
+    if (row) return { id: row.id, displayName: rowDisplayName(row) };
   }
   try {
     const rid = getTrustedRecentWorkspaceId(userId);
     if (rid) {
       const row = byId(rid);
-      if (row) return { id: row.id, displayName: trimName(row) };
+      if (row) return { id: row.id, displayName: rowDisplayName(row) };
     }
   } catch {
     /* ignore */
   }
   const first = rows[0];
-  return { id: first.id, displayName: trimName(first) };
+  return { id: first.id, displayName: rowDisplayName(first) };
+}
+
+function applySessionPayload(
+  payload: IamWorkspaceSessionPayload,
+  userId: string | null,
+): {
+  workspaceRows: WorkspaceRow[];
+  workspaceId: string | null;
+  displayName: string | null;
+} {
+  const workspaceRows = payload.data.filter((w) => w?.id).map(mapSettingsRow);
+  const picked = pickActiveWorkspace(payload.data, payload.current, userId);
+  return {
+    workspaceRows,
+    workspaceId: picked?.id ?? payload.current?.trim() ?? null,
+    displayName: picked?.displayName ?? null,
+  };
+}
+
+async function fetchSettingsWorkspaces(): Promise<IamWorkspaceSessionPayload | null> {
+  const r = await fetch("/api/settings/workspaces", { credentials: "same-origin" });
+  if (!r.ok) return null;
+  const d = (await r.json()) as {
+    data?: IamWorkspaceSettingsRow[];
+    current?: string | null;
+    workspaceThemes?: Record<string, string>;
+    workspaces?: Record<string, unknown>;
+  };
+  const data = Array.isArray(d.data) ? d.data.filter((w) => w && typeof w.id === "string") : [];
+  const current =
+    typeof d.current === "string" && d.current.trim() ? d.current.trim() : null;
+  return {
+    fetchedAt: Date.now(),
+    sessionUserId: null,
+    current,
+    data,
+    workspaceThemes: d.workspaceThemes,
+    workspaces: d.workspaces,
+  };
 }
 
 export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
@@ -61,12 +136,114 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const [workspaces, setWorkspaces] = useState<WorkspaceRow[]>([]);
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const sessionUserIdRef = useRef<string | null>(null);
+  const bootstrapDoneRef = useRef(false);
 
-  const setWorkspaceId = useCallback((id: string) => {
-    setWorkspaceIdState(id.trim() || null);
+  const hydrateFromPayload = useCallback((payload: IamWorkspaceSessionPayload, userId: string | null) => {
+    const applied = applySessionPayload(payload, userId);
+    setWorkspaces(applied.workspaceRows);
+    if (applied.workspaceId) setWorkspaceIdState(applied.workspaceId);
+    if (applied.displayName) setDisplayName(applied.displayName);
   }, []);
 
+  const refreshWorkspaces = useCallback(async (opts?: { force?: boolean }) => {
+    const userId = sessionUserIdRef.current;
+    if (!opts?.force) {
+      const cached = readIamWorkspaceSession();
+      if (cached && cached.data.length > 0) {
+        if (!userId || !cached.sessionUserId || cached.sessionUserId === userId) {
+          hydrateFromPayload(cached, userId);
+          return;
+        }
+      }
+    }
+    setLoading(true);
+    try {
+      const payload = await fetchSettingsWorkspaces();
+      if (!payload) return;
+      payload.sessionUserId = userId;
+      writeIamWorkspaceSession(payload);
+      hydrateFromPayload(payload, userId);
+    } finally {
+      setLoading(false);
+    }
+  }, [hydrateFromPayload]);
+
+  const switchWorkspace = useCallback(
+    async (
+      id: string,
+      meta?: { displayName?: string; slug?: string; github_repo?: string | null; sync?: boolean },
+    ) => {
+      const trimmed = id.trim();
+      if (!trimmed) return;
+      const userId = sessionUserIdRef.current;
+      setWorkspaceIdState(trimmed);
+      if (meta?.displayName?.trim()) setDisplayName(meta.displayName.trim());
+      else {
+        const row = workspaces.find((w) => w.id === trimmed);
+        if (row?.name?.trim()) setDisplayName(row.name.trim());
+      }
+
+      patchIamWorkspaceSessionCurrent(trimmed, {
+        id: trimmed,
+        display_name: meta?.displayName,
+        slug: meta?.slug,
+        github_repo: meta?.github_repo,
+      });
+
+      persistRecentWorkspaceSwitch(userId, {
+        id: trimmed,
+        display_name: meta?.displayName || workspaces.find((w) => w.id === trimmed)?.name || trimmed,
+        slug: meta?.slug || workspaces.find((w) => w.id === trimmed)?.slug || trimmed,
+        updated_at: Math.floor(Date.now() / 1000),
+      });
+
+      const shouldSync = meta?.sync !== false;
+      if (shouldSync) {
+        try {
+          const r = await fetch("/api/settings/workspaces/active", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: trimmed }),
+          });
+          const data = (await r.json().catch(() => ({}))) as {
+            success?: boolean;
+            workspace?: {
+              id: string;
+              display_name?: string;
+              slug?: string;
+              github_repo?: string | null;
+            };
+          };
+          if (r.ok && data.workspace) {
+            patchIamWorkspaceSessionCurrent(trimmed, {
+              id: data.workspace.id,
+              display_name: data.workspace.display_name,
+              slug: data.workspace.slug,
+              github_repo: data.workspace.github_repo ?? null,
+            });
+            if (data.workspace.display_name?.trim()) {
+              setDisplayName(data.workspace.display_name.trim());
+            }
+          }
+        } catch {
+          /* local + sessionStorage already updated */
+        }
+      }
+
+      window.dispatchEvent(new CustomEvent("iam_workspace_id"));
+    },
+    [workspaces],
+  );
+
+  const setWorkspaceId = useCallback((id: string) => {
+    void switchWorkspace(id, { sync: false });
+  }, [switchWorkspace]);
+
   useEffect(() => {
+    if (bootstrapDoneRef.current) return;
+    bootstrapDoneRef.current = true;
     let cancelled = false;
 
     void (async () => {
@@ -84,61 +261,30 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       }
       if (cancelled) return;
       setSessionUserId(userId);
+      sessionUserIdRef.current = userId;
       prepareRecentWorkspacesForSession(userId);
 
-      let settingsCurrent: string | null = null;
-      try {
-        const r = await fetch("/api/settings/workspaces", { credentials: "same-origin" });
-        const d = r.ok ? ((await r.json()) as { current?: string }) : null;
-        if (d?.current && typeof d.current === "string" && d.current.trim()) {
-          settingsCurrent = d.current.trim();
-        }
-      } catch {
-        /* ignore */
+      const cached = readIamWorkspaceSession();
+      if (cached && cached.data.length > 0 && (!userId || !cached.sessionUserId || cached.sessionUserId === userId)) {
+        const withUser = { ...cached, sessionUserId: userId };
+        writeIamWorkspaceSession(withUser);
+        hydrateFromPayload(withUser, userId);
+        if (!cancelled) setLoading(false);
+        return;
       }
-      if (cancelled) return;
 
-      let pickedId: string | null = null;
+      if (cached?.sessionUserId && userId && cached.sessionUserId !== userId) {
+        clearIamWorkspaceSession();
+      }
+
       try {
-        const r = await fetch("/api/workspaces/list", { credentials: "same-origin" });
-        const d = r.ok
-          ? ((await r.json()) as {
-              workspaces?: Array<{
-                id: string;
-                display_name?: string;
-                slug?: string;
-                status?: string;
-                github_repo?: string | null;
-              }>;
-            })
-          : null;
-        if (cancelled) return;
-        const rows = Array.isArray(d?.workspaces) ? d.workspaces : [];
-        setWorkspaces(
-          rows
-            .filter((w) => w && typeof w.id === "string")
-            .map((w) => ({
-              id: w.id,
-              name:
-                typeof w.display_name === "string" && w.display_name.trim()
-                  ? w.display_name
-                  : w.slug || w.id,
-              slug: w.slug || w.id,
-              status: w.status || "active",
-              github_repo: w.github_repo || null,
-            })),
-        );
-        const picked = pickActiveWorkspace(rows, settingsCurrent, userId);
-        if (picked?.id) {
-          pickedId = picked.id;
-          setWorkspaceIdState(picked.id);
-          if (picked.displayName) setDisplayName(picked.displayName);
-        }
+        const payload = await fetchSettingsWorkspaces();
+        if (cancelled || !payload) return;
+        payload.sessionUserId = userId;
+        writeIamWorkspaceSession(payload);
+        hydrateFromPayload(payload, userId);
       } catch {
         /* ignore */
-      }
-      if (!cancelled && !pickedId && settingsCurrent) {
-        setWorkspaceIdState(settingsCurrent);
       }
       if (!cancelled) setLoading(false);
     })();
@@ -146,7 +292,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [hydrateFromPayload]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -163,8 +309,10 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       displayName,
       setDisplayName,
       loading,
+      refreshWorkspaces,
+      switchWorkspace,
     }),
-    [sessionUserId, workspaceId, setWorkspaceId, workspaces, displayName, loading],
+    [sessionUserId, workspaceId, setWorkspaceId, workspaces, displayName, loading, refreshWorkspaces, switchWorkspace],
   );
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;

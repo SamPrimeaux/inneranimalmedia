@@ -33,6 +33,8 @@ interface WorkspaceLauncherProps {
   authWorkspaceId?: string | null;
   setAuthWorkspaceId: (id: string) => void;
   setWorkspaceDisplayName?: (name: string | null) => void;
+  /** Called after server sync — parent updates sessionStorage + context. */
+  onWorkspaceActivated?: (ws: AgentsamWorkspaceRow) => void;
   setToastMsg: (msg: string | null) => void;
 }
 
@@ -68,6 +70,7 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
   authWorkspaceId,
   setAuthWorkspaceId,
   setWorkspaceDisplayName,
+  onWorkspaceActivated,
   setToastMsg,
 }) => {
   const [activeFilter, setActiveFilter] = useState<'all' | 'local' | 'github' | 'r2' | 'ssh'>('all');
@@ -157,6 +160,12 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
               ? Number(ws.updated_at)
               : Math.floor(Date.now() / 1000),
         });
+        onWorkspaceActivated?.({
+          ...ws,
+          id: data.workspace.id,
+          display_name: data.workspace.display_name,
+          slug: data.workspace.slug ?? ws.slug,
+        });
         setToastMsg(`Switched to ${ws.display_name}`);
         onClose();
         return;
@@ -173,6 +182,7 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
         workspace_type: ws.workspace_type ?? 'ide',
         updated_at: Math.floor(Date.now() / 1000),
       });
+      onWorkspaceActivated?.(ws);
       onClose();
     }
   };

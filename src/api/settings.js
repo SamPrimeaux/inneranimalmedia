@@ -216,11 +216,14 @@ async function resolveAuthTenantId(env, authUser) {
  */
 async function fetchWorkspaceRowsForSettingsApi(db) {
   const attempts = [
-    `SELECT id, COALESCE(NULLIF(TRIM(display_name), ''), NULLIF(TRIM(name), ''), id) AS name, category, brand
+    `SELECT id,
+            COALESCE(NULLIF(TRIM(display_name), ''), NULLIF(TRIM(name), ''), id) AS name,
+            display_name, slug, github_repo, status, category, brand
      FROM workspaces WHERE id LIKE 'ws_%' ORDER BY 2`,
-    `SELECT id, name, category, brand FROM workspaces WHERE id LIKE 'ws_%' ORDER BY name`,
+    `SELECT id, name, category, brand, slug, github_repo, status FROM workspaces WHERE id LIKE 'ws_%' ORDER BY name`,
     `SELECT id, name, category FROM workspaces WHERE id LIKE 'ws_%' ORDER BY name`,
-    `SELECT id, display_name AS name, category, NULL AS brand FROM workspaces WHERE id LIKE 'ws_%' ORDER BY display_name`,
+    `SELECT id, display_name AS name, display_name, slug, github_repo, status, category, NULL AS brand
+     FROM workspaces WHERE id LIKE 'ws_%' ORDER BY display_name`,
   ];
   for (const sql of attempts) {
     try {

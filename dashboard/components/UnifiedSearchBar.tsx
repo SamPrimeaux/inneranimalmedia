@@ -375,6 +375,7 @@ function rowIcon(category: PaletteCategory) {
 
 export const UnifiedSearchBar: React.FC<{
   workspaceLabel?: string;
+  onWorkspacePickerClick?: () => void;
   recentFiles?: { name: string; path: string; label?: string }[];
   onNavigate: (nav: UnifiedSearchNavigate, searchQuery: string) => void;
   onRunCommand?: (cmd: string) => void;
@@ -385,6 +386,7 @@ export const UnifiedSearchBar: React.FC<{
   onInitialQueryConsumed?: () => void;
 }> = ({
   workspaceLabel,
+  onWorkspacePickerClick,
   recentFiles = [],
   onNavigate,
   onRunCommand: _onRunCommand,
@@ -1026,11 +1028,17 @@ export const UnifiedSearchBar: React.FC<{
         <div ref={bucketMenuRef} className="relative shrink-0 max-w-[45%] border-r border-[var(--border-subtle)]">
           <button
             type="button"
-            onClick={() => setBucketMenuOpen((o) => !o)}
+            onClick={() => {
+              if (onWorkspacePickerClick) {
+                onWorkspacePickerClick();
+                return;
+              }
+              setBucketMenuOpen((o) => !o);
+            }}
             className="flex items-center gap-1 px-2 py-1.5 text-left w-full min-w-0 hover:bg-[var(--bg-hover)] transition-colors"
             aria-expanded={bucketMenuOpen}
             aria-haspopup="listbox"
-            title="R2 buckets"
+            title={onWorkspacePickerClick ? 'Switch workspace' : 'R2 buckets'}
           >
             <HardDrive size={13} className="shrink-0 opacity-70 text-[var(--text-muted)]" />
             <span className="text-[11px] text-[var(--text-muted)] truncate">

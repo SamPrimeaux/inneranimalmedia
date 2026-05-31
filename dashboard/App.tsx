@@ -296,6 +296,8 @@ const App: React.FC = () => {
     workspaces: workspaceRows,
     displayName: workspaceDisplayName,
     setDisplayName: setWorkspaceDisplayName,
+    switchWorkspace,
+    refreshWorkspaces,
   } = useWorkspace();
   const location = useLocation();
   const navigate = useNavigate();
@@ -399,6 +401,7 @@ const App: React.FC = () => {
   const [recentFiles, setRecentFiles] = useState<RecentFileEntry[]>([]);
   const [recentFilesLsTick, setRecentFilesLsTick] = useState(0);
   const [gitBranch, setGitBranch] = useState(() => '');
+  const [gitHash, setGitHash] = useState<string | null>(null);
   const stableAgentChatTabId = useMemo(
     () =>
       typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -783,20 +786,23 @@ const App: React.FC = () => {
     [focusAgentChat],
   );
 
-  const persistActiveWorkspace = useCallback(async (id: string) => {
-    setAuthWorkspaceId(id);
-    try {
-      const r = await fetch('/api/settings/workspaces/active', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id }),
-      });
-      if (!r.ok) throw new Error('sync failed');
-    } catch {
-      setToastMsg('Workspace saved locally — sync failed.');
-    }
-  }, []);
+  const persistActiveWorkspace = useCallback(
+    async (id: string) => {
+      const row = workspaceRows.find((w) => w.id === id);
+      try {
+        await switchWorkspace(id, {
+          displayName: row?.name,
+          slug: row?.slug,
+          github_repo: row?.github_repo,
+          sync: true,
+        });
+        void refreshWorkspaces({ force: true });
+      } catch {
+        setToastMsg('Workspace saved locally — sync failed.');
+      }
+    },
+    [switchWorkspace, refreshWorkspaces, workspaceRows],
+  );
 
   const statusBarWorkspaceItems = useMemo(
     () =>
@@ -813,11 +819,14 @@ const App: React.FC = () => {
   const handleStatusBarWorkspacePick = useCallback(
     (id: string) => {
       void persistActiveWorkspace(id);
-      const row = workspaceRows.find((w) => w.id === id);
-      if (row?.name?.trim()) setWorkspaceDisplayName(row.name.trim());
     },
-    [persistActiveWorkspace, workspaceRows],
+    [persistActiveWorkspace],
   );
+
+  const handleStatusBarBranchSelect = useCallback((branchName: string) => {
+    const b = branchName.trim();
+    if (b) setGitBranch(b);
+  }, []);
 
   const lastPersistedTabRef = useRef<TabId | null>(null);
   useEffect(() => {
@@ -1739,7 +1748,21 @@ const App: React.FC = () => {
     try {
       const gitRes = await fetch('/api/agent/git/status', cred);
       const gitData = await gitRes.json().catch(() => ({}));
-      if (gitRes.ok && gitData.branch) setGitBranch(String(gitData.branch));
+      if (gitRes.ok) {
+        const repo = gitData.repo_full_name ? String(gitData.repo_full_name) : '';
+        let branchName = gitData.branch ? String(gitData.branch) : '';
+        if (repo) {
+          try {
+            const stored = localStorage.getItem(`iam_branch_${repo}`);
+            if (stored?.trim()) branchName = stored.trim();
+          } catch {
+            /* ignore */
+          }
+        }
+        if (branchName) setGitBranch(branchName);
+        if (gitData.git_hash) setGitHash(String(gitData.git_hash).slice(0, 7));
+        else setGitHash(null);
+      }
     } catch {
       /* ignore */
     }
@@ -1832,7 +1855,21 @@ const App: React.FC = () => {
     try {
       const gitRes = await fetch('/api/agent/git/status', cred);
       const gitData = await gitRes.json().catch(() => ({}));
-      if (gitRes.ok && gitData.branch) setGitBranch(String(gitData.branch));
+      if (gitRes.ok) {
+        const repo = gitData.repo_full_name ? String(gitData.repo_full_name) : '';
+        let branchName = gitData.branch ? String(gitData.branch) : '';
+        if (repo) {
+          try {
+            const stored = localStorage.getItem(`iam_branch_${repo}`);
+            if (stored?.trim()) branchName = stored.trim();
+          } catch {
+            /* ignore */
+          }
+        }
+        if (branchName) setGitBranch(branchName);
+        if (gitData.git_hash) setGitHash(String(gitData.git_hash).slice(0, 7));
+        else setGitHash(null);
+      }
     } catch {
       /* ignore */
     }
@@ -2516,6 +2553,7 @@ const App: React.FC = () => {
           <div className="flex-1 flex justify-center items-center min-w-0 px-2 gap-2 overflow-visible">
               <UnifiedSearchBar
                 workspaceLabel={workspaceDisplayLine}
+                onWorkspacePickerClick={() => setWorkspaceLauncherOpen(true)}
                 recentFiles={mappedRecentFiles}
                 onNavigate={(nav, _q) => handleUnifiedNavigate(nav)}
                 onRunCommand={(cmd) => terminalRef.current?.runCommand(cmd)}
@@ -3427,10 +3465,12 @@ const App: React.FC = () => {
 
       <StatusBar 
         branch={gitBranch}
+        gitHash={gitHash}
         workspace={(workspaceDisplayName?.trim() || authWorkspaceId?.trim() || '')}
         workspaceMenuItems={statusBarWorkspaceItems.length > 0 ? statusBarWorkspaceItems : undefined}
         activeWorkspaceId={authWorkspaceId}
         onWorkspaceMenuSelect={handleStatusBarWorkspacePick}
+        onBranchSelect={handleStatusBarBranchSelect}
         errorCount={errorCount}
         warningCount={warningCount}
         showCursor={activeTab === 'code'}
@@ -3453,13 +3493,11 @@ const App: React.FC = () => {
           window.open('https://inneranimalmedia.com', '_blank', 'noopener,noreferrer');
         }}
         onGitBranchClick={() => {
-          setSearchInitialFacets(['branch']);
-          setSearchOpen(true);
+          setActiveActivity('git');
+          if (!isAgentShellPath(location.pathname)) navigate(AGENT_HOME_PATH);
         }}
-        onWorkspaceClick={() => {
-          setSearchInitialFacets(['workspace']);
-          setSearchOpen(true);
-        }}
+        onWorkspaceClick={() => setWorkspaceLauncherOpen(true)}
+        onRefreshGitStatus={() => void fetchGitAndProblems()}
         onErrorsClick={() => toggleActivity('debug')}
         onWarningsClick={() => toggleActivity('mcps')}
         onCursorClick={() => {
@@ -3479,6 +3517,15 @@ const App: React.FC = () => {
           authWorkspaceId={authWorkspaceId}
           setAuthWorkspaceId={setAuthWorkspaceId}
           setWorkspaceDisplayName={setWorkspaceDisplayName}
+          onWorkspaceActivated={(ws) => {
+            void switchWorkspace(ws.id, {
+              displayName: ws.display_name,
+              slug: ws.slug,
+              github_repo: ws.github_repo ?? null,
+              sync: false,
+            });
+            void refreshWorkspaces({ force: true });
+          }}
           setToastMsg={setToastMsg}
           onOpenLocalFolder={() => {
             setWorkspaceLauncherOpen(false);

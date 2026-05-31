@@ -66,6 +66,7 @@ export interface WorkspaceMenuItem {
 
 interface StatusBarProps {
   branch?: string;
+  gitHash?: string | null;
   workspace?: string;
   /** When set, workspace chip opens a picker (Cursor-style) instead of only firing onWorkspaceClick. */
   workspaceMenuItems?: WorkspaceMenuItem[];
@@ -96,6 +97,8 @@ interface StatusBarProps {
   canFormatDocument?: boolean;
   onBrandClick?: () => void;
   onGitBranchClick?: () => void;
+  onBranchSelect?: (branch: string) => void;
+  onRefreshGitStatus?: () => void;
   onWorkspaceClick?: () => void;
   onErrorsClick?: () => void;
   onWarningsClick?: () => void;
@@ -106,6 +109,7 @@ interface StatusBarProps {
 
 export const StatusBar: React.FC<StatusBarProps> = ({
   branch = '',
+  gitHash = null,
   workspace = '',
   workspaceMenuItems,
   activeWorkspaceId = null,
@@ -130,6 +134,8 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   canFormatDocument = false,
   onBrandClick,
   onGitBranchClick,
+  onBranchSelect,
+  onRefreshGitStatus,
   onWorkspaceClick,
   onErrorsClick,
   onWarningsClick,
@@ -413,9 +419,12 @@ export const StatusBar: React.FC<StatusBarProps> = ({
           </button>
           <button
             type="button"
-            onClick={onGitBranchClick}
+            onClick={() => {
+              onRefreshGitStatus?.();
+              onGitBranchClick?.();
+            }}
             className="flex items-center px-1.5 h-full hover:bg-[var(--bg-hover)] transition-colors"
-            title="Sync with remote — pull and push commits from and to origin"
+            title="Refresh git status and open source control"
           >
             <RefreshCw size={10} />
           </button>
@@ -486,12 +495,12 @@ export const StatusBar: React.FC<StatusBarProps> = ({
                           onClick={() => {
                             if (branchData?.repo) {
                               try {
-                                // checkout happens locally; this tracks selected branch for platform context
                                 localStorage.setItem(`iam_branch_${branchData.repo}`, b.ref);
                               } catch {
                                 /* ignore */
                               }
                             }
+                            onBranchSelect?.(b.ref);
                             setBranchMenuOpen(false);
                           }}
                           className={`w-full text-left px-3 py-1.5 text-[0.6875rem] hover:bg-[var(--bg-hover)] flex items-center gap-2 font-[var(--font-sans)] border-b border-[var(--border-subtle)]/30 last:border-b-0 ${
@@ -602,7 +611,53 @@ export const StatusBar: React.FC<StatusBarProps> = ({
         )}
       </div>
 
-      <div className="flex items-stretch flex-1 min-w-0">
+      <div className="flex items-stretch flex-1 min-w-0 overflow-hidden">
+        {gitHash?.trim() ? (
+          <div
+            className="hidden sm:flex items-center px-2 h-full text-[0.5625rem] font-mono text-[var(--text-muted)] border-r border-[var(--border-subtle)]/30 shrink-0"
+            title="Latest deployed commit (short hash)"
+          >
+            {gitHash.trim()}
+          </div>
+        ) : null}
+        {lastDeployLine?.trim() ? (
+          <div
+            className="hidden md:flex items-center px-2 h-full text-[0.5625rem] text-[var(--text-muted)] truncate min-w-0 max-w-[220px]"
+            title={lastDeployLine.trim()}
+          >
+            {lastDeployLine.trim()}
+          </div>
+        ) : null}
+        {healthOk != null ? (
+          <div
+            className="flex items-center gap-1 px-2 h-full shrink-0"
+            title={healthOk ? 'Worker health OK' : 'Worker health check failed'}
+          >
+            <span
+              className={`inline-block w-1.5 h-1.5 rounded-full ${healthOk ? 'bg-[var(--solar-green,#22c55e)]' : 'bg-[var(--solar-red)]'}`}
+              aria-hidden
+            />
+            <span className="text-[0.5625rem] font-semibold text-[var(--text-muted)] hidden lg:inline">
+              {healthOk ? 'Healthy' : 'Degraded'}
+            </span>
+          </div>
+        ) : null}
+        {tunnelHealthy != null ? (
+          <div
+            className="hidden xl:flex items-center px-2 h-full text-[0.5625rem] text-[var(--text-muted)] truncate max-w-[140px] shrink-0"
+            title={tunnelLabel?.trim() || (tunnelHealthy ? 'Tunnel connected' : 'Tunnel unavailable')}
+          >
+            {tunnelHealthy ? 'Tunnel' : 'No tunnel'}
+          </div>
+        ) : null}
+        {terminalOk != null ? (
+          <div
+            className="hidden xl:flex items-center px-2 h-full text-[0.5625rem] text-[var(--text-muted)] shrink-0"
+            title={terminalOk ? 'PTY terminal configured' : 'PTY terminal not configured'}
+          >
+            {terminalOk ? 'PTY' : 'No PTY'}
+          </div>
+        ) : null}
         {/* errors, warnings */}
         {(errorCount ?? 0) > 0 && (
           <button
@@ -692,6 +747,15 @@ export const StatusBar: React.FC<StatusBarProps> = ({
             {chatModeLabel}
           </div>
         )}
+
+        <button
+          type="button"
+          onClick={onVersionClick}
+          className="hidden sm:flex items-center px-2 h-full hover:bg-[var(--bg-hover)] transition-colors text-[0.5625rem] font-mono text-[var(--text-muted)]"
+          title={`Shell ${version}`}
+        >
+          {version}
+        </button>
 
         <button
           type="button"
