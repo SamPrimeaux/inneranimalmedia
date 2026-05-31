@@ -39,6 +39,7 @@ export const MovieModeStudio: React.FC<MovieModeStudioProps> = ({ timeline, onTi
         <div className="flex-1 min-h-0 flex flex-col items-center justify-center p-4 overflow-hidden">
           <Player
             ref={playerRef}
+            acknowledgeRemotionLicense
             component={MovieModeComposition}
             inputProps={session}
             durationInFrames={durationInFrames}

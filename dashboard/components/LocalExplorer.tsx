@@ -209,6 +209,34 @@ async function hydrateLocalRootChildren(
     }
 }
 
+async function queryLocalHandlePermission(
+    handle: FileSystemDirectoryHandle,
+    mode: 'read' | 'readwrite' = 'readwrite',
+): Promise<'granted' | 'denied' | 'prompt'> {
+    if (typeof (handle as FileSystemDirectoryHandle & { queryPermission?: unknown }).queryPermission !== 'function') {
+        return 'denied';
+    }
+    return (await (
+        handle as FileSystemDirectoryHandle & {
+            queryPermission: (o: { mode: string }) => Promise<string>;
+        }
+    ).queryPermission({ mode })) as 'granted' | 'denied' | 'prompt';
+}
+
+async function requestLocalHandlePermission(
+    handle: FileSystemDirectoryHandle,
+    mode: 'read' | 'readwrite' = 'readwrite',
+): Promise<'granted' | 'denied' | 'prompt'> {
+    if (typeof (handle as FileSystemDirectoryHandle & { requestPermission?: unknown }).requestPermission !== 'function') {
+        return 'denied';
+    }
+    return (await (
+        handle as FileSystemDirectoryHandle & {
+            requestPermission: (o: { mode: string }) => Promise<string>;
+        }
+    ).requestPermission({ mode })) as 'granted' | 'denied' | 'prompt';
+}
+
 export const LocalExplorer: React.FC<{
     onFileSelect: (file: ActiveFile) => void;
     /** Fires when user connects a native folder — drives status bar + persisted workspace. */
@@ -267,6 +295,24 @@ export const LocalExplorer: React.FC<{
     const [r2UploadTargetBucket, setR2UploadTargetBucket] = useState<string | null>(null);
     const lastNativeFolderSignal = useRef(0);
     const [googleDriveOAuthRefresh, setGoogleDriveOAuthRefresh] = useState(0);
+
+    const mountNativeRoot = useCallback(
+        (dirHandle: FileSystemDirectoryHandle) => {
+            setLocalResumeHint(null);
+            persistLastLocalFolderNameOnly(dirHandle.name);
+            const root: LocalFileNode = {
+                name: dirHandle.name,
+                kind: 'directory',
+                handle: dirHandle,
+                isOpen: true,
+                loading: true,
+            };
+            setRootDir(root);
+            onWorkspaceRootChange?.({ folderName: root.name });
+            void hydrateLocalRootChildren(setRootDir, dirHandle);
+        },
+        [onWorkspaceRootChange],
+    );
 
     useEffect(() => {
         try {
@@ -679,54 +725,33 @@ export const LocalExplorer: React.FC<{
 
             try {
                 const h = await loadPersistedNativeDirectoryHandle();
-                if (!h || typeof (h as any).queryPermission !== 'function') {
+                if (!h) {
                     await tryResumeHints();
                     return;
                 }
-                let perm = await (h as any).queryPermission({ mode: 'readwrite' });
-                if (perm === 'prompt' && typeof (h as any).requestPermission === 'function') {
-                    perm = await (h as any).requestPermission({ mode: 'readwrite' });
-                }
+                const perm = await queryLocalHandlePermission(h);
+                // requestPermission requires a user gesture — never call it on page load.
                 if (perm !== 'granted') {
+                    persistLastLocalFolderNameOnly(h.name);
+                    setLocalResumeHint({ workspaceId: null, folderName: h.name });
                     await tryResumeHints();
                     return;
                 }
-                setLocalResumeHint(null);
-                persistLastLocalFolderNameOnly(h.name);
-                const root: LocalFileNode = {
-                    name: h.name,
-                    kind: 'directory',
-                    handle: h,
-                    isOpen: true,
-                    loading: true,
-                };
-                setRootDir(root);
-                onWorkspaceRootChange?.({ folderName: root.name });
-                void hydrateLocalRootChildren(setRootDir, h);
+                mountNativeRoot(h);
             } catch (e) {
                 console.warn('[LocalExplorer] native workspace restore skipped', e);
                 await tryResumeHints();
             }
         })();
-    }, [onWorkspaceRootChange]);
+    }, [mountNativeRoot, onWorkspaceRootChange]);
 
     const handleOpenFolder = useCallback(async () => {
         try {
             // File System Access API (Chromium); not in all TS DOM libs
             const dirHandle = await (window as unknown as { showDirectoryPicker: () => Promise<any> }).showDirectoryPicker();
 
-            const root: LocalFileNode = {
-                name: dirHandle.name,
-                kind: 'directory',
-                handle: dirHandle,
-                isOpen: true,
-                loading: true,
-            };
-            setRootDir(root);
-            onWorkspaceRootChange?.({ folderName: root.name });
-            void hydrateLocalRootChildren(setRootDir, dirHandle);
+            mountNativeRoot(dirHandle);
             await persistNativeDirectoryHandle(dirHandle);
-            persistLastLocalFolderNameOnly(dirHandle.name);
 
             if (localResumeHint && dirHandle.name !== localResumeHint.folderName) {
                 console.warn(
@@ -764,12 +789,28 @@ export const LocalExplorer: React.FC<{
                     if (j?.workspaceId) await persistWorkspaceIdHint(String(j.workspaceId));
                 }
             }
-            setLocalResumeHint(null);
         } catch (err) {
             if (err instanceof Error && err.name === 'AbortError') return;
             console.error('Failed to open directory:', err);
         }
-    }, [onWorkspaceRootChange, localResumeHint]);
+    }, [mountNativeRoot, localResumeHint]);
+
+    const handleReconnectPersistedFolder = useCallback(async () => {
+        try {
+            const h = await loadPersistedNativeDirectoryHandle();
+            if (!h) {
+                await handleOpenFolder();
+                return;
+            }
+            const perm = await requestLocalHandlePermission(h);
+            if (perm !== 'granted') return;
+            await persistNativeDirectoryHandle(h);
+            mountNativeRoot(h);
+        } catch (e) {
+            if (e instanceof Error && e.name === 'AbortError') return;
+            console.warn('[LocalExplorer] reconnect persisted folder failed', e);
+        }
+    }, [handleOpenFolder, mountNativeRoot]);
 
     const disconnectNativeFolder = useCallback(async () => {
         setRootDir(null);
@@ -953,14 +994,21 @@ export const LocalExplorer: React.FC<{
                                         <p className="text-[9px] text-[var(--text-main)] leading-snug text-center">
                                             You last had{' '}
                                             <span className="font-semibold text-[var(--solar-cyan)]">{localResumeHint.folderName}</span>{' '}
-                                            open. Use the folder picker again to grant access (web standard; display name only is remembered).
+                                            open. Click reconnect to grant access again (browser security — no auto-prompt on page load).
                                         </p>
                                         <button
                                             type="button"
-                                            onClick={() => void handleOpenFolder()}
+                                            onClick={() => void handleReconnectPersistedFolder()}
                                             className="mt-2 w-full text-[10px] font-semibold py-1.5 rounded border border-[var(--solar-cyan)]/40 text-[var(--solar-cyan)] hover:bg-[var(--solar-cyan)]/10"
                                         >
-                                            Open folder
+                                            Reconnect folder
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => void handleOpenFolder()}
+                                            className="mt-1 w-full text-[9px] py-1 rounded text-[var(--text-muted)] hover:text-[var(--text-main)]"
+                                        >
+                                            Choose a different folder
                                         </button>
                                     </div>
                                 ) : null}
