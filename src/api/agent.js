@@ -3339,11 +3339,21 @@ async function loadChatRoutingFallbackRows(env, opts = {}) {
 
   const rows = [];
   const seen = new Set();
+  const enrichWithRoutingArmId = async (r) => {
+    if (!r?.model_key) return r;
+    const lookup = await resolveRoutingArmByModelKey(env, {
+      modelKey: String(r.model_key).trim(),
+      taskType: 'chat',
+      mode,
+      workspaceId: ws,
+    });
+    return { ...r, routing_arm_id: lookup?.armId ?? null };
+  };
   for (const mk of keyOrder) {
     const r = await resolveAgentsamAiRowByModelKey(env, tenantId, mk);
     if (r?.model_key && !seen.has(r.model_key)) {
       seen.add(r.model_key);
-      rows.push(r);
+      rows.push(await enrichWithRoutingArmId(r));
     }
   }
 
@@ -3353,7 +3363,7 @@ async function loadChatRoutingFallbackRows(env, opts = {}) {
       const r = await resolveAgentsamAiRowByModelKey(env, tenantId, mk);
       if (r?.model_key && !seen.has(r.model_key)) {
         seen.add(r.model_key);
-        rows.push(r);
+        rows.push(await enrichWithRoutingArmId(r));
       }
     }
   }
@@ -6281,11 +6291,14 @@ async function agentChatDirectSseHandler(env, ctx, opts) {
       : null;
   const routingTaskType = normalizeCanonicalTaskType(intentResult?.taskType || 'ask');
   const routingArmId =
-    opts.routingArmId != null && String(opts.routingArmId).trim() !== ''
-      ? String(opts.routingArmId).trim()
-      : opts.routing_arm_id != null && String(opts.routing_arm_id).trim() !== ''
-        ? String(opts.routing_arm_id).trim()
-        : null;
+    opts.routingDecision?.selected_arm_id != null &&
+    String(opts.routingDecision.selected_arm_id).trim() !== ''
+      ? String(opts.routingDecision.selected_arm_id).trim()
+      : opts.routingArmId != null && String(opts.routingArmId).trim() !== ''
+        ? String(opts.routingArmId).trim()
+        : opts.routing_arm_id != null && String(opts.routing_arm_id).trim() !== ''
+          ? String(opts.routing_arm_id).trim()
+          : null;
 
   const encoder = new TextEncoder();
   const { readable, writable } = new TransformStream();
@@ -6345,6 +6358,10 @@ async function agentChatDirectSseHandler(env, ctx, opts) {
         minimal_prompt_d1_only: 1,
         model: modelKey,
         tool_count: 0,
+        ...(routingArmId ? { routing_arm_id: routingArmId } : {}),
+        ...(opts.routingDecision?.routing_decision_id
+          ? { routing_decision_id: opts.routingDecision.routing_decision_id }
+          : {}),
         ...(chatAgentRunId ? { agent_run_id: chatAgentRunId } : {}),
       });
 
@@ -6384,7 +6401,7 @@ async function agentChatDirectSseHandler(env, ctx, opts) {
           qualityScore: null,
           mcpRuntimeContext,
           routingArmId,
-          thompsonModelKey: modelKey,
+          thompsonModelKey: opts.routingDecision?.model_key ?? modelKey,
           runStartedAt,
           maxRuntimeMs: askMaxRunMs,
           chatAgentRunId,
@@ -6843,24 +6860,38 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     if (subagentProfileRow) {
       finalAskSystemPrompt = appendSubagentProfileToSystemPrompt(finalAskSystemPrompt, subagentProfileRow);
     }
-    const resolvedAskModel = await resolveAskFastModelKey(
-      env,
-      body,
-      tenantId,
-      workspaceId,
-      promptRouteRow,
-    );
-    if (!resolvedAskModel?.model_key) return jsonResponse({ error: 'MODEL_RESOLUTION_FAILED' }, 503);
+    let askRoutingDecision = null;
+    try {
+      askRoutingDecision = await buildRoutingDecision(env, {
+        task_type: 'chat',
+        mode: 'ask',
+        requested_model_key: body.model_key ?? body.model ?? null,
+        routing_arm_id: null,
+        workspace_id: workspaceId,
+        tenant_id: tenantId,
+        tool_required: false,
+        lane: null,
+        route_key: 'ask_fast',
+        fallback_chain: [],
+      });
+    } catch (e) {
+      console.warn('[agent] ask routing decision failed:', e?.message ?? e);
+    }
+
+    const askModelKey =
+      askRoutingDecision?.model_key ??
+      askRoutingDecision?._resolved?.model_key ??
+      body.model_key ??
+      body.model ??
+      null;
+    if (!askModelKey) return jsonResponse({ error: 'MODEL_RESOLUTION_FAILED' }, 503);
 
     return agentChatDirectSseHandler(env, ctx, {
       request,
       ...body,
       systemPrompt: finalAskSystemPrompt,
-      modelKey: String(resolvedAskModel.model_key).trim(),
-      routingArmId:
-        resolvedAskModel.routing_arm_id != null
-          ? String(resolvedAskModel.routing_arm_id).trim() || null
-          : null,
+      modelKey: String(askModelKey).trim(),
+      routingDecision: askRoutingDecision,
       modeConfig,
       promptRouteRow,
       intentResult,
@@ -8674,6 +8705,17 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       lastLoopStats = null;
       lastAssistantStreamText = '';
       let lastSucceededArmId = routingArmIdForRun || null;
+      let selectedArmFailed = false;
+      let fallbackArmId = null;
+      let winningChainIndex = -1;
+      const thompsonPickModelKey =
+        routingPick?.modelKey != null
+          ? String(routingPick.modelKey).trim()
+          : chainRows[startIdx]?.model_key != null
+            ? String(chainRows[startIdx].model_key).trim()
+            : chainRows[0]?.model_key != null
+              ? String(chainRows[0].model_key).trim()
+              : null;
 
       /** TEMP prompt-size audit (see dispatchStream maybeLogAgentChatPromptAudit); no raw prompt content. */
       const promptAuditContext = {
@@ -8770,6 +8812,14 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           if (lastLoopStats?.handoff) {
             succeeded = true;
             lastAssistantStreamText = streamAccum;
+            winningChainIndex = providerAttempts - 1;
+            if (
+              providerAttempts > 1 ||
+              (providerAttempts === 1 && modelKey !== thompsonPickModelKey)
+            ) {
+              fallbackArmId = attemptArmId ?? row?.routing_arm_id ?? null;
+              if (routingPick?.armId || routingArmIdForRun) selectedArmFailed = true;
+            }
             lastSucceededArmId = attemptArmId || lastSucceededArmId;
             break;
           }
@@ -8778,6 +8828,14 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           }
           succeeded = true;
           lastAssistantStreamText = streamAccum;
+          winningChainIndex = providerAttempts - 1;
+          if (
+            providerAttempts > 1 ||
+            (providerAttempts === 1 && modelKey !== thompsonPickModelKey)
+          ) {
+            fallbackArmId = attemptArmId ?? row?.routing_arm_id ?? null;
+            if (routingPick?.armId || routingArmIdForRun) selectedArmFailed = true;
+          }
           lastSucceededArmId = attemptArmId || lastSucceededArmId;
 
           scheduleEscalationAttempt(env, ctx, {
@@ -8844,6 +8902,12 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
             succeeded = false;
             break;
           } else {
+            if (
+              providerAttempts === 1 &&
+              (modelKey === thompsonPickModelKey || attemptArmId === routingArmIdForRun)
+            ) {
+              selectedArmFailed = true;
+            }
             console.warn('[agent] model fallback:', {
               provider: row?.provider,
               model_key: row?.model_key,
@@ -8852,6 +8916,47 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
           }
         }
       }
+
+      // ── ETO reward / penalty split ──────────────────────────────────────────
+      const selectedArmIdForEto =
+        routingPick?.armId != null && String(routingPick.armId).trim() !== ''
+          ? String(routingPick.armId).trim()
+          : routingArmIdForRun;
+      const etoRoutingInfo = {
+        taskType: resolvedRoutingTaskType ?? 'ask',
+        mode: requestedMode ?? 'auto',
+        modelKey: lastLoopStats?.modelKey ?? thompsonPickModelKey,
+        workspaceId: resolvedWorkspaceId ?? workspaceId ?? '',
+      };
+      if (selectedArmFailed && selectedArmIdForEto && !routingArmOutcomeLogged) {
+        await recordArmOutcome(env, ctx, selectedArmIdForEto, false, etoRoutingInfo);
+        console.log('[routing] eto_penalized', {
+          penalized_arm_id: selectedArmIdForEto,
+          reason: 'selected_arm_failed',
+          fallback_succeeded: succeeded,
+        });
+        routingArmOutcomeLogged = true;
+
+        if (succeeded && fallbackArmId) {
+          await recordArmOutcome(env, ctx, fallbackArmId, true, {
+            ...etoRoutingInfo,
+            modelKey: lastLoopStats?.modelKey ?? fallbackArmId,
+          });
+          console.log('[routing] eto_rewarded_fallback', {
+            rewarded_arm_id: fallbackArmId,
+            winning_chain_index: winningChainIndex,
+          });
+        } else if (succeeded && !fallbackArmId) {
+          console.log('[routing] eto_no_update', {
+            no_update_reason: 'fallback_no_arm_id',
+            winning_chain_index: winningChainIndex,
+          });
+        }
+      } else if (!selectedArmFailed && selectedArmIdForEto && !routingArmOutcomeLogged) {
+        await recordArmOutcome(env, ctx, selectedArmIdForEto, succeeded, etoRoutingInfo);
+        routingArmOutcomeLogged = true;
+      }
+      // ── END ETO split ────────────────────────────────────────────────────────
 
       if (
         !succeeded &&
@@ -9223,13 +9328,17 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         });
       }
       if (routingArmIdForRun && !routingArmOutcomeLogged) {
-        await recordArmOutcome(env, ctx, routingArmIdForRun, partialSuccess, {
+        await recordArmOutcome(env, ctx, routingArmIdForRun, false, {
           taskType: resolvedRoutingTaskType ?? 'ask',
           mode: requestedMode ?? 'auto',
           modelKey: catchModelKey ?? fallbackModelKeys[0],
           workspaceId: resolvedWorkspaceId ?? '',
         });
         routingArmOutcomeLogged = true;
+        console.log('[routing] eto_penalized', {
+          penalized_arm_id: routingArmIdForRun,
+          reason: 'fatal_exception',
+        });
       }
       scheduleAgentsamCommandRunInsert(env, ctx, {
         tenantId,
