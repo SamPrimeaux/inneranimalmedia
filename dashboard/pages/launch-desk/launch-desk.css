@@ -13,10 +13,11 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 14px 18px;
+  gap: 16px;
+  padding: 10px 16px;
   border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
   background: var(--bg-panel, #12141c);
+  flex-wrap: wrap;
 }
 
 .ops-desk-title-block h1 {
@@ -76,175 +77,25 @@
 .ops-desk-body {
   flex: 1;
   min-height: 0;
-  display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
-}
-
-@media (max-width: 960px) {
-  .ops-desk-body {
-    grid-template-columns: 1fr;
-  }
-  .ops-desk-rail {
-    display: none;
-  }
-}
-
-.ops-desk-rail {
-  border-right: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
-  background: var(--bg-panel, #12141c);
-  overflow: auto;
-  padding: 14px;
   display: flex;
   flex-direction: column;
-  gap: 18px;
-}
-
-.ops-desk-rail-section h2 {
-  margin: 0 0 8px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-muted);
-}
-
-.ops-desk-stat-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 6px;
-}
-
-.ops-desk-stat {
-  padding: 8px;
-  border-radius: 8px;
-  border: 1px solid var(--border-subtle);
-  background: var(--bg-app);
-}
-
-.ops-desk-stat span {
-  display: block;
-  font-size: 10px;
-  color: var(--text-muted);
-}
-
-.ops-desk-stat strong {
-  display: block;
-  margin-top: 2px;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.ops-desk-agenda-item,
-.ops-desk-task-item {
-  padding: 8px 10px;
-  border-radius: 8px;
-  border: 1px solid var(--border-subtle);
-  background: var(--bg-app);
-  cursor: pointer;
-  transition: border-color 0.15s;
-}
-
-.ops-desk-agenda-item:hover,
-.ops-desk-task-item:hover {
-  border-color: color-mix(in srgb, var(--solar-cyan) 40%, transparent);
-}
-
-.ops-desk-agenda-item.active {
-  border-color: var(--solar-cyan);
-}
-
-.ops-desk-agenda-item time,
-.ops-desk-task-item span.meta {
-  display: block;
-  font-size: 10px;
-  color: var(--text-muted);
-  margin-bottom: 2px;
-}
-
-.ops-desk-agenda-item strong,
-.ops-desk-task-item strong {
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1.35;
-}
-
-.ops-desk-empty {
-  font-size: 12px;
-  color: var(--text-muted);
-  padding: 8px 0;
-}
-
-.ops-desk-task-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-}
-
-.ops-desk-task-row input[type='checkbox'] {
-  margin-top: 3px;
-  accent-color: var(--solar-cyan);
-}
-
-.ops-desk-task-add {
-  display: flex;
-  gap: 6px;
-  margin-top: 8px;
-}
-
-.ops-desk-task-add input {
-  flex: 1;
-  min-width: 0;
-  padding: 7px 10px;
-  font-size: 12px;
-  border-radius: 8px;
-  border: 1px solid var(--border-subtle);
-  background: var(--bg-app);
-  color: var(--text-main);
-  outline: none;
-}
-
-.ops-desk-task-add input:focus {
-  border-color: var(--solar-cyan);
-}
-
-.ops-desk-mail-link {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--border-subtle);
-  background: var(--bg-app);
-  text-decoration: none;
-  color: inherit;
-  font-size: 12px;
-}
-
-.ops-desk-mail-link:hover {
-  border-color: color-mix(in srgb, var(--solar-cyan) 40%, transparent);
-}
-
-.ops-desk-mail-link strong {
-  font-size: 18px;
-  color: var(--solar-cyan);
 }
 
 .ops-desk-main {
+  flex: 1;
+  min-height: 0;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 10px 14px 14px;
+  position: relative;
+}
+
+.ops-desk-cal-body {
+  flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  padding: 12px 14px;
-  gap: 10px;
-}
-
-.ops-desk-cal-toolbar {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  flex-wrap: wrap;
 }
 
 .ops-desk-cal-nav {
@@ -254,9 +105,112 @@
 }
 
 .ops-desk-cal-title {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
-  min-width: 160px;
+  min-width: 140px;
+  padding-left: 4px;
+}
+
+.ops-desk-month {
+  height: 100%;
+}
+
+.ops-desk-month-head {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--border-subtle);
+  border-right: 1px solid var(--border-subtle);
+  background: var(--bg-panel);
+}
+
+.ops-desk-month-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-rows: repeat(6, minmax(0, 1fr));
+}
+
+.ops-desk-month-cell {
+  border-right: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 6px;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.ops-desk-month-cell.current {
+  background: var(--bg-panel);
+}
+
+.ops-desk-month-cell.other {
+  background: var(--bg-app);
+}
+
+.ops-desk-month-cell:hover {
+  background: var(--bg-hover);
+}
+
+.ops-desk-month-day {
+  font-size: 12px;
+  font-weight: 600;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  margin-bottom: 4px;
+  flex-shrink: 0;
+}
+
+.ops-desk-month-day.today {
+  background: var(--solar-cyan);
+  color: #07100f;
+}
+
+.ops-desk-month-day.muted {
+  color: var(--text-muted);
+}
+
+.ops-desk-month-events {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ops-desk-month-more {
+  font-size: 10px;
+  color: var(--text-muted);
+  padding-top: 2px;
+}
+
+.ops-desk-week-grid {
+  display: grid;
+  min-width: 100%;
+  grid-template-columns: 52px repeat(7, minmax(0, 1fr));
+}
+
+.ops-desk-week-cell {
+  min-height: 3.5rem;
+  border-bottom: 1px solid var(--border-subtle);
+  border-right: 1px solid var(--border-subtle);
+  background: var(--bg-panel);
+  cursor: pointer;
+  padding: 4px;
+  overflow: hidden;
+}
+
+.ops-desk-week-cell:hover {
+  background: var(--bg-hover);
 }
 
 .ops-desk-view-tabs {
@@ -476,9 +430,9 @@
 }
 
 .ops-desk-event-chip {
-  font-size: 10px;
-  padding: 2px 4px;
-  margin-bottom: 2px;
+  font-size: 11px;
+  line-height: 1.25;
+  padding: 3px 5px;
   border-radius: 4px;
   cursor: pointer;
   text-overflow: ellipsis;
@@ -486,6 +440,7 @@
   white-space: nowrap;
   border-left: 2px solid var(--solar-cyan);
   background: color-mix(in srgb, var(--solar-cyan) 14%, transparent);
+  flex-shrink: 0;
 }
 
 .ops-desk-meeting-chip {

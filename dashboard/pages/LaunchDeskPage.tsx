@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Mail, Video, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Video, X } from 'lucide-react';
 import './launch-desk/launch-desk.css';
 
 type CalView = 'week' | 'month';
@@ -20,26 +20,8 @@ interface CalEvent {
   attendees?: string | null;
 }
 
-interface HubTask {
-  id: string;
-  title: string;
-  status: string;
-  priority?: string | null;
-  due_date?: string | null;
-}
-
-interface HubStats {
-  hours_today: number;
-  spend_this_week: number;
-  agent_calls_today: number;
-}
-
 function sameDay(a: Date, b: Date) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-}
-
-function fmtTime(d: Date) {
-  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
 
 function fmtDateTime(d: Date) {
@@ -98,14 +80,10 @@ export function LaunchDeskPage() {
   const [view, setView] = useState<CalView>('month');
   const [date, setDate] = useState(() => new Date());
   const [events, setEvents] = useState<CalEvent[]>([]);
-  const [tasks, setTasks] = useState<HubTask[]>([]);
-  const [stats, setStats] = useState<HubStats | null>(null);
-  const [mailUnread, setMailUnread] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<CalEvent | null>(null);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [eventOpen, setEventOpen] = useState<{ start: string; end: string } | null>(null);
-  const [taskDraft, setTaskDraft] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -138,39 +116,13 @@ export function LaunchDeskPage() {
     }
   }, [view]);
 
-  const fetchSideData = useCallback(async () => {
-    try {
-      const [tasksRes, statsRes, mailRes] = await Promise.all([
-        apiJson<{ tasks?: HubTask[] }>('/api/hub/tasks').catch(() => ({ tasks: [] })),
-        apiJson<HubStats>('/api/hub/stats').catch(() => null),
-        apiJson<{ unread?: number }>('/api/mail/stats').catch(() => null),
-      ]);
-      setTasks(tasksRes.tasks ?? []);
-      setStats(statsRes);
-      setMailUnread(typeof mailRes?.unread === 'number' ? mailRes.unread : null);
-    } catch {
-      /* non-fatal */
-    }
-  }, []);
-
   useEffect(() => {
     fetchEvents();
   }, [fetchEvents]);
 
-  useEffect(() => {
-    fetchSideData();
-  }, [fetchSideData]);
-
   const refreshAll = useCallback(async () => {
-    await Promise.all([fetchEvents(), fetchSideData()]);
-  }, [fetchEvents, fetchSideData]);
-
-  const todayAgenda = useMemo(() => {
-    const now = new Date();
-    return events
-      .filter((e) => sameDay(parseEventDate(e.start_datetime), now))
-      .sort((a, b) => parseEventDate(a.start_datetime).getTime() - parseEventDate(b.start_datetime).getTime());
-  }, [events]);
+    await fetchEvents();
+  }, [fetchEvents]);
 
   const navigate = (dir: 1 | -1) => {
     setDate((prev) => {
@@ -297,28 +249,6 @@ export function LaunchDeskPage() {
     await fetchEvents();
   };
 
-  const completeTask = async (id: string) => {
-    await apiJson(`/api/hub/tasks/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'done' }),
-    });
-    setTasks((prev) => prev.filter((t) => t.id !== id));
-  };
-
-  const addTask = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const title = taskDraft.trim();
-    if (!title) return;
-    const res = await apiJson<{ id: string }>('/api/hub/tasks', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title }),
-    });
-    setTasks((prev) => [{ id: res.id, title, status: 'todo' }, ...prev]);
-    setTaskDraft('');
-  };
-
   const eventsForDay = (d: Date) =>
     events.filter((e) => sameDay(parseEventDate(e.start_datetime), d));
 
@@ -354,18 +284,13 @@ export function LaunchDeskPage() {
     });
 
     return (
-      <div className="flex-1 min-h-0 overflow-hidden rounded-xl border border-[var(--border-subtle)] flex flex-col">
+      <div className="ops-desk-month flex-1 min-h-0 overflow-hidden rounded-xl border border-[var(--border-subtle)] flex flex-col">
         <div className="grid grid-cols-7 shrink-0">
           {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
-            <div
-              key={d}
-              className="text-[11px] font-semibold text-[var(--text-muted)] text-center py-2 border-b border-r border-[var(--border-subtle)] bg-[var(--bg-panel)]"
-            >
-              {d}
-            </div>
+            <div key={d} className="ops-desk-month-head">{d}</div>
           ))}
         </div>
-        <div className="flex-1 min-h-0 grid grid-cols-7 grid-rows-6">
+        <div className="ops-desk-month-grid flex-1 min-h-0">
           {days.map((day, i) => {
             const isCurrentMonth = day.getMonth() === date.getMonth();
             const isToday = sameDay(day, now);
@@ -379,22 +304,17 @@ export function LaunchDeskPage() {
                 onKeyDown={(ev) => {
                   if (ev.key === 'Enter') openNewEvent(new Date(day.getFullYear(), day.getMonth(), day.getDate(), 9, 0, 0, 0));
                 }}
-                className={`border-r border-b border-[var(--border-subtle)] p-1 min-h-0 overflow-hidden flex flex-col cursor-pointer
-                  ${isCurrentMonth ? 'bg-[var(--bg-panel)]' : 'bg-[var(--bg-app)]'}
-                  hover:bg-[var(--bg-hover)] transition-colors`}
+                className={`ops-desk-month-cell ${isCurrentMonth ? 'current' : 'other'} ${isToday ? 'today' : ''}`}
               >
-                <div
-                  className={`text-[11px] font-semibold w-5 h-5 flex items-center justify-center rounded-full mb-0.5 shrink-0
-                  ${isToday ? 'bg-[var(--solar-cyan)] text-black' : isCurrentMonth ? 'text-[var(--text-main)]' : 'text-[var(--text-muted)]'}`}
-                >
+                <div className={`ops-desk-month-day ${isToday ? 'today' : ''} ${isCurrentMonth ? '' : 'muted'}`}>
                   {day.getDate()}
                 </div>
-                <div className="flex-1 min-h-0 overflow-hidden">
-                  {dayEvs.slice(0, 3).map((ev) => (
+                <div className="ops-desk-month-events">
+                  {dayEvs.slice(0, 5).map((ev) => (
                     <EventChip key={ev.id} event={ev} />
                   ))}
-                  {dayEvs.length > 3 ? (
-                    <div className="text-[9px] text-[var(--text-muted)]">+{dayEvs.length - 3}</div>
+                  {dayEvs.length > 5 ? (
+                    <div className="ops-desk-month-more">+{dayEvs.length - 5} more</div>
                   ) : null}
                 </div>
               </div>
@@ -417,8 +337,8 @@ export function LaunchDeskPage() {
     const hours = Array.from({ length: 24 }, (_, i) => i);
 
     return (
-      <div className="flex-1 min-h-0 overflow-auto rounded-xl border border-[var(--border-subtle)]">
-        <div className="grid min-w-[640px]" style={{ gridTemplateColumns: '48px repeat(7, 1fr)' }}>
+      <div className="ops-desk-week flex-1 min-h-0 overflow-auto rounded-xl border border-[var(--border-subtle)]">
+        <div className="ops-desk-week-grid">
           <div className="h-8 border-b border-r border-[var(--border-subtle)] bg-[var(--bg-panel)]" />
           {days.map((d, i) => (
             <div
@@ -449,7 +369,7 @@ export function LaunchDeskPage() {
                       s.setHours(h, 0, 0, 0);
                       openNewEvent(s);
                     }}
-                    className="h-14 border-b border-r border-[var(--border-subtle)] bg-[var(--bg-panel)] hover:bg-[var(--bg-hover)] cursor-pointer p-0.5 overflow-hidden"
+                    className="ops-desk-week-cell"
                   >
                     {cellEvs.map((ev) => (
                       <EventChip key={ev.id} event={ev} />
@@ -472,12 +392,29 @@ export function LaunchDeskPage() {
       <header className="ops-desk-header">
         <div className="ops-desk-title-block">
           <h1>Ops Desk</h1>
-          <p>Calendar, meetings, tasks, and mail — one workspace.</p>
+          <p>Calendar and meetings</p>
         </div>
         <div className="ops-desk-header-actions">
-          <button type="button" className="ops-desk-btn" onClick={() => { setDate(new Date()); void refreshAll(); }}>
-            Refresh
-          </button>
+          <div className="ops-desk-cal-nav">
+            <button type="button" className="ops-desk-btn" onClick={() => setDate(new Date())}>
+              Today
+            </button>
+            <button type="button" className="ops-desk-btn" aria-label="Previous" onClick={() => navigate(-1)}>
+              <ChevronLeft size={14} />
+            </button>
+            <button type="button" className="ops-desk-btn" aria-label="Next" onClick={() => navigate(1)}>
+              <ChevronRight size={14} />
+            </button>
+            <span className="ops-desk-cal-title">{titleText()}</span>
+          </div>
+          <div className="ops-desk-view-tabs">
+            <button type="button" className={view === 'week' ? 'active' : ''} onClick={() => setView('week')}>
+              Week
+            </button>
+            <button type="button" className={view === 'month' ? 'active' : ''} onClick={() => setView('month')}>
+              Month
+            </button>
+          </div>
           <button type="button" className="ops-desk-btn ops-desk-btn-primary" onClick={() => openSchedule()}>
             <Video size={14} />
             Schedule meeting
@@ -486,117 +423,7 @@ export function LaunchDeskPage() {
       </header>
 
       <div className="ops-desk-body">
-        <aside className="ops-desk-rail">
-          {stats ? (
-            <section className="ops-desk-rail-section">
-              <h2>Today</h2>
-              <div className="ops-desk-stat-grid">
-                <div className="ops-desk-stat">
-                  <span>Hours</span>
-                  <strong>{stats.hours_today.toFixed(1)}</strong>
-                </div>
-                <div className="ops-desk-stat">
-                  <span>Spend 7d</span>
-                  <strong>${stats.spend_this_week.toFixed(0)}</strong>
-                </div>
-                <div className="ops-desk-stat">
-                  <span>Agent</span>
-                  <strong>{stats.agent_calls_today}</strong>
-                </div>
-              </div>
-            </section>
-          ) : null}
-
-          <section className="ops-desk-rail-section">
-            <h2>Agenda</h2>
-            {todayAgenda.length === 0 ? (
-              <p className="ops-desk-empty">No events today.</p>
-            ) : (
-              todayAgenda.map((ev) => (
-                <div
-                  key={ev.id}
-                  className={`ops-desk-agenda-item ${selected?.id === ev.id ? 'active' : ''}`}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => setSelected(ev)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') setSelected(ev); }}
-                >
-                  <time>{fmtTime(parseEventDate(ev.start_datetime))}</time>
-                  <strong>{ev.title}</strong>
-                </div>
-              ))
-            )}
-          </section>
-
-          <section className="ops-desk-rail-section">
-            <h2>Open tasks</h2>
-            {tasks.length === 0 ? (
-              <p className="ops-desk-empty">No open tasks.</p>
-            ) : (
-              tasks.slice(0, 12).map((task) => (
-                <div key={task.id} className="ops-desk-task-item">
-                  <div className="ops-desk-task-row">
-                    <input
-                      type="checkbox"
-                      aria-label={`Complete ${task.title}`}
-                      onChange={() => { void completeTask(task.id); }}
-                    />
-                    <div>
-                      {task.priority ? <span className="meta">{task.priority}</span> : null}
-                      <strong>{task.title}</strong>
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
-            <form className="ops-desk-task-add" onSubmit={addTask}>
-              <input
-                value={taskDraft}
-                onChange={(e) => setTaskDraft(e.target.value)}
-                placeholder="Add task…"
-                aria-label="New task title"
-              />
-              <button type="submit" className="ops-desk-btn ops-desk-btn-primary">
-                Add
-              </button>
-            </form>
-          </section>
-
-          {mailUnread !== null ? (
-            <section className="ops-desk-rail-section">
-              <h2>Mail</h2>
-              <Link to="/dashboard/mail" className="ops-desk-mail-link">
-                <span>Unread inbox</span>
-                <strong>{mailUnread}</strong>
-              </Link>
-            </section>
-          ) : null}
-        </aside>
-
         <div className="ops-desk-main relative">
-          <div className="ops-desk-cal-toolbar">
-            <div className="ops-desk-cal-nav">
-              <button type="button" className="ops-desk-btn" onClick={() => setDate(new Date())}>
-                Today
-              </button>
-              <button type="button" className="ops-desk-btn" aria-label="Previous" onClick={() => navigate(-1)}>
-                <ChevronLeft size={14} />
-              </button>
-              <button type="button" className="ops-desk-btn" aria-label="Next" onClick={() => navigate(1)}>
-                <ChevronRight size={14} />
-              </button>
-              <span className="ops-desk-cal-title">{titleText()}</span>
-            </div>
-            <div className="ops-desk-view-tabs">
-              <button type="button" className={view === 'week' ? 'active' : ''} onClick={() => setView('week')}>
-                Week
-              </button>
-              <button type="button" className={view === 'month' ? 'active' : ''} onClick={() => setView('month')}>
-                Month
-              </button>
-            </div>
-          </div>
-
           <div className="ops-desk-cal-body">
             {loading ? (
               <div className="flex-1 flex items-center justify-center">
