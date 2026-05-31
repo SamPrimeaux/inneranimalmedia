@@ -6,6 +6,7 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App';
 import { EditorProvider } from './src/EditorContext';
+import { WorkspaceProvider } from './src/context/WorkspaceContext';
 import { bootstrapSupabaseFromSession } from './src/lib/supabase';
 
 void bootstrapSupabaseFromSession();
@@ -22,7 +23,9 @@ w.__IAM_DASHBOARD_ROOT__.render(
   <React.StrictMode>
     <BrowserRouter>
       <EditorProvider>
-        <App />
+        <WorkspaceProvider>
+          <App />
+        </WorkspaceProvider>
       </EditorProvider>
     </BrowserRouter>
   </React.StrictMode>

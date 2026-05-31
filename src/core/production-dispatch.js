@@ -48,6 +48,7 @@ import { handleCursorAcpMessage } from '../api/cursor-acp.js';
 import { handleStripeWebhook } from '../api/billing.js';
 import { handleCalendarApi } from '../api/calendar.js';
 import { handleOpsDeskApi } from '../api/ops-desk.js';
+import { handleKanbanApi } from '../api/kanban.js';
 import { handleMeetApi } from '../api/meet.js';
 import { handleMeetV2Api } from '../api/meet-v2.js';
 import { handleHealthApi } from '../api/health/index.js';
@@ -133,6 +134,10 @@ export async function dispatchProductionDomainRoutes(rc) {
 
   if (pathLower.startsWith('/api/ops-desk')) {
     return handleOpsDeskApi(request, url, env);
+  }
+
+  if (pathLower.startsWith('/api/kanban')) {
+    return handleKanbanApi(request, url, env);
   }
 
   if (pathLower.startsWith('/api/meet/v2')) {

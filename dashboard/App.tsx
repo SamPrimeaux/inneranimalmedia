@@ -65,11 +65,8 @@ import {
   type RecentFileEntry,
   type AgentWorkspaceContextPacket,
 } from './src/ideWorkspace';
-import {
-  prepareRecentWorkspacesForSession,
-  getTrustedRecentWorkspaceId,
-} from './src/recentWorkspacesStorage';
 import { useEditor } from './src/EditorContext';
+import { useWorkspace } from './src/context/WorkspaceContext';
 import { MeetProvider, MeetCtxValue } from './src/MeetContext';
 import { MeetShellPanel } from './components/MeetShellPanel';
 import { AuthSignInPage } from './components/auth/AuthSignInPage';
@@ -168,14 +165,6 @@ function previewAddressBarLabel(file: ActiveFile): string {
 }
 
 const PRODUCT_NAME = 'Agent Sam';
-
-interface WorkspaceRow {
-  id: string;
-  name: string;
-  slug: string;
-  status: string;
-  github_repo: string | null;
-}
 
 function buildAgentSamGreeting(workspaceDisplayLine: string): string {
   const w = workspaceDisplayLine.trim();
@@ -300,6 +289,14 @@ function persistRecentFileToLocalStorage(entry: RecentFileEntry): void {
 
 const App: React.FC = () => {
   const { tabs, activeTabId, openFile, updateActiveContent, saveActiveFile } = useEditor();
+  const {
+    sessionUserId,
+    workspaceId: authWorkspaceId,
+    setWorkspaceId: setAuthWorkspaceId,
+    workspaces: workspaceRows,
+    displayName: workspaceDisplayName,
+    setDisplayName: setWorkspaceDisplayName,
+  } = useWorkspace();
   const location = useLocation();
   const navigate = useNavigate();
   const integrationsSlug =
@@ -497,13 +494,6 @@ const App: React.FC = () => {
     logDashboardThemeDebug();
   }, [location.search]);
 
-  /** Resolved from GET /api/auth/me — used to scope workspace recents in localStorage. */
-  const [sessionUserId, setSessionUserId] = useState<string | null>(null);
-  /** From GET /api/settings/workspaces (`current` = default_workspace_id); drives theme ?workspace= */
-  const [authWorkspaceId, setAuthWorkspaceId] = useState<string | null>(null);
-  /** Rows from same API — used for human-readable workspace name in chrome + chat. */
-  const [workspaceRows, setWorkspaceRows] = useState<WorkspaceRow[]>([]);
-  const [workspaceDisplayName, setWorkspaceDisplayName] = useState<string | null>(null);
   const [agentsamChatPolicy, setAgentsamChatPolicy] = useState<Record<string, unknown> | null>(null);
   const maxTabsPolicyRef = useRef(24);
   /** Abort stale GET /api/themes/active after Settings → Apply overwrites document (race fix). */
@@ -531,12 +521,6 @@ const App: React.FC = () => {
   const activeAgentChatTabIdRef = useRef(activeAgentChatTabId);
   agentChatTabsRef.current = agentChatTabs;
   activeAgentChatTabIdRef.current = activeAgentChatTabId;
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    (window as unknown as { __IAM_WORKSPACE_ID__?: string }).__IAM_WORKSPACE_ID__ = authWorkspaceId || 'global';
-    window.dispatchEvent(new CustomEvent('iam_workspace_id'));
-  }, [authWorkspaceId]);
 
   // IAM_COLLAB — same workspace DO room as canvas (`canvas:{workspaceId}`): realtime theme + canvas (D1 is authority).
   useEffect(() => {
@@ -624,121 +608,6 @@ const App: React.FC = () => {
       })
       .catch(() => setWorkspaceSamState(null));
   }, [location.pathname, authWorkspaceId]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    /** Same source as Settings → Workspace (`user_settings.default_workspace_id`), then shell recents, then newest row. */
-    const pickActiveWorkspace = (
-      list: Array<{ id: string; display_name?: string; slug?: string }>,
-      settingsCurrent: string | null | undefined,
-      userId: string | null,
-    ): { id: string; displayName: string | null } | null => {
-      const rows = list.filter((w) => w && typeof w.id === 'string');
-      if (rows.length === 0) return null;
-      const byId = (id: string) => rows.find((w) => w.id === id);
-      const trimName = (w: (typeof rows)[0]) => {
-        const dn = typeof w.display_name === 'string' ? w.display_name.trim() : '';
-        return dn || (typeof w.slug === 'string' && w.slug.trim() ? w.slug.trim() : null);
-      };
-
-      const cur = typeof settingsCurrent === 'string' ? settingsCurrent.trim() : '';
-      if (cur) {
-        const row = byId(cur);
-        if (row) return { id: row.id, displayName: trimName(row) };
-      }
-      try {
-        const rid = getTrustedRecentWorkspaceId(userId);
-        if (rid) {
-          const row = byId(rid);
-          if (row) return { id: row.id, displayName: trimName(row) };
-        }
-      } catch {
-        /* ignore */
-      }
-      const first = rows[0];
-      return { id: first.id, displayName: trimName(first) };
-    };
-
-    void (async () => {
-      let userId: string | null = null;
-      try {
-        const meRes = await fetch('/api/auth/me', { credentials: 'same-origin' });
-        if (meRes.ok) {
-          const me = (await meRes.json()) as {
-            id?: string | null;
-            user?: { id?: string | null };
-          };
-          const rawId = me?.user?.id ?? me?.id;
-          userId = rawId != null && String(rawId).trim() ? String(rawId).trim() : null;
-        }
-      } catch {
-        /* ignore */
-      }
-      if (cancelled) return;
-      setSessionUserId(userId);
-      prepareRecentWorkspacesForSession(userId);
-
-      let settingsCurrent: string | null = null;
-      try {
-        const r = await fetch('/api/settings/workspaces', { credentials: 'same-origin' });
-        const d = r.ok ? ((await r.json()) as { current?: string }) : null;
-        if (d?.current && typeof d.current === 'string' && d.current.trim()) {
-          settingsCurrent = d.current.trim();
-        }
-      } catch {
-        /* ignore */
-      }
-      if (cancelled) return;
-
-      let pickedId: string | null = null;
-      try {
-        const r = await fetch('/api/workspaces/list', { credentials: 'same-origin' });
-        const d = r.ok
-          ? ((await r.json()) as {
-              workspaces?: Array<{
-                id: string;
-                display_name?: string;
-                slug?: string;
-                status?: string;
-                github_repo?: string | null;
-              }>;
-            })
-          : null;
-        if (cancelled) return;
-        const workspaces = Array.isArray(d?.workspaces) ? d.workspaces : [];
-        setWorkspaceRows(
-          workspaces
-            .filter((w) => w && typeof w.id === 'string')
-            .map((w) => ({
-              id: w.id,
-              name:
-                typeof w.display_name === 'string' && w.display_name.trim()
-                  ? w.display_name
-                  : w.slug || w.id,
-              slug: w.slug || w.id,
-              status: w.status || 'active',
-              github_repo: w.github_repo || null,
-            })),
-        );
-        const picked = pickActiveWorkspace(workspaces, settingsCurrent, userId);
-        if (picked?.id) {
-          pickedId = picked.id;
-          setAuthWorkspaceId(picked.id);
-          if (picked.displayName) setWorkspaceDisplayName(picked.displayName);
-        }
-      } catch {
-        /* ignore */
-      }
-      if (!cancelled && !pickedId && settingsCurrent) {
-        setAuthWorkspaceId(settingsCurrent);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     document.title = `${workspaceDisplayLine} — ${PRODUCT_NAME}`;
