@@ -1,6 +1,6 @@
 /**
  * dashboard/components/MeetPage.tsx
- * InnerAnimalMedia Meet — Cloudflare Calls SFU
+ * InnerAnimalMedia Meet — RealtimeKit (v2) or legacy Cloudflare Calls SFU
  * Fully theme-variable-driven. No hardcoded colors.
  */
 
@@ -233,7 +233,45 @@ function PollPanel() {
 
 // ── Main Component ────────────────────────────────────────────────────────
 
-export default function MeetPage({ onContextReady }: { onContextReady?: (ctx: MeetCtxValue) => void }) {
+const MeetRealtimeKitShell = lazy(() => import('./MeetRealtimeKitShell'));
+
+function useMeetEngine(): 'loading' | 'legacy' | 'realtimekit' {
+  const [mode, setMode] = useState<'loading' | 'legacy' | 'realtimekit'>('loading');
+  useEffect(() => {
+    fetch('/api/config/client', { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : {}))
+      .then((d: { meetEngine?: string }) => {
+        setMode(d?.meetEngine === 'realtimekit' ? 'realtimekit' : 'legacy');
+      })
+      .catch(() => setMode('legacy'));
+  }, []);
+  return mode;
+}
+
+export default function MeetPage(props: { onContextReady?: (ctx: MeetCtxValue) => void }) {
+  const engine = useMeetEngine();
+  if (engine === 'loading') {
+    return (
+      <>
+        <MeetCSS />
+        <div className="lobby-wrap"><Loader2 size={24} className="spin" /></div>
+      </>
+    );
+  }
+  if (engine === 'realtimekit') {
+    return (
+      <>
+        <MeetCSS />
+        <Suspense fallback={<div className="lobby-wrap"><Loader2 size={24} className="spin" /></div>}>
+          <MeetRealtimeKitShell {...props} />
+        </Suspense>
+      </>
+    );
+  }
+  return <MeetLegacyPage {...props} />;
+}
+
+function MeetLegacyPage({ onContextReady }: { onContextReady?: (ctx: MeetCtxValue) => void }) {
   /** When present on first paint, lobby form is skipped and join runs automatically. */
   const [roomFromUrl] = useState(() => {
     if (typeof window === 'undefined') return '';

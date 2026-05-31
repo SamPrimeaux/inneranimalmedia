@@ -56,6 +56,7 @@ function manualChunkForNodeModule(id: string): string | undefined {
   if (/node_modules[/\\]d3-[^/\\]+[/\\]/.test(id)) return 'vendor-charts';
   if (id.includes('lucide-react')) return 'vendor-icons';
   if (id.includes('framer-motion')) return 'vendor-motion';
+  if (id.includes('@cloudflare/realtimekit') || id.includes('realtimekit')) return 'vendor-realtimekit';
 
   return undefined;
 }

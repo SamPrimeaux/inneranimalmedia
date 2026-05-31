@@ -153,17 +153,36 @@ async function handleV2Token(request, env) {
     .bind(roomId)
     .first();
 
-  if (!room?.realtimekit_meeting_id) {
-    return jsonResponse({ error: 'room_not_found_or_not_realtimekit' }, 404);
+  if (!room) {
+    return jsonResponse({ error: 'room_not_found' }, 404);
   }
 
-  let presetName = presetForRole(role);
-  if (role === 'host' && room.realtimekit_host_preset) {
+  let meetingId = room.realtimekit_meeting_id != null ? String(room.realtimekit_meeting_id) : '';
+  if (!meetingId) {
+    try {
+      const created = await rtkCreateMeeting(env, { title: String(room.name || 'IAM Meet') });
+      meetingId = created?.id != null ? String(created.id) : '';
+      if (!meetingId) {
+        return jsonResponse({ error: 'realtimekit_meeting_id_missing' }, 502);
+      }
+      await env.DB.prepare(
+        `UPDATE meet_rooms SET realtimekit_meeting_id = ?, engine = 'realtimekit' WHERE id = ?`,
+      )
+        .bind(meetingId, roomId)
+        .run();
+    } catch (err) {
+      return rtkErrorResponse(err);
+    }
+  }
+
+  const isHost = role === 'host' || String(room.created_by) === String(userId);
+  let presetName = presetForRole(isHost ? 'host' : role);
+  if (isHost && room.realtimekit_host_preset) {
     presetName = String(room.realtimekit_host_preset);
   }
 
   try {
-    const participant = await rtkAddParticipant(env, String(room.realtimekit_meeting_id), {
+    const participant = await rtkAddParticipant(env, meetingId, {
       name: displayName,
       presetName,
       customParticipantId: userId,
@@ -177,9 +196,9 @@ async function handleV2Token(request, env) {
       authToken,
       participantId: participant?.id ?? null,
       presetName,
-      role,
+      role: isHost ? 'host' : role,
       roomId,
-      meetingId: room.realtimekit_meeting_id,
+      meetingId,
     });
   } catch (err) {
     return rtkErrorResponse(err);

@@ -1,6 +1,7 @@
 #!/usr/bin/env zsh
 # Put RealtimeKit platform secrets on production Worker (never commit token values).
-# Uses CLOUDFLARE_BREAK_GLASS_ADMIN_TOKEN, else CLOUDFLARE_API_TOKEN from .env.cloudflare.
+# Prefers REALTIMEKIT_API_TOKEN (narrow Realtime Admin); Break Glass is fallback only.
+# Mint narrow token: ./scripts/cloudflare/mint-realtimekit-api-token.sh --apply
 # Usage: ./scripts/cloudflare/set-realtimekit-worker-secrets.sh
 set -euo pipefail
 
@@ -18,7 +19,14 @@ source "$ENV_FILE"
 set +a
 
 APP_ID="${REALTIMEKIT_APP_ID:-08755a39-bfb2-4c6a-b322-527ba7ef0698}"
-RTK_TOKEN="${REALTIMEKIT_API_TOKEN:-${CLOUDFLARE_BREAK_GLASS_ADMIN_TOKEN:-${CLOUDFLARE_API_TOKEN:-}}}"
+# Prefer dedicated narrow Realtime Admin token; Break Glass is fallback only.
+RTK_TOKEN="${REALTIMEKIT_API_TOKEN:-}"
+if [[ -z "$RTK_TOKEN" ]]; then
+  RTK_TOKEN="${CLOUDFLARE_BREAK_GLASS_ADMIN_TOKEN:-${CLOUDFLARE_API_TOKEN:-}}"
+  if [[ -n "$RTK_TOKEN" ]]; then
+    echo "WARN: REALTIMEKIT_API_TOKEN not set — using Break Glass/API token. Mint narrow Realtime Admin in dashboard and set REALTIMEKIT_API_TOKEN in .env.cloudflare." >&2
+  fi
+fi
 
 if [[ -z "$RTK_TOKEN" ]]; then
   echo "No Realtime Admin token: set CLOUDFLARE_BREAK_GLASS_ADMIN_TOKEN or CLOUDFLARE_API_TOKEN in .env.cloudflare" >&2

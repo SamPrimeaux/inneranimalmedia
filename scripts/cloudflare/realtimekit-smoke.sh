@@ -1,5 +1,5 @@
 #!/usr/bin/env zsh
-# RealtimeKit REST smoke — uses Break Glass / Realtime Admin token from .env.cloudflare only.
+# RealtimeKit REST smoke — prefers REALTIMEKIT_API_TOKEN (narrow Realtime Admin), else Break Glass.
 # Usage: ./scripts/cloudflare/realtimekit-smoke.sh
 # Optional: REALTIMEKIT_APP_ID=... CLOUDFLARE_ACCOUNT_ID=... (defaults below)
 set -euo pipefail
@@ -16,7 +16,7 @@ fi
 
 ACCOUNT_ID="${CLOUDFLARE_ACCOUNT_ID:-ede6590ac0d2fb7daf155b35653457b2}"
 APP_ID="${REALTIMEKIT_APP_ID:-08755a39-bfb2-4c6a-b322-527ba7ef0698}"
-TOKEN="${CLOUDFLARE_BREAK_GLASS_ADMIN_TOKEN:-${CLOUDFLARE_API_TOKEN:-}}"
+TOKEN="${REALTIMEKIT_API_TOKEN:-${CLOUDFLARE_BREAK_GLASS_ADMIN_TOKEN:-${CLOUDFLARE_API_TOKEN:-}}}"
 
 if [[ -z "$TOKEN" ]]; then
   echo "Missing CLOUDFLARE_BREAK_GLASS_ADMIN_TOKEN or CLOUDFLARE_API_TOKEN in .env.cloudflare" >&2

@@ -32,5 +32,9 @@ export async function handleClientConfig(request, env) {
     supabaseAnonKey,
     supabase_url: supabaseUrl,
     supabase_anon_key: supabaseAnonKey,
+    meetEngine:
+      env?.MEET_ENGINE != null && String(env.MEET_ENGINE).trim().toLowerCase() === 'realtimekit'
+        ? 'realtimekit'
+        : 'legacy',
   });
 }
