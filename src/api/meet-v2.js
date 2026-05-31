@@ -147,7 +147,7 @@ async function handleV2Token(request, env) {
     'Guest';
 
   const room = await env.DB.prepare(
-    `SELECT id, name, created_by, realtimekit_meeting_id, engine, realtimekit_host_preset
+    `SELECT id, name, created_by, realtimekit_meeting_id, engine, realtimekit_host_preset, status
      FROM meet_rooms WHERE id = ? LIMIT 1`,
   )
     .bind(roomId)
@@ -155,6 +155,10 @@ async function handleV2Token(request, env) {
 
   if (!room) {
     return jsonResponse({ error: 'room_not_found' }, 404);
+  }
+
+  if (room.status === 'scheduled') {
+    await env.DB.prepare(`UPDATE meet_rooms SET status = 'active' WHERE id = ?`).bind(roomId).run();
   }
 
   let meetingId = room.realtimekit_meeting_id != null ? String(room.realtimekit_meeting_id) : '';

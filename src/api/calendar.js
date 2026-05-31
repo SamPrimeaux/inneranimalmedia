@@ -10,6 +10,7 @@
  */
 import { jsonResponse } from '../core/auth.js';
 import { getAuthUser } from '../core/auth.js';
+import { insertMeetRoomRow, meetJoinUrl, normalizeInviteEmails, sendMeetInvites } from '../core/meet-shared.js';
 
 function resolveWorkspaceIdLoose(authUser, env, url) {
   const fromSession = authUser?.workspace_id ?? authUser?.workspaceId ?? null;
@@ -77,26 +78,17 @@ function newId(prefix) {
   return `${prefix}_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
 }
 
-async function createMeetRoomForEvent(env, { title, workspaceId, tenantId, createdBy, calendarEventId }) {
+async function createMeetRoomForEvent(env, request, { title, workspaceId, tenantId, createdBy, calendarEventId, status = 'scheduled' }) {
   const roomId = `room_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
-
-  const cfAppId = env?.CLOUDFLARE_CALLS_APP_ID ?? null;
-
-  await env.DB.prepare(
-    `INSERT OR IGNORE INTO meet_rooms
-      (id, name, workspace_id, tenant_id, calendar_event_id, cf_app_id, status, created_by, created_at)
-     VALUES
-      (?,  ?,    ?,           ?,        ?,                 ?,        'scheduled', ?,        datetime('now'))`
-  ).bind(
+  await insertMeetRoomRow(env, {
     roomId,
-    title || 'Client call',
+    title: title || 'Client call',
+    userId: createdBy,
     workspaceId,
     tenantId,
     calendarEventId,
-    cfAppId,
-    createdBy
-  ).run();
-
+    status,
+  });
   return roomId;
 }
 
@@ -213,28 +205,57 @@ export async function handleCalendarApi(request, url, env, ctx) {
     ).run();
 
     let meetRoomId = null;
-    if (event_type === 'client_call') {
-      meetRoomId = await createMeetRoomForEvent(env, {
+    let attendeeList = [];
+    try {
+      if (Array.isArray(body?.attendees)) attendeeList = body.attendees;
+      else if (attendeesJson) attendeeList = JSON.parse(attendeesJson);
+    } catch {
+      attendeeList = [];
+    }
+    const attendees = normalizeInviteEmails(attendeeList);
+
+    if (event_type === 'client_call' || event_type === 'meeting') {
+      meetRoomId = await createMeetRoomForEvent(env, request, {
         title,
         workspaceId,
         tenantId,
         createdBy: userId,
         calendarEventId: id,
+        status: 'scheduled',
       });
       await env.DB.prepare(`UPDATE calendar_events SET meet_room_id = ? WHERE id = ?`)
         .bind(meetRoomId, id).run();
 
-      await maybeWriteClientCallSystemMessage(env, {
-        workspaceId,
-        tenantId,
-        userId,
-        title,
-        startDatetime: start_datetime,
-        clientId: body?.client_id ?? null,
-      });
+      if (event_type === 'meeting' && attendees.length > 0) {
+        const joinUrl = meetJoinUrl(env, meetRoomId, request);
+        await sendMeetInvites(env, {
+          roomId: meetRoomId,
+          emails: attendees,
+          invitedBy: userId,
+          workspaceId,
+          tenantId,
+          calendarEventId: id,
+          meetingName: title,
+          inviterLabel: authUser?.email || userId,
+          link: joinUrl,
+          scheduledLabel: `${start_datetime} → ${end_datetime}`,
+          description,
+        }).catch(() => {});
+      }
+
+      if (event_type === 'client_call') {
+        await maybeWriteClientCallSystemMessage(env, {
+          workspaceId,
+          tenantId,
+          userId,
+          title,
+          startDatetime: start_datetime,
+          clientId: body?.client_id ?? null,
+        });
+      }
     }
 
-    return jsonResponse({ success: true, id, meet_room_id: meetRoomId }, 200);
+    return jsonResponse({ success: true, id, meet_room_id: meetRoomId, join_url: meetRoomId ? meetJoinUrl(env, meetRoomId, request) : null }, 200);
   }
 
   // PUT /api/calendar/events/:id

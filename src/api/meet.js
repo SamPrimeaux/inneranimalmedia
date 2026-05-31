@@ -6,6 +6,16 @@
 import { jsonResponse } from '../core/responses.js';
 import { getAuthUser } from '../core/auth.js';
 import { resolveIdentity } from '../core/identity.js';
+import {
+  assertCanInviteToRoom,
+  formatMeetScheduleLabel,
+  insertMeetRoomRow,
+  isValidInviteEmail,
+  meetJoinUrl,
+  normalizeInviteEmails,
+  sendMeetInvites,
+  validateMeetInviteLink,
+} from '../core/meet-shared.js';
 
 const CALLS_BASE = 'https://rtc.live.cloudflare.com/v1';
 const TURN_BASE  = 'https://rtc.live.cloudflare.com/v1/turn/keys';
@@ -242,21 +252,32 @@ export async function handleMeetApi(request, env, ctx) {
 // ── Handlers ──────────────────────────────────────────────────────────────────
 
 async function handleMeetRoomsCreate(request, env) {
-  const { userId } = await getUserId(request, env);
+  const { user, userId } = await getUserId(request, env);
   if (!userId) return jsonResponse({ error: 'Unauthorized' }, 401);
 
+  const url = new URL(request.url);
   const body = await request.json().catch(() => ({}));
   const name = String(body.name ?? 'Meeting').trim() || 'Meeting';
-  const roomId = genRoomId();
+  const roomId = body.roomId ? String(body.roomId).trim() : genRoomId();
+  const forLater = body.scheduled === true || body.forLater === true;
+  const workspaceId = resolveWorkspaceIdLoose(user, env, body, url);
+  const tenantId = resolveTenantIdLoose(user);
 
-  await env.DB.prepare(
-    `INSERT INTO meet_rooms (id, name, created_by, status)
-     VALUES (?, ?, ?, 'active')`,
-  )
-    .bind(roomId, name, userId)
-    .run();
+  await insertMeetRoomRow(env, {
+    roomId,
+    title: name,
+    userId,
+    workspaceId,
+    tenantId,
+    status: forLater ? 'scheduled' : 'active',
+  });
 
-  return jsonResponse({ ok: true, room: { id: roomId, name } }, 200);
+  return jsonResponse({
+    ok: true,
+    room: { id: roomId, name },
+    joinUrl: meetJoinUrl(env, roomId, request),
+    engine: forLater ? 'scheduled' : 'active',
+  }, 200);
 }
 
 async function handleTurn(request, env) {
@@ -528,43 +549,49 @@ async function handleLeave(request, env, roomId) {
 async function handleInvite(request, env, roomId) {
   const { user, userId } = await getUserId(request, env);
   if (!userId) return jsonResponse({ error: 'Unauthorized' }, 401);
-  const body  = await request.json().catch(() => ({}));
-  const email = (body.email || '').trim();
-  const link  = (body.link  || '').trim();
 
-  if (!email || !link) return jsonResponse({ error: 'email and link required' }, 400);
-
-  const room = await env.DB.prepare(`SELECT name FROM meet_rooms WHERE id = ?`).bind(roomId).first();
-  const meetingName = room?.name || 'a meeting';
-
-  const res = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${env.RESEND_API_KEY}`,
-      'Content-Type':  'application/json',
-    },
-    body: JSON.stringify({
-      from:    (typeof env.RESEND_FROM === 'string' && env.RESEND_FROM.trim()) ? env.RESEND_FROM.trim() : '',
-      to:      [email],
-      subject: `You've been invited to ${meetingName}`,
-      html: `
-        <div style="font-family:monospace;background:#07100f;color:#c9d8d6;padding:32px;border-radius:12px;max-width:480px">
-          <div style="color:#2dd4bf;font-weight:700;font-size:16px;margin-bottom:8px">InnerAnimalMedia</div>
-          <h2 style="color:#e2efed;margin:0 0 12px">You're invited to join a meeting</h2>
-          <p style="color:#6b9e99">${user?.email || userId} has invited you to <strong style="color:#c9d8d6">${meetingName}</strong>.</p>
-          <a href="${link}" style="display:inline-block;background:#2dd4bf;color:#07100f;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:700;margin-top:12px">Join Meeting</a>
-          <p style="color:#4a7a75;font-size:11px;margin-top:16px">Or copy this link: ${link}</p>
-        </div>
-      `,
-    }),
-  });
-
-  if (!res.ok) {
-    const err = await res.text();
-    return jsonResponse({ error: `Resend failed: ${err}` }, 500);
+  const access = await assertCanInviteToRoom(env.DB, roomId, userId, user);
+  if (!access.ok) {
+    return jsonResponse({ error: access.error }, access.status ?? 403);
   }
 
-  return jsonResponse({ ok: true }, 200);
+  const body = await request.json().catch(() => ({}));
+  const email = String(body.email || '').trim().toLowerCase();
+  const linkRaw = String(body.link || '').trim();
+  const link = linkRaw || meetJoinUrl(env, roomId, request);
+
+  if (!isValidInviteEmail(email)) {
+    return jsonResponse({ error: 'invalid_email' }, 400);
+  }
+  if (!validateMeetInviteLink(link, env, roomId, request)) {
+    return jsonResponse({ error: 'invalid_link_for_room' }, 400);
+  }
+
+  const meetingName = access.room?.name || 'a meeting';
+  const inviterLabel = user?.email || user?.name || userId;
+  const workspaceId = access.room?.workspace_id ?? resolveWorkspaceIdLoose(user, env, body, new URL(request.url));
+  const tenantId = resolveTenantIdLoose(user);
+
+  const { sent, failed, results } = await sendMeetInvites(env, {
+    roomId,
+    emails: [email],
+    invitedBy: userId,
+    workspaceId,
+    tenantId,
+    meetingName,
+    inviterLabel,
+    link,
+  });
+
+  if (failed > 0) {
+    const err = results[0]?.error || 'send_failed';
+    if (err === 'RESEND_API_KEY not configured' || err === 'from required (set RESEND_FROM or EMAIL_FROM)') {
+      return jsonResponse({ error: err }, 503);
+    }
+    return jsonResponse({ error: `Resend failed: ${err}` }, 502);
+  }
+
+  return jsonResponse({ ok: true, sent, invite: results[0] ?? null }, 200);
 }
 
 async function handleRecordingSave(request, env) {
@@ -595,13 +622,20 @@ async function handleSchedule(request, env) {
   const scheduled_at = String(body.scheduled_at || body.scheduledAt || '').trim();
   const description = body.description != null ? String(body.description) : '';
   const dur = Number(body.duration_min ?? body.durationMin) || 60;
-  const invite_emails = Array.isArray(body.invite_emails)
-    ? body.invite_emails
-    : Array.isArray(body.inviteEmails)
-      ? body.inviteEmails
-      : [];
+  const invite_emails = normalizeInviteEmails(
+    Array.isArray(body.invite_emails)
+      ? body.invite_emails
+      : Array.isArray(body.inviteEmails)
+        ? body.inviteEmails
+        : [],
+  );
 
   if (!title || !scheduled_at) return jsonResponse({ error: 'Title and date required' }, 400);
+
+  const startMs = new Date(scheduled_at).getTime();
+  if (!Number.isFinite(startMs)) {
+    return jsonResponse({ error: 'invalid_scheduled_at' }, 400);
+  }
 
   const tenant_id = identity.tenantId;
   const workspace_id = identity.workspaceId;
@@ -611,12 +645,15 @@ async function handleSchedule(request, env) {
   const schedId = `msched_${roomId}`;
   const calId = newId('cev');
 
-  await env.DB.prepare(
-    `INSERT INTO meet_rooms (id, name, created_by, status)
-     VALUES (?, ?, ?, 'active')`,
-  )
-    .bind(roomId, title, userId)
-    .run();
+  await insertMeetRoomRow(env, {
+    roomId,
+    title,
+    userId,
+    workspaceId: workspace_id,
+    tenantId: tenant_id,
+    calendarEventId: calId,
+    status: 'scheduled',
+  });
 
   await env.DB.prepare(
     `INSERT INTO meet_scheduled
@@ -631,11 +668,10 @@ async function handleSchedule(request, env) {
       description || null,
       scheduled_at,
       dur,
-      JSON.stringify(invite_emails || []),
+      JSON.stringify(invite_emails),
     )
     .run();
 
-  const startMs = new Date(scheduled_at).getTime();
   const endISO = new Date(startMs + dur * 60000).toISOString();
 
   await env.DB.prepare(
@@ -652,44 +688,39 @@ async function handleSchedule(request, env) {
       title,
       scheduled_at,
       endISO,
-      JSON.stringify(invite_emails || []),
+      JSON.stringify(invite_emails),
       roomId,
     )
     .run();
 
-  if (env.RESEND_API_KEY && Array.isArray(invite_emails) && invite_emails.length > 0) {
-    const joinUrl = `https://inneranimalmedia.com/dashboard/meet?room=${roomId}`;
-    const dateStr = new Date(scheduled_at).toLocaleString('en-US', {
-      timeZone: 'America/Chicago',
-      dateStyle: 'full',
-      timeStyle: 'short',
-    });
-    const safeDesc = description
-      ? description.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-      : '';
-    const safeTitle = title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const joinUrl = meetJoinUrl(env, roomId, request);
+  const scheduledLabel = formatMeetScheduleLabel(scheduled_at, dur);
+  const inviterLabel = identity.email || identity.userId || userId;
 
-    for (const email of invite_emails) {
-      const to = String(email || '').trim();
-      if (!to) continue;
-      await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${env.RESEND_API_KEY}`,
-        },
-        body: JSON.stringify({
-          from: 'Inner Animal Media <hey@inneranimalmedia.com>',
-          to: [to],
-          subject: `You're invited: ${title}`,
-          html: `<p>You have been invited to a meeting: <strong>${safeTitle}</strong></p>
-                 <p>When: ${dateStr} (${dur} minutes)</p>
-                 ${safeDesc ? `<p>${safeDesc}</p>` : ''}
-                 <p><a href="${joinUrl}">Join meeting</a></p>`,
-        }),
-      }).catch((e) => console.error('[meet/schedule] resend error', e));
-    }
+  let inviteSummary = { sent: 0, failed: 0 };
+  if (invite_emails.length > 0) {
+    inviteSummary = await sendMeetInvites(env, {
+      roomId,
+      emails: invite_emails,
+      invitedBy: userId,
+      workspaceId: workspace_id,
+      tenantId: tenant_id,
+      scheduledId: schedId,
+      calendarEventId: calId,
+      meetingName: title,
+      inviterLabel,
+      link: joinUrl,
+      scheduledLabel,
+      description: description || null,
+    });
   }
 
-  return jsonResponse({ ok: true, room_id: roomId, scheduled_id: schedId }, 200);
+  return jsonResponse({
+    ok: true,
+    room_id: roomId,
+    scheduled_id: schedId,
+    calendar_event_id: calId,
+    join_url: joinUrl,
+    invites: inviteSummary,
+  }, 200);
 }

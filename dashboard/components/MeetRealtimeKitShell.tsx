@@ -10,7 +10,7 @@ import {
 } from '@cloudflare/realtimekit-react';
 import { RtkMeeting } from '@cloudflare/realtimekit-react-ui';
 import {
-  Loader2, Radio, Video, ChevronDown, Copy, Send, Mail,
+  Loader2, Radio, Video, ChevronDown, Copy, Send, Mail, Calendar,
 } from 'lucide-react';
 import { MeetCtxValue } from '../src/MeetContext';
 
@@ -28,19 +28,32 @@ function InviteModal({ roomId, onClose }: { roomId: string; onClose: () => void 
   const [email, setEmail] = useState('');
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
   const link = `${window.location.origin}/dashboard/meet?room=${roomId}`;
 
   const send = async () => {
-    if (!email.trim()) return;
+    const trimmed = email.trim();
+    if (!trimmed) return;
     setSending(true);
-    await fetch(`/api/meet/room/${roomId}/invite`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: email.trim(), link }),
-    }).catch(() => {});
-    setSent(true);
-    setSending(false);
+    setErr(null);
+    try {
+      const res = await fetch(`/api/meet/room/${roomId}/invite`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: trimmed, link }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setErr(typeof json?.error === 'string' ? json.error : 'Invite failed');
+        return;
+      }
+      setSent(true);
+    } catch {
+      setErr('Invite failed');
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -61,6 +74,7 @@ function InviteModal({ roomId, onClose }: { roomId: string; onClose: () => void 
             <button type="button" className="modal-send-btn" onClick={() => void send()} disabled={!email.trim() || sending}>
               {sending ? <><Loader2 size={13} className="spin" /> Sending…</> : <><Send size={13} /> Send invite</>}
             </button>
+            {err && <div className="lobby-error">{err}</div>}
           </>
         ) : (
           <div className="modal-sent">✓ Invite sent to {email}</div>
@@ -123,6 +137,14 @@ export default function MeetRealtimeKitShell({
   const [showNewMeetingMenu, setShowNewMeetingMenu] = useState(false);
   const [newMeetLink, setNewMeetLink] = useState<string | null>(null);
   const [copyLinkFeedback, setCopyLinkFeedback] = useState(false);
+  const [showScheduleForm, setShowScheduleForm] = useState(false);
+  const [scheduling, setScheduling] = useState(false);
+  const [scheduleTitle, setScheduleTitle] = useState('');
+  const [scheduleDate, setScheduleDate] = useState('');
+  const [scheduleDuration, setScheduleDuration] = useState(60);
+  const [scheduleEmails, setScheduleEmails] = useState('');
+  const [scheduleDesc, setScheduleDesc] = useState('');
+  const [scheduleMsg, setScheduleMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const [meeting, initMeeting] = useRealtimeKitClient();
   const newMeetingMenuRef = useRef<HTMLDivElement>(null);
@@ -243,13 +265,18 @@ export default function MeetRealtimeKitShell({
   const createMeetingForLater = useCallback(async () => {
     setShowNewMeetingMenu(false);
     try {
-      const res = await apiV2('/start', {
+      const res = await fetch('/api/meet/rooms', {
         method: 'POST',
-        body: JSON.stringify({ name: `Meeting ${new Date().toLocaleDateString()}` }),
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: `Meeting ${new Date().toLocaleDateString()}`,
+          scheduled: true,
+        }),
       });
       const json = await res.json().catch(() => ({}));
-      if (res.ok && json?.roomId) {
-        setNewMeetLink(`${window.location.origin}/dashboard/meet?room=${json.roomId}`);
+      if (res.ok && json?.room?.id) {
+        setNewMeetLink(json.joinUrl || `${window.location.origin}/dashboard/meet?room=${json.room.id}`);
       } else {
         setError(typeof json?.error === 'string' ? json.error : 'Could not create meeting link');
       }
@@ -257,6 +284,52 @@ export default function MeetRealtimeKitShell({
       setError('Could not create meeting link');
     }
   }, []);
+
+  const submitScheduleMeeting = useCallback(async () => {
+    if (!scheduleTitle.trim() || !scheduleDate) {
+      setScheduleMsg({ ok: false, text: 'Title and date are required.' });
+      return;
+    }
+    setScheduling(true);
+    const emails = scheduleEmails.split(',').map((e) => e.trim()).filter(Boolean);
+    try {
+      const res = await fetch('/api/meet/schedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          title: scheduleTitle.trim(),
+          scheduled_at: scheduleDate,
+          duration_min: scheduleDuration,
+          invite_emails: emails,
+          description: scheduleDesc,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok) {
+        const joinUrl = typeof json.join_url === 'string' ? json.join_url : null;
+        setScheduleMsg({
+          ok: true,
+          text: joinUrl
+            ? `Meeting scheduled. Join link: ${joinUrl.replace(/^https?:\/\//, '')}`
+            : 'Meeting scheduled. Invites sent.',
+        });
+        if (joinUrl) setNewMeetLink(joinUrl);
+        setShowScheduleForm(false);
+        setScheduleTitle('');
+        setScheduleDate('');
+        setScheduleDuration(60);
+        setScheduleEmails('');
+        setScheduleDesc('');
+      } else {
+        setScheduleMsg({ ok: false, text: (json as { error?: string }).error ?? 'Failed to schedule meeting.' });
+      }
+    } catch (e: unknown) {
+      setScheduleMsg({ ok: false, text: e instanceof Error ? e.message : 'Failed to schedule meeting.' });
+    } finally {
+      setScheduling(false);
+    }
+  }, [scheduleTitle, scheduleDate, scheduleDuration, scheduleEmails, scheduleDesc]);
 
   const copyNewMeetLink = useCallback(async () => {
     if (!newMeetLink) return;
@@ -351,6 +424,42 @@ export default function MeetRealtimeKitShell({
                       ? <><Loader2 size={15} className="spin" /> Starting…</>
                       : <><Video size={15} /> Start meeting</>}
                   </button>
+                  <button type="button" className="lobby-btn-secondary" onClick={() => setShowScheduleForm((v) => !v)}>
+                    <Calendar size={15} /> {showScheduleForm ? 'Hide schedule' : 'Schedule for later'}
+                  </button>
+                  {showScheduleForm && (
+                    <div className="lobby-schedule-inline">
+                      <input className="lobby-input" placeholder="Meeting title" value={scheduleTitle}
+                        onChange={(e) => setScheduleTitle(e.target.value)} />
+                      <input className="lobby-input" type="datetime-local" value={scheduleDate}
+                        onChange={(e) => setScheduleDate(e.target.value)} />
+                      <select className="lobby-input" value={scheduleDuration}
+                        onChange={(e) => setScheduleDuration(Number(e.target.value))}>
+                        <option value={30}>30 min</option>
+                        <option value={60}>60 min</option>
+                        <option value={90}>90 min</option>
+                      </select>
+                      <input className="lobby-input" placeholder="Invite emails (comma-separated)"
+                        value={scheduleEmails} onChange={(e) => setScheduleEmails(e.target.value)} />
+                      <textarea className="lobby-input" placeholder="Description (optional)" rows={2}
+                        value={scheduleDesc} onChange={(e) => setScheduleDesc(e.target.value)} />
+                      <div className="lobby-schedule-actions">
+                        <button type="button" className="lobby-btn" disabled={scheduling}
+                          onClick={() => void submitScheduleMeeting()}>
+                          {scheduling ? <><Loader2 size={15} className="spin" /> Scheduling…</> : 'Schedule'}
+                        </button>
+                        <button type="button" className="lobby-btn-secondary"
+                          onClick={() => { setShowScheduleForm(false); setScheduleMsg(null); }}>
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {scheduleMsg && (
+                    <div className={scheduleMsg.ok ? 'lobby-schedule-msg ok' : 'lobby-schedule-msg err'}>
+                      {scheduleMsg.text}
+                    </div>
+                  )}
                 </>
               )}
             </div>
