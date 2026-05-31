@@ -74,6 +74,19 @@
   cursor: not-allowed;
 }
 
+.ops-desk-btn-danger {
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+}
+
+.ops-desk-btn-danger:hover {
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.ops-desk-back-btn {
+  font-weight: 600;
+}
+
 .ops-desk-body {
   flex: 1;
   min-height: 0;
@@ -211,6 +224,486 @@
 
 .ops-desk-week-cell:hover {
   background: var(--bg-hover);
+}
+
+.ops-desk-week-day-head {
+  height: 2rem;
+  border-bottom: 1px solid var(--border-subtle);
+  border-right: 1px solid var(--border-subtle);
+  background: var(--bg-panel);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+  padding-top: 0.375rem;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.ops-desk-week-day-head.today {
+  color: var(--solar-cyan);
+}
+
+.ops-desk-week-day-head:hover {
+  background: var(--bg-hover);
+}
+
+/* ── Day view (internal page) ── */
+
+.ops-desk-day {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ops-desk-day-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.ops-desk-day-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  justify-content: center;
+}
+
+.ops-desk-day-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ops-desk-day-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ops-desk-day-today-pill {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--solar-cyan);
+  color: #07100f;
+}
+
+.ops-desk-day-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ops-desk-day-stats {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.ops-desk-day-stat-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--text-muted);
+}
+
+.ops-desk-day-loading {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ops-desk-day-layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(320px, 1.1fr);
+  gap: 14px;
+}
+
+@media (max-width: 900px) {
+  .ops-desk-day-layout {
+    grid-template-columns: 1fr;
+    overflow: auto;
+  }
+}
+
+.ops-desk-day-timeline,
+.ops-desk-day-agenda {
+  min-height: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--bg-panel);
+  overflow: auto;
+}
+
+.ops-desk-day-timeline {
+  padding: 8px 0;
+}
+
+.ops-desk-day-agenda {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+}
+
+.ops-desk-day-agenda-head {
+  margin: 0 0 12px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.ops-desk-day-hour-row {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 10px;
+  padding: 6px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-subtle) 70%, transparent);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.ops-desk-day-hour-row:hover {
+  background: var(--bg-hover);
+}
+
+.ops-desk-day-hour-row:last-child {
+  border-bottom: none;
+}
+
+.ops-desk-day-hour-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding-top: 4px;
+}
+
+.ops-desk-day-hour-track {
+  min-height: 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ops-desk-day-hour-empty {
+  font-size: 11px;
+  color: color-mix(in srgb, var(--text-muted) 70%, transparent);
+  padding-top: 4px;
+}
+
+.ops-desk-day-hour-event {
+  text-align: left;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--solar-cyan) 30%, transparent);
+  background: color-mix(in srgb, var(--solar-cyan) 12%, transparent);
+  color: var(--text-main);
+  cursor: pointer;
+}
+
+.ops-desk-day-hour-event.meeting {
+  border-color: color-mix(in srgb, #60a5fa 35%, transparent);
+  background: rgba(96, 165, 250, 0.12);
+}
+
+.ops-desk-day-hour-event:hover {
+  filter: brightness(1.08);
+}
+
+.ops-desk-day-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 24px;
+}
+
+.ops-desk-day-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: auto;
+}
+
+.ops-desk-day-card {
+  padding: 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-app);
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.15s;
+}
+
+.ops-desk-day-card:hover {
+  border-color: color-mix(in srgb, var(--solar-cyan) 45%, transparent);
+  transform: translateY(-1px);
+}
+
+.ops-desk-day-card.meeting {
+  border-left: 3px solid #60a5fa;
+}
+
+.ops-desk-day-card-time {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--solar-cyan);
+  margin-bottom: 6px;
+}
+
+.ops-desk-day-card h4 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.ops-desk-day-card-desc {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ops-desk-day-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.ops-desk-day-card-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ops-desk-day-card-foot {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.ops-desk-day-card-link {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--solar-cyan);
+}
+
+/* ── Event detail (internal page) ── */
+
+.ops-desk-event-page {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}
+
+.ops-desk-event-toolbar {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: 16px;
+}
+
+.ops-desk-event-layout {
+  max-width: 880px;
+  width: 100%;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding-bottom: 24px;
+}
+
+.ops-desk-event-hero h2 {
+  margin: 10px 0 8px;
+  font-size: clamp(22px, 3vw, 32px);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+}
+
+.ops-desk-event-hero-top {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ops-desk-event-type-pill {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(96, 165, 250, 0.18);
+  color: #93c5fd;
+}
+
+.ops-desk-event-type-pill.muted {
+  background: color-mix(in srgb, var(--text-muted) 20%, transparent);
+  color: var(--text-muted);
+}
+
+.ops-desk-event-date-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.ops-desk-event-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+@media (max-width: 720px) {
+  .ops-desk-event-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ops-desk-event-panel {
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-panel);
+}
+
+.ops-desk-event-panel h3 {
+  margin: 0 0 14px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.ops-desk-event-fact {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 14px;
+  font-size: 13px;
+}
+
+.ops-desk-event-fact:last-child {
+  margin-bottom: 0;
+}
+
+.ops-desk-event-fact svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--solar-cyan);
+}
+
+.ops-desk-event-fact strong {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.ops-desk-event-fact span {
+  color: var(--text-muted);
+}
+
+.ops-desk-event-attendees {
+  margin: 6px 0 0;
+  padding-left: 16px;
+  color: var(--text-main);
+}
+
+.ops-desk-event-attendees li {
+  margin-bottom: 4px;
+  font-size: 12px;
+}
+
+.ops-desk-event-description {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.ops-desk-event-muted {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.ops-desk-event-meet-block {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(96, 165, 250, 0.1);
+  border: 1px solid rgba(96, 165, 250, 0.25);
+}
+
+.ops-desk-event-meet-block svg {
+  color: #93c5fd;
+  flex-shrink: 0;
+}
+
+.ops-desk-event-room-id {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+.ops-desk-event-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-top: 8px;
+}
+
+.ops-desk-event-join {
+  text-decoration: none;
 }
 
 .ops-desk-view-tabs {

@@ -1,84 +1,29 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, Video, X } from 'lucide-react';
+import { OpsDeskDayView } from './launch-desk/OpsDeskDayView';
+import { OpsDeskEventView } from './launch-desk/OpsDeskEventView';
+import {
+  apiJson,
+  CalEvent,
+  CalView,
+  fetchDayEvents,
+  meetRoomId,
+  OpsSurface,
+  parseEventDate,
+  parseInviteEmails,
+  sameDay,
+  toDatetimeLocalValue,
+  toSqlDatetime,
+} from './launch-desk/ops-desk-types';
 import './launch-desk/launch-desk.css';
-
-type CalView = 'week' | 'month';
-
-interface CalEvent {
-  id: string;
-  title: string;
-  description?: string | null;
-  location?: string | null;
-  start_datetime: string;
-  end_datetime: string;
-  color?: string | null;
-  status?: string | null;
-  event_type?: string | null;
-  meet_room_id?: string | null;
-  room_id?: string | null;
-  attendees?: string | null;
-}
-
-function sameDay(a: Date, b: Date) {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-}
-
-function fmtDateTime(d: Date) {
-  return d.toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
-}
-
-function parseEventDate(raw: string) {
-  const s = String(raw || '').trim();
-  if (!s) return new Date(NaN);
-  if (s.includes('T')) return new Date(s);
-  return new Date(s.replace(' ', 'T'));
-}
-
-function meetRoomId(ev: CalEvent) {
-  const id = ev.meet_room_id || ev.room_id;
-  return id ? String(id) : null;
-}
-
-function parseAttendees(raw: string | null | undefined): string[] {
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.map(String) : [];
-  } catch {
-    return [];
-  }
-}
-
-function parseInviteEmails(raw: string): string[] {
-  return raw
-    .split(/[,;\n]+/)
-    .map((e) => e.trim().toLowerCase())
-    .filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
-}
-
-function toDatetimeLocalValue(d: Date) {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-function toSqlDatetime(isoLocal: string) {
-  return new Date(isoLocal).toISOString().slice(0, 19).replace('T', ' ');
-}
-
-async function apiJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, { credentials: 'include', ...init });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const msg = (data as { error?: string })?.error || res.statusText || 'Request failed';
-    throw new Error(msg);
-  }
-  return data as T;
-}
 
 export function LaunchDeskPage() {
   const [view, setView] = useState<CalView>('month');
+  const [surface, setSurface] = useState<OpsSurface>('calendar');
   const [date, setDate] = useState(() => new Date());
+  const [focusDay, setFocusDay] = useState<Date | null>(null);
+  const [dayEvents, setDayEvents] = useState<CalEvent[]>([]);
+  const [dayLoading, setDayLoading] = useState(false);
   const [events, setEvents] = useState<CalEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<CalEvent | null>(null);
@@ -116,13 +61,68 @@ export function LaunchDeskPage() {
     }
   }, [view]);
 
+  const loadDayEvents = useCallback(async (day: Date) => {
+    setDayLoading(true);
+    try {
+      setDayEvents(await fetchDayEvents(day));
+    } catch {
+      setDayEvents([]);
+    } finally {
+      setDayLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    fetchEvents();
-  }, [fetchEvents]);
+    if (surface === 'calendar') fetchEvents();
+  }, [fetchEvents, surface]);
+
+  useEffect(() => {
+    if (surface === 'day' && focusDay) void loadDayEvents(focusDay);
+  }, [focusDay, loadDayEvents, surface]);
 
   const refreshAll = useCallback(async () => {
     await fetchEvents();
-  }, [fetchEvents]);
+    if (focusDay) {
+      const fresh = await fetchDayEvents(focusDay);
+      setDayEvents(fresh);
+      if (selected) {
+        const updated = fresh.find((e) => e.id === selected.id);
+        if (updated) setSelected(updated);
+      }
+    }
+  }, [fetchEvents, focusDay, selected]);
+
+  const openDayView = (day: Date) => {
+    const d = new Date(day.getFullYear(), day.getMonth(), day.getDate());
+    setFocusDay(d);
+    setDate(d);
+    setSelected(null);
+    setSurface('day');
+  };
+
+  const openEventView = (ev: CalEvent) => {
+    setSelected(ev);
+    setSurface('event');
+  };
+
+  const backToCalendar = () => {
+    setSurface('calendar');
+    setFocusDay(null);
+    setSelected(null);
+  };
+
+  const backToDay = () => {
+    setSurface('day');
+    setSelected(null);
+  };
+
+  const shiftFocusDay = (dir: 1 | -1) => {
+    if (!focusDay) return;
+    const d = new Date(focusDay);
+    d.setDate(d.getDate() + dir);
+    setFocusDay(d);
+    setDate(d);
+  };
 
   const navigate = (dir: 1 | -1) => {
     setDate((prev) => {
@@ -149,10 +149,12 @@ export function LaunchDeskPage() {
   };
 
   const openSchedule = (start?: Date) => {
-    const base = start ? new Date(start) : new Date();
-    if (!start) {
+    const base = start ? new Date(start) : focusDay ? new Date(focusDay) : new Date();
+    if (!start && !focusDay) {
       base.setMinutes(0, 0, 0);
       base.setHours(base.getHours() + 1);
+    } else if (!start) {
+      base.setHours(9, 0, 0, 0);
     }
     setMeetForm({
       title: '',
@@ -184,7 +186,7 @@ export function LaunchDeskPage() {
     setSubmitting(true);
     setFormError(null);
     try {
-      const scheduled_at = meetForm.scheduled_at.replace('T', 'T').slice(0, 16);
+      const scheduled_at = meetForm.scheduled_at.slice(0, 16);
       await apiJson('/api/meet/schedule', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -239,14 +241,15 @@ export function LaunchDeskPage() {
       body: JSON.stringify({ status }),
     });
     setSelected((prev) => (prev?.id === id ? { ...prev, status } : prev));
-    await fetchEvents();
+    await refreshAll();
   };
 
   const deleteEvent = async (id: string) => {
     if (!window.confirm('Delete this event?')) return;
     await apiJson(`/api/calendar/events/${id}`, { method: 'DELETE' });
     setSelected(null);
-    await fetchEvents();
+    setSurface(focusDay ? 'day' : 'calendar');
+    await refreshAll();
   };
 
   const eventsForDay = (d: Date) =>
@@ -261,10 +264,10 @@ export function LaunchDeskPage() {
         className={`ops-desk-event-chip ${isMeeting ? 'ops-desk-meeting-chip' : ''}`}
         onClick={(ev) => {
           ev.stopPropagation();
-          setSelected(event);
+          openEventView(event);
         }}
         onKeyDown={(ev) => {
-          if (ev.key === 'Enter') setSelected(event);
+          if (ev.key === 'Enter') openEventView(event);
         }}
       >
         {event.title}
@@ -300,9 +303,9 @@ export function LaunchDeskPage() {
                 key={i}
                 role="button"
                 tabIndex={0}
-                onClick={() => openNewEvent(new Date(day.getFullYear(), day.getMonth(), day.getDate(), 9, 0, 0, 0))}
+                onClick={() => openDayView(day)}
                 onKeyDown={(ev) => {
-                  if (ev.key === 'Enter') openNewEvent(new Date(day.getFullYear(), day.getMonth(), day.getDate(), 9, 0, 0, 0));
+                  if (ev.key === 'Enter') openDayView(day);
                 }}
                 className={`ops-desk-month-cell ${isCurrentMonth ? 'current' : 'other'} ${isToday ? 'today' : ''}`}
               >
@@ -341,13 +344,14 @@ export function LaunchDeskPage() {
         <div className="ops-desk-week-grid">
           <div className="h-8 border-b border-r border-[var(--border-subtle)] bg-[var(--bg-panel)]" />
           {days.map((d, i) => (
-            <div
+            <button
               key={i}
-              className={`h-8 border-b border-r border-[var(--border-subtle)] bg-[var(--bg-panel)] text-[11px] font-semibold text-center pt-1.5
-              ${sameDay(d, now) ? 'text-[var(--solar-cyan)]' : 'text-[var(--text-muted)]'}`}
+              type="button"
+              className={`ops-desk-week-day-head ${sameDay(d, now) ? 'today' : ''}`}
+              onClick={() => openDayView(d)}
             >
               {d.toLocaleDateString('en-US', { weekday: 'short' })} {d.getDate()}
-            </div>
+            </button>
           ))}
           {hours.map((h) => (
             <React.Fragment key={h}>
@@ -364,11 +368,7 @@ export function LaunchDeskPage() {
                     key={di}
                     role="button"
                     tabIndex={0}
-                    onClick={() => {
-                      const s = new Date(d);
-                      s.setHours(h, 0, 0, 0);
-                      openNewEvent(s);
-                    }}
+                    onClick={() => openDayView(d)}
                     className="ops-desk-week-cell"
                   >
                     {cellEvs.map((ev) => (
@@ -384,121 +384,80 @@ export function LaunchDeskPage() {
     );
   };
 
-  const selectedRoom = selected ? meetRoomId(selected) : null;
-  const selectedAttendees = selected ? parseAttendees(selected.attendees) : [];
-
   return (
     <div className="ops-desk">
-      <header className="ops-desk-header">
-        <div className="ops-desk-title-block">
-          <h1>Ops Desk</h1>
-          <p>Calendar and meetings</p>
-        </div>
-        <div className="ops-desk-header-actions">
-          <div className="ops-desk-cal-nav">
-            <button type="button" className="ops-desk-btn" onClick={() => setDate(new Date())}>
-              Today
-            </button>
-            <button type="button" className="ops-desk-btn" aria-label="Previous" onClick={() => navigate(-1)}>
-              <ChevronLeft size={14} />
-            </button>
-            <button type="button" className="ops-desk-btn" aria-label="Next" onClick={() => navigate(1)}>
-              <ChevronRight size={14} />
-            </button>
-            <span className="ops-desk-cal-title">{titleText()}</span>
+      {surface === 'calendar' ? (
+        <header className="ops-desk-header">
+          <div className="ops-desk-title-block">
+            <h1>Ops Desk</h1>
+            <p>Calendar and meetings</p>
           </div>
-          <div className="ops-desk-view-tabs">
-            <button type="button" className={view === 'week' ? 'active' : ''} onClick={() => setView('week')}>
-              Week
-            </button>
-            <button type="button" className={view === 'month' ? 'active' : ''} onClick={() => setView('month')}>
-              Month
+          <div className="ops-desk-header-actions">
+            <div className="ops-desk-cal-nav">
+              <button type="button" className="ops-desk-btn" onClick={() => setDate(new Date())}>
+                Today
+              </button>
+              <button type="button" className="ops-desk-btn" aria-label="Previous" onClick={() => navigate(-1)}>
+                <ChevronLeft size={14} />
+              </button>
+              <button type="button" className="ops-desk-btn" aria-label="Next" onClick={() => navigate(1)}>
+                <ChevronRight size={14} />
+              </button>
+              <span className="ops-desk-cal-title">{titleText()}</span>
+            </div>
+            <div className="ops-desk-view-tabs">
+              <button type="button" className={view === 'week' ? 'active' : ''} onClick={() => setView('week')}>
+                Week
+              </button>
+              <button type="button" className={view === 'month' ? 'active' : ''} onClick={() => setView('month')}>
+                Month
+              </button>
+            </div>
+            <button type="button" className="ops-desk-btn ops-desk-btn-primary" onClick={() => openSchedule()}>
+              <Video size={14} />
+              Schedule meeting
             </button>
           </div>
-          <button type="button" className="ops-desk-btn ops-desk-btn-primary" onClick={() => openSchedule()}>
-            <Video size={14} />
-            Schedule meeting
-          </button>
-        </div>
-      </header>
+        </header>
+      ) : null}
 
       <div className="ops-desk-body">
         <div className="ops-desk-main relative">
-          <div className="ops-desk-cal-body">
-            {loading ? (
-              <div className="flex-1 flex items-center justify-center">
-                <div className="w-8 h-8 border-2 border-[var(--solar-cyan)] border-t-transparent rounded-full animate-spin" />
-              </div>
-            ) : view === 'month' ? (
-              <MonthView />
-            ) : (
-              <WeekView />
-            )}
-          </div>
+          {surface === 'calendar' ? (
+            <div className="ops-desk-cal-body">
+              {loading ? (
+                <div className="flex-1 flex items-center justify-center">
+                  <div className="w-8 h-8 border-2 border-[var(--solar-cyan)] border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : view === 'month' ? (
+                <MonthView />
+              ) : (
+                <WeekView />
+              )}
+            </div>
+          ) : null}
 
-          {selected ? (
-            <>
-              <div className="ops-desk-overlay" onClick={() => setSelected(null)} aria-hidden="true" />
-              <div className="ops-desk-drawer-wrap">
-                <aside className="ops-desk-drawer" aria-label="Event details">
-                  <div className="ops-desk-drawer-head">
-                    <h2>{selected.title}</h2>
-                    <button type="button" className="ops-desk-btn" aria-label="Close" onClick={() => setSelected(null)}>
-                      <X size={14} />
-                    </button>
-                  </div>
-                  <div className="ops-desk-drawer-body">
-                    {selected.status ? (
-                      <span className={`ops-desk-badge ${selected.status}`}>{selected.status}</span>
-                    ) : null}
-                    {selected.description ? (
-                      <p className="text-[13px] leading-relaxed">{selected.description}</p>
-                    ) : null}
-                    <div className="ops-desk-meta-row">
-                      Start: <span>{fmtDateTime(parseEventDate(selected.start_datetime))}</span>
-                    </div>
-                    <div className="ops-desk-meta-row">
-                      End: <span>{fmtDateTime(parseEventDate(selected.end_datetime))}</span>
-                    </div>
-                    {selected.location ? (
-                      <div className="ops-desk-meta-row">
-                        Location: <span>{selected.location}</span>
-                      </div>
-                    ) : null}
-                    {selectedAttendees.length > 0 ? (
-                      <div className="ops-desk-meta-row">
-                        Invites: <span>{selectedAttendees.join(', ')}</span>
-                      </div>
-                    ) : null}
-                  </div>
-                  <div className="ops-desk-drawer-actions">
-                    {selectedRoom ? (
-                      <Link
-                        to={`/dashboard/meet?room=${encodeURIComponent(selectedRoom)}`}
-                        className="ops-desk-btn ops-desk-btn-primary"
-                      >
-                        <Video size={14} />
-                        Join meet
-                      </Link>
-                    ) : null}
-                    <button
-                      type="button"
-                      className="ops-desk-btn"
-                      onClick={() => { void updateEventStatus(selected.id, 'completed'); }}
-                    >
-                      Complete
-                    </button>
-                    <button
-                      type="button"
-                      className="ops-desk-btn"
-                      onClick={() => { void deleteEvent(selected.id); }}
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </aside>
-              </div>
-            </>
+          {surface === 'day' && focusDay ? (
+            <OpsDeskDayView
+              day={focusDay}
+              events={dayEvents}
+              loading={dayLoading}
+              onBack={backToCalendar}
+              onPrevDay={() => shiftFocusDay(-1)}
+              onNextDay={() => shiftFocusDay(1)}
+              onOpenEvent={openEventView}
+              onAddEvent={openNewEvent}
+              onScheduleMeeting={openSchedule}
+            />
+          ) : null}
+
+          {surface === 'event' && selected ? (
+            <OpsDeskEventView
+              event={selected}
+              onBack={backToDay}
+              onComplete={(id) => { void updateEventStatus(id, 'completed'); }}
+              onDelete={(id) => { void deleteEvent(id); }}
+            />
           ) : null}
         </div>
       </div>
