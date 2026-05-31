@@ -14,6 +14,60 @@ import { resolveModelApiKey } from './tokens.js';
  *  - Output: `text/event-stream` with `data: <OpenAI-shaped JSON>` chunks + `data: [DONE]`
  */
 
+// ─── Model ID + URL helpers ───────────────────────────────────────────────────
+
+/** Strip leading models/ — catalog stores canonical `models/gemini-*` ids. */
+export function normalizeGeminiModelId(raw) {
+  return String(raw || '').trim().replace(/^models\//, '');
+}
+
+/** @param {string} providerModelId @param {string} apiKey @param {{ stream?: boolean }} [opts] */
+export function buildGeminiUrl(providerModelId, apiKey, opts = {}) {
+  const modelId = normalizeGeminiModelId(providerModelId);
+  if (modelId.startsWith('models/')) {
+    throw new Error(`[gemini] double models/ prefix: ${modelId}`);
+  }
+  const action = opts.stream ? 'streamGenerateContent?alt=sse' : 'generateContent';
+  return `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:${action}?key=${apiKey}`;
+}
+
+/**
+ * @param {{ mode?: string, lane?: string|null }} routingDecision
+ * @param {{ maxOutputTokens?: number }} [opts]
+ */
+export function buildGeminiGenerationConfig(routingDecision, opts = {}) {
+  const mode = String(routingDecision?.mode || '').toLowerCase();
+  const lane = String(routingDecision?.lane || '').toLowerCase();
+  const expensive = ['debug', 'plan'].includes(mode) && lane === 'premium';
+  return {
+    temperature: expensive ? 0.7 : 0.2,
+    maxOutputTokens: opts.maxOutputTokens ?? 2048,
+    ...(expensive ? {} : { thinkingConfig: { thinkingLevel: 'minimal' } }),
+  };
+}
+
+/** Parse Gemini response text — never expose thoughtSignature parts. */
+export function parseGeminiResponseText(json) {
+  return (json?.candidates?.[0]?.content?.parts ?? [])
+    .filter((p) => p?.text != null && !p?.thoughtSignature)
+    .map((p) => p.text || '')
+    .join('')
+    .trim();
+}
+
+/** @param {any} json */
+export function parseGeminiUsageMetadata(json) {
+  const um = json?.usageMetadata ?? {};
+  return {
+    prompt_tokens: um.promptTokenCount ?? 0,
+    output_tokens: um.candidatesTokenCount ?? 0,
+    thinking_tokens: um.thoughtsTokenCount ?? 0,
+    total_tokens: um.totalTokenCount ?? 0,
+    model_version: json?.modelVersion ?? null,
+    finish_reason: json?.candidates?.[0]?.finishReason ?? null,
+  };
+}
+
 // ─── Tool schema normalisation ────────────────────────────────────────────────
 
 /**
@@ -142,8 +196,8 @@ function geminiChunkToOpenAI(jsonStr) {
   const finishReason = candidate?.finishReason ?? null;
   const out = [];
 
-  // Text parts → content delta
-  const textParts = parts.filter(p => p.text != null);
+  // Text parts → content delta (skip thoughtSignature-bearing parts)
+  const textParts = parts.filter((p) => p.text != null && !p.thoughtSignature);
   if (textParts.length > 0) {
     out.push({
       choices: [{
@@ -220,23 +274,24 @@ export async function chatWithToolsGemini(env, request, params) {
   }
 
   const geminiTools = normalizeGeminiTools(toolDefinitions);
-  const resolvedModel =
-    (providerModelId != null && String(providerModelId).trim() !== ''
+  const normalizedModelId = normalizeGeminiModelId(
+    providerModelId != null && String(providerModelId).trim() !== ''
       ? String(providerModelId).trim()
-      : null)
-    || modelKey;
+      : modelKey,
+  );
 
   const contents = toGeminiContents(messages);
   const body = {
     contents,
     ...(systemPrompt ? { system_instruction: { parts: [{ text: systemPrompt }] } } : {}),
     ...(geminiTools ? { tools: geminiTools } : {}),
-    generationConfig: { temperature: 0.7, maxOutputTokens: 8192 },
+    generationConfig: buildGeminiGenerationConfig(
+      { mode: params.mode, lane: params.lane },
+      { maxOutputTokens: params.maxOutputTokens ?? 2048 },
+    ),
   };
 
-  const url =
-    `https://generativelanguage.googleapis.com/v1beta/models/${resolvedModel}` +
-    `:streamGenerateContent?alt=sse&key=${apiKey}`;
+  const url = buildGeminiUrl(normalizedModelId, apiKey, { stream: true });
 
   let upstream;
   try {
@@ -244,6 +299,7 @@ export async function chatWithToolsGemini(env, request, params) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      ...(params.signal != null ? { signal: params.signal } : {}),
     });
   } catch (e) {
     return jsonResponse({ error: `Gemini fetch failed: ${e?.message ?? e}` }, 502);
@@ -345,10 +401,11 @@ export async function completeWithGemini(env, params) {
     throw new Error('Google AI API key not configured');
   }
 
-  const resolvedModel =
+  const resolvedModel = normalizeGeminiModelId(
     providerModelId != null && String(providerModelId).trim() !== ''
       ? String(providerModelId).trim()
-      : String(modelKey || '').trim();
+      : String(modelKey || '').trim(),
+  );
   if (!resolvedModel) throw new Error('modelKey required');
 
   const geminiTools = normalizeGeminiTools(toolDefinitions);
@@ -357,12 +414,13 @@ export async function completeWithGemini(env, params) {
     contents,
     ...(systemPrompt ? { system_instruction: { parts: [{ text: systemPrompt }] } } : {}),
     ...(geminiTools ? { tools: geminiTools } : {}),
-    generationConfig: { temperature: 0.7, maxOutputTokens: 8192 },
+    generationConfig: buildGeminiGenerationConfig(
+      { mode: params.mode, lane: params.lane },
+      { maxOutputTokens: params.maxOutputTokens ?? 2048 },
+    ),
   };
 
-  const url =
-    `https://generativelanguage.googleapis.com/v1beta/models/${resolvedModel}` +
-    `:generateContent?key=${apiKey}`;
+  const url = buildGeminiUrl(resolvedModel, apiKey, { stream: false });
 
   let res;
   try {
@@ -370,6 +428,7 @@ export async function completeWithGemini(env, params) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      ...(params.signal != null ? { signal: params.signal } : {}),
     });
   } catch (e) {
     throw new Error(`Gemini request failed: ${e?.message ?? e}`);
@@ -381,11 +440,14 @@ export async function completeWithGemini(env, params) {
     throw new Error(`Gemini ${res.status}: ${detail}`);
   }
 
-  let text = '';
-  for (const c of data?.candidates || []) {
-    for (const p of c?.content?.parts || []) {
-      if (typeof p?.text === 'string') text += p.text;
+  let text = parseGeminiResponseText(data);
+  if (!text) {
+    for (const c of data?.candidates || []) {
+      text += (c?.content?.parts ?? [])
+        .filter((p) => p?.text != null && !p?.thoughtSignature)
+        .map((p) => p.text || '')
+        .join('');
     }
   }
-  return { text, output_text: text };
+  return { text, output_text: text, usage: parseGeminiUsageMetadata(data) };
 }

@@ -155,6 +155,32 @@ export function normalizeAnthropicEffort(raw) {
 }
 
 /**
+ * Adaptive thinking from catalog flag — Haiku must never receive thinking params (benchmark 400).
+ * @param {{ supports_adaptive_thinking?: boolean|number }} resolvedModel
+ * @param {{ task_type?: string, mode?: string }} routingDecision
+ */
+export function buildAnthropicThinkingConfig(resolvedModel, routingDecision = {}) {
+  const supports =
+    resolvedModel?.supports_adaptive_thinking === true ||
+    resolvedModel?.supports_adaptive_thinking === 1;
+  if (!supports) return {};
+
+  const needsDeepReasoning = [
+    'hard_debug',
+    'routing_repair',
+    'schema_migration_risk',
+    'reviewer',
+  ].includes(String(routingDecision.task_type || '').trim());
+
+  if (!needsDeepReasoning) return {};
+
+  return {
+    thinking: { type: 'adaptive' },
+    output_config: { effort: 'low' },
+  };
+}
+
+/**
  * Executes a tool-aware chat completion using the official Anthropic SDK.
  */
 export async function chatWithAnthropic({ messages, tools, env, userId, options = {} }) {
@@ -179,6 +205,17 @@ export async function chatWithAnthropic({ messages, tools, env, userId, options 
   
   const modelData = modelInfo.results?.[0] || {};
   const catalogCap = await loadCatalogCapabilities(env, logicalModelKey);
+  let supportsAdaptiveThinking = false;
+  try {
+    const adaptiveRow = await env?.DB?.prepare(
+      'SELECT supports_adaptive_thinking FROM agentsam_model_catalog WHERE model_key = ? LIMIT 1',
+    )
+      .bind(logicalModelKey)
+      .first();
+    supportsAdaptiveThinking = adaptiveRow?.supports_adaptive_thinking === 1;
+  } catch (_) {
+    /* column may not exist pre-migration */
+  }
   const features = {
     ...anthropicFeaturesFromCatalogCapabilities(catalogCap),
     ...JSON.parse(modelData.features_json || '{}'),
@@ -246,6 +283,9 @@ export async function chatWithAnthropic({ messages, tools, env, userId, options 
   const apiId = String(modelForApi).toLowerCase();
   const isHaiku = lk.includes('haiku') || apiId.includes('haiku');
   const isOpus47Plus = isAnthropicOpus47PlusModel(lk, apiId);
+  if (isOpus47Plus && streamParams.max_tokens < 1024) {
+    streamParams.max_tokens = 1024;
+  }
   const routingTaskType =
     options.routingTaskType != null ? String(options.routingTaskType).trim() : '';
   const isScoutTask = SCOUT_TASK_TYPES.has(routingTaskType);
@@ -285,15 +325,29 @@ export async function chatWithAnthropic({ messages, tools, env, userId, options 
     }
   }
 
-  // Thinking — agentsam_ai.thinking_mode (+ Opus 4.7/4.8 hard rule: adaptive only).
-  // Manual {type:'enabled', budget_tokens:N} returns 400 on Opus 4.7+.
+  // Thinking — catalog-driven adaptive guard (Haiku: supports_adaptive_thinking=0 → no params).
+  const adaptiveThinking = buildAnthropicThinkingConfig(
+    { supports_adaptive_thinking: supportsAdaptiveThinking && !isHaiku },
+    { task_type: routingTaskType, mode: options.mode },
+  );
+  if (adaptiveThinking.thinking) {
+    streamParams.thinking = adaptiveThinking.thinking;
+    if (adaptiveThinking.output_config) {
+      streamParams.output_config = {
+        ...(streamParams.output_config && typeof streamParams.output_config === 'object'
+          ? streamParams.output_config
+          : {}),
+        ...adaptiveThinking.output_config,
+      };
+    }
+  } else {
   const thinkingMode = String(modelData.thinking_mode || 'none').trim();
   const opusAdaptiveOnly = isOpus47Plus || thinkingMode === 'adaptive';
 
   if (options.thinking && typeof options.thinking === 'object') {
     const requestedType = String(options.thinking.type || '');
-    if (thinkingMode === 'none' && !isOpus47Plus) {
-      // Strip — model not using thinking operationally (e.g. Haiku).
+    if (isHaiku || (thinkingMode === 'none' && !isOpus47Plus)) {
+      // Strip — Haiku rejects adaptive thinking; none mode stays off.
     } else if (opusAdaptiveOnly || requestedType === 'enabled') {
       streamParams.thinking = { type: 'adaptive' };
     } else {
@@ -303,9 +357,9 @@ export async function chatWithAnthropic({ messages, tools, env, userId, options 
     if (isScoutTask) {
       /* scout: no thinking */
     }
-  } else if (opusAdaptiveOnly) {
+  } else if (opusAdaptiveOnly && !isHaiku) {
     streamParams.thinking = { type: 'adaptive' };
-  } else if (thinkingMode === 'adaptive_and_enabled') {
+  } else if (thinkingMode === 'adaptive_and_enabled' && !isHaiku) {
     // Sonnet 4.6 / Opus 4.6 only — never Opus 4.7+ (guarded above).
     if (options.thinkingBudget && Number(options.thinkingBudget) > 0) {
       streamParams.thinking = {
@@ -315,6 +369,7 @@ export async function chatWithAnthropic({ messages, tools, env, userId, options 
     } else {
       streamParams.thinking = { type: 'adaptive' };
     }
+  }
   }
 
   // 3. Structured Output Config (GA moving from legacy output_format)
@@ -351,8 +406,15 @@ export async function chatWithAnthropic({ messages, tools, env, userId, options 
 
   // Route to beta endpoint when betas are required, standard endpoint otherwise
   const response = betasFiltered.length > 0
-    ? await client.beta.messages.create({ ...streamParams, betas: betasFiltered })
-    : await client.messages.create(streamParams);
+    ? await client.beta.messages.create({
+        ...streamParams,
+        betas: betasFiltered,
+        ...(options.signal != null ? { signal: options.signal } : {}),
+      })
+    : await client.messages.create({
+        ...streamParams,
+        ...(options.signal != null ? { signal: options.signal } : {}),
+      });
   return response;
 }
 

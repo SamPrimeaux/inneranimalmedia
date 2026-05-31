@@ -217,6 +217,53 @@ export async function writeUsageEvent(env, params, ctx = null) {
 }
 
 /**
+ * Chat SSE usage row — explicit column list; delegates to writeUsageEvent.
+ * @param {any} env
+ * @param {any} ctx
+ * @param {Record<string, unknown>} opts
+ */
+export function writeUsageEventFromChat(env, ctx, opts = {}) {
+  const tenant_id = opts.tenant_id ?? opts.tenantId ?? null;
+  const workspace_id = opts.workspace_id ?? opts.workspaceId ?? null;
+  if (!tenant_id || !workspace_id) return;
+
+  const inputTokens = Math.floor(Number(opts.input_tokens ?? opts.inputTokens) || 0);
+  const outputTokens = Math.floor(Number(opts.output_tokens ?? opts.outputTokens) || 0);
+  const model_key = opts.model_key ?? opts.modelKey ?? 'unknown';
+  const routing_arm_id = opts.routing_arm_id ?? opts.routingArmId ?? null;
+
+  const payload = {
+    tenant_id,
+    workspace_id,
+    user_id: opts.user_id ?? opts.userId ?? null,
+    session_id: opts.session_id ?? opts.conversationId ?? opts.conversation_id ?? null,
+    provider: opts.provider ?? opts.resolvedProvider ?? 'unknown',
+    model: model_key,
+    model_key,
+    routing_arm_id,
+    event_type: opts.event_type ?? 'chat_completion',
+    tokens_in: inputTokens,
+    tokens_out: outputTokens,
+    cost_usd: Number(opts.cost_usd ?? opts.costUsd) || 0,
+    duration_ms: opts.duration_ms ?? opts.durationMs ?? null,
+    status: opts.streamFailed || opts.status === 'error' ? 'error' : 'ok',
+    ref_table: 'agentsam_agent_run',
+    ref_id: opts.ref_id ?? opts.refId ?? null,
+    task_type: opts.task_type ?? opts.taskType ?? null,
+    mode: opts.mode ?? null,
+    reason: opts.streamFailed ? 'stream_failed' : null,
+  };
+
+  const run = () =>
+    writeUsageEvent(env, payload, ctx).catch((e) => {
+      console.warn('[writeUsageEventFromChat] insert failed:', e?.message);
+    });
+
+  if (ctx?.waitUntil) ctx.waitUntil(run());
+  else void run();
+}
+
+/**
  * Convenience: call after an SSE stream completes.
  * Pulls values from the standard streaming response context.
  */

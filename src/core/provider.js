@@ -459,6 +459,8 @@ export async function dispatchStream(env, request, params) {
   const optMaxOut = Number(options.maxOutputTokens ?? 0);
   const maxOutputTokens =
     optMaxOut > 0 ? optMaxOut : catalogMaxOut > 0 ? catalogMaxOut : undefined;
+  const routingArmId =
+    params.routingArmId ?? params.routing_arm_id ?? options.routingArmId ?? options.routing_arm_id ?? null;
   const dp = {
     modelKey,
     providerModelId,
@@ -470,6 +472,20 @@ export async function dispatchStream(env, request, params) {
     openaiPreviousResponseId: params.openaiPreviousResponseId ?? null,
     ...options,
     ...(maxOutputTokens != null ? { maxOutputTokens } : {}),
+    ...(routingArmId != null && String(routingArmId).trim() !== ''
+      ? { routingArmId: String(routingArmId).trim() }
+      : {}),
+    ...(params.reasoningEffort != null ? { reasoningEffort: params.reasoningEffort } : {}),
+    ...(params.taskType != null && String(params.taskType).trim() !== ''
+      ? { taskType: String(params.taskType).trim() }
+      : {}),
+    ...(params.mode != null && String(params.mode).trim() !== ''
+      ? { mode: String(params.mode).trim() }
+      : {}),
+    ...(params.lane != null && String(params.lane).trim() !== ''
+      ? { lane: String(params.lane).trim() }
+      : {}),
+    ...(params.signal != null ? { signal: params.signal } : {}),
   };
 
   switch (platform) {
@@ -512,6 +528,7 @@ export async function dispatchStream(env, request, params) {
           ...(anthropicContainerId != null && String(anthropicContainerId).trim() !== ''
             ? { container: String(anthropicContainerId).trim() }
             : {}),
+          ...(params.signal != null ? { signal: params.signal } : {}),
         },
       });
     }
@@ -635,24 +652,126 @@ async function pickOpenAiFallbackModelKeyFromCatalog(env) {
   }
 }
 
+/**
+ * Build Workers AI chat payload — reasoning_effort always from routing arm (D1), never hardcoded.
+ * @param {any[]} messages
+ * @param {{ reasoning_effort?: string|null }} arm
+ * @param {{ maxTokens?: number, stream?: boolean }} [opts]
+ */
+function buildWorkersAiPayload(messages, arm, opts = {}) {
+  const payload = {
+    messages,
+    max_completion_tokens: opts.maxTokens ?? 2048,
+    ...(opts.stream != null ? { stream: opts.stream } : {}),
+  };
+
+  if (arm?.reasoning_effort) {
+    payload.reasoning_effort = arm.reasoning_effort;
+  }
+
+  // Kimi (and similar reasoning models) need json_object paired with reasoning_effort=none
+  // to emit content instead of reasoning_content only (benchmark 2026-05-30).
+  if (arm?.reasoning_effort === 'none') {
+    payload.response_format = { type: 'json_object' };
+  }
+
+  return payload;
+}
+
+/** @param {any} result */
+function extractWorkersAiContent(result) {
+  const msg = result?.choices?.[0]?.message ?? result?.choices?.[0]?.delta ?? null;
+  if (!msg) {
+    if (typeof result?.response === 'string' && result.response.length > 0) return result.response;
+    return null;
+  }
+  if (typeof msg.content === 'string' && msg.content.length > 0) return msg.content;
+  if (typeof msg.reasoning_content === 'string' && msg.reasoning_content.length > 0) {
+    return msg.reasoning_content;
+  }
+  return null;
+}
+
+/** @param {string|null|undefined} raw */
+function cleanWorkersAiOutput(raw) {
+  return (raw ?? '')
+    .replace(/<think>[\s\S]*?<\/redacted_thinking>/gi, '')
+    .replace(/^```(?:json)?\n?/m, '')
+    .replace(/\n?```$/m, '')
+    .trim();
+}
+
+/** @param {any} env @param {any} params */
+async function resolveWorkersAiArmFromParams(env, params) {
+  const routingArmId =
+    params?.routingArmId ?? params?.routing_arm_id ?? null;
+  if (routingArmId && env?.DB) {
+    try {
+      const row = await env.DB.prepare(
+        'SELECT reasoning_effort FROM agentsam_routing_arms WHERE id = ? LIMIT 1',
+      )
+        .bind(String(routingArmId).trim())
+        .first();
+      if (row) return { reasoning_effort: row.reasoning_effort ?? null };
+    } catch (_) {
+      /* best-effort — fall through */
+    }
+  }
+  const modelKey = params?.modelKey != null ? String(params.modelKey).trim() : '';
+  const taskType = params?.taskType ?? params?.task_type ?? null;
+  if (modelKey && taskType && env?.DB) {
+    try {
+      const row = await env.DB.prepare(
+        `SELECT reasoning_effort FROM agentsam_routing_arms
+         WHERE model_key = ? AND task_type = ? AND is_active = 1
+         ORDER BY priority DESC LIMIT 1`,
+      )
+        .bind(modelKey, String(taskType).trim())
+        .first();
+      if (row) return { reasoning_effort: row.reasoning_effort ?? null };
+    } catch (_) {
+      /* best-effort */
+    }
+  }
+  const effort = params?.reasoningEffort ?? params?.reasoning_effort ?? null;
+  return effort != null && String(effort).trim() !== ''
+    ? { reasoning_effort: String(effort).trim() }
+    : {};
+}
+
 function extractWorkersAiSseToken(obj) {
+  const piece = extractWorkersAiContent(obj);
+  if (piece) return cleanWorkersAiOutput(piece);
   if (!obj || typeof obj !== 'object') return '';
   const c0 = Array.isArray(obj.choices) ? obj.choices[0] : null;
   const t =
-    c0?.delta?.content ??
     c0?.text ??
     (typeof obj.response === 'string' ? obj.response : obj.response != null ? String(obj.response) : '') ??
     '';
-  return typeof t === 'string' ? t : String(t || '');
+  return cleanWorkersAiOutput(typeof t === 'string' ? t : String(t || ''));
+}
+
+function throwIfDispatchAborted(signal) {
+  if (signal?.aborted) {
+    const err = new Error('Aborted');
+    err.name = 'AbortError';
+    throw err;
+  }
 }
 
 async function dispatchWorkersAI(env, request, params) {
-  const { modelKey, providerModelId, systemPrompt, messages, userId } = params;
+  const { modelKey, providerModelId, systemPrompt, messages, userId, maxOutputTokens, signal } = params;
+  throwIfDispatchAborted(signal);
   const waiModel = providerModelId || modelKey;
   const waiMessages = [
     ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
     ...messages,
   ];
+  const arm = await resolveWorkersAiArmFromParams(env, params);
+  const waiPayload = buildWorkersAiPayload(waiMessages, arm, {
+    maxTokens: maxOutputTokens ?? 2048,
+    stream: true,
+  });
 
   const openAiFallback = async (reason) => {
     const fbKey =
@@ -694,8 +813,10 @@ async function dispatchWorkersAI(env, request, params) {
 
   let response;
   try {
-    response = await env.AI.run(waiModel, { messages: waiMessages, stream: true });
+    throwIfDispatchAborted(signal);
+    response = await env.AI.run(waiModel, waiPayload);
   } catch (e) {
+    if (e?.name === 'AbortError') throw e;
     return openAiFallback(e);
   }
 
@@ -715,7 +836,13 @@ async function dispatchWorkersAI(env, request, params) {
         const reader = response.getReader();
         const dec = new TextDecoder();
         let buf = '';
+        const onAbort = () => {
+          reader.cancel('aborted').catch(() => {});
+        };
+        signal?.addEventListener?.('abort', onAbort, { once: true });
+        try {
         while (true) {
+          throwIfDispatchAborted(signal);
           const { done, value } = await reader.read();
           if (done) break;
           buf += dec.decode(value, { stream: true });
@@ -749,13 +876,17 @@ async function dispatchWorkersAI(env, request, params) {
           }
         }
         await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'done' })}\n\n`));
+        } finally {
+          signal?.removeEventListener?.('abort', onAbort);
+        }
       } else {
-        let text = '';
-        if (typeof response?.response === 'string') text = response.response;
-        else if (response?.response != null && typeof response.response !== 'object') {
+        throwIfDispatchAborted(signal);
+        let text = extractWorkersAiContent(response) ?? '';
+        if (!text && typeof response?.response === 'string') text = response.response;
+        else if (!text && response?.response != null && typeof response.response !== 'object') {
           text = String(response.response);
-        } else if (typeof response === 'string') text = response;
-        await writeToken(text);
+        } else if (!text && typeof response === 'string') text = response;
+        await writeToken(cleanWorkersAiOutput(text));
         await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'done' })}\n\n`));
       }
     } catch (e) {

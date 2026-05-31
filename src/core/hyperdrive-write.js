@@ -20,7 +20,7 @@ function isoFromUnix(v) {
  * @param {string} table — unqualified table name (agentsam schema)
  * @param {string[]} fields
  * @param {unknown[]} values
- * @param {{ onConflict?: string }} [opts]
+ * @param {{ onConflict?: string|null, skipOnConflict?: boolean }} [opts]
  */
 export async function hyperdriveInsert(env, table, fields, values, opts = {}) {
   if (!isHyperdriveUsable(env)) return { ok: false, skipped: true, reason: 'hyperdrive_unavailable' };
@@ -28,11 +28,13 @@ export async function hyperdriveInsert(env, table, fields, values, opts = {}) {
   if (!t || !fields?.length || fields.length !== values.length) {
     return { ok: false, skipped: true, reason: 'invalid_insert_args' };
   }
-  const onConflict = opts.onConflict != null ? String(opts.onConflict) : 'DO NOTHING';
   const placeholders = values.map((_, i) => `$${i + 1}`).join(', ');
+  const skipOnConflict = opts.skipOnConflict === true || opts.onConflict === null;
+  const onConflictClause = skipOnConflict
+    ? ''
+    : ` ON CONFLICT ${opts.onConflict != null ? String(opts.onConflict) : 'DO NOTHING'}`;
   const sql = `INSERT INTO agentsam.${t} (${fields.join(', ')})
-               VALUES (${placeholders})
-               ON CONFLICT ${onConflict}`;
+               VALUES (${placeholders})${onConflictClause}`;
   const out = await runHyperdriveQuery(env, sql, values);
   if (!out.ok) {
     console.error(`[hyperdrive-write] ${t}:`, out.error);
@@ -129,7 +131,7 @@ export function scheduleMirrorUsageEventToSupabase(env, ctx, params) {
       metadata,
       isoFromUnix(params.created_at),
     ],
-    { onConflict: '(d1_id) DO NOTHING' },
+    { skipOnConflict: true },
   );
 }
 

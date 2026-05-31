@@ -72,6 +72,75 @@ export async function contentHash(text) {
     .join('');
 }
 
+/**
+ * Memory lane write — uses memory_key (not source_ref). Table: agentsam_memory_oai3large_1536.
+ * @param {any} env
+ * @param {Record<string, unknown>} params
+ */
+export async function writeMemoryLane(env, params = {}) {
+  const d1WorkspaceId = String(params.workspace_id ?? params.workspace_id_d1 ?? '').trim();
+  if (!d1WorkspaceId) throw new Error('writeMemoryLane: workspace_id required');
+
+  const memoryKey = String(params.memory_key ?? '').trim();
+  if (!memoryKey) throw new Error('writeMemoryLane: memory_key required');
+
+  const content = String(params.content ?? '').trim();
+  if (!content) throw new Error('writeMemoryLane: content required');
+
+  const workspaceId = await resolveSupabaseWorkspaceId(env, d1WorkspaceId);
+  if (!workspaceId) return { ok: false, skipped: 'workspace_unresolved' };
+
+  const title = String(params.title ?? memoryKey).trim();
+  const source = String(params.source ?? 'chat').trim();
+  const metadata = sanitizeMetadata({
+    ...(params.metadata && typeof params.metadata === 'object' ? params.metadata : {}),
+    source_type: params.source_type ?? 'conversation',
+    user_id: params.user_id ?? null,
+  });
+
+  const { embedding } = await createAgentsamEmbedding(env, content);
+  const vector = vectorLiteral(embedding);
+  const rowId = crypto.randomUUID();
+  const table = LANES.memory.supabase_table;
+
+  const write = await runHyperdriveQuery(
+    env,
+    `INSERT INTO agentsam.${table} (
+       id, workspace_id, user_id, memory_key, content, title,
+       embedding, source, metadata, created_at, updated_at, embedded_at
+     ) VALUES (
+       $1::uuid, $2::uuid, $3, $4, $5, $6,
+       $7::vector, $8, $9::jsonb, now(), now(), now()
+     )
+     RETURNING id`,
+    [
+      rowId,
+      workspaceId,
+      params.user_id != null ? String(params.user_id) : null,
+      memoryKey,
+      content,
+      title,
+      vector,
+      source,
+      JSON.stringify(metadata),
+    ],
+  );
+  if (!write?.ok) throw new Error(write?.error || 'memory lane insert failed');
+
+  const savedId = String(write.rows?.[0]?.id ?? rowId);
+  const vectorizeBinding = LANES.memory.vectorize;
+  if (vectorizeBinding && typeof env?.[vectorizeBinding]?.upsert === 'function') {
+    await env[vectorizeBinding].upsert([
+      {
+        id: savedId,
+        values: embedding,
+        metadata: { workspace_id: d1WorkspaceId, memory_key: memoryKey, title, source },
+      },
+    ]);
+  }
+  return { ok: true, id: savedId, memory_key: memoryKey };
+}
+
 export async function writeToLane(env, laneName, entry) {
   const lane = resolveLaneConfig(laneName);
   if (!lane) throw new Error(`unknown lane: ${laneName}`);

@@ -216,6 +216,7 @@ export async function chatWithToolsOpenAI(env, request, params) {
         'Content-Type':  'application/json',
       },
       body: JSON.stringify(body),
+      ...(params.signal != null ? { signal: params.signal } : {}),
     });
   } catch (e) {
     return jsonResponse({ error: 'OpenAI request failed', detail: e.message }, 502);
@@ -292,6 +293,7 @@ export async function chatWithToolsOpenAIResponses(env, request, params) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(body),
+      ...(params.signal != null ? { signal: params.signal } : {}),
     });
   } catch (e) {
     return jsonResponse({ error: 'OpenAI Responses request failed', detail: e.message }, 502);
