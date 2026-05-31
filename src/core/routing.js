@@ -49,6 +49,40 @@ import { isThompsonRoutingSamplingEnabled } from './routing-thompson-flag.js';
 
 const TABLE = 'agentsam_routing_arms';
 
+/** Columns read from agentsam_routing_arms rows (Thompson, route gates, chain assembly). */
+const ROUTING_ARM_SELECT_FIELDS = [
+  'id',
+  'model_key',
+  'fallback_model_key',
+  'task_type',
+  'mode',
+  'intent_slug',
+  'workspace_id',
+  'agent_slug',
+  'provider',
+  'supports_tools',
+  'supports_vision',
+  'supports_structured_output',
+  'success_alpha',
+  'success_beta',
+  'decayed_score',
+  'priority',
+  'latency_mean',
+  'cost_mean',
+  'avg_quality_score',
+  'quality_n',
+  'max_cost_per_call_usd',
+  'preferred_tier',
+  'reasoning_effort',
+];
+
+/** @param {Set<string>} armCols lowercase column names from PRAGMA table_info */
+function routingArmsSelectList(armCols) {
+  const picked = ROUTING_ARM_SELECT_FIELDS.filter((c) => armCols.has(c));
+  if (!picked.length) return 'ra.rowid';
+  return picked.map((c) => `ra.${c}`).join(', ');
+}
+
 /** @param {import('@cloudflare/workers-types').D1Database | undefined} db */
 export async function pragmaRoutingArmsColumns(db) {
   const safe = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(TABLE) ? TABLE : '';
@@ -351,17 +385,19 @@ export async function queryRoutingArmsCandidates(env, q) {
 
   const modesToTry = routingModesForArmLookup(tt, m);
 
+  const armSelect = routingArmsSelectList(armCols);
+
   const fetchArmsForMode = async (modeTry, slugFilter) => {
     const { clause, binds: slugBinds } = slugFilter;
     if (ws) {
       const sqlWs =
-        `SELECT ra.* FROM ${TABLE} ra WHERE ${baseWhere} AND ra.workspace_id = ?${clause} ORDER BY ${orderSql} LIMIT 40`;
+        `SELECT ${armSelect} FROM ${TABLE} ra WHERE ${baseWhere} AND ra.workspace_id = ?${clause} ORDER BY ${orderSql} LIMIT 40`;
       const r1 = await db.prepare(sqlWs).bind(tt, modeTry, ws, ...slugBinds).all();
       const scoped = filterNanoEscalation(r1.results || [], q, tt, toolReq);
       if (scoped.length) return scoped;
     }
     const sqlGlobal =
-      `SELECT ra.* FROM ${TABLE} ra WHERE ${baseWhere} AND COALESCE(TRIM(ra.workspace_id), '') = ''${clause} ORDER BY ${orderSql} LIMIT 40`;
+      `SELECT ${armSelect} FROM ${TABLE} ra WHERE ${baseWhere} AND COALESCE(TRIM(ra.workspace_id), '') = ''${clause} ORDER BY ${orderSql} LIMIT 40`;
     const r2 = await db.prepare(sqlGlobal).bind(tt, modeTry, ...slugBinds).all();
     return filterNanoEscalation(r2.results || [], q, tt, toolReq);
   };

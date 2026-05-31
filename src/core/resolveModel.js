@@ -259,7 +259,6 @@ async function loadModelRecord(db, model_key, source, arm_id = null, opts = {}) 
       ai.default_timeout_ms,
       ai.supports_prompt_cache,
       ai.supports_thinking,
-      ai.reasoning_effort,
       ai.context_max_tokens,
       ai.output_max_tokens,
       ai.input_rate_per_mtok,

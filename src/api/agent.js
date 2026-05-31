@@ -320,6 +320,14 @@ function modelCostTierFromRow(row) {
 async function filterWorkspaceModelTierPool(env, workspaceId, chainRows) {
   if (!env?.DB || !workspaceId || !chainRows?.length) return chainRows || [];
   try {
+    const count = await env.DB.prepare(
+      'SELECT COUNT(*) AS n FROM agentsam_model_tier',
+    ).first();
+    if (!count?.n) return chainRows;
+  } catch {
+    return chainRows;
+  }
+  try {
     const { results } = await env.DB.prepare(
       `SELECT cost_tier FROM agentsam_model_tier
        WHERE workspace_id = ? AND is_active = 1
