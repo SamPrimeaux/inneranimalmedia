@@ -15,16 +15,35 @@ export type OpsDeskKanbanDue = {
   category?: string | null;
 };
 
+export type OpsDeskExecutionQueueItem = {
+  id: string;
+  title: string;
+  priority: string;
+  status: string;
+  status_label?: string;
+  source: "kanban" | "plan_task";
+  kanban_task_id?: string | null;
+  highlight_id?: string | null;
+  blocked_reason?: string | null;
+};
+
 export type OpsDeskDayResponse = {
   ok?: boolean;
   date: string;
   todos?: OpsDeskTodo[];
   kanban_due?: OpsDeskKanbanDue[];
+  execution_queue?: OpsDeskExecutionQueueItem[];
   error?: string;
 };
 
-export async function fetchOpsDeskDay(date: string): Promise<OpsDeskDayResponse> {
-  const r = await fetch(`/api/ops-desk/day?date=${encodeURIComponent(date)}`, { credentials: "same-origin" });
+export async function fetchOpsDeskDay(
+  date: string,
+  opts?: { limit?: number; source?: string },
+): Promise<OpsDeskDayResponse> {
+  const params = new URLSearchParams({ date });
+  if (opts?.limit != null) params.set("limit", String(opts.limit));
+  if (opts?.source) params.set("source", opts.source);
+  const r = await fetch(`/api/ops-desk/day?${params.toString()}`, { credentials: "same-origin" });
   const j = (await r.json()) as OpsDeskDayResponse;
   if (!r.ok) return { ...j, error: j.error || `HTTP ${r.status}` };
   return j;

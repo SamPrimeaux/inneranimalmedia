@@ -12,6 +12,7 @@ export type KanbanColumn = {
   name: string;
   position: number;
   color?: string | null;
+  config_json?: string | null;
 };
 
 export type KanbanTask = {

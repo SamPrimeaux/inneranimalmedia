@@ -238,6 +238,7 @@ export default function ProjectManagement() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [expandedProjectId, setExpandedProjectId] = useState<string | null>(null);
+  const [highlightedKanbanTaskId, setHighlightedKanbanTaskId] = useState<string | null>(null);
 
   const refreshOverview = useCallback(async (ws: string | null) => {
     setLoading(true);
@@ -344,11 +345,11 @@ export default function ProjectManagement() {
             </Card>
 
             <div className="xl:col-span-4">
-              <TodaysWorkPanel />
+              <TodaysWorkPanel onHighlightKanbanTask={setHighlightedKanbanTaskId} />
             </div>
           </section>
 
-          <WorkspaceKanban workspaceId={workspaceId} />
+          <WorkspaceKanban workspaceId={workspaceId} highlightedTaskId={highlightedKanbanTaskId} />
         </div>
       </div>
 

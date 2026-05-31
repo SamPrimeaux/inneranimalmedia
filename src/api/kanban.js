@@ -56,13 +56,51 @@ function mapTaskRow(row) {
   };
 }
 
+const DEFAULT_WORKSPACE_COLUMNS = [
+  { name: 'Backlog', position: 0, status: 'backlog' },
+  { name: 'To Do', position: 1, status: 'todo' },
+  { name: 'In Progress', position: 2, status: 'in_progress' },
+  { name: 'Testing', position: 3, status: 'testing' },
+  { name: 'Awaiting Approval', position: 4, status: 'awaiting_approval' },
+  { name: 'Complete', position: 5, status: 'complete' },
+  { name: 'Blocked', position: 6, status: 'blocked' },
+];
+
+async function ensureDefaultWorkspaceBoard(db, tenantId, workspaceId, ownerId) {
+  const boardId = `kb_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+  const now = Math.floor(Date.now() / 1000);
+  await db
+    .prepare(
+      `INSERT INTO kanban_boards (
+         id, tenant_id, workspace_id, owner_id, name, description, board_type, is_active, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, 'Workspace Board', 'Default workspace kanban', 'workspace', 1, ?, ?)`,
+    )
+    .bind(boardId, tenantId, workspaceId, ownerId || null, now, now)
+    .run();
+
+  for (const col of DEFAULT_WORKSPACE_COLUMNS) {
+    const columnId = `kcol_${crypto.randomUUID().replace(/-/g, '').slice(0, 14)}`;
+    const configJson = JSON.stringify({ status: col.status });
+    await db
+      .prepare(
+        `INSERT INTO kanban_columns (
+           id, tenant_id, board_id, name, position, config_json, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(columnId, tenantId, boardId, col.name, col.position, configJson, now, now)
+      .run();
+  }
+
+  return boardId;
+}
+
 async function handleBoards(url, env, authUser) {
   const tenantId = resolveTenantId(authUser, env);
   const workspaceId = resolveWorkspaceId(authUser, env, url);
   if (!tenantId) return jsonResponse({ ok: false, error: 'tenant_required' }, 403);
   if (!workspaceId) return jsonResponse({ ok: false, error: 'workspace_required' }, 403);
 
-  const { results } = await env.DB.prepare(
+  let { results } = await env.DB.prepare(
     `SELECT id, tenant_id, workspace_id, project_id, owner_id, name, description, board_type, is_active, created_at, updated_at
      FROM kanban_boards
      WHERE tenant_id = ?
@@ -72,6 +110,21 @@ async function handleBoards(url, env, authUser) {
   )
     .bind(tenantId, workspaceId)
     .all();
+
+  if (!(results || []).length) {
+    const ownerId = authUser?.id ?? authUser?.user_id ?? null;
+    await ensureDefaultWorkspaceBoard(env.DB, tenantId, workspaceId, ownerId);
+    ({ results } = await env.DB.prepare(
+      `SELECT id, tenant_id, workspace_id, project_id, owner_id, name, description, board_type, is_active, created_at, updated_at
+       FROM kanban_boards
+       WHERE tenant_id = ?
+         AND is_active = 1
+         AND (workspace_id = ? OR workspace_id IS NULL OR workspace_id = '')
+       ORDER BY COALESCE(updated_at, created_at) DESC, name ASC`,
+    )
+      .bind(tenantId, workspaceId)
+      .all());
+  }
 
   return jsonResponse({ ok: true, boards: results || [] });
 }

@@ -173,6 +173,102 @@ async function fetchKanbanDueOnDay(db, tenantId, dateStr) {
   return results || [];
 }
 
+function normalizeQueuePriority(raw) {
+  const p = String(raw || '')
+    .trim()
+    .toLowerCase();
+  if (p === 'p0' || p === 'critical' || p === 'urgent') return 'P0';
+  if (p === 'p1' || p === 'high') return 'P1';
+  if (p === 'p3' || p === 'low') return 'P3';
+  if (p === 'p2' || p === 'medium') return 'P2';
+  return 'P2';
+}
+
+function isQueueItemBlocked(item) {
+  return item.status === 'blocked' || Boolean(item.blocked_reason);
+}
+
+function isKanbanDueToday(item, dateStr) {
+  if (item.source !== 'kanban') return false;
+  return true;
+}
+
+function isPlanTaskDueToday(_item, _dateStr) {
+  return false;
+}
+
+function executionQueueSortKey(item, dateStr) {
+  const priority = normalizeQueuePriority(item.priority);
+  const blocked = isQueueItemBlocked(item);
+  const dueToday =
+    item.source === 'kanban' ? isKanbanDueToday(item, dateStr) : isPlanTaskDueToday(item, dateStr);
+
+  if (priority === 'P0' && blocked) return 0;
+  if (priority === 'P0' && dueToday) return 1;
+  if (priority === 'P1' && dueToday) return 2;
+  if (priority === 'P0') return 3;
+  return 99;
+}
+
+function buildExecutionQueue(kanbanDue, focusPlans, dateStr, limit) {
+  const items = [];
+
+  for (const row of kanbanDue || []) {
+    items.push({
+      id: `kanban:${row.id}`,
+      title: String(row.title || ''),
+      priority: normalizeQueuePriority(row.priority),
+      status: 'due_today',
+      status_label: 'Due today',
+      source: 'kanban',
+      kanban_task_id: String(row.id),
+      highlight_id: String(row.id),
+    });
+  }
+
+  for (const plan of focusPlans || []) {
+    for (const task of plan.open_tasks || []) {
+      const status = String(task.status || 'todo');
+      items.push({
+        id: `plan_task:${task.id}`,
+        title: String(task.title || ''),
+        priority: normalizeQueuePriority(task.priority),
+        status,
+        status_label: status.replace(/_/g, ' '),
+        source: 'plan_task',
+        kanban_task_id: null,
+        highlight_id: null,
+        blocked_reason: task.blocked_reason || null,
+      });
+    }
+  }
+
+  items.sort((a, b) => {
+    const ka = executionQueueSortKey(a, dateStr);
+    const kb = executionQueueSortKey(b, dateStr);
+    if (ka !== kb) return ka - kb;
+    return String(a.title).localeCompare(String(b.title));
+  });
+
+  return items.slice(0, limit);
+}
+
+function parseDaySourceFilter(url) {
+  const raw = url.searchParams.get('source') || '';
+  const sources = new Set(
+    raw
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
+  );
+  const limitRaw = parseInt(url.searchParams.get('limit') || '5', 10);
+  const limit = Number.isFinite(limitRaw) ? Math.min(20, Math.max(1, limitRaw)) : 5;
+  const slim =
+    sources.size > 0 &&
+    [...sources].every((s) => s === 'kanban_due' || s === 'focus_plans');
+  return { sources, limit, slim };
+}
+
 async function fetchActivePlansWithTasks(db, workspaceId, tenantId) {
   const { results: plans } = await db.prepare(
     `SELECT
@@ -201,6 +297,23 @@ async function handleDayBundle(request, url, env, authUser) {
 
   const dateStr = normalizeDateParam(url.searchParams.get('date'));
   if (!dateStr) return jsonResponse({ error: 'date required (YYYY-MM-DD)' }, 400);
+
+  const { limit, slim } = parseDaySourceFilter(url);
+
+  if (slim) {
+    const [focus_plans, kanban_due] = await Promise.all([
+      fetchFocusPlans(env.DB, workspaceId, tenantId, dateStr),
+      fetchKanbanDueOnDay(env.DB, tenantId, dateStr),
+    ]);
+    const execution_queue = buildExecutionQueue(kanban_due, focus_plans, dateStr, limit);
+    return jsonResponse({
+      ok: true,
+      date: dateStr,
+      focus_plans,
+      kanban_due,
+      execution_queue,
+    });
+  }
 
   const [events, focus_plans, plan_tasks, todos, kanban_due, active_plans] = await Promise.all([
     fetchDayEvents(env.DB, workspaceId, dateStr),
