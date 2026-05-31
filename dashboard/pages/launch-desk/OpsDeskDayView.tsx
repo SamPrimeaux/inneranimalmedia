@@ -1,13 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { CalendarPlus, ChevronLeft, ChevronRight, Clock, MapPin, Users, Video } from 'lucide-react';
-import { OpsDeskDayOpsTabs } from './OpsDeskDayOpsTabs';
 import {
   CalEvent,
-  DayViewTab,
   fmtDayTitle,
   fmtTime,
   meetRoomId,
-  OpsDeskDayBundle,
   parseAttendees,
   parseEventDate,
   sameDay,
@@ -18,7 +15,6 @@ const HOURS = Array.from({ length: 16 }, (_, i) => i + 6);
 interface OpsDeskDayViewProps {
   day: Date;
   events: CalEvent[];
-  bundle: OpsDeskDayBundle | null;
   loading: boolean;
   onBack: () => void;
   onPrevDay: () => void;
@@ -26,16 +22,11 @@ interface OpsDeskDayViewProps {
   onOpenEvent: (ev: CalEvent) => void;
   onAddEvent: (start: Date) => void;
   onScheduleMeeting: (start: Date) => void;
-  onCompletePlanTask: (id: string) => void;
-  onCompleteTodo: (id: string) => void;
-  initialTab?: DayViewTab;
-  filterPlanId?: string | null;
 }
 
 export function OpsDeskDayView({
   day,
   events,
-  bundle,
   loading,
   onBack,
   onPrevDay,
@@ -43,13 +34,7 @@ export function OpsDeskDayView({
   onOpenEvent,
   onAddEvent,
   onScheduleMeeting,
-  onCompletePlanTask,
-  onCompleteTodo,
-  initialTab = 'agenda',
-  filterPlanId = null,
 }: OpsDeskDayViewProps) {
-  const [tab, setTab] = useState<DayViewTab>(initialTab);
-  const [planFilter, setPlanFilter] = useState<string | null>(filterPlanId);
   const now = new Date();
   const isToday = sameDay(day, now);
 
@@ -77,8 +62,6 @@ export function OpsDeskDayView({
     d.setHours(9, 0, 0, 0);
     return d;
   };
-
-  const focusPlans = bundle?.focus_plans ?? [];
 
   return (
     <div className="ops-desk-day">
@@ -111,63 +94,17 @@ export function OpsDeskDayView({
         </div>
       </div>
 
-      <div className="ops-desk-day-subtabs">
-        {([
-          ['agenda', 'Agenda'],
-          ['sprint', 'Sprint'],
-          ['plans', 'Plans'],
-          ['todos', 'Todos'],
-        ] as const).map(([key, label]) => (
-          <button
-            key={key}
-            type="button"
-            className={tab === key ? 'active' : ''}
-            onClick={() => {
-              setTab(key);
-              if (key !== 'plans') setPlanFilter(null);
-            }}
-          >
-            {label}
-          </button>
-        ))}
+      <div className="ops-desk-day-stats">
+        <span>{stats.total} event{stats.total === 1 ? '' : 's'}</span>
+        <span className="ops-desk-day-stat-dot" aria-hidden="true" />
+        <span>{stats.meetings} meeting{stats.meetings === 1 ? '' : 's'}</span>
       </div>
-
-      {tab === 'agenda' ? (
-        <>
-          <div className="ops-desk-day-stats">
-            <span>{stats.total} event{stats.total === 1 ? '' : 's'}</span>
-            <span className="ops-desk-day-stat-dot" aria-hidden="true" />
-            <span>{stats.meetings} meeting{stats.meetings === 1 ? '' : 's'}</span>
-          </div>
-
-          {focusPlans.length > 0 ? (
-            <div className="ops-desk-focus-row">
-              <span className="ops-desk-focus-label">Today&apos;s focus</span>
-              <div className="ops-desk-focus-pills">
-                {focusPlans.map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    className="ops-desk-focus-pill"
-                    onClick={() => {
-                      setPlanFilter(p.id);
-                      setTab('plans');
-                    }}
-                  >
-                    [{p.plan_type || 'plan'}] {p.title}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : null}
-        </>
-      ) : null}
 
       {loading ? (
         <div className="ops-desk-day-loading">
           <div className="w-8 h-8 border-2 border-[var(--solar-cyan)] border-t-transparent rounded-full animate-spin" />
         </div>
-      ) : tab === 'agenda' ? (
+      ) : (
         <div className="ops-desk-day-layout">
           <section className="ops-desk-day-timeline" aria-label="Hourly timeline">
             {HOURS.map((h) => {
@@ -263,19 +200,6 @@ export function OpsDeskDayView({
             )}
           </section>
         </div>
-      ) : (
-        <OpsDeskDayOpsTabs
-          tab={tab}
-          bundle={bundle}
-          filterPlanId={planFilter}
-          onCompletePlanTask={onCompletePlanTask}
-          onCompleteTodo={onCompleteTodo}
-          onFocusPlan={(id) => {
-            setPlanFilter(id);
-            setTab('plans');
-          }}
-          onClearPlanFilter={() => setPlanFilter(null)}
-        />
       )}
     </div>
   );

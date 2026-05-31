@@ -1728,7 +1728,7 @@ const App: React.FC = () => {
     try {
       const hr = await fetch('/api/health');
       const hj = await hr.json().catch(() => ({}));
-      if (hr.ok) setHealthOk(!!hj.ok);
+      if (hr.ok) setHealthOk(hj.status === 'ok' || hr.ok);
       else setHealthOk(false);
     } catch {
       setHealthOk(false);

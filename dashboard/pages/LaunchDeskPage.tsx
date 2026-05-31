@@ -6,9 +6,8 @@ import {
   apiJson,
   CalEvent,
   CalView,
-  fetchOpsDeskDay,
+  fetchDayEvents,
   meetRoomId,
-  OpsDeskDayBundle,
   OpsSurface,
   parseEventDate,
   parseInviteEmails,
@@ -23,7 +22,7 @@ export function LaunchDeskPage() {
   const [surface, setSurface] = useState<OpsSurface>('calendar');
   const [date, setDate] = useState(() => new Date());
   const [focusDay, setFocusDay] = useState<Date | null>(null);
-  const [dayBundle, setDayBundle] = useState<OpsDeskDayBundle | null>(null);
+  const [dayEvents, setDayEvents] = useState<CalEvent[]>([]);
   const [dayLoading, setDayLoading] = useState(false);
   const [events, setEvents] = useState<CalEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -62,13 +61,12 @@ export function LaunchDeskPage() {
     }
   }, [view]);
 
-  const loadDayBundle = useCallback(async (day: Date) => {
+  const loadDayEvents = useCallback(async (day: Date) => {
     setDayLoading(true);
     try {
-      const bundle = await fetchOpsDeskDay(day);
-      setDayBundle(bundle);
+      setDayEvents(await fetchDayEvents(day));
     } catch {
-      setDayBundle(null);
+      setDayEvents([]);
     } finally {
       setDayLoading(false);
     }
@@ -79,23 +77,17 @@ export function LaunchDeskPage() {
   }, [fetchEvents, surface]);
 
   useEffect(() => {
-    if (surface === 'day' && focusDay) void loadDayBundle(focusDay);
-  }, [focusDay, loadDayBundle, surface]);
-
-  const dayEvents = dayBundle?.events ?? [];
+    if (surface === 'day' && focusDay) void loadDayEvents(focusDay);
+  }, [focusDay, loadDayEvents, surface]);
 
   const refreshAll = useCallback(async () => {
     await fetchEvents();
     if (focusDay) {
-      try {
-        const bundle = await fetchOpsDeskDay(focusDay);
-        setDayBundle(bundle);
-        if (selected) {
-          const updated = bundle.events.find((e) => e.id === selected.id);
-          if (updated) setSelected(updated);
-        }
-      } catch {
-        setDayBundle(null);
+      const fresh = await fetchDayEvents(focusDay);
+      setDayEvents(fresh);
+      if (selected) {
+        const updated = fresh.find((e) => e.id === selected.id);
+        if (updated) setSelected(updated);
       }
     }
   }, [fetchEvents, focusDay, selected]);
@@ -252,24 +244,6 @@ export function LaunchDeskPage() {
     await refreshAll();
   };
 
-  const completePlanTask = async (taskId: string) => {
-    await apiJson(`/api/ops-desk/plan-tasks/${taskId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'done' }),
-    });
-    await refreshAll();
-  };
-
-  const completeTodo = async (todoId: string) => {
-    await apiJson(`/api/ops-desk/todos/${todoId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'done' }),
-    });
-    await refreshAll();
-  };
-
   const deleteEvent = async (id: string) => {
     if (!window.confirm('Delete this event?')) return;
     await apiJson(`/api/calendar/events/${id}`, { method: 'DELETE' });
@@ -415,8 +389,8 @@ export function LaunchDeskPage() {
       {surface === 'calendar' ? (
         <header className="ops-desk-header">
           <div className="ops-desk-title-block">
-            <h1>Launch Desk</h1>
-            <p>Calendar, meetings, and sprint ops</p>
+            <h1>Ops Desk</h1>
+            <p>Calendar and meetings</p>
           </div>
           <div className="ops-desk-header-actions">
             <div className="ops-desk-cal-nav">
@@ -467,7 +441,6 @@ export function LaunchDeskPage() {
             <OpsDeskDayView
               day={focusDay}
               events={dayEvents}
-              bundle={dayBundle}
               loading={dayLoading}
               onBack={backToCalendar}
               onPrevDay={() => shiftFocusDay(-1)}
@@ -475,8 +448,6 @@ export function LaunchDeskPage() {
               onOpenEvent={openEventView}
               onAddEvent={openNewEvent}
               onScheduleMeeting={openSchedule}
-              onCompletePlanTask={(id) => { void completePlanTask(id); }}
-              onCompleteTodo={(id) => { void completeTodo(id); }}
             />
           ) : null}
 

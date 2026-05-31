@@ -75,7 +75,8 @@ export async function fetchGitStatusFromGitHub(env, authUser, request, url) {
   const { token, error, status } = await resolveGitHubToken(authUser, env, owner);
   if (error) return { error, status: status || 401 };
 
-  const ghRes = await fetch(`https://api.github.com/repos/${repoCtx.repo}`, {
+  const repoSlug = repoCtx.repo.replace('https://github.com/', '');
+  const ghRes = await fetch(`https://api.github.com/repos/${repoSlug}`, {
     headers: { ...GH_HEADERS_BASE, Authorization: `Bearer ${token}` },
   });
 
