@@ -136,3 +136,24 @@ export async function rtkAddParticipant(env, meetingId, opts) {
 export async function rtkListPresets(env) {
   return rtkRequest(env, '/presets');
 }
+
+/** @param {object} env */
+export async function rtkListWebhooks(env) {
+  return rtkRequest(env, '/webhooks');
+}
+
+/**
+ * @param {object} env
+ * @param {{ name: string, url: string, events: string[], enabled?: boolean }} opts
+ */
+export async function rtkCreateWebhook(env, opts) {
+  return rtkRequest(env, '/webhooks', {
+    method: 'POST',
+    body: {
+      name: opts.name,
+      url: opts.url,
+      events: opts.events,
+      enabled: opts.enabled !== false,
+    },
+  });
+}

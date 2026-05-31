@@ -42,6 +42,7 @@ import { handleCursorWebhook } from './api/webhooks/cursor.js';
 import { handleOpenAiWebhook } from './api/webhooks/openai.js';
 import { handleInternalWebhook } from './api/webhooks/internal.js';
 import { handleCloudflareWebhook } from './api/webhooks/cloudflare.js';
+import { handleRealtimeKitWebhook } from './api/webhooks/realtimekit.js';
 import { recordAgentsamWebhookEvent } from './core/webhook-events-writer.js';
 import { getDashboardR2Object, getDashboardSpaHtmlShell } from './core/dashboard-r2-assets.js';
 import { resolveGitHubToken } from './core/github-token.js';
@@ -212,6 +213,10 @@ export default {
 
       if (pathLower === '/api/webhooks/cloudflare' && methodUpper === 'POST') {
         return handleCloudflareWebhook(request, env, ctx);
+      }
+
+      if (pathLower === '/api/webhooks/realtimekit' && methodUpper === 'POST') {
+        return handleRealtimeKitWebhook(request, env, ctx);
       }
 
       if (pathLower === '/api/webhooks/supabase' || pathLower === '/api/hooks/supabase') {

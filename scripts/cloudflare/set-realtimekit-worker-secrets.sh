@@ -41,4 +41,11 @@ printf '%s' "$APP_ID" | "${WRANG[@]}" REALTIMEKIT_APP_ID
 echo "Setting REALTIMEKIT_API_TOKEN on inneranimalmedia worker..."
 printf '%s' "$RTK_TOKEN" | "${WRANG[@]}" REALTIMEKIT_API_TOKEN
 
+if [[ -n "${REALTIMEKIT_WEBHOOK_SECRET:-}" ]]; then
+  echo "Setting REALTIMEKIT_WEBHOOK_SECRET on inneranimalmedia worker..."
+  printf '%s' "$REALTIMEKIT_WEBHOOK_SECRET" | "${WRANG[@]}" REALTIMEKIT_WEBHOOK_SECRET
+else
+  echo "Skip REALTIMEKIT_WEBHOOK_SECRET (not in .env.cloudflare). Run register-realtimekit-webhook.sh --apply-secret"
+fi
+
 echo "Done. Verify: npx wrangler secret list -c wrangler.production.toml | rg REALTIMEKIT"
