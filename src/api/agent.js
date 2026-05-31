@@ -49,6 +49,11 @@ import { authUserFromRequest, getSession,
          authUserIsSuperadmin,
          platformTenantIdFromEnv }    from '../core/auth.js';
 import { resolveGitHubToken } from '../core/github-token.js';
+import {
+  fetchGitStatusFromGitHub,
+  fetchWorkspaceGithubRepo,
+  pingPtyServiceHealth,
+} from '../core/status-bar-runtime.js';
 import { resolveIdentity, resolveIamActorContext } from '../core/identity.js';
 import { selectAgentsamMcpToolsList } from '../core/agentsam-mcp-tools.js';
 import { maxModelToolsForAgentTask } from '../core/mcp-tools-branded.js';
@@ -10890,15 +10895,33 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
   }
 
   // ── /api/agent/git/status ─────────────────────────────────────────────────
+  // Legacy fallback — production handler is src/api/dashboard.js (live GitHub API).
   if (path === '/api/agent/git/status' && method === 'GET') {
     const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB)   return jsonResponse({ error: 'DB not configured' }, 503);
-    const workerName = projectIdFromEnv(env) || 'unknown';
     try {
-      const row = await env.DB.prepare(`SELECT d.git_hash, d.version, d.timestamp, g.repo_full_name, g.default_branch FROM deployments d LEFT JOIN github_repositories g ON g.cloudflare_worker_name = ? WHERE d.worker_name = ? AND d.status = 'success' ORDER BY d.timestamp DESC LIMIT 1`).bind(workerName, workerName).first();
-      return jsonResponse({ branch: row?.default_branch || 'main', git_hash: row?.git_hash || null, worker_name: workerName, repo_full_name: row?.repo_full_name || null, sync_last_at: row?.timestamp || null });
+      const payload = await fetchGitStatusFromGitHub(env, authUser, request, url);
+      if (payload.error) {
+        return jsonResponse(
+          { error: payload.error, detail: payload.detail, workspace_id: payload.workspace_id },
+          payload.status || 500,
+        );
+      }
+      return jsonResponse({
+        branch: payload.branch,
+        repo: payload.repo,
+        repo_full_name: payload.repo_full_name,
+        workspace_id: payload.workspace_id,
+      });
     } catch (e) { return jsonResponse({ error: e?.message }, 500); }
+  }
+
+  // ── GET /api/agent/pty/health ─────────────────────────────────────────────
+  if (path === '/api/agent/pty/health' && method === 'GET') {
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    return jsonResponse(await pingPtyServiceHealth(env));
   }
 
   // ── GET /api/agent/git/branches ───────────────────────────────────────────
@@ -10910,22 +10933,13 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     const { token, error, status } = await resolveGitHubToken(authUser, env);
     if (error) return jsonResponse({ error }, status);
 
-    const workerName = projectIdFromEnv(env);
-    const repoRow = await env.DB.prepare(
-      `SELECT repo_full_name, default_branch
-       FROM github_repositories
-       WHERE cloudflare_worker_name = ?
-       LIMIT 1`,
-    )
-      .bind(workerName)
-      .first();
-
-    if (!repoRow?.repo_full_name) {
-      return jsonResponse({ error: 'No repository linked to this worker.', worker: workerName }, 404);
+    const repoCtx = await fetchWorkspaceGithubRepo(env, authUser, request, url);
+    if (repoCtx.error) {
+      return jsonResponse({ error: repoCtx.error, workspace_id: repoCtx.workspace_id }, repoCtx.status || 500);
     }
 
     const ghRes = await fetch(
-      `https://api.github.com/repos/${repoRow.repo_full_name}/branches?per_page=100`,
+      `https://api.github.com/repos/${repoCtx.repo}/branches?per_page=100`,
       {
         headers: {
           Authorization: `Bearer ${token}`,
@@ -10941,12 +10955,14 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     }
 
     const ghBranches = await ghRes.json();
+    const statusPayload = await fetchGitStatusFromGitHub(env, authUser, request, url);
+    const currentBranch = statusPayload.branch || 'main';
 
     // Shape matches existing GitBranchRow type in StatusBar:
     // { ref: string, sha: string, protected: boolean }
     return jsonResponse({
-      current: repoRow.default_branch || 'main',
-      repo: repoRow.repo_full_name,
+      current: currentBranch,
+      repo: repoCtx.repo,
       branches: ghBranches.map((b) => ({
         ref: b.name,
         sha: b.commit.sha.slice(0, 7),

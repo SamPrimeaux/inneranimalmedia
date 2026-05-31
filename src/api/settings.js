@@ -212,22 +212,26 @@ async function resolveAuthTenantId(env, authUser) {
 
 /**
  * Workspace rows for legacy GET /api/settings/workspaces (name/display_name/column drift).
+ * Scoped to the authenticated user's tenant only — never cross-tenant.
  * @param {import('@cloudflare/workers-types').D1Database} db
+ * @param {string} tenantId
  */
-async function fetchWorkspaceRowsForSettingsApi(db) {
+async function fetchWorkspaceRowsForSettingsApi(db, tenantId) {
+  const tid = tenantId != null ? String(tenantId).trim() : '';
+  if (!tid) return [];
   const attempts = [
     `SELECT id,
             COALESCE(NULLIF(TRIM(display_name), ''), NULLIF(TRIM(name), ''), id) AS name,
             display_name, slug, github_repo, status, category, brand
-     FROM workspaces WHERE id LIKE 'ws_%' ORDER BY 2`,
-    `SELECT id, name, category, brand, slug, github_repo, status FROM workspaces WHERE id LIKE 'ws_%' ORDER BY name`,
-    `SELECT id, name, category FROM workspaces WHERE id LIKE 'ws_%' ORDER BY name`,
+     FROM workspaces WHERE tenant_id = ? ORDER BY name ASC`,
+    `SELECT id, name, category, brand, slug, github_repo, status FROM workspaces WHERE tenant_id = ? ORDER BY name ASC`,
+    `SELECT id, name, category FROM workspaces WHERE tenant_id = ? ORDER BY name ASC`,
     `SELECT id, display_name AS name, display_name, slug, github_repo, status, category, NULL AS brand
-     FROM workspaces WHERE id LIKE 'ws_%' ORDER BY display_name`,
+     FROM workspaces WHERE tenant_id = ? ORDER BY name ASC`,
   ];
   for (const sql of attempts) {
     try {
-      const res = await db.prepare(sql).all();
+      const res = await db.prepare(sql).bind(tid).all();
       return res.results || [];
     } catch (e) {
       const msg = String(e?.message || e || '');
@@ -1278,6 +1282,9 @@ export async function handleSettingsRequest(request, env, ctx) {
         });
       }
       try {
+        const tenantId = await resolveAuthTenantId(env, authUser);
+        if (!tenantId) return jsonResponse({ error: 'Tenant required' }, 403);
+
         const { userId: canonicalUserId } = await resolveCanonicalUserId(env, sessionUserId, authUser.email);
 
         const loadUws = async (uid) => {
@@ -1306,7 +1313,7 @@ export async function handleSettingsRequest(request, env, ctx) {
         };
 
         const [wsRows, rowsPrimary, usPrimary] = await Promise.all([
-          fetchWorkspaceRowsForSettingsApi(env.DB),
+          fetchWorkspaceRowsForSettingsApi(env.DB, tenantId),
           loadUws(sessionUserId),
           env.DB.prepare('SELECT default_workspace_id FROM user_settings WHERE user_id = ? LIMIT 1')
             .bind(sessionUserId)

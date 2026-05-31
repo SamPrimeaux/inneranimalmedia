@@ -67,6 +67,11 @@ import {
 } from './src/ideWorkspace';
 import { useEditor } from './src/EditorContext';
 import { useWorkspace } from './src/context/WorkspaceContext';
+import {
+  readIamGitStatusCache,
+  writeIamGitStatusCache,
+  isIamGitStatusCacheFresh,
+} from './src/iamGitStatusCache';
 import { MeetProvider, MeetCtxValue } from './src/MeetContext';
 import { MeetShellPanel } from './components/MeetShellPanel';
 import { AuthSignInPage } from './components/auth/AuthSignInPage';
@@ -1743,28 +1748,47 @@ const App: React.FC = () => {
     }
   }, []);
 
+  const applyGitStatusPayload = useCallback(
+    (gitData: { branch?: string; repo?: string; repo_full_name?: string }) => {
+      const repo = gitData.repo_full_name
+        ? String(gitData.repo_full_name)
+        : gitData.repo
+          ? String(gitData.repo)
+          : '';
+      let branchName = gitData.branch ? String(gitData.branch) : '';
+      if (repo) {
+        try {
+          const stored = localStorage.getItem(`iam_branch_${repo}`);
+          if (stored?.trim()) branchName = stored.trim();
+        } catch {
+          /* ignore */
+        }
+      }
+      if (branchName) setGitBranch(branchName);
+    },
+    [],
+  );
+
   const fetchGitAndProblems = useCallback(async () => {
     const cred = { credentials: 'same-origin' as const };
-    try {
-      const gitRes = await fetch('/api/agent/git/status', cred);
-      const gitData = await gitRes.json().catch(() => ({}));
-      if (gitRes.ok) {
-        const repo = gitData.repo_full_name ? String(gitData.repo_full_name) : '';
-        let branchName = gitData.branch ? String(gitData.branch) : '';
-        if (repo) {
-          try {
-            const stored = localStorage.getItem(`iam_branch_${repo}`);
-            if (stored?.trim()) branchName = stored.trim();
-          } catch {
-            /* ignore */
-          }
+    const cached = readIamGitStatusCache();
+    if (isIamGitStatusCacheFresh(cached)) {
+      applyGitStatusPayload(cached);
+    } else {
+      try {
+        const gitRes = await fetch('/api/agent/git/status', cred);
+        const gitData = await gitRes.json().catch(() => ({}));
+        if (gitRes.ok) {
+          writeIamGitStatusCache({
+            branch: gitData.branch ? String(gitData.branch) : undefined,
+            repo: gitData.repo ? String(gitData.repo) : undefined,
+            repo_full_name: gitData.repo_full_name ? String(gitData.repo_full_name) : undefined,
+          });
+          applyGitStatusPayload(gitData);
         }
-        if (branchName) setGitBranch(branchName);
-        if (gitData.git_hash) setGitHash(String(gitData.git_hash).slice(0, 7));
-        else setGitHash(null);
+      } catch {
+        /* ignore */
       }
-    } catch {
-      /* ignore */
     }
 
     try {
@@ -1785,7 +1809,7 @@ const App: React.FC = () => {
     } catch {
       /* ignore */
     }
-  }, []);
+  }, [applyGitStatusPayload]);
 
   const fetchTunnelStatusOnly = useCallback(async () => {
     const cred = { credentials: 'same-origin' as const };
@@ -1795,8 +1819,7 @@ const App: React.FC = () => {
       if (tr.ok && typeof tj.healthy === 'boolean') {
         setTunnelHealthy(tj.healthy);
         const st = tj.status != null ? String(tj.status) : '';
-        const n = typeof tj.connections === 'number' ? tj.connections : 0;
-        setTunnelLabel(st ? `${st} · ${n} conn` : `${n} conn`);
+        setTunnelLabel(st === 'connected' ? 'connected' : st === 'disconnected' ? 'disconnected' : st || null);
       } else if (tr.status === 401) {
         setTunnelHealthy(null);
         setTunnelLabel(null);
@@ -1814,9 +1837,11 @@ const App: React.FC = () => {
   const fetchTerminalConfigOnly = useCallback(async () => {
     const cred = { credentials: 'same-origin' as const };
     try {
-      const ter = await fetch('/api/agent/terminal/config-status', cred);
+      const ter = await fetch('/api/agent/pty/health', cred);
       const tej = await ter.json().catch(() => ({}));
-      if (ter.ok) setTerminalOk(!!tej.terminal_configured);
+      if (ter.ok) {
+        setTerminalOk(tej.status === 'connected');
+      }
     } catch {
       /* ignore */
     }
@@ -1852,26 +1877,24 @@ const App: React.FC = () => {
 
     void fetchHealth();
 
-    try {
-      const gitRes = await fetch('/api/agent/git/status', cred);
-      const gitData = await gitRes.json().catch(() => ({}));
-      if (gitRes.ok) {
-        const repo = gitData.repo_full_name ? String(gitData.repo_full_name) : '';
-        let branchName = gitData.branch ? String(gitData.branch) : '';
-        if (repo) {
-          try {
-            const stored = localStorage.getItem(`iam_branch_${repo}`);
-            if (stored?.trim()) branchName = stored.trim();
-          } catch {
-            /* ignore */
-          }
+    const cachedGit = readIamGitStatusCache();
+    if (isIamGitStatusCacheFresh(cachedGit)) {
+      applyGitStatusPayload(cachedGit);
+    } else {
+      try {
+        const gitRes = await fetch('/api/agent/git/status', cred);
+        const gitData = await gitRes.json().catch(() => ({}));
+        if (gitRes.ok) {
+          writeIamGitStatusCache({
+            branch: gitData.branch ? String(gitData.branch) : undefined,
+            repo: gitData.repo ? String(gitData.repo) : undefined,
+            repo_full_name: gitData.repo_full_name ? String(gitData.repo_full_name) : undefined,
+          });
+          applyGitStatusPayload(gitData);
         }
-        if (branchName) setGitBranch(branchName);
-        if (gitData.git_hash) setGitHash(String(gitData.git_hash).slice(0, 7));
-        else setGitHash(null);
+      } catch {
+        /* ignore */
       }
-    } catch {
-      /* ignore */
     }
 
     try {
@@ -1908,7 +1931,7 @@ const App: React.FC = () => {
     }
 
     void fetchTelemetryPoll();
-  }, [fetchHealth, fetchTunnelStatusOnly, fetchTerminalConfigOnly, fetchDeploymentsPoll, fetchTelemetryPoll]);
+  }, [fetchHealth, fetchTunnelStatusOnly, fetchTerminalConfigOnly, fetchDeploymentsPoll, fetchTelemetryPoll, applyGitStatusPayload]);
 
   useEffect(() => {
     // Polling (ms): health 5m, notifications 2m, git+problems 3m, tunnel 5m, terminal config 10m,

@@ -35,6 +35,11 @@ import { handleBrowserRequest, handlePlaywrightJobApi } from '../integrations/pl
 import { handleBrowserRunQuickActionsRoute } from './browser-run-quickactions-route.js';
 import { handleGitHubApi, resolveGitHubToken } from '../integrations/github.js';
 import { handleAgentArtifactsApi } from './agent-artifacts.js';
+import {
+    fetchGitStatusFromGitHub,
+    fetchWorkspaceGithubRepo,
+    pingPtyServiceHealth,
+} from '../core/status-bar-runtime.js';
 
 function terminalNotEnabledResponse() {
     return new Response(JSON.stringify({
@@ -82,64 +87,63 @@ export async function handleDashboardApi(request, url, env, ctx) {
     }
 
     // ── /api/agent/git/status ────────────────────────────────────────────────
+    // Live GitHub API + user OAuth token; workspace.github_repo (no deployments table).
     if (pathLower === '/api/agent/git/status' && method === 'GET') {
         const authUser = await getAuthUser(request, env);
         if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
         if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
 
-        const workerName = 'inneranimalmedia';
         try {
-            const row = await env.DB.prepare(
-                `SELECT d.git_hash, d.version, d.timestamp, g.repo_full_name, g.default_branch
-                 FROM deployments d
-                 LEFT JOIN github_repositories g ON g.cloudflare_worker_name = ?
-                 WHERE d.worker_name = ? AND d.status = 'success'
-                 ORDER BY d.timestamp DESC
-                 LIMIT 1`
-            ).bind(workerName, workerName).first();
-
+            const payload = await fetchGitStatusFromGitHub(env, authUser, request, url);
+            if (payload.error) {
+                return jsonResponse(
+                    {
+                        error: payload.error,
+                        detail: payload.detail,
+                        workspace_id: payload.workspace_id,
+                    },
+                    payload.status || 500,
+                );
+            }
             return jsonResponse({
-                branch: row?.default_branch || 'main',
-                git_hash: row?.git_hash || null,
-                worker_name: workerName,
-                repo_full_name: row?.repo_full_name || null,
-                dirty: false,
-                sync_last_at: row?.timestamp || null,
+                branch: payload.branch,
+                repo: payload.repo,
+                repo_full_name: payload.repo_full_name,
+                workspace_id: payload.workspace_id,
             });
         } catch (e) {
             return jsonResponse({ error: e.message }, 500);
         }
     }
 
+    // ── GET /api/agent/pty/health ─────────────────────────────────────────────
+    if (pathLower === '/api/agent/pty/health' && method === 'GET') {
+        const authUser = await getAuthUser(request, env);
+        if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+        return jsonResponse(await pingPtyServiceHealth(env));
+    }
+
     // ── GET /api/agent/git/branches ───────────────────────────────────────────
-    // Lists branches for the repo linked to latest deployment (GitHub REST API).
-    // Same logical repo as /api/agent/git/status; Workers cannot shell out to git.
+    // Same workspace github_repo as /api/agent/git/status (live GitHub REST API).
     if (pathLower === '/api/agent/git/branches' && method === 'GET') {
         const authUser = await getAuthUser(request, env);
         if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
         if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
 
-        const workerName = 'inneranimalmedia';
         try {
-            const row = await env.DB.prepare(
-                `SELECT g.repo_full_name
-                 FROM deployments d
-                 LEFT JOIN github_repositories g ON g.cloudflare_worker_name = ?
-                 WHERE d.worker_name = ? AND d.status = 'success'
-                 ORDER BY d.timestamp DESC
-                 LIMIT 1`,
-            )
-                .bind(workerName, workerName)
-                .first();
-            const repoFull = row?.repo_full_name != null ? String(row.repo_full_name).trim() : '';
-            if (!repoFull || !repoFull.includes('/')) {
-                return jsonResponse({
-                    branches: [],
-                    repo_full_name: null,
-                    error: 'no_repository',
-                    hint: 'Link a GitHub repository on deployments / cicd settings.',
-                });
+            const repoCtx = await fetchWorkspaceGithubRepo(env, authUser, request, url);
+            if (repoCtx.error) {
+                return jsonResponse(
+                    {
+                        branches: [],
+                        repo_full_name: null,
+                        error: repoCtx.error,
+                        workspace_id: repoCtx.workspace_id,
+                    },
+                    repoCtx.status || 500,
+                );
             }
+            const repoFull = repoCtx.repo;
             const owner = repoFull.split('/')[0];
             let token;
             try {

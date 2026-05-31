@@ -239,7 +239,10 @@ if command -v jq >/dev/null 2>&1; then
       --arg wv "${WORKER_VERSION_ID:-unknown}" \
       --argjson dur "${DEPLOY_DURATION_MS:-0}" \
       --arg uid "${D1_AUTH_USER_ID:-usr_sam_iam}" \
-      '{environment:$env, git_hash:$gh, version:$v, worker_version_id:$wv, deploy_duration_ms:$dur, user_id:$uid}'
+      --arg branch "${BRANCH_NAME:-main}" \
+      --arg desc "${GIT_MSG_LINE:-}" \
+      --arg by "${DEPLOYED_BY:-deploy:full}" \
+      '{environment:$env, git_hash:$gh, version:$v, worker_version_id:$wv, deploy_duration_ms:$dur, user_id:$uid, branch_name:$branch, git_message:$desc, deployed_by:$by}'
   )
   if [ -n "${AGENTSAM_BRIDGE_KEY:-}" ]; then
     curl -sS -X POST "https://inneranimalmedia.com/api/internal/post-deploy" \

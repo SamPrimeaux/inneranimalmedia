@@ -24,6 +24,86 @@ function isPostDeployAuthorized(request, env) {
   return false;
 }
 
+const PRODUCTION_WORKER_NAME = 'inneranimalmedia';
+
+/**
+ * Insert a deployments row after deploy:full so GET /api/agent/git/status reflects the live SHA.
+ * @param {import('@cloudflare/workers-types').D1Database} db
+ */
+async function recordProductionDeploymentRow(db, fields) {
+  const gitHash = fields.gitHash != null ? String(fields.gitHash).trim() : '';
+  if (!gitHash || gitHash === 'unknown') return null;
+
+  const deployId = `dep_prod_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const version =
+    fields.version != null && String(fields.version).trim() !== '' && String(fields.version).trim() !== 'unknown'
+      ? String(fields.version).trim()
+      : gitHash.slice(0, 7);
+  const environment = fields.environment != null ? String(fields.environment).trim() : 'production';
+  const deployedBy =
+    fields.deployedBy != null && String(fields.deployedBy).trim() !== ''
+      ? String(fields.deployedBy).trim()
+      : 'deploy:full';
+  const branchName =
+    fields.branchName != null && String(fields.branchName).trim() !== ''
+      ? String(fields.branchName).trim()
+      : null;
+  const description =
+    fields.description != null && String(fields.description).trim() !== ''
+      ? String(fields.description).trim().slice(0, 500)
+      : null;
+  const deployDurationMs =
+    typeof fields.deployDurationMs === 'number' && Number.isFinite(fields.deployDurationMs)
+      ? Math.max(0, Math.floor(fields.deployDurationMs))
+      : null;
+  const workerVersion =
+    fields.workerVersion != null && String(fields.workerVersion).trim() !== ''
+      ? String(fields.workerVersion).trim()
+      : null;
+
+  const metadata = JSON.stringify({
+    worker_version_id: workerVersion,
+    branch: branchName,
+    sync_source: 'post-deploy-handler',
+  });
+
+  await db
+    .prepare(
+      `INSERT INTO deployments (
+         id, timestamp, version, git_hash, description, status, deployed_by,
+         environment, deploy_duration_ms, worker_name, triggered_by, metadata_json, created_at
+       ) VALUES (
+         ?, datetime('now'), ?, ?, ?, 'success', ?,
+         ?, ?, ?, 'deploy:full', ?, unixepoch()
+       )`,
+    )
+    .bind(
+      deployId,
+      version,
+      gitHash,
+      description,
+      deployedBy,
+      environment,
+      deployDurationMs,
+      PRODUCTION_WORKER_NAME,
+      metadata,
+    )
+    .run();
+
+  if (branchName) {
+    await db
+      .prepare(
+        `UPDATE github_repositories SET default_branch = ?
+         WHERE cloudflare_worker_name = ?`,
+      )
+      .bind(branchName, PRODUCTION_WORKER_NAME)
+      .run()
+      .catch(() => {});
+  }
+
+  return deployId;
+}
+
 /**
  * Main handler — registered in src/index.js as:
  *   POST /api/internal/post-deploy → handlePostDeploy(request, env, ctx)
@@ -45,6 +125,24 @@ export async function handlePostDeploy(request, env, ctx) {
     typeof body.deploy_duration_ms === 'number' && Number.isFinite(body.deploy_duration_ms)
       ? body.deploy_duration_ms
       : undefined;
+  const branchName =
+    typeof body.branch_name === 'string' && body.branch_name.trim()
+      ? body.branch_name.trim()
+      : typeof body.branch === 'string' && body.branch.trim()
+        ? body.branch.trim()
+        : null;
+  const description =
+    typeof body.description === 'string' && body.description.trim()
+      ? body.description.trim()
+      : typeof body.git_message === 'string' && body.git_message.trim()
+        ? body.git_message.trim()
+        : null;
+  const deployedBy =
+    typeof body.deployed_by === 'string' && body.deployed_by.trim()
+      ? body.deployed_by.trim()
+      : typeof body.user_id === 'string' && body.user_id.trim()
+        ? body.user_id.trim()
+        : 'deploy:full';
 
   if (!env.KV) {
     return jsonResponse({ ok: false, error: 'KV not bound' }, 503);
@@ -93,6 +191,19 @@ export async function handlePostDeploy(request, env, ctx) {
 
   // ── Optional D1 audit log ────────────────────────────────────────────────────
   if (env.DB) {
+    ctx.waitUntil(
+      recordProductionDeploymentRow(env.DB, {
+        gitHash,
+        version,
+        environment,
+        deployedBy,
+        branchName,
+        description,
+        deployDurationMs,
+        workerVersion,
+      }).catch((e) => console.warn('[post-deploy] deployments insert failed', e?.message || e)),
+    );
+
     ctx.waitUntil(
       env.DB.prepare(
         `INSERT OR IGNORE INTO cicd_events
