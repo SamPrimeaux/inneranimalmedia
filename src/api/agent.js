@@ -138,7 +138,6 @@ import {
   queryRoutingArmsCandidates,
   resolveRoutingTaskType,
   loadRouteRequirementsRow,
-  selectAutoModel,
   recordRoutingArmOutcome,
   isAnthropicSmoketestQuickstartBatch,
 } from '../core/routing.js';
@@ -178,14 +177,6 @@ import { resolveCanonicalUserId } from './auth.js';
 import { resolveAgentDataScope } from '../core/data-isolation-scope.js';
 import { estimateModelRunCostUsd } from '../core/model-pricing.js';
 import {
-  classifyWorkspaceCapabilities,
-  capabilityRouterPromptBlock,
-} from '../core/capability-router.js';
-import { filterToolsForCapabilityDecision } from '../core/tool-capability-filter.js';
-import {
-  classifyAgentExecutionLane,
-  filterToolsForExecutionLane,
-  formatExecutionLaneLogPayload,
   messageRequestsBrowserInspect,
   messageRequestsOpenWebSearch,
   messageRequestsWebFetch,
@@ -4986,6 +4977,27 @@ async function runAgentToolLoop(env, ctx, emit, params) {
             /* ignore malformed tool JSON */
           }
         }
+        if (!execErr) {
+          const surfaceFromTool = (() => {
+            if (call.name === 'browser_navigate') {
+              return { surface: 'browser', reason: 'browser_navigate', tool_name: call.name };
+            }
+            if (call.name === 'monaco_open' || call.name === 'monaco_open_file') {
+              return { surface: 'monaco', reason: call.name, tool_name: call.name };
+            }
+            if (call.name === 'excalidraw_open') {
+              return { surface: 'excalidraw', reason: 'excalidraw_open', tool_name: call.name };
+            }
+            if (call.name === 'image_generate' || isImageGenerationTool(call.name)) {
+              return { surface: 'image', reason: call.name, tool_name: call.name };
+            }
+            return null;
+          })();
+          if (surfaceFromTool) {
+            emit('surface_open', surfaceFromTool);
+            emit('agent_surface_open', surfaceFromTool);
+          }
+        }
       } catch (e) {
         execErr = e;
         const isTimeout =
@@ -6255,6 +6267,8 @@ function normalizeAgentRuntimeMode(raw) {
 /**
  * Ask-mode fast path: no tools; system prompt + model from D1 (`buildSystemPrompt`,
  * `agentsam_prompt_routes`, `agentsam_ai` / defaults). Caller must pass `request` on opts.
+ *
+ * DEAD CODE (Phase 1 spine refactor): no longer called from `agentChatSseHandler`; retained for audit PR.
  */
 async function agentChatDirectSseHandler(env, ctx, opts) {
   const request = opts.request;
@@ -6820,91 +6834,6 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     );
   }
 
-  // ── ASK FAST PATH — no tools; prompt + model from D1 / route table ─────
-  if (requestedMode === 'ask') {
-    const intentResult = await classifyIntent(env, message);
-    const promptRouteIntentSlug =
-      String(intentResult?.taskType || 'auto').toLowerCase().trim() || 'auto';
-    const promptRouteRow = await resolveAgentsamPromptRoute(
-      env,
-      tenantId,
-      requestedMode,
-      promptRouteIntentSlug,
-    );
-    const modeConfig = await loadModeConfig(env, 'ask', workspaceId);
-    const askSystemPrompt = await buildSystemPrompt(
-      env,
-      tenantId,
-      'ask',
-      '',
-      modeConfig,
-      promptRouteRow,
-      { minimalAsk: true, workspaceId, userId, message, taskType: promptRouteIntentSlug },
-    );
-    let finalAskSystemPrompt = askSystemPrompt;
-    try {
-      finalAskSystemPrompt = await appendSkillsAndRulesToSystemPrompt(env, ctx, finalAskSystemPrompt, {
-        userId,
-        tenantId,
-        workspaceId,
-        conversationId: session?.session_id ?? body.sessionId ?? body.session_id ?? null,
-        taskType: intentResult?.taskType ?? promptRouteIntentSlug,
-        routeKey: promptRouteRow?.route_key ?? null,
-        taskTypes: [intentResult?.taskType ?? promptRouteIntentSlug].filter(Boolean),
-        tier1Budget: 800,
-        tier23Budget: 2000,
-        maxSkills: 6,
-      });
-    } catch (e) {
-      console.warn('[agent] ask_fast skills/rules prompt enrich', e?.message ?? e);
-    }
-    if (subagentProfileRow) {
-      finalAskSystemPrompt = appendSubagentProfileToSystemPrompt(finalAskSystemPrompt, subagentProfileRow);
-    }
-    let askRoutingDecision = null;
-    try {
-      askRoutingDecision = await buildRoutingDecision(env, {
-        task_type: 'chat',
-        mode: 'ask',
-        requested_model_key: body.model_key ?? body.model ?? null,
-        routing_arm_id: null,
-        workspace_id: workspaceId,
-        tenant_id: tenantId,
-        tool_required: false,
-        lane: null,
-        route_key: 'ask_fast',
-        fallback_chain: [],
-      });
-    } catch (e) {
-      console.warn('[agent] ask routing decision failed:', e?.message ?? e);
-    }
-
-    const askModelKey =
-      askRoutingDecision?.model_key ??
-      askRoutingDecision?._resolved?.model_key ??
-      body.model_key ??
-      body.model ??
-      null;
-    if (!askModelKey) return jsonResponse({ error: 'MODEL_RESOLUTION_FAILED' }, 503);
-
-    return agentChatDirectSseHandler(env, ctx, {
-      request,
-      ...body,
-      systemPrompt: finalAskSystemPrompt,
-      modelKey: String(askModelKey).trim(),
-      routingDecision: askRoutingDecision,
-      modeConfig,
-      promptRouteRow,
-      intentResult,
-      tools: [],
-      workspaceId,
-      tenantId,
-      userId,
-      stream: true,
-    });
-  }
-  // ── END ASK FAST PATH ───────────────────────────────────────────────────
-
   /** @type {Record<string, unknown>|null} */
   let browserContextPayload = null;
   try {
@@ -6986,10 +6915,11 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
 
   kickoffModelTierMigration(env, ctx);
 
-  const gate = await gateRewriteAndClassify(env, modeConfig, message, tenantId);
-
-  const intentSlug = String(gate.intent || 'auto').toLowerCase().trim() || 'auto';
-  const intentResult = await classifyIntent(env, message);
+  const { taskType: heuristicTaskType, mode: heuristicMode } = inferIntentHeuristically(message);
+  const intentResult = {
+    taskType: normalizeCanonicalTaskType(heuristicTaskType || 'ask'),
+    mode: heuristicMode || requestedMode,
+  };
   const bodyTaskTypePin =
     body?.task_type != null && String(body.task_type).trim() !== ''
       ? String(body.task_type).trim()
@@ -6999,12 +6929,8 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   if (bodyTaskTypePin) {
     intentResult.taskType = normalizeCanonicalTaskType(bodyTaskTypePin);
   }
-  if (
-    ['agent', 'debug', 'multitask'].includes(requestedMode) &&
-    (!intentResult || typeof intentResult !== 'object')
-  ) {
-    console.error('[agent] classifyIntent_invalid', { message: String(message || '').slice(0, 240) });
-  }
+  const intentSlug = String(requestedMode || 'agent').toLowerCase().trim() || 'agent';
+  const confidence = 0.85;
 
   let capabilityAliasToolKeys = [];
   if (env?.DB && intentResult?.taskType) {
@@ -7013,29 +6939,6 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     } catch (_) {
       /* non-fatal */
     }
-  }
-
-  // ── Thompson arm selection ────────────────────────────────────────────────
-  let _autoModelResult = null;
-  let _selectedArmId   = null;
-  try {
-    _autoModelResult = await selectAutoModel(env, {
-      taskType:    intentResult?.taskType  || 'ask',
-      mode:        intentResult?.mode      || requestedMode || 'agent',
-      workspaceId: workspaceId,
-      tenantId:    tenantId,
-    });
-    _selectedArmId = _autoModelResult?.id ?? null;
-    if (_autoModelResult?.model_key) {
-      console.log('[agent] selectAutoModel', {
-        taskType: intentResult?.taskType,
-        model:    _autoModelResult.model_key,
-        provider: _autoModelResult.provider,
-        armId:    _selectedArmId,
-      });
-    }
-  } catch (_autoErr) {
-    console.warn('[agent] selectAutoModel_failed', String(_autoErr?.message || _autoErr).slice(0, 120));
   }
 
   const trimmedMsg = message.trim();
@@ -7457,7 +7360,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   }
 
   if (agentLikeTooling && env.DB) {
-    const codeImplementationIntent = shouldEnsureCodeCapabilityTools(message, intentResult, null);
+    const codeImplementationIntent = isCodeImplementationIntent(message);
     tools = await enrichToolsFromAgentsamCatalog(env, tools, requestedMode, effectiveMaxTools, {
       imageCapabilityIntent,
       videoCapabilityIntent,
@@ -7468,208 +7371,10 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     if (promptRouteRow) {
       tools = await mergeToolsFromPromptRouteKeys(env, tools, promptRouteRow, effectiveMaxTools);
     }
-
-    tools = filterAgentToolsForRequest(env, tools, message, intentResult).slice(0, effectiveMaxTools);
-
-    if (codeImplementationIntent) {
-      tools = await ensureCodeCapabilityTools(env, tools, effectiveMaxTools);
-    }
-
-    if (shouldEnsureBrowserCapabilityTools(message, intentResult, null, promptRouteRow)) {
-      const beforeBrowser = tools.map(agentToolNameOf).filter(Boolean);
-      tools = await ensureBrowserCapabilityTools(env, tools, effectiveMaxTools);
-      const injectedBrowser = tools
-        .map(agentToolNameOf)
-        .filter((n) => n && !beforeBrowser.includes(n));
-      if (injectedBrowser.length) {
-        console.log(
-          '[agent] browser_capability_autoroute',
-          JSON.stringify({
-            route_key: promptRouteRow?.route_key ?? null,
-            task_type: intentResult?.taskType ?? null,
-            injected_tools: injectedBrowser,
-            message_preview: trimmedMsg.slice(0, 160),
-          }),
-        );
-      }
-    }
-  }
-
-  if (imageCapabilityIntent && agentLikeTooling && env.DB) {
-    const beforeImg = tools.map(agentToolNameOf).filter(Boolean);
-    tools = await ensureImageCapabilityTools(
-      env,
-      tools,
-      imageCapabilityIntent,
-      effectiveMaxTools,
-      workspaceId,
-      requestedMode,
-    );
-    const afterImg = tools.map(agentToolNameOf).filter(Boolean);
-    const injected = afterImg.filter((n) => !beforeImg.includes(n));
-    if (injected.length) {
-      console.log(
-        '[agent] image_capability_autoroute',
-        JSON.stringify({
-          mode: requestedMode,
-          primary_fast_path: directImageIntent,
-          injected_tools: injected,
-          message_preview: trimmedMsg.slice(0, 160),
-        }),
-      );
-    }
-  }
-
-  if (videoCapabilityIntent && agentLikeTooling && env.DB) {
-    const beforeVid = tools.map(agentToolNameOf).filter(Boolean);
-    tools = await ensureVideoCapabilityTools(
-      env,
-      tools,
-      videoCapabilityIntent,
-      effectiveMaxTools,
-      workspaceId,
-      requestedMode,
-    );
-    const afterVid = tools.map(agentToolNameOf).filter(Boolean);
-    const injectedVid = afterVid.filter((n) => !beforeVid.includes(n));
-    if (injectedVid.length) {
-      console.log(
-        '[agent] video_capability_autoroute',
-        JSON.stringify({
-          mode: requestedMode,
-          injected_tools: injectedVid,
-          message_preview: trimmedMsg.slice(0, 160),
-        }),
-      );
-    }
-  }
-
-  /** @type {Record<string, unknown>|null} */
-  let capabilityDecision = null;
-  if (agentLikeTooling && !ingestBypass) {
-    try {
-      const classifyMessage = (() => {
-        const base = stripUserTextForIntent(gate.rewritten_query || message);
-        const sel = browserContextPayload?.selected_element;
-        if (sel && typeof sel === 'object') {
-          const tag = sel.tagName ?? sel.tag;
-          const path = sel.selector ?? sel.path;
-          const bits = [`<${String(tag || '?')}>`];
-          if (path) bits.push(`selector=${String(path).slice(0, 400)}`);
-          return `${base}\n\n[BrowserView selected element: ${bits.join(' ')}]`;
-        }
-        return base;
-      })();
-      capabilityDecision = await classifyWorkspaceCapabilities(env, {
-        message: classifyMessage,
-        browserContext: browserContextPayload,
-        userId,
-        tenantId,
-      });
-      tools = await filterToolsForCapabilityDecision(env, tools, capabilityDecision, gate.rewritten_query || message, {
-        requestedMode,
-        workspaceId,
-      });
-      if (imageCapabilityIntent) {
-        tools = await ensureImageCapabilityTools(
-          env,
-          tools,
-          imageCapabilityIntent,
-          effectiveMaxTools,
-          workspaceId,
-          requestedMode,
-        );
-      }
-      if (videoCapabilityIntent) {
-        tools = await ensureVideoCapabilityTools(
-          env,
-          tools,
-          videoCapabilityIntent,
-          effectiveMaxTools,
-          workspaceId,
-          requestedMode,
-        );
-      }
-      if (shouldEnsureCodeCapabilityTools(message, intentResult, capabilityDecision)) {
-        tools = await ensureCodeCapabilityTools(env, tools, effectiveMaxTools);
-      }
-      if (shouldEnsureBrowserCapabilityTools(message, intentResult, capabilityDecision, promptRouteRow)) {
-        tools = await ensureBrowserCapabilityTools(env, tools, effectiveMaxTools);
-      }
-      if (shouldStripA11yForPlainSurfaceMessage(message, requestedMode)) {
-        tools = stripSurfaceA11yTools(tools);
-      }
-      tools = await ensureAgentDashboardSurfaceCapabilityTools(
-        env,
-        tools,
-        effectiveMaxTools,
-        browserContextPayload?.dashboard_route,
-      );
-
-      const laneMessage = gate.rewritten_query || message;
-      const executionLane = classifyAgentExecutionLane(laneMessage, {
-        requestedMode,
-        browserContext: browserContextPayload,
-        capabilityDecision,
-      });
-      const openWebBackend = await resolveOpenWebSearchBackend(env, {
-        modelKey: body?.model != null ? String(body.model).trim() : null,
-        tenantId,
-      });
-      const laneLog = formatExecutionLaneLogPayload(executionLane, openWebBackend);
-      console.log('[agent] execution_lane_selected', JSON.stringify(laneLog));
-      if (executionLane.primary_lane === 'read_only_file_context' && activeFileEnvelope) {
-        console.log(
-          '[agent] active_file_context_selected',
-          JSON.stringify({
-            source: activeFileEnvelope.source,
-            path: activeFileEnvelope.path,
-            has_content_preview: false,
-            read_tool: activeFileEnvelope.github_path
-              ? 'github_file'
-              : activeFileEnvelope.r2_key
-                ? 'r2_read'
-                : 'workspace_read_file',
-            reason: 'read_only_file_context',
-          }),
-        );
-      }
-      const isPlatformOwner =
-        !ingestBypass &&
-        (authUserIsSuperadmin(authUser) ||
-          String(authUser?.role || '').trim().toLowerCase() === 'owner');
-      tools = filterToolsForExecutionLane(tools, executionLane, {
-        openWebBackend,
-        isPlatformOwner,
-        activeCodeFileOpen,
-      });
-      tools = await ensureActiveFileCapabilityTools(env, tools, effectiveMaxTools, activeFileEnvelope);
-      tools = await ensureWebLaneTools(env, tools, effectiveMaxTools, executionLane, openWebBackend);
-      if (executionLane.primary_lane === 'workspace_grep') {
-        tools = await ensureCodeCapabilityTools(env, tools, effectiveMaxTools);
-      }
-      if (executionLane.primary_lane === 'browser_inspect') {
-        tools = await ensureBrowserCapabilityTools(env, tools, effectiveMaxTools);
-      }
-      capabilityDecision = {
-        ...(capabilityDecision || {}),
-        execution_lane: executionLane.primary_lane,
-        execution_lane_reason: executionLane.reason,
-        open_web_search_tier: openWebBackend.tier,
-        open_web_search_available: openWebBackend.available,
-        open_web_backend: openWebBackend.open_web_backend ?? openWebBackend.tier ?? 'none',
-        open_web_max_results: 5,
-        open_web_search_depth: 'basic',
-        open_web_cache_hit: false,
-      };
-    } catch (e) {
-      console.warn('[agent] capability_tool_filter', e?.message ?? e);
-    }
   }
 
   if (!agentLikeTooling) {
     tools = [];
-    capabilityDecision = null;
   }
 
   if (subagentProfileRow && tools.length) {
@@ -7688,7 +7393,6 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     }
   }
 
-  const confidence = Number(gate.confidence || 0);
   const threshold = Number(modeConfig?.escalation_threshold);
   const escalationThreshold = Number.isFinite(threshold) ? threshold : 0;
 
@@ -7774,7 +7478,6 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   const isAutoModel = !explicitModelFromRequest;
 
   const browserDispatchToolsActive =
-    capabilityDecision?.should_use_browser === true ||
     String(intentResult?.taskType || '').toLowerCase() === 'browser' ||
     (Array.isArray(tools) &&
       tools.some((t) => {
@@ -8356,10 +8059,6 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       'If the sandbox returns `pending_actions`, those are queued for approval automatically; do not retry blocked writes silently.';
   }
 
-  if (!minimalAskChat && capabilityDecision) {
-    systemPrompt += `\n\n${capabilityRouterPromptBlock(capabilityDecision)}`;
-  }
-
   if (!minimalAskChat && imageCapabilityIntent && !directImageIntent) {
     systemPrompt +=
       '\n\n## Image generation (autoroute)\n' +
@@ -8443,76 +8142,6 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         'Access-Control-Allow-Origin': '*',
       },
     });
-  }
-
-  if (capabilityDecision) {
-      const capFamilies = requestedFamiliesForAgentTools(message, intentResult, capabilityDecision);
-      const beforeCapTools = tools.length;
-      tools = filterAgentToolsForRequest(env, tools, message, intentResult, capabilityDecision).slice(0, effectiveMaxTools);
-      if (imageCapabilityIntent) {
-        tools = await ensureImageCapabilityTools(
-          env,
-          tools,
-          imageCapabilityIntent,
-          effectiveMaxTools,
-          workspaceId,
-          requestedMode,
-        );
-      }
-      if (videoCapabilityIntent) {
-        tools = await ensureVideoCapabilityTools(
-          env,
-          tools,
-          videoCapabilityIntent,
-          effectiveMaxTools,
-          workspaceId,
-          requestedMode,
-        );
-      }
-      if (agentToolDebugEnabled(env) || beforeCapTools !== tools.length) {
-        console.log('[agent-tools] capability_scope', JSON.stringify({
-          families: capFamilies,
-          before_count: beforeCapTools,
-          after_count: tools.length,
-          tools: tools.map(agentToolNameOf).filter(Boolean).slice(0, 80),
-        }));
-      }
-
-    emit('capability_selected', { decision: capabilityDecision, tool_families: capFamilies });
-    emit('agent_capability_selected', { decision: capabilityDecision, tool_families: capFamilies });
-    if (capabilityDecision?.execution_lane) {
-      emit('execution_lane_selected', {
-        lane: capabilityDecision.execution_lane,
-        reason: capabilityDecision.execution_lane_reason,
-        backend:
-          capabilityDecision.execution_lane === 'open_web_search'
-            ? capabilityDecision.open_web_backend ?? capabilityDecision.open_web_search_tier ?? 'none'
-            : capabilityDecision.execution_lane,
-        cache_hit: !!capabilityDecision.open_web_cache_hit,
-        max_results: capabilityDecision.open_web_max_results ?? 5,
-        search_depth: capabilityDecision.open_web_search_depth ?? 'basic',
-        open_web_search_tier: capabilityDecision.open_web_search_tier,
-        open_web_search_available: capabilityDecision.open_web_search_available,
-      });
-    }
-    const surf = String(capabilityDecision.default_surface || 'chat');
-    if (
-      surf === 'browser' &&
-      capabilityDecision.should_use_browser &&
-      !isReadOnlyFileContextIntent(message)
-    ) {
-      emit('surface_open', { surface: 'browser', reason: capabilityDecision.reason });
-      emit('agent_surface_open', { surface: 'browser', reason: capabilityDecision.reason });
-    } else if (surf === 'excalidraw' && capabilityDecision.should_use_excalidraw) {
-      emit('surface_open', { surface: 'excalidraw', reason: capabilityDecision.reason });
-      emit('agent_surface_open', { surface: 'excalidraw', reason: capabilityDecision.reason });
-    } else if (
-      (surf === 'monaco' || surf === 'code') &&
-      capabilityDecision.should_use_monaco
-    ) {
-      emit('surface_open', { surface: 'monaco', reason: capabilityDecision.reason });
-      emit('agent_surface_open', { surface: 'monaco', reason: capabilityDecision.reason });
-    }
   }
 
   ;(async () => {
@@ -8602,39 +8231,10 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       return r?.provider != null ? String(r.provider) : 'unknown';
     };
     try {
-      let capabilityArtifactForModel = null;
-      if (agentLikeTooling && capabilityDecision && userId && tenantId && workspaceId && env.DB) {
-        try {
-          const { runWorkspaceCapabilityAction, buildCapabilityPlanFromDecision } = await import(
-            '../core/workspace-capability-actions/index.js'
-          );
-          const userMsg = gate.rewritten_query || message;
-          const plan = buildCapabilityPlanFromDecision(userMsg, capabilityDecision);
-          if (plan) {
-            const capRes = await runWorkspaceCapabilityAction({
-              env,
-              ctx,
-              tenantId,
-              workspaceId,
-              userId,
-              sessionId: sessionId ? String(sessionId) : null,
-              message: userMsg,
-              requestedMode,
-              capabilityPlan: plan,
-              browserContext: browserContextPayload,
-              emit,
-            });
-            if (capRes?.artifact_for_model) capabilityArtifactForModel = capRes.artifact_for_model;
-          }
-        } catch (e) {
-          console.warn('[agent] workspace_capability_action', e?.message ?? e);
-        }
-      }
-
       let chatMessagesBase =
         Array.isArray(body.messages) && body.messages.length
           ? [...body.messages]
-          : [{ role: 'user', content: gate.rewritten_query || message }];
+          : [{ role: 'user', content: message }];
 
       const dbSurfaceCtx =
         browserContextPayload?.databaseContext &&
@@ -8679,19 +8279,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         console.warn('[agent] workspace_context_format', wsCtxErr?.message ?? wsCtxErr);
       }
 
-      const chatMessages =
-        capabilityArtifactForModel
-          ? [
-              ...chatMessagesBase,
-              {
-                role: 'user',
-                content:
-                  'Workspace capability runtime finished. Use ONLY this JSON as ground truth for what the tools observed (URLs, excerpts, errors). Do not fabricate success or page content.\n```json\n' +
-                  JSON.stringify(capabilityArtifactForModel, null, 2).slice(0, 24000) +
-                  '\n```',
-              },
-            ]
-          : chatMessagesBase;
+      const chatMessages = chatMessagesBase;
 
       tried = [];
       const startIdx = isAnthropicSmoketestQuickstartBatch(quickstartBatch)
@@ -8726,9 +8314,7 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         workspace_id: workspaceId,
         mode: requestedMode,
         intent_slug: intentSlug,
-        capability_families: capabilityDecision
-          ? requestedFamiliesForAgentTools(message, intentResult, capabilityDecision)
-          : [],
+        capability_families: [],
       };
 
       while (providerAttempts < maxProviderAttempts && !succeeded) {
