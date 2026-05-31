@@ -965,34 +965,30 @@ async function resolveAgentsamPromptRoute(env, tenantId, modeSlug, intentSlug) {
   const tid = tenantId != null ? String(tenantId).trim() : '';
   const mode = String(modeSlug || '').trim();
   const intent = String(intentSlug || '').trim();
-  try {
-    const row = await env.DB.prepare(
-      `
+  const routeByKeySql = `
       SELECT r.*
       FROM agentsam_prompt_routes r
-      WHERE r.is_active = 1
+      WHERE r.route_key = ?
+        AND r.is_active = 1
         AND (r.tenant_id IS NULL OR r.tenant_id = ?)
-        AND (
-          EXISTS (
-            SELECT 1 FROM json_each(COALESCE(NULLIF(trim(r.intent_labels), ''), '[]')) je
-            WHERE je.value IN (?, ?, 'all', '*')
-          )
-          OR COALESCE(trim(r.intent_labels), '') = ''
-          OR trim(r.intent_labels) = '[]'
-        )
-      ORDER BY
-        CASE WHEN EXISTS (
-          SELECT 1 FROM json_each(COALESCE(NULLIF(trim(r.intent_labels), ''), '[]')) je2
-          WHERE je2.value IN (?, ?)
-        ) THEN 0 ELSE 1 END,
-        CASE WHEN r.tenant_id IS NOT NULL THEN 0 ELSE 1 END,
-        COALESCE(r.priority, 0) ASC
+      ORDER BY CASE WHEN r.tenant_id IS NOT NULL THEN 0 ELSE 1 END,
+               COALESCE(r.priority, 0) ASC
       LIMIT 1
-    `,
-    )
-      .bind(tid, mode, intent, mode, intent)
-      .first();
-    return row || null;
+    `;
+  try {
+    // 1. Mode is primary — user explicitly chose this
+    if (mode) {
+      const modeRoute = await env.DB.prepare(routeByKeySql).bind(mode, tid).first();
+      if (modeRoute) return modeRoute;
+    }
+
+    // 2. Only fall through to task_type if no mode route exists
+    if (intent && intent !== mode) {
+      const taskRoute = await env.DB.prepare(routeByKeySql).bind(intent, tid).first();
+      if (taskRoute) return taskRoute;
+    }
+
+    return null;
   } catch (e) {
     console.warn('[agent] prompt_route', e?.message ?? e);
     return null;
