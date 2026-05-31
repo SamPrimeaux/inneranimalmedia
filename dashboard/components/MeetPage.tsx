@@ -391,7 +391,16 @@ export default function MeetPage({ onContextReady }: { onContextReady?: (ctx: Me
         method: 'POST',
         body: JSON.stringify({ roomId: effRoom || undefined, name: `${effName}'s Meeting` }),
       });
-      const roomData = await roomRes.json();
+      const roomData = await roomRes.json().catch(() => ({}));
+      if (!roomRes.ok) {
+        throw new Error(
+          typeof roomData?.error === 'string'
+            ? roomData.error
+            : typeof roomData?.detail === 'string'
+              ? roomData.detail
+              : `Room setup failed (${roomRes.status})`,
+        );
+      }
       const rid = roomData.roomId;
       if (!rid) throw new Error('Server returned no room ID — check worker deployment');
       setRoomId(rid); setRoomName(roomData.name);
@@ -399,7 +408,17 @@ export default function MeetPage({ onContextReady }: { onContextReady?: (ctx: Me
       const sessRes  = await api(`/room/${rid}/session`, {
         method: 'POST', body: JSON.stringify({ displayName: effName }),
       });
-      const sessData = await sessRes.json();
+      const sessData = await sessRes.json().catch(() => ({}));
+      if (!sessRes.ok) {
+        throw new Error(
+          typeof sessData?.error === 'string'
+            ? sessData.error
+            : typeof sessData?.detail === 'string'
+              ? sessData.detail
+              : `Session failed (${sessRes.status})`,
+        );
+      }
+      if (!sessData.sessionId) throw new Error('Server returned no session ID');
       sessionRef.current = sessData.sessionId;
 
       const pc = new RTCPeerConnection({ iceServers: iceRef.current });
@@ -485,6 +504,7 @@ export default function MeetPage({ onContextReady }: { onContextReady?: (ctx: Me
       if (res.ok && json?.room?.id) {
         setRoomId(json.room.id);
         await joinCall({ roomId: json.room.id });
+        setShowInvite(true);
       } else {
         setError(typeof json?.error === 'string' ? json.error : 'Could not start meeting');
       }
@@ -938,14 +958,14 @@ export default function MeetPage({ onContextReady }: { onContextReady?: (ctx: Me
               </>
             ) : (
               <>
-                <h2 className="lobby-heading">Join a meeting</h2>
+                <h2 className="lobby-heading">Start or join a meeting</h2>
                 {error && <div className="lobby-error">{error}</div>}
                 <label className="lobby-label">Your name</label>
                 <input className="lobby-input" value={displayName} onChange={e => setDisplayName(e.target.value)}
-                  placeholder="Display name" onKeyDown={e => e.key === 'Enter' && joinCall()} />
-                <label className="lobby-label">Room ID <span className="lobby-hint">(blank = new room)</span></label>
-                <input className="lobby-input" value={roomId} onChange={e => setRoomId(e.target.value)}
-                  placeholder="Paste room ID" onKeyDown={e => e.key === 'Enter' && joinCall()} />
+                  placeholder="Display name" onKeyDown={e => e.key === 'Enter' && void startInstantMeeting()} />
+                <p className="lobby-sub" style={{ fontSize: 11, color: 'var(--text-muted, #4a7a75)', margin: '0 0 8px' }}>
+                  Invite guests by email after you start — or share the join link. Guests open the link from their inbox; no room ID to paste.
+                </p>
                 <div className="lobby-dropdown-wrap" ref={newMeetingMenuRef}>
                   <button
                     type="button"
@@ -1030,11 +1050,11 @@ export default function MeetPage({ onContextReady }: { onContextReady?: (ctx: Me
                 {scheduleMsg && (
                   <div className={scheduleMsg.ok ? 'lobby-schedule-msg ok' : 'lobby-schedule-msg err'}>{scheduleMsg.text}</div>
                 )}
-                <button className="lobby-btn" onClick={() => joinCall()}
+                <button className="lobby-btn" type="button" onClick={() => void startInstantMeeting()}
                   disabled={!displayName.trim() || phase === 'connecting'}>
                   {phase === 'connecting'
-                    ? <><Loader2 size={15} className="spin" /> Connecting…</>
-                    : <><Video size={15} /> Join Call</>}
+                    ? <><Loader2 size={15} className="spin" /> Starting…</>
+                    : <><Video size={15} /> Start meeting</>}
                 </button>
               </>
             )}

@@ -120,7 +120,17 @@ export const MediaLibrary: React.FC<{
         revokeLocalBlobUrls(local);
         return;
       }
-      revokeLocalBlobUrls(localBlobItemsRef.current);
+      const prev = localBlobItemsRef.current;
+      const nextIds = new Set(local.map((i) => i.id));
+      for (const old of prev) {
+        if (!nextIds.has(old.id) && old.source === 'local' && old.previewUrl.startsWith('blob:')) {
+          try {
+            URL.revokeObjectURL(old.previewUrl);
+          } catch {
+            /* ignore */
+          }
+        }
+      }
       localBlobItemsRef.current = local;
       setItems(local);
     } catch (e) {

@@ -294,6 +294,7 @@ export const LocalExplorer: React.FC<{
     const r2UploadRef = useRef<HTMLInputElement>(null);
     const [r2UploadTargetBucket, setR2UploadTargetBucket] = useState<string | null>(null);
     const lastNativeFolderSignal = useRef(0);
+    const directoryPickerActiveRef = useRef(false);
     const [googleDriveOAuthRefresh, setGoogleDriveOAuthRefresh] = useState(0);
 
     const mountNativeRoot = useCallback(
@@ -746,6 +747,8 @@ export const LocalExplorer: React.FC<{
     }, [mountNativeRoot, onWorkspaceRootChange]);
 
     const handleOpenFolder = useCallback(async () => {
+        if (directoryPickerActiveRef.current) return;
+        directoryPickerActiveRef.current = true;
         try {
             // File System Access API (Chromium); not in all TS DOM libs
             const dirHandle = await (window as unknown as { showDirectoryPicker: () => Promise<any> }).showDirectoryPicker();
@@ -791,11 +794,18 @@ export const LocalExplorer: React.FC<{
             }
         } catch (err) {
             if (err instanceof Error && err.name === 'AbortError') return;
+            if (err instanceof Error && err.name === 'NotAllowedError') {
+                console.warn('[LocalExplorer] directory picker blocked or already open');
+                return;
+            }
             console.error('Failed to open directory:', err);
+        } finally {
+            directoryPickerActiveRef.current = false;
         }
     }, [mountNativeRoot, localResumeHint]);
 
     const handleReconnectPersistedFolder = useCallback(async () => {
+        if (directoryPickerActiveRef.current) return;
         try {
             const h = await loadPersistedNativeDirectoryHandle();
             if (!h) {

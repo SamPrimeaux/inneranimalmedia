@@ -44,11 +44,18 @@ async function getUserId(request, env) {
 }
 
 async function callsRequest(env, path, method = 'GET', body = null) {
-  const url  = `${CALLS_BASE}/apps/${env.CLOUDFLARE_CALLS_APP_ID}${path}`;
+  const appId = env?.CLOUDFLARE_CALLS_APP_ID != null ? String(env.CLOUDFLARE_CALLS_APP_ID).trim() : '';
+  const appSecret = env?.CLOUDFLARE_CALLS_APP_SECRET != null ? String(env.CLOUDFLARE_CALLS_APP_SECRET).trim() : '';
+  if (!appId || !appSecret) {
+    throw new Error(
+      'Cloudflare Calls is not configured on this worker (CLOUDFLARE_CALLS_APP_ID / CLOUDFLARE_CALLS_APP_SECRET).',
+    );
+  }
+  const url  = `${CALLS_BASE}/apps/${appId}${path}`;
   const opts = {
     method,
     headers: {
-      'Authorization': `Bearer ${env.CLOUDFLARE_CALLS_APP_SECRET}`,
+      'Authorization': `Bearer ${appSecret}`,
       'Content-Type':  'application/json',
     },
   };
@@ -343,7 +350,21 @@ async function handleSession(request, env, roomId) {
   const { user, userId } = await getUserId(request, env);
   if (!userId) return jsonResponse({ error: 'Unauthorized' }, 401);
   const body = await request.json().catch(() => ({}));
-  const data = await callsRequest(env, '/sessions/new', 'POST');
+  let data;
+  try {
+    data = await callsRequest(env, '/sessions/new', 'POST');
+  } catch (e) {
+    const msg = e?.message != null ? String(e.message) : 'Cloudflare Calls session failed';
+    console.warn('[meet] sessions/new', msg);
+    return jsonResponse(
+      {
+        error:
+          'Could not start realtime session. Verify Cloudflare Calls app credentials are set on the worker.',
+        detail: msg.slice(0, 400),
+      },
+      503,
+    );
+  }
 
   await upsertParticipant(env.DB, {
     roomId,
