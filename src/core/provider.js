@@ -3,7 +3,7 @@
  * Routes agent calls using agentsam_model_catalog as canonical execution metadata
  * (api_platform, provider ids). agentsam_ai is legacy/persona fallback when no catalog row exists.
  */
-import { chatWithAnthropic }   from '../integrations/anthropic.js';
+import { chatWithAnthropic, normalizeAnthropicEffort } from '../integrations/anthropic.js';
 import { chatWithToolsOpenAI,
          chatWithToolsOpenAIResponses,
          completeWithOpenAI,
@@ -487,7 +487,11 @@ export async function dispatchStream(env, request, params) {
       return dispatchWorkersAI(env, request, dp);
     case 'ollama':
       return dispatchOllama(env, request, dp);
-    case 'anthropic':
+    case 'anthropic': {
+      const anthropicEffort =
+        normalizeAnthropicEffort(params.reasoningEffort) ||
+        normalizeAnthropicEffort(meta?.effort) ||
+        normalizeAnthropicEffort(options.effort);
       return chatWithAnthropic({
         messages, tools, env, userId,
         options: {
@@ -499,12 +503,18 @@ export async function dispatchStream(env, request, params) {
             : {}),
           ...(params.promptCaching != null ? { promptCaching: params.promptCaching } : {}),
           ...(params.cacheTtl != null ? { cacheTtl: params.cacheTtl } : {}),
+          ...(anthropicEffort ? { effort: anthropicEffort } : {}),
+          ...(params.reasoningEffort != null
+            ? { reasoningEffort: params.reasoningEffort }
+            : {}),
+          ...(params.temperature != null ? { temperature: params.temperature } : {}),
           ...options,
           ...(anthropicContainerId != null && String(anthropicContainerId).trim() !== ''
             ? { container: String(anthropicContainerId).trim() }
             : {}),
         },
       });
+    }
     case 'cursor_sdk':
       return dispatchCursorComposerStream(env, request, {
         ...dp,

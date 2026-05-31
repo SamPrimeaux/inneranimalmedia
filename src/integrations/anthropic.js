@@ -37,7 +37,7 @@ export function anthropicCodeExecutionToolForModel(modelKey) {
   }
   const is45PlusFamily =
     (mk.includes('sonnet') || mk.includes('opus')) &&
-    (mk.includes('4-5') || mk.includes('4-6') || mk.includes('4-7'));
+    (mk.includes('4-5') || mk.includes('4-6') || mk.includes('4-7') || mk.includes('4-8'));
   if (is45PlusFamily) {
     return { type: 'code_execution_20260120', name: 'code_execution' };
   }
@@ -136,6 +136,24 @@ export function anthropicCodeExecutionNeeds202508Beta(tools) {
   );
 }
 
+/** Opus 4.7+ API: adaptive thinking + output_config.effort only — no manual budget_tokens thinking. */
+export function isAnthropicOpus47PlusModel(logicalModelKey, apiModelId) {
+  const s = `${String(logicalModelKey || '').toLowerCase()} ${String(apiModelId || '').toLowerCase()}`;
+  return /opus[-_]?4[-_]7|opus[-_]?4[-_]8|opus_4_7|opus_4_8/.test(s);
+}
+
+const ANTHROPIC_EFFORT_VALUES = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
+
+/** Map gate / DB effort strings to Anthropic output_config.effort (omit none/disabled). */
+export function normalizeAnthropicEffort(raw) {
+  const v = raw != null ? String(raw).trim().toLowerCase() : '';
+  if (!v || v === 'none' || v === 'off' || v === 'disabled') return null;
+  if (ANTHROPIC_EFFORT_VALUES.has(v)) return v;
+  if (v === 'minimal') return 'low';
+  if (v === 'maximal' || v === 'maximum') return 'max';
+  return null;
+}
+
 /**
  * Executes a tool-aware chat completion using the official Anthropic SDK.
  */
@@ -227,26 +245,37 @@ export async function chatWithAnthropic({ messages, tools, env, userId, options 
   const lk = logicalModelKey.toLowerCase();
   const apiId = String(modelForApi).toLowerCase();
   const isHaiku = lk.includes('haiku') || apiId.includes('haiku');
-  const isOpus47 = lk.includes('opus_4_7') || apiId.includes('opus-4-7');
-  const isSonnet46 = lk.includes('sonnet_4_6') || apiId.includes('sonnet-4-6');
+  const isOpus47Plus = isAnthropicOpus47PlusModel(lk, apiId);
   const routingTaskType =
     options.routingTaskType != null ? String(options.routingTaskType).trim() : '';
   const isScoutTask = SCOUT_TASK_TYPES.has(routingTaskType);
 
-  // Effort — DB-driven via features.supports_effort_scaling.
-  // Sonnet 4.6, Opus 4.6, Opus 4.7 all support effort per /v1/models capabilities.
-  // Haiku does not. Add new models by setting supports_effort_scaling=true
-  // in agentsam_ai.features_json — no code change required.
+  // Opus 4.7/4.8 reject non-default temperature / top_p / top_k — never forward from options.
+  if (!isOpus47Plus) {
+    if (options.temperature != null && Number.isFinite(Number(options.temperature))) {
+      streamParams.temperature = Number(options.temperature);
+    }
+    if (options.top_p != null && Number.isFinite(Number(options.top_p))) {
+      streamParams.top_p = Number(options.top_p);
+    }
+    if (options.top_k != null && Number.isFinite(Number(options.top_k))) {
+      streamParams.top_k = Number(options.top_k);
+    }
+  }
+
+  // Effort — output_config.effort (low|medium|high|xhigh|max).
+  // Opus 4.7+ requires adaptive thinking + effort; do not use legacy budget_tokens thinking.
   const supportsEffort =
     features.supports_effort_scaling === true ||
-    features.supports_effort_scaling === 1;
+    features.supports_effort_scaling === 1 ||
+    isOpus47Plus;
 
   if (supportsEffort && !isScoutTask) {
     const effortVal =
-      options.effort ||
-      (modelData.effort != null && String(modelData.effort).trim() !== ''
-        ? String(modelData.effort).trim()
-        : null);
+      normalizeAnthropicEffort(options.effort) ||
+      normalizeAnthropicEffort(options.reasoningEffort) ||
+      normalizeAnthropicEffort(modelData.effort) ||
+      (isOpus47Plus ? 'medium' : null);
     if (effortVal) {
       const existingOut =
         streamParams.output_config && typeof streamParams.output_config === 'object'
@@ -256,33 +285,28 @@ export async function chatWithAnthropic({ messages, tools, env, userId, options 
     }
   }
 
-  // Thinking — driven entirely by agentsam_ai.thinking_mode.
-  // Values (set in DB; never hardcode model names here):
-  //   'none'                 → no thinking param (Haiku scout role)
-  //   'adaptive'             → {type:'adaptive'} only — Opus 4.7 rejects 'enabled'
-  //   'adaptive_and_enabled' → {type:'enabled',budget_tokens} if budget provided,
-  //                            else {type:'adaptive'} — Sonnet 4.6, Opus 4.6
-  // To support a new model: update thinking_mode in agentsam_ai row only.
+  // Thinking — agentsam_ai.thinking_mode (+ Opus 4.7/4.8 hard rule: adaptive only).
+  // Manual {type:'enabled', budget_tokens:N} returns 400 on Opus 4.7+.
   const thinkingMode = String(modelData.thinking_mode || 'none').trim();
+  const opusAdaptiveOnly = isOpus47Plus || thinkingMode === 'adaptive';
 
   if (options.thinking && typeof options.thinking === 'object') {
-    // Explicit object passed by caller — validate against model capability before forwarding.
     const requestedType = String(options.thinking.type || '');
-    if (thinkingMode === 'none') {
+    if (thinkingMode === 'none' && !isOpus47Plus) {
       // Strip — model not using thinking operationally (e.g. Haiku).
-    } else if (thinkingMode === 'adaptive' && requestedType === 'enabled') {
-      // Downgrade: model only supports adaptive (Opus 4.7 returns 400 on 'enabled').
+    } else if (opusAdaptiveOnly || requestedType === 'enabled') {
       streamParams.thinking = { type: 'adaptive' };
     } else {
       streamParams.thinking = options.thinking;
     }
-  } else if (thinkingMode === 'none' || isScoutTask) {
-    // No thinking — scout task or model has no operational thinking mode.
-  } else if (thinkingMode === 'adaptive') {
-    // Opus 4.7: adaptive only — budget_tokens causes 400.
+  } else if (thinkingMode === 'none' && !isOpus47Plus) {
+    if (isScoutTask) {
+      /* scout: no thinking */
+    }
+  } else if (opusAdaptiveOnly) {
     streamParams.thinking = { type: 'adaptive' };
   } else if (thinkingMode === 'adaptive_and_enabled') {
-    // Sonnet 4.6 / Opus 4.6: use enabled+budget if provided, else adaptive.
+    // Sonnet 4.6 / Opus 4.6 only — never Opus 4.7+ (guarded above).
     if (options.thinkingBudget && Number(options.thinkingBudget) > 0) {
       streamParams.thinking = {
         type: 'enabled',
@@ -292,7 +316,6 @@ export async function chatWithAnthropic({ messages, tools, env, userId, options 
       streamParams.thinking = { type: 'adaptive' };
     }
   }
-  // Any unknown future thinking_mode value → no param sent (safe default).
 
   // 3. Structured Output Config (GA moving from legacy output_format)
   if (options.jsonSchema) {
