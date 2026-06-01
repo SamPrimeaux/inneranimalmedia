@@ -11,16 +11,34 @@ export const ASK_GENERIC_SEARCH_FALLBACKS = Object.freeze([
   'agentsam_memory_manager',
 ]);
 
-/** @param {string} message */
-export function askPinnedEvidenceToolNames(message) {
+/**
+ * User wants to mutate repo/editor content (Agent / Multitask — not Ask).
+ * @param {string} message
+ */
+export function agentWriteOrProposeIntent(message) {
+  const t = String(message || '').toLowerCase();
+  if (/\b(propose|proposal|scaffold|full[- ]?stack|implement|build out)\b/i.test(t)) return true;
+  return (
+    /\b(write|upload|push|commit|edit|update|store\/push|save)\b/i.test(t) &&
+    /\b(readme|file|repo|buffer|monaco|github|html|design-studio)\b/i.test(t)
+  );
+}
+
+/** @param {string} message @param {string} [modeSlug] */
+export function askPinnedEvidenceToolNames(message, modeSlug = 'ask') {
   const names = [];
   const t = String(message || '');
+  const mode = String(modeSlug || 'ask').toLowerCase();
+  const executionMode = mode === 'agent' || mode === 'debug' || mode === 'plan' || mode === 'multitask';
 
   if (codeContextIntent(t) || isReadOnlyRepoSearchIntent(t)) {
     names.push('fs_search_files', 'fs_read_file', 'github_file', 'repo_search');
   }
-  if (askDataPlaneIntent(t)) {
+  if (askDataPlaneIntent(t) || (/\baudit\b/i.test(t) && /\b(agentsam_|d1|remote)\b/i.test(t))) {
     names.push('d1_query', 'd1_schema');
+  }
+  if (executionMode && agentWriteOrProposeIntent(t)) {
+    names.push('write_file', 'fs_write_file', 'github_file', 'apply_change_set');
   }
 
   return [...new Set(names)];
@@ -100,7 +118,7 @@ export function augmentAskRouteRequirements(message, base) {
  * @param {{ message: string, workspaceId?: string|null, userId?: string|null, tenantId?: string|null, maxTools: number, scoredRows?: Array<Record<string, unknown>> }} opts
  */
 export async function compileAskEvidenceToolRows(env, opts) {
-  const pinnedNames = askPinnedEvidenceToolNames(opts.message);
+  const pinnedNames = askPinnedEvidenceToolNames(opts.message, opts.modeSlug ?? 'ask');
   if (!env?.DB || !pinnedNames.length) {
     return { pinnedRows: [], mergedRows: opts.scoredRows || [] };
   }

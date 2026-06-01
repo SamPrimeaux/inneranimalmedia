@@ -3,7 +3,7 @@
  * Pins file evidence tools before route scoring caps; excludes orchestration tools.
  */
 import { isReadOnlyFileContextIntent, isReadOnlyRepoSearchIntent } from './code-implementation-intent.js';
-import { ASK_GENERIC_SEARCH_FALLBACKS } from './ask-evidence-tools.js';
+import { ASK_GENERIC_SEARCH_FALLBACKS, askDataPlaneIntent } from './ask-evidence-tools.js';
 
 export const READONLY_REPO_AUDIT_ROUTE_KEY = 'readonly_repo_audit';
 
@@ -46,6 +46,7 @@ export function isReadonlyRepoAuditContext(message) {
   const t = m.toLowerCase();
   if (/\b(find|search|locate)\b/i.test(t) && /\b(checklist|audit)\b/i.test(t)) return true;
   if (/\bfind\b/i.test(t) && /#/.test(m)) return true;
+  if (askDataPlaneIntent(m) && /\baudit\b/i.test(t)) return true;
 
   const auditLike =
     /\baudit\b|\binspect\b|\binventory\b|\btrace\b|\bmatrix\b|runtime\.profile|mode\.controller|evidence|report-only|repo-search|file-read|tool selection|tool contract|tooling_missing/i.test(
@@ -64,6 +65,9 @@ export function isReadonlyRepoAuditContext(message) {
 export function readonlyRepoAuditPinnedToolNames(message) {
   if (!isReadonlyRepoAuditContext(message)) return [];
   const names = [...CORE_EVIDENCE_TOOL_NAMES, ...OPTIONAL_EVIDENCE_TOOL_NAMES];
+  if (askDataPlaneIntent(message)) {
+    names.push('d1_query', 'd1_schema');
+  }
   return [...new Set(names)];
 }
 
@@ -121,6 +125,9 @@ export function augmentReadonlyRepoAuditRouteRequirements(message, base) {
     'github_file',
     'file.read',
     'grep',
+    'd1.read',
+    'd1_query',
+    'd1.schema',
   ]) {
     req.optional_capabilities.push(cap);
   }

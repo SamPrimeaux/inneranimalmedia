@@ -503,7 +503,13 @@ export async function compileModeProfile(env, input) {
 
   const effectiveRouteReq = (() => {
     let req = routeToolRequirements;
-    if (mode === 'ask') {
+    if (
+      mode === 'ask' ||
+      mode === 'agent' ||
+      mode === 'debug' ||
+      mode === 'plan' ||
+      mode === 'multitask'
+    ) {
       req = augmentAskRouteRequirements(message, req);
     }
     const readonlyAudit =
@@ -573,7 +579,7 @@ export async function compileModeProfile(env, input) {
         scoredRows,
       });
       scoredRows = pinned.mergedRows;
-    } else if (mode === 'ask' && askPinnedEvidenceToolNames(message).length > 0) {
+    } else if (askPinnedEvidenceToolNames(message, mode).length > 0) {
       const pinned = await compileAskEvidenceToolRows(env, {
         message,
         workspaceId,
@@ -581,6 +587,7 @@ export async function compileModeProfile(env, input) {
         tenantId,
         maxTools,
         scoredRows,
+        modeSlug: mode,
       });
       scoredRows = pinned.mergedRows;
     }
@@ -601,11 +608,18 @@ export async function compileModeProfile(env, input) {
     );
   }
 
-  if (mode === 'multitask' && toolAllowlist.length === 0 && env?.DB && workspaceId && userId) {
+  const modesWithEvidenceFloor =
+    mode === 'multitask' || mode === 'agent' || mode === 'debug' || mode === 'plan';
+  if (modesWithEvidenceFloor && toolAllowlist.length === 0 && env?.DB && workspaceId && userId) {
     const { listAgentsamToolsByKeys, mapCatalogRowsToAgentTools } = await import(
       './agentsam-tools-catalog.js'
     );
-    const keys = new Set(CORE_EVIDENCE_TOOL_NAMES.map((n) => String(n).toLowerCase()));
+    const { askDataPlaneIntent } = await import('./ask-evidence-tools.js');
+    const floorNames = [...CORE_EVIDENCE_TOOL_NAMES];
+    if (askDataPlaneIntent(message)) {
+      floorNames.push('d1_query', 'd1_schema');
+    }
+    const keys = new Set(floorNames.map((n) => String(n).toLowerCase()));
     const raw = await listAgentsamToolsByKeys(env, keys, { workspaceId });
     compiledToolRows = mapCatalogRowsToAgentTools(raw).slice(0, Math.max(1, maxTools || 8));
     toolAllowlist = compiledToolRows
@@ -683,7 +697,12 @@ export async function compileModeProfile(env, input) {
     refined_route_key: refinedRouteKey,
     color: modeContract.color,
     tool_profile: modeContract.tool_profile,
-    tool_capable_required: toolAllowlist.length > 0,
+    tool_capable_required:
+      toolAllowlist.length > 0 ||
+      mode === 'agent' ||
+      mode === 'debug' ||
+      mode === 'plan' ||
+      mode === 'multitask',
     selected_provider: null,
     _compiled_tool_rows: compiledToolRows,
     _prompt_route_row: promptRouteRow,
