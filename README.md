@@ -1,424 +1,256 @@
 # Inner Animal Media
 
-Canonical platform repo for the Inner Animal Media AI agent operating system, Agent Sam, and all associated infrastructure. Cloudflare Workers + D1 + R2 + Vite dashboard.
+Canonical platform repo for the Inner Animal Media AI agent operating system (**Agent Sam**), the production Worker, and the Vite dashboard. Runtime: **Cloudflare Workers + D1 + R2 + Hyperdrive (Supabase) + PTY (iam-pty)**.
+
+**Tomorrow playbook:** [`docs/TOMORROW_2026-06-01.md`](docs/TOMORROW_2026-06-01.md)  
+**Mode spine plan:** [`agentsamrefine.md`](agentsamrefine.md)  
+**Active D1 daily plan:** `plan_jun01_2026_execution`
 
 ---
 
-## Canonical Facts (read before anything else)
+## Canonical facts (read first)
 
 | Fact | Value |
 |------|-------|
 | **Local path** | `/Users/samprimeaux/inneranimalmedia` |
 | **GitHub** | `https://github.com/SamPrimeaux/inneranimalmedia` |
-| **Worker entry** | `src/index.js` (production) |
-| **Legacy fallback** | `worker.js` (do not grow — modularize out) |
-| **Dashboard app** | `dashboard/` |
-| **Dashboard components** | `dashboard/components/` |
-| **Deploy (default)** | `npm run deploy:full` |
-| **Sandbox** | ❌ Discontinued — do not use `deploy-sandbox.sh` or `promote-to-prod.sh` |
+| **Worker entry (only)** | `src/index.js` — `wrangler.production.toml` `main` |
+| **Legacy `worker.js`** | **Removed** from repo — do not reference in new code or docs |
+| **Dashboard** | `dashboard/` (Vite → `dashboard/dist` → R2 `static/dashboard/app/`) |
+| **D1 database** | `inneranimalmedia-business` (`cf87b717-d4e2-4cf8-bab0-a81268e32d49`) |
+| **Production deploy** | `npm run deploy:full` only (see below) |
+| **Sandbox deploy** | **Discontinued** — do not run `deploy-sandbox.sh` / `promote-to-prod.sh` |
+| **MCP server** | Separate worker — `https://mcp.inneranimalmedia.com` |
 
-**Never use these paths:**
-- `inneranimalmedia-agentsam-dashboard/` — deleted
-- `~/Downloads/inneranimalmedia` — gone
-- `inneranimalmedia-BARE-DELETE` — deleted
-- `march1st-inneranimalmedia` — deleted
-- `agent-dashboard/` — never recreate
+**Never use these paths or repos:**
+
+- `inneranimalmedia-agentsam-dashboard/` — deleted  
+- `~/Downloads/inneranimalmedia` — gone  
+- `agent-dashboard/` — never recreate  
+- `march1st-inneranimalmedia` — deleted  
+
+**Identity in code:** Never hardcode `au_*`, `ws_*`, or `tenant_*` in `src/` or `dashboard/`. Resolve from session / OAuth / D1.
 
 ---
 
-## Repo Layout
+## Runtime contract (Agent Sam)
+
+One chat request follows this spine (see `src/api/agent-chat-spine.js`, `src/core/runtime-profile.js`):
 
 ```
-/Users/samprimeaux/inneranimalmedia/
+POST /api/agent/chat
+  → auth + workspace
+  → resolveModel (D1 agentsam_routing_arms / catalog)
+  → compileModeProfile (D1 agentsam_prompt_routes + agentsam_route_requirements)
+  → execution_kind (agent_tool_loop | multitask_fanout | …)
+  → dispatchStream (provider from agentsam_model_catalog.api_platform)
+  → runAgentToolLoop (tools from compiled allowlist only)
+```
+
+| Mode | `execution_kind` (typical) | Tools | Notes |
+|------|---------------------------|-------|--------|
+| **Ask** | `agent_tool_loop` | Read-biased / minimal | Q&A |
+| **Plan** | `agent_tool_loop` | Plan + read | No blind writes |
+| **Agent** | `agent_tool_loop` | **Must be non-empty** for repo work | Tonight: often `finalToolCount: 0` — **broken** |
+| **Debug** | `agent_tool_loop` | Inspect + terminal | |
+| **Multitask** | `multitask_fanout` | 3-tool RWS bundle (read/search/github) | Subagents; needs working provider stream |
+
+**Provider dispatch** (`src/core/provider.js` + `src/integrations/*`):
+
+| `api_platform` | Integration |
+|----------------|-------------|
+| `openai`, `openai_chat_completions` | `openai.js` |
+| `openai_responses`, `responses` | `openai.js` |
+| `anthropic`, `anthropic_messages` | `anthropic.js` — **no `temperature` in request body** |
+| `gemini_api` | `gemini.js` — SSE via `alt=sse&key=…` |
+| `vertex` | `vertex.js` |
+| `workers_ai` | Workers AI binding |
+| `cursor_sdk` | `cursor-agent.js` |
+
+**Tool surfaces (not “166 tools for every chat”):**
+
+- Catalog: `agentsam_tools` / `agentsam_mcp_tools`
+- Per-route compile: `agentsam_route_requirements` + `selectAgentsamToolsForAgentChat`
+- **File read (working):** `fs_read_file` → `src/core/fs-read-file.js` (Monaco buffer → PTY host path → VM workspace)
+- **File list/write (broken):** `list_dir` / `write_file` still HTTP-loopback to **unwired** `/api/fs/list`, `/api/fs/write`
+- **PTY:** `/workspace/{tenant_id}/{user_id}/` on iam-pty — not the operator’s Mac repo unless synced/cloned there
+
+**Known production issues (2026-06-01):**
+
+- Agent mode can compile **zero tools** while still calling the model  
+- Gemini streaming had invalid URL (`alt=sse?key=…`) — fixed in `buildGeminiUrl`  
+- Anthropic multitask: SDK `Stream` must use `Symbol.asyncIterator` path (not `getReader` SSE)  
+- RWS telemetry: `agentsam_tool_call_events` FK when child `run_id` is not a Supabase UUID  
+- Multitask “ok:3” can mean empty subagent output — not a successful audit  
+
+---
+
+## Repo layout
+
+```
+inneranimalmedia/
 ├── src/
-│   ├── index.js          ← Production Worker entry (fetch + scheduled)
-│   ├── api/              ← HTTP route handlers by domain
-│   ├── core/             ← Auth, crypto, vault, retention, runtime-profile spine
-│   │   ├── agent-mode.js           ← Composer mode enum (ask|plan|agent|debug|multitask)
-│   │   ├── runtime-profile.js      ← compileModeProfile / resolveRuntimeProfile (Phase 1)
-│   │   └── runtime-profile.types.js
-│   ├── lib/              ← Shared utilities (email, etc.)
-│   ├── tools/            ← Agent tool handlers
-│   ├── integrations/     ← Third-party integration wrappers
-│   └── do/               ← Durable Object implementations
-├── agentsamrefine.md     ← Agent Sam mode spine master plan (5 modes → 1 profile → 1 loop)
-├── dashboard/
-│   ├── src/              ← Dashboard app source
-│   ├── components/       ← React component source of truth
-│   └── dist/             ← Vite build output (generated, do not commit)
-├── worker.js             ← Legacy monolith (routing fallback only, phasing out)
-├── scripts/              ← Deploy, ingest, notify, and ops scripts
-│   └── lib/              ← Shared shell helpers (notify.sh, etc.)
-├── migrations/           ← D1 SQL migrations
-├── docs/                 ← Operational docs, OAuth parity map
-├── db/                   ← Schema notes / helpers
-├── analytics/            ← Build manifests, app-builds/
-├── wrangler.jsonc        ← Dev config
-└── wrangler.production.toml ← Production Worker config
+│   ├── index.js              ← Production Worker (fetch + scheduled + queue)
+│   ├── api/                  ← HTTP handlers (agent.js, oauth, settings, …)
+│   ├── core/                 ← Auth, runtime-profile, provider dispatch, routing
+│   │   ├── runtime-profile.js
+│   │   ├── provider.js
+│   │   └── mode-controllers/
+│   ├── integrations/         ← anthropic, openai, gemini, vertex, …
+│   ├── tools/                ← Catalog tool executors (fs, db, terminal, …)
+│   └── cron/
+├── dashboard/                ← Vite React SPA
+├── migrations/               ← D1 SQL (numbered)
+├── scripts/
+│   └── deploy-frontend.sh    ← What deploy:full actually runs
+├── docs/                     ← Operational docs
+├── wrangler.production.toml
+└── package.json
 ```
 
----
-
-## Architecture Rules
-
-- `src/index.js` is the only production entry point. `worker.js` is imported as `legacyWorker` for fallback only.
-- **All new business logic goes in `src/`** — never add implementation to `worker.js`.
-- `worker.js` gets max one import + one route delegation per module. Nothing else.
-- When touching any `worker.js` reference: extract logic into `src/` at the same time.
-- Bundle size target: `worker.js` import removal will drop bundle from ~4.9MB to target.
-- Never hardcode `workspace_id`, `tenant_id`, email addresses, or secret values in source.
+There is **no** `worker.js`, **no** `server.js`, and **no** `legacyWorker` import in `src/index.js`.
 
 ---
 
-## Deploy Commands
+## Deploy
 
-| Command | When to use |
-|---------|-------------|
-| `npm run deploy:full` | **Default for production ships.** Vite build + R2 frontend sync + Worker deploy (`deploy-frontend.sh`) |
-| `npm run deploy:worker` | Worker/API hotfix only when dashboard bundles are unchanged — prefer `deploy:full` for anything user-visible |
-| `./scripts/with-cloudflare-env.sh npx wrangler deploy -c wrangler.production.toml` | Same as `deploy:worker` |
+| Command | What it does |
+|---------|----------------|
+| `npm run deploy:full` | **Default ship.** `scripts/deploy-frontend.sh`: Vite build → R2 sync `static/dashboard/app/` → embed sitemap → `wrangler deploy` production → post-deploy hooks |
+| `npm run deploy:worker` | Worker only (no R2 dashboard bundles) |
+| `npm run deploy` | Wrangler deploy only — **avoid** for full product validation |
 
 **Rules:**
-- `npm run deploy:full` runs generators and ingests first, then `deploy-frontend.sh` (loads `.env.cloudflare`, builds again inside the script, uploads `dashboard/dist` to R2 bucket `inneranimalmedia`, deploys with `wrangler.production.toml`, writes build manifest to `analytics/app-builds/`, fires CI/CD email notification if configured).
-- GitHub push to `main` triggers CF auto-build for the Worker. It does **not** upload the R2 frontend bundle — run `deploy:full` locally when you need the dashboard live immediately.
-- **Never** `cd dashboard` — always run dashboard scripts from repo root.
 
-```bash
-# Right
-npm run build:vite-only
-npm --prefix dashboard install
+- GitHub `main` auto-build deploys the **Worker** only — **not** the dashboard R2 bundle. Run `deploy:full` locally when UI chunks must match.
+- Run from repo root — never `cd dashboard` for builds (`npm run build:vite-only` / `npm --prefix dashboard`).
+- Confirm `pwd` is `/Users/samprimeaux/inneranimalmedia` before wrangler or D1.
+- After ship: `curl -sS https://inneranimalmedia.com/health` and spot-check dashboard JS URLs (chunk 404 → run `deploy:full` again).
 
-# Wrong
-cd dashboard && npm run build
-```
+Optional pipelines (not part of `deploy:full` by default): codebase RAG reindex, Supabase embeddings backfill — see `package.json` `codebase-rag:*` / `reingest:*`.
 
 ---
 
-## Common Commands
+## Common commands
 
 ```bash
-# Install root deps
 npm install
-
-# Install dashboard deps
 npm --prefix dashboard install
 
-# Build dashboard
-npm run build:vite-only
-
-# Dev dashboard
-npm run dev:dashboard
-
-# Preview dashboard
-npm run preview:dashboard
-
-# Analyze bundle (open treemap before any lazy-load work)
-npm --prefix dashboard run build:analyze && open dashboard/dist/bundle-stats.html
-```
-
----
-
-## Secret Resolution
-
-Secrets resolve at runtime in this order: `vault[key] ?? env[key]`
-
-| Layer | Table / Source | Purpose |
-|-------|---------------|---------|
-| Platform vault | `env_secrets` (`key_type='encrypted_d1'`) | Encrypted platform secrets, override wrangler |
-| Public config | `env_secrets` (`key_type='public_config'`) | Non-sensitive runtime config (e.g. `platform_email_provider`) |
-| Registry | `env_secrets` (`key_type='workers_secret'`) | Metadata only — actual value in CF wrangler secrets |
-| User vault | `user_secrets` | Per-user encrypted blobs, audited via `secret_audit_log` |
-| Wrangler fallback | CF Worker secrets | Used when no vault row exists |
-
-**To rotate a platform secret without code changes:**
-```sql
-UPDATE env_secrets SET encrypted_value='new_value', updated_at=datetime('now')
-WHERE key_name='KEY_NAME' AND key_type='public_config';
-```
-
-**Never commit:** `.env.cloudflare`, `.dev.vars`, secrets, `node_modules`, `.wrangler`, `dashboard/dist`
-
----
-
-## Email Architecture
-
-Two completely separate email paths — never mix them:
-
-**Platform email** (deploys, alerts, system notifications)
-- Normal provider: Resend, FROM `*@inneranimalmedia.com`
-- Keys: `RESEND_API_KEY`, `RESEND_FROM` (vault ?? env, never hardcoded)
-- Fallback (current): `gmail_platform` — switched via D1, zero code change to restore Resend:
-  ```sql
-  UPDATE env_secrets SET encrypted_value='resend'
-  WHERE key_name='platform_email_provider' AND key_type='public_config';
-  ```
-- All platform email routes through `src/lib/email.js` → `sendPlatformEmail()`
-- CI/CD scripts notify via `scripts/lib/notify.sh` → `/api/internal/notify` → `src/core/notifications.js`
-
-**User Gmail** (user-initiated sends via connected Google account)
-- Token source: `user_oauth_tokens` WHERE `provider='google'` AND `user_id=?`
-- From address: derived from OAuth identity — never injected by platform
-- Handled by `sendUserGmail()` in `src/lib/email.js`
-
----
-
-## Database
-
-**D1 database:** `inneranimalmedia-business` (`cf87b717-d4e2-4cf8-bab0-a81268e32d49`)
-
-### Canonical agentsam_* tables (use these, not legacy names)
-
-| agentsam table | Replaces |
-|----------------|---------|
-| `agentsam_ai` | `ai_models`, `ai_services` |
-| `agentsam_mcp_tools` | `mcp_registered_tools`, `agent_tools` |
-| `agentsam_mcp_workflows` | `mcp_workflows`, `ai_workflow_pipelines` |
-| `agentsam_mcp_allowlist` | `mcp_server_allowlist` |
-| `agentsam_commands` | `commands`, `custom_commands` |
-| `agentsam_memory` | `agent_memory_index` |
-| `agentsam_plan_tasks` | `agent_tasks`, `tasks` |
-| `agentsam_plans` | `agent_execution_plans`, `plans` |
-| `agentsam_project_context` | `context_index` |
-| `agentsam_usage_events` | `ai_generation_log`, `ai_generation_logs`, `ai_usage_log`, `usage_events` |
-| `agentsam_usage_rollups_daily` | `usage_rollups_daily`, `ai_costs_daily` |
-| `agentsam_webhook_events` | `webhook_events` ✓, `github_webhook_events` ✓ |
-| `agentsam_routing_arms` | `ai_routing_rules`, `model_routing_rules`, `agent_intent_patterns` |
-| `agentsam_tool_call_log` | primary tool call telemetry |
-| `agentsam_tool_stats_compacted` | `mcp_tool_call_stats` |
-| `agentsam_hook` | `hook_subscriptions` |
-| `agentsam_hook_execution` | `hook_executions`, `agent_audit_log` |
-| `agentsam_command_run` | `agent_command_executions` |
-| `agentsam_prompt_versions` | `agent_prompts`, `prompts`, `ai_prompts_library` |
-| `agentsam_deployment_health` | `deployment_tracking`, `iam_deploy_log` |
-| `agentsam_todo` | `tasks` (hub), `worker_to_do` |
-| `agentsam_workspace` | `workspaces`, `tenant_workspaces` |
-| `agentsam_workspace_state` | `agent_workspace_state` |
-| `agentsam_subagent_profile` | `agent_roles`, `agent_scopes` |
-| `agentsam_skill` | `agent_capabilities` |
-| `agentsam_rules_document` | `agent_rules`, `agent_policy_templates` |
-
-### Webhook retention policy
-`agentsam_webhook_events` has a 7-day TTL. Prune runs via the daily retention cron in `src/core/retention.js`. Weekly rollup goes to `agentsam_webhook_weekly`.
-
-### Key workspace identifiers (ops / SQL reference only)
-
-Runtime code must resolve identity from session, OAuth, or D1 — **never hardcode** these in `src/` or `dashboard/`.
-
-| Field | Example D1 value (operator lookup) |
-|-------|-------------------------------------|
-| workspace_id | `ws_inneranimalmedia` |
-| tenant_id | `tenant_sam_primeaux` |
-| user_id (Sam) | resolve from `auth_users` by email when running one-off SQL |
-
-### Retention system (3-layer rollup)
-- **Layer 1:** Raw tables, 7–30 day TTL (hot logs)
-- **Layer 2:** Daily rollup — `agentsam_usage_rollups_daily`, `agentsam_health_daily`, `workspace_usage_metrics`
-- **Layer 3:** Weekly/permanent — `agentsam_webhook_weekly`, `deployments_weekly_rollup`, `spend_ledger_monthly_rollup`
-- Cron fires at `00:10 UTC` daily via `src/core/retention.js` → `runMasterDailyRetention()`
-
----
-
-## Worker Modularization Status
-
-### Verified modular routes (no `X-IAM-Legacy-*` headers)
-
-| Route |
-|-------|
-| `/api/health` |
-| `/auth/login`, `/auth/signup`, `/auth/reset`, `/auth/nope` |
-| `/api/oauth/google/start`, `/api/oauth/github/start` |
-| OAuth callback missing-state paths |
-
-### Remaining legacy surface
-
-- Real browser Google/GitHub OAuth callback parity — needs browser test
-- Generic `/api/*` legacy fallback still present
-- `queue(batch, env, ctx)` still calls `legacyWorker.queue`
-- `import legacyWorker from '../worker.js'` remains until all calls gone
-
-### Retirement order
-
-1. Run real browser Google + GitHub OAuth login tests
-2. Confirm session / cookie / KV / DB / token parity
-3. Audit and remove generic `/api/*` legacy fallback
-4. Move queue handling into `src/`
-5. Remove `import legacyWorker from '../worker.js'`
-6. Archive/delete `worker.js` only after bundle/build/deploy passes clean
-
----
-
-## MCP Server
-
-Separate worker: `inneranimalmedia-mcp-server`  
-Endpoint: `https://mcp.inneranimalmedia.com/mcp`  
-Secrets must stay in sync with main worker (especially `AGENTSAM_BRIDGE_KEY`, `SUPABASE_WEBHOOK_SECRET`).
-
----
-
-## PTY / Terminal
-
-- PTY service (`iam-pty`) runs via PM2 on iMac at port 3099
-- Tunnel runs on Google VPS (no longer requires iMac terminal open)
-- Auth: `AGENTSAM_BRIDGE_KEY` header `X-Bridge-Key` (NOT Authorization Bearer)
-- `TERMINAL_SECRET` is separate — used for `x-pty-auth` on fs_ bridge and PTY WebSocket
-- Break fix: `read -s CF_TOKEN` → PlistBuddy → `kill -9 $(lsof -ti:3099)` → health check
-
----
-
-## Supabase (Vector / Memory)
-
-Project: `dpmuvynqixblxsilnlut` (`inneranimalmedia-business-supabase`)  
-Hyperdrive: `08183bb9d2914e87ac8395d7e4ecff60`
-
-Vectorized tables (1024-dim, `@cf/baai/bge-large-en-v1.5`):
-
-| Table | Role |
-|-------|------|
-| `agent_context_snapshots` | Agent context chunks |
-| `agent_decisions` | Decision RAG |
-| `agent_memory` | Long-term memory |
-| `session_summaries` | Session rollups |
-| `documents` | General doc store |
-
-Backfill trigger:
-```bash
-source scripts/lib/notify.sh  # or read -s SUPABASE_WEBHOOK_SECRET
-bash scripts/supabase-embeddings-backfill.sh
-```
-
----
-
-## R2 Buckets
-
-| Bucket | Purpose |
-|--------|---------|
-| `inneranimalmedia` | Dashboard static bundle (`static/dashboard/agent/*`) |
-| `iam-platform` | Platform assets |
-| `iam-docs` | Documentation |
-| `agent-sam` | Agent artifacts |
-| `autorag` | AutoRAG chunks |
-| `tools` | Tool assets |
-
-Public marketing pages served from R2 ASSETS under `pages/*`.  
-Shared header/footer: `src/components/iam-header.html`, `src/components/iam-footer.html` — mirror down before editing.
-
----
-
-## CI/CD Notifications
-
-Scripts send notifications via `scripts/lib/notify.sh` → `POST /api/internal/notify` → `src/core/notifications.js` → `src/lib/email.js`.
-
-Active events:
-- Deploy complete / failed (sandbox discontinued — prod only)
-- Frontend deploy + embeddings backfill complete
-- Security scan findings (critical severity)
-- Approval-required agent proposals
-
----
-
-## Verification Commands
-
-### Auth routes
-```bash
-for path in /auth/login /auth/signup /auth/reset /auth/nope; do
-  echo "== $path =="
-  curl -sD - -o /tmp/iam-check.html "https://inneranimalmedia.com${path}?v=$(date +%s)" \
-    | grep -Ei 'http/|content-type|x-iam-route-source|x-iam-legacy' || true
-done
-```
-
-### OAuth start routes
-```bash
-curl -sD - -o /tmp/iam-google.html "https://inneranimalmedia.com/api/oauth/google/start?v=$(date +%s)" \
-  | grep -Ei 'http/|location|x-iam-route-source|x-iam-legacy' || true
-```
-
-### Webhook secret sync check
-```bash
-npx wrangler secret list --name inneranimalmedia | grep -i webhook
-npx wrangler secret list --name inneranimalmedia-mcp-server | grep -i webhook
-```
-
-### D1 quick health
-```bash
-npx wrangler d1 execute inneranimalmedia-business \
-  --command "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'agentsam_%' ORDER BY name" \
-  --remote | wc -l
-```
-
----
-
-## Agent Sam — 5 modes, 1 spine
-
-Dashboard composer exposes five modes (`Ask`, `Plan`, `Agent`, `Debug`, `Multitask`) — same enum as Cursor. Today the UI is ahead of runtime: mode selection still fans out into dozens of branches inside `src/api/agent.js`.
-
-**Target:** one user-facing enum → compile D1 registry → flat **`RuntimeProfile`** → one execution loop (`runAgentToolLoop`).
-
-| Phase | Status | Deliverable |
-|-------|--------|-------------|
-| **0 — Schema** | Shipped (working tree) | `runtime-profile.types.js`, `agent-mode.js` |
-| **1 — Compiler (shadow)** | Shipped (working tree) | `compileModeProfile`, shadow log `[runtime-profile] shadow` on every chat |
-| **1b — Materialized profiles** | Next | `agentsam_mode_profiles` migration + `scripts/compile-mode-profiles.js` |
-| **2 — Thin handler** | Planned | Extract `agent-chat-handler.js`; branch on `execution_kind` only |
-| **3 — Dashboard parity** | Planned | Shift+Tab mode cycle; single `mode` POST field |
-| **4 — Multitask fan-out** | Planned | `parallel_policy` + subagent orchestrator |
-
-Full plan: [`agentsamrefine.md`](./agentsamrefine.md)
-
-**Shadow validation after deploy:**
-```bash
-# Worker logs — one line per chat after auth
-grep '[runtime-profile] shadow'
-
+npm run build:vite-only      # dashboard production build
+npm run dev:dashboard        # Vite dev server
+npm run deploy:full          # production ship
+
+npm run guard:identity       # before OAuth/identity changes
 node --test tests/unit/runtime-profile.test.mjs
+node --test tests/unit/gemini-url.test.mjs
+
+# D1 (remote)
+./scripts/with-cloudflare-env.sh npx wrangler d1 execute inneranimalmedia-business \
+  --remote -c wrangler.production.toml --command "SELECT id, status FROM agentsam_plans WHERE id='plan_jun01_2026_execution'"
+
+# Prod logs
+wrangler tail inneranimalmedia
 ```
 
 ---
 
-## Current Next Steps
+## Secret resolution
 
-### P0 — Agent Sam mode spine (active sprint)
+Secrets: `vault[key] ?? env[key]` — platform `env_secrets`, user `user_secrets`, Wrangler secrets for infra only (~8 keys). Never per-user Wrangler secrets.
 
-- [x] **Live spine cutover** — `executeAgentChatSpine` replaces ~2.1k lines of `agentChatSseHandler` maze
-- [x] **RuntimeProfile compiler** — D1 → flat profile + Thompson model bind when Auto
-- [ ] **Commit + deploy** — validate `[runtime-profile]` logs + chat SSE `profile_id` in context event
-- [ ] **Phase 1b** — `agentsam_mode_profiles` migration + compile script (cache compiled profiles)
-- [ ] **Phase 3** — Shift+Tab, single `mode` POST field
-- [ ] **Phase 4** — Multitask fan-out on `parallel_policy`
-
-### P1 — Legacy worker retirement
-
-- [ ] Run real browser Google OAuth login test — confirm no `X-IAM-Legacy-*` headers
-- [ ] Run real browser GitHub OAuth login test
-- [ ] Confirm callback DB/KV/session/token parity
-- [ ] Audit and remove generic `/api/*` legacy fallback
-- [ ] Replace `legacyWorker.queue` with modular handler in `src/`
-- [ ] Remove `import legacyWorker from '../worker.js'`
-
-### P2 — Ops / platform backlog
-
-- [ ] Open `dashboard/dist/bundle-stats.html` — document top 10 bundle contributors before lazy-load refactors
-- [ ] Wire `agentsam_webhook_weekly` rollup into daily cron
-- [ ] Restore Resend when account unsuspended: `UPDATE env_secrets SET encrypted_value='resend' WHERE key_name='platform_email_provider'`
-- [ ] Add `PLATFORM_GMAIL_TOKEN`, `PLATFORM_GMAIL_FROM`, `ALERT_EMAIL` wrangler secrets
+See existing tables in prior docs for `env_secrets` key types. Never commit `.env.cloudflare`, `.dev.vars`, or raw tokens.
 
 ---
 
-## Safety Rules
+## Database (D1)
 
-- Do not commit secrets, `.env.cloudflare`, `node_modules`, `.wrangler`, `dashboard/dist`
-- Do not force-push over working production history without explicit approval
-- Do not delete `worker.js` until `legacyWorker` import is gone and deploy passes clean
-- Do not `cd dashboard` — always use `npm --prefix dashboard` from repo root
-- Do not hardcode workspace_id, tenant_id, email addresses, or secret values in source
-- Sandbox is discontinued — deploy directly to production with `npm run deploy:full`
-- Verify `pwd` = `/Users/samprimeaux/inneranimalmedia` before every terminal session
+**Canonical control-plane tables use the `agentsam_*` prefix** — never abbreviate in migrations or specs (`agentsam_prompt_routes`, not `prompt_routes`).
+
+Operational state: D1 first; Supabase `public.agentsam_*` mirrors are best-effort (plans, workflow runs, tool events).
+
+**Two DB tool lanes:**
+
+- **D1:** `d1_query` / `d1_write` / `d1_schema` → `env.DB`
+- **Supabase:** `supabase_*` → Hyperdrive — not a third “generic SQL” lane
+
+Retention: `src/core/retention.js` daily cron `00:10 UTC`.
 
 ---
 
-*After editing this README:*
+## MCP server
+
+Worker: `inneranimalmedia-mcp-server`  
+Endpoint: `https://mcp.inneranimalmedia.com/mcp`  
+OAuth + workspace tokens: D1-driven — see `docs/` MCP field guide and `.cursor/rules/no-hardcoded-identity-auth-protocol.mdc`.
+
+---
+
+## PTY / terminal
+
+- **iam-pty** on operator Mac (PM2); tunnel via VPS  
+- Auth: `X-Bridge-Key` (`AGENTSAM_BRIDGE_KEY`) — not Bearer for bridge  
+- Tenant isolation: `/workspace/{tenant_id}/{user_id}/`  
+- Terminal gate: `agentsam_user_policy.can_run_pty` — not `isSuperAdmin()`
+
+---
+
+## Agent Sam modes (dashboard)
+
+Composer modes: **Ask | Plan | Agent | Debug | Multitask** — enum in `src/core/agent-mode.js`.
+
+Implementation status:
+
+- **Spine:** `executeAgentChatSpine` + `RuntimeProfile` compiler (live)  
+- **Gap:** Agent route tool allowlist often empty; multitask depends on provider + RWS; docs/README truth pass in progress  
+
+Validation after deploy:
+
 ```bash
-git add README.md
-git commit -m "docs: update canonical repo operating plan"
-git push origin main
+wrangler tail inneranimalmedia
+# Look for: [runtime-profile] … finalToolCount / tool_allowlist_count
+#           [agent] route_contract … toolNames
 ```
+
+---
+
+## Verification
+
+```bash
+# Health
+curl -sS -o /dev/null -w "%{http_code}\n" https://inneranimalmedia.com/health
+
+# Auth pages (modular)
+for path in /auth/login /auth/signup; do
+  curl -sD - -o /dev/null "https://inneranimalmedia.com${path}" | head -5
+done
+
+# Identity guard
+npm run guard:identity
+```
+
+---
+
+## P0 backlog (Jun 1 2026)
+
+Registered in D1: **`plan_jun01_2026_execution`**
+
+1. Agent mode: non-zero compiled tools for dev tasks  
+2. `fs` list/write: PTY or implement `/api/fs/*` — stop 522 loopback  
+3. Gemini streaming URL + catalog `google_model_id` sanity  
+4. RWS: Supabase tool_call_events FK + empty “ok” children  
+5. README + top docs aligned with this file  
+
+---
+
+## Safety
+
+- Do not commit secrets, `dashboard/dist`, `.wrangler`, `*.bak`, `.scratch/`  
+- Do not force-push `main` without explicit approval  
+- Do not hardcode identity in `src/` / `dashboard/`  
+- Production ship: **`npm run deploy:full`** only  
+- Health-only validation is **not** success for UI/agent features  
+
+---
+
+*When you change deploy or entrypoint behavior, update this README in the same PR.*

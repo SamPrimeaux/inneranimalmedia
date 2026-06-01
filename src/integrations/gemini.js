@@ -27,8 +27,10 @@ export function buildGeminiUrl(providerModelId, apiKey, opts = {}) {
   if (modelId.startsWith('models/')) {
     throw new Error(`[gemini] double models/ prefix: ${modelId}`);
   }
-  const action = opts.stream ? 'streamGenerateContent?alt=sse' : 'generateContent';
-  return `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:${action}?key=${apiKey}`;
+  const action = opts.stream ? 'streamGenerateContent' : 'generateContent';
+  const params = new URLSearchParams({ key: apiKey });
+  if (opts.stream) params.set('alt', 'sse');
+  return `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:${action}?${params.toString()}`;
 }
 
 /**

@@ -4575,17 +4575,11 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         assistantContent.push({ type: 'text', text: '' });
         stopReason = 'end_turn';
       }
-    } else if (stream && typeof stream.getReader === 'function') {
-      assistantContent.push({ type: 'text', text: '' });
-      if (isWorkersAiStream) {
-        await consumeWorkersAiText(stream);
-      } else {
-        await consumeSseText(stream);
-      }
-      stopReason = 'end_turn';
-    } else {
-      const ctor = stream && stream.constructor ? stream.constructor.name : typeof stream;
-      console.warn('[agent] stream not iterable/reader/Response:', ctor, Object.prototype.toString.call(stream));
+    } else if (
+      stream &&
+      typeof stream[Symbol.asyncIterator] === 'function' &&
+      !(stream instanceof ReadableStream)
+    ) {
       const handleAnthropicChunk = (chunk) => {
         if (chunk.type === 'message_start') {
           if (chunk.message?.id) emit('id', { id: chunk.message.id });
@@ -4748,6 +4742,17 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         console.warn('[agent] pause_turn max iterations reached, forcing end_turn');
         stopReason = 'end_turn';
       }
+    } else if (stream && typeof stream.getReader === 'function') {
+      assistantContent.push({ type: 'text', text: '' });
+      if (isWorkersAiStream) {
+        await consumeWorkersAiText(stream);
+      } else {
+        await consumeSseText(stream);
+      }
+      stopReason = 'end_turn';
+    } else if (stream != null) {
+      const ctor = stream.constructor ? stream.constructor.name : typeof stream;
+      console.warn('[agent] stream not iterable/reader/Response:', ctor, Object.prototype.toString.call(stream));
     }
 
     if (turnUsage) {
@@ -5092,21 +5097,14 @@ async function runAgentToolLoop(env, ctx, emit, params) {
           });
         } else {
           let toolInput = call.input && typeof call.input === 'object' ? { ...call.input } : {};
-          if (activeFileEnvelopeParam) {
-            const { defaultSearchPathFromActiveFile, applyActiveFileDefaultsToToolInput } = await import(
-              '../core/active-file-envelope.js'
-            );
-            if (call.name === 'fs_search_files' && !toolInput.path && !toolInput.glob_path) {
-              toolInput.path = defaultSearchPathFromActiveFile(activeFileEnvelopeParam);
-            }
-            if (call.name === 'fs_search_files') {
-              const q = String(toolInput.query ?? toolInput.q ?? toolInput.pattern ?? '').trim();
-              if (!q) {
-                const fromPath = String(toolInput.path ?? toolInput.glob_path ?? '').trim();
-                const base = fromPath.split('/').filter(Boolean).pop() || '';
-                if (base && base !== '.') toolInput.query = base.replace(/\.[^.]+$/, '') || base;
-              }
-            }
+          if (call.name === 'fs_search_files') {
+            const { normalizeFsSearchFilesParams } = await import('../core/fs-search-files.js');
+            toolInput = normalizeFsSearchFilesParams(toolInput, {
+              userMessage: mcpCtx.userMessage ?? mcpCtx.message ?? null,
+              activeFileEnvelope: activeFileEnvelopeParam ?? null,
+            });
+          } else if (activeFileEnvelopeParam) {
+            const { applyActiveFileDefaultsToToolInput } = await import('../core/active-file-envelope.js');
             toolInput = applyActiveFileDefaultsToToolInput(call.name, toolInput, activeFileEnvelopeParam);
           }
           execResult = await dispatchToolCallWithBudget(
@@ -5123,6 +5121,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
                 isSuperadmin: mcpCtx.isSuperadmin,
                 request,
                 activeFileEnvelope: activeFileEnvelopeParam,
+                userMessage: mcpCtx.userMessage ?? mcpCtx.message ?? null,
                 ...runSpineIds,
               },
               resolvedContextParam,

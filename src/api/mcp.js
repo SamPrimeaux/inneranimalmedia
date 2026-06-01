@@ -603,7 +603,7 @@ export async function handleMcpApi(request, url, env, ctx) {
       if (!res.ok) {
         scheduleMirrorToolCallEventToSupabase(env, ctx, {
           workspace_id: actorCtx?.workspaceId,
-          run_id: actorCtx?.sessionId ?? null,
+          run_id: actorCtx?.supabase_run_id ?? actorCtx?.workflow_run_id ?? null,
           tool_key: toolName,
           tool_name: toolName,
           tool_category: toolRow?.tool_category ?? 'mcp',
@@ -615,7 +615,7 @@ export async function handleMcpApi(request, url, env, ctx) {
       if (out && out.error) {
         scheduleMirrorToolCallEventToSupabase(env, ctx, {
           workspace_id: actorCtx?.workspaceId,
-          run_id: actorCtx?.sessionId ?? null,
+          run_id: actorCtx?.supabase_run_id ?? actorCtx?.workflow_run_id ?? null,
           tool_key: toolName,
           tool_name: toolName,
           tool_category: toolRow?.tool_category ?? 'mcp',
@@ -626,7 +626,7 @@ export async function handleMcpApi(request, url, env, ctx) {
       }
       scheduleMirrorToolCallEventToSupabase(env, ctx, {
         workspace_id: actorCtx?.workspaceId,
-        run_id: actorCtx?.sessionId ?? null,
+        run_id: actorCtx?.supabase_run_id ?? actorCtx?.workflow_run_id ?? null,
         tool_key: toolName,
         tool_name: toolName,
         tool_category: toolRow?.tool_category ?? 'mcp',

@@ -588,7 +588,11 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
     try {
       scheduleMirrorToolCallEventToSupabase(env, runContext.ctx ?? null, {
         workspace_id: workspaceId,
-        run_id: agentRunId ?? runContext.run_id ?? runContext.workflow_run_id ?? null,
+        run_id:
+          runContext.supabase_run_id ??
+          runContext.workflow_run_id ??
+          runContext.supabaseRunId ??
+          null,
         tool_key: toolKey,
         tool_name: toolName,
         tool_category: row.tool_category ?? null,

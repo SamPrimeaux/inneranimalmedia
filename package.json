@@ -1,7 +1,7 @@
 {
   "name": "inneranimalmedia",
   "version": "1.0.0",
-  "main": "server.js",
+  "main": "src/index.js",
   "scripts": {
     "test": "playwright test",
     "test:ui": "playwright test --ui",
@@ -12,7 +12,7 @@
     "theme-debug:headed": "HEADED=1 node scripts/theme-debug-playwright.mjs",
     "theme-debug:upload": "node scripts/theme-debug-playwright.mjs --upload-r2",
     "dev:launch-desk-server": "node scripts/launch-desk-dev-server.mjs",
-    "start": "node server.js",
+    "start": "echo 'Use: npm run deploy:full (prod) or npx wrangler dev -c wrangler.production.toml' && exit 1",
     "deploy": "./scripts/with-cloudflare-env.sh npx wrangler deploy -c wrangler.production.toml",
     "deploy:worker": "./scripts/with-cloudflare-env.sh npx wrangler deploy -c wrangler.production.toml",
     "deploy:frontend": "bash scripts/deploy-frontend.sh",

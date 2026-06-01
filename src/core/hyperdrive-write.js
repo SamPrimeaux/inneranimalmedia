@@ -45,8 +45,10 @@ async function resolveMirrorWorkspaceUuid(env, rawWorkspaceId) {
 function resolveMirrorRunUuid(rawRunId) {
   const raw = rawRunId != null ? String(rawRunId).trim() : '';
   if (!raw) return null;
-  if (isValidUuid(raw)) return raw;
-  return null;
+  // D1 spine ids (ar_*, wrun_*, etc.) are not Supabase agentsam_workflow_runs UUIDs.
+  if (/^(ar_|arun_|mtc_|sj_|rws_|wf_|wrun_|conv_|fanout_)/i.test(raw)) return null;
+  if (!isValidUuid(raw)) return null;
+  return raw;
 }
 
 /**

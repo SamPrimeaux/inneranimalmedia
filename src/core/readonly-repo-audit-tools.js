@@ -44,6 +44,9 @@ export function isReadonlyRepoAuditContext(message) {
   if (isReadOnlyFileContextIntent(m)) return true;
 
   const t = m.toLowerCase();
+  if (/\b(find|search|locate)\b/i.test(t) && /\b(checklist|audit)\b/i.test(t)) return true;
+  if (/\bfind\b/i.test(t) && /#/.test(m)) return true;
+
   const auditLike =
     /\baudit\b|\binspect\b|\binventory\b|\btrace\b|\bmatrix\b|runtime\.profile|mode\.controller|evidence|report-only|repo-search|file-read|tool selection|tool contract|tooling_missing/i.test(
       t,

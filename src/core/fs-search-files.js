@@ -2,6 +2,10 @@
  * workspace_grep spine — fs_search_files via PTY ripgrep (not Tavily, not list_dir).
  */
 import {
+  applyActiveFileDefaultsToToolInput,
+  defaultSearchPathFromActiveFile,
+} from './active-file-envelope.js';
+import {
   buildRgSearchCommand,
   isSafeRgSearchCommand,
   parseRgJsonMatches,
@@ -11,14 +15,94 @@ import {
 export { buildRgSearchCommand, isSafeRgSearchCommand, parseRgJsonMatches } from './fs-search-rg-parse.js';
 
 /**
+ * Derive ripgrep query from natural-language user text when the model omits `query`.
+ * @param {unknown} message
+ * @returns {string}
+ */
+export function extractSearchQueryFromUserText(message) {
+  const m = String(message || '');
+  if (!m.trim()) return '';
+
+  const quotedContaining = m.match(/containing\s+["']([^"']+)["']/i);
+  if (quotedContaining?.[1]) return String(quotedContaining[1]).trim();
+
+  const quotedFind = m.match(/\bfind(?:\s+all)?\s+(?:files?\s+)?(?:with|for|matching)?\s*["']([^"']+)["']/i);
+  if (quotedFind?.[1]) return String(quotedFind[1]).trim();
+
+  const agentsamTables = m.match(/\bagentsam_[\w]*\b/i);
+  if (agentsamTables?.[0]) return String(agentsamTables[0]).trim();
+
+  if (/\bfind\b/i.test(m)) {
+    const heading = m.match(/#\s*([^\r\n#]+)/);
+    if (heading?.[1]) return String(heading[1]).trim().slice(0, 160);
+  }
+
+  const symbol = m.match(
+    /\b(?:find|search|grep|locate|containing)\b[^.!?\n]{0,160}?\b([A-Za-z_][A-Za-z0-9_]{2,})\b/i,
+  );
+  if (symbol?.[1] && !/^(files?|repo|codebase|workspace|all|the|this|that|and|for|with|agent|sam|audit|checklist)$/i.test(symbol[1])) {
+    return String(symbol[1]).trim();
+  }
+
+  return '';
+}
+
+/**
+ * Normalize fs_search_files tool input (query + optional path).
+ * @param {Record<string, unknown>|null|undefined} params
+ * @param {{ userMessage?: string, activeFileEnvelope?: Record<string, unknown>|null }} [hints]
+ */
+export function normalizeFsSearchFilesParams(params, hints = {}) {
+  const out = params && typeof params === 'object' ? { ...params } : {};
+  let query = String(out.query ?? out.q ?? out.pattern ?? '').trim();
+
+  if (!query && hints.userMessage) {
+    query = extractSearchQueryFromUserText(hints.userMessage);
+  }
+
+  if (!query) {
+    const fromPath = String(out.path ?? out.glob_path ?? '.').trim();
+    const base = fromPath.split('/').filter(Boolean).pop() || '';
+    if (base && base !== '.' && base !== '..') {
+      query = base.replace(/\.[^.]+$/, '') || base;
+    }
+  }
+
+  if (query) {
+    out.query = query;
+    delete out.q;
+    delete out.pattern;
+  }
+
+  if (hints.activeFileEnvelope && typeof hints.activeFileEnvelope === 'object') {
+    if (!out.path && !out.glob_path) {
+      out.path = defaultSearchPathFromActiveFile(hints.activeFileEnvelope);
+    }
+    return applyActiveFileDefaultsToToolInput('fs_search_files', out, hints.activeFileEnvelope);
+  }
+
+  return out;
+}
+
+/**
  * @param {any} env
  * @param {Record<string, unknown>} params
  * @param {Record<string, unknown>} runContext
  */
 export async function executeFsSearchFiles(env, params, runContext = {}) {
   const started = Date.now();
-  const query = String(params.query ?? params.q ?? params.pattern ?? '').trim();
-  const pathArg = String(params.path ?? params.glob_path ?? '.').trim() || '.';
+  const normalized = normalizeFsSearchFilesParams(params, {
+    userMessage:
+      runContext.userMessage ??
+      runContext.message ??
+      runContext.mcpRuntimeContext?.userMessage ??
+      null,
+    activeFileEnvelope:
+      runContext.activeFileEnvelope ?? runContext.active_file_envelope ?? null,
+  });
+
+  const query = String(normalized.query ?? '').trim();
+  const pathArg = String(normalized.path ?? normalized.glob_path ?? '.').trim() || '.';
 
   const userId = String(
     runContext.userId ?? runContext.user_id ?? params.user_id ?? params.session?.user_id ?? '',

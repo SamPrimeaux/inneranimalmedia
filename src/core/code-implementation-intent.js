@@ -50,10 +50,15 @@ export function isReadOnlyRepoSearchIntent(message) {
   if (!m) return false;
   if (messageExplicitlyRequestsBrowserInspection(m)) return false;
 
+  if (/\bfs_search_files\b/i.test(m)) return true;
+
   const searchVerb =
     /\b(find|search|locate|grep|ripgrep|\brg\b|where is|which file|look for)\b/i.test(m) ||
     /\bshow (?:me )?(?:the )?file path\b/i.test(m);
   if (!searchVerb) return false;
+
+  if (/\bfind\b/i.test(m) && /#/.test(m)) return true;
+  if (/\b(find|search|locate)\b/i.test(m) && /\b(checklist|audit)\b/i.test(m)) return true;
 
   const writeWorkflow =
     /\b(implement|patch|apply patch|save|sync|persist|deploy|commit|create pr|refactor|scaffold|wire up|edit and save|update the file)\b/i.test(

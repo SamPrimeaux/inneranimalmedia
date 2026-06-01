@@ -527,7 +527,11 @@ export async function recordMcpToolExecution(env, fields) {
       scheduleMirrorToolCallEventToSupabase(env, null, {
         id,
         workspace_id: workspaceId,
-        run_id: normalized.run_group_id ?? normalized.session_id ?? null,
+        run_id:
+          normalized.supabase_run_id ??
+          normalized.workflow_run_id ??
+          normalized.agent_run_id ??
+          null,
         tool_key: normalized.tool_key ?? normalized.tool_name ?? 'mcp_tool',
         tool_name: normalized.tool_name ?? normalized.tool_key ?? 'mcp_tool',
         tool_category: normalized.tool_category ?? 'mcp',

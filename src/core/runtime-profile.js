@@ -14,6 +14,7 @@ import {
 } from './ask-evidence-tools.js';
 import {
   READONLY_REPO_AUDIT_ROUTE_KEY,
+  CORE_EVIDENCE_TOOL_NAMES,
   augmentReadonlyRepoAuditRouteRequirements,
   compileReadonlyRepoAuditToolRows,
   filterReportChildOrchestrationTools,
@@ -598,6 +599,18 @@ export async function compileModeProfile(env, input) {
     compiledToolRows = compiledToolRows.filter((r) =>
       allowSet.has(String(r.name || r.tool_name || '').trim()),
     );
+  }
+
+  if (mode === 'multitask' && toolAllowlist.length === 0 && env?.DB && workspaceId && userId) {
+    const { listAgentsamToolsByKeys, mapCatalogRowsToAgentTools } = await import(
+      './agentsam-tools-catalog.js'
+    );
+    const keys = new Set(CORE_EVIDENCE_TOOL_NAMES.map((n) => String(n).toLowerCase()));
+    const raw = await listAgentsamToolsByKeys(env, keys, { workspaceId });
+    compiledToolRows = mapCatalogRowsToAgentTools(raw).slice(0, Math.max(1, maxTools || 8));
+    toolAllowlist = compiledToolRows
+      .map((r) => String(r.name || r.tool_name || '').trim())
+      .filter(Boolean);
   }
 
   const modeContract = AGENT_MODE_CONTRACT[mode] || AGENT_MODE_CONTRACT.agent;
