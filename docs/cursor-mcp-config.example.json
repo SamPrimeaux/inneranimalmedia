@@ -2,10 +2,13 @@
   "_comment": "Documentation only — merge into YOUR .cursor/mcp.json by hand; do not let agents overwrite that file.",
   "mcpServers": {
     "inneranimalmedia": {
-      "type": "http",
       "url": "https://mcp.inneranimalmedia.com/mcp",
-      "headers": {
-        "Authorization": "Bearer ${CURSOR_MCP_TOKEN}"
+      "auth": {
+        "type": "oauth",
+        "authorizationUrl": "https://inneranimalmedia.com/api/oauth/authorize",
+        "tokenUrl": "https://inneranimalmedia.com/api/oauth/token",
+        "clientId": "iam_mcp_inneranimalmedia",
+        "scopes": ["mcp:tools", "iam:agent"]
       }
     },
     "chrome-devtools": {
