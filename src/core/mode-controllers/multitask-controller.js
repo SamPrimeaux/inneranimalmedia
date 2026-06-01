@@ -75,6 +75,42 @@ export async function executeMultitaskTurn(env, ctx, input) {
       const mergeStrategy = profile.parallel_policy?.merge_strategy === 'report' ? 'report' : 'synthesize';
       const nowUnix = Math.floor(Date.now() / 1000);
       const fanoutId = `saf_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+      const allowSpawn = profile.parallel_policy?.enabled === true;
+
+      if (!allowSpawn) {
+        // Policy gate: do not create spawn_job or child runs when spawn is disabled.
+        emit('agentsam_subagent_fanout_started', {
+          fanout_id: fanoutId,
+          parent: {
+            profile_id: profile.profile_id,
+            profile_hash: profile.profile_hash,
+            mode: profile.mode,
+            mode_controller: profile.mode_controller,
+            execution_kind: profile.execution_kind,
+          },
+          policy: { max_subagents: 0, merge_strategy: mergeStrategy },
+          requested: { subtasks_count: 0 },
+          created_at_unix: nowUnix,
+        });
+        emit('agentsam_subagent_action_required', {
+          fanout_id: fanoutId,
+          subagent_run_id: null,
+          required_action: 'user_input',
+          reason: 'subagent_spawn_disabled_by_policy',
+          action: {
+            action_id: 'enable_subagent_spawn',
+            label: 'Enable subagent spawn',
+            kind: 'user_input',
+            payload: {
+              message:
+                'This user is not permitted to spawn subagents (agentsam_user_policy.allow_subagent_spawn = 0). Enable it in workspace user policy to use Multitask fanout.',
+            },
+          },
+          created_at_unix: nowUnix,
+        });
+        emit('done', {});
+        return;
+      }
 
       // (1) Ensure subagent profiles exist (seamless install).
       const prof = await ensureSubagentProfilesAvailable(env, { userId, workspaceId, tenantId });
