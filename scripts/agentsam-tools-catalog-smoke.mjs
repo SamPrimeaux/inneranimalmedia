@@ -18,6 +18,7 @@ const {
   validateHandlerConfigForExecution,
   toolCategoriesFromLanes,
   mapCatalogRowsToAgentTools,
+  toolRowMatchesCategoryFilter,
 } = await import(pathToFileURL(path.join(REPO, 'src/core/agentsam-tools-catalog.js')).href);
 
 const { parseHandlerConfig } = await import(
@@ -39,14 +40,19 @@ function mockEnv(rows) {
   return {
     DB: {
       prepare(sql) {
-        const isList = sql.includes('lower(tool_category) IN');
+        const isList =
+          sql.includes('FROM agentsam_tools') &&
+          (sql.includes('lower(tool_category) IN') || sql.includes('lower(tool_category) LIKE'));
         const isLoad = sql.includes('display_name = ?');
         return {
           bind(...args) {
             if (isList) {
-              const cats = args.slice(0, -1).map((c) => String(c).toLowerCase());
               const lim = Number(args[args.length - 1]) || 50;
-              let out = active.filter((r) => cats.includes(String(r.tool_category).toLowerCase()));
+              const filterBinds = args.slice(0, -1);
+              const laneCats = filterBinds
+                .filter((b) => !String(b).includes('%'))
+                .map((c) => String(c).toLowerCase());
+              let out = active.filter((r) => toolRowMatchesCategoryFilter(r.tool_category, laneCats));
               out = out.slice(0, lim);
               return {
                 all: async () => ({ results: out }),
@@ -123,6 +129,59 @@ if (capped.length > 8) fail(`limit 8 expected <=8 tools, got ${capped.length}`);
 if (capped.length >= CATALOG_ACTIVE_TOOL_COUNT) {
   fail(`capped list must be < ${CATALOG_ACTIVE_TOOL_COUNT}`);
 } else ok(`category list capped (${capped.length} tools, not ${CATALOG_ACTIVE_TOOL_COUNT})`);
+
+const dottedRows = [
+  {
+    tool_key: 'agentsam_d1_query',
+    tool_name: 'agentsam_d1_query',
+    display_name: 'agentsam_d1_query',
+    tool_category: 'database.d1.query',
+    description: 'D1 query',
+    input_schema: '{"type":"object","properties":{}}',
+    handler_config: JSON.stringify({
+      binding: 'DB',
+      operation: 'query',
+      auth_source: 'platform',
+    }),
+    handler_type: 'd1',
+    workspace_scope: '["*"]',
+    modes_json: '["agent"]',
+    risk_level: 'low',
+    requires_approval: 0,
+    is_active: 1,
+    is_degraded: 0,
+  },
+  {
+    tool_key: 'agentsam_terminal_local',
+    tool_name: 'agentsam_terminal_local',
+    display_name: 'agentsam_terminal_local',
+    tool_category: 'terminal.local',
+    description: 'terminal',
+    input_schema: '{"type":"object","properties":{}}',
+    handler_config: JSON.stringify({
+      auth_source: 'platform',
+      env_key: 'PTY_AUTH_TOKEN',
+    }),
+    handler_type: 'terminal',
+    workspace_scope: '["*"]',
+    modes_json: '["agent"]',
+    risk_level: 'low',
+    requires_approval: 0,
+    is_active: 1,
+    is_degraded: 0,
+  },
+];
+const dottedEnv = mockEnv(dottedRows);
+const dottedListed = await listAgentsamToolsForContext(dottedEnv, {
+  workspaceId: 'ws_test',
+  categories: toolCategoriesFromLanes(['develop']),
+  limit: 20,
+});
+if (!dottedListed.some((r) => r.tool_name === 'agentsam_d1_query')) {
+  fail('database.d1.query must match develop lane d1 category filter');
+} else if (!dottedListed.some((r) => r.tool_name === 'agentsam_terminal_local')) {
+  fail('terminal.local must match develop lane terminal category filter');
+} else ok('dotted tool_category prefixes match lane category filter');
 
 const badCfgRow = {
   tool_key: 'browser_close_session',

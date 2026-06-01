@@ -176,6 +176,72 @@ export const LANE_TO_TOOL_CATEGORIES = {
   terminal: ['terminal'],
 };
 
+/** Lane category → dotted `tool_category` prefixes (canonical catalog rows). */
+const CATEGORY_LIKE_PREFIXES = /** @type {Record<string, string[]>} */ ({
+  d1: ['database.d1%'],
+  supabase: ['database.supabase%', 'database.hyperdrive%'],
+  terminal: ['terminal.%'],
+  filesystem: ['filesystem.%'],
+  github: ['github.%'],
+  memory: ['memory.%'],
+  browser: ['browser.%'],
+  ui: ['browser.%', 'ui.%'],
+  knowledge: ['knowledge.%', 'research.%'],
+  context: ['context.%'],
+  ai: ['ai.%'],
+  web: ['web.%'],
+  deploy: ['deploy.%'],
+  cloudflare: ['cloudflare.%', 'platform.%'],
+  agent: ['agent.%'],
+  storage: ['storage.%', 'r2.%'],
+  integrations: ['integrations.%'],
+  email: ['email.%'],
+  workflow: ['workflow.%'],
+  network: ['network.%'],
+  media: ['media.%'],
+});
+
+/**
+ * SQL fragment + binds for lane category filters (exact + dotted prefixes).
+ * @param {string[]} categories lowercased lane categories
+ * @returns {{ clause: string, binds: string[] } | null}
+ */
+export function buildToolCategoryFilterClause(categories) {
+  const cats = [...new Set((categories || []).map((c) => trim(c).toLowerCase()).filter(Boolean))];
+  if (!cats.length) return null;
+
+  const parts = [`lower(tool_category) IN (${cats.map(() => '?').join(',')})`];
+  const binds = [...cats];
+  const likeSet = new Set();
+  for (const cat of cats) {
+    for (const p of CATEGORY_LIKE_PREFIXES[cat] || []) likeSet.add(p);
+  }
+  for (const p of likeSet) {
+    parts.push('lower(tool_category) LIKE ?');
+    binds.push(p);
+  }
+  return { clause: `(${parts.join(' OR ')})`, binds };
+}
+
+/**
+ * JS mirror of {@link buildToolCategoryFilterClause} for tests / mocks.
+ * @param {string} toolCategory
+ * @param {string[]} categories
+ */
+export function toolRowMatchesCategoryFilter(toolCategory, categories) {
+  const tc = trim(toolCategory).toLowerCase();
+  const cats = [...new Set((categories || []).map((c) => trim(c).toLowerCase()).filter(Boolean))];
+  if (!tc || !cats.length) return false;
+  if (cats.includes(tc)) return true;
+  for (const cat of cats) {
+    for (const p of CATEGORY_LIKE_PREFIXES[cat] || []) {
+      const prefix = p.endsWith('%') ? p.slice(0, -1) : p;
+      if (tc.startsWith(prefix)) return true;
+    }
+  }
+  return false;
+}
+
 const RISK_ORDER = { low: 0, medium: 1, high: 2, critical: 3 };
 
 function parseJsonSafe(raw, fallback = null) {
@@ -463,7 +529,8 @@ export async function listAgentsamToolsForContext(env, opts = {}) {
 
   let results = [];
   try {
-    const placeholders = categories.map(() => '?').join(',');
+    const categoryFilter = buildToolCategoryFilterClause(categories);
+    if (!categoryFilter) return [];
     const { results: rows } = await env.DB.prepare(
       `SELECT tool_key, tool_name, display_name, tool_category, description,
               input_schema, handler_config, capability_key, risk_level, requires_approval,
@@ -471,11 +538,11 @@ export async function listAgentsamToolsForContext(env, opts = {}) {
        FROM agentsam_tools
        WHERE COALESCE(is_active, 1) = 1
          AND COALESCE(is_degraded, 0) = 0
-         AND lower(tool_category) IN (${placeholders})
+         AND ${categoryFilter.clause}
        ORDER BY COALESCE(sort_priority, 50) ASC, tool_name ASC
        LIMIT ?`,
     )
-      .bind(...categories, Math.min(lim * 4, 120))
+      .bind(...categoryFilter.binds, Math.min(lim * 4, 120))
       .all();
     results = rows || [];
   } catch (e) {
