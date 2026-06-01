@@ -6,6 +6,8 @@ import {
   createSpawnJob,
   createChildRun,
   markAgentRunComplete,
+  markAgentRunStarted,
+  estimateAgentRunCostUsd,
   bumpSpawnJobAfterChild,
   finalizeSpawnJob,
 } from '../subagent-spawn-d1.js';
@@ -60,14 +62,19 @@ function emitChildToolContractLog(emit, payload) {
  * @param {string} missingTools
  * @param {number} t0
  */
-async function returnReadToolContractMissing(env, ctx, input, c, message, missingTools, t0) {
+async function returnReadToolContractMissing(env, ctx, c, missingTools, t0, childProfile = null) {
   const err = `READ_TOOL_CONTRACT_MISSING:${missingTools.join(',')}`;
   if (c.childRunId) {
     await markAgentRunComplete(env, ctx, {
       runId: c.childRunId,
       status: 'failed',
+      latencyMs: Date.now() - t0,
       errorMessage: err,
-      outputSummary: err,
+      modelKey: childProfile?.model_key ?? null,
+      provider: childProfile?.selected_provider ?? '',
+      routingArmId: childProfile?.routing_arm_id ?? null,
+      mode: childProfile?.mode ?? 'ask',
+      taskType: childProfile?.routing_task_type ?? 'ask',
     }).catch(() => {});
   }
   return {
@@ -83,6 +90,36 @@ async function returnReadToolContractMissing(env, ctx, input, c, message, missin
     inputTokens: 0,
     outputTokens: 0,
     costUsd: 0,
+  };
+}
+
+/**
+ * @param {Record<string, unknown>|null|undefined} loopResult
+ * @param {import('../runtime-profile.types.js').RuntimeProfile} childProfile
+ * @param {number} durationMs
+ */
+async function resolveChildLoopTelemetry(env, loopResult, childProfile, durationMs) {
+  const usage = loopResult?.totalUsage && typeof loopResult.totalUsage === 'object' ? loopResult.totalUsage : {};
+  const inputTokens = Math.max(0, Math.floor(Number(usage.input_tokens) || 0));
+  const outputTokens = Math.max(0, Math.floor(Number(usage.output_tokens) || 0));
+  const modelKey =
+    loopResult?.modelKey != null && String(loopResult.modelKey).trim()
+      ? String(loopResult.modelKey).trim()
+      : childProfile?.model_key != null
+        ? String(childProfile.model_key).trim()
+        : null;
+  const costUsd = await estimateAgentRunCostUsd(env, modelKey, inputTokens, outputTokens);
+  return {
+    modelKey,
+    provider: childProfile?.selected_provider != null ? String(childProfile.selected_provider) : '',
+    routingArmId: childProfile?.routing_arm_id != null ? String(childProfile.routing_arm_id) : null,
+    mode: childProfile?.mode != null ? String(childProfile.mode) : 'agent',
+    taskType: childProfile?.routing_task_type != null ? String(childProfile.routing_task_type) : 'multitask',
+    inputTokens,
+    outputTokens,
+    costUsd,
+    durationMs: Math.max(0, Math.floor(Number(durationMs) || 0)),
+    toolCalls: Math.max(0, Math.floor(Number(loopResult?.toolCallsUsed) || 0)),
   };
 }
 
@@ -358,6 +395,19 @@ export async function executeMultitaskTurn(env, ctx, input) {
       }
 
       if (!execEnabled) {
+        if (parentRunId) {
+          await markAgentRunComplete(env, ctx, {
+            runId: parentRunId,
+            status: 'failed',
+            latencyMs: 0,
+            errorMessage: 'fanout execution disabled by policy (allow_fanout_execution=0)',
+            modelKey: profile.model_key,
+            provider: profile.selected_provider,
+            routingArmId: profile.routing_arm_id,
+            mode: profile.mode,
+            taskType: profile.routing_task_type || 'multitask',
+          });
+        }
         for (const c of childSpecs) {
           emit('agentsam_subagent_run_resume_required', {
             fanout_id: fanoutId,
@@ -388,6 +438,17 @@ export async function executeMultitaskTurn(env, ctx, input) {
         mergeStrategy === 'report' || readonlyAuditChild ? 'ask' : 'agent';
       const activeFileEnvelope = input.activeFileEnvelope ?? null;
       const agentChatResolvedContext = input.agentChatResolvedContext ?? null;
+
+      if (parentRunId) {
+        await markAgentRunStarted(env, ctx, {
+          runId: parentRunId,
+          modelKey: profile.model_key,
+          provider: profile.selected_provider,
+          routingArmId: profile.routing_arm_id,
+          mode: profile.mode,
+          taskType: profile.routing_task_type || 'multitask',
+        });
+      }
 
       const results = await Promise.all(
         childSpecs.map(async (c) => {
@@ -478,11 +539,10 @@ export async function executeMultitaskTurn(env, ctx, input) {
             return returnReadToolContractMissing(
               env,
               ctx,
-              input,
               c,
-              message,
               evidenceAssessment.missing,
               t0,
+              childProfile,
             );
           }
 
@@ -535,8 +595,20 @@ export async function executeMultitaskTurn(env, ctx, input) {
             created_at_unix: Math.floor(Date.now() / 1000),
           });
 
+          if (c.childRunId) {
+            await markAgentRunStarted(env, ctx, {
+              runId: c.childRunId,
+              modelKey: childProfile.model_key,
+              provider: childProfile.selected_provider,
+              routingArmId: childProfile.routing_arm_id,
+              mode: childProfile.mode,
+              taskType: childProfile.routing_task_type,
+            });
+          }
+
+          let loopResult = null;
           try {
-            await runAgentToolLoop(env, ctx, sink, {
+            loopResult = await runAgentToolLoop(env, ctx, sink, {
               request: input.request,
               messages: [{ role: 'user', content: buildChildUserMessage(message, c.i, childSpecs.length, c.slug) }],
               tools,
@@ -578,6 +650,7 @@ export async function executeMultitaskTurn(env, ctx, input) {
               runtimeProfile: childProfile,
             });
           } catch (e) {
+            const telemetry = await resolveChildLoopTelemetry(env, loopResult, childProfile, Date.now() - t0);
             return {
               ok: false,
               subagentRunId: c.subagentRunId,
@@ -585,15 +658,21 @@ export async function executeMultitaskTurn(env, ctx, input) {
               childRunId: c.childRunId,
               status: blocked ? 'blocked' : 'error',
               error: blocked || (e?.message ?? String(e)),
-              durationMs: Date.now() - t0,
-              toolCalls,
+              durationMs: telemetry.durationMs,
+              toolCalls: telemetry.toolCalls || toolCalls,
               output: textChunks.join('').trim(),
-              inputTokens: 0,
-              outputTokens: 0,
-              costUsd: 0,
+              inputTokens: telemetry.inputTokens,
+              outputTokens: telemetry.outputTokens,
+              costUsd: telemetry.costUsd,
+              modelKey: telemetry.modelKey,
+              provider: telemetry.provider,
+              routingArmId: telemetry.routingArmId,
+              mode: telemetry.mode,
+              taskType: telemetry.taskType,
             };
           }
 
+          const telemetry = await resolveChildLoopTelemetry(env, loopResult, childProfile, Date.now() - t0);
           return {
             ok: !blocked,
             subagentRunId: c.subagentRunId,
@@ -601,12 +680,17 @@ export async function executeMultitaskTurn(env, ctx, input) {
             childRunId: c.childRunId,
             status: blocked ? 'blocked' : 'ok',
             error: blocked,
-            durationMs: Date.now() - t0,
-            toolCalls,
+            durationMs: telemetry.durationMs,
+            toolCalls: telemetry.toolCalls || toolCalls,
             output: textChunks.join('').trim(),
-            inputTokens: 0,
-            outputTokens: 0,
-            costUsd: 0,
+            inputTokens: telemetry.inputTokens,
+            outputTokens: telemetry.outputTokens,
+            costUsd: telemetry.costUsd,
+            modelKey: telemetry.modelKey,
+            provider: telemetry.provider,
+            routingArmId: telemetry.routingArmId,
+            mode: telemetry.mode,
+            taskType: telemetry.taskType,
           };
         }),
       );
@@ -614,6 +698,10 @@ export async function executeMultitaskTurn(env, ctx, input) {
       let okCount = 0;
       let errCount = 0;
       const mergedParts = [];
+      let rollupInputTokens = 0;
+      let rollupOutputTokens = 0;
+      let rollupCostUsd = 0;
+      let rollupLatencyMs = 0;
       for (const r of results) {
         const ok = r.status === 'ok';
         if (ok) okCount += 1;
@@ -641,20 +729,30 @@ export async function executeMultitaskTurn(env, ctx, input) {
             runId: r.childRunId,
             status: ok ? 'completed' : 'failed',
             latencyMs: r.durationMs,
-            inputTokens: 0,
-            outputTokens: 0,
-            costUsd: 0,
+            inputTokens: r.inputTokens,
+            outputTokens: r.outputTokens,
+            costUsd: r.costUsd,
             errorMessage: ok ? null : r.error,
+            modelKey: r.modelKey,
+            provider: r.provider,
+            routingArmId: r.routingArmId,
+            mode: r.mode,
+            taskType: r.taskType,
           });
         }
         await bumpSpawnJobAfterChild(env, ctx, {
           spawnJobId: spawnJob.spawnJobId,
           ok,
-          inputTokens: 0,
-          outputTokens: 0,
-          costUsd: 0,
+          inputTokens: r.inputTokens,
+          outputTokens: r.outputTokens,
+          costUsd: r.costUsd,
           latencyMs: r.durationMs,
         });
+
+        rollupInputTokens += Math.max(0, Math.floor(Number(r.inputTokens) || 0));
+        rollupOutputTokens += Math.max(0, Math.floor(Number(r.outputTokens) || 0));
+        rollupCostUsd += Number(r.costUsd) || 0;
+        rollupLatencyMs += Math.max(0, Math.floor(Number(r.durationMs) || 0));
 
         emit('agentsam_subagent_run_result', {
           fanout_id: fanoutId,
@@ -703,6 +801,39 @@ export async function executeMultitaskTurn(env, ctx, input) {
         subagentsFailed: errCount,
         subagentsSucceeded: okCount,
       });
+
+      if (parentRunId) {
+        const parentStatus =
+          errCount === 0 ? 'completed' : okCount > 0 ? 'partial' : 'failed';
+        await markAgentRunComplete(env, ctx, {
+          runId: parentRunId,
+          status: parentStatus,
+          latencyMs: rollupLatencyMs,
+          inputTokens: rollupInputTokens,
+          outputTokens: rollupOutputTokens,
+          costUsd: rollupCostUsd,
+          errorMessage: errCount > 0 ? `${errCount}/${childSpecs.length} subagents failed` : null,
+          modelKey: profile.model_key,
+          provider: profile.selected_provider,
+          routingArmId: profile.routing_arm_id,
+          mode: profile.mode,
+          taskType: profile.routing_task_type || 'multitask',
+        });
+      }
+
+      console.log(
+        '[multitask_fanout_telemetry]',
+        JSON.stringify({
+          fanout_id: fanoutId,
+          spawn_job_id: spawnJob.spawnJobId,
+          parent_run_id: parentRunId,
+          children: childSpecs.length,
+          rollup_input_tokens: rollupInputTokens,
+          rollup_output_tokens: rollupOutputTokens,
+          rollup_cost_usd: rollupCostUsd,
+          parent_status: parentRunId ? (errCount === 0 ? 'completed' : okCount > 0 ? 'partial' : 'failed') : null,
+        }),
+      );
 
       emit('agentsam_subagent_fanout_result', {
         fanout_id: fanoutId,

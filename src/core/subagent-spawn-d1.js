@@ -11,9 +11,93 @@
  */
 
 import { scheduleToolCallLog } from './agentsam-ops-ledger.js';
+import { estimateModelRunCostUsd } from './model-pricing.js';
+import { pragmaTableInfo } from './retention.js';
 
 function unixNow() {
   return Math.floor(Date.now() / 1000);
+}
+
+/**
+ * @param {import('@cloudflare/workers-types').D1Database} db
+ * @param {Record<string, unknown>} fields
+ */
+async function patchAgentRunRow(db, runId, fields) {
+  const cols = await pragmaTableInfo(db, 'agentsam_agent_run');
+  const sets = [];
+  const binds = [];
+  for (const [col, val] of Object.entries(fields)) {
+    if (val === undefined) continue;
+    if (!cols.has(col)) continue;
+    sets.push(`${col} = ?`);
+    binds.push(val);
+  }
+  if (cols.has('updated_at_unix')) {
+    sets.push('updated_at_unix = ?');
+    binds.push(unixNow());
+  }
+  if (!sets.length) return { ok: false, reason: 'no_columns' };
+  binds.push(String(runId).trim());
+  await db.prepare(`UPDATE agentsam_agent_run SET ${sets.join(', ')} WHERE id = ?`).bind(...binds).run();
+  return { ok: true, reason: null };
+}
+
+/**
+ * @param {any} env
+ * @param {string|null|undefined} modelKey
+ * @param {number} inputTokens
+ * @param {number} outputTokens
+ */
+export async function estimateAgentRunCostUsd(env, modelKey, inputTokens, outputTokens) {
+  if (!env?.DB || !modelKey) return 0;
+  try {
+    const priced = await estimateModelRunCostUsd(env.DB, {
+      modelKey: String(modelKey).trim(),
+      inputTokens: Math.max(0, Math.floor(Number(inputTokens) || 0)),
+      outputTokens: Math.max(0, Math.floor(Number(outputTokens) || 0)),
+      cacheReadTokens: 0,
+    });
+    return Number(priced?.costUsd) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Mark an agent run as actively executing (multitask child / spine).
+ * @param {any} env
+ * @param {any} ctx
+ * @param {{
+ *   runId: string,
+ *   modelKey?: string|null,
+ *   provider?: string|null,
+ *   routingArmId?: string|null,
+ *   mode?: string|null,
+ *   taskType?: string|null,
+ * }} p
+ */
+export async function markAgentRunStarted(env, ctx, p) {
+  if (!env?.DB || !p?.runId) return { ok: false, reason: 'no_db' };
+  try {
+    await patchAgentRunRow(env.DB, p.runId, {
+      status: 'running',
+      started_at: new Date().toISOString(),
+      model_key: p.modelKey != null ? String(p.modelKey).trim() : null,
+      provider: p.provider != null ? String(p.provider).trim() : '',
+      routing_arm_id: p.routingArmId != null ? String(p.routingArmId).trim() : null,
+      mode: p.mode != null ? String(p.mode).trim() : null,
+      task_type: p.taskType != null ? String(p.taskType).trim() : null,
+    });
+  } catch (e) {
+    return { ok: false, reason: e?.message ?? String(e) };
+  }
+  scheduleToolCallLog(env, ctx, {
+    toolName: 'agent_run_started',
+    status: 'success',
+    agent_run_id: p.runId,
+    inputSummary: `agent_run marked running model=${p.modelKey ?? 'auto'}`,
+  });
+  return { ok: true, reason: null };
 }
 
 function id(prefix) {
@@ -242,41 +326,38 @@ export async function createSpawnJob(env, ctx, p) {
  * @param {any} ctx
  * @param {{
  *   runId: string,
- *   status: 'completed'|'failed'|'partial'|'cancelled',
+ *   status: 'completed'|'failed'|'partial'|'cancelled'|'running',
  *   latencyMs?: number,
  *   inputTokens?: number,
  *   outputTokens?: number,
  *   costUsd?: number,
  *   errorMessage?: string|null,
+ *   modelKey?: string|null,
+ *   provider?: string|null,
+ *   routingArmId?: string|null,
+ *   mode?: string|null,
+ *   taskType?: string|null,
  * }} p
  */
 export async function markAgentRunComplete(env, ctx, p) {
   if (!env?.DB) return { ok: false, reason: 'no_db' };
   const st = String(p.status || '').trim();
+  const completedAt = new Date().toISOString();
   try {
-    await env.DB.prepare(
-      `UPDATE agentsam_agent_run
-       SET status = ?,
-           completed_at = datetime('now'),
-           latency_ms = ?,
-           input_tokens = ?,
-           output_tokens = ?,
-           cost_usd = ?,
-           error_message = ?,
-           updated_at_unix = ?
-       WHERE id = ?`,
-    )
-      .bind(
-        st,
-        Math.max(0, Math.floor(Number(p.latencyMs) || 0)),
-        Math.max(0, Math.floor(Number(p.inputTokens) || 0)),
-        Math.max(0, Math.floor(Number(p.outputTokens) || 0)),
-        Number(p.costUsd) || 0,
-        p.errorMessage != null ? String(p.errorMessage).slice(0, 8000) : null,
-        unixNow(),
-        String(p.runId).trim(),
-      )
-      .run();
+    await patchAgentRunRow(env.DB, p.runId, {
+      status: st,
+      completed_at: completedAt,
+      latency_ms: Math.max(0, Math.floor(Number(p.latencyMs) || 0)),
+      input_tokens: Math.max(0, Math.floor(Number(p.inputTokens) || 0)),
+      output_tokens: Math.max(0, Math.floor(Number(p.outputTokens) || 0)),
+      cost_usd: Number(p.costUsd) || 0,
+      error_message: p.errorMessage != null ? String(p.errorMessage).slice(0, 8000) : null,
+      model_key: p.modelKey != null ? String(p.modelKey).trim() : null,
+      provider: p.provider != null ? String(p.provider).trim() : null,
+      routing_arm_id: p.routingArmId != null ? String(p.routingArmId).trim() : null,
+      mode: p.mode != null ? String(p.mode).trim() : null,
+      task_type: p.taskType != null ? String(p.taskType).trim() : null,
+    });
   } catch (e) {
     return { ok: false, reason: e?.message ?? String(e) };
   }
@@ -285,6 +366,9 @@ export async function markAgentRunComplete(env, ctx, p) {
     status: 'success',
     agent_run_id: p.runId,
     inputSummary: `agent_run marked ${st}`,
+    inputTokens: Math.max(0, Math.floor(Number(p.inputTokens) || 0)),
+    outputTokens: Math.max(0, Math.floor(Number(p.outputTokens) || 0)),
+    costUsd: Number(p.costUsd) || 0,
   });
   return { ok: true, reason: null };
 }
