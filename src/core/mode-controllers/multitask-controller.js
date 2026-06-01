@@ -14,15 +14,48 @@ import { resolveRuntimeProfile, toolsManifestFromCompiledRows } from '../runtime
 import {
   appendSubagentProfileToSystemPrompt,
   filterToolsForSubagentProfile,
+  pickMultitaskSubagentProfiles,
 } from '../subagent-profile-resolve.js';
+import { askPinnedEvidenceToolNames } from '../ask-evidence-tools.js';
 
 function buildChildUserMessage(fullMessage, index, total, slug) {
   return (
     `You are subagent ${index + 1}/${total} (\`${slug}\`) in a multitask fanout.\n` +
     `Complete your slice of the parent task using read-only evidence tools when files or D1 context are needed.\n` +
+    `You MUST call fs_read_file, github_file, or fs_search_files for any src/ path in the task before claiming TOOLING_MISSING.\n` +
     `If ### Open file (editor) content is present in the parent message, treat it as authoritative.\n\n` +
     `---\n\n${String(fullMessage || '').trim()}`
   );
+}
+
+/**
+ * Merge pinned Ask evidence tools after subagent glob filter (report-mode audits).
+ * @param {any} env
+ * @param {Array<Record<string, unknown>>} filtered
+ * @param {Array<Record<string, unknown>>} allTools
+ * @param {string} message
+ * @param {string|null} workspaceId
+ */
+async function mergePinnedEvidenceToolsForReport(env, filtered, allTools, message, workspaceId) {
+  const pinnedNames = askPinnedEvidenceToolNames(message);
+  if (!env?.DB || !pinnedNames.length) return filtered.length ? filtered : allTools;
+
+  const { listAgentsamToolsByKeys, mapCatalogRowsToAgentTools } = await import('../agentsam-tools-catalog.js');
+  const rawPinned = await listAgentsamToolsByKeys(env, new Set(pinnedNames.map((n) => n.toLowerCase())), {
+    workspaceId,
+    limit: 8,
+  });
+  const pinnedTools = mapCatalogRowsToAgentTools(rawPinned);
+  const seen = new Set(filtered.map((t) => String(t.name || t.tool_name || '').trim()).filter(Boolean));
+  const merged = [...filtered];
+  for (const t of pinnedTools) {
+    const n = String(t.name || t.tool_name || '').trim();
+    if (n && !seen.has(n)) {
+      merged.push(t);
+      seen.add(n);
+    }
+  }
+  return merged.length ? merged : allTools;
 }
 
 function emitParentMultitaskSummary(emit, fanoutId, mergedOutput, okCount, total) {
@@ -249,8 +282,8 @@ export async function executeMultitaskTurn(env, ctx, input) {
         return;
       }
 
-      // (4) Create queued child runs (actual fanout execution loop is next phase).
-      const chosen = prof.profiles.slice(0, maxSubagents);
+      // (4) Create queued child runs — task-aware profile pick (not sort_order-only).
+      const chosen = pickMultitaskSubagentProfiles(prof.profiles, maxSubagents, message);
       const execEnabled = profile.parallel_policy?.execution_enabled === true;
 
       const childSpecs = [];
@@ -370,7 +403,10 @@ export async function executeMultitaskTurn(env, ctx, input) {
 
           const promptRouteRow = childProfile._prompt_route_row ?? null;
           const toolsAll = toolsManifestFromCompiledRows(childProfile._compiled_tool_rows || []);
-          const tools = filterToolsForSubagentProfile(toolsAll, c.row);
+          let tools = filterToolsForSubagentProfile(toolsAll, c.row);
+          if (mergeStrategy === 'report') {
+            tools = await mergePinnedEvidenceToolsForReport(env, tools, toolsAll, message, workspaceId);
+          }
 
           const minimalAsk =
             childProfile.max_tools === 0 &&

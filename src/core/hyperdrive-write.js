@@ -164,6 +164,13 @@ export function scheduleMirrorToolCallEventToSupabase(env, ctx, params) {
       ? rawId
       : crypto.randomUUID();
 
+  const rawRunId = params.run_id != null ? String(params.run_id).trim() : '';
+  const runId =
+    rawRunId &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(rawRunId)
+      ? rawRunId
+      : null;
+
   scheduleHyperdriveInsert(
     env,
     ctx,
@@ -184,7 +191,7 @@ export function scheduleMirrorToolCallEventToSupabase(env, ctx, params) {
     [
       id,
       workspaceId,
-      params.run_id != null ? String(params.run_id) : null,
+      runId,
       toolKey,
       params.tool_category != null ? String(params.tool_category) : null,
       status,

@@ -22,6 +22,66 @@ function toolNameOf(t) {
   return String(t?.name || t?.tool_name || '').trim();
 }
 
+/** Map profile allowed_tool_globs tokens to catalog tool name patterns (not literal substring only). */
+function toolMatchesSubagentGlob(toolName, globToken) {
+  const n = toolNameOf({ name: toolName }).toLowerCase();
+  const g = String(globToken || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\*+$/, '');
+  if (!n || !g) return false;
+
+  const matchers = {
+    read: () => /(?:^|_)(?:read|file)|github_file|fs_read|repo_read|workspace_read/.test(n),
+    write: () => /(?:^|_)(?:write|edit|patch)|fs_write|github_write/.test(n),
+    glob: () => /search|glob|list_files|fs_search|repo_search/.test(n),
+    grep: () => /grep|search|rg_|repo_search|fs_search/.test(n),
+    terminal: () => /terminal|pty|shell|run_command/.test(n),
+    browser: () => /browser|cdt_|playwright/.test(n),
+    web: () => /web|fetch|http|browse/.test(n),
+    d1: () => /^d1_|^d1_query|^d1_schema|^d1_explain/.test(n),
+    sql: () => /sql|d1_query|d1_schema|d1_explain/.test(n),
+  };
+
+  if (matchers[g]) return matchers[g]();
+  return n.includes(g);
+}
+
+/**
+ * Pick up to N subagent profiles for multitask fanout (task-aware, not sort_order-only).
+ * @param {Array<Record<string, unknown>>} profiles
+ * @param {number} maxSubagents
+ * @param {string} [message]
+ */
+export function pickMultitaskSubagentProfiles(profiles, maxSubagents, message = '') {
+  const max = Math.max(1, Math.min(3, Math.floor(Number(maxSubagents) || 3)));
+  const list = Array.isArray(profiles) ? profiles : [];
+  if (!list.length) return [];
+
+  const msg = String(message || '').toLowerCase();
+  const auditLike =
+    /audit|inspect|inventory|trace|matrix|runtime.profile|mode.controller|evidence|source|report-only|repo-search|file-read/.test(
+      msg,
+    );
+
+  const preferred = auditLike
+    ? ['code-editor', 'deep-researcher', 'sqlcoder', 'sam-scout', 'anthropic-scout', 'deploy-validator']
+    : ['sam-builder', 'anthropic-builder', 'code-editor', 'deep-researcher', 'sam-scout'];
+
+  const bySlug = new Map(list.map((p) => [String(p.slug || ''), p]));
+  const chosen = [];
+  for (const slug of preferred) {
+    const row = bySlug.get(slug);
+    if (row && !chosen.includes(row)) chosen.push(row);
+    if (chosen.length >= max) return chosen.slice(0, max);
+  }
+  for (const p of list) {
+    if (chosen.length >= max) break;
+    if (!chosen.includes(p)) chosen.push(p);
+  }
+  return chosen.slice(0, max);
+}
+
 /**
  * @param {import('@cloudflare/workers-types').D1Database | null | undefined} db
  * @param {{
@@ -123,11 +183,10 @@ export function filterToolsForSubagentProfile(tools, profile) {
 
   const globs = parseAllowedToolGlobs(profile.allowed_tool_globs);
   if (globs?.length) {
-    const allow = new Set(globs.map((g) => g.toLowerCase()));
     out = out.filter((t) => {
-      const n = toolNameOf(t).toLowerCase();
-      for (const g of allow) {
-        if (n.includes(g)) return true;
+      const n = toolNameOf(t);
+      for (const g of globs) {
+        if (toolMatchesSubagentGlob(n, g)) return true;
       }
       return false;
     });
