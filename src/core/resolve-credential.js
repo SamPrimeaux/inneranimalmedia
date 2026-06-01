@@ -80,6 +80,9 @@ function readPlatformEnv(env, config) {
       value: typeof bound === 'string' ? bound : bound,
     };
   }
+  if (config.platform_bindingless === true || config.platform_bindingless === 1) {
+    return { auth_source: 'platform', env_key: null, binding: null, value: null };
+  }
   throw new Error('[resolveCredential] platform requires env_key, secret_key, auth_secret, or binding');
 }
 

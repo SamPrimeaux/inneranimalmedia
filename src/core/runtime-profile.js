@@ -5,6 +5,13 @@
 import { normalizeAgentRuntimeMode, AGENT_MODE_CONTRACT } from './agent-mode.js';
 import { loadModeToolPolicy } from './agent-mode-tool-policy.js';
 import { filterAskReadEvidenceTools } from './agent-tool-planes.js';
+import {
+  augmentAskRouteRequirements,
+  compileAskEvidenceToolRows,
+  askPinnedEvidenceToolNames,
+  askDataPlaneIntent as askMessageDataPlaneIntent,
+  codeContextIntent as askMessageCodeContextIntent,
+} from './ask-evidence-tools.js';
 import { RUNTIME_PROFILE_VERSION } from './runtime-profile.types.js';
 
 const TERMINAL_TOOL_NAMES = ['terminal_run', 'terminal_execute', 'run_command', 'bash'];
@@ -73,29 +80,14 @@ function messageHasBrowserUrlNavigation(text) {
  * @param {string} message
  */
 function askDataPlaneIntent(mode, message) {
-  return (
-    mode === 'ask' &&
-    /\bd1\b|agentsam_|agentsam\b|hyperdrive|\bsql\b|query the (?:d1 )?database|from agentsam_|pragma|table_info|\bdb tables?\b|how many rows|\bselect\b.*\bfrom\b/i.test(
-      message,
-    )
-  );
+  return mode === 'ask' && askMessageDataPlaneIntent(message);
 }
 
 /**
- * Codebase / repo / file context — read-only evidence tools warranted.
  * @param {string} message
  */
 function codeContextIntent(message) {
-  const t = String(message || '');
-  return (
-    /\b(where is|where are|find|which file|grep|defined in|set before|set in|called from|implemented in|configured in|look up|search (?:the )?(?:repo|codebase|code|project))\b/i.test(
-      t,
-    ) ||
-    /\b(agentsam_|src\/|dashboard\/|migrations\/|\.js\b|\.tsx\b|\.sql\b|handler_key|route_key|workflow_key|tool_key|compileModeProfile|agent\.js)\b/i.test(
-      t,
-    ) ||
-    /\b(task_type|agent_run|prompt_route|runtime.profile|workflow.executor)\b/i.test(t)
-  );
+  return askMessageCodeContextIntent(message);
 }
 
 /**
@@ -469,6 +461,9 @@ export async function compileModeProfile(env, input) {
       })
     : null;
 
+  const effectiveRouteReq =
+    mode === 'ask' ? augmentAskRouteRequirements(message, routeToolRequirements) : routeToolRequirements;
+
   const modeToolPolicy = await loadModeToolPolicy(env, mode, { routeKey, taskType });
 
   const promptRouteMax =
@@ -478,7 +473,7 @@ export async function compileModeProfile(env, input) {
   const modelCap = maxModelToolsForAgentTask(taskType, mode);
   const maxTools = effectiveAgentChatToolCap({
     promptRouteMax,
-    routeReqMax: routeToolRequirements?.max_tools,
+    routeReqMax: effectiveRouteReq?.max_tools ?? routeToolRequirements?.max_tools,
     modelCap,
     requestLimit: 20,
   });
@@ -496,7 +491,7 @@ export async function compileModeProfile(env, input) {
   ) {
     const { selectAgentsamToolsForAgentChat } = await import('./agentsam-tools-catalog.js');
     const det = await selectAgentsamToolsForAgentChat(env.DB, { userId, tenantId, workspaceId }, {
-      routeToolRequirements: routeToolRequirements || {
+      routeToolRequirements: effectiveRouteReq || {
         route_key: routeKey,
         task_type: taskType,
         allowed_lanes: ['general'],
@@ -513,7 +508,19 @@ export async function compileModeProfile(env, input) {
       catalogLimit: Math.min(96, maxTools * 4),
       outputLimit: maxTools,
     });
-    compiledToolRows = det.rows || [];
+    let scoredRows = det.rows || [];
+    if (mode === 'ask' && askPinnedEvidenceToolNames(message).length > 0) {
+      const pinned = await compileAskEvidenceToolRows(env, {
+        message,
+        workspaceId,
+        userId,
+        tenantId,
+        maxTools,
+        scoredRows,
+      });
+      scoredRows = pinned.mergedRows;
+    }
+    compiledToolRows = scoredRows;
     toolAllowlist = compiledToolRows.map((r) => String(r.name || r.tool_name || '').trim()).filter(Boolean);
   }
 

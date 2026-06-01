@@ -301,7 +301,8 @@ export async function executeMcpCatalogRow(env, mcpRow, params, runContext) {
  */
 export async function executeCatalogTool(env, row, config, input, runContext, credentials) {
   const rawInput = parseInput(input);
-  const handlerType = String(row.handler_type || '').toLowerCase();
+  let handlerType = String(row.handler_type || '').toLowerCase();
+  let execConfig = { ...config };
   const params = {
     ...rawInput,
     workspace_id: runContext.workspaceId ?? runContext.workspace_id,
@@ -310,6 +311,21 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
   };
   const toolKey = String(row.tool_key || row.tool_name || '').trim();
   const toolName = String(row.tool_name || row.tool_key || '').trim();
+
+  if (
+    toolKey === 'knowledge_search' ||
+    ((handlerType === 'hyperdrive' || handlerType === 'supabase') &&
+      String(execConfig.dispatcher || '').toLowerCase().includes('semantic'))
+  ) {
+    handlerType = 'ai';
+    execConfig = {
+      ...execConfig,
+      dispatcher: 'legacy_unified_rag',
+      legacy_unified_rag: true,
+    };
+  }
+  config = execConfig;
+
   const workspaceId = String(runContext.workspaceId ?? runContext.workspace_id ?? '').trim();
   const tenantId = String(runContext.tenantId ?? runContext.tenant_id ?? '').trim() || null;
   const userId = String(runContext.userId ?? runContext.user_id ?? '').trim() || null;
@@ -659,6 +675,35 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
 
     case 'hyperdrive':
     case 'supabase': {
+      if (
+        toolKey === 'knowledge_search' ||
+        String(execConfig.dispatcher || '').toLowerCase().includes('semantic')
+      ) {
+        const { legacyUnifiedRagSearch } = await import('../api/rag.js');
+        const query = String(
+          params.query || params.q || params.message || runContext.userMessage || '',
+        ).trim();
+        if (!query) {
+          result = { ok: false, error: 'knowledge_search requires query in input' };
+          break;
+        }
+        const out = await legacyUnifiedRagSearch(env, query, {
+          topK: Number(params.top_k ?? params.topK ?? 8) || 8,
+          tenantId,
+          workspaceId,
+          sessionId: conversationId,
+          caller: `catalog_tool:${toolKey}`,
+        });
+        result = {
+          ok: true,
+          body: {
+            matches: out.matches || [],
+            results: out.results || [],
+            count: out.count || 0,
+          },
+        };
+        break;
+      }
       const sql = String(params.sql || params.query || '').trim();
       if (!sql) {
         result = { ok: false, error: 'hyperdrive/supabase tool requires sql in input' };
