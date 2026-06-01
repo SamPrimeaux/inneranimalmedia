@@ -290,11 +290,9 @@ export async function chatWithAnthropic({ messages, tools, env, userId, options 
     options.routingTaskType != null ? String(options.routingTaskType).trim() : '';
   const isScoutTask = SCOUT_TASK_TYPES.has(routingTaskType);
 
-  // Opus 4.7/4.8 reject non-default temperature / top_p / top_k — never forward from options.
+  // Never send temperature on Anthropic Messages API bodies (many SKUs reject non-default values).
+  // Opus 4.7/4.8 also reject non-default top_p / top_k — omit those for Opus only.
   if (!isOpus47Plus) {
-    if (options.temperature != null && Number.isFinite(Number(options.temperature))) {
-      streamParams.temperature = Number(options.temperature);
-    }
     if (options.top_p != null && Number.isFinite(Number(options.top_p))) {
       streamParams.top_p = Number(options.top_p);
     }

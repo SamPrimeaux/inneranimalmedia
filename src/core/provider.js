@@ -163,6 +163,19 @@ function resolveDispatchPlatform(meta) {
   return plat;
 }
 
+/** Anthropic Messages API — never forward sampling temperature in request bodies. */
+function isAnthropicDispatchPlatform(platform, provider) {
+  const plat = String(platform || '').toLowerCase();
+  const prov = String(provider || '').toLowerCase();
+  return plat === 'anthropic' || plat === 'anthropic_messages' || prov === 'anthropic';
+}
+
+function omitAnthropicTemperature(options) {
+  if (!options || typeof options !== 'object') return {};
+  const { temperature: _omit, ...rest } = options;
+  return rest;
+}
+
 /**
  * @param {Record<string, unknown>} catalogRow
  * @param {Set<string>} colset
@@ -503,11 +516,13 @@ export async function dispatchStream(env, request, params) {
       return dispatchWorkersAI(env, request, dp);
     case 'ollama':
       return dispatchOllama(env, request, dp);
-    case 'anthropic': {
+    case 'anthropic':
+    case 'anthropic_messages': {
       const anthropicEffort =
         normalizeAnthropicEffort(params.reasoningEffort) ||
         normalizeAnthropicEffort(meta?.effort) ||
         normalizeAnthropicEffort(options.effort);
+      const anthropicOptions = omitAnthropicTemperature(options);
       return chatWithAnthropic({
         messages, tools, env, userId,
         options: {
@@ -523,8 +538,7 @@ export async function dispatchStream(env, request, params) {
           ...(params.reasoningEffort != null
             ? { reasoningEffort: params.reasoningEffort }
             : {}),
-          ...(params.temperature != null ? { temperature: params.temperature } : {}),
-          ...options,
+          ...anthropicOptions,
           ...(anthropicContainerId != null && String(anthropicContainerId).trim() !== ''
             ? { container: String(anthropicContainerId).trim() }
             : {}),
@@ -594,7 +608,7 @@ export async function dispatchComplete(env, params) {
     return completeWithGemini(env, completeOpts);
   }
 
-  if (platform === 'anthropic') {
+  if (isAnthropicDispatchPlatform(platform, meta?.provider)) {
     const res = await chatWithAnthropic({
       messages,
       tools,
