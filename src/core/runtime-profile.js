@@ -1,0 +1,804 @@
+/**
+ * Compile D1 registry fragments → flat RuntimeProfile (Phase 1 spine).
+ * Shadow lane: log-only on chat requests until Phase 2 cutover.
+ */
+import { normalizeAgentRuntimeMode, AGENT_MODE_CONTRACT } from './agent-mode.js';
+import { loadModeToolPolicy } from './agent-mode-tool-policy.js';
+import { filterAskReadEvidenceTools } from './agent-tool-planes.js';
+import { RUNTIME_PROFILE_VERSION } from './runtime-profile.types.js';
+
+const TERMINAL_TOOL_NAMES = ['terminal_run', 'terminal_execute', 'run_command', 'bash'];
+
+/**
+ * @param {{ promptRouteMax?: number|null, routeReqMax?: number|null, modelCap?: number|null, requestLimit?: number|null }} p
+ */
+function effectiveAgentChatToolCap(p) {
+  const n = (x) => {
+    if (x == null || x === '') return null;
+    const v = Number(x);
+    return Number.isFinite(v) ? v : null;
+  };
+  const pr = n(p.promptRouteMax);
+  const rr = n(p.routeReqMax);
+  const mc = n(p.modelCap) ?? 8;
+  const rl = n(p.requestLimit) ?? 20;
+  if (pr === 0 || rr === 0) return 0;
+  const caps = [];
+  if (pr != null && pr > 0) caps.push(Math.floor(pr));
+  if (rr != null && rr > 0) caps.push(Math.floor(rr));
+  caps.push(Math.floor(mc), Math.floor(rl));
+  return Math.max(0, Math.min(...caps));
+}
+
+/**
+ * @param {string} [taskType]
+ * @param {string} [modeSlug]
+ */
+function maxModelToolsForAgentTask(taskType, modeSlug) {
+  const tt = String(taskType || '').toLowerCase();
+  const mode = String(modeSlug || '').toLowerCase();
+  if (mode === 'ask') return 8;
+  if (tt === 'debug' || tt === 'tool_use') return 8;
+  if (tt === 'mcp_panel') return 24;
+  if (['code', 'sql_d1_generation', 'terminal_execution', 'deploy', 'cms_edit'].includes(tt)) return 12;
+  if (tt === 'plan') return 6;
+  return 8;
+}
+
+/**
+ * @param {string} message
+ */
+function isSimpleAskMessage(message) {
+  const s = String(message || '').trim().toLowerCase();
+  if (!s || s.length > 80) return false;
+  return ['hi', 'hello', 'hey', 'yo', 'sup', 'thanks', 'thank you', 'ok', 'okay', 'test', 'ping'].includes(
+    s,
+  );
+}
+
+/**
+ * @param {string} text
+ */
+function messageHasBrowserUrlNavigation(text) {
+  const t = String(text || '').trim().toLowerCase();
+  if (!t || !/https?:\/\//i.test(t)) return false;
+  return (
+    /\b(go\s+to|visit|open|navigate|load|head\s+to|check\s+out|browse\s+to)\b/i.test(t) ||
+    /(?:^|\s)to\s+https?:\/\//i.test(t)
+  );
+}
+
+/**
+ * @param {string} mode
+ * @param {string} message
+ */
+function askDataPlaneIntent(mode, message) {
+  return (
+    mode === 'ask' &&
+    /\bd1\b|agentsam_|agentsam\b|hyperdrive|\bsql\b|query the (?:d1 )?database|from agentsam_|pragma|table_info|\bdb tables?\b|how many rows|\bselect\b.*\bfrom\b/i.test(
+      message,
+    )
+  );
+}
+
+/**
+ * Codebase / repo / file context — read-only evidence tools warranted.
+ * @param {string} message
+ */
+function codeContextIntent(message) {
+  const t = String(message || '');
+  return (
+    /\b(where is|where are|find|which file|grep|defined in|set before|set in|called from|implemented in|configured in|look up|search (?:the )?(?:repo|codebase|code|project))\b/i.test(
+      t,
+    ) ||
+    /\b(agentsam_|src\/|dashboard\/|migrations\/|\.js\b|\.tsx\b|\.sql\b|handler_key|route_key|workflow_key|tool_key|compileModeProfile|agent\.js)\b/i.test(
+      t,
+    ) ||
+    /\b(task_type|agent_run|prompt_route|runtime.profile|workflow.executor)\b/i.test(t)
+  );
+}
+
+/**
+ * General knowledge — no project evidence needed ("what is a heuristic?").
+ * @param {string} message
+ */
+function isGeneralKnowledgeQuestion(message) {
+  const s = String(message || '').trim();
+  if (!s || s.length > 160) return false;
+  if (askDataPlaneIntent('ask', message) || codeContextIntent(message)) return false;
+  return /^(what is|what are|explain|define|tell me about)\s+(a|an|the)?\s*[\w\s-]+\??$/i.test(s);
+}
+
+/**
+ * Ask mutation work without evidence context — explain only, no tool compile.
+ * @param {string} message
+ */
+function askMutationWorkWithoutEvidence(message) {
+  const t = String(message || '');
+  const work =
+    /\b(fix|patch|edit|implement|deploy|run|execute|write|create|add|update|migrate|refactor|change)\b/i.test(
+      t,
+    );
+  if (!work) return false;
+  return !codeContextIntent(t) && !askDataPlaneIntent('ask', t);
+}
+
+/**
+ * Ask mode: compile read-only evidence tools when the question needs grounding.
+ * @param {string} message
+ */
+function askNeedsReadEvidenceTools(message) {
+  if (isSimpleAskMessage(message)) return false;
+  if (isGeneralKnowledgeQuestion(message)) return false;
+  if (askMutationWorkWithoutEvidence(message)) return false;
+  if (askDataPlaneIntent('ask', message)) return true;
+  if (codeContextIntent(message)) return true;
+  if (/\b(deployment status|last deploy|worker logs|read logs|show logs|status of deploy)\b/i.test(message)) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * @param {string} mode
+ * @param {string} message
+ * @param {number} maxTools
+ * @param {string|null} refinedRouteKey
+ */
+function shouldCompileToolsForTurn(mode, message, maxTools, refinedRouteKey) {
+  if (maxTools <= 0) return false;
+  if (refinedRouteKey === 'simple_ask_greeting') return false;
+  if (mode === 'agent' || mode === 'debug' || mode === 'multitask' || mode === 'plan') return true;
+  if (mode === 'ask') return askNeedsReadEvidenceTools(message);
+  return false;
+}
+
+/**
+ * @param {string} mode
+ * @param {string} message
+ */
+function agentLikeTooling(mode, message) {
+  if (mode === 'ask') return askNeedsReadEvidenceTools(message);
+  const explicitSurfaceOrWorkflowIntent =
+    /\b(open|use|launch|focus|debug|inspect|screenshot|capture|diagram|flowchart|browser|monaco|excalidraw|workflow)\b/i.test(
+      message,
+    );
+  return (
+    mode === 'agent' ||
+    mode === 'debug' ||
+    mode === 'multitask' ||
+    (mode === 'ask' && explicitSurfaceOrWorkflowIntent)
+  );
+}
+
+/**
+ * @param {string} mode
+ * @param {string} message
+ */
+function resolveExecutionKind(mode, message) {
+  const trimmed = String(message || '').trim();
+  const wordParts = trimmed.split(/\s+/).filter(Boolean);
+  const planWordCount = wordParts.length;
+  const isWorkIntent =
+    /\b(build|create|generate|write|make|scaffold|deploy|run|fix|refactor|add|update|migrate|setup|configure|connect|implement|design|analyze|audit)\b/i.test(
+      message,
+    );
+  const explicitPlanPhrase = /\b(make|create|write|build|draft)\s+(a\s+)?plan\b|\bplan\s+(for|to)\b/i.test(
+    message,
+  );
+  const capabilityLedIntent =
+    /\b(open|launch|focus|use|switch to)\s+(?:the\s+)?(monaco|editor|code editor|browser|excalidraw|canvas|whiteboard)\b/i.test(
+      message,
+    ) ||
+    (/\b(build|generate|scaffold|create|implement)\b/i.test(message) &&
+      /\b(app|component|page|file|frontend|react|full-stack|fullstack|code)\b/i.test(message));
+
+  let planPipeline = false;
+  if (mode === 'plan') {
+    planPipeline = (isWorkIntent || explicitPlanPhrase) && planWordCount >= 3;
+  } else if (mode === 'ask') {
+    planPipeline = explicitPlanPhrase && isWorkIntent && planWordCount >= 5;
+  } else if (mode !== 'debug') {
+    planPipeline = !capabilityLedIntent && isWorkIntent && planWordCount >= 5;
+  }
+
+  if (planPipeline) return 'plan_pipeline';
+  if (mode === 'multitask') return 'multitask_fanout';
+  return 'chat_loop';
+}
+
+/**
+ * @param {Exclude<import('./agent-mode.js').AgentMode, 'auto'>} mode
+ */
+function defaultWritePolicyForMode(mode) {
+  switch (mode) {
+    case 'ask':
+      return {
+        can_edit_files: false,
+        can_terminal: false,
+        can_d1_write: false,
+        can_deploy: false,
+        can_browser_automation: false,
+        can_memory_write: false,
+      };
+    case 'plan':
+      return {
+        can_edit_files: false,
+        can_terminal: false,
+        can_d1_write: false,
+        can_deploy: false,
+        can_browser_automation: false,
+        can_memory_write: false,
+      };
+    case 'debug':
+    case 'agent':
+    case 'multitask':
+    default:
+      return {
+        can_edit_files: true,
+        can_terminal: true,
+        can_d1_write: true,
+        can_deploy: true,
+        can_browser_automation: true,
+        can_memory_write: true,
+      };
+  }
+}
+
+/**
+ * @param {Exclude<import('./agent-mode.js').AgentMode, 'auto'>} mode
+ */
+function defaultParallelPolicyForMode(mode) {
+  if (mode === 'multitask') {
+    return {
+      enabled: true,
+      max_subagents: 4,
+      allowed_subagent_types: ['research', 'shell', 'browser'],
+      merge_strategy: 'synthesize',
+    };
+  }
+  return {
+    enabled: false,
+    max_subagents: 0,
+    allowed_subagent_types: [],
+    merge_strategy: 'synthesize',
+  };
+}
+
+/**
+ * @param {any} promptRouteRow
+ */
+function contextPolicyFromPromptRoute(promptRouteRow) {
+  const includeRag = promptRouteRow?.include_rag == null ? true : Number(promptRouteRow.include_rag) !== 0;
+  const includeMemory =
+    promptRouteRow?.include_recent_memory == null
+      ? true
+      : Number(promptRouteRow.include_recent_memory) !== 0;
+  const includeWorkspace = true;
+  return {
+    include_rag: includeRag,
+    include_memory: includeMemory,
+    include_workspace: includeWorkspace,
+    fresh_thread_recommended: false,
+  };
+}
+
+/**
+ * @param {any} env
+ * @param {{ tenantId?: string|null, mode: string, taskType: string }} q
+ */
+async function resolvePromptRouteRow(env, q) {
+  if (!env?.DB) return null;
+  const tid = q.tenantId != null ? String(q.tenantId).trim() : '';
+  const mode = String(q.mode || '').trim();
+  const taskType = String(q.taskType || '').trim();
+  const routeByKeySql = `
+      SELECT r.*
+      FROM agentsam_prompt_routes r
+      WHERE r.route_key = ?
+        AND r.is_active = 1
+        AND (r.tenant_id IS NULL OR r.tenant_id = ?)
+      ORDER BY CASE WHEN r.tenant_id IS NOT NULL THEN 0 ELSE 1 END,
+               COALESCE(r.priority, 0) ASC
+      LIMIT 1
+    `;
+  try {
+    if (mode) {
+      const modeRoute = await env.DB.prepare(routeByKeySql).bind(mode, tid).first();
+      if (modeRoute) return modeRoute;
+    }
+    if (taskType && taskType !== mode) {
+      const taskRoute = await env.DB.prepare(routeByKeySql).bind(taskType, tid).first();
+      if (taskRoute) return taskRoute;
+    }
+    return null;
+  } catch (e) {
+    console.warn('[runtime-profile] prompt_route', e?.message ?? e);
+    return null;
+  }
+}
+
+/**
+ * @param {any} env
+ * @param {{ tenantId?: string|null, mode: string, taskType: string, message: string, routeKeyPin?: string|null }} q
+ */
+async function resolvePromptRouteForCompile(env, q) {
+  const mode = String(q.mode || 'agent').toLowerCase();
+  const message = String(q.message || '');
+  let refinedRouteKey = null;
+
+  if (q.routeKeyPin && env?.DB) {
+    try {
+      const pinned = await env.DB.prepare(
+        `SELECT * FROM agentsam_prompt_routes
+         WHERE route_key = ?
+           AND is_active = 1
+           AND (tenant_id = ? OR tenant_id IS NULL)
+         ORDER BY CASE WHEN tenant_id = ? THEN 0 ELSE 1 END, priority ASC
+         LIMIT 1`,
+      )
+        .bind(String(q.routeKeyPin).trim(), q.tenantId, q.tenantId)
+        .first();
+      if (pinned) return { row: pinned, refinedRouteKey: String(pinned.route_key || q.routeKeyPin) };
+    } catch (_) {
+      /* non-fatal */
+    }
+  }
+
+  let row = await resolvePromptRouteRow(env, {
+    tenantId: q.tenantId,
+    mode,
+    taskType: q.taskType,
+  });
+
+  const needsBrowserRoute = messageHasBrowserUrlNavigation(message);
+  if (needsBrowserRoute && row?.route_key !== 'browser' && env?.DB) {
+    try {
+      const browserRow = await env.DB.prepare(
+        `SELECT r.*
+         FROM agentsam_prompt_routes r
+         WHERE r.route_key = 'browser'
+           AND r.is_active = 1
+           AND (r.tenant_id IS NULL OR r.tenant_id = ?)
+         ORDER BY CASE WHEN r.tenant_id IS NOT NULL THEN 0 ELSE 1 END,
+                  COALESCE(r.priority, 0) ASC
+         LIMIT 1`,
+      )
+        .bind(q.tenantId != null ? String(q.tenantId).trim() : '')
+        .first();
+      if (browserRow) {
+        row = browserRow;
+        refinedRouteKey = 'browser';
+      }
+    } catch (_) {
+      /* non-fatal */
+    }
+  }
+
+  const tooling = agentLikeTooling(mode, message);
+  if (mode === 'ask' && isSimpleAskMessage(message) && !tooling && env?.DB) {
+    try {
+      const greetingRoute = await env.DB.prepare(
+        `SELECT * FROM agentsam_prompt_routes
+         WHERE route_key = 'simple_ask_greeting'
+           AND is_active = 1
+           AND (tenant_id = ? OR tenant_id IS NULL)
+         ORDER BY CASE WHEN tenant_id = ? THEN 0 ELSE 1 END
+         LIMIT 1`,
+      )
+        .bind(q.tenantId, q.tenantId)
+        .first();
+      if (greetingRoute) {
+        row = greetingRoute;
+        refinedRouteKey = 'simple_ask_greeting';
+      }
+    } catch (_) {
+      /* non-fatal */
+    }
+  }
+
+  if (!refinedRouteKey && row?.route_key) refinedRouteKey = String(row.route_key);
+  return { row, refinedRouteKey };
+}
+
+/**
+ * @param {import('./runtime-profile.types.js').RuntimeProfile} profile
+ */
+async function hashRuntimeProfile(profile) {
+  const stable = JSON.stringify({
+    mode: profile.mode,
+    profile_id: profile.profile_id,
+    execution_kind: profile.execution_kind,
+    tool_allowlist: profile.tool_allowlist,
+    tool_denylist: profile.tool_denylist,
+    write_policy: profile.write_policy,
+    routing_task_type: profile.routing_task_type,
+    max_tools: profile.max_tools,
+    context_policy: profile.context_policy,
+    parallel_policy: profile.parallel_policy,
+  });
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(stable));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 16);
+}
+
+/**
+ * @param {any} env
+ * @param {{
+ *   mode: string,
+ *   message: string,
+ *   tenantId?: string|null,
+ *   workspaceId?: string|null,
+ *   userId?: string|null,
+ *   taskType?: string|null,
+ *   routeKeyPin?: string|null,
+ *   compile_lane?: 'shadow'|'live',
+ * }} input
+ * @returns {Promise<import('./runtime-profile.types.js').RuntimeProfile>}
+ */
+export async function compileModeProfile(env, input) {
+  const mode = /** @type {Exclude<import('./agent-mode.js').AgentMode, 'auto'>} */ (
+    normalizeAgentRuntimeMode(input.mode) === 'auto' ? 'agent' : normalizeAgentRuntimeMode(input.mode)
+  );
+  const message = String(input.message || '');
+  const taskType = String(input.taskType || mode).toLowerCase();
+  const tenantId = input.tenantId != null ? String(input.tenantId).trim() : null;
+  const workspaceId = input.workspaceId != null ? String(input.workspaceId).trim() : null;
+  const userId = input.userId != null ? String(input.userId).trim() : null;
+  const compileLane = input.compile_lane === 'live' ? 'live' : 'shadow';
+
+  const { row: promptRouteRow, refinedRouteKey } = await resolvePromptRouteForCompile(env, {
+    tenantId,
+    mode,
+    taskType,
+    message,
+    routeKeyPin: input.routeKeyPin,
+  });
+
+  const routeKey =
+    refinedRouteKey ||
+    (promptRouteRow?.route_key != null ? String(promptRouteRow.route_key).trim() : null) ||
+    mode;
+
+  const routeToolRequirements = env?.DB
+    ? await (
+        await import('./agentsam-route-tool-resolver.js')
+      ).resolveAgentChatRouteToolRequirements(env, {
+        routeKey,
+        taskType,
+        modeSlug: mode,
+      })
+    : null;
+
+  const modeToolPolicy = await loadModeToolPolicy(env, mode, { routeKey, taskType });
+
+  const promptRouteMax =
+    promptRouteRow?.max_tools != null && String(promptRouteRow.max_tools).trim() !== ''
+      ? Number(promptRouteRow.max_tools)
+      : null;
+  const modelCap = maxModelToolsForAgentTask(taskType, mode);
+  const maxTools = effectiveAgentChatToolCap({
+    promptRouteMax,
+    routeReqMax: routeToolRequirements?.max_tools,
+    modelCap,
+    requestLimit: 20,
+  });
+
+  /** @type {string[]} */
+  let toolAllowlist = [];
+  /** @type {Array<Record<string, unknown>>} */
+  let compiledToolRows = [];
+  if (
+    env?.DB &&
+    workspaceId &&
+    userId &&
+    shouldCompileToolsForTurn(mode, message, maxTools, refinedRouteKey) &&
+    maxTools > 0
+  ) {
+    const { selectAgentsamToolsForAgentChat } = await import('./agentsam-tools-catalog.js');
+    const det = await selectAgentsamToolsForAgentChat(env.DB, { userId, tenantId, workspaceId }, {
+      routeToolRequirements: routeToolRequirements || {
+        route_key: routeKey,
+        task_type: taskType,
+        allowed_lanes: ['general'],
+        required_capabilities: [],
+        optional_capabilities: [],
+        blocked_capabilities: [],
+        max_tools: maxTools,
+        approval_policy: null,
+        source: 'default',
+      },
+      message,
+      taskType,
+      modeSlug: mode,
+      catalogLimit: Math.min(96, maxTools * 4),
+      outputLimit: maxTools,
+    });
+    compiledToolRows = det.rows || [];
+    toolAllowlist = compiledToolRows.map((r) => String(r.name || r.tool_name || '').trim()).filter(Boolean);
+  }
+
+  const denySet = new Set((modeToolPolicy.denyTools || []).map((t) => String(t)));
+  toolAllowlist = toolAllowlist.filter((name) => !denySet.has(name));
+  if (mode === 'ask') {
+    toolAllowlist = filterAskReadEvidenceTools(toolAllowlist);
+    const allowSet = new Set(toolAllowlist);
+    compiledToolRows = compiledToolRows.filter((r) =>
+      allowSet.has(String(r.name || r.tool_name || '').trim()),
+    );
+  }
+
+  const modeContract = AGENT_MODE_CONTRACT[mode] || AGENT_MODE_CONTRACT.agent;
+
+  const writePolicy = defaultWritePolicyForMode(mode);
+  const executionKind = resolveExecutionKind(mode, message);
+
+  const profileId = `mode_${mode}@${routeKey || 'default'}`;
+  const systemPromptKey =
+    promptRouteRow?.system_prompt_key != null && String(promptRouteRow.system_prompt_key).trim() !== ''
+      ? String(promptRouteRow.system_prompt_key).trim()
+      : promptRouteRow?.route_key != null
+        ? String(promptRouteRow.route_key)
+        : mode;
+
+  /** @type {import('./runtime-profile.types.js').RuntimeProfile} */
+  const profile = {
+    mode,
+    profile_id: profileId,
+    profile_hash: '',
+    profile_version: RUNTIME_PROFILE_VERSION,
+    system_prompt_key: systemPromptKey,
+    system_prompt_inline:
+      promptRouteRow?.system_prompt_fragment != null
+        ? String(promptRouteRow.system_prompt_fragment)
+        : null,
+    prompt_layers: promptRouteRow?.route_key ? [String(promptRouteRow.route_key)] : [mode],
+    tool_allowlist: toolAllowlist,
+    tool_denylist: [...denySet],
+    tool_require_approval: (modeToolPolicy.requireApprovalTools || []).map((t) => String(t)),
+    max_tools: maxTools,
+    max_tool_calls: 15,
+    max_turns: 6,
+    max_runtime_ms: 90000,
+    write_policy: writePolicy,
+    workflow_key:
+      promptRouteRow?.workflow_key != null && String(promptRouteRow.workflow_key).trim() !== ''
+        ? String(promptRouteRow.workflow_key).trim()
+        : null,
+    execution_kind: executionKind,
+    context_policy: contextPolicyFromPromptRoute(promptRouteRow),
+    routing_task_type: taskType,
+    model_key: null,
+    routing_arm_id: null,
+    temperature: 0.7,
+    parallel_policy: defaultParallelPolicyForMode(mode),
+    source: {
+      prompt_route_id: promptRouteRow?.id != null ? String(promptRouteRow.id) : null,
+      route_requirements_id: routeToolRequirements?.route_key ?? null,
+      compiled_at: Math.floor(Date.now() / 1000),
+      compile_lane: compileLane,
+    },
+    refined_route_key: refinedRouteKey,
+    color: modeContract.color,
+    tool_profile: modeContract.tool_profile,
+    tool_capable_required: toolAllowlist.length > 0,
+    selected_provider: null,
+    _compiled_tool_rows: compiledToolRows,
+    _prompt_route_row: promptRouteRow,
+  };
+
+  profile.profile_hash = await hashRuntimeProfile(profile);
+  return profile;
+}
+
+/**
+ * @param {import('./runtime-profile.types.js').RuntimeProfile} profile
+ * @param {Record<string, unknown>|null|undefined} userPolicy
+ */
+function applyUserPolicyToProfile(profile, userPolicy) {
+  if (!userPolicy) return profile;
+  const canPty = Number(userPolicy.can_run_pty) === 1;
+  if (!canPty) {
+    profile.write_policy.can_terminal = false;
+    const denied = new Set(profile.tool_denylist);
+    for (const t of TERMINAL_TOOL_NAMES) denied.add(t);
+    profile.tool_denylist = [...denied];
+    profile.tool_allowlist = profile.tool_allowlist.filter((name) => !denied.has(name));
+  }
+  return profile;
+}
+
+/**
+ * @param {import('./runtime-profile.types.js').RuntimeProfile} profile
+ * @param {import('./runtime-profile.types.js').RuntimeProfileOverrides} [overrides]
+ */
+function applyOverridesToProfile(profile, overrides) {
+  if (!overrides) return profile;
+  if (overrides.model_key != null && String(overrides.model_key).trim() !== '') {
+    profile.model_key = String(overrides.model_key).trim();
+  }
+  return profile;
+}
+
+/**
+ * @param {any} env
+ * @param {import('./runtime-profile.types.js').ResolveRuntimeProfileInput} input
+ * @returns {Promise<import('./runtime-profile.types.js').RuntimeProfile>}
+ */
+export async function resolveRuntimeProfile(env, input) {
+  const mode = normalizeAgentRuntimeMode(input.mode);
+  const composerMode = mode === 'auto' ? 'agent' : mode;
+  const session = input.session || {};
+  const overrides = input.overrides || {};
+
+  let profile = await compileModeProfile(env, {
+    mode: composerMode,
+    message: input.message,
+    tenantId: session.tenantId,
+    workspaceId: session.userId ? session.workspaceId : session.workspaceId,
+    userId: session.userId,
+    taskType: overrides.task_type || composerMode,
+    routeKeyPin: overrides.route_key,
+    compile_lane: input.compile_lane || 'shadow',
+  });
+
+  if (session.userId && session.workspaceId) {
+    const { loadAgentSamUserPolicy } = await import('./agent-policy.js');
+    const userPolicy = await loadAgentSamUserPolicy(env, session.userId, session.workspaceId);
+    profile = applyUserPolicyToProfile(profile, userPolicy);
+  }
+
+  profile = applyOverridesToProfile(profile, overrides);
+  profile = await resolveProfileModel(env, profile, {
+    workspaceId: session.workspaceId,
+    tenantId: session.tenantId,
+    requestedModel: overrides.model_key,
+    requireTools: profile.tool_allowlist.length > 0,
+  });
+  profile.tool_capable_required = profile.tool_allowlist.length > 0;
+  profile.profile_hash = await hashRuntimeProfile(profile);
+  return profile;
+}
+
+/**
+ * Bind model + routing arm via resolveModelForTask (Thompson when auto).
+ * @param {any} env
+ * @param {import('./runtime-profile.types.js').RuntimeProfile} profile
+ * @param {{ workspaceId?: string|null, tenantId?: string|null, requestedModel?: string|null, requireTools?: boolean }} opts
+ */
+export async function resolveProfileModel(env, profile, opts) {
+  if (!env?.DB || !opts.workspaceId) return profile;
+  const ws = String(opts.workspaceId).trim();
+  const raw = opts.requestedModel != null ? String(opts.requestedModel).trim() : '';
+  const isAuto = !raw || raw.toLowerCase() === 'auto';
+  if (!isAuto) {
+    profile.model_key = raw;
+    return profile;
+  }
+  try {
+    const { resolveModelForTask, normalizeCanonicalTaskType } = await import('./resolveModel.js');
+    const toolCapableRequired = profile.tool_capable_required || profile.tool_allowlist.length > 0;
+    const resolved = await resolveModelForTask(env, {
+      task_type: normalizeCanonicalTaskType(profile.routing_task_type || profile.mode),
+      mode: profile.mode,
+      workspace_id: ws,
+      tenant_id: opts.tenantId != null ? String(opts.tenantId).trim() : undefined,
+      require_tools: toolCapableRequired,
+    });
+    profile.model_key = resolved.model_key;
+    profile.routing_arm_id =
+      resolved.routing_arm_id != null ? String(resolved.routing_arm_id) : null;
+    profile.selected_provider =
+      resolved.provider != null ? String(resolved.provider) : null;
+    profile.tool_capable_required = toolCapableRequired;
+  } catch (e) {
+    console.warn('[runtime-profile] resolveProfileModel', e?.message ?? e);
+  }
+  return profile;
+}
+
+/**
+ * Map compiled tool rows → OpenAI/Anthropic manifest shape.
+ * @param {Array<Record<string, unknown>>} rows
+ */
+export function toolsManifestFromCompiledRows(rows) {
+  return (rows || []).map((t) => {
+    const raw =
+      t.input_schema && typeof t.input_schema === 'object' ? t.input_schema : {};
+    const name = String(t.name || t.tool_name || '').trim();
+    return {
+      name,
+      description: String(t.description || name),
+      input_schema: Object.assign({ type: 'object', properties: {} }, raw, { type: 'object' }),
+    };
+  }).filter((t) => t.name);
+}
+
+/**
+ * Structured shadow log — one line per chat request for spine validation.
+ * @param {import('./runtime-profile.types.js').RuntimeProfile} profile
+ * @param {{ path?: string, shadow?: boolean, conversation_id?: string|null }} [meta]
+ */
+export function logRuntimeProfile(profile, meta = {}) {
+  console.log(
+    '[runtime-profile]',
+    JSON.stringify({
+      live: meta.live !== false,
+      path: meta.path || 'agentChatSpine',
+      conversation_id: meta.conversation_id ?? null,
+      mode: profile.mode,
+      profile_id: profile.profile_id,
+      profile_hash: profile.profile_hash,
+      execution_kind: profile.execution_kind,
+      model_key: profile.model_key,
+      routing_arm_id: profile.routing_arm_id,
+      tool_allowlist_count: profile.tool_allowlist.length,
+      max_tools: profile.max_tools,
+      write_policy: profile.write_policy,
+      color: profile.color,
+      tool_profile: profile.tool_profile,
+      tool_capable_required: profile.tool_capable_required,
+      source: profile.source,
+    }),
+  );
+}
+
+/**
+ * Proof log — one line per chat turn for mode/route/tool contract validation.
+ * @param {import('./runtime-profile.types.js').RuntimeProfile} profile
+ * @param {{ requestedMode?: string, routeKey?: string|null, taskType?: string|null }} [meta]
+ */
+export function logRouteContract(profile, meta = {}) {
+  const finalTools = profile.tool_allowlist || [];
+  console.log(
+    '[agent] route_contract',
+    JSON.stringify({
+      requestedMode: meta.requestedMode ?? profile.mode,
+      routeKey: meta.routeKey ?? profile.refined_route_key ?? profile.mode,
+      taskType: meta.taskType ?? profile.routing_task_type,
+      color: profile.color,
+      toolProfile: profile.tool_profile,
+      writePolicy: profile.write_policy,
+      finalToolCount: finalTools.length,
+      toolCapableRequired: profile.tool_capable_required || finalTools.length > 0,
+      toolNames: finalTools,
+      selectedModel: profile.model_key,
+      selectedProvider: profile.selected_provider,
+      selectedArmId: profile.routing_arm_id,
+      executionKind: profile.execution_kind,
+    }),
+  );
+}
+
+/** @deprecated use logRuntimeProfile */
+export function logShadowRuntimeProfile(profile, meta = {}) {
+  logRuntimeProfile(profile, { ...meta, live: false });
+}
+
+/**
+ * Non-blocking shadow compile for chat hot path.
+ * @param {any} ctx
+ * @param {any} env
+ * @param {import('./runtime-profile.types.js').ResolveRuntimeProfileInput} input
+ * @param {{ path?: string, conversation_id?: string|null }} [meta]
+ */
+export function scheduleShadowRuntimeProfileCompile(ctx, env, input, meta = {}) {
+  const run = async () => {
+    try {
+      const profile = await resolveRuntimeProfile(env, { ...input, compile_lane: 'shadow' });
+      logShadowRuntimeProfile(profile, { ...meta, shadow: true });
+    } catch (e) {
+      console.warn('[runtime-profile] shadow_compile_failed', e?.message ?? String(e));
+    }
+  };
+  if (ctx?.waitUntil) ctx.waitUntil(run());
+  else run().catch(() => {});
+}
+
+export {
+  defaultWritePolicyForMode,
+  defaultParallelPolicyForMode,
+  resolveExecutionKind,
+  agentLikeTooling,
+  askNeedsReadEvidenceTools,
+  hashRuntimeProfile,
+};

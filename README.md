@@ -33,11 +33,15 @@ Canonical platform repo for the Inner Animal Media AI agent operating system, Ag
 ├── src/
 │   ├── index.js          ← Production Worker entry (fetch + scheduled)
 │   ├── api/              ← HTTP route handlers by domain
-│   ├── core/             ← Auth, crypto, vault, retention, notifications
+│   ├── core/             ← Auth, crypto, vault, retention, runtime-profile spine
+│   │   ├── agent-mode.js           ← Composer mode enum (ask|plan|agent|debug|multitask)
+│   │   ├── runtime-profile.js      ← compileModeProfile / resolveRuntimeProfile (Phase 1)
+│   │   └── runtime-profile.types.js
 │   ├── lib/              ← Shared utilities (email, etc.)
 │   ├── tools/            ← Agent tool handlers
 │   ├── integrations/     ← Third-party integration wrappers
 │   └── do/               ← Durable Object implementations
+├── agentsamrefine.md     ← Agent Sam mode spine master plan (5 modes → 1 profile → 1 loop)
 ├── dashboard/
 │   ├── src/              ← Dashboard app source
 │   ├── components/       ← React component source of truth
@@ -70,9 +74,9 @@ Canonical platform repo for the Inner Animal Media AI agent operating system, Ag
 
 | Command | When to use |
 |---------|-------------|
-| `npm run deploy:full` | **Default.** Route map + D1 schema doc + Vite build + docs + D1 memory ingest → `deploy-frontend.sh` (R2 + Worker + hooks) |
-| `npm run deploy` | Worker/API only (`src/`, `worker.js` backend changes only) |
-| `./scripts/with-cloudflare-env.sh npx wrangler deploy -c wrangler.production.toml` | Worker-only one-liner equivalent |
+| `npm run deploy:full` | **Default for production ships.** Vite build + R2 frontend sync + Worker deploy (`deploy-frontend.sh`) |
+| `npm run deploy:worker` | Worker/API hotfix only when dashboard bundles are unchanged — prefer `deploy:full` for anything user-visible |
+| `./scripts/with-cloudflare-env.sh npx wrangler deploy -c wrangler.production.toml` | Same as `deploy:worker` |
 
 **Rules:**
 - `npm run deploy:full` runs generators and ingests first, then `deploy-frontend.sh` (loads `.env.cloudflare`, builds again inside the script, uploads `dashboard/dist` to R2 bucket `inneranimalmedia`, deploys with `wrangler.production.toml`, writes build manifest to `analytics/app-builds/`, fires CI/CD email notification if configured).
@@ -109,7 +113,7 @@ npm run dev:dashboard
 npm run preview:dashboard
 
 # Analyze bundle (open treemap before any lazy-load work)
-cd dashboard && npm run build:analyze && open dist/bundle-stats.html
+npm --prefix dashboard run build:analyze && open dashboard/dist/bundle-stats.html
 ```
 
 ---
@@ -196,12 +200,15 @@ Two completely separate email paths — never mix them:
 ### Webhook retention policy
 `agentsam_webhook_events` has a 7-day TTL. Prune runs via the daily retention cron in `src/core/retention.js`. Weekly rollup goes to `agentsam_webhook_weekly`.
 
-### Key workspace identifiers
-| Field | Value |
-|-------|-------|
+### Key workspace identifiers (ops / SQL reference only)
+
+Runtime code must resolve identity from session, OAuth, or D1 — **never hardcode** these in `src/` or `dashboard/`.
+
+| Field | Example D1 value (operator lookup) |
+|-------|-------------------------------------|
 | workspace_id | `ws_inneranimalmedia` |
 | tenant_id | `tenant_sam_primeaux` |
-| user_id (Sam) | `usr_sam_iam` |
+| user_id (Sam) | resolve from `auth_users` by email when running one-off SQL |
 
 ### Retention system (3-layer rollup)
 - **Layer 1:** Raw tables, 7–30 day TTL (hot logs)
@@ -341,7 +348,45 @@ npx wrangler d1 execute inneranimalmedia-business \
 
 ---
 
+## Agent Sam — 5 modes, 1 spine
+
+Dashboard composer exposes five modes (`Ask`, `Plan`, `Agent`, `Debug`, `Multitask`) — same enum as Cursor. Today the UI is ahead of runtime: mode selection still fans out into dozens of branches inside `src/api/agent.js`.
+
+**Target:** one user-facing enum → compile D1 registry → flat **`RuntimeProfile`** → one execution loop (`runAgentToolLoop`).
+
+| Phase | Status | Deliverable |
+|-------|--------|-------------|
+| **0 — Schema** | Shipped (working tree) | `runtime-profile.types.js`, `agent-mode.js` |
+| **1 — Compiler (shadow)** | Shipped (working tree) | `compileModeProfile`, shadow log `[runtime-profile] shadow` on every chat |
+| **1b — Materialized profiles** | Next | `agentsam_mode_profiles` migration + `scripts/compile-mode-profiles.js` |
+| **2 — Thin handler** | Planned | Extract `agent-chat-handler.js`; branch on `execution_kind` only |
+| **3 — Dashboard parity** | Planned | Shift+Tab mode cycle; single `mode` POST field |
+| **4 — Multitask fan-out** | Planned | `parallel_policy` + subagent orchestrator |
+
+Full plan: [`agentsamrefine.md`](./agentsamrefine.md)
+
+**Shadow validation after deploy:**
+```bash
+# Worker logs — one line per chat after auth
+grep '[runtime-profile] shadow'
+
+node --test tests/unit/runtime-profile.test.mjs
+```
+
+---
+
 ## Current Next Steps
+
+### P0 — Agent Sam mode spine (active sprint)
+
+- [x] **Live spine cutover** — `executeAgentChatSpine` replaces ~2.1k lines of `agentChatSseHandler` maze
+- [x] **RuntimeProfile compiler** — D1 → flat profile + Thompson model bind when Auto
+- [ ] **Commit + deploy** — validate `[runtime-profile]` logs + chat SSE `profile_id` in context event
+- [ ] **Phase 1b** — `agentsam_mode_profiles` migration + compile script (cache compiled profiles)
+- [ ] **Phase 3** — Shift+Tab, single `mode` POST field
+- [ ] **Phase 4** — Multitask fan-out on `parallel_policy`
+
+### P1 — Legacy worker retirement
 
 - [ ] Run real browser Google OAuth login test — confirm no `X-IAM-Legacy-*` headers
 - [ ] Run real browser GitHub OAuth login test
@@ -349,6 +394,9 @@ npx wrangler d1 execute inneranimalmedia-business \
 - [ ] Audit and remove generic `/api/*` legacy fallback
 - [ ] Replace `legacyWorker.queue` with modular handler in `src/`
 - [ ] Remove `import legacyWorker from '../worker.js'`
+
+### P2 — Ops / platform backlog
+
 - [ ] Open `dashboard/dist/bundle-stats.html` — document top 10 bundle contributors before lazy-load refactors
 - [ ] Wire `agentsam_webhook_weekly` rollup into daily cron
 - [ ] Restore Resend when account unsuspended: `UPDATE env_secrets SET encrypted_value='resend' WHERE key_name='platform_email_provider'`
