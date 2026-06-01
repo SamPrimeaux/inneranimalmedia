@@ -335,8 +335,12 @@ export async function executeRwsSpawnFanout(env, ctx, input) {
             subagent_slug: c.slug,
             model_key: profile.model_key,
           };
-          if (role === 'read' && readonlyAuditChild) {
-            compileOverrides.route_key = READONLY_REPO_AUDIT_ROUTE_KEY;
+          if (role === 'read') {
+            compileOverrides.route_key = readonlyAuditChild
+              ? READONLY_REPO_AUDIT_ROUTE_KEY
+              : 'ask';
+            compileOverrides.task_type = 'ask';
+            compileOverrides.mode = 'ask';
           }
           childProfile = await resolveRuntimeProfile(env, {
             mode: compileOverrides.mode || 'ask',

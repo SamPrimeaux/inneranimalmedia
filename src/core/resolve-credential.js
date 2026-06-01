@@ -50,12 +50,36 @@ function pickEnvKey(config) {
   return null;
 }
 
+/**
+ * Worker-local catalog tools (filesystem, workspace grep) — no Wrangler secret.
+ * @param {Record<string, unknown>} config
+ * @param {string|null} binding
+ */
+function isPlatformInternalWorkerTool(config, binding) {
+  if (config.platform_bindingless === true || config.platform_bindingless === 1) return true;
+  if (String(binding || '').toLowerCase() === 'internal') return true;
+  if (String(config.mcp_server || '').trim() !== '') return true;
+  const op = String(config.operation || '').toLowerCase();
+  const dispatcher = String(config.dispatcher || '').trim();
+  if (['read', 'list', 'grep', 'search'].includes(op) && !pickEnvKey(config)) return true;
+  if (dispatcher === 'fs_search_files' || config.execution_lane === 'workspace_grep') return true;
+  return false;
+}
+
 function readPlatformEnv(env, config) {
   const envKey = pickEnvKey(config);
   const binding =
     config.binding != null && String(config.binding).trim() !== ''
       ? String(config.binding).trim()
       : null;
+  if (!envKey && isPlatformInternalWorkerTool(config, binding)) {
+    return {
+      auth_source: 'platform',
+      env_key: null,
+      binding: binding || 'internal',
+      value: null,
+    };
+  }
   if (envKey) {
     const value = env?.[envKey];
     if (value == null || String(value).trim() === '') {

@@ -194,13 +194,16 @@ export function scheduleMirrorToolCallEventToSupabase(env, ctx, params) {
         : params.tool_name != null
           ? String(params.tool_name).trim()
           : 'unknown';
-    const statusRaw = String(params.status || (params.success === false ? 'failed' : 'completed')).toLowerCase();
+    const statusRaw = String(params.status || (params.success === false ? 'error' : 'success')).toLowerCase();
+    // PG CHECK agentsam_tool_call_events_status_check — use success|error (not completed|failed).
     const status =
       statusRaw === 'success' || statusRaw === 'ok' || statusRaw === 'completed'
-        ? 'completed'
-        : statusRaw === 'error' || statusRaw === 'failed'
-          ? 'failed'
-          : statusRaw;
+        ? 'success'
+        : statusRaw === 'error' || statusRaw === 'failed' || statusRaw === 'failure'
+          ? 'error'
+          : statusRaw === 'pending' || statusRaw === 'running'
+            ? 'pending'
+            : 'error';
 
     const rawId = params.id != null ? String(params.id).trim() : '';
     const id = isValidUuid(rawId) ? rawId : crypto.randomUUID();
