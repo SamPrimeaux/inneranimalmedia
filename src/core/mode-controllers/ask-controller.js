@@ -1,5 +1,5 @@
 import { jsonResponse } from '../responses.js';
-import { executeAgentTurn } from './agent-controller.js';
+import { runSharedProfileToolLoop } from './agent-controller.js';
 import { runtimeContextPayload, legacyContextPayload } from './runtime-context.js';
 
 const SSE_HEADERS = {
@@ -57,7 +57,7 @@ export async function executeAskTurn(env, ctx, input) {
     return new Response(readable, { headers: SSE_HEADERS });
   }
 
-  // Ask turn still uses the shared chat/tool loop, but tool + write policy are compiled and enforced.
-  return executeAgentTurn(env, ctx, input);
+  // Ask turn uses the shared tool loop; validateToolCall enforces read-only policy.
+  return runSharedProfileToolLoop(env, ctx, input);
 }
 

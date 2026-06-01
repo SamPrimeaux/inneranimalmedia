@@ -465,7 +465,8 @@ export async function executeMultitaskTurn(env, ctx, input) {
         else errCount += 1;
 
         const fullOutput = String(r.output || '').trim();
-        const shouldOpenMonaco = fullOutput.length >= 2500;
+        const outputLines = fullOutput ? fullOutput.split('\n') : [];
+        const shouldOpenMonaco = outputLines.length > 10 || fullOutput.length >= 2500;
         if (shouldOpenMonaco) {
           const filename = `subagent-${r.slug}-${fanoutId}.md`;
           const path = `agent-output/${fanoutId}/${filename}`;
@@ -509,7 +510,7 @@ export async function executeMultitaskTurn(env, ctx, input) {
           output: {
             format: 'markdown',
             content: shouldOpenMonaco
-              ? `${fullOutput.slice(0, 800)}\n\n_(Full output opened in Monaco: \`${`agent-output/${fanoutId}/subagent-${r.slug}-${fanoutId}.md`}\`)_`
+              ? `${outputLines.slice(0, 10).join('\n')}\n\n_(Truncated to 10 lines. Full output opened in Monaco: \`${`agent-output/${fanoutId}/subagent-${r.slug}-${fanoutId}.md`}\`)_`
               : fullOutput,
           },
           artifacts: { files_touched: [], patches: [], commands_run: [], urls_visited: [], screenshots: [] },

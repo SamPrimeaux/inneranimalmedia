@@ -1,5 +1,5 @@
 import { jsonResponse } from '../responses.js';
-import { executeAgentTurn } from './agent-controller.js';
+import { runSharedProfileToolLoop } from './agent-controller.js';
 
 /**
  * Debug controller
@@ -21,6 +21,6 @@ export async function executeDebugTurn(env, ctx, input) {
       400,
     );
   }
-  return executeAgentTurn(env, ctx, input);
+  return runSharedProfileToolLoop(env, ctx, input);
 }
 

@@ -63,6 +63,23 @@ function isCdtBrowserToolName(name: string): boolean {
   return String(name || '').trim().toLowerCase().startsWith('cdt_');
 }
 
+function truncateLines(text: string, maxLines: number): { head: string; truncated: boolean; total: number } {
+  const lines = String(text || '').split('\n');
+  if (lines.length <= maxLines) return { head: String(text || ''), truncated: false, total: lines.length };
+  return { head: lines.slice(0, maxLines).join('\n'), truncated: true, total: lines.length };
+}
+
+function truncateCodeFencesForChat(text: string, maxLines = 10): string {
+  const src = String(text || '');
+  const re = /```(\w+)?\n([\s\S]*?)\n```/g;
+  return src.replace(re, (_full, lang, body) => {
+    const b = String(body || '');
+    const { head, truncated, total } = truncateLines(b, maxLines);
+    if (!truncated) return `\`\`\`${lang || ''}\n${b}\n\`\`\``;
+    return `\`\`\`${lang || ''}\n${head}\n\`\`\`\n_(truncated: showing first ${maxLines} of ${total} lines — open Monaco for full content)_`;
+  });
+}
+
 function parseBrowserToolAutomationFlag(inp: Record<string, unknown>): boolean {
   return inp.automation === true || inp.use_automation === true || inp.automate === true;
 }
@@ -354,6 +371,42 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
         markFirstSse();
 
         const evType = (data as { type?: string }).type;
+        if (typeof evType === 'string' && evType.startsWith('agentsam_subagent_') && data && typeof data === 'object') {
+          // Multitask emits structured non-text events; surface a short line and
+          // reset emptyRun so the stream isn't treated as "stuck".
+          emptyRun = 0;
+          const d = data as Record<string, unknown>;
+          const fanoutId = typeof d.fanout_id === 'string' ? d.fanout_id.trim() : '';
+          const slug = typeof d.subagent_slug === 'string' ? d.subagent_slug.trim() : '';
+          const status = typeof d.status === 'string' ? d.status.trim() : '';
+          const line = (() => {
+            if (evType === 'agentsam_subagent_fanout_started')
+              return `Subagents: fanout started${fanoutId ? ` (${fanoutId})` : ''}.`;
+            if (evType === 'agentsam_subagent_run_started') return `Subagent started${slug ? ` (${slug})` : ''}.`;
+            if (evType === 'agentsam_subagent_run_progress') return `Subagent progress${slug ? ` (${slug})` : ''}.`;
+            if (evType === 'agentsam_subagent_run_result')
+              return `Subagent result${slug ? ` (${slug})` : ''}: ${status || 'ok'}.`;
+            if (evType === 'agentsam_subagent_action_required') return `Subagent action required.`;
+            if (evType === 'agentsam_subagent_fanout_result')
+              return `Subagents: fanout ${status || 'done'}.`;
+            return `Subagents event: ${evType}.`;
+          })();
+
+          setMessages((prev) => {
+            const next = [...prev];
+            const last = next[next.length - 1];
+            if (last?.role === 'assistant') {
+              next[next.length - 1] = {
+                ...last,
+                content: `${last.content}${last.content.trim() ? '\n\n' : ''}${line}`,
+              };
+            } else {
+              next.push({ role: 'assistant', content: line });
+            }
+            return next;
+          });
+          continue;
+        }
         if (evType === 'handoff' && data && typeof data === 'object') {
           const h = data as {
             type?: string;
@@ -1479,11 +1532,18 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
                   onPythonDraftOpened?.(f.name);
                 }
                 onFileSelect?.({ name: f.name, content: f.content, originalContent: '' });
+                if (typeof window !== 'undefined') {
+                  window.dispatchEvent(
+                    new CustomEvent('iam:agent-open-surface', {
+                      detail: { surface: 'code', reason: 'monaco_invoke' },
+                    }),
+                  );
+                }
               } catch (e) {
                 console.warn('[ChatAssistant] onFileSelect failed for monaco invoke', e);
               }
             }
-            assistantContent = nextVisible;
+            assistantContent = truncateCodeFencesForChat(nextVisible, 10);
             setMessages((prev) => {
               const last = [...prev];
               last[last.length - 1] = { role: 'assistant', content: assistantContent };
@@ -1501,6 +1561,19 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
     });
   }
 
+  // Enforce chat preview rule: cap code fences to ~10 lines.
+  // Full content is still opened via monaco invokes / monaco_file_generated / code-block extraction below.
+  const truncatedForChat = truncateCodeFencesForChat(assistantContent, 10);
+  if (truncatedForChat !== assistantContent) {
+    assistantContent = truncatedForChat;
+    setMessages((prev) => {
+      const next = [...prev];
+      const last = next[next.length - 1];
+      if (last?.role === 'assistant') next[next.length - 1] = { ...last, content: assistantContent };
+      return next;
+    });
+  }
+
   const codeBlockRegex2 = /```(\w+)?\n([\s\S]*?)\n```/g;
   let firstMatch = codeBlockRegex2.exec(assistantContent);
   if (firstMatch) {
@@ -1510,6 +1583,13 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
     if (!isShell && (code.split('\n').length > 5 || code.length > 200) && onFileSelect) {
       const ext = extForStreamOutput(lang);
       onFileSelect({ name: `agent_output.${ext}`, content: code });
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('iam:agent-open-surface', {
+            detail: { surface: 'code', reason: 'assistant_code_block' },
+          }),
+        );
+      }
     }
   }
 }

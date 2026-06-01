@@ -46,15 +46,16 @@ function withTimeout(promise, ms) {
  *   handoffResume?: any,
  * }} input
  */
-export async function executeAgentTurn(env, ctx, input) {
+/**
+ * Shared SSE tool-loop runner for ask / agent / debug profiles.
+ * Controllers must validate execution_kind before calling.
+ *
+ * @param {any} env
+ * @param {any} ctx
+ * @param {any} input
+ */
+export async function runSharedProfileToolLoop(env, ctx, input) {
   const profile = input.profile;
-  if (profile.execution_kind !== 'agent_tool_loop') {
-    return jsonResponse(
-      { error: 'agent_controller_execution_kind_mismatch', execution_kind: profile.execution_kind },
-      400,
-    );
-  }
-
   const body = input.body || {};
   const message = String(input.message || '').trim();
   const { userId, tenantId, workspaceId, sessionId } = input.session || {};
@@ -262,5 +263,23 @@ export async function executeAgentTurn(env, ctx, input) {
   })();
 
   return new Response(readable, { headers: SSE_HEADERS });
+}
+
+/**
+ * Agent controller entry — execution_kind must be agent_tool_loop.
+ *
+ * @param {any} env
+ * @param {any} ctx
+ * @param {any} input
+ */
+export async function executeAgentTurn(env, ctx, input) {
+  const profile = input.profile;
+  if (profile.execution_kind !== 'agent_tool_loop') {
+    return jsonResponse(
+      { error: 'agent_controller_execution_kind_mismatch', execution_kind: profile.execution_kind },
+      400,
+    );
+  }
+  return runSharedProfileToolLoop(env, ctx, input);
 }
 
