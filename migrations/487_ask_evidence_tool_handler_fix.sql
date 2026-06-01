@@ -12,12 +12,10 @@ UPDATE agentsam_tools SET
 WHERE tool_key = 'agentsam_memory_search';
 
 UPDATE agentsam_prompt_routes SET
-  max_tools = 8,
-  updated_at = unixepoch()
+  max_tools = 8
 WHERE route_key = 'ask';
 
 UPDATE agentsam_route_requirements SET
   max_tools = 8,
-  optional_capability_keys_json = '["memory.read","context.search","code.search","github.read","workspace.read","d1.read","d1.schema","browser.inspect","mcp.catalog.read"]',
-  updated_at = unixepoch()
+  optional_capability_keys_json = '["memory.read","context.search","code.search","github.read","workspace.read","d1.read","d1.schema","browser.inspect","mcp.catalog.read"]'
 WHERE route_key = 'ask';
