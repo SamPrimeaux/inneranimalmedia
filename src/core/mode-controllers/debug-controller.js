@@ -1,5 +1,6 @@
 import { jsonResponse } from '../responses.js';
 import { runSharedProfileToolLoop } from './agent-controller.js';
+import { executeRwsSpawnFanout, shouldRunRwsFanout } from '../rws-spawn-fanout.js';
 
 /**
  * Debug controller
@@ -20,6 +21,9 @@ export async function executeDebugTurn(env, ctx, input) {
       { error: 'debug_controller_execution_kind_mismatch', execution_kind: profile.execution_kind },
       400,
     );
+  }
+  if (shouldRunRwsFanout(profile)) {
+    return executeRwsSpawnFanout(env, ctx, input);
   }
   return runSharedProfileToolLoop(env, ctx, input);
 }

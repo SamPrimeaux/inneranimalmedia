@@ -1,5 +1,6 @@
 import { jsonResponse } from '../responses.js';
 import { runtimeContextPayload, legacyContextPayload } from './runtime-context.js';
+import { executeRwsSpawnFanout, shouldRunRwsFanout } from '../rws-spawn-fanout.js';
 
 const SSE_HEADERS = {
   'Content-Type': 'text/event-stream',
@@ -25,6 +26,9 @@ export async function executePlanTurn(env, ctx, input) {
       { error: 'plan_controller_execution_kind_mismatch', execution_kind: profile.execution_kind },
       400,
     );
+  }
+  if (shouldRunRwsFanout(profile)) {
+    return executeRwsSpawnFanout(env, ctx, input);
   }
 
   const message = String(input.message || '');

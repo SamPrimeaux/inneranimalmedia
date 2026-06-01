@@ -3,6 +3,7 @@ import { loadAgentSamUserPolicy } from '../agent-policy.js';
 import { newChatAgentRunId, scheduleAgentsamChatAgentRunStart } from '../agent-run-routing.js';
 import { fireAgentHooks } from '../hook-dispatcher.js';
 import { toolsManifestFromCompiledRows } from '../runtime-profile.js';
+import { executeRwsSpawnFanout, shouldRunRwsFanout } from '../rws-spawn-fanout.js';
 import { runtimeContextPayload, legacyContextPayload } from './runtime-context.js';
 
 const SSE_HEADERS = {
@@ -279,6 +280,9 @@ export async function executeAgentTurn(env, ctx, input) {
       { error: 'agent_controller_execution_kind_mismatch', execution_kind: profile.execution_kind },
       400,
     );
+  }
+  if (shouldRunRwsFanout(profile)) {
+    return executeRwsSpawnFanout(env, ctx, input);
   }
   return runSharedProfileToolLoop(env, ctx, input);
 }

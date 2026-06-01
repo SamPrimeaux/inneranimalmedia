@@ -53,7 +53,39 @@ function toolMatchesSubagentGlob(toolName, globToken) {
  * @param {number} maxSubagents
  * @param {string} [message]
  */
+/** Fixed read → write → summarize pipeline roles (spawn_job children). */
+export const RWS_ROLE_SLUGS = {
+  read: ['deep-researcher', 'sam-scout', 'sqlcoder'],
+  write: ['code-editor', 'sam-builder', 'anthropic-builder'],
+  summarize: ['plain-summarizer', 'deep-researcher', 'model-compare'],
+};
+
+/**
+ * Pick exactly three subagent profiles for the RWS spawn pipeline.
+ * @param {Array<Record<string, unknown>>} profiles
+ */
+export function pickRwsSubagentProfiles(profiles) {
+  const list = Array.isArray(profiles) ? profiles : [];
+  const bySlug = new Map(list.map((p) => [String(p.slug || ''), p]));
+  const chosen = [];
+  for (const role of ['read', 'write', 'summarize']) {
+    const slugs = RWS_ROLE_SLUGS[role] || [];
+    let row = null;
+    for (const slug of slugs) {
+      row = bySlug.get(slug);
+      if (row) break;
+    }
+    if (!row && list.length) {
+      row = list.find((p) => !chosen.includes(p)) || null;
+    }
+    if (row) chosen.push({ ...row, _rws_role: role });
+  }
+  return chosen.slice(0, 3);
+}
+
 export function pickMultitaskSubagentProfiles(profiles, maxSubagents, message = '') {
+  const rws = pickRwsSubagentProfiles(profiles);
+  if (rws.length >= 3) return rws;
   const max = Math.max(1, Math.min(3, Math.floor(Number(maxSubagents) || 3)));
   const list = Array.isArray(profiles) ? profiles : [];
   if (!list.length) return [];

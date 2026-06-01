@@ -273,14 +273,15 @@ function defaultWritePolicyForMode(mode) {
  * @param {Exclude<import('./agent-mode.js').AgentMode, 'auto'>} mode
  */
 function defaultParallelPolicyForMode(mode) {
-  if (mode === 'multitask') {
+  const rwsModes = new Set(['multitask', 'agent', 'debug', 'plan']);
+  if (rwsModes.has(mode)) {
     return {
       enabled: true,
       execution_enabled: false,
-      max_subagents: 4,
+      max_subagents: 3,
       max_depth: 1,
-      allowed_subagent_types: ['research', 'shell', 'browser'],
-      merge_strategy: 'synthesize',
+      allowed_subagent_types: ['read', 'write', 'summarize'],
+      merge_strategy: 'rws_pipeline',
     };
   }
   return {
@@ -699,17 +700,20 @@ function applyUserPolicyToProfile(profile, userPolicy) {
     }
   }
 
-  // Multitask fanout execution is policy-gated per user/workspace.
-  // No env vars; profile must remain the single source of truth for controller behavior.
-  if (profile.mode === 'multitask' && profile.parallel_policy) {
+  // RWS fanout (read → write → summarize) is policy-gated per user/workspace for spawn-capable modes.
+  const spawnModes = new Set(['multitask', 'agent', 'debug', 'plan']);
+  if (spawnModes.has(profile.mode) && profile.parallel_policy) {
     const allowSpawn = Number(userPolicy.allow_subagent_spawn ?? 0) === 1;
     const allowExec = Number(userPolicy.allow_fanout_execution ?? 0) === 1;
     profile.parallel_policy.enabled = allowSpawn;
     profile.parallel_policy.execution_enabled = allowSpawn && allowExec;
     const depth = Math.max(1, Math.floor(Number(userPolicy.max_spawn_depth ?? 1) || 1));
-    profile.parallel_policy.max_depth = Math.min(depth, Math.floor(Number(profile.parallel_policy.max_depth ?? depth) || depth));
-    // Always hard clamp to 3 for now.
-    profile.parallel_policy.max_subagents = Math.min(3, Math.max(0, Math.floor(Number(profile.parallel_policy.max_subagents) || 0)));
+    profile.parallel_policy.max_depth = Math.min(
+      depth,
+      Math.floor(Number(profile.parallel_policy.max_depth ?? depth) || depth),
+    );
+    profile.parallel_policy.max_subagents = 3;
+    profile.parallel_policy.merge_strategy = 'rws_pipeline';
   }
   return profile;
 }

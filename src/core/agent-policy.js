@@ -57,7 +57,7 @@ export const DEFAULT_USER_POLICY = {
   require_allowlist_for_mcp: 0,
   tool_risk_level_max: 'high',
   allow_subagent_spawn: 1,
-  allow_fanout_execution: 0,
+  allow_fanout_execution: 1,
   max_tool_chain_depth: 15,
   max_spawn_depth: 2,
   max_cost_per_call_usd: null,
