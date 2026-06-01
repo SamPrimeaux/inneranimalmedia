@@ -464,6 +464,22 @@ export async function executeMultitaskTurn(env, ctx, input) {
         if (ok) okCount += 1;
         else errCount += 1;
 
+        const fullOutput = String(r.output || '').trim();
+        const shouldOpenMonaco = fullOutput.length >= 2500;
+        if (shouldOpenMonaco) {
+          const filename = `subagent-${r.slug}-${fanoutId}.md`;
+          const path = `agent-output/${fanoutId}/${filename}`;
+          emit('monaco_file_generated', {
+            files: [
+              {
+                path,
+                filename,
+                content: fullOutput,
+              },
+            ],
+          });
+        }
+
         if (r.childRunId) {
           await markAgentRunComplete(env, ctx, {
             runId: r.childRunId,
@@ -490,7 +506,12 @@ export async function executeMultitaskTurn(env, ctx, input) {
           subagent_slug: r.slug,
           status: r.status,
           summary: ok ? 'Completed.' : `Failed: ${String(r.error || 'unknown')}`,
-          output: { format: 'markdown', content: r.output || '' },
+          output: {
+            format: 'markdown',
+            content: shouldOpenMonaco
+              ? `${fullOutput.slice(0, 800)}\n\n_(Full output opened in Monaco: \`${`agent-output/${fanoutId}/subagent-${r.slug}-${fanoutId}.md`}\`)_`
+              : fullOutput,
+          },
           artifacts: { files_touched: [], patches: [], commands_run: [], urls_visited: [], screenshots: [] },
           metrics: { duration_ms: r.durationMs, tool_calls: r.toolCalls },
           error: ok
@@ -516,7 +537,7 @@ export async function executeMultitaskTurn(env, ctx, input) {
           created_at_unix: Math.floor(Date.now() / 1000),
         });
 
-        mergedParts.push(`## ${r.slug}\n\n${r.output || (ok ? '_No output._' : `_Error: ${r.error}_`)}`);
+        mergedParts.push(`## ${r.slug}\n\n${fullOutput || (ok ? '_No output._' : `_Error: ${r.error}_`)}`);
       }
 
       const mergedOutput = mergedParts.join('\n\n---\n\n');
