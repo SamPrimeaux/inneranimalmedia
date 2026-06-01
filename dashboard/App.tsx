@@ -1902,6 +1902,13 @@ const App: React.FC = () => {
     fetch('/api/agent/telemetry', { method: 'GET', credentials: 'same-origin' }).catch(() => {});
   }, []);
 
+  useEffect(() => {
+    setSystemProblems([]);
+    setErrorCount(0);
+    setWarningCount(0);
+    if (sessionUserId) void fetchGitAndProblems();
+  }, [sessionUserId, fetchGitAndProblems]);
+
   const fetchLiveStatus = useCallback(async () => {
     const cred = { credentials: 'same-origin' as const };
 

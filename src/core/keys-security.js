@@ -298,10 +298,11 @@ async function loadShieldRules(env, tenantId, userId) {
   }
 }
 
-async function notifyShieldChannels(env, channels, { tenantId, subject, text }) {
+async function notifyShieldChannels(env, channels, { tenantId, subject, text, from }) {
   const list = Array.isArray(channels) ? channels : parseJsonSafe(channels, ['dashboard']);
   const safeText = String(text || '').slice(0, 1200);
   const safeSubject = String(subject || 'Security alert').slice(0, 200);
+  const safeFrom = from != null ? String(from).trim() : '';
   for (const ch of list) {
     const c = String(ch || '').toLowerCase();
     if (c === 'email') {
@@ -309,6 +310,7 @@ async function notifyShieldChannels(env, channels, { tenantId, subject, text }) 
         await sendPlatformEmail(env, {
           subject: safeSubject,
           text: safeText,
+          from: safeFrom || undefined,
           category: 'keys_security',
           noAgentSamPrefix: true,
         });
@@ -419,13 +421,27 @@ export async function runSecurityShieldPulse(env, opts = {}) {
 
   if (alert && fireNotifications && ruleTypesToFire.size > 0) {
     const rules = await loadShieldRules(env, tenantId, userId);
-    const subject = 'Security finding detected — view details';
-    const text = [
-      `Open security findings: ${openFindingsCount}`,
-      `Secret audit events (24h): ${auditEvents24h}`,
+    const subject = 'Inner Animal Media — Security Alert';
+    const bodyLines = ['Inner Animal Media Security Alert', ''];
+    if (openFindingsCount > 0) {
+      const noun = openFindingsCount === 1 ? 'finding' : 'findings';
+      bodyLines.push(
+        `${openFindingsCount} open security ${noun} require your attention.`,
+      );
+    }
+    if (auditEvents24h > 0) {
+      const noun = auditEvents24h === 1 ? 'event' : 'events';
+      bodyLines.push(
+        `${auditEvents24h} secret audit ${noun} in the last 24 hours.`,
+      );
+    }
+    bodyLines.push(
+      '',
       `Review: https://inneranimalmedia.com${detailsUrl}`,
-      `Time: ${new Date().toISOString()}`,
-    ].join('\n');
+      '',
+      'Do not reply to this email.',
+    );
+    const text = bodyLines.join('\n');
 
     for (const rule of rules) {
       const rt = String(rule.rule_type || '');
@@ -439,7 +455,12 @@ export async function runSecurityShieldPulse(env, opts = {}) {
         userId: rule.user_id ? userId : null,
         ruleId: rule.id,
       });
-      await notifyShieldChannels(env, channels, { tenantId, subject, text });
+      await notifyShieldChannels(env, channels, {
+        tenantId,
+        subject,
+        text,
+        from: 'notifications@inneranimalmedia.com',
+      });
     }
   }
 

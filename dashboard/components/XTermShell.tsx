@@ -94,27 +94,30 @@ const GORILLA_LINES = [
   '         ▲      ▲         ',
 ];
 
-type SplashKey = '1' | '2' | '3';
+type SplashAction = 'local' | 'cloud' | 'models';
 
 interface WelcomeSplashProps {
   cdCommand?: string;
   showLocalOption: boolean;
-  onAction: (key: SplashKey) => void;
+  onAction: (action: SplashAction) => void;
 }
 
-const SPLASH_MENU: { key: SplashKey; label: string; desc: string; localOnly?: boolean }[] = [
-  { key: '1', label: 'Start remote', desc: 'GCP cloud terminal' },
-  { key: '2', label: 'Start local', desc: 'Your Mac via localpty', localOnly: true },
-  { key: '3', label: 'Agent Sam', desc: 'View available models' },
+const SPLASH_MENU: { action: SplashAction; label: string; desc: string; localOnly?: boolean }[] = [
+  { action: 'local', label: 'Start local', desc: 'Your Mac via localpty', localOnly: true },
+  { action: 'cloud', label: 'Cloud terminal', desc: 'Hosted shell in your workspace' },
+  { action: 'models', label: 'Agent Sam', desc: 'View available models' },
 ];
 
 function WelcomeSplash({ cdCommand, showLocalOption, onAction }: WelcomeSplashProps) {
-  const menuItems = SPLASH_MENU.filter((item) => !item.localOnly || showLocalOption);
+  const menuItems = SPLASH_MENU.filter((item) => !item.localOnly || showLocalOption).map((item, index) => ({
+    ...item,
+    displayKey: String(index + 1),
+  }));
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      const key = e.key as SplashKey;
-      if (menuItems.some((m) => m.key === key)) onAction(key);
+      const match = menuItems.find((m) => m.displayKey === e.key);
+      if (match) onAction(match.action);
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
@@ -200,13 +203,13 @@ function WelcomeSplash({ cdCommand, showLocalOption, onAction }: WelcomeSplashPr
       )}
 
       <div style={{ marginTop: '22px', width: 'min(280px, 100%)' }}>
-        {menuItems.map(({ key, label, desc }) => (
+        {menuItems.map(({ action, displayKey, label, desc }) => (
           <div
-            key={key}
+            key={action}
             role="button"
             tabIndex={0}
-            onClick={() => onAction(key)}
-            onKeyDown={(e) => e.key === 'Enter' && onAction(key)}
+            onClick={() => onAction(action)}
+            onKeyDown={(e) => e.key === 'Enter' && onAction(action)}
             style={{
               cursor: 'pointer',
               fontSize: '12px',
@@ -217,7 +220,7 @@ function WelcomeSplash({ cdCommand, showLocalOption, onAction }: WelcomeSplashPr
               marginBottom: '10px',
             }}
           >
-            <span style={{ color: 'var(--solar-yellow)', fontWeight: 700, minWidth: '18px' }}>{key}.</span>
+            <span style={{ color: 'var(--solar-yellow)', fontWeight: 700, minWidth: '18px' }}>{displayKey}.</span>
             <span>
               <span style={{ display: 'block' }}>{label}</span>
               <span style={{ display: 'block', fontSize: '10px', color: 'var(--text-muted)', opacity: 0.75 }}>
@@ -452,17 +455,17 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
     }, [fetchTunnelStatus]);
 
     const handleSplashAction = useCallback(
-      async (key: SplashKey) => {
+      async (action: SplashAction) => {
         setIsCollapsed(false);
         setActiveTab('terminal');
 
-        if (key === '1') {
+        if (action === 'cloud') {
           setShowSplash(false);
           await startTerminalConnection('platform_vm');
           return;
         }
 
-        if (key === '2') {
+        if (action === 'local') {
           if (!workspaceId?.trim()) return;
           const { isActive, shell: connShell } = await fetchLocalTerminalConnection(workspaceId);
           if (!isActive) return;
@@ -472,7 +475,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
           return;
         }
 
-        if (key === '3') {
+        if (action === 'models') {
           setShowSplash(false);
           const write = (text: string) => primaryPaneRef.current?.writeAnsi(text);
           window.setTimeout(() => {
@@ -486,7 +489,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
     const terminalAreaVisible = activeTab === 'terminal' && !isCollapsed;
     const terminalConnectEnabled = terminalAreaVisible && !showSplash;
     const connectionTargetLabel =
-      terminalTarget === 'user_hosted_tunnel' ? 'Local' : 'Remote';
+      terminalTarget === 'user_hosted_tunnel' ? 'Local' : 'Cloud';
 
     useImperativeHandle(ref, () => ({
       writeToTerminal: (text: string) => {
