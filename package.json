@@ -106,7 +106,7 @@
     "react-markdown": "^10.1.0",
     "react-syntax-highlighter": "^16.1.1",
     "remotion": "^4.0.462",
-    "wrangler": "^4.94.0",
+    "wrangler": "^4.96.0",
     "ws": "^8.21.0"
   },
   "type": "module",
