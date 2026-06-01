@@ -1,4 +1,5 @@
 import React from 'react';
+import { LocalTerminalSettingsPanel } from '../../LocalTerminalSetup';
 import type { SettingsPanelModel } from '../hooks/useSettingsData';
 import { useSettingsSectionStatus } from '../hooks/useSettingsSectionStatus';
 import {
@@ -12,7 +13,7 @@ import {
   WarningStrip,
 } from '../components/SectionPrimitives';
 
-export type NetworkSectionProps = { data: SettingsPanelModel };
+export type NetworkSectionProps = { data: SettingsPanelModel; workspaceId?: string | null };
 
 type DomainRow = {
   workspace_id?: string;
@@ -58,7 +59,7 @@ type NetworkExtra = {
   integration_endpoints?: IntegrationEndpointRow[];
 };
 
-export function NetworkSection({ data }: NetworkSectionProps) {
+export function NetworkSection({ data, workspaceId }: NetworkSectionProps) {
   const worker = data.workerBaseUrl?.trim() || '';
   const { data: section, loading, error, reload } = useSettingsSectionStatus<DomainRow>({
     endpoint: '/api/settings/network',
@@ -69,6 +70,8 @@ export function NetworkSection({ data }: NetworkSectionProps) {
 
   return (
     <div className="flex flex-col gap-4 max-w-4xl">
+      <LocalTerminalSettingsPanel workspaceId={workspaceId ?? undefined} />
+
       <SectionHeader
         title="Network"
         description="Workspace domains, fetch/origin allowlists, and integration endpoint registry. Add/remove actions are disabled until validation endpoints are wired."

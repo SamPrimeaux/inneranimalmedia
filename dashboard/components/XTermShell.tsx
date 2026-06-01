@@ -10,10 +10,11 @@ import {
 import {
   TerminalSessionPane,
   TerminalSessionPaneHandle,
+  formatAgentsamModelsToTerminal,
   type TerminalConnectionStatus,
 } from './TerminalSessionPane';
 import type { AgentWorkspaceContextPacket } from '../src/ideWorkspace';
-import { LocalTerminalSetup, type TerminalTarget } from './LocalTerminalSetup';
+import { fetchLocalTerminalConnection, type TerminalTarget } from './LocalTerminalSetup';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 const DEFAULT_PRODUCT = 'Agent Sam';
@@ -93,30 +94,31 @@ const GORILLA_LINES = [
   '         ▲      ▲         ',
 ];
 
+type SplashKey = '1' | '2' | '3';
+
 interface WelcomeSplashProps {
-  productLabel: string;
-  workspaceLabel: string;
   cdCommand?: string;
-  onAction: (n: 1 | 2 | 3 | 4 | 5) => void;
+  showLocalOption: boolean;
+  onAction: (key: SplashKey) => void;
 }
 
-const SPLASH_MENU = [
-  { n: 1 as const, label: 'Start workspace' },
-  { n: 2 as const, label: 'Open agent' },
-  { n: 3 as const, label: 'Activate tools' },
-  { n: 4 as const, label: 'Switch theme' },
-  { n: 5 as const, label: 'Run diagnostics' },
+const SPLASH_MENU: { key: SplashKey; label: string; desc: string; localOnly?: boolean }[] = [
+  { key: '1', label: 'Start remote', desc: 'GCP cloud terminal' },
+  { key: '2', label: 'Start local', desc: 'Your Mac via localpty', localOnly: true },
+  { key: '3', label: 'Agent Sam', desc: 'View available models' },
 ];
 
-function WelcomeSplash({ productLabel, workspaceLabel, cdCommand, onAction }: WelcomeSplashProps) {
+function WelcomeSplash({ cdCommand, showLocalOption, onAction }: WelcomeSplashProps) {
+  const menuItems = SPLASH_MENU.filter((item) => !item.localOnly || showLocalOption);
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      const n = parseInt(e.key, 10);
-      if (n >= 1 && n <= 5) onAction(n as 1 | 2 | 3 | 4 | 5);
+      const key = e.key as SplashKey;
+      if (menuItems.some((m) => m.key === key)) onAction(key);
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [onAction]);
+  }, [onAction, menuItems]);
 
   return (
     <div
@@ -197,25 +199,31 @@ function WelcomeSplash({ productLabel, workspaceLabel, cdCommand, onAction }: We
         </div>
       )}
 
-      <div style={{ marginTop: '22px', width: '200px' }}>
-        {SPLASH_MENU.map(({ n, label }) => (
+      <div style={{ marginTop: '22px', width: 'min(280px, 100%)' }}>
+        {menuItems.map(({ key, label, desc }) => (
           <div
-            key={n}
+            key={key}
             role="button"
             tabIndex={0}
-            onClick={() => onAction(n)}
-            onKeyDown={(e) => e.key === 'Enter' && onAction(n)}
+            onClick={() => onAction(key)}
+            onKeyDown={(e) => e.key === 'Enter' && onAction(key)}
             style={{
               cursor: 'pointer',
               fontSize: '12px',
-              lineHeight: '2.1',
+              lineHeight: '1.5',
               color: 'var(--text-main)',
               display: 'flex',
               gap: '8px',
+              marginBottom: '10px',
             }}
           >
-            <span style={{ color: 'var(--solar-yellow)', fontWeight: 700, minWidth: '18px' }}>{n}.</span>
-            <span>{label}</span>
+            <span style={{ color: 'var(--solar-yellow)', fontWeight: 700, minWidth: '18px' }}>{key}.</span>
+            <span>
+              <span style={{ display: 'block' }}>{label}</span>
+              <span style={{ display: 'block', fontSize: '10px', color: 'var(--text-muted)', opacity: 0.75 }}>
+                {desc}
+              </span>
+            </span>
           </div>
         ))}
       </div>
@@ -288,6 +296,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
     }, [activeTab, onProblemsTabOpen]);
 
     const [showSplash, setShowSplash] = useState(true);
+    const [showLocalSplashOption, setShowLocalSplashOption] = useState(false);
     const [restarting, setRestarting] = useState(false);
     const [tunnelHealth, setTunnelHealth] = useState<{ healthy: boolean; connections: number } | null>(null);
     const [uptime, setUptime] = useState(0);
@@ -318,25 +327,32 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
     const [splitSubOpen, setSplitSubOpen] = useState(false);
     const [terminalTarget, setTerminalTarget] = useState<TerminalTarget>('platform_vm');
 
-    const handleTerminalTargetChange = useCallback(async (target: TerminalTarget) => {
-      setTerminalTarget(target);
-      setShowSplash(false);
-      if (target === 'user_hosted_tunnel' && workspaceId?.trim()) {
-        try {
-          const qs = new URLSearchParams({ workspace_id: workspaceId.trim() });
-          const r = await fetch(`/api/terminal/connections/local?${qs}`, { credentials: 'same-origin' });
-          const j = await r.json().catch(() => ({}));
-          const connShell = j?.connection?.shell;
-          if (typeof connShell === 'string' && connShell.trim()) {
-            setShellPref(connShell.trim());
-          }
-        } catch {
-          /* ignore */
-        }
+    useEffect(() => {
+      if (!showSplash || !workspaceId?.trim()) {
+        setShowLocalSplashOption(false);
+        return;
       }
-      primaryPaneRef.current?.reconnectClean();
-      if (splitEnabled) secondaryPaneRef.current?.reconnectClean();
-    }, [splitEnabled, workspaceId]);
+      let cancelled = false;
+      void fetchLocalTerminalConnection(workspaceId).then(({ isActive }) => {
+        if (!cancelled) setShowLocalSplashOption(isActive);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, [showSplash, workspaceId]);
+
+    const startTerminalConnection = useCallback(
+      async (target: TerminalTarget) => {
+        setTerminalTarget(target);
+        if (target === 'user_hosted_tunnel' && workspaceId?.trim()) {
+          const { shell: connShell } = await fetchLocalTerminalConnection(workspaceId);
+          if (connShell) setShellPref(connShell);
+        }
+        primaryPaneRef.current?.reconnectClean();
+        if (splitEnabled) secondaryPaneRef.current?.reconnectClean();
+      },
+      [splitEnabled, workspaceId],
+    );
 
     useEffect(() => {
       if (isDrawer) setIsCollapsed(false);
@@ -436,53 +452,41 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
     }, [fetchTunnelStatus]);
 
     const handleSplashAction = useCallback(
-      (n: 1 | 2 | 3 | 4 | 5) => {
-        setShowSplash(false);
+      async (key: SplashKey) => {
         setIsCollapsed(false);
         setActiveTab('terminal');
 
-        switch (n) {
-          case 1: {
-            const cmd = resolvedCdCmdRef.current;
-            if (cmd) primaryPaneRef.current?.runCommand(cmd);
-            break;
-          }
-          case 2:
-            window.open(agentDashboardUrl, '_blank', 'noopener,noreferrer');
-            break;
-          case 3: {
-            primaryPaneRef.current?.writeAnsi('\r\n');
-            primaryPaneRef.current?.writeAnsi('\x1b[38;5;51m  ══ MCP & Terminal Stack ═══════════════════════════════\x1b[0m\r\n');
-            primaryPaneRef.current?.writeAnsi('\x1b[38;5;240m  MCP Server : https://mcp.inneranimalmedia.com/mcp\x1b[0m\r\n');
-            primaryPaneRef.current?.writeAnsi('\x1b[38;5;240m  PTY Repo   : github.com/SamPrimeaux/iam-pty\x1b[0m\r\n');
-            primaryPaneRef.current?.writeAnsi('\x1b[38;5;240m  PTY Local  : pm2 restart iam-pty  (port 3099)\x1b[0m\r\n');
-            primaryPaneRef.current?.writeAnsi('\x1b[38;5;240m  Tunnel     : terminal.inneranimalmedia.com → cloudflared → :3099\x1b[0m\r\n');
-            primaryPaneRef.current?.writeAnsi('\x1b[38;5;51m  ════════════════════════════════════════════════════════\x1b[0m\r\n');
-            break;
-          }
-          case 4:
-            primaryPaneRef.current?.writeAnsi(
-              '\x1b[38;5;240m  Theme: Settings → theme controls (CSS vars update this terminal).\x1b[0m\r\n',
-            );
-            break;
-          case 5: {
-            const cmds = [
-              `echo "═══ ${productLabel} diagnostics ═══"`,
-              'node --version 2>/dev/null || echo "node: not found"',
-              'npm --version 2>/dev/null || echo "npm: not found"',
-              'npx wrangler --version 2>/dev/null || echo "wrangler: not found"',
-              'pm2 status 2>/dev/null || echo "pm2: not found"',
-              'echo "═══════════════════════════════════"',
-            ];
-            cmds.forEach((c, i) => window.setTimeout(() => primaryPaneRef.current?.runCommand(c), i * 280));
-            break;
-          }
+        if (key === '1') {
+          setShowSplash(false);
+          await startTerminalConnection('platform_vm');
+          return;
+        }
+
+        if (key === '2') {
+          if (!workspaceId?.trim()) return;
+          const { isActive, shell: connShell } = await fetchLocalTerminalConnection(workspaceId);
+          if (!isActive) return;
+          if (connShell) setShellPref(connShell);
+          setShowSplash(false);
+          await startTerminalConnection('user_hosted_tunnel');
+          return;
+        }
+
+        if (key === '3') {
+          setShowSplash(false);
+          const write = (text: string) => primaryPaneRef.current?.writeAnsi(text);
+          window.setTimeout(() => {
+            void formatAgentsamModelsToTerminal(write);
+          }, 80);
         }
       },
-      [agentDashboardUrl, productLabel],
+      [startTerminalConnection, workspaceId],
     );
 
     const terminalAreaVisible = activeTab === 'terminal' && !isCollapsed;
+    const terminalConnectEnabled = terminalAreaVisible && !showSplash;
+    const connectionTargetLabel =
+      terminalTarget === 'user_hosted_tunnel' ? 'Local' : 'Remote';
 
     useImperativeHandle(ref, () => ({
       writeToTerminal: (text: string) => {
@@ -612,14 +616,19 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
 
               <div className="hidden sm:flex items-center h-5 w-px bg-[var(--border-subtle)] shrink-0" />
 
-              <div className="relative hidden md:flex items-center min-w-0">
-                <LocalTerminalSetup
-                  workspaceId={workspaceId}
-                  terminalTarget={terminalTarget}
-                  onTargetChange={handleTerminalTargetChange}
-                  onLocalReady={() => handleTerminalTargetChange('user_hosted_tunnel')}
+              <span
+                className="hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 rounded border border-[var(--border-subtle)] text-[10px] font-mono uppercase tracking-wide text-[var(--text-muted)] shrink-0"
+                title="Active terminal target (change via welcome screen)"
+              >
+                <span
+                  className={`h-1.5 w-1.5 rounded-full shrink-0 ${
+                    terminalTarget === 'user_hosted_tunnel'
+                      ? 'bg-[var(--solar-yellow)]'
+                      : 'bg-[var(--solar-cyan)]'
+                  }`}
                 />
-              </div>
+                {connectionTargetLabel}
+              </span>
 
               <div className="hidden sm:flex items-center h-5 w-px bg-[var(--border-subtle)] shrink-0" />
 
@@ -888,15 +897,15 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                       shell={shellPref}
                       ptySlot=""
                       visible={terminalAreaVisible}
+                      connectEnabled={terminalConnectEnabled}
                       onConnectionChange={setPrimaryStatus}
                       onSessionIdChange={setPrimarySessionId}
                     />
                   </div>
                   {showSplash && showIamWelcomeBar && (
                     <WelcomeSplash
-                      productLabel={productLabel}
-                      workspaceLabel={workspaceLabel}
                       cdCommand={resolvedCdCmd}
+                      showLocalOption={showLocalSplashOption}
                       onAction={handleSplashAction}
                     />
                   )}
@@ -922,6 +931,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                           shell={shellPref}
                           ptySlot="s2"
                           visible={terminalAreaVisible}
+                          connectEnabled={terminalConnectEnabled}
                           onConnectionChange={setSecondaryStatus}
                         />
                       </div>

@@ -113,7 +113,7 @@ export default function SettingsPanel({
       case 'CI/CD':
         return <CiCdSection />;
       case 'Network':
-        return <NetworkSection data={data} />;
+        return <NetworkSection data={data} workspaceId={workspaceId} />;
       case 'Themes':
         return <ThemesSection workspaceId={workspaceId} />;
       case 'Storage':

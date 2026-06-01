@@ -46,6 +46,50 @@ function buildHistorySeedLine(cmd: string, shellPath: string): string {
   return `history -s ${shellQuoteForHistory(cmd)}\r`;
 }
 
+type AgentModelRow = {
+  model_key?: string;
+  name?: string;
+  provider?: string;
+  size_class?: string;
+};
+
+/** Active picker models (agentsam_ai + agentsam_model_catalog is_active on server). */
+export async function formatAgentsamModelsToTerminal(
+  write: (text: string) => void,
+): Promise<void> {
+  write('\r\n\x1b[38;5;51m  ══ Agent Sam — available models ═══════════════════════\x1b[0m\r\n');
+  try {
+    const res = await fetch('/api/agent/models', { credentials: 'same-origin' });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !Array.isArray(data)) {
+      write('\x1b[38;5;196m  ✗ Could not load model catalog\x1b[0m\r\n');
+      return;
+    }
+    const rows = (data as AgentModelRow[]).filter((m) => m?.model_key);
+    if (!rows.length) {
+      write('\x1b[38;5;240m  (no active models in agentsam_model_catalog)\x1b[0m\r\n');
+      return;
+    }
+    for (const m of rows) {
+      const key = String(m.model_key);
+      const label = m.name ? String(m.name) : key;
+      const provider = m.provider ? String(m.provider) : '—';
+      const tier = m.size_class ? ` · ${String(m.size_class)}` : '';
+      write(`\x1b[38;5;250m  ${key.padEnd(28)}\x1b[0m \x1b[38;5;240m${provider}${tier}\x1b[0m  \x1b[38;5;82m${label}\x1b[0m\r\n`);
+    }
+    write('\x1b[38;5;51m  ══════════════════════════════════════════════════════\x1b[0m\r\n');
+  } catch (e: unknown) {
+    write(
+      `\x1b[38;5;196m  ✗ ${e instanceof Error ? e.message : 'Model catalog fetch failed'}\x1b[0m\r\n`,
+    );
+  }
+}
+
+function isAgentsamModelsSlashLine(line: string): boolean {
+  const t = line.trim();
+  return t === '/agentsam' || /^\/agentsam\s*$/i.test(t);
+}
+
 async function fetchTerminalHistoryCommands(): Promise<string[]> {
   try {
     const res = await fetch('/api/terminal/history', { credentials: 'same-origin' });
@@ -101,12 +145,26 @@ export interface TerminalSessionPaneProps {
   /** Full path, e.g. /bin/zsh — forwarded to PTY */
   shell?: string;
   visible: boolean;
+  /** When false, xterm mounts but WebSocket PTY does not connect (welcome splash). */
+  connectEnabled?: boolean;
   onConnectionChange?: (s: TerminalConnectionStatus) => void;
   onSessionIdChange?: (id: string | null) => void;
 }
 
 export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, TerminalSessionPaneProps>(
-  ({ workspaceId, targetType = 'platform_vm', ptySlot = '', shell = '', visible, onConnectionChange, onSessionIdChange }, ref) => {
+  (
+    {
+      workspaceId,
+      targetType = 'platform_vm',
+      ptySlot = '',
+      shell = '',
+      visible,
+      connectEnabled = true,
+      onConnectionChange,
+      onSessionIdChange,
+    },
+    ref,
+  ) => {
     const terminalRef = useRef<HTMLDivElement>(null);
     const xtermRef = useRef<Terminal | null>(null);
     const fitAddonRef = useRef<FitAddon | null>(null);
@@ -370,6 +428,13 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
 
               const onDataSub = term.onData((data) => {
                 bumpActivity();
+                if (data.endsWith('\r') || data.endsWith('\n')) {
+                  const cmd = data.replace(/[\r\n]+$/, '').trim();
+                  if (isAgentsamModelsSlashLine(cmd)) {
+                    void formatAgentsamModelsToTerminal((text) => term.write(text));
+                    return;
+                  }
+                }
                 if (ws.readyState !== WebSocket.OPEN) return;
                 if (data.endsWith('\r') || data.endsWith('\n')) {
                   const cmd = data.replace(/[\r\n]+$/, '').trim();
@@ -497,7 +562,7 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
         connectDebounceRef.current = null;
       }
 
-      if (!visible) {
+      if (!visible || !connectEnabled) {
         intentionalCloseRef.current = true;
         connectSeqRef.current += 1;
         connectInFlightRef.current = false;
@@ -505,6 +570,11 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
         clearInactivityTimer();
         closeSocketQuietly(socketRef.current);
         socketRef.current = null;
+        if (!visible) {
+          return () => {
+            isMounted = false;
+          };
+        }
         return () => {
           isMounted = false;
         };
@@ -539,7 +609,7 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
         closeSocketQuietly(socketRef.current);
         socketRef.current = null;
       };
-    }, [visible, workspaceId, ptySlot, shell, targetType, bumpActivity, clearInactivityTimer]);
+    }, [visible, connectEnabled, workspaceId, ptySlot, shell, targetType, bumpActivity, clearInactivityTimer]);
 
     useEffect(() => {
       const observer = new MutationObserver(() => {
@@ -687,7 +757,16 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
       const ro = new ResizeObserver(() => requestAnimationFrame(() => fitAddonRef.current?.fit()));
       ro.observe(terminalRef.current);
 
+      const slashModelsSub = term.onData((data) => {
+        if (!data.endsWith('\r') && !data.endsWith('\n')) return;
+        const cmd = data.replace(/[\r\n]+$/, '').trim();
+        if (isAgentsamModelsSlashLine(cmd)) {
+          void formatAgentsamModelsToTerminal((text) => term.write(text));
+        }
+      });
+
       return () => {
+        slashModelsSub.dispose();
         window.removeEventListener('resize', onResize);
         ro.disconnect();
         term.dispose();
