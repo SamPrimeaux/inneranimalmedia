@@ -158,10 +158,11 @@ export function scheduleMirrorToolCallEventToSupabase(env, ctx, params) {
         ? 'failed'
         : statusRaw;
 
+  const rawId = params.id != null ? String(params.id).trim() : '';
   const id =
-    params.id != null && String(params.id).trim() !== ''
-      ? String(params.id).trim()
-      : `tce_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+    rawId && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(rawId)
+      ? rawId
+      : crypto.randomUUID();
 
   scheduleHyperdriveInsert(
     env,

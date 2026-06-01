@@ -269,12 +269,26 @@ export async function applyThompsonLoopFromAgentRun(env, agentRunId) {
  *   errorJson?: string | null,
  * }} p
  */
+function isWorkflowRunExecutionParentId(id) {
+  const s = String(id || '').trim();
+  return s.startsWith('wrun_') || s.startsWith('sb_wrun_');
+}
+
 export async function insertAgentRunExecutionStep(env, p) {
   const agentRunId = p?.agentRunId != null ? String(p.agentRunId).trim() : '';
   if (!env?.DB || !agentRunId) return null;
 
   const stepCols = await pragmaTableInfo(env.DB, 'agentsam_execution_steps');
-  if (!stepCols.size || !stepCols.has('agent_run_id') || !stepCols.has('execution_id')) return null;
+  if (!stepCols.size || !stepCols.has('agent_run_id')) return null;
+
+  // execution_id FK → agentsam_workflow_runs.id (NOT agentsam_agent_run ar_*).
+  const workflowRunId =
+    p?.workflowRunId != null && String(p.workflowRunId).trim()
+      ? String(p.workflowRunId).trim()
+      : isWorkflowRunExecutionParentId(agentRunId)
+        ? agentRunId
+        : null;
+  if (stepCols.has('execution_id') && !workflowRunId) return null;
 
   const stepId = `estep_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
   const nowSec = Math.floor(Date.now() / 1000);
@@ -293,7 +307,7 @@ export async function insertAgentRunExecutionStep(env, p) {
 
   q('id', stepId);
   q('agent_run_id', agentRunId);
-  if (stepCols.has('execution_id')) q('execution_id', agentRunId);
+  if (stepCols.has('execution_id') && workflowRunId) q('execution_id', workflowRunId);
   q('node_key', String(p.nodeKey || 'step').slice(0, 500));
   q('node_type', String(p.nodeType || 'tool').slice(0, 80));
   q('status', String(p.status || 'success').slice(0, 40));

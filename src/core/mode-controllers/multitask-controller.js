@@ -9,11 +9,45 @@ import {
   bumpSpawnJobAfterChild,
   finalizeSpawnJob,
 } from '../subagent-spawn-d1.js';
+import { loadAgentSamUserPolicy } from '../agent-policy.js';
 import { resolveRuntimeProfile, toolsManifestFromCompiledRows } from '../runtime-profile.js';
 import {
   appendSubagentProfileToSystemPrompt,
   filterToolsForSubagentProfile,
 } from '../subagent-profile-resolve.js';
+
+function buildChildUserMessage(fullMessage, index, total, slug) {
+  return (
+    `You are subagent ${index + 1}/${total} (\`${slug}\`) in a multitask fanout.\n` +
+    `Complete your slice of the parent task using read-only evidence tools when files or D1 context are needed.\n` +
+    `If ### Open file (editor) content is present in the parent message, treat it as authoritative.\n\n` +
+    `---\n\n${String(fullMessage || '').trim()}`
+  );
+}
+
+function emitParentMultitaskSummary(emit, fanoutId, mergedOutput, okCount, total) {
+  const trimmed = String(mergedOutput || '').trim();
+  const lines = trimmed ? trimmed.split('\n') : [];
+  const openMonaco = lines.length > 10 || trimmed.length >= 800;
+  if (openMonaco && trimmed) {
+    const path = `agent-output/${fanoutId}/multitask-report.md`;
+    emit('monaco_file_generated', {
+      files: [{ path, filename: 'multitask-report.md', content: trimmed }],
+    });
+    emit('text', {
+      text:
+        `**Multitask complete** (${okCount}/${total} subagents succeeded).\n\n` +
+        `${lines.slice(0, 10).join('\n')}\n\n` +
+        `_(Full report opened in Monaco: \`${path}\`)_`,
+    });
+    return;
+  }
+  if (trimmed) {
+    emit('text', { text: `**Multitask complete** (${okCount}/${total})\n\n${trimmed}` });
+    return;
+  }
+  emit('text', { text: `**Multitask complete** (${okCount}/${total}) — no consolidated output returned.` });
+}
 
 const SSE_HEADERS = {
   'Content-Type': 'text/event-stream',
@@ -285,7 +319,12 @@ export async function executeMultitaskTurn(env, ctx, input) {
       }
 
       const { buildSystemPrompt, runAgentToolLoop } = await import('../../api/agent.js');
-      const userPolicy = input.userPolicy || null;
+      const userPolicy =
+        input.userPolicy ||
+        (userId && workspaceId ? await loadAgentSamUserPolicy(env, userId, workspaceId) : null);
+      const childCompileMode = mergeStrategy === 'report' ? 'ask' : 'agent';
+      const activeFileEnvelope = input.activeFileEnvelope ?? null;
+      const agentChatResolvedContext = input.agentChatResolvedContext ?? null;
 
       const results = await Promise.all(
         childSpecs.map(async (c) => {
@@ -302,12 +341,12 @@ export async function executeMultitaskTurn(env, ctx, input) {
           let childProfile;
           try {
             childProfile = await resolveRuntimeProfile(env, {
-              mode: 'agent',
+              mode: childCompileMode,
               message,
               session: { userId, workspaceId, tenantId, conversationId: sessionId },
               overrides: {
                 subagent_slug: c.slug,
-                task_type: 'multitask',
+                task_type: childCompileMode === 'ask' ? 'ask' : 'multitask',
                 model_key: profile.model_key,
               },
               compile_lane: 'live',
@@ -385,7 +424,7 @@ export async function executeMultitaskTurn(env, ctx, input) {
           try {
             await runAgentToolLoop(env, ctx, sink, {
               request: input.request,
-              messages: [{ role: 'user', content: message }],
+              messages: [{ role: 'user', content: buildChildUserMessage(message, c.i, childSpecs.length, c.slug) }],
               tools,
               systemPrompt,
               modelKey: childProfile.model_key,
@@ -419,6 +458,8 @@ export async function executeMultitaskTurn(env, ctx, input) {
               agentSlug: c.row?.id ?? null,
               dispatchSpine: c.childRunId ? { agent_run_id: c.childRunId, routing_arm_id: childProfile.routing_arm_id, mode: childProfile.mode } : null,
               chatAgentRunId: c.childRunId,
+              activeFileEnvelope,
+              resolvedContext: agentChatResolvedContext,
               maxRuntimeMs: childProfile.max_runtime_ms,
               runtimeProfile: childProfile,
             });
@@ -557,6 +598,8 @@ export async function executeMultitaskTurn(env, ctx, input) {
         results: { ok: okCount, error: errCount, blocked: 0, requires_approval: 0 },
         created_at_unix: Math.floor(Date.now() / 1000),
       });
+
+      emitParentMultitaskSummary(emit, fanoutId, mergedOutput, okCount, childSpecs.length);
 
       emit('done', {});
     } finally {
