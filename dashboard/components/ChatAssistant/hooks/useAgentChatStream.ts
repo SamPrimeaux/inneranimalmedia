@@ -646,10 +646,8 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           ((data as { type?: string }).type === 'monaco_files_generated' ||
             (data as { type?: string }).type === 'monaco_file_generated')
         ) {
-          const batch =
-            (data as { type?: string }).type === 'monaco_files_generated'
-              ? ((data as { files?: unknown[] }).files || [])
-              : [data];
+          const payload = data as { type?: string; files?: unknown[]; plan_id?: string };
+          const batch = Array.isArray(payload.files) && payload.files.length ? payload.files : [data];
           for (const raw of batch) {
             if (!raw || typeof raw !== 'object') continue;
             const f = raw as {
