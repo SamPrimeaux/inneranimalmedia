@@ -5099,6 +5099,14 @@ async function runAgentToolLoop(env, ctx, emit, params) {
             if (call.name === 'fs_search_files' && !toolInput.path && !toolInput.glob_path) {
               toolInput.path = defaultSearchPathFromActiveFile(activeFileEnvelopeParam);
             }
+            if (call.name === 'fs_search_files') {
+              const q = String(toolInput.query ?? toolInput.q ?? toolInput.pattern ?? '').trim();
+              if (!q) {
+                const fromPath = String(toolInput.path ?? toolInput.glob_path ?? '').trim();
+                const base = fromPath.split('/').filter(Boolean).pop() || '';
+                if (base && base !== '.') toolInput.query = base.replace(/\.[^.]+$/, '') || base;
+              }
+            }
             toolInput = applyActiveFileDefaultsToToolInput(call.name, toolInput, activeFileEnvelopeParam);
           }
           execResult = await dispatchToolCallWithBudget(

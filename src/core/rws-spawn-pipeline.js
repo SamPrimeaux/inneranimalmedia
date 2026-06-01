@@ -2,13 +2,14 @@
  * Pure RWS pipeline helpers (no Worker/agent imports — safe for unit tests).
  */
 
-export const RWS_SPAWN_MODES = new Set(['agent', 'debug', 'plan', 'multitask']);
+/** RWS fanout runs only in Multitask when explicitly enabled — not on every Agent/Debug turn. */
+export const RWS_SPAWN_MODES = new Set(['multitask']);
 
 /**
  * @param {import('./runtime-profile.types.js').RuntimeProfile} profile
  */
 export function shouldRunRwsFanout(profile) {
-  if (!profile || !RWS_SPAWN_MODES.has(profile.mode)) return false;
+  if (!profile || profile.mode !== 'multitask') return false;
   return (
     profile.parallel_policy?.enabled === true && profile.parallel_policy?.execution_enabled === true
   );

@@ -273,8 +273,7 @@ function defaultWritePolicyForMode(mode) {
  * @param {Exclude<import('./agent-mode.js').AgentMode, 'auto'>} mode
  */
 function defaultParallelPolicyForMode(mode) {
-  const rwsModes = new Set(['multitask', 'agent', 'debug', 'plan']);
-  if (rwsModes.has(mode)) {
+  if (mode === 'multitask') {
     return {
       enabled: true,
       execution_enabled: false,
@@ -700,9 +699,8 @@ function applyUserPolicyToProfile(profile, userPolicy) {
     }
   }
 
-  // RWS fanout (read → write → summarize) is policy-gated per user/workspace for spawn-capable modes.
-  const spawnModes = new Set(['multitask', 'agent', 'debug', 'plan']);
-  if (spawnModes.has(profile.mode) && profile.parallel_policy) {
+  // RWS fanout (read → write → summarize) — Multitask only, policy-gated per user/workspace.
+  if (profile.mode === 'multitask' && profile.parallel_policy) {
     const allowSpawn = Number(userPolicy.allow_subagent_spawn ?? 0) === 1;
     const allowExec = Number(userPolicy.allow_fanout_execution ?? 0) === 1;
     profile.parallel_policy.enabled = allowSpawn;
@@ -788,12 +786,28 @@ export async function resolveProfileModel(env, profile, opts) {
   try {
     const { resolveModelForTask, normalizeCanonicalTaskType } = await import('./resolveModel.js');
     const toolCapableRequired = profile.tool_capable_required || profile.tool_allowlist.length > 0;
+    let workspaceDefaultModel = null;
+    if (env?.DB) {
+      try {
+        const wsRow = await env.DB.prepare(
+          `SELECT default_model_id FROM agentsam_workspace WHERE id = ? LIMIT 1`,
+        )
+          .bind(ws)
+          .first();
+        workspaceDefaultModel =
+          wsRow?.default_model_id != null ? String(wsRow.default_model_id).trim() : '';
+        if (!workspaceDefaultModel) workspaceDefaultModel = null;
+      } catch {
+        workspaceDefaultModel = null;
+      }
+    }
     const resolved = await resolveModelForTask(env, {
       task_type: normalizeCanonicalTaskType(profile.routing_task_type || profile.mode),
       mode: profile.mode,
       workspace_id: ws,
       tenant_id: opts.tenantId != null ? String(opts.tenantId).trim() : undefined,
       require_tools: toolCapableRequired,
+      requested_model_key: workspaceDefaultModel,
     });
     profile.model_key = resolved.model_key;
     profile.routing_arm_id =

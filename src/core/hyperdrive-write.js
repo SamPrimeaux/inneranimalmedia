@@ -208,6 +208,9 @@ export function scheduleMirrorToolCallEventToSupabase(env, ctx, params) {
     const rawId = params.id != null ? String(params.id).trim() : '';
     const id = isValidUuid(rawId) ? rawId : crypto.randomUUID();
     const runId = resolveMirrorRunUuid(params.run_id);
+    if (!runId) {
+      return;
+    }
 
     scheduleHyperdriveInsert(
       env,

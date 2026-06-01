@@ -114,11 +114,56 @@ export function resolveRoutingMode(task_type, mode = 'auto') {
   return 'auto';
 }
 
-/** Legacy catalog uses task_type "chat"; canonical resolver uses "ask". */
-function routingTaskTypeCandidates(task_type) {
+/**
+ * D1 arms for composer modes are seeded on legacy task_types (`chat`, `code`, …) as well as
+ * canonical `agent`. Without expanding candidates, Auto on Agent mode never sees OpenAI arms.
+ * @param {string} task_type
+ * @param {string} [mode]
+ */
+export function routingTaskTypeCandidates(task_type, mode = '') {
   const tt = String(task_type || 'ask').trim().toLowerCase();
+  const md = String(mode || '').trim().toLowerCase();
   if (tt === 'ask') return ['ask', 'chat'];
+  if (tt === 'agent' || md === 'agent') {
+    return ['chat', 'code', 'agent', 'multitask', 'tool_use'];
+  }
+  if (tt === 'multitask' || md === 'multitask') {
+    return ['multitask', 'chat', 'agent', 'code'];
+  }
+  if (tt === 'debug' || md === 'debug') {
+    return ['debug', 'code', 'agent', 'chat'];
+  }
+  if (tt === 'plan' || md === 'plan') {
+    return ['plan', 'agent', 'chat'];
+  }
   return [tt];
+}
+
+/**
+ * Thompson must not sample only the top-N priority rows (Anthropic scouts at 200+ block OpenAI).
+ * @param {Array<Record<string, unknown>>} arms
+ * @param {number} cap
+ */
+function diversifyArmsForThompsonDraw(arms, cap = THOMPSON_CANDIDATE_LIMIT) {
+  const list = Array.isArray(arms) ? arms : [];
+  if (!list.length) return [];
+  const byProvider = new Map();
+  for (const arm of list) {
+    const p = String(arm.provider || 'unknown').trim().toLowerCase() || 'unknown';
+    if (!byProvider.has(p)) byProvider.set(p, []);
+    byProvider.get(p).push(arm);
+  }
+  const providers = [...byProvider.keys()];
+  const pool = [];
+  let guard = 0;
+  while (pool.length < cap && guard < cap * Math.max(providers.length, 1) * 2) {
+    guard += 1;
+    for (const p of providers) {
+      const bucket = byProvider.get(p);
+      if (bucket?.length && pool.length < cap) pool.push(bucket.shift());
+    }
+  }
+  return pool.length ? pool : list.slice(0, cap);
 }
 
 /** Locked chat/orchestration task_type contract — map legacy values before D1 arm lookup. */
@@ -359,7 +404,7 @@ async function selectThompsonArm(db, {
 }) {
   const wsId = workspace_id ?? '';
   const modesToTry = [...new Set([mode, 'auto', 'agent', 'ask'].filter(Boolean))];
-  const taskTypesToTry = routingTaskTypeCandidates(task_type);
+  const taskTypesToTry = routingTaskTypeCandidates(task_type, mode);
 
   for (const tryTaskType of taskTypesToTry) {
     for (const tryMode of modesToTry) {
@@ -383,6 +428,7 @@ async function _selectThompsonArmOnce(db, {
 }) {
   const wsId = workspace_id ?? '';
 
+  const fetchLimit = Math.max(THOMPSON_CANDIDATE_LIMIT * 4, 24);
   const { results: arms } = await db.prepare(`
     SELECT
       ra.id,
@@ -391,7 +437,8 @@ async function _selectThompsonArmOnce(db, {
       ra.success_beta,
       ra.decayed_score,
       ra.priority,
-      ra.workspace_id
+      ra.workspace_id,
+      mc.provider
     FROM agentsam_routing_arms ra
     INNER JOIN agentsam_model_catalog mc
       ON mc.model_key = ra.model_key
@@ -408,14 +455,17 @@ async function _selectThompsonArmOnce(db, {
       ${require_tools ? 'AND mc.supports_tools = 1' : ''}
     ORDER BY
       CASE WHEN ra.workspace_id = ? THEN 0 ELSE 1 END,
-      ra.priority DESC
-    LIMIT ${THOMPSON_CANDIDATE_LIMIT}
+      ra.priority DESC,
+      ra.decayed_score DESC
+    LIMIT ${fetchLimit}
   `).bind(task_type, mode, wsId, wsId).all().catch(() => ({ results: [] }));
 
   if (!arms || arms.length === 0) return null;
 
+  const pool = diversifyArmsForThompsonDraw(arms, THOMPSON_CANDIDATE_LIMIT);
+
   // Draw Beta(α, β) sample for each arm — highest draw wins
-  const ranked = arms
+  const ranked = pool
     .map(arm => ({
       ...arm,
       draw: betaSample(
@@ -438,7 +488,7 @@ async function _selectThompsonArmOnce(db, {
 async function queryGlobalPolicyArm(db, { task_type, mode, workspace_id, require_tools }) {
   const wsId = String(workspace_id || '').trim();
   const modesToTry = [...new Set([mode, 'auto', 'agent', 'ask', null])];
-  const taskTypesToTry = routingTaskTypeCandidates(task_type);
+  const taskTypesToTry = routingTaskTypeCandidates(task_type, mode);
 
   for (const tryTaskType of taskTypesToTry) {
     for (const tryMode of modesToTry) {

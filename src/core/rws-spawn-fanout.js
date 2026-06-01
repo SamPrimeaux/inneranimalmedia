@@ -336,9 +336,7 @@ export async function executeRwsSpawnFanout(env, ctx, input) {
             model_key: profile.model_key,
           };
           if (role === 'read') {
-            compileOverrides.route_key = readonlyAuditChild
-              ? READONLY_REPO_AUDIT_ROUTE_KEY
-              : 'ask';
+            compileOverrides.route_key = READONLY_REPO_AUDIT_ROUTE_KEY;
             compileOverrides.task_type = 'ask';
             compileOverrides.mode = 'ask';
           }

@@ -43,22 +43,29 @@ test('buildRwsChildUserMessage includes prior read/write for summarize', () => {
   assert.match(msg, /simple plain English/i);
 });
 
-test('shouldRunRwsFanout requires enabled execution on spawn modes', () => {
-  for (const mode of RWS_SPAWN_MODES) {
+test('shouldRunRwsFanout is multitask-only with policy execution enabled', () => {
+  assert.equal(
+    shouldRunRwsFanout({
+      mode: 'multitask',
+      parallel_policy: { enabled: true, execution_enabled: true },
+    }),
+    true,
+  );
+  assert.equal(
+    shouldRunRwsFanout({
+      mode: 'multitask',
+      parallel_policy: { enabled: true, execution_enabled: false },
+    }),
+    false,
+  );
+  for (const mode of ['agent', 'debug', 'plan', 'ask']) {
     assert.equal(
       shouldRunRwsFanout({
         mode,
         parallel_policy: { enabled: true, execution_enabled: true },
       }),
-      true,
-    );
-    assert.equal(
-      shouldRunRwsFanout({
-        mode,
-        parallel_policy: { enabled: true, execution_enabled: false },
-      }),
       false,
+      `RWS must not run on mode=${mode}`,
     );
   }
-  assert.equal(shouldRunRwsFanout({ mode: 'ask', parallel_policy: { enabled: true, execution_enabled: true } }), false);
 });

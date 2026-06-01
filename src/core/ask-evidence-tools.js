@@ -43,7 +43,7 @@ export function codeContextIntent(message) {
     /\b(where is|where are|find|which file|grep|defined in|set before|set in|called from|implemented in|configured in|look up|search (?:the )?(?:repo|codebase|code|project))\b/i.test(
       message,
     ) ||
-    /\b(agentsam_|src\/|dashboard\/|migrations\/|\.js\b|\.tsx\b|\.sql\b|handler_key|route_key|workflow_key|tool_key)\b/i.test(
+    /\b(agentsam_|src\/|dashboard\/|migrations\/|\.js\b|\.tsx\b|\.sql\b|handler_key|route_key|workflow_key|tool_key|fs_read_file|fs_search_files|github_file)\b/i.test(
       message,
     ) ||
     /\b(task_type|agent_run|prompt_route|runtime.profile|workflow.executor)\b/i.test(message)

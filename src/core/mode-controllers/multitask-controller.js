@@ -1,8 +1,9 @@
 import { jsonResponse } from '../responses.js';
-import { executeRwsSpawnFanout } from '../rws-spawn-fanout.js';
+import { executeRwsSpawnFanout, shouldRunRwsFanout } from '../rws-spawn-fanout.js';
+import { runSharedProfileToolLoop } from './agent-controller.js';
 
 /**
- * Multitask controller — delegates to read → write → summarize spawn pipeline.
+ * Multitask controller — RWS fanout only when user policy enables it; else one tool loop (same as Agent).
  *
  * @param {any} env
  * @param {any} ctx
@@ -16,5 +17,8 @@ export async function executeMultitaskTurn(env, ctx, input) {
       400,
     );
   }
-  return executeRwsSpawnFanout(env, ctx, input);
+  if (shouldRunRwsFanout(profile)) {
+    return executeRwsSpawnFanout(env, ctx, input);
+  }
+  return runSharedProfileToolLoop(env, ctx, input);
 }

@@ -6,6 +6,21 @@ import { assertWorkspaceTokenForPty } from './workspace-tokens.js';
 import { runTerminalCommandViaHttpExec } from './terminal.js';
 
 export const PTY_REPO_DIRNAME = 'inneranimalmedia';
+
+/**
+ * Safe directory name under the user's PTY workspace root (supports multiple clones).
+ * @param {string|null|undefined} repoRoot e.g. /workspace/tenant_…/au_…/inneranimalmedia
+ * @param {string|null|undefined} workspaceRoot e.g. /workspace/tenant_…/au_…
+ */
+export function safePtyRepoDirName(repoRoot, workspaceRoot) {
+  const root = String(repoRoot || '').trim().replace(/\/+$/, '');
+  const ws = String(workspaceRoot || '').trim().replace(/\/+$/, '');
+  if (!root) return PTY_REPO_DIRNAME;
+  let name = root.split('/').filter(Boolean).pop() || PTY_REPO_DIRNAME;
+  if (ws && root === ws) return PTY_REPO_DIRNAME;
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,120}$/.test(name)) return PTY_REPO_DIRNAME;
+  return name;
+}
 const REMOTION_INSTALL_CMD =
   'npm install --save-dev remotion @remotion/renderer @remotion/bundler @remotion/player';
 

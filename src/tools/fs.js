@@ -34,19 +34,34 @@ export const handlers = {
   },
 
   /**
-   * read_file: Fetch content of a specific file.
+   * read_file: PTY workspace read (inneranimalmedia clone on iam-pty). No public HTTP loopback.
    */
-  async read_file({ path, user_id, workspace_id }, env) {
+  async read_file(params, env, runContext = {}) {
+    const path = params?.path != null ? String(params.path).trim() : '';
+    const user_id =
+      params?.user_id ?? runContext?.userId ?? runContext?.user_id ?? runContext?.session?.user_id;
+    const workspace_id =
+      params?.workspace_id ?? runContext?.workspaceId ?? runContext?.workspace_id ?? runContext?.session?.workspace_id;
+    const tenant_id =
+      params?.tenant_id ?? runContext?.tenantId ?? runContext?.tenant_id ?? runContext?.session?.tenant_id;
     try {
-      const ign = await assertPathAllowedByIgnorePatterns(env, user_id, workspace_id, path);
-      if (!ign.ok) return { error: ign.error };
-      const origin = env.IAM_ORIGIN || 'https://inneranimalmedia.com';
-      const res = await fetch(`${origin}/api/fs/read`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path }),
-      });
-      return await res.json();
+      if (user_id && workspace_id && path) {
+        const ign = await assertPathAllowedByIgnorePatterns(env, user_id, workspace_id, path);
+        if (!ign.ok) return { error: ign.error };
+        const { executeFsReadFile } = await import('../core/fs-read-file.js');
+        const out = await executeFsReadFile(
+          env,
+          { path, user_id, workspace_id, tenant_id },
+          runContext || {},
+        );
+        if (!out?.error) return out;
+        return { error: out.error, ...out };
+      }
+      if (!path) return { error: 'path required' };
+      return {
+        error:
+          'workspace_read_requires_user_context — connect workspace and ensure PTY repo is cloned',
+      };
     } catch (e) {
       return { error: `Failed to read file: ${e.message}` };
     }

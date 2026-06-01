@@ -872,6 +872,12 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         result = out?.error ? { ok: false, error: String(out.error) } : { ok: true, body: out };
         break;
       }
+      if (dispatcher === 'fs_read_file') {
+        const { executeFsReadFile } = await import('./fs-read-file.js');
+        const out = await executeFsReadFile(env, params, runContext);
+        result = out?.error ? { ok: false, error: String(out.error) } : { ok: true, body: out };
+        break;
+      }
       if (dispatcher === 'semantic_retrieval') {
         const { dispatchSemanticRetrieval } = await import('./semantic-retrieval-dispatch.js');
         const lane = String(
@@ -1201,6 +1207,12 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         const { handlers: fsHandlers } = await import('../tools/fs.js');
         const out = await fsHandlers.write_file?.(params, env, runContext);
         result = out?.error ? { ok: false, error: String(out.error) } : { ok: true, body: out };
+        break;
+      }
+      const { executeFsReadFile } = await import('./fs-read-file.js');
+      const readOut = await executeFsReadFile(env, params, runContext);
+      if (!readOut?.error) {
+        result = { ok: true, body: readOut };
         break;
       }
       const { handlers: fsHandlers } = await import('../tools/fs.js');
