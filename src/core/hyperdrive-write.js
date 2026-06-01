@@ -3,6 +3,9 @@
  * D1 remains source of truth; Supabase writes are additive only.
  */
 import { isHyperdriveUsable, runHyperdriveQuery } from './hyperdrive-query.js';
+import { resolveSupabaseWorkspaceId } from './rag-lanes.js';
+
+const D1_MIRROR_ID_PREFIX_RE = /^(ws_|au_|arun_|mtc_|saf_|sag_|tenant_)/i;
 
 function isoNow() {
   return new Date().toISOString();
@@ -13,6 +16,37 @@ function isoFromUnix(v) {
   const n = Number(v);
   if (!Number.isFinite(n)) return isoNow();
   return new Date(n < 1e12 ? n * 1000 : n).toISOString();
+}
+
+function isValidUuid(value) {
+  const v = String(value || '').trim();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+}
+
+/**
+ * Map D1 workspace ids (ws_*) to Supabase agentsam.agentsam_workspaces.id UUID.
+ * Never pass D1-prefixed ids into Postgres uuid columns.
+ * @param {any} env
+ * @param {unknown} rawWorkspaceId
+ */
+async function resolveMirrorWorkspaceUuid(env, rawWorkspaceId) {
+  const raw = rawWorkspaceId != null ? String(rawWorkspaceId).trim() : '';
+  if (!raw) return null;
+  if (isValidUuid(raw)) return raw;
+  if (D1_MIRROR_ID_PREFIX_RE.test(raw)) {
+    return resolveSupabaseWorkspaceId(env, raw);
+  }
+  return null;
+}
+
+/**
+ * @param {unknown} rawRunId
+ */
+function resolveMirrorRunUuid(rawRunId) {
+  const raw = rawRunId != null ? String(rawRunId).trim() : '';
+  if (!raw) return null;
+  if (isValidUuid(raw)) return raw;
+  return null;
 }
 
 /**
@@ -141,68 +175,73 @@ export function scheduleMirrorUsageEventToSupabase(env, ctx, params) {
  * @param {Record<string, unknown>} params
  */
 export function scheduleMirrorToolCallEventToSupabase(env, ctx, params) {
-  const workspaceId = params.workspace_id != null ? String(params.workspace_id).trim() : '';
-  if (!workspaceId) return;
+  const d1WorkspaceId = params.workspace_id != null ? String(params.workspace_id).trim() : '';
+  if (!d1WorkspaceId) return;
 
-  const toolKey =
-    params.tool_key != null && String(params.tool_key).trim() !== ''
-      ? String(params.tool_key).trim()
-      : params.tool_name != null
-        ? String(params.tool_name).trim()
-        : 'unknown';
-  const statusRaw = String(params.status || (params.success === false ? 'failed' : 'completed')).toLowerCase();
-  const status =
-    statusRaw === 'success' || statusRaw === 'ok' || statusRaw === 'completed'
-      ? 'completed'
-      : statusRaw === 'error' || statusRaw === 'failed'
-        ? 'failed'
-        : statusRaw;
+  const write = async () => {
+    const workspaceUuid = await resolveMirrorWorkspaceUuid(env, d1WorkspaceId);
+    if (!workspaceUuid) {
+      console.warn(
+        '[hyperdrive-write] agentsam_tool_call_events skip invalid workspace_id',
+        d1WorkspaceId.slice(0, 48),
+      );
+      return;
+    }
 
-  const rawId = params.id != null ? String(params.id).trim() : '';
-  const id =
-    rawId && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(rawId)
-      ? rawId
-      : crypto.randomUUID();
+    const toolKey =
+      params.tool_key != null && String(params.tool_key).trim() !== ''
+        ? String(params.tool_key).trim()
+        : params.tool_name != null
+          ? String(params.tool_name).trim()
+          : 'unknown';
+    const statusRaw = String(params.status || (params.success === false ? 'failed' : 'completed')).toLowerCase();
+    const status =
+      statusRaw === 'success' || statusRaw === 'ok' || statusRaw === 'completed'
+        ? 'completed'
+        : statusRaw === 'error' || statusRaw === 'failed'
+          ? 'failed'
+          : statusRaw;
 
-  const rawRunId = params.run_id != null ? String(params.run_id).trim() : '';
-  const runId =
-    rawRunId &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(rawRunId)
-      ? rawRunId
-      : null;
+    const rawId = params.id != null ? String(params.id).trim() : '';
+    const id = isValidUuid(rawId) ? rawId : crypto.randomUUID();
+    const runId = resolveMirrorRunUuid(params.run_id);
 
-  scheduleHyperdriveInsert(
-    env,
-    ctx,
-    'agentsam_tool_call_events',
-    [
-      'id',
-      'workspace_id',
-      'run_id',
-      'tool_key',
-      'tool_category',
-      'status',
-      'input_tokens',
-      'output_tokens',
-      'cost_usd',
-      'duration_ms',
-      'created_at',
-    ],
-    [
-      id,
-      workspaceId,
-      runId,
-      toolKey,
-      params.tool_category != null ? String(params.tool_category) : null,
-      status,
-      Math.floor(Number(params.input_tokens) || 0),
-      Math.floor(Number(params.output_tokens) || 0),
-      Number(params.cost_usd) || 0,
-      params.duration_ms != null ? Math.floor(Number(params.duration_ms) || 0) : null,
-      isoFromUnix(params.created_at),
-    ],
-    { onConflict: '(id) DO NOTHING' },
-  );
+    scheduleHyperdriveInsert(
+      env,
+      ctx,
+      'agentsam_tool_call_events',
+      [
+        'id',
+        'workspace_id',
+        'run_id',
+        'tool_key',
+        'tool_category',
+        'status',
+        'input_tokens',
+        'output_tokens',
+        'cost_usd',
+        'duration_ms',
+        'created_at',
+      ],
+      [
+        id,
+        workspaceUuid,
+        runId,
+        toolKey,
+        params.tool_category != null ? String(params.tool_category) : null,
+        status,
+        Math.floor(Number(params.input_tokens) || 0),
+        Math.floor(Number(params.output_tokens) || 0),
+        Number(params.cost_usd) || 0,
+        params.duration_ms != null ? Math.floor(Number(params.duration_ms) || 0) : null,
+        isoFromUnix(params.created_at),
+      ],
+      { onConflict: '(id) DO NOTHING' },
+    );
+  };
+
+  if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(write());
+  else void write();
 }
 
 /**

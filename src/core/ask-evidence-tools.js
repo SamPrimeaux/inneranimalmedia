@@ -2,6 +2,7 @@
  * Ask mode — intent-specific read-only evidence tool selection.
  * Ask is read-only, not tool-less: pin repo/file/D1 tools when the question needs grounding.
  */
+import { isReadOnlyRepoSearchIntent } from './code-implementation-intent.js';
 
 /** Tools that score well on generic optional caps but fail or mis-route in Ask today. */
 export const ASK_GENERIC_SEARCH_FALLBACKS = Object.freeze([
@@ -15,8 +16,8 @@ export function askPinnedEvidenceToolNames(message) {
   const names = [];
   const t = String(message || '');
 
-  if (codeContextIntent(t)) {
-    names.push('fs_search_files', 'fs_read_file', 'github_file');
+  if (codeContextIntent(t) || isReadOnlyRepoSearchIntent(t)) {
+    names.push('fs_search_files', 'fs_read_file', 'github_file', 'repo_search');
   }
   if (askDataPlaneIntent(t)) {
     names.push('d1_query', 'd1_schema');

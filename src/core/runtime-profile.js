@@ -12,6 +12,14 @@ import {
   askDataPlaneIntent as askMessageDataPlaneIntent,
   codeContextIntent as askMessageCodeContextIntent,
 } from './ask-evidence-tools.js';
+import {
+  READONLY_REPO_AUDIT_ROUTE_KEY,
+  augmentReadonlyRepoAuditRouteRequirements,
+  compileReadonlyRepoAuditToolRows,
+  filterReportChildOrchestrationTools,
+  isReadonlyRepoAuditContext,
+  readonlyRepoAuditPinnedToolNames,
+} from './readonly-repo-audit-tools.js';
 import { RUNTIME_PROFILE_VERSION } from './runtime-profile.types.js';
 
 const TERMINAL_TOOL_NAMES = ['terminal_run', 'terminal_execute', 'run_command', 'bash'];
@@ -418,6 +426,7 @@ async function resolvePromptRouteForCompile(env, q) {
   }
 
   if (!refinedRouteKey && row?.route_key) refinedRouteKey = String(row.route_key);
+  if (!refinedRouteKey && q.routeKeyPin) refinedRouteKey = String(q.routeKeyPin).trim();
   return { row, refinedRouteKey };
 }
 
@@ -477,6 +486,7 @@ export async function compileModeProfile(env, input) {
 
   const routeKey =
     refinedRouteKey ||
+    (input.routeKeyPin ? String(input.routeKeyPin).trim() : null) ||
     (promptRouteRow?.route_key != null ? String(promptRouteRow.route_key).trim() : null) ||
     mode;
 
@@ -490,8 +500,20 @@ export async function compileModeProfile(env, input) {
       })
     : null;
 
-  const effectiveRouteReq =
-    mode === 'ask' ? augmentAskRouteRequirements(message, routeToolRequirements) : routeToolRequirements;
+  const effectiveRouteReq = (() => {
+    let req = routeToolRequirements;
+    if (mode === 'ask') {
+      req = augmentAskRouteRequirements(message, req);
+    }
+    const readonlyAudit =
+      isReadonlyRepoAuditContext(message) ||
+      refinedRouteKey === READONLY_REPO_AUDIT_ROUTE_KEY ||
+      input.routeKeyPin === READONLY_REPO_AUDIT_ROUTE_KEY;
+    if (readonlyAudit) {
+      req = augmentReadonlyRepoAuditRouteRequirements(message, req);
+    }
+    return req;
+  })();
 
   const modeToolPolicy = await loadModeToolPolicy(env, mode, { routeKey, taskType });
 
@@ -538,7 +560,19 @@ export async function compileModeProfile(env, input) {
       outputLimit: maxTools,
     });
     let scoredRows = det.rows || [];
-    if (mode === 'ask' && askPinnedEvidenceToolNames(message).length > 0) {
+    const readonlyAuditCompile =
+      isReadonlyRepoAuditContext(message) ||
+      refinedRouteKey === READONLY_REPO_AUDIT_ROUTE_KEY ||
+      input.routeKeyPin === READONLY_REPO_AUDIT_ROUTE_KEY;
+    if (readonlyAuditCompile && readonlyRepoAuditPinnedToolNames(message).length > 0) {
+      const pinned = await compileReadonlyRepoAuditToolRows(env, {
+        message,
+        workspaceId,
+        maxTools,
+        scoredRows,
+      });
+      scoredRows = pinned.mergedRows;
+    } else if (mode === 'ask' && askPinnedEvidenceToolNames(message).length > 0) {
       const pinned = await compileAskEvidenceToolRows(env, {
         message,
         workspaceId,
@@ -555,8 +589,11 @@ export async function compileModeProfile(env, input) {
 
   const denySet = new Set((modeToolPolicy.denyTools || []).map((t) => String(t)));
   toolAllowlist = toolAllowlist.filter((name) => !denySet.has(name));
-  if (mode === 'ask') {
-    toolAllowlist = filterAskReadEvidenceTools(toolAllowlist);
+  if (mode === 'ask' || isReadonlyRepoAuditContext(message) || input.routeKeyPin === READONLY_REPO_AUDIT_ROUTE_KEY) {
+    compiledToolRows = filterReportChildOrchestrationTools(compiledToolRows);
+    toolAllowlist = filterAskReadEvidenceTools(
+      compiledToolRows.map((r) => String(r.name || r.tool_name || '').trim()).filter(Boolean),
+    );
     const allowSet = new Set(toolAllowlist);
     compiledToolRows = compiledToolRows.filter((r) =>
       allowSet.has(String(r.name || r.tool_name || '').trim()),

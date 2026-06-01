@@ -16,7 +16,14 @@ import {
   filterToolsForSubagentProfile,
   pickMultitaskSubagentProfiles,
 } from '../subagent-profile-resolve.js';
-import { askPinnedEvidenceToolNames } from '../ask-evidence-tools.js';
+import {
+  READONLY_REPO_AUDIT_ROUTE_KEY,
+  assessRequiredEvidenceToolsPresent,
+  extractRequestedRepoPaths,
+  filterReportChildOrchestrationTools,
+  isReadonlyRepoAuditContext,
+  resolveActiveCoreEvidenceToolNames,
+} from '../readonly-repo-audit-tools.js';
 
 function buildChildUserMessage(fullMessage, index, total, slug) {
   return (
@@ -29,33 +36,54 @@ function buildChildUserMessage(fullMessage, index, total, slug) {
 }
 
 /**
- * Merge pinned Ask evidence tools after subagent glob filter (report-mode audits).
- * @param {any} env
- * @param {Array<Record<string, unknown>>} filtered
- * @param {Array<Record<string, unknown>>} allTools
- * @param {string} message
- * @param {string|null} workspaceId
+ * @param {Array<Record<string, unknown>>} tools
  */
-async function mergePinnedEvidenceToolsForReport(env, filtered, allTools, message, workspaceId) {
-  const pinnedNames = askPinnedEvidenceToolNames(message);
-  if (!env?.DB || !pinnedNames.length) return filtered.length ? filtered : allTools;
+function modelFacingToolNames(tools) {
+  return (tools || []).map((t) => String(t?.name || t?.tool_name || '').trim()).filter(Boolean);
+}
 
-  const { listAgentsamToolsByKeys, mapCatalogRowsToAgentTools } = await import('../agentsam-tools-catalog.js');
-  const rawPinned = await listAgentsamToolsByKeys(env, new Set(pinnedNames.map((n) => n.toLowerCase())), {
-    workspaceId,
-    limit: 8,
-  });
-  const pinnedTools = mapCatalogRowsToAgentTools(rawPinned);
-  const seen = new Set(filtered.map((t) => String(t.name || t.tool_name || '').trim()).filter(Boolean));
-  const merged = [...filtered];
-  for (const t of pinnedTools) {
-    const n = String(t.name || t.tool_name || '').trim();
-    if (n && !seen.has(n)) {
-      merged.push(t);
-      seen.add(n);
-    }
+/**
+ * @param {any} emit
+ * @param {Record<string, unknown>} payload
+ */
+function emitChildToolContractLog(emit, payload) {
+  console.log('[agentsam_subagent_child_tool_contract]', JSON.stringify(payload));
+  emit('agentsam_subagent_child_tool_contract', payload);
+}
+
+/**
+ * @param {any} env
+ * @param {any} ctx
+ * @param {Record<string, unknown>} input
+ * @param {Record<string, unknown>} c
+ * @param {string} message
+ * @param {string} missingTools
+ * @param {number} t0
+ */
+async function returnReadToolContractMissing(env, ctx, input, c, message, missingTools, t0) {
+  const err = `READ_TOOL_CONTRACT_MISSING:${missingTools.join(',')}`;
+  if (c.childRunId) {
+    await markAgentRunComplete(env, ctx, {
+      runId: c.childRunId,
+      status: 'failed',
+      errorMessage: err,
+      outputSummary: err,
+    }).catch(() => {});
   }
-  return merged.length ? merged : allTools;
+  return {
+    ok: false,
+    subagentRunId: c.subagentRunId,
+    slug: c.slug,
+    childRunId: c.childRunId,
+    status: 'error',
+    error: err,
+    durationMs: Date.now() - t0,
+    toolCalls: 0,
+    output: `READ_TOOL_CONTRACT_MISSING — required evidence tools not compiled: ${missingTools.join(', ')}. This is a runtime/config bug, not missing repo files.`,
+    inputTokens: 0,
+    outputTokens: 0,
+    costUsd: 0,
+  };
 }
 
 function emitParentMultitaskSummary(emit, fanoutId, mergedOutput, okCount, total) {
@@ -355,7 +383,9 @@ export async function executeMultitaskTurn(env, ctx, input) {
       const userPolicy =
         input.userPolicy ||
         (userId && workspaceId ? await loadAgentSamUserPolicy(env, userId, workspaceId) : null);
-      const childCompileMode = mergeStrategy === 'report' ? 'ask' : 'agent';
+      const readonlyAuditChild = isReadonlyRepoAuditContext(message);
+      const childCompileMode =
+        mergeStrategy === 'report' || readonlyAuditChild ? 'ask' : 'agent';
       const activeFileEnvelope = input.activeFileEnvelope ?? null;
       const agentChatResolvedContext = input.agentChatResolvedContext ?? null;
 
@@ -373,15 +403,19 @@ export async function executeMultitaskTurn(env, ctx, input) {
 
           let childProfile;
           try {
+            const childOverrides = {
+              subagent_slug: c.slug,
+              task_type: childCompileMode === 'ask' ? 'ask' : 'multitask',
+              model_key: profile.model_key,
+            };
+            if (readonlyAuditChild) {
+              childOverrides.route_key = READONLY_REPO_AUDIT_ROUTE_KEY;
+            }
             childProfile = await resolveRuntimeProfile(env, {
               mode: childCompileMode,
               message,
               session: { userId, workspaceId, tenantId, conversationId: sessionId },
-              overrides: {
-                subagent_slug: c.slug,
-                task_type: childCompileMode === 'ask' ? 'ask' : 'multitask',
-                model_key: profile.model_key,
-              },
+              overrides: childOverrides,
               compile_lane: 'live',
             });
           } catch (e) {
@@ -403,9 +437,53 @@ export async function executeMultitaskTurn(env, ctx, input) {
 
           const promptRouteRow = childProfile._prompt_route_row ?? null;
           const toolsAll = toolsManifestFromCompiledRows(childProfile._compiled_tool_rows || []);
+          const compiledToolNames = modelFacingToolNames(toolsAll);
           let tools = filterToolsForSubagentProfile(toolsAll, c.row);
-          if (mergeStrategy === 'report') {
-            tools = await mergePinnedEvidenceToolsForReport(env, tools, toolsAll, message, workspaceId);
+          if (readonlyAuditChild || mergeStrategy === 'report') {
+            tools = filterReportChildOrchestrationTools(tools);
+          }
+          const filteredToolNames = modelFacingToolNames(tools);
+          const modelFacingNames = filteredToolNames;
+
+          const requiredEvidenceNames = readonlyAuditChild
+            ? await resolveActiveCoreEvidenceToolNames(env, workspaceId)
+            : [];
+          const evidenceAssessment = readonlyAuditChild
+            ? assessRequiredEvidenceToolsPresent(modelFacingNames, requiredEvidenceNames)
+            : { required_evidence_tools_present: true, missing: [], present: [] };
+
+          emitChildToolContractLog(emit, {
+            child_slug: c.slug,
+            child_display_name: c.row?.display_name ?? c.slug,
+            child_route_key: childProfile.refined_route_key || childProfile.source?.route_requirements_id || READONLY_REPO_AUDIT_ROUTE_KEY,
+            child_mode: childProfile.mode,
+            child_execution_kind: childProfile.execution_kind,
+            requested_files: extractRequestedRepoPaths(message),
+            compiled_tool_names: compiledToolNames,
+            filtered_tool_names: filteredToolNames,
+            model_facing_tool_names: modelFacingNames,
+            required_evidence_tools_present: evidenceAssessment.required_evidence_tools_present,
+            missing_evidence_tools: evidenceAssessment.missing,
+          });
+
+          if (readonlyAuditChild && !evidenceAssessment.required_evidence_tools_present) {
+            emit('agentsam_subagent_run_progress', {
+              fanout_id: fanoutId,
+              subagent_run_id: c.subagentRunId,
+              phase: 'blocked',
+              message: `READ_TOOL_CONTRACT_MISSING: ${evidenceAssessment.missing.join(', ')}`,
+              progress: { tool_calls_used: 0, tool_calls_max: childProfile.max_tool_calls },
+              created_at_unix: Math.floor(Date.now() / 1000),
+            });
+            return returnReadToolContractMissing(
+              env,
+              ctx,
+              input,
+              c,
+              message,
+              evidenceAssessment.missing,
+              t0,
+            );
           }
 
           const minimalAsk =

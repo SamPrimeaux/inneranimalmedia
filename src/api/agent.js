@@ -2461,6 +2461,38 @@ async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRuntimeCo
       agentsamToolsId: null,
     };
   }
+
+  const toolInput =
+    typeof toolCallOrName === 'object' && toolCallOrName && typeof toolCallOrName.input === 'object'
+      ? toolCallOrName.input
+      : null;
+  if (name === 'knowledge_search' || name === 'ss_search_knowledge') {
+    const query =
+      toolInput?.query ??
+      toolInput?.q ??
+      toolInput?.search_query ??
+      toolInput?.search ??
+      toolInput?.text ??
+      '';
+    if (!String(query).trim()) {
+      return {
+        allowed: false,
+        reason: 'knowledge_search_query_missing',
+        riskLevel: 'blocked',
+        requiresConfirmation: false,
+        mcpToolId: null,
+        toolKey: name,
+        capabilityKey: null,
+        handlerKey: null,
+        routeKey: routeKeyOut(null),
+        serverKey: null,
+        mcpServerId: null,
+        agentsamMcpToolsId: null,
+        agentsamToolsId: null,
+      };
+    }
+  }
+
   const uid = mcpRuntimeContext.userId != null ? String(mcpRuntimeContext.userId).trim() : '';
   const ws =
     mcpRuntimeContext.workspaceId != null ? String(mcpRuntimeContext.workspaceId).trim() : '';

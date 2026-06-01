@@ -225,6 +225,73 @@ const DEFAULT_ROUTE_TOOL = /** @type {Record<string, Omit<RouteToolRequirements,
     max_tools: 14,
     approval_policy: { high_risk_requires_approval: true },
   },
+  readonly_repo_audit: {
+    allowed_lanes: ['inspect', 'develop', 'research', 'observe'],
+    required_capabilities: [],
+    optional_capabilities: [
+      'workspace_read_file',
+      'repo_file_read',
+      'code_read',
+      'code.search',
+      'code_search',
+      'repo_search',
+      'github.read',
+      'github_file',
+      'file.read',
+      'grep',
+      'd1.read',
+      'd1.schema',
+    ],
+    blocked_capabilities: [
+      'memory.write',
+      'memory.save',
+      'knowledge_search',
+      'knowledge.search',
+      'rag.search',
+      'context.search',
+      'context_search',
+      'terminal.execute',
+      'worker.deploy',
+      'd1.write',
+      'python.execute',
+    ],
+    max_tools: 8,
+    approval_policy: { high_risk_requires_approval: true },
+  },
+  multitask_report_child: {
+    allowed_lanes: ['inspect', 'develop', 'research', 'observe'],
+    required_capabilities: [],
+    optional_capabilities: [
+      'workspace_read_file',
+      'code.search',
+      'github.read',
+      'github_file',
+      'repo_search',
+      'd1.read',
+    ],
+    blocked_capabilities: [
+      'memory.write',
+      'knowledge_search',
+      'terminal.execute',
+      'worker.deploy',
+    ],
+    max_tools: 8,
+    approval_policy: { high_risk_requires_approval: true },
+  },
+  ask_evidence_child: {
+    allowed_lanes: ['inspect', 'develop', 'research', 'observe'],
+    required_capabilities: [],
+    optional_capabilities: [
+      'workspace_read_file',
+      'code.search',
+      'github.read',
+      'github_file',
+      'repo_search',
+    ],
+    blocked_capabilities: ['memory.write', 'knowledge_search', 'terminal.execute', 'worker.deploy'],
+    max_tools: 8,
+    approval_policy: { high_risk_requires_approval: true },
+  },
 });
 
 const CMS_LIVE_EDITOR_DEFAULT_KEY = 'cms_live_editor._default_protocol';
@@ -276,6 +343,9 @@ function defaultForKey(key) {
   }
   if (k === 'agent_tool_orchestration' || k === 'agent_smoke_test') return DEFAULT_ROUTE_TOOL.workflow_orchestration;
   if (k === 'agent_general' || k === 'ollama-local-workflow-pinstest') return DEFAULT_ROUTE_TOOL.chat;
+  if (k === 'readonly_repo_audit' || k === 'multitask_report_child' || k === 'ask_evidence_child') {
+    return DEFAULT_ROUTE_TOOL.readonly_repo_audit;
+  }
   if (k === 'question' || k === 'general' || k === 'other' || k === 'mixed') return DEFAULT_ROUTE_TOOL.chat;
   if (k === 'implementation' || k === 'feature' || k === 'refactor') return DEFAULT_ROUTE_TOOL.code;
   return DEFAULT_ROUTE_TOOL.chat;
