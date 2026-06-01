@@ -4,6 +4,8 @@ import {
   askPinnedEvidenceToolNames,
   askDataPlaneIntent,
   agentWriteOrProposeIntent,
+  githubWorkspaceIntent,
+  augmentAskRouteRequirements,
 } from '../../src/core/ask-evidence-tools.js';
 
 test('askDataPlaneIntent — remote D1 audit', () => {
@@ -13,25 +15,64 @@ test('askDataPlaneIntent — remote D1 audit', () => {
   );
 });
 
-test('askPinnedEvidenceToolNames agent mode — D1 audit pins d1_query', () => {
+test('askPinnedEvidenceToolNames — agent mode does not hardcode tool names', () => {
   const names = askPinnedEvidenceToolNames(
     'audit agentsam_prompt_routes in the remote d1',
     'agent',
   );
-  assert.ok(names.includes('d1_query'));
-  assert.ok(names.includes('d1_schema'));
+  assert.deepEqual(names, []);
 });
 
-test('askPinnedEvidenceToolNames agent mode — write readme pins write tools', () => {
-  const names = askPinnedEvidenceToolNames('can you write/upload the readme ?', 'agent');
-  assert.ok(names.includes('write_file'));
+test('augmentAskRouteRequirements agent mode — D1 audit adds capability keys', () => {
+  const req = augmentAskRouteRequirements(
+    'audit agentsam_prompt_routes in the remote d1',
+    {
+      route_key: 'browser',
+      task_type: 'agent',
+      allowed_lanes: ['inspect'],
+      required_capabilities: [],
+      optional_capabilities: [],
+      blocked_capabilities: [],
+      max_tools: 8,
+      approval_policy: null,
+      source: 'test',
+    },
+    'agent',
+  );
+  assert.ok(req.optional_capabilities.some((c) => /d1/.test(String(c))));
+});
+
+test('augmentAskRouteRequirements agent mode — github write caps', () => {
+  const req = augmentAskRouteRequirements(
+    'write/upload the readme to agentsam-cms-python repo',
+    {
+      route_key: 'browser',
+      task_type: 'agent',
+      allowed_lanes: ['inspect'],
+      required_capabilities: [],
+      optional_capabilities: [],
+      blocked_capabilities: [],
+      max_tools: 8,
+      approval_policy: null,
+      source: 'test',
+    },
+    'agent',
+  );
+  assert.ok(req.optional_capabilities.some((c) => String(c).includes('github')));
   assert.ok(agentWriteOrProposeIntent('can you write/upload the readme ?'));
 });
 
-test('askPinnedEvidenceToolNames agent mode — browser route proposal still gets file tools', () => {
-  const names = askPinnedEvidenceToolNames(
-    'CAN YOU PROPOSE HOW WE CAN MAKE THIS decent .html into a full stack app?',
-    'agent',
+test('githubWorkspaceIntent — cms-python repo question', () => {
+  assert.equal(
+    githubWorkspaceIntent('is it SamPrimeaux/agentsam-cms-python? read README on github'),
+    true,
   );
-  assert.ok(names.includes('fs_read_file') || names.includes('github_file'));
+});
+
+test('browser route defaults include github and d1 capabilities (resolver SSOT)', async () => {
+  const fs = await import('node:fs');
+  const path = new URL('../../src/core/agentsam-route-tool-resolver.js', import.meta.url);
+  const src = fs.readFileSync(path, 'utf8');
+  assert.match(src, /browser:\s*\{[\s\S]*github\.read/);
+  assert.match(src, /browser:\s*\{[\s\S]*d1_query/);
 });

@@ -72,8 +72,13 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
   }
 
   const promptRouteRow = profile._prompt_route_row ?? null;
-  const tools = toolsManifestFromCompiledRows(profile._compiled_tool_rows || []);
-  const requireTools = tools.length > 0;
+  let tools = toolsManifestFromCompiledRows(profile._compiled_tool_rows || []);
+  if (activeFileEnvelope && env?.DB) {
+    const { ensureActiveFileCapabilityTools } = await import('../../api/agent.js');
+    const cap = Math.max(tools.length, Number(profile.max_tools) || 8);
+    tools = await ensureActiveFileCapabilityTools(env, tools, cap, activeFileEnvelope);
+  }
+  const requireTools = tools.length > 0 || profile.tool_capable_required === true;
 
   const { buildSystemPrompt, runAgentToolLoop } = await import('../../api/agent.js');
   const minimalAsk =

@@ -453,6 +453,39 @@ async function hashRuntimeProfile(profile) {
 }
 
 /**
+ * When a surface route (e.g. browser) scores zero tools, re-select from mode defaults + intent caps — no hardcoded tool names.
+ * @param {any} env
+ * @param {{ message: string, mode: string, taskType: string, tenantId?: string|null, workspaceId: string, userId: string, maxTools: number }} p
+ */
+async function compileCatalogToolsForModeFallback(env, p) {
+  const { resolveAgentChatRouteToolRequirements } = await import('./agentsam-route-tool-resolver.js');
+  const { selectAgentsamToolsForAgentChat } = await import('./agentsam-tools-catalog.js');
+  const { augmentAskRouteRequirements } = await import('./ask-evidence-tools.js');
+  const mode = String(p.mode || 'agent').toLowerCase();
+  const fallbackRouteKey =
+    mode === 'multitask' ? 'multitask' : mode === 'plan' ? 'plan' : mode === 'debug' ? 'debug' : 'agent';
+  let req = await resolveAgentChatRouteToolRequirements(env, {
+    routeKey: fallbackRouteKey,
+    taskType: p.taskType,
+    modeSlug: mode,
+  });
+  req = augmentAskRouteRequirements(p.message, req, mode);
+  const det = await selectAgentsamToolsForAgentChat(
+    env.DB,
+    { userId: p.userId, tenantId: p.tenantId, workspaceId: p.workspaceId },
+    {
+      routeToolRequirements: req,
+      message: p.message,
+      taskType: p.taskType,
+      modeSlug: mode,
+      catalogLimit: Math.min(96, Math.max(8, p.maxTools * 4)),
+      outputLimit: Math.max(1, p.maxTools),
+    },
+  );
+  return det.rows || [];
+}
+
+/**
  * @param {any} env
  * @param {{
  *   mode: string,
@@ -510,7 +543,7 @@ export async function compileModeProfile(env, input) {
       mode === 'plan' ||
       mode === 'multitask'
     ) {
-      req = augmentAskRouteRequirements(message, req);
+      req = augmentAskRouteRequirements(message, req, mode);
     }
     const readonlyAudit =
       isReadonlyRepoAuditContext(message) ||
@@ -579,7 +612,7 @@ export async function compileModeProfile(env, input) {
         scoredRows,
       });
       scoredRows = pinned.mergedRows;
-    } else if (askPinnedEvidenceToolNames(message, mode).length > 0) {
+    } else if (mode === 'ask' && askPinnedEvidenceToolNames(message, mode).length > 0) {
       const pinned = await compileAskEvidenceToolRows(env, {
         message,
         workspaceId,
@@ -608,23 +641,24 @@ export async function compileModeProfile(env, input) {
     );
   }
 
-  const modesWithEvidenceFloor =
+  const modesWithCatalogFallback =
     mode === 'multitask' || mode === 'agent' || mode === 'debug' || mode === 'plan';
-  if (modesWithEvidenceFloor && toolAllowlist.length === 0 && env?.DB && workspaceId && userId) {
-    const { listAgentsamToolsByKeys, mapCatalogRowsToAgentTools } = await import(
-      './agentsam-tools-catalog.js'
-    );
-    const { askDataPlaneIntent } = await import('./ask-evidence-tools.js');
-    const floorNames = [...CORE_EVIDENCE_TOOL_NAMES];
-    if (askDataPlaneIntent(message)) {
-      floorNames.push('d1_query', 'd1_schema');
+  if (modesWithCatalogFallback && toolAllowlist.length === 0 && env?.DB && workspaceId && userId) {
+    const fallbackRows = await compileCatalogToolsForModeFallback(env, {
+      message,
+      mode,
+      taskType,
+      tenantId,
+      userId,
+      workspaceId,
+      maxTools,
+    });
+    if (fallbackRows.length) {
+      compiledToolRows = fallbackRows;
+      toolAllowlist = compiledToolRows
+        .map((r) => String(r.name || r.tool_name || '').trim())
+        .filter(Boolean);
     }
-    const keys = new Set(floorNames.map((n) => String(n).toLowerCase()));
-    const raw = await listAgentsamToolsByKeys(env, keys, { workspaceId });
-    compiledToolRows = mapCatalogRowsToAgentTools(raw).slice(0, Math.max(1, maxTools || 8));
-    toolAllowlist = compiledToolRows
-      .map((r) => String(r.name || r.tool_name || '').trim())
-      .filter(Boolean);
   }
 
   const modeContract = AGENT_MODE_CONTRACT[mode] || AGENT_MODE_CONTRACT.agent;

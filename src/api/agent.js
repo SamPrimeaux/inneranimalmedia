@@ -1905,7 +1905,7 @@ async function ensureCodeCapabilityTools(env, tools, effectiveMaxTools) {
 }
 
 /** Inject GitHub/R2 tools when the editor has an open bound buffer. */
-async function ensureActiveFileCapabilityTools(env, tools, effectiveMaxTools, envelope) {
+export async function ensureActiveFileCapabilityTools(env, tools, effectiveMaxTools, envelope) {
   if (!env?.DB || !Array.isArray(tools) || !envelope) return tools;
   const names = [];
   if (activeFileIsGithubBound(envelope)) {

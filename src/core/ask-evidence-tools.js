@@ -12,6 +12,19 @@ export const ASK_GENERIC_SEARCH_FALLBACKS = Object.freeze([
 ]);
 
 /**
+ * User is working across GitHub repos (list/read/write), not only local VM files.
+ * @param {string} message
+ */
+export function githubWorkspaceIntent(message) {
+  const t = String(message || '');
+  return (
+    /\b(github|repos?\b|SamPrimeaux\/|full_name|agentsam-cms|inneranimalmedia)\b/i.test(t) ||
+    /\b(readme|commit|push|upload|pull request|pr)\b/i.test(t) &&
+      /\b(repo|file|remote|github)\b/i.test(t)
+  );
+}
+
+/**
  * User wants to mutate repo/editor content (Agent / Multitask — not Ask).
  * @param {string} message
  */
@@ -24,21 +37,22 @@ export function agentWriteOrProposeIntent(message) {
   );
 }
 
-/** @param {string} message @param {string} [modeSlug] */
+/**
+ * Explicit tool-name pins — Ask mode only. Agent/Multitask/Debug/Plan use route capabilities + catalog scoring.
+ * @param {string} message
+ * @param {string} [modeSlug]
+ */
 export function askPinnedEvidenceToolNames(message, modeSlug = 'ask') {
+  if (String(modeSlug || 'ask').toLowerCase() !== 'ask') return [];
+
   const names = [];
   const t = String(message || '');
-  const mode = String(modeSlug || 'ask').toLowerCase();
-  const executionMode = mode === 'agent' || mode === 'debug' || mode === 'plan' || mode === 'multitask';
 
   if (codeContextIntent(t) || isReadOnlyRepoSearchIntent(t)) {
     names.push('fs_search_files', 'fs_read_file', 'github_file', 'repo_search');
   }
   if (askDataPlaneIntent(t) || (/\baudit\b/i.test(t) && /\b(agentsam_|d1|remote)\b/i.test(t))) {
     names.push('d1_query', 'd1_schema');
-  }
-  if (executionMode && agentWriteOrProposeIntent(t)) {
-    names.push('write_file', 'fs_write_file', 'github_file', 'apply_change_set');
   }
 
   return [...new Set(names)];
@@ -73,7 +87,9 @@ export function codeContextIntent(message) {
  * @param {string} message
  * @param {import('./agentsam-route-tool-resolver.js').RouteToolRequirements|null|undefined} base
  */
-export function augmentAskRouteRequirements(message, base) {
+export function augmentAskRouteRequirements(message, base, modeSlug = 'ask') {
+  const mode = String(modeSlug || 'ask').toLowerCase();
+  const executionMode = mode === 'agent' || mode === 'debug' || mode === 'plan' || mode === 'multitask';
   const req = base
     ? { ...base, required_capabilities: [...(base.required_capabilities || [])], optional_capabilities: [...(base.optional_capabilities || [])] }
     : {
@@ -107,6 +123,12 @@ export function augmentAskRouteRequirements(message, base) {
   }
   if (askDataPlaneIntent(message)) {
     req.optional_capabilities.push('d1.read', 'd1_query', 'd1.schema');
+  }
+  if (githubWorkspaceIntent(message)) {
+    req.optional_capabilities.push('github.read', 'github.write', 'github_repos', 'github.list');
+  }
+  if (executionMode && agentWriteOrProposeIntent(message)) {
+    req.optional_capabilities.push('github.write', 'file.write', 'workspace_write');
   }
   req.optional_capabilities = [...new Set(req.optional_capabilities.map(String))];
   return req;
