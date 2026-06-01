@@ -96,7 +96,7 @@ import {
 } from '../../src/lib/databaseStudioEvents';
 import '../../features/agent-presence/presenceMotion.css';
 import '../../features/agent-presence/presenceIcons.css';
-import { useAgentPresence, AgentPresenceLogo, AgentPresenceStatus } from '../../features/agent-presence';
+import { useAgentPresence, AgentPresenceStatus } from '../../features/agent-presence';
 import { derivePresenceState } from '../../features/agent-presence/iamDerivePresenceState';
 import {
   pickAgentPresenceColorway,
@@ -179,6 +179,19 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     () => agentPresenceColorwayStyle(presenceColorwayRef.current),
     [],
   );
+
+  const readIsDarkTheme = () => document.documentElement.getAttribute('data-theme') !== 'light';
+  const [isDarkTheme, setIsDarkTheme] = useState(() =>
+    typeof document !== 'undefined' ? readIsDarkTheme() : true,
+  );
+  useEffect(() => {
+    const el = document.documentElement;
+    const sync = () => setIsDarkTheme(readIsDarkTheme());
+    sync();
+    const obs = new MutationObserver(sync);
+    obs.observe(el, { attributes: true, attributeFilter: ['data-theme'] });
+    return () => obs.disconnect();
+  }, []);
 
   const [input, setInput] = useState('');
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -1857,8 +1870,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       `}</style>
 
         {isNarrow && (
-          <header className="grid grid-cols-[auto_1fr_auto] items-center gap-2 px-3 py-2.5 border-b border-[var(--dashboard-border)] shrink-0 bg-[var(--dashboard-panel)] z-10">
-            <AgentPresenceLogo motion={logoMotion} presenceState={presenceState} sizePx={24} />
+          <header className="grid grid-cols-[1fr_auto] items-center gap-2 px-3 py-2.5 border-b border-[var(--dashboard-border)] shrink-0 bg-[var(--dashboard-panel)] z-10">
             <nav className="flex items-center justify-center gap-2 sm:gap-3 min-w-0 max-w-full overflow-x-auto chat-hide-scroll [scrollbar-width:none]">
               {(['agents', 'automations', 'dashboard'] as const).map((tab) => (
                 <button
@@ -1946,7 +1958,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
         {!isNarrow && (
           <div className="flex-shrink-0 flex items-start gap-2.5 px-3 py-2 border-b border-[var(--dashboard-border)]">
-            <AgentPresenceLogo motion={logoMotion} presenceState={presenceState} sizePx={28} className="mt-0.5" />
             <div className="flex-1 min-w-0 flex flex-col gap-1">
               <div className="flex items-center gap-2 min-w-0">
                 <span className="flex-1 text-[13px] font-semibold text-[var(--dashboard-text)] truncate min-w-0">
@@ -2093,6 +2104,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             isLoading={isLoading}
             logoMotion={logoMotion}
             presenceState={presenceState}
+            isDarkTheme={isDarkTheme}
             toolTraceRows={toolTraceRows}
             setToolTraceRows={setToolTraceRows}
             workspaceId={workspaceId ?? null}

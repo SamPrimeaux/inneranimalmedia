@@ -93,6 +93,7 @@ export type AgentMessageListProps = {
   isLoading: boolean;
   logoMotion: AgentLogoMotion;
   presenceState: string;
+  isDarkTheme: boolean;
   toolTraceRows: AgentToolTraceRow[];
   setToolTraceRows: React.Dispatch<React.SetStateAction<AgentToolTraceRow[]>>;
   workspaceId: string | null;
@@ -407,6 +408,7 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
   isLoading,
   logoMotion,
   presenceState,
+  isDarkTheme,
   toolTraceRows,
   setToolTraceRows,
   workspaceId,
@@ -422,7 +424,17 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
     >
       {showEmptyThreadPlaceholder ? (
         <div className="flex flex-col items-center justify-center flex-1 gap-3 px-6">
-          <AgentPresenceLogo motion="idle" sizePx={40} alt="Inner Animal Media" />
+          <img
+            src={
+              isDarkTheme
+                ? 'https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/dbb316af-9c97-4959-f09f-bf58b2783d00/avatar'
+                : 'https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/11f6af46-0a3c-482a-abe8-83edc5a8a200/avatar'
+            }
+            alt="Inner Animal Media"
+            width={100}
+            height={100}
+            style={{ objectFit: 'contain' }}
+          />
           <p className="text-[13px] font-semibold text-[var(--dashboard-text)]">What should we work on?</p>
           <p className="text-[11px] text-[var(--dashboard-muted)] text-center leading-relaxed">
             Type below to start a conversation with Agent Sam.
