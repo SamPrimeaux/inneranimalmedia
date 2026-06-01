@@ -346,7 +346,7 @@ export async function handleMcpApi(request, url, env, ctx) {
       const rpcId = rpc?.id ?? null;
 
       // tools/list: always proxy to MCP worker (canonical schemas live there).
-      // OAuth shortcut via buildOAuthToolsList was serving stale agentsam_mcp_tools input_schema.
+      // OAuth shortcut via buildOAuthToolsList was serving stale agentsam_tools input_schema.
 
       const upstream = String(env.MCP_SERVICE_URL || 'https://mcp.inneranimalmedia.com/mcp').trim();
       const res = await fetch(upstream, {
@@ -1046,7 +1046,7 @@ export async function handleMcpApi(request, url, env, ctx) {
         const status = result.error === 'Tool not found in agentsam_tools' ? 404 : 400;
         return jsonResponse({ error: result.error }, status);
       }
-      return jsonResponse({ ok: true, tool: result.tool, mirror: result.mirror, source: 'agentsam_tools' });
+      return jsonResponse({ ok: true, tool: result.tool, source: 'agentsam_tools' });
     }
 
     if (pathLower === '/api/mcp/commands' && method === 'GET') {

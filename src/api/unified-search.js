@@ -690,9 +690,9 @@ export async function handleUnifiedSearchApi(request, url, env) {
         .then((r) => r.results || [])
         .catch(() => []),
       env.DB.prepare(
-        `SELECT id, tool_name, COALESCE(description,'') AS description
-         FROM agentsam_mcp_tools
-         WHERE lower(tool_name) LIKE ? OR lower(COALESCE(description,'')) LIKE ?
+        `SELECT id, COALESCE(tool_name, tool_key) AS tool_name, COALESCE(description,'') AS description
+         FROM agentsam_tools
+         WHERE lower(COALESCE(tool_name, tool_key)) LIKE ? OR lower(COALESCE(description,'')) LIKE ?
          LIMIT 10`,
       )
         .bind(qLow, qLow)

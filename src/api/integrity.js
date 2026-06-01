@@ -30,7 +30,7 @@ export async function runIntegritySnapshot(env, triggeredBy = 'cron') {
       COUNT(*) AS tools_total,
       COALESCE(SUM(is_degraded), 0) AS tools_degraded,
       COALESCE(SUM(CASE WHEN modes_json IS NULL OR modes_json = '' THEN 1 ELSE 0 END), 0) AS tools_missing_modes
-    FROM agentsam_mcp_tools WHERE is_active = 1`;
+    FROM agentsam_tools WHERE COALESCE(is_active, 1) = 1`;
   const sqlQ4b = `
     SELECT tool_name,
       SUM(failure_count) AS failure_count,

@@ -1,7 +1,7 @@
 /**
  * agentsam_user_policy + allowlist enforcement for MCP and builtins.
  *
- * Tool registry SSOT: agentsam_tools (agentsam_mcp_tools is a deprecating mirror).
+ * Tool registry SSOT: agentsam_tools.
  * Policy baselines: agentsam_tool_policy_keys (migration 450).
  *
  * Empty allowlist when require_allowlist_for_mcp=1:

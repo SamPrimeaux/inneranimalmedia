@@ -30,6 +30,8 @@ export async function resolveExternalClientKeyFromRedirect(env, redirectUri, oau
   const raw = trim(redirectUri);
   if (!raw) return null;
 
+  if (raw.toLowerCase().startsWith('cursor://')) return 'cursor';
+
   let host = '';
   let path = '';
   try {
@@ -60,6 +62,9 @@ export async function resolveExternalClientKeyFromRedirect(env, redirectUri, oau
         const hostMatch = patterns.some((p) => host === p || host.endsWith(`.${p}`));
         if (!hostMatch) continue;
         const key = trim(row.client_key);
+        if (key === 'cursor' && raw.toLowerCase().startsWith('cursor://')) {
+          return key;
+        }
         if (key === 'cursor' && host === 'mcp.inneranimalmedia.com' && !path.includes('/auth/callback')) {
           continue;
         }
@@ -81,6 +86,7 @@ export async function resolveExternalClientKeyFromRedirect(env, redirectUri, oau
     return 'chatgpt';
   }
   if (host === 'mcp.inneranimalmedia.com' && path.includes('/auth/callback')) return 'cursor';
+  if (raw.toLowerCase().startsWith('cursor://')) return 'cursor';
   return null;
 }
 

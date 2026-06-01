@@ -593,7 +593,7 @@ export function mapCatalogRowsToAgentTools(rows) {
 }
 
 /**
- * Deterministic agent-chat tool pick (replaces agentsam_mcp_tools branded list).
+ * Deterministic agent-chat tool pick (agentsam_tools branded catalog).
  * @param {import('@cloudflare/workers-types').D1Database} db
  * @param {{ userId?: string, tenantId?: string, workspaceId?: string, personUuid?: string }} runtimeCtx
  * @param {{

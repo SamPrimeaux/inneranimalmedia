@@ -647,9 +647,9 @@ async function dispatchNode(env, node, input, runContext) {
       const toolRow = env.DB
         ? await env.DB.prepare(`
       SELECT tool_key, mcp_service_url, handler_type, handler_config
-      FROM agentsam_mcp_tools
+      FROM agentsam_tools
       WHERE (tool_key = ? OR tool_key = ? OR tool_key = ?)
-        AND is_active = 1 AND enabled = 1
+        AND COALESCE(is_active, 1) = 1 AND COALESCE(is_degraded, 0) = 0
       LIMIT 1
     `)
             .bind(splitKey, underscoreKey, hkStr)
@@ -658,7 +658,7 @@ async function dispatchNode(env, node, input, runContext) {
         : null;
 
       if (!toolRow) {
-        return { ok: false, error: `mcp_tool not found in agentsam_mcp_tools: ${handlerKey}` };
+        return { ok: false, error: `mcp_tool not found in agentsam_tools: ${handlerKey}` };
       }
 
       return executeWorkflowMcpTool(env, toolRow, input, runContext, hkStr);

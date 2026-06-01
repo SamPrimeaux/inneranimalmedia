@@ -40,7 +40,7 @@ const DEFAULT_URL =
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Resolved from GET /api/agent/browser/registry-tools (agentsam_tools / agentsam_mcp_tools). */
+/** Resolved from GET /api/agent/browser/registry-tools (agentsam_tools). */
 type BrowserRegistryPickers = {
   navigate: string | null;
   content: string | null;

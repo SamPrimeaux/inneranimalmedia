@@ -1,7 +1,7 @@
 /**
  * Branded MCP catalog + lane inference for Agent Sam chat and GET /api/mcp/tools/catalog.
  *
- * Reads v_agentsam_mcp_tools_branded when present; falls back to agentsam_mcp_tools list queries.
+ * Inline branded SELECT from agentsam_tools (oauth_visible for OAuth MCP discovery).
  * Deterministic agent-chat path: route lanes + capability policy + mcp_workspace_tokens entitlements.
  */
 
@@ -9,7 +9,10 @@ import {
   brandedRowMatchesRouteCapability,
   expandWorkspaceTokenCapabilityAllowlist,
 } from './agentsam-capability-aliases.js';
-import { selectAgentsamMcpToolsList } from './agentsam-mcp-tools.js';
+import {
+  AGENTSAM_TOOLS_WORKSPACE_SCOPE_SQL,
+  selectAgentsamMcpToolsList,
+} from './agentsam-mcp-tools.js';
 import { pragmaTableInfo } from './retention.js';
 
 /** @typedef {{ userId?: string|null, tenantId?: string|null, workspaceId?: string|null, personUuid?: string|null }} McpRuntimeScope */
@@ -354,54 +357,88 @@ export function maxModelToolsForAgentTask(taskType, modeSlug) {
   return 8;
 }
 
+const BRANDED_FROM_TOOLS = `
+FROM agentsam_tools t
+WHERE COALESCE(t.is_active, 1) = 1 AND COALESCE(t.is_degraded, 0) = 0`;
+
+const BRANDED_CAPABILITY_LANE = `
+  CASE
+    WHEN lower(COALESCE(t.tool_category, '')) IN ('terminal', 'shell', 'deploy') THEN 'develop'
+    WHEN lower(COALESCE(t.tool_category, '')) IN ('db_query', 'd1', 'database') THEN 'develop'
+    WHEN lower(COALESCE(t.tool_category, '')) IN ('browser', 'devtools', 'a11y', 'inspect') THEN 'inspect'
+    WHEN lower(COALESCE(t.tool_category, '')) IN ('mcp_tool', 'http', 'web_fetch', 'fetch') THEN 'research'
+    WHEN lower(COALESCE(t.tool_category, '')) IN ('operate', 'cron', 'queue') THEN 'operate'
+    WHEN lower(COALESCE(t.tool_category, '')) IN ('observe', 'metrics', 'logs') THEN 'observe'
+    WHEN lower(COALESCE(t.tool_category, '')) IN ('admin', 'billing') THEN 'admin'
+    ELSE 'general'
+  END`;
+
 const BRANDED_SELECT_FULL = `
+SELECT * FROM (
 SELECT
-  id,
-  tool_name,
-  tool_key,
-  capability_key,
-  tool_category,
-  handler_type,
-  handler_brand,
-  capability_lane,
-  safety_badge,
-  description,
+  t.id,
+  COALESCE(t.tool_name, t.tool_key) AS tool_name,
+  COALESCE(NULLIF(trim(t.tool_key), ''), NULLIF(trim(t.tool_name), '')) AS tool_key,
+  COALESCE(
+    NULLIF(lower(trim(t.tool_key)), ''),
+    NULLIF(lower(trim(t.tool_name)), ''),
+    lower(replace(trim(COALESCE(t.tool_category, 'mcp')), ' ', '_'))
+      || ':'
+      || lower(replace(trim(COALESCE(COALESCE(t.tool_name, t.tool_key), '')), ' ', '_'))
+  ) AS capability_key,
+  t.tool_category,
+  t.handler_type,
+  COALESCE(
+    NULLIF(trim(json_extract(t.handler_config, '$.server_key')), ''),
+    NULLIF(trim(t.handler_type), ''),
+    'workspace'
+  ) AS handler_brand,
+  ${BRANDED_CAPABILITY_LANE} AS capability_lane,
+  CASE WHEN COALESCE(t.requires_approval, 0) = 1 THEN 'approval_required' ELSE 'standard' END AS safety_badge,
+  t.description,
   __SCHEMA_COL__
-  risk_level,
-  requires_approval,
-  enabled,
-  sort_priority,
-  schema_hint,
-  avg_latency_ms,
-  failure_rate,
-  server_key,
-  mcp_service_url
-FROM v_agentsam_mcp_tools_branded
-WHERE enabled = 1
+  COALESCE(NULLIF(trim(t.risk_level), ''), 'low') AS risk_level,
+  t.requires_approval,
+  COALESCE(t.is_active, 1) AS enabled,
+  COALESCE(t.sort_priority, 50) AS sort_priority,
+  t.schema_hint,
+  t.avg_latency_ms,
+  t.failure_rate,
+  json_extract(t.handler_config, '$.server_key') AS server_key,
+  t.mcp_service_url
+${BRANDED_FROM_TOOLS}
+) branded
+WHERE 1=1
   __LANE_PRED__
 ORDER BY capability_lane, handler_brand, requires_approval ASC, sort_priority ASC, tool_name ASC
 LIMIT ?`;
 
 const BRANDED_SELECT_MIN = `
+SELECT * FROM (
 SELECT
-  id,
-  tool_name,
-  tool_category,
-  handler_type,
-  handler_brand,
-  capability_lane,
-  safety_badge,
-  description,
+  t.id,
+  COALESCE(t.tool_name, t.tool_key) AS tool_name,
+  t.tool_category,
+  t.handler_type,
+  COALESCE(
+    NULLIF(trim(json_extract(t.handler_config, '$.server_key')), ''),
+    NULLIF(trim(t.handler_type), ''),
+    'workspace'
+  ) AS handler_brand,
+  ${BRANDED_CAPABILITY_LANE} AS capability_lane,
+  CASE WHEN COALESCE(t.requires_approval, 0) = 1 THEN 'approval_required' ELSE 'standard' END AS safety_badge,
+  t.description,
   __SCHEMA_COL__
-  risk_level,
-  requires_approval,
-  enabled,
-  sort_priority,
-  schema_hint,
-  avg_latency_ms,
-  failure_rate
-FROM v_agentsam_mcp_tools_branded
-WHERE enabled = 1
+  COALESCE(NULLIF(trim(t.risk_level), ''), 'low') AS risk_level,
+  t.requires_approval,
+  COALESCE(t.is_active, 1) AS enabled,
+  COALESCE(t.sort_priority, 50) AS sort_priority,
+  t.schema_hint,
+  t.avg_latency_ms,
+  t.failure_rate
+${BRANDED_FROM_TOOLS}
+) branded
+WHERE 1=1
   __LANE_PRED__
 ORDER BY capability_lane, handler_brand, requires_approval ASC, sort_priority ASC, tool_name ASC
 LIMIT ?`;
@@ -444,7 +481,7 @@ export async function queryBrandedMcpCatalog(db, opts = {}) {
       return Array.isArray(results) ? results : [];
     } catch (e) {
       if (tpl === BRANDED_SELECT_MIN) {
-        console.warn('[mcp-tools-branded] v_agentsam_mcp_tools_branded', e?.message ?? e);
+        console.warn('[mcp-tools-branded] agentsam_tools branded query', e?.message ?? e);
       }
     }
   }
@@ -642,37 +679,21 @@ export async function selectMcpToolsForDeterministicAgentChat(db, runtimeCtx, op
 export async function selectScopedMcpToolNames(db, runtimeCtx, limit = 500) {
   if (!db) return [];
   const lim = Math.max(1, Math.min(800, Number(limit) || 500));
-  const userId = runtimeCtx?.userId != null ? String(runtimeCtx.userId).trim() : '';
-  const personUuid = runtimeCtx?.personUuid != null ? String(runtimeCtx.personUuid).trim() : '';
-  const tenantId = runtimeCtx?.tenantId != null ? String(runtimeCtx.tenantId).trim() : '';
   const workspaceId = runtimeCtx?.workspaceId != null ? String(runtimeCtx.workspaceId).trim() : '';
 
   const sql = `
-SELECT DISTINCT tool_name
-FROM agentsam_mcp_tools
-WHERE COALESCE(enabled, 0) = 1
-  AND COALESCE(is_active, 0) = 1
+SELECT DISTINCT COALESCE(tool_name, tool_key) AS tool_name
+FROM agentsam_tools
+WHERE COALESCE(is_active, 1) = 1
   AND COALESCE(is_degraded, 0) = 0
-  AND (
-    (?1 != '' AND user_id = ?1)
-    OR (?2 != '' AND person_uuid = ?2)
-    OR (?3 != '' AND tenant_id = ?3)
-    OR (?4 != '' AND workspace_id = ?4)
-    OR (?5 != '' AND instr(COALESCE(workspace_scope, ''), ?5) > 0)
-    OR (
-      trim(COALESCE(user_id, '')) = ''
-      AND trim(COALESCE(person_uuid, '')) = ''
-      AND trim(COALESCE(tenant_id, '')) = ''
-      AND trim(COALESCE(workspace_id, '')) = ''
-    )
-  )
+  AND ${AGENTSAM_TOOLS_WORKSPACE_SCOPE_SQL}
 ORDER BY tool_name ASC
-LIMIT ?6`;
+LIMIT ?`;
 
   try {
     const { results } = await db
       .prepare(sql)
-      .bind(userId, personUuid, tenantId, workspaceId, workspaceId, lim)
+      .bind(workspaceId, workspaceId, lim)
       .all();
     const names = (results || []).map((r) => String(r.tool_name || '').trim()).filter(Boolean);
     return names;

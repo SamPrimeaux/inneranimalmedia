@@ -89,7 +89,7 @@ export async function loadMcpToolRiskLevel(env, toolKey) {
   if (!env?.DB || !toolKey) return 'low';
   try {
     const row = await env.DB.prepare(
-      `SELECT risk_level FROM agentsam_mcp_tools
+      `SELECT risk_level FROM agentsam_tools
         WHERE tool_key = ? AND COALESCE(is_active, 1) = 1
         LIMIT 1`,
     )

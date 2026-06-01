@@ -1,8 +1,16 @@
 /**
- * Scoped resolution for agentsam_mcp_tools — matches user, person, tenant, workspace, or workspace_scope JSON.
+ * Scoped resolution for agentsam_tools — workspace_scope JSON / is_global.
  */
 
 /** @typedef {{ userId?: string|null, tenantId?: string|null, workspaceId?: string|null, personUuid?: string|null }} McpRuntimeScope */
+
+export const AGENTSAM_TOOLS_WORKSPACE_SCOPE_SQL = `
+  (
+    COALESCE(is_global, 1) = 1
+    OR workspace_scope IS NULL OR trim(workspace_scope) IN ('', '[]')
+    OR workspace_scope LIKE '%"*"%'
+    OR (? != '' AND instr(COALESCE(workspace_scope, ''), ?) > 0)
+  )`;
 
 function trimOrEmpty(v) {
   if (v == null) return '';
@@ -11,7 +19,7 @@ function trimOrEmpty(v) {
 }
 
 /**
- * Single tool row: prefers workspace match, then tenant, then sort_priority / recency.
+ * Single tool row scoped to workspace.
  * @param {import('@cloudflare/workers-types').D1Database} db
  * @param {McpRuntimeScope} runtimeCtx
  * @param {string} toolIdentifier tool_key or tool_name
@@ -20,45 +28,27 @@ export async function selectAgentsamMcpToolRow(db, runtimeCtx, toolIdentifier) {
   const name = String(toolIdentifier || '').trim();
   if (!name || !db) return null;
 
-  const userId = trimOrEmpty(runtimeCtx?.userId);
-  const personUuid = trimOrEmpty(runtimeCtx?.personUuid);
-  const tenantId = trimOrEmpty(runtimeCtx?.tenantId);
   const workspaceId = trimOrEmpty(runtimeCtx?.workspaceId);
 
   const sql = `
 SELECT *
-FROM agentsam_mcp_tools
-WHERE COALESCE(enabled, 0) = 1
-  AND COALESCE(is_active, 0) = 1
+FROM agentsam_tools
+WHERE COALESCE(is_active, 1) = 1
   AND COALESCE(is_degraded, 0) = 0
+  AND ${AGENTSAM_TOOLS_WORKSPACE_SCOPE_SQL}
   AND (
-    (?1 != '' AND user_id = ?1)
-    OR (?2 != '' AND person_uuid = ?2)
-    OR (?3 != '' AND tenant_id = ?3)
-    OR (?4 != '' AND workspace_id = ?4)
-    OR (?5 != '' AND instr(COALESCE(workspace_scope, ''), ?5) > 0)
-    OR (
-      trim(COALESCE(user_id, '')) = ''
-      AND trim(COALESCE(person_uuid, '')) = ''
-      AND trim(COALESCE(tenant_id, '')) = ''
-      AND trim(COALESCE(workspace_id, '')) = ''
-    )
-  )
-  AND (
-    tool_key = ?6
-    OR tool_name = ?6
+    tool_key = ?
+    OR tool_name = ?
+    OR COALESCE(tool_name, tool_key) = ?
   )
 ORDER BY
-  CASE WHEN (?7 != '' AND workspace_id = ?7) THEN 0 ELSE 1 END,
-  CASE WHEN (?8 != '' AND tenant_id = ?8) THEN 0 ELSE 1 END,
-  CASE WHEN trim(COALESCE(workspace_id, '')) != '' THEN 0 ELSE 1 END,
   COALESCE(sort_priority, 50) ASC,
-  created_at DESC
+  updated_at DESC
 LIMIT 1`;
 
   try {
     return await db.prepare(sql)
-      .bind(userId, personUuid, tenantId, workspaceId, workspaceId, name, workspaceId, tenantId)
+      .bind(workspaceId, workspaceId, name, name, name)
       .first();
   } catch (e) {
     console.warn('[selectAgentsamMcpToolRow]', e?.message ?? e);
@@ -66,9 +56,6 @@ LIMIT 1`;
   }
 }
 
-/**
- * Tool catalog slice for the chat agent (respects same scope OR block).
- */
 /**
  * MCP tools bound to remote server_key values (e.g. cloudflare-docs from agentsam_prompt_routes.mcp_template).
  * @param {import('@cloudflare/workers-types').D1Database} db
@@ -81,43 +68,28 @@ export async function listAgentsamMcpToolsForServerKeys(db, runtimeCtx, serverKe
   const lim = Math.max(1, Math.min(200, Number(limit) || 48));
   if (!db || !keys.length) return [];
 
-  const userId = trimOrEmpty(runtimeCtx?.userId);
-  const personUuid = trimOrEmpty(runtimeCtx?.personUuid);
-  const tenantId = trimOrEmpty(runtimeCtx?.tenantId);
   const workspaceId = trimOrEmpty(runtimeCtx?.workspaceId);
   const placeholders = keys.map(() => '?').join(',');
 
   const sql = `
-SELECT m.tool_name, m.tool_key, m.description, m.input_schema, m.tool_category,
-       m.requires_approval, m.server_key, m.mcp_service_url, m.capability_key, m.risk_level,
-       m.agentsam_tools_id, s.url AS server_url
-FROM agentsam_mcp_tools m
+SELECT COALESCE(m.tool_name, m.tool_key) AS tool_name, m.tool_key, m.description, m.input_schema, m.tool_category,
+       m.requires_approval, json_extract(m.handler_config, '$.server_key') AS server_key, m.mcp_service_url,
+       m.id AS agentsam_tools_id, m.risk_level,
+       s.url AS server_url
+FROM agentsam_tools m
 LEFT JOIN agentsam_mcp_servers s
-  ON s.server_key = m.server_key AND COALESCE(s.is_active, 1) = 1
-WHERE COALESCE(m.enabled, 0) = 1
-  AND COALESCE(m.is_active, 0) = 1
+  ON s.server_key = json_extract(m.handler_config, '$.server_key') AND COALESCE(s.is_active, 1) = 1
+WHERE COALESCE(m.is_active, 1) = 1
   AND COALESCE(m.is_degraded, 0) = 0
-  AND m.server_key IN (${placeholders})
-  AND (
-    (?1 != '' AND m.user_id = ?1)
-    OR (?2 != '' AND m.person_uuid = ?2)
-    OR (?3 != '' AND m.tenant_id = ?3)
-    OR (?4 != '' AND m.workspace_id = ?4)
-    OR (?5 != '' AND instr(COALESCE(m.workspace_scope, ''), ?5) > 0)
-    OR (
-      trim(COALESCE(m.user_id, '')) = ''
-      AND trim(COALESCE(m.person_uuid, '')) = ''
-      AND trim(COALESCE(m.tenant_id, '')) = ''
-      AND trim(COALESCE(m.workspace_id, '')) = ''
-    )
-  )
-ORDER BY COALESCE(m.sort_priority, 50) ASC, m.tool_name ASC
-LIMIT ?6`;
+  AND json_extract(m.handler_config, '$.server_key') IN (${placeholders})
+  AND ${AGENTSAM_TOOLS_WORKSPACE_SCOPE_SQL}
+ORDER BY COALESCE(m.sort_priority, 50) ASC, COALESCE(m.tool_name, m.tool_key) ASC
+LIMIT ?`;
 
   try {
     const { results } = await db
       .prepare(sql)
-      .bind(userId, personUuid, tenantId, workspaceId, workspaceId, ...keys, lim)
+      .bind(...keys, workspaceId, workspaceId, lim)
       .all();
     return Array.isArray(results) ? results : [];
   } catch (e) {
@@ -126,40 +98,27 @@ LIMIT ?6`;
   }
 }
 
+/**
+ * Tool catalog slice for the chat agent (respects workspace_scope).
+ */
 export async function selectAgentsamMcpToolsList(db, runtimeCtx, limit = 20) {
   const lim = Math.max(1, Math.min(200, Number(limit) || 20));
   if (!db) return [];
 
-  const userId = trimOrEmpty(runtimeCtx?.userId);
-  const personUuid = trimOrEmpty(runtimeCtx?.personUuid);
-  const tenantId = trimOrEmpty(runtimeCtx?.tenantId);
   const workspaceId = trimOrEmpty(runtimeCtx?.workspaceId);
 
   const sql = `
-SELECT tool_name, description, input_schema, tool_category, requires_approval
-FROM agentsam_mcp_tools
-WHERE COALESCE(enabled, 0) = 1
-  AND COALESCE(is_active, 0) = 1
+SELECT COALESCE(tool_name, tool_key) AS tool_name, description, input_schema, tool_category, requires_approval
+FROM agentsam_tools
+WHERE COALESCE(is_active, 1) = 1
   AND COALESCE(is_degraded, 0) = 0
-  AND (
-    (?1 != '' AND user_id = ?1)
-    OR (?2 != '' AND person_uuid = ?2)
-    OR (?3 != '' AND tenant_id = ?3)
-    OR (?4 != '' AND workspace_id = ?4)
-    OR (?5 != '' AND instr(COALESCE(workspace_scope, ''), ?5) > 0)
-    OR (
-      trim(COALESCE(user_id, '')) = ''
-      AND trim(COALESCE(person_uuid, '')) = ''
-      AND trim(COALESCE(tenant_id, '')) = ''
-      AND trim(COALESCE(workspace_id, '')) = ''
-    )
-  )
-ORDER BY tool_name ASC
-LIMIT ?6`;
+  AND ${AGENTSAM_TOOLS_WORKSPACE_SCOPE_SQL}
+ORDER BY COALESCE(tool_name, tool_key) ASC
+LIMIT ?`;
 
   try {
     const { results } = await db.prepare(sql)
-      .bind(userId, personUuid, tenantId, workspaceId, workspaceId, lim)
+      .bind(workspaceId, workspaceId, lim)
       .all();
     return Array.isArray(results) ? results : [];
   } catch (e) {

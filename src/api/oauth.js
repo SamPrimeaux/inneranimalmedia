@@ -1337,10 +1337,24 @@ async function handleMcpOAuthToken(request, env, _ctx) {
   }
 
   const scope = String(row.scope || mcpOAuthNormalizeScope('', client));
+  let externalClientKey = null;
+  try {
+    const authz = await env.DB.prepare(
+      `SELECT metadata_json FROM oauth_authorizations WHERE authorization_code_hash = ? LIMIT 1`,
+    )
+      .bind(codeHash)
+      .first();
+    const meta = parseMcpOAuthAuthorizationMetadata(authz?.metadata_json);
+    externalClientKey = meta.external_client_key || null;
+  } catch (_) {}
+  if (!externalClientKey && row.redirect_uri) {
+    const { resolveExternalClientKeyFromRedirect } = await import('../core/mcp-oauth-external-clients.js');
+    externalClientKey = await resolveExternalClientKeyFromRedirect(env, row.redirect_uri, row.client_id);
+  }
   const accessToken = mcpOAuthRandomToken('mcp_oauth', 32);
   const tokenHash = await mcpOAuthSha256Hex(accessToken);
   const now = mcpOAuthNow();
-  const tokenTtl = resolveMcpOAuthTokenTtlSeconds(env);
+  const tokenTtl = resolveMcpOAuthTokenTtlSeconds(env, externalClientKey);
   const expiresAt = now + tokenTtl;
   const wsBindings = await loadWorkspaceMcpTokenBindings(env, workspaceId);
   const actorScope = {
@@ -1365,20 +1379,6 @@ async function handleMcpOAuthToken(request, env, _ctx) {
     scopeWithAgent,
     tokenToolKeys,
   );
-  let externalClientKey = null;
-  try {
-    const authz = await env.DB.prepare(
-      `SELECT metadata_json FROM oauth_authorizations WHERE authorization_code_hash = ? LIMIT 1`,
-    )
-      .bind(codeHash)
-      .first();
-    const meta = parseMcpOAuthAuthorizationMetadata(authz?.metadata_json);
-    externalClientKey = meta.external_client_key || null;
-  } catch (_) {}
-  if (!externalClientKey && row.redirect_uri) {
-    const { resolveExternalClientKeyFromRedirect } = await import('../core/mcp-oauth-external-clients.js');
-    externalClientKey = await resolveExternalClientKeyFromRedirect(env, row.redirect_uri, row.client_id);
-  }
   const domainsPayload = oauthToolAccessDomainsPayload(
     entitlements,
     intersected.policy,

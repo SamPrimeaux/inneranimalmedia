@@ -1,7 +1,7 @@
 /**
  * Route / policy capability tokens (dotted canonical + legacy snake/underscore)
- * → concrete `agentsam_mcp_tools` identifiers (`tool_name`, `tool_key`, `capability_key` from
- * `v_agentsam_mcp_tools_branded`) for deterministic catalog matching.
+ * → concrete `agentsam_tools` identifiers (`tool_name`, `tool_key`, `capability_key` from
+ * branded catalog SELECT) for deterministic catalog matching.
  *
  * Prefer dotted keys in `agentsam_route_requirements`; catalog rows stay concrete tool names.
  */

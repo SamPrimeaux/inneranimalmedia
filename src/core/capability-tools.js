@@ -1,6 +1,6 @@
 /**
  * DB-driven capability tool names (image / video / email families).
- * Registry: agentsam_mcp_tools.intent_category_tags + workspace/global scope.
+ * Registry: agentsam_tools.intent_category_tags + workspace_scope.
  */
 
 /**
@@ -18,15 +18,20 @@ export async function getCapabilityTools(env, workspaceId, mode, intentCategoryT
   if (!tag) return [];
   try {
     const { results } = await env.DB.prepare(
-      `SELECT DISTINCT tool_name
-       FROM agentsam_mcp_tools
+      `SELECT DISTINCT COALESCE(tool_name, tool_key) AS tool_name
+       FROM agentsam_tools
        WHERE intent_category_tags = ?
-         AND (workspace_id = ? OR workspace_id IS NULL)
-         AND is_active = 1
-         AND enabled = 1
+         AND COALESCE(is_active, 1) = 1
+         AND COALESCE(is_degraded, 0) = 0
+         AND (
+           COALESCE(is_global, 1) = 1
+           OR workspace_scope IS NULL OR trim(workspace_scope) IN ('', '[]')
+           OR workspace_scope LIKE '%"*"%'
+           OR (? != '' AND instr(COALESCE(workspace_scope, ''), ?) > 0)
+         )
          AND modes_json LIKE ?`,
     )
-      .bind(tag, ws, `%${modeSlug}%`)
+      .bind(tag, ws, ws, `%${modeSlug}%`)
       .all();
     return (results || []).map((r) => String(r.tool_name || '').trim()).filter(Boolean);
   } catch (e) {

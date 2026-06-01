@@ -652,8 +652,18 @@ export async function handleAgentsamWorkspacesApi(request, url, env, ctx, authUs
     let mcpStatus = 'unknown';
     try {
       const row = await db
-        .prepare(`SELECT COUNT(*) AS c FROM agentsam_mcp_tools WHERE user_id = ?`)
-        .bind(userId)
+        .prepare(
+          `SELECT COUNT(*) AS c FROM agentsam_tools
+           WHERE COALESCE(is_active, 1) = 1
+             AND COALESCE(is_degraded, 0) = 0
+             AND (
+               COALESCE(is_global, 1) = 1
+               OR workspace_scope IS NULL OR trim(workspace_scope) IN ('', '[]')
+               OR workspace_scope LIKE '%"*"%'
+               OR (? != '' AND instr(COALESCE(workspace_scope, ''), ?) > 0)
+             )`,
+        )
+        .bind(workspaceId, workspaceId)
         .first();
       const c = Number(row?.c || 0);
       mcpStatus = c > 0 ? 'healthy' : 'unknown';

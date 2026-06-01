@@ -825,8 +825,8 @@ async function getToolsStatus(env, authUser, workspaceId) {
 
   const tools = await safeQueryAll(
     db,
-    'agentsam_mcp_tools',
-    `SELECT id, tool_key, server_id, risk_level, is_enabled, updated_at FROM agentsam_mcp_tools ORDER BY tool_key LIMIT 200`,
+    'agentsam_tools',
+    `SELECT id, tool_key, json_extract(handler_config, '$.server_key') AS server_key, risk_level, is_active AS is_enabled, updated_at FROM agentsam_tools ORDER BY tool_key LIMIT 200`,
     [],
     warnings,
     cache,

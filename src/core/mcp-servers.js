@@ -13,7 +13,7 @@ function trim(v) {
 /**
  * @param {any} env
  * @param {{ tenantId?: string|null, workspaceId?: string|null }} context
- * @param {object|null} toolRow agentsam_mcp_tools row
+ * @param {object|null} toolRow agentsam_tools row
  * @returns {Promise<{ url: string, source: string, serverRow: object|null }>}
  */
 export async function resolveMcpServerForTool(env, context, toolRow) {

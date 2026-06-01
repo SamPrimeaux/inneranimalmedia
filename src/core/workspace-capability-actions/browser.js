@@ -109,7 +109,7 @@ export async function runBrowserCapabilityAction(p) {
   if (!navigateName) {
     pushStep('registry', {
       ok: false,
-      error: 'browser_navigate not available in agentsam_tools / agentsam_mcp_tools for this workspace',
+      error: 'browser_navigate not available in agentsam_tools for this workspace',
     });
     return {
       ok: false,

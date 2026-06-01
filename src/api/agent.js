@@ -822,7 +822,6 @@ function scheduleAgentsamToolCallLog(env, ctx, fields) {
     handler_key: fields.handler_key,
     route_key: fields.route_key,
     agentsam_tools_id: fields.agentsam_tools_id,
-    agentsam_mcp_tools_id: fields.agentsam_mcp_tools_id,
     mcp_server_id: fields.mcp_server_id,
     server_key: fields.server_key,
     approval_id: fields.approval_id,
@@ -862,7 +861,6 @@ function toolLogFieldsFromValidation(validation) {
     capability_key: v.capabilityKey != null ? String(v.capabilityKey) : undefined,
     handler_key: v.handlerKey != null ? String(v.handlerKey) : undefined,
     route_key: v.routeKey != null ? String(v.routeKey) : undefined,
-    agentsam_mcp_tools_id: v.agentsamMcpToolsId != null ? v.agentsamMcpToolsId : undefined,
     agentsam_tools_id: v.agentsamToolsId != null ? v.agentsamToolsId : undefined,
     mcp_server_id: v.mcpServerId != null ? v.mcpServerId : undefined,
     server_key: v.serverKey != null ? String(v.serverKey) : undefined,
@@ -2186,8 +2184,8 @@ async function finalizeChatToolSessionLedger(_env, _ctx, emit, ledger, { ok, err
 }
 
 /**
- * Workspace MCP tool library: global rows (workspace_id IS NULL) + workspace overrides.
- * Workspace-specific rows win on duplicate tool_name.
+ * Workspace MCP tool library: global workspace_scope + workspace-specific overrides.
+ * Workspace-scoped rows win on duplicate tool_name.
  */
 async function loadAgentsamMcpToolsWorkspaceLibrary(env, workspaceId, limit = 200) {
   const ws = workspaceId != null ? String(workspaceId).trim() : '';
@@ -2195,31 +2193,42 @@ async function loadAgentsamMcpToolsWorkspaceLibrary(env, workspaceId, limit = 20
   const lim = Math.max(1, Math.min(500, Number(limit) || 200));
   try {
     const { results } = await env.DB.prepare(
-      `SELECT tool_name, description, input_schema, tool_category, requires_approval, workspace_id
-       FROM agentsam_mcp_tools
-       WHERE (workspace_id = ? OR workspace_id IS NULL)
-         AND is_active = 1
-         AND enabled = 1
-       ORDER BY tool_name ASC
+      `SELECT COALESCE(tool_name, tool_key) AS tool_name, description, input_schema, tool_category,
+              requires_approval, workspace_scope
+       FROM agentsam_tools
+       WHERE COALESCE(is_active, 1) = 1
+         AND COALESCE(is_degraded, 0) = 0
+         AND (
+           COALESCE(is_global, 1) = 1
+           OR workspace_scope IS NULL OR trim(workspace_scope) IN ('', '[]')
+           OR workspace_scope LIKE '%"*"%'
+           OR instr(COALESCE(workspace_scope, ''), ?) > 0
+         )
+       ORDER BY COALESCE(tool_name, tool_key) ASC
        LIMIT ?`,
     )
       .bind(ws, lim * 4)
       .all();
     const rows = results || [];
     const byName = new Map();
+    const isGlobalScope = (scopeRaw) => {
+      const s = scopeRaw != null ? String(scopeRaw).trim() : '';
+      return !s || s === '[]' || s.includes('"*"');
+    };
     for (const r of rows) {
       const key = String(r.tool_name || '').trim();
       if (!key) continue;
-      const rowWs = r.workspace_id != null ? String(r.workspace_id).trim() : '';
-      if (!rowWs) {
+      if (isGlobalScope(r.workspace_scope)) {
         if (!byName.has(key)) byName.set(key, r);
       }
     }
     for (const r of rows) {
       const key = String(r.tool_name || '').trim();
       if (!key) continue;
-      const rowWs = r.workspace_id != null ? String(r.workspace_id).trim() : '';
-      if (rowWs === ws) byName.set(key, r);
+      const scope = r.workspace_scope != null ? String(r.workspace_scope) : '';
+      if (scope && scope.includes(ws) && !isGlobalScope(scope)) {
+        byName.set(key, r);
+      }
     }
     return [...byName.values()].slice(0, lim);
   } catch (e) {
@@ -2440,7 +2449,6 @@ async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRuntimeCo
       routeKey: routeKeyOut(null),
       serverKey: null,
       mcpServerId: null,
-      agentsamMcpToolsId: null,
       agentsamToolsId: null,
     };
   }
@@ -2457,7 +2465,6 @@ async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRuntimeCo
       routeKey: routeKeyOut(null),
       serverKey: null,
       mcpServerId: null,
-      agentsamMcpToolsId: null,
       agentsamToolsId: null,
     };
   }
@@ -2487,7 +2494,6 @@ async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRuntimeCo
         routeKey: routeKeyOut(null),
         serverKey: null,
         mcpServerId: null,
-        agentsamMcpToolsId: null,
         agentsamToolsId: null,
       };
     }
@@ -2511,7 +2517,6 @@ async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRuntimeCo
       routeKey: routeKeyOut(null),
       serverKey: null,
       mcpServerId: null,
-      agentsamMcpToolsId: null,
       agentsamToolsId: null,
     };
   }
@@ -2536,7 +2541,6 @@ async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRuntimeCo
       routeKey: routeKeyOut(null),
       serverKey: null,
       mcpServerId: null,
-      agentsamMcpToolsId: null,
       agentsamToolsId: null,
     };
   }
@@ -2553,7 +2557,6 @@ async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRuntimeCo
       routeKey: routeKeyOut(null),
       serverKey: null,
       mcpServerId: null,
-      agentsamMcpToolsId: null,
       agentsamToolsId: null,
     };
   }
@@ -2570,7 +2573,6 @@ async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRuntimeCo
       routeKey: routeKeyOut(null),
       serverKey: null,
       mcpServerId: null,
-      agentsamMcpToolsId: null,
       agentsamToolsId: null,
     };
   }
@@ -2602,7 +2604,6 @@ async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRuntimeCo
       routeKey: routeKeyOut(null),
       serverKey: null,
       mcpServerId: null,
-      agentsamMcpToolsId: null,
       agentsamToolsId: null,
     };
   }
@@ -2638,7 +2639,6 @@ async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRuntimeCo
           routeKey: routeKeyOut(null),
           serverKey: null,
           mcpServerId: null,
-          agentsamMcpToolsId: null,
           agentsamToolsId: null,
         };
       }
@@ -2658,7 +2658,6 @@ async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRuntimeCo
           routeKey: routeKeyOut(null),
           serverKey: null,
           mcpServerId: null,
-          agentsamMcpToolsId: null,
           agentsamToolsId: null,
         };
       }
@@ -2688,7 +2687,6 @@ async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRuntimeCo
         routeKey: routeKeyOut(null),
         serverKey: null,
         mcpServerId: null,
-        agentsamMcpToolsId: null,
         agentsamToolsId: null,
       };
     }
@@ -2709,7 +2707,6 @@ async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRuntimeCo
         routeKey: routeKeyOut(null),
         serverKey: null,
         mcpServerId: null,
-        agentsamMcpToolsId: null,
         agentsamToolsId: null,
       };
     }
@@ -2743,8 +2740,7 @@ async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRuntimeCo
       routeKey: routeKeyOut(rk.route_key),
       serverKey: rk.server_key != null ? String(rk.server_key) : null,
       mcpServerId: rk.mcp_server_id ?? rk.server_id ?? null,
-      agentsamMcpToolsId: rk.id ?? null,
-      agentsamToolsId: rk.agentsam_tools_id ?? null,
+      agentsamToolsId: rk.id ?? null,
     };
   }
 
@@ -2763,8 +2759,7 @@ async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRuntimeCo
       routeKey: routeKeyOut(rk.route_key),
       serverKey: rk.server_key != null ? String(rk.server_key) : null,
       mcpServerId: rk.mcp_server_id ?? rk.server_id ?? null,
-      agentsamMcpToolsId: rk.id ?? null,
-      agentsamToolsId: rk.agentsam_tools_id ?? null,
+      agentsamToolsId: rk.id ?? null,
     };
   }
 
@@ -2782,7 +2777,6 @@ async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRuntimeCo
     routeKey: routeKeyOut(rk.route_key),
     serverKey: null,
     mcpServerId: null,
-    agentsamMcpToolsId: null,
     agentsamToolsId: rk.id != null ? String(rk.id) : null,
   };
 }

@@ -57,8 +57,14 @@ export function parseMcpOAuthAuthorizationMetadata(metadataJson) {
 export const MCP_OAUTH_CODE_TTL_SECONDS = 10 * 60;
 /** OAuth access tokens — 24h (override per deploy via env.MCP_OAUTH_TOKEN_TTL_SECONDS). */
 export const MCP_OAUTH_TOKEN_TTL_SECONDS = 60 * 60 * 24;
+/** Cursor native OAuth — 30d; Cursor re-auths via mcp.json on startup. */
+export const MCP_OAUTH_CURSOR_TOKEN_TTL_SECONDS = 30 * 86400;
+/** Cursor IDE OAuth callback (registered on iam_mcp_inneranimalmedia). */
+export const MCP_OAUTH_CURSOR_REDIRECT_URI = 'cursor://anysphere.cursor-deeplink/mcp/auth_callback';
 
-export function resolveMcpOAuthTokenTtlSeconds(env) {
+export function resolveMcpOAuthTokenTtlSeconds(env, externalClientKey = null) {
+  const key = String(externalClientKey || '').trim().toLowerCase();
+  if (key === 'cursor') return MCP_OAUTH_CURSOR_TOKEN_TTL_SECONDS;
   const n = parseInt(String(env?.MCP_OAUTH_TOKEN_TTL_SECONDS ?? ''), 10);
   return Number.isFinite(n) && n > 0 ? n : MCP_OAUTH_TOKEN_TTL_SECONDS;
 }
@@ -193,6 +199,7 @@ export function mcpOAuthNormalizeScope(raw, client) {
 /** Canonical redirect URIs for iam_mcp_inneranimalmedia (migration 401). */
 export const MCP_OAUTH_REGISTERED_REDIRECT_URIS = [
   'https://mcp.inneranimalmedia.com/auth/callback',
+  MCP_OAUTH_CURSOR_REDIRECT_URI,
   'https://claude.ai/api/mcp/auth_callback',
   'https://claude.com/api/mcp/auth_callback',
   'https://chatgpt.com/connector_platform_oauth_redirect',
@@ -254,7 +261,10 @@ export function resolveMcpConnectingApp(redirectUri) {
     };
   }
 
-  if (host === 'mcp.inneranimalmedia.com' && path.includes('/auth/callback')) {
+  if (
+    raw.toLowerCase().startsWith('cursor://') ||
+    (host === 'mcp.inneranimalmedia.com' && path.includes('/auth/callback'))
+  ) {
     return {
       key: 'cursor',
       label: 'Cursor',
@@ -276,13 +286,18 @@ export function mcpOAuthValidateRedirectUri(raw, client, env) {
     return { ok: false, error: 'invalid_redirect_uri', url: null };
   }
 
-  if (u.protocol !== 'https:') {
-    return { ok: false, error: 'redirect_uri_must_be_https', url: null };
-  }
-
   const href = u.href;
   if (client && mcpOAuthRedirectAllowed(client, href)) {
     return { ok: true, error: null, url: u };
+  }
+
+  const scheme = String(u.protocol || '').toLowerCase();
+  if (scheme === 'cursor:' && href === MCP_OAUTH_CURSOR_REDIRECT_URI) {
+    return { ok: true, error: null, url: u };
+  }
+
+  if (scheme !== 'https:') {
+    return { ok: false, error: 'redirect_uri_must_be_https', url: null };
   }
 
   const host = u.hostname.toLowerCase();
@@ -602,7 +617,7 @@ export async function loadMcpOAuthConsentToolManifest(env, input) {
                       SELECT ca.capability_lane
                         FROM agentsam_capability_aliases ca
                        WHERE ca.match_kind = 'tool_key'
-                         AND ca.match_value = agentsam_mcp_tools.tool_key
+                         AND ca.match_value = agentsam_tools.tool_key
                          AND COALESCE(ca.is_active, 1) = 1
                        ORDER BY COALESCE(ca.priority, 999) ASC, ca.abstract_capability ASC
                        LIMIT 1
@@ -615,7 +630,7 @@ export async function loadMcpOAuthConsentToolManifest(env, input) {
                       SELECT 1
                         FROM agentsam_capability_aliases ca
                        WHERE ca.match_kind = 'tool_key'
-                         AND ca.match_value = agentsam_mcp_tools.tool_key
+                         AND ca.match_value = agentsam_tools.tool_key
                          AND COALESCE(ca.is_active, 1) = 1
                          AND ca.abstract_capability IS NOT NULL
                          AND trim(ca.abstract_capability) != ''
@@ -626,7 +641,7 @@ export async function loadMcpOAuthConsentToolManifest(env, input) {
                       SELECT ca.abstract_capability
                         FROM agentsam_capability_aliases ca
                        WHERE ca.match_kind = 'tool_key'
-                         AND ca.match_value = agentsam_mcp_tools.tool_key
+                         AND ca.match_value = agentsam_tools.tool_key
                          AND COALESCE(ca.is_active, 1) = 1
                          AND ca.abstract_capability IS NOT NULL
                          AND trim(ca.abstract_capability) != ''
@@ -637,9 +652,10 @@ export async function loadMcpOAuthConsentToolManifest(env, input) {
                   END,
                   'general'
                 ) AS permission_group
-           FROM agentsam_mcp_tools
+           FROM agentsam_tools
           WHERE tool_key IN (${placeholders})
-            AND COALESCE(is_active, 1) = 1`,
+            AND COALESCE(is_active, 1) = 1
+            AND COALESCE(oauth_visible, 0) = 1`,
       )
         .bind(...rows.map((r) => r.tool_key))
         .all();
