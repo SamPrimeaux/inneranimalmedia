@@ -278,6 +278,54 @@ export function resolveMcpConnectingApp(redirectUri) {
   return fallback;
 }
 
+/** RFC 8252 loopback redirect (mcp-remote, native MCP clients). */
+export function mcpOAuthIsLoopbackRedirect(u) {
+  if (String(u?.protocol || '').toLowerCase() !== 'http:') return false;
+  const host = String(u.hostname || '').toLowerCase();
+  return host === '127.0.0.1' || host === 'localhost' || host === '[::1]';
+}
+
+/** cursor:// OAuth callbacks (Cursor IDE / mcp-remote). */
+export function mcpOAuthIsCursorNativeRedirect(u) {
+  const scheme = String(u?.protocol || '').toLowerCase();
+  if (scheme !== 'cursor:') return false;
+  const path = String(u.pathname || '').toLowerCase();
+  return (
+    path.includes('auth_callback') ||
+    path.includes('/oauth/') ||
+    hrefMatchesCanonicalCursorRedirect(u.href)
+  );
+}
+
+function hrefMatchesCanonicalCursorRedirect(href) {
+  return String(href || '').replace(/\/$/, '') === MCP_OAUTH_CURSOR_REDIRECT_URI.replace(/\/$/, '');
+}
+
+/** ChatGPT / Claude hosted connector callbacks (unauthenticated DCR). */
+export function mcpOAuthIsHostedConnectorRedirect(u) {
+  const host = String(u?.hostname || '').toLowerCase();
+  const path = String(u?.pathname || '').toLowerCase();
+  return (
+    (host === 'chatgpt.com' && path.startsWith('/connector/oauth/')) ||
+    (host === 'claude.ai' && path.includes('/api/mcp/auth_callback')) ||
+    (host === 'claude.com' && path.includes('/api/mcp/auth_callback'))
+  );
+}
+
+/** Redirect URIs allowed for unauthenticated POST /api/oauth/register (DCR). */
+export function mcpOAuthIsPublicDcrRedirect(href) {
+  try {
+    const u = new URL(String(href || ''));
+    return (
+      mcpOAuthIsLoopbackRedirect(u) ||
+      mcpOAuthIsCursorNativeRedirect(u) ||
+      mcpOAuthIsHostedConnectorRedirect(u)
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function mcpOAuthValidateRedirectUri(raw, client, env) {
   let u;
   try {
@@ -291,11 +339,11 @@ export function mcpOAuthValidateRedirectUri(raw, client, env) {
     return { ok: true, error: null, url: u };
   }
 
-  const scheme = String(u.protocol || '').toLowerCase();
-  if (scheme === 'cursor:' && href === MCP_OAUTH_CURSOR_REDIRECT_URI) {
+  if (mcpOAuthIsLoopbackRedirect(u) || mcpOAuthIsCursorNativeRedirect(u)) {
     return { ok: true, error: null, url: u };
   }
 
+  const scheme = String(u.protocol || '').toLowerCase();
   if (scheme !== 'https:') {
     return { ok: false, error: 'redirect_uri_must_be_https', url: null };
   }

@@ -37,6 +37,7 @@ import {
   mcpOAuthRandomToken,
   mcpOAuthJsonError,
   mcpOAuthValidateRedirectUri,
+  mcpOAuthIsPublicDcrRedirect,
   iamMcpOAuthAuthorizationServerMetadata,
   iamMcpOpenIdConfiguration,
   IAM_OAUTH_ISSUER,
@@ -916,26 +917,12 @@ async function handleMcpOAuthRegister(request, env, _ctx) {
 
   const normalizedRedirectUris = Array.from(new Set(validatedRedirects));
 
-  // For unauthenticated Dynamic Client Registration (ChatGPT/Claude hosted connectors),
-  // restrict registration to approved external connector callbacks only.
+  // Unauthenticated DCR: loopback (mcp-remote), cursor://, or hosted connector callbacks only.
   if (!authUser) {
-    const allOk = normalizedRedirectUris.every((href) => {
-      try {
-        const u = new URL(href);
-        const host = u.hostname.toLowerCase();
-        const path = u.pathname.toLowerCase();
-        return (
-          (host === 'chatgpt.com' && path.startsWith('/connector/oauth/')) ||
-          (host === 'claude.ai' && path.includes('/api/mcp/auth_callback')) ||
-          (host === 'claude.com' && path.includes('/api/mcp/auth_callback'))
-        );
-      } catch {
-        return false;
-      }
-    });
+    const allOk = normalizedRedirectUris.every((href) => mcpOAuthIsPublicDcrRedirect(href));
     if (!allOk) return mcpOAuthJsonError('redirect_uri_not_allowed', 400);
 
-    // Hosted connectors should be public + PKCE only (no client secret).
+    // Native / hosted connectors: public + PKCE only (no client secret).
     parsed.tokenEndpointAuthMethod = 'none';
   }
 
