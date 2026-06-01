@@ -10,7 +10,15 @@
  */
 
 /**
- * @typedef {'chat_loop'|'plan_pipeline'|'workflow_only'|'multitask_fanout'} ExecutionKind
+ * @typedef {'ask_turn'|'plan_pipeline'|'agent_tool_loop'|'debug_investigation_loop'|'multitask_fanout'} ExecutionKind
+ */
+
+/**
+ * @typedef {'ask'|'plan'|'agent'|'debug'|'multitask'} RuntimeMode
+ */
+
+/**
+ * @typedef {'ask_controller'|'plan_controller'|'agent_controller'|'debug_controller'|'multitask_controller'} ModeController
  */
 
 /**
@@ -21,10 +29,21 @@
  * @property {boolean} can_deploy
  * @property {boolean} can_browser_automation
  * @property {boolean} can_memory_write
+ * @property {boolean} [can_send_email]
+ * @property {boolean} [can_external_side_effects]
  */
 
 /**
  * @typedef {'readonly_context'|'plan_artifact'|'execution'|'parallel'} ToolProfile
+ */
+
+/**
+ * @typedef {Object} RuntimeToolPolicy
+ * @property {string[]} allowlist
+ * @property {string[]} denylist
+ * @property {string[]} [require_approval]
+ * @property {number} [max_tool_calls]
+ * @property {number} [max_runtime_ms]
  */
 
 /**
@@ -38,9 +57,18 @@
 /**
  * @typedef {Object} RuntimeParallelPolicy
  * @property {boolean} enabled
+ * @property {boolean} [execution_enabled]
  * @property {number} max_subagents
+ * @property {number} [max_depth]
  * @property {string[]} allowed_subagent_types
- * @property {'synthesize'|'first_success'|'all'} merge_strategy
+ * @property {'synthesize'|'report'} merge_strategy
+ */
+
+/**
+ * @typedef {Object} RuntimeDebugPolicy
+ * @property {boolean} evidence_required_before_write
+ * @property {boolean} evidence_required_before_deploy
+ * @property {'hypothesize'|'inspect'|'instrument'|'fix'|'verify'|'cleanup'} phase
  */
 
 /**
@@ -54,6 +82,7 @@
 /**
  * @typedef {Object} RuntimeProfile
  * @property {Exclude<AgentMode, 'auto'>} mode
+ * @property {ModeController} mode_controller
  * @property {string} profile_id
  * @property {string} profile_hash
  * @property {number} profile_version
@@ -63,6 +92,7 @@
  * @property {string[]} tool_allowlist
  * @property {string[]} tool_denylist
  * @property {string[]} tool_require_approval
+ * @property {RuntimeToolPolicy} tool_policy
  * @property {number} max_tools
  * @property {number} max_tool_calls
  * @property {number} max_turns
@@ -76,6 +106,7 @@
  * @property {string|null} routing_arm_id
  * @property {number} temperature
  * @property {RuntimeParallelPolicy} parallel_policy
+ * @property {RuntimeDebugPolicy|null} [debug_policy]
  * @property {RuntimeProfileSource} source
  * @property {string|null} refined_route_key
  * @property {string} color

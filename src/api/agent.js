@@ -2400,14 +2400,33 @@ function inferRiskLevel(toolName, category = '', rowRiskLevel = '') {
   return 'low';
 }
 
-async function validateToolCall(env, modeSlug, toolName, mcpRuntimeContext = {}, userPolicy = null) {
+/**
+ * Tool-call validator (hot path)
+ *
+ * New contract (runtime spine): validateToolCall(env, profile, toolCall, mcpRuntimeContext, userPolicy)
+ * - Enforces compiled RuntimeProfile.tool_policy + write_policy (+ debug_policy phase gates)
+ * - Honors require_approval tools by returning `requiresConfirmation: true` (not allowed)
+ *
+ * Compatibility (legacy callers): validateToolCall(env, modeSlug, toolName, ...)
+ * - Must not be used by the runtime spine/controllers path.
+ *
+ * @param {any} env
+ * @param {import('../core/runtime-profile.types.js').RuntimeProfile|string} profileOrMode
+ * @param {{ name?: string }|string} toolCallOrName
+ * @param {Record<string, unknown>} mcpRuntimeContext
+ * @param {any} userPolicy
+ */
+async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRuntimeContext = {}, userPolicy = null) {
   const ctxRouteKey =
     mcpRuntimeContext.routeKey != null && String(mcpRuntimeContext.routeKey).trim() !== ''
       ? String(mcpRuntimeContext.routeKey).trim()
       : '';
   const routeKeyOut = (rk) =>
     (rk != null && String(rk).trim() !== '' ? String(rk).trim() : null) || ctxRouteKey || null;
-  const name = String(toolName || '').trim();
+  const name =
+    typeof toolCallOrName === 'string'
+      ? String(toolCallOrName || '').trim()
+      : String(toolCallOrName?.name || '').trim();
   if (name === CODEMODE_TOOL_NAME && env?.LOADER) {
     return {
       allowed: true,
@@ -2465,19 +2484,83 @@ async function validateToolCall(env, modeSlug, toolName, mcpRuntimeContext = {},
     };
   }
 
-  const policy = await loadModeToolPolicy(env, modeSlug, {
-    routeKey: ctxRouteKey || null,
-    taskType:
-      mcpRuntimeContext.taskType != null && String(mcpRuntimeContext.taskType).trim() !== ''
-        ? String(mcpRuntimeContext.taskType).trim()
-        : mcpRuntimeContext.task_type != null && String(mcpRuntimeContext.task_type).trim() !== ''
-          ? String(mcpRuntimeContext.task_type).trim()
-          : null,
-  });
+  const runtimeProfile =
+    typeof profileOrMode === 'object' && profileOrMode
+      ? profileOrMode
+      : (mcpRuntimeContext.runtimeProfile || mcpRuntimeContext.runtime_profile || null);
+
+  // Enforce the compiled RuntimeProfile tool policy first (no guessing, no promotions).
+  const compiledToolPolicy = runtimeProfile?.tool_policy || null;
+  if (compiledToolPolicy?.denylist?.includes(name)) {
+    return {
+      allowed: false,
+      reason: 'blocked by profile tool_policy denylist',
+      riskLevel: 'blocked',
+      requiresConfirmation: false,
+      mcpToolId: null,
+      toolKey: name,
+      capabilityKey: null,
+      handlerKey: null,
+      routeKey: routeKeyOut(null),
+      serverKey: null,
+      mcpServerId: null,
+      agentsamMcpToolsId: null,
+      agentsamToolsId: null,
+    };
+  }
+  if (compiledToolPolicy?.require_approval?.includes(name)) {
+    return {
+      allowed: false,
+      reason: 'requires approval',
+      riskLevel: 'blocked',
+      requiresConfirmation: true,
+      mcpToolId: null,
+      toolKey: name,
+      capabilityKey: null,
+      handlerKey: null,
+      routeKey: routeKeyOut(null),
+      serverKey: null,
+      mcpServerId: null,
+      agentsamMcpToolsId: null,
+      agentsamToolsId: null,
+    };
+  }
+  if (compiledToolPolicy?.allowlist?.length && !compiledToolPolicy.allowlist.includes(name)) {
+    return {
+      allowed: false,
+      reason: 'not in profile tool_policy allowlist',
+      riskLevel: 'blocked',
+      requiresConfirmation: false,
+      mcpToolId: null,
+      toolKey: name,
+      capabilityKey: null,
+      handlerKey: null,
+      routeKey: routeKeyOut(null),
+      serverKey: null,
+      mcpServerId: null,
+      agentsamMcpToolsId: null,
+      agentsamToolsId: null,
+    };
+  }
+
+  // Legacy (non-spine) compatibility: deny by mode policy when a modeSlug is explicitly passed.
+  const modeSlug = typeof profileOrMode === 'string' ? profileOrMode : runtimeProfile?.mode;
+  const policy =
+    typeof profileOrMode === 'string'
+      ? await loadModeToolPolicy(env, modeSlug, {
+          routeKey: ctxRouteKey || null,
+          taskType:
+            mcpRuntimeContext.taskType != null && String(mcpRuntimeContext.taskType).trim() !== ''
+              ? String(mcpRuntimeContext.taskType).trim()
+              : mcpRuntimeContext.task_type != null && String(mcpRuntimeContext.task_type).trim() !== ''
+                ? String(mcpRuntimeContext.task_type).trim()
+                : null,
+        })
+      : { denyTools: [], allowTools: [] };
   if (policy.denyTools.includes(name)) {
     return {
       allowed: false,
-      reason: 'blocked by mode policy',
+      reason: 'blocked by legacy mode policy',
       riskLevel: 'blocked',
       requiresConfirmation: false,
       mcpToolId: null,
@@ -2497,6 +2580,58 @@ async function validateToolCall(env, modeSlug, toolName, mcpRuntimeContext = {},
       : mcpRuntimeContext.write_policy != null
         ? mcpRuntimeContext.write_policy
         : null;
+  const debugPolicy = runtimeProfile?.debug_policy || null;
+
+  if (
+    debugPolicy &&
+    (runtimeProfile?.mode === 'debug' ||
+      runtimeProfile?.execution_kind === 'debug_investigation_loop')
+  ) {
+    const t = String(name || '').toLowerCase();
+    const isTerminal = TERM_WRITE_TOOLS.has(t);
+    const isWriteLike = WRITE_LIKE_PREFIXES.some((p) => t.startsWith(p));
+    const isDeployLike = t.includes('deploy') || t === 'worker_deploy' || t.startsWith('worker_deploy');
+
+    if (debugPolicy.evidence_required_before_write && (isTerminal || isWriteLike)) {
+      if (debugPolicy.phase === 'hypothesize' || debugPolicy.phase === 'inspect' || debugPolicy.phase === 'instrument') {
+        return {
+          allowed: false,
+          reason: `debug phase gate: writes blocked in ${debugPolicy.phase}`,
+          riskLevel: 'blocked',
+          requiresConfirmation: false,
+          mcpToolId: null,
+          toolKey: name,
+          capabilityKey: null,
+          handlerKey: null,
+          routeKey: routeKeyOut(null),
+          serverKey: null,
+          mcpServerId: null,
+          agentsamMcpToolsId: null,
+          agentsamToolsId: null,
+        };
+      }
+    }
+
+    if (debugPolicy.evidence_required_before_deploy && isDeployLike) {
+      if (debugPolicy.phase !== 'verify' && debugPolicy.phase !== 'cleanup') {
+        return {
+          allowed: false,
+          reason: `debug phase gate: deploy blocked in ${debugPolicy.phase}`,
+          riskLevel: 'blocked',
+          requiresConfirmation: false,
+          mcpToolId: null,
+          toolKey: name,
+          capabilityKey: null,
+          handlerKey: null,
+          routeKey: routeKeyOut(null),
+          serverKey: null,
+          mcpServerId: null,
+          agentsamMcpToolsId: null,
+          agentsamToolsId: null,
+        };
+      }
+    }
+  }
   if (writePolicy) {
     const { toolBlockedByWritePolicy } = await import('../core/agent-mode-tool-policy.js');
     if (
@@ -2525,23 +2660,6 @@ async function validateToolCall(env, modeSlug, toolName, mcpRuntimeContext = {},
         agentsamToolsId: null,
       };
     }
-  }
-  if (policy.allowTools.length && !policy.allowTools.includes(name)) {
-    return {
-      allowed: false,
-      reason: 'not in mode allowlist',
-      riskLevel: 'blocked',
-      requiresConfirmation: false,
-      mcpToolId: null,
-      toolKey: name,
-      capabilityKey: null,
-      handlerKey: null,
-      routeKey: routeKeyOut(null),
-      serverKey: null,
-      mcpServerId: null,
-      agentsamMcpToolsId: null,
-      agentsamToolsId: null,
-    };
   }
   let row = null;
   if (env.DB) {
@@ -4707,7 +4825,13 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         });
         continue;
       }
-      const validation = await validateToolCall(env, mode, call.name, mcpCtx, userPolicy);
+      const validation = await validateToolCall(
+        env,
+        mcpCtx?.runtimeProfile || mode,
+        call,
+        mcpCtx,
+        userPolicy,
+      );
       if (!validation.allowed) {
         scheduleRecordMcpToolExecution(env, ctx, {
           tenant_id: tenantId,
@@ -6635,6 +6759,9 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
         ? String(body.quickstartBatch).trim()
         : '';
 
+  // Legacy request-shape compatibility:
+  // - `agent_mode` / `runtime_intent_mode` were older client fields.
+  // - Runtime spine dispatch does NOT use these fields; it dispatches only by the compiled RuntimeProfile.
   const runtimeMode = normalizeAgentRuntimeMode(
     body.mode ?? body.agent_mode ?? body.runtime_intent_mode ?? body.execution_mode,
   );
@@ -6839,6 +6966,8 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
     console.warn('[agent] subagent_profile_resolve', e?.message ?? e);
   }
 
+  // Legacy compatibility: default ask subagent selection for the /api/agent/chat endpoint.
+  // Runtime spine (`executeAgentChatSpine`) uses compiled RuntimeProfile and does not route by requestedMode.
   if (!subagentProfileRow && requestedMode === 'ask') {
     try {
       subagentProfileRow = await resolveSubagentProfileForChat(env.DB, {

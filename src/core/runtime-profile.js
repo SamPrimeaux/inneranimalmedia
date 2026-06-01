@@ -165,38 +165,53 @@ function agentLikeTooling(mode, message) {
 
 /**
  * @param {string} mode
- * @param {string} message
  */
-function resolveExecutionKind(mode, message) {
-  const trimmed = String(message || '').trim();
-  const wordParts = trimmed.split(/\s+/).filter(Boolean);
-  const planWordCount = wordParts.length;
-  const isWorkIntent =
-    /\b(build|create|generate|write|make|scaffold|deploy|run|fix|refactor|add|update|migrate|setup|configure|connect|implement|design|analyze|audit)\b/i.test(
-      message,
-    );
-  const explicitPlanPhrase = /\b(make|create|write|build|draft)\s+(a\s+)?plan\b|\bplan\s+(for|to)\b/i.test(
-    message,
-  );
-  const capabilityLedIntent =
-    /\b(open|launch|focus|use|switch to)\s+(?:the\s+)?(monaco|editor|code editor|browser|excalidraw|canvas|whiteboard)\b/i.test(
-      message,
-    ) ||
-    (/\b(build|generate|scaffold|create|implement)\b/i.test(message) &&
-      /\b(app|component|page|file|frontend|react|full-stack|fullstack|code)\b/i.test(message));
-
-  let planPipeline = false;
-  if (mode === 'plan') {
-    planPipeline = (isWorkIntent || explicitPlanPhrase) && planWordCount >= 3;
-  } else if (mode === 'ask') {
-    planPipeline = explicitPlanPhrase && isWorkIntent && planWordCount >= 5;
-  } else if (mode !== 'debug') {
-    planPipeline = !capabilityLedIntent && isWorkIntent && planWordCount >= 5;
+export function resolveModeController(mode) {
+  switch (normalizeAgentRuntimeMode(mode)) {
+    case 'ask':
+      return 'ask_controller';
+    case 'plan':
+      return 'plan_controller';
+    case 'agent':
+      return 'agent_controller';
+    case 'debug':
+      return 'debug_controller';
+    case 'multitask':
+      return 'multitask_controller';
+    default:
+      return 'ask_controller';
   }
+}
 
-  if (planPipeline) return 'plan_pipeline';
-  if (mode === 'multitask') return 'multitask_fanout';
-  return 'chat_loop';
+/**
+ * Phase 3: deterministic mode → execution_kind mapping.
+ * - No long-work promotion.
+ * - No Agent/Multitask plan hijack.
+ * - No guessing after profile compile.
+ *
+ * Acceptance:
+ * - Only mode === "plan" can produce plan_pipeline.
+ * - Agent must always produce agent_tool_loop.
+ * - Debug must always produce debug_investigation_loop.
+ * - Multitask must always produce multitask_fanout.
+ *
+ * @param {string} mode
+ */
+export function resolveExecutionKind(mode) {
+  switch (normalizeAgentRuntimeMode(mode)) {
+    case 'ask':
+      return 'ask_turn';
+    case 'plan':
+      return 'plan_pipeline';
+    case 'agent':
+      return 'agent_tool_loop';
+    case 'debug':
+      return 'debug_investigation_loop';
+    case 'multitask':
+      return 'multitask_fanout';
+    default:
+      return 'ask_turn';
+  }
 }
 
 /**
@@ -223,6 +238,15 @@ function defaultWritePolicyForMode(mode) {
         can_memory_write: false,
       };
     case 'debug':
+      return {
+        can_edit_files: true,
+        can_terminal: true,
+        can_d1_write: true,
+        // Debug mode must never deploy until evidence/approval gates allow it.
+        can_deploy: false,
+        can_browser_automation: true,
+        can_memory_write: true,
+      };
     case 'agent':
     case 'multitask':
     default:
@@ -244,14 +268,18 @@ function defaultParallelPolicyForMode(mode) {
   if (mode === 'multitask') {
     return {
       enabled: true,
+      execution_enabled: false,
       max_subagents: 4,
+      max_depth: 1,
       allowed_subagent_types: ['research', 'shell', 'browser'],
       merge_strategy: 'synthesize',
     };
   }
   return {
     enabled: false,
+    execution_enabled: false,
     max_subagents: 0,
+    max_depth: 0,
     allowed_subagent_types: [],
     merge_strategy: 'synthesize',
   };
@@ -399,15 +427,16 @@ async function resolvePromptRouteForCompile(env, q) {
 async function hashRuntimeProfile(profile) {
   const stable = JSON.stringify({
     mode: profile.mode,
+    mode_controller: profile.mode_controller,
     profile_id: profile.profile_id,
     execution_kind: profile.execution_kind,
-    tool_allowlist: profile.tool_allowlist,
-    tool_denylist: profile.tool_denylist,
+    tool_policy: profile.tool_policy,
     write_policy: profile.write_policy,
     routing_task_type: profile.routing_task_type,
     max_tools: profile.max_tools,
     context_policy: profile.context_policy,
     parallel_policy: profile.parallel_policy,
+    debug_policy: profile.debug_policy ?? null,
   });
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(stable));
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 16);
@@ -537,7 +566,8 @@ export async function compileModeProfile(env, input) {
   const modeContract = AGENT_MODE_CONTRACT[mode] || AGENT_MODE_CONTRACT.agent;
 
   const writePolicy = defaultWritePolicyForMode(mode);
-  const executionKind = resolveExecutionKind(mode, message);
+  const executionKind = resolveExecutionKind(mode);
+  const modeController = resolveModeController(mode);
 
   const profileId = `mode_${mode}@${routeKey || 'default'}`;
   const systemPromptKey =
@@ -550,6 +580,7 @@ export async function compileModeProfile(env, input) {
   /** @type {import('./runtime-profile.types.js').RuntimeProfile} */
   const profile = {
     mode,
+    mode_controller: modeController,
     profile_id: profileId,
     profile_hash: '',
     profile_version: RUNTIME_PROFILE_VERSION,
@@ -562,6 +593,13 @@ export async function compileModeProfile(env, input) {
     tool_allowlist: toolAllowlist,
     tool_denylist: [...denySet],
     tool_require_approval: (modeToolPolicy.requireApprovalTools || []).map((t) => String(t)),
+    tool_policy: {
+      allowlist: toolAllowlist,
+      denylist: [...denySet],
+      require_approval: (modeToolPolicy.requireApprovalTools || []).map((t) => String(t)),
+      max_tool_calls: 15,
+      max_runtime_ms: 90000,
+    },
     max_tools: maxTools,
     max_tool_calls: 15,
     max_turns: 6,
@@ -578,6 +616,14 @@ export async function compileModeProfile(env, input) {
     routing_arm_id: null,
     temperature: 0.7,
     parallel_policy: defaultParallelPolicyForMode(mode),
+    debug_policy:
+      mode === 'debug'
+        ? {
+            evidence_required_before_write: true,
+            evidence_required_before_deploy: true,
+            phase: 'hypothesize',
+          }
+        : null,
     source: {
       prompt_route_id: promptRouteRow?.id != null ? String(promptRouteRow.id) : null,
       route_requirements_id: routeToolRequirements?.route_key ?? null,
@@ -610,6 +656,23 @@ function applyUserPolicyToProfile(profile, userPolicy) {
     for (const t of TERMINAL_TOOL_NAMES) denied.add(t);
     profile.tool_denylist = [...denied];
     profile.tool_allowlist = profile.tool_allowlist.filter((name) => !denied.has(name));
+    if (profile.tool_policy) {
+      profile.tool_policy.denylist = profile.tool_denylist;
+      profile.tool_policy.allowlist = profile.tool_allowlist;
+    }
+  }
+
+  // Multitask fanout execution is policy-gated per user/workspace.
+  // No env vars; profile must remain the single source of truth for controller behavior.
+  if (profile.mode === 'multitask' && profile.parallel_policy) {
+    const allowSpawn = Number(userPolicy.allow_subagent_spawn ?? 0) === 1;
+    const allowExec = Number(userPolicy.allow_fanout_execution ?? 0) === 1;
+    profile.parallel_policy.enabled = allowSpawn;
+    profile.parallel_policy.execution_enabled = allowSpawn && allowExec;
+    const depth = Math.max(1, Math.floor(Number(userPolicy.max_spawn_depth ?? 1) || 1));
+    profile.parallel_policy.max_depth = Math.min(depth, Math.floor(Number(profile.parallel_policy.max_depth ?? depth) || depth));
+    // Always hard clamp to 3 for now.
+    profile.parallel_policy.max_subagents = Math.min(3, Math.max(0, Math.floor(Number(profile.parallel_policy.max_subagents) || 0)));
   }
   return profile;
 }
@@ -804,7 +867,6 @@ export function scheduleShadowRuntimeProfileCompile(ctx, env, input, meta = {}) 
 export {
   defaultWritePolicyForMode,
   defaultParallelPolicyForMode,
-  resolveExecutionKind,
   agentLikeTooling,
   askNeedsReadEvidenceTools,
   hashRuntimeProfile,

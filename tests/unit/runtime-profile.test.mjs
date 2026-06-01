@@ -4,6 +4,7 @@ import { normalizeAgentRuntimeMode, AGENT_MODES } from '../../src/core/agent-mod
 import {
   compileModeProfile,
   defaultWritePolicyForMode,
+  resolveModeController,
   resolveExecutionKind,
   agentLikeTooling,
   askNeedsReadEvidenceTools,
@@ -27,22 +28,46 @@ test('ask write policy blocks mutations and memory writes', () => {
   assert.equal(wp.can_edit_files, false);
   assert.equal(wp.can_terminal, false);
   assert.equal(wp.can_d1_write, false);
+  assert.equal(wp.can_deploy, false);
   assert.equal(wp.can_memory_write, false);
 });
 
-test('plan mode work intent → plan_pipeline execution kind', () => {
-  assert.equal(
-    resolveExecutionKind('plan', 'plan auth refactor for the dashboard'),
-    'plan_pipeline',
-  );
+test('plan write policy blocks all writes', () => {
+  const wp = defaultWritePolicyForMode('plan');
+  assert.equal(wp.can_edit_files, false);
+  assert.equal(wp.can_terminal, false);
+  assert.equal(wp.can_d1_write, false);
+  assert.equal(wp.can_deploy, false);
+  assert.equal(wp.can_browser_automation, false);
+  assert.equal(wp.can_memory_write, false);
 });
 
-test('agent mode simple question stays chat_loop', () => {
-  assert.equal(resolveExecutionKind('agent', 'what is agentsam_plans?'), 'chat_loop');
+test('debug write policy blocks deploy by default', () => {
+  const wp = defaultWritePolicyForMode('debug');
+  assert.equal(wp.can_edit_files, true);
+  assert.equal(wp.can_terminal, true);
+  assert.equal(wp.can_d1_write, true);
+  assert.equal(wp.can_deploy, false);
+});
+
+test('mode→controller mapping is deterministic', () => {
+  assert.equal(resolveModeController('ask'), 'ask_controller');
+  assert.equal(resolveModeController('plan'), 'plan_controller');
+  assert.equal(resolveModeController('agent'), 'agent_controller');
+  assert.equal(resolveModeController('debug'), 'debug_controller');
+  assert.equal(resolveModeController('multitask'), 'multitask_controller');
+});
+
+test('execution_kind is derived only from mode (no plan hijack)', () => {
+  assert.equal(resolveExecutionKind('ask'), 'ask_turn');
+  assert.equal(resolveExecutionKind('plan'), 'plan_pipeline');
+  assert.equal(resolveExecutionKind('agent'), 'agent_tool_loop');
+  assert.equal(resolveExecutionKind('debug'), 'debug_investigation_loop');
+  assert.equal(resolveExecutionKind('multitask'), 'multitask_fanout');
 });
 
 test('multitask mode → multitask_fanout', () => {
-  assert.equal(resolveExecutionKind('multitask', 'audit schema and deploy'), 'multitask_fanout');
+  assert.equal(resolveExecutionKind('multitask'), 'multitask_fanout');
 });
 
 test('ask simple greeting is not agent-like tooling', () => {
@@ -81,6 +106,7 @@ test('compileModeProfile without DB returns stable shadow profile', async () => 
     compile_lane: 'shadow',
   });
   assert.equal(profile.mode, 'plan');
+  assert.equal(profile.mode_controller, 'plan_controller');
   assert.equal(profile.profile_version, RUNTIME_PROFILE_VERSION);
   assert.equal(profile.execution_kind, 'plan_pipeline');
   assert.ok(profile.profile_hash.length >= 8);
@@ -95,6 +121,7 @@ test('compileModeProfile ask evidence question keeps d1_query off denylist', asy
     compile_lane: 'shadow',
   });
   assert.equal(profile.mode, 'ask');
+  assert.equal(profile.mode_controller, 'ask_controller');
   assert.equal(profile.color, 'green');
   assert.equal(profile.tool_profile, 'readonly_context');
   assert.ok(!profile.tool_denylist.includes('d1_query'));
@@ -112,6 +139,17 @@ test('compileModeProfile ask greeting is green with zero tools', async () => {
   assert.equal(profile.tool_profile, 'readonly_context');
   assert.equal(profile.tool_allowlist.length, 0);
   assert.equal(profile.tool_capable_required, false);
+});
+
+test('compileModeProfile multitask enables parallel_policy', async () => {
+  const profile = await compileModeProfile(null, {
+    mode: 'multitask',
+    message: 'investigate and patch in parallel',
+    compile_lane: 'shadow',
+  });
+  assert.equal(profile.mode_controller, 'multitask_controller');
+  assert.equal(profile.execution_kind, 'multitask_fanout');
+  assert.equal(profile.parallel_policy.enabled, true);
 });
 
 test('profile hash is deterministic for same inputs', async () => {

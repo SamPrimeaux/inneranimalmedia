@@ -390,7 +390,13 @@ type RuntimeProfile = {
 
   // Workflow (optional)
   workflow_key: string | null
-  execution_kind: 'chat_loop' | 'plan_pipeline' | 'workflow_only' | 'multitask_fanout'
+  // Deprecated: `chat_loop` and `workflow_only` removed from runtime spine.
+  execution_kind:
+    | 'ask_turn'
+    | 'plan_pipeline'
+    | 'agent_tool_loop'
+    | 'debug_investigation_loop'
+    | 'multitask_fanout'
 
   // Context
   context_policy: {
@@ -429,11 +435,11 @@ type RuntimeProfile = {
 
 | Mode | `execution_kind` | `write_policy` highlights | `parallel_policy` |
 |------|------------------|---------------------------|-------------------|
-| **ask** | `chat_loop` | all writes false | disabled |
-| **plan** | `plan_pipeline` if work intent; else `chat_loop` | edits false until build | disabled |
-| **agent** | `chat_loop` | full (subject to user policy) | disabled |
-| **debug** | `chat_loop` | edits true; instrument-first prompt | disabled |
-| **multitask** | `multitask_fanout` or `chat_loop` | full | enabled, max 3–5 subagents |
+| **ask** | `ask_turn` | all writes false | disabled |
+| **plan** | `plan_pipeline` | all writes false | disabled |
+| **agent** | `agent_tool_loop` | full (subject to user policy) | disabled |
+| **debug** | `debug_investigation_loop` | deploy false until verified/approved | disabled |
+| **multitask** | `multitask_fanout` | full (subject to user policy) | enabled |
 
 ---
 
