@@ -43,6 +43,11 @@ export async function dispatchByToolCode(env, toolCodeOrKey, input, runContext =
       credentials = await resolveCredential(env, workspaceId, tenantId, config, {
         userId,
         account_identifier: config.account_identifier,
+        isInternalAgent: runContext.isInternalAgent !== false,
+        isOperatorCall:
+          runContext.isOperatorCall === true ||
+          runContext.is_operator_call === true,
+        mcpBearer: runContext.mcpBearer ?? runContext.mcp_bearer ?? null,
       });
     } catch (e) {
       return { ok: false, error: e?.message ?? String(e), tool_key: row.tool_key };

@@ -1,7 +1,10 @@
 /**
  * Execute agentsam_tools rows by handler_type + handler_config only.
  * No hardcoded tool_key / tool_name branches.
+ *
+ * Credential resolution: ./resolve-credential.js (resolveCredential).
  */
+export { resolveCredential, parseHandlerConfig, normalizeAuthSource } from './resolve-credential.js';
 import { d1_query, d1_write } from './d1.js';
 import { handlers as dbToolHandlers } from '../tools/db.js';
 import { handlers as termHandlers } from '../tools/terminal.js';

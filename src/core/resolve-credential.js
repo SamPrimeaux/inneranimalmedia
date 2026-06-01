@@ -1,17 +1,42 @@
 /**
  * Credential resolver — reads auth_source from handler_config JSON (agentsam_tools / agentsam_commands).
- * Routes to env.* (platform), scoped env (platform_scoped), or user_* D1 tables. No new tables.
+ * Routes to Worker env bindings (platform), or user_* D1 tables. No new tables.
+ *
+ * Canonical lanes:
+ *   platform → env.DB / env.HYPERDRIVE / bindings (operator-gated; row-level user_id in executor)
+ *   oauth    → user_oauth_tokens
+ *   api_key  → user_api_keys
+ *   secret   → user_secrets
+ *   mcp      → mcp_workspace_tokens (+ AGENTSAM_BRIDGE_KEY for bridge transport)
  */
 import { getIntegrationOAuthRow } from './user-oauth-token.js';
 import { getAESKey, aesGcmDecryptFromB64 } from './crypto-vault.js';
+import { validateMcpToken } from './mcp-auth.js';
 
-const AUTH_SOURCES = new Set([
-  'platform',
-  'platform_scoped',
-  'user_oauth_tokens',
-  'user_api_keys',
-  'user_secrets',
-]);
+/** @typedef {'platform'|'platform_scoped'|'oauth'|'api_key'|'secret'|'mcp'} CanonicalAuthSource */
+
+const AUTH_SOURCE_ALIASES = {
+  platform: 'platform',
+  platform_scoped: 'platform_scoped',
+  oauth: 'oauth',
+  user_oauth_tokens: 'oauth',
+  api_key: 'api_key',
+  user_api_keys: 'api_key',
+  secret: 'secret',
+  user_secrets: 'secret',
+  mcp: 'mcp',
+};
+
+const AUTH_SOURCES = new Set(Object.keys(AUTH_SOURCE_ALIASES));
+
+/**
+ * @param {unknown} raw
+ * @returns {CanonicalAuthSource|string}
+ */
+export function normalizeAuthSource(raw) {
+  const s = String(raw || '').trim();
+  return AUTH_SOURCE_ALIASES[s] || s;
+}
 
 /** @param {unknown} raw */
 export function parseHandlerConfig(raw) {
@@ -48,6 +73,18 @@ function pickEnvKey(config) {
     if (v != null && String(v).trim() !== '') return String(v).trim();
   }
   return null;
+}
+
+/**
+ * Platform auth_source is operator / internal-agent only — never raw user credential access to env.*.
+ * @param {Record<string, unknown>} opts
+ */
+function assertPlatformCredentialAllowed(opts) {
+  const isOperator = opts.isOperatorCall === true || opts.is_operator_call === true;
+  const isInternal = opts.isInternalAgent === true || opts.is_internal_agent === true;
+  if (!isOperator && !isInternal) {
+    throw new Error('platform auth_source not permitted for user tool calls');
+  }
 }
 
 /**
@@ -110,27 +147,118 @@ function readPlatformEnv(env, config) {
   throw new Error('[resolveCredential] platform requires env_key, secret_key, auth_secret, or binding');
 }
 
+async function pragmaColumns(db, tableName) {
+  const out = await db.prepare(`PRAGMA table_info(${tableName})`).all();
+  const cols = new Set();
+  for (const row of out.results || []) cols.add(String(row.name || '').toLowerCase());
+  return cols;
+}
+
+/**
+ * @param {any} env
+ * @param {string} uid
+ * @param {string} tid
+ * @param {string} ws
+ * @param {Record<string, unknown>} opts
+ */
+async function resolveMcpCredential(env, uid, tid, ws, opts) {
+  const bridgeKey = env?.AGENTSAM_BRIDGE_KEY != null ? String(env.AGENTSAM_BRIDGE_KEY).trim() : '';
+  if (!bridgeKey) {
+    throw new Error('[resolveCredential] mcp auth requires AGENTSAM_BRIDGE_KEY Worker binding');
+  }
+  if (!ws) {
+    throw new Error('[resolveCredential] mcp requires workspace_id in context');
+  }
+
+  const bearer = opts.mcpBearer ?? opts.mcp_bearer ?? null;
+  if (bearer != null && String(bearer).trim() !== '') {
+    const ctx = await validateMcpToken(env, String(bearer).trim());
+    if (!ctx?.userId || ctx.userId !== uid) {
+      throw new Error('[resolveCredential] mcp bearer invalid for user');
+    }
+    if (ctx.tenantId && tid && String(ctx.tenantId) !== tid) {
+      throw new Error('[resolveCredential] mcp bearer tenant mismatch');
+    }
+    if (ctx.workspaceId && ws && String(ctx.workspaceId) !== ws) {
+      throw new Error('[resolveCredential] mcp bearer workspace mismatch');
+    }
+    return {
+      auth_source: 'mcp',
+      token_id: ctx.tokenId ?? null,
+      allowed_tools: ctx.allowedTools ?? null,
+      token_type: ctx.tokenType ?? 'user',
+      user_id: uid,
+      tenant_id: tid,
+      workspace_id: ws,
+      value: null,
+    };
+  }
+
+  const row = await env.DB.prepare(
+    `SELECT id, token_hash, allowed_tools, rate_limit_per_hour, expires_at, is_active
+     FROM mcp_workspace_tokens
+     WHERE user_id = ? AND tenant_id = ? AND workspace_id = ?
+       AND COALESCE(is_active, 1) = 1
+     ORDER BY updated_at DESC
+     LIMIT 1`,
+  )
+    .bind(uid, tid, ws)
+    .first();
+
+  if (!row?.id) {
+    throw new Error('[resolveCredential] no active mcp_workspace_tokens row for user/workspace');
+  }
+  if (row.expires_at && Number(row.expires_at) < Math.floor(Date.now() / 1000)) {
+    throw new Error('[resolveCredential] mcp workspace token expired');
+  }
+
+  return {
+    auth_source: 'mcp',
+    token_id: String(row.id),
+    allowed_tools: row.allowed_tools ? JSON.parse(String(row.allowed_tools)) : null,
+    rate_limit_per_hour: row.rate_limit_per_hour ?? null,
+    user_id: uid,
+    tenant_id: tid,
+    workspace_id: ws,
+    value: null,
+  };
+}
+
 /**
  * @param {any} env
  * @param {string|null|undefined} workspaceId
  * @param {string|null|undefined} tenantId
  * @param {unknown} handlerConfig
- * @param {{ userId?: string|null, user_id?: string|null, account_identifier?: string }} [opts]
+ * @param {{
+ *   userId?: string|null,
+ *   user_id?: string|null,
+ *   account_identifier?: string,
+ *   isOperatorCall?: boolean,
+ *   is_operator_call?: boolean,
+ *   isInternalAgent?: boolean,
+ *   is_internal_agent?: boolean,
+ *   mcpBearer?: string|null,
+ *   mcp_bearer?: string|null,
+ * }} [opts]
  */
 export async function resolveCredential(env, workspaceId, tenantId, handlerConfig, opts = {}) {
   const config = parseHandlerConfig(handlerConfig);
-  const authSource = String(config.auth_source || '').trim();
-  if (!AUTH_SOURCES.has(authSource)) {
+  const authSourceRaw = String(config.auth_source || '').trim();
+  const authSource = normalizeAuthSource(authSourceRaw);
+
+  if (!AUTH_SOURCES.has(authSourceRaw) && !Object.values(AUTH_SOURCE_ALIASES).includes(authSource)) {
     throw new Error(
-      `[resolveCredential] invalid auth_source="${authSource}" — expected one of ${[...AUTH_SOURCES].join(', ')}`,
+      `[resolveCredential] invalid auth_source="${authSourceRaw}" — expected one of platform, oauth, api_key, secret, mcp (or legacy user_* aliases)`,
     );
   }
 
   if (authSource === 'platform') {
+    assertPlatformCredentialAllowed(opts);
     return readPlatformEnv(env, config);
   }
 
   if (authSource === 'platform_scoped') {
+    assertPlatformCredentialAllowed(opts);
     requireScopeIds(workspaceId, tenantId);
     const resolved = readPlatformEnv(env, config);
     return {
@@ -152,10 +280,10 @@ export async function resolveCredential(env, workspaceId, tenantId, handlerConfi
   }
   const ws = workspaceId != null ? String(workspaceId).trim() : '';
 
-  if (authSource === 'user_oauth_tokens') {
+  if (authSource === 'oauth') {
     const provider = String(config.provider || config.oauth_provider || '').trim();
     if (!provider) {
-      throw new Error('[resolveCredential] user_oauth_tokens requires provider in handler_config');
+      throw new Error('[resolveCredential] oauth requires provider in handler_config');
     }
     const accountId =
       config.account_identifier != null ? String(config.account_identifier) : opts.account_identifier ?? '';
@@ -175,7 +303,7 @@ export async function resolveCredential(env, workspaceId, tenantId, handlerConfi
       throw new Error('[resolveCredential] OAuth token workspace mismatch');
     }
     return {
-      auth_source: 'user_oauth_tokens',
+      auth_source: 'oauth',
       provider,
       account_identifier: accountId,
       value: String(row.access_token),
@@ -186,29 +314,62 @@ export async function resolveCredential(env, workspaceId, tenantId, handlerConfi
     };
   }
 
-  if (authSource === 'user_api_keys') {
+  if (authSource === 'api_key') {
     const provider = String(config.provider || '').trim().toLowerCase();
     if (!provider) {
-      throw new Error('[resolveCredential] user_api_keys requires provider in handler_config');
+      throw new Error('[resolveCredential] api_key requires provider in handler_config');
     }
+    const cols = await pragmaColumns(env.DB, 'user_api_keys');
+    const selectParts = ['id', 'provider', 'workspace_id'];
+    if (cols.has('key_hash')) selectParts.push('key_hash');
+    if (cols.has('encrypted_value')) selectParts.push('encrypted_value');
+    if (cols.has('vault_secret_id')) selectParts.push('vault_secret_id');
+    if (cols.has('key_preview')) selectParts.push('key_preview');
+
     const row = await env.DB.prepare(
-      `SELECT id, key_hash, key_preview, workspace_id, provider
+      `SELECT ${selectParts.join(', ')}
        FROM user_api_keys
-       WHERE tenant_id = ? AND user_id = ? AND LOWER(provider) = LOWER(?)
+       WHERE user_id = ? AND LOWER(provider) = LOWER(?)
          AND COALESCE(is_active, 1) = 1
+         AND (tenant_id IS NULL OR tenant_id = '' OR tenant_id = ?)
          AND (workspace_id IS NULL OR workspace_id = '' OR workspace_id = ?)
        ORDER BY CASE WHEN workspace_id = ? THEN 0 ELSE 1 END, updated_at DESC
        LIMIT 1`,
     )
-      .bind(tid, uid, provider, ws, ws)
+      .bind(uid, provider, tid, ws, ws)
       .first();
-    if (!row?.key_hash) {
+
+    if (!row) {
       throw new Error(`[resolveCredential] no user_api_keys row for provider=${provider}`);
     }
-    const aesKey = await getAESKey(env, ['decrypt']);
-    const value = await aesGcmDecryptFromB64(row.key_hash, aesKey);
+
+    let value = null;
+    if (row.vault_secret_id) {
+      const secretRow = await env.DB.prepare(
+        `SELECT secret_value_encrypted FROM user_secrets
+         WHERE id = ? AND user_id = ? AND COALESCE(is_active, 1) = 1 LIMIT 1`,
+      )
+        .bind(String(row.vault_secret_id), uid)
+        .first();
+      if (secretRow?.secret_value_encrypted) {
+        const { vaultDecrypt } = await import('../api/vault.js');
+        value = await vaultDecrypt(env, secretRow.secret_value_encrypted);
+      }
+    }
+    if (!value && row.encrypted_value) {
+      const aesKey = await getAESKey(env, ['decrypt']);
+      value = await aesGcmDecryptFromB64(row.encrypted_value, aesKey);
+    }
+    if (!value && row.key_hash) {
+      const aesKey = await getAESKey(env, ['decrypt']);
+      value = await aesGcmDecryptFromB64(row.key_hash, aesKey);
+    }
+    if (!value) {
+      throw new Error(`[resolveCredential] decrypt failed for user_api_keys provider=${provider}`);
+    }
+
     return {
-      auth_source: 'user_api_keys',
+      auth_source: 'api_key',
       provider,
       value: String(value),
       key_preview: row.key_preview ?? null,
@@ -218,16 +379,20 @@ export async function resolveCredential(env, workspaceId, tenantId, handlerConfi
     };
   }
 
-  if (authSource === 'user_secrets') {
+  if (authSource === 'secret') {
     const secretName = String(config.secret_name || config.secret_key || '').trim();
     if (!secretName) {
-      throw new Error('[resolveCredential] user_secrets requires secret_name in handler_config');
+      throw new Error('[resolveCredential] secret requires secret_name in handler_config');
     }
     const projectLabel =
       config.project_label != null ? String(config.project_label).trim() : null;
-    let sql = `SELECT secret_value_encrypted, workspace_id FROM user_secrets
-      WHERE tenant_id = ? AND user_id = ? AND secret_name = ? AND COALESCE(is_active, 1) = 1`;
-    const binds = [tid, uid, secretName];
+    let sql = `SELECT id, secret_value_encrypted, workspace_id, vault_secret_id FROM user_secrets
+      WHERE user_id = ? AND secret_name = ? AND COALESCE(is_active, 1) = 1`;
+    const binds = [uid, secretName];
+    if (tid) {
+      sql += ' AND (tenant_id IS NULL OR tenant_id = ? OR tenant_id = \'\')';
+      binds.push(tid);
+    }
     if (projectLabel) {
       sql += ' AND project_label = ?';
       binds.push(projectLabel);
@@ -236,16 +401,29 @@ export async function resolveCredential(env, workspaceId, tenantId, handlerConfi
       ORDER BY CASE WHEN workspace_id = ? THEN 0 ELSE 1 END, updated_at DESC LIMIT 1`;
     binds.push(ws, ws);
     const row = await env.DB.prepare(sql).bind(...binds).first();
-    if (!row?.secret_value_encrypted) {
+    if (!row?.secret_value_encrypted && !row?.vault_secret_id) {
       throw new Error(`[resolveCredential] no user_secrets row for secret_name=${secretName}`);
     }
-    const { vaultDecrypt } = await import('../api/vault.js');
-    const value = await vaultDecrypt(env, row.secret_value_encrypted);
+    let value = null;
+    if (row.secret_value_encrypted) {
+      const { vaultDecrypt } = await import('../api/vault.js');
+      value = await vaultDecrypt(env, row.secret_value_encrypted);
+    } else if (row.vault_secret_id) {
+      const linked = await env.DB.prepare(
+        `SELECT secret_value_encrypted FROM user_secrets WHERE id = ? AND user_id = ? LIMIT 1`,
+      )
+        .bind(String(row.vault_secret_id), uid)
+        .first();
+      if (linked?.secret_value_encrypted) {
+        const { vaultDecrypt } = await import('../api/vault.js');
+        value = await vaultDecrypt(env, linked.secret_value_encrypted);
+      }
+    }
     if (!value) {
       throw new Error(`[resolveCredential] decrypt failed for secret_name=${secretName}`);
     }
     return {
-      auth_source: 'user_secrets',
+      auth_source: 'secret',
       secret_name: secretName,
       project_label: projectLabel,
       value: String(value),
@@ -253,6 +431,10 @@ export async function resolveCredential(env, workspaceId, tenantId, handlerConfi
       tenant_id: tid,
       workspace_id: ws || row.workspace_id || null,
     };
+  }
+
+  if (authSource === 'mcp') {
+    return resolveMcpCredential(env, uid, tid, ws, opts);
   }
 
   throw new Error(`[resolveCredential] unhandled auth_source=${authSource}`);
