@@ -98,6 +98,10 @@ import '../../features/agent-presence/presenceMotion.css';
 import '../../features/agent-presence/presenceIcons.css';
 import { useAgentPresence, AgentPresenceLogo, AgentPresenceStatus } from '../../features/agent-presence';
 import { derivePresenceState } from '../../features/agent-presence/iamDerivePresenceState';
+import {
+  pickAgentPresenceColorway,
+  agentPresenceColorwayStyle,
+} from '../../features/agent-presence/presenceColorways';
 
 type ChatRoutingSendOpts = {
   modelKey?: string;
@@ -170,6 +174,11 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     useState<ThinkingCardState | null>(null);
   const [presenceState, setPresenceState] = useState<string>('idle');
   const thinkingStartRef = useRef<number>(0);
+  const presenceColorwayRef = useRef(pickAgentPresenceColorway());
+  const presenceColorwayStyle = useMemo(
+    () => agentPresenceColorwayStyle(presenceColorwayRef.current),
+    [],
+  );
 
   const [input, setInput] = useState('');
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -1143,6 +1152,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         }
         setPendingToolApproval(null);
         setIsLoading(false);
+        setPresenceState('idle');
         abortControllerRef.current = null;
         streamFinalizedRef.current = false;
         const reader = resumeRes.body.getReader();
@@ -1616,6 +1626,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       streamReaderRef.current?.cancel().catch(() => {});
       streamReaderRef.current = null;
       setIsLoading(false);
+      setPresenceState('idle');
       clearAttachments();
       abortControllerRef.current = null;
 
@@ -1833,6 +1844,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       <div
         data-chat-assistant-contract="agent-app-sse-v1"
         className="flex flex-col h-full min-h-0 max-w-full overflow-x-hidden overflow-y-hidden bg-[var(--dashboard-panel)] w-full min-w-0"
+        style={presenceColorwayStyle}
       >
         <style>{`
         .agent-content strong { color: var(--solar-cyan); font-weight: 700; }
@@ -2079,6 +2091,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             showEmptyThreadPlaceholder={showEmptyThreadPlaceholder}
             displayMessages={displayMessages}
             isLoading={isLoading}
+            logoMotion={logoMotion}
+            presenceState={presenceState}
             toolTraceRows={toolTraceRows}
             setToolTraceRows={setToolTraceRows}
             workspaceId={workspaceId ?? null}

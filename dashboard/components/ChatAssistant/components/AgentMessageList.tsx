@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { User, Bot, Loader2, ChevronRight, FileText } from 'lucide-react';
+import { User, Bot, ChevronRight, FileText } from 'lucide-react';
 import { SetiFileIcon } from '../../../src/components/SetiFileIcon';
 import type { ActiveFile } from '../../../types';
 import type {
@@ -21,6 +21,7 @@ import type { AgentToolTraceRow } from '../execution/types';
 import { ExecutionTimeline } from '../execution/ExecutionTimeline';
 import { ArtifactChipList } from '../execution/ArtifactChipList';
 import { AgentPresenceLogo } from '../../../features/agent-presence/AgentPresenceLogo';
+import type { AgentLogoMotion } from '../../../features/agent-presence/presenceTypes';
 import { AgentPlanChecklist } from './AgentPlanChecklist';
 import { AgentImageGenerationCard } from '../../../components/AgentImageGenerationCard';
 import { EmailArtifactCard } from '../artifacts/EmailArtifactCard';
@@ -90,6 +91,8 @@ export type AgentMessageListProps = {
   showEmptyThreadPlaceholder: boolean;
   displayMessages: Message[];
   isLoading: boolean;
+  logoMotion: AgentLogoMotion;
+  presenceState: string;
   toolTraceRows: AgentToolTraceRow[];
   setToolTraceRows: React.Dispatch<React.SetStateAction<AgentToolTraceRow[]>>;
   workspaceId: string | null;
@@ -402,6 +405,8 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
   showEmptyThreadPlaceholder,
   displayMessages,
   isLoading,
+  logoMotion,
+  presenceState,
   toolTraceRows,
   setToolTraceRows,
   workspaceId,
@@ -563,14 +568,12 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
         <div className="flex justify-start">
           <div className="flex gap-2.5">
             <div className="flex-shrink-0 w-6 h-6 rounded-md bg-[var(--solar-cyan)]/20 border border-[var(--solar-cyan)]/30 flex items-center justify-center">
-              <Loader2 size={11} className="text-[var(--solar-cyan)] animate-spin" />
-            </div>
-            <div className="px-4 py-3 bg-[var(--scene-bg)] border border-[var(--dashboard-border)] rounded-2xl rounded-tl-sm">
-              <div className="flex gap-1.5">
-                <div className="w-1.5 h-1.5 bg-[var(--solar-cyan)] rounded-full animate-bounce" />
-                <div className="w-1.5 h-1.5 bg-[var(--solar-cyan)] rounded-full animate-bounce [animation-delay:0.15s]" />
-                <div className="w-1.5 h-1.5 bg-[var(--solar-cyan)] rounded-full animate-bounce [animation-delay:0.3s]" />
-              </div>
+              <AgentPresenceLogo
+                motion={logoMotion}
+                presenceState={presenceState}
+                sizePx={16}
+                alt=""
+              />
             </div>
           </div>
         </div>
