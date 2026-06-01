@@ -6,6 +6,7 @@ import { logSecretAudit } from './security-scan.js';
 import { sendPlatformEmail } from '../lib/email.js';
 import { EXPOSURE_PATTERNS } from './security-scan.js';
 import { sendMessage as sendBlueBubblesMessage } from '../integrations/bluebubbles.js';
+import { sendSecurityAlertHtmlEmails } from './security-alert-email.js';
 
 /** @typedef {'key_created'|'key_validated_pass'|'key_validated_fail'|'key_revealed'|'key_rotated'|'key_deleted'|'key_used_by_agent'} KeyAuditEventType */
 
@@ -422,26 +423,19 @@ export async function runSecurityShieldPulse(env, opts = {}) {
   if (alert && fireNotifications && ruleTypesToFire.size > 0) {
     const rules = await loadShieldRules(env, tenantId, userId);
     const subject = 'Inner Animal Media — Security Alert';
-    const bodyLines = ['Inner Animal Media Security Alert', ''];
+    const imessageLines = ['Inner Animal Media Security Alert'];
     if (openFindingsCount > 0) {
       const noun = openFindingsCount === 1 ? 'finding' : 'findings';
-      bodyLines.push(
-        `${openFindingsCount} open security ${noun} require your attention.`,
-      );
+      imessageLines.push(`${openFindingsCount} open security ${noun} require your attention.`);
     }
     if (auditEvents24h > 0) {
       const noun = auditEvents24h === 1 ? 'event' : 'events';
-      bodyLines.push(
-        `${auditEvents24h} secret audit ${noun} in the last 24 hours.`,
-      );
+      imessageLines.push(`${auditEvents24h} secret audit ${noun} in the last 24 hours.`);
     }
-    bodyLines.push(
-      '',
-      `Review: https://inneranimalmedia.com${detailsUrl}`,
-      '',
-      'Do not reply to this email.',
-    );
-    const text = bodyLines.join('\n');
+    imessageLines.push(`Review: https://inneranimalmedia.com${detailsUrl}`);
+    const imessageText = imessageLines.join('\n');
+
+    let htmlEmailDispatched = false;
 
     for (const rule of rules) {
       const rt = String(rule.rule_type || '');
@@ -449,18 +443,28 @@ export async function runSecurityShieldPulse(env, opts = {}) {
       const last = Number(rule.last_triggered_at) || 0;
       if (last > 0 && nowSec - last < throttleSec) continue;
       const channels = parseJsonSafe(rule.notify_channels, ['dashboard']);
+      const wantsEmail = channels.some((c) => String(c || '').toLowerCase() === 'email');
+
       await bumpShieldRuleTrigger(env, {
         tenantId,
         ruleType: rt,
         userId: rule.user_id ? userId : null,
         ruleId: rule.id,
       });
-      await notifyShieldChannels(env, channels, {
-        tenantId,
-        subject,
-        text,
-        from: 'notifications@inneranimalmedia.com',
-      });
+
+      if (openFindingsCount > 0 && wantsEmail && !htmlEmailDispatched) {
+        await sendSecurityAlertHtmlEmails(env, { tenantId, userId });
+        htmlEmailDispatched = true;
+      }
+
+      const nonEmailChannels = channels.filter((c) => String(c || '').toLowerCase() !== 'email');
+      if (nonEmailChannels.length > 0) {
+        await notifyShieldChannels(env, nonEmailChannels, {
+          tenantId,
+          subject,
+          text: imessageText,
+        });
+      }
     }
   }
 
