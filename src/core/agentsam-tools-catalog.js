@@ -260,6 +260,20 @@ export function inputSchemaFromAgentsamToolRow(row) {
 }
 
 /**
+ * True when handler_config declares any known execution dispatch path.
+ * @param {Record<string, unknown>} config
+ */
+function handlerConfigHasExecutionPath(config) {
+  if (!config || typeof config !== 'object' || Array.isArray(config)) return false;
+  return Boolean(
+    trim(config.dispatch_target) ||
+      trim(config.dispatcher) ||
+      trim(config.binding) ||
+      trim(config.env_key),
+  );
+}
+
+/**
  * Fail closed before credential resolution / executor dispatch.
  * @param {Record<string, unknown>} row
  * @param {Record<string, unknown>} config
@@ -290,10 +304,10 @@ export function validateHandlerConfigForExecution(row, config) {
     case 'terminal':
     case 'r2':
     case 'websearch':
-      if (!trim(config.dispatch_target) && !trim(config.dispatcher)) {
+      if (!handlerConfigHasExecutionPath(config)) {
         return {
           ok: false,
-          error: `handler_config.dispatch_target required for tool_key=${toolKey}`,
+          error: `handler_config requires dispatch_target, binding, env_key, or dispatcher for tool_key=${toolKey}`,
         };
       }
       break;
@@ -301,8 +315,7 @@ export function validateHandlerConfigForExecution(row, config) {
       if (
         trim(config.execution_lane) === 'open_web_search' ||
         trim(config.execution_lane) === 'web_fetch' ||
-        trim(config.dispatch_target) ||
-        trim(config.dispatcher)
+        handlerConfigHasExecutionPath(config)
       ) {
         break;
       }
@@ -316,9 +329,21 @@ export function validateHandlerConfigForExecution(row, config) {
       }
       break;
     case 'github':
-    case 'filesystem':
       if (!trim(config.auth_source)) {
         return { ok: false, error: `handler_config.auth_source required for tool_key=${toolKey}` };
+      }
+      break;
+    case 'filesystem':
+      if (
+        !trim(config.auth_source) &&
+        !trim(config.binding) &&
+        !trim(config.env_key) &&
+        !handlerConfigHasExecutionPath(config)
+      ) {
+        return {
+          ok: false,
+          error: `handler_config requires auth_source, binding, or env_key for tool_key=${toolKey}`,
+        };
       }
       break;
     case 'mybrowser':
@@ -469,7 +494,14 @@ export async function listAgentsamToolsForContext(env, opts = {}) {
     if (requireCfg) {
       const cfg = parseHandlerConfig(row.handler_config);
       const v = validateHandlerConfigForExecution(row, cfg);
-      if (!v.ok) continue;
+      if (!v.ok) {
+        console.warn(
+          '[agentsam-tools-catalog] skip_invalid_handler_config',
+          trim(row.tool_name || row.tool_key),
+          v.error,
+        );
+        continue;
+      }
     }
     out.push(row);
     if (out.length >= lim) break;
@@ -576,10 +608,8 @@ export async function selectAgentsamToolsForAgentChat(db, runtimeCtx, opts) {
   for (const cap of reqCaps) {
     if (!candidates.some(({ raw }) => brandedRowMatchesRouteCapability(raw, cap))) {
       missing.push(String(cap));
+      console.warn('[selectAgentsamToolsForAgentChat] missing_required_capability', cap);
     }
-  }
-  if (missing.length) {
-    return { rows: [], missingRequiredCapabilities: missing, usedLegacyFallback: false };
   }
 
   if (mcpServerKeys.length) {
@@ -628,7 +658,7 @@ export async function selectAgentsamToolsForAgentChat(db, runtimeCtx, opts) {
     req.max_tools != null && Number(req.max_tools) > 0 ? Math.floor(Number(req.max_tools)) : outputLimit;
   const maxOut = Math.max(0, Math.min(outputLimit, routeMax));
   const rows = candidates.slice(0, maxOut).map((c) => c.row);
-  return { rows, missingRequiredCapabilities: [], usedLegacyFallback: false };
+  return { rows, missingRequiredCapabilities: missing, usedLegacyFallback: false };
 }
 
 /**
