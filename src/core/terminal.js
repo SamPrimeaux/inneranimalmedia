@@ -34,6 +34,278 @@ export async function computeTerminalSessionAuthTokenHash(env, sessionId) {
 
 export const VALID_TARGET_TYPES = ['platform_vm', 'user_hosted_tunnel', 'ssh_target', 'sandbox'];
 
+export const VALID_TERMINAL_PLATFORMS = ['macos', 'windows', 'linux'];
+
+/** @type {Record<string, string[]>} */
+export const VALID_TERMINAL_SHELLS = {
+  macos: ['/bin/zsh', '/bin/bash', '/bin/sh'],
+  windows: ['powershell', 'pwsh'],
+  linux: ['/bin/bash', '/bin/zsh', '/bin/sh'],
+};
+
+/**
+ * @param {string} platform
+ * @param {string} shell
+ * @returns {{ platform: string, shell: string }}
+ */
+export function normalizeProvisionPlatformShell(platform, shell) {
+  const pRaw = String(platform || '').trim().toLowerCase();
+  const platformNorm = VALID_TERMINAL_PLATFORMS.includes(pRaw) ? pRaw : 'linux';
+  const allowed = VALID_TERMINAL_SHELLS[platformNorm] || VALID_TERMINAL_SHELLS.linux;
+  const sRaw = String(shell || '').trim();
+  const shellNorm = allowed.includes(sRaw) ? sRaw : allowed[0];
+  return { platform: platformNorm, shell: shellNorm };
+}
+
+/**
+ * @param {import('@cloudflare/workers-types').D1Database} db
+ * @param {string} userId
+ * @param {string} workspaceId
+ */
+export async function getUserHostedTunnelConnection(db, userId, workspaceId) {
+  if (!db || !userId || !workspaceId) return null;
+  try {
+    return await db
+      .prepare(
+        `SELECT id, workspace_id, tenant_id, user_id, name, ws_url, target_type,
+                platform, shell, is_active, is_default, cwd_strategy, updated_at
+         FROM terminal_connections
+         WHERE user_id = ? AND workspace_id = ? AND target_type = 'user_hosted_tunnel'
+         ORDER BY updated_at DESC
+         LIMIT 1`,
+      )
+      .bind(String(userId).trim(), String(workspaceId).trim())
+      .first();
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * @param {Record<string, unknown>} env
+ * @param {import('./auth.js').AuthUser} authUser
+ * @param {string} workspaceId
+ * @param {{ platform?: string, shell?: string }} body
+ */
+export async function provisionUserHostedTunnelConnection(env, authUser, workspaceId, body = {}) {
+  if (!env?.DB || !authUser?.id || !workspaceId) {
+    return { ok: false, error: 'missing_context', status: 400 };
+  }
+  const userId = String(authUser.id).trim();
+  const wid = String(workspaceId).trim();
+  const canPty = await userCanRunPtyFromPolicy(env, userId, wid);
+  if (!canPty) return { ok: false, error: 'terminal_not_enabled', status: 403 };
+
+  const tenantId = await resolvePtyTenantIdForUser(env, authUser, userId);
+  if (!tenantId) return { ok: false, error: 'tenant_missing', status: 403 };
+
+  const { platform, shell } = normalizeProvisionPlatformShell(body.platform, body.shell);
+
+  const existing = await getUserHostedTunnelConnection(env.DB, userId, wid);
+  if (existing?.id) {
+    return {
+      ok: true,
+      connection: {
+        id: String(existing.id),
+        platform: existing.platform ?? platform,
+        shell: existing.shell ?? shell,
+        is_active: Number(existing.is_active) === 1,
+        ws_url_present: !!(existing.ws_url && String(existing.ws_url).trim()),
+      },
+      created: false,
+    };
+  }
+
+  const connId = `conn_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+  const now = Math.floor(Date.now() / 1000);
+  try {
+    await env.DB.prepare(
+      `INSERT OR IGNORE INTO terminal_connections
+         (id, workspace_id, tenant_id, user_id, name, type, connection_type,
+          ws_url, target_type, cwd_strategy, platform, shell, is_default, is_active,
+          self_service_enabled, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'Local Terminal', 'pty', 'pty_tunnel',
+          '', 'user_hosted_tunnel', 'host_default', ?, ?, 0, 0, 1, ?, ?)`,
+    )
+      .bind(connId, wid, tenantId, userId, platform, shell, now, now)
+      .run();
+  } catch (e) {
+    return { ok: false, error: 'provision_failed', detail: e?.message || String(e), status: 500 };
+  }
+
+  const row = await getUserHostedTunnelConnection(env.DB, userId, wid);
+  if (!row?.id) return { ok: false, error: 'provision_failed', status: 500 };
+
+  return {
+    ok: true,
+    created: true,
+    connection: {
+      id: String(row.id),
+      platform: row.platform ?? platform,
+      shell: row.shell ?? shell,
+      is_active: Number(row.is_active) === 1,
+      ws_url_present: !!(row.ws_url && String(row.ws_url).trim()),
+    },
+  };
+}
+
+/**
+ * @param {string} raw
+ * @returns {string | null}
+ */
+export function normalizeUserHostedTunnelWsUrl(raw) {
+  let value = String(raw || '').trim();
+  if (!value) return null;
+  if (value.startsWith('https://')) value = `wss://${value.slice(8)}`;
+  else if (value.startsWith('http://')) value = `ws://${value.slice(7)}`;
+  else if (!value.startsWith('wss://') && !value.startsWith('ws://')) value = `wss://${value.replace(/^\/+/, '')}`;
+  try {
+    const u = new URL(value.split('?')[0]);
+    if (u.protocol !== 'wss:' && u.protocol !== 'ws:') return null;
+    if (!u.hostname) return null;
+    return value.split('?')[0];
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * @param {Record<string, unknown>} env
+ * @param {import('./auth.js').AuthUser} authUser
+ * @param {string} workspaceId
+ * @param {{ connection_id?: string, ws_url?: string }} body
+ */
+export async function activateUserHostedTunnelConnection(env, authUser, workspaceId, body = {}) {
+  if (!env?.DB || !authUser?.id || !workspaceId) {
+    return { ok: false, error: 'missing_context', status: 400 };
+  }
+  const userId = String(authUser.id).trim();
+  const wid = String(workspaceId).trim();
+  const canPty = await userCanRunPtyFromPolicy(env, userId, wid);
+  if (!canPty) return { ok: false, error: 'terminal_not_enabled', status: 403 };
+
+  const wsUrl = normalizeUserHostedTunnelWsUrl(body.ws_url);
+  if (!wsUrl) return { ok: false, error: 'invalid_ws_url', status: 400 };
+
+  const connId = String(body.connection_id || '').trim();
+  let row = null;
+  if (connId) {
+    row = await env.DB.prepare(
+      `SELECT id, user_id, workspace_id, target_type FROM terminal_connections WHERE id = ? LIMIT 1`,
+    )
+      .bind(connId)
+      .first();
+    if (!row || String(row.user_id) !== userId || String(row.workspace_id) !== wid) {
+      return { ok: false, error: 'connection_forbidden', status: 403 };
+    }
+    if (String(row.target_type) !== 'user_hosted_tunnel') {
+      return { ok: false, error: 'invalid_target_type', status: 400 };
+    }
+  } else {
+    row = await getUserHostedTunnelConnection(env.DB, userId, wid);
+    if (!row?.id) return { ok: false, error: 'connection_missing', status: 404 };
+  }
+
+  const id = String(row.id);
+  const now = Math.floor(Date.now() / 1000);
+  await env.DB.prepare(
+    `UPDATE terminal_connections
+     SET ws_url = ?, is_active = 1, updated_at = ?
+     WHERE id = ? AND user_id = ? AND workspace_id = ?`,
+  )
+    .bind(wsUrl, now, id, userId, wid)
+    .run();
+
+  return {
+    ok: true,
+    connection: {
+      id,
+      ws_url_present: true,
+      is_active: true,
+    },
+  };
+}
+
+/**
+ * @param {Record<string, unknown>} env
+ * @param {string} sessionId
+ * @param {string} userId
+ */
+export async function closeTerminalSessionRecord(env, sessionId, userId) {
+  if (!env?.DB || !sessionId || !userId) return false;
+  try {
+    await env.DB.prepare(
+      `UPDATE terminal_sessions
+       SET status = 'closed', closed_at = unixepoch(), updated_at = unixepoch()
+       WHERE id = ? AND user_id = ? AND status != 'closed'`,
+    )
+      .bind(String(sessionId).trim(), String(userId).trim())
+      .run();
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
+ * Delete closed / stale terminal_sessions (on-connect + cron).
+ * @param {Record<string, unknown>} env
+ * @returns {Promise<number>}
+ */
+export async function purgeStaleTerminalSessions(env) {
+  if (!env?.DB) return 0;
+  try {
+    const r = await env.DB.prepare(
+      `DELETE FROM terminal_sessions
+       WHERE status = 'closed'
+         AND closed_at IS NOT NULL
+         AND closed_at < unixepoch() - 86400`,
+    ).run();
+    return Number(r.meta?.changes ?? r.changes ?? 0) || 0;
+  } catch (e) {
+    console.warn('[purgeStaleTerminalSessions]', e?.message ?? e);
+    return 0;
+  }
+}
+
+/**
+ * Recent terminal input lines for cross-session shell history (user-scoped).
+ * @param {Record<string, unknown>} env
+ * @param {string} userId
+ * @param {number} [limit]
+ */
+export async function getTerminalInputHistory(env, userId, limit = 200) {
+  if (!env?.DB || !userId) return [];
+  const lim = Math.min(Math.max(Number(limit) || 200, 1), 200);
+  const uid = String(userId).trim();
+  try {
+    const res = await env.DB.prepare(
+      `SELECT th.content, th.recorded_at
+       FROM terminal_history th
+       INNER JOIN terminal_sessions ts ON ts.id = th.terminal_session_id
+       WHERE ts.user_id = ? AND th.direction = 'input'
+         AND th.content IS NOT NULL AND trim(th.content) != ''
+       ORDER BY th.recorded_at DESC
+       LIMIT ?`,
+    )
+      .bind(uid, lim)
+      .all();
+    const rows = res?.results || [];
+    const seen = new Set();
+    const commands = [];
+    for (const row of rows) {
+      const raw = String(row.content || '').replace(/[\r\n]+$/, '').trim();
+      if (!raw || raw.startsWith('/') || seen.has(raw)) continue;
+      seen.add(raw);
+      commands.push(raw);
+    }
+    return commands.reverse();
+  } catch (e) {
+    console.warn('[getTerminalInputHistory]', e?.message ?? e);
+    return [];
+  }
+}
+
 export const DEFAULT_TERMINAL_PREFS = {
   terminal_mode: 'shell',
   terminal_ai_enabled: false,

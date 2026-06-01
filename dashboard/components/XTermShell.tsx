@@ -13,6 +13,7 @@ import {
   type TerminalConnectionStatus,
 } from './TerminalSessionPane';
 import type { AgentWorkspaceContextPacket } from '../src/ideWorkspace';
+import { LocalTerminalSetup, type TerminalTarget } from './LocalTerminalSetup';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 const DEFAULT_PRODUCT = 'Agent Sam';
@@ -37,6 +38,8 @@ function statusMessage(s: TerminalConnectionStatus): string {
       return 'Backend unavailable';
     case 'session_expired':
       return 'Session expired';
+    case 'timed_out':
+      return 'Timed out';
     default:
       return 'Disconnected';
   }
@@ -50,9 +53,11 @@ export interface XTermShellHandle {
 
 interface XTermShellProps {
   onClose: () => void;
-  problems?: { file: string; line: number; msg: string; severity: 'error' | 'warning' }[];
+  problems?: { file: string; line: number; msg: string; severity: 'error' | 'warning'; ts?: string; id?: string }[];
   outputLines?: string[];
   onOutputLine?: (line: string) => void;
+  /** Refetch /api/agent/problems when the Problems tab is opened. */
+  onProblemsTabOpen?: () => void;
   iamOrigin?: string;
   workspaceCdCommand?: string;
   agentDashboardUrl?: string;
@@ -237,6 +242,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
       onClose,
       problems = [],
       outputLines = [],
+      onProblemsTabOpen,
       iamOrigin,
       workspaceCdCommand,
       agentDashboardUrl: agentDashboardUrlProp,
@@ -269,6 +275,18 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
     const [height, setHeight] = useState(DEFAULT_HEIGHT);
     const [isCollapsed, setIsCollapsed] = useState(false);
     const [activeTab, setActiveTab] = useState<ShellTab>('terminal');
+    const problemsTabOpenedRef = useRef(false);
+
+    useEffect(() => {
+      if (activeTab !== 'problems') {
+        problemsTabOpenedRef.current = false;
+        return;
+      }
+      if (problemsTabOpenedRef.current) return;
+      problemsTabOpenedRef.current = true;
+      onProblemsTabOpen?.();
+    }, [activeTab, onProblemsTabOpen]);
+
     const [showSplash, setShowSplash] = useState(true);
     const [restarting, setRestarting] = useState(false);
     const [tunnelHealth, setTunnelHealth] = useState<{ healthy: boolean; connections: number } | null>(null);
@@ -298,6 +316,27 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
     });
     const [plusMenuOpen, setPlusMenuOpen] = useState(false);
     const [splitSubOpen, setSplitSubOpen] = useState(false);
+    const [terminalTarget, setTerminalTarget] = useState<TerminalTarget>('platform_vm');
+
+    const handleTerminalTargetChange = useCallback(async (target: TerminalTarget) => {
+      setTerminalTarget(target);
+      setShowSplash(false);
+      if (target === 'user_hosted_tunnel' && workspaceId?.trim()) {
+        try {
+          const qs = new URLSearchParams({ workspace_id: workspaceId.trim() });
+          const r = await fetch(`/api/terminal/connections/local?${qs}`, { credentials: 'same-origin' });
+          const j = await r.json().catch(() => ({}));
+          const connShell = j?.connection?.shell;
+          if (typeof connShell === 'string' && connShell.trim()) {
+            setShellPref(connShell.trim());
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      primaryPaneRef.current?.reconnectClean();
+      if (splitEnabled) secondaryPaneRef.current?.reconnectClean();
+    }, [splitEnabled, workspaceId]);
 
     useEffect(() => {
       if (isDrawer) setIsCollapsed(false);
@@ -573,6 +612,17 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
 
               <div className="hidden sm:flex items-center h-5 w-px bg-[var(--border-subtle)] shrink-0" />
 
+              <div className="relative hidden md:flex items-center min-w-0">
+                <LocalTerminalSetup
+                  workspaceId={workspaceId}
+                  terminalTarget={terminalTarget}
+                  onTargetChange={handleTerminalTargetChange}
+                  onLocalReady={() => handleTerminalTargetChange('user_hosted_tunnel')}
+                />
+              </div>
+
+              <div className="hidden sm:flex items-center h-5 w-px bg-[var(--border-subtle)] shrink-0" />
+
               <div className="hidden sm:flex items-center gap-1.5 shrink-0 min-w-0">
                 {(primaryStatus === 'connecting' || primaryStatus === 'reconnecting') && (
                   <span className="text-[10px] font-mono text-[var(--solar-yellow)] flex items-center gap-1.5 truncate">
@@ -612,7 +662,8 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
 
               {(primaryStatus === 'offline' ||
                 primaryStatus === 'disconnected' ||
-                primaryStatus === 'backend_unavailable') && (
+                primaryStatus === 'backend_unavailable' ||
+                primaryStatus === 'timed_out') && (
                 <button
                   type="button"
                   onClick={() => primaryPaneRef.current?.reconnectClean()}
@@ -833,6 +884,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                     <TerminalSessionPane
                       ref={primaryPaneRef}
                       workspaceId={workspaceId}
+                      targetType={terminalTarget}
                       shell={shellPref}
                       ptySlot=""
                       visible={terminalAreaVisible}
@@ -866,6 +918,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                         <TerminalSessionPane
                           ref={secondaryPaneRef}
                           workspaceId={workspaceId}
+                          targetType={terminalTarget}
                           shell={shellPref}
                           ptySlot="s2"
                           visible={terminalAreaVisible}
@@ -904,7 +957,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                   ) : (
                     problems.map((p, i) => (
                       <div
-                        key={i}
+                        key={p.id ?? `${p.file}-${p.line}-${i}`}
                         className={`flex items-start gap-2 p-2 rounded bg-[var(--bg-panel)] border-l-2 ${
                           p.severity === 'error' ? 'border-[var(--solar-red)]' : 'border-[var(--solar-yellow)]'
                         }`}
@@ -918,7 +971,11 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                         <div className="min-w-0">
                           <div className="text-[11px] font-medium text-[var(--text-main)] font-mono">{p.msg}</div>
                           <div className="text-[10px] text-[var(--text-muted)] font-mono">
-                            {p.file}:{p.line}
+                            {p.ts ? (
+                              <span>{p.ts}</span>
+                            ) : null}
+                            {p.ts && (p.file || p.line) ? ' · ' : null}
+                            {p.line > 0 ? `${p.file}:${p.line}` : p.file || 'error'}
                           </div>
                         </div>
                       </div>

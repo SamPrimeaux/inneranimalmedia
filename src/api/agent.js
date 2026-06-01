@@ -7900,13 +7900,43 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB)   return jsonResponse({ error: 'DB not configured' }, 503);
     const checkedAt = new Date().toISOString();
+    const userId = String(authUser.id || '').trim();
+    let error_log = [];
     let mcp_tool_errors = [], audit_failures = [], worker_errors = [];
+
+    try {
+      const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {});
+      const wid = wsRes.workspaceId != null ? String(wsRes.workspaceId).trim() : '';
+      if (wid) {
+        const q = await env.DB.prepare(
+          `SELECT id, workspace_id, error_code, error_type, error_message, source, source_id, resolved, created_at
+           FROM agentsam_error_log
+           WHERE workspace_id = ? AND COALESCE(resolved, 0) = 0
+           ORDER BY created_at DESC LIMIT 50`,
+        )
+          .bind(wid)
+          .all();
+        error_log = q.results || [];
+      }
+    } catch (_) {}
+
     if (authUserIsSuperadmin(authUser)) {
       try { const q = await env.DB.prepare(`SELECT id, tool_name, status, error_message, session_id, created_at FROM agentsam_mcp_tool_execution WHERE lower(COALESCE(status,'')) IN ('error','failed') OR (error_message IS NOT NULL AND length(trim(error_message)) > 0) ORDER BY created_at DESC LIMIT 50`).all(); mcp_tool_errors = q.results || []; } catch (_) {}
       try { const q = await env.DB.prepare(`SELECT id, event_type, message, created_at, metadata_json FROM agentsam_hook_execution WHERE lower(COALESCE(event_type,'')) LIKE '%fail%' OR lower(COALESCE(event_type,'')) LIKE '%error%' OR lower(COALESCE(event_type,'')) LIKE '%denied%' ORDER BY created_at DESC LIMIT 25`).all(); audit_failures = q.results || []; } catch (_) {}
       try { const q = await env.DB.prepare(`SELECT rowid as id, path, method, status_code, error_message, created_at FROM worker_analytics_errors ORDER BY created_at DESC LIMIT 20`).all(); worker_errors = q.results || []; } catch (_) {}
     }
-    return jsonResponse({ checked_at: checkedAt, mcp_tool_errors, audit_failures, worker_errors });
+
+    const { buildUnifiedProblems } = await import('../core/agent-problems.js');
+    const problems = buildUnifiedProblems({ error_log, mcp_tool_errors, audit_failures, worker_errors });
+
+    return jsonResponse({
+      checked_at: checkedAt,
+      error_log,
+      mcp_tool_errors,
+      audit_failures,
+      worker_errors,
+      problems,
+    });
   }
 
   // ── /api/agent/notifications (deployments + conversations + connectivity) ──

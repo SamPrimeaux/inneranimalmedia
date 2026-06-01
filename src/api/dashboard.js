@@ -20,9 +20,12 @@ import {
     saveTerminalSessionPrefs,
     parseTerminalPrefs,
     validateTerminalSessionPrefsUpdate,
+    purgeStaleTerminalSessions,
 } from '../core/terminal.js';
 import { handleTerminalApi } from './terminal.js';
 import { executeScopedAgentTerminalRun } from '../core/agent-terminal-run.js';
+import { runSecurityShieldPulse } from '../core/keys-security.js';
+import { fetchAuthUserTenantId } from '../core/auth.js';
 
 // Integrations
 import { chatWithAnthropic } from '../integrations/anthropic.js';
@@ -84,6 +87,24 @@ export async function handleDashboardApi(request, url, env, ctx) {
     if (pathLower.startsWith('/api/terminal/') && pathLower !== '/api/terminal/session/resume') {
         const termRes = await handleTerminalApi(request, url, env, ctx);
         if (termRes.status !== 404) return termRes;
+    }
+
+    // ── GET /api/security/shield-pulse — open findings + audit scan (banner, no secrets) ──
+    if (pathLower === '/api/security/shield-pulse' && method === 'GET') {
+        const authUser = await getAuthUser(request, env);
+        if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+        let tenantId =
+            authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
+                ? String(authUser.tenant_id).trim()
+                : '';
+        if (!tenantId) tenantId = (await fetchAuthUserTenantId(env, authUser.id)) || '';
+        const notify = url.searchParams.get('notify') === '1' || url.searchParams.get('notify') === 'true';
+        const pulse = await runSecurityShieldPulse(env, {
+            tenantId,
+            userId: String(authUser.id || '').trim(),
+            fireNotifications: notify,
+        });
+        return jsonResponse(pulse);
     }
 
     // ── /api/agent/git/status ────────────────────────────────────────────────
@@ -420,6 +441,7 @@ export async function handleDashboardApi(request, url, env, ctx) {
         if (!canPty) {
             return terminalNotEnabledResponse();
         }
+        void purgeStaleTerminalSessions(env).catch(() => {});
         /** Optional second+ PTY (split pane); alphanumeric slug → distinct DO instance / upstream PTY. */
         const ptySlotRaw = (url.searchParams.get('pty_slot') || '').trim();
         const ptySlot =

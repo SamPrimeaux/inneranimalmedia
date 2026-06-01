@@ -18,7 +18,52 @@ export type TerminalConnectionStatus =
   | 'auth_failed'
   | 'backend_unavailable'
   | 'session_expired'
-  | 'disconnected';
+  | 'disconnected'
+  | 'timed_out';
+
+const INACTIVITY_MS = 5 * 60 * 1000;
+
+function shellQuoteForHistory(cmd: string): string {
+  return `'${cmd.replace(/'/g, `'\\''`)}'`;
+}
+
+function detectShellKind(shellPath: string): 'zsh' | 'bash' | 'powershell' | 'sh' {
+  const s = shellPath.toLowerCase();
+  if (s.includes('powershell') || s.includes('pwsh')) return 'powershell';
+  if (s.includes('zsh')) return 'zsh';
+  if (s.includes('bash')) return 'bash';
+  return 'sh';
+}
+
+function buildHistorySeedLine(cmd: string, shellPath: string): string {
+  const kind = detectShellKind(shellPath);
+  if (kind === 'powershell') {
+    return `Add-History -InputLine ${JSON.stringify(cmd)}\r`;
+  }
+  if (kind === 'zsh') {
+    return `print -s -- ${shellQuoteForHistory(cmd)}\r`;
+  }
+  return `history -s ${shellQuoteForHistory(cmd)}\r`;
+}
+
+async function fetchTerminalHistoryCommands(): Promise<string[]> {
+  try {
+    const res = await fetch('/api/terminal/history', { credentials: 'same-origin' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !Array.isArray(data.commands)) return [];
+    return data.commands.map((c: unknown) => String(c || '').trim()).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function seedShellHistoryViaPty(ws: WebSocket, commands: string[], shellPath: string) {
+  if (!commands.length || ws.readyState !== WebSocket.OPEN) return;
+  for (const cmd of commands) {
+    if (ws.readyState !== WebSocket.OPEN) break;
+    ws.send(buildHistorySeedLine(cmd, shellPath));
+  }
+}
 
 const RETRYABLE_STATES: ReadonlySet<TerminalConnectionStatus> = new Set([
   'connecting',
@@ -49,6 +94,8 @@ export interface TerminalSessionPaneHandle {
 
 export interface TerminalSessionPaneProps {
   workspaceId?: string;
+  /** platform_vm (cloud) or user_hosted_tunnel (local machine). */
+  targetType?: 'platform_vm' | 'user_hosted_tunnel';
   /** Secondary pane id → Worker routes to distinct DO (split terminals). */
   ptySlot?: string;
   /** Full path, e.g. /bin/zsh — forwarded to PTY */
@@ -59,7 +106,7 @@ export interface TerminalSessionPaneProps {
 }
 
 export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, TerminalSessionPaneProps>(
-  ({ workspaceId, ptySlot = '', shell = '', visible, onConnectionChange, onSessionIdChange }, ref) => {
+  ({ workspaceId, targetType = 'platform_vm', ptySlot = '', shell = '', visible, onConnectionChange, onSessionIdChange }, ref) => {
     const terminalRef = useRef<HTMLDivElement>(null);
     const xtermRef = useRef<Terminal | null>(null);
     const fitAddonRef = useRef<FitAddon | null>(null);
@@ -69,6 +116,7 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
     const ptySessionIdRef = useRef<string | null>(null);
     const bufferRef = useRef<string>('');
     const statusRef = useRef<TerminalConnectionStatus>('connecting');
+    const historySeededRef = useRef(false);
 
     const cachedBootstrapRef = useRef<{
       cfgOk: boolean;
@@ -98,16 +146,58 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
     const refreshBootstrapRef = useRef<() => Promise<void>>(async () => {});
     const scheduleReconnectRef = useRef<(reason: string) => void>(() => {});
     const appendBufferRef = useRef<(text: string) => void>(() => {});
+    const inactivityTimerRef = useRef<number | null>(null);
+    const lastActivityRef = useRef<number>(Date.now());
+
+    const clearInactivityTimer = useCallback(() => {
+      if (inactivityTimerRef.current) {
+        clearTimeout(inactivityTimerRef.current);
+        inactivityTimerRef.current = null;
+      }
+    }, []);
+
+    const closeDueToInactivity = useCallback(async () => {
+      intentionalCloseRef.current = true;
+      clearInactivityTimer();
+      const sid = ptySessionIdRef.current;
+      if (sid) {
+        void fetch('/api/terminal/session/close', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ session_id: sid }),
+        }).catch(() => {});
+      }
+      closeSocketQuietly(socketRef.current);
+      socketRef.current = null;
+      ptySessionIdRef.current = null;
+      setSessionIdState(null);
+      setStatus('timed_out');
+    }, [clearInactivityTimer]);
+
+    const bumpActivity = useCallback(() => {
+      lastActivityRef.current = Date.now();
+      if (statusRef.current !== 'connected') return;
+      clearInactivityTimer();
+      inactivityTimerRef.current = window.setTimeout(() => {
+        void closeDueToInactivity();
+      }, INACTIVITY_MS) as unknown as number;
+    }, [clearInactivityTimer, closeDueToInactivity]);
 
     const _doBootstrap = useCallback(async () => {
       cachedBootstrapRef.current = null;
+      const wsId = workspaceId?.trim() ?? '';
       try {
+        const cfgUrl = new URL('/api/agent/terminal/config-status', window.location.origin);
+        if (wsId) cfgUrl.searchParams.set('workspace_id', wsId);
+        cfgUrl.searchParams.set('target_type', targetType);
+
         const [resumePack, cfgPack] = await Promise.all([
           fetch('/api/terminal/session/resume', {
             credentials: 'same-origin',
             headers: { Accept: 'application/json' },
           }).then(async (r) => ({ r, j: await r.json().catch(() => ({ resumable: false })) })),
-          fetch('/api/agent/terminal/config-status', {
+          fetch(cfgUrl.toString(), {
             credentials: 'same-origin',
             headers: { Accept: 'application/json' },
           }).then(async (r) => ({ r, j: await r.json().catch(() => ({})) })),
@@ -140,7 +230,7 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
           loadedAt: Date.now(),
         };
       }
-    }, []);
+    }, [targetType, workspaceId]);
 
     const refreshBootstrap = useCallback(async () => {
       if (bootstrapInFlightRef.current) {
@@ -202,7 +292,7 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
 
       const connect = () => {
         if (connectInFlightRef.current || !isMounted || intentionalCloseRef.current) return;
-        if (statusRef.current === 'offline') return;
+        if (statusRef.current === 'offline' || statusRef.current === 'timed_out') return;
         const wsId = workspaceId?.trim() ?? '';
         if (!wsId) return;
 
@@ -238,6 +328,7 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
             const wsHttpUrl = new URL('/api/agent/terminal/ws', window.location.origin);
             wsHttpUrl.searchParams.set('workspace_id', wsId);
             wsHttpUrl.searchParams.set('execution_mode', 'pty');
+            wsHttpUrl.searchParams.set('target_type', targetType);
             if (ptySlot) wsHttpUrl.searchParams.set('pty_slot', ptySlot);
             if (shell?.trim()) wsHttpUrl.searchParams.set('shell', shell.trim());
             const wsUrl = wsHttpUrl.href.replace(/^http:/i, 'ws:').replace(/^https:/i, 'wss:');
@@ -269,6 +360,8 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
               if (seq !== connectSeqRef.current) return;
               retryCountRef.current = 0;
               setStatus('connected');
+              lastActivityRef.current = Date.now();
+              bumpActivity();
               if (!isMounted || intentionalCloseRef.current) return;
 
               const term = xtermRef.current;
@@ -276,6 +369,7 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
               term.clear();
 
               const onDataSub = term.onData((data) => {
+                bumpActivity();
                 if (ws.readyState !== WebSocket.OPEN) return;
                 if (data.endsWith('\r') || data.endsWith('\n')) {
                   const cmd = data.replace(/[\r\n]+$/, '').trim();
@@ -295,7 +389,7 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
               });
 
               term.writeln('  \x1b[38;5;82m◈\x1b[0m Worker control-plane: \x1b[38;5;82mACTIVE\x1b[0m');
-              term.writeln('  \x1b[38;5;240m◈ Backend mode: pty\x1b[0m');
+              term.writeln('  \x1b[38;5;240m◈ Backend mode: pty · target: ' + targetType + '\x1b[0m');
               if (ptySlot) {
                 term.writeln(`  \x1b[38;5;240m◈ Session slot: ${ptySlot}\x1b[0m`);
               }
@@ -309,10 +403,21 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
               if (greeting && xtermRef.current) {
                 xtermRef.current.writeln(`\r\n\x1b[1;36m  › ${greeting}\x1b[0m`);
               }
+
+              if (!historySeededRef.current) {
+                historySeededRef.current = true;
+                void fetchTerminalHistoryCommands().then((commands) => {
+                  if (!isMounted || intentionalCloseRef.current || seq !== connectSeqRef.current) return;
+                  if (ws.readyState === WebSocket.OPEN && commands.length > 0) {
+                    seedShellHistoryViaPty(ws, commands, shell || '/bin/zsh');
+                  }
+                });
+              }
             };
 
             ws.onmessage = (event) => {
               if (seq !== connectSeqRef.current) return;
+              bumpActivity();
               try {
                 const msg = JSON.parse(event.data as string) as {
                   type?: string;
@@ -397,6 +502,7 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
         connectSeqRef.current += 1;
         connectInFlightRef.current = false;
         if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+        clearInactivityTimer();
         closeSocketQuietly(socketRef.current);
         socketRef.current = null;
         return () => {
@@ -429,10 +535,11 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
           connectDebounceRef.current = null;
         }
         if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+        clearInactivityTimer();
         closeSocketQuietly(socketRef.current);
         socketRef.current = null;
       };
-    }, [visible, workspaceId, ptySlot, shell]);
+    }, [visible, workspaceId, ptySlot, shell, targetType, bumpActivity, clearInactivityTimer]);
 
     useEffect(() => {
       const observer = new MutationObserver(() => {
@@ -515,6 +622,7 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
         intentionalCloseRef.current = false;
         retryCountRef.current = 0;
         connectSeqRef.current += 1;
+        clearInactivityTimer();
         closeSocketQuietly(socketRef.current);
         socketRef.current = null;
         void refreshBootstrapRef.current().finally(() => {
@@ -606,6 +714,25 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
           .iam-terminal-pane-root .xterm-shell-viewport .xterm-viewport { overflow-y: auto !important; }
         `}</style>
         <div className="iam-terminal-pane-root relative flex-1 min-h-0 min-w-0 flex h-full w-full flex-col bg-[var(--terminal-surface)] overflow-hidden">
+          {status === 'timed_out' && (
+            <div className="absolute inset-0 z-[25] flex flex-col items-center justify-center gap-3 bg-[var(--terminal-surface)]/95 backdrop-blur-sm px-4 text-center">
+              <p className="text-[12px] font-mono text-[var(--text-main)]">
+                Session timed out after 5 minutes of inactivity.
+              </p>
+              <button
+                type="button"
+                className="px-4 py-2 rounded text-[11px] font-mono border border-[var(--solar-cyan)]/40 text-[var(--solar-cyan)] hover:bg-[var(--solar-cyan)]/10"
+                onClick={() => {
+                  intentionalCloseRef.current = false;
+                  retryCountRef.current = 0;
+                  setStatus('connecting');
+                  void refreshBootstrapRef.current().finally(() => activeConnectRef.current());
+                }}
+              >
+                Reconnect
+              </button>
+            </div>
+          )}
           <div
             ref={terminalRef}
             className="xterm-shell-viewport min-h-0 min-w-0 flex-1 w-full"

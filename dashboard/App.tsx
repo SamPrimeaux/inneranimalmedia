@@ -30,6 +30,8 @@ import {
 } from './agentChatConstants';
 import { WorkspaceLauncher } from './components/WorkspaceLauncher';
 import { XTermShell, XTermShellHandle } from './components/XTermShell';
+import { SecurityShieldBanner } from './components/SecurityShieldBanner';
+import { mapProblemsApiPayload, countProblemSeverities } from './src/lib/mapAgentProblems';
 import { ExtensionsPanel } from './components/ExtensionsPanel';
 import { MonacoEditorView, type EditorModelMeta } from './components/MonacoEditorView';
 import { LocalExplorer } from './components/LocalExplorer';
@@ -434,6 +436,13 @@ const App: React.FC = () => {
   const [errorCount, setErrorCount] = useState(0);
   const [warningCount, setWarningCount] = useState(0);
   const [systemProblems, setSystemProblems] = useState<any>([]);
+  const [securityShieldAlert, setSecurityShieldAlert] = useState<{
+    message: string;
+    details_url: string;
+    open_findings_count: number;
+    audit_events_24h: number;
+  } | null>(null);
+  const [securityBannerDismissed, setSecurityBannerDismissed] = useState(false);
   const [healthOk, setHealthOk] = useState<boolean | null>(null);
   const [tunnelHealthy, setTunnelHealthy] = useState<boolean | null>(null);
   const [tunnelLabel, setTunnelLabel] = useState<string | null>(null);
@@ -1769,6 +1778,36 @@ const App: React.FC = () => {
     [],
   );
 
+  const fetchSecurityShieldPulse = useCallback(async (notify = false) => {
+    const cred = { credentials: 'same-origin' as const };
+    try {
+      const qs = notify ? '?notify=1' : '';
+      const res = await fetch(`/api/security/shield-pulse${qs}`, cred);
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data?.alert === true) {
+        setSecurityShieldAlert({
+          message: String(data.message || 'Security finding detected — view details'),
+          details_url: String(data.details_url || '/dashboard/settings/security'),
+          open_findings_count: Number(data.open_findings_count) || 0,
+          audit_events_24h: Number(data.audit_events_24h) || 0,
+        });
+        if (notify) setSecurityBannerDismissed(false);
+      } else {
+        setSecurityShieldAlert(null);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const applyProblemsPayload = useCallback((probData: Record<string, unknown>) => {
+    const rows = mapProblemsApiPayload(probData as Parameters<typeof mapProblemsApiPayload>[0]);
+    setSystemProblems(rows);
+    const { errors, warnings } = countProblemSeverities(rows);
+    setErrorCount(errors);
+    setWarningCount(warnings);
+  }, []);
+
   const fetchGitAndProblems = useCallback(async () => {
     const cred = { credentials: 'same-origin' as const };
     const cached = readIamGitStatusCache();
@@ -1795,21 +1834,12 @@ const App: React.FC = () => {
       const probRes = await fetch('/api/agent/problems', cred);
       const probData = await probRes.json().catch(() => ({}));
       if (probRes.ok && probData && typeof probData === 'object') {
-        setSystemProblems([]);
-        const mcp = Array.isArray(probData.mcp_tool_errors) ? probData.mcp_tool_errors.length : 0;
-        const audits = Array.isArray(probData.audit_failures) ? probData.audit_failures : [];
-        const wx = Array.isArray(probData.worker_errors) ? probData.worker_errors.length : 0;
-        const warnAudits = audits.filter((a: { event_type?: string }) =>
-          String(a?.event_type || '').toLowerCase().includes('warn'),
-        );
-        const errAudits = audits.length - warnAudits.length;
-        setErrorCount(mcp + wx + errAudits);
-        setWarningCount(warnAudits.length);
+        applyProblemsPayload(probData as Record<string, unknown>);
       }
     } catch {
       /* ignore */
     }
-  }, [applyGitStatusPayload]);
+  }, [applyGitStatusPayload, applyProblemsPayload]);
 
   const fetchTunnelStatusOnly = useCallback(async () => {
     const cred = { credentials: 'same-origin' as const };
@@ -1901,16 +1931,7 @@ const App: React.FC = () => {
       const probRes = await fetch('/api/agent/problems', cred);
       const probData = await probRes.json().catch(() => ({}));
       if (probRes.ok && probData && typeof probData === 'object') {
-        setSystemProblems([]);
-        const mcp = Array.isArray(probData.mcp_tool_errors) ? probData.mcp_tool_errors.length : 0;
-        const audits = Array.isArray(probData.audit_failures) ? probData.audit_failures : [];
-        const wx = Array.isArray(probData.worker_errors) ? probData.worker_errors.length : 0;
-        const warnAudits = audits.filter((a: { event_type?: string }) =>
-          String(a?.event_type || '').toLowerCase().includes('warn'),
-        );
-        const errAudits = audits.length - warnAudits.length;
-        setErrorCount(mcp + wx + errAudits);
-        setWarningCount(warnAudits.length);
+        applyProblemsPayload(probData as Record<string, unknown>);
       }
     } catch {
       /* ignore */
@@ -1931,7 +1952,7 @@ const App: React.FC = () => {
     }
 
     void fetchTelemetryPoll();
-  }, [fetchHealth, fetchTunnelStatusOnly, fetchTerminalConfigOnly, fetchDeploymentsPoll, fetchTelemetryPoll, applyGitStatusPayload]);
+  }, [fetchHealth, fetchTunnelStatusOnly, fetchTerminalConfigOnly, fetchDeploymentsPoll, fetchTelemetryPoll, applyGitStatusPayload, applyProblemsPayload]);
 
   useEffect(() => {
     // Polling (ms): health 5m, notifications 2m, git+problems 3m, tunnel 5m, terminal config 10m,
@@ -1949,6 +1970,7 @@ const App: React.FC = () => {
       void fetchHealth();
       void fetchNotifications();
       void fetchGitAndProblems();
+      void fetchSecurityShieldPulse(true);
       void fetchTunnelStatusOnly();
       void fetchTerminalConfigOnly();
       void fetchDeploymentsPoll();
@@ -1979,6 +2001,7 @@ const App: React.FC = () => {
     fetchHealth,
     fetchNotifications,
     fetchGitAndProblems,
+    fetchSecurityShieldPulse,
     fetchTunnelStatusOnly,
     fetchTerminalConfigOnly,
     fetchDeploymentsPoll,
@@ -2692,6 +2715,16 @@ const App: React.FC = () => {
           </div>
       </div>
 
+      {securityShieldAlert && !securityBannerDismissed && (
+        <SecurityShieldBanner
+          message={securityShieldAlert.message}
+          detailsUrl={securityShieldAlert.details_url}
+          openFindingsCount={securityShieldAlert.open_findings_count}
+          auditEvents24h={securityShieldAlert.audit_events_24h}
+          onDismiss={() => setSecurityBannerDismissed(true)}
+        />
+      )}
+
       <div className="flex flex-1 overflow-hidden max-md:pb-[52px]">
           {/* 2. ACTIVITY BAR (Extreme Left) — hidden ≤768px; use bottom tab bar + More */}
           {/* Activity bar: icon rail (width toggled via ☰ — localStorage iam_sidebar_expanded) */}
@@ -3242,6 +3275,7 @@ const App: React.FC = () => {
                           ref={terminalRef}
                           onClose={() => setIsTerminalOpen(false)}
                           problems={systemProblems ?? []}
+                          onProblemsTabOpen={() => void fetchGitAndProblems()}
                           iamOrigin={typeof window !== 'undefined' ? window.location.origin : 'https://inneranimalmedia.com'}
                           workspaceLabel={workspaceDisplayLine}
                           workspaceId={authWorkspaceId || undefined}
@@ -3302,6 +3336,7 @@ const App: React.FC = () => {
                     outputLines={shellOutputLines}
                     onOutputLine={(line) => setShellOutputLines((prev) => [...prev.slice(-250), line])}
                     problems={systemProblems ?? []}
+                    onProblemsTabOpen={() => void fetchGitAndProblems()}
                     onClose={() => setIsTerminalOpen(false)}
                   />
                 </div>

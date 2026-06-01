@@ -5,6 +5,7 @@
 import { logSecretAudit } from './security-scan.js';
 import { sendPlatformEmail } from '../lib/email.js';
 import { EXPOSURE_PATTERNS } from './security-scan.js';
+import { sendMessage as sendBlueBubblesMessage } from '../integrations/bluebubbles.js';
 
 /** @typedef {'key_created'|'key_validated_pass'|'key_validated_fail'|'key_revealed'|'key_rotated'|'key_deleted'|'key_used_by_agent'} KeyAuditEventType */
 
@@ -246,9 +247,21 @@ export async function fixOpenFindingsForSecret(env, { secretId, tenantId }) {
   }
 }
 
-async function bumpShieldRuleTrigger(env, { tenantId, ruleType, userId = null }) {
+async function bumpShieldRuleTrigger(env, { tenantId, ruleType, userId = null, ruleId = null }) {
   if (!env?.DB) return;
   try {
+    if (ruleId) {
+      await env.DB.prepare(
+        `UPDATE security_shield_rules
+         SET last_triggered_at = unixepoch(),
+             trigger_count = trigger_count + 1,
+             updated_at = unixepoch()
+         WHERE id = ? AND tenant_id = ? AND is_active = 1`,
+      )
+        .bind(String(ruleId), tenantId)
+        .run();
+      return;
+    }
     const binds = [ruleType, tenantId];
     let sql = `
       UPDATE security_shield_rules
@@ -272,7 +285,7 @@ async function loadShieldRules(env, tenantId, userId) {
   if (!env?.DB) return [];
   try {
     const res = await env.DB.prepare(
-      `SELECT id, rule_type, severity, config_json, notify_channels, user_id
+      `SELECT id, rule_type, severity, config_json, notify_channels, user_id, last_triggered_at
        FROM security_shield_rules
        WHERE tenant_id = ? AND is_active = 1
          AND (user_id IS NULL OR user_id = ?)`,
@@ -287,13 +300,15 @@ async function loadShieldRules(env, tenantId, userId) {
 
 async function notifyShieldChannels(env, channels, { tenantId, subject, text }) {
   const list = Array.isArray(channels) ? channels : parseJsonSafe(channels, ['dashboard']);
+  const safeText = String(text || '').slice(0, 1200);
+  const safeSubject = String(subject || 'Security alert').slice(0, 200);
   for (const ch of list) {
     const c = String(ch || '').toLowerCase();
     if (c === 'email') {
       try {
         await sendPlatformEmail(env, {
-          subject,
-          text,
+          subject: safeSubject,
+          text: safeText,
           category: 'keys_security',
           noAgentSamPrefix: true,
         });
@@ -301,8 +316,174 @@ async function notifyShieldChannels(env, channels, { tenantId, subject, text }) 
         console.warn('[keys-security] email notify failed', e?.message ?? e);
       }
     }
-    // dashboard = security_findings row (already inserted); imessage = future
+    if (c === 'imessage') {
+      try {
+        const chatGuid =
+          env.SECURITY_ALERT_IMESSAGE_CHAT_GUID != null
+            ? String(env.SECURITY_ALERT_IMESSAGE_CHAT_GUID).trim()
+            : '';
+        if (chatGuid && env.BLUEBUBBLES_URL) {
+          await sendBlueBubblesMessage(env, { chatGuid, text: `${safeSubject}\n${safeText}` });
+        }
+      } catch (e) {
+        console.warn('[keys-security] imessage notify failed', e?.message ?? e);
+      }
+    }
+    // dashboard channel = banner via GET /api/security/shield-pulse (no secret payloads)
   }
+}
+
+const PULSE_RULE_TYPES = new Set(['audit_anomaly', 'exposure_pattern', 'test_failure', 'null_value_registered']);
+
+/**
+ * Scan open security_findings + recent secret_audit_log; fire shield rule notifications (no secret values).
+ * @param {Record<string, unknown>} env
+ * @param {{
+ *   tenantId: string,
+ *   userId?: string | null,
+ *   workspaceId?: string | null,
+ *   fireNotifications?: boolean,
+ *   throttleSec?: number,
+ * }} opts
+ */
+export async function runSecurityShieldPulse(env, opts = {}) {
+  const tenantId = opts.tenantId != null ? String(opts.tenantId).trim() : '';
+  const userId = opts.userId != null ? String(opts.userId).trim() : '';
+  const fireNotifications = opts.fireNotifications === true;
+  const throttleSec = Number(opts.throttleSec) > 0 ? Number(opts.throttleSec) : 1800;
+  const detailsUrl = '/dashboard/settings/security';
+
+  if (!env?.DB || !tenantId) {
+    return {
+      alert: false,
+      open_findings_count: 0,
+      audit_events_24h: 0,
+      details_url: detailsUrl,
+    };
+  }
+
+  const nowSec = Math.floor(Date.now() / 1000);
+  const cutoff = nowSec - 86400;
+
+  let openFindingsCount = 0;
+  let auditEvents24h = 0;
+  const findingTypes = new Set();
+
+  try {
+    const openRow = await env.DB.prepare(
+      `SELECT COUNT(*) AS c FROM security_findings
+       WHERE tenant_id = ? AND status = 'open'
+         AND (? = '' OR user_id IS NULL OR user_id = ? OR user_id = '')`,
+    )
+      .bind(tenantId, userId, userId)
+      .first();
+    openFindingsCount = Number(openRow?.c) || 0;
+
+    const typeRows = await env.DB.prepare(
+      `SELECT DISTINCT finding_type FROM security_findings
+       WHERE tenant_id = ? AND status = 'open'
+         AND (? = '' OR user_id IS NULL OR user_id = ? OR user_id = '')`,
+    )
+      .bind(tenantId, userId, userId)
+      .all();
+    for (const r of typeRows?.results || []) {
+      const ft = r?.finding_type != null ? String(r.finding_type).trim() : '';
+      if (ft) findingTypes.add(ft);
+    }
+  } catch (e) {
+    console.warn('[keys-security] pulse open findings scan failed', e?.message ?? e);
+  }
+
+  try {
+    const auditRow = await env.DB.prepare(
+      `SELECT COUNT(*) AS c FROM secret_audit_log
+       WHERE tenant_id = ? AND created_at >= ?
+         AND (? = '' OR user_id IS NULL OR user_id = ?)`,
+    )
+      .bind(tenantId, cutoff, userId, userId)
+      .first();
+    auditEvents24h = Number(auditRow?.c) || 0;
+  } catch (e) {
+    console.warn('[keys-security] pulse audit log scan failed', e?.message ?? e);
+  }
+
+  const alert = openFindingsCount > 0 || auditEvents24h > 0;
+  const ruleTypesToFire = new Set();
+  if (auditEvents24h > 0) ruleTypesToFire.add('audit_anomaly');
+  if (openFindingsCount > 0) {
+    for (const ft of findingTypes) {
+      if (SHIELD_RULE_TYPES.has(ft) || PULSE_RULE_TYPES.has(ft)) ruleTypesToFire.add(ft);
+    }
+    if (ruleTypesToFire.size === 0 || !findingTypes.size) ruleTypesToFire.add('exposure_pattern');
+  }
+
+  if (alert && fireNotifications && ruleTypesToFire.size > 0) {
+    const rules = await loadShieldRules(env, tenantId, userId);
+    const subject = 'Security finding detected — view details';
+    const text = [
+      `Open security findings: ${openFindingsCount}`,
+      `Secret audit events (24h): ${auditEvents24h}`,
+      `Review: https://inneranimalmedia.com${detailsUrl}`,
+      `Time: ${new Date().toISOString()}`,
+    ].join('\n');
+
+    for (const rule of rules) {
+      const rt = String(rule.rule_type || '');
+      if (!ruleTypesToFire.has(rt)) continue;
+      const last = Number(rule.last_triggered_at) || 0;
+      if (last > 0 && nowSec - last < throttleSec) continue;
+      const channels = parseJsonSafe(rule.notify_channels, ['dashboard']);
+      await bumpShieldRuleTrigger(env, {
+        tenantId,
+        ruleType: rt,
+        userId: rule.user_id ? userId : null,
+        ruleId: rule.id,
+      });
+      await notifyShieldChannels(env, channels, { tenantId, subject, text });
+    }
+  }
+
+  return {
+    alert,
+    open_findings_count: openFindingsCount,
+    audit_events_24h: auditEvents24h,
+    details_url: detailsUrl,
+    message: alert ? 'Security finding detected — view details' : null,
+  };
+}
+
+/** 30-min cron: pulse all tenants with open findings or recent audit activity. */
+export async function runSecurityShieldPulseCron(env) {
+  if (!env?.DB) return { tenants: 0, alerts: 0 };
+  let tenantIds = [];
+  try {
+    const cutoff = Math.floor(Date.now() / 1000) - 86400;
+    const res = await env.DB.prepare(
+      `SELECT DISTINCT tenant_id FROM security_findings WHERE status = 'open' AND tenant_id IS NOT NULL AND trim(tenant_id) != ''
+       UNION
+       SELECT DISTINCT tenant_id FROM secret_audit_log WHERE created_at >= ? AND tenant_id IS NOT NULL AND trim(tenant_id) != ''`,
+    )
+      .bind(cutoff)
+      .all();
+    tenantIds = (res?.results || [])
+      .map((r) => (r?.tenant_id != null ? String(r.tenant_id).trim() : ''))
+      .filter(Boolean);
+  } catch (e) {
+    console.warn('[keys-security] pulse cron tenant list failed', e?.message ?? e);
+    const fallback = env.TENANT_ID != null ? String(env.TENANT_ID).trim() : '';
+    if (fallback) tenantIds = [fallback];
+  }
+
+  let alerts = 0;
+  for (const tenantId of tenantIds) {
+    const pulse = await runSecurityShieldPulse(env, {
+      tenantId,
+      userId: null,
+      fireNotifications: true,
+    });
+    if (pulse.alert) alerts += 1;
+  }
+  return { tenants: tenantIds.length, alerts };
 }
 
 function matchesExposurePattern(plaintext) {

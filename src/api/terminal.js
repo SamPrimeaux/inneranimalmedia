@@ -11,6 +11,7 @@ import { getAuthUser } from '../core/auth.js';
 import {
   resolveEffectiveWorkspaceId,
   resolveActiveBootstrap,
+  resolveTerminalWorkspaceId,
   WORKSPACE_CONTEXT_MISSING,
 } from '../core/bootstrap.js';
 import {
@@ -20,7 +21,17 @@ import {
 import { dispatchComplete,
          dispatchStream }    from '../core/provider.js';
 import { resolveModelForTask, normalizeCanonicalTaskType } from '../core/resolveModel.js';
-import { computeTerminalSessionAuthTokenHash, sha256HexUtf8, mintSessionToken } from '../core/terminal.js';
+import {
+  computeTerminalSessionAuthTokenHash,
+  sha256HexUtf8,
+  mintSessionToken,
+  getUserHostedTunnelConnection,
+  provisionUserHostedTunnelConnection,
+  activateUserHostedTunnelConnection,
+  closeTerminalSessionRecord,
+  userCanRunPtyFromPolicy,
+  getTerminalInputHistory,
+} from '../core/terminal.js';
 
 // ── Token validation ───────────────────────────────────────────────────────────
 export async function handleTerminalApi(request, url, env, ctx) {
@@ -174,6 +185,95 @@ export async function handleTerminalApi(request, url, env, ctx) {
      .run().catch(() => {});
 
     return jsonResponse({ ok: true, session_id });
+  }
+
+  // GET /api/terminal/history — user input lines for shell history seed (no secrets in response)
+  if (path === '/api/terminal/history' && method === 'GET') {
+    const authUser = await getAuthUser(request, env);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    const commands = await getTerminalInputHistory(env, authUser.id, 200);
+    return jsonResponse({ commands, count: commands.length });
+  }
+
+  // GET /api/terminal/connections/local — user_hosted_tunnel row for current user/workspace
+  if (path === '/api/terminal/connections/local' && method === 'GET') {
+    const authUser = await getAuthUser(request, env);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    const tw = await resolveTerminalWorkspaceId(env, request, authUser, url.searchParams.get('workspace_id'));
+    if (!tw.workspaceId) {
+      return jsonResponse({ error: WORKSPACE_CONTEXT_MISSING, code: WORKSPACE_CONTEXT_MISSING }, 400);
+    }
+    if (!(await userCanRunPtyFromPolicy(env, authUser.id, tw.workspaceId))) {
+      return jsonResponse({ error: 'terminal_not_enabled' }, 403);
+    }
+    const row = await getUserHostedTunnelConnection(env.DB, authUser.id, tw.workspaceId);
+    if (!row) {
+      return jsonResponse({ connection: null, has_local: false });
+    }
+    const wsUrl = row.ws_url != null ? String(row.ws_url).trim() : '';
+    return jsonResponse({
+      has_local: true,
+      connection: {
+        id: String(row.id),
+        platform: row.platform ?? null,
+        shell: row.shell ?? null,
+        is_active: Number(row.is_active) === 1,
+        ws_url_present: !!wsUrl,
+      },
+    });
+  }
+
+  // POST /api/terminal/connections/provision — create inactive user_hosted_tunnel row
+  if (path === '/api/terminal/connections/provision' && method === 'POST') {
+    const authUser = await getAuthUser(request, env);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    const tw = await resolveTerminalWorkspaceId(env, request, authUser, null);
+    if (!tw.workspaceId) {
+      return jsonResponse({ error: WORKSPACE_CONTEXT_MISSING, code: WORKSPACE_CONTEXT_MISSING }, 400);
+    }
+    const body = await request.json().catch(() => ({}));
+    const targetType = String(body?.target_type || 'user_hosted_tunnel').trim();
+    if (targetType !== 'user_hosted_tunnel') {
+      return jsonResponse({ error: 'unsupported_target_type' }, 400);
+    }
+    const result = await provisionUserHostedTunnelConnection(env, authUser, tw.workspaceId, {
+      platform: body?.platform,
+      shell: body?.shell,
+    });
+    if (!result.ok) {
+      return jsonResponse({ error: result.error, detail: result.detail ?? null }, result.status || 500);
+    }
+    return jsonResponse({ ok: true, created: result.created === true, connection: result.connection });
+  }
+
+  // POST /api/terminal/connections/activate — set ws_url and is_active=1
+  if (path === '/api/terminal/connections/activate' && method === 'POST') {
+    const authUser = await getAuthUser(request, env);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    const tw = await resolveTerminalWorkspaceId(env, request, authUser, null);
+    if (!tw.workspaceId) {
+      return jsonResponse({ error: WORKSPACE_CONTEXT_MISSING, code: 'WORKSPACE_CONTEXT_MISSING' }, 400);
+    }
+    const body = await request.json().catch(() => ({}));
+    const result = await activateUserHostedTunnelConnection(env, authUser, tw.workspaceId, {
+      connection_id: body?.connection_id,
+      ws_url: body?.ws_url,
+    });
+    if (!result.ok) {
+      return jsonResponse({ error: result.error }, result.status || 500);
+    }
+    return jsonResponse({ ok: true, connection: result.connection });
+  }
+
+  // POST /api/terminal/session/close — mark D1 session closed (inactivity / client disconnect)
+  if (path === '/api/terminal/session/close' && method === 'POST') {
+    const authUser = await getAuthUser(request, env);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    const body = await request.json().catch(() => ({}));
+    const sessionId = String(body?.session_id || '').trim();
+    if (!sessionId) return jsonResponse({ error: 'session_id required' }, 400);
+    await closeTerminalSessionRecord(env, sessionId, authUser.id);
+    return jsonResponse({ ok: true });
   }
 
   // POST /api/terminal/assist

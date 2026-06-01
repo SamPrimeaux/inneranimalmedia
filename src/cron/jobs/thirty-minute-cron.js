@@ -159,6 +159,8 @@ export async function sweepStaleTerminalSessions(env) {
   const runId = begun?.runId ?? null;
   const startedAt = begun?.startedAt ?? Date.now();
   try {
+    const { purgeStaleTerminalSessions } = await import('../../core/terminal.js');
+    const purged = await purgeStaleTerminalSessions(env);
     const r = await env.DB.prepare(
       `UPDATE terminal_sessions
        SET status = 'closed', closed_at = unixepoch(), updated_at = unixepoch()
@@ -166,8 +168,16 @@ export async function sweepStaleTerminalSessions(env) {
          AND updated_at < unixepoch() - 86400`,
     ).run();
     const closed = Number(r.meta?.changes ?? r.changes ?? 0) || 0;
-    if (closed > 0) console.log('[cron] terminal_sessions swept:', closed, 'stale sessions closed');
-    if (runId) await completeCronRun(env, runId, startedAt, { rowsRead: 0, rowsWritten: closed, metadata: {} });
+    if (closed > 0 || purged > 0) {
+      console.log('[cron] terminal_sessions swept:', closed, 'stale closed;', purged, 'purged');
+    }
+    if (runId) {
+      await completeCronRun(env, runId, startedAt, {
+        rowsRead: 0,
+        rowsWritten: closed + purged,
+        metadata: { closed, purged },
+      });
+    }
   } catch (e) {
     if (runId) await failCronRun(env, runId, startedAt, e);
     console.warn('[cron] sweepStaleTerminalSessions', e?.message ?? e);
@@ -178,6 +188,11 @@ export async function runThirtyMinuteJobs(env, ctx) {
   // Stuck sweep + overnight progress moved to daily (midnight UTC) — was 48×/day with 0 writes.
   ctx.waitUntil(sweepExpiredApprovalQueue(env));
   ctx.waitUntil(sweepStaleTerminalSessions(env));
+  ctx.waitUntil(
+    import('../../core/keys-security.js')
+      .then(({ runSecurityShieldPulseCron }) => runSecurityShieldPulseCron(env))
+      .catch((e) => console.warn('[cron] security_shield_pulse', e?.message ?? e)),
+  );
   ctx.waitUntil(runMcpServerHealthCron(env).catch((e) => console.warn('[cron] mcp_server_health', e?.message ?? e)));
 }
 
