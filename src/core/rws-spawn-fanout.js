@@ -196,7 +196,7 @@ export async function executeRwsSpawnFanout(env, ctx, input) {
             taskDescription: message,
             chunkCount: 3,
             orchestratorSlug: 'agent-sam',
-            mergeStrategy: 'rws_pipeline',
+            mergeStrategy: 'custom',
           })
         : { ok: false, spawnJobId: null, reason: parentRun.reason || 'parent_run_failed' };
 
@@ -214,6 +214,20 @@ export async function executeRwsSpawnFanout(env, ctx, input) {
       });
 
       if (!spawnJob.ok) {
+        console.warn('[rws-spawn-fanout] spawn_job_create_failed', spawnJob.reason || 'unknown');
+        if (parentRunId) {
+          await markAgentRunComplete(env, ctx, {
+            runId: parentRunId,
+            status: 'failed',
+            latencyMs: 0,
+            errorMessage: `spawn_job_create_failed:${spawnJob.reason || 'unknown'}`,
+            modelKey: profile.model_key,
+            provider: profile.selected_provider,
+            routingArmId: profile.routing_arm_id,
+            mode: profile.mode,
+            taskType: profile.routing_task_type || profile.mode,
+          });
+        }
         emit('text', { text: `**Spawn job failed:** ${spawnJob.reason || 'unknown'}` });
         emit('done', {});
         return;
