@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "inneranimalmedia": {
+      "url": "https://mcp.inneranimalmedia.com/mcp",
+      "auth": {
+        "type": "oauth",
+        "authorizationUrl": "https://inneranimalmedia.com/api/oauth/authorize",
+        "tokenUrl": "https://inneranimalmedia.com/api/oauth/token",
+        "clientId": "iam_mcp_inneranimalmedia",
+        "scopes": ["mcp:tools", "iam:agent"]
+      }
+    },
+    "chrome-devtools": {
+      "command": "npx",
+      "args": ["-y", "chrome-devtools-mcp@latest"]
+    },
+    "gemini-api-docs-mcp": {
+      "url": "https://gemini-api-docs-mcp.dev"
+    }
+  }
+}
