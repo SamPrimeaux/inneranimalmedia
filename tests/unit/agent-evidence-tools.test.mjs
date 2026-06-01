@@ -69,6 +69,15 @@ test('githubWorkspaceIntent — cms-python repo question', () => {
   );
 });
 
+test('execution mode locks route_key — agent never becomes browser', async () => {
+  const fs = await import('node:fs');
+  const path = new URL('../../src/core/runtime-profile.js', import.meta.url);
+  const src = fs.readFileSync(path, 'utf8');
+  const lockIdx = src.indexOf('if (executionModeLocksRouteKey(mode))');
+  const browserIdx = src.indexOf('const needsBrowserRoute = messageHasBrowserUrlNavigation');
+  assert.ok(lockIdx >= 0 && browserIdx > lockIdx, 'mode lock must run before browser intent override');
+});
+
 test('browser route defaults include github and d1 capabilities (resolver SSOT)', async () => {
   const fs = await import('node:fs');
   const path = new URL('../../src/core/agentsam-route-tool-resolver.js', import.meta.url);

@@ -442,9 +442,14 @@ export function effectiveAgentChatToolCap(p) {
  * @returns {Promise<RouteToolRequirements>}
  */
 export async function resolveAgentChatRouteToolRequirements(env, q) {
-  const routeKeyRaw = q.routeKey != null ? String(q.routeKey).trim().toLowerCase() : '';
-  const taskTypeRaw = q.taskType != null ? String(q.taskType).trim().toLowerCase() : '';
   const modeSlug = q.modeSlug != null ? String(q.modeSlug).trim().toLowerCase() : '';
+  const routeKeyRaw =
+    modeSlug === 'agent' || modeSlug === 'multitask' || modeSlug === 'debug' || modeSlug === 'plan'
+      ? modeSlug
+      : q.routeKey != null
+        ? String(q.routeKey).trim().toLowerCase()
+        : '';
+  const taskTypeRaw = q.taskType != null ? String(q.taskType).trim().toLowerCase() : '';
   const lookup = routeKeyRaw || taskTypeRaw || 'chat';
   const base = defaultForKey(lookup);
 

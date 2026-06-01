@@ -348,6 +348,39 @@ async function resolvePromptRouteRow(env, q) {
 }
 
 /**
+ * Explicit composer mode (Agent / Multitask / Debug / Plan) owns route_key — intent must not override.
+ * @param {string} mode
+ */
+function executionModeLocksRouteKey(mode) {
+  return (
+    mode === 'agent' || mode === 'multitask' || mode === 'debug' || mode === 'plan'
+  );
+}
+
+/**
+ * @param {any} env
+ * @param {string|null|undefined} tenantId
+ * @param {string} routeKey
+ */
+async function loadPromptRouteRowByKey(env, tenantId, routeKey) {
+  if (!env?.DB || !routeKey) return null;
+  try {
+    return await env.DB.prepare(
+      `SELECT * FROM agentsam_prompt_routes
+       WHERE route_key = ?
+         AND is_active = 1
+         AND (tenant_id = ? OR tenant_id IS NULL)
+       ORDER BY CASE WHEN tenant_id = ? THEN 0 ELSE 1 END, priority ASC
+       LIMIT 1`,
+    )
+      .bind(routeKey, tenantId, tenantId)
+      .first();
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
  * @param {any} env
  * @param {{ tenantId?: string|null, mode: string, taskType: string, message: string, routeKeyPin?: string|null }} q
  */
@@ -355,6 +388,11 @@ async function resolvePromptRouteForCompile(env, q) {
   const mode = String(q.mode || 'agent').toLowerCase();
   const message = String(q.message || '');
   let refinedRouteKey = null;
+
+  if (executionModeLocksRouteKey(mode)) {
+    const row = await loadPromptRouteRowByKey(env, q.tenantId, mode);
+    return { row, refinedRouteKey: mode };
+  }
 
   if (q.routeKeyPin && env?.DB) {
     try {
