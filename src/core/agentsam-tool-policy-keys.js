@@ -3,9 +3,8 @@
  * Replaces hardcoded Sets for allowlist baselines, cache denylist, MCP panel filters.
  */
 
-const POLICY_CACHE_TTL_MS = 60_000;
-/** @type {Map<string, { at: number, keys: Set<string> }>} */
-const policyCache = new Map();
+/** Tool compilation / route policy must read D1 every request — no isolate cache. */
+const POLICY_CACHE_TTL_MS = 0;
 
 function trimKey(v) {
   if (v == null) return '';
@@ -21,12 +20,6 @@ function trimKey(v) {
 export async function loadAgentsamToolPolicyKeySet(env, policyKind, fallback = null) {
   const kind = trimKey(policyKind);
   if (!kind) return fallback ? new Set(fallback) : new Set();
-
-  const now = Date.now();
-  const cached = policyCache.get(kind);
-  if (cached && now - cached.at < POLICY_CACHE_TTL_MS) {
-    return cached.keys;
-  }
 
   const out = new Set();
   if (env?.DB) {
@@ -51,14 +44,12 @@ export async function loadAgentsamToolPolicyKeySet(env, policyKind, fallback = n
     for (const k of fallback) out.add(trimKey(k));
   }
 
-  policyCache.set(kind, { at: now, keys: out });
   return out;
 }
 
 /** @param {string} [policyKind] */
-export function clearAgentsamToolPolicyCache(policyKind) {
-  if (policyKind) policyCache.delete(trimKey(policyKind));
-  else policyCache.clear();
+export function clearAgentsamToolPolicyCache(_policyKind) {
+  /* no-op — policy key reads are never cached (POLICY_CACHE_TTL_MS = 0) */
 }
 
 /**
