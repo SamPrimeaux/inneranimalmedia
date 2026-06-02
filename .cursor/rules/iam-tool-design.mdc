@@ -1,0 +1,60 @@
+---
+description: When to add agentsam_tools — BYOK vs terminal wrappers (on-demand)
+alwaysApply: false
+---
+
+# IAM Tool Design Rule — When to Add a Tool
+
+A tool belongs in `agentsam_tools` only if it provides something the agent
+cannot get from a more general tool already in scope for that session.
+
+## Justified: BYOK credential injection
+
+Tools that need to inject user credentials (`CLOUDFLARE_API_TOKEN`,
+`SUPABASE_SERVICE_ROLE_KEY`, GitHub OAuth token) without exposing them
+to the LLM context. The tool resolves and uses the credential internally.
+
+Examples: `agentsam_d1_query`, `agentsam_r2_get`, `agentsam_supabase_vector`
+
+## Justified: structured persistent I/O
+
+Tools that read/write structured state across sessions that terminal
+cannot access: `agentsam_memory_manager`, `agentsam_autorag`
+
+## Justified: OAuth-scoped actions
+
+Tools that require a specific OAuth token scoped to the user:
+`agentsam_github_*`, `agentsam_send_email`
+
+## NOT justified: terminal wrappers
+
+If the LLM can run the equivalent shell command via `agentsam_terminal_*`,
+a dedicated tool is redundant and narrows agent capability.
+
+Examples of what NOT to add:
+
+- `agentsam_worker_tail` → `wrangler tail` (terminal)
+- `agentsam_worker_status` → `wrangler deployments list` (terminal)
+- Any tool that is just a named wrapper around one CLI command
+
+## NOT justified: overlapping scope
+
+If two tools have identical auth requirements, identical risk level,
+and differ only by operation name — collapse to one tool with an
+`operation` param. Split only when the allowlist needs to gate
+reads vs writes separately (e.g. `supabase_query` vs `supabase_write`).
+
+## Tool boundaries are set by auth scope and risk level
+
+Not by what is convenient for the LLM to discover.
+ChatGPT/Claude/Cursor should not need to probe tools to find
+what handles a process — the tool list should be self-evident
+from `tool_name` + `description` alone.
+
+## OAuth-visible catalog (23-tool bar)
+
+Before adding a tool to the external MCP OAuth surface (`oauth_visible = 1`):
+
+1. Pass the justification tests above.
+2. Register in `agentsam_mcp_oauth_tool_allowlist` only when active + oauth_visible.
+3. Prefer terminal for wrangler/CLI observability; prefer BYOK REST for D1/R2/KV/Supabase.

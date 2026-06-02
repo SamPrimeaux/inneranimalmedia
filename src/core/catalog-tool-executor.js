@@ -38,6 +38,27 @@ function parseInput(input) {
   return { value: input };
 }
 
+/** Resolve deploy shell command from workspace_settings.settings_json using handler_config.command_source. */
+function resolveWorkspaceDeployCommand(settingsJson, commandSource) {
+  let parsed = settingsJson;
+  if (typeof parsed === 'string') {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch (_) {
+      return '';
+    }
+  }
+  if (!parsed || typeof parsed !== 'object') return '';
+
+  const src = String(commandSource || 'workspace_settings.deploy_command').trim();
+  if (src.startsWith('workspace_settings.')) {
+    const key = src.slice('workspace_settings.'.length);
+    const specific = String(parsed[key] ?? '').trim();
+    if (specific) return specific;
+  }
+  return String(parsed.deploy_command || '').trim();
+}
+
 function stableSortValue(value) {
   if (Array.isArray(value)) return value.map(stableSortValue);
   if (value && typeof value === 'object') {
@@ -1428,6 +1449,7 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
     }
 
     case 'deploy': {
+      const commandSource = String(config.command_source || 'workspace_settings.deploy_command').trim();
       let deployCommand = '';
       if (workspaceId && env?.DB) {
         const settingsRow = await env.DB.prepare(
@@ -1437,23 +1459,21 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
           .first()
           .catch(() => null);
         if (settingsRow?.settings_json) {
-          try {
-            const parsed =
-              typeof settingsRow.settings_json === 'string'
-                ? JSON.parse(settingsRow.settings_json)
-                : settingsRow.settings_json;
-            deployCommand = String(parsed?.deploy_command || '').trim();
-          } catch (_) {}
+          deployCommand = resolveWorkspaceDeployCommand(settingsRow.settings_json, commandSource);
         }
       }
       if (!deployCommand) {
+        const settingsKey = commandSource.startsWith('workspace_settings.')
+          ? commandSource.slice('workspace_settings.'.length)
+          : 'deploy_command';
         result = {
           ok: false,
-          error: 'deploy_command not configured for this workspace',
+          error: `${settingsKey} not configured for this workspace`,
           body: {
-            action:
-              'Set workspace_settings.settings_json.deploy_command for this workspace before deploying.',
+            action: `Set workspace_settings.settings_json.${settingsKey} (or deploy_command fallback) for this workspace before deploying.`,
             workspace_id: workspaceId || 'unknown',
+            command_source: commandSource,
+            tool_key: toolKey,
           },
         };
         break;

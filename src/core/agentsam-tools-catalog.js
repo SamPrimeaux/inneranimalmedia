@@ -393,6 +393,7 @@ const TOOLS_REQUIRING_WORKSPACE_ROOT = new Set([
   'agentsam_terminal_local',
   'agentsam_workspace_search',
   'agentsam_worker_deploy',
+  'agentsam_stack_deploy',
 ]);
 
 /**
