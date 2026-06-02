@@ -177,6 +177,29 @@ fi
 echo "→ Embedding sitemap HTML for Worker bundle..."
 node "$REPO_ROOT/scripts/embed-sitemap-html.mjs"
 
+# D1: apply pending migrations (d1_migrations ledger vs migrations/*.sql). Never wrangler migrations apply.
+if [[ "${SKIP_D1_MIGRATIONS:-0}" != "1" ]]; then
+  echo "→ D1 pending migrations (ledger diff; d1 execute --file)…"
+  D1_APPLY_MODE="${D1_APPLY_PENDING:-apply}"
+  case "$D1_APPLY_MODE" in
+    apply)
+      ./scripts/with-cloudflare-env.sh node "$REPO_ROOT/scripts/d1-apply-pending.mjs" --apply
+      ;;
+    dry-run|check)
+      ./scripts/with-cloudflare-env.sh node "$REPO_ROOT/scripts/d1-apply-pending.mjs" --dry-run
+      ;;
+    skip|0|false)
+      echo "  (D1_APPLY_PENDING=$D1_APPLY_MODE — skipped)"
+      ;;
+    *)
+      echo "✗ Invalid D1_APPLY_PENDING=$D1_APPLY_MODE (use apply|dry-run|skip)" >&2
+      exit 1
+      ;;
+  esac
+else
+  echo "→ SKIP_D1_MIGRATIONS=1 — skipping D1 migration apply"
+fi
+
 echo "→ Deploying worker..."
 DEPLOY_STARTED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 DEPLOY_START_EPOCH=$(date +%s)
