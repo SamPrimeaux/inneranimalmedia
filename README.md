@@ -194,6 +194,15 @@ OAuth + workspace tokens: D1-driven — see `docs/` MCP field guide and `.cursor
 - Tenant isolation: `/workspace/{tenant_id}/{user_id}/`  
 - Terminal gate: `agentsam_user_policy.can_run_pty` — not `isSuperAdmin()`
 
+**GitHub CLI on PTY / local:**
+
+| Who | Command |
+|-----|---------|
+| Sam (Mac + shared GCP `iam-tunnel`) | `./scripts/install-terminal-github-cli.sh` |
+| Connor / other operators (local only) | `./scripts/install-terminal-github-cli-connor.sh` |
+
+Connor’s PAT goes in `~/.config/iam/github.env` — never repo `.env.cloudflare` or Sam’s GCP `gh` session.
+
 ---
 
 ## Agent Sam modes (dashboard)

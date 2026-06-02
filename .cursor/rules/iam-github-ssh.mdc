@@ -20,7 +20,19 @@ Do **not** pass `sha: ""` — omit the field entirely for creates.
 
 ## Terminal git — all Sam repos (Sam / `ws_inneranimalmedia`)
 
-PTY has **no `gh` CLI**. Use `agentsam_terminal_run` for multi-file work:
+Install **`gh` + git credential helper** on both PTY hosts:
+
+```bash
+# Sam (platform): Mac + shared GCP iam-tunnel
+./scripts/install-terminal-github-cli.sh --prompt-token
+
+# Connor (or any non-Sam operator): local machine only, your PAT, never SamPrimeaux
+./scripts/install-terminal-github-cli-connor.sh
+```
+
+Connor's token is stored in `~/.config/iam/github.env`, not repo `.env.cloudflare`.
+
+SSH push works without `gh`; `gh` adds `gh pr create`, HTTPS clone fallback, etc.
 
 | Pattern | Remote |
 |---------|--------|
