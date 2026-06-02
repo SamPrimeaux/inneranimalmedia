@@ -77,6 +77,8 @@
     "d1:apply-pending:apply": "./scripts/with-cloudflare-env.sh node scripts/d1-apply-pending.mjs --apply",
     "d1:migrations:backfill-450-522": "./scripts/with-cloudflare-env.sh npx wrangler d1 execute inneranimalmedia-business --remote -c wrangler.production.toml --file=./scripts/sql/d1_migrations_backfill_450_522.sql",
     "test:d1-apply-pending": "node --test tests/unit/d1-apply-pending.test.js",
+    "test:terminal-contract-drift": "node --test tests/unit/mcp-terminal-contract-drift.test.mjs",
+    "verify:terminal-contract-drift": "./scripts/with-cloudflare-env.sh node scripts/verify-terminal-contract-drift.mjs",
     "designstudio:check": "bash scripts/designstudio/local-check.sh",
     "designstudio:smoke": "bash scripts/designstudio/pipeline-smoke.sh",
     "build": "npm run build:vite-only && node scripts/bump-cache.js",
