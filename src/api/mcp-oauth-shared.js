@@ -659,47 +659,7 @@ export async function loadMcpOAuthConsentToolManifest(env, input) {
                 COALESCE(NULLIF(trim(tool_category), ''), 'general') AS tool_category,
                 COALESCE(risk_level, 'low') AS risk_level,
                 COALESCE(requires_approval, 0) AS requires_approval,
-                COALESCE(
-                  NULLIF(
-                    trim((
-                      SELECT ca.capability_lane
-                        FROM agentsam_capability_aliases ca
-                       WHERE ca.match_kind = 'tool_key'
-                         AND ca.match_value = agentsam_tools.tool_key
-                         AND COALESCE(ca.is_active, 1) = 1
-                       ORDER BY COALESCE(ca.priority, 999) ASC, ca.abstract_capability ASC
-                       LIMIT 1
-                    )),
-                    ''
-                  ),
-                  NULLIF(trim(tool_category), ''),
-                  CASE
-                    WHEN EXISTS (
-                      SELECT 1
-                        FROM agentsam_capability_aliases ca
-                       WHERE ca.match_kind = 'tool_key'
-                         AND ca.match_value = agentsam_tools.tool_key
-                         AND COALESCE(ca.is_active, 1) = 1
-                         AND ca.abstract_capability IS NOT NULL
-                         AND trim(ca.abstract_capability) != ''
-                       ORDER BY COALESCE(ca.priority, 999) ASC, ca.abstract_capability ASC
-                       LIMIT 1
-                    )
-                    THEN (
-                      SELECT ca.abstract_capability
-                        FROM agentsam_capability_aliases ca
-                       WHERE ca.match_kind = 'tool_key'
-                         AND ca.match_value = agentsam_tools.tool_key
-                         AND COALESCE(ca.is_active, 1) = 1
-                         AND ca.abstract_capability IS NOT NULL
-                         AND trim(ca.abstract_capability) != ''
-                       ORDER BY COALESCE(ca.priority, 999) ASC, ca.abstract_capability ASC
-                       LIMIT 1
-                    )
-                    ELSE NULL
-                  END,
-                  'general'
-                ) AS permission_group
+                COALESCE(NULLIF(trim(tool_category), ''), 'general') AS permission_group
            FROM agentsam_tools
           WHERE tool_key IN (${placeholders})
             AND COALESCE(is_active, 1) = 1

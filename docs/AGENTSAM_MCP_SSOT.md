@@ -9,7 +9,7 @@
 | **`agentsam_tools`** | **SSOT** — `tool_key`, `handler_type`, `handler_config`, `input_schema`, risk, approval, `mcp_service_url` |
 | **`agentsam_mcp_oauth_tool_allowlist`** | OAuth client surface (which keys external connectors may list/call) |
 | **`agentsam_mcp_allowlist`** | Per-user/workspace tool grants |
-| **`agentsam_capability_aliases`** | Public name → `tool_key` |
+| **`agentsam_capability_aliases`** | Intent routing only (`code.search`, …) — **not** MCP `tools/call` identity |
 | **`agentsam_tool_policy_keys`** | Baseline policy sets (allowlist exemptions, non-cacheable tools, panel denylist) |
 | **`agentsam_workflow_handlers`** | Use `executor_kind = catalog_tool` + `handler_config_json.tool_key` |
 | **`mcp_workspace_tokens`** | Bearer hashes (OAuth + static); not tool config |

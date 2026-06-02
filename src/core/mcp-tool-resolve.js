@@ -1,7 +1,10 @@
 /**
- * OAuth MCP tools/list — resolve allowlisted keys to agentsam_tools catalog rows.
+ * OAuth MCP tools/list — resolve allowlisted keys to agentsam_tools catalog rows (SSOT only).
  */
-import { inputSchemaFromAgentsamToolRow } from './agentsam-tools-catalog.js';
+import {
+  inputSchemaFromAgentsamToolRow,
+  loadAgentsamToolRow,
+} from './agentsam-tools-catalog.js';
 
 function trim(v) {
   return v == null ? '' : String(v).trim();
@@ -9,54 +12,12 @@ function trim(v) {
 
 /**
  * @param {import('@cloudflare/workers-types').D1Database} db
- * @param {string} publicKey — OAuth allowlist / token key (e.g. agentsam_memory_search)
+ * @param {string} publicKey — OAuth allowlist / token key (e.g. agentsam_d1_query)
  */
 async function resolveOAuthCatalogToolRow(db, publicKey) {
-  const k = trim(publicKey).toLowerCase();
+  const k = trim(publicKey);
   if (!k || !db) return null;
-
-  let row = await db
-    .prepare(
-      `SELECT tool_key, tool_name, display_name, description, input_schema, handler_type, handler_config, risk_level
-         FROM agentsam_tools
-        WHERE COALESCE(is_active, 1) = 1
-          AND COALESCE(is_degraded, 0) = 0
-          AND lower(tool_key) = ?
-        LIMIT 1`,
-    )
-    .bind(k)
-    .first();
-
-  if (row) return row;
-
-  const alias = await db
-    .prepare(
-      `SELECT match_value FROM agentsam_capability_aliases
-        WHERE lower(abstract_capability) = ?
-          AND match_kind = 'tool_key'
-          AND COALESCE(is_active, 1) = 1
-        ORDER BY priority ASC
-        LIMIT 1`,
-    )
-    .bind(k)
-    .first();
-
-  const handlerKey = trim(alias?.match_value).toLowerCase();
-  if (!handlerKey) return null;
-
-  row = await db
-    .prepare(
-      `SELECT tool_key, tool_name, display_name, description, input_schema, handler_type, handler_config, risk_level
-         FROM agentsam_tools
-        WHERE COALESCE(is_active, 1) = 1
-          AND COALESCE(is_degraded, 0) = 0
-          AND lower(tool_key) = ?
-        LIMIT 1`,
-    )
-    .bind(handlerKey)
-    .first();
-
-  return row ?? null;
+  return loadAgentsamToolRow({ DB: db }, k);
 }
 
 /**

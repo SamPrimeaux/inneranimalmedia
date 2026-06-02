@@ -486,6 +486,7 @@ function rowPassesAllowlist(row, allowKeys) {
 export async function loadAgentsamToolRow(env, toolCodeOrKey) {
   const key = trim(toolCodeOrKey);
   if (!env?.DB || !key) return null;
+  const keyLc = key.toLowerCase();
   return env.DB.prepare(
     `SELECT id, tool_key, tool_code, tool_name, display_name, handler_type, handler_config, handler_key,
             linked_mcp_tool_id, mcp_service_url, tool_category, input_schema, risk_level,
@@ -493,11 +494,28 @@ export async function loadAgentsamToolRow(env, toolCodeOrKey) {
      FROM agentsam_tools
      WHERE COALESCE(is_active, 1) = 1
        AND COALESCE(is_degraded, 0) = 0
-       AND (tool_code = ? OR tool_key = ? OR tool_name = ? OR display_name = ?)
+       AND (
+         tool_code = ?
+         OR tool_key = ?
+         OR tool_name = ?
+         OR display_name = ?
+         OR lower(trim(COALESCE(handler_key, ''))) = ?
+       )
      LIMIT 1`,
   )
-    .bind(key, key, key, key)
+    .bind(key, key, key, key, keyLc)
     .first();
+}
+
+/**
+ * MCP / OAuth catalog identity — resolves to agentsam_tools.tool_key (no capability_aliases remaps).
+ * @returns {string}
+ */
+export async function resolveCatalogToolKeyFromPublicName(env, publicName) {
+  const name = trim(publicName);
+  if (!name) return '';
+  const row = await loadAgentsamToolRow(env, name);
+  return row?.tool_key ? trim(row.tool_key) : name;
 }
 
 /**
