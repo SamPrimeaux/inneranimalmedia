@@ -1,0 +1,80 @@
+---
+description: IAM core — ship, identity, D1-first architecture, repo facts (single always-on rule)
+alwaysApply: true
+---
+
+# Inner Animal Media — core (always on)
+
+**Repo:** `/Users/samprimeaux/inneranimalmedia` · **Worker entry:** `src/index.js` · **Deploy:** `npm run deploy:full` only (not `npm run deploy` alone) · **MCP host:** separate worker at `mcp.inneranimalmedia.com`
+
+**D1 / schema:** Do **not** load table lists in rules (500+ tables). Before workflows, tools, routing, or handlers — **query D1** (`agentsam_*` registry, `d1_schema`, migrations). Missing config → idempotent `migrations/###_*.sql`, not JS fallbacks.
+
+---
+
+## Ship (default)
+
+Unless the user says **local only**, **no commit**, **no push**, or **no deploy**:
+
+1. Validate touched files (`node --check` on edited `.js`, dashboard console if UI).
+2. **Commit** on `main` (why-focused message).
+3. **Push** `origin/main`.
+4. **Deploy** `npm run deploy:full` from repo root.
+5. Smoke: `/health` + dashboard chunk URLs (not health-only).
+
+Opt-out: `local only`, `no deploy`, `plan only`, `review only`. Never force-push `main`; never commit `.env`, tokens, `*.bak`, `.scratch/`, `*.db`.
+
+Auth HTML: `static/pages/auth/*.html` → `./scripts/upload-auth-pages.sh` (R2 only, no Worker redeploy).
+
+---
+
+## Identity (LOCKED)
+
+Never hardcode `au_*`, `ws_*`, or `tenant_*` in `src/`, `dashboard/`, or MCP `src/` hot paths. Resolve from session, token, or D1 auth rows. OAuth allowlists are D1-driven (consent writes rows — no migration-seeded operator ids).
+
+- MCP OAuth client id: `MCP_CANONICAL_CLIENT_ID` from `mcp-oauth-shared.js` only.
+- Run `npm run guard:identity` before ship.
+
+---
+
+## Architecture
+
+- **Registry truth:** workflow keys, tools, handlers, MCP aliases → D1 (`agentsam_workflows`, `agentsam_workflow_handlers`, `agentsam_tools`, `agentsam_mcp_tools`, …). Use `resolveWorkflowFromSurfaceMetadata` — no new `firstActiveWorkflowKeyAmong`.
+- **`agentsam_*` prefix:** operational control-plane tables use full name; never invent unprefixed synonyms (`prompt_routes` does not exist).
+- **Two DB lanes:** `d1_*` / `env.DB` (D1 only) vs `supabase_*` / Hyperdrive (Postgres only). No Postgres through D1 binding.
+- **Workflow executor:** `handler_config_json` from D1; empty config → throw; edges use `from_status`: `success` | `failed` | `any`.
+- **Wrangler secrets:** platform only (~fixed set). Per-user keys in D1 `user_secrets` / `user_api_keys` / `mcp_workspace_tokens` — never per-user Wrangler secrets.
+- **MCP bearer:** shown once; D1 stores hash only (`generateMcpToken` / `TOKEN_SIGNING_KEY` on worker).
+
+---
+
+## Code hygiene (high signal)
+
+| Topic | Rule |
+|-------|------|
+| Utils | Import `cn`, dates, helpers from `lib/utils` paths — **no barrel imports** into components that the barrel re-exports |
+| React | `useState` before `useMemo`/`useCallback` that depend on it |
+| Models | No hardcoded provider/model in hot paths — `agentsam_model_catalog` |
+| Terminal | Gate with `agentsam_user_policy.can_run_pty`, not `isSuperAdmin()` |
+| User data | SELECTs on user artifacts must bind `user_id` or `workspace_id` from auth |
+| Python patches | `.bak` first, `Path.cwd().name == 'inneranimalmedia'`, idempotent, one logical change |
+| cms-editor | Separate Python worker — `pywrangler deploy`, not `deploy:full` |
+
+---
+
+## Cursor / MCP config
+
+- **Never** rewrite `.cursor/mcp.json` unless user asks to append after reading it.
+- IAM MCP examples → `docs/cursor-mcp-local.example.json` or gitignored `.cursor/mcp.local.json`.
+
+---
+
+## On-demand rules (load when relevant — `alwaysApply: false`)
+
+| File | When |
+|------|------|
+| `iam-production-surface-map.mdc` | URL → code, bindings, secrets **names** |
+| `supabase-connection.mdc` | Hyperdrive / pooler / `.env.cloudflare` |
+| `iam-keys-security-runtime.mdc` | API keys audit UI |
+| `cloudflare*.mdc` | Cloudflare Workers/R2/D1/MCP work — prefer over pretraining; also mirrored in R2 `inneranimalmedia-autorag/skills/` |
+
+Production bindings/env: `docs/platform/worker-env-production-2026-06.md` · verify: `npm run verify:wrangler-production`
