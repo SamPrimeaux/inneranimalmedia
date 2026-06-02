@@ -40,6 +40,7 @@ dashboard/dist/
 inneranimalmedia-agentsam-dashboard/
 inneranimalmedia-main-repo/
 gorilla-mode/
+cms/agentsam-cms-editor/
 
 # local migration helper
 promote-deploy-root-from-child.sh
