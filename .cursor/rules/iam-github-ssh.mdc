@@ -1,0 +1,59 @@
+---
+description: GitHub repo work — prefer terminal git over SSH; no gh CLI; API read-only for discovery
+alwaysApply: false
+---
+
+# IAM GitHub — SSH Git Workflow for Agents
+
+**PTY runtime has no `gh` CLI and no GitHub auth helper.** OAuth MCP and in-app agents must use **terminal git over SSH** for commits, new files, scaffolds, and multi-file changes.
+
+## Default workflow (Sam / `ws_inneranimalmedia`)
+
+1. **Discover** with `agentsam_github_*` **read** tools (list repos, read file, get tree, list branches).
+2. **Mutate** with `agentsam_terminal_run` / `agentsam_terminal_remote` in the workspace root (`cd` is applied automatically).
+3. Use **SSH remotes**, not HTTPS — keys are on the Mac/GCP PTY host (`~/.ssh/config`).
+
+| Repo | SSH remote |
+|------|------------|
+| `SamPrimeaux/inneranimalmedia` | `git@github.com:SamPrimeaux/inneranimalmedia.git` |
+| `SamPrimeaux/agentsam-cms-editor` | `git@github.com:SamPrimeaux/agentsam-cms-editor.git` |
+| `SamPrimeaux/inneranimalmedia-mcp-server` | `git@github.com-inneranimal-mcp:SamPrimeaux/inneranimalmedia-mcp-server.git` |
+
+SSH host aliases on the PTY machine: `github.com` (default), `github-inneranimal`, `github.com-inneranimal-mcp`, `github.com-agentsam`.
+
+## When to use GitHub API write tools
+
+| Use API | Use terminal git |
+|---------|------------------|
+| Single-line fix to **existing** file when you already have `sha` | **New files**, new directories, scaffolds |
+| Create PR / issue / comment after branch exists | Multi-file refactors, `npm init`, generated assets |
+| Read/search/list operations | `git clone`, `git add`, `git commit`, `git push` |
+
+**Do not** adapt scaffolds by stuffing everything into one existing file because write tools failed — clone or mkdir locally and commit properly.
+
+## Terminal patterns (no `gh`)
+
+```bash
+# verify SSH (non-fatal if rate-limited)
+ssh -T git@github.com
+
+# clone into workspace (example)
+git clone git@github.com:SamPrimeaux/REPO.git ../REPO
+
+# new file + commit
+install -d src/pages
+printf '%s\n' '...' > src/pages/Contact.jsx
+git add src/pages/Contact.jsx
+git commit -m "feat: add contact page"
+git push origin HEAD
+```
+
+## GitHub Contents API pitfalls
+
+- `update_file` **requires** `sha`; empty string ≠ missing — omit `sha` for create.
+- OAuth MCP `agentsam_github_create_file` must not route to `update_file`.
+- Prefer git for anything that would need more than one Contents API call.
+
+## D1 SSOT
+
+Query `agentsam_rules_document` id `rule_github_ssh_git_workflow` and `workspace_settings.settings_json` → `terminal_hints` / `github` for workspace-specific remotes.

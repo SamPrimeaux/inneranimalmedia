@@ -1271,7 +1271,7 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
       let handlerName = opMap[op] || null;
       if (!handlerName && toolKey === 'github_file') handlerName = 'github_get_file';
       if (!handlerName && toolKey === 'github_update_file') handlerName = 'github_update_file';
-      if (!handlerName && toolKey === 'github_create_file') handlerName = 'github_update_file';
+      if (!handlerName && toolKey === 'github_create_file') handlerName = 'github_create_file';
       if (!handlerName && toolKey === 'github_repos') handlerName = 'github_repos';
       if (!handlerName && toolKey === 'github_create_pr') handlerName = 'github_create_pr';
       if (!handlerName) {

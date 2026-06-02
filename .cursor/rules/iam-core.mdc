@@ -86,6 +86,7 @@ Never hardcode `au_*`, `ws_*`, or `tenant_*` in `src/`, `dashboard/`, or MCP `sr
 | `iam-terminal-connections.mdc` | `terminal_connections` priority, auth, cwd, failover — no hardcoded ws_url |
 | `iam-keys-security-runtime.mdc` | API keys audit UI |
 | `iam-tool-design.mdc` | Adding or retiring `agentsam_tools` / OAuth catalog / terminal vs BYOK |
+| `iam-github-ssh.mdc` | GitHub commits, new files, scaffolds — terminal git over SSH; no `gh` CLI |
 | `cloudflare*.mdc` | Cloudflare Workers/R2/D1/MCP work — prefer over pretraining; also mirrored in R2 `inneranimalmedia-autorag/skills/` |
 
 Production bindings/env: `docs/platform/worker-env-production-2026-06.md` · verify: `npm run verify:wrangler-production`
