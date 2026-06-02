@@ -1078,8 +1078,10 @@ type BrowserPreviewPayload = {
 };
 
 interface PaneProps {
-  initialUrl?:     string;
-  initialPreview?: BrowserPreviewPayload | null;
+  initialUrl?:         string;
+  initialPreview?:     BrowserPreviewPayload | null;
+  /** Agent SSE / tool_done — MYBROWSER automation; omit for passive iframe opens. */
+  initialAutomation?:  boolean;
   addressDisplay?: string | null;
   label?:          'A' | 'B';
   onClose?:        () => void;
@@ -1095,6 +1097,7 @@ interface PaneProps {
 const BrowserPane: React.FC<PaneProps> = ({
   initialUrl,
   initialPreview,
+  initialAutomation = false,
   addressDisplay,
   label,
   onClose,
@@ -1494,7 +1497,33 @@ const BrowserPane: React.FC<PaneProps> = ({
     void releaseBrowserRunSession();
   }, [releaseBrowserRunSession]);
 
-  /** Browser Run Live View (live.browser.run) — manual URL bar / passive navigation. */
+  /** Passive embed — direct iframe to target URL (no MYBROWSER / Browser Run session). */
+  const openPassiveIframeView = useCallback(
+    async (raw: string) => {
+      const s = raw.trim();
+      if (!s || isVirtual(s)) return;
+      const n = normalize(s);
+      console.log('[browser] passive_iframe', JSON.stringify({ url: n.slice(0, 240) }));
+
+      setNavigateError(null);
+      setScreenshotUrl(null);
+      setScreenshotErr(null);
+      setMode('browse');
+      setInspectedEl(null);
+      setIframeBlocked(false);
+      setLoading(true);
+
+      await releaseBrowserRunSession();
+      setIframeUrl(n);
+      setCurrentUrl(n);
+      setInputVal(addressDisplay?.trim() && /^(blob:|data:)/i.test(n) ? addressDisplay : n);
+      onUrlCommitted?.(n);
+      setLoading(false);
+    },
+    [addressDisplay, onUrlCommitted, releaseBrowserRunSession],
+  );
+
+  /** Browser Run Live View (live.browser.run) — CDP DevTools embed; agent-only / explicit fallback. */
   const openBrowserRunLiveView = useCallback(
     async (raw: string) => {
       const s = raw.trim();
@@ -1565,21 +1594,23 @@ const BrowserPane: React.FC<PaneProps> = ({
         await loadAutomationPreview(n, opts?.preview ?? null);
         return;
       }
-      await openBrowserRunLiveView(raw);
+      await openPassiveIframeView(raw);
     },
-    [ensureOriginTrust, loadAutomationPreview, loadRegistryPickersIfNeeded, openBrowserRunLiveView],
+    [ensureOriginTrust, loadAutomationPreview, loadRegistryPickersIfNeeded, openPassiveIframeView],
   );
 
-  // ── Sync parent URL prop → iframe or MYBROWSER preview (agent / user navigation) ─
+  // ── Sync parent/agent URL → iframe or MYBROWSER preview (not URL-bar keystrokes) ─
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
   useEffect(() => {
     if (!initialUrl?.trim()) return;
-    void navigateRef.current(normalize(initialUrl), {
+    const n = normalize(initialUrl);
+    if (n === currentUrlRef.current) return;
+    void navigateRef.current(n, {
       preview: initialPreview?.screenshot_url ? initialPreview : null,
-      automation: Boolean(initialPreview?.screenshot_url),
+      automation: initialAutomation === true || Boolean(initialPreview?.screenshot_url),
     });
-  }, [initialUrl, initialPreview]);
+  }, [initialUrl, initialPreview, initialAutomation]);
 
   // ── Screenshot (Playwright) ─────────────────────────────────────────────────
   const runScreenshot = useCallback(async (clip?: { x: number; y: number; width: number; height: number }) => {
@@ -1656,9 +1687,18 @@ const BrowserPane: React.FC<PaneProps> = ({
 
   // ── Hard reload ─────────────────────────────────────────────────────────────
   const hardReload = useCallback(() => {
-    void openBrowserRunLiveView(currentUrl);
+    if (browserRunSessionRef.current) {
+      void openBrowserRunLiveView(currentUrl);
+    } else if (iframeUrl?.trim()) {
+      setLoading(true);
+      const u = currentUrl;
+      setIframeUrl('');
+      window.requestAnimationFrame(() => setIframeUrl(u));
+    } else {
+      void openPassiveIframeView(currentUrl);
+    }
     setMenuOpen(false);
-  }, [currentUrl, openBrowserRunLiveView]);
+  }, [currentUrl, iframeUrl, openBrowserRunLiveView, openPassiveIframeView]);
 
   // ── Clear helpers ───────────────────────────────────────────────────────────
   const clearBrowserData = useCallback((what: 'history' | 'cookies' | 'cache') => {
@@ -1954,7 +1994,9 @@ const BrowserPane: React.FC<PaneProps> = ({
                 {loading && mode === 'browse' && !screenshotUrl && (
                   <div className="absolute top-0 left-0 right-0 bottom-0 z-[6] flex flex-col items-center justify-center gap-3 bg-[var(--bg-app)]/90">
                     <Loader2 size={20} className="animate-spin text-[var(--color-primary)]" />
-                    <p className="text-[11px] text-[var(--text-muted)]">Starting Browser Run live view…</p>
+                    <p className="text-[11px] text-[var(--text-muted)]">
+                      {browserRunSessionRef.current ? 'Starting Browser Run live view…' : 'Loading page…'}
+                    </p>
                   </div>
                 )}
 
@@ -2146,15 +2188,27 @@ interface BrowserViewProps {
 }
 
 export const BrowserView: React.FC<BrowserViewProps> = ({
-  url: _urlFromParent,
+  url: urlFromParent,
   addressDisplay,
   onUrlCommitted,
   isActive = false,
   agentRunId = null,
   workspaceContext: _workspaceContext = null,
 }) => {
-  const [primaryUrl,      setPrimaryUrl]      = useState('');
-  const [primaryPreview,  setPrimaryPreview]  = useState<BrowserPreviewPayload | null>(null);
+  const [primaryUrl,         setPrimaryUrl]         = useState('');
+  const [primaryAutomation, setPrimaryAutomation] = useState(false);
+  const [primaryPreview,    setPrimaryPreview]    = useState<BrowserPreviewPayload | null>(null);
+  const urlFromParentRef = useRef(urlFromParent);
+
+  // Parent App state after user commit or agent surface_open — not the stale default on first mount.
+  useEffect(() => {
+    const u = urlFromParent?.trim();
+    const prev = urlFromParentRef.current?.trim();
+    urlFromParentRef.current = urlFromParent;
+    if (!u || u === prev || u === primaryUrl) return;
+    setPrimaryUrl(u);
+  }, [urlFromParent, primaryUrl]);
+
   const [secondaryUrl,    setSecondaryUrl]    = useState<string | null>(null);
   const [agentActive,   setAgentActive]   = useState(false);
   const [collabBridge, setCollabBridge] = useState<'live' | 'offline' | 'unavailable'>('live');
@@ -2169,6 +2223,7 @@ export const BrowserView: React.FC<BrowserViewProps> = ({
       }>).detail;
       if (d?.url) {
         setPrimaryUrl(d.url);
+        setPrimaryAutomation(d.automation === true);
         if (d.screenshot_url) {
           setPrimaryPreview({ screenshot_url: d.screenshot_url });
         } else {
@@ -2317,6 +2372,7 @@ export const BrowserView: React.FC<BrowserViewProps> = ({
         <BrowserPane
           initialUrl={primaryUrl}
           initialPreview={primaryPreview}
+          initialAutomation={primaryAutomation}
           addressDisplay={addressDisplay}
           label={secondaryUrl ? 'A' : undefined}
           isSplit={!!secondaryUrl}

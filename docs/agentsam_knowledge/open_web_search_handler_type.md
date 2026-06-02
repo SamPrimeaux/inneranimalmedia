@@ -1,40 +1,44 @@
 # Open-web search — `agentsam_tools.handler_type` strategy
 
-## Live D1 constraint (2026-05-29)
+## Two distinct surfaces (do not mix)
 
-`agentsam_tools.handler_type` CHECK allows:
+| Surface | `handler_type` | Binding / secret | Tools |
+|---------|----------------|------------------|-------|
+| Browser / DOM / MYBROWSER | `mybrowser` | `env.MYBROWSER` | `browser_navigate`, `cdt_*`, `playwright_screenshot`, … |
+| Open web (Tavily + fetch) | `websearch` | `env.TAVILY_API_KEY` (+ Worker `fetch` for URLs) | `search_web`, `web_fetch` |
 
-`mcp`, `r2`, `github`, `terminal`, `http`, `proxy`, `ai`, `d1`, `hyperdrive`, `supabase`, `kv`, `durable_object`, `filesystem`, `browser_agentic`, `mybrowser`, `telemetry`, `eval`, `task.planner`, `task.organizer`, `task.manager`, `workspace.reader`
+Executor: `catalog-tool-executor.js` — `case 'websearch'` → `open-web-catalog-dispatch.js` → `web.js` (never MCP, never MYBROWSER).
 
-**Not allowed:** `builtin`, `websearch`, `open_web_search`
+Dashboard BrowserView uses `mybrowser` tools via `POST /api/browser/invoke` only for DevTools/picker/screenshots — not for passive iframe browsing.
 
-Migration **454** failed when setting `handler_type='builtin'` for this reason.
-
-## Deploy-safe (current production)
+## Canonical D1 rows (migration 501+)
 
 | Field | `search_web` | `web_fetch` |
 |--------|----------------|-------------|
-| `handler_type` | `ai` | `ai` |
+| `handler_type` | `websearch` | `websearch` |
+| `tool_category` | `research.web` | `research.web` |
 | `execution_lane` (in `handler_config`) | `open_web_search` | `web_fetch` |
 | `dispatch_target` | `search_web` | `web_fetch` |
 | `web_backend` | `tavily` | — |
+| `not_browser` | `true` | `true` |
 
-Executor: `catalog-tool-executor.js` routes `handler_type=ai` + `execution_lane` / `dispatch_target` to `open-web-catalog-dispatch.js` → `web.js` → `tavily-open-web-search.js` (never `ai_complete`).
+## Legacy (pre-501)
 
-Migrations: **453**, **455**, **456** (metadata).
-
-## Follow-up (maintenance window)
-
-Migration **457** rebuilds `agentsam_tools` to add `websearch` to CHECK, then sets `search_web.handler_type = 'websearch'`.
-
-**Before 457:** confirm no blocking FKs; backup; re-run view drift checks (`v_mcp_tools`, `v_mcp_tool_execution`, `v_mcp_tool_drift`).
-
-**After 457:** executor `case 'websearch'` is the primary path; `ai` + metadata remains backward-compatible.
+Rows used `handler_type = ai` with `execution_lane` in `handler_config`. Executor still accepts `ai` + open-web metadata for backward compatibility.
 
 ## Inspect constraint
 
 ```bash
 ./scripts/with-cloudflare-env.sh npx wrangler d1 execute inneranimalmedia-business --remote -c wrangler.production.toml --command "
 SELECT sql FROM sqlite_master WHERE type='table' AND name='agentsam_tools';
+"
+```
+
+Verify rows:
+
+```bash
+./scripts/with-cloudflare-env.sh npx wrangler d1 execute inneranimalmedia-business --remote -c wrangler.production.toml --command "
+SELECT tool_name, handler_type, json_extract(handler_config, '$.execution_lane') AS lane
+FROM agentsam_tools WHERE tool_name IN ('search_web','web_fetch');
 "
 ```

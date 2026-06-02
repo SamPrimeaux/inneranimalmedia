@@ -111,7 +111,7 @@ export async function buildCodemodeToolset(env, runContext = {}, opts = {}) {
        WHERE COALESCE(requires_approval, 0) = 0
          AND COALESCE(is_active, 1) = 1
          AND COALESCE(is_degraded, 0) = 0
-         AND lower(COALESCE(handler_type, '')) NOT IN ('mybrowser', 'filesystem')
+         AND lower(COALESCE(handler_type, '')) NOT IN ('mybrowser', 'websearch', 'filesystem')
        ORDER BY tool_name`,
     )
     .all();
