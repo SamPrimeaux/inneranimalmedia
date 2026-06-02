@@ -346,6 +346,8 @@ WHERE handler_type IN ('r2','builtin','workspace.reader','time');
 
 **Maintainer:** update this file when a chunk completes; note migration numbers and date in git commit messages.
 
+**Applied:** migration **518** (2026-06-02) — OAuth allowlist dead-key deactivation, chunk-1 soft-deprecate, capability_alias supersession remap, OAuth token snapshot rebuild. Audit: `npm run audit:tools`.
+
 ---
 
 ## Appendix — full deprecation pool (121 rows)
