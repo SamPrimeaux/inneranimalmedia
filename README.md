@@ -69,7 +69,7 @@ POST /api/agent/chat
 
 **Tool surfaces (not “166 tools for every chat”):**
 
-- Catalog: `agentsam_tools` / `agentsam_mcp_tools`
+- Catalog: `agentsam_tools` only (`agentsam_mcp_tools` dropped in migration 498)
 - Per-route compile: `agentsam_route_requirements` + `selectAgentsamToolsForAgentChat`
 - **File read (working):** `fs_read_file` → `src/core/fs-read-file.js` (Monaco buffer → PTY host path → VM workspace)
 - **File list/write (broken):** `list_dir` / `write_file` still HTTP-loopback to **unwired** `/api/fs/list`, `/api/fs/write`

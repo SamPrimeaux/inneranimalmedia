@@ -228,8 +228,41 @@ export async function dispatchCustomerSupabase(env, opts) {
         schema: opts.schema || 'public',
       });
       if (!policy.allowed) return { ok: false, error: policy.reason, policy };
+      const stmtKind = classifyDatabaseSqlStatement(sql);
+      if (stmtKind !== 'read' && stmtKind !== 'explain') {
+        return {
+          ok: false,
+          error: 'readonly_operation_required',
+          policy,
+          user_message: 'This path only allows SELECT/EXPLAIN. Use a write operation for mutations.',
+        };
+      }
       return customerSupabaseRunQuery(access_token, project_ref, sql);
     },
+    run_write_sql: async () => {
+      const sql = String(opts.sql || '').trim();
+      const policy = evaluateDataPlaneOperation({
+        owner_type: 'customer',
+        operation_type: 'execute_sql',
+        sql,
+        is_owner: false,
+        provider: 'supabase',
+        schema: opts.schema || 'public',
+        explicit_approval_id: opts.approval_id,
+      });
+      if (!policy.allowed) return { ok: false, error: policy.reason, policy };
+      const stmtKind = classifyDatabaseSqlStatement(sql);
+      if (stmtKind === 'read' || stmtKind === 'explain') {
+        return {
+          ok: false,
+          error: 'write_operation_required',
+          user_message: 'supabase.write requires INSERT, UPDATE, DELETE, or DDL — not SELECT.',
+        };
+      }
+      return customerSupabaseRunQuery(access_token, project_ref, sql);
+    },
+    execute_sql: async () => handlers.run_write_sql(),
+    supabase_write: async () => handlers.run_write_sql(),
     customer_supabase_readonly_query: async () => handlers.run_readonly_sql(),
     propose_migration: async () => {
       const migrationSql = String(opts.migration_sql || opts.sql || '').trim();
@@ -308,6 +341,9 @@ export async function dispatchCustomerSupabase(env, opts) {
       connection_id,
       duration_ms: Date.now() - t0,
       read_only: ['run_readonly_sql', 'list_tables', 'inspect_schema', 'describe_table'].includes(operation),
+      write_path: ['run_write_sql', 'execute_sql', 'supabase_write', 'apply_approved_migration'].includes(
+        operation,
+      ),
     };
   } catch (e) {
     await logCustomerDataPlaneEvent(env, {

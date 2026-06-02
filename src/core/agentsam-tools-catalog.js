@@ -497,7 +497,6 @@ export function validateHandlerConfigForExecution(row, config, executableTypes =
         return { ok: false, error: `handler_config requires base_url or endpoint for tool_key=${toolKey}` };
       }
       break;
-    case 'd1':
     case 'hyperdrive':
     case 'supabase':
     case 'terminal':
@@ -551,6 +550,7 @@ export function validateHandlerConfigForExecution(row, config, executableTypes =
         return { ok: false, error: `handler_config requires auth_source and operation for tool_key=${toolKey}` };
       }
       break;
+    case 'd1':
     case 'deploy':
     case 'git':
     case 'cf':

@@ -2,7 +2,7 @@
 --
 -- Goals:
 -- - GitHub: stable operation strings + per-user OAuth; requires_approval ONLY for merge_pr + delete_branch
--- - D1: agentsam_d1_query must be handler_type='d1' (not 'cf') so it never falls through to semantic search
+-- - D1: (superseded by 509) agentsam_d1_* belong in handler_type='cf' with operation d1.*
 --
 -- Run:
 --   ./scripts/with-cloudflare-env.sh npx wrangler d1 execute inneranimalmedia-business \

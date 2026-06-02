@@ -25,6 +25,12 @@ import {
 import { mergeR2S3EnvFromUserStorage } from './user-storage-r2-credentials.js';
 import { executeR2CatalogOperation, isR2ListLikeOperation } from '../tools/builtin/r2-object-crud.js';
 import { getR2Binding } from '../api/r2-api.js';
+import {
+  catalogOperationIsSemanticSearch,
+  catalogOperationRequiresSql,
+  resolveCatalogDataPlaneOperation,
+  resolveCatalogDataPlaneProvider,
+} from './catalog-data-plane-operation.js';
 
 function parseInput(input) {
   if (input == null) return {};
@@ -65,6 +71,106 @@ function summarizeOutput(output) {
     output?.error ??
     safeJsonString(output, '');
   return String(text || '').slice(0, 1000) || null;
+}
+
+/** Cloudflare lane: D1 query/write/migrate (handler_type cf; legacy d1 alias). */
+function isCatalogCfD1Operation(toolKey, config) {
+  const key = String(toolKey || '').trim();
+  if (/^agentsam_d1_/i.test(key)) return true;
+  const resource = String(config?.resource || '').toLowerCase();
+  if (resource === 'd1') return true;
+  const op = String(config?.operation || '').toLowerCase();
+  return op.startsWith('d1.') || op === 'd1';
+}
+
+function normalizeCatalogCfD1Op(config, toolKey) {
+  let op = String(config?.operation || '').toLowerCase();
+  if (op.startsWith('d1.')) op = op.slice(3);
+  if (op === 'd1') op = 'query';
+  if (!op) {
+    const key = String(toolKey || '').toLowerCase();
+    if (key.includes('write')) return 'write';
+    if (key.includes('migrate')) return 'migrate';
+    return 'query';
+  }
+  return op;
+}
+
+/**
+ * @param {any} env
+ * @param {Record<string, unknown>} config
+ * @param {Record<string, unknown>} params
+ * @param {Record<string, unknown>} runContext
+ */
+async function executeCatalogCfD1(env, config, params, runContext) {
+  const { resolveWorkspaceD1Execution, executeWorkspaceD1Query } = await import(
+    './workspace-d1-execution.js'
+  );
+  const authUser = runContext.authUser ?? runContext.user ?? null;
+  const d1Ctx = {
+    user_id: runContext.userId ?? runContext.user_id,
+    tenant_id: runContext.tenantId ?? runContext.tenant_id,
+    workspace_id: runContext.workspaceId ?? runContext.workspace_id,
+    authUser,
+  };
+
+  const op = normalizeCatalogCfD1Op(config, runContext.agentsam_tool_key ?? params.tool_key);
+  try {
+    if (op === 'introspect' || op === 'schema') {
+      const resolved = await resolveWorkspaceD1Execution(env, d1Ctx);
+      if (!resolved.ok) {
+        return {
+          ok: false,
+          error: resolved.error,
+          user_message: resolved.user_message,
+        };
+      }
+      if (resolved.mode === 'remote') {
+        const tbl = params.table != null ? String(params.table).trim() : '';
+        const sql = tbl
+          ? `PRAGMA table_info(${tbl})`
+          : `SELECT name, type, sql FROM sqlite_master WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%' ORDER BY name ASC LIMIT 500`;
+        const out = await executeWorkspaceD1Query(env, d1Ctx, sql);
+        return out.ok
+          ? { ok: true, body: tbl ? { table: tbl, columns: out.rows } : { objects: out.rows } }
+          : { ok: false, error: out.error, user_message: out.user_message };
+      }
+      const out = await dbToolHandlers.d1_schema_introspect(params, env);
+      return out?.error ? { ok: false, error: String(out.error) } : { ok: true, body: out };
+    }
+
+    const sql = String(params.sql || params.query || '').trim();
+    if (!sql) {
+      return { ok: false, error: `cf d1 tool requires sql in input (operation=${op})` };
+    }
+
+    if (op === 'execute' || op === 'write' || op === 'migrate') {
+      const resolved = await resolveWorkspaceD1Execution(env, d1Ctx);
+      if (!resolved.ok || resolved.mode === 'denied') {
+        return {
+          ok: false,
+          error: resolved.error || 'access_denied',
+          user_message: resolved.user_message,
+        };
+      }
+      if (resolved.mode === 'remote') {
+        return {
+          ok: false,
+          error: 'remote_d1_write_not_supported',
+          user_message: 'Remote customer D1 writes require dashboard approval flow.',
+        };
+      }
+      const out = await d1_write({ sql, params: params.params }, env);
+      return { ok: true, body: out };
+    }
+
+    const out = await executeWorkspaceD1Query(env, d1Ctx, sql, params.params);
+    return out.ok
+      ? { ok: true, body: { rows: out.rows, data_plane: out.mode, meta: out.meta ?? {} } }
+      : { ok: false, error: out.error, user_message: out.user_message };
+  } catch (e) {
+    return { ok: false, error: e?.message ?? String(e) };
+  }
 }
 
 function extractUsageMetrics(output, fallbackModel = null, fallbackProvider = null) {
@@ -628,87 +734,47 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
   };
 
   switch (handlerType) {
-    case 'd1': {
-      const { resolveWorkspaceD1Execution, executeWorkspaceD1Query } = await import('./workspace-d1-execution.js');
-      const authUser = runContext.authUser ?? runContext.user ?? null;
-      const d1Ctx = {
-        user_id: userId,
-        tenant_id: tenantId,
-        workspace_id: workspaceId,
-        authUser,
-      };
-
-      const op = String(config.operation || 'query').toLowerCase();
-      try {
-        if (op === 'introspect' || op === 'schema') {
-          const resolved = await resolveWorkspaceD1Execution(env, d1Ctx);
-          if (!resolved.ok) {
-            result = {
-              ok: false,
-              error: resolved.error,
-              user_message: resolved.user_message,
-            };
-            break;
-          }
-          if (resolved.mode === 'remote') {
-            const tbl = params.table != null ? String(params.table).trim() : '';
-            const sql = tbl
-              ? `PRAGMA table_info(${tbl})`
-              : `SELECT name, type, sql FROM sqlite_master WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%' ORDER BY name ASC LIMIT 500`;
-            const out = await executeWorkspaceD1Query(env, d1Ctx, sql);
-            result = out.ok
-              ? { ok: true, body: tbl ? { table: tbl, columns: out.rows } : { objects: out.rows } }
-              : { ok: false, error: out.error, user_message: out.user_message };
-            break;
-          }
-          const out = await dbToolHandlers.d1_schema_introspect(params, env);
-          result = out?.error ? { ok: false, error: String(out.error) } : { ok: true, body: out };
-          break;
-        }
-
-        const sql = String(params.sql || params.query || '').trim();
-        if (!sql) {
-          result = { ok: false, error: `d1 tool requires sql in input (operation=${op})` };
-          break;
-        }
-
-        if (op === 'execute' || op === 'write') {
-          const resolved = await resolveWorkspaceD1Execution(env, d1Ctx);
-          if (!resolved.ok || resolved.mode === 'denied') {
-            result = {
-              ok: false,
-              error: resolved.error || 'access_denied',
-              user_message: resolved.user_message,
-            };
-            break;
-          }
-          if (resolved.mode === 'remote') {
-            result = {
-              ok: false,
-              error: 'remote_d1_write_not_supported',
-              user_message: 'Remote customer D1 writes require dashboard approval flow.',
-            };
-            break;
-          }
-          const out = await d1_write({ sql, params: params.params }, env);
-          result = { ok: true, body: out };
-          break;
-        }
-
-        const out = await executeWorkspaceD1Query(env, d1Ctx, sql, params.params);
-        result = out.ok
-          ? { ok: true, body: { rows: out.rows, data_plane: out.mode, meta: out.meta ?? {} } }
-          : { ok: false, error: out.error, user_message: out.user_message };
-      } catch (e) {
-        result = { ok: false, error: e?.message ?? String(e) };
+    case 'd1':
+    case 'cf': {
+      if (handlerType === 'd1' || isCatalogCfD1Operation(toolKey, config)) {
+        result = await executeCatalogCfD1(env, config, params, {
+          ...runContext,
+          agentsam_tool_key: toolKey,
+        });
+        break;
       }
-      break;
+      if (handlerType === 'd1') {
+        result = {
+          ok: false,
+          error:
+            'handler_type d1 is deprecated; use handler_type=cf with operation d1.query|d1.write|d1.migrate',
+        };
+        break;
+      }
+
+      const cfOp = String(config.operation || '').toLowerCase();
+      const r2ToolKeys = new Set(['agentsam_r2_get', 'agentsam_r2_put', 'agentsam_r2_delete']);
+      if (
+        r2ToolKeys.has(toolKey) ||
+        String(config.resource || '').toLowerCase() === 'r2' ||
+        cfOp.startsWith('r2.')
+      ) {
+        const r2Row = { ...row, handler_type: 'r2' };
+        return executeCatalogTool(env, r2Row, config, params, runContext, credentials);
+      }
+
+      const httpRow = { ...row, handler_type: 'http' };
+      return executeCatalogTool(env, httpRow, config, params, runContext, credentials);
     }
 
     case 'hyperdrive':
     case 'supabase': {
+      const dispatchOperation = resolveCatalogDataPlaneOperation(config, toolKey);
+      const requestedProvider = resolveCatalogDataPlaneProvider(config);
+
       if (
         toolKey === 'knowledge_search' ||
+        catalogOperationIsSemanticSearch(dispatchOperation) ||
         String(execConfig.dispatcher || '').toLowerCase().includes('semantic')
       ) {
         const { legacyUnifiedRagSearch } = await import('../api/rag.js');
@@ -716,7 +782,10 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
           params.query || params.q || params.message || runContext.userMessage || '',
         ).trim();
         if (!query) {
-          result = { ok: false, error: 'knowledge_search requires query in input' };
+          result = {
+            ok: false,
+            error: `${dispatchOperation || 'semantic_search'} requires query in input`,
+          };
           break;
         }
         const out = await legacyUnifiedRagSearch(env, query, {
@@ -732,19 +801,33 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
             matches: out.matches || [],
             results: out.results || [],
             count: out.count || 0,
+            operation: dispatchOperation,
           },
         };
         break;
       }
-      const sql = String(params.sql || params.query || '').trim();
-      if (!sql) {
-        result = { ok: false, error: 'hyperdrive/supabase tool requires sql in input' };
+
+      if (!catalogOperationRequiresSql(dispatchOperation)) {
+        result = {
+          ok: false,
+          error: `unsupported catalog operation for sql dispatch: ${dispatchOperation}`,
+        };
         break;
       }
+
+      const sql = String(params.sql || '').trim();
+      if (!sql) {
+        result = {
+          ok: false,
+          error: `hyperdrive/supabase tool requires sql in input (operation=${dispatchOperation})`,
+        };
+        break;
+      }
+
       const authUser = runContext.authUser ?? runContext.user ?? null;
       const { dispatchCustomerDataPlaneOperation } = await import('./customer-data-plane-dispatch.js');
       const routed = await dispatchCustomerDataPlaneOperation(env, {
-        operation: 'run_readonly_sql',
+        operation: dispatchOperation,
         sql,
         message: sql,
         authUser,
@@ -752,7 +835,9 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         tenant_id: tenantId,
         workspace_id: workspaceId,
         agent_run_id: agentRunId,
-        requested_provider: config.data_plane || config.provider || null,
+        approval_id: params.approval_id ?? params.approvalId ?? null,
+        requested_provider: requestedProvider,
+        data_plane: config.data_plane || null,
       });
       if (!routed.ok) {
         result = {
@@ -763,7 +848,16 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         };
         break;
       }
-      result = { ok: true, body: { rows: routed.rows || [], data_plane: routed.data_plane } };
+      result = {
+        ok: true,
+        body: {
+          rows: routed.rows || [],
+          data_plane: routed.data_plane,
+          operation: dispatchOperation,
+          read_only: routed.read_only === true,
+          write_path: routed.write_path === true,
+        },
+      };
       break;
     }
 
@@ -1333,19 +1427,6 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
       break;
     }
 
-    case 'cf': {
-      if (['agentsam_d1_query', 'agentsam_d1_write', 'agentsam_d1_migrate'].includes(toolKey)) {
-        const d1Row = { ...row, handler_type: 'd1' };
-        return executeCatalogToolRow(env, d1Row, params, runContext);
-      }
-      if (['agentsam_r2_get', 'agentsam_r2_put', 'agentsam_r2_delete'].includes(toolKey)) {
-        const r2Row = { ...row, handler_type: 'r2' };
-        return executeCatalogToolRow(env, r2Row, params, runContext);
-      }
-      const httpRow = { ...row, handler_type: 'http' };
-      return executeCatalogToolRow(env, httpRow, params, runContext);
-    }
-
     case 'deploy': {
       let deployCommand = '';
       if (workspaceId && env?.DB) {
@@ -1378,17 +1459,19 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         break;
       }
       const termRow = { ...row, handler_type: 'terminal' };
-      return executeCatalogToolRow(
+      return executeCatalogTool(
         env,
         termRow,
+        config,
         { ...params, command: deployCommand },
         runContext,
+        credentials,
       );
     }
 
     case 'git': {
       const termRow = { ...row, handler_type: 'terminal' };
-      return executeCatalogToolRow(env, termRow, params, runContext);
+      return executeCatalogTool(env, termRow, config, params, runContext, credentials);
     }
 
     case 'mcp':

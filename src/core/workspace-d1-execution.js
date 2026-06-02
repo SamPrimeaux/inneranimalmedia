@@ -1,5 +1,5 @@
 /**
- * Workspace-scoped D1 execution resolver for agentsam_d1_query and catalog d1 handlers.
+ * Workspace-scoped D1 execution resolver for agentsam_d1_* (catalog handler_type cf, operation d1.*).
  * Platform env.DB only for owner/superadmin without a customer D1 binding.
  * Customer workspaces fail closed when no BYO Cloudflare D1 is configured.
  */

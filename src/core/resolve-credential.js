@@ -25,6 +25,8 @@ const AUTH_SOURCE_ALIASES = {
   secret: 'secret',
   user_secrets: 'secret',
   mcp: 'mcp',
+  /** Per-tenant tools: resolve via provider in handler_config (cloudflare, supabase, …). */
+  workspace: 'workspace',
 };
 
 const AUTH_SOURCES = new Set(Object.keys(AUTH_SOURCE_ALIASES));
@@ -435,6 +437,29 @@ export async function resolveCredential(env, workspaceId, tenantId, handlerConfi
 
   if (authSource === 'mcp') {
     return resolveMcpCredential(env, uid, tid, ws, opts);
+  }
+
+  if (authSource === 'workspace') {
+    const provider = String(
+      config.provider || config.credential_provider || config.integration || '',
+    )
+      .trim()
+      .toLowerCase();
+    if (provider === 'cloudflare' || provider === 'supabase' || provider) {
+      return resolveCredential(env, workspaceId, tenantId, {
+        ...config,
+        auth_source: 'api_key',
+        provider: provider || 'cloudflare',
+      }, opts);
+    }
+    return {
+      auth_source: 'workspace',
+      provider: provider || null,
+      value: null,
+      user_id: uid,
+      tenant_id: tid,
+      workspace_id: ws || null,
+    };
   }
 
   throw new Error(`[resolveCredential] unhandled auth_source=${authSource}`);
