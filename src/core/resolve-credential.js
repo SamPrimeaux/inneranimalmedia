@@ -12,6 +12,16 @@
 import { getIntegrationOAuthRow } from './user-oauth-token.js';
 import { getAESKey, aesGcmDecryptFromB64 } from './crypto-vault.js';
 import { validateMcpToken } from './mcp-auth.js';
+import { authUserIsSuperadmin } from './auth.js';
+
+export class CredentialNotConfiguredError extends Error {
+  /** @param {string} provider */
+  constructor(provider) {
+    super(`[resolveCredential] credential not configured for provider=${provider}`);
+    this.name = 'CredentialNotConfiguredError';
+    this.provider = provider;
+  }
+}
 
 /** @typedef {'platform'|'platform_scoped'|'oauth'|'api_key'|'secret'|'mcp'} CanonicalAuthSource */
 
@@ -66,6 +76,112 @@ function requireScopeIds(workspaceId, tenantId) {
     throw new Error('[resolveCredential] platform_scoped requires workspace_id and tenant_id');
   }
   return { workspaceId: ws, tenantId: tid };
+}
+
+/**
+ * Platform bypass gate — role from auth_users (D1), never tenant id strings in code.
+ * @param {Record<string, unknown>|null|undefined} user
+ */
+export function userHasSuperadminRole(user) {
+  if (!user || typeof user !== 'object') return false;
+  const role = String(user.role ?? '').trim().toLowerCase();
+  if (role === 'superadmin') return true;
+  return authUserIsSuperadmin(user);
+}
+
+/**
+ * @param {any} env
+ * @param {Record<string, unknown>} [opts]
+ */
+async function loadCredentialAuthUser(env, opts = {}) {
+  if (opts.authUser && typeof opts.authUser === 'object' && opts.authUser.id) {
+    return opts.authUser;
+  }
+  const uid = opts.userId ?? opts.user_id;
+  if (!uid || !env?.DB) return null;
+  try {
+    return await env.DB.prepare(
+      `SELECT id, email, role, COALESCE(is_superadmin, 0) AS is_superadmin
+       FROM auth_users WHERE id = ? LIMIT 1`,
+    )
+      .bind(String(uid).trim())
+      .first();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Operator platform secrets (Wrangler) — only when user.role === 'superadmin' (or is_superadmin).
+ * @param {string} provider
+ * @param {any} env
+ * @param {Record<string, unknown>} [config]
+ */
+export function getPlatformCredential(provider, env, config = {}) {
+  const p = String(provider || '').trim().toLowerCase();
+  if (p === 'cloudflare') {
+    const token = env?.CLOUDFLARE_API_TOKEN;
+    if (token == null || String(token).trim() === '') {
+      throw new Error('[resolveCredential] platform cloudflare: CLOUDFLARE_API_TOKEN missing');
+    }
+    const accountId =
+      env?.CLOUDFLARE_ACCOUNT_ID != null ? String(env.CLOUDFLARE_ACCOUNT_ID).trim() : null;
+    return {
+      auth_source: 'platform',
+      provider: 'cloudflare',
+      value: String(token),
+      account_id: accountId,
+      values: {
+        CLOUDFLARE_API_TOKEN: String(token),
+        ...(accountId ? { CLOUDFLARE_ACCOUNT_ID: accountId } : {}),
+      },
+    };
+  }
+  if (p === 'supabase') {
+    const url = env?.SUPABASE_URL;
+    const serviceKey = env?.SUPABASE_SERVICE_ROLE_KEY;
+    if (!url || !serviceKey) {
+      throw new Error(
+        '[resolveCredential] platform supabase: SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY missing',
+      );
+    }
+    return {
+      auth_source: 'platform',
+      provider: 'supabase',
+      value: String(serviceKey),
+      values: {
+        SUPABASE_URL: String(url),
+        SUPABASE_SERVICE_ROLE_KEY: String(serviceKey),
+      },
+    };
+  }
+  return readPlatformEnv(env, { ...config, auth_source: 'platform' });
+}
+
+/**
+ * @param {any} env
+ * @param {string|null|undefined} workspaceId
+ * @param {string|null|undefined} tenantId
+ * @param {Record<string, unknown>} config
+ * @param {Record<string, unknown>} opts
+ * @param {Record<string, unknown>|null} authUser
+ */
+function maybeSuperadminPlatformCredential(env, workspaceId, tenantId, config, opts, authUser) {
+  if (!authUser || !userHasSuperadminRole(authUser)) return null;
+  const provider = String(
+    config.provider || config.credential_provider || config.integration || '',
+  )
+    .trim()
+    .toLowerCase();
+  if (provider !== 'cloudflare' && provider !== 'supabase') return null;
+  const plat = getPlatformCredential(provider, env, config);
+  return {
+    ...plat,
+    user_id: String(authUser.id),
+    tenant_id: tenantId != null ? String(tenantId).trim() : '',
+    workspace_id: workspaceId != null ? String(workspaceId).trim() : '',
+    platform_bypass: 'superadmin_role',
+  };
 }
 
 function pickEnvKey(config) {
@@ -241,12 +357,26 @@ async function resolveMcpCredential(env, uid, tid, ws, opts) {
  *   is_internal_agent?: boolean,
  *   mcpBearer?: string|null,
  *   mcp_bearer?: string|null,
+ *   authUser?: Record<string, unknown>|null,
+ *   user?: Record<string, unknown>|null,
  * }} [opts]
  */
 export async function resolveCredential(env, workspaceId, tenantId, handlerConfig, opts = {}) {
   const config = parseHandlerConfig(handlerConfig);
   const authSourceRaw = String(config.auth_source || '').trim();
   const authSource = normalizeAuthSource(authSourceRaw);
+  const authUser = await loadCredentialAuthUser(env, opts);
+  const superadminPlatform = maybeSuperadminPlatformCredential(
+    env,
+    workspaceId,
+    tenantId,
+    config,
+    opts,
+    authUser,
+  );
+  if (superadminPlatform && (authSource === 'workspace' || authSource === 'api_key')) {
+    return superadminPlatform;
+  }
 
   if (!AUTH_SOURCES.has(authSourceRaw) && !Object.values(AUTH_SOURCE_ALIASES).includes(authSource)) {
     throw new Error(
@@ -321,6 +451,16 @@ export async function resolveCredential(env, workspaceId, tenantId, handlerConfi
     if (!provider) {
       throw new Error('[resolveCredential] api_key requires provider in handler_config');
     }
+    const platformBypass = maybeSuperadminPlatformCredential(
+      env,
+      workspaceId,
+      tenantId,
+      config,
+      opts,
+      authUser,
+    );
+    if (platformBypass) return platformBypass;
+
     const cols = await pragmaColumns(env.DB, 'user_api_keys');
     const selectParts = ['id', 'provider', 'workspace_id'];
     if (cols.has('key_hash')) selectParts.push('key_hash');
@@ -342,7 +482,7 @@ export async function resolveCredential(env, workspaceId, tenantId, handlerConfi
       .first();
 
     if (!row) {
-      throw new Error(`[resolveCredential] no user_api_keys row for provider=${provider}`);
+      throw new CredentialNotConfiguredError(provider);
     }
 
     let value = null;

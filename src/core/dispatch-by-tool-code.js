@@ -47,6 +47,7 @@ export async function dispatchByToolCode(env, toolCodeOrKey, input, runContext =
     try {
       credentials = await resolveCredential(env, workspaceId, tenantId, config, {
         userId,
+        authUser: runContext.authUser ?? runContext.user ?? null,
         account_identifier: config.account_identifier,
         isInternalAgent: runContext.isInternalAgent !== false,
         isOperatorCall:

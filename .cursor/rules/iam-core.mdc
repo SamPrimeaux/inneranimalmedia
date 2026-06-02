@@ -19,7 +19,7 @@ Unless the user says **local only**, **no commit**, **no push**, or **no deploy*
 2. **Commit** on `main` (why-focused message).
 3. **Push** `origin/main`.
 4. **Deploy** `npm run deploy:full` from repo root.
-5. Smoke: `/health` + dashboard chunk URLs (not health-only).
+5. **Lightweight smoke only** after deploy: `curl /api/health` (or MCP `/health`) + one dashboard chunk URL. Do **not** run Playwright (`npm test`), `smoke:mcp-oauth-d1-r2`, `smoke:code-execution-e2e`, or other multi-route E2E suites before deploy unless the user explicitly asks — those are spend-heavy and not a ship gate.
 
 Opt-out: `local only`, `no deploy`, `plan only`, `review only`. Never force-push `main`; never commit `.env`, tokens, `*.bak`, `.scratch/`, `*.db`.
 
@@ -33,6 +33,7 @@ Never hardcode `au_*`, `ws_*`, or `tenant_*` in `src/`, `dashboard/`, or MCP `sr
 
 - MCP OAuth client id: `MCP_CANONICAL_CLIENT_ID` from `mcp-oauth-shared.js` only.
 - Run `npm run guard:identity` before ship.
+- **Superadmin platform bypass:** `users.role === 'superadmin'` (or `is_superadmin`) → platform Wrangler secrets via `getPlatformCredential`; everyone else → BYOK `user_api_keys` + `user_secrets`. Never branch credentials on `tenant_*` strings in code.
 
 ---
 
