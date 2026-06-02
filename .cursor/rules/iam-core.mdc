@@ -45,6 +45,7 @@ Never hardcode `au_*`, `ws_*`, or `tenant_*` in `src/`, `dashboard/`, or MCP `sr
 
 ## Architecture
 
+- **Two repos / two surfaces:** main worker (`inneranimalmedia.com`) vs MCP worker (`mcp.inneranimalmedia.com`). In-app Agent Sam never routes through MCP; see `docs/platform/iam-runtime-architecture-2026-06.md`.
 - **Registry truth:** workflow keys, tools, handlers → D1 (`agentsam_workflows`, `agentsam_workflow_handlers`, `agentsam_tools`, …). MCP OAuth `tools/list` reads `agentsam_tools` (`oauth_visible`); do not add `agentsam_mcp_tools` (dropped migration 498). Use `resolveWorkflowFromSurfaceMetadata` — no new `firstActiveWorkflowKeyAmong`.
 - **`agentsam_*` prefix:** operational control-plane tables use full name; never invent unprefixed synonyms (`prompt_routes` does not exist).
 - **Two DB lanes:** `d1_*` / `env.DB` (D1 only) vs `supabase_*` / Hyperdrive (Postgres only). No Postgres through D1 binding.

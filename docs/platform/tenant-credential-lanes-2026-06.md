@@ -1,5 +1,7 @@
 # Tenant credential lanes (2026-06)
 
+See also: [IAM runtime architecture (both repos)](./iam-runtime-architecture-2026-06.md).
+
 Catalog `handler_config.auth_source` describes **who pays for the credential**, not “use IAM’s shared production bucket for everyone.”
 
 ## Principles

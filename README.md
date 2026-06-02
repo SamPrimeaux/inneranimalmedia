@@ -20,7 +20,8 @@ Canonical platform repo for the Inner Animal Media AI agent operating system (**
 | **D1 database** | `inneranimalmedia-business` (`cf87b717-d4e2-4cf8-bab0-a81268e32d49`) |
 | **Production deploy** | `npm run deploy:full` only (see below) |
 | **Sandbox deploy** | **Discontinued** — do not run `deploy-sandbox.sh` / `promote-to-prod.sh` |
-| **MCP server** | Separate worker — `https://mcp.inneranimalmedia.com` |
+| **MCP server** | Separate worker — `https://mcp.inneranimalmedia.com` (repo: `inneranimalmedia-mcp-server`) |
+| **Two-repo runtime map** | [`docs/platform/iam-runtime-architecture-2026-06.md`](docs/platform/iam-runtime-architecture-2026-06.md) |
 
 **Never use these paths or repos:**
 
