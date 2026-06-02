@@ -168,7 +168,7 @@ See existing tables in prior docs for `env_secrets` key types. Never commit `.en
 
 **Canonical control-plane tables use the `agentsam_*` prefix** — never abbreviate in migrations or specs (`agentsam_prompt_routes`, not `prompt_routes`).
 
-Operational state: D1 first; Supabase `public.agentsam_*` mirrors are best-effort (plans, workflow runs, tool events).
+Operational state: **D1 first** for control plane. Supabase agent data lives in schema **`agentsam`** (not `public.agentsam_*` — those tables do not exist). See `docs/platform/supabase-agentsam-schema-2026-06.md`.
 
 **Two DB tool lanes:**
 

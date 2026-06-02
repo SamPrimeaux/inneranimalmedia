@@ -1,0 +1,70 @@
+---
+description: Supabase agentsam vs public schema — verified table list (2026-06-02)
+alwaysApply: false
+---
+
+# Supabase schema — agentsam vs public (verified 2026-06-02)
+
+**Query D1 / Hyperdrive at runtime for row counts.** This rule is the naming contract — not a full catalog.
+
+## Hard rules
+
+1. **There are NO `public.agentsam_*` tables.** Never reference `public.agentsam_memory`, `public.agentsam_plans`, etc. in new code, prompts, or migrations.
+2. **Agent internals live in schema `agentsam`** (RLS enabled). Use `agentsam.<table>` or PostgREST `agentsam` schema.
+3. **`public` schema is LMS/platform content only** — `iam_*` prefix (`iam_glossary`, `iam_courses`, …). Never query `public.*` for agent memory, RAG lanes, or workflow internals.
+4. **D1 is control-plane SSOT** (`agentsam_tools`, workflows, OAuth). Supabase mirrors observability and pgvector lanes — not a substitute for D1 registry tables.
+
+## Two schemas
+
+| Schema | Purpose |
+|--------|---------|
+| **`agentsam`** | IAM internal: RAG/pgvector lanes, operational memory, observability, workspace registry |
+| **`public`** | Platform LMS/content: `iam_*` tables only |
+
+## RAG / Vectorize-mirrored lanes (1536 unless noted)
+
+| Table | Vectorize binding | Notes |
+|-------|-------------------|--------|
+| `agentsam_memory_oai3large_1536` | `AGENTSAM_VECTORIZE_MEMORY` | Vector search lane for memory |
+| `agentsam_documents_oai3large_1536` | `AGENTSAM_VECTORIZE_COURSES` | Courses/docs RAG |
+| `agentsam_codebase_chunks_oai3large_1536` | `AGENTSAM_VECTORIZE_CODE` | Code retrieval |
+| `agentsam_codebase_files_oai3large_1536` | — | File catalog (parent for chunks; no embeddings) |
+| `agentsam_database_schema_oai3large_1536` | `AGENTSAM_VECTORIZE_SCHEMA` | **Canonical** schema RAG |
+| `agentsam_schema_oai3large_1536` | (duplicate binding) | **OLD — 9 rows. Do not insert. Read-only legacy.** |
+| `agentsam_deep_archive_oai3large_3072` | — | 3072-dim; Supabase only, no Vectorize mirror |
+
+## Operational memory (not the same as vector lane)
+
+| Table | Role |
+|-------|------|
+| `agentsam_memory` | Structured key/value memory (fact/preference/project/…); has `d1_id` sync — **primary operational store** |
+| `agentsam_memory_oai3large_1536` | Embeddings for memory **retrieval** |
+
+## Observability (live vs empty)
+
+| Table | Status |
+|-------|--------|
+| `agentsam_usage_events` | Live |
+| `agentsam_tool_call_events` | Live |
+| `agentsam_mcp_health_checks` | Live |
+| `agentsam_workflow_runs`, `agentsam_workflow_steps` | New pipeline (often 0 until used) |
+| `agentsam_worker_events`, `agentsam_worker_errors`, `agentsam_*_rollups` | Mostly 0 |
+| `agentsam_deploy_events`, `agentsam_error_events`, `agentsam_webhook_events` | Mostly 0 |
+
+## Legacy (superseded by D1 workflows)
+
+`agentsam_legacy_workflow_runs` + `agentsam_legacy_tool_calls` / `agentsam_legacy_executions` — old pipeline; do not extend.
+
+## Other `agentsam` tables (operational)
+
+`agentsam_workspaces`, `agentsam_workspace_members`, `agentsam_todo`, `agentsam_audit_snapshots`, `agentsam_search_log`
+
+## Code pointers
+
+- Lane registry: `src/core/semantic-retrieval-dispatch.js` — schema lane uses **`agentsam_database_schema_oai3large_1536` only**
+- Hyperdrive: `env.HYPERDRIVE` — see `supabase-connection.mdc`
+- Full write-up: `docs/platform/supabase-agentsam-schema-2026-06.md`
+
+## Stale docs in repo
+
+Older files may still say `public.agentsam_*` (historical mirror plan). **Treat those as wrong** unless a migration explicitly reintroduces `public` mirrors.

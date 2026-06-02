@@ -27,7 +27,7 @@ export const SEMANTIC_LANE_REGISTRY = Object.freeze({
     laneKey: 'schema_semantic_search',
     ragLane: 'schema',
     binding: 'AGENTSAM_VECTORIZE_SCHEMA',
-    tables: ['agentsam_database_schema_oai3large_1536', 'agentsam_schema_oai3large_1536'],
+    tables: ['agentsam_database_schema_oai3large_1536'],
     dims: 1536,
   },
   memory_semantic_search: {

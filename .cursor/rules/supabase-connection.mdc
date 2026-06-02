@@ -27,3 +27,8 @@ Scripts that need it: read from `os.getenv("SUPABASE_DB_URL")` with the session 
 
 ## Embed model
 Use Workers AI via env.AI binding. Never Ollama.
+
+## Schema layout (agent data)
+- **Agent tables:** PostgreSQL schema `agentsam` only — see `iam-supabase-agentsam-schema.mdc`
+- **No `public.agentsam_*`** — never query `public` for memory, RAG, or workflow internals
+- **Schema RAG canonical table:** `agentsam.agentsam_database_schema_oai3large_1536` (not `agentsam_schema_oai3large_1536`)
