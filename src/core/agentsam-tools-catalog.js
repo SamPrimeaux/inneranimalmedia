@@ -5,7 +5,6 @@
 import { brandedRowMatchesRouteCapability } from './agentsam-capability-aliases.js';
 import { listAgentsamMcpToolsForServerKeys } from './agentsam-mcp-tools.js';
 import { parseHandlerConfig } from './resolve-credential.js';
-import { agentsamPlanInputSchema } from './mcp-plan-schema.js';
 import { agentsamMemorySearchInputSchema } from './mcp-memory-search-schema.js';
 import { agentsamMemorySaveInputSchema } from './mcp-memory-save-schema.js';
 import { agentsamMemoryVectorWriteInputSchema } from './mcp-memory-vector-write-schema.js';
@@ -25,6 +24,16 @@ export const CATALOG_ACTIVE_TOOL_COUNT = 76;
 export const DEFAULT_AGENT_TOOL_LIST_LIMIT = 8;
 export const MAX_AGENT_TOOL_LIST_LIMIT = 50;
 
+// ─── Dynamic handler type resolution ──────────────────────────────────────────
+// Never hardcode this list as the single source of truth. Load from D1, cache 5 min in KV.
+// Adding a new handler_type to D1 should work without code changes.
+
+/** Types that must NEVER execute regardless of D1 state. */
+const HANDLER_TYPE_BLOCKLIST = new Set(['legacy', 'deprecated', 'stub', 'noop', 'disabled']);
+
+const HANDLER_TYPES_CACHE_KEY = 'agentsam:handler_types:v1';
+const HANDLER_TYPES_CACHE_TTL_SECONDS = 300; // 5 minutes
+
 /** handler_type values with a catalog executor branch (fail closed otherwise). */
 export const EXECUTABLE_HANDLER_TYPES = new Set([
   'd1',
@@ -40,9 +49,72 @@ export const EXECUTABLE_HANDLER_TYPES = new Set([
   'workspace.reader',
   'filesystem',
   'mybrowser',
+  'browser',
   'builtin',
   'websearch',
+  'cf',
+  'deploy',
+  'git',
+  'memory',
+  'notify',
+  'workflow',
+  'agent',
+  'media',
+  'canvas',
+  'integrations',
 ]);
+
+/**
+ * Load executable handler types from D1 with KV cache.
+ * Falls back to {@link EXECUTABLE_HANDLER_TYPES} if D1/KV unavailable.
+ *
+ * @param {any} env Worker env bindings
+ * @returns {Promise<Set<string>>}
+ */
+export async function loadExecutableHandlerTypes(env) {
+  // 1) KV cache fast-path
+  if (env?.SESSION_CACHE) {
+    try {
+      const cached = await env.SESSION_CACHE.get(HANDLER_TYPES_CACHE_KEY, 'json');
+      if (Array.isArray(cached) && cached.length > 0) {
+        const arr = cached
+          .map((t) => trim(t).toLowerCase())
+          .filter((t) => t && !HANDLER_TYPE_BLOCKLIST.has(t));
+        if (arr.length) return new Set(arr);
+      }
+    } catch (_) {}
+  }
+
+  // 2) D1 source of truth
+  if (env?.DB) {
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT DISTINCT handler_type
+         FROM agentsam_tools
+         WHERE is_active = 1
+           AND handler_type IS NOT NULL
+           AND trim(handler_type) != ''
+         ORDER BY handler_type ASC`,
+      ).all();
+
+      const types = (results || [])
+        .map((r) => trim(r?.handler_type).toLowerCase())
+        .filter((t) => t && !HANDLER_TYPE_BLOCKLIST.has(t));
+
+      if (types.length > 0) {
+        if (env?.SESSION_CACHE) {
+          void env.SESSION_CACHE.put(HANDLER_TYPES_CACHE_KEY, JSON.stringify(types), {
+            expirationTtl: HANDLER_TYPES_CACHE_TTL_SECONDS,
+          }).catch(() => {});
+        }
+        return new Set(types);
+      }
+    } catch (_) {}
+  }
+
+  // 3) Fallback — known working types only
+  return new Set([...EXECUTABLE_HANDLER_TYPES].map((t) => trim(t).toLowerCase()).filter(Boolean));
+}
 
 /** Route capability_lane → agentsam_tools.tool_category */
 /** @param {unknown} raw JSON array on agentsam_prompt_routes.mcp_template */
@@ -258,6 +330,59 @@ function trim(v) {
   return v == null ? '' : String(v).trim();
 }
 
+// ─── Ambient credential filter ────────────────────────────────────────────────
+
+/**
+ * Load which OAuth providers are connected for the calling user.
+ * Checks user_oauth_tokens for non-expired rows.
+ *
+ * @param {import('@cloudflare/workers-types').D1Database} db
+ * @param {string|null} userId
+ * @returns {Promise<Set<string>>} e.g. Set { 'github', 'google_drive' }
+ */
+async function loadConnectedProviders(db, userId) {
+  if (!db || !userId) return new Set();
+  try {
+    const { results } = await db
+      .prepare(
+        `SELECT DISTINCT provider
+         FROM user_oauth_tokens
+         WHERE user_id = ?
+           AND (expires_at IS NULL OR expires_at > unixepoch())
+         LIMIT 20`,
+      )
+      .bind(userId)
+      .all();
+    return new Set((results || []).map((r) => trim(r.provider)).filter(Boolean));
+  } catch (_) {
+    return new Set();
+  }
+}
+
+/** Map of tool_name → required OAuth provider. */
+const TOOL_OAUTH_REQUIREMENTS = {
+  agentsam_gdrive: 'google_drive',
+  agentsam_github_read: 'github',
+  agentsam_github_write: 'github',
+  agentsam_github_repo_list: 'github',
+  agentsam_github_pr: 'github',
+  agentsam_github_issue: 'github',
+  agentsam_supabase_project_query: 'supabase',
+  agentsam_supabase_project_write: 'supabase',
+};
+
+/** Tools that require workspace_root to be configured in workspace_settings. */
+const TOOLS_REQUIRING_WORKSPACE_ROOT = new Set([
+  'pty_git_commit',
+  'pty_git_diff',
+  'pty_git_log',
+  'pty_git_push',
+  'pty_git_status',
+  'agentsam_terminal_local',
+  'agentsam_workspace_search',
+  'agentsam_worker_deploy',
+]);
+
 /**
  * @param {string[]} lanes
  * @returns {string[]}
@@ -292,7 +417,6 @@ export async function inferToolCategoriesForContext(lane, message, modeSlug, db 
  */
 export function inputSchemaFromAgentsamToolRow(row) {
   const tk = trim(row?.tool_key || row?.tool_name).toLowerCase();
-  if (tk === 'agentsam_plan') return agentsamPlanInputSchema();
   if (tk === 'agentsam_memory_search') return agentsamMemorySearchInputSchema();
   if (tk === 'agentsam_memory_save') return agentsamMemorySaveInputSchema();
   if (tk === 'agentsam_memory_write') return agentsamMemoryVectorWriteInputSchema();
@@ -303,10 +427,6 @@ export function inputSchemaFromAgentsamToolRow(row) {
     if (!o.type) o.type = 'object';
     if (Array.isArray(o.required) && o.required.includes('query') && tk.includes('memory_search')) {
       o.required = o.required.filter((f) => String(f).toLowerCase() !== 'query');
-      if (!o.required.length) delete o.required;
-    }
-    if (Array.isArray(o.required) && o.required.includes('goal') && tk === 'agentsam_plan') {
-      o.required = o.required.filter((f) => String(f).toLowerCase() !== 'goal');
       if (!o.required.length) delete o.required;
     }
     return o;
@@ -343,12 +463,13 @@ function handlerConfigHasExecutionPath(config) {
  * Fail closed before credential resolution / executor dispatch.
  * @param {Record<string, unknown>} row
  * @param {Record<string, unknown>} config
+ * @param {Set<string>} [executableTypes]
  */
-export function validateHandlerConfigForExecution(row, config) {
+export function validateHandlerConfigForExecution(row, config, executableTypes = EXECUTABLE_HANDLER_TYPES) {
   const handlerType = trim(row?.handler_type).toLowerCase();
   const toolKey = trim(row?.tool_key || row?.tool_name);
 
-  if (!EXECUTABLE_HANDLER_TYPES.has(handlerType)) {
+  if (!executableTypes?.has(handlerType)) {
     return {
       ok: false,
       error: `unsupported agentsam_tools.handler_type=${handlerType || '(empty)'}`,
@@ -413,8 +534,26 @@ export function validateHandlerConfigForExecution(row, config) {
       }
       break;
     case 'mybrowser':
+    case 'browser':
       if (!trim(config.auth_source) || !trim(config.operation)) {
         return { ok: false, error: `handler_config requires auth_source and operation for tool_key=${toolKey}` };
+      }
+      break;
+    case 'deploy':
+    case 'git':
+    case 'cf':
+    case 'memory':
+    case 'notify':
+    case 'workflow':
+    case 'agent':
+    case 'media':
+    case 'canvas':
+    case 'integrations':
+      if (!trim(config.auth_source) && !trim(config.operation) && !handlerConfigHasExecutionPath(config)) {
+        return {
+          ok: false,
+          error: `handler_config requires auth_source, operation, or execution path for tool_key=${toolKey}`,
+        };
       }
       break;
     case 'mcp':
@@ -556,6 +695,7 @@ export async function listAgentsamToolsForContext(env, opts = {}) {
        FROM agentsam_tools
        WHERE COALESCE(is_active, 1) = 1
          AND COALESCE(is_degraded, 0) = 0
+         AND (dispatch_target IS NULL OR dispatch_target IN ('internal', 'both'))
          AND ${categoryFilter.clause}
        ORDER BY COALESCE(sort_priority, 50) ASC, tool_name ASC
        LIMIT ?`,
@@ -570,6 +710,7 @@ export async function listAgentsamToolsForContext(env, opts = {}) {
 
   const allow = opts.allowlistKeys;
   const requireCfg = opts.requireValidHandlerConfig !== false;
+  const executableTypes = requireCfg ? await loadExecutableHandlerTypes(env) : null;
   const out = [];
   for (const row of results) {
     if (!rowMatchesWorkspaceScope(row, ws)) continue;
@@ -578,7 +719,11 @@ export async function listAgentsamToolsForContext(env, opts = {}) {
     if (!rowPassesAllowlist(row, allow)) continue;
     if (requireCfg) {
       const cfg = parseHandlerConfig(row.handler_config);
-      const v = validateHandlerConfigForExecution(row, cfg);
+      const v = validateHandlerConfigForExecution(
+        row,
+        cfg,
+        executableTypes || EXECUTABLE_HANDLER_TYPES,
+      );
       if (!v.ok) {
         console.warn(
           '[agentsam-tools-catalog] skip_invalid_handler_config',
@@ -635,6 +780,29 @@ export async function selectAgentsamToolsForAgentChat(db, runtimeCtx, opts) {
 
   const mcpServerKeys = [...new Set((opts.mcpServerKeys || []).map((k) => trim(k)).filter(Boolean))];
 
+  // ─── Ambient credential filter context ────────────────────────────────────
+  const userId = runtimeCtx?.userId != null ? String(runtimeCtx.userId).trim() : '';
+  const workspaceId = runtimeCtx?.workspaceId != null ? String(runtimeCtx.workspaceId).trim() : '';
+  let workspaceRoot = '';
+  if (workspaceId) {
+    try {
+      const wsSettings = await db
+        .prepare('SELECT settings_json FROM workspace_settings WHERE workspace_id = ? LIMIT 1')
+        .bind(workspaceId)
+        .first();
+      if (wsSettings?.settings_json) {
+        const parsed =
+          typeof wsSettings.settings_json === 'string'
+            ? JSON.parse(wsSettings.settings_json)
+            : wsSettings.settings_json;
+        workspaceRoot = trim(parsed?.workspace_root);
+      }
+    } catch (_) {
+      workspaceRoot = '';
+    }
+  }
+  const connectedProviders = await loadConnectedProviders(db, userId || null);
+
   const lanes = (req?.allowed_lanes || []).filter(Boolean);
   let categories = toolCategoriesFromLanes(lanes);
   if (!categories.length) {
@@ -672,12 +840,27 @@ export async function selectAgentsamToolsForAgentChat(db, runtimeCtx, opts) {
     },
   );
 
+  // ─── Apply ambient credential filter ─────────────────────────────────────
+  const filteredRawRows = (rawRows || []).filter((row) => {
+    const toolName = trim(row?.tool_name || row?.tool_key);
+    if (!toolName) return false;
+
+    // 1) OAuth requirement check
+    const requiredProvider = TOOL_OAUTH_REQUIREMENTS[toolName];
+    if (requiredProvider && !connectedProviders.has(requiredProvider)) return false;
+
+    // 2) workspace_root requirement check
+    if (TOOLS_REQUIRING_WORKSPACE_ROOT.has(toolName) && !workspaceRoot) return false;
+
+    return true;
+  });
+
   const reqCaps = req.required_capabilities || [];
   const optCaps = req.optional_capabilities || [];
   const blocked = req.blocked_capabilities || [];
 
   const candidates = [];
-  for (const raw of rawRows) {
+  for (const raw of filteredRawRows) {
     let blockedRow = false;
     for (const b of blocked) {
       if (brandedRowMatchesRouteCapability(raw, b)) {
@@ -802,6 +985,7 @@ export async function listAgentsamToolsByKeys(env, allowlistKeys, opts = {}) {
        FROM agentsam_tools
        WHERE COALESCE(is_active, 1) = 1
          AND COALESCE(is_degraded, 0) = 0
+         AND (dispatch_target IS NULL OR dispatch_target IN ('internal', 'both'))
          AND (
            lower(tool_key) IN (${placeholders})
            OR lower(tool_name) IN (${placeholders})
@@ -813,12 +997,17 @@ export async function listAgentsamToolsByKeys(env, allowlistKeys, opts = {}) {
       .bind(...keys.map((k) => k.toLowerCase()), ...keys.map((k) => k.toLowerCase()), ...keys.map((k) => k.toLowerCase()), lim * 2)
       .all();
     const ws = trim(opts.workspaceId);
+    const executableTypes = await loadExecutableHandlerTypes(env);
     const out = [];
     for (const row of results || []) {
       if (!rowMatchesWorkspaceScope(row, ws)) continue;
       if (!rowWithinRiskCap(row, opts.riskLevelMax)) continue;
       const cfg = parseHandlerConfig(row.handler_config);
-      const v = validateHandlerConfigForExecution(row, cfg);
+      const v = validateHandlerConfigForExecution(
+        row,
+        cfg,
+        executableTypes || EXECUTABLE_HANDLER_TYPES,
+      );
       if (!v.ok) continue;
       out.push(row);
       if (out.length >= lim) break;

@@ -1099,17 +1099,76 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
       break;
     }
 
-    case 'mybrowser': {
+    case 'mybrowser':
+    case 'browser': {
       const toolName = String(row.tool_key || row.tool_name || '').trim();
       const { handlers: webHandlers } = await import('../tools/builtin/web.js');
       const fn = webHandlers[toolName];
       if (typeof fn !== 'function') {
-        result = { ok: false, error: `mybrowser handler not registered for tool_key=${toolName}` };
+        result = { ok: false, error: `browser handler not registered for tool_key=${toolName}` };
         break;
       }
       const out = await fn(params, env, runContext);
       result = out?.error ? { ok: false, error: String(out.error) } : { ok: true, body: out };
       break;
+    }
+
+    case 'cf': {
+      if (['agentsam_d1_query', 'agentsam_d1_write', 'agentsam_d1_migrate'].includes(toolKey)) {
+        const d1Row = { ...row, handler_type: 'd1' };
+        return executeCatalogToolRow(env, d1Row, params, runContext);
+      }
+      if (['agentsam_r2_get', 'agentsam_r2_put', 'agentsam_r2_delete'].includes(toolKey)) {
+        const r2Row = { ...row, handler_type: 'r2' };
+        return executeCatalogToolRow(env, r2Row, params, runContext);
+      }
+      const httpRow = { ...row, handler_type: 'http' };
+      return executeCatalogToolRow(env, httpRow, params, runContext);
+    }
+
+    case 'deploy': {
+      let deployCommand = '';
+      if (workspaceId && env?.DB) {
+        const settingsRow = await env.DB.prepare(
+          'SELECT settings_json FROM workspace_settings WHERE workspace_id = ? LIMIT 1',
+        )
+          .bind(workspaceId)
+          .first()
+          .catch(() => null);
+        if (settingsRow?.settings_json) {
+          try {
+            const parsed =
+              typeof settingsRow.settings_json === 'string'
+                ? JSON.parse(settingsRow.settings_json)
+                : settingsRow.settings_json;
+            deployCommand = String(parsed?.deploy_command || '').trim();
+          } catch (_) {}
+        }
+      }
+      if (!deployCommand) {
+        result = {
+          ok: false,
+          error: 'deploy_command not configured for this workspace',
+          body: {
+            action:
+              'Set workspace_settings.settings_json.deploy_command for this workspace before deploying.',
+            workspace_id: workspaceId || 'unknown',
+          },
+        };
+        break;
+      }
+      const termRow = { ...row, handler_type: 'terminal' };
+      return executeCatalogToolRow(
+        env,
+        termRow,
+        { ...params, command: deployCommand },
+        runContext,
+      );
+    }
+
+    case 'git': {
+      const termRow = { ...row, handler_type: 'terminal' };
+      return executeCatalogToolRow(env, termRow, params, runContext);
     }
 
     case 'mcp':
