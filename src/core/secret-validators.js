@@ -28,9 +28,10 @@ function check(id, status, latencyMs, detail = null, extra = {}) {
  * @param {string} provider
  * @param {string} apiKey
  * @param {object} [env]
+ * @param {{ cloudflare_account_id?: string|null }} [opts]
  * @returns {Promise<{ ok: boolean, provider: string, checks: object[], warnings: string[] }>}
  */
-export async function validateProviderKey(provider, apiKey, env = {}) {
+export async function validateProviderKey(provider, apiKey, env = {}, opts = {}) {
   const prov = String(provider || '').trim().toLowerCase();
   const key = String(apiKey || '').trim();
   const warnings = [];
@@ -43,11 +44,15 @@ export async function validateProviderKey(provider, apiKey, env = {}) {
   const t0 = Date.now();
   try {
     if (prov === 'cloudflare') {
-      const accountId =
-        env.CLOUDFLARE_ACCOUNT_ID && String(env.CLOUDFLARE_ACCOUNT_ID).trim() &&
-        !String(env.CLOUDFLARE_ACCOUNT_ID).includes('your_cloudflare')
-          ? String(env.CLOUDFLARE_ACCOUNT_ID).trim()
+      const submittedAccountId =
+        opts.cloudflare_account_id != null && String(opts.cloudflare_account_id).trim()
+          ? String(opts.cloudflare_account_id).trim()
           : null;
+
+      if (!submittedAccountId) {
+        checks.push(check('account_id', 'fail', 0, 'Cloudflare Account ID is required'));
+        return { ok: false, provider: prov, checks, warnings };
+      }
 
       const verifyRes = await fetchWithTimeout('https://api.cloudflare.com/client/v4/user/tokens/verify', {
         method: 'GET',
@@ -71,25 +76,23 @@ export async function validateProviderKey(provider, apiKey, env = {}) {
       }
       checks.push(check('token_verify', 'pass', ms, 'Token is valid'));
 
-      if (accountId) {
-        const t1 = Date.now();
-        const acctRes = await fetchWithTimeout(
-          `https://api.cloudflare.com/client/v4/accounts/${accountId}`,
-          {
-            method: 'GET',
-            headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-          },
-        );
-        const acctBody = await acctRes.json().catch(() => ({}));
-        const ms2 = Date.now() - t1;
-        if (acctRes.ok && acctBody?.success !== false) {
-          checks.push(check('account_read', 'pass', ms2, acctBody?.result?.name || 'Account readable'));
-        } else {
-          checks.push(check('account_read', 'fail', ms2, 'Token cannot read this account (scope or wrong account)'));
-          warnings.push('Token verified but account read failed — use Account:Read for Agent Sam.');
-        }
+      const t1 = Date.now();
+      const acctRes = await fetchWithTimeout(
+        `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(submittedAccountId)}`,
+        {
+          method: 'GET',
+          headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+        },
+      );
+      const acctBody = await acctRes.json().catch(() => ({}));
+      const ms2 = Date.now() - t1;
+      if (acctRes.ok && acctBody?.success !== false) {
+        checks.push(check('account_read', 'pass', ms2, acctBody?.result?.name || 'Account readable'));
       } else {
-        warnings.push('CLOUDFLARE_ACCOUNT_ID not set on Worker; skipped account read check.');
+        checks.push(
+          check('account_read', 'fail', ms2, 'Token cannot read this account (scope or wrong account ID)'),
+        );
+        return { ok: false, provider: prov, checks, warnings };
       }
       return { ok: true, provider: prov, checks, warnings };
     }

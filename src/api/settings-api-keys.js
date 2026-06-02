@@ -17,6 +17,12 @@ import {
 import { encryptApiKeyForStorage } from './provisioning.js';
 import { userCanAccessWorkspace } from '../core/cms-theme-resolve.js';
 import { validateProviderKey, checkValidateRateLimit } from '../core/secret-validators.js';
+import { upsertWorkspaceDataBinding, listWorkspaceDataBindings } from '../core/workspace-data-bindings.js';
+import {
+  maskAccountId,
+  resolveWorkspaceCloudflareCredentials,
+} from '../core/workspace-cloudflare-credentials.js';
+import { customerCloudflareSelectWorkspaceResource } from '../core/customer-cloudflare-dispatch.js';
 
 const KEY_CATEGORIES = new Set(['provider', 'personal', 'internal']);
 
@@ -158,6 +164,13 @@ function toSafeItem(row, cols) {
         : '????';
   const meta = parseMeta(row);
 
+  const cloudflareAccountId =
+    meta.cloudflare_account_id != null
+      ? String(meta.cloudflare_account_id).trim()
+      : meta.account_id != null
+        ? String(meta.account_id).trim()
+        : null;
+
   return {
     id: row.id,
     workspace_id: has(cols, 'workspace_id') ? row.workspace_id ?? null : null,
@@ -171,6 +184,7 @@ function toSafeItem(row, cols) {
     status: row.status ?? 'active',
     scope: row.scope ?? 'workspace',
     last_four: lastFour,
+    cloudflare_account_mask: cloudflareAccountId ? maskAccountId(cloudflareAccountId) : null,
     validated_at: meta.validated_at ?? null,
     created_at: row.created_at ?? null,
     updated_at: row.updated_at ?? null,
@@ -178,6 +192,27 @@ function toSafeItem(row, cols) {
     rotated_at: has(cols, 'rotated_at') ? row.rotated_at ?? null : null,
     expires_at: has(cols, 'expires_at') ? row.expires_at ?? null : null,
   };
+}
+
+async function upsertCloudflareAccountBinding(env, { tenantId, userId, workspaceId, accountId, keyRowId, label }) {
+  if (!accountId || !workspaceId) return null;
+  const bindingId = `wsbind_cf_${String(workspaceId).replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 40)}`;
+  await upsertWorkspaceDataBinding(env, {
+    id: bindingId,
+    tenant_id: tenantId,
+    user_id: userId,
+    workspace_id: workspaceId,
+    provider: 'cloudflare',
+    connection_id: keyRowId,
+    external_account_id: String(accountId),
+    display_name: label || 'Cloudflare account',
+    selected_as_default: true,
+    capabilities_json: JSON.stringify({ account_read: true, d1_list: true }),
+    health_status: 'active',
+    last_verified_at: Math.floor(Date.now() / 1000),
+    metadata_json: JSON.stringify({ source: 'settings_keys', api_key_id: keyRowId }),
+  });
+  return bindingId;
 }
 
 /** Canonical /api/settings/keys paths; legacy /api/settings/api-keys maps here. */
@@ -272,6 +307,8 @@ async function validateKeysRequest(env, authUser, request, body, keyId = null) {
 
   let provider = String(body?.provider || '').trim().toLowerCase();
   let apiKey = String(body?.api_key || body?.secret_value || '').trim();
+  let cloudflareAccountId =
+    body?.cloudflare_account_id != null ? String(body.cloudflare_account_id).trim() : '';
 
   if (keyId) {
     const tenantId = await resolveTenantIdOrFetch(env, authUser);
@@ -280,12 +317,26 @@ async function validateKeysRequest(env, authUser, request, body, keyId = null) {
     provider = String(row.provider || 'other').toLowerCase();
     apiKey = await decryptVaultSecret(env, row.vault_secret_id, userId, tenantId, wsRes.workspaceId);
     if (!apiKey) return clientError('DECRYPT_FAILED', 'Could not decrypt stored key for validation.', 500);
+    if (!cloudflareAccountId) {
+      const meta = parseMeta(row);
+      cloudflareAccountId =
+        meta.cloudflare_account_id != null
+          ? String(meta.cloudflare_account_id).trim()
+          : meta.account_id != null
+            ? String(meta.account_id).trim()
+            : '';
+    }
   }
 
   if (!provider) return clientError('PROVIDER_REQUIRED', 'Provider is required.');
   if (!apiKey) return clientError('API_KEY_REQUIRED', 'API key value is required.');
+  if (provider === 'cloudflare' && !cloudflareAccountId) {
+    return clientError('CLOUDFLARE_ACCOUNT_ID_REQUIRED', 'Cloudflare Account ID is required.');
+  }
 
-  const result = await validateProviderKey(provider, apiKey, env);
+  const validateOpts =
+    provider === 'cloudflare' ? { cloudflare_account_id: cloudflareAccountId } : {};
+  const result = await validateProviderKey(provider, apiKey, env, validateOpts);
   const tenantId = await resolveTenantIdOrFetch(env, authUser);
 
   if (keyId) {
@@ -498,6 +549,8 @@ async function createApiKey(env, authUser, request) {
   const category = KEY_CATEGORIES.has(categoryRaw) ? categoryRaw : 'provider';
   let provider = String(body.provider || '').trim().toLowerCase();
   const secretName = String(body.secret_name || '').trim();
+  const cloudflareAccountId =
+    body.cloudflare_account_id != null ? String(body.cloudflare_account_id).trim() : '';
   const keyLabel = String(
     body.label ?? body.key_name ?? (category === 'personal' ? secretName : ''),
   ).trim();
@@ -524,13 +577,22 @@ async function createApiKey(env, authUser, request) {
       return clientError('INVALID_PROVIDER', 'Choose a supported provider (OpenAI, Anthropic, Google, etc.).');
     }
   }
-  if (!keyLabel) {
+  if (!keyLabel && category !== 'provider') {
+    return clientError('KEY_NAME_REQUIRED', 'Label is required.');
+  }
+  if (category === 'provider' && provider !== 'cloudflare' && !keyLabel) {
     return clientError('KEY_NAME_REQUIRED', 'Label is required.');
   }
   if (!api_key) return clientError('API_KEY_REQUIRED', 'Secret value is required.');
+  if (category === 'provider' && provider === 'cloudflare' && !cloudflareAccountId) {
+    return clientError('CLOUDFLARE_ACCOUNT_ID_REQUIRED', 'Cloudflare Account ID is required.');
+  }
+
+  const validateOpts =
+    provider === 'cloudflare' ? { cloudflare_account_id: cloudflareAccountId } : {};
 
   if (validationOnCreate && category === 'provider') {
-    preValidateResult = await validateProviderKey(provider, api_key, env);
+    preValidateResult = await validateProviderKey(provider, api_key, env, validateOpts);
     if (!preValidateResult.ok) {
       return jsonResponse({ ok: false, error: 'validation_failed', ...preValidateResult }, 400);
     }
@@ -544,6 +606,13 @@ async function createApiKey(env, authUser, request) {
   const last_four = lastFourOfKey(api_key);
   const vaultSecretId = newId('sec'); // canonical secret_id for audit/findings
   const keyRowId = newId('uak');
+  const effectiveLabel =
+    keyLabel ||
+    (provider === 'cloudflare' ? `Cloudflare ${maskAccountId(cloudflareAccountId)}` : provider);
+  const providerMeta =
+    provider === 'cloudflare' && cloudflareAccountId
+      ? { cloudflare_account_id: cloudflareAccountId }
+      : {};
 
   // Encrypt via existing helper (Cloudflare-safe)
   let encrypted;
@@ -585,17 +654,18 @@ async function createApiKey(env, authUser, request) {
       ],
       ['secret_value_encrypted', encrypted],
       ['service_name', category === 'personal' ? body.service_name || 'personal' : provider],
-      ['description', body.description || keyLabel],
+      ['description', body.description || effectiveLabel],
       ['project_label', 'user_api_keys'],
       [
         'metadata_json',
         JSON.stringify({
           api_key_id: keyRowId,
           provider,
-          label: keyLabel,
+          label: effectiveLabel,
           last_four,
           secret_name: secretName || null,
           category,
+          ...providerMeta,
           ...(validationOnCreate ? { validated_at: nowIso() } : {}),
         }),
       ],
@@ -640,8 +710,8 @@ async function createApiKey(env, authUser, request) {
       ['workspace_id', workspaceId],
       ['category', category],
       ['provider', provider],
-      ['label', keyLabel],
-      ['key_name', keyLabel],
+      ['label', effectiveLabel],
+      ['key_name', effectiveLabel],
       ['status', 'active'],
       ['scope', scope],
       ['last_four', last_four],
@@ -655,10 +725,11 @@ async function createApiKey(env, authUser, request) {
           : JSON.stringify({
               api_key_id: keyRowId,
               provider,
-              label: keyLabel,
+              label: effectiveLabel,
               last_four,
               secret_name: secretName || null,
               category,
+              ...providerMeta,
               ...(validationOnCreate ? { validated_at: nowIso() } : {}),
             }),
       ],
@@ -702,6 +773,17 @@ async function createApiKey(env, authUser, request) {
       triggeredBy: 'dashboard_ui',
       notes: `Created API key (${provider})`,
     });
+
+    if (category === 'provider' && provider === 'cloudflare' && cloudflareAccountId) {
+      await upsertCloudflareAccountBinding(env, {
+        tenantId,
+        userId,
+        workspaceId,
+        accountId: cloudflareAccountId,
+        keyRowId,
+        label: effectiveLabel,
+      });
+    }
   } catch (e) {
     // Best-effort rollback secret row so we don't orphan it.
     try {
@@ -1101,6 +1183,107 @@ async function auditApiKeys(request, env, authUser, url) {
   }
 }
 
+async function listCloudflareD1Databases(env, authUser, request, url) {
+  const wsRes = await assertWorkspaceAccess(env, request, authUser);
+  if (wsRes.error === 'Forbidden') return clientError('FORBIDDEN', 'You do not have access to this workspace.', 403);
+  if (wsRes.error === 'WORKSPACE_CONTEXT_MISSING') {
+    return clientError('WORKSPACE_CONTEXT_MISSING', 'Workspace context is missing.', 400);
+  }
+  if (wsRes.error) return clientError('WORKSPACE_ERROR', wsRes.error, 400);
+
+  const tenantId = await resolveTenantIdOrFetch(env, authUser);
+  const userId = String(authUser?.id || '').trim();
+  const workspaceId = wsRes.workspaceId;
+  const accountIdParam = String(url.searchParams.get('account_id') || '').trim();
+
+  const creds = await resolveWorkspaceCloudflareCredentials(env, userId, tenantId, workspaceId);
+  if (!creds.ok) {
+    return clientError('CLOUDFLARE_CREDENTIALS_MISSING', 'Add a Cloudflare API token for this workspace first.', 400);
+  }
+
+  const accountId = accountIdParam || creds.account_id;
+  if (!accountId) {
+    return clientError('CLOUDFLARE_ACCOUNT_ID_REQUIRED', 'Cloudflare Account ID is required.', 400);
+  }
+
+  try {
+    const res = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/d1/database`,
+      {
+        headers: {
+          Authorization: `Bearer ${creds.token}`,
+          'Content-Type': 'application/json',
+        },
+      },
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.success === false) {
+      const msg = data?.errors?.[0]?.message || `cloudflare_d1_list_${res.status}`;
+      return clientError('CLOUDFLARE_D1_LIST_FAILED', String(msg), 400);
+    }
+    const databases = Array.isArray(data?.result) ? data.result : [];
+    const bindings = await listWorkspaceDataBindings(env, workspaceId, 'cloudflare_d1');
+    return jsonResponse({
+      ok: true,
+      account_id_mask: maskAccountId(accountId),
+      databases,
+      selected_binding: bindings.find((b) => b.selected_as_default === 1) ?? bindings[0] ?? null,
+      workspace_id: workspaceId,
+    });
+  } catch (e) {
+    return clientError('CLOUDFLARE_D1_LIST_FAILED', e?.message ?? String(e), 500);
+  }
+}
+
+async function selectCloudflareD1Database(env, authUser, request) {
+  const wsRes = await assertWorkspaceAccess(env, request, authUser);
+  if (wsRes.error === 'Forbidden') return clientError('FORBIDDEN', 'You do not have access to this workspace.', 403);
+  if (wsRes.error === 'WORKSPACE_CONTEXT_MISSING') {
+    return clientError('WORKSPACE_CONTEXT_MISSING', 'Workspace context is missing.', 400);
+  }
+  if (wsRes.error) return clientError('WORKSPACE_ERROR', wsRes.error, 400);
+
+  const body = await request.json().catch(() => ({}));
+  const databaseId = String(body.database_id || body.external_database_id || '').trim();
+  const accountId = body.account_id != null ? String(body.account_id).trim() : '';
+  const displayName = body.display_name != null ? String(body.display_name).trim() : '';
+
+  if (!databaseId) {
+    return clientError('DATABASE_ID_REQUIRED', 'database_id is required.', 400);
+  }
+
+  const tenantId = await resolveTenantIdOrFetch(env, authUser);
+  const userId = String(authUser?.id || '').trim();
+  const workspaceId = wsRes.workspaceId;
+
+  const creds = await resolveWorkspaceCloudflareCredentials(env, userId, tenantId, workspaceId);
+  if (!creds.ok) {
+    return clientError('CLOUDFLARE_CREDENTIALS_MISSING', 'Add a Cloudflare API token for this workspace first.', 400);
+  }
+
+  const resolvedAccountId = accountId || creds.account_id;
+  if (!resolvedAccountId) {
+    return clientError('CLOUDFLARE_ACCOUNT_ID_REQUIRED', 'Cloudflare Account ID is required.', 400);
+  }
+
+  const out = await customerCloudflareSelectWorkspaceResource(env, {
+    user_id: userId,
+    tenant_id: tenantId,
+    workspace_id: workspaceId,
+    account_id: resolvedAccountId,
+    database_id: databaseId,
+    display_name: displayName || databaseId,
+  });
+
+  return jsonResponse({
+    ok: true,
+    binding_id: out.binding_id,
+    database_id: databaseId,
+    account_id_mask: maskAccountId(resolvedAccountId),
+    workspace_id: workspaceId,
+  });
+}
+
 /**
  * @returns {Promise<Response|null>}
  */
@@ -1124,6 +1307,14 @@ export async function handleSettingsKeysApi(request, env, ctx, authUser, url, pa
 
   if (keysPath === '/api/settings/keys/audit' && method === 'GET') {
     return auditApiKeys(request, env, authUser, url);
+  }
+
+  if (keysPath === '/api/settings/keys/cloudflare/d1' && method === 'GET') {
+    return listCloudflareD1Databases(env, authUser, request, url);
+  }
+
+  if (keysPath === '/api/settings/keys/cloudflare/d1/select' && method === 'POST') {
+    return selectCloudflareD1Database(env, authUser, request);
   }
 
   const validateIdMatch = keysPath.match(/^\/api\/settings\/keys\/([^/]+)\/validate$/);

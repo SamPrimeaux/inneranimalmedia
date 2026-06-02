@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Key, Plus, RefreshCw, RotateCw, Trash2 } from 'lucide-react';
+import { useWorkspace } from '../../../src/context/WorkspaceContext';
 import {
   DataTable,
   EmptyState,
@@ -20,6 +21,7 @@ type ApiKeyItem = {
   status: string;
   scope: string;
   last_four: string;
+  cloudflare_account_mask?: string | null;
   validated_at?: string | null;
   created_at: string | null;
   updated_at: string | null;
@@ -110,7 +112,17 @@ function readApiError(j: Record<string, unknown>, fallback: string): string {
   return fallback;
 }
 
+type CloudflareD1Row = {
+  uuid?: string;
+  name?: string;
+  version?: string;
+};
+
 export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
+  const workspaceCtx = useWorkspace();
+  const ws = (workspaceId || workspaceCtx.workspaceId || '').trim() || null;
+  const wsLoading = workspaceCtx.loading && !ws;
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [rotatingId, setRotatingId] = useState<string | null>(null);
@@ -122,6 +134,7 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
   const [provider, setProvider] = useState('openai');
   const [label, setLabel] = useState('');
   const [apiKey, setApiKey] = useState('');
+  const [cloudflareAccountId, setCloudflareAccountId] = useState('');
   const [scope, setScope] = useState<'user' | 'workspace'>('workspace');
   const [expiresAt, setExpiresAt] = useState('');
 
@@ -143,14 +156,25 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
   const [personalValue, setPersonalValue] = useState('');
   const [personalSaving, setPersonalSaving] = useState(false);
 
-  const ws = workspaceId || null;
+  const [d1Loading, setD1Loading] = useState(false);
+  const [d1Rows, setD1Rows] = useState<CloudflareD1Row[]>([]);
+  const [selectedD1Id, setSelectedD1Id] = useState('');
+  const [selectedD1Label, setSelectedD1Label] = useState<string | null>(null);
+  const [d1Saving, setD1Saving] = useState(false);
+
+  const isCloudflare = provider.trim().toLowerCase() === 'cloudflare';
+  const hasCloudflareKey = items.some(
+    (i) => String(i.provider || '').toLowerCase() === 'cloudflare' && String(i.status || '').toLowerCase() === 'active',
+  );
+
   const KEYS_API = '/api/settings/keys';
 
   const load = useCallback(async () => {
     if (!ws) {
       setItems([]);
       setLoading(false);
-      setError('workspaceId missing');
+      if (!wsLoading) setError('workspaceId missing');
+      else setError(null);
       return;
     }
     setLoading(true);
@@ -169,7 +193,40 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
     } finally {
       setLoading(false);
     }
-  }, [ws]);
+  }, [ws, wsLoading]);
+
+  const loadCloudflareD1 = useCallback(async () => {
+    if (!ws || !hasCloudflareKey) {
+      setD1Rows([]);
+      setSelectedD1Id('');
+      setSelectedD1Label(null);
+      return;
+    }
+    setD1Loading(true);
+    try {
+      const r = await fetch(`${KEYS_API}/cloudflare/d1`, {
+        credentials: 'same-origin',
+        headers: ws ? { 'X-IAM-Workspace-Id': ws } : undefined,
+      });
+      const j = (await r.json().catch(() => ({}))) as {
+        databases?: CloudflareD1Row[];
+        selected_binding?: { external_database_id?: string; display_name?: string } | null;
+        message?: string;
+        error?: string;
+      };
+      if (!r.ok) throw new Error(j.message || j.error || `Load failed (${r.status})`);
+      setD1Rows(Array.isArray(j.databases) ? j.databases : []);
+      const sel = j.selected_binding;
+      if (sel?.external_database_id) {
+        setSelectedD1Id(String(sel.external_database_id));
+        setSelectedD1Label(sel.display_name ? String(sel.display_name) : null);
+      }
+    } catch {
+      setD1Rows([]);
+    } finally {
+      setD1Loading(false);
+    }
+  }, [ws, hasCloudflareKey]);
 
   const loadPersonal = useCallback(async () => {
     if (!ws) {
@@ -217,7 +274,8 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
     void load();
     void loadPersonal();
     void loadAudit();
-  }, [load, loadPersonal, loadAudit]);
+    void loadCloudflareD1();
+  }, [load, loadPersonal, loadAudit, loadCloudflareD1]);
 
   const summary = useMemo(() => {
     const active = items.filter((i) => String(i.status || '').toLowerCase() === 'active').length;
@@ -297,15 +355,24 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
       setError('Provider and key are required to test.');
       return;
     }
+    if (isCloudflare && !cloudflareAccountId.trim()) {
+      setError('Cloudflare Account ID is required.');
+      return;
+    }
     setTesting(true);
     setTestResult(null);
     setError(null);
     try {
+      const payload: Record<string, string> = {
+        provider: provider.trim().toLowerCase(),
+        api_key: keyT,
+      };
+      if (isCloudflare) payload.cloudflare_account_id = cloudflareAccountId.trim();
       const r = await fetch(`${KEYS_API}/validate`, {
         method: 'POST',
         credentials: 'same-origin',
         headers: apiKeysJsonHeaders(ws),
-        body: JSON.stringify({ provider: provider.trim().toLowerCase(), api_key: keyT }),
+        body: JSON.stringify(payload),
       });
       const j = (await r.json().catch(() => ({}))) as ValidateResult;
       setTestResult(j);
@@ -323,16 +390,21 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
     if (!ws) return;
     const labelT = label.trim();
     const keyT = apiKey.trim();
+    const accountT = cloudflareAccountId.trim();
     if (!provider.trim()) {
       setError('Provider is required.');
       return;
     }
-    if (!labelT) {
+    if (!isCloudflare && !labelT) {
       setError('Label is required.');
       return;
     }
     if (!keyT) {
       setError('API key is required.');
+      return;
+    }
+    if (isCloudflare && !accountT) {
+      setError('Cloudflare Account ID is required.');
       return;
     }
     if (!scope) {
@@ -342,31 +414,35 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
     setSaving(true);
     setError(null);
     try {
+      const body: Record<string, unknown> = {
+        category: 'provider',
+        provider: provider.trim().toLowerCase(),
+        label: labelT || undefined,
+        key_name: labelT || undefined,
+        api_key: keyT,
+        scope,
+        validate: true,
+        expires_at: expiresAt.trim() ? expiresAt.trim() : null,
+      };
+      if (isCloudflare) body.cloudflare_account_id = accountT;
       const r = await fetch(KEYS_API, {
         method: 'POST',
         credentials: 'same-origin',
         headers: apiKeysJsonHeaders(ws),
-        body: JSON.stringify({
-          category: 'provider',
-          provider: provider.trim().toLowerCase(),
-          label: labelT,
-          key_name: labelT,
-          api_key: keyT,
-          scope,
-          validate: true,
-          expires_at: expiresAt.trim() ? expiresAt.trim() : null,
-        }),
+        body: JSON.stringify(body),
       });
       const j = (await r.json().catch(() => ({}))) as Record<string, unknown>;
       if (!r.ok) throw new Error(readApiError(j, `Create failed (${r.status})`));
       setCreateOpen(false);
       setLabel('');
       setApiKey('');
+      setCloudflareAccountId('');
       setProvider('openai');
       setScope('workspace');
       setExpiresAt('');
       await load();
       await loadAudit();
+      await loadCloudflareD1();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Create failed');
     } finally {
@@ -403,6 +479,31 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
       setError(e instanceof Error ? e.message : 'Rotate failed');
     } finally {
       setRotatingId(null);
+    }
+  };
+
+  const onSelectD1 = async () => {
+    if (!ws || !selectedD1Id.trim()) return;
+    setD1Saving(true);
+    setError(null);
+    try {
+      const picked = d1Rows.find((d) => String(d.uuid || '') === selectedD1Id.trim());
+      const r = await fetch(`${KEYS_API}/cloudflare/d1/select`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: apiKeysJsonHeaders(ws),
+        body: JSON.stringify({
+          database_id: selectedD1Id.trim(),
+          display_name: picked?.name || selectedD1Id.trim(),
+        }),
+      });
+      const j = (await r.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!r.ok) throw new Error(readApiError(j, `Select failed (${r.status})`));
+      await loadCloudflareD1();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to select D1 database');
+    } finally {
+      setD1Saving(false);
     }
   };
 
@@ -480,8 +581,8 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
         Provider keys
       </h3>
 
-      {loading ? (
-        <LoadingRow label="Loading API keys…" />
+      {loading || wsLoading ? (
+        <LoadingRow label={wsLoading ? 'Resolving workspace…' : 'Loading API keys…'} />
       ) : items.length === 0 ? (
         <EmptyState message="No API keys saved yet. Add a key to get started." />
       ) : (
@@ -507,7 +608,9 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
                 <div className="min-w-0">
                   <div className="truncate">{r.label || '—'}</div>
                   <div className="text-[10px] text-[var(--text-muted)] font-mono truncate">
-                    ••••{r.last_four}
+                    {String(r.provider || '').toLowerCase() === 'cloudflare' && r.cloudflare_account_mask
+                      ? `Account: ${r.cloudflare_account_mask} · Token: ••••${r.last_four}`
+                      : `••••${r.last_four}`}
                   </div>
                 </div>
               ),
@@ -593,6 +696,69 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
           rows={items}
         />
       )}
+
+      {hasCloudflareKey ? (
+        <section className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-[11px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+              Cloudflare D1 (workspace default)
+            </h3>
+            <button
+              type="button"
+              onClick={() => void loadCloudflareD1()}
+              className="text-[10px] px-2 py-1 rounded border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]"
+            >
+              Refresh
+            </button>
+          </div>
+          {selectedD1Label || selectedD1Id ? (
+            <div className="text-[11px] text-[var(--text-muted)]">
+              Selected:{' '}
+              <span className="text-[var(--text-main)] font-semibold">
+                {selectedD1Label || selectedD1Id}
+              </span>
+            </div>
+          ) : (
+            <div className="text-[11px] text-[var(--color-warning)]">
+              No default D1 selected — agentsam_d1_query will fail closed until you pick one.
+            </div>
+          )}
+          {d1Loading ? (
+            <LoadingRow label="Loading D1 databases…" />
+          ) : d1Rows.length === 0 ? (
+            <EmptyState message="No D1 databases found for this Cloudflare account." />
+          ) : (
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="flex flex-col gap-1 text-[11px] min-w-[240px] flex-1">
+                <span className="text-[var(--text-muted)]">Default D1 database</span>
+                <select
+                  value={selectedD1Id}
+                  onChange={(e) => setSelectedD1Id(e.target.value)}
+                  className="px-3 py-2 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[12px]"
+                >
+                  <option value="">Select a database…</option>
+                  {d1Rows.map((d) => {
+                    const id = String(d.uuid || '');
+                    return (
+                      <option key={id} value={id}>
+                        {d.name || id}
+                      </option>
+                    );
+                  })}
+                </select>
+              </label>
+              <button
+                type="button"
+                disabled={d1Saving || !selectedD1Id.trim()}
+                onClick={() => void onSelectD1()}
+                className="px-3 py-2 rounded-lg bg-[var(--solar-cyan)]/20 text-[11px] font-semibold text-[var(--solar-cyan)] border border-[var(--solar-cyan)]/30 disabled:opacity-50"
+              >
+                {d1Saving ? 'Saving…' : 'Set default D1'}
+              </button>
+            </div>
+          )}
+        </section>
+      ) : null}
 
       <section className="space-y-3">
         <div className="flex items-center justify-between gap-2">
@@ -774,7 +940,10 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
                 <span className="text-[var(--text-muted)]">Provider</span>
                 <select
                   value={provider}
-                  onChange={(e) => setProvider(e.target.value)}
+                  onChange={(e) => {
+                    setProvider(e.target.value);
+                    setTestResult(null);
+                  }}
                   className="px-3 py-2 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[12px]"
                 >
                   {['openai', 'anthropic', 'google', 'cloudflare', 'resend', 'github', 'supabase', 'other'].map(
@@ -786,17 +955,29 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
                   )}
                 </select>
               </label>
+              {isCloudflare ? (
+                <label className="flex flex-col gap-1 text-[11px]">
+                  <span className="text-[var(--text-muted)]">Cloudflare Account ID</span>
+                  <input
+                    value={cloudflareAccountId}
+                    onChange={(e) => setCloudflareAccountId(e.target.value)}
+                    placeholder="32-character account id"
+                    autoComplete="off"
+                    className="px-3 py-2 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[12px] font-mono"
+                  />
+                </label>
+              ) : null}
               <label className="flex flex-col gap-1 text-[11px]">
-                <span className="text-[var(--text-muted)]">Label</span>
+                <span className="text-[var(--text-muted)]">{isCloudflare ? 'Label (optional)' : 'Label'}</span>
                 <input
                   value={label}
                   onChange={(e) => setLabel(e.target.value)}
-                  placeholder="OpenAI production key"
+                  placeholder={isCloudflare ? 'Production Cloudflare' : 'OpenAI production key'}
                   className="px-3 py-2 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[12px]"
                 />
               </label>
               <label className="flex flex-col gap-1 text-[11px]">
-                <span className="text-[var(--text-muted)]">API key</span>
+                <span className="text-[var(--text-muted)]">{isCloudflare ? 'API Token' : 'API key'}</span>
                 <input
                   type="password"
                   value={apiKey}
@@ -852,15 +1033,28 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
               </button>
               <button
                 type="button"
-                disabled={testing || !apiKey.trim() || !provider.trim() || !ws}
+                disabled={
+                  testing ||
+                  !apiKey.trim() ||
+                  !provider.trim() ||
+                  !ws ||
+                  (isCloudflare && !cloudflareAccountId.trim())
+                }
                 className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-[var(--text-muted)] disabled:opacity-50"
                 onClick={() => void onTestKey()}
               >
-                {testing ? 'Testing…' : 'Test'}
+                {testing ? 'Testing…' : 'Test connection'}
               </button>
               <button
                 type="button"
-                disabled={saving || !label.trim() || !apiKey.trim() || !provider.trim() || !ws}
+                disabled={
+                  saving ||
+                  !apiKey.trim() ||
+                  !provider.trim() ||
+                  !ws ||
+                  (isCloudflare && !cloudflareAccountId.trim()) ||
+                  (!isCloudflare && !label.trim())
+                }
                 className="px-3 py-1.5 rounded-lg bg-[var(--solar-cyan)]/20 text-[11px] font-semibold text-[var(--solar-cyan)] border border-[var(--solar-cyan)]/30 disabled:opacity-50"
                 onClick={() => void onCreate()}
               >
