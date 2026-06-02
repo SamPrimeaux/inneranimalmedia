@@ -1,0 +1,61 @@
+---
+description: terminal_connections resolution — priority, auth, cwd, failover (on-demand)
+alwaysApply: false
+---
+
+# IAM Terminal Connections — Resolution Rules
+
+**Query D1** `terminal_connections` at runtime; do not hardcode connection ids or `ws_url` in executor code.
+
+## Connection priority for `ws_inneranimalmedia` (Sam)
+
+| Order | id | Host | Role |
+|-------|-----|------|------|
+| 1 | `conn_mac_local` | `localpty.inneranimalmedia.com` | Mac PTY primary (`target_priority` 10, `is_default` 1) |
+| 2 | `conn_mac_shell2` | `terminal.inneranimalmedia.com` | GCP VM fallback (`target_priority` 50) |
+
+## Resolution logic (main + MCP terminal handlers)
+
+```sql
+SELECT * FROM terminal_connections
+WHERE workspace_id = ? AND user_id = ? AND is_active = 1
+ORDER BY is_default DESC, target_priority ASC
+LIMIT 1;
+```
+
+- If primary fails at connect time → retry next active row by `target_priority ASC`.
+- Surface error only after all active connections for that user/workspace fail.
+- Never silently fall back to a wrong workspace path.
+
+**Never use `is_default` alone** — always `is_default DESC, target_priority ASC`.
+
+## Per-tenant: Connor
+
+- `conn_connor_primary` → GCP VM (`wss://terminal.inneranimalmedia.com`) until he provisions his own tunnel.
+- Connor self-service: `self_service_enabled = 1` + his `ws_url` on a `user_hosted_tunnel` row.
+
+## Auth
+
+| `auth_mode` | Behavior |
+|-------------|----------|
+| `secret_name` | Read `auth_token_secret_name` from connection row → Wrangler secret / `env[secret_name]` |
+| `token_mint` | Short-lived token minted by main worker for that session |
+
+## `cwd_strategy`
+
+| Strategy | cwd |
+|----------|-----|
+| `host_default` | `workspace_settings.workspace_cd_command` (Sam: `cd /Users/samprimeaux/inneranimalmedia`) |
+| `platform_workspace` | `/workspace/{tenant_id}/{user_id}/` (GCP VM isolated path) |
+
+## Failover
+
+1. Try lowest `target_priority` active row for `user_id` + `workspace_id`.
+2. On connect/exec failure, try next active row (`target_priority ASC`).
+3. Do not drop to another user's connection (`user_id` must match `auth_users.id`).
+
+## Never
+
+- Hardcode `ws_url` or connection `id` in hot-path executor code.
+- Create connections without `user_id` = owning `auth_users.id` (except documented shared workspace rows).
+- Leave multiple `is_default = 1` rows for the same `workspace_id` + `user_id`.
