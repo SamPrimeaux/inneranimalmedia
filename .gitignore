@@ -77,6 +77,7 @@ scripts/upload-theme-debug-to-r2.sh
 captures/*/results/
 captures/*/raw-playwright-report/
 captures/*/raw-quality-report/
+quality-report/
 captures/*/upload-failures.log
 iam_remediation.py
 iam_remediation_output.txt
@@ -131,7 +132,9 @@ analytics/codebase-index/
 # Generated audit outputs
 handler_type_audit_*.txt
 audit_report.md
-reports/
+reports/*
+!reports/template/
+!reports/template/**
 
 # Agent runtime state
 .agents/

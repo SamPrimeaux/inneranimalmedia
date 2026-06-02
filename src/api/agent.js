@@ -154,6 +154,7 @@ import {
 } from '../core/usage-event-writer.js';
 import { buildRoutingDecision } from '../core/routingDecision.js';
 import { fireAgentHooks } from '../core/hook-dispatcher.js';
+import { hydrateSkillsFromR2 } from '../core/agentsam-skill-r2.js';
 import { triggerEvalAfterNRuns } from '../core/eval-runner.js';
 import {
   scheduleEscalationAttempt,
@@ -662,6 +663,12 @@ async function appendSkillsAndRulesToSystemPrompt(env, ctx, systemPrompt, opts) 
     }
   }
   if (!skillRows?.length) return systemPrompt;
+
+  try {
+    skillRows = await hydrateSkillsFromR2(env, skillRows);
+  } catch (e) {
+    console.warn('[agent] hydrate skills r2', e?.message ?? e);
+  }
 
   try {
     await recordBlendedSkillInvocations(env, ctx, skillRows, {

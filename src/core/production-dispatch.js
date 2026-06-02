@@ -36,7 +36,8 @@ import { handleEmailApi } from '../api/email.js';
 import { handleLearnApi } from '../api/learn.js';
 import { handleOnboardingApi } from '../api/onboarding.js';
 import { handleAuthApi } from '../api/auth.js';
-import { jsonResponse } from './auth.js';
+import { jsonResponse, isIngestSecretAuthorized } from './auth.js';
+import { handleQualityReportRegisterApi } from '../public-pages/quality-report-route.js';
 import { handleSearchApi } from '../api/search.js';
 import { handleIntakeApi } from '../api/intake.js';
 import { handleCadApi } from '../api/cad.js';
@@ -93,6 +94,11 @@ export async function dispatchProductionDomainRoutes(rc) {
   } = rc;
 
   const routeAuth = { authCtx, authUser };
+
+  if (pathLower === '/api/quality-reports/register' && methodUpper === 'POST') {
+    const ingestBypass = isIngestSecretAuthorized(request, env);
+    return handleQualityReportRegisterApi(request, env, authUser, ingestBypass);
+  }
 
   if (pathLower.startsWith('/api/agentsam/browser/trust')) {
     return handleBrowserTrust(request, env);

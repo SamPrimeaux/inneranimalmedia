@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{PAGE_TITLE}}</title>
+<link rel="icon" href="{{HEADER_LOGO}}">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>{{STYLES}}</style>
+</head>
+<body>
+<header class="hero">
+  <div class="brand">
+    <img src="{{HEADER_LOGO}}" alt="{{BRAND}}">
+    <div>
+      <h1>{{BRAND}}</h1>
+      <div class="sub">Quality Report</div>
+    </div>
+  </div>
+  <div class="meta">
+    <div>Workspace<strong>{{WORKSPACE}}</strong></div>
+    <div>Framework<strong>Custom Quality Engine</strong></div>
+    <div>Generated<strong>{{GENERATED_LABEL}}</strong></div>
+  </div>
+</header>
+
+<div class="shell">
+  <aside class="side">
+    <div class="nav active"><span>Overview</span><b>{{TOTAL}}</b></div>
+    <div class="nav"><span>Passed</span><b>{{PASSED}}</b></div>
+    <div class="nav"><span>Failed</span><b>{{FAILED}}</b></div>
+    <div class="nav"><span>Flaky</span><b>{{FLAKY}}</b></div>
+    <div class="nav"><span>Skipped</span><b>{{SKIPPED}}</b></div>
+    <hr style="border-color:rgba(148,163,184,.18);margin:22px 0">
+    <div class="nav"><span>Screenshots</span><b>●</b></div>
+    <div class="nav"><span>Videos</span><b>●</b></div>
+    <div class="nav"><span>Traces</span><b>●</b></div>
+    <div class="nav"><span>Errors</span><b>●</b></div>
+  </aside>
+
+  <main class="content">
+    <section class="cards">
+      <div class="card"><span>Total</span><b>{{TOTAL}}</b></div>
+      <div class="card"><span>Passed</span><b>{{PASSED}}</b></div>
+      <div class="card"><span>Failed</span><b>{{FAILED}}</b></div>
+      <div class="card"><span>Flaky</span><b>{{FLAKY}}</b></div>
+      <div class="card"><span>Skipped</span><b>{{SKIPPED}}</b></div>
+    </section>
+
+    <div class="toolbar">
+      <h2 style="color:#4ade80;text-transform:uppercase;letter-spacing:.12em">Test Evidence</h2>
+      <a href="diagnostics/index.html" target="_blank" rel="noopener">Advanced Diagnostics</a>
+    </div>
+
+    <section class="test-list">
+      {{TEST_ROWS}}
+    </section>
+  </main>
+</div>
+
+<footer class="footer">
+  <div class="footbrand">
+    <img src="{{FOOTER_LOGO}}" alt="{{BRAND}}">
+    <div>
+      <strong>{{BRAND}}</strong>
+      <div class="tag">{{TAGLINE}}</div>
+    </div>
+  </div>
+  <div>{{FOOTER_COPY}}</div>
+</footer>
+</body>
+</html>

@@ -47,6 +47,7 @@ import { recordAgentsamWebhookEvent } from './core/webhook-events-writer.js';
 import { getDashboardR2Object, getDashboardSpaHtmlShell } from './core/dashboard-r2-assets.js';
 import { resolveGitHubToken } from './core/github-token.js';
 import { handleSitemapPage, handleSitemapXml } from './public-pages/sitemap-route.js';
+import { handleQualityReportRoute } from './public-pages/quality-report-route.js';
 
 function getMimeType(key) {
   if (key.endsWith('.js'))    return 'application/javascript';
@@ -309,6 +310,9 @@ export default {
       if (pathLower === '/sitemap' || pathLower === '/sitemap/') {
         return handleSitemapPage(env.ASSETS);
       }
+
+      const qualityReportRes = await handleQualityReportRoute(request, env, pathLower);
+      if (qualityReportRes) return qualityReportRes;
 
       const ASSET_ROUTES = {
         '/': 'pages/home/index.html',
