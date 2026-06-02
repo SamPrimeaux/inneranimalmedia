@@ -7,6 +7,7 @@
  */
 
 import { aesGcmDecryptFromB64, aesGcmEncryptToB64, getAESKey } from './crypto-vault.js';
+import { resolveIntegrationUserId, invalidateGithubReposSessionCache } from './integration-user-id.js';
 
 async function pragmaColumns(DB, tableName) {
   const out = await DB.prepare(`PRAGMA table_info(${tableName})`).all();
@@ -89,6 +90,13 @@ export async function upsertOauthToken(
   if (!env?.DB) throw new Error('DB not configured');
   if (!env.VAULT_MASTER_KEY) throw new Error('VAULT_MASTER_KEY not configured');
 
+  let canonicalUserId = String(user_id || '').trim();
+  if (canonicalUserId) {
+    const resolved = await resolveIntegrationUserId(env, { id: canonicalUserId });
+    if (resolved) canonicalUserId = resolved;
+  }
+  if (!canonicalUserId) throw new Error('user_id required for oauth token upsert');
+
   const cols = await ensureOauthTokenColumns(env.DB); // PRAGMA requirement before write
   const createdAt = nowSeconds();
   const updatedAt = createdAt;
@@ -145,7 +153,7 @@ export async function upsertOauthToken(
   `.replace(/\s+/g, ' ').trim();
 
   const binds = [
-    String(user_id),
+    canonicalUserId,
     String(tenant_id || ''),
     String(person_uuid || ''),
     providerForDb,
@@ -202,7 +210,7 @@ export async function upsertOauthToken(
         .bind(
           String(tenant_id || ''),
           registryKey,
-          String(user_id),
+          String(canonicalUserId),
           'OAuth connection established',
           JSON.stringify({ account_display: account_display || null }),
         )
@@ -210,6 +218,15 @@ export async function upsertOauthToken(
     } catch {
       /* ignore */
     }
+  }
+
+  if (providerForDb === 'github' || providerForDb === 'github_app') {
+    await invalidateGithubReposSessionCache(
+      env,
+      canonicalUserId,
+      accountIdVal,
+      workspace_id != null ? String(workspace_id) : '',
+    );
   }
 }
 

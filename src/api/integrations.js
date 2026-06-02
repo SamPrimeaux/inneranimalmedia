@@ -7,6 +7,7 @@ import { getAuthUser, isSamOnlyUser, jsonResponse, fallbackSystemTenantId } from
 import { ensureOauthTokenColumns, resolveOAuthAccessToken } from './oauth.js';
 import { getIntegrationToken } from '../integrations/tokens.js';
 import { handleGithubReposList } from '../integrations/github.js';
+import { resolveIntegrationUserId } from '../core/integration-user-id.js';
 import { recordWorkerAnalyticsError } from './telemetry.js';
 import { handleIntegrationsConnectRoutes } from './integrations/connect.js';
 
@@ -770,7 +771,7 @@ async function handleLegacyStatus(env, authUser) {
 }
 
 async function handleLegacyProviderBrowser(request, env, authUser, url, pathLower, method) {
-    const userId = integrationUserId(authUser);
+    const userId = (await resolveIntegrationUserId(env, authUser)) || integrationUserId(authUser);
     const githubAccount = url.searchParams.get('account') || '';
     if (method === 'GET' && pathLower === '/api/integrations/gdrive/files') {
         const folderId = url.searchParams.get('folderId') || 'root';

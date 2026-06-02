@@ -23,6 +23,7 @@
  */
 
 import { getAuthUser, jsonResponse } from '../core/auth.js';
+import { resolveIntegrationUserId } from '../core/integration-user-id.js';
 
 const TEXT_MASK = '************';
 
@@ -505,11 +506,12 @@ async function getDocs(env, authUser, workspaceId) {
 }
 
 // ─── Section: GitHub ─────────────────────────────────────────────────────────
-async function getGithub(env, authUser) {
+async function getGithub(env, authUser, workspaceId) {
   const warnings = [];
   const cache = new Map();
   const db = env.DB;
-  const userId = String(authUser?.id || '').trim();
+  const userId = (await resolveIntegrationUserId(env, authUser)) || String(authUser?.id || '').trim();
+  const wsFilter = workspaceId != null && String(workspaceId).trim() !== '' ? String(workspaceId).trim() : null;
 
   const connections = await safeQueryAll(
     db,
@@ -540,12 +542,20 @@ async function getGithub(env, authUser) {
     expires_at: row.expires_at,
   }));
 
+  const indexJobSql = wsFilter
+    ? `SELECT id, repo_full_name, status, started_at, finished_at, indexed_files
+       FROM agentsam_code_index_job WHERE user_id = ? AND workspace_id = ?
+       ORDER BY COALESCE(finished_at, started_at) DESC LIMIT 10`
+    : `SELECT id, repo_full_name, status, started_at, finished_at, indexed_files
+       FROM agentsam_code_index_job WHERE user_id = ?
+       ORDER BY COALESCE(finished_at, started_at) DESC LIMIT 10`;
+  const indexJobBinds = wsFilter ? [userId, wsFilter] : [userId];
+
   const indexJobs = await safeQueryAll(
     db,
     'agentsam_code_index_job',
-    `SELECT id, repo_full_name, status, started_at, finished_at, indexed_files
-     FROM agentsam_code_index_job ORDER BY COALESCE(finished_at, started_at) DESC LIMIT 10`,
-    [],
+    indexJobSql,
+    indexJobBinds,
     warnings,
     cache,
   );
@@ -553,9 +563,11 @@ async function getGithub(env, authUser) {
   const auditLog = await safeQueryAll(
     db,
     'integration_audit_log',
-    `SELECT id, provider_key, event_type, severity, created_at
-     FROM integration_audit_log WHERE provider_key IN ('github','github_app') ORDER BY created_at DESC LIMIT 25`,
-    [],
+    `SELECT id, provider, action, status, created_at
+     FROM integration_audit_log
+     WHERE user_id = ? AND provider IN ('github','github_app')
+     ORDER BY created_at DESC LIMIT 25`,
+    [userId],
     warnings,
     cache,
   );
@@ -1177,7 +1189,7 @@ export async function handleSettingsSectionStatusApi(request, env, authUser, url
       return jsonResponse(await getNotifications(env, authUser));
     if (pathLower === '/api/settings/docs')
       return jsonResponse(await getDocs(env, authUser, workspaceId));
-    if (pathLower === '/api/settings/github') return jsonResponse(await getGithub(env, authUser));
+    if (pathLower === '/api/settings/github') return jsonResponse(await getGithub(env, authUser, workspaceId));
     if (pathLower === '/api/settings/themes/status')
       return jsonResponse(await getThemesStatus(env, authUser, workspaceId));
     if (pathLower === '/api/settings/hooks/status') return jsonResponse(await getHooksStatus(env));

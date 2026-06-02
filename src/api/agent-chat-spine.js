@@ -20,6 +20,7 @@ import { executePlanTurn } from '../core/mode-controllers/plan-controller.js';
 import { executeAgentTurn } from '../core/mode-controllers/agent-controller.js';
 import { executeDebugTurn } from '../core/mode-controllers/debug-controller.js';
 import { executeMultitaskTurn } from '../core/mode-controllers/multitask-controller.js';
+import { resolveIntegrationUserId } from '../core/integration-user-id.js';
 
 const SSE_HEADERS = {
   'Content-Type': 'text/event-stream',
@@ -39,7 +40,11 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
   const body = /** @type {Record<string, unknown>} */ (pre.body || {});
   const message = String(pre.message || '').trim();
   const tenantId = pre.tenantId != null ? String(pre.tenantId) : null;
-  const userId = pre.userId != null ? String(pre.userId) : null;
+  let userId = pre.userId != null ? String(pre.userId) : null;
+  if (userId) {
+    const canonicalUserId = await resolveIntegrationUserId(env, { id: userId });
+    if (canonicalUserId) userId = canonicalUserId;
+  }
   const workspaceId = pre.workspaceId != null ? String(pre.workspaceId) : null;
   const sessionId = pre.sessionId != null ? String(pre.sessionId) : null;
   const authUser = pre.authUser || { id: userId, tenant_id: tenantId };

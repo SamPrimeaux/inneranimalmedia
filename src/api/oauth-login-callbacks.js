@@ -14,6 +14,7 @@ import {
 import { ensureIdentityPlaneBeforeSession } from '../core/ensureIdentityPlaneBeforeSession.js';
 import { ensureAppUser } from '../core/ensureAppUser.js';
 import { upsertOauthToken } from '../core/oauth-token-store.js';
+import { resolveIntegrationUserId } from '../core/integration-user-id.js';
 import { resolveCanonicalWorkspace } from './oauth.js';
 import { isMcpOAuthLoginChallengeResumePath } from './mcp-oauth-login-challenge.js';
 
@@ -374,11 +375,10 @@ export async function handleGitHubLoginOAuthCallback(request, url, env, options 
     if (!sessionUser) {
       return Response.redirect(`${url.origin}/auth/login?error=session_required`, 302);
     }
-    /** Match `integrationUserId` / `oauthTokenUserKey`: rows keyed by `auth_users.id`, not email. */
-    const ghUserId =
-      sessionUser?.id != null && String(sessionUser.id).trim() !== ''
-        ? String(sessionUser.id).trim()
-        : String(sessionUser.email || '').trim();
+    const ghUserId = await resolveIntegrationUserId(env, sessionUser);
+    if (!ghUserId) {
+      return Response.redirect(`${url.origin}/auth/login?error=session_required`, 302);
+    }
     const ghLogin = (userInfo.login || '').toString() || 'github';
     if (tokens.access_token && env.DB) {
       try {

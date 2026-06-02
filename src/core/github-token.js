@@ -2,6 +2,7 @@
  * Shared GitHub OAuth token resolution for Workers API routes (user-scoped only).
  */
 import { getUserGithubToken } from '../integrations/github.js';
+import { resolveIntegrationUserId } from './integration-user-id.js';
 
 /**
  * @param {{ id: string, email?: string|null }} authUser
@@ -9,7 +10,7 @@ import { getUserGithubToken } from '../integrations/github.js';
  * @param {string} [providerAccountId] — GitHub `account_identifier` / `?account=` login
  */
 export async function resolveGitHubToken(authUser, env, providerAccountId = '') {
-  const userId = authUser?.id != null && String(authUser.id).trim() !== '' ? String(authUser.id).trim() : '';
+  const userId = await resolveIntegrationUserId(env, authUser);
   if (!userId || !env?.DB) {
     return { error: 'No GitHub token. Re-authenticate via GitHub OAuth.', status: 401 };
   }

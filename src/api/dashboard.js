@@ -36,7 +36,8 @@ import { handleCanvasApi } from '../integrations/canvas.js';
 import { handleHyperdriveRoutes } from '../integrations/hyperdrive.js';
 import { handleBrowserRequest, handlePlaywrightJobApi } from '../integrations/playwright.js';
 import { handleBrowserRunQuickActionsRoute } from './browser-run-quickactions-route.js';
-import { handleGitHubApi, resolveGitHubToken } from '../integrations/github.js';
+import { handleGitHubApi } from '../integrations/github.js';
+import { resolveGitHubToken } from '../core/github-token.js';
 import { handleAgentArtifactsApi } from './agent-artifacts.js';
 import {
     fetchGitStatusFromGitHub,
@@ -166,18 +167,16 @@ export async function handleDashboardApi(request, url, env, ctx) {
             }
             const repoFull = repoCtx.repo;
             const owner = repoFull.split('/')[0];
-            let token;
-            try {
-                const gh = await resolveGitHubToken(env, authUser, owner);
-                token = gh.token;
-            } catch (e) {
+            const gh = await resolveGitHubToken(authUser, env, owner);
+            if (gh.error || !gh.token) {
                 return jsonResponse({
                     branches: [],
                     repo_full_name: repoFull,
                     error: 'github_auth',
-                    message: e?.message || String(e),
-                });
+                    message: gh.error || 'No GitHub token',
+                }, gh.status || 401);
             }
+            const token = gh.token;
 
             const ghHeaders = {
                 Authorization: `Bearer ${token}`,

@@ -1,23 +1,29 @@
 /**
  * GitHub tools — user OAuth from D1 (no cookie round-trip to dashboard).
  */
-import { getIntegrationToken } from '../../integrations/tokens.js';
-import { resolveOAuthAccessToken } from '../../api/oauth.js';
-import { githubCommitHandshake } from '../../integrations/github.js';
+import { getUserGithubToken, githubCommitHandshake } from '../../integrations/github.js';
+import { resolveIntegrationUserId } from '../../core/integration-user-id.js';
 
-function authUserFromParams(params) {
-  const uid = params.user_id != null ? String(params.user_id).trim() : '';
+function authUserFromParams(params, canonicalUserId) {
+  const uid = canonicalUserId || (params.user_id != null ? String(params.user_id).trim() : '');
   if (!uid) return null;
   return { id: uid, user_id: uid };
 }
 
 async function ghGetToken(env, params) {
-  const u = authUserFromParams(params);
-  if (!u) return { error: 'user_id required for GitHub tools' };
-  const row = await getIntegrationToken(env, u.id, 'github', '');
-  const token = await resolveOAuthAccessToken(env, row);
-  if (!token) return { error: 'GitHub account not linked (connect in Integrations)' };
-  return { token, user: u };
+  const rawUid = params.user_id != null ? String(params.user_id).trim() : '';
+  if (!rawUid) return { error: 'user_id required for GitHub tools' };
+  const canonicalUserId = (await resolveIntegrationUserId(env, { id: rawUid })) || rawUid;
+  const account = params.account != null ? String(params.account) : params.account_identifier != null ? String(params.account_identifier) : '';
+  const row = await getUserGithubToken(env, canonicalUserId, account);
+  if (!row?.token) {
+    return { error: 'GitHub account not linked — sign in with GitHub or connect in Integrations' };
+  }
+  return {
+    token: row.token,
+    account_identifier: row.account_identifier || '',
+    user: authUserFromParams(params, canonicalUserId),
+  };
 }
 
 async function ghJson(token, method, path, body) {

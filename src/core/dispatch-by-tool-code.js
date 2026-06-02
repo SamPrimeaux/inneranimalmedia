@@ -8,6 +8,7 @@ import {
   loadAgentsamToolRow,
   validateHandlerConfigForExecution,
 } from './agentsam-tools-catalog.js';
+import { resolveIntegrationUserId } from './integration-user-id.js';
 
 function parseInput(input) {
   if (input == null) return {};
@@ -35,7 +36,11 @@ export async function dispatchByToolCode(env, toolCodeOrKey, input, runContext =
 
   const workspaceId = runContext.workspaceId ?? runContext.workspace_id ?? null;
   const tenantId = runContext.tenantId ?? runContext.tenant_id ?? null;
-  const userId = runContext.userId ?? runContext.user_id ?? null;
+  let userId = runContext.userId ?? runContext.user_id ?? null;
+  if (userId) {
+    const canonicalUserId = await resolveIntegrationUserId(env, { id: String(userId) });
+    if (canonicalUserId) userId = canonicalUserId;
+  }
 
   let credentials = { auth_source: 'none', value: null };
   if (config.auth_source) {

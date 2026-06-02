@@ -6,6 +6,7 @@ import { getAuthUser, fetchAuthUserTenantId, platformTenantIdFromEnv } from '../
 import { isHyperdriveUsable, runHyperdriveQuery } from '../core/hyperdrive-query.js';
 import { documentsSourceFilterSql, normalizeSourceFilters } from '../core/unified-source-filters.js';
 import { resolveGitHubToken } from '../core/github-token.js';
+import { fetchWorkspaceGithubRepo } from '../core/status-bar-runtime.js';
 import { logSemanticSearch } from './rag.js';
 
 /** @param {any} authUser */
@@ -326,7 +327,7 @@ async function searchDocumentsVector(env, query, limit, opts = {}) {
  * @param {string} rawQ
  * @param {string[]} facetIds
  */
-async function appendStructuralFacetResults(env, authUser, merged, rawQ, facetIds) {
+async function appendStructuralFacetResults(env, authUser, merged, rawQ, facetIds, request, url) {
   const qPat = `%${rawQ}%`;
 
   if (facetIds.includes('workspace') && env.DB) {
@@ -370,19 +371,12 @@ async function appendStructuralFacetResults(env, authUser, merged, rawQ, facetId
 
   if (facetIds.includes('branch')) {
     const { token, error } = await resolveGitHubToken(authUser, env);
-    if (!error && env.DB) {
-      const workerName = projectIdFromEnv(env);
+    if (!error && token && request && url) {
       try {
-        const repoRow = await env.DB.prepare(
-          `SELECT repo_full_name, default_branch FROM github_repositories
-           WHERE cloudflare_worker_name = ?
-           LIMIT 1`,
-        )
-          .bind(workerName)
-          .first();
-        if (repoRow?.repo_full_name) {
+        const repoCtx = await fetchWorkspaceGithubRepo(env, authUser, request, url);
+        if (!repoCtx.error && repoCtx.repo) {
           const ghRes = await fetch(
-            `https://api.github.com/repos/${repoRow.repo_full_name}/branches?per_page=100`,
+            `https://api.github.com/repos/${repoCtx.repo}/branches?per_page=100`,
             {
               headers: {
                 Authorization: `Bearer ${token}`,
@@ -405,7 +399,7 @@ async function appendStructuralFacetResults(env, authUser, merged, rawQ, facetId
                   ref: name,
                   sha: shaFull.slice(0, 7),
                   protected: Boolean(b?.protected),
-                  repo: String(repoRow.repo_full_name),
+                  repo: String(repoCtx.repo),
                   title: name,
                   score: 0.85,
                 });
@@ -421,21 +415,8 @@ async function appendStructuralFacetResults(env, authUser, merged, rawQ, facetId
 
   if (facetIds.includes('repo')) {
     const { token, error } = await resolveGitHubToken(authUser, env);
-    if (!error && env.DB) {
+    if (!error && token) {
       try {
-        const tenantId =
-          authUser.tenant_id != null && String(authUser.tenant_id).trim()
-            ? String(authUser.tenant_id).trim()
-            : '';
-        const linkedRows = await env.DB.prepare(
-          `SELECT repo_full_name, cloudflare_worker_name
-           FROM github_repositories WHERE tenant_id = ?`,
-        )
-          .bind(tenantId)
-          .all();
-        const linkedMap = Object.fromEntries(
-          (linkedRows.results || []).map((r) => [r.repo_full_name, r.cloudflare_worker_name]),
-        );
         const ghRes = await fetch(
           'https://api.github.com/user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator,organization_member',
           {
@@ -468,7 +449,7 @@ async function appendStructuralFacetResults(env, authUser, merged, rawQ, facetId
                 private: Boolean(r.private),
                 pushed_at: String(r.pushed_at ?? ''),
                 default_branch: String(r.default_branch ?? 'main'),
-                linked_worker: linkedMap[full] ?? null,
+                linked_worker: null,
                 title: String(r.name ?? full),
                 score: 0.84,
               });
@@ -617,7 +598,7 @@ export async function handleUnifiedSearchApi(request, url, env) {
     if (rawQ.length < 2 && hasStructuralFacet) {
       /** @type {{ type: string, id: string, title: string, subtitle?: string, score: number, url?: string|null, sql_text?: string }[]} */
       const mergedOnly = [];
-      await appendStructuralFacetResults(env, authUser, mergedOnly, rawQ, facetIds);
+      await appendStructuralFacetResults(env, authUser, mergedOnly, rawQ, facetIds, request, url);
       mergedOnly.sort((a, b) => b.score - a.score);
       return jsonResponse({ results: mergedOnly.slice(0, limit) });
     }
@@ -781,7 +762,7 @@ export async function handleUnifiedSearchApi(request, url, env) {
       });
     }
 
-    await appendStructuralFacetResults(env, authUser, merged, rawQ, facetIds);
+    await appendStructuralFacetResults(env, authUser, merged, rawQ, facetIds, request, url);
 
     merged.sort((a, b) => b.score - a.score);
     const results = merged.slice(0, limit);

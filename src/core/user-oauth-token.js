@@ -194,7 +194,11 @@ export async function refreshGoogleToken(env, userId, provider, refreshToken, ro
 export async function getIntegrationOAuthRow(env, userId, provider, accountIdentifier = '') {
   if (!env?.DB || !userId || !provider) return null;
 
-  const { row, cols } = await fetchOAuthRow(env, userId, provider, accountIdentifier);
+  const { resolveIntegrationUserId } = await import('./integration-user-id.js');
+  const canonicalUserId =
+    (await resolveIntegrationUserId(env, { id: String(userId).trim() })) || String(userId).trim();
+
+  const { row, cols } = await fetchOAuthRow(env, canonicalUserId, provider, accountIdentifier);
   if (!row) return null;
 
   const prov = mapIncomingProvider(provider);

@@ -24,6 +24,7 @@ import {
   handleGitHubLoginOAuthCallback,
 } from './oauth-login-callbacks.js';
 import { getAESKey, aesGcmEncryptToB64, aesGcmDecryptFromB64 } from '../core/crypto-vault.js';
+import { resolveIntegrationUserId } from '../core/integration-user-id.js';
 
 export { upsertOauthToken, ensureOauthTokenColumns, normalizeProvider } from '../core/oauth-token-store.js';
 import { syncProviderModels } from './integrations/model-sync.js';
@@ -1626,7 +1627,8 @@ export async function handleOAuthApi(request, env, ctx) {
     }
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
 
-    const userId = integrationUserId(authUser);
+    const userId =
+      (await resolveIntegrationUserId(env, authUser)) || integrationUserId(authUser);
     const tenantId = authUser?.tenant_id || '';
     const personUuid = authUser?.person_uuid || '';
 
@@ -1718,7 +1720,9 @@ export async function handleOAuthApi(request, env, ctx) {
       return new Response(null, { status: 404 });
     }
 
-    const userId = stored.user_id;
+    const userId =
+      (await resolveIntegrationUserId(env, { id: stored.user_id })) ||
+      String(stored.user_id || '').trim();
     const tenantId = stored.tenant_id || '';
     const personUuid = stored.person_uuid || '';
     const oauthWorkspaceId = String(stored.workspace_id || '').trim() || null;
