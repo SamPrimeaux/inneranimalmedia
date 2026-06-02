@@ -1,6 +1,6 @@
 # Inner Animal Media — Cursor
 
-**Single always-on rule:** `.cursor/rules/iam-core.mdc`
+**Single always-on rule:** `.cursor/rules/iam-core.mdc` (includes **no test/smoke in deploy** unless you explicitly ask)
 
 **Optional (agent loads when relevant):** other files in `.cursor/rules/` with `alwaysApply: false`.
 

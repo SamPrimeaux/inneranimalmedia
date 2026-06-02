@@ -1,4 +1,6 @@
 #!/bin/bash
+# Production deploy: Vite build, R2 sync, wrangler deploy — no npm test / Playwright / smoke:* unless
+# the operator runs those separately. Do not add pre-deploy test or smoke steps here.
 set -e
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"

@@ -18,10 +18,16 @@ Unless the user says **local only**, **no commit**, **no push**, or **no deploy*
 1. Validate touched files (`node --check` on edited `.js`, dashboard console if UI).
 2. **Commit** on `main` (why-focused message).
 3. **Push** `origin/main`.
-4. **Deploy** `npm run deploy:full` from repo root.
-5. **Lightweight smoke only** after deploy: `curl /api/health` (or MCP `/health`) + one dashboard chunk URL. Do **not** run Playwright (`npm test`), `smoke:mcp-oauth-d1-r2`, `smoke:code-execution-e2e`, or other multi-route E2E suites before deploy unless the user explicitly asks — those are spend-heavy and not a ship gate.
+4. **Deploy** `npm run deploy:full` from repo root (or MCP `npm run deploy:full` in `inneranimalmedia-mcp-server`).
 
 Opt-out: `local only`, `no deploy`, `plan only`, `review only`. Never force-push `main`; never commit `.env`, tokens, `*.bak`, `.scratch/`, `*.db`.
+
+### Deploy gates (LOCKED — do not improvise)
+
+- **Never** run the full test suite, Playwright (`npm test`), or any `smoke:*` / E2E script **as part of deploy** or **immediately before deploy**, unless the user **explicitly** asks (e.g. “run tests before deploy”, “smoke:mcp-oauth-d1-r2”).
+- **Do not assume** automatic pre-deploy or post-deploy smoke. Deploy scripts are build + `wrangler deploy` only (MCP: `node --check` on touched entry files when tests are skipped).
+- **Do not** wire `npm test`, `post-deploy-smoke.sh`, `run-deploy-eval.mjs`, or multi-route MCP smokes into deploy unless the user requests that workflow in the same message.
+- After deploy, **only** if the user wants verification: optional single `curl` to `/api/health` or MCP `/health` — not a full smoke pass.
 
 Auth HTML: `static/pages/auth/*.html` → `./scripts/upload-auth-pages.sh` (R2 only, no Worker redeploy).
 
