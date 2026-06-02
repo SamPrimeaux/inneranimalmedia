@@ -917,11 +917,37 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
     }
 
     case 'terminal': {
+      const {
+        assertTerminalLocalArgs,
+        buildTerminalToolResponseBody,
+        terminalRecoveryHints,
+        wrapShellCommandWithPath,
+      } = await import('./mcp-terminal-contract.js');
+
+      if (toolKey === 'agentsam_terminal_local') {
+        const localArgErr = assertTerminalLocalArgs(params);
+        if (localArgErr) {
+          result = { ok: false, error: localArgErr };
+          break;
+        }
+      }
+
       let cmd = String(params.command || params.cmd || config.command_template || '').trim();
       if (!cmd) {
         result = { ok: false, error: 'terminal tool requires command in input' };
         break;
       }
+      const explicitPath =
+        params.path != null
+          ? String(params.path).trim()
+          : params.cwd != null
+            ? String(params.cwd).trim()
+            : '';
+      if (explicitPath) {
+        cmd = wrapShellCommandWithPath(explicitPath, cmd);
+      }
+      let settingsJson = null;
+      let workspaceRoot = null;
       if (workspaceId && env?.DB) {
         const settingsRow = await env.DB.prepare(
           'SELECT settings_json FROM workspace_settings WHERE workspace_id = ? LIMIT 1',
@@ -930,7 +956,15 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
           .first()
           .catch(() => null);
         if (settingsRow?.settings_json) {
-          cmd = wrapWorkspaceShellCommand(settingsRow.settings_json, cmd);
+          settingsJson = settingsRow.settings_json;
+          try {
+            const parsed =
+              typeof settingsJson === 'string' ? JSON.parse(settingsJson) : settingsJson;
+            workspaceRoot = String(parsed?.workspace_root || '').trim() || null;
+          } catch (_) {
+            workspaceRoot = null;
+          }
+          cmd = wrapWorkspaceShellCommand(settingsJson, cmd);
         }
       }
       const out = await termHandlers.run_command(
@@ -942,7 +976,39 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         },
         env,
       );
-      result = out?.error ? { ok: false, error: String(out.error) } : { ok: true, body: out };
+      if (out?.error) {
+        const errText = String(out.error);
+        result = {
+          ok: false,
+          error: errText,
+          body: {
+            cwd: explicitPath || workspaceRoot || null,
+            cwd_source: explicitPath ? 'path' : workspaceRoot ? 'workspace_root' : 'pty_session_default',
+            exit_code: null,
+            stdout: '',
+            stderr: errText,
+            output: '',
+            command: cmd,
+            recovery_hints: terminalRecoveryHints({ stdout: '', stderr: errText }),
+          },
+        };
+        break;
+      }
+      const exitCode = out.exit_code ?? out.exitCode ?? null;
+      const stdout = typeof out.output === 'string' ? out.output : '';
+      const stderr = typeof out.stderr === 'string' ? out.stderr : '';
+      result = {
+        ok: true,
+        body: buildTerminalToolResponseBody({
+          explicitPath: explicitPath || null,
+          workspaceRoot,
+          executedCommand: out.command || cmd,
+          stdout,
+          stderr,
+          exitCode,
+          status: out.status || 'success',
+        }),
+      };
       break;
     }
 

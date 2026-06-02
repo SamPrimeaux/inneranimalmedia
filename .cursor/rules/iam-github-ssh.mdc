@@ -18,6 +18,8 @@ Do **not** pass `sha: ""` — omit the field entirely for creates.
 
 **Read/discover:** `agentsam_github_read`, `agentsam_github_repo_list`
 
+**Not for `agentsam_github_write`:** multi-file edits, binary assets, scaffolds, build/commit/push → `agentsam_terminal_local` + git over SSH.
+
 ## Terminal git — all Sam repos (Sam / `ws_inneranimalmedia`)
 
 Install **`gh` + git credential helper** on both PTY hosts:
@@ -46,6 +48,28 @@ git add -A && git commit -m "feat: scaffold" && git push origin HEAD
 ```
 
 SSH host aliases on PTY: `github.com`, `github-inneranimal`, `github.com-inneranimal-mcp`, `github.com-agentsam`.
+
+## HTTPS push 403 → SSH recovery
+
+When terminal output shows permission denied or 403 on `https://github.com/...` push:
+
+```bash
+git remote -v
+git remote set-url origin git@github.com:OWNER/REPO.git
+git push origin HEAD
+```
+
+Only when the workspace/user is authorized for SSH. Prefer SSH remotes on PTY from the start.
+
+## Node optional binding failures
+
+If build fails with missing native bindings (`Cannot find native binding`, `@rolldown/binding-*`):
+
+```bash
+npm i && npm run build
+```
+
+Retry before rewriting application source.
 
 ## Connor / other users
 

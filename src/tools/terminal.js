@@ -3,39 +3,50 @@
  * Allows the agent to run shell commands in the workspace PTY.
  */
 
+import { wrapShellCommandWithPath } from '../core/mcp-terminal-contract.js';
+
 export const handlers = {
   /**
    * run_command: Execute a single shell command and return the output.
    */
-  async run_command({ command, request, session_id, sessionId }, env) {
+  async run_command(
+    { command, request, session_id, sessionId, workspace_id, workspaceId, path, cwd },
+    env,
+  ) {
     try {
       const origin = env.IAM_ORIGIN || 'https://inneranimalmedia.com';
       const headers = { 'Content-Type': 'application/json' };
       const cookie = request?.headers?.get?.('Cookie');
       if (cookie) headers.Cookie = cookie;
       const sid = session_id || sessionId || env.PTY_SESSION_ID || null;
+      const workDir = String(path || cwd || '').trim();
+      let runCommand = typeof command === 'string' ? command.trim() : '';
+      if (workDir) runCommand = wrapShellCommandWithPath(workDir, runCommand);
       // CF Workers: forward session cookie so /api/agent/terminal/run resolves the same user/workspace.
-      const workspaceId =
-        params?.workspace_id ??
-        params?.workspaceId ??
+      const wid =
+        workspace_id ??
+        workspaceId ??
         env?.DEFAULT_WORKSPACE_ID ??
         null;
       const res = await fetch(`${origin}/api/agent/terminal/run`, {
         method: 'POST',
         headers,
         body: JSON.stringify({
-          command,
+          command: runCommand,
           session_id: sid,
-          ...(workspaceId ? { workspace_id: String(workspaceId).trim() } : {}),
+          ...(wid ? { workspace_id: String(wid).trim() } : {}),
         }),
       });
-      
+
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'PTY Error');
-      
+
       return {
         output: data.output || '(no output)',
-        status: 'success'
+        command: data.command || runCommand,
+        exit_code: data.exit_code ?? data.exitCode ?? null,
+        cwd: workDir || null,
+        status: 'success',
       };
     } catch (e) {
       return { error: `Terminal Error: ${e.message}` };

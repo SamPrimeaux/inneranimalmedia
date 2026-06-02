@@ -58,3 +58,28 @@ Before adding a tool to the external MCP OAuth surface (`oauth_visible = 1`):
 1. Pass the justification tests above.
 2. Register in `agentsam_mcp_oauth_tool_allowlist` only when active + oauth_visible.
 3. Prefer terminal for wrangler/CLI observability; prefer BYOK REST for D1/R2/KV/Supabase.
+
+## MCP routing contract (GitHub + terminal)
+
+SSOT: `src/core/mcp-github-write-schema.js`, `src/core/mcp-terminal-contract.js`, D1 `rule_github_ssh_git_workflow`.
+
+| Task | Tool |
+|------|------|
+| Read file / SHA | `agentsam_github_read` |
+| **One** UTF-8 text file create/update (Contents API) | `agentsam_github_write` — omit `sha` on create |
+| Multi-file repo work, binary assets, build, commit, push | `agentsam_terminal_local` + git over SSH |
+
+**Terminal args (never mix):**
+
+| Tool | Allowed args |
+|------|----------------|
+| `agentsam_terminal_local` | `command`, optional `path` — **no** `target_id` |
+| `agentsam_terminal_remote` | `command`, optional `target_id` |
+
+**Terminal responses must include:** `cwd`, `cwd_source`, `exit_code`, `stdout`, `stderr` (and `recovery_hints` when applicable).
+
+- `path` → honored as cwd before `workspace_root` wrap; if omitted, `cwd_source` shows fallback (`workspace_root`, `command_cd`, or `pty_session_default`).
+- HTTPS git push 403 → suggest SSH remote retry when authorized (see `iam-github-ssh.mdc`).
+- Native optional binding failures (`@rolldown/binding`, etc.) → `npm i` + rebuild **before** application code changes.
+
+Do not embed customer repo names, assets, or commit SHAs in platform docs, migrations, tests, or examples.

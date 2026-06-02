@@ -9,6 +9,10 @@ import { agentsamMemorySearchInputSchema } from './mcp-memory-search-schema.js';
 import { agentsamMemorySaveInputSchema } from './mcp-memory-save-schema.js';
 import { agentsamMemoryVectorWriteInputSchema } from './mcp-memory-vector-write-schema.js';
 import { agentsamGithubWriteInputSchema } from './mcp-github-write-schema.js';
+import {
+  agentsamTerminalLocalInputSchema,
+  agentsamTerminalRemoteInputSchema,
+} from './mcp-terminal-contract.js';
 
 /** Lightweight lane inference (avoids mcp-tools-branded → retention import chain in Node smoke). */
 function inferLaneFromMessage(message, modeSlug) {
@@ -435,6 +439,8 @@ export function inputSchemaFromAgentsamToolRow(row) {
   if (tk === 'agentsam_memory_save') return agentsamMemorySaveInputSchema();
   if (tk === 'agentsam_memory_write') return agentsamMemoryVectorWriteInputSchema();
   if (tk === 'agentsam_github_write') return agentsamGithubWriteInputSchema();
+  if (tk === 'agentsam_terminal_local') return agentsamTerminalLocalInputSchema();
+  if (tk === 'agentsam_terminal_remote') return agentsamTerminalRemoteInputSchema();
 
   const parsed = parseJsonSafe(row?.input_schema, null);
   if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
