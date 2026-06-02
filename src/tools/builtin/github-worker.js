@@ -258,6 +258,56 @@ export const handlers = {
     return { success: true, commit: res.data?.commit ?? null, content: res.data?.content ?? null };
   },
 
+  async github_upsert_file(params, env) {
+    const missing = [
+      ...missingNonEmptyStrings(params, ['user_id', 'repo', 'path', 'message']),
+      ...missingDefined(params, ['content']),
+    ];
+    if (missing.length) return missingRequiredInput(params, [...new Set(missing)]);
+    const repo = String(params.repo).trim();
+    const path = String(params.path).trim();
+    const content = String(params.content);
+    const message = String(params.message).trim();
+    const branch = trim(params.branch) || 'main';
+    const t = await ghGetToken(env, params);
+    if (t.success === false || t.error) return t;
+    const enc = path
+      .split('/')
+      .filter(Boolean)
+      .map((seg) => encodeURIComponent(seg))
+      .join('/');
+    let sha = trim(params.sha);
+    let created = false;
+    if (!sha) {
+      const existing = await ghJson(
+        t.token,
+        'GET',
+        `/repos/${repo}/contents/${enc}?ref=${encodeURIComponent(branch)}`,
+        null,
+      );
+      if (existing.success && existing.data?.sha) {
+        sha = trim(existing.data.sha);
+      } else if (existing.success === false && existing.status !== 404) {
+        return { ...existing, ...toolMeta(params) };
+      } else {
+        created = true;
+      }
+    }
+    const res = await ghJson(t.token, 'PUT', `/repos/${repo}/contents/${enc}`, {
+      message,
+      content: btoa(unescape(encodeURIComponent(content))),
+      ...(sha ? { sha } : {}),
+      branch,
+    });
+    if (res?.success === false) return { ...res, ...toolMeta(params) };
+    return {
+      success: true,
+      created,
+      commit: res.data?.commit ?? null,
+      content: res.data?.content ?? null,
+    };
+  },
+
   async github_delete_file(params, env) {
     const missing = missingNonEmptyStrings(params, ['user_id', 'repo', 'path', 'message']);
     if (missing.length) return missingRequiredInput(params, missing);

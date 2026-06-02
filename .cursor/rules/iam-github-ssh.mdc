@@ -1,59 +1,45 @@
 ---
-description: GitHub repo work — prefer terminal git over SSH; no gh CLI; API read-only for discovery
+description: GitHub — OAuth upsert for single files; terminal git SSH for all SamPrimeaux repos
 alwaysApply: false
 ---
 
-# IAM GitHub — SSH Git Workflow for Agents
+# IAM GitHub — OAuth Write + SSH Git (SamPrimeaux)
 
-**PTY runtime has no `gh` CLI and no GitHub auth helper.** OAuth MCP and in-app agents must use **terminal git over SSH** for commits, new files, scaffolds, and multi-file changes.
+## OAuth connected agents (ChatGPT MCP, in-app)
 
-## Default workflow (Sam / `ws_inneranimalmedia`)
+**`agentsam_github_write`** now uses **`upsert_file`**:
 
-1. **Discover** with `agentsam_github_*` **read** tools (list repos, read file, get tree, list branches).
-2. **Mutate** with `agentsam_terminal_run` / `agentsam_terminal_remote` in the workspace root (`cd` is applied automatically).
-3. Use **SSH remotes**, not HTTPS — keys are on the Mac/GCP PTY host (`~/.ssh/config`).
+| Case | What to pass |
+|------|----------------|
+| **New file** | `path`, `content`, `message`, `repo` — **omit `sha`** |
+| **Update existing** | Same + optional `sha` from prior `agentsam_github_read` |
 
-| Repo | SSH remote |
-|------|------------|
-| `SamPrimeaux/inneranimalmedia` | `git@github.com:SamPrimeaux/inneranimalmedia.git` |
-| `SamPrimeaux/agentsam-cms-editor` | `git@github.com:SamPrimeaux/agentsam-cms-editor.git` |
-| `SamPrimeaux/inneranimalmedia-mcp-server` | `git@github.com-inneranimal-mcp:SamPrimeaux/inneranimalmedia-mcp-server.git` |
+Do **not** pass `sha: ""` — omit the field entirely for creates.
 
-SSH host aliases on the PTY machine: `github.com` (default), `github-inneranimal`, `github.com-inneranimal-mcp`, `github.com-agentsam`.
+**Read/discover:** `agentsam_github_read`, `agentsam_github_repo_list`
 
-## When to use GitHub API write tools
+## Terminal git — all Sam repos (Sam / `ws_inneranimalmedia`)
 
-| Use API | Use terminal git |
-|---------|------------------|
-| Single-line fix to **existing** file when you already have `sha` | **New files**, new directories, scaffolds |
-| Create PR / issue / comment after branch exists | Multi-file refactors, `npm init`, generated assets |
-| Read/search/list operations | `git clone`, `git add`, `git commit`, `git push` |
+PTY has **no `gh` CLI**. Use `agentsam_terminal_run` for multi-file work:
 
-**Do not** adapt scaffolds by stuffing everything into one existing file because write tools failed — clone or mkdir locally and commit properly.
-
-## Terminal patterns (no `gh`)
+| Pattern | Remote |
+|---------|--------|
+| Any `SamPrimeaux/REPO` | `git@github.com:SamPrimeaux/REPO.git` |
+| `inneranimalmedia-mcp-server` only | `git@github.com-inneranimal-mcp:SamPrimeaux/inneranimalmedia-mcp-server.git` |
 
 ```bash
-# verify SSH (non-fatal if rate-limited)
-ssh -T git@github.com
-
-# clone into workspace (example)
-git clone git@github.com:SamPrimeaux/REPO.git ../REPO
-
-# new file + commit
-install -d src/pages
-printf '%s\n' '...' > src/pages/Contact.jsx
-git add src/pages/Contact.jsx
-git commit -m "feat: add contact page"
-git push origin HEAD
+git clone git@github.com:SamPrimeaux/YOUR-REPO.git
+# ... edit multiple files ...
+git add -A && git commit -m "feat: scaffold" && git push origin HEAD
 ```
 
-## GitHub Contents API pitfalls
+SSH host aliases on PTY: `github.com`, `github-inneranimal`, `github.com-inneranimal-mcp`, `github.com-agentsam`.
 
-- `update_file` **requires** `sha`; empty string ≠ missing — omit `sha` for create.
-- OAuth MCP `agentsam_github_create_file` must not route to `update_file`.
-- Prefer git for anything that would need more than one Contents API call.
+## Connor / other users
+
+Each user configures **`workspace_settings.github`** on their own workspace. Do not assume Sam's `SamPrimeaux` remotes.
 
 ## D1 SSOT
 
-Query `agentsam_rules_document` id `rule_github_ssh_git_workflow` and `workspace_settings.settings_json` → `terminal_hints` / `github` for workspace-specific remotes.
+- Rule: `agentsam_rules_document` → `rule_github_ssh_git_workflow`
+- Sam workspace: `workspace_settings.settings_json.github.ssh_remote_template`

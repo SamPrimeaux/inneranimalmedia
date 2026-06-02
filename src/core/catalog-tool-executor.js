@@ -1255,6 +1255,7 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         check_permission: 'github_check_permission',
         update_file: 'github_update_file',
         create_file: 'github_create_file',
+        upsert_file: 'github_upsert_file',
         delete_file: 'github_delete_file',
         create_pr: 'github_create_pr',
         update_pr: 'github_update_pr',
@@ -1269,6 +1270,7 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         set_commit_status: 'github_set_commit_status',
       };
       let handlerName = opMap[op] || null;
+      if (!handlerName && toolKey === 'agentsam_github_write') handlerName = 'github_upsert_file';
       if (!handlerName && toolKey === 'github_file') handlerName = 'github_get_file';
       if (!handlerName && toolKey === 'github_update_file') handlerName = 'github_update_file';
       if (!handlerName && toolKey === 'github_create_file') handlerName = 'github_create_file';
