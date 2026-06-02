@@ -1,0 +1,300 @@
+-- 505: Add full, precise GitHub OAuth tool surface (Phase N)
+-- All tools are handler_type=github and dispatch by handler_config.operation.
+-- Every tool has a strict input_schema + oauth_visible=1.
+--
+-- Run:
+--   ./scripts/with-cloudflare-env.sh npx wrangler d1 execute inneranimalmedia-business \
+--     --remote -c wrangler.production.toml \
+--     --file=migrations/505_add_agentsam_github_full_surface.sql
+
+-- Deactivate any legacy github tools not in this contract set.
+UPDATE agentsam_tools
+SET is_active = 0,
+    oauth_visible = 0,
+    updated_at = unixepoch()
+WHERE COALESCE(is_active, 1) = 1
+  AND lower(handler_type) = 'github'
+  AND lower(tool_name) NOT IN (
+    'agentsam_github_repo_list',
+    'agentsam_github_file_read',
+    'agentsam_github_file_write',
+    'agentsam_github_file_delete',
+    'agentsam_github_branch_list',
+    'agentsam_github_branch_create',
+    'agentsam_github_pr_create',
+    'agentsam_github_pr_get',
+    'agentsam_github_pr_list',
+    'agentsam_github_pr_files_list',
+    'agentsam_github_pr_merge',
+    'agentsam_github_comment_create',
+    'agentsam_github_issue_list',
+    'agentsam_github_issue_get',
+    'agentsam_github_issue_create',
+    'agentsam_github_search_code',
+    'agentsam_github_search_issues_prs'
+  );
+
+INSERT INTO agentsam_tools
+  (tool_key, tool_name, display_name, tool_category,
+   description, input_schema,
+   handler_type, handler_config,
+   risk_level, requires_approval,
+   workspace_scope, modes_json,
+   oauth_visible, is_active, is_global,
+   updated_at)
+VALUES
+(
+  'agentsam_github_repo_list',
+  'agentsam_github_repo_list',
+  'GitHub Repo List',
+  'github.repo',
+  'List GitHub repositories available to the connected GitHub account.',
+  '{"type":"object","additionalProperties":false,"properties":{"user_id":{"type":"string"},"account":{"type":"string"},"account_identifier":{"type":"string"}},"required":["user_id"]}',
+  'github',
+  '{"auth_source":"user_oauth_tokens","provider":"github","operation":"list_repos"}',
+  'low', 0,
+  '["*"]', '["ask","plan","debug","agent","multitask"]',
+  1, 1, 1,
+  unixepoch()
+),
+(
+  'agentsam_github_file_read',
+  'agentsam_github_file_read',
+  'GitHub File Read',
+  'github.file',
+  'Read a file from a GitHub repository by path (supports ref/branch).',
+  '{"type":"object","additionalProperties":false,"properties":{"user_id":{"type":"string"},"repo":{"type":"string","description":"owner/repo"},"path":{"type":"string"},"branch":{"type":"string"},"ref":{"type":"string"},"account":{"type":"string"},"account_identifier":{"type":"string"}},"required":["user_id","repo","path"]}',
+  'github',
+  '{"auth_source":"user_oauth_tokens","provider":"github","operation":"get_file"}',
+  'low', 0,
+  '["*"]', '["ask","plan","debug","agent","multitask"]',
+  1, 1, 1,
+  unixepoch()
+),
+(
+  'agentsam_github_file_write',
+  'agentsam_github_file_write',
+  'GitHub File Write',
+  'github.file',
+  'Create or update a file in a GitHub repository with a commit.',
+  '{"type":"object","additionalProperties":false,"properties":{"user_id":{"type":"string"},"repo":{"type":"string","description":"owner/repo"},"path":{"type":"string"},"content":{"type":"string"},"message":{"type":"string"},"branch":{"type":"string"},"account":{"type":"string"},"account_identifier":{"type":"string"}},"required":["user_id","repo","path","content","message"]}',
+  'github',
+  '{"auth_source":"user_oauth_tokens","provider":"github","operation":"update_file"}',
+  'medium', 1,
+  '["*"]', '["ask","plan","debug","agent","multitask"]',
+  1, 1, 1,
+  unixepoch()
+),
+(
+  'agentsam_github_file_delete',
+  'agentsam_github_file_delete',
+  'GitHub File Delete',
+  'github.file',
+  'Delete a file in a GitHub repository with a commit message (resolves sha automatically).',
+  '{"type":"object","additionalProperties":false,"properties":{"user_id":{"type":"string"},"repo":{"type":"string","description":"owner/repo"},"path":{"type":"string"},"message":{"type":"string"},"branch":{"type":"string"},"account":{"type":"string"},"account_identifier":{"type":"string"}},"required":["user_id","repo","path","message"]}',
+  'github',
+  '{"auth_source":"user_oauth_tokens","provider":"github","operation":"delete_file"}',
+  'medium', 1,
+  '["*"]', '["ask","plan","debug","agent","multitask"]',
+  1, 1, 1,
+  unixepoch()
+),
+(
+  'agentsam_github_branch_list',
+  'agentsam_github_branch_list',
+  'GitHub Branch List',
+  'github.branch',
+  'List branches in a GitHub repository.',
+  '{"type":"object","additionalProperties":false,"properties":{"user_id":{"type":"string"},"repo":{"type":"string","description":"owner/repo"},"account":{"type":"string"},"account_identifier":{"type":"string"}},"required":["user_id","repo"]}',
+  'github',
+  '{"auth_source":"user_oauth_tokens","provider":"github","operation":"list_branches"}',
+  'low', 0,
+  '["*"]', '["ask","plan","debug","agent","multitask"]',
+  1, 1, 1,
+  unixepoch()
+),
+(
+  'agentsam_github_branch_create',
+  'agentsam_github_branch_create',
+  'GitHub Branch Create',
+  'github.branch',
+  'Create a branch from a base branch name or base SHA.',
+  '{"type":"object","additionalProperties":false,"properties":{"user_id":{"type":"string"},"repo":{"type":"string","description":"owner/repo"},"base":{"type":"string","description":"base branch name or 40-char SHA"},"name":{"type":"string","description":"new branch name"},"account":{"type":"string"},"account_identifier":{"type":"string"}},"required":["user_id","repo","base","name"]}',
+  'github',
+  '{"auth_source":"user_oauth_tokens","provider":"github","operation":"create_branch"}',
+  'medium', 1,
+  '["*"]', '["ask","plan","debug","agent","multitask"]',
+  1, 1, 1,
+  unixepoch()
+),
+(
+  'agentsam_github_pr_create',
+  'agentsam_github_pr_create',
+  'GitHub PR Create',
+  'github.pr',
+  'Create a pull request on GitHub.',
+  '{"type":"object","additionalProperties":false,"properties":{"user_id":{"type":"string"},"repo":{"type":"string","description":"owner/repo"},"title":{"type":"string"},"head":{"type":"string"},"base":{"type":"string"},"body":{"type":"string"},"account":{"type":"string"},"account_identifier":{"type":"string"}},"required":["user_id","repo","title","head"]}',
+  'github',
+  '{"auth_source":"user_oauth_tokens","provider":"github","operation":"create_pr"}',
+  'medium', 1,
+  '["*"]', '["ask","plan","debug","agent","multitask"]',
+  1, 1, 1,
+  unixepoch()
+),
+(
+  'agentsam_github_pr_get',
+  'agentsam_github_pr_get',
+  'GitHub PR Get',
+  'github.pr',
+  'Fetch a pull request by number.',
+  '{"type":"object","additionalProperties":false,"properties":{"user_id":{"type":"string"},"repo":{"type":"string","description":"owner/repo"},"pull_number":{"type":"integer"},"account":{"type":"string"},"account_identifier":{"type":"string"}},"required":["user_id","repo","pull_number"]}',
+  'github',
+  '{"auth_source":"user_oauth_tokens","provider":"github","operation":"get_pr"}',
+  'low', 0,
+  '["*"]', '["ask","plan","debug","agent","multitask"]',
+  1, 1, 1,
+  unixepoch()
+),
+(
+  'agentsam_github_pr_list',
+  'agentsam_github_pr_list',
+  'GitHub PR List',
+  'github.pr',
+  'List pull requests for a repository.',
+  '{"type":"object","additionalProperties":false,"properties":{"user_id":{"type":"string"},"repo":{"type":"string","description":"owner/repo"},"state":{"type":"string","enum":["open","closed","all"]},"base":{"type":"string"},"head":{"type":"string"},"account":{"type":"string"},"account_identifier":{"type":"string"}},"required":["user_id","repo"]}',
+  'github',
+  '{"auth_source":"user_oauth_tokens","provider":"github","operation":"list_prs"}',
+  'low', 0,
+  '["*"]', '["ask","plan","debug","agent","multitask"]',
+  1, 1, 1,
+  unixepoch()
+),
+(
+  'agentsam_github_pr_files_list',
+  'agentsam_github_pr_files_list',
+  'GitHub PR Files List',
+  'github.pr',
+  'List files changed in a pull request.',
+  '{"type":"object","additionalProperties":false,"properties":{"user_id":{"type":"string"},"repo":{"type":"string","description":"owner/repo"},"pull_number":{"type":"integer"},"account":{"type":"string"},"account_identifier":{"type":"string"}},"required":["user_id","repo","pull_number"]}',
+  'github',
+  '{"auth_source":"user_oauth_tokens","provider":"github","operation":"list_pr_files"}',
+  'low', 0,
+  '["*"]', '["ask","plan","debug","agent","multitask"]',
+  1, 1, 1,
+  unixepoch()
+),
+(
+  'agentsam_github_pr_merge',
+  'agentsam_github_pr_merge',
+  'GitHub PR Merge',
+  'github.pr',
+  'Merge a pull request (merge|squash|rebase).',
+  '{"type":"object","additionalProperties":false,"properties":{"user_id":{"type":"string"},"repo":{"type":"string","description":"owner/repo"},"pull_number":{"type":"integer"},"merge_method":{"type":"string","enum":["merge","squash","rebase"]},"commit_title":{"type":"string"},"commit_message":{"type":"string"},"account":{"type":"string"},"account_identifier":{"type":"string"}},"required":["user_id","repo","pull_number"]}',
+  'github',
+  '{"auth_source":"user_oauth_tokens","provider":"github","operation":"merge_pr"}',
+  'high', 1,
+  '["*"]', '["agent","multitask"]',
+  1, 1, 1,
+  unixepoch()
+),
+(
+  'agentsam_github_comment_create',
+  'agentsam_github_comment_create',
+  'GitHub Comment Create',
+  'github.comment',
+  'Create a comment on an issue or PR (GitHub uses issue_number for both).',
+  '{"type":"object","additionalProperties":false,"properties":{"user_id":{"type":"string"},"repo":{"type":"string","description":"owner/repo"},"issue_number":{"type":"integer"},"body":{"type":"string"},"account":{"type":"string"},"account_identifier":{"type":"string"}},"required":["user_id","repo","issue_number","body"]}',
+  'github',
+  '{"auth_source":"user_oauth_tokens","provider":"github","operation":"create_comment"}',
+  'medium', 1,
+  '["*"]', '["ask","plan","debug","agent","multitask"]',
+  1, 1, 1,
+  unixepoch()
+),
+(
+  'agentsam_github_issue_list',
+  'agentsam_github_issue_list',
+  'GitHub Issue List',
+  'github.issue',
+  'List issues for a repository (PRs filtered out).',
+  '{"type":"object","additionalProperties":false,"properties":{"user_id":{"type":"string"},"repo":{"type":"string","description":"owner/repo"},"state":{"type":"string","enum":["open","closed","all"]},"labels":{"type":"string"},"assignee":{"type":"string"},"creator":{"type":"string"},"account":{"type":"string"},"account_identifier":{"type":"string"}},"required":["user_id","repo"]}',
+  'github',
+  '{"auth_source":"user_oauth_tokens","provider":"github","operation":"list_issues"}',
+  'low', 0,
+  '["*"]', '["ask","plan","debug","agent","multitask"]',
+  1, 1, 1,
+  unixepoch()
+),
+(
+  'agentsam_github_issue_get',
+  'agentsam_github_issue_get',
+  'GitHub Issue Get',
+  'github.issue',
+  'Fetch an issue by number.',
+  '{"type":"object","additionalProperties":false,"properties":{"user_id":{"type":"string"},"repo":{"type":"string","description":"owner/repo"},"issue_number":{"type":"integer"},"account":{"type":"string"},"account_identifier":{"type":"string"}},"required":["user_id","repo","issue_number"]}',
+  'github',
+  '{"auth_source":"user_oauth_tokens","provider":"github","operation":"get_issue"}',
+  'low', 0,
+  '["*"]', '["ask","plan","debug","agent","multitask"]',
+  1, 1, 1,
+  unixepoch()
+),
+(
+  'agentsam_github_issue_create',
+  'agentsam_github_issue_create',
+  'GitHub Issue Create',
+  'github.issue',
+  'Create an issue.',
+  '{"type":"object","additionalProperties":false,"properties":{"user_id":{"type":"string"},"repo":{"type":"string","description":"owner/repo"},"title":{"type":"string"},"body":{"type":"string"},"labels":{"type":"array","items":{"type":"string"}},"assignees":{"type":"array","items":{"type":"string"}},"account":{"type":"string"},"account_identifier":{"type":"string"}},"required":["user_id","repo","title"]}',
+  'github',
+  '{"auth_source":"user_oauth_tokens","provider":"github","operation":"create_issue"}',
+  'medium', 1,
+  '["*"]', '["ask","plan","debug","agent","multitask"]',
+  1, 1, 1,
+  unixepoch()
+),
+(
+  'agentsam_github_search_code',
+  'agentsam_github_search_code',
+  'GitHub Search Code',
+  'github.search',
+  'Search code via GitHub search API. Provide a full GitHub search query in q.',
+  '{"type":"object","additionalProperties":false,"properties":{"user_id":{"type":"string"},"q":{"type":"string"},"account":{"type":"string"},"account_identifier":{"type":"string"}},"required":["user_id","q"]}',
+  'github',
+  '{"auth_source":"user_oauth_tokens","provider":"github","operation":"search_code"}',
+  'low', 0,
+  '["*"]', '["ask","plan","debug","agent","multitask"]',
+  1, 1, 1,
+  unixepoch()
+),
+(
+  'agentsam_github_search_issues_prs',
+  'agentsam_github_search_issues_prs',
+  'GitHub Search Issues/PRs',
+  'github.search',
+  'Search issues and pull requests via GitHub search API. Provide a full GitHub search query in q.',
+  '{"type":"object","additionalProperties":false,"properties":{"user_id":{"type":"string"},"q":{"type":"string"},"account":{"type":"string"},"account_identifier":{"type":"string"}},"required":["user_id","q"]}',
+  'github',
+  '{"auth_source":"user_oauth_tokens","provider":"github","operation":"search_issues_prs"}',
+  'low', 0,
+  '["*"]', '["ask","plan","debug","agent","multitask"]',
+  1, 1, 1,
+  unixepoch()
+)
+ON CONFLICT(tool_key) DO UPDATE SET
+  tool_name = excluded.tool_name,
+  display_name = excluded.display_name,
+  tool_category = excluded.tool_category,
+  description = excluded.description,
+  input_schema = excluded.input_schema,
+  handler_type = excluded.handler_type,
+  handler_config = excluded.handler_config,
+  risk_level = excluded.risk_level,
+  requires_approval = excluded.requires_approval,
+  workspace_scope = excluded.workspace_scope,
+  modes_json = excluded.modes_json,
+  oauth_visible = excluded.oauth_visible,
+  is_active = excluded.is_active,
+  is_global = excluded.is_global,
+  updated_at = unixepoch();
+

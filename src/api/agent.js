@@ -2672,8 +2672,14 @@ async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRuntimeCo
   }
   if (writePolicy) {
     const { toolBlockedByWritePolicy } = await import('../core/agent-mode-tool-policy.js');
+    const approvalId =
+      toolInput?.approval_id ??
+      toolInput?.approvalId ??
+      toolInput?.approval_id ??
+      null;
     if (
       toolBlockedByWritePolicy(writePolicy, name, {
+        approvalId: approvalId != null ? String(approvalId).trim() : null,
         userMessage:
           mcpRuntimeContext.userMessage != null
             ? String(mcpRuntimeContext.userMessage)

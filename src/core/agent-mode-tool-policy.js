@@ -55,12 +55,18 @@ function basePolicyForMode(modeSlug) {
 
   switch (mode) {
     case 'ask':
-      policy.denyTools = [...ASK_MUTATION_DENY_TOOL_NAMES];
+      // Ask is tool-enabled but read-only by default.
+      // Mutations are not denied; they must flow through explicit approval.
+      policy.requireApprovalTools = [...ASK_MUTATION_DENY_TOOL_NAMES];
       break;
     case 'plan':
-      policy.denyTools = [...TERMINAL_TOOLS, ...DEPLOY_TOOLS, 'python_execute'];
+      // Plan is also read-only by default.
+      // Allow mutation/execution tools to be *requested*, but require approval to execute.
+      policy.requireApprovalTools = [...ASK_MUTATION_DENY_TOOL_NAMES];
       break;
     case 'debug':
+      // Debug is evidence-first. Writes can be approval-gated (and may still be phase-gated).
+      policy.requireApprovalTools = [...DEPLOY_TOOLS];
     case 'agent':
     case 'multitask':
       break;
@@ -135,12 +141,14 @@ const FILE_MUTATION_TOOLS = ['fs_write_file', 'fs_edit_file', 'github_create_fil
  * Secondary gate from RuntimeProfile.write_policy (Ask/Plan read-only contract).
  * @param {{ can_edit_files?: boolean, can_terminal?: boolean, can_d1_write?: boolean, can_deploy?: boolean, can_browser_automation?: boolean, can_memory_write?: boolean }|null|undefined} writePolicy
  * @param {string} toolName
- * @param {{ userMessage?: string|null }} [opts]
+ * @param {{ userMessage?: string|null, approvalId?: string|null }} [opts]
  */
 export function toolBlockedByWritePolicy(writePolicy, toolName, opts = {}) {
   if (!writePolicy || typeof writePolicy !== 'object') return false;
   const n = String(toolName || '').trim();
   if (!n) return false;
+  const approvalId = opts?.approvalId != null ? String(opts.approvalId).trim() : '';
+  if (approvalId) return false;
   if (isMemoryWriteTool(n)) {
     if (writePolicy.can_memory_write) return false;
     if (explicitMemorySaveIntent(opts.userMessage)) return false;

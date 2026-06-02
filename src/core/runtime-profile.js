@@ -669,14 +669,10 @@ export async function compileModeProfile(env, input) {
   const denySet = new Set((modeToolPolicy.denyTools || []).map((t) => String(t)));
   toolAllowlist = toolAllowlist.filter((name) => !denySet.has(name));
   if (mode === 'ask' || isReadonlyRepoAuditContext(message) || input.routeKeyPin === READONLY_REPO_AUDIT_ROUTE_KEY) {
+    // Ask/readonly audit should not lose tool capability; it should lose *unsafe execution* by policy.
+    // Orchestration tools are still removed here (child fanout / pipeline controls).
     compiledToolRows = filterReportChildOrchestrationTools(compiledToolRows);
-    toolAllowlist = filterAskReadEvidenceTools(
-      compiledToolRows.map((r) => String(r.name || r.tool_name || '').trim()).filter(Boolean),
-    );
-    const allowSet = new Set(toolAllowlist);
-    compiledToolRows = compiledToolRows.filter((r) =>
-      allowSet.has(String(r.name || r.tool_name || '').trim()),
-    );
+    toolAllowlist = compiledToolRows.map((r) => String(r.name || r.tool_name || '').trim()).filter(Boolean);
   }
 
   const modesWithCatalogFallback =

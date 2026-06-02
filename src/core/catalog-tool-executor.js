@@ -1068,9 +1068,41 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         get_file: 'github_get_file',
         read_file: 'github_get_file',
         list_repos: 'github_repos',
+        list_branches: 'github_list_branches',
+        get_tree: 'github_get_tree',
+        read_dir: 'github_read_dir',
+        batch_read: 'github_batch_read',
+        get_commit: 'github_get_commit',
+        compare_commits: 'github_compare_commits',
+        get_pr: 'github_get_pr',
+        list_prs: 'github_list_prs',
+        get_pr_diff: 'github_get_pr_diff',
+        list_pr_files: 'github_list_pr_files',
+        list_issues: 'github_list_issues',
+        get_issue: 'github_get_issue',
+        search_code: 'github_search_code',
+        search_issues: 'github_search_issues_prs',
+        list_workflow_runs: 'github_list_workflow_runs',
+        get_workflow_run: 'github_get_workflow_run',
+        list_workflow_jobs: 'github_list_workflow_jobs',
+        get_job_logs: 'github_get_job_logs',
+        get_commit_status: 'github_get_commit_status',
+        check_permission: 'github_check_permission',
         update_file: 'github_update_file',
-        create_file: 'github_update_file',
+        create_file: 'github_create_file',
+        delete_file: 'github_delete_file',
         create_pr: 'github_create_pr',
+        update_pr: 'github_update_pr',
+        merge_pr: 'github_merge_pr',
+        create_comment: 'github_create_comment',
+        create_issue: 'github_create_issue',
+        update_issue: 'github_update_issue',
+        close_issue: 'github_close_issue',
+        search_code: 'github_search_code',
+        search_issues_prs: 'github_search_issues_prs',
+        create_branch: 'github_create_branch',
+        delete_branch: 'github_delete_branch',
+        set_commit_status: 'github_set_commit_status',
       };
       let handlerName = opMap[op] || null;
       if (!handlerName && toolKey === 'github_file') handlerName = 'github_get_file';
@@ -1094,8 +1126,197 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
       const envelope = runContext.activeFileEnvelope || runContext.activeFile || null;
       const { applyActiveFileDefaultsToToolInput } = await import('./active-file-envelope.js');
       const ghParams = applyActiveFileDefaultsToToolInput(toolKey, params, envelope);
-      const out = await fn(ghParams, env);
-      result = out?.error ? { ok: false, error: String(out.error), body: out } : { ok: true, body: out };
+      if (!ghParams.repo) {
+        ghParams.repo =
+          ghParams.github_repo ||
+          ghParams.active_file_github_repo ||
+          params.github_repo ||
+          params.active_file_github_repo ||
+          null;
+      }
+      const ghParamsWithMeta = {
+        ...ghParams,
+        tool: ghParams?.tool ?? toolKey,
+        operation: ghParams?.operation ?? op,
+      };
+      const out = await fn(ghParamsWithMeta, env);
+
+      if (out?.success === false || out?.error) {
+        result = {
+          ok: false,
+          error: String(out?.message || out?.error || 'github_failed'),
+          body: out,
+        };
+        break;
+      }
+
+      const normalize = () => {
+        switch (op) {
+          case 'get_file': {
+            return {
+              ok: true,
+              repo: out.repo ?? ghParamsWithMeta.repo ?? null,
+              path: out.path ?? ghParamsWithMeta.path ?? null,
+              sha: out.sha ?? null,
+              size: out.size ?? null,
+              encoding: out.encoding ?? 'base64',
+              text: out.text ?? '',
+            };
+          }
+          case 'list_repos':
+            return { ok: true, repos: out.repos || [] };
+          case 'list_branches':
+            return { ok: true, branches: out.branches || [] };
+          case 'get_tree':
+            return { ok: true, repo: ghParamsWithMeta.repo ?? null, branch: out.branch ?? ghParamsWithMeta.branch ?? null, tree: out.tree || [] };
+          case 'read_dir':
+            return { ok: true, repo: ghParamsWithMeta.repo ?? null, path: ghParamsWithMeta.path ?? null, entries: out.entries || [] };
+          case 'batch_read':
+            return { ok: true, files: out.files || [] };
+          case 'get_commit': {
+            const c = out.commit || {};
+            return {
+              ok: true,
+              sha: c.sha ?? ghParamsWithMeta.sha ?? null,
+              message: c.commit?.message ?? null,
+              author: c.commit?.author?.name ?? c.author?.login ?? null,
+              date: c.commit?.author?.date ?? null,
+              files: c.files || [],
+            };
+          }
+          case 'compare_commits': {
+            const cmp = out.compare || {};
+            return {
+              ok: true,
+              base: cmp.base_commit?.sha ?? ghParamsWithMeta.base ?? null,
+              head: cmp.merge_base_commit?.sha ?? ghParamsWithMeta.head ?? null,
+              diff_stat: {
+                ahead_by: cmp.ahead_by ?? null,
+                behind_by: cmp.behind_by ?? null,
+                total_commits: cmp.total_commits ?? null,
+                files: Array.isArray(cmp.files) ? cmp.files.length : null,
+              },
+              files: cmp.files || [],
+            };
+          }
+          case 'get_pr': {
+            const pr = out.pr || {};
+            return {
+              ok: true,
+              number: pr.number ?? null,
+              title: pr.title ?? null,
+              state: pr.state ?? null,
+              head: pr.head?.ref ?? null,
+              base: pr.base?.ref ?? null,
+              body: pr.body ?? null,
+            };
+          }
+          case 'list_prs':
+            return { ok: true, prs: out.prs || [] };
+          case 'get_pr_diff':
+            return { ok: true, number: Number(ghParamsWithMeta.pull_number) || null, diff: out.diff || '' };
+          case 'list_pr_files':
+            return { ok: true, number: Number(ghParamsWithMeta.pull_number) || null, files: out.files || [] };
+          case 'list_issues':
+            return { ok: true, issues: out.issues || [] };
+          case 'get_issue': {
+            const issue = out.issue || {};
+            return {
+              ok: true,
+              number: issue.number ?? null,
+              title: issue.title ?? null,
+              state: issue.state ?? null,
+              body: issue.body ?? null,
+              labels: (issue.labels || []).map((l) => (typeof l === 'string' ? l : l?.name)).filter(Boolean),
+            };
+          }
+          case 'search_code':
+            return { ok: true, items: out.results?.items || [] };
+          case 'search_issues':
+          case 'search_issues_prs':
+            return { ok: true, items: out.results?.items || [] };
+          case 'list_workflow_runs':
+            return { ok: true, runs: out.runs || [] };
+          case 'get_workflow_run':
+            return { ok: true, run: out.run || null };
+          case 'list_workflow_jobs':
+            return { ok: true, jobs: out.jobs || [] };
+          case 'get_job_logs':
+            return { ok: true, log: out.log || '' };
+          case 'get_commit_status': {
+            const s = out.status || {};
+            return { ok: true, state: s.state ?? null, statuses: s.statuses || [] };
+          }
+          case 'check_permission':
+            return { ok: true, permission: out.permission || 'none' };
+          case 'create_file': {
+            const commitSha = out.commit?.sha ?? null;
+            const sha = out.content?.sha ?? null;
+            return { ok: true, path: ghParamsWithMeta.path ?? null, sha, commit_sha: commitSha };
+          }
+          case 'update_file': {
+            const commitSha = out.commit?.sha ?? null;
+            const sha = out.content?.sha ?? null;
+            return { ok: true, path: ghParamsWithMeta.path ?? null, sha, commit_sha: commitSha };
+          }
+          case 'delete_file': {
+            const commitSha = out.commit?.sha ?? null;
+            return { ok: true, path: ghParamsWithMeta.path ?? null, commit_sha: commitSha };
+          }
+          case 'create_branch': {
+            const sha = out.ref?.object?.sha ?? null;
+            const branch = out.ref?.ref ? String(out.ref.ref).replace(/^refs\/heads\//, '') : ghParamsWithMeta.name ?? null;
+            return { ok: true, branch, sha };
+          }
+          case 'delete_branch':
+            return { ok: true };
+          case 'create_pr':
+            return { ok: true, number: out.number ?? null, url: out.html_url ?? null };
+          case 'update_pr':
+            return {
+              ok: true,
+              number:
+                out.pr?.number ??
+                (() => {
+                  const n = Number(ghParamsWithMeta.pull_number);
+                  return Number.isFinite(n) && n > 0 ? n : null;
+                })(),
+            };
+          case 'merge_pr':
+            return { ok: true, result: out.result ?? null };
+          case 'create_comment':
+            return { ok: true, id: out.comment?.id ?? null };
+          case 'create_issue':
+            return { ok: true, number: out.issue?.number ?? null, url: out.issue?.html_url ?? null };
+          case 'update_issue':
+            return {
+              ok: true,
+              number:
+                out.issue?.number ??
+                (() => {
+                  const n = Number(ghParamsWithMeta.issue_number);
+                  return Number.isFinite(n) && n > 0 ? n : null;
+                })(),
+            };
+          case 'close_issue':
+            return {
+              ok: true,
+              number:
+                out.issue?.number ??
+                (() => {
+                  const n = Number(ghParamsWithMeta.issue_number);
+                  return Number.isFinite(n) && n > 0 ? n : null;
+                })(),
+            };
+          case 'set_commit_status': {
+            const st = out.status || {};
+            return { ok: true, state: st.state ?? ghParamsWithMeta.state ?? null };
+          }
+          default:
+            return { ok: true, body: out };
+        }
+      };
+      result = normalize();
       break;
     }
 
