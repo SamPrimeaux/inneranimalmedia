@@ -71,13 +71,20 @@ test.describe('Work page — inneranimalmedia.com/work', () => {
     expect(bodyText.trim().length).toBeGreaterThan(200);
 
     const workspace = process.env.IAM_WORKSPACE_SLUG || 'inneranimalmedia';
-    const screenshotDir = `captures/${workspace}/screenshots`;
-    const evidenceDir = `captures/${workspace}/evidence`;
+    const stagingDir = `reports/.staging/${workspace}`;
+    const screenshotDir = `${stagingDir}/screenshots`;
+    const evidenceDir = `${stagingDir}/evidence`;
     fs.mkdirSync(screenshotDir, { recursive: true });
     fs.mkdirSync(evidenceDir, { recursive: true });
+    fs.mkdirSync(`captures/${workspace}/evidence`, { recursive: true });
 
-    const screenshotPath = `${screenshotDir}/work.png`;
-    await page.screenshot({ path: screenshotPath, fullPage: true });
+    const localScreenshot = `${screenshotDir}/work.png`;
+    await page.screenshot({ path: localScreenshot, fullPage: true });
+
+    const runPrefix =
+      process.env.QUALITY_REPORT_R2_PREFIX ||
+      `reports/quality-report/${process.env.REPORT_DATE || 'pending'}/${process.env.REPORT_TIME || 'pending'}`;
+    const r2ScreenshotPath = `${runPrefix}/screenshots/work.png`;
 
     const evidence = {
       name: 'Work',
@@ -85,13 +92,18 @@ test.describe('Work page — inneranimalmedia.com/work', () => {
       path: WORK_PATH,
       status: response?.status() ?? null,
       title: await page.title(),
-      screenshotPath,
+      localScreenshot,
+      screenshotPath: r2ScreenshotPath,
+      r2_bucket: 'inneranimalmedia',
+      r2_key: r2ScreenshotPath,
       consoleErrors: errors.consoleErrors,
       failedRequests: errors.failedRequests,
       badResponses: errors.badResponses.filter((e) => !e.includes('favicon.ico')),
     };
 
-    fs.writeFileSync(`${evidenceDir}/work.json`, JSON.stringify(evidence, null, 2));
+    const evidenceJson = JSON.stringify(evidence, null, 2);
+    fs.writeFileSync(`${evidenceDir}/work.json`, evidenceJson);
+    fs.writeFileSync(`captures/${workspace}/evidence/work.json`, evidenceJson);
 
     await testInfo.attach('work-page evidence', {
       body: JSON.stringify(evidence, null, 2),

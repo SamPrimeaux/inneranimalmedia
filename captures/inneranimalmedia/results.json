@@ -1,7 +1,7 @@
 {
   "config": {
-    "configFile": "/Users/samprimeaux/inneranimalmedia/playwright.agent.config.cjs",
-    "rootDir": "/Users/samprimeaux/inneranimalmedia/tests/quality",
+    "configFile": "/Users/samprimeaux/inneranimalmedia/playwright.work.config.ts",
+    "rootDir": "/Users/samprimeaux/inneranimalmedia/tests/e2e",
     "forbidOnly": false,
     "fullyParallel": false,
     "globalSetup": null,
@@ -22,12 +22,12 @@
         "metadata": {
           "actualWorkers": 1
         },
-        "id": "",
-        "name": "",
-        "testDir": "/Users/samprimeaux/inneranimalmedia/tests/quality",
+        "id": "chromium-desktop",
+        "name": "chromium-desktop",
+        "testDir": "/Users/samprimeaux/inneranimalmedia/tests/e2e",
         "testIgnore": [],
         "testMatch": [
-          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+          "quality-pages.spec.ts"
         ],
         "timeout": 60000
       }
@@ -35,20 +35,13 @@
     "quiet": false,
     "reporter": [
       [
-        "line",
+        "list",
         null
       ],
       [
         "json",
         {
           "outputFile": "captures/inneranimalmedia/results.json"
-        }
-      ],
-      [
-        "html",
-        {
-          "outputFolder": "captures/inneranimalmedia/raw-playwright-report",
-          "open": "never"
         }
       ]
     ],
@@ -67,140 +60,46 @@
   },
   "suites": [
     {
-      "title": "inneranimalmedia-public.spec.js",
-      "file": "inneranimalmedia-public.spec.js",
+      "title": "quality-pages.spec.ts",
+      "file": "quality-pages.spec.ts",
       "column": 0,
       "line": 0,
       "specs": [],
       "suites": [
         {
-          "title": "InnerAnimalMedia public quality pass",
-          "file": "inneranimalmedia-public.spec.js",
-          "line": 26,
+          "title": "IAM public quality — work + contact",
+          "file": "quality-pages.spec.ts",
+          "line": 87,
           "column": 6,
           "specs": [
             {
-              "title": "Home page quality check",
-              "ok": false,
+              "title": "Work page loads with portfolio sections",
+              "ok": true,
               "tags": [],
               "tests": [
                 {
                   "timeout": 60000,
                   "annotations": [],
                   "expectedStatus": "passed",
-                  "projectId": "",
-                  "projectName": "",
+                  "projectId": "chromium-desktop",
+                  "projectName": "chromium-desktop",
                   "results": [
                     {
                       "workerIndex": 0,
                       "parallelIndex": 0,
-                      "status": "failed",
-                      "duration": 1984,
-                      "error": {
-                        "message": "Error: Home page runtime errors\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // deep equality\u001b[22m\n\n\u001b[32m- Expected  - 1\u001b[39m\n\u001b[31m+ Received  + 3\u001b[39m\n\n\u001b[32m- Array []\u001b[39m\n\u001b[31m+ Array [\u001b[39m\n\u001b[31m+   \"Error creating WebGL context.\",\u001b[39m\n\u001b[31m+ ]\u001b[39m",
-                        "stack": "Error: Home page runtime errors\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // deep equality\u001b[22m\n\n\u001b[32m- Expected  - 1\u001b[39m\n\u001b[31m+ Received  + 3\u001b[39m\n\n\u001b[32m- Array []\u001b[39m\n\u001b[31m+ Array [\u001b[39m\n\u001b[31m+   \"Error creating WebGL context.\",\u001b[39m\n\u001b[31m+ ]\u001b[39m\n    at /Users/samprimeaux/inneranimalmedia/tests/quality/inneranimalmedia-public.spec.js:92:57",
-                        "location": {
-                          "file": "/Users/samprimeaux/inneranimalmedia/tests/quality/inneranimalmedia-public.spec.js",
-                          "column": 57,
-                          "line": 92
-                        },
-                        "snippet": "\u001b[0m \u001b[90m 90 |\u001b[39m\n \u001b[90m 91 |\u001b[39m       expect(consoleErrors\u001b[33m,\u001b[39m \u001b[32m`${name} real console errors`\u001b[39m)\u001b[33m.\u001b[39mtoEqual([])\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 92 |\u001b[39m       expect(pageErrors\u001b[33m,\u001b[39m \u001b[32m`${name} page runtime errors`\u001b[39m)\u001b[33m.\u001b[39mtoEqual([])\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                                         \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 93 |\u001b[39m       expect(failedRequests\u001b[33m,\u001b[39m \u001b[32m`${name} real failed requests`\u001b[39m)\u001b[33m.\u001b[39mtoEqual([])\u001b[33m;\u001b[39m\n \u001b[90m 94 |\u001b[39m     })\u001b[33m;\u001b[39m\n \u001b[90m 95 |\u001b[39m   }\u001b[0m"
-                      },
-                      "errors": [
-                        {
-                          "location": {
-                            "file": "/Users/samprimeaux/inneranimalmedia/tests/quality/inneranimalmedia-public.spec.js",
-                            "column": 57,
-                            "line": 92
-                          },
-                          "message": "Error: Home page runtime errors\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // deep equality\u001b[22m\n\n\u001b[32m- Expected  - 1\u001b[39m\n\u001b[31m+ Received  + 3\u001b[39m\n\n\u001b[32m- Array []\u001b[39m\n\u001b[31m+ Array [\u001b[39m\n\u001b[31m+   \"Error creating WebGL context.\",\u001b[39m\n\u001b[31m+ ]\u001b[39m\n\n\u001b[0m \u001b[90m 90 |\u001b[39m\n \u001b[90m 91 |\u001b[39m       expect(consoleErrors\u001b[33m,\u001b[39m \u001b[32m`${name} real console errors`\u001b[39m)\u001b[33m.\u001b[39mtoEqual([])\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 92 |\u001b[39m       expect(pageErrors\u001b[33m,\u001b[39m \u001b[32m`${name} page runtime errors`\u001b[39m)\u001b[33m.\u001b[39mtoEqual([])\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                                         \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 93 |\u001b[39m       expect(failedRequests\u001b[33m,\u001b[39m \u001b[32m`${name} real failed requests`\u001b[39m)\u001b[33m.\u001b[39mtoEqual([])\u001b[33m;\u001b[39m\n \u001b[90m 94 |\u001b[39m     })\u001b[33m;\u001b[39m\n \u001b[90m 95 |\u001b[39m   }\u001b[0m\n\u001b[2m    at /Users/samprimeaux/inneranimalmedia/tests/quality/inneranimalmedia-public.spec.js:92:57\u001b[22m"
-                        }
-                      ],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-05-07T16:33:17.098Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "Home evidence",
-                          "contentType": "application/json",
-                          "body": "ewogICJuYW1lIjogIkhvbWUiLAogICJ1cmwiOiAiaHR0cHM6Ly9pbm5lcmFuaW1hbG1lZGlhLmNvbS8iLAogICJzdGF0dXMiOiAyMDAsCiAgInRpdGxlIjogIklubmVyIEFuaW1hbCBNZWRpYSDigJQgV2UgZGVzaWduIGFuZCBidWlsZCBkaWdpdGFsIHByb2R1Y3RzIHRoYXQgZmVlbCBhcyBjYXBhYmxlIGFzIHRoZXkgbG9vay4iLAogICJzY3JlZW5zaG90UGF0aCI6ICJjYXB0dXJlcy9pbm5lcmFuaW1hbG1lZGlhL3NjcmVlbnNob3RzL2hvbWUucG5nIiwKICAiY29uc29sZUVycm9ycyI6IFtdLAogICJjb25zb2xlV2FybmluZ3MiOiBbCiAgICAiVEhSRUUuV2ViR0xSZW5kZXJlcjogRXJyb3IgY3JlYXRpbmcgV2ViR0wgY29udGV4dC4iCiAgXSwKICAiZmFpbGVkUmVxdWVzdHMiOiBbXSwKICAiaWdub3JlZFJlcXVlc3RzIjogW10sCiAgInBhZ2VFcnJvcnMiOiBbCiAgICAiRXJyb3IgY3JlYXRpbmcgV2ViR0wgY29udGV4dC4iCiAgXQp9"
-                        },
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "/Users/samprimeaux/inneranimalmedia/captures/inneranimalmedia/results/inneranimalmedia-public-In-f05ae-ass-Home-page-quality-check/test-failed-1.png"
-                        },
-                        {
-                          "name": "video",
-                          "contentType": "video/webm",
-                          "path": "/Users/samprimeaux/inneranimalmedia/captures/inneranimalmedia/results/inneranimalmedia-public-In-f05ae-ass-Home-page-quality-check/video.webm"
-                        },
-                        {
-                          "name": "error-context",
-                          "contentType": "text/markdown",
-                          "path": "/Users/samprimeaux/inneranimalmedia/captures/inneranimalmedia/results/inneranimalmedia-public-In-f05ae-ass-Home-page-quality-check/error-context.md"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "/Users/samprimeaux/inneranimalmedia/captures/inneranimalmedia/results/inneranimalmedia-public-In-f05ae-ass-Home-page-quality-check/trace.zip"
-                        }
-                      ],
-                      "errorLocation": {
-                        "file": "/Users/samprimeaux/inneranimalmedia/tests/quality/inneranimalmedia-public.spec.js",
-                        "column": 57,
-                        "line": 92
-                      }
-                    }
-                  ],
-                  "status": "unexpected"
-                }
-              ],
-              "id": "7dd88c62ca13be409b73-5c8ba367eea857248ad7",
-              "file": "inneranimalmedia-public.spec.js",
-              "line": 28,
-              "column": 5
-            },
-            {
-              "title": "Work page quality check",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "",
-                  "projectName": "",
-                  "results": [
-                    {
-                      "workerIndex": 1,
-                      "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1809,
+                      "duration": 1883,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-07T16:33:20.235Z",
+                      "startTime": "2026-06-02T02:53:09.988Z",
                       "annotations": [],
                       "attachments": [
                         {
-                          "name": "Work evidence",
+                          "name": "work page evidence",
                           "contentType": "application/json",
-                          "body": "ewogICJuYW1lIjogIldvcmsiLAogICJ1cmwiOiAiaHR0cHM6Ly9pbm5lcmFuaW1hbG1lZGlhLmNvbS93b3JrIiwKICAic3RhdHVzIjogMjAwLAogICJ0aXRsZSI6ICJQcm9vZiBvdmVyIHByb21pc2VzLiB8IElubmVyIEFuaW1hbCBNZWRpYSIsCiAgInNjcmVlbnNob3RQYXRoIjogImNhcHR1cmVzL2lubmVyYW5pbWFsbWVkaWEvc2NyZWVuc2hvdHMvd29yay5wbmciLAogICJjb25zb2xlRXJyb3JzIjogW10sCiAgImNvbnNvbGVXYXJuaW5ncyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJpZ25vcmVkUmVxdWVzdHMiOiBbXSwKICAicGFnZUVycm9ycyI6IFtdCn0="
-                        },
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "/Users/samprimeaux/inneranimalmedia/captures/inneranimalmedia/results/inneranimalmedia-public-In-921f9-ass-Work-page-quality-check/test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "/Users/samprimeaux/inneranimalmedia/captures/inneranimalmedia/results/inneranimalmedia-public-In-921f9-ass-Work-page-quality-check/trace.zip"
+                          "body": "ewogICJuYW1lIjogIldvcmsiLAogICJ1cmwiOiAiaHR0cHM6Ly9pbm5lcmFuaW1hbG1lZGlhLmNvbS93b3JrIiwKICAicGF0aCI6ICIvd29yayIsCiAgInN0YXR1cyI6IDIwMCwKICAidGl0bGUiOiAiUHJvb2Ygb3ZlciBwcm9taXNlcy4gfCBJbm5lciBBbmltYWwgTWVkaWEiLAogICJsb2NhbFNjcmVlbnNob3QiOiAicmVwb3J0cy8uc3RhZ2luZy9pbm5lcmFuaW1hbG1lZGlhL3NjcmVlbnNob3RzL3dvcmsucG5nIiwKICAic2NyZWVuc2hvdFBhdGgiOiAicmVwb3J0cy9xdWFsaXR5LXJlcG9ydC9wZW5kaW5nL3BlbmRpbmcvc2NyZWVuc2hvdHMvd29yay5wbmciLAogICJyMl9idWNrZXQiOiAiaW5uZXJhbmltYWxtZWRpYSIsCiAgInIyX2tleSI6ICJyZXBvcnRzL3F1YWxpdHktcmVwb3J0L3BlbmRpbmcvcGVuZGluZy9zY3JlZW5zaG90cy93b3JrLnBuZyIsCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiZmFpbGVkUmVxdWVzdHMiOiBbXSwKICAiYmFkUmVzcG9uc2VzIjogW10KfQ=="
                         }
                       ]
                     }
@@ -208,13 +107,13 @@
                   "status": "expected"
                 }
               ],
-              "id": "7dd88c62ca13be409b73-b8df9e2652d10e65eb38",
-              "file": "inneranimalmedia-public.spec.js",
-              "line": 28,
-              "column": 5
+              "id": "bf8cf5091ec061bd36d7-30ed4f45039019692697",
+              "file": "quality-pages.spec.ts",
+              "line": 88,
+              "column": 3
             },
             {
-              "title": "About page quality check",
+              "title": "Contact page loads with form and contact channels",
               "ok": true,
               "tags": [],
               "tests": [
@@ -222,35 +121,25 @@
                   "timeout": 60000,
                   "annotations": [],
                   "expectedStatus": "passed",
-                  "projectId": "",
-                  "projectName": "",
+                  "projectId": "chromium-desktop",
+                  "projectName": "chromium-desktop",
                   "results": [
                     {
-                      "workerIndex": 1,
+                      "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1615,
+                      "duration": 1192,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-05-07T16:33:22.478Z",
+                      "startTime": "2026-06-02T02:53:12.778Z",
                       "annotations": [],
                       "attachments": [
                         {
-                          "name": "About evidence",
+                          "name": "contact page evidence",
                           "contentType": "application/json",
-                          "body": "ewogICJuYW1lIjogIkFib3V0IiwKICAidXJsIjogImh0dHBzOi8vaW5uZXJhbmltYWxtZWRpYS5jb20vYWJvdXQiLAogICJzdGF0dXMiOiAyMDAsCiAgInRpdGxlIjogIkNvZGUgaXMgY29tbXVuaWNhdGlvbi4gfCBJbm5lciBBbmltYWwgTWVkaWEiLAogICJzY3JlZW5zaG90UGF0aCI6ICJjYXB0dXJlcy9pbm5lcmFuaW1hbG1lZGlhL3NjcmVlbnNob3RzL2Fib3V0LnBuZyIsCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY29uc29sZVdhcm5pbmdzIjogW10sCiAgImZhaWxlZFJlcXVlc3RzIjogW10sCiAgImlnbm9yZWRSZXF1ZXN0cyI6IFtdLAogICJwYWdlRXJyb3JzIjogW10KfQ=="
-                        },
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "/Users/samprimeaux/inneranimalmedia/captures/inneranimalmedia/results/inneranimalmedia-public-In-1ce3a-ss-About-page-quality-check/test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "/Users/samprimeaux/inneranimalmedia/captures/inneranimalmedia/results/inneranimalmedia-public-In-1ce3a-ss-About-page-quality-check/trace.zip"
+                          "body": "ewogICJuYW1lIjogIkNvbnRhY3QiLAogICJ1cmwiOiAiaHR0cHM6Ly9pbm5lcmFuaW1hbG1lZGlhLmNvbS9jb250YWN0IiwKICAicGF0aCI6ICIvY29udGFjdCIsCiAgInN0YXR1cyI6IDIwMCwKICAidGl0bGUiOiAiQ29udGFjdCDigJQgSW5uZXIgQW5pbWFsIE1lZGlhIiwKICAibG9jYWxTY3JlZW5zaG90IjogInJlcG9ydHMvLnN0YWdpbmcvaW5uZXJhbmltYWxtZWRpYS9zY3JlZW5zaG90cy9jb250YWN0LnBuZyIsCiAgInNjcmVlbnNob3RQYXRoIjogInJlcG9ydHMvcXVhbGl0eS1yZXBvcnQvcGVuZGluZy9wZW5kaW5nL3NjcmVlbnNob3RzL2NvbnRhY3QucG5nIiwKICAicjJfYnVja2V0IjogImlubmVyYW5pbWFsbWVkaWEiLAogICJyMl9rZXkiOiAicmVwb3J0cy9xdWFsaXR5LXJlcG9ydC9wZW5kaW5nL3BlbmRpbmcvc2NyZWVuc2hvdHMvY29udGFjdC5wbmciLAogICJjb25zb2xlRXJyb3JzIjogW10sCiAgImZhaWxlZFJlcXVlc3RzIjogW10sCiAgImJhZFJlc3BvbnNlcyI6IFtdCn0="
                         }
                       ]
                     }
@@ -258,394 +147,10 @@
                   "status": "expected"
                 }
               ],
-              "id": "7dd88c62ca13be409b73-b854621334f7f14b1238",
-              "file": "inneranimalmedia-public.spec.js",
-              "line": 28,
-              "column": 5
-            },
-            {
-              "title": "Services page quality check",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "",
-                  "projectName": "",
-                  "results": [
-                    {
-                      "workerIndex": 1,
-                      "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 1623,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-05-07T16:33:24.119Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "Services evidence",
-                          "contentType": "application/json",
-                          "body": "ewogICJuYW1lIjogIlNlcnZpY2VzIiwKICAidXJsIjogImh0dHBzOi8vaW5uZXJhbmltYWxtZWRpYS5jb20vc2VydmljZXMiLAogICJzdGF0dXMiOiAyMDAsCiAgInRpdGxlIjogIlN5c3RlbXMgdGhhdCBzZWxsLCBhdXRvbWF0ZSwgYW5kIHNjYWxlLiB8IElubmVyIEFuaW1hbCBNZWRpYSIsCiAgInNjcmVlbnNob3RQYXRoIjogImNhcHR1cmVzL2lubmVyYW5pbWFsbWVkaWEvc2NyZWVuc2hvdHMvc2VydmljZXMucG5nIiwKICAiY29uc29sZUVycm9ycyI6IFtdLAogICJjb25zb2xlV2FybmluZ3MiOiBbXSwKICAiZmFpbGVkUmVxdWVzdHMiOiBbXSwKICAiaWdub3JlZFJlcXVlc3RzIjogW10sCiAgInBhZ2VFcnJvcnMiOiBbXQp9"
-                        },
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "/Users/samprimeaux/inneranimalmedia/captures/inneranimalmedia/results/inneranimalmedia-public-In-d02b8-Services-page-quality-check/test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "/Users/samprimeaux/inneranimalmedia/captures/inneranimalmedia/results/inneranimalmedia-public-In-d02b8-Services-page-quality-check/trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "7dd88c62ca13be409b73-f1c9f884cc7f23c2e59e",
-              "file": "inneranimalmedia-public.spec.js",
-              "line": 28,
-              "column": 5
-            },
-            {
-              "title": "Contact page quality check",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "",
-                  "projectName": "",
-                  "results": [
-                    {
-                      "workerIndex": 1,
-                      "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 1354,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-05-07T16:33:25.777Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "Contact evidence",
-                          "contentType": "application/json",
-                          "body": "ewogICJuYW1lIjogIkNvbnRhY3QiLAogICJ1cmwiOiAiaHR0cHM6Ly9pbm5lcmFuaW1hbG1lZGlhLmNvbS9jb250YWN0IiwKICAic3RhdHVzIjogMjAwLAogICJ0aXRsZSI6ICJDb250YWN0IOKAlCBJbm5lciBBbmltYWwgTWVkaWEiLAogICJzY3JlZW5zaG90UGF0aCI6ICJjYXB0dXJlcy9pbm5lcmFuaW1hbG1lZGlhL3NjcmVlbnNob3RzL2NvbnRhY3QucG5nIiwKICAiY29uc29sZUVycm9ycyI6IFtdLAogICJjb25zb2xlV2FybmluZ3MiOiBbXSwKICAiZmFpbGVkUmVxdWVzdHMiOiBbXSwKICAiaWdub3JlZFJlcXVlc3RzIjogW10sCiAgInBhZ2VFcnJvcnMiOiBbXQp9"
-                        },
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "/Users/samprimeaux/inneranimalmedia/captures/inneranimalmedia/results/inneranimalmedia-public-In-f306d--Contact-page-quality-check/test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "/Users/samprimeaux/inneranimalmedia/captures/inneranimalmedia/results/inneranimalmedia-public-In-f306d--Contact-page-quality-check/trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "7dd88c62ca13be409b73-1e8aed9030f6a2df57d5",
-              "file": "inneranimalmedia-public.spec.js",
-              "line": 28,
-              "column": 5
-            },
-            {
-              "title": "Pricing page quality check",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "",
-                  "projectName": "",
-                  "results": [
-                    {
-                      "workerIndex": 1,
-                      "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 1333,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-05-07T16:33:27.149Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "Pricing evidence",
-                          "contentType": "application/json",
-                          "body": "ewogICJuYW1lIjogIlByaWNpbmciLAogICJ1cmwiOiAiaHR0cHM6Ly9pbm5lcmFuaW1hbG1lZGlhLmNvbS9wcmljaW5nIiwKICAic3RhdHVzIjogMjAwLAogICJ0aXRsZSI6ICJQcmljaW5nIC0gSW5uZXIgQW5pbWFsIE1lZGlhIiwKICAic2NyZWVuc2hvdFBhdGgiOiAiY2FwdHVyZXMvaW5uZXJhbmltYWxtZWRpYS9zY3JlZW5zaG90cy9wcmljaW5nLnBuZyIsCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY29uc29sZVdhcm5pbmdzIjogW10sCiAgImZhaWxlZFJlcXVlc3RzIjogW10sCiAgImlnbm9yZWRSZXF1ZXN0cyI6IFtdLAogICJwYWdlRXJyb3JzIjogW10KfQ=="
-                        },
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "/Users/samprimeaux/inneranimalmedia/captures/inneranimalmedia/results/inneranimalmedia-public-In-00c40--Pricing-page-quality-check/test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "/Users/samprimeaux/inneranimalmedia/captures/inneranimalmedia/results/inneranimalmedia-public-In-00c40--Pricing-page-quality-check/trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "7dd88c62ca13be409b73-e0d12e6ae05b88e41bc2",
-              "file": "inneranimalmedia-public.spec.js",
-              "line": 28,
-              "column": 5
-            },
-            {
-              "title": "Games page quality check",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "",
-                  "projectName": "",
-                  "results": [
-                    {
-                      "workerIndex": 1,
-                      "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 1629,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-05-07T16:33:28.507Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "Games evidence",
-                          "contentType": "application/json",
-                          "body": "ewogICJuYW1lIjogIkdhbWVzIiwKICAidXJsIjogImh0dHBzOi8vaW5uZXJhbmltYWxtZWRpYS5jb20vZ2FtZXMiLAogICJzdGF0dXMiOiAyMDAsCiAgInRpdGxlIjogIlBsYXkgdGhlIGludGVyZmFjZS4gfCBJbm5lciBBbmltYWwgTWVkaWEiLAogICJzY3JlZW5zaG90UGF0aCI6ICJjYXB0dXJlcy9pbm5lcmFuaW1hbG1lZGlhL3NjcmVlbnNob3RzL2dhbWVzLnBuZyIsCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY29uc29sZVdhcm5pbmdzIjogW10sCiAgImZhaWxlZFJlcXVlc3RzIjogW10sCiAgImlnbm9yZWRSZXF1ZXN0cyI6IFtdLAogICJwYWdlRXJyb3JzIjogW10KfQ=="
-                        },
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "/Users/samprimeaux/inneranimalmedia/captures/inneranimalmedia/results/inneranimalmedia-public-In-ada35-ss-Games-page-quality-check/test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "/Users/samprimeaux/inneranimalmedia/captures/inneranimalmedia/results/inneranimalmedia-public-In-ada35-ss-Games-page-quality-check/trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "7dd88c62ca13be409b73-0ecd67d54f6fd2bf90b6",
-              "file": "inneranimalmedia-public.spec.js",
-              "line": 28,
-              "column": 5
-            },
-            {
-              "title": "Privacy page quality check",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "",
-                  "projectName": "",
-                  "results": [
-                    {
-                      "workerIndex": 1,
-                      "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 1738,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-05-07T16:33:30.162Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "Privacy evidence",
-                          "contentType": "application/json",
-                          "body": "ewogICJuYW1lIjogIlByaXZhY3kiLAogICJ1cmwiOiAiaHR0cHM6Ly9pbm5lcmFuaW1hbG1lZGlhLmNvbS9wcml2YWN5IiwKICAic3RhdHVzIjogMjAwLAogICJ0aXRsZSI6ICJQcml2YWN5IFBvbGljeSAtIElubmVyIEFuaW1hbCBNZWRpYSIsCiAgInNjcmVlbnNob3RQYXRoIjogImNhcHR1cmVzL2lubmVyYW5pbWFsbWVkaWEvc2NyZWVuc2hvdHMvcHJpdmFjeS5wbmciLAogICJjb25zb2xlRXJyb3JzIjogW10sCiAgImNvbnNvbGVXYXJuaW5ncyI6IFtdLAogICJmYWlsZWRSZXF1ZXN0cyI6IFtdLAogICJpZ25vcmVkUmVxdWVzdHMiOiBbCiAgICAiUE9TVCBodHRwczovL3d3dy5nb29nbGUtYW5hbHl0aWNzLmNvbS9nL2NvbGxlY3Q/dj0yJnRpZD1HLVBaMEQ0R0ZOVjEmZ3RtPTQ1amU2NTYwdjkyNDAxNDYxMDZ6YTIwMHpkOTI0MDE0NjEwNiZfcD0xNzc4MTcxNjEwNDgyJmdjZD0xM2wzbDNsM2wxbDEmbnBhPTAmZG1hPTAmYXJlPTEmY2lkPTEyMjE2NDYzNTIuMTc3ODE3MTYxMSZmcm09MCZwc2NkbD1ub2FwaSZyY2I9MTMmc3I9MTI4MHg3MjAmdWFhPWFybSZ1YWI9NjQmdWFmdmw9Tm90JTI1M0FBLUJyYW5kJTNCOTkuMC4wLjAlN0NIZWFkbGVzc0Nocm9tZSUzQjE0NS4wLjc2MzIuNiU3Q0Nocm9taXVtJTNCMTQ1LjAuNzYzMi42JnVhbT0mdWFtYj0wJnVhcD1tYWNPUyZ1YXB2PTI2LjMuMSZ1YXc9MCZ1bD1lbi11cyZfcz0xJnRhZ19leHA9MH4xMTU2MTY5ODZ+MTE1OTM4NDY1fjExNTkzODQ2OX4xMTYzNjMwOTd+MTE3MjE1NzEzfjExNzM4NDQwNn4xMTg0NjMyNjJ+MTE4NDk0NjM0JnNpZD0xNzc4MTcxNjEwJnNjdD0xJnNlZz0wJmRsPWh0dHBzJTNBJTJGJTJGaW5uZXJhbmltYWxtZWRpYS5jb20lMkZwcml2YWN5JmR0PVByaXZhY3klMjBQb2xpY3klMjAtJTIwSW5uZXIlMjBBbmltYWwlMjBNZWRpYSZlbj1wYWdlX3ZpZXcmX2Z2PTEmX25zaT0xJl9zcz0xJl9lZT0xJnRmZD02MDAgOjogbmV0OjpFUlJfQUJPUlRFRCIKICBdLAogICJwYWdlRXJyb3JzIjogW10KfQ=="
-                        },
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "/Users/samprimeaux/inneranimalmedia/captures/inneranimalmedia/results/inneranimalmedia-public-In-365f7--Privacy-page-quality-check/test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "/Users/samprimeaux/inneranimalmedia/captures/inneranimalmedia/results/inneranimalmedia-public-In-365f7--Privacy-page-quality-check/trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "7dd88c62ca13be409b73-68df1eb244b9a1ad76a1",
-              "file": "inneranimalmedia-public.spec.js",
-              "line": 28,
-              "column": 5
-            },
-            {
-              "title": "Terms page quality check",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "",
-                  "projectName": "",
-                  "results": [
-                    {
-                      "workerIndex": 1,
-                      "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 1687,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-05-07T16:33:31.915Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "Terms evidence",
-                          "contentType": "application/json",
-                          "body": "ewogICJuYW1lIjogIlRlcm1zIiwKICAidXJsIjogImh0dHBzOi8vaW5uZXJhbmltYWxtZWRpYS5jb20vdGVybXMiLAogICJzdGF0dXMiOiAyMDAsCiAgInRpdGxlIjogIlRlcm1zIG9mIFNlcnZpY2UgLSBJbm5lciBBbmltYWwgTWVkaWEiLAogICJzY3JlZW5zaG90UGF0aCI6ICJjYXB0dXJlcy9pbm5lcmFuaW1hbG1lZGlhL3NjcmVlbnNob3RzL3Rlcm1zLnBuZyIsCiAgImNvbnNvbGVFcnJvcnMiOiBbXSwKICAiY29uc29sZVdhcm5pbmdzIjogW10sCiAgImZhaWxlZFJlcXVlc3RzIjogW10sCiAgImlnbm9yZWRSZXF1ZXN0cyI6IFsKICAgICJQT1NUIGh0dHBzOi8vd3d3Lmdvb2dsZS1hbmFseXRpY3MuY29tL2cvY29sbGVjdD92PTImdGlkPUctUFowRDRHRk5WMSZndG09NDVqZTY1NjBoMXY5MjQwMTQ2MTA2emEyMDB6ZDkyNDAxNDYxMDYmX3A9MTc3ODE3MTYxMjE2NSZnY2Q9MTNsM2wzbDNsMWwxJm5wYT0wJmRtYT0wJmFyZT0xJmNpZD0zMTQ2NTEyMzEuMTc3ODE3MTYxMyZmcm09MCZwc2NkbD1ub2FwaSZyY2I9MTcmc3I9MTI4MHg3MjAmdWFhPWFybSZ1YWI9NjQmdWFmdmw9Tm90JTI1M0FBLUJyYW5kJTNCOTkuMC4wLjAlN0NIZWFkbGVzc0Nocm9tZSUzQjE0NS4wLjc2MzIuNiU3Q0Nocm9taXVtJTNCMTQ1LjAuNzYzMi42JnVhbT0mdWFtYj0wJnVhcD1tYWNPUyZ1YXB2PTI2LjMuMSZ1YXc9MCZ1bD1lbi11cyZfcz0xJnRhZ19leHA9MH4xMTU2MTY5ODZ+MTE1OTM4NDY2fjExNTkzODQ2OH4xMTYzNjMwOTh+MTE4NDYzMjYxJnNpZD0xNzc4MTcxNjEyJnNjdD0xJnNlZz0wJmRsPWh0dHBzJTNBJTJGJTJGaW5uZXJhbmltYWxtZWRpYS5jb20lMkZ0ZXJtcyZkdD1UZXJtcyUyMG9mJTIwU2VydmljZSUyMC0lMjBJbm5lciUyMEFuaW1hbCUyME1lZGlhJmVuPXBhZ2VfdmlldyZfZnY9MSZfbnNpPTEmX3NzPTEmX2VlPTEmdGZkPTU3NyA6OiBuZXQ6OkVSUl9BQk9SVEVEIgogIF0sCiAgInBhZ2VFcnJvcnMiOiBbXQp9"
-                        },
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "/Users/samprimeaux/inneranimalmedia/captures/inneranimalmedia/results/inneranimalmedia-public-In-755bb-ss-Terms-page-quality-check/test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "/Users/samprimeaux/inneranimalmedia/captures/inneranimalmedia/results/inneranimalmedia-public-In-755bb-ss-Terms-page-quality-check/trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "7dd88c62ca13be409b73-366807c107098ee39793",
-              "file": "inneranimalmedia-public.spec.js",
-              "line": 28,
-              "column": 5
-            },
-            {
-              "title": "Signup page quality check",
-              "ok": false,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "",
-                  "projectName": "",
-                  "results": [
-                    {
-                      "workerIndex": 1,
-                      "parallelIndex": 0,
-                      "status": "failed",
-                      "duration": 1391,
-                      "error": {
-                        "message": "Error: Signup page runtime errors\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // deep equality\u001b[22m\n\n\u001b[32m- Expected  - 1\u001b[39m\n\u001b[31m+ Received  + 3\u001b[39m\n\n\u001b[32m- Array []\u001b[39m\n\u001b[31m+ Array [\u001b[39m\n\u001b[31m+   \"Error creating WebGL context.\",\u001b[39m\n\u001b[31m+ ]\u001b[39m",
-                        "stack": "Error: Signup page runtime errors\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // deep equality\u001b[22m\n\n\u001b[32m- Expected  - 1\u001b[39m\n\u001b[31m+ Received  + 3\u001b[39m\n\n\u001b[32m- Array []\u001b[39m\n\u001b[31m+ Array [\u001b[39m\n\u001b[31m+   \"Error creating WebGL context.\",\u001b[39m\n\u001b[31m+ ]\u001b[39m\n    at /Users/samprimeaux/inneranimalmedia/tests/quality/inneranimalmedia-public.spec.js:92:57",
-                        "location": {
-                          "file": "/Users/samprimeaux/inneranimalmedia/tests/quality/inneranimalmedia-public.spec.js",
-                          "column": 57,
-                          "line": 92
-                        },
-                        "snippet": "\u001b[0m \u001b[90m 90 |\u001b[39m\n \u001b[90m 91 |\u001b[39m       expect(consoleErrors\u001b[33m,\u001b[39m \u001b[32m`${name} real console errors`\u001b[39m)\u001b[33m.\u001b[39mtoEqual([])\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 92 |\u001b[39m       expect(pageErrors\u001b[33m,\u001b[39m \u001b[32m`${name} page runtime errors`\u001b[39m)\u001b[33m.\u001b[39mtoEqual([])\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                                         \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 93 |\u001b[39m       expect(failedRequests\u001b[33m,\u001b[39m \u001b[32m`${name} real failed requests`\u001b[39m)\u001b[33m.\u001b[39mtoEqual([])\u001b[33m;\u001b[39m\n \u001b[90m 94 |\u001b[39m     })\u001b[33m;\u001b[39m\n \u001b[90m 95 |\u001b[39m   }\u001b[0m"
-                      },
-                      "errors": [
-                        {
-                          "location": {
-                            "file": "/Users/samprimeaux/inneranimalmedia/tests/quality/inneranimalmedia-public.spec.js",
-                            "column": 57,
-                            "line": 92
-                          },
-                          "message": "Error: Signup page runtime errors\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // deep equality\u001b[22m\n\n\u001b[32m- Expected  - 1\u001b[39m\n\u001b[31m+ Received  + 3\u001b[39m\n\n\u001b[32m- Array []\u001b[39m\n\u001b[31m+ Array [\u001b[39m\n\u001b[31m+   \"Error creating WebGL context.\",\u001b[39m\n\u001b[31m+ ]\u001b[39m\n\n\u001b[0m \u001b[90m 90 |\u001b[39m\n \u001b[90m 91 |\u001b[39m       expect(consoleErrors\u001b[33m,\u001b[39m \u001b[32m`${name} real console errors`\u001b[39m)\u001b[33m.\u001b[39mtoEqual([])\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 92 |\u001b[39m       expect(pageErrors\u001b[33m,\u001b[39m \u001b[32m`${name} page runtime errors`\u001b[39m)\u001b[33m.\u001b[39mtoEqual([])\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                                         \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 93 |\u001b[39m       expect(failedRequests\u001b[33m,\u001b[39m \u001b[32m`${name} real failed requests`\u001b[39m)\u001b[33m.\u001b[39mtoEqual([])\u001b[33m;\u001b[39m\n \u001b[90m 94 |\u001b[39m     })\u001b[33m;\u001b[39m\n \u001b[90m 95 |\u001b[39m   }\u001b[0m\n\u001b[2m    at /Users/samprimeaux/inneranimalmedia/tests/quality/inneranimalmedia-public.spec.js:92:57\u001b[22m"
-                        }
-                      ],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-05-07T16:33:33.620Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "Signup evidence",
-                          "contentType": "application/json",
-                          "body": "ewogICJuYW1lIjogIlNpZ251cCIsCiAgInVybCI6ICJodHRwczovL2lubmVyYW5pbWFsbWVkaWEuY29tL2F1dGgvc2lnbnVwIiwKICAic3RhdHVzIjogMjAwLAogICJ0aXRsZSI6ICJTaWduIHVwIHwgSW5uZXIgQW5pbWFsIE1lZGlhIiwKICAic2NyZWVuc2hvdFBhdGgiOiAiY2FwdHVyZXMvaW5uZXJhbmltYWxtZWRpYS9zY3JlZW5zaG90cy9zaWdudXAucG5nIiwKICAiY29uc29sZUVycm9ycyI6IFtdLAogICJjb25zb2xlV2FybmluZ3MiOiBbCiAgICAiVEhSRUUuV2ViR0xSZW5kZXJlcjogRXJyb3IgY3JlYXRpbmcgV2ViR0wgY29udGV4dC4iCiAgXSwKICAiZmFpbGVkUmVxdWVzdHMiOiBbXSwKICAiaWdub3JlZFJlcXVlc3RzIjogW10sCiAgInBhZ2VFcnJvcnMiOiBbCiAgICAiRXJyb3IgY3JlYXRpbmcgV2ViR0wgY29udGV4dC4iCiAgXQp9"
-                        },
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "/Users/samprimeaux/inneranimalmedia/captures/inneranimalmedia/results/inneranimalmedia-public-In-e66d7-s-Signup-page-quality-check/test-failed-1.png"
-                        },
-                        {
-                          "name": "video",
-                          "contentType": "video/webm",
-                          "path": "/Users/samprimeaux/inneranimalmedia/captures/inneranimalmedia/results/inneranimalmedia-public-In-e66d7-s-Signup-page-quality-check/video.webm"
-                        },
-                        {
-                          "name": "error-context",
-                          "contentType": "text/markdown",
-                          "path": "/Users/samprimeaux/inneranimalmedia/captures/inneranimalmedia/results/inneranimalmedia-public-In-e66d7-s-Signup-page-quality-check/error-context.md"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "/Users/samprimeaux/inneranimalmedia/captures/inneranimalmedia/results/inneranimalmedia-public-In-e66d7-s-Signup-page-quality-check/trace.zip"
-                        }
-                      ],
-                      "errorLocation": {
-                        "file": "/Users/samprimeaux/inneranimalmedia/tests/quality/inneranimalmedia-public.spec.js",
-                        "column": 57,
-                        "line": 92
-                      }
-                    }
-                  ],
-                  "status": "unexpected"
-                }
-              ],
-              "id": "7dd88c62ca13be409b73-bf5d61857f35463b5a84",
-              "file": "inneranimalmedia-public.spec.js",
-              "line": 28,
-              "column": 5
+              "id": "bf8cf5091ec061bd36d7-bfe64be914612461dc57",
+              "file": "quality-pages.spec.ts",
+              "line": 123,
+              "column": 3
             }
           ]
         }
@@ -654,11 +159,11 @@
   ],
   "errors": [],
   "stats": {
-    "startTime": "2026-05-07T16:33:16.583Z",
-    "duration": 18478.516,
-    "expected": 8,
+    "startTime": "2026-06-02T02:53:09.528Z",
+    "duration": 4479.86,
+    "expected": 2,
     "skipped": 0,
-    "unexpected": 2,
+    "unexpected": 0,
     "flaky": 0
   }
 }

@@ -61,15 +61,22 @@ test.describe('InnerAnimalMedia public quality pass', () => {
       await expect.soft(bodyText.trim().length, `${name} should have visible text`).toBeGreaterThan(25);
 
       const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-      const screenshotPath = `captures/inneranimalmedia/screenshots/${slug}.png`;
-      await page.screenshot({ path: screenshotPath, fullPage: true });
+      const localScreenshot = `reports/.staging/inneranimalmedia/screenshots/${slug}.png`;
+      fs.mkdirSync('reports/.staging/inneranimalmedia/screenshots', { recursive: true });
+      fs.mkdirSync('reports/.staging/inneranimalmedia/evidence', { recursive: true });
+      await page.screenshot({ path: localScreenshot, fullPage: true });
+
+      const r2ScreenshotPath = `reports/screenshots/${slug}.png`;
 
       const evidence = {
         name,
         url,
         status: response?.status() || null,
         title,
-        screenshotPath,
+        localScreenshot,
+        screenshotPath: r2ScreenshotPath,
+        r2_bucket: 'inneranimalmedia',
+        r2_key: r2ScreenshotPath,
         consoleErrors,
         consoleWarnings,
         failedRequests,
@@ -78,10 +85,9 @@ test.describe('InnerAnimalMedia public quality pass', () => {
       };
 
       fs.mkdirSync('captures/inneranimalmedia/evidence', { recursive: true });
-      fs.writeFileSync(
-        `captures/inneranimalmedia/evidence/${slug}.json`,
-        JSON.stringify(evidence, null, 2)
-      );
+      const evidenceJson = JSON.stringify(evidence, null, 2);
+      fs.writeFileSync(`reports/.staging/inneranimalmedia/evidence/${slug}.json`, evidenceJson);
+      fs.writeFileSync(`captures/inneranimalmedia/evidence/${slug}.json`, evidenceJson);
 
       await testInfo.attach(`${name} evidence`, {
         body: JSON.stringify(evidence, null, 2),

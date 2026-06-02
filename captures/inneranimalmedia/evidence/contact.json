@@ -1,12 +1,14 @@
 {
   "name": "Contact",
   "url": "https://inneranimalmedia.com/contact",
+  "path": "/contact",
   "status": 200,
   "title": "Contact — Inner Animal Media",
-  "screenshotPath": "captures/inneranimalmedia/screenshots/contact.png",
+  "localScreenshot": "reports/.staging/inneranimalmedia/screenshots/contact.png",
+  "screenshotPath": "reports/quality-report/pending/pending/screenshots/contact.png",
+  "r2_bucket": "inneranimalmedia",
+  "r2_key": "reports/quality-report/pending/pending/screenshots/contact.png",
   "consoleErrors": [],
-  "consoleWarnings": [],
   "failedRequests": [],
-  "ignoredRequests": [],
-  "pageErrors": []
+  "badResponses": []
 }

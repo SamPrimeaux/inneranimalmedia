@@ -135,6 +135,7 @@ audit_report.md
 reports/*
 !reports/template/
 !reports/template/**
+reports/.staging/
 
 # Agent runtime state
 .agents/

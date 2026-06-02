@@ -1,12 +1,14 @@
 {
   "name": "Work",
   "url": "https://inneranimalmedia.com/work",
+  "path": "/work",
   "status": 200,
   "title": "Proof over promises. | Inner Animal Media",
-  "screenshotPath": "captures/inneranimalmedia/screenshots/work.png",
+  "localScreenshot": "reports/.staging/inneranimalmedia/screenshots/work.png",
+  "screenshotPath": "reports/quality-report/pending/pending/screenshots/work.png",
+  "r2_bucket": "inneranimalmedia",
+  "r2_key": "reports/quality-report/pending/pending/screenshots/work.png",
   "consoleErrors": [],
-  "consoleWarnings": [],
   "failedRequests": [],
-  "ignoredRequests": [],
-  "pageErrors": []
+  "badResponses": []
 }
