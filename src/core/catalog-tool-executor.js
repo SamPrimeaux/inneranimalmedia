@@ -1227,7 +1227,9 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
     }
 
     case 'github': {
-      const op = String(config.operation || '').toLowerCase();
+      const { githubWriteOperationFromArgs } = await import('./mcp-github-write-schema.js');
+      const opHint = githubWriteOperationFromArgs(params?.operation);
+      const op = opHint || String(config.operation || '').toLowerCase();
       const { handlers: ghHandlers } = await import('../tools/builtin/github-worker.js');
       const opMap = {
         get_file: 'github_get_file',
