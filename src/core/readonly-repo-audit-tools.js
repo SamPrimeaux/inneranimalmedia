@@ -17,18 +17,10 @@ export const CORE_EVIDENCE_TOOL_NAMES = Object.freeze([
 export const OPTIONAL_EVIDENCE_TOOL_NAMES = Object.freeze(['repo_search', 'code_search']);
 
 export const REPORT_CHILD_EXCLUDED_TOOL_NAMES = Object.freeze([
-  'agentsam_memory_write',
-  'agentsam_memory_save',
-  'agent_memory_write',
-  'agentsam_memory_search',
-  'agentsam_plan',
-  'agentsam_plan_create',
-  'agentsam_run',
   'spawn_subagent',
   'subagent_spawn',
   'workflow_fanout',
   'worker_deploy',
-  'knowledge_search',
   'ss_search_knowledge',
 ]);
 
