@@ -59,6 +59,40 @@ function resolveWorkspaceDeployCommand(settingsJson, commandSource) {
   return String(parsed.deploy_command || '').trim();
 }
 
+/**
+ * Prefix workspace deploy/build commands so PTY and tunnel exec run in the repo root.
+ * @param {string|object|null} settingsJson
+ * @param {string} command
+ */
+export function wrapWorkspaceShellCommand(settingsJson, command) {
+  const cmd = String(command || '').trim();
+  if (!cmd) return cmd;
+
+  let parsed = settingsJson;
+  if (typeof parsed === 'string') {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch (_) {
+      return cmd;
+    }
+  }
+  if (!parsed || typeof parsed !== 'object') return cmd;
+
+  if (/^\s*cd\s+/i.test(cmd)) return cmd;
+
+  const root = String(parsed.workspace_root || '').trim();
+  if (root && cmd.includes(root)) return cmd;
+
+  const cdPrefix = String(parsed.workspace_cd_command || '').trim();
+  if (cdPrefix) {
+    if (/&&\s*$/.test(cdPrefix)) return `${cdPrefix} ${cmd}`;
+    if (cdPrefix.includes('&&')) return `${cdPrefix} && ${cmd}`;
+    return `${cdPrefix} && ${cmd}`;
+  }
+  if (root) return `cd ${root} && ${cmd}`;
+  return cmd;
+}
+
 function stableSortValue(value) {
   if (Array.isArray(value)) return value.map(stableSortValue);
   if (value && typeof value === 'object') {
@@ -883,13 +917,29 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
     }
 
     case 'terminal': {
-      const cmd = String(params.command || params.cmd || config.command_template || '').trim();
+      let cmd = String(params.command || params.cmd || config.command_template || '').trim();
       if (!cmd) {
         result = { ok: false, error: 'terminal tool requires command in input' };
         break;
       }
+      if (workspaceId && env?.DB) {
+        const settingsRow = await env.DB.prepare(
+          'SELECT settings_json FROM workspace_settings WHERE workspace_id = ? LIMIT 1',
+        )
+          .bind(workspaceId)
+          .first()
+          .catch(() => null);
+        if (settingsRow?.settings_json) {
+          cmd = wrapWorkspaceShellCommand(settingsRow.settings_json, cmd);
+        }
+      }
       const out = await termHandlers.run_command(
-        { command: cmd, session_id: params.session_id },
+        {
+          command: cmd,
+          session_id: params.session_id,
+          workspace_id: workspaceId,
+          request: runContext?.request,
+        },
         env,
       );
       result = out?.error ? { ok: false, error: String(out.error) } : { ok: true, body: out };
@@ -1451,6 +1501,7 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
     case 'deploy': {
       const commandSource = String(config.command_source || 'workspace_settings.deploy_command').trim();
       let deployCommand = '';
+      let settingsJson = null;
       if (workspaceId && env?.DB) {
         const settingsRow = await env.DB.prepare(
           'SELECT settings_json FROM workspace_settings WHERE workspace_id = ? LIMIT 1',
@@ -1459,7 +1510,8 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
           .first()
           .catch(() => null);
         if (settingsRow?.settings_json) {
-          deployCommand = resolveWorkspaceDeployCommand(settingsRow.settings_json, commandSource);
+          settingsJson = settingsRow.settings_json;
+          deployCommand = resolveWorkspaceDeployCommand(settingsJson, commandSource);
         }
       }
       if (!deployCommand) {
@@ -1478,12 +1530,13 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         };
         break;
       }
+      const wrappedDeploy = wrapWorkspaceShellCommand(settingsJson, deployCommand);
       const termRow = { ...row, handler_type: 'terminal' };
       return executeCatalogTool(
         env,
         termRow,
         config,
-        { ...params, command: deployCommand },
+        { ...params, command: wrappedDeploy },
         runContext,
         credentials,
       );

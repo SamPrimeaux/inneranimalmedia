@@ -15,12 +15,18 @@ export const handlers = {
       if (cookie) headers.Cookie = cookie;
       const sid = session_id || sessionId || env.PTY_SESSION_ID || null;
       // CF Workers: forward session cookie so /api/agent/terminal/run resolves the same user/workspace.
+      const workspaceId =
+        params?.workspace_id ??
+        params?.workspaceId ??
+        env?.DEFAULT_WORKSPACE_ID ??
+        null;
       const res = await fetch(`${origin}/api/agent/terminal/run`, {
         method: 'POST',
         headers,
         body: JSON.stringify({
           command,
           session_id: sid,
+          ...(workspaceId ? { workspace_id: String(workspaceId).trim() } : {}),
         }),
       });
       
