@@ -6317,13 +6317,19 @@ export async function mcpPanelAgentChatSse(env, request, ctx, panel) {
     `Workspace: ${workspaceId}\n` +
     `Date: ${new Date().toISOString()}\n`;
 
+  const panelIsSuperadmin =
+    panel.isSuperadmin === true ||
+    String(panel.authUser?.role ?? '').trim().toLowerCase() === 'superadmin' ||
+    Number(panel.authUser?.is_superadmin) === 1;
+
   const mcpRuntimeContext = {
     userId,
     tenantId,
     workspaceId,
     personUuid,
     sessionId: sessionPkId,
-    isSuperadmin: false,
+    isSuperadmin: panelIsSuperadmin,
+    authUser: panel.authUser ?? null,
     routeKey: 'mcp_panel',
   };
 

@@ -781,7 +781,7 @@
                 if (intent) {
                     var invokeBody = { tool_name: intent.tool_name, params: intent.params };
                     if (wsSessionId) invokeBody.session_id = wsSessionId;
-                    fetch(BASE + '/api/mcp/invoke', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(invokeBody) })
+                    fetch(BASE + '/api/mcp/catalog-invoke', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(invokeBody) })
                         .then(function(r){ return r.json(); })
                         .then(function(d) {
                             thinking.remove();

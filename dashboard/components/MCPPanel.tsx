@@ -42,7 +42,7 @@ export const MCPPanel: React.FC = () => {
   const invokeTool = async (tool: MCPTool) => {
     setInvoking(tool.id);
     try {
-      const resp = await fetch('/api/mcp/invoke', {
+      const resp = await fetch('/api/mcp/catalog-invoke', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',

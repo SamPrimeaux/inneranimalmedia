@@ -20,8 +20,8 @@ import { scheduleRecordMcpToolExecution } from '../core/mcp-tool-execution.js';
 import { scheduleMirrorToolCallEventToSupabase } from '../core/hyperdrive-write.js';
 import { resolveActorContext } from '../core/actor-context.js';
 import { authorizeMcpTool } from '../core/mcp-authorization.js';
-import { resolveMcpServerForTool } from '../core/mcp-servers.js';
 import { resolveEffectiveWorkspaceId } from '../core/bootstrap.js';
+import { dispatchByToolCode } from '../core/dispatch-by-tool-code.js';
 import { mcpPanelAgentChatSse } from './agent.js';
 import { resolveCanonicalUserId } from './auth.js';
 
@@ -508,6 +508,10 @@ export async function handleMcpApi(request, url, env, ctx) {
           ? String(actorCtx.personUuid).trim()
           : null;
 
+      const role = String(authUser?.role ?? '').trim().toLowerCase();
+      const isSuperadmin =
+        role === 'superadmin' || Number(authUser?.is_superadmin) === 1;
+
       return mcpPanelAgentChatSse(env, request, ctx, {
         tenantId,
         userId: String(authUser.id),
@@ -518,6 +522,8 @@ export async function handleMcpApi(request, url, env, ctx) {
         profile,
         modelKey: modelRow.model_key,
         messages,
+        authUser,
+        isSuperadmin,
       });
     }
 
@@ -555,85 +561,87 @@ export async function handleMcpApi(request, url, env, ctx) {
       return jsonResponse({ workflows: r.results || [] });
     }
 
-    // ── POST /api/mcp/invoke — dashboard proxy (session auth in, MCP token out)
-    if (pathLower === '/api/mcp/invoke' && method === 'POST') {
+    // ── POST /api/mcp/catalog-invoke — in-app catalog dispatch (same path as agent chat tools)
+    if (pathLower === '/api/mcp/catalog-invoke' && method === 'POST') {
       const body = await request.json().catch(() => ({}));
       const toolName = String(body.tool_name || body.tool || '').trim();
-      const args = body.arguments && typeof body.arguments === 'object' ? body.arguments : (body.params && typeof body.params === 'object' ? body.params : {});
+      const args =
+        body.arguments && typeof body.arguments === 'object'
+          ? body.arguments
+          : body.params && typeof body.params === 'object'
+            ? body.params
+            : {};
       if (!toolName) return jsonResponse({ error: 'tool_name required' }, 400);
+
+      const identity = await resolveIdentity(env, request).catch(() => null);
+      const workspaceId =
+        actorCtx?.workspaceId != null && String(actorCtx.workspaceId).trim() !== ''
+          ? String(actorCtx.workspaceId).trim()
+          : identity?.workspaceId != null
+            ? String(identity.workspaceId).trim()
+            : '';
+      const userId =
+        actorCtx?.userId != null && String(actorCtx.userId).trim() !== ''
+          ? String(actorCtx.userId).trim()
+          : authUser?.id != null
+            ? String(authUser.id).trim()
+            : '';
+      if (!workspaceId || !userId) {
+        return jsonResponse({ error: 'WORKSPACE_CONTEXT_MISSING' }, 400);
+      }
 
       let toolRow = null;
       try {
         toolRow = await loadAgentsamToolRow(env, toolName);
       } catch (_) {}
-      const resolved = await resolveMcpServerForTool(env, {
-        tenantId: actorCtx?.tenantId,
-        workspaceId: actorCtx?.workspaceId,
-      }, toolRow || {});
-      let endpoint = resolved.url;
-      if (!endpoint) {
-        endpoint = String(env.MCP_SERVICE_URL || 'https://mcp.inneranimalmedia.com/mcp').trim();
-      } else if (!/\/mcp/i.test(endpoint)) {
-        endpoint = String(endpoint).replace(/\/$/, '') + '/mcp';
-      }
-      const token = env.MCP_AUTH_TOKEN ? String(env.MCP_AUTH_TOKEN).trim() : '';
-      if (!token) return jsonResponse({ error: 'MCP_AUTH_TOKEN not configured' }, 503);
 
-      // MCP JSON-RPC (tools/call)
-      const rpcBody = {
-        jsonrpc: '2.0',
-        id: crypto.randomUUID(),
-        method: 'tools/call',
-        params: { name: toolName, arguments: args },
-      };
-
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify(rpcBody),
+      const execT0 = Date.now();
+      const catalogOut = await dispatchByToolCode(env, toolName, args, {
+        tenantId,
+        userId,
+        workspaceId,
+        authUser,
+        isOperatorCall: false,
+        isInternalAgent: false,
       });
+      const invokeDurationMs = Math.max(0, Date.now() - execT0);
 
-      const invokeStarted = Date.now();
-      const out = await res.json().catch(() => ({}));
-      const invokeDurationMs = Math.max(0, Date.now() - invokeStarted);
-      if (!res.ok) {
+      if (catalogOut?.ok === false) {
         scheduleMirrorToolCallEventToSupabase(env, ctx, {
-          workspace_id: actorCtx?.workspaceId,
+          workspace_id: workspaceId,
           run_id: actorCtx?.supabase_run_id ?? actorCtx?.workflow_run_id ?? null,
           tool_key: toolName,
           tool_name: toolName,
-          tool_category: toolRow?.tool_category ?? 'mcp',
+          tool_category: toolRow?.tool_category ?? 'catalog',
           status: 'failed',
           duration_ms: invokeDurationMs,
         });
-        return jsonResponse({ error: out?.error || out?.message || res.statusText, status: res.status, raw: out }, 502);
+        return jsonResponse(
+          {
+            ok: false,
+            error: catalogOut.error ?? 'dispatch_failed',
+            tool_key: catalogOut.tool_key ?? toolName,
+          },
+          422,
+        );
       }
-      if (out && out.error) {
-        scheduleMirrorToolCallEventToSupabase(env, ctx, {
-          workspace_id: actorCtx?.workspaceId,
-          run_id: actorCtx?.supabase_run_id ?? actorCtx?.workflow_run_id ?? null,
-          tool_key: toolName,
-          tool_name: toolName,
-          tool_category: toolRow?.tool_category ?? 'mcp',
-          status: 'failed',
-          duration_ms: invokeDurationMs,
-        });
-        return jsonResponse({ error: out.error }, 502);
-      }
+
       scheduleMirrorToolCallEventToSupabase(env, ctx, {
-        workspace_id: actorCtx?.workspaceId,
+        workspace_id: workspaceId,
         run_id: actorCtx?.supabase_run_id ?? actorCtx?.workflow_run_id ?? null,
         tool_key: toolName,
         tool_name: toolName,
-        tool_category: toolRow?.tool_category ?? 'mcp',
+        tool_category: toolRow?.tool_category ?? 'catalog',
         status: 'completed',
         duration_ms: invokeDurationMs,
       });
-      return jsonResponse(out?.result ?? out);
+
+      return jsonResponse({
+        ok: true,
+        result: catalogOut.result ?? catalogOut,
+        tool_key: catalogOut.tool_key ?? toolName,
+        auth_source: catalogOut.auth_source ?? null,
+      });
     }
 
     if (pathLower === '/api/mcp/server-allowlist' && method === 'GET') {

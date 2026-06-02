@@ -76,7 +76,7 @@ Reasons: extra Worker hop latency, `AGENTSAM_BRIDGE_KEY` overhead, doubled failu
 - `AGENTSAM_BRIDGE_KEY` flows MCP worker → main worker only. Never the reverse.
 - If you find main worker → MCP server calls in agent/tool paths: flag and remove them.
 
-**Note on `/api/mcp/invoke`:** This route exists on the main worker (`src/api/mcp.js`) as a session-authenticated dashboard RPC proxy used by `dashboard/mcp.html` and `MCPPanel.tsx` to exercise the external MCP surface directly from the dashboard UI. This is NOT the agent tool execution path and is NOT a regression. Do not remove it. Do not call it from `agent.js` or any tool executor.
+**Note on `/api/mcp/catalog-invoke`:** `MCPPanel.tsx` and legacy `dashboard/mcp.html` call `POST /api/mcp/catalog-invoke` on the main worker, which runs `dispatchByToolCode` in-process (same as `agent.js`). Do not proxy dashboard tool runs through `mcp.inneranimalmedia.com`. MCP cloud agents (`POST /api/mcp/agent/:slug/chat`) use `mcpPanelAgentChatSse` → `runAgentToolLoop` → `dispatchToolCall` → `dispatchByToolCode`.
 
 `proxyToMainWorker()` in the MCP server (MCP → main) is correct and expected.
 
