@@ -1,0 +1,870 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Agent Sam — Connor Platform Setup | Inner Animal Media</title>
+  <style>
+    :root {
+      --bg-deep: #001a22;
+      --bg-card: #00212b;
+      --bg-panel: #0a3040;
+      --border: #1e3e4a;
+      --border-bright: #2dd4bf;
+      --cyan: #2dd4bf;
+      --cyan-dim: rgba(45, 212, 191, 0.15);
+      --text-main: #e8f4f8;
+      --text-muted: #7a9aaa;
+      --text-dim: #4a6a7a;
+      --yellow: #fbbf24;
+      --green: #34d399;
+      --red: #f87171;
+      --mono: "SF Mono", "Cascadia Code", "Courier New", monospace;
+      --serif: Georgia, "Times New Roman", serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    html {
+      scroll-behavior: smooth;
+      background: var(--bg-deep);
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg-deep);
+      color: var(--text-main);
+      font-family: var(--mono);
+      font-size: 13px;
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .page-wrap {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 24px 16px 64px;
+    }
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+    }
+
+    .header-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      padding: 18px 28px;
+      background: var(--bg-deep);
+      border-bottom: 2px solid var(--cyan);
+    }
+
+    .brand {
+      color: var(--cyan);
+      font-size: 11px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+    }
+
+    .badge {
+      color: var(--text-dim);
+      font-size: 10px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+
+    .hero {
+      padding: 40px 28px 32px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .hero-kicker {
+      margin: 0 0 8px;
+      color: var(--text-dim);
+      font-size: 10px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+    }
+
+    .hero h1 {
+      margin: 0 0 16px;
+      font-family: var(--serif);
+      font-size: clamp(26px, 5vw, 34px);
+      font-weight: normal;
+      line-height: 1.25;
+      color: var(--text-main);
+    }
+
+    .hero h1 span { color: var(--cyan); }
+
+    .hero-lead {
+      margin: 0;
+      color: var(--text-muted);
+      max-width: 54ch;
+    }
+
+    .meta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 24px;
+    }
+
+    .meta-chip {
+      padding: 6px 12px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg-deep);
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .meta-chip strong { color: var(--cyan); }
+
+    .nav-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 16px 28px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(0, 26, 34, 0.6);
+    }
+
+    .nav-strip a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 11px;
+      padding: 6px 10px;
+      border-radius: 4px;
+      border: 1px solid transparent;
+      transition: color 0.15s, border-color 0.15s, background 0.15s;
+    }
+
+    .nav-strip a:hover {
+      color: var(--cyan);
+      border-color: var(--border);
+      background: var(--cyan-dim);
+    }
+
+    .progress-bar-wrap {
+      padding: 20px 28px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-deep);
+    }
+
+    .progress-label {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+      font-size: 10px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--text-dim);
+    }
+
+    .progress-track {
+      height: 6px;
+      background: var(--bg-panel);
+      border-radius: 99px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--cyan), var(--green));
+      border-radius: 99px;
+      transition: width 0.35s ease;
+    }
+
+    section {
+      padding: 32px 28px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    section:last-of-type { border-bottom: none; }
+
+    .section-kicker {
+      margin: 0 0 6px;
+      color: var(--cyan);
+      font-size: 10px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+    }
+
+    section h2 {
+      margin: 0 0 12px;
+      font-family: var(--serif);
+      font-size: 22px;
+      font-weight: normal;
+      color: var(--text-main);
+    }
+
+    section p { margin: 0 0 14px; color: var(--text-muted); }
+
+    .step-list { list-style: none; margin: 0; padding: 0; }
+
+    .step-item {
+      display: flex;
+      gap: 14px;
+      margin-bottom: 18px;
+      align-items: flex-start;
+    }
+
+    .step-num {
+      flex-shrink: 0;
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg-panel);
+      border: 1px solid var(--border-bright);
+      border-radius: 6px;
+      color: var(--cyan);
+      font-size: 11px;
+    }
+
+    .step-body { flex: 1; min-width: 0; }
+
+    .step-body p { margin: 0 0 8px; }
+
+    .check-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 10px 12px;
+      margin-bottom: 8px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg-deep);
+      cursor: pointer;
+      user-select: none;
+      transition: border-color 0.15s, background 0.15s;
+    }
+
+    .check-row:hover { border-color: rgba(45, 212, 191, 0.35); }
+
+    .check-row.done {
+      border-color: rgba(52, 211, 153, 0.35);
+      background: rgba(52, 211, 153, 0.06);
+    }
+
+    .check-row.done .check-label { color: var(--text-dim); text-decoration: line-through; }
+
+    .check-row input {
+      margin-top: 3px;
+      accent-color: var(--cyan);
+      cursor: pointer;
+    }
+
+    .check-label { color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+
+    .callout {
+      padding: 14px 16px;
+      border-radius: 8px;
+      margin: 16px 0;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .callout-warn {
+      border: 1px solid rgba(251, 191, 36, 0.35);
+      background: rgba(251, 191, 36, 0.08);
+      color: #fde68a;
+    }
+
+    .callout-info {
+      border: 1px solid rgba(45, 212, 191, 0.35);
+      background: var(--cyan-dim);
+      color: #a7f3d0;
+    }
+
+    .callout-danger {
+      border: 1px solid rgba(248, 113, 113, 0.35);
+      background: rgba(248, 113, 113, 0.08);
+      color: #fecaca;
+    }
+
+    .callout strong { display: block; margin-bottom: 4px; color: var(--text-main); }
+
+    .code-block {
+      position: relative;
+      margin: 12px 0;
+      padding: 14px 16px;
+      padding-right: 72px;
+      background: #000c10;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow-x: auto;
+    }
+
+    .code-block code {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: #c8e0e8;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .copy-btn {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      padding: 5px 10px;
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--cyan);
+      background: var(--bg-panel);
+      border: 1px solid var(--border-bright);
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .copy-btn:hover { background: var(--cyan-dim); }
+    .copy-btn.copied { color: var(--green); border-color: var(--green); }
+
+    .btn-primary {
+      display: inline-block;
+      margin-top: 8px;
+      padding: 12px 28px;
+      background: var(--cyan);
+      color: var(--bg-card);
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: bold;
+      letter-spacing: 2px;
+      text-decoration: none;
+      text-transform: uppercase;
+      border-radius: 6px;
+      border: none;
+      cursor: pointer;
+      transition: opacity 0.15s, transform 0.15s;
+    }
+
+    .btn-primary:hover { opacity: 0.92; transform: translateY(-1px); }
+
+    .btn-ghost {
+      display: inline-block;
+      margin-top: 8px;
+      margin-left: 8px;
+      padding: 11px 20px;
+      background: transparent;
+      color: var(--cyan);
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 1px;
+      text-decoration: none;
+      border-radius: 6px;
+      border: 1px solid rgba(45, 212, 191, 0.4);
+      transition: background 0.15s;
+    }
+
+    .btn-ghost:hover { background: var(--cyan-dim); }
+
+    table.ref-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+      font-size: 12px;
+    }
+
+    table.ref-table th,
+    table.ref-table td {
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    table.ref-table th {
+      background: var(--bg-deep);
+      color: var(--cyan);
+      font-size: 10px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+
+    table.ref-table td { color: var(--text-muted); }
+
+    .footer {
+      padding: 32px 28px;
+      text-align: center;
+      background: var(--bg-deep);
+    }
+
+    .footer img {
+      display: block;
+      margin: 0 auto 16px;
+      opacity: 0.85;
+      max-width: 120px;
+      height: auto;
+    }
+
+    .footer-brand {
+      margin: 0 0 6px;
+      color: var(--text-dim);
+      font-size: 10px;
+      letter-spacing: 2px;
+    }
+
+    .footer-tag {
+      margin: 0 0 16px;
+      color: #2a4a5a;
+      font-size: 10px;
+    }
+
+    .footer-note {
+      margin: 0;
+      color: #1e3040;
+      font-size: 10px;
+      line-height: 1.7;
+    }
+
+    @media (max-width: 560px) {
+      .hero, section, .progress-bar-wrap, .nav-strip { padding-left: 18px; padding-right: 18px; }
+      .header-bar { padding: 16px 18px; }
+      .btn-ghost { margin-left: 0; display: block; text-align: center; margin-top: 10px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="page-wrap">
+  <article class="card">
+
+    <header class="header-bar">
+      <span class="brand">Inner Animal Media</span>
+      <span class="badge">Platform setup guide</span>
+    </header>
+
+    <div class="hero">
+      <p class="hero-kicker">Agent Sam · Connor McNeely</p>
+      <h1>Your workspace setup.<br><span>GitHub, MCP &amp; terminal.</span></h1>
+      <p class="hero-lead">
+        Follow these steps when you're ready. Check items off as you go — progress saves in this browser.
+        Everything runs under <strong style="color:var(--cyan);">your</strong> accounts, not shared platform credentials.
+      </p>
+      <div class="meta-row">
+        <span class="meta-chip"><strong>Workspace</strong> ws_connor_mcneely</span>
+        <span class="meta-chip"><strong>GitHub</strong> connordmcneely96</span>
+        <span class="meta-chip"><strong>Shell</strong> PowerShell / pwsh</span>
+      </div>
+    </div>
+
+    <nav class="nav-strip" aria-label="Jump to section">
+      <a href="#overview">Overview</a>
+      <a href="#step1">Dashboard</a>
+      <a href="#step2">GitHub OAuth</a>
+      <a href="#step3">ChatGPT MCP</a>
+      <a href="#step4">Your VM terminal</a>
+      <a href="#step5">GitHub CLI</a>
+      <a href="#reference">Quick reference</a>
+      <a href="#help">Help</a>
+    </nav>
+
+    <div class="progress-bar-wrap">
+      <div class="progress-label">
+        <span>Setup progress</span>
+        <span id="progress-text">0 / 0 complete</span>
+      </div>
+      <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <div class="progress-fill" id="progress-fill"></div>
+      </div>
+    </div>
+
+    <!-- OVERVIEW -->
+    <section id="overview">
+      <p class="section-kicker">Before you start</p>
+      <h2>Two paths, one workspace</h2>
+      <p>You have <em>complementary</em> ways to work — pick what fits each task:</p>
+
+      <table class="ref-table">
+        <thead>
+          <tr>
+            <th>Path</th>
+            <th>Best for</th>
+            <th>Needs your VM?</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong style="color:var(--text-main);">GitHub OAuth</strong></td>
+            <td>Agent file edits, repo browse, ChatGPT MCP tools</td>
+            <td>No</td>
+          </tr>
+          <tr>
+            <td><strong style="color:var(--text-main);">Your VM terminal</strong></td>
+            <td>PowerShell, scripts, <code>git</code> in the dashboard shell</td>
+            <td>Yes</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="callout callout-danger">
+        <strong>Do not use the shared “Cloud” terminal for your Git identity</strong>
+        The platform cloud host (<code>terminal.inneranimalmedia.com</code>) runs under Sam's infrastructure.
+        For Connor git work, always use <strong>Start local</strong> after connecting your own VM tunnel.
+      </div>
+
+      <div class="callout callout-info">
+        <strong>OAuth is enough for most agent work</strong>
+        Steps 2 + 3 cover ChatGPT and dashboard agents. Step 5 (GitHub CLI) is only if you want
+        <code>git push</code> from the in-dashboard terminal on your VM.
+      </div>
+    </section>
+
+    <!-- STEP 1 -->
+    <section id="step1">
+      <p class="section-kicker">Step 01</p>
+      <h2>Sign in to Agent Sam</h2>
+      <p>Open the dashboard and sign in with the account Inner Animal Media provisioned for you.</p>
+
+      <label class="check-row" data-check-id="s1-login">
+        <input type="checkbox" aria-label="Signed in to dashboard">
+        <span class="check-label">I signed in at <strong>inneranimalmedia.com/dashboard/agent</strong></span>
+      </label>
+
+      <a class="btn-primary" href="https://www.inneranimalmedia.com/dashboard/agent" target="_blank" rel="noopener noreferrer">Open Agent Dashboard</a>
+      <a class="btn-ghost" href="https://www.inneranimalmedia.com/dashboard/overview" target="_blank" rel="noopener noreferrer">Overview</a>
+    </section>
+
+    <!-- STEP 2 -->
+    <section id="step2">
+      <p class="section-kicker">Step 02</p>
+      <h2>Connect GitHub (OAuth)</h2>
+      <p>This links <strong>connordmcneely96</strong> to your workspace for repo access and agent file tools.</p>
+
+      <ol class="step-list">
+        <li class="step-item">
+          <span class="step-num">1</span>
+          <div class="step-body">
+            <p>In the Agent dashboard, open <strong>GitHub</strong> or go to <strong>Settings → Integrations</strong>.</p>
+          </div>
+        </li>
+        <li class="step-item">
+          <span class="step-num">2</span>
+          <div class="step-body">
+            <p>Click <strong>Connect GitHub</strong> and approve access for your account.</p>
+          </div>
+        </li>
+        <li class="step-item">
+          <span class="step-num">3</span>
+          <div class="step-body">
+            <p>Grant repo scopes for the projects you'll work on.</p>
+          </div>
+        </li>
+      </ol>
+
+      <label class="check-row" data-check-id="s2-oauth">
+        <input type="checkbox" aria-label="GitHub OAuth connected">
+        <span class="check-label">GitHub OAuth connected — I see my repos in the dashboard</span>
+      </label>
+
+      <a class="btn-primary" href="https://www.inneranimalmedia.com/api/oauth/github/start?return_to=%2Fdashboard%2Fagent" target="_blank" rel="noopener noreferrer">Connect GitHub</a>
+    </section>
+
+    <!-- STEP 3 -->
+    <section id="step3">
+      <p class="section-kicker">Step 03</p>
+      <h2>Connect ChatGPT (MCP)</h2>
+      <p>Link ChatGPT to Agent Sam so tools run scoped to <strong>your</strong> workspace.</p>
+
+      <ol class="step-list">
+        <li class="step-item">
+          <span class="step-num">1</span>
+          <div class="step-body">
+            <p>In ChatGPT: <strong>Settings → Connectors</strong> (or <strong>Apps &amp; Connectors</strong>).</p>
+          </div>
+        </li>
+        <li class="step-item">
+          <span class="step-num">2</span>
+          <div class="step-body">
+            <p>Add a connector with this MCP server URL:</p>
+            <div class="code-block">
+              <button type="button" class="copy-btn" data-copy="https://mcp.inneranimalmedia.com/mcp">Copy</button>
+              <code>https://mcp.inneranimalmedia.com/mcp</code>
+            </div>
+          </div>
+        </li>
+        <li class="step-item">
+          <span class="step-num">3</span>
+          <div class="step-body">
+            <p>Complete OAuth sign-in with the same Inner Animal Media account as the dashboard.</p>
+          </div>
+        </li>
+      </ol>
+
+      <label class="check-row" data-check-id="s3-mcp">
+        <input type="checkbox" aria-label="ChatGPT MCP connected">
+        <span class="check-label">ChatGPT MCP connected — IAM tools appear after OAuth</span>
+      </label>
+
+      <div class="callout callout-warn">
+        <strong>If you see zero tools</strong>
+        Reply to Sam with a screenshot. We'll verify your OAuth consent and workspace binding on our side.
+      </div>
+    </section>
+
+    <!-- STEP 4 -->
+    <section id="step4">
+      <p class="section-kicker">Step 04 · Optional but recommended</p>
+      <h2>Connect your VM / PowerShell terminal</h2>
+      <p>Use <strong>your</strong> GCP VM (PowerShell) as the dashboard terminal — not the shared cloud host.</p>
+
+      <p class="section-kicker" style="margin-top:24px;">On your VM (one-time)</p>
+      <ol class="step-list">
+        <li class="step-item">
+          <span class="step-num">A</span>
+          <div class="step-body">
+            <p>Install and run <strong>iam-pty</strong> (terminal server on port <code>3099</code>). Ask Sam for the <code>iam-pty</code> repo if you don't have it yet.</p>
+          </div>
+        </li>
+        <li class="step-item">
+          <span class="step-num">B</span>
+          <div class="step-body">
+            <p>Expose it with a <strong>Cloudflare Tunnel</strong> so the dashboard reaches it securely (<code>wss://…</code>).</p>
+          </div>
+        </li>
+        <li class="step-item">
+          <span class="step-num">C</span>
+          <div class="step-body">
+            <p>Keep <strong>iam-pty</strong> and <strong>cloudflared</strong> running while you use the terminal.</p>
+          </div>
+        </li>
+      </ol>
+
+      <p class="section-kicker" style="margin-top:24px;">In the dashboard</p>
+      <ol class="step-list">
+        <li class="step-item">
+          <span class="step-num">1</span>
+          <div class="step-body">
+            <p>Go to <strong>Settings → Local terminal (iam-pty)</strong> (or the terminal welcome screen).</p>
+          </div>
+        </li>
+        <li class="step-item">
+          <span class="step-num">2</span>
+          <div class="step-body">
+            <p>Platform: <strong>Linux</strong> (or Windows) · Shell: <strong>PowerShell / pwsh</strong>.</p>
+          </div>
+        </li>
+        <li class="step-item">
+          <span class="step-num">3</span>
+          <div class="step-body">
+            <p>Click <strong>Create connection row</strong>, paste your tunnel <strong>WebSocket URL</strong>, then <strong>Activate local terminal</strong>.</p>
+          </div>
+        </li>
+        <li class="step-item">
+          <span class="step-num">4</span>
+          <div class="step-body">
+            <p>In the Agent terminal panel, choose <strong>Start local</strong> — not <strong>Cloud</strong>.</p>
+          </div>
+        </li>
+      </ol>
+
+      <label class="check-row" data-check-id="s4-pty-installed">
+        <input type="checkbox" aria-label="iam-pty running on VM">
+        <span class="check-label">iam-pty + cloudflared running on my VM</span>
+      </label>
+      <label class="check-row" data-check-id="s4-tunnel-active">
+        <input type="checkbox" aria-label="Local terminal activated">
+        <span class="check-label">Local terminal activated in dashboard — I use <strong>Start local</strong></span>
+      </label>
+
+      <div class="callout callout-info">
+        <strong>Isolated workspace path</strong>
+        Your files live under <code>/workspace/tenant_connor_mcneely/&lt;your-user-id&gt;/</code> — separate from other tenants.
+      </div>
+    </section>
+
+    <!-- STEP 5 -->
+    <section id="step5">
+      <p class="section-kicker">Step 05 · Only if you use git in the terminal</p>
+      <h2>GitHub CLI on your VM</h2>
+      <p>Run this on <strong>your VM</strong> (Linux/bash or WSL). It stores your PAT in <code>~/.config/iam/github.env</code> only — never in shared platform files.</p>
+
+      <div class="code-block">
+        <button type="button" class="copy-btn" data-copy="git clone https://github.com/SamPrimeaux/inneranimalmedia.git
+cd inneranimalmedia
+git pull origin main
+./scripts/install-terminal-github-cli-connor.sh">Copy</button>
+        <code>git clone https://github.com/SamPrimeaux/inneranimalmedia.git
+cd inneranimalmedia
+git pull origin main
+./scripts/install-terminal-github-cli-connor.sh</code>
+      </div>
+
+      <p>When prompted, paste a Personal Access Token for <strong>connordmcneely96</strong> (classic PAT with <code>repo</code> scope).</p>
+
+      <div class="callout callout-warn">
+        <strong>Windows without WSL?</strong>
+        Install <a href="https://cli.github.com/" target="_blank" rel="noopener noreferrer" style="color:var(--cyan);">GitHub CLI</a> manually:
+        <code>winget install GitHub.cli</code> then <code>gh auth login</code> with your PAT.
+      </div>
+
+      <div class="callout callout-danger">
+        <strong>Identity guard</strong>
+        The Connor script rejects tokens for <code>@SamPrimeaux</code> and never installs on Sam's shared GCP VM.
+      </div>
+
+      <label class="check-row" data-check-id="s5-gh">
+        <input type="checkbox" aria-label="GitHub CLI configured">
+        <span class="check-label">GitHub CLI configured on my VM (<code>gh auth status</code> shows connordmcneely96)</span>
+      </label>
+    </section>
+
+    <!-- REFERENCE -->
+    <section id="reference">
+      <p class="section-kicker">Quick reference</p>
+      <h2>What to use when</h2>
+
+      <table class="ref-table">
+        <thead>
+          <tr>
+            <th>Goal</th>
+            <th>Use</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Agent edits files / ChatGPT tools</td>
+            <td>GitHub OAuth + MCP (Steps 2–3)</td>
+          </tr>
+          <tr>
+            <td>PowerShell in dashboard</td>
+            <td>Your VM + local tunnel (Step 4)</td>
+          </tr>
+          <tr>
+            <td><code>git push</code> from terminal</td>
+            <td>GitHub CLI on your VM (Step 5)</td>
+          </tr>
+          <tr>
+            <td>Avoid</td>
+            <td>Shared Cloud terminal for Connor git identity</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- HELP -->
+    <section id="help">
+      <p class="section-kicker">Need help?</p>
+      <h2>Contact Sam</h2>
+      <p>Reply with what you were doing (OAuth, MCP, or terminal), a screenshot, and whether you used <strong>Start local</strong> vs <strong>Cloud</strong>.</p>
+
+      <p style="margin-top:20px;color:var(--text-dim);font-size:11px;">
+        Prepared for Connor McNeely · Inner Animal Media · Agent Sam platform<br>
+        Document version: June 2026
+      </p>
+    </section>
+
+    <footer class="footer">
+      <img src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/238de9d1-a470-4fe5-5424-9182f4bc0500/medium" alt="Inner Animal Media" width="120" height="auto">
+      <p class="footer-brand">INNER ANIMAL MEDIA</p>
+      <p class="footer-tag">Turning Ideas Into Live Applications · Lafayette, Louisiana</p>
+      <p class="footer-note">
+        Save this file and reopen anytime — your checklist progress persists in this browser.<br>
+        <a href="https://inneranimalmedia.com" style="color:var(--text-dim);">inneranimalmedia.com</a>
+      </p>
+    </footer>
+
+  </article>
+</div>
+
+<script>
+(function () {
+  var STORAGE_KEY = 'iam-connor-setup-checks-v1';
+  var checks = document.querySelectorAll('.check-row[data-check-id]');
+  var fill = document.getElementById('progress-fill');
+  var text = document.getElementById('progress-text');
+  var bar = document.querySelector('[role="progressbar"]');
+
+  function loadState() {
+    try {
+      return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function saveState(state) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch (e) { /* private browsing */ }
+  }
+
+  function updateProgress() {
+    var total = checks.length;
+    var done = 0;
+    checks.forEach(function (row) {
+      if (row.classList.contains('done')) done++;
+    });
+    var pct = total ? Math.round((done / total) * 100) : 0;
+    fill.style.width = pct + '%';
+    text.textContent = done + ' / ' + total + ' complete';
+    if (bar) bar.setAttribute('aria-valuenow', String(pct));
+  }
+
+  var state = loadState();
+
+  checks.forEach(function (row) {
+    var id = row.getAttribute('data-check-id');
+    var input = row.querySelector('input[type="checkbox"]');
+    if (!input || !id) return;
+
+    if (state[id]) {
+      input.checked = true;
+      row.classList.add('done');
+    }
+
+    function sync() {
+      state[id] = input.checked;
+      row.classList.toggle('done', input.checked);
+      saveState(state);
+      updateProgress();
+    }
+
+    input.addEventListener('change', sync);
+    row.addEventListener('click', function (e) {
+      if (e.target === input) return;
+      e.preventDefault();
+      input.checked = !input.checked;
+      sync();
+    });
+  });
+
+  updateProgress();
+
+  document.querySelectorAll('.copy-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var value = btn.getAttribute('data-copy') || '';
+      if (!value) return;
+      navigator.clipboard.writeText(value).then(function () {
+        btn.textContent = 'Copied';
+        btn.classList.add('copied');
+        setTimeout(function () {
+          btn.textContent = 'Copy';
+          btn.classList.remove('copied');
+        }, 1800);
+      }).catch(function () {
+        btn.textContent = 'Select & copy';
+      });
+    });
+  });
+})();
+</script>
+
+</body>
+</html>
