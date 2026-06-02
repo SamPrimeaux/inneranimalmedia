@@ -629,34 +629,38 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
 
   switch (handlerType) {
     case 'd1': {
-      const { assertDataPlaneAccess } = await import('./data-plane-access-guard.js');
-      const { authUserIsSuperadmin } = await import('./auth.js');
+      const { resolveWorkspaceD1Execution, executeWorkspaceD1Query } = await import('./workspace-d1-execution.js');
       const authUser = runContext.authUser ?? runContext.user ?? null;
-      const isSuperadmin = authUserIsSuperadmin(authUser);
-      const d1Access = assertDataPlaneAccess(
-        {
-          is_owner: isSuperadmin || String(authUser?.role || '').toLowerCase() === 'owner',
-          is_superadmin: isSuperadmin,
-          user_id: userId,
-          workspace_id: workspaceId,
-          tenant_id: tenantId,
-        },
-        'platform_d1',
-        String(config.operation || 'query'),
-        { sql: params.sql || params.query },
-      );
-      if (!d1Access.allowed) {
-        result = {
-          ok: false,
-          error: d1Access.error,
-          reason: d1Access.reason,
-          user_message: d1Access.user_message,
-        };
-        break;
-      }
+      const d1Ctx = {
+        user_id: userId,
+        tenant_id: tenantId,
+        workspace_id: workspaceId,
+        authUser,
+      };
+
       const op = String(config.operation || 'query').toLowerCase();
       try {
         if (op === 'introspect' || op === 'schema') {
+          const resolved = await resolveWorkspaceD1Execution(env, d1Ctx);
+          if (!resolved.ok) {
+            result = {
+              ok: false,
+              error: resolved.error,
+              user_message: resolved.user_message,
+            };
+            break;
+          }
+          if (resolved.mode === 'remote') {
+            const tbl = params.table != null ? String(params.table).trim() : '';
+            const sql = tbl
+              ? `PRAGMA table_info(${tbl})`
+              : `SELECT name, type, sql FROM sqlite_master WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%' ORDER BY name ASC LIMIT 500`;
+            const out = await executeWorkspaceD1Query(env, d1Ctx, sql);
+            result = out.ok
+              ? { ok: true, body: tbl ? { table: tbl, columns: out.rows } : { objects: out.rows } }
+              : { ok: false, error: out.error, user_message: out.user_message };
+            break;
+          }
           const out = await dbToolHandlers.d1_schema_introspect(params, env);
           result = out?.error ? { ok: false, error: String(out.error) } : { ok: true, body: out };
           break;
@@ -667,13 +671,34 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
           result = { ok: false, error: `d1 tool requires sql in input (operation=${op})` };
           break;
         }
+
         if (op === 'execute' || op === 'write') {
+          const resolved = await resolveWorkspaceD1Execution(env, d1Ctx);
+          if (!resolved.ok || resolved.mode === 'denied') {
+            result = {
+              ok: false,
+              error: resolved.error || 'access_denied',
+              user_message: resolved.user_message,
+            };
+            break;
+          }
+          if (resolved.mode === 'remote') {
+            result = {
+              ok: false,
+              error: 'remote_d1_write_not_supported',
+              user_message: 'Remote customer D1 writes require dashboard approval flow.',
+            };
+            break;
+          }
           const out = await d1_write({ sql, params: params.params }, env);
           result = { ok: true, body: out };
           break;
         }
-        const rows = await d1_query({ sql, params: params.params }, env);
-        result = { ok: true, body: { rows } };
+
+        const out = await executeWorkspaceD1Query(env, d1Ctx, sql, params.params);
+        result = out.ok
+          ? { ok: true, body: { rows: out.rows, data_plane: out.mode, meta: out.meta ?? {} } }
+          : { ok: false, error: out.error, user_message: out.user_message };
       } catch (e) {
         result = { ok: false, error: e?.message ?? String(e) };
       }

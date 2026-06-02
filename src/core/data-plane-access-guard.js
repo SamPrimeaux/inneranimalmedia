@@ -139,7 +139,7 @@ export function assertDataPlaneAccess(resolvedContext, dataPlane, operation = ''
       logDataPlaneSecurityEvent('customer_connection_required', { ...meta, provider: 'cloudflare_d1' });
       return deny(
         'customer_database_not_connected',
-        'Connect Cloudflare OAuth and select a D1 database for this workspace.',
+        'No Cloudflare D1 database is configured for this workspace. Add Cloudflare credentials and select a default D1 in Settings.',
       );
     }
     logDataPlaneSecurityEvent('selected_customer_data_plane', { ...meta, provider: 'cloudflare_d1' });

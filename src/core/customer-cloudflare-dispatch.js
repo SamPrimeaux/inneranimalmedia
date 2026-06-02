@@ -7,6 +7,7 @@ import {
   upsertWorkspaceDataBinding,
   listWorkspaceDataBindings,
 } from './workspace-data-bindings.js';
+import { resolveWorkspaceCloudflareCredentials } from './workspace-cloudflare-credentials.js';
 import { evaluateDataPlaneOperation } from './database-operation-policy.js';
 import { logCustomerDataPlaneEvent } from './customer-data-plane-telemetry.js';
 import { generateRollbackStub } from './database-assistant-dispatch.js';
@@ -36,11 +37,31 @@ async function cfApi(token, path, init = {}) {
 /**
  * @param {any} env
  * @param {string} userId
+ * @param {string} tenantId
+ * @param {string} workspaceId
  */
-export async function customerCloudflareListAccounts(env, userId) {
-  const token = await getOAuthToken(env, userId, 'cloudflare');
-  if (!token) return { ok: false, accounts: [], error: 'cloudflare_not_connected' };
-  const accounts = await cfApi(token, '/accounts');
+async function resolveCloudflareApiToken(env, userId, tenantId, workspaceId) {
+  if (workspaceId && tenantId) {
+    const byo = await resolveWorkspaceCloudflareCredentials(env, userId, tenantId, workspaceId);
+    if (byo.ok && byo.token) {
+      return { token: byo.token, source: 'byo_api_key', account_id: byo.account_id };
+    }
+  }
+  const oauth = await getOAuthToken(env, userId, 'cloudflare');
+  if (oauth) return { token: oauth, source: 'oauth', account_id: null };
+  return { token: null, source: null, account_id: null };
+}
+
+/**
+ * @param {any} env
+ * @param {string} userId
+ * @param {string} [tenantId]
+ * @param {string} [workspaceId]
+ */
+export async function customerCloudflareListAccounts(env, userId, tenantId = '', workspaceId = '') {
+  const resolved = await resolveCloudflareApiToken(env, userId, tenantId, workspaceId);
+  if (!resolved.token) return { ok: false, accounts: [], error: 'cloudflare_not_connected' };
+  const accounts = await cfApi(resolved.token, '/accounts');
   return { ok: true, accounts: Array.isArray(accounts) ? accounts : [] };
 }
 
@@ -48,11 +69,16 @@ export async function customerCloudflareListAccounts(env, userId) {
  * @param {any} env
  * @param {string} userId
  * @param {string} accountId
+ * @param {string} [tenantId]
+ * @param {string} [workspaceId]
  */
-export async function customerCloudflareListD1(env, userId, accountId) {
-  const token = await getOAuthToken(env, userId, 'cloudflare');
-  if (!token) return { ok: false, databases: [], error: 'cloudflare_not_connected' };
-  const databases = await cfApi(token, `/accounts/${encodeURIComponent(accountId)}/d1/database`);
+export async function customerCloudflareListD1(env, userId, accountId, tenantId = '', workspaceId = '') {
+  const resolved = await resolveCloudflareApiToken(env, userId, tenantId, workspaceId);
+  if (!resolved.token) return { ok: false, databases: [], error: 'cloudflare_not_connected' };
+  const databases = await cfApi(
+    resolved.token,
+    `/accounts/${encodeURIComponent(accountId)}/d1/database`,
+  );
   return { ok: true, databases: Array.isArray(databases) ? databases : [] };
 }
 
@@ -99,7 +125,7 @@ export async function customerCloudflareSelectWorkspaceResource(env, opts) {
     user_id: opts.user_id,
     workspace_id: opts.workspace_id,
     provider: 'cloudflare_d1',
-    connection_id: 'cloudflare_oauth',
+    connection_id: 'byo_api_key',
     external_account_id: String(opts.account_id),
     external_database_id: String(opts.database_id),
     display_name: opts.display_name || opts.database_id,
@@ -115,15 +141,23 @@ export async function customerCloudflareSelectWorkspaceResource(env, opts) {
  * @param {any} env
  * @param {string} userId
  * @param {string} workspaceId
+ * @param {string} [tenantId]
  */
-async function resolveD1Binding(env, userId, workspaceId) {
-  const token = await getOAuthToken(env, userId, 'cloudflare');
-  if (!token) return { error: 'cloudflare_not_connected' };
+async function resolveD1Binding(env, userId, workspaceId, tenantId = '') {
   const binding = await getDefaultWorkspaceDataBinding(env, workspaceId, 'cloudflare_d1');
   const accountId = binding?.external_account_id != null ? String(binding.external_account_id) : null;
   const databaseId = binding?.external_database_id != null ? String(binding.external_database_id) : null;
-  if (!accountId || !databaseId) return { error: 'no_cloudflare_d1_selected', token };
-  return { token, accountId, databaseId, binding };
+  if (!accountId || !databaseId) return { error: 'no_cloudflare_d1_selected', binding };
+
+  const resolved = await resolveCloudflareApiToken(env, userId, tenantId, workspaceId);
+  if (!resolved.token) return { error: 'cloudflare_not_connected', binding };
+  return {
+    token: resolved.token,
+    accountId,
+    databaseId,
+    binding,
+    credential_source: resolved.source,
+  };
 }
 
 /**
@@ -198,7 +232,7 @@ export async function dispatchCustomerCloudflare(env, opts) {
         display_name: opts.table,
       }),
     d1_readonly_query: async () => {
-      const resolved = await resolveD1Binding(env, userId, workspaceId);
+      const resolved = await resolveD1Binding(env, userId, workspaceId, String(opts.tenant_id || ''));
       if (resolved.error) return { ok: false, error: resolved.error };
       const sql = String(opts.sql || '').trim();
       const policy = evaluateDataPlaneOperation({
@@ -211,7 +245,7 @@ export async function dispatchCustomerCloudflare(env, opts) {
       return d1Query(resolved.token, resolved.accountId, resolved.databaseId, sql);
     },
     d1_apply_approved_migration: async () => {
-      const resolved = await resolveD1Binding(env, userId, workspaceId);
+      const resolved = await resolveD1Binding(env, userId, workspaceId, String(opts.tenant_id || ''));
       if (resolved.error) return { ok: false, error: resolved.error };
       const sql = String(opts.migration_sql || opts.sql || '').trim();
       const approvalId = opts.approval_id != null ? String(opts.approval_id).trim() : '';
