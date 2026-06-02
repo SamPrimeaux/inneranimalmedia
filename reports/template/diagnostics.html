@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Inner Animal Media — Quality Diagnostics</title>
+<link rel="icon" href="{{HEADER_LOGO}}">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>{{STYLES}}</style>
+</head>
+<body>
+<header class="hero">
+  <div class="brand">
+    <img src="{{HEADER_LOGO}}" alt="Inner Animal Media">
+    <div>
+      <h1>Inner Animal Media</h1>
+      <div class="sub">Quality Diagnostics</div>
+    </div>
+  </div>
+  <div class="meta">
+    <div>Workspace<strong>{{WORKSPACE}}</strong></div>
+    <div>Run<strong>{{RUN_ID}}</strong></div>
+    <div>Generated<strong>{{GENERATED_LABEL}}</strong></div>
+  </div>
+</header>
+
+<main class="content" style="max-width:960px;margin:0 auto;padding:40px 48px">
+  <p class="muted">Step-by-step assertions, timings, and trace archives for this run. The summary report is on the <a href="../index.html">main quality report</a>.</p>
+
+  <section class="test-list" style="margin-top:24px">
+    {{DIAGNOSTIC_ROWS}}
+  </section>
+
+  <h2 style="color:var(--iam-accent-bright);margin-top:32px;font-size:15px;letter-spacing:.12em;text-transform:uppercase">Trace archives</h2>
+  <p class="muted">Download Playwright trace files (if captured) for deep inspection in <a href="https://trace.playwright.dev/" target="_blank" rel="noopener">trace.playwright.dev</a>.</p>
+  <div id="traces">{{TRACE_LINKS}}</div>
+</main>
+
+<footer class="footer">
+  <div class="footbrand">
+    <img src="{{FOOTER_LOGO}}" alt="Inner Animal Media">
+    <div>
+      <strong>Inner Animal Media</strong>
+      <div class="tag">Automate. Validate. Elevate.</div>
+    </div>
+  </div>
+  <div>Hosted quality evidence — not a generic Playwright export.</div>
+</footer>
+</body>
+</html>

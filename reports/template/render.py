@@ -23,7 +23,7 @@ FOOTER_COPY = os.getenv(
 GENERATED_LABEL = os.getenv("IAM_REPORT_GENERATED_LABEL", "Automated QA")
 PUBLIC_BASE = os.getenv(
     "IAM_PUBLIC_REPORT_BASE",
-    f"https://assets.inneranimalmedia.com/captures/{WORKSPACE}",
+    "https://inneranimalmedia.com/qualityreport",
 )
 HEADER_LOGO = os.getenv(
     "IAM_HEADER_LOGO",
@@ -35,6 +35,7 @@ FOOTER_LOGO = os.getenv(
 )
 
 CAPTURES_ROOT = Path(os.getenv("IAM_CAPTURES_ROOT", REPO_ROOT / "captures" / WORKSPACE))
+STAGING_ROOT = Path(os.getenv("IAM_REPORTS_STAGING_ROOT", REPO_ROOT / "reports" / ".staging" / WORKSPACE))
 RESULTS_JSON = Path(os.getenv("IAM_RESULTS_JSON", CAPTURES_ROOT / "results.json"))
 OUT_DIR = Path(os.getenv("IAM_REPORT_OUT_DIR", CAPTURES_ROOT / "report"))
 OUT_HTML = OUT_DIR / "index.html"
@@ -102,6 +103,8 @@ def find_artifacts(test_title: str) -> dict[str, list[dict[str, str]]]:
         name = path.name
         item = {"name": name, "href": href}
         if suffix in {".png", ".jpg", ".jpeg", ".webp"}:
+            if re.search(r"test-(finished|failed)", name, re.I):
+                continue
             out["screenshots"].append(item)
         elif suffix in {".webm", ".mp4"}:
             out["videos"].append(item)
@@ -198,6 +201,38 @@ def artifact_html(test: dict) -> str:
     return "".join(parts) or "<p class='muted'>No attached artifacts for this test.</p>"
 
 
+def spec_title_low(full_title: str) -> str:
+    parts = [p.strip().lower() for p in full_title.split("›")]
+    return parts[-1] if parts else full_title.lower()
+
+
+def merge_staging_evidence_screenshots(rows: list[dict]) -> None:
+    evidence_dir = STAGING_ROOT / "evidence"
+    if not evidence_dir.is_dir():
+        return
+    for path in evidence_dir.glob("*.json"):
+        try:
+            ev = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        slug = path.stem
+        r2_key = str(ev.get("r2_key") or ev.get("screenshotPath") or "").strip()
+        href = f"screenshots/{slug}.png"
+        name_hint = str(ev.get("name") or slug).lower()
+        ev_path = str(ev.get("path") or "").strip().lower()
+        for row in rows:
+            spec = spec_title_low(row["title"])
+            path_match = ev_path and ev_path.lstrip("/") in spec.replace(" ", "")
+            name_match = name_hint in spec or slug.replace("-", " ") in spec
+            if not (path_match or name_match):
+                continue
+            shot = {"name": f"{slug}.png", "href": href}
+            if r2_key:
+                shot["r2_key"] = r2_key
+            row["artifacts"]["screenshots"] = [shot]
+            break
+
+
 def render_test_rows(tests: list[dict]) -> str:
     row_template = load_text(TEMPLATE_DIR / "partials" / "test-row.html")
     rows: list[str] = []
@@ -219,11 +254,59 @@ def render_test_rows(tests: list[dict]) -> str:
     return "\n".join(rows)
 
 
+def diagnostic_step_html(test: dict) -> str:
+    status = status_label(test["status"])
+    body = artifact_html(test)
+    return (
+        f"<details class='test-row' open>"
+        f"<summary><span>{esc(test['title'])}</span>"
+        f"<span class='status {esc(status)}'>{esc(status)}</span>"
+        f"<span>{esc(test['duration'])}ms</span></summary>"
+        f"<div class='test-detail'>{body}</div></details>"
+    )
+
+
+def render_diagnostics(tests: list[dict], out_path: Path) -> None:
+    trace_links: list[str] = []
+    traces_dir = CAPTURES_ROOT / "results"
+    if traces_dir.exists():
+        for path in sorted(traces_dir.glob("**/*.zip")):
+            if "trace" not in path.name.lower():
+                continue
+            rel = path.relative_to(CAPTURES_ROOT)
+            href = f"traces/{path.name}"
+            trace_links.append(
+                f"<a class='pill' href='{esc(href)}' download>{esc(path.name)}</a>"
+            )
+
+    run_id = os.getenv("REPORT_DATE", "") + "/" + os.getenv("REPORT_TIME", "")
+    rows = "\n".join(diagnostic_step_html(t) for t in tests) or "<p class='empty'>No tests in this run.</p>"
+    trace_block = " ".join(trace_links) if trace_links else "<span class='muted'>No trace archives for this run.</span>"
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    html_out = apply_placeholders(
+        load_text(TEMPLATE_DIR / "diagnostics.html"),
+        {
+            "STYLES": load_text(TEMPLATE_DIR / "styles.css"),
+            "WORKSPACE": esc(WORKSPACE),
+            "HEADER_LOGO": esc(HEADER_LOGO),
+            "FOOTER_LOGO": esc(FOOTER_LOGO),
+            "GENERATED_LABEL": esc(GENERATED_LABEL),
+            "RUN_ID": esc(run_id.strip("/") or "pending"),
+            "DIAGNOSTIC_ROWS": rows,
+            "TRACE_LINKS": trace_block,
+        },
+    )
+    out_path.write_text(html_out, encoding="utf-8")
+
+
 def render_report() -> Path:
     data = load_json(RESULTS_JSON)
     tests: list[dict] = []
     for suite in data.get("suites", []):
         tests.extend(walk_suite(suite))
+
+    merge_staging_evidence_screenshots(tests)
 
     total = len(tests)
     passed = sum(1 for test in tests if test["status"] in ("expected", "passed"))
@@ -235,7 +318,7 @@ def render_report() -> Path:
     html_out = apply_placeholders(
         load_text(TEMPLATE_DIR / "index.html"),
         {
-            "PAGE_TITLE": esc(f"{BRAND} Quality Report"),
+            "PAGE_TITLE": esc("Inner Animal Media Quality Report"),
             "STYLES": load_text(TEMPLATE_DIR / "styles.css"),
             "BRAND": esc(BRAND),
             "WORKSPACE": esc(WORKSPACE),
@@ -253,6 +336,7 @@ def render_report() -> Path:
         },
     )
     OUT_HTML.write_text(html_out, encoding="utf-8")
+    render_diagnostics(tests, OUT_DIR / "diagnostics-index.html")
     return OUT_HTML
 
 

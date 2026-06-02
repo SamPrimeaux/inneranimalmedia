@@ -36,6 +36,13 @@ npm run test:work-quality-report-upload
 | `IAM_RESULTS_JSON` | `<captures>/results.json` |
 | `IAM_REPORT_OUT_DIR` | `<captures>/report` |
 
-R2 uploads use `reports/quality-report/YYYY-MM-DD/HHMMSS/` (see `scripts/upload-playwright-report-to-r2.sh`).
+R2 layout (`inneranimalmedia` bucket):
+
+| Prefix | Purpose |
+|--------|---------|
+| `reports/template/` | Branded HTML/CSS/render sources (`npm run reports:template:upload-r2`) |
+| `reports/quality-report/YYYY-MM-DD/HHMMSS/` | Per-run report + `screenshots/` + `evidence/` |
+
+Evidence JSON uses bucket-relative `screenshotPath` (e.g. `reports/quality-report/…/screenshots/work.png`), not `captures/…`.
 
 **Agent Sam skill (markdown on autorag, not in D1):** `npm run skills:quality-report:upload-r2` → `inneranimalmedia-autorag/skills/iam-playwright-quality-report/SKILL.md`. D1 row: `skill_iam_playwright_quality_report`.

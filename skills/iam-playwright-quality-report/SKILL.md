@@ -13,7 +13,8 @@ Use this skill when the user asks for Playwright QA, quality reports, `/work` ch
 ## Principles
 
 - **Branded output:** `reports/template/` — Inner Animal Media logos and layout. Never ship raw Playwright HTML as the primary link.
-- **Report R2:** `inneranimalmedia/reports/quality-report/YYYY-MM-DD/HHMMSS/` (label `quality-report`, not `playwright`).
+- **Report R2:** `inneranimalmedia/reports/quality-report/YYYY-MM-DD/HHMMSS/` (screenshots under `…/screenshots/`, evidence JSON with bucket-relative `screenshotPath`).
+- **Template R2:** `inneranimalmedia/reports/template/` (`npm run reports:template:upload-r2`).
 - **Public URL:** `https://inneranimalmedia.com/qualityreport/YYYY-MM-DD/HHMMSS/`
 - **Customer data:** Do not persist customer Playwright reports by default unless they opt into their own storage.
 

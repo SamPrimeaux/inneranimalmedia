@@ -17,9 +17,17 @@ cd "$REPO_ROOT"
 
 BUCKET="${R2_BUCKET:-inneranimalmedia}"
 REPORT_DIR="${1:-${QUALITY_REPORT_DIR:-${PLAYWRIGHT_REPORT_DIR:-playwright-report}}}"
+RUN_ENV="$REPO_ROOT/reports/.staging/quality-report-run.env"
 
-DATE="$(date +%Y-%m-%d)"
-TIME="$(date +%H%M%S)"
+if [ -f "$RUN_ENV" ]; then
+  # shellcheck disable=SC1090
+  set -a
+  source "$RUN_ENV"
+  set +a
+fi
+
+DATE="${REPORT_DATE:-$(date +%Y-%m-%d)}"
+TIME="${REPORT_TIME:-$(date +%H%M%S)}"
 REPORT_ID="${QUALITY_REPORT_ID:-quality-report-${DATE}-${TIME}}"
 ORIGIN="${IAM_ORIGIN:-https://inneranimalmedia.com}"
 PUBLIC_PATH="/qualityreport/${DATE}/${TIME}/"
