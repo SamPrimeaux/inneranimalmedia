@@ -158,7 +158,13 @@ def status_label(status: str) -> str:
     return {"expected": "passed", "unexpected": "failed"}.get(status, status)
 
 
-def artifact_html(test: dict) -> str:
+def resolve_asset_href(href: str, asset_prefix: str) -> str:
+    if not asset_prefix or href.startswith(("http://", "https://", "//", "/")):
+        return href
+    return asset_prefix + href.lstrip("./")
+
+
+def artifact_html(test: dict, asset_prefix: str = "") -> str:
     artifacts = test["artifacts"]
     parts: list[str] = []
 
@@ -168,8 +174,8 @@ def artifact_html(test: dict) -> str:
 
     if artifacts["screenshots"]:
         imgs = "".join(
-            f"<a href='{esc(item['href'])}' target='_blank' rel='noopener'>"
-            f"<img src='{esc(item['href'])}' alt='{esc(item['name'])}'></a>"
+            f"<a href='{esc(resolve_asset_href(item['href'], asset_prefix))}' target='_blank' rel='noopener'>"
+            f"<img src='{esc(resolve_asset_href(item['href'], asset_prefix))}' alt='{esc(item['name'])}'></a>"
             for item in artifacts["screenshots"]
         )
         parts.append(
@@ -256,7 +262,7 @@ def render_test_rows(tests: list[dict]) -> str:
 
 def diagnostic_step_html(test: dict) -> str:
     status = status_label(test["status"])
-    body = artifact_html(test)
+    body = artifact_html(test, asset_prefix="../")
     return (
         f"<details class='test-row' open>"
         f"<summary><span>{esc(test['title'])}</span>"
@@ -290,7 +296,8 @@ def render_diagnostics(tests: list[dict], out_path: Path) -> None:
             "STYLES": load_text(TEMPLATE_DIR / "styles.css"),
             "WORKSPACE": esc(WORKSPACE),
             "HEADER_LOGO": esc(HEADER_LOGO),
-            "FOOTER_LOGO": esc(FOOTER_LOGO),
+            "TAGLINE": esc(TAGLINE),
+            "FOOTER_COPY": FOOTER_COPY,
             "GENERATED_LABEL": esc(GENERATED_LABEL),
             "RUN_ID": esc(run_id.strip("/") or "pending"),
             "DIAGNOSTIC_ROWS": rows,

@@ -3,6 +3,19 @@ import { getAuthUser } from '../core/auth.js';
 import { assertBrowserTrustedOrigin } from '../core/agentsam-ops-ledger.js';
 import { handlePlaywrightQueueJob } from '../queue/playwright-queue-job.js';
 import { runBrowserBuiltinTool, closeBrowserRunSession, resolveBrowserRunScopeId, resolveBrowserToolUrl } from './browser-cdp.js';
+
+function screenshotR2Bucket(env) {
+  return env.DOCS_BUCKET || env.DASHBOARD || env.ASSETS || env.R2 || null;
+}
+
+/** @param {string} targetUrl */
+async function browserScreenshotCacheKey(targetUrl) {
+  const hashBuf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(targetUrl));
+  const sha = Array.from(new Uint8Array(hashBuf))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+  return `screenshots/browser/${sha}.jpg`;
+}
 import {
     openBrowserRunLiveView,
     deleteBrowserRunSession as deleteCfBrowserRunSession,
@@ -139,20 +152,56 @@ export async function handleBrowserRequest(request, url, env) {
             return jsonResponse({ error: String(e?.message || e) }, 403);
         }
 
+        const forceRefresh = url.searchParams.get('refresh') === 'true';
+        const bucket = screenshotR2Bucket(env);
+        const objectKey = await browserScreenshotCacheKey(targetUrl);
+
+        if (!forceRefresh && bucket) {
+            try {
+                const cached = await bucket.get(objectKey);
+                if (cached?.body) {
+                    return new Response(cached.body, {
+                        headers: {
+                            'Content-Type': 'image/jpeg',
+                            'Cache-Control': 'public, max-age=86400',
+                            'X-Cache': 'HIT',
+                            'X-Storage': 'r2',
+                            'X-R2-Key': objectKey,
+                        },
+                    });
+                }
+            } catch {
+                /* miss — capture below */
+            }
+        }
+
         try {
             const { launch } = await import('@cloudflare/playwright');
             const browser = await launch(env.MYBROWSER);
             const page = await browser.newPage();
-            
-            await page.goto(targetUrl, { waitUntil: 'networkidle', timeout: 30000 });
+            await page.setViewportSize({ width: 1280, height: 800 });
+            try {
+                await page.goto(targetUrl, { waitUntil: 'networkidle', timeout: 30000 });
+            } catch {
+                await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
+            }
             const buf = await page.screenshot({ type: 'jpeg', quality: 80 });
             await browser.close();
 
+            if (bucket && buf) {
+                bucket
+                    .put(objectKey, buf, { httpMetadata: { contentType: 'image/jpeg' } })
+                    .catch(() => {});
+            }
+
             return new Response(buf, {
-                headers: { 
+                headers: {
                     'Content-Type': 'image/jpeg',
-                    'Cache-Control': 'public, max-age=3600'
-                }
+                    'Cache-Control': 'public, max-age=86400',
+                    'X-Cache': 'MISS',
+                    'X-Storage': 'r2',
+                    'X-R2-Key': objectKey,
+                },
             });
         } catch (e) {
             return jsonResponse({ error: 'Screenshot failed', detail: e.message }, 500);

@@ -48,6 +48,7 @@ import { getDashboardR2Object, getDashboardSpaHtmlShell } from './core/dashboard
 import { resolveGitHubToken } from './core/github-token.js';
 import { handleSitemapPage, handleSitemapXml } from './public-pages/sitemap-route.js';
 import { handleQualityReportRoute } from './public-pages/quality-report-route.js';
+import { wrapEnvKvBinding } from './core/kv-storage-policy.js';
 
 function getMimeType(key) {
   if (key.endsWith('.js'))    return 'application/javascript';
@@ -75,6 +76,7 @@ export default {
    * Primary Request Handler
    */
   async fetch(request, env, ctx) {
+    env = wrapEnvKvBinding(env);
     const url = new URL(request.url);
     // Collapse duplicate slashes (e.g. Supabase Site URL `https://host/` + auth path `/api/...` → `//api/...`).
     const path =
@@ -945,13 +947,14 @@ export default {
    * Scheduled Cron Handler
    */
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(handleScheduled(event, env, ctx));
+    ctx.waitUntil(handleScheduled(event, wrapEnvKvBinding(env), ctx));
   },
 
   /**
    * Queue Handler
    */
   async queue(batch, env, ctx) {
+    env = wrapEnvKvBinding(env);
     const messages = batch?.messages || [];
     for (const msg of messages) {
       let body = {};
