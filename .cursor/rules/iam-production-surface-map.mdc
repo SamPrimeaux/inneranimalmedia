@@ -103,56 +103,54 @@ Do **not** guess routes or folder layout from memory. Use this order:
 
 ## Worker bindings (`wrangler.production.toml`)
 
-| Binding | Type | Resource (label) |
-|---------|------|------------------|
-| `AI` | Workers AI | — |
+**Canonical table (2026-06-02):** `docs/platform/worker-env-production-2026-06.md` → Bindings.
+
+| Binding | Type | Resource |
+|---------|------|----------|
+| `AI` | Workers AI | catalog |
 | `MYBROWSER` | Browser | — |
-| `ASSETS` | R2 | `inneranimalmedia` (public pages, `/assets/*`) |
-| `DASHBOARD` | R2 | `inneranimalmedia` (SPA static) |
+| `LOADER` | Dynamic Workers | in-code |
+| `ASSETS` / `DASHBOARD` | R2 | `inneranimalmedia` |
 | `AUTORAG_BUCKET` | R2 | `inneranimalmedia-autorag` |
 | `DOCS_BUCKET` | R2 | `iam-docs` |
-| `R2` | R2 | `iam-platform` |
-| `TOOLS` | R2 | `tools` |
 | `EMAIL` | R2 | `inneranimalmedia-email-archive` |
 | `DB` | D1 | `inneranimalmedia-business` |
-| `HYPERDRIVE` | Hyperdrive | Supabase Postgres lane |
-| `VECTORIZE` | Vectorize | `ai-search-inneranimalmedia-autorag` |
-| `AGENTSAMVECTORIZE` | Vectorize | `inneranimalmedia-vectors` |
-| `AGENTSAM_VECTORIZE_*` | Vectorize | courses / codebase / schema / memory indexes |
-| `KV` | KV | session/metadata |
-| `SESSION_CACHE` | KV | session cache |
-| `IAM_COLLAB` | DO | `IAMCollaborationSession` |
-| `CHESS_SESSION` | DO | `ChessRoom` |
-| `AGENT_SESSION` | DO | `AgentChatSqlV1` |
-| `PTY_SERVICE` | VPC | remote PTY |
-| `MY_QUEUE` | Queue | producer + consumer |
+| `HYPERDRIVE` | Hyperdrive | `inneranimalmedia-supabase-hyperdrive` |
+| `AGENTSAM_VECTORIZE_CODE` | Vectorize | `agentsam-codebase-oai3large-1536` |
+| `AGENTSAM_VECTORIZE_COURSES` | Vectorize | `agentsam-courses-oai3large-1536` |
+| `AGENTSAM_VECTORIZE_MEMORY` | Vectorize | `agentsam-memory-oai3large-1536` |
+| `AGENTSAM_VECTORIZE_SCHEMA` | Vectorize | `agentsam-schema-oai3large-1536` |
+| `KV` | KV | `MCP_TOKENS` |
+| `SESSION_CACHE` | KV | `production-KV_SESSIONS` |
+| `IAM_COLLAB` / `CHESS_SESSION` / `AGENT_SESSION` | DO | see doc |
+| `PTY_SERVICE` | VPC | `iam-vpc` |
+| `MY_QUEUE` | Queue | `74b3155b…` |
 | `WAE` | Analytics Engine | `inneranimalmedia` |
 
-**Vars in toml (non-secret):** `TENANT_ID`, `WORKSPACE_ID`, `DEPLOY_ENV`, OAuth client IDs, RAG embedding config, etc.
+**Not in prod:** `R2` (`iam-platform`), `TOOLS`, `VECTORIZE`, `AGENTSAMVECTORIZE` — see doc “Removed bindings”.
 
-## Wrangler secret labels (names only — never commit values)
+**Vars in toml (non-secret):** `WORKSPACE_ID`, `DEPLOY_ENV`, OAuth **client IDs**, RAG/Agentsam embedding model names, `AI_SEARCH_ENDPOINT`, etc. **No `TENANT_ID`** — tenant scope from session/D1 only.
 
-**Tier 1 — platform (fixed set, ~8–15 keys):**
+**Full dashboard inventory (2026-06-02):** `docs/platform/worker-env-production-2026-06.md`
 
-- `VAULT_MASTER_KEY` — encrypt `user_secrets` / OAuth tokens in D1
-- `TOKEN_SIGNING_KEY` — session + MCP token HMAC
-- `PTY_AUTH_TOKEN` — terminal bridge auth
-- `AGENTSAM_BRIDGE_KEY` — telemetry ingest / bridge
-- `SESSION_SIGNING_SECRET` — optional session crypto
-- `INTERNAL_API_SECRET` — internal webhooks / CI hooks
-- OAuth: `GITHUB_CLIENT_SECRET`, `GOOGLE_CLIENT_SECRET` / `GOOGLE_OAUTH_CLIENT_SECRET`, `CLOUDFLARE_OAUTH_CLIENT_*`, `SUPABASE_OAUTH_CLIENT_*`, MCP OAuth secrets
+## Wrangler secrets (names only — never commit values)
 
-**Tier 2 — provider APIs (platform):**
+Live list is large and changes in the dashboard; see **`docs/platform/worker-env-production-2026-06.md`** for the grouped snapshot.
 
-- `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_AI_API_KEY`
-- `RESEND_API_KEY`, `RESEND_FROM`, `RESEND_TO`
-- `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_URL`, `SUPABASE_WEBHOOK_SECRET`, `SUPABASE_DB_WEBHOOK_SECRET`
-- `CLOUDFLARE_API_TOKEN`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`
-- `GITHUB_APP_PRIVATE_KEY`, `GITHUB_TOKEN` (legacy), `MCP_AUTH_TOKEN`, `MCP_SERVICE_URL` (optional)
+**Core platform (verify after any prune):**
 
-**Tier 3 — per-user (D1 only, not Wrangler):** `user_secrets`, `user_api_keys`, `mcp_workspace_tokens` — encrypted with `VAULT_MASTER_KEY`.
+- `VAULT_MASTER_KEY` / `VAULT_KEY` — D1 `user_secrets` encryption
+- **`TOKEN_SIGNING_KEY`** — MCP bearer HMAC (`src/core/mcp-auth.js`); provision: `npm run ensure:token-signing-key`
+- `PTY_AUTH_TOKEN` — terminal bridge
+- `AGENTSAM_BRIDGE_KEY` — telemetry / bridge
+- `INTERNAL_API_SECRET` — internal webhooks / CI
+- OAuth provider secrets + `SUPABASE_*` + `OPENAI_API_KEY` / `ANTHROPIC_*` as needed
 
-List live secrets: `npx wrangler secret list -c wrangler.production.toml` (names only).
+**Per-user (D1 only, not Wrangler):** `user_secrets`, `user_api_keys`, `mcp_workspace_tokens`.
+
+```bash
+./scripts/with-cloudflare-env.sh npx wrangler secret list -c wrangler.production.toml
+```
 
 ## Prompt template for Cursor / Ask mode
 

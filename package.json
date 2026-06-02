@@ -41,6 +41,8 @@
     "audit:tenant-workspace:d1": "./scripts/with-cloudflare-env.sh python3 scripts/audit_tenant_workspace_hardcoding.py --remote --wrangler-config wrangler.production.toml --database inneranimalmedia-business",
     "smoke:ai": "node scripts/ai-smoke-report.mjs",
     "smoke:mcp": "node scripts/mcp-smoke.mjs",
+    "ensure:token-signing-key": "./scripts/ensure-token-signing-key.sh",
+    "verify:wrangler-production": "./scripts/verify-wrangler-production.sh",
     "smoke:mcp-oauth-d1-r2": "node scripts/mcp-oauth-d1-r2-smoke.mjs",
     "smoke:agentsam-tools-catalog": "node scripts/agentsam-tools-catalog-smoke.mjs",
     "smoke:codemode": "node scripts/codemode-smoke.mjs",

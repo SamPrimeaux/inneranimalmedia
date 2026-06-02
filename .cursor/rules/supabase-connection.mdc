@@ -25,9 +25,5 @@ Hyperdrive ID: `08183bb9d2914e87ac8395d7e4ecff60`
 Stored in `.env.cloudflare` as `SUPABASE_DB_URL`. Never hardcode in committed files.
 Scripts that need it: read from `os.getenv("SUPABASE_DB_URL")` with the session pooler URL as default.
 
-## Embedding scripts
-- Embed model: `ollama:mxbai-embed-large` (1024-dim, local)
-- Always set `embed_model = "ollama:mxbai-embed-large"` on rows after embedding
-- Always write vector back to Supabase `embedding` column AND push to Vectorize
-- Vectorize index: `ai-search-inneranimalmedia-autorag`
-- Filter tag pattern: `{"source": "memory"|"skill"|"tool"|"route"|"architecture"|"decision"}`
+## Embed model
+Use Workers AI via env.AI binding. Never Ollama.
