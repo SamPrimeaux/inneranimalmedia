@@ -1098,7 +1098,6 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         create_issue: 'github_create_issue',
         update_issue: 'github_update_issue',
         close_issue: 'github_close_issue',
-        search_code: 'github_search_code',
         search_issues_prs: 'github_search_issues_prs',
         create_branch: 'github_create_branch',
         delete_branch: 'github_delete_branch',
