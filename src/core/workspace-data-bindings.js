@@ -1,6 +1,37 @@
 /**
- * D1 helpers for agentsam_workspace_data_bindings (customer BYO resource selection).
+ * Workspace BYO resource selection — SSOT is agentsam_workspace (not agentsam_workspace_data_bindings).
  */
+
+function trim(v) {
+  return v == null ? '' : String(v).trim();
+}
+
+function parseMeta(raw) {
+  if (raw == null || raw === '') return {};
+  if (typeof raw === 'object') return raw;
+  try {
+    return JSON.parse(String(raw));
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * @param {any} env
+ * @param {string} workspaceId
+ */
+async function loadAgentsamWorkspace(env, workspaceId) {
+  if (!env?.DB || !workspaceId) return null;
+  return env.DB.prepare(
+    `SELECT id, tenant_id, d1_database_id, d1_binding, metadata_json, r2_bucket, worker_name
+       FROM agentsam_workspace
+      WHERE id = ?
+      LIMIT 1`,
+  )
+    .bind(String(workspaceId))
+    .first()
+    .catch(() => null);
+}
 
 /**
  * @param {any} env
@@ -8,14 +39,48 @@
  * @param {string} provider
  */
 export async function getDefaultWorkspaceDataBinding(env, workspaceId, provider) {
-  if (!env?.DB || !workspaceId || !provider) return null;
-  return env.DB.prepare(
-    `SELECT * FROM agentsam_workspace_data_bindings
-     WHERE workspace_id = ? AND provider = ? AND selected_as_default = 1
-     ORDER BY updated_at DESC LIMIT 1`,
-  )
-    .bind(String(workspaceId), String(provider))
-    .first();
+  const ws = trim(workspaceId);
+  const prov = trim(provider).toLowerCase();
+  if (!ws || !prov) return null;
+
+  const row = await loadAgentsamWorkspace(env, ws);
+  if (!row) return null;
+
+  const meta = parseMeta(row.metadata_json);
+
+  if (prov === 'cloudflare_d1' || prov === 'cloudflare') {
+    const d1Id = trim(row.d1_database_id);
+    if (!d1Id) return null;
+    return {
+      id: row.id,
+      workspace_id: ws,
+      provider: prov,
+      external_database_id: d1Id,
+      external_account_id: trim(meta.cloudflare_account_id) || trim(meta.account_id) || null,
+      selected_as_default: 1,
+      metadata_json: row.metadata_json,
+    };
+  }
+
+  if (prov === 'supabase') {
+    const ref =
+      trim(meta.supabase_project_ref) ||
+      trim(meta.project_ref) ||
+      trim(meta.external_project_ref) ||
+      null;
+    if (!ref) return null;
+    return {
+      id: row.id,
+      workspace_id: ws,
+      provider: 'supabase',
+      external_project_ref: ref,
+      external_project_id: trim(meta.supabase_project_id) || trim(meta.project_id) || null,
+      selected_as_default: 1,
+      metadata_json: row.metadata_json,
+    };
+  }
+
+  return null;
 }
 
 /**
@@ -24,25 +89,16 @@ export async function getDefaultWorkspaceDataBinding(env, workspaceId, provider)
  * @param {string} [provider]
  */
 export async function listWorkspaceDataBindings(env, workspaceId, provider = null) {
-  if (!env?.DB || !workspaceId) return [];
-  if (provider) {
-    const { results } = await env.DB.prepare(
-      `SELECT * FROM agentsam_workspace_data_bindings
-       WHERE workspace_id = ? AND provider = ?
-       ORDER BY selected_as_default DESC, updated_at DESC`,
-    )
-      .bind(String(workspaceId), String(provider))
-      .all();
-    return results || [];
-  }
-  const { results } = await env.DB.prepare(
-    `SELECT * FROM agentsam_workspace_data_bindings
-     WHERE workspace_id = ?
-     ORDER BY provider, selected_as_default DESC, updated_at DESC`,
-  )
-    .bind(String(workspaceId))
-    .all();
-  return results || [];
+  const binding = await getDefaultWorkspaceDataBinding(
+    env,
+    workspaceId,
+    provider || 'cloudflare_d1',
+  );
+  if (binding) return [binding];
+  if (provider) return [];
+  const supa = await getDefaultWorkspaceDataBinding(env, workspaceId, 'supabase');
+  const cf = await getDefaultWorkspaceDataBinding(env, workspaceId, 'cloudflare_d1');
+  return [cf, supa].filter(Boolean);
 }
 
 /**
@@ -69,60 +125,48 @@ export async function listWorkspaceDataBindings(env, workspaceId, provider = nul
 export async function upsertWorkspaceDataBinding(env, row) {
   if (!env?.DB) throw new Error('DB unavailable');
   const ws = String(row.workspace_id);
-  const provider = String(row.provider);
-  const isDefault = row.selected_as_default ? 1 : 0;
+  const provider = String(row.provider).toLowerCase();
+  const existing = (await loadAgentsamWorkspace(env, ws)) || { metadata_json: '{}' };
+  const meta = parseMeta(existing.metadata_json);
 
-  if (isDefault) {
+  if (provider === 'cloudflare_d1' && row.external_database_id != null) {
     await env.DB.prepare(
-      `UPDATE agentsam_workspace_data_bindings
-       SET selected_as_default = 0, updated_at = unixepoch()
-       WHERE workspace_id = ? AND provider = ?`,
+      `UPDATE agentsam_workspace
+          SET d1_database_id = ?, updated_at = unixepoch()
+        WHERE id = ?`,
     )
-      .bind(ws, provider)
+      .bind(String(row.external_database_id), ws)
       .run();
+    return;
   }
 
-  await env.DB.prepare(
-    `INSERT INTO agentsam_workspace_data_bindings (
-       id, tenant_id, user_id, workspace_id, provider,
-       connection_id, external_account_id, external_project_id, external_project_ref,
-       external_database_id, display_name, selected_as_default,
-       capabilities_json, scopes_json, health_status, last_verified_at, metadata_json,
-       created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch(), unixepoch())
-     ON CONFLICT(id) DO UPDATE SET
-       connection_id = excluded.connection_id,
-       external_account_id = excluded.external_account_id,
-       external_project_id = excluded.external_project_id,
-       external_project_ref = excluded.external_project_ref,
-       external_database_id = excluded.external_database_id,
-       display_name = excluded.display_name,
-       selected_as_default = excluded.selected_as_default,
-       capabilities_json = excluded.capabilities_json,
-       scopes_json = excluded.scopes_json,
-       health_status = excluded.health_status,
-       last_verified_at = excluded.last_verified_at,
-       metadata_json = excluded.metadata_json,
-       updated_at = unixepoch()`,
-  )
-    .bind(
-      String(row.id),
-      String(row.tenant_id),
-      String(row.user_id),
-      ws,
-      provider,
-      row.connection_id != null ? String(row.connection_id) : null,
-      row.external_account_id != null ? String(row.external_account_id) : null,
-      row.external_project_id != null ? String(row.external_project_id) : null,
-      row.external_project_ref != null ? String(row.external_project_ref) : null,
-      row.external_database_id != null ? String(row.external_database_id) : null,
-      row.display_name != null ? String(row.display_name) : null,
-      isDefault,
-      row.capabilities_json != null ? String(row.capabilities_json) : null,
-      row.scopes_json != null ? String(row.scopes_json) : null,
-      row.health_status != null ? String(row.health_status) : 'unknown',
-      row.last_verified_at != null ? Number(row.last_verified_at) : null,
-      row.metadata_json != null ? String(row.metadata_json) : null,
+  if (provider === 'supabase') {
+    if (row.external_project_ref != null) {
+      meta.supabase_project_ref = String(row.external_project_ref);
+      meta.project_ref = String(row.external_project_ref);
+    }
+    if (row.external_project_id != null) {
+      meta.supabase_project_id = String(row.external_project_id);
+    }
+    if (row.external_account_id != null) {
+      meta.cloudflare_account_id = String(row.external_account_id);
+    }
+    await env.DB.prepare(
+      `UPDATE agentsam_workspace
+          SET metadata_json = ?, updated_at = unixepoch()
+        WHERE id = ?`,
     )
-    .run();
+      .bind(JSON.stringify(meta), ws)
+      .run();
+    return;
+  }
+
+  if (row.external_account_id != null) {
+    meta.cloudflare_account_id = String(row.external_account_id);
+    await env.DB.prepare(
+      `UPDATE agentsam_workspace SET metadata_json = ?, updated_at = unixepoch() WHERE id = ?`,
+    )
+      .bind(JSON.stringify(meta), ws)
+      .run();
+  }
 }
