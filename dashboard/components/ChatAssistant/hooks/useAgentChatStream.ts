@@ -231,6 +231,8 @@ export type ConsumeAgentChatSseContext = {
   stripEmptyAssistantTail: (prev: Message[]) => Message[];
   loadSessions: () => void;
   onThinkingEvent?: (event: { type: string; tool_name?: string; text?: string; ok?: boolean; output_preview?: string; command_run_id?: string; approval_id?: string; plan_id?: string }) => void;
+  /** Multitask/subagent structured events (fanout start, run progress, merge/result, action required). */
+  onSubagentEvent?: (event: { type: string; fanout_id?: string; subagent_slug?: string; status?: string }) => void;
   /** First SSE context payload — lifts `agentsam_agent_run.id` to host (BrowserView playwright metadata). */
   onAgentRunContext?: (agentRunId: string | null) => void;
   onBrowserNavigate?: (event: {
@@ -275,6 +277,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
     onFileSelect,
     onToolApprovalRequest,
     onThinkingEvent,
+    onSubagentEvent,
     onAgentRunContext,
     mergeIntoLastAssistant = false,
     initialAssistantBuffer = '',
@@ -379,6 +382,12 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           const fanoutId = typeof d.fanout_id === 'string' ? d.fanout_id.trim() : '';
           const slug = typeof d.subagent_slug === 'string' ? d.subagent_slug.trim() : '';
           const status = typeof d.status === 'string' ? d.status.trim() : '';
+          onSubagentEvent?.({
+            type: evType,
+            fanout_id: fanoutId || undefined,
+            subagent_slug: slug || undefined,
+            status: status || undefined,
+          });
           const line = (() => {
             if (evType === 'agentsam_subagent_fanout_started')
               return `Subagents: fanout started${fanoutId ? ` (${fanoutId})` : ''}.`;

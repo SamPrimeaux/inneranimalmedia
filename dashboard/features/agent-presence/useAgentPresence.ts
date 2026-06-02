@@ -20,6 +20,7 @@ export function useAgentPresence(args: {
   workflowLedger: WorkflowLedgerState;
   draftSyntaxBusy: boolean;
   draftRunBusy: boolean;
+  subagentWork?: DerivePresenceInput['subagentWork'];
 }): { presence: AgentPresence; logoMotion: AgentLogoMotion } {
   const [presenceFlash, setPresenceFlash] = useState<'complete' | 'failed' | null>(null);
   const prevLoadingRef = useRef(args.isLoading);
@@ -47,6 +48,7 @@ export function useAgentPresence(args: {
       workflowLedger: args.workflowLedger,
       draftSyntaxBusy: args.draftSyntaxBusy,
       draftRunBusy: args.draftRunBusy,
+      subagentWork: args.subagentWork,
       presenceFlash,
     };
     return deriveAgentPresence(input);
@@ -60,6 +62,7 @@ export function useAgentPresence(args: {
     args.workflowLedger,
     args.draftSyntaxBusy,
     args.draftRunBusy,
+    args.subagentWork,
     presenceFlash,
   ]);
 }

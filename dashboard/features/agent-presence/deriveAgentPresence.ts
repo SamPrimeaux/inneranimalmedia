@@ -15,6 +15,8 @@ export type DerivePresenceInput = {
   thinkingState: ThinkingCardState | null;
   pendingToolApproval: { tool: { name?: string; preview?: string; plan_terminal?: unknown } } | null;
   approvalBusy: boolean;
+  /** Multitask/subagent structured activity from SSE (fanout, merge, action required). */
+  subagentWork?: { state: AgentPresenceState; detail?: string } | null;
   toolTraceRows: AgentToolTraceRow[];
   workflowLedger: WorkflowLedgerState;
   draftSyntaxBusy: boolean;
@@ -73,7 +75,7 @@ export function deriveAgentPresence(i: DerivePresenceInput): { presence: AgentPr
   if (i.pendingToolApproval) {
     const prev = String(i.pendingToolApproval.tool.preview || '').split('\n')[0]?.slice(0, 140);
     const p: AgentPresence = {
-      state: 'waiting_approval',
+      state: 'approval_required',
       label: pickPresenceLine('waiting_approval', seed),
       detail: prev || i.pendingToolApproval.tool.name,
     };
@@ -82,7 +84,7 @@ export function deriveAgentPresence(i: DerivePresenceInput): { presence: AgentPr
 
   if (i.approvalBusy) {
     const p: AgentPresence = {
-      state: 'tool',
+      state: 'waiting_approval',
       label: 'Applying your approval…',
       detail: i.pendingToolApproval?.tool?.name || undefined,
       toolName: 'approval',
@@ -107,6 +109,17 @@ export function deriveAgentPresence(i: DerivePresenceInput): { presence: AgentPr
     return { presence: p, logoMotion: 'running' };
   }
 
+  if (i.isLoading && i.subagentWork?.state) {
+    const p: AgentPresence = {
+      state: i.subagentWork.state,
+      label: pickPresenceLine('tool', seed + '|subagents'),
+      detail: i.subagentWork.detail,
+      toolName: 'subagents',
+    };
+    // Multitask is visual-first; motion can stay 'tool' so idle avatars don't appear.
+    return { presence: p, logoMotion: 'tool' };
+  }
+
   const runningRow = [...i.toolTraceRows].reverse().find((r) => r.status === 'running');
   if (i.isLoading && runningRow) {
     const st = classifyRunningTool(runningRow);
@@ -129,9 +142,17 @@ export function deriveAgentPresence(i: DerivePresenceInput): { presence: AgentPr
     return { presence: p, logoMotion: motionFor('planning') };
   }
 
+  if (i.isLoading && i.mode === 'multitask') {
+    const p: AgentPresence = {
+      state: 'multitask_fanout',
+      label: 'Coordinating subagents…',
+    };
+    return { presence: p, logoMotion: 'tool' };
+  }
+
   if (i.isLoading && i.workflowLedger.runId && !i.workflowLedger.lastError) {
     const p: AgentPresence = {
-      state: 'reading',
+      state: 'task_queue',
       label: 'Workflow in progress…',
       detail: i.workflowLedger.currentNodeKey || i.workflowLedger.runId.slice(0, 14),
     };

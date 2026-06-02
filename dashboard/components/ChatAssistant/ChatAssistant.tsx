@@ -173,6 +173,10 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const [thinkingState, setThinkingState] =
     useState<ThinkingCardState | null>(null);
   const [presenceState, setPresenceState] = useState<string>('idle');
+  const [subagentWork, setSubagentWork] = useState<{ state: string; detail?: string } | null>(null);
+  useEffect(() => {
+    if (!isLoading) setSubagentWork(null);
+  }, [isLoading]);
   const thinkingStartRef = useRef<number>(0);
   const presenceColorwayRef = useRef(pickAgentPresenceColorway());
   const presenceColorwayStyle = useMemo(
@@ -614,6 +618,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     workflowLedger,
     draftSyntaxBusy,
     draftRunBusy,
+    subagentWork,
   });
 
   const [chatModels, setChatModels] = useState<ChatModelRow[]>([]);
@@ -1191,6 +1196,24 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           onBrowserNavigate,
           onR2FileUpdated,
           onThinkingEvent: handleThinkingEvent,
+          onSubagentEvent: (ev) => {
+            const t = String(ev.type || '');
+            const fanoutId = ev.fanout_id ? ` (${ev.fanout_id})` : '';
+            const slug = ev.subagent_slug ? ` (${ev.subagent_slug})` : '';
+            const status = ev.status ? `: ${ev.status}` : '';
+            if (t === 'agentsam_subagent_fanout_started')
+              setSubagentWork({ state: 'multitask_fanout', detail: `Fanout started${fanoutId}` });
+            else if (t === 'agentsam_subagent_run_started')
+              setSubagentWork({ state: 'subagent_spawn', detail: `Subagent started${slug}` });
+            else if (t === 'agentsam_subagent_run_progress')
+              setSubagentWork({ state: 'parallel_work', detail: `Subagent progress${slug}` });
+            else if (t === 'agentsam_subagent_action_required')
+              setSubagentWork({ state: 'approval_required', detail: 'Subagent action required' });
+            else if (t === 'agentsam_subagent_run_result')
+              setSubagentWork({ state: 'merge_results', detail: `Subagent result${slug}${status}` });
+            else if (t === 'agentsam_subagent_fanout_result')
+              setSubagentWork({ state: 'merge_results', detail: `Fanout result${fanoutId}${status}` });
+          },
           onAgentRunContext,
           onFileSelect: onFileSelect
             ? (f) => onFileSelect({ name: f.name, content: f.content, originalContent: f.originalContent ?? '' })
@@ -1576,6 +1599,24 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         onBrowserNavigate,
         onR2FileUpdated,
         onThinkingEvent: handleThinkingEvent,
+        onSubagentEvent: (ev) => {
+          const t = String(ev.type || '');
+          const fanoutId = ev.fanout_id ? ` (${ev.fanout_id})` : '';
+          const slug = ev.subagent_slug ? ` (${ev.subagent_slug})` : '';
+          const status = ev.status ? `: ${ev.status}` : '';
+          if (t === 'agentsam_subagent_fanout_started')
+            setSubagentWork({ state: 'multitask_fanout', detail: `Fanout started${fanoutId}` });
+          else if (t === 'agentsam_subagent_run_started')
+            setSubagentWork({ state: 'subagent_spawn', detail: `Subagent started${slug}` });
+          else if (t === 'agentsam_subagent_run_progress')
+            setSubagentWork({ state: 'parallel_work', detail: `Subagent progress${slug}` });
+          else if (t === 'agentsam_subagent_action_required')
+            setSubagentWork({ state: 'approval_required', detail: 'Subagent action required' });
+          else if (t === 'agentsam_subagent_run_result')
+            setSubagentWork({ state: 'merge_results', detail: `Subagent result${slug}${status}` });
+          else if (t === 'agentsam_subagent_fanout_result')
+            setSubagentWork({ state: 'merge_results', detail: `Fanout result${fanoutId}${status}` });
+        },
         onAgentRunContext,
         onFileSelect: onFileSelect
           ? (f) => onFileSelect({ name: f.name, content: f.content, originalContent: f.originalContent ?? '' })
