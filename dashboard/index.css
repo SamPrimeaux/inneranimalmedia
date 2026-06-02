@@ -1,6 +1,7 @@
 @import './inneranimalmedia.css';
 @import './styles/image-generation.css';
 @import './components/database/database-page.css';
+@import './features/mode-presence/agentModePresenceMotion.css';
 
 @import "tailwindcss";
 @config "./tailwind.config.js";
@@ -17,6 +18,18 @@
 :root {
   --font-sans: 'Nunito', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', Menlo, Monaco, 'Courier New', monospace;
+
+  /* Agent Sam mode tokens (theme-safe fallbacks). */
+  --agent-mode-agent: var(--solar-cyan, #13d6c6);
+  --agent-mode-ask: var(--solar-green, #31d983);
+  --agent-mode-plan: var(--solar-yellow, #f6c85f);
+  --agent-mode-debug: var(--solar-red, #ff5d6c);
+  --agent-mode-multitask: #a879ff;
+
+  /* Presence tri-color (used by swarm) */
+  --presence-classy: #9fb7ff;
+  --presence-ember: #ff8a4c;
+  --presence-mono: #f2f2f2;
 }
 
 body {
