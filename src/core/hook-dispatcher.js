@@ -231,9 +231,12 @@ async function dispatchHook(env, hook, payload, ctx) {
             .first()
             .catch(() => null);
           if (existing?.id) {
-            await env.DB.prepare(
-              `UPDATE agentsam_context_digest SET digest_text = ?, updated_at = datetime('now') WHERE id = ?`,
-            )
+            const updateSql = digestCols.has('updated_at')
+              ? `UPDATE agentsam_context_digest SET digest_text = ?, updated_at = datetime('now') WHERE id = ?`
+              : digestCols.has('updated_at_unix')
+                ? `UPDATE agentsam_context_digest SET digest_text = ?, updated_at_unix = unixepoch() WHERE id = ?`
+                : `UPDATE agentsam_context_digest SET digest_text = ? WHERE id = ?`;
+            await env.DB.prepare(updateSql)
               .bind(digestText, existing.id)
               .run()
               .catch(() => {});

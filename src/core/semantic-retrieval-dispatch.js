@@ -130,29 +130,172 @@ async function queryVectorizeLane(env, laneKey, embedding, d1WorkspaceId, worksp
 }
 
 /**
+ * @param {string} table
+ * @param {number} dims
+ * @returns {string}
+ */
+function pgvectorSelectSqlForTable(table, dims) {
+  const vec = `$1::vector(${dims})`;
+  if (table.includes('database_schema')) {
+    return `
+    SELECT id, title, content, database_name, object_type, table_name, schema_name, metadata,
+           1 - (embedding <=> ${vec}) AS score
+      FROM agentsam.${table}
+     WHERE workspace_id = $2::uuid
+       AND embedding IS NOT NULL
+     ORDER BY embedding <=> ${vec}
+     LIMIT $3`;
+  }
+  if (table.includes('codebase_chunks')) {
+    return `
+    SELECT id, file_path, content, chunk_index, metadata,
+           COALESCE(file_path, '') AS title,
+           1 - (embedding <=> ${vec}) AS score
+      FROM agentsam.${table}
+     WHERE workspace_id = $2::uuid
+       AND embedding IS NOT NULL
+     ORDER BY embedding <=> ${vec}
+     LIMIT $3`;
+  }
+  const titleCol = table.includes('memory') ? 'memory_key' : 'title';
+  return `
+    SELECT id,
+           COALESCE(${titleCol}, '') AS title,
+           content,
+           source_ref,
+           metadata,
+           1 - (embedding <=> ${vec}) AS score
+      FROM agentsam.${table}
+     WHERE workspace_id = $2::uuid
+       AND embedding IS NOT NULL
+     ORDER BY embedding <=> ${vec}
+     LIMIT $3`;
+}
+
+/**
+ * @param {string} laneKey
+ * @param {string} table
+ * @param {Record<string, unknown>} row
+ */
+function mapPgvectorHit(laneKey, table, row) {
+  const isMemoryLane = laneKey === 'memory_semantic_search' || table.includes('memory_oai3large');
+  if (isMemoryLane) {
+    return {
+      id: String(row.id ?? ''),
+      title: String(row.title ?? row.memory_key ?? '').trim(),
+      content: String(row.content ?? '').trim(),
+      source_ref: row.memory_key != null ? String(row.memory_key) : null,
+      file_path: null,
+      score: Number(row.score ?? 0),
+      metadata: row.metadata && typeof row.metadata === 'object' ? row.metadata : {},
+    };
+  }
+  if (table.includes('database_schema')) {
+    const parts = [row.database_name, row.object_type, row.table_name || row.title].filter(Boolean);
+    return {
+      id: String(row.id ?? ''),
+      title: String(row.title ?? '').trim(),
+      content: String(row.content ?? '').trim(),
+      source_ref: parts.length ? parts.join(':') : null,
+      file_path: null,
+      score: Number(row.score ?? 0),
+      metadata: row.metadata && typeof row.metadata === 'object' ? row.metadata : {},
+    };
+  }
+  if (table.includes('codebase_chunks')) {
+    const filePath = row.file_path != null ? String(row.file_path) : '';
+    const chunkIndex = row.chunk_index ?? 0;
+    return {
+      id: String(row.id ?? ''),
+      title: filePath.slice(0, 200),
+      content: String(row.content ?? '').trim(),
+      source_ref: filePath ? `${filePath}#${chunkIndex}` : null,
+      file_path: filePath || null,
+      score: Number(row.score ?? 0),
+      metadata: row.metadata && typeof row.metadata === 'object' ? row.metadata : {},
+    };
+  }
+  return {
+    id: String(row.id ?? ''),
+    title: String(row.title ?? '').trim(),
+    content: String(row.content ?? '').trim(),
+    source_ref: row.source_ref != null ? String(row.source_ref) : null,
+    file_path: null,
+    score: Number(row.score ?? 0),
+    metadata: row.metadata && typeof row.metadata === 'object' ? row.metadata : {},
+  };
+}
+
+/**
  * @param {any} env
  * @param {{ supabase_table: string }} ragLane
  * @param {string} workspaceUuid
  * @param {any} match
  */
 async function hydrateVectorHit(env, ragLane, workspaceUuid, match) {
+  const table = ragLane.supabase_table;
   const sourceRef = String(match?.metadata?.source_ref ?? '').trim();
   const rowId = match?.id != null ? String(match.id).trim() : '';
   if (!sourceRef && !rowId) return null;
-  const sql = `
+
+  let sql;
+  let params;
+  if (table.includes('database_schema')) {
+    sql = `
+    SELECT id, title, content, database_name, object_type, table_name, schema_name, metadata
+      FROM agentsam.${table}
+     WHERE workspace_id = $1::uuid
+       AND ($2 <> '' AND id::text = $2)
+     LIMIT 1`;
+    params = [workspaceUuid, rowId];
+  } else if (table.includes('codebase_chunks')) {
+    sql = `
+    SELECT id, file_path, content, chunk_index, metadata
+      FROM agentsam.${table}
+     WHERE workspace_id = $1::uuid
+       AND ($2 <> '' AND id::text = $2)
+     LIMIT 1`;
+    params = [workspaceUuid, rowId];
+  } else if (table.includes('memory_oai3large')) {
+    sql = `
     SELECT id, title, content, source_ref, file_path, memory_key, metadata
-      FROM agentsam.${ragLane.supabase_table}
+      FROM agentsam.${table}
+     WHERE workspace_id = $1::uuid
+       AND (($2 <> '' AND id::text = $2) OR ($3 <> '' AND memory_key = $3))
+     LIMIT 1`;
+    params = [workspaceUuid, rowId, sourceRef];
+  } else {
+    sql = `
+    SELECT id, title, content, source_ref, file_path, memory_key, metadata
+      FROM agentsam.${table}
      WHERE workspace_id = $1::uuid
        AND (($2 <> '' AND id::text = $2) OR ($3 <> '' AND source_ref = $3) OR ($3 <> '' AND memory_key = $3))
      LIMIT 1`;
-  const r = await runHyperdriveQuery(env, sql, [workspaceUuid, rowId, sourceRef]);
+    params = [workspaceUuid, rowId, sourceRef];
+  }
+
+  const r = await runHyperdriveQuery(env, sql, params);
   const found = r?.rows?.[0];
-  if (!found?.content && !found?.title) return null;
+  if (!found?.content && !found?.title && !found?.file_path) return null;
+
+  let mappedSourceRef = sourceRef;
+  let mappedTitle = String(found.title ?? found.memory_key ?? match?.metadata?.title ?? '').trim();
+  if (table.includes('database_schema')) {
+    const parts = [found.database_name, found.object_type, found.table_name || found.title].filter(Boolean);
+    mappedSourceRef = parts.length ? parts.join(':') : sourceRef;
+    mappedTitle = mappedTitle || mappedSourceRef;
+  } else if (table.includes('codebase_chunks')) {
+    const fp = found.file_path != null ? String(found.file_path) : '';
+    const idx = found.chunk_index ?? 0;
+    mappedSourceRef = fp ? `${fp}#${idx}` : sourceRef;
+    mappedTitle = fp.slice(0, 200) || mappedTitle;
+  }
+
   return {
     id: String(found.id ?? rowId),
-    title: String(found.title ?? found.memory_key ?? match?.metadata?.title ?? '').trim(),
+    title: mappedTitle,
     content: String(found.content ?? '').trim(),
-    source_ref: String(found.source_ref ?? found.memory_key ?? sourceRef).trim(),
+    source_ref: String(found.source_ref ?? found.memory_key ?? mappedSourceRef).trim(),
     file_path: found.file_path != null ? String(found.file_path) : null,
     score: Number(match?.score ?? 0),
     metadata: found.metadata && typeof found.metadata === 'object' ? found.metadata : match?.metadata ?? {},
@@ -206,44 +349,12 @@ async function queryPgvectorLane(env, laneKey, embedding, workspaceUuid, topK) {
      ORDER BY embedding <=> $1::vector(${dims})
      LIMIT $3`;
   } else {
-    const titleCol = table.includes('memory') ? 'memory_key' : 'title';
-    sql = `
-    SELECT id,
-           COALESCE(${titleCol}, '') AS title,
-           content,
-           source_ref,
-           1 - (embedding <=> $1::vector) AS score
-      FROM agentsam.${table}
-     WHERE workspace_id = $2::uuid
-       AND embedding IS NOT NULL
-     ORDER BY embedding <=> $1::vector
-     LIMIT $3`;
+    sql = pgvectorSelectSqlForTable(table, dims);
   }
 
   const r = await runHyperdriveQuery(env, sql, [vectorLiteral(embedding), workspaceUuid, topK]);
   if (!r.ok) return { hits: [], backend: 'pgvector', error: r.error, table };
-  const hits = (r.rows || []).map((row) => {
-    if (isMemoryLane) {
-      return {
-        id: String(row.id ?? ''),
-        title: String(row.title ?? row.memory_key ?? '').trim(),
-        content: String(row.content ?? '').trim(),
-        source_ref: row.memory_key != null ? String(row.memory_key) : null,
-        file_path: null,
-        score: Number(row.score ?? 0),
-        metadata: row.metadata && typeof row.metadata === 'object' ? row.metadata : {},
-      };
-    }
-    return {
-      id: String(row.id ?? ''),
-      title: String(row.title ?? '').trim(),
-      content: String(row.content ?? '').trim(),
-      source_ref: row.source_ref != null ? String(row.source_ref) : null,
-      file_path: null,
-      score: Number(row.score ?? 0),
-      metadata: {},
-    };
-  });
+  const hits = (r.rows || []).map((row) => mapPgvectorHit(laneKey, table, row));
   return { hits, backend: 'pgvector', table };
 }
 

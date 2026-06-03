@@ -476,8 +476,19 @@ function handlerConfigHasExecutionPath(config) {
     trim(config.dispatch_target) ||
       trim(config.dispatcher) ||
       trim(config.binding) ||
-      trim(config.env_key),
+      trim(config.env_key) ||
+      trim(config.sql) ||
+      trim(config.target_type) ||
+      trim(config.executor),
   );
+}
+
+/**
+ * Browser / MYBROWSER tools dispatch by dispatcher name or legacy operation field.
+ * @param {Record<string, unknown>} config
+ */
+function handlerConfigHasBrowserDispatch(config) {
+  return Boolean(trim(config.dispatcher) || trim(config.operation) || handlerConfigHasExecutionPath(config));
 }
 
 /**
@@ -555,8 +566,11 @@ export function validateHandlerConfigForExecution(row, config, executableTypes =
       break;
     case 'mybrowser':
     case 'browser':
-      if (!trim(config.auth_source) || !trim(config.operation)) {
-        return { ok: false, error: `handler_config requires auth_source and operation for tool_key=${toolKey}` };
+      if (!handlerConfigHasBrowserDispatch(config)) {
+        return {
+          ok: false,
+          error: `handler_config requires dispatcher, operation, or execution path for tool_key=${toolKey}`,
+        };
       }
       break;
     case 'd1':

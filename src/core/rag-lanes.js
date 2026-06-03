@@ -54,14 +54,38 @@ function sanitizeMetadata(metadata) {
   return out;
 }
 
+/** D1 workspace_key → Supabase agentsam_workspaces.id (UUID) */
+const KNOWN_SUPABASE_WORKSPACE_UUIDS = Object.freeze({
+  ws_inneranimalmedia: 'fa1f12a8-c841-4b79-a26c-d53a78b17dac',
+  ws_connor_mcneely: '105ac2d1-8e61-4cec-80c8-ef2a0902448d',
+  ws_meauxbility: '869137d3-cd65-4ac1-88cc-a1bad9844718',
+});
+
+function isSupabaseWorkspaceUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(value || '').trim());
+}
+
 export async function resolveSupabaseWorkspaceId(env, d1WorkspaceId) {
-  return runHyperdriveQuery(
+  const key = String(d1WorkspaceId || '').trim();
+  if (!key) return null;
+  if (isSupabaseWorkspaceUuid(key)) return key;
+
+  const known = KNOWN_SUPABASE_WORKSPACE_UUIDS[key];
+  if (known) return known;
+
+  const fromPg = await runHyperdriveQuery(
     env,
     'SELECT id FROM agentsam.agentsam_workspaces WHERE workspace_key = $1 LIMIT 1',
-    [d1WorkspaceId],
+    [key],
   )
-    .then((r) => r?.rows?.[0]?.id ?? null)
+    .then((r) => {
+      const id = r?.rows?.[0]?.id;
+      return id != null ? String(id) : null;
+    })
     .catch(() => null);
+  if (fromPg && isSupabaseWorkspaceUuid(fromPg)) return fromPg;
+
+  return null;
 }
 
 export async function contentHash(text) {

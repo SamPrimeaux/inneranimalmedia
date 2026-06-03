@@ -195,6 +195,47 @@ const badCheck = validateHandlerConfigForExecution(badCfgRow, parseHandlerConfig
 if (badCheck.ok) fail('empty handler_config should fail closed');
 else ok('invalid handler_config fails closed');
 
+const dispatcherBrowserRows = [
+  {
+    tool_key: 'agentsam_playwright',
+    handler_type: 'browser',
+    handler_config: JSON.stringify({
+      auth_source: 'workspace',
+      binding: 'MYBROWSER',
+      executor: 'playwright',
+      dispatcher: 'playwright_screenshot',
+    }),
+  },
+  {
+    tool_key: 'cdt_evaluate_script',
+    handler_type: 'mybrowser',
+    handler_config: JSON.stringify({ dispatcher: 'cdt_evaluate_script' }),
+  },
+  {
+    tool_key: 'cdt_take_screenshot',
+    handler_type: 'mybrowser',
+    handler_config: JSON.stringify({ dispatcher: 'cdt_take_screenshot' }),
+  },
+  {
+    tool_key: 'agentsam_list_agents',
+    handler_type: 'agent',
+    handler_config: JSON.stringify({
+      sql: 'SELECT slug FROM agentsam_subagent_profile LIMIT 1',
+      bind_workspace: true,
+    }),
+  },
+  {
+    tool_key: 'agentsam_terminal_sandbox',
+    handler_type: 'terminal',
+    handler_config: JSON.stringify({ auth_source: 'platform', target_type: 'sandbox' }),
+  },
+];
+for (const row of dispatcherBrowserRows) {
+  const v = validateHandlerConfigForExecution(row, parseHandlerConfig(row.handler_config));
+  if (!v.ok) fail(`${row.tool_key} should pass handler_config validation: ${v.error}`);
+}
+ok('dispatcher/sql/target_type handler_config paths validate for browser, agent, terminal tools');
+
 const unknownRow = await loadAgentsamToolRow(env, 'totally_unknown_tool_xyz');
 if (unknownRow != null) fail('unknown tool should not load a row');
 else ok('unknown tool row load fails closed');
