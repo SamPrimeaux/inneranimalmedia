@@ -87,6 +87,8 @@ async function logMcpOAuthTokenFailure(env, request, error, extra = {}) {
   });
 }
 
+export { logMcpOAuthTokenFailure };
+
 const OAUTH_STATE_TTL_SECONDS = 600;
 
 /**
@@ -815,6 +817,7 @@ async function mcpOAuthReadBody(request) {
       code_verifier: String(j.code_verifier || j.codeVerifier || ''),
       client_id: String(j.client_id || j.clientId || ''),
       client_secret: String(j.client_secret || j.clientSecret || ''),
+      refresh_token: String(j.refresh_token || j.refreshToken || ''),
       resource: resolveMcpOAuthResourceParam(j),
     };
   }
@@ -828,9 +831,12 @@ async function mcpOAuthReadBody(request) {
     code_verifier: String(form.get('code_verifier') || ''),
     client_id: String(form.get('client_id') || ''),
     client_secret: String(form.get('client_secret') || ''),
+    refresh_token: String(form.get('refresh_token') || ''),
     resource: resolveMcpOAuthResourceParam(form),
   };
 }
+
+export { mcpOAuthReadBody };
 
 function readOAuthClientBasicAuth(request) {
   const auth = String(request.headers.get('Authorization') || '').trim();
@@ -1211,6 +1217,8 @@ async function assertMcpOAuthTokenClientAuth(request, body, client, expectedClie
   return null;
 }
 
+export { assertMcpOAuthTokenClientAuth };
+
 async function mcpOAuthConsumeAuthorizationCode(env, body) {
   const validated = await mcpOAuthValidateAuthorizationCode(env, body);
   if (!validated.ok) return validated;
@@ -1229,226 +1237,11 @@ async function mcpOAuthConsumeAuthorizationCode(env, body) {
   return { ok: true, row, codeHash };
 }
 
-async function handleMcpOAuthToken(request, env, _ctx) {
-  if (!env.DB) return mcpOAuthJsonError('database_not_configured', 503);
+export { mcpOAuthValidateAuthorizationCode };
 
-  const rl = await checkMcpOAuthRateLimit(env, request, 'token', 90);
-  if (!rl.ok) return mcpOAuthJsonError(rl.error, 429, { retry_after: rl.retry_after });
-
-  const body = await mcpOAuthReadBody(request);
-  if (body.grant_type && body.grant_type !== 'authorization_code') return mcpOAuthJsonError('unsupported_grant_type', 400);
-  if (!body.code) return mcpOAuthJsonError('missing_code', 400);
-  if (!body.code_verifier) return mcpOAuthJsonError('missing_code_verifier', 400);
-  if (!body.redirect_uri) return mcpOAuthJsonError('missing_redirect_uri', 400);
-
-  const validated = await mcpOAuthValidateAuthorizationCode(env, body);
-  if (!validated.ok) {
-    await logMcpOAuthTokenFailure(env, request, validated.error, {
-      client_id: body.client_id || null,
-    });
-    return mcpOAuthJsonError(validated.error, 400);
-  }
-  const row = validated.row;
-  const codeHash = validated.codeHash;
-
-  const client = await mcpOAuthLoadClient(env, row.client_id);
-  if (!client) return mcpOAuthJsonError('invalid_client', 400);
-  const clientAuthErr = await assertMcpOAuthTokenClientAuth(request, body, client, row.client_id);
-  if (clientAuthErr) {
-    await logMcpOAuthTokenFailure(env, request, 'invalid_client', {
-      client_id: body.client_id || row.client_id,
-      token_endpoint_auth_method: client.token_endpoint_auth_method,
-    });
-    return clientAuthErr;
-  }
-
-  const consumed = await env.DB.prepare(
-    `UPDATE oauth_authorization_codes SET used = 1 WHERE code = ? AND used = 0`,
-  )
-    .bind(codeHash)
-    .run();
-  if (!consumed?.meta?.changes) {
-    await logMcpOAuthTokenFailure(env, request, 'invalid_grant_consumed', {
-      client_id: body.client_id || row.client_id,
-    });
-    return mcpOAuthJsonError('invalid_grant_consumed', 400);
-  }
-
-  const userId = String(row.user_id || '').trim();
-  if (!userId) return mcpOAuthJsonError('invalid_user', 400);
-
-  const authRow = await env.DB.prepare(
-    `SELECT id, email, name, tenant_id, person_uuid
-       FROM auth_users
-      WHERE id = ?
-      LIMIT 1`,
-  )
-    .bind(userId)
-    .first()
-    .catch(() => null);
-  const tenantId = String(row.tenant_id || authRow?.tenant_id || env.TENANT_ID || '');
-  const workspaceId = await resolveCanonicalWorkspace(env, userId);
-  if (!workspaceId) {
-    await logMcpOAuthTokenFailure(env, request, 'invalid_workspace', {
-      client_id: body.client_id || row.client_id,
-    });
-    return mcpOAuthJsonError('invalid_workspace', 400);
-  }
-  let boundResource = IAM_MCP_RESOURCE_URL;
-  try {
-    const authz = await env.DB.prepare(
-      `SELECT metadata_json FROM oauth_authorizations WHERE authorization_code_hash = ? LIMIT 1`,
-    )
-      .bind(codeHash)
-      .first();
-    const meta = parseMcpOAuthAuthorizationMetadata(authz?.metadata_json);
-    if (meta.resource) boundResource = String(meta.resource);
-    else if (meta.audience) boundResource = String(meta.audience);
-  } catch (_) {}
-
-  const tokenResourceRaw = body.resource || boundResource;
-  const resourceCheck = assertMcpOAuthResourceMatches(tokenResourceRaw);
-  if (!resourceCheck.ok) {
-    await logMcpOAuthTokenFailure(env, request, resourceCheck.error, {
-      client_id: body.client_id || row.client_id,
-    });
-    return mcpOAuthJsonError(resourceCheck.error, 400);
-  }
-  if (
-    body.resource &&
-    normalizeMcpOAuthResourceUrl(body.resource) !== normalizeMcpOAuthResourceUrl(boundResource)
-  ) {
-    await logMcpOAuthTokenFailure(env, request, 'resource_mismatch', {
-      client_id: body.client_id || row.client_id,
-    });
-    return mcpOAuthJsonError('invalid_resource', 400);
-  }
-
-  const scope = String(row.scope || mcpOAuthNormalizeScope('', client));
-  let externalClientKey = null;
-  try {
-    const authz = await env.DB.prepare(
-      `SELECT metadata_json FROM oauth_authorizations WHERE authorization_code_hash = ? LIMIT 1`,
-    )
-      .bind(codeHash)
-      .first();
-    const meta = parseMcpOAuthAuthorizationMetadata(authz?.metadata_json);
-    externalClientKey = meta.external_client_key || null;
-  } catch (_) {}
-  if (!externalClientKey && row.redirect_uri) {
-    const { resolveExternalClientKeyFromRedirect } = await import('../core/mcp-oauth-external-clients.js');
-    externalClientKey = await resolveExternalClientKeyFromRedirect(env, row.redirect_uri, row.client_id);
-  }
-  const accessToken = mcpOAuthRandomToken('mcp_oauth', 32);
-  const tokenHash = await mcpOAuthSha256Hex(accessToken);
-  const now = mcpOAuthNow();
-  const tokenTtl = resolveMcpOAuthTokenTtlSeconds(env, externalClientKey);
-  const expiresAt = now + tokenTtl;
-  const wsBindings = await loadWorkspaceMcpTokenBindings(env, workspaceId);
-  const actorScope = {
-    userId,
-    workspaceId,
-    tenantId: wsBindings.tenant_id || tenantId,
-    personUuid: authRow?.person_uuid || null,
-    clientId: row.client_id,
-  };
-  const intersected = await intersectOAuthToolsWithUserPolicy(env, actorScope, row.client_id);
-  let tokenToolKeys = intersected.keys;
-  if (!tokenToolKeys.length) {
-    const fallbackKeys = await loadMcpOAuthExternalToolKeys(env, MCP_CANONICAL_CLIENT_ID);
-    if (fallbackKeys?.length) tokenToolKeys = fallbackKeys;
-  }
-  const allowlistRows = await loadMcpOAuthAllowlistRows(env, row.client_id);
-  const scopeWithAgent = augmentMcpOAuthScopeForWriteTools(scope, allowlistRows, tokenToolKeys);
-  const oauthAllowedToolsJson = tokenToolKeys.length ? JSON.stringify(tokenToolKeys) : '[]';
-  const entitlements = await buildMcpOAuthTokenEntitlements(
-    env,
-    row.client_id,
-    scopeWithAgent,
-    tokenToolKeys,
-  );
-  const domainsPayload = oauthToolAccessDomainsPayload(
-    entitlements,
-    intersected.policy,
-    externalClientKey,
-  );
-
-  await logAuthEvent(env, {
-    request,
-    eventType: 'iam_mcp_oauth_token_issued',
-    userId,
-    metadata: {
-      client_id: row.client_id,
-      workspace_id: workspaceId,
-      ...mcpOAuthRequestMeta(request),
-    },
-  });
-
-  await env.DB.prepare(
-    `INSERT INTO mcp_workspace_tokens
-       (id, workspace_id, tenant_id, label, token_hash, allowed_tools,
-        repo_path, github_repo, rate_limit_per_hour, is_active, created_at, expires_at, user_id,
-        token_type, created_by, scopes_json, allowed_capability_keys_json,
-        allowed_lanes_json, allowed_risk_levels_json, allowed_domains_json, audience)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, unixepoch(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  )
-    .bind(
-      `tok_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`,
-      workspaceId,
-      wsBindings.tenant_id || tenantId,
-      `MCP OAuth ${authRow?.email || userId}`,
-      tokenHash,
-      oauthAllowedToolsJson,
-      wsBindings.repo_path || null,
-      wsBindings.github_repo || null,
-      100,
-      expiresAt,
-      userId,
-      'oauth',
-      userId,
-      JSON.stringify(scopeWithAgent.split(/\s+/).filter(Boolean)),
-      JSON.stringify(entitlements.capabilityKeys),
-      JSON.stringify(entitlements.lanes),
-      JSON.stringify(entitlements.riskLevels),
-      domainsPayload,
-      resourceCheck.resource,
-    )
-    .run();
-
-  const scopeList = mcpOAuthParseScopeList(scope);
-  const tokenBody = {
-    access_token: accessToken,
-    token_type: 'Bearer',
-    expires_in: tokenTtl,
-    scope,
-    resource: resourceCheck.resource,
-  };
-
-  if (scopeList.includes('openid')) {
-    try {
-      tokenBody.id_token = await signIamOidcIdToken(
-        env,
-        buildIamMcpIdTokenClaims({
-          issuer: IAM_OAUTH_ISSUER,
-          userId,
-          email: authRow?.email || null,
-          name: authRow?.name || null,
-          clientId: row.client_id,
-          audience: resourceCheck.resource,
-          authTime: now,
-        }),
-        tokenTtl,
-      );
-    } catch (e) {
-      await logMcpOAuthTokenFailure(env, request, 'id_token_sign_failed', {
-        client_id: row.client_id,
-        detail: String(e?.message || e),
-      });
-      return mcpOAuthJsonError('server_error', 500);
-    }
-  }
-
-  return jsonResponse(tokenBody);
+async function handleMcpOAuthToken(request, env, ctx) {
+  const { dispatchMcpOAuthTokenRequest } = await import('./mcp-oauth-token-grants.js');
+  return dispatchMcpOAuthTokenRequest(request, env, ctx);
 }
 
 async function handleMcpOAuthUserinfo(request, env, _ctx) {

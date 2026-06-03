@@ -79,9 +79,17 @@ export async function runMidnightUtcJobs(env, ctx) {
             `DELETE FROM oauth_authorization_codes
              WHERE expires_at IS NOT NULL AND expires_at < unixepoch()`,
           ).run();
+          const oauthRefreshSweep = await env.DB.prepare(
+            `DELETE FROM mcp_workspace_tokens
+             WHERE token_type = 'oauth'
+               AND refresh_expires_at IS NOT NULL
+               AND refresh_expires_at < unixepoch()`,
+          ).run();
           const tokenSweep = await env.DB.prepare(
             `DELETE FROM mcp_workspace_tokens
-             WHERE expires_at IS NOT NULL AND expires_at < unixepoch()`,
+             WHERE (token_type IS NULL OR token_type != 'oauth' OR refresh_expires_at IS NULL)
+               AND expires_at IS NOT NULL
+               AND expires_at < unixepoch()`,
           ).run();
           const authSweep = await env.DB.prepare(
             `DELETE FROM oauth_authorizations
@@ -99,6 +107,7 @@ export async function runMidnightUtcJobs(env, ctx) {
           ).run();
           const rowsWritten =
             (Number(codeSweep?.meta?.changes) || 0) +
+            (Number(oauthRefreshSweep?.meta?.changes) || 0) +
             (Number(tokenSweep?.meta?.changes) || 0) +
             (Number(authSweep?.meta?.changes) || 0) +
             (Number(refreshSweep?.meta?.changes) || 0) +
@@ -107,6 +116,7 @@ export async function runMidnightUtcJobs(env, ctx) {
             '[cron] oauth expiry cleanup',
             JSON.stringify({
               oauth_authorization_codes_deleted: Number(codeSweep?.meta?.changes) || 0,
+              mcp_oauth_refresh_expired_deleted: Number(oauthRefreshSweep?.meta?.changes) || 0,
               mcp_workspace_tokens_deleted: Number(tokenSweep?.meta?.changes) || 0,
               oauth_authorizations_deleted: Number(authSweep?.meta?.changes) || 0,
               oauth_refresh_tokens_deleted: Number(refreshSweep?.meta?.changes) || 0,
@@ -114,10 +124,11 @@ export async function runMidnightUtcJobs(env, ctx) {
             }),
           );
           return {
-            rowsRead: 5,
+            rowsRead: 6,
             rowsWritten,
             metadata: {
               oauth_authorization_codes_deleted: Number(codeSweep?.meta?.changes) || 0,
+              mcp_oauth_refresh_expired_deleted: Number(oauthRefreshSweep?.meta?.changes) || 0,
               mcp_workspace_tokens_deleted: Number(tokenSweep?.meta?.changes) || 0,
               oauth_authorizations_deleted: Number(authSweep?.meta?.changes) || 0,
               oauth_refresh_tokens_deleted: Number(refreshSweep?.meta?.changes) || 0,

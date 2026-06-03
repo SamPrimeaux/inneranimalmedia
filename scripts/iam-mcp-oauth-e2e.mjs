@@ -200,16 +200,67 @@ async function main() {
     }),
   });
   const tokenJson = await tokenRes.json().catch(() => ({}));
-  report.steps.push({ step: 'token', status: tokenRes.status, has_access_token: !!tokenJson.access_token });
+  report.steps.push({
+    step: 'token',
+    status: tokenRes.status,
+    has_access_token: !!tokenJson.access_token,
+    has_refresh_token: !!tokenJson.refresh_token,
+    expires_in: tokenJson.expires_in ?? null,
+  });
 
-  if (!tokenJson.access_token) {
-    console.error('Token exchange failed', tokenJson);
+  if (!tokenJson.access_token || !tokenJson.refresh_token) {
+    console.error('Token exchange failed (need access_token + refresh_token)', tokenJson);
     writeReport(report);
     process.exit(1);
   }
 
+  const refreshRes = await fetch(`${IAM_ORIGIN}/api/oauth/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: tokenJson.refresh_token,
+      client_id: CLIENT_ID,
+    }),
+  });
+  const refreshJson = await refreshRes.json().catch(() => ({}));
+  report.steps.push({
+    step: 'refresh_token',
+    status: refreshRes.status,
+    has_access_token: !!refreshJson.access_token,
+    has_refresh_token: !!refreshJson.refresh_token,
+  });
+
+  if (!refreshJson.access_token || !refreshJson.refresh_token) {
+    console.error('Refresh grant failed', refreshJson);
+    writeReport(report);
+    process.exit(1);
+  }
+
+  const accessForMcp = refreshJson.access_token;
+  const mcpToolsRes = await fetch('https://mcp.inneranimalmedia.com/mcp', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json, text/event-stream',
+      Authorization: `Bearer ${accessForMcp}`,
+      'X-MCP-Refresh': 'true',
+    },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }),
+  });
+  const mcpText = await mcpToolsRes.text();
+  const mcpLine = mcpText.split('\n').find((l) => l.startsWith('data:')) || mcpText;
+  let mcpToolCount = 0;
+  try {
+    const mcpJson = JSON.parse(mcpLine.replace(/^data:\s*/, '').trim());
+    mcpToolCount = mcpJson?.result?.tools?.length ?? 0;
+  } catch {
+    mcpToolCount = 0;
+  }
+  report.steps.push({ step: 'mcp_tools_list', status: mcpToolsRes.status, tool_count: mcpToolCount });
+
   const userinfoRes = await fetch(`${IAM_ORIGIN}/api/oauth/userinfo`, {
-    headers: { Authorization: `Bearer ${tokenJson.access_token}` },
+    headers: { Authorization: `Bearer ${accessForMcp}` },
   });
   const userinfo = await userinfoRes.json().catch(() => ({}));
   report.steps.push({ step: 'userinfo', status: userinfoRes.status, sub: userinfo.sub });
@@ -238,6 +289,9 @@ async function main() {
     consentJsonRes.ok &&
     approveRes.ok &&
     tokenRes.ok &&
+    refreshRes.ok &&
+    mcpToolsRes.ok &&
+    mcpToolCount > 0 &&
     userinfoRes.ok &&
     !!userinfo.sub &&
     Number(d1Proof.oauth_tokens || 0) >= 1;

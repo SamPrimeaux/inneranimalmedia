@@ -55,8 +55,12 @@ export function parseMcpOAuthAuthorizationMetadata(metadataJson) {
   }
 }
 export const MCP_OAUTH_CODE_TTL_SECONDS = 10 * 60;
-/** OAuth access tokens — 24h (override per deploy via env.MCP_OAUTH_TOKEN_TTL_SECONDS). */
+/** OAuth access tokens — 24h legacy default (prefer MCP_OAUTH_ACCESS_WITH_REFRESH_TTL_SECONDS). */
 export const MCP_OAUTH_TOKEN_TTL_SECONDS = 60 * 60 * 24;
+/** Short-lived access when refresh_token is issued (RFC 6749 refresh flow). */
+export const MCP_OAUTH_ACCESS_WITH_REFRESH_TTL_SECONDS = 60 * 60;
+/** Refresh grant lifetime — 90 days from issuance. */
+export const MCP_OAUTH_REFRESH_TOKEN_TTL_SECONDS = 90 * 86400;
 /** Cursor native OAuth — 30d; Cursor re-auths via mcp.json on startup. */
 export const MCP_OAUTH_CURSOR_TOKEN_TTL_SECONDS = 30 * 86400;
 /** Cursor IDE OAuth callback (registered on iam_mcp_inneranimalmedia). */
@@ -67,6 +71,15 @@ export function resolveMcpOAuthTokenTtlSeconds(env, externalClientKey = null) {
   if (key === 'cursor') return MCP_OAUTH_CURSOR_TOKEN_TTL_SECONDS;
   const n = parseInt(String(env?.MCP_OAUTH_TOKEN_TTL_SECONDS ?? ''), 10);
   return Number.isFinite(n) && n > 0 ? n : MCP_OAUTH_TOKEN_TTL_SECONDS;
+}
+
+/** Access TTL for OAuth rows that include refresh_token (Cursor keeps long-lived access). */
+export function resolveMcpOAuthAccessTtlSeconds(env, externalClientKey = null) {
+  const key = String(externalClientKey || '').trim().toLowerCase();
+  if (key === 'cursor') return MCP_OAUTH_CURSOR_TOKEN_TTL_SECONDS;
+  const n = parseInt(String(env?.MCP_OAUTH_ACCESS_TTL_SECONDS ?? ''), 10);
+  if (Number.isFinite(n) && n > 0) return n;
+  return MCP_OAUTH_ACCESS_WITH_REFRESH_TTL_SECONDS;
 }
 export const MCP_OAUTH_AUTHZ_TTL_SECONDS = 10 * 60;
 
@@ -79,7 +92,7 @@ export function iamMcpOAuthAuthorizationServerMetadata() {
     registration_endpoint: `${IAM_OAUTH_ISSUER}/api/oauth/register`,
     userinfo_endpoint: `${IAM_OAUTH_ISSUER}/api/oauth/userinfo`,
     response_types_supported: ['code'],
-    grant_types_supported: ['authorization_code'],
+    grant_types_supported: ['authorization_code', 'refresh_token'],
     code_challenge_methods_supported: ['S256'],
     scopes_supported: [
       'openid',
