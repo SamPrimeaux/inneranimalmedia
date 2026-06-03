@@ -29,6 +29,10 @@ function motionFor(state: AgentPresenceState): AgentLogoMotion {
   switch (state) {
     case 'terminal':
       return 'running';
+    case 'browser_debug':
+    case 'web_search':
+    case 'web_fetch':
+      return state as AgentLogoMotion;
     case 'waiting_approval':
     case 'browser_human_input':
       return 'blocked';
@@ -81,11 +85,26 @@ function classifyRunningTool(row: AgentToolTraceRow): AgentPresenceState {
     return 'browser_capture';
 
   if (
+    hay.includes('browser_verify') ||
+    hay.includes('verify_current_page') ||
+    hay.includes('browser_content') ||
+    hay.includes('cdt_take_snapshot') ||
+    hay.includes('console') ||
+    hay.includes('network')
+  )
+    return 'browser_debug';
+
+  if (
+    hay.includes('browser_scroll') ||
     hay.includes('live_view') ||
     hay.includes('browser_session') ||
     hay.includes('devtoolsfrontendurl') ||
     hay.includes('browser_live') ||
-    hay.includes('cdt_') ||
+    hay.includes('cdt_navigate') ||
+    hay.includes('cdt_click') ||
+    hay.includes('cdt_fill') ||
+    hay.includes('cdt_wait') ||
+    hay.includes('cdt_evaluate') ||
     hay.includes('playwright') ||
     hay.includes('browser_navigate') ||
     hay.includes('browser_click') ||

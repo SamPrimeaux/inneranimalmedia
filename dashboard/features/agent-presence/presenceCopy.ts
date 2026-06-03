@@ -20,9 +20,11 @@ export const presenceCopy: Record<
   tool: ['Using a tool with live feedback.', 'Executing a checked workspace action.'],
   terminal: ['Running in the workspace terminal.', 'Watching stdout and stderr.'],
   browser: ['Inspecting browser context.', 'Checking the page state.'],
-  browser_live: ['Working in the live browser session.', 'Driving the browser you can watch.'],
+  browser_live: ['Navigating in the live browser.', 'Driving the page you can watch.'],
+  browser_debug: ['Verifying current page state.', 'Checking URL and visible content.'],
   browser_human_input: ['Waiting for you in the live browser.', 'Paused for human input in the browser.'],
   browser_capture: ['Capturing a requested browser proof.', 'Saving the requested browser artifact.'],
+  filing: ['Saving generated artifact.', 'Uploading proof to storage.'],
   database: ['Reading live schema and rows.', 'Checking IDs before writing.'],
   waiting_approval: ['Waiting for approval before risky action.', 'Nothing runs until you confirm.'],
   complete: ['Done, with proof attached.', 'Completed and logged.'],
@@ -58,6 +60,14 @@ export function toolPersonaLine(toolName: string): string | null {
     return 'Capturing proof only because it was requested.';
   if (t.includes('human_input') || t.includes('hitl'))
     return 'Paused so you can finish this step in the live browser.';
+  if (t.includes('browser_verify') || t.includes('verify_current_page'))
+    return 'Verifying navigation in the live browser.';
+  if (t.includes('browser_scroll'))
+    return 'Scrolling the live browser page.';
+  if (t.includes('browser_navigate') || t.includes('cdt_navigate'))
+    return 'Navigating in the live browser.';
+  if (t.includes('browser_content') || t.includes('cdt_take_snapshot') || t.includes('console') || t.includes('network'))
+    return 'Inspecting page state in the live browser.';
   if (t.includes('live_view') || t.includes('browser_session') || t.startsWith('cdt_') || t.includes('playwright'))
     return 'Working in the same live browser session you can watch.';
   if (t.includes('r2') || t.includes('artifact'))

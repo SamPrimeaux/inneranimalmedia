@@ -35,6 +35,17 @@ export function formatToolTraceInput(toolName: string, inputPreview: string | nu
     return { summaryLines: lines, detailsJson };
   }
 
+  if (toolName === 'browser_verify_current_page') {
+    const expected =
+      (typeof parsed?.expected_url === 'string' && parsed.expected_url) ||
+      (typeof parsed?.url === 'string' && parsed.url) ||
+      '';
+    return {
+      summaryLines: [`Expected: ${expected || '(unknown URL)'}`],
+      detailsJson,
+    };
+  }
+
   if (toolName === 'browser_scroll') {
     const amount = parsed?.amount != null ? String(parsed.amount) : '700';
     const dir = parsed?.direction != null ? String(parsed.direction) : 'down+up';
@@ -62,6 +73,12 @@ export function formatToolTraceOutput(toolName: string, outputPreview: string | 
     const url = typeof parsed.url === 'string' ? parsed.url : '';
     const title = typeof parsed.title === 'string' ? parsed.title : '';
     const verified = parsed.verified === true || parsed.url_verified === true;
+    if (toolName === 'browser_verify_current_page') {
+      const lines = [`Current: ${url || '(unknown)'}`];
+      if (title) lines.push(`Title: ${title.slice(0, 120)}`);
+      lines.push(parsed.verified === false ? 'Verification: failed' : verified ? 'Verification: ok' : 'Verification: pending');
+      return { summaryLines: lines, detailsJson };
+    }
     if (url && (toolName.includes('navigate') || toolName === 'browser_navigate')) {
       const lines = [`Committed: ${url}`];
       if (title) lines.push(`Title: ${title.slice(0, 120)}`);

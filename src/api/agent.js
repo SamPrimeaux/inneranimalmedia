@@ -1283,6 +1283,8 @@ function messageHasBrowserUrlNavigation(text) {
 
 const BROWSER_CAPABILITY_TOOL_NAMES = [
   'browser_navigate',
+  'browser_scroll',
+  'browser_verify_current_page',
   'browser_content',
   'cdt_take_snapshot',
   'cdt_navigate_page',
@@ -5148,6 +5150,55 @@ async function runAgentToolLoop(env, ctx, emit, params) {
           else if (Array.isArray(execResult.results)) toolRows = execResult.results;
         }
         toolOutput = typeof execResult === 'string' ? execResult : JSON.stringify(execResult);
+        const BROWSER_VERIFY_FAIL_TOOLS = new Set([
+          'browser_navigate',
+          'cdt_navigate_page',
+          'browser_verify_current_page',
+          'browser_content',
+        ]);
+        if (
+          !execErr &&
+          execResult &&
+          typeof execResult === 'object' &&
+          BROWSER_VERIFY_FAIL_TOOLS.has(call.name)
+        ) {
+          const verificationFailed =
+            execResult.ok === false ||
+            execResult.verified === false ||
+            execResult.url_verified === false ||
+            execResult.live_view_verified === false ||
+            execResult.verification_failed === true;
+          if (verificationFailed) {
+            const detail =
+              typeof execResult.error === 'string' && execResult.error.trim()
+                ? execResult.error.trim()
+                : 'Navigation was requested but not verified.';
+            execErr = Object.assign(new Error(detail), { code: 'verification_failed' });
+            emit('browser_verification_failed', {
+              tool_name: call.name,
+              tool_call_id: call.id,
+              agent_run_id:
+                execResult.agent_run_id ??
+                execResult.smoke_debug?.agent_run_id ??
+                runSpineIds?.agent_run_id ??
+                null,
+              session_id:
+                execResult.session_id ?? execResult.smoke_debug?.session_id ?? null,
+              target_id: execResult.target_id ?? null,
+              requested_url:
+                execResult.requested_url ?? execResult.expected_url ?? null,
+              url: execResult.url ?? null,
+              verified: false,
+              code: 'verification_failed',
+            });
+            emit('tool_error', {
+              tool: call.name,
+              tool_call_id: call.id,
+              error: detail,
+              code: 'verification_failed',
+            });
+          }
+        }
         if (
           execResult &&
           typeof execResult === 'object' &&

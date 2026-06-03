@@ -357,6 +357,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
   /** Last `tool_output` chunk for the active browser screenshot tool. */
   let lastBrowserScreenshotOutputChunk: string | null = null;
   let activeBrowserScreenshotTool = false;
+  let activeAgentRunId: string | null = null;
   let executionPlan: ExecutionPlanState | null = null;
 
   const pushExecutionPlan = (next: ExecutionPlanState | null) => {
@@ -509,6 +510,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
                 ? ctx.agentRunId.trim()
                 : '';
           onAgentRunContext?.(spineRunId || null);
+          activeAgentRunId = spineRunId || null;
           patchIamAgentStreamDebug({
             context_event_at: Date.now(),
             context: { ...ctx },
@@ -1242,13 +1244,14 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             live_view_url: d.live_view_url,
             title: d.title,
           });
-          if (typeof window !== 'undefined' && d.live_view_url) {
+          if (typeof window !== 'undefined' && (d.live_view_url || d.session_id)) {
             window.dispatchEvent(
               new CustomEvent('iam-browser-agent-live', {
                 detail: {
-                  url: d.url,
+                  url: d.url || 'about:blank',
                   live_view_url: d.live_view_url,
                   session_id: d.session_id,
+                  agent_run_id: d.agent_run_id,
                 },
               }),
             );
@@ -1352,6 +1355,59 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
         if (
           data &&
           typeof data === 'object' &&
+          (data as { type?: string }).type === 'browser_verification_failed'
+        ) {
+          const d = data as {
+            type: 'browser_verification_failed';
+            tool_name?: string;
+            tool_call_id?: string;
+            requested_url?: string;
+            url?: string;
+            error?: string;
+          };
+          onThinkingEvent?.({
+            type: 'browser_verification_failed',
+            tool_name: d.tool_name || 'browser_navigate',
+            message: d.error || 'Navigation was requested but not verified.',
+          });
+          const failMsg = String(d.error || 'Navigation was requested but not verified.').slice(0, 4000);
+          const toolLabel = String(d.tool_name || 'browser_navigate');
+          setToolTraceRows?.((prev) => {
+            const closedRowId = resolveToolTraceRowId(
+              prev,
+              d.tool_call_id,
+              activeToolTraceId,
+              toolLabel,
+            );
+            if (closedRowId && prev.some((r) => r.id === closedRowId)) {
+              return prev.map((r) =>
+                r.id === closedRowId
+                  ? {
+                      ...r,
+                      status: 'error' as const,
+                      lines: [...r.lines, failMsg],
+                    }
+                  : r,
+              );
+            }
+            return prev;
+          });
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent('iam-browser-url-verification-failed', {
+                detail: {
+                  requested_url: d.requested_url,
+                  url: d.url,
+                  tool_call_id: d.tool_call_id ?? null,
+                },
+              }),
+            );
+          }
+          continue;
+        }
+        if (
+          data &&
+          typeof data === 'object' &&
           (data as { type?: string }).type === 'browser_url_committed'
         ) {
           const d = data as {
@@ -1370,7 +1426,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             tool_name: 'browser_navigate',
             url: navUrl || d.url,
             title: d.title,
-            ok: d.verified !== false,
+            ok: d.verified === true,
           });
           if (typeof window !== 'undefined') {
             window.dispatchEvent(
@@ -1387,7 +1443,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
               }),
             );
           }
-          if (navUrl && d.verified !== false && !/\/api\/r2\/file\b/i.test(navUrl)) {
+          if (navUrl && d.verified === true && !/\/api\/r2\/file\b/i.test(navUrl)) {
             onBrowserNavigate?.({
               type: 'browser_navigate',
               url: navUrl,
@@ -1482,6 +1538,11 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
               window.dispatchEvent(
                 new CustomEvent('iam:agent-open-surface', {
                   detail: { surface: 'browser', agent_live: true },
+                }),
+              );
+              window.dispatchEvent(
+                new CustomEvent('iam-browser-agent-live', {
+                  detail: { url: 'about:blank', agent_run_id: activeAgentRunId || undefined },
                 }),
               );
             }

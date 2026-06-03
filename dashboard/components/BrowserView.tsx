@@ -2043,9 +2043,12 @@ const BrowserPane: React.FC<PaneProps> = ({
         url?: string;
         live_view_url?: string;
         session_id?: string;
+        agent_run_id?: string;
       }>).detail;
-      if (!d?.url?.trim()) return;
-      void openAgentLiveSession(d.url, d.live_view_url, d.session_id);
+      const lv = d?.live_view_url?.trim();
+      const rid = agentRunId?.trim() || d?.agent_run_id?.trim();
+      if (!lv && !rid) return;
+      void openAgentLiveSession(d?.url?.trim() || 'about:blank', lv || null, d?.session_id);
     };
     const onHumanInput = (e: Event) => {
       const d = (e as CustomEvent<{
@@ -3014,6 +3017,12 @@ export const BrowserView: React.FC<BrowserViewProps> = ({
 
   // ── Window event listeners (Agent Sam navigation) ───────────────────────────
   useEffect(() => {
+    const onAgentOpenSurface = (e: Event) => {
+      const d = (e as CustomEvent<{ surface?: string; agent_live?: boolean; url?: string }>).detail;
+      if (String(d?.surface || '').toLowerCase() !== 'browser') return;
+      if (d?.agent_live) setPrimaryAgentLive(true);
+      if (d?.url?.trim()) setPrimaryUrl(d.url.trim());
+    };
     const onPrimary = (e: Event) => {
       const d = (e as CustomEvent<{
         url?: string;
@@ -3049,9 +3058,11 @@ export const BrowserView: React.FC<BrowserViewProps> = ({
       const url = (e as CustomEvent<{ url?: string }>).detail?.url;
       if (url) setSecondaryUrl(url);
     };
+    window.addEventListener('iam:agent-open-surface', onAgentOpenSurface as EventListener);
     window.addEventListener('iam-browser-navigate',           onPrimary);
     window.addEventListener('iam-browser-navigate-secondary', onSecondary);
     return () => {
+      window.removeEventListener('iam:agent-open-surface', onAgentOpenSurface as EventListener);
       window.removeEventListener('iam-browser-navigate',           onPrimary);
       window.removeEventListener('iam-browser-navigate-secondary', onSecondary);
     };

@@ -620,15 +620,24 @@ export function emitBrowserLiveSessionSse(emit, phase, toolName, execResult) {
   });
 
   if (body.browser_url_committed && typeof body.browser_url_committed === 'object') {
-    emit('browser_url_committed', body.browser_url_committed);
-  } else if (body.url && (toolName === 'browser_navigate' || toolName === 'cdt_navigate_page')) {
+    const commit = body.browser_url_committed;
+    if (commit.verified === true) {
+      emit('browser_url_committed', commit);
+    }
+  } else if (
+    body.url &&
+    (toolName === 'browser_navigate' || toolName === 'cdt_navigate_page') &&
+    body.verified === true &&
+    body.url_verified === true &&
+    body.live_view_verified !== false
+  ) {
     emit('browser_url_committed', {
       agent_run_id: liveRec?.agent_run_id ?? body.agent_run_id ?? null,
       session_id: liveRec?.session_id ?? body.session_id ?? null,
       target_id: liveRec?.target_id ?? null,
       url: body.url,
       title: body.title ?? liveRec?.title ?? null,
-      verified: body.verified !== false && body.url_verified !== false,
+      verified: true,
       live_view_url: liveRec?.devtools_frontend_url ?? null,
       live_view_mode: liveRec?.live_view_mode ?? 'tab',
       same_session_reused: true,

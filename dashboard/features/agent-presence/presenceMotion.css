@@ -333,8 +333,10 @@
 .iam-presence-logo[data-state="terminal"]          { animation: presence-terminal 0.8s steps(2) infinite; }
 .iam-presence-logo[data-state="browser"]           { animation: presence-browser 2s ease-in-out infinite; }
 .iam-presence-logo[data-state="browser_live"]       { animation: presence-browser 1.6s ease-in-out infinite; }
+.iam-presence-logo[data-state="browser_debug"]      { animation: presence-read 1.5s linear infinite; }
 .iam-presence-logo[data-state="browser_human_input"] { animation: agent-sam-amber-pulse 1.2s ease-in-out infinite; }
 .iam-presence-logo[data-state="browser_capture"]     { animation: presence-files 1.4s ease-in-out infinite; }
+.iam-presence-logo[data-state="filing"]              { animation: presence-files 1.5s ease-in-out infinite; }
 .iam-presence-logo[data-state="web_search"]          { animation: presence-db 1.6s ease-in-out infinite; }
 .iam-presence-logo[data-state="web_fetch"]           { animation: presence-db 1.5s ease-in-out infinite; }
 .iam-presence-logo[data-state="database"]          { animation: presence-db 1.6s ease-in-out infinite; }

@@ -28,12 +28,21 @@ export function formatThinkingStepName(ev: ThinkingStepEvent): string {
   if (tool.includes('browser_human_input') || tool.includes('hitl'))
     return 'Waiting for human input';
 
-  if (tool.includes('live_view') || tool.includes('browser_session'))
-    return 'Opening live browser session';
+  if (tool.includes('browser_verify') || tool.includes('verify_current_page'))
+    return 'Verifying current page';
 
   if (tool.includes('browser_scroll')) return 'Scrolling live browser page';
 
-  if (tool.includes('cdt_') || tool.includes('playwright') || tool.includes('browser_navigate'))
+  if (tool.includes('browser_navigate') || tool.includes('cdt_navigate'))
+    return 'Navigating in live browser';
+
+  if (tool.includes('browser_content') || tool.includes('cdt_take_snapshot'))
+    return 'Inspecting page state';
+
+  if (tool.includes('live_view') || tool.includes('browser_session'))
+    return 'Starting live browser session';
+
+  if (tool.includes('cdt_') || tool.includes('playwright'))
     return 'Working in live browser';
 
   if (tool.includes('screenshot') || tool.includes('capture'))
@@ -62,7 +71,9 @@ export function formatBrowserLiveSseStepName(eventType: string): string {
     case 'browser_live_view_refresh':
       return 'Refreshed live browser view';
     case 'browser_url_committed':
-      return 'URL committed in live browser';
+      return 'URL verified in live browser';
+    case 'browser_verification_failed':
+      return 'Navigation not confirmed';
     case 'browser_navigated':
       return 'Navigated in live browser';
     case 'browser_scrolled':

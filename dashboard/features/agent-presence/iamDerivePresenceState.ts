@@ -2,13 +2,25 @@
 
 import type { AgentPresenceState } from './iamPresenceStateMap';
 
+function browserLiveTool(signal: string): boolean {
+  return /live_view|browser_session|browser_scroll|browser_navigate|cdt_navigate|cdt_click|cdt_fill|cdt_wait|cdt_evaluate|playwright/.test(
+    signal,
+  );
+}
+
+function browserDebugTool(signal: string): boolean {
+  return /browser_verify|verify_current_page|browser_content|cdt_take_snapshot|console|network|a11y/.test(
+    signal,
+  );
+}
+
 function classifyToolSignal(signal: string): AgentPresenceState | null {
   if (/tavily|search_web|open_web_search|web_search/.test(signal)) return 'browser';
   if (/web_fetch|fetch_url|read_url|markdown/.test(signal)) return 'browser';
   if (/human_input|hitl|browser_human_input/.test(signal)) return 'waiting_approval';
-  if (/screenshot|capture_full_page|capture_selected|quality_report/.test(signal)) return 'browser';
-  if (/live_view|browser_session|cdt_|playwright|browser_navigate|browser_click|browser_fill/.test(signal))
-    return 'browser';
+  if (/screenshot|capture_full_page|capture_selected|quality_report/.test(signal)) return 'browser_capture';
+  if (browserDebugTool(signal)) return 'browser_debug';
+  if (browserLiveTool(signal)) return 'browser_live';
   if (/browser|playwright|cdt|navigate|click|highlight|dom|css/.test(signal)) return 'browser';
   if (/terminal|shell|bash|run|exec|command|wrangler|npm|node|python|build|deploy/.test(signal))
     return 'terminal';
@@ -22,29 +34,30 @@ function classifyToolSignal(signal: string): AgentPresenceState | null {
 }
 
 export function derivePresenceState(event: Record<string, unknown>): AgentPresenceState {
-  const type    = String(event?.type    || '').toLowerCase();
+  const type = String(event?.type || '').toLowerCase();
   const handler = String(event?.handler_type || event?.handler || '').toLowerCase();
-  const tool    = String(event?.tool_name    || event?.name    || event?.tool || '').toLowerCase();
-  const title   = String(event?.title        || event?.task_title || event?.message || '').toLowerCase();
+  const tool = String(event?.tool_name || event?.name || event?.tool || '').toLowerCase();
+  const title = String(event?.title || event?.task_title || event?.message || '').toLowerCase();
 
   const signal = `${handler} ${tool} ${title}`;
 
   if (!type) return 'idle';
 
-  // Agent live browser SSE lanes
+  if (type === 'browser_verification_failed') return 'failed';
   if (type === 'browser_human_input_required') return 'waiting_approval';
-  if (type === 'browser_live_view_ready' || type === 'browser_session_ready' || type === 'browser_action_started')
-    return 'browser';
-  if (type === 'browser_capture' || type.includes('screenshot')) return 'browser';
+  if (type === 'browser_session_starting') return 'browser_live';
+  if (type === 'browser_live_view_ready' || type === 'browser_session_ready') return 'browser_live';
+  if (type === 'browser_action_started') {
+    return browserDebugTool(signal) ? 'browser_debug' : 'browser_live';
+  }
+  if (type === 'browser_capture' || type.includes('screenshot')) return 'browser_capture';
 
-  // Lifecycle
-  if (type === 'thinking_start' || type === 'thinking')           return 'thinking';
-  if (type === 'plan_thinking'  || type === 'plan_created')       return 'planning';
+  if (type === 'thinking_start' || type === 'thinking') return 'thinking';
+  if (type === 'plan_thinking' || type === 'plan_created') return 'planning';
   if (type === 'approval_required' || type === 'plan_confirmation_required') return 'waiting_approval';
-  if (type === 'plan_complete'  || type === 'done' || type === 'complete')   return 'complete';
-  if (type === 'error'          || type === 'tool_error' || type === 'failed') return 'failed';
+  if (type === 'plan_complete' || type === 'done' || type === 'complete') return 'complete';
+  if (type === 'error' || type === 'tool_error' || type === 'failed') return 'failed';
 
-  // task_start — handler_type is strongest signal
   if (type === 'task_start') {
     const classified = classifyToolSignal(signal);
     if (classified) return classified;
@@ -52,14 +65,12 @@ export function derivePresenceState(event: Record<string, unknown>): AgentPresen
     return 'thinking';
   }
 
-  // tool_start — tool name carries semantic context
   if (type === 'tool_start') {
     const classified = classifyToolSignal(signal);
     if (classified) return classified;
     return 'tool';
   }
 
-  // Progress events preserve previous state upstream
   if (type === 'tool_delta' || type === 'task_delta' || type === 'progress') {
     return (event?.previousPresenceState as AgentPresenceState) || 'thinking';
   }

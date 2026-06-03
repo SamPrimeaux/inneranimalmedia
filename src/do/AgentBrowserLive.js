@@ -368,7 +368,6 @@ export class AgentBrowserLiveV1 extends DurableObject {
         : body.requestedUrl != null
           ? String(body.requestedUrl)
           : null;
-    const verified = body.verified !== false;
     const scrollDirection =
       body.scroll_direction != null
         ? String(body.scroll_direction)
@@ -400,7 +399,17 @@ export class AgentBrowserLiveV1 extends DurableObject {
     }
 
     let liveSession = null;
-    if (actionPhase === 'done' && patch.current_url && toolName !== 'browser_scroll') {
+    const urlCommitTools = new Set([
+      'browser_navigate',
+      'cdt_navigate_page',
+      'browser_verify_current_page',
+    ]);
+    const urlVerified =
+      body.verified === true ||
+      body.url_verified === true ||
+      (!urlCommitTools.has(toolName) && body.verified !== false);
+
+    if (actionPhase === 'done' && patch.current_url && toolName !== 'browser_scroll' && urlVerified) {
       const refreshed = await refreshBrowserRunLiveView(this.env, {
         sessionId: String(row.session_id),
         targetId: row.target_id != null ? String(row.target_id) : null,
@@ -431,7 +440,7 @@ export class AgentBrowserLiveV1 extends DurableObject {
           url: liveSession?.url ?? patch.current_url,
           title: liveSession?.title ?? patch.title,
           requested_url: requestedUrl,
-          verified,
+          verified: true,
           live_view_url: liveSession?.devtools_frontend_url ?? embedUrl,
           live_view_mode: liveSession?.live_view_mode ?? viewMode,
           same_session_reused: true,
@@ -443,7 +452,7 @@ export class AgentBrowserLiveV1 extends DurableObject {
             url: commitPayload.url,
             title: commitPayload.title,
             tool_name: toolName,
-            verified,
+            verified: true,
           });
         }
         if (refreshed.devtoolsFrontendUrl && liveSession?.devtools_frontend_url) {
@@ -459,18 +468,40 @@ export class AgentBrowserLiveV1 extends DurableObject {
         this.upsertSession(patch);
         liveSession = this.rowToLiveSession(this.getSessionRow());
       }
+    } else if (
+      actionPhase === 'done' &&
+      urlCommitTools.has(toolName) &&
+      (body.verified === false || body.url_verified === false)
+    ) {
+      this.emitEvent('browser_verification_failed', {
+        agent_run_id: row.agent_run_id,
+        browser_do_id: this.ctx.id.toString(),
+        session_id: row.session_id,
+        target_id: row.target_id,
+        requested_url: requestedUrl,
+        url: patch.current_url,
+        verified: false,
+        tool_name: toolName,
+      });
+      liveSession = this.rowToLiveSession(this.getSessionRow());
     } else {
       this.upsertSession(patch);
       liveSession = this.rowToLiveSession(this.getSessionRow());
     }
 
     if (toolName && actionPhase === 'done') {
+      const actionOk =
+        body.ok === false
+          ? false
+          : urlCommitTools.has(toolName)
+            ? urlVerified
+            : body.verified !== false;
       this.emitEvent('browser_action_done', {
         tool_name: toolName,
         url: liveSession?.url ?? patch.current_url,
         title: liveSession?.title ?? patch.title,
-        ok: body.ok !== false && verified,
-        verified,
+        ok: actionOk,
+        verified: urlCommitTools.has(toolName) ? urlVerified : body.verified !== false,
       });
       if (toolName === 'browser_scroll' && scrollDirection) {
         this.emitEvent('browser_scrolled', {
@@ -485,11 +516,14 @@ export class AgentBrowserLiveV1 extends DurableObject {
       ok: true,
       live_session: liveSession,
       browser_url_committed:
-        actionPhase === 'done' && patch.current_url && toolName !== 'browser_scroll'
+        actionPhase === 'done' &&
+        patch.current_url &&
+        toolName !== 'browser_scroll' &&
+        urlVerified
           ? {
               url: liveSession?.url ?? patch.current_url,
               title: liveSession?.title ?? patch.title,
-              verified,
+              verified: true,
               session_id: row.session_id,
               agent_run_id: row.agent_run_id,
             }

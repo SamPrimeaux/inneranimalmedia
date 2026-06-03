@@ -17,6 +17,11 @@ import {
   getAgentLiveBrowserSession,
 } from './agent-live-browser-session.js';
 import { browserLiveDoRequired, patchAgentLiveBrowserSessionViaDo } from './browser-live-do-client.js';
+import {
+  listBrowserRunTargets,
+  pickBrowserRunPageTarget,
+  refreshBrowserRunLiveView,
+} from './browser-run-session.js';
 
 const SCREENSHOT_TOOLS = new Set([
   'cdt_take_screenshot',
@@ -57,8 +62,107 @@ function normalizeUrlCompare(u) {
   }
 }
 
+/** @param {string} actual @param {string} expected */
+export function urlMatchesExpected(actual, expected) {
+  const a = String(actual || '').trim();
+  const e = String(expected || '').trim();
+  if (!e) return true;
+  if (!a) return false;
+  if (normalizeUrlCompare(a) === normalizeUrlCompare(e)) return true;
+  try {
+    const au = new URL(a);
+    const eu = new URL(e);
+    if (au.origin === eu.origin) {
+      const ap = au.pathname.replace(/\/$/, '') || '/';
+      const ep = eu.pathname.replace(/\/$/, '') || '/';
+      if (ap === ep) return true;
+    }
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
 /**
- * Verify page URL against request and commit to AgentBrowserLive DO (refreshes Live View).
+ * @param {import('@cloudflare/playwright').Page} page
+ * @param {number} [maxChars]
+ */
+async function readVerifiedPageSample(page, maxChars = 2000) {
+  const title = await page.title().catch(() => '');
+  const page_text = await extractPageText(page, maxChars);
+  const h1 = await page
+    .evaluate(() => document.querySelector('h1')?.innerText?.trim() || '')
+    .catch(() => '');
+  return { title, page_text, h1, url: page.url() || '' };
+}
+
+/**
+ * Prove Browser Run Live View target URL matches CDP page.url() (not just Playwright state).
+ * @param {any} env
+ * @param {string} sessionId
+ * @param {import('@cloudflare/playwright').Page} page
+ * @param {string|null|undefined} storedTargetId
+ */
+async function syncLiveViewWithCdpPage(env, sessionId, page, storedTargetId = null) {
+  const cdpUrl = page.url() || '';
+  const listed = await listBrowserRunTargets(env, sessionId);
+  if (!listed.ok) {
+    return {
+      ok: false,
+      verified: false,
+      live_view_verified: false,
+      url: cdpUrl,
+      error: listed.error || 'Could not list Browser Run targets',
+    };
+  }
+  const targets = listed.targets || [];
+  const wantId = storedTargetId != null ? String(storedTargetId).trim() : '';
+  let target = wantId ? targets.find((t) => t && String(t.id) === wantId) : null;
+  if (target && cdpUrl && !urlMatchesExpected(String(target.url || ''), cdpUrl)) {
+    target =
+      targets.find(
+        (t) =>
+          t &&
+          String(t.type || '').toLowerCase() === 'page' &&
+          urlMatchesExpected(String(t.url || ''), cdpUrl),
+      ) || pickBrowserRunPageTarget(targets);
+  }
+  if (!target) target = pickBrowserRunPageTarget(targets);
+  const targetUrl = target?.url != null ? String(target.url) : '';
+  const liveViewVerified = !cdpUrl || !targetUrl || urlMatchesExpected(targetUrl, cdpUrl);
+  const refreshed = await refreshBrowserRunLiveView(env, {
+    sessionId,
+    targetId: target?.id != null ? String(target.id) : null,
+  });
+  if (!refreshed.ok) {
+    return {
+      ok: false,
+      verified: false,
+      live_view_verified: false,
+      url: cdpUrl,
+      target_url: targetUrl || null,
+      error: refreshed.error || 'Live View refresh failed',
+    };
+  }
+  const refreshedUrl = refreshed.url != null ? String(refreshed.url) : targetUrl;
+  const fullyVerified =
+    liveViewVerified &&
+    (!cdpUrl || !refreshedUrl || urlMatchesExpected(refreshedUrl, cdpUrl));
+  return {
+    ok: fullyVerified,
+    verified: fullyVerified,
+    live_view_verified: fullyVerified,
+    url: cdpUrl,
+    target_url: refreshedUrl || targetUrl || null,
+    title: refreshed.title ?? null,
+    target_id: refreshed.targetId ?? (target?.id != null ? String(target.id) : null),
+    live_view_url: refreshed.devtoolsFrontendUrl ?? null,
+    devtools_frontend_url: refreshed.devtoolsFrontendUrl ?? null,
+  };
+}
+
+/**
+ * Verify page URL + Live View target, then commit to AgentBrowserLive DO.
  * @param {any} env
  * @param {string} scopeId
  * @param {import('@cloudflare/playwright').Page} page
@@ -67,46 +171,97 @@ function normalizeUrlCompare(u) {
  */
 async function commitAgentLiveBrowserPageState(env, scopeId, page, toolName, requestedUrl = null) {
   if (!scopeId || !browserLiveDoRequired(env)) return null;
+  const stored = await getAgentLiveBrowserSession(env, scopeId);
+  const sid = stored?.sessionId ?? null;
   const url = page.url() || '';
   const title = await page.title().catch(() => '');
-  const verified = requestedUrl
-    ? normalizeUrlCompare(url) === normalizeUrlCompare(requestedUrl)
-    : true;
-  const stored = await getAgentLiveBrowserSession(env, scopeId);
+  let urlVerified = requestedUrl ? urlMatchesExpected(url, requestedUrl) : true;
+  let liveSync = null;
+  if (sid) {
+    liveSync = await syncLiveViewWithCdpPage(env, sid, page, stored?.targetId ?? null);
+    if (!liveSync.live_view_verified) urlVerified = false;
+  }
+  if (!urlVerified) {
+    const errMsg =
+      liveSync?.live_view_verified === false
+        ? `Live View was not verified (CDP ${url}, Browser Run target ${liveSync?.target_url || 'unknown'})`
+        : requestedUrl
+          ? `Navigation was requested but not verified (expected ${requestedUrl}, got ${url})`
+          : 'Page verification failed';
+    await patchAgentLiveBrowserSessionViaDo(env, scopeId, {
+      tool_name: toolName,
+      action_phase: 'done',
+      url,
+      title,
+      requested_url: requestedUrl,
+      verified: false,
+      url_verified: false,
+      ok: false,
+    }).catch(() => null);
+    return {
+      url,
+      title,
+      verified: false,
+      url_verified: false,
+      live_view_verified: liveSync?.live_view_verified === true,
+      browser_url_committed: null,
+      error: errMsg,
+      verification_failed: true,
+      smoke_debug: {
+        agent_run_id: scopeId,
+        session_id: sid,
+        final_url: url,
+        requested_url: requestedUrl,
+        url_verified: false,
+        live_view_verified: liveSync?.live_view_verified === true,
+        browser_run_target_url: liveSync?.target_url ?? null,
+        same_session_reused: true,
+        live_view_mode: stored?.liveViewMode ?? 'tab',
+        screenshots_taken: 0,
+      },
+    };
+  }
   const patchOut = await patchAgentLiveBrowserSessionViaDo(env, scopeId, {
     tool_name: toolName,
     action_phase: 'done',
     url,
     title,
     requested_url: requestedUrl,
-    verified,
-    ok: verified,
+    verified: true,
+    url_verified: true,
+    ok: true,
+    target_id: liveSync?.target_id ?? stored?.targetId ?? null,
+    devtools_frontend_url: liveSync?.live_view_url ?? null,
   }).catch(() => null);
   const live = patchOut?.live_session ?? stored;
   return {
     url,
     title,
-    verified,
-    url_verified: verified,
-    session_id: live?.session_id ?? stored?.sessionId ?? null,
-    target_id: live?.target_id ?? stored?.targetId ?? null,
+    verified: true,
+    url_verified: true,
+    live_view_verified: true,
+    session_id: live?.session_id ?? sid ?? null,
+    target_id: live?.target_id ?? liveSync?.target_id ?? stored?.targetId ?? null,
     live_session: live,
     browser_url_committed: patchOut?.browser_url_committed ?? {
       url,
       title,
-      verified,
-      session_id: live?.session_id ?? stored?.sessionId ?? null,
+      verified: true,
+      session_id: live?.session_id ?? sid ?? null,
       agent_run_id: scopeId,
+      live_view_url: live?.devtools_frontend_url ?? liveSync?.live_view_url ?? null,
     },
     smoke_debug: {
       agent_run_id: scopeId,
-      session_id: live?.session_id ?? stored?.sessionId ?? null,
-      target_id: live?.target_id ?? stored?.targetId ?? null,
+      session_id: live?.session_id ?? sid ?? null,
+      target_id: live?.target_id ?? liveSync?.target_id ?? stored?.targetId ?? null,
       final_url: url,
       requested_url: requestedUrl,
       same_session_reused: true,
       live_view_mode: live?.live_view_mode ?? 'tab',
-      url_verified: verified,
+      url_verified: true,
+      live_view_verified: true,
+      browser_run_target_url: liveSync?.target_url ?? null,
       screenshots_taken: 0,
     },
   };
@@ -417,19 +572,55 @@ export async function withBrowserPage(env, params, fn, opts = {}) {
     if (useLiveDo && scopeId && toolName) {
       if (toolName === 'browser_scroll') {
         /* scroll patches emitted inside browser_scroll handler */
+      } else if (toolName === 'browser_verify_current_page' || toolName === 'browser_content') {
+        const expected =
+          result?.expected_url || result?.requested_url || targetUrl || null;
+        if (result?.verified === true && result?.live_view_verified !== false) {
+          const commit = await commitAgentLiveBrowserPageState(
+            env,
+            scopeId,
+            page,
+            toolName,
+            expected,
+          );
+          if (commit) {
+            result = { ...result, ...commit };
+          }
+        } else if (result && result.verified === false) {
+          await patchAgentLiveBrowserSessionViaDo(env, scopeId, {
+            tool_name: toolName,
+            action_phase: 'done',
+            url: page.url(),
+            requested_url: expected,
+            verified: false,
+            url_verified: false,
+            ok: false,
+          }).catch(() => null);
+        }
       } else {
+        const requested = targetUrl || result?.requested_url || result?.expected_url || null;
         const commit = await commitAgentLiveBrowserPageState(
           env,
           scopeId,
           page,
           toolName,
-          targetUrl || null,
+          requested,
         );
         if (commit) {
+          const mergedOk =
+            result &&
+            typeof result === 'object' &&
+            result.ok !== false &&
+            commit.verified !== false;
           result =
             result && typeof result === 'object'
-              ? { ...result, ...commit }
-              : { ok: true, ...commit };
+              ? {
+                  ...result,
+                  ...commit,
+                  ok: mergedOk,
+                  ...(commit.verified === false ? { verification_failed: true } : {}),
+                }
+              : { ok: commit.verified !== false, ...commit };
         }
       }
     }
@@ -533,8 +724,7 @@ export async function runBrowserBuiltinTool(env, toolName, params) {
           const title = await page.title().catch(() => '');
           const page_text = await extractPageText(page);
           const verified =
-            !requestedUrl ||
-            normalizeUrlCompare(finalUrl) === normalizeUrlCompare(requestedUrl);
+            !requestedUrl || urlMatchesExpected(finalUrl, requestedUrl);
           const scopeId = resolveBrowserRunScopeId(params);
           const agentLive = Boolean(scopeId);
           const base = {
@@ -550,7 +740,8 @@ export async function runBrowserBuiltinTool(env, toolName, params) {
             ...(liveSession ? { live_session: liveSession } : {}),
             ...(!verified
               ? {
-                  error: `Navigation could not be verified (expected ${requestedUrl}, got ${finalUrl})`,
+                  error: `Navigation was requested but not verified (expected ${requestedUrl}, got ${finalUrl})`,
+                  verification_failed: true,
                 }
               : {}),
           };
@@ -591,7 +782,76 @@ export async function runBrowserBuiltinTool(env, toolName, params) {
             scroll_amount: amount,
             scrolled_down: scrollDown,
             scrolled_up: scrollUp,
+            verified: true,
           };
+        },
+        withOpts,
+      );
+
+    case 'browser_verify_current_page':
+      return withBrowserPage(
+        env,
+        params,
+        async ({ page, liveSession, browserSession }) => {
+          const expectedUrl =
+            resolveBrowserToolUrl(params) ||
+            String(params.expected_url || params.expectedUrl || '').trim();
+          const sid =
+            browserSession?.session_id ??
+            liveSession?.session_id ??
+            null;
+          let liveSync = null;
+          if (sid) {
+            liveSync = await syncLiveViewWithCdpPage(
+              env,
+              String(sid),
+              page,
+              browserSession?.target_id ?? liveSession?.target_id ?? null,
+            );
+          }
+          const sample = await readVerifiedPageSample(page);
+          const urlVerified = urlMatchesExpected(sample.url, expectedUrl);
+          const liveVerified = !sid || liveSync?.live_view_verified === true;
+          const requireTitle = params.require_title === true || params.requireTitle === true;
+          const requireText =
+            params.require_text_sample === true || params.requireTextSample === true;
+          const titleOk = !requireTitle || Boolean(sample.title?.trim());
+          const textOk = !requireText || sample.page_text.trim().length >= 20;
+          const verified = urlVerified && liveVerified && titleOk && textOk;
+          const scopeId = resolveBrowserRunScopeId(params);
+          const base = {
+            ok: verified,
+            verified,
+            url_verified: urlVerified,
+            live_view_verified: liveVerified,
+            url: sample.url,
+            expected_url: expectedUrl || null,
+            title: sample.title,
+            h1: sample.h1,
+            page_text_sample: sample.page_text.slice(0, 800),
+            page_text: sample.page_text.slice(0, 4000),
+            text: sample.page_text.slice(0, 4000),
+            session_id:
+              browserSession?.session_id ??
+              liveSession?.session_id ??
+              null,
+            target_id:
+              browserSession?.target_id ?? liveSession?.target_id ?? null,
+            agent_run_id: scopeId,
+            agent_live_session: Boolean(scopeId),
+            ...(liveSession ? { live_session: liveSession } : {}),
+            ...(!verified
+              ? {
+                  error: !liveVerified
+                    ? `Live View was not verified (CDP ${sample.url}, Browser Run target ${liveSync?.target_url || 'unknown'})`
+                    : urlVerified
+                      ? `Page verification failed for ${expectedUrl || sample.url}`
+                      : `Navigation was requested but not verified (expected ${expectedUrl}, got ${sample.url})`,
+                  verification_failed: true,
+                }
+              : {}),
+          };
+          return base;
         },
         withOpts,
       );
@@ -600,7 +860,29 @@ export async function runBrowserBuiltinTool(env, toolName, params) {
       return withBrowserPage(
         env,
         params,
-        async ({ page, url }) => {
+        async ({ page, url, liveSession, browserSession }) => {
+          const scopeId = resolveBrowserRunScopeId(params);
+          const expectedUrl =
+            resolveBrowserToolUrl(params) ||
+            String(params.expected_url || params.expectedUrl || '').trim() ||
+            url;
+          const sid =
+            browserSession?.session_id ??
+            liveSession?.session_id ??
+            null;
+          let liveSync = null;
+          if (sid) {
+            liveSync = await syncLiveViewWithCdpPage(
+              env,
+              String(sid),
+              page,
+              browserSession?.target_id ?? liveSession?.target_id ?? null,
+            );
+          }
+          const cdpUrl = page.url() || url;
+          const urlOk = !expectedUrl || urlMatchesExpected(cdpUrl, expectedUrl);
+          const liveOk = !sid || liveSync?.live_view_verified === true;
+          const verified = urlOk && liveOk;
           let html = await page.content();
           const max = Number(params.max_chars) > 0 ? Number(params.max_chars) : 400_000;
           if (html.length > max) {
@@ -608,11 +890,25 @@ export async function runBrowserBuiltinTool(env, toolName, params) {
           }
           const page_text = await extractPageText(page);
           return {
-            ok: true,
-            url: page.url() || url,
-            html,
-            page_text,
-            text: page_text,
+            ok: verified,
+            verified,
+            url_verified: urlOk,
+            live_view_verified: liveOk,
+            url: cdpUrl,
+            expected_url: expectedUrl || null,
+            html: verified ? html : html.slice(0, 500),
+            page_text: verified ? page_text : page_text.slice(0, 500),
+            text: verified ? page_text : page_text.slice(0, 500),
+            agent_run_id: scopeId,
+            session_id: sid,
+            ...(!verified
+              ? {
+                  error: !liveOk
+                    ? `Live View was not verified (CDP ${cdpUrl}, Browser Run target ${liveSync?.target_url || 'unknown'})`
+                    : `Page content not verified for ${expectedUrl}`,
+                  verification_failed: true,
+                }
+              : {}),
           };
         },
         withOpts,
