@@ -17,8 +17,7 @@ export function newWebhookEventId() {
  * @param {string | null | undefined} [override]
  */
 /**
- * Webhook audit tenant — only explicit caller context (never env.TENANT_ID fallback).
- * Platform provider events pass null; user-scoped payloads pass tenant_id from body/session.
+ * Webhook audit tenant — explicit caller context only (no hardcoded tenant ids).
  * @param {unknown} _env
  * @param {string | null | undefined} override
  */
@@ -27,6 +26,110 @@ export function resolveWebhookTenantId(_env, override) {
   const s = String(override).trim();
   if (!s || s === 'system') return null;
   return s;
+}
+
+/** @param {string | null | undefined} raw */
+export function normalizeGithubRepoFullName(raw) {
+  if (raw == null || !String(raw).trim()) return null;
+  let s = String(raw).trim().replace(/\.git$/i, '');
+  s = s.replace(/^https?:\/\/github\.com\//i, '');
+  s = s.replace(/^github\.com\//i, '');
+  const m = /^[\w.-]+\/[\w.-]+/.exec(s);
+  return m ? m[0] : null;
+}
+
+/**
+ * @param {import('@cloudflare/workers-types').D1Database} db
+ * @param {string | null | undefined} repoFullName
+ */
+async function lookupWorkspaceScopeByGithubRepo(db, repoFullName) {
+  const repo = normalizeGithubRepoFullName(repoFullName);
+  if (!repo) return null;
+  try {
+    const row = await db
+      .prepare(
+        `SELECT id, tenant_id FROM workspaces
+         WHERE lower(replace(replace(replace(trim(github_repo), 'https://github.com/', ''), 'http://github.com/', ''), '.git', '')) = lower(?)
+            OR trim(github_repo) = ?
+            OR lower(trim(github_repo)) = lower(?)
+         ORDER BY CASE WHEN trim(github_repo) = ? THEN 0 ELSE 1 END
+         LIMIT 1`,
+      )
+      .bind(repo, repo, repo, repo)
+      .first();
+    if (!row?.tenant_id || !String(row.tenant_id).trim()) return null;
+    return {
+      tenantId: String(row.tenant_id).trim(),
+      workspaceId: row.id != null ? String(row.id).trim() : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve tenant/workspace from WORKSPACE_ID binding or explicit workspace id.
+ * @param {any} env
+ * @param {string | null | undefined} [workspaceId]
+ */
+export async function resolvePlatformWebhookScope(env, workspaceId) {
+  const db = env?.DB;
+  if (!db) return null;
+  const ws =
+    workspaceId != null && String(workspaceId).trim()
+      ? String(workspaceId).trim()
+      : env?.WORKSPACE_ID != null
+        ? String(env.WORKSPACE_ID).trim()
+        : '';
+  if (!ws) return null;
+  try {
+    const row = await db
+      .prepare(`SELECT id, tenant_id FROM workspaces WHERE id = ? LIMIT 1`)
+      .bind(ws)
+      .first();
+    if (!row?.tenant_id || !String(row.tenant_id).trim()) return null;
+    return {
+      tenantId: String(row.tenant_id).trim(),
+      workspaceId: row.id != null ? String(row.id).trim() : ws,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve NOT NULL tenant_id + optional workspace_id for agentsam_webhook_events inserts.
+ * @param {any} env
+ * @param {Parameters<typeof insertAgentsamWebhookEvent>[1]} opts
+ */
+export async function resolveWebhookInsertScope(env, opts) {
+  let tenantId = resolveWebhookTenantId(env, opts.tenantId);
+  let workspaceId =
+    opts.workspaceId != null && String(opts.workspaceId).trim() !== ''
+      ? String(opts.workspaceId).trim()
+      : null;
+
+  if (!tenantId && env?.DB && String(opts.provider || '').trim().toLowerCase() === 'github') {
+    const repo =
+      opts.metadata?.repo_full_name ??
+      /** @type {any} */ (opts.payload)?.repository?.full_name ??
+      null;
+    const scope = await lookupWorkspaceScopeByGithubRepo(env.DB, repo);
+    if (scope) {
+      tenantId = scope.tenantId;
+      workspaceId = workspaceId || scope.workspaceId;
+    }
+  }
+
+  if (!tenantId) {
+    const platform = await resolvePlatformWebhookScope(env, workspaceId);
+    if (platform) {
+      tenantId = platform.tenantId;
+      workspaceId = workspaceId || platform.workspaceId;
+    }
+  }
+
+  return { tenantId, workspaceId };
 }
 
 /**
@@ -99,11 +202,13 @@ export async function insertAgentsamWebhookEvent(env, opts) {
   if (!provider || !eventType) return { ok: false, reason: 'missing_provider_or_event_type' };
 
   const id = opts.id != null ? String(opts.id).trim() : newWebhookEventId();
-  const tenantId = resolveWebhookTenantId(env, opts.tenantId);
-  const workspaceId =
-    opts.workspaceId != null && String(opts.workspaceId).trim() !== ''
-      ? String(opts.workspaceId).trim()
-      : null;
+  const scope = await resolveWebhookInsertScope(env, opts);
+  const tenantId = scope.tenantId;
+  const workspaceId = scope.workspaceId;
+  if (cols.has('tenant_id') && !tenantId) {
+    console.warn('[webhook-events] insert skipped: missing tenant_id', provider, eventType);
+    return { ok: false, reason: 'missing_tenant_id' };
+  }
   const receivedUnix = Math.floor(Date.now() / 1000);
 
   let endpointId = opts.endpointId != null ? String(opts.endpointId).trim() : '';

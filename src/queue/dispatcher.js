@@ -30,14 +30,22 @@ async function recordWebhookEvent(env, ctx, tenantId, workspaceId, body) {
   const isCfSystem = typeof body?.type === 'string' && body.type.startsWith('cf.workers');
   const provider = isCfSystem ? 'cloudflare' : 'internal';
   const { ingestWebhookEventAndDispatch } = await import('../core/webhook-ingest-dispatch.js');
+  const { resolveWebhookInsertScope } = await import('../core/webhook-events-writer.js');
+  const scope = await resolveWebhookInsertScope(env, {
+    tenantId: tenantId ?? null,
+    workspaceId: workspaceId ?? null,
+    provider,
+    eventType: String(body?.type ?? 'unknown'),
+    payload: typeof body === 'object' && body ? body : null,
+  });
   await ingestWebhookEventAndDispatch(env, ctx, {
-    tenantId: isCfSystem ? null : tenantId ?? null,
-    workspaceId: isCfSystem ? null : workspaceId ?? null,
+    tenantId: scope.tenantId ?? null,
+    workspaceId: scope.workspaceId ?? null,
     provider,
     eventType: String(body?.type ?? 'unknown'),
     payload: {
       ...(typeof body === 'object' && body ? body : {}),
-      workspace_id: workspaceId,
+      workspace_id: scope.workspaceId ?? workspaceId ?? null,
     },
     endpointPath: '/api/webhooks/cloudflare',
     signatureValid: true,
@@ -133,8 +141,14 @@ export async function dispatchQueueMessage(env, ctx, queueMsg) {
     return { handled: true, kind: 'playwright_job' };
   }
 
+  if (typeof body.type === 'string' && body.type.startsWith('cf.workersBuilds.')) {
+    await recordWebhookEvent(env, ctx, tenantId, workspaceId, body);
+    return { handled: true, kind: body.type };
+  }
+
   if (tenantId && workspaceId) {
     await recordWebhookEvent(env, ctx, tenantId, workspaceId, body);
+    return { handled: true, kind: typeof body.type === 'string' ? body.type : 'webhook_event' };
   }
 
   const kind = typeof body.type === 'string' ? body.type : 'unknown';

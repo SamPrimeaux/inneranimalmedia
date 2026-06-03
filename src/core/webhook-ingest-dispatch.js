@@ -4,6 +4,7 @@
 import {
   insertAgentsamWebhookEvent,
   markAgentsamWebhookEventProcessed,
+  resolveWebhookInsertScope,
 } from './webhook-events-writer.js';
 import { dispatchWebhookRegistryWorkflow } from './webhook-workflow-dispatch.js';
 
@@ -14,7 +15,13 @@ import { dispatchWebhookRegistryWorkflow } from './webhook-workflow-dispatch.js'
  * @param {{ skipDispatch?: boolean }} [extra]
  */
 export async function ingestWebhookEventAndDispatch(env, ctx, opts, extra = {}) {
-  const ins = await insertAgentsamWebhookEvent(env, opts);
+  const scope = await resolveWebhookInsertScope(env, opts);
+  const merged = {
+    ...opts,
+    tenantId: scope.tenantId ?? opts.tenantId ?? null,
+    workspaceId: scope.workspaceId ?? opts.workspaceId ?? null,
+  };
+  const ins = await insertAgentsamWebhookEvent(env, merged);
   if (!ins?.ok || !ins?.id) {
     return { ok: false, reason: ins?.reason ?? 'insert_failed', id: ins?.id ?? null };
   }
@@ -24,21 +31,21 @@ export async function ingestWebhookEventAndDispatch(env, ctx, opts, extra = {}) 
   if (!extra.skipDispatch) {
     await dispatchWebhookRegistryWorkflow(env, ctx, {
       eventId: ins.id,
-      provider: opts.provider,
-      eventType: opts.eventType,
+      provider: merged.provider,
+      eventType: merged.eventType,
       payload:
-        opts.payload ??
-        (opts.payloadJson
+        merged.payload ??
+        (merged.payloadJson
           ? (() => {
               try {
-                return JSON.parse(String(opts.payloadJson));
+                return JSON.parse(String(merged.payloadJson));
               } catch {
-                return { _raw: String(opts.payloadJson).slice(0, 4000) };
+                return { _raw: String(merged.payloadJson).slice(0, 4000) };
               }
             })()
           : null),
-      tenantId: opts.tenantId ?? null,
-      workspaceId: opts.workspaceId ?? null,
+      tenantId: merged.tenantId ?? null,
+      workspaceId: merged.workspaceId ?? null,
     });
   }
 
