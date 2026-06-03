@@ -15,6 +15,15 @@ source ~/.zshrc
 
 That script sources repo `.env.cloudflare` + `.mcp_exports.sh` from zsh, comments stale `MCP_AUTH_TOKEN` exports, and syncs the rotated bearer into `.env.cloudflare`. OAuth MCP clients (Cursor, ChatGPT) still need a fresh consent at `https://mcp.inneranimalmedia.com/auth/connect` — shell env alone does not replace OAuth.
 
+**Remote GCP terminal (agents on `terminal.inneranimalmedia.com`):** Mac `.env.cloudflare` is **not** copied automatically by the zsh install alone. Sync PTY tokens + full repo env to the VM:
+
+```bash
+./scripts/install-terminal-tunnel-env.sh    # PTY_AUTH_TOKEN → Mac + Workers + GCP iam-pty
+./scripts/sync-vm-env-cloudflare.sh       # .env.cloudflare + .mcp_exports.sh → VM repo (chmod 600)
+```
+
+Both are safe to re-run after rotating tokens in `.env.cloudflare` or `.mcp_exports.sh`.
+
 CLI-only sync (does not patch zshrc):
 
 ```bash

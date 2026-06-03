@@ -1,0 +1,145 @@
+#!/usr/bin/env zsh
+# Securely sync gitignored env from Mac repo SSOT → GCP iam-tunnel VM repo path(s).
+# Never commits secrets. Remote files are chmod 600.
+#
+# Usage (repo root):
+#   ./scripts/sync-vm-env-cloudflare.sh
+#   ./scripts/sync-vm-env-cloudflare.sh --dry-run
+#
+# Optional in .env.cloudflare (comma-separated absolute paths on VM):
+#   IAM_VM_ENV_REPO_PATHS=/workspace/tenant_sam_primeaux/au_871d920d1233cbd1/inneranimalmedia
+
+emulate -R zsh
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ENV_FILE="${REPO_ROOT}/.env.cloudflare"
+MCP_EXPORTS="${REPO_ROOT}/.mcp_exports.sh"
+GCP_VM_NAME="${GCP_VM_NAME:-iam-tunnel}"
+DRY_RUN=0
+
+for arg in "$@"; do
+  [[ "$arg" == --dry-run ]] && DRY_RUN=1
+done
+
+if [[ ! -f "$ENV_FILE" ]]; then
+  echo "Missing $ENV_FILE" >&2
+  exit 1
+fi
+
+set -a
+# shellcheck source=/dev/null
+source "$ENV_FILE"
+set +a
+
+GCP_PROJECT="${GCP_PROJECT_ID:-$(gcloud config get-value project 2>/dev/null || true)}"
+GCP_ZONE_VAL="${GCP_ZONE:-}"
+if [[ -z "$GCP_ZONE_VAL" && -n "$GCP_PROJECT" ]]; then
+  GCP_ZONE_VAL="$(gcloud compute instances list \
+    --project="$GCP_PROJECT" \
+    --filter="name=$GCP_VM_NAME" \
+    --format='value(zone)' 2>/dev/null | head -1 || true)"
+fi
+
+if ! command -v gcloud >/dev/null 2>&1; then
+  echo "Skip VM env: gcloud not installed" >&2
+  exit 0
+fi
+if [[ -z "$GCP_PROJECT" || -z "$GCP_ZONE_VAL" ]]; then
+  echo "Skip VM env: set GCP_PROJECT_ID and GCP_ZONE in .env.cloudflare" >&2
+  exit 0
+fi
+
+DEFAULT_REPO="/workspace/tenant_sam_primeaux/au_871d920d1233cbd1/inneranimalmedia"
+VM_PATHS="${IAM_VM_ENV_REPO_PATHS:-$DEFAULT_REPO}"
+
+if (( DRY_RUN )); then
+  echo "[dry-run] would scp .env.cloudflare (+ .mcp_exports.sh if present) to ${GCP_VM_NAME}"
+  echo "[dry-run] target repo paths: ${VM_PATHS}"
+  exit 0
+fi
+
+gcloud compute ssh "$GCP_VM_NAME" --project="$GCP_PROJECT" --zone="$GCP_ZONE_VAL" \
+  --command='rm -rf /tmp/iam-env-sync && mkdir -p /tmp/iam-env-sync && chmod 700 /tmp/iam-env-sync'
+
+gcloud compute scp "$ENV_FILE" \
+  "${GCP_VM_NAME}:/tmp/iam-env-sync/.env.cloudflare" \
+  --project="$GCP_PROJECT" \
+  --zone="$GCP_ZONE_VAL"
+
+if [[ -f "$MCP_EXPORTS" ]]; then
+  gcloud compute scp "$MCP_EXPORTS" \
+    "${GCP_VM_NAME}:/tmp/iam-env-sync/.mcp_exports.sh" \
+    --project="$GCP_PROJECT" \
+    --zone="$GCP_ZONE_VAL"
+fi
+
+gcloud compute ssh "$GCP_VM_NAME" --project="$GCP_PROJECT" --zone="$GCP_ZONE_VAL" \
+  --command="export PATHS=$(printf '%q' "$VM_PATHS"); export DEFAULT_REPO=$(printf '%q' "$DEFAULT_REPO"); bash -s" <<'REMOTE'
+set -euo pipefail
+if ! command -v zsh >/dev/null 2>&1; then
+  if command -v apt-get >/dev/null 2>&1; then
+    sudo apt-get update -qq && sudo apt-get install -y -qq zsh
+    echo "OK: installed zsh for with-cloudflare-env.sh"
+  else
+    echo "WARN: zsh missing — install manually for ./scripts/with-cloudflare-env.sh" >&2
+  fi
+fi
+IFS=',' read -ra REPOS <<< "$PATHS"
+for repo in "${REPOS[@]}"; do
+  repo="${repo// /}"
+  [[ -n "$repo" ]] || continue
+  mkdir -p "$repo"
+  cp /tmp/iam-env-sync/.env.cloudflare "$repo/.env.cloudflare"
+  chmod 600 "$repo/.env.cloudflare"
+  if [[ -f /tmp/iam-env-sync/.mcp_exports.sh ]]; then
+    cp /tmp/iam-env-sync/.mcp_exports.sh "$repo/.mcp_exports.sh"
+    chmod 600 "$repo/.mcp_exports.sh"
+  fi
+  echo "OK: synced env → $repo"
+done
+rm -rf /tmp/iam-env-sync
+
+MARK_BEGIN='# >>> IAM local env (inneranimalmedia) — managed by scripts/sync-vm-env-cloudflare.sh >>>'
+MARK_END='# <<< IAM local env (inneranimalmedia) <<<'
+ZSHRC="${HOME}/.zshrc"
+touch "$ZSHRC"
+if ! grep -Fq "$MARK_BEGIN" "$ZSHRC"; then
+  {
+    echo ''
+    echo "$MARK_BEGIN"
+    echo "export IAM_REPO=\"$DEFAULT_REPO\""
+    echo 'if [[ -f "$IAM_REPO/scripts/lib/load-iam-local-env.sh" ]]; then'
+    echo '  source "$IAM_REPO/scripts/lib/load-iam-local-env.sh"'
+    echo 'fi'
+    echo "$MARK_END"
+  } >> "$ZSHRC"
+  echo "OK: appended IAM env block to $ZSHRC"
+else
+  echo "OK: IAM env block already in $ZSHRC"
+fi
+
+BASHRC="${HOME}/.bashrc"
+touch "$BASHRC"
+if ! grep -Fq "$MARK_BEGIN" "$BASHRC"; then
+  {
+    echo ''
+    echo "$MARK_BEGIN"
+    echo "export IAM_REPO=\"$DEFAULT_REPO\""
+    echo 'if [[ -f "$IAM_REPO/.env.cloudflare" ]]; then'
+    echo '  set -a'
+    echo '  # shellcheck source=/dev/null'
+    echo '  source "$IAM_REPO/.env.cloudflare"'
+    echo '  [[ -f "$IAM_REPO/.mcp_exports.sh" ]] && source "$IAM_REPO/.mcp_exports.sh"'
+    echo '  set +a'
+    echo 'fi'
+    echo "$MARK_END"
+  } >> "$BASHRC"
+  echo "OK: appended IAM env block to $BASHRC"
+else
+  echo "OK: IAM env block already in $BASHRC"
+fi
+REMOTE
+
+echo "Done: VM env synced (chmod 600). On GCP PTY:"
+echo "  source ${DEFAULT_REPO}/scripts/lib/load-iam-local-env.sh"

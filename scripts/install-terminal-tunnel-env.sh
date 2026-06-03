@@ -221,5 +221,12 @@ echo "=== install-terminal-tunnel-env ==="
 (( DO_MAC )) && sync_mac
 (( DO_WORKERS )) && sync_workers
 (( DO_GCP )) && sync_gcp
+if (( DO_GCP )) && [[ -x "${REPO_ROOT}/scripts/sync-vm-env-cloudflare.sh" ]]; then
+  if (( DRY_RUN )); then
+    "${REPO_ROOT}/scripts/sync-vm-env-cloudflare.sh" --dry-run
+  else
+    "${REPO_ROOT}/scripts/sync-vm-env-cloudflare.sh"
+  fi
+fi
 verify_endpoints
 echo "Done."
