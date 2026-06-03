@@ -1,10 +1,15 @@
 /**
  * Integration Layer: OpenAI
  * Streaming chat completions via api.openai.com.
- * Key resolved via resolveOpenAiApiKey (OPENAI_API_KEY vs AGENTSAMGPT_SERVICEKEY + BYOK).
+ * Key resolved via resolveOpenAiCompatibleApiKey (OpenAI, DeepSeek, BYOK).
  * Proxies OpenAI SSE stream directly — frontend handles choices[0].delta.content format.
  */
-import { resolveOpenAiApiKey } from './openai-credentials.js';
+import {
+  resolveOpenAiApiKey,
+  resolveOpenAiCompatibleApiKey,
+  resolveOpenAiCompatibleBaseUrl,
+  isDeepSeekOpenAiCompatibleDispatch,
+} from './openai-credentials.js';
 import {
   applyOpenAiChatCompletionsOutputLimit,
   applyOpenAiResponsesTokenLimit,
@@ -12,6 +17,120 @@ import {
 import { jsonResponse } from '../core/responses.js';
 
 const OPENAI_BASE = 'https://api.openai.com/v1';
+
+/** @param {Record<string, unknown>} params */
+function openAiCompatDispatchOpts(params) {
+  const strictTools = params.deepseekStrictTools ?? params.deepseek_strict_tools ?? false;
+  return {
+    secretKeyName: params.secretKeyName ?? params.secret_key_name,
+    apiPlatform: params.apiPlatform ?? params.api_platform,
+    provider: params.provider,
+    deepseekStrictTools: strictTools,
+    deepseekBeta: params.deepseekBeta ?? params.deepseek_beta ?? strictTools,
+  };
+}
+
+/** DeepSeek v4 effort mapping when thinking mode is on. */
+function mapDeepSeekReasoningEffort(raw) {
+  const e = String(raw ?? '').trim().toLowerCase();
+  if (!e || e === 'none') return 'high';
+  if (e === 'low' || e === 'medium') return 'high';
+  if (e === 'xhigh' || e === 'maximal') return 'max';
+  if (e === 'high' || e === 'max') return e;
+  return 'high';
+}
+
+/** @returns {'enabled'|null} null = omit thinking (non-thinking tool-call path). */
+function resolveDeepSeekThinkingType(modelForApi, params) {
+  const explicit = params.thinkingMode ?? params.thinking_mode ?? params.thinking;
+  if (explicit === 'disabled' || explicit === false || explicit === 'off') return null;
+  if (explicit === 'enabled' || explicit === true) return 'enabled';
+
+  const policy = String(params.thinkingPolicy ?? params.thinking_policy ?? '').trim().toLowerCase();
+  if (policy === 'omitted' || policy === 'disabled' || policy === 'off' || policy === 'non_thinking') {
+    return null;
+  }
+  if (policy === 'enabled' || policy === 'adaptive' || policy === 'thinking' || policy === 'adaptive_only') {
+    return 'enabled';
+  }
+
+  const m = String(modelForApi || '').trim().toLowerCase();
+  if (m.includes('reasoner') || m.endsWith('-r1') || m === 'deepseek-r1') return 'enabled';
+  if (m.includes('v4-pro')) return 'enabled';
+  if (m.includes('v4-flash')) return null;
+  return null;
+}
+
+/** @param {Record<string, unknown>} body @param {{ modelForApi: string, reasoningEffort?: string|null, verbosity?: string|null, params?: Record<string, unknown> }} opts */
+function applyDeepSeekChatCompletionsBody(body, { modelForApi, reasoningEffort, verbosity, params = {} }) {
+  const next = { ...body };
+  delete next.reasoning;
+  delete next.text;
+  delete next.temperature;
+  delete next.top_p;
+  delete next.presence_penalty;
+  delete next.frequency_penalty;
+  void verbosity;
+
+  const thinkingType = resolveDeepSeekThinkingType(modelForApi, params);
+  const jsonOutput = next.response_format?.type === 'json_object';
+  if (!jsonOutput && thinkingType === 'enabled') {
+    next.thinking = { type: 'enabled' };
+    next.reasoning_effort = mapDeepSeekReasoningEffort(reasoningEffort);
+  }
+  return next;
+}
+
+/**
+ * OpenAI / DeepSeek chat.completions response_format (JSON Output).
+ * @param {Record<string, unknown>} params
+ * @param {{ hasTools?: boolean }} [opts]
+ */
+function resolveChatCompletionsResponseFormat(params, opts = {}) {
+  const hasTools = opts.hasTools === true;
+  const explicit = params.responseFormat ?? params.response_format ?? null;
+  if (explicit && typeof explicit === 'object') {
+    if (hasTools && explicit.type === 'json_object' && params.forceJsonOutput !== true) return null;
+    return explicit;
+  }
+  const wantJson =
+    params.jsonMode === true ||
+    params.json_mode === true ||
+    params.requireJsonOutput === true ||
+    params.require_json_output === true;
+  if (wantJson && !hasTools) return { type: 'json_object' };
+  return null;
+}
+
+/** @param {Record<string, unknown>} body @param {Record<string, unknown>} params @param {boolean} hasTools */
+function applyChatCompletionsResponseFormat(body, params, hasTools) {
+  const rf = resolveChatCompletionsResponseFormat(params, { hasTools });
+  if (!rf) return body;
+  return { ...body, response_format: rf };
+}
+
+/** @param {Record<string, unknown>} body @param {Record<string, unknown>} params @param {string} modelForApi @param {{ secretKeyName?: string|null, apiPlatform?: string|null, provider?: string|null }} compatOpts */
+function finalizeOpenAiCompatibleChatBody(body, params, modelForApi, compatOpts) {
+  const reasoningEffort = params.reasoningEffort || null;
+  const verbosity = params.verbosity || null;
+  if (!isDeepSeekOpenAiCompatibleDispatch(compatOpts)) return body;
+  return applyDeepSeekChatCompletionsBody(body, { modelForApi, reasoningEffort, verbosity, params });
+}
+
+/** Extract DeepSeek/OpenAI assistant reasoning_content from internal message shape. */
+function assistantReasoningContentFromMessage(msg) {
+  if (typeof msg?.reasoning_content === 'string' && msg.reasoning_content.trim()) {
+    return msg.reasoning_content;
+  }
+  if (Array.isArray(msg?.content)) {
+    const fromBlocks = msg.content
+      .filter((b) => b?.type === 'reasoning')
+      .map((b) => (typeof b.text === 'string' ? b.text : ''))
+      .join('');
+    if (fromBlocks.trim()) return fromBlocks;
+  }
+  return '';
+}
 
 /** Strip obvious secrets before logging provider error bodies. */
 function sanitizeOpenAiErrorBodyForLog(text) {
@@ -21,20 +140,35 @@ function sanitizeOpenAiErrorBodyForLog(text) {
 
 // ─── Tool Format ──────────────────────────────────────────────────────────────
 
+function deepSeekStrictToolsEnabled(params) {
+  return (
+    params.deepseekStrictTools === true ||
+    params.deepseek_strict_tools === true ||
+    String(params.toolInvocationStyle ?? params.tool_invocation_style ?? '').trim().toLowerCase() ===
+      'deepseek_strict'
+  );
+}
+
 /**
  * Convert Anthropic-style tools to OpenAI function format.
- * Passes through tools already in OpenAI format.
+ * @param {unknown[]} tools
+ * @param {{ deepseekStrictTools?: boolean }} [opts]
  */
-function toOpenAITools(tools) {
+function toOpenAITools(tools, opts = {}) {
   if (!tools?.length) return undefined;
+  const strict = opts.deepseekStrictTools === true;
   return tools.map(t => {
-    if (t.type === 'function') return t; // already OpenAI format
+    if (t.type === 'function') {
+      if (!strict || !t.function) return t;
+      return { ...t, function: { ...t.function, strict: true } };
+    }
     return {
       type: 'function',
       function: {
         name:        t.name,
         description: t.description || '',
         parameters:  t.input_schema || { type: 'object', properties: {} },
+        ...(strict ? { strict: true } : {}),
       },
     };
   });
@@ -129,7 +263,18 @@ function buildOpenAIMessages(systemPrompt, messages) {
   }
 
   for (const msg of messages) {
-    // Convert Anthropic tool_use blocks to OpenAI tool_calls
+    if (msg.role === 'assistant' && typeof msg.content === 'string') {
+      const reasoning_content = assistantReasoningContentFromMessage(msg);
+      normalized.push({
+        role: 'assistant',
+        content: msg.content,
+        ...(reasoning_content ? { reasoning_content } : {}),
+        ...(Array.isArray(msg.tool_calls) && msg.tool_calls.length ? { tool_calls: msg.tool_calls } : {}),
+      });
+      continue;
+    }
+
+    // Convert Anthropic tool_use blocks to OpenAI tool_calls (+ DeepSeek reasoning_content)
     if (msg.role === 'assistant' && Array.isArray(msg.content)) {
       const textParts  = msg.content.filter(b => b.type === 'text').map(b => b.text).join('');
       const toolCalls  = msg.content
@@ -139,10 +284,12 @@ function buildOpenAIMessages(systemPrompt, messages) {
           type:     'function',
           function: { name: b.name, arguments: JSON.stringify(b.input || {}) },
         }));
+      const reasoning_content = assistantReasoningContentFromMessage(msg);
 
       normalized.push({
         role:       'assistant',
         content:    textParts || null,
+        ...(reasoning_content ? { reasoning_content } : {}),
         ...(toolCalls.length ? { tool_calls: toolCalls } : {}),
       });
       continue;
@@ -170,6 +317,8 @@ function buildOpenAIMessages(systemPrompt, messages) {
   return normalized;
 }
 
+export { buildOpenAIMessages, assistantReasoningContentFromMessage };
+
 // ─── Main Export ──────────────────────────────────────────────────────────────
 
 /**
@@ -183,14 +332,20 @@ export async function chatWithToolsOpenAI(env, request, params) {
       ? String(providerModelId).trim()
       : String(modelKey || '').trim();
 
-  const apiKey = await resolveOpenAiApiKey(env, modelKey, userId, {
-    secretKeyName: params.secretKeyName ?? params.secret_key_name,
-  });
-  if (!apiKey) return jsonResponse({ error: 'OpenAI API key not configured' }, 503);
+  const compatOpts = openAiCompatDispatchOpts(params);
+  const apiKey = await resolveOpenAiCompatibleApiKey(env, modelKey, userId, compatOpts);
+  const apiBase = resolveOpenAiCompatibleBaseUrl(compatOpts);
+  if (!apiKey) {
+    return jsonResponse(
+      { error: isDeepSeekOpenAiCompatibleDispatch(compatOpts) ? 'DeepSeek API key not configured' : 'OpenAI API key not configured' },
+      503,
+    );
+  }
   if (!modelForApi) return jsonResponse({ error: 'modelKey required' }, 400);
 
   const oaiMessages = buildOpenAIMessages(systemPrompt, messages);
-  const oaiTools    = toOpenAITools(tools);
+  const deepseekStrict = isDeepSeekOpenAiCompatibleDispatch(compatOpts) && deepSeekStrictToolsEnabled(params);
+  const oaiTools = toOpenAITools(tools, { deepseekStrictTools: deepseekStrict });
 
   const reasoningEffort = params.reasoningEffort || null;
   const verbosity       = params.verbosity       || null;
@@ -206,10 +361,15 @@ export async function chatWithToolsOpenAI(env, request, params) {
   if (params.maxOutputTokens != null) {
     body = applyOpenAiChatCompletionsOutputLimit(body, modelForApi, params.maxOutputTokens);
   }
+  body = applyChatCompletionsResponseFormat(body, params, Boolean(oaiTools?.length));
+  body = finalizeOpenAiCompatibleChatBody(body, params, modelForApi, compatOpts);
+  if (isDeepSeekOpenAiCompatibleDispatch(compatOpts) && body.stream === true) {
+    body.stream_options = { include_usage: true };
+  }
 
   let upstream;
   try {
-    upstream = await fetch(`${OPENAI_BASE}/chat/completions`, {
+    upstream = await fetch(`${apiBase}/chat/completions`, {
       method:  'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
@@ -260,10 +420,15 @@ export async function chatWithToolsOpenAIResponses(env, request, params) {
       ? String(providerModelId).trim()
       : String(modelKey || '').trim();
 
-  const apiKey = await resolveOpenAiApiKey(env, modelKey, userId, {
-    secretKeyName: params.secretKeyName ?? params.secret_key_name,
-  });
-  if (!apiKey) return jsonResponse({ error: 'OpenAI API key not configured' }, 503);
+  const compatOpts = openAiCompatDispatchOpts(params);
+  const apiKey = await resolveOpenAiCompatibleApiKey(env, modelKey, userId, compatOpts);
+  const apiBase = resolveOpenAiCompatibleBaseUrl(compatOpts);
+  if (!apiKey) {
+    return jsonResponse(
+      { error: isDeepSeekOpenAiCompatibleDispatch(compatOpts) ? 'DeepSeek API key not configured' : 'OpenAI API key not configured' },
+      503,
+    );
+  }
   if (!modelForApi) return jsonResponse({ error: 'modelKey required' }, 400);
 
   const prev = openaiPreviousResponseId != null ? String(openaiPreviousResponseId).trim() : '';
@@ -286,7 +451,7 @@ export async function chatWithToolsOpenAIResponses(env, request, params) {
 
   let upstream;
   try {
-    upstream = await fetch(`${OPENAI_BASE}/responses`, {
+    upstream = await fetch(`${apiBase}/responses`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -348,10 +513,10 @@ export async function completeWithOpenAIResponsesNonStream(env, params) {
       ? String(providerModelId).trim()
       : String(modelKey || '').trim();
 
-  const apiKey = await resolveOpenAiApiKey(env, modelKey, userId, {
-    secretKeyName: params.secretKeyName ?? params.secret_key_name,
-  });
-  if (!apiKey) throw new Error('OpenAI API key not configured');
+  const compatOpts = openAiCompatDispatchOpts(params);
+  const apiKey = await resolveOpenAiCompatibleApiKey(env, modelKey, userId, compatOpts);
+  const apiBase = resolveOpenAiCompatibleBaseUrl(compatOpts);
+  if (!apiKey) throw new Error(isDeepSeekOpenAiCompatibleDispatch(compatOpts) ? 'DeepSeek API key not configured' : 'OpenAI API key not configured');
   if (!modelForApi) throw new Error('modelKey required');
 
   const prev = openaiPreviousResponseId != null ? String(openaiPreviousResponseId).trim() : '';
@@ -374,7 +539,7 @@ export async function completeWithOpenAIResponsesNonStream(env, params) {
 
   let res;
   try {
-    res = await fetch(`${OPENAI_BASE}/responses`, {
+    res = await fetch(`${apiBase}/responses`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -422,13 +587,14 @@ export async function completeWithOpenAI(env, params) {
       ? String(providerModelId).trim()
       : String(modelKey || '').trim();
 
-  const apiKey = await resolveOpenAiApiKey(env, modelKey, userId, {
-    secretKeyName: params.secretKeyName ?? params.secret_key_name,
-  });
-  if (!apiKey) throw new Error('OpenAI API key not configured');
+  const compatOpts = openAiCompatDispatchOpts(params);
+  const apiKey = await resolveOpenAiCompatibleApiKey(env, modelKey, userId, compatOpts);
+  const apiBase = resolveOpenAiCompatibleBaseUrl(compatOpts);
+  if (!apiKey) throw new Error(isDeepSeekOpenAiCompatibleDispatch(compatOpts) ? 'DeepSeek API key not configured' : 'OpenAI API key not configured');
 
   const oaiMessages = buildOpenAIMessages(systemPrompt, messages);
-  const oaiTools    = toOpenAITools(tools);
+  const deepseekStrict = isDeepSeekOpenAiCompatibleDispatch(compatOpts) && deepSeekStrictToolsEnabled(params);
+  const oaiTools = toOpenAITools(tools, { deepseekStrictTools: deepseekStrict });
 
   let body = {
     model:    modelForApi,
@@ -438,8 +604,10 @@ export async function completeWithOpenAI(env, params) {
   if (params.maxOutputTokens != null) {
     body = applyOpenAiChatCompletionsOutputLimit(body, modelForApi, params.maxOutputTokens);
   }
+  body = applyChatCompletionsResponseFormat(body, params, Boolean(oaiTools?.length));
+  body = finalizeOpenAiCompatibleChatBody(body, params, modelForApi, compatOpts);
 
-  const res = await fetch(`${OPENAI_BASE}/chat/completions`, {
+  const res = await fetch(`${apiBase}/chat/completions`, {
     method:  'POST',
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body:    JSON.stringify(body),

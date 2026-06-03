@@ -348,6 +348,7 @@ export function deriveProvider(modelKey, fallback = null) {
   if (k.startsWith('claude-')) return 'anthropic';
   if (k.startsWith('gemini-')) return 'google';
   if (k.startsWith('llama') || k.startsWith('wai-') || k.startsWith('@cf/')) return 'workers_ai';
+  if (k.startsWith('deepseek-') || k === 'deepseek-r1' || k === 'deepseek-v3') return 'deepseek';
   if (k.startsWith('qwen') || k.includes('deepseek')) return 'ollama';
   return fallback;
 }

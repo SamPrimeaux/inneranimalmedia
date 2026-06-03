@@ -75,6 +75,7 @@ import {
 } from '../core/agent-policy.js';
 import {
   aggregateAnthropicUsageTokens,
+  aggregateOpenAiCompatibleUsageTokens,
   extractCompactionFromAnthropicUsage,
   scheduleCompactionFromAnthropicUsage,
   scheduleInsertAgentCost,
@@ -3690,11 +3691,19 @@ async function consumeOpenAIChatCompletionsSse(readable, emit) {
   /** @type {Map<number, { id?: string, name?: string, args: string }>} */
   const tcByIndex = new Map();
   let textBuf = '';
+  let reasoningBuf = '';
   /** @type {string|null} */
   let finishReason = null;
+  /** @type {Record<string, unknown>|null} */
+  let usage = null;
 
   const mergeDelta = (delta) => {
     if (delta == null || typeof delta !== 'object') return;
+    const reasoning = delta.reasoning_content;
+    if (typeof reasoning === 'string' && reasoning) {
+      reasoningBuf += reasoning;
+      emit('reasoning', { text: reasoning });
+    }
     const content = delta.content;
     if (typeof content === 'string' && content) {
       textBuf += content;
@@ -3724,6 +3733,9 @@ async function consumeOpenAIChatCompletionsSse(readable, emit) {
       return;
     }
     const choices = json?.choices;
+    if (json?.usage && typeof json.usage === 'object') {
+      usage = json.usage;
+    }
     if (!Array.isArray(choices) || !choices.length) return;
     const ch = choices[0];
     if (ch.finish_reason != null && String(ch.finish_reason).trim() !== '') {
@@ -3767,7 +3779,14 @@ async function consumeOpenAIChatCompletionsSse(readable, emit) {
     }))
     .filter((c) => c.name);
 
-  return { text: textBuf, finishReason, pendingToolCalls };
+  return {
+    text: textBuf,
+    reasoningContent: reasoningBuf,
+    finishReason,
+    pendingToolCalls,
+    usage,
+    ...aggregateOpenAiCompatibleUsageTokens(usage),
+  };
 }
 
 /**
@@ -4263,6 +4282,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     const pendingToolCalls = [];
     let stopReason = null, turnUsage = null, containerId = null;
     const assistantContent = [];
+    let assistantReasoningContent = '';
 
     const extractWorkersAiLineToken = (obj) => {
       if (!obj || typeof obj !== 'object') return '';
@@ -4381,7 +4401,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
       const platform = String(streamMeta?.api_platform || '').toLowerCase();
       const useOpenAIResponses = platform === 'openai_responses' || platform === 'responses';
       const useOpenAIChatCompletions =
-        platform === 'openai' || platform === 'openai_chat_completions';
+        platform === 'openai' || platform === 'openai_chat_completions' || platform === 'deepseek';
       const useOpenAiShapedToolStream =
         tools.length > 0 &&
         (useOpenAIChatCompletions || platform === 'gemini_api');
@@ -4389,6 +4409,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
       const applyNormalizedOpenAI = (parsed) => {
         const textBlock = assistantContent[assistantContent.length - 1];
         if (textBlock && textBlock.type === 'text') textBlock.text = parsed.text || '';
+        assistantReasoningContent = String(parsed.reasoningContent || '').trim();
         for (const tc of parsed.pendingToolCalls) {
           const linkId = String(tc.call_id || tc.id || '').trim() || tc.id;
           assistantContent.push({ type: 'tool_use', id: linkId, name: tc.name, input: tc.input });
@@ -4401,6 +4422,12 @@ async function runAgentToolLoop(env, ctx, emit, params) {
             : fr === 'stop' || fr === '' || fr === 'end_turn' || fr === 'completed'
               ? 'end_turn'
               : fr || 'end_turn';
+        if (parsed.input_tokens || parsed.output_tokens || parsed.cache_read_input_tokens) {
+          totalUsage.input_tokens += parsed.input_tokens || 0;
+          totalUsage.output_tokens += parsed.output_tokens || 0;
+          totalUsage.cache_read_input_tokens += parsed.cache_read_input_tokens || 0;
+          totalUsage.cache_creation_input_tokens += parsed.cache_creation_input_tokens || 0;
+        }
       };
 
       if (stream.body && useOpenAIResponses) {
@@ -4620,7 +4647,11 @@ async function runAgentToolLoop(env, ctx, emit, params) {
       });
     }
 
-    conversationMessages.push({ role: 'assistant', content: assistantContent });
+    conversationMessages.push({
+      role: 'assistant',
+      content: assistantContent,
+      ...(assistantReasoningContent ? { reasoning_content: assistantReasoningContent } : {}),
+    });
 
     if (chatAgentRunId && routingWs && env?.DB) {
       const progressCost = await fetchModelCostUsd(

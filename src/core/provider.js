@@ -128,6 +128,7 @@ async function resolveAutoModelKey(env, params) {
 function pickProviderModelIdFromCatalogRow(row, provider) {
   const p = String(provider || '').toLowerCase();
   if (p === 'openai') return row.openai_model_id ?? null;
+  if (p === 'deepseek') return row.openai_model_id ?? row.model_key ?? null;
   if (p === 'anthropic') return row.anthropic_model_id ?? null;
   if (p === 'google' || p === 'gemini') return row.google_model_id ?? null;
   if (p === 'workers_ai' || p === 'cloudflare') return row.workers_ai_model_id ?? null;
@@ -146,6 +147,7 @@ function deriveApiPlatformFromProvider(provider, rawPlatform) {
   if (plat) return plat;
   const p = String(provider || '').toLowerCase();
   if (p === 'openai') return 'openai_chat_completions';
+  if (p === 'deepseek') return 'deepseek';
   if (p === 'anthropic') return 'anthropic';
   if (p === 'google' || p === 'gemini') return 'gemini_api';
   if (p === 'workers_ai' || p === 'cloudflare') return 'workers_ai';
@@ -168,6 +170,33 @@ function isAnthropicDispatchPlatform(platform, provider) {
   const plat = String(platform || '').toLowerCase();
   const prov = String(provider || '').toLowerCase();
   return plat === 'anthropic' || plat === 'anthropic_messages' || prov === 'anthropic';
+}
+
+function deepseekDispatchExtras(meta, options = {}) {
+  const out = {};
+  if (meta?.thinking_mode != null && String(meta.thinking_mode).trim() !== '') {
+    out.thinkingMode = String(meta.thinking_mode).trim();
+  }
+  if (meta?.thinking_policy != null && String(meta.thinking_policy).trim() !== '') {
+    out.thinkingPolicy = String(meta.thinking_policy).trim();
+  }
+  if (meta?.tool_invocation_style != null && String(meta.tool_invocation_style).trim() !== '') {
+    out.toolInvocationStyle = String(meta.tool_invocation_style).trim();
+  }
+  if (options?.deepseekStrictTools === true || options?.deepseek_strict_tools === true) {
+    out.deepseekStrictTools = true;
+  }
+  const rf = options?.response_format ?? options?.responseFormat ?? null;
+  if (rf && typeof rf === 'object') {
+    out.responseFormat = rf;
+  } else if (
+    options?.jsonMode === true ||
+    options?.json_mode === true ||
+    options?.requireJsonOutput === true
+  ) {
+    out.jsonMode = true;
+  }
+  return out;
 }
 
 function omitAnthropicTemperature(options) {
@@ -238,6 +267,7 @@ function normalizeCatalogModelMeta(catalogRow, colset, logicalModelKey) {
     output_rate_per_mtok: outputMtok,
     tool_invocation_style: colset.has('tool_invocation_style') ? catalogRow.tool_invocation_style ?? null : null,
     thinking_mode: colset.has('thinking_mode') ? catalogRow.thinking_mode ?? null : null,
+    thinking_policy: colset.has('thinking_policy') ? catalogRow.thinking_policy ?? null : null,
     effort: colset.has('effort') ? catalogRow.effort ?? null : null,
   };
 }
@@ -263,7 +293,7 @@ async function fetchCatalogModelRow(db, logicalModelKey) {
     'openai_model_id', 'anthropic_model_id', 'google_model_id', 'workers_ai_model_id', 'vertex_model_id',
     'context_window', 'max_output_tokens', 'context_max_tokens', 'output_max_tokens',
     'cost_per_1k_in', 'cost_per_1k_out', 'input_rate_per_mtok', 'output_rate_per_mtok',
-    'supports_streaming', 'secret_key_name', 'tool_invocation_style', 'thinking_mode', 'effort',
+    'supports_streaming', 'secret_key_name', 'tool_invocation_style', 'thinking_mode', 'thinking_policy', 'effort',
   ];
   const selectList = baseCols.filter((c) => colset.has(c));
   if (!selectList.includes('model_key')) return null;
@@ -482,6 +512,8 @@ export async function dispatchStream(env, request, params) {
     tools,
     userId,
     secretKeyName: meta?.secret_key_name ?? null,
+    provider: meta?.provider ?? null,
+    apiPlatform: platform,
     openaiPreviousResponseId: params.openaiPreviousResponseId ?? null,
     ...options,
     ...(maxOutputTokens != null ? { maxOutputTokens } : {}),
@@ -499,9 +531,11 @@ export async function dispatchStream(env, request, params) {
       ? { lane: String(params.lane).trim() }
       : {}),
     ...(params.signal != null ? { signal: params.signal } : {}),
+    ...deepseekDispatchExtras(meta, options),
   };
 
   switch (platform) {
+    case 'deepseek':
     case 'openai':
     case 'openai_chat_completions':
       return chatWithToolsOpenAI(env, request, dp);
@@ -557,7 +591,7 @@ export async function dispatchStream(env, request, params) {
     default:
       throw new Error(
         `[dispatchProviderChat] unsupported api_platform: "${platform}" for model "${modelKey}". ` +
-        `Check agentsam_model_catalog.api_platform — expected one of: openai, openai_chat_completions, openai_responses, anthropic, gemini_api, vertex, workers_ai, ollama, cursor_sdk.`
+        `Check agentsam_model_catalog.api_platform — expected one of: deepseek, openai, openai_chat_completions, openai_responses, anthropic, gemini_api, vertex, workers_ai, ollama, cursor_sdk.`
       );
   }
 }
@@ -588,12 +622,15 @@ export async function dispatchComplete(env, params) {
     tools,
     userId,
     secretKeyName: meta?.secret_key_name ?? null,
+    provider: meta?.provider ?? null,
+    apiPlatform: platform,
     reasoningEffort: options.reasoningEffort || 'none',
     verbosity: options.verbosity || 'low',
     ...(maxOutputTokens != null ? { maxOutputTokens } : {}),
+    ...deepseekDispatchExtras(meta, options),
   };
 
-  if (platform === 'openai' || platform === 'openai_chat_completions') {
+  if (platform === 'deepseek' || platform === 'openai' || platform === 'openai_chat_completions') {
     return completeWithOpenAI(env, completeOpts);
   }
 
@@ -629,7 +666,7 @@ export async function dispatchComplete(env, params) {
 
   throw new Error(
     `[dispatchComplete] unsupported api_platform: "${platform}" for model "${modelKey}". ` +
-      'Use openai, openai_responses, gemini_api, or anthropic.',
+      'Use deepseek, openai, openai_responses, gemini_api, or anthropic.',
   );
 }
 
