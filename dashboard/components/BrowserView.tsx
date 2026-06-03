@@ -688,6 +688,7 @@ const DevToolsPanel: React.FC<{
   registryPickers:   BrowserRegistryPickers;
 }> = ({ url, onClose, tab, onTabChange, inspectedElement, inspectSameOrigin, registryPickers }) => {
   const [loading, setLoading]       = useState(false);
+  const [tabError, setTabError]     = useState<string | null>(null);
   const [consoleRows, setConsoleRows] = useState<ConsoleMsg[]>([]);
   const [networkRows, setNetworkRows] = useState<Array<NetworkReq & {
     response?: { status?: number; statusText?: string; headers?: Record<string, string> };
@@ -700,13 +701,25 @@ const DevToolsPanel: React.FC<{
   const fetchedRef = useRef({ elements: false, console: false, network: false });
   const consoleEndRef = useRef<HTMLDivElement>(null);
 
+  const devtoolsWorkspaceId =
+    typeof window !== 'undefined'
+      ? String((window as unknown as { __IAM_WORKSPACE_ID__?: string }).__IAM_WORKSPACE_ID__ || '').trim()
+      : '';
+
+  const registryLaneKey = [
+    registryPickers.console,
+    registryPickers.network,
+    registryPickers.snapshot,
+  ].join('|');
+
   useEffect(() => {
     fetchedRef.current = { elements: false, console: false, network: false };
     setConsoleRows([]);
     setNetworkRows([]);
     setSnapshot(null);
     setExpandedNetKey(null);
-  }, [url]);
+    setTabError(null);
+  }, [url, registryLaneKey]);
 
   const mapConsoleType = (t: string): ConsoleMsg['type'] => {
     const u = t.toLowerCase();
@@ -716,17 +729,33 @@ const DevToolsPanel: React.FC<{
     return 'log';
   };
 
+  const cdtParams = useCallback(
+    (extra: Record<string, unknown> = {}) => ({
+      url,
+      ...(devtoolsWorkspaceId && devtoolsWorkspaceId !== 'global'
+        ? { workspace_id: devtoolsWorkspaceId }
+        : {}),
+      ...extra,
+    }),
+    [url, devtoolsWorkspaceId],
+  );
+
   const loadTab = useCallback(async (t: DevToolsTab, force: boolean) => {
     if (!url?.trim()) return;
     if (!force && fetchedRef.current[t]) return;
     setLoading(true);
+    setTabError(null);
     try {
       const consoleTool = registryPickers.console || 'cdt_list_console_messages';
       const networkTool = registryPickers.network || 'cdt_list_network_requests';
       const snapshotTool = registryPickers.snapshot || 'cdt_take_snapshot';
 
       if (t === 'console') {
-        const cons = await invokeCdt(consoleTool, { url, limit: 100 });
+        const cons = await invokeCdt(consoleTool, cdtParams({ limit: 100 }));
+        if (cons.error) {
+          setTabError(String(cons.error));
+          return;
+        }
         const raw = Array.isArray((cons as { messages?: unknown[] })?.messages)
           ? (cons as { messages: Array<{ type?: string; text?: string }> }).messages
           : [];
@@ -738,7 +767,11 @@ const DevToolsPanel: React.FC<{
         setConsoleRows(mapped);
         fetchedRef.current.console = true;
       } else if (t === 'network') {
-        const net = await invokeCdt(networkTool, { url, limit: 100 });
+        const net = await invokeCdt(networkTool, cdtParams({ limit: 100 }));
+        if (net.error) {
+          setTabError(String(net.error));
+          return;
+        }
         const raw = Array.isArray((net as { requests?: unknown[] })?.requests)
           ? (net as { requests: Array<NetworkReq & { resourceType?: string; response?: unknown }> }).requests
           : [];
@@ -753,8 +786,20 @@ const DevToolsPanel: React.FC<{
           response: r.response as { status?: number; statusText?: string; headers?: Record<string, string> } | undefined,
         })));
         fetchedRef.current.network = true;
-      } else if (t === 'elements' && !inspectSameOrigin) {
-        const snap = await invokeCdt(snapshotTool, { url, interestingOnly: true });
+      } else if (t === 'elements') {
+        if (inspectSameOrigin && !inspectedElement) {
+          fetchedRef.current.elements = true;
+          return;
+        }
+        if (inspectedElement) {
+          fetchedRef.current.elements = true;
+          return;
+        }
+        const snap = await invokeCdt(snapshotTool, cdtParams({ interestingOnly: true }));
+        if (snap.error) {
+          setTabError(String(snap.error));
+          return;
+        }
         const root = (snap as { snapshot?: unknown })?.snapshot;
         setSnapshot(
           root && typeof root === 'object' && !Array.isArray(root)
@@ -762,12 +807,11 @@ const DevToolsPanel: React.FC<{
             : { error: 'No snapshot', raw: root },
         );
         fetchedRef.current.elements = true;
-      } else if (t === 'elements' && inspectSameOrigin) {
-        fetchedRef.current.elements = true;
       }
-    } catch { /* ignore */ }
-    finally { setLoading(false); }
-  }, [url, inspectSameOrigin, registryPickers]);
+    } catch (e) {
+      setTabError(String(e));
+    } finally { setLoading(false); }
+  }, [url, inspectSameOrigin, registryPickers, inspectedElement, cdtParams]);
 
   useEffect(() => {
     void loadTab(tab, false);
@@ -856,15 +900,25 @@ const DevToolsPanel: React.FC<{
       </div>
 
       <div className="flex-1 overflow-y-auto font-mono text-[10px] min-h-0">
-        {loading ? (
+        {tabError ? (
+          <div className="p-3 text-red-400/90 text-[10px] leading-relaxed">
+            <p className="font-semibold mb-1">DevTools request failed</p>
+            <p className="text-[var(--text-muted)] break-words">{tabError}</p>
+            <p className="mt-2 text-[var(--text-muted)]">
+              Allow this site under browser trust, then use Refresh. MYBROWSER may see a bot-check page that differs from the iframe.
+            </p>
+          </div>
+        ) : loading ? (
           <div className="flex items-center justify-center h-full gap-2 text-[var(--text-muted)]">
             <Loader2 size={14} className="animate-spin" />
             <span>Loading…</span>
           </div>
         ) : tab === 'elements' ? (
           <div className="flex flex-col min-h-0 h-full">
-            {inspectSameOrigin ? (
+            {inspectedElement ? (
               <ComponentsPanel element={inspectedElement} onClose={onClose} embedded />
+            ) : inspectSameOrigin ? (
+              <ComponentsPanel element={null} onClose={onClose} embedded />
             ) : snapshot && 'error' in snapshot && snapshot.error ? (
               <div className="p-3 text-[var(--text-muted)]">{String(snapshot.error)}</div>
             ) : snapshot ? (
@@ -872,8 +926,9 @@ const DevToolsPanel: React.FC<{
                 <SnapshotTreeRow node={snapshot} depth={0} />
               </div>
             ) : (
-              <div className="flex items-center justify-center h-full text-[var(--text-muted)] p-3 text-center">
-                No accessibility snapshot
+              <div className="flex flex-col items-center justify-center h-full text-[var(--text-muted)] p-3 text-center gap-2">
+                <p>No accessibility snapshot</p>
+                <p className="text-[9px] opacity-80">Use the element picker on the page, or Refresh after the site finishes loading.</p>
               </div>
             )}
           </div>
@@ -1070,6 +1125,62 @@ const PICKER_SCRIPT = `
 })();
 `;
 
+/** MYBROWSER: element at viewport coordinates (cross-origin iframe — no inject into iframe). */
+function pickAtPointExpression(x: number, y: number): string {
+  const xi = Math.max(0, Math.round(x));
+  const yi = Math.max(0, Math.round(y));
+  return `
+(function(x, y) {
+  function classText(el) {
+    if (!el || el.className == null) return '';
+    const c = el.className;
+    if (typeof c === 'string') return c;
+    if (typeof c === 'object' && c.baseVal) return c.baseVal;
+    return String(c);
+  }
+  function getPath(el) {
+    const parts = [];
+    let node = el;
+    while (node && node !== document.body && node !== document.documentElement) {
+      let sel = (node.tagName || 'div').toLowerCase();
+      if (node.id) sel += '#' + node.id;
+      else {
+        const cls = classText(node).trim().split(/\\s+/)[0];
+        if (cls) sel += '.' + cls;
+      }
+      parts.unshift(sel);
+      node = node.parentElement;
+    }
+    return parts.join(' > ');
+  }
+  const el = document.elementFromPoint(x, y);
+  if (!el || el === document.documentElement || el === document.body) return null;
+  const r = el.getBoundingClientRect();
+  const cs = window.getComputedStyle(el);
+  const styles = {};
+  ['color','background-color','font-size','font-family','font-weight',
+   'display','position','width','height','margin','padding'].forEach(p => {
+    const v = cs.getPropertyValue(p);
+    if (v) styles[p] = v;
+  });
+  return {
+    element: {
+      tag: (el.tagName || '').toLowerCase(),
+      id: el.id || null,
+      className: classText(el) || null,
+      html: (el.outerHTML || '').slice(0, 3000),
+      path: getPath(el),
+      styles,
+      boundingBox: { top: r.top, left: r.left, width: r.width, height: r.height },
+    },
+    rect: { top: r.top, left: r.left, width: r.width, height: r.height },
+  };
+})(${xi}, ${yi})
+`.trim();
+}
+
+type PickerHighlightRect = { top: number; left: number; width: number; height: number };
+
 // ─── Single Pane ──────────────────────────────────────────────────────────────
 
 type BrowserPreviewPayload = {
@@ -1129,8 +1240,13 @@ const BrowserPane: React.FC<PaneProps> = ({
   const [devToolsOpen,   setDevToolsOpen]   = useState(false);
   const [devToolsWidth,  setDevToolsWidth]  = useState(40);
   const [devToolsTab,    setDevToolsTab]    = useState<DevToolsTab>('elements');
+  const [devToolsSession, setDevToolsSession] = useState(0);
+  const devToolsWasOpenRef = useRef(false);
   const [toastMsg,       setToastMsg]       = useState<string | null>(null);
   const [registryPickers, setRegistryPickers] = useState<BrowserRegistryPickers>(EMPTY_BROWSER_PICKERS);
+  /** Cross-origin sites: picker runs via MYBROWSER + dashboard overlay (iframe cannot be scripted). */
+  const [pickerCrossOrigin, setPickerCrossOrigin] = useState(false);
+  const [pickerHighlight, setPickerHighlight] = useState<PickerHighlightRect | null>(null);
 
   const inputRef     = useRef<HTMLInputElement>(null);
   const registryPickersRef = useRef(registryPickers);
@@ -1151,22 +1267,28 @@ const BrowserPane: React.FC<PaneProps> = ({
   const areaOverRef  = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const currentUrlRef = useRef(currentUrl);
+  const pickerHoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pickerPickSeqRef = useRef(0);
   useEffect(() => {
     currentUrlRef.current = currentUrl;
   }, [currentUrl]);
 
   const hasLiveView = Boolean(iframeUrl?.trim());
 
-  const loadRegistryPickersIfNeeded = useCallback(async () => {
-    if (registryPickersFetchedRef.current) return;
+  const loadRegistryPickersIfNeeded = useCallback(async (): Promise<BrowserRegistryPickers> => {
     const wid =
       typeof window !== 'undefined'
         ? String((window as unknown as { __IAM_WORKSPACE_ID__?: string }).__IAM_WORKSPACE_ID__ || '').trim()
         : '';
-    if (!wid || wid === 'global') return;
-    registryPickersFetchedRef.current = true;
-    const pickers = await fetchBrowserRegistryPickers(wid);
-    setRegistryPickers(pickers);
+    if (!wid || wid === 'global') return registryPickersRef.current;
+    if (!registryPickersFetchedRef.current) {
+      registryPickersFetchedRef.current = true;
+      const pickers = await fetchBrowserRegistryPickers(wid);
+      setRegistryPickers(pickers);
+      registryPickersRef.current = pickers;
+      return pickers;
+    }
+    return registryPickersRef.current;
   }, []);
 
   /** Latest BrowserView URL/viewport for ChatAssistant `browserContext` (user visual context, not server automation). */
@@ -1198,34 +1320,266 @@ const BrowserPane: React.FC<PaneProps> = ({
     }
   }, [currentUrl]);
 
-  const injectPickerScript = useCallback(() => {
+  const applyElementSelection = useCallback((el: InspectedElement) => {
+    setInspectedEl(el);
+    setInspectEpoch((n) => n + 1);
+    setMode('browse');
+    setPickerCrossOrigin(false);
+    setPickerHighlight(null);
+    setDevToolsOpen(true);
+    setDevToolsTab('elements');
+    window.dispatchEvent(new CustomEvent('iam-browser-set-inspector', { detail: el }));
     const urlNow = currentUrlRef.current;
-    const evalTool = registryPickersRef.current.evaluate;
-    if (evalTool && urlNow?.trim()) {
-      void invokeCdt(evalTool, {
+    const wid =
+      typeof window !== 'undefined'
+        ? String((window as unknown as { __IAM_WORKSPACE_ID__?: string }).__IAM_WORKSPACE_ID__ || '').trim()
+        : '';
+    const wsId = wid && wid !== 'global' ? wid : null;
+    let routePath = '';
+    try {
+      routePath = new URL(urlNow).pathname;
+    } catch {
+      routePath = '';
+    }
+    const classes = safeClassText(el).split(/\s+/).filter(Boolean);
+    let sectionKey: string | null = null;
+    let n: HTMLElement | null = el as unknown as HTMLElement;
+    for (let i = 0; i < 8 && n; i++) {
+      sectionKey =
+        n.getAttribute?.('data-section-key') ||
+        n.getAttribute?.('data-section') ||
+        n.getAttribute?.('data-iam-section') ||
+        sectionKey;
+      n = n.parentElement;
+    }
+    const htmlText =
+      typeof el.html === 'string' ? el.html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 500) : '';
+    const st = el.styles || {};
+    const payload = {
+      type: 'browser_element_selected',
+      workspace_id: wsId,
+      url: urlNow,
+      route_path: routePath,
+      selector: el.path || '',
+      tag: el.tag,
+      classes,
+      text: htmlText,
+      computed_styles: {
+        color: st.color,
+        font_size: st['font-size'] ?? st.fontSize,
+        font_family: st['font-family'] ?? st.fontFamily,
+        font_weight: st['font-weight'] ?? st.fontWeight,
+        background: st.background ?? st.backgroundColor,
+        width: st.width,
+        height: st.height,
+      },
+      section_key: sectionKey,
+      cms_mapping: {
+        page_id: null as string | null,
+        section_id: null as string | null,
+        section_key: sectionKey,
+        component_id: null as string | null,
+        asset_id: null as string | null,
+      },
+      source_mapping: {
+        provider: 'unknown',
+        path: '',
+        r2_key: '',
+        repo: '',
+        branch: '',
+      },
+    };
+    window.dispatchEvent(new CustomEvent('iam:browser-element-selected', { detail: payload }));
+    window.dispatchEvent(
+      new CustomEvent('iam:browser-selected-element', {
+        detail: {
+          url: urlNow,
+          selector: el.path || '',
+          path: el.path || '',
+          tagName: el.tag,
+          tag: el.tag,
+          id: el.id ?? null,
+          className: el.className ?? null,
+          text_preview: htmlText.slice(0, 500),
+          computed_styles: payload.computed_styles,
+          bounding_box: el.boundingBox ?? null,
+        },
+      }),
+    );
+    window.dispatchEvent(new CustomEvent('iam:agent-context-attach', { detail: { browser_element: payload } }));
+  }, []);
+
+  const tryInjectPickerInIframe = useCallback((): boolean => {
+    try {
+      const doc = iframeRef.current?.contentDocument;
+      if (!doc?.documentElement) return false;
+      const script = doc.createElement('script');
+      script.textContent = PICKER_SCRIPT;
+      doc.documentElement.appendChild(script);
+      script.remove();
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const tryTeardownPickerInIframe = useCallback(() => {
+    try {
+      const doc = iframeRef.current?.contentDocument;
+      if (!doc?.documentElement) return;
+      const script = doc.createElement('script');
+      script.textContent = PICKER_CLEANUP_SCRIPT;
+      doc.documentElement.appendChild(script);
+      script.remove();
+    } catch {
+      /* cross-origin */
+    }
+  }, []);
+
+  const syncPickerViewport = useCallback(async (urlNow: string) => {
+    const iframe = iframeRef.current;
+    const w = Math.max(320, Math.round(iframe?.clientWidth || 1280));
+    const h = Math.max(240, Math.round(iframe?.clientHeight || 800));
+    try {
+      await invokeCdt('cdt_resize_page', {
         url: urlNow,
-        expression: `(${PICKER_SCRIPT})()`,
+        width: w,
+        height: h,
         workspace_id:
           typeof window !== 'undefined'
             ? (window as unknown as { __IAM_WORKSPACE_ID__?: string }).__IAM_WORKSPACE_ID__
             : undefined,
-      }).catch(() => {
-        setToastMsg('Picker uses MYBROWSER — open DevTools Elements for CDT snapshot if injection fails.');
       });
-    } else {
-      setToastMsg('Picker needs cdt_evaluate_script in agentsam_tools for this workspace.');
+    } catch {
+      /* non-fatal */
     }
   }, []);
 
+  const pickElementAtPoint = useCallback(
+    async (clientX: number, clientY: number): Promise<InspectedElement | null> => {
+      const urlNow = currentUrlRef.current?.trim();
+      if (!urlNow) return null;
+      const pickers = await loadRegistryPickersIfNeeded();
+      const evalTool = pickers.evaluate || 'cdt_evaluate_script';
+      const iframe = iframeRef.current;
+      if (!iframe) return null;
+      const rect = iframe.getBoundingClientRect();
+      const z = zoom !== 100 ? zoom / 100 : 1;
+      const x = (clientX - rect.left) / z;
+      const y = (clientY - rect.top) / z;
+      if (x < 0 || y < 0 || x > rect.width / z || y > rect.height / z) return null;
+
+      const seq = ++pickerPickSeqRef.current;
+      const data = await invokeCdt(evalTool, {
+        url: urlNow,
+        expression: pickAtPointExpression(x, y),
+        workspace_id:
+          typeof window !== 'undefined'
+            ? (window as unknown as { __IAM_WORKSPACE_ID__?: string }).__IAM_WORKSPACE_ID__
+            : undefined,
+      });
+      if (seq !== pickerPickSeqRef.current) return null;
+      if (data.error) return null;
+
+      let raw: unknown = data.result ?? data;
+      if (typeof raw === 'string') {
+        try {
+          raw = JSON.parse(raw) as unknown;
+        } catch {
+          return null;
+        }
+      }
+      const parsed =
+        raw && typeof raw === 'object'
+          ? (raw as { element?: InspectedElement })
+          : null;
+      const el = parsed?.element;
+      if (!el || typeof el.tag !== 'string') return null;
+      return el;
+    },
+    [loadRegistryPickersIfNeeded, zoom],
+  );
+
+  const injectPickerScript = useCallback(async () => {
+    setPickerHighlight(null);
+    const urlNow = currentUrlRef.current?.trim();
+    if (!urlNow) return;
+
+    if (tryInjectPickerInIframe()) {
+      setPickerCrossOrigin(false);
+      return;
+    }
+
+    const pickers = await loadRegistryPickersIfNeeded();
+    const evalTool = pickers.evaluate;
+    if (!evalTool) {
+      setToastMsg('Picker needs cdt_evaluate_script in agentsam_tools for this workspace.');
+      return;
+    }
+
+    setPickerCrossOrigin(true);
+    await syncPickerViewport(urlNow);
+  }, [loadRegistryPickersIfNeeded, syncPickerViewport, tryInjectPickerInIframe]);
+
   const teardownPickerScript = useCallback(() => {
-    const urlNow = currentUrlRef.current;
+    if (pickerHoverTimerRef.current) {
+      clearTimeout(pickerHoverTimerRef.current);
+      pickerHoverTimerRef.current = null;
+    }
+    pickerPickSeqRef.current += 1;
+    setPickerCrossOrigin(false);
+    setPickerHighlight(null);
+    tryTeardownPickerInIframe();
+    const urlNow = currentUrlRef.current?.trim();
     const evalTool = registryPickersRef.current.evaluate;
-    if (!evalTool || !urlNow?.trim()) return;
+    if (!evalTool || !urlNow) return;
     void invokeCdt(evalTool, {
       url: urlNow,
       expression: `(${PICKER_CLEANUP_SCRIPT})()`,
     }).catch(() => { /* non-fatal */ });
-  }, []);
+  }, [tryTeardownPickerInIframe]);
+
+  const onPickerOverlayMove = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (!pickerCrossOrigin) return;
+      if (pickerHoverTimerRef.current) clearTimeout(pickerHoverTimerRef.current);
+      pickerHoverTimerRef.current = setTimeout(() => {
+        pickerHoverTimerRef.current = null;
+        void (async () => {
+          const el = await pickElementAtPoint(e.clientX, e.clientY);
+          if (!el?.boundingBox) {
+            setPickerHighlight(null);
+            return;
+          }
+          const bb = el.boundingBox;
+          setPickerHighlight({
+            top: bb.top,
+            left: bb.left,
+            width: bb.width,
+            height: bb.height,
+          });
+        })();
+      }, 48);
+    },
+    [pickerCrossOrigin, pickElementAtPoint],
+  );
+
+  const onPickerOverlayClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (!pickerCrossOrigin) return;
+      e.preventDefault();
+      e.stopPropagation();
+      void (async () => {
+        const el = await pickElementAtPoint(e.clientX, e.clientY);
+        if (!el) {
+          setToastMsg('Could not inspect element — check origin trust and MYBROWSER.');
+          return;
+        }
+        applyElementSelection(el);
+      })();
+    },
+    [pickerCrossOrigin, pickElementAtPoint, applyElementSelection],
+  );
 
   function startResize(e: React.MouseEvent) {
     e.preventDefault();
@@ -1252,6 +1606,33 @@ const BrowserPane: React.FC<PaneProps> = ({
   useEffect(() => {
     if (devToolsOpen) void loadRegistryPickersIfNeeded();
   }, [devToolsOpen, loadRegistryPickersIfNeeded]);
+
+  /** MYBROWSER DevTools: load tool registry + match iframe viewport before first tab fetch. */
+  useEffect(() => {
+    if (devToolsOpen && !devToolsWasOpenRef.current) {
+      void (async () => {
+        await loadRegistryPickersIfNeeded();
+        const u = currentUrlRef.current?.trim();
+        if (u) await syncPickerViewport(u);
+        setDevToolsSession((n) => n + 1);
+      })();
+    }
+    devToolsWasOpenRef.current = devToolsOpen;
+  }, [devToolsOpen, loadRegistryPickersIfNeeded, syncPickerViewport]);
+
+  const openDevTools = useCallback(() => {
+    void (async () => {
+      if (!devToolsOpen) {
+        await loadRegistryPickersIfNeeded();
+        const u = currentUrlRef.current?.trim();
+        if (u) await syncPickerViewport(u);
+        setDevToolsSession((n) => n + 1);
+        setDevToolsOpen(true);
+        return;
+      }
+      setDevToolsOpen(false);
+    })();
+  }, [devToolsOpen, loadRegistryPickersIfNeeded, syncPickerViewport]);
 
   // ── Close menu on outside click ─────────────────────────────────────────────
   useEffect(() => {
@@ -1289,97 +1670,12 @@ const BrowserPane: React.FC<PaneProps> = ({
         );
       }
       if (e.data?.type === 'iam-element-selected' && e.data.element && typeof e.data.element === 'object') {
-        const el = e.data.element as InspectedElement;
-        setInspectedEl(el);
-        setInspectEpoch((n) => n + 1);
-        setMode('browse');
-        setDevToolsOpen(true);
-        setDevToolsTab('elements');
-        window.dispatchEvent(new CustomEvent('iam-browser-set-inspector', { detail: el }));
-        const urlNow = currentUrlRef.current;
-        const wid =
-          typeof window !== 'undefined'
-            ? String((window as unknown as { __IAM_WORKSPACE_ID__?: string }).__IAM_WORKSPACE_ID__ || '').trim()
-            : '';
-        const wsId = wid && wid !== 'global' ? wid : null;
-        let routePath = '';
-        try {
-          routePath = new URL(urlNow).pathname;
-        } catch {
-          routePath = '';
-        }
-        const classes = safeClassText(el).split(/\s+/).filter(Boolean);
-        let sectionKey: string | null = null;
-        let n: HTMLElement | null = el as unknown as HTMLElement;
-        for (let i = 0; i < 8 && n; i++) {
-          sectionKey =
-            n.getAttribute?.('data-section-key') ||
-            n.getAttribute?.('data-section') ||
-            n.getAttribute?.('data-iam-section') ||
-            sectionKey;
-          n = n.parentElement;
-        }
-        const htmlText =
-          typeof el.html === 'string' ? el.html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 500) : '';
-        const st = el.styles || {};
-        const payload = {
-          type: 'browser_element_selected',
-          workspace_id: wsId,
-          url: urlNow,
-          route_path: routePath,
-          selector: el.path || '',
-          tag: el.tag,
-          classes,
-          text: htmlText,
-          computed_styles: {
-            color: st.color,
-            font_size: st['font-size'] ?? st.fontSize,
-            font_family: st['font-family'] ?? st.fontFamily,
-            font_weight: st['font-weight'] ?? st.fontWeight,
-            background: st.background ?? st.backgroundColor,
-            width: st.width,
-            height: st.height,
-          },
-          section_key: sectionKey,
-          cms_mapping: {
-            page_id: null as string | null,
-            section_id: null as string | null,
-            section_key: sectionKey,
-            component_id: null as string | null,
-            asset_id: null as string | null,
-          },
-          source_mapping: {
-            provider: 'unknown',
-            path: '',
-            r2_key: '',
-            repo: '',
-            branch: '',
-          },
-        };
-        window.dispatchEvent(new CustomEvent('iam:browser-element-selected', { detail: payload }));
-        window.dispatchEvent(
-          new CustomEvent('iam:browser-selected-element', {
-            detail: {
-              url: urlNow,
-              selector: el.path || '',
-              path: el.path || '',
-              tagName: el.tag,
-              tag: el.tag,
-              id: el.id ?? null,
-              className: el.className ?? null,
-              text_preview: htmlText.slice(0, 500),
-              computed_styles: payload.computed_styles,
-              bounding_box: el.boundingBox ?? null,
-            },
-          }),
-        );
-        window.dispatchEvent(new CustomEvent('iam:agent-context-attach', { detail: { browser_element: payload } }));
-        // Context is attached via iam:browser-selected-element — do not auto POST /api/agent/chat (403 noise).
+        applyElementSelection(e.data.element as InspectedElement);
       }
     };
     window.addEventListener('message', h);
     return () => window.removeEventListener('message', h);
-  }, []);
+  }, [applyElementSelection]);
 
   useEffect(() => {
     const onExternal = (ev: Event) => {
@@ -1413,11 +1709,15 @@ const BrowserPane: React.FC<PaneProps> = ({
   // ── Inject / tear down picker script when mode changes ──────────────────────
   useEffect(() => {
     if (mode === 'picker') {
-      injectPickerScript();
+      void injectPickerScript();
       return () => teardownPickerScript();
     }
     teardownPickerScript();
   }, [mode, currentUrl, injectPickerScript, teardownPickerScript]);
+
+  useEffect(() => {
+    if (mode === 'picker') void loadRegistryPickersIfNeeded();
+  }, [mode, loadRegistryPickersIfNeeded]);
 
   // ── Trust gate ──────────────────────────────────────────────────────────────
   const requestTrust = useCallback((url: string): Promise<TrustScope | null> =>
@@ -1835,14 +2135,23 @@ const BrowserPane: React.FC<PaneProps> = ({
           icon={<Bug size={12} strokeWidth={1.75} />}
           title="DevTools — Elements, Console, Network"
           active={devToolsOpen}
-          onClick={() => setDevToolsOpen(v => !v)}
+          onClick={openDevTools}
         />
 
         <ToolBtn
           icon={<Layers size={12} strokeWidth={1.75} />}
           title="Open Elements inspector"
           active={devToolsOpen && devToolsTab === 'elements'}
-          onClick={() => { setDevToolsOpen(true); setDevToolsTab('elements'); }}
+          onClick={() => {
+            void (async () => {
+              await loadRegistryPickersIfNeeded();
+              const u = currentUrlRef.current?.trim();
+              if (u) await syncPickerViewport(u);
+              setDevToolsSession((n) => n + 1);
+              setDevToolsOpen(true);
+              setDevToolsTab('elements');
+            })();
+          }}
         />
 
         {/* ... menu */}
@@ -2114,8 +2423,32 @@ const BrowserPane: React.FC<PaneProps> = ({
                   </div>
                 )}
 
+                {mode === 'picker' && pickerCrossOrigin && (hasLiveView || iframeBlocked) && !screenshotUrl && (
+                  <div
+                    className="absolute inset-0 z-[25] cursor-crosshair"
+                    style={{ zoom: zoom !== 100 ? zoom / 100 : undefined }}
+                    onMouseMove={onPickerOverlayMove}
+                    onMouseLeave={() => setPickerHighlight(null)}
+                    onClick={onPickerOverlayClick}
+                    role="presentation"
+                    aria-hidden
+                  >
+                    {pickerHighlight && pickerHighlight.width > 0 && pickerHighlight.height > 0 && (
+                      <div
+                        className="pointer-events-none absolute border-2 border-[var(--color-primary)] bg-[var(--color-primary)]/10 rounded-sm transition-all duration-75"
+                        style={{
+                          top: pickerHighlight.top,
+                          left: pickerHighlight.left,
+                          width: pickerHighlight.width,
+                          height: pickerHighlight.height,
+                        }}
+                      />
+                    )}
+                  </div>
+                )}
+
                 {mode === 'picker' && !inspectedEl && (
-                  <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
+                  <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-30 pointer-events-none">
                     <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[var(--color-primary)] text-white text-[10px] font-semibold shadow-lg">
                       <MousePointer2 size={10} />
                       Hover to highlight — click to inspect
@@ -2139,7 +2472,7 @@ const BrowserPane: React.FC<PaneProps> = ({
                 style={{ width: `${devToolsWidth}%`, minWidth: 280, maxWidth: '70%' }}
               >
                 <DevToolsPanel
-                  key={inspectEpoch}
+                  key={`${devToolsSession}-${inspectEpoch}`}
                   url={currentUrl}
                   onClose={() => setDevToolsOpen(false)}
                   tab={devToolsTab}
