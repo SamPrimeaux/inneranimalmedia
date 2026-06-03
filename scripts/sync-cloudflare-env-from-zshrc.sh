@@ -1,22 +1,36 @@
-#!/usr/bin/env bash
-# One-time: copy CLOUDFLARE_* from your current shell (e.g. after source ~/.zshrc) into .env.cloudflare.
-# Run from repo root: source ~/.zshrc && ./scripts/sync-cloudflare-env-from-zshrc.sh
-# Does not print secrets; creates/overwrites .env.cloudflare.
+#!/usr/bin/env zsh
+# Merge CLOUDFLARE_* from current shell into repo .env.cloudflare (preserves other keys).
+# Run: source ~/.zshrc && ./scripts/sync-cloudflare-env-from-zshrc.sh
+# Full zsh + MCP install: ./scripts/install-zsh-env-cloudflare.sh
 
-set -e
+emulate -R zsh
+set -euo pipefail
+
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ENV_FILE="${REPO_ROOT}/.env.cloudflare"
 
-if [[ -z "$CLOUDFLARE_API_TOKEN" ]]; then
-  echo "CLOUDFLARE_API_TOKEN not set in this shell. Run: source ~/.zshrc" >&2
+if [[ -z "${CLOUDFLARE_API_TOKEN:-}" ]]; then
+  print -u2 "CLOUDFLARE_API_TOKEN not set. Run: source ~/.zshrc" >&2
   exit 1
 fi
 
-mkdir -p "$REPO_ROOT"
-printf '%s\n' \
-  "# Synced from env; do not commit" \
-  "CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID:-}" \
-  "CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN}" \
-  > "$ENV_FILE"
-echo "Wrote $ENV_FILE (from current env)."
-echo "Verify: ./scripts/with-cloudflare-env.sh sh -c 'echo Token set: \${CLOUDFLARE_API_TOKEN:+yes}'"
+upsert_kv() {
+  local key="$1" val="$2" file="$3"
+  if grep -q "^${key}=" "$file" 2>/dev/null; then
+    sed -i '' "s|^${key}=.*|${key}=${(q)val}|" "$file"
+  elif grep -q "^export ${key}=" "$file" 2>/dev/null; then
+    sed -i '' "s|^export ${key}=.*|export ${key}=${(q)val}|" "$file"
+  else
+    print -r -- "${key}=${(q)val}" >>"$file"
+  fi
+}
+
+if [[ ! -f "$ENV_FILE" ]]; then
+  cp "${REPO_ROOT}/.env.cloudflare.example" "$ENV_FILE" 2>/dev/null || print -r -- "# Synced from shell" >"$ENV_FILE"
+fi
+
+upsert_kv CLOUDFLARE_ACCOUNT_ID "${CLOUDFLARE_ACCOUNT_ID:-}" "$ENV_FILE"
+upsert_kv CLOUDFLARE_API_TOKEN "$CLOUDFLARE_API_TOKEN" "$ENV_FILE"
+
+print -r -- "Updated CLOUDFLARE_* in $ENV_FILE"
+print -r -- "Run ./scripts/install-zsh-env-cloudflare.sh to wire ~/.zshrc + MCP bearer"

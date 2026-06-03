@@ -11,22 +11,30 @@ const __dirname = pathMod.dirname(fileURLToPath(import.meta.url));
 export const scriptsLibDir = __dirname;
 export const repoRootDefault = pathMod.join(__dirname, '..', '..');
 
-export function loadEnvCloudflare(repoRoot = repoRootDefault) {
+function applyEnvFile(repoRoot, filename) {
   try {
-    const p = pathMod.join(repoRoot, '.env.cloudflare');
+    const p = pathMod.join(repoRoot, filename);
     const lines = readFileSync(p, 'utf8').split('\n');
     for (const line of lines) {
       const trimmed = line.trim();
       if (!trimmed || trimmed.startsWith('#')) continue;
-      const eq = trimmed.indexOf('=');
-      if (eq === -1) continue;
-      const key = trimmed.slice(0, eq).trim();
-      const val = trimmed.slice(eq + 1).trim();
-      if (key && !(key in process.env)) process.env[key] = val;
+      const exportMatch = trimmed.match(/^export\s+([A-Z0-9_]+)=(.*)$/);
+      const plain = exportMatch ? null : trimmed;
+      const key = exportMatch ? exportMatch[1] : plain?.slice(0, plain.indexOf('=')).trim();
+      const rawVal = exportMatch ? exportMatch[2] : plain?.slice(plain.indexOf('=') + 1);
+      if (!key || rawVal == null) continue;
+      const val = String(rawVal).trim().replace(/^['"]|['"]$/g, '');
+      process.env[key] = val;
     }
   } catch {
     /* optional */
   }
+}
+
+/** Repo .env.cloudflare then .mcp_exports.sh (rotation wins for MCP_AUTH_TOKEN). */
+export function loadEnvCloudflare(repoRoot = repoRootDefault) {
+  applyEnvFile(repoRoot, '.env.cloudflare');
+  applyEnvFile(repoRoot, '.mcp_exports.sh');
 }
 
 /** @param {string} s */

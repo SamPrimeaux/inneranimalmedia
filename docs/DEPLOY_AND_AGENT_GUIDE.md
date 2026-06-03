@@ -6,7 +6,16 @@
 
 ## 1. Sync Cloudflare env (match ~/.zshrc)
 
-Run **once** from repo root so `.env.cloudflare` has the same values as your shell (no secrets typed or pasted in chat):
+Run **once** from repo root so `.env.cloudflare` and `~/.zshrc` load the same values (no secrets typed in chat):
+
+```bash
+./scripts/install-zsh-env-cloudflare.sh
+source ~/.zshrc
+```
+
+That script sources repo `.env.cloudflare` + `.mcp_exports.sh` from zsh, comments stale `MCP_AUTH_TOKEN` exports, and syncs the rotated bearer into `.env.cloudflare`. OAuth MCP clients (Cursor, ChatGPT) still need a fresh consent at `https://mcp.inneranimalmedia.com/auth/connect` — shell env alone does not replace OAuth.
+
+CLI-only sync (does not patch zshrc):
 
 ```bash
 source ~/.zshrc && ./scripts/sync-cloudflare-env-from-zshrc.sh
@@ -76,11 +85,12 @@ Migrations live in `migrations/*.sql`. The DB has 500+ tables; many exist, some 
 
 ## 4. Fresh deployment checklist (/dashboard/agent)
 
-1. **Sync env (once):** `source ~/.zshrc && ./scripts/sync-cloudflare-env-from-zshrc.sh`
-2. **Worker:** `./scripts/with-cloudflare-env.sh npx wrangler deploy --config wrangler.production.toml`
-3. **R2 (full page):** `./scripts/with-cloudflare-env.sh npx wrangler r2 object put agent-sam/static/dashboard/agent.html --file=./dashboard/agent.html --content-type=text/html --remote -c wrangler.production.toml`
-4. **R2 (fragment):** `./scripts/with-cloudflare-env.sh npx wrangler r2 object put agent-sam/static/dashboard/pages/agent.html --file=./dashboard/pages/agent.html --content-type=text/html --remote -c wrangler.production.toml`
-5. **Verify:** `node scripts/debug-agent-page.mjs` then open https://inneranimalmedia.com/dashboard/agent?v=3 and test.
+1. **Install zsh + repo env (once):** `./scripts/install-zsh-env-cloudflare.sh` then `source ~/.zshrc`
+2. **Or sync Cloudflare CLI only:** `source ~/.zshrc && ./scripts/sync-cloudflare-env-from-zshrc.sh`
+3. **Worker:** `./scripts/with-cloudflare-env.sh npx wrangler deploy --config wrangler.production.toml`
+4. **R2 (full page):** `./scripts/with-cloudflare-env.sh npx wrangler r2 object put agent-sam/static/dashboard/agent.html --file=./dashboard/agent.html --content-type=text/html --remote -c wrangler.production.toml`
+5. **R2 (fragment):** `./scripts/with-cloudflare-env.sh npx wrangler r2 object put agent-sam/static/dashboard/pages/agent.html --file=./dashboard/pages/agent.html --content-type=text/html --remote -c wrangler.production.toml`
+6. **Verify:** `node scripts/debug-agent-page.mjs` then open https://inneranimalmedia.com/dashboard/agent?v=3 and test.
 
 If R2 put returns 400, upload the same files via **Cloudflare Dashboard → R2 → agent-sam** at keys `static/dashboard/agent.html` and `static/dashboard/pages/agent.html`.
 

@@ -15,22 +15,15 @@
  *   reports/mcp-smoke/<runId>/summary.json
  */
 
-import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'fs';
+import { mkdirSync, writeFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import path from 'path';
+import { loadEnvCloudflare } from './lib/r2-inventory-core.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..');
 
-function loadEnvCloudflare() {
-  const p = path.join(REPO_ROOT, '.env.cloudflare');
-  if (!existsSync(p)) return;
-  for (const line of readFileSync(p, 'utf8').split('\n')) {
-    const m = line.match(/^export\s+([A-Z0-9_]+)=(.*)/);
-    if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^['"]|['"]$/g, '');
-  }
-}
-loadEnvCloudflare();
+loadEnvCloudflare(REPO_ROOT);
 
 const MCP_URL = (process.env.MCP_URL || 'https://mcp.inneranimalmedia.com/mcp').replace(/\/$/, '');
 const TOKEN = String(process.env.MCP_AUTH_TOKEN || '').trim();
