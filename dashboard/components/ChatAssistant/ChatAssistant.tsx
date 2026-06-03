@@ -35,6 +35,7 @@ import {
   Layers,
   ShieldCheck,
   Play,
+  MousePointer2,
 } from 'lucide-react';
 import { ProjectType } from '../../types';
 import type { ActiveFile } from '../../types';
@@ -76,7 +77,15 @@ import {
   LS_AGENT_CHAT_MODE,
   isAutoModelSelection,
 } from './types';
-import { buildMentionContext, isChatTextCodeFile, readFileAsText, getEditorDisplayPath, getEditorLightweightPath } from './mentionContext';
+import {
+  buildMentionContext,
+  browserElementMentionToken,
+  browserMentionInMessage,
+  isChatTextCodeFile,
+  readFileAsText,
+  getEditorDisplayPath,
+  getEditorLightweightPath,
+} from './mentionContext';
 import {
   measureAboveAnchor,
   syncComposerTextareaHeight,
@@ -299,17 +308,45 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   });
   const [repoSearch, setRepoSearch] = useState('');
 
+  const clearBrowserElementContext = useCallback(() => {
+    setBrowserElementContext(null);
+    setInput((prev) => prev.replace(/@browser(?::[^\s@]+)?\s*/g, ' ').replace(/\s+/g, ' ').trim());
+  }, []);
+
+  const attachBrowserSelectionToComposer = useCallback((detail: Record<string, unknown>) => {
+    const ctx = { ...detail, type: 'browser_element_selected' };
+    setBrowserElementContext(ctx);
+    const token = browserElementMentionToken(ctx);
+    const insert = `@${token} `;
+    setInput((prev) => {
+      if (new RegExp(`@${token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(prev)) return prev;
+      const base = prev.replace(/@browser(?::[^\s@]+)?\s*/g, ' ').trim();
+      return base ? `${base} ${insert}` : insert;
+    });
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      const len = el.value.length;
+      el.setSelectionRange(len, len);
+      syncComposerTextareaHeight(
+        el,
+        isNarrow ? COMPOSER_TEXTAREA_MAX_PX_NARROW : COMPOSER_TEXTAREA_MAX_PX_WIDE,
+      );
+    });
+  }, [isNarrow]);
+
   useEffect(() => {
     const onLegacy = (ev: Event) => {
       const d = (ev as CustomEvent<Record<string, unknown>>).detail;
       if (d && typeof d === 'object' && d.type === 'browser_element_selected') {
-        setBrowserElementContext(d);
+        attachBrowserSelectionToComposer(d);
       }
     };
     const onSelectedBridge = (ev: Event) => {
       const d = (ev as CustomEvent<Record<string, unknown>>).detail;
       if (d && typeof d === 'object') {
-        setBrowserElementContext({ ...d, type: 'browser_element_selected' });
+        attachBrowserSelectionToComposer(d);
       }
     };
     window.addEventListener('iam:browser-element-selected', onLegacy as EventListener);
@@ -318,7 +355,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       window.removeEventListener('iam:browser-element-selected', onLegacy as EventListener);
       window.removeEventListener('iam:browser-selected-element', onSelectedBridge as EventListener);
     };
-  }, []);
+  }, [attachBrowserSelectionToComposer]);
 
   useEffect(() => {
     const onSurface = (ev: Event) => {
@@ -830,7 +867,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     const res = await fetch('/api/agent/context-picker/catalog');
     if (!res.ok) return [];
     const data = await res.json();
-    const items: PickerItem[] = [];
+    const items: PickerItem[] = [
+      { id: 'browser:surface', label: 'browser', kind: 'browser' },
+    ];
     (data.tables || []).forEach((t: string) => {
       items.push({ id: `table:${t}`, label: t, kind: 'table' });
     });
@@ -1404,6 +1443,10 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           editorCursorLine,
           editorCursorColumn,
           attachContextFiles: attachContextFiles.length ? attachContextFiles : undefined,
+          browserElementContext:
+            browserElementContext && typeof browserElementContext === 'object'
+              ? browserElementContext
+              : null,
         });
     const ghCtx = githubRepoContext?.trim();
     const openIsLocal =
@@ -1421,7 +1464,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
     const snap =
       browserElementContext && typeof browserElementContext === 'object' ? browserElementContext : null;
-    if (snap) {
+    if (snap && !browserMentionInMessage(userMessage)) {
       messageForApi += `\n\n### BrowserView selection (structured)\n\`\`\`json\n${JSON.stringify(snap, null, 2)}\n\`\`\`\n`;
     }
 
@@ -1682,6 +1725,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       setIsLoading(false);
       setPresenceState('idle');
       clearAttachments();
+      setBrowserElementContext(null);
       abortControllerRef.current = null;
 
       const lastMsg = messagesRef.current[messagesRef.current.length - 1];
@@ -2264,40 +2308,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
               {workflowLedger.lastError ? ` · err: ${workflowLedger.lastError.slice(0, 120)}` : ''}
             </div>
           ) : null}
-          {browserElementContext ? (
-            <div className="flex items-start gap-2 rounded-lg border border-[var(--solar-cyan)]/25 bg-[var(--scene-bg)] px-3 py-2 text-[0.6875rem]">
-              <div className="min-w-0 flex-1">
-                <div className="font-semibold text-[var(--text-heading)]">BrowserView · selected element</div>
-                <div className="text-[var(--dashboard-muted)] truncate font-mono mt-0.5">
-                  &lt;{String(browserElementContext.tag || browserElementContext.tagName || '?')}
-                  {browserElementContext.id ? `#${String(browserElementContext.id)}` : ''}
-                  {browserElementContext.className
-                    ? `.${String(browserElementContext.className).split(/\s+/)[0]}`
-                    : ''}
-                  &gt;
-                  {String(browserElementContext.selector || browserElementContext.path || '').slice(0, 80)
-                    ? ` · ${String(browserElementContext.selector || browserElementContext.path).slice(0, 80)}`
-                    : ''}
-                </div>
-                {browserElementContext.computed_styles &&
-                typeof browserElementContext.computed_styles === 'object' ? (
-                  <div className="text-[var(--dashboard-muted)] mt-1 opacity-80 line-clamp-2">
-                    {Object.entries(browserElementContext.computed_styles as Record<string, unknown>)
-                      .slice(0, 4)
-                      .map(([k, v]) => `${k}: ${String(v)}`)
-                      .join(' · ')}
-                  </div>
-                ) : null}
-              </div>
-              <button
-                type="button"
-                className="shrink-0 px-2 py-1 rounded border border-[var(--dashboard-border)] text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)]"
-                onClick={() => setBrowserElementContext(null)}
-              >
-                Clear
-              </button>
-            </div>
-          ) : null}
           {attachments.length > 0 && (
             <>
               <div className="flex gap-2 overflow-x-auto pb-1 chat-hide-scroll">
@@ -2408,6 +2418,27 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
               addFilesFromList(e.dataTransfer.files, false);
             }}
           >
+            {browserElementContext ? (
+              <div className="flex items-center gap-2 px-2 pt-2 pb-0 min-w-0">
+                <div
+                  className="flex items-center gap-1.5 min-w-0 max-w-full rounded-lg border border-[var(--solar-cyan)]/35 bg-[var(--solar-cyan)]/10 pl-2 pr-1 py-1 text-[0.6875rem] font-mono text-[var(--solar-cyan)]"
+                  title="Browser element attached to this message — ask what it is, how to style it, etc."
+                >
+                  <MousePointer2 size={12} className="shrink-0" aria-hidden />
+                  <span className="truncate">
+                    @{browserElementMentionToken(browserElementContext)}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label="Remove browser element from message"
+                    className="shrink-0 p-0.5 rounded text-[var(--dashboard-muted)] hover:text-[var(--solar-red)] hover:bg-[var(--bg-hover)]"
+                    onClick={clearBrowserElementContext}
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              </div>
+            ) : null}
             <textarea
                 ref={textareaRef}
                 value={input}

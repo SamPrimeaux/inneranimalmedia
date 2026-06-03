@@ -14,6 +14,43 @@ function hasWordMention(text: string, tag: string): boolean {
   return new RegExp(`@${tag}\\b`).test(text);
 }
 
+/** Composer / @-mention token for a BrowserView element pick (Cursor-style context attachment). */
+export function browserMentionInMessage(text: string): boolean {
+  return /@browser(?::[^\s@]*)?/.test(text);
+}
+
+/** Short `@browser:…` label inserted into the chat input when the user picks an element. */
+export function browserElementMentionToken(ctx: Record<string, unknown>): string {
+  const tag = String(ctx.tag || ctx.tagName || 'element').toLowerCase();
+  const id = ctx.id ? `#${String(ctx.id)}` : '';
+  const clsRaw = ctx.className != null ? String(ctx.className).trim().split(/\s+/)[0] : '';
+  const cls = clsRaw ? `.${clsRaw.replace(/[^\w-]/g, '')}` : '';
+  const path = String(ctx.selector || ctx.path || '').trim();
+  const leaf = path.includes(' > ') ? path.split(' > ').pop() || path : path;
+  const compact = (leaf || `${tag}${id}${cls}`).replace(/\s+/g, '');
+  const safe = compact.replace(/[^\w#.\->[\]()]/g, '').slice(0, 56);
+  return safe ? `browser:${safe}` : 'browser';
+}
+
+export function formatBrowserElementContextBlock(ctx: Record<string, unknown>): string {
+  const tag = String(ctx.tag || ctx.tagName || '?');
+  const selector = String(ctx.selector || ctx.path || '');
+  const url = String(ctx.url || '');
+  const text = typeof ctx.text === 'string' ? ctx.text : typeof ctx.text_preview === 'string' ? ctx.text_preview : '';
+  const lines = [
+    '### @browser',
+    `Page: ${url || '(unknown)'}`,
+    `Element: <${tag}${ctx.id ? ` id="${String(ctx.id)}"` : ''}${ctx.className ? ` class="${String(ctx.className)}"` : ''}>`,
+    selector ? `Selector: ${selector}` : '',
+    text ? `Text preview: ${text.slice(0, 500)}` : '',
+    'Structured selection (JSON):',
+    '```json',
+    JSON.stringify(ctx, null, 2),
+    '```',
+  ].filter(Boolean);
+  return lines.join('\n');
+}
+
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -166,9 +203,11 @@ export async function buildMentionContext(
     editorCursorColumn?: number;
     /** Text/code attachments: same injection shape as @file for the active buffer. */
     attachContextFiles?: Array<{ name: string; content: string }>;
+    /** BrowserView element pick — injected when message includes `@browser`. */
+    browserElementContext?: Record<string, unknown> | null;
   },
 ): Promise<string> {
-  const { activeFileName, activeFileContent, activeFile, editorCursorLine, editorCursorColumn, attachContextFiles } =
+  const { activeFileName, activeFileContent, activeFile, editorCursorLine, editorCursorColumn, attachContextFiles, browserElementContext } =
     opts;
   const parts: string[] = [];
   const injectFileSnippet =
@@ -230,6 +269,14 @@ export async function buildMentionContext(
     } catch (e) {
       parts.push(`### @r2:${bucket}\n(${String(e instanceof Error ? e.message : e)})`);
     }
+  }
+
+  if (
+    browserElementContext &&
+    typeof browserElementContext === 'object' &&
+    browserMentionInMessage(userMessage)
+  ) {
+    parts.push(formatBrowserElementContextBlock(browserElementContext));
   }
 
   if (hasWordMention(userMessage, 'd1')) {
