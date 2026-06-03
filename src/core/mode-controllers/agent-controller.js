@@ -5,6 +5,7 @@ import { fireAgentHooks } from '../hook-dispatcher.js';
 import { toolsManifestFromCompiledRows } from '../runtime-profile.js';
 import { executeRwsSpawnFanout, shouldRunRwsFanout } from '../rws-spawn-fanout.js';
 import { runtimeContextPayload, legacyContextPayload } from './runtime-context.js';
+import { resolveAgentChatLaneContextBlock } from '../agent-chat-lane-context.js';
 
 const SSE_HEADERS = {
   'Content-Type': 'text/event-stream',
@@ -86,13 +87,45 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
     !profile.context_policy.include_rag &&
     !profile.context_policy.include_memory;
 
+  let contextBlock = '';
+  const includeRag =
+    !minimalAsk &&
+    profile.context_policy?.include_rag !== false &&
+    Number(promptRouteRow?.include_rag ?? 1) !== 0;
+  if (env?.DB && includeRag && message && workspaceId) {
+    try {
+      const laneCtx = await resolveAgentChatLaneContextBlock(env, {
+        message,
+        includeRag: true,
+        workspaceId,
+        tenantId,
+        userId,
+        authUser: input.session?.authUser ?? null,
+      });
+      contextBlock = laneCtx?.block != null ? String(laneCtx.block) : '';
+      if (contextBlock && laneCtx?.lane) {
+        console.info(
+          '[agent-controller] lane_context_injected',
+          JSON.stringify({
+            lane: laneCtx.lane,
+            source: laneCtx.source,
+            chars: contextBlock.length,
+          }),
+        );
+      }
+    } catch (e) {
+      console.warn('[agent-controller] lane_context_failed', e?.message ?? e);
+      contextBlock = '';
+    }
+  }
+
   let systemPrompt;
   if (env?.DB) {
     systemPrompt = await buildSystemPrompt(
       env,
       tenantId,
       profile.mode,
-      '',
+      contextBlock,
       null,
       promptRouteRow,
       {
@@ -109,6 +142,13 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
     );
   } else {
     systemPrompt = 'You are Agent Sam. Be direct and helpful.';
+  }
+
+  if (contextBlock) {
+    const laneHead = contextBlock.slice(0, 80);
+    if (!systemPrompt.includes(laneHead)) {
+      systemPrompt = `${systemPrompt}\n\n---\n\n${contextBlock}`;
+    }
   }
 
   if (profile.mode === 'debug') {
