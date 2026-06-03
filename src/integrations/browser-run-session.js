@@ -3,7 +3,40 @@
  * @see https://developers.cloudflare.com/browser-run/cdp/session-management/
  */
 
-const DEFAULT_KEEP_ALIVE_MS = 300_000;
+const DEFAULT_KEEP_ALIVE_MS = 600_000;
+
+/**
+ * Pick the primary page target from Browser Run /json/list or create response.
+ * @param {unknown} targets
+ */
+export function pickBrowserRunPageTarget(targets) {
+  const list = Array.isArray(targets) ? targets : targets != null ? [targets] : [];
+  const page =
+    list.find((t) => t && typeof t === 'object' && String(t.type || '').toLowerCase() === 'page') ||
+    list.find((t) => t && typeof t === 'object' && t.devtoolsFrontendUrl) ||
+    list[0];
+  if (!page || typeof page !== 'object') return null;
+  return page;
+}
+
+/**
+ * @param {Record<string, unknown>} target
+ */
+export function extractBrowserRunTargetFields(target) {
+  const devtoolsFrontendUrl = String(
+    target.devtoolsFrontendUrl || target.devtools_frontend_url || '',
+  ).trim();
+  const webSocketDebuggerUrl = String(
+    target.webSocketDebuggerUrl || target.web_socket_debugger_url || '',
+  ).trim();
+  return {
+    devtoolsFrontendUrl: devtoolsFrontendUrl || null,
+    webSocketDebuggerUrl: webSocketDebuggerUrl || null,
+    targetId: target.id != null ? String(target.id) : null,
+    url: target.url != null ? String(target.url) : null,
+    title: target.title != null ? String(target.title) : null,
+  };
+}
 
 /**
  * @param {any} env
@@ -69,23 +102,79 @@ async function browserRunApiFetch(env, path, opts = {}) {
 
 /**
  * @param {any} env
- * @param {{ keepAliveMs?: number }} [opts]
+ * @param {{ keepAliveMs?: number, targets?: boolean }} [opts]
  */
 export async function createBrowserRunSession(env, opts = {}) {
   const keepAliveMs = Math.min(
     600_000,
     Math.max(60_000, Number(opts.keepAliveMs ?? DEFAULT_KEEP_ALIVE_MS) || DEFAULT_KEEP_ALIVE_MS),
   );
+  const query = { keep_alive: String(keepAliveMs) };
+  if (opts.targets !== false) {
+    query.targets = 'true';
+  }
   const out = await browserRunApiFetch(env, '/devtools/browser', {
     method: 'POST',
-    query: { keep_alive: String(keepAliveMs) },
+    query,
   });
   if (!out.ok) return out;
   const sessionId = String(out.data?.sessionId || out.data?.session_id || '').trim();
   if (!sessionId) {
     return { ok: false, error: 'Browser Run session create did not return sessionId' };
   }
-  return { ok: true, sessionId, keepAliveMs };
+  const targets = out.data?.targets ?? out.data?.target ?? null;
+  const target = pickBrowserRunPageTarget(targets);
+  const fields = target ? extractBrowserRunTargetFields(target) : {};
+  return {
+    ok: true,
+    sessionId,
+    keepAliveMs,
+    targets: Array.isArray(targets) ? targets : target ? [target] : [],
+    ...fields,
+  };
+}
+
+/**
+ * @param {any} env
+ * @param {string} sessionId
+ */
+export async function listBrowserRunTargets(env, sessionId) {
+  const sid = String(sessionId || '').trim();
+  if (!sid) return { ok: false, error: 'sessionId required' };
+  const out = await browserRunApiFetch(
+    env,
+    `/devtools/browser/${encodeURIComponent(sid)}/json/list`,
+    { method: 'GET' },
+  );
+  if (!out.ok) return out;
+  const targets = Array.isArray(out.data) ? out.data : [];
+  return { ok: true, sessionId: sid, targets };
+}
+
+/**
+ * Refresh devtoolsFrontendUrl from current page target (valid ~5 min from issue).
+ * @param {any} env
+ * @param {{ sessionId: string, targetId?: string|null }} opts
+ */
+export async function refreshBrowserRunLiveView(env, opts) {
+  const sessionId = String(opts?.sessionId || '').trim();
+  if (!sessionId) return { ok: false, error: 'sessionId required' };
+
+  const listed = await listBrowserRunTargets(env, sessionId);
+  if (!listed.ok) return listed;
+
+  const wantId = opts?.targetId != null ? String(opts.targetId).trim() : '';
+  let target = wantId
+    ? listed.targets.find((t) => t && String(t.id) === wantId)
+    : null;
+  if (!target) target = pickBrowserRunPageTarget(listed.targets);
+  if (!target) return { ok: false, error: 'No page target in Browser Run session' };
+
+  const fields = extractBrowserRunTargetFields(target);
+  if (!fields.devtoolsFrontendUrl) {
+    return { ok: false, error: 'Target list did not return devtoolsFrontendUrl' };
+  }
+  return { ok: true, sessionId, ...fields };
 }
 
 /**
@@ -105,20 +194,16 @@ export async function navigateBrowserRunTab(env, opts) {
   if (!out.ok) return out;
 
   const target = out.data && typeof out.data === 'object' ? out.data : {};
-  const devtoolsFrontendUrl = String(
-    target.devtoolsFrontendUrl || target.devtools_frontend_url || '',
-  ).trim();
-  if (!devtoolsFrontendUrl) {
+  const fields = extractBrowserRunTargetFields(target);
+  if (!fields.devtoolsFrontendUrl) {
     return { ok: false, error: 'Browser Run navigate did not return devtoolsFrontendUrl' };
   }
 
   return {
     ok: true,
     sessionId,
-    devtoolsFrontendUrl,
-    targetId: target.id != null ? String(target.id) : null,
-    url: target.url != null ? String(target.url) : url,
-    title: target.title != null ? String(target.title) : null,
+    ...fields,
+    url: fields.url || url,
   };
 }
 
@@ -166,6 +251,7 @@ export async function openBrowserRunLiveView(env, opts) {
     ok: true,
     session_id: sessionId,
     devtools_frontend_url: navigated.devtoolsFrontendUrl,
+    web_socket_debugger_url: navigated.webSocketDebuggerUrl,
     url: navigated.url,
     title: navigated.title,
     target_id: navigated.targetId,

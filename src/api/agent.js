@@ -5063,6 +5063,12 @@ async function runAgentToolLoop(env, ctx, emit, params) {
         tool_name: call.name,
         input_preview: JSON.stringify(call.input || {}).slice(0, 200),
       });
+      try {
+        const { emitBrowserLiveSessionSse } = await import('../integrations/agent-live-browser-session.js');
+        emitBrowserLiveSessionSse(emit, 'start', call.name, null);
+      } catch {
+        /* non-fatal */
+      }
       let toolRows = null;
       let execResult = null;
       const toolBudgetMs = resolveToolExecutionBudgetMs(call.name, call.input);
@@ -5312,6 +5318,24 @@ async function runAgentToolLoop(env, ctx, emit, params) {
             }
           : {}),
       });
+      if (!execErr) {
+        try {
+          const { emitBrowserLiveSessionSse } = await import('../integrations/agent-live-browser-session.js');
+          const parsedForBrowser =
+            execResult && typeof execResult === 'object'
+              ? execResult
+              : (() => {
+                  try {
+                    return JSON.parse(String(toolOutput || 'null'));
+                  } catch {
+                    return null;
+                  }
+                })();
+          emitBrowserLiveSessionSse(emit, 'done', call.name, parsedForBrowser);
+        } catch {
+          /* non-fatal */
+        }
+      }
       if (!execErr) {
         try {
           const parsed = JSON.parse(String(toolOutput || 'null'));

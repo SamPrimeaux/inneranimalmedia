@@ -14,12 +14,37 @@ const SCREENSHOT_JOB_TOOLS = new Set(['playwright_screenshot', 'browser_screensh
 /**
  * MYBROWSER in-worker path (no /api/mcp/invoke — avoids MCP_AUTH_TOKEN 401).
  */
-async function invokeBrowserOp(env, toolName, params) {
+function mergeBrowserRunContext(params, runContext = {}) {
+  return {
+    ...params,
+    user_id: params.user_id ?? params.session?.user_id ?? runContext.userId ?? runContext.user_id,
+    workspace_id:
+      params.workspace_id ??
+      params.session?.workspace_id ??
+      params.session?.workspaceId ??
+      runContext.workspaceId ??
+      runContext.workspace_id,
+    agent_run_id:
+      params.agent_run_id ??
+      params.agentRunId ??
+      params.session?.agent_run_id ??
+      runContext.agentRunId ??
+      runContext.agent_run_id,
+    workflow_run_id:
+      params.workflow_run_id ??
+      params.workflowRunId ??
+      runContext.workflowRunId ??
+      runContext.workflow_run_id,
+  };
+}
+
+async function invokeBrowserOp(env, toolName, params, runContext = {}) {
+    const merged = mergeBrowserRunContext(params, runContext);
     const targetOriginInput =
-        params.url ?? params.origin ?? params.href ?? params.target_url ?? params.page_url;
-    const uid = params.user_id ?? params.session?.user_id;
+        merged.url ?? merged.origin ?? merged.href ?? merged.target_url ?? merged.page_url;
+    const uid = merged.user_id ?? merged.session?.user_id;
     const ws =
-        params.workspace_id ?? params.session?.workspace_id ?? params.session?.workspaceId;
+        merged.workspace_id ?? merged.session?.workspace_id ?? merged.session?.workspaceId;
     if (targetOriginInput && uid) {
         try {
             await assertBrowserTrustedOrigin(env, {
@@ -52,9 +77,9 @@ async function invokeBrowserOp(env, toolName, params) {
         if (!url) return { error: 'url required for screenshot' };
         if (!uid) return { error: 'user_id required for screenshot' };
         const agentRunId =
-            params.agent_run_id ??
-            params.agentRunId ??
-            params.session?.agent_run_id ??
+            merged.agent_run_id ??
+            merged.agentRunId ??
+            merged.session?.agent_run_id ??
             null;
         return runPlaywrightScreenshotJob(env, {
             url,
@@ -65,7 +90,7 @@ async function invokeBrowserOp(env, toolName, params) {
         });
     }
 
-    return runBrowserBuiltinTool(env, tool, params);
+    return runBrowserBuiltinTool(env, tool, merged);
 }
 
 export const handlers = {
@@ -149,43 +174,46 @@ export const handlers = {
         }
     },
 
-    async a11y_audit(params, env) {
-        return await invokeBrowserOp(env, 'a11y_audit_webpage', params);
+    async a11y_audit(params, env, runContext) {
+        return await invokeBrowserOp(env, 'a11y_audit_webpage', params, runContext);
     },
 
     // ── CDT Core ─────────────────────────────────────────────────────────
-    async cdt_navigate_page(params, env) { return await invokeBrowserOp(env, 'cdt_navigate_page', params); },
-    async cdt_take_screenshot(params, env) { return await invokeBrowserOp(env, 'cdt_take_screenshot', params); },
-    async cdt_click(params, env) { return await invokeBrowserOp(env, 'cdt_click', params); },
-    async cdt_fill(params, env) { return await invokeBrowserOp(env, 'cdt_fill', params); },
-    async cdt_fill_form(params, env) { return await invokeBrowserOp(env, 'cdt_fill_form', params); },
-    async cdt_evaluate_script(params, env) {
-        return await invokeBrowserOp(env, 'cdt_evaluate_script', params);
+    async cdt_navigate_page(params, env, runContext) { return await invokeBrowserOp(env, 'cdt_navigate_page', params, runContext); },
+    async cdt_take_screenshot(params, env, runContext) { return await invokeBrowserOp(env, 'cdt_take_screenshot', params, runContext); },
+    async cdt_click(params, env, runContext) { return await invokeBrowserOp(env, 'cdt_click', params, runContext); },
+    async cdt_fill(params, env, runContext) { return await invokeBrowserOp(env, 'cdt_fill', params, runContext); },
+    async cdt_fill_form(params, env, runContext) { return await invokeBrowserOp(env, 'cdt_fill_form', params, runContext); },
+    async cdt_evaluate_script(params, env, runContext) {
+        return await invokeBrowserOp(env, 'cdt_evaluate_script', params, runContext);
     },
-    async cdt_list_pages(params, env) { return await invokeBrowserOp(env, 'cdt_list_pages', params); },
-    async cdt_wait_for(params, env) { return await invokeBrowserOp(env, 'cdt_wait_for', params); },
-    async cdt_take_snapshot(params, env) { return await invokeBrowserOp(env, 'cdt_take_snapshot', params); },
-    async cdt_hover(params, env) { return await invokeBrowserOp(env, 'cdt_hover', params); },
-    async cdt_drag(params, env) { return await invokeBrowserOp(env, 'cdt_drag', params); },
-    async cdt_press_key(params, env) { return await invokeBrowserOp(env, 'cdt_press_key', params); },
-    async cdt_upload_file(params, env) { return await invokeBrowserOp(env, 'cdt_upload_file', params); },
+    async cdt_list_pages(params, env, runContext) { return await invokeBrowserOp(env, 'cdt_list_pages', params, runContext); },
+    async cdt_wait_for(params, env, runContext) { return await invokeBrowserOp(env, 'cdt_wait_for', params, runContext); },
+    async cdt_take_snapshot(params, env, runContext) { return await invokeBrowserOp(env, 'cdt_take_snapshot', params, runContext); },
+    async cdt_hover(params, env, runContext) { return await invokeBrowserOp(env, 'cdt_hover', params, runContext); },
+    async cdt_drag(params, env, runContext) { return await invokeBrowserOp(env, 'cdt_drag', params, runContext); },
+    async cdt_press_key(params, env, runContext) { return await invokeBrowserOp(env, 'cdt_press_key', params, runContext); },
+    async cdt_upload_file(params, env, runContext) { return await invokeBrowserOp(env, 'cdt_upload_file', params, runContext); },
 
     // ── CDT Performance ──────────────────────────────────────────────────
-    async cdt_performance_start_trace(params, env) {
-        return await invokeBrowserOp(env, 'cdt_performance_start_trace', params);
+    async cdt_performance_start_trace(params, env, runContext) {
+        return await invokeBrowserOp(env, 'cdt_performance_start_trace', params, runContext);
     },
-    async cdt_performance_stop_trace(params, env) {
-        return await invokeBrowserOp(env, 'cdt_performance_stop_trace', params);
+    async cdt_performance_stop_trace(params, env, runContext) {
+        return await invokeBrowserOp(env, 'cdt_performance_stop_trace', params, runContext);
     },
-    async cdt_performance_analyze_insight(params, env) {
-        return await invokeBrowserOp(env, 'cdt_performance_analyze_insight', params);
+    async cdt_performance_analyze_insight(params, env, runContext) {
+        return await invokeBrowserOp(env, 'cdt_performance_analyze_insight', params, runContext);
     },
 
     // ── Playwright & Legacy ──────────────────────────────────────────────
-    async playwright_screenshot(params, env) { return await invokeBrowserOp(env, 'playwright_screenshot', params); },
-    async browser_navigate(params, env) { return await invokeBrowserOp(env, 'browser_navigate', params); },
-    async browser_screenshot(params, env) { return await invokeBrowserOp(env, 'browser_screenshot', params); },
-    async browser_content(params, env) { return await invokeBrowserOp(env, 'browser_content', params); },
-    async browser_close_session(params, env) { return await invokeBrowserOp(env, 'browser_close_session', params); },
-    async browser_session_close(params, env) { return await invokeBrowserOp(env, 'browser_session_close', params); },
+    async playwright_screenshot(params, env, runContext) { return await invokeBrowserOp(env, 'playwright_screenshot', params, runContext); },
+    async browser_navigate(params, env, runContext) { return await invokeBrowserOp(env, 'browser_navigate', params, runContext); },
+    async browser_screenshot(params, env, runContext) { return await invokeBrowserOp(env, 'browser_screenshot', params, runContext); },
+    async browser_content(params, env, runContext) { return await invokeBrowserOp(env, 'browser_content', params, runContext); },
+    async browser_close_session(params, env, runContext) { return await invokeBrowserOp(env, 'browser_close_session', params, runContext); },
+    async browser_session_close(params, env, runContext) { return await invokeBrowserOp(env, 'browser_session_close', params, runContext); },
+    async browser_request_human_input(params, env, runContext) {
+        return await invokeBrowserOp(env, 'browser_request_human_input', params, runContext);
+    },
 };

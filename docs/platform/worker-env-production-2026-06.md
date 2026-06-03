@@ -12,6 +12,7 @@
 | `AGENTSAM_VECTORIZE_MEMORY` | Vectorize | `agentsam-memory-oai3large-1536` |
 | `AGENTSAM_VECTORIZE_SCHEMA` | Vectorize | `agentsam-schema-oai3large-1536` |
 | `AGENT_SESSION` | Durable Object | `inneranimalmedia_AgentChatSqlV1` |
+| `BROWSER_SESSION` | Durable Object | `inneranimalmedia_AgentBrowserLiveV1` |
 | `AI` | Workers AI | Workers AI Catalog |
 | `ASSETS` | R2 | `inneranimalmedia` |
 | `AUTORAG_BUCKET` | R2 | `inneranimalmedia-autorag` |

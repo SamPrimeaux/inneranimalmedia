@@ -66,6 +66,8 @@ export function presenceStateToIcon(state: string | null | undefined): AgentPres
     // Legacy surface states
     case 'reading':
     case 'database':
+    case 'web_search':
+    case 'web_fetch':
     case 'tool':
       return 'scan';
     case 'writing':
@@ -73,7 +75,12 @@ export function presenceStateToIcon(state: string | null | undefined): AgentPres
     case 'terminal':
       return 'terminal';
     case 'browser':
+    case 'browser_live':
       return 'browser';
+    case 'browser_capture':
+      return 'files';
+    case 'browser_human_input':
+      return 'approval-wait';
     case 'files':
       return 'files';
     case 'drawing':

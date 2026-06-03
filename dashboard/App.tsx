@@ -2137,6 +2137,9 @@ const App: React.FC = () => {
       type: 'browser_navigate';
       url: string;
       automation?: boolean;
+      agent_live?: boolean;
+      live_view_url?: string;
+      session_id?: string;
       screenshot_url?: string;
       page_text?: string;
       title?: string;
@@ -2148,9 +2151,10 @@ const App: React.FC = () => {
         return;
       }
       const automation = event.automation === true;
+      const agentLive = event.agent_live === true || (automation && !event.screenshot_url);
       window.dispatchEvent(
         new CustomEvent('iam:agent-open-surface', {
-          detail: { surface: 'browser', url, automation },
+          detail: { surface: 'browser', url, automation, agent_live: agentLive },
         }),
       );
       window.dispatchEvent(
@@ -2158,6 +2162,9 @@ const App: React.FC = () => {
           detail: {
             url,
             automation,
+            agent_live: agentLive,
+            live_view_url: event.live_view_url,
+            session_id: event.session_id,
             ...(event.screenshot_url ? { screenshot_url: event.screenshot_url } : {}),
             page_text: event.page_text,
             title: event.title,

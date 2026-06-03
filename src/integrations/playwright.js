@@ -3,6 +3,21 @@ import { getAuthUser } from '../core/auth.js';
 import { assertBrowserTrustedOrigin } from '../core/agentsam-ops-ledger.js';
 import { handlePlaywrightQueueJob } from '../queue/playwright-queue-job.js';
 import { runBrowserBuiltinTool, closeBrowserRunSession, resolveBrowserRunScopeId, resolveBrowserToolUrl } from './browser-cdp.js';
+import {
+    refreshAgentLiveBrowserLiveUrl,
+    signalHumanInputResume,
+    ensureAgentLiveBrowserSession,
+    getAgentLiveBrowserSession,
+    closeAgentLiveBrowserSession,
+} from './agent-live-browser-session.js';
+import { cancelBrowserHumanInput } from './agent-live-browser-session.js';
+import {
+    assertAgentRunAccess,
+    getBrowserLiveDoHealth,
+    getBrowserLiveEventsViaDo,
+    proxyBrowserLiveWebSocket,
+    refreshAgentLiveBrowserUrlViaDo,
+} from './browser-live-do-client.js';
 
 function screenshotR2Bucket(env) {
   return env.DOCS_BUCKET || env.DASHBOARD || env.ASSETS || env.R2 || null;
@@ -135,6 +150,68 @@ export async function handleBrowserRequest(request, url, env) {
     const pathNorm = pathLower.replace(/\/$/, '') || '/';
     const method = request.method.toUpperCase();
 
+    // ── GET /api/browser/live/ws?agent_run_id= — WebSocket live browser state ─
+    if (pathNorm === '/api/browser/live/ws' && request.headers.get('Upgrade') === 'websocket') {
+        const authUser = await getAuthUser(request, env);
+        if (!authUser?.id) return new Response('Unauthorized', { status: 401 });
+        const agentRunId = url.searchParams.get('agent_run_id')?.trim() || '';
+        if (!agentRunId) return new Response('agent_run_id required', { status: 400 });
+        const access = await assertAgentRunAccess(env, agentRunId, String(authUser.id));
+        if (!access.ok) return new Response(access.error || 'Forbidden', { status: access.status || 403 });
+        return proxyBrowserLiveWebSocket(env, agentRunId, request);
+    }
+
+    // ── GET /api/browser/live/:agentRunId/live-url — refresh via DO ───────────
+    const liveUrlByRunMatch = pathNorm.match(/^\/api\/browser\/live\/([^/]+)\/live-url$/);
+    if (liveUrlByRunMatch && method === 'GET') {
+        const authUser = await getAuthUser(request, env);
+        if (!authUser?.id) return jsonResponse({ error: 'Unauthorized' }, 401);
+        const agentRunId = decodeURIComponent(liveUrlByRunMatch[1]);
+        const access = await assertAgentRunAccess(env, agentRunId, String(authUser.id));
+        if (!access.ok) return jsonResponse({ error: access.error }, access.status || 403);
+        const out = await refreshAgentLiveBrowserUrlViaDo(env, agentRunId);
+        if (!out.ok) return jsonResponse({ error: out.error || 'Failed to refresh live view URL' }, out.status || 502);
+        return jsonResponse(out);
+    }
+
+    // ── GET /api/browser/live/:agentRunId/events — timeline outbox ───────────
+    const liveEventsMatch = pathNorm.match(/^\/api\/browser\/live\/([^/]+)\/events$/);
+    if (liveEventsMatch && method === 'GET') {
+        const authUser = await getAuthUser(request, env);
+        if (!authUser?.id) return jsonResponse({ error: 'Unauthorized' }, 401);
+        const agentRunId = decodeURIComponent(liveEventsMatch[1]);
+        const access = await assertAgentRunAccess(env, agentRunId, String(authUser.id));
+        if (!access.ok) return jsonResponse({ error: access.error }, access.status || 403);
+        const limit = url.searchParams.get('limit');
+        const out = await getBrowserLiveEventsViaDo(env, agentRunId, limit ? Number(limit) : 50);
+        return jsonResponse(out, out.ok ? 200 : out.status || 502);
+    }
+
+    // ── GET /api/browser/live/:agentRunId/health — DO health probe ───────────
+    const liveHealthMatch = pathNorm.match(/^\/api\/browser\/live\/([^/]+)\/health$/);
+    if (liveHealthMatch && method === 'GET') {
+        const authUser = await getAuthUser(request, env);
+        if (!authUser?.id) return jsonResponse({ error: 'Unauthorized' }, 401);
+        const agentRunId = decodeURIComponent(liveHealthMatch[1]);
+        const access = await assertAgentRunAccess(env, agentRunId, String(authUser.id));
+        if (!access.ok) return jsonResponse({ error: access.error }, access.status || 403);
+        const out = await getBrowserLiveDoHealth(env, agentRunId);
+        return jsonResponse(out, out.status && out.status !== 200 ? out.status : 200);
+    }
+
+    // ── GET /api/browser/live/:agentRunId — full live session snapshot ─────────
+    const liveSessionMatch = pathNorm.match(/^\/api\/browser\/live\/([^/]+)$/);
+    if (liveSessionMatch && method === 'GET') {
+        const authUser = await getAuthUser(request, env);
+        if (!authUser?.id) return jsonResponse({ error: 'Unauthorized' }, 401);
+        const agentRunId = decodeURIComponent(liveSessionMatch[1]);
+        const access = await assertAgentRunAccess(env, agentRunId, String(authUser.id));
+        if (!access.ok) return jsonResponse({ error: access.error }, access.status || 403);
+        const session = await getAgentLiveBrowserSession(env, agentRunId);
+        if (!session) return jsonResponse({ ok: false, error: 'no live session' }, 404);
+        return jsonResponse({ ok: true, live_session: session, agent_run_id: agentRunId });
+    }
+
     // ── GET /api/browser/screenshot ──────────────────────────────────────────
     if (pathLower === '/api/browser/screenshot' && method === 'GET') {
         const targetUrl = url.searchParams.get('url');
@@ -208,6 +285,82 @@ export async function handleBrowserRequest(request, url, env) {
         }
     }
 
+    // ── GET /api/browser/session/:sessionId/live-url — refresh devtoolsFrontendUrl ─
+    const liveUrlMatch = pathNorm.match(/^\/api\/browser\/session\/([^/]+)\/live-url$/);
+    if (liveUrlMatch && method === 'GET') {
+        const authUser = await getAuthUser(request, env);
+        if (!authUser?.id) return jsonResponse({ error: 'Unauthorized' }, 401);
+
+        const sessionId = decodeURIComponent(liveUrlMatch[1]);
+        const scopeId =
+            url.searchParams.get('agent_run_id')?.trim() ||
+            url.searchParams.get('scope_id')?.trim() ||
+            '';
+        const targetId = url.searchParams.get('target_id')?.trim() || null;
+
+        const out = await refreshAgentLiveBrowserLiveUrl(env, {
+            sessionId,
+            scopeId: scopeId || null,
+            targetId,
+        });
+        if (!out.ok) {
+            return jsonResponse({ error: out.error || 'Failed to refresh live view URL' }, 502);
+        }
+        return jsonResponse({
+            ok: true,
+            session_id: out.session_id,
+            target_id: out.target_id,
+            devtools_frontend_url: out.devtools_frontend_url,
+            web_socket_debugger_url: out.web_socket_debugger_url,
+            url: out.url,
+            title: out.title,
+            expires_at: out.expires_at,
+        });
+    }
+
+    // ── POST /api/browser/session/human-resume — human clicked Continue (HITL) ─
+    if (pathNorm === '/api/browser/session/human-resume' && method === 'POST') {
+        const authUser = await getAuthUser(request, env);
+        if (!authUser?.id) return jsonResponse({ error: 'Unauthorized' }, 401);
+        let body = {};
+        try {
+            body = await request.json();
+        } catch {
+            body = {};
+        }
+        const scopeId = resolveBrowserRunScopeId({
+            ...body,
+            agent_run_id: body.agent_run_id ?? body.scope_id,
+        });
+        if (!scopeId) return jsonResponse({ error: 'agent_run_id required' }, 400);
+        const access = await assertAgentRunAccess(env, scopeId, String(authUser.id));
+        if (!access.ok) return jsonResponse({ error: access.error }, access.status || 403);
+        const out = await signalHumanInputResume(env, scopeId);
+        if (!out.ok) return jsonResponse(out, 400);
+        return jsonResponse(out);
+    }
+
+    // ── POST /api/browser/session/human-cancel — user cancelled HITL ───────────
+    if (pathNorm === '/api/browser/session/human-cancel' && method === 'POST') {
+        const authUser = await getAuthUser(request, env);
+        if (!authUser?.id) return jsonResponse({ error: 'Unauthorized' }, 401);
+        let body = {};
+        try {
+            body = await request.json();
+        } catch {
+            body = {};
+        }
+        const scopeId = resolveBrowserRunScopeId({
+            ...body,
+            agent_run_id: body.agent_run_id ?? body.scope_id,
+        });
+        if (!scopeId) return jsonResponse({ error: 'agent_run_id required' }, 400);
+        const access = await assertAgentRunAccess(env, scopeId, String(authUser.id));
+        if (!access.ok) return jsonResponse({ error: access.error }, access.status || 403);
+        const out = await cancelBrowserHumanInput(env, scopeId);
+        return jsonResponse(out, out.ok ? 200 : out.status || 400);
+    }
+
     // ── POST /api/browser/session/close — end run-scoped MYBROWSER session (KV) ─
     if (pathNorm === '/api/browser/session/close' && method === 'POST') {
         const authUser = await getAuthUser(request, env);
@@ -223,6 +376,12 @@ export async function handleBrowserRequest(request, url, env) {
             agent_run_id: body.agent_run_id ?? body.scope_id,
         });
         if (!scopeId) return jsonResponse({ error: 'agent_run_id or workflow_run_id required' }, 400);
+        const access = await assertAgentRunAccess(env, scopeId, String(authUser.id));
+        if (!access.ok) return jsonResponse({ error: access.error }, access.status || 403);
+        if (env.BROWSER_SESSION) {
+            const result = await closeAgentLiveBrowserSession(env, scopeId);
+            return jsonResponse(result, result.ok ? 200 : result.status || 400);
+        }
         const result = await closeBrowserRunSession(env, scopeId);
         return jsonResponse(result);
     }
@@ -264,6 +423,39 @@ export async function handleBrowserRequest(request, url, env) {
                 : undefined;
         const reuseSessionId =
             body.session_id != null ? String(body.session_id).trim() : '';
+        const agentRunId =
+            body.agent_run_id != null
+                ? String(body.agent_run_id).trim()
+                : body.agentRunId != null
+                  ? String(body.agentRunId).trim()
+                  : '';
+
+        if (agentRunId) {
+            const access = await assertAgentRunAccess(env, agentRunId, String(authUser.id));
+            if (!access.ok) return jsonResponse({ error: access.error }, access.status || 403);
+            const ensured = await ensureAgentLiveBrowserSession(env, agentRunId, {
+                url: targetUrl,
+                keepAliveMs,
+                userId: String(authUser.id),
+                workspaceId,
+            });
+            if (!ensured.ok) {
+                return jsonResponse({ error: ensured.error || 'Browser Run session failed' }, ensured.status || 502);
+            }
+            return jsonResponse({
+                ok: true,
+                agent_run_id: agentRunId,
+                session_id: ensured.session_id ?? ensured.live_session?.session_id,
+                devtools_frontend_url:
+                    ensured.live_session?.devtools_frontend_url ?? ensured.browser_session?.devtools_frontend_url,
+                web_socket_debugger_url:
+                    ensured.live_session?.web_socket_debugger_url ?? ensured.browser_session?.web_socket_debugger_url,
+                url: ensured.live_session?.url ?? targetUrl,
+                title: ensured.live_session?.title ?? null,
+                target_id: ensured.live_session?.target_id ?? ensured.browser_session?.target_id ?? null,
+                live_session: ensured.live_session,
+            });
+        }
 
         const out = await openBrowserRunLiveView(env, {
             url: targetUrl,
@@ -279,9 +471,11 @@ export async function handleBrowserRequest(request, url, env) {
             ok: true,
             session_id: out.session_id,
             devtools_frontend_url: out.devtools_frontend_url,
+            web_socket_debugger_url: out.web_socket_debugger_url ?? null,
             url: out.url,
             title: out.title ?? null,
             target_id: out.target_id ?? null,
+            ...(agentRunId ? { agent_run_id: agentRunId } : {}),
         });
     }
 

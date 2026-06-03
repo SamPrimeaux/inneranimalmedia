@@ -209,6 +209,38 @@ function parseBrowserNavigatePreview(raw: string | null | undefined): {
   }
 }
 
+function parseBrowserLiveSessionFromToolPayload(raw: string | null | undefined): {
+  live_view_url?: string;
+  session_id?: string;
+  url?: string;
+} | null {
+  if (!raw?.trim()) return null;
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const body =
+      parsed.body && typeof parsed.body === 'object'
+        ? (parsed.body as Record<string, unknown>)
+        : parsed;
+    const live =
+      body.live_session && typeof body.live_session === 'object'
+        ? (body.live_session as Record<string, unknown>)
+        : body;
+    const liveViewUrl =
+      (typeof live.devtools_frontend_url === 'string' && live.devtools_frontend_url) ||
+      (typeof body.devtools_frontend_url === 'string' && body.devtools_frontend_url) ||
+      undefined;
+    const sessionId =
+      (typeof live.session_id === 'string' && live.session_id) ||
+      (typeof body.session_id === 'string' && body.session_id) ||
+      undefined;
+    const url = typeof live.url === 'string' ? live.url : typeof body.url === 'string' ? body.url : undefined;
+    if (!liveViewUrl && !sessionId) return null;
+    return { live_view_url: liveViewUrl, session_id: sessionId, url };
+  } catch {
+    return null;
+  }
+}
+
 export type ConsumeAgentChatSseContext = {
   signal: AbortSignal;
   reader: ReadableStreamDefaultReader<Uint8Array>;
@@ -1177,6 +1209,129 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
         if (
           data &&
           typeof data === 'object' &&
+          (data as { type?: string }).type === 'browser_live_view_ready'
+        ) {
+          const d = data as {
+            type: 'browser_live_view_ready';
+            url?: string;
+            live_view_url?: string;
+            session_id?: string;
+            target_id?: string;
+            title?: string;
+          };
+          onThinkingEvent?.({
+            type: 'browser_live_view_ready',
+            url: d.url,
+            live_view_url: d.live_view_url,
+            title: d.title,
+          });
+          if (typeof window !== 'undefined' && d.live_view_url) {
+            window.dispatchEvent(
+              new CustomEvent('iam-browser-agent-live', {
+                detail: {
+                  url: d.url,
+                  live_view_url: d.live_view_url,
+                  session_id: d.session_id,
+                },
+              }),
+            );
+          }
+          if (d.url && onBrowserNavigate) {
+            const navUrl = sanitizeBrowserNavigateUrl(String(d.url));
+            if (navUrl && !/\/api\/r2\/file\b/i.test(navUrl)) {
+              onBrowserNavigate({
+                type: 'browser_navigate',
+                url: navUrl,
+                automation: true,
+                agent_live: true,
+                live_view_url: d.live_view_url,
+                session_id: d.session_id,
+              });
+            }
+          }
+          continue;
+        }
+        if (
+          data &&
+          typeof data === 'object' &&
+          (data as { type?: string }).type === 'browser_human_input_required'
+        ) {
+          const d = data as {
+            type: 'browser_human_input_required';
+            reason?: string;
+            live_view_url?: string;
+            url?: string;
+            resume_when?: string;
+            session_id?: string;
+          };
+          onThinkingEvent?.({
+            type: 'browser_human_input_required',
+            reason: d.reason,
+            live_view_url: d.live_view_url,
+            url: d.url,
+          });
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent('iam-browser-human-input-required', {
+                detail: {
+                  reason: d.reason,
+                  live_view_url: d.live_view_url,
+                  url: d.url,
+                  resume_when: d.resume_when,
+                  session_id: d.session_id,
+                },
+              }),
+            );
+          }
+          continue;
+        }
+        if (
+          data &&
+          typeof data === 'object' &&
+          (data as { type?: string }).type === 'browser_human_input_resumed'
+        ) {
+          onThinkingEvent?.({ type: 'browser_human_input_resumed' });
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('iam-browser-human-input-resumed'));
+          }
+          continue;
+        }
+        if (
+          data &&
+          typeof data === 'object' &&
+          [
+            'browser_session_starting',
+            'browser_session_ready',
+            'browser_action_started',
+            'browser_action_done',
+            'browser_live_view_refresh',
+            'browser_session_closed',
+            'browser_human_input_cancelled',
+          ].includes(String((data as { type?: string }).type || ''))
+        ) {
+          const d = data as {
+            type: string;
+            tool_name?: string;
+            url?: string;
+            title?: string;
+            live_view_url?: string;
+            ok?: boolean;
+            reason?: string;
+          };
+          onThinkingEvent?.({
+            type: d.type,
+            tool_name: d.tool_name,
+            url: d.url,
+            title: d.title,
+            live_view_url: d.live_view_url,
+            ok: d.ok,
+            reason: d.reason,
+          });
+          continue;
+        }
+        if (
+          data &&
+          typeof data === 'object' &&
           (data as { type?: string }).type === 'browser_navigate' &&
           typeof (data as { url?: string }).url === 'string'
         ) {
@@ -1240,6 +1395,16 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
                 detail: { tool_name: tn, phase: 'start' },
               }),
             );
+            if (
+              !isBrowserScreenshotToolName(tn) &&
+              (tn.startsWith('cdt_') || tn.startsWith('browser_'))
+            ) {
+              window.dispatchEvent(
+                new CustomEvent('iam:agent-open-surface', {
+                  detail: { surface: 'browser', agent_live: true },
+                }),
+              );
+            }
           }
           const rowId = `sse-tool-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
           activeToolTraceId = rowId;
@@ -1427,15 +1592,25 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
               const preview = parseBrowserNavigatePreview(
                 typeof d.output_preview === 'string' ? d.output_preview : lastBrowserToolOutputChunk,
               );
+              const liveFromOutput = parseBrowserLiveSessionFromToolPayload(
+                typeof d.output_preview === 'string' ? d.output_preview : lastBrowserToolOutputChunk,
+              );
               const automation =
                 pendingBrowserToolAutomation ||
                 isCdtBrowserToolName(doneToolName) ||
                 doneToolName === 'browser_navigate' ||
-                Boolean(preview.screenshot_url);
+                Boolean(preview.screenshot_url) ||
+                Boolean(liveFromOutput?.live_view_url);
+              const agentLive =
+                Boolean(liveFromOutput?.live_view_url) ||
+                (automation && !preview.screenshot_url);
               onBrowserNavigate?.({
                 type: 'browser_navigate',
                 url: safeNav,
                 automation,
+                agent_live: agentLive,
+                live_view_url: liveFromOutput?.live_view_url,
+                session_id: liveFromOutput?.session_id,
                 ...preview,
               });
             }

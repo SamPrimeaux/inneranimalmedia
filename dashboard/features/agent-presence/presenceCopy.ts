@@ -14,10 +14,15 @@ export const presenceCopy: Record<
   thinking: ['Reading the context before acting.', 'Mapping the next safe step.'],
   planning: ['Turning this into a trackable plan.', 'Breaking the work into clean steps.'],
   reading: ['Inspecting the workspace.', 'Checking the source before guessing.'],
+  web_search: ['Searching the web in the background.', 'Finding current sources without opening a browser.'],
+  web_fetch: ['Reading the linked page.', 'Fetching source text for the answer.'],
   writing: ['Drafting the file-backed change.', 'Writing this where it can be reviewed.'],
   tool: ['Using a tool with live feedback.', 'Executing a checked workspace action.'],
   terminal: ['Running in the workspace terminal.', 'Watching stdout and stderr.'],
-  browser: ['Opening the target route.', 'Checking page behavior visually.'],
+  browser: ['Inspecting browser context.', 'Checking the page state.'],
+  browser_live: ['Working in the live browser session.', 'Driving the browser you can watch.'],
+  browser_human_input: ['Waiting for you in the live browser.', 'Paused for human input in the browser.'],
+  browser_capture: ['Capturing a requested browser proof.', 'Saving the requested browser artifact.'],
   database: ['Reading live schema and rows.', 'Checking IDs before writing.'],
   waiting_approval: ['Waiting for approval before risky action.', 'Nothing runs until you confirm.'],
   complete: ['Done, with proof attached.', 'Completed and logged.'],
@@ -45,8 +50,16 @@ export function toolPersonaLine(toolName: string): string | null {
     return 'Syntax-checking the generated Python file.';
   if (t.includes('terminal') || t === 'terminal_run')
     return 'Running safely in the workspace terminal.';
-  if (t.startsWith('cdt_') || t.includes('browser') || t.includes('playwright'))
-    return 'Capturing proof in the browser, not guessing.';
+  if (t.includes('tavily') || t.includes('search_web') || t.includes('open_web_search'))
+    return 'Searching the web in the background.';
+  if (t.includes('web_fetch') || t.includes('fetch_url') || t.includes('markdown'))
+    return 'Reading source text without opening a browser.';
+  if (t.includes('screenshot') || t.includes('capture') || t.includes('quality_report'))
+    return 'Capturing proof only because it was requested.';
+  if (t.includes('human_input') || t.includes('hitl'))
+    return 'Paused so you can finish this step in the live browser.';
+  if (t.includes('live_view') || t.includes('browser_session') || t.startsWith('cdt_') || t.includes('playwright'))
+    return 'Working in the same live browser session you can watch.';
   if (t.includes('r2') || t.includes('artifact'))
     return 'Collecting generated artifacts.';
   if (t.includes('monaco') || t.includes('file'))

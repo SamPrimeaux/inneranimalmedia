@@ -7,8 +7,9 @@
  * Features:
  *  - Permission gate (Deny / Allow Once / Always Allow) via agentsam_browser_trusted_origin
  *  - Agent active glow when CDT tools are running
- *  - Manual browsing: POST /api/browser/session → embed live.browser.run devtoolsFrontendUrl
- *  - Agent automation: MYBROWSER screenshot preview via /api/browser/invoke
+ *  - Manual browsing: passive iframe (Embed Preview)
+ *  - Agent automation: Agent Live Session via live.browser.run (shared Browser Run CDP)
+ *  - Screenshots: explicit capture menu / cdt_take_screenshot only
  *  - CSS Inspector (Components panel) — snapshot / same-origin when available
  *  - DevTools panel — console + network via cdt_* tools
  *  - Element picker — hover/highlight/select, populates chat
@@ -28,6 +29,8 @@ import {
   Terminal, Network, Bug,
 } from 'lucide-react';
 import type { AgentWorkspaceContextPacket } from '../src/ideWorkspace';
+import { BrowserLiveTimeline } from './BrowserLiveTimeline';
+import { useAgentLiveBrowserWs } from '../hooks/useAgentLiveBrowserWs';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -175,6 +178,8 @@ async function fetchPlaywrightJobOnce(jobId: string, signal: AbortSignal): Promi
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type PaneMode = 'browse' | 'picker' | 'screenshot' | 'area';
+/** Passive iframe embed vs shared Agent Live Browser Run session. */
+type ViewSurface = 'preview' | 'agentLive';
 type TrustScope = 'session' | 'persistent';
 
 interface TrustRequest {
@@ -262,6 +267,7 @@ async function createBrowserRunLiveSession(
   url: string,
   workspaceId?: string | null,
   sessionId?: string | null,
+  agentRunId?: string | null,
 ): Promise<BrowserRunSessionResponse> {
   const r = await fetch('/api/browser/session', {
     method: 'POST',
@@ -270,6 +276,8 @@ async function createBrowserRunLiveSession(
     body: JSON.stringify({
       url,
       ...(sessionId ? { session_id: sessionId } : {}),
+      ...(agentRunId?.trim() ? { agent_run_id: agentRunId.trim() } : {}),
+      keep_alive_ms: 600_000,
     }),
   });
   const data = (await r.json().catch(() => ({}))) as BrowserRunSessionResponse;
@@ -279,17 +287,92 @@ async function createBrowserRunLiveSession(
   return data;
 }
 
+async function refreshBrowserRunLiveUrl(
+  sessionId: string,
+  agentRunId?: string | null,
+  workspaceId?: string | null,
+): Promise<BrowserRunSessionResponse> {
+  if (agentRunId?.trim()) {
+    const r = await fetch(
+      `/api/browser/live/${encodeURIComponent(agentRunId.trim())}/live-url`,
+      {
+        credentials: 'same-origin',
+        headers: browserTrustHeaders(workspaceId),
+      },
+    );
+    const data = (await r.json().catch(() => ({}))) as BrowserRunSessionResponse;
+    if (!r.ok) return { error: data?.error || r.statusText };
+    return data;
+  }
+  const qs = new URLSearchParams();
+  if (agentRunId?.trim()) qs.set('agent_run_id', agentRunId.trim());
+  const r = await fetch(
+    `/api/browser/session/${encodeURIComponent(sessionId)}/live-url?${qs.toString()}`,
+    {
+      credentials: 'same-origin',
+      headers: browserTrustHeaders(workspaceId),
+    },
+  );
+  const data = (await r.json().catch(() => ({}))) as BrowserRunSessionResponse;
+  if (!r.ok) return { error: data?.error || r.statusText };
+  return data;
+}
+
+async function cancelBrowserHumanInput(
+  agentRunId: string,
+  workspaceId?: string | null,
+): Promise<{ ok?: boolean; error?: string }> {
+  const r = await fetch('/api/browser/session/human-cancel', {
+    method: 'POST',
+    headers: browserTrustHeaders(workspaceId),
+    credentials: 'same-origin',
+    body: JSON.stringify({ agent_run_id: agentRunId }),
+  });
+  return (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+}
+
+async function fetchAgentLiveSessionSnapshot(
+  agentRunId: string,
+  workspaceId?: string | null,
+): Promise<BrowserRunSessionResponse & { live_session?: Record<string, unknown> }> {
+  const r = await fetch(`/api/browser/live/${encodeURIComponent(agentRunId)}`, {
+    credentials: 'same-origin',
+    headers: browserTrustHeaders(workspaceId),
+  });
+  const data = (await r.json().catch(() => ({}))) as BrowserRunSessionResponse & {
+    live_session?: Record<string, unknown>;
+  };
+  if (!r.ok) return { error: data?.error || r.statusText };
+  return data;
+}
+
+async function resumeBrowserHumanInput(
+  agentRunId: string,
+  workspaceId?: string | null,
+): Promise<{ ok?: boolean; error?: string }> {
+  const r = await fetch('/api/browser/session/human-resume', {
+    method: 'POST',
+    headers: browserTrustHeaders(workspaceId),
+    credentials: 'same-origin',
+    body: JSON.stringify({ agent_run_id: agentRunId }),
+  });
+  return (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+}
+
 async function deleteBrowserRunLiveSession(
   sessionId: string,
   workspaceId?: string | null,
+  agentRunId?: string | null,
 ): Promise<void> {
-  if (!sessionId) return;
   try {
     await fetch('/api/browser/session', {
       method: 'DELETE',
       headers: browserTrustHeaders(workspaceId),
       credentials: 'same-origin',
-      body: JSON.stringify({ session_id: sessionId }),
+      body: JSON.stringify({
+        ...(agentRunId?.trim() ? { agent_run_id: agentRunId.trim() } : {}),
+        ...(sessionId ? { session_id: sessionId } : {}),
+      }),
     });
   } catch {
     /* non-blocking */
@@ -1225,6 +1308,8 @@ interface PaneProps {
   initialPreview?:     BrowserPreviewPayload | null;
   /** Agent SSE / tool_done — MYBROWSER automation; omit for passive iframe opens. */
   initialAutomation?:  boolean;
+  /** Open Browser Run Live View (shared agent session) instead of screenshot overlay. */
+  initialAgentLive?:   boolean;
   addressDisplay?: string | null;
   label?:          'A' | 'B';
   onClose?:        () => void;
@@ -1241,6 +1326,7 @@ const BrowserPane: React.FC<PaneProps> = ({
   initialUrl,
   initialPreview,
   initialAutomation = false,
+  initialAgentLive = false,
   addressDisplay,
   label,
   onClose,
@@ -1295,7 +1381,17 @@ const BrowserPane: React.FC<PaneProps> = ({
   }, [registryPickers]);
   const menuRef      = useRef<HTMLDivElement>(null);
   const iframeRef    = useRef<HTMLIFrameElement>(null);
+  const [viewSurface,    setViewSurface]    = useState<ViewSurface>(
+    initialAgentLive ? 'agentLive' : 'preview',
+  );
+  const [humanInputReq,  setHumanInputReq]  = useState<{
+    reason: string;
+    liveViewUrl?: string | null;
+    resumeWhen?: string;
+  } | null>(null);
+  const [liveSessionTitle, setLiveSessionTitle] = useState<string | null>(null);
   const browserRunSessionRef = useRef<string | null>(null);
+  const liveUrlRefreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const areaOverRef  = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const currentUrlRef = useRef(currentUrl);
@@ -1306,6 +1402,31 @@ const BrowserPane: React.FC<PaneProps> = ({
   }, [currentUrl]);
 
   const hasLiveView = Boolean(iframeUrl?.trim());
+
+  const {
+    connected: liveWsConnected,
+    timelineEvents,
+    liveSession: wsLiveSession,
+  } = useAgentLiveBrowserWs({
+    agentRunId,
+    enabled: viewSurface === 'agentLive' && Boolean(agentRunId?.trim()),
+    onSnapshot: (snap) => {
+      if (snap?.title) setLiveSessionTitle(String(snap.title));
+      if (snap?.url) setCurrentUrl(String(snap.url));
+      if (snap?.session_id) browserRunSessionRef.current = String(snap.session_id);
+    },
+    onLiveViewUrl: (url) => {
+      if (url?.trim()) setIframeUrl(url.trim());
+    },
+    onHumanInputRequired: (detail) => {
+      setHumanInputReq({
+        reason: detail.reason?.trim() || 'Complete this step in the live browser.',
+        liveViewUrl: detail.live_view_url ?? null,
+      });
+      if (detail.live_view_url?.trim()) setIframeUrl(detail.live_view_url.trim());
+    },
+    onHumanInputCleared: () => setHumanInputReq(null),
+  });
 
   const loadRegistryPickersIfNeeded = useCallback(async (): Promise<BrowserRegistryPickers> => {
     const wid =
@@ -1809,7 +1930,129 @@ const BrowserPane: React.FC<PaneProps> = ({
     return () => window.removeEventListener('iam-browser-trust-required', onTrustRequired);
   }, [requestTrust, trustWorkspaceId]);
 
-  /** MYBROWSER / CDT automation preview — not used for passive URL opens or surface_open. */
+  /** Agent Live Session — Browser Run embed shared with agent CDP tools. */
+  const openAgentLiveSession = useCallback(
+    async (raw: string, liveViewUrl?: string | null, sessionId?: string | null) => {
+      const s = raw.trim();
+      if (!s || isVirtual(s)) return;
+      const n = normalize(s);
+      setViewSurface('agentLive');
+      setNavigateError(null);
+      setScreenshotUrl(null);
+      setScreenshotErr(null);
+      setMode('browse');
+      setInspectedEl(null);
+      setIframeBlocked(false);
+      setLoading(true);
+
+      try {
+        let embedUrl = liveViewUrl?.trim() || '';
+        let sid = sessionId?.trim() || browserRunSessionRef.current;
+        const rid = agentRunId?.trim();
+        if (rid && !embedUrl) {
+          const snap = await fetchAgentLiveSessionSnapshot(rid, trustWorkspaceId);
+          const live = snap.live_session as Record<string, unknown> | undefined;
+          embedUrl =
+            (typeof live?.devtools_frontend_url === 'string' && live.devtools_frontend_url) ||
+            snap.devtools_frontend_url ||
+            '';
+          sid =
+            (typeof live?.session_id === 'string' && live.session_id) ||
+            snap.session_id ||
+            sid ||
+            null;
+          if (typeof live?.title === 'string') setLiveSessionTitle(live.title);
+        }
+        if (!embedUrl) {
+          const data = await createBrowserRunLiveSession(
+            n,
+            trustWorkspaceId,
+            sid,
+            agentRunId,
+          );
+          if (data.error || !data.devtools_frontend_url) {
+            setNavigateError(data.error || 'Browser Run session did not return a live view URL');
+            return;
+          }
+          embedUrl = data.devtools_frontend_url;
+          sid = data.session_id || sid || null;
+        }
+        browserRunSessionRef.current = sid || browserRunSessionRef.current;
+        setIframeUrl(embedUrl);
+        setCurrentUrl(n);
+        setInputVal(addressDisplay?.trim() && /^(blob:|data:)/i.test(n) ? addressDisplay : n);
+        onUrlCommitted?.(n);
+      } catch (e) {
+        setNavigateError(String(e));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [addressDisplay, agentRunId, onUrlCommitted, trustWorkspaceId],
+  );
+
+  useEffect(() => {
+    if (viewSurface !== 'agentLive') {
+      if (liveUrlRefreshTimerRef.current) {
+        clearInterval(liveUrlRefreshTimerRef.current);
+        liveUrlRefreshTimerRef.current = null;
+      }
+      return;
+    }
+    const tick = () => {
+      const sid = browserRunSessionRef.current;
+      const rid = agentRunId?.trim();
+      if (!rid && !sid) return;
+      void refreshBrowserRunLiveUrl(sid || '', rid || null, trustWorkspaceId).then((data) => {
+        if (data.devtools_frontend_url) setIframeUrl(data.devtools_frontend_url);
+      });
+    };
+    liveUrlRefreshTimerRef.current = setInterval(tick, 4 * 60 * 1000);
+    return () => {
+      if (liveUrlRefreshTimerRef.current) {
+        clearInterval(liveUrlRefreshTimerRef.current);
+        liveUrlRefreshTimerRef.current = null;
+      }
+    };
+  }, [viewSurface, agentRunId, trustWorkspaceId]);
+
+  useEffect(() => {
+    const onAgentLive = (e: Event) => {
+      const d = (e as CustomEvent<{
+        url?: string;
+        live_view_url?: string;
+        session_id?: string;
+      }>).detail;
+      if (!d?.url?.trim()) return;
+      void openAgentLiveSession(d.url, d.live_view_url, d.session_id);
+    };
+    const onHumanInput = (e: Event) => {
+      const d = (e as CustomEvent<{
+        reason?: string;
+        live_view_url?: string;
+        resume_when?: string;
+        url?: string;
+      }>).detail;
+      setHumanInputReq({
+        reason: d?.reason?.trim() || 'Complete this step in the live browser.',
+        liveViewUrl: d?.live_view_url ?? null,
+        resumeWhen: d?.resume_when,
+      });
+      if (d?.url?.trim()) void openAgentLiveSession(d.url, d.live_view_url);
+      else if (d?.live_view_url?.trim()) setIframeUrl(d.live_view_url.trim());
+    };
+    const onHumanResumed = () => setHumanInputReq(null);
+    window.addEventListener('iam-browser-agent-live', onAgentLive as EventListener);
+    window.addEventListener('iam-browser-human-input-required', onHumanInput as EventListener);
+    window.addEventListener('iam-browser-human-input-resumed', onHumanResumed);
+    return () => {
+      window.removeEventListener('iam-browser-agent-live', onAgentLive as EventListener);
+      window.removeEventListener('iam-browser-human-input-required', onHumanInput as EventListener);
+      window.removeEventListener('iam-browser-human-input-resumed', onHumanResumed);
+    };
+  }, [openAgentLiveSession]);
+
+  /** MYBROWSER / CDT automation preview — explicit screenshot path only (not agent live default). */
   const loadAutomationPreview = useCallback(
     async (targetUrl: string, preview?: BrowserPreviewPayload | null) => {
       const n = normalize(targetUrl);
@@ -1857,10 +2100,11 @@ const BrowserPane: React.FC<PaneProps> = ({
 
   const releaseBrowserRunSession = useCallback(async () => {
     const sid = browserRunSessionRef.current;
-    if (!sid) return;
+    const rid = agentRunId?.trim();
+    if (!sid && !rid) return;
     browserRunSessionRef.current = null;
-    await deleteBrowserRunLiveSession(sid, trustWorkspaceId);
-  }, [trustWorkspaceId]);
+    await deleteBrowserRunLiveSession(sid || '', trustWorkspaceId, rid || null);
+  }, [trustWorkspaceId, agentRunId]);
 
   useEffect(() => () => {
     void releaseBrowserRunSession();
@@ -1904,6 +2148,7 @@ const BrowserPane: React.FC<PaneProps> = ({
       setScreenshotUrl(null);
       setScreenshotErr(null);
       setMode('browse');
+      setViewSurface('agentLive');
       setInspectedEl(null);
       setIframeBlocked(false);
       setLoading(true);
@@ -1913,6 +2158,7 @@ const BrowserPane: React.FC<PaneProps> = ({
           n,
           trustWorkspaceId,
           browserRunSessionRef.current,
+          agentRunId,
         );
         if (data.error || !data.devtools_frontend_url) {
           setNavigateError(data.error || 'Browser Run session did not return a live view URL');
@@ -1953,19 +2199,37 @@ const BrowserPane: React.FC<PaneProps> = ({
   );
 
   const navigate = useCallback(
-    async (raw: string, opts?: { preview?: BrowserPreviewPayload | null; automation?: boolean }) => {
+    async (
+      raw: string,
+      opts?: { preview?: BrowserPreviewPayload | null; automation?: boolean; agentLive?: boolean },
+    ) => {
       const s = raw.trim();
       if (!s || isVirtual(s)) return;
       await loadRegistryPickersIfNeeded();
       const n = normalize(s);
       if (!(await ensureOriginTrust(n))) return;
+      const useAgentLive =
+        opts?.agentLive === true ||
+        (opts?.automation === true && Boolean(agentRunId?.trim()) && !opts?.preview?.screenshot_url);
+      if (useAgentLive) {
+        await openAgentLiveSession(n);
+        return;
+      }
       if (opts?.automation === true || Boolean(opts?.preview?.screenshot_url)) {
         await loadAutomationPreview(n, opts?.preview ?? null);
         return;
       }
+      setViewSurface('preview');
       await openPassiveIframeView(raw);
     },
-    [ensureOriginTrust, loadAutomationPreview, loadRegistryPickersIfNeeded, openPassiveIframeView],
+    [
+      agentRunId,
+      ensureOriginTrust,
+      loadAutomationPreview,
+      loadRegistryPickersIfNeeded,
+      openAgentLiveSession,
+      openPassiveIframeView,
+    ],
   );
 
   // ── Sync parent/agent URL → iframe or MYBROWSER preview (not URL-bar keystrokes) ─
@@ -1978,8 +2242,9 @@ const BrowserPane: React.FC<PaneProps> = ({
     void navigateRef.current(n, {
       preview: initialPreview?.screenshot_url ? initialPreview : null,
       automation: initialAutomation === true || Boolean(initialPreview?.screenshot_url),
+      agentLive: initialAgentLive === true,
     });
-  }, [initialUrl, initialPreview, initialAutomation]);
+  }, [initialUrl, initialPreview, initialAutomation, initialAgentLive]);
 
   // ── Screenshot (Playwright) ─────────────────────────────────────────────────
   const runScreenshot = useCallback(async (clip?: { x: number; y: number; width: number; height: number }) => {
@@ -2313,7 +2578,66 @@ const BrowserPane: React.FC<PaneProps> = ({
       )}
 
       {/* Agent active banner */}
-      {agentActive && (
+      {agentActive && viewSurface === 'agentLive' && (
+        <div className="flex items-center gap-1.5 px-3 py-1 bg-[var(--color-primary)]/10 border-b border-[var(--color-primary)]/20 shrink-0">
+          <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-primary)] animate-pulse" />
+          <span className="text-[9px] font-mono uppercase tracking-widest text-[var(--color-primary)]">
+            Agent Live Session — shared Browser Run
+          </span>
+          {liveWsConnected ? (
+            <span className="ml-auto text-[9px] text-[var(--text-muted)]">live channel connected</span>
+          ) : null}
+          {(liveSessionTitle || wsLiveSession?.title) ? (
+            <span className="ml-2 truncate text-[9px] text-[var(--text-muted)] max-w-[40%]">
+              {liveSessionTitle || wsLiveSession?.title}
+            </span>
+          ) : null}
+        </div>
+      )}
+
+      {viewSurface === 'agentLive' && timelineEvents.length > 0 ? (
+        <BrowserLiveTimeline events={timelineEvents} />
+      ) : null}
+
+      {/* Human-in-the-loop */}
+      {humanInputReq && (
+        <div className="flex flex-col gap-2 px-3 py-2 bg-amber-500/10 border-b border-amber-500/30 shrink-0">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="text-[11px] font-semibold text-amber-200">Agent needs you</p>
+              <p className="text-[10px] text-[var(--text-muted)] mt-0.5">{humanInputReq.reason}</p>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                className="px-2 py-1 text-[10px] rounded border border-[var(--border-subtle)] hover:bg-[var(--bg-panel)]"
+                onClick={() => {
+                  const rid = agentRunId?.trim();
+                  if (rid) void cancelBrowserHumanInput(rid, trustWorkspaceId);
+                  setHumanInputReq(null);
+                  window.dispatchEvent(new CustomEvent('iam-browser-human-input-resumed'));
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="px-2 py-1 text-[10px] rounded bg-[var(--color-primary)] text-white"
+                onClick={() => {
+                  const rid = agentRunId?.trim();
+                  if (rid) void resumeBrowserHumanInput(rid, trustWorkspaceId);
+                  setHumanInputReq(null);
+                  window.dispatchEvent(new CustomEvent('iam-browser-human-input-resumed'));
+                }}
+              >
+                Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {agentActive && viewSurface === 'preview' && !humanInputReq && (
         <div className="flex items-center gap-1.5 px-3 py-1 bg-[var(--color-primary)]/10 border-b border-[var(--color-primary)]/20 shrink-0">
           <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-primary)] animate-pulse" />
           <span className="text-[9px] font-mono uppercase tracking-widest text-[var(--color-primary)]">
@@ -2600,6 +2924,7 @@ export const BrowserView: React.FC<BrowserViewProps> = ({
 }) => {
   const [primaryUrl,         setPrimaryUrl]         = useState('');
   const [primaryAutomation, setPrimaryAutomation] = useState(false);
+  const [primaryAgentLive,  setPrimaryAgentLive]  = useState(false);
   const [primaryPreview,    setPrimaryPreview]    = useState<BrowserPreviewPayload | null>(null);
   const urlFromParentRef = useRef(urlFromParent);
 
@@ -2623,14 +2948,29 @@ export const BrowserView: React.FC<BrowserViewProps> = ({
         url?: string;
         screenshot_url?: string;
         automation?: boolean;
+        agent_live?: boolean;
+        live_view_url?: string;
+        session_id?: string;
       }>).detail;
       if (d?.url) {
         setPrimaryUrl(d.url);
         setPrimaryAutomation(d.automation === true);
+        setPrimaryAgentLive(d.agent_live === true || (d.automation === true && !d.screenshot_url));
         if (d.screenshot_url) {
           setPrimaryPreview({ screenshot_url: d.screenshot_url });
         } else {
           setPrimaryPreview(null);
+        }
+        if (d.agent_live && d.live_view_url) {
+          window.dispatchEvent(
+            new CustomEvent('iam-browser-agent-live', {
+              detail: {
+                url: d.url,
+                live_view_url: d.live_view_url,
+                session_id: d.session_id,
+              },
+            }),
+          );
         }
       }
     };
@@ -2776,6 +3116,7 @@ export const BrowserView: React.FC<BrowserViewProps> = ({
           initialUrl={primaryUrl}
           initialPreview={primaryPreview}
           initialAutomation={primaryAutomation}
+          initialAgentLive={primaryAgentLive}
           addressDisplay={addressDisplay}
           label={secondaryUrl ? 'A' : undefined}
           isSplit={!!secondaryUrl}

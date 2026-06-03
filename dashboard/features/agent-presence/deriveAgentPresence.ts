@@ -30,6 +30,7 @@ function motionFor(state: AgentPresenceState): AgentLogoMotion {
     case 'terminal':
       return 'running';
     case 'waiting_approval':
+    case 'browser_human_input':
       return 'blocked';
     default:
       return state as AgentLogoMotion;
@@ -39,14 +40,65 @@ function motionFor(state: AgentPresenceState): AgentLogoMotion {
 function classifyRunningTool(row: AgentToolTraceRow): AgentPresenceState {
   const tn = (row.toolName || '').toLowerCase();
   const line0 = (row.lines[0] || '').toLowerCase();
-  if (tn.includes('py_compile') || line0.includes('py_compile') || tn.includes('python3') || line0.includes('python3'))
+  const hay = `${tn} ${line0}`;
+
+  if (hay.includes('py_compile') || hay.includes('python3') || hay.includes('terminal'))
     return 'terminal';
-  if (tn.includes('d1') || tn.includes('sql') || tn.includes('supabase') || tn.includes('query'))
+
+  if (hay.includes('d1') || hay.includes('sql') || hay.includes('supabase') || hay.includes('query'))
     return 'database';
-  if (tn.startsWith('cdt_') || tn.includes('browser') || tn.includes('playwright'))
+
+  if (
+    hay.includes('tavily') ||
+    hay.includes('search_web') ||
+    hay.includes('open_web_search') ||
+    hay.includes('web_search')
+  )
+    return 'web_search';
+
+  if (
+    hay.includes('web_fetch') ||
+    hay.includes('fetch_url') ||
+    hay.includes('markdown') ||
+    hay.includes('read_url')
+  )
+    return 'web_fetch';
+
+  if (
+    hay.includes('human_input') ||
+    hay.includes('human-in-the-loop') ||
+    hay.includes('hitl') ||
+    hay.includes('browser_human_input_required')
+  )
+    return 'browser_human_input';
+
+  if (
+    hay.includes('screenshot') ||
+    hay.includes('capture_full_page') ||
+    hay.includes('capture_selected') ||
+    hay.includes('quality_report')
+  )
+    return 'browser_capture';
+
+  if (
+    hay.includes('live_view') ||
+    hay.includes('browser_session') ||
+    hay.includes('devtoolsfrontendurl') ||
+    hay.includes('browser_live') ||
+    hay.includes('cdt_') ||
+    hay.includes('playwright') ||
+    hay.includes('browser_navigate') ||
+    hay.includes('browser_click') ||
+    hay.includes('browser_fill')
+  )
+    return 'browser_live';
+
+  if (hay.includes('browser'))
     return 'browser';
-  if (tn.includes('monaco') || line0.includes('.py'))
+
+  if (hay.includes('monaco') || hay.includes('file') || line0.includes('.py'))
     return 'writing';
+
   return 'tool';
 }
 
@@ -162,14 +214,30 @@ export function deriveAgentPresence(i: DerivePresenceInput): { presence: AgentPr
   if (i.isLoading && i.thinkingState) {
     const runStep = i.thinkingState.steps.find((s) => s.status === 'running');
     if (runStep) {
-      const st: AgentPresenceState = 'reading';
+      const pseudoRow: AgentToolTraceRow = {
+        id: runStep.id,
+        toolName: runStep.name,
+        status: 'running',
+        lines: runStep.preview ? [runStep.preview] : [],
+        startedAtLabel: '',
+      };
+      const st = classifyRunningTool(pseudoRow);
       const p: AgentPresence = {
         state: st,
-        label: toolPersonaLine(runStep.name) || `Working: ${runStep.name}`,
+        label: toolPersonaLine(runStep.name) || pickPresenceLine(st, runStep.id),
         detail: runStep.preview,
         toolName: runStep.name,
       };
       return { presence: p, logoMotion: motionFor(st) };
+    }
+    if (i.thinkingState.status === 'blocked') {
+      const hitlStep = i.thinkingState.steps.find((s) => s.status === 'blocked');
+      const p: AgentPresence = {
+        state: 'browser_human_input',
+        label: hitlStep?.name || pickPresenceLine('browser_human_input', seed),
+        detail: hitlStep?.preview,
+      };
+      return { presence: p, logoMotion: 'blocked' };
     }
     if (i.thinkingState.status === 'thinking' || i.thinkingState.status === 'working') {
       const p: AgentPresence = {
@@ -178,13 +246,6 @@ export function deriveAgentPresence(i: DerivePresenceInput): { presence: AgentPr
         detail: i.thinkingState.thinkingText?.trim().slice(0, 120) || undefined,
       };
       return { presence: p, logoMotion: motionFor('thinking') };
-    }
-    if (i.thinkingState.status === 'blocked') {
-      const p: AgentPresence = {
-        state: 'waiting_approval',
-        label: pickPresenceLine('waiting_approval', seed),
-      };
-      return { presence: p, logoMotion: 'blocked' };
     }
   }
 

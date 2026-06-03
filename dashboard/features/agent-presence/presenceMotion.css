@@ -65,6 +65,29 @@
   animation: agent-sam-ring-pulse 1.8s ease-in-out infinite;
 }
 
+.agent-sam-logo[data-motion='web_search'] + .agent-sam-logo-ring,
+.agent-sam-logo[data-motion='web_fetch'] + .agent-sam-logo-ring {
+  opacity: 1;
+  border-color: color-mix(in srgb, var(--solar-cyan) 45%, transparent);
+  animation: agent-sam-ring-pulse 1.8s ease-in-out infinite;
+}
+
+.agent-sam-logo[data-motion='browser_live'] + .agent-sam-logo-ring {
+  opacity: 1;
+  border-color: color-mix(in srgb, var(--solar-cyan) 70%, transparent);
+  animation: agent-sam-ring-spin 2.2s linear infinite;
+}
+
+.agent-sam-logo[data-motion='browser_human_input'] {
+  animation: agent-sam-amber-pulse 1.6s ease-in-out infinite;
+  filter: drop-shadow(0 0 8px color-mix(in srgb, var(--solar-yellow) 35%, transparent));
+}
+
+.agent-sam-logo[data-motion='browser_capture'] + .agent-sam-logo-ring {
+  opacity: 1;
+  animation: agent-sam-ring-pulse 1.4s ease-in-out infinite;
+}
+
 .agent-sam-logo[data-motion='blocked'] {
   animation: agent-sam-amber-pulse 1.6s ease-in-out infinite;
   filter: drop-shadow(0 0 8px color-mix(in srgb, var(--solar-yellow) 35%, transparent));
@@ -269,6 +292,11 @@
 .iam-presence-logo[data-state="writing"]           { animation: presence-write 1.2s ease-in-out infinite; }
 .iam-presence-logo[data-state="terminal"]          { animation: presence-terminal 0.8s steps(2) infinite; }
 .iam-presence-logo[data-state="browser"]           { animation: presence-browser 2s ease-in-out infinite; }
+.iam-presence-logo[data-state="browser_live"]       { animation: presence-browser 1.6s ease-in-out infinite; }
+.iam-presence-logo[data-state="browser_human_input"] { animation: agent-sam-amber-pulse 1.2s ease-in-out infinite; }
+.iam-presence-logo[data-state="browser_capture"]     { animation: presence-files 1.4s ease-in-out infinite; }
+.iam-presence-logo[data-state="web_search"]          { animation: presence-db 1.6s ease-in-out infinite; }
+.iam-presence-logo[data-state="web_fetch"]           { animation: presence-db 1.5s ease-in-out infinite; }
 .iam-presence-logo[data-state="database"]          { animation: presence-db 1.6s ease-in-out infinite; }
 .iam-presence-logo[data-state="tool"]              { animation: agent-sam-plan-shimmer 1.4s ease-in-out infinite; }
 .iam-presence-logo[data-state="files"]             { animation: presence-files 1.7s ease-in-out infinite; }

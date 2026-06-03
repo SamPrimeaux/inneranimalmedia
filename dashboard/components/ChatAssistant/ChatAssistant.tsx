@@ -108,6 +108,11 @@ import '../../features/agent-presence/presenceIcons.css';
 import { useAgentPresence, AgentPresenceStatus } from '../../features/agent-presence';
 import { derivePresenceState } from '../../features/agent-presence/iamDerivePresenceState';
 import {
+  formatThinkingStepName,
+  formatBrowserLiveSseStepName,
+  upsertThinkingStep,
+} from '../../features/agent-chat/formatThinkingStepName';
+import {
   pickAgentPresenceColorway,
   agentPresenceColorwayStyle,
 } from '../../features/agent-presence/presenceColorways';
@@ -1107,18 +1112,24 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   );
 
 
-  const compactToolLabel = useCallback((toolName: string) => {
-    const n = String(toolName || '').toLowerCase();
-    if (n === 'browser_navigate' || n === 'browser_open_url' || n === 'cdt_navigate_page') return 'Opening browser preview…';
-    if (n.includes('monaco') || n === 'r2_write' || n.includes('write')) return 'Editing code…';
-    if (n === 'cdt_take_screenshot' || n === 'playwright_screenshot' || n === 'browser_screenshot') {
-      return 'Capturing browser screenshot…';
-    }
-    if (n.startsWith('browser_') || n.startsWith('cdt_') || n.startsWith('playwright_')) return 'Browser tool…';
-    return toolName;
-  }, []);
-
-  const handleThinkingEvent = useCallback((ev: { type: string; tool_name?: string; text?: string; ok?: boolean; output_preview?: string; command_run_id?: string; approval_id?: string; plan_id?: string }) => {
+  const handleThinkingEvent = useCallback((ev: {
+    type: string;
+    tool_name?: string;
+    text?: string;
+    ok?: boolean;
+    output_preview?: string;
+    command_run_id?: string;
+    approval_id?: string;
+    plan_id?: string;
+    url?: string;
+    title?: string;
+    reason?: string;
+    live_view_url?: string;
+    node_key?: string;
+    execution_lane?: string;
+    lane?: string;
+    label?: string;
+  }) => {
     setPresenceState(derivePresenceState(ev));
     if (ev.type === 'thinking_start') {
       setThinkingState({ steps: [], thinkingText: '', status: 'thinking', startedAt: Date.now() });
@@ -1140,27 +1151,148 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         startedAt: prev?.startedAt ?? Date.now(),
       }));
     } else if (ev.type === 'tool_start') {
-      const id = ev.tool_name || String(Date.now());
-      const label = compactToolLabel(id);
+      const id = ev.tool_name || ev.node_key || String(Date.now());
+      const name = formatThinkingStepName(ev);
       setThinkingState(prev => {
-        const base = prev ?? { steps: [], thinkingText: label, status: 'working', startedAt: Date.now() };
-        if (base.steps.find(s => s.id === id)) return { ...base, thinkingText: label, status: 'working' };
+        const base = prev ?? { steps: [], thinkingText: name, status: 'working', startedAt: Date.now() };
+        if (base.steps.find(s => s.id === id)) return { ...base, thinkingText: name, status: 'working' };
         return {
           ...base,
           status: 'working',
-          thinkingText: label,
-          steps: [...base.steps, { id, name: label, status: 'running' as const }],
+          thinkingText: name,
+          steps: [...base.steps, { id, name, status: 'running' as const }],
+        };
+      });
+    } else if (ev.type === 'browser_session_starting') {
+      setThinkingState(prev => {
+        const base = prev ?? { steps: [], thinkingText: '', status: 'working', startedAt: Date.now() };
+        return {
+          ...base,
+          status: 'working',
+          steps: upsertThinkingStep(base.steps, {
+            id: 'browser_session',
+            name: formatBrowserLiveSseStepName(ev.type),
+            status: 'running',
+          }),
+        };
+      });
+    } else if (ev.type === 'browser_session_ready' || ev.type === 'browser_live_view_ready') {
+      setThinkingState(prev => {
+        const base = prev ?? { steps: [], thinkingText: '', status: 'working', startedAt: Date.now() };
+        return {
+          ...base,
+          status: 'working',
+          steps: upsertThinkingStep(base.steps, {
+            id: 'browser_live_view',
+            name: formatBrowserLiveSseStepName(ev.type),
+            status: 'done',
+            preview: ev.url || ev.title || ev.live_view_url || undefined,
+          }),
+        };
+      });
+    } else if (ev.type === 'browser_action_started') {
+      const id = ev.tool_name ? `browser_action_${ev.tool_name}` : 'browser_action';
+      setThinkingState(prev => {
+        const base = prev ?? { steps: [], thinkingText: '', status: 'working', startedAt: Date.now() };
+        return {
+          ...base,
+          status: 'working',
+          steps: upsertThinkingStep(base.steps, {
+            id,
+            name: formatThinkingStepName(ev) || formatBrowserLiveSseStepName(ev.type),
+            status: 'running',
+          }),
+        };
+      });
+    } else if (ev.type === 'browser_action_done') {
+      const id = ev.tool_name ? `browser_action_${ev.tool_name}` : 'browser_action';
+      setThinkingState(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          steps: upsertThinkingStep(prev.steps, {
+            id,
+            name: formatThinkingStepName(ev) || formatBrowserLiveSseStepName(ev.type),
+            status: ev.ok === false ? 'error' : 'done',
+            preview: ev.url || ev.output_preview,
+          }),
+        };
+      });
+    } else if (ev.type === 'browser_human_input_required') {
+      setThinkingState(prev => {
+        const base = prev ?? { steps: [], thinkingText: '', status: 'blocked', startedAt: Date.now() };
+        return {
+          ...base,
+          status: 'blocked',
+          steps: upsertThinkingStep(base.steps, {
+            id: 'browser_human_input',
+            name: formatBrowserLiveSseStepName(ev.type),
+            status: 'blocked',
+            preview: ev.reason || 'Complete the step, then click Continue.',
+          }),
+        };
+      });
+    } else if (ev.type === 'browser_human_input_resumed') {
+      setThinkingState(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          status: 'working',
+          steps: upsertThinkingStep(prev.steps, {
+            id: 'browser_human_input',
+            name: formatBrowserLiveSseStepName(ev.type),
+            status: 'done',
+          }),
+        };
+      });
+    } else if (ev.type === 'browser_human_input_cancelled') {
+      setThinkingState(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          status: 'working',
+          steps: upsertThinkingStep(prev.steps, {
+            id: 'browser_human_input',
+            name: formatBrowserLiveSseStepName(ev.type),
+            status: 'error',
+          }),
+        };
+      });
+    } else if (ev.type === 'browser_live_view_refresh') {
+      setThinkingState(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          steps: upsertThinkingStep(prev.steps, {
+            id: 'browser_live_view',
+            name: formatBrowserLiveSseStepName(ev.type),
+            status: 'done',
+            preview: ev.url || ev.live_view_url,
+          }),
+        };
+      });
+    } else if (ev.type === 'browser_session_closed') {
+      setThinkingState(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          steps: upsertThinkingStep(prev.steps, {
+            id: 'browser_session',
+            name: formatBrowserLiveSseStepName(ev.type),
+            status: 'done',
+          }),
         };
       });
     } else if (ev.type === 'tool_done' || ev.type === 'workflow_step') {
-      const id = ev.tool_name || '';
+      const id = ev.tool_name || ev.node_key || '';
+      const name = id ? formatThinkingStepName(ev) : 'Working';
       setThinkingState(prev => {
         if (!prev) return prev;
         const exists = prev.steps.find(s => s.id === id);
         const stepStatus: 'error' | 'done' = ev.ok === false ? 'error' : 'done';
         const updated = exists
-          ? prev.steps.map(s => s.id === id ? { ...s, status: stepStatus, preview: ev.output_preview?.slice(0, 120) } : s)
-          : [...prev.steps, { id, name: id, status: stepStatus, preview: ev.output_preview?.slice(0, 120) }];
+          ? prev.steps.map(s => s.id === id ? { ...s, name, status: stepStatus, preview: ev.output_preview?.slice(0, 120) } : s)
+          : [...prev.steps, { id, name, status: stepStatus, preview: ev.output_preview?.slice(0, 120) }];
         return { ...prev, steps: updated };
       });
     } else if (ev.type === 'tool_error') {
@@ -1173,7 +1305,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     } else if (ev.type === 'workflow_error' || ev.type === 'error') {
       setThinkingState(prev => prev ? { ...prev, status: 'error' } : prev);
     }
-  }, [onApprovalRequired, compactToolLabel]);
+  }, [onApprovalRequired]);
 
   const handleApprovePendingTool = useCallback(async () => {
     if (!pendingToolApproval) return;

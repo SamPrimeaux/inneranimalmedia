@@ -9,6 +9,14 @@ import {
   saveBrowserSession,
   closeBrowserRunSession,
 } from './browser-session.js';
+import {
+  ensureAgentLiveBrowserSession,
+  closeAgentLiveBrowserSession,
+  requestBrowserHumanInput,
+  liveSessionPayload,
+  getAgentLiveBrowserSession,
+} from './agent-live-browser-session.js';
+import { browserLiveDoRequired, patchAgentLiveBrowserSessionViaDo } from './browser-live-do-client.js';
 
 const SCREENSHOT_TOOLS = new Set([
   'cdt_take_screenshot',
@@ -210,15 +218,43 @@ export async function withBrowserPage(env, params, fn, opts = {}) {
   const targetUrl = resolveBrowserToolUrl(params);
   const toolName = String(opts.toolName || '').trim();
   const scopeId = resolveBrowserRunScopeId(params);
+  const useLiveDo = Boolean(scopeId && browserLiveDoRequired(env));
   const persistSession =
-    opts.persistSession !== false && Boolean(scopeId) && sessionKv(env);
+    !useLiveDo &&
+    opts.persistSession !== false &&
+    Boolean(scopeId) &&
+    sessionKv(env);
+
+  let liveSessionMeta = null;
+  if (scopeId && (useLiveDo || persistSession)) {
+    const ensured = await ensureAgentLiveBrowserSession(env, scopeId, {
+      url: targetUrl || null,
+      userId: params.user_id ?? params.session?.user_id ?? null,
+      workspaceId: params.workspace_id ?? params.session?.workspace_id ?? null,
+      tool_name: toolName || undefined,
+    });
+    if (ensured.error && !ensured.ok) {
+      return { error: ensured.error, ok: false };
+    }
+    liveSessionMeta = ensured.live_session ?? null;
+    if (useLiveDo && toolName) {
+      await patchAgentLiveBrowserSessionViaDo(env, scopeId, {
+        tool_name: toolName,
+        action_phase: 'start',
+        url: liveSessionMeta?.url ?? targetUrl ?? null,
+      }).catch(() => {});
+    }
+  }
 
   const consoleMessages = [];
   const networkRequests = [];
   const networkByUrl = new Map();
 
   const pw = await import('@cloudflare/playwright');
-  const canReuse = persistSession && typeof pw.acquire === 'function' && typeof pw.connect === 'function';
+  const canReuse =
+    (useLiveDo || persistSession) &&
+    typeof pw.acquire === 'function' &&
+    typeof pw.connect === 'function';
 
   let browser = null;
   let sessionId = null;
@@ -227,11 +263,19 @@ export async function withBrowserPage(env, params, fn, opts = {}) {
 
   try {
     if (canReuse) {
-      sessionMeta = await getStoredBrowserSession(env, scopeId);
-      if (sessionMeta?.sessionId) {
+      if (!useLiveDo) {
+        sessionMeta = await getStoredBrowserSession(env, scopeId);
+      }
+      const connectId =
+        liveSessionMeta?.session_id != null
+          ? String(liveSessionMeta.session_id)
+          : sessionMeta?.sessionId
+            ? String(sessionMeta.sessionId)
+            : '';
+      if (connectId) {
         try {
-          browser = await pw.connect(env.MYBROWSER, String(sessionMeta.sessionId));
-          sessionId = String(sessionMeta.sessionId);
+          browser = await pw.connect(env.MYBROWSER, connectId);
+          sessionId = connectId;
           sessionReused = true;
         } catch (e) {
           console.warn('[browser-cdp] connect to stored session failed', String(e?.message || e));
@@ -239,7 +283,14 @@ export async function withBrowserPage(env, params, fn, opts = {}) {
         }
       }
       if (!browser) {
-        const acquired = await pw.acquire(env.MYBROWSER, { keep_alive: 120_000 });
+        if (useLiveDo) {
+          return {
+            error: 'Agent live browser session could not connect to Browser Run',
+            ok: false,
+            live_session: liveSessionMeta,
+          };
+        }
+        const acquired = await pw.acquire(env.MYBROWSER, { keep_alive: 600_000 });
         sessionId = String(acquired.sessionId);
         browser = await pw.connect(env.MYBROWSER, sessionId);
         sessionReused = false;
@@ -259,11 +310,17 @@ export async function withBrowserPage(env, params, fn, opts = {}) {
     }
 
     const effectiveUrl = page.url() || targetUrl || '';
+    const storedLive = scopeId ? await getAgentLiveBrowserSession(env, scopeId) : null;
     const browserSession =
       scopeId && sessionId
         ? {
             scope_id: scopeId,
             session_id: sessionId,
+            target_id: storedLive?.targetId ?? liveSessionMeta?.target_id ?? null,
+            web_socket_debugger_url:
+              storedLive?.webSocketDebuggerUrl ?? liveSessionMeta?.web_socket_debugger_url ?? null,
+            devtools_frontend_url:
+              storedLive?.devtoolsFrontendUrl ?? liveSessionMeta?.devtools_frontend_url ?? null,
             reused: sessionReused,
           }
         : null;
@@ -274,20 +331,38 @@ export async function withBrowserPage(env, params, fn, opts = {}) {
       consoleMessages,
       networkRequests,
       browserSession,
+      liveSession: storedLive ? liveSessionPayload(storedLive) : liveSessionMeta,
     });
 
-    if (canReuse && scopeId && sessionId) {
+    if (canReuse && scopeId && sessionId && !useLiveDo) {
       await saveBrowserSession(env, scopeId, {
         sessionId,
         user_id: params.user_id ?? params.session?.user_id ?? null,
         workspace_id: params.workspace_id ?? params.session?.workspace_id ?? null,
         current_url: page.url() || targetUrl || null,
         last_tool: toolName || null,
+        ...(storedLive ? serializeLiveFields(storedLive) : {}),
       });
     }
 
-    if (result && typeof result === 'object' && browserSession) {
-      return { ...result, browser_session: browserSession };
+    if (useLiveDo && scopeId && toolName) {
+      const title = await page.title().catch(() => '');
+      await patchAgentLiveBrowserSessionViaDo(env, scopeId, {
+        tool_name: toolName,
+        action_phase: 'done',
+        url: page.url() || targetUrl || null,
+        title,
+        ok: result && typeof result === 'object' && result.error ? false : true,
+      }).catch(() => {});
+    }
+
+    if (result && typeof result === 'object') {
+      const out = { ...result };
+      if (browserSession) out.browser_session = browserSession;
+      if (storedLive || liveSessionMeta) {
+        out.live_session = storedLive ? liveSessionPayload(storedLive) : liveSessionMeta;
+      }
+      return out;
     }
     return result;
   } catch (e) {
@@ -306,6 +381,19 @@ export async function withBrowserPage(env, params, fn, opts = {}) {
 
 function sessionKv(env) {
   return env?.SESSION_CACHE || env?.KV || null;
+}
+
+/** @param {import('./agent-live-browser-session.js').AgentLiveBrowserSession} session */
+function serializeLiveFields(session) {
+  return {
+    targetId: session.targetId,
+    devtools_frontend_url: session.devtoolsFrontendUrl,
+    devtoolsFrontendUrl: session.devtoolsFrontendUrl,
+    web_socket_debugger_url: session.webSocketDebuggerUrl,
+    webSocketDebuggerUrl: session.webSocketDebuggerUrl,
+    live_view_mode: session.liveViewMode,
+    status: session.status,
+  };
 }
 
 /**
@@ -341,7 +429,19 @@ export async function runBrowserBuiltinTool(env, toolName, params) {
     case 'browser_session_close': {
       const scopeId = resolveBrowserRunScopeId(params);
       if (!scopeId) return { error: 'agent_run_id or workflow_run_id required' };
-      return closeBrowserRunSession(env, scopeId);
+      return closeAgentLiveBrowserSession(env, scopeId);
+    }
+
+    case 'browser_request_human_input': {
+      const scopeId = resolveBrowserRunScopeId(params);
+      if (!scopeId) return { error: 'agent_run_id required for human-in-the-loop' };
+      return requestBrowserHumanInput(env, scopeId, {
+        reason: String(params.reason || ''),
+        url: resolveBrowserToolUrl(params) || null,
+        resumeWhen: params.resumeWhen ?? params.resume_when,
+        selector: params.selector,
+        timeoutMs: params.timeoutMs ?? params.timeout_ms,
+      });
     }
 
     case 'browser_navigate':
@@ -349,19 +449,27 @@ export async function runBrowserBuiltinTool(env, toolName, params) {
       return withBrowserPage(
         env,
         params,
-        async ({ page, url }) => {
+        async ({ page, url, liveSession }) => {
           const finalUrl = page.url() || url;
           const title = await page.title().catch(() => '');
-          const out = await captureViewportScreenshot(env, page, { fullPage: false });
           const page_text = await extractPageText(page);
-          return {
+          const scopeId = resolveBrowserRunScopeId(params);
+          const agentLive = Boolean(scopeId);
+          const base = {
             ok: true,
             url: finalUrl,
             title,
-            screenshot_url: out.screenshot_url,
-            result_url: out.screenshot_url,
             page_text,
             text: page_text,
+            agent_live_session: agentLive,
+            ...(liveSession ? { live_session: liveSession } : {}),
+          };
+          if (agentLive) return base;
+          const out = await captureViewportScreenshot(env, page, { fullPage: false });
+          return {
+            ...base,
+            screenshot_url: out.screenshot_url,
+            result_url: out.screenshot_url,
             job_id: out.job_id,
           };
         },
@@ -633,3 +741,10 @@ export async function runBrowserBuiltinTool(env, toolName, params) {
 }
 
 export { closeBrowserRunSession, resolveBrowserRunScopeId } from './browser-session.js';
+export {
+  closeAgentLiveBrowserSession,
+  getAgentLiveBrowserSession,
+  refreshAgentLiveBrowserLiveUrl,
+  signalHumanInputResume,
+  liveSessionPayload,
+} from './agent-live-browser-session.js';

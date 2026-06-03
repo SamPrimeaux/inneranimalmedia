@@ -157,6 +157,12 @@
 				"IAMAgentSession",
 				"IAMSession"
 			]
+		},
+		{
+			"tag": "v7",
+			"new_sqlite_classes": [
+				"AgentBrowserLiveV1"
+			]
 		}
 	],
 	// Match wrangler.production.toml so CF Builds (`wrangler deploy -c wrangler.jsonc`) exposes DO stubs.
@@ -173,6 +179,10 @@
 			{
 				"name": "AGENT_SESSION",
 				"class_name": "AgentChatSqlV1"
+			},
+			{
+				"name": "BROWSER_SESSION",
+				"class_name": "AgentBrowserLiveV1"
 			}
 		]
 	},

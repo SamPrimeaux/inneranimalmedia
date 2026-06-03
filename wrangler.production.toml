@@ -123,6 +123,9 @@ class_name = "ChessRoom"
 [[durable_objects.bindings]]
 name = "AGENT_SESSION"
 class_name = "AgentChatSqlV1"
+[[durable_objects.bindings]]
+name = "BROWSER_SESSION"
+class_name = "AgentBrowserLiveV1"
 
 # Dashboard label: iam-vpc
 [[vpc_services]]
@@ -149,6 +152,10 @@ new_sqlite_classes = ["AgentChatSqlV1"]
 [[migrations]]
 tag = "v6"
 deleted_classes = ["MeauxSession", "IAMAgentSession", "IAMSession"]
+
+[[migrations]]
+tag = "v7"
+new_sqlite_classes = ["AgentBrowserLiveV1"]
 
 [[queues.producers]]
 binding = "MY_QUEUE"
