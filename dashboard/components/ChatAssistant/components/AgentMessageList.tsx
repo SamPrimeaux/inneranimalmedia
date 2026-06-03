@@ -20,8 +20,8 @@ import type { WorkflowLedgerState } from '../types';
 import type { AgentToolTraceRow } from '../execution/types';
 import { ExecutionTimeline } from '../execution/ExecutionTimeline';
 import { ArtifactChipList } from '../execution/ArtifactChipList';
-import { AgentPresenceLogo } from '../../../features/agent-presence/AgentPresenceLogo';
-import type { AgentLogoMotion } from '../../../features/agent-presence/presenceTypes';
+import { ChatPresenceIcon } from '../../../features/mode-presence/ChatPresenceIcon';
+import type { AgentMode } from '../types';
 import { AgentPlanChecklist } from './AgentPlanChecklist';
 import { AgentImageGenerationCard } from '../../../components/AgentImageGenerationCard';
 import { EmailArtifactCard } from '../artifacts/EmailArtifactCard';
@@ -91,8 +91,10 @@ export type AgentMessageListProps = {
   showEmptyThreadPlaceholder: boolean;
   displayMessages: Message[];
   isLoading: boolean;
-  logoMotion: AgentLogoMotion;
+  mode: AgentMode;
   presenceState: string;
+  /** When ThinkingCard is visible, skip the duplicate streaming avatar row. */
+  showStreamingAvatar?: boolean;
   isDarkTheme: boolean;
   toolTraceRows: AgentToolTraceRow[];
   setToolTraceRows: React.Dispatch<React.SetStateAction<AgentToolTraceRow[]>>;
@@ -406,8 +408,9 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
   showEmptyThreadPlaceholder,
   displayMessages,
   isLoading,
-  logoMotion,
+  mode,
   presenceState,
+  showStreamingAvatar = true,
   isDarkTheme,
   toolTraceRows,
   setToolTraceRows,
@@ -488,7 +491,7 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
                     />
                   ) : null}
                   {msg.executionPlan && msg.executionPlan.tasks.length > 0 ? (
-                    <AgentPlanChecklist plan={msg.executionPlan} />
+                    <AgentPlanChecklist plan={msg.executionPlan} mode={mode} />
                   ) : null}
                   <div
                     className="agent-content text-[0.8125rem] leading-relaxed min-w-0 break-words [overflow-wrap:anywhere] text-[var(--dashboard-text)] w-full"
@@ -576,16 +579,11 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
         ))
       )}
 
-      {isLoading && (
+      {isLoading && showStreamingAvatar && (
         <div className="flex justify-start">
           <div className="flex gap-2.5">
             <div className="flex-shrink-0 w-6 h-6 rounded-md bg-[var(--solar-cyan)]/20 border border-[var(--solar-cyan)]/30 flex items-center justify-center">
-              <AgentPresenceLogo
-                motion={logoMotion}
-                presenceState={presenceState}
-                sizePx={16}
-                alt=""
-              />
+              <ChatPresenceIcon mode={mode} state={presenceState} size={16} />
             </div>
           </div>
         </div>

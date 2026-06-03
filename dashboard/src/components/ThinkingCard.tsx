@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Check, X, AlertTriangle, Lock, Loader2, ChevronDown } from 'lucide-react';
-import { AgentPresenceLogo } from '../../features/agent-presence/AgentPresenceLogo';
+import { Check, X, AlertTriangle, Lock, ChevronDown } from 'lucide-react';
+import type { AgentMode } from '../../components/ChatAssistant/types';
+import { ChatPresenceIcon } from '../../features/mode-presence/ChatPresenceIcon';
 
 export type ThinkingStepStatus = 'running' | 'done' | 'error' | 'blocked';
 
@@ -22,45 +23,20 @@ export interface ThinkingCardState {
 
 export interface ThinkingCardProps extends ThinkingCardState {
   className?: string;
+  mode?: AgentMode;
+  presenceState?: string | null;
 }
 
-const CSS = `
-@keyframes iam-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.25; }
-}
-@keyframes iam-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-.iam-tc-pulse { animation: iam-pulse 1.4s ease-in-out infinite; }
-.iam-tc-spin  { animation: iam-spin 1s linear infinite; }
-`;
-
-let cssInjected = false;
-function ensureCSS() {
-  if (cssInjected || typeof document === 'undefined') return;
-  const s = document.createElement('style');
-  s.textContent = CSS;
-  document.head.appendChild(s);
-  cssInjected = true;
-}
-
-function StepIcon({ status }: { status: ThinkingStepStatus }) {
-  const base: React.CSSProperties = { flexShrink: 0, marginTop: 1 };
-  if (status === 'done')
-    return <Check size={13} style={{ ...base, color: 'var(--success, #34d399)' }} />;
-  if (status === 'error')
-    return <X size={13} style={{ ...base, color: 'var(--error, #f87171)' }} />;
-  if (status === 'blocked')
-    return <AlertTriangle size={13} style={{ ...base, color: 'var(--warning, #fbbf24)' }} />;
-  return (
-    <Loader2
-      size={13}
-      className="iam-tc-spin"
-      style={{ ...base, color: 'var(--info, #60a5fa)' }}
-    />
-  );
+function stepPresenceState(step: ThinkingStep): string {
+  const hay = `${step.name} ${step.preview || ''}`.toLowerCase();
+  if (/terminal|wrangler|npm|python|shell|command|deploy|smoke/.test(hay)) return 'terminal';
+  if (/browser|screenshot|playwright|navigate|dom/.test(hay)) return 'browser';
+  if (/d1|sql|database|query|migration|supabase/.test(hay)) return 'database';
+  if (/edit|patch|file|monaco|write|diff/.test(hay)) return 'writing';
+  if (/diagram|excalidraw|draw|canvas/.test(hay)) return 'drawing';
+  if (/image|thumbnail|r2|upload/.test(hay)) return 'imaging';
+  if (/search|read|scan|grep|fetch/.test(hay)) return 'reading';
+  return 'tool_routing';
 }
 
 export function ThinkingCard({
@@ -69,16 +45,17 @@ export function ThinkingCard({
   status,
   startedAt,
   className = '',
+  mode = 'agent',
+  presenceState,
 }: ThinkingCardProps) {
-  ensureCSS();
   const [expanded, setExpanded] = useState(true);
   const [elapsed, setElapsed] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const isDone    = status === 'done';
-  const isError   = status === 'error';
+  const isDone = status === 'done';
+  const isError = status === 'error';
   const isBlocked = status === 'blocked';
-  const isActive  = !isDone && !isError;
+  const isActive = !isDone && !isError;
 
   useEffect(() => {
     if (isDone || isError) {
@@ -88,7 +65,9 @@ export function ThinkingCard({
       return () => clearTimeout(t);
     }
     timerRef.current = setInterval(() => setElapsed(Date.now() - startedAt), 100);
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
   }, [status, startedAt, isDone, isError]);
 
   const elapsedStr = (elapsed / 1000).toFixed(1) + 's';
@@ -96,20 +75,26 @@ export function ThinkingCard({
   const headerLabel = isError
     ? 'Stopped — something needs attention.'
     : isBlocked
-    ? 'Waiting for your approval.'
-    : isDone
-    ? 'Done.'
-    : thinkingText
-      ? (thinkingText.length > 90 ? thinkingText.slice(0, 87) + '…' : thinkingText)
-      : 'Working…';
+      ? 'Waiting for your approval.'
+      : isDone
+        ? 'Done.'
+        : thinkingText
+          ? thinkingText.length > 90
+            ? thinkingText.slice(0, 87) + '…'
+            : thinkingText
+          : 'Working…';
 
   const headerColor = isError
     ? 'var(--error, #f87171)'
     : isBlocked
-    ? 'var(--warning, #fbbf24)'
-    : isDone
-    ? 'var(--text-tertiary, #4e4e62)'
-    : 'var(--text-secondary, #8a8a9e)';
+      ? 'var(--warning, #fbbf24)'
+      : isDone
+        ? 'var(--text-tertiary, #4e4e62)'
+        : 'var(--text-secondary, #8a8a9e)';
+
+  const headerState =
+    presenceState ||
+    (isBlocked ? 'approval_required' : isDone ? 'complete' : isError ? 'failed' : 'thinking');
 
   return (
     <div
@@ -125,7 +110,7 @@ export function ThinkingCard({
       }}
     >
       <button
-        onClick={() => setExpanded(v => !v)}
+        onClick={() => setExpanded((v) => !v)}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -142,18 +127,12 @@ export function ThinkingCard({
           <AlertTriangle size={13} style={{ color: 'var(--error, #f87171)', flexShrink: 0 }} />
         ) : isBlocked ? (
           <Lock size={13} style={{ color: 'var(--warning, #fbbf24)', flexShrink: 0 }} />
-        ) : isDone ? (
-          <AgentPresenceLogo
-            motion="idle"
-            sizePx={16}
-            alt=""
-            className="shrink-0"
-          />
         ) : (
-          <AgentPresenceLogo
-            motion="thinking"
-            sizePx={16}
-            alt=""
+          <ChatPresenceIcon
+            mode={mode}
+            state={headerState}
+            cardStatus={status}
+            size={16}
             className="shrink-0"
           />
         )}
@@ -169,7 +148,15 @@ export function ThinkingCard({
           {headerLabel}
         </span>
         {isActive && (
-          <span style={{ fontSize: 10, color: 'var(--text-tertiary, #4e4e62)', marginLeft: 4, flexShrink: 0 }}>
+          <span
+            style={{
+              fontSize: 10,
+              color: 'var(--text-tertiary, #4e4e62)',
+              marginLeft: 4,
+              flexShrink: 0,
+              fontFamily: 'var(--font-mono, ui-monospace, monospace)',
+            }}
+          >
             {elapsedStr}
           </span>
         )}
@@ -205,18 +192,32 @@ export function ThinkingCard({
                 marginBottom: 4,
               }}
             >
-              {thinkingText.length > 200
-                ? thinkingText.slice(0, 200) + '…'
-                : thinkingText}
+              {thinkingText.length > 200 ? thinkingText.slice(0, 200) + '…' : thinkingText}
             </div>
           )}
 
-          {steps.map(step => (
+          {steps.map((step) => (
             <div
               key={step.id}
               style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '4px 12px' }}
             >
-              <StepIcon status={step.status} />
+              {step.status === 'done' ? (
+                <Check size={13} style={{ flexShrink: 0, marginTop: 1, color: 'var(--success, #34d399)' }} />
+              ) : step.status === 'error' ? (
+                <X size={13} style={{ flexShrink: 0, marginTop: 1, color: 'var(--error, #f87171)' }} />
+              ) : step.status === 'blocked' ? (
+                <AlertTriangle
+                  size={13}
+                  style={{ flexShrink: 0, marginTop: 1, color: 'var(--warning, #fbbf24)' }}
+                />
+              ) : (
+                <ChatPresenceIcon
+                  mode={mode}
+                  state={stepPresenceState(step)}
+                  size={13}
+                  className="shrink-0 mt-px"
+                />
+              )}
               <div style={{ minWidth: 0 }}>
                 <div
                   style={{

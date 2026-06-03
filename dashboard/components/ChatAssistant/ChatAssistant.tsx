@@ -664,7 +664,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     }
   }, [activeFile, activeFileName, runDraftTerminalCommand]);
 
-  const { presence, logoMotion } = useAgentPresence({
+  const { presence } = useAgentPresence({
     isLoading,
     mode,
     thinkingState,
@@ -676,6 +676,10 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     draftRunBusy,
     subagentWork,
   });
+
+  useEffect(() => {
+    setPresenceState(presence.state);
+  }, [presence.state]);
 
   const [chatModels, setChatModels] = useState<ChatModelRow[]>([]);
   const [selectedModelKey, setSelectedModelKey] = useState<string>(() => {
@@ -2213,7 +2217,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
               </button>
             </div>
             <div className="px-3 pb-2">
-              <AgentPresenceStatus presence={presence} showBadge={false} className="opacity-95" />
+              <AgentPresenceStatus presence={presence} mode={mode} showBadge={false} className="opacity-95" />
             </div>
           </div>
         )}
@@ -2261,7 +2265,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                   <MoreHorizontal size={15} />
                 </button>
               </div>
-              <AgentPresenceStatus presence={presence} className="pl-0.5" />
+              <AgentPresenceStatus presence={presence} mode={mode} className="pl-0.5" />
             </div>
           </div>
         )}
@@ -2341,6 +2345,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             thinkingText={thinkingState.thinkingText}
             status={thinkingState.status}
             startedAt={thinkingState.startedAt}
+            mode={mode}
+            presenceState={presence.state}
           />
         )}
           {(() => {
@@ -2364,8 +2370,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             showEmptyThreadPlaceholder={showEmptyThreadPlaceholder}
             displayMessages={displayMessages}
             isLoading={isLoading}
-            logoMotion={logoMotion}
-            presenceState={presenceState}
+            mode={mode}
+            presenceState={presence.state}
+            showStreamingAvatar={!thinkingState}
             isDarkTheme={isDarkTheme}
             toolTraceRows={toolTraceRows}
             setToolTraceRows={setToolTraceRows}

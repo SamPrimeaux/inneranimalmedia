@@ -3,6 +3,7 @@
 @import './components/database/database-page.css';
 @import './features/mode-presence/agentModePresenceMotion.css';
 @import './features/agent-presence/presenceMotion.css';
+@import './features/agent-presence/presenceIcons.css';
 
 @import "tailwindcss";
 @config "./tailwind.config.js";

@@ -4,10 +4,12 @@
  */
 
 import React, { useState } from 'react';
-import { Check, ChevronDown, ChevronRight, Loader2, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, X } from 'lucide-react';
 import type { ExecutionPlanState, ExecutionPlanTaskStatus } from '../types';
+import type { AgentMode } from '../types';
+import { ChatPresenceIcon } from '../../../features/mode-presence/ChatPresenceIcon';
 
-function statusIcon(status: ExecutionPlanTaskStatus) {
+function statusIcon(status: ExecutionPlanTaskStatus, mode: AgentMode = 'plan') {
   if (status === 'done') {
     return <Check size={14} className="text-[var(--solar-green)] shrink-0" aria-hidden />;
   }
@@ -18,7 +20,9 @@ function statusIcon(status: ExecutionPlanTaskStatus) {
     return <span className="text-[11px] text-[var(--dashboard-muted)] shrink-0">—</span>;
   }
   if (status === 'running') {
-    return <Loader2 size={14} className="text-[var(--solar-cyan)] animate-spin shrink-0" aria-hidden />;
+    return (
+      <ChatPresenceIcon mode={mode} state="task_stack" size={14} className="shrink-0" />
+    );
   }
   return (
     <span
@@ -30,9 +34,10 @@ function statusIcon(status: ExecutionPlanTaskStatus) {
 
 export type AgentPlanChecklistProps = {
   plan: ExecutionPlanState;
+  mode?: AgentMode;
 };
 
-export const AgentPlanChecklist: React.FC<AgentPlanChecklistProps> = ({ plan }) => {
+export const AgentPlanChecklist: React.FC<AgentPlanChecklistProps> = ({ plan, mode = 'plan' }) => {
   const [expanded, setExpanded] = useState(false);
   const sorted = [...plan.tasks].sort((a, b) => a.order_index - b.order_index);
   const doneCount = sorted.filter((t) => t.status === 'done').length;
@@ -57,9 +62,20 @@ export const AgentPlanChecklist: React.FC<AgentPlanChecklistProps> = ({ plan }) 
             ? `Running${total ? ` · ${doneCount}/${total}` : ''}`
             : 'Planning';
 
+  const headerPresenceState =
+    plan.status === 'complete'
+      ? 'handoff_ready'
+      : plan.status === 'running'
+        ? 'task_stack'
+        : plan.status === 'failed'
+          ? 'failed'
+          : 'mapping';
+
   return (
     <div className="mt-2 rounded-xl border border-[var(--dashboard-border)]/90 bg-[var(--scene-bg)]/80 overflow-hidden max-w-full">
-      <div className="px-3 py-2.5 border-b border-[var(--dashboard-border)]/60">
+      <div className="px-3 py-2.5 border-b border-[var(--dashboard-border)]/60 flex items-start gap-2.5">
+        <ChatPresenceIcon mode={mode} state={headerPresenceState} size={18} className="shrink-0 mt-0.5" />
+        <div className="min-w-0 flex-1">
         <p className="text-[13px] font-semibold text-[var(--dashboard-text)] leading-snug">
           {plan.plan_title || 'Plan'}
         </p>
@@ -67,6 +83,7 @@ export const AgentPlanChecklist: React.FC<AgentPlanChecklistProps> = ({ plan }) 
           {headerStatus}
           {failedCount > 0 ? ` · ${failedCount} failed` : ''}
         </p>
+        </div>
       </div>
       <ul className="px-2 py-2 space-y-0.5" aria-label="Plan tasks">
         {sorted.map((task) => (
@@ -74,7 +91,7 @@ export const AgentPlanChecklist: React.FC<AgentPlanChecklistProps> = ({ plan }) 
             key={task.id}
             className="flex items-start gap-2 px-1.5 py-1.5 rounded-lg text-[12px] text-[var(--dashboard-text)]"
           >
-            <span className="mt-0.5">{statusIcon(task.status)}</span>
+            <span className="mt-0.5">{statusIcon(task.status, mode)}</span>
             <span className="min-w-0 flex-1 leading-snug break-words [overflow-wrap:anywhere]">
               {task.title}
               {task.status === 'running' && (
@@ -90,10 +107,8 @@ export const AgentPlanChecklist: React.FC<AgentPlanChecklistProps> = ({ plan }) 
         ))}
       </ul>
       {plan.status === 'running' && sorted.every((t) => t.status !== 'running') && (
-        <div
-          className="px-4 pb-2 text-[11px] text-[var(--dashboard-muted)]"
-          style={{ animation: 'agent-sam-plan-shimmer 2.8s ease-in-out infinite' }}
-        >
+        <div className="px-4 pb-2 flex items-center gap-2 text-[11px] text-[var(--dashboard-muted)]">
+          <ChatPresenceIcon mode={mode} state="mapping" size={12} />
           Planning next moves…
         </div>
       )}

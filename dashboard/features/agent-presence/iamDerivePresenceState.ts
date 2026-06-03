@@ -53,7 +53,9 @@ export function derivePresenceState(event: Record<string, unknown>): AgentPresen
   if (type === 'browser_capture' || type.includes('screenshot')) return 'browser_capture';
 
   if (type === 'thinking_start' || type === 'thinking') return 'thinking';
-  if (type === 'plan_thinking' || type === 'plan_created') return 'planning';
+  if (type === 'plan_thinking') return 'mapping';
+  if (type === 'plan_created') return 'handoff_ready';
+  if (type === 'plan_progress') return 'task_stack';
   if (type === 'approval_required' || type === 'plan_confirmation_required') return 'waiting_approval';
   if (type === 'plan_complete' || type === 'done' || type === 'complete') return 'complete';
   if (type === 'error' || type === 'tool_error' || type === 'failed') return 'failed';

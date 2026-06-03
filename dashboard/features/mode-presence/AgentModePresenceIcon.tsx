@@ -1,6 +1,41 @@
 import React, { useMemo } from 'react';
 import type { AgentMode, AgentPresenceState, ModePresenceIconKey } from './agentModePresenceMap';
 import { resolvePresenceIconKey } from './agentModePresenceMap';
+import { PRESENCE_ICON_SVG } from '../agent-presence/presenceIcons';
+import type { AgentPresenceIcon } from '../agent-presence/iamPresenceStateMap';
+
+function toModeSvg(html: string): string {
+  return html.replace(/\biam-presence-icon\b/g, 'iam-mode-presence-icon');
+}
+
+/** Legacy lab icons (100×100) bridged into mode-presence slot. */
+const LEGACY_LAB_ICONS: Partial<Record<ModePresenceIconKey, AgentPresenceIcon>> = {
+  'agent-spark': 'agent-spark',
+  scan: 'scan',
+  terminal: 'terminal',
+  diff: 'diff',
+  browser: 'browser',
+  files: 'files',
+  path: 'path',
+  pixel: 'pixel',
+  'subagent-swarm': 'subagent-swarm',
+  'fanout-orbit': 'fanout-orbit',
+  'delegate-chain': 'delegate-chain',
+  'work-queue': 'work-queue',
+  'tool-router': 'tool-router',
+  'review-gate': 'review-gate',
+  'approval-wait': 'approval-wait',
+  'done-bloom': 'done-bloom',
+  'error-signal': 'error-signal',
+  'skeleton-plan': 'skeleton-plan',
+  'merge-weave': 'merge-weave',
+};
+
+function legacyModeSvg(key: ModePresenceIconKey): string | undefined {
+  const legacyKey = LEGACY_LAB_ICONS[key];
+  if (!legacyKey || !PRESENCE_ICON_SVG[legacyKey]) return undefined;
+  return toModeSvg(PRESENCE_ICON_SVG[legacyKey]);
+}
 
 export type AgentModePresenceIconProps = {
   mode?: AgentMode;
@@ -68,7 +103,14 @@ export function AgentModePresenceIcon({
   'aria-label': ariaLabel,
 }: AgentModePresenceIconProps) {
   const resolvedKey = resolvePresenceIconKey({ mode, state, iconKey });
-  const html = useMemo(() => ICON_SVG[resolvedKey] || ICON_SVG['agent-spark'], [resolvedKey]);
+  const html = useMemo(
+    () =>
+      ICON_SVG[resolvedKey] ||
+      legacyModeSvg(resolvedKey) ||
+      legacyModeSvg('agent-spark') ||
+      ICON_SVG['answer-forming'],
+    [resolvedKey],
+  );
 
   const color = (() => {
     if (tone === 'classy') return 'var(--presence-classy)';

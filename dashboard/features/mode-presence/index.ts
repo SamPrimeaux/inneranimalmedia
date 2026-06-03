@@ -1,6 +1,8 @@
 export { AgentModePresenceIcon } from './AgentModePresenceIcon';
 export { AgentPresenceInline } from './AgentPresenceInline';
 export { AgentPresenceCard } from './AgentPresenceCard';
+export { ChatPresenceIcon } from './ChatPresenceIcon';
+export { normalizeChatPresenceState } from './normalizeChatPresenceState';
 export {
   modePresenceStateMap,
   modeDefaultStateMap,

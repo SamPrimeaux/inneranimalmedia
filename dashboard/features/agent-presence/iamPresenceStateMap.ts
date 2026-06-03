@@ -61,4 +61,8 @@ export type AgentPresenceState =
   | 'imaging'
   | 'waiting_approval'
   | 'complete'
-  | 'failed';
+  | 'failed'
+  | 'mapping'
+  | 'task_stack'
+  | 'handoff_ready'
+  | 'risk_scan';

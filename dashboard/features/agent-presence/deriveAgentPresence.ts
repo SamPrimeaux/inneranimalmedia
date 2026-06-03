@@ -205,14 +205,6 @@ export function deriveAgentPresence(i: DerivePresenceInput): { presence: AgentPr
     return { presence: p, logoMotion: motionFor(st) };
   }
 
-  if (i.isLoading && i.mode === 'plan') {
-    const p: AgentPresence = {
-      state: 'planning',
-      label: pickPresenceLine('planning', seed),
-    };
-    return { presence: p, logoMotion: motionFor('planning') };
-  }
-
   if (i.isLoading && i.mode === 'multitask') {
     const p: AgentPresence = {
       state: 'multitask_fanout',
@@ -266,6 +258,22 @@ export function deriveAgentPresence(i: DerivePresenceInput): { presence: AgentPr
       };
       return { presence: p, logoMotion: motionFor('thinking') };
     }
+  }
+
+  if (i.isLoading && i.mode === 'plan') {
+    const txt = (i.thinkingState?.thinkingText || '').toLowerCase();
+    const planState =
+      txt.includes('handoff') || txt.includes('plan ready') || txt.includes('switch to')
+        ? 'handoff_ready'
+        : txt.includes('running plan') || txt.includes('task') || i.thinkingState?.status === 'working'
+          ? 'task_stack'
+          : 'mapping';
+    const p: AgentPresence = {
+      state: planState as AgentPresence['state'],
+      label: pickPresenceLine('planning', seed),
+      detail: i.thinkingState?.thinkingText?.trim().slice(0, 120) || undefined,
+    };
+    return { presence: p, logoMotion: motionFor('planning') };
   }
 
   if (i.isLoading) {
