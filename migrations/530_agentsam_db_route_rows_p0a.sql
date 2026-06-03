@@ -1,0 +1,138 @@
+-- 530: P0-A database prompt routes + CMS tool_categories hygiene
+-- Granular task types from classifyIntent → agentsam_prompt_routes.route_key
+
+INSERT OR IGNORE INTO agentsam_prompt_routes (
+  route_key,
+  display_name,
+  intent_labels,
+  command_categories,
+  trigger_keywords,
+  prompt_layer_keys,
+  tool_categories,
+  tool_keys,
+  max_tools,
+  preferred_model,
+  fallback_model,
+  include_rag,
+  include_active_plan,
+  include_recent_memory,
+  memory_limit,
+  include_workspace_ctx,
+  token_budget,
+  is_active,
+  priority,
+  tenant_id
+) VALUES
+(
+  'd1_query',
+  'D1 Read (CF SQLite)',
+  '["d1_query","db_read","schema","table"]',
+  '["database","d1"]',
+  '["d1","sqlite","agentsam_","what tables","schema"]',
+  '["core_identity","db_safety"]',
+  '["database.d1.query","database.d1.migrate"]',
+  '[]',
+  2,
+  NULL,
+  NULL,
+  1,
+  0,
+  1,
+  5,
+  1,
+  4000,
+  1,
+  20,
+  NULL
+),
+(
+  'd1_write',
+  'D1 Write (CF SQLite)',
+  '["d1_write","db_write","seed","insert"]',
+  '["database","d1"]',
+  '["insert","seed","upsert","d1 write"]',
+  '["core_identity","db_safety"]',
+  '["database.d1.write","database.d1.migrate"]',
+  '[]',
+  2,
+  NULL,
+  NULL,
+  1,
+  0,
+  0,
+  0,
+  1,
+  4000,
+  1,
+  21,
+  NULL
+),
+(
+  'supabase_query',
+  'Supabase Read (Postgres)',
+  '["supabase_query","pgvector","hyperdrive"]',
+  '["database","supabase"]',
+  '["supabase","postgres","hyperdrive","pgvector"]',
+  '["core_identity","db_safety"]',
+  '["database.supabase.query","database.supabase.vector"]',
+  '[]',
+  2,
+  NULL,
+  NULL,
+  1,
+  0,
+  1,
+  5,
+  1,
+  4000,
+  1,
+  22,
+  NULL
+),
+(
+  'supabase_write',
+  'Supabase Write (Postgres)',
+  '["supabase_write","postgres write"]',
+  '["database","supabase"]',
+  '["supabase write","postgres insert"]',
+  '["core_identity","db_safety"]',
+  '["database.supabase.write"]',
+  '[]',
+  1,
+  NULL,
+  NULL,
+  1,
+  0,
+  0,
+  0,
+  1,
+  4000,
+  1,
+  23,
+  NULL
+);
+
+INSERT OR IGNORE INTO agentsam_route_requirements (
+  id,
+  route_key,
+  task_type,
+  mode,
+  requires_tools,
+  preferred_tier,
+  max_tier,
+  budget_priority,
+  preferred_providers,
+  blocked_providers,
+  is_active
+) VALUES
+('req_d1_query_p0a', 'd1_query', 'd1_query', 'agent', 1, 'mini', 'standard', 'balanced', '[]', '[]', 1),
+('req_d1_write_p0a', 'd1_write', 'd1_write', 'agent', 1, 'mini', 'standard', 'balanced', '[]', '[]', 1),
+('req_supabase_query_p0a', 'supabase_query', 'supabase_query', 'agent', 1, 'mini', 'standard', 'balanced', '[]', '[]', 1),
+('req_supabase_write_p0a', 'supabase_write', 'supabase_write', 'agent', 1, 'mini', 'standard', 'balanced', '[]', '[]', 1);
+
+UPDATE agentsam_prompt_routes
+SET tool_categories = '["database.d1.query","database.d1.write","cms","r2","frontend","design"]',
+    updated_at = unixepoch()
+WHERE route_key LIKE 'cms_live_editor%'
+  AND tool_categories LIKE '%"d1"%'
+  AND tool_categories NOT LIKE '%database.d1%';

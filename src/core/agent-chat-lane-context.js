@@ -22,6 +22,42 @@ export const LANE_CONTEXT_HEADINGS = Object.freeze({
 
 const MAX_LANE_BLOCK_CHARS = 3000;
 
+/** @typedef {'code_semantic_search'|'schema_semantic_search'|'memory_semantic_search'|'docs_knowledge_search'|'deep_archive_search'|null} SemanticLane */
+
+/**
+ * When message heuristics miss, map classified routing task type → semantic lane (P0-A).
+ * @param {string|null|undefined} routingTaskType
+ * @returns {SemanticLane}
+ */
+export function semanticLaneFromRoutingTaskType(routingTaskType) {
+  const tt = String(routingTaskType || '').trim().toLowerCase();
+  if (!tt) return null;
+  if (
+    [
+      'd1_query',
+      'd1_write',
+      'd1_migrate',
+      'supabase_query',
+      'supabase_write',
+      'db_query',
+      'db_read',
+      'db_write',
+      'sql_d1_generation',
+      'vectorize',
+    ].includes(tt)
+  ) {
+    return 'schema_semantic_search';
+  }
+  if (['search_code', 'code', 'refactor', 'review', 'debug'].includes(tt)) {
+    return 'code_semantic_search';
+  }
+  if (['plan', 'explain', 'summary', 'chat', 'cms_edit', 'deploy', 'cf_ops'].includes(tt)) {
+    return 'docs_knowledge_search';
+  }
+  if (['recall', 'skill_use'].includes(tt)) return 'memory_semantic_search';
+  return null;
+}
+
 /** @param {string} source */
 export function logLegacyUnifiedRagBlocked(source) {
   console.warn(
@@ -153,6 +189,7 @@ function formatDatabaseBlock(payload, plane) {
  *   userId?: string|null,
  *   authUser?: unknown,
  *   agentRunId?: string|null,
+ *   routingTaskType?: string|null,
  * }} opts
  * @returns {Promise<{ block: string, lane: string|null, source: string|null }>}
  */
@@ -245,7 +282,8 @@ export async function resolveAgentChatLaneContextBlock(env, opts = {}) {
     }
   }
 
-  const semanticLane = classifySemanticLane(message);
+  const semanticLane =
+    classifySemanticLane(message) || semanticLaneFromRoutingTaskType(opts.routingTaskType);
   if (!semanticLane) {
     return { block: '', lane: null, source: null };
   }

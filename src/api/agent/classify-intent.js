@@ -1,8 +1,7 @@
 /**
  * Intent classification heuristics — extracted from agent.js (P0-D tranche 1).
- * P0-A will fix granular taskType returns and wire classifyIntent into resolveRuntimeProfile.
+ * Wired into resolveRuntimeProfile (P0-A): granular taskType drives prompt routes + RAG lane fallback.
  */
-import { normalizeCanonicalTaskType } from '../../core/resolveModel.js';
 import { stripUserTextForIntent } from '../../core/active-file-envelope.js';
 import { isReadOnlyFileContextIntent } from '../../core/code-implementation-intent.js';
 import { isPrimaryImageGenerationIntent } from '../../tools/image_generation.js';
@@ -47,6 +46,7 @@ export function inferIntentHeuristically(text) {
     (is(/\b(add|insert|create|put|seed|upload)\b/) && is(/\b(d1|database|table|record|row|lesson|entry|entries)\b/));
   const hasDbRead =
     is(/\b(select|count|show me|list all|fetch all|retrieve|look up|query the|read from)\b.*\b(table|row|record|d1|database|agentsam_)\b/) ||
+    is(/\b(what|which)\s+tables?\b/i) ||
     is(/agentsam_[a-z_]+/) ||
     is(/\bd1_query\b/);
   const hasSupabase = is(/\b(supabase|postgres|postgresql|hyperdrive|pg query|pgvector|neon)\b/);
@@ -99,49 +99,61 @@ export function inferIntentHeuristically(text) {
   const hasSkill = is(/\b(use skill|apply skill|run skill|invoke skill|skill:)\b/);
   const hasSpawn = is(/\b(spawn subagent|delegate to|assign to agent|run.*agent|subagent|agent.*handle|have.*agent|let.*agent)\b/);
 
-  if (hasWorkflow) return { taskType: 'agent', mode: 'agent' };
-  if (hasDeploy) return { taskType: 'agent', mode: 'agent' };
+  if (hasWorkflow) return { taskType: 'workflow_orchestration', mode: 'agent' };
+  if (hasDeploy) return { taskType: 'deploy', mode: 'agent' };
   if (hasMultitask) return { taskType: 'multitask', mode: 'agent' };
-  if (hasSpawn) return { taskType: 'multitask', mode: 'agent' };
-  if (hasDbWrite) return { taskType: 'agent', mode: 'agent' };
-  if (hasSupabase) return { taskType: 'agent', mode: 'agent' };
-  if (hasDbRead && !hasSql) return { taskType: 'agent', mode: 'agent' };
-  if (hasR2) return { taskType: 'agent', mode: 'agent' };
-  if (hasCfOps) return { taskType: 'agent', mode: 'agent' };
-  if (hasShell && !hasCode) return { taskType: 'agent', mode: 'agent' };
+  if (hasSpawn) return { taskType: 'agent_spawn', mode: 'agent' };
+  if (hasDbWrite) {
+    if (hasSupabase || is(/\b(hyperdrive|postgres|pgvector|supabase)\b/)) {
+      return { taskType: 'supabase_write', mode: 'agent' };
+    }
+    return { taskType: 'd1_write', mode: 'agent' };
+  }
+  if (hasDbRead && !hasSql) {
+    if (hasSupabase) return { taskType: 'supabase_query', mode: 'agent' };
+    return { taskType: 'd1_query', mode: 'agent' };
+  }
+  if (hasSupabase && hasSql) return { taskType: 'supabase_query', mode: 'agent' };
+  if (hasR2) return { taskType: 'r2_ops', mode: 'agent' };
+  if (hasCfOps) return { taskType: 'cf_ops', mode: 'agent' };
+  if (hasShell && !hasCode) return { taskType: 'terminal_execution', mode: 'agent' };
   if (hasBrowser) return { taskType: 'browser', mode: 'agent' };
   if (hasWebSearch) return { taskType: 'web_search', mode: 'agent' };
-  if (hasVectorize) return { taskType: 'agent', mode: 'agent' };
-  if (hasGitHub) return { taskType: 'agent', mode: 'agent' };
-  if (hasSql) return { taskType: 'agent', mode: 'agent' };
+  if (hasVectorize) return { taskType: 'vectorize', mode: 'agent' };
+  if (hasGitHub) return { taskType: 'github', mode: 'agent' };
+  if (hasSql) return { taskType: 'sql_d1_generation', mode: 'agent' };
   if (hasDebug) return { taskType: 'debug', mode: 'agent' };
   if (hasSearchCode) return { taskType: 'search_code', mode: 'agent' };
-  if (hasRefactor) return { taskType: 'agent', mode: 'agent' };
-  if (hasReview) return { taskType: 'agent', mode: 'agent' };
-  if (hasCode) return { taskType: 'agent', mode: 'agent' };
+  if (hasRefactor) return { taskType: 'refactor', mode: 'agent' };
+  if (hasReview) return { taskType: 'review', mode: 'agent' };
+  if (hasCode) return { taskType: 'code', mode: 'agent' };
   if (hasSkillCreate) return { taskType: 'plan', mode: 'agent' };
   if (hasPlan) return { taskType: 'plan', mode: 'agent' };
-  if (hasSkill) return { taskType: 'agent', mode: 'agent' };
-  if (hasTool) return { taskType: 'agent', mode: 'agent' };
-  if (hasCms) return { taskType: 'agent', mode: 'agent' };
-  if (hasRecall) return { taskType: 'ask', mode: 'auto' };
-  if (hasExplain) return { taskType: 'ask', mode: 'auto' };
-  return { taskType: 'ask', mode: 'agent' };
+  if (hasSkill) return { taskType: 'skill_use', mode: 'agent' };
+  if (hasTool) return { taskType: 'tool_use', mode: 'agent' };
+  if (hasCms) return { taskType: 'cms_edit', mode: 'agent' };
+  if (hasRecall) return { taskType: 'recall', mode: 'auto' };
+  if (hasExplain) return { taskType: 'explain', mode: 'auto' };
+  return { taskType: 'chat', mode: 'agent' };
 }
 
 /** @param {any} _env @param {string} lastMessageText */
 export async function classifyIntent(_env, lastMessageText) {
   const { taskType: rawTt, mode } = inferIntentHeuristically(lastMessageText);
   const taskType =
-    rawTt != null && String(rawTt).trim() !== '' ? normalizeCanonicalTaskType(rawTt) : 'ask';
+    rawTt != null && String(rawTt).trim() !== '' ? String(rawTt).trim().toLowerCase() : 'chat';
   const intentRouteMap = {
     workflow_orchestration: 'workflow_orchestration',
     deploy: 'deploy',
     multitask: 'multitask',
     agent_spawn: 'agent_spawn',
+    d1_write: 'd1_write',
+    d1_query: 'd1_query',
+    d1_migrate: 'd1_migrate',
+    supabase_write: 'supabase_write',
+    supabase_query: 'supabase_query',
     db_write: 'db_write',
     db_read: 'db_read',
-    supabase: 'supabase',
     r2_ops: 'r2_ops',
     cf_ops: 'cf_ops',
     terminal_execution: 'terminal_execution',
@@ -162,6 +174,7 @@ export async function classifyIntent(_env, lastMessageText) {
     image_generation: 'image_generation',
     summary: 'summary',
     explain: 'explain',
+    recall: 'recall',
     chat: 'chat',
   };
   return { intent: intentRouteMap[taskType] ?? taskType, taskType, mode: mode || 'agent' };

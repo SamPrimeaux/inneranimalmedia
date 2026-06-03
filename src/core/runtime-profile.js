@@ -387,9 +387,14 @@ async function loadPromptRouteRowByKey(env, tenantId, routeKey) {
 async function resolvePromptRouteForCompile(env, q) {
   const mode = String(q.mode || 'agent').toLowerCase();
   const message = String(q.message || '');
+  const taskType = String(q.taskType || '').trim().toLowerCase();
   let refinedRouteKey = null;
 
   if (executionModeLocksRouteKey(mode)) {
+    if (taskType && taskType !== mode) {
+      const taskRow = await loadPromptRouteRowByKey(env, q.tenantId, taskType);
+      if (taskRow) return { row: taskRow, refinedRouteKey: taskType };
+    }
     const row = await loadPromptRouteRowByKey(env, q.tenantId, mode);
     return { row, refinedRouteKey: mode };
   }
@@ -838,14 +843,42 @@ export async function resolveRuntimeProfile(env, input) {
   const composerMode = mode === 'auto' ? 'agent' : mode;
   const session = input.session || {};
   const overrides = input.overrides || {};
+  const message = String(input.message || '').trim();
+
+  let classifiedTaskType = overrides.task_type ? String(overrides.task_type).trim().toLowerCase() : '';
+  let classifiedIntent = null;
+  let classifiedMode = null;
+  if (!classifiedTaskType && message && env?.DB) {
+    try {
+      const { classifyIntent } = await import('../api/agent/classify-intent.js');
+      const classified = await classifyIntent(env, message);
+      classifiedTaskType = String(classified.taskType || '').trim().toLowerCase();
+      classifiedIntent = classified.intent != null ? String(classified.intent) : null;
+      classifiedMode = classified.mode != null ? String(classified.mode) : null;
+      if (classifiedTaskType) {
+        console.info(
+          '[runtime-profile] classified_intent',
+          JSON.stringify({
+            taskType: classifiedTaskType,
+            intent: classifiedIntent,
+            mode: classifiedMode,
+          }),
+        );
+      }
+    } catch (e) {
+      console.warn('[runtime-profile] classifyIntent', e?.message ?? e);
+    }
+  }
+
+  const taskType = classifiedTaskType || composerMode;
 
   let profile = await compileModeProfile(env, {
     mode: composerMode,
-    message: input.message,
+    message,
     tenantId: session.tenantId,
     workspaceId: session.userId ? session.workspaceId : session.workspaceId,
     userId: session.userId,
-    taskType: overrides.task_type || composerMode,
+    taskType,
     routeKeyPin: overrides.route_key,
     compile_lane: input.compile_lane || 'shadow',
   });
@@ -857,6 +890,7 @@ export async function resolveRuntimeProfile(env, input) {
   }
 
   profile = applyOverridesToProfile(profile, overrides);
+  if (classifiedIntent) profile._classified_intent = classifiedIntent;
   profile = await resolveProfileModel(env, profile, {
     workspaceId: session.workspaceId,
     tenantId: session.tenantId,

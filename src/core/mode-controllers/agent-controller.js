@@ -101,6 +101,7 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
         tenantId,
         userId,
         authUser: input.session?.authUser ?? null,
+        routingTaskType: profile.routing_task_type ?? null,
       });
       contextBlock = laneCtx?.block != null ? String(laneCtx.block) : '';
       if (contextBlock && laneCtx?.lane) {
