@@ -164,7 +164,7 @@ export async function handleCursorAcpMessage(request, env, ctx) {
       }
       if (env?.DB) {
         await env.DB.prepare(
-          `UPDATE agentsam_agent_run SET status = 'running', updated_at = datetime('now') WHERE id = ? AND user_id = ?`,
+          `UPDATE agentsam_agent_run SET status = 'running', updated_at_unix = unixepoch() WHERE id = ? AND user_id = ?`,
         )
           .bind(sessionId, identity.userId)
           .run()

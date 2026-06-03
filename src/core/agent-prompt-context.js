@@ -18,13 +18,19 @@ export async function fetchActiveProjectContextBlocks(env, opts = {}) {
   const limit = Math.min(Math.max(1, Number(opts.limit) || 3), 5);
 
   try {
+    const cols = await pragmaTableInfo(env.DB, 'agentsam_project_context');
+    const orderBy = cols.has('updated_at')
+      ? 'COALESCE(priority, 0) DESC, updated_at DESC'
+      : cols.has('created_at')
+        ? 'COALESCE(priority, 0) DESC, created_at DESC'
+        : 'COALESCE(priority, 0) DESC';
     const { results } = await env.DB.prepare(
       `SELECT id, project_name, project_key, description, goals, constraints,
               current_blockers, priority, status
        FROM agentsam_project_context
        WHERE status = 'active'
          AND (workspace_id = ? OR workspace_id IS NULL)
-       ORDER BY COALESCE(priority, 0) DESC, updated_at DESC
+       ORDER BY ${orderBy}
        LIMIT ${limit}`,
     )
       .bind(ws || null)
@@ -55,14 +61,19 @@ export async function fetchActiveProjectContextBlocks(env, opts = {}) {
  */
 export async function bumpProjectContextTokensUsed(env, blocks) {
   if (!env?.DB || !blocks?.length) return;
+  const cols = await pragmaTableInfo(env.DB, 'agentsam_project_context');
+  const touchCol = cols.has('updated_at')
+    ? 'updated_at = unixepoch()'
+    : cols.has('updated_at_unix')
+      ? 'updated_at_unix = unixepoch()'
+      : null;
   for (const b of blocks) {
     const delta = Math.max(0, Math.floor(Number(b.tokenEstimate) || 0));
     if (!delta || !b.id) continue;
+    const sets = [`tokens_used = MIN(COALESCE(tokens_used, 0) + ?, 1000000)`];
+    if (touchCol) sets.push(touchCol);
     await env.DB.prepare(
-      `UPDATE agentsam_project_context
-       SET tokens_used = MIN(COALESCE(tokens_used, 0) + ?, 1000000),
-           updated_at = unixepoch()
-       WHERE id = ?`,
+      `UPDATE agentsam_project_context SET ${sets.join(', ')} WHERE id = ?`,
     )
       .bind(delta, b.id)
       .run()

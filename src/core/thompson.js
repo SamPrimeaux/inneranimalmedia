@@ -4,6 +4,7 @@
 
 import { isThompsonRoutingSamplingEnabled } from './routing-thompson-flag.js';
 import { normalizeAgentSlug } from './routing-arms-agent-slug.js';
+import { pragmaTableInfo } from './retention.js';
 
 /**
  * Thompson-style pick from pre-fetched routing arm rows (cost/latency penalties).
@@ -249,6 +250,8 @@ export async function recordCallOutcome(env, payload) {
   const costUsd = Number(payload?.costUsd) || 0;
   const durationMs = Number(payload?.durationMs) || 0;
   try {
+    const armCols = await pragmaTableInfo(env.DB, 'agentsam_routing_arms');
+    const touchSql = armCols.has('updated_at') ? ', updated_at = unixepoch()' : '';
     if (success) {
       await env.DB.prepare(
         `UPDATE agentsam_routing_arms SET
@@ -258,8 +261,7 @@ export async function recordCallOutcome(env, payload) {
                   ELSE (cost_mean * cost_n + ?) / (cost_n + 1) END,
           latency_n     = latency_n + 1,
           latency_mean  = CASE WHEN latency_n = 0 THEN ?
-                  ELSE (latency_mean * latency_n + ?) / (latency_n + 1) END,
-          updated_at    = unixepoch()
+                  ELSE (latency_mean * latency_n + ?) / (latency_n + 1) END${touchSql}
          WHERE task_type = ? AND mode = ? AND model_key = ? AND workspace_id = ?`,
       )
         .bind(costUsd, costUsd, durationMs, durationMs, taskType, mode, modelKey, workspaceId)
@@ -267,8 +269,7 @@ export async function recordCallOutcome(env, payload) {
     } else {
       await env.DB.prepare(
         `UPDATE agentsam_routing_arms SET
-          success_beta = success_beta + 1,
-          updated_at = unixepoch()
+          success_beta = success_beta + 1${touchSql}
          WHERE task_type = ? AND mode = ? AND model_key = ? AND workspace_id = ?`,
       )
         .bind(taskType, mode, modelKey, workspaceId)

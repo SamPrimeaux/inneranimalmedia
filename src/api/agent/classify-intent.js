@@ -36,6 +36,9 @@ export function inferIntentHeuristically(text) {
   if (isReadOnlyFileContextIntent(stripped)) {
     return { taskType: 'ask', mode: 'agent' };
   }
+  if (messageHasBrowserUrlNavigation(stripped)) {
+    return { taskType: 'browser', mode: 'agent' };
+  }
   const t = stripped.toLowerCase();
   if (!t) return { taskType: 'ask', mode: 'auto' };
 

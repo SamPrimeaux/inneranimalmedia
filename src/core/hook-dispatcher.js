@@ -3,6 +3,7 @@
  * Fires registered agentsam_hook rows for a given event_type (or legacy trigger).
  * Writes to agentsam_hook_execution with tenant/workspace scope.
  */
+import { sha256Hex } from './cms-theme-hashing.js';
 import { pragmaTableInfo } from './retention.js';
 import { fetchActiveProjectContextBlocks } from './agent-prompt-context.js';
 
@@ -212,16 +213,134 @@ async function dispatchHook(env, hook, payload, ctx) {
     case 'context_load': {
       const ws =
         payload.workspace_id != null ? String(payload.workspace_id).trim() : '';
-      if (!ws) break;
-      const blocks = await fetchActiveProjectContextBlocks(env, {
-        workspaceId: ws,
-        tenantId: payload.tenant_id,
-        limit: 3,
-      });
-      if (env.DB && blocks.length) {
-        let digestText = blocks.map((b) => b.text).join('\n\n').slice(0, 6000);
+      if (!ws || !env.DB) break;
+
+      const loadKeys = Array.isArray(cfg.load)
+        ? cfg.load.map((k) => String(k || '').trim().toLowerCase()).filter(Boolean)
+        : ['project_context'];
+      const blockLimit = Math.min(Math.max(1, Number(cfg.limit) || 3), 5);
+      const parts = [];
+
+      if (loadKeys.includes('context_digest') || loadKeys.includes('session_digest')) {
+        try {
+          const digestCols = await pragmaTableInfo(env.DB, 'agentsam_context_digest');
+          if (digestCols.has('digest_text')) {
+            const existingDigest = await env.DB.prepare(
+              `SELECT digest_text FROM agentsam_context_digest
+               WHERE workspace_id = ? AND digest_type = 'session'
+               ORDER BY created_at DESC LIMIT 1`,
+            )
+              .bind(ws)
+              .first()
+              .catch(() => null);
+            const text =
+              existingDigest?.digest_text != null ? String(existingDigest.digest_text).trim() : '';
+            if (text) parts.push(text);
+          }
+        } catch (e) {
+          console.warn('[hook-dispatcher] context_digest load', e?.message ?? e);
+        }
+      }
+
+      if (loadKeys.includes('project_context') || loadKeys.includes('project_context_blocks')) {
+        const blocks = await fetchActiveProjectContextBlocks(env, {
+          workspaceId: ws,
+          tenantId: payload.tenant_id,
+          limit: blockLimit,
+        });
+        if (blocks.length) {
+          parts.push(blocks.map((b) => b.text).join('\n\n'));
+        }
+      }
+
+      const digestText = parts.filter(Boolean).join('\n\n').trim().slice(0, 6000);
+      if (!digestText) break;
+
+      try {
         const digestCols = await pragmaTableInfo(env.DB, 'agentsam_context_digest');
-        if (digestCols.size && digestCols.has('digest_text')) {
+        if (!digestCols.size || !digestCols.has('digest_text')) break;
+
+        const sourceMaterial = [
+          `workspace_id: ${ws}`,
+          payload.session_id ? `session_id: ${payload.session_id}` : '',
+          digestText,
+        ]
+          .filter(Boolean)
+          .join('\n');
+        const sourceHash = digestCols.has('source_hash')
+          ? await sha256Hex(sourceMaterial)
+          : null;
+        const digestHash = digestCols.has('digest_hash')
+          ? await sha256Hex(`${ws}:session`)
+          : null;
+        const digestId = `acd_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
+        const rawBytes = new TextEncoder().encode(sourceMaterial).length;
+        const reducedBytes = new TextEncoder().encode(digestText).length;
+
+        if (digestCols.has('digest_hash') && digestCols.has('source_hash')) {
+          const insertCols = [
+            'id',
+            'workspace_id',
+            'digest_type',
+            'source_hash',
+            'digest_hash',
+            'raw_size_bytes',
+            'reduced_size_bytes',
+            'digest_text',
+            'namespace',
+          ];
+          const placeholders = [
+            '?',
+            '?',
+            "'session'",
+            '?',
+            '?',
+            '?',
+            '?',
+            '?',
+            "'hook_context_load'",
+          ];
+          const binds = [
+            digestId,
+            ws,
+            sourceHash,
+            digestHash,
+            rawBytes,
+            reducedBytes,
+            digestText,
+          ];
+          if (digestCols.has('created_at')) {
+            insertCols.push('created_at');
+            placeholders.push("datetime('now')");
+          }
+          if (digestCols.has('updated_at')) {
+            insertCols.push('updated_at');
+            placeholders.push("datetime('now')");
+          } else if (digestCols.has('updated_at_unix')) {
+            insertCols.push('updated_at_unix');
+            placeholders.push('unixepoch()');
+          }
+
+          const updateSets = ['digest_text = excluded.digest_text'];
+          if (digestCols.has('source_hash')) updateSets.push('source_hash = excluded.source_hash');
+          if (digestCols.has('raw_size_bytes')) updateSets.push('raw_size_bytes = excluded.raw_size_bytes');
+          if (digestCols.has('reduced_size_bytes')) {
+            updateSets.push('reduced_size_bytes = excluded.reduced_size_bytes');
+          }
+          if (digestCols.has('updated_at')) {
+            updateSets.push('updated_at = datetime(\'now\')');
+          } else if (digestCols.has('updated_at_unix')) {
+            updateSets.push('updated_at_unix = unixepoch()');
+          }
+
+          await env.DB.prepare(
+            `INSERT INTO agentsam_context_digest (${insertCols.join(', ')})
+             VALUES (${placeholders.join(', ')})
+             ON CONFLICT(digest_hash) DO UPDATE SET ${updateSets.join(', ')}`,
+          )
+            .bind(...binds)
+            .run();
+        } else {
           const existing = await env.DB.prepare(
             `SELECT id FROM agentsam_context_digest
              WHERE workspace_id = ? AND digest_type = 'session'
@@ -236,20 +355,18 @@ async function dispatchHook(env, hook, payload, ctx) {
               : digestCols.has('updated_at_unix')
                 ? `UPDATE agentsam_context_digest SET digest_text = ?, updated_at_unix = unixepoch() WHERE id = ?`
                 : `UPDATE agentsam_context_digest SET digest_text = ? WHERE id = ?`;
-            await env.DB.prepare(updateSql)
-              .bind(digestText, existing.id)
-              .run()
-              .catch(() => {});
+            await env.DB.prepare(updateSql).bind(digestText, existing.id).run();
           } else if (digestCols.has('id')) {
             await env.DB.prepare(
               `INSERT INTO agentsam_context_digest (id, workspace_id, digest_type, digest_text, created_at)
                VALUES (?, ?, 'session', ?, datetime('now'))`,
             )
-              .bind(`acd_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`, ws, digestText)
-              .run()
-              .catch(() => {});
+              .bind(digestId, ws, digestText)
+              .run();
           }
         }
+      } catch (e) {
+        console.warn('[hook-dispatcher] context_load digest upsert', e?.message ?? e);
       }
       break;
     }
