@@ -209,6 +209,7 @@ export const handlers = {
     // ── Playwright & Legacy ──────────────────────────────────────────────
     async playwright_screenshot(params, env, runContext) { return await invokeBrowserOp(env, 'playwright_screenshot', params, runContext); },
     async browser_navigate(params, env, runContext) { return await invokeBrowserOp(env, 'browser_navigate', params, runContext); },
+    async browser_scroll(params, env, runContext) { return await invokeBrowserOp(env, 'browser_scroll', params, runContext); },
     async browser_screenshot(params, env, runContext) { return await invokeBrowserOp(env, 'browser_screenshot', params, runContext); },
     async browser_content(params, env, runContext) { return await invokeBrowserOp(env, 'browser_content', params, runContext); },
     async browser_close_session(params, env, runContext) { return await invokeBrowserOp(env, 'browser_close_session', params, runContext); },

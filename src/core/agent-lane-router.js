@@ -293,6 +293,7 @@ export const WEB_FETCH_TOOL_NAMES = new Set(['web_fetch']);
 
 export const BROWSER_INSPECT_TOOL_NAMES = new Set([
   'browser_navigate',
+  'browser_scroll',
   'browser_content',
   'browser_screenshot',
   'playwright_screenshot',

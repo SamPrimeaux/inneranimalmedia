@@ -58,6 +58,74 @@ function normalizeUrlCompare(u) {
 }
 
 /**
+ * Verify page URL against request and commit to AgentBrowserLive DO (refreshes Live View).
+ * @param {any} env
+ * @param {string} scopeId
+ * @param {import('@cloudflare/playwright').Page} page
+ * @param {string} toolName
+ * @param {string|null} requestedUrl
+ */
+async function commitAgentLiveBrowserPageState(env, scopeId, page, toolName, requestedUrl = null) {
+  if (!scopeId || !browserLiveDoRequired(env)) return null;
+  const url = page.url() || '';
+  const title = await page.title().catch(() => '');
+  const verified = requestedUrl
+    ? normalizeUrlCompare(url) === normalizeUrlCompare(requestedUrl)
+    : true;
+  const stored = await getAgentLiveBrowserSession(env, scopeId);
+  const patchOut = await patchAgentLiveBrowserSessionViaDo(env, scopeId, {
+    tool_name: toolName,
+    action_phase: 'done',
+    url,
+    title,
+    requested_url: requestedUrl,
+    verified,
+    ok: verified,
+  }).catch(() => null);
+  const live = patchOut?.live_session ?? stored;
+  return {
+    url,
+    title,
+    verified,
+    url_verified: verified,
+    session_id: live?.session_id ?? stored?.sessionId ?? null,
+    target_id: live?.target_id ?? stored?.targetId ?? null,
+    live_session: live,
+    browser_url_committed: patchOut?.browser_url_committed ?? {
+      url,
+      title,
+      verified,
+      session_id: live?.session_id ?? stored?.sessionId ?? null,
+      agent_run_id: scopeId,
+    },
+    smoke_debug: {
+      agent_run_id: scopeId,
+      session_id: live?.session_id ?? stored?.sessionId ?? null,
+      target_id: live?.target_id ?? stored?.targetId ?? null,
+      final_url: url,
+      requested_url: requestedUrl,
+      same_session_reused: true,
+      live_view_mode: live?.live_view_mode ?? 'tab',
+      url_verified: verified,
+      screenshots_taken: 0,
+    },
+  };
+}
+
+/** @param {any} env @param {string} scopeId @param {import('@cloudflare/playwright').Page} page @param {string} toolName @param {string} direction */
+async function emitBrowserScrollPatch(env, scopeId, page, toolName, direction) {
+  if (!scopeId || !browserLiveDoRequired(env)) return;
+  await patchAgentLiveBrowserSessionViaDo(env, scopeId, {
+    tool_name: toolName,
+    action_phase: 'done',
+    scroll_direction: direction,
+    url: page.url() || null,
+    verified: true,
+    ok: true,
+  }).catch(() => {});
+}
+
+/**
  * @param {unknown} tree
  * @param {boolean} interestingOnly
  */
@@ -229,6 +297,7 @@ export async function withBrowserPage(env, params, fn, opts = {}) {
   if (scopeId && (useLiveDo || persistSession)) {
     const ensured = await ensureAgentLiveBrowserSession(env, scopeId, {
       url: targetUrl || null,
+      defer_http_navigate: Boolean(useLiveDo && targetUrl),
       userId: params.user_id ?? params.session?.user_id ?? null,
       workspaceId: params.workspace_id ?? params.session?.workspace_id ?? null,
       tool_name: toolName || undefined,
@@ -325,7 +394,7 @@ export async function withBrowserPage(env, params, fn, opts = {}) {
           }
         : null;
 
-    const result = await fn({
+    let result = await fn({
       page,
       url: effectiveUrl,
       consoleMessages,
@@ -346,14 +415,23 @@ export async function withBrowserPage(env, params, fn, opts = {}) {
     }
 
     if (useLiveDo && scopeId && toolName) {
-      const title = await page.title().catch(() => '');
-      await patchAgentLiveBrowserSessionViaDo(env, scopeId, {
-        tool_name: toolName,
-        action_phase: 'done',
-        url: page.url() || targetUrl || null,
-        title,
-        ok: result && typeof result === 'object' && result.error ? false : true,
-      }).catch(() => {});
+      if (toolName === 'browser_scroll') {
+        /* scroll patches emitted inside browser_scroll handler */
+      } else {
+        const commit = await commitAgentLiveBrowserPageState(
+          env,
+          scopeId,
+          page,
+          toolName,
+          targetUrl || null,
+        );
+        if (commit) {
+          result =
+            result && typeof result === 'object'
+              ? { ...result, ...commit }
+              : { ok: true, ...commit };
+        }
+      }
     }
 
     if (result && typeof result === 'object') {
@@ -450,19 +528,31 @@ export async function runBrowserBuiltinTool(env, toolName, params) {
         env,
         params,
         async ({ page, url, liveSession }) => {
+          const requestedUrl = url;
           const finalUrl = page.url() || url;
           const title = await page.title().catch(() => '');
           const page_text = await extractPageText(page);
+          const verified =
+            !requestedUrl ||
+            normalizeUrlCompare(finalUrl) === normalizeUrlCompare(requestedUrl);
           const scopeId = resolveBrowserRunScopeId(params);
           const agentLive = Boolean(scopeId);
           const base = {
-            ok: true,
+            ok: verified,
             url: finalUrl,
+            requested_url: requestedUrl,
+            verified,
+            url_verified: verified,
             title,
             page_text,
             text: page_text,
             agent_live_session: agentLive,
             ...(liveSession ? { live_session: liveSession } : {}),
+            ...(!verified
+              ? {
+                  error: `Navigation could not be verified (expected ${requestedUrl}, got ${finalUrl})`,
+                }
+              : {}),
           };
           if (agentLive) return base;
           const out = await captureViewportScreenshot(env, page, { fullPage: false });
@@ -471,6 +561,36 @@ export async function runBrowserBuiltinTool(env, toolName, params) {
             screenshot_url: out.screenshot_url,
             result_url: out.screenshot_url,
             job_id: out.job_id,
+          };
+        },
+        withOpts,
+      );
+
+    case 'browser_scroll':
+      return withBrowserPage(
+        env,
+        params,
+        async ({ page }) => {
+          const scopeId = resolveBrowserRunScopeId(params);
+          const amount = Math.max(100, Number(params.amount) || 700);
+          const dir = String(params.direction || 'both').toLowerCase();
+          const scrollDown = dir === 'both' || dir === 'down';
+          const scrollUp = dir === 'both' || dir === 'up';
+          if (scrollDown) {
+            await page.evaluate((y) => window.scrollBy(0, y), amount);
+            await emitBrowserScrollPatch(env, scopeId, page, 'browser_scroll', 'down');
+          }
+          if (scrollUp) {
+            await page.waitForTimeout(250).catch(() => {});
+            await page.evaluate((y) => window.scrollBy(0, -y), amount);
+            await emitBrowserScrollPatch(env, scopeId, page, 'browser_scroll', 'up');
+          }
+          return {
+            ok: true,
+            url: page.url(),
+            scroll_amount: amount,
+            scrolled_down: scrollDown,
+            scrolled_up: scrollUp,
           };
         },
         withOpts,

@@ -18,6 +18,7 @@ import type {
   ImageGenerationState,
 } from '../types';
 import type { AgentToolTraceRow } from '../execution/types';
+import { formatToolTraceInput, formatToolTraceOutput } from '../../../lib/formatToolTraceSummary';
 import { sanitizeBrowserNavigateUrl } from '../../../lib/sanitizeBrowserUrl';
 import {
   extractMonacoInvokesFromBuffer,
@@ -239,6 +240,22 @@ function parseBrowserLiveSessionFromToolPayload(raw: string | null | undefined):
   } catch {
     return null;
   }
+}
+
+function resolveToolTraceRowId(
+  prev: AgentToolTraceRow[],
+  toolCallId: string | null | undefined,
+  activeId: string | null,
+  toolName: string,
+): string | null {
+  const cid = toolCallId?.trim();
+  if (cid) {
+    const hit = prev.find((r) => r.id === cid || r.toolCallId === cid);
+    if (hit) return hit.id;
+  }
+  if (activeId && prev.some((r) => r.id === activeId)) return activeId;
+  const oldest = prev.find((r) => r.status === 'running' && r.toolName === toolName);
+  return oldest?.id ?? activeId;
 }
 
 export type ConsumeAgentChatSseContext = {
@@ -1307,6 +1324,8 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             'browser_live_view_refresh',
             'browser_session_closed',
             'browser_human_input_cancelled',
+            'browser_navigated',
+            'browser_scrolled',
           ].includes(String((data as { type?: string }).type || ''))
         ) {
           const d = data as {
@@ -1315,6 +1334,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             url?: string;
             title?: string;
             live_view_url?: string;
+            direction?: string;
             ok?: boolean;
             reason?: string;
           };
@@ -1327,6 +1347,58 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             ok: d.ok,
             reason: d.reason,
           });
+          continue;
+        }
+        if (
+          data &&
+          typeof data === 'object' &&
+          (data as { type?: string }).type === 'browser_url_committed'
+        ) {
+          const d = data as {
+            type: 'browser_url_committed';
+            url?: string;
+            title?: string;
+            verified?: boolean;
+            session_id?: string;
+            live_view_url?: string;
+            agent_run_id?: string;
+            smoke_debug?: Record<string, unknown> | null;
+          };
+          const navUrl = sanitizeBrowserNavigateUrl(String(d.url || ''));
+          onThinkingEvent?.({
+            type: 'browser_url_committed',
+            tool_name: 'browser_navigate',
+            url: navUrl || d.url,
+            title: d.title,
+            ok: d.verified !== false,
+          });
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent('iam-browser-url-committed', {
+                detail: {
+                  url: navUrl || d.url,
+                  title: d.title,
+                  verified: d.verified !== false,
+                  session_id: d.session_id,
+                  live_view_url: d.live_view_url,
+                  agent_run_id: d.agent_run_id,
+                  smoke_debug: d.smoke_debug ?? null,
+                },
+              }),
+            );
+          }
+          if (navUrl && d.verified !== false && !/\/api\/r2\/file\b/i.test(navUrl)) {
+            onBrowserNavigate?.({
+              type: 'browser_navigate',
+              url: navUrl,
+              automation: true,
+              agent_live: true,
+              live_view_url: d.live_view_url,
+              session_id: d.session_id,
+              title: d.title,
+              verified: true,
+            } as Parameters<NonNullable<typeof onBrowserNavigate>>[0] & { verified?: boolean });
+          }
           continue;
         }
         if (
@@ -1357,6 +1429,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             type: 'tool_start';
             tool_name?: string;
             node_key?: string;
+            tool_call_id?: string;
             input_preview?: string | null;
           };
           const tn = String(d.tool_name || d.node_key || '');
@@ -1382,6 +1455,13 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
               if (u) pendingBrowserToolUrl = sanitizeBrowserNavigateUrl(u) || u;
               pendingBrowserToolAutomation =
                 parseBrowserToolAutomationFlag(inp) || isCdtBrowserToolName(tn);
+              if (typeof window !== 'undefined' && pendingBrowserToolUrl) {
+                window.dispatchEvent(
+                  new CustomEvent('iam-browser-url-pending', {
+                    detail: { url: pendingBrowserToolUrl, tool_call_id: d.tool_call_id ?? null },
+                  }),
+                );
+              }
             } catch {
               /* ignore */
             }
@@ -1406,19 +1486,24 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
               );
             }
           }
-          const rowId = `sse-tool-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          const toolCallId =
+            typeof d.tool_call_id === 'string' && d.tool_call_id.trim() ? d.tool_call_id.trim() : null;
+          const rowId = toolCallId || `sse-tool-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
           activeToolTraceId = rowId;
           const isSql =
             !!d.tool_name &&
             (d.tool_name.includes('d1') || d.tool_name.includes('sql') || d.tool_name.includes('query'));
           const preview = d.input_preview != null ? String(d.input_preview) : '';
+          const { summaryLines, detailsJson } = formatToolTraceInput(tn, preview);
           setToolTraceRows?.((prev) => [
             ...prev,
             {
               id: rowId,
+              toolCallId: toolCallId || rowId,
               toolName: d.tool_name || 'tool',
               status: 'running',
-              lines: preview ? [preview] : [],
+              lines: summaryLines,
+              detailsJson,
               startedAtLabel: new Date().toLocaleTimeString(),
               isSql,
             },
@@ -1426,15 +1511,17 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           continue;
         }
         if (data && typeof data === 'object' && (data as { type?: string }).type === 'tool_error') {
-          const d = data as { type?: string; tool?: string; error?: string };
+          const d = data as { type?: string; tool?: string; tool_call_id?: string; error?: string };
           const rawMsg = String(d.error || 'tool_error').slice(0, 4000);
           const toolLabel = String(d.tool || 'tool');
           const normalized = normalizeBrowserToolErrorMessage(toolLabel, rawMsg);
+          let closedRowId: string | null = null;
           setToolTraceRows?.((prev) => {
+            closedRowId = resolveToolTraceRowId(prev, d.tool_call_id, activeToolTraceId, toolLabel);
             const traceLine = `${normalized.short}${normalized.detail !== rawMsg ? `\n${normalized.detail}` : ''}`;
-            if (activeToolTraceId && prev.some((r) => r.id === activeToolTraceId)) {
+            if (closedRowId && prev.some((r) => r.id === closedRowId)) {
               return prev.map((r) =>
-                r.id === activeToolTraceId
+                r.id === closedRowId
                   ? {
                       ...r,
                       status: 'error' as const,
@@ -1443,11 +1530,12 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
                   : r,
               );
             }
-            const id = `sse-tool-err-${Date.now()}`;
+            const id = d.tool_call_id?.trim() || `sse-tool-err-${Date.now()}`;
             return [
               ...prev,
               {
                 id,
+                toolCallId: id,
                 toolName: toolLabel,
                 status: 'error',
                 lines: [traceLine],
@@ -1455,6 +1543,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
               },
             ];
           });
+          if (closedRowId && activeToolTraceId === closedRowId) activeToolTraceId = null;
           onThinkingEvent?.({ type: 'tool_error', tool_name: toolLabel });
           setMessages((prev) => {
             const next = [...prev];
@@ -1517,6 +1606,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             type: 'tool_done';
             tool_name?: string;
             node_key?: string;
+            tool_call_id?: string;
             status?: string;
             ok?: boolean;
             output_preview?: string;
@@ -1530,16 +1620,27 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           const doneToolName = String(d.tool_name || d.node_key || '');
           const doneOk =
             d.status != null ? d.status !== 'error' : d.ok !== false;
+          const outputPreview =
+            typeof d.output_preview === 'string'
+              ? d.output_preview
+              : lastBrowserToolOutputChunk;
+          const { summaryLines, detailsJson } = formatToolTraceOutput(doneToolName, outputPreview);
+          let smokeDebug: Record<string, unknown> | null = null;
+          try {
+            const parsed = outputPreview ? JSON.parse(outputPreview) : null;
+            if (parsed && typeof parsed === 'object' && parsed.smoke_debug) {
+              smokeDebug = parsed.smoke_debug as Record<string, unknown>;
+            }
+          } catch {
+            /* ignore */
+          }
           onThinkingEvent?.({
             type: 'tool_done',
             tool_name: doneToolName,
             ok: doneOk,
             output_preview:
-              typeof d.output_preview === 'string'
-                ? d.output_preview
-                : d.error
-                  ? String(d.error).slice(0, 120)
-                  : undefined,
+              summaryLines.join(' · ') ||
+              (d.error ? String(d.error).slice(0, 120) : undefined),
           });
           if (
             d.status !== 'error' &&
@@ -1570,50 +1671,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
               doneToolName === 'cdt_navigate_page' ||
               doneToolName === 'browser_navigate')
           ) {
-            let navUrl = pendingBrowserToolUrl || '';
-            if (!navUrl && lastBrowserToolOutputChunk) {
-              try {
-                const parsed = JSON.parse(lastBrowserToolOutputChunk) as Record<string, unknown>;
-                const u =
-                  (typeof parsed.url === 'string' && parsed.url.trim()) ||
-                  (typeof parsed.result === 'object' &&
-                  parsed.result !== null &&
-                  typeof (parsed.result as Record<string, unknown>).url === 'string'
-                    ? String((parsed.result as Record<string, unknown>).url).trim()
-                    : '') ||
-                  '';
-                if (u) navUrl = u;
-              } catch {
-                /* ignore */
-              }
-            }
-            const safeNav = sanitizeBrowserNavigateUrl(navUrl);
-            if (safeNav && !/\/api\/r2\/file\b/i.test(safeNav)) {
-              const preview = parseBrowserNavigatePreview(
-                typeof d.output_preview === 'string' ? d.output_preview : lastBrowserToolOutputChunk,
-              );
-              const liveFromOutput = parseBrowserLiveSessionFromToolPayload(
-                typeof d.output_preview === 'string' ? d.output_preview : lastBrowserToolOutputChunk,
-              );
-              const automation =
-                pendingBrowserToolAutomation ||
-                isCdtBrowserToolName(doneToolName) ||
-                doneToolName === 'browser_navigate' ||
-                Boolean(preview.screenshot_url) ||
-                Boolean(liveFromOutput?.live_view_url);
-              const agentLive =
-                Boolean(liveFromOutput?.live_view_url) ||
-                (automation && !preview.screenshot_url);
-              onBrowserNavigate?.({
-                type: 'browser_navigate',
-                url: safeNav,
-                automation,
-                agent_live: agentLive,
-                live_view_url: liveFromOutput?.live_view_url,
-                session_id: liveFromOutput?.session_id,
-                ...preview,
-              });
-            }
+            /* BrowserView URL updates from browser_url_committed (verified), not optimistic tool_done. */
             pendingBrowserToolUrl = null;
             pendingBrowserToolAutomation = false;
             lastBrowserToolOutputChunk = null;
@@ -1650,24 +1708,35 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             lastBrowserScreenshotOutputChunk = null;
             activeBrowserScreenshotTool = false;
           }
+          let closedRowId: string | null = null;
           setToolTraceRows?.((prev) => {
-            if (!activeToolTraceId || !prev.some((r) => r.id === activeToolTraceId)) return prev;
+            closedRowId = resolveToolTraceRowId(
+              prev,
+              d.tool_call_id,
+              activeToolTraceId,
+              doneToolName,
+            );
+            if (!closedRowId || !prev.some((r) => r.id === closedRowId)) return prev;
             return prev.map((r) =>
-              r.id === activeToolTraceId
+              r.id === closedRowId
                 ? {
                     ...r,
-                    status: d.status === 'error' ? 'error' : 'done',
+                    status: d.status === 'error' || !doneOk ? 'error' : 'done',
                     durationMs: d.duration_ms,
                     sqlRows: d.rows ?? undefined,
                     lines:
                       d.status === 'error' && d.error
-                        ? [...r.lines, String(d.error).slice(0, 4000)]
-                        : r.lines,
+                        ? [...summaryLines, String(d.error).slice(0, 4000)]
+                        : summaryLines.length
+                          ? summaryLines
+                          : r.lines,
+                    detailsJson: detailsJson ?? r.detailsJson,
+                    smokeDebug: smokeDebug ?? r.smokeDebug,
                   }
                 : r,
             );
           });
-          activeToolTraceId = null;
+          if (closedRowId && activeToolTraceId === closedRowId) activeToolTraceId = null;
         }
         if (data && typeof data === 'object' && 'conversation_id' in data) {
           const cid = (data as { conversation_id?: string }).conversation_id;

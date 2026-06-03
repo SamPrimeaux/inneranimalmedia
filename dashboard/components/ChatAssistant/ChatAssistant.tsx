@@ -1186,6 +1186,37 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           }),
         };
       });
+    } else if (ev.type === 'browser_url_committed' || ev.type === 'browser_navigated') {
+      setThinkingState(prev => {
+        const base = prev ?? { steps: [], thinkingText: '', status: 'working', startedAt: Date.now() };
+        const label =
+          ev.type === 'browser_navigated' && ev.url
+            ? `Navigated to ${ev.url}`
+            : formatBrowserLiveSseStepName(ev.type);
+        return {
+          ...base,
+          status: 'working',
+          steps: upsertThinkingStep(base.steps, {
+            id: `browser_nav_${String(ev.url || Date.now())}`,
+            name: label,
+            status: 'done',
+          }),
+        };
+      });
+    } else if (ev.type === 'browser_scrolled') {
+      setThinkingState(prev => {
+        const base = prev ?? { steps: [], thinkingText: '', status: 'working', startedAt: Date.now() };
+        const dir = String((ev as { direction?: string }).direction || 'down');
+        return {
+          ...base,
+          status: 'working',
+          steps: upsertThinkingStep(base.steps, {
+            id: `browser_scroll_${dir}_${Date.now()}`,
+            name: dir === 'up' ? 'Scrolled up' : 'Scrolled down',
+            status: 'done',
+          }),
+        };
+      });
     } else if (ev.type === 'browser_session_ready' || ev.type === 'browser_live_view_ready') {
       setThinkingState(prev => {
         const base = prev ?? { steps: [], thinkingText: '', status: 'working', startedAt: Date.now() };

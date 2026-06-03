@@ -106,6 +106,7 @@ export async function ensureAgentLiveBrowserSessionViaDo(env, agentRunId, opts =
       user_id: opts.userId ?? opts.user_id,
       workspace_id: opts.workspaceId ?? opts.workspace_id,
       tool_name: opts.tool_name,
+      defer_http_navigate: opts.deferHttpNavigate ?? opts.defer_http_navigate ?? false,
     }),
   });
 }

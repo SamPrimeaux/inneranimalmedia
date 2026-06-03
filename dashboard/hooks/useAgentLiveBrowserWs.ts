@@ -88,6 +88,24 @@ export function useAgentLiveBrowserWs(opts: UseAgentLiveBrowserWsOptions) {
         const lv = raw.devtools_frontend_url || raw.live_view_url;
         if (lv) onLiveViewUrl?.(lv);
       }
+      if (type === 'browser_url_committed') {
+        const lv = raw.live_view_url || raw.devtools_frontend_url;
+        if (lv) onLiveViewUrl?.(lv);
+        if (typeof window !== 'undefined' && raw.url) {
+          window.dispatchEvent(
+            new CustomEvent('iam-browser-url-committed', {
+              detail: {
+                url: raw.url,
+                title: raw.title,
+                verified: raw.verified !== false,
+                session_id: raw.session_id,
+                live_view_url: lv,
+                agent_run_id: raw.agent_run_id,
+              },
+            }),
+          );
+        }
+      }
       if (type === 'browser_human_input_required') {
         onHumanInputRequired?.({
           reason: raw.reason,

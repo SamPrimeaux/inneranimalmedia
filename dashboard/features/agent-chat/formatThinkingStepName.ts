@@ -31,6 +31,8 @@ export function formatThinkingStepName(ev: ThinkingStepEvent): string {
   if (tool.includes('live_view') || tool.includes('browser_session'))
     return 'Opening live browser session';
 
+  if (tool.includes('browser_scroll')) return 'Scrolling live browser page';
+
   if (tool.includes('cdt_') || tool.includes('playwright') || tool.includes('browser_navigate'))
     return 'Working in live browser';
 
@@ -59,6 +61,12 @@ export function formatBrowserLiveSseStepName(eventType: string): string {
       return 'Continued in live browser';
     case 'browser_live_view_refresh':
       return 'Refreshed live browser view';
+    case 'browser_url_committed':
+      return 'URL committed in live browser';
+    case 'browser_navigated':
+      return 'Navigated in live browser';
+    case 'browser_scrolled':
+      return 'Scrolled live browser page';
     case 'browser_human_input_cancelled':
       return 'Human input cancelled';
     case 'browser_session_closed':

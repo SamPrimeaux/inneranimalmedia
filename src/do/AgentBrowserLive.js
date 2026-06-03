@@ -360,6 +360,22 @@ export class AgentBrowserLiveV1 extends DurableObject {
     const row = this.getSessionRow();
     if (!row) return json({ ok: false, error: 'no session' }, 404);
 
+    const toolName = body.tool_name != null ? String(body.tool_name) : '';
+    const actionPhase = String(body.action_phase || body.phase || 'done').toLowerCase();
+    const requestedUrl =
+      body.requested_url != null
+        ? String(body.requested_url)
+        : body.requestedUrl != null
+          ? String(body.requestedUrl)
+          : null;
+    const verified = body.verified !== false;
+    const scrollDirection =
+      body.scroll_direction != null
+        ? String(body.scroll_direction)
+        : body.direction != null
+          ? String(body.direction)
+          : null;
+
     const patch = {
       agent_run_id: row.agent_run_id,
       session_id: row.session_id,
@@ -367,29 +383,117 @@ export class AgentBrowserLiveV1 extends DurableObject {
       title: body.title ?? row.title,
       status: body.status ?? row.status,
     };
-    this.upsertSession(patch);
 
-    const toolName = body.tool_name != null ? String(body.tool_name) : '';
-    const actionPhase = String(body.action_phase || body.phase || 'done').toLowerCase();
     if (toolName && actionPhase === 'start') {
       this.emitEvent('browser_action_started', {
         tool_name: toolName,
         url: patch.current_url,
         title: patch.title,
+        requested_url: requestedUrl,
       });
-    } else if (toolName) {
-      this.emitEvent('browser_action_done', {
-        tool_name: toolName,
-        url: patch.current_url,
-        title: patch.title,
-        ok: body.ok !== false,
+      this.upsertSession(patch);
+      const updated = this.getSessionRow();
+      return json({
+        ok: true,
+        live_session: updated ? this.rowToLiveSession(updated) : null,
       });
     }
 
-    const updated = this.getSessionRow();
+    let liveSession = null;
+    if (actionPhase === 'done' && patch.current_url && toolName !== 'browser_scroll') {
+      const refreshed = await refreshBrowserRunLiveView(this.env, {
+        sessionId: String(row.session_id),
+        targetId: row.target_id != null ? String(row.target_id) : null,
+      });
+      if (refreshed.ok) {
+        const viewMode = row.live_view_mode ?? 'tab';
+        const embedUrl = embedLiveViewUrl(refreshed.devtoolsFrontendUrl, viewMode);
+        const expiresAt = Date.now() + LIVE_VIEW_URL_TTL_MS;
+        this.upsertSession({
+          agent_run_id: row.agent_run_id,
+          session_id: row.session_id,
+          target_id: refreshed.targetId ?? row.target_id,
+          current_url: refreshed.url ?? patch.current_url,
+          title: refreshed.title ?? patch.title,
+          devtools_frontend_url: embedUrl,
+          web_socket_debugger_url: refreshed.webSocketDebuggerUrl ?? row.web_socket_debugger_url,
+          devtools_url_expires_at: expiresAt,
+        });
+        await this.scheduleRefreshAlarm(expiresAt);
+        const updated = this.getSessionRow();
+        liveSession = updated ? this.rowToLiveSession(updated) : null;
+
+        const commitPayload = {
+          agent_run_id: row.agent_run_id,
+          browser_do_id: this.ctx.id.toString(),
+          session_id: row.session_id,
+          target_id: liveSession?.target_id ?? row.target_id,
+          url: liveSession?.url ?? patch.current_url,
+          title: liveSession?.title ?? patch.title,
+          requested_url: requestedUrl,
+          verified,
+          live_view_url: liveSession?.devtools_frontend_url ?? embedUrl,
+          live_view_mode: liveSession?.live_view_mode ?? viewMode,
+          same_session_reused: true,
+          tool_name: toolName,
+        };
+        this.emitEvent('browser_url_committed', commitPayload);
+        if (toolName === 'browser_navigate' || toolName === 'cdt_navigate_page') {
+          this.emitEvent('browser_navigated', {
+            url: commitPayload.url,
+            title: commitPayload.title,
+            tool_name: toolName,
+            verified,
+          });
+        }
+        if (refreshed.devtoolsFrontendUrl && liveSession?.devtools_frontend_url) {
+          this.emitEvent('browser_live_view_refresh', {
+            devtools_frontend_url: liveSession.devtools_frontend_url,
+            live_view_url: liveSession.devtools_frontend_url,
+            url: liveSession.url,
+            expires_at: liveSession.expires_at,
+            live_view_mode: liveSession.live_view_mode,
+          });
+        }
+      } else {
+        this.upsertSession(patch);
+        liveSession = this.rowToLiveSession(this.getSessionRow());
+      }
+    } else {
+      this.upsertSession(patch);
+      liveSession = this.rowToLiveSession(this.getSessionRow());
+    }
+
+    if (toolName && actionPhase === 'done') {
+      this.emitEvent('browser_action_done', {
+        tool_name: toolName,
+        url: liveSession?.url ?? patch.current_url,
+        title: liveSession?.title ?? patch.title,
+        ok: body.ok !== false && verified,
+        verified,
+      });
+      if (toolName === 'browser_scroll' && scrollDirection) {
+        this.emitEvent('browser_scrolled', {
+          tool_name: toolName,
+          direction: scrollDirection,
+          url: liveSession?.url ?? patch.current_url,
+        });
+      }
+    }
+
     return json({
       ok: true,
-      live_session: updated ? this.rowToLiveSession(updated) : null,
+      live_session: liveSession,
+      browser_url_committed:
+        actionPhase === 'done' && patch.current_url && toolName !== 'browser_scroll'
+          ? {
+              url: liveSession?.url ?? patch.current_url,
+              title: liveSession?.title ?? patch.title,
+              verified,
+              session_id: row.session_id,
+              agent_run_id: row.agent_run_id,
+            }
+          : null,
     });
   }
 
@@ -462,7 +566,10 @@ export class AgentBrowserLiveV1 extends DurableObject {
       row = this.getSessionRow();
     }
 
-    if (targetUrl) {
+    const deferHttpNav =
+      body.defer_http_navigate === true || body.deferHttpNavigate === true;
+
+    if (targetUrl && !(deferHttpNav && sessionId && !wasClosed)) {
       const navigated = await navigateBrowserRunTab(this.env, { sessionId, url: targetUrl });
       if (!navigated.ok) {
         const created = await createBrowserRunSession(this.env, { keepAliveMs, targets: true });

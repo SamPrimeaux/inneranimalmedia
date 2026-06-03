@@ -5061,6 +5061,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
       let execErr = null;
       emit('tool_start', {
         tool_name: call.name,
+        tool_call_id: call.id,
         input_preview: JSON.stringify(call.input || {}).slice(0, 200),
       });
       try {
@@ -5305,6 +5306,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
       });
       emit('tool_done', {
         tool_name: call.name,
+        tool_call_id: call.id,
         status: execErr ? 'error' : 'ok',
         duration_ms: toolDurMs,
         rows: toolRows ?? null,

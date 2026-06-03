@@ -13,8 +13,6 @@ export type ToolTraceRowProps = {
   onDismiss?: () => void;
 };
 
-const SERVER_LABEL = 'inneranimalmedia-mcp-server';
-
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   const handleCopy = useCallback(
@@ -42,6 +40,7 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({ row, defaultExpanded
   const failed = row.status === 'error';
   const running = row.status === 'running';
   const [open, setOpen] = useState(!!defaultExpanded || failed);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   useEffect(() => {
     if (failed) setOpen(true);
@@ -57,14 +56,14 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({ row, defaultExpanded
     running ? 'animate-pulse' : ''
   }`;
 
-  const text = row.lines.join('\n').trim();
+  const summary = row.lines.filter(Boolean).join(' · ') || row.toolName;
+  const detailsText = row.detailsJson?.trim() || '';
 
   return (
     <div
       className="rounded-xl border border-[var(--dashboard-border)] bg-[var(--scene-bg)] overflow-hidden"
       data-status={row.status === 'done' ? 'passed' : row.status}
     >
-      {/* Header */}
       <button
         type="button"
         className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left hover:bg-[var(--bg-hover)]/40 transition-colors"
@@ -73,7 +72,7 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({ row, defaultExpanded
       >
         <div className="flex flex-col min-w-0 flex-1">
           <span className="text-[10px] font-medium text-[var(--text-muted)] tracking-wide">
-            {SERVER_LABEL}
+            Agent Sam
           </span>
           <span className="text-[12px] font-mono font-medium text-[var(--dashboard-text)] truncate">
             {row.toolName}
@@ -107,71 +106,61 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({ row, defaultExpanded
         </div>
       </button>
 
-      {/* Collapsed preview */}
-      {!open && text && (
-        <div className="px-3.5 pb-2.5 text-[11px] text-[var(--text-muted)] truncate font-mono">
-          {text.split('\n')[0].slice(0, 120)}
+      {!open && (
+        <div className="px-3.5 pb-2.5 text-[11px] text-[var(--text-muted)] truncate">
+          {summary}
         </div>
       )}
 
-      {/* Expanded body */}
       {open && (
         <div className="border-t border-[var(--dashboard-border)]/60">
-          {row.isSql && row.sqlRows && row.sqlRows.length > 0 ? (
-            <div className="px-3.5 py-2.5 space-y-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">
-                  Response
-                </span>
-                <CopyButton text={JSON.stringify(row.sqlRows, null, 2)} />
-              </div>
-              <div className="overflow-x-auto rounded-lg border border-[var(--dashboard-border)]/70">
-                <table className="w-full text-[11px] font-mono border-collapse">
-                  <thead>
-                    <tr>
-                      {Object.keys(row.sqlRows[0]).map((k) => (
-                        <th
-                          key={k}
-                          className="text-left px-2.5 py-1.5 border-b border-[var(--dashboard-border)] text-[var(--text-muted)] font-medium"
-                        >
-                          {k}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {row.sqlRows.map((r, ri) => (
-                      <tr key={ri} className="hover:bg-[var(--bg-hover)]/30 transition-colors">
-                        {Object.values(r).map((v, j) => (
-                          <td
-                            key={j}
-                            className="px-2.5 py-1.5 border-b border-[var(--dashboard-border)]/50 text-[var(--dashboard-text)]"
-                          >
-                            {String(v ?? '')}
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+          <div className="px-3.5 py-2.5 space-y-1">
+            {row.lines.map((line) => (
+              <p key={line} className="text-[11px] text-[var(--dashboard-text)] m-0 font-mono">
+                {line}
+              </p>
+            ))}
+            {running && !row.lines.length ? (
+              <p className="text-[11px] text-[var(--text-muted)] m-0">Running…</p>
+            ) : null}
+          </div>
+
+          {row.smokeDebug && Object.keys(row.smokeDebug).length > 0 ? (
+            <div className="px-3.5 pb-2 border-t border-[var(--dashboard-border)]/40">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)] mt-2 mb-1">
+                Smoke debug
+              </p>
+              <pre className="m-0 text-[10px] font-mono text-[var(--text-muted)] whitespace-pre-wrap break-words">
+                {JSON.stringify(row.smokeDebug, null, 2)}
+              </pre>
             </div>
-          ) : (
-            <div className="px-3.5 py-2.5 space-y-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">
-                  Response
-                </span>
-                {text && <CopyButton text={text} />}
-              </div>
-              <ScrollablePreviewPanel>
-                <pre className="m-0 p-2.5 whitespace-pre-wrap break-words text-[11px] text-[var(--dashboard-text)] font-mono leading-relaxed">
-                  {text || (running ? '…' : '(no output)')}
-                  {running ? '\n▊' : ''}
-                </pre>
-              </ScrollablePreviewPanel>
+          ) : null}
+
+          {detailsText ? (
+            <div className="px-3.5 pb-2.5 border-t border-[var(--dashboard-border)]/40">
+              <button
+                type="button"
+                className="flex items-center gap-1 text-[10px] text-[var(--text-muted)] hover:text-[var(--solar-cyan)] mt-2 mb-1"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDetailsOpen((v) => !v);
+                }}
+              >
+                {detailsOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+                Details
+              </button>
+              {detailsOpen ? (
+                <ScrollablePreviewPanel>
+                  <div className="flex justify-end mb-1">
+                    <CopyButton text={detailsText} />
+                  </div>
+                  <pre className="m-0 p-2.5 whitespace-pre-wrap break-words text-[10px] text-[var(--dashboard-text)] font-mono leading-relaxed">
+                    {detailsText}
+                  </pre>
+                </ScrollablePreviewPanel>
+              ) : null}
             </div>
-          )}
+          ) : null}
 
           {onDismiss && !running && (
             <div className="px-3.5 pb-2.5">

@@ -1391,6 +1391,9 @@ const BrowserPane: React.FC<PaneProps> = ({
     resumeWhen?: string;
   } | null>(null);
   const [liveSessionTitle, setLiveSessionTitle] = useState<string | null>(null);
+  const [liveUrlPending, setLiveUrlPending] = useState<string | null>(null);
+  const [liveUrlCommitted, setLiveUrlCommitted] = useState<string | null>(null);
+  const [liveSessionReady, setLiveSessionReady] = useState(false);
   const browserRunSessionRef = useRef<string | null>(null);
   const liveViewModeRef = useRef<'tab' | 'devtools'>('tab');
   const setAgentLiveIframeUrl = useCallback((url: string | null | undefined, mode?: 'tab' | 'devtools') => {
@@ -1425,7 +1428,10 @@ const BrowserPane: React.FC<PaneProps> = ({
       if (snap?.session_id) browserRunSessionRef.current = String(snap.session_id);
     },
     onLiveViewUrl: (url) => {
-      if (url?.trim()) setAgentLiveIframeUrl(url.trim());
+      if (url?.trim()) {
+        setAgentLiveIframeUrl(url.trim());
+        setLiveSessionReady(true);
+      }
     },
     onHumanInputRequired: (detail) => {
       setHumanInputReq({
@@ -1989,9 +1995,14 @@ const BrowserPane: React.FC<PaneProps> = ({
         }
         browserRunSessionRef.current = sid || browserRunSessionRef.current;
         setAgentLiveIframeUrl(embedUrl);
-        setCurrentUrl(n);
-        setInputVal(addressDisplay?.trim() && /^(blob:|data:)/i.test(n) ? addressDisplay : n);
-        onUrlCommitted?.(n);
+        if (embedUrl) setLiveSessionReady(true);
+        if (!agentActive) {
+          setCurrentUrl(n);
+          setInputVal(addressDisplay?.trim() && /^(blob:|data:)/i.test(n) ? addressDisplay : n);
+          onUrlCommitted?.(n);
+        } else {
+          setLiveUrlPending(n);
+        }
       } catch (e) {
         setNavigateError(String(e));
       } finally {
@@ -2061,6 +2072,40 @@ const BrowserPane: React.FC<PaneProps> = ({
       window.removeEventListener('iam-browser-human-input-resumed', onHumanResumed);
     };
   }, [openAgentLiveSession]);
+
+  useEffect(() => {
+    const onPending = (e: Event) => {
+      const d = (e as CustomEvent<{ url?: string }>).detail;
+      if (!d?.url?.trim()) return;
+      setLiveUrlPending(normalize(d.url));
+    };
+    const onCommitted = (e: Event) => {
+      const d = (e as CustomEvent<{
+        url?: string;
+        title?: string;
+        verified?: boolean;
+        live_view_url?: string;
+        session_id?: string;
+      }>).detail;
+      if (!d?.url?.trim() || d.verified === false) return;
+      const n = normalize(d.url);
+      setLiveUrlPending(null);
+      setLiveUrlCommitted(n);
+      setLiveSessionReady(true);
+      setCurrentUrl(n);
+      setInputVal(n);
+      if (d.title) setLiveSessionTitle(String(d.title));
+      if (d.session_id) browserRunSessionRef.current = String(d.session_id);
+      if (d.live_view_url?.trim()) setAgentLiveIframeUrl(d.live_view_url.trim());
+      onUrlCommitted?.(n);
+    };
+    window.addEventListener('iam-browser-url-pending', onPending as EventListener);
+    window.addEventListener('iam-browser-url-committed', onCommitted as EventListener);
+    return () => {
+      window.removeEventListener('iam-browser-url-pending', onPending as EventListener);
+      window.removeEventListener('iam-browser-url-committed', onCommitted as EventListener);
+    };
+  }, [onUrlCommitted, setAgentLiveIframeUrl]);
 
   /** MYBROWSER / CDT automation preview — explicit screenshot path only (not agent live default). */
   const loadAutomationPreview = useCallback(
@@ -2445,18 +2490,34 @@ const BrowserPane: React.FC<PaneProps> = ({
         <input
           ref={inputRef}
           type="text"
-          value={inputVal}
+          value={
+            viewSurface === 'agentLive'
+              ? liveUrlCommitted || (liveSessionReady ? inputVal : '')
+              : inputVal
+          }
           onChange={e => setInputVal(e.target.value)}
           onKeyDown={e => {
             if (e.key !== 'Enter') return;
             const n = normalizeUrl(inputVal);
             if (n) void navigate(n);
           }}
-          placeholder="https://"
+          placeholder={
+            viewSurface === 'agentLive' && !liveSessionReady
+              ? 'Starting live browser…'
+              : 'https://'
+          }
+          readOnly={viewSurface === 'agentLive' && agentActive}
           spellCheck={false}
           aria-label="URL"
-          className="flex-1 min-w-0 h-6 px-2 text-[11px] rounded border border-[var(--border-subtle)] bg-[var(--bg-app)] focus:outline-none focus:border-[var(--color-primary)] font-mono text-[var(--text-main)] placeholder:text-[var(--text-muted)]"
+          className={`flex-1 min-w-0 h-6 px-2 text-[11px] rounded border border-[var(--border-subtle)] bg-[var(--bg-app)] focus:outline-none focus:border-[var(--color-primary)] font-mono text-[var(--text-main)] placeholder:text-[var(--text-muted)] ${
+            viewSurface === 'agentLive' && agentActive ? 'opacity-90 cursor-default' : ''
+          }`}
         />
+        {viewSurface === 'agentLive' && liveUrlPending && liveUrlPending !== liveUrlCommitted ? (
+          <span className="shrink-0 text-[9px] font-mono text-amber-400/90 max-w-[28%] truncate" title={liveUrlPending}>
+            → {liveUrlPending.replace(/^https?:\/\//, '')}
+          </span>
+        ) : null}
 
         {onSplit && !isSplit && (
           <ToolBtn

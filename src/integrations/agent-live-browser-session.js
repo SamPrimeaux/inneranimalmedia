@@ -209,6 +209,7 @@ async function ensureAgentLiveBrowserSessionKv(env, scopeId, opts = {}) {
   );
   const targetUrl = opts.url != null ? String(opts.url).trim() : '';
   const liveViewMode = opts.liveViewMode === 'devtools' ? 'devtools' : 'tab';
+  const deferHttpNav = opts.deferHttpNavigate === true || opts.defer_http_navigate === true;
 
   let stored = await getAgentLiveBrowserSession(env, id);
   let sessionId = stored?.sessionId || '';
@@ -232,7 +233,7 @@ async function ensureAgentLiveBrowserSessionKv(env, scopeId, opts = {}) {
     };
   }
 
-  if (targetUrl) {
+  if (targetUrl && !(deferHttpNav && sessionId && stored?.status !== 'closed')) {
     const navigated = await navigateBrowserRunTab(env, { sessionId, url: targetUrl });
     if (!navigated.ok) {
       const created = await createBrowserRunSession(env, { keepAliveMs, targets: true });
@@ -615,5 +616,24 @@ export function emitBrowserLiveSessionSse(emit, phase, toolName, execResult) {
     ok: body.ok !== false && !body.error,
     url: body.url ?? liveRec?.url ?? null,
     live_session: liveRec,
+    verified: body.verified ?? body.url_verified ?? null,
   });
+
+  if (body.browser_url_committed && typeof body.browser_url_committed === 'object') {
+    emit('browser_url_committed', body.browser_url_committed);
+  } else if (body.url && (toolName === 'browser_navigate' || toolName === 'cdt_navigate_page')) {
+    emit('browser_url_committed', {
+      agent_run_id: liveRec?.agent_run_id ?? body.agent_run_id ?? null,
+      session_id: liveRec?.session_id ?? body.session_id ?? null,
+      target_id: liveRec?.target_id ?? null,
+      url: body.url,
+      title: body.title ?? liveRec?.title ?? null,
+      verified: body.verified !== false && body.url_verified !== false,
+      live_view_url: liveRec?.devtools_frontend_url ?? null,
+      live_view_mode: liveRec?.live_view_mode ?? 'tab',
+      same_session_reused: true,
+      tool_name: toolName,
+      smoke_debug: body.smoke_debug ?? null,
+    });
+  }
 }
