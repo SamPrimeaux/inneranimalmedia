@@ -280,6 +280,46 @@
     animation: none !important;
     transition: none !important;
   }
+  .iam-agent-browser-live-vignette::before {
+    animation: none !important;
+    opacity: 0.72;
+  }
+}
+
+/* Agent live browser — minimal blue edge glow while agent drives the browser */
+.iam-agent-browser-live-vignette {
+  position: fixed;
+  inset: 0;
+  z-index: 35;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 320ms ease;
+}
+
+.iam-agent-browser-live-vignette[data-active='true'] {
+  opacity: 1;
+}
+
+.iam-agent-browser-live-vignette::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(to bottom, color-mix(in srgb, var(--solar-cyan, #13d6c6) 24%, transparent), transparent 72px),
+    linear-gradient(to top, color-mix(in srgb, var(--solar-cyan, #13d6c6) 20%, transparent), transparent 64px),
+    linear-gradient(to right, color-mix(in srgb, var(--solar-cyan, #13d6c6) 22%, transparent), transparent 56px),
+    linear-gradient(to left, color-mix(in srgb, var(--solar-cyan, #13d6c6) 22%, transparent), transparent 56px);
+  animation: iam-browser-live-edge-breathe 2.6s ease-in-out infinite;
+}
+
+@keyframes iam-browser-live-edge-breathe {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 

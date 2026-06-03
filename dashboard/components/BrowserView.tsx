@@ -31,6 +31,7 @@ import {
 import type { AgentWorkspaceContextPacket } from '../src/ideWorkspace';
 import { BrowserLiveTimeline } from './BrowserLiveTimeline';
 import { useAgentLiveBrowserWs } from '../hooks/useAgentLiveBrowserWs';
+import { applyBrowserRunLiveViewMode, resolveLiveViewMode } from '../lib/browserLiveViewUrl';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -1391,6 +1392,14 @@ const BrowserPane: React.FC<PaneProps> = ({
   } | null>(null);
   const [liveSessionTitle, setLiveSessionTitle] = useState<string | null>(null);
   const browserRunSessionRef = useRef<string | null>(null);
+  const liveViewModeRef = useRef<'tab' | 'devtools'>('tab');
+  const setAgentLiveIframeUrl = useCallback((url: string | null | undefined, mode?: 'tab' | 'devtools') => {
+    const trimmed = String(url || '').trim();
+    if (!trimmed) return;
+    const m = mode ?? liveViewModeRef.current;
+    liveViewModeRef.current = m;
+    setIframeUrl(applyBrowserRunLiveViewMode(trimmed, m));
+  }, []);
   const liveUrlRefreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const areaOverRef  = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1416,14 +1425,14 @@ const BrowserPane: React.FC<PaneProps> = ({
       if (snap?.session_id) browserRunSessionRef.current = String(snap.session_id);
     },
     onLiveViewUrl: (url) => {
-      if (url?.trim()) setIframeUrl(url.trim());
+      if (url?.trim()) setAgentLiveIframeUrl(url.trim());
     },
     onHumanInputRequired: (detail) => {
       setHumanInputReq({
         reason: detail.reason?.trim() || 'Complete this step in the live browser.',
         liveViewUrl: detail.live_view_url ?? null,
       });
-      if (detail.live_view_url?.trim()) setIframeUrl(detail.live_view_url.trim());
+      if (detail.live_view_url?.trim()) setAgentLiveIframeUrl(detail.live_view_url.trim());
     },
     onHumanInputCleared: () => setHumanInputReq(null),
   });
@@ -1952,6 +1961,7 @@ const BrowserPane: React.FC<PaneProps> = ({
         if (rid && !embedUrl) {
           const snap = await fetchAgentLiveSessionSnapshot(rid, trustWorkspaceId);
           const live = snap.live_session as Record<string, unknown> | undefined;
+          liveViewModeRef.current = resolveLiveViewMode(live?.live_view_mode);
           embedUrl =
             (typeof live?.devtools_frontend_url === 'string' && live.devtools_frontend_url) ||
             snap.devtools_frontend_url ||
@@ -1978,7 +1988,7 @@ const BrowserPane: React.FC<PaneProps> = ({
           sid = data.session_id || sid || null;
         }
         browserRunSessionRef.current = sid || browserRunSessionRef.current;
-        setIframeUrl(embedUrl);
+        setAgentLiveIframeUrl(embedUrl);
         setCurrentUrl(n);
         setInputVal(addressDisplay?.trim() && /^(blob:|data:)/i.test(n) ? addressDisplay : n);
         onUrlCommitted?.(n);
@@ -2004,7 +2014,7 @@ const BrowserPane: React.FC<PaneProps> = ({
       const rid = agentRunId?.trim();
       if (!rid && !sid) return;
       void refreshBrowserRunLiveUrl(sid || '', rid || null, trustWorkspaceId).then((data) => {
-        if (data.devtools_frontend_url) setIframeUrl(data.devtools_frontend_url);
+        if (data.devtools_frontend_url) setAgentLiveIframeUrl(data.devtools_frontend_url);
       });
     };
     liveUrlRefreshTimerRef.current = setInterval(tick, 4 * 60 * 1000);
@@ -2039,7 +2049,7 @@ const BrowserPane: React.FC<PaneProps> = ({
         resumeWhen: d?.resume_when,
       });
       if (d?.url?.trim()) void openAgentLiveSession(d.url, d.live_view_url);
-      else if (d?.live_view_url?.trim()) setIframeUrl(d.live_view_url.trim());
+      else if (d?.live_view_url?.trim()) setAgentLiveIframeUrl(d.live_view_url.trim());
     };
     const onHumanResumed = () => setHumanInputReq(null);
     window.addEventListener('iam-browser-agent-live', onAgentLive as EventListener);
@@ -2136,7 +2146,7 @@ const BrowserPane: React.FC<PaneProps> = ({
     [addressDisplay, onUrlCommitted, releaseBrowserRunSession],
   );
 
-  /** Browser Run Live View (live.browser.run) — CDP DevTools embed; agent-only / explicit fallback. */
+  /** Browser Run Live View (live.browser.run) — tab-mode page watch; agent-only / explicit fallback. */
   const openBrowserRunLiveView = useCallback(
     async (raw: string) => {
       const s = raw.trim();
@@ -2166,7 +2176,7 @@ const BrowserPane: React.FC<PaneProps> = ({
         }
         browserRunSessionRef.current = data.session_id || browserRunSessionRef.current;
         const destUrl = data.url?.trim() || n;
-        setIframeUrl(data.devtools_frontend_url);
+        setAgentLiveIframeUrl(data.devtools_frontend_url);
         setCurrentUrl(destUrl);
         setInputVal(addressDisplay?.trim() && /^(blob:|data:)/i.test(destUrl) ? addressDisplay : destUrl);
         onUrlCommitted?.(destUrl);

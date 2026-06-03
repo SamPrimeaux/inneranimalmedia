@@ -6,6 +6,32 @@
 const DEFAULT_KEEP_ALIVE_MS = 600_000;
 
 /**
+ * Cloudflare Live View supports `mode=tab` (page watch) vs `mode=devtools` (inspector).
+ * @see https://developers.cloudflare.com/browser-run/features/live-view/
+ * @param {string|null|undefined} url
+ * @param {'tab'|'devtools'} [mode]
+ */
+export function applyBrowserRunLiveViewMode(url, mode = 'tab') {
+  const raw = String(url || '').trim();
+  if (!raw || !raw.includes('live.browser.run')) return raw || null;
+  const want = mode === 'devtools' ? 'devtools' : 'tab';
+  try {
+    const u = new URL(raw);
+    if (u.pathname.includes('/inspector')) {
+      u.pathname = u.pathname.replace(/\/inspector\b/, '/view');
+    }
+    u.searchParams.set('mode', want);
+    return u.toString();
+  } catch {
+    if (raw.includes('mode=')) {
+      return raw.replace(/([?&]mode=)[^&]*/i, `$1${want}`);
+    }
+    const sep = raw.includes('?') ? '&' : '?';
+    return `${raw}${sep}mode=${want}`;
+  }
+}
+
+/**
  * Pick the primary page target from Browser Run /json/list or create response.
  * @param {unknown} targets
  */
@@ -250,7 +276,7 @@ export async function openBrowserRunLiveView(env, opts) {
   return {
     ok: true,
     session_id: sessionId,
-    devtools_frontend_url: navigated.devtoolsFrontendUrl,
+    devtools_frontend_url: applyBrowserRunLiveViewMode(navigated.devtoolsFrontendUrl, 'tab'),
     web_socket_debugger_url: navigated.webSocketDebuggerUrl,
     url: navigated.url,
     title: navigated.title,

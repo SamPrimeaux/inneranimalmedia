@@ -2,6 +2,7 @@
 @import './styles/image-generation.css';
 @import './components/database/database-page.css';
 @import './features/mode-presence/agentModePresenceMotion.css';
+@import './features/agent-presence/presenceMotion.css';
 
 @import "tailwindcss";
 @config "./tailwind.config.js";

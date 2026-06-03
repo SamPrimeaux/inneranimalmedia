@@ -3,6 +3,7 @@
  * Human + agent share the same session via live.browser.run (devtoolsFrontendUrl).
  */
 import {
+  applyBrowserRunLiveViewMode,
   createBrowserRunSession,
   navigateBrowserRunTab,
   refreshBrowserRunLiveView,
@@ -49,6 +50,13 @@ export function toAgentLiveBrowserSession(raw, scopeId) {
   const sessionId = String(raw.sessionId || raw.session_id || '').trim();
   if (!sessionId) return null;
   const mode = String(raw.liveViewMode || raw.live_view_mode || 'tab').toLowerCase();
+  const liveViewMode = mode === 'devtools' ? 'devtools' : 'tab';
+  const rawEmbedUrl =
+    raw.devtoolsFrontendUrl != null
+      ? String(raw.devtoolsFrontendUrl)
+      : raw.devtools_frontend_url != null
+        ? String(raw.devtools_frontend_url)
+        : null;
   return {
     agentRunId: scopeId,
     sessionId,
@@ -60,19 +68,16 @@ export function toAgentLiveBrowserSession(raw, scopeId) {
           ? String(raw.current_url)
           : null,
     title: raw.title != null ? String(raw.title) : null,
-    devtoolsFrontendUrl:
-      raw.devtoolsFrontendUrl != null
-        ? String(raw.devtoolsFrontendUrl)
-        : raw.devtools_frontend_url != null
-          ? String(raw.devtools_frontend_url)
-          : null,
+    devtoolsFrontendUrl: rawEmbedUrl
+      ? applyBrowserRunLiveViewMode(rawEmbedUrl, liveViewMode)
+      : null,
     webSocketDebuggerUrl:
       raw.webSocketDebuggerUrl != null
         ? String(raw.webSocketDebuggerUrl)
         : raw.web_socket_debugger_url != null
           ? String(raw.web_socket_debugger_url)
           : null,
-    liveViewMode: mode === 'devtools' ? 'devtools' : 'tab',
+    liveViewMode,
     status: normalizeLiveSessionStatus(raw.status),
     expiresAt:
       raw.expiresAt != null
@@ -287,6 +292,11 @@ async function ensureAgentLiveBrowserSessionKv(env, scopeId, opts = {}) {
     return { ok: false, error: 'Failed to establish agent live browser session' };
   }
 
+  stored.devtoolsFrontendUrl = applyBrowserRunLiveViewMode(
+    stored.devtoolsFrontendUrl,
+    stored.liveViewMode,
+  );
+
   await persistAgentLiveBrowserSession(env, id, stored);
 
   return {
@@ -342,19 +352,24 @@ export async function refreshAgentLiveBrowserLiveUrl(env, opts) {
   });
   if (!refreshed.ok) return refreshed;
 
+  let embedUrl = applyBrowserRunLiveViewMode(refreshed.devtoolsFrontendUrl, 'tab');
+
   if (scopeId) {
     const stored = await getAgentLiveBrowserSession(env, scopeId);
     if (stored && stored.sessionId === sessionId) {
+      embedUrl = applyBrowserRunLiveViewMode(refreshed.devtoolsFrontendUrl, stored.liveViewMode);
       const next = {
         ...stored,
         targetId: refreshed.targetId ?? stored.targetId,
         currentUrl: refreshed.url ?? stored.currentUrl,
         title: refreshed.title ?? stored.title,
-        devtoolsFrontendUrl: refreshed.devtoolsFrontendUrl,
+        devtoolsFrontendUrl: embedUrl,
         webSocketDebuggerUrl: refreshed.webSocketDebuggerUrl ?? stored.webSocketDebuggerUrl,
         expiresAt: new Date(Date.now() + LIVE_VIEW_URL_TTL_MS).toISOString(),
       };
       await persistAgentLiveBrowserSession(env, scopeId, next);
+    } else if (stored?.liveViewMode) {
+      embedUrl = applyBrowserRunLiveViewMode(refreshed.devtoolsFrontendUrl, stored.liveViewMode);
     }
   }
 
@@ -362,7 +377,7 @@ export async function refreshAgentLiveBrowserLiveUrl(env, opts) {
     ok: true,
     session_id: sessionId,
     target_id: refreshed.targetId,
-    devtools_frontend_url: refreshed.devtoolsFrontendUrl,
+    devtools_frontend_url: embedUrl,
     web_socket_debugger_url: refreshed.webSocketDebuggerUrl,
     url: refreshed.url,
     title: refreshed.title,

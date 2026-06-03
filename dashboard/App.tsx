@@ -464,6 +464,7 @@ const App: React.FC = () => {
   /** ≤768px: secondary rail actions (sheet above bottom tab bar). */
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [agentIsStreaming, setAgentIsStreaming] = useState(false);
+  const [agentBrowserPresenceActive, setAgentBrowserPresenceActive] = useState(false);
   const [activeCommandRunId, setActiveCommandRunId] = useState<string | null>(null);
   /** `agentsam_agent_run.id` from chat SSE context — separate from command_run approval id. */
   const [activeAgentRunId, setActiveAgentRunId] = useState<string | null>(null);
@@ -490,6 +491,15 @@ const App: React.FC = () => {
   const mobileSwipeStartRef = useRef<{ x: number; y: number } | null>(null);
   /** Mobile chat repo drawer: expand this repo when opening the GitHub / Deploy panel. */
   const [githubExpandRepo, setGithubExpandRepo] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onBrowserPresence = (e: Event) => {
+      const d = (e as CustomEvent<{ active?: boolean }>).detail;
+      setAgentBrowserPresenceActive(d?.active === true);
+    };
+    window.addEventListener('iam-agent-browser-presence', onBrowserPresence);
+    return () => window.removeEventListener('iam-agent-browser-presence', onBrowserPresence);
+  }, []);
 
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 767px)');
@@ -2567,6 +2577,11 @@ const App: React.FC = () => {
 
   return (
     <div className="w-full h-[100dvh] bg-[var(--dashboard-canvas)] overflow-hidden text-[var(--dashboard-text)] font-sans flex flex-col">
+      <div
+        className="iam-agent-browser-live-vignette"
+        data-active={agentBrowserPresenceActive ? 'true' : 'false'}
+        aria-hidden="true"
+      />
       {/* 1. TOP WINDOW BAR */}
       <div className="h-10 border-b border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] flex items-center justify-between px-3 shrink-0 overflow-visible relative z-[110]">
           <div className="flex items-center gap-1 opacity-80 pl-1 shrink-0 min-w-0">

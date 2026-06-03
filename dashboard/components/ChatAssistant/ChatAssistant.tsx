@@ -187,6 +187,16 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const [thinkingState, setThinkingState] =
     useState<ThinkingCardState | null>(null);
   const [presenceState, setPresenceState] = useState<string>('idle');
+  useEffect(() => {
+    const browserLane = ['browser_live', 'browser_human_input', 'browser_capture', 'browser'].includes(
+      presenceState,
+    );
+    window.dispatchEvent(
+      new CustomEvent('iam-agent-browser-presence', {
+        detail: { active: browserLane, state: presenceState },
+      }),
+    );
+  }, [presenceState]);
   const [subagentWork, setSubagentWork] = useState<{ state: string; detail?: string } | null>(null);
   useEffect(() => {
     if (!isLoading) setSubagentWork(null);

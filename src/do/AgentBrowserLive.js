@@ -4,6 +4,7 @@
  */
 import { DurableObject } from 'cloudflare:workers';
 import {
+  applyBrowserRunLiveViewMode,
   createBrowserRunSession,
   navigateBrowserRunTab,
   refreshBrowserRunLiveView,
@@ -34,6 +35,12 @@ function json(data, status = 200) {
     status,
     headers: { 'Content-Type': 'application/json' },
   });
+}
+
+/** @param {string|null|undefined} url @param {string|null|undefined} mode */
+function embedLiveViewUrl(url, mode) {
+  const m = String(mode || 'tab').toLowerCase() === 'devtools' ? 'devtools' : 'tab';
+  return applyBrowserRunLiveViewMode(url, m);
 }
 
 export class AgentBrowserLiveV1 extends DurableObject {
@@ -443,7 +450,7 @@ export class AgentBrowserLiveV1 extends DurableObject {
         target_id: created.targetId ?? null,
         current_url: created.url ?? null,
         title: created.title ?? null,
-        devtools_frontend_url: created.devtoolsFrontendUrl ?? null,
+        devtools_frontend_url: embedLiveViewUrl(created.devtoolsFrontendUrl ?? null, liveViewMode),
         web_socket_debugger_url: created.webSocketDebuggerUrl ?? null,
         live_view_mode: liveViewMode,
         status: 'starting',
@@ -470,7 +477,10 @@ export class AgentBrowserLiveV1 extends DurableObject {
           target_id: retry.targetId ?? created.targetId ?? null,
           current_url: retry.url ?? targetUrl,
           title: retry.title ?? null,
-          devtools_frontend_url: retry.devtoolsFrontendUrl ?? created.devtoolsFrontendUrl ?? null,
+          devtools_frontend_url: embedLiveViewUrl(
+            retry.devtoolsFrontendUrl ?? created.devtoolsFrontendUrl ?? null,
+            liveViewMode,
+          ),
           web_socket_debugger_url: retry.webSocketDebuggerUrl ?? created.webSocketDebuggerUrl ?? null,
           live_view_mode: liveViewMode,
           status: 'active',
@@ -485,7 +495,10 @@ export class AgentBrowserLiveV1 extends DurableObject {
           target_id: navigated.targetId ?? row?.target_id ?? null,
           current_url: navigated.url ?? targetUrl,
           title: navigated.title ?? row?.title ?? null,
-          devtools_frontend_url: navigated.devtoolsFrontendUrl ?? row?.devtools_frontend_url ?? null,
+          devtools_frontend_url: embedLiveViewUrl(
+            navigated.devtoolsFrontendUrl ?? row?.devtools_frontend_url ?? null,
+            liveViewMode,
+          ),
           web_socket_debugger_url: navigated.webSocketDebuggerUrl ?? row?.web_socket_debugger_url ?? null,
           live_view_mode: liveViewMode,
           status: 'active',
@@ -506,7 +519,7 @@ export class AgentBrowserLiveV1 extends DurableObject {
           target_id: refreshed.targetId ?? row.target_id,
           current_url: refreshed.url ?? row.current_url,
           title: refreshed.title ?? row.title,
-          devtools_frontend_url: refreshed.devtoolsFrontendUrl,
+          devtools_frontend_url: embedLiveViewUrl(refreshed.devtoolsFrontendUrl, row.live_view_mode ?? liveViewMode),
           web_socket_debugger_url: refreshed.webSocketDebuggerUrl ?? row.web_socket_debugger_url,
           status: row.status === 'starting' ? 'active' : row.status,
           devtools_url_expires_at: expiresAt,
@@ -562,6 +575,8 @@ export class AgentBrowserLiveV1 extends DurableObject {
       return json(refreshed, 502);
     }
 
+    const viewMode = row.live_view_mode ?? 'tab';
+    const embedUrl = embedLiveViewUrl(refreshed.devtoolsFrontendUrl, viewMode);
     const expiresAt = Date.now() + LIVE_VIEW_URL_TTL_MS;
     this.upsertSession({
       agent_run_id: row.agent_run_id,
@@ -569,15 +584,16 @@ export class AgentBrowserLiveV1 extends DurableObject {
       target_id: refreshed.targetId ?? row.target_id,
       current_url: refreshed.url ?? row.current_url,
       title: refreshed.title ?? row.title,
-      devtools_frontend_url: refreshed.devtoolsFrontendUrl,
+      devtools_frontend_url: embedUrl,
       web_socket_debugger_url: refreshed.webSocketDebuggerUrl ?? row.web_socket_debugger_url,
       devtools_url_expires_at: expiresAt,
     });
 
     await this.emitEvent('browser_live_view_refresh', {
-      devtools_frontend_url: refreshed.devtoolsFrontendUrl,
+      devtools_frontend_url: embedUrl,
       url: refreshed.url,
       expires_at: new Date(expiresAt).toISOString(),
+      live_view_mode: viewMode,
     });
     await this.scheduleRefreshAlarm(expiresAt);
 
@@ -585,7 +601,7 @@ export class AgentBrowserLiveV1 extends DurableObject {
       ok: true,
       session_id: row.session_id,
       target_id: refreshed.targetId,
-      devtools_frontend_url: refreshed.devtoolsFrontendUrl,
+      devtools_frontend_url: embedUrl,
       web_socket_debugger_url: refreshed.webSocketDebuggerUrl,
       url: refreshed.url,
       title: refreshed.title,
