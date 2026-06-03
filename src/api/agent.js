@@ -206,6 +206,11 @@ import {
   buildAgentChatResolvedContext,
   mergeResolvedContextIntoRunContext,
 } from '../core/agent-chat-resolved-context.js';
+import {
+  messageHasBrowserUrlNavigation,
+  inferIntentHeuristically,
+  classifyIntent,
+} from './agent/classify-intent.js';
 import { userCanAccessWorkspace } from '../core/cms-theme-resolve.js';
 
 /**
@@ -1272,15 +1277,6 @@ async function loadModeToolPolicy(env, modeSlug, opts = {}) {
  * Plain URL + navigation verb → browser (not web_search). Passive links / search phrases excluded.
  * @param {string} text
  */
-function messageHasBrowserUrlNavigation(text) {
-  const t = String(text || '').trim().toLowerCase();
-  if (!t || !/https?:\/\//i.test(t)) return false;
-  return (
-    /\b(go\s+to|visit|open|navigate|load|head\s+to|check\s+out|browse\s+to)\b/i.test(t) ||
-    /(?:^|\s)to\s+https?:\/\//i.test(t)
-  );
-}
-
 const BROWSER_CAPABILITY_TOOL_NAMES = [
   'browser_navigate',
   'browser_scroll',
@@ -1320,162 +1316,6 @@ function shouldEnsureCodeCapabilityTools(message, intentResult, capabilityDecisi
   if (capabilityDecision?.should_use_monaco === true) return true;
   if (String(intentResult?.taskType || '').toLowerCase() === 'code') return true;
   return false;
-}
-
-function inferIntentHeuristically(text) {
-  const stripped = stripUserTextForIntent(text);
-  if (isReadOnlyFileContextIntent(stripped)) {
-    return { taskType: 'ask', mode: 'agent' };
-  }
-  const t = stripped.toLowerCase();
-  if (!t) return { taskType: 'ask', mode: 'auto' };
-
-  const is = (pattern) => pattern.test(t);
-  const hasUrlNavigate = messageHasBrowserUrlNavigation(t);
-
-  // ── Infra / orchestration ────────────────────────────────────────────────
-  const hasDeploy    = is(/(deploy|wrangler deploy|npm run deploy|push to prod|promote|release|cf build|cloudflare build)/);
-  const hasCfOps     = is(/(wrangler|kv namespace|durable object|cloudflare queue|r2 bucket list|cf worker|worker binding|workers ai|pages project|d1 create|d1 migrate|secret put|tail log)/);
-  const hasWorkflow  = is(/(run workflow|start workflow|trigger workflow|execute workflow|agentic run)/);
-  const hasMultitask = is(/(orchestrate|multi[- ]?step|multi[- ]?agent|automate|end[- ]?to[- ]?end|full[- ]?stack|build[- ]?and[- ]?deploy|chain of tasks?|sequence of tasks?|parallel tasks?|run everything|autonomous)/);
-
-  // ── Database ─────────────────────────────────────────────────────────────
-  const hasDbWrite   = is(/(add to|insert into|seed|write to|upsert into|add records?|add rows?|add lessons?|add entries|add data|create records?|put into|store in d1|d1 write|populate table|bulk insert)/) ||
-                       (is(/(add|insert|create|put|seed|upload)/) && is(/(d1|database|table|record|row|lesson|entry|entries)/));
-  const hasDbRead    = is(/(select|count|show me|list all|fetch all|retrieve|look up|query the|read from).*(table|row|record|d1|database|agentsam_)/) ||
-                       is(/agentsam_[a-z_]+/) || is(/d1_query/);
-  const hasSupabase  = is(/(supabase|postgres|postgresql|hyperdrive|pg query|pgvector|neon)/);
-  const hasSql       = is(/(select|insert|update|delete|upsert|create table|drop table|alter table|migrate|pragma|join|where\s+\w|group by|order by)/);
-
-  // ── Terminal / shell ─────────────────────────────────────────────────────
-  const hasShell     = is(/(run command|bash|zsh|terminal|shell|pm2|npm run|pnpm|yarn run|git\s|ls|cat\s|chmod|curl|ssh|exec)/);
-
-  // ── R2 / storage ─────────────────────────────────────────────────────────
-  const hasR2        = is(/(r2|upload to|put file|store file|get from bucket|read from r2|list r2|r2 object|r2 bucket)/);
-
-  // ── Image generation (before browser — "generate mockup" is not browser screenshot) ──
-  if (isPrimaryImageGenerationIntent(t)) {
-    return { taskType: 'agent', mode: 'agent' };
-  }
-
-  // ── Web / browser ─────────────────────────────────────────────────────────
-  // URL alone → not web_search; URL + go to|visit|open|navigate → browser (checked before hasWebSearch).
-  const hasWebSearch =
-    is(
-      /(search the web|look it up online|google|find online|search online|web search|look up.*online|find.*article|current news|latest.*on)/,
-    ) ||
-    (is(/https?:\/\//) &&
-      is(/(search|google|look\s+up|find\s+online)/) &&
-      !hasUrlNavigate);
-  const hasBrowser =
-    hasUrlNavigate ||
-    is(
-      /(screenshot|inspect\s+https?:\/\/|inspect.*url|navigate\s+to|open\s+(the\s+)?browser|browser.*inspect|playwright|puppeteer|headless)/,
-    );
-
-  // ── Vector / RAG ─────────────────────────────────────────────────────────
-  const hasVectorize = is(/(vectorize|embed|embedding|semantic search|rag|index.*knowledge|upsert.*vector|similarity search|knowledge base)/);
-
-  // ── GitHub ───────────────────────────────────────────────────────────────
-  const hasGitHub    = is(/(github|pull request|open pr|merge pr|git commit|git push|diff|branch|repo|repository|git blame|git log)/);
-
-  // ── Codebase search ───────────────────────────────────────────────────────
-  const hasSearchCode = is(/(grep|find in codebase|which file|where is|search.*src|find.*function|locate.*file|find.*component|codebase.*search|search.*codebase)/);
-
-  // ── Code ops (lower priority than db_write) ───────────────────────────────
-  const hasCode      = is(/(edit file|fix file|create file|implement|worker\.js|\.js|\.ts|\.jsx|\.tsx|function\s+\w|class\s+\w|component)/) ||
-    (is(/\bmonaco\b/) && is(/\b(edit|change|modify|patch|save|sync|write|apply)\b/));
-  const hasRefactor  = is(/(refactor|restructure|rename|reorganize|extract function|clean up code|move file|split|decompose)/);
-  const hasReview    = is(/(review|code review|audit|check quality|analyze.*code|quality check|is this correct)/);
-  const hasExplain   = is(/(explain|what is|how does|describe|tell me about|what does|how do i|walk me through|break down|eli5|summarize how)/);
-
-  // ── Debug ────────────────────────────────────────────────────────────────
-  const hasDebug     = is(/(debug|error|trace|why.*fail|not working|broken|exception|crash|stack trace|404|500|bug|fix.*error|diagnose)/);
-
-  // ── Planning ─────────────────────────────────────────────────────────────
-  const hasPlan      = is(/(plan|roadmap|architect|diagram|excalidraw|spec|wireframe|flowchart|sprint|task breakdown|prioritize|what should i work on)/);
-
-  // ── Memory / recall ───────────────────────────────────────────────────────
-  const hasRecall    = is(/(recall|remember|what did|history|past session|previous|last time|earlier today|what was|remind me)/);
-
-  // ── CMS ───────────────────────────────────────────────────────────────────
-  const hasCms       = is(/(cms|theme|liquid|shopify|content edit|cms page|cms section|cms component)/);
-
-  // ── Agent / skill / tool ─────────────────────────────────────────────────
-  const hasSkillCreate =
-    is(/(create|make|build|write|add|new).{0,40}(skill|skills)/) &&
-    !is(/(SKILL\.md|src\/skills\/|agentsam_skill|playwright)/);
-  const hasTool      = is(/(use tool|invoke|mcp tool|call tool|run tool|tool call)/);
-  const hasSkill     = is(/(use skill|apply skill|run skill|invoke skill|skill:)/);
-  const hasSpawn     = is(/(spawn subagent|delegate to|assign to agent|run.*agent|subagent|agent.*handle|have.*agent|let.*agent)/);
-
-  // ── Priority-ordered classification ──────────────────────────────────────
-  if (hasWorkflow)    return { taskType: 'agent', mode: 'agent' };
-  if (hasDeploy)      return { taskType: 'agent', mode: 'agent' };
-  if (hasMultitask)   return { taskType: 'multitask', mode: 'agent' };
-  if (hasSpawn)       return { taskType: 'multitask', mode: 'agent' };
-  if (hasDbWrite)     return { taskType: 'agent', mode: 'agent' };
-  if (hasSupabase)    return { taskType: 'agent', mode: 'agent' };
-  if (hasDbRead && !hasSql) return { taskType: 'agent', mode: 'agent' };
-  if (hasR2)          return { taskType: 'agent', mode: 'agent' };
-  if (hasCfOps)       return { taskType: 'agent', mode: 'agent' };
-  if (hasShell && !hasCode) return { taskType: 'agent', mode: 'agent' };
-  if (hasBrowser)     return { taskType: 'browser', mode: 'agent' };
-  if (hasWebSearch)   return { taskType: 'web_search', mode: 'agent' };
-  if (hasVectorize)   return { taskType: 'agent', mode: 'agent' };
-  if (hasGitHub)      return { taskType: 'agent', mode: 'agent' };
-  if (hasSql)         return { taskType: 'agent', mode: 'agent' };
-  if (hasDebug)       return { taskType: 'debug', mode: 'agent' };
-  if (hasSearchCode)  return { taskType: 'search_code', mode: 'agent' };
-  if (hasRefactor)    return { taskType: 'agent', mode: 'agent' };
-  if (hasReview)      return { taskType: 'agent', mode: 'agent' };
-  if (hasCode)        return { taskType: 'agent', mode: 'agent' };
-  if (hasSkillCreate) return { taskType: 'plan', mode: 'agent' };
-  if (hasPlan)        return { taskType: 'plan', mode: 'agent' };
-  if (hasSkill)       return { taskType: 'agent', mode: 'agent' };
-  if (hasTool)        return { taskType: 'agent', mode: 'agent' };
-  if (hasCms)         return { taskType: 'agent', mode: 'agent' };
-  if (hasRecall)      return { taskType: 'ask', mode: 'auto' };
-  if (hasExplain)     return { taskType: 'ask', mode: 'auto' };
-  return { taskType: 'ask', mode: 'agent' };
-}
-
-async function classifyIntent(_env, lastMessageText) {
-  const { taskType: rawTt, mode } = inferIntentHeuristically(lastMessageText);
-  const taskType =
-    rawTt != null && String(rawTt).trim() !== '' ? normalizeCanonicalTaskType(rawTt) : 'ask';
-  // Route intent directly — no collapsing to legacy 3-value set
-  const intentRouteMap = {
-    workflow_orchestration: 'workflow_orchestration',
-    deploy:                 'deploy',
-    multitask:              'multitask',
-    agent_spawn:            'agent_spawn',
-    db_write:               'db_write',
-    db_read:                'db_read',
-    supabase:               'supabase',
-    r2_ops:                 'r2_ops',
-    cf_ops:                 'cf_ops',
-    terminal_execution:     'terminal_execution',
-    browser:                'browser',
-    web_search:             'agent_research',
-    vectorize:              'vectorize',
-    github:                 'github',
-    sql_d1_generation:      'db_query',
-    debug:                  'debug',
-    search_code:            'search_code',
-    refactor:               'refactor',
-    review:                 'review',
-    code:                   'code',
-    plan:                   'plan',
-    skill_use:              'skill_use',
-    tool_use:               'tool_use',
-    cms_edit:               'cms_edit',
-    image_generation:       'image_generation',
-    summary:                'summary',
-    explain:                'explain',
-    chat:                   'chat',
-  };
-  return { intent: intentRouteMap[taskType] ?? taskType, taskType, mode: mode || 'agent' };
 }
 
 /** Heuristic capability families for merging registry tools before routing (runs before nano capability router). */

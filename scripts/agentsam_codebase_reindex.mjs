@@ -422,8 +422,14 @@ function isDocsPath(relPath) {
 
 function shouldChunkFile(relPath) {
   const p = relPath.replace(/\\/g, '/');
-  // Hard rule: do not chunk/embed/vectorize docs. (Catalog-only allowed in dry-run.)
   if (isDocsPath(p)) return false;
+  // P0-D: modular agent surface — chunk split modules, not the monolith.
+  if (p.startsWith('src/api/agent/') && /\.(js|mjs)$/.test(p)) return true;
+  if (p === 'src/api/agent.js') return false;
+  if (p.startsWith('src/core/agent-lane-router.js')) return true;
+  if (p.startsWith('src/core/catalog-tool-executor.js')) return true;
+  if (p.startsWith('src/core/semantic-retrieval-dispatch.js')) return true;
+  if (p.startsWith('src/core/rag-lanes.js')) return true;
   if (p.startsWith('dashboard/components/ChatAssistant/')) return true;
   // Minimal IDE neighborhood for /dashboard/agent usefulness.
   if (
