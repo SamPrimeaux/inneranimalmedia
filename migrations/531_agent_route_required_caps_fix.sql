@@ -10,23 +10,20 @@ SET
     "github.read","github.write","github_file","github_repos",
     "d1.read","d1_query","d1.schema","terminal","terminal.execute",
     "context.search","memory.search","knowledge_search"
-  ]',
-  updated_at = unixepoch()
+  ]'
 WHERE route_key = 'agent'
   AND is_active = 1;
 
 UPDATE agentsam_route_requirements
 SET
-  required_capability_keys_json = '[]',
-  updated_at = unixepoch()
+  required_capability_keys_json = '[]'
 WHERE route_key = 'multitask'
   AND is_active = 1
   AND required_capability_keys_json LIKE '%file.read%';
 
 UPDATE agentsam_route_requirements
 SET
-  required_capability_keys_json = '[]',
-  updated_at = unixepoch()
+  required_capability_keys_json = '[]'
 WHERE route_key = 'browser'
   AND is_active = 1
   AND required_capability_keys_json LIKE '%browser.navigate%';
