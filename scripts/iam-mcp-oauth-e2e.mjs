@@ -74,6 +74,11 @@ async function mintSessionCookie() {
 }
 
 async function sessionCookie() {
+  // Prefer mint when configured — ~/.iam-session-cookie often goes stale before OAuth E2E.
+  if (process.env.AGENT_SESSION_MINT_SECRET) {
+    const minted = await mintSessionCookie();
+    if (minted) return minted.includes('=') ? minted : `session=${minted}`;
+  }
   let v = process.env.IAM_SESSION_COOKIE || '';
   if (!v && existsSync(`${process.env.HOME}/.iam-session-cookie`)) {
     v = readFileSync(`${process.env.HOME}/.iam-session-cookie`, 'utf8').trim();
