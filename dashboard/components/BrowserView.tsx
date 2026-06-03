@@ -1038,6 +1038,38 @@ const PICKER_CLEANUP_SCRIPT = `
 })();
 `;
 
+/** Same-origin iframe: report SPA + history navigations to parent URL bar. */
+const NAVIGATION_SYNC_SCRIPT = `
+(function() {
+  if (window.__iamNavBridgeActive) return;
+  window.__iamNavBridgeActive = true;
+  function notify() {
+    try {
+      window.parent.postMessage({
+        type: 'iam-navigation',
+        url: location.href,
+        title: document.title || ''
+      }, '*');
+    } catch (e) {}
+  }
+  notify();
+  window.addEventListener('popstate', notify);
+  window.addEventListener('hashchange', notify);
+  var push = history.pushState;
+  var replace = history.replaceState;
+  history.pushState = function() {
+    var r = push.apply(this, arguments);
+    notify();
+    return r;
+  };
+  history.replaceState = function() {
+    var r = replace.apply(this, arguments);
+    notify();
+    return r;
+  };
+})();
+`;
+
 const PICKER_SCRIPT = `
 (function() {
   if (window.__iamPickerTeardown) window.__iamPickerTeardown();
@@ -1409,12 +1441,43 @@ const BrowserPane: React.FC<PaneProps> = ({
     window.dispatchEvent(new CustomEvent('iam:agent-context-attach', { detail: { browser_element: payload } }));
   }, []);
 
-  const tryInjectPickerInIframe = useCallback((): boolean => {
+  const commitNavigationFromIframe = useCallback(
+    (href: string, title?: string | null) => {
+      const raw = href?.trim();
+      if (!raw || /^about:/i.test(raw)) return;
+      const n = normalize(raw);
+      if (!n || n === currentUrlRef.current) return;
+      currentUrlRef.current = n;
+      setCurrentUrl(n);
+      setInputVal(addressDisplay?.trim() && /^(blob:|data:)/i.test(n) ? addressDisplay : n);
+      onUrlCommitted?.(n);
+      let routePath = '';
+      try {
+        routePath = new URL(n).pathname;
+      } catch {
+        routePath = '';
+      }
+      window.dispatchEvent(
+        new CustomEvent('iam-browser-surface-context', {
+          detail: {
+            url: n,
+            title: title?.trim() || null,
+            route_path: routePath,
+            viewport: { width: window.innerWidth, height: window.innerHeight },
+            source: 'iframe_navigation',
+          },
+        }),
+      );
+    },
+    [addressDisplay, onUrlCommitted],
+  );
+
+  const tryInjectScriptInIframe = useCallback((scriptBody: string): boolean => {
     try {
       const doc = iframeRef.current?.contentDocument;
       if (!doc?.documentElement) return false;
       const script = doc.createElement('script');
-      script.textContent = PICKER_SCRIPT;
+      script.textContent = scriptBody;
       doc.documentElement.appendChild(script);
       script.remove();
       return true;
@@ -1422,6 +1485,30 @@ const BrowserPane: React.FC<PaneProps> = ({
       return false;
     }
   }, []);
+
+  const tryInjectPickerInIframe = useCallback((): boolean => {
+    return tryInjectScriptInIframe(PICKER_SCRIPT);
+  }, [tryInjectScriptInIframe]);
+
+  const injectNavigationBridge = useCallback(() => {
+    tryInjectScriptInIframe(NAVIGATION_SYNC_SCRIPT);
+    try {
+      const href = iframeRef.current?.contentWindow?.location?.href;
+      if (href) commitNavigationFromIframe(href, iframeRef.current?.contentDocument?.title ?? null);
+    } catch {
+      /* cross-origin */
+    }
+  }, [tryInjectScriptInIframe, commitNavigationFromIframe]);
+
+  const syncUrlFromIframe = useCallback(() => {
+    try {
+      const href = iframeRef.current?.contentWindow?.location?.href;
+      if (!href) return;
+      commitNavigationFromIframe(href, iframeRef.current?.contentDocument?.title ?? null);
+    } catch {
+      /* cross-origin — parent cannot read iframe location */
+    }
+  }, [commitNavigationFromIframe]);
 
   const tryTeardownPickerInIframe = useCallback(() => {
     try {
@@ -1648,26 +1735,8 @@ const BrowserPane: React.FC<PaneProps> = ({
   useEffect(() => {
     const h = (e: MessageEvent) => {
       if (e.data?.type === 'iam-navigation' && typeof e.data?.url === 'string') {
-        setCurrentUrl(e.data.url);
-        setInputVal(e.data.url);
-        const title = typeof e.data?.title === 'string' ? e.data.title : '';
-        let routePath = '';
-        try {
-          routePath = new URL(e.data.url).pathname;
-        } catch {
-          routePath = '';
-        }
-        window.dispatchEvent(
-          new CustomEvent('iam-browser-surface-context', {
-            detail: {
-              url: e.data.url,
-              title: title || null,
-              route_path: routePath,
-              viewport: { width: window.innerWidth, height: window.innerHeight },
-              source: 'iframe_navigation',
-            },
-          }),
-        );
+        const title = typeof e.data?.title === 'string' ? e.data.title : null;
+        commitNavigationFromIframe(e.data.url, title);
       }
       if (e.data?.type === 'iam-element-selected' && e.data.element && typeof e.data.element === 'object') {
         applyElementSelection(e.data.element as InspectedElement);
@@ -1675,7 +1744,7 @@ const BrowserPane: React.FC<PaneProps> = ({
     };
     window.addEventListener('message', h);
     return () => window.removeEventListener('message', h);
-  }, [applyElementSelection]);
+  }, [applyElementSelection, commitNavigationFromIframe]);
 
   useEffect(() => {
     const onExternal = (ev: Event) => {
@@ -2284,6 +2353,7 @@ const BrowserPane: React.FC<PaneProps> = ({
                   }`}
                   onLoad={() => {
                     setLoading(false);
+                    injectNavigationBridge();
                     if (mode === 'picker') injectPickerScript();
                   }}
                   onError={() => { setLoading(false); setIframeBlocked(true); }}
