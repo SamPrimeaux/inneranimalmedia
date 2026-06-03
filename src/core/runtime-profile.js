@@ -22,6 +22,7 @@ import {
   readonlyRepoAuditPinnedToolNames,
 } from './readonly-repo-audit-tools.js';
 import { RUNTIME_PROFILE_VERSION } from './runtime-profile.types.js';
+import { messageHasBrowserUrlNavigation } from '../api/agent/classify-intent.js';
 
 const TERMINAL_TOOL_NAMES = ['terminal_run', 'terminal_execute', 'run_command', 'bash'];
 
@@ -69,18 +70,6 @@ function isSimpleAskMessage(message) {
   if (!s || s.length > 80) return false;
   return ['hi', 'hello', 'hey', 'yo', 'sup', 'thanks', 'thank you', 'ok', 'okay', 'test', 'ping'].includes(
     s,
-  );
-}
-
-/**
- * @param {string} text
- */
-function messageHasBrowserUrlNavigation(text) {
-  const t = String(text || '').trim().toLowerCase();
-  if (!t || !/https?:\/\//i.test(t)) return false;
-  return (
-    /\b(go\s+to|visit|open|navigate|load|head\s+to|check\s+out|browse\s+to)\b/i.test(t) ||
-    /(?:^|\s)to\s+https?:\/\//i.test(t)
   );
 }
 
@@ -505,8 +494,18 @@ async function compileCatalogToolsForModeFallback(env, p) {
   const { selectAgentsamToolsForAgentChat } = await import('./agentsam-tools-catalog.js');
   const { augmentAskRouteRequirements } = await import('./ask-evidence-tools.js');
   const mode = String(p.mode || 'agent').toLowerCase();
+  const taskType = String(p.taskType || '').trim().toLowerCase();
+  const genericTaskTypes = new Set(['chat', 'ask', 'explain', 'summary', 'recall', '']);
   const fallbackRouteKey =
-    mode === 'multitask' ? 'multitask' : mode === 'plan' ? 'plan' : mode === 'debug' ? 'debug' : 'agent';
+    mode === 'multitask'
+      ? 'multitask'
+      : mode === 'plan'
+        ? 'plan'
+        : mode === 'debug'
+          ? 'debug'
+          : taskType && !genericTaskTypes.has(taskType)
+            ? taskType
+            : 'agent_general';
   let req = await resolveAgentChatRouteToolRequirements(env, {
     routeKey: fallbackRouteKey,
     taskType: p.taskType,

@@ -41,6 +41,7 @@ const CAPABILITY_GROUPS = (() => {
     g(['grep', 'rg', 'ripgrep'], ['fs_search_files', 'github_search_code']),
     g(['sed'], ['fs_edit_file', 'fs_write_file']),
     g(['bash', 'sh', 'zsh', 'shell'], ['terminal_execute', 'terminal_run']),
+    g(['terminal'], ['agentsam_terminal_local', 'agentsam_terminal_remote', 'agentsam_terminal_sandbox']),
     g(['file.search', 'file_search', 'workspace_search'], ['fs_search_files']),
     g(['file.read', 'file_read', 'workspace_read', 'workspace_read_file'], [
       'fs_read_file',
@@ -99,6 +100,8 @@ const CAPABILITY_GROUPS = (() => {
       'browser_render_to_image',
       'browser_pdf',
     ]),
+    g(['browser.navigate', 'browser_navigate'], ['browser_navigate', 'browser_content']),
+    g(['mybrowser.binding', 'browser.binding'], ['browser_navigate', 'browser_content']),
     g(['knowledge_search', 'knowledge.search', 'rag.search'], ['knowledge_search', 'ss_search_knowledge']),
     g(['rag.ingest'], ['rag_ingest']),
     g(['rag.status'], ['rag_status']),

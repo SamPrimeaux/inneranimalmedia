@@ -152,6 +152,58 @@ function normalizeCatalogCfD1Op(config, toolKey) {
 }
 
 /**
+ * Inline D1 SQL from handler_config.sql (handler_type agent).
+ * @param {Record<string, unknown>} config
+ * @param {Record<string, unknown>} params
+ * @param {Record<string, unknown>} runContext
+ */
+function compileCatalogInlineAgentSql(config, params, runContext) {
+  let sql = String(config.sql || '').trim();
+  if (!sql) return null;
+  const binds = [];
+  const ws = String(runContext.workspaceId ?? runContext.workspace_id ?? '').trim();
+
+  sql = sql.replace(/:([a-zA-Z_][a-zA-Z0-9_]*)\b/g, (match, name) => {
+    if (name === 'workspace_id' && config.bind_workspace) {
+      binds.push(ws);
+      return '?';
+    }
+    const val = params?.[name] ?? runContext?.[name];
+    if (val !== undefined && val !== null) {
+      binds.push(val);
+      return '?';
+    }
+    return match;
+  });
+  return { sql, params: binds };
+}
+
+/**
+ * @param {any} env
+ * @param {Record<string, unknown>} config
+ * @param {Record<string, unknown>} params
+ * @param {Record<string, unknown>} runContext
+ */
+async function executeCatalogInlineAgentSql(env, config, params, runContext) {
+  const compiled = compileCatalogInlineAgentSql(config, params, runContext);
+  if (!compiled?.sql) {
+    return { ok: false, error: 'inline agent tool requires handler_config.sql' };
+  }
+  const { executeWorkspaceD1Query } = await import('./workspace-d1-execution.js');
+  const authUser = runContext.authUser ?? runContext.user ?? null;
+  const d1Ctx = {
+    user_id: runContext.userId ?? runContext.user_id,
+    tenant_id: runContext.tenantId ?? runContext.tenant_id,
+    workspace_id: runContext.workspaceId ?? runContext.workspace_id,
+    authUser,
+  };
+  const out = await executeWorkspaceD1Query(env, d1Ctx, compiled.sql, compiled.params);
+  return out.ok
+    ? { ok: true, body: { rows: out.rows || [], count: (out.rows || []).length } }
+    : { ok: false, error: out.error, user_message: out.user_message };
+}
+
+/**
  * @param {any} env
  * @param {Record<string, unknown>} config
  * @param {Record<string, unknown>} params
@@ -1755,6 +1807,18 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
       const { handlers: fsHandlers } = await import('../tools/fs.js');
       const out = await fsHandlers.read_file?.(params, env, runContext);
       result = out?.error ? { ok: false, error: String(out.error) } : { ok: true, body: out };
+      break;
+    }
+
+    case 'agent': {
+      if (trim(config.sql)) {
+        result = await executeCatalogInlineAgentSql(env, config, params, runContext);
+        break;
+      }
+      result = {
+        ok: false,
+        error: `handler_type agent requires handler_config.sql for tool_key=${row.tool_key}`,
+      };
       break;
     }
 

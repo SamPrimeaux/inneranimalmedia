@@ -6,12 +6,26 @@ import { stripUserTextForIntent } from '../../core/active-file-envelope.js';
 import { isReadOnlyFileContextIntent } from '../../core/code-implementation-intent.js';
 import { isPrimaryImageGenerationIntent } from '../../tools/image_generation.js';
 
+/** Bare hostname/path without scheme, e.g. inneranimalmedia.com/work */
+function messageHasBareDomainUrl(text) {
+  return /\b[\w-]+(?:\.[\w-]+)+(?:\/[\w./%-]*)?/i.test(String(text || ''));
+}
+
 /** @param {string} text */
 export function messageHasBrowserUrlNavigation(text) {
-  const t = String(text || '').trim().toLowerCase();
-  if (!t || !/https?:\/\//i.test(t)) return false;
+  const t = String(text || '').trim();
+  if (!t) return false;
+  const lower = t.toLowerCase();
+  const hasSchemeUrl = /https?:\/\//i.test(t);
+  const hasBareDomain = messageHasBareDomainUrl(t);
+  if (!hasSchemeUrl && !hasBareDomain) return false;
   return (
-    /\b(go\s+to|visit|open|navigate|load|head\s+to|check\s+out|browse\s+to)\b/i.test(t) ||
+    hasSchemeUrl ||
+    (hasBareDomain &&
+      (/\b(go\s+to|visit|open|navigate|load|head\s+to|check\s+out|browse\s+to|in\s+(the\s+|our\s+)?browser)\b/i.test(
+        lower,
+      ) ||
+        /\bopen\s+[\w.-]+\.[\w.-]+/i.test(t))) ||
     /(?:^|\s)to\s+https?:\/\//i.test(t)
   );
 }
@@ -70,8 +84,11 @@ export function inferIntentHeuristically(text) {
     (is(/https?:\/\//) && is(/\b(search|google|look\s+up|find\s+online)\b/) && !hasUrlNavigate);
   const hasBrowser =
     hasUrlNavigate ||
+    (messageHasBareDomainUrl(t) &&
+      /\b(open|visit|go to|navigate|load|browse|check out|head to)\b/i.test(t)) ||
+    /\bin (the |our )?browser\b/i.test(t) ||
     is(
-      /\b(screenshot|inspect\s+https?:\/\/|inspect.*url|navigate\s+to|open\s+(the\s+)?browser|browser.*inspect|playwright|puppeteer|headless)\b/,
+      /\b(screenshot|inspect\s+https?:\/\/|inspect.*url|navigate\s+to|open\s+(the\s+)?browser|browser.*inspect|playwright|puppeteer|headless|double footer|visual (bug|issue|glitch)|dom inspect)\b/,
     );
 
   const hasVectorize = is(
@@ -102,6 +119,7 @@ export function inferIntentHeuristically(text) {
   if (hasWorkflow) return { taskType: 'workflow_orchestration', mode: 'agent' };
   if (hasDeploy) return { taskType: 'deploy', mode: 'agent' };
   if (hasMultitask) return { taskType: 'multitask', mode: 'agent' };
+  if (hasBrowser) return { taskType: 'browser', mode: 'agent' };
   if (hasSpawn) return { taskType: 'agent_spawn', mode: 'agent' };
   if (hasDbWrite) {
     if (hasSupabase || is(/\b(hyperdrive|postgres|pgvector|supabase)\b/)) {
@@ -117,7 +135,6 @@ export function inferIntentHeuristically(text) {
   if (hasR2) return { taskType: 'r2_ops', mode: 'agent' };
   if (hasCfOps) return { taskType: 'cf_ops', mode: 'agent' };
   if (hasShell && !hasCode) return { taskType: 'terminal_execution', mode: 'agent' };
-  if (hasBrowser) return { taskType: 'browser', mode: 'agent' };
   if (hasWebSearch) return { taskType: 'web_search', mode: 'agent' };
   if (hasVectorize) return { taskType: 'vectorize', mode: 'agent' };
   if (hasGitHub) return { taskType: 'github', mode: 'agent' };
