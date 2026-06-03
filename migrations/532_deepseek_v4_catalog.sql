@@ -1,11 +1,69 @@
 -- 532: DeepSeek V4 only — deepseek-v4-flash + deepseek-v4-pro (main worker AGENTSAM_DEEPSEEK).
--- Approve via IAM dashboard migration gate, then verify:
---   SELECT model_key, provider, api_platform, openai_model_id, secret_key_name, is_active
---   FROM agentsam_model_catalog WHERE provider = 'deepseek' ORDER BY model_key;
+-- Prod schema: model_key UNIQUE (no tenant_id), provider CHECK must include deepseek.
 --
--- Pricing (cache-miss input / output, USD per 1M tokens — official rate card 2026-06):
---   v4-flash: $0.14 / $0.28
---   v4-pro:   $0.435 / $0.87
+-- Verify:
+--   SELECT model_key, provider, api_platform, openai_model_id, thinking_policy, is_active
+--   FROM agentsam_model_catalog WHERE model_key LIKE 'deepseek-v4%' ORDER BY model_key;
+
+PRAGMA foreign_keys = OFF;
+
+CREATE TABLE IF NOT EXISTS agentsam_model_catalog__532 (
+  id                    TEXT PRIMARY KEY DEFAULT ('mdl_' || lower(hex(randomblob(6)))),
+  model_key             TEXT UNIQUE NOT NULL,
+  display_name          TEXT NOT NULL,
+  provider              TEXT NOT NULL CHECK(provider IN ('anthropic','openai','google','workers_ai','ollama','cursor','deepseek')),
+  tier                  TEXT NOT NULL CHECK(tier IN ('micro','flash','standard','power','reasoning')),
+  anthropic_model_id    TEXT DEFAULT NULL,
+  openai_model_id       TEXT DEFAULT NULL,
+  google_model_id       TEXT DEFAULT NULL,
+  workers_ai_model_id   TEXT DEFAULT NULL,
+  ollama_model_id       TEXT DEFAULT NULL,
+  context_window        INTEGER NOT NULL,
+  max_output_tokens     INTEGER NOT NULL,
+  cost_per_1k_in        REAL NOT NULL DEFAULT 0,
+  cost_per_1k_out       REAL NOT NULL DEFAULT 0,
+  cost_per_tool_call    REAL NOT NULL DEFAULT 0,
+  cost_notes            TEXT DEFAULT NULL,
+  supports_tools        INTEGER NOT NULL DEFAULT 0,
+  supports_vision       INTEGER NOT NULL DEFAULT 0,
+  supports_streaming    INTEGER NOT NULL DEFAULT 1,
+  supports_json_mode    INTEGER NOT NULL DEFAULT 0,
+  supports_reasoning    INTEGER NOT NULL DEFAULT 0,
+  reasoning_effort      TEXT DEFAULT NULL CHECK(reasoning_effort IN ('low','medium','high',NULL)),
+  avg_latency_p50_ms    INTEGER DEFAULT NULL,
+  avg_latency_p95_ms    INTEGER DEFAULT NULL,
+  quality_score         REAL DEFAULT NULL,
+  total_calls           INTEGER DEFAULT 0,
+  total_failures        INTEGER DEFAULT 0,
+  rate_limit_rpm        INTEGER DEFAULT NULL,
+  rate_limit_tpd        INTEGER DEFAULT NULL,
+  is_active             INTEGER NOT NULL DEFAULT 1,
+  is_degraded           INTEGER NOT NULL DEFAULT 0,
+  budget_exhausted      INTEGER NOT NULL DEFAULT 0,
+  degraded_reason       TEXT DEFAULT NULL,
+  created_at            INTEGER DEFAULT (unixepoch()),
+  updated_at            INTEGER DEFAULT (unixepoch()),
+  api_platform          TEXT,
+  supports_code_execution INTEGER NOT NULL DEFAULT 0,
+  supports_compaction   INTEGER NOT NULL DEFAULT 0,
+  supports_effort_scaling INTEGER NOT NULL DEFAULT 0,
+  thinking_policy       TEXT NOT NULL DEFAULT 'omitted',
+  routing_lane          TEXT NOT NULL DEFAULT 'unknown',
+  deprecated_after      TEXT,
+  cost_per_1k_cached_in REAL NOT NULL DEFAULT 0,
+  web_tool_mode         TEXT NOT NULL DEFAULT 'none' CHECK(web_tool_mode IN ('none','standard_metered_tokens','fixed_8k_block','preview_reasoning_metered_tokens','preview_nonreasoning_free_search_content')),
+  supports_containers   INTEGER NOT NULL DEFAULT 0,
+  container_execution_mode TEXT DEFAULT NULL CHECK(container_execution_mode IN (NULL,'external_sandbox','hosted_shell')),
+  supports_adaptive_thinking INTEGER DEFAULT 0
+);
+
+INSERT INTO agentsam_model_catalog__532
+SELECT * FROM agentsam_model_catalog;
+
+DROP TABLE agentsam_model_catalog;
+ALTER TABLE agentsam_model_catalog__532 RENAME TO agentsam_model_catalog;
+
+PRAGMA foreign_keys = ON;
 
 -- Retire any other DeepSeek API catalog rows (not Workers AI @cf/*).
 UPDATE agentsam_model_catalog
@@ -26,70 +84,66 @@ WHERE LOWER(TRIM(provider)) = 'deepseek'
   AND mode = 'model';
 
 INSERT INTO agentsam_model_catalog (
-  id, tenant_id, workspace_id, model_key, display_name, provider, tier,
-  openai_model_id, api_platform, secret_key_name, thinking_policy,
+  id, model_key, display_name, provider, tier,
+  openai_model_id, api_platform, thinking_policy,
   context_window, max_output_tokens,
-  cost_per_1k_in, cost_per_1k_out,
+  cost_per_1k_in, cost_per_1k_out, cost_per_1k_cached_in,
   supports_tools, supports_vision, supports_streaming, supports_json_mode, supports_reasoning,
   reasoning_effort, is_active, is_degraded, budget_exhausted,
   cost_notes, updated_at
 ) VALUES
 (
   'mdl_deepseek_v4_flash',
-  '',
-  '',
   'deepseek-v4-flash',
   'DeepSeek V4 Flash',
   'deepseek',
   'flash',
   'deepseek-v4-flash',
   'deepseek',
-  'AGENTSAM_DEEPSEEK',
   'omitted',
   1000000,
   384000,
   0.00014,
   0.00028,
+  0.0000028,
   1, 0, 1, 1, 1,
   'medium',
   1, 0, 0,
-  'api_base=https://api.deepseek.com;cache_hit_in_per_mtok=0.0028;tools=1;thinking_policy=omitted',
+  'secret=AGENTSAM_DEEPSEEK;api_base=https://api.deepseek.com;cache_hit_in_per_mtok=0.0028;tools=1;thinking_policy=omitted',
   unixepoch()
 ),
 (
   'mdl_deepseek_v4_pro',
-  '',
-  '',
   'deepseek-v4-pro',
   'DeepSeek V4 Pro',
   'deepseek',
   'power',
   'deepseek-v4-pro',
   'deepseek',
-  'AGENTSAM_DEEPSEEK',
   'enabled',
   1000000,
   384000,
   0.000435,
   0.00087,
+  0.000003625,
   1, 0, 1, 1, 1,
   'high',
   1, 0, 0,
-  'api_base=https://api.deepseek.com;cache_hit_in_per_mtok=0.003625;tools=1;thinking_policy=enabled',
+  'secret=AGENTSAM_DEEPSEEK;api_base=https://api.deepseek.com;cache_hit_in_per_mtok=0.003625;tools=1;thinking_policy=enabled',
   unixepoch()
 )
-ON CONFLICT(tenant_id, workspace_id, model_key) DO UPDATE SET
+ON CONFLICT(model_key) DO UPDATE SET
   display_name = excluded.display_name,
   provider = excluded.provider,
   tier = excluded.tier,
   openai_model_id = excluded.openai_model_id,
   api_platform = excluded.api_platform,
-  secret_key_name = excluded.secret_key_name,
   thinking_policy = excluded.thinking_policy,
   context_window = excluded.context_window,
   max_output_tokens = excluded.max_output_tokens,
   cost_per_1k_in = excluded.cost_per_1k_in,
   cost_per_1k_out = excluded.cost_per_1k_out,
+  cost_per_1k_cached_in = excluded.cost_per_1k_cached_in,
   supports_tools = excluded.supports_tools,
   supports_vision = excluded.supports_vision,
   supports_streaming = excluded.supports_streaming,
@@ -104,8 +158,10 @@ ON CONFLICT(tenant_id, workspace_id, model_key) DO UPDATE SET
 
 INSERT INTO agentsam_ai (
   id, tenant_id, name, role_name, description, status, mode,
-  model_key, provider, api_platform, show_in_picker, picker_eligible,
+  model_key, provider, api_platform, secret_key_name,
+  show_in_picker, picker_eligible,
   requires_human_approval, sort_order, picker_group, is_global,
+  supports_prompt_cache, input_rate_per_mtok, output_rate_per_mtok, cache_read_rate_per_mtok,
   updated_at
 )
 SELECT
@@ -119,12 +175,17 @@ SELECT
   'deepseek-v4-flash',
   'deepseek',
   'deepseek',
+  'AGENTSAM_DEEPSEEK',
   1,
   1,
   0,
   82,
   'DEEPSEEK',
   1,
+  1,
+  0.14,
+  0.28,
+  0.0028,
   unixepoch()
 WHERE NOT EXISTS (
   SELECT 1 FROM agentsam_ai WHERE model_key = 'deepseek-v4-flash' AND mode = 'model'
@@ -132,8 +193,10 @@ WHERE NOT EXISTS (
 
 INSERT INTO agentsam_ai (
   id, tenant_id, name, role_name, description, status, mode,
-  model_key, provider, api_platform, show_in_picker, picker_eligible,
+  model_key, provider, api_platform, secret_key_name,
+  show_in_picker, picker_eligible,
   requires_human_approval, sort_order, picker_group, is_global,
+  supports_prompt_cache, input_rate_per_mtok, output_rate_per_mtok, cache_read_rate_per_mtok,
   updated_at
 )
 SELECT
@@ -147,12 +210,17 @@ SELECT
   'deepseek-v4-pro',
   'deepseek',
   'deepseek',
+  'AGENTSAM_DEEPSEEK',
   1,
   1,
   0,
   83,
   'DEEPSEEK',
   1,
+  1,
+  0.435,
+  0.87,
+  0.003625,
   unixepoch()
 WHERE NOT EXISTS (
   SELECT 1 FROM agentsam_ai WHERE model_key = 'deepseek-v4-pro' AND mode = 'model'
@@ -164,11 +232,26 @@ SET status = 'active',
     picker_eligible = 1,
     provider = 'deepseek',
     api_platform = 'deepseek',
+    secret_key_name = 'AGENTSAM_DEEPSEEK',
+    supports_prompt_cache = 1,
     updated_at = unixepoch()
 WHERE model_key IN ('deepseek-v4-flash', 'deepseek-v4-pro')
   AND mode = 'model';
 
--- Disk context cache pricing (automatic on DeepSeek — usage.prompt_cache_hit_tokens)
+UPDATE agentsam_ai
+SET input_rate_per_mtok = 0.14,
+    output_rate_per_mtok = 0.28,
+    cache_read_rate_per_mtok = 0.0028,
+    updated_at = unixepoch()
+WHERE model_key = 'deepseek-v4-flash' AND mode = 'model';
+
+UPDATE agentsam_ai
+SET input_rate_per_mtok = 0.435,
+    output_rate_per_mtok = 0.87,
+    cache_read_rate_per_mtok = 0.003625,
+    updated_at = unixepoch()
+WHERE model_key = 'deepseek-v4-pro' AND mode = 'model';
+
 INSERT OR REPLACE INTO agentsam_model_pricing (
   id, provider, model_key, pricing_kind, currency,
   input_rate_per_mtok, output_rate_per_mtok,
@@ -198,17 +281,3 @@ INSERT OR REPLACE INTO agentsam_model_pricing (
   'V4 Pro. Disk context cache — cache hit input $0.003625/MTok.',
   1, datetime('now')
 );
-
-UPDATE agentsam_ai
-SET input_rate_per_mtok = 0.14,
-    output_rate_per_mtok = 0.28,
-    cache_read_rate_per_mtok = 0.0028,
-    updated_at = unixepoch()
-WHERE model_key = 'deepseek-v4-flash' AND mode = 'model';
-
-UPDATE agentsam_ai
-SET input_rate_per_mtok = 0.435,
-    output_rate_per_mtok = 0.87,
-    cache_read_rate_per_mtok = 0.003625,
-    updated_at = unixepoch()
-WHERE model_key = 'deepseek-v4-pro' AND mode = 'model';
