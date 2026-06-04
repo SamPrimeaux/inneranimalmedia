@@ -50,10 +50,10 @@ export function useComposerIntegrations(isSuperadmin: boolean) {
         providers?: SummaryProvider[];
         capabilities?: { is_superadmin?: boolean };
       };
-      const super = isSuperadmin || !!d.capabilities?.is_superadmin;
+      const superadminUser = isSuperadmin || !!d.capabilities?.is_superadmin;
       const list: ConnectableIntegration[] = [];
 
-      if (super) {
+      if (superadminUser) {
         list.push({
           providerKey: IAM_MCP_PLATFORM_SOURCE_ID,
           label: IAM_MCP_PLATFORM_SOURCE.label,
