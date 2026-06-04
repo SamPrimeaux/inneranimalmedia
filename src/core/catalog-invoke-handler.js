@@ -5,6 +5,7 @@
 import { getAuthUser, jsonResponse } from './auth.js';
 import { resolveIamActorContext, resolveIdentity } from './identity.js';
 import { dispatchByToolCode } from './dispatch-by-tool-code.js';
+import { userHasSuperadminRole } from './resolve-credential.js';
 import { loadAgentsamToolRow } from './agentsam-tools-catalog.js';
 import { scheduleMirrorToolCallEventToSupabase } from './hyperdrive-write.js';
 
@@ -69,6 +70,7 @@ export async function handleCatalogInvokeApi(request, env, ctx) {
     toolRow = await loadAgentsamToolRow(env, toolName);
   } catch (_) {}
 
+  const isSuperadmin = userHasSuperadminRole(authUser);
   const execT0 = Date.now();
   const catalogOut = await dispatchByToolCode(env, toolName, args, {
     tenantId,
@@ -76,7 +78,7 @@ export async function handleCatalogInvokeApi(request, env, ctx) {
     workspaceId,
     authUser,
     request,
-    isOperatorCall: false,
+    isOperatorCall: isSuperadmin,
     isInternalAgent: false,
   });
   const invokeDurationMs = Math.max(0, Date.now() - execT0);
