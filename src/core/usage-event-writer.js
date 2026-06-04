@@ -5,6 +5,8 @@
  * One row = one model call.
  */
 import { scheduleMirrorUsageEventToSupabase } from './hyperdrive-write.js';
+import { resolveUsageEventCostUsd } from './usage-event-cost.js';
+import { pragmaTableInfo } from './retention.js';
 
 /**
  * Resolve billing provider for a dispatched model_key (catalog / agentsam_ai), not routing arm default.
@@ -53,7 +55,7 @@ export function syncUsageTokenColumns(tokensIn, tokensOut) {
  * Optional extra INSERT columns when schema has attribution / token mirror cols.
  * @param {Set<string>} cols - pragma_table_info names (lowercase)
  */
-export function usageEventExtraColumnSql(cols, { tokens_in, tokens_out, task_type, mode }) {
+export function usageEventExtraColumnSql(cols, { tokens_in, tokens_out, task_type, mode, reason }) {
   const synced = syncUsageTokenColumns(tokens_in, tokens_out);
   const names = [];
   const placeholders = [];
@@ -80,6 +82,12 @@ export function usageEventExtraColumnSql(cols, { tokens_in, tokens_out, task_typ
     names.push('mode');
     placeholders.push('?');
     binds.push(md.slice(0, 64));
+  }
+  const rs = reason != null ? String(reason).trim() : '';
+  if (cols.has('reason') && rs) {
+    names.push('reason');
+    placeholders.push('?');
+    binds.push(rs.slice(0, 500));
   }
   return { names, placeholders, binds };
 }
@@ -142,12 +150,44 @@ export async function writeUsageEvent(env, params, ctx = null) {
   const tokens = syncUsageTokenColumns(tokens_in, tokens_out);
   const taskTypeVal = task_type != null ? String(task_type).trim().slice(0, 120) : null;
   const modeVal = mode != null ? String(mode).trim().slice(0, 64) : null;
-  const resolvedModelKey = model_key != null ? String(model_key).trim() : '';
+  let resolvedModelKey = model_key != null ? String(model_key).trim() : '';
+  let costUsdIns = Number(cost_usd) || 0;
+  let costReason = reason != null ? String(reason).trim() : null;
+
+  if (!Number.isFinite(costUsdIns) || (costUsdIns === 0 && !costReason)) {
+    const priced = await resolveUsageEventCostUsd(env.DB, {
+      modelKey: resolvedModelKey || model,
+      provider,
+      inputTokens: tokens_in,
+      outputTokens: tokens_out,
+      computedCostUsdOverride: Number.isFinite(Number(cost_usd)) ? Number(cost_usd) : null,
+    });
+    costUsdIns = priced.costUsd;
+    if (priced.costReason) costReason = priced.costReason;
+    if (priced.canonicalModelKey) resolvedModelKey = priced.canonicalModelKey;
+  }
+
   const actualProvider = await resolveProviderForModelKey(
     env,
     resolvedModelKey || model,
     provider,
   );
+  const statusVal =
+    costReason === 'pricing_lookup_failed'
+      ? 'partial'
+      : String(status || 'ok').toLowerCase() === 'error'
+        ? 'error'
+        : 'ok';
+
+  const usageCols = await pragmaTableInfo(env.DB, 'agentsam_usage_events');
+  const extra = usageEventExtraColumnSql(usageCols, {
+    tokens_in: tokens.tokens_in,
+    tokens_out: tokens.tokens_out,
+    task_type: taskTypeVal,
+    mode: modeVal,
+  });
+  const extraCols = extra.names.length ? `, ${extra.names.join(', ')}` : '';
+  const extraPh = extra.names.length ? `, ${extra.placeholders.join(', ')}` : '';
 
   try {
     const result = await env.DB.prepare(`
@@ -158,7 +198,7 @@ export async function writeUsageEvent(env, params, ctx = null) {
         event_type, tool_name, status, reason,
         ref_table, ref_id, routing_arm_id, plan_id,
         task_type, mode,
-        agent_name, created_at
+        agent_name, created_at${extraCols}
       ) VALUES (
         ?, ?, ?, ?,
         ?, ?, ?,
@@ -166,16 +206,17 @@ export async function writeUsageEvent(env, params, ctx = null) {
         ?, ?, ?, ?,
         ?, ?, ?, ?,
         ?, ?,
-        'agent-sam', unixepoch()
+        'agent-sam', unixepoch()${extraPh}
       )
     `).bind(
       tenant_id, workspace_id, user_id, session_id,
       actualProvider, model, model_key || resolvedModelKey || model,
       tokens.tokens_in, tokens.tokens_out, tokens.input_tokens, tokens.output_tokens,
-      tokens.total_tokens, cost_usd, duration_ms,
-      event_type, tool_name, status, reason,
+      tokens.total_tokens, costUsdIns, duration_ms,
+      event_type, tool_name, statusVal, costReason,
       ref_table, ref_id, routing_arm_id, plan_id,
       taskTypeVal, modeVal,
+      ...extra.binds,
     ).run();
 
     let d1Id = null;

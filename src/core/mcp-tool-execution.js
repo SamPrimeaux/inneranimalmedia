@@ -9,6 +9,7 @@ import { recordSpan } from './tracer.js';
 import { resolveCanonicalUserId } from '../api/auth.js';
 import { pickRunSpineIds } from './run-spine-ids.js';
 import { loadAgentsamToolPolicyKeySet } from './agentsam-tool-policy-keys.js';
+import { scheduleUpsertMcpUsageLog } from './mcp-usage-log.js';
 
 /** SHA-256 hex of canonical JSON for tool-cache keys (Workers Web Crypto). */
 export async function hashToolInputJson(obj) {
@@ -319,7 +320,6 @@ export function scheduleRecordMcpToolExecution(env, ctx, fields) {
         merged.success !== undefined
           ? !!merged.success
           : !merged.error_message && String(merged.status || '').toLowerCase() !== 'error';
-      if (succ || !ctx?.waitUntil || !execId) return execId;
       const ws =
         merged.workspace_id != null && String(merged.workspace_id).trim() !== ''
           ? String(merged.workspace_id).trim()
@@ -328,6 +328,20 @@ export function scheduleRecordMcpToolExecution(env, ctx, fields) {
         merged.tenant_id != null && String(merged.tenant_id).trim() !== ''
           ? String(merged.tenant_id).trim()
           : '';
+      const uid =
+        merged.user_id != null && String(merged.user_id).trim() !== ''
+          ? String(merged.user_id).trim()
+          : '';
+      if (execId && tid && ws && uid) {
+        scheduleUpsertMcpUsageLog(env, ctx, {
+          tenantId: tid,
+          workspaceId: ws,
+          userId: uid,
+          toolName: merged.tool_name || merged.tool_key || 'unknown',
+          success: succ,
+        });
+      }
+      if (succ || !ctx?.waitUntil || !execId) return execId;
       if (!ws || !tid) return execId;
       let policy = null;
       try {

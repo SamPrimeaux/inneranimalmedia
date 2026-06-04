@@ -5448,7 +5448,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     }
   }
 
-  if (totalUsage.input_tokens || totalUsage.output_tokens) {
+  if (totalUsage.input_tokens || totalUsage.output_tokens || turnCount > 0) {
     const aid = attributedRoutingArmId();
     ctx.waitUntil?.(
       (async () => {

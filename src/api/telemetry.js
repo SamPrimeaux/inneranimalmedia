@@ -7,11 +7,8 @@ import { resolveTelemetryTenantId } from '../core/auth';
 import { resolveCanonicalUserId } from './auth.js';
 import { pragmaTableInfo } from '../core/retention.js';
 import { computeUsdFromAgentsamAiRates } from '../core/model-catalog-cost.js';
-import {
-  estimateModelRunCostUsd,
-  resolveCanonicalModelKey,
-} from '../core/model-pricing.js';
-import { resolveModelKeyFromProviderId } from '../core/model-catalog-cost.js';
+import { resolveCanonicalModelKey } from '../core/model-pricing.js';
+import { resolveUsageEventCostUsd } from '../core/usage-event-cost.js';
 import {
   resolveProviderForModelKey,
   syncUsageTokenColumns,
@@ -106,40 +103,27 @@ export async function writeTelemetry(env, data, modelRates) {
   } = data;
 
   const rawModel = model != null ? String(model).trim() : '';
-  let catalogModelKey = rawModel;
-  if (env?.DB && rawModel) {
-    const { modelKey: resolved } = await resolveModelKeyFromProviderId(env.DB, provider, rawModel);
-    if (resolved) catalogModelKey = resolved;
-  }
-  const rates =
-    rawModel && modelRates
-      ? modelRates[rawModel] || (catalogModelKey ? modelRates[catalogModelKey] : undefined)
-      : null;
-  let estimatedCost = null;
-  if (computedCostUsdOverride != null && Number.isFinite(Number(computedCostUsdOverride))) {
-    estimatedCost = Number(computedCostUsdOverride);
-  } else if (rates) {
-    estimatedCost = computeUsdFromAgentsamAiRates(rates, {
-      inputTokens,
-      outputTokens,
-      cacheReadTokens,
-      cacheWriteTokens,
-      cacheWriteTtl: cacheWriteTtl ?? '5m',
-    });
-  } else if (env?.DB && catalogModelKey) {
-    const priced = await estimateModelRunCostUsd(env.DB, {
-      modelKey: catalogModelKey,
-      provider,
-      inputTokens,
-      outputTokens,
-      cacheReadTokens,
-      cacheWriteTokens,
-      cacheWriteTtl: cacheWriteTtl ?? '5m',
-      pricingKind: data.pricingKind ?? 'standard',
-    });
-    estimatedCost = priced.costUsd;
-    catalogModelKey = priced.canonicalModelKey || catalogModelKey;
-  }
+  const priced = await resolveUsageEventCostUsd(env?.DB, {
+    modelKey: rawModel,
+    provider,
+    modelRates,
+    inputTokens,
+    outputTokens,
+    cacheReadTokens,
+    cacheWriteTokens,
+    cacheWriteTtl: cacheWriteTtl ?? '5m',
+    computedCostUsdOverride,
+    pricingKind: data.pricingKind ?? 'standard',
+  });
+  const catalogModelKey = priced.canonicalModelKey || rawModel || 'unknown';
+  const estimatedCost = priced.costUsd;
+  const costReason = priced.costReason;
+  const eventStatus =
+    costReason === 'pricing_lookup_failed'
+      ? 'partial'
+      : success
+        ? 'ok'
+        : 'error';
 
   const telemetryId = `tel_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
@@ -163,13 +147,22 @@ export async function writeTelemetry(env, data, modelRates) {
   const resolvedTaskType =
     (taskType ?? task_type) != null ? String(taskType ?? task_type).trim() : '';
   const resolvedMode = mode != null ? String(mode).trim() : '';
-  const actualProvider = await resolveProviderForModelKey(env, catalogModelKey || rawModel, provider);
+  let actualProvider = provider;
+  try {
+    actualProvider = await resolveProviderForModelKey(env, catalogModelKey || rawModel, provider);
+  } catch (provErr) {
+    console.warn('[writeTelemetry] provider resolve', provErr?.message ?? provErr);
+  }
 
   try {
     const usageCols = await pragmaTableInfo(env.DB, 'agentsam_usage_events');
     let uidUsage = userId != null ? String(userId).trim() : '';
     if (uidUsage) {
-      uidUsage = await resolveCanonicalUserId(uidUsage, env);
+      try {
+        uidUsage = await resolveCanonicalUserId(uidUsage, env);
+      } catch (uidErr) {
+        console.warn('[writeTelemetry] user_id resolve', uidErr?.message ?? uidErr);
+      }
     } else {
       uidUsage = null;
     }
@@ -180,11 +173,15 @@ export async function writeTelemetry(env, data, modelRates) {
       routingArmId != null &&
       String(routingArmId).trim() !== '' &&
       usageCols.has('routing_arm_id');
+    const hasReasonCol = usageCols.has('reason');
+    const reasonMid = hasReasonCol ? ', reason' : '';
+    const reasonMidPh = hasReasonCol ? ',?' : '';
     const extra = usageEventExtraColumnSql(usageCols, {
       tokens_in: tokens.tokens_in,
       tokens_out: tokens.tokens_out,
       task_type: resolvedTaskType,
       mode: resolvedMode,
+      reason: hasReasonCol ? undefined : costReason,
     });
     const extraCols = extra.names.length ? `, ${extra.names.join(', ')}` : '';
     const extraPh = extra.names.length ? `, ${extra.placeholders.join(', ')}` : '';
@@ -194,9 +191,9 @@ export async function writeTelemetry(env, data, modelRates) {
         `INSERT INTO agentsam_usage_events (
           id, tenant_id, workspace_id${uidMid}, session_id, agent_name, provider, model, model_key,
           tokens_in, tokens_out, total_tokens, cost_usd, status,
-          event_type, duration_ms, routing_arm_id${extraCols},
+          event_type, duration_ms, routing_arm_id${reasonMid}${extraCols},
           created_at
-        ) VALUES (?,?,?,?${uidMidPh},?,?,?,?,?,?,?,?,?,?,?,?${extraPh},unixepoch())`,
+        ) VALUES (?,?,?,?${uidMidPh},?,?,?,?,?,?,?,?,?,?,?,?${reasonMidPh}${extraPh},unixepoch())`,
       ).bind(
         telemetryId,
         tidInsert,
@@ -211,10 +208,11 @@ export async function writeTelemetry(env, data, modelRates) {
         tokens.tokens_out,
         tokens.total_tokens,
         estimatedCost ?? 0,
-        success ? 'ok' : 'error',
+        eventStatus,
         'agent_chat',
         latencyMs != null && Number.isFinite(Number(latencyMs)) ? Math.floor(Number(latencyMs)) : null,
         String(routingArmId).trim().slice(0, 120),
+        ...(hasReasonCol ? [costReason] : []),
         ...extra.binds,
       ).run();
     } else {
@@ -222,9 +220,9 @@ export async function writeTelemetry(env, data, modelRates) {
         `INSERT INTO agentsam_usage_events (
           id, tenant_id, workspace_id${uidMid}, session_id, agent_name, provider, model, model_key,
           tokens_in, tokens_out, total_tokens, cost_usd, status,
-          event_type, duration_ms${extraCols},
+          event_type, duration_ms${reasonMid}${extraCols},
           created_at
-        ) VALUES (?,?,?,?${uidMidPh},?,?,?,?,?,?,?,?,?,?,?${extraPh},unixepoch())`,
+        ) VALUES (?,?,?,?${uidMidPh},?,?,?,?,?,?,?,?,?,?,?${reasonMidPh}${extraPh},unixepoch())`,
       ).bind(
         telemetryId,
         tidInsert,
@@ -239,13 +237,15 @@ export async function writeTelemetry(env, data, modelRates) {
         tokens.tokens_out,
         tokens.total_tokens,
         estimatedCost ?? 0,
-        success ? 'ok' : 'error',
+        eventStatus,
         'agent_chat',
         latencyMs != null && Number.isFinite(Number(latencyMs)) ? Math.floor(Number(latencyMs)) : null,
+        ...(hasReasonCol ? [costReason] : []),
         ...extra.binds,
       ).run();
     }
 
+    try {
     await incrementAgentsamUsageRollupsDaily(env.DB, {
       tenantId: tidInsert,
       workspaceId: wsInsert,
@@ -255,6 +255,9 @@ export async function writeTelemetry(env, data, modelRates) {
       costUsd: estimatedCost || 0,
       rollupSource: 'telemetry',
     });
+    } catch (rollupErr) {
+      console.warn('[writeTelemetry] rollup', rollupErr?.message ?? rollupErr);
+    }
 
     if (mid && (estimatedCost ?? 0) > 0) {
       const spFixed = spendLedgerProvider(String(provider || 'unknown'));
