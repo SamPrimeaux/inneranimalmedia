@@ -9480,6 +9480,55 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     return jsonResponse({ ok: true });
   }
 
+  // ── POST /api/agent/plan/execute — run agentsam_plan_tasks (SSE) ──
+  if (path === '/api/agent/plan/execute' && method === 'POST') {
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    const body = await request.json().catch(() => ({}));
+    const planId = String(body.plan_id ?? body.planId ?? '').trim();
+    if (!planId) return jsonResponse({ error: 'plan_id required' }, 400);
+
+    const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {}).catch(() => null);
+    const workspaceId =
+      (authUser.active_workspace_id != null && String(authUser.active_workspace_id).trim() !== ''
+        ? String(authUser.active_workspace_id).trim()
+        : null) ||
+      (wsRes && !wsRes.error && wsRes.workspaceId ? String(wsRes.workspaceId).trim() : null);
+    if (!workspaceId) return jsonResponse({ error: 'no_workspace', redirect: '/onboarding' }, 403);
+
+    let tenantId =
+      authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
+        ? String(authUser.tenant_id).trim()
+        : null;
+    if (!tenantId) tenantId = await fetchAuthUserTenantId(env, authUser.id);
+
+    const planRow = await env.DB.prepare(
+      `SELECT id, tenant_id, workspace_id, workflow_run_id, status FROM agentsam_plans WHERE id = ? LIMIT 1`,
+    )
+      .bind(planId)
+      .first()
+      .catch(() => null);
+    if (!planRow?.id) return jsonResponse({ error: 'plan_not_found' }, 404);
+    if (String(planRow.tenant_id || '') !== String(tenantId || '')) {
+      return jsonResponse({ error: 'Forbidden' }, 403);
+    }
+    if (String(planRow.workspace_id || '') !== workspaceId) {
+      return jsonResponse({ error: 'workspace_mismatch' }, 403);
+    }
+
+    const uid = String(authUser.id || '').trim();
+    const { startPlanExecuteSseResponse } = await import('../core/plan-execute-stream.js');
+    return startPlanExecuteSseResponse(env, ctx, {
+      planId,
+      userId: uid,
+      workspaceId,
+      tenantId,
+      sessionId: body.sessionId ?? body.session_id ?? null,
+      workflowRunId: planRow.workflow_run_id ?? body.workflow_run_id ?? null,
+    });
+  }
+
   // ── POST /api/agent/plan-task/resume — one plan terminal task after Allow (SSE) ──
   if (path === '/api/agent/plan-task/resume' && method === 'POST') {
     const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);

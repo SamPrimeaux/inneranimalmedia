@@ -55,6 +55,82 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
     const path = url.pathname.toLowerCase().replace(/\/$/, '') || '/';
     const method = request.method.toUpperCase();
 
+    const planIdMatch = path.match(/^\/api\/agentsam\/plans\/([^/]+)$/);
+    if (planIdMatch && method === 'PATCH') {
+      if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
+      const planId = decodeURIComponent(planIdMatch[1] || '').trim();
+      const body = await request.json().catch(() => ({}));
+      const status = String(body.status ?? '').trim().toLowerCase();
+      if (!planId) return jsonResponse({ error: 'plan_id required' }, 400);
+      if (!['active', 'complete', 'abandoned', 'draft'].includes(status)) {
+        return jsonResponse({ error: 'status must be active|complete|abandoned|draft' }, 400);
+      }
+
+      let tenantId =
+        authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
+          ? String(authUser.tenant_id).trim()
+          : null;
+      if (!tenantId) tenantId = await fetchAuthUserTenantId(env, authUser.id);
+      if (!tenantId) tenantId = fallbackSystemTenantId(env);
+
+      const plan = await env.DB.prepare(
+        `SELECT id, tenant_id, workspace_id FROM agentsam_plans WHERE id = ? LIMIT 1`,
+      )
+        .bind(planId)
+        .first()
+        .catch(() => null);
+      if (!plan?.id) return jsonResponse({ error: 'plan not found' }, 404);
+      if (String(plan.tenant_id || '') !== tenantId) {
+        return jsonResponse({ error: 'Forbidden' }, 403);
+      }
+
+      await env.DB.prepare(
+        `UPDATE agentsam_plans SET status = ?, updated_at = unixepoch() WHERE id = ?`,
+      )
+        .bind(status, planId)
+        .run();
+
+      return jsonResponse({ ok: true, plan_id: planId, status });
+    }
+
+    if (path === '/api/agentsam/plans' && method === 'GET') {
+      if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
+      const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {});
+      const workspaceId =
+        url.searchParams.get('workspace_id')?.trim() ||
+        wsRes?.workspaceId ||
+        null;
+      if (!workspaceId) {
+        return jsonResponse({ error: wsRes?.error || 'workspace_id required' }, 400);
+      }
+
+      let tenantId =
+        authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
+          ? String(authUser.tenant_id).trim()
+          : null;
+      if (!tenantId) tenantId = await fetchAuthUserTenantId(env, authUser.id);
+      if (!tenantId) tenantId = fallbackSystemTenantId(env);
+
+      const statusFilter = url.searchParams.get('status')?.trim().toLowerCase() || '';
+      const limit = Math.min(Math.max(1, Number(url.searchParams.get('limit')) || 20), 50);
+      let sql = `SELECT id, title, status, plan_type, plan_date, tasks_total, tasks_done, tasks_blocked,
+                        workflow_run_id, session_id, created_at, updated_at
+                 FROM agentsam_plans
+                 WHERE tenant_id = ? AND workspace_id = ?`;
+      const binds = [tenantId, workspaceId];
+      if (statusFilter && statusFilter !== 'all') {
+        sql += ` AND status = ?`;
+        binds.push(statusFilter);
+      } else {
+        sql += ` AND status IN ('active','draft')`;
+      }
+      sql += ` ORDER BY updated_at DESC LIMIT ?`;
+      binds.push(limit);
+
+      const { results } = await env.DB.prepare(sql).bind(...binds).all().catch(() => ({ results: [] }));
+      return jsonResponse({ ok: true, workspace_id: workspaceId, plans: results || [] });
+    }
+
     const planTasksMatch = path.match(/^\/api\/agentsam\/plans\/([^/]+)\/tasks$/);
     if (planTasksMatch && method === 'GET') {
       if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
@@ -81,7 +157,8 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
 
       const { results } = await env.DB.prepare(
         `SELECT id, plan_id, order_index, title, description, priority, category, status,
-                blocked_reason, notes, estimated_minutes, actual_minutes, completed_at
+                blocked_reason, notes, estimated_minutes, actual_minutes, completed_at,
+                parent_task_id
          FROM agentsam_plan_tasks
          WHERE plan_id = ?
          ORDER BY order_index ASC, id ASC`,

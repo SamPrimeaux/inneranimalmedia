@@ -356,7 +356,16 @@ export async function insertPlanExecutionStep(env, stepCols, p) {
 
 export async function createPlan(
   env,
-  { goal, userId, workspaceId, tenantId, sessionId = null, workflowRunId = null, ctx = null },
+  {
+    goal,
+    userId,
+    workspaceId,
+    tenantId,
+    sessionId = null,
+    workflowRunId = null,
+    ctx = null,
+    planningSkillMarkdown = null,
+  },
 ) {
   if (!env.DB) throw new Error('DB not available');
   if (!workflowRunId || String(workflowRunId).trim() === '') {
@@ -377,10 +386,14 @@ export async function createPlan(
       throw new Error('agentsam-planner: resolveModelForTask returned no model');
     }
     const modelKey = resolved.model_key;
+    const skillBlock =
+      planningSkillMarkdown != null && String(planningSkillMarkdown).trim()
+        ? `\n\n## Planning skill (follow for task breakdown)\n${String(planningSkillMarkdown).trim().slice(0, 12000)}`
+        : '';
     const result = await dispatchComplete(env, {
       modelKey,
       taskType: 'plan',
-      systemPrompt: PLANNER_SYSTEM,
+      systemPrompt: PLANNER_SYSTEM + skillBlock,
       messages: [{ role: 'user', content: String(goal).slice(0, 4000) }],
       options: { reasoningEffort: 'medium', verbosity: 'low' },
     });

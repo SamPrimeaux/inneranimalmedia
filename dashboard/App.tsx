@@ -760,6 +760,13 @@ const App: React.FC = () => {
     return null;
   }, [workspaceSamState]);
 
+  const handleActivePlanChange = useCallback((planId: string | null) => {
+    setWorkspaceSamState((prev) => ({
+      ...(prev && typeof prev === 'object' ? prev : {}),
+      active_plan_id: planId,
+    }));
+  }, []);
+
   const agentWorkbenchOpenFiles = useMemo(
     () => tabs.map((t) => t.name).filter((n) => Boolean(n && String(n).trim())).slice(0, 32),
     [tabs],
@@ -2956,6 +2963,8 @@ const App: React.FC = () => {
                         browserUrl={browserUrl}
                         openFilePaths={agentWorkbenchOpenFiles}
                         activePlanId={activePlanIdForChat}
+                        onActivePlanChange={handleActivePlanChange}
+                        showPlanWorkbench={!isNarrowViewport}
                     />
                     </div>
                 </div>
@@ -3519,6 +3528,8 @@ const App: React.FC = () => {
                             browserUrl={browserUrl}
                             openFilePaths={agentWorkbenchOpenFiles}
                             activePlanId={activePlanIdForChat}
+                            onActivePlanChange={handleActivePlanChange}
+                            showPlanWorkbench={!isNarrowViewport}
                          />
                     </div>
                 </div>

@@ -104,6 +104,8 @@ export type AgentMessageListProps = {
   onRunInTerminal?: (cmd: string) => void;
   /** Optional: assistant markdown images delegate here (default: new tab). */
   onImagePreview?: (src: string) => void;
+  onRunPlan?: (planId: string) => void;
+  runPlanBusy?: boolean;
 };
 
 function renderMessageContent(
@@ -419,6 +421,8 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
   onFileSelect,
   onRunInTerminal,
   onImagePreview,
+  onRunPlan,
+  runPlanBusy = false,
 }) => {
   return (
     <div
@@ -491,7 +495,12 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
                     />
                   ) : null}
                   {msg.executionPlan && msg.executionPlan.tasks.length > 0 ? (
-                    <AgentPlanChecklist plan={msg.executionPlan} mode={mode} />
+                    <AgentPlanChecklist
+                      plan={msg.executionPlan}
+                      mode={mode}
+                      onRunPlan={onRunPlan}
+                      runPlanBusy={runPlanBusy}
+                    />
                   ) : null}
                   <div
                     className="agent-content text-[0.8125rem] leading-relaxed min-w-0 break-words [overflow-wrap:anywhere] text-[var(--dashboard-text)] w-full"

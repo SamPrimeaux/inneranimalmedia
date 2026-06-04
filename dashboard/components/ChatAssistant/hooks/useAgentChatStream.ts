@@ -88,6 +88,8 @@ function parseBrowserToolAutomationFlag(inp: Record<string, unknown>): boolean {
 function mapTaskCompleteStatus(status: string | undefined): ExecutionPlanTask['status'] {
   if (status === 'done') return 'done';
   if (status === 'skipped') return 'skipped';
+  if (status === 'blocked') return 'blocked';
+  if (status === 'in_progress') return 'running';
   return 'failed';
 }
 
@@ -893,6 +895,8 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             title: String(t.title || '').slice(0, 200),
             order_index: Number(t.order_index ?? 0),
             status: 'todo',
+            parent_task_id:
+              (t as { parent_task_id?: string | null }).parent_task_id ?? null,
             handler_type: t.handler_type ?? null,
             trace: {
               execution_step_id: t.execution_step_id ?? null,
@@ -906,13 +910,14 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           executionPlan = {
             plan_id: pid,
             plan_title: String(d.plan_title || 'Plan'),
-            status: 'running',
+            status: d.auto_execute === false ? 'ready' : 'running',
             tasks: planTasks,
             workflow_run_id: d.workflow_run_id ?? null,
           };
           onThinkingEvent?.({
             type: 'plan_created',
-            text: `Running task 1 of ${planTasks.length || Number(d.task_count || 0) || '?' }…`,
+            plan_id: pid,
+            text: d.auto_execute === false ? 'Plan ready — click Run plan to execute.' : `Running task 1 of ${planTasks.length || Number(d.task_count || 0) || '?' }…`,
           });
           const vm = d.visual_map;
           const pm = d.plan_markdown;
@@ -997,6 +1002,20 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             approval_id: d.approval_id ?? '',
             plan_id: d.plan_id ?? '',
             text: d.summary ?? 'Review the plan and confirm to continue.',
+          });
+          continue;
+        }
+        if (data && typeof data === 'object' && (data as { type?: string }).type === 'plan_execute_start') {
+          const d = data as { type: string; plan_id?: string };
+          const pid = typeof d.plan_id === 'string' ? d.plan_id.trim() : '';
+          if (executionPlan && pid && executionPlan.plan_id === pid) {
+            executionPlan = { ...executionPlan, status: 'running' };
+            pushExecutionPlan(executionPlan);
+          }
+          onThinkingEvent?.({
+            type: 'plan_progress',
+            plan_id: pid,
+            text: 'Executing plan tasks…',
           });
           continue;
         }

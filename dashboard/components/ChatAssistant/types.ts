@@ -34,13 +34,14 @@ export type ImplementationPlanChip = {
   plan_markdown?: ImplementationPlanMarkdown | null;
 };
 
-export type ExecutionPlanTaskStatus = 'todo' | 'running' | 'done' | 'failed' | 'skipped';
+export type ExecutionPlanTaskStatus = 'todo' | 'running' | 'done' | 'failed' | 'skipped' | 'blocked';
 
 export type ExecutionPlanTask = {
   id: string;
   title: string;
   order_index: number;
   status: ExecutionPlanTaskStatus;
+  parent_task_id?: string | null;
   handler_type?: string | null;
   /** Collapsed-by-default task output or error snippet. */
   detail?: string;
@@ -57,7 +58,7 @@ export type ExecutionPlanTask = {
 export type ExecutionPlanState = {
   plan_id: string;
   plan_title: string;
-  status: 'planning' | 'running' | 'complete' | 'partial' | 'failed';
+  status: 'planning' | 'ready' | 'running' | 'complete' | 'partial' | 'failed';
   tasks: ExecutionPlanTask[];
   workflow_run_id?: string | null;
   tasks_completed?: number;
@@ -208,6 +209,10 @@ export interface ChatAssistantProps {
   openFilePaths?: string[];
   /** Active plan id from workspace dashboard when known. */
   activePlanId?: string | null;
+  /** Notify host when chat creates or selects a plan. */
+  onActivePlanChange?: (planId: string | null) => void;
+  /** Show plan workbench sidebar (Monaco + history). */
+  showPlanWorkbench?: boolean;
 }
 
 export type StagedAttachment = {

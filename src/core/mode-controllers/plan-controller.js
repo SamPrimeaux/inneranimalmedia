@@ -1,6 +1,7 @@
 import { jsonResponse } from '../responses.js';
 import { runtimeContextPayload, legacyContextPayload } from './runtime-context.js';
 import { executeRwsSpawnFanout, shouldRunRwsFanout } from '../rws-spawn-fanout.js';
+import { hydrateSkillRowFromR2 } from '../agentsam-skill-r2.js';
 
 const SSE_HEADERS = {
   'Content-Type': 'text/event-stream',
@@ -8,6 +9,30 @@ const SSE_HEADERS = {
   Connection: 'keep-alive',
   'Access-Control-Allow-Origin': '*',
 };
+
+const PLAN_SKILL_ID = 'skill_plan_and_execute';
+
+/**
+ * @param {any} env
+ */
+async function loadPlanModeSkillMarkdown(env) {
+  if (!env?.DB) return { markdown: '', skill_ids: [] };
+  try {
+    const row = await env.DB.prepare(
+      `SELECT id, name, content_markdown, retrieval_strategy, file_path, metadata_json
+       FROM agentsam_skill WHERE id = ? AND COALESCE(is_active, 1) = 1 LIMIT 1`,
+    )
+      .bind(PLAN_SKILL_ID)
+      .first();
+    if (!row?.id) return { markdown: '', skill_ids: [] };
+    const hydrated = await hydrateSkillRowFromR2(env, row);
+    const md = String(hydrated?.content_markdown || '').trim();
+    return { markdown: md, skill_ids: [String(row.id)] };
+  } catch (e) {
+    console.warn('[plan-controller] skill_load_failed', e?.message ?? e);
+    return { markdown: '', skill_ids: [] };
+  }
+}
 
 /**
  * Plan controller
@@ -47,13 +72,25 @@ export async function executePlanTurn(env, ctx, input) {
     } catch (_) {}
   };
 
-  // Always emit runtime context first for dashboard proof.
   emit('runtime_context', runtimeContextPayload(profile, { modelOverride: input.modelOverride ?? null }));
   emit('context', legacyContextPayload(profile, { toolsCount: 0, modelOverride: input.modelOverride ?? null }));
 
   (async () => {
     try {
       const { createPlan, startAgentChatPlanWorkflowRun } = await import('../agentsam-planner.js');
+      const skillLoad = await loadPlanModeSkillMarkdown(env);
+      if (skillLoad.skill_ids.length) {
+        emit('skills_loaded', {
+          skill_ids: skillLoad.skill_ids,
+          route_key: 'plan',
+          task_type: 'plan_pipeline',
+        });
+        console.info(
+          '[plan-controller] skills_loaded',
+          JSON.stringify({ skill_ids: skillLoad.skill_ids, chars: skillLoad.markdown.length }),
+        );
+      }
+
       emit('plan_thinking', { message: 'Breaking down your goal into tasks...' });
 
       const wfBoot = await startAgentChatPlanWorkflowRun(env, {
@@ -72,6 +109,7 @@ export async function executePlanTurn(env, ctx, input) {
         sessionId,
         workflowRunId: wfBoot.workflowRunId,
         ctx,
+        planningSkillMarkdown: skillLoad.markdown,
       });
 
       emit('plan_created', {
@@ -79,16 +117,20 @@ export async function executePlanTurn(env, ctx, input) {
         plan_title: plan.plan_title,
         workflow_run_id: plan.workflow_run_id,
         task_count: plan.tasks.length,
+        auto_execute: false,
         tasks: plan.tasks.map((t) => ({
           id: t.id,
           title: t.title,
           order_index: t.order_index,
+          parent_task_id: t.parent_task_id ?? null,
           status: 'todo',
         })),
+        visual_map: plan.visual_map ?? null,
+        plan_markdown: plan.plan_markdown ?? null,
       });
 
       emit('text', {
-        text: '_Plan mode: tasks stay as **todo**. Switch to **Agent** or **Multitask** to execute._',
+        text: '_Plan ready. Use **Run plan** to execute tasks without switching modes._',
       });
       emit('done', {});
     } catch (e) {
@@ -101,4 +143,3 @@ export async function executePlanTurn(env, ctx, input) {
 
   return new Response(planReadable, { headers: SSE_HEADERS });
 }
-

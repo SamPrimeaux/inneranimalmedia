@@ -96,6 +96,7 @@ import { formatHttpErrorMessage } from './streamParsing';
 import { consumeAgentChatSseBody } from './hooks/useAgentChatStream';
 import { initIamAgentStreamDebug, patchIamAgentStreamDebug } from './streamDebug';
 import { AgentMessageList } from './components/AgentMessageList';
+import { PlanWorkbenchPanel } from './components/PlanWorkbenchPanel';
 import { ThinkingCard } from '../../src/components/ThinkingCard';
 import type { ThinkingCardState } from '../../src/components/ThinkingCard';
 import { ToolApprovalModal } from '../../src/components/ToolApprovalModal';
@@ -176,6 +177,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   browserUrl: browserUrlProp,
   openFilePaths,
   activePlanId,
+  onActivePlanChange,
+  showPlanWorkbench = false,
 }) => {
   const agentsamPolicyRef = useRef<Record<string, unknown> | null>(null);
   useEffect(() => {
@@ -259,6 +262,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     }
     return 'agent';
   });
+  const [localActivePlanId, setLocalActivePlanId] = useState<string | null>(null);
   const [isModeOpen, setIsModeOpen] = useState(false);
   const [isModelPickerOpen, setIsModelPickerOpen] = useState(false);
   const [defaultModelKey, setDefaultModelKey] = useState<string | null>(null);
@@ -293,9 +297,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     lastError: null,
   });
   const activePlanIdRef = useRef<string | null>(activePlanId?.trim() || null);
-  useEffect(() => {
-    activePlanIdRef.current = activePlanId?.trim() || null;
-  }, [activePlanId]);
   const totalStagedBytes = useMemo(
     () => attachments.reduce((sum, a) => sum + (a.file.size || 0), 0),
     [attachments]
@@ -309,6 +310,20 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
   const [isNarrow, setIsNarrow] = useState(
     () => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches
+  );
+  const resolvedActivePlanId = useMemo(
+    () =>
+      activePlanId?.trim() ||
+      localActivePlanId?.trim() ||
+      activePlanIdRef.current?.trim() ||
+      null,
+    [activePlanId, localActivePlanId],
+  );
+  useEffect(() => {
+    activePlanIdRef.current = resolvedActivePlanId;
+  }, [resolvedActivePlanId]);
+  const planSidebarVisible = Boolean(
+    showPlanWorkbench && !isNarrow && (mode === 'plan' || resolvedActivePlanId),
   );
   const [mobileHubTab, setMobileHubTab] = useState<'agents' | 'automations' | 'dashboard'>('agents');
   const [mobileThreadTab, setMobileThreadTab] = useState<'chat' | 'context'>('chat');
@@ -586,6 +601,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     tool: ToolApprovalPayload;
   } | null>(null);
   const [approvalBusy, setApprovalBusy] = useState(false);
+  const [runPlanBusy, setRunPlanBusy] = useState(false);
 
   const [toolTraceRows, setToolTraceRows] = useState<AgentToolTraceRow[]>([]);
   const [pythonDraftHint, setPythonDraftHint] = useState<string | null>(null);
@@ -1161,7 +1177,13 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         startedAt: Date.now(),
       });
     } else if (ev.type === 'plan_created' || ev.type === 'plan_progress') {
-      if (ev.plan_id?.trim()) activePlanIdRef.current = ev.plan_id.trim();
+      if (ev.plan_id?.trim()) {
+        activePlanIdRef.current = ev.plan_id.trim();
+        if (ev.type === 'plan_created') {
+          setLocalActivePlanId(ev.plan_id.trim());
+          onActivePlanChange?.(ev.plan_id.trim());
+        }
+      }
       setThinkingState(prev => ({
         steps: prev?.steps ?? [],
         thinkingText: ev.text || 'Running plan…',
@@ -1354,7 +1376,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     } else if (ev.type === 'workflow_error' || ev.type === 'error') {
       setThinkingState(prev => prev ? { ...prev, status: 'error' } : prev);
     }
-  }, [onApprovalRequired]);
+  }, [onApprovalRequired, onActivePlanChange]);
 
   const handleApprovePendingTool = useCallback(async () => {
     if (!pendingToolApproval) return;
@@ -1523,6 +1545,124 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       return next;
     });
   }, [pendingToolApproval, setMessages]);
+
+  const handleRunPlan = useCallback(async (planId: string) => {
+    const pid = planId.trim();
+    if (!pid || runPlanBusy) return;
+    setRunPlanBusy(true);
+    setLocalActivePlanId(pid);
+    activePlanIdRef.current = pid;
+    onActivePlanChange?.(pid);
+    setThinkingState({
+      steps: [],
+      thinkingText: 'Running plan…',
+      status: 'working',
+      startedAt: Date.now(),
+    });
+    if (abortControllerRef.current) abortControllerRef.current.abort();
+    abortControllerRef.current = new AbortController();
+    const signal = abortControllerRef.current.signal;
+    streamFinalizedRef.current = false;
+    setIsLoading(true);
+    setPresenceState('working');
+    try {
+      const res = await fetch('/api/agent/plan/execute', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          plan_id: pid,
+          session_id: conversationId || undefined,
+          sessionId: conversationId || undefined,
+        }),
+        signal,
+      });
+      if (!res.ok || !res.body) {
+        const errText = await res.text().catch(() => '');
+        throw new Error(errText || `Plan execute failed (${res.status})`);
+      }
+      const reader = res.body.getReader();
+      streamReaderRef.current = reader;
+      await consumeAgentChatSseBody({
+        signal,
+        reader,
+        streamFinalizedRef,
+        streamReaderRef,
+        setMessages,
+        setIsLoading,
+        setWorkflowLedger,
+        setToolTraceRows,
+        onPythonDraftOpened: handlePythonDraftOpened,
+        setConversationId,
+        stripEmptyAssistantTail,
+        loadSessions,
+        onBrowserNavigate,
+        onR2FileUpdated,
+        onThinkingEvent: handleThinkingEvent,
+        onSubagentEvent: (ev) => {
+          const t = String(ev.type || '');
+          const fanoutId = ev.fanout_id ? ` (${ev.fanout_id})` : '';
+          const slug = ev.subagent_slug ? ` (${ev.subagent_slug})` : '';
+          const status = ev.status ? `: ${ev.status}` : '';
+          if (t === 'agentsam_subagent_fanout_started')
+            setSubagentWork({ state: 'multitask_fanout', detail: `Fanout started${fanoutId}` });
+          else if (t === 'agentsam_subagent_run_started')
+            setSubagentWork({ state: 'subagent_spawn', detail: `Subagent started${slug}` });
+          else if (t === 'agentsam_subagent_run_progress')
+            setSubagentWork({ state: 'parallel_work', detail: `Subagent progress${slug}` });
+          else if (t === 'agentsam_subagent_action_required')
+            setSubagentWork({ state: 'approval_required', detail: 'Subagent action required' });
+          else if (t === 'agentsam_subagent_run_result')
+            setSubagentWork({ state: 'merge_results', detail: `Subagent result${slug}${status}` });
+          else if (t === 'agentsam_subagent_fanout_result')
+            setSubagentWork({ state: 'merge_results', detail: `Fanout result${fanoutId}${status}` });
+        },
+        onAgentRunContext,
+        onFileSelect: onFileSelect
+          ? (f) => onFileSelect({ name: f.name, content: f.content, originalContent: f.originalContent ?? '' })
+          : undefined,
+        onToolApprovalRequest: (tool) => {
+          setPendingToolApproval({ tool });
+          setIsLoading(false);
+          abortControllerRef.current = null;
+        },
+      });
+      streamReaderRef.current = null;
+    } catch (e) {
+      if ((e as Error)?.name === 'AbortError') return;
+      console.error('[ChatAssistant] plan execute', e);
+      const msg = e instanceof Error ? e.message : String(e);
+      setMessages((prev) => {
+        const next = [...prev];
+        const last = next[next.length - 1];
+        if (last?.role === 'assistant') {
+          next[next.length - 1] = { ...last, content: `${last.content}\n\n[Plan execute failed: ${msg}]` };
+        } else {
+          next.push({ role: 'assistant', content: `[Plan execute failed: ${msg}]` });
+        }
+        return next;
+      });
+      setThinkingState((prev) => (prev ? { ...prev, status: 'error' } : prev));
+    } finally {
+      setRunPlanBusy(false);
+      setIsLoading(false);
+      setPresenceState('idle');
+      abortControllerRef.current = null;
+    }
+  }, [
+    runPlanBusy,
+    conversationId,
+    setMessages,
+    handleThinkingEvent,
+    handlePythonDraftOpened,
+    stripEmptyAssistantTail,
+    loadSessions,
+    onBrowserNavigate,
+    onR2FileUpdated,
+    onAgentRunContext,
+    onFileSelect,
+    onActivePlanChange,
+  ]);
 
   async function handleSend(overrideMessage?: string, sendOpts?: ChatRoutingSendOpts) {
     const text = overrideMessage ?? input;
@@ -2290,7 +2430,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           </div>
         )}
 
-        <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+        <div className="flex flex-1 min-h-0 overflow-hidden min-w-0">
+        <div className="flex flex-col flex-1 min-h-0 overflow-hidden min-w-0">
         {hubBodyVisible && (
           <div className="order-1 flex-1 min-h-0 overflow-y-auto chat-hide-scroll px-4 py-4 space-y-4">
             {mobileHubTab === 'automations' ? (
@@ -2381,6 +2522,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             onFileSelect={onFileSelect}
             onRunInTerminal={onRunInTerminal}
             onImagePreview={handleChatImagePreview}
+            onRunPlan={(planId) => void handleRunPlan(planId)}
+            runPlanBusy={runPlanBusy}
           />
           </>
         )}
@@ -2750,6 +2893,25 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           )}
         </div>
         )}
+
+        </div>
+
+        {planSidebarVisible ? (
+          <div className="hidden md:flex w-[min(280px,34%)] shrink-0 min-h-0">
+            <PlanWorkbenchPanel
+              workspaceId={workspaceId ?? null}
+              activePlanId={resolvedActivePlanId}
+              onActivePlanChange={(planId) => {
+                setLocalActivePlanId(planId);
+                activePlanIdRef.current = planId;
+                onActivePlanChange?.(planId);
+              }}
+              onOpenInEditor={onFileSelect}
+              onRunPlan={(planId) => void handleRunPlan(planId)}
+              runPlanBusy={runPlanBusy}
+            />
+          </div>
+        ) : null}
 
         </div>
 
