@@ -1,6 +1,7 @@
 /**
  * Per-user / per-workspace GitHub repo scoping for Agent Sam tools.
- * Prevents cross-tenant repo bleed (e.g. Connor must not read SamPrimeaux/inneranimalmedia).
+ * Blocks platform operator repos (SamPrimeaux/inneranimalmedia) for other users.
+ * Rewrites mistaken SamPrimeaux/<customer-repo> prefixes to the user's GitHub login.
  */
 import { getUserGithubToken } from '../integrations/github.js';
 
@@ -8,10 +9,32 @@ function trim(v) {
   return v == null ? '' : String(v).trim();
 }
 
-function parseRepoOwner(repo) {
+/** Platform repos — never rewrite to another user's namespace; always deny cross-login access. */
+const PLATFORM_REPO_SLUGS = new Set([
+  'inneranimalmedia',
+  'inneranimalmedia-mcp-server',
+  'inneranimalmedia-agentsam-dashboard',
+  'agentsam-cms-editor',
+  'meauxcad',
+]);
+
+function parseRepoParts(repo) {
   const s = trim(repo);
-  if (!s.includes('/')) return '';
-  return s.split('/')[0].toLowerCase();
+  if (!s.includes('/')) {
+    return { owner: '', slug: s };
+  }
+  const idx = s.indexOf('/');
+  return {
+    owner: s.slice(0, idx).trim().toLowerCase(),
+    slug: s.slice(idx + 1).trim(),
+  };
+}
+
+function fullRepo(ownerLogin, slug) {
+  const o = trim(ownerLogin);
+  const sl = trim(slug);
+  if (!o || !sl) return null;
+  return `${o}/${sl}`;
 }
 
 /**
@@ -49,7 +72,6 @@ export async function fetchUserGithubLogin(env, userId) {
 }
 
 /**
- * System prompt line — locks the model to the connected GitHub user's namespace.
  * @param {any} env
  * @param {string} userId
  */
@@ -62,14 +84,44 @@ export async function buildGithubScopeSystemPromptLine(env, userId) {
     );
   }
   return (
-    `GitHub scope (enforced): only repositories owned by \`${login}\` (prefix \`${login}/\`). ` +
-    `Never use SamPrimeaux/* or any other GitHub owner. ` +
-    `Discover repos with agentsam_github_repo_list; do not invent paths under another user's org.`
+    `GitHub scope (enforced): your connected account is \`${login}\`. ` +
+    `All repo paths must use \`${login}/<repo-name>\` (example: \`${login}/thermos-heat-and-air\`). ` +
+    `Do not prefix customer repos with \`SamPrimeaux/\` — that org is the platform operator only (` +
+    `\`SamPrimeaux/inneranimalmedia\`, etc.), not your personal repositories. ` +
+    `Use agentsam_github_repo_list to list repos you own.`
   );
 }
 
 /**
- * Resolve repo for github_* tool calls — only the authenticated GitHub user's owner namespace.
+ * Model often copies SamPrimeaux/ from platform docs when the user means their own repo slug.
+ * @param {string} userLogin
+ * @param {string} requested
+ */
+function rewriteMisattributedRepoOwner(userLogin, requested) {
+  const login = trim(userLogin);
+  if (!login) return null;
+  const { owner, slug } = parseRepoParts(requested);
+  if (!slug) return null;
+
+  const slugLower = slug.toLowerCase();
+  if (PLATFORM_REPO_SLUGS.has(slugLower)) {
+    return null;
+  }
+
+  const loginLower = login.toLowerCase();
+  if (owner === loginLower) {
+    return fullRepo(login, slug);
+  }
+
+  if (!owner || owner === 'samprimeaux' || owner !== loginLower) {
+    return fullRepo(login, slug);
+  }
+
+  return null;
+}
+
+/**
+ * Resolve repo for github_* tool calls — user's GitHub login namespace only.
  * @param {any} env
  * @param {{
  *   userId: string,
@@ -77,7 +129,7 @@ export async function buildGithubScopeSystemPromptLine(env, userId) {
  *   workspaceId?: string|null,
  *   requestedRepo?: string|null,
  * }} input
- * @returns {Promise<{ repo: string|null, reason?: string, blocked?: boolean }>}
+ * @returns {Promise<{ repo: string|null, reason?: string, blocked?: boolean, rewritten_from?: string|null }>}
  */
 export async function resolveGithubRepoForToolCall(env, input) {
   const userId = trim(input.userId);
@@ -93,8 +145,7 @@ export async function resolveGithubRepoForToolCall(env, input) {
     fetchUserGithubLogin(env, userId),
   ]);
 
-  const userOwner = userLogin ? userLogin.toLowerCase() : '';
-  if (!userOwner) {
+  if (!userLogin) {
     return {
       repo: null,
       blocked: true,
@@ -102,15 +153,41 @@ export async function resolveGithubRepoForToolCall(env, input) {
     };
   }
 
-  const repoOwnedByUser = (repo) => {
-    const owner = parseRepoOwner(repo);
-    return !!(owner && owner === userOwner);
+  const userOwner = userLogin.toLowerCase();
+
+  const acceptRepo = (repo, meta = {}) => {
+    const full = trim(repo);
+    if (!full || !full.includes('/')) return null;
+    const owner = parseRepoParts(full).owner;
+    if (owner !== userOwner) return null;
+    return { repo: full, ...meta };
   };
 
   if (requested) {
-    if (repoOwnedByUser(requested)) {
-      return { repo: requested };
+    const direct = acceptRepo(requested);
+    if (direct) return direct;
+
+    const rewritten = rewriteMisattributedRepoOwner(userLogin, requested);
+    if (rewritten) {
+      const ok = acceptRepo(rewritten);
+      if (ok) {
+        return {
+          ...ok,
+          reason: 'rewrote_repo_owner_to_github_login',
+          rewritten_from: requested,
+        };
+      }
     }
+
+    const { slug } = parseRepoParts(requested);
+    if (slug && PLATFORM_REPO_SLUGS.has(slug.toLowerCase())) {
+      return {
+        repo: null,
+        blocked: true,
+        reason: `platform_repo_denied:${requested}`,
+      };
+    }
+
     return {
       repo: null,
       blocked: true,
@@ -118,8 +195,9 @@ export async function resolveGithubRepoForToolCall(env, input) {
     };
   }
 
-  if (workspaceRepo && repoOwnedByUser(workspaceRepo)) {
-    return { repo: workspaceRepo };
+  if (workspaceRepo) {
+    const ws = acceptRepo(workspaceRepo);
+    if (ws) return ws;
   }
 
   return { repo: null, reason: 'no_repo_context_use_github_repo_list' };

@@ -1555,7 +1555,10 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         const loginHint =
           repoScope.reason === 'github_not_connected'
             ? 'Connect GitHub in Integrations first.'
-            : 'Use agentsam_github_repo_list — only repos under your GitHub account are allowed (not SamPrimeaux/*).';
+            : repoScope.reason === 'platform_repo_denied' ||
+                String(ghParams.repo || '').toLowerCase().includes('inneranimalmedia')
+              ? 'That repository belongs to the platform operator (SamPrimeaux/inneranimalmedia), not your GitHub account.'
+              : 'Use agentsam_github_repo_list. Repo paths must use your GitHub username as owner (not SamPrimeaux/ unless that is your account).';
         result = {
           ok: false,
           error: repoScope.reason || 'github_repo_scope_denied',
@@ -1566,6 +1569,16 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
           },
         };
         break;
+      }
+      if (repoScope.rewritten_from) {
+        console.info(
+          '[github-repo-scope] rewrote_repo',
+          JSON.stringify({
+            from: repoScope.rewritten_from,
+            to: repoScope.repo,
+            user_id: userId,
+          }),
+        );
       }
       ghParams.repo = repoScope.repo;
       const ghParamsWithMeta = {
