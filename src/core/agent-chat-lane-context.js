@@ -4,6 +4,7 @@
 import {
   classifySemanticLane,
   classifyDatabaseAssistantIntent,
+  shouldSupplementDeepArchive,
 } from './semantic-lane-classifier.js';
 import { dispatchSemanticRetrieval } from './semantic-retrieval-dispatch.js';
 import {
@@ -164,6 +165,20 @@ function formatSemanticBlock(lane, results) {
 }
 
 /**
+ * @param {string} primaryLane
+ * @param {Array<{ title?: string, source_ref?: string, content?: string, score?: number }>} primaryResults
+ * @param {Array<{ title?: string, source_ref?: string, content?: string, score?: number }>|null|undefined} deepResults
+ */
+function mergeSemanticBlocks(primaryLane, primaryResults, deepResults) {
+  const parts = [];
+  if (primaryResults?.length) parts.push(formatSemanticBlock(primaryLane, primaryResults));
+  if (deepResults?.length) parts.push(formatSemanticBlock('deep_archive_search', deepResults));
+  if (!parts.length) return '';
+  const block = parts.join('\n\n');
+  return block.length > MAX_LANE_BLOCK_CHARS ? block.slice(0, MAX_LANE_BLOCK_CHARS) : block;
+}
+
+/**
  * @param {Record<string, unknown>} payload
  */
 function formatDatabaseBlock(payload, plane) {
@@ -178,7 +193,7 @@ function formatDatabaseBlock(payload, plane) {
 }
 
 /**
- * Normal Agent chat: at most one lane context block when include_rag allows retrieval.
+ * Normal Agent chat: lane context block when include_rag allows retrieval (primary lane + optional deep archive).
  *
  * @param {any} env
  * @param {{
@@ -289,30 +304,53 @@ export async function resolveAgentChatLaneContextBlock(env, opts = {}) {
   }
 
   try {
-    const out = await dispatchSemanticRetrieval(env, {
-      lane: semanticLane,
+    const dispatchBase = {
       query: message,
       workspace_id: workspaceId,
       tenant_id: opts.tenantId ?? null,
       user_id: opts.userId ?? null,
       agent_run_id: opts.agentRunId ?? null,
-      top_k: 6,
-    });
+    };
+    const supplementDeep = shouldSupplementDeepArchive(message, semanticLane);
 
-    if (!out?.ok || !out?.results?.length) {
-      if (out?.degraded_reason) {
+    const [primaryOut, deepOut] = await Promise.all([
+      dispatchSemanticRetrieval(env, { ...dispatchBase, lane: semanticLane, top_k: 6 }),
+      supplementDeep
+        ? dispatchSemanticRetrieval(env, {
+            ...dispatchBase,
+            lane: 'deep_archive_search',
+            top_k: 4,
+          })
+        : Promise.resolve(null),
+    ]);
+
+    const primaryResults = primaryOut?.ok ? primaryOut.results || [] : [];
+    const deepResults = deepOut?.ok ? deepOut.results || [] : [];
+
+    if (!primaryResults.length && !deepResults.length) {
+      if (primaryOut?.degraded_reason || deepOut?.degraded_reason) {
         console.warn(
           '[agent-chat] semantic_lane_degraded',
-          JSON.stringify({ lane: semanticLane, reason: out.degraded_reason }),
+          JSON.stringify({
+            lane: semanticLane,
+            reason: primaryOut?.degraded_reason || deepOut?.degraded_reason,
+            deep_supplement: supplementDeep,
+          }),
         );
       }
       return { block: '', lane: semanticLane, source: 'dispatchSemanticRetrieval_empty' };
     }
 
+    const block = mergeSemanticBlocks(semanticLane, primaryResults, deepResults);
+    const source =
+      supplementDeep && deepResults.length
+        ? 'dispatchSemanticRetrieval+deep_archive'
+        : 'dispatchSemanticRetrieval';
+
     return {
-      block: formatSemanticBlock(semanticLane, out.results),
-      lane: semanticLane,
-      source: 'dispatchSemanticRetrieval',
+      block,
+      lane: primaryResults.length ? semanticLane : 'deep_archive_search',
+      source,
     };
   } catch (e) {
     console.warn('[agent-chat] semantic_lane', semanticLane, e?.message ?? e);

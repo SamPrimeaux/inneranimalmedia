@@ -67,7 +67,9 @@ export function classifySemanticLane(message) {
   if (messageRequestsBrowserInspectLocal(message)) return null;
 
   if (
-    /\b(deep archive|long.?range archival|golden retrieval|eval baseline|architecture archive)\b/i.test(m)
+    /\b(deep archive|long.?range archival|golden retrieval|eval baseline|architecture archive|platform baseline|binding map|bindings? vectorize|runtime architecture|iam runtime architecture)\b/i.test(
+      m,
+    )
   ) {
     return 'deep_archive_search';
   }
@@ -116,6 +118,38 @@ export function classifySemanticLane(message) {
   }
 
   return null;
+}
+
+/**
+ * Whether auto-inject should fetch deep archive (3072d) alongside the primary semantic lane.
+ * @param {unknown} message
+ * @param {SemanticLane} primaryLane
+ * @returns {boolean}
+ */
+export function shouldSupplementDeepArchive(message, primaryLane) {
+  if (!primaryLane || primaryLane === 'deep_archive_search') return false;
+  const m = stripUserTextForIntent(message).toLowerCase();
+  if (!m) return false;
+
+  if (
+    /\b(platform baseline|binding map|bindings? vectorize|vectorize binding|runtime architecture|iam runtime|platform wiring|golden (doc|source|retrieval)|architecture map)\b/i.test(
+      m,
+    )
+  ) {
+    return true;
+  }
+
+  if (
+    ['docs_knowledge_search', 'schema_semantic_search', 'code_semantic_search'].includes(primaryLane) &&
+    (/\b(how does|how do|explain).{0,50}(work|wire|route|bind)\b/i.test(m) ||
+      /\b(platform|inner animal|agentsam|vectorize|hyperdrive|wrangler|deploy:full|mcp worker|semantic (lane|retrieval|dispatch))\b/i.test(
+        m,
+      ))
+  ) {
+    return true;
+  }
+
+  return false;
 }
 
 /**

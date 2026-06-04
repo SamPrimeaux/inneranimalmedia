@@ -55,6 +55,50 @@ export const SEMANTIC_LANE_REGISTRY = Object.freeze({
 
 const EMBEDDING_MODEL_1536 = 'text-embedding-3-large';
 const EMBEDDING_MODEL_3072 = 'text-embedding-3-large';
+const SEMANTIC_CACHE_TTL_SEC = 3600;
+
+/**
+ * @param {string} lane
+ * @param {string} workspaceIdD1
+ * @param {string} queryHash
+ * @param {number} topK
+ */
+function semanticCacheKey(lane, workspaceIdD1, queryHash, topK) {
+  return `sem:v1:${lane}:${workspaceIdD1}:${queryHash}:${topK}`;
+}
+
+/**
+ * @param {any} env
+ * @param {string} key
+ * @returns {Promise<Record<string, unknown>|null>}
+ */
+async function readSemanticCache(env, key) {
+  if (!env?.SESSION_CACHE?.get) return null;
+  try {
+    const raw = await env.SESSION_CACHE.get(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * @param {any} env
+ * @param {string} key
+ * @param {Record<string, unknown>} payload
+ */
+async function writeSemanticCache(env, key, payload) {
+  if (!env?.SESSION_CACHE?.put) return;
+  try {
+    await env.SESSION_CACHE.put(key, JSON.stringify(payload), {
+      expirationTtl: SEMANTIC_CACHE_TTL_SEC,
+    });
+  } catch {
+    /* non-fatal */
+  }
+}
 
 /** @param {string} text */
 export async function semanticQueryHash(text) {
@@ -396,6 +440,18 @@ export async function dispatchSemanticRetrieval(env, opts) {
     };
   }
 
+  const cacheKey = semanticCacheKey(lane, workspaceIdD1, queryHash, topK);
+  if (opts.bypass_cache !== true) {
+    const cached = await readSemanticCache(env, cacheKey);
+    if (cached && cached.ok === true) {
+      return {
+        ...cached,
+        duration_ms: Date.now() - t0,
+        cached: true,
+      };
+    }
+  }
+
   if (!isHyperdriveUsable(env)) {
     return {
       ok: false,
@@ -526,7 +582,7 @@ export async function dispatchSemanticRetrieval(env, opts) {
     };
   }
 
-  return {
+  const response = {
     ok: true,
     lane,
     backend,
@@ -539,7 +595,10 @@ export async function dispatchSemanticRetrieval(env, opts) {
     fallback_used: fallbackUsed,
     degraded_reason: results.length ? null : 'no_hits',
     error: null,
+    cached: false,
   };
+  writeSemanticCache(env, cacheKey, response).catch(() => {});
+  return response;
 }
 
 /**
