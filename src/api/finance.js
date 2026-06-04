@@ -7,12 +7,14 @@
  * - All platform financial data (P&L, transactions, client revenue, invoices) is
  *   superadmin-only. Non-superadmin users get scoped AI spend data only.
  * - agentsam_usage_rollups_daily is tenant+workspace scoped — safe for all users.
- * - financial_monthly_summaries, financial_health, finance_transactions,
- *   client_revenue, invoices, clients have no per-user scope columns —
- *   gated to superadmin only.
+ * - financial_monthly_summaries, financial_health, client_revenue, invoices, clients
+ *   are platform-wide tables — superadmin route gate only (no per-user column).
+ * - finance_transactions, agentsam_usage_events, founder_metrics (operator wellness):
+ *   tenant/workspace scoped in analytics.js; founder_metrics is superadmin-only (no tenant column).
  */
 import { getAuthUser, jsonResponse } from '../core/auth.js';
 import { isAuthSuperadmin } from '../core/workspace-access.js';
+import { buildFinanceAnalyticsExtension } from './analytics.js';
 import { handleProjectsApi } from './projects.js';
 
 function currentMonthStart() {
@@ -242,6 +244,18 @@ async function handleFinanceSummary(url, env, authUser, isSuperadmin) {
         tenantId ? [tenantId] : [],
     );
 
+    const workspaceId = authUser?.workspace_id ?? authUser?.active_workspace_id ?? null;
+    let analytics_extension = {};
+    try {
+        analytics_extension = await buildFinanceAnalyticsExtension(env, {
+            isSuperadmin: true,
+            tenantId,
+            workspaceId,
+        });
+    } catch {
+        analytics_extension = {};
+    }
+
     return jsonResponse({
         success: true,
         ai_spend_mtd: Number(usageMtd?.ai_spend_mtd ?? 0),
@@ -257,6 +271,7 @@ async function handleFinanceSummary(url, env, authUser, isSuperadmin) {
             day: r.day,
             cost_usd: Number(r.cost_usd ?? 0),
         })),
+        analytics_extension,
     });
 }
 

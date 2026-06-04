@@ -1,10 +1,5 @@
 /**
- * Consolidated analytics reads for finance/overview dashboards (D1 + Supabase REST).
- *
- * ISOLATION: buildFinanceAnalyticsExtension is called from /api/finance/summary.
- * That endpoint is now superadmin-gated in finance.js — this module assumes the
- * caller has already verified superadmin. Non-superadmin callers get the safe
- * scoped payload from handleFinanceSummary directly and never reach this module.
+ * Finance summary enrichment (D1 + Supabase). SUPERADMIN ONLY — never call for Connor/scoped users.
  */
 import { supabaseGetJson } from './health/supabaseRest.js';
 
@@ -29,15 +24,69 @@ async function d1First(db, sql, binds = []) {
   }
 }
 
+function emptyFinanceAnalyticsExtension() {
+  return {
+    mrr: 0,
+    total_spend_month: 0,
+    ai_cost_month: 0,
+    cost_by_model: [],
+    forecast: [],
+    billing_plan: null,
+    token_spend_trend: [],
+    founder_metrics_recent: [],
+    tokens_month: 0,
+    _scoped: true,
+  };
+}
+
 /**
- * Enrichment payload merged into GET /api/finance/summary (best-effort; never throws).
- * SUPERADMIN ONLY — caller must enforce before invoking.
- * @param {any} env
- * @param {string|null} tenantId
+ * @param {string|null|undefined} tenantId
+ * @param {string|null|undefined} workspaceId
  */
-export async function buildFinanceAnalyticsExtension(env, tenantId = null) {
-  const db = env?.DB;
+function buildUsageScope(tenantId, workspaceId) {
   const tid = tenantId && String(tenantId).trim() ? String(tenantId).trim() : null;
+  const ws =
+    workspaceId && String(workspaceId).trim() ? String(workspaceId).trim() : null;
+  if (tid && ws) {
+    return { sql: 'tenant_id = ? AND workspace_id = ?', binds: [tid, ws] };
+  }
+  if (tid) {
+    return { sql: 'tenant_id = ?', binds: [tid] };
+  }
+  return null;
+}
+
+/**
+ * Enrichment merged into GET /api/finance/summary (superadmin path only).
+ * @param {any} env
+ * @param {{
+ *   isSuperadmin?: boolean,
+ *   tenantId?: string|null,
+ *   workspaceId?: string|null,
+ * } | string | null} scopeOrTenantId — legacy: bare tenantId string
+ */
+export async function buildFinanceAnalyticsExtension(env, scopeOrTenantId = null) {
+  const scope =
+    scopeOrTenantId != null && typeof scopeOrTenantId === 'object'
+      ? scopeOrTenantId
+      : { tenantId: scopeOrTenantId, isSuperadmin: false };
+
+  const isSuperadmin = scope.isSuperadmin === true;
+  if (!isSuperadmin) {
+    return emptyFinanceAnalyticsExtension();
+  }
+
+  const db = env?.DB;
+  const tid =
+    scope.tenantId != null && String(scope.tenantId).trim()
+      ? String(scope.tenantId).trim()
+      : null;
+  const ws =
+    scope.workspaceId != null && String(scope.workspaceId).trim()
+      ? String(scope.workspaceId).trim()
+      : null;
+  const usageScope = buildUsageScope(tid, ws);
+
   const now = new Date();
   const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
   const monthStartSec = Math.floor(new Date(`${monthStart}T00:00:00Z`).getTime() / 1000);
@@ -55,30 +104,35 @@ export async function buildFinanceAnalyticsExtension(env, tenantId = null) {
       )
     : { mrr: 0 };
 
-  const total_spend_month = await d1First(
-    db,
-    `SELECT COALESCE(SUM(ABS(amount)),0) AS v FROM financial_transactions
-     WHERE transaction_date >= ? AND amount < 0`,
-    [monthStart],
-  );
-
-  const usageMonth = await d1First(
-    db,
-    `SELECT COALESCE(SUM(COALESCE(cost_usd,0)),0) AS v, COALESCE(SUM(COALESCE(total_tokens,0)),0) AS tokens
-     FROM agentsam_usage_events
-     WHERE COALESCE(created_at,0) >= ?`,
-    [monthStartSec],
-  );
-
-  // founder_metrics scoped to tenantId — never returned without it
-  const founder = tid
-    ? await d1All(
+  const total_spend_month = tid
+    ? await d1First(
         db,
-        `SELECT date, energy_level, stress_level, sleep_hours, notes
-         FROM founder_metrics WHERE tenant_id = ? ORDER BY date DESC LIMIT 14`,
-        [tid],
+        `SELECT COALESCE(SUM(ABS(amount_cents)), 0) / 100.0 AS v
+         FROM finance_transactions
+         WHERE tenant_id = ?
+           AND date >= ?
+           AND LOWER(direction) IN ('debit', 'expense', 'out')`,
+        [tid, monthStart],
       )
-    : [];
+    : { v: 0 };
+
+  const usageMonth = usageScope
+    ? await d1First(
+        db,
+        `SELECT COALESCE(SUM(COALESCE(cost_usd,0)),0) AS v,
+                COALESCE(SUM(COALESCE(total_tokens, COALESCE(tokens_in,0) + COALESCE(tokens_out,0), 0)),0) AS tokens
+         FROM agentsam_usage_events
+         WHERE ${usageScope.sql} AND COALESCE(created_at,0) >= ?`,
+        [...usageScope.binds, monthStartSec],
+      )
+    : { v: 0, tokens: 0 };
+
+  // founder_metrics has no tenant_id — operator-only wellness rows (superadmin gate above).
+  const founder = await d1All(
+    db,
+    `SELECT date, energy_level, stress_level, sleep_hours, notes
+     FROM founder_metrics ORDER BY date DESC LIMIT 14`,
+  );
 
   const [snapshots, forecasts, routing] = await Promise.all([
     supabaseGetJson(
@@ -86,7 +140,11 @@ export async function buildFinanceAnalyticsExtension(env, tenantId = null) {
       `/rest/v1/agentsam_model_cost_snapshots?select=*&order=captured_at.desc.nullslast&limit=120`,
       'public',
     ),
-    supabaseGetJson(env, `/rest/v1/cost_forecasts?select=*&order=forecast_date.desc.nullslast&limit=30`, 'public'),
+    supabaseGetJson(
+      env,
+      `/rest/v1/cost_forecasts?select=*&order=forecast_date.desc.nullslast&limit=30`,
+      'public',
+    ),
     supabaseGetJson(
       env,
       `/rest/v1/agentsam_routing_decisions?select=model,model_key,provider,estimated_cost_usd,created_at&order=created_at.desc.nullslast&limit=200`,
