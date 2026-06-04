@@ -113,6 +113,13 @@ const GOLDEN_SOURCES = [
     source_ref: 'agent-layer-snapshot-p0-rag-2026-06',
   },
   {
+    key: 'bindings-vectorize-api-map',
+    title: 'Bindings Vectorize API Map',
+    path: 'docs/platform/bindings-vectorize-api-map-2026-06.md',
+    source_type: 'architecture',
+    source_ref: 'bindings-vectorize-api-map-2026-06',
+  },
+  {
     key: 'browserview-wiring',
     title: 'BrowserView / MYBROWSER Wiring',
     path: 'docs/platform/browserview-mybrowser-wiring-2026-06.md',
