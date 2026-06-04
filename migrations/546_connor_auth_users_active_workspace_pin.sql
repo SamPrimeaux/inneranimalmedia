@@ -25,7 +25,8 @@ WHERE user_id = 'au_5d17673408aaebc7'
       'ws_sam_primeaux',
       'ws_meauxbility',
       'ws_meauxwork',
-      'ws_meauxcloud'
+      'ws_meauxcloud',
+      'ws_connordmcneely'
     )
   );
 
