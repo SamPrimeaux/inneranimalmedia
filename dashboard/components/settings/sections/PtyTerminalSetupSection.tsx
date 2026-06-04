@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Circle, Copy, Loader2, Terminal, Zap } from 'lucide-react';
+import { CheckCircle2, Circle, Copy, Loader2, Terminal, Trash2, Zap } from 'lucide-react';
 import { useWorkspace } from '../../../src/context/WorkspaceContext';
 import { EmptyState, LoadingRow, WarningStrip } from '../components/SectionPrimitives';
 
@@ -16,6 +16,7 @@ type TunnelStatus = {
   tunnel_id?: string | null;
   tunnel_name?: string | null;
   hostname?: string | null;
+  zone_id?: string | null;
   cf_status?: string;
   connection_active?: boolean;
   connections_count?: number;
@@ -27,6 +28,28 @@ type LocalConn = {
   has_local?: boolean;
   connection?: { id?: string; ws_url_present?: boolean; is_active?: boolean; platform?: string; shell?: string };
 };
+
+type CfZone = { id: string; name: string; status?: string };
+
+function hostnameMatchesZone(hostname: string, zoneName: string): boolean {
+  const h = hostname.trim().toLowerCase();
+  const z = zoneName.trim().toLowerCase();
+  if (!h || !z) return false;
+  return h === z || h.endsWith(`.${z}`);
+}
+
+function pickZoneForHostname(zones: CfZone[], hostname: string): CfZone | null {
+  const h = hostname.trim().toLowerCase();
+  if (!h) return null;
+  const exact = zones.find((z) => hostnameMatchesZone(h, z.name));
+  if (exact) return exact;
+  const parts = h.split('.');
+  if (parts.length >= 2) {
+    const apex = parts.slice(-2).join('.');
+    return zones.find((z) => z.name.toLowerCase() === apex) ?? null;
+  }
+  return null;
+}
 
 function wsHeaders(workspaceId: string | null): Record<string, string> {
   const h: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -90,6 +113,63 @@ export function PtyTerminalSetupSection({
     ws_url?: string;
     connection_id?: string;
   } | null>(null);
+  const [cfZones, setCfZones] = useState<CfZone[]>([]);
+  const [zonesLoading, setZonesLoading] = useState(false);
+
+  const applyZoneDefaults = useCallback(
+    (zones: CfZone[], tun: TunnelStatus | null) => {
+      if (tun?.zone_id) {
+        setZoneId(String(tun.zone_id));
+      } else if (zones.length === 1) {
+        setZoneId(zones[0].id);
+      }
+      if (tun?.tunnel_name) setTunnelName(String(tun.tunnel_name));
+      if (tun?.hostname) {
+        setHostname(String(tun.hostname));
+        if (!tun.zone_id && zones.length > 0) {
+          const match = pickZoneForHostname(zones, String(tun.hostname));
+          if (match) setZoneId(match.id);
+        }
+      } else if (zones.length === 1 && zones[0].name) {
+        const z = zones[0];
+        setHostname((prev) => (prev.trim() ? prev : `pty.${z.name}`));
+      }
+    },
+    [],
+  );
+
+  const loadCfZones = useCallback(async () => {
+    if (!ws || !hasCloudflareKey) {
+      setCfZones([]);
+      return [] as CfZone[];
+    }
+    setZonesLoading(true);
+    try {
+      const r = await fetch('/api/settings/keys/cloudflare/zones', {
+        credentials: 'same-origin',
+        headers: wsHeaders(ws),
+      });
+      const j = (await r.json().catch(() => ({}))) as { zones?: CfZone[]; message?: string; error?: string };
+      if (!r.ok) {
+        const msg =
+          typeof j.message === 'string'
+            ? j.message
+            : typeof j.error === 'string'
+              ? j.error
+              : `Zones list failed (${r.status})`;
+        throw new Error(msg);
+      }
+      const zones = Array.isArray(j.zones) ? j.zones.filter((z) => z?.id) : [];
+      setCfZones(zones);
+      return zones;
+    } catch (e) {
+      setCfZones([]);
+      onError(e instanceof Error ? e.message : 'Failed to load Cloudflare zones');
+      return [] as CfZone[];
+    } finally {
+      setZonesLoading(false);
+    }
+  }, [ws, hasCloudflareKey, onError]);
 
   const refresh = useCallback(async () => {
     if (!ws) {
@@ -111,19 +191,30 @@ export function PtyTerminalSetupSection({
       if (!tRes.ok && tRes.status !== 403) {
         throw new Error(await readErr(tRes, tJ as Record<string, unknown>));
       }
+      const tun = tunRes.ok ? tunJ : null;
       setTokenStatus(tRes.ok ? tJ : null);
-      setTunnelStatus(tunRes.ok ? tunJ : null);
+      setTunnelStatus(tun);
       setLocalConn(locRes.ok ? locJ : null);
+      if (hasCloudflareKey) {
+        const zones = await loadCfZones();
+        applyZoneDefaults(zones, tun);
+      }
     } catch (e) {
       onError(e instanceof Error ? e.message : 'Failed to load terminal status');
     } finally {
       setLoading(false);
     }
-  }, [ws, onError]);
+  }, [ws, onError, hasCloudflareKey, loadCfZones, applyZoneDefaults]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (!hostname.trim() || cfZones.length === 0) return;
+    const match = pickZoneForHostname(cfZones, hostname);
+    if (match && zoneId !== match.id) setZoneId(match.id);
+  }, [hostname, cfZones, zoneId]);
 
   const hasToken = !!tokenStatus?.has_token;
   const hasTunnel = !!(tunnelStatus?.tunnel_id || tunnelStatus?.hostname);
@@ -228,6 +319,46 @@ export function PtyTerminalSetupSection({
     }
   };
 
+  const onRevokePty = async () => {
+    if (!ws) return;
+    const msg =
+      'Revoke your PTY bridge token and Cloudflare tunnel for this workspace only? ' +
+      'Other users and platform credentials are not affected.';
+    if (!window.confirm(msg)) return;
+    setBusy('revoke');
+    onError(null);
+    try {
+      const hdr = { ...wsHeaders(ws), 'Content-Type': 'application/json' };
+      const tunR = await fetch('/api/terminal/tunnel', {
+        method: 'DELETE',
+        credentials: 'same-origin',
+        headers: hdr,
+      });
+      const tunJ = (await tunR.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!tunR.ok && tunR.status !== 404) {
+        throw new Error(await readErr(tunR, tunJ));
+      }
+      const tokR = await fetch('/api/terminal/token', {
+        method: 'DELETE',
+        credentials: 'same-origin',
+        headers: hdr,
+      });
+      const tokJ = (await tokR.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!tokR.ok) throw new Error(await readErr(tokR, tokJ));
+      setPtyTokenOnce(null);
+      setRunTokenOnce(null);
+      setProvisionResult(null);
+      setHostname('');
+      setZoneId('');
+      setTunnelName('my-pty');
+      await refresh();
+    } catch (e) {
+      onError(e instanceof Error ? e.message : 'Revoke failed');
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const onOneClickSetup = async () => {
     setWizardOpen(true);
     if (!hasCloudflareKey) {
@@ -298,6 +429,22 @@ cd iam-pty && npm install && node server.js`;
           >
             Refresh status
           </button>
+          {(hasToken || hasTunnel) && !loading ? (
+            <button
+              type="button"
+              disabled={busy === 'revoke'}
+              onClick={() => void onRevokePty()}
+              className="inline-flex items-center gap-1.5 text-[11px] px-3 py-1.5 rounded-lg border border-[var(--color-danger)]/50 text-[var(--color-danger)] hover:bg-[var(--color-danger)]/10 disabled:opacity-50"
+              title="Revokes only your PTY token and tunnel for this workspace"
+            >
+              {busy === 'revoke' ? (
+                <Loader2 size={12} className="animate-spin" />
+              ) : (
+                <Trash2 size={12} />
+              )}
+              Revoke my PTY
+            </button>
+          ) : null}
           {!allReady ? (
             <button
               type="button"
@@ -417,13 +564,39 @@ cd iam-pty && npm install && node server.js`;
               />
             </label>
             <label className="flex flex-col gap-1 text-[11px] sm:col-span-3">
-              <span className="text-[var(--text-muted)]">Cloudflare zone ID</span>
-              <input
-                value={zoneId}
-                onChange={(e) => setZoneId(e.target.value)}
-                placeholder="From Cloudflare dashboard → your zone → Overview"
-                className="px-3 py-2 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[12px] font-mono"
-              />
+              <span className="text-[var(--text-muted)]">
+                Cloudflare zone
+                {zonesLoading ? ' (loading…)' : cfZones.length ? ` (${cfZones.length} on your account)` : ''}
+              </span>
+              {cfZones.length > 0 ? (
+                <select
+                  value={zoneId}
+                  onChange={(e) => {
+                    const id = e.target.value;
+                    setZoneId(id);
+                    const z = cfZones.find((x) => x.id === id);
+                    if (z?.name && !hostname.trim()) setHostname(`pty.${z.name}`);
+                  }}
+                  className="px-3 py-2 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[12px] font-mono"
+                >
+                  <option value="">Select zone…</option>
+                  {cfZones.map((z) => (
+                    <option key={z.id} value={z.id}>
+                      {z.name} ({z.id.slice(0, 8)}…)
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  value={zoneId}
+                  onChange={(e) => setZoneId(e.target.value)}
+                  placeholder="Zone ID from Cloudflare dashboard"
+                  className="px-3 py-2 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[12px] font-mono"
+                />
+              )}
+              {zoneId && cfZones.length > 0 ? (
+                <span className="text-[10px] text-[var(--text-muted)] font-mono">{zoneId}</span>
+              ) : null}
             </label>
           </div>
 

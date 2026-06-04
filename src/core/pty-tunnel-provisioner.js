@@ -310,7 +310,15 @@ export async function deprovisionPtyTunnel(env, opts) {
   const workspaceId = String(opts.workspaceId || '').trim();
   const meta = await resolveUserTunnelMeta(env, userId, workspaceId);
   if (!meta?.tunnel_id) {
-    return { ok: false, error: 'tunnel_not_found' };
+    const now = Math.floor(Date.now() / 1000);
+    await env.DB.prepare(
+      `UPDATE terminal_connections SET is_active = 0, updated_at = ?
+       WHERE user_id = ? AND workspace_id = ? AND target_type = 'user_hosted_tunnel'`,
+    )
+      .bind(now, userId, workspaceId)
+      .run()
+      .catch(() => {});
+    return { ok: true, tunnel_id: null, dns_record_deleted: false, already_absent: true };
   }
 
   const creds = await resolveWorkspaceCloudflareCredentials(env, userId, tenantId, workspaceId);
@@ -381,6 +389,7 @@ export async function getPtyTunnelStatus(env, opts) {
     tunnel_id: meta?.tunnel_id != null ? String(meta.tunnel_id) : null,
     tunnel_name: meta?.tunnel_name != null ? String(meta.tunnel_name) : null,
     hostname: meta?.hostname != null ? String(meta.hostname) : null,
+    zone_id: meta?.zone_id != null ? String(meta.zone_id) : null,
     connection_id: conn?.id != null ? String(conn.id) : meta?.connection_id != null ? String(meta.connection_id) : null,
     connection_active: !!(conn && Number(conn.is_active) === 1),
     cf_status: 'unknown',

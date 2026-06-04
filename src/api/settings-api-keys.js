@@ -1235,6 +1235,72 @@ async function listCloudflareD1Databases(env, authUser, request, url) {
   }
 }
 
+async function listCloudflareZones(env, authUser, request) {
+  const wsRes = await assertWorkspaceAccess(env, request, authUser);
+  if (wsRes.error === 'Forbidden') return clientError('FORBIDDEN', 'You do not have access to this workspace.', 403);
+  if (wsRes.error === 'WORKSPACE_CONTEXT_MISSING') {
+    return clientError('WORKSPACE_CONTEXT_MISSING', 'Workspace context is missing.', 400);
+  }
+  if (wsRes.error) return clientError('WORKSPACE_ERROR', wsRes.error, 400);
+
+  const tenantId = await resolveTenantIdOrFetch(env, authUser);
+  const userId = String(authUser?.id || '').trim();
+  const workspaceId = wsRes.workspaceId;
+
+  const creds = await resolveWorkspaceCloudflareCredentials(env, userId, tenantId, workspaceId);
+  if (!creds.ok) {
+    return clientError('CLOUDFLARE_CREDENTIALS_MISSING', 'Add a Cloudflare API token for this workspace first.', 400);
+  }
+
+  const accountId = creds.account_id;
+  if (!accountId) {
+    return clientError('CLOUDFLARE_ACCOUNT_ID_REQUIRED', 'Cloudflare Account ID is required.', 400);
+  }
+
+  try {
+    const zones = [];
+    let page = 1;
+    for (let guard = 0; guard < 20; guard += 1) {
+      const res = await fetch(
+        `https://api.cloudflare.com/client/v4/zones?account.id=${encodeURIComponent(accountId)}&page=${page}&per_page=50`,
+        {
+          headers: {
+            Authorization: `Bearer ${creds.token}`,
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.success === false) {
+        const msg = data?.errors?.[0]?.message || `cloudflare_zones_list_${res.status}`;
+        return clientError('CLOUDFLARE_ZONES_LIST_FAILED', String(msg), 400);
+      }
+      const batch = Array.isArray(data?.result) ? data.result : [];
+      for (const z of batch) {
+        if (!z?.id) continue;
+        zones.push({
+          id: String(z.id),
+          name: z.name != null ? String(z.name) : '',
+          status: z.status != null ? String(z.status) : '',
+        });
+      }
+      const info = data?.result_info;
+      const totalPages = info?.total_pages != null ? Number(info.total_pages) : page;
+      if (page >= totalPages || batch.length === 0) break;
+      page += 1;
+    }
+
+    return jsonResponse({
+      ok: true,
+      account_id_mask: maskAccountId(accountId),
+      zones,
+      workspace_id: workspaceId,
+    });
+  } catch (e) {
+    return clientError('CLOUDFLARE_ZONES_LIST_FAILED', e?.message ?? String(e), 500);
+  }
+}
+
 async function selectCloudflareD1Database(env, authUser, request) {
   const wsRes = await assertWorkspaceAccess(env, request, authUser);
   if (wsRes.error === 'Forbidden') return clientError('FORBIDDEN', 'You do not have access to this workspace.', 403);
@@ -1311,6 +1377,10 @@ export async function handleSettingsKeysApi(request, env, ctx, authUser, url, pa
 
   if (keysPath === '/api/settings/keys/cloudflare/d1' && method === 'GET') {
     return listCloudflareD1Databases(env, authUser, request, url);
+  }
+
+  if (keysPath === '/api/settings/keys/cloudflare/zones' && method === 'GET') {
+    return listCloudflareZones(env, authUser, request);
   }
 
   if (keysPath === '/api/settings/keys/cloudflare/d1/select' && method === 'POST') {
