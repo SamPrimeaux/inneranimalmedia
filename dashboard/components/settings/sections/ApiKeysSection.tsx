@@ -10,6 +10,7 @@ import {
   SummaryGrid,
   WarningStrip,
 } from '../components/SectionPrimitives';
+import { PtyTerminalSetupSection } from './PtyTerminalSetupSection';
 
 type ApiKeyItem = {
   id: string;
@@ -575,6 +576,16 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
           { label: 'Revoked', value: summary.revoked },
           { label: 'Providers', value: summary.providers },
         ]}
+      />
+
+      <PtyTerminalSetupSection
+        workspaceId={ws}
+        hasCloudflareKey={hasCloudflareKey}
+        onNeedCloudflareKey={() => {
+          setProvider('cloudflare');
+          setCreateOpen(true);
+        }}
+        onError={setError}
       />
 
       <h3 className="text-[11px] font-black uppercase tracking-widest text-[var(--text-muted)]">
