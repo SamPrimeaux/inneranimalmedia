@@ -1,9 +1,32 @@
 /**
- * Resolve workspace-scoped BYO Cloudflare API token + account id from user_api_keys.
- * Never reads env.CLOUDFLARE_API_TOKEN / env.CLOUDFLARE_ACCOUNT_ID.
+ * Resolve Cloudflare API token + account id for a workspace.
+ * Superadmin → platform Wrangler secrets (account-wide). Everyone else → BYOK user_api_keys only.
  */
 import { getAESKey, aesGcmDecryptFromB64 } from './crypto-vault.js';
 import { getDefaultWorkspaceDataBinding } from './workspace-data-bindings.js';
+import { userHasSuperadminRole } from './resolve-credential.js';
+
+function trim(v) {
+  return v == null ? '' : String(v).trim();
+}
+
+/**
+ * @param {any} env
+ * @param {string} userId
+ */
+async function loadAuthUserForCredentials(env, userId) {
+  if (!env?.DB || !userId) return null;
+  try {
+    return await env.DB.prepare(
+      `SELECT id, COALESCE(is_superadmin, 0) AS is_superadmin, role
+         FROM auth_users WHERE id = ? LIMIT 1`,
+    )
+      .bind(trim(userId))
+      .first();
+  } catch {
+    return null;
+  }
+}
 
 function parseMeta(raw) {
   if (raw == null || raw === '') return {};
@@ -50,6 +73,24 @@ export async function resolveWorkspaceCloudflareCredentials(env, userId, tenantI
   if (accountBinding?.external_account_id) {
     accountId = String(accountBinding.external_account_id).trim();
     bindingId = accountBinding.id != null ? String(accountBinding.id) : null;
+  }
+
+  const authUser = await loadAuthUserForCredentials(env, uid);
+  if (userHasSuperadminRole(authUser)) {
+    const token = trim(env?.CLOUDFLARE_API_TOKEN);
+    const platformAccountId = trim(env?.CLOUDFLARE_ACCOUNT_ID);
+    if (token && platformAccountId) {
+      return {
+        ok: true,
+        error: null,
+        token,
+        account_id: platformAccountId,
+        account_mask: maskAccountId(platformAccountId),
+        key_id: null,
+        binding_id: bindingId,
+        platform_bypass: 'superadmin_role',
+      };
+    }
   }
 
   const cols = await userApiKeysColumnSet(env.DB);

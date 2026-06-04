@@ -8,6 +8,29 @@ import {
   listWorkspaceDataBindings,
 } from './workspace-data-bindings.js';
 import { resolveWorkspaceCloudflareCredentials } from './workspace-cloudflare-credentials.js';
+import { userHasSuperadminRole } from './resolve-credential.js';
+
+function trim(v) {
+  return v == null ? '' : String(v).trim();
+}
+
+/**
+ * @param {any} env
+ * @param {string} userId
+ */
+async function loadAuthUserForCfApi(env, userId) {
+  if (!env?.DB || !userId) return null;
+  try {
+    return await env.DB.prepare(
+      `SELECT id, COALESCE(is_superadmin, 0) AS is_superadmin, role
+         FROM auth_users WHERE id = ? LIMIT 1`,
+    )
+      .bind(trim(userId))
+      .first();
+  } catch {
+    return null;
+  }
+}
 import { evaluateDataPlaneOperation } from './database-operation-policy.js';
 import { logCustomerDataPlaneEvent } from './customer-data-plane-telemetry.js';
 import { generateRollbackStub } from './database-assistant-dispatch.js';
@@ -41,10 +64,29 @@ export async function cfApi(token, path, init = {}) {
  * @param {string} workspaceId
  */
 async function resolveCloudflareApiToken(env, userId, tenantId, workspaceId) {
+  const authUser = await loadAuthUserForCfApi(env, userId);
+  if (userHasSuperadminRole(authUser)) {
+    const token = trim(env?.CLOUDFLARE_API_TOKEN);
+    const accountId = trim(env?.CLOUDFLARE_ACCOUNT_ID);
+    if (token) {
+      return {
+        token,
+        source: 'platform_superadmin',
+        account_id: accountId || null,
+        platform_bypass: 'superadmin_role',
+      };
+    }
+  }
+
   if (workspaceId && tenantId) {
     const byo = await resolveWorkspaceCloudflareCredentials(env, userId, tenantId, workspaceId);
     if (byo.ok && byo.token) {
-      return { token: byo.token, source: 'byo_api_key', account_id: byo.account_id };
+      return {
+        token: byo.token,
+        source: byo.platform_bypass ? 'platform_superadmin' : 'byo_api_key',
+        account_id: byo.account_id,
+        platform_bypass: byo.platform_bypass || null,
+      };
     }
   }
   const oauth = await getOAuthToken(env, userId, 'cloudflare');
