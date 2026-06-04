@@ -17,3 +17,18 @@ WHERE (user_id IS NULL OR trim(user_id) = '')
      GROUP BY workspace_id
     HAVING COUNT(DISTINCT user_id) > 1
   );
+
+-- 545a: Fix Connor's stale active_workspace_id pointing at ws_inneranimalmedia.
+-- Without this, resolveEffectiveWorkspaceId trusts auth_users.active_workspace_id
+-- and boots his session into Sam's workspace, injecting SamPrimeaux/inneranimalmedia
+-- as github_repo context into every Agent Sam prompt.
+UPDATE auth_users
+SET active_workspace_id = 'ws_connor_mcneely',
+    active_tenant_id    = 'tenant_connor_mcneely'
+WHERE id = 'au_5d17673408aaebc7'
+  AND (
+    active_workspace_id != 'ws_connor_mcneely'
+    OR active_tenant_id  != 'tenant_connor_mcneely'
+    OR active_workspace_id IS NULL
+    OR active_tenant_id   IS NULL
+  );
