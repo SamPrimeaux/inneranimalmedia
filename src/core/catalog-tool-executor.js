@@ -1568,6 +1568,10 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         tenantId,
         workspaceId,
         requestedRepo: ghParams.repo,
+        isSuperadmin:
+          runContext?.isSuperadmin === true ||
+          runContext?.is_superadmin === true ||
+          runContext?.isOperatorCall === true,
       });
       if (repoScope.blocked || !repoScope.repo) {
         const loginHint =

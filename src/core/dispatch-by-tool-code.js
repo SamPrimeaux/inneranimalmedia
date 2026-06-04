@@ -4,6 +4,7 @@
  */
 import { parseHandlerConfig, resolveCredential, userHasSuperadminRole } from './resolve-credential.js';
 import { executeCatalogTool } from './catalog-tool-executor.js';
+import { assertTenantSpendPolicy } from './tenant-spend-policy.js';
 import {
   loadAgentsamToolRow,
   validateHandlerConfigForExecution,
@@ -14,6 +15,13 @@ function parseInput(input) {
   if (input == null) return {};
   if (typeof input === 'object' && !Array.isArray(input)) return { ...input };
   return { value: input };
+}
+
+function normalizeAuthSourceForSpend(raw) {
+  const s = String(raw || '').trim().toLowerCase();
+  if (s === 'platform_scoped') return 'platform_scoped';
+  if (s === 'platform' || s === 'env' || s === 'binding') return 'platform';
+  return s;
 }
 
 /**
@@ -53,6 +61,32 @@ export async function dispatchByToolCode(env, toolCodeOrKey, input, runContext =
     userHasSuperadminRole(authUser) ||
     runContext.isSuperadmin === true ||
     runContext.is_superadmin === true;
+
+  const spendGate = await assertTenantSpendPolicy(env, {
+    tenantId,
+    userId,
+    isSuperadmin: isSuper,
+    authSource: config.auth_source ? normalizeAuthSourceForSpend(config.auth_source) : null,
+    modelKey: runContext.modelKey ?? runContext.model_key ?? null,
+    modelTier: runContext.modelTier ?? runContext.model_tier ?? null,
+    billingSource: runContext.billingSource ?? runContext.billing_source ?? null,
+  });
+  if (!spendGate.ok) {
+    return {
+      ok: false,
+      error: spendGate.message || spendGate.error || 'tenant_spend_policy_denied',
+      tool_key: row.tool_key,
+      body: {
+        error: spendGate.error,
+        tenant_id: tenantId,
+        max_model_tier: spendGate.max_model_tier ?? null,
+        spent_usd: spendGate.spent_usd ?? null,
+        cap_usd: spendGate.cap_usd ?? null,
+      },
+      status: 402,
+    };
+  }
+
   if (config.auth_source) {
     try {
       credentials = await resolveCredential(env, workspaceId, tenantId, config, {

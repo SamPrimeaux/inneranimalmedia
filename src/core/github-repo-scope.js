@@ -135,9 +135,17 @@ export async function resolveGithubRepoForToolCall(env, input) {
   const userId = trim(input.userId);
   const workspaceId = trim(input.workspaceId);
   const requested = trim(input.requestedRepo);
+  const isSuperadmin = input.isSuperadmin === true || input.is_superadmin === true;
 
   if (!userId) {
     return { repo: null, blocked: true, reason: 'user_id_required' };
+  }
+
+  if (requested && isSuperadmin) {
+    const normalized = requested.replace(/^https?:\/\/(www\.)?github\.com\//i, '').replace(/\.git$/i, '');
+    if (normalized.includes('/')) {
+      return { repo: normalized, reason: 'superadmin_direct' };
+    }
   }
 
   const [workspaceRepo, userLogin] = await Promise.all([

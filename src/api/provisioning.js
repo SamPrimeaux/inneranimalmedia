@@ -637,10 +637,45 @@ function modelMatchesFreeTierList(modelKey, freeModels) {
  * Free tier: Workers AI models listed in billing_plans.free_tier_models_json; Ollama allowed.
  * Paid / usage: platform keys when plan is not free or usage billing is enabled.
  * BYOK: when plan allows and user has stored key for the provider.
+ * Tenant meta (tenants.meta_json / settings): byok_required, spend caps, max_model_tier.
  */
-export async function evaluatePlanForModelRequest(env, { tenantId, userId, modelKey, apiPlatform }) {
-  const plan = await getUserPlan(env, tenantId);
+export async function evaluatePlanForModelRequest(env, { tenantId, userId, modelKey, apiPlatform, isSuperadmin }) {
+  if (isSuperadmin === true) {
+    return { allowed: true, billingSource: 'platform_operator', byokApiKey: null };
+  }
+
+  const { loadTenantSpendPolicy, getTenantSpendRollups, assertTenantModelTierAllowed } = await import(
+    '../core/tenant-spend-policy.js'
+  );
+  const tenantPolicy = await loadTenantSpendPolicy(env, tenantId);
+
+  let modelTier = null;
   const mk = String(modelKey || '').trim();
+  if (mk && env?.DB) {
+    try {
+      const catalogRow = await env.DB.prepare(
+        `SELECT tier FROM agentsam_model_catalog WHERE model_key = ? LIMIT 1`,
+      )
+        .bind(mk)
+        .first();
+      modelTier = catalogRow?.tier != null ? String(catalogRow.tier) : null;
+    } catch (_) {}
+  }
+
+  const tierGate = assertTenantModelTierAllowed(tenantPolicy, mk, modelTier);
+  if (!tierGate.ok) {
+    return {
+      allowed: false,
+      status: 402,
+      body: {
+        error: tierGate.error,
+        message: tierGate.message,
+        max_model_tier: tierGate.max_model_tier,
+      },
+    };
+  }
+
+  const plan = await getUserPlan(env, tenantId);
   const plat = String(apiPlatform || '').trim();
   const freeModels = Array.isArray(plan.free_models) ? plan.free_models : [];
 
@@ -676,6 +711,50 @@ export async function evaluatePlanForModelRequest(env, { tenantId, userId, model
 
   const paidPlan = plan.plan_id && plan.plan_id !== 'free';
   if (paidPlan || plan.allows_usage_billing) {
+    if (tenantPolicy.byok_required) {
+      return {
+        allowed: false,
+        status: 402,
+        body: {
+          error: 'tenant_byok_required',
+          message:
+            'This tenant requires BYOK — connect your API keys in Settings → Integrations before using paid models.',
+        },
+      };
+    }
+
+    if (tenantPolicy.spend_hard_stop) {
+      const rollups = await getTenantSpendRollups(env, tenantId);
+      if (
+        tenantPolicy.spend_cap_daily_usd != null &&
+        rollups.daily_usd >= tenantPolicy.spend_cap_daily_usd
+      ) {
+        return {
+          allowed: false,
+          status: 402,
+          body: {
+            error: 'tenant_spend_cap_daily',
+            message: `Daily AI spend cap ($${tenantPolicy.spend_cap_daily_usd.toFixed(2)}) reached.`,
+            spent_usd: rollups.daily_usd,
+          },
+        };
+      }
+      if (
+        tenantPolicy.spend_cap_monthly_usd != null &&
+        rollups.monthly_usd >= tenantPolicy.spend_cap_monthly_usd
+      ) {
+        return {
+          allowed: false,
+          status: 402,
+          body: {
+            error: 'tenant_spend_cap_monthly',
+            message: `Monthly AI spend cap ($${tenantPolicy.spend_cap_monthly_usd.toFixed(2)}) reached.`,
+            spent_usd: rollups.monthly_usd,
+          },
+        };
+      }
+    }
+
     return { allowed: true, billingSource: 'platform_subscription', byokApiKey: null };
   }
 
