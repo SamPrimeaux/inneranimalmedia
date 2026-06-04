@@ -65,11 +65,15 @@ export async function dispatchByToolCode(env, toolCodeOrKey, input, runContext =
   const spendGate = await assertTenantSpendPolicy(env, {
     tenantId,
     userId,
+    workspaceId,
+    sessionId: runContext.sessionId ?? runContext.session_id ?? null,
     isSuperadmin: isSuper,
     authSource: config.auth_source ? normalizeAuthSourceForSpend(config.auth_source) : null,
     modelKey: runContext.modelKey ?? runContext.model_key ?? null,
     modelTier: runContext.modelTier ?? runContext.model_tier ?? null,
     billingSource: runContext.billingSource ?? runContext.billing_source ?? null,
+    hasByok: runContext.hasByok === true || runContext.has_byok === true,
+    estimatedCallCostUsd: runContext.estimatedCallCostUsd ?? runContext.estimated_call_cost_usd ?? null,
   });
   if (!spendGate.ok) {
     return {

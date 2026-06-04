@@ -639,7 +639,10 @@ function modelMatchesFreeTierList(modelKey, freeModels) {
  * BYOK: when plan allows and user has stored key for the provider.
  * Tenant meta (tenants.meta_json / settings): byok_required, spend caps, max_model_tier.
  */
-export async function evaluatePlanForModelRequest(env, { tenantId, userId, modelKey, apiPlatform, isSuperadmin }) {
+export async function evaluatePlanForModelRequest(
+  env,
+  { tenantId, userId, workspaceId, sessionId, modelKey, apiPlatform, isSuperadmin },
+) {
   if (isSuperadmin === true) {
     return { allowed: true, billingSource: 'platform_operator', byokApiKey: null };
   }
@@ -692,6 +695,34 @@ export async function evaluatePlanForModelRequest(env, { tenantId, userId, model
     plan.allows_byok && userId && byokSlug
       ? await getUserBYOKey(env, userId, tenantId, byokSlug)
       : null;
+
+  const wsId =
+    workspaceId != null && String(workspaceId).trim() !== '' ? String(workspaceId).trim() : '';
+  if (wsId) {
+    const { assertWorkspaceSpendPolicy } = await import('../core/workspace-spend-guard.js');
+    const workspaceGate = await assertWorkspaceSpendPolicy(env, {
+      tenantId,
+      workspaceId: wsId,
+      userId,
+      sessionId: sessionId != null ? String(sessionId).trim() : null,
+      isSuperadmin,
+      hasByok: !!byokKeyRow?.key,
+      usesPlatformBilling: true,
+    });
+    if (!workspaceGate.ok) {
+      return {
+        allowed: false,
+        status: 402,
+        body: {
+          error: workspaceGate.error,
+          message: workspaceGate.message,
+          spent_usd: workspaceGate.spent_usd,
+          cap_usd: workspaceGate.cap_usd,
+          upgrade_url: '/dashboard/settings/integrations',
+        },
+      };
+    }
+  }
 
   if (isWorkersAi) {
     if (modelMatchesFreeTierList(mk, freeModels)) {

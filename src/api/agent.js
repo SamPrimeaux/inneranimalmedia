@@ -5473,6 +5473,7 @@ async function runAgentToolLoop(env, ctx, emit, params) {
             latencyMs: Date.now() - loopT0,
             taskType: routingTaskType || 'ask',
             mode: mode || 'agent',
+            executionCtx: ctx,
           },
           null,
         );
@@ -6876,6 +6877,34 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   if (!workspaceId) return jsonResponse({ error: 'WORKSPACE_CONTEXT_MISSING' }, 400);
   // All PTY execution paths MUST have an authenticated userId
   if (!userId) return jsonResponse({ error: 'UNAUTHENTICATED_USER' }, 401);
+
+  const chatIsSuperadmin = !!(identity?.isSuperadmin || authUser?.is_superadmin);
+  if (!ingestBypass && !chatIsSuperadmin && tenantId) {
+    try {
+      const { assertTenantSpendPolicy } = await import('../core/tenant-spend-policy.js');
+      const spendGate = await assertTenantSpendPolicy(env, {
+        tenantId,
+        userId,
+        workspaceId,
+        sessionId: sessionId ? String(sessionId) : null,
+        isSuperadmin: false,
+      });
+      if (!spendGate.ok) {
+        return jsonResponse(
+          {
+            error: spendGate.error || 'spend_policy_denied',
+            message: spendGate.message || 'Spend policy blocked this request.',
+            spent_usd: spendGate.spent_usd ?? null,
+            cap_usd: spendGate.cap_usd ?? null,
+            upgrade_url: '/dashboard/settings/integrations',
+          },
+          402,
+        );
+      }
+    } catch (spendErr) {
+      console.warn('[agent] spend_policy_gate', spendErr?.message ?? spendErr);
+    }
+  }
 
   let handoffResume = null;
   if (sessionId && env.DB) {

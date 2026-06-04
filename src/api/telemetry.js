@@ -263,7 +263,7 @@ export async function writeTelemetry(env, data, modelRates) {
         `INSERT INTO spend_ledger (id, tenant_id, workspace_id, brand_id, provider, source, occurred_at, amount_usd, model_key, tokens_in, tokens_out, session_tag, project_id, ref_table, ref_id)
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       ).bind(
-         lid, mid, 'default', 'inneranimalmedia', spFixed, 'api_direct',
+         lid, mid, wsInsert, 'inneranimalmedia', spFixed, 'api_direct',
         Math.floor(Date.now() / 1000), estimatedCost, catalogModelKey || rawModel, inputTokens, outputTokens,
         sid || 'unknown', 'proj_inneranimalmedia_main_prod_013',
         'agentsam_usage_events', telemetryId
@@ -271,6 +271,21 @@ export async function writeTelemetry(env, data, modelRates) {
     }
   } catch (e) {
     console.error('[writeTelemetry] failed:', e.message);
+  }
+
+  const executionCtx = data?.executionCtx ?? data?.execution_ctx ?? null;
+  if (executionCtx && wsInsert && tidInsert) {
+    try {
+      const { processWorkspaceSpendAlertsAfterUsage } = await import('../core/workspace-spend-guard.js');
+      void processWorkspaceSpendAlertsAfterUsage(env, executionCtx, {
+        tenantId: tidInsert,
+        workspaceId: wsInsert,
+        userId: userId != null ? String(userId).trim() : null,
+        sessionId: sid,
+      });
+    } catch (alertErr) {
+      console.warn('[writeTelemetry] spend_alerts', alertErr?.message ?? alertErr);
+    }
   }
 
   return { telemetryId, estimatedCostUsd: estimatedCost ?? 0 };

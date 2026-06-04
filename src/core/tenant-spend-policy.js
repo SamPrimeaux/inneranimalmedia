@@ -278,6 +278,26 @@ export async function assertTenantSpendPolicy(env, ctx = {}) {
   const tid = trim(ctx.tenantId);
   if (!tid) return { ok: true };
 
+  const wsId = trim(ctx.workspaceId);
+  if (wsId) {
+    const { assertWorkspaceSpendPolicy } = await import('./workspace-spend-guard.js');
+    const workspaceGate = await assertWorkspaceSpendPolicy(env, {
+      tenantId: tid,
+      workspaceId: wsId,
+      userId: ctx.userId,
+      sessionId: ctx.sessionId,
+      isSuperadmin: ctx.isSuperadmin,
+      hasByok: ctx.hasByok,
+      usesPlatformBilling:
+        ctx.usesPlatformBilling ??
+        (trim(ctx.authSource).toLowerCase() === 'platform' ||
+          trim(ctx.billingSource).toLowerCase() === 'platform_subscription' ||
+          trim(ctx.billingSource).toLowerCase() === 'platform_workers_ai'),
+      estimatedCallCostUsd: ctx.estimatedCallCostUsd,
+    });
+    if (!workspaceGate.ok) return { ...workspaceGate, tenant_id: tid, workspace_id: wsId };
+  }
+
   const policy = await loadTenantSpendPolicy(env, tid);
 
   if (ctx.modelKey || ctx.modelTier) {
