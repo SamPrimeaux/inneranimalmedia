@@ -89,15 +89,6 @@
 	],
 	"vectorize": [
 		{
-			"binding": "VECTORIZE",
-			"index_name": "ai-search-inneranimalmedia-autorag"
-		},
-		{
-			"binding": "AGENTSAMVECTORIZE",
-			"index_name": "inneranimalmedia-vectors",
-			"remote": true
-		},
-		{
 			"binding": "AGENTSAM_VECTORIZE_CODE",
 			"index_name": "agentsam-codebase-oai3large-1536",
 			"remote": true
