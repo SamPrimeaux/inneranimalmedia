@@ -1,4 +1,5 @@
 @import './inneranimalmedia.css';
+@import './styles/mobile-nav-hamburger.css';
 @import './styles/image-generation.css';
 @import './components/database/database-page.css';
 @import './features/mode-presence/agentModePresenceMotion.css';

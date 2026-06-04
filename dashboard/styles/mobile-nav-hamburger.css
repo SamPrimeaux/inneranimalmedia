@@ -1,0 +1,105 @@
+.iam-mobile-nav-hamburger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.07);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  transition:
+    background 180ms ease,
+    border-color 180ms ease;
+}
+
+.iam-mobile-nav-hamburger:hover {
+  background: rgba(134, 100, 183, 0.22);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.iam-mobile-nav-hamburger:focus-visible {
+  outline: 2px solid var(--solar-cyan, #13d6c6);
+  outline-offset: 2px;
+}
+
+.iam-mobile-nav-hamburger__lines {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 0 11px;
+  gap: 4px;
+}
+
+.iam-mobile-nav-hamburger__line {
+  height: 1.8px;
+  border-radius: 2px;
+  transition: width 150ms ease;
+}
+
+.iam-mobile-nav-hamburger__line--1 {
+  width: 18px;
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.iam-mobile-nav-hamburger__line--2 {
+  width: 12px;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.iam-mobile-nav-hamburger__line--3 {
+  width: 15px;
+  background: rgba(255, 255, 255, 0.65);
+}
+
+.iam-mobile-nav-hamburger[data-open='true'] .iam-mobile-nav-hamburger__line {
+  width: 18px;
+}
+
+.iam-mobile-nav-drawer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 104;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  animation: iam-mobile-nav-fade-in 180ms ease;
+}
+
+.iam-mobile-nav-drawer-panel {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 105;
+  width: 50vw;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 8px 24px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--dashboard-panel, #0f1419);
+  border-right: 1px solid var(--dashboard-border, rgba(255, 255, 255, 0.1));
+  box-shadow: 4px 0 24px rgba(0, 0, 0, 0.35);
+  transform: translateX(-100%);
+  transition: transform 220ms ease;
+}
+
+.iam-mobile-nav-drawer-panel[data-open='true'] {
+  transform: translateX(0);
+}
+
+@keyframes iam-mobile-nav-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

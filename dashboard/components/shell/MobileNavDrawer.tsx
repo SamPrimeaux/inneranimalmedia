@@ -1,0 +1,54 @@
+import { useEffect } from 'react';
+import { DashboardActivityNav } from './DashboardActivityNav';
+
+type MobileNavDrawerProps = {
+  open: boolean;
+  onClose: () => void;
+  settingsIntegrationsActive: boolean;
+};
+
+export function MobileNavDrawer({ open, onClose, settingsIntegrationsActive }: MobileNavDrawerProps) {
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+
+  return (
+    <>
+      {open ? (
+        <button
+          type="button"
+          className="iam-mobile-nav-drawer-overlay md:hidden"
+          aria-label="Close navigation menu"
+          onClick={onClose}
+        />
+      ) : null}
+      <nav
+        className="iam-mobile-nav-drawer-panel md:hidden"
+        data-open={open ? 'true' : 'false'}
+        aria-label="Primary navigation"
+        aria-hidden={!open}
+        style={open ? undefined : { pointerEvents: 'none' }}
+      >
+        <DashboardActivityNav
+          expanded
+          settingsIntegrationsActive={settingsIntegrationsActive}
+          onItemActivate={onClose}
+        />
+      </nav>
+    </>
+  );
+}

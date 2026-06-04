@@ -83,7 +83,10 @@ import { AuthResetPage } from './components/auth/AuthResetPage';
 import AuthOAuthConsentPage from './components/auth/AuthOAuthConsentPage';
 import MountIamMcpConsent from './components/auth/MountIamMcpConsent';
 import { OnboardingPage } from './components/onboarding/OnboardingPage';
-import { Bot, Home, Files, Search, GitBranch, Settings, PanelLeft, PanelLeftClose, PanelRightClose, Terminal as TermIcon, Network, Layers, Monitor, ChevronDown, Bug, Github, Database, FolderOpen, FolderCode, Globe, PenTool, Cloud, X as XIcon, PanelBottom, Eye, MessageSquare, MoreHorizontal, ChevronLeft, Link2, HardDrive, Package, Palette, History, Wrench, Camera, Image, Mail, GraduationCap, ChartColumnIncreasing, Library, FileCode2, Rocket, BarChart2 } from 'lucide-react';
+import { DashboardActivityNav } from './components/shell/DashboardActivityNav';
+import { MobileNavDrawer } from './components/shell/MobileNavDrawer';
+import { MobileNavHamburger } from './components/shell/MobileNavHamburger';
+import { Files, Search, GitBranch, Settings, PanelLeft, PanelLeftClose, PanelRightClose, Terminal as TermIcon, Layers, Monitor, Bug, Github, Database, FolderOpen, FolderCode, Globe, PenTool, Cloud, X as XIcon, Eye, MessageSquare, MoreHorizontal, ChevronLeft, Link2, HardDrive, Package, History, Camera, FileCode2, Rocket } from 'lucide-react';
 import { SetiFileIcon } from './src/components/SetiFileIcon';
 const ProjectManagement = lazy(() => import('./pages/projects/ProjectManagement'));
 
@@ -476,6 +479,8 @@ const App: React.FC = () => {
   const [nativeFolderOpenSignal, setNativeFolderOpenSignal] = useState(0);
   /** ≤768px: secondary rail actions (sheet above bottom tab bar). */
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+  /** ≤768px: glass hamburger → left nav drawer (same destinations as desktop rail). */
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [agentIsStreaming, setAgentIsStreaming] = useState(false);
   const [agentBrowserPresenceActive, setAgentBrowserPresenceActive] = useState(false);
   const [activeCommandRunId, setActiveCommandRunId] = useState<string | null>(null);
@@ -2632,8 +2637,9 @@ const App: React.FC = () => {
         data-active={agentBrowserPresenceActive ? 'true' : 'false'}
         aria-hidden="true"
       />
-      {/* 1. TOP WINDOW BAR */}
-      <div className="h-10 border-b border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] flex items-center justify-between px-3 shrink-0 overflow-visible relative z-[110]">
+      {/* 1. TOP WINDOW BAR + mobile hamburger (sticky ≤768px) */}
+      <header className="shrink-0 z-[110] max-md:sticky max-md:top-0 bg-[var(--dashboard-panel)]">
+      <div className="h-10 border-b border-[var(--dashboard-border)] flex items-center justify-between px-3 overflow-visible relative">
           <div className="flex items-center gap-1 opacity-80 pl-1 shrink-0 min-w-0">
               {narrowNeedsBack && (
                 <button
@@ -2808,6 +2814,16 @@ const App: React.FC = () => {
               </div>
           </div>
       </div>
+      <div className="md:hidden pl-3 pb-2 pt-1">
+        <MobileNavHamburger open={mobileNavOpen} onClick={() => setMobileNavOpen((v) => !v)} />
+      </div>
+      </header>
+
+      <MobileNavDrawer
+        open={mobileNavOpen}
+        onClose={() => setMobileNavOpen(false)}
+        settingsIntegrationsActive={settingsIntegrationsActive}
+      />
 
       {securityShieldAlert && !securityBannerDismissed && (
         <SecurityShieldBanner
@@ -2826,82 +2842,10 @@ const App: React.FC = () => {
             className="hidden md:flex flex-col py-3 gap-1 px-1 bg-[var(--dashboard-panel)] border-r border-[var(--dashboard-border)] shrink-0 z-50 overflow-x-hidden overflow-y-auto transition-[width] duration-200 ease-in-out"
             style={{ width: sidebarRailExpanded ? 180 : 48 }}
           >
-              <ActivityRailItem icon={Home} label="Overview" expanded={sidebarRailExpanded} active={location.pathname === '/dashboard/overview'} onClick={() => navigate('/dashboard/overview')} />
-              <ActivityRailItem
-                icon={BarChart2}
-                label="Finance"
+              <DashboardActivityNav
                 expanded={sidebarRailExpanded}
-                active={location.pathname === '/dashboard/finance'}
-                onClick={() => navigate('/dashboard/finance')}
+                settingsIntegrationsActive={settingsIntegrationsActive}
               />
-              <ActivityRailItem
-                icon={Library}
-                label="Library"
-                expanded={sidebarRailExpanded}
-                active={location.pathname === '/dashboard/library'}
-                onClick={() => navigate('/dashboard/library')}
-              />
-              <ActivityRailItem
-                icon={ChartColumnIncreasing}
-                label="Analytics"
-                expanded={sidebarRailExpanded}
-                active={location.pathname.startsWith('/dashboard/analytics')}
-                onClick={() => navigate('/dashboard/analytics')}
-              />
-              <ActivityRailItem icon={Bot} label="Agent" expanded={sidebarRailExpanded} active={isAgentShellPath(location.pathname)} onClick={() => navigate(AGENT_HOME_PATH)} />
-              <ActivityRailItem
-                icon={Network}
-                label="Workflows"
-                expanded={sidebarRailExpanded}
-                active={location.pathname === '/dashboard/workflows'}
-                onClick={() => navigate('/dashboard/workflows')}
-              />
-              <ActivityRailItem
-                icon={Rocket}
-                label="Launch Desk"
-                expanded={sidebarRailExpanded}
-                active={location.pathname === '/dashboard/launch-desk'}
-                onClick={() => navigate('/dashboard/launch-desk')}
-              />
-              <ActivityRailItem icon={GraduationCap} label="Learn" expanded={sidebarRailExpanded} active={location.pathname === '/dashboard/learn'} onClick={() => navigate('/dashboard/learn')} />
-              <ActivityRailItem
-                  icon={Palette}
-                  label="Design Studio"
-                  expanded={sidebarRailExpanded}
-                  active={location.pathname === '/dashboard/designstudio'}
-                  onClick={() => navigate('/dashboard/designstudio')}
-              />
-              <ActivityRailItem
-                  icon={Wrench}
-                  label="Integrations"
-                  expanded={sidebarRailExpanded}
-                  active={settingsIntegrationsActive}
-                  onClick={() => navigate('/dashboard/settings/integrations')}
-              />
-              <ActivityRailItem icon={Layers} label="MCP & AI" expanded={sidebarRailExpanded} active={location.pathname.startsWith('/dashboard/mcp')} onClick={() => navigate('/dashboard/mcp')} />
-              <ActivityRailItem
-                  icon={Database}
-                  label="D1 Explorer"
-                  expanded={sidebarRailExpanded}
-                  active={location.pathname === '/dashboard/database'}
-                  onClick={() => navigate('/dashboard/database')}
-              />
-              <ActivityRailItem icon={Camera} label="Meet" expanded={sidebarRailExpanded} active={location.pathname === '/dashboard/meet'} onClick={() => navigate('/dashboard/meet')} />
-              <ActivityRailItem
-                icon={Image}
-                label="Images"
-                expanded={sidebarRailExpanded}
-                active={location.pathname === '/dashboard/images'}
-                onClick={() => navigate('/dashboard/images')}
-              />
-              <ActivityRailItem
-                icon={Mail}
-                label="Mail"
-                expanded={sidebarRailExpanded}
-                active={location.pathname === '/dashboard/mail'}
-                onClick={() => navigate('/dashboard/mail')}
-              />
-              <ActivityRailItem icon={Settings} label="Settings" expanded={sidebarRailExpanded} active={location.pathname.startsWith('/dashboard/settings')} onClick={() => navigate('/dashboard/settings/general')} />
           </div>
 
           {/* Optional Left Agent Panel */}
@@ -3717,29 +3661,6 @@ const MobileMoreRow: React.FC<{ icon: LucideLike; label: string; onClick: () => 
   >
     <Icon size={20} strokeWidth={1.5} className="shrink-0 text-[var(--text-muted)]" />
     <span>{label}</span>
-  </button>
-);
-
-const ActivityRailItem: React.FC<{
-  icon: React.ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;
-  label: string;
-  expanded: boolean;
-  active: boolean;
-  onClick: () => void;
-}> = ({ icon: Icon, label, expanded, active, onClick }) => (
-  <button
-    type="button"
-    onClick={onClick}
-    title={label}
-    className={`relative flex w-full min-h-[40px] shrink-0 items-center rounded-lg transition-colors ${
-      expanded ? 'gap-2.5 px-2 justify-start' : 'justify-center px-0'
-    } ${active ? 'text-[var(--text-main)]' : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]/60'}`}
-  >
-    {active ? (
-      <div className="absolute left-0 top-1/2 h-8 w-[3px] -translate-y-1/2 rounded-r-md bg-[var(--solar-cyan)]" aria-hidden />
-    ) : null}
-    <Icon size={expanded ? 20 : 18} strokeWidth={1} className="shrink-0" />
-    {expanded ? <span className="min-w-0 truncate text-left text-[12px] font-medium leading-tight">{label}</span> : null}
   </button>
 );
 
