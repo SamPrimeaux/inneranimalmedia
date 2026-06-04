@@ -770,6 +770,12 @@ export const DesignStudioPage: React.FC = () => {
     engine.setExtrusion(genConfig.extrusion);
     engine.setProjectType(ProjectType.CHESS);
 
+    const settleViewport = () => engine.handleResize();
+    requestAnimationFrame(() => {
+      settleViewport();
+      requestAnimationFrame(settleViewport);
+    });
+
     const handleResize = () => engine.handleResize();
     window.addEventListener('resize', handleResize);
     setEngineReady(true);
@@ -855,8 +861,8 @@ export const DesignStudioPage: React.FC = () => {
         type: 'prop',
         modelUrl: normalized,
         scale,
-        position: { x: (Math.random() - 0.5) * 10, y: 10, z: (Math.random() - 0.5) * 10 },
-        behavior: { type: 'dynamic', mass: 10, restitution: 0.2 },
+        position: { x: 0, y: 0, z: 0 },
+        behavior: { type: 'static' },
       })
       .catch((err) => console.warn('[DesignStudio] spawn failed', name, normalized, err));
   }, []);
@@ -1028,7 +1034,11 @@ export const DesignStudioPage: React.FC = () => {
       />
 
       <div className="flex-1 min-w-0 min-h-0 relative">
-        <div ref={containerRef} className="absolute inset-0 z-0" style={{ background: 'var(--scene-bg)' }} />
+        <div
+          ref={containerRef}
+          className="absolute inset-0 z-0 overflow-hidden"
+          style={{ background: 'var(--scene-bg)' }}
+        />
 
         <UIOverlay
           voxelCount={voxelCount}

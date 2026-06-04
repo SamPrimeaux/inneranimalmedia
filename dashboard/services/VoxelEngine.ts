@@ -107,12 +107,32 @@ export class VoxelEngine {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     container.appendChild(this.renderer.domElement);
 
+    const canvas = this.renderer.domElement;
+    canvas.style.display = 'block';
+    canvas.style.position = 'absolute';
+    canvas.style.inset = '0';
+    canvas.style.width = '100%';
+    canvas.style.height = '100%';
+
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
 
-    // Responsive Resizing based on container
-    const initialRect = container.getBoundingClientRect();
-    this.handleResizeDimensions(initialRect.width || window.innerWidth, initialRect.height || window.innerHeight);
+    const applyContainerSize = () => {
+      const { width, height } = container.getBoundingClientRect();
+      if (width > 0 && height > 0) {
+        this.handleResizeDimensions(width, height);
+        return true;
+      }
+      return false;
+    };
+
+    if (!applyContainerSize()) {
+      requestAnimationFrame(() => {
+        if (!applyContainerSize()) {
+          requestAnimationFrame(() => applyContainerSize());
+        }
+      });
+    }
 
     this.resizeObserver = new ResizeObserver((entries) => {
         for (let entry of entries) {
@@ -536,6 +556,7 @@ export class VoxelEngine {
         this.entities.set(entity.id, { model: pivot, data: entity });
         
         console.log(`Successfully spawned model: ${entity.name} at scale ${autoScale}`);
+        this.frameCameraOnObject(visual);
       } catch (err) {
         console.error(`Failed to load model: ${entity.modelUrl}`, err);
       }
@@ -659,7 +680,38 @@ export class VoxelEngine {
     this.orthoCamera.bottom = -d;
     this.orthoCamera.updateProjectionMatrix();
 
-    this.renderer.setSize(width, height);
+    this.renderer.setSize(width, height, false);
+  }
+
+  /** Fit perspective camera to an object (or whole scene when omitted). */
+  public frameCameraOnObject(target?: THREE.Object3D, padding = 1.45) {
+    if (this.camera !== this.perspectiveCamera) return;
+
+    const box = new THREE.Box3();
+    if (target) {
+      box.setFromObject(target);
+    } else {
+      this.scene.traverse((obj) => {
+        if ((obj as THREE.Mesh).isMesh) {
+          box.expandByObject(obj);
+        }
+      });
+    }
+    if (box.isEmpty()) return;
+
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z);
+    if (maxDim <= 0) return;
+
+    const fovRad = (this.perspectiveCamera.fov * Math.PI) / 180;
+    let distance = maxDim / (2 * Math.tan(fovRad / 2));
+    distance *= padding;
+
+    const offset = new THREE.Vector3(1, 0.75, 1).normalize().multiplyScalar(distance);
+    this.controls.target.copy(center);
+    this.perspectiveCamera.position.copy(center.clone().add(offset));
+    this.controls.update();
   }
 
   public handleResize() {

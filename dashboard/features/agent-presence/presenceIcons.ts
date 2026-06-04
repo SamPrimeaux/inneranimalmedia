@@ -84,7 +84,6 @@ export function presenceStateToIcon(state: string | null | undefined): AgentPres
     case 'files':
       return 'files';
     case 'browser_human_input':
-    case 'waiting_approval':
       return 'approval-wait';
     case 'drawing':
       return 'path';

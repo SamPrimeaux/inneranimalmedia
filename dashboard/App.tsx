@@ -219,6 +219,19 @@ const MAIN_MIN_W_FOR_AGENT_RESIZE = 380;
 const AGENT_RESIZER_HIT_PX = 10;
 /** Wider hit target for the activity-sidebar grab (matches JSX). */
 const ACTIVITY_SIDEBAR_GRAB_PX = 10;
+const LS_ACTIVITY_PANEL_W = 'iam_activity_panel_w';
+const DEFAULT_ACTIVITY_PANEL_W = 260;
+
+function readActivityPanelW(): number {
+  try {
+    const raw = localStorage.getItem(LS_ACTIVITY_PANEL_W);
+    const n = raw ? Number(raw) : NaN;
+    if (Number.isFinite(n) && n >= 180 && n <= 480) return Math.round(n);
+  } catch {
+    /* ignore */
+  }
+  return DEFAULT_ACTIVITY_PANEL_W;
+}
 
 /**
  * Next width after a horizontal drag. Sidebar: grow when dragging handle right.
@@ -922,7 +935,7 @@ const App: React.FC = () => {
 
   // Dynamic Layout & Lifted State
   // Resizable panels using pointer events
-  const [sidebarW, setSidebarW] = useState(260);
+  const [sidebarW, setSidebarW] = useState(readActivityPanelW);
   const [agentW, setAgentW] = useState(360);
 
   const shellLayoutRef = useRef({
@@ -937,6 +950,14 @@ const App: React.FC = () => {
       activityOpen: !!activeActivity,
     };
   }, [sidebarW, sidebarRailExpanded, activeActivity]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(LS_ACTIVITY_PANEL_W, String(sidebarW));
+    } catch {
+      /* ignore */
+    }
+  }, [sidebarW]);
 
   const clampAgentWidthToViewport = useCallback((w: number) => {
     const vw =
@@ -1667,6 +1688,28 @@ const App: React.FC = () => {
     window.addEventListener('iam:open-terminal', handler);
     return () => window.removeEventListener('iam:open-terminal', handler);
   }, []);
+
+  const toggleExplorer = useCallback(() => {
+    if (!isAgentHomePath(location.pathname)) {
+      navigate(AGENT_HOME_PATH);
+      setActiveActivity('files');
+      return;
+    }
+    setActiveActivity((prev) => (prev === 'files' ? null : 'files'));
+  }, [location.pathname, navigate]);
+
+  useEffect(() => {
+    if (!isAgentShellPath(location.pathname)) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'b') return;
+      const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || (e.target as HTMLElement)?.isContentEditable) return;
+      e.preventDefault();
+      toggleExplorer();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [location.pathname, toggleExplorer]);
 
   const toggleActivity = (
     activity: 'files' | 'search' | 'mcps' | 'git' | 'debug' | 'actions' | 'drive' | 'database',
@@ -2622,6 +2665,21 @@ const App: React.FC = () => {
               >
                 {sidebarRailExpanded ? <PanelLeftClose size={18} strokeWidth={1.75} /> : <PanelLeft size={18} strokeWidth={1.75} />}
               </button>
+              {isAgentShellPath(location.pathname) && (
+                <button
+                  type="button"
+                  onClick={toggleExplorer}
+                  className={`shrink-0 p-1.5 rounded-md transition-colors ml-0.5 ${
+                    activeActivity === 'files'
+                      ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]'
+                      : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]'
+                  }`}
+                  title={activeActivity === 'files' ? 'Close Explorer (⌘B)' : 'Open Explorer (⌘B)'}
+                  aria-pressed={activeActivity === 'files'}
+                >
+                  <Files size={18} strokeWidth={1.75} />
+                </button>
+              )}
           </div>
 
           {/* Unified search (Cmd+K) + Knowledge panel (RAG / chats list) */}
@@ -2945,6 +3003,7 @@ const App: React.FC = () => {
                           onFileSelect={openInEditorFromExplorer}
                           onOpenInEditor={openInEditorFromExplorer}
                           onOpenMovieMode={openMovieModeFromExplorer}
+                          onClose={() => setActiveActivity(null)}
                       />
                   ) : activeActivity === 'mcps' ? (
                       <MCPPanel />
@@ -2991,10 +3050,12 @@ const App: React.FC = () => {
             <div
               role="separator"
               aria-orientation="vertical"
-              title="Drag to resize sidebar"
+              title="Drag to resize · double-click to close"
+              aria-label="Resize activity panel"
               className="hidden md:flex shrink-0 z-50 group relative cursor-col-resize touch-none select-none justify-center"
               style={{ width: ACTIVITY_SIDEBAR_GRAB_PX }}
               onPointerDown={(e) => beginPanelResize('sidebar', e)}
+              onDoubleClick={() => setActiveActivity(null)}
             >
               <span
                 className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-[var(--dashboard-border)] group-hover:bg-[var(--solar-cyan)] group-active:bg-[var(--solar-cyan)]"
@@ -3009,6 +3070,17 @@ const App: React.FC = () => {
               onDrop={handleMainFileDrop}
               onDragOver={handleMainDragOver}
           >
+              {isAgentHomePath(location.pathname) && !activeActivity && (
+                <button
+                  type="button"
+                  className="hidden md:flex absolute left-0 top-1/2 -translate-y-1/2 z-20 flex-col items-center gap-1 py-3 px-1 rounded-r-md border border-l-0 border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] text-[var(--text-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/40 shadow-md transition-colors"
+                  title="Show Explorer (⌘B)"
+                  aria-label="Show Explorer"
+                  onClick={() => setActiveActivity('files')}
+                >
+                  <Files size={16} strokeWidth={1.75} />
+                </button>
+              )}
               {/* Dashboard page routes — non-agent pages render here */}
               {!isAgentShellPath(location.pathname) ? (
                 <div className="flex-1 min-h-0 min-w-0 overflow-hidden bg-[var(--dashboard-canvas)] flex flex-col">
@@ -3487,11 +3559,8 @@ const App: React.FC = () => {
         </button>
         <button
           type="button"
-          className={`flex flex-1 flex-col items-center justify-center min-h-[44px] gap-0.5 px-0.5 text-[10px] font-medium leading-tight ${searchOpen ? 'text-[var(--solar-cyan)]' : 'text-[var(--text-muted)]'}`}
-          onClick={() => {
-            setSearchInitialFacets(['workspace']);
-            setSearchOpen(true);
-          }}
+          className={`flex flex-1 flex-col items-center justify-center min-h-[44px] gap-0.5 px-0.5 text-[10px] font-medium leading-tight ${activeActivity === 'files' ? 'text-[var(--solar-cyan)]' : 'text-[var(--text-muted)]'}`}
+          onClick={() => toggleActivity('files')}
         >
           <FolderOpen size={24} strokeWidth={1.5} aria-hidden />
           <span>Explorer</span>

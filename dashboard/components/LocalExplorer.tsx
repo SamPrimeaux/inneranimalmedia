@@ -19,6 +19,8 @@ import {
     RefreshCw,
     AlertTriangle,
     Camera,
+    PanelLeftClose,
+    GripVertical,
 } from 'lucide-react';
 import { MediaLibrary } from '../features/moviemode/MediaLibrary';
 import type { MediaLibraryItem } from '../features/moviemode/types';
@@ -249,6 +251,7 @@ export const LocalExplorer: React.FC<{
     nativeFolderOpenSignal?: number;
     workspace_id?: string | null;
     user_id?: string | null;
+    onClose?: () => void;
 }> = ({
     onFileSelect,
     onWorkspaceRootChange,
@@ -257,6 +260,7 @@ export const LocalExplorer: React.FC<{
     nativeFolderOpenSignal = 0,
     workspace_id = null,
     user_id = null,
+    onClose,
 }) => {
     const [rootDir, setRootDir] = useState<LocalFileNode | null>(null);
     /**
@@ -946,8 +950,22 @@ export const LocalExplorer: React.FC<{
 
     return (
         <div className="flex flex-col h-full bg-[var(--bg-panel)] overflow-hidden text-[var(--text-main)] overflow-y-auto align-top">
-            <div className="flex items-center justify-between px-4 py-3 shrink-0">
-                <span className="text-[11px] font-semibold tracking-widest uppercase text-[var(--text-muted)]">Explorer</span>
+            <div className="flex items-center justify-between px-3 py-2.5 shrink-0 border-b border-[var(--border-subtle)]/40 gap-2">
+                <div className="flex items-center gap-1.5 min-w-0">
+                    <GripVertical size={12} className="text-[var(--text-muted)]/50 shrink-0 hidden md:block" aria-hidden />
+                    <span className="text-[11px] font-semibold tracking-widest uppercase text-[var(--text-muted)] truncate">Explorer</span>
+                </div>
+                {onClose ? (
+                    <button
+                        type="button"
+                        className="shrink-0 p-1.5 rounded-md text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)] transition-colors"
+                        title="Close Explorer (⌘B)"
+                        aria-label="Close Explorer"
+                        onClick={onClose}
+                    >
+                        <PanelLeftClose size={14} strokeWidth={1.75} />
+                    </button>
+                ) : null}
             </div>
 
             {localTunnelVerifyWarning ? (
