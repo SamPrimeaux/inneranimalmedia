@@ -344,4 +344,3 @@ UPDATE agentsam_scripts SET source_stored = 'r2:inneranimalmedia-autorag/scripts
 UPDATE agentsam_scripts SET source_stored = 'r2:inneranimalmedia-autorag/scripts/maintenance/write_learn_area_readme.py', path = 'scripts/maintenance/write_learn_area_readme.py', body = '', script_hash = '88b95b799a28910b1869c722de3d8485c9e277b642759a67521cc733f0c2245f', updated_at_epoch = unixepoch() WHERE slug = 'write_learn_area_readme';
 UPDATE agentsam_scripts SET source_stored = 'r2:inneranimalmedia-autorag/scripts/maintenance/write_learn_course_readmes.py', path = 'scripts/maintenance/write_learn_course_readmes.py', body = '', script_hash = '08cea705035637b62591a9ff6113ae9b05c0434f5da4f4a9a8880b56613f8067', updated_at_epoch = unixepoch() WHERE slug = 'write_learn_course_readmes';
 UPDATE agentsam_scripts SET body = '', updated_at_epoch = unixepoch() WHERE source_stored LIKE 'r2:inneranimalmedia-autorag/scripts/%' AND COALESCE(body,'') != '';
-COMMIT;
