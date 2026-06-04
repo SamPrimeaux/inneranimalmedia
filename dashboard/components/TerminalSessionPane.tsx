@@ -22,6 +22,52 @@ export type TerminalConnectionStatus =
   | 'timed_out';
 
 const INACTIVITY_MS = 5 * 60 * 1000;
+const MOBILE_MQ = '(max-width: 767px)';
+
+function isNarrowViewport(): boolean {
+  return typeof window !== 'undefined' && window.matchMedia(MOBILE_MQ).matches;
+}
+
+function focusXtermSurface(term: Terminal, host: HTMLElement | null) {
+  term.focus();
+  const textarea = host?.querySelector('.xterm-helper-textarea') as HTMLTextAreaElement | null;
+  if (textarea) {
+    textarea.setAttribute('inputmode', 'text');
+    textarea.setAttribute('autocomplete', 'off');
+    textarea.setAttribute('autocorrect', 'off');
+    textarea.setAttribute('autocapitalize', 'off');
+    textarea.setAttribute('spellcheck', 'false');
+    textarea.focus({ preventScroll: true });
+  }
+}
+
+/** Fit cols from viewport width so welcome/PTY geometry matches phone (iOS). */
+function fitTerminalDimensions(
+  term: Terminal,
+  fitAddon: FitAddon,
+  host: HTMLElement | null,
+): void {
+  if (!host) {
+    fitAddon.fit();
+    return;
+  }
+  if (!isNarrowViewport()) {
+    fitAddon.fit();
+    return;
+  }
+  const rect = host.getBoundingClientRect();
+  const fontSize = term.options.fontSize ?? 12;
+  const lineHeight = term.options.lineHeight ?? 1.45;
+  const cellW = Math.max(5.5, fontSize * 0.58);
+  const cellH = Math.max(10, fontSize * lineHeight);
+  const widthPx = rect.width > 0 ? rect.width : window.innerWidth;
+  const heightPx = rect.height > 0 ? rect.height : 200;
+  const cols = Math.max(24, Math.floor(widthPx / cellW));
+  const rows = Math.max(8, Math.floor(heightPx / cellH));
+  if (term.cols !== cols || term.rows !== rows) {
+    term.resize(cols, rows);
+  }
+}
 
 function shellQuoteForHistory(cmd: string): string {
   return `'${cmd.replace(/'/g, `'\\''`)}'`;
@@ -425,6 +471,9 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
               const term = xtermRef.current;
               if (!term) return;
               term.clear();
+              if (fitAddonRef.current && terminalRef.current) {
+                fitTerminalDimensions(term, fitAddonRef.current, terminalRef.current);
+              }
 
               const onDataSub = term.onData((data) => {
                 bumpActivity();
@@ -744,18 +793,25 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
         scrollback: 5000,
       });
 
-      term.open(terminalRef.current);
+      const hostEl = terminalRef.current;
+      term.open(hostEl);
       const fitAddon = new FitAddon();
       term.loadAddon(fitAddon);
-      fitAddon.fit();
+      fitTerminalDimensions(term, fitAddon, hostEl);
 
       xtermRef.current = term;
       fitAddonRef.current = fitAddon;
 
-      const onResize = () => requestAnimationFrame(() => fitAddonRef.current?.fit());
-      window.addEventListener('resize', onResize);
-      const ro = new ResizeObserver(() => requestAnimationFrame(() => fitAddonRef.current?.fit()));
-      ro.observe(terminalRef.current);
+      const refit = () => {
+        requestAnimationFrame(() => {
+          const t = xtermRef.current;
+          const f = fitAddonRef.current;
+          if (t && f) fitTerminalDimensions(t, f, terminalRef.current);
+        });
+      };
+      window.addEventListener('resize', refit);
+      const ro = new ResizeObserver(refit);
+      ro.observe(hostEl);
 
       const slashModelsSub = term.onData((data) => {
         if (!data.endsWith('\r') && !data.endsWith('\n')) return;
@@ -767,7 +823,7 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
 
       return () => {
         slashModelsSub.dispose();
-        window.removeEventListener('resize', onResize);
+        window.removeEventListener('resize', refit);
         ro.disconnect();
         term.dispose();
         xtermRef.current = null;
@@ -792,7 +848,14 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
           }
           .iam-terminal-pane-root .xterm-shell-viewport .xterm-viewport { overflow-y: auto !important; }
         `}</style>
-        <div className="iam-terminal-pane-root relative flex-1 min-h-0 min-w-0 flex h-full w-full flex-col bg-[var(--terminal-surface)] overflow-hidden">
+        <div
+          className="iam-terminal-pane-root relative flex-1 min-h-0 min-w-0 flex h-full w-full flex-col bg-[var(--terminal-surface)] overflow-hidden"
+          onTouchStartCapture={() => {
+            if (!isNarrowViewport()) return;
+            const term = xtermRef.current;
+            if (term) focusXtermSurface(term, terminalRef.current);
+          }}
+        >
           {status === 'timed_out' && (
             <div className="absolute inset-0 z-[25] flex flex-col items-center justify-center gap-3 bg-[var(--terminal-surface)]/95 backdrop-blur-sm px-4 text-center">
               <p className="text-[12px] font-mono text-[var(--text-main)]">

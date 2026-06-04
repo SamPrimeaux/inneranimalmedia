@@ -33,7 +33,7 @@ import { XTermShell, XTermShellHandle } from './components/XTermShell';
 import { SecurityShieldBanner } from './components/SecurityShieldBanner';
 import { mapProblemsApiPayload, countProblemSeverities } from './src/lib/mapAgentProblems';
 import { ExtensionsPanel } from './components/ExtensionsPanel';
-import { MonacoEditorView, type EditorModelMeta } from './components/MonacoEditorView';
+import type { EditorModelMeta } from './components/MonacoEditorView';
 import { LocalExplorer } from './components/LocalExplorer';
 import { BrowserView } from './components/BrowserView';
 import { StatusBar, type AgentNotificationRow } from './components/StatusBar';
@@ -116,6 +116,9 @@ const MovieModeStudio = lazy(() =>
 );
 const ExcalidrawView = lazy(() =>
   import('./components/ExcalidrawView').then((m) => ({ default: m.ExcalidrawView })),
+);
+const MonacoEditorView = lazy(() =>
+  import('./components/MonacoEditorView').then((m) => ({ default: m.MonacoEditorView })),
 );
 const LaunchDeskPage = lazy(() =>
   import('./pages/LaunchDeskPage').then((m) => ({ default: m.LaunchDeskPage })),
@@ -3037,7 +3040,7 @@ const App: React.FC = () => {
 
           {/* 4. MAIN EDITOR AREA */}
           <main 
-              className={`flex-1 flex flex-col min-w-0 min-h-0 bg-[var(--dashboard-canvas)] relative ${narrowBlocksCenter ? 'max-md:hidden' : ''}`}
+              className={`flex-1 flex flex-col min-w-0 min-h-0 bg-[var(--dashboard-canvas)] relative max-md:overflow-x-hidden ${narrowBlocksCenter ? 'max-md:hidden' : ''}`}
               onDrop={handleMainFileDrop}
               onDragOver={handleMainDragOver}
           >
@@ -3283,12 +3286,20 @@ const App: React.FC = () => {
 
                   {activeTab === 'code' && (
                       <div className="absolute inset-0 z-10">
-                          <MonacoEditorView
+                          <Suspense
+                            fallback={
+                              <div className="flex h-full items-center justify-center text-[12px] text-[var(--text-muted)]">
+                                Loading editor…
+                              </div>
+                            }
+                          >
+                            <MonacoEditorView
                               onSave={handleSaveFile}
                               onCursorPositionChange={handleEditorCursorPosition}
                               onEditorModelMeta={setEditorMeta}
                               workspaceContext={agentWorkspaceContext}
-                          />
+                            />
+                          </Suspense>
                       </div>
                   )}
                   {activeTab === 'browser' && (
@@ -3367,6 +3378,7 @@ const App: React.FC = () => {
               {/* Global terminal drawer — non-agent routes only (/dashboard/agent uses in-layout XTermShell) */}
               {!isAgentShellPath(location.pathname) && (
               <div
+                className={isNarrowViewport ? 'iam-terminal-drawer-host' : undefined}
                 style={{
                   display: isTerminalOpen ? 'flex' : 'none',
                   flexDirection: 'column',
@@ -3377,6 +3389,8 @@ const App: React.FC = () => {
                   position: 'relative',
                   zIndex: 60,
                   width: '100%',
+                  maxWidth: '100%',
+                  overflowX: 'hidden',
                 }}
               >
                 {/* Drag handle (vertical resize) */}

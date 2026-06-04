@@ -81,6 +81,28 @@ const SHELL_CHOICES = [
 ] as const;
 
 // ─── WelcomeSplash ────────────────────────────────────────────────────────────
+const GORILLA_MAX_CHARS = 26;
+
+function useSplashFontPx(): number {
+  const [fontPx, setFontPx] = useState(11);
+  useEffect(() => {
+    const fit = () => {
+      if (!window.matchMedia('(max-width: 767px)').matches) {
+        setFontPx(11);
+        return;
+      }
+      const charW = 6.2;
+      const maxLinePx = GORILLA_MAX_CHARS * charW;
+      const scale = Math.min(1, (window.innerWidth - 40) / maxLinePx);
+      setFontPx(Math.max(6, Math.min(11, 11 * scale)));
+    };
+    fit();
+    window.addEventListener('resize', fit);
+    return () => window.removeEventListener('resize', fit);
+  }, []);
+  return fontPx;
+}
+
 const GORILLA_LINES = [
   '        ▄████████▄        ',
   '      ██░░░░░░░░░░██      ',
@@ -109,6 +131,7 @@ const SPLASH_MENU: { action: SplashAction; label: string; desc: string; localOnl
 ];
 
 function WelcomeSplash({ cdCommand, showLocalOption, onAction }: WelcomeSplashProps) {
+  const splashFontPx = useSplashFontPx();
   const menuItems = SPLASH_MENU.filter((item) => !item.localOnly || showLocalOption).map((item, index) => ({
     ...item,
     displayKey: String(index + 1),
@@ -125,6 +148,7 @@ function WelcomeSplash({ cdCommand, showLocalOption, onAction }: WelcomeSplashPr
 
   return (
     <div
+      className="iam-terminal-welcome-splash"
       style={{
         position: 'absolute',
         inset: 0,
@@ -140,11 +164,12 @@ function WelcomeSplash({ cdCommand, showLocalOption, onAction }: WelcomeSplashPr
       }}
     >
       <pre
+        className="iam-terminal-welcome-pre"
         aria-hidden
         style={{
           margin: 0,
           padding: 0,
-          fontSize: '11px',
+          fontSize: `${splashFontPx}px`,
           lineHeight: '1.4',
           color: 'var(--text-muted)',
           textAlign: 'center',
@@ -560,7 +585,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
         `}</style>
 
         <div
-          className="iam-scanlines relative flex flex-col shadow-[0_-4px_20px_rgba(0,0,0,0.3)] shrink-0 border-t border-[var(--border-subtle)]"
+          className="iam-terminal-shell-root iam-scanlines relative flex flex-col shadow-[0_-4px_20px_rgba(0,0,0,0.3)] shrink-0 border-t border-[var(--border-subtle)]"
           style={{
             height: isDrawer ? '100%' : isCollapsed ? '36px' : `${height}px`,
             background: 'var(--terminal-chrome)',
@@ -579,11 +604,11 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
           )}
 
           <div
-            className="h-9 min-h-9 shrink-0 flex items-center justify-between px-2 pl-3 border-b border-[var(--border-subtle)] select-none gap-2"
+            className="iam-terminal-chrome-row h-9 min-h-9 shrink-0 flex items-center justify-between px-2 pl-3 border-b border-[var(--border-subtle)] select-none gap-2"
             style={{ background: 'var(--terminal-chrome)' }}
           >
-            <div className="flex items-center gap-2 min-w-0 flex-1">
-              <div className="flex items-stretch gap-0 shrink-0">
+            <div className="iam-terminal-chrome-tabs flex items-center gap-2 min-w-0 flex-1">
+              <div className="flex items-stretch gap-0 shrink-0 min-w-0">
                 {(['terminal', 'output', 'problems'] as ShellTab[]).map((tab) => {
                   const badge =
                     tab === 'problems' && errorCount + warningCount > 0
@@ -596,7 +621,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                       key={tab}
                       type="button"
                       onClick={() => setActiveTab(tab)}
-                      className={`relative px-3 py-2 text-[10px] font-bold tracking-[0.14em] uppercase transition-colors flex items-center gap-1.5 ${
+                      className={`relative px-3 py-2 text-[10px] font-bold tracking-[0.14em] uppercase transition-colors flex items-center gap-1.5 max-md:px-[10px] max-md:py-[6px] max-md:text-[11px] max-md:font-medium max-md:tracking-[0.04em] max-md:normal-case ${
                         activeTab === tab
                           ? 'text-[var(--solar-cyan)]'
                           : 'text-[var(--terminal-tab-muted)] hover:text-[var(--text-main)]'
@@ -714,7 +739,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
               )}
             </div>
 
-            <div className="flex items-center gap-1 shrink-0">
+            <div className="iam-terminal-chrome-actions flex items-center gap-1 shrink-0">
               {activeTab === 'terminal' && (
                 <>
                   <span
@@ -727,7 +752,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                     <button
                       type="button"
                       title="Terminal menu (shell, split, settings)"
-                      className="inline-flex items-center justify-center p-1.5 rounded border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/40 hover:bg-[var(--bg-hover)]"
+                      className="inline-flex shrink-0 items-center justify-center p-1.5 max-md:p-[6px] rounded border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/40 hover:bg-[var(--bg-hover)]"
                       onClick={() => setPlusMenuOpen((v) => !v)}
                     >
                       <Plus size={15} strokeWidth={2} />
@@ -838,7 +863,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                   <button
                     type="button"
                     title={splitEnabled ? 'Single terminal' : 'Split terminal (side by side)'}
-                    className={`p-1.5 rounded border transition-colors ${
+                    className={`shrink-0 p-1.5 max-md:p-[6px] rounded border transition-colors ${
                       splitEnabled
                         ? 'border-[var(--solar-cyan)]/50 bg-[var(--solar-cyan)]/10 text-[var(--solar-cyan)]'
                         : 'border-transparent text-[var(--text-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/20'
@@ -855,7 +880,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                   type="button"
                   onClick={() => setShowSplash((v) => !v)}
                   title="Toggle welcome screen"
-                  className={`p-1.5 rounded text-[9px] font-mono font-bold tracking-wider transition-colors border ${
+                  className={`shrink-0 p-1.5 max-md:p-[6px] rounded text-[9px] font-mono font-bold tracking-wider transition-colors border ${
                     showSplash
                       ? 'bg-[var(--solar-cyan)]/10 border-[var(--solar-cyan)]/30 text-[var(--solar-cyan)]'
                       : 'border-transparent text-[var(--text-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/20'
@@ -868,8 +893,8 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                 <button
                   type="button"
                   onClick={() => setIsCollapsed(!isCollapsed)}
-                  className="p-1.5 rounded hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors"
-                  title={isCollapsed ? 'Expand' : 'Minimize'}
+                  className="shrink-0 p-1.5 max-md:p-[6px] rounded hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors"
+                  title={isCollapsed ? 'Expand terminal' : 'Minimize terminal'}
                 >
                   {isCollapsed ? <ChevronUp size={15} strokeWidth={2} /> : <ChevronDown size={15} strokeWidth={2} />}
                 </button>
@@ -877,7 +902,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
               <button
                 type="button"
                 onClick={onClose}
-                className="p-1.5 rounded hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--solar-red)] transition-colors"
+                className="shrink-0 p-1.5 max-md:p-[6px] rounded hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--solar-red)] transition-colors"
                 title="Close"
               >
                 <X size={15} strokeWidth={2} />

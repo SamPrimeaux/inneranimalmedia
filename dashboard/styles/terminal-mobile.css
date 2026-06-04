@@ -1,0 +1,63 @@
+/* Mobile terminal UX — desktop layout unchanged (max-width: 767px) */
+
+@media (max-width: 767px) {
+  .iam-terminal-shell-root {
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+
+  .iam-terminal-drawer-host {
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+
+  .iam-terminal-pane-root {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+    touch-action: manipulation;
+  }
+
+  .iam-terminal-pane-root .xterm,
+  .iam-terminal-pane-root .xterm-viewport,
+  .iam-terminal-pane-root .xterm-screen {
+    max-width: 100% !important;
+    overflow-x: hidden !important;
+  }
+
+  .iam-terminal-chrome-row {
+    height: 36px;
+    max-height: 36px;
+    overflow: visible;
+    gap: 4px;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+
+  .iam-terminal-chrome-tabs {
+    overflow: visible;
+    flex-shrink: 1;
+    min-width: 0;
+  }
+
+  .iam-terminal-chrome-actions {
+    overflow: visible;
+    flex-shrink: 0;
+  }
+
+  .iam-terminal-welcome-splash {
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    justify-content: flex-start;
+    padding-top: 12px;
+    padding-bottom: 24px;
+  }
+
+  .iam-terminal-welcome-pre {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+}
