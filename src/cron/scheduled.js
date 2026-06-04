@@ -18,6 +18,8 @@ import {
   rollupOtlpTracesDaily,
 } from '../core/memory.js';
 import { runEtoPipeline } from '../core/performance-eto.js';
+import { rollupWorkerAnalytics } from '../core/worker-analytics-rollup.js';
+import { runToolCacheMaintenance } from './jobs/tool-cache-maintenance.js';
 import { completeCronRun, failCronRun, startCronRun } from '../core/cron-run-ledger.js';
 
 const CRON_ONE_AM = '0 1 * * *';
@@ -57,13 +59,29 @@ async function cronLedgerWrap(env, jobName, cronExpr, fn) {
 }
 
 /**
- * `0 1 * * *` — webhook payload purge + tool/execution rollups (no memory decay; decay runs at 06:00).
+ * `0 1 * * *` — webhook payload purge, worker analytics rollup, tool cache TTL, tool/execution rollups (memory decay runs at 06:00).
  * @param {any} env
  * @param {ExecutionContext} ctx
  */
 function scheduleOneAmMaintenance(env, ctx) {
   if (!env?.DB) return;
   ctx.waitUntil(runWebhookPayloadPurgeCron(env));
+  ctx.waitUntil(
+    cronLedgerWrap(env, 'rollup_worker_analytics', CRON_ONE_AM, () =>
+      rollupWorkerAnalytics(env).catch((e) => {
+        console.warn('[cron] rollup_worker_analytics', e?.message ?? e);
+        throw e;
+      }),
+    ),
+  );
+  ctx.waitUntil(
+    cronLedgerWrap(env, 'tool_cache_maintenance', CRON_ONE_AM, () =>
+      runToolCacheMaintenance(env).catch((e) => {
+        console.warn('[cron] tool_cache_maintenance', e?.message ?? e);
+        throw e;
+      }),
+    ),
+  );
   ctx.waitUntil(
     cronLedgerWrap(env, 'tool_call_log_compact', CRON_ONE_AM, () =>
       compactAgentsamToolCallLogToStats(env).catch((e) => {
@@ -113,13 +131,6 @@ export async function handleScheduled(event, env, ctx) {
       break;
 
     case '0 0 * * *':
-      if (env?.DB) {
-        await env.DB.prepare(
-          `DELETE FROM worker_analytics_events WHERE created_at < unixepoch('now', '-7 days')`,
-        )
-          .run()
-          .catch((e) => console.warn('[cron] worker_analytics_events purge', e?.message ?? e));
-      }
       await runMidnightUtcJobs(env, ctx);
       if (env?.DB) {
         ctx.waitUntil(writeDailySnapshot(env, 'cron_0010').catch(() => {}));

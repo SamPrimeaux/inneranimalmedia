@@ -1,9 +1,13 @@
 import { cronTenantId } from './cron-tenant.js';
 
 const RETENTION_PURGE_TABLE_CONFIG = {
-  agentsam_webhook_events: { dateColumn: 'processed_at', compare: 'datetime' },
+  agentsam_webhook_events: { dateColumn: 'received_at_unix', compare: 'unix' },
   agentsam_hook_execution: { dateColumn: 'completed_at', compare: 'datetime' },
-  worker_analytics_events: { dateColumn: 'timestamp', compare: 'unix' },
+  agentsam_tool_call_log: { dateColumn: 'created_at', compare: 'unix' },
+  agentsam_tool_chain: { dateColumn: 'started_at', compare: 'unix' },
+  agentsam_execution_steps: { dateColumn: 'created_at', compare: 'datetime' },
+  agentsam_cron_runs: { dateColumn: 'started_at', compare: 'unix' },
+  worker_analytics_events: { dateColumn: 'timestamp', compare: 'unix_ms' },
   worker_analytics_errors: { dateColumn: 'created_at', compare: 'unix' },
   notifications: { dateColumn: 'created_at', compare: 'datetime' },
   deployment_notifications: { dateColumn: 'created_at', compare: 'datetime' },
@@ -78,11 +82,13 @@ export async function runRetentionPurge(env) {
     if (!Number.isFinite(days) || days < 0) continue;
     const dateCol = cfg.dateColumn;
     const ageClause =
-      cfg.compare === 'unix'
-        ? `${dateCol} < unixepoch('now', '-${days} days')`
-        : cfg.compare === 'date_col'
-          ? `date(${dateCol}) < date('now', '-${days} days')`
-          : `${dateCol} < datetime('now', '-${days} days')`;
+      cfg.compare === 'unix_ms'
+        ? `${dateCol} < (unixepoch() * 1000 - ${days} * 86400000)`
+        : cfg.compare === 'unix'
+          ? `${dateCol} < unixepoch('now', '-${days} days')`
+          : cfg.compare === 'date_col'
+            ? `date(${dateCol}) < date('now', '-${days} days')`
+            : `${dateCol} < datetime('now', '-${days} days')`;
     let condClause = '';
     const rawCond = policy.condition != null ? String(policy.condition).trim() : '';
     if (rawCond) {

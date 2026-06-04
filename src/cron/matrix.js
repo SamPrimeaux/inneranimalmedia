@@ -1,18 +1,30 @@
 /**
- * Cron matrix — wrangler.production.toml `[triggers] crons` → handler.
+ * Cron matrix — wrangler.production.toml `[triggers] crons` (9 slots) → handler.
  * Implemented in `scheduled.js` via `handleScheduled`.
  *
  * | Expression      | Job |
  * |-----------------|-----|
- * | `*/30 * * * *`  | `runThirtyMinuteJobs` — DB queue drain, overnight progress step, stale terminal sweep |
- * | `0 * * * *`     | Reserved (logged only; no legacy worker handler in final scheduled block) |
- * | `0 0 * * *`     | `runMidnightUtcJobs` — retention purge, R2 dashboard build prune, retention master + security scan + usage rollups, archive conversations, daily digest email + midnight snapshot |
- * | `0 1 * * *`     | `scheduleOneAmMaintenance` — memory decay, tool-call stats compaction, execution performance rollup |
- * | `10 0 * * *`    | `writeDailySnapshot(env, 'cron_0010')` |
- * | `0 6 * * *`     | `scheduleSixAmRagJobs` — RAG compact/sync/index + webhook events maintenance + 6am snapshot |
+ * | `*/30 * * * *`  | `runThirtyMinuteJobs` — DB queue drain, overnight progress, stale terminal sweep |
+ * | `0 * * * *`     | `runHourlyRoutingJobs` |
+ * | `0 0 * * *`     | `runMidnightUtcJobs` — **retention purge** (`data_retention_policies`), OAuth expiry, master retention, security scan, usage rollups, archive, daily digest; snapshot + weekly rollup piggyback |
+ * | `0 1 * * *`     | `scheduleOneAmMaintenance` — webhook payload purge, **worker analytics rollup** (hourly+daily, 72h event trim, 30d hourly trim), **agentsam_tool_cache TTL**, tool-call stats, execution performance, OTLP rollup |
+ * | `0 6 * * *`     | `scheduleSixAmRagJobs` — RAG compact/sync/index, **memory decay** (moved from 01:00), webhook events DELETE (14d), snapshot |
  * | `0 9 * * *`     | `runFinancialCommandCron` |
- * | `0 9 * * 1`     | `runIntegritySnapshot(env, 'cron')` |
- * | `0 1 * * sun`   | `runWeeklyRollup` — active workspaces → `agentsam_analytics` |
+ * | `0 9 * * 1`     | `runIntegritySnapshot` |
  * | `30 13 * * *`   | `sendDailyPlanEmail` |
- * | `0 0 1 * *`     | `runFirstOfMonthJobs` — `runEmailMonthlyRollup` (email_logs → rollups, R2 sent/ prune, received_emails trim) then `runSpendLedgerRollup` |
+ * | `0 0 1 * *`     | `runFirstOfMonthJobs` — email monthly rollup + spend ledger |
+ *
+ * Retention ownership (DELETE path):
+ * | Table | Days | Cron |
+ * |-------|------|------|
+ * | agentsam_tool_call_log | 30 | midnight `runRetentionPurge` |
+ * | agentsam_tool_chain | 60 | midnight |
+ * | agentsam_mcp_tool_execution | 30 | midnight |
+ * | agentsam_execution_steps | 30 | midnight |
+ * | agentsam_cron_runs | 45 | midnight |
+ * | agentsam_hook_execution | 30 | midnight |
+ * | agentsam_webhook_events | 14 | midnight + 06:00 hard DELETE |
+ * | worker_analytics_events | 72h raw | 01:00 rollup (post-hourly) |
+ * | worker_analytics_hourly | 30d | 01:00 rollup trim |
+ * | agentsam_tool_cache | 14d + 5000 cap | 01:00 `runToolCacheMaintenance` |
  */

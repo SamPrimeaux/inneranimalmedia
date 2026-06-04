@@ -15,11 +15,21 @@ export async function runWebhookEventsMaintenanceCron(env) {
   try {
     const del = await env.DB.prepare(
       `DELETE FROM agentsam_webhook_events
-       WHERE received_at_unix < (unixepoch() - 30 * 86400)
+       WHERE received_at_unix < (unixepoch() - 14 * 86400)
          AND status IN ('processed','ignored','duplicate')`,
     ).run();
     rowsWritten += Number(del.meta?.changes ?? del.changes ?? 0) || 0;
     console.log('[cron] agentsam_webhook_events cleanup changes:', del.meta?.changes ?? del.changes ?? 0);
+    const delNulled = await env.DB.prepare(
+      `DELETE FROM agentsam_webhook_events
+       WHERE received_at_unix < (unixepoch() - 14 * 86400)
+         AND payload_json IS NULL`,
+    ).run();
+    rowsWritten += Number(delNulled.meta?.changes ?? delNulled.changes ?? 0) || 0;
+    console.log(
+      '[cron] agentsam_webhook_events null-payload cleanup changes:',
+      delNulled.meta?.changes ?? delNulled.changes ?? 0,
+    );
   } catch (e) {
     console.warn('[cron] agentsam_webhook_events DELETE cleanup', e?.message ?? e);
   }

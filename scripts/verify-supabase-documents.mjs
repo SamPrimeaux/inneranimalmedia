@@ -78,6 +78,10 @@ try {
     );
     console.warn('[verify] Reduced summary (add columns content_hash, source_chunk_id, embed_model for full audit).\n');
     console.table(rows);
+  } else if (msg.includes('does not exist') && msg.includes('public.documents')) {
+    console.warn('[verify] public.documents not provisioned on this project (legacy lane).');
+    console.warn('[verify] Use: node scripts/verify-supabase-pg.mjs for agentsam RAG tables.');
+    process.exit(0);
   } else {
     throw e;
   }

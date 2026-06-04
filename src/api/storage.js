@@ -666,38 +666,9 @@ export async function handleStorageApi(request, url, env) {
     }
 
     if (pathLower === '/api/storage/jobs/rollup-worker-analytics') {
-      const last = await q(env, new Set(), 'worker_analytics_hourly', `SELECT MAX(hour_timestamp) AS h FROM worker_analytics_hourly`, [], 'first');
-      const since = last?.h || '1970-01-01 00:00:00';
-      const grouped = await q(env, new Set(), 'worker_analytics_events', `
-        SELECT worker_name, environment, strftime('%Y-%m-%d %H:00:00', timestamp) AS hour_timestamp,
-               COUNT(*) AS total_requests,
-               SUM(CASE WHEN outcome = 'ok' OR status BETWEEN 200 AND 399 THEN 1 ELSE 0 END) AS successful_requests,
-               SUM(CASE WHEN NOT (outcome = 'ok' OR status BETWEEN 200 AND 399) THEN 1 ELSE 0 END) AS failed_requests,
-               AVG(duration_ms) AS avg_duration_ms,
-               AVG(cpu_time_ms) AS avg_cpu_time_ms,
-               MAX(duration_ms) AS p95_duration_ms,
-               SUM(CASE WHEN errors IS NOT NULL AND errors != '' AND errors != 'null' THEN 1 ELSE 0 END) AS total_errors
-        FROM worker_analytics_events
-        WHERE datetime(timestamp) > datetime(?)
-        GROUP BY worker_name, environment, strftime('%Y-%m-%d %H:00:00', timestamp)
-      `, [since]);
-      await Promise.all(grouped.map((r) => env.DB.prepare(
-        `INSERT OR REPLACE INTO worker_analytics_hourly
-         (id, worker_name, environment, hour_timestamp, total_requests, successful_requests, failed_requests, avg_duration_ms, avg_cpu_time_ms, p95_duration_ms, total_errors, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
-      ).bind(`${r.worker_name}:${r.environment}:${r.hour_timestamp}`, r.worker_name, r.environment, r.hour_timestamp, num(r.total_requests), num(r.successful_requests), num(r.failed_requests), num(r.avg_duration_ms), num(r.avg_cpu_time_ms), num(r.p95_duration_ms), num(r.total_errors)).run()));
-      const errorEvents = await q(env, new Set(), 'worker_analytics_events', `
-        SELECT event_id, worker_name, environment, timestamp, errors, url, method, status
-        FROM worker_analytics_events
-        WHERE errors IS NOT NULL AND errors != '' AND errors != 'null'
-        ORDER BY timestamp DESC LIMIT 500
-      `);
-      await Promise.all(errorEvents.map((r) => env.DB.prepare(
-        `INSERT OR IGNORE INTO worker_analytics_errors
-         (event_id, worker_name, environment, timestamp, error_message, path, method, status_code, resolved, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, datetime('now'))`,
-      ).bind(r.event_id, r.worker_name, r.environment, r.timestamp, String(r.errors || '').slice(0, 1000), r.url, r.method, num(r.status)).run()));
-      return jsonResponse({ hourly_rows: grouped.length, errors_extracted: errorEvents.length, ...baseMeta });
+      const { rollupWorkerAnalytics } = await import('../core/worker-analytics-rollup.js');
+      const out = await rollupWorkerAnalytics(env);
+      return jsonResponse({ ...out, ...baseMeta });
     }
 
     return jsonResponse({ error: 'Storage job not found', path: pathLower }, 404);
