@@ -24,9 +24,14 @@ After a failed Google sign-in, check the URL you’re redirected to:
 
 2. **Authorized redirect URIs**  
    Must include **exactly** (no trailing slash):
+
+   **Sign in with Google (login)** — primary:
+   - `https://inneranimalmedia.com/auth/callback/google`
+
+   **Connect Google Drive (logged-in integration)** — also register:
    - `https://inneranimalmedia.com/api/oauth/google/callback`
-   - If users can start from www: `https://www.inneranimalmedia.com/api/oauth/google/callback`  
-   The value must match **character-for-character** what we send to Google (we use the same host you used when you clicked “Sign in with Google”).
+
+   Login always uses the **apex** host (`inneranimalmedia.com`), even if the user opened `www.inneranimalmedia.com/auth/signin`. You do **not** need a separate `www` login callback URI after deploy `iam-oauth-origin` (June 2026).
 
 3. **Client ID and Client secret**  
    - In Cloudflare Dashboard → Workers → inneranimalmedia → Settings → Variables and Secrets:
@@ -50,8 +55,8 @@ After a failed Google sign-in, check the URL you’re redirected to:
 - **Code already used**  
   Authorization codes are one-time use. If you retry by reopening the same callback URL (with the same `?code=...`), Google will return `invalid_grant`. Start again from the sign-in page and click “Sign in with Google” once.
 
-- **Wrong host**  
-  If you click “Sign in with Google” on `https://inneranimalmedia.com/auth/signin`, we send `redirect_uri=https://inneranimalmedia.com/api/oauth/google/callback`. If you’re on `https://www.inneranimalmedia.com/auth/signin`, we send the www variant. Both must be in **Authorized redirect URIs** if you use both hosts.
+- **Wrong host / `redirect_uri_mismatch` on the Google screen**  
+  Login sends `redirect_uri=https://inneranimalmedia.com/auth/callback/google` (apex only). Add that URI in Google Cloud Console. Do not confuse with `/api/oauth/google/callback` (Drive integration only).
 
 ---
 

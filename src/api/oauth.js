@@ -11,6 +11,7 @@
  *  - Persists tokens in D1 `user_oauth_tokens` with forward-compatible encrypted columns.
  */
 import { getAuthUser, fetchAuthUserTenantId, jsonResponse } from '../core/auth.js';
+import { googleLoginOAuthRedirectUri, githubLoginOAuthRedirectUri } from '../core/iam-oauth-origin.js';
 import {
   upsertOauthToken,
   ensureOauthTokenColumns,
@@ -166,11 +167,6 @@ function safeReturnTo(url) {
   return DEFAULT_OAUTH_RETURN;
 }
 
-/** Request origin for OAuth redirect_uri (matches worker.js `origin(url)`). */
-function oauthLoginOrigin(url) {
-  return url.origin || 'https://inneranimalmedia.com';
-}
-
 /**
  * Unauthenticated Google login/start — state + redirect_uri must match handleGoogleOAuthCallback in worker.js.
  */
@@ -188,7 +184,7 @@ async function loginGoogleOAuthStart(_request, url, env) {
       ? returnTo
       : '/dashboard/overview';
   const state = crypto.randomUUID();
-  const redirectUri = `${oauthLoginOrigin(url)}/auth/callback/google`;
+  const redirectUri = googleLoginOAuthRedirectUri(url);
   const scope = connectDrive
     ? 'openid email profile https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file'
     : 'openid email profile';
@@ -225,7 +221,7 @@ async function loginGitHubOAuthStart(_request, url, env) {
       ? returnTo
       : '/dashboard/overview';
   const state = crypto.randomUUID();
-  const redirectUri = `${oauthLoginOrigin(url)}/api/oauth/github/callback`;
+  const redirectUri = githubLoginOAuthRedirectUri(url);
   const statePayload = JSON.stringify({
     redirectUri,
     returnTo: safeReturn,
