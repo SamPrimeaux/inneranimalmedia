@@ -2,8 +2,17 @@
  * API Service: Finance & Client Operations
  * Handles accounting, spend tracking, client projects, and AI usage billing.
  * Deconstructed from legacy worker.js.
+ *
+ * ISOLATION RULES:
+ * - All platform financial data (P&L, transactions, client revenue, invoices) is
+ *   superadmin-only. Non-superadmin users get scoped AI spend data only.
+ * - agentsam_usage_rollups_daily is tenant+workspace scoped — safe for all users.
+ * - financial_monthly_summaries, financial_health, finance_transactions,
+ *   client_revenue, invoices, clients have no per-user scope columns —
+ *   gated to superadmin only.
  */
 import { getAuthUser, jsonResponse } from '../core/auth.js';
+import { isAuthSuperadmin } from '../core/workspace-access.js';
 import { handleProjectsApi } from './projects.js';
 
 function currentMonthStart() {
@@ -39,6 +48,23 @@ function buildScopeWhere(authUser, opts = {}) {
     return { sql: '1=1', binds: [] };
 }
 
+/** Empty scoped finance response for non-superadmin users. */
+function scopedEmptyFinanceResponse() {
+    return jsonResponse({
+        success: true,
+        ai_spend_mtd: 0,
+        tokens_mtd: 0,
+        mrr: 0,
+        net_cashflow_last_month: 0,
+        last_pl_period: null,
+        monthly_pl: [],
+        client_revenue: [],
+        daily_spend_sparkline: [],
+        _scoped: true,
+        _note: 'Financial data scoped to your account. Platform P&L not available.',
+    });
+}
+
 /**
  * Main dispatcher for Finance-related API routes (/api/finance/*, /api/clients, /api/projects, /api/billing/*).
  */
@@ -49,6 +75,8 @@ export async function handleFinanceApi(request, url, env, ctx) {
     const authUser = await getAuthUser(request, env);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
 
+    const isSuperadmin = isAuthSuperadmin(authUser);
+
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
 
     try {
@@ -58,6 +86,8 @@ export async function handleFinanceApi(request, url, env, ctx) {
             const segments = subPath.split('/').filter(Boolean);
 
             if (segments[0] === 'transactions') {
+                // Transactions are platform financial data — superadmin only
+                if (!isSuperadmin) return jsonResponse({ success: true, transactions: [], _scoped: true }, 200);
                 if (segments[1] && method === 'GET') return handleFinanceTransactionGet(env, segments[1], authUser);
                 if (segments[1] && (method === 'PATCH' || method === 'PUT' || method === 'DELETE')) {
                     return handleFinanceTransactionMutate(request, env, segments[1], method, authUser);
@@ -70,46 +100,57 @@ export async function handleFinanceApi(request, url, env, ctx) {
                 }
             }
 
-            if (segments[0] === 'summary') return handleFinanceSummary(url, env, authUser);
+            if (segments[0] === 'summary') {
+                // Summary mixes platform P&L (superadmin) with AI spend (all users scoped)
+                return handleFinanceSummary(url, env, authUser, isSuperadmin);
+            }
+
+            // All routes below are platform-financial — superadmin only
+            if (!isSuperadmin) {
+                // AI spend endpoints are safe for all users (tenant+workspace scoped)
+                if (segments[0] === 'ai-spend') return handleFinanceAiSpend(url, env, authUser);
+                if (segments[0] === 'spend-by-model' && method === 'GET') return handleFinanceSpendByModel(env, authUser);
+                if (segments[0] === 'spend-by-day' && method === 'GET') return handleFinanceSpendByDay(url, env, authUser);
+                if (segments[0] === 'providers' && method === 'GET') return handleFinanceProviders(env, authUser);
+                if (segments[0] === 'budgets') return jsonResponse({ budgets: [], _scoped: true }, 200);
+                if (segments[0] === 'alerts') return jsonResponse({ alerts: [], _scoped: true }, 200);
+                // All other finance routes blocked for non-superadmin
+                return jsonResponse({ error: 'Forbidden', _scoped: true }, 403);
+            }
+
             if (segments[0] === 'health') return handleFinanceHealth(env);
             if (segments[0] === 'breakdown') return handleFinanceBreakdown(url, env);
             if (segments[0] === 'categories') return handleFinanceCategories(env);
             if (segments[0] === 'accounts') return handleFinanceAccounts(env);
             if (segments[0] === 'ai-spend') return handleFinanceAiSpend(url, env, authUser);
-            if (segments[0] === 'spend-by-model' && method === 'GET') {
-                return handleFinanceSpendByModel(env, authUser);
-            }
-            if (segments[0] === 'spend-by-day' && method === 'GET') {
-                return handleFinanceSpendByDay(url, env, authUser);
-            }
-            if (segments[0] === 'providers' && method === 'GET') {
-                return handleFinanceProviders(env, authUser);
-            }
-            if (segments[0] === 'budgets' && method === 'GET') {
-                return handleFinanceBudgetsGet(env, authUser);
-            }
-            if (segments[0] === 'budgets' && method === 'POST') {
-                return handleFinanceBudgetsPost(request, env, authUser);
-            }
-            if (segments[0] === 'alerts' && method === 'GET') {
-                return handleFinanceAlertsGet(env, authUser);
-            }
+            if (segments[0] === 'spend-by-model' && method === 'GET') return handleFinanceSpendByModel(env, authUser);
+            if (segments[0] === 'spend-by-day' && method === 'GET') return handleFinanceSpendByDay(url, env, authUser);
+            if (segments[0] === 'providers' && method === 'GET') return handleFinanceProviders(env, authUser);
+            if (segments[0] === 'budgets' && method === 'GET') return handleFinanceBudgetsGet(env, authUser);
+            if (segments[0] === 'budgets' && method === 'POST') return handleFinanceBudgetsPost(request, env, authUser);
+            if (segments[0] === 'alerts' && method === 'GET') return handleFinanceAlertsGet(env, authUser);
             if (segments[0] === 'alerts' && segments[1] && segments[2] === 'resolve' && method === 'POST') {
                 return handleFinanceAlertResolve(env, authUser, segments[1]);
             }
             if (segments[0] === 'import-csv' && method === 'POST') return handleFinanceImportCsv(request, env, authUser);
         }
 
-        // ── /api/clients ──
-        if (pathLower === '/api/clients') return handleClientsRequest(request, url, env);
+        // ── /api/clients — superadmin only (Sam's client roster) ──
+        if (pathLower === '/api/clients') {
+            if (!isSuperadmin) return jsonResponse({ success: true, clients: [], _scoped: true }, 200);
+            return handleClientsRequest(request, url, env);
+        }
 
-        // ── /api/projects* ──
+        // ── /api/projects* — scoped via authUser inside handler ──
         if (pathLower.startsWith('/api/projects')) {
             return handleProjectsApi(request, url, env, authUser);
         }
 
-        // ── /api/billing ──
-        if (pathLower === '/api/billing/summary') return handleBillingSummary(env);
+        // ── /api/billing — superadmin only ──
+        if (pathLower === '/api/billing/summary') {
+            if (!isSuperadmin) return jsonResponse({ success: true, invoices: [], total_collected: 0, _scoped: true }, 200);
+            return handleBillingSummary(env);
+        }
 
         return jsonResponse({ error: 'Finance route not found' }, 404);
     } catch (e) {
@@ -119,11 +160,11 @@ export async function handleFinanceApi(request, url, env, ctx) {
 
 // --- Implementation Handlers ---
 
-async function handleFinanceSummary(url, env, authUser) {
+async function handleFinanceSummary(url, env, authUser, isSuperadmin) {
     const monthStart = currentMonthStart();
     const { sql: scopeSql, binds: scopeBinds } = buildScopeWhere(authUser);
-    const tenantId = authUser?.tenant_id ?? null;
 
+    // AI spend is safe for all users — always scoped to their tenant+workspace
     const usageMtd = await safeQuery(
         env.DB,
         `SELECT COALESCE(SUM(cost_usd), 0) AS ai_spend_mtd,
@@ -132,6 +173,37 @@ async function handleFinanceSummary(url, env, authUser) {
          WHERE ${scopeSql} AND day >= ?`,
         [...scopeBinds, monthStart],
     );
+
+    const sparkline = await safeAll(
+        env.DB,
+        `SELECT day, COALESCE(SUM(cost_usd), 0) AS cost_usd
+         FROM agentsam_usage_rollups_daily
+         WHERE ${scopeSql} AND day >= date('now', '-30 days')
+         GROUP BY day
+         ORDER BY day ASC`,
+        scopeBinds,
+    );
+
+    // Platform P&L data — superadmin only
+    if (!isSuperadmin) {
+        return jsonResponse({
+            success: true,
+            ai_spend_mtd: Number(usageMtd?.ai_spend_mtd ?? 0),
+            tokens_mtd: Number(usageMtd?.tokens_mtd ?? 0),
+            mrr: 0,
+            net_cashflow_last_month: 0,
+            last_pl_period: null,
+            monthly_pl: [],
+            client_revenue: [],
+            daily_spend_sparkline: (sparkline?.results || []).map((r) => ({
+                day: r.day,
+                cost_usd: Number(r.cost_usd ?? 0),
+            })),
+            _scoped: true,
+        });
+    }
+
+    const tenantId = authUser?.tenant_id ?? null;
 
     const mrrRow = await safeQuery(
         env.DB,
@@ -168,16 +240,6 @@ async function handleFinanceSummary(url, env, authUser) {
         env.DB,
         clientRevenueSql,
         tenantId ? [tenantId] : [],
-    );
-
-    const sparkline = await safeAll(
-        env.DB,
-        `SELECT day, COALESCE(SUM(cost_usd), 0) AS cost_usd
-         FROM agentsam_usage_rollups_daily
-         WHERE ${scopeSql} AND day >= date('now', '-30 days')
-         GROUP BY day
-         ORDER BY day ASC`,
-        scopeBinds,
     );
 
     return jsonResponse({
@@ -454,11 +516,7 @@ async function handleFinanceBudgetsGet(env, authUser) {
 async function handleFinanceBudgetsPost(request, env, authUser) {
     const body = await request.json().catch(() => ({}));
     const tenantId = authUser?.tenant_id ?? null;
-    const {
-        month,
-        category_id,
-        budget_cents,
-    } = body;
+    const { month, category_id, budget_cents } = body;
     await env.DB.prepare(
         `INSERT INTO finance_budgets (tenant_id, month, category_id, budget_cents, created_at, updated_at)
          VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))`
@@ -468,12 +526,13 @@ async function handleFinanceBudgetsPost(request, env, authUser) {
 
 async function handleFinanceAlertsGet(env, authUser) {
     try {
+        const tenantId = authUser?.tenant_id ?? null;
         const { results } = await env.DB.prepare(`
             SELECT *
             FROM spend_alerts
-            WHERE resolved = 0
+            WHERE resolved = 0 AND tenant_id = ?
             ORDER BY created_at DESC
-        `).all();
+        `).bind(tenantId).all();
         return jsonResponse({ alerts: results || [] });
     } catch (error) {
         if (isMissingTableError(error)) return jsonResponse({ alerts: [] });
@@ -482,11 +541,12 @@ async function handleFinanceAlertsGet(env, authUser) {
 }
 
 async function handleFinanceAlertResolve(env, authUser, id) {
+    const tenantId = authUser?.tenant_id ?? null;
     await env.DB.prepare(`
         UPDATE spend_alerts
         SET resolved = 1, resolved_at = datetime('now')
-        WHERE id = ?
-    `).bind(id).run();
+        WHERE id = ? AND tenant_id = ?
+    `).bind(id, tenantId).run();
     return jsonResponse({ ok: true });
 }
 
