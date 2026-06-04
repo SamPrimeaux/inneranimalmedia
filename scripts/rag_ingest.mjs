@@ -448,7 +448,7 @@ async function runDeepArchive({ dryRun, workspaceUuid }) {
     await supabasePost(
       LANES.deep_archive.table,
       batch,
-      'workspace_id,source_type,source_ref,content_hash',
+      'workspace_id,source_ref',
     );
     wrote += batch.length;
     console.log(`  ✓ Supabase upsert ${batch.length} (${wrote}/${rows.length})`);
