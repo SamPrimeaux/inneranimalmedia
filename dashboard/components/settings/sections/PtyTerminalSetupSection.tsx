@@ -116,6 +116,23 @@ export function PtyTerminalSetupSection({
   const [cfZones, setCfZones] = useState<CfZone[]>([]);
   const [zonesLoading, setZonesLoading] = useState(false);
 
+  const applyPtyDefaultsFromHints = useCallback(
+    (hints: {
+      pty_defaults?: { zone_id?: string | null; hostname?: string | null; tunnel_name?: string | null };
+    }) => {
+      const d = hints?.pty_defaults;
+      if (!d) return;
+      if (d.zone_id) setZoneId((prev) => (prev.trim() ? prev : String(d.zone_id)));
+      if (d.hostname) setHostname((prev) => (prev.trim() ? prev : String(d.hostname)));
+      if (d.tunnel_name) {
+        setTunnelName((prev) =>
+          prev.trim() && prev !== 'my-pty' ? prev : String(d.tunnel_name),
+        );
+      }
+    },
+    [],
+  );
+
   const applyZoneDefaults = useCallback(
     (zones: CfZone[], tun: TunnelStatus | null) => {
       if (tun?.zone_id) {
@@ -195,6 +212,18 @@ export function PtyTerminalSetupSection({
       setTokenStatus(tRes.ok ? tJ : null);
       setTunnelStatus(tun);
       setLocalConn(locRes.ok ? locJ : null);
+
+      const hintsRes = await fetch('/api/settings/keys/hints', {
+        credentials: 'same-origin',
+        headers: wsHeaders(ws),
+      });
+      if (hintsRes.ok) {
+        const hintsJ = (await hintsRes.json().catch(() => ({}))) as {
+          pty_defaults?: { zone_id?: string | null; hostname?: string | null; tunnel_name?: string | null };
+        };
+        applyPtyDefaultsFromHints(hintsJ);
+      }
+
       if (hasCloudflareKey) {
         const zones = await loadCfZones();
         applyZoneDefaults(zones, tun);
@@ -204,7 +233,7 @@ export function PtyTerminalSetupSection({
     } finally {
       setLoading(false);
     }
-  }, [ws, onError, hasCloudflareKey, loadCfZones, applyZoneDefaults]);
+  }, [ws, onError, hasCloudflareKey, loadCfZones, applyZoneDefaults, applyPtyDefaultsFromHints]);
 
   useEffect(() => {
     void refresh();
@@ -418,7 +447,9 @@ cd iam-pty && npm install && node server.js`;
           </div>
           <p className="text-[11px] text-[var(--text-muted)] max-w-xl">
             One workspace, your Cloudflare account: generate a bridge token, create a tunnel on your
-            zone, run iam-pty locally. No platform operator setup required.
+            zone, run iam-pty locally. Form defaults sync from{' '}
+            <code className="text-[10px]">.env.cloudflare</code> via{' '}
+            <code className="text-[10px]">npm run sync:operator-keys</code>.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">

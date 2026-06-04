@@ -1301,6 +1301,107 @@ async function listCloudflareZones(env, authUser, request) {
   }
 }
 
+async function readWorkspaceSettingsJson(env, workspaceId) {
+  const wid = String(workspaceId || '').trim();
+  if (!wid || !env?.DB) return {};
+  const row = await env.DB.prepare(
+    `SELECT settings_json FROM workspace_settings WHERE workspace_id = ? LIMIT 1`,
+  )
+    .bind(wid)
+    .first()
+    .catch(() => null);
+  if (!row?.settings_json) return {};
+  try {
+    return typeof row.settings_json === 'string' ? JSON.parse(row.settings_json) : row.settings_json;
+  } catch {
+    return {};
+  }
+}
+
+async function mergeWorkspaceSettingsJson(env, workspaceId, patch) {
+  const wid = String(workspaceId || '').trim();
+  if (!wid || !env?.DB) return {};
+  const current = await readWorkspaceSettingsJson(env, wid);
+  const next = { ...current, ...patch };
+  const json = JSON.stringify(next);
+  await env.DB.prepare(
+    `INSERT INTO workspace_settings (workspace_id, settings_json, updated_at)
+     VALUES (?, ?, unixepoch())
+     ON CONFLICT(workspace_id) DO UPDATE SET
+       settings_json = excluded.settings_json,
+       updated_at = excluded.updated_at`,
+  )
+    .bind(wid, json)
+    .run()
+    .catch(() => null);
+  return next;
+}
+
+async function getKeysFormHints(env, authUser, request) {
+  const wsRes = await assertWorkspaceAccess(env, request, authUser);
+  if (wsRes.error === 'Forbidden') return clientError('FORBIDDEN', 'You do not have access to this workspace.', 403);
+  if (wsRes.error === 'WORKSPACE_CONTEXT_MISSING') {
+    return clientError('WORKSPACE_CONTEXT_MISSING', 'Workspace context is missing.', 400);
+  }
+  if (wsRes.error) return clientError('WORKSPACE_ERROR', wsRes.error, 400);
+
+  const workspaceId = wsRes.workspaceId;
+  const settings = await readWorkspaceSettingsJson(env, workspaceId);
+  const ptyDefaults =
+    settings?.pty_defaults && typeof settings.pty_defaults === 'object' ? settings.pty_defaults : {};
+
+  let cloudflareAccountId = null;
+  const tenantId = await resolveTenantIdOrFetch(env, authUser);
+  const userId = String(authUser?.id || '').trim();
+  const creds = await resolveWorkspaceCloudflareCredentials(env, userId, tenantId, workspaceId);
+  if (creds.ok && creds.account_id) {
+    cloudflareAccountId = creds.account_id;
+  } else if (env?.CLOUDFLARE_ACCOUNT_ID) {
+    cloudflareAccountId = String(env.CLOUDFLARE_ACCOUNT_ID).trim() || null;
+  }
+
+  return jsonResponse({
+    ok: true,
+    workspace_id: workspaceId,
+    cloudflare_account_id: cloudflareAccountId,
+    cloudflare_account_id_mask: cloudflareAccountId ? maskAccountId(cloudflareAccountId) : null,
+    pty_defaults: {
+      zone_id: ptyDefaults.zone_id != null ? String(ptyDefaults.zone_id) : null,
+      hostname: ptyDefaults.hostname != null ? String(ptyDefaults.hostname) : null,
+      tunnel_name: ptyDefaults.tunnel_name != null ? String(ptyDefaults.tunnel_name) : null,
+    },
+    sync_note: 'Run npm run sync:operator-keys locally to refresh from .env.cloudflare',
+  });
+}
+
+async function putPtyDefaults(env, authUser, request) {
+  const wsRes = await assertWorkspaceAccess(env, request, authUser);
+  if (wsRes.error === 'Forbidden') return clientError('FORBIDDEN', 'You do not have access to this workspace.', 403);
+  if (wsRes.error === 'WORKSPACE_CONTEXT_MISSING') {
+    return clientError('WORKSPACE_CONTEXT_MISSING', 'Workspace context is missing.', 400);
+  }
+  if (wsRes.error) return clientError('WORKSPACE_ERROR', wsRes.error, 400);
+
+  const body = await request.json().catch(() => ({}));
+  const raw = body?.pty_defaults;
+  if (!raw || typeof raw !== 'object') {
+    return clientError('PTY_DEFAULTS_REQUIRED', 'pty_defaults object is required.', 400);
+  }
+
+  const pty_defaults = {
+    zone_id: raw.zone_id != null ? String(raw.zone_id).trim() : null,
+    hostname: raw.hostname != null ? String(raw.hostname).trim() : null,
+    tunnel_name: raw.tunnel_name != null ? String(raw.tunnel_name).trim() : null,
+    cloudflare_account_id:
+      raw.cloudflare_account_id != null ? String(raw.cloudflare_account_id).trim() : null,
+    synced_from: raw.synced_from != null ? String(raw.synced_from) : '.env.cloudflare',
+    synced_at: raw.synced_at != null ? String(raw.synced_at) : nowIso(),
+  };
+
+  const next = await mergeWorkspaceSettingsJson(env, wsRes.workspaceId, { pty_defaults });
+  return jsonResponse({ ok: true, workspace_id: wsRes.workspaceId, pty_defaults: next.pty_defaults });
+}
+
 async function selectCloudflareD1Database(env, authUser, request) {
   const wsRes = await assertWorkspaceAccess(env, request, authUser);
   if (wsRes.error === 'Forbidden') return clientError('FORBIDDEN', 'You do not have access to this workspace.', 403);
@@ -1373,6 +1474,14 @@ export async function handleSettingsKeysApi(request, env, ctx, authUser, url, pa
 
   if (keysPath === '/api/settings/keys/audit' && method === 'GET') {
     return auditApiKeys(request, env, authUser, url);
+  }
+
+  if (keysPath === '/api/settings/keys/hints' && method === 'GET') {
+    return getKeysFormHints(env, authUser, request);
+  }
+
+  if (keysPath === '/api/settings/keys/pty-defaults' && method === 'PUT') {
+    return putPtyDefaults(env, authUser, request);
   }
 
   if (keysPath === '/api/settings/keys/cloudflare/d1' && method === 'GET') {

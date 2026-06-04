@@ -162,6 +162,9 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
   const [selectedD1Id, setSelectedD1Id] = useState('');
   const [selectedD1Label, setSelectedD1Label] = useState<string | null>(null);
   const [d1Saving, setD1Saving] = useState(false);
+  const [formHints, setFormHints] = useState<{
+    cloudflare_account_id?: string | null;
+  } | null>(null);
 
   const isCloudflare = provider.trim().toLowerCase() === 'cloudflare';
   const hasCloudflareKey = items.some(
@@ -195,6 +198,33 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
       setLoading(false);
     }
   }, [ws, wsLoading]);
+
+  useEffect(() => {
+    if (!ws) {
+      setFormHints(null);
+      return;
+    }
+    let cancelled = false;
+    void fetch(`${KEYS_API}/hints`, {
+      credentials: 'same-origin',
+      headers: apiKeysJsonHeaders(ws),
+    })
+      .then(async (r) => {
+        if (!r.ok) return null;
+        return (await r.json().catch(() => ({}))) as {
+          cloudflare_account_id?: string | null;
+        };
+      })
+      .then((j) => {
+        if (!cancelled && j) setFormHints(j);
+      })
+      .catch(() => {
+        if (!cancelled) setFormHints(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ws]);
 
   const loadCloudflareD1 = useCallback(async () => {
     if (!ws || !hasCloudflareKey) {
@@ -535,7 +565,7 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
     <div className="flex flex-col gap-5 max-w-4xl">
       <SectionHeader
         title="Keys & Secrets"
-        description="Provider keys power Agent Sam (BYOK). Secrets are encrypted at rest and never shown again after save."
+        description="Provider keys power Agent Sam (BYOK). Run npm run sync:operator-keys to import from .env.cloudflare. Secrets are never shown again after save."
         right={
           <div className="flex items-center gap-2">
             <button
@@ -583,6 +613,8 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
         hasCloudflareKey={hasCloudflareKey}
         onNeedCloudflareKey={() => {
           setProvider('cloudflare');
+          const acct = formHints?.cloudflare_account_id;
+          if (acct) setCloudflareAccountId(String(acct));
           setCreateOpen(true);
         }}
         onError={setError}

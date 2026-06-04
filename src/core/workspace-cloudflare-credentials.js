@@ -21,6 +21,13 @@ function maskAccountId(accountId) {
   return `••••${s.slice(-4)}`;
 }
 
+/** @param {any} db */
+async function userApiKeysColumnSet(db) {
+  const res = await db.prepare('PRAGMA table_info(user_api_keys)').all().catch(() => null);
+  const names = new Set((res?.results || []).map((c) => String(c?.name || '')));
+  return names;
+}
+
 /**
  * @param {any} env
  * @param {string} userId
@@ -45,17 +52,34 @@ export async function resolveWorkspaceCloudflareCredentials(env, userId, tenantI
     bindingId = accountBinding.id != null ? String(accountBinding.id) : null;
   }
 
+  const cols = await userApiKeysColumnSet(env.DB);
+  const selectCols = ['id', 'vault_secret_id', 'key_hash', 'metadata_json', 'workspace_id'];
+  if (cols.has('status')) selectCols.push('status');
+  const where = [
+    'tenant_id = ?',
+    'user_id = ?',
+    "LOWER(provider) = 'cloudflare'",
+    'workspace_id = ?',
+  ];
+  const binds = [tid, uid, ws];
+  if (cols.has('status')) {
+    where.push("COALESCE(status, 'active') = 'active'");
+  }
+  if (cols.has('is_active')) {
+    where.push('COALESCE(is_active, 1) = 1');
+  }
+  const order =
+    cols.has('updated_at') && cols.has('created_at')
+      ? 'ORDER BY updated_at DESC, created_at DESC'
+      : cols.has('updated_at')
+        ? 'ORDER BY updated_at DESC'
+        : '';
+
   const row = await env.DB.prepare(
-    `SELECT id, vault_secret_id, key_hash, metadata_json, workspace_id, status
-     FROM user_api_keys
-     WHERE tenant_id = ? AND user_id = ? AND LOWER(provider) = 'cloudflare'
-       AND COALESCE(status, 'active') = 'active'
-       AND COALESCE(is_active, 1) = 1
-       AND workspace_id = ?
-     ORDER BY updated_at DESC, created_at DESC
-     LIMIT 1`,
+    `SELECT ${selectCols.join(', ')} FROM user_api_keys
+     WHERE ${where.join(' AND ')} ${order} LIMIT 1`,
   )
-    .bind(tid, uid, ws)
+    .bind(...binds)
     .first()
     .catch(() => null);
 
