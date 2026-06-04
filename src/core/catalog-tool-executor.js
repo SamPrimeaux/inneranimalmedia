@@ -876,6 +876,23 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         return executeCatalogTool(env, r2Row, config, params, runContext, credentials);
       }
 
+      if (
+        cfOp.startsWith('vectorize.') ||
+        String(config.resource || '').toLowerCase() === 'vectorize' ||
+        toolKey === 'agentsam_cf_vectorize'
+      ) {
+        const { handleCfVectorizeManage } = await import('../handlers/cf/vectorize.js');
+        const vectorOpRaw =
+          params?.operation ?? params?.op ?? (cfOp.startsWith('vectorize.') ? cfOp.slice('vectorize.'.length) : '');
+        const vectorOp = String(vectorOpRaw || 'query').trim().toLowerCase();
+        result = await handleCfVectorizeManage(
+          env,
+          { ...params, operation: vectorOp },
+          { workspaceId, tenantId, userId },
+        );
+        break;
+      }
+
       const httpRow = { ...row, handler_type: 'http' };
       return executeCatalogTool(env, httpRow, config, params, runContext, credentials);
     }
