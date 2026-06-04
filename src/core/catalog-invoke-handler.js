@@ -1,13 +1,17 @@
 /**
  * POST catalog-invoke — in-app agentsam_tools dispatch (same path as agent chat tools).
  * Mounted at /api/mcp/catalog-invoke and /api/agent/catalog-invoke on the main worker.
+ *
+ * CRITICAL: isOperatorCall must reflect the caller's superadmin status.
+ * Hardcoding false breaks platform tool dispatch for superadmin MCP OAuth sessions —
+ * resolveCredential throws on 'platform' auth_source when isOperatorCall=false.
  */
 import { getAuthUser, jsonResponse } from './auth.js';
 import { resolveIamActorContext, resolveIdentity } from './identity.js';
 import { dispatchByToolCode } from './dispatch-by-tool-code.js';
-import { userHasSuperadminRole } from './resolve-credential.js';
 import { loadAgentsamToolRow } from './agentsam-tools-catalog.js';
 import { scheduleMirrorToolCallEventToSupabase } from './hyperdrive-write.js';
+import { isAuthSuperadmin } from './workspace-access.js';
 
 /**
  * @param {Request} request
@@ -34,6 +38,10 @@ export async function handleCatalogInvokeApi(request, env, ctx) {
 
   const authUser = await getAuthUser(request, env);
   if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+
+  // Derive superadmin from auth_users.is_superadmin — drives isOperatorCall for
+  // platform credential gate in resolveCredential. Never trust client input.
+  const isSuperadmin = isAuthSuperadmin(authUser);
 
   const actorCtx = await resolveIamActorContext(request, env).catch(() => null);
   const identity = await resolveIdentity(env, request).catch(() => null);
@@ -70,7 +78,6 @@ export async function handleCatalogInvokeApi(request, env, ctx) {
     toolRow = await loadAgentsamToolRow(env, toolName);
   } catch (_) {}
 
-  const isSuperadmin = userHasSuperadminRole(authUser);
   const execT0 = Date.now();
   const catalogOut = await dispatchByToolCode(env, toolName, args, {
     tenantId,
@@ -78,8 +85,12 @@ export async function handleCatalogInvokeApi(request, env, ctx) {
     workspaceId,
     authUser,
     request,
+    // Superadmin (Sam's MCP OAuth sessions via Cursor, Claude, etc.) gets full
+    // platform credential access — isOperatorCall unlocks platform auth_source.
+    // Non-superadmin callers (Connor, external users) remain false — no escalation.
     isOperatorCall: isSuperadmin,
-    isInternalAgent: false,
+    isInternalAgent: isSuperadmin,
+    isSuperadmin,
   });
   const invokeDurationMs = Math.max(0, Date.now() - execT0);
 
