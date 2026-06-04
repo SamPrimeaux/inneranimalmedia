@@ -1544,8 +1544,29 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
           params.active_file_github_repo ||
           null;
       }
+      const { resolveGithubRepoForToolCall } = await import('./github-repo-scope.js');
+      const repoScope = await resolveGithubRepoForToolCall(env, {
+        userId: userId || String(ghParams.user_id || ''),
+        tenantId,
+        workspaceId,
+        requestedRepo: ghParams.repo,
+      });
+      if (repoScope.blocked || !repoScope.repo) {
+        result = {
+          ok: false,
+          error: repoScope.reason || 'github_repo_scope_denied',
+          body: {
+            user_message:
+              'That GitHub repository is outside your account or workspace. Use agentsam_github_repo_list or pick a repo under your GitHub user.',
+            requested_repo: ghParams.repo || null,
+          },
+        };
+        break;
+      }
+      ghParams.repo = repoScope.repo;
       const ghParamsWithMeta = {
         ...ghParams,
+        user_id: userId || ghParams.user_id,
         tool: ghParams?.tool ?? toolKey,
         operation: ghParams?.operation ?? op,
       };

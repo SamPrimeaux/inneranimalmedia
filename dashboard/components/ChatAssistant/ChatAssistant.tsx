@@ -62,8 +62,9 @@ import type {
 } from './types';
 import type { AgentToolTraceRow } from './execution/types';
 import { ExecutionTimeline, ScriptDraftPanel, shellSingleQuote } from './execution';
+import { useWorkspace } from '../../src/context/WorkspaceContext';
 import {
-  LS_GH_REPO,
+  githubRepoContextStorageKey,
   MENTION_CONTEXT_HEADER,
   CHAT_ATTACH_MAX_TOTAL_BYTES,
   CHAT_REQUEST_MAX_BYTES,
@@ -180,6 +181,21 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   onActivePlanChange,
   showPlanWorkbench = false,
 }) => {
+  const { sessionUserId, workspaceId: ctxWorkspaceId, workspaces } = useWorkspace();
+  const effectiveWsId = (workspaceId || ctxWorkspaceId || '').trim() || null;
+
+  const saveGithubRepoSelection = useCallback(
+    (full: string) => {
+      setGithubRepoContext(full);
+      try {
+        localStorage.setItem(githubRepoContextStorageKey(sessionUserId, effectiveWsId), full);
+      } catch {
+        /* ignore */
+      }
+    },
+    [sessionUserId, effectiveWsId],
+  );
+
   const agentsamPolicyRef = useRef<Record<string, unknown> | null>(null);
   useEffect(() => {
     agentsamPolicyRef.current = agentsamPolicy;
@@ -333,13 +349,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   );
   const [ghReposLoading, setGhReposLoading] = useState(false);
   const [ghReposAuthed, setGhReposAuthed] = useState(true);
-  const [githubRepoContext, setGithubRepoContext] = useState<string | null>(() => {
-    try {
-      return typeof localStorage !== 'undefined' ? localStorage.getItem(LS_GH_REPO) : null;
-    } catch {
-      return null;
-    }
-  });
+  const [githubRepoContext, setGithubRepoContext] = useState<string | null>(null);
   const [repoSearch, setRepoSearch] = useState('');
 
   const clearBrowserElementContext = useCallback(() => {
@@ -428,6 +438,22 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   }, []);
 
   useEffect(() => {
+    const key = githubRepoContextStorageKey(sessionUserId, effectiveWsId);
+    let stored: string | null = null;
+    try {
+      stored = typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null;
+    } catch {
+      stored = null;
+    }
+    if (!stored?.trim() && effectiveWsId) {
+      const row = workspaces.find((w) => w.id === effectiveWsId);
+      const wsRepo = row?.github_repo?.trim();
+      if (wsRepo) stored = wsRepo;
+    }
+    setGithubRepoContext(stored?.trim() || null);
+  }, [sessionUserId, effectiveWsId, workspaces]);
+
+  useEffect(() => {
     syncComposerTextareaHeight(
       textareaRef.current,
       isNarrow ? COMPOSER_TEXTAREA_MAX_PX_NARROW : COMPOSER_TEXTAREA_MAX_PX_WIDE,
@@ -437,7 +463,12 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const loadGhRepos = useCallback(async () => {
     setGhReposLoading(true);
     try {
-      const res = await fetch('/api/integrations/github/repos', { credentials: 'same-origin' });
+      const hdr: Record<string, string> = {};
+      if (effectiveWsId) hdr['X-IAM-Workspace-Id'] = effectiveWsId;
+      const res = await fetch('/api/integrations/github/repos', {
+        credentials: 'same-origin',
+        headers: hdr,
+      });
       if (!res.ok) {
         setGhReposAuthed(false);
         setGhRepos([]);
@@ -453,7 +484,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     } finally {
       setGhReposLoading(false);
     }
-  }, []);
+  }, [effectiveWsId]);
 
   useEffect(() => {
     if (repoDrawerOpen) void loadGhRepos();
@@ -2966,12 +2997,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                       <button
                         type="button"
                         onClick={() => {
-                          try {
-                            localStorage.setItem(LS_GH_REPO, full);
-                          } catch {
-                            /* ignore */
-                          }
-                          setGithubRepoContext(full);
+                          saveGithubRepoSelection(full);
                           setRepoDrawerOpen(false);
                         }}
                         className={`flex min-w-0 flex-1 items-center gap-2 rounded-lg px-3 py-2.5 text-left text-[13px] transition-colors hover:bg-[var(--bg-hover)] ${
@@ -2987,12 +3013,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                         type="button"
                         title="Browse files in Deploy tab"
                         onClick={() => {
-                          try {
-                            localStorage.setItem(LS_GH_REPO, full);
-                          } catch {
-                            /* ignore */
-                          }
-                          setGithubRepoContext(full);
+                          saveGithubRepoSelection(full);
                           setRepoDrawerOpen(false);
                           onOpenGitHubIntegration?.({ expandRepoFullName: full });
                         }}

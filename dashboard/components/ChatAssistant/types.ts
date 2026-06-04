@@ -272,6 +272,13 @@ export const COMPOSER_TEXTAREA_MAX_PX_WIDE = 200;
 
 export const LS_GH_REPO = 'iam-chat-github-repo-context';
 
+/** Per-user + per-workspace — avoids leaking Sam's selected repo on shared machines. */
+export function githubRepoContextStorageKey(userId: string | null, workspaceId: string | null): string {
+  const u = userId?.trim() || 'anon';
+  const w = workspaceId?.trim() || 'nows';
+  return `${LS_GH_REPO}:${u}:${w}`;
+}
+
 /** Composer model picker: Thompson / resolveRoutingArm on the Worker when sent as `model`. */
 export const AUTO_MODEL_KEY = 'auto';
 
