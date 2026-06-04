@@ -1,11 +1,38 @@
 /**
  * Workspace visibility and access — membership-scoped for all non-superadmin users.
  * Never expose another user's ws_* via tenant_id alone.
+ *
+ * Hard blocklist: agentsam_workspace_blocklist (migration 546).
+ * Any workspace in that table is invisible to everyone except its owner_user_id,
+ * regardless of tenant, membership, or session resolution.
  */
 import { fetchAuthUserTenantId, platformTenantIdFromEnv } from './auth.js';
 
 export function isAuthSuperadmin(authUser) {
   return Number(authUser?.is_superadmin) === 1;
+}
+
+/**
+ * Check agentsam_workspace_blocklist. Returns true if the workspace is blocked
+ * for this user (i.e. exists in blocklist AND user is not the owner).
+ * Non-fatal — defaults to NOT blocked on error (fail open to membership checks).
+ * @param {any} env
+ * @param {string} workspaceId
+ * @param {string} userId  auth_users.id
+ */
+async function isWorkspaceBlocklisted(env, workspaceId, userId) {
+  if (!env?.DB || !workspaceId || !userId) return false;
+  try {
+    const row = await env.DB.prepare(
+      `SELECT owner_user_id FROM agentsam_workspace_blocklist WHERE workspace_id = ? LIMIT 1`,
+    )
+      .bind(String(workspaceId).trim())
+      .first();
+    if (!row) return false;                              // not in blocklist — allowed
+    return String(row.owner_user_id).trim() !== String(userId).trim(); // blocked if not owner
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -73,11 +100,6 @@ export async function resolveWorkspaceAccessContext(env, authUser) {
   return { isSuper, candidates, tenantId, seeNullTenantUnowned };
 }
 
-/**
- * @param {any} env
- * @param {any} authUser
- * @param {string} workspaceId
- */
 /** Non-superadmin: workspace tenant must match the user's tenant (blocks cross-tenant membership rows). */
 function workspaceTenantMatchesUser(wsTenantId, userTenantId) {
   const wt = wsTenantId != null ? String(wsTenantId).trim() : '';
@@ -87,10 +109,24 @@ function workspaceTenantMatchesUser(wsTenantId, userTenantId) {
   return wt === ut;
 }
 
+/**
+ * @param {any} env
+ * @param {any} authUser
+ * @param {string} workspaceId
+ */
 export async function userCanAccessWorkspace(env, authUser, workspaceId) {
   if (!env?.DB || !authUser || !workspaceId) return false;
   const wid = String(workspaceId).trim();
   if (!wid) return false;
+
+  const uid = String(authUser?.id || '').trim();
+
+  // Hard blocklist gate — superadmin bypasses ONLY if they are the declared owner
+  if (!isAuthSuperadmin(authUser) || uid) {
+    const blocked = await isWorkspaceBlocklisted(env, wid, uid);
+    if (blocked) return false;
+  }
+
   if (isAuthSuperadmin(authUser)) return true;
 
   const { candidates, tenantId: userTenantId } = await resolveWorkspaceAccessContext(env, authUser);
@@ -118,6 +154,7 @@ export async function userCanAccessWorkspace(env, authUser, workspaceId) {
 
 /**
  * List workspaces visible in switchers / settings (member-scoped unless superadmin).
+ * Blocklisted workspaces are excluded from non-owner results via LEFT JOIN filter.
  * @param {import('@cloudflare/workers-types').D1Database} db
  * @param {any} env
  * @param {any} authUser
@@ -134,8 +171,11 @@ export async function listAccessibleWorkspaces(db, env, authUser, opts = {}) {
 
   if (!candidates.length && !isSuper) return [];
 
+  const userId = String(authUser?.id || '').trim();
+
   if (isSuper) {
-    const userId = String(authUser.id || '').trim();
+    // Superadmin sees platform tenant workspaces — but blocklist still applies
+    // for non-owner superadmin sessions (prevents cross-account admin bleed).
     const sql = `
       SELECT DISTINCT w.id, w.display_name, w.slug, w.workspace_type,
         w.status, w.r2_prefix, w.github_repo, w.settings_json,
@@ -145,20 +185,24 @@ export async function listAccessibleWorkspaces(db, env, authUser, opts = {}) {
       FROM workspaces w
       LEFT JOIN workspace_members wm
         ON wm.workspace_id = w.id AND wm.user_id = ?
+      LEFT JOIN agentsam_workspace_blocklist bl
+        ON bl.workspace_id = w.id
       WHERE (
           w.tenant_id = ?
           OR wm.user_id = ?
           OR (w.tenant_id IS NULL AND ? = 1)
         )
         AND (w.is_archived = 0 OR w.is_archived IS NULL)
+        AND (bl.workspace_id IS NULL OR bl.owner_user_id = ?)
       ORDER BY ${orderBy}${limitSql}`;
     const { results } = await db
       .prepare(sql)
-      .bind(userId, tenantId ?? '', userId, seeNullTenantUnowned)
+      .bind(userId, tenantId ?? '', userId, seeNullTenantUnowned, userId)
       .all();
     return results || [];
   }
 
+  // Non-superadmin: membership + owner scoped, blocklist enforced via JOIN
   const ph = inClausePlaceholders(candidates);
   const tid = tenantId != null ? String(tenantId).trim() : '';
   const tenantClause = tid
@@ -173,6 +217,8 @@ export async function listAccessibleWorkspaces(db, env, authUser, opts = {}) {
     FROM workspaces w
     LEFT JOIN workspace_members wm
       ON wm.workspace_id = w.id AND wm.user_id IN (${ph})
+    LEFT JOIN agentsam_workspace_blocklist bl
+      ON bl.workspace_id = w.id
     WHERE (
         EXISTS (
           SELECT 1 FROM workspace_members wm2
@@ -184,9 +230,11 @@ export async function listAccessibleWorkspaces(db, env, authUser, opts = {}) {
       )
       ${tenantClause}
       AND (w.is_archived = 0 OR w.is_archived IS NULL)
+      AND (bl.workspace_id IS NULL OR bl.owner_user_id IN (${ph}))
     ORDER BY ${orderBy}${limitSql}`;
   const binds = [...candidates, ...candidates, ...candidates];
   if (tid) binds.push(tid);
+  binds.push(...candidates); // for blocklist owner check
   const { results } = await db.prepare(sql).bind(...binds).all();
   return results || [];
 }
