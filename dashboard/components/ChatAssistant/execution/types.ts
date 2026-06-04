@@ -27,6 +27,12 @@ export type AgentToolTraceRow = {
   sqlRows?: Record<string, unknown>[];
   /** True when this row was created from the dashboard (syntax / run), not SSE. */
   local?: boolean;
+  /** MCP / integration label for receipt header (default Agent Sam). */
+  integrationLabel?: string;
+  /** Terminal tool receipt — from tool JSON output. */
+  connectionResolution?: string;
+  connectionId?: string;
+  execHost?: string;
 };
 
 export type ArtifactChipListProps = {

@@ -21,7 +21,11 @@ import type {
   ImageGenerationState,
 } from '../types';
 import type { AgentToolTraceRow } from '../execution/types';
-import { formatToolTraceInput, formatToolTraceOutput } from '../../../lib/formatToolTraceSummary';
+import {
+  formatToolTraceInput,
+  formatToolTraceOutput,
+  parseToolTraceReceiptMeta,
+} from '../../../lib/formatToolTraceSummary';
 import { sanitizeBrowserNavigateUrl } from '../../../lib/sanitizeBrowserUrl';
 import {
   extractMonacoInvokesFromBuffer,
@@ -361,6 +365,8 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
   let activeBrowserNavTool = false;
   /** Last `tool_output` chunk for the active browser screenshot tool. */
   let lastBrowserScreenshotOutputChunk: string | null = null;
+  /** Accumulated `tool_output` for the active tool (terminal receipt parsing). */
+  let lastActiveToolOutputChunk: string | null = null;
   let activeBrowserScreenshotTool = false;
   let activeAgentRunId: string | null = null;
   let executionPlan: ExecutionPlanState | null = null;
@@ -1611,6 +1617,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             typeof d.tool_call_id === 'string' && d.tool_call_id.trim() ? d.tool_call_id.trim() : null;
           const rowId = toolCallId || `sse-tool-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
           activeToolTraceId = rowId;
+          lastActiveToolOutputChunk = null;
           const isSql =
             !!d.tool_name &&
             (d.tool_name.includes('d1') || d.tool_name.includes('sql') || d.tool_name.includes('query'));
@@ -1706,6 +1713,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           if (activeBrowserScreenshotTool) {
             lastBrowserScreenshotOutputChunk = d.chunk;
           }
+          lastActiveToolOutputChunk = d.chunk;
           setToolTraceRows?.((prev) => {
             if (activeToolTraceId) {
               return prev.map((r) =>
@@ -1744,7 +1752,16 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           const outputPreview =
             typeof d.output_preview === 'string'
               ? d.output_preview
-              : lastBrowserToolOutputChunk;
+              : lastActiveToolOutputChunk ||
+                lastBrowserToolOutputChunk ||
+                lastBrowserScreenshotOutputChunk;
+          const receiptMeta = parseToolTraceReceiptMeta(doneToolName, outputPreview);
+          const integrationLabel =
+            /terminal|mcp/i.test(doneToolName) && doneToolName.includes('mcp')
+              ? 'inneranimalmedia-mcp-server'
+              : /terminal/.test(doneToolName)
+                ? 'Agent Sam'
+                : undefined;
           const { summaryLines, detailsJson } = formatToolTraceOutput(doneToolName, outputPreview);
           let smokeDebug: Record<string, unknown> | null = null;
           try {
@@ -1845,6 +1862,11 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
                     status: d.status === 'error' || !doneOk ? 'error' : 'done',
                     durationMs: d.duration_ms,
                     sqlRows: d.rows ?? undefined,
+                    integrationLabel: integrationLabel ?? r.integrationLabel,
+                    connectionResolution:
+                      receiptMeta?.connectionResolution ?? r.connectionResolution,
+                    connectionId: receiptMeta?.connectionId ?? r.connectionId,
+                    execHost: receiptMeta?.execHost ?? r.execHost,
                     lines:
                       d.status === 'error' && d.error
                         ? [...summaryLines, String(d.error).slice(0, 4000)]
@@ -1858,6 +1880,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             );
           });
           if (closedRowId && activeToolTraceId === closedRowId) activeToolTraceId = null;
+          lastActiveToolOutputChunk = null;
         }
         if (data && typeof data === 'object' && 'conversation_id' in data) {
           const cid = (data as { conversation_id?: string }).conversation_id;

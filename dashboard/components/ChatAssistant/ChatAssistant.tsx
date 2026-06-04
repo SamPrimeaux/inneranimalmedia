@@ -97,6 +97,18 @@ import { formatHttpErrorMessage } from './streamParsing';
 import { consumeAgentChatSseBody } from './hooks/useAgentChatStream';
 import { initIamAgentStreamDebug, patchIamAgentStreamDebug } from './streamDebug';
 import { AgentMessageList } from './components/AgentMessageList';
+import { AgentComposerTrustStrip } from './composer/AgentComposerTrustStrip';
+import { AgentComposerSourceChips } from './composer/AgentComposerSourceChips';
+import { AgentComposerPlusMenu } from './composer/AgentComposerPlusMenu';
+import { useComposerTrustStatus } from './composer/useComposerTrustStatus';
+import { useComposerIntegrations } from './composer/useComposerIntegrations';
+import {
+  composerSourcesStorageKey,
+  readComposerSources,
+  writeComposerSources,
+} from './composer/composerSourcesStorage';
+import type { ChatComposerSource } from './composer/types';
+import { WEB_SEARCH_SOURCE, WEB_SEARCH_SOURCE_ID } from './composer/types';
 import { PlanWorkbenchPanel } from './components/PlanWorkbenchPanel';
 import { ThinkingCard } from '../../src/components/ThinkingCard';
 import type { ThinkingCardState } from '../../src/components/ThinkingCard';
@@ -265,6 +277,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const [attachMenuStyle, setAttachMenuStyle] = useState<React.CSSProperties | null>(null);
+  const [composerSources, setComposerSources] = useState<ChatComposerSource[]>([]);
+  const composerSourcesKey = composerSourcesStorageKey(sessionUserId, effectiveWsId);
   const [modeMenuStyle, setModeMenuStyle] = useState<React.CSSProperties | null>(null);
   const [modelPickerStyle, setModelPickerStyle] = useState<React.CSSProperties | null>(null);
   const [modes] = useState(AGENT_MODES);
@@ -632,6 +646,48 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     tool: ToolApprovalPayload;
   } | null>(null);
   const [approvalBusy, setApprovalBusy] = useState(false);
+
+  useEffect(() => {
+    setComposerSources(readComposerSources(composerSourcesKey));
+  }, [composerSourcesKey]);
+
+  useEffect(() => {
+    writeComposerSources(composerSourcesKey, composerSources);
+  }, [composerSourcesKey, composerSources]);
+
+  const policyCanRunPty = Number(agentsamPolicy?.can_run_pty ?? 1) === 1;
+  const policyWebSearch = Number(agentsamPolicy?.web_search_enabled ?? 1) === 1;
+
+  const trustStatus = useComposerTrustStatus({
+    workspaceId: effectiveWsId,
+    pendingApprovalCount: pendingToolApproval ? 1 : 0,
+    canRunPty: policyCanRunPty,
+  });
+
+  const { connectables, connectablesLoading, sourceFromIntegration } = useComposerIntegrations(false);
+
+  const activeComposerSourceIds = useMemo(
+    () => new Set(composerSources.map((s) => s.id)),
+    [composerSources],
+  );
+
+  const toggleComposerSource = useCallback((source: ChatComposerSource, enabled: boolean) => {
+    setComposerSources((prev) => {
+      if (enabled) {
+        if (prev.some((s) => s.id === source.id)) return prev;
+        return [...prev, source];
+      }
+      return prev.filter((s) => s.id !== source.id);
+    });
+  }, []);
+
+  const removeComposerSource = useCallback((id: string) => {
+    setComposerSources((prev) => prev.filter((s) => s.id !== id));
+  }, []);
+
+  const scrollToPendingApproval = useCallback(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
+  }, []);
   const [runPlanBusy, setRunPlanBusy] = useState(false);
 
   const [toolTraceRows, setToolTraceRows] = useState<AgentToolTraceRow[]>([]);
@@ -1925,6 +1981,13 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         openFiles: [...new Set(openFilesList)].slice(0, 32),
         plan_id: activePlanIdRef.current || null,
         workflow_run_id: workflowLedger.runId || null,
+        composer_sources: composerSources.map((s) => ({
+          id: s.id,
+          label: s.label,
+          kind: s.kind,
+          provider_key: s.providerKey ?? null,
+        })),
+        web_search_enabled: composerSources.some((s) => s.id === WEB_SEARCH_SOURCE_ID),
       };
       browserCtxPayload.workspaceContext = workspaceContextPacket;
       form.append('workspaceContext', JSON.stringify(workspaceContextPacket));
@@ -2646,6 +2709,10 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             chatSessionId={conversationId}
             onOpenInEditor={onFileSelect}
           />
+          <AgentComposerTrustStrip
+            status={trustStatus}
+            onApprovalClick={pendingToolApproval ? scrollToPendingApproval : undefined}
+          />
           {workflowLedger.runId ? (
             <div className="px-3 py-1.5 text-[0.625rem] font-mono text-[var(--dashboard-muted)] border-b border-[var(--dashboard-border)]/60 bg-[var(--scene-bg)]/80">
               Workflow{' '}
@@ -2789,6 +2856,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                 </div>
               </div>
             ) : null}
+            <div className="px-2 pt-2 pb-0 min-w-0">
+              <AgentComposerSourceChips sources={composerSources} onRemove={removeComposerSource} />
+            </div>
             <textarea
                 ref={textareaRef}
                 value={input}
@@ -2851,14 +2921,16 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                   type="button"
                   ref={attachButtonRef}
                   className="flex-shrink-0 p-2 text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] hover:bg-[var(--bg-hover)] rounded-lg transition-all"
-                  title="Attach files"
+                  title="Add files, web search, or sources"
+                  aria-expanded={attachMenuOpen}
+                  aria-haspopup="menu"
                   onClick={() => {
                     setAttachMenuOpen((o) => !o);
                     setIsModeOpen(false);
                     setIsModelPickerOpen(false);
                   }}
                 >
-                  <Paperclip size={16} strokeWidth={2} />
+                  <Plus size={16} strokeWidth={2} />
                 </button>
                 <button
                 type="button"
@@ -3033,78 +3105,28 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         attachMenuOpen &&
         attachMenuStyle &&
         createPortal(
-          <div
-            className="bg-[var(--scene-bg)] border border-[var(--dashboard-border)] rounded-xl shadow-2xl flex flex-col text-[0.6875rem] overflow-y-auto overflow-x-hidden py-1 min-w-0"
+          <AgentComposerPlusMenu
             style={attachMenuStyle}
-            role="menu"
-          >
-            <button
-              type="button"
-              className="flex items-center gap-3 px-3 py-2 text-left hover:bg-[var(--dashboard-panel)] text-[var(--dashboard-text)] transition-colors"
-              onClick={() => {
-                setAttachMenuOpen(false);
-                fileInputRef.current?.click();
-              }}
-            >
-              <Paperclip size={14} className="text-[var(--dashboard-muted)] shrink-0" />
-              <span>Upload File</span>
-            </button>
-            <button
-              type="button"
-              className="flex items-center gap-2 px-3 py-2 text-left hover:bg-[var(--dashboard-panel)] text-[var(--dashboard-text)]"
-              onClick={() => {
-                setAttachMenuOpen(false);
-                const el = textareaRef.current;
-                if (!el) return;
-                const start = el.selectionStart;
-                const v = input.slice(0, start) + '@' + input.slice(start);
-                const pos = start + 1;
-                setInput(v);
-                requestAnimationFrame(() => {
-                  el.focus();
-                  el.setSelectionRange(pos, pos);
-                  syncPickers(v, pos);
-                });
-              }}
-            >
-              <AtSign size={14} className="text-[var(--dashboard-muted)] shrink-0" />
-              <span>Mention</span>
-            </button>
-            <button
-              type="button"
-              className="flex items-center gap-2 px-3 py-2 text-left hover:bg-[var(--dashboard-panel)] text-[var(--dashboard-text)]"
-              onClick={() => {
-                setAttachMenuOpen(false);
-                const el = textareaRef.current;
-                if (!el) return;
-                const start = el.selectionStart;
-                const v = input.slice(0, start) + '/' + input.slice(start);
-                const pos = start + 1;
-                setInput(v);
-                requestAnimationFrame(() => {
-                  el.focus();
-                  el.setSelectionRange(pos, pos);
-                  syncPickers(v, pos);
-                });
-              }}
-            >
-              <Slash size={14} className="text-[var(--dashboard-muted)] shrink-0" />
-              <span>Command</span>
-            </button>
-            <div className="border-t border-[var(--dashboard-border)] my-1 mx-2" role="separator" />
-            <button
-              type="button"
-              className="flex items-center gap-3 px-3 py-2 text-left hover:bg-[var(--dashboard-panel)] text-[var(--dashboard-text)] transition-colors"
-              onClick={() => {
-                setAttachMenuOpen(false);
-                imageInputRef.current?.click();
-              }}
-            >
-              <ImageIconLucide size={14} className="text-[var(--dashboard-muted)] shrink-0" />
-              <span>Image</span>
-            </button>
-          </div>,
-          document.body
+            connectables={connectables}
+            connectablesLoading={connectablesLoading}
+            activeSourceIds={activeComposerSourceIds}
+            webSearchAllowed={policyWebSearch}
+            onUploadFile={() => {
+              setAttachMenuOpen(false);
+              fileInputRef.current?.click();
+            }}
+            onUploadImage={() => {
+              setAttachMenuOpen(false);
+              imageInputRef.current?.click();
+            }}
+            onToggleWebSearch={() => {
+              const on = activeComposerSourceIds.has(WEB_SEARCH_SOURCE_ID);
+              toggleComposerSource(WEB_SEARCH_SOURCE, !on);
+            }}
+            onToggleSource={toggleComposerSource}
+            sourceFromIntegration={sourceFromIntegration}
+          />,
+          document.body,
         )}
 
       {typeof document !== 'undefined' &&

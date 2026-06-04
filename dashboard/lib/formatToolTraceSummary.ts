@@ -7,6 +7,52 @@ export type ToolTraceSummary = {
   detailsJson?: string;
 };
 
+export type ToolTraceReceiptMeta = {
+  connectionResolution?: string;
+  connectionId?: string;
+  execHost?: string;
+  stdoutPreview?: string;
+};
+
+function nestedRecord(v: unknown): Record<string, unknown> | null {
+  if (v && typeof v === 'object' && !Array.isArray(v)) return v as Record<string, unknown>;
+  return null;
+}
+
+function pickTerminalField(parsed: Record<string, unknown>, key: string): string | undefined {
+  const direct = parsed[key];
+  if (direct != null && String(direct).trim()) return String(direct).trim();
+  const body = nestedRecord(parsed.body);
+  if (body?.[key] != null && String(body[key]).trim()) return String(body[key]).trim();
+  const data = nestedRecord(parsed.data);
+  if (data?.[key] != null && String(data[key]).trim()) return String(data[key]).trim();
+  return undefined;
+}
+
+export function parseToolTraceReceiptMeta(
+  toolName: string,
+  outputPreview: string | null | undefined,
+): ToolTraceReceiptMeta | undefined {
+  const tn = String(toolName || '').toLowerCase();
+  if (!/terminal|pty|shell_remote|shell_local/.test(tn)) return undefined;
+  const raw = String(outputPreview || '').trim();
+  const parsed = raw ? tryParseJson(raw) : null;
+  if (!parsed) return undefined;
+
+  const stdout =
+    (typeof parsed.stdout === 'string' && parsed.stdout) ||
+    (typeof parsed.output === 'string' && parsed.output) ||
+    pickTerminalField(parsed, 'stdout');
+  const stdoutPreview = stdout ? stdout.split('\n').slice(0, 4).join('\n').slice(0, 400) : undefined;
+
+  return {
+    connectionResolution: pickTerminalField(parsed, 'connection_resolution'),
+    connectionId: pickTerminalField(parsed, 'connection_id'),
+    execHost: pickTerminalField(parsed, 'exec_host'),
+    stdoutPreview,
+  };
+}
+
 function tryParseJson(raw: string): Record<string, unknown> | null {
   try {
     const v = JSON.parse(raw) as unknown;
@@ -94,6 +140,21 @@ export function formatToolTraceOutput(toolName: string, outputPreview: string | 
         ],
         detailsJson,
       };
+    }
+
+    const terminalMeta = parseToolTraceReceiptMeta(toolName, raw);
+    if (terminalMeta) {
+      const lines: string[] = [];
+      if (terminalMeta.connectionResolution) {
+        lines.push(`connection_resolution: ${terminalMeta.connectionResolution}`);
+      }
+      if (terminalMeta.connectionId) lines.push(`connection_id: ${terminalMeta.connectionId}`);
+      if (terminalMeta.execHost) lines.push(`exec_host: ${terminalMeta.execHost}`);
+      if (terminalMeta.stdoutPreview) {
+        const previewLines = terminalMeta.stdoutPreview.split('\n').slice(0, 3);
+        lines.push(`stdout: ${previewLines.join(' · ').slice(0, 200)}`);
+      }
+      if (lines.length) return { summaryLines: lines, detailsJson };
     }
   }
 

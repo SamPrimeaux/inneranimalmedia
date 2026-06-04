@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import React, { useEffect, useState, useCallback } from 'react';
-import { ChevronDown, ChevronRight, Copy, Check } from 'lucide-react';
+import { ChevronDown, ChevronRight, Copy, Check, CheckCircle2 } from 'lucide-react';
 import type { AgentToolTraceRow } from './types';
 import { ScrollablePreviewPanel } from './ScrollablePreviewPanel';
 
@@ -39,8 +39,10 @@ function CopyButton({ text }: { text: string }) {
 export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({ row, defaultExpanded, onDismiss }) => {
   const failed = row.status === 'error';
   const running = row.status === 'running';
+  const hasReceiptMeta = !!(row.connectionResolution || row.execHost || row.connectionId);
   const [open, setOpen] = useState(!!defaultExpanded || failed);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [responseOpen, setResponseOpen] = useState(false);
 
   useEffect(() => {
     if (failed) setOpen(true);
@@ -71,8 +73,9 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({ row, defaultExpanded
         aria-expanded={open}
       >
         <div className="flex flex-col min-w-0 flex-1">
-          <span className="text-[10px] font-medium text-[var(--text-muted)] tracking-wide">
-            Agent Sam
+          <span className="text-[10px] font-medium text-[var(--text-muted)] tracking-wide truncate">
+            {row.integrationLabel || 'Agent Sam'}
+            {hasReceiptMeta ? ' · Called tool' : ''}
           </span>
           <span className="text-[12px] font-mono font-medium text-[var(--dashboard-text)] truncate">
             {row.toolName}
@@ -114,6 +117,30 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({ row, defaultExpanded
 
       {open && (
         <div className="border-t border-[var(--dashboard-border)]/60">
+          {hasReceiptMeta ? (
+            <div className="px-3.5 py-2 space-y-1 border-b border-[var(--dashboard-border)]/40">
+              {row.connectionResolution ? (
+                <p className="text-[10px] font-mono text-[var(--dashboard-text)] m-0">
+                  <span className="text-[var(--text-muted)]">connection_resolution</span>{' '}
+                  {row.connectionResolution}
+                </p>
+              ) : null}
+              {row.connectionId ? (
+                <p className="text-[10px] font-mono text-[var(--dashboard-text)] m-0">
+                  <span className="text-[var(--text-muted)]">connection_id</span> {row.connectionId}
+                </p>
+              ) : null}
+              {row.execHost ? (
+                <p className="text-[10px] font-mono text-[var(--dashboard-text)] m-0 inline-flex items-center gap-1 flex-wrap">
+                  <span className="text-[var(--text-muted)]">exec_host</span>{' '}
+                  <span>{row.execHost}</span>
+                  {!failed && !running ? (
+                    <CheckCircle2 size={11} className="text-emerald-400 shrink-0" aria-hidden />
+                  ) : null}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
           <div className="px-3.5 py-2.5 space-y-1">
             {row.lines.map((line) => (
               <p key={line} className="text-[11px] text-[var(--dashboard-text)] m-0 font-mono">
@@ -138,23 +165,43 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({ row, defaultExpanded
 
           {detailsText ? (
             <div className="px-3.5 pb-2.5 border-t border-[var(--dashboard-border)]/40">
-              <button
-                type="button"
-                className="flex items-center gap-1 text-[10px] text-[var(--text-muted)] hover:text-[var(--solar-cyan)] mt-2 mb-1"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setDetailsOpen((v) => !v);
-                }}
-              >
-                {detailsOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-                Details
-              </button>
-              {detailsOpen ? (
+              <div className="flex items-center gap-3 mt-2 mb-1">
+                <button
+                  type="button"
+                  className="flex items-center gap-1 text-[10px] text-[var(--text-muted)] hover:text-[var(--solar-cyan)]"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setResponseOpen((v) => !v);
+                  }}
+                >
+                  {responseOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+                  Response
+                </button>
+                <button
+                  type="button"
+                  className="flex items-center gap-1 text-[10px] text-[var(--text-muted)] hover:text-[var(--solar-cyan)]"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDetailsOpen((v) => !v);
+                  }}
+                >
+                  {detailsOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+                  Request
+                </button>
+              </div>
+              {responseOpen ? (
                 <ScrollablePreviewPanel>
                   <div className="flex justify-end mb-1">
                     <CopyButton text={detailsText} />
                   </div>
                   <pre className="m-0 p-2.5 whitespace-pre-wrap break-words text-[10px] text-[var(--dashboard-text)] font-mono leading-relaxed">
+                    {detailsText}
+                  </pre>
+                </ScrollablePreviewPanel>
+              ) : null}
+              {detailsOpen && detailsText !== row.lines.join('\n') ? (
+                <ScrollablePreviewPanel>
+                  <pre className="m-0 p-2.5 whitespace-pre-wrap break-words text-[10px] text-[var(--dashboard-muted)] font-mono leading-relaxed">
                     {detailsText}
                   </pre>
                 </ScrollablePreviewPanel>
