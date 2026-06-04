@@ -1,5 +1,10 @@
 /**
  * Consolidated analytics reads for finance/overview dashboards (D1 + Supabase REST).
+ *
+ * ISOLATION: buildFinanceAnalyticsExtension is called from /api/finance/summary.
+ * That endpoint is now superadmin-gated in finance.js — this module assumes the
+ * caller has already verified superadmin. Non-superadmin callers get the safe
+ * scoped payload from handleFinanceSummary directly and never reach this module.
  */
 import { supabaseGetJson } from './health/supabaseRest.js';
 
@@ -26,6 +31,7 @@ async function d1First(db, sql, binds = []) {
 
 /**
  * Enrichment payload merged into GET /api/finance/summary (best-effort; never throws).
+ * SUPERADMIN ONLY — caller must enforce before invoking.
  * @param {any} env
  * @param {string|null} tenantId
  */
@@ -64,6 +70,7 @@ export async function buildFinanceAnalyticsExtension(env, tenantId = null) {
     [monthStartSec],
   );
 
+  // founder_metrics scoped to tenantId — never returned without it
   const founder = tid
     ? await d1All(
         db,
