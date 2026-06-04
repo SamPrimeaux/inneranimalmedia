@@ -17,6 +17,7 @@ import {
   resolveActiveBootstrap,
   WORKSPACE_CONTEXT_MISSING,
 } from '../core/bootstrap.js';
+import { buildBootstrapApiPayload } from '../core/bootstrap-scoped-context.js';
 import { executeWorkflowAndStream } from '../core/workflow-executor.js';
 import {
   loadWorkflowGraphBundle,
@@ -355,7 +356,13 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
           tenantId: tid,
           workspaceId: wsRes.workspaceId,
         });
-        return jsonResponse(row || {});
+        const payload = await buildBootstrapApiPayload(env, {
+          authUser,
+          workspaceId: wsRes.workspaceId,
+          tenantId: tid,
+          bootstrapRow: row,
+        });
+        return jsonResponse(payload);
       } catch (e) {
         return jsonResponse({ error: e?.message ?? String(e) }, 500);
       }

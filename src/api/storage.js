@@ -193,6 +193,7 @@ export async function handleStorageApi(request, url, env) {
     return jsonResponse({ error: 'Invalid session user' }, 401);
   }
 
+  const isSuper = authUserIsSuperadmin(authUser);
   const baseMeta = { tenant_id: tenantId, user_id: userId };
 
   // ── DELETE /api/storage/policies/:id ────────────────────────────────────
@@ -356,7 +357,7 @@ export async function handleStorageApi(request, url, env) {
         data_quality: 'partial',
         last_synced_at: null,
         buckets: [],
-        missing_registry_rows: knownLiveStorage(env),
+        missing_registry_rows: isSuper ? knownLiveStorage(env) : [],
         total_objects: 0,
         total_mb: 0,
         failed: ['DB'],
@@ -379,7 +380,7 @@ export async function handleStorageApi(request, url, env) {
         q(env, failed, 'r2_bucket_summary', `SELECT MAX(last_inventoried_at) AS last_synced_at FROM r2_bucket_summary`, [], 'first'),
       ]);
       const names = new Set(bucketRows.map((b) => b.storage_name));
-      const live = knownLiveStorage(env);
+      const live = isSuper ? knownLiveStorage(env) : [];
       const missing = live
         .filter((b) => !names.has(b.storage_name))
         .map((b) => ({ ...b, registry_status: 'missing_from_project_storage' }));
@@ -420,9 +421,28 @@ export async function handleStorageApi(request, url, env) {
           ? String(env.DEFAULT_WORKSPACE_ID).trim()
           : null);
       const isSuper = authUserIsSuperadmin(authUser);
+      const summarySql = isSuper
+        ? `SELECT rs.* FROM r2_bucket_summary rs ORDER BY COALESCE(rs.priority,999), rs.bucket_name`
+        : `SELECT rs.* FROM r2_bucket_summary rs
+           INNER JOIN project_storage ps ON ps.storage_name = rs.bucket_name
+          WHERE ps.tenant_id = ? AND COALESCE(ps.status, 'active') = 'active'
+          ORDER BY COALESCE(rs.priority,999), rs.bucket_name`;
+      const summaryBinds = isSuper ? [] : [tenantId];
       const [summaries, syncRow, trends, errors, usageFiltered] = await Promise.all([
-        q(env, failed, 'r2_bucket_summary', `SELECT * FROM r2_bucket_summary ORDER BY COALESCE(priority,999), bucket_name`),
-        q(env, failed, 'r2_bucket_summary', `SELECT MAX(last_inventoried_at) AS last_synced_at FROM r2_bucket_summary`, [], 'first'),
+        q(env, failed, 'r2_bucket_summary', summarySql, summaryBinds),
+        q(
+          env,
+          failed,
+          'r2_bucket_summary',
+          isSuper
+            ? `SELECT MAX(last_inventoried_at) AS last_synced_at FROM r2_bucket_summary`
+            : `SELECT MAX(rs.last_inventoried_at) AS last_synced_at
+                 FROM r2_bucket_summary rs
+                 INNER JOIN project_storage ps ON ps.storage_name = rs.bucket_name
+                WHERE ps.tenant_id = ? AND COALESCE(ps.status, 'active') = 'active'`,
+          isSuper ? [] : [tenantId],
+          'first',
+        ),
         q(env, failed, 'worker_analytics_hourly', `
           SELECT hour_timestamp AS hour, total_requests, failed_requests, avg_duration_ms, p95_duration_ms
           FROM worker_analytics_hourly

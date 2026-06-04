@@ -61,7 +61,8 @@ import {
   resolveAgentChatRouteToolRequirements,
   effectiveAgentChatToolCap,
 } from '../core/agentsam-route-tool-resolver.js';
-import { resolveEffectiveWorkspaceId } from '../core/bootstrap.js';
+import { resolveEffectiveWorkspaceId, resolveActiveBootstrap } from '../core/bootstrap.js';
+import { buildScopedBootstrapContext } from '../core/bootstrap-scoped-context.js';
 import {
   readAgentBootstrapCache,
   writeAgentBootstrapCache,
@@ -10066,41 +10067,116 @@ export async function handleAgentRequest(request, env, ctx, routeAuth = null) {
 async function handleAgentBootstrapRequest(request, env, ctx, identity) {
   try {
     const userId = identity?.userId || 'system';
+    const isSuper = !!(identity?.isSuperadmin);
     const tenantId =
       identity?.tenantId ||
       (await fetchAuthUserTenantId(env, userId)) ||
       platformTenantIdFromEnv(env) ||
       null;
-    if (env.DB && tenantId) {
+
+    const authUser = {
+      id: userId,
+      tenant_id: tenantId,
+      is_superadmin: isSuper ? 1 : 0,
+    };
+    const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {}).catch(() => ({
+      workspaceId: identity?.workspaceId ?? null,
+      error: null,
+    }));
+    const workspaceId = wsRes?.workspaceId ?? identity?.workspaceId ?? null;
+
+    const bootstrapRow =
+      env.DB && workspaceId && userId !== 'system'
+        ? await resolveActiveBootstrap(env, {
+            userId,
+            tenantId,
+            workspaceId,
+          })
+        : null;
+
+    const scoped_context = await buildScopedBootstrapContext(env, {
+      authUser,
+      workspaceId: workspaceId || '',
+      tenantId,
+      bootstrapRow,
+    });
+
+    if (env.DB && tenantId && userId !== 'system') {
       const cached = await readAgentBootstrapCache(env.DB, { tenantId, userId });
       if (cached) {
-        return new Response(cached, {
-          headers: { 'Content-Type': 'application/json', 'X-Cache': 'HIT', 'X-Context-Store': 'agentsam_project_context' },
-        });
+        try {
+          const parsed = JSON.parse(cached);
+          if (parsed?.scoped_context?.isolation?.user_id === userId) {
+            return new Response(cached, {
+              headers: {
+                'Content-Type': 'application/json',
+                'X-Cache': 'HIT',
+                'X-Context-Store': 'agentsam_project_context',
+              },
+            });
+          }
+        } catch (_) {
+          /* stale cache shape — rebuild */
+        }
       }
     }
-    const today     = new Date().toISOString().slice(0, 10);
+
+    const today = new Date().toISOString().slice(0, 10);
     const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-    let dailyLog = '', yesterdayLog = '', schemaMemory = '', todayTodo = '';
-    if (env.R2) {
-      const fetchR2 = async k => { const o = await env.R2.get(k); return o ? await o.text() : ''; };
+    let dailyLog = '';
+    let yesterdayLog = '';
+    let schemaMemory = '';
+    let todayTodo = '';
+
+    if (env.R2 && isSuper) {
+      const fetchR2 = async (k) => {
+        const o = await env.R2.get(k);
+        return o ? await o.text() : '';
+      };
       [dailyLog, yesterdayLog, schemaMemory, todayTodo] = await Promise.all([
         fetchR2(`memory/daily/${today}.md`),
         fetchR2(`memory/daily/${yesterday}.md`),
         fetchR2('memory/schema-and-records.md'),
         fetchR2('memory/today-todo.md'),
       ]);
+    } else if (env.R2 && userId !== 'system') {
+      const fetchR2 = async (k) => {
+        const o = await env.R2.get(k);
+        return o ? await o.text() : '';
+      };
+      const userPrefix = `users/${userId}/memory/`;
+      [dailyLog, yesterdayLog, todayTodo] = await Promise.all([
+        fetchR2(`${userPrefix}daily/${today}.md`),
+        fetchR2(`${userPrefix}daily/${yesterday}.md`),
+        fetchR2(`${userPrefix}today-todo.md`),
+      ]);
     }
-    if (!todayTodo && env.DB) {
-      const row = await env.DB.prepare(`SELECT value FROM agentsam_memory WHERE key = 'today_todo' AND tenant_id = ?`).bind(identity?.tenantId || null).first().catch(() => null);
+
+    if (!todayTodo && env.DB && tenantId && userId !== 'system') {
+      const row = await env.DB.prepare(
+        `SELECT value FROM agentsam_memory WHERE key = 'today_todo' AND tenant_id = ? AND user_id = ?`,
+      )
+        .bind(tenantId, userId)
+        .first()
+        .catch(() => null);
       if (row?.value) todayTodo = String(row.value);
     }
-    const context = { daily_log: dailyLog || null, yesterday_log: yesterdayLog || null, schema_and_records_memory: schemaMemory || null, today_todo: todayTodo || null, date: today };
-    if (env.DB && ctx?.waitUntil && tenantId) {
+
+    const context = {
+      scoped_context,
+      bootstrap_row_id: bootstrapRow?.id ?? null,
+      daily_log: dailyLog || null,
+      yesterday_log: yesterdayLog || null,
+      schema_and_records_memory: isSuper ? schemaMemory || null : null,
+      today_todo: todayTodo || null,
+      date: today,
+    };
+
+    if (env.DB && ctx?.waitUntil && tenantId && userId !== 'system') {
       ctx.waitUntil(
         writeAgentBootstrapCache(env.DB, {
           tenantId,
-          workspaceId: identity?.workspaceId ?? null,
+          workspaceId,
           userId,
           payload: context,
           createdBy: userId,

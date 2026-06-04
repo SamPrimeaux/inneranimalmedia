@@ -191,11 +191,20 @@ function formatActiveFileToolTargets(envelope) {
     );
   }
   if (envelope.r2_key) {
-    const b = envelope.r2_bucket || 'inneranimalmedia';
-    lines.push(
-      `- R2 read: r2_read({ bucket: "${b}", key: "${envelope.r2_key}" })`,
-      `- R2 write: r2_write({ bucket: "${b}", key: "${envelope.r2_key}", content: "<full file>" })`,
-    );
+    const b =
+      envelope.r2_bucket != null && String(envelope.r2_bucket).trim() !== ''
+        ? String(envelope.r2_bucket).trim()
+        : '';
+    if (b) {
+      lines.push(
+        `- R2 read: r2_read({ bucket: "${b}", key: "${envelope.r2_key}" })`,
+        `- R2 write: r2_write({ bucket: "${b}", key: "${envelope.r2_key}", content: "<full file>" })`,
+      );
+    } else {
+      lines.push(
+        `- R2 object key: "${envelope.r2_key}". Use your BYOK bucket from Settings → Storage — do not assume platform bucket names.`,
+      );
+    }
   }
   if (lines.length === 1) {
     lines.push('- Use workspace_read_file / fs_search_files when only a local path is open.');

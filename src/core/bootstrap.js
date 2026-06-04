@@ -206,12 +206,12 @@ export async function resolveTerminalWorkspaceId(env, request, authUser, explici
 /**
  * Active bootstrap row for the given identity + workspace scope.
  *
- * Selection order:
- * 1. user_id + workspace_id (active)
- * 2. person_uuid + workspace_id (active)
- * 3. tenant_id + workspace_id (active)
- * 4. If workspace unknown, caller should call resolveEffectiveWorkspaceId first.
- * 5. user_id-only when exactly one active bootstrap exists for that user (legacy), only if workspace could not be resolved.
+ * Selection order (user isolation):
+ * 1. user_id + workspace_id (active) — canonical
+ * 2. person_uuid + workspace_id only when row.user_id is empty or matches userId
+ * 3. Legacy: user_id-only when exactly one active bootstrap exists AND workspace is a member workspace
+ *
+ * Tenant-only rows (user_id NULL) are never returned — they caused cross-user capability bleed.
  *
  * @param {any} env
  * @param {{ userId?: string|null, personUuid?: string|null, tenantId?: string|null, workspaceId?: string|null }} opts
@@ -228,8 +228,12 @@ export async function resolveActiveBootstrap(env, opts) {
     tid = trim(await resolveTenantIdForWorkspace(env, wid)) || '';
   }
 
-  if (!wid && tid) {
+  if (!wid && tid && uid) {
     wid = trim(await resolveDefaultWorkspaceIdForTenant(env, tid)) || '';
+    if (wid) {
+      const actor = { id: uid };
+      if (!(await userCanAccessWorkspace(env, actor, wid))) wid = '';
+    }
   }
 
   let row = null;
@@ -238,6 +242,7 @@ export async function resolveActiveBootstrap(env, opts) {
     row = await env.DB.prepare(
       `SELECT * FROM agentsam_bootstrap
        WHERE COALESCE(is_active, 1) = 1 AND user_id = ? AND workspace_id = ?
+       ORDER BY updated_at DESC
        LIMIT 1`,
     )
       .bind(uid, wid)
@@ -245,26 +250,18 @@ export async function resolveActiveBootstrap(env, opts) {
       .catch(() => null);
   }
 
-  if (!row && wid && pid) {
+  if (!row && wid && pid && uid) {
     row = await env.DB.prepare(
       `SELECT * FROM agentsam_bootstrap
        WHERE COALESCE(is_active, 1) = 1 AND person_uuid = ? AND workspace_id = ?
+         AND (user_id IS NULL OR trim(user_id) = '' OR user_id = ?)
+       ORDER BY updated_at DESC
        LIMIT 1`,
     )
-      .bind(pid, wid)
+      .bind(pid, wid, uid)
       .first()
       .catch(() => null);
-  }
-
-  if (!row && wid && tid) {
-    row = await env.DB.prepare(
-      `SELECT * FROM agentsam_bootstrap
-       WHERE COALESCE(is_active, 1) = 1 AND tenant_id = ? AND workspace_id = ?
-       LIMIT 1`,
-    )
-      .bind(tid, wid)
-      .first()
-      .catch(() => null);
+    if (row && trim(row.user_id) && trim(row.user_id) !== uid) row = null;
   }
 
   if (!row && !wid && uid) {
@@ -280,11 +277,16 @@ export async function resolveActiveBootstrap(env, opts) {
         row = await env.DB.prepare(
           `SELECT * FROM agentsam_bootstrap
            WHERE user_id = ? AND COALESCE(is_active, 1) = 1
+           ORDER BY updated_at DESC
            LIMIT 1`,
         )
           .bind(uid)
           .first()
           .catch(() => null);
+        if (row?.workspace_id) {
+          const actor = { id: uid };
+          if (!(await userCanAccessWorkspace(env, actor, trim(row.workspace_id)))) row = null;
+        }
       }
     } catch (_) {}
   }
