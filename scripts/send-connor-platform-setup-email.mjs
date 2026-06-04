@@ -17,6 +17,7 @@
  *   RESEND_API_KEY          required to send
  *   CONNOR_SETUP_TO         default connordmcneely@leadershiplegacydigital.com
  *   CONNOR_SETUP_FROM       default EMAIL_FROM or support@inneranimalmedia.com
+ *   CONNOR_SETUP_REPLY_TO   default agent@inneranimalmedia.com (screenshots → Agent Sam inbox)
  *   CONNOR_SETUP_NAME       default Connor
  */
 
@@ -38,6 +39,10 @@ const FROM =
   process.env.RESEND_FROM ||
   'Sam Primeaux <support@inneranimalmedia.com>';
 const NAME = process.env.CONNOR_SETUP_NAME || 'Connor';
+const REPLY_TO = (process.env.CONNOR_SETUP_REPLY_TO || 'agent@inneranimalmedia.com')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
 const SUBJECT =
   process.env.CONNOR_SETUP_SUBJECT ||
   'Agent Sam — your platform setup guide (GitHub, MCP & terminal)';
@@ -81,9 +86,13 @@ async function main() {
     '1. Dashboard: https://www.inneranimalmedia.com/dashboard/agent',
     '2. Connect GitHub OAuth (connordmcneely96)',
     '3. ChatGPT MCP: https://mcp.inneranimalmedia.com/mcp',
-    '4. Your VM terminal: Settings → Local terminal → Start local (not Cloud)',
+    '4. Your VM terminal: Settings → Keys & terminal → PTY setup → Start local (not Cloud)',
+    '5. Workspace: you should only see ws_connor_mcneely — never Sam\'s repos or workspaces',
     '',
-    'Questions? Reply to this email.',
+    'Issues or screenshots? Reply to this email (routes to our agent inbox), or send to:',
+    '  agent@inneranimalmedia.com',
+    '  ai@inneranimalmedia.com',
+    'Include: what you clicked, Start local vs Cloud, and a screenshot if something looks wrong.',
     '',
     '— Sam Primeaux, Inner Animal Media',
   ].join('\n');
@@ -91,6 +100,7 @@ async function main() {
   const payload = {
     from: FROM,
     to: TO,
+    reply_to: REPLY_TO.length === 1 ? REPLY_TO[0] : REPLY_TO,
     subject: SUBJECT,
     html,
     text,
@@ -106,6 +116,7 @@ async function main() {
     console.log('[dry-run] Would send:');
     console.log('  to:', TO.join(', '));
     console.log('  from:', FROM);
+    console.log('  reply_to:', REPLY_TO.join(', '));
     console.log('  subject:', SUBJECT);
     console.log('  html bytes:', Buffer.byteLength(html, 'utf8'));
     console.log('  attachment bytes:', attachmentBytes.length);
