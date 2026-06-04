@@ -707,6 +707,8 @@ export class AgentChatSqlV1 extends DurableObject {
     if (tidParam) this.ptSessionTenantId = tidParam;
     const pParam = String(url.searchParams.get("person_uuid") || body?.person_uuid || "").trim();
     if (pParam) this.ptPersonUuid = pParam;
+    const targetId = String(body?.target_id || body?.ssh_target_id || "").trim() || null;
+    if (targetId) this.ptyTargetConnectionId = targetId;
     await this.ensureWorkspaceSettingsLoaded(workspaceId, { allowPlatformFallback: false });
 
     if (executionMode === "pty" && this.env?.DB) {
