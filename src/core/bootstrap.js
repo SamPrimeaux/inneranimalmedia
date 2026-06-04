@@ -3,7 +3,7 @@
  */
 import { getSession, fetchAuthUserTenantId, authUserIsSuperadmin } from './auth.js';
 import { resolveIamActorContext } from './identity.js';
-import { userCanAccessWorkspace } from './workspace-access.js';
+import { userCanAccessWorkspace, workspaceMemberUserCandidates } from './workspace-access.js';
 
 export const WORKSPACE_CONTEXT_MISSING = 'WORKSPACE_CONTEXT_MISSING';
 /** workspace_settings.workspace_root missing or invalid for the resolved workspace id */
@@ -13,6 +13,41 @@ function trim(s) {
   if (s == null) return '';
   const t = String(s).trim();
   return t;
+}
+
+/** @param {any} env @param {any} authUser @param {string} uid @param {string} candidate */
+async function acceptWorkspaceIfMember(env, authUser, uid, candidate) {
+  const wid = trim(candidate);
+  if (!wid || !env?.DB) return '';
+  const actor = authUser?.id ? authUser : uid ? { id: uid } : null;
+  if (!actor) return '';
+  if (authUserIsSuperadmin(actor)) return wid;
+  if (await userCanAccessWorkspace(env, actor, wid)) return wid;
+  return '';
+}
+
+/** First active workspace_members row for user (auth_users.id or linked users.id). */
+async function resolveFirstMemberWorkspaceId(env, authUser, uid) {
+  const candidates = await workspaceMemberUserCandidates(
+    env,
+    authUser?.id ? authUser : { id: uid },
+  );
+  if (!candidates.length || !env?.DB) return '';
+  const ph = candidates.map(() => '?').join(', ');
+  try {
+    const wm = await env.DB.prepare(
+      `SELECT workspace_id FROM workspace_members
+       WHERE user_id IN (${ph}) AND COALESCE(is_active, 1) = 1
+       ORDER BY COALESCE(joined_at, created_at) DESC
+       LIMIT 1`,
+    )
+      .bind(...candidates)
+      .all();
+    const row = wm.results?.[0];
+    return row?.workspace_id ? trim(row.workspace_id) : '';
+  } catch {
+    return '';
+  }
 }
 
 /**
@@ -82,10 +117,6 @@ export async function resolveEffectiveWorkspaceId(env, request, authUser, cache)
 
   if (request) {
     actorCtx = await resolveIamActorContext(request, env).catch(() => null);
-    workspaceId =
-      trim(request.headers.get('x-iam-workspace-id')) ||
-      trim(actorCtx?.workspaceId) ||
-      '';
 
     if (!session) {
       session = await getSession(env, request).catch(() => null);
@@ -95,7 +126,15 @@ export async function resolveEffectiveWorkspaceId(env, request, authUser, cache)
 
   const uid = trim(authUser?.id || actorCtx?.userId);
 
-  if (!workspaceId && session?.workspace_id) workspaceId = trim(session.workspace_id);
+  const headerCandidate =
+    trim(request?.headers?.get?.('x-iam-workspace-id')) || trim(actorCtx?.workspaceId) || '';
+  if (headerCandidate) {
+    workspaceId = await acceptWorkspaceIfMember(env, authUser, uid, headerCandidate);
+  }
+
+  if (!workspaceId && session?.workspace_id) {
+    workspaceId = await acceptWorkspaceIfMember(env, authUser, uid, session.workspace_id);
+  }
 
   if (!workspaceId && uid) {
     try {
@@ -104,7 +143,9 @@ export async function resolveEffectiveWorkspaceId(env, request, authUser, cache)
       )
         .bind(uid)
         .first();
-      if (au?.active_workspace_id) workspaceId = trim(au.active_workspace_id);
+      if (au?.active_workspace_id) {
+        workspaceId = await acceptWorkspaceIfMember(env, authUser, uid, au.active_workspace_id);
+      }
     } catch (_) {}
   }
 
@@ -119,21 +160,14 @@ export async function resolveEffectiveWorkspaceId(env, request, authUser, cache)
   }
 
   if (!workspaceId && tenantId) {
-    workspaceId = trim(await resolveDefaultWorkspaceIdForTenant(env, tenantId)) || '';
+    const tenantDefault = trim(await resolveDefaultWorkspaceIdForTenant(env, tenantId)) || '';
+    if (tenantDefault) {
+      workspaceId = await acceptWorkspaceIfMember(env, authUser, uid, tenantDefault);
+    }
   }
 
   if (!workspaceId && uid) {
-    try {
-      const wm = await env.DB.prepare(
-        `SELECT workspace_id FROM workspace_members
-         WHERE user_id = ? AND COALESCE(is_active, 1) = 1
-         ORDER BY joined_at DESC
-         LIMIT 1`,
-      )
-        .bind(uid)
-        .first();
-      if (wm?.workspace_id) workspaceId = trim(wm.workspace_id);
-    } catch (_) {}
+    workspaceId = await resolveFirstMemberWorkspaceId(env, authUser, uid);
   }
 
   if (!workspaceId && authUser && authUserIsSuperadmin(authUser)) {

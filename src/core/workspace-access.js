@@ -78,20 +78,30 @@ export async function resolveWorkspaceAccessContext(env, authUser) {
  * @param {any} authUser
  * @param {string} workspaceId
  */
+/** Non-superadmin: workspace tenant must match the user's tenant (blocks cross-tenant membership rows). */
+function workspaceTenantMatchesUser(wsTenantId, userTenantId) {
+  const wt = wsTenantId != null ? String(wsTenantId).trim() : '';
+  const ut = userTenantId != null ? String(userTenantId).trim() : '';
+  if (!ut) return false;
+  if (!wt) return true;
+  return wt === ut;
+}
+
 export async function userCanAccessWorkspace(env, authUser, workspaceId) {
   if (!env?.DB || !authUser || !workspaceId) return false;
   const wid = String(workspaceId).trim();
   if (!wid) return false;
   if (isAuthSuperadmin(authUser)) return true;
 
-  const candidates = await workspaceMemberUserCandidates(env, authUser);
+  const { candidates, tenantId: userTenantId } = await resolveWorkspaceAccessContext(env, authUser);
   if (!candidates.length) return false;
 
   try {
-    const ws = await env.DB.prepare(`SELECT user_id FROM workspaces WHERE id = ? LIMIT 1`)
+    const ws = await env.DB.prepare(`SELECT user_id, tenant_id FROM workspaces WHERE id = ? LIMIT 1`)
       .bind(wid)
       .first();
     if (!ws) return false;
+    if (!workspaceTenantMatchesUser(ws.tenant_id, userTenantId)) return false;
     if (candidates.some((c) => String(ws.user_id || '') === c)) return true;
     const ph = inClausePlaceholders(candidates);
     const m = await env.DB.prepare(
@@ -150,6 +160,10 @@ export async function listAccessibleWorkspaces(db, env, authUser, opts = {}) {
   }
 
   const ph = inClausePlaceholders(candidates);
+  const tid = tenantId != null ? String(tenantId).trim() : '';
+  const tenantClause = tid
+    ? ` AND (w.tenant_id IS NULL OR w.tenant_id = ?)`
+    : ` AND w.tenant_id IS NULL`;
   const sql = `
     SELECT DISTINCT w.id, w.display_name, w.slug, w.workspace_type,
       w.status, w.r2_prefix, w.github_repo, w.settings_json,
@@ -168,9 +182,11 @@ export async function listAccessibleWorkspaces(db, env, authUser, opts = {}) {
         )
         OR w.user_id IN (${ph})
       )
+      ${tenantClause}
       AND (w.is_archived = 0 OR w.is_archived IS NULL)
     ORDER BY ${orderBy}${limitSql}`;
   const binds = [...candidates, ...candidates, ...candidates];
+  if (tid) binds.push(tid);
   const { results } = await db.prepare(sql).bind(...binds).all();
   return results || [];
 }

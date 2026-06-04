@@ -924,10 +924,21 @@ export async function resolveAuth(request, env, opts = {}) {
   }
 
   if (!workspaceId) {
+    let candidate = trimSessionField(row.active_workspace_id) || null;
+    if (candidate && !(isSuperadmin || (await userHasWorkspaceMembership(env, userId, candidate)))) {
+      candidate = null;
+    }
     workspaceId =
-      trimSessionField(row.active_workspace_id) ||
+      candidate ||
       (tenantId ? await resolveDefaultWorkspaceForTenant(env, tenantId) : null) ||
       (await resolveFirstMembershipWorkspaceId(env, userId));
+    if (
+      workspaceId &&
+      !isSuperadmin &&
+      !(await userHasWorkspaceMembership(env, userId, workspaceId))
+    ) {
+      workspaceId = (await resolveFirstMembershipWorkspaceId(env, userId)) || null;
+    }
   }
 
   if (!workspaceId && tenantId) {

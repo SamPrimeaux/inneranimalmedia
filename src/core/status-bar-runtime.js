@@ -40,9 +40,9 @@ export async function fetchWorkspaceGithubRepo(env, authUser, request, url) {
   if (!tenantId) return { error: 'tenant_missing', status: 403 };
 
   const row = await env.DB.prepare(
-    `SELECT github_repo FROM workspaces WHERE id = ? AND tenant_id = ? LIMIT 1`,
+    `SELECT github_repo FROM workspaces WHERE id = ? LIMIT 1`,
   )
-    .bind(tw.workspaceId, tenantId)
+    .bind(tw.workspaceId)
     .first()
     .catch(() => null);
 
