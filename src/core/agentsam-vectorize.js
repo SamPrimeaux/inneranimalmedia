@@ -56,7 +56,7 @@ export async function createAgentsamEmbedding(env, text, opts = {}) {
     .trim()
     .replace(/\/$/, '');
   const body = { model: spec.model, input };
-  if (spec.dimensions === 1536) body.dimensions = 1536;
+  if (spec.dimensions === 1536 || spec.dimensions === 3072) body.dimensions = spec.dimensions;
 
   const res = await fetch(`${base}/embeddings`, {
     method: 'POST',

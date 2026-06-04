@@ -22,6 +22,8 @@ export const LANE_CONTEXT_HEADINGS = Object.freeze({
 });
 
 const MAX_LANE_BLOCK_CHARS = 3000;
+const MAX_PRIMARY_WHEN_DEEP = 1600;
+const MAX_DEEP_SUPPLEMENT = 1400;
 
 /** @typedef {'code_semantic_search'|'schema_semantic_search'|'memory_semantic_search'|'docs_knowledge_search'|'deep_archive_search'|null} SemanticLane */
 
@@ -44,10 +46,12 @@ export function semanticLaneFromRoutingTaskType(routingTaskType) {
       'db_read',
       'db_write',
       'sql_d1_generation',
-      'vectorize',
     ].includes(tt)
   ) {
     return 'schema_semantic_search';
+  }
+  if (tt === 'vectorize') {
+    return 'docs_knowledge_search';
   }
   if (['search_code', 'code', 'refactor', 'review', 'debug'].includes(tt)) {
     return 'code_semantic_search';
@@ -146,7 +150,7 @@ function mapDatabaseIntentToOperation(dbIntent, message, plane) {
  * @param {string} lane
  * @param {Array<{ title?: string, source_ref?: string, content?: string, score?: number }>} results
  */
-function formatSemanticBlock(lane, results) {
+function formatSemanticBlock(lane, results, maxChars = MAX_LANE_BLOCK_CHARS) {
   const heading = LANE_CONTEXT_HEADINGS[lane] || '## Semantic context';
   const body = results
     .slice(0, 8)
@@ -161,20 +165,34 @@ function formatSemanticBlock(lane, results) {
     })
     .join('\n\n');
   const block = `${heading}\n\n${body}`;
-  return block.length > MAX_LANE_BLOCK_CHARS ? block.slice(0, MAX_LANE_BLOCK_CHARS) : block;
+  return block.length > maxChars ? block.slice(0, maxChars) : block;
 }
+
+const VECTORIZE_BINDING_PREAMBLE =
+  'Authoritative Vectorize bindings (2026-06): AGENTSAM_VECTORIZE_CODE, AGENTSAM_VECTORIZE_SCHEMA, AGENTSAM_VECTORIZE_MEMORY, AGENTSAM_VECTORIZE_DOCUMENTS, AGENTSAM_VECTORIZE_COURSES. Deep archive @3072d is Hyperdrive-only (deep_archive_search). RETIRED — do not cite: AGENTSAMVECTORIZE, legacy VECTORIZE @1024.\n\n';
 
 /**
  * @param {string} primaryLane
  * @param {Array<{ title?: string, source_ref?: string, content?: string, score?: number }>} primaryResults
  * @param {Array<{ title?: string, source_ref?: string, content?: string, score?: number }>|null|undefined} deepResults
+ * @param {{ withDeep?: boolean, vectorizeQuestion?: boolean }} [opts]
  */
-function mergeSemanticBlocks(primaryLane, primaryResults, deepResults) {
+function mergeSemanticBlocks(primaryLane, primaryResults, deepResults, opts = {}) {
+  const withDeep = opts.withDeep === true && deepResults?.length;
   const parts = [];
-  if (primaryResults?.length) parts.push(formatSemanticBlock(primaryLane, primaryResults));
-  if (deepResults?.length) parts.push(formatSemanticBlock('deep_archive_search', deepResults));
+  if (primaryResults?.length) {
+    parts.push(
+      formatSemanticBlock(primaryLane, primaryResults, withDeep ? MAX_PRIMARY_WHEN_DEEP : MAX_LANE_BLOCK_CHARS),
+    );
+  }
+  if (withDeep) {
+    parts.push(formatSemanticBlock('deep_archive_search', deepResults, MAX_DEEP_SUPPLEMENT));
+  }
   if (!parts.length) return '';
-  const block = parts.join('\n\n');
+  let block = parts.join('\n\n');
+  if (opts.vectorizeQuestion) {
+    block = VECTORIZE_BINDING_PREAMBLE + block;
+  }
   return block.length > MAX_LANE_BLOCK_CHARS ? block.slice(0, MAX_LANE_BLOCK_CHARS) : block;
 }
 
@@ -311,7 +329,9 @@ export async function resolveAgentChatLaneContextBlock(env, opts = {}) {
       user_id: opts.userId ?? null,
       agent_run_id: opts.agentRunId ?? null,
     };
-    const supplementDeep = shouldSupplementDeepArchive(message, semanticLane);
+    const supplementDeep =
+      shouldSupplementDeepArchive(message, semanticLane) ||
+      String(opts.routingTaskType || '').trim().toLowerCase() === 'vectorize';
 
     const [primaryOut, deepOut] = await Promise.all([
       dispatchSemanticRetrieval(env, { ...dispatchBase, lane: semanticLane, top_k: 6 }),
@@ -341,11 +361,28 @@ export async function resolveAgentChatLaneContextBlock(env, opts = {}) {
       return { block: '', lane: semanticLane, source: 'dispatchSemanticRetrieval_empty' };
     }
 
-    const block = mergeSemanticBlocks(semanticLane, primaryResults, deepResults);
+    const block = mergeSemanticBlocks(semanticLane, primaryResults, deepResults, {
+      withDeep: supplementDeep,
+      vectorizeQuestion: supplementDeep || /\bvectorize\b/i.test(message),
+    });
     const source =
       supplementDeep && deepResults.length
         ? 'dispatchSemanticRetrieval+deep_archive'
-        : 'dispatchSemanticRetrieval';
+        : supplementDeep
+          ? 'dispatchSemanticRetrieval+deep_archive_empty'
+          : 'dispatchSemanticRetrieval';
+
+    if (supplementDeep) {
+      console.info(
+        '[agent-chat] deep_archive_supplement',
+        JSON.stringify({
+          primary_lane: semanticLane,
+          primary_count: primaryResults.length,
+          deep_count: deepResults.length,
+          deep_degraded: deepOut?.degraded_reason ?? null,
+        }),
+      );
+    }
 
     return {
       block,

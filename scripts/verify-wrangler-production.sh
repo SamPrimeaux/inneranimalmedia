@@ -6,6 +6,8 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TOML="${REPO_ROOT}/wrangler.production.toml"
 
+echo "wrangler $(cd "$REPO_ROOT" && npm exec wrangler -- --version 2>/dev/null | tr -d '\r')"
+
 required_bindings=(
   AGENTSAM_VECTORIZE_CODE
   AGENTSAM_VECTORIZE_COURSES
@@ -78,7 +80,7 @@ echo "✓ All required production bindings present in wrangler.production.toml"
 echo "✓ Removed bindings (VECTORIZE, AGENTSAMVECTORIZE, R2, TOOLS) absent from toml"
 echo ""
 echo "Secrets (names only):"
-"${REPO_ROOT}/scripts/with-cloudflare-env.sh" npx wrangler secret list -c "$TOML" 2>/dev/null | grep '"name"' | sed 's/.*"name": "\([^"]*\)".*/  \1/' | sort
+"${REPO_ROOT}/scripts/with-cloudflare-env.sh" npm exec wrangler secret list -c "$TOML" 2>/dev/null | grep '"name"' | sed 's/.*"name": "\([^"]*\)".*/  \1/' | sort
 echo ""
 "${REPO_ROOT}/scripts/ensure-token-signing-key.sh" --check 2>/dev/null || true
 echo ""
