@@ -113,6 +113,11 @@
 			"remote": true
 		},
 		{
+			"binding": "AGENTSAM_VECTORIZE_DOCUMENTS",
+			"index_name": "agentsam-documents-oai3large-1536",
+			"remote": true
+		},
+		{
 			"binding": "AGENTSAM_VECTORIZE_COURSES",
 			"index_name": "agentsam-courses-oai3large-1536",
 			"remote": true

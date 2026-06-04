@@ -23,19 +23,20 @@ Query → createAgentsamEmbedding (OpenAI text-embedding-3-large @ 1536)
 
 ---
 
-## 2. Vectorize quad map (production bindings)
+## 2. Vectorize lane map (production bindings)
 
 | Worker binding | CF index | Dims | Supabase table | Semantic lane | Catalog tool |
 |----------------|----------|------|----------------|---------------|--------------|
 | `AGENTSAM_VECTORIZE_CODE` | `agentsam-codebase-oai3large-1536` | 1536 | `agentsam_codebase_chunks_oai3large_1536` | `code_semantic_search` | `code_semantic_search` |
 | `AGENTSAM_VECTORIZE_SCHEMA` | `agentsam-schema-oai3large-1536` | 1536 | `agentsam_database_schema_oai3large_1536` | `schema_semantic_search` | `schema_semantic_search` |
 | `AGENTSAM_VECTORIZE_MEMORY` | `agentsam-memory-oai3large-1536` | 1536 | `agentsam_memory_oai3large_1536` | `memory_semantic_search` | `memory_semantic_search` |
-| `AGENTSAM_VECTORIZE_COURSES` | `agentsam-courses-oai3large-1536` | 1536 | `agentsam_documents_oai3large_1536` | `docs_knowledge_search` | `docs_knowledge_search` |
+| `AGENTSAM_VECTORIZE_DOCUMENTS` | `agentsam-documents-oai3large-1536` | 1536 | `agentsam_documents_oai3large_1536` | `docs_knowledge_search` | `docs_knowledge_search` |
+| `AGENTSAM_VECTORIZE_COURSES` | `agentsam-courses-oai3large-1536` | 1536 | *(CF-only course catalog)* | — | — |
 | *(none)* | — | 3072 | `agentsam_deep_archive_oai3large_3072` | `deep_archive_search` | `deep_archive_search` |
 
-**Docs lane quirk:** document rows live in `agentsam_documents_oai3large_1536` but Vectorize upserts target the **courses** index until `AGENTSAM_VECTORIZE_DOCUMENTS` is bound to `agentsam-documents-oai3large-1536`.
+**Courses vs docs:** document/knowledge rows use `AGENTSAM_VECTORIZE_DOCUMENTS`. The courses index remains for Learn/course-catalog vectors only.
 
-**Stored vectors (2026-06-04 ingest):** CODE 262 · SCHEMA 593 · MEMORY 192 · COURSES/docs 307
+**Stored vectors (2026-06-04):** DOCUMENTS 307 · CODE 262 · SCHEMA 593 · MEMORY 192
 
 ---
 

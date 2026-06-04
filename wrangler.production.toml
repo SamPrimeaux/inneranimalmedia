@@ -87,7 +87,11 @@ database_id = "cf87b717-d4e2-4cf8-bab0-a81268e32d49"
 binding = "HYPERDRIVE"
 id = "08183bb9d2914e87ac8395d7e4ecff60"
 
-# Four-lane Vectorize (1536-dim oai3large). Legacy VECTORIZE / AGENTSAMVECTORIZE bindings removed 2026-06-02.
+# Five-lane Vectorize (1536-dim oai3large). Legacy VECTORIZE / AGENTSAMVECTORIZE bindings removed 2026-06-02.
+[[vectorize]]
+binding = "AGENTSAM_VECTORIZE_DOCUMENTS"
+index_name = "agentsam-documents-oai3large-1536"
+
 [[vectorize]]
 binding = "AGENTSAM_VECTORIZE_COURSES"
 index_name = "agentsam-courses-oai3large-1536"

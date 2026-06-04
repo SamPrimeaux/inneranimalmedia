@@ -14,7 +14,7 @@ export const LANES = {
   },
   docs: {
     name: 'docs',
-    vectorize: 'AGENTSAM_VECTORIZE_COURSES',
+    vectorize: 'AGENTSAM_VECTORIZE_DOCUMENTS',
     supabase_table: 'agentsam_documents_oai3large_1536',
   },
   schema: {

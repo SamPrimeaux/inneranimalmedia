@@ -40,7 +40,7 @@ export const SEMANTIC_LANE_REGISTRY = Object.freeze({
   docs_knowledge_search: {
     laneKey: 'docs_knowledge_search',
     ragLane: 'docs',
-    binding: 'AGENTSAM_VECTORIZE_COURSES',
+    binding: 'AGENTSAM_VECTORIZE_DOCUMENTS',
     tables: ['agentsam_documents_oai3large_1536'],
     dims: 1536,
   },

@@ -4,7 +4,7 @@
  *
  * Lanes:
  *   deep_archive  — 3072d golden docs (Supabase only, H2 chunking)
- *   documents     — sync embedded rows → agentsam-courses-oai3large-1536 (worker binding; Supabase table unchanged)
+ *   documents     — sync embedded rows → agentsam-documents-oai3large-1536
  *   memory          — sync → agentsam-memory-oai3large-1536
  *   schema          — sync → agentsam-schema-oai3large-1536
  *   code            — sync → agentsam-codebase-oai3large-1536
@@ -58,9 +58,8 @@ const LANES = {
   documents: {
     dims: 1536,
     table: 'agentsam_documents_oai3large_1536',
-    // Worker binds COURSES index for docs lane until AGENTSAM_VECTORIZE_DOCUMENTS ships.
-    index: 'agentsam-courses-oai3large-1536',
-    binding: 'AGENTSAM_VECTORIZE_COURSES',
+    index: 'agentsam-documents-oai3large-1536',
+    binding: 'AGENTSAM_VECTORIZE_DOCUMENTS',
     mode: 'sync',
     chunk: 'existing',
   },
