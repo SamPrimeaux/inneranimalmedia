@@ -19,15 +19,15 @@ SET
 WHERE tool_key = 'agentsam_cf_vectorize';
 
 INSERT OR IGNORE INTO agentsam_mcp_oauth_tool_allowlist (
-  id, client_id, tool_key, sort_order, is_active, created_at, updated_at
+  client_id, tool_key, access_class, sort_order, notes, is_active, updated_at
 )
 VALUES (
-  'ast_oauth_agentsam_cf_vectorize',
   'iam_mcp_inneranimalmedia',
   'agentsam_cf_vectorize',
+  'write',
   110,
+  '537: cf vectorize.manage — query/upsert/delete on AGENTSAM_VECTORIZE_* lanes',
   1,
-  unixepoch(),
   unixepoch()
 );
 
