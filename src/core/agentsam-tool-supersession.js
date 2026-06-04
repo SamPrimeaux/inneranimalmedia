@@ -19,13 +19,12 @@ export const TOOL_SUPERSESSION = Object.freeze({
   // Chunk 2 — R2 / storage
   r2_read: 'agentsam_r2_get',
   r2_write: 'agentsam_r2_put',
-  r2_list: 'agentsam_r2_get',
-  r2_search: 'agentsam_r2_get',
+  r2_list: 'agentsam_r2_list',
+  r2_search: 'agentsam_r2_list',
   r2_delete: 'agentsam_r2_delete',
   agentsam_r2_read: 'agentsam_r2_get',
   agentsam_r2_write: 'agentsam_r2_put',
   agentsam_r2_upload: 'agentsam_r2_put',
-  agentsam_r2_list: 'agentsam_r2_get',
 
   // Chunk 3 — Supabase / Hyperdrive
   supabase_query: 'agentsam_supabase_query',

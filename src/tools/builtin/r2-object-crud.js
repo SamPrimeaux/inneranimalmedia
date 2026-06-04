@@ -8,8 +8,51 @@ import {
   r2DeleteViaBindingOrS3,
   r2HeadViaBindingOrS3,
 } from '../../core/r2.js';
-import { getR2Binding } from '../../api/r2-api.js';
+import {
+  getR2Binding,
+  listR2BucketsForCatalog,
+  listR2ObjectsForCatalog,
+} from '../../api/r2-api.js';
 import { detectFileKind } from '../../core/file-kind.js';
+
+/**
+ * @param {string} operation
+ */
+export function normalizeR2CatalogOperation(operation) {
+  const raw = String(operation || '').toLowerCase();
+  if (raw.startsWith('r2.')) return raw.slice(3);
+  return raw;
+}
+
+/**
+ * @param {any} env
+ * @param {Record<string, unknown>} params
+ * @param {Record<string, unknown>} config
+ * @param {'buckets'|'objects'} mode
+ */
+export async function executeR2ListCatalogOperation(env, params, config, mode) {
+  if (mode === 'buckets') {
+    const includeAllAccount =
+      params.list_all === true ||
+      params.listAll === true ||
+      !String(params.bucket || '').trim();
+    const out = await listR2BucketsForCatalog(env, { all: includeAllAccount });
+    return {
+      ok: true,
+      mode: 'buckets',
+      ...out,
+      hint: 'Use bucket + optional prefix to list objects within a bucket.',
+    };
+  }
+
+  const bucket = String(
+    params.bucket || config.bucket || config.binding || config.default_bucket || '',
+  ).trim();
+  const prefix = params.prefix != null ? String(params.prefix) : '';
+  const limit = Math.min(1000, Math.max(1, Number(params.limit) || 100));
+  const recursive = params.recursive === true || params.recursive === 1;
+  return listR2ObjectsForCatalog(env, { bucket, prefix, limit, recursive });
+}
 
 /**
  * @param {any} env
@@ -132,6 +175,6 @@ export async function executeR2CatalogOperation(env, params, config, operation) 
  * @param {string} operation
  */
 export function isR2ListLikeOperation(operation) {
-  const op = String(operation || '').toLowerCase();
+  const op = normalizeR2CatalogOperation(operation);
   return op === 'list' || op === 'search' || op === 'bucket_summary';
 }

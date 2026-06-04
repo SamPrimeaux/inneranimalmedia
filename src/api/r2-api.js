@@ -377,26 +377,8 @@ export async function handleR2Api(request, url, env) {
 
   // 1. Buckets & Inventory
   if (pathLower === '/api/r2/buckets' && method === 'GET') {
-    const bound = listBoundR2BucketNames(env);
-    const display = dedupeBoundR2BucketNames(env);
-    const resolve = buildR2BucketResolveMap(env);
-    if (url.searchParams.get('all') !== 'true') {
-      return jsonResponse({ buckets: display, bound, resolve, source: 'bindings' });
-    }
-    const account = await listAllR2BucketsViaS3(env);
-    if (account?.length) {
-      const boundSet = new Set(bound);
-      const merged = [...display];
-      const mergedSet = new Set(merged);
-      for (const name of account) {
-        if (!boundSet.has(name) && !mergedSet.has(name)) {
-          merged.push(name);
-          mergedSet.add(name);
-        }
-      }
-      return jsonResponse({ buckets: merged, bound, resolve, account, source: 'bindings+s3' });
-    }
-    return jsonResponse({ buckets: display, bound, resolve, source: 'bindings' });
+    const payload = await listR2BucketsForCatalog(env, { all: url.searchParams.get('all') === 'true' });
+    return jsonResponse(payload);
   }
 
   if (pathLower === '/api/r2/buckets' && method === 'POST') {
@@ -510,27 +492,8 @@ export async function handleR2Api(request, url, env) {
   // 2. Object Management
   if (pathLower === '/api/r2/list' && method === 'GET') {
     if (url.searchParams.get('buckets') === 'true') {
-      const bound = listBoundR2BucketNames(env);
-      const display = dedupeBoundR2BucketNames(env);
-      const resolve = buildR2BucketResolveMap(env);
-      const listAll = url.searchParams.get('all') === 'true';
-      if (!listAll) {
-        return jsonResponse({ buckets: display, bound, resolve, source: 'bindings' });
-      }
-      const account = await listAllR2BucketsViaS3(env);
-      if (account?.length) {
-        const boundSet = new Set(bound);
-        const merged = [...display];
-        const mergedSet = new Set(merged);
-        for (const name of account) {
-          if (!boundSet.has(name) && !mergedSet.has(name)) {
-            merged.push(name);
-            mergedSet.add(name);
-          }
-        }
-        return jsonResponse({ buckets: merged, bound, resolve, account, source: 'bindings+s3' });
-      }
-      return jsonResponse({ buckets: display, bound, resolve, source: 'bindings' });
+      const payload = await listR2BucketsForCatalog(env, { all: url.searchParams.get('all') === 'true' });
+      return jsonResponse(payload);
     }
 
     const bucket = url.searchParams.get('bucket');
@@ -1057,6 +1020,87 @@ export async function handleR2Api(request, url, env) {
 }
 
 // --- HELPER FUNCTIONS (exported for storage dashboard API) ---
+
+/**
+ * Bound buckets, optionally merged with account-wide S3 ListBuckets (same as GET /api/r2/list?buckets=true&all=true).
+ * @param {any} env
+ * @param {{ all?: boolean }} [opts]
+ */
+export async function listR2BucketsForCatalog(env, opts = {}) {
+  const all = opts.all === true;
+  const bound = listBoundR2BucketNames(env);
+  const display = dedupeBoundR2BucketNames(env);
+  const resolve = buildR2BucketResolveMap(env);
+  if (!all) {
+    return { buckets: display, bound, resolve, source: 'bindings', count: display.length };
+  }
+  const account = await listAllR2BucketsViaS3(env);
+  if (account?.length) {
+    const boundSet = new Set(bound);
+    const merged = [...display];
+    const mergedSet = new Set(merged);
+    for (const name of account) {
+      if (!boundSet.has(name) && !mergedSet.has(name)) {
+        merged.push(name);
+        mergedSet.add(name);
+      }
+    }
+    return {
+      buckets: merged,
+      bound,
+      resolve,
+      account,
+      source: 'bindings+s3',
+      count: merged.length,
+    };
+  }
+  return { buckets: display, bound, resolve, source: 'bindings', count: display.length };
+}
+
+/**
+ * List one page of objects in a bucket (binding or S3 — supports unbound buckets).
+ * @param {any} env
+ * @param {{ bucket?: string, prefix?: string, limit?: number, recursive?: boolean }} opts
+ */
+export async function listR2ObjectsForCatalog(env, opts = {}) {
+  const bucket = String(opts.bucket || '').trim();
+  if (!bucket) {
+    return { ok: false, error: 'bucket_required', user_message: 'R2 object listing requires bucket.' };
+  }
+  const prefix = String(opts.prefix || '').trim();
+  const limit = Math.min(1000, Math.max(1, Number(opts.limit) || 100));
+  const { bucketName, binding } = resolveR2Access(env, bucket);
+  if (!binding && !hasR2S3Credentials(env)) {
+    return {
+      ok: false,
+      error: 'r2_transport_unavailable',
+      bucket: bucketName,
+      user_message:
+        'No Worker binding for this bucket and R2 S3 credentials are not configured.',
+    };
+  }
+  const page = await listR2ObjectPage(env, bucketName, binding, prefix, {
+    limit,
+    recursive: opts.recursive === true,
+  });
+  if (page.error && !(page.objects?.length)) {
+    return {
+      ok: false,
+      error: 'list_failed',
+      bucket: bucketName,
+      message: page.error,
+    };
+  }
+  return {
+    ok: true,
+    bucket: bucketName,
+    prefix,
+    objects: page.objects || [],
+    prefixes: page.prefixes || [],
+    count: (page.objects || []).length,
+    truncated: !!(page.cursor || page.continuationToken),
+  };
+}
 
 export function getR2Binding(env, bucketName) {
   const map = {

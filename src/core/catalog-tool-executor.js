@@ -23,8 +23,8 @@ import {
   resolveToolRunAuthUser,
 } from './platform-owner-r2-access.js';
 import { mergeR2S3EnvFromUserStorage } from './user-storage-r2-credentials.js';
-import { executeR2CatalogOperation, isR2ListLikeOperation } from '../tools/builtin/r2-object-crud.js';
-import { getR2Binding } from '../api/r2-api.js';
+import { executeR2CatalogOperation, executeR2ListCatalogOperation, isR2ListLikeOperation, normalizeR2CatalogOperation } from '../tools/builtin/r2-object-crud.js';
+import { getR2Binding, resolveR2BucketName } from '../api/r2-api.js';
 import {
   catalogOperationIsSemanticSearch,
   catalogOperationRequiresSql,
@@ -1066,19 +1066,87 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
 
     case 'r2': {
       const authUser = await resolveToolRunAuthUser(env, runContext);
-      const op = String(config.operation || config.r2_operation || 'write').toLowerCase();
+      const op = normalizeR2CatalogOperation(config.operation || config.r2_operation || 'write');
       const authSource = String(config.auth_source || 'platform').toLowerCase();
       const isOwner = await isPlatformOwner(env, authUser);
+      const listAll = params.list_all === true || params.listAll === true;
+      const bucketParam = params.bucket != null ? String(params.bucket).trim() : '';
+      const wantsBucketInventory =
+        isR2ListLikeOperation(op) && (listAll || !bucketParam);
 
       if (isR2ListLikeOperation(op)) {
-        result = {
-          ok: false,
-          error: 'r2_list_not_supported',
-          body: {
-            user_message:
-              'Use r2_read, r2_write, or r2_delete with explicit bucket + key. Object listing is not an agent tool (Wrangler: get/put/delete only).',
-          },
-        };
+        if (authSource === 'platform' && !isOwner) {
+          result = {
+            ok: false,
+            error: 'platform_r2_owner_only',
+            body: {
+              user_message:
+                'IAM platform R2 bindings are owner-only. Connect your Cloudflare R2 API keys in Settings → Storage to use your buckets.',
+            },
+          };
+          break;
+        }
+
+        const effectiveEnv = await mergeR2S3EnvFromUserStorage(env, authUser);
+        if (authSource === 'customer' && !effectiveEnv.R2_ACCESS_KEY_ID && !getR2Binding(effectiveEnv, bucketParam)) {
+          result = {
+            ok: false,
+            error: 'customer_r2_not_connected',
+            body: {
+              user_message:
+                'Connect your Cloudflare R2 access key + secret in Settings → Storage before R2 list runs.',
+            },
+          };
+          break;
+        }
+
+        if (wantsBucketInventory) {
+          const out = await executeR2ListCatalogOperation(effectiveEnv, params, config, 'buckets');
+          result = out?.ok === false
+            ? { ok: false, error: String(out.error || 'r2_list_failed'), body: out }
+            : { ok: true, body: out };
+          break;
+        }
+
+        let bucket = bucketParam
+          ? await resolveRegisteredR2BucketName(effectiveEnv, bucketParam)
+          : '';
+        if (!bucket && bucketParam) {
+          bucket = resolveR2BucketName(effectiveEnv, bucketParam);
+        }
+        if (!bucket) {
+          result = {
+            ok: false,
+            error: 'bucket_required',
+            body: {
+              user_message:
+                'R2 object listing requires bucket (or omit bucket / set list_all=true to enumerate account buckets).',
+            },
+          };
+          break;
+        }
+
+        if (authSource === 'platform' && isOwner) {
+          const transport = await ownerHasPlatformR2Transport(effectiveEnv, authUser, bucket);
+          if (!transport.ok) {
+            result = {
+              ok: false,
+              error: 'platform_r2_transport_unavailable',
+              body: { user_message: transport.user_message, bucket },
+            };
+            break;
+          }
+        }
+
+        const out = await executeR2ListCatalogOperation(
+          effectiveEnv,
+          { ...params, bucket },
+          config,
+          'objects',
+        );
+        result = out?.ok === false
+          ? { ok: false, error: String(out.error || 'r2_list_failed'), body: out }
+          : { ok: true, body: out };
         break;
       }
 

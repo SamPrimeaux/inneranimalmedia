@@ -1,25 +1,24 @@
 /**
  * Tool: Storage (R2 / Workspace Files)
- * R2: get / put / delete via Worker binding or user S3 credentials — no wrangler object list.
+ * R2: get / put / delete via Worker binding or user S3 credentials; list via catalog helpers.
  */
 import { handlers as fsHandlers } from '../fs.js';
-import { executeR2CatalogOperation, isR2ListLikeOperation } from './r2-object-crud.js';
-
-const R2_LIST_DEGRADED = {
-  ok: false,
-  error: 'r2_list_not_supported',
-  degraded: true,
-  user_message:
-    'R2 listing is not exposed to agents (Wrangler only supports r2 object get/put/delete). Use r2_read / r2_write / r2_delete with an explicit bucket and key. Connect your R2 keys in Settings → Storage for your own buckets.',
-  hint: 'Owner dashboard may use /api/r2/list with Worker bindings; agents use key-based CRUD only.',
-};
+import {
+  executeR2CatalogOperation,
+  executeR2ListCatalogOperation,
+} from './r2-object-crud.js';
 
 export const handlers = {
-  async r2_list() {
-    return R2_LIST_DEGRADED;
+  async r2_list(params, env) {
+    const listAll = params?.list_all === true || params?.listAll === true;
+    const bucket = String(params?.bucket || '').trim();
+    if (listAll || !bucket) {
+      return executeR2ListCatalogOperation(env, params || {}, {}, 'buckets');
+    }
+    return executeR2ListCatalogOperation(env, params || {}, {}, 'objects');
   },
-  async r2_search() {
-    return R2_LIST_DEGRADED;
+  async r2_search(params, env) {
+    return handlers.r2_list(params, env);
   },
   async r2_bucket_summary() {
     return {
