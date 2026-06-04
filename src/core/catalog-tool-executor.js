@@ -893,6 +893,24 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         break;
       }
 
+      if (
+        cfOp === 'kv.manage' ||
+        toolKey === 'agentsam_kv_manage' ||
+        String(config.resource || '').toLowerCase() === 'kv'
+      ) {
+        const { handleCfKvManage } = await import('../handlers/cf/kv.js');
+        const kvOut = await handleCfKvManage(
+          env,
+          params,
+          { workspaceId, tenantId, userId },
+          credentials,
+        );
+        result = kvOut?.ok === false
+          ? { ok: false, error: String(kvOut.error || 'kv_manage_failed'), body: kvOut }
+          : { ok: true, body: kvOut };
+        break;
+      }
+
       const httpRow = { ...row, handler_type: 'http' };
       return executeCatalogTool(env, httpRow, config, params, runContext, credentials);
     }

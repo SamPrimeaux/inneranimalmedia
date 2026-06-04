@@ -2,7 +2,7 @@
  * Catalog dispatch: agentsam_tools row → resolveCredential → catalog-tool-executor.
  * No hardcoded tool names; no runBuiltinTool fallback.
  */
-import { parseHandlerConfig, resolveCredential } from './resolve-credential.js';
+import { parseHandlerConfig, resolveCredential, userHasSuperadminRole } from './resolve-credential.js';
 import { executeCatalogTool } from './catalog-tool-executor.js';
 import {
   loadAgentsamToolRow,
@@ -43,16 +43,27 @@ export async function dispatchByToolCode(env, toolCodeOrKey, input, runContext =
   }
 
   let credentials = { auth_source: 'none', value: null };
+  const authUser =
+    runContext.authUser ??
+    runContext.user ??
+    (userId && runContext.isSuperadmin
+      ? { id: String(userId), is_superadmin: 1, role: 'superadmin' }
+      : null);
+  const isSuper =
+    userHasSuperadminRole(authUser) ||
+    runContext.isSuperadmin === true ||
+    runContext.is_superadmin === true;
   if (config.auth_source) {
     try {
       credentials = await resolveCredential(env, workspaceId, tenantId, config, {
         userId,
-        authUser: runContext.authUser ?? runContext.user ?? null,
+        authUser,
         account_identifier: config.account_identifier,
         isInternalAgent: runContext.isInternalAgent !== false,
         isOperatorCall:
           runContext.isOperatorCall === true ||
-          runContext.is_operator_call === true,
+          runContext.is_operator_call === true ||
+          isSuper,
         mcpBearer: runContext.mcpBearer ?? runContext.mcp_bearer ?? null,
       });
     } catch (e) {

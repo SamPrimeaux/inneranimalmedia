@@ -386,18 +386,40 @@ export async function resolveCredential(env, workspaceId, tenantId, handlerConfi
 
   if (authSource === 'platform') {
     assertPlatformCredentialAllowed(opts);
+    const prov = String(config.provider || config.credential_provider || '').trim().toLowerCase();
+    if (prov === 'cloudflare') return getPlatformCredential('cloudflare', env, config);
+    if (prov === 'supabase') return getPlatformCredential('supabase', env, config);
     return readPlatformEnv(env, config);
   }
 
   if (authSource === 'platform_scoped') {
     assertPlatformCredentialAllowed(opts);
-    requireScopeIds(workspaceId, tenantId);
+    const { workspaceId: ws, tenantId: tid } = requireScopeIds(workspaceId, tenantId);
+    const prov = String(config.provider || config.credential_provider || '').trim().toLowerCase();
+    if (prov === 'cloudflare') {
+      const plat = getPlatformCredential('cloudflare', env, config);
+      return {
+        ...plat,
+        auth_source: 'platform_scoped',
+        workspace_id: ws,
+        tenant_id: tid,
+      };
+    }
+    if (prov === 'supabase') {
+      const plat = getPlatformCredential('supabase', env, config);
+      return {
+        ...plat,
+        auth_source: 'platform_scoped',
+        workspace_id: ws,
+        tenant_id: tid,
+      };
+    }
     const resolved = readPlatformEnv(env, config);
     return {
       ...resolved,
       auth_source: 'platform_scoped',
-      workspace_id: String(workspaceId).trim(),
-      tenant_id: String(tenantId).trim(),
+      workspace_id: ws,
+      tenant_id: tid,
     };
   }
 
