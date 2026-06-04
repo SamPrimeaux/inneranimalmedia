@@ -56,6 +56,32 @@ WRAPPER=(./scripts/with-cloudflare-env.sh)
 DRY_FLAG=()
 [[ "$DRY" -eq 1 ]] && DRY_FLAG=(--dry-run)
 
+run_rag_ingest() {
+  if ((${#DRY_FLAG[@]})); then
+    "${WRAPPER[@]}" node scripts/rag_ingest.mjs "${DRY_FLAG[@]}" "$@"
+  else
+    "${WRAPPER[@]}" node scripts/rag_ingest.mjs "$@"
+  fi
+}
+
+run_repo_skills() {
+  local -a extra=()
+  if [[ -n "$ONLY_SKILLS" ]]; then
+    extra=(--only "$ONLY_SKILLS")
+  fi
+  if ((${#DRY_FLAG[@]})); then
+    if ((${#extra[@]})); then
+      "${WRAPPER[@]}" node scripts/ingest_repo_skills_rag.mjs "${DRY_FLAG[@]}" "${extra[@]}"
+    else
+      "${WRAPPER[@]}" node scripts/ingest_repo_skills_rag.mjs "${DRY_FLAG[@]}"
+    fi
+  elif ((${#extra[@]})); then
+    "${WRAPPER[@]}" node scripts/ingest_repo_skills_rag.mjs "${extra[@]}"
+  else
+    "${WRAPPER[@]}" node scripts/ingest_repo_skills_rag.mjs
+  fi
+}
+
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo " IAM embedding pipeline — $([[ "$DRY" -eq 1 ]] && echo DRY-RUN || echo LIVE)"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -74,21 +100,13 @@ if [[ "$SKIP_DEEP" -eq 0 ]]; then
   echo ""
   echo "→ Step 2: Golden architecture docs → deep_archive (3072-d Supabase only)"
   echo "  includes: browserview-mybrowser-wiring, platform-baseline, iam-runtime-architecture, …"
-  "${WRAPPER[@]}" node scripts/rag_ingest.mjs "${DRY_FLAG[@]}" --lane deep_archive
+  run_rag_ingest --lane deep_archive
 fi
 
 if [[ "$SKIP_REPO_SKILLS" -eq 0 ]]; then
   echo ""
   echo "→ Step 3: Repo skills/*/SKILL.md → documents lane (1536 Supabase + Vectorize upsert)"
-  ONLY_ARGS=()
-  if [[ -n "$ONLY_SKILLS" ]]; then
-    ONLY_ARGS=(--only "$ONLY_SKILLS")
-  fi
-  if ((${#ONLY_ARGS[@]})); then
-    "${WRAPPER[@]}" node scripts/ingest_repo_skills_rag.mjs "${DRY_FLAG[@]}" "${ONLY_ARGS[@]}"
-  else
-    "${WRAPPER[@]}" node scripts/ingest_repo_skills_rag.mjs "${DRY_FLAG[@]}"
-  fi
+  run_repo_skills
 fi
 
 if [[ "$SKIP_D1_SKILLS" -eq 0 ]]; then
@@ -104,7 +122,7 @@ fi
 if [[ "$SKIP_VECTORIZE_SYNC" -eq 0 && "$DRY" -eq 0 ]]; then
   echo ""
   echo "→ Step 5: Re-sync Vectorize mirrors for documents/memory/schema/code from Supabase"
-  "${WRAPPER[@]}" node scripts/rag_ingest.mjs --lane documents,memory,schema,code
+  run_rag_ingest --lane documents,memory,schema,code
 fi
 
 echo ""

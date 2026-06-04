@@ -65,6 +65,19 @@ function contentHash(text) {
   return createHash('sha256').update(String(text ?? ''), 'utf8').digest('hex');
 }
 
+function parseEmbedding(raw) {
+  if (Array.isArray(raw)) return raw;
+  if (raw == null) return null;
+  const s = String(raw).trim();
+  if (!s.startsWith('[')) return null;
+  try {
+    const arr = JSON.parse(s);
+    return Array.isArray(arr) ? arr : null;
+  } catch {
+    return null;
+  }
+}
+
 function stripFrontmatter(md) {
   const s = String(md).replace(/\r\n/g, '\n');
   if (!s.startsWith('---\n')) return s;
@@ -258,17 +271,24 @@ async function main() {
   let upserted = 0;
   for (let i = 0; i < savedRows.length; i += VECTORIZE_BATCH) {
     const batch = savedRows.slice(i, i + VECTORIZE_BATCH);
-    const vectors = batch.map((row) => ({
-      id: String(row.id),
-      values: row.embedding,
-      metadata: {
-        workspace_id: d1Key,
-        source_ref: String(row.source_ref || ''),
-        title: String(row.title || '').slice(0, 200),
-        source_type: 'knowledge',
-        skill_key: row.metadata?.skill_key || '',
-      },
-    }));
+    const vectors = batch
+      .map((row) => {
+        const emb = parseEmbedding(row.embedding);
+        if (!emb || emb.length !== EMBED_DIMS) return null;
+        return {
+          id: String(row.id),
+          values: emb,
+          metadata: {
+            workspace_id: d1Key,
+            source_ref: String(row.source_ref || ''),
+            title: String(row.title || '').slice(0, 200),
+            source_type: 'knowledge',
+            skill_key: row.metadata?.skill_key || '',
+          },
+        };
+      })
+      .filter(Boolean);
+    if (!vectors.length) continue;
     await vectorizeUpsert(vectors);
     upserted += vectors.length;
     console.log(`  ✓ Vectorize ${vectors.length} (${upserted}/${savedRows.length})`);
