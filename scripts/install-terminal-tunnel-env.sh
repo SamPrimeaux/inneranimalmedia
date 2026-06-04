@@ -1,6 +1,6 @@
 #!/usr/bin/env zsh
 # Sync terminal stack env from .env.cloudflare (SSOT) to:
-#   - Mac ~/iam-pty/.env + PM2 restart
+#   - Mac ~/iam-pty/.env + ~/iam-pty/.env.cloudflare (+ .mcp_exports.sh if present) + PM2 restart
 #   - GCP iam-tunnel VM ~/iam-pty/.env + PM2 restart (when reachable)
 #   - Main Worker secrets: PTY_AUTH_TOKEN, TERMINAL_SECRET, TERMINAL_WS_URL
 #   - MCP Worker secret: PTY_AUTH_TOKEN
@@ -19,6 +19,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ENV_FILE="${REPO_ROOT}/.env.cloudflare"
+MCP_EXPORTS="${REPO_ROOT}/.mcp_exports.sh"
 MCP_DIR="${REPO_ROOT}/../inneranimalmedia-mcp-server"
 MAC_PTY_DIR="${IAM_PTY_DIR:-$HOME/iam-pty}"
 MAC_PTY_ENV="${MAC_PTY_DIR}/.env"
@@ -117,12 +118,31 @@ put_worker_secret() {
   echo "OK: Worker secret ${name}"
 }
 
+copy_mac_full_env() {
+  local dest_cloudflare="${MAC_PTY_DIR}/.env.cloudflare"
+  local dest_mcp="${MAC_PTY_DIR}/.mcp_exports.sh"
+  if (( DRY_RUN )); then
+    echo "[dry-run] would copy .env.cloudflare → ${dest_cloudflare} (chmod 600)"
+    [[ -f "$MCP_EXPORTS" ]] && echo "[dry-run] would copy .mcp_exports.sh → ${dest_mcp} (chmod 600)"
+    return 0
+  fi
+  cp "$ENV_FILE" "$dest_cloudflare"
+  chmod 600 "$dest_cloudflare"
+  echo "OK: copied .env.cloudflare → ${dest_cloudflare}"
+  if [[ -f "$MCP_EXPORTS" ]]; then
+    cp "$MCP_EXPORTS" "$dest_mcp"
+    chmod 600 "$dest_mcp"
+    echo "OK: copied .mcp_exports.sh → ${dest_mcp}"
+  fi
+}
+
 sync_mac() {
   if [[ ! -d "$MAC_PTY_DIR" ]]; then
     echo "Skip Mac: ${MAC_PTY_DIR} not found (clone github.com/SamPrimeaux/iam-pty)" >&2
     return 0
   fi
   write_pty_env "$MAC_PTY_ENV" "$MAC_WORKSPACES_ROOT" "$MAC_ALLOWED"
+  copy_mac_full_env
   if (( DRY_RUN )); then
     echo "[dry-run] would pm2 restart iam-pty"
     return 0
