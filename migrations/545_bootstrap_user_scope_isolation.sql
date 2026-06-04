@@ -1,5 +1,6 @@
 -- 545: Deactivate tenant-wide bootstrap rows on multi-member workspaces (cross-user bleed).
 -- Runtime: resolveActiveBootstrap no longer selects tenant-only rows (src/core/bootstrap.js).
+-- Connor auth_users pin also ships in 546_connor_auth_users_active_workspace_pin.sql (545a).
 --
 -- Apply:
 --   ./scripts/with-cloudflare-env.sh npx wrangler d1 execute inneranimalmedia-business --remote \
