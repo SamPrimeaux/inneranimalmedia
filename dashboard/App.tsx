@@ -2143,6 +2143,27 @@ const App: React.FC = () => {
     cycleAgentPosition();
   }, [isNarrowViewport, activeActivity, cycleAgentPosition]);
 
+  /** Mobile bottom Chat tab: open agent home + chat overlay (not only toggle panel on other routes). */
+  const onMobileBottomChatTab = useCallback(() => {
+    if (!isNarrowViewport) {
+      onChatLayoutToggle();
+      return;
+    }
+    if (activeActivity) setActiveActivity(null);
+    if (!isAgentShellPath(location.pathname)) {
+      navigate(AGENT_HOME_PATH);
+      setAgentPosition((p) => (p === 'off' ? 'right' : p));
+      return;
+    }
+    onChatLayoutToggle();
+  }, [
+    isNarrowViewport,
+    activeActivity,
+    location.pathname,
+    navigate,
+    onChatLayoutToggle,
+  ]);
+
   const mobileEdgeSwipeHandlers = useMemo(
     () => ({
       onTouchStart: (e: React.TouchEvent) => {
@@ -3496,7 +3517,7 @@ const App: React.FC = () => {
         <button
           type="button"
           className={`flex flex-1 flex-col items-center justify-center min-h-[44px] gap-0.5 px-0.5 text-[10px] font-medium leading-tight ${agentPosition !== 'off' && !activeActivity ? 'text-[var(--solar-cyan)]' : 'text-[var(--text-muted)]'}`}
-          onClick={onChatLayoutToggle}
+          onClick={onMobileBottomChatTab}
         >
           <MessageSquare size={24} strokeWidth={1.5} aria-hidden />
           <span>Chat</span>

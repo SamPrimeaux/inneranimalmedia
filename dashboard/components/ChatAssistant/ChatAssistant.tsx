@@ -93,6 +93,7 @@ import {
   formatFileSize,
   isAgentSamEmptyThreadGreeting,
 } from './composerLayout';
+import { RepoPickerBottomSheet } from './RepoPickerBottomSheet';
 import { formatHttpErrorMessage } from './streamParsing';
 import { consumeAgentChatSseBody } from './hooks/useAgentChatStream';
 import { initIamAgentStreamDebug, patchIamAgentStreamDebug } from './streamDebug';
@@ -362,13 +363,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const [mobileHubTab, setMobileHubTab] = useState<'agents' | 'automations' | 'dashboard'>('agents');
   const [mobileThreadTab, setMobileThreadTab] = useState<'chat' | 'context'>('chat');
   const [repoDrawerOpen, setRepoDrawerOpen] = useState(false);
-  const [ghRepos, setGhRepos] = useState<Array<{ id: string | number; full_name: string; name: string; default_branch?: string }>>(
-    []
-  );
-  const [ghReposLoading, setGhReposLoading] = useState(false);
-  const [ghReposAuthed, setGhReposAuthed] = useState(true);
   const [githubRepoContext, setGithubRepoContext] = useState<string | null>(null);
-  const [repoSearch, setRepoSearch] = useState('');
 
   const clearBrowserElementContext = useCallback(() => {
     setBrowserElementContext(null);
@@ -477,36 +472,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       isNarrow ? COMPOSER_TEXTAREA_MAX_PX_NARROW : COMPOSER_TEXTAREA_MAX_PX_WIDE,
     );
   }, [isNarrow]);
-
-  const loadGhRepos = useCallback(async () => {
-    setGhReposLoading(true);
-    try {
-      const hdr: Record<string, string> = {};
-      if (effectiveWsId) hdr['X-IAM-Workspace-Id'] = effectiveWsId;
-      const res = await fetch('/api/integrations/github/repos', {
-        credentials: 'same-origin',
-        headers: hdr,
-      });
-      if (!res.ok) {
-        setGhReposAuthed(false);
-        setGhRepos([]);
-        return;
-      }
-      setGhReposAuthed(true);
-      const data = await res.json();
-      const list = Array.isArray(data) ? data : data.repos || [];
-      setGhRepos(Array.isArray(list) ? list : []);
-    } catch {
-      setGhReposAuthed(false);
-      setGhRepos([]);
-    } finally {
-      setGhReposLoading(false);
-    }
-  }, [effectiveWsId]);
-
-  useEffect(() => {
-    if (repoDrawerOpen) void loadGhRepos();
-  }, [repoDrawerOpen, loadGhRepos]);
 
   const [sessions, setSessions] = useState<AgentSessionRow[]>([]);
   const hydratedFromLsRef = useRef(false);
@@ -2312,12 +2277,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     !isNarrow || (mobileHubTab === 'agents' && mobileThreadTab === 'chat');
   const composerFlexOrder = 'order-5';
 
-  const filteredGhRepos = useMemo(() => {
-    const q = repoSearch.trim().toLowerCase();
-    if (!q) return ghRepos;
-    return ghRepos.filter((r) => (r.full_name || '').toLowerCase().includes(q) || (r.name || '').toLowerCase().includes(q));
-  }, [ghRepos, repoSearch]);
-
   const modelPickerGroups = useMemo(() => {
     const order: string[] = [];
     const byGroup = new Map<string, ChatModelRow[]>();
@@ -3036,94 +2995,14 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
       </div>
 
-      {repoDrawerOpen && (
-        <>
-          <button
-            type="button"
-            className="fixed inset-0 z-[70] bg-[var(--text-main)]/50"
-            aria-label="Close repository picker"
-            onClick={() => setRepoDrawerOpen(false)}
-          />
-          <div className="fixed bottom-0 left-0 right-0 z-[80] flex max-h-[min(72dvh,520px)] flex-col rounded-t-2xl border-t border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] shadow-[0_-8px_32px_color-mix(in_srgb,var(--text-main)_12%,transparent)]">
-            <div className="mx-auto mt-2 h-1.5 w-10 shrink-0 rounded-full bg-[var(--dashboard-border)]" aria-hidden />
-            <div className="shrink-0 border-b border-[var(--dashboard-border)] px-4 py-3">
-              <h3 className="text-[14px] font-semibold text-[var(--dashboard-text)]">Repositories</h3>
-              <input
-                type="search"
-                value={repoSearch}
-                onChange={(e) => setRepoSearch(e.target.value)}
-                placeholder="Search repos"
-                className="mt-2 w-full rounded-lg border border-[var(--dashboard-border)] bg-[var(--scene-bg)] py-2 px-3 text-[13px] text-[var(--dashboard-text)] placeholder:text-[var(--text-placeholder-strong)] outline-none focus:border-[var(--solar-cyan)]"
-              />
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto chat-hide-scroll p-2">
-              {!ghReposAuthed && !ghReposLoading ? (
-                <div className="space-y-3 px-2 py-6 text-center">
-                  <p className="text-[12px] text-[var(--dashboard-muted)]">Connect GitHub to list repositories.</p>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      window.location.href = '/api/oauth/github/start?return_to=/dashboard/agent';
-                    }}
-                    className="rounded-lg border border-[var(--dashboard-border)] bg-[var(--scene-bg)] px-4 py-2 text-[12px] font-medium text-[var(--dashboard-text)]"
-                  >
-                    Connect GitHub
-                  </button>
-                </div>
-              ) : ghReposLoading ? (
-                <div className="flex justify-center py-8 text-[var(--dashboard-muted)]">
-                  <Loader2 className="animate-spin" size={24} />
-                </div>
-              ) : filteredGhRepos.length === 0 ? (
-                <p className="px-3 py-6 text-center text-[12px] text-[var(--dashboard-muted)]">No repositories match.</p>
-              ) : (
-                filteredGhRepos.map((repo) => {
-                  const full = String(repo.full_name || '');
-                  const selected = githubRepoContext === full;
-                  return (
-                    <div key={String(repo.id)} className="mb-1 flex gap-1">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          saveGithubRepoSelection(full);
-                          setRepoDrawerOpen(false);
-                        }}
-                        className={`flex min-w-0 flex-1 items-center gap-2 rounded-lg px-3 py-2.5 text-left text-[13px] transition-colors hover:bg-[var(--bg-hover)] ${
-                          selected ? 'bg-[var(--scene-bg)] ring-1 ring-[var(--solar-cyan)]/40' : ''
-                        }`}
-                      >
-                        <span className="truncate font-medium text-[var(--dashboard-text)]">{full}</span>
-                        {repo.default_branch ? (
-                          <span className="shrink-0 text-[10px] text-[var(--dashboard-muted)]">{repo.default_branch}</span>
-                        ) : null}
-                      </button>
-                      <button
-                        type="button"
-                        title="Browse files in Deploy tab"
-                        onClick={() => {
-                          saveGithubRepoSelection(full);
-                          setRepoDrawerOpen(false);
-                          onOpenGitHubIntegration?.({ expandRepoFullName: full });
-                        }}
-                        className="shrink-0 rounded-lg border border-[var(--dashboard-border)] px-2 py-2 text-[11px] text-[var(--solar-cyan)] hover:bg-[var(--bg-hover)]"
-                      >
-                        Files
-                      </button>
-                    </div>
-                  );
-                })
-              )}
-              <button
-                type="button"
-                onClick={() => window.open('https://github.com/new', '_blank', 'noopener,noreferrer')}
-                className="mt-2 w-full rounded-lg border border-dashed border-[var(--dashboard-border)] py-3 text-[12px] font-medium text-[var(--dashboard-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--dashboard-text)]"
-              >
-                Create new repository on GitHub
-              </button>
-            </div>
-          </div>
-        </>
-      )}
+      <RepoPickerBottomSheet
+        open={repoDrawerOpen}
+        onClose={() => setRepoDrawerOpen(false)}
+        workspaceId={effectiveWsId}
+        githubRepoContext={githubRepoContext}
+        onSelectRepo={saveGithubRepoSelection}
+        onBrowseFiles={(full) => onOpenGitHubIntegration?.({ expandRepoFullName: full })}
+      />
 
       {typeof document !== 'undefined' &&
         attachMenuOpen &&
