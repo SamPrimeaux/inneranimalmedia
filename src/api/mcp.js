@@ -563,85 +563,8 @@ export async function handleMcpApi(request, url, env, ctx) {
 
     // ── POST /api/mcp/catalog-invoke — in-app catalog dispatch (same path as agent chat tools)
     if (pathLower === '/api/mcp/catalog-invoke' && method === 'POST') {
-      const body = await request.json().catch(() => ({}));
-      const toolName = String(body.tool_name || body.tool || '').trim();
-      const args =
-        body.arguments && typeof body.arguments === 'object'
-          ? body.arguments
-          : body.params && typeof body.params === 'object'
-            ? body.params
-            : {};
-      if (!toolName) return jsonResponse({ error: 'tool_name required' }, 400);
-
-      const identity = await resolveIdentity(env, request).catch(() => null);
-      const workspaceId =
-        actorCtx?.workspaceId != null && String(actorCtx.workspaceId).trim() !== ''
-          ? String(actorCtx.workspaceId).trim()
-          : identity?.workspaceId != null
-            ? String(identity.workspaceId).trim()
-            : '';
-      const userId =
-        actorCtx?.userId != null && String(actorCtx.userId).trim() !== ''
-          ? String(actorCtx.userId).trim()
-          : authUser?.id != null
-            ? String(authUser.id).trim()
-            : '';
-      if (!workspaceId || !userId) {
-        return jsonResponse({ error: 'WORKSPACE_CONTEXT_MISSING' }, 400);
-      }
-
-      let toolRow = null;
-      try {
-        toolRow = await loadAgentsamToolRow(env, toolName);
-      } catch (_) {}
-
-      const execT0 = Date.now();
-      const catalogOut = await dispatchByToolCode(env, toolName, args, {
-        tenantId,
-        userId,
-        workspaceId,
-        authUser,
-        isOperatorCall: false,
-        isInternalAgent: false,
-      });
-      const invokeDurationMs = Math.max(0, Date.now() - execT0);
-
-      if (catalogOut?.ok === false) {
-        scheduleMirrorToolCallEventToSupabase(env, ctx, {
-          workspace_id: workspaceId,
-          run_id: actorCtx?.supabase_run_id ?? actorCtx?.workflow_run_id ?? null,
-          tool_key: toolName,
-          tool_name: toolName,
-          tool_category: toolRow?.tool_category ?? 'catalog',
-          status: 'failed',
-          duration_ms: invokeDurationMs,
-        });
-        return jsonResponse(
-          {
-            ok: false,
-            error: catalogOut.error ?? 'dispatch_failed',
-            tool_key: catalogOut.tool_key ?? toolName,
-          },
-          422,
-        );
-      }
-
-      scheduleMirrorToolCallEventToSupabase(env, ctx, {
-        workspace_id: workspaceId,
-        run_id: actorCtx?.supabase_run_id ?? actorCtx?.workflow_run_id ?? null,
-        tool_key: toolName,
-        tool_name: toolName,
-        tool_category: toolRow?.tool_category ?? 'catalog',
-        status: 'completed',
-        duration_ms: invokeDurationMs,
-      });
-
-      return jsonResponse({
-        ok: true,
-        result: catalogOut.result ?? catalogOut,
-        tool_key: catalogOut.tool_key ?? toolName,
-        auth_source: catalogOut.auth_source ?? null,
-      });
+      const { handleCatalogInvokeApi } = await import('../core/catalog-invoke-handler.js');
+      return handleCatalogInvokeApi(request, env, ctx);
     }
 
     if (pathLower === '/api/mcp/server-allowlist' && method === 'GET') {

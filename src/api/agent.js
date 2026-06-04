@@ -7352,6 +7352,7 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
   }
 
   // GET /api/agent/quickstart/templates — platform-global subagent gallery (D1-driven)
+  // GET /api/agent/quickstart/templates — platform-global subagent gallery (D1-driven)
   if (path === '/api/agent/quickstart/templates' && method === 'GET') {
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
     const { templates, source } = await listPlatformQuickstartTemplates(env);
@@ -7361,6 +7362,12 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
       count: templates.length,
       templates,
     });
+  }
+
+  // POST /api/agent/catalog-invoke — same dispatch path as /api/mcp/catalog-invoke
+  if (path === '/api/agent/catalog-invoke' && method === 'POST') {
+    const { handleCatalogInvokeApi } = await import('../core/catalog-invoke-handler.js');
+    return handleCatalogInvokeApi(request, env, ctx);
   }
 
   if (path === '/api/agent/subagent-profiles' && method === 'GET') {

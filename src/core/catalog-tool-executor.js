@@ -23,7 +23,13 @@ import {
   resolveToolRunAuthUser,
 } from './platform-owner-r2-access.js';
 import { mergeR2S3EnvFromUserStorage } from './user-storage-r2-credentials.js';
-import { executeR2CatalogOperation, executeR2ListCatalogOperation, isR2ListLikeOperation, normalizeR2CatalogOperation } from '../tools/builtin/r2-object-crud.js';
+import { invokeR2DeleteHttp } from '../tools/builtin/r2-http-catalog.js';
+import {
+  executeR2CatalogOperation,
+  executeR2ListCatalogOperation,
+  isR2ListLikeOperation,
+  normalizeR2CatalogOperation,
+} from '../tools/builtin/r2-object-crud.js';
 import { getR2Binding, resolveR2BucketName } from '../api/r2-api.js';
 import {
   catalogOperationIsSemanticSearch,
@@ -1182,25 +1188,32 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         break;
       }
       let bucket = await resolveRegisteredR2BucketName(env, bucketRaw);
+      const effectiveEnv = await mergeR2S3EnvFromUserStorage(env, authUser);
+      const bucketCandidate = resolveR2BucketName(effectiveEnv, bucketRaw) || bucketRaw;
 
       if (authSource === 'platform' && isOwner) {
         const bucketCheck = await assertOwnerPlatformR2Bucket(env, bucket);
-        if (!bucketCheck.ok) {
-          result = {
-            ok: false,
-            error: String(bucketCheck.error || 'platform_r2_bucket_not_registered'),
-            body: {
-              bucket: bucketCheck.bucket,
-              allowed_preview: bucketCheck.allowed_preview,
-              user_message: bucketCheck.user_message,
-            },
-          };
-          break;
+        if (bucketCheck.ok) {
+          bucket = bucketCheck.bucket;
+        } else {
+          const transport = await ownerHasPlatformR2Transport(effectiveEnv, authUser, bucketCandidate);
+          if (transport.ok) {
+            bucket = bucketCandidate;
+          } else {
+            result = {
+              ok: false,
+              error: String(bucketCheck.error || 'platform_r2_bucket_not_registered'),
+              body: {
+                bucket: bucketCheck.bucket,
+                allowed_preview: bucketCheck.allowed_preview,
+                user_message: bucketCheck.user_message,
+              },
+            };
+            break;
+          }
         }
-        bucket = bucketCheck.bucket;
       }
 
-      const effectiveEnv = await mergeR2S3EnvFromUserStorage(env, authUser);
       if (authSource === 'customer' && !effectiveEnv.R2_ACCESS_KEY_ID && !getR2Binding(effectiveEnv, bucket)) {
         result = {
           ok: false,
@@ -1222,6 +1235,27 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
           };
           break;
         }
+      }
+
+      if (op === 'delete' && runContext?.request) {
+        const key = String(params.key || params.object_key || params.path || '').trim();
+        if (!key) {
+          result = {
+            ok: false,
+            error: 'key_required',
+            body: { user_message: 'r2_delete requires bucket and key.' },
+          };
+          break;
+        }
+        const httpOut = await invokeR2DeleteHttp(effectiveEnv, runContext, bucket, key);
+        result = httpOut.ok
+          ? { ok: true, body: httpOut.body }
+          : {
+              ok: false,
+              error: String(httpOut.error || 'r2_delete_failed'),
+              body: httpOut.body,
+            };
+        break;
       }
 
       const out = await executeR2CatalogOperation(
