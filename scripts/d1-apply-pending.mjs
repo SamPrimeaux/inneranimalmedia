@@ -11,7 +11,7 @@
  *
  * Env:
  *   D1_MIGRATION_MIN=450          numeric floor (default 450)
- *   D1_ALLOW_DESTRUCTIVE=1        allow pending files matching destructive DDL regex
+ *   D1_ALLOW_DESTRUCTIVE=1        allow DELETE/DROP migrations (deploy:full defaults to 1; set 0 to block)
  *   SKIP_D1_MIGRATIONS=1          (deploy) skip step entirely
  */
 import { resolve } from 'path';
@@ -129,17 +129,10 @@ async function main() {
   );
   for (const file of pending) {
     const tag =
-      blocked.includes(file) && opts.mode !== 'register-only'
+      blocked.includes(file) && opts.mode !== 'register-only' && !opts.allowDestructive
         ? 'BLOCKED(destructive)'
         : 'pending';
     console.log(`  - ${file} [${tag}]`);
-  }
-
-  if (blocked.length && opts.mode === 'apply' && !opts.allowDestructive) {
-    console.error(
-      `[d1-apply-pending] ${blocked.length} destructive migration(s) blocked. Re-run with --allow-destructive or D1_ALLOW_DESTRUCTIVE=1.`,
-    );
-    process.exit(2);
   }
 
   if (opts.mode === 'dry-run') {
@@ -149,9 +142,17 @@ async function main() {
   const queue =
     opts.mode === 'register-only'
       ? pending
-      : blocked.length && opts.allowDestructive
+      : opts.allowDestructive
         ? pending
         : safe;
+
+  if (!queue.length && blocked.length && opts.mode === 'apply' && !opts.allowDestructive) {
+    console.error(
+      `[d1-apply-pending] ${blocked.length} destructive migration(s) blocked. Re-run with --allow-destructive or D1_ALLOW_DESTRUCTIVE=1.`,
+    );
+    process.exit(2);
+  }
+
   for (const file of queue) {
     process.stdout.write(`[d1-apply-pending] ${opts.mode === 'register-only' ? 'register' : 'apply'} ${file}… `);
     try {
@@ -169,9 +170,9 @@ async function main() {
 
   if (blocked.length && opts.mode === 'apply' && !opts.allowDestructive) {
     console.error(
-      `[d1-apply-pending] Applied ${queue.length} safe migration(s); ${blocked.length} destructive migration(s) still pending.`,
+      `[d1-apply-pending] Applied ${queue.length} safe migration(s); ${blocked.length} destructive migration(s) still pending. Re-run with --allow-destructive or D1_ALLOW_DESTRUCTIVE=1.`,
     );
-    process.exit(1);
+    process.exit(queue.length > 0 ? 0 : 2);
   }
 
   console.log(`[d1-apply-pending] Done (${queue.length} migration(s)).`);

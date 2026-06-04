@@ -181,9 +181,16 @@ node "$REPO_ROOT/scripts/embed-sitemap-html.mjs"
 if [[ "${SKIP_D1_MIGRATIONS:-0}" != "1" ]]; then
   echo "→ D1 pending migrations (ledger diff; d1 execute --file)…"
   D1_APPLY_MODE="${D1_APPLY_PENDING:-apply}"
+  # Operator deploy (deploy:full): allow scoped DML/DDL in migration files unless explicitly disabled.
+  D1_APPLY_ARGS=()
   case "$D1_APPLY_MODE" in
     apply)
-      ./scripts/with-cloudflare-env.sh node "$REPO_ROOT/scripts/d1-apply-pending.mjs" --apply
+      D1_APPLY_ARGS=(--apply)
+      if [[ "${D1_ALLOW_DESTRUCTIVE:-1}" == "1" ]]; then
+        D1_APPLY_ARGS+=(--allow-destructive)
+        echo "  (D1_ALLOW_DESTRUCTIVE=1 — DELETE/DROP migrations will apply)"
+      fi
+      ./scripts/with-cloudflare-env.sh node "$REPO_ROOT/scripts/d1-apply-pending.mjs" "${D1_APPLY_ARGS[@]}"
       ;;
     dry-run|check)
       ./scripts/with-cloudflare-env.sh node "$REPO_ROOT/scripts/d1-apply-pending.mjs" --dry-run
