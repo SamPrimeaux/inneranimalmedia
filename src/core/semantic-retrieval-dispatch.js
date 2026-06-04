@@ -356,12 +356,17 @@ async function hydrateVectorHit(env, ragLane, workspaceUuid, match) {
 async function queryPgvectorLane(env, laneKey, embedding, workspaceUuid, topK) {
   const reg = SEMANTIC_LANE_REGISTRY[laneKey];
   if (laneKey === 'deep_archive_search') {
-    const r = await runHyperdriveQuery(
-      env,
-      'SELECT * FROM agentsam.agentsam_match_deep_archive_oai3large_3072_ann($1::vector, $2::uuid, $3::int, $4::int, $5::float)',
-      [vectorLiteral(embedding), workspaceUuid, topK, 80, 0.65],
-    );
-    if (!r.ok) return { hits: [], backend: 'pgvector', error: r.error };
+    const table = reg.tables[0];
+    const sql = `
+    SELECT id, title, content, source_ref, source_path, metadata,
+           1 - (embedding <=> $1::vector(3072)) AS similarity
+      FROM agentsam.${table}
+     WHERE workspace_id = $2::uuid
+       AND embedding IS NOT NULL
+     ORDER BY embedding <=> $1::vector(3072)
+     LIMIT $3`;
+    const r = await runHyperdriveQuery(env, sql, [vectorLiteral(embedding), workspaceUuid, topK]);
+    if (!r.ok) return { hits: [], backend: 'pgvector', error: r.error, table };
     const hits = (r.rows || []).map((row) => ({
       id: String(row.id ?? ''),
       title: String(row.title ?? 'archive').trim(),

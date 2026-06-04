@@ -88,9 +88,16 @@ async function queryDeepArchive(env, query, workspaceUuid) {
   });
   const result = await runHyperdriveQuery(
     env,
-    'SELECT * FROM agentsam.agentsam_match_deep_archive_oai3large_3072_ann($1::vector,$2,$3,$4,$5)',
-    [vectorLiteral(embedding), workspaceUuid, 8, 80, 0.70],
+    `SELECT id, title, content, source_ref, source_path, metadata,
+            1 - (embedding <=> $1::vector(3072)) AS similarity
+       FROM agentsam.agentsam_deep_archive_oai3large_3072
+      WHERE workspace_id = $2::uuid
+        AND embedding IS NOT NULL
+      ORDER BY embedding <=> $1::vector(3072)
+      LIMIT $3`,
+    [vectorLiteral(embedding), workspaceUuid, 8],
   );
+  if (!result?.ok) return [];
   return (result?.rows ?? []).map((row) => ({
     lane: 'archive',
     id: row?.id != null ? String(row.id).trim() : '',

@@ -380,6 +380,7 @@ export async function resolveAgentChatLaneContextBlock(env, opts = {}) {
           primary_count: primaryResults.length,
           deep_count: deepResults.length,
           deep_degraded: deepOut?.degraded_reason ?? null,
+          deep_error: deepOut?.error ? String(deepOut.error).slice(0, 200) : null,
         }),
       );
     }
