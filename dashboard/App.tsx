@@ -84,8 +84,7 @@ import AuthOAuthConsentPage from './components/auth/AuthOAuthConsentPage';
 import MountIamMcpConsent from './components/auth/MountIamMcpConsent';
 import { OnboardingPage } from './components/onboarding/OnboardingPage';
 import { DashboardActivityNav } from './components/shell/DashboardActivityNav';
-import { MobileNavDrawer } from './components/shell/MobileNavDrawer';
-import { MobileNavHamburger } from './components/shell/MobileNavHamburger';
+import { MobileNavShell } from './components/shell/MobileNavShell';
 import { Files, Search, GitBranch, Settings, PanelLeft, PanelLeftClose, PanelRightClose, Terminal as TermIcon, Layers, Monitor, Bug, Github, Database, FolderOpen, FolderCode, Globe, PenTool, Cloud, X as XIcon, Eye, MessageSquare, MoreHorizontal, ChevronLeft, Link2, HardDrive, Package, History, Camera, FileCode2, Rocket } from 'lucide-react';
 import { SetiFileIcon } from './src/components/SetiFileIcon';
 const ProjectManagement = lazy(() => import('./pages/projects/ProjectManagement'));
@@ -2672,7 +2671,7 @@ const App: React.FC = () => {
                     return next;
                   });
                 }}
-                className="shrink-0 p-1.5 rounded-md text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)] transition-colors ml-1"
+                className="max-md:hidden shrink-0 p-1.5 rounded-md text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)] transition-colors ml-1"
                 title={sidebarRailExpanded ? 'Collapse navigation' : 'Expand navigation'}
                 aria-expanded={sidebarRailExpanded}
               >
@@ -2814,13 +2813,11 @@ const App: React.FC = () => {
               </div>
           </div>
       </div>
-      <div className="md:hidden pl-3 pb-2 pt-1">
-        <MobileNavHamburger open={mobileNavOpen} onClick={() => setMobileNavOpen((v) => !v)} />
-      </div>
       </header>
 
-      <MobileNavDrawer
+      <MobileNavShell
         open={mobileNavOpen}
+        onToggle={() => setMobileNavOpen((v) => !v)}
         onClose={() => setMobileNavOpen(false)}
         settingsIntegrationsActive={settingsIntegrationsActive}
       />
