@@ -1,5 +1,9 @@
 # TODAY'S EXECUTION PLAN — Agent Sam 100% Complete
 
+> **Source path (2026-05-28):** Canonical Agent UI is **`dashboard/`** (`dashboard/App.tsx`), not `agent-dashboard/`. Deploy: `npm run deploy:frontend` → `dashboard/dist` → R2 `static/dashboard/app/`. See **[AGENT_DASHBOARD.md](./AGENT_DASHBOARD.md)**. Content below may reference retired paths.
+
+---
+
 **Status:** Plan approved. Awaiting **"start"** command to begin execution.  
 **Created:** 2026-03-18
 

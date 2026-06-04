@@ -22,8 +22,8 @@ Renaming `base` is safe **only** with Worker fallbacks (below) and uploading new
 ### 2. `scripts/deploy-frontend.sh`
 
 - **Bucket:** `inneranimalmedia`
-- **Prefix:** `static/dashboard/agent` (rclone sync from `dashboard/dist`)
-- **Purpose:** Production-oriented full pipeline (build, R2 sync, manifest/reconcile). Still uses the **legacy** prefix until this script is intentionally switched to `static/dashboard/app` in a follow-up change (to avoid surprising CI).
+- **Prefix:** **`static/dashboard/app`** (rclone sync from `dashboard/dist`) — matches Vite `base` in `dashboard/vite.config.ts`
+- **Purpose:** Production-oriented full pipeline (build, R2 sync, manifest/reconcile). Legacy `/static/dashboard/agent/*` URLs still resolve via Worker aliases in `dashboard-r2-assets.js`.
 
 ### 3. `scripts/upload-agent-dashboard-r2.sh`
 

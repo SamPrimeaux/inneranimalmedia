@@ -1,5 +1,9 @@
 # How the Overview Page JSX Was Refactored to Work Inside the HTML App
 
+> **Source path (2026-05-28):** Canonical Agent UI is **`dashboard/`** (`dashboard/App.tsx`), not `agent-dashboard/`. Deploy: `npm run deploy:frontend` → `dashboard/dist` → R2 `static/dashboard/app/`. See **[AGENT_DASHBOARD.md](./AGENT_DASHBOARD.md)**. Content below may reference retired paths.
+
+---
+
 **Simple English:** The Overview "page" is not a separate app. It is your existing dashboard HTML (topbar, sidenav, theme) with an empty box in the middle. We build a single JavaScript bundle from the React/JSX code and put that bundle on your CDN (R2). The HTML shell loads that script; the script finds the box and draws the Overview UI inside it. The worker never edits HTML—it only serves the HTML and JS files from R2. Updates are done by changing the HTML or JS in the repo and re-uploading to R2.
 
 **Full technical detail** follows.

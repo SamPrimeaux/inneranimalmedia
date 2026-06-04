@@ -1,5 +1,9 @@
 # Agent page UI: inspection, plan, and simple-English summary
 
+> **Source path (2026-05-28):** Canonical Agent UI is **`dashboard/`** (`dashboard/App.tsx`), not `agent-dashboard/`. Deploy: `npm run deploy:frontend` → `dashboard/dist` → R2 `static/dashboard/app/`. See **[AGENT_DASHBOARD.md](./AGENT_DASHBOARD.md)**. Content below may reference retired paths.
+
+---
+
 **Scope:** [https://www.inneranimalmedia.com/dashboard/agent](https://www.inneranimalmedia.com/dashboard/agent) — minor UI tweaks, chat scroll behavior, and browser rendering inside the existing UI.
 
 ---

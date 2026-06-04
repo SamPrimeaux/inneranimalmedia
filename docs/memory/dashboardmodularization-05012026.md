@@ -1,5 +1,9 @@
 # Dashboard modularization and R2 consolidation (2026-05-01)
 
+> **Source path (2026-05-28):** Canonical Agent UI is **`dashboard/`** (`dashboard/App.tsx`), not `agent-dashboard/`. Deploy: `npm run deploy:frontend` → `dashboard/dist` → R2 `static/dashboard/app/`. See **[AGENT_DASHBOARD.md](./AGENT_DASHBOARD.md)**. Content below may reference retired paths.
+
+---
+
 ## Summary
 
 Production dashboard static assets and the `DASHBOARD` Workers binding now target a single R2 bucket, **`inneranimalmedia`**, instead of the legacy **`agent-sam`** bucket. Canonical keys for the Vite-built agent shell and bundle:

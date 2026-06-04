@@ -1,5 +1,9 @@
 # Personal terminal server — one-time setup
 
+> **Source path (2026-05-28):** Canonical Agent UI is **`dashboard/`** (`dashboard/App.tsx`), not `agent-dashboard/`. Deploy: `npm run deploy:frontend` → `dashboard/dist` → R2 `static/dashboard/app/`. See **[AGENT_DASHBOARD.md](./AGENT_DASHBOARD.md)**. Content below may reference retired paths.
+
+---
+
 This document covers installing and configuring the **personal terminal server**: a Node/Bun WebSocket server using **node-pty** that spawns a shell and pipes stdin/stdout bidirectionally. The dashboard’s **xterm.js** panel connects to it over a **Cloudflare Tunnel** (or direct `ws://` in dev).
 
 ---

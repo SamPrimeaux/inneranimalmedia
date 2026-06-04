@@ -1,5 +1,9 @@
 # Incident retrospective: terminal + MCP friction (2026-03-19)
 
+> **Source path (2026-05-28):** Canonical Agent UI is **`dashboard/`** (`dashboard/App.tsx`), not `agent-dashboard/`. Deploy: `npm run deploy:frontend` → `dashboard/dist` → R2 `static/dashboard/app/`. See **[AGENT_DASHBOARD.md](./AGENT_DASHBOARD.md)**. Content below may reference retired paths.
+
+---
+
 This document records what went wrong in the Cursor-assisted session around the Agent dashboard **Terminal** tab, Worker WebSocket proxying, and related **MCP** secret handling. It is written for the operator and for future agents. **No secret values appear here.**
 
 ## What we cannot do for you

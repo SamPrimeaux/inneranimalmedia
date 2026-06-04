@@ -1,5 +1,9 @@
 # Streaming + Tools Architecture (Agent Sam)
 
+> **Source path (2026-05-28):** Canonical Agent UI is **`dashboard/`** (`dashboard/App.tsx`), not `agent-dashboard/`. Deploy: `npm run deploy:frontend` → `dashboard/dist` → R2 `static/dashboard/app/`. See **[AGENT_DASHBOARD.md](./AGENT_DASHBOARD.md)**. Content below may reference retired paths.
+
+---
+
 **Status:** Planned (not yet implemented).  
 **Goal:** Allow streaming responses while still supporting tool calls (e.g. r2_write, d1_query, knowledge_search) so the agent can stream text and run tools in the same conversation.
 

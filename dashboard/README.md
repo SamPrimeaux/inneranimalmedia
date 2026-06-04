@@ -73,26 +73,32 @@ Designed as a **First-Class Citizen**:
 
 ## 🚦 Deployment & Staging Workflow
 
-This buildout uses a dual-repo architectural sync for rapid iteration.
+**Canonical package:** this directory (`dashboard/`). There is no separate `agent-dashboard/` folder in the monorepo.
 
-### 1. Shell Propagation (`meauxcad`)
-The frontend shell is hosted as a static asset within the R2 dashboard environment.
-- **Base Path**: `/static/dashboard/agent/`
-- **Promotion**: HTML and JS chunks are manually uploaded to the `agent-sam-sandbox-cicd` bucket.
-- **Protection**: R2 keys are restricted to authenticated IAM sessions.
+### Production frontend
 
-### 2. Backend Synchronization (`agentsam-dashboard`)
-Core routing and AI logic updates follow a specific branch-based workflow:
-- **Repository**: `SamPrimeaux/inneranimalmedia-agentsam-dashboard`
-- **Branch**: `agentsam-clean`
-- **Path**: `source/worker.js`
-- **Workflow**: Local `worker.js` edits are pushed to the `agentsam-clean` branch for staging before promotion to production.
-
-### Local Build Command
 ```bash
-npm run build
-# Assets uploaded manually to R2 static/dashboard/agent/assets/
+cd dashboard && npm run build          # → dashboard/dist/
+cd .. && npm run deploy:frontend       # R2 inneranimalmedia, prefix static/dashboard/app/
+npm run deploy                         # Worker only (wrangler.production.toml)
 ```
+
+- **Vite base:** `/static/dashboard/app/` (`vite.config.ts`)
+- **Agent route:** `/dashboard/agent` is a client route in `App.tsx` (same SPA as overview, settings, etc.)
+- **Docs:** `docs/AGENT_DASHBOARD.md`, `docs/agent-workbench-audit/`
+
+### Sandbox
+
+```bash
+./scripts/deploy-sandbox.sh            # builds dashboard/dist, uploads to inneranimalmedia-sandbox-cicd
+                                       # under static/dashboard/agent/ (+ agent.html shell keys)
+```
+
+Worker **`src/core/dashboard-r2-assets.js`** aliases legacy `/static/dashboard/agent/*` requests to **`static/dashboard/app/*`** keys in production.
+
+### Backend
+
+IAM Worker source: **`src/index.js`** in this repo (`npm run deploy` / `deploy:full`). Do not confuse with historical separate `agentsam-dashboard` repos used for older staging flows.
 
 ### Prompting Strategy (Environment Bindings)
 When instructing future agents, use the following placeholder syntax:

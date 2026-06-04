@@ -1,5 +1,9 @@
 # Agent Sam – Layout CSS Audit (flex height cascade)
 
+> **Source path (2026-05-28):** Canonical Agent UI is **`dashboard/`** (`dashboard/App.tsx`), not `agent-dashboard/`. Deploy: `npm run deploy:frontend` → `dashboard/dist` → R2 `static/dashboard/app/`. See **[AGENT_DASHBOARD.md](./AGENT_DASHBOARD.md)**. Content below may reference retired paths.
+
+---
+
 Evidence-only. Where each of the 4 layout elements is defined and whether it can cause "each reply breaks the page."
 
 ---

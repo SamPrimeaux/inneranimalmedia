@@ -1,5 +1,9 @@
 # Dashboard components — live vs legacy
 
+> **Source path (2026-05-28):** Canonical Agent UI is **`dashboard/`** (`dashboard/App.tsx`), not `agent-dashboard/`. Deploy: `npm run deploy:frontend` → `dashboard/dist` → R2 `static/dashboard/app/`. See **[AGENT_DASHBOARD.md](./AGENT_DASHBOARD.md)**. Content below may reference retired paths.
+
+---
+
 **Last verified:** 2026-05-25  
 **Scope:** `dashboard/components/` (+ related routes in `dashboard/App.tsx`)  
 **Canonical UI:** Vite React SPA (`dashboard/` → `npm --prefix dashboard run build` → R2 `static/dashboard/app/`)
