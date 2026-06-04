@@ -1029,6 +1029,8 @@ export async function runTerminalCommandViaControlPlane(env, request, command, e
       body: JSON.stringify({
         command: cmd,
         execution_mode: mode,
+        workspace_id: workspaceId,
+        target_id: extra.target_id || extra.ssh_target_id || null,
         ssh_target_id: extra.ssh_target_id || null,
         tool_name: extra.tool_name || null,
         params: extra.params || null,

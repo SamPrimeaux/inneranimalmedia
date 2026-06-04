@@ -169,9 +169,16 @@ export async function executeScopedAgentTerminalRun(request, env, ctx, url, body
   let runCommand = command;
   let execErr = null;
   try {
+    const targetId =
+      body?.target_id != null && String(body.target_id).trim() !== ''
+        ? String(body.target_id).trim()
+        : body?.ssh_target_id != null && String(body.ssh_target_id).trim() !== ''
+          ? String(body.ssh_target_id).trim()
+          : null;
     const r = await runTerminalCommand(env, request, command, sessionId, {
       execution_mode: 'pty',
       workspace_id: targetWorkspace,
+      ...(targetId ? { target_id: targetId } : {}),
     });
     output = r.output;
     runCommand = r.command;

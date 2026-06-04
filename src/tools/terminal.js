@@ -10,7 +10,7 @@ export const handlers = {
    * run_command: Execute a single shell command and return the output.
    */
   async run_command(
-    { command, request, session_id, sessionId, workspace_id, workspaceId, path, cwd },
+    { command, request, session_id, sessionId, workspace_id, workspaceId, path, cwd, target_id },
     env,
   ) {
     try {
@@ -35,6 +35,9 @@ export const handlers = {
           command: runCommand,
           session_id: sid,
           ...(wid ? { workspace_id: String(wid).trim() } : {}),
+          ...(target_id != null && String(target_id).trim() !== ''
+            ? { target_id: String(target_id).trim() }
+            : {}),
         }),
       });
 

@@ -708,7 +708,10 @@ export class AgentChatSqlV1 extends DurableObject {
     const pParam = String(url.searchParams.get("person_uuid") || body?.person_uuid || "").trim();
     if (pParam) this.ptPersonUuid = pParam;
     const targetId = String(body?.target_id || body?.ssh_target_id || "").trim() || null;
-    if (targetId) this.ptyTargetConnectionId = targetId;
+    if (targetId) {
+      this.requestedConnectionId = targetId;
+      this.selectedTerminalConnection = null;
+    }
     await this.ensureWorkspaceSettingsLoaded(workspaceId, { allowPlatformFallback: false });
 
     if (executionMode === "pty" && this.env?.DB) {
@@ -1176,14 +1179,15 @@ export class AgentChatSqlV1 extends DurableObject {
     const execUid = String(this.ptSessionUserId || "").trim();
     const execWid = String(this.workspaceId || "").trim();
     const execTarget = String(this.selectedTargetType || "platform_vm").trim();
-    let conn = this.selectedTerminalConnection;
+    const pinnedId = String(this.requestedConnectionId || "").trim() || null;
+    let conn = pinnedId ? null : this.selectedTerminalConnection;
     if (!conn && this.env?.DB) {
       try {
         const sel = await getSelectedTerminalConnection(this.env.DB, {
           userId: execUid,
           workspaceId: execWid,
           tenantId: String(this.ptSessionTenantId || "").trim() || null,
-          connectionId: this.requestedConnectionId || null,
+          connectionId: pinnedId,
           targetType: execTarget,
         });
         conn = sel.connection;

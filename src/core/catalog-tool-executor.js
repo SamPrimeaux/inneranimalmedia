@@ -1042,12 +1042,17 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
           cmd = wrapWorkspaceShellCommand(settingsJson, cmd);
         }
       }
+      const remoteTargetId =
+        toolKey === 'agentsam_terminal_remote' && params.target_id != null
+          ? String(params.target_id).trim()
+          : '';
       const out = await termHandlers.run_command(
         {
           command: cmd,
           session_id: params.session_id,
           workspace_id: workspaceId,
           request: runContext?.request,
+          ...(remoteTargetId ? { target_id: remoteTargetId } : {}),
         },
         env,
       );
