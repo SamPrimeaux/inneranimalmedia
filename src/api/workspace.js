@@ -4,6 +4,7 @@
  * Deconstructed from legacy worker.js.
  */
 import { jsonResponse } from '../core/auth.js';
+import { listAccessibleWorkspaces } from '../core/workspace-access.js';
 import { handleAgentsamWorkspacesApi } from './workspaces.js';
 
 
@@ -56,18 +57,16 @@ export async function handleWorkspaceApi(request, url, env, ctx, authUser) {
 
     // ── GET /api/workspace/list ─────────────────────────────────────────────
     if (pathLower === '/api/workspace/list' && method === 'GET') {
-        const tenantId = authUser.tenant_id != null && String(authUser.tenant_id).trim() !== '' ? String(authUser.tenant_id).trim() : null;
-        if (!tenantId) return jsonResponse({ workspaces: [] });
         try {
-            const { results } = await env.DB.prepare(
-                `SELECT w.id, w.name, w.type, w.status, w.created_at, w.updated_at
-                 FROM tenant_workspaces tw
-                 LEFT JOIN workspaces w ON w.id = tw.workspace_id
-                 WHERE tw.tenant_id = ?
-                 ORDER BY COALESCE(w.updated_at, w.created_at) DESC
-                 LIMIT 200`,
-            ).bind(tenantId).all();
-            const rows = (results || []).filter(Boolean);
+            const results = await listAccessibleWorkspaces(env.DB, env, authUser, { limit: 200 });
+            const rows = (results || []).map((w) => ({
+                id: w.id,
+                name: w.name ?? w.display_name ?? w.id,
+                type: w.workspace_type ?? w.type ?? null,
+                status: w.status ?? null,
+                created_at: w.created_at ?? null,
+                updated_at: w.updated_at ?? null,
+            }));
             return jsonResponse({ workspaces: rows });
         } catch (_) {
             return jsonResponse({ workspaces: [] });

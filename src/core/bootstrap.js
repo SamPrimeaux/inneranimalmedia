@@ -3,6 +3,7 @@
  */
 import { getSession, fetchAuthUserTenantId, authUserIsSuperadmin } from './auth.js';
 import { resolveIamActorContext } from './identity.js';
+import { userCanAccessWorkspace } from './workspace-access.js';
 
 export const WORKSPACE_CONTEXT_MISSING = 'WORKSPACE_CONTEXT_MISSING';
 /** workspace_settings.workspace_root missing or invalid for the resolved workspace id */
@@ -146,26 +147,6 @@ export async function resolveEffectiveWorkspaceId(env, request, authUser, cache)
   }
 
   return { workspaceId, error: null };
-}
-
-async function userCanAccessWorkspace(env, authUser, workspaceId) {
-  const wid = trim(workspaceId);
-  const uid = trim(authUser?.id);
-  if (!wid || !uid || !env?.DB) return false;
-  if (authUserIsSuperadmin(authUser)) return true;
-  let tenantId = trim(authUser?.tenant_id);
-  if (!tenantId) tenantId = trim(await fetchAuthUserTenantId(env, uid).catch(() => null));
-  const ws = await env.DB.prepare(`SELECT user_id, tenant_id FROM workspaces WHERE id = ?`).bind(wid).first();
-  if (!ws) return false;
-  if (String(ws.user_id || '') === uid) return true;
-  if (tenantId && String(ws.tenant_id || '') === tenantId) return true;
-  const m = await env.DB
-    .prepare(
-      `SELECT 1 AS ok FROM workspace_members WHERE workspace_id = ? AND user_id = ? AND COALESCE(is_active, 1) = 1 LIMIT 1`,
-    )
-    .bind(wid, uid)
-    .first();
-  return !!m;
 }
 
 /**

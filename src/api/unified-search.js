@@ -332,24 +332,14 @@ async function appendStructuralFacetResults(env, authUser, merged, rawQ, facetId
 
   if (facetIds.includes('workspace') && env.DB) {
     try {
-      const uid = String(authUser.id || '').trim();
-      const tid =
-        authUser.tenant_id != null && String(authUser.tenant_id).trim()
-          ? String(authUser.tenant_id).trim()
-          : '';
-      const { results } = await env.DB.prepare(
-        `SELECT DISTINCT w.id, w.display_name, w.slug, w.status,
-                w.github_repo, COALESCE(wm.role,'owner') AS member_role
-         FROM workspaces w
-         LEFT JOIN workspace_members wm
-           ON wm.workspace_id = w.id AND wm.user_id = ?
-         WHERE (w.tenant_id = ? OR wm.user_id = ?)
-           AND (w.display_name LIKE ? OR w.slug LIKE ?)
-         ORDER BY w.updated_at DESC
-         LIMIT 20`,
-      )
-        .bind(uid, tid, uid, qPat, qPat)
-        .all();
+      const { listAccessibleWorkspaces } = await import('../core/workspace-access.js');
+      const all = await listAccessibleWorkspaces(env.DB, env, authUser, { limit: 100 });
+      const qLower = rawQ.toLowerCase();
+      const results = (all || []).filter((w) => {
+        const dn = String(w.display_name || w.name || '').toLowerCase();
+        const slug = String(w.slug || w.handle || '').toLowerCase();
+        return dn.includes(qLower) || slug.includes(qLower);
+      }).slice(0, 20);
       for (const w of results || []) {
         merged.push({
           type: 'workspace',

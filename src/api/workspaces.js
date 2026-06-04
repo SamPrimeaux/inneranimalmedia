@@ -4,11 +4,12 @@
  * Multi-tenant: env.R2, env.AI, env.DB are this Worker’s bindings. Other tenants’ Cloudflare
  * credentials belong in workspace_secrets (encrypted_value BLOB), not env bindings.
  */
+import { jsonResponse, fetchAuthUserTenantId } from '../core/auth.js';
 import {
-  jsonResponse,
-  fetchAuthUserTenantId,
-  platformTenantIdFromEnv,
-} from '../core/auth.js';
+  listAccessibleWorkspaces,
+  userCanAccessWorkspace,
+  workspaceMemberUserCandidates,
+} from '../core/workspace-access.js';
 
 /** @param {any} env */
 async function resolveAuthTenantId(env, authUser) {
@@ -173,18 +174,20 @@ async function callerCanAdminWorkspace(db, workspaceId, userId, tenantId) {
   return !!(m && (m.role === 'owner' || m.role === 'admin'));
 }
 
-/** Member or tenant access, or superadmin */
-async function callerCanViewWorkspace(db, workspaceId, userId, tenantId, isSuper) {
-  const ws = await db.prepare(`SELECT user_id, tenant_id FROM workspaces WHERE id = ?`).bind(workspaceId).first();
-  if (!ws) return false;
+/** Member or workspace owner, or superadmin — never tenant-wide for non-super. */
+async function callerCanViewWorkspace(db, workspaceId, authUser, isSuper) {
   if (isSuper) return true;
-  if (String(ws.user_id || '') === userId) return true;
-  if (tenantId && String(ws.tenant_id || '') === tenantId) return true;
+  const candidates = await workspaceMemberUserCandidates({ DB: db }, authUser);
+  const ws = await db.prepare(`SELECT user_id FROM workspaces WHERE id = ?`).bind(workspaceId).first();
+  if (!ws) return false;
+  if (candidates.some((c) => String(ws.user_id || '') === c)) return true;
+  if (!candidates.length) return false;
+  const ph = candidates.map(() => '?').join(', ');
   const m = await db
     .prepare(
-      `SELECT 1 AS ok FROM workspace_members WHERE workspace_id = ? AND user_id = ? AND COALESCE(is_active, 1) = 1 LIMIT 1`,
+      `SELECT 1 AS ok FROM workspace_members WHERE workspace_id = ? AND user_id IN (${ph}) AND COALESCE(is_active, 1) = 1 LIMIT 1`,
     )
-    .bind(workspaceId, userId)
+    .bind(workspaceId, ...candidates)
     .first();
   return !!m;
 }
@@ -245,31 +248,11 @@ export async function handleAgentsamWorkspacesApi(request, url, env, ctx, authUs
   if (!userId) return jsonResponse({ error: 'Invalid user' }, 401);
 
   const db = env.DB;
-  const platformTid = platformTenantIdFromEnv(env);
-  const seeNullTenantUnowned = isSuper || (platformTid && tenantId === platformTid) ? 1 : 0;
 
   // ── GET /api/workspaces/list ────────────────────────────────────────────
   if (pathLower === '/api/workspaces/list' && method === 'GET') {
     try {
-      const sql = `
-        SELECT DISTINCT w.id, w.display_name, w.slug, w.workspace_type,
-          w.status, w.r2_prefix, w.github_repo, w.settings_json,
-          w.description, w.tenant_id, w.user_id, w.created_at, w.updated_at,
-          COALESCE(wm.role, 'owner') AS member_role
-        FROM workspaces w
-        LEFT JOIN workspace_members wm
-          ON wm.workspace_id = w.id AND wm.user_id = ?
-        WHERE (
-            w.tenant_id = ?
-            OR wm.user_id = ?
-            OR (w.tenant_id IS NULL AND ? = 1)
-          )
-          AND (w.is_archived = 0 OR w.is_archived IS NULL)
-        ORDER BY w.updated_at DESC`;
-      const { results } = await db
-        .prepare(sql)
-        .bind(userId, tenantId ?? '', userId, seeNullTenantUnowned)
-        .all();
+      const results = await listAccessibleWorkspaces(db, env, authUser);
       return jsonResponse({ workspaces: results || [] });
     } catch (e) {
       return jsonResponse({ error: e?.message ?? String(e) }, 500);
@@ -392,7 +375,7 @@ export async function handleAgentsamWorkspacesApi(request, url, env, ctx, authUs
     const workspaceId = decodeURIComponent(membersListMatch[1]);
     if (workspaceId === 'list' || workspaceId === 'current') return null;
 
-    const canView = await callerCanViewWorkspace(db, workspaceId, userId, tenantId ?? '', isSuper);
+    const canView = await callerCanViewWorkspace(db, workspaceId, authUser, isSuper);
     if (!canView) return jsonResponse({ error: 'Forbidden' }, 403);
 
     if (method === 'GET') {
@@ -564,7 +547,7 @@ export async function handleAgentsamWorkspacesApi(request, url, env, ctx, authUs
   const healthMatch = pathLower.match(/^\/api\/workspaces\/([^/]+)\/health$/);
   if (healthMatch && method === 'GET') {
     const workspaceId = decodeURIComponent(healthMatch[1]);
-    const canView = await callerCanViewWorkspace(db, workspaceId, userId, tenantId ?? '', isSuper);
+    const canView = await callerCanViewWorkspace(db, workspaceId, authUser, isSuper);
     if (!canView) return jsonResponse({ error: 'Forbidden' }, 403);
 
     const wsRow = await db.prepare(`SELECT settings_json, r2_prefix FROM workspaces WHERE id = ?`).bind(workspaceId).first();
@@ -707,7 +690,7 @@ export async function handleAgentsamWorkspacesApi(request, url, env, ctx, authUs
   const auditMatch = pathLower.match(/^\/api\/workspaces\/([^/]+)\/audit$/);
   if (auditMatch && method === 'GET') {
     const workspaceId = decodeURIComponent(auditMatch[1]);
-    const canView = await callerCanViewWorkspace(db, workspaceId, userId, tenantId ?? '', isSuper);
+    const canView = await callerCanViewWorkspace(db, workspaceId, authUser, isSuper);
     if (!canView) return jsonResponse({ error: 'Forbidden' }, 403);
 
     try {
@@ -728,7 +711,7 @@ export async function handleAgentsamWorkspacesApi(request, url, env, ctx, authUs
   const usageMatch = pathLower.match(/^\/api\/workspaces\/([^/]+)\/usage$/);
   if (usageMatch && (method === 'GET' || method === 'POST')) {
     const workspaceId = decodeURIComponent(usageMatch[1]);
-    const canView = await callerCanViewWorkspace(db, workspaceId, userId, tenantId ?? '', isSuper);
+    const canView = await callerCanViewWorkspace(db, workspaceId, authUser, isSuper);
     if (!canView) return jsonResponse({ error: 'Forbidden' }, 403);
 
     if (method === 'GET') {
@@ -786,26 +769,21 @@ export async function handleAgentsamWorkspacesApi(request, url, env, ctx, authUs
           return jsonResponse(full);
         }
 
+        const allowed = await userCanAccessWorkspace(env, authUser, workspaceId);
+        if (!allowed) return jsonResponse({ error: 'Forbidden' }, 403);
+
         const row = await db
           .prepare(
             `SELECT w.*, ws.settings_json AS workspace_settings,
               ws.timezone, ws.locale
              FROM workspaces w
              LEFT JOIN workspace_settings ws ON ws.workspace_id = w.id
-             WHERE w.id = ?
-               AND (
-                 w.tenant_id = ?
-                 OR EXISTS (
-                   SELECT 1 FROM workspace_members wm
-                   WHERE wm.workspace_id = w.id AND wm.user_id = ?
-                     AND COALESCE(wm.is_active, 1) = 1
-                 )
-               )`,
+             WHERE w.id = ?`,
           )
-          .bind(workspaceId, tenantId ?? '', userId)
+          .bind(workspaceId)
           .first();
 
-        if (!row) return jsonResponse({ error: 'Forbidden' }, 403);
+        if (!row) return jsonResponse({ error: 'Not found' }, 404);
         return jsonResponse(row);
       } catch (e) {
         return jsonResponse({ error: e?.message ?? String(e) }, 500);
@@ -822,12 +800,8 @@ export async function handleAgentsamWorkspacesApi(request, url, env, ctx, authUs
 
       const canPatch =
         isSuper ||
-        (await callerCanAdminWorkspace(db, workspaceId, userId, tenantId ?? '')) ||
-        !!(tenantId &&
-          (await db
-            .prepare(`SELECT 1 FROM workspaces WHERE id = ? AND tenant_id = ?`)
-            .bind(workspaceId, tenantId)
-            .first()));
+        ((await userCanAccessWorkspace(env, authUser, workspaceId)) &&
+          (await callerCanAdminWorkspace(db, workspaceId, userId, tenantId ?? '')));
 
       if (!canPatch) return jsonResponse({ error: 'Forbidden' }, 403);
 

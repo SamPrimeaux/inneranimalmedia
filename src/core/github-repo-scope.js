@@ -20,13 +20,12 @@ function parseRepoOwner(repo) {
  * @param {string} workspaceId
  */
 export async function fetchWorkspaceGithubRepo(env, tenantId, workspaceId) {
-  const tid = trim(tenantId);
   const wid = trim(workspaceId);
-  if (!env?.DB || !tid || !wid) return null;
+  if (!env?.DB || !wid) return null;
   const row = await env.DB.prepare(
-    `SELECT github_repo FROM workspaces WHERE id = ? AND tenant_id = ? LIMIT 1`,
+    `SELECT github_repo FROM workspaces WHERE id = ? LIMIT 1`,
   )
-    .bind(wid, tid)
+    .bind(wid)
     .first()
     .catch(() => null);
   const repo = row?.github_repo != null ? trim(row.github_repo) : '';

@@ -31,7 +31,8 @@ import { handleSettingsSectionStatusApi } from './settings-sections.js';
 import { handleSettingsKeysApi } from './settings-api-keys.js';
 import { handleSettingsWorkspaceApi } from './settings-workspace.js';
 import { encryptApiKeyForStorage } from './provisioning.js';
-import { userCanAccessWorkspace, canUsePlatformAssetsR2Upload } from '../core/cms-theme-resolve.js';
+import { canUsePlatformAssetsR2Upload } from '../core/cms-theme-resolve.js';
+import { fetchWorkspaceRowsForSettingsApi, userCanAccessWorkspace } from '../core/workspace-access.js';
 import { generateMcpToken } from '../core/mcp-auth.js';
 import { MCP_CANONICAL_CLIENT_ID } from './mcp-oauth-shared.js';
 
@@ -208,38 +209,6 @@ async function resolveAuthTenantId(env, authUser) {
     if (tid) return tid;
   }
   return null;
-}
-
-/**
- * Workspace rows for legacy GET /api/settings/workspaces (name/display_name/column drift).
- * Scoped to the authenticated user's tenant only — never cross-tenant.
- * @param {import('@cloudflare/workers-types').D1Database} db
- * @param {string} tenantId
- */
-async function fetchWorkspaceRowsForSettingsApi(db, tenantId) {
-  const tid = tenantId != null ? String(tenantId).trim() : '';
-  if (!tid) return [];
-  const attempts = [
-    `SELECT id,
-            COALESCE(NULLIF(TRIM(display_name), ''), NULLIF(TRIM(name), ''), id) AS name,
-            display_name, slug, github_repo, status, category, brand
-     FROM workspaces WHERE tenant_id = ? ORDER BY name ASC`,
-    `SELECT id, name, category, brand, slug, github_repo, status FROM workspaces WHERE tenant_id = ? ORDER BY name ASC`,
-    `SELECT id, name, category FROM workspaces WHERE tenant_id = ? ORDER BY name ASC`,
-    `SELECT id, display_name AS name, display_name, slug, github_repo, status, category, NULL AS brand
-     FROM workspaces WHERE tenant_id = ? ORDER BY name ASC`,
-  ];
-  for (const sql of attempts) {
-    try {
-      const res = await db.prepare(sql).bind(tid).all();
-      return res.results || [];
-    } catch (e) {
-      const msg = String(e?.message || e || '');
-      if (msg.includes('no such column')) continue;
-      throw e;
-    }
-  }
-  return [];
 }
 
 function parseJsonSafe(str, fallback = {}) {
@@ -1313,7 +1282,7 @@ export async function handleSettingsRequest(request, env, ctx) {
         };
 
         const [wsRows, rowsPrimary, usPrimary] = await Promise.all([
-          fetchWorkspaceRowsForSettingsApi(env.DB, tenantId),
+          fetchWorkspaceRowsForSettingsApi(env.DB, env, authUser),
           loadUws(sessionUserId),
           env.DB.prepare('SELECT default_workspace_id FROM user_settings WHERE user_id = ? LIMIT 1')
             .bind(sessionUserId)
@@ -1380,7 +1349,10 @@ export async function handleSettingsRequest(request, env, ctx) {
         const body = await request.json().catch(() => ({}));
         const { workspace_id, brand, plans, budget, time } = body;
         if (!workspace_id) return jsonResponse({ error: 'workspace_id required' }, 400);
-        
+        if (!(await userCanAccessWorkspace(env, authUser, workspace_id))) {
+          return jsonResponse({ error: 'Workspace not found' }, 404);
+        }
+
         await env.DB.prepare(
           `INSERT INTO user_workspace_settings (user_id, workspace_id, brand, plans, budget, time, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, unixepoch())
@@ -1415,23 +1387,17 @@ export async function handleSettingsRequest(request, env, ctx) {
       const id = body.id != null ? String(body.id).trim() : '';
       if (!id) return jsonResponse({ error: 'id required' }, 400);
 
+      const allowed = isSuper || (await userCanAccessWorkspace(env, authUser, id));
+      if (!allowed) return jsonResponse({ error: 'Workspace not found' }, 404);
+
       const row = await env.DB.prepare(
         `SELECT w.id, w.display_name, w.slug, w.workspace_type, w.r2_prefix, w.github_repo, w.settings_json,
                 w.tenant_id
          FROM workspaces w
          WHERE w.id = ?
-           AND (
-             w.tenant_id = ?
-             OR EXISTS (
-               SELECT 1 FROM workspace_members wm
-               WHERE wm.workspace_id = w.id AND wm.user_id = ?
-                 AND COALESCE(wm.is_active, 1) = 1
-             )
-             OR (? = 1)
-           )
          LIMIT 1`,
       )
-        .bind(id, tenantId ?? '', sessionUserId, isSuper ? 1 : 0)
+        .bind(id)
         .first();
       if (!row) return jsonResponse({ error: 'Workspace not found' }, 404);
 

@@ -51,37 +51,7 @@ export async function canUsePlatformAssetsR2Upload(env, workspaceId, tenantId) {
   return false;
 }
 
-/**
- * auth_users.id (au_*) vs users.id (usr_*) — workspace_members.user_id may match either.
- * @param {any} env
- * @param {any} authUser
- * @returns {Promise<string[]>}
- */
-async function workspaceMemberUserCandidates(env, authUser) {
-  const uid = String(authUser?.id || "").trim();
-  const email = authUser?.email != null ? String(authUser.email).trim() : "";
-  /** @type {Set<string>} */
-  const ids = new Set();
-  if (uid) ids.add(uid);
-  if (!env?.DB) return [...ids];
-  try {
-    const row = await env.DB.prepare(
-      `SELECT u.id AS app_user_id
-       FROM auth_users au
-       LEFT JOIN users u ON u.auth_id = au.id OR LOWER(COALESCE(u.email,'')) = LOWER(au.email)
-       WHERE au.id = ? OR LOWER(COALESCE(au.email,'')) = LOWER(?)
-       LIMIT 1`,
-    )
-      .bind(uid, email || uid)
-      .first();
-    if (row?.app_user_id != null && String(row.app_user_id).trim()) {
-      ids.add(String(row.app_user_id).trim());
-    }
-  } catch {
-    /* ignore */
-  }
-  return [...ids];
-}
+export { userCanAccessWorkspace, workspaceMemberUserCandidates } from "./workspace-access.js";
 
 /**
  * Tenant for cms_theme_preferences + resolveActiveCmsThemeRow: auth/session tenant first,
@@ -120,40 +90,6 @@ export async function resolveTenantIdForCmsThemeOps(env, authUser, workspaceId) 
     }
   }
   return tid || null;
-}
-
-export async function userCanAccessWorkspace(env, authUser, workspaceId) {
-  if (!env?.DB || !authUser || !workspaceId) return false;
-  const wid = String(workspaceId).trim();
-  const uid = String(authUser.id || "").trim();
-  if (!wid || !uid) return false;
-  const isSuper = Number(authUser.is_superadmin) === 1;
-  if (isSuper) return true;
-
-  let tenantId =
-    authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ""
-      ? String(authUser.tenant_id).trim()
-      : null;
-  if (!tenantId) tenantId = await fetchAuthUserTenantId(env, uid).catch(() => null);
-
-  try {
-    const candidates = await workspaceMemberUserCandidates(env, authUser);
-    const ws = await env.DB.prepare(`SELECT user_id, tenant_id FROM workspaces WHERE id = ? LIMIT 1`)
-      .bind(wid)
-      .first();
-    if (!ws) return false;
-    if (candidates.some((c) => String(ws.user_id || "") === c)) return true;
-    if (tenantId && String(ws.tenant_id || "") === tenantId) return true;
-    const ph = candidates.map(() => "?").join(", ");
-    const m = await env.DB.prepare(
-      `SELECT 1 AS ok FROM workspace_members WHERE workspace_id = ? AND user_id IN (${ph}) AND COALESCE(is_active, 1) = 1 LIMIT 1`,
-    )
-      .bind(wid, ...candidates)
-      .first();
-    return !!m;
-  } catch {
-    return false;
-  }
 }
 
 /**
