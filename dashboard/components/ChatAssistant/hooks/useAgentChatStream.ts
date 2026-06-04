@@ -7,6 +7,9 @@
 
 import type React from 'react';
 import { LS_AGENT_CHAT_CONVERSATION_ID } from '../../../agentChatConstants';
+import {
+  resolveToolApprovalPreview,
+} from '../toolApprovalCopy';
 import type {
   Message,
   ToolApprovalPayload,
@@ -577,6 +580,8 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           const t = data as { type: string; tool?: ToolApprovalPayload };
           if (t.tool && typeof t.tool.name === 'string') {
             onToolApprovalRequest(t.tool);
+            streamFinalizedRef.current = true;
+            setIsLoading(false);
           }
           continue;
         }
@@ -651,8 +656,44 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           continue;
         }
         if (evType === 'approval_required') {
-          const d = data as { command_run_id?: string; approval_id?: string };
-          onThinkingEvent?.({ type: 'approval_required', command_run_id: d.command_run_id || d.approval_id });
+          const d = data as {
+            command_run_id?: string;
+            approval_id?: string;
+            proposal_id?: string;
+            tool_name?: string;
+            tool_args?: Record<string, unknown>;
+            risk_level?: string;
+            message?: string;
+            action_summary?: string;
+            command_preview?: string;
+          };
+          const toolName = typeof d.tool_name === 'string' ? d.tool_name.trim() : '';
+          const approvalId =
+            (typeof d.proposal_id === 'string' && d.proposal_id.trim()) ||
+            (typeof d.approval_id === 'string' && d.approval_id.trim()) ||
+            '';
+          if (toolName && approvalId && !d.command_run_id) {
+            const toolPayload: ToolApprovalPayload = {
+              name: toolName,
+              description: d.action_summary || d.message || undefined,
+              parameters:
+                d.tool_args && typeof d.tool_args === 'object' ? d.tool_args : undefined,
+              preview: d.command_preview || undefined,
+              approval_id: approvalId,
+              proposal_id: approvalId,
+              risk_level: d.risk_level,
+            };
+            if (!toolPayload.preview) {
+              toolPayload.preview = resolveToolApprovalPreview(toolPayload);
+            }
+            onToolApprovalRequest(toolPayload);
+            streamFinalizedRef.current = true;
+            setIsLoading(false);
+          }
+          onThinkingEvent?.({
+            type: 'approval_required',
+            command_run_id: d.command_run_id || d.approval_id || d.proposal_id,
+          });
           continue;
         }
         if (

@@ -230,6 +230,13 @@ export type ToolApprovalPayload = {
   description?: string;
   parameters?: Record<string, unknown>;
   preview?: string;
+  /** agentsam_approval_queue id — PATCH /api/agent/approval/:id after Allow. */
+  approval_id?: string;
+  proposal_id?: string;
+  risk_level?: 'low' | 'medium' | 'high' | 'critical' | string;
+  server_display_name?: string;
+  /** Terminal connection_resolution from worker (e.g. superadmin_operator_workspace). */
+  connection_resolution?: string;
   /** Plan-task terminal gate: Allow → approve queue → POST /api/agent/plan-task/resume (SSE). */
   plan_terminal?: {
     plan_id: string;

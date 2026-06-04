@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { User, Bot, ChevronRight, FileText } from 'lucide-react';
+import { User, Bot, ChevronRight, FileText, ShieldAlert } from 'lucide-react';
 import { SetiFileIcon } from '../../../src/components/SetiFileIcon';
 import type { ActiveFile } from '../../../types';
 import type {
@@ -25,6 +25,8 @@ import type { AgentMode } from '../types';
 import { AgentPlanChecklist } from './AgentPlanChecklist';
 import { AgentImageGenerationCard } from '../../../components/AgentImageGenerationCard';
 import { EmailArtifactCard } from '../artifacts/EmailArtifactCard';
+import { ToolApprovalCard } from './ToolApprovalCard';
+import type { ToolApprovalPayload } from '../types';
 
 const LANG_TO_EXT: Record<string, string> = {
   sql: 'sql',
@@ -106,6 +108,11 @@ export type AgentMessageListProps = {
   onImagePreview?: (src: string) => void;
   onRunPlan?: (planId: string) => void;
   runPlanBusy?: boolean;
+  /** Inline pre-flight gate — rendered in-thread before tool execution. */
+  pendingToolApproval?: ToolApprovalPayload | null;
+  approvalBusy?: boolean;
+  onApprovePendingTool?: () => void;
+  onDenyPendingTool?: () => void;
 };
 
 function renderMessageContent(
@@ -423,6 +430,10 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
   onImagePreview,
   onRunPlan,
   runPlanBusy = false,
+  pendingToolApproval = null,
+  approvalBusy = false,
+  onApprovePendingTool,
+  onDenyPendingTool,
 }) => {
   return (
     <div
@@ -588,7 +599,25 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
         ))
       )}
 
-      {isLoading && showStreamingAvatar && (
+      {pendingToolApproval && onApprovePendingTool && onDenyPendingTool ? (
+        <div className="flex w-full min-w-0 max-w-full justify-start">
+          <div className="flex gap-2.5 min-w-0 w-full max-w-full">
+            <div className="flex-shrink-0 w-6 h-6 rounded-md bg-amber-500/15 border border-amber-400/25 flex items-center justify-center mt-1">
+              <ShieldAlert size={11} className="text-amber-200/90" aria-hidden />
+            </div>
+            <div className="min-w-0 flex-1">
+              <ToolApprovalCard
+                tool={pendingToolApproval}
+                busy={approvalBusy}
+                onAllow={onApprovePendingTool}
+                onDeny={onDenyPendingTool}
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isLoading && showStreamingAvatar && !pendingToolApproval ? (
         <div className="flex justify-start">
           <div className="flex gap-2.5">
             <div className="flex-shrink-0 w-6 h-6 rounded-md bg-[var(--solar-cyan)]/20 border border-[var(--solar-cyan)]/30 flex items-center justify-center">
@@ -596,7 +625,7 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
             </div>
           </div>
         </div>
-      )}
+      ) : null}
 
       <ExecutionTimeline
         rows={toolTraceRows}

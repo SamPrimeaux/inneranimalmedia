@@ -139,6 +139,13 @@ const GOLDEN_SOURCES = [
     source_type: 'architecture',
     source_ref: 'inneranimalmedia.autorag.runtime_contract.v1',
   },
+  {
+    key: 'milestone-superadmin-mcp-oauth-e2e',
+    title: 'Milestone: Superadmin MCP OAuth E2E',
+    path: 'docs/platform/milestone-superadmin-mcp-oauth-e2e-2026-06-04.md',
+    source_type: 'architecture',
+    source_ref: 'milestone-superadmin-mcp-oauth-e2e-2026-06-04',
+  },
 ];
 
 function parseArgs(argv) {

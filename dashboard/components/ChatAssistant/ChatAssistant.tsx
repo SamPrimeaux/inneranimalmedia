@@ -1505,14 +1505,33 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         return;
       }
 
+      const queueApprovalId = (tool.approval_id || tool.proposal_id || '').trim();
+      if (queueApprovalId) {
+        const patchRes = await fetch(`/api/agent/approval/${encodeURIComponent(queueApprovalId)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ status: 'approved' }),
+        });
+        if (!patchRes.ok) {
+          const errText = await patchRes.text().catch(() => '');
+          throw new Error(errText || `Approval failed (${patchRes.status})`);
+        }
+      }
+
       const res = await fetch('/api/agent/chat/execute-approved-tool', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
         body: JSON.stringify({
           tool_name: tool.name,
-          tool_input: tool.parameters ?? {},
+          tool_input: {
+            ...(tool.parameters ?? {}),
+            ...(queueApprovalId ? { approval_id: queueApprovalId } : {}),
+          },
           conversation_id: conversationId || undefined,
           agent_run_id: agentRunId?.trim() || undefined,
+          approval_id: queueApprovalId || undefined,
         }),
       });
       const j = (await res.json()) as { success?: boolean; error?: string; result?: unknown };
@@ -1550,6 +1569,19 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const handleDenyPendingTool = useCallback(async () => {
     if (!pendingToolApproval) return;
     const { tool } = pendingToolApproval;
+    const queueApprovalId = (tool.approval_id || tool.proposal_id || '').trim();
+    if (queueApprovalId && !tool.plan_terminal) {
+      try {
+        await fetch(`/api/agent/approval/${encodeURIComponent(queueApprovalId)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ status: 'denied' }),
+        });
+      } catch (e) {
+        console.warn('[ChatAssistant] approval deny', e);
+      }
+    }
     if (tool.plan_terminal?.approval_id) {
       try {
         await fetch(`/api/agent/proposals/${encodeURIComponent(tool.plan_terminal.approval_id)}/deny`, {
@@ -2022,13 +2054,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         onToolApprovalRequest: (tool) => {
           setPendingToolApproval({ tool });
           setIsLoading(false);
+          streamFinalizedRef.current = true;
           abortControllerRef.current = null;
-          const q = messageQueueRef.current;
-          if (q.length > 0) {
-            const next = q[0];
-            setMessageQueue((prev) => prev.slice(1));
-            void handleSendRef.current(next);
-          }
         },
       });
       streamReaderRef.current = null;
@@ -2555,6 +2582,10 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             onImagePreview={handleChatImagePreview}
             onRunPlan={(planId) => void handleRunPlan(planId)}
             runPlanBusy={runPlanBusy}
+            pendingToolApproval={pendingToolApproval?.tool ?? null}
+            approvalBusy={approvalBusy}
+            onApprovePendingTool={() => void handleApprovePendingTool()}
+            onDenyPendingTool={() => void handleDenyPendingTool()}
           />
           </>
         )}
@@ -2615,45 +2646,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             chatSessionId={conversationId}
             onOpenInEditor={onFileSelect}
           />
-          {pendingToolApproval && (
-            <div role="region" aria-label="Plan task approval" className="w-full min-w-0 max-w-full shrink-0">
-              <div className="relative w-full min-w-0 rounded-2xl border border-white/[0.08] bg-[color-mix(in_srgb,var(--dashboard-panel)_72%,transparent)] backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.28),inset_0_1px_0_rgba(255,255,255,0.06)] ring-1 ring-amber-400/20 overflow-hidden">
-                <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/[0.04] via-transparent to-black/[0.12]" aria-hidden />
-                <div className="relative px-3 py-2.5 border-b border-white/[0.06]">
-                  <p className="text-[0.8125rem] font-medium text-[var(--dashboard-text)]">
-                    {pendingToolApproval.tool.plan_terminal ? 'Plan task approval' : 'Tool approval'}
-                  </p>
-                  <p className="mt-0.5 text-[0.6875rem] font-mono text-[var(--solar-cyan)] truncate">
-                    {pendingToolApproval.tool.name}
-                  </p>
-                </div>
-                {pendingToolApproval.tool.preview ? (
-                  <pre className="m-0 max-h-[min(24vh,160px)] overflow-auto px-3 py-2 text-[0.6875rem] font-mono text-[var(--dashboard-text)]/90 whitespace-pre-wrap break-words border-b border-white/[0.05] bg-black/20">
-                    {pendingToolApproval.tool.preview}
-                  </pre>
-                ) : null}
-                <div className="relative flex flex-wrap items-center gap-2 px-3 py-2.5">
-                  <button
-                    type="button"
-                    disabled={approvalBusy}
-                    onClick={() => void handleApprovePendingTool()}
-                    className="inline-flex items-center justify-center gap-1.5 min-h-[2rem] px-3.5 rounded-lg text-[0.75rem] font-semibold text-[var(--solar-base03)] bg-[var(--solar-cyan)] shadow-[0_1px_0_rgba(255,255,255,0.12)_inset,0_4px_14px_rgba(34,211,238,0.22)] hover:brightness-110 disabled:opacity-45"
-                  >
-                    <Play size={13} className="fill-current" aria-hidden />
-                    {approvalBusy ? 'Running…' : 'Run'}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={approvalBusy}
-                    onClick={handleDenyPendingTool}
-                    className="inline-flex items-center justify-center min-h-[2rem] px-2.5 rounded-lg text-[0.72rem] font-medium text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)] hover:bg-white/[0.04] disabled:opacity-45"
-                  >
-                    Dismiss
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
           {workflowLedger.runId ? (
             <div className="px-3 py-1.5 text-[0.625rem] font-mono text-[var(--dashboard-muted)] border-b border-[var(--dashboard-border)]/60 bg-[var(--scene-bg)]/80">
               Workflow{' '}

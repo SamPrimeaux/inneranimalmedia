@@ -2248,6 +2248,35 @@ async function loadToolsForRequest(env, modeSlug, _intent, opts = {}) {
   return { tools, toolRoutingError, routeToolRequirements };
 }
 
+function formatToolApprovalPreview(toolName, toolInput) {
+  const inp = toolInput && typeof toolInput === 'object' ? toolInput : {};
+  const cmd =
+    inp.command ??
+    inp.cmd ??
+    inp.shell_command ??
+    inp.shell ??
+    inp.query ??
+    inp.sql;
+  if (cmd != null && String(cmd).trim()) return String(cmd).trim().slice(0, 8000);
+  const path = inp.path ?? inp.cwd ?? inp.working_directory;
+  if (path != null && String(path).trim()) {
+    const base = String(path).trim();
+    if (cmd != null && String(cmd).trim()) return `cd ${base} && ${String(cmd).trim()}`.slice(0, 8000);
+    return base.slice(0, 8000);
+  }
+  try {
+    return JSON.stringify(inp, null, 2).slice(0, 4000);
+  } catch {
+    return `${String(toolName || 'tool')}()`;
+  }
+}
+
+function toolInputHasApprovalId(toolInput) {
+  if (!toolInput || typeof toolInput !== 'object') return false;
+  const id = toolInput.approval_id ?? toolInput.approvalId ?? null;
+  return id != null && String(id).trim() !== '';
+}
+
 function inferRiskLevel(toolName, category = '', rowRiskLevel = '') {
   const r = String(rowRiskLevel || '').toLowerCase();
   if (r === 'critical' || r === 'high') return r;
@@ -2395,11 +2424,11 @@ async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRuntimeCo
       agentsamToolsId: null,
     };
   }
-  if (compiledToolPolicy?.require_approval?.includes(name)) {
+  if (compiledToolPolicy?.require_approval?.includes(name) && !toolInputHasApprovalId(toolInput)) {
     return {
-      allowed: false,
+      allowed: true,
       reason: 'requires approval',
-      riskLevel: 'blocked',
+      riskLevel: inferRiskLevel(name, '', 'medium'),
       requiresConfirmation: true,
       mcpToolId: null,
       toolKey: name,
@@ -2620,11 +2649,12 @@ async function validateToolCall(env, profileOrMode, toolCallOrName, mcpRuntimeCo
     };
   }
 
-  const requiresConfirmation = false;
+  const requiresConfirmation =
+    row != null && Number(row.requires_approval || 0) === 1 && !toolInputHasApprovalId(toolInput);
   const rk = row && typeof row === 'object' ? row : {};
   return {
     allowed: true,
-    reason: 'allowed',
+    reason: requiresConfirmation ? 'requires approval' : 'allowed',
     riskLevel,
     requiresConfirmation,
     mcpToolId: null,
@@ -3452,10 +3482,9 @@ function kickoffModelTierMigration(env, ctx) {
 // ─── Approval Gate ────────────────────────────────────────────────────────────
 
 function needsApproval(validationResult, modeConfig, userPolicy) {
-  void validationResult;
   void modeConfig;
   void userPolicy;
-  return false;
+  return validationResult?.requiresConfirmation === true;
 }
 
 async function createApprovalRequest(env, ctx, opts) {
@@ -3499,8 +3528,10 @@ async function createApprovalRequest(env, ctx, opts) {
     }
     const uid = uidResolved ?? 'iam_agent';
     const summary = rationale || `Tool call requires approval: ${toolName}`;
+    const previewCommand = formatToolApprovalPreview(toolName, toolArgs);
     const inputJson = JSON.stringify({
       command_text: `${toolName}(${argsStr.slice(0, 500)})`,
+      command: previewCommand || null,
       filled_template: argsStr,
       command_source: 'agent_generated',
       tool: toolName,
@@ -4712,7 +4743,9 @@ async function runAgentToolLoop(env, ctx, emit, params) {
 
     const toolResults = [];
     let previousToolChainId = null;
+    let chatHaltedForApproval = false;
     for (const call of clientToolCalls) {
+      if (chatHaltedForApproval) break;
       if (toolCallsUsed >= effectiveMaxToolCalls) {
         emit('tool_blocked', { tool: call.name, reason: 'max_tool_calls_reached' });
         toolResults.push({ type: 'tool_result', tool_use_id: call.id, content: 'Tool call limit reached.' });
@@ -4881,10 +4914,45 @@ async function runAgentToolLoop(env, ctx, emit, params) {
           ledgerExtras: toolLogFieldsFromValidation(validation),
           ...runSpineIds,
         });
+        let toolDescription = `Agent requested ${call.name} (${validation.riskLevel} risk)`;
+        try {
+          const catalogRow = await loadAgentsamToolRow(env, call.name);
+          if (catalogRow?.description && String(catalogRow.description).trim()) {
+            toolDescription = String(catalogRow.description).trim();
+          }
+        } catch {
+          /* non-fatal */
+        }
+        const preview = formatToolApprovalPreview(call.name, call.input);
+        const serverLabel =
+          validation.serverKey != null && String(validation.serverKey).trim() !== ''
+            ? String(validation.serverKey).trim()
+            : 'inneranimalmedia';
         notifySam(env, { subject: `Approval required: ${call.name}`, body: `Tool: ${call.name}\nRisk: ${validation.riskLevel}\nArgs: ${JSON.stringify(call.input||{}).slice(0,500)}\n\nApprove: ${(env.IAM_ORIGIN||'').replace(/\/$/,'')}/dashboard/overview?proposal=${proposalId}`, category: 'approval' }).catch(() => {});
-        emit('approval_required', { proposal_id: proposalId, tool_name: call.name, tool_args: call.input, risk_level: validation.riskLevel, message: 'This action requires your approval.' });
-        toolResults.push({ type: 'tool_result', tool_use_id: call.id, content: `Awaiting approval (proposal_id: ${proposalId}).` });
-        continue;
+        emit('approval_required', {
+          proposal_id: proposalId,
+          approval_id: proposalId,
+          tool_name: call.name,
+          tool_args: call.input,
+          command_preview: preview,
+          action_summary: toolDescription,
+          risk_level: validation.riskLevel,
+          message: 'This action requires your approval.',
+        });
+        emit('tool_approval_request', {
+          tool: {
+            name: call.name,
+            description: toolDescription,
+            parameters: call.input && typeof call.input === 'object' ? call.input : {},
+            preview,
+            approval_id: proposalId,
+            proposal_id: proposalId,
+            risk_level: validation.riskLevel,
+            server_display_name: serverLabel,
+          },
+        });
+        chatHaltedForApproval = true;
+        break;
       }
       if (
         shouldOpenChatToolSessionLedger({
@@ -5403,6 +5471,20 @@ async function runAgentToolLoop(env, ctx, emit, params) {
           chainRootId: toolChainRootId,
         };
       }
+    }
+    if (chatHaltedForApproval) {
+      safeDone({ halted_for_approval: true, tool_calls_used: toolCallsUsed, turns: turnCount });
+      return {
+        totalUsage,
+        toolCallsUsed,
+        executedToolNames,
+        modelKey,
+        turnCount,
+        haltedForApproval: true,
+        workflowRunId: null,
+        agentRunId: chatAgentRunId != null ? String(chatAgentRunId) : null,
+        chainRootId: toolChainRootId,
+      };
     }
     if (toolResults.length) conversationMessages.push({ role: 'user', content: toolResults });
 
