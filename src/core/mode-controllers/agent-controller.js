@@ -158,6 +158,18 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
       'Add instrumentation when reproduction is needed; remove it after the fix is verified.';
   }
 
+  if (userId) {
+    try {
+      const { buildGithubScopeSystemPromptLine } = await import('../github-repo-scope.js');
+      const ghLine = await buildGithubScopeSystemPromptLine(env, userId);
+      if (ghLine && !systemPrompt.includes('GitHub scope (enforced)')) {
+        systemPrompt = `${systemPrompt}\n\n## GitHub\n${ghLine}`;
+      }
+    } catch (e) {
+      console.warn('[agent-controller] github_scope_prompt', e?.message ?? e);
+    }
+  }
+
   if (profile.mode === 'ask') {
     systemPrompt +=
       '\n\n## Ask mode (read-only)\nAnswer directly. Use read-only evidence tools when the question ' +

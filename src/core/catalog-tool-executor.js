@@ -1552,13 +1552,17 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         requestedRepo: ghParams.repo,
       });
       if (repoScope.blocked || !repoScope.repo) {
+        const loginHint =
+          repoScope.reason === 'github_not_connected'
+            ? 'Connect GitHub in Integrations first.'
+            : 'Use agentsam_github_repo_list — only repos under your GitHub account are allowed (not SamPrimeaux/*).';
         result = {
           ok: false,
           error: repoScope.reason || 'github_repo_scope_denied',
           body: {
-            user_message:
-              'That GitHub repository is outside your account or workspace. Use agentsam_github_repo_list or pick a repo under your GitHub user.',
+            user_message: `${loginHint} Requested: ${ghParams.repo || '(none)'}.`,
             requested_repo: ghParams.repo || null,
+            allowed_owner_namespace: true,
           },
         };
         break;

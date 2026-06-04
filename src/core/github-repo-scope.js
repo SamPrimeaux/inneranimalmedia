@@ -49,7 +49,27 @@ export async function fetchUserGithubLogin(env, userId) {
 }
 
 /**
- * Resolve repo for github_* tool calls — never return another user's default org repo.
+ * System prompt line — locks the model to the connected GitHub user's namespace.
+ * @param {any} env
+ * @param {string} userId
+ */
+export async function buildGithubScopeSystemPromptLine(env, userId) {
+  const login = await fetchUserGithubLogin(env, userId);
+  if (!login) {
+    return (
+      'GitHub: account not connected for this user. Connect GitHub in Integrations before using github_* tools. ' +
+      'Do not guess repository names.'
+    );
+  }
+  return (
+    `GitHub scope (enforced): only repositories owned by \`${login}\` (prefix \`${login}/\`). ` +
+    `Never use SamPrimeaux/* or any other GitHub owner. ` +
+    `Discover repos with agentsam_github_repo_list; do not invent paths under another user's org.`
+  );
+}
+
+/**
+ * Resolve repo for github_* tool calls — only the authenticated GitHub user's owner namespace.
  * @param {any} env
  * @param {{
  *   userId: string,
@@ -61,7 +81,6 @@ export async function fetchUserGithubLogin(env, userId) {
  */
 export async function resolveGithubRepoForToolCall(env, input) {
   const userId = trim(input.userId);
-  const tenantId = trim(input.tenantId);
   const workspaceId = trim(input.workspaceId);
   const requested = trim(input.requestedRepo);
 
@@ -70,42 +89,40 @@ export async function resolveGithubRepoForToolCall(env, input) {
   }
 
   const [workspaceRepo, userLogin] = await Promise.all([
-    tenantId && workspaceId ? fetchWorkspaceGithubRepo(env, tenantId, workspaceId) : null,
+    workspaceId ? fetchWorkspaceGithubRepo(env, input.tenantId, workspaceId) : null,
     fetchUserGithubLogin(env, userId),
   ]);
 
-  const workspaceOwner = workspaceRepo ? parseRepoOwner(workspaceRepo) : '';
-  const requestedOwner = requested ? parseRepoOwner(requested) : '';
   const userOwner = userLogin ? userLogin.toLowerCase() : '';
+  if (!userOwner) {
+    return {
+      repo: null,
+      blocked: true,
+      reason: 'github_not_connected',
+    };
+  }
 
-  const ownerAllowed = (owner) => {
-    if (!owner) return false;
-    if (userOwner && owner === userOwner) return true;
-    if (workspaceOwner && owner === workspaceOwner) return true;
-    return false;
+  const repoOwnedByUser = (repo) => {
+    const owner = parseRepoOwner(repo);
+    return !!(owner && owner === userOwner);
   };
 
   if (requested) {
-    if (!ownerAllowed(requestedOwner)) {
-      if (workspaceRepo && ownerAllowed(workspaceOwner)) {
-        return { repo: workspaceRepo, reason: 'requested_repo_not_allowed_used_workspace_default' };
-      }
-      if (userOwner) {
-        return { repo: null, blocked: true, reason: `repo_not_in_user_scope:${requested}` };
-      }
-      return { repo: null, blocked: true, reason: 'repo_owner_mismatch' };
+    if (repoOwnedByUser(requested)) {
+      return { repo: requested };
     }
-    return { repo: requested };
+    return {
+      repo: null,
+      blocked: true,
+      reason: `repo_not_in_user_scope:${requested}`,
+    };
   }
 
-  if (workspaceRepo) {
-    if (!userOwner || ownerAllowed(workspaceOwner)) {
-      return { repo: workspaceRepo };
-    }
-    return { repo: null, reason: 'workspace_repo_owner_mismatch' };
+  if (workspaceRepo && repoOwnedByUser(workspaceRepo)) {
+    return { repo: workspaceRepo };
   }
 
-  return { repo: null, reason: 'no_repo_context' };
+  return { repo: null, reason: 'no_repo_context_use_github_repo_list' };
 }
 
 /**

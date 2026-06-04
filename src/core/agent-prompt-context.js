@@ -15,6 +15,7 @@ function estimateTokens(text) {
 export async function fetchActiveProjectContextBlocks(env, opts = {}) {
   if (!env?.DB) return [];
   const ws = opts.workspaceId != null ? String(opts.workspaceId).trim() : '';
+  if (!ws) return [];
   const limit = Math.min(Math.max(1, Number(opts.limit) || 3), 5);
 
   try {
@@ -29,11 +30,11 @@ export async function fetchActiveProjectContextBlocks(env, opts = {}) {
               current_blockers, priority, status
        FROM agentsam_project_context
        WHERE status = 'active'
-         AND (workspace_id = ? OR workspace_id IS NULL)
+         AND workspace_id = ?
        ORDER BY ${orderBy}
        LIMIT ${limit}`,
     )
-      .bind(ws || null)
+      .bind(ws)
       .all();
     return (results || []).map((r) => {
       const parts = [

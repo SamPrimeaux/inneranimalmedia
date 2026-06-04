@@ -6945,6 +6945,24 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
       }
     }
     if (githubRepoContext) body.selectedGithubRepoContext = githubRepoContext;
+    if (activeFileEnvelope?.github_repo && userId && workspaceId && tenantId) {
+      try {
+        const { sanitizeGithubRepoContextForChat } = await import('../core/github-repo-scope.js');
+        const safeEnv = await sanitizeGithubRepoContextForChat(env, {
+          userId: String(userId),
+          tenantId: String(tenantId),
+          workspaceId: String(workspaceId),
+          clientRepo: activeFileEnvelope.github_repo,
+        });
+        if (!safeEnv) {
+          delete activeFileEnvelope.github_repo;
+          delete activeFileEnvelope.github_path;
+          body.activeFileEnvelope = activeFileEnvelope;
+        }
+      } catch (_) {
+        /* ignore */
+      }
+    }
     const localBufferOpen = activeFileIsLocalWorkspaceBuffer(activeFileEnvelope);
     if (githubRepoContext && !localBufferOpen) {
       if (activeFileEnvelope) {
