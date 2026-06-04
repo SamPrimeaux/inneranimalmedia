@@ -31,7 +31,22 @@ import {
   closeTerminalSessionRecord,
   userCanRunPtyFromPolicy,
   getTerminalInputHistory,
+  loadAuthUserRowForPty,
+  ptyBackendBearerValid,
 } from '../core/terminal.js';
+import {
+  generateUserPtyAuthToken,
+  getUserPtyAuthTokenStatus,
+  revokeUserPtyAuthToken,
+  CF_CREDENTIALS_HELP,
+} from '../core/user-secrets.js';
+import {
+  provisionPtyTunnel,
+  deprovisionPtyTunnel,
+  getPtyTunnelStatus,
+  tryAutoActivateUserHostedTunnel,
+} from '../core/pty-tunnel-provisioner.js';
+import { resolveWorkspaceCloudflareCredentials } from '../core/workspace-cloudflare-credentials.js';
 
 // ── Token validation ───────────────────────────────────────────────────────────
 export async function handleTerminalApi(request, url, env, ctx) {
@@ -107,26 +122,51 @@ export async function handleTerminalApi(request, url, env, ctx) {
     const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : auth.trim();
     const bridgeKey = request.headers.get('X-Bridge-Key') || '';
     const validBridge = env.AGENTSAM_BRIDGE_KEY && bridgeKey === env.AGENTSAM_BRIDGE_KEY;
-    const validToken  = token && token === (env.PTY_AUTH_TOKEN || '');
-    if (!validToken && !validBridge) {
-      return jsonResponse({ error: 'unauthorized' }, 401);
-    }
 
     let body = {};
     try { body = await request.json(); } catch (_) {}
+
+    const regUserIdHint = String(body?.user_id || '').trim();
+    const regWsHint = String(body?.workspace_id || '').trim();
+    const validToken =
+      validBridge ||
+      (token && (await ptyBackendBearerValid(env, token, regUserIdHint, regWsHint)));
+    if (!validToken) {
+      return jsonResponse({ error: 'unauthorized' }, 401);
+    }
 
     const { session_id, tunnel_url, cols, rows, shell, cwd } = body;
     if (!session_id || !tunnel_url) return jsonResponse({ error: 'session_id and tunnel_url required' }, 400);
 
     const now = Math.floor(Date.now() / 1000);
-    const authUser = await getAuthUser(request, env);
+    let authUser = await getAuthUser(request, env);
+    if (!authUser && regUserIdHint && env.DB) {
+      const row = await loadAuthUserRowForPty(env.DB, regUserIdHint);
+      if (row?.id) {
+        authUser = {
+          id: String(row.id),
+          email: row.email ?? null,
+          person_uuid: row.person_uuid ?? null,
+          tenant_id: row.tenant_id ?? row.active_tenant_id ?? null,
+        };
+      }
+    }
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
 
-    const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {});
-    if (wsRes.error || !wsRes.workspaceId) {
-      return jsonResponse({ error: WORKSPACE_CONTEXT_MISSING, code: WORKSPACE_CONTEXT_MISSING }, 400);
+    let regWorkspaceId = regWsHint;
+    if (regWorkspaceId) {
+      const { userHasWorkspaceMembership } = await import('../core/workspace-provisioning.js');
+      const memberOk = await userHasWorkspaceMembership(env, String(authUser.id).trim(), regWorkspaceId);
+      if (!memberOk) {
+        return jsonResponse({ error: 'Forbidden', code: 'workspace_forbidden' }, 403);
+      }
+    } else {
+      const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {});
+      if (wsRes.error || !wsRes.workspaceId) {
+        return jsonResponse({ error: WORKSPACE_CONTEXT_MISSING, code: WORKSPACE_CONTEXT_MISSING }, 400);
+      }
+      regWorkspaceId = wsRes.workspaceId;
     }
-    const regWorkspaceId = wsRes.workspaceId;
     const regUid = String(authUser.id || '').trim();
     let regTid = await resolvePtyTenantIdForUser(env, authUser, regUid);
     if (!regTid) return jsonResponse({ error: 'Tenant not resolved for terminal session' }, 403);
@@ -184,7 +224,19 @@ export async function handleTerminalApi(request, url, env, ctx) {
     )
      .run().catch(() => {});
 
-    return jsonResponse({ ok: true, session_id });
+    const autoActivate = await tryAutoActivateUserHostedTunnel(
+      env,
+      tunnel_url,
+      regUid,
+      regWorkspaceId,
+    );
+
+    return jsonResponse({
+      ok: true,
+      session_id,
+      connection_activated: autoActivate.activated === true,
+      connection_id: autoActivate.connection_id ?? null,
+    });
   }
 
   // GET /api/terminal/history — user input lines for shell history seed (no secrets in response)
@@ -244,6 +296,182 @@ export async function handleTerminalApi(request, url, env, ctx) {
       return jsonResponse({ error: result.error, detail: result.detail ?? null }, result.status || 500);
     }
     return jsonResponse({ ok: true, created: result.created === true, connection: result.connection });
+  }
+
+  // POST /api/terminal/token/generate — one-time PTY bridge token (encrypted in user_secrets)
+  if (path === '/api/terminal/token/generate' && method === 'POST') {
+    const authUser = await getAuthUser(request, env);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    const tw = await resolveTerminalWorkspaceId(env, request, authUser, null);
+    if (!tw.workspaceId) {
+      return jsonResponse({ error: WORKSPACE_CONTEXT_MISSING, code: WORKSPACE_CONTEXT_MISSING }, 400);
+    }
+    if (!(await userCanRunPtyFromPolicy(env, authUser.id, tw.workspaceId))) {
+      return jsonResponse({ error: 'terminal_not_enabled' }, 403);
+    }
+    const body = await request.json().catch(() => ({}));
+    const result = await generateUserPtyAuthToken(env, authUser, tw.workspaceId, request, {
+      rotate: body?.rotate === true,
+    });
+    if (!result.ok) {
+      return jsonResponse({ error: result.error }, result.status || 500);
+    }
+    return jsonResponse({
+      ok: true,
+      token: result.token,
+      last4: result.last4,
+      connection_id: result.connection_id,
+      instructions: result.instructions,
+    });
+  }
+
+  // GET /api/terminal/token/status
+  if (path === '/api/terminal/token/status' && method === 'GET') {
+    const authUser = await getAuthUser(request, env);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    const tw = await resolveTerminalWorkspaceId(env, request, authUser, url.searchParams.get('workspace_id'));
+    if (!tw.workspaceId) {
+      return jsonResponse({ error: WORKSPACE_CONTEXT_MISSING, code: WORKSPACE_CONTEXT_MISSING }, 400);
+    }
+    if (!(await userCanRunPtyFromPolicy(env, authUser.id, tw.workspaceId))) {
+      return jsonResponse({ error: 'terminal_not_enabled' }, 403);
+    }
+    const status = await getUserPtyAuthTokenStatus(env, authUser.id, tw.workspaceId);
+    return jsonResponse(status);
+  }
+
+  // DELETE /api/terminal/token
+  if (path === '/api/terminal/token' && method === 'DELETE') {
+    const authUser = await getAuthUser(request, env);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    const tw = await resolveTerminalWorkspaceId(env, request, authUser, null);
+    if (!tw.workspaceId) {
+      return jsonResponse({ error: WORKSPACE_CONTEXT_MISSING, code: WORKSPACE_CONTEXT_MISSING }, 400);
+    }
+    if (!(await userCanRunPtyFromPolicy(env, authUser.id, tw.workspaceId))) {
+      return jsonResponse({ error: 'terminal_not_enabled' }, 403);
+    }
+    const result = await revokeUserPtyAuthToken(env, authUser, tw.workspaceId, request);
+    if (!result.ok) {
+      return jsonResponse({ error: result.error }, result.status || 500);
+    }
+    return jsonResponse({ ok: true, revoked: result.revoked === true });
+  }
+
+  // POST /api/terminal/tunnel/provision — BYOK Cloudflare tunnel + DNS
+  if (path === '/api/terminal/tunnel/provision' && method === 'POST') {
+    const authUser = await getAuthUser(request, env);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    const tw = await resolveTerminalWorkspaceId(env, request, authUser, null);
+    if (!tw.workspaceId) {
+      return jsonResponse({ error: WORKSPACE_CONTEXT_MISSING, code: WORKSPACE_CONTEXT_MISSING }, 400);
+    }
+    if (!(await userCanRunPtyFromPolicy(env, authUser.id, tw.workspaceId))) {
+      return jsonResponse({ error: 'terminal_not_enabled' }, 403);
+    }
+    const body = await request.json().catch(() => ({}));
+    const tunnelName = String(body?.tunnel_name || '').trim();
+    const hostname = String(body?.hostname || '').trim();
+    const zoneId = String(body?.zone_id || '').trim();
+    if (!tunnelName || !hostname || !zoneId) {
+      return jsonResponse({ error: 'tunnel_name, hostname, and zone_id required' }, 400);
+    }
+
+    const tenantId = await resolvePtyTenantIdForUser(env, authUser, authUser.id);
+    if (!tenantId) return jsonResponse({ error: 'tenant_missing' }, 403);
+
+    const creds = await resolveWorkspaceCloudflareCredentials(
+      env,
+      authUser.id,
+      tenantId,
+      tw.workspaceId,
+    );
+    if (!creds.ok || !creds.token) {
+      return jsonResponse(CF_CREDENTIALS_HELP, 400);
+    }
+
+    const { getUserHostedTunnelConnection } = await import('../core/terminal.js');
+    const existing = await getUserHostedTunnelConnection(env.DB, authUser.id, tw.workspaceId);
+    if (existing && Number(existing.is_active) === 1) {
+      return jsonResponse(
+        { error: 'tunnel_already_active', connection_id: String(existing.id) },
+        409,
+      );
+    }
+
+    const result = await provisionPtyTunnel(env, {
+      userId: authUser.id,
+      tenantId,
+      workspaceId: tw.workspaceId,
+      tunnelName,
+      hostname,
+      zoneId,
+      port: body?.port,
+      platform: body?.platform,
+      shell: body?.shell,
+    });
+    if (!result.ok) {
+      return jsonResponse(
+        { error: result.error, step_failed: result.step_failed ?? null },
+        500,
+      );
+    }
+    return jsonResponse({
+      ok: true,
+      tunnel_id: result.tunnel_id,
+      hostname: result.hostname,
+      ws_url: result.ws_url,
+      connection_id: result.connection_id,
+      run_token: result.run_token,
+      next_steps: [
+        'Install cloudflared on your machine',
+        'Run: cloudflared tunnel run --token <run_token>',
+        'Set PTY_AUTH_TOKEN via POST /api/terminal/token/generate, then run node server.js in iam-pty',
+        'Connection auto-activates when the tunnel registers a session',
+      ],
+    });
+  }
+
+  // GET /api/terminal/tunnel/status
+  if (path === '/api/terminal/tunnel/status' && method === 'GET') {
+    const authUser = await getAuthUser(request, env);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    const tw = await resolveTerminalWorkspaceId(env, request, authUser, url.searchParams.get('workspace_id'));
+    if (!tw.workspaceId) {
+      return jsonResponse({ error: WORKSPACE_CONTEXT_MISSING, code: WORKSPACE_CONTEXT_MISSING }, 400);
+    }
+    const tenantId = await resolvePtyTenantIdForUser(env, authUser, authUser.id);
+    const status = await getPtyTunnelStatus(env, {
+      userId: authUser.id,
+      tenantId: tenantId || '',
+      workspaceId: tw.workspaceId,
+    });
+    return jsonResponse(status);
+  }
+
+  // DELETE /api/terminal/tunnel
+  if (path === '/api/terminal/tunnel' && method === 'DELETE') {
+    const authUser = await getAuthUser(request, env);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    const tw = await resolveTerminalWorkspaceId(env, request, authUser, null);
+    if (!tw.workspaceId) {
+      return jsonResponse({ error: WORKSPACE_CONTEXT_MISSING, code: WORKSPACE_CONTEXT_MISSING }, 400);
+    }
+    const tenantId = await resolvePtyTenantIdForUser(env, authUser, authUser.id);
+    if (!tenantId) return jsonResponse({ error: 'tenant_missing' }, 403);
+    const result = await deprovisionPtyTunnel(env, {
+      userId: authUser.id,
+      tenantId,
+      workspaceId: tw.workspaceId,
+    });
+    if (!result.ok) {
+      return jsonResponse({ error: result.error }, result.status || 500);
+    }
+    return jsonResponse({
+      ok: true,
+      tunnel_id: result.tunnel_id,
+      dns_record_deleted: result.dns_record_deleted === true,
+    });
   }
 
   // POST /api/terminal/connections/activate — set ws_url and is_active=1

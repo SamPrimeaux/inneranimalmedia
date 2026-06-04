@@ -11,6 +11,7 @@ import {
 } from './bootstrap.js';
 import { resolvePtyTenantIdForUser, buildPtySessionWorkingDir } from './pty-workspace-paths.js';
 import { notifySam } from './notifications';
+import { resolveUserPtyToken, USER_PTY_TOKEN_SENTINEL } from './user-secrets.js';
 
 /**
  * Deterministic SHA-256 for `terminal_sessions.auth_token_hash` (never store raw session secrets in D1).
@@ -62,6 +63,44 @@ export function normalizeProvisionPlatformShell(platform, shell) {
  * @param {string} userId
  * @param {string} workspaceId
  */
+/**
+ * Load auth_users row for PTY backend register (Bearer user token path).
+ * @param {import('@cloudflare/workers-types').D1Database | null} db
+ * @param {string} userId
+ */
+export async function loadAuthUserRowForPty(db, userId) {
+  if (!db || !userId) return null;
+  try {
+    return await db
+      .prepare(`SELECT id, email, person_uuid, tenant_id, active_tenant_id FROM auth_users WHERE id = ? LIMIT 1`)
+      .bind(String(userId).trim())
+      .first();
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * Validate iam-pty Bearer against platform or per-user encrypted token.
+ * @param {Record<string, unknown>} env
+ * @param {string} token
+ * @param {string} [userId]
+ * @param {string} [workspaceId]
+ */
+export async function ptyBackendBearerValid(env, token, userId = '', workspaceId = '') {
+  const t = String(token || '').trim();
+  if (!t) return false;
+  if (t === String(env?.PTY_AUTH_TOKEN || '').trim()) return true;
+  if (t === String(env?.TERMINAL_SECRET || '').trim()) return true;
+  const uid = String(userId || '').trim();
+  const wid = String(workspaceId || '').trim();
+  if (uid) {
+    const userTok = await resolveUserPtyToken(env, uid, wid);
+    if (userTok && t === userTok) return true;
+  }
+  return false;
+}
+
 export async function getUserHostedTunnelConnection(db, userId, workspaceId) {
   if (!db || !userId || !workspaceId) return null;
   try {
@@ -651,13 +690,48 @@ async function checkOllamaReachable(env, connection) {
   }
 }
 
-function connectionDbBridgeOk(env, conn) {
+function connectionDbBridgeOk(env, conn, resolvedToken = null) {
   if (!conn) return false;
   const wsPart = String(conn.ws_url || '').trim();
-  const secretName = String(conn.auth_token_secret_name || '').trim();
-  const tok =
-    secretName && env[secretName] != null ? String(env[secretName]).trim() : '';
+  const tok = (() => {
+    const pre = resolvedToken != null ? String(resolvedToken).trim() : '';
+    if (pre) return pre;
+    const secretName = String(conn.auth_token_secret_name || '').trim();
+    if (secretName === USER_PTY_TOKEN_SENTINEL) return '';
+    return secretName && env[secretName] != null ? String(env[secretName]).trim() : '';
+  })();
   return !!(wsPart && tok) || String(conn.auth_mode || '').trim() === 'token_mint';
+}
+
+/**
+ * Resolve bridge auth token for a terminal_connections row.
+ * Priority: user_secrets (user_pty_token) → Worker secret by name → PTY_AUTH_TOKEN / TERMINAL_SECRET.
+ *
+ * @param {Record<string, unknown>} env
+ * @param {Record<string, unknown> | null | undefined} conn
+ * @param {string | null | undefined} userId
+ * @param {string | null | undefined} workspaceId
+ * @returns {Promise<string | null>}
+ */
+export async function resolveConnectionAuthToken(env, conn, userId, workspaceId) {
+  if (!conn) return null;
+  const mode = String(conn.auth_mode || '').trim();
+  if (mode === 'token_mint') return null;
+
+  const uid = userId != null ? String(userId).trim() : '';
+  const wid = workspaceId != null ? String(workspaceId).trim() : '';
+  const secretName = String(conn.auth_token_secret_name || '').trim();
+
+  if (mode === 'secret_name' && secretName === USER_PTY_TOKEN_SENTINEL && uid) {
+    const fromD1 = await resolveUserPtyToken(env, uid, wid);
+    if (fromD1) return fromD1;
+  } else if (secretName && secretName !== USER_PTY_TOKEN_SENTINEL && env[secretName] != null) {
+    const t = String(env[secretName]).trim();
+    if (t) return t;
+  }
+
+  const fallback = String(env?.PTY_AUTH_TOKEN || env?.TERMINAL_SECRET || '').trim();
+  return fallback || null;
 }
 
 /**
@@ -753,7 +827,8 @@ export async function buildTerminalConfigStatus(env, authUser, twCfg, query = {}
   const vpcPty = !!env.PTY_SERVICE;
   const httpsUrl = (env.TERMINAL_WS_URL || '').trim();
   const secret = (env.TERMINAL_SECRET || env.PTY_AUTH_TOKEN || '').trim();
-  const dbBridgeOk = connectionDbBridgeOk(env, conn);
+  const resolvedConnToken = await resolveConnectionAuthToken(env, conn, userId, workspaceId);
+  const dbBridgeOk = connectionDbBridgeOk(env, conn, resolvedConnToken);
   const wsUrlPresent = !!(conn?.ws_url && String(conn.ws_url).trim());
 
   let routeWillUsePtyService = false;
@@ -928,12 +1003,19 @@ export function terminalExecHttpUrlFromEnv(env) {
 /**
  * Run via HTTP-exec (reliable fallback for Cloudflare Workers).
  */
-export async function runTerminalCommandViaHttpExec(env, cmd) {
+export async function runTerminalCommandViaHttpExec(env, cmd, opts = {}) {
   const tokens = [];
   const pushTok = (t) => {
     const s = String(t || '').trim();
     if (s && !tokens.includes(s)) tokens.push(s);
   };
+  const uid = opts.userId != null ? String(opts.userId).trim() : '';
+  const wid = opts.workspaceId != null ? String(opts.workspaceId).trim() : '';
+  if (opts.connection && uid) {
+    pushTok(await resolveConnectionAuthToken(env, opts.connection, uid, wid));
+  } else if (uid) {
+    pushTok(await resolveUserPtyToken(env, uid, wid));
+  }
   pushTok(env.PTY_AUTH_TOKEN);
   pushTok(env.TERMINAL_SECRET);
   if (!tokens.length) return { ok: false };

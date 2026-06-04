@@ -3,7 +3,10 @@
  * Stores session messages and RAG context cache.
  */
 import { DurableObject } from "cloudflare:workers";
-import { getSelectedTerminalConnection } from "../core/terminal.js";
+import {
+  getSelectedTerminalConnection,
+  resolveConnectionAuthToken,
+} from "../core/terminal.js";
 import { handleTerminalSlashCommand } from "../core/terminal-slash.js";
 import {
   resolveActiveBootstrap,
@@ -978,13 +981,10 @@ export class AgentChatSqlV1 extends DurableObject {
     this.applyPtyWorkingDir(tid, uid, conn);
 
     let resolvedWsUrl = null;
-    let token = String(this.env?.PTY_AUTH_TOKEN || this.env?.TERMINAL_SECRET || "").trim();
     if (conn?.ws_url?.trim()) resolvedWsUrl = conn.ws_url.trim();
-    const secretName = String(conn?.auth_token_secret_name || "").trim();
-    if (secretName && this.env[secretName] != null) {
-      const t = String(this.env[secretName]).trim();
-      if (t) token = t;
-    }
+    let token =
+      (await resolveConnectionAuthToken(this.env, conn, uid, wid)) ||
+      String(this.env?.PTY_AUTH_TOKEN || this.env?.TERMINAL_SECRET || "").trim();
 
     const shellOpt =
       String(this.terminalShellOverride || conn?.shell || "/bin/zsh").trim() || "/bin/zsh";
@@ -1200,16 +1200,25 @@ export class AgentChatSqlV1 extends DurableObject {
       execBase = conn.ws_url.trim();
     }
     if (conn) {
-      const sn = String(conn.auth_token_secret_name || "").trim();
-      if (sn && this.env[sn] != null) dbTok = String(this.env[sn]).trim();
+      const resolved = await resolveConnectionAuthToken(
+        this.env,
+        conn,
+        String(this.ptSessionUserId || "").trim() || null,
+        execWid,
+      );
+      if (resolved) dbTok = resolved;
     }
     const execUrl = normalizeExecHttpUrl(execBase);
     if (!execUrl) throw new Error("Terminal /exec endpoint is not configured");
-    const tokens = Array.from(new Set([
-      String(this.env?.PTY_AUTH_TOKEN || "").trim(),
-      String(this.env?.TERMINAL_SECRET || "").trim(),
-      dbTok,
-    ].filter(Boolean)));
+    const tokens = Array.from(
+      new Set(
+        [
+          dbTok,
+          String(this.env?.PTY_AUTH_TOKEN || "").trim(),
+          String(this.env?.TERMINAL_SECRET || "").trim(),
+        ].filter(Boolean),
+      ),
+    );
     if (tokens.length === 0) throw new Error("No terminal auth token configured");
 
     let lastStatus = 500;

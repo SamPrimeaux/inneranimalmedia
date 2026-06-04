@@ -17,7 +17,7 @@ import { generateRollbackStub } from './database-assistant-dispatch.js';
  * @param {string} path
  * @param {RequestInit} [init]
  */
-async function cfApi(token, path, init = {}) {
+export async function cfApi(token, path, init = {}) {
   const res = await fetch(`https://api.cloudflare.com/client/v4${path}`, {
     ...init,
     headers: {
