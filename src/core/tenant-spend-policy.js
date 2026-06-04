@@ -1,6 +1,9 @@
 /**
  * Tenant spend caps + BYOK flags from tenants.meta_json / tenants.settings.
  * Enforced at catalog dispatch and model billing gates.
+ *
+ * Connor model: platform_allowance_usd = lifetime platform AI spend before BYOK required
+ * (NOT a daily recurring budget).
  */
 
 function trim(v) {
@@ -41,7 +44,9 @@ export async function loadTenantSpendPolicy(env, tenantId) {
   const empty = {
     tenant_id: tid || null,
     byok_required: false,
+    byok_required_after_allowance: false,
     max_model_tier: null,
+    platform_allowance_usd: null,
     spend_cap_daily_usd: null,
     spend_cap_monthly_usd: null,
     spend_hard_stop: false,
@@ -60,10 +65,24 @@ export async function loadTenantSpendPolicy(env, tenantId) {
     const settings = parseJsonSafe(row.settings, {}) || {};
     const spendCap = meta.spend_cap && typeof meta.spend_cap === 'object' ? meta.spend_cap : {};
 
-    const byokRequired =
-      spendCap.byok_required === true ||
-      settings.byok_required === true ||
-      settings.byok_required === 1;
+    const platformAllowanceRaw =
+      spendCap.platform_total_usd ??
+      spendCap.platform_allowance_usd ??
+      settings.platform_allowance_usd;
+    const platformAllowance =
+      Number(platformAllowanceRaw) > 0 ? Number(platformAllowanceRaw) : null;
+
+    const requireByokAfter =
+      spendCap.require_byok_after_exhausted === true ||
+      settings.byok_required_after_allowance === true ||
+      settings.byok_required_after_allowance === 1;
+
+    // Strict BYOK-from-day-one only when no platform allowance is configured.
+    const byokRequiredStrict =
+      !platformAllowance &&
+      (spendCap.byok_required === true ||
+        settings.byok_required === true ||
+        settings.byok_required === 1);
 
     const maxTier = trim(settings.max_model_tier || spendCap.max_model_tier) || null;
 
@@ -83,8 +102,10 @@ export async function loadTenantSpendPolicy(env, tenantId) {
 
     return {
       tenant_id: tid,
-      byok_required: byokRequired,
+      byok_required: byokRequiredStrict,
+      byok_required_after_allowance: requireByokAfter || platformAllowance != null,
       max_model_tier: maxTier,
+      platform_allowance_usd: platformAllowance,
       spend_cap_daily_usd: daily,
       spend_cap_monthly_usd: monthly,
       spend_hard_stop: hardStop,
@@ -101,7 +122,7 @@ export async function loadTenantSpendPolicy(env, tenantId) {
  */
 export async function getTenantSpendRollups(env, tenantId) {
   const tid = trim(tenantId);
-  if (!env?.DB || !tid) return { daily_usd: 0, monthly_usd: 0 };
+  if (!env?.DB || !tid) return { daily_usd: 0, monthly_usd: 0, total_usd: 0 };
 
   const today = new Date().toISOString().slice(0, 10);
   const monthPrefix = today.slice(0, 7);
@@ -123,13 +144,89 @@ export async function getTenantSpendRollups(env, tenantId) {
       .bind(tid, `${monthPrefix}%`)
       .first();
 
+    const totalRow = await env.DB.prepare(
+      `SELECT COALESCE(SUM(cost_usd), 0) AS total
+         FROM agentsam_usage_rollups_daily
+        WHERE tenant_id = ?`,
+    )
+      .bind(tid)
+      .first();
+
     return {
       daily_usd: Number(dailyRow?.total ?? 0) || 0,
       monthly_usd: Number(monthlyRow?.total ?? 0) || 0,
+      total_usd: Number(totalRow?.total ?? 0) || 0,
     };
   } catch {
-    return { daily_usd: 0, monthly_usd: 0 };
+    return { daily_usd: 0, monthly_usd: 0, total_usd: 0 };
   }
+}
+
+/**
+ * @param {Awaited<ReturnType<typeof loadTenantSpendPolicy>>} policy
+ * @param {{ total_usd?: number, daily_usd?: number, monthly_usd?: number }} rollups
+ * @param {{ usesPlatformBilling?: boolean, hasByok?: boolean }} [opts]
+ */
+export function assertPlatformSpendAllowance(policy, rollups, opts = {}) {
+  const usesPlatform = opts.usesPlatformBilling !== false;
+  const hasByok = opts.hasByok === true;
+
+  if (hasByok) return { ok: true };
+
+  const cap = policy?.platform_allowance_usd;
+  const spent = Number(rollups?.total_usd ?? 0) || 0;
+
+  if (cap != null && policy?.spend_hard_stop !== false && usesPlatform) {
+    if (spent >= cap) {
+      return {
+        ok: false,
+        error: 'tenant_platform_allowance_exhausted',
+        message:
+          `Platform AI allowance ($${cap.toFixed(2)} total) is used up — connect BYOK in Settings → Integrations to continue.`,
+        spent_usd: spent,
+        cap_usd: cap,
+      };
+    }
+    return { ok: true, spent_usd: spent, cap_usd: cap, remaining_usd: cap - spent };
+  }
+
+  if (policy?.byok_required && usesPlatform) {
+    return {
+      ok: false,
+      error: 'tenant_byok_required',
+      message:
+        'This tenant requires BYOK — add your API keys in Settings → Integrations before using platform models or tools.',
+    };
+  }
+
+  if (policy?.spend_hard_stop) {
+    if (
+      policy.spend_cap_daily_usd != null &&
+      Number(rollups?.daily_usd ?? 0) >= policy.spend_cap_daily_usd
+    ) {
+      return {
+        ok: false,
+        error: 'tenant_spend_cap_daily',
+        message: `Daily AI spend cap ($${policy.spend_cap_daily_usd.toFixed(2)}) reached for this tenant.`,
+        spent_usd: rollups.daily_usd,
+        cap_usd: policy.spend_cap_daily_usd,
+      };
+    }
+    if (
+      policy.spend_cap_monthly_usd != null &&
+      Number(rollups?.monthly_usd ?? 0) >= policy.spend_cap_monthly_usd
+    ) {
+      return {
+        ok: false,
+        error: 'tenant_spend_cap_monthly',
+        message: `Monthly AI spend cap ($${policy.spend_cap_monthly_usd.toFixed(2)}) reached for this tenant.`,
+        spent_usd: rollups.monthly_usd,
+        cap_usd: policy.spend_cap_monthly_usd,
+      };
+    }
+  }
+
+  return { ok: true, spent_usd: spent, cap_usd: cap ?? null };
 }
 
 /**
@@ -163,7 +260,6 @@ export function assertTenantModelTierAllowed(policy, modelKey, modelTier) {
 }
 
 /**
- * Block platform-billed model/API usage when tenant requires BYOK or spend caps exceeded.
  * @param {any} env
  * @param {{
  *   tenantId?: string|null,
@@ -173,6 +269,7 @@ export function assertTenantModelTierAllowed(policy, modelKey, modelTier) {
  *   modelKey?: string|null,
  *   modelTier?: string|null,
  *   authSource?: string|null,
+ *   hasByok?: boolean,
  * }} ctx
  */
 export async function assertTenantSpendPolicy(env, ctx = {}) {
@@ -196,37 +293,12 @@ export async function assertTenantSpendPolicy(env, ctx = {}) {
     billingSource === 'platform_subscription' ||
     billingSource === 'platform_workers_ai';
 
-  if (policy.byok_required && usesPlatformKeys) {
-    return {
-      ok: false,
-      error: 'tenant_byok_required',
-      message:
-        'This tenant requires BYOK — add your API keys in Settings → Integrations before using platform models or tools.',
-      tenant_id: tid,
-    };
-  }
-
-  if (!policy.spend_hard_stop) return { ok: true, policy };
-
   const rollups = await getTenantSpendRollups(env, tid);
-  if (policy.spend_cap_daily_usd != null && rollups.daily_usd >= policy.spend_cap_daily_usd) {
-    return {
-      ok: false,
-      error: 'tenant_spend_cap_daily',
-      message: `Daily AI spend cap ($${policy.spend_cap_daily_usd.toFixed(2)}) reached for this tenant.`,
-      spent_usd: rollups.daily_usd,
-      cap_usd: policy.spend_cap_daily_usd,
-    };
-  }
-  if (policy.spend_cap_monthly_usd != null && rollups.monthly_usd >= policy.spend_cap_monthly_usd) {
-    return {
-      ok: false,
-      error: 'tenant_spend_cap_monthly',
-      message: `Monthly AI spend cap ($${policy.spend_cap_monthly_usd.toFixed(2)}) reached for this tenant.`,
-      spent_usd: rollups.monthly_usd,
-      cap_usd: policy.spend_cap_monthly_usd,
-    };
-  }
+  const allowanceGate = assertPlatformSpendAllowance(policy, rollups, {
+    usesPlatformBilling: usesPlatformKeys,
+    hasByok: ctx.hasByok === true,
+  });
+  if (!allowanceGate.ok) return { ...allowanceGate, tenant_id: tid, policy, rollups };
 
-  return { ok: true, policy, rollups };
+  return { ok: true, policy, rollups, ...allowanceGate };
 }

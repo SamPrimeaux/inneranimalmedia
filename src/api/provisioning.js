@@ -644,10 +644,11 @@ export async function evaluatePlanForModelRequest(env, { tenantId, userId, model
     return { allowed: true, billingSource: 'platform_operator', byokApiKey: null };
   }
 
-  const { loadTenantSpendPolicy, getTenantSpendRollups, assertTenantModelTierAllowed } = await import(
+  const { loadTenantSpendPolicy, getTenantSpendRollups, assertTenantModelTierAllowed, assertPlatformSpendAllowance } = await import(
     '../core/tenant-spend-policy.js'
   );
   const tenantPolicy = await loadTenantSpendPolicy(env, tenantId);
+  const spendRollups = await getTenantSpendRollups(env, tenantId);
 
   let modelTier = null;
   const mk = String(modelKey || '').trim();
@@ -686,8 +687,31 @@ export async function evaluatePlanForModelRequest(env, { tenantId, userId, model
     return { allowed: true, billingSource: 'ollama', byokApiKey: null };
   }
 
+  const byokSlug = byokProviderSlugFromApiPlatform(plat);
+  const byokKeyRow =
+    plan.allows_byok && userId && byokSlug
+      ? await getUserBYOKey(env, userId, tenantId, byokSlug)
+      : null;
+
   if (isWorkersAi) {
     if (modelMatchesFreeTierList(mk, freeModels)) {
+      const allowanceGate = assertPlatformSpendAllowance(tenantPolicy, spendRollups, {
+        usesPlatformBilling: true,
+        hasByok: !!byokKeyRow?.key,
+      });
+      if (!allowanceGate.ok) {
+        return {
+          allowed: false,
+          status: 402,
+          body: {
+            error: allowanceGate.error,
+            message: allowanceGate.message,
+            spent_usd: allowanceGate.spent_usd,
+            cap_usd: allowanceGate.cap_usd,
+            upgrade_url: '/dashboard/settings/integrations',
+          },
+        };
+      }
       return { allowed: true, billingSource: 'platform_workers_ai', byokApiKey: null };
     }
     return {
@@ -701,58 +725,28 @@ export async function evaluatePlanForModelRequest(env, { tenantId, userId, model
     };
   }
 
-  const byokSlug = byokProviderSlugFromApiPlatform(plat);
-  if (plan.allows_byok && userId && byokSlug) {
-    const u = await getUserBYOKey(env, userId, tenantId, byokSlug);
-    if (u?.key) {
-      return { allowed: true, billingSource: 'byok', byokApiKey: u.key, byokProvider: byokSlug };
-    }
+  if (byokKeyRow?.key) {
+    return { allowed: true, billingSource: 'byok', byokApiKey: byokKeyRow.key, byokProvider: byokSlug };
   }
 
   const paidPlan = plan.plan_id && plan.plan_id !== 'free';
   if (paidPlan || plan.allows_usage_billing) {
-    if (tenantPolicy.byok_required) {
+    const allowanceGate = assertPlatformSpendAllowance(tenantPolicy, spendRollups, {
+      usesPlatformBilling: true,
+      hasByok: false,
+    });
+    if (!allowanceGate.ok) {
       return {
         allowed: false,
         status: 402,
         body: {
-          error: 'tenant_byok_required',
-          message:
-            'This tenant requires BYOK — connect your API keys in Settings → Integrations before using paid models.',
+          error: allowanceGate.error,
+          message: allowanceGate.message,
+          spent_usd: allowanceGate.spent_usd,
+          cap_usd: allowanceGate.cap_usd,
+          upgrade_url: '/dashboard/settings/integrations',
         },
       };
-    }
-
-    if (tenantPolicy.spend_hard_stop) {
-      const rollups = await getTenantSpendRollups(env, tenantId);
-      if (
-        tenantPolicy.spend_cap_daily_usd != null &&
-        rollups.daily_usd >= tenantPolicy.spend_cap_daily_usd
-      ) {
-        return {
-          allowed: false,
-          status: 402,
-          body: {
-            error: 'tenant_spend_cap_daily',
-            message: `Daily AI spend cap ($${tenantPolicy.spend_cap_daily_usd.toFixed(2)}) reached.`,
-            spent_usd: rollups.daily_usd,
-          },
-        };
-      }
-      if (
-        tenantPolicy.spend_cap_monthly_usd != null &&
-        rollups.monthly_usd >= tenantPolicy.spend_cap_monthly_usd
-      ) {
-        return {
-          allowed: false,
-          status: 402,
-          body: {
-            error: 'tenant_spend_cap_monthly',
-            message: `Monthly AI spend cap ($${tenantPolicy.spend_cap_monthly_usd.toFixed(2)}) reached.`,
-            spent_usd: rollups.monthly_usd,
-          },
-        };
-      }
     }
 
     return { allowed: true, billingSource: 'platform_subscription', byokApiKey: null };
