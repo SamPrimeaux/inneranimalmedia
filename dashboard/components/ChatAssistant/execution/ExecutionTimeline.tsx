@@ -4,16 +4,23 @@
  */
 
 import React from 'react';
+import type { AgentMode } from '../types';
 import type { AgentToolTraceRow } from './types';
 import { ToolTraceRow } from './ToolTraceRow';
 
 export type ExecutionTimelineProps = {
   rows: AgentToolTraceRow[];
+  mode?: AgentMode;
   onDismissRow?: (id: string) => void;
   onClear?: () => void;
 };
 
-export const ExecutionTimeline: React.FC<ExecutionTimelineProps> = ({ rows, onDismissRow, onClear }) => {
+export const ExecutionTimeline: React.FC<ExecutionTimelineProps> = ({
+  rows,
+  mode = 'agent',
+  onDismissRow,
+  onClear,
+}) => {
   if (!rows.length) return null;
   return (
     <div className="mt-3 space-y-2 border-t border-[var(--dashboard-border)]/80 pt-3" aria-label="Execution timeline">
@@ -34,6 +41,7 @@ export const ExecutionTimeline: React.FC<ExecutionTimelineProps> = ({ rows, onDi
           <ToolTraceRow
             key={row.id}
             row={row}
+            mode={mode}
             onDismiss={onDismissRow ? () => onDismissRow(row.id) : undefined}
           />
         ))}

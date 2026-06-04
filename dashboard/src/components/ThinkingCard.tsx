@@ -1,7 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Check, X, AlertTriangle, Lock, ChevronDown } from 'lucide-react';
 import type { AgentMode } from '../../components/ChatAssistant/types';
-import { ChatPresenceIcon } from '../../features/mode-presence/ChatPresenceIcon';
+import { AgentModePresenceIcon } from '../../features/mode-presence/AgentModePresenceIcon';
+import { resolveAgentPresence } from '../../features/agent-run/resolveAgentPresence';
+import { toolNameToLane } from '../../features/agent-run/lanes';
+import '../../features/agent-run/agentRunPresence.css';
 
 export type ThinkingStepStatus = 'running' | 'done' | 'error' | 'blocked';
 
@@ -27,16 +30,15 @@ export interface ThinkingCardProps extends ThinkingCardState {
   presenceState?: string | null;
 }
 
-function stepPresenceState(step: ThinkingStep): string {
-  const hay = `${step.name} ${step.preview || ''}`.toLowerCase();
-  if (/terminal|wrangler|npm|python|shell|command|deploy|smoke/.test(hay)) return 'terminal';
-  if (/browser|screenshot|playwright|navigate|dom/.test(hay)) return 'browser';
-  if (/d1|sql|database|query|migration|supabase/.test(hay)) return 'database';
-  if (/edit|patch|file|monaco|write|diff/.test(hay)) return 'writing';
-  if (/diagram|excalidraw|draw|canvas/.test(hay)) return 'drawing';
-  if (/image|thumbnail|r2|upload/.test(hay)) return 'imaging';
-  if (/search|read|scan|grep|fetch/.test(hay)) return 'reading';
-  return 'tool_routing';
+function statusPill(status: ThinkingCardStatus): string {
+  if (status === 'blocked') return 'approval';
+  if (status === 'error') return 'error';
+  if (status === 'done') return 'done';
+  return 'working';
+}
+
+function stepLaneFromText(step: ThinkingStep) {
+  return toolNameToLane(`${step.name} ${step.preview || ''}`);
 }
 
 export function ThinkingCard({
@@ -48,7 +50,7 @@ export function ThinkingCard({
   mode = 'agent',
   presenceState,
 }: ThinkingCardProps) {
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -71,197 +73,125 @@ export function ThinkingCard({
   }, [status, startedAt, isDone, isError]);
 
   const elapsedStr = (elapsed / 1000).toFixed(1) + 's';
+  const stepCount = steps.length;
 
-  const headerLabel = isError
-    ? 'Stopped — something needs attention.'
-    : isBlocked
-      ? 'Waiting for your approval.'
-      : isDone
-        ? 'Done.'
-        : thinkingText
-          ? thinkingText.length > 90
-            ? thinkingText.slice(0, 87) + '…'
-            : thinkingText
-          : 'Working…';
+  const resolved = resolveAgentPresence({
+    mode,
+    presenceState:
+      presenceState ||
+      (isBlocked ? 'approval_required' : isDone ? 'complete' : isError ? 'failed' : 'thinking'),
+    status: isDone ? 'done' : isError ? 'failed' : isBlocked ? 'waiting' : 'active',
+    phase: isBlocked ? 'gated' : isDone ? 'complete' : isError ? 'failed' : 'thinking',
+    title: isError
+      ? 'Stopped — something needs attention.'
+      : isBlocked
+        ? 'Waiting for your approval'
+        : isDone
+          ? 'Done'
+          : thinkingText
+            ? thinkingText.length > 120
+              ? thinkingText.slice(0, 117) + '…'
+              : thinkingText
+            : undefined,
+  });
 
-  const headerColor = isError
-    ? 'var(--error, #f87171)'
-    : isBlocked
-      ? 'var(--warning, #fbbf24)'
-      : isDone
-        ? 'var(--text-tertiary, #4e4e62)'
-        : 'var(--text-secondary, #8a8a9e)';
+  const metaParts = [
+    resolved.presenceState.replace(/_/g, ' '),
+    isActive ? elapsedStr : null,
+    stepCount > 0 ? `${stepCount} step${stepCount === 1 ? '' : 's'}` : null,
+  ].filter(Boolean);
 
-  const headerState =
-    presenceState ||
-    (isBlocked ? 'approval_required' : isDone ? 'complete' : isError ? 'failed' : 'thinking');
+  const shellClass = [
+    'iam-agent-run-thinking',
+    isBlocked ? 'iam-agent-run-thinking--blocked' : '',
+    isError ? 'iam-agent-run-thinking--error' : '',
+    isDone ? 'iam-agent-run-thinking--done' : '',
+    expanded ? 'is-expanded' : '',
+    className,
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   return (
-    <div
-      className={className}
-      style={{
-        border: '0.5px solid var(--border-default, rgba(255,255,255,0.08))',
-        borderRadius: 8,
-        background: 'var(--bg-surface, rgba(255,255,255,0.03))',
-        overflow: 'hidden',
-        marginBottom: 8,
-        maxWidth: '100%',
-        width: '100%',
-      }}
-    >
+    <div className={shellClass} role="status" aria-live="polite">
       <button
+        type="button"
+        className="iam-agent-run-thinking__header"
         onClick={() => setExpanded((v) => !v)}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          padding: '7px 12px',
-          width: '100%',
-          background: 'transparent',
-          border: 'none',
-          cursor: 'pointer',
-          textAlign: 'left',
-        }}
+        aria-expanded={expanded}
       >
-        {isError ? (
-          <AlertTriangle size={13} style={{ color: 'var(--error, #f87171)', flexShrink: 0 }} />
-        ) : isBlocked ? (
-          <Lock size={13} style={{ color: 'var(--warning, #fbbf24)', flexShrink: 0 }} />
-        ) : (
-          <ChatPresenceIcon
-            mode={mode}
-            state={headerState}
-            cardStatus={status}
-            size={16}
-            className="shrink-0"
-          />
-        )}
-
-        <span
-          style={{
-            flex: 1,
-            fontSize: 12,
-            fontWeight: isDone ? 400 : 500,
-            color: headerColor,
-          }}
-        >
-          {headerLabel}
+        <span className="iam-agent-run-thinking__icon" aria-hidden>
+          {isError ? (
+            <AlertTriangle size={28} style={{ color: 'var(--solar-red, #f87171)' }} />
+          ) : isBlocked ? (
+            <Lock size={26} style={{ color: 'var(--solar-yellow, #fbbf24)' }} />
+          ) : (
+            <AgentModePresenceIcon
+              mode={mode}
+              state={resolved.presenceState}
+              iconKey={resolved.iconKey}
+              size={44}
+              motion={isActive}
+              aria-label=""
+            />
+          )}
         </span>
-        {isActive && (
-          <span
-            style={{
-              fontSize: 10,
-              color: 'var(--text-tertiary, #4e4e62)',
-              marginLeft: 4,
-              flexShrink: 0,
-              fontFamily: 'var(--font-mono, ui-monospace, monospace)',
-            }}
-          >
-            {elapsedStr}
-          </span>
-        )}
 
-        <ChevronDown
-          size={13}
-          style={{
-            color: 'var(--text-tertiary, #4e4e62)',
-            transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
-            transition: 'transform 0.15s ease',
-            flexShrink: 0,
-          }}
-        />
+        <span className="iam-agent-run-thinking__main">
+          <span className="iam-agent-run-thinking__title">{resolved.label}</span>
+          {metaParts.length > 0 ? (
+            <span className="iam-agent-run-thinking__meta">{metaParts.join(' · ')}</span>
+          ) : null}
+        </span>
+
+        <span className="iam-agent-run-thinking__pill">{statusPill(status)}</span>
+
+        <span className="iam-agent-run-thinking__chev" aria-hidden>
+          <ChevronDown size={14} />
+        </span>
       </button>
 
-      {expanded && (
-        <div
-          style={{
-            borderTop: '0.5px solid var(--border-subtle, rgba(255,255,255,0.05))',
-            paddingTop: 4,
-            paddingBottom: 4,
-          }}
-        >
-          {thinkingText && (
-            <div
-              style={{
-                padding: '5px 12px 4px',
-                fontSize: 11,
-                color: 'var(--text-tertiary, #4e4e62)',
-                fontStyle: 'italic',
-                lineHeight: 1.5,
-                borderBottom: '0.5px solid var(--border-subtle, rgba(255,255,255,0.05))',
-                marginBottom: 4,
-              }}
-            >
-              {thinkingText.length > 200 ? thinkingText.slice(0, 200) + '…' : thinkingText}
+      {expanded ? (
+        <div className="iam-agent-run-thinking__trace">
+          {thinkingText ? (
+            <div className="iam-agent-run-thinking__trace-note">
+              {thinkingText.length > 320 ? thinkingText.slice(0, 317) + '…' : thinkingText}
             </div>
-          )}
+          ) : null}
 
           {steps.map((step) => (
-            <div
-              key={step.id}
-              style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '4px 12px' }}
-            >
-              {step.status === 'done' ? (
-                <Check size={13} style={{ flexShrink: 0, marginTop: 1, color: 'var(--success, #34d399)' }} />
-              ) : step.status === 'error' ? (
-                <X size={13} style={{ flexShrink: 0, marginTop: 1, color: 'var(--error, #f87171)' }} />
-              ) : step.status === 'blocked' ? (
-                <AlertTriangle
-                  size={13}
-                  style={{ flexShrink: 0, marginTop: 1, color: 'var(--warning, #fbbf24)' }}
-                />
-              ) : (
-                <ChatPresenceIcon
-                  mode={mode}
-                  state={stepPresenceState(step)}
-                  size={13}
-                  className="shrink-0 mt-px"
-                />
-              )}
-              <div style={{ minWidth: 0 }}>
-                <div
-                  style={{
-                    fontSize: 12,
-                    fontFamily: 'var(--font-mono, "JetBrains Mono", monospace)',
-                    color: 'var(--text-primary, #e6e6f0)',
-                    lineHeight: 1.4,
-                  }}
-                >
-                  {step.name}
-                </div>
-                {step.preview && (
-                  <div
-                    style={{
-                      fontSize: 11,
-                      color: 'var(--text-tertiary, #4e4e62)',
-                      marginTop: 1,
-                      lineHeight: 1.4,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                      maxWidth: 380,
-                    }}
-                  >
-                    {step.preview}
-                  </div>
+            <div key={step.id} className="iam-agent-run-thinking__step">
+              <span className="iam-agent-run-thinking__step-icon" aria-hidden>
+                {step.status === 'done' ? (
+                  <Check size={14} style={{ color: 'var(--solar-green, #34d399)' }} />
+                ) : step.status === 'error' ? (
+                  <X size={14} style={{ color: 'var(--solar-red, #f87171)' }} />
+                ) : step.status === 'blocked' ? (
+                  <AlertTriangle size={14} style={{ color: 'var(--solar-yellow, #fbbf24)' }} />
+                ) : (
+                  <AgentModePresenceIcon
+                    mode={mode}
+                    state={stepLaneFromText(step) === 'terminal' ? 'terminal' : 'tool_routing'}
+                    size={22}
+                    motion
+                    aria-label=""
+                  />
                 )}
+              </span>
+              <div className="min-w-0">
+                <div className="iam-agent-run-thinking__step-name">{step.name}</div>
+                {step.preview ? (
+                  <div className="iam-agent-run-thinking__step-preview">{step.preview}</div>
+                ) : null}
               </div>
             </div>
           ))}
 
-          {isActive && steps.length === 0 && (
-            <div
-              style={{
-                padding: '4px 12px',
-                fontSize: 11,
-                color: 'var(--text-tertiary, #4e4e62)',
-              }}
-            >
-              Starting...
-            </div>
-          )}
+          {isActive && steps.length === 0 ? (
+            <div className="iam-agent-run-thinking__trace-note">Starting…</div>
+          ) : null}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

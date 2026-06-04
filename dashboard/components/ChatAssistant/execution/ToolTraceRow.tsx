@@ -2,13 +2,17 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { ChevronDown, ChevronRight, Copy, Check, CheckCircle2 } from 'lucide-react';
+import type { AgentMode } from '../types';
 import type { AgentToolTraceRow } from './types';
 import { ScrollablePreviewPanel } from './ScrollablePreviewPanel';
+import { AgentModePresenceIcon } from '../../../features/mode-presence/AgentModePresenceIcon';
+import { resolveToolTracePresence } from '../../../features/agent-run/toolTracePresence';
 
 export type ToolTraceRowProps = {
   row: AgentToolTraceRow;
+  mode?: AgentMode;
   defaultExpanded?: boolean;
   onDismiss?: () => void;
 };
@@ -36,7 +40,12 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({ row, defaultExpanded, onDismiss }) => {
+export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({
+  row,
+  mode = 'agent',
+  defaultExpanded,
+  onDismiss,
+}) => {
   const failed = row.status === 'error';
   const running = row.status === 'running';
   const hasReceiptMeta = !!(row.connectionResolution || row.execHost || row.connectionId);
@@ -44,47 +53,71 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({ row, defaultExpanded
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [responseOpen, setResponseOpen] = useState(false);
 
+  const tracePresence = useMemo(
+    () =>
+      resolveToolTracePresence({
+        toolName: row.toolName,
+        status: row.status,
+        mode,
+        lines: row.lines,
+      }),
+    [row.toolName, row.status, row.lines, mode],
+  );
+
   useEffect(() => {
     if (failed) setOpen(true);
   }, [failed]);
 
-  const dotColor = running
-    ? 'bg-amber-400'
-    : failed
-      ? 'bg-red-500'
-      : 'bg-emerald-500';
-
-  const dotClass = `inline-block h-[7px] w-[7px] shrink-0 rounded-full ${dotColor} ${
-    running ? 'animate-pulse' : ''
-  }`;
-
-  const summary = row.lines.filter(Boolean).join(' · ') || row.toolName;
+  const summary = row.lines.filter(Boolean).join(' · ') || tracePresence.description;
   const detailsText = row.detailsJson?.trim() || '';
+  const statusLabel = running ? 'running' : failed ? 'error' : 'done';
 
   return (
     <div
       className="rounded-xl border border-[var(--dashboard-border)] bg-[var(--scene-bg)] overflow-hidden"
       data-status={row.status === 'done' ? 'passed' : row.status}
+      data-lane={tracePresence.lane}
     >
       <button
         type="button"
-        className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left hover:bg-[var(--bg-hover)]/40 transition-colors"
+        className="w-full flex items-center gap-3 px-3.5 py-2.5 text-left hover:bg-[var(--bg-hover)]/40 transition-colors"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
       >
+        <span
+          className="shrink-0 grid place-items-center"
+          style={{
+            width: 32,
+            height: 32,
+            color: failed
+              ? 'var(--solar-red, #f87171)'
+              : running
+                ? 'var(--solar-cyan, #22d3ee)'
+                : 'var(--dashboard-muted)',
+          }}
+          aria-hidden
+        >
+          <AgentModePresenceIcon
+            mode={mode}
+            state={tracePresence.presenceState}
+            size={30}
+            motion={running}
+            aria-label=""
+          />
+        </span>
         <div className="flex flex-col min-w-0 flex-1">
-          <span className="text-[10px] font-medium text-[var(--text-muted)] tracking-wide truncate">
-            {row.integrationLabel || 'Agent Sam'}
-            {hasReceiptMeta ? ' · Called tool' : ''}
+          <span className="text-[12px] font-semibold text-[var(--dashboard-text)] truncate">
+            {tracePresence.label}
           </span>
-          <span className="text-[12px] font-mono font-medium text-[var(--dashboard-text)] truncate">
+          <span className="text-[10px] font-mono text-[var(--dashboard-muted)] truncate">
+            {row.integrationLabel || 'Agent Sam'}
+            {' · '}
             {row.toolName}
           </span>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <span className={dotClass} aria-hidden />
           <span
-            className={`text-[10px] font-medium ${
+            className={`text-[10px] font-medium uppercase tracking-wide ${
               failed
                 ? 'text-red-400'
                 : running
@@ -92,25 +125,25 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({ row, defaultExpanded
                   : 'text-[var(--text-muted)]'
             }`}
           >
-            {running ? 'running' : failed ? 'error' : 'done'}
+            {statusLabel}
           </span>
           {row.durationMs != null && !running && (
-            <span className="text-[10px] text-[var(--text-muted)]">
+            <span className="text-[10px] text-[var(--dashboard-muted)]">
               {row.durationMs < 1000
                 ? `${row.durationMs}ms`
                 : `${(row.durationMs / 1000).toFixed(1)}s`}
             </span>
           )}
           {open ? (
-            <ChevronDown size={13} className="text-[var(--text-muted)]" />
+            <ChevronDown size={13} className="text-[var(--dashboard-muted)]" />
           ) : (
-            <ChevronRight size={13} className="text-[var(--text-muted)]" />
+            <ChevronRight size={13} className="text-[var(--dashboard-muted)]" />
           )}
         </div>
       </button>
 
       {!open && (
-        <div className="px-3.5 pb-2.5 text-[11px] text-[var(--text-muted)] truncate">
+        <div className="px-3.5 pb-2.5 pl-[3.25rem] text-[11px] text-[var(--dashboard-muted)] truncate">
           {summary}
         </div>
       )}

@@ -19,6 +19,9 @@ import { AgentCodeDiffPreview } from './AgentCodeDiffPreview';
 import type { WorkflowLedgerState } from '../types';
 import type { AgentToolTraceRow } from '../execution/types';
 import { ExecutionTimeline } from '../execution/ExecutionTimeline';
+import { AgentPresenceCard } from '../../../features/mode-presence/AgentPresenceCard';
+import { WorkflowRunPresenceBanner } from './WorkflowRunBoard';
+import type { AgentPresenceState } from '../../../features/mode-presence/agentModePresenceMap';
 import { ArtifactChipList } from '../execution/ArtifactChipList';
 import { ChatPresenceIcon } from '../../../features/mode-presence/ChatPresenceIcon';
 import type { AgentMode } from '../types';
@@ -102,6 +105,7 @@ export type AgentMessageListProps = {
   setToolTraceRows: React.Dispatch<React.SetStateAction<AgentToolTraceRow[]>>;
   workspaceId: string | null;
   workflowLedger: WorkflowLedgerState;
+  subagentWork?: { state: string; detail?: string } | null;
   onFileSelect?: (file: Pick<ActiveFile, 'name' | 'content'> & Partial<ActiveFile>) => void;
   onRunInTerminal?: (cmd: string) => void;
   /** Optional: assistant markdown images delegate here (default: new tab). */
@@ -425,6 +429,7 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
   setToolTraceRows,
   workspaceId,
   workflowLedger,
+  subagentWork = null,
   onFileSelect,
   onRunInTerminal,
   onImagePreview,
@@ -599,6 +604,30 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
         ))
       )}
 
+      {subagentWork?.state ? (
+        <div className="mx-0 mb-2">
+          <AgentPresenceCard
+            mode={mode}
+            state={(subagentWork.state as AgentPresenceState) || 'subagent_spawn'}
+            title={
+              subagentWork.state === 'multitask_fanout'
+                ? 'Running parallel workstreams'
+                : subagentWork.state === 'merge_results'
+                  ? 'Merging subagent results'
+                  : 'Spawning focused subagents'
+            }
+            description={subagentWork.detail}
+            meta={subagentWork.state.replace(/_/g, ' ')}
+          />
+        </div>
+      ) : null}
+
+      {workflowLedger.runId ? (
+        <div className="mx-0 mb-2">
+          <WorkflowRunPresenceBanner ledger={workflowLedger} mode={mode} />
+        </div>
+      ) : null}
+
       {pendingToolApproval && onApprovePendingTool && onDenyPendingTool ? (
         <div className="flex w-full min-w-0 max-w-full justify-start">
           <div className="flex gap-2.5 min-w-0 w-full max-w-full">
@@ -629,6 +658,7 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
 
       <ExecutionTimeline
         rows={toolTraceRows}
+        mode={mode}
         onDismissRow={(id) => setToolTraceRows((prev) => prev.filter((r) => r.id !== id))}
         onClear={() => setToolTraceRows([])}
       />

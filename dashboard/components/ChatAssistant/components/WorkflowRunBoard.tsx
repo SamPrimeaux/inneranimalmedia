@@ -17,6 +17,9 @@ import {
   ChevronRight,
   RefreshCw,
 } from 'lucide-react';
+import type { AgentMode } from '../types';
+import { AgentPresenceCard } from '../../../features/mode-presence/AgentPresenceCard';
+import { resolveWorkflowRunPresence } from './workflowRunPresence';
 
 function sseSpineRunId(d: { agent_run_id?: unknown; run_id?: unknown }): string {
   if (typeof d.agent_run_id === 'string' && d.agent_run_id.trim()) return d.agent_run_id.trim();
@@ -55,6 +58,45 @@ export type WorkflowRunState = {
   approvalId: string | null;
   errorMessage: string | null;
 };
+
+/** Compact workflow/multitask presence for chat thread + composer. */
+export function WorkflowRunPresenceBanner({
+  ledger,
+  mode = 'multitask',
+}: {
+  ledger: {
+    runId: string | null;
+    stepsTotal: number | null;
+    stepsCompleted: number;
+    currentNodeKey: string | null;
+    lastError: string | null;
+  };
+  mode?: AgentMode;
+}) {
+  if (!ledger.runId) return null;
+  const runState: WorkflowRunState = {
+    runId: ledger.runId,
+    workflowKey: ledger.currentNodeKey,
+    status: ledger.lastError ? 'failed' : 'running',
+    stepsTotal: ledger.stepsTotal ?? 0,
+    stepsCompleted: ledger.stepsCompleted,
+    currentNodeKey: ledger.currentNodeKey,
+    steps: [],
+    approvalId: null,
+    errorMessage: ledger.lastError,
+  };
+  const view = resolveWorkflowRunPresence(runState, mode);
+  if (!view) return null;
+  return (
+    <AgentPresenceCard
+      mode={mode}
+      state={view.state}
+      title={view.title}
+      description={view.description}
+      meta={view.meta}
+    />
+  );
+}
 
 // ─── WorkflowPicker ──────────────────────────────────────────────────────────
 
@@ -194,6 +236,7 @@ interface WorkflowRunCardProps {
   runState: WorkflowRunState;
   onApprove: (decision: 'approved' | 'denied') => Promise<void>;
   approvalBusy: boolean;
+  mode?: AgentMode;
 }
 
 function stepStatusIcon(status: WorkflowStepState['status']) {
@@ -215,28 +258,13 @@ export const WorkflowRunCard: React.FC<WorkflowRunCardProps> = ({
   runState,
   onApprove,
   approvalBusy,
+  mode = 'multitask',
 }) => {
   const { runId, workflowKey, status, stepsTotal, stepsCompleted, steps, approvalId, errorMessage } = runState;
 
   const pct = stepsTotal > 0 ? Math.min(100, Math.round((stepsCompleted / stepsTotal) * 100)) : 0;
 
-  const statusColor: Record<WorkflowRunState['status'], string> = {
-    idle: 'text-[var(--dashboard-muted)]',
-    running: 'text-[var(--solar-cyan)]',
-    awaiting_approval: 'text-yellow-400',
-    completed: 'text-emerald-400',
-    failed: 'text-red-400',
-    error: 'text-red-400',
-  };
-
-  const statusLabel: Record<WorkflowRunState['status'], string> = {
-    idle: 'Idle',
-    running: 'Running',
-    awaiting_approval: 'Awaiting Approval',
-    completed: 'Completed',
-    failed: 'Failed',
-    error: 'Error',
-  };
+  const presenceView = resolveWorkflowRunPresence(runState, mode);
 
   if (status === 'idle' || !runId) return null;
 
@@ -245,24 +273,17 @@ export const WorkflowRunCard: React.FC<WorkflowRunCardProps> = ({
       id={`workflow-run-card-${runId ?? 'pending'}`}
       className="rounded-xl border border-[var(--dashboard-border)] bg-[var(--scene-bg)] overflow-hidden"
     >
-      {/* Header */}
-      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-[var(--dashboard-border)]">
-        {status === 'running' ? (
-          <Loader2 size={13} className="animate-spin shrink-0 text-[var(--solar-cyan)]" />
-        ) : status === 'completed' ? (
-          <CheckCircle2 size={13} className="shrink-0 text-emerald-400" />
-        ) : status === 'awaiting_approval' ? (
-          <ShieldAlert size={13} className="shrink-0 text-yellow-400 animate-pulse" />
-        ) : (
-          <XCircle size={13} className="shrink-0 text-red-400" />
-        )}
-        <span className="flex-1 text-[11px] font-semibold text-[var(--dashboard-text)] truncate">
-          {workflowKey}
-        </span>
-        <span className={`text-[9px] font-bold uppercase tracking-wide ${statusColor[status]}`}>
-          {statusLabel[status]}
-        </span>
-      </div>
+      {presenceView ? (
+        <div className="p-3 border-b border-[var(--dashboard-border)]">
+          <AgentPresenceCard
+            mode={mode}
+            state={presenceView.state}
+            title={presenceView.title}
+            description={presenceView.description}
+            meta={presenceView.meta}
+          />
+        </div>
+      ) : null}
 
       {/* Progress bar */}
       {stepsTotal > 0 && (

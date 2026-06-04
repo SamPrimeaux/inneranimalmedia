@@ -7,6 +7,8 @@ import {
   WorkflowApprovalGate,
   type WorkflowRunState,
 } from '../../../components/ChatAssistant/components/WorkflowRunBoard';
+import { resolveWorkflowRunPresence } from '../../../components/ChatAssistant/components/workflowRunPresence';
+import { AgentPresenceCard } from '../../../features/mode-presence/AgentPresenceCard';
 
 type Props = {
   runState: WorkflowRunState;
@@ -55,6 +57,7 @@ export function WorkflowRunPanel({
       ? Math.round((runState.stepsCompleted / runState.stepsTotal) * 100)
       : null;
 
+  const presenceView = resolveWorkflowRunPresence(runState, 'multitask');
   const steps = detail?.steps ?? [];
   const modelRows = steps.map((s) => ({
     node_key: String(s.node_key ?? ''),
@@ -64,6 +67,31 @@ export function WorkflowRunPanel({
 
   return (
     <div className="space-y-3">
+      {presenceView ? (
+        <AgentPresenceCard
+          mode="multitask"
+          state={presenceView.state}
+          title={presenceView.title}
+          description={presenceView.description}
+          meta={presenceView.meta}
+        >
+          {progress != null ? (
+            <div>
+              <div style={{ height: 6, borderRadius: 99, background: 'var(--wf-border)', overflow: 'hidden' }}>
+                <div
+                  style={{
+                    height: '100%',
+                    width: `${progress}%`,
+                    background: 'var(--wf-accent)',
+                    transition: 'width 200ms ease',
+                  }}
+                />
+              </div>
+            </div>
+          ) : null}
+        </AgentPresenceCard>
+      ) : null}
+
       <div className="wf-card">
         <div style={{ fontSize: 11, fontWeight: 800, marginBottom: 8 }}>Current run</div>
         <div style={{ fontSize: 10, color: 'var(--wf-muted)', fontFamily: 'var(--wf-font-mono)' }}>
@@ -75,23 +103,6 @@ export function WorkflowRunPanel({
             </>
           )}
         </div>
-        {progress != null && (
-          <div style={{ marginTop: 8 }}>
-            <div style={{ height: 6, borderRadius: 99, background: 'var(--wf-border)', overflow: 'hidden' }}>
-              <div
-                style={{
-                  height: '100%',
-                  width: `${progress}%`,
-                  background: 'var(--wf-accent)',
-                  transition: 'width 200ms ease',
-                }}
-              />
-            </div>
-            <div style={{ fontSize: 10, color: 'var(--wf-muted)', marginTop: 4 }}>
-              {runState.stepsCompleted} / {runState.stepsTotal} steps
-            </div>
-          </div>
-        )}
         <button
           type="button"
           className="wf-btn primary"

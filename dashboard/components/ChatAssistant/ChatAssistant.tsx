@@ -97,10 +97,8 @@ import { formatHttpErrorMessage } from './streamParsing';
 import { consumeAgentChatSseBody } from './hooks/useAgentChatStream';
 import { initIamAgentStreamDebug, patchIamAgentStreamDebug } from './streamDebug';
 import { AgentMessageList } from './components/AgentMessageList';
-import { AgentComposerTrustStrip } from './composer/AgentComposerTrustStrip';
 import { AgentComposerSourceChips } from './composer/AgentComposerSourceChips';
 import { AgentComposerPlusMenu } from './composer/AgentComposerPlusMenu';
-import { useComposerTrustStatus } from './composer/useComposerTrustStatus';
 import { useComposerIntegrations } from './composer/useComposerIntegrations';
 import {
   composerSourcesStorageKey,
@@ -112,6 +110,10 @@ import { WEB_SEARCH_SOURCE, WEB_SEARCH_SOURCE_ID } from './composer/types';
 import { PlanWorkbenchPanel } from './components/PlanWorkbenchPanel';
 import { ThinkingCard } from '../../src/components/ThinkingCard';
 import type { ThinkingCardState } from '../../src/components/ThinkingCard';
+import {
+  deriveHeroThinkingState,
+  shouldShowHeroPresence,
+} from './components/deriveHeroThinking';
 import { ToolApprovalModal } from '../../src/components/ToolApprovalModal';
 import {
   parseAndDispatchDatabaseStudioActions,
@@ -217,6 +219,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   useEffect(() => { onLoadingChange?.(isLoading); }, [isLoading, onLoadingChange]);
   const [thinkingState, setThinkingState] =
     useState<ThinkingCardState | null>(null);
+  const [loadingStartedAt, setLoadingStartedAt] = useState<number | null>(null);
   const [presenceState, setPresenceState] = useState<string>('idle');
   useEffect(() => {
     const browserLane = [
@@ -269,6 +272,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const handleSendRef = useRef<(override?: string) => Promise<void>>(async () => {});
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const attachButtonRef = useRef<HTMLButtonElement>(null);
+  const attachMenuRef = useRef<HTMLDivElement>(null);
   const modeButtonRef = useRef<HTMLButtonElement>(null);
   const modelButtonRef = useRef<HTMLButtonElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -655,14 +659,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     writeComposerSources(composerSourcesKey, composerSources);
   }, [composerSourcesKey, composerSources]);
 
-  const policyCanRunPty = Number(agentsamPolicy?.can_run_pty ?? 1) === 1;
   const policyWebSearch = Number(agentsamPolicy?.web_search_enabled ?? 1) === 1;
-
-  const trustStatus = useComposerTrustStatus({
-    workspaceId: effectiveWsId,
-    pendingApprovalCount: pendingToolApproval ? 1 : 0,
-    canRunPty: policyCanRunPty,
-  });
 
   const { connectables, connectablesLoading, sourceFromIntegration } = useComposerIntegrations(false);
 
@@ -784,6 +781,25 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     setPresenceState(presence.state);
   }, [presence.state]);
 
+  useEffect(() => {
+    if (isLoading) {
+      setLoadingStartedAt((t) => t ?? Date.now());
+      return;
+    }
+    setLoadingStartedAt(null);
+  }, [isLoading]);
+
+  const heroThinking = deriveHeroThinkingState({
+    thinkingState,
+    isLoading,
+    presence,
+    loadingStartedAt,
+    pendingApproval: !!pendingToolApproval,
+  });
+
+  const showHeroPresence = shouldShowHeroPresence({ heroThinking, isLoading });
+  const showHeaderPresence = !showHeroPresence;
+
   const [chatModels, setChatModels] = useState<ChatModelRow[]>([]);
   const [selectedModelKey, setSelectedModelKey] = useState<string>(() => {
     if (typeof localStorage === 'undefined') return AUTO_MODEL_KEY;
@@ -839,6 +855,25 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       window.removeEventListener('scroll', h, true);
     };
   }, [attachMenuOpen, measureAttachMenu]);
+
+  useEffect(() => {
+    if (!attachMenuOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const node = e.target as Node;
+      if (attachButtonRef.current?.contains(node)) return;
+      if (attachMenuRef.current?.contains(node)) return;
+      setAttachMenuOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setAttachMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [attachMenuOpen]);
 
   useLayoutEffect(() => {
     if (!isModeOpen) {
@@ -2477,9 +2512,11 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                 Context
               </button>
             </div>
-            <div className="px-3 pb-2">
-              <AgentPresenceStatus presence={presence} mode={mode} showBadge={false} className="opacity-95" />
-            </div>
+            {showHeaderPresence ? (
+              <div className="px-3 pb-2">
+                <AgentPresenceStatus presence={presence} mode={mode} showBadge={false} className="opacity-95" />
+              </div>
+            ) : null}
           </div>
         )}
 
@@ -2526,7 +2563,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                   <MoreHorizontal size={15} />
                 </button>
               </div>
-              <AgentPresenceStatus presence={presence} mode={mode} className="pl-0.5" />
+              {showHeaderPresence ? (
+                <AgentPresenceStatus presence={presence} mode={mode} className="pl-0.5" />
+              ) : null}
             </div>
           </div>
         )}
@@ -2601,16 +2640,16 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
         {messagesVisible && (
           <>
-          {thinkingState && (
+          {heroThinking ? (
           <ThinkingCard
-            steps={thinkingState.steps}
-            thinkingText={thinkingState.thinkingText}
-            status={thinkingState.status}
-            startedAt={thinkingState.startedAt}
+            steps={heroThinking.steps}
+            thinkingText={heroThinking.thinkingText}
+            status={heroThinking.status}
+            startedAt={heroThinking.startedAt}
             mode={mode}
             presenceState={presence.state}
           />
-        )}
+        ) : null}
           {(() => {
             if (showEmptyThreadPlaceholder || !pythonDraftHint || !/\.py$/i.test(pythonDraftHint)) return null;
             return (
@@ -2634,7 +2673,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             isLoading={isLoading}
             mode={mode}
             presenceState={presence.state}
-            showStreamingAvatar={!thinkingState}
+            showStreamingAvatar={!heroThinking}
+            subagentWork={subagentWork}
             isDarkTheme={isDarkTheme}
             toolTraceRows={toolTraceRows}
             setToolTraceRows={setToolTraceRows}
@@ -2709,22 +2749,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             chatSessionId={conversationId}
             onOpenInEditor={onFileSelect}
           />
-          <AgentComposerTrustStrip
-            status={trustStatus}
-            onApprovalClick={pendingToolApproval ? scrollToPendingApproval : undefined}
-          />
-          {workflowLedger.runId ? (
-            <div className="px-3 py-1.5 text-[0.625rem] font-mono text-[var(--dashboard-muted)] border-b border-[var(--dashboard-border)]/60 bg-[var(--scene-bg)]/80">
-              Workflow{' '}
-              <span className="text-[var(--solar-cyan)]">{workflowLedger.runId.slice(0, 18)}</span>
-              {workflowLedger.stepsTotal != null
-                ? ` · steps ${workflowLedger.stepsCompleted}/${workflowLedger.stepsTotal}`
-                : ` · steps ${workflowLedger.stepsCompleted}`}
-              {workflowLedger.currentNodeKey ? ` · ${workflowLedger.currentNodeKey}` : ''}
-              {workflowLedger.runCost != null ? ` · $${workflowLedger.runCost.toFixed(4)}` : ''}
-              {workflowLedger.lastError ? ` · err: ${workflowLedger.lastError.slice(0, 120)}` : ''}
-            </div>
-          ) : null}
           {attachments.length > 0 && (
             <>
               <div className="flex gap-2 overflow-x-auto pb-1 chat-hide-scroll">
@@ -3105,27 +3129,29 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         attachMenuOpen &&
         attachMenuStyle &&
         createPortal(
-          <AgentComposerPlusMenu
-            style={attachMenuStyle}
-            connectables={connectables}
-            connectablesLoading={connectablesLoading}
-            activeSourceIds={activeComposerSourceIds}
-            webSearchAllowed={policyWebSearch}
-            onUploadFile={() => {
-              setAttachMenuOpen(false);
-              fileInputRef.current?.click();
-            }}
-            onUploadImage={() => {
-              setAttachMenuOpen(false);
-              imageInputRef.current?.click();
-            }}
-            onToggleWebSearch={() => {
-              const on = activeComposerSourceIds.has(WEB_SEARCH_SOURCE_ID);
-              toggleComposerSource(WEB_SEARCH_SOURCE, !on);
-            }}
-            onToggleSource={toggleComposerSource}
-            sourceFromIntegration={sourceFromIntegration}
-          />,
+          <div ref={attachMenuRef}>
+            <AgentComposerPlusMenu
+              style={attachMenuStyle}
+              connectables={connectables}
+              connectablesLoading={connectablesLoading}
+              activeSourceIds={activeComposerSourceIds}
+              webSearchAllowed={policyWebSearch}
+              onUploadFile={() => {
+                setAttachMenuOpen(false);
+                fileInputRef.current?.click();
+              }}
+              onUploadImage={() => {
+                setAttachMenuOpen(false);
+                imageInputRef.current?.click();
+              }}
+              onToggleWebSearch={() => {
+                const on = activeComposerSourceIds.has(WEB_SEARCH_SOURCE_ID);
+                toggleComposerSource(WEB_SEARCH_SOURCE, !on);
+              }}
+              onToggleSource={toggleComposerSource}
+              sourceFromIntegration={sourceFromIntegration}
+            />
+          </div>,
           document.body,
         )}
 
