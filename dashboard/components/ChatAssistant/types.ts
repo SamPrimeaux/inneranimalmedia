@@ -131,6 +131,32 @@ export type AgentQuestionPayload = {
   questionId?: string;
 };
 
+export type PlanQuestionChoice = {
+  key: string;
+  label: string;
+};
+
+export type PlanIntakeQuestion = {
+  id: string;
+  question: string;
+  choices: PlanQuestionChoice[];
+};
+
+/** Cursor-style batched plan questions (SSE plan_questions_batch). */
+export type PlanQuestionsBatchPayload = {
+  batch_id: string;
+  phase: 'pre_plan' | 'mid_plan' | 'roadblock';
+  plan_id?: string | null;
+  explore_summary?: {
+    synthesis?: string;
+    files_searched?: number;
+    searches?: number;
+  };
+  questions: PlanIntakeQuestion[];
+  allow_skip?: boolean;
+  submitted?: boolean;
+};
+
 /** Plan proposal awaiting user confirmation (SSE plan_confirmation_required). */
 export type PlanConfirmationPayload = {
   plan_id: string;
@@ -168,6 +194,8 @@ export interface Message {
   emailArtifact?: EmailArtifact | null;
   /** Agent question rendered inline in thread. */
   agentQuestion?: AgentQuestionPayload | null;
+  /** Batched plan intake questions (Continue / Skip). */
+  planQuestionsBatch?: PlanQuestionsBatchPayload | null;
   /** Plan proposal bubble — View Plan / Build → */
   planConfirmation?: PlanConfirmationPayload | null;
 }
@@ -244,8 +272,6 @@ export interface ChatAssistantProps {
   activePlanId?: string | null;
   /** Notify host when chat creates or selects a plan. */
   onActivePlanChange?: (planId: string | null) => void;
-  /** Show plan workbench sidebar (Monaco + history). */
-  showPlanWorkbench?: boolean;
 }
 
 export type StagedAttachment = {

@@ -99,6 +99,9 @@ import { formatHttpErrorMessage } from './streamParsing';
 import { consumeAgentChatSseBody } from './hooks/useAgentChatStream';
 import { initIamAgentStreamDebug, patchIamAgentStreamDebug } from './streamDebug';
 import { AgentMessageList } from './components/AgentMessageList';
+import { PlanRecentPicker } from './components/PlanRecentPicker';
+import { PlanStartOverBar } from './components/PlanStartOverBar';
+import { suggestPlanMode, nextAgentMode, isPlanSlashMessage } from '../../lib/plan-mode-utils';
 import { AgentMobileHomePanel } from './components/AgentMobileHomePanel';
 import { AgentComposerSourceChips } from './composer/AgentComposerSourceChips';
 import { AgentComposerPlusMenu } from './composer/AgentComposerPlusMenu';
@@ -111,7 +114,6 @@ import {
 } from './composer/composerSourcesStorage';
 import type { ChatComposerSource } from './composer/types';
 import { WEB_SEARCH_SOURCE, WEB_SEARCH_SOURCE_ID, SANDBOX_AGENT_SOURCE, SANDBOX_AGENT_SOURCE_ID } from './composer/types';
-import { PlanWorkbenchPanel } from './components/PlanWorkbenchPanel';
 import type { ThinkingCardState } from '../../src/components/ThinkingCard';
 import type { ActiveSubagentRow } from './types';
 import { deriveHeroThinkingState } from './components/deriveHeroThinking';
@@ -196,7 +198,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   openFilePaths,
   activePlanId,
   onActivePlanChange,
-  showPlanWorkbench = false,
 }) => {
   const { sessionUserId, workspaceId: ctxWorkspaceId, workspaces } = useWorkspace();
   const effectiveWsId = (workspaceId || ctxWorkspaceId || '').trim() || null;
@@ -359,9 +360,10 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   useEffect(() => {
     activePlanIdRef.current = resolvedActivePlanId;
   }, [resolvedActivePlanId]);
-  const planSidebarVisible = Boolean(
-    showPlanWorkbench && !isNarrow && (mode === 'plan' || resolvedActivePlanId),
-  );
+  const [runPlanBusy, setRunPlanBusy] = useState(false);
+  const [planIntakeBusy, setPlanIntakeBusy] = useState(false);
+  const [planSuggestDismissed, setPlanSuggestDismissed] = useState(false);
+  const [activePlanTitle, setActivePlanTitle] = useState<string | null>(null);
   const [mobileHubTab, setMobileHubTab] = useState<'agents' | 'automations' | 'dashboard'>('agents');
   const [mobileThreadTab, setMobileThreadTab] = useState<'chat' | 'context'>('chat');
   const [repoDrawerOpen, setRepoDrawerOpen] = useState(false);
@@ -656,8 +658,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const scrollToPendingApproval = useCallback(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, []);
-  const [runPlanBusy, setRunPlanBusy] = useState(false);
-
   const [toolTraceRows, setToolTraceRows] = useState<AgentToolTraceRow[]>([]);
   const [pythonDraftHint, setPythonDraftHint] = useState<string | null>(null);
   const [draftSyntaxBusy, setDraftSyntaxBusy] = useState(false);
@@ -1272,6 +1272,10 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           typeof dispatchPayload?.user_message === 'string'
             ? dispatchPayload.user_message
             : null;
+        if (dispatchPayload?.plan_mode === true || dispatchPayload?.force_plan_mode === true) {
+          setMode('plan');
+          setPlanSuggestDismissed(true);
+        }
         if (threadMsg) {
           setMessages((prev) => [
             ...prev,
@@ -1400,14 +1404,16 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         thinkingText: ev.text || 'Creating plan…',
         status: 'thinking',
         startedAt: Date.now(),
+        surface: 'plan',
       });
     } else if (ev.type === 'plan_created' || ev.type === 'plan_progress') {
       if (ev.plan_id?.trim()) {
         activePlanIdRef.current = ev.plan_id.trim();
-        if (ev.type === 'plan_created') {
-          setLocalActivePlanId(ev.plan_id.trim());
-          onActivePlanChange?.(ev.plan_id.trim());
-        }
+        setLocalActivePlanId(ev.plan_id.trim());
+        onActivePlanChange?.(ev.plan_id.trim());
+      }
+      if (typeof (ev as { plan_title?: string }).plan_title === 'string') {
+        setActivePlanTitle(String((ev as { plan_title?: string }).plan_title).trim() || null);
       }
       setThinkingState(prev => ({
         steps: prev?.steps ?? [],
@@ -1786,6 +1792,117 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     });
   }, [pendingToolApproval, setMessages]);
 
+  const handlePlanIntakeSubmit = useCallback(
+    async (payload: {
+      batchId: string;
+      selections: Record<string, string>;
+      optionalDetails: string;
+      skip: boolean;
+    }) => {
+      const batchId = payload.batchId.trim();
+      if (!batchId || planIntakeBusy) return;
+      setPlanIntakeBusy(true);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.planQuestionsBatch?.batch_id === batchId
+            ? { ...m, planQuestionsBatch: { ...m.planQuestionsBatch, submitted: true } }
+            : m,
+        ),
+      );
+      setThinkingState({
+        steps: [],
+        thinkingText: payload.skip ? 'Skipping questions — creating plan…' : 'Creating plan from your answers…',
+        status: 'thinking',
+        startedAt: Date.now(),
+        surface: 'plan',
+      });
+      if (abortControllerRef.current) abortControllerRef.current.abort();
+      abortControllerRef.current = new AbortController();
+      const signal = abortControllerRef.current.signal;
+      streamFinalizedRef.current = false;
+      setIsLoading(true);
+      setPresenceState('thinking');
+      try {
+        const res = await fetch('/api/agent/plan/intake/submit', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            batch_id: batchId,
+            selections: payload.selections,
+            optional_details: payload.optionalDetails,
+            skip: payload.skip,
+            session_id: conversationId || undefined,
+            sessionId: conversationId || undefined,
+          }),
+          signal,
+        });
+        if (!res.ok || !res.body) {
+          const errText = await res.text().catch(() => '');
+          throw new Error(errText || `Plan intake submit failed (${res.status})`);
+        }
+        const reader = res.body.getReader();
+        streamReaderRef.current = reader;
+        await consumeAgentChatSseBody({
+          signal,
+          reader,
+          streamFinalizedRef,
+          streamReaderRef,
+          setMessages,
+          setIsLoading,
+          setWorkflowLedger,
+          setToolTraceRows,
+          onPythonDraftOpened: handlePythonDraftOpened,
+          setConversationId,
+          stripEmptyAssistantTail,
+          loadSessions,
+          onBrowserNavigate,
+          onR2FileUpdated,
+          onThinkingEvent: handleThinkingEvent,
+          onSubagentEvent: handleSubagentEvent,
+          onAgentRunContext,
+          onFileSelect: onFileSelect
+            ? (f) => onFileSelect({ name: f.name, content: f.content, originalContent: f.originalContent ?? '' })
+            : undefined,
+          onToolApprovalRequest: (tool) => {
+            setPendingToolApproval({ tool });
+            setIsLoading(false);
+            abortControllerRef.current = null;
+          },
+        });
+        streamReaderRef.current = null;
+      } catch (e) {
+        if ((e as Error)?.name === 'AbortError') return;
+        console.error('[ChatAssistant] plan intake submit', e);
+        const msg = e instanceof Error ? e.message : String(e);
+        setMessages((prev) => {
+          const next = [...prev];
+          next.push({ role: 'assistant', content: `[Plan intake failed: ${msg}]` });
+          return next;
+        });
+        setThinkingState((prev) => (prev ? { ...prev, status: 'error' } : prev));
+      } finally {
+        setPlanIntakeBusy(false);
+        setIsLoading(false);
+        setPresenceState('idle');
+        abortControllerRef.current = null;
+      }
+    },
+    [
+      planIntakeBusy,
+      conversationId,
+      setMessages,
+      handleThinkingEvent,
+      handlePythonDraftOpened,
+      stripEmptyAssistantTail,
+      loadSessions,
+      onBrowserNavigate,
+      onR2FileUpdated,
+      onAgentRunContext,
+      onFileSelect,
+    ],
+  );
+
   const handleRunPlan = useCallback(async (planId: string) => {
     const pid = planId.trim();
     if (!pid || runPlanBusy) return;
@@ -1887,8 +2004,52 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     onActivePlanChange,
   ]);
 
+  const handleOpenRecentPlan = useCallback(
+    async (planId: string) => {
+      const pid = planId.trim();
+      if (!pid) return;
+      setLocalActivePlanId(pid);
+      activePlanIdRef.current = pid;
+      onActivePlanChange?.(pid);
+      try {
+        const res = await fetch(`/api/agentsam/plans/${encodeURIComponent(pid)}/markdown`, {
+          credentials: 'same-origin',
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) return;
+        const publicUrl = typeof data.public_url === 'string' ? data.public_url.trim() : '';
+        if (typeof data.title === 'string' && data.title.trim()) setActivePlanTitle(data.title.trim());
+        if (publicUrl) {
+          const contentRes = await fetch(publicUrl, { credentials: 'same-origin' });
+          const md = await contentRes.text();
+          onOpenCodeTab?.();
+          onFileSelect?.({
+            name: `plan-${pid}.md`,
+            content: md,
+            originalContent: md,
+          });
+        }
+      } catch (e) {
+        console.warn('[ChatAssistant] open recent plan', e);
+      }
+    },
+    [onActivePlanChange, onFileSelect, onOpenCodeTab],
+  );
+
   async function handleSend(overrideMessage?: string, sendOpts?: ChatRoutingSendOpts) {
-    const text = overrideMessage ?? input;
+    const rawText = overrideMessage ?? input;
+    let text = rawText;
+    let sendMode: AgentMode = mode;
+    if (isPlanSlashMessage(rawText)) {
+      sendMode = 'plan';
+      setMode('plan');
+      setPlanSuggestDismissed(true);
+      text = rawText.replace(/^\/plan\b\s*/i, '').trim();
+      if (!text && !overrideMessage) {
+        setInput('');
+        return;
+      }
+    }
     const rawModelKey = (sendOpts?.modelKey?.trim() || selectedModelKey || AUTO_MODEL_KEY).trim();
     const useAutoRouting = isAutoModelSelection(rawModelKey);
     const effectiveModelKey = useAutoRouting
@@ -2038,9 +2199,10 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     }
     const form = new FormData();
     form.append('message', messageForApi);
-    form.append('mode', mode);
-    form.append('agent_mode', mode);
-    form.append('runtime_intent_mode', mode);
+    form.append('mode', sendMode);
+    form.append('agent_mode', sendMode);
+    form.append('runtime_intent_mode', sendMode);
+    if (resolvedActivePlanId) form.append('plan_id', resolvedActivePlanId);
     form.append('model', effectiveModelKey);
     if (!useAutoRouting) {
       const selectedModelProvider =
@@ -2339,6 +2501,12 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         setSlashOpen(false);
         return;
       }
+    }
+    if (e.key === 'Tab' && e.shiftKey) {
+      e.preventDefault();
+      setMode((m) => nextAgentMode(m));
+      setIsModeOpen(false);
+      return;
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       const modEnter = Number(agentsamPolicyRef.current?.submit_with_mod_enter) === 1;
@@ -2751,6 +2919,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             onImagePreview={handleChatImagePreview}
             onRunPlan={(planId) => void handleRunPlan(planId)}
             runPlanBusy={runPlanBusy}
+            onPlanIntakeSubmit={(p) => void handlePlanIntakeSubmit(p)}
+            planIntakeBusy={planIntakeBusy}
             pendingToolApproval={pendingToolApproval?.tool ?? null}
             approvalBusy={approvalBusy}
             onApprovePendingTool={() => void handleApprovePendingTool()}
@@ -2813,6 +2983,79 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             </div>
           </div>
         )}
+
+        {composerVisible && mode === 'plan' && resolvedActivePlanId ? (
+          <div className={`${composerFlexOrder} flex-shrink-0 w-full min-w-0 max-w-full px-3 pt-1`}>
+            <PlanStartOverBar
+              planId={resolvedActivePlanId}
+              planTitle={activePlanTitle ?? undefined}
+              isNarrow={isNarrow}
+              onReverted={() => {
+                setMessages((prev) => [
+                  ...prev,
+                  {
+                    role: 'assistant',
+                    content: 'Plan tasks reset — blocked steps are back to **todo**. Use **Run plan** to retry.',
+                  },
+                ]);
+              }}
+              onRefineHint={() => {
+                setInput((prev) => (prev.trim().startsWith('@plan') ? prev : `@plan ${prev}`.trim()));
+                textareaRef.current?.focus();
+              }}
+            />
+          </div>
+        ) : null}
+
+        {composerVisible && (mode === 'plan' || showEmptyThreadPlaceholder) ? (
+          <div className={`${composerFlexOrder} flex-shrink-0 w-full min-w-0 max-w-full px-3`}>
+            <PlanRecentPicker
+              workspaceId={effectiveWsId}
+              activePlanId={resolvedActivePlanId}
+              onOpenPlan={(pid) => void handleOpenRecentPlan(pid)}
+              onRunPlan={(pid) => void handleRunPlan(pid)}
+              runPlanBusy={runPlanBusy}
+              isNarrow={isNarrow}
+            />
+          </div>
+        ) : null}
+
+        {composerVisible &&
+        !planSuggestDismissed &&
+        mode !== 'plan' &&
+        suggestPlanMode(input) &&
+        !isLoading ? (
+          <div className={`${composerFlexOrder} flex-shrink-0 w-full min-w-0 max-w-full px-3`}>
+            <div
+              className={`flex items-center gap-2 rounded-xl border border-[var(--solar-cyan)]/25 bg-[var(--solar-cyan)]/8 ${
+                isNarrow ? 'flex-wrap px-2.5 py-2' : 'px-3 py-2'
+              }`}
+            >
+              <Sparkles size={14} className="shrink-0 text-[var(--solar-cyan)]" />
+              <span className="min-w-0 flex-1 text-[11px] text-[var(--dashboard-text)]">
+                Complex goal — try <strong>Plan mode</strong> (Shift+Tab or /plan) to explore first.
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setMode('plan');
+                  setPlanSuggestDismissed(true);
+                }}
+                className="rounded-full border border-[var(--solar-cyan)]/40 px-2.5 py-1 min-h-[32px] text-[10px] font-semibold text-[var(--solar-cyan)] hover:bg-[var(--solar-cyan)]/12"
+              >
+                Switch to Plan
+              </button>
+              <button
+                type="button"
+                aria-label="Dismiss"
+                onClick={() => setPlanSuggestDismissed(true)}
+                className="p-1 rounded-md text-[var(--dashboard-muted)] hover:bg-[var(--bg-hover)]"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         {composerVisible && (
         <div
@@ -3102,23 +3345,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         )}
 
         </div>
-
-        {planSidebarVisible ? (
-          <div className="hidden md:flex w-[min(280px,34%)] shrink-0 min-h-0">
-            <PlanWorkbenchPanel
-              workspaceId={workspaceId ?? null}
-              activePlanId={resolvedActivePlanId}
-              onActivePlanChange={(planId) => {
-                setLocalActivePlanId(planId);
-                activePlanIdRef.current = planId;
-                onActivePlanChange?.(planId);
-              }}
-              onOpenInEditor={onFileSelect}
-              onRunPlan={(planId) => void handleRunPlan(planId)}
-              runPlanBusy={runPlanBusy}
-            />
-          </div>
-        ) : null}
 
         </div>
 

@@ -32,6 +32,8 @@ export type AgentPresenceInlineProps = {
   onToggle?: () => void;
   statusLabel?: string;
   size?: 'sm' | 'md';
+  /** Override shimmer label font size (px). */
+  titleFontSizePx?: number;
   /** CSS hover stop pill — subagent rows only. */
   onStop?: (e: React.MouseEvent) => void;
   onClick?: () => void;
@@ -54,12 +56,13 @@ export function AgentPresenceInline({
   onToggle,
   statusLabel,
   size = 'md',
+  titleFontSizePx,
   onStop,
   onClick,
   cardStatus,
 }: AgentPresenceInlineProps) {
   const iconPx = size === 'sm' ? 16 : 22;
-  const textSize = size === 'sm' ? 12 : 12;
+  const textSize = titleFontSizePx ?? (size === 'sm' ? 12 : 12);
   const metaSize = size === 'sm' ? 11 : 11;
   const shimmer = shouldShimmer(state, mode);
   const rowClass = `agent-inline-row min-w-0 flex-1${onClick ? ' agent-inline-row--clickable' : ''}`;

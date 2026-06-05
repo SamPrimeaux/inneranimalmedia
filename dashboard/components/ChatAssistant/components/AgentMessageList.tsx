@@ -9,7 +9,6 @@ import { SetiFileIcon } from '../../../src/components/SetiFileIcon';
 import type { ActiveFile } from '../../../types';
 import type {
   Message,
-  ImplementationPlanVisualMap,
   ImplementationPlanMarkdown,
   AgentPreviewArtifact,
   ActiveSubagentRow,
@@ -28,6 +27,7 @@ import { WorkflowRunPresenceBanner } from './WorkflowRunBoard';
 import { ArtifactChipList } from '../execution/ArtifactChipList';
 import type { AgentMode } from '../types';
 import { AgentPlanChecklist } from './AgentPlanChecklist';
+import { AgentQuestionsCard } from './AgentQuestionsCard';
 import { AgentImageGenerationCard } from '../../../components/AgentImageGenerationCard';
 import { EmailArtifactCard } from '../artifacts/EmailArtifactCard';
 import { ToolApprovalCard } from './ToolApprovalCard';
@@ -118,6 +118,13 @@ export type AgentMessageListProps = {
   onImagePreview?: (src: string) => void;
   onRunPlan?: (planId: string) => void;
   runPlanBusy?: boolean;
+  onPlanIntakeSubmit?: (payload: {
+    batchId: string;
+    selections: Record<string, string>;
+    optionalDetails: string;
+    skip: boolean;
+  }) => void;
+  planIntakeBusy?: boolean;
   /** Inline pre-flight gate — rendered in-thread before tool execution. */
   pendingToolApproval?: ToolApprovalPayload | null;
   approvalBusy?: boolean;
@@ -298,30 +305,6 @@ function renderMessageContent(
   );
 }
 
-function PlanMapGlyph({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      width="18"
-      height="18"
-      viewBox="0 0 18 18"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden
-    >
-      <path
-        d="M4.75 3.25h5.35L13.75 6.9v7.85H4.75z"
-        stroke="currentColor"
-        strokeWidth="1.2"
-        strokeLinejoin="round"
-      />
-      <path d="M10.1 3.25V7h3.65" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
-      <path d="M6.5 10.25h5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" opacity="0.45" />
-      <path d="M6.5 12.35h3.25" stroke="currentColor" strokeWidth="1" strokeLinecap="round" opacity="0.35" />
-    </svg>
-  );
-}
-
 function openImplementationPlanMarkdown(
   planMarkdown: ImplementationPlanMarkdown,
   planId: string,
@@ -344,36 +327,6 @@ function openImplementationPlanMarkdown(
       /* ignore */
     }
   })();
-}
-
-function openImplementationPlanMap(visualMap: ImplementationPlanVisualMap) {
-  const pub = typeof visualMap.public_url === 'string' ? visualMap.public_url.trim() : '';
-  const aid = typeof visualMap.artifact_id === 'string' ? visualMap.artifact_id.trim() : '';
-  const loadUrl =
-    pub ||
-    (aid ? `/api/artifacts/${encodeURIComponent(aid)}/content` : '');
-  if (!loadUrl) return;
-  window.dispatchEvent(
-    new CustomEvent('iam:agent-open-surface', {
-      detail: {
-        surface: 'excalidraw',
-        reason: 'implementation_plan_view',
-        load_url: loadUrl,
-        artifact_id: aid || null,
-        artifact_type: 'excalidraw',
-        replace_workspace: true,
-      },
-    }),
-  );
-  window.dispatchEvent(
-    new CustomEvent('iam:excalidraw_load_document', {
-      detail: {
-        load_url: loadUrl,
-        artifact_id: aid || null,
-        replace_workspace: true,
-      },
-    }),
-  );
 }
 
 function AssistantPreviewArtifactsBar({
@@ -442,8 +395,8 @@ function AgentQuestionBubble({
 }) {
   const [draft, setDraft] = useState('');
   return (
-    <div className="flex flex-col gap-2 min-w-0">
-      <p className="text-[0.8125rem] leading-relaxed text-[var(--dashboard-text)] m-0">{question}</p>
+    <div className="flex flex-col gap-2 min-w-0 rounded-lg border border-[var(--dashboard-border)]/80 bg-[var(--scene-bg)]/60 px-3 py-2.5">
+      <p className="text-[18px] leading-snug text-[var(--dashboard-text)] m-0">{question}</p>
       {options && options.length > 0 ? (
         <div className="flex flex-wrap gap-1.5">
           {options.map((opt) => (
@@ -489,52 +442,39 @@ function AgentQuestionBubble({
   );
 }
 
-function PlanProposalBubble({
-  plan,
+function PlanReadyActions({
+  planId,
+  planMarkdown,
   onViewPlan,
-  onBuild,
-  buildBusy,
+  onRunPlan,
+  runPlanBusy,
 }: {
-  plan: NonNullable<Message['planConfirmation']>;
-  onViewPlan?: (planId: string) => void;
-  onBuild?: (planId: string, approvalId: string) => void;
-  buildBusy?: boolean;
+  planId: string;
+  planMarkdown?: ImplementationPlanMarkdown;
+  onViewPlan?: (planId: string, planMarkdown?: ImplementationPlanMarkdown) => void;
+  onRunPlan?: (planId: string) => void;
+  runPlanBusy?: boolean;
 }) {
-  const tasks = plan.tasks || [];
-  const shown = tasks.slice(0, 5);
-  const extra = tasks.length > 5 ? tasks.length - 5 : 0;
   return (
-    <div className="flex flex-col gap-2 min-w-0">
-      <p className="text-[13px] font-semibold text-[var(--dashboard-text)] m-0">
-        {plan.plan_title || 'Implementation plan'}
-      </p>
-      {shown.length > 0 ? (
-        <ul className="m-0 pl-4 text-[12px] text-[var(--dashboard-muted)] space-y-0.5 list-disc">
-          {shown.map((t, idx) => (
-            <li key={`${t.order_index}-${idx}`}>{t.title}</li>
-          ))}
-          {extra > 0 ? <li className="list-none -ml-4 text-[11px]">+ {extra} more</li> : null}
-        </ul>
-      ) : plan.message ? (
-        <p className="text-[12px] text-[var(--dashboard-muted)] m-0">{plan.message}</p>
-      ) : null}
-      <div className="flex items-center gap-3 pt-0.5">
+    <div className="mt-2 flex flex-wrap items-center gap-2">
+      {planMarkdown ? (
         <button
           type="button"
-          onClick={() => onViewPlan?.(plan.plan_id)}
-          className="text-[11px] text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] transition-colors"
+          onClick={() => onViewPlan?.(planId, planMarkdown)}
+          className="inline-flex items-center gap-1.5 rounded-full border border-[var(--dashboard-border)]/90 bg-[var(--scene-bg)]/80 px-3 py-1.5 text-[11px] font-medium text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/35 transition-colors"
         >
+          <FileText size={14} className="shrink-0" />
           View Plan
         </button>
-        <button
-          type="button"
-          disabled={buildBusy || !plan.approval_id}
-          onClick={() => onBuild?.(plan.plan_id, plan.approval_id)}
-          className="text-[11px] text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] transition-colors disabled:opacity-40"
-        >
-          Build →
-        </button>
-      </div>
+      ) : null}
+      <button
+        type="button"
+        disabled={runPlanBusy}
+        onClick={() => onRunPlan?.(planId)}
+        className="inline-flex items-center gap-1.5 rounded-full border border-[var(--solar-cyan)]/40 bg-[var(--solar-cyan)]/10 px-3 py-1.5 text-[11px] font-semibold text-[var(--solar-cyan)] hover:bg-[var(--solar-cyan)]/15 disabled:opacity-40 transition-colors"
+      >
+        {runPlanBusy ? 'Running plan…' : 'Run plan'}
+      </button>
     </div>
   );
 }
@@ -563,6 +503,8 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
   onImagePreview,
   onRunPlan,
   runPlanBusy = false,
+  onPlanIntakeSubmit,
+  planIntakeBusy = false,
   pendingToolApproval = null,
   approvalBusy = false,
   onApprovePendingTool,
@@ -639,35 +581,40 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
                       onImagePreview={onImagePreview}
                     />
                   ) : null}
-                  {msg.planConfirmation ? (
-                    <div className="agent-content text-[0.8125rem] leading-relaxed min-w-0 break-words w-full mb-2">
-                      <PlanProposalBubble
-                        plan={msg.planConfirmation}
-                        onViewPlan={(planId) => onRunPlan?.(planId)}
-                        onBuild={async (planId, approvalId) => {
-                          if (!approvalId) return;
-                          try {
-                            await fetch(`/api/agent/plan/approval/${encodeURIComponent(approvalId)}/confirm`, {
-                              method: 'POST',
-                              credentials: 'same-origin',
-                            });
-                            onRunPlan?.(planId);
-                          } catch {
-                            /* ignore */
-                          }
-                        }}
-                        buildBusy={runPlanBusy}
+                  {msg.content.trim() ? (
+                    <div className="agent-content text-[0.8125rem] leading-relaxed min-w-0 break-words [overflow-wrap:anywhere] text-[var(--dashboard-text)] w-full">
+                      {renderMessageContent(msg.content, i, onFileSelect, onRunInTerminal, true, onImagePreview)}
+                    </div>
+                  ) : null}
+                  {msg.planQuestionsBatch && !msg.planQuestionsBatch.submitted ? (
+                    <div className="agent-content min-w-0 w-full mt-2 mb-1">
+                      <AgentQuestionsCard
+                        batch={msg.planQuestionsBatch}
+                        busy={planIntakeBusy}
+                        isNarrow={isNarrow}
+                        onSubmit={(payload) => onPlanIntakeSubmit?.(payload)}
                       />
                     </div>
                   ) : null}
                   {msg.agentQuestion ? (
-                    <div className="agent-content text-[0.8125rem] leading-relaxed min-w-0 break-words w-full mb-2">
+                    <div className="agent-content min-w-0 break-words w-full mt-2 mb-1">
                       <AgentQuestionBubble
                         question={msg.agentQuestion.question}
                         options={msg.agentQuestion.options}
                         onSend={onSendUserMessage}
                       />
                     </div>
+                  ) : null}
+                  {msg.executionPlan?.status === 'ready' && msg.executionPlan.plan_id ? (
+                    <PlanReadyActions
+                      planId={msg.executionPlan.plan_id}
+                      planMarkdown={msg.implementationPlan?.plan_markdown}
+                      onViewPlan={(planId, planMarkdown) => {
+                        if (planMarkdown) openImplementationPlanMarkdown(planMarkdown, planId, onFileSelect);
+                      }}
+                      onRunPlan={onRunPlan}
+                      runPlanBusy={runPlanBusy}
+                    />
                   ) : null}
                   {msg.executionPlan && msg.executionPlan.tasks.length > 0 && msg.executionPlan.status !== 'ready' ? (
                     <AgentPlanChecklist
@@ -676,60 +623,6 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
                       onRunPlan={onRunPlan}
                       runPlanBusy={runPlanBusy}
                     />
-                  ) : null}
-                  {msg.content.trim() ? (
-                  <div
-                    className="agent-content text-[0.8125rem] leading-relaxed min-w-0 break-words [overflow-wrap:anywhere] text-[var(--dashboard-text)] w-full"
-                  >
-                    {renderMessageContent(msg.content, i, onFileSelect, onRunInTerminal, true, onImagePreview)}
-                  </div>
-                  ) : null}
-                  {msg.implementationPlan &&
-                  (msg.implementationPlan.visual_map || msg.implementationPlan.plan_markdown) ? (
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      {msg.implementationPlan.plan_markdown ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const p = msg.implementationPlan;
-                            if (p?.plan_markdown)
-                              openImplementationPlanMarkdown(p.plan_markdown, p.plan_id, onFileSelect);
-                          }}
-                          className="group inline-flex items-center gap-2 rounded-lg border border-[var(--dashboard-border)]/90 bg-[var(--scene-bg)]/80 px-2.5 py-1.5 text-[11px] font-medium tracking-tight text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/35 hover:bg-[var(--solar-cyan)]/5 transition-colors"
-                          title="Open plan.md in the code editor"
-                        >
-                          <FileText size={15} className="shrink-0 text-[var(--dashboard-muted)] opacity-90 group-hover:text-[var(--solar-cyan)]" />
-                          <span>View implementation plan</span>
-                        </button>
-                      ) : msg.implementationPlan.visual_map ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const p = msg.implementationPlan;
-                            if (p?.visual_map) openImplementationPlanMap(p.visual_map);
-                          }}
-                          className="group inline-flex items-center gap-2 rounded-lg border border-[var(--dashboard-border)]/90 bg-[var(--scene-bg)]/80 px-2.5 py-1.5 text-[11px] font-medium tracking-tight text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/35 hover:bg-[var(--solar-cyan)]/5 transition-colors"
-                          title="Open plan map in Draw (no markdown artifact)"
-                        >
-                          <PlanMapGlyph className="shrink-0 text-[var(--dashboard-muted)] opacity-90 group-hover:text-[var(--solar-cyan)]" />
-                          <span>View implementation plan</span>
-                        </button>
-                      ) : null}
-                      {msg.implementationPlan.visual_map && msg.implementationPlan.plan_markdown ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const p = msg.implementationPlan;
-                            if (p?.visual_map) openImplementationPlanMap(p.visual_map);
-                          }}
-                          className="group inline-flex items-center gap-2 rounded-lg border border-[var(--dashboard-border)]/90 bg-[var(--scene-bg)]/80 px-2.5 py-1.5 text-[11px] font-medium tracking-tight text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/35 hover:bg-[var(--solar-cyan)]/5 transition-colors"
-                          title="Open Excalidraw plan map (optional)"
-                        >
-                          <PlanMapGlyph className="shrink-0 text-[var(--dashboard-muted)] opacity-90 group-hover:text-[var(--solar-cyan)]" />
-                          <span>Open plan map (Draw)</span>
-                        </button>
-                      ) : null}
-                    </div>
                   ) : null}
                 </div>
               ) : (
@@ -827,6 +720,7 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
               })()
             }
             size="sm"
+            titleFontSizePx={thinkingState?.surface === 'plan' ? 16 : undefined}
             cardStatus={
               thinkingState?.status === 'blocked'
                 ? 'blocked'

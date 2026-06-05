@@ -3109,7 +3109,6 @@ const App: React.FC = () => {
                         openFilePaths={agentWorkbenchOpenFiles}
                         activePlanId={activePlanIdForChat}
                         onActivePlanChange={handleActivePlanChange}
-                        showPlanWorkbench={!isNarrowViewport}
                     />
                     </div>
                 </div>
@@ -3772,7 +3771,6 @@ const App: React.FC = () => {
                             openFilePaths={agentWorkbenchOpenFiles}
                             activePlanId={activePlanIdForChat}
                             onActivePlanChange={handleActivePlanChange}
-                            showPlanWorkbench={!isNarrowViewport}
                          />
                     </div>
                 </div>

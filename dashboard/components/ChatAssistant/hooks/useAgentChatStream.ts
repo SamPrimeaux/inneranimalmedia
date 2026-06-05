@@ -861,47 +861,60 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
         ) {
           const payload = data as { type?: string; files?: unknown[]; plan_id?: string };
           const batch = Array.isArray(payload.files) && payload.files.length ? payload.files : [data];
-          for (const raw of batch) {
-            if (!raw || typeof raw !== 'object') continue;
-            const f = raw as {
-              filename?: string;
-              path?: string;
-              language?: string;
-              content?: string;
-              plan_id?: string;
-            };
-            const batchPlanId =
-              typeof (data as { plan_id?: string }).plan_id === 'string'
-                ? (data as { plan_id: string }).plan_id.trim()
-                : '';
-            const content = typeof f.content === 'string' ? f.content : '';
-            const path = typeof f.path === 'string' ? f.path.trim() : '';
-            const filename =
-              (typeof f.filename === 'string' && f.filename.trim()) ||
-              path.split('/').pop() ||
-              'untitled';
-            const planId =
-              (typeof f.plan_id === 'string' && f.plan_id.trim()) || batchPlanId || '';
-            if (!content) continue;
-            try {
-              const workspacePath = planId
-                ? `agent-draft:${planId}:${path || filename}`
-                : path || filename;
-              onFileSelect?.({
-                name: filename,
-                workspacePath,
-                content,
-                originalContent: '',
-              });
-            } catch (e) {
-              console.warn('[ChatAssistant] onFileSelect failed for monaco_file_generated', e);
+          const openMonacoFiles = async () => {
+            for (const raw of batch) {
+              if (!raw || typeof raw !== 'object') continue;
+              const f = raw as {
+                filename?: string;
+                path?: string;
+                language?: string;
+                content?: string;
+                plan_id?: string;
+                r2_url?: string;
+              };
+              const batchPlanId =
+                typeof (data as { plan_id?: string }).plan_id === 'string'
+                  ? (data as { plan_id: string }).plan_id.trim()
+                  : '';
+              let content = typeof f.content === 'string' ? f.content : '';
+              const path = typeof f.path === 'string' ? f.path.trim() : '';
+              const filename =
+                (typeof f.filename === 'string' && f.filename.trim()) ||
+                path.split('/').pop() ||
+                'untitled';
+              const planId =
+                (typeof f.plan_id === 'string' && f.plan_id.trim()) || batchPlanId || '';
+              const r2Url = typeof f.r2_url === 'string' ? f.r2_url.trim() : '';
+              if (!content && r2Url) {
+                try {
+                  const r = await fetch(r2Url, { credentials: 'include' });
+                  if (r.ok) content = await r.text();
+                } catch {
+                  /* ignore fetch errors */
+                }
+              }
+              if (!content) continue;
+              try {
+                const workspacePath = planId
+                  ? `agent-draft:${planId}:${path || filename}`
+                  : path || filename;
+                onFileSelect?.({
+                  name: filename,
+                  workspacePath,
+                  content,
+                  originalContent: '',
+                });
+              } catch (e) {
+                console.warn('[ChatAssistant] onFileSelect failed for monaco_file_generated', e);
+              }
             }
-          }
-          window.dispatchEvent(
-            new CustomEvent('iam:agent-open-surface', {
-              detail: { surface: 'code', reason: 'monaco_file_generated' },
-            }),
-          );
+            window.dispatchEvent(
+              new CustomEvent('iam:agent-open-surface', {
+                detail: { surface: 'code', reason: 'monaco_file_generated' },
+              }),
+            );
+          };
+          void openMonacoFiles();
           fileEchoSuppress = true;
           continue;
         }
@@ -979,6 +992,76 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
         if (data && typeof data === 'object' && (data as { type?: string }).type === 'plan_thinking') {
           const d = data as { type: string; message?: string };
           onThinkingEvent?.({ type: 'plan_thinking', text: String(d.message || 'Creating plan…') });
+          continue;
+        }
+        if (
+          data &&
+          typeof data === 'object' &&
+          ((data as { type?: string }).type === 'plan_explore_start' ||
+            (data as { type?: string }).type === 'plan_explore_progress' ||
+            (data as { type?: string }).type === 'plan_explore_step')
+        ) {
+          const d = data as {
+            type: string;
+            message?: string;
+            synthesis?: string;
+            files_searched?: number;
+            searches?: number;
+            label?: string;
+          };
+          const label =
+            d.type === 'plan_explore_step'
+              ? String(d.label || '').trim() || 'Exploring…'
+              : String(d.synthesis || d.message || '').trim() ||
+                (d.files_searched != null
+                  ? `Explored ${d.files_searched} files…`
+                  : 'Exploring codebase and context…');
+          onThinkingEvent?.({ type: 'plan_thinking', text: label });
+          continue;
+        }
+        if (data && typeof data === 'object' && (data as { type?: string }).type === 'plan_questions_batch') {
+          const d = data as {
+            type: string;
+            batch_id?: string;
+            phase?: string;
+            plan_id?: string;
+            explore_summary?: { synthesis?: string; files_searched?: number; searches?: number };
+            questions?: Array<{
+              id: string;
+              question: string;
+              choices?: Array<{ key: string; label: string }>;
+            }>;
+            allow_skip?: boolean;
+          };
+          const batchId = typeof d.batch_id === 'string' ? d.batch_id.trim() : '';
+          if (batchId) {
+            const phase =
+              d.phase === 'roadblock' || d.phase === 'mid_plan' ? d.phase : 'pre_plan';
+            const batch = {
+              batch_id: batchId,
+              phase,
+              plan_id: typeof d.plan_id === 'string' ? d.plan_id.trim() : null,
+              explore_summary: d.explore_summary,
+              questions: (d.questions || []).map((q) => ({
+                id: String(q.id || ''),
+                question: String(q.question || ''),
+                choices: Array.isArray(q.choices)
+                  ? q.choices.map((c) => ({ key: String(c.key), label: String(c.label) }))
+                  : [],
+              })),
+              allow_skip: d.allow_skip !== false,
+            };
+            setMessages((prev) => {
+              const next = [...prev];
+              next.push({
+                role: 'assistant',
+                content: '',
+                planQuestionsBatch: batch,
+              });
+              return next;
+            });
+            onThinkingEvent?.({ type: 'plan_thinking', text: 'Waiting for your answers…', plan_id: batchId });
+          }
           continue;
         }
         if (data && typeof data === 'object' && (data as { type?: string }).type === 'approval_required') {
@@ -1120,35 +1203,33 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
               ...(plan_markdown ? { plan_markdown } : {}),
             };
           }
-          const planProposal =
-            d.auto_execute === false && pid
-              ? {
-                  plan_id: pid,
-                  approval_id: String((d as { approval_id?: string }).approval_id || '').trim(),
-                  plan_title: d.plan_title,
-                  message: 'Plan ready — review tasks and build when ready.',
-                  tasks: planTasks.map((t) => ({ title: t.title, order_index: t.order_index })),
-                }
-              : null;
+          const summaryText =
+            typeof (d as { summary?: string }).summary === 'string'
+              ? String((d as { summary: string }).summary).trim()
+              : '';
           setMessages((prev) => {
             const last = [...prev];
             const idx = last.length - 1;
+            const content =
+              assistantContent ||
+              summaryText ||
+              (d.auto_execute === false ? 'Plan ready — edit in the editor, then Run plan.' : '');
+            const patch = {
+              content,
+              executionPlan,
+              planConfirmation: undefined,
+              implementationPlan: pmOk
+                ? {
+                    plan_id: pid,
+                    plan_title: d.plan_title,
+                    plan_markdown: chip?.plan_markdown,
+                  }
+                : null,
+            };
             if (idx >= 0 && last[idx].role === 'assistant') {
-              last[idx] = {
-                ...last[idx],
-                content: assistantContent || (planProposal ? planProposal.message || '' : ''),
-                implementationPlan: chip ?? null,
-                executionPlan,
-                ...(planProposal ? { planConfirmation: planProposal } : {}),
-              };
+              last[idx] = { ...last[idx], ...patch };
             } else {
-              last.push({
-                role: 'assistant',
-                content: assistantContent || (planProposal ? planProposal.message || '' : ''),
-                ...(chip ? { implementationPlan: chip } : {}),
-                executionPlan,
-                ...(planProposal ? { planConfirmation: planProposal } : {}),
-              });
+              last.push({ role: 'assistant', ...patch });
             }
             return last;
           });
@@ -1196,9 +1277,13 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
         if (
           data &&
           typeof data === 'object' &&
-          ['needs_input', 'agent_question', 'clarification_required', 'user_question'].includes(
-            String((data as { type?: string }).type || ''),
-          )
+          [
+            'needs_input',
+            'agent_question',
+            'attached_question',
+            'clarification_required',
+            'user_question',
+          ].includes(String((data as { type?: string }).type || ''))
         ) {
           const d = data as {
             type: string;
@@ -1216,19 +1301,25 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
               ? d.choices.map((o) => String(o).trim()).filter(Boolean)
               : undefined;
           if (questionText) {
+            const isAttached = String(d.type || '') === 'attached_question';
             setMessages((prev) => {
               const next = [...prev];
               const idx = next.length - 1;
               const bubble: (typeof next)[number] = {
                 role: 'assistant',
-                content: questionText,
+                content: isAttached ? '' : questionText,
                 agentQuestion: {
                   question: questionText,
                   options: options?.length ? options : undefined,
                   questionId: typeof d.question_id === 'string' ? d.question_id : undefined,
                 },
               };
-              if (idx >= 0 && next[idx].role === 'assistant' && !next[idx].content.trim()) {
+              if (
+                !isAttached &&
+                idx >= 0 &&
+                next[idx].role === 'assistant' &&
+                !next[idx].content.trim()
+              ) {
                 next[idx] = { ...next[idx], ...bubble };
               } else {
                 next.push(bubble);
