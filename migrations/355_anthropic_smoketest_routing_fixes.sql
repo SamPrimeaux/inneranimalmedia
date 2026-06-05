@@ -16,7 +16,7 @@ WHERE lower(trim(COALESCE(api_platform, ''))) IN ('google_ai', 'google')
   AND status = 'active'
   AND mode = 'model';
 
--- FK: agentsam_route_requirements.route_key -> agentsam_prompt_routes.route_key
+-- route_key must exist in agentsam_prompt_routes (app-level; DB FK removed in migration 565).
 INSERT OR IGNORE INTO agentsam_prompt_routes (
   route_key,
   display_name,

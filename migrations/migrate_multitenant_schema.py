@@ -619,8 +619,9 @@ def step_8_commands():
           server_key          TEXT,
           execution_mode      TEXT DEFAULT 'agent',
           is_global           INTEGER DEFAULT 1,
-          route_key           TEXT DEFAULT NULL
-                            REFERENCES agentsam_prompt_routes(route_key) ON UPDATE CASCADE,
+          -- route_key is a denormalized hint; prompt routes are unique per (route_key, tenant_id).
+          -- Do not add REFERENCES agentsam_prompt_routes(route_key) — invalid parent key in SQLite.
+          route_key           TEXT DEFAULT NULL,
           UNIQUE(workspace_id, slug)
         )
     """), "CREATE agentsam_commands_new")
