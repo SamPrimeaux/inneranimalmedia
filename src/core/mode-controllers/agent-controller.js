@@ -8,6 +8,11 @@ import { runtimeContextPayload, legacyContextPayload } from './runtime-context.j
 import { resolveAgentChatLaneContextBlock } from '../agent-chat-lane-context.js';
 import { compactConversationMessagesIfNeeded } from '../conversation-compaction.js';
 import { scheduleChatExecutionContextSnapshot } from '../execution-context-snapshot.js';
+import {
+  shouldUseCodemodeForRequest,
+  getOrBuildCodemodeRuntime,
+  buildHybridCodemodeManifest,
+} from '../codemode-agent-bridge.js';
 
 const SSE_HEADERS = {
   'Content-Type': 'text/event-stream',
@@ -82,6 +87,43 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
     const cap = Math.max(tools.length, Number(profile.max_tools) || 8);
     tools = await ensureActiveFileCapabilityTools(env, tools, cap, activeFileEnvelope);
   }
+
+  /** Codemode hybrid manifest (multitask / tool-chain planning) — non-fatal if build fails. */
+  let codemodeRuntime = null;
+  const rawBodyTaskType = body.task_type ?? body.taskType ?? null;
+  const useCodemode = shouldUseCodemodeForRequest(env, {
+    agentLikeTooling:
+      profile.mode === 'agent' || profile.mode === 'debug' || profile.mode === 'multitask',
+    resolvedRoutingTaskType: profile.routing_task_type,
+    rawBodyTaskType: rawBodyTaskType != null ? String(rawBodyTaskType) : '',
+  });
+  if (useCodemode) {
+    try {
+      const { hasImageGenerationIntent, hasVideoGenerationIntent } = await import(
+        '../../tools/image_generation.js'
+      );
+      codemodeRuntime = await getOrBuildCodemodeRuntime(env, {
+        workspaceId,
+        tenantId,
+        userId,
+        sessionId,
+      });
+      tools = buildHybridCodemodeManifest(tools, codemodeRuntime, {
+        browserDispatchToolsActive: /\b(browser|screenshot|navigate|playwright|cdt_)\b/i.test(
+          message,
+        ),
+        imageCapabilityIntent: hasImageGenerationIntent(message),
+        videoCapabilityIntent: hasVideoGenerationIntent(message),
+      });
+      console.info(
+        '[agent-controller] codemode_manifest',
+        JSON.stringify({ sidecar_count: tools.length, catalog_tools: codemodeRuntime.toolCount }),
+      );
+    } catch (e) {
+      console.warn('[agent-controller] codemode_build_failed', e?.message ?? e);
+    }
+  }
+
   const requireTools = tools.length > 0 || profile.tool_capable_required === true;
 
   const { buildSystemPrompt, runAgentToolLoop } = await import('../../api/agent.js');
@@ -447,6 +489,7 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
           runStartedAt: chatT0,
           maxRuntimeMs: maxRunMs,
           runtimeProfile: profile,
+          codemodeRuntime,
         }),
         maxRunMs + 5000,
       );

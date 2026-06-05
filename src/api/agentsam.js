@@ -132,6 +132,51 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
       return jsonResponse({ ok: true, workspace_id: workspaceId, plans: results || [] });
     }
 
+    const planMarkdownMatch = path.match(/^\/api\/agentsam\/plans\/([^/]+)\/markdown$/);
+    if (planMarkdownMatch && method === 'GET') {
+      if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
+      const planId = decodeURIComponent(planMarkdownMatch[1] || '').trim();
+      if (!planId) return jsonResponse({ error: 'plan_id required' }, 400);
+
+      let tenantId =
+        authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
+          ? String(authUser.tenant_id).trim()
+          : null;
+      if (!tenantId) tenantId = await fetchAuthUserTenantId(env, authUser.id);
+      if (!tenantId) tenantId = fallbackSystemTenantId(env);
+
+      const plan = await env.DB.prepare(
+        `SELECT id, tenant_id, title FROM agentsam_plans WHERE id = ? LIMIT 1`,
+      )
+        .bind(planId)
+        .first()
+        .catch(() => null);
+      if (!plan?.id) return jsonResponse({ error: 'plan not found' }, 404);
+      if (String(plan.tenant_id || '') !== tenantId) {
+        return jsonResponse({ error: 'Forbidden' }, 403);
+      }
+
+      const art = await env.DB.prepare(
+        `SELECT id, public_url, r2_key, name
+         FROM agentsam_artifacts
+         WHERE tenant_id = ? AND user_id = ?
+           AND metadata_json LIKE ?
+         ORDER BY created_at DESC LIMIT 1`,
+      )
+        .bind(tenantId, String(authUser.id || ''), `%"plan_id":"${planId}"%`)
+        .first()
+        .catch(() => null);
+
+      return jsonResponse({
+        ok: true,
+        plan_id: planId,
+        title: plan.title,
+        artifact_id: art?.id ?? null,
+        public_url: art?.public_url ?? null,
+        r2_key: art?.r2_key ?? null,
+      });
+    }
+
     const planTasksMatch = path.match(/^\/api\/agentsam\/plans\/([^/]+)\/tasks$/);
     if (planTasksMatch && method === 'GET') {
       if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);

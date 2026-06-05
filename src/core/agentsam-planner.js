@@ -14,7 +14,6 @@ import { resolveModelForTask } from './resolveModel.js';
 import { resolveCanonicalUserId } from '../api/auth.js';
 import { pragmaTableInfo } from './retention.js';
 import { createPlanExcalidrawArtifact, createPlanMarkdownArtifact } from './agentsam-plan-excalidraw-artifact.js';
-import { scheduleMirrorAgentChatPlanToSupabase } from './agentsam-plan-supabase-public-sync.js';
 import { insertAgentsamPlanRow } from './agentsam-plan-insert.js';
 
 export const AGENT_CHAT_PLAN_WORKFLOW_KEY = 'agent_chat_plan';
@@ -728,8 +727,6 @@ export async function createPlan(
       capability_type: cap,
     });
   }
-
-  scheduleMirrorAgentChatPlanToSupabase(env, ctx, wrun);
 
   let visual_map = null;
   let visual_map_error = null;

@@ -108,13 +108,6 @@ import { getAgentMetadata, logSkillInvocation,
 import { normalizeToolName } from '../tools/ai-dispatch.js';
 import { dispatchByToolCode } from '../core/dispatch-by-tool-code.js';
 import {
-  shouldUseCodemodeForRequest,
-  getOrBuildCodemodeRuntime,
-  buildHybridCodemodeManifest,
-  enqueueCodemodePendingActions,
-  CODEMODE_TOOL_NAME,
-} from '../core/codemode-agent-bridge.js';
-import {
   selectAgentsamToolsForAgentChat,
   selectAgentsamToolsForChatRuntime,
   loadAgentsamToolRow,
@@ -3828,6 +3821,151 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     }
 
     return jsonResponse({ ok: true });
+  }
+
+  // ── POST /api/agent/plan/intake/submit — Continue/Skip on Questions card (SSE → plan_created) ──
+  if (path === '/api/agent/plan/intake/submit' && method === 'POST') {
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    const body = await request.json().catch(() => ({}));
+    const batchId = String(body.batch_id ?? body.batchId ?? '').trim();
+    if (!batchId) return jsonResponse({ error: 'batch_id required' }, 400);
+
+    const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {}).catch(() => null);
+    const workspaceId =
+      (authUser.active_workspace_id != null && String(authUser.active_workspace_id).trim() !== ''
+        ? String(authUser.active_workspace_id).trim()
+        : null) ||
+      (wsRes && !wsRes.error && wsRes.workspaceId ? String(wsRes.workspaceId).trim() : null);
+    if (!workspaceId) return jsonResponse({ error: 'no_workspace', redirect: '/onboarding' }, 403);
+
+    let tenantId =
+      authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
+        ? String(authUser.tenant_id).trim()
+        : null;
+    if (!tenantId) tenantId = await fetchAuthUserTenantId(env, authUser.id);
+
+    const batch = await env.DB.prepare(
+      `SELECT id, tenant_id, workspace_id FROM agentsam_plan_intake_batches WHERE id = ? LIMIT 1`,
+    )
+      .bind(batchId)
+      .first()
+      .catch(() => null);
+    if (!batch?.id) return jsonResponse({ error: 'batch_not_found' }, 404);
+    if (String(batch.tenant_id || '') !== String(tenantId || '')) {
+      return jsonResponse({ error: 'Forbidden' }, 403);
+    }
+    if (String(batch.workspace_id || '') !== workspaceId) {
+      return jsonResponse({ error: 'workspace_mismatch' }, 403);
+    }
+
+    const uid = String(authUser.id || '').trim();
+    const { startPlanIntakeSubmitSseResponse } = await import('../core/plan-intake-stream.js');
+    return startPlanIntakeSubmitSseResponse(env, ctx, {
+      batchId,
+      selections: body.selections && typeof body.selections === 'object' ? body.selections : {},
+      optionalDetails: body.optional_details ?? body.optionalDetails ?? '',
+      skip: body.skip === true,
+      userId: uid,
+      workspaceId,
+      tenantId,
+      sessionId: body.sessionId ?? body.session_id ?? null,
+    });
+  }
+
+  // ── POST /api/agent/plan/revert — reset blocked tasks to todo (start over) ──
+  if (path === '/api/agent/plan/revert' && method === 'POST') {
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    const body = await request.json().catch(() => ({}));
+    const planId = String(body.plan_id ?? body.planId ?? '').trim();
+    if (!planId) return jsonResponse({ error: 'plan_id required' }, 400);
+
+    const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {}).catch(() => null);
+    const workspaceId =
+      (authUser.active_workspace_id != null && String(authUser.active_workspace_id).trim() !== ''
+        ? String(authUser.active_workspace_id).trim()
+        : null) ||
+      (wsRes && !wsRes.error && wsRes.workspaceId ? String(wsRes.workspaceId).trim() : null);
+    if (!workspaceId) return jsonResponse({ error: 'no_workspace', redirect: '/onboarding' }, 403);
+
+    let tenantId =
+      authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
+        ? String(authUser.tenant_id).trim()
+        : null;
+    if (!tenantId) tenantId = await fetchAuthUserTenantId(env, authUser.id);
+
+    const planRow = await env.DB.prepare(
+      `SELECT id, tenant_id, workspace_id FROM agentsam_plans WHERE id = ? LIMIT 1`,
+    )
+      .bind(planId)
+      .first()
+      .catch(() => null);
+    if (!planRow?.id) return jsonResponse({ error: 'plan_not_found' }, 404);
+    if (String(planRow.tenant_id || '') !== String(tenantId || '')) {
+      return jsonResponse({ error: 'Forbidden' }, 403);
+    }
+    if (String(planRow.workspace_id || '') !== workspaceId) {
+      return jsonResponse({ error: 'workspace_mismatch' }, 403);
+    }
+
+    const { revertAgentsamPlan } = await import('../core/agentsam-plan-refine.js');
+    const out = await revertAgentsamPlan(env, { planId, tenantId, workspaceId });
+    return jsonResponse({ ok: true, ...out });
+  }
+
+  // ── POST /api/agent/plan/refine — SSE refine existing plan from chat (@plan / refine plan) ──
+  if (path === '/api/agent/plan/refine' && method === 'POST') {
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    const body = await request.json().catch(() => ({}));
+    const planId = String(body.plan_id ?? body.planId ?? '').trim();
+    const refinement = String(body.refinement ?? body.message ?? '').trim();
+    if (!planId) return jsonResponse({ error: 'plan_id required' }, 400);
+    if (!refinement) return jsonResponse({ error: 'refinement required' }, 400);
+
+    const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {}).catch(() => null);
+    const workspaceId =
+      (authUser.active_workspace_id != null && String(authUser.active_workspace_id).trim() !== ''
+        ? String(authUser.active_workspace_id).trim()
+        : null) ||
+      (wsRes && !wsRes.error && wsRes.workspaceId ? String(wsRes.workspaceId).trim() : null);
+    if (!workspaceId) return jsonResponse({ error: 'no_workspace', redirect: '/onboarding' }, 403);
+
+    let tenantId =
+      authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
+        ? String(authUser.tenant_id).trim()
+        : null;
+    if (!tenantId) tenantId = await fetchAuthUserTenantId(env, authUser.id);
+
+    const planRow = await env.DB.prepare(
+      `SELECT id, tenant_id, workspace_id FROM agentsam_plans WHERE id = ? LIMIT 1`,
+    )
+      .bind(planId)
+      .first()
+      .catch(() => null);
+    if (!planRow?.id) return jsonResponse({ error: 'plan_not_found' }, 404);
+    if (String(planRow.tenant_id || '') !== String(tenantId || '')) {
+      return jsonResponse({ error: 'Forbidden' }, 403);
+    }
+    if (String(planRow.workspace_id || '') !== workspaceId) {
+      return jsonResponse({ error: 'workspace_mismatch' }, 403);
+    }
+
+    const uid = String(authUser.id || '').trim();
+    const { startPlanRefineSseResponse } = await import('../core/plan-refine-stream.js');
+    return startPlanRefineSseResponse(env, ctx, {
+      planId,
+      refinement,
+      userId: uid,
+      workspaceId,
+      tenantId,
+      sessionId: body.sessionId ?? body.session_id ?? null,
+      planningSkillMarkdown: '',
+    });
   }
 
   // ── POST /api/agent/plan/execute — run agentsam_plan_tasks (SSE) ──

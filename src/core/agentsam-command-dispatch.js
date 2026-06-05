@@ -75,6 +75,11 @@ export async function dispatchAgentsamCommand(env, cmdRow, args = {}, runContext
       );
     }
     case 'in_app': {
+      const inAppKey = String(toolKey || mappedCommand || slug || '').trim().toLowerCase();
+      if (inAppKey.startsWith('plan.') || inAppKey === 'plan') {
+        const { dispatchInAppPlanCommand } = await import('./plan-on-demand.js');
+        return dispatchInAppPlanCommand(env, null, inAppKey, args, runContext);
+      }
       const { dispatchInAppThreadCommand } = await import('./thread-on-demand.js');
       return dispatchInAppThreadCommand(env, null, toolKey || mappedCommand || slug, args, runContext);
     }

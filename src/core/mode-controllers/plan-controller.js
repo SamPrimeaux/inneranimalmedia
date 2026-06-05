@@ -2,6 +2,15 @@ import { jsonResponse } from '../responses.js';
 import { runtimeContextPayload, legacyContextPayload } from './runtime-context.js';
 import { executeRwsSpawnFanout, shouldRunRwsFanout } from '../rws-spawn-fanout.js';
 import { hydrateSkillRowFromR2 } from '../agentsam-skill-r2.js';
+import {
+  formatPlanIntakeQuestionsForUi,
+  generatePlanIntakeQuestions,
+  insertPlanIntakeBatch,
+  newPlanIntakeBatchId,
+  runPlanIntakeExplore,
+  supersedePendingBatchesForSession,
+} from '../agentsam-plan-intake.js';
+import { scheduleMirrorAgentsamPlanEmbeddingToSupabase } from '../agentsam-plan-supabase-public-sync.js';
 
 const SSE_HEADERS = {
   'Content-Type': 'text/event-stream',
@@ -35,10 +44,102 @@ async function loadPlanModeSkillMarkdown(env) {
 }
 
 /**
+ * @param {{ plan_title?: string, tasks?: Array<{ title?: string }>, goal?: string }} plan
+ * @param {string} goal
+ */
+function buildPlanSummaryText(plan, goal) {
+  const title = String(plan?.plan_title || '').trim();
+  const tasks = Array.isArray(plan?.tasks) ? plan.tasks : [];
+  const taskHint = tasks
+    .slice(0, 3)
+    .map((t) => String(t?.title || '').trim())
+    .filter(Boolean)
+    .join('; ');
+  if (title && taskHint) return `${title} — ${taskHint}${tasks.length > 3 ? '…' : ''}`;
+  if (title) return title;
+  return String(goal || 'Plan').slice(0, 240);
+}
+
+/**
+ * @param {any} env
+ * @param {any} ctx
+ * @param {(type: string, payload: Record<string, unknown>) => void} emit
+ * @param {{
+ *   message: string,
+ *   userId: string|null,
+ *   tenantId: string|null,
+ *   workspaceId: string|null,
+ *   sessionId: string|null,
+ *   planningSkillMarkdown: string,
+ * }} input
+ */
+async function runPlanCreationPipeline(env, ctx, emit, input) {
+  const { createPlan, startAgentChatPlanWorkflowRun } = await import('../agentsam-planner.js');
+
+  const wfBoot = await startAgentChatPlanWorkflowRun(env, {
+    tenantId: input.tenantId,
+    workspaceId: input.workspaceId,
+    userId: input.userId,
+    sessionId: input.sessionId,
+    goal: input.message,
+  });
+
+  const plan = await createPlan(env, {
+    goal: input.message,
+    userId: input.userId,
+    workspaceId: input.workspaceId,
+    tenantId: input.tenantId,
+    sessionId: input.sessionId,
+    workflowRunId: wfBoot.workflowRunId,
+    ctx,
+    planningSkillMarkdown: input.planningSkillMarkdown,
+  });
+
+  const planId = plan.plan_id;
+  const r2Url = plan.plan_markdown?.public_url ? String(plan.plan_markdown.public_url).trim() : '';
+  const filename = `plan-${planId}.md`;
+
+  if (r2Url) {
+    emit('monaco_file_generated', {
+      type: 'monaco_file_generated',
+      surface: 'monaco',
+      plan_id: planId,
+      filename,
+      path: `plans/${filename}`,
+      language: 'markdown',
+      r2_url: r2Url,
+    });
+  }
+
+  const summary = buildPlanSummaryText(plan, input.message);
+  scheduleMirrorAgentsamPlanEmbeddingToSupabase(env, ctx, {
+    planId,
+    tenantId: input.tenantId,
+    workspaceId: input.workspaceId,
+    title: plan.plan_title,
+    summary,
+    r2Url,
+  });
+
+  emit('plan_created', {
+    plan_id: planId,
+    plan_title: plan.plan_title,
+    workflow_run_id: plan.workflow_run_id,
+    task_count: plan.tasks.length,
+    auto_execute: false,
+    summary,
+    plan_markdown: plan.plan_markdown ?? null,
+  });
+
+  emit('text', {
+    text: `**${plan.plan_title || 'Plan'}** — ${summary}. Edit the plan in the editor, then use **Run plan** when ready.`,
+  });
+}
+
+/**
  * Plan controller
  * - execution_kind: plan_pipeline
- * - writes: never
- * - end state: plan_created then stop (no auto-execute)
+ * - explore → optional Questions batch → createPlan (via intake submit)
  *
  * @param {any} env
  * @param {any} ctx
@@ -46,6 +147,9 @@ async function loadPlanModeSkillMarkdown(env) {
  */
 export async function executePlanTurn(env, ctx, input) {
   const profile = input.profile;
+  const body = /** @type {Record<string, unknown>} */ (input.body || {});
+  const refinePlanId = String(body.plan_id ?? body.planId ?? '').trim();
+  const isRefine = body.refine_plan === true || body.refinePlan === true;
   if (profile.execution_kind !== 'plan_pipeline') {
     return jsonResponse(
       { error: 'plan_controller_execution_kind_mismatch', execution_kind: profile.execution_kind },
@@ -57,6 +161,25 @@ export async function executePlanTurn(env, ctx, input) {
   }
 
   const message = String(input.message || '');
+  if (isRefine && refinePlanId && message) {
+    const session = input.session || {};
+    const userId = session.userId != null ? String(session.userId) : null;
+    const tenantId = session.tenantId != null ? String(session.tenantId) : null;
+    const workspaceId = session.workspaceId != null ? String(session.workspaceId) : null;
+    const sessionId = session.sessionId != null ? String(session.sessionId) : null;
+    const skillLoad = await loadPlanModeSkillMarkdown(env);
+    const { startPlanRefineSseResponse } = await import('../plan-refine-stream.js');
+    return startPlanRefineSseResponse(env, ctx, {
+      planId: refinePlanId,
+      refinement: message,
+      userId,
+      tenantId,
+      workspaceId,
+      sessionId,
+      planningSkillMarkdown: skillLoad.markdown,
+    });
+  }
+
   const session = input.session || {};
   const userId = session.userId != null ? String(session.userId) : null;
   const tenantId = session.tenantId != null ? String(session.tenantId) : null;
@@ -77,7 +200,6 @@ export async function executePlanTurn(env, ctx, input) {
 
   (async () => {
     try {
-      const { createPlan, startAgentChatPlanWorkflowRun } = await import('../agentsam-planner.js');
       const skillLoad = await loadPlanModeSkillMarkdown(env);
       if (skillLoad.skill_ids.length) {
         emit('skills_loaded', {
@@ -85,52 +207,85 @@ export async function executePlanTurn(env, ctx, input) {
           route_key: 'plan',
           task_type: 'plan_pipeline',
         });
-        console.info(
-          '[plan-controller] skills_loaded',
-          JSON.stringify({ skill_ids: skillLoad.skill_ids, chars: skillLoad.markdown.length }),
-        );
       }
 
-      emit('plan_thinking', { message: 'Breaking down your goal into tasks...' });
+      emit('plan_explore_start', { message: 'Exploring codebase and context…' });
+      emit('plan_thinking', { message: 'Exploring codebase and context…' });
 
-      const wfBoot = await startAgentChatPlanWorkflowRun(env, {
-        tenantId,
-        workspaceId,
-        userId,
-        sessionId,
+      const explore = await runPlanIntakeExplore(env, {
         goal: message,
+        workspaceId: workspaceId || '',
+        intent: 'mixed',
       });
 
-      const plan = await createPlan(env, {
-        goal: message,
-        userId,
-        workspaceId,
-        tenantId,
-        sessionId,
-        workflowRunId: wfBoot.workflowRunId,
-        ctx,
-        planningSkillMarkdown: skillLoad.markdown,
-      });
+      for (const step of explore.steps || []) {
+        emit('plan_explore_step', {
+          kind: step.kind || 'file',
+          label: step.label || '',
+          lane: step.lane || null,
+        });
+      }
 
-      emit('plan_created', {
-        plan_id: plan.plan_id,
-        plan_title: plan.plan_title,
-        workflow_run_id: plan.workflow_run_id,
-        task_count: plan.tasks.length,
-        auto_execute: false,
-        tasks: plan.tasks.map((t) => ({
-          id: t.id,
-          title: t.title,
-          order_index: t.order_index,
-          parent_task_id: t.parent_task_id ?? null,
-          status: 'todo',
+      emit('plan_explore_progress', {
+        files_searched: explore.files_searched,
+        searches: explore.searches,
+        synthesis: explore.synthesis,
+        message: explore.synthesis,
+        findings: (explore.findings || []).slice(0, 8).map((f) => ({
+          path: f.path,
+          title: f.title,
+          lane: f.lane,
         })),
-        visual_map: plan.visual_map ?? null,
-        plan_markdown: plan.plan_markdown ?? null,
       });
 
-      emit('text', {
-        text: '_Plan ready. Use **Run plan** to execute tasks without switching modes._',
+      const intake = await generatePlanIntakeQuestions(env, {
+        goal: message,
+        explore,
+        phase: 'pre_plan',
+        userId,
+      });
+
+      if (intake.needs_questions) {
+        await supersedePendingBatchesForSession(env, { workspaceId, sessionId });
+        const batchId = newPlanIntakeBatchId();
+        const questionsUi = formatPlanIntakeQuestionsForUi(intake.questions);
+
+        await insertPlanIntakeBatch(env, {
+          id: batchId,
+          tenant_id: tenantId || env?.TENANT_ID || '',
+          workspace_id: workspaceId || '',
+          user_id: userId,
+          session_id: sessionId,
+          phase: 'pre_plan',
+          status: 'pending',
+          goal_text: message,
+          explore_summary_json: JSON.stringify({ ...explore, synthesis: intake.synthesis }),
+          questions_json: JSON.stringify(intake.questions),
+        });
+
+        emit('plan_questions_batch', {
+          batch_id: batchId,
+          phase: 'pre_plan',
+          explore_summary: {
+            synthesis: intake.synthesis || explore.synthesis,
+            files_searched: explore.files_searched,
+            searches: explore.searches,
+          },
+          questions: questionsUi,
+          allow_skip: true,
+        });
+        emit('done', {});
+        return;
+      }
+
+      emit('plan_thinking', { message: 'Creating plan…' });
+      await runPlanCreationPipeline(env, ctx, emit, {
+        message,
+        userId,
+        tenantId,
+        workspaceId,
+        sessionId,
+        planningSkillMarkdown: skillLoad.markdown,
       });
       emit('done', {});
     } catch (e) {

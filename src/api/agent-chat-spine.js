@@ -26,6 +26,7 @@ import {
   scheduleWorkspaceStateConversationUpdate,
 } from '../core/agentsam-chat-sessions.js';
 import { loadProjectContextSystemBlock } from '../core/project-context-budget.js';
+import { normalizePlanModeMessage } from '../core/plan-mode-utils.js';
 
 const SSE_HEADERS = {
   'Content-Type': 'text/event-stream',
@@ -43,7 +44,16 @@ const SSE_HEADERS = {
  */
 export async function executeAgentChatSpine(env, request, ctx, pre) {
   const body = /** @type {Record<string, unknown>} */ (pre.body || {});
-  const message = String(pre.message || '').trim();
+  const rawMessage = String(pre.message || '').trim();
+  const planNorm = normalizePlanModeMessage(rawMessage, body);
+  const message = planNorm.message;
+  if (planNorm.forcePlan) {
+    body.force_plan_mode = true;
+  }
+  if (planNorm.refinePlanId) {
+    body.plan_id = planNorm.refinePlanId;
+    body.refine_plan = true;
+  }
   const tenantId = pre.tenantId != null ? String(pre.tenantId) : null;
   let userId = pre.userId != null ? String(pre.userId) : null;
   if (userId) {
@@ -65,7 +75,8 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
 
   // NOTE: requestedMode is only used to compile the immutable RuntimeProfile.
   // Dispatch must always use profile.mode_controller.
-  const requestedMode = normalizeAgentRuntimeMode(pre.requestedMode ?? body.mode);
+  let requestedMode = normalizeAgentRuntimeMode(pre.requestedMode ?? body.mode);
+  if (planNorm.forcePlan) requestedMode = 'plan';
 
   const rawModel =
     body.model ?? body.model_key ?? body.modelKey ?? pre.handoffResume?.fallbackModelKey ?? null;

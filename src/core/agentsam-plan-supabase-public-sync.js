@@ -1,8 +1,9 @@
 /**
- * Mirrors D1 agent_chat_plan workflow runs and plan rows to Supabase agentsam.* tables
- * via Hyperdrive SQL (no PostgREST).
+ * Mirrors D1 agent_chat_plan workflow runs to Supabase agentsam.* tables via Hyperdrive.
+ * Plan rows: embed-only upsert into agentsam.agentsam_plans (summary + vector + r2_url).
  */
 
+import { createAgentsamEmbedding } from './agentsam-vectorize.js';
 import { patchD1WorkflowRunSupabaseMirrorState } from './agentsam-supabase-sync.js';
 import { isHyperdriveUsable, runHyperdriveQuery, runHyperdriveTransaction } from './hyperdrive-query.js';
 import {
@@ -14,6 +15,19 @@ import {
 
 const WORKFLOW_KEY = 'agent_chat_plan';
 const WORKFLOW_D1_ID = 'wf_agent_chat_plan';
+const PLAN_EMBED_SPEC = Object.freeze({
+  provider: 'openai',
+  model: 'text-embedding-3-large',
+  dimensions: 1536,
+});
+const PLAN_EMBED_MODEL = 'text-embedding-3-large';
+const PLAN_EMBED_DIMS = 1536;
+
+/** @param {number[]} embedding */
+function planVectorLiteral(embedding) {
+  if (!Array.isArray(embedding) || !embedding.length) throw new Error('embedding required');
+  return `[${embedding.join(',')}]`;
+}
 
 function j(value, fallback) {
   try {
@@ -223,49 +237,153 @@ async function hyperdriveUpsertPlanRows(env, planRow, taskRows) {
   return { ok: true };
 }
 
-export async function mirrorAgentsamD1PlanToSupabasePublic(env, planId) {
-  const pid = String(planId || '').trim();
+/**
+ * Embed-only upsert for semantic plan search (D1 remains source of truth).
+ * @param {any} env
+ * @param {{
+ *   planId: string,
+ *   tenantId?: string | null,
+ *   workspaceId?: string | null,
+ *   title?: string | null,
+ *   summary?: string | null,
+ *   r2Url?: string | null,
+ * }} opts
+ * @returns {Promise<{ ok: boolean, error?: string, skipped?: boolean }>}
+ */
+export async function mirrorAgentsamPlanEmbeddingToSupabase(env, opts) {
+  const planId = String(opts?.planId || '').trim();
+  if (!planId) return { ok: false, error: 'missing_plan_id' };
+  if (!isHyperdriveUsable(env)) return { ok: false, error: 'hyperdrive_unavailable', skipped: true };
+
   const db = env?.DB;
-  if (!pid || !db) return { ok: false, error: 'missing_db_or_plan' };
-  if (!isHyperdriveUsable(env)) return { ok: false, error: 'hyperdrive_unavailable' };
+  let title = String(opts?.title || '').trim();
+  let summary = String(opts?.summary || '').trim();
+  let tenantId = opts?.tenantId != null ? String(opts.tenantId).trim() : '';
+  let workspaceId = opts?.workspaceId != null ? String(opts.workspaceId).trim() : '';
+  let r2Url = opts?.r2Url != null ? String(opts.r2Url).trim() : '';
+
+  if (db) {
+    try {
+      const plan = await db.prepare(`SELECT * FROM agentsam_plans WHERE id = ? LIMIT 1`).bind(planId).first();
+      if (plan?.id) {
+        if (!title) title = String(plan.title || 'Plan').trim();
+        if (!tenantId) tenantId = String(plan.tenant_id || env?.TENANT_ID || '').trim();
+        if (!workspaceId) workspaceId = String(plan.workspace_id || '').trim();
+        if (!summary) {
+          const { results: taskRows } = await db
+            .prepare(`SELECT title FROM agentsam_plan_tasks WHERE plan_id = ? ORDER BY order_index ASC LIMIT 4`)
+            .bind(planId)
+            .all();
+          const hints = (taskRows || []).map((t) => String(t.title || '').trim()).filter(Boolean);
+          summary = hints.length ? `${title} — ${hints.join('; ')}` : title;
+        }
+      }
+      if (!r2Url) {
+        const art = await db
+          .prepare(
+            `SELECT public_url FROM agentsam_artifacts
+             WHERE metadata_json LIKE ? AND artifact_type = 'markdown'
+             ORDER BY created_at DESC LIMIT 1`,
+          )
+          .bind(`%"plan_id":"${planId}"%`)
+          .first()
+          .catch(() => null);
+        if (art?.public_url) r2Url = String(art.public_url).trim();
+      }
+    } catch {
+      /* non-fatal D1 enrichment */
+    }
+  }
+
+  summary = summary || title || planId;
+  if (!summary.trim()) return { ok: false, error: 'missing_summary', skipped: true };
 
   try {
-    const plan = await db.prepare(`SELECT * FROM agentsam_plans WHERE id = ? LIMIT 1`).bind(pid).first();
-    if (!plan?.id) return { ok: false, error: 'plan_not_found' };
+    const { embedding, model } = await createAgentsamEmbedding(env, summary, { spec: PLAN_EMBED_SPEC });
+    const vector = planVectorLiteral(embedding);
+    const nowIso = new Date().toISOString();
+    const planDate = nowIso.slice(0, 10);
+    const embedModel = String(model || PLAN_EMBED_MODEL);
 
-    const planRow = mapD1PlanToSupabasePublicRow(plan);
-    if (!planRow) return { ok: false, error: 'plan_map_failed' };
+    const sql = `
+      INSERT INTO agentsam.agentsam_plans (
+        id, plan_date, title, status, tenant_id, workspace_id,
+        summary, r2_url, embedding, embedding_model, embedding_dims, embedded_at,
+        created_at, updated_at
+      ) VALUES (
+        $1, $2, $3, 'active', $4, $5,
+        $6, $7, $8::vector(1536), $9, $10, $11::timestamptz,
+        $11::timestamptz, $11::timestamptz
+      )
+      ON CONFLICT (id) DO UPDATE SET
+        title = EXCLUDED.title,
+        status = EXCLUDED.status,
+        tenant_id = EXCLUDED.tenant_id,
+        workspace_id = EXCLUDED.workspace_id,
+        summary = EXCLUDED.summary,
+        r2_url = COALESCE(EXCLUDED.r2_url, agentsam.agentsam_plans.r2_url),
+        embedding = EXCLUDED.embedding,
+        embedding_model = EXCLUDED.embedding_model,
+        embedding_dims = EXCLUDED.embedding_dims,
+        embedded_at = EXCLUDED.embedded_at,
+        updated_at = EXCLUDED.updated_at`;
 
-    const { results: taskRowsRaw } = await db
-      .prepare(`SELECT * FROM agentsam_plan_tasks WHERE plan_id = ? ORDER BY order_index ASC, id ASC`)
-      .bind(pid)
-      .all();
-    const tasks = (taskRowsRaw || [])
-      .map((t) => mapD1PlanTaskToSupabasePublicRow(t))
-      .filter(Boolean);
-
-    return hyperdriveUpsertPlanRows(env, planRow, tasks);
+    const result = await runHyperdriveQuery(env, sql, [
+      planId,
+      planDate,
+      title || 'Plan',
+      tenantId || null,
+      workspaceId || null,
+      summary.slice(0, 4000),
+      r2Url || null,
+      vector,
+      embedModel,
+      PLAN_EMBED_DIMS,
+      nowIso,
+    ]);
+    if (!result.ok) return { ok: false, error: result.error || 'plan_embed_upsert_failed' };
+    return { ok: true };
   } catch (e) {
     const msg = e?.message != null ? String(e.message) : String(e);
-    return { ok: false, error: msg };
+    return { ok: false, error: msg, skipped: true };
   }
 }
 
+/** @deprecated Use mirrorAgentsamPlanEmbeddingToSupabase — kept for import compatibility. */
+export async function mirrorAgentsamD1PlanToSupabasePublic(env, planId) {
+  return mirrorAgentsamPlanEmbeddingToSupabase(env, { planId: String(planId || '').trim() });
+}
+
 /**
- * Fire-and-forget mirror of D1 plan + tasks to Supabase public tables.
+ * Fire-and-forget embed-only plan mirror (silent on expected skips).
  * @param {any} env
  * @param {any} ctx
- * @param {string} planId
+ * @param {string | { planId: string, tenantId?: string, workspaceId?: string, title?: string, summary?: string, r2Url?: string }} planIdOrOpts
  */
-export function scheduleMirrorAgentsamPlanToSupabasePublic(env, ctx, planId) {
-  const p = mirrorAgentsamD1PlanToSupabasePublic(env, planId).then((r) => {
-    if (!r.ok && r.error && r.error !== 'supabase_env_missing') {
-      console.warn('[scheduleMirrorAgentsamPlanToSupabasePublic]', planId, r.error);
-    }
-    return r;
-  });
-  if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(p.catch(() => {}));
-  else void p.catch(() => {});
+export function scheduleMirrorAgentsamPlanToSupabasePublic(env, ctx, planIdOrOpts) {
+  const opts =
+    planIdOrOpts && typeof planIdOrOpts === 'object'
+      ? planIdOrOpts
+      : { planId: String(planIdOrOpts || '').trim() };
+  scheduleMirrorAgentsamPlanEmbeddingToSupabase(env, ctx, opts);
+}
+
+/**
+ * @param {any} env
+ * @param {any} ctx
+ * @param {{
+ *   planId: string,
+ *   tenantId?: string | null,
+ *   workspaceId?: string | null,
+ *   title?: string | null,
+ *   summary?: string | null,
+ *   r2Url?: string | null,
+ * }} opts
+ */
+export function scheduleMirrorAgentsamPlanEmbeddingToSupabase(env, ctx, opts) {
+  const p = mirrorAgentsamPlanEmbeddingToSupabase(env, opts).catch(() => ({ ok: false }));
+  if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(p);
+  else void p;
 }
 
 function normalizeWorkspace(v) {
@@ -725,10 +843,7 @@ export async function mirrorAgentChatPlanD1RunToSupabasePublic(env, runId) {
     }
 
     if (plan?.id) {
-      const pm = await mirrorAgentsamD1PlanToSupabasePublic(env, String(plan.id));
-      if (!pm.ok) {
-        console.warn('[mirrorAgentChatPlanD1RunToSupabasePublic] agentsam_plans/tasks mirror:', pm.error);
-      }
+      await mirrorAgentsamPlanEmbeddingToSupabase(env, { planId: String(plan.id) }).catch(() => null);
     }
 
     await patchD1WorkflowRunSupabaseMirrorState(env, rid, { ok: true, supabaseRunId: run.id });

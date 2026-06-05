@@ -770,7 +770,48 @@ async function markPlanTaskSkipped(env, task, message, emit, cap) {
   });
 }
 
-async function markPlanTaskFailed(env, task, message, emit, cap) {
+/**
+ * @param {any} env
+ * @param {any} ctx
+ * @param {(type: string, payload: Record<string, unknown>) => void} emit
+ * @param {{
+ *   planId: string,
+ *   planTitle: string,
+ *   tenantId: string,
+ *   workspaceId: string,
+ *   userId?: string|null,
+ *   sessionId?: string|null,
+ *   workflowRunId?: string|null,
+ *   roadblockEmitted: { value: boolean },
+ * }} rb
+ * @param {Record<string, unknown>} task
+ * @param {string} msg
+ */
+async function maybeEmitPlanRoadblock(env, ctx, emit, rb, task, msg) {
+  if (rb.roadblockEmitted.value) return;
+  rb.roadblockEmitted.value = true;
+  try {
+    const { emitPlanRoadblockQuestions } = await import('./plan-intake-stream.js');
+    await emitPlanRoadblockQuestions(env, ctx, emit, {
+      planId: rb.planId,
+      workflowRunId: rb.workflowRunId ?? null,
+      tenantId: rb.tenantId,
+      workspaceId: rb.workspaceId,
+      userId: rb.userId ?? null,
+      sessionId: rb.sessionId ?? null,
+      goal: rb.planTitle || rb.planId,
+      roadblock: {
+        task_id: task.id,
+        task_title: task.title,
+        error: msg,
+      },
+    });
+  } catch (e) {
+    console.warn('[executePlan] roadblock questions', e?.message ?? e);
+  }
+}
+
+async function markPlanTaskFailed(env, task, message, emit, cap, roadblockCtx = null) {
   const msg = String(message || 'failed').slice(0, 4000);
   await env.DB.prepare(
     `UPDATE agentsam_plan_tasks SET status='blocked', completed_at=unixepoch(), output_summary=?, error_trace=? WHERE id=?`,
@@ -788,6 +829,16 @@ async function markPlanTaskFailed(env, task, message, emit, cap) {
     outputJson: JSON.stringify({ capability_type: cap, error: msg }),
     errorJson: JSON.stringify({ error: msg }),
   });
+  if (roadblockCtx?.ctx) {
+    await maybeEmitPlanRoadblock(
+      env,
+      roadblockCtx.ctx,
+      emit,
+      roadblockCtx,
+      task,
+      msg,
+    );
+  }
 }
 
 export async function executePlan(
@@ -850,6 +901,22 @@ export async function executePlan(
   }
 
   const { results: tasks } = await env.DB.prepare(taskSql).bind(...binds).all();
+
+  const planMeta = await env.DB.prepare(`SELECT title, workflow_run_id FROM agentsam_plans WHERE id = ? LIMIT 1`)
+    .bind(planId)
+    .first()
+    .catch(() => null);
+  const roadblockCtx = {
+    planId,
+    planTitle: String(planMeta?.title || planId),
+    tenantId,
+    workspaceId,
+    userId,
+    sessionId,
+    workflowRunId: wfRun ?? planMeta?.workflow_run_id ?? null,
+    roadblockEmitted: { value: false },
+    ctx,
+  };
 
   if (!tasks || tasks.length === 0) {
     emit('text', { text: onlyTaskId ? '[Agent Sam] No runnable plan task found for resume.' : '[Agent Sam] No pending plan tasks.' });
@@ -1120,7 +1187,7 @@ export async function executePlan(
         }
         if (!mergedFiles.length) {
           failed++;
-          await markPlanTaskFailed(env, task, 'monaco_edit: no files_involved paths to write', emit, cap);
+          await markPlanTaskFailed(env, task, 'monaco_edit: no files_involved paths to write', emit, cap, roadblockCtx);
           continue;
         }
 
@@ -1186,7 +1253,7 @@ Rules:
             '';
           if (!content) {
             failed++;
-            await markPlanTaskFailed(env, task, `Generation failed: ${relPath} (no generated content)`, emit, cap);
+            await markPlanTaskFailed(env, task, `Generation failed: ${relPath} (no generated content)`, emit, cap, roadblockCtx);
             editorFiles.length = 0;
             break;
           }
@@ -1510,6 +1577,14 @@ Rules:
           await patchPlanExecutionStep(env, task, 'failed', {
             outputJson: JSON.stringify({ error: String(output || '').slice(0, 2000) }),
           });
+          await maybeEmitPlanRoadblock(
+            env,
+            ctx,
+            emit,
+            roadblockCtx,
+            task,
+            String(output || '').slice(0, 2000),
+          );
           continue;
         }
 
@@ -1728,6 +1803,7 @@ Rules:
         await patchPlanExecutionStep(env, task, 'failed', {
           outputJson: JSON.stringify({ error: errMsg }),
         });
+        await maybeEmitPlanRoadblock(env, ctx, emit, roadblockCtx, task, errMsg);
       }
     } catch (e) {
       failed++;
@@ -1751,6 +1827,7 @@ Rules:
       await patchPlanExecutionStep(env, task, 'failed', {
         outputJson: JSON.stringify({ error: errMsg }),
       });
+      await maybeEmitPlanRoadblock(env, ctx, emit, roadblockCtx, task, errMsg);
     }
   }
 
