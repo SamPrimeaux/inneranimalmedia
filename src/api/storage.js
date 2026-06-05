@@ -506,6 +506,26 @@ export async function handleStorageApi(request, url, env) {
     });
   }
 
+  if (pathLower === '/api/storage/code-index/queue' && method === 'POST') {
+    const body = await request.json().catch(() => ({}));
+    const workspaceId =
+      body.workspace_id != null && String(body.workspace_id).trim() !== ''
+        ? String(body.workspace_id).trim()
+        : authUser.active_workspace_id != null && String(authUser.active_workspace_id).trim() !== ''
+          ? String(authUser.active_workspace_id).trim()
+          : null;
+    if (!workspaceId) return jsonResponse({ error: 'workspace_id required' }, 400);
+    const { queueCodeIndexJobAfterDeploy } = await import('../core/deploy-code-index-queue.js');
+    const result = await queueCodeIndexJobAfterDeploy(env, {
+      workspaceId,
+      triggeredBy: body.binding_name ? `storage:${String(body.binding_name).trim()}` : 'storage_reindex',
+    });
+    if (!result.ok && !result.skipped) {
+      return jsonResponse({ error: result.error || 'queue_failed', ...baseMeta }, 500);
+    }
+    return jsonResponse({ ok: true, queued: true, ...result, ...baseMeta });
+  }
+
   // ── Vectors: platform operator CF/pgvector vs tenant workspace lanes ──
   if (pathLower === '/api/storage/vectors' && method === 'GET') {
     if (!env.DB) {
