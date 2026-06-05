@@ -4,19 +4,16 @@
  * Fully theme-variable-driven. No hardcoded colors.
  */
 
-import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Mic, MicOff, Camera, CameraOff, MonitorUp, ScreenShareOff,
   PhoneOff, MessageSquare, Users, Sparkles, Copy, Send,
   Loader2, Radio, Video, Mail, Plus, ChevronDown,
   FileText, CheckSquare, AlignLeft, Circle, Settings,
-  BarChart2, Layout, Pin,
+  BarChart2, Pin,
   Maximize2, Volume2, VolumeX, Bot,
 } from 'lucide-react';
 import { MeetCtxValue } from '../src/MeetContext';
-const ExcalidrawView = lazy(() =>
-  import('./ExcalidrawView').then((m) => ({ default: m.ExcalidrawView })),
-);
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -291,8 +288,6 @@ function MeetLegacyPage({ onContextReady }: { onContextReady?: (ctx: MeetCtxValu
   const [screenStreamState, setScreenStreamState] = useState<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordingChunks = useRef<Blob[]>([]);
-  const [showDraw, setShowDraw] = useState(false);
-  const [drawOpacity, setDrawOpacity] = useState(70);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
 
   const [participants, setParticipants] = useState<Participant[]>([]);
@@ -349,12 +344,11 @@ function MeetLegacyPage({ onContextReady }: { onContextReady?: (ctx: MeetCtxValu
       setParticipants, setAudioOn, setVideoOn, setScreenOn, setRecording,
       toggleAudio, toggleVideo, toggleScreen,
       endCall: () => endCall(),
-      showDraw, setShowDraw, drawOpacity, setDrawOpacity,
       runAiStudio,
       aiStudioOpen, aiStudioResult,
       showInvite, setShowInvite,
     });
-  }, [phase, roomId, participants, audioOn, videoOn, screenOn, recording, showDraw, drawOpacity, aiStudioOpen, aiStudioResult, showInvite]);
+  }, [phase, roomId, participants, audioOn, videoOn, screenOn, recording, aiStudioOpen, aiStudioResult, showInvite]);
 
   useEffect(() => {
     if (!showNewMeetingMenu) return;
@@ -1185,14 +1179,6 @@ function MeetLegacyPage({ onContextReady }: { onContextReady?: (ctx: MeetCtxValu
             )}
           </div>
 
-          {showDraw && (
-            <div className="draw-overlay" style={{ '--draw-opacity': `${drawOpacity / 100}` } as any}>
-              <Suspense fallback={<div className="draw-overlay-loading">Loading canvas…</div>}>
-                <ExcalidrawView />
-              </Suspense>
-            </div>
-          )}
-
           {/* ── RIGHT PANEL ── */}
           {rightPanelOpen && (
             <div className="meet-right">
@@ -1307,10 +1293,6 @@ function MeetLegacyPage({ onContextReady }: { onContextReady?: (ctx: MeetCtxValu
               <span>Chat</span>
               {unread > 0 && <span className="ctrl-unread">{unread}</span>}
             </button>
-            <button className={`ctrl ${showDraw ? 'ctrl-active' : ''}`} onClick={() => setShowDraw(v => !v)}>
-              <Layout size={18} />
-              <span>Draw</span>
-            </button>
           </div>
           <div className="toolbar-right">
             <button className="ctrl-leave" onClick={() => endCall()}>
@@ -1398,14 +1380,6 @@ function MeetCSS() {
         position: relative;
         display: flex; flex: 1; overflow: hidden;
       }
-
-      .draw-overlay {
-        position: absolute; inset: 0; z-index: 40;
-        opacity: var(--draw-opacity, 0.7);
-        pointer-events: auto;
-        background: transparent;
-      }
-      .draw-overlay > * { width: 100%; height: 100%; }
 
       /* ─ Left panel ─ */
       .meet-left {

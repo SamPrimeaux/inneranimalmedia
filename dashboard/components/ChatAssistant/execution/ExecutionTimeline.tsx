@@ -11,6 +11,8 @@ import { ToolTraceRow } from './ToolTraceRow';
 export type ExecutionTimelineProps = {
   rows: AgentToolTraceRow[];
   mode?: AgentMode;
+  /** Mobile: plain rows — details collapsed behind text links. */
+  compact?: boolean;
   onDismissRow?: (id: string) => void;
   onClear?: () => void;
 };
@@ -18,15 +20,15 @@ export type ExecutionTimelineProps = {
 export const ExecutionTimeline: React.FC<ExecutionTimelineProps> = ({
   rows,
   mode = 'agent',
+  compact = false,
   onDismissRow,
   onClear,
 }) => {
   if (!rows.length) return null;
   return (
-    <div className="mt-3 space-y-2 border-t border-[var(--dashboard-border)]/80 pt-3" aria-label="Execution timeline">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">Execution</span>
-        {onClear && (
+    <div className="mt-2 space-y-0.5 min-w-0" aria-label="Execution timeline">
+      {onClear ? (
+        <div className="flex justify-end pb-0.5">
           <button
             type="button"
             className="text-[10px] text-[var(--text-muted)] hover:text-[var(--solar-cyan)]"
@@ -34,14 +36,15 @@ export const ExecutionTimeline: React.FC<ExecutionTimelineProps> = ({
           >
             Clear
           </button>
-        )}
-      </div>
-      <div className="space-y-2">
+        </div>
+      ) : null}
+      <div className="space-y-0.5">
         {rows.map((row) => (
           <ToolTraceRow
             key={row.id}
             row={row}
             mode={mode}
+            compact={compact}
             onDismiss={onDismissRow ? () => onDismissRow(row.id) : undefined}
           />
         ))}

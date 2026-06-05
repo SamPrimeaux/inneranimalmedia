@@ -290,7 +290,15 @@ export type ConsumeAgentChatSseContext = {
   loadSessions: () => void;
   onThinkingEvent?: (event: { type: string; tool_name?: string; text?: string; ok?: boolean; output_preview?: string; command_run_id?: string; approval_id?: string; plan_id?: string }) => void;
   /** Multitask/subagent structured events (fanout start, run progress, merge/result, action required). */
-  onSubagentEvent?: (event: { type: string; fanout_id?: string; subagent_slug?: string; status?: string }) => void;
+  onSubagentEvent?: (event: {
+    type: string;
+    fanout_id?: string;
+    subagent_slug?: string;
+    subagent_run_id?: string;
+    status?: string;
+    conversation_id?: string;
+    task_title?: string;
+  }) => void;
   /** First SSE context payload — lifts `agentsam_agent_run.id` to host (BrowserView playwright metadata). */
   onAgentRunContext?: (agentRunId: string | null) => void;
   onBrowserNavigate?: (event: {
@@ -523,11 +531,27 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
           const fanoutId = typeof d.fanout_id === 'string' ? d.fanout_id.trim() : '';
           const slug = typeof d.subagent_slug === 'string' ? d.subagent_slug.trim() : '';
           const status = typeof d.status === 'string' ? d.status.trim() : '';
+          const subagentRunId = typeof d.subagent_run_id === 'string' ? d.subagent_run_id.trim() : '';
+          const conversationId =
+            typeof d.conversation_id === 'string'
+              ? d.conversation_id.trim()
+              : typeof d.session_id === 'string'
+                ? d.session_id.trim()
+                : '';
+          const taskTitle =
+            typeof (d.task as { title?: string } | undefined)?.title === 'string'
+              ? String((d.task as { title?: string }).title).trim()
+              : typeof d.task_title === 'string'
+                ? d.task_title.trim()
+                : '';
           onSubagentEvent?.({
             type: evType,
             fanout_id: fanoutId || undefined,
             subagent_slug: slug || undefined,
+            subagent_run_id: subagentRunId || undefined,
             status: status || undefined,
+            conversation_id: conversationId || undefined,
+            task_title: taskTitle || undefined,
           });
           const line = (() => {
             if (evType === 'agentsam_subagent_fanout_started')
@@ -998,6 +1022,8 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             type: string;
             plan_title?: string;
             plan_id?: string;
+            approval_id?: string;
+            auto_execute?: boolean;
             workflow_run_id?: string;
             task_count?: number;
             visual_map?: { artifact_id: string; r2_key?: string; public_url: string } | null;
@@ -1094,22 +1120,34 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
               ...(plan_markdown ? { plan_markdown } : {}),
             };
           }
+          const planProposal =
+            d.auto_execute === false && pid
+              ? {
+                  plan_id: pid,
+                  approval_id: String((d as { approval_id?: string }).approval_id || '').trim(),
+                  plan_title: d.plan_title,
+                  message: 'Plan ready — review tasks and build when ready.',
+                  tasks: planTasks.map((t) => ({ title: t.title, order_index: t.order_index })),
+                }
+              : null;
           setMessages((prev) => {
             const last = [...prev];
             const idx = last.length - 1;
             if (idx >= 0 && last[idx].role === 'assistant') {
               last[idx] = {
                 ...last[idx],
-                content: assistantContent,
+                content: assistantContent || (planProposal ? planProposal.message || '' : ''),
                 implementationPlan: chip ?? null,
                 executionPlan,
+                ...(planProposal ? { planConfirmation: planProposal } : {}),
               };
             } else {
               last.push({
                 role: 'assistant',
-                content: assistantContent,
+                content: assistantContent || (planProposal ? planProposal.message || '' : ''),
                 ...(chip ? { implementationPlan: chip } : {}),
                 executionPlan,
+                ...(planProposal ? { planConfirmation: planProposal } : {}),
               });
             }
             return last;
@@ -1121,15 +1159,83 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             type: string;
             approval_id?: string;
             plan_id?: string;
+            plan_title?: string;
             summary?: string;
+            message?: string;
             tasks?: Array<{ title: string; order_index: number }>;
           };
           onThinkingEvent?.({
             type: 'plan_confirmation_required',
             approval_id: d.approval_id ?? '',
             plan_id: d.plan_id ?? '',
-            text: d.summary ?? 'Review the plan and confirm to continue.',
+            text: d.summary ?? d.message ?? 'Review the plan and confirm to continue.',
           });
+          setMessages((prev) => {
+            const next = [...prev];
+            const idx = next.length - 1;
+            const bubble: (typeof next)[number] = {
+              role: 'assistant',
+              content: d.message || d.summary || 'Plan ready for review.',
+              planConfirmation: {
+                plan_id: String(d.plan_id || '').trim(),
+                approval_id: String(d.approval_id || '').trim(),
+                plan_title: d.plan_title,
+                message: d.message || d.summary,
+                tasks: d.tasks,
+              },
+            };
+            if (idx >= 0 && next[idx].role === 'assistant' && !next[idx].content.trim()) {
+              next[idx] = { ...next[idx], ...bubble };
+            } else {
+              next.push(bubble);
+            }
+            return next;
+          });
+          continue;
+        }
+        if (
+          data &&
+          typeof data === 'object' &&
+          ['needs_input', 'agent_question', 'clarification_required', 'user_question'].includes(
+            String((data as { type?: string }).type || ''),
+          )
+        ) {
+          const d = data as {
+            type: string;
+            question?: string;
+            text?: string;
+            message?: string;
+            options?: string[];
+            choices?: string[];
+            question_id?: string;
+          };
+          const questionText = String(d.question || d.text || d.message || '').trim();
+          const options = Array.isArray(d.options)
+            ? d.options.map((o) => String(o).trim()).filter(Boolean)
+            : Array.isArray(d.choices)
+              ? d.choices.map((o) => String(o).trim()).filter(Boolean)
+              : undefined;
+          if (questionText) {
+            setMessages((prev) => {
+              const next = [...prev];
+              const idx = next.length - 1;
+              const bubble: (typeof next)[number] = {
+                role: 'assistant',
+                content: questionText,
+                agentQuestion: {
+                  question: questionText,
+                  options: options?.length ? options : undefined,
+                  questionId: typeof d.question_id === 'string' ? d.question_id : undefined,
+                },
+              };
+              if (idx >= 0 && next[idx].role === 'assistant' && !next[idx].content.trim()) {
+                next[idx] = { ...next[idx], ...bubble };
+              } else {
+                next.push(bubble);
+              }
+              return next;
+            });
+          }
           continue;
         }
         if (data && typeof data === 'object' && (data as { type?: string }).type === 'plan_execute_start') {

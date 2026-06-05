@@ -33,11 +33,6 @@ export interface MeetCtxValue {
   toggleVideo: () => void;
   toggleScreen: () => void;
   endCall: () => void;
-  // Draw
-  showDraw: boolean;
-  setShowDraw: (v: boolean) => void;
-  drawOpacity: number;
-  setDrawOpacity: (v: number) => void;
   // AI Studio
   runAiStudio: (item: string) => void;
   aiStudioOpen: string | null;

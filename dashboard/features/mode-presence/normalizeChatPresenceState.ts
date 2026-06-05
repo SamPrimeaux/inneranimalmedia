@@ -1,5 +1,6 @@
 import type { AgentMode } from '../../components/ChatAssistant/types';
 import type { AgentPresenceState as ModePresenceState } from './agentModePresenceMap';
+import { modeDefaultStateMap } from './agentModePresenceMap';
 
 /** Map runtime / SSE / deriveAgentPresence states → mode-presence canonical state. */
 export function normalizeChatPresenceState(
@@ -21,6 +22,38 @@ export function normalizeChatPresenceState(
     return 'approval_required';
   }
 
+  // Mode-scoped resolution before generic fallbacks.
+  if (m === 'plan') {
+    if (raw === 'planning' || raw === 'thinking') return 'mapping';
+    if (raw === 'task_queue' || raw === 'plan_progress') return 'task_stack';
+    if (raw === 'handoff_ready') return 'handoff_ready';
+    if (raw === 'mapping' || raw === 'task_stack' || raw === 'risk_scan') return raw as ModePresenceState;
+  }
+
+  if (m === 'ask') {
+    if (raw === 'thinking' || raw === 'reading' || raw === 'planning') return 'reading_context';
+    if (raw === 'tracing_sources') return 'tracing_sources';
+    if (raw === 'answering') return 'answering';
+    if (raw === 'clarifying') return 'clarifying';
+  }
+
+  if (m === 'debug') {
+    if (raw === 'thinking' || raw === 'planning') return 'trace_probe';
+    if (raw === 'fault_isolate' || raw === 'fault-isolate') return 'fault_isolate';
+    if (raw === 'hypothesis' || raw === 'patch-hypothesis') return 'hypothesis';
+    if (raw === 'regression_check') return 'regression_check';
+    if (raw === 'trace_probe' || raw === 'trace-probe') return 'trace_probe';
+  }
+
+  if (m === 'multitask') {
+    if (raw === 'thinking' || raw === 'planning') return 'multitask_fanout';
+    if (raw === 'subagent_spawn' || raw === 'delegate_subtask' || raw === 'parallel_work') {
+      return raw as ModePresenceState;
+    }
+    if (raw === 'merge_results' || raw === 'summarizing_subagents') return raw as ModePresenceState;
+    if (raw === 'multitask_fanout') return 'multitask_fanout';
+  }
+
   if (raw === 'browser_live' || raw === 'browser_debug') return 'browser';
   if (raw === 'browser_capture') return 'browser';
   if (raw === 'web_search' || raw === 'web_fetch') return 'reading';
@@ -33,34 +66,14 @@ export function normalizeChatPresenceState(
   if (raw === 'verifying') return 'verifying';
   if (raw === 'tool') return 'tool_routing';
 
-  if (m === 'plan') {
-    if (raw === 'planning' || raw === 'thinking') return 'mapping';
-    if (raw === 'task_queue' || raw === 'plan_progress') return 'task_stack';
-    if (raw === 'handoff_ready') return 'handoff_ready';
-    if (raw === 'mapping' || raw === 'task_stack' || raw === 'risk_scan') return raw as ModePresenceState;
-  }
-
-  if (m === 'ask') {
-    if (raw === 'thinking' || raw === 'reading') return 'reading_context';
-    if (raw === 'planning') return 'reading_context';
-  }
-
-  if (m === 'debug') {
-    if (raw === 'thinking' || raw === 'planning') return 'trace_probe';
-  }
-
-  if (m === 'multitask') {
-    if (raw === 'thinking' || raw === 'planning') return 'multitask_fanout';
-  }
-
-  if (raw === 'idle') return 'thinking';
+  if (raw === 'idle') return modeDefaultStateMap[m] || 'thinking';
 
   return raw as ModePresenceState;
 }
 
 /** True when icon should come from mode-scoped library (map-build, trace-probe, …). */
 export function isModeScopedPresenceState(mode: AgentMode | undefined, state: ModePresenceState): boolean {
-  const m = mode || 'agent';
+  const modeKey = mode || 'agent';
   const modeScoped: Partial<Record<AgentMode, ModePresenceState[]>> = {
     agent: ['tool_routing', 'executing', 'writing', 'verifying', 'terminal', 'tool', 'database', 'reading'],
     ask: ['reading_context', 'tracing_sources', 'answering', 'clarifying', 'reading', 'thinking'],
@@ -75,5 +88,5 @@ export function isModeScopedPresenceState(mode: AgentMode | undefined, state: Mo
       'summarizing_subagents',
     ],
   };
-  return (modeScoped[m] || []).includes(state);
+  return (modeScoped[modeKey] || []).includes(state);
 }

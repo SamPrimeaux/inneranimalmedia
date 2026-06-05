@@ -1,0 +1,60 @@
+/* Inline agent presence — ghost row in message thread (no card chrome). */
+
+.agent-presence-label--shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--color-text-secondary, var(--dashboard-muted, #8a8a9e)) 0%,
+    var(--color-text-primary, var(--dashboard-text, #e6e6f0)) 40%,
+    var(--color-text-secondary, var(--dashboard-muted, #8a8a9e)) 100%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: presence-shimmer 1.8s linear infinite;
+}
+
+@keyframes presence-shimmer {
+  0% {
+    background-position: 200% center;
+  }
+  100% {
+    background-position: -200% center;
+  }
+}
+
+.agent-inline-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 0;
+  cursor: default;
+}
+
+.agent-inline-row--clickable {
+  cursor: pointer;
+}
+
+.agent-inline-row .stop-pill {
+  opacity: 0;
+  transition: opacity 120ms ease;
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 2px 8px;
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 600;
+  border: none;
+  background: var(--color-background-danger, color-mix(in srgb, #f87171 18%, transparent));
+  color: var(--color-text-danger, #f87171);
+  cursor: pointer;
+  z-index: 1;
+}
+
+.agent-inline-row:hover .stop-pill {
+  opacity: 1;
+}

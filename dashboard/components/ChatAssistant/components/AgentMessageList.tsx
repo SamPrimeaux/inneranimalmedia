@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { User, Bot, ChevronRight, FileText, ShieldAlert } from 'lucide-react';
 import { SetiFileIcon } from '../../../src/components/SetiFileIcon';
 import type { ActiveFile } from '../../../types';
@@ -12,18 +12,20 @@ import type {
   ImplementationPlanVisualMap,
   ImplementationPlanMarkdown,
   AgentPreviewArtifact,
+  ActiveSubagentRow,
 } from '../types';
+import type { ThinkingCardState } from '../../../src/components/ThinkingCard';
+import { IAM_AGENT_CHAT_CONVERSATION_CHANGE } from '../../../agentChatConstants';
+import { simplifyToolName } from '../../../features/agent-chat/formatThinkingStepName';
 import { AgentChatMarkdown } from './AgentChatMarkdown';
 import { AgentCodeFencePreview } from './AgentCodeFencePreview';
 import { AgentCodeDiffPreview } from './AgentCodeDiffPreview';
 import type { WorkflowLedgerState } from '../types';
 import type { AgentToolTraceRow } from '../execution/types';
 import { ExecutionTimeline } from '../execution/ExecutionTimeline';
-import { AgentPresenceCard } from '../../../features/mode-presence/AgentPresenceCard';
+import { AgentPresenceInline } from '../../../features/mode-presence/AgentPresenceInline';
 import { WorkflowRunPresenceBanner } from './WorkflowRunBoard';
-import type { AgentPresenceState } from '../../../features/mode-presence/agentModePresenceMap';
 import { ArtifactChipList } from '../execution/ArtifactChipList';
-import { ChatPresenceIcon } from '../../../features/mode-presence/ChatPresenceIcon';
 import type { AgentMode } from '../types';
 import { AgentPlanChecklist } from './AgentPlanChecklist';
 import { AgentImageGenerationCard } from '../../../components/AgentImageGenerationCard';
@@ -98,14 +100,18 @@ export type AgentMessageListProps = {
   isLoading: boolean;
   mode: AgentMode;
   presenceState: string;
-  /** When ThinkingCard is visible, skip the duplicate streaming avatar row. */
-  showStreamingAvatar?: boolean;
+  presenceLabel?: string;
+  thinkingState?: ThinkingCardState | null;
+  showInlinePresence?: boolean;
+  isNarrow?: boolean;
   isDarkTheme: boolean;
   toolTraceRows: AgentToolTraceRow[];
   setToolTraceRows: React.Dispatch<React.SetStateAction<AgentToolTraceRow[]>>;
   workspaceId: string | null;
   workflowLedger: WorkflowLedgerState;
-  subagentWork?: { state: string; detail?: string } | null;
+  activeSubagents?: ActiveSubagentRow[];
+  onStopSubagent?: (id: string) => void;
+  onSendUserMessage?: (text: string) => void;
   onFileSelect?: (file: Pick<ActiveFile, 'name' | 'content'> & Partial<ActiveFile>) => void;
   onRunInTerminal?: (cmd: string) => void;
   /** Optional: assistant markdown images delegate here (default: new tab). */
@@ -418,6 +424,121 @@ function AssistantPreviewArtifactsBar({
   );
 }
 
+function formatSubagentMeta(row: ActiveSubagentRow): string {
+  if (row.stepCount != null && row.stepCount > 0) return `${row.stepCount} steps`;
+  const elapsed = Math.max(0, Math.floor((Date.now() - row.startedAt) / 1000));
+  if (elapsed < 60) return `${elapsed}s`;
+  return `${Math.floor(elapsed / 60)}m`;
+}
+
+function AgentQuestionBubble({
+  question,
+  options,
+  onSend,
+}: {
+  question: string;
+  options?: string[];
+  onSend?: (text: string) => void;
+}) {
+  const [draft, setDraft] = useState('');
+  return (
+    <div className="flex flex-col gap-2 min-w-0">
+      <p className="text-[0.8125rem] leading-relaxed text-[var(--dashboard-text)] m-0">{question}</p>
+      {options && options.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5">
+          {options.map((opt) => (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => onSend?.(opt)}
+              className="px-2.5 py-1 rounded-full text-[11px] text-[var(--dashboard-text)] border border-[var(--color-border-secondary,var(--dashboard-border))] bg-transparent hover:bg-[var(--bg-hover)] transition-colors"
+              style={{ borderWidth: '0.5px' }}
+            >
+              {opt}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <form
+          className="flex gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const t = draft.trim();
+            if (!t) return;
+            onSend?.(t);
+            setDraft('');
+          }}
+        >
+          <input
+            type="text"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="Your answer…"
+            className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg text-[12px] bg-[var(--scene-bg)] border border-[var(--dashboard-border)] text-[var(--dashboard-text)]"
+          />
+          <button
+            type="submit"
+            disabled={!draft.trim()}
+            className="px-2.5 py-1.5 rounded-lg text-[11px] font-medium text-[var(--solar-cyan)] hover:bg-[var(--bg-hover)] disabled:opacity-40"
+          >
+            Send
+          </button>
+        </form>
+      )}
+    </div>
+  );
+}
+
+function PlanProposalBubble({
+  plan,
+  onViewPlan,
+  onBuild,
+  buildBusy,
+}: {
+  plan: NonNullable<Message['planConfirmation']>;
+  onViewPlan?: (planId: string) => void;
+  onBuild?: (planId: string, approvalId: string) => void;
+  buildBusy?: boolean;
+}) {
+  const tasks = plan.tasks || [];
+  const shown = tasks.slice(0, 5);
+  const extra = tasks.length > 5 ? tasks.length - 5 : 0;
+  return (
+    <div className="flex flex-col gap-2 min-w-0">
+      <p className="text-[13px] font-semibold text-[var(--dashboard-text)] m-0">
+        {plan.plan_title || 'Implementation plan'}
+      </p>
+      {shown.length > 0 ? (
+        <ul className="m-0 pl-4 text-[12px] text-[var(--dashboard-muted)] space-y-0.5 list-disc">
+          {shown.map((t, idx) => (
+            <li key={`${t.order_index}-${idx}`}>{t.title}</li>
+          ))}
+          {extra > 0 ? <li className="list-none -ml-4 text-[11px]">+ {extra} more</li> : null}
+        </ul>
+      ) : plan.message ? (
+        <p className="text-[12px] text-[var(--dashboard-muted)] m-0">{plan.message}</p>
+      ) : null}
+      <div className="flex items-center gap-3 pt-0.5">
+        <button
+          type="button"
+          onClick={() => onViewPlan?.(plan.plan_id)}
+          className="text-[11px] text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] transition-colors"
+        >
+          View Plan
+        </button>
+        <button
+          type="button"
+          disabled={buildBusy || !plan.approval_id}
+          onClick={() => onBuild?.(plan.plan_id, plan.approval_id)}
+          className="text-[11px] text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] transition-colors disabled:opacity-40"
+        >
+          Build →
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export const AgentMessageList: React.FC<AgentMessageListProps> = ({
   scrollRef,
   showEmptyThreadPlaceholder,
@@ -425,13 +546,18 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
   isLoading,
   mode,
   presenceState,
-  showStreamingAvatar = true,
+  presenceLabel = '',
+  thinkingState = null,
+  showInlinePresence = false,
+  isNarrow = false,
   isDarkTheme,
   toolTraceRows,
   setToolTraceRows,
   workspaceId,
   workflowLedger,
-  subagentWork = null,
+  activeSubagents = [],
+  onStopSubagent,
+  onSendUserMessage,
   onFileSelect,
   onRunInTerminal,
   onImagePreview,
@@ -513,7 +639,37 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
                       onImagePreview={onImagePreview}
                     />
                   ) : null}
-                  {msg.executionPlan && msg.executionPlan.tasks.length > 0 ? (
+                  {msg.planConfirmation ? (
+                    <div className="agent-content text-[0.8125rem] leading-relaxed min-w-0 break-words w-full mb-2">
+                      <PlanProposalBubble
+                        plan={msg.planConfirmation}
+                        onViewPlan={(planId) => onRunPlan?.(planId)}
+                        onBuild={async (planId, approvalId) => {
+                          if (!approvalId) return;
+                          try {
+                            await fetch(`/api/agent/plan/approval/${encodeURIComponent(approvalId)}/confirm`, {
+                              method: 'POST',
+                              credentials: 'same-origin',
+                            });
+                            onRunPlan?.(planId);
+                          } catch {
+                            /* ignore */
+                          }
+                        }}
+                        buildBusy={runPlanBusy}
+                      />
+                    </div>
+                  ) : null}
+                  {msg.agentQuestion ? (
+                    <div className="agent-content text-[0.8125rem] leading-relaxed min-w-0 break-words w-full mb-2">
+                      <AgentQuestionBubble
+                        question={msg.agentQuestion.question}
+                        options={msg.agentQuestion.options}
+                        onSend={onSendUserMessage}
+                      />
+                    </div>
+                  ) : null}
+                  {msg.executionPlan && msg.executionPlan.tasks.length > 0 && msg.executionPlan.status !== 'ready' ? (
                     <AgentPlanChecklist
                       plan={msg.executionPlan}
                       mode={mode}
@@ -521,11 +677,13 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
                       runPlanBusy={runPlanBusy}
                     />
                   ) : null}
+                  {msg.content.trim() ? (
                   <div
                     className="agent-content text-[0.8125rem] leading-relaxed min-w-0 break-words [overflow-wrap:anywhere] text-[var(--dashboard-text)] w-full"
                   >
                     {renderMessageContent(msg.content, i, onFileSelect, onRunInTerminal, true, onImagePreview)}
                   </div>
+                  ) : null}
                   {msg.implementationPlan &&
                   (msg.implementationPlan.visual_map || msg.implementationPlan.plan_markdown) ? (
                     <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -607,26 +765,32 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
         ))
       )}
 
-      {subagentWork?.state ? (
-        <div className="mx-0 mb-2">
-          <AgentPresenceCard
+      {activeSubagents.map((row) => (
+        <div key={row.id} className="flex justify-start w-full min-w-0">
+          <AgentPresenceInline
             mode={mode}
-            state={(subagentWork.state as AgentPresenceState) || 'subagent_spawn'}
-            title={
-              subagentWork.state === 'multitask_fanout'
-                ? 'Running parallel workstreams'
-                : subagentWork.state === 'merge_results'
-                  ? 'Merging subagent results'
-                  : 'Spawning focused subagents'
+            state={row.state}
+            title={row.label.slice(0, 40)}
+            meta={formatSubagentMeta(row)}
+            size="sm"
+            onStop={onStopSubagent ? () => onStopSubagent(row.id) : undefined}
+            onClick={
+              row.conversationId
+                ? () => {
+                    window.dispatchEvent(
+                      new CustomEvent(IAM_AGENT_CHAT_CONVERSATION_CHANGE, {
+                        detail: { id: row.conversationId },
+                      }),
+                    );
+                  }
+                : undefined
             }
-            description={subagentWork.detail}
-            meta={subagentWork.state.replace(/_/g, ' ')}
           />
         </div>
-      ) : null}
+      ))}
 
       {workflowLedger.runId ? (
-        <div className="mx-0 mb-2">
+        <div className="mx-0 mb-1">
           <WorkflowRunPresenceBanner ledger={workflowLedger} mode={mode} />
         </div>
       ) : null}
@@ -649,19 +813,37 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
         </div>
       ) : null}
 
-      {isLoading && showStreamingAvatar && !pendingToolApproval ? (
-        <div className="flex justify-start">
-          <div className="flex gap-2.5">
-            <div className="flex-shrink-0 w-6 h-6 rounded-md bg-[var(--solar-cyan)]/20 border border-[var(--solar-cyan)]/30 flex items-center justify-center">
-              <ChatPresenceIcon mode={mode} state={presenceState} size={16} />
-            </div>
-          </div>
+      {showInlinePresence ? (
+        <div className="flex justify-start w-full min-w-0" role="status" aria-live="polite">
+          <AgentPresenceInline
+            mode={mode}
+            state={presenceState}
+            title={
+              presenceLabel ||
+              (() => {
+                const runningStep = thinkingState?.steps.find((s) => s.status === 'running');
+                if (runningStep?.name) return simplifyToolName(runningStep.name);
+                return simplifyToolName(thinkingState?.thinkingText || 'working');
+              })()
+            }
+            size="sm"
+            cardStatus={
+              thinkingState?.status === 'blocked'
+                ? 'blocked'
+                : thinkingState?.status === 'error'
+                  ? 'error'
+                  : thinkingState?.status === 'done'
+                    ? 'done'
+                    : 'working'
+            }
+          />
         </div>
       ) : null}
 
       <ExecutionTimeline
         rows={toolTraceRows}
         mode={mode}
+        compact={isNarrow}
         onDismissRow={(id) => setToolTraceRows((prev) => prev.filter((r) => r.id !== id))}
         onClear={() => setToolTraceRows([])}
       />

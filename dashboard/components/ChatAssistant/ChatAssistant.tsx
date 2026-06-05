@@ -112,12 +112,9 @@ import {
 import type { ChatComposerSource } from './composer/types';
 import { WEB_SEARCH_SOURCE, WEB_SEARCH_SOURCE_ID, SANDBOX_AGENT_SOURCE, SANDBOX_AGENT_SOURCE_ID } from './composer/types';
 import { PlanWorkbenchPanel } from './components/PlanWorkbenchPanel';
-import { ThinkingCard } from '../../src/components/ThinkingCard';
 import type { ThinkingCardState } from '../../src/components/ThinkingCard';
-import {
-  deriveHeroThinkingState,
-  shouldShowHeroPresence,
-} from './components/deriveHeroThinking';
+import type { ActiveSubagentRow } from './types';
+import { deriveHeroThinkingState } from './components/deriveHeroThinking';
 import { ToolApprovalModal } from '../../src/components/ToolApprovalModal';
 import {
   parseAndDispatchDatabaseStudioActions,
@@ -129,6 +126,7 @@ import { useAgentPresence, AgentPresenceStatus } from '../../features/agent-pres
 import { derivePresenceState } from '../../features/agent-presence/iamDerivePresenceState';
 import {
   formatThinkingStepName,
+  simplifyToolName,
   formatBrowserLiveSseStepName,
   upsertThinkingStep,
 } from '../../features/agent-chat/formatThinkingStepName';
@@ -240,9 +238,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       }),
     );
   }, [presenceState]);
-  const [subagentWork, setSubagentWork] = useState<{ state: string; detail?: string } | null>(null);
+  const [activeSubagents, setActiveSubagents] = useState<ActiveSubagentRow[]>([]);
   useEffect(() => {
-    if (!isLoading) setSubagentWork(null);
+    if (!isLoading) setActiveSubagents([]);
   }, [isLoading]);
   const thinkingStartRef = useRef<number>(0);
   const presenceColorwayRef = useRef(pickAgentPresenceColorway());
@@ -747,7 +745,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     workflowLedger,
     draftSyntaxBusy,
     draftRunBusy,
-    subagentWork,
+    subagentWork: activeSubagents[0]
+      ? { state: activeSubagents[0].state, detail: activeSubagents[0].label }
+      : null,
   });
 
   useEffect(() => {
@@ -769,9 +769,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     loadingStartedAt,
     pendingApproval: !!pendingToolApproval,
   });
-
-  const showHeroPresence = shouldShowHeroPresence({ heroThinking, isLoading });
-  const showHeaderPresence = !showHeroPresence;
 
   const [chatModels, setChatModels] = useState<ChatModelRow[]>([]);
   const [selectedModelKey, setSelectedModelKey] = useState<string>(() => {
@@ -1088,6 +1085,27 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
   const displayMessages = useMemo(() => messages, [messages]);
 
+  const assistantStreaming = useMemo(() => {
+    const last = displayMessages[displayMessages.length - 1];
+    return last?.role === 'assistant' && typeof last.content === 'string' && last.content.trim().length > 0;
+  }, [displayMessages]);
+
+  const effectiveThinking = thinkingState ?? heroThinking;
+
+  const showInlinePresence = useMemo(() => {
+    if (!isLoading || !effectiveThinking) return false;
+    if (effectiveThinking.status === 'done' || effectiveThinking.status === 'error') return false;
+    if (assistantStreaming) return false;
+    if (pendingToolApproval) return false;
+    return (
+      effectiveThinking.status === 'thinking' ||
+      effectiveThinking.status === 'working' ||
+      effectiveThinking.status === 'blocked'
+    );
+  }, [isLoading, effectiveThinking, assistantStreaming, pendingToolApproval]);
+
+  const showHeaderPresence = isLoading && !showInlinePresence && presence.state !== 'idle';
+
   const showEmptyThreadPlaceholder = useMemo(() => {
     if (displayMessages.length === 0) return true;
     return displayMessages.every(
@@ -1283,6 +1301,65 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     [onFileSelect, onOpenCodeTab],
   );
 
+
+  const handleSubagentEvent = useCallback(
+    (ev: {
+      type: string;
+      fanout_id?: string;
+      subagent_slug?: string;
+      subagent_run_id?: string;
+      status?: string;
+      conversation_id?: string;
+      task_title?: string;
+    }) => {
+      const t = String(ev.type || '');
+      const slug = ev.subagent_slug ? ev.subagent_slug.replace(/^agentsam_/i, '') : 'subagent';
+      const id = ev.subagent_run_id || `${slug}-${ev.fanout_id || 'fanout'}`;
+      const label = (ev.task_title || slug).slice(0, 40);
+
+      if (t === 'agentsam_subagent_fanout_result' || (t === 'agentsam_subagent_run_result' && ev.status !== 'running')) {
+        setActiveSubagents((prev) => prev.filter((r) => r.id !== id));
+        return;
+      }
+
+      const state =
+        t === 'agentsam_subagent_fanout_started'
+          ? 'multitask_fanout'
+          : t === 'agentsam_subagent_run_started'
+            ? 'subagent_spawn'
+            : t === 'agentsam_subagent_run_progress'
+              ? 'parallel_work'
+              : t === 'agentsam_subagent_action_required'
+                ? 'approval_required'
+                : 'delegate_subtask';
+
+      setActiveSubagents((prev) => {
+        const existing = prev.find((r) => r.id === id);
+        const stepCount = (existing?.stepCount || 0) + (t === 'agentsam_subagent_run_progress' ? 1 : 0);
+        const row: ActiveSubagentRow = {
+          id,
+          slug,
+          label,
+          state,
+          conversationId: ev.conversation_id || existing?.conversationId || null,
+          startedAt: existing?.startedAt ?? Date.now(),
+          stepCount,
+        };
+        if (existing) return prev.map((r) => (r.id === id ? row : r));
+        return [...prev, row];
+      });
+    },
+    [],
+  );
+
+  const handleStopSubagent = useCallback(
+    (_id: string) => {
+      abortControllerRef.current?.abort();
+      streamReaderRef.current?.cancel().catch(() => {});
+      setIsLoading(false);
+    },
+    [],
+  );
 
   const handleThinkingEvent = useCallback((ev: {
     type: string;
@@ -1576,24 +1653,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           onBrowserNavigate,
           onR2FileUpdated,
           onThinkingEvent: handleThinkingEvent,
-          onSubagentEvent: (ev) => {
-            const t = String(ev.type || '');
-            const fanoutId = ev.fanout_id ? ` (${ev.fanout_id})` : '';
-            const slug = ev.subagent_slug ? ` (${ev.subagent_slug})` : '';
-            const status = ev.status ? `: ${ev.status}` : '';
-            if (t === 'agentsam_subagent_fanout_started')
-              setSubagentWork({ state: 'multitask_fanout', detail: `Fanout started${fanoutId}` });
-            else if (t === 'agentsam_subagent_run_started')
-              setSubagentWork({ state: 'subagent_spawn', detail: `Subagent started${slug}` });
-            else if (t === 'agentsam_subagent_run_progress')
-              setSubagentWork({ state: 'parallel_work', detail: `Subagent progress${slug}` });
-            else if (t === 'agentsam_subagent_action_required')
-              setSubagentWork({ state: 'approval_required', detail: 'Subagent action required' });
-            else if (t === 'agentsam_subagent_run_result')
-              setSubagentWork({ state: 'merge_results', detail: `Subagent result${slug}${status}` });
-            else if (t === 'agentsam_subagent_fanout_result')
-              setSubagentWork({ state: 'merge_results', detail: `Fanout result${fanoutId}${status}` });
-          },
+          onSubagentEvent: handleSubagentEvent,
           onAgentRunContext,
           onFileSelect: onFileSelect
             ? (f) => onFileSelect({ name: f.name, content: f.content, originalContent: f.originalContent ?? '' })
@@ -1769,24 +1829,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         onBrowserNavigate,
         onR2FileUpdated,
         onThinkingEvent: handleThinkingEvent,
-        onSubagentEvent: (ev) => {
-          const t = String(ev.type || '');
-          const fanoutId = ev.fanout_id ? ` (${ev.fanout_id})` : '';
-          const slug = ev.subagent_slug ? ` (${ev.subagent_slug})` : '';
-          const status = ev.status ? `: ${ev.status}` : '';
-          if (t === 'agentsam_subagent_fanout_started')
-            setSubagentWork({ state: 'multitask_fanout', detail: `Fanout started${fanoutId}` });
-          else if (t === 'agentsam_subagent_run_started')
-            setSubagentWork({ state: 'subagent_spawn', detail: `Subagent started${slug}` });
-          else if (t === 'agentsam_subagent_run_progress')
-            setSubagentWork({ state: 'parallel_work', detail: `Subagent progress${slug}` });
-          else if (t === 'agentsam_subagent_action_required')
-            setSubagentWork({ state: 'approval_required', detail: 'Subagent action required' });
-          else if (t === 'agentsam_subagent_run_result')
-            setSubagentWork({ state: 'merge_results', detail: `Subagent result${slug}${status}` });
-          else if (t === 'agentsam_subagent_fanout_result')
-            setSubagentWork({ state: 'merge_results', detail: `Fanout result${fanoutId}${status}` });
-        },
+        onSubagentEvent: handleSubagentEvent,
         onAgentRunContext,
         onFileSelect: onFileSelect
           ? (f) => onFileSelect({ name: f.name, content: f.content, originalContent: f.originalContent ?? '' })
@@ -2141,24 +2184,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         onBrowserNavigate,
         onR2FileUpdated,
         onThinkingEvent: handleThinkingEvent,
-        onSubagentEvent: (ev) => {
-          const t = String(ev.type || '');
-          const fanoutId = ev.fanout_id ? ` (${ev.fanout_id})` : '';
-          const slug = ev.subagent_slug ? ` (${ev.subagent_slug})` : '';
-          const status = ev.status ? `: ${ev.status}` : '';
-          if (t === 'agentsam_subagent_fanout_started')
-            setSubagentWork({ state: 'multitask_fanout', detail: `Fanout started${fanoutId}` });
-          else if (t === 'agentsam_subagent_run_started')
-            setSubagentWork({ state: 'subagent_spawn', detail: `Subagent started${slug}` });
-          else if (t === 'agentsam_subagent_run_progress')
-            setSubagentWork({ state: 'parallel_work', detail: `Subagent progress${slug}` });
-          else if (t === 'agentsam_subagent_action_required')
-            setSubagentWork({ state: 'approval_required', detail: 'Subagent action required' });
-          else if (t === 'agentsam_subagent_run_result')
-            setSubagentWork({ state: 'merge_results', detail: `Subagent result${slug}${status}` });
-          else if (t === 'agentsam_subagent_fanout_result')
-            setSubagentWork({ state: 'merge_results', detail: `Fanout result${fanoutId}${status}` });
-        },
+        onSubagentEvent: handleSubagentEvent,
         onAgentRunContext,
         onFileSelect: onFileSelect
           ? (f) => onFileSelect({ name: f.name, content: f.content, originalContent: f.originalContent ?? '' })
@@ -2538,6 +2564,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           </div>
         )}
 
+        {/* AgentPresenceLogo: built but unwired — chat header has no stable avatar slot without layout churn. */}
         {!isNarrow && (
           <div className="flex-shrink-0 flex items-start gap-2.5 px-3 py-2 border-b border-[var(--dashboard-border)]">
             <div className="flex-1 min-w-0 flex flex-col gap-1">
@@ -2673,16 +2700,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
         {messagesVisible && (
           <>
-          {heroThinking ? (
-          <ThinkingCard
-            steps={heroThinking.steps}
-            thinkingText={heroThinking.thinkingText}
-            status={heroThinking.status}
-            startedAt={heroThinking.startedAt}
-            mode={mode}
-            presenceState={presence.state}
-          />
-        ) : null}
           {(() => {
             if (showEmptyThreadPlaceholder || !pythonDraftHint || !/\.py$/i.test(pythonDraftHint)) return null;
             return (
@@ -2707,8 +2724,13 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             isLoading={isLoading}
             mode={mode}
             presenceState={presence.state}
-            showStreamingAvatar={!heroThinking}
-            subagentWork={subagentWork}
+            presenceLabel={presence.label}
+            thinkingState={effectiveThinking}
+            showInlinePresence={showInlinePresence}
+            isNarrow={isNarrow}
+            activeSubagents={activeSubagents}
+            onStopSubagent={handleStopSubagent}
+            onSendUserMessage={(text) => void handleSendRef.current(text)}
             isDarkTheme={isDarkTheme}
             toolTraceRows={toolTraceRows}
             setToolTraceRows={setToolTraceRows}

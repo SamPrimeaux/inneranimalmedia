@@ -18,6 +18,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import type { AgentMode } from '../types';
+import { AgentPresenceInline } from '../../../features/mode-presence/AgentPresenceInline';
 import { AgentPresenceCard } from '../../../features/mode-presence/AgentPresenceCard';
 import { resolveWorkflowRunPresence } from './workflowRunPresence';
 
@@ -88,12 +89,12 @@ export function WorkflowRunPresenceBanner({
   const view = resolveWorkflowRunPresence(runState, mode);
   if (!view) return null;
   return (
-    <AgentPresenceCard
+    <AgentPresenceInline
       mode={mode}
       state={view.state}
       title={view.title}
-      description={view.description}
       meta={view.meta}
+      size="sm"
     />
   );
 }

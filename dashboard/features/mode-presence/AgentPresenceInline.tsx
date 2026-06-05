@@ -1,20 +1,52 @@
 import React from 'react';
-import type { AgentMode, AgentPresenceState } from './agentModePresenceMap';
-import { AgentModePresenceIcon } from './AgentModePresenceIcon';
+import type { AgentMode } from './agentModePresenceMap';
+import { ChatPresenceIcon } from './ChatPresenceIcon';
+import { normalizeChatPresenceState } from './normalizeChatPresenceState';
+import './agentPresenceInline.css';
+
+const SHIMMER_STATES = new Set([
+  'thinking',
+  'map-build',
+  'task-stack',
+  'context-scan',
+  'source-thread',
+  'trace-probe',
+  'risk-radar',
+  'delegate-chain',
+  'mapping',
+  'task_stack',
+  'reading_context',
+  'trace_probe',
+  'multitask_fanout',
+  'parallel_work',
+  'subagent_spawn',
+  'planning',
+]);
 
 export type AgentPresenceInlineProps = {
   mode?: AgentMode;
-  state?: AgentPresenceState;
+  state?: string | null;
   title: string;
   meta?: string;
   expanded?: boolean;
   onToggle?: () => void;
   statusLabel?: string;
   size?: 'sm' | 'md';
+  /** CSS hover stop pill — subagent rows only. */
+  onStop?: (e: React.MouseEvent) => void;
+  onClick?: () => void;
+  cardStatus?: 'thinking' | 'working' | 'blocked' | 'done' | 'error';
 };
 
+function shouldShimmer(state: string | null | undefined, mode: AgentMode = 'agent'): boolean {
+  const raw = String(state || 'thinking').trim().toLowerCase();
+  if (SHIMMER_STATES.has(raw)) return true;
+  const normalized = normalizeChatPresenceState(raw, mode);
+  return SHIMMER_STATES.has(normalized);
+}
+
 export function AgentPresenceInline({
-  mode,
+  mode = 'agent',
   state,
   title,
   meta,
@@ -22,19 +54,28 @@ export function AgentPresenceInline({
   onToggle,
   statusLabel,
   size = 'md',
+  onStop,
+  onClick,
+  cardStatus,
 }: AgentPresenceInlineProps) {
-  const iconPx = size === 'sm' ? 18 : 22;
-  const textSize = size === 'sm' ? 11 : 12;
-  const metaSize = size === 'sm' ? 10 : 11;
+  const iconPx = size === 'sm' ? 16 : 22;
+  const textSize = size === 'sm' ? 12 : 12;
+  const metaSize = size === 'sm' ? 11 : 11;
+  const shimmer = shouldShimmer(state, mode);
+  const rowClass = `agent-inline-row min-w-0 flex-1${onClick ? ' agent-inline-row--clickable' : ''}`;
 
   const inner = (
-    <div className="flex items-center gap-2 min-w-0">
-      <AgentModePresenceIcon mode={mode} state={state} size={iconPx} aria-label="" />
-      <div className="min-w-0 flex-1">
+    <div className={rowClass} onClick={onClick} role={onClick ? 'button' : undefined} tabIndex={onClick ? 0 : undefined}>
+      <ChatPresenceIcon mode={mode} state={state} size={iconPx} cardStatus={cardStatus} className="shrink-0" />
+      <div className="min-w-0 flex-1 pr-14">
         <div className="flex items-center gap-2 min-w-0">
           <span
-            className="truncate"
-            style={{ fontSize: textSize, fontWeight: 650, color: 'var(--text-main, #e6e6f0)' }}
+            className={`truncate ${shimmer ? 'agent-presence-label--shimmer' : ''}`}
+            style={{
+              fontSize: textSize,
+              fontWeight: shimmer ? 500 : 450,
+              color: shimmer ? undefined : 'var(--color-text-secondary, var(--dashboard-muted, #8a8a9e))',
+            }}
           >
             {title}
           </span>
@@ -71,6 +112,18 @@ export function AgentPresenceInline({
           </div>
         ) : null}
       </div>
+      {onStop ? (
+        <button
+          type="button"
+          className="stop-pill"
+          onClick={(e) => {
+            e.stopPropagation();
+            onStop(e);
+          }}
+        >
+          stop
+        </button>
+      ) : null}
       {typeof expanded === 'boolean' ? (
         <span
           className="shrink-0"
@@ -107,4 +160,3 @@ export function AgentPresenceInline({
     </button>
   );
 }
-

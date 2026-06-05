@@ -124,6 +124,33 @@ export interface EmailArtifact {
   from?: string;
 }
 
+/** Inline agent question in thread (SSE needs_input / agent_question). */
+export type AgentQuestionPayload = {
+  question: string;
+  options?: string[];
+  questionId?: string;
+};
+
+/** Plan proposal awaiting user confirmation (SSE plan_confirmation_required). */
+export type PlanConfirmationPayload = {
+  plan_id: string;
+  approval_id: string;
+  plan_title?: string;
+  message?: string;
+  tasks?: Array<{ title: string; order_index: number }>;
+};
+
+/** Active subagent row in multitask/plan fanout. */
+export type ActiveSubagentRow = {
+  id: string;
+  slug: string;
+  label: string;
+  state: string;
+  conversationId?: string | null;
+  startedAt: number;
+  stepCount?: number;
+};
+
 export interface Message {
   role: 'user' | 'assistant';
   content: string;
@@ -139,6 +166,10 @@ export interface Message {
   imageGenerationState?: ImageGenerationState | null;
   /** Email draft artifact from Agent Sam email composition (SSE `email_draft`). */
   emailArtifact?: EmailArtifact | null;
+  /** Agent question rendered inline in thread. */
+  agentQuestion?: AgentQuestionPayload | null;
+  /** Plan proposal bubble — View Plan / Build → */
+  planConfirmation?: PlanConfirmationPayload | null;
 }
 
 /** Host-managed chat tab strip (e.g. App.tsx multi-session). */

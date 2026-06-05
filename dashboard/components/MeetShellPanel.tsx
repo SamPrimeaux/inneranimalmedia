@@ -8,7 +8,6 @@ import {
   Aperture,
   MonitorUp,
   ScreenShareOff,
-  Layout,
   BarChart2,
   Settings,
   Plus,
@@ -122,31 +121,10 @@ export function MeetShellPanel() {
           {meet.screenOn ? <ScreenShareOff size={13} /> : <MonitorUp size={13} />}
           <span>{meet.screenOn ? 'Stop sharing' : 'Share Screen'}</span>
         </button>
-        <button
-          className={`msp-tool-row ${meet.showDraw ? 'active' : ''}`}
-          onClick={() => meet.setShowDraw(!meet.showDraw)}
-        >
-          <Layout size={13} />
-          <span>Draw</span>
-          <span className="msp-tool-badge">Excalidraw</span>
-        </button>
         <button className="msp-tool-row" onClick={handleScreenshot}>
           <Aperture size={13} /><span>Screenshot</span>
         </button>
-        {meet.showDraw && (
-          <div className="msp-draw-opacity">
-            <span>Overlay opacity</span>
-            <input
-              type="range"
-              min={20}
-              max={100}
-              value={meet.drawOpacity}
-              onChange={(e) => meet.setDrawOpacity(Number(e.target.value))}
-            />
-            <span>{meet.drawOpacity}%</span>
-          </div>
-        )}
-        <button className="msp-tool-row" onClick={() => meet.setShowDraw(false)}>
+        <button className="msp-tool-row">
           <BarChart2 size={13} />
           <span>Polls</span>
         </button>
