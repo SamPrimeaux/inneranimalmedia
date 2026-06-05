@@ -95,6 +95,7 @@ export const StoragePage: React.FC<StoragePageProps> = ({ embeddedInSettings = f
   const [providerDrafts, setProviderDrafts] = useState<Record<string, Row>>({});
   const [providerSaving, setProviderSaving] = useState<string | null>(null);
   const [vectorConnSaving, setVectorConnSaving] = useState(false);
+  const [reindexQueued, setReindexQueued] = useState<string | null>(null);
   const [vectorConnDraft, setVectorConnDraft] = useState({
     display_name: '',
     provider: 'cloudflare_vectorize',
@@ -214,6 +215,23 @@ export const StoragePage: React.FC<StoragePageProps> = ({ embeddedInSettings = f
   const removeVectorConnection = async (id: string) => {
     await fetchJson(`/api/storage/vector-connections/${encodeURIComponent(id)}`, { method: 'DELETE' });
     await loadVectors();
+  };
+
+  const queueVectorReindex = async (bindingName: string) => {
+    const key = bindingName || 'default';
+    setReindexQueued(key);
+    try {
+      await fetchJson('/api/storage/code-index/queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workspace_id: vectors?.workspace_id || undefined,
+          binding_name: bindingName || undefined,
+        }),
+      });
+    } finally {
+      window.setTimeout(() => setReindexQueued((cur) => (cur === key ? null : cur)), 3000);
+    }
   };
 
   const contentTypes = useMemo(() => Object.entries(analytics?.storage_inventory?.by_content_type || {}).map(([name, value]) => ({ name, value: n(value) })), [analytics]);
@@ -346,129 +364,154 @@ export const StoragePage: React.FC<StoragePageProps> = ({ embeddedInSettings = f
 
         {nav === 'vectors' && (
           <>
+            <p className="storage-muted" style={{ marginBottom: 12 }}>
+              {vectors?.can_view_platform
+                ? 'Platform operator view — Cloudflare Vectorize bindings and Supabase pgvector lane catalog.'
+                : `Shared platform vector catalog plus workspace lanes for ${vectors?.workspace_id || 'active workspace'}.`}
+            </p>
             {vectors?.can_view_platform ? (
-              <>
-                <p className="storage-muted" style={{ marginBottom: 12 }}>
-                  Platform operator view — Cloudflare Vectorize bindings and Supabase pgvector lane catalog.
-                </p>
-                <div className="storage-grid">
-                  <Stat label="CF Stored Vectors" value={n(vectors?.total_stored_vectors).toLocaleString()} />
-                  <Stat label="Indexed Docs" value={n(vectors?.total_indexed_docs).toLocaleString()} />
-                  <Stat label="Queries 30d" value={n(vectors?.total_queries_30d).toLocaleString()} />
-                  <Stat label="CF Indexes" value={platformIndexes.length} />
-                </div>
-                <h3 className="storage-muted" style={{ fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', margin: '0 0 8px' }}>
-                  Cloudflare Vectorize
-                </h3>
-                <div className="storage-half">
-                  {platformIndexes.map((idx: Row) => (
-                    <div
-                      className="storage-card storage-pad"
-                      key={idx.id || idx.binding_name}
-                      onClick={() => setSelectedIndex(idx.id)}
-                      role="button"
-                      tabIndex={0}
-                    >
-                      <div className="storage-top">
-                        <strong>{idx.display_name || idx.index_name || idx.binding_name}</strong>
-                        <span>
-                          <Dot ok={!!idx.is_live_connected} />{' '}
-                          {idx.is_preferred ? <Badge tone="ok">preferred</Badge> : null}
-                        </span>
-                      </div>
-                      <p className="storage-muted">
-                        {idx.binding_name} / {idx.source_type}
-                      </p>
-                      <div className="storage-grid" style={{ gridTemplateColumns: 'repeat(3,1fr)' }}>
-                        <Stat label="Vectors" value={n(idx.stored_vectors).toLocaleString()} />
-                        <Stat label="Docs" value={n(idx.doc_count).toLocaleString()} />
-                        <Stat label="Stale" value={n(idx.stale_doc_count).toLocaleString()} />
-                      </div>
-                      <p className="storage-muted">{idx.description}</p>
+              <div className="storage-grid">
+                <Stat label="CF Stored Vectors" value={n(vectors?.total_stored_vectors).toLocaleString()} />
+                <Stat label="Indexed Docs" value={n(vectors?.total_indexed_docs).toLocaleString()} />
+                <Stat label="Queries 30d" value={n(vectors?.total_queries_30d).toLocaleString()} />
+                <Stat label="CF Indexes" value={platformIndexes.length} />
+              </div>
+            ) : null}
+            <h3 className="storage-muted" style={{ fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', margin: '0 0 8px' }}>
+              Cloudflare Vectorize
+            </h3>
+            <div className="storage-half">
+              {platformIndexes.map((idx: Row) => {
+                const bindingKey = String(idx.binding_name || idx.id || 'default');
+                const queued = reindexQueued === bindingKey;
+                return (
+                  <div
+                    className="storage-card storage-pad"
+                    key={idx.id || idx.binding_name}
+                    onClick={() => setSelectedIndex(idx.id)}
+                    role="button"
+                    tabIndex={0}
+                  >
+                    <div className="storage-top">
+                      <strong>{idx.display_name || idx.index_name || idx.binding_name}</strong>
+                      <span>
+                        <Dot ok={!!idx.is_live_connected} />{' '}
+                        {idx.is_preferred ? <Badge tone="ok">preferred</Badge> : null}
+                      </span>
                     </div>
-                  ))}
-                </div>
-                {selectedVector?.stale_doc_count > 0 && (
-                  <div className="storage-banner">
-                    {selectedVector.stale_doc_count} stale chunks detected on {selectedVector.display_name}.
+                    <p className="storage-muted">
+                      {idx.binding_name} / {idx.source_type}
+                    </p>
+                    <div className="storage-grid" style={{ gridTemplateColumns: 'repeat(3,1fr)' }}>
+                      <Stat label="Vectors" value={n(idx.stored_vectors).toLocaleString()} />
+                      <Stat label="Docs" value={n(idx.doc_count).toLocaleString()} />
+                      <Stat label="Stale" value={n(idx.stale_doc_count).toLocaleString()} />
+                    </div>
+                    <p className="storage-muted">{idx.description}</p>
+                    <div className="storage-row-actions" style={{ marginTop: 8 }}>
+                      <button
+                        type="button"
+                        className="storage-btn"
+                        disabled={queued}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void queueVectorReindex(bindingKey);
+                        }}
+                      >
+                        {queued ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+                        {queued ? 'Queued' : 'Re-index'}
+                      </button>
+                    </div>
                   </div>
-                )}
-                {!!selectedVector?.recent_docs?.length && (
-                  <div className="storage-card" style={{ marginBottom: 14 }}>
-                    <table className="storage-table">
-                      <thead>
-                        <tr>
-                          <th>R2 Key</th>
-                          <th>Preview</th>
-                          <th>Chunk</th>
-                          <th>Tokens</th>
-                          <th>Indexed</th>
-                          <th>Current</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(selectedVector.recent_docs || []).map((d: Row, i: number) => (
-                          <tr key={i}>
-                            <td>{d.source_r2_key}</td>
-                            <td>{String(d.content_preview || '').slice(0, 80)}</td>
-                            <td>{d.chunk_index}</td>
-                            <td>{d.token_count}</td>
-                            <td>{fmtTs(d.indexed_at)}</td>
-                            <td>
-                              <Badge tone={d.is_current ? 'ok' : 'warn'}>
-                                {d.is_current ? 'current' : 'stale'}
-                              </Badge>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-                <h3 className="storage-muted" style={{ fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', margin: '0 0 8px' }}>
-                  Supabase pgvector lanes
-                </h3>
-                <div className="storage-card">
-                  <table className="storage-table">
-                    <thead>
-                      <tr>
-                        <th>Purpose</th>
-                        <th>Table</th>
-                        <th>Dims</th>
-                        <th>Model</th>
-                        <th>Archive</th>
-                        <th>Live</th>
+                );
+              })}
+              {!platformIndexes.length && (
+                <p className="storage-muted">No Cloudflare Vectorize indexes in the platform catalog.</p>
+              )}
+            </div>
+            {vectors?.can_view_platform && selectedVector?.stale_doc_count > 0 && (
+              <div className="storage-banner">
+                {selectedVector.stale_doc_count} stale chunks detected on {selectedVector.display_name}.
+              </div>
+            )}
+            {vectors?.can_view_platform && !!selectedVector?.recent_docs?.length && (
+              <div className="storage-card" style={{ marginBottom: 14 }}>
+                <table className="storage-table">
+                  <thead>
+                    <tr>
+                      <th>R2 Key</th>
+                      <th>Preview</th>
+                      <th>Chunk</th>
+                      <th>Tokens</th>
+                      <th>Indexed</th>
+                      <th>Current</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(selectedVector.recent_docs || []).map((d: Row, i: number) => (
+                      <tr key={i}>
+                        <td>{d.source_r2_key}</td>
+                        <td>{String(d.content_preview || '').slice(0, 80)}</td>
+                        <td>{d.chunk_index}</td>
+                        <td>{d.token_count}</td>
+                        <td>{fmtTs(d.indexed_at)}</td>
+                        <td>
+                          <Badge tone={d.is_current ? 'ok' : 'warn'}>
+                            {d.is_current ? 'current' : 'stale'}
+                          </Badge>
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {(vectors?.platform_pgvector_lanes || []).map((lane: Row) => (
-                        <tr key={lane.id || lane.table_name}>
-                          <td>{lane.purpose}</td>
-                          <td>
-                            {lane.schema_name}.{lane.table_name}
-                          </td>
-                          <td>{lane.dimensions}</td>
-                          <td>{lane.embedding_model}</td>
-                          <td>
-                            <Badge tone={lane.is_archive ? 'warn' : 'muted'}>
-                              {lane.is_archive ? 'yes' : 'no'}
-                            </Badge>
-                          </td>
-                          <td>
-                            <Dot ok={!!lane.is_live_connected} />
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            ) : (
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <h3 className="storage-muted" style={{ fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', margin: '0 0 8px' }}>
+              Supabase pgvector
+            </h3>
+            <div className="storage-card" style={{ marginBottom: 14 }}>
+              <table className="storage-table">
+                <thead>
+                  <tr>
+                    <th>Purpose</th>
+                    <th>Table</th>
+                    <th>Dims</th>
+                    <th>Model</th>
+                    <th>Archive</th>
+                    <th>Live</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(vectors?.platform_pgvector_lanes || []).map((lane: Row) => (
+                    <tr key={lane.id || lane.table_name}>
+                      <td>{lane.purpose}</td>
+                      <td>
+                        {lane.schema_name}.{lane.table_name}
+                      </td>
+                      <td>{lane.dimensions}</td>
+                      <td>{lane.embedding_model}</td>
+                      <td>
+                        <Badge tone={lane.is_archive ? 'warn' : 'muted'}>
+                          {lane.is_archive ? 'yes' : 'no'}
+                        </Badge>
+                      </td>
+                      <td>
+                        <Dot ok={!!lane.is_live_connected} />
+                      </td>
+                    </tr>
+                  ))}
+                  {!(vectors?.platform_pgvector_lanes || []).length && (
+                    <tr>
+                      <td colSpan={6} className="storage-muted">
+                        No active pgvector lanes in the global catalog.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            {!vectors?.can_view_platform ? (
               <>
-                <p className="storage-muted" style={{ marginBottom: 12 }}>
-                  Workspace vector lanes for <code>{vectors?.workspace_id || 'active workspace'}</code>. Platform
-                  Cloudflare bindings are operator-only.
-                </p>
                 <h3 className="storage-muted" style={{ fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', margin: '0 0 8px' }}>
                   Your Supabase pgvector rows
                 </h3>
@@ -503,7 +546,7 @@ export const StoragePage: React.FC<StoragePageProps> = ({ embeddedInSettings = f
                   </table>
                 </div>
               </>
-            )}
+            ) : null}
 
             <h3 className="storage-muted" style={{ fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', margin: '16px 0 8px' }}>
               Your vector connections
