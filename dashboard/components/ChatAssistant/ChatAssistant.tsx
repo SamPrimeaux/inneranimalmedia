@@ -5,6 +5,7 @@
 */
 
 import React, { useState, useEffect, useRef, useLayoutEffect, useCallback, useMemo } from 'react';
+import { PHONE_MQ } from '../../lib/breakpoints';
 import { createPortal } from 'react-dom';
 import {
   ArrowUp,
@@ -347,7 +348,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const [threadTitle, setThreadTitle] = useState<string>('');
 
   const [isNarrow, setIsNarrow] = useState(
-    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches
+    () => typeof window !== 'undefined' && window.matchMedia(PHONE_MQ).matches
   );
   const resolvedActivePlanId = useMemo(
     () =>
@@ -443,7 +444,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const mq = window.matchMedia('(max-width: 767px)');
+    const mq = window.matchMedia(PHONE_MQ);
     const u = () => setIsNarrow(mq.matches);
     mq.addEventListener('change', u);
     return () => mq.removeEventListener('change', u);

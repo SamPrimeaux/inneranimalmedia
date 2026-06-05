@@ -16,6 +16,7 @@ import {
   isAgentQuickstartPath,
   isAgentShellPath,
 } from './lib/agentRoutes';
+import { BREAKPOINTS, PHONE_MQ } from './lib/breakpoints';
 import { sanitizeBrowserNavigateUrl } from './lib/sanitizeBrowserUrl';
 import { MCPPanel } from './components/MCPPanel';
 import {
@@ -425,7 +426,7 @@ const App: React.FC = () => {
   });
   const [agentPosition, setAgentPosition] = useState<'right' | 'left' | 'off'>(() => {
     if (typeof window === 'undefined') return 'right';
-    if (window.innerWidth < 768) return 'off';
+    if (window.innerWidth <= BREAKPOINTS.PHONE_MAX) return 'off';
     try {
       const v = localStorage.getItem(LS_AGENT_POSITION);
       if (v === 'left' || v === 'right' || v === 'off') return v;
@@ -496,9 +497,9 @@ const App: React.FC = () => {
   }, []);
   /** Increment to trigger File System Access picker from Welcome "Open Folder" after files panel mounts. */
   const [nativeFolderOpenSignal, setNativeFolderOpenSignal] = useState(0);
-  /** ≤768px: secondary rail actions (sheet above bottom tab bar). */
+  /** ≤430px: secondary rail actions (sheet above bottom tab bar). */
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
-  /** ≤768px: glass hamburger → left nav drawer (same destinations as desktop rail). */
+  /** ≤430px: glass hamburger → left nav drawer (same destinations as desktop rail). */
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [agentIsStreaming, setAgentIsStreaming] = useState(false);
   const [agentBrowserPresenceActive, setAgentBrowserPresenceActive] = useState(false);
@@ -523,7 +524,7 @@ const App: React.FC = () => {
   const [meetCtxValue, setMeetCtxValue] = useState<MeetCtxValue | null>(null);
 
   const [isNarrowViewport, setIsNarrowViewport] = useState(
-    () => typeof window !== 'undefined' && window.innerWidth < 768,
+    () => typeof window !== 'undefined' && window.innerWidth <= BREAKPOINTS.PHONE_MAX,
   );
   const mobileSwipeStartRef = useRef<{ x: number; y: number } | null>(null);
   /** Mobile chat repo drawer: expand this repo when opening the GitHub / Deploy panel. */
@@ -539,7 +540,7 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const mq = window.matchMedia('(max-width: 767px)');
+    const mq = window.matchMedia(PHONE_MQ);
     const fn = () => setIsNarrowViewport(mq.matches);
     mq.addEventListener('change', fn);
     return () => mq.removeEventListener('change', fn);
@@ -2772,8 +2773,8 @@ const App: React.FC = () => {
         data-active={agentBrowserPresenceActive ? 'true' : 'false'}
         aria-hidden="true"
       />
-      {/* 1. TOP WINDOW BAR + mobile hamburger (sticky ≤768px) */}
-      <header className="shrink-0 z-[110] max-md:sticky max-md:top-0 bg-[var(--dashboard-panel)]">
+      {/* 1. TOP WINDOW BAR + mobile hamburger (sticky ≤430px) */}
+      <header className="shrink-0 z-[110] max-phone:sticky max-phone:top-0 bg-[var(--dashboard-panel)]">
       <div className="h-10 border-b border-[var(--dashboard-border)] flex items-center justify-between px-3 overflow-visible relative">
           <div className="flex items-center gap-1 opacity-80 pl-1 shrink-0 min-w-0">
               <img
@@ -2796,7 +2797,7 @@ const App: React.FC = () => {
                     return next;
                   });
                 }}
-                className="max-md:hidden shrink-0 p-1.5 rounded-md text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)] transition-colors ml-1"
+                className="max-phone:hidden shrink-0 p-1.5 rounded-md text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)] transition-colors ml-1"
                 title={sidebarRailExpanded ? 'Collapse navigation' : 'Expand navigation'}
                 aria-expanded={sidebarRailExpanded}
               >
@@ -2806,7 +2807,7 @@ const App: React.FC = () => {
                 <button
                   type="button"
                   onClick={toggleExplorer}
-                  className={`max-md:hidden shrink-0 p-1.5 rounded-md transition-colors ml-0.5 ${
+                  className={`max-phone:hidden shrink-0 p-1.5 rounded-md transition-colors ml-0.5 ${
                     activeActivity === 'files'
                       ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]'
                       : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]'
@@ -2820,7 +2821,7 @@ const App: React.FC = () => {
           </div>
 
           {/* Unified search (Cmd+K) — desktop center; mobile lives in right cluster */}
-          <div className="flex-1 flex justify-center items-center min-w-0 px-2 gap-2 overflow-visible max-md:hidden">
+          <div className="flex-1 flex justify-center items-center min-w-0 px-2 gap-2 overflow-visible max-phone:hidden">
               <UnifiedSearchBar
                 workspaceLabel={workspaceDisplayLine}
                 onWorkspacePickerClick={() => setWorkspaceLauncherOpen(true)}
@@ -2836,8 +2837,8 @@ const App: React.FC = () => {
           </div>
 
           {/* Right layout cluster — mobile: Search icon + More; desktop adds terminal/globe/etc. */}
-          <div className="flex gap-0.5 items-center mr-1 shrink-0 max-md:ml-auto">
-              <div className="md:hidden shrink-0">
+          <div className="flex gap-0.5 items-center mr-1 shrink-0 max-phone:ml-auto">
+              <div className="hidden max-phone:block shrink-0">
                 <UnifiedSearchBar
                   workspaceLabel={workspaceDisplayLine}
                   hideWorkspaceSegment
@@ -2856,7 +2857,7 @@ const App: React.FC = () => {
               <button
                   type="button"
                   title="More tools (mobile)"
-                  className="md:hidden p-1.5 rounded transition-colors text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]"
+                  className="hidden max-phone:block p-1.5 rounded transition-colors text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]"
                   onClick={() => setMobileMoreOpen(true)}
               >
                   <MoreHorizontal size={15} strokeWidth={1.75} />
@@ -2864,7 +2865,7 @@ const App: React.FC = () => {
               <button
                   type="button"
                   title="Open Browser"
-                  className="max-md:hidden p-1.5 rounded transition-colors text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]"
+                  className="max-phone:hidden p-1.5 rounded transition-colors text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]"
                   onClick={() => {
                     openTab('browser');
                   }}
@@ -2874,7 +2875,7 @@ const App: React.FC = () => {
               <button
                   type="button"
                   title="Toggle agent panel"
-                  className={`max-md:hidden p-1.5 rounded transition-colors ${agentPosition !== 'off' ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]' : 'text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]'}`}
+                  className={`max-phone:hidden p-1.5 rounded transition-colors ${agentPosition !== 'off' ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]' : 'text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]'}`}
                   onClick={onChatLayoutToggle}
               >
                   {agentPosition === 'left' ? <PanelLeftClose size={15} strokeWidth={1.75} /> : <PanelRightClose size={15} strokeWidth={1.75} />}
@@ -2885,7 +2886,7 @@ const App: React.FC = () => {
               <button
                   type="button"
                   title="Terminal (Cmd+J)"
-                  className={`max-md:hidden p-1.5 rounded transition-colors ${isTerminalOpen ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]' : 'text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]'}`}
+                  className={`max-phone:hidden p-1.5 rounded transition-colors ${isTerminalOpen ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]' : 'text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]'}`}
                   onClick={() =>
                     setIsTerminalOpen((p) => {
                       const next = !p;
@@ -2899,12 +2900,12 @@ const App: React.FC = () => {
               <button
                   type="button"
                   title="Settings"
-                  className={`max-md:hidden p-1.5 rounded transition-colors ${location.pathname.startsWith('/dashboard/settings') ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]' : 'text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]'}`}
+                  className={`max-phone:hidden p-1.5 rounded transition-colors ${location.pathname.startsWith('/dashboard/settings') ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]' : 'text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]'}`}
                   onClick={() => navigate('/dashboard/settings/general')}
               >
                   <Settings size={15} strokeWidth={1.75} />
               </button>
-              <div className="relative hidden md:block" ref={topChromeMoreRef}>
+              <div className="relative hidden min-[431px]:block" ref={topChromeMoreRef}>
                   <button
                       type="button"
                       title="More tools"
@@ -2978,11 +2979,11 @@ const App: React.FC = () => {
         />
       )}
 
-      <div className="flex flex-1 overflow-hidden max-md:pb-[52px]">
-          {/* 2. ACTIVITY BAR (Extreme Left) — hidden ≤768px; use bottom tab bar + More */}
+      <div className="flex flex-1 overflow-hidden max-phone:pb-[52px]">
+          {/* 2. ACTIVITY BAR (Extreme Left) — hidden ≤430px; use bottom tab bar + More */}
           {/* Activity bar: icon rail (width toggled via ☰ — localStorage iam_sidebar_expanded) */}
           <div
-            className="hidden md:flex flex-col py-3 gap-1 px-1 bg-[var(--dashboard-panel)] border-r border-[var(--dashboard-border)] shrink-0 z-50 overflow-x-hidden overflow-y-auto transition-[width] duration-200 ease-in-out"
+            className="hidden min-[431px]:flex flex-col py-3 gap-1 px-1 bg-[var(--dashboard-panel)] border-r border-[var(--dashboard-border)] shrink-0 z-50 overflow-x-hidden overflow-y-auto transition-[width] duration-200 ease-in-out"
             style={{ width: sidebarRailExpanded ? 180 : 48 }}
           >
               <DashboardActivityNav
@@ -2995,8 +2996,8 @@ const App: React.FC = () => {
           {agentPosition === 'left' && (
               <>
                 <div 
-                    className={`bg-[var(--dashboard-panel)] flex flex-col shrink-0 transition-opacity relative group z-30 opacity-100 max-md:fixed max-md:inset-0 max-md:z-[45] max-md:w-full max-md:max-w-none max-md:shrink ${
-                      activeActivity ? 'max-md:hidden' : ''
+                    className={`bg-[var(--dashboard-panel)] flex flex-col shrink-0 transition-opacity relative group z-30 opacity-100 max-phone:fixed max-phone:inset-0 max-phone:z-[45] max-phone:w-full max-phone:max-w-none max-phone:shrink ${
+                      activeActivity ? 'max-phone:hidden' : ''
                     }`}
                     style={
                       isNarrowViewport
@@ -3005,7 +3006,7 @@ const App: React.FC = () => {
                     }
                     {...(narrowNeedsBack && !activeActivity ? mobileEdgeSwipeHandlers : {})}
                 >
-                    <div className="h-10 max-md:hidden border-b border-[var(--dashboard-border)] flex items-center px-4 font-semibold text-[11px] tracking-widest uppercase text-[var(--text-muted)] shrink-0">{PRODUCT_NAME}</div>
+                    <div className="h-10 max-phone:hidden border-b border-[var(--dashboard-border)] flex items-center px-4 font-semibold text-[11px] tracking-widest uppercase text-[var(--text-muted)] shrink-0">{PRODUCT_NAME}</div>
                     <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
                     <ChatAssistant 
                         activeProject={activeProject} 
@@ -3062,7 +3063,7 @@ const App: React.FC = () => {
                   aria-orientation="vertical"
                   title="Drag to resize Agent Sam panel"
                   aria-label="Resize Agent Sam panel"
-                  className="max-md:hidden shrink-0 z-50 flex justify-center cursor-col-resize touch-none select-none group relative"
+                  className="max-phone:hidden shrink-0 z-50 flex justify-center cursor-col-resize touch-none select-none group relative"
                   style={{ width: AGENT_RESIZER_HIT_PX }}
                   onPointerDown={(e) => beginPanelResize('agent', e)}
                 >
@@ -3076,11 +3077,11 @@ const App: React.FC = () => {
 
           <div className="flex flex-1 min-w-0 overflow-hidden">
           <div 
-              className={`transition-all duration-75 shrink-0 bg-[var(--dashboard-panel)] flex flex-col z-40 overflow-hidden shadow-2xl md:shadow-none hover:border-[var(--solar-cyan)] relative group
+              className={`transition-all duration-75 shrink-0 bg-[var(--dashboard-panel)] flex flex-col z-40 overflow-hidden shadow-2xl min-[431px]:shadow-none hover:border-[var(--solar-cyan)] relative group
               ${
                 activeActivity
-                  ? 'md:relative md:left-0 border-r border-[var(--dashboard-border)] opacity-100 pointer-events-auto max-md:iam-mobile-activity-panel'
-                  : 'border-none opacity-0 pointer-events-none max-md:iam-mobile-activity-panel'
+                  ? 'min-[431px]:relative min-[431px]:left-0 border-r border-[var(--dashboard-border)] opacity-100 pointer-events-auto max-phone:iam-mobile-activity-panel'
+                  : 'border-none opacity-0 pointer-events-none max-phone:iam-mobile-activity-panel'
               }`}
               data-open={activeActivity ? 'true' : 'false'}
               style={
@@ -3160,7 +3161,7 @@ const App: React.FC = () => {
               aria-orientation="vertical"
               title="Drag to resize · double-click to close"
               aria-label="Resize activity panel"
-              className="hidden md:flex shrink-0 z-50 group relative cursor-col-resize touch-none select-none justify-center"
+              className="hidden min-[431px]:flex shrink-0 z-50 group relative cursor-col-resize touch-none select-none justify-center"
               style={{ width: ACTIVITY_SIDEBAR_GRAB_PX }}
               onPointerDown={(e) => beginPanelResize('sidebar', e)}
               onDoubleClick={() => setActiveActivity(null)}
@@ -3178,7 +3179,7 @@ const App: React.FC = () => {
               aria-orientation="vertical"
               aria-label="Resize explorer panel"
               title="Drag to resize explorer"
-              className="iam-mobile-activity-resizer md:hidden"
+              className="iam-mobile-activity-resizer hidden max-phone:block"
               style={{ left: `${mobileActivityPanelVw}vw` }}
               onPointerDown={beginMobileActivityPanelResize}
             />
@@ -3186,14 +3187,14 @@ const App: React.FC = () => {
 
           {/* 4. MAIN EDITOR AREA */}
           <main 
-              className={`flex-1 flex flex-col min-w-0 min-h-0 bg-[var(--dashboard-canvas)] relative max-md:overflow-x-hidden ${narrowBlocksCenter ? 'max-md:hidden' : ''}`}
+              className={`flex-1 flex flex-col min-w-0 min-h-0 bg-[var(--dashboard-canvas)] relative max-phone:overflow-x-hidden ${narrowBlocksCenter ? 'max-phone:hidden' : ''}`}
               onDrop={handleMainFileDrop}
               onDragOver={handleMainDragOver}
           >
               {isAgentHomePath(location.pathname) && !activeActivity && (
                 <button
                   type="button"
-                  className="hidden md:flex absolute left-0 top-1/2 -translate-y-1/2 z-20 flex-col items-center gap-1 py-3 px-1 rounded-r-md border border-l-0 border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] text-[var(--text-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/40 shadow-md transition-colors"
+                  className="hidden min-[431px]:flex absolute left-0 top-1/2 -translate-y-1/2 z-20 flex-col items-center gap-1 py-3 px-1 rounded-r-md border border-l-0 border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] text-[var(--text-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/40 shadow-md transition-colors"
                   title="Show Explorer (⌘B)"
                   aria-label="Show Explorer"
                   onClick={() => setActiveActivity('files')}
@@ -3378,12 +3379,12 @@ const App: React.FC = () => {
                           <button
                             type="button"
                             title="Open Browser"
-                            className="md:hidden p-1.5 rounded transition-colors text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]"
+                            className="hidden max-phone:block p-1.5 rounded transition-colors text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]"
                             onClick={() => openTab('browser')}
                           >
                             <Globe size={15} strokeWidth={1.75} />
                           </button>
-                          <span className="max-md:hidden">
+                          <span className="max-phone:hidden">
                             <QuickOpen label="Browser" onClick={() => openTab('browser')} />
                           </span>
                         </>
@@ -3391,7 +3392,7 @@ const App: React.FC = () => {
                       <button
                         type="button"
                         title="Terminal (Cmd+J)"
-                        className={`md:hidden p-1.5 rounded transition-colors ${isTerminalOpen ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]' : 'text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]'}`}
+                        className={`hidden max-phone:block p-1.5 rounded transition-colors ${isTerminalOpen ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]' : 'text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]'}`}
                         onClick={() =>
                           setIsTerminalOpen((p) => {
                             const next = !p;
@@ -3613,7 +3614,7 @@ const App: React.FC = () => {
                   role="separator"
                   aria-orientation="vertical"
                   title="Drag to resize Agent Sam panel"
-                  className="max-md:hidden shrink-0 z-50 group relative flex justify-center cursor-col-resize touch-none select-none"
+                  className="max-phone:hidden shrink-0 z-50 group relative flex justify-center cursor-col-resize touch-none select-none"
                   style={{ width: AGENT_RESIZER_HIT_PX }}
                   onPointerDown={(e) => beginPanelResize('agent', e)}
                 >
@@ -3623,8 +3624,8 @@ const App: React.FC = () => {
                   />
                 </div>
                 <div 
-                    className={`bg-[var(--dashboard-panel)] flex flex-col shrink-0 transition-opacity z-30 relative group opacity-100 max-md:fixed max-md:inset-0 max-md:z-[45] max-md:w-full max-md:max-w-none max-md:shrink ${
-                      isNarrowViewport && activeActivity ? 'max-md:hidden' : ''
+                    className={`bg-[var(--dashboard-panel)] flex flex-col shrink-0 transition-opacity z-30 relative group opacity-100 max-phone:fixed max-phone:inset-0 max-phone:z-[45] max-phone:w-full max-phone:max-w-none max-phone:shrink ${
+                      isNarrowViewport && activeActivity ? 'max-phone:hidden' : ''
                     }`}
                     style={
                       isNarrowViewport
@@ -3633,7 +3634,7 @@ const App: React.FC = () => {
                     }
                     {...(narrowNeedsBack && !activeActivity ? mobileEdgeSwipeHandlers : {})}
                 >
-                    <div className="h-10 max-md:hidden border-b border-[var(--dashboard-border)] flex items-center px-4 font-semibold text-[11px] tracking-widest uppercase text-[var(--text-muted)] shrink-0">{PRODUCT_NAME}</div>
+                    <div className="h-10 max-phone:hidden border-b border-[var(--dashboard-border)] flex items-center px-4 font-semibold text-[11px] tracking-widest uppercase text-[var(--text-muted)] shrink-0">{PRODUCT_NAME}</div>
                     <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
                          <ChatAssistant 
                             activeProject={activeProject} 
@@ -3690,16 +3691,16 @@ const App: React.FC = () => {
       {/* 8. STATUS BAR (FOOTER) */}
       {toastMsg && (
         <div
-          className="fixed bottom-16 left-1/2 z-[200] -translate-x-1/2 px-4 py-2 rounded-lg border border-[var(--dashboard-border)] bg-[var(--dashboard-canvas)] text-[11px] text-[var(--text-main)] shadow-lg max-w-md text-center max-md:[bottom:calc(56px+1.5rem+env(safe-area-inset-bottom,0px)+8px)]"
+          className="fixed bottom-16 left-1/2 z-[200] -translate-x-1/2 px-4 py-2 rounded-lg border border-[var(--dashboard-border)] bg-[var(--dashboard-canvas)] text-[11px] text-[var(--text-main)] shadow-lg max-w-md text-center max-phone:[bottom:calc(56px+1.5rem+env(safe-area-inset-bottom,0px)+8px)]"
           role="status"
         >
           {toastMsg}
         </div>
       )}
 
-      {/* Mobile (≤768px): bottom tab bar above StatusBar */}
+      {/* Mobile (≤430px): bottom tab bar above StatusBar */}
       <nav
-        className="md:hidden fixed inset-x-0 z-[90] flex items-stretch justify-around gap-0 border-t border-[var(--dashboard-border)] bg-[var(--dashboard-panel)]/95 backdrop-blur-sm"
+        className="hidden max-phone:flex fixed inset-x-0 z-[90] items-stretch justify-around gap-0 border-t border-[var(--dashboard-border)] bg-[var(--dashboard-panel)]/95 backdrop-blur-sm"
         style={{ bottom: 'calc(1.5rem + env(safe-area-inset-bottom, 0px))' }}
         aria-label="Primary"
       >
@@ -3749,12 +3750,12 @@ const App: React.FC = () => {
         <>
           <button
             type="button"
-            className="md:hidden fixed inset-0 z-[95] bg-[var(--text-main)]/25 backdrop-blur-[2px]"
+            className="hidden max-phone:block fixed inset-0 z-[95] bg-[var(--text-main)]/25 backdrop-blur-[2px]"
             aria-label="Close more tools"
             onClick={() => setMobileMoreOpen(false)}
           />
           <div
-            className="md:hidden fixed left-2 right-2 z-[96] max-h-[min(72vh,calc(100dvh-10rem))] flex flex-col rounded-t-xl border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] shadow-2xl overflow-hidden"
+            className="hidden max-phone:flex fixed left-2 right-2 z-[96] max-h-[min(72vh,calc(100dvh-10rem))] flex-col rounded-t-xl border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] shadow-2xl overflow-hidden"
             style={{ bottom: 'calc(1.5rem + env(safe-area-inset-bottom, 0px) + 52px)' }}
           >
             <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--dashboard-border)] shrink-0">

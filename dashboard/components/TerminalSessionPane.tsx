@@ -9,6 +9,7 @@ import React, {
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
+import { PHONE_MQ } from '../lib/breakpoints';
 
 export type TerminalConnectionStatus =
   | 'connecting'
@@ -22,10 +23,9 @@ export type TerminalConnectionStatus =
   | 'timed_out';
 
 const INACTIVITY_MS = 5 * 60 * 1000;
-const MOBILE_MQ = '(max-width: 767px)';
 
 function isNarrowViewport(): boolean {
-  return typeof window !== 'undefined' && window.matchMedia(MOBILE_MQ).matches;
+  return typeof window !== 'undefined' && window.matchMedia(PHONE_MQ).matches;
 }
 
 function focusXtermSurface(term: Terminal, host: HTMLElement | null) {

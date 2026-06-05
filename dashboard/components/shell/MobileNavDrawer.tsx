@@ -31,13 +31,13 @@ export function MobileNavDrawer({ open, onClose, settingsIntegrationsActive }: M
       {open ? (
         <button
           type="button"
-          className="iam-mobile-nav-drawer-overlay md:hidden"
+          className="iam-mobile-nav-drawer-overlay hidden max-phone:block"
           aria-label="Close navigation menu"
           onClick={onClose}
         />
       ) : null}
       <nav
-        className="iam-mobile-nav-drawer-panel md:hidden"
+        className="iam-mobile-nav-drawer-panel hidden max-phone:block"
         data-open={open ? 'true' : 'false'}
         aria-label="Primary navigation"
         aria-hidden={!open}

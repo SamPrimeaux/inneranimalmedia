@@ -1,6 +1,6 @@
-/* Mobile terminal UX — desktop layout unchanged (max-width: 767px) */
+/* Mobile terminal UX — desktop layout unchanged (max-width: 430px) */
 
-@media (max-width: 767px) {
+@media (max-width: 430px) {
   .iam-terminal-shell-root {
     width: 100%;
     max-width: 100vw;

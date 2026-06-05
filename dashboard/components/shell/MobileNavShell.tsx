@@ -32,7 +32,7 @@ export function MobileNavShell({
   return (
     <>
       <div
-        className="iam-mobile-nav-controls md:hidden"
+        className="iam-mobile-nav-controls hidden max-phone:flex"
         data-drawer-open={open ? 'true' : 'false'}
         data-has-back={showBack ? 'true' : 'false'}
       >

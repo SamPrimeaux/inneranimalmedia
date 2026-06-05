@@ -1,5 +1,5 @@
 /* Mobile activity / file explorer — left drawer (~50vw), not fullscreen */
-@media (max-width: 767px) {
+@media (max-width: 430px) {
   .iam-mobile-activity-panel {
     top: 2.5rem;
     bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px) + 52px);

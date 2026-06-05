@@ -34,7 +34,7 @@ export function ArtifactPreviewPanel({ artifact, open, onClose, onPatched, onToa
     <>
       <button
         type="button"
-        className="fixed inset-0 z-[60] bg-black/50 md:hidden"
+        className="fixed inset-0 z-[60] bg-black/50 hidden max-phone:block"
         aria-label="Close panel"
         onClick={onClose}
       />

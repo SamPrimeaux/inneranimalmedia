@@ -14,6 +14,7 @@ import {
   type TerminalConnectionStatus,
 } from './TerminalSessionPane';
 import type { AgentWorkspaceContextPacket } from '../src/ideWorkspace';
+import { PHONE_MQ } from '../lib/breakpoints';
 import { fetchLocalTerminalConnection, type TerminalTarget } from './LocalTerminalSetup';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -87,7 +88,7 @@ function useSplashFontPx(): number {
   const [fontPx, setFontPx] = useState(11);
   useEffect(() => {
     const fit = () => {
-      if (!window.matchMedia('(max-width: 767px)').matches) {
+      if (!window.matchMedia(PHONE_MQ).matches) {
         setFontPx(11);
         return;
       }
@@ -621,7 +622,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                       key={tab}
                       type="button"
                       onClick={() => setActiveTab(tab)}
-                      className={`relative px-3 py-2 text-[10px] font-bold tracking-[0.14em] uppercase transition-colors flex items-center gap-1.5 max-md:px-[10px] max-md:py-[6px] max-md:text-[11px] max-md:font-medium max-md:tracking-[0.04em] max-md:normal-case ${
+                      className={`relative px-3 py-2 text-[10px] font-bold tracking-[0.14em] uppercase transition-colors flex items-center gap-1.5 max-phone:px-[10px] max-phone:py-[6px] max-phone:text-[11px] max-phone:font-medium max-phone:tracking-[0.04em] max-phone:normal-case ${
                         activeTab === tab
                           ? 'text-[var(--solar-cyan)]'
                           : 'text-[var(--terminal-tab-muted)] hover:text-[var(--text-main)]'
@@ -752,7 +753,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                     <button
                       type="button"
                       title="Terminal menu (shell, split, settings)"
-                      className="inline-flex shrink-0 items-center justify-center p-1.5 max-md:p-[6px] rounded border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/40 hover:bg-[var(--bg-hover)]"
+                      className="inline-flex shrink-0 items-center justify-center p-1.5 max-phone:p-[6px] rounded border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/40 hover:bg-[var(--bg-hover)]"
                       onClick={() => setPlusMenuOpen((v) => !v)}
                     >
                       <Plus size={15} strokeWidth={2} />
@@ -863,7 +864,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                   <button
                     type="button"
                     title={splitEnabled ? 'Single terminal' : 'Split terminal (side by side)'}
-                    className={`shrink-0 p-1.5 max-md:p-[6px] rounded border transition-colors ${
+                    className={`shrink-0 p-1.5 max-phone:p-[6px] rounded border transition-colors ${
                       splitEnabled
                         ? 'border-[var(--solar-cyan)]/50 bg-[var(--solar-cyan)]/10 text-[var(--solar-cyan)]'
                         : 'border-transparent text-[var(--text-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/20'
@@ -880,7 +881,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                   type="button"
                   onClick={() => setShowSplash((v) => !v)}
                   title="Toggle welcome screen"
-                  className={`shrink-0 p-1.5 max-md:p-[6px] rounded text-[9px] font-mono font-bold tracking-wider transition-colors border ${
+                  className={`shrink-0 p-1.5 max-phone:p-[6px] rounded text-[9px] font-mono font-bold tracking-wider transition-colors border ${
                     showSplash
                       ? 'bg-[var(--solar-cyan)]/10 border-[var(--solar-cyan)]/30 text-[var(--solar-cyan)]'
                       : 'border-transparent text-[var(--text-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/20'
@@ -893,7 +894,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                 <button
                   type="button"
                   onClick={() => setIsCollapsed(!isCollapsed)}
-                  className="shrink-0 p-1.5 max-md:p-[6px] rounded hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors"
+                  className="shrink-0 p-1.5 max-phone:p-[6px] rounded hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors"
                   title={isCollapsed ? 'Expand terminal' : 'Minimize terminal'}
                 >
                   {isCollapsed ? <ChevronUp size={15} strokeWidth={2} /> : <ChevronDown size={15} strokeWidth={2} />}
@@ -902,7 +903,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
               <button
                 type="button"
                 onClick={onClose}
-                className="shrink-0 p-1.5 max-md:p-[6px] rounded hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--solar-red)] transition-colors"
+                className="shrink-0 p-1.5 max-phone:p-[6px] rounded hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--solar-red)] transition-colors"
                 title="Close"
               >
                 <X size={15} strokeWidth={2} />

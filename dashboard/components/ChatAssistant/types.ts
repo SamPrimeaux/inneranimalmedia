@@ -270,7 +270,7 @@ export const CHAT_ATTACH_MAX_TOTAL_BYTES = 90 * 1024 * 1024;
 
 /**
  * App.tsx mobile shell: fixed tab bar z-[90] with `bottom: 1.5rem + safe-area` (~52px row) + status strip.
- * Chat panel is max-md:fixed z-[45], so the composer must pad above that stack or it sits underneath.
+ * Chat panel is max-phone:fixed z-[45], so the composer must pad above that stack or it sits underneath.
  */
 export const MOBILE_CHAT_COMPOSER_BOTTOM_PAD =
   'calc(56px + 1.5rem + env(safe-area-inset-bottom, 0px) + 24px)';

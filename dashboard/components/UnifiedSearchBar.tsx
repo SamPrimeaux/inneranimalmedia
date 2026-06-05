@@ -375,7 +375,7 @@ function rowIcon(category: PaletteCategory) {
 
 export const UnifiedSearchBar: React.FC<{
   workspaceLabel?: string;
-  /** Mobile (≤767px): search-only trigger — no workspace chip in top bar on any route. */
+  /** Mobile (≤430px): search-only trigger — no workspace chip in top bar on any route. */
   hideWorkspaceSegment?: boolean;
   /** Mobile top-bar right cluster: anchor palette to the right edge. */
   mobileToolbar?: boolean;

@@ -19,6 +19,7 @@ import {
   Settings2,
 } from 'lucide-react';
 import type { NavSectionItem } from '../types';
+import { BREAKPOINTS } from '../../../lib/breakpoints';
 
 export type RulesSkillsTabId = 'skills' | 'subagents' | 'commands' | 'rules';
 export type ModelsTabId = 'models' | 'routing';
@@ -36,13 +37,13 @@ export function useSettingsSections(activeSection: string) {
     }
   });
   const [isMobile, setIsMobile] = useState(() =>
-    typeof window !== 'undefined' ? window.innerWidth < 768 : false,
+    typeof window !== 'undefined' ? window.innerWidth <= BREAKPOINTS.PHONE_MAX : false,
   );
   const [rulesSkillsTab, setRulesSkillsTab] = useState<RulesSkillsTabId>('rules');
   const [modelsTab, setModelsTab] = useState<ModelsTabId>('models');
 
   useEffect(() => {
-    const onResize = () => setIsMobile(window.innerWidth < 768);
+    const onResize = () => setIsMobile(window.innerWidth <= BREAKPOINTS.PHONE_MAX);
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
