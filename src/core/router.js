@@ -11,5 +11,10 @@
  * `handleRequest` tree here — that previously drifted from production and caused silent 404s.
  */
 
-export { handleTunnelStatusGet, TUNNEL_STATUS_PATH } from './tunnel-status.js';
+export {
+  handleTunnelStatusGet,
+  handleTunnelRestartPost,
+  TUNNEL_STATUS_PATH,
+  TUNNEL_RESTART_PATH,
+} from './tunnel-status.js';
 export { dispatchProductionDomainRoutes, resolveRoute } from './production-dispatch.js';

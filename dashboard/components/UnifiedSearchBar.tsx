@@ -623,7 +623,14 @@ export const UnifiedSearchBar: React.FC<{
   const loadWorkflows = useCallback(async (searchTerm: string) => {
     setLoading(true);
     try {
-      let rows: { id?: string; workflow_key?: string; display_name?: string; description?: string }[] = [];
+      let rows: {
+        id?: string;
+        workflow_key?: string;
+        display_name?: string;
+        status?: string;
+        created_at?: string | number | null;
+        description?: string;
+      }[] = [];
 
       const primary = await fetchJson<typeof rows | { workflows?: typeof rows }>(
         `/api/workflows?limit=10${searchTerm ? `&q=${encodeURIComponent(searchTerm)}` : ''}`,
@@ -651,7 +658,11 @@ export const UnifiedSearchBar: React.FC<{
           id: `wf-${w.id || w.workflow_key}`,
           category: 'workflow',
           title: String(w.display_name || w.workflow_key || 'Workflow'),
-          subtitle: w.workflow_key || w.description || undefined,
+          subtitle:
+            w.workflow_key
+            || [w.status ? String(w.status) : '', w.created_at != null ? String(w.created_at) : ''].filter(Boolean).join(' · ')
+            || w.description
+            || undefined,
           workflowKey: String(w.workflow_key || w.id || ''),
         })),
       );

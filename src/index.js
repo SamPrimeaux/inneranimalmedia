@@ -27,7 +27,12 @@ import { runIntegritySnapshot } from './api/integrity';
 import { runMasterDailyRetention } from './core/retention.js';
 import { runSecurityScan, logSecretAudit } from './core/security-scan.js';
 import { handleOAuthApi } from './api/oauth';
-import { handleTunnelStatusGet, TUNNEL_STATUS_PATH } from './core/tunnel-status.js';
+import {
+  handleTunnelStatusGet,
+  handleTunnelRestartPost,
+  TUNNEL_STATUS_PATH,
+  TUNNEL_RESTART_PATH,
+} from './core/tunnel-status.js';
 import { handleScheduled } from './cron/scheduled.js';
 import { dispatchQueueMessage } from './queue/dispatcher.js';
 import { handleCodebaseIndexSyncFromQueue } from './queue/codebase-index-sync.js';
@@ -272,9 +277,12 @@ export default {
         return handleCatalogApi(request, url, env, ctx);
       }
 
-      // Tunnel status (shared handler with src/core/router.js; must run before legacy removal / api catchall)
+      // Tunnel status/restart (shared handler with src/core/router.js; must run before api catchall)
       if (pathLower === TUNNEL_STATUS_PATH && methodUpper === 'GET') {
         return handleTunnelStatusGet(request, env);
+      }
+      if (pathLower === TUNNEL_RESTART_PATH && methodUpper === 'POST') {
+        return handleTunnelRestartPost(request, env);
       }
 
       // Collab workspace room -> IAM_COLLAB DO (`/api/collab/room/{room}` → DO name = decoded room, e.g. canvas:ws_…)

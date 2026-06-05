@@ -51,11 +51,123 @@ export async function fetchWorkspaceGithubRepo(env, authUser, request, url) {
     return {
       error: 'no_github_repo',
       workspace_id: tw.workspaceId,
-      status: 404,
+      status: 200,
     };
   }
 
   return { repo, workspace_id: tw.workspaceId, tenant_id: tenantId };
+}
+
+async function readWorkspaceGitCache(env, workspaceId) {
+  if (!env?.DB || !workspaceId) return null;
+  const row = await env.DB.prepare(
+    `SELECT checkpoint_sha, checkpoint_label, updated_at, last_agent_action
+     FROM agentsam_workspace_state
+     WHERE workspace_id = ?
+     LIMIT 1`,
+  )
+    .bind(workspaceId)
+    .first()
+    .catch(() => null);
+  return row || null;
+}
+
+/**
+ * Agent git status bar — live GitHub when token/repo available; D1 cache otherwise. Never 404.
+ */
+export async function fetchAgentGitStatus(env, authUser, request, url) {
+  const tw = await resolveTerminalWorkspaceId(
+    env,
+    request,
+    authUser,
+    url.searchParams.get('workspace_id'),
+  );
+  const workspaceId = tw.workspaceId || null;
+  if (!workspaceId) {
+    return {
+      status: 'no_workspace',
+      branch: null,
+      repo: null,
+      repo_full_name: null,
+      workspace_id: null,
+      dirty: false,
+    };
+  }
+
+  const cached = await readWorkspaceGitCache(env, workspaceId);
+  const branchFromCache =
+    cached?.checkpoint_label != null && String(cached.checkpoint_label).trim() !== ''
+      ? String(cached.checkpoint_label).trim()
+      : 'main';
+  const lastUpdated = cached?.updated_at != null ? Number(cached.updated_at) : null;
+
+  const repoCtx = await fetchWorkspaceGithubRepo(env, authUser, request, url);
+  if (repoCtx.error === 'no_github_repo') {
+    return {
+      status: 'no_repo',
+      branch: branchFromCache,
+      repo: null,
+      repo_full_name: null,
+      workspace_id: workspaceId,
+      dirty: false,
+      last_updated: lastUpdated,
+      checkpoint_sha: cached?.checkpoint_sha ?? null,
+    };
+  }
+  if (repoCtx.error) {
+    return {
+      status: 'cached',
+      branch: branchFromCache,
+      repo: repoCtx.repo ?? null,
+      repo_full_name: repoCtx.repo ?? null,
+      workspace_id: workspaceId,
+      dirty: false,
+      last_updated: lastUpdated,
+      checkpoint_sha: cached?.checkpoint_sha ?? null,
+      detail: repoCtx.error,
+    };
+  }
+
+  const owner = repoCtx.repo.split('/')[0];
+  const { token, error } = await resolveGitHubToken(authUser, env, owner);
+  if (error || !token) {
+    return {
+      status: 'cached',
+      branch: branchFromCache,
+      repo: repoCtx.repo,
+      repo_full_name: repoCtx.repo,
+      workspace_id: workspaceId,
+      dirty: false,
+      last_updated: lastUpdated,
+      checkpoint_sha: cached?.checkpoint_sha ?? null,
+    };
+  }
+
+  const live = await fetchGitStatusFromGitHub(env, authUser, request, url);
+  if (live.error) {
+    return {
+      status: 'cached',
+      branch: branchFromCache,
+      repo: repoCtx.repo,
+      repo_full_name: repoCtx.repo,
+      workspace_id: workspaceId,
+      dirty: false,
+      last_updated: lastUpdated,
+      checkpoint_sha: cached?.checkpoint_sha ?? null,
+      detail: live.error,
+    };
+  }
+
+  return {
+    status: 'live',
+    branch: live.branch,
+    repo: live.repo,
+    repo_full_name: live.repo_full_name,
+    workspace_id: live.workspace_id || workspaceId,
+    dirty: false,
+    last_updated: lastUpdated,
+    checkpoint_sha: cached?.checkpoint_sha ?? null,
+  };
 }
 
 const GH_HEADERS_BASE = {

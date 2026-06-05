@@ -50,6 +50,7 @@ import { authUserFromRequest, getSession,
          platformTenantIdFromEnv }    from '../core/auth.js';
 import { resolveGitHubToken } from '../core/github-token.js';
 import {
+  fetchAgentGitStatus,
   fetchGitStatusFromGitHub,
   fetchWorkspaceGithubRepo,
   pingPtyServiceHealth,
@@ -8732,19 +8733,7 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB)   return jsonResponse({ error: 'DB not configured' }, 503);
     try {
-      const payload = await fetchGitStatusFromGitHub(env, authUser, request, url);
-      if (payload.error) {
-        return jsonResponse(
-          { error: payload.error, detail: payload.detail, workspace_id: payload.workspace_id },
-          payload.status || 500,
-        );
-      }
-      return jsonResponse({
-        branch: payload.branch,
-        repo: payload.repo,
-        repo_full_name: payload.repo_full_name,
-        workspace_id: payload.workspace_id,
-      });
+      return jsonResponse(await fetchAgentGitStatus(env, authUser, request, url));
     } catch (e) { return jsonResponse({ error: e?.message }, 500); }
   }
 
@@ -9120,14 +9109,27 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
               ? awsRow.state_json
               : JSON.stringify(stateObj || {});
 
+          if (!awsRow) {
+            return jsonResponse({
+              workspace_id: wsId,
+              exists: false,
+              conversation_id: null,
+              active_file: null,
+              files_open: [],
+              updated_at: null,
+              created_at: null,
+            });
+          }
+
           return jsonResponse({
             id: wsId,
             workspace_id: wsId,
-            conversation_id: awsRow?.conversation_id ?? null,
-            active_file: awsRow?.active_file ?? null,
-            files_open: parseFilesOpen(awsRow?.files_open),
-            updated_at: awsRow?.updated_at ?? null,
-            created_at: awsRow?.created_at ?? null,
+            exists: true,
+            conversation_id: awsRow.conversation_id ?? null,
+            active_file: awsRow.active_file ?? null,
+            files_open: parseFilesOpen(awsRow.files_open),
+            updated_at: awsRow.updated_at ?? null,
+            created_at: awsRow.created_at ?? null,
             name: 'Workspace',
             environment: 'local',
             status: 'active',
@@ -9198,7 +9200,7 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
           });
         }
 
-        return jsonResponse({ error: 'Workspace not found' }, 404);
+        return jsonResponse({ workspace_id: wsId, exists: false }, 200);
       } catch (e) {
         return jsonResponse({ error: `Fetch error: ${e.message}` }, 500);
       }

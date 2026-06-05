@@ -57,6 +57,7 @@ import { handleAnalyticsApi } from '../api/analytics/index.js';
 import { handleVaultApi } from '../api/vault.js';
 import { handleD1DashboardRoutes } from '../api/d1-dashboard.js';
 import { handleUnifiedSearchApi } from '../api/unified-search.js';
+import { handleWorkflowsApi } from '../api/workflows.js';
 import { handleCommandsApi } from '../api/commands.js';
 import { handleImagesApi } from '../api/images.js';
 import { handleMoviemodeApi } from '../api/moviemode-api.js';
@@ -127,6 +128,10 @@ export async function dispatchProductionDomainRoutes(rc) {
 
   if (pathLower.startsWith('/api/unified-search')) {
     return handleUnifiedSearchApi(request, url, env);
+  }
+
+  if (pathLower === '/api/workflows') {
+    return handleWorkflowsApi(request, url, env);
   }
 
   if (pathLower === '/api/public/sync') {
@@ -220,7 +225,11 @@ export async function dispatchProductionDomainRoutes(rc) {
     return handleCursorAgentApi(request, url, env, ctx);
   }
 
-  if (pathLower.startsWith('/api/hyperdrive') || pathLower.startsWith('/api/browser')) {
+  if (
+    pathLower.startsWith('/api/hyperdrive') ||
+    pathLower.startsWith('/api/browser') ||
+    pathLower.startsWith('/api/security/')
+  ) {
     return handleDashboardApi(request, url, env, ctx);
   }
 

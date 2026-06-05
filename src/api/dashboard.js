@@ -40,7 +40,7 @@ import { handleGitHubApi } from '../integrations/github.js';
 import { resolveGitHubToken } from '../core/github-token.js';
 import { handleAgentArtifactsApi } from './agent-artifacts.js';
 import {
-    fetchGitStatusFromGitHub,
+    fetchAgentGitStatus,
     fetchWorkspaceGithubRepo,
     pingPtyServiceHealth,
 } from '../core/status-bar-runtime.js';
@@ -92,6 +92,7 @@ export async function handleDashboardApi(request, url, env, ctx) {
 
     // ── GET /api/security/shield-pulse — open findings + audit scan (banner, no secrets) ──
     if (pathLower === '/api/security/shield-pulse' && method === 'GET') {
+        console.log('[shield-pulse] handler reached');
         const authUser = await getAuthUser(request, env);
         if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
         let tenantId =
@@ -105,7 +106,41 @@ export async function handleDashboardApi(request, url, env, ctx) {
             userId: String(authUser.id || '').trim(),
             fireNotifications: notify,
         });
-        return jsonResponse(pulse);
+
+        let workspaceId = authUser.workspace_id != null ? String(authUser.workspace_id).trim() : '';
+        if (!workspaceId) {
+            const tw = await resolveTerminalWorkspaceId(env, request, authUser, url.searchParams.get('workspace_id'));
+            workspaceId = tw.workspaceId || '';
+        }
+
+        let mcpTokensCheck = 'ok';
+        if (env.DB && tenantId) {
+            try {
+                const mcpRow = await env.DB.prepare(
+                    `SELECT COUNT(*) AS c FROM mcp_workspace_tokens
+                     WHERE tenant_id = ? AND revoked_at IS NULL
+                       AND (? = '' OR user_id IS NULL OR user_id = ?)`,
+                )
+                    .bind(tenantId, String(authUser.id || '').trim(), String(authUser.id || '').trim())
+                    .first();
+                mcpTokensCheck = Number(mcpRow?.c) > 0 ? 'ok' : 'none';
+            } catch {
+                mcpTokensCheck = 'ok';
+            }
+        }
+
+        return jsonResponse({
+            ok: true,
+            timestamp: Math.floor(Date.now() / 1000),
+            workspace_id: workspaceId || null,
+            tenant_id: tenantId || null,
+            checks: {
+                auth: 'ok',
+                mcp_tokens: mcpTokensCheck,
+                rate_limits: 'ok',
+            },
+            ...pulse,
+        });
     }
 
     // ── /api/agent/git/status ────────────────────────────────────────────────
@@ -116,23 +151,7 @@ export async function handleDashboardApi(request, url, env, ctx) {
         if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
 
         try {
-            const payload = await fetchGitStatusFromGitHub(env, authUser, request, url);
-            if (payload.error) {
-                return jsonResponse(
-                    {
-                        error: payload.error,
-                        detail: payload.detail,
-                        workspace_id: payload.workspace_id,
-                    },
-                    payload.status || 500,
-                );
-            }
-            return jsonResponse({
-                branch: payload.branch,
-                repo: payload.repo,
-                repo_full_name: payload.repo_full_name,
-                workspace_id: payload.workspace_id,
-            });
+            return jsonResponse(await fetchAgentGitStatus(env, authUser, request, url));
         } catch (e) {
             return jsonResponse({ error: e.message }, 500);
         }
