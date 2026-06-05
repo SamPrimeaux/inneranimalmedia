@@ -5,9 +5,48 @@
 
 import React, { useMemo, useState } from 'react';
 import { AlertTriangle, Check, ChevronDown, ChevronRight, Play, X } from 'lucide-react';
-import type { ExecutionPlanState, ExecutionPlanTaskStatus } from '../types';
+import type { ExecutionPlanState, ExecutionPlanTask, ExecutionPlanTaskStatus } from '../types';
 import type { AgentMode } from '../types';
 import { ChatPresenceIcon } from '../../../features/mode-presence/ChatPresenceIcon';
+import { usePlanTasksRealtime, type PlanTask } from '../../../src/hooks/usePlanTasksRealtime';
+
+function mapD1TaskStatus(status: PlanTask['status']): ExecutionPlanTaskStatus {
+  if (status === 'in_progress') return 'running';
+  if (status === 'carried') return 'skipped';
+  if (status === 'done' || status === 'blocked' || status === 'skipped' || status === 'todo') {
+    return status;
+  }
+  return 'todo';
+}
+
+function mergePlanTasks(sse: ExecutionPlanTask[], d1: PlanTask[]): ExecutionPlanTask[] {
+  if (!d1.length) return sse;
+  const d1ById = new Map(d1.map((t) => [t.id, t]));
+  const seen = new Set<string>();
+  const merged: ExecutionPlanTask[] = sse.map((t) => {
+    seen.add(t.id);
+    const row = d1ById.get(t.id);
+    if (!row) return t;
+    return {
+      ...t,
+      title: row.title || t.title,
+      order_index: row.order_index ?? t.order_index,
+      status: mapD1TaskStatus(row.status),
+      detail: row.notes || row.blocked_reason || t.detail,
+    };
+  });
+  for (const row of d1) {
+    if (seen.has(row.id)) continue;
+    merged.push({
+      id: row.id,
+      title: row.title,
+      order_index: row.order_index,
+      status: mapD1TaskStatus(row.status),
+      detail: row.notes || row.blocked_reason || undefined,
+    });
+  }
+  return merged.sort((a, b) => a.order_index - b.order_index);
+}
 
 function statusIcon(status: ExecutionPlanTaskStatus, mode: AgentMode = 'plan') {
   if (status === 'done') {
@@ -119,10 +158,24 @@ export const AgentPlanChecklist: React.FC<AgentPlanChecklistProps> = ({
   onRunPlan,
   runPlanBusy = false,
 }) => {
+  const planId = plan.plan_id?.trim() || null;
+  const { tasks: d1Tasks } = usePlanTasksRealtime(planId);
+  const mergedPlan = useMemo(() => {
+    const tasks = mergePlanTasks(plan.tasks, d1Tasks);
+    const running = tasks.filter((t) => t.status === 'running').length;
+    const done = tasks.filter((t) => t.status === 'done').length;
+    const failed = tasks.filter((t) => t.status === 'failed' || t.status === 'blocked').length;
+    let status = plan.status;
+    if (plan.status === 'running' || running > 0) status = 'running';
+    else if (done === tasks.length && tasks.length > 0) status = 'complete';
+    else if (failed > 0 && done + failed >= tasks.length) status = 'partial';
+    return { ...plan, tasks, status, tasks_completed: done, tasks_failed: failed };
+  }, [plan, d1Tasks]);
+
   const [expanded, setExpanded] = useState(false);
-  const tree = useMemo(() => buildTaskTree(plan.tasks), [plan.tasks]);
-  const flatSorted = [...plan.tasks].sort((a, b) => a.order_index - b.order_index);
-  const progress = countProgress(plan.tasks);
+  const tree = useMemo(() => buildTaskTree(mergedPlan.tasks), [mergedPlan.tasks]);
+  const flatSorted = [...mergedPlan.tasks].sort((a, b) => a.order_index - b.order_index);
+  const progress = countProgress(mergedPlan.tasks);
   const hasTrace = flatSorted.some(
     (t) =>
       t.detail ||
@@ -132,32 +185,32 @@ export const AgentPlanChecklist: React.FC<AgentPlanChecklistProps> = ({
   );
 
   const headerStatus =
-    plan.status === 'complete'
+    mergedPlan.status === 'complete'
       ? 'Complete'
-      : plan.status === 'partial'
+      : mergedPlan.status === 'partial'
         ? 'Partial'
-        : plan.status === 'failed'
+        : mergedPlan.status === 'failed'
           ? 'Failed'
-          : plan.status === 'running'
+          : mergedPlan.status === 'running'
             ? `Running · ${progress.done}/${progress.total}`
-            : plan.status === 'ready'
+            : mergedPlan.status === 'ready'
               ? 'Ready to run'
               : 'Planning';
 
   const headerPresenceState =
-    plan.status === 'complete'
+    mergedPlan.status === 'complete'
       ? 'handoff_ready'
-      : plan.status === 'running'
+      : mergedPlan.status === 'running'
         ? 'task_stack'
-        : plan.status === 'failed'
+        : mergedPlan.status === 'failed'
           ? 'failed'
-          : plan.status === 'ready'
+          : mergedPlan.status === 'ready'
             ? 'handoff_ready'
             : 'mapping';
 
   const showRunCta =
-    Boolean(onRunPlan && plan.plan_id) &&
-    (plan.status === 'ready' || plan.status === 'planning') &&
+    Boolean(onRunPlan && mergedPlan.plan_id) &&
+    (mergedPlan.status === 'ready' || mergedPlan.status === 'planning') &&
     progress.done < progress.total &&
     progress.running === 0;
 
@@ -167,7 +220,7 @@ export const AgentPlanChecklist: React.FC<AgentPlanChecklistProps> = ({
         <ChatPresenceIcon mode={mode} state={headerPresenceState} size={18} className="shrink-0 mt-0.5" />
         <div className="min-w-0 flex-1">
           <p className="text-[13px] font-semibold text-[var(--dashboard-text)] leading-snug">
-            {plan.plan_title || 'Plan'}
+            {mergedPlan.plan_title || 'Plan'}
           </p>
           <p className="text-[10px] text-[var(--dashboard-muted)] mt-0.5">
             {headerStatus}
@@ -186,7 +239,7 @@ export const AgentPlanChecklist: React.FC<AgentPlanChecklistProps> = ({
           <button
             type="button"
             disabled={runPlanBusy}
-            onClick={() => onRunPlan?.(plan.plan_id)}
+            onClick={() => onRunPlan?.(mergedPlan.plan_id)}
             className="inline-flex items-center gap-1.5 min-h-[2rem] px-3 rounded-lg text-[12px] font-semibold text-[var(--solar-base03)] bg-[var(--solar-cyan)] hover:brightness-110 disabled:opacity-45"
           >
             <Play size={13} className="fill-current" aria-hidden />
@@ -202,7 +255,7 @@ export const AgentPlanChecklist: React.FC<AgentPlanChecklistProps> = ({
           <TaskRow key={task.id} task={task} mode={mode} depth={0} />
         ))}
       </ul>
-      {plan.status === 'running' && flatSorted.every((t) => t.status !== 'running') && (
+      {mergedPlan.status === 'running' && flatSorted.every((t) => t.status !== 'running') && (
         <div className="px-4 pb-2 flex items-center gap-2 text-[11px] text-[var(--dashboard-muted)]">
           <ChatPresenceIcon mode={mode} state="mapping" size={12} />
           Planning next moves…

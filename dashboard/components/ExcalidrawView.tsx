@@ -1,6 +1,4 @@
 import React, { useEffect, useRef, useState } from 'react';
-/** Build emits assets/vendor-excalidraw.css (relocated); runtime inject via ensureExcalidrawStyles only. */
-import '@excalidraw/excalidraw/index.css';
 
 const EXCALIDRAW_STYLES_ID = 'iam-excalidraw-stylesheet';
 /** Emitted as assets/vendor-excalidraw.css — injected only when Draw mounts (never in index.html). */

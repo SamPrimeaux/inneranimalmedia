@@ -1,0 +1,404 @@
+Security + BYOK Route Audit
+======================================================================
+
+PURPOSE: Find every security/BYOK/vault/shield endpoint.
+Flag 404 risks. Never delete these — fix them.
+
+
+======================================================================
+  REGISTERED SECURITY HANDLERS IN src/ (67)
+======================================================================
+  /api/agent/allowlist
+    → src/api/agent.js
+  /api/agent/keyboard-shortcuts
+    → src/api/agent.js
+  /api/auth
+    → src/core/production-dispatch.js
+  /api/auth-hooks/
+    → src/index.js
+  /api/auth-hooks/before-user-created
+    → src/api/auth-hooks.js
+  /api/auth-hooks/custom-access-token
+    → src/api/auth-hooks.js
+  /api/auth-hooks/send-email
+    → src/api/auth-hooks.js
+  /api/auth/agent-session/mint
+    → src/api/auth.js
+  /api/auth/backup-code
+    → src/api/auth.js
+  /api/auth/cloudflare/start
+    → src/index.js
+  /api/auth/email-change/request
+    → src/api/auth.js
+  /api/auth/github/start
+    → src/index.js
+  /api/auth/google/start
+    → src/index.js
+  /api/auth/identities
+    → src/api/auth.js
+  /api/auth/login
+    → src/api/auth.js
+  /api/auth/logout
+    → src/api/auth.js
+  /api/auth/me
+    → src/api/auth.js
+  /api/auth/oauth/consent
+    → src/index.js, src/api/auth.js
+  /api/auth/oauth/consent/approve
+    → src/index.js
+  /api/auth/oauth/consent/deny
+    → src/index.js
+  /api/auth/password-change
+    → src/api/auth.js
+  /api/auth/password-reset/confirm
+    → src/api/auth.js
+  /api/auth/password-reset/request
+    → src/api/auth.js
+  /api/auth/session
+    → src/api/auth.js
+  /api/auth/signup
+    → src/api/auth.js
+  /api/auth/supabase/callback
+    → src/index.js
+  /api/auth/supabase/start
+    → src/index.js
+  /api/auth/verify-email
+    → src/api/auth.js
+  /api/integrations/api-keys
+    → src/api/integrations.js
+  /api/internal/google/refresh-token
+    → src/core/production-dispatch.js
+  /api/mcp/audit
+    → src/api/mcp.js
+  /api/mcp/credentials
+    → src/api/mcp.js
+  /api/mcp/server-allowlist
+    → src/api/mcp.js
+  /api/mcp/token/create
+    → src/index.js
+  /api/mcp/token/revoke
+    → src/index.js
+  /api/mcp/tokens
+    → src/index.js
+  /api/oauth/
+    → src/index.js
+  /api/oauth/authorize
+    → src/api/oauth.js
+  /api/oauth/gmail/callback
+    → src/api/oauth.js
+  /api/oauth/gmail/start
+    → src/api/oauth.js
+  /api/oauth/login-challenge/resume
+    → src/api/oauth.js, src/api/mcp-oauth-login-challenge.js
+  /api/oauth/mcp/consent
+    → src/index.js, src/api/mcp-oauth-consent.js
+  /api/oauth/register
+    → src/api/oauth.js
+  /api/oauth/token
+    → src/api/oauth.js
+  /api/oauth/userinfo
+    → src/api/oauth.js
+  /api/security/shield-pulse
+    → src/api/dashboard.js
+  /api/settings/agents/policy
+    → src/api/settings.js
+  /api/settings/ai-models/keys
+    → src/api/settings.js
+  /api/settings/api-keys
+    → src/api/settings-api-keys.js
+  /api/settings/keys
+    → src/api/settings-api-keys.js
+  /api/settings/security/findings
+    → src/api/settings.js
+  /api/settings/security/sessions
+    → src/api/settings.js
+  /api/settings/user-policy
+    → src/api/settings.js
+  /api/storage/access-keys
+    → src/api/storage.js
+  /api/storage/s3/keys
+    → src/api/storage.js
+  /api/terminal/token
+    → src/api/terminal.js
+  /api/terminal/token/generate
+    → src/api/terminal.js
+  /api/terminal/token/status
+    → src/api/terminal.js
+  /api/user/storage-keys
+    → src/core/production-dispatch.js
+  /api/user/storage-keys/cloudflare
+    → src/api/user-storage-keys.js
+  /api/vault
+    → src/core/production-dispatch.js
+  /api/vault/audit
+    → src/api/vault.js
+  /api/vault/llm-keys
+    → src/api/vault.js
+  /api/vault/projects
+    → src/api/vault.js
+  /api/vault/registry
+    → src/api/vault.js
+  /api/vault/secrets
+    → src/api/vault.js
+  /api/vault/store
+    → src/api/vault.js
+
+======================================================================
+  CLIENT FETCHES TO SECURITY PATHS (32)
+======================================================================
+  /api/agent/allowlist
+    → called from: dashboard/dist/dashboard.js, dashboard/src/components/ToolApprovalModal.tsx
+  /api/auth/email-change/request
+    → called from: dashboard/components/settings/sections/SecuritySection.tsx, dashboard/dist/index3.js
+  /api/auth/forgot-password
+    → called from: dashboard/components/auth/AuthForgotPage.tsx, dashboard/dist/dashboard.js
+  /api/auth/identities
+    → called from: dashboard/components/settings/sections/SecuritySection.tsx, dashboard/dist/index3.js
+  /api/auth/login
+    → called from: dashboard/components/auth/AuthSignInPage.tsx, dashboard/dist/dashboard.js
+  /api/auth/me
+    → called from: dashboard/components/WorkspaceLauncher.tsx, dashboard/components/overview/OverviewToolbar.tsx, dashboard/components/overview/index.tsx
+  /api/auth/oauth/consent
+    → called from: dashboard/App.tsx, dashboard/dist/dashboard.js
+  /api/auth/password-change
+    → called from: dashboard/components/settings/sections/SecuritySection.tsx, dashboard/dist/index3.js
+  /api/auth/reset-password
+    → called from: dashboard/components/auth/AuthResetPage.tsx, dashboard/dist/dashboard.js
+  /api/auth/signup
+    → called from: dashboard/components/auth/AuthSignUpPage.tsx, dashboard/dist/dashboard.js
+  /api/oauth
+    → called from: dashboard/components/IntegrationsPage.deprecated.tsx
+  /api/oauth/apikey
+    → called from: dashboard/components/IntegrationsPage.deprecated.tsx
+  /api/oauth/cloudflare/start
+    → called from: dashboard/components/IntegrationsPage.deprecated.tsx
+  /api/oauth/github/start
+    → called from: dashboard/components/ChatAssistant/RepoPickerBottomSheet.tsx, dashboard/components/ChatAssistant/composer/useComposerIntegrations.ts, dashboard/components/GitHubExplorer.tsx
+  /api/oauth/google/start
+    → called from: dashboard/components/ChatAssistant/composer/useComposerIntegrations.ts, dashboard/components/GoogleDriveExplorer.tsx, dashboard/components/IntegrationsPage.deprecated.tsx
+  /api/oauth/mcp/consent
+    → called from: dashboard/components/auth/IamMcpOAuthConsentPage.tsx, dashboard/dist/dashboard.js
+  /api/oauth/supabase/start
+    → called from: dashboard/components/IntegrationsPage.deprecated.tsx
+  /api/security/shield-pulse
+    → called from: dashboard/App.tsx, dashboard/dist/dashboard.js
+  /api/settings/agents/policy
+    → called from: dashboard/components/settings/hooks/useSettingsData.ts, dashboard/dist/index3.js
+  /api/settings/ai-models/keys
+    → called from: dashboard/components/settings/sections/AIModelsSection.tsx, dashboard/dist/index3.js
+  /api/settings/keys
+    → called from: dashboard/components/settings/sections/ApiKeysSection.tsx, dashboard/dist/index3.js
+  /api/settings/keys/cloudflare/zones
+    → called from: dashboard/components/settings/sections/PtyTerminalSetupSection.tsx, dashboard/dist/index3.js
+  /api/settings/keys/hints
+    → called from: dashboard/components/settings/sections/PtyTerminalSetupSection.tsx, dashboard/dist/index3.js
+  /api/settings/mcp-tokens
+    → called from: dashboard/components/settings/McpTokensPanel.tsx, dashboard/dist/index3.js
+  /api/settings/security/findings
+    → called from: dashboard/components/settings/hooks/useSettingsData.ts, dashboard/components/settings/sections/SecuritySection.tsx, dashboard/dist/index3.js
+  /api/settings/security/sessions
+    → called from: dashboard/components/settings/hooks/useSettingsData.ts, dashboard/dist/index3.js
+  /api/settings/user-policy
+    → called from: dashboard/components/settings/sections/GeneralSection.tsx, dashboard/dist/index3.js
+  /api/terminal/token
+    → called from: dashboard/components/settings/sections/PtyTerminalSetupSection.tsx, dashboard/dist/index3.js
+  /api/terminal/token/generate
+    → called from: dashboard/components/settings/sections/PtyTerminalSetupSection.tsx, dashboard/dist/index3.js
+  /api/terminal/token/status
+    → called from: dashboard/components/settings/sections/PtyTerminalSetupSection.tsx, dashboard/dist/index3.js
+  /api/vault/llm-keys
+    → called from: dashboard/components/settings/hooks/useSettingsData.ts, dashboard/dist/index3.js
+  /api/vault/store
+    → called from: dashboard/components/settings/hooks/useSettingsData.ts, dashboard/dist/index3.js
+
+======================================================================
+  404 RISK — CLIENT CALLS WITH NO MATCHING src/ HANDLER (0)
+======================================================================
+  None found — all security client calls have matching handlers.
+
+======================================================================
+  BYOK / VAULT / SHIELD KEYWORD MENTIONS IN src/
+======================================================================
+
+  [byok]:
+  src/api/agent.js:6  *  - Provider dispatch metadata: D1 agentsam_model_catalog (canonical); agentsam_ai is legacy/persona/BYOK overlay.
+  src/api/agent.js:7864  const { getTenantLlmByokStatus, llmSecretNameForApiPlatform } = await import('./vault.js');
+  src/api/agent.js:7865  const byok = await getTenantLlmByokStatus(env, {
+  src/api/agent.js:7883  const slot = secretName ? byok[secretName] : null;
+  src/api/agent.js:7886  byok_configured: !!(slot && slot.configured),
+  src/api/billing.js:763  allows_byok,
+  src/api/integrations/model-sync.js:2  * Best-effort agentsam_ai sync after user BYOK save. Failures are logged only.
+  src/api/provisioning.js:2  * InnerAutodidact / IAM — dynamic provisioning, billing plan resolution, BYOK, bridge keys.
+  src/api/provisioning.js:304  allows_byok: false,
+  src/api/provisioning.js:314  bp.allows_byok, bp.allows_usage_billing, bp.free_tier_models_json
+  src/api/provisioning.js:331  allows_byok: !!freePlan?.allows_byok,
+  src/api/provisioning.js:345  allows_byok: !!sub.allows_byok,
+  src/api/vault.js:77  * BYOK slot status for model picker (masked metadata only).
+  src/api/vault.js:80  export async function getTenantLlmByokStatus(env, { tenantId, userId }) {
+  src/api/vault.js:112  /** Map agentsam_ai.api_platform → vault secret_name for BYOK. */
+  src/core/active-file-envelope.js:205  `- R2 object key: "${envelope.r2_key}". Use your BYOK bucket from Settings → Storage — do not assume platform bucket nam
+  src/core/bootstrap-scoped-context.js:105  r2_byok_connected: !!(r2Creds?.accessKeyId && r2Creds?.secretAccessKey),
+  src/core/dispatch-by-tool-code.js:75  hasByok: runContext.hasByok === true || runContext.has_byok === true,
+  src/core/pty-tunnel-provisioner.js:2  * BYOK Cloudflare tunnel provisioning for user-hosted PTY (never platform CLOUDFLARE_API_TOKEN).
+  src/core/tenant-spend-policy.js:2  * Tenant spend caps + BYOK flags from tenants.meta_json / tenants.settings.
+  src/core/tenant-spend-policy.js:5  * Connor model: platform_allowance_usd = lifetime platform AI spend before BYOK required
+  src/core/tenant-spend-policy.js:46  byok_required: false,
+  src/core/tenant-spend-policy.js:47  byok_required_after_allowance: false,
+  src/core/tenant-spend-policy.js:75  const requireByokAfter =
+  src/core/workspace-cloudflare-credentials.js:3  * Superadmin → platform Wrangler secrets (account-wide). Everyone else → BYOK user_api_keys only.
+  src/core/workspace-spend-guard.js:22  const BLOCK_ACTIONS = new Set(['block', 'require_byok', 'hard_stop']);
+  src/core/workspace-spend-guard.js:113  byok_required_after_allowance: limits.byok_required_after_allowance === true,
+  src/core/workspace-spend-guard.js:223  error: action === 'require_byok' ? 'tenant_platform_allowance_exhausted' : 'workspace_spend_cap',
+  src/core/workspace-spend-guard.js:225  action === 'require_byok'
+  src/core/workspace-spend-guard.js:226  ? `Platform AI allowance ($${threshold.toFixed(2)} ${period}) is used up — connect BYOK in Settings → Integrations to co
+  src/handlers/cf/kv.js:2  * agentsam_kv_manage — Cloudflare Workers KV via account API (BYOK or platform token).
+  src/handlers/cf/kv.js:74  user_message: 'Cloudflare account id is required (BYOK metadata or CLOUDFLARE_ACCOUNT_ID).',
+  src/handlers/cf/kv.js:198  ? 'Cloudflare API rejected the token. Superadmin uses platform CLOUDFLARE_API_TOKEN; customers use workspace BYOK.'
+  src/integrations/openai-credentials.js:64  * Resolve bearer for OpenAI-compatible HTTP (OpenAI, DeepSeek, BYOK user_secrets, Worker secret).
+  src/integrations/openai-credentials.js:86  * Resolve bearer for OpenAI HTTP (BYOK user_secrets first, then Worker secret).
+  src/integrations/openai.js:4  * Key resolved via resolveOpenAiCompatibleApiKey (OpenAI, DeepSeek, BYOK).
+
+  [security/shield]:
+  src/api/dashboard.js:94  if (pathLower === '/api/security/shield-pulse' && method === 'GET') {
+
+  [shield-pulse]:
+  src/api/dashboard.js:94  if (pathLower === '/api/security/shield-pulse' && method === 'GET') {
+
+  [vault]:
+  src/api/agent.js:7864  const { getTenantLlmByokStatus, llmSecretNameForApiPlatform } = await import('./vault.js');
+  src/api/auth.js:1505  if (env.VAULT_MASTER_KEY) {
+  src/api/cursor-agent.js:5  import { getVaultSecrets, secretFromVault } from '../core/vault.js';
+  src/api/cursor-agent.js:21  if (env?.DB && (env?.VAULT_KEY || env?.VAULT_MASTER_KEY)) {
+  src/api/cursor-agent.js:23  const vault = await getVaultSecrets(env);
+  src/api/cursor-agent.js:24  secret = secretFromVault(vault, env, 'CURSOR_WEBHOOK_SECRET');
+  src/api/cursor-agent.js:27  /* vault unavailable */
+  src/api/oauth.js:20  encryptWithVault,
+  src/api/oauth.js:21  decryptWithVault,
+  src/api/oauth.js:27  import { getAESKey, aesGcmEncryptToB64, aesGcmDecryptFromB64 } from '../core/crypto-vault.js';
+  src/api/oauth.js:248  const dec = await decryptWithVault(env, row.access_token_encrypted);
+  src/api/oauth.js:261  const dec = await decryptWithVault(env, row.refresh_token_encrypted);
+  src/api/provisioning.js:6  import { getAESKey, aesGcmDecryptFromB64, aesGcmEncryptToB64 } from '../core/crypto-vault.js';
+  src/api/provisioning.js:379  * Decrypt BYOK secret from user_api_keys.key_hash (AES-GCM blob, vault layout).
+  src/api/provisioning.js:381  const LLM_VAULT_PROJECT = 'iam_user_llm_keys';
+  src/api/provisioning.js:396  const vaultRow = await env.DB.prepare(
+  src/api/provisioning.js:401  .bind(tenantId, userId, secretName, LLM_VAULT_PROJECT)
+  src/api/settings-api-keys.js:7  * - Treat `vault_secret_id` as an internal pointer only (never returned).
+  src/api/settings-api-keys.js:8  * - Never return: raw key, encrypted key, vault_secret_id, user_secrets id, hashes, auth headers.
+  src/api/settings-api-keys.js:226  async function decryptVaultSecret(env, vaultSecretId, userId, tenantId, workspaceId) {
+  src/api/settings-api-keys.js:227  if (!env?.DB || !vaultSecretId) return null;
+  src/api/settings-api-keys.js:230  const binds = [vaultSecretId];
+  src/api/settings.js:2217  if (!env.VAULT_MASTER_KEY && !env.VAULT_KEY) {
+  src/api/settings.js:2218  return jsonResponse({ error: 'Vault not configured' }, 503);
+  src/api/user-storage-keys.js:63  if (msg.includes('VAULT_MASTER_KEY')) {
+  src/api/user-storage-keys.js:64  return jsonResponse({ error: 'Vault encryption not configured on Worker' }, 503);
+  src/api/vault.js:5  import { encryptWithVault, decryptWithVault } from '../core/oauth-token-store.js';
+  src/api/vault.js:7  const LLM_VAULT_PROJECT = 'iam_user_llm_keys';
+  src/api/vault.js:35  * Authenticated vault scope — tenant is mandatory; workspace when request is available.
+  src/api/vault.js:38  async function vaultAuthContext(env, authUser, request = null) {
+  src/api/vault.js:92  .bind(tenantId, userId, secretName, LLM_VAULT_PROJECT)
+  src/api/webhooks/anthropic.js:6  import { getVaultSecrets, secretFromVault } from '../../core/vault.js';
+  src/api/webhooks/anthropic.js:21  if (!signingSecret && env.DB && env.VAULT_KEY) {
+  src/api/webhooks/anthropic.js:23  const vault = await getVaultSecrets(env);
+  src/api/webhooks/anthropic.js:24  signingSecret = secretFromVault(vault, env, 'ANTHROPIC_WEBHOOK_SIGNING_KEY');
+  src/api/webhooks/anthropic.js:26  /* vault unavailable */
+  src/api/webhooks/cursor.js:5  import { getVaultSecrets, secretFromVault } from '../../core/vault.js';
+  src/api/webhooks/cursor.js:44  if (!secret && env.DB && env.VAULT_KEY) {
+  src/api/webhooks/cursor.js:46  const vault = await getVaultSecrets(env);
+  src/api/webhooks/cursor.js:47  secret = secretFromVault(vault, env, 'CURSOR_WEBHOOK_SECRET');
+  src/api/webhooks/cursor.js:49  /* vault unavailable */
+  src/api/webhooks/github.js:5  import { getVaultSecrets, secretFromVault } from '../../core/vault.js';
+  src/api/webhooks/github.js:92  if (!secret && env.DB && env.VAULT_KEY) {
+  src/api/webhooks/github.js:94  const vault = await getVaultSecrets(env);
+  src/api/webhooks/github.js:95  secret = secretFromVault(vault, env, 'GITHUB_WEBHOOK_SECRET');
+  src/api/webhooks/github.js:97  /* vault unavailable */
+  src/api/webhooks/internal.js:5  import { getVaultSecrets, secretFromVault } from '../../core/vault.js';
+  src/api/webhooks/internal.js:23  if (env?.DB && (env?.VAULT_KEY || env?.VAULT_MASTER_KEY)) {
+  src/api/webhooks/internal.js:25  const vault = await getVaultSecrets(env);
+  src/api/webhooks/internal.js:26  secret = secretFromVault(vault, env, 'INTERNAL_WEBHOOK_SECRET');
+  src/api/webhooks/internal.js:29  /* vault unavailable */
+  src/api/webhooks/openai.js:5  import { getVaultSecrets, secretFromVault } from '../../core/vault.js';
+  src/api/webhooks/openai.js:37  if (env?.DB && (env?.VAULT_KEY || env?.VAULT_MASTER_KEY)) {
+  src/api/webhooks/openai.js:39  const vault = await getVaultSecrets(env);
+  src/api/webhooks/openai.js:40  secret = secretFromVault(vault, env, 'OPENAI_WEBHOOK_SECRET');
+  src/api/webhooks/openai.js:43  /* vault unavailable */
+  src/core/auth/session.js:31  const key = await deriveAesKey(env?.VAULT_MASTER_KEY || "");
+  src/core/auth/session.js:51  const key = await deriveAesKey(env?.VAULT_MASTER_KEY || "");
+  src/core/auth/session.js:87  textEncoder.encode(String(env?.SESSION_SIGNING_SECRET || env?.VAULT_MASTER_KEY || ""))
+  src/core/auth/session.js:113  textEncoder.encode(String(env?.SESSION_SIGNING_SECRET || env?.VAULT_MASTER_KEY || ""))
+  src/core/crypto-vault.js:2  * Vault crypto helpers.
+  src/core/crypto-vault.js:8  * This is used for VAULT_MASTER_KEY / VAULT_KEY based encryption at rest (D1).
+  src/core/crypto-vault.js:12  const material = String(env?.VAULT_MASTER_KEY || env?.VAULT_KEY || '').trim();
+  src/core/crypto-vault.js:13  if (!material) throw new Error('Vault key material not configured');
+  src/core/crypto-vault.js:23  info: new TextEncoder().encode('iam-vault-v1'),
+  src/core/database-operation-policy.js:30  /\bvault\./i,
+  src/core/keys-security.js:3  * Canonical secret_id = user_secrets.id (vault_secret_id on user_api_keys).
+  src/core/keys-security.js:106  * @param {{ vault_secret_id?: string|null, id?: string }} row
+  src/core/keys-security.js:109  const vid = row?.vault_secret_id != null ? String(row.vault_secret_id).trim() : '';
+  src/core/oauth-token-store.js:9  import { aesGcmDecryptFromB64, aesGcmEncryptToB64, getAESKey } from './crypto-vault.js';
+  src/core/oauth-token-store.js:46  async function encryptWithVault(env, plaintext) {
+  src/core/oauth-token-store.js:51  async function decryptWithVault(env, encryptedB64) {
+  src/core/oauth-token-store.js:91  if (!env.VAULT_MASTER_KEY) throw new Error('VAULT_MASTER_KEY not configured');
+  src/core/oauth-token-store.js:105  const encryptedAccess = access_token ? await encryptWithVault(env, access_token) : null;
+  src/core/production-dispatch.js:57  import { handleVaultApi } from '../api/vault.js';
+  src/core/production-dispatch.js:188  if (pathLower.startsWith('/api/vault')) {
+  src/core/production-dispatch.js:189  return handleVaultApi(request, new URL(request.url), env, ctx);
+  src/core/provider.js:15  import { resolveApiKey }       from './vault.js';
+  src/core/resolve-credential.js:13  import { getAESKey, aesGcmDecryptFromB64 } from './crypto-vault.js';
+  src/core/resolve-credential.js:490  if (cols.has('vault_secret_id')) selectParts.push('vault_secret_id');
+  src/core/resolve-credential.js:511  if (row.vault_secret_id) {
+  src/core/resolve-credential.js:516  .bind(String(row.vault_secret_id), uid)
+  src/core/resolve-credential.js:519  const { vaultDecrypt } = await import('../api/vault.js');
+  src/core/security-alert-email.js:5  import { getVaultSecrets, secretFromVault } from './vault.js';
+  src/core/security-alert-email.js:134  const vault = await getVaultSecrets(env);
+  src/core/security-alert-email.js:135  const key = secretFromVault(vault, env, 'RESEND_API_KEY');
+  src/core/security-scan.js:141  const nullVault = await env.DB.prepare(`
+  src/core/security-scan.js:147  for (const r of nullVault.results ?? []) {
+  src/core/security-scan.js:148  const fp = 'null_vault_' + r.key_name;
+  src/core/security-scan.js:158  VALUES (?,?,  'env_secrets',?,  'null_vault_value',  'medium',?,?,  'open',?,
+  src/core/security-scan.js:159  'null_vault_value', ?, ?)
+  src/core/user-oauth-token.js:2  * Resolve OAuth tokens from D1 user_oauth_tokens with vault-id → encrypted → plaintext order,
+  src/core/user-oauth-token.js:5  import { encryptWithVault, decryptWithVault } from './oauth-token-store.js';
+  src/core/user-oauth-token.js:42  async function decryptFromVaultSecretId(env, userId, secretId) {
+  src/core/user-oauth-token.js:51  return await decryptWithVault(env, row.secret_value_encrypted);
+  src/core/user-oauth-token.js:58  if (cols.has('vault_access_token_id') && row.vault_access_token_id) {
+  src/core/user-secrets.js:3  * Not VAULT_MASTER_KEY / AGENTSAM_BRIDGE_KEY (internal worker trust).
+  src/core/user-storage-r2-credentials.js:3  * Secrets encrypted with VAULT_MASTER_KEY (same pattern as oauth token storage).
+  src/core/user-storage-r2-credentials.js:5  import { encryptWithVault, decryptWithVault } from './oauth-token-store.js';
+  src/core/user-storage-r2-credentials.js:8  const VAULT_SECRET_HASH_PLACEHOLDER = 'vault_encrypted';
+  src/core/user-storage-r2-credentials.js:65  if (!env.VAULT_MASTER_KEY && !env.VAULT_KEY) return null;
+  src/core/user-storage-r2-credentials.js:68  const accessKeyId = await decryptWithVault(env, row.access_key_id_encrypted);
+  src/core/vault.js:4  import { getAESKey } from './crypto-vault.js';
+  src/core/vault.js:6  /** @param {string} k @param {Record<string, string>} vault @param {object} env */
+  src/core/vault.js:7  export function secretFromVault(vault, env, k) {
+  src/core/vault.js:8  return vault[k] ?? env[k];
+  src/core/vault.js:12  * Active rows with key_type = encrypted_d1 (AES-GCM; needs VAULT_KEY + iv).
+  src/core/workspace-cloudflare-credentials.js:5  import { getAESKey, aesGcmDecryptFromB64 } from './crypto-vault.js';
+  src/core/workspace-cloudflare-credentials.js:97  const selectCols = ['id', 'vault_secret_id', 'key_hash', 'metadata_json', 'workspace_id'];
+  src/core/workspace-cloudflare-credentials.js:149  const vaultSecretId = row.vault_secret_id != null ? String(row.vault_secret_id).trim() : '';
+  src/core/workspace-cloudflare-credentials.js:150  if (vaultSecretId) {
+  src/core/workspace-cloudflare-credentials.js:155  .bind(vaultSecretId, uid)
+  src/integrations/anthropic.js:15  import { resolveApiKey } from '../core/vault.js';
+  src/integrations/openai-credentials.js:6  import { resolveApiKey } from '../core/vault.js';
+  src/integrations/tokens.js:1  import { resolveApiKey } from '../core/vault.js';
+  src/integrations/tokens.js:19  * vault / encrypted / plaintext token resolution and Google refresh when expired.
+  src/lib/email.js:4  import { getVaultSecrets, getPublicConfig, secretFromVault } from '../core/vault.js';
+  src/lib/email.js:20  async function getGmailPlatformAccessToken(env, vault) {
+  src/lib/email.js:25  const raw = secretFromVault(vault, env, 'GOOGLE_SERVICE_ACCOUNT_JSON');
+  src/lib/email.js:33  secretFromVault(vault, env, 'GMAIL_DELEGATED_USER') ||
+  src/lib/email.js:118  async function sendViaResend(vault, env, { from, to, subject, html, text }) {
+
+======================================================================
+  KNOWN ISSUE FROM BETA AUDIT
+======================================================================
+
+  OK   /api/security/shield-pulse
+       B4 in beta audit — 404 on every poll cycle
+       Handler present: YES
+
+  OK   /api/agent/git/status
+       B4 in beta audit — 404 on every poll cycle
+       Handler present: YES
+
+  MISS /api/agent/workspace/{id}
+       B5 in beta audit — GET returns 404, PUT returns 200
+       Handler present: NO — needs implementation

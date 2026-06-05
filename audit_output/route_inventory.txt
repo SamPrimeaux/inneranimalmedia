@@ -1,0 +1,1185 @@
+All registered route handlers in src/
+Total: 516
+
+
+  /api/admin/  (1 routes)
+    /api/admin/run-retention
+      → src/index.js
+
+  /api/agent/  (78 routes)
+    /api/agent
+      → src/core/production-dispatch.js
+    /api/agent/alignment-sync
+      → src/api/agent.js
+    /api/agent/allowlist
+      → src/api/agent.js
+    /api/agent/approval/pending
+      → src/api/agent.js
+    /api/agent/approve
+      → src/index.js
+    /api/agent/artifact
+      → src/api/agent-artifacts.js
+    /api/agent/artifact-filters
+      → src/api/agent-artifacts.js
+    /api/agent/artifacts
+      → src/api/agent-artifacts.js
+    /api/agent/boot
+      → src/api/dashboard.js, src/api/agent.js
+    /api/agent/bootstrap
+      → src/api/agent.js
+    /api/agent/browser/registry-tools
+      → src/api/agent.js
+    /api/agent/catalog-invoke
+      → src/api/agent.js
+    /api/agent/chat
+      → src/api/agent.js
+    /api/agent/chat/execute-approved-tool
+      → src/api/agent.js
+    /api/agent/cicd
+      → src/api/agent.js
+    /api/agent/commands
+      → src/api/agent.js
+    /api/agent/commands/execute
+      → src/api/agent.js
+    /api/agent/context-picker/catalog
+      → src/api/agent.js
+    /api/agent/conversations/search
+      → src/api/agent.js
+    /api/agent/db/query-history
+      → src/api/agent.js
+    /api/agent/db/snippets
+      → src/api/agent.js
+    /api/agent/db/tables
+      → src/api/agent.js
+    /api/agent/do-history
+      → src/api/agent.js
+    /api/agent/execute
+      → src/index.js
+    /api/agent/git/branches
+      → src/api/dashboard.js, src/api/agent.js
+    /api/agent/git/repos
+      → src/api/agent.js
+    /api/agent/git/status
+      → src/api/dashboard.js, src/api/agent.js
+    /api/agent/git/sync
+      → src/api/agent.js
+    /api/agent/github
+      → src/api/dashboard.js
+    /api/agent/github/file
+      → src/integrations/github.js
+    /api/agent/github/repos
+      → src/integrations/github.js
+    /api/agent/health
+      → src/api/agent.js
+    /api/agent/intake
+      → src/core/production-dispatch.js
+    /api/agent/intake/answer
+      → src/api/intake.js
+    /api/agent/intake/start
+      → src/api/intake.js
+    /api/agent/keyboard-shortcuts
+      → src/api/agent.js
+    /api/agent/mcp
+      → src/api/agent.js
+    /api/agent/memory/list
+      → src/api/agent.js
+    /api/agent/memory/maintenance
+      → src/api/agent.js
+    /api/agent/memory/private/backfill
+      → src/api/agent.js
+    /api/agent/memory/private/list
+      → src/api/agent.js
+    /api/agent/memory/private/search
+      → src/api/agent.js
+    /api/agent/memory/private/upsert
+      → src/api/agent.js
+    /api/agent/memory/search
+      → src/api/agent.js
+    /api/agent/memory/sync
+      → src/api/agent.js
+    /api/agent/memory/upsert
+      → src/api/agent.js
+    /api/agent/models
+      → src/api/agent.js
+    /api/agent/modes
+      → src/api/agent.js
+    /api/agent/notifications
+      → src/api/dashboard.js, src/api/agent.js
+    /api/agent/plan-task/resume
+      → src/api/agent.js
+    /api/agent/plan/execute
+      → src/api/agent.js
+    /api/agent/problems
+      → src/api/agent.js
+    /api/agent/proposals/pending
+      → src/api/agent.js
+    /api/agent/propose
+      → src/api/agent.js
+    /api/agent/pty/health
+      → src/api/dashboard.js, src/api/agent.js
+    /api/agent/quickstart/templates
+      → src/api/agent.js
+    /api/agent/rag/query
+      → src/api/agent.js
+    /api/agent/routing/apply-eto
+      → src/api/agent.js
+    /api/agent/session/mode
+      → src/api/agent.js
+    /api/agent/sessions
+      → src/api/agent.js
+    /api/agent/subagent-profiles
+      → src/api/agent.js
+    /api/agent/telemetry
+      → src/api/agent.js
+    /api/agent/terminal/catalog
+      → src/api/dashboard.js
+    /api/agent/terminal/complete
+      → src/api/dashboard.js, src/tools/terminal-dispatch.js
+    /api/agent/terminal/config-status
+      → src/api/dashboard.js, src/api/agent.js
+    /api/agent/terminal/exec
+      → src/api/dashboard.js
+    /api/agent/terminal/run
+      → src/api/dashboard.js, src/tools/terminal-dispatch.js
+    /api/agent/terminal/session/prefs
+      → src/api/dashboard.js
+    /api/agent/terminal/socket-url
+      → src/api/dashboard.js
+    /api/agent/terminal/status
+      → src/api/dashboard.js
+    /api/agent/terminal/ws
+      → src/api/dashboard.js
+    /api/agent/todo
+      → src/api/agent.js
+    /api/agent/tool-smoke
+      → src/api/agent.js
+    /api/agent/tools
+      → src/api/agent.js
+    /api/agent/workers-ai/image
+      → src/api/agent.js
+    /api/agent/workflow/approve
+      → src/api/agent.js
+    /api/agent/workflow/start
+      → src/index.js, src/api/agent.js
+    /api/agent/workflows/trigger
+      → src/api/agent.js
+
+  /api/agentsam/  (14 routes)
+    /api/agentsam
+      → src/core/production-dispatch.js
+    /api/agentsam/agent-chat-plan-trace
+      → src/api/agentsam.js
+    /api/agentsam/ai
+      → src/api/agentsam.js
+    /api/agentsam/browser/trust
+      → src/core/production-dispatch.js
+    /api/agentsam/config
+      → src/api/agentsam.js
+    /api/agentsam/invocations
+      → src/api/agentsam.js
+    /api/agentsam/mcp-workflows
+      → src/api/agentsam.js
+    /api/agentsam/plans
+      → src/api/agentsam.js
+    /api/agentsam/prompts
+      → src/api/agentsam.js
+    /api/agentsam/skills
+      → src/api/agentsam.js
+    /api/agentsam/telemetry/ingest
+      → src/index.js
+    /api/agentsam/time
+      → src/core/production-dispatch.js
+    /api/agentsam/workflow-node-handlers
+      → src/api/agentsam.js
+    /api/agentsam/workflows
+      → src/api/agentsam.js
+
+  /api/ai/  (2 routes)
+    /api/ai
+      → src/core/production-dispatch.js
+    /api/ai/models
+      → src/api/settings.js
+
+  /api/analytics/  (26 routes)
+    /api/analytics/
+      → src/core/production-dispatch.js
+    /api/analytics/advisors
+      → src/api/analytics/index.js
+    /api/analytics/advisors/guardrails
+      → src/api/analytics/index.js
+    /api/analytics/agent/dependencies
+      → src/api/analytics/index.js
+    /api/analytics/agent/graph
+      → src/api/analytics/index.js
+    /api/analytics/agent/runs
+      → src/api/analytics/index.js
+    /api/analytics/codebase
+      → src/api/analytics/overview.js, src/api/analytics/index.js
+    /api/analytics/databases/summary
+      → src/api/analytics/index.js
+    /api/analytics/databases/tables
+      → src/api/analytics/index.js
+    /api/analytics/databases/timeseries
+      → src/api/analytics/index.js
+    /api/analytics/errors/d1-log
+      → src/api/analytics/index.js
+    /api/analytics/insights
+      → src/api/analytics/index.js
+    /api/analytics/layout
+      → src/api/analytics/index.js
+    /api/analytics/mcp/tools
+      → src/api/analytics/index.js
+    /api/analytics/models/drift
+      → src/api/analytics/index.js
+    /api/analytics/models/evals
+      → src/api/analytics/index.js
+    /api/analytics/models/leaderboard
+      → src/api/analytics/index.js
+    /api/analytics/models/prompt-cache
+      → src/api/analytics/index.js
+    /api/analytics/models/routing-arms
+      → src/api/analytics/index.js
+    /api/analytics/models/routing-decisions
+      → src/api/analytics/index.js
+    /api/analytics/overview
+      → src/api/analytics/index.js
+    /api/analytics/rag
+      → src/api/analytics/overview.js, src/api/analytics/index.js
+    /api/analytics/source-health
+      → src/api/analytics/index.js
+    /api/analytics/workers/dashboard-versions
+      → src/api/analytics/index.js
+    /api/analytics/workers/r2
+      → src/api/analytics/index.js
+    /api/analytics/workers/summary
+      → src/api/analytics/index.js
+
+  /api/artifacts/  (1 routes)
+    /api/artifacts
+      → src/core/production-dispatch.js, src/api/studio-session.js
+
+  /api/auth/  (22 routes)
+    /api/auth
+      → src/core/production-dispatch.js
+    /api/auth/agent-session/mint
+      → src/api/auth.js
+    /api/auth/backup-code
+      → src/api/auth.js
+    /api/auth/cloudflare/start
+      → src/index.js
+    /api/auth/email-change/request
+      → src/api/auth.js
+    /api/auth/github/start
+      → src/index.js
+    /api/auth/google/start
+      → src/index.js
+    /api/auth/identities
+      → src/api/auth.js
+    /api/auth/login
+      → src/api/auth.js
+    /api/auth/logout
+      → src/api/auth.js
+    /api/auth/me
+      → src/api/auth.js
+    /api/auth/oauth/consent
+      → src/index.js, src/api/auth.js
+    /api/auth/oauth/consent/approve
+      → src/index.js
+    /api/auth/oauth/consent/deny
+      → src/index.js
+    /api/auth/password-change
+      → src/api/auth.js
+    /api/auth/password-reset/confirm
+      → src/api/auth.js
+    /api/auth/password-reset/request
+      → src/api/auth.js
+    /api/auth/session
+      → src/api/auth.js
+    /api/auth/signup
+      → src/api/auth.js
+    /api/auth/supabase/callback
+      → src/index.js
+    /api/auth/supabase/start
+      → src/index.js
+    /api/auth/verify-email
+      → src/api/auth.js
+
+  /api/auth-hooks/  (4 routes)
+    /api/auth-hooks/
+      → src/index.js
+    /api/auth-hooks/before-user-created
+      → src/api/auth-hooks.js
+    /api/auth-hooks/custom-access-token
+      → src/api/auth-hooks.js
+    /api/auth-hooks/send-email
+      → src/api/auth-hooks.js
+
+  /api/billing/  (7 routes)
+    /api/billing
+      → src/api/billing.js, src/core/production-dispatch.js
+    /api/billing/checkout
+      → src/api/billing.js
+    /api/billing/invoices
+      → src/api/billing.js
+    /api/billing/plans
+      → src/api/billing.js
+    /api/billing/portal
+      → src/api/billing.js
+    /api/billing/subscription
+      → src/api/billing.js
+    /api/billing/summary
+      → src/api/finance.js
+
+  /api/browser/  (3 routes)
+    /api/browser
+      → src/api/dashboard.js, src/core/production-dispatch.js
+    /api/browser/invoke
+      → src/integrations/playwright.js
+    /api/browser/screenshot
+      → src/integrations/playwright.js
+
+  /api/cad/  (6 routes)
+    /api/cad
+      → src/core/production-dispatch.js
+    /api/cad/
+      → src/core/production-dispatch.js
+    /api/cad/blender/script
+      → src/api/cad.js
+    /api/cad/jobs
+      → src/api/cad.js
+    /api/cad/meshy/generate
+      → src/api/cad.js
+    /api/cad/openscad/generate
+      → src/api/cad.js
+
+  /api/calendar/  (1 routes)
+    /api/calendar
+      → src/core/production-dispatch.js
+
+  /api/canvas/  (1 routes)
+    /api/canvas/theme
+      → src/api/draw.js
+
+  /api/catalog/  (1 routes)
+    /api/catalog/integrations
+      → src/index.js
+
+  /api/chat/  (1 routes)
+    /api/chat
+      → src/api/dashboard.js, src/core/production-dispatch.js
+
+  /api/cicd/  (4 routes)
+    /api/cicd
+      → src/core/production-dispatch.js
+    /api/cicd/current
+      → src/api/cicd.js
+    /api/cicd/run
+      → src/api/cicd.js
+    /api/cicd/runs
+      → src/api/cicd.js
+
+  /api/clients/  (1 routes)
+    /api/clients
+      → src/api/finance.js, src/core/production-dispatch.js
+
+  /api/cms/  (2 routes)
+    /api/cms
+      → src/core/production-dispatch.js
+    /api/cms/pages
+      → src/api/cms.js
+
+  /api/collab/  (1 routes)
+    /api/collab/canvas
+      → src/do/Collaboration.js
+
+  /api/commands/  (2 routes)
+    /api/commands
+      → src/core/production-dispatch.js
+    /api/commands/
+      → src/core/production-dispatch.js
+
+  /api/config/  (1 routes)
+    /api/config/client
+      → src/core/production-dispatch.js
+
+  /api/cursor/  (4 routes)
+    /api/cursor/
+      → src/core/production-dispatch.js
+    /api/cursor/acp
+      → src/core/production-dispatch.js
+    /api/cursor/agent/spawn
+      → src/api/cursor-agent.js
+    /api/cursor/agents
+      → src/api/cursor-agent.js
+
+  /api/d1/  (3 routes)
+    /api/d1
+      → src/core/production-dispatch.js
+    /api/d1/query
+      → src/api/d1-dashboard.js
+    /api/d1/tables
+      → src/api/d1-dashboard.js
+
+  /api/dashboard/  (1 routes)
+    /api/dashboard/status-bundle
+      → src/core/production-dispatch.js
+
+  /api/data-plane/  (9 routes)
+    /api/data-plane
+      → src/core/production-dispatch.js
+    /api/data-plane/context
+      → src/api/customer-data-plane-api.js
+    /api/data-plane/customer-cloudflare/accounts
+      → src/api/customer-data-plane-api.js
+    /api/data-plane/customer-supabase/projects
+      → src/api/customer-data-plane-api.js
+    /api/data-plane/customer-supabase/query
+      → src/api/customer-data-plane-api.js
+    /api/data-plane/customer-supabase/select
+      → src/api/customer-data-plane-api.js
+    /api/data-plane/dispatch
+      → src/api/customer-data-plane-api.js
+    /api/data-plane/public-learning/query
+      → src/api/customer-data-plane-api.js
+    /api/data-plane/public-learning/tables
+      → src/api/customer-data-plane-api.js
+
+  /api/deployments/  (2 routes)
+    /api/deployments
+      → src/core/production-dispatch.js
+    /api/deployments/recent
+      → src/api/deployments.js
+
+  /api/designstudio/  (6 routes)
+    /api/designstudio/
+      → src/core/production-dispatch.js
+    /api/designstudio/assets
+      → src/api/designstudio/index.js
+    /api/designstudio/blueprints
+      → src/api/designstudio/index.js
+    /api/designstudio/runs
+      → src/api/designstudio/index.js
+    /api/designstudio/scenes
+      → src/api/designstudio/scenes.js
+    /api/designstudio/scenes/autosave
+      → src/api/designstudio/scenes.js
+
+  /api/draw/  (9 routes)
+    /api/draw
+      → src/api/dashboard.js, src/core/production-dispatch.js
+    /api/draw/
+      → src/api/draw.js
+    /api/draw/connections
+      → src/api/draw.js
+    /api/draw/download/
+      → src/api/draw.js
+    /api/draw/export
+      → src/api/draw.js
+    /api/draw/libraries
+      → src/api/draw.js
+    /api/draw/list
+      → src/api/draw.js
+    /api/draw/load
+      → src/integrations/canvas.js, src/api/draw.js
+    /api/draw/save
+      → src/integrations/canvas.js, src/api/draw.js
+
+  /api/email/  (2 routes)
+    /api/email/inbound
+      → src/core/production-dispatch.js, src/api/integrations.js
+    /api/email/send
+      → src/core/production-dispatch.js
+
+  /api/finance/  (1 routes)
+    /api/finance
+      → src/api/finance.js, src/core/production-dispatch.js
+
+  /api/games/  (5 routes)
+    /api/games
+      → src/core/production-dispatch.js
+    /api/games/pieces
+      → src/api/games.js
+    /api/games/rooms
+      → src/api/games.js
+    /api/games/rooms/
+      → src/api/games.js
+    /api/games/ws/
+      → src/api/games.js
+
+  /api/health/  (12 routes)
+    /api/health
+      → src/index.js
+    /api/health/
+      → src/core/production-dispatch.js
+    /api/health/advisors
+      → src/api/health/index.js
+    /api/health/agent
+      → src/api/health/index.js
+    /api/health/agentsam-d1
+      → src/api/health/index.js
+    /api/health/deployments
+      → src/api/health/index.js
+    /api/health/hyperdrive
+      → src/api/health/index.js
+    /api/health/mcp
+      → src/api/health/index.js
+    /api/health/mcp/check
+      → src/api/health/index.js
+    /api/health/models
+      → src/api/health/index.js
+    /api/health/summary
+      → src/api/health/index.js
+    /api/health/workers
+      → src/api/health/index.js
+
+  /api/hooks/  (2 routes)
+    /api/hooks/openai
+      → src/index.js
+    /api/hooks/supabase
+      → src/index.js
+
+  /api/hub/  (1 routes)
+    /api/hub
+      → src/core/production-dispatch.js
+
+  /api/hyperdrive/  (5 routes)
+    /api/hyperdrive
+      → src/api/dashboard.js, src/core/production-dispatch.js, src/integrations/hyperdrive.js
+    /api/hyperdrive/health
+      → src/integrations/hyperdrive.js
+    /api/hyperdrive/query
+      → src/integrations/hyperdrive.js
+    /api/hyperdrive/status
+      → src/integrations/hyperdrive.js
+    /api/hyperdrive/tables
+      → src/integrations/hyperdrive.js
+
+  /api/images/  (5 routes)
+    /api/images
+      → src/api/images.js, src/core/production-dispatch.js
+    /api/images/edit
+      → src/api/images.js
+    /api/images/generate
+      → src/api/images.js
+    /api/images/import/drive
+      → src/api/images.js
+    /api/images/upload
+      → src/api/images.js
+
+  /api/integrations/  (17 routes)
+    /api/integrations
+      → src/core/production-dispatch.js, src/api/integrations.js
+    /api/integrations/api-keys
+      → src/api/integrations.js
+    /api/integrations/bluebubbles/webhook
+      → src/api/integrations.js
+    /api/integrations/events
+      → src/api/integrations.js
+    /api/integrations/gdrive/file
+      → src/integrations/github.js, src/api/integrations.js
+    /api/integrations/gdrive/files
+      → src/integrations/github.js, src/api/integrations.js
+    /api/integrations/gdrive/raw
+      → src/integrations/github.js, src/api/integrations.js
+    /api/integrations/github/file
+      → src/integrations/github.js, src/api/integrations.js
+    /api/integrations/github/files
+      → src/integrations/github.js, src/api/integrations.js
+    /api/integrations/github/raw
+      → src/integrations/github.js, src/api/integrations.js
+    /api/integrations/github/repos
+      → src/integrations/github.js, src/api/integrations.js
+    /api/integrations/mcp-tools
+      → src/api/integrations.js
+    /api/integrations/resend/webhook
+      → src/api/integrations.js
+    /api/integrations/status
+      → src/integrations/github.js, src/api/integrations.js
+    /api/integrations/summary
+      → src/api/integrations.js
+    /api/integrations/supabase
+      → src/api/integrations.js
+    /api/integrations/webhooks
+      → src/api/integrations.js
+
+  /api/internal/  (14 routes)
+    /api/internal/
+      → src/core/production-dispatch.js
+    /api/internal/agentsam-vectorize/describe
+      → src/core/production-dispatch.js
+    /api/internal/cicd-event
+      → src/core/production-dispatch.js
+    /api/internal/cron-self-test
+      → src/core/production-dispatch.js
+    /api/internal/designstudio/
+      → src/core/production-dispatch.js
+    /api/internal/designstudio/sync-run
+      → src/api/designstudio/index.js
+    /api/internal/embed-codebase-chunks-backfill
+      → src/core/production-dispatch.js
+    /api/internal/git-status
+      → src/api/deployments.js
+    /api/internal/google/refresh-token
+      → src/core/production-dispatch.js
+    /api/internal/health-kv-dirty
+      → src/core/production-dispatch.js
+    /api/internal/post-deploy
+      → src/core/production-dispatch.js
+    /api/internal/record-deploy
+      → src/api/deployments.js
+    /api/internal/summarize-backfill
+      → src/core/production-dispatch.js
+    /api/internal/trigger-workers-build
+      → src/core/production-dispatch.js
+
+  /api/kanban/  (4 routes)
+    /api/kanban
+      → src/core/production-dispatch.js
+    /api/kanban/boards
+      → src/api/kanban.js
+    /api/kanban/columns
+      → src/api/kanban.js
+    /api/kanban/tasks
+      → src/api/kanban.js
+
+  /api/launch-desk/  (1 routes)
+    /api/launch-desk
+      → src/index.js
+
+  /api/learn/  (4 routes)
+    /api/learn
+      → src/core/production-dispatch.js
+    /api/learn/dashboard
+      → src/api/learn.js
+    /api/learn/progress
+      → src/api/learn.js
+    /api/learn/submit
+      → src/api/learn.js
+
+  /api/mail/  (3 routes)
+    /api/mail
+      → src/core/production-dispatch.js
+    /api/mail/attachment/
+      → src/api/mail.js
+    /api/mail/email/
+      → src/api/mail.js
+
+  /api/mcp/  (22 routes)
+    /api/mcp
+      → src/core/production-dispatch.js
+    /api/mcp/agent/session/start
+      → src/api/mcp.js
+    /api/mcp/agents
+      → src/api/mcp.js
+    /api/mcp/agents/dispatch
+      → src/api/mcp.js
+    /api/mcp/agents/reset
+      → src/api/mcp.js
+    /api/mcp/agents/reset-all
+      → src/api/mcp.js
+    /api/mcp/agents/status
+      → src/api/mcp.js
+    /api/mcp/audit
+      → src/api/mcp.js
+    /api/mcp/catalog-invoke
+      → src/api/mcp.js
+    /api/mcp/commands
+      → src/api/mcp.js
+    /api/mcp/credentials
+      → src/api/mcp.js
+    /api/mcp/dispatch
+      → src/api/mcp.js
+    /api/mcp/server-allowlist
+      → src/api/mcp.js
+    /api/mcp/servers
+      → src/api/mcp.js
+    /api/mcp/stats
+      → src/api/mcp.js
+    /api/mcp/status
+      → src/api/mcp.js
+    /api/mcp/token/create
+      → src/index.js
+    /api/mcp/token/revoke
+      → src/index.js
+    /api/mcp/tokens
+      → src/index.js
+    /api/mcp/tool-calls
+      → src/api/mcp-calls.js
+    /api/mcp/tools
+      → src/api/mcp.js
+    /api/mcp/tools/catalog
+      → src/api/mcp.js
+
+  /api/media/  (3 routes)
+    /api/media/assets
+      → src/core/production-dispatch.js, src/api/moviemode-api.js
+    /api/media/assets/index
+      → src/api/moviemode-api.js
+    /api/media/assets/register
+      → src/api/moviemode-api.js
+
+  /api/meet/  (2 routes)
+    /api/meet
+      → src/core/production-dispatch.js
+    /api/meet/v2
+      → src/core/production-dispatch.js
+
+  /api/moviemode/  (8 routes)
+    /api/moviemode/
+      → src/core/production-dispatch.js
+    /api/moviemode/agent
+      → src/api/moviemode-api.js
+    /api/moviemode/export
+      → src/api/moviemode-api.js
+    /api/moviemode/ingest
+      → src/api/moviemode-api.js
+    /api/moviemode/projects
+      → src/api/moviemode-api.js
+    /api/moviemode/render-jobs
+      → src/api/moviemode-api.js
+    /api/moviemode/search
+      → src/api/moviemode-api.js
+    /api/moviemode/timelines
+      → src/api/moviemode-api.js
+
+  /api/notifications/  (1 routes)
+    /api/notifications/email
+      → src/core/production-dispatch.js
+
+  /api/notify/  (1 routes)
+    /api/notify/deploy-complete
+      → src/core/production-dispatch.js
+
+  /api/oauth/  (9 routes)
+    /api/oauth/
+      → src/index.js
+    /api/oauth/authorize
+      → src/api/oauth.js
+    /api/oauth/gmail/callback
+      → src/api/oauth.js
+    /api/oauth/gmail/start
+      → src/api/oauth.js
+    /api/oauth/login-challenge/resume
+      → src/api/oauth.js, src/api/mcp-oauth-login-challenge.js
+    /api/oauth/mcp/consent
+      → src/index.js, src/api/mcp-oauth-consent.js
+    /api/oauth/register
+      → src/api/oauth.js
+    /api/oauth/token
+      → src/api/oauth.js
+    /api/oauth/userinfo
+      → src/api/oauth.js
+
+  /api/onboarding/  (6 routes)
+    /api/onboarding
+      → src/core/production-dispatch.js
+    /api/onboarding/intake
+      → src/api/onboarding.js
+    /api/onboarding/profile-setup
+      → src/api/onboarding.js
+    /api/onboarding/recovery-codes
+      → src/api/onboarding.js
+    /api/onboarding/send-invite
+      → src/api/onboarding.js
+    /api/onboarding/status
+      → src/api/onboarding.js
+
+  /api/ops-desk/  (1 routes)
+    /api/ops-desk
+      → src/core/production-dispatch.js
+
+  /api/overview/  (9 routes)
+    /api/overview
+      → src/core/production-dispatch.js
+    /api/overview/activity-strip
+      → src/api/overview.js
+    /api/overview/agent-activity
+      → src/api/overview.js
+    /api/overview/commands-workflows
+      → src/api/overview.js
+    /api/overview/dashboard-bundle
+      → src/api/overview.js
+    /api/overview/deployments
+      → src/api/overview.js
+    /api/overview/goals-launch
+      → src/api/overview.js
+    /api/overview/kpi-strip
+      → src/api/overview.js
+    /api/overview/stats
+      → src/api/overview.js
+
+  /api/playwright/  (1 routes)
+    /api/playwright
+      → src/api/dashboard.js, src/core/production-dispatch.js
+
+  /api/projects/  (3 routes)
+    /api/projects
+      → src/api/finance.js, src/core/production-dispatch.js, src/api/projects.js
+    /api/projects/
+      → src/api/projects.js
+    /api/projects/overview
+      → src/api/projects.js
+
+  /api/provider-colors/  (1 routes)
+    /api/provider-colors
+      → src/index.js
+
+  /api/public/  (1 routes)
+    /api/public/sync
+      → src/core/production-dispatch.js
+
+  /api/quality-reports/  (1 routes)
+    /api/quality-reports/register
+      → src/core/production-dispatch.js
+
+  /api/r2/  (19 routes)
+    /api/r2/
+      → src/core/production-dispatch.js
+    /api/r2/buckets
+      → src/api/r2-api.js
+    /api/r2/copy
+      → src/api/r2-api.js
+    /api/r2/delete
+      → src/api/r2-api.js
+    /api/r2/delete-batch
+      → src/api/r2-api.js
+    /api/r2/file
+      → src/api/r2-api.js
+    /api/r2/head
+      → src/api/r2-api.js
+    /api/r2/list
+      → src/api/r2-api.js
+    /api/r2/multipart/abort
+      → src/api/r2-api.js
+    /api/r2/multipart/complete
+      → src/api/r2-api.js
+    /api/r2/multipart/create
+      → src/api/r2-api.js
+    /api/r2/multipart/part
+      → src/api/r2-api.js
+    /api/r2/put
+      → src/api/r2-api.js
+    /api/r2/search
+      → src/api/r2-api.js
+    /api/r2/stats
+      → src/api/r2-api.js
+    /api/r2/stream
+      → src/api/r2-api.js
+    /api/r2/sync
+      → src/api/r2-api.js
+    /api/r2/upload
+      → src/api/r2-api.js
+    /api/r2/url
+      → src/api/r2-api.js
+
+  /api/rag/  (3 routes)
+    /api/rag/ingest
+      → src/api/rag.js
+    /api/rag/search
+      → src/api/rag.js
+    /api/rag/sync
+      → src/api/rag.js
+
+  /api/search/  (1 routes)
+    /api/search
+      → src/api/search.js, src/api/rag.js, src/core/production-dispatch.js
+
+  /api/security/  (1 routes)
+    /api/security/shield-pulse
+      → src/api/dashboard.js
+
+  /api/settings/  (56 routes)
+    /api/settings
+      → src/core/production-dispatch.js
+    /api/settings/agents
+      → src/api/settings.js
+    /api/settings/agents/commands
+      → src/api/settings.js
+    /api/settings/agents/domains
+      → src/api/settings.js
+    /api/settings/agents/mcp
+      → src/api/settings.js
+    /api/settings/agents/mcp/preferences
+      → src/api/settings.js
+    /api/settings/agents/policy
+      → src/api/settings.js
+    /api/settings/ai-models
+      → src/api/settings.js
+    /api/settings/ai-models/keys
+      → src/api/settings.js
+    /api/settings/ai-models/usage
+      → src/api/settings.js
+    /api/settings/api-keys
+      → src/api/settings-api-keys.js
+    /api/settings/billing/status
+      → src/api/settings-sections.js
+    /api/settings/cicd
+      → src/api/settings-sections.js
+    /api/settings/commands
+      → src/api/settings.js
+    /api/settings/default-model
+      → src/api/settings.js
+    /api/settings/docs
+      → src/api/settings-sections.js
+    /api/settings/feature-flags
+      → src/api/settings.js
+    /api/settings/github
+      → src/api/settings-sections.js
+    /api/settings/hooks
+      → src/api/settings.js
+    /api/settings/hooks/status
+      → src/api/settings-sections.js
+    /api/settings/integrations
+      → src/api/settings-integrations.js
+    /api/settings/integrations/connected
+      → src/api/settings-integrations.js
+    /api/settings/integrations/custom
+      → src/api/settings-integrations.js
+    /api/settings/integrations/custom-mcp
+      → src/api/settings-integrations.js
+    /api/settings/integrations/status
+      → src/api/settings-sections.js
+    /api/settings/keys
+      → src/api/settings-api-keys.js
+    /api/settings/mcp
+      → src/api/settings.js
+    /api/settings/mcp/status
+      → src/api/settings.js
+    /api/settings/model-preference
+      → src/api/settings.js
+    /api/settings/models
+      → src/api/settings.js
+    /api/settings/network
+      → src/api/settings-sections.js
+    /api/settings/notifications
+      → src/api/settings-sections.js
+    /api/settings/preferences
+      → src/api/settings.js
+    /api/settings/profile
+      → src/core/production-dispatch.js, src/api/settings.js, src/api/auth.js
+    /api/settings/profile/avatar
+      → src/api/settings.js
+    /api/settings/rules
+      → src/api/settings.js
+    /api/settings/security/findings
+      → src/api/settings.js
+    /api/settings/security/sessions
+      → src/api/settings.js
+    /api/settings/skills
+      → src/api/settings.js
+    /api/settings/storage-preferences
+      → src/api/settings.js
+    /api/settings/storage/status
+      → src/api/settings-sections.js
+    /api/settings/subagents
+      → src/api/settings.js
+    /api/settings/theme
+      → src/api/settings.js
+    /api/settings/themes/status
+      → src/api/settings-sections.js
+    /api/settings/tools/status
+      → src/api/settings-sections.js
+    /api/settings/usage
+      → src/api/settings.js
+    /api/settings/user-policy
+      → src/api/settings.js
+    /api/settings/workspace
+      → src/api/settings.js, src/api/settings-workspace.js
+    /api/settings/workspace/
+      → src/api/settings-workspace.js
+    /api/settings/workspace/default
+      → src/api/settings.js
+    /api/settings/workspace/members
+      → src/api/settings-workspace.js
+    /api/settings/workspace/members/invite
+      → src/api/settings-workspace.js
+    /api/settings/workspace/modules
+      → src/api/settings-workspace.js
+    /api/settings/workspace/reindex
+      → src/api/settings.js
+    /api/settings/workspaces
+      → src/api/settings.js
+    /api/settings/workspaces/active
+      → src/api/settings.js
+
+  /api/storage/  (18 routes)
+    /api/storage
+      → src/core/production-dispatch.js
+    /api/storage/access-keys
+      → src/api/storage.js
+    /api/storage/activity
+      → src/api/storage.js
+    /api/storage/analytics
+      → src/api/storage.js
+    /api/storage/buckets
+      → src/api/storage.js
+    /api/storage/code-index/queue
+      → src/api/storage.js
+    /api/storage/jobs/
+      → src/api/storage.js
+    /api/storage/jobs/rollup-bucket-summary
+      → src/api/storage.js
+    /api/storage/jobs/rollup-worker-analytics
+      → src/api/storage.js
+    /api/storage/jobs/sync-project-storage
+      → src/api/storage.js
+    /api/storage/policies
+      → src/api/storage.js
+    /api/storage/preferences
+      → src/api/storage.js
+    /api/storage/s3
+      → src/api/storage.js
+    /api/storage/s3-config
+      → src/api/storage.js
+    /api/storage/s3/keys
+      → src/api/storage.js
+    /api/storage/settings
+      → src/api/storage.js
+    /api/storage/vector-connections
+      → src/api/storage.js
+    /api/storage/vectors
+      → src/api/storage.js
+
+  /api/studio/  (2 routes)
+    /api/studio
+      → src/core/production-dispatch.js
+    /api/studio/
+      → src/core/production-dispatch.js
+
+  /api/system/  (1 routes)
+    /api/system/health
+      → src/index.js
+
+  /api/tenant/  (3 routes)
+    /api/tenant
+      → src/core/production-dispatch.js
+    /api/tenant/branding
+      → src/api/settings.js
+    /api/tenant/onboarding
+      → src/api/settings.js
+
+  /api/terminal/  (18 routes)
+    /api/terminal
+      → src/core/production-dispatch.js
+    /api/terminal/
+      → src/api/dashboard.js
+    /api/terminal/assist
+      → src/api/terminal.js, src/tools/terminal-dispatch.js
+    /api/terminal/connections/activate
+      → src/api/terminal.js
+    /api/terminal/connections/local
+      → src/api/terminal.js
+    /api/terminal/connections/provision
+      → src/api/terminal.js
+    /api/terminal/history
+      → src/api/terminal.js
+    /api/terminal/session/close
+      → src/api/terminal.js
+    /api/terminal/session/register
+      → src/api/terminal.js
+    /api/terminal/session/resume
+      → src/api/dashboard.js
+    /api/terminal/session/validate
+      → src/api/terminal.js
+    /api/terminal/session/verify
+      → src/api/terminal.js
+    /api/terminal/token
+      → src/api/terminal.js
+    /api/terminal/token/generate
+      → src/api/terminal.js
+    /api/terminal/token/status
+      → src/api/terminal.js
+    /api/terminal/tunnel
+      → src/api/terminal.js
+    /api/terminal/tunnel/provision
+      → src/api/terminal.js
+    /api/terminal/tunnel/status
+      → src/api/terminal.js
+
+  /api/test/  (1 routes)
+    /api/test/code-execution-e2e
+      → src/index.js
+
+  /api/themes/  (5 routes)
+    /api/themes
+      → src/api/themes.js, src/core/production-dispatch.js
+    /api/themes/active
+      → src/api/themes.js
+    /api/themes/apply
+      → src/api/themes.js
+    /api/themes/create
+      → src/api/themes.js
+    /api/themes/package
+      → src/api/themes.js
+
+  /api/unified-search/  (3 routes)
+    /api/unified-search
+      → src/api/unified-search.js, src/core/production-dispatch.js
+    /api/unified-search/recent
+      → src/api/unified-search.js
+    /api/unified-search/track
+      → src/api/unified-search.js
+
+  /api/user/  (3 routes)
+    /api/user/preferences
+      → src/api/themes.js, src/core/production-dispatch.js
+    /api/user/storage-keys
+      → src/core/production-dispatch.js
+    /api/user/storage-keys/cloudflare
+      → src/api/user-storage-keys.js
+
+  /api/vault/  (7 routes)
+    /api/vault
+      → src/core/production-dispatch.js
+    /api/vault/audit
+      → src/api/vault.js
+    /api/vault/llm-keys
+      → src/api/vault.js
+    /api/vault/projects
+      → src/api/vault.js
+    /api/vault/registry
+      → src/api/vault.js
+    /api/vault/secrets
+      → src/api/vault.js
+    /api/vault/store
+      → src/api/vault.js
+
+  /api/webhooks/  (10 routes)
+    /api/webhooks/anthropic
+      → src/index.js
+    /api/webhooks/cloudflare
+      → src/index.js
+    /api/webhooks/cursor
+      → src/index.js
+    /api/webhooks/github
+      → src/index.js
+    /api/webhooks/internal
+      → src/index.js
+    /api/webhooks/openai
+      → src/index.js
+    /api/webhooks/realtimekit
+      → src/index.js
+    /api/webhooks/resend
+      → src/core/production-dispatch.js, src/api/integrations.js
+    /api/webhooks/stripe
+      → src/api/billing.js, src/core/production-dispatch.js
+    /api/webhooks/supabase
+      → src/index.js
+
+  /api/workspace/  (4 routes)
+    /api/workspace
+      → src/core/production-dispatch.js
+    /api/workspace/create
+      → src/api/workspace.js
+    /api/workspace/list
+      → src/api/workspace.js
+    /api/workspace/settings
+      → src/api/workspace.js
+
+  /api/workspaces/  (3 routes)
+    /api/workspaces
+      → src/core/production-dispatch.js, src/api/settings.js, src/api/workspaces.js
+    /api/workspaces/current/shell
+      → src/api/workspace.js
+    /api/workspaces/list
+      → src/api/workspaces.js

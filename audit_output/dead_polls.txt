@@ -1,0 +1,45 @@
+Client fetch() calls to unknown paths — potential dead polls
+
+Poll-pattern paths with no handler: 1
+
+  !! /api/tunnel/status
+     called from: dashboard/App.tsx, dashboard/components/XTermShell.tsx, dashboard/dist/dashboard.js
+
+
+All other unmatched paths:
+  /api/book
+     called from: dashboard/node_modules/react-router/dist/development/index-react-server-client-BS5F89FR.d.ts, dashboard/node_modules/react-router/dist/development/index-react-server.d.ts
+  /api/broadcast
+     called from: dashboard/dist/vendor-supabase.js, dashboard/node_modules/@supabase/realtime-js/dist/main/lib/transformers.js
+  /api/collab/room
+     called from: dashboard/App.tsx, dashboard/dist/dashboard.js
+  /api/collab/room/browser
+     called from: dashboard/components/BrowserView.tsx, dashboard/dist/dashboard.js
+  /api/drive/delete
+     called from: dashboard/components/GoogleDriveExplorer.tsx, dashboard/dist/dashboard.js
+  /api/drive/file
+     called from: dashboard/App.tsx, dashboard/dist/dashboard.js
+  /api/drive/file.
+     called from: dashboard/components/GoogleDriveExplorer.tsx, dashboard/dist/dashboard.js
+  /api/drive/folder
+     called from: dashboard/components/GoogleDriveExplorer.tsx, dashboard/dist/dashboard.js
+  /api/drive/search
+     called from: dashboard/components/GoogleDriveExplorer.tsx, dashboard/dist/dashboard.js
+  /api/drive/upload
+     called from: dashboard/components/GoogleDriveExplorer.tsx, dashboard/dist/dashboard.js
+  /api/github/repos
+     called from: dashboard/App.tsx, dashboard/components/GitHubExplorer.tsx
+  /api/github/repos/.../contents
+     called from: dashboard/components/GitHubExplorer.tsx, dashboard/dist/dashboard.js
+  /api/monaco/complete
+     called from: dashboard/components/MonacoEditorView.tsx, dashboard/dist/dashboard.js
+  /api/rag/query
+     called from: dashboard/App.tsx
+  /api/save-effect-props
+     called from: dashboard/node_modules/remotion/dist/cjs/effects/create-effect.js
+  /api/tunnel/restart
+     called from: dashboard/components/XTermShell.tsx, dashboard/dist/dashboard.js
+  /api/v1/message
+     called from: dashboard/dist/vendor-realtimekit.js, dashboard/node_modules/@cloudflare/realtimekit/dist/browser.js
+  /api/workflows
+     called from: dashboard/components/UnifiedSearchBar.tsx, dashboard/dist/dashboard.js

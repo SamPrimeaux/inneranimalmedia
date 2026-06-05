@@ -37,12 +37,20 @@ export type RecentFileEntry = {
   workspacePath?: string;
 };
 
+/** Running local dev server detected from PTY stdout (Vite / Next / etc.). */
+export type DevServerState = {
+  port: number;
+  url: string;
+  updatedAt: number;
+};
+
 /** Full bundle stored in agent_workspace_state.state_json for the IDE shell. */
 export type IdePersistedBundle = {
   v: number;
   ideWorkspace: IdeWorkspaceSnapshot;
   gitBranch: string;
   recentFiles: RecentFileEntry[];
+  devServer?: DevServerState | null;
 };
 
 /** Live Agent Sam workbench context (chat payload + IDE child surfaces). */
@@ -60,7 +68,18 @@ export function defaultIdeBundle(): IdePersistedBundle {
     ideWorkspace: { source: 'none' },
     gitBranch: 'main',
     recentFiles: [],
+    devServer: null,
   };
+}
+
+function safeParseDevServer(raw: unknown): DevServerState | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as DevServerState;
+  const port = Number(o.port);
+  const url = typeof o.url === 'string' ? o.url.trim() : '';
+  const updatedAt = Number(o.updatedAt);
+  if (!Number.isFinite(port) || port < 1 || !url.startsWith('http')) return null;
+  return { port, url, updatedAt: Number.isFinite(updatedAt) ? updatedAt : Date.now() };
 }
 
 function truncateSnapshot(s: string, max = SNAPSHOT_CAP): string {
@@ -130,6 +149,7 @@ export function parsePersistedBundle(raw: unknown): IdePersistedBundle | null {
     ideWorkspace,
     gitBranch,
     recentFiles,
+    devServer: safeParseDevServer(o.devServer),
   };
 }
 

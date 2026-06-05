@@ -15,6 +15,13 @@ export type ThinkingStepEvent = {
   lane?: string;
 };
 
+/** Raw tool_name → short inline label (e.g. agentsam_github_read → github read). */
+export function simplifyToolName(raw: string): string {
+  const t = String(raw || '').trim();
+  if (!t) return 'working';
+  return t.replace(/^agentsam_/i, '').replace(/_/g, ' ').toLowerCase();
+}
+
 export function formatThinkingStepName(ev: ThinkingStepEvent): string {
   const tool = String(ev.tool_name || ev.node_key || '').toLowerCase();
   const lane = String(ev.execution_lane || ev.lane || '').toLowerCase();

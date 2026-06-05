@@ -1,0 +1,78 @@
+Client-side fetch paths with no matching src/ handler
+Total: 19 unmatched paths
+
+NOTE: Some may be handled by dynamic routing or external services.
+Review each before concluding it is broken.
+
+
+  [/api/book]
+    /api/book
+      ← dashboard/node_modules/react-router/dist/development/index-react-server-client-BS5F89FR.d.ts, dashboard/node_modules/react-router/dist/development/index-react-server.d.ts
+
+  [/api/broadcast]
+    /api/broadcast
+      ← dashboard/dist/vendor-supabase.js, dashboard/node_modules/@supabase/realtime-js/dist/main/lib/transformers.js
+
+  [/api/save-effect-props]
+    /api/save-effect-props
+      ← dashboard/node_modules/remotion/dist/cjs/effects/create-effect.js
+
+  [/api/workflows]
+    /api/workflows
+      ← dashboard/components/UnifiedSearchBar.tsx, dashboard/dist/dashboard.js
+
+  [api/collab/room]
+    /api/collab/room
+      ← dashboard/App.tsx, dashboard/dist/dashboard.js
+    /api/collab/room/browser
+      ← dashboard/components/BrowserView.tsx, dashboard/dist/dashboard.js
+
+  [api/drive/delete]
+    /api/drive/delete
+      ← dashboard/components/GoogleDriveExplorer.tsx, dashboard/dist/dashboard.js
+
+  [api/drive/file]
+    /api/drive/file
+      ← dashboard/App.tsx, dashboard/dist/dashboard.js
+
+  [api/drive/file.]
+    /api/drive/file.
+      ← dashboard/components/GoogleDriveExplorer.tsx, dashboard/dist/dashboard.js
+
+  [api/drive/folder]
+    /api/drive/folder
+      ← dashboard/components/GoogleDriveExplorer.tsx, dashboard/dist/dashboard.js
+
+  [api/drive/search]
+    /api/drive/search
+      ← dashboard/components/GoogleDriveExplorer.tsx, dashboard/dist/dashboard.js
+
+  [api/drive/upload]
+    /api/drive/upload
+      ← dashboard/components/GoogleDriveExplorer.tsx, dashboard/dist/dashboard.js
+
+  [api/github/repos]
+    /api/github/repos
+      ← dashboard/App.tsx, dashboard/components/GitHubExplorer.tsx
+    /api/github/repos/.../contents
+      ← dashboard/components/GitHubExplorer.tsx, dashboard/dist/dashboard.js
+
+  [api/monaco/complete]
+    /api/monaco/complete
+      ← dashboard/components/MonacoEditorView.tsx, dashboard/dist/dashboard.js
+
+  [api/rag/query]
+    /api/rag/query
+      ← dashboard/App.tsx
+
+  [api/tunnel/restart]
+    /api/tunnel/restart
+      ← dashboard/components/XTermShell.tsx, dashboard/dist/dashboard.js
+
+  [api/tunnel/status]
+    /api/tunnel/status
+      ← dashboard/App.tsx, dashboard/components/XTermShell.tsx
+
+  [api/v1/message]
+    /api/v1/message
+      ← dashboard/dist/vendor-realtimekit.js, dashboard/node_modules/@cloudflare/realtimekit/dist/browser.js

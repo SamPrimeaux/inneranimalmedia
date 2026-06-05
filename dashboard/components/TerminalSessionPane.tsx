@@ -195,6 +195,17 @@ export interface TerminalSessionPaneProps {
   connectEnabled?: boolean;
   onConnectionChange?: (s: TerminalConnectionStatus) => void;
   onSessionIdChange?: (id: string | null) => void;
+  /** PTY stdout lines (ANSI stripped) — dev-server port detection, output tab, etc. */
+  onTerminalOutputLine?: (line: string) => void;
+}
+
+function emitTerminalOutputLines(text: string, onLine?: (line: string) => void) {
+  if (!onLine || !text) return;
+  const stripped = text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
+  for (const line of stripped.split(/\r?\n/)) {
+    const t = line.trim();
+    if (t) onLine(t);
+  }
 }
 
 export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, TerminalSessionPaneProps>(
@@ -208,6 +219,7 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
       connectEnabled = true,
       onConnectionChange,
       onSessionIdChange,
+      onTerminalOutputLine,
     },
     ref,
   ) => {
@@ -559,13 +571,16 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
                   const text = msg.data ?? '';
                   appendBufferRef.current(text);
                   xtermRef.current?.write(text);
+                  emitTerminalOutputLines(text, onTerminalOutputLine);
                   return;
                 }
               } catch (_) {
                 /* binary passthrough */
               }
-              appendBufferRef.current(event.data as string);
-              xtermRef.current?.write(event.data as string);
+              const raw = event.data as string;
+              appendBufferRef.current(raw);
+              xtermRef.current?.write(raw);
+              emitTerminalOutputLines(raw, onTerminalOutputLine);
             };
 
             ws.onerror = () => {

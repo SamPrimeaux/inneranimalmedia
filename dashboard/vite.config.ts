@@ -26,6 +26,9 @@ function pickSupabaseEnv(env: Record<string, string>) {
 
 /** Heavy vendors — split for caching; excalidraw isolated so lazy routes do not land in subset-shared. */
 function manualChunkForNodeModule(id: string): string | undefined {
+  // Keep Vite's dynamic-import helper out of vendor-* chunks (otherwise entry imports a 3MB+ file at boot).
+  if (id.includes('vite/preload-helper')) return 'vite-preload';
+
   if (!id.includes('node_modules')) return undefined;
 
   if (id.includes('@supabase')) return 'vendor-supabase';
@@ -62,7 +65,7 @@ function manualChunkForNodeModule(id: string): string | undefined {
 }
 
 const HEAVY_PRELOAD_RE =
-  /(?:^|[/])(?:vendor-(?:three|wardley|remotion|locales|katex|charts|excalidraw)|subset-shared\.chunk|ExcalidrawView)\.js/;
+  /(?:^|[/])(?:vendor-(?:three|wardley|remotion|locales|katex|charts|excalidraw|realtimekit)|vite-preload|subset-shared\.chunk|ExcalidrawView|DesignStudioPage|MeetRealtimeKitShell)\.js/;
 
 export default defineConfig(({ mode }) => {
   const repoRoot = path.resolve(__dirname, '..');

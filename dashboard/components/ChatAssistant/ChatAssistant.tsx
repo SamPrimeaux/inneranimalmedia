@@ -735,6 +735,15 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     }
   }, [activeFile, activeFileName, runDraftTerminalCommand]);
 
+  const activePlanRunningCount = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.role !== 'assistant' || !m.executionPlan?.tasks?.length) continue;
+      return m.executionPlan.tasks.filter((t) => t.status === 'running').length;
+    }
+    return 0;
+  }, [messages]);
+
   const { presence } = useAgentPresence({
     isLoading,
     mode,
@@ -748,6 +757,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     subagentWork: activeSubagents[0]
       ? { state: activeSubagents[0].state, detail: activeSubagents[0].label }
       : null,
+    activePlanRunningCount,
   });
 
   useEffect(() => {

@@ -23,6 +23,8 @@ export type DerivePresenceInput = {
   draftRunBusy: boolean;
   /** Brief post-stream UI flash */
   presenceFlash: 'complete' | 'failed' | null;
+  /** D1-backed plan tasks currently running (plan mode). */
+  activePlanRunningCount?: number;
 };
 
 function motionFor(state: AgentPresenceState): AgentLogoMotion {
@@ -245,10 +247,14 @@ export function deriveAgentPresence(i: DerivePresenceInput): { presence: AgentPr
     if (i.thinkingState.status === 'thinking' || i.thinkingState.status === 'working') {
       if (i.mode === 'plan') {
         const txt = (i.thinkingState.thinkingText || '').toLowerCase();
+        const runningTasks = i.activePlanRunningCount ?? 0;
         const planState =
           txt.includes('handoff') || txt.includes('plan ready') || txt.includes('switch to')
             ? 'handoff_ready'
-            : txt.includes('running plan') || txt.includes('task') || i.thinkingState.status === 'working'
+            : runningTasks > 0 ||
+                txt.includes('running plan') ||
+                txt.includes('task') ||
+                i.thinkingState.status === 'working'
               ? 'task_stack'
               : 'mapping';
         const p: AgentPresence = {
@@ -301,10 +307,14 @@ export function deriveAgentPresence(i: DerivePresenceInput): { presence: AgentPr
 
   if (i.isLoading && i.mode === 'plan') {
     const txt = (i.thinkingState?.thinkingText || '').toLowerCase();
+    const runningTasks = i.activePlanRunningCount ?? 0;
     const planState =
       txt.includes('handoff') || txt.includes('plan ready') || txt.includes('switch to')
         ? 'handoff_ready'
-        : txt.includes('running plan') || txt.includes('task') || i.thinkingState?.status === 'working'
+        : runningTasks > 0 ||
+            txt.includes('running plan') ||
+            txt.includes('task') ||
+            i.thinkingState?.status === 'working'
           ? 'task_stack'
           : 'mapping';
     const p: AgentPresence = {

@@ -1,0 +1,1023 @@
+Files over 50 KB — primary bundle bloat candidates
+
+
+======================================================================
+  LARGE FILES
+======================================================================
+  191.1 MB  artifacts/batch_embed/combined.jsonl
+  129.5 MB  artifacts/batch_embed/docs.jsonl
+   75.2 MB  artifacts/agentsam_cursor_gap_pack_v2/embeddings_clean_openai.local.jsonl
+   74.4 MB  artifacts/agentsam_cursor_gap_pack_v2/embeddings_clean_openai.vectorize.ndjson
+   61.6 MB  artifacts/batch_embed/source_code.jsonl
+   35.3 MB  artifacts/agentsam_cursor_gap_pack/symbols.json
+   32.9 MB  .agentsam_audit/terminal/03_pty_vm_shell_backend.txt
+   32.5 MB  artifacts/key_hygiene_audit/key_hygiene_audit.json
+   19.3 MB  artifacts/batch_embed/embeddings/d1_combined.jsonl
+   13.5 MB  .agentsam_audit/terminal/02_worker_routes_ws.txt
+   13.0 MB  .worker-dist/index.js.map
+   12.5 MB  artifacts/theme-debug/2026-05-07_145213/trace.zip
+   12.0 MB  artifacts/evals/rg_super_sprint_20260522_192845/embeddings.jsonl
+   11.2 MB  artifacts/key_hygiene_audit/embeddings/key_hygiene_chunks_mxbai.local.jsonl
+   10.9 MB  artifacts/key_hygiene_audit/embeddings/key_hygiene_chunks_mxbai.vectorize.ndjson
+   10.8 MB  artifacts/agentsam_cursor_gap_pack/chunks.jsonl
+   10.8 MB  artifacts/cms_vectorize/cms_logic_chunks_20260515T205023Z.local.jsonl
+   10.8 MB  artifacts/cms_vectorize/LATEST_CMS_LOGIC_CHUNKS.local.jsonl
+   10.5 MB  artifacts/cms_vectorize/cms_logic_chunks_20260515T205023Z.vectorize.ndjson
+   10.5 MB  artifacts/cms_vectorize/LATEST_CMS_LOGIC_CHUNKS.vectorize.ndjson
+   10.4 MB  artifacts/agentsam_cursor_gap_pack_v2/CLEAN_CHUNKS.jsonl
+    7.6 MB  .worker-dist/index.js
+    6.7 MB  artifacts/batch_embed/embeddings/d1_command.jsonl
+    6.2 MB  artifacts/agentsam_cursor_gap_pack/table_usage.json
+    5.3 MB  artifacts/agentsam_inspection/embeddings/combined.jsonl
+    4.7 MB  artifacts/cms_vectorize/cms_motion_packet_20260516T210005Z.vectorize.ndjson
+    4.7 MB  artifacts/cms_vectorize/LATEST_CMS_MOTION_PACKET.vectorize.ndjson
+    4.5 MB  artifacts/batch_embed/embeddings/d1_mcp_tool.jsonl
+    4.2 MB  artifacts/key_hygiene_audit/embeddings/key_hygiene_chunks_fixed.vectorize.ndjson
+    4.2 MB  artifacts/key_hygiene_audit/embeddings/key_hygiene_chunks_safe.vectorize.ndjson
+    4.0 MB  artifacts/agentsam_cursor_gap_pack_v2/embeddings_clean_openai.vectorize.balanced.fixed_ids.ndjson
+    4.0 MB  artifacts/agentsam_cursor_gap_pack_v2/embeddings_clean_openai.vectorize.balanced.ndjson
+    4.0 MB  .venv_agentsam/lib/python3.14/site-packages/pydantic_core/_pydantic_core.cpython-314-darwin.so
+    3.8 MB  artifacts/batch_embed/embeddings/d1_skill.jsonl
+    3.5 MB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/_multiarray_umath.cpython-314-darwin.so
+    3.2 MB  artifacts/batch_embed/embeddings/d1_plan_task.jsonl
+    2.7 MB  artifacts/theme-debug/2026-05-07_145129/trace-error.zip
+    2.6 MB  artifacts/services_route_audit/services_route_audit.json
+    2.6 MB  .venv_agentsam/lib/python3.14/site-packages/tiktoken/_tiktoken.cpython-314-darwin.so
+    2.5 MB  scripts/audit_hardcoded_identity_report.md
+    2.4 MB  iam-test-reports/deploy-checks/settings-api-vault-20260508T082927Z-a8702eb/dashboard-bundle-check.txt
+    2.1 MB  artifacts/services_header_audit/services_header_audit.json
+    2.0 MB  artifacts/agentsam_cursor_gap_pack_v2/clean_table_usage.json
+    2.0 MB  artifacts/theme-debug/2026-05-07_145213/cdc5f3fd6e6a68fdb5ae6e1c5a799d07.webm
+    1.9 MB  artifacts/batch_embed/embeddings/d1_memory.jsonl
+    1.7 MB  artifacts/agentsam_plans_crawl_20260523T074350Z.json
+    1.7 MB  artifacts/agentsam_plans_crawl_20260523T074258Z.json
+    1.6 MB  dashboard/embed/analytics-dashboard-standalone.html
+    1.6 MB  dashboard/design-refs/analytics-dashboard-ref.html
+    1.6 MB  cms/agentsam-cms-editor/Analytics Dashboard _Standalone_.html
+    1.6 MB  scripts/audit/iam_audit_chunks.ndjson
+    1.5 MB  reports/git-safety/day-work-20260512-153005.patch
+    1.5 MB  artifacts/evals/rg_super_sprint_20260522_192845/chunks.jsonl
+    1.4 MB  artifacts/github_account_repo_scoping_audit_clean/SOURCE_HITS.md
+    1.4 MB  captures/inneranimalmedia/screenshots/games.png
+    1.3 MB  artifacts/evals/rg_super_sprint_20260522_192845/audit_raw.txt
+    1.3 MB  artifacts/agentsam_audit/latest_agentsam_d1_codebase_audit.json
+    1.3 MB  artifacts/agentsam_audit/agentsam_d1_codebase_audit_20260515T011657Z.json
+    1.2 MB  artifacts/batch_embed/embeddings/d1_workflow.jsonl
+    1.2 MB  artifacts/agentsam_plans_crawl_20260523T074243Z.json
+    1.2 MB  reports/.staging/inneranimalmedia/screenshots/work.png
+    1.2 MB  quality-report/screenshots/work.png
+    1.2 MB  captures/inneranimalmedia/screenshots/work.png
+    1.2 MB  captures/inneranimalmedia/screenshots/about.png
+    1.2 MB  prototypes/inneranimalmedia-cms-editor/artifacts/agentsam_cms_plan_20260513T033820Z/agentsam_cms_audit_plan.json
+    1.2 MB  prototypes/inneranimalmedia-cms-editor/artifacts/agentsam_cms_plan_20260513T035443Z/agentsam_cms_audit_plan.json
+    1.2 MB  prototypes/inneranimalmedia-cms-editor/artifacts/agentsam_cms_plan_20260513T033812Z/agentsam_cms_audit_plan.json
+    1.2 MB  captures/inneranimalmedia/screenshots/services.png
+    1.1 MB  artifacts/agentsam_table_usage_audit/agentsam_table_usage_audit_20260519T201723Z.json
+    1.1 MB  artifacts/agentsam_table_usage_audit/LATEST_AGENTSAM_TABLE_USAGE_AUDIT.json
+    1.1 MB  artifacts/batch_embed/embeddings/supabase_knowledge_edges.jsonl
+    1.0 MB  artifacts/theme-debug/2026-05-07_145213/network.har
+    1.0 MB  captures/inneranimalmedia/raw-quality-report/data/1107410a4d6b48d061f53e8086e6b4069ce7cd86.zip
+    1.0 MB  captures/inneranimalmedia/raw-quality-report/data/bdfa3945318618329972d09b0b0d1389d687187f.zip
+    1.0 MB  artifacts/batch_embed/embeddings/supabase_combined.jsonl
+    1.0 MB  artifacts/batch_embed/embeddings/supabase_agent_memory.jsonl
+ 1020.8 KB  artifacts/cms_agentsam_structure_audit_20260513T030633Z/raw_audit.json
+ 1006.1 KB  captures/inneranimalmedia/raw-quality-report/data/86f770955e8217fbd531e68b4d75d3ac3de28395.zip
+  984.9 KB  captures/inneranimalmedia/raw-quality-report/data/ed031fcb75da694dbc8931ed8b6e6c780e23c28f.zip
+  982.1 KB  artifacts/services_header_audit/SERVICES_HEADER_AUDIT.md
+  966.2 KB  artifacts/services_route_audit/SERVICES_ROUTE_AUDIT.md
+  964.6 KB  captures/inneranimalmedia/raw-quality-report/data/6b4af9ccbe90cff404cada77f94ef1208c7c3085.zip
+  964.3 KB  artifacts/batch_embed/embeddings/d1_agentsam_tools.jsonl
+  960.2 KB  artifacts/homepage_cms_structure_audit/homepage_cms_structure_audit_20260516T210611Z.json
+  960.2 KB  artifacts/homepage_cms_structure_audit/LATEST_HOMEPAGE_CMS_STRUCTURE_AUDIT.json
+  945.2 KB  analytics/codebase-index/ws_inneranimalmedia/index-priority-files.json
+  937.1 KB  captures/inneranimalmedia/raw-quality-report/data/d4290b5cab359ef1884a456726f0a876fa9b9a93.zip
+  922.2 KB  artifacts/agentsam-command-workflow-design-report.json
+  901.4 KB  cms/agentsam-cms-editor/public/analytics/assets/index-DwbUkrvE.js
+  879.8 KB  captures/inneranimalmedia/raw-quality-report/data/c0a6ee5928c2306cdeb9b1e0a3504a5f8a823c26.zip
+  863.3 KB  captures/inneranimalmedia/raw-quality-report/data/4b8b40bad28d38fbf814374fee05a788e6163a3e.zip
+  856.3 KB  artifacts/command_pipeline_alignment/LATEST_COMMAND_PIPELINE_ALIGNMENT.json
+  826.6 KB  captures/inneranimalmedia/raw-quality-report/data/8042127f16a23de1ae9d52b5068388a9ba9f6975.zip
+  774.3 KB  artifacts/agentsam-execution-fabric-report.json
+  772.5 KB  .venv_agentsam/lib/python3.14/site-packages/regex/_regex.cpython-314-darwin.so
+  761.6 KB  artifacts/key_hygiene_audit/KEY_HYGIENE_AUDIT.md
+  757.1 KB  scripts/audit_worker_routes_data.json
+  752.0 KB  captures/inneranimalmedia/screenshots/terms.png
+  742.7 KB  captures/inneranimalmedia/raw-quality-report/data/bc379da5f1fda9d633d9335cab3947056b68fdd5.zip
+  729.1 KB  artifacts/agentsam_db_table_walk/agentsam_db_table_walk_20260519T033030Z.json
+  729.1 KB  artifacts/agentsam_db_table_walk/agentsam_db_table_walk_20260519T032104Z.json
+  729.1 KB  artifacts/agentsam_db_table_walk/agentsam_db_table_walk_20260519T031031Z.json
+  729.1 KB  artifacts/agentsam_db_table_walk/LATEST_AGENTSAM_DB_TABLE_WALK.json
+  719.8 KB  .venv_agentsam/lib/python3.14/site-packages/81d243bd2c585b0f4821__mypyc.cpython-314-darwin.so
+  714.9 KB  .venv_agentsam/lib/python3.14/site-packages/jiter/jiter.cpython-314-darwin.so
+  712.4 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/__pycache__/test_multiarray.cpython-314.pyc
+  662.6 KB  artifacts/supabase_schema_audit/20260515T030004Z/json/03_column_inventory.json
+  662.2 KB  captures/inneranimalmedia/raw-quality-report/data/7b644135fe984275b7a66e0908ec01f84b2b02b9.zip
+  649.8 KB  artifacts/agentsam-capability-fabric-report.json
+  649.4 KB  tmp/multitenant-audit/hardcoded_identity_refs.txt
+  641.1 KB  captures/inneranimalmedia/screenshots/home.png
+  636.5 KB  captures/inneranimalmedia/raw-quality-report/data/6db3cd34a122e8c347ca1fcf8184b47f253b668e.zip
+  636.2 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/random/_generator.cpython-314-darwin.so
+  634.5 KB  captures/inneranimalmedia/raw-quality-report/data/ecb47d275e15646232b07a49d61f2124233785ac.zip
+  625.8 KB  captures/inneranimalmedia/raw-quality-report/trace/assets/defaultSettingsView-CJSZINFr.js
+  625.8 KB  artifacts/batch_embed/embeddings/d1_plan.jsonl
+  620.8 KB  captures/inneranimalmedia/raw-quality-report/data/90012bb66488bc9122742e56c3b35992d8b33efd.png
+  606.7 KB  scripts/audit/iam_audit_report.md
+  596.6 KB  captures/inneranimalmedia/raw-quality-report/data/80e4f8b7d0ad6f764b27b711f4cffd4d73ff9b7c.zip
+  565.3 KB  captures/inneranimalmedia/raw-quality-report/data/b8236e268187d48f0dfb3b30d527b48af1def928.zip
+  560.3 KB  captures/inneranimalmedia/raw-quality-report/index.html
+  557.7 KB  artifacts/batch_embed/embeddings/d1_route.jsonl
+  550.9 KB  docs/db/agentsam-d1-context/2026-05-07_agentsam-schema.json
+  549.3 KB  captures/inneranimalmedia/raw-quality-report/data/1161ebe83d28b6efb8c1d7ddda1b2ed11e057474.png
+  541.9 KB  captures/inneranimalmedia/raw-quality-report/data/20237211ce9258062f218cd48b86f3f7138d6b7a.png
+  538.2 KB  captures/inneranimalmedia/raw-quality-report/data/546d9d41c579ac9514f680d9790be39acc45c3e9.png
+  536.4 KB  artifacts/batch_embed/embeddings/d1_project.jsonl
+  533.2 KB  captures/inneranimalmedia/raw-quality-report/data/57a14ce8f0cdc56d176d3dc4d5d304513fad7202.png
+  531.7 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/random/mtrand.cpython-314-darwin.so
+  531.0 KB  captures/inneranimalmedia/raw-quality-report/data/6f6b703508b8018be3bf127236252bc187891a61.zip
+  529.0 KB  captures/inneranimalmedia/raw-quality-report/data/4e40c4fc470ea7b456460897e6a767fd1066bef3.zip
+  527.2 KB  captures/inneranimalmedia/screenshots/pricing.png
+  525.6 KB  captures/inneranimalmedia/screenshots/privacy.png
+  519.1 KB  captures/inneranimalmedia/raw-playwright-report/index.html
+  508.4 KB  captures/inneranimalmedia/raw-quality-report/data/d50b6c43ce7fa77160acc6aa24454d139b04c1c2.zip
+  488.3 KB  cms/agentsam-cms-editor/public/analytics.html
+  475.7 KB  artifacts/theme-debug/2026-05-07_145129/2f7ee8e46933e91cefadc4ef4512f2e2.webm
+  465.8 KB  src/api/agent.js.bak
+  447.7 KB  artifacts/dashboard_overview_data_mapping/findings.json
+  434.1 KB  captures/inneranimalmedia/raw-quality-report/data/f529ab48f63f5a6c4a8a04de5e2a6997f188a42b.zip
+  427.8 KB  dashboard/Finance.js
+  416.3 KB  artifacts/playwright/cms_frontend_20260514T082237Z/cms_editor/screenshot.png
+  416.1 KB  artifacts/playwright/cms_frontend_20260514T082741Z/cms_editor/screenshot.png
+  415.7 KB  artifacts/playwright/cms_frontend_20260514T082325Z/cms_editor/screenshot.png
+  410.7 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/test_multiarray.py
+  404.2 KB  artifacts/key_hygiene_audit/chunks/07_key_usage_map.md
+  397.1 KB  docs/db/agentsam-d1-context/2026-05-07_agentsam-schema.autorag.md
+  392.0 KB  src/api/agent.js
+  378.6 KB  artifacts/pre_test_backup/20260520T021718Z/src/api/agent.js
+  378.6 KB  artifacts/pre_test_backup/20260520T021206Z/src/api/agent.js
+  378.6 KB  artifacts/pre_test_backup/20260520T021103Z/src/api/agent.js
+  375.0 KB  artifacts/agentsam_microinteraction_quality_audit/20260514_175116/raw/quality_hits.json
+  374.1 KB  artifacts/cms_ollama_gameplan/02_chunk_summaries.jsonl
+  372.4 KB  captures/inneranimalmedia/raw-quality-report/data/0cd0a54ce49bf79c8efce955f9888451f8f5e8b3.webm
+  361.0 KB  captures/inneranimalmedia/raw-quality-report/data/8dee94960e8f80f3c3aa05a8889a62ee1bac1c66.webm
+  357.3 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/ma/tests/__pycache__/test_core.cpython-314.pyc
+  356.0 KB  captures/inneranimalmedia/raw-quality-report/data/9c4cf118454694ba1601590f22312150b08a4900.zip
+  353.2 KB  scripts/patch_results/backups/20260516_160912/src/api/agent.js
+  352.2 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/__pycache__/test_umath.cpython-314.pyc
+  348.1 KB  analytics/codebase-index/ws_inneranimalmedia/file-inventory.csv
+  333.6 KB  analytics/agentsam/commands/agentsam_commands.json
+  331.6 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/_simd.cpython-314-darwin.so
+  330.8 KB  .venv_agentsam/lib/python3.14/site-packages/regex/tests/__pycache__/test_regex.cpython-314.pyc
+  330.4 KB  scripts/audit_migration_chain_data.json
+  329.8 KB  captures/inneranimalmedia/raw-quality-report/data/448898b4e481812231441d56dfe791a00f949fb5.png
+  325.5 KB  captures/inneranimalmedia/raw-quality-report/data/f31f5ce11d787bf106a8a8c776f84b6a18d30c4e.webm
+  322.2 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/fft/_pocketfft_umath.cpython-314-darwin.so
+  316.1 KB  docs/audits/agentsam/agentsam_audit_20260508T061622Z.json
+  311.5 KB  captures/inneranimalmedia/raw-quality-report/data/7555f418b27354e80af9b968bac307d4446578bd.png
+  311.5 KB  captures/inneranimalmedia/raw-playwright-report/data/08ef33de70ae2f5683ee7f9e0133da493b9ef0c9.png
+  310.2 KB  captures/inneranimalmedia/raw-quality-report/data/afb46594c960ea722a2e48e3d63a220e76903888.png
+  309.7 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/lib/tests/__pycache__/test_function_base.cpython-314.pyc
+  309.0 KB  dashboard/package-lock.json
+  305.7 KB  captures/inneranimalmedia/raw-quality-report/trace/assets/codeMirrorModule-a5XoALAZ.js
+  304.6 KB  captures/inneranimalmedia/raw-quality-report/data/74dd8d624cd83bb11d232ba8d1096058424b3309.png
+  302.4 KB  .venv_agentsam/lib/python3.14/site-packages/pip/_vendor/idna/__pycache__/uts46data.cpython-314.pyc
+  302.4 KB  .venv/lib/python3.14/site-packages/pip/_vendor/idna/__pycache__/uts46data.cpython-314.pyc
+  298.7 KB  artifacts/agentsam_microinteraction_quality_audit/20260514_174318/raw/quality_hits.json
+  293.4 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/ma/__pycache__/core.cpython-314.pyc
+  289.3 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/random/_bounded_integers.cpython-314-darwin.so
+  288.4 KB  artifacts/table_ownership/ownership.json
+  282.5 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/ma/core.py
+  282.4 KB  artifacts/agent_microinteraction_audit/20260514_171939/raw/pattern_hits.json
+  278.9 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/__pycache__/test_numeric.cpython-314.pyc
+  276.6 KB  artifacts/agentsam_todo_audit.json
+  275.2 KB  artifacts/theme-debug/2026-05-07_145213/theme-api-summary.json
+  273.7 KB  docs/db/agentsam-d1-context/2026-05-07_agentsam-schema.context.md
+  273.5 KB  captures/inneranimalmedia/raw-quality-report/data/b2453dd13b34bc049dbed9d80dab092ac6ef6f82.png
+  273.1 KB  artifacts/cms_agentsam_structure_audit_20260513T030633Z/compact_schema_map.json
+  269.0 KB  captures/inneranimalmedia/raw-quality-report/data/903dae6d911dc59917377fdef0e15f4593631c43.png
+  268.8 KB  artifacts/agentsam-command-approval-design-report.json
+  266.1 KB  .venv_agentsam/lib/python3.14/site-packages/pip/_vendor/certifi/cacert.pem
+  266.1 KB  .venv/lib/python3.14/site-packages/pip/_vendor/certifi/cacert.pem
+  263.5 KB  captures/inneranimalmedia/raw-quality-report/data/6af5ef079f4af669f97b5812dc9dd4b8a9dc25be.webm
+  257.9 KB  package-lock.json
+  257.3 KB  captures/inneranimalmedia/raw-quality-report/data/8a81f5b9193787e46a48fef12562e7efae00cca1.webm
+  254.4 KB  captures/inneranimalmedia/raw-quality-report/data/8ffe45d8a227782b2b097d5a596d030d8fedadf8.webm
+  252.3 KB  artifacts/cms_motion_system_schema_audit/cms_schema_payload.json
+  240.7 KB  artifacts/agentsam-planner-challenge-report.json
+  240.1 KB  artifacts/cms_ollama_gameplan/02_CHUNK_SUMMARIES.md
+  238.1 KB  scripts/agentsam_schema_audit.json
+  238.0 KB  .venv_agentsam/lib/python3.14/site-packages/pip/_vendor/idna/uts46data.py
+  238.0 KB  .venv/lib/python3.14/site-packages/pip/_vendor/idna/uts46data.py
+  237.1 KB  artifacts/theme-debug/2026-05-07_145213/theme-api-responses.jsonl
+  231.9 KB  docs/db/learn-course-d1-context/2026-05-07_learn-course-schema.json
+  231.1 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/__pycache__/test_ufunc.cpython-314.pyc
+  230.8 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/__init__.pyi
+  230.6 KB  .venv_agentsam/lib/python3.14/site-packages/certifi/cacert.pem
+  228.4 KB  .venv_agentsam/lib/python3.14/site-packages/openai-2.38.0.dist-info/RECORD
+  226.6 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/random/_common.cpython-314-darwin.so
+  225.2 KB  captures/inneranimalmedia/raw-quality-report/data/4b7fbd5192e8f5e7b1e525af27d47e3434e19d51.webm
+  224.9 KB  artifacts/theme-debug/2026-05-07_145129/network.har
+  220.5 KB  .venv_agentsam/lib/python3.14/site-packages/regex/tests/test_regex.py
+  219.8 KB  .venv_agentsam/lib/python3.14/site-packages/openai/resources/responses/responses.py
+  219.6 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/ma/tests/test_core.py
+  215.1 KB  analytics/secret-audit-report.json
+  214.5 KB  artifacts/supabase_schema_audit/20260515T030004Z/json/22_migrations.json
+  211.7 KB  .venv_agentsam/lib/python3.14/site-packages/regex/__pycache__/_regex_core.cpython-314.pyc
+  211.0 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/_add_newdocs.py
+  208.9 KB  artifacts/cms_agentsam_structure_audit_20260513T030633Z/ai_prompt_pack.md
+  208.4 KB  artifacts/key_hygiene_audit/chunks/08_all_findings.md
+  207.6 KB  captures/inneranimalmedia/raw-quality-report/data/e065064bb356459de81af8614de28ee49cc2aaff.png
+  204.7 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/__pycache__/_add_newdocs.cpython-314.pyc
+  202.9 KB  artifacts/agentsam_db_table_walk/agentsam_db_table_walk_20260519T033030Z.md
+  202.9 KB  artifacts/agentsam_db_table_walk/agentsam_db_table_walk_20260519T032104Z.md
+  202.9 KB  artifacts/agentsam_db_table_walk/agentsam_db_table_walk_20260519T031031Z.md
+  202.9 KB  artifacts/agentsam_db_table_walk/LATEST_AGENTSAM_DB_TABLE_WALK.md
+  201.5 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/random/bit_generator.cpython-314-darwin.so
+  201.2 KB  .venv_agentsam/lib/python3.14/site-packages/pip/_vendor/rich/__pycache__/_emoji_codes.cpython-314.pyc
+  201.2 KB  .venv/lib/python3.14/site-packages/pip/_vendor/rich/__pycache__/_emoji_codes.cpython-314.pyc
+  200.2 KB  artifacts/analytics_consolidation/mapping.json
+  197.9 KB  .venv_agentsam/lib/python3.14/site-packages/idna/uts46data.py
+  196.5 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/lib/__pycache__/_function_base_impl.cpython-314.pyc
+  192.1 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/test_umath.py
+  192.0 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/__pycache__/test_nditer.cpython-314.pyc
+  191.3 KB  .deploy-tool-events.jsonl
+  189.2 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/lib/_function_base_impl.py
+  189.1 KB  artifacts/agentsam_mcp_tool_sprint_20260513T025137Z/report.json
+  189.0 KB  artifacts/agentsam_mcp_tool_sprint_20260513T024441Z/report.json
+  185.1 KB  .venv_agentsam/lib/python3.14/site-packages/pip/_vendor/pkg_resources/__pycache__/__init__.cpython-314.pyc
+  185.1 KB  .venv/lib/python3.14/site-packages/pip/_vendor/pkg_resources/__pycache__/__init__.cpython-314.pyc
+  179.3 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/__pycache__/test_datetime.cpython-314.pyc
+  179.3 KB  artifacts/agentsam_microinteraction_quality_audit/20260514_175116/03_quality_hits.md
+  178.9 KB  dashboard/user-settings.html
+  178.7 KB  artifacts/d1_audits/agentsam_cms_tables_20260514T160627Z.json
+  178.5 KB  .venv_agentsam/lib/python3.14/site-packages/pip/_vendor/distlib/t64-arm.exe
+  178.5 KB  .venv/lib/python3.14/site-packages/pip/_vendor/distlib/t64-arm.exe
+  178.3 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/lib/tests/__pycache__/test_io.cpython-314.pyc
+  176.9 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/random/tests/__pycache__/test_generator_mt19937.cpython-314.pyc
+  176.8 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/__pycache__/test_regression.cpython-314.pyc
+  174.0 KB  captures/inneranimalmedia/raw-quality-report/data/aad3deec7226a1b39d51e9b8edf5e8fd8efb547d.png
+  174.0 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/lib/tests/test_function_base.py
+  173.8 KB  artifacts/cms_d1_pull/cms_d1_pull_all.json
+  171.4 KB  .venv_agentsam/lib/python3.14/site-packages/__pycache__/typing_extensions.cpython-314.pyc
+  171.3 KB  docs/db/learn-course-d1-context/2026-05-07_learn-course-schema.autorag.md
+  170.5 KB  .venv_agentsam/lib/python3.14/site-packages/anyio/_backends/__pycache__/_asyncio.cpython-314.pyc
+  169.7 KB  handler_type_audit_2026-05-25T01-07-36Z.txt
+  168.6 KB  captures/inneranimalmedia/raw-quality-report/data/2a71b4625d537c486b0b1fe6d014307076eab063.png
+  167.3 KB  scripts/audit/auth_audit_results.json
+  164.5 KB  .venv_agentsam/lib/python3.14/site-packages/pip/_vendor/distlib/w64-arm.exe
+  164.5 KB  .venv/lib/python3.14/site-packages/pip/_vendor/distlib/w64-arm.exe
+  164.3 KB  .venv_agentsam/lib/python3.14/site-packages/pydantic_core/__pycache__/core_schema.cpython-314.pyc
+  164.2 KB  artifacts/agentsam_cursor_gap_pack/16_d1_remote_probe_raw.md
+  164.1 KB  .venv_agentsam/lib/python3.14/site-packages/openai/resources/chat/completions/completions.py
+  162.8 KB  dashboard/App.tsx
+  162.7 KB  artifacts/playwright/cms_frontend_20260514T082741Z/cms_editor/page.html
+  162.7 KB  artifacts/playwright/cms_frontend_20260514T082325Z/cms_editor/page.html
+  162.7 KB  artifacts/playwright/cms_frontend_20260514T082237Z/cms_editor/page.html
+  162.5 KB  artifacts/agentsam_cursor_gap_pack/11_forbidden_expensive_models.md
+  162.0 KB  .scratch/agentsam-scripts-backfill/_index/inventory.json
+  161.9 KB  artifacts/projects_remaster/projects_remaster_model_prompt.md
+  161.6 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/f2py/__pycache__/crackfortran.cpython-314.pyc
+  161.2 KB  artifacts/agentsam_cursor_gap_pack/scripts_inventory.json
+  161.1 KB  scripts/agentsam_schema_chunks.jsonl
+  160.6 KB  reports/.staging/inneranimalmedia/screenshots/contact.png
+  160.6 KB  quality-report/screenshots/contact.png
+  160.6 KB  captures/inneranimalmedia/screenshots/contact.png
+  158.0 KB  artifacts/cms_db_audit/cms_tables_audit_20260515T201620Z.json
+  158.0 KB  artifacts/cms_db_audit/LATEST_CMS_TABLES_AUDIT.json
+  157.2 KB  artifacts/command_pipeline_alignment/LATEST_COMMAND_PIPELINE_ALIGNMENT.md
+  156.9 KB  src/api/settings.js
+  156.8 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/test_numeric.py
+  156.7 KB  .venv_agentsam/lib/python3.14/site-packages/typing_extensions.py
+  156.2 KB  artifacts/ops_knowledge_20260517T010750Z/embeddings_openai.local.jsonl
+  154.8 KB  .venv_agentsam/lib/python3.14/site-packages/openai/resources/beta/threads/runs/runs.py
+  152.9 KB  tmp/agentsam/agentsam_commands_raw.json
+  151.9 KB  .venv_agentsam/lib/python3.14/site-packages/pydantic_core/core_schema.py
+  151.2 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/linalg/_umath_linalg.cpython-314-darwin.so
+  150.7 KB  src/api/settings.js.bak
+  150.5 KB  dashboard/App.tsx.bak
+  149.6 KB  artifacts/pre_test_backup/20260520T021718Z/dashboard/App.tsx
+  149.6 KB  artifacts/pre_test_backup/20260520T021206Z/dashboard/App.tsx
+  149.6 KB  artifacts/pre_test_backup/20260520T021103Z/dashboard/App.tsx
+  149.4 KB  captures/inneranimalmedia/raw-quality-report/data/2acecfd818b3d13bc3bcb75d5ad20a88c75f418f.webm
+  149.1 KB  .venv_agentsam/lib/python3.14/site-packages/openai/resources/responses/__pycache__/responses.cpython-314.pyc
+  147.8 KB  .venv_agentsam/lib/python3.14/site-packages/pydantic/_internal/__pycache__/_generate_schema.cpython-314.pyc
+  147.8 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/linalg/tests/__pycache__/test_linalg.cpython-314.pyc
+  147.0 KB  docs/cursor-session-log.md
+  143.9 KB  .venv_agentsam/lib/python3.14/site-packages/regex/_regex_core.py
+  143.4 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/f2py/crackfortran.py
+  143.4 KB  analytics/agentsam/commands/agentsam_commands_catalog.md
+  141.9 KB  artifacts/ops_knowledge_20260517T010750Z/embeddings_openai.vectorize.ndjson
+  141.3 KB  artifacts/theme-debug/2026-05-07_145213/screenshot-06-return-agent.png
+  141.0 KB  .venv_agentsam/lib/python3.14/site-packages/idna/__pycache__/uts46data.cpython-314.pyc
+  140.1 KB  scripts/patch_results/backups/20260516_160912/dashboard/App.tsx
+  140.1 KB  artifacts/theme-debug/2026-05-07_145213/screenshot-01-agent-loaded.png
+  139.8 KB  artifacts/theme-debug/2026-05-07_145213/screenshot-05-after-switch-3300ms.png
+  139.3 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/fromnumeric.py
+  139.0 KB  artifacts/theme-debug/2026-05-07_145213/screenshot-04-after-switch-800ms.png
+  138.6 KB  artifacts/theme-debug/2026-05-07_145213/screenshot-02-settings-themes-loaded.png
+  138.4 KB  artifacts/theme-debug/2026-05-07_145213/screenshot-03-before-switch.png
+  137.1 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/test_ufunc.py
+  136.9 KB  .venv_agentsam/lib/python3.14/site-packages/pip/_vendor/rich/_emoji_codes.py
+  136.9 KB  .venv/lib/python3.14/site-packages/pip/_vendor/rich/_emoji_codes.py
+  136.3 KB  .venv_agentsam/lib/python3.14/site-packages/pydantic/__pycache__/json_schema.cpython-314.pyc
+  135.8 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/__pycache__/fromnumeric.cpython-314.pyc
+  135.2 KB  artifacts/agentsam-cursor-capability-connect-report.json
+  135.0 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/test_nditer.py
+  135.0 KB  tmp/agentsam/agentsam_commands.pretty.json
+  135.0 KB  docs/db/agentsam-d1-context/agentsam_commands.json
+  134.7 KB  .venv_agentsam/lib/python3.14/site-packages/pip/_vendor/rich/__pycache__/console.cpython-314.pyc
+  134.7 KB  docs/inneranimalmedia-function-index.json
+  134.7 KB  .venv/lib/python3.14/site-packages/pip/_vendor/rich/__pycache__/console.cpython-314.pyc
+  134.5 KB  artifacts/agentsam-workflows-frontend-runtime-report.json
+  134.4 KB  artifacts/batch_embed/embeddings/d1_mcp_wf.jsonl
+  134.4 KB  captures/inneranimalmedia/raw-quality-report/data/0f61a1f31c0ab69d13bc668e18936498b380f73e.png
+  133.5 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/__pycache__/test_dtype.cpython-314.pyc
+  133.2 KB  .venv_agentsam/lib/python3.14/site-packages/pydantic/_internal/_generate_schema.py
+  132.9 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/random/tests/__pycache__/test_randomstate.cpython-314.pyc
+  130.9 KB  tmp/ollama_cloud_series/series_cc0f5da5f516/runs.jsonl
+  130.4 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/random/_pcg64.cpython-314-darwin.so
+  130.2 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/testing/tests/__pycache__/test_utils.cpython-314.pyc
+  129.2 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/random/_mt19937.cpython-314-darwin.so
+  129.1 KB  dashboard/components/BrowserView.tsx
+  129.1 KB  artifacts/agentsam_microinteraction_quality_audit/20260514_174318/03_quality_hits.md
+  128.4 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/ma/core.pyi
+  128.2 KB  dashboard/components/ChatAssistant/ChatAssistant.tsx
+  127.8 KB  artifacts/cms_ollama_gameplan/01_schema_chunks_1024.jsonl
+  127.2 KB  docs/codebase-index/ws_inneranimalmedia/route-map.md
+  123.1 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/ma/tests/__pycache__/test_extras.cpython-314.pyc
+  123.0 KB  .venv_agentsam/lib/python3.14/site-packages/pydantic/json_schema.py
+  122.5 KB  glb/chess/v1/pieces/white/queen.glb
+  122.4 KB  .venv_agentsam/lib/python3.14/site-packages/pydantic_core-2.46.4.dist-info/sboms/pydantic-core.cyclonedx.json
+  122.0 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/test_datetime.py
+  121.5 KB  .venv_agentsam/lib/python3.14/site-packages/pip/_vendor/pkg_resources/__init__.py
+  121.5 KB  .venv/lib/python3.14/site-packages/pip/_vendor/pkg_resources/__init__.py
+  118.7 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/linalg/__pycache__/_linalg.cpython-314.pyc
+  117.9 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/_multiarray_tests.cpython-314-darwin.so
+  117.3 KB  artifacts/agentsam_table_usage_audit/agentsam_table_usage_audit_20260519T201723Z.md
+  117.3 KB  artifacts/agentsam_table_usage_audit/LATEST_AGENTSAM_TABLE_USAGE_AUDIT.md
+  117.2 KB  scripts/maintenance/workflow_context_dump.txt
+  117.1 KB  artifacts/db_audits/agentsam_schema_audit_20260522_213057.json
+  116.9 KB  captures/inneranimalmedia/raw-quality-report/data/efc3c0b6ad937c7417641704767890eb29cb33ca.png
+  116.1 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/random/tests/test_generator_mt19937.py
+  115.2 KB  captures/inneranimalmedia/raw-quality-report/data/c8275285b4ab009f5c5e6f63309d4bc898505453.webm
+  114.1 KB  migrations/561_agentsam_scripts_r2_backfill.sql
+  114.1 KB  .scratch/agentsam-scripts-backfill/d1_backfill_updates.sql
+  113.1 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/random/_philox.cpython-314-darwin.so
+  112.2 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/linalg/_linalg.py
+  112.0 KB  docs/db/learn-course-d1-context/2026-05-07_learn-course-schema.context.md
+  111.6 KB  artifacts/agent_microinteraction_audit/20260514_171939/03_microinteraction_hits.md
+  111.2 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/random/tests/__pycache__/test_random.cpython-314.pyc
+  110.1 KB  analytics/cms-theme-audits/pre-full-theme-cleanup-20260505-155734.txt
+  109.5 KB  docs/worker-function-index.json
+  108.8 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/lib/tests/test_io.py
+  108.2 KB  .venv_agentsam/lib/python3.14/site-packages/openai/resources/images.py
+  107.9 KB  artifacts/routing_signal_tables_audit/audit_20260519T234851Z.json
+  107.9 KB  artifacts/routing_signal_tables_audit/LATEST_ROUTING_SIGNAL_TABLES_AUDIT.json
+  107.8 KB  captures/inneranimalmedia/raw-quality-report/trace/defaultSettingsView.7ch9cixO.css
+  107.5 KB  .venv_agentsam/lib/python3.14/site-packages/numpy-2.4.6.dist-info/RECORD
+  107.5 KB  .venv_agentsam/lib/python3.14/site-packages/pydantic/__pycache__/types.cpython-314.pyc
+  107.3 KB  captures/inneranimalmedia/raw-quality-report/data/5b9f47dc0ee7e8708e1b97310b0f6a1541ab2bc9.webm
+  107.0 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/testing/_private/__pycache__/utils.cpython-314.pyc
+  106.9 KB  inneranimalmedia-r2-asset-urls.txt
+  106.8 KB  .venv_agentsam/lib/python3.14/site-packages/pydantic-2.13.4.dist-info/METADATA
+  106.7 KB  cms/agentsam-cms-editor/public/design-studio.html
+  106.7 KB  cms/agentsam-cms-editor/DesignStudioCMS.html
+  106.6 KB  artifacts/pre_test_backup/20260520T021718Z/dashboard/features/agent-chat/ChatAssistant.tsx
+  106.6 KB  artifacts/pre_test_backup/20260520T021206Z/dashboard/features/agent-chat/ChatAssistant.tsx
+  106.6 KB  artifacts/pre_test_backup/20260520T021103Z/dashboard/features/agent-chat/ChatAssistant.tsx
+  106.4 KB  captures/inneranimalmedia/raw-quality-report/data/6bcf3e287862ef9a13e0755f6d90b9fd079d6fdf.webm
+  105.7 KB  artifacts/workflow_builder_preview/agent_sam_workflow_builder_preview.html
+  105.5 KB  .venv_agentsam/lib/python3.14/site-packages/pip/_vendor/distlib/t64.exe
+  105.5 KB  .venv/lib/python3.14/site-packages/pip/_vendor/distlib/t64.exe
+  104.9 KB  scripts/audit_agent_remaster_report.md
+  103.7 KB  artifacts/agentsam_scripts_register_e2e_workflow.sql
+  103.5 KB  captures/inneranimalmedia/raw-quality-report/data/4f6c0fa02db5f10b89e698d5cec43ba09ba7b875.webm
+  103.5 KB  .venv_agentsam/lib/python3.14/site-packages/pydantic/types.py
+  103.4 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/__pycache__/test_indexing.cpython-314.pyc
+  102.6 KB  artifacts/agentsam_microinteraction_quality_audit/20260514_175116/raw/risk_hits.json
+  102.6 KB  artifacts/agentsam_microinteraction_quality_audit/20260514_174318/raw/risk_hits.json
+  101.9 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/typing/tests/data/reveal/random.pyi
+  101.4 KB  artifacts/supabase_schema_audit/20260515T030004Z/json/08_indexes.json
+  101.3 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/lib/tests/__pycache__/test_arraypad.cpython-314.pyc
+  101.0 KB  artifacts/dashboard_overview_data_mapping/MOCK_OR_FALLBACK_PATHS.md
+  100.6 KB  dashboard/cms.html
+  100.6 KB  captures/inneranimalmedia/raw-quality-report/data/f60badaa26dd64e9f78ae533672520f00002454a.webm
+  100.4 KB  artifacts/key_hygiene_audit/chunks/hardcoded_secret_like_findings.md
+  100.2 KB  .venv_agentsam/lib/python3.14/site-packages/idna/__pycache__/idnadata.cpython-314.pyc
+   99.5 KB  .venv_agentsam/lib/python3.14/site-packages/pip/_vendor/distlib/w64.exe
+   99.5 KB  .venv/lib/python3.14/site-packages/pip/_vendor/distlib/w64.exe
+   99.0 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/__pycache__/test_stringdtype.cpython-314.pyc
+   99.0 KB  .agentsam_audit/terminal/01_terminal_ui_and_ws.txt
+   98.6 KB  .venv_agentsam/lib/python3.14/site-packages/pip/_vendor/idna/__pycache__/idnadata.cpython-314.pyc
+   98.6 KB  .venv/lib/python3.14/site-packages/pip/_vendor/idna/__pycache__/idnadata.cpython-314.pyc
+   98.5 KB  .venv_agentsam/lib/python3.14/site-packages/pip/_vendor/rich/console.py
+   98.5 KB  .venv/lib/python3.14/site-packages/pip/_vendor/rich/console.py
+   97.7 KB  .venv_agentsam/lib/python3.14/site-packages/openai/resources/beta/threads/threads.py
+   97.3 KB  captures/inneranimalmedia/raw-quality-report/data/66f92f43933e59583978024112b19815f72e4551.webm
+   97.1 KB  .venv_agentsam/lib/python3.14/site-packages/anyio/_backends/_asyncio.py
+   96.5 KB  artifacts/agentsam_cursor_gap_pack/04_tool_executor.md
+   96.4 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/testing/_private/utils.py
+   96.3 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/lib/_npyio_impl.py
+   96.3 KB  artifacts/agentsam_cursor_gap_pack_v2/embeddings_clean_ollama.local.jsonl
+   95.9 KB  .venv_agentsam/lib/python3.14/site-packages/openai/__pycache__/_base_client.cpython-314.pyc
+   95.5 KB  .venv_agentsam/lib/python3.14/site-packages/pip/_vendor/distlib/t32.exe
+   95.5 KB  .venv/lib/python3.14/site-packages/pip/_vendor/distlib/t32.exe
+   95.3 KB  dashboard/meet.html
+   95.2 KB  artifacts/agentsam_cursor_gap_pack_v2/embeddings_clean_ollama.vectorize.ndjson
+   95.0 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/random/_sfc64.cpython-314-darwin.so
+   94.5 KB  artifacts/homepage_cms_structure_audit/homepage_cms_structure_audit_20260516T210611Z.md
+   94.5 KB  artifacts/homepage_cms_structure_audit/LATEST_HOMEPAGE_CMS_STRUCTURE_AUDIT.md
+   94.2 KB  artifacts/homepage_cms_structure_audit/CHATGPT_REVIEW_PACKET.md
+   93.9 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/test_regression.py
+   93.7 KB  artifacts/supabase_schema_audit/20260515T030004Z/json/12_functions.json
+   93.3 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/lib/__pycache__/_npyio_impl.cpython-314.pyc
+   93.1 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/lib/tests/__pycache__/test_nanfunctions.cpython-314.pyc
+   92.9 KB  .venv_agentsam/lib/python3.14/site-packages/anyio/_backends/__pycache__/_trio.cpython-314.pyc
+   92.9 KB  captures/inneranimalmedia/raw-quality-report/trace/sw.bundle.js
+   91.4 KB  dashboard/clients.html
+   90.6 KB  .venv_agentsam/lib/python3.14/site-packages/pip/_vendor/distlib/__pycache__/util.cpython-314.pyc
+   90.6 KB  .venv/lib/python3.14/site-packages/pip/_vendor/distlib/__pycache__/util.cpython-314.pyc
+   90.4 KB  .venv_agentsam/lib/python3.14/site-packages/idna/idnadata.py
+   90.4 KB  .venv_agentsam/lib/python3.14/site-packages/openai/__pycache__/_client.cpython-314.pyc
+   89.9 KB  captures/inneranimalmedia/raw-quality-report/data/61ddbe96e253c8197742c4bd5235f4c799ef2a97.png
+   89.6 KB  artifacts/agentsam_cursor_gap_pack/08_samseek_hooks.md
+   89.5 KB  .venv_agentsam/lib/python3.14/site-packages/pip/_vendor/distlib/w32.exe
+   89.5 KB  .venv/lib/python3.14/site-packages/pip/_vendor/distlib/w32.exe
+   89.3 KB  captures/inneranimalmedia/raw-quality-report/data/29b599a01debbe851f09bf9df4c51810abb85aad.webm
+   89.2 KB  .venv_agentsam/lib/python3.14/site-packages/openai/resources/beta/threads/runs/__pycache__/runs.cpython-314.pyc
+   88.8 KB  artifacts/agentsam_tools_audit/agentsam_tools_raw_20260513T000158Z.json
+   88.6 KB  artifacts/agentsam_cursor_gap_pack/03_streaming_sse.md
+   88.3 KB  artifacts/cms_db_audit/cms_tables_audit_20260515T201620Z.md
+   88.3 KB  artifacts/cms_db_audit/LATEST_CMS_TABLES_AUDIT.md
+   88.2 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/__pycache__/test_strings.cpython-314.pyc
+   88.1 KB  dashboard/components/MeetPage.tsx
+   88.0 KB  tmp/ollama_cloud_series/series_fab1f3539458/runs.jsonl
+   87.9 KB  .venv_agentsam/lib/python3.14/site-packages/pip/_vendor/packaging/__pycache__/specifiers.cpython-314.pyc
+   87.9 KB  .venv/lib/python3.14/site-packages/pip/_vendor/packaging/__pycache__/specifiers.cpython-314.pyc
+   87.7 KB  artifacts/agentsam_py_quality_gate/20260516_025509/summary.json
+   87.6 KB  captures/inneranimalmedia/raw-quality-report/data/a836e645d03b0418590dccc12deae41f6843981b.png
+   87.1 KB  dashboard/schema.json
+   86.7 KB  .venv_agentsam/lib/python3.14/site-packages/pip/_vendor/rich/__pycache__/progress.cpython-314.pyc
+   86.7 KB  .venv/lib/python3.14/site-packages/pip/_vendor/rich/__pycache__/progress.cpython-314.pyc
+   86.6 KB  dashboard/components/DatabaseStudio.tsx
+   86.1 KB  artifacts/agentsam_mcp_tool_sprint_20260513T022422Z/report.json
+   85.9 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/__pycache__/numeric.cpython-314.pyc
+   85.7 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/random/tests/test_randomstate.py
+   85.0 KB  migrations/461_cloudflare_skills.sql
+   85.0 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/typing/tests/data/pass/__pycache__/random.cpython-314.pyc
+   84.7 KB  .venv_agentsam/lib/python3.14/site-packages/openai/resources/chat/completions/__pycache__/completions.cpython-314.pyc
+   84.7 KB  dashboard/pages/agent.html
+   84.6 KB  .venv_agentsam/lib/python3.14/site-packages/openai/resources/realtime/__pycache__/realtime.cpython-314.pyc
+   84.5 KB  .venv_agentsam/lib/python3.14/site-packages/openai/resources/admin/organization/usage.py
+   84.4 KB  artifacts/agentsam-agent-chat-plan-workflow-report.json
+   84.2 KB  captures/inneranimalmedia/raw-quality-report/data/568cc9b54bcf56200c6978a1619bc6b470a5dc41.webm
+   84.0 KB  .venv_agentsam/lib/python3.14/site-packages/pydantic/__pycache__/main.cpython-314.pyc
+   84.0 KB  artifacts/agentsam_cursor_gap_pack/10_verification_smokes.md
+   83.9 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/linalg/tests/test_linalg.py
+   83.9 KB  artifacts/routing_signal_tables_audit/audit_20260519T234534Z.json
+   83.6 KB  artifacts/agentsam_inspection/embeddings/agentsam_artifacts.jsonl
+   83.6 KB  artifacts/agentsam_inspection/embeddings/agentsam_execution_steps.jsonl
+   83.5 KB  tmp/ollama_cloud_series/series_2275097bea56/runs.jsonl
+   83.4 KB  artifacts/cms_ollama_gameplan/00_CMS_D1_DIGEST.md
+   83.4 KB  artifacts/agentsam_inspection/embeddings/agentsam_execution_dependency_graph.jsonl
+   83.3 KB  dashboard/mcp.html
+   83.3 KB  dashboard/cloud.html
+   83.3 KB  .venv_agentsam/lib/python3.14/site-packages/pydantic/main.py
+   83.3 KB  artifacts/agentsam_tools_audit/agentsam_tools_raw_20260513T000020Z.json
+   83.3 KB  artifacts/agentsam_inspection/embeddings/agentsam_prompt_routes.jsonl
+   83.3 KB  artifacts/agentsam_inspection/embeddings/agentsam_guardrails.jsonl
+   83.3 KB  artifacts/agentsam_inspection/embeddings/agentsam_eval_cases.jsonl
+   83.2 KB  artifacts/agentsam_inspection/embeddings/agentsam_project_context.jsonl
+   83.2 KB  artifacts/agentsam_inspection/embeddings/agentsam_hook_execution.jsonl
+   83.2 KB  artifacts/agentsam_inspection/embeddings/agentsam_workflows.jsonl
+   83.1 KB  artifacts/agentsam_inspection/embeddings/agentsam_execution_performance_metrics.jsonl
+   83.1 KB  artifacts/agentsam_inspection/embeddings/agentsam_deployment_health.jsonl
+   83.1 KB  artifacts/agentsam_inspection/embeddings/agentsam_mcp_allowlist.jsonl
+   83.1 KB  artifacts/agentsam_inspection/embeddings/agentsam_commands.jsonl
+   83.1 KB  artifacts/agentsam_inspection/embeddings/agentsam_subscription_registry.jsonl
+   83.0 KB  artifacts/agentsam_inspection/embeddings/agentsam_plan_tasks.jsonl
+   83.0 KB  artifacts/agentsam_inspection/embeddings/agentsam_webhook_events.jsonl
+   83.0 KB  artifacts/agentsam_inspection/embeddings/agentsam_plans.jsonl
+   83.0 KB  artifacts/agentsam_inspection/embeddings/agentsam_approval_queue.jsonl
+   83.0 KB  artifacts/agentsam_inspection/embeddings/agentsam_todo.jsonl
+   83.0 KB  artifacts/agentsam_inspection/embeddings/agentsam_slash_commands.jsonl
+   83.0 KB  artifacts/agentsam_inspection/embeddings/agentsam_tool_chain.jsonl
+   83.0 KB  artifacts/agentsam_inspection/embeddings/agentsam_command_run.jsonl
+   82.9 KB  artifacts/agentsam_inspection/embeddings/agentsam_error_log.jsonl
+   82.9 KB  artifacts/agentsam_inspection/embeddings/agentsam_workflow_nodes.jsonl
+   82.9 KB  artifacts/agentsam_inspection/embeddings/agentsam_memory.jsonl
+   82.9 KB  artifacts/agentsam_inspection/embeddings/agentsam_skill_invocation.jsonl
+   82.8 KB  artifacts/agentsam_inspection/embeddings/agentsam_mcp_tools.jsonl
+   82.8 KB  artifacts/agentsam_inspection/embeddings/agentsam_fetch_domain_allowlist.jsonl
+   82.8 KB  artifacts/agentsam_inspection/embeddings/agentsam_scripts.jsonl
+   82.8 KB  artifacts/agentsam_inspection/embeddings/agentsam_script_runs.jsonl
+   82.8 KB  artifacts/agentsam_inspection/embeddings/agentsam_workflow_edges.jsonl
+   82.8 KB  docs/db/SCHEMA_AUDIT.md
+   82.7 KB  artifacts/agentsam_inspection/embeddings/agentsam_feature_flag.jsonl
+   82.7 KB  artifacts/agentsam_inspection/embeddings/agentsam_execution_context.jsonl
+   82.7 KB  artifacts/agentsam_inspection/embeddings/agentsam_prompt_versions.jsonl
+   82.7 KB  artifacts/agentsam_inspection/embeddings/agentsam_workspace_state.jsonl
+   82.7 KB  artifacts/agentsam_inspection/embeddings/agentsam_route_requirements.jsonl
+   82.7 KB  artifacts/agentsam_inspection/embeddings/agentsam_model_routing_memory.jsonl
+   82.7 KB  artifacts/agentsam_inspection/embeddings/agentsam_eval_runs.jsonl
+   82.6 KB  artifacts/agentsam_inspection/embeddings/agentsam_eval_suites.jsonl
+   82.6 KB  artifacts/agentsam_inspection/embeddings/agentsam_workspace.jsonl
+   82.6 KB  artifacts/agentsam_inspection/embeddings/agentsam_usage_events.jsonl
+   82.6 KB  artifacts/agentsam_inspection/embeddings/agentsam_model_catalog.jsonl
+   82.6 KB  artifacts/agentsam_inspection/embeddings/agentsam_agent_run.jsonl
+   82.6 KB  artifacts/agentsam_inspection/embeddings/agentsam_executions.jsonl
+   82.6 KB  artifacts/agentsam_inspection/embeddings/agentsam_model_tier.jsonl
+   82.6 KB  artifacts/agentsam_inspection/embeddings/agentsam_tool_stats_compacted.jsonl
+   82.6 KB  artifacts/agentsam_inspection/embeddings/agentsam_command_pattern.jsonl
+   82.5 KB  artifacts/agentsam_inspection/embeddings/agentsam_analytics.jsonl
+   82.5 KB  artifacts/agentsam_inspection/embeddings/agentsam_capability_aliases.jsonl
+   82.5 KB  artifacts/agentsam_inspection/embeddings/agentsam_ignore_pattern.jsonl
+   82.5 KB  tmp/ollama_cloud_series/series_3b8751b77f9d/runs.jsonl
+   82.5 KB  artifacts/agentsam_inspection/embeddings/agentsam_tool_call_log.jsonl
+   82.5 KB  artifacts/agentsam_inspection/embeddings/agentsam_escalation.jsonl
+   82.5 KB  artifacts/agentsam_inspection/embeddings/agentsam_browser_trusted_origin.jsonl
+   82.4 KB  artifacts/agentsam_inspection/embeddings/agentsam_cron_runs.jsonl
+   82.4 KB  artifacts/agentsam_inspection/embeddings/agentsam_hook.jsonl
+   82.4 KB  artifacts/agentsam_inspection/embeddings/agentsam_usage_rollups_daily.jsonl
+   82.4 KB  artifacts/agentsam_cursor_gap_pack/02_agent_entrypoints.md
+   82.3 KB  artifacts/agentsam_inspection/embeddings/agentsam_mcp_tool_execution.jsonl
+   82.3 KB  artifacts/agentsam_inspection/embeddings/agentsam_routing_arms.jsonl
+   82.2 KB  artifacts/agentsam_inspection/embeddings/agentsam_command_allowlist.jsonl
+   82.2 KB  docs/inneranimalmedia-function-index.md
+   82.1 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/f2py/__pycache__/symbolic.cpython-314.pyc
+   81.7 KB  captures/inneranimalmedia/raw-quality-report/data/3e1d75b8961fa075b5fb8389c5db8c0afaaef13d.webm
+   81.5 KB  tmp/ollama_cloud_series/series_0620c6d4e4dd/runs.jsonl
+   81.4 KB  artifacts/cms_motion_system_schema_audit/CHATGPT_REVIEW_PACKET.md
+   81.4 KB  artifacts/cms_db_audit/cms_motion_system_schema_review_packet.md
+   81.3 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/test_dtype.py
+   81.2 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/__pycache__/test_einsum.cpython-314.pyc
+   81.2 KB  artifacts/evals/rg_super_sprint_20260522_192845/architect_prompt.md
+   81.1 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/numeric.py
+   81.0 KB  .venv_agentsam/lib/python3.14/site-packages/charset_normalizer/md.cpython-314-darwin.so
+   81.0 KB  .venv_agentsam/lib/python3.14/site-packages/charset_normalizer/cd.cpython-314-darwin.so
+   80.9 KB  captures/inneranimalmedia/raw-quality-report/data/bead1de7f858ad63bc1bb11db7a7ca336eaba240.webm
+   80.9 KB  dashboard/components/ChatAssistant/hooks/useAgentChatStream.ts
+   80.7 KB  artifacts/auth_session_alignment/session_alignment_baseline.txt
+   80.6 KB  .venv_agentsam/lib/python3.14/site-packages/pydantic/__pycache__/fields.cpython-314.pyc
+   80.6 KB  artifacts/cms_agentsam_structure_audit_20260513T030633Z/report.md
+   80.1 KB  artifacts/agentsam_mcp_tool_sprint_20260513T025137Z/raw/d1_branded_tools_unknown_rows.stdout.txt
+   80.1 KB  artifacts/agentsam_mcp_tool_sprint_20260513T025137Z/raw/d1_branded_tools_unknown_rows.json
+   80.1 KB  artifacts/agentsam_mcp_tool_sprint_20260513T024441Z/raw/d1_branded_tools_unknown_rows.stdout.txt
+   80.1 KB  artifacts/agentsam_mcp_tool_sprint_20260513T024441Z/raw/d1_branded_tools_unknown_rows.json
+   80.1 KB  tmp/ollama_cloud_series/series_fab1f3539458/insert_d1_runs.sql
+   80.1 KB  .venv_agentsam/lib/python3.14/site-packages/pydantic/fields.py
+   80.0 KB  artifacts/routing_signal_tables_audit/audit_20260519T234851Z.md
+   80.0 KB  artifacts/routing_signal_tables_audit/LATEST_ROUTING_SIGNAL_TABLES_AUDIT.md
+   79.8 KB  artifacts/supabase_schema_audit/20260515T030004Z/json/07_check_constraints.json
+   79.5 KB  dashboard/images.html
+   79.1 KB  dashboard/billing.html
+   78.9 KB  artifacts/agentsam_cursor_gap_pack/findings.json
+   78.6 KB  artifacts/homepage_cms_structure_audit/live_homepage_20260516T210611Z.html
+   78.6 KB  artifacts/homepage_cms_structure_audit/LATEST_LIVE_HOMEPAGE.html
+   78.6 KB  artifacts/cms_homepage_section_audit/00_homepage_snapshot.html
+   78.5 KB  artifacts/cms_motion_system_schema_audit/02_TABLE_COLUMNS.md
+   78.5 KB  captures/inneranimalmedia/raw-quality-report/trace/codicon.DCmgc-ay.ttf
+   78.3 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/include/numpy/random/libdivide.h
+   78.0 KB  artifacts/cms_ollama_gameplan/3d_assets_audit/3d_asset_audit.json
+   77.8 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/testing/tests/test_utils.py
+   77.8 KB  .venv_agentsam/lib/python3.14/site-packages/pip/_vendor/idna/idnadata.py
+   77.8 KB  .venv/lib/python3.14/site-packages/pip/_vendor/idna/idnadata.py
+   77.8 KB  src/api/auth.js
+   77.7 KB  docs/db/agentsam-d1-context/2026-05-07_agentsam-schema-create-tables.sql
+   77.3 KB  dashboard/billing-from-r2.html
+   77.1 KB  docs/audits/cms/cms_dashboard_r2_schema_audit.json
+   77.1 KB  captures/inneranimalmedia/raw-quality-report/data/9ba5e4bc1d5b0402cb862f6065072e93e53e25df.png
+   77.0 KB  tmp/ollama_cloud_series/series_2275097bea56/insert_d1_runs.sql
+   76.4 KB  migrations/323_agentsam_ollama_embed_pipeline_workflows.sql
+   75.9 KB  cms/agentsam-cms-editor/analytics-app/package-lock.json
+   75.8 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/ma/__pycache__/extras.cpython-314.pyc
+   75.8 KB  .venv_agentsam/lib/python3.14/site-packages/pip/_vendor/pygments/lexers/_mapping.py
+   75.8 KB  .venv/lib/python3.14/site-packages/pip/_vendor/pygments/lexers/_mapping.py
+   75.7 KB  dashboard/pipelines.html
+   75.4 KB  artifacts/agentsam-e2e-workflow-runner-report.json
+   75.3 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/__pycache__/test_scalarmath.cpython-314.pyc
+   75.3 KB  artifacts/agentsam_cursor_gap_pack/06_monaco_context.md
+   75.2 KB  tmp/ollama_cloud_series/series_0620c6d4e4dd/insert_d1_runs.sql
+   75.0 KB  .venv_agentsam/lib/python3.14/site-packages/openai/_base_client.py
+   74.8 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/__pycache__/test_arrayprint.cpython-314.pyc
+   74.7 KB  captures/inneranimalmedia/raw-quality-report/data/75734da5ea7ef69cb8908193f834670639fb9b20.webm
+   74.7 KB  dashboard/chats.html
+   74.5 KB  captures/inneranimalmedia/raw-quality-report/data/fba0a8d08a1bbb9a83de15c8222a231645f6b3c5.webm
+   74.0 KB  artifacts/agentsam_tools_audit/agentsam_tools_raw_20260512T235450Z.json
+   74.0 KB  artifacts/agentsam_tools_audit/agentsam_tools_raw_20260512T235411Z.json
+   74.0 KB  artifacts/agentsam_tools_audit/agentsam_tools_raw_20260512T235223Z.json
+   74.0 KB  artifacts/agentsam_todo_audit.md
+   73.8 KB  cms_schema.json
+   73.6 KB  .venv_agentsam/lib/python3.14/site-packages/httpx/__pycache__/_client.cpython-314.pyc
+   73.5 KB  dashboard/finance.html
+   73.5 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/ma/tests/test_extras.py
+   73.5 KB  dashboard/time-tracking.html
+   73.5 KB  artifacts/cms_audit_20260513T031136Z/cms_themes_sample.json
+   73.4 KB  .venv_agentsam/lib/python3.14/site-packages/pydantic/__pycache__/mypy.cpython-314.pyc
+   73.3 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/lib/_function_base_impl.pyi
+   72.9 KB  tmp/ollama_cloud_series/series_3b8751b77f9d/insert_d1_runs.sql
+   72.8 KB  src/api/auth.js.bak
+   72.2 KB  artifacts/agentsam_table_inspect/skill_revision_and_empty_tables_20260517T003610Z.txt
+   71.8 KB  src/core/catalog-tool-executor.js
+   71.4 KB  dashboard/overview.html
+   71.4 KB  .venv_agentsam/lib/python3.14/site-packages/pip/_vendor/rich/__pycache__/text.cpython-314.pyc
+   71.4 KB  .venv/lib/python3.14/site-packages/pip/_vendor/rich/__pycache__/text.cpython-314.pyc
+   71.2 KB  artifacts/key_hygiene_audit/chunks/05_used_but_not_declared_found.md
+   71.1 KB  scripts/audits/iam_agentsam_audit.py
+   71.1 KB  .scratch/agentsam-scripts-backfill/scripts/audit/iam_agentsam_audit.py
+   71.1 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/_rational_tests.cpython-314-darwin.so
+   70.7 KB  tmp/multitenant-audit/live_schema_hardcoded_identity.json
+   70.6 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/__pycache__/arrayprint.cpython-314.pyc
+   70.6 KB  .venv_agentsam/lib/python3.14/site-packages/httpx/__pycache__/_models.cpython-314.pyc
+   70.5 KB  artifacts/agentsam_cursor_gap_pack/14_existing_scripts_inventory.md
+   70.3 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/__pycache__/test_simd.cpython-314.pyc
+   70.3 KB  artifacts/agentsam-capability-wire-audit.txt
+   70.0 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/_umath_tests.cpython-314-darwin.so
+   69.9 KB  .venv_agentsam/lib/python3.14/site-packages/pip/_vendor/packaging/specifiers.py
+   69.9 KB  .venv/lib/python3.14/site-packages/pip/_vendor/packaging/specifiers.py
+   69.7 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/lib/_nanfunctions_impl.py
+   69.7 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/lib/__pycache__/_nanfunctions_impl.cpython-314.pyc
+   69.6 KB  dashboard/components/MailPage.tsx
+   69.6 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/random/tests/test_random.py
+   69.2 KB  scripts/__pycache__/agentsam-workflows-frontend-runtime-planner.cpython-314.pyc
+   69.0 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/lib/tests/__pycache__/test_arraysetops.cpython-314.pyc
+   69.0 KB  artifacts/agentsam_inspection/embeddings/agentsam_rules_document.jsonl
+   68.7 KB  dashboard/components/LocalExplorer.tsx
+   68.6 KB  .venv_agentsam/lib/python3.14/site-packages/urllib3/__pycache__/response.cpython-314.pyc
+   68.2 KB  .venv_agentsam/lib/python3.14/site-packages/pip/_vendor/pygments/lexers/__pycache__/_mapping.cpython-314.pyc
+   68.2 KB  .venv/lib/python3.14/site-packages/pip/_vendor/pygments/lexers/__pycache__/_mapping.cpython-314.pyc
+   68.1 KB  .venv_agentsam/lib/python3.14/site-packages/pip/_vendor/urllib3/__pycache__/response.cpython-314.pyc
+   68.1 KB  .venv/lib/python3.14/site-packages/pip/_vendor/urllib3/__pycache__/response.cpython-314.pyc
+   68.1 KB  docs/db-audit/agentsam_audit_20260514T040915.md
+   67.9 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/lib/tests/__pycache__/test_loadtxt.cpython-314.pyc
+   67.7 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/polynomial/__pycache__/chebyshev.cpython-314.pyc
+   67.5 KB  artifacts/agentsam_audit/latest_agentsam_d1_codebase_audit.md
+   67.5 KB  artifacts/agentsam_audit/agentsam_d1_codebase_audit_20260515T011657Z.md
+   67.3 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/data/umath-validation-set-log10.csv
+   67.3 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/data/umath-validation-set-log2.csv
+   66.8 KB  .venv_agentsam/lib/python3.14/site-packages/openai/resources/realtime/realtime.py
+   66.6 KB  docs/db-audit/agentsam_audit_20260513T211935.md
+   66.5 KB  .venv_agentsam/lib/python3.14/site-packages/pydantic/v1/__pycache__/types.cpython-314.pyc
+   66.2 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/ma/extras.py
+   65.9 KB  scripts/audits/__pycache__/iam_agentsam_audit.cpython-314.pyc
+   65.9 KB  .venv_agentsam/lib/python3.14/site-packages/pip-26.1.1.dist-info/RECORD
+   65.9 KB  .venv/lib/python3.14/site-packages/pip-26.1.1.dist-info/RECORD
+   65.7 KB  artifacts/key_hygiene_audit/chunks/03_immediate_red_flags.md
+   65.7 KB  artifacts/audit/python-architect-skill-table-refs-report.json
+   65.5 KB  .venv_agentsam/lib/python3.14/site-packages/pydantic/v1/__pycache__/fields.cpython-314.pyc
+   65.5 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/include/numpy/ndarraytypes.h
+   65.1 KB  .venv_agentsam/lib/python3.14/site-packages/pip/_vendor/distlib/util.py
+   65.1 KB  .venv/lib/python3.14/site-packages/pip/_vendor/distlib/util.py
+   65.0 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/ma/tests/__pycache__/test_old_ma.cpython-314.pyc
+   64.9 KB  src/api/oauth.js
+   64.7 KB  .venv_agentsam/lib/python3.14/site-packages/tqdm/__pycache__/std.cpython-314.pyc
+   64.5 KB  dashboard/calendar.html
+   64.4 KB  scripts/__pycache__/iam_agentsam_benchmark.cpython-314.pyc
+   64.2 KB  src/core/agentsam-task-executor.js
+   64.2 KB  .venv_agentsam/lib/python3.14/site-packages/httpx/_client.py
+   63.7 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/arrayprint.py
+   63.6 KB  scripts/smoke/__pycache__/agentsam_full_mirrored_eval_series.cpython-314.pyc
+   63.2 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/__pycache__/test_defchararray.cpython-314.pyc
+   63.1 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/test_indexing.py
+   62.6 KB  artifacts/dashboard_overview_data_mapping/D1_QUERY_MAP.md
+   62.6 KB  scripts/__pycache__/agentsam_benchmark_v3.cpython-314.pyc
+   62.6 KB  artifacts/repo_map.md
+   62.4 KB  src/coding
+   62.3 KB  scripts/__pycache__/moviemode_smoke_orchestrator.cpython-314.pyc
+   62.1 KB  .venv_agentsam/lib/python3.14/site-packages/openai/_client.py
+   61.9 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/lib/__pycache__/recfunctions.cpython-314.pyc
+   61.8 KB  artifacts/table_ownership/TABLE_OWNERSHIP.md
+   61.7 KB  .venv_agentsam/lib/python3.14/site-packages/pip/_vendor/pygments/unistring.py
+   61.7 KB  .venv/lib/python3.14/site-packages/pip/_vendor/pygments/unistring.py
+   61.6 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/f2py/rules.py
+   61.1 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/fft/_pocketfft.py
+   61.0 KB  artifacts/agentsam_inspection/CHATGPT_AUDIT_PACKET.md
+   60.9 KB  scripts/__pycache__/agentsam-execution-fabric-designer.cpython-314.pyc
+   60.8 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/polynomial/chebyshev.py
+   60.7 KB  tmp/ollama_cloud_series/series_faed75000821/runs.jsonl
+   60.6 KB  dashboard/tools.html
+   60.4 KB  docs/db/live-inspection/agentsam_mcp_workflows.sample.json
+   60.4 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/typing/tests/data/pass/random.py
+   60.3 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/include/numpy/__multiarray_api.h
+   60.2 KB  .agentsam_evals/vite_battle_20260525_124034/solo_gpt-5.4-mini/app/package-lock.json
+   60.1 KB  dashboard/mail.html
+   59.9 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/data/umath-validation-set-arccosh.csv
+   59.9 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/data/umath-validation-set-arccos.csv
+   59.9 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/data/umath-validation-set-arctanh.csv
+   59.9 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/data/umath-validation-set-arcsin.csv
+   59.9 KB  .venv_agentsam/lib/python3.14/site-packages/pip/_vendor/distro/__pycache__/distro.cpython-314.pyc
+   59.9 KB  scripts/audit/__pycache__/agentsam_mcp_tool_e2e_sprint.cpython-314.pyc
+   59.9 KB  .venv/lib/python3.14/site-packages/pip/_vendor/distro/__pycache__/distro.cpython-314.pyc
+   59.9 KB  .venv_agentsam/lib/python3.14/site-packages/distro/__pycache__/distro.cpython-314.pyc
+   59.8 KB  artifacts/routing_signal_tables_audit/audit_20260519T234534Z.md
+   59.7 KB  migrations/migrate_multitenant_schema.py
+   59.5 KB  .venv_agentsam/lib/python3.14/site-packages/pydantic/mypy.py
+   59.4 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/data/umath-validation-set-cosh.csv
+   59.4 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/data/umath-validation-set-cbrt.csv
+   59.1 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/fft/__pycache__/_pocketfft.cpython-314.pyc
+   59.1 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/polynomial/__pycache__/hermite.cpython-314.pyc
+   59.0 KB  .venv_agentsam/lib/python3.14/site-packages/pip/_vendor/rich/progress.py
+   59.0 KB  .venv/lib/python3.14/site-packages/pip/_vendor/rich/progress.py
+   59.0 KB  .venv_agentsam/lib/python3.14/site-packages/openai/resources/completions.py
+   58.9 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/data/umath-validation-set-arctan.csv
+   58.9 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/data/umath-validation-set-log1p.csv
+   58.9 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/data/umath-validation-set-tanh.csv
+   58.9 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/data/umath-validation-set-tan.csv
+   58.9 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/data/umath-validation-set-expm1.csv
+   58.9 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/data/umath-validation-set-sinh.csv
+   58.9 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/data/umath-validation-set-arcsinh.csv
+   58.8 KB  captures/inneranimalmedia/raw-quality-report/trace/uiMode.Btcz36p_.css
+   58.7 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/test_strings.py
+   58.7 KB  scripts/__pycache__/agentsam-true-e2e-workflow-runner.cpython-314.pyc
+   58.6 KB  scripts/audit_sseux_master_data.json
+   58.4 KB  .venv_agentsam/lib/python3.14/site-packages/pydantic/v1/__pycache__/main.cpython-314.pyc
+   58.2 KB  scripts/__pycache__/agentsam-e2e-workflow-runner.cpython-314.pyc
+   58.1 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/lib/recfunctions.py
+   58.1 KB  artifacts/agentsam_cursor_gap_pack/07_read_write_tools.md
+   57.9 KB  dashboard/components/McpPage.tsx
+   57.9 KB  .venv_agentsam/lib/python3.14/site-packages/pydantic/__pycache__/networks.cpython-314.pyc
+   57.8 KB  artifacts/agentsam_tools_audit/agentsam_tools_audit_20260512T235450Z.json
+   57.8 KB  artifacts/agentsam_tools_audit/agentsam_tools_audit_20260512T235411Z.json
+   57.8 KB  artifacts/agentsam_tools_audit/agentsam_tools_audit_20260512T235223Z.json
+   57.8 KB  .venv_agentsam/lib/python3.14/site-packages/openai/resources/beta/threads/__pycache__/threads.cpython-314.pyc
+   57.8 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/random/tests/__pycache__/test_smoke.cpython-314.pyc
+   57.7 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/data/umath-validation-set-cos.csv
+   57.4 KB  scripts/agentsam-workflows-frontend-runtime-planner.py
+   57.4 KB  .scratch/agentsam-scripts-backfill/scripts/maintenance/agentsam-workflows-frontend-runtime-planner.py
+   57.4 KB  .venv_agentsam/lib/python3.14/site-packages/anyio/_core/__pycache__/_fileio.cpython-314.pyc
+   57.3 KB  src/api/command-run-telemetry.js
+   57.2 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/data/umath-validation-set-exp2.csv
+   57.2 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/data/umath-validation-set-sin.csv
+   57.2 KB  .scratch/audit_output.txt
+   57.2 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/test_stringdtype.py
+   57.1 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/lib/tests/__pycache__/test_recfunctions.cpython-314.pyc
+   56.8 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/test_einsum.py
+   56.8 KB  src/api/integrations.js
+   56.7 KB  .agentsam_evals/vite_battle_20260525_124034/solo_gpt-5.3-codex/app/package-lock.json
+   56.6 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/polynomial/__pycache__/hermite_e.cpython-314.pyc
+   56.6 KB  scripts/__pycache__/audit_repo_keys_hygiene.cpython-314.pyc
+   56.6 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/einsumfunc.py
+   56.5 KB  artifacts/agentsam_cursor_gap_pack/05_surface_router.md
+   56.5 KB  .venv_agentsam/lib/python3.14/site-packages/pydantic/v1/__pycache__/schema.cpython-314.pyc
+   56.4 KB  artifacts/thompson_model_matrix/live_matrix_20260520_063618.json
+   56.4 KB  artifacts/thompson_model_matrix/model_matrix_20260520_063045.json
+   56.4 KB  artifacts/thompson_model_matrix/LATEST_MODEL_MATRIX.json
+   56.3 KB  .venv_agentsam/lib/python3.14/site-packages/tqdm-4.67.3.dist-info/METADATA
+   56.3 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/polynomial/__pycache__/laguerre.cpython-314.pyc
+   56.2 KB  artifacts/thompson_model_matrix/live_matrix_20260520_144648.json
+   56.2 KB  scripts/audit/iam_diagnosis.md
+   56.2 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/lib/tests/__pycache__/test_shape_base.cpython-314.pyc
+   56.2 KB  .venv_agentsam/lib/python3.14/site-packages/tqdm/std.py
+   56.1 KB  analytics/codebase-index/ws_inneranimalmedia/route-tokens.txt
+   56.0 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/__pycache__/strings.cpython-314.pyc
+   55.9 KB  .venv_agentsam/lib/python3.14/site-packages/openai/lib/streaming/__pycache__/_assistants.cpython-314.pyc
+   55.9 KB  src/core/workflow-executor.js
+   55.6 KB  .venv_agentsam/lib/python3.14/site-packages/pydantic/v1/__pycache__/mypy.cpython-314.pyc
+   55.6 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/lib/tests/__pycache__/test_format.cpython-314.pyc
+   55.5 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/multiarray.py
+   55.4 KB  artifacts/agentsam_inspection/embeddings/agentsam_context_digest.jsonl
+   55.3 KB  analytics/agentsam/commands/agentsam_commands_summary.json
+   55.3 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/lib/tests/test_arraypad.py
+   55.3 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/polynomial/__pycache__/legendre.cpython-314.pyc
+   55.2 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/__pycache__/test_array_coercion.cpython-314.pyc
+   55.2 KB  artifacts/agentsam_cursor_gap_pack/09_ai_routing.md
+   55.2 KB  src/api/settings-api-keys.js
+   55.1 KB  artifacts/agentsam_inspection/embeddings/agentsam_task_slos.jsonl
+   55.1 KB  artifacts/agentsam_inspection/embeddings/agentsam_model_drift_signals.jsonl
+   55.1 KB  src/do/AgentChat.js
+   55.0 KB  artifacts/agentsam_inspection/embeddings/agentsam_mcp_servers.jsonl
+   54.9 KB  artifacts/agentsam_inspection/embeddings/agentsam_health_daily.jsonl
+   54.8 KB  src/do/AgentChat.js.bak
+   54.7 KB  tmp/codebase-index-upload/file-inventory.json
+   54.7 KB  src/core/performance-eto.js
+   54.7 KB  artifacts/agentsam_tools_audit/agentsam_tools_ollama_prompt_20260512T235450Z.md
+   54.7 KB  artifacts/agentsam_tools_audit/agentsam_tools_ollama_prompt_20260512T235411Z.md
+   54.7 KB  artifacts/agentsam_tools_audit/agentsam_tools_ollama_prompt_20260512T235223Z.md
+   54.6 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/polynomial/__pycache__/polynomial.cpython-314.pyc
+   54.6 KB  snapshot-before.json
+   54.6 KB  artifacts/agentsam_cursor_gap_pack_v2/SUPABASE_ROWS_PREVIEW.json
+   54.5 KB  .venv_agentsam/lib/python3.14/site-packages/openai/resources/beta/realtime/__pycache__/realtime.cpython-314.pyc
+   54.4 KB  src/core/workflow-executor.js.bak
+   54.3 KB  scripts/patch_results/backups/20260516_160912/dashboard/components/LocalExplorer.tsx
+   54.1 KB  src/api/r2-api.js
+   54.1 KB  scripts/audit/__pycache__/iam_cms_agentsam_structure_audit.cpython-314.pyc
+   54.0 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/random/lib/libnpyrandom.a
+   53.8 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/__pycache__/einsumfunc.cpython-314.pyc
+   53.6 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/__pycache__/multiarray.cpython-314.pyc
+   53.6 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/f2py/__pycache__/rules.cpython-314.pyc
+   53.6 KB  captures/inneranimalmedia/screenshots/signup.png
+   53.6 KB  captures/inneranimalmedia/raw-quality-report/data/618c6c9d0722769a4060c27f31f8931ab4e86a28.png
+   53.6 KB  src/api/command-run-telemetry.js.bak
+   53.5 KB  .venv_agentsam/lib/python3.14/site-packages/pip/_vendor/packaging/licenses/__pycache__/_spdx.cpython-314.pyc
+   53.4 KB  .venv/lib/python3.14/site-packages/pip/_vendor/packaging/licenses/__pycache__/_spdx.cpython-314.pyc
+   53.3 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/__pycache__/test_overrides.cpython-314.pyc
+   53.3 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/polynomial/hermite.py
+   53.0 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/lib/tests/test_nanfunctions.py
+   53.0 KB  scripts/__pycache__/agentsam-command-workflow-designer.cpython-314.pyc
+   52.6 KB  .venv_agentsam/lib/python3.14/site-packages/pip/_vendor/pygments/lexers/python.py
+   52.6 KB  .venv/lib/python3.14/site-packages/pip/_vendor/pygments/lexers/python.py
+   52.6 KB  docs/db-audit/routing_study_20260513.md
+   52.6 KB  docs/audits/agentsam/agentsam_SUGGESTIONS_20260508T061622Z.md
+   52.5 KB  artifacts/agent_microinteraction_audit/20260514_171939/raw/ranked_files.json
+   52.2 KB  .venv_agentsam/lib/python3.14/site-packages/openai/resources/audio/transcriptions.py
+   52.1 KB  prototypes/inneranimalmedia-cms-editor/__pycache__/inspect_design_studio_app.cpython-314.pyc
+   52.1 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/f2py/symbolic.py
+   52.0 KB  .scratch/audit_quality_gap_v2_output.txt
+   52.0 KB  .venv_agentsam/lib/python3.14/site-packages/urllib3/response.py
+   51.9 KB  dashboard/components/IntegrationsPage.deprecated.tsx
+   51.8 KB  scripts/audit_worker_routes_report.md
+   51.7 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/linalg/lapack_lite.cpython-314-darwin.so
+   51.6 KB  dashboard/components/settings/hooks/useSettingsData.ts
+   51.6 KB  artifacts/pre_test_backup/20260520T021718Z/src/core/performance-eto.js
+   51.6 KB  artifacts/pre_test_backup/20260520T021206Z/src/core/performance-eto.js
+   51.6 KB  artifacts/pre_test_backup/20260520T021103Z/src/core/performance-eto.js
+   51.5 KB  .venv_agentsam/lib/python3.14/site-packages/pip/_vendor/urllib3/response.py
+   51.5 KB  .venv/lib/python3.14/site-packages/pip/_vendor/urllib3/response.py
+   51.4 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/polynomial/polynomial.py
+   51.4 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/f2py/cfuncs.py
+   51.4 KB  .venv_agentsam/lib/python3.14/site-packages/openai/resources/__pycache__/images.cpython-314.pyc
+   51.3 KB  scripts/agentsam_benchmark_v3.py
+   51.3 KB  .scratch/agentsam-scripts-backfill/scripts/benchmark/agentsam_benchmark_v3.py
+   51.2 KB  .venv_agentsam/bin/𝜋thon
+   51.2 KB  .venv_agentsam/bin/python3.14
+   51.2 KB  .venv_agentsam/bin/python3
+   51.2 KB  .venv_agentsam/bin/python
+   51.2 KB  .venv/bin/𝜋thon
+   51.2 KB  .venv/bin/python3.14
+   51.2 KB  .venv/bin/python3
+   51.2 KB  .venv/bin/python
+   51.2 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/polynomial/laguerre.py
+   51.1 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/lib/__pycache__/_polynomial_impl.cpython-314.pyc
+   51.0 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/polynomial/hermite_e.py
+   51.0 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/__pycache__/test_shape_base.cpython-314.pyc
+   50.9 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/__pycache__/test_mem_overlap.cpython-314.pyc
+   50.8 KB  .venv_agentsam/lib/python3.14/site-packages/pip/_internal/__pycache__/exceptions.cpython-314.pyc
+   50.8 KB  .venv/lib/python3.14/site-packages/pip/_internal/__pycache__/exceptions.cpython-314.pyc
+   50.8 KB  .venv_agentsam/lib/python3.14/site-packages/openai/resources/videos.py
+   50.6 KB  .venv_agentsam/lib/python3.14/site-packages/openai/resources/beta/assistants.py
+   50.6 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/lib/tests/__pycache__/test_histograms.cpython-314.pyc
+   50.5 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/__pycache__/test_casting_unittests.cpython-314.pyc
+   50.4 KB  scripts/__pycache__/smoke_agentsam_latency.cpython-314.pyc
+   50.4 KB  .venv_agentsam/lib/python3.14/site-packages/pip/_vendor/rich/__pycache__/table.cpython-314.pyc
+   50.4 KB  .venv/lib/python3.14/site-packages/pip/_vendor/rich/__pycache__/table.cpython-314.pyc
+   50.3 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/_struct_ufunc_tests.cpython-314-darwin.so
+   50.2 KB  .venv_agentsam/lib/python3.14/site-packages/openai/resources/admin/organization/__pycache__/usage.cpython-314.pyc
+   50.0 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/_operand_flag_tests.cpython-314-darwin.so
+   50.0 KB  dashboard/kanban.html
+   50.0 KB  scripts/agentsam-execution-fabric-designer.py
+   50.0 KB  .scratch/agentsam-scripts-backfill/scripts/maintenance/agentsam-execution-fabric-designer.py
+   49.9 KB  docs/db/agentsam-d1-context/agentsam_commands.md
+   49.9 KB  .venv_agentsam/lib/python3.14/site-packages/pip/_vendor/packaging/licenses/_spdx.py
+   49.9 KB  .venv/lib/python3.14/site-packages/pip/_vendor/packaging/licenses/_spdx.py
+   49.9 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/polynomial/legendre.py
+   49.6 KB  scripts/__pycache__/rotate_bridge_key.cpython-314.pyc
+   49.6 KB  tmp/agentsam/agentsam_commands.md
+   49.5 KB  .venv_agentsam/lib/python3.14/site-packages/pydantic/v1/fields.py
+   49.4 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/typing/tests/data/reveal/ma.pyi
+   49.4 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/strings.py
+   49.4 KB  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/test_arrayprint.py
+   49.2 KB  scripts/__pycache__/agentsam_benchmark_flood_v2.cpython-314.pyc
+   49.1 KB  snapshot-after.json
+   48.9 KB  .venv_agentsam/lib/python3.14/site-packages/charset_normalizer/__pycache__/constant.cpython-314.pyc
+   48.9 KB  scripts/patch_results/backups/20260516_160912/src/api/r2-api.js
+   48.8 KB  .venv_agentsam/lib/python3.14/site-packages/pip/_vendor/pygments/lexers/__pycache__/python.cpython-314.pyc
+   48.8 KB  .venv/lib/python3.14/site-packages/pip/_vendor/pygments/lexers/__pycache__/python.cpython-314.pyc
+
+
+FLAGS:
+  artifacts/batch_embed/combined.jsonl: CRITICAL — over 500 KB
+  artifacts/batch_embed/docs.jsonl: CRITICAL — over 500 KB
+  artifacts/agentsam_cursor_gap_pack_v2/embeddings_clean_openai.local.jsonl: CRITICAL — over 500 KB
+  artifacts/agentsam_cursor_gap_pack_v2/embeddings_clean_openai.vectorize.ndjson: CRITICAL — over 500 KB
+  artifacts/batch_embed/source_code.jsonl: CRITICAL — over 500 KB
+  artifacts/agentsam_cursor_gap_pack/symbols.json: CRITICAL — over 500 KB
+  .agentsam_audit/terminal/03_pty_vm_shell_backend.txt: CRITICAL — over 500 KB
+  artifacts/key_hygiene_audit/key_hygiene_audit.json: CRITICAL — over 500 KB
+  artifacts/batch_embed/embeddings/d1_combined.jsonl: CRITICAL — over 500 KB
+  .agentsam_audit/terminal/02_worker_routes_ws.txt: CRITICAL — over 500 KB
+  .worker-dist/index.js.map: CRITICAL — over 500 KB
+  artifacts/theme-debug/2026-05-07_145213/trace.zip: CRITICAL — over 500 KB
+  artifacts/evals/rg_super_sprint_20260522_192845/embeddings.jsonl: CRITICAL — over 500 KB
+  artifacts/key_hygiene_audit/embeddings/key_hygiene_chunks_mxbai.local.jsonl: CRITICAL — over 500 KB
+  artifacts/key_hygiene_audit/embeddings/key_hygiene_chunks_mxbai.vectorize.ndjson: CRITICAL — over 500 KB
+  artifacts/agentsam_cursor_gap_pack/chunks.jsonl: CRITICAL — over 500 KB
+  artifacts/cms_vectorize/cms_logic_chunks_20260515T205023Z.local.jsonl: CRITICAL — over 500 KB
+  artifacts/cms_vectorize/LATEST_CMS_LOGIC_CHUNKS.local.jsonl: CRITICAL — over 500 KB
+  artifacts/cms_vectorize/cms_logic_chunks_20260515T205023Z.vectorize.ndjson: CRITICAL — over 500 KB
+  artifacts/cms_vectorize/LATEST_CMS_LOGIC_CHUNKS.vectorize.ndjson: CRITICAL — over 500 KB
+  artifacts/agentsam_cursor_gap_pack_v2/CLEAN_CHUNKS.jsonl: CRITICAL — over 500 KB
+  .worker-dist/index.js: CRITICAL — over 500 KB
+  artifacts/batch_embed/embeddings/d1_command.jsonl: CRITICAL — over 500 KB
+  artifacts/agentsam_cursor_gap_pack/table_usage.json: CRITICAL — over 500 KB
+  artifacts/agentsam_inspection/embeddings/combined.jsonl: CRITICAL — over 500 KB
+  artifacts/cms_vectorize/cms_motion_packet_20260516T210005Z.vectorize.ndjson: CRITICAL — over 500 KB
+  artifacts/cms_vectorize/LATEST_CMS_MOTION_PACKET.vectorize.ndjson: CRITICAL — over 500 KB
+  artifacts/batch_embed/embeddings/d1_mcp_tool.jsonl: CRITICAL — over 500 KB
+  artifacts/key_hygiene_audit/embeddings/key_hygiene_chunks_fixed.vectorize.ndjson: CRITICAL — over 500 KB
+  artifacts/key_hygiene_audit/embeddings/key_hygiene_chunks_safe.vectorize.ndjson: CRITICAL — over 500 KB
+  artifacts/agentsam_cursor_gap_pack_v2/embeddings_clean_openai.vectorize.balanced.fixed_ids.ndjson: CRITICAL — over 500 KB
+  artifacts/agentsam_cursor_gap_pack_v2/embeddings_clean_openai.vectorize.balanced.ndjson: CRITICAL — over 500 KB
+  .venv_agentsam/lib/python3.14/site-packages/pydantic_core/_pydantic_core.cpython-314-darwin.so: CRITICAL — over 500 KB
+  artifacts/batch_embed/embeddings/d1_skill.jsonl: CRITICAL — over 500 KB
+  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/_multiarray_umath.cpython-314-darwin.so: CRITICAL — over 500 KB
+  artifacts/batch_embed/embeddings/d1_plan_task.jsonl: CRITICAL — over 500 KB
+  artifacts/theme-debug/2026-05-07_145129/trace-error.zip: CRITICAL — over 500 KB
+  artifacts/services_route_audit/services_route_audit.json: CRITICAL — over 500 KB
+  .venv_agentsam/lib/python3.14/site-packages/tiktoken/_tiktoken.cpython-314-darwin.so: CRITICAL — over 500 KB
+  scripts/audit_hardcoded_identity_report.md: CRITICAL — over 500 KB
+  iam-test-reports/deploy-checks/settings-api-vault-20260508T082927Z-a8702eb/dashboard-bundle-check.txt: CRITICAL — over 500 KB
+  artifacts/services_header_audit/services_header_audit.json: CRITICAL — over 500 KB
+  artifacts/agentsam_cursor_gap_pack_v2/clean_table_usage.json: CRITICAL — over 500 KB
+  artifacts/theme-debug/2026-05-07_145213/cdc5f3fd6e6a68fdb5ae6e1c5a799d07.webm: CRITICAL — over 500 KB
+  artifacts/batch_embed/embeddings/d1_memory.jsonl: CRITICAL — over 500 KB
+  artifacts/agentsam_plans_crawl_20260523T074350Z.json: CRITICAL — over 500 KB
+  artifacts/agentsam_plans_crawl_20260523T074258Z.json: CRITICAL — over 500 KB
+  dashboard/embed/analytics-dashboard-standalone.html: CRITICAL — over 500 KB
+  dashboard/design-refs/analytics-dashboard-ref.html: CRITICAL — over 500 KB
+  cms/agentsam-cms-editor/Analytics Dashboard _Standalone_.html: CRITICAL — over 500 KB
+  scripts/audit/iam_audit_chunks.ndjson: CRITICAL — over 500 KB
+  reports/git-safety/day-work-20260512-153005.patch: CRITICAL — over 500 KB
+  artifacts/evals/rg_super_sprint_20260522_192845/chunks.jsonl: CRITICAL — over 500 KB
+  artifacts/github_account_repo_scoping_audit_clean/SOURCE_HITS.md: CRITICAL — over 500 KB
+  captures/inneranimalmedia/screenshots/games.png: CRITICAL — over 500 KB
+  artifacts/evals/rg_super_sprint_20260522_192845/audit_raw.txt: CRITICAL — over 500 KB
+  artifacts/agentsam_audit/latest_agentsam_d1_codebase_audit.json: CRITICAL — over 500 KB
+  artifacts/agentsam_audit/agentsam_d1_codebase_audit_20260515T011657Z.json: CRITICAL — over 500 KB
+  artifacts/batch_embed/embeddings/d1_workflow.jsonl: CRITICAL — over 500 KB
+  artifacts/agentsam_plans_crawl_20260523T074243Z.json: CRITICAL — over 500 KB
+  reports/.staging/inneranimalmedia/screenshots/work.png: CRITICAL — over 500 KB
+  quality-report/screenshots/work.png: CRITICAL — over 500 KB
+  captures/inneranimalmedia/screenshots/work.png: CRITICAL — over 500 KB
+  captures/inneranimalmedia/screenshots/about.png: CRITICAL — over 500 KB
+  prototypes/inneranimalmedia-cms-editor/artifacts/agentsam_cms_plan_20260513T033820Z/agentsam_cms_audit_plan.json: CRITICAL — over 500 KB
+  prototypes/inneranimalmedia-cms-editor/artifacts/agentsam_cms_plan_20260513T035443Z/agentsam_cms_audit_plan.json: CRITICAL — over 500 KB
+  prototypes/inneranimalmedia-cms-editor/artifacts/agentsam_cms_plan_20260513T033812Z/agentsam_cms_audit_plan.json: CRITICAL — over 500 KB
+  captures/inneranimalmedia/screenshots/services.png: CRITICAL — over 500 KB
+  artifacts/agentsam_table_usage_audit/agentsam_table_usage_audit_20260519T201723Z.json: CRITICAL — over 500 KB
+  artifacts/agentsam_table_usage_audit/LATEST_AGENTSAM_TABLE_USAGE_AUDIT.json: CRITICAL — over 500 KB
+  artifacts/batch_embed/embeddings/supabase_knowledge_edges.jsonl: CRITICAL — over 500 KB
+  artifacts/theme-debug/2026-05-07_145213/network.har: CRITICAL — over 500 KB
+  captures/inneranimalmedia/raw-quality-report/data/1107410a4d6b48d061f53e8086e6b4069ce7cd86.zip: CRITICAL — over 500 KB
+  captures/inneranimalmedia/raw-quality-report/data/bdfa3945318618329972d09b0b0d1389d687187f.zip: CRITICAL — over 500 KB
+  artifacts/batch_embed/embeddings/supabase_combined.jsonl: CRITICAL — over 500 KB
+  artifacts/batch_embed/embeddings/supabase_agent_memory.jsonl: CRITICAL — over 500 KB
+  artifacts/cms_agentsam_structure_audit_20260513T030633Z/raw_audit.json: CRITICAL — over 500 KB
+  captures/inneranimalmedia/raw-quality-report/data/86f770955e8217fbd531e68b4d75d3ac3de28395.zip: CRITICAL — over 500 KB
+  captures/inneranimalmedia/raw-quality-report/data/ed031fcb75da694dbc8931ed8b6e6c780e23c28f.zip: CRITICAL — over 500 KB
+  artifacts/services_header_audit/SERVICES_HEADER_AUDIT.md: CRITICAL — over 500 KB
+  artifacts/services_route_audit/SERVICES_ROUTE_AUDIT.md: CRITICAL — over 500 KB
+  captures/inneranimalmedia/raw-quality-report/data/6b4af9ccbe90cff404cada77f94ef1208c7c3085.zip: CRITICAL — over 500 KB
+  artifacts/batch_embed/embeddings/d1_agentsam_tools.jsonl: CRITICAL — over 500 KB
+  artifacts/homepage_cms_structure_audit/homepage_cms_structure_audit_20260516T210611Z.json: CRITICAL — over 500 KB
+  artifacts/homepage_cms_structure_audit/LATEST_HOMEPAGE_CMS_STRUCTURE_AUDIT.json: CRITICAL — over 500 KB
+  analytics/codebase-index/ws_inneranimalmedia/index-priority-files.json: CRITICAL — over 500 KB
+  captures/inneranimalmedia/raw-quality-report/data/d4290b5cab359ef1884a456726f0a876fa9b9a93.zip: CRITICAL — over 500 KB
+  artifacts/agentsam-command-workflow-design-report.json: CRITICAL — over 500 KB
+  cms/agentsam-cms-editor/public/analytics/assets/index-DwbUkrvE.js: CRITICAL — over 500 KB
+  captures/inneranimalmedia/raw-quality-report/data/c0a6ee5928c2306cdeb9b1e0a3504a5f8a823c26.zip: CRITICAL — over 500 KB
+  captures/inneranimalmedia/raw-quality-report/data/4b8b40bad28d38fbf814374fee05a788e6163a3e.zip: CRITICAL — over 500 KB
+  artifacts/command_pipeline_alignment/LATEST_COMMAND_PIPELINE_ALIGNMENT.json: CRITICAL — over 500 KB
+  captures/inneranimalmedia/raw-quality-report/data/8042127f16a23de1ae9d52b5068388a9ba9f6975.zip: CRITICAL — over 500 KB
+  artifacts/agentsam-execution-fabric-report.json: CRITICAL — over 500 KB
+  .venv_agentsam/lib/python3.14/site-packages/regex/_regex.cpython-314-darwin.so: CRITICAL — over 500 KB
+  artifacts/key_hygiene_audit/KEY_HYGIENE_AUDIT.md: CRITICAL — over 500 KB
+  scripts/audit_worker_routes_data.json: CRITICAL — over 500 KB
+  captures/inneranimalmedia/screenshots/terms.png: CRITICAL — over 500 KB
+  captures/inneranimalmedia/raw-quality-report/data/bc379da5f1fda9d633d9335cab3947056b68fdd5.zip: CRITICAL — over 500 KB
+  artifacts/agentsam_db_table_walk/agentsam_db_table_walk_20260519T033030Z.json: CRITICAL — over 500 KB
+  artifacts/agentsam_db_table_walk/agentsam_db_table_walk_20260519T032104Z.json: CRITICAL — over 500 KB
+  artifacts/agentsam_db_table_walk/agentsam_db_table_walk_20260519T031031Z.json: CRITICAL — over 500 KB
+  artifacts/agentsam_db_table_walk/LATEST_AGENTSAM_DB_TABLE_WALK.json: CRITICAL — over 500 KB
+  .venv_agentsam/lib/python3.14/site-packages/81d243bd2c585b0f4821__mypyc.cpython-314-darwin.so: CRITICAL — over 500 KB
+  .venv_agentsam/lib/python3.14/site-packages/jiter/jiter.cpython-314-darwin.so: CRITICAL — over 500 KB
+  .venv_agentsam/lib/python3.14/site-packages/numpy/_core/tests/__pycache__/test_multiarray.cpython-314.pyc: CRITICAL — over 500 KB
+  artifacts/supabase_schema_audit/20260515T030004Z/json/03_column_inventory.json: CRITICAL — over 500 KB
+  captures/inneranimalmedia/raw-quality-report/data/7b644135fe984275b7a66e0908ec01f84b2b02b9.zip: CRITICAL — over 500 KB
+  artifacts/agentsam-capability-fabric-report.json: CRITICAL — over 500 KB
+  tmp/multitenant-audit/hardcoded_identity_refs.txt: CRITICAL — over 500 KB
+  captures/inneranimalmedia/screenshots/home.png: CRITICAL — over 500 KB
+  captures/inneranimalmedia/raw-quality-report/data/6db3cd34a122e8c347ca1fcf8184b47f253b668e.zip: CRITICAL — over 500 KB
+  .venv_agentsam/lib/python3.14/site-packages/numpy/random/_generator.cpython-314-darwin.so: CRITICAL — over 500 KB
+  captures/inneranimalmedia/raw-quality-report/data/ecb47d275e15646232b07a49d61f2124233785ac.zip: CRITICAL — over 500 KB
+  captures/inneranimalmedia/raw-quality-report/trace/assets/defaultSettingsView-CJSZINFr.js: CRITICAL — over 500 KB
+  artifacts/batch_embed/embeddings/d1_plan.jsonl: CRITICAL — over 500 KB
+  captures/inneranimalmedia/raw-quality-report/data/90012bb66488bc9122742e56c3b35992d8b33efd.png: CRITICAL — over 500 KB
+  scripts/audit/iam_audit_report.md: CRITICAL — over 500 KB
+  captures/inneranimalmedia/raw-quality-report/data/80e4f8b7d0ad6f764b27b711f4cffd4d73ff9b7c.zip: CRITICAL — over 500 KB
+  captures/inneranimalmedia/raw-quality-report/data/b8236e268187d48f0dfb3b30d527b48af1def928.zip: CRITICAL — over 500 KB
+  captures/inneranimalmedia/raw-quality-report/index.html: CRITICAL — over 500 KB
+  artifacts/batch_embed/embeddings/d1_route.jsonl: CRITICAL — over 500 KB
+  docs/db/agentsam-d1-context/2026-05-07_agentsam-schema.json: CRITICAL — over 500 KB
+  captures/inneranimalmedia/raw-quality-report/data/1161ebe83d28b6efb8c1d7ddda1b2ed11e057474.png: CRITICAL — over 500 KB
+  captures/inneranimalmedia/raw-quality-report/data/20237211ce9258062f218cd48b86f3f7138d6b7a.png: CRITICAL — over 500 KB
+  captures/inneranimalmedia/raw-quality-report/data/546d9d41c579ac9514f680d9790be39acc45c3e9.png: CRITICAL — over 500 KB
+  artifacts/batch_embed/embeddings/d1_project.jsonl: CRITICAL — over 500 KB
+  captures/inneranimalmedia/raw-quality-report/data/57a14ce8f0cdc56d176d3dc4d5d304513fad7202.png: CRITICAL — over 500 KB
+  .venv_agentsam/lib/python3.14/site-packages/numpy/random/mtrand.cpython-314-darwin.so: CRITICAL — over 500 KB
+  captures/inneranimalmedia/raw-quality-report/data/6f6b703508b8018be3bf127236252bc187891a61.zip: CRITICAL — over 500 KB
+  captures/inneranimalmedia/raw-quality-report/data/4e40c4fc470ea7b456460897e6a767fd1066bef3.zip: CRITICAL — over 500 KB
+  captures/inneranimalmedia/screenshots/pricing.png: CRITICAL — over 500 KB
+  captures/inneranimalmedia/screenshots/privacy.png: CRITICAL — over 500 KB
+  captures/inneranimalmedia/raw-playwright-report/index.html: CRITICAL — over 500 KB
+  captures/inneranimalmedia/raw-quality-report/data/d50b6c43ce7fa77160acc6aa24454d139b04c1c2.zip: CRITICAL — over 500 KB
+  cms/agentsam-cms-editor/public/analytics.html: CRITICAL — over 500 KB
+  captures/inneranimalmedia/raw-quality-report/trace/defaultSettingsView.7ch9cixO.css: heavy CSS — check for Monaco/Seti on non-agent routes

@@ -289,6 +289,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
       productLabel = DEFAULT_PRODUCT,
       layout = 'page',
       workspaceContext: _workspaceContext = null,
+      onOutputLine,
     },
     ref,
   ) => {
@@ -929,6 +930,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                       connectEnabled={terminalConnectEnabled}
                       onConnectionChange={setPrimaryStatus}
                       onSessionIdChange={setPrimarySessionId}
+                      onTerminalOutputLine={onOutputLine}
                     />
                   </div>
                   {showSplash && showIamWelcomeBar && (

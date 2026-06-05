@@ -42,6 +42,37 @@ function monacoLanguage(lang: string | undefined, path: string | undefined): str
   return 'plaintext';
 }
 
+/** Slice to changed hunk ±context for inline chat bubbles (~4 lines). */
+export function compactDiffSlice(
+  before: string,
+  after: string,
+  contextLines = 2,
+  maxLines = 4,
+): { before: string; after: string } {
+  const beforeLines = before.split('\n');
+  const afterLines = after.split('\n');
+  const maxLen = Math.max(beforeLines.length, afterLines.length);
+  let firstDiff = 0;
+  while (firstDiff < maxLen && beforeLines[firstDiff] === afterLines[firstDiff]) firstDiff++;
+  if (firstDiff >= maxLen) return { before, after };
+
+  let lastDiff = maxLen - 1;
+  while (lastDiff > firstDiff && beforeLines[lastDiff] === afterLines[lastDiff]) lastDiff--;
+
+  const start = Math.max(0, firstDiff - contextLines);
+  let bSlice = beforeLines.slice(start, Math.min(beforeLines.length, lastDiff + contextLines + 1));
+  let aSlice = afterLines.slice(start, Math.min(afterLines.length, lastDiff + contextLines + 1));
+
+  if (bSlice.length > maxLines) {
+    const rel = firstDiff - start;
+    const from = Math.max(0, rel - 1);
+    bSlice = bSlice.slice(from, from + maxLines);
+    aSlice = aSlice.slice(from, from + maxLines);
+  }
+
+  return { before: bSlice.join('\n'), after: aSlice.join('\n') };
+}
+
 export type DiffViewerProps = {
   before: string;
   after: string;
@@ -50,6 +81,8 @@ export type DiffViewerProps = {
   /** Max height for the diff widget */
   heightPx?: number;
   className?: string;
+  /** Inline chat bubble — ~4 lines around the change hunk */
+  compact?: boolean;
 };
 
 export function DiffViewer({
@@ -59,8 +92,14 @@ export function DiffViewer({
   path,
   heightPx = 200,
   className = '',
+  compact = false,
 }: DiffViewerProps) {
   const monacoLang = useMemo(() => monacoLanguage(language, path), [language, path]);
+  const display = useMemo(
+    () => (compact ? compactDiffSlice(before, after) : { before, after }),
+    [before, after, compact],
+  );
+  const resolvedHeight = compact ? 96 : heightPx;
   const [themeId, setThemeId] = useState(resolveMonacoThemeId);
 
   useEffect(() => {
@@ -72,14 +111,14 @@ export function DiffViewer({
   return (
     <div
       className={`overflow-hidden rounded-lg border border-white/[0.06] bg-black/30 ${className}`.trim()}
-      style={{ height: heightPx, minHeight: 120 }}
+      style={{ height: resolvedHeight, minHeight: compact ? 72 : 120 }}
     >
       <DiffEditor
         height="100%"
         language={monacoLang}
         theme={themeId}
-        original={before}
-        modified={after}
+        original={display.before}
+        modified={display.after}
         beforeMount={(m) => {
           applyMonacoTheme(m);
         }}

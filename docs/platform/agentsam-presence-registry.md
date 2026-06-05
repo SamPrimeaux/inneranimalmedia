@@ -18,7 +18,7 @@ Agent Sam UX uses **one sitewide** `ChatAssistant` (`App.tsx` side panel). Prese
 
 Resolver: `dashboard/features/agent-run/resolveAgentPresence.ts`  
 Icons: `dashboard/features/mode-presence/AgentModePresenceIcon.tsx`  
-Hero thinking UI: `dashboard/src/components/ThinkingCard.tsx` + `agentRunPresence.css`
+Inline presence UI: `dashboard/features/mode-presence/AgentPresenceInline.tsx` + `agentPresenceInline.css` (ThinkingCard is type-only; not rendered in chat)
 
 ## Run states → icons
 

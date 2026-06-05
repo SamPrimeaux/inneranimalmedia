@@ -71,7 +71,7 @@ export function AgentCodeDiffPreview({
         </div>
       </div>
       <div className="p-2 pointer-events-none">
-        <DiffViewer before={before} after={after} language={language} path={path} heightPx={200} />
+        <DiffViewer before={before} after={after} language={language} path={path} compact />
       </div>
     </button>
   );
