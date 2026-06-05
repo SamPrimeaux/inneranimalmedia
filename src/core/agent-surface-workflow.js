@@ -7,6 +7,9 @@ import { runAgentToolLoop } from './agent-tool-loop.js';
 import { extractBrowserNavigateUrl } from './extract-browser-url.js';
 import {
   isCodeImplementationIntent,
+  isReadOnlyFileContextIntent,
+  isReadOnlyRepoSearchIntent,
+  messageExplicitlyRequestsBrowserInspection,
   shouldSkipSurfaceWorkflowPreflight,
 } from './code-implementation-intent.js';
 import { stripUserTextForIntent } from './active-file-envelope.js';
