@@ -281,6 +281,40 @@ async function upsertCodeVector(env, item) {
 }
 
 /**
+ * Non-fatal completion notice (Resend / platform email).
+ * @param {any} env
+ * @param {{ job_id: string, repo: string, indexed_file_count: number, files_total: number, chunk_count_total: number, file_errors: number }} summary
+ */
+async function notifyCodeIndexComplete(env, summary) {
+  try {
+    const { sendPlatformEmail } = await import('../lib/email.js');
+    const to =
+      (env.CODE_INDEX_NOTIFY_EMAIL && String(env.CODE_INDEX_NOTIFY_EMAIL).trim()) ||
+      (env.DEPLOY_NOTIFY_EMAIL && String(env.DEPLOY_NOTIFY_EMAIL).trim()) ||
+      (env.RESEND_TO && String(env.RESEND_TO).trim()) ||
+      'sam@inneranimalmedia.com';
+    const text = [
+      'Code semantic index run finished successfully.',
+      '',
+      `Job: ${summary.job_id}`,
+      `Repo: ${summary.repo}`,
+      `Files indexed: ${summary.indexed_file_count} / ${summary.files_total}`,
+      `Chunks embedded: ${summary.chunk_count_total}`,
+      `File errors: ${summary.file_errors}`,
+      'Lane: code_semantic_search → AGENTSAM_VECTORIZE_CODE @ 1536',
+    ].join('\n');
+    await sendPlatformEmail(env, {
+      to,
+      subject: `Code index complete — ${summary.chunk_count_total} chunks`,
+      text,
+      category: 'code_index_complete',
+    });
+  } catch (e) {
+    console.warn('[code-indexer] notify_email', e?.message ?? e);
+  }
+}
+
+/**
  * @param {any} env
  * @param {number} storedVectors
  */
@@ -555,6 +589,14 @@ export async function runCodeIndexJob(env, jobId, opts = {}) {
       await patchJob(env, job.id, finishPatch, cols);
       if (finishPatch.status === 'completed') {
         await updateVectorizeRegistry(env, totalChunks);
+        notifyCodeIndexComplete(env, {
+          job_id: job.id,
+          repo: gh.repo,
+          indexed_file_count: newOffset,
+          files_total: allFiles.length,
+          chunk_count_total: totalChunks,
+          file_errors: fileErrors,
+        }).catch((e) => console.warn('[code-indexer] notify_email', e?.message ?? e));
       }
     } else {
       finishPatch.status = 'idle';
