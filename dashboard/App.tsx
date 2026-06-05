@@ -78,6 +78,7 @@ import {
 } from './src/ideWorkspace';
 import { useEditor } from './src/EditorContext';
 import { useWorkspace } from './src/context/WorkspaceContext';
+import { OfflineReconnectBanner, persistLastSessionSnapshot } from './src/pwa/OfflineReconnectBanner';
 import {
   readIamGitStatusCache,
   writeIamGitStatusCache,
@@ -361,6 +362,14 @@ const App: React.FC = () => {
   const settingsIntegrationsActive = location.pathname === `/dashboard/settings/${integrationsSlug}`;
   const terminalRef = useRef<XTermShellHandle>(null);
   const collabWsRef = useRef<WebSocket | null>(null);
+
+  useEffect(() => {
+    if (!sessionUserId) return;
+    persistLastSessionSnapshot({
+      workspaceId: authWorkspaceId,
+      displayName: workspaceDisplayName,
+    });
+  }, [sessionUserId, authWorkspaceId, workspaceDisplayName]);
 
   // Monaco deep-link handler (Settings → MCP tool config).
   // Opens a new editor tab with payload content, then clears query params.
@@ -2839,6 +2848,7 @@ const App: React.FC = () => {
 
   return (
     <div className="w-full h-[100dvh] bg-[var(--dashboard-canvas)] overflow-hidden text-[var(--dashboard-text)] font-sans flex flex-col">
+      <OfflineReconnectBanner />
       <div
         className="iam-agent-browser-live-vignette"
         data-active={agentBrowserPresenceActive ? 'true' : 'false'}

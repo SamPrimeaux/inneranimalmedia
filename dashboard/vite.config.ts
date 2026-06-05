@@ -2,6 +2,7 @@ import path from 'path';
 import fs from 'node:fs';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
+import { VitePWA } from 'vite-plugin-pwa';
 import { visualizer } from 'rollup-plugin-visualizer';
 
 const analyze = process.env.ANALYZE === '1' || process.env.ANALYZE === 'true';
@@ -90,6 +91,110 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [
       react(),
+      VitePWA({
+        registerType: 'prompt',
+        injectRegister: false,
+        strategies: 'generateSW',
+        filename: 'sw.js',
+        manifestFilename: 'manifest.webmanifest',
+        includeAssets: ['pwa/icon-192.png', 'pwa/icon-512.png', 'offline.html'],
+        manifest: {
+          name: 'Inner Animal Media',
+          short_name: 'IAM',
+          description: 'Agent Sam workspace — build, deploy, and optimize.',
+          start_url: '/dashboard/agent',
+          scope: '/',
+          display: 'standalone',
+          orientation: 'any',
+          background_color: '#00212b',
+          theme_color: '#2dd4bf',
+          icons: [
+            {
+              src: '/static/dashboard/app/pwa/icon-192.png',
+              sizes: '192x192',
+              type: 'image/png',
+              purpose: 'any',
+            },
+            {
+              src: '/static/dashboard/app/pwa/icon-512.png',
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'any maskable',
+            },
+          ],
+        },
+        workbox: {
+          importScripts: ['push-handler.js'],
+          globDirectory: 'dist',
+          globPatterns: [
+            'dashboard.js',
+            'dashboard.css',
+            'vendor-react.js',
+            'vendor-icons.js',
+            'pwa/*.png',
+          ],
+          globIgnores: [
+            '**/vendor-excalidraw*.js',
+            '**/vendor-realtimekit*.js',
+            '**/vendor-three*.js',
+            '**/vendor-remotion*.js',
+            '**/vendor-wardley*.js',
+            '**/bundle-stats.html',
+          ],
+          modifyURLPrefix: {
+            '': '/static/dashboard/app/',
+          },
+          additionalManifestEntries: [
+            { url: '/static/dashboard/shell.css', revision: null },
+            { url: '/offline.html', revision: null },
+          ],
+          navigateFallback: '/offline.html',
+          navigateFallbackDenylist: [/^\/api\//, /^\/auth/, /^\/oauth\//],
+          runtimeCaching: [
+            {
+              urlPattern: ({ request, url }) =>
+                request.method !== 'GET' ||
+                url.pathname.startsWith('/api/') ||
+                url.pathname.startsWith('/auth/') ||
+                url.pathname.startsWith('/oauth/'),
+              handler: 'NetworkOnly',
+            },
+            {
+              urlPattern: ({ url }) => /\/api\/agent\/(chat|plan)/i.test(url.pathname),
+              handler: 'NetworkOnly',
+            },
+            {
+              urlPattern: ({ url }) =>
+                url.pathname.startsWith('/static/dashboard/app/') && url.pathname.endsWith('.js'),
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'iam-dashboard-js-v1',
+                expiration: { maxEntries: 128, maxAgeSeconds: 365 * 24 * 60 * 60 },
+                cacheableResponse: { statuses: [0, 200] },
+              },
+            },
+            {
+              urlPattern: ({ url }) => url.origin.includes('fonts.gstatic.com'),
+              handler: 'StaleWhileRevalidate',
+              options: {
+                cacheName: 'iam-fonts-v1',
+                expiration: { maxEntries: 24, maxAgeSeconds: 365 * 24 * 60 * 60 },
+              },
+            },
+            {
+              urlPattern: ({ url }) =>
+                url.pathname === '/static/dashboard/shell.css' ||
+                (url.pathname.startsWith('/static/dashboard/app/') && url.pathname.endsWith('.css')),
+              handler: 'StaleWhileRevalidate',
+              options: {
+                cacheName: 'iam-dashboard-css-v1',
+                expiration: { maxEntries: 32, maxAgeSeconds: 30 * 24 * 60 * 60 },
+              },
+            },
+          ],
+        },
+        devOptions: { enabled: false },
+      }),
       {
         name: 'restore-dashboard-shell-css-href',
         apply: 'build',
@@ -102,6 +207,27 @@ export default defineConfig(({ mode }) => {
                 '/static/dashboard/shell.css',
               )
               .replaceAll('dashboard2.css', 'dashboard.css');
+          },
+        },
+      },
+      {
+        name: 'iam-pwa-root-manifest-link',
+        apply: 'build',
+        enforce: 'post',
+        transformIndexHtml: {
+          order: 'post',
+          handler(html) {
+            let out = html.replace(
+              '/static/dashboard/app/manifest.webmanifest',
+              '/manifest.webmanifest',
+            );
+            if (!out.includes('name="theme-color"')) {
+              out = out.replace(
+                '<link rel="manifest"',
+                '<meta name="theme-color" content="#2dd4bf" />\n  <link rel="manifest"',
+              );
+            }
+            return out;
           },
         },
       },

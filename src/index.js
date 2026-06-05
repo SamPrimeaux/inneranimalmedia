@@ -50,6 +50,7 @@ import { handleCloudflareWebhook } from './api/webhooks/cloudflare.js';
 import { handleRealtimeKitWebhook } from './api/webhooks/realtimekit.js';
 import { recordAgentsamWebhookEvent } from './core/webhook-events-writer.js';
 import { getDashboardR2Object, getDashboardSpaHtmlShell } from './core/dashboard-r2-assets.js';
+import { isDashboardSpaShellPath, withDashboardEarlyHints } from './core/dashboard-early-hints.js';
 import { resolveGitHubToken } from './core/github-token.js';
 import { handleSitemapPage, handleSitemapXml } from './public-pages/sitemap-route.js';
 import { handleQualityReportRoute } from './public-pages/quality-report-route.js';
@@ -793,6 +794,16 @@ export default {
           const next = encodeURIComponent(`${path}${url.search || ''}`);
           return Response.redirect(`${url.origin}/auth/login?next=${next}`, 302);
         }
+        if (needsDashAuth && authUser?.id && env.DB) {
+          const { userNeedsSignupEmailVerification } = await import('./core/auth-email-verify.js');
+          if (await userNeedsSignupEmailVerification(env, authUser.id)) {
+            const next = encodeURIComponent(`${path}${url.search || ''}`);
+            return Response.redirect(
+              `${url.origin}/auth/login?error=email_not_verified&next=${next}`,
+              302,
+            );
+          }
+        }
       }
 
       // 2c. Collab canvas API → IAM_COLLAB DO (`canvas:{workspaceId}`) — requires workspace_id query param
@@ -891,6 +902,36 @@ export default {
             return withSessionHealing(Response.redirect(`${url.origin}/dashboard/agent`, 302));
           }
 
+          const pwaRootAssets = {
+            '/sw.js': { key: 'static/dashboard/sw.js', contentType: 'application/javascript; charset=utf-8' },
+            '/push-handler.js': {
+              key: 'static/dashboard/push-handler.js',
+              contentType: 'application/javascript; charset=utf-8',
+            },
+            '/manifest.webmanifest': {
+              key: 'static/dashboard/manifest.webmanifest',
+              contentType: 'application/manifest+json; charset=utf-8',
+            },
+            '/offline.html': { key: 'static/dashboard/offline.html', contentType: 'text/html; charset=utf-8' },
+          };
+          const pwaAsset = pwaRootAssets[pathLower];
+          if (pwaAsset && env.ASSETS) {
+            const obj = await getDashboardR2Object(env.ASSETS, pwaAsset.key);
+            if (obj) {
+              const h = new Headers({
+                'Content-Type': pwaAsset.contentType,
+                'Cache-Control':
+                  pathLower === '/sw.js' || pathLower === '/push-handler.js'
+                    ? 'no-cache'
+                    : 'public, max-age=3600',
+              });
+              if (pathLower === '/sw.js') {
+                h.set('Service-Worker-Allowed', '/');
+              }
+              return new Response(obj.body, { headers: h });
+            }
+          }
+
           const assetKey = path.slice(1) || 'index.html';
 
           if (env.ASSETS) {
@@ -902,19 +943,17 @@ export default {
             const obj = await getDashboardR2Object(env.ASSETS, assetKey);
             if (obj) return new Response(obj.body, { headers: { 'Content-Type': obj.httpMetadata?.contentType || getMimeType(assetKey), 'Cache-Control': 'public, max-age=31536000' } });
 
-            if (
-              pathLower.startsWith('/dashboard/') ||
-              pathLower === '/onboarding' ||
-              pathLower.startsWith('/onboarding/') ||
-              pathLower === '/oauth/mcp/consent'
-            ) {
+            if (isDashboardSpaShellPath(pathLower) || pathLower === '/oauth/mcp/consent') {
               const index = await getDashboardSpaHtmlShell(env.ASSETS);
               if (index) {
                 const h = new Headers({
                   'Content-Type': 'text/html; charset=utf-8',
                   'Cache-Control': 'private, no-store, max-age=0, must-revalidate',
                 });
-                return withSessionHealing(new Response(index.body, { headers: h }));
+                const shellRes = withSessionHealing(new Response(index.body, { headers: h }));
+                return isDashboardSpaShellPath(pathLower)
+                  ? withDashboardEarlyHints(shellRes)
+                  : shellRes;
               }
             }
           }

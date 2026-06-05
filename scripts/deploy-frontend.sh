@@ -161,6 +161,25 @@ if [[ -f "$WS_SHELL" ]]; then
     -c "$TOML" --remote
 fi
 
+PWA_DIST="$REPO_ROOT/dashboard/dist"
+publish_pwa_asset() {
+  local rel="$1"
+  local ctype="$2"
+  local src="$PWA_DIST/$rel"
+  if [[ -f "$src" ]]; then
+    echo "→ Publishing PWA asset static/dashboard/$rel"
+    ./scripts/with-cloudflare-env.sh npx wrangler r2 object put "${BUCKET}/static/dashboard/$rel" \
+      --file "$src" --content-type "$ctype" \
+      -c "$TOML" --remote
+  else
+    echo "⚠️  Missing PWA build artifact: $src" >&2
+  fi
+}
+publish_pwa_asset "sw.js" "application/javascript;charset=UTF-8"
+publish_pwa_asset "push-handler.js" "application/javascript;charset=UTF-8"
+publish_pwa_asset "manifest.webmanifest" "application/manifest+json;charset=UTF-8"
+publish_pwa_asset "offline.html" "text/html;charset=UTF-8"
+
 R2_RECONCILE_STATUS=passed
 R2_OBJECT_COUNT=""
 R2_BYTE_COUNT=""

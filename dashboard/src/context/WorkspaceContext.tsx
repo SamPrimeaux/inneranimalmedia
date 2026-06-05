@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { registerIamServiceWorker, subscribeIamWebPush } from "../pwa/registerServiceWorker";
 import {
   getTrustedRecentWorkspaceId,
   prepareRecentWorkspacesForSession,
@@ -299,6 +300,10 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       setSessionUserId(userId);
       sessionUserIdRef.current = userId;
       prepareRecentWorkspacesForSession(userId);
+
+      if (userId) {
+        void registerIamServiceWorker().then(() => subscribeIamWebPush().catch(() => false));
+      }
 
       const cached = readIamWorkspaceSession();
       if (cached && cached.data.length > 0 && (!userId || !cached.sessionUserId || cached.sessionUserId === userId)) {

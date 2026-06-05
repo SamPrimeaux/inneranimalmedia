@@ -32,6 +32,11 @@ import {
   finalizeInboundOAuth,
 } from './oauth-login-callbacks.js';
 import { upsertOauthToken, resolveCanonicalWorkspace } from './oauth.js';
+import {
+  sendSignupVerificationEmail,
+  signupEmailVerificationEnabled,
+  userNeedsSignupEmailVerification,
+} from '../core/auth-email-verify.js';
 
 /**
  * Primary Auth Dispatcher
@@ -52,6 +57,9 @@ export async function handleAuthApi(request, url, env) {
   }
   if (path === '/api/auth/verify-email' && method === 'GET') {
     return handleEmailVerification(request, url, env);
+  }
+  if (path === '/api/auth/resend-verification' && method === 'POST') {
+    return handleResendVerification(request, env);
   }
   if (path === '/api/auth/me' && method === 'GET') {
     const authUser = await getAuthUser(request, env);
@@ -512,17 +520,92 @@ async function handleEmailVerification(request, url, env) {
   if (!raw) {
     return Response.redirect(`${origin}/auth/login?error=token_expired`, 302);
   }
+
+  let authUserId = null;
   try {
-    const { authUserId } = JSON.parse(raw);
-    await env.DB.prepare(`UPDATE auth_users SET is_verified = 1, updated_at = datetime('now') WHERE id = ?`)
-      .bind(authUserId)
-      .run()
-      .catch(() => {});
+    const parsed = JSON.parse(raw);
+    authUserId = parsed?.authUserId || null;
+    if (authUserId) {
+      await env.DB.prepare(
+        `UPDATE auth_users SET is_verified = 1, verified_at = unixepoch(), updated_at = datetime('now') WHERE id = ?`,
+      )
+        .bind(authUserId)
+        .run()
+        .catch(() => {});
+    }
     await env.SESSION_CACHE.delete(`email_verify_${token}`);
   } catch (e) {
     console.warn('[verify-email]', e?.message);
+    return Response.redirect(`${origin}/auth/login?error=invalid_token`, 302);
   }
-  return Response.redirect(`${origin}/dashboard/agent`, 302);
+
+  if (!authUserId) {
+    return Response.redirect(`${origin}/auth/login?error=invalid_token`, 302);
+  }
+
+  const sessionId = await createLoginSession(request, env, authUserId, 'email_verify');
+  await logAuthEvent(env, {
+    request,
+    eventType: 'auth_session_created',
+    userId: authUserId,
+    provider: 'email_verify',
+  });
+
+  const headers = new Headers({ Location: `${origin}/dashboard/agent` });
+  headers.append(
+    'Set-Cookie',
+    `${AUTH_COOKIE_NAME}=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`,
+  );
+  return new Response(null, { status: 302, headers });
+}
+
+async function handleResendVerification(request, env) {
+  if (!signupEmailVerificationEnabled(env)) {
+    return jsonResponse({ ok: false, error: 'Email verification is not configured' }, 503);
+  }
+  if (!env.DB) return jsonResponse({ ok: false, error: 'Service unavailable' }, 503);
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ ok: false, error: 'Invalid request body' }, 400);
+  }
+
+  const email = String(body.email || '')
+    .toLowerCase()
+    .trim();
+  if (!email) return jsonResponse({ ok: false, error: 'Email is required' }, 400);
+
+  const user = await env.DB.prepare(
+    `SELECT id, is_verified, password_hash FROM auth_users WHERE LOWER(email) = ? LIMIT 1`,
+  )
+    .bind(email)
+    .first()
+    .catch(() => null);
+
+  // Do not reveal whether the account exists.
+  if (!user || user.password_hash === 'oauth' || Number(user.is_verified) === 1) {
+    return jsonResponse({
+      ok: true,
+      message: 'If an unverified account exists for that email, a new verification link was sent.',
+    });
+  }
+
+  const origin = new URL(request.url).origin;
+  const sent = await sendSignupVerificationEmail(env, {
+    origin,
+    email,
+    authUserId: user.id,
+  });
+
+  return jsonResponse({
+    ok: true,
+    email_sent: sent,
+    message: sent
+      ? 'Verification email sent. Check your inbox.'
+      : 'Could not send email right now. Try again in a few minutes.',
+  });
 }
 
 const DISPOSABLE_SIGNUP_DOMAINS = new Set([
@@ -650,31 +733,32 @@ async function handleEmailSignup(request, url, env) {
   }
 
   const origin = new URL(request.url).origin;
-  if (env.RESEND_API_KEY) {
-    try {
-      const verifyToken = crypto.randomUUID();
-      await env.SESSION_CACHE?.put(
-        `email_verify_${verifyToken}`,
-        JSON.stringify({ email, authUserId }),
-        { expirationTtl: 86400 },
-      );
-      const verifyUrl = `${origin}/api/auth/verify-email?token=${encodeURIComponent(verifyToken)}`;
-      const fromAddr =
-        (env.RESEND_AUTH_FROM && String(env.RESEND_AUTH_FROM).trim()) ||
-        'InnerAnimalMedia <auth@inneranimalmedia.com>';
-      await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          from: fromAddr,
-          to: [email],
-          subject: 'Verify your InnerAnimalMedia account',
-          html: `<div style="font-family:system-ui,sans-serif;max-width:480px;margin:0 auto;padding:24px"><h2>Welcome</h2><p>Verify your email to finish setup.</p><p><a href="${verifyUrl}">Verify email</a></p></div>`,
-        }),
-      });
-    } catch (e) {
-      console.warn('[signup] Resend:', e?.message);
-    }
+  const enforceVerify = signupEmailVerificationEnabled(env);
+
+  if (enforceVerify) {
+    const emailSent = await sendSignupVerificationEmail(env, { origin, email, authUserId });
+    await logAuthEvent(env, {
+      request,
+      eventType: 'auth_signup_pending_verification',
+      userId: authUserId,
+      metadata: { email_sent: emailSent ? 1 : 0 },
+    });
+
+    const payload = {
+      ok: true,
+      requires_verification: true,
+      email_sent: emailSent,
+      message: emailSent
+        ? 'Check your email for a verification link. Sign in after you verify.'
+        : 'Account created, but we could not send the verification email. Use Sign in → resend verification.',
+    };
+
+    if (wantsJson) return jsonResponse(payload);
+    const loginNext = encodeURIComponent('/dashboard/agent');
+    return Response.redirect(
+      `${origin}/auth/login?registered=1&verify=pending&next=${loginNext}`,
+      302,
+    );
   }
 
   const sessionId = await createLoginSession(request, env, authUserId, 'email_signup');
@@ -787,6 +871,17 @@ async function handleLogout(request, url, env) {
  * Shared Session Finalizer
  */
 async function finishLogin(request, url, env, userId, redirectPath) {
+  if (await userNeedsSignupEmailVerification(env, userId)) {
+    return jsonResponse(
+      {
+        ok: false,
+        error: 'Verify your email before signing in.',
+        code: 'email_not_verified',
+      },
+      403,
+    );
+  }
+
   const sessionId = await createLoginSession(request, env, userId, 'email');
   const tenantId = await resolveTenantAtLogin(env, userId).catch(() => null);
   try {

@@ -30,10 +30,15 @@ const HOOK_SELECT = `
     COALESCE(event_type, trigger) AS event_type,
     workspace_id,
     tenant_id,
+    user_id,
+    target_id,
     command
   FROM agentsam_hook
-  WHERE COALESCE(event_type, trigger) = ?
-    AND is_active = 1
+  WHERE is_active = 1
+    AND (
+      COALESCE(event_type, trigger) = ?
+      OR event_type = '*'
+    )
   ORDER BY COALESCE(priority, 100) ASC, created_at ASC
 `;
 
@@ -106,6 +111,13 @@ export async function fireAgentHooks(env, ctx, eventType, payload = {}) {
     if (!hooks?.length) return;
 
     for (const hook of hooks) {
+      if (hook.handler_type === 'web_push') {
+        const recipient = payload.recipient_id ?? payload.user_id ?? null;
+        if (!recipient || String(hook.target_id || '') !== String(recipient)) {
+          continue;
+        }
+      }
+
       const exId = 'hex_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
       const t0 = Date.now();
       let outcome = 'success';
@@ -367,6 +379,37 @@ async function dispatchHook(env, hook, payload, ctx) {
         }
       } catch (e) {
         console.warn('[hook-dispatcher] context_load digest upsert', e?.message ?? e);
+      }
+      break;
+    }
+    case 'web_push': {
+      const { sendWebPushFromSubscription, insertPushNotification } = await import('./web-push.js');
+      const recipientId = String(
+        payload.recipient_id ?? payload.user_id ?? hook.target_id ?? '',
+      ).trim();
+      const result = await sendWebPushFromSubscription(env, cfg, {
+        title: payload.title ?? payload.subject ?? 'Inner Animal Media',
+        body: payload.body ?? payload.message ?? '',
+        url: payload.url ?? '/dashboard/agent',
+        tag: payload.tag ?? hook.event_type ?? 'iam',
+      });
+      if (!result.ok) throw new Error(result.reason || result.error || 'web_push_failed');
+
+      if (recipientId) {
+        await insertPushNotification(env, {
+          recipientId,
+          channel: 'push',
+          subject: payload.title ?? payload.subject ?? 'Notification',
+          message: payload.body ?? payload.message ?? '',
+          entityType: payload.entity_type ?? null,
+          entityId: payload.entity_id ?? null,
+          status: 'sent',
+          data: {
+            url: payload.url ?? null,
+            tag: payload.tag ?? null,
+            hook_id: hook.id,
+          },
+        });
       }
       break;
     }

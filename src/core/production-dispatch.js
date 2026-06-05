@@ -406,6 +406,21 @@ export async function dispatchProductionDomainRoutes(rc) {
     return handleGamesApi(request, url, env, ctx, authUser);
   }
 
+  if (pathLower === '/api/push/vapid-public-key' && methodUpper === 'GET') {
+    const { handlePushVapidPublicKey } = await import('../api/push-subscribe.js');
+    return handlePushVapidPublicKey(request, env);
+  }
+
+  if (pathLower === '/api/push/subscribe' && methodUpper === 'POST') {
+    const { handlePushSubscribe } = await import('../api/push-subscribe.js');
+    return handlePushSubscribe(request, env);
+  }
+
+  if (pathLower === '/api/push/unsubscribe' && (methodUpper === 'POST' || methodUpper === 'DELETE')) {
+    const { handlePushUnsubscribe } = await import('../api/push-subscribe.js');
+    return handlePushUnsubscribe(request, env);
+  }
+
   if (pathLower.startsWith('/api/auth') || pathLower === '/api/settings/profile') {
     return handleAuthApi(request, url, env);
   }
