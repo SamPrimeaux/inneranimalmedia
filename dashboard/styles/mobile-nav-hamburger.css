@@ -38,7 +38,12 @@
 .iam-mobile-nav-hamburger__line {
   height: 1.8px;
   border-radius: 2px;
-  transition: width 150ms ease;
+  transition:
+    width 200ms ease,
+    transform 200ms ease,
+    opacity 200ms ease,
+    background 200ms ease;
+  transform-origin: center center;
 }
 
 .iam-mobile-nav-hamburger__line--1 {
@@ -56,8 +61,26 @@
   background: rgba(255, 255, 255, 0.65);
 }
 
-.iam-mobile-nav-hamburger[data-open='true'] .iam-mobile-nav-hamburger__line {
+.iam-mobile-nav-hamburger[data-open='true']:not([data-back='true']) .iam-mobile-nav-hamburger__line {
   width: 18px;
+}
+
+/* Active conversation: morph hamburger lines into left chevron (<). */
+.iam-mobile-nav-hamburger[data-back='true'] .iam-mobile-nav-hamburger__line--1 {
+  width: 11px;
+  transform: translate(1px, 4.5px) rotate(-45deg);
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.iam-mobile-nav-hamburger[data-back='true'] .iam-mobile-nav-hamburger__line--2 {
+  width: 0;
+  opacity: 0;
+}
+
+.iam-mobile-nav-hamburger[data-back='true'] .iam-mobile-nav-hamburger__line--3 {
+  width: 11px;
+  transform: translate(1px, -4.5px) rotate(45deg);
+  background: rgba(255, 255, 255, 0.85);
 }
 
 /* Fixed below 40px top bar — back + hamburger cluster (not in header). */

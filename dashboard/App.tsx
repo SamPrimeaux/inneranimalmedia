@@ -1475,6 +1475,31 @@ const App: React.FC = () => {
     setAgentPosition('off');
   }, []);
 
+  const urlAgentSessionId = useMemo(() => {
+    try {
+      return new URLSearchParams(location.search).get('session')?.trim() || '';
+    } catch {
+      return '';
+    }
+  }, [location.search]);
+
+  const mobileHamburgerConversationBack =
+    isNarrowViewport &&
+    agentPosition !== 'off' &&
+    !!(activeAgentConversationId?.trim() || urlAgentSessionId);
+
+  const narrowBackToAgentHome = useCallback(() => {
+    try {
+      localStorage.removeItem(LS_AGENT_CHAT_CONVERSATION_ID);
+    } catch {
+      /* ignore */
+    }
+    window.dispatchEvent(new CustomEvent(IAM_AGENT_CHAT_CONVERSATION_CHANGE, { detail: { id: null } }));
+    if (urlAgentSessionId && isAgentShellPath(location.pathname)) {
+      navigate(AGENT_HOME_PATH, { replace: true });
+    }
+  }, [location.pathname, navigate, urlAgentSessionId]);
+
   const openGitHubFromChat = useCallback((opts?: { expandRepoFullName?: string }) => {
     const fn = opts?.expandRepoFullName?.trim();
     if (fn) setGithubExpandRepo(fn);
@@ -2936,9 +2961,11 @@ const App: React.FC = () => {
         onToggle={() => setMobileNavOpen((v) => !v)}
         onClose={() => setMobileNavOpen(false)}
         settingsIntegrationsActive={settingsIntegrationsActive}
-        showBack={narrowNeedsBack}
+        showBack={narrowNeedsBack && !mobileHamburgerConversationBack}
         backLabel={mobileBackLabel}
         onBack={narrowBackToCenter}
+        hamburgerBackMode={mobileHamburgerConversationBack}
+        onHamburgerBack={narrowBackToAgentHome}
       />
 
       {securityShieldAlert && !securityBannerDismissed && (
@@ -3009,6 +3036,7 @@ const App: React.FC = () => {
                         onBrowserNavigate={handleBrowserNavigateFromAgent}
                         onOpenGitHubIntegration={openGitHubFromChat}
                         onMobileOpenDashboard={openDashboardFromChat}
+                        onOpenQuickstart={openAgentQuickstart}
                         onOpenCodeTab={focusCodeEditorFromChat}
               onLoadingChange={setAgentIsStreaming}
               onApprovalRequired={setActiveCommandRunId}
@@ -3636,6 +3664,7 @@ const App: React.FC = () => {
                             onBrowserNavigate={handleBrowserNavigateFromAgent}
                             onOpenGitHubIntegration={openGitHubFromChat}
                             onMobileOpenDashboard={openDashboardFromChat}
+                            onOpenQuickstart={openAgentQuickstart}
                             onOpenCodeTab={focusCodeEditorFromChat}
                             onLoadingChange={setAgentIsStreaming}
                             onApprovalRequired={setActiveCommandRunId}

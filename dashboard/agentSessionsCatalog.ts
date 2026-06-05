@@ -1,11 +1,15 @@
 export type AgentSessionRow = {
   id: string;
+  conversation_id?: string;
+  name_key?: string;
   session_type?: string;
   status?: string;
   started_at?: number | string;
   message_count?: number;
   has_artifacts?: boolean;
   name?: string | null;
+  workspace_id?: string | null;
+  model_used?: string | null;
 };
 
 export function sessionStartedAtMs(s: AgentSessionRow): number {

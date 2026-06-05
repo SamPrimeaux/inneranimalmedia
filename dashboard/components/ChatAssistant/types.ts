@@ -181,6 +181,8 @@ export interface ChatAssistantProps {
   onOpenCodeTab?: () => void;
   /** Open the Search sidebar (knowledge + chat history). */
   onOpenChatHistory?: () => void;
+  /** Mobile agent home: Quickstart chip → /dashboard/agent/quickstart. */
+  onOpenQuickstart?: () => void;
   /** `agentsam_user_policy` row fields for the active workspace (from App bootstrap). */
   agentsamPolicy?: Record<string, unknown> | null;
   /** IAM workspace id (`auth_users.active_workspace_id` / settings) — scopes approval polling and APIs. */

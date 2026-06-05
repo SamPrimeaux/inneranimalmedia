@@ -117,6 +117,8 @@ export type AgentMessageListProps = {
   approvalBusy?: boolean;
   onApprovePendingTool?: () => void;
   onDenyPendingTool?: () => void;
+  /** Mobile agent home renders history elsewhere — skip centered empty state. */
+  suppressEmptyPlaceholder?: boolean;
 };
 
 function renderMessageContent(
@@ -439,13 +441,14 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
   approvalBusy = false,
   onApprovePendingTool,
   onDenyPendingTool,
+  suppressEmptyPlaceholder = false,
 }) => {
   return (
     <div
       ref={scrollRef}
       className="order-4 flex flex-col flex-1 min-h-0 min-w-0 overflow-y-auto overscroll-contain px-3 sm:px-4 pt-6 pb-4 space-y-6 w-full max-w-full chat-hide-scroll"
     >
-      {showEmptyThreadPlaceholder ? (
+      {showEmptyThreadPlaceholder && !suppressEmptyPlaceholder ? (
         <div className="flex flex-col items-center justify-center flex-1 gap-3 px-6">
           <img
             src={

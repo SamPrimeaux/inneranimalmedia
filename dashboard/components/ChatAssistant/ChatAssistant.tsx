@@ -98,6 +98,7 @@ import { formatHttpErrorMessage } from './streamParsing';
 import { consumeAgentChatSseBody } from './hooks/useAgentChatStream';
 import { initIamAgentStreamDebug, patchIamAgentStreamDebug } from './streamDebug';
 import { AgentMessageList } from './components/AgentMessageList';
+import { AgentMobileHomePanel } from './components/AgentMobileHomePanel';
 import { AgentComposerSourceChips } from './composer/AgentComposerSourceChips';
 import { AgentComposerPlusMenu } from './composer/AgentComposerPlusMenu';
 import { useComposerIntegrations } from './composer/useComposerIntegrations';
@@ -182,6 +183,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   agentRunId = null,
   onAgentRunContext,
   onOpenChatHistory,
+  onOpenQuickstart,
   agentsamPolicy = null,
   workspaceId = null,
   syncedHostConversationId,
@@ -474,15 +476,19 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   }, [isNarrow]);
 
   const [sessions, setSessions] = useState<AgentSessionRow[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(true);
   const hydratedFromLsRef = useRef(false);
 
   const loadSessions = useCallback(async () => {
+    setSessionsLoading(true);
     try {
       const r = await fetch('/api/agent/sessions', { credentials: 'same-origin' });
       const data = r.ok ? await r.json() : [];
       setSessions(Array.isArray(data) ? (data as AgentSessionRow[]) : []);
     } catch {
       setSessions([]);
+    } finally {
+      setSessionsLoading(false);
     }
   }, []);
 
@@ -2269,13 +2275,20 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
   const mobileAgentsThread = isNarrow && mobileHubTab === 'agents';
   const hubBodyVisible = isNarrow && mobileHubTab !== 'agents';
+  const mobileAgentHomeMode =
+    isNarrow &&
+    mobileHubTab === 'agents' &&
+    mobileThreadTab === 'chat' &&
+    showEmptyThreadPlaceholder &&
+    !conversationId.trim();
   const messagesVisible =
-    !isNarrow || (mobileHubTab === 'agents' && mobileThreadTab === 'chat');
+    !mobileAgentHomeMode &&
+    (!isNarrow || (mobileHubTab === 'agents' && mobileThreadTab === 'chat'));
   const contextTabVisible =
     isNarrow && mobileHubTab === 'agents' && mobileThreadTab === 'context';
   const composerVisible =
     !isNarrow || (mobileHubTab === 'agents' && mobileThreadTab === 'chat');
-  const composerFlexOrder = 'order-5';
+  const composerFlexOrder = mobileAgentHomeMode ? 'order-3' : 'order-5';
 
   const modelPickerGroups = useMemo(() => {
     const order: string[] = [];
@@ -2551,6 +2564,21 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
         <div className="flex flex-1 min-h-0 overflow-hidden min-w-0">
         <div className="flex flex-col flex-1 min-h-0 overflow-hidden min-w-0">
+        {mobileAgentHomeMode ? (
+          <div className="order-2 shrink-0 flex justify-center pt-2 pb-1 px-3">
+            <img
+              src={
+                isDarkTheme
+                  ? 'https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/dbb316af-9c97-4959-f09f-bf58b2783d00/avatar'
+                  : 'https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/11f6af46-0a3c-482a-abe8-83edc5a8a200/avatar'
+              }
+              alt="Inner Animal Media"
+              width={48}
+              height={48}
+              className="object-contain opacity-90"
+            />
+          </div>
+        ) : null}
         {hubBodyVisible && (
           <div className="order-1 flex-1 min-h-0 overflow-y-auto chat-hide-scroll px-4 py-4 space-y-4">
             {mobileHubTab === 'automations' ? (
@@ -2628,6 +2656,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         <AgentMessageList
             scrollRef={scrollRef}
             showEmptyThreadPlaceholder={showEmptyThreadPlaceholder}
+            suppressEmptyPlaceholder={mobileAgentHomeMode}
             displayMessages={displayMessages}
             isLoading={isLoading}
             mode={mode}
@@ -2651,6 +2680,19 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           />
           </>
         )}
+
+        {mobileAgentHomeMode ? (
+          <div className="order-4 flex flex-col flex-1 min-h-0 overflow-hidden min-w-0">
+            <AgentMobileHomePanel
+              sessions={sessions}
+              sessionsLoading={sessionsLoading}
+              workspaces={workspaces}
+              activeWorkspaceId={effectiveWsId}
+              defaultRepoLabel={githubRepoContext}
+              onQuickstart={onOpenQuickstart}
+            />
+          </div>
+        ) : null}
 
         {contextTabVisible && (
           <div className="order-4 flex-1 min-h-0 overflow-y-auto chat-hide-scroll px-4 py-4 space-y-4 border-t border-[var(--dashboard-border)]">
@@ -2696,9 +2738,17 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
         {composerVisible && (
         <div
-          className={`${composerFlexOrder} flex-shrink-0 w-full min-w-0 max-w-full px-3 pt-2 bg-[var(--dashboard-panel)] border-t border-[var(--dashboard-border)] space-y-2`}
+          className={`${composerFlexOrder} flex-shrink-0 w-full min-w-0 max-w-full px-3 pt-2 bg-[var(--dashboard-panel)] space-y-2 ${
+            mobileAgentHomeMode
+              ? 'border-b border-[var(--dashboard-border)]'
+              : 'border-t border-[var(--dashboard-border)]'
+          }`}
           style={{
-            paddingBottom: isNarrow ? MOBILE_CHAT_COMPOSER_BOTTOM_PAD : 'calc(env(safe-area-inset-bottom, 0px) + 16px)',
+            paddingBottom: isNarrow && !mobileAgentHomeMode
+              ? MOBILE_CHAT_COMPOSER_BOTTOM_PAD
+              : mobileAgentHomeMode
+                ? 'calc(env(safe-area-inset-bottom, 0px) + 8px)'
+                : 'calc(env(safe-area-inset-bottom, 0px) + 16px)',
           }}
         >
           <ToolApprovalModal
@@ -2849,7 +2899,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                 onKeyDown={onKeyDown}
                 onSelect={(ev) => syncPickers(ev.currentTarget.value, ev.currentTarget.selectionStart)}
                 onClick={(ev) => syncPickers(ev.currentTarget.value, ev.currentTarget.selectionStart)}
-                placeholder="Message Agent Sam..."
+                placeholder={mobileAgentHomeMode ? 'What should we work on?' : 'Message Agent Sam...'}
                 rows={1}
                 className={`w-full min-w-0 bg-transparent px-3 pt-2.5 pb-1 focus:outline-none text-[var(--dashboard-text)] placeholder:text-[var(--text-placeholder-strong)] resize-none font-sans leading-relaxed ${
                   isNarrow ? 'text-base' : 'text-[0.8125rem]'

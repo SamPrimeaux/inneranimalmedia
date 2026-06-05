@@ -10,6 +10,9 @@ type MobileNavShellProps = {
   showBack?: boolean;
   backLabel?: string | null;
   onBack?: () => void;
+  /** Agent thread active — hamburger morphs to back chevron. */
+  hamburgerBackMode?: boolean;
+  onHamburgerBack?: () => void;
 };
 
 /**
@@ -23,6 +26,8 @@ export function MobileNavShell({
   showBack = false,
   backLabel = null,
   onBack,
+  hamburgerBackMode = false,
+  onHamburgerBack,
 }: MobileNavShellProps) {
   return (
     <>
@@ -35,7 +40,11 @@ export function MobileNavShell({
           <MobileNavBackButton label={backLabel} onClick={onBack} />
         ) : null}
         <div className="iam-mobile-nav-hamburger-anchor">
-          <MobileNavHamburger open={open} onClick={onToggle} />
+          <MobileNavHamburger
+            open={open}
+            backMode={hamburgerBackMode}
+            onClick={hamburgerBackMode && onHamburgerBack ? onHamburgerBack : onToggle}
+          />
         </div>
       </div>
       <MobileNavDrawer

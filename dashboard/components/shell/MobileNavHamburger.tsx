@@ -1,17 +1,26 @@
 type MobileNavHamburgerProps = {
   open: boolean;
+  /** Morph lines into a left chevron — active conversation back affordance. */
+  backMode?: boolean;
   onClick: () => void;
 };
 
 /** Glassmorphic circular hamburger — mobile shell only (CSS lines, no icon lib). */
-export function MobileNavHamburger({ open, onClick }: MobileNavHamburgerProps) {
+export function MobileNavHamburger({ open, backMode = false, onClick }: MobileNavHamburgerProps) {
+  const ariaLabel = backMode
+    ? 'Back to agent home'
+    : open
+      ? 'Close navigation menu'
+      : 'Open navigation menu';
+
   return (
     <button
       type="button"
       className="iam-mobile-nav-hamburger"
       data-open={open ? 'true' : 'false'}
-      aria-label={open ? 'Close navigation menu' : 'Open navigation menu'}
-      aria-expanded={open}
+      data-back={backMode ? 'true' : 'false'}
+      aria-label={ariaLabel}
+      aria-expanded={backMode ? undefined : open}
       onClick={onClick}
     >
       <span className="iam-mobile-nav-hamburger__lines" aria-hidden>
