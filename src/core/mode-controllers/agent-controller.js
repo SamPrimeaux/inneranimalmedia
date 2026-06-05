@@ -6,6 +6,8 @@ import { toolsManifestFromCompiledRows } from '../runtime-profile.js';
 import { executeRwsSpawnFanout, shouldRunRwsFanout } from '../rws-spawn-fanout.js';
 import { runtimeContextPayload, legacyContextPayload } from './runtime-context.js';
 import { resolveAgentChatLaneContextBlock } from '../agent-chat-lane-context.js';
+import { compactConversationMessagesIfNeeded } from '../conversation-compaction.js';
+import { scheduleChatExecutionContextSnapshot } from '../execution-context-snapshot.js';
 
 const SSE_HEADERS = {
   'Content-Type': 'text/event-stream',
@@ -153,6 +155,12 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
     }
   }
 
+  const projectContextBlock =
+    input.projectContextBlock != null ? String(input.projectContextBlock).trim() : '';
+  if (projectContextBlock && !systemPrompt.includes(projectContextBlock.slice(0, 40))) {
+    systemPrompt = `${systemPrompt}\n\n${projectContextBlock}`;
+  }
+
   if (profile.mode === 'debug') {
     systemPrompt +=
       '\n\n## Debug mode\nHypothesize first. Prefer read/search/log evidence before broad edits. ' +
@@ -260,10 +268,37 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
   );
 
   const maxRunMs = profile.max_runtime_ms || 90000;
-  const chatMessages =
+  let chatMessages =
     Array.isArray(body.messages) && body.messages.length
       ? [...body.messages]
       : [{ role: 'user', content: message }];
+
+  const activeToolNames = tools
+    .map((t) => String(t?.name || t?.function?.name || '').trim())
+    .filter(Boolean);
+
+  if (userId && workspaceId && sessionId) {
+    try {
+      const compacted = await compactConversationMessagesIfNeeded(env, ctx, {
+        messages: chatMessages,
+        userId,
+        workspaceId,
+        tenantId,
+        conversationId: sessionId,
+        activeTools: activeToolNames,
+      });
+      chatMessages = compacted.messages;
+      scheduleChatExecutionContextSnapshot(env, ctx, {
+        agentRunId: chatAgentRunId,
+        workspaceId,
+        tenantId,
+        conversationId: sessionId,
+        contextTokens: compacted.estimated ?? 0,
+      });
+    } catch (e) {
+      console.warn('[agent-controller] compaction_pipeline', e?.message ?? e);
+    }
+  }
 
   (async () => {
     const chatT0 = Date.now();

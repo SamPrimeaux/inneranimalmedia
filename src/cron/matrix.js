@@ -17,7 +17,7 @@
  * Retention ownership (DELETE path):
  * | Table | Days | Cron |
  * |-------|------|------|
- * | agentsam_tool_call_log | 30 | midnight `runRetentionPurge` |
+ * | agentsam_tool_call_log | 1 (24h) | midnight `runRetentionPurge` (after usage rollup; pre-purge → tool_stats_compacted + compaction_events + context_digest) |
  * | agentsam_tool_chain | 60 | midnight |
  * | agentsam_mcp_tool_execution | 30 | midnight |
  * | agentsam_execution_steps | 30 | midnight |

@@ -198,10 +198,70 @@ export async function rollupAgentsamUsageDaily(env) {
     } catch (repairErr) {
       console.warn('[rollupAgentsamUsageDaily] breakdown repair failed', repairErr?.message || repairErr);
     }
-    return { ok: true, changes: r.meta?.changes ?? r.changes ?? 0, breakdown_repair: breakdownRepair };
+    const topToolsPatch = await patchDailyTopToolsJson(env);
+    return {
+      ok: true,
+      changes: r.meta?.changes ?? r.changes ?? 0,
+      breakdown_repair: breakdownRepair,
+      top_tools_patched: topToolsPatch?.patched ?? 0,
+    };
   } catch (e) {
     return { ok: false, error: String(e?.message || e) };
   }
+}
+
+/** Snapshot per-workspace top tools into agentsam_usage_rollups_daily before 24h tool log purge. */
+export async function patchDailyTopToolsJson(env) {
+  if (!env?.DB) return { patched: 0 };
+  const toolCols = await pragmaTableInfo(env.DB, 'agentsam_tool_call_log');
+  const rollCols = await pragmaTableInfo(env.DB, 'agentsam_usage_rollups_daily');
+  if (!toolCols.has('tool_name') || !toolCols.has('created_at') || !rollCols.has('top_tools_json')) {
+    return { patched: 0, skipped: true };
+  }
+
+  const wsExpr = toolCols.has('workspace_id')
+    ? `COALESCE(NULLIF(trim(workspace_id), ''), 'default')`
+    : `'default'`;
+  const tenantExpr = toolCols.has('tenant_id')
+    ? `COALESCE(NULLIF(trim(tenant_id), ''), '${DEFAULT_TENANT}')`
+    : `'${DEFAULT_TENANT}'`;
+  const toolDay = `date(datetime(created_at, 'unixepoch')) = date('now','-1 day')`;
+
+  const { results = [] } = await env.DB.prepare(
+    `SELECT ${tenantExpr} AS tenant_id, ${wsExpr} AS workspace_id, tool_name, COUNT(*) AS c
+     FROM agentsam_tool_call_log
+     WHERE ${toolDay} AND tool_name IS NOT NULL AND trim(tool_name) != ''
+     GROUP BY ${tenantExpr}, ${wsExpr}, tool_name
+     ORDER BY c DESC`,
+  )
+    .all()
+    .catch(() => ({ results: [] }));
+
+  const byWs = new Map();
+  for (const row of results) {
+    const tenantId = String(row.tenant_id || DEFAULT_TENANT);
+    const workspaceId = String(row.workspace_id || 'default');
+    const key = `${tenantId}\0${workspaceId}`;
+    if (!byWs.has(key)) byWs.set(key, []);
+    const arr = byWs.get(key);
+    if (arr.length < 5) arr.push({ tool: String(row.tool_name), count: Number(row.c) || 0 });
+  }
+
+  let patched = 0;
+  for (const [key, tools] of byWs) {
+    const [tenantId, workspaceId] = key.split('\0');
+    const topJson = JSON.stringify(tools);
+    const ur = await env.DB.prepare(
+      `UPDATE agentsam_usage_rollups_daily
+       SET top_tools_json = ?
+       WHERE tenant_id = ? AND workspace_id = ? AND day = date('now','-1 day')`,
+    )
+      .bind(topJson, tenantId, workspaceId)
+      .run()
+      .catch(() => null);
+    patched += Number(ur?.meta?.changes ?? ur?.changes ?? 0) || 0;
+  }
+  return { patched };
 }
 
 export async function rollupMcpToolCallStats(env) {
@@ -843,7 +903,7 @@ export async function purgeHotLogs(env) {
   if (!env?.DB) return { purges: {}, ok: false };
   const purges = {};
   const specs = [
-    { table: 'agentsam_usage_events', days: 7, prefs: ['created_at'] },
+    { table: 'agentsam_usage_events', days: 1, prefs: ['created_at'] },
     { table: 'agentsam_mcp_tool_execution', days: 7, prefs: ['created_at'] },
     { table: 'agentsam_webhook_events', days: 7, prefs: ['received_at', 'processed_at'] },
     { table: 'spend_ledger', days: 30, prefs: ['occurred_at', 'created_at'] },

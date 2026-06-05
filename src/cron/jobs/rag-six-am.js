@@ -1,5 +1,4 @@
 import { runAgentsamMemoryDecay } from '../../core/memory.js';
-import { compactAgentChatsToR2 } from './compact-agent-chats.js';
 import { indexMemoryMarkdownToVectorize } from './index-memory-vectorize.js';
 import { runKnowledgeDailySync } from './knowledge-daily-sync.js';
 import { runWebhookEventsMaintenanceCron } from './webhook-events-maintenance.js';
@@ -13,21 +12,7 @@ import { writeDailySnapshot } from './write-daily-snapshot.js';
 export function scheduleSixAmRagJobs(env, ctx) {
   console.log('[cron] Starting daily doc sync (compact -> knowledge sync -> Vectorize index)');
   ctx.waitUntil(
-    compactAgentChatsToR2(env)
-      .then((r) => {
-        if (r.error) console.error('[cron] RAG compact-chats failed:', r.error);
-        else {
-          console.log(
-            '[cron] RAG compact-chats:',
-            r.conversations,
-            'conversations,',
-            r.messages,
-            'messages ->',
-            r.key,
-          );
-        }
-      })
-      .then(() => runKnowledgeDailySync(env))
+    runKnowledgeDailySync(env)
       .then((r) => {
         if (r.memory_key || r.priorities_key) {
           console.log('[cron] knowledge sync:', r.memory_key, r.priorities_key);

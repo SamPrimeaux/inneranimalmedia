@@ -10,6 +10,15 @@ export async function runToolCacheMaintenance(env) {
 
   let rowsWritten = 0;
 
+  const expiredDel = await env.DB.prepare(
+    `DELETE FROM agentsam_tool_cache
+     WHERE expires_at IS NOT NULL AND expires_at < datetime('now')
+     LIMIT 500`,
+  )
+    .run()
+    .catch(() => null);
+  rowsWritten += Number(expiredDel?.meta?.changes) || 0;
+
   const ttlDel = await env.DB.prepare(
     `DELETE FROM agentsam_tool_cache
      WHERE created_at < datetime('now', '-${TOOL_CACHE_TTL_DAYS} days')

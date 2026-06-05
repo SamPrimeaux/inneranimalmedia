@@ -12,14 +12,9 @@ import { scheduleSixAmRagJobs } from './jobs/rag-six-am.js';
 import { writeDailySnapshot } from './jobs/write-daily-snapshot.js';
 import { runThirtyMinuteJobs, runHourlyRoutingJobs } from './jobs/thirty-minute-cron.js';
 import { runWebhookPayloadPurgeCron } from './jobs/webhook-payload-purge.js';
-import {
-  compactAgentsamToolCallLogToStats,
-  rollupExecutionPerformanceMetrics,
-  rollupOtlpTracesDaily,
-} from '../core/memory.js';
-import { runEtoPipeline } from '../core/performance-eto.js';
+import { compactAgentsamToolCallLogToStats, rollupOtlpTracesDaily } from '../core/memory.js';
 import { rollupWorkerAnalytics } from '../core/worker-analytics-rollup.js';
-import { runToolCacheMaintenance } from './jobs/tool-cache-maintenance.js';
+import { runOneAmCompactionPipelineLedgered } from './jobs/one-am-compaction-pipeline.js';
 import { completeCronRun, failCronRun, startCronRun } from '../core/cron-run-ledger.js';
 
 const CRON_ONE_AM = '0 1 * * *';
@@ -59,7 +54,7 @@ async function cronLedgerWrap(env, jobName, cronExpr, fn) {
 }
 
 /**
- * `0 1 * * *` — webhook payload purge, worker analytics rollup, tool cache TTL, tool/execution rollups (memory decay runs at 06:00).
+ * `0 1 * * *` — unified compaction pipeline, webhook purge, worker analytics, MCP tool stats, OTLP rollup.
  * @param {any} env
  * @param {ExecutionContext} ctx
  */
@@ -75,9 +70,9 @@ function scheduleOneAmMaintenance(env, ctx) {
     ),
   );
   ctx.waitUntil(
-    cronLedgerWrap(env, 'tool_cache_maintenance', CRON_ONE_AM, () =>
-      runToolCacheMaintenance(env).catch((e) => {
-        console.warn('[cron] tool_cache_maintenance', e?.message ?? e);
+    cronLedgerWrap(env, 'one_am_compaction_pipeline', CRON_ONE_AM, () =>
+      runOneAmCompactionPipelineLedgered(env).catch((e) => {
+        console.warn('[cron] one_am_compaction_pipeline', e?.message ?? e);
         throw e;
       }),
     ),
@@ -89,18 +84,6 @@ function scheduleOneAmMaintenance(env, ctx) {
         throw e;
       }),
     ),
-  );
-  ctx.waitUntil(
-    cronLedgerWrap(env, 'execution_performance_rollup', CRON_ONE_AM, async () => {
-      await rollupExecutionPerformanceMetrics(env).catch((e) => {
-        console.warn('[cron] agentsam_execution_performance_metrics', e?.message ?? e);
-        throw e;
-      });
-      await runEtoPipeline(env).catch((e) => {
-        console.warn('[cron] agentsam_performance_eto_events', e?.message ?? e);
-        throw e;
-      });
-    }),
   );
   ctx.waitUntil(
     cronLedgerWrap(env, 'otlp_traces_rollup_daily', CRON_ONE_AM, () =>

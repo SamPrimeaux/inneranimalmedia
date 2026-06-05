@@ -1,5 +1,12 @@
 import { cronTenantId } from './cron-tenant.js';
 
+/** Handled exclusively by runOneAmCompactionPipeline — skip in policy-driven purge. */
+const ONE_AM_MANAGED_TABLES = new Set([
+  'agentsam_tool_call_log',
+  'agentsam_usage_events',
+  'agentsam_hook_execution',
+]);
+
 const RETENTION_PURGE_TABLE_CONFIG = {
   agentsam_webhook_events: { dateColumn: 'received_at_unix', compare: 'unix' },
   agentsam_hook_execution: { dateColumn: 'completed_at', compare: 'datetime' },
@@ -73,6 +80,10 @@ export async function runRetentionPurge(env) {
   const perTable = [];
   for (const policy of policies) {
     const table = policy.table_name != null ? String(policy.table_name).trim() : '';
+    if (ONE_AM_MANAGED_TABLES.has(table)) {
+      perTable.push({ table, deleted: 0, skipped: 'one_am_pipeline' });
+      continue;
+    }
     const cfg = RETENTION_PURGE_TABLE_CONFIG[table];
     if (!cfg) {
       console.warn('[cron] retention skip unknown table:', table);
@@ -119,7 +130,11 @@ export async function runRetentionPurge(env) {
     }
     grandTotal += deleted;
     if (deleted > 0 && !tablesAffected.includes(table)) tablesAffected.push(table);
-    perTable.push({ table, deleted, capped: deleted === 500 });
+    perTable.push({
+      table,
+      deleted,
+      capped: deleted === 500,
+    });
     if (deleted === 500) {
       console.log('[cron] retention deleted 500 rows from', table, '(more may remain until next cron)');
     }

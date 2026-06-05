@@ -35,6 +35,81 @@ function safeJson(obj, fallback = '{}') {
   }
 }
 
+/** Merge daily top_tools_json rows into a single top-5 list for the week. */
+function mergeTopToolsFromDailyRows(rows) {
+  const counts = new Map();
+  for (const row of rows || []) {
+    let parsed = [];
+    try {
+      parsed = JSON.parse(String(row.top_tools_json || '[]'));
+    } catch {
+      parsed = [];
+    }
+    if (!Array.isArray(parsed)) continue;
+    for (const item of parsed) {
+      const tool = String(item?.tool || item?.tool_name || '').trim();
+      if (!tool) continue;
+      counts.set(tool, (counts.get(tool) || 0) + (Number(item?.count) || 0));
+    }
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([tool, count]) => ({ tool, count }));
+}
+
+/**
+ * Tool call totals from agentsam_usage_rollups_daily (survives 24h tool_call_log purge).
+ * @param {import('@cloudflare/workers-types').D1Database} db
+ */
+async function loadWeeklyToolStatsFromRollups(db, tenantId, workspaceId, dataFrom, dataTo) {
+  const cols = await pragmaTableInfo(db, 'agentsam_usage_rollups_daily');
+  if (!cols.size || !cols.has('day')) return null;
+
+  const dayFrom = new Date(dataFrom * 1000).toISOString().slice(0, 10);
+  const dayTo = new Date(dataTo * 1000).toISOString().slice(0, 10);
+
+  let where = `day >= ? AND day < ?`;
+  const binds = [dayFrom, dayTo];
+  if (cols.has('tenant_id')) {
+    where += ` AND tenant_id = ?`;
+    binds.push(tenantId);
+  }
+  if (cols.has('workspace_id')) {
+    where += ` AND workspace_id = ?`;
+    binds.push(workspaceId);
+  }
+
+  const sums = await db
+    .prepare(
+      `SELECT
+         COALESCE(SUM(tool_calls), 0) AS total,
+         COALESCE(SUM(tool_successes), 0) AS successes,
+         COALESCE(SUM(tool_failures), 0) AS failures
+       FROM agentsam_usage_rollups_daily WHERE ${where}`,
+    )
+    .bind(...binds)
+    .first()
+    .catch(() => null);
+
+  const topRows = cols.has('top_tools_json')
+    ? (
+        await db
+          .prepare(`SELECT top_tools_json FROM agentsam_usage_rollups_daily WHERE ${where}`)
+          .bind(...binds)
+          .all()
+          .catch(() => ({ results: [] }))
+      ).results || []
+    : [];
+
+  return {
+    totalToolCalls: Number(sums?.total) || 0,
+    totalSuccesses: Number(sums?.successes) || 0,
+    totalFailures: Number(sums?.failures) || 0,
+    topToolsJson: safeJson(mergeTopToolsFromDailyRows(topRows), '[]'),
+  };
+}
+
 /**
  * Time filter: compare numeric unix-ish columns to [dataFrom, dataTo).
  * @param {string} col
@@ -123,7 +198,21 @@ export async function runWeeklyRollup(env) {
       let totalSuccesses = 0;
       let totalFailures = 0;
       let topToolsJson = '[]';
-      if (toolLogCols.size && toolLogCols.has('created_at')) {
+
+      const rollupToolStats = await loadWeeklyToolStatsFromRollups(
+        env.DB,
+        tenantId,
+        workspaceId,
+        dataFrom,
+        dataTo,
+      );
+      if (rollupToolStats) {
+        rowsRead += 2;
+        totalToolCalls = rollupToolStats.totalToolCalls;
+        totalSuccesses = rollupToolStats.totalSuccesses;
+        totalFailures = rollupToolStats.totalFailures;
+        topToolsJson = rollupToolStats.topToolsJson;
+      } else if (toolLogCols.size && toolLogCols.has('created_at')) {
         const timeExpr = unixWindowClause('created_at');
         let where = timeExpr;
         const binds = [dataFrom, dataTo];

@@ -354,8 +354,20 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
   /** Raised for long artifact/HTML streams (many small SSE reads). */
   const MAX_READS = 12000;
   const MAX_EMPTY_RUN = 200;
+  const CODE_ARTIFACT_CHAR_LIMIT = 48000;
+  const CODE_ARTIFACT_RE = /<!doctype|<!DOCTYPE|\bfunction\s|\bconst\s|export default|\bclass\s/;
+
+  const isCodeArtifactStream = () => CODE_ARTIFACT_RE.test(assistantStreamBuf);
 
   const stopStreamForSafety = (reason: 'max_ms' | 'max_reads' | 'max_empty_run') => {
+    console.error('[stream-limit] triggered:', {
+      reason,
+      outputLength: assistantStreamBuf.length,
+      sessionType: isCodeArtifactStream() ? 'code_artifact' : 'default',
+      model: 'client_sse',
+      readCount,
+      emptyRun,
+    });
     console.warn('[useAgentChatStream] safety_stop', {
       reason,
       readCount,
@@ -376,7 +388,9 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
     const suffix =
       reason === 'max_empty_run'
         ? '\n\n[Stream stopped: too many non-text chunks.]'
-        : `\n\n[Stream stopped: exceeded safety limits (${reason}).]`;
+        : reason === 'max_ms' || reason === 'max_reads'
+          ? '\n\n[Generation paused — reply to continue]'
+          : `\n\n[Stream stopped: exceeded safety limits (${reason}).]`;
     assistantStreamBuf += suffix;
     assistantContent = assistantStreamBuf;
     setMessages((prev) => {
@@ -424,7 +438,12 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
   sseLoop: while (true) {
     if (signal.aborted) break sseLoop;
     const overMs = Date.now() - streamStartedAt > MAX_STREAM_MS;
-    const overReads = !fileEchoSuppress && readCount >= MAX_READS;
+    const artifact = isCodeArtifactStream();
+    const readCap =
+      artifact && assistantStreamBuf.length < CODE_ARTIFACT_CHAR_LIMIT
+        ? MAX_READS * 2
+        : MAX_READS;
+    const overReads = !fileEchoSuppress && readCount >= readCap;
     const overEmpty = !fileEchoSuppress && emptyRun >= MAX_EMPTY_RUN;
     if (overMs || overReads || overEmpty) {
       stopStreamForSafety(overMs ? 'max_ms' : overReads ? 'max_reads' : 'max_empty_run');

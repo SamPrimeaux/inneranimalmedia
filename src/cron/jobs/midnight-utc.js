@@ -1,7 +1,6 @@
 import { completeCronRun, failCronRun, startCronRun } from '../../core/cron-run-ledger.js';
 import { runMasterDailyRetention } from '../../core/retention.js';
 import { runSecurityScan } from '../../core/security-scan.js';
-import { runMidnightUsageRollupPipeline } from '../../core/agentsam-midnight-rollup-pipeline.js';
 import {
   compactAgentsamToolCallLogToStats,
   rollupExecutionPerformanceMetrics,
@@ -11,7 +10,6 @@ import {
 import { sweepStaleCronRuns } from './thirty-minute-cron.js';
 import { runOvernightCronStep } from './overnight-progress.js';
 import { runEtoPipeline } from '../../core/performance-eto.js';
-import { runRetentionPurge } from '../retention-purge.js';
 import { archiveOldConversations } from './archive-old-conversations.js';
 import { sendDailyDigest } from './daily-digest.js';
 import { writeDailySnapshot } from './write-daily-snapshot.js';
@@ -68,9 +66,6 @@ async function cronLedgerWrap(env, jobName, cronExpr, fn, tenantId = null, works
  * @param {ExecutionContext} ctx
  */
 export async function runMidnightUtcJobs(env, ctx) {
-  if (env?.DB) {
-    ctx.waitUntil(cronLedgerWrap(env, 'retention_purge', CRON_MIDNIGHT, () => runRetentionPurge(env)));
-  }
   if (env?.DB) {
     ctx.waitUntil(
       cronLedgerWrap(env, 'oauth_expiry_cleanup', CRON_MIDNIGHT, async () => {
@@ -188,11 +183,6 @@ export async function runMidnightUtcJobs(env, ctx) {
           scanSources: ['agent_messages', 'terminal_history', 'agentsam_mcp_tool_execution'],
           triggeredBy: 'nightly_cron',
         }),
-      ),
-    );
-    ctx.waitUntil(
-      cronLedgerWrap(env, 'rollup_usage_events_daily', CRON_MIDNIGHT, () =>
-        runMidnightUsageRollupPipeline(env),
       ),
     );
     ctx.waitUntil(

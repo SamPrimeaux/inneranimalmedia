@@ -25,6 +25,7 @@ import {
   scheduleChatSessionTitleInsert,
   scheduleWorkspaceStateConversationUpdate,
 } from '../core/agentsam-chat-sessions.js';
+import { loadProjectContextSystemBlock } from '../core/project-context-budget.js';
 
 const SSE_HEADERS = {
   'Content-Type': 'text/event-stream',
@@ -49,8 +50,11 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
     const canonicalUserId = await resolveIntegrationUserId(env, { id: userId });
     if (canonicalUserId) userId = canonicalUserId;
   }
-  const workspaceId = pre.workspaceId != null ? String(pre.workspaceId) : null;
+  const workspaceId = pre.workspaceId != null ? String(pre.workspaceId).trim() : null;
   const sessionId = pre.sessionId != null ? String(pre.sessionId) : null;
+  if (!workspaceId) {
+    return jsonResponse({ error: 'workspace_resolution_failed' }, 400);
+  }
   const authUser = pre.authUser || { id: userId, tenant_id: tenantId };
   const quickstartBatch = pre.quickstartBatch != null ? String(pre.quickstartBatch) : '';
   const activeFileEnvelope = pre.activeFileEnvelope ?? null;
@@ -107,6 +111,8 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
     workspaceId,
   });
 
+  const projectContextBlock = await loadProjectContextSystemBlock(env, workspaceId);
+
   const intentMessageForMedia = message;
   const directImageIntent =
     hasImageGenerationIntent(intentMessageForMedia) && !isCodeImplementationIntent(intentMessageForMedia) &&
@@ -144,6 +150,7 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
     browserContextPayload,
     handoffResume,
     agentChatResolvedContext,
+    projectContextBlock,
   };
 
   switch (profile.mode_controller) {

@@ -175,12 +175,17 @@ export async function enforceEvalSlosPauseArms(env, opts = {}) {
   return { ok: true, armsPaused, eval_rows_scanned: (rows || []).length };
 }
 
-/** Reconcile Beta counts + decayed_score from recent agentsam_agent_run rows (replaces legacy routing_decisions cron). */
+/** Reconcile Beta counts from agentsam_performance_eto_events (durable ledger; raw agent_run rows are pruned). */
 export async function reconcileRoutingArmsFromAgentRuns(env) {
   if (!env?.DB) return;
-  const runCols = await pragmaTableInfo(env.DB, 'agentsam_agent_run');
+  const etoCols = await pragmaTableInfo(env.DB, 'agentsam_performance_eto_events');
   const armCols = await pragmaTableInfo(env.DB, 'agentsam_routing_arms');
-  if (!runCols.size || !runCols.has('routing_arm_id') || !armCols.size) return;
+  if (!etoCols.size || !armCols.size) return;
+  if (!etoCols.has('routing_arm_id') && !etoCols.has('inferred_routing_arm_id')) return;
+
+  const armExpr = etoCols.has('routing_arm_id')
+    ? `COALESCE(NULLIF(trim(e.routing_arm_id), ''), NULLIF(trim(e.inferred_routing_arm_id), ''))`
+    : `NULLIF(trim(e.inferred_routing_arm_id), '')`;
 
   const begun = await startCronRun(env, {
     jobName: 'routing_arms_reconcile_agent_run',
@@ -191,8 +196,8 @@ export async function reconcileRoutingArmsFromAgentRuns(env) {
   const runId = begun?.runId ?? null;
   const startedAt = begun?.startedAt ?? Date.now();
   try {
-    const dateFilter = runCols.has('created_at')
-      ? `AND datetime(COALESCE(r.created_at, '1970-01-01')) >= datetime('now', '-7 days')`
+    const dateFilter = etoCols.has('created_at')
+      ? `AND datetime(COALESCE(e.created_at, '1970-01-01')) >= datetime('now', '-7 days')`
       : '';
 
     const r1 = await env.DB
@@ -200,19 +205,25 @@ export async function reconcileRoutingArmsFromAgentRuns(env) {
         `
       UPDATE agentsam_routing_arms SET
         success_alpha = MAX(1.0, 1.0 + COALESCE((
-          SELECT COUNT(*) FROM agentsam_agent_run r
-          WHERE r.routing_arm_id = agentsam_routing_arms.id
-            AND COALESCE(r.status, '') = 'completed'
+          SELECT COUNT(*) FROM agentsam_performance_eto_events e
+          WHERE ${armExpr} = agentsam_routing_arms.id
+            AND e.source_table = 'agentsam_agent_run'
+            AND COALESCE(e.success, 0) = 1
             ${dateFilter}
         ), 0)),
         success_beta = MAX(1.0, 1.0 + COALESCE((
-          SELECT COUNT(*) FROM agentsam_agent_run r
-          WHERE r.routing_arm_id = agentsam_routing_arms.id
-            AND COALESCE(r.status, '') != 'completed'
+          SELECT COUNT(*) FROM agentsam_performance_eto_events e
+          WHERE ${armExpr} = agentsam_routing_arms.id
+            AND e.source_table = 'agentsam_agent_run'
+            AND COALESCE(e.success, 0) != 1
             ${dateFilter}
         ), 0)),
         updated_at = unixepoch()
-      WHERE id IN (SELECT DISTINCT routing_arm_id FROM agentsam_agent_run WHERE routing_arm_id IS NOT NULL)
+      WHERE id IN (
+        SELECT DISTINCT ${armExpr}
+        FROM agentsam_performance_eto_events e
+        WHERE e.source_table = 'agentsam_agent_run' AND ${armExpr} IS NOT NULL
+      )
     `,
       )
       .run();
@@ -223,7 +234,11 @@ export async function reconcileRoutingArmsFromAgentRuns(env) {
       UPDATE agentsam_routing_arms SET
         decayed_score = success_alpha / NULLIF(success_alpha + success_beta, 0),
         updated_at = unixepoch()
-      WHERE id IN (SELECT DISTINCT routing_arm_id FROM agentsam_agent_run WHERE routing_arm_id IS NOT NULL)
+      WHERE id IN (
+        SELECT DISTINCT ${armExpr}
+        FROM agentsam_performance_eto_events e
+        WHERE e.source_table = 'agentsam_agent_run' AND ${armExpr} IS NOT NULL
+      )
     `,
       )
       .run();

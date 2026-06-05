@@ -179,6 +179,7 @@ import {
 import { resolveCanonicalUserId } from './auth.js';
 import { resolveAgentDataScope } from '../core/data-isolation-scope.js';
 import { estimateModelRunCostUsd } from '../core/model-pricing.js';
+import { logPromptCacheUsage } from '../core/prompt-cache-economics.js';
 import {
   messageRequestsBrowserInspect,
   messageRequestsOpenWebSearch,
@@ -706,40 +707,6 @@ function inferArtifactFromAssistantText(text) {
   const name =
     rawLang && rawLang.length > 0 && rawLang.length < 80 ? rawLang : 'untitled';
   return { artifact_type, name };
-}
-
-async function logPromptCacheUsage(env, tenantId, layerKeys, routeKey, provider, modelKey) {
-  if (!env.DB || !layerKeys?.length) return;
-  try {
-    const layerKeysJson = JSON.stringify(layerKeys);
-    // Use the routeKey or a hash of the layer keys as the cache identifier
-    const hashInput = `${tenantId || 'global'}:${layerKeysJson}`;
-    const hashBuffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(hashInput));
-    const hash = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
-    
-    // Check if we already have this combination
-    const existing = await env.DB.prepare(`
-      SELECT id FROM agentsam_prompt_cache_keys 
-      WHERE cache_key_hash = ? AND tenant_id = ? 
-      LIMIT 1
-    `).bind(hash, tenantId || '').first().catch(() => null);
-
-    if (existing) {
-      await env.DB.prepare(`
-        UPDATE agentsam_prompt_cache_keys 
-        SET read_count = read_count + 1, last_read_at = datetime('now')
-        WHERE id = ?
-      `).bind(existing.id).run();
-    } else {
-      await env.DB.prepare(`
-        INSERT INTO agentsam_prompt_cache_keys 
-        (tenant_id, provider, model_key, cache_key_hash, layer_keys_json, route_key)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).bind(tenantId || '', provider || 'unknown', modelKey || 'unknown', hash, layerKeysJson, routeKey || null).run();
-    }
-  } catch (e) {
-    console.warn('[agent] logPromptCacheUsage failed:', e.message);
-  }
 }
 
 function extractLastAssistantPlainText(messages) {

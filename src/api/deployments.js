@@ -101,7 +101,15 @@ export async function handleDeploymentsApi(request, url, env, ctx) {
             });
 
             ctx.waitUntil(runPostDeployQualityChecks(env, deployId));
-            
+            ctx.waitUntil(
+              import('../core/deploy-code-index-queue.js').then(({ queueCodeIndexJobAfterDeploy }) =>
+                queueCodeIndexJobAfterDeploy(env, {
+                  workspaceId: body.workspace_id || body.workspaceId || null,
+                  triggeredBy: 'deploy',
+                }),
+              ),
+            );
+
             return jsonResponse({ ok: true, deployment_id: deployId });
         } catch (e) {
             return jsonResponse({ error: e.message }, 500);
