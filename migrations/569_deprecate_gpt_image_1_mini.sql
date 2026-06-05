@@ -64,7 +64,5 @@ INSERT OR IGNORE INTO agentsam_routing_arms (
   1.5, 1.0, 0.58, 1, 0, 1, 0, 0, 40, 0, '[]', 'media', 'low', unixepoch(), unixepoch()
 );
 
--- Legacy ai_models pricing table (if row exists)
-UPDATE ai_models
-SET updated_at = unixepoch()
-WHERE model_key = 'gpt-image-1-mini' AND provider = 'openai';
+-- Legacy ai_models pricing table (optional — not present on all D1 deployments)
+-- UPDATE ai_models SET updated_at = unixepoch() WHERE model_key = 'gpt-image-1-mini' AND provider = 'openai';
