@@ -10,6 +10,11 @@ import {
 } from '../core/auth.js';
 import { getR2Binding, listBoundR2BucketNames, r2LiveBucketStats } from './r2-api.js';
 import { upsertUserCloudflareR2Keys } from '../core/user-storage-r2-credentials.js';
+import {
+  buildStorageVectorsPayload,
+  upsertTenantVectorConnection,
+  deactivateTenantVectorConnection,
+} from '../core/storage-vectors-surface.js';
 
 const KNOWN_R2_BINDINGS = [
   { binding: 'ASSETS', storage_name: 'inneranimalmedia-assets', public: true },
@@ -137,7 +142,7 @@ function bindingIdentity(env, logicalName) {
   const b = getR2Binding(env, logicalName);
   if (b === env.ASSETS) return 'ASSETS';
   if (b === env.AUTORAG_BUCKET) return 'AUTORAG_BUCKET';
-  if (b === env.DASHBOARD) return 'DASHBOARD';
+  if (b === env.ASSETS) return 'DASHBOARD';
   if (b === env.R2) return 'R2';
   if (b === env.DOCS_BUCKET) return 'DOCS_BUCKET';
   return logicalName;
@@ -501,55 +506,72 @@ export async function handleStorageApi(request, url, env) {
     });
   }
 
-  // ── Vectors + AutoRAG registry ─────────────────────────────────
+  // ── Vectors: platform operator CF/pgvector vs tenant workspace lanes ──
   if (pathLower === '/api/storage/vectors' && method === 'GET') {
-    if (!env.DB) return jsonResponse({ source: 'd1_registry', data_quality: 'partial', last_synced_at: null, indexes: [], failed: ['DB'], ...baseMeta });
-    return cachedStorageResponse(env, 'vectors', tenantId, async (failed) => {
-      const registry = await q(env, failed, 'vectorize_index_registry', `
-        SELECT * FROM vectorize_index_registry
-        WHERE tenant_id = ? AND COALESCE(is_active,1) = 1
-        ORDER BY COALESCE(is_preferred,0) DESC, display_name
-      `, [tenantId]);
-      const indexRows = await Promise.all(registry.map(async (idx) => {
-        const [docRow, staleRow, recentDocs] = await Promise.all([
-          q(env, failed, 'vectorize_indexed_docs', `SELECT COUNT(*) AS doc_count FROM vectorize_indexed_docs WHERE index_id = ? AND COALESCE(is_current,1) = 1`, [idx.id], 'first'),
-          q(env, failed, 'vectorize_indexed_docs', `SELECT COUNT(*) AS stale_count FROM vectorize_indexed_docs WHERE index_id = ? AND COALESCE(is_current,1) = 0`, [idx.id], 'first'),
-          q(env, failed, 'vectorize_indexed_docs', `
-            SELECT source_r2_key, content_preview, chunk_index, token_count, indexed_at, is_current
-            FROM vectorize_indexed_docs
-            WHERE index_id = ?
-            ORDER BY indexed_at DESC LIMIT 5
-          `, [idx.id]),
-        ]);
-        const binding = idx.binding_name && env[idx.binding_name] ? env[idx.binding_name] : null;
-        let live = !!binding;
-        if (binding?.query) {
-          try { live = !!binding; } catch (_) { live = false; }
-        }
-        return {
-          ...idx,
-          doc_count: num(docRow?.doc_count),
-          stale_doc_count: num(staleRow?.stale_count),
-          recent_docs: recentDocs,
-          is_live_connected: live,
-          registry_status: 'registered',
-        };
-      }));
-      const liveMissing = [];
-      if (env.VECTORIZE && !indexRows.some((x) => x.binding_name === 'VECTORIZE')) {
-        liveMissing.push({ binding_name: 'VECTORIZE', registry_status: 'missing_from_vectorize_index_registry', is_live_connected: true });
-      }
+    if (!env.DB) {
+      return jsonResponse({
+        source: 'd1_registry',
+        data_quality: 'partial',
+        last_synced_at: null,
+        indexes: [],
+        can_view_platform: false,
+        failed: ['DB'],
+        ...baseMeta,
+      });
+    }
+    return cachedStorageResponse(env, `vectors_u_${userId}`, tenantId, async (failed) => {
+      const query = (sql, binds = [], mode = 'all') => q(env, failed, 'vectors_surface', sql, binds, mode);
+      const payload = await buildStorageVectorsPayload(env, authUser, url, tenantId, userId, query);
+      const hasData =
+        payload.platform_cf_indexes?.length ||
+        payload.platform_pgvector_lanes?.length ||
+        payload.workspace_pgvector_lanes?.length ||
+        payload.tenant_connections?.length;
       return {
         source: 'd1_registry',
-        data_quality: indexRows.length ? 'healthy' : 'fallback_live_scan',
-        last_synced_at: indexRows.reduce((m, x) => x.last_indexed_at && (!m || String(x.last_indexed_at) > String(m)) ? x.last_indexed_at : m, null),
-        indexes: [...indexRows, ...liveMissing],
-        total_stored_vectors: indexRows.reduce((s, x) => s + num(x.stored_vectors), 0),
-        total_indexed_docs: indexRows.reduce((s, x) => s + num(x.doc_count), 0),
-        total_queries_30d: indexRows.reduce((s, x) => s + num(x.queries_30d), 0),
+        data_quality: hasData ? 'healthy' : 'empty',
+        ...payload,
         ...baseMeta,
       };
     });
+  }
+
+  if (pathLower === '/api/storage/vector-connections' && method === 'POST') {
+    if (!env.DB) return jsonResponse({ error: 'Database not configured', ...baseMeta }, 503);
+    const body = await request.json().catch(() => ({}));
+    const workspaceId =
+      authUser.active_workspace_id != null && String(authUser.active_workspace_id).trim() !== ''
+        ? String(authUser.active_workspace_id).trim()
+        : body.workspace_id != null
+          ? String(body.workspace_id).trim()
+          : null;
+    try {
+      const id = await upsertTenantVectorConnection(env, tenantId, userId, body, workspaceId);
+      if (env.SESSION_CACHE?.delete) {
+        await env.SESSION_CACHE.delete(`storage_vectors_u_${userId}_${tenantId}`).catch(() => {});
+      }
+      return jsonResponse({ ok: true, id, ...baseMeta });
+    } catch (e) {
+      const msg = String(e?.message || e);
+      const code = msg.includes('not_found') ? 404 : msg.includes('required') || msg.includes('invalid') ? 400 : 500;
+      return jsonResponse({ error: msg }, code);
+    }
+  }
+
+  const vectorConnMatch = path.match(/^\/api\/storage\/vector-connections\/([^/]+)$/i);
+  if (vectorConnMatch && method === 'DELETE') {
+    if (!env.DB) return jsonResponse({ error: 'Database not configured', ...baseMeta }, 503);
+    const connectionId = decodeURIComponent(vectorConnMatch[1] || '').trim();
+    try {
+      await deactivateTenantVectorConnection(env, tenantId, userId, connectionId);
+      if (env.SESSION_CACHE?.delete) {
+        await env.SESSION_CACHE.delete(`storage_vectors_u_${userId}_${tenantId}`).catch(() => {});
+      }
+      return jsonResponse({ ok: true, id: connectionId, ...baseMeta });
+    } catch (e) {
+      const msg = String(e?.message || e);
+      return jsonResponse({ error: msg }, msg.includes('not_found') ? 404 : 500);
+    }
   }
 
   const cleanupMatch = path.match(/^\/api\/storage\/buckets\/([^/]+)\/cleanup$/i);
