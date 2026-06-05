@@ -1088,6 +1088,9 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
                 request,
                 activeFileEnvelope: activeFileEnvelopeParam,
                 userMessage: mcpCtx.userMessage ?? mcpCtx.message ?? null,
+                ...(mcpCtx.mcp_panel_slug != null && String(mcpCtx.mcp_panel_slug).trim() !== ''
+                  ? { mcp_panel_slug: String(mcpCtx.mcp_panel_slug).trim() }
+                  : {}),
                 ...runSpineIds,
               },
               resolvedContextParam,

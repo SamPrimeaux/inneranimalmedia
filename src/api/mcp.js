@@ -96,6 +96,29 @@ async function resolveAgentModel(env, preferredModelKey, tenantId) {
   return fallback || null;
 }
 
+/** Fixed MCP dashboard experiment zones — sole cards on /dashboard/mcp */
+const MCP_PANEL_ZONE_SLUGS = ['engineer', 'architect', 'cms', 'specialist'];
+
+function normalizeMcpPanelZoneSlug(raw) {
+  const s = String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, '');
+  if (MCP_PANEL_ZONE_SLUGS.includes(s)) return s;
+  const legacy = {
+    builder: 'engineer',
+    mcp_agent_builder: 'engineer',
+    mcp_agent_architect: 'architect',
+    mcp_agent_inspector: 'specialist',
+    mcp_agent_operator: 'engineer',
+    analyst: 'specialist',
+    devops: 'engineer',
+    operator: 'engineer',
+    inspector: 'specialist',
+  };
+  return legacy[s] ?? null;
+}
+
 const MCP_PANEL_SLUG_DENYLIST = [
   'recall',
   'toolbox',
@@ -410,8 +433,10 @@ export async function handleMcpApi(request, url, env, ctx) {
         return jsonResponse({ error: String(e?.message || e) }, 500);
       }
       if (!profile) return jsonResponse({ error: 'agent not found' }, 404);
+      const zoneSlug = normalizeMcpPanelZoneSlug(slug);
+      if (!zoneSlug) return jsonResponse({ error: 'invalid mcp zone slug' }, 400);
 
-      const sessionId = deterministicMcpPanelSessionId(slug, tenantId);
+      const sessionId = deterministicMcpPanelSessionId(zoneSlug, tenantId);
       const activeToolsJson = String(profile.allowed_tool_globs || '[]');
       const now = Math.floor(Date.now() / 1000);
       try {
@@ -428,16 +453,16 @@ export async function handleMcpApi(request, url, env, ctx) {
              updated_at        = excluded.updated_at,
              last_activity     = excluded.last_activity`,
         )
-          .bind(sessionId, slug, tenantId, activeToolsJson, now, now, slug)
+          .bind(sessionId, zoneSlug, tenantId, activeToolsJson, now, now, zoneSlug)
           .run();
       } catch (e) {
         return jsonResponse({ error: 'session upsert failed', detail: String(e?.message || e) }, 503);
       }
       return jsonResponse({
         session_id: sessionId,
-        slug,
+        slug: zoneSlug,
         status: 'idle',
-        display_name: profile.display_name || slug,
+        display_name: profile.display_name || zoneSlug,
       });
     }
 
@@ -772,8 +797,7 @@ export async function handleMcpApi(request, url, env, ctx) {
     }
 
     if (pathLower === '/api/mcp/agents' && method === 'GET') {
-      const typePlace = MCP_PANEL_AGENT_TYPES.map(() => '?').join(', ');
-      const slugPlace = MCP_PANEL_SLUG_DENYLIST.map(() => '?').join(', ');
+      const zonePlace = MCP_PANEL_ZONE_SLUGS.map(() => '?').join(', ');
       const sql = `
         SELECT id, slug, display_name, agent_type, default_model_id,
                instructions_markdown, allowed_tool_globs,
@@ -783,44 +807,20 @@ export async function handleMcpApi(request, url, env, ctx) {
                COALESCE(can_spawn_subagents, 0) AS can_spawn_subagents
           FROM agentsam_subagent_profile
          WHERE is_active = 1
-           AND COALESCE(agent_type, 'custom') IN (${typePlace})
-           AND slug NOT IN (${slugPlace})
+           AND slug IN (${zonePlace})
            AND (
                  COALESCE(is_platform_global, 0) = 1
               OR COALESCE(tenant_id, '') = ''
               OR tenant_id = ?
            )
          ORDER BY COALESCE(sort_order, 0) ASC, display_name ASC`;
-      const bindList = [...MCP_PANEL_AGENT_TYPES, ...MCP_PANEL_SLUG_DENYLIST, tenantId];
+      const bindList = [...MCP_PANEL_ZONE_SLUGS, tenantId];
       let profiles = [];
       try {
         const q = await env.DB.prepare(sql).bind(...bindList).all();
         profiles = q.results || [];
       } catch (e) {
-        try {
-          const sqlFallback = `
-            SELECT id, slug, display_name,
-                   COALESCE(agent_type, 'custom') AS agent_type,
-                   default_model_id,
-                   instructions_markdown, allowed_tool_globs,
-                   COALESCE(description, '') AS description,
-                   COALESCE(icon, '') AS icon,
-                   COALESCE(sort_order, 0) AS sort_order
-              FROM agentsam_subagent_profile
-             WHERE is_active = 1
-               AND COALESCE(agent_type, 'custom') IN (${typePlace})
-               AND slug NOT IN (${slugPlace})
-               AND (
-                     COALESCE(is_platform_global, 0) = 1
-                  OR COALESCE(tenant_id, '') = ''
-                  OR tenant_id = ?
-               )
-             ORDER BY COALESCE(sort_order, 0) ASC, display_name ASC`;
-          const q2 = await env.DB.prepare(sqlFallback).bind(...bindList).all();
-          profiles = q2.results || [];
-        } catch (e2) {
-          return jsonResponse({ error: 'agents query failed', detail: String(e2?.message || e2) }, 500);
-        }
+        return jsonResponse({ error: 'agents query failed', detail: String(e?.message || e) }, 500);
       }
 
       const agents = [];
@@ -1008,20 +1008,24 @@ export async function handleMcpApi(request, url, env, ctx) {
 
     if (pathLower === '/api/mcp/dispatch' && method === 'POST') {
       const body = await request.json().catch(() => ({}));
-      const prompt = String(body.prompt || '').trim();
+      const prompt = String(body.prompt || body.message || '').trim();
       if (!prompt) return jsonResponse({ error: 'prompt required' }, 400);
 
-      const { agentId: resolvedId, routedBy } = await resolveAgentIdFromIntent(env, prompt);
-      let agentId = normalizeMcpAgentId(resolvedId);
-      if (!MCP_CARD_AGENT_IDS.includes(agentId)) agentId = 'mcp_agent_builder';
+      let zoneSlug = normalizeMcpPanelZoneSlug(body.agent || body.agent_slug || body.agent_id);
+      let routedBy = zoneSlug ? 'explicit_zone' : 'default';
+      if (!zoneSlug) {
+        const { agentId: resolvedId, routedBy: intentRoute } = await resolveAgentIdFromIntent(env, prompt);
+        zoneSlug = normalizeMcpPanelZoneSlug(resolvedId) || 'engineer';
+        routedBy = intentRoute;
+      }
+      const agentId = zoneSlug;
       const names = {
-        mcp_agent_architect: 'Architect',
-        mcp_agent_builder: 'Builder',
-        mcp_agent_tester: 'Inspector',
-        mcp_agent_inspector: 'Inspector',
-        mcp_agent_operator: 'Operator',
+        engineer: 'Engineer',
+        architect: 'Architect',
+        cms: 'CMS',
+        specialist: 'Specialist',
       };
-      const agentName = names[agentId] || 'Builder';
+      const agentName = names[zoneSlug] || zoneSlug;
 
       const workspaceParam =
         body.workspace_id != null && String(body.workspace_id).trim() !== ''
@@ -1060,15 +1064,24 @@ export async function handleMcpApi(request, url, env, ctx) {
 
       const dispatchTenantId = actorRes.tenantId;
 
-      const sessionId = crypto.randomUUID();
+      const sessionId = deterministicMcpPanelSessionId(zoneSlug, dispatchTenantId);
       const toolCallId = crypto.randomUUID();
       const now = Math.floor(Date.now() / 1000);
       const messagesJson = JSON.stringify([{ role: 'user', content: prompt }]);
       try {
         await env.DB.prepare(
-          `INSERT INTO mcp_agent_sessions (id, agent_id, tenant_id, status, current_task, progress_pct, stage, logs_json, active_tools_json, cost_usd, messages_json, tool_calls_count, last_activity, created_at, updated_at)
-               VALUES (?, ?, ?, 'running', ?, 0, 'queued', '[]', '[]', 0, ?, 1, ?, ?, ?)`
-        ).bind(sessionId, agentId, dispatchTenantId, prompt, messagesJson, String(now), now, now).run();
+          `INSERT INTO mcp_agent_sessions (id, agent_id, tenant_id, status, current_task, progress_pct, stage, logs_json, active_tools_json, cost_usd, messages_json, tool_calls_count, last_activity, created_at, updated_at, panel)
+               VALUES (?, ?, ?, 'running', ?, 0, 'queued', '[]', '[]', 0, ?, 1, ?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET
+             agent_id = excluded.agent_id,
+             status = 'running',
+             current_task = excluded.current_task,
+             stage = 'queued',
+             messages_json = excluded.messages_json,
+             panel = excluded.panel,
+             updated_at = excluded.updated_at,
+             last_activity = excluded.last_activity`
+        ).bind(sessionId, agentId, dispatchTenantId, prompt, messagesJson, String(now), now, now, zoneSlug).run();
       } catch (err) {
         return jsonResponse(
           { error: 'mcp_agent_sessions table missing or insert failed', detail: String(err?.message || err) },

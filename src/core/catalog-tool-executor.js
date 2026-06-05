@@ -1017,6 +1017,39 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         wrapShellCommandWithPath,
       } = await import('./mcp-terminal-contract.js');
 
+      if (toolKey === 'agentsam_terminal_sandbox') {
+        const { runMcpZoneSandboxCommand, normalizeMcpZoneSlug } = await import('./terminal-sandbox.js');
+        const rawCmd = String(params.command || params.cmd || '').trim();
+        if (!rawCmd) {
+          result = { ok: false, error: 'terminal sandbox requires command in input' };
+          break;
+        }
+        const zoneSlug = normalizeMcpZoneSlug(
+          params.zone_slug ?? params.zoneSlug ?? runContext.mcp_panel_slug ?? runContext.mcpZoneSlug,
+        );
+        const sb = await runMcpZoneSandboxCommand(env, runContext?.request, {
+          command: rawCmd,
+          zoneSlug,
+          tenantId,
+          userId,
+          workspaceId,
+          sessionId: runContext.sessionId ?? runContext.session_id ?? null,
+          config,
+          language: params.language,
+          path: params.path,
+        });
+        if (!sb.ok) {
+          result = {
+            ok: false,
+            error: sb.error || 'sandbox execution failed',
+            body: sb.body || {},
+          };
+          break;
+        }
+        result = { ok: true, body: sb.body };
+        break;
+      }
+
       if (toolKey === 'agentsam_terminal_local') {
         const localArgErr = assertTerminalLocalArgs(params);
         if (localArgErr) {

@@ -91,6 +91,41 @@ export function agentsamTerminalRemoteInputSchema() {
   };
 }
 
+/** @type {Record<string, unknown>} */
+export const CANONICAL_AGENTSAM_TERMINAL_SANDBOX_INPUT_SCHEMA = {
+  type: 'object',
+  properties: {
+    command: {
+      type: 'string',
+      description: 'Shell command inside the MCP zone sandbox directory.',
+    },
+    zone_slug: {
+      type: 'string',
+      description: 'MCP zone: engineer, architect, cms, or specialist.',
+    },
+    language: {
+      type: 'string',
+      enum: ['shell', 'python', 'node'],
+      default: 'shell',
+    },
+    path: {
+      type: 'string',
+      description: 'Optional subpath inside the zone root.',
+    },
+  },
+  required: ['command'],
+  additionalProperties: false,
+};
+
+/** @returns {Record<string, unknown>} */
+export function agentsamTerminalSandboxInputSchema() {
+  return {
+    ...CANONICAL_AGENTSAM_TERMINAL_SANDBOX_INPUT_SCHEMA,
+    properties: { ...CANONICAL_AGENTSAM_TERMINAL_SANDBOX_INPUT_SCHEMA.properties },
+    required: [...CANONICAL_AGENTSAM_TERMINAL_SANDBOX_INPUT_SCHEMA.required],
+  };
+}
+
 /**
  * @param {Record<string, unknown>} params
  * @returns {string|null} error message when invalid

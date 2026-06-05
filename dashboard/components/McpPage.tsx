@@ -1,24 +1,20 @@
 /**
  * McpPage — /dashboard/mcp
  *
- * 4-agent cloud operations board:
- *   - Architect  → Plan, design, brainstorm
- *   - Builder    → Code, generate, implement
- *   - Inspector  → Debug, test, audit
- *   - Operator   → Deploy, monitor, ship
+ * Four independent MCP experiment zones (isolated sessions + sandbox dirs):
+ *   engineer · architect · cms · specialist
  *
- * Fully wired to existing /api/mcp/* endpoints.
- * Matches IAM dark IDE aesthetic via CSS vars.
+ * Routes: /dashboard/mcp, /dashboard/mcp/:agentSlug
+ * API: GET /api/mcp/agents, POST /api/mcp/agent/:slug/chat
  */
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  Brain, Hammer, FlaskConical, Rocket,
+  Brain, Hammer, FlaskConical, LayoutTemplate,
   Terminal, Zap, Activity, CheckCircle2,
   Clock, AlertCircle, Loader2, ChevronRight,
-  Send, X, Search, Plus, RefreshCw,
-  Cpu, Network, Shield, GitBranch,
-  MoreHorizontal, Circle, Wifi, WifiOff,
+  Send, X, Plus, RefreshCw,
+  Cpu, Network, Circle, Wifi,
 } from 'lucide-react';
 import {
   normalizeAssistantSseText,
@@ -104,86 +100,93 @@ type AgentProfile = {
   default_model_id?: string | null;
 };
 
-function mcpAgentIdToRouteSlug(agentId: string): string {
-  switch (String(agentId || '').trim()) {
-    case 'mcp_agent_architect':
-      return 'architect';
-    case 'mcp_agent_builder':
-      return 'engineer';
-    case 'mcp_agent_inspector':
-      return 'analyst';
-    case 'mcp_agent_operator':
-      return 'devops';
-    default:
-      return String(agentId || 'architect').trim() || 'architect';
-  }
+const MCP_ZONE_SLUGS = ['engineer', 'architect', 'cms', 'specialist'] as const;
+type McpZoneSlug = (typeof MCP_ZONE_SLUGS)[number];
+
+function normalizeZoneSlug(raw: string | null | undefined): McpZoneSlug | null {
+  const s = String(raw || '').trim().toLowerCase();
+  return (MCP_ZONE_SLUGS as readonly string[]).includes(s) ? (s as McpZoneSlug) : null;
 }
 
-function routeSlugToMcpAgentId(slug: string, configs: AgentConfig[]): string | null {
-  const s = String(slug || '').trim().toLowerCase();
-  if (!s) return null;
+function routeSlugToZoneId(slug: string, configs: AgentConfig[]): string | null {
+  const z = normalizeZoneSlug(slug);
+  if (!z) return null;
   const hit = configs.find(
-    (c) => String(c.slug || '').toLowerCase() === s || String(c.id).toLowerCase() === s,
+    (c) => String(c.slug || '').toLowerCase() === z || String(c.id).toLowerCase() === z,
   );
-  if (hit) return hit.id;
-  const legacy: Record<string, string> = {
-    architect: 'mcp_agent_architect',
-    engineer: 'mcp_agent_builder',
-    builder: 'mcp_agent_builder',
-    analyst: 'mcp_agent_inspector',
-    inspector: 'mcp_agent_inspector',
-    devops: 'mcp_agent_operator',
-    operator: 'mcp_agent_operator',
-  };
-  return legacy[s] ?? null;
+  return hit?.id ?? z;
 }
+
+const ZONE_TOOL_HINTS: Record<McpZoneSlug, string[]> = {
+  engineer: ['agentsam_terminal_sandbox', 'agentsam_d1_write', 'agentsam_github_read'],
+  architect: ['agentsam_d1_query', 'agentsam_autorag', 'agentsam_memory_manager'],
+  cms: ['agentsam_cms_read', 'agentsam_d1_query', 'agentsam_r2_get'],
+  specialist: ['agentsam_terminal_sandbox', 'agentsam_playwright', '*'],
+};
 
 const FALLBACK_AGENTS: AgentConfig[] = [
   {
-    id: 'mcp_agent_architect',
+    id: 'engineer',
+    slug: 'engineer',
+    default_model_id: null,
+    name: 'Engineer',
+    role: 'Implementation sandbox — code, debug, deploy experiments',
+    description: 'Implementation sandbox — code, debug, deploy experiments in .mcp-zones/engineer',
+    icon: <Hammer size={18} />,
+    accentVar: 'var(--solar-cyan)',
+    tools: ZONE_TOOL_HINTS.engineer,
+  },
+  {
+    id: 'architect',
     slug: 'architect',
     default_model_id: null,
     name: 'Architect',
-    role: 'Systems design, architecture planning, technical strategy'.slice(0, 60),
-    description: 'Systems design, architecture planning, technical strategy',
+    role: 'Planning sandbox — design, tradeoffs, handoffs',
+    description: 'Planning sandbox — system design and cross-zone collaboration',
     icon: <Brain size={18} />,
     accentVar: 'var(--solar-blue)',
-    tools: ['d1_query', 'r2_list', 'r2_read'],
+    tools: ZONE_TOOL_HINTS.architect,
   },
   {
-    id: 'mcp_agent_builder',
-    slug: 'engineer',
+    id: 'cms',
+    slug: 'cms',
     default_model_id: null,
-    name: 'Builder',
-    role: 'Full-stack code generation, feature implementation, scaffolding'.slice(0, 60),
-    description: 'Full-stack code generation, feature implementation, scaffolding',
-    icon: <Hammer size={18} />,
-    accentVar: 'var(--solar-cyan)',
-    tools: ['d1_query', 'd1_write', 'r2_read', 'r2_write'],
-  },
-  {
-    id: 'mcp_agent_inspector',
-    slug: 'analyst',
-    default_model_id: null,
-    name: 'Inspector',
-    role: 'Code review, bug hunting, test coverage, security audits'.slice(0, 60),
-    description: 'Code review, bug hunting, test coverage, security audits',
-    icon: <FlaskConical size={18} />,
+    name: 'CMS',
+    role: 'Content sandbox — pages, themes, publish paths',
+    description: 'Content sandbox — cms_* tables, themes, and publish experiments',
+    icon: <LayoutTemplate size={18} />,
     accentVar: 'var(--solar-green)',
-    tools: ['d1_query', 'r2_list', 'r2_read'],
+    tools: ZONE_TOOL_HINTS.cms,
   },
   {
-    id: 'mcp_agent_operator',
-    slug: 'devops',
+    id: 'specialist',
+    slug: 'specialist',
     default_model_id: null,
-    name: 'Operator',
-    role: 'Deployments, health monitoring, infra ops, release management'.slice(0, 60),
-    description: 'Deployments, health monitoring, infra ops, release management',
-    icon: <Rocket size={18} />,
-    accentVar: 'var(--solar-yellow)',
-    tools: ['d1_query', 'r2_list', 'worker_deploy'],
+    name: 'Specialist',
+    role: 'Wildcard sandbox — collab tests and deep dives',
+    description: 'Wildcard sandbox — multi-agent collab and odd tool chains',
+    icon: <FlaskConical size={18} />,
+    accentVar: 'var(--solar-magenta)',
+    tools: ZONE_TOOL_HINTS.specialist,
   },
 ];
+
+function mergeZoneConfigs(apiAgents: AgentConfig[]): AgentConfig[] {
+  const bySlug = new Map(apiAgents.map((a) => [String(a.slug || a.id).toLowerCase(), a]));
+  return FALLBACK_AGENTS.map((fb) => {
+    const hit = bySlug.get(fb.slug || fb.id);
+    if (!hit) return fb;
+    return {
+      ...fb,
+      ...hit,
+      id: String(hit.slug || hit.id || fb.id),
+      slug: String(hit.slug || fb.slug),
+      tools: hit.tools?.length ? hit.tools : fb.tools,
+      icon: hit.icon ?? fb.icon,
+      accentVar: fb.accentVar,
+    };
+  });
+}
 
 const ACCENT_CYCLE = [
   'var(--solar-blue)',
@@ -213,10 +216,9 @@ function parseAllowedToolGlobs(raw: unknown): string[] {
 function lucideForIconName(name: string | null): React.ReactNode {
   const k = String(name || '').trim().toLowerCase();
   if (k === 'folder-search') return <Brain size={18} />;
-  if (k === 'terminal') return <Terminal size={18} />;
+  if (k === 'terminal') return <FlaskConical size={18} />;
   if (k === 'code-2') return <Hammer size={18} />;
-  if (k === 'database') return <FlaskConical size={18} />;
-  if (k === 'git-merge') return <Rocket size={18} />;
+  if (k === 'database' || k === 'layout-template') return <LayoutTemplate size={18} />;
   return <Cpu size={18} />;
 }
 
@@ -424,7 +426,7 @@ const AgentCard: React.FC<AgentCardProps> = ({ config, state, onOpen, onResetSta
             </span>
           ))}
           {config.tools.length > 3 && (
-            <span className="text-[0.5rem] text-[var(--text-muted)]">+{config.tools.length - 3}</span>
+            <span className="text-[0.5rem] text-[var(--text-muted)]">+{config.tools.length - 3} hints</span>
           )}
         </div>
         <div className="flex items-center gap-3">
@@ -449,14 +451,22 @@ const AgentCard: React.FC<AgentCardProps> = ({ config, state, onOpen, onResetSta
   );
 };
 
-// ─── WorkspacePanel ───────────────────────────────────────────────────────────
-interface WorkspacePanelProps {
+// ─── ZoneChatPanel ─────────────────────────────────────────────────────────────
+interface ZoneChatPanelProps {
   agentId: string | null;
   agents: AgentConfig[];
-  onClose: () => void;
+  onClose?: () => void;
+  inline?: boolean;
+  initialMessage?: string | null;
 }
 
-const WorkspacePanel: React.FC<WorkspacePanelProps> = ({ agentId, agents, onClose }) => {
+const ZoneChatPanel: React.FC<ZoneChatPanelProps> = ({
+  agentId,
+  agents,
+  onClose,
+  inline = false,
+  initialMessage = null,
+}) => {
   const config = agents.find(a => a.id === agentId);
   const [messages, setMessages] = useState<WsMessage[]>([]);
   const [input, setInput] = useState('');
@@ -465,8 +475,11 @@ const WorkspacePanel: React.FC<WorkspacePanelProps> = ({ agentId, agents, onClos
   const messagesRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
+  const initialSentRef = useRef(false);
+
   useEffect(() => {
     if (!agentId || !config) return;
+    initialSentRef.current = false;
     let cancelled = false;
     const slug = String(config.slug || agentId).trim();
     (async () => {
@@ -740,12 +753,34 @@ const WorkspacePanel: React.FC<WorkspacePanelProps> = ({ agentId, agents, onClos
     }
   }, [input, agentId, sending, sessionId, config]);
 
+  useEffect(() => {
+    const msg = String(initialMessage || '').trim();
+    if (!msg || !config || !agentId || initialSentRef.current || sending) return;
+    initialSentRef.current = true;
+    setInput(msg);
+    const t = setTimeout(() => { void send(); }, 400);
+    return () => clearTimeout(t);
+  }, [initialMessage, config, agentId, sending, send]);
+
   if (!agentId || !config) return null;
   const accent = config.accentVar;
 
+  const shellClass = inline
+    ? 'flex flex-col h-full min-h-[420px] rounded-xl overflow-hidden'
+    : 'ml-auto w-full max-w-xl flex flex-col';
+  const outerClass = inline
+    ? shellClass
+    : 'fixed inset-0 z-50 flex items-stretch';
+  const outerStyle = inline
+    ? { background: 'var(--bg-panel)', border: '1px solid var(--border-subtle)' }
+    : { background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' };
+  const innerStyle = inline
+    ? undefined
+    : { background: 'var(--bg-panel)', borderLeft: '1px solid var(--border-subtle)' };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-stretch" style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}>
-      <div className="ml-auto w-full max-w-xl flex flex-col" style={{ background: 'var(--bg-panel)', borderLeft: '1px solid var(--border-subtle)' }}>
+    <div className={outerClass} style={outerStyle}>
+      <div className={inline ? 'flex flex-col flex-1 min-h-0' : shellClass} style={innerStyle}>
         {/* header */}
         <div className="flex items-center gap-3 px-5 py-4 shrink-0" style={{ borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-app)' }}>
           <div className="p-2 rounded-lg" style={{ background: `${accent}18`, color: accent }}>
@@ -753,11 +788,15 @@ const WorkspacePanel: React.FC<WorkspacePanelProps> = ({ agentId, agents, onClos
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-[0.875rem] font-bold text-[var(--text-heading)]">{config.name}</p>
-            <p className="text-[0.5625rem] font-mono uppercase tracking-widest text-[var(--text-muted)]">{config.role}</p>
+            <p className="text-[0.5625rem] font-mono uppercase tracking-widest text-[var(--text-muted)]">
+              {config.role} · .mcp-zones/{config.slug}
+            </p>
           </div>
-          <button type="button" onClick={onClose} className="p-2 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-muted)]">
-            <X size={15} />
-          </button>
+          {onClose ? (
+            <button type="button" onClick={onClose} className="p-2 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-muted)]">
+              <X size={15} />
+            </button>
+          ) : null}
         </div>
 
         {/* messages */}
@@ -834,7 +873,15 @@ export const McpPage: React.FC = () => {
   const [commandInput, setCommandInput] = useState('');
   const [commandFocus, setCommandFocus] = useState(false);
   const [dispatching, setDispatching] = useState(false);
+  const [pendingZoneMessage, setPendingZoneMessage] = useState<string | null>(null);
   const commandRef = useRef<HTMLInputElement>(null);
+  const activeZoneSlug = normalizeZoneSlug(agentSlug?.trim() ? decodeURIComponent(agentSlug.trim()) : null);
+
+  useEffect(() => {
+    if (!pendingZoneMessage) return;
+    const t = setTimeout(() => setPendingZoneMessage(null), 3000);
+    return () => clearTimeout(t);
+  }, [pendingZoneMessage, activeZoneSlug]);
 
   const formatRelativeTime = useCallback((raw: unknown): string => {
     if (raw == null) return 'never';
@@ -927,15 +974,17 @@ export const McpPage: React.FC = () => {
     void loadSlugWorkflows(decodeURIComponent(raw));
   }, [agentSlug, loadSlugWorkflows]);
 
+  const zoneAgents = agents.length ? mergeZoneConfigs(agents) : FALLBACK_AGENTS;
+
   const openAgentPanel = useCallback(
     (id: string) => {
       setActiveAgent(id);
-      const list = agents.length ? agents : FALLBACK_AGENTS;
+      const list = zoneAgents;
       const cfg = list.find((a) => a.id === id);
-      const routeSlug = String(cfg?.slug || mcpAgentIdToRouteSlug(id));
+      const routeSlug = String(cfg?.slug || id);
       navigate(`/dashboard/mcp/${encodeURIComponent(routeSlug)}`);
     },
-    [navigate, agents],
+    [navigate, zoneAgents],
   );
 
   const closeAgentPanel = useCallback(() => {
@@ -945,11 +994,13 @@ export const McpPage: React.FC = () => {
 
   useEffect(() => {
     const raw = agentSlug?.trim();
-    if (!raw) return;
-    const list = agents.length ? agents : FALLBACK_AGENTS;
-    const id = routeSlugToMcpAgentId(decodeURIComponent(raw), list);
+    if (!raw) {
+      setActiveAgent(null);
+      return;
+    }
+    const id = routeSlugToZoneId(decodeURIComponent(raw), zoneAgents);
     if (id) setActiveAgent(id);
-  }, [agentSlug, agents]);
+  }, [agentSlug, zoneAgents]);
 
   const runWorkflow = useCallback(async (wf: WorkflowRow) => {
     const id = String(wf?.id || '').trim();
@@ -998,7 +1049,7 @@ export const McpPage: React.FC = () => {
         const data = await res.json().catch(() => ({}));
         const rows = Array.isArray(data?.agents) ? data.agents : [];
         const mapped = mapMcpApiAgentsToConfigs(rows as Record<string, unknown>[]);
-        const nextAgents = mapped.length > 0 ? mapped : FALLBACK_AGENTS;
+        const nextAgents = mergeZoneConfigs(mapped.length > 0 ? mapped : []);
         if (cancelled) return;
         setAgents(nextAgents);
         setAgentStates((prev) => mergeSessionRowsIntoAgentStates(prev, rows as Record<string, unknown>[]));
@@ -1112,18 +1163,18 @@ export const McpPage: React.FC = () => {
     setDispatching(true);
     setCommandFocus(false);
     try {
-      const list = agents.length ? agents : FALLBACK_AGENTS;
+      const list = zoneAgents;
       const selectedCfg = activeAgent
         ? list.find((a) => a.id === activeAgent)
-        : list.find((a) => a.id === 'mcp_agent_architect') || list[0];
-      const routeSlug = mcpAgentIdToRouteSlug(String(selectedCfg?.id || 'mcp_agent_architect'));
-      const dispatchSlug = String(selectedCfg?.slug || routeSlug);
+        : list.find((a) => a.slug === 'architect') || list[0];
+      const dispatchSlug = String(selectedCfg?.slug || 'engineer');
       const model = String(selectedCfg?.default_model_id || '').trim();
       const res = await fetch('/api/mcp/dispatch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
         body: JSON.stringify({
+          prompt,
           message: prompt,
           mode: 'agent',
           ...(model ? { model } : {}),
@@ -1131,14 +1182,15 @@ export const McpPage: React.FC = () => {
         }),
       });
       const data = await res.json();
-      if (data.agent_id) {
+      if (data.agent_id || data.ok) {
         setCommandInput('');
+        setPendingZoneMessage(prompt);
         await loadMcpAgentsPoll();
-        setTimeout(() => openAgentPanel(String(data.agent_id)), 400);
+        openAgentPanel(String(data.agent_id || dispatchSlug));
       }
     } catch { /* silent */ }
     finally { setDispatching(false); }
-  }, [commandInput, dispatching, loadMcpAgentsPoll, activeAgent, agents, openAgentPanel]);
+  }, [commandInput, dispatching, loadMcpAgentsPoll, activeAgent, zoneAgents, openAgentPanel]);
 
   const healthColor = (status?: string) => {
     const s = (status ?? '').toLowerCase();
@@ -1168,28 +1220,37 @@ export const McpPage: React.FC = () => {
           </div>
           <div>
             <p className="text-[0.6875rem] font-bold tracking-widest uppercase leading-none text-[var(--text-heading)]">MCP Cloud Agents</p>
-            <p className="text-[0.5rem] font-mono text-[var(--text-muted)] mt-0.5">4-agent parallel ops · inneranimalmedia</p>
+            <p className="text-[0.5rem] font-mono text-[var(--text-muted)] mt-0.5">4 sandbox zones · isolated sessions · full tool catalog</p>
           </div>
         </div>
 
-        {/* status dots */}
-        <div className="flex items-center gap-3 ml-4">
-          {(agents.length ? agents : FALLBACK_AGENTS).map(a => {
-            const s = agentStates[a.id];
-            const st = String(s?.status || 'idle').toLowerCase();
-            const dotActive = st === 'running' || st === 'active';
+        {/* zone tabs */}
+        <div className="flex items-center gap-1.5 ml-2 flex-wrap">
+          {zoneAgents.map((z) => {
+            const st = String(agentStates[z.id]?.status || 'idle').toLowerCase();
+            const isSel = activeZoneSlug === z.slug;
             const dotColor =
               st === 'running' ? 'var(--solar-cyan)'
               : st === 'active' ? 'var(--solar-green)'
-              : 'var(--text-muted)';
+              : z.accentVar;
             return (
-              <div key={a.id} className="flex items-center gap-1.5">
+              <button
+                key={z.id}
+                type="button"
+                onClick={() => openAgentPanel(z.id)}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[0.5625rem] font-bold uppercase tracking-widest transition-all"
+                style={{
+                  background: isSel ? `${z.accentVar}22` : 'var(--bg-app)',
+                  border: `1px solid ${isSel ? z.accentVar : 'var(--border-subtle)'}`,
+                  color: isSel ? z.accentVar : 'var(--text-muted)',
+                }}
+              >
                 <div
                   className={`w-1.5 h-1.5 rounded-full ${st === 'running' ? 'animate-pulse' : ''}`}
-                  style={{ background: dotColor, opacity: dotActive ? 1 : 0.35 }}
+                  style={{ background: dotColor, opacity: st === 'idle' ? 0.4 : 1 }}
                 />
-                <span className="text-[0.5rem] font-mono text-[var(--text-muted)] hidden sm:block">{a.name}</span>
-              </div>
+                {z.name}
+              </button>
             );
           })}
         </div>
@@ -1215,7 +1276,8 @@ export const McpPage: React.FC = () => {
       {/* ── Body ─────────────────────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-5">
 
-        {/* Command bar */}
+        {/* Command bar — hub only */}
+        {!activeZoneSlug ? (
         <div className="relative">
           <div
             className="flex items-center gap-3 rounded-xl px-4 py-3 transition-all"
@@ -1253,10 +1315,10 @@ export const McpPage: React.FC = () => {
           {/* quick chips */}
           <div className="flex items-center gap-2 mt-2.5 flex-wrap">
             {[
-              { label: 'Audit codebase', agent: 'Inspector' },
-              { label: 'New worker pipeline', agent: 'Builder' },
-              { label: 'Plan architecture', agent: 'Architect' },
-              { label: 'Deploy to production', agent: 'Operator' },
+              { label: 'Scaffold a Worker + D1', agent: 'Engineer' },
+              { label: 'Plan system architecture', agent: 'Architect' },
+              { label: 'Audit cms_pages schema', agent: 'CMS' },
+              { label: 'Run sandbox collab test', agent: 'Specialist' },
             ].map(chip => (
               <button
                 key={chip.label}
@@ -1271,15 +1333,27 @@ export const McpPage: React.FC = () => {
             ))}
           </div>
         </div>
+        ) : null}
 
-        {/* Agent grid */}
-        {agentsLoading ? (
+        {/* Zone hub or inline chat */}
+        {activeZoneSlug && activeAgent ? (
+          <ZoneChatPanel
+            agentId={activeAgent}
+            agents={zoneAgents}
+            inline
+            initialMessage={pendingZoneMessage}
+            onClose={() => {
+              setPendingZoneMessage(null);
+              closeAgentPanel();
+            }}
+          />
+        ) : agentsLoading ? (
           <div className="flex items-center justify-center gap-2 py-12 text-[0.75rem] text-[var(--text-muted)]">
-            <Loader2 size={18} className="animate-spin" /> Loading agents…
+            <Loader2 size={18} className="animate-spin" /> Loading zones…
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {(agents.length ? agents : FALLBACK_AGENTS).map((config) => (
+            {zoneAgents.map((config) => (
               <AgentCard
                 key={config.id}
                 config={config}
@@ -1468,10 +1542,6 @@ export const McpPage: React.FC = () => {
 
       </div>
 
-      {/* ── Workspace overlay ─────────────────────────────────────────────── */}
-      {activeAgent && (
-        <WorkspacePanel agentId={activeAgent} agents={agents.length ? agents : FALLBACK_AGENTS} onClose={closeAgentPanel} />
-      )}
     </div>
   );
 };

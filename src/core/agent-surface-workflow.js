@@ -793,6 +793,7 @@ export async function mcpPanelAgentChatSse(env, request, ctx, panel) {
     isSuperadmin: panelIsSuperadmin,
     authUser: panel.authUser ?? null,
     routeKey: 'mcp_panel',
+    mcp_panel_slug: slug,
   };
 
   const encoder = new TextEncoder();
