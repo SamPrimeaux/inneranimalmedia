@@ -50,7 +50,7 @@ export const SEMANTIC_LANE_REGISTRY = Object.freeze({
     laneKey: 'media_semantic_search',
     ragLane: 'media',
     binding: 'AGENTSAM_VECTORIZE_MEDIA',
-    tables: [],
+    tables: ['agentsam_media_gemini2_1536'],
     dims: 1536,
     embedModel: 'gemini-embedding-2',
   },

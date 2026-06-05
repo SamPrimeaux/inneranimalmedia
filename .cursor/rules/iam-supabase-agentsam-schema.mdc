@@ -30,6 +30,7 @@ alwaysApply: false
 | `agentsam_codebase_chunks_oai3large_1536` | `AGENTSAM_VECTORIZE_CODE` | Code retrieval |
 | `agentsam_codebase_files_oai3large_1536` | — | File catalog (parent for chunks; no embeddings) |
 | `agentsam_database_schema_oai3large_1536` | `AGENTSAM_VECTORIZE_SCHEMA` | **Canonical** schema RAG |
+| `agentsam_media_gemini2_1536` | `AGENTSAM_VECTORIZE_MEDIA` | MovieMode multimodal @1536 (gemini-embedding-2) |
 | `agentsam_schema_oai3large_1536` | (duplicate binding) | **OLD — 9 rows. Do not insert. Read-only legacy.** |
 | `agentsam_deep_archive_oai3large_3072` | — | 3072-dim; Supabase only, no Vectorize mirror |
 

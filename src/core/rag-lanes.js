@@ -30,7 +30,7 @@ export const LANES = {
   media: {
     name: 'media',
     vectorize: 'AGENTSAM_VECTORIZE_MEDIA',
-    supabase_table: null,
+    supabase_table: 'agentsam_media_gemini2_1536',
     embed_lane: 'multimodal',
     embed_model: 'gemini-embedding-2',
   },

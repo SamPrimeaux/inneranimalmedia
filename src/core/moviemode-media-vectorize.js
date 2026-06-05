@@ -14,6 +14,10 @@ import {
   MULTIMODAL_EMBED_DIMS,
 } from './multimodal-embedding.js';
 import { embeddingPolicy } from './embedding-routes.js';
+import { contentHash, resolveSupabaseWorkspaceId } from './rag-lanes.js';
+import { runHyperdriveQuery } from './hyperdrive-query.js';
+
+export const MOVIEMODE_PGVECTOR_TABLE = 'agentsam_media_gemini2_1536';
 
 export const MOVIEMODE_VECTORIZE_BINDING = 'AGENTSAM_VECTORIZE_MEDIA';
 export const MOVIEMODE_VECTORIZE_INDEX_NAME = 'agentsam-moviemode-gemini2-1536';
@@ -136,6 +140,26 @@ export async function indexMediaAssetForSearch(env, asset, opts = {}) {
 
   await binding.upsert([{ id: vectorId, values: embedding, metadata }]);
 
+  const pgWrite = await upsertMediaPgvectorRow(env, {
+    d1WorkspaceId: workspaceId,
+    assetId,
+    title: metadata.filename,
+    content: caption || metadata.filename,
+    mediaKind: metadata.media_kind,
+    bucket,
+    objectKey,
+    contentType: mimeType,
+    projectId: asset.project_id ? String(asset.project_id) : null,
+    embedding,
+    model,
+    vectorizeId: vectorId,
+    userId: asset.user_id ? String(asset.user_id) : null,
+    extraMetadata: {
+      lane: 'moviemode_media',
+      parts_count: parts.length,
+    },
+  });
+
   if (env.DB) {
     await env.DB.prepare(
       `UPDATE media_assets
@@ -148,7 +172,100 @@ export async function indexMediaAssetForSearch(env, asset, opts = {}) {
       .run();
   }
 
-  return { ok: true, vectorize_id: vectorId, dimensions, model, parts_count: parts.length };
+  return { ok: true, vectorize_id: vectorId, dimensions, model, parts_count: parts.length, pgvector: pgWrite };
+}
+
+/**
+ * Mirror indexed media into Supabase agentsam.agentsam_media_gemini2_1536 (Hyperdrive).
+ * @param {any} env
+ * @param {Record<string, unknown>} row
+ */
+export async function upsertMediaPgvectorRow(env, row) {
+  const d1WorkspaceId = String(row.d1WorkspaceId || '').trim();
+  const assetId = String(row.assetId || '').trim();
+  const content = String(row.content || '').trim();
+  if (!d1WorkspaceId || !assetId || !content) {
+    return { ok: false, skipped: 'missing_required_fields' };
+  }
+
+  const workspaceUuid = await resolveSupabaseWorkspaceId(env, d1WorkspaceId);
+  if (!workspaceUuid) return { ok: false, skipped: 'workspace_unresolved' };
+
+  /** @type {number[]} */
+  const embedding = Array.isArray(row.embedding) ? row.embedding : [];
+  if (!embedding.length) return { ok: false, skipped: 'missing_embedding' };
+
+  const hash = await contentHash(content);
+  const vector = `[${embedding.join(',')}]`;
+  const rowId = crypto.randomUUID();
+  const table = MOVIEMODE_PGVECTOR_TABLE;
+  const metadata = {
+    ...(row.extraMetadata && typeof row.extraMetadata === 'object' ? row.extraMetadata : {}),
+    asset_id: assetId,
+    bucket: row.bucket || null,
+    object_key: row.objectKey || null,
+  };
+
+  const write = await runHyperdriveQuery(
+    env,
+    `INSERT INTO agentsam.${table} (
+       id, workspace_id, user_id, asset_id, title, content, media_kind,
+       bucket, object_key, content_type, project_id, content_hash,
+       embedding, embedding_model, embedding_dims, embedded_at,
+       vectorize_binding, vectorize_index, vectorize_id, metadata,
+       created_at, updated_at
+     ) VALUES (
+       $1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7,
+       $8, $9, $10, $11, $12,
+       $13::vector, $14, $15, now(),
+       $16, $17, $18, $19::jsonb,
+       now(), now()
+     )
+     ON CONFLICT (workspace_id, asset_id) DO UPDATE SET
+       title = EXCLUDED.title,
+       content = EXCLUDED.content,
+       media_kind = EXCLUDED.media_kind,
+       bucket = EXCLUDED.bucket,
+       object_key = EXCLUDED.object_key,
+       content_type = EXCLUDED.content_type,
+       project_id = EXCLUDED.project_id,
+       content_hash = EXCLUDED.content_hash,
+       embedding = EXCLUDED.embedding,
+       embedding_model = EXCLUDED.embedding_model,
+       embedding_dims = EXCLUDED.embedding_dims,
+       embedded_at = now(),
+       vectorize_id = EXCLUDED.vectorize_id,
+       metadata = EXCLUDED.metadata,
+       updated_at = now()
+     RETURNING id`,
+    [
+      rowId,
+      workspaceUuid,
+      row.userId || null,
+      assetId,
+      row.title || null,
+      content,
+      String(row.mediaKind || 'unknown').slice(0, 32),
+      row.bucket || null,
+      row.objectKey || null,
+      row.contentType || null,
+      row.projectId || null,
+      hash,
+      vector,
+      String(row.model || 'gemini-embedding-2'),
+      embedding.length,
+      MOVIEMODE_VECTORIZE_BINDING,
+      MOVIEMODE_VECTORIZE_INDEX_NAME,
+      String(row.vectorizeId || assetId),
+      JSON.stringify(metadata),
+    ],
+  );
+
+  if (!write?.ok) {
+    console.warn('[moviemode-media-vectorize] pgvector upsert failed:', write?.error || 'unknown');
+    return { ok: false, error: write?.error || 'pgvector_upsert_failed' };
+  }
+  return { ok: true, id: String(write.rows?.[0]?.id ?? rowId), content_hash: hash };
 }
 
 /**
