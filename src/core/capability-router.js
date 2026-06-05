@@ -16,6 +16,7 @@ import {
   messageRequestsWorkspaceGrep,
 } from './agent-lane-router.js';
 import { GOOGLE_MODEL_ROUTES } from './google-model-routes.js';
+import { applyAntigravityOverlay } from './antigravity-policy.js';
 
 /** Cheap classifier — aligns with router_micro / intent_classification arms. */
 const GEMINI_CLASSIFIER_MODEL = GOOGLE_MODEL_ROUTES.cheapFast;
@@ -35,6 +36,11 @@ const DEFAULT_DECISION = {
   should_use_open_web_search: false,
   should_use_web_fetch: false,
   should_use_workspace_grep: false,
+  should_use_antigravity: false,
+  antigravity_score: 0,
+  antigravity_reasons: [],
+  antigravity_avoid_reasons: [],
+  antigravity_model_key: null,
   execution_lane: 'none',
   risk_level: 'low',
   approval_required: false,
@@ -203,6 +209,13 @@ function normalizeDecision(raw) {
     should_use_open_web_search: !!raw.should_use_open_web_search,
     should_use_web_fetch: !!raw.should_use_web_fetch,
     should_use_workspace_grep: !!raw.should_use_workspace_grep,
+    should_use_antigravity: !!raw.should_use_antigravity,
+    antigravity_score: typeof raw.antigravity_score === 'number' ? raw.antigravity_score : 0,
+    antigravity_reasons: Array.isArray(raw.antigravity_reasons) ? raw.antigravity_reasons.map(String) : [],
+    antigravity_avoid_reasons: Array.isArray(raw.antigravity_avoid_reasons)
+      ? raw.antigravity_avoid_reasons.map(String)
+      : [],
+    antigravity_model_key: raw.antigravity_model_key ? String(raw.antigravity_model_key) : null,
     execution_lane: String(raw.execution_lane || 'none').slice(0, 32),
     risk_level: String(raw.risk_level || 'low').slice(0, 16),
     approval_required: !!raw.approval_required,
@@ -220,14 +233,14 @@ export async function classifyWorkspaceCapabilities(env, opts) {
   const userId = opts?.userId != null ? String(opts.userId).trim() : null;
   const tenantId = opts?.tenantId != null ? String(opts.tenantId).trim() : null;
 
-  if (!message && !browserContext) return normalizeDecision(DEFAULT_DECISION);
+  if (!message && !browserContext) return applyAntigravityOverlay(normalizeDecision(DEFAULT_DECISION), message);
 
   const apiKey =
     (env?.GEMINI_API_KEY && String(env.GEMINI_API_KEY).trim()) ||
     (env?.GOOGLE_AI_API_KEY && String(env.GOOGLE_AI_API_KEY).trim()) ||
     (await resolveModelApiKey(env, 'google', GEMINI_CLASSIFIER_MODEL, userId));
   if (!apiKey) {
-    return normalizeDecision(heuristicDecision(message, browserContext));
+    return applyAntigravityOverlay(normalizeDecision(heuristicDecision(message, browserContext)), message);
   }
 
   const sys = `You are Agent Sam's capability router. Return JSON only (no markdown).
@@ -276,7 +289,7 @@ Output shape:
     const data = await res.json().catch(() => null);
     if (!res.ok) {
       console.warn('[capability-router] gemini', res.status, JSON.stringify(data || {}).slice(0, 400));
-      return normalizeDecision(heuristicDecision(message, browserContext));
+      return applyAntigravityOverlay(normalizeDecision(heuristicDecision(message, browserContext)), message);
     }
     let text = '';
     for (const c of data?.candidates || []) {
@@ -285,11 +298,11 @@ Output shape:
       }
     }
     const parsed = extractJsonObject(text);
-    if (!parsed) return normalizeDecision(heuristicDecision(message, browserContext));
-    return normalizeDecision(parsed);
+    if (!parsed) return applyAntigravityOverlay(normalizeDecision(heuristicDecision(message, browserContext)), message);
+    return applyAntigravityOverlay(normalizeDecision(parsed), message);
   } catch (e) {
     console.warn('[capability-router]', e?.message ?? e);
-    return normalizeDecision(heuristicDecision(message, browserContext));
+    return applyAntigravityOverlay(normalizeDecision(heuristicDecision(message, browserContext)), message);
   }
 }
 
@@ -309,6 +322,7 @@ export function capabilityRouterPromptBlock(decision) {
     '- Open web: when execution_lane is open_web_search, use search_web (public discovery) — not MYBROWSER.',
     '- Web fetch: when execution_lane is web_fetch, use web_fetch for the given URL — not browser_navigate.',
     '- Workspace grep: when execution_lane is workspace_grep, use fs_search_files / workspace tools — not search_web.',
+    '- Antigravity sandbox: when should_use_antigravity is true, delegate to the Antigravity scout lane (remote Linux sandbox — repo clone/mount, install+test, research+artifact). Do NOT use for simple local edits, structured JSON-only outputs, MCP, or production deploys. Always validate and normalize Antigravity artifacts before applying to the local repo.',
     '',
     JSON.stringify(d, null, 2),
   ].join('\n');

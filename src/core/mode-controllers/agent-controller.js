@@ -66,6 +66,7 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
   const subagentProfileRow = input.subagentProfileRow ?? null;
   const handoffResume = input.handoffResume ?? null;
   const agentChatResolvedContext = input.agentChatResolvedContext ?? null;
+  const browserContextPayload = input.browserContextPayload ?? null;
 
   const userPolicy = await loadAgentSamUserPolicy(env, userId, workspaceId);
   if (!profile.model_key) {
@@ -177,6 +178,39 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
       'If the user asks you to fix or implement something, explain the likely approach and suggest switching to Agent or Debug.';
   }
 
+  /** @type {Record<string, unknown>|null} */
+  let capabilityDecision = null;
+  if (message && (browserContextPayload || workspaceId)) {
+    try {
+      const { extractComposerFlagsFromBrowserContext } = await import('../workspace-studio-context.js');
+      const { classifyWorkspaceCapabilities, capabilityRouterPromptBlock } = await import('../capability-router.js');
+      const { applyComposerAntigravityToggle } = await import('../antigravity-policy.js');
+      const composerFlags = extractComposerFlagsFromBrowserContext(browserContextPayload);
+      capabilityDecision = await classifyWorkspaceCapabilities(env, {
+        message,
+        browserContext: browserContextPayload,
+        userId,
+        tenantId,
+      });
+      if (composerFlags.antigravity_sandbox_enabled) {
+        capabilityDecision = applyComposerAntigravityToggle(capabilityDecision, true);
+      }
+      if (capabilityDecision?.should_use_antigravity) {
+        systemPrompt += `\n\n${capabilityRouterPromptBlock(capabilityDecision)}`;
+        console.info(
+          '[agent-controller] antigravity_routing',
+          JSON.stringify({
+            composer_toggle: composerFlags.antigravity_sandbox_enabled,
+            score: capabilityDecision.antigravity_score,
+            reasons: capabilityDecision.antigravity_reasons,
+          }),
+        );
+      }
+    } catch (e) {
+      console.warn('[agent-controller] antigravity_capability', e?.message ?? e);
+    }
+  }
+
   const chatAgentRunId =
     env?.DB && userId && workspaceId
       ? newChatAgentRunId(quickstartBatch ? { label: quickstartBatch } : {})
@@ -259,6 +293,54 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
       const dispatchSpine = chatAgentRunId
         ? { agent_run_id: chatAgentRunId, routing_arm_id: profile.routing_arm_id, mode: profile.mode }
         : null;
+
+      if (
+        capabilityDecision?.should_use_antigravity &&
+        workspaceId &&
+        profile.mode !== 'ask'
+      ) {
+        try {
+          const { streamAntigravitySandboxInteraction, formatAntigravityOrchestratorBlock } =
+            await import('../antigravity-interactions.js');
+          const { buildGithubScopeSystemPromptLine } = await import('../github-repo-scope.js');
+          const wsCtx =
+            browserContextPayload &&
+            typeof browserContextPayload === 'object' &&
+            browserContextPayload.workspaceContext &&
+            typeof browserContextPayload.workspaceContext === 'object'
+              ? browserContextPayload.workspaceContext
+              : null;
+          const openFiles = Array.isArray(wsCtx?.openFiles)
+            ? wsCtx.openFiles.map((f) => String(f || '').trim()).filter(Boolean)
+            : [];
+          const ghLine = userId ? await buildGithubScopeSystemPromptLine(env, userId).catch(() => '') : '';
+
+          const agResult = await streamAntigravitySandboxInteraction(env, {
+            message,
+            workspaceId,
+            tenantId,
+            userId,
+            modelKey: capabilityDecision.antigravity_model_key,
+            githubScopeLine: ghLine,
+            openFiles,
+            emit,
+          });
+
+          const agBlock = formatAntigravityOrchestratorBlock(agResult);
+          if (agBlock) {
+            systemPrompt = `${systemPrompt}\n\n${agBlock}`;
+          }
+          if (!agResult.ok) {
+            console.warn('[agent-controller] antigravity_dispatch_failed', agResult.message);
+          }
+        } catch (e) {
+          console.warn('[agent-controller] antigravity_dispatch', e?.message ?? e);
+          emit('antigravity_interaction_error', {
+            type: 'antigravity_interaction_error',
+            error: e?.message != null ? String(e.message) : String(e),
+          });
+        }
+      }
 
       const mcpRuntimeContext = {
         userId,

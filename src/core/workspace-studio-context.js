@@ -63,5 +63,31 @@ export function normalizeWorkspaceContextPacket(browserContext, body) {
     openFiles,
     plan_id: raw.plan_id != null ? String(raw.plan_id).trim() : null,
     workflow_run_id: raw.workflow_run_id != null ? String(raw.workflow_run_id).trim() : null,
+    web_search_enabled: raw.web_search_enabled === true,
+    antigravity_sandbox_enabled: raw.antigravity_sandbox_enabled === true,
+  };
+}
+
+/**
+ * @param {Record<string, unknown>|null|undefined} browserContext
+ */
+export function extractComposerFlagsFromBrowserContext(browserContext) {
+  const root =
+    browserContext && typeof browserContext === 'object'
+      ? /** @type {Record<string, unknown>} */ (browserContext)
+      : null;
+  if (!root) {
+    return { web_search_enabled: false, antigravity_sandbox_enabled: false };
+  }
+  const ws =
+    root.workspaceContext && typeof root.workspaceContext === 'object'
+      ? root.workspaceContext
+      : root;
+  if (!ws || typeof ws !== 'object') {
+    return { web_search_enabled: false, antigravity_sandbox_enabled: false };
+  }
+  return {
+    web_search_enabled: ws.web_search_enabled === true,
+    antigravity_sandbox_enabled: ws.antigravity_sandbox_enabled === true,
   };
 }

@@ -22,6 +22,10 @@ export const GOOGLE_MODEL_ROUTES = Object.freeze({
   videoFastAlt: 'models/veo-3.1-fast-generate-preview',
   musicClip: 'models/lyria-3-clip-preview',
   musicPro: 'models/lyria-3-pro-preview',
+  /** Live / voice input lane — browser SpeechRecognition → text; not chat picker default. */
+  flashLive: 'gemini-3.1-flash-live-preview',
+  /** Remote Linux sandbox agent — repo mount, install/test, scout reports (Interactions API). */
+  antigravity: 'models/antigravity-preview-05-2026',
 });
 
 /** Google-shutdown or IAM-retired keys → current replacement. */
