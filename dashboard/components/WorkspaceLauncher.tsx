@@ -106,6 +106,14 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
     void loadList();
   }, [loadList]);
 
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, []);
+
   const filtered = useMemo(() => {
     let list = [...rows];
     if (activeFilter === 'local') {
@@ -276,15 +284,24 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
   };
 
   const filters = [
-    { id: 'all' as const, label: 'All Projects', icon: <Server size={14} /> },
-    { id: 'local' as const, label: 'Local', icon: <FolderOpen size={14} /> },
-    { id: 'github' as const, label: 'GitHub', icon: <Github size={14} /> },
-    { id: 'r2' as const, label: 'R2 Buckets', icon: <Database size={14} /> },
-    { id: 'ssh' as const, label: 'SSH', icon: <Terminal size={14} /> },
+    { id: 'all' as const, label: 'All Projects', shortLabel: 'All', icon: <Server size={14} /> },
+    { id: 'local' as const, label: 'Local', shortLabel: 'Local', icon: <FolderOpen size={14} /> },
+    { id: 'github' as const, label: 'GitHub', shortLabel: 'GitHub', icon: <Github size={14} /> },
+    { id: 'r2' as const, label: 'R2 Buckets', shortLabel: 'R2', icon: <Database size={14} /> },
+    { id: 'ssh' as const, label: 'SSH', shortLabel: 'SSH', icon: <Terminal size={14} /> },
   ];
 
+  const openCreateFlow = () => {
+    setUiMode('create');
+    setCreateStep(1);
+    setCreateKind(null);
+    setNewName('');
+    setExtraField('');
+    setCreateError(null);
+  };
+
   const typeCards = (
-    <div className="grid grid-cols-2 gap-3 px-2">
+    <div className="grid grid-cols-2 gap-2 sm:gap-3 px-0 sm:px-2">
       {(
         [
           ['local', 'Local', 'IDE / scratch', FolderOpen],
@@ -302,7 +319,7 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
             setExtraField('');
             setCreateError(null);
           }}
-          className={`p-4 rounded-xl border text-left transition-all ${
+          className={`p-3 sm:p-4 rounded-xl border text-left transition-all ${
             createKind === id
               ? 'border-[var(--solar-cyan)] bg-[var(--bg-panel)]'
               : 'border-[var(--border-subtle)] hover:border-[var(--solar-cyan)]/40'
@@ -317,16 +334,19 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
   );
 
   return (
-    <div className="workspace-launcher fixed inset-0 z-[100] flex items-center justify-center bg-[var(--bg-app)]/80 backdrop-blur-md animate-in fade-in duration-300 p-2 max-md:p-0">
-      <div className="w-full max-w-4xl h-[600px] max-md:h-[min(92dvh,100%)] max-md:max-w-none max-md:rounded-none bg-[var(--bg-panel)] border border-[var(--border-main)] max-md:border-0 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
-        <div className="p-6 max-md:p-4 border-b border-[var(--border-subtle)] flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[var(--solar-cyan)]/10 flex items-center justify-center text-[var(--solar-cyan)]">
-              <Server size={24} />
+    <div className="workspace-launcher fixed inset-0 z-[100] flex max-md:items-stretch md:items-center justify-center bg-[var(--bg-app)]/80 backdrop-blur-md animate-in fade-in duration-300 p-0 md:p-2">
+      <div className="w-full max-w-4xl h-[min(600px,92dvh)] max-md:h-[100dvh] max-md:max-h-[100dvh] max-md:max-w-none bg-[var(--bg-panel)] border border-[var(--border-main)] max-md:border-0 md:rounded-2xl max-md:rounded-none shadow-2xl flex flex-col overflow-hidden">
+        <div className="px-3 py-3 sm:px-4 sm:py-4 md:p-6 border-b border-[var(--border-subtle)] flex items-center justify-between gap-2 shrink-0">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-[var(--solar-cyan)]/10 flex items-center justify-center text-[var(--solar-cyan)] shrink-0">
+              <Server size={20} className="sm:hidden" />
+              <Server size={24} className="hidden sm:block" />
             </div>
-            <div>
-              <h2 className="text-xl font-bold text-[var(--text-heading)]">Switch Workspace</h2>
-              <p className="text-sm text-[var(--text-muted)]">
+            <div className="min-w-0">
+              <h2 className="text-base sm:text-lg md:text-xl font-bold text-[var(--text-heading)] truncate">
+                Switch Workspace
+              </h2>
+              <p className="text-[11px] sm:text-sm text-[var(--text-muted)] truncate hidden sm:block">
                 Select or create a development environment
               </p>
             </div>
@@ -334,14 +354,15 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="p-2 hover:bg-[var(--bg-app)] rounded-lg text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors"
+            aria-label="Close workspace picker"
+            className="p-2 shrink-0 hover:bg-[var(--bg-app)] rounded-lg text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors"
           >
             <Plus size={20} className="rotate-45" />
           </button>
         </div>
 
         <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-h-0">
-          <div className="w-64 max-md:w-full max-md:shrink-0 border-r border-[var(--border-subtle)] max-md:border-r-0 max-md:border-b bg-[var(--bg-app)]/50 p-4 max-md:p-2 max-md:space-y-0 space-y-1 max-md:flex max-md:flex-row max-md:overflow-x-auto max-md:gap-1 max-md:overscroll-x-contain">
+          <div className="w-64 max-md:w-full max-md:shrink-0 border-r border-[var(--border-subtle)] max-md:border-r-0 max-md:border-b bg-[var(--bg-app)]/50 p-3 md:p-4 max-md:space-y-0 space-y-1 max-md:flex max-md:flex-row max-md:overflow-x-auto max-md:gap-1.5 max-md:overscroll-x-contain max-md:[-webkit-overflow-scrolling:touch] max-md:scrollbar-none">
             {filters.map((f) => (
               <button
                 key={f.id}
@@ -349,14 +370,15 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
                 onClick={() => setActiveFilter(f.id)}
                 disabled={uiMode === 'create'}
                 title={f.label}
-                className={`w-full max-md:w-auto max-md:shrink-0 flex items-center gap-3 max-md:gap-1.5 max-md:flex-col px-3 max-md:px-2 py-2.5 max-md:py-1.5 rounded-xl max-md:rounded-lg text-sm max-md:text-[10px] font-medium transition-all ${
+                className={`w-full max-md:w-auto max-md:shrink-0 flex items-center gap-3 max-md:gap-1 max-md:flex-col px-3 max-md:px-2.5 py-2.5 max-md:py-2 rounded-xl max-md:rounded-lg text-sm max-md:text-[10px] font-medium transition-all min-w-[3.25rem] ${
                   activeFilter === f.id
                     ? 'bg-[var(--bg-panel)] text-[var(--solar-cyan)] shadow-sm border border-[var(--border-subtle)]'
                     : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-panel)]/50'
                 } ${uiMode === 'create' ? 'opacity-40 pointer-events-none' : ''}`}
               >
                 {f.icon}
-                <span className="max-md:leading-tight max-md:text-center">{f.label}</span>
+                <span className="md:hidden max-md:leading-tight max-md:text-center">{f.shortLabel}</span>
+                <span className="max-md:hidden">{f.label}</span>
               </button>
             ))}
 
@@ -366,14 +388,7 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
               </p>
               <button
                 type="button"
-                onClick={() => {
-                  setUiMode('create');
-                  setCreateStep(1);
-                  setCreateKind(null);
-                  setNewName('');
-                  setExtraField('');
-                  setCreateError(null);
-                }}
+                onClick={openCreateFlow}
                 className="w-full flex items-center gap-3 text-sm text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors py-2"
               >
                 <Plus size={14} /> New Workspace
@@ -397,29 +412,55 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
             </div>
           </div>
 
-          <div className="flex-1 flex flex-col min-w-0">
+          <div className="flex-1 flex flex-col min-w-0 min-h-0">
             {uiMode === 'list' ? (
               <>
-                <div className="p-4 border-b border-[var(--border-subtle)]">
+                <div className="md:hidden flex items-center gap-1.5 px-3 py-2 border-b border-[var(--border-subtle)] bg-[var(--bg-app)]/30 shrink-0 overflow-x-auto [-webkit-overflow-scrolling:touch]">
+                  <button
+                    type="button"
+                    onClick={openCreateFlow}
+                    className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[10px] font-semibold text-[var(--text-main)]"
+                  >
+                    <Plus size={12} /> New
+                  </button>
+                  {onOpenLocalFolder ? (
+                    <button
+                      type="button"
+                      onClick={() => onOpenLocalFolder()}
+                      className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[10px] font-semibold text-[var(--text-main)]"
+                    >
+                      <FolderOpen size={12} /> Local
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => onManageEnvironments?.()}
+                    className="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[10px] font-semibold text-[var(--text-main)]"
+                  >
+                    <Settings size={12} /> Manage
+                  </button>
+                </div>
+
+                <div className="p-3 sm:p-4 border-b border-[var(--border-subtle)] shrink-0">
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" size={16} />
                     <input
-                      type="text"
-                      placeholder="Search workspaces (name, slug, repo, R2)…"
-                      className="w-full bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded-xl py-2.5 pl-10 pr-4 text-sm focus:outline-none focus:border-[var(--solar-cyan)]/50 transition-all font-sans"
+                      type="search"
+                      placeholder="Search workspaces…"
+                      className="w-full bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded-xl py-2 sm:py-2.5 pl-10 pr-4 text-[13px] sm:text-sm focus:outline-none focus:border-[var(--solar-cyan)]/50 transition-all font-sans"
                       value={search}
                       onChange={(e) => setSearch(e.target.value)}
                     />
                   </div>
                 </div>
 
-                <div className="flex-1 overflow-y-auto p-4 space-y-2">
+                <div className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4 space-y-2 [-webkit-overflow-scrolling:touch]">
                   {loading ? (
                     <div className="h-full flex items-center justify-center text-[var(--text-muted)] animate-pulse">
                       Loading workspaces…
                     </div>
                   ) : filtered.length === 0 ? (
-                    <div className="text-[var(--text-muted)] text-center py-16 text-sm space-y-4">
+                    <div className="text-[var(--text-muted)] text-center py-10 sm:py-16 text-[13px] sm:text-sm space-y-4">
                       <p>No workspaces match this filter.</p>
                       {activeFilter === 'local' && onOpenLocalFolder ? (
                         <button
@@ -436,23 +477,23 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
                     filtered.map((w) => (
                       <div
                         key={w.id}
-                        className="flex flex-col max-md:flex-col sm:flex-row items-stretch max-md:items-stretch gap-2 max-md:gap-2 p-3 max-md:p-2.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)]/40 hover:bg-[var(--bg-hover)]/50 transition-colors"
+                        className="flex flex-col sm:flex-row items-stretch gap-2 p-2.5 sm:p-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)]/40 hover:bg-[var(--bg-hover)]/50 transition-colors"
                       >
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-bold text-[var(--text-heading)] truncate max-md:text-[13px]">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="font-bold text-[var(--text-heading)] truncate text-[13px] sm:text-sm min-w-0">
                               {w.display_name || w.slug}
                             </span>
                             {w.workspace_type ? (
-                              <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-[var(--solar-cyan)]/15 text-[var(--solar-cyan)]">
+                              <span className="text-[9px] sm:text-[10px] uppercase font-bold px-1.5 sm:px-2 py-0.5 rounded-full bg-[var(--solar-cyan)]/15 text-[var(--solar-cyan)] shrink-0">
                                 {w.workspace_type}
                               </span>
                             ) : null}
                           </div>
-                          <div className="text-[11px] text-[var(--text-muted)] mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
-                            {w.r2_prefix ? <span>R2: {w.r2_prefix}</span> : null}
-                            {w.github_repo ? <span>GH: {w.github_repo}</span> : null}
-                            <span className="flex items-center gap-1">
+                          <div className="text-[10px] sm:text-[11px] text-[var(--text-muted)] mt-1 flex flex-col sm:flex-row sm:flex-wrap gap-x-3 gap-y-0.5 min-w-0">
+                            {w.r2_prefix ? <span className="truncate">R2: {w.r2_prefix}</span> : null}
+                            {w.github_repo ? <span className="truncate">GH: {w.github_repo}</span> : null}
+                            <span className="flex items-center gap-1 shrink-0">
                               <Clock size={10} /> {formatRelativeTime(w.updated_at)}
                             </span>
                           </div>
@@ -460,7 +501,7 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
                         <button
                           type="button"
                           onClick={() => void activateWorkspace(w)}
-                          className="shrink-0 w-full max-md:w-full sm:w-auto px-4 py-2 max-md:py-1.5 rounded-lg bg-[var(--solar-cyan)]/20 text-[var(--solar-cyan)] text-xs font-bold hover:bg-[var(--solar-cyan)]/30"
+                          className="shrink-0 w-full sm:w-auto px-4 py-2 sm:py-1.5 rounded-lg bg-[var(--solar-cyan)]/20 text-[var(--solar-cyan)] text-xs font-bold hover:bg-[var(--solar-cyan)]/30"
                         >
                           Open
                         </button>
@@ -470,7 +511,7 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
                 </div>
               </>
             ) : (
-              <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 space-y-4 sm:space-y-6 [-webkit-overflow-scrolling:touch]">
                 <div className="flex items-center justify-between">
                   <button
                     type="button"
@@ -553,18 +594,26 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
           </div>
         </div>
 
-        <div className="p-4 bg-[var(--bg-app)] border-t border-[var(--border-subtle)] flex items-center justify-between text-[11px] gap-3">
-          <div className="flex items-center gap-3 text-[var(--text-muted)] shrink-0">
-            <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-[var(--bg-panel)] border border-[var(--border-subtle)]">
+        <div className="px-3 py-2.5 sm:p-4 bg-[var(--bg-app)] border-t border-[var(--border-subtle)] flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between text-[10px] sm:text-[11px] gap-2 sm:gap-3 shrink-0 pb-[max(0.625rem,env(safe-area-inset-bottom))]">
+          <div className="flex items-center gap-2 sm:gap-3 text-[var(--text-muted)] shrink-0">
+            <span className="max-phone:inline-flex hidden items-center gap-1 px-2 py-0.5 rounded-full bg-[var(--bg-panel)] border border-[var(--border-subtle)] whitespace-nowrap">
+              <ShieldCheck size={12} className="text-[var(--solar-green)]" /> Auth
+            </span>
+            <span className="max-phone:inline-flex hidden items-center gap-1 px-2 py-0.5 rounded-full bg-[var(--bg-panel)] border border-[var(--border-subtle)] whitespace-nowrap">
+              <Server size={12} /> D1
+            </span>
+            <span className="max-phone:hidden flex items-center gap-1 px-2 py-0.5 rounded-full bg-[var(--bg-panel)] border border-[var(--border-subtle)] whitespace-nowrap">
               <ShieldCheck size={12} className="text-[var(--solar-green)]" /> Authenticated
             </span>
-            <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-[var(--bg-panel)] border border-[var(--border-subtle)]">
+            <span className="max-phone:hidden flex items-center gap-1 px-2 py-0.5 rounded-full bg-[var(--bg-panel)] border border-[var(--border-subtle)] whitespace-nowrap">
               <Server size={12} /> D1 Active
             </span>
           </div>
-          <p className="text-[var(--text-muted)] font-mono truncate max-w-[55%] text-right">
-            {activeWorkspaceLabel || ''}
-          </p>
+          {activeWorkspaceLabel ? (
+            <p className="text-[var(--text-muted)] font-mono truncate w-full sm:max-w-[55%] sm:text-right text-[10px] sm:text-[11px]">
+              {activeWorkspaceLabel}
+            </p>
+          ) : null}
         </div>
       </div>
     </div>
