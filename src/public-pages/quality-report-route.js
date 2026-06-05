@@ -99,7 +99,7 @@ export async function handleQualityReportRoute(request, env, pathLower) {
     return new Response('Method not allowed', { status: 405 });
   }
 
-  const bucket = env.DASHBOARD;
+  const bucket = env.ASSETS;
   if (!bucket?.get) {
     return new Response('Quality reports storage unavailable', { status: 503 });
   }

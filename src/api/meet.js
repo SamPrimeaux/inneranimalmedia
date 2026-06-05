@@ -603,7 +603,7 @@ async function handleRecordingSave(request, env) {
   const { userId } = await getUserId(request, env);
   if (!userId) return jsonResponse({ error: 'Unauthorized' }, 401);
   const r2Key = `meet/recordings/${userId}/${roomId}_${Date.now()}.webm`;
-  await env.DASHBOARD.put(r2Key, file.stream(), {
+  await env.ASSETS.put(r2Key, file.stream(), {
     httpMetadata: { contentType: 'video/webm' },
   });
   return jsonResponse({ ok: true, r2_key: r2Key }, 200);

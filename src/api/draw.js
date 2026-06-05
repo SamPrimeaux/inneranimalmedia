@@ -171,7 +171,7 @@ export async function handleDrawApi(request, url, env, ctx) {
   if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
 
   if (!env.DB)        return jsonResponse({ error: 'DB not configured' }, 503);
-  if (!env.DASHBOARD) return jsonResponse({ error: 'DASHBOARD bucket not configured' }, 503);
+  if (!env.ASSETS) return jsonResponse({ error: 'DASHBOARD bucket not configured' }, 503);
 
   const userId = authUser.id || authUser.user_id || authUser.userId;
 
@@ -246,7 +246,7 @@ export async function handleDrawApi(request, url, env, ctx) {
       `).bind(userId, userId).first();
 
       if (!sceneRow) return jsonResponse({ scene: null });
-      const obj = await env.DASHBOARD.get(sceneRow.r2_key);
+      const obj = await env.ASSETS.get(sceneRow.r2_key);
       if (!obj) return jsonResponse({ scene: null });
       try {
         return jsonResponse({ scene: JSON.parse(await obj.text()), r2_key: sceneRow.r2_key });
@@ -262,7 +262,7 @@ export async function handleDrawApi(request, url, env, ctx) {
       `).bind(id, userId, userId).first();
 
       if (!row) return jsonResponse({ error: 'Not found' }, 404);
-      const obj = await env.DASHBOARD.get(row.r2_key);
+      const obj = await env.ASSETS.get(row.r2_key);
       if (!obj) return jsonResponse({ error: 'File not found in storage' }, 404);
 
       const contentType = row.generation_type === 'png_export' ? 'image/png' : 'application/json';
@@ -297,7 +297,7 @@ export async function handleDrawApi(request, url, env, ctx) {
       // Scene JSON save
       if (body.scene && typeof body.scene === 'object') {
         const r2Key = `draw/scenes/${userId}/${crypto.randomUUID()}.json`;
-        await env.DASHBOARD.put(r2Key, JSON.stringify(body.scene), {
+        await env.ASSETS.put(r2Key, JSON.stringify(body.scene), {
           httpMetadata: { contentType: 'application/json' },
         });
         const ins = await env.DB.prepare(`
@@ -312,7 +312,7 @@ export async function handleDrawApi(request, url, env, ctx) {
         const parsed = parseDataUrl(body.canvasData);
         if (!parsed) return jsonResponse({ error: 'Invalid canvasData' }, 400);
         const r2Key = `draw/exports/${userId}/${crypto.randomUUID()}.png`;
-        await env.DASHBOARD.put(r2Key, parsed.bytes, {
+        await env.ASSETS.put(r2Key, parsed.bytes, {
           httpMetadata: { contentType: parsed.contentType },
         });
         const ins = await env.DB.prepare(`
@@ -353,7 +353,7 @@ export async function handleDrawApi(request, url, env, ctx) {
 
       // ── 1. R2 (always) ──
       const r2Key = `draw/exports/${userId}/${crypto.randomUUID()}.png`;
-      await env.DASHBOARD.put(r2Key, parsed.bytes, {
+      await env.ASSETS.put(r2Key, parsed.bytes, {
         httpMetadata: { contentType: 'image/png' },
       });
       results.r2 = { ok: true, r2_key: r2Key };
@@ -362,7 +362,7 @@ export async function handleDrawApi(request, url, env, ctx) {
       let sceneR2Key = null;
       if (body.scene && typeof body.scene === 'object') {
         sceneR2Key = `draw/scenes/${userId}/${crypto.randomUUID()}.excalidraw`;
-        await env.DASHBOARD.put(sceneR2Key, JSON.stringify(body.scene), {
+        await env.ASSETS.put(sceneR2Key, JSON.stringify(body.scene), {
           httpMetadata: { contentType: 'application/json' },
         });
       }
@@ -460,7 +460,7 @@ export async function handleDrawApi(request, url, env, ctx) {
       if (!row) return jsonResponse({ error: 'Not found or not yours' }, 404);
 
       await Promise.all([
-        env.DASHBOARD.delete(row.r2_key).catch(() => {}),
+        env.ASSETS.delete(row.r2_key).catch(() => {}),
         env.DB.prepare(`DELETE FROM project_draws WHERE id = ?`).bind(id).run(),
       ]);
       return jsonResponse({ ok: true });

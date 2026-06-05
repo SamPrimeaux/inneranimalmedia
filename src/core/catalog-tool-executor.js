@@ -419,7 +419,7 @@ async function insertToolCallLog(env, payload, runContext) {
 
 function bindingBucket(env, bindingName) {
   const key = String(bindingName || 'DB').trim();
-  if (key === 'ASSETS' || key === 'DASHBOARD') return env.DASHBOARD || env.ASSETS;
+  if (key === 'ASSETS' || key === 'DASHBOARD') return env.ASSETS;
   if (key === 'AI') return env.AI;
   return env[key] ?? env.DB;
 }

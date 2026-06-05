@@ -14,11 +14,11 @@ async function putAgentBrowserScreenshotToR2(env, buf, contentType) {
     await env.DOCS_BUCKET.put(key, buf, { httpMetadata: { contentType: ct } });
     return { screenshot_url: `${DOCS_SCREENSHOTS_PUBLIC_BASE}/${key}`, job_id: id };
   }
-  if (env.DASHBOARD) {
+  if (env.ASSETS) {
     const ts = Date.now();
     const id = crypto.randomUUID();
     const key = `screenshots/agent/${ts}-${id}.png`;
-    await env.DASHBOARD.put(key, buf, { httpMetadata: { contentType: ct } });
+    await env.ASSETS.put(key, buf, { httpMetadata: { contentType: ct } });
     return { screenshot_url: `${DASHBOARD_SCREENSHOTS_PUBLIC_BASE}/${key}`, job_id: id };
   }
   if (env.R2) {
@@ -37,9 +37,9 @@ async function putAgentBrowserScreenshotToR2(env, buf, contentType) {
  */
 export async function handlePlaywrightQueueJob(env, body) {
   const { jobId, job_type, url } = body;
-  if (!jobId || !env.MYBROWSER || !env.DB || (!env.DASHBOARD && !env.DOCS_BUCKET)) return;
+  if (!jobId || !env.MYBROWSER || !env.DB || (!env.ASSETS && !env.DOCS_BUCKET)) return;
 
-  if (job_type === 'render' && !env.DASHBOARD) {
+  if (job_type === 'render' && !env.ASSETS) {
     try {
       await env.DB.prepare("UPDATE playwright_jobs SET status='failed', error=? WHERE id=?")
         .bind('DASHBOARD bucket required for render jobs', jobId)
@@ -91,7 +91,7 @@ export async function handlePlaywrightQueueJob(env, body) {
     } else if (job_type === 'render') {
       const html = await page.content();
       const key = `renders/${jobId}.html`;
-      await env.DASHBOARD.put(key, html, { httpMetadata: { contentType: 'text/html' } });
+      await env.ASSETS.put(key, html, { httpMetadata: { contentType: 'text/html' } });
       resultUrl = `${DASHBOARD_SCREENSHOTS_PUBLIC_BASE}/${key}`;
     }
     await env.DB.prepare(

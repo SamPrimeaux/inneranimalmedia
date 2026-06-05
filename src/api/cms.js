@@ -18,7 +18,7 @@ import { resolveIamActorContext } from '../core/identity.js';
 function getCmsR2Binding(env, bucketName) {
   // R2: 'iam-docs' for client sites; DASHBOARD bucket (inneranimalmedia) for internal dashboard assets
   if (bucketName === 'iam-docs') return env.DOCS_BUCKET || env.R2;
-  if (bucketName === 'inneranimalmedia' || bucketName === 'dashboard') return env.DASHBOARD || env.R2;
+  if (bucketName === 'inneranimalmedia' || bucketName === 'dashboard') return env.ASSETS || env.R2;
   return env.R2;
 }
 

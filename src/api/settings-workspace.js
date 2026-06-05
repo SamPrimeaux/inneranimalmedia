@@ -434,7 +434,7 @@ export async function handleSettingsWorkspaceApi(request, env, ctx, authContext)
           : workspaceId;
 
     const base =
-      (env.DASHBOARD_BASE_URL && String(env.DASHBOARD_BASE_URL).trim()) ||
+      (env.ASSETS_BASE_URL && String(env.ASSETS_BASE_URL).trim()) ||
       (env.PUBLIC_APP_URL && String(env.PUBLIC_APP_URL).trim()) ||
       '';
     const inviteUrl = base ? `${base.replace(/\/$/, '')}/auth/login` : null;
@@ -526,7 +526,7 @@ export async function handleSettingsWorkspaceApi(request, env, ctx, authContext)
             : workspaceId;
 
       const base =
-        (env.DASHBOARD_BASE_URL && String(env.DASHBOARD_BASE_URL).trim()) ||
+        (env.ASSETS_BASE_URL && String(env.ASSETS_BASE_URL).trim()) ||
         (env.PUBLIC_APP_URL && String(env.PUBLIC_APP_URL).trim()) ||
         '';
       const inviteUrl = base ? `${base.replace(/\/$/, '')}/auth/login` : null;

@@ -18,10 +18,10 @@ function arrayBufferToBase64(ab) {
 
 export async function loadScreenshotAttachments(env, beforeDir) {
   const attachments = [];
-  if (!env.DASHBOARD || !beforeDir) return attachments;
+  if (!env.ASSETS || !beforeDir) return attachments;
   for (const page of OVERNIGHT_EVERY_PAGE) {
     try {
-      const obj = await env.DASHBOARD.get(`reports/screenshots/${beforeDir}/${page}.jpg`);
+      const obj = await env.ASSETS.get(`reports/screenshots/${beforeDir}/${page}.jpg`);
       if (obj && obj.body) {
         const ab = await new Response(obj.body).arrayBuffer();
         if (ab && ab.byteLength) attachments.push({ filename: page + '.jpg', content: arrayBufferToBase64(ab) });

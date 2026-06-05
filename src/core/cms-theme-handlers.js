@@ -240,7 +240,7 @@ registerAgentStepHandler('cms.writeThemeR2', async (env, { input }) => {
     [`${prefix}/manifest.json`]: { body: JSON.stringify({ slug, hash, generated_at: new Date().toISOString() }, null, 2), ct: 'application/json' },
   };
 
-  const bucket = env.DASHBOARD || env.ASSETS;
+  const bucket = env.ASSETS;
   if (!bucket) return { ok: false, error: 'no R2 bucket binding (DASHBOARD or ASSETS)' };
 
   const uploads = Object.entries(files).map(([key, { body, ct }]) =>

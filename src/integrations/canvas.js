@@ -24,7 +24,7 @@ export async function handleCanvasApi(request, env) {
 
             if (!sceneRow) return jsonResponse({ scene: null });
             
-            const obj = await env.DASHBOARD.get(sceneRow.r2_key);
+            const obj = await env.ASSETS.get(sceneRow.r2_key);
             if (!obj) return jsonResponse({ scene: null });
 
             const sceneData = await obj.json();
@@ -48,7 +48,7 @@ export async function handleCanvasApi(request, env) {
             const r2Key = `draw/scenes/${authUser.id}/${projectId}/${sceneId}.json`;
 
             // 1. Persist to R2
-            await env.DASHBOARD.put(r2Key, JSON.stringify(scene), {
+            await env.ASSETS.put(r2Key, JSON.stringify(scene), {
                 customMetadata: { userId: authUser.id, projectId, type }
             });
 

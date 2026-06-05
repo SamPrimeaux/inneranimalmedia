@@ -22,7 +22,7 @@ export async function putAgentBrowserScreenshotToR2(env, buf, contentType) {
   const ct = contentType || 'image/png';
   const blen = buf?.byteLength ?? buf?.length ?? 0;
   
-  const bucket = env.DOCS_BUCKET || env.DASHBOARD || env.R2;
+  const bucket = env.DOCS_BUCKET || env.ASSETS || env.R2;
   if (!bucket) throw new Error('No R2 bucket available for screenshots');
 
   const ts = Date.now();

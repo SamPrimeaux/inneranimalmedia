@@ -1104,14 +1104,14 @@ export async function listR2ObjectsForCatalog(env, opts = {}) {
 
 export function getR2Binding(env, bucketName) {
   const map = {
-    inneranimalmedia: env.DASHBOARD || env.ASSETS,
+    inneranimalmedia: env.ASSETS,
     'inneranimalmedia-autorag': env.AUTORAG_BUCKET,
     autorag: env.AUTORAG_BUCKET,
-    dashboard: env.DASHBOARD,
-    'inneranimalmedia-sandbox-cicd': env.ASSETS || env.DASHBOARD,
+    dashboard: env.ASSETS,
+    'inneranimalmedia-sandbox-cicd': env.ASSETS,
     'iam-platform': env.R2,
     'iam-docs': env.DOCS_BUCKET,
-    tools: env.TOOLS || env.DASHBOARD,
+    tools: env.TOOLS || env.ASSETS,
     'inneranimalmedia-email-archive': env.EMAIL,
   };
   return map[bucketName] || null;
@@ -1119,7 +1119,7 @@ export function getR2Binding(env, bucketName) {
 
 export function listBoundR2BucketNames(env) {
   const names = [];
-  if (env.DASHBOARD || env.ASSETS) names.push('inneranimalmedia');
+  if (env.ASSETS) names.push('inneranimalmedia');
   if (env.AUTORAG_BUCKET) names.push('inneranimalmedia-autorag');
   if (env.R2) names.push('iam-platform');
   if (env.DOCS_BUCKET) names.push('iam-docs');
@@ -1132,7 +1132,7 @@ export function listBoundR2BucketNames(env) {
 export function getR2BindingSlot(env, bucketName) {
   const binding = getR2Binding(env, bucketName);
   if (!binding) return `unbound:${String(bucketName || '').trim()}`;
-  if (binding === env.DASHBOARD) return 'DASHBOARD';
+  if (binding === env.ASSETS) return 'DASHBOARD';
   if (binding === env.ASSETS) return 'ASSETS';
   if (binding === env.R2) return 'R2';
   if (binding === env.DOCS_BUCKET) return 'DOCS_BUCKET';

@@ -737,7 +737,7 @@ async function writePlanFileToWorkspaceR2(env, { workspaceId, planId, filePath, 
   }
   const body = String(content ?? '');
   if (!body.length) return { ok: false, bucket: PLAN_ARTIFACT_R2_BUCKET, key: keyNorm.key, error: 'empty_content' };
-  const binding = getR2Binding(env, PLAN_ARTIFACT_R2_BUCKET) || env.DASHBOARD;
+  const binding = getR2Binding(env, PLAN_ARTIFACT_R2_BUCKET) || env.ASSETS;
   if (!binding?.put) {
     return { ok: false, bucket: PLAN_ARTIFACT_R2_BUCKET, key: keyNorm.key, error: 'r2_binding_unavailable' };
   }

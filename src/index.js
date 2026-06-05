@@ -875,7 +875,7 @@ export default {
 
         // B. Sandbox (Workers Assets) - DEPRECATED (Moved to R2 Fallback)
         // C. Production (R2 Fallback)
-        if (env.ASSETS || env.DASHBOARD) {
+        if (env.ASSETS) {
           if (pathLower === '/dashboard' || pathLower === '/dashboard/') {
             return withSessionHealing(Response.redirect(`${url.origin}/dashboard/overview`, 302));
           }
@@ -887,8 +887,8 @@ export default {
             if (obj) return new Response(obj.body, { headers: { 'Content-Type': obj.httpMetadata?.contentType || getMimeType(assetKey) } });
           }
 
-          if (env.DASHBOARD) {
-            const obj = await getDashboardR2Object(env.DASHBOARD, assetKey);
+          if (env.ASSETS) {
+            const obj = await getDashboardR2Object(env.ASSETS, assetKey);
             if (obj) return new Response(obj.body, { headers: { 'Content-Type': obj.httpMetadata?.contentType || getMimeType(assetKey), 'Cache-Control': 'public, max-age=31536000' } });
 
             if (
@@ -897,7 +897,7 @@ export default {
               pathLower.startsWith('/onboarding/') ||
               pathLower === '/oauth/mcp/consent'
             ) {
-              const index = await getDashboardSpaHtmlShell(env.DASHBOARD);
+              const index = await getDashboardSpaHtmlShell(env.ASSETS);
               if (index) {
                 const h = new Headers({
                   'Content-Type': 'text/html; charset=utf-8',

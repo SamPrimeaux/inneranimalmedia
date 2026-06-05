@@ -57,11 +57,6 @@ binding = "MYBROWSER"
 binding = "ASSETS"
 bucket_name = "inneranimalmedia"
 
-# Dashboard JS/HTML/CSS served on inneranimalmedia.com — production R2 (DASHBOARD = inneranimalmedia).
-[[r2_buckets]]
-binding = "DASHBOARD"
-bucket_name = "inneranimalmedia"
-
 [[r2_buckets]]
 binding = "AUTORAG_BUCKET"
 bucket_name = "inneranimalmedia-autorag"

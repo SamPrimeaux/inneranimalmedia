@@ -267,7 +267,7 @@ export async function hydrateCmsThemeCssVarsFromR2(env, row) {
   try {
     const r2Obj =
       (typeof env?.ASSETS?.get === "function" ? await env.ASSETS.get(jsonKey) : null) ??
-      (typeof env?.DASHBOARD?.get === "function" ? await env.DASHBOARD.get(jsonKey) : null) ??
+      (typeof env?.DASHBOARD?.get === "function" ? await env.ASSETS.get(jsonKey) : null) ??
       (typeof env?.R2?.get === "function" ? await env.R2.get(jsonKey) : null);
     if (!r2Obj) return;
     const themeJson = await r2Obj.json();
