@@ -9,6 +9,7 @@ import {
   isCodeImplementationIntent,
   shouldSkipSurfaceWorkflowPreflight,
 } from './code-implementation-intent.js';
+import { stripUserTextForIntent } from './active-file-envelope.js';
 import { loadModeConfig } from '../api/agent.js';
 
 export async function executeWorkflowAndStream(env, workflowKey, message, actor, workspaceId, ctx, extras = {}) {

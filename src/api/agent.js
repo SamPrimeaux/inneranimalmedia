@@ -3312,16 +3312,50 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
         const uwsId = `uws:${tid}:${userId}:${wsId}`;
         try {
           if (env.DB) {
+            const upsertConversationWorkspaceState = async () => {
+              const existing = await env.DB.prepare(
+                `SELECT id FROM agentsam_workspace_state WHERE id = ? LIMIT 1`,
+              )
+                .bind(uwsId)
+                .first()
+                .catch(() => null);
+              if (existing) {
+                await env.DB.prepare(
+                  `UPDATE agentsam_workspace_state SET state_json = ?, updated_at = unixepoch() WHERE id = ?`,
+                )
+                  .bind(stateStr, uwsId)
+                  .run();
+                return;
+              }
+              const workspaceRow = await env.DB.prepare(
+                `SELECT id FROM agentsam_workspace WHERE id = ? LIMIT 1`,
+              )
+                .bind(wsId)
+                .first()
+                .catch(() => null);
+              if (!workspaceRow) return;
+              let conversationId = null;
+              const convCandidate = String(wsId || '').trim();
+              if (convCandidate) {
+                const convRow = await env.DB.prepare(
+                  `SELECT conversation_id FROM agentsam_chat_sessions WHERE conversation_id = ? LIMIT 1`,
+                )
+                  .bind(convCandidate)
+                  .first()
+                  .catch(() => null);
+                if (convRow) conversationId = convCandidate;
+              }
+              await env.DB.prepare(
+                `INSERT INTO agentsam_workspace_state (id, workspace_id, state_json, conversation_id, workspace_type, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, 'ide', unixepoch(), unixepoch())`,
+              )
+                .bind(uwsId, wsId, stateStr, conversationId)
+                .run();
+            };
             const results = await Promise.allSettled([
               env.DB.prepare(`UPDATE workspaces SET state_json = ?, updated_at = datetime('now') WHERE id = ?`)
                 .bind(stateStr, wsId).run(),
-              env.DB.prepare(
-                `INSERT INTO agentsam_workspace_state (id, workspace_id, state_json, conversation_id, workspace_type, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, 'ide', unixepoch(), unixepoch())
-                 ON CONFLICT(id) DO UPDATE SET state_json = excluded.state_json, updated_at = unixepoch()`,
-              )
-                .bind(uwsId, wsId, stateStr, wsId)
-                .run(),
+              upsertConversationWorkspaceState(),
             ]);
             results.forEach((r, i) => {
               if (r.status === 'rejected') {
