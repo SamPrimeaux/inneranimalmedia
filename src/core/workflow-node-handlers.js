@@ -182,6 +182,8 @@ const DB_QUERY_HANDLERS = {
       source: 'workflow_graph',
       source_workflow_id: ctx.workflowKey || null,
       source_run_id: ctx.runId || null,
+      source_session_id:
+        ctx.conversationId || ctx.sessionId || ctx.conversation_id || ctx.session_id || null,
       file_size_bytes: content != null ? new TextEncoder().encode(String(content)).length : 0,
       is_public: flat.is_public ? 1 : 0,
     };

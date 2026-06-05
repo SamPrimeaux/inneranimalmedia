@@ -21,6 +21,10 @@ import { executeAgentTurn } from '../core/mode-controllers/agent-controller.js';
 import { executeDebugTurn } from '../core/mode-controllers/debug-controller.js';
 import { executeMultitaskTurn } from '../core/mode-controllers/multitask-controller.js';
 import { resolveIntegrationUserId } from '../core/integration-user-id.js';
+import {
+  scheduleChatSessionTitleInsert,
+  scheduleWorkspaceStateConversationUpdate,
+} from '../core/agentsam-chat-sessions.js';
 
 const SSE_HEADERS = {
   'Content-Type': 'text/event-stream',
@@ -85,6 +89,22 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
     requestedMode: requestedMode,
     routeKey: profile.refined_route_key || profile.mode,
     taskType: profile.routing_task_type,
+  });
+
+  scheduleChatSessionTitleInsert(env, ctx, {
+    conversationId: sessionId,
+    tenantId,
+    userId,
+    workspaceId,
+    message,
+    modelKey: profile.model_key ?? modelOverride,
+    activeFileEnvelope,
+    body,
+  });
+
+  scheduleWorkspaceStateConversationUpdate(env, ctx, {
+    conversationId: sessionId,
+    workspaceId,
   });
 
   const intentMessageForMedia = message;

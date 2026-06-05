@@ -742,9 +742,27 @@ async function logPromptCacheUsage(env, tenantId, layerKeys, routeKey, provider,
   }
 }
 
+function extractLastAssistantPlainText(messages) {
+  if (!Array.isArray(messages)) return '';
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (!m || m.role !== 'assistant') continue;
+    const c = m.content;
+    if (typeof c === 'string') return c.trim();
+    if (Array.isArray(c)) {
+      return c
+        .filter((b) => b && b.type === 'text' && typeof b.text === 'string')
+        .map((b) => b.text)
+        .join('\n')
+        .trim();
+    }
+  }
+  return '';
+}
+
 function scheduleAgentsamArtifactFromChatOutput(env, ctx, opts) {
   if (!env?.DB || !ctx?.waitUntil) return;
-  const { outputText, userId, tenantId, workspaceId, sourceAgentRunId } = opts;
+  const { outputText, userId, tenantId, workspaceId, sourceAgentRunId, sourceSessionId } = opts;
   const meta = inferArtifactFromAssistantText(outputText || '');
   if (!meta) return;
   const uid = userId != null ? String(userId).trim() : '';
@@ -755,29 +773,37 @@ function scheduleAgentsamArtifactFromChatOutput(env, ctx, opts) {
     sourceAgentRunId != null && String(sourceAgentRunId).trim() !== ''
       ? String(sourceAgentRunId).trim().slice(0, 120)
       : null;
+  const srcSession =
+    sourceSessionId != null && String(sourceSessionId).trim() !== ''
+      ? String(sourceSessionId).trim().slice(0, 200)
+      : null;
   ctx.waitUntil(
     (async () => {
       try {
         const cols = await pragmaTableInfo(env.DB, 'agentsam_artifacts');
+        const names = [
+          'user_id',
+          'tenant_id',
+          'workspace_id',
+          'name',
+          'artifact_type',
+          'r2_key',
+          'source',
+        ];
+        const binds = [uid, tid, ws, meta.name, meta.artifact_type, '', 'agent_response'];
         if (srcRun && cols.has('source_run_id')) {
-          await env.DB
-            .prepare(
-              `INSERT INTO agentsam_artifacts
-               (user_id, tenant_id, workspace_id, name, artifact_type, r2_key, source, source_run_id)
-               VALUES (?, ?, ?, ?, ?, '', 'agent_response', ?)`,
-            )
-            .bind(uid, tid, ws, meta.name, meta.artifact_type, srcRun)
-            .run();
-        } else {
-          await env.DB
-            .prepare(
-              `INSERT INTO agentsam_artifacts
-               (user_id, tenant_id, workspace_id, name, artifact_type, r2_key, source)
-               VALUES (?, ?, ?, ?, ?, '', 'agent_response')`,
-            )
-            .bind(uid, tid, ws, meta.name, meta.artifact_type)
-            .run();
+          names.push('source_run_id');
+          binds.push(srcRun);
         }
+        if (srcSession && cols.has('source_session_id')) {
+          names.push('source_session_id');
+          binds.push(srcSession);
+        }
+        await env.DB.prepare(
+          `INSERT INTO agentsam_artifacts (${names.join(', ')}) VALUES (${names.map(() => '?').join(', ')})`,
+        )
+          .bind(...binds)
+          .run();
       } catch (e) {
         console.warn('[agentsam_artifacts]', e?.message ?? e);
       }
@@ -5571,6 +5597,18 @@ async function runAgentToolLoop(env, ctx, emit, params) {
     );
   }
 
+  const assistantText = extractLastAssistantPlainText(conversationMessages);
+  if (assistantText && inferArtifactFromAssistantText(assistantText)) {
+    scheduleAgentsamArtifactFromChatOutput(env, ctx, {
+      outputText: assistantText,
+      userId,
+      tenantId,
+      workspaceId: routingWs || workspaceId,
+      sourceAgentRunId: chatAgentRunId,
+      sourceSessionId: sessionId,
+    });
+  }
+
   safeDone({ tool_calls_used: toolCallsUsed, turns: turnCount });
   return {
     totalUsage,
@@ -9010,7 +9048,6 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     if (method === 'POST') {
       const body   = await request.json().catch(() => ({}));
       const id     = crypto.randomUUID();
-      const now    = Math.floor(Date.now() / 1000);
       const name   = (typeof body.name === 'string' && body.name.trim()) ? body.name.trim() : 'New Conversation';
       const r2Key  = `agent-sessions/${id}/context.json`;
       const sessCtx = JSON.stringify({ session_id: id, name, created_at: Date.now(), message_count: 0, messages: [] });
@@ -9029,23 +9066,36 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
         .run()
         .catch(() => {});
       await env.DB.prepare(
-        `INSERT OR IGNORE INTO agent_conversations (id, user_id, title, name, created_at, updated_at, is_archived)
-         VALUES (?, ?, ?, ?, ?, ?, 0)`,
+        `INSERT OR IGNORE INTO agentsam_chat_sessions (
+           conversation_id, tenant_id, user_id, workspace_id, title, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, unixepoch(), unixepoch())`,
       )
-        .bind(id, userId, name, name, now, now)
+        .bind(id, tenantId, userId, wsId, name)
         .run()
         .catch(() => null);
       return jsonResponse({ id, status: 'active' });
     }
     const { results } = await env.DB.prepare(
-      `SELECT id, COALESCE(trigger, 'chat') AS session_type, status,
-              created_at AS started_at, conversation_id,
-              COALESCE(conversation_id, id) AS name_key,
+      `SELECT r.conversation_id AS id,
+              r.conversation_id,
+              MAX(r.created_at) AS started_at,
+              MAX(cs.title) AS title,
+              MAX(COALESCE(cs.github_repo, r.conversation_id)) AS github_repo,
+              MAX(cs.model_key) AS model_key,
+              r.conversation_id AS name_key,
+              MAX(r.workspace_id) AS workspace_id,
+              MAX(CASE WHEN ws.conversation_id = r.conversation_id THEN ws.active_file ELSE NULL END) AS active_file,
+              MAX(CASE WHEN ws.conversation_id = r.conversation_id THEN ws.files_open ELSE NULL END) AS files_open,
+              'chat' AS session_type,
+              MAX(r.status) AS status,
               0 AS message_count
-       FROM agentsam_agent_run
-       WHERE user_id = ? AND tenant_id = ?
-       ORDER BY created_at DESC
-       LIMIT 50`,
+       FROM agentsam_agent_run r
+       LEFT JOIN agentsam_chat_sessions cs ON cs.conversation_id = r.conversation_id
+       LEFT JOIN agentsam_workspace_state ws ON ws.workspace_id = r.workspace_id
+       WHERE r.user_id = ? AND r.tenant_id = ? AND r.conversation_id IS NOT NULL
+       GROUP BY r.conversation_id
+       ORDER BY MAX(r.created_at) DESC
+       LIMIT 30`,
     )
       .bind(userId, tenantId)
       .all()

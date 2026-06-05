@@ -31,6 +31,8 @@ function mobileSessionGroups(rows: AgentSessionRow[]): { label: string; items: A
 }
 
 function sessionTitle(s: AgentSessionRow): string {
+  const title = s.title && String(s.title).replace(/\s+/g, ' ').trim();
+  if (title) return title;
   const name = s.name && String(s.name).replace(/\s+/g, ' ').trim();
   if (name) return name;
   const id = (s.name_key || s.id || '').trim();
@@ -44,6 +46,8 @@ function workspaceRepoLabel(
   activeWorkspaceId: string | null,
   defaultRepoLabel: string | null,
 ): string {
+  const sessionRepo = s.github_repo?.trim();
+  if (sessionRepo && sessionRepo.includes('/')) return sessionRepo;
   const wsId = s.workspace_id?.trim();
   if (wsId) {
     const row = workspaces.find((w) => w.id === wsId);
@@ -58,7 +62,7 @@ function workspaceRepoLabel(
 }
 
 function modelLabel(s: AgentSessionRow): string {
-  const m = s.model_used?.trim();
+  const m = s.model_key?.trim() || s.model_used?.trim();
   return m || '—';
 }
 

@@ -42,7 +42,14 @@ export const handlers = {
         let openAfter = true;
         if (params.open_after_create === false || params.open_after_create === 0) openAfter = false;
         try {
-            const out = await createPlanExcalidrawArtifact(env, { tenantId, workspaceId, userId, planId });
+            const out = await createPlanExcalidrawArtifact(env, {
+                tenantId,
+                workspaceId,
+                userId,
+                planId,
+                sourceRunId: params.agent_run_id ?? params.run_id ?? null,
+                sourceSessionId: params.conversation_id ?? params.session_id ?? null,
+            });
             return {
                 ok: true,
                 artifact_type: 'excalidraw',

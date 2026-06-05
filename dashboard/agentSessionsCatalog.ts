@@ -8,8 +8,13 @@ export type AgentSessionRow = {
   message_count?: number;
   has_artifacts?: boolean;
   name?: string | null;
+  title?: string | null;
+  github_repo?: string | null;
   workspace_id?: string | null;
   model_used?: string | null;
+  model_key?: string | null;
+  active_file?: string | null;
+  files_open?: string | null;
 };
 
 export function sessionStartedAtMs(s: AgentSessionRow): number {

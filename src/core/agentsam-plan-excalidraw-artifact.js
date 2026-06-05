@@ -53,6 +53,8 @@ async function loadPlanAndTasksForArtifact(env, p) {
  *   description: string,
  *   tags: string[],
  *   metadataKind: string,
+ *   sourceRunId?: string|null,
+ *   sourceSessionId?: string|null,
  * }} row
  */
 async function putR2AndInsertPlanArtifact(env, row) {
@@ -87,6 +89,12 @@ async function putR2AndInsertPlanArtifact(env, row) {
   if (cols.has('metadata_json')) {
     ins.metadata_json = JSON.stringify({ plan_id: row.planId, kind: row.metadataKind });
   }
+  if (row.sourceRunId && cols.has('source_run_id')) {
+    ins.source_run_id = String(row.sourceRunId).trim().slice(0, 120);
+  }
+  if (row.sourceSessionId && cols.has('source_session_id')) {
+    ins.source_session_id = String(row.sourceSessionId).trim().slice(0, 200);
+  }
 
   const names = [];
   const ph = [];
@@ -117,7 +125,7 @@ async function putR2AndInsertPlanArtifact(env, row) {
 
 /**
  * @param {any} env
- * @param {{ tenantId: string, workspaceId: string, userId: string, planId: string }} p
+ * @param {{ tenantId: string, workspaceId: string, userId: string, planId: string, sourceRunId?: string|null, sourceSessionId?: string|null }} p
  * @returns {Promise<{ artifact_id: string, r2_key: string, public_url: string, plan_id: string, open_url: string }>}
  */
 export async function createPlanExcalidrawArtifact(env, p) {
@@ -154,12 +162,14 @@ export async function createPlanExcalidrawArtifact(env, p) {
     description: `Excalidraw plan map for ${planId}`,
     tags: ['plan', 'excalidraw', 'agentsam'],
     metadataKind: 'plan_map',
+    sourceRunId: p.sourceRunId ?? null,
+    sourceSessionId: p.sourceSessionId ?? null,
   });
 }
 
 /**
  * @param {any} env
- * @param {{ tenantId: string, workspaceId: string, userId: string, planId: string }} p
+ * @param {{ tenantId: string, workspaceId: string, userId: string, planId: string, sourceRunId?: string|null, sourceSessionId?: string|null }} p
  * @returns {Promise<{ artifact_id: string, r2_key: string, public_url: string, plan_id: string, open_url: string }>}
  */
 export async function createPlanMarkdownArtifact(env, p) {
@@ -195,5 +205,7 @@ export async function createPlanMarkdownArtifact(env, p) {
     description: `Markdown plan export for ${planId}`,
     tags: ['plan', 'markdown', 'agentsam'],
     metadataKind: 'plan_markdown',
+    sourceRunId: p.sourceRunId ?? null,
+    sourceSessionId: p.sourceSessionId ?? null,
   });
 }
