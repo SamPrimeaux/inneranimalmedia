@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   FolderOpen,
   Github,
-  Terminal,
   ArrowRight,
   Target,
   Sparkles,
@@ -15,6 +14,7 @@ import {
 import type { RecentFileEntry } from '../src/ideWorkspace';
 import { SetiFileIcon } from '../src/components/SetiFileIcon';
 import { usePlanTasksRealtime } from '../src/hooks/usePlanTasksRealtime';
+import { readRecentWorkspacesFromLocalStorage } from '../src/recentWorkspacesStorage';
 
 interface WorkspaceDashboardProps {
   onOpenFolder: () => void;
@@ -33,6 +33,7 @@ interface WorkspaceDashboardProps {
   workspaceActivity?: unknown[];
   workspaceVerificationCommands?: unknown[];
   activeAgentSlug?: string | null;
+  sessionUserId?: string | null;
 }
 
 const HOME_SUBLINE_OPTIONS = [
@@ -78,6 +79,7 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
   workspaceActivity = [],
   workspaceVerificationCommands = [],
   activeAgentSlug = null,
+  sessionUserId = null,
 }) => {
   const { tasks: realtimePlanTasks } = usePlanTasksRealtime(activePlanId ?? null);
   const displayPlanTasks: unknown[] = activePlanId ? (realtimePlanTasks as unknown[]) : workspacePlanTasks;
@@ -105,6 +107,8 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
   }, []);
 
   const activeWorkspace = (workspaceRows || []).find((w) => w.id === authWorkspaceId) || { name: 'Home', id: 'default' };
+  const recentWorkspaces = readRecentWorkspacesFromLocalStorage(sessionUserId);
+  const hasRecentWork = recentFiles.length > 0 || recentWorkspaces.length > 0;
 
   return (
     <div className="flex-1 flex flex-col items-center justify-start bg-[var(--scene-bg)] overflow-y-auto py-12 px-6 no-scrollbar h-full">
@@ -256,77 +260,120 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full max-w-3xl mb-12 animate-in fade-in slide-in-from-bottom-8 duration-1000 delay-150">
-        <button
-          type="button"
-          onClick={onOpenFolder}
-          className="group flex flex-col items-start p-6 bg-[var(--dashboard-card)] border border-[var(--dashboard-border)] rounded-2xl hover:border-[var(--solar-cyan)]/50 transition-all duration-300 hover:shadow-lg"
-        >
-          <div className="p-3 rounded-xl bg-[var(--dashboard-canvas)] text-[var(--dashboard-muted)] group-hover:text-[var(--solar-cyan)] transition-colors mb-4">
-            <FolderOpen size={24} />
+      <div className="w-full max-w-3xl mb-12 animate-in fade-in slide-in-from-bottom-8 duration-1000 delay-150">
+        <div className="bg-[var(--dashboard-card)] border border-[var(--dashboard-border)] rounded-2xl p-6 hover:border-[var(--solar-cyan)]/40 transition-all duration-300">
+          <div className="flex items-start gap-4 mb-5">
+            <div className="p-3 rounded-xl bg-[var(--dashboard-canvas)] text-[var(--solar-cyan)] shrink-0">
+              <Globe size={24} />
+            </div>
+            <div className="min-w-0 text-left">
+              <h3 className="text-sm font-bold text-[var(--dashboard-text)] mb-1">Open your work</h3>
+              <p className="text-[11px] text-[var(--dashboard-muted)] leading-relaxed">
+                Switch to a cloud workspace, open a local folder, or clone a GitHub repo — all from one place.
+              </p>
+            </div>
           </div>
-          <h3 className="text-sm font-bold text-[var(--dashboard-text)] mb-1">Open Local Project</h3>
-          <p className="text-[11px] text-[var(--dashboard-muted)] text-left">Browse your local filesystem to pick a repository</p>
-        </button>
 
-        <button
-          type="button"
-          onClick={onConnectWorkspace}
-          className="group flex flex-col items-start p-6 bg-[var(--dashboard-card)] border border-[var(--dashboard-border)] rounded-2xl hover:border-[var(--solar-cyan)]/50 transition-all duration-300 hover:shadow-lg"
-        >
-          <div className="p-3 rounded-xl bg-[var(--dashboard-canvas)] text-[var(--dashboard-muted)] group-hover:text-[var(--solar-cyan)] transition-colors mb-4">
-            <Globe size={24} />
-          </div>
-          <h3 className="text-sm font-bold text-[var(--dashboard-text)] mb-1">Connect Workspace</h3>
-          <p className="text-[11px] text-[var(--dashboard-muted)] text-left">Switch to a D1-backed remote control plane</p>
-        </button>
+          <button
+            type="button"
+            onClick={onConnectWorkspace}
+            className="w-full mb-3 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-[var(--solar-cyan)]/15 border border-[var(--solar-cyan)]/35 text-[var(--solar-cyan)] text-[13px] font-semibold hover:bg-[var(--solar-cyan)]/25 transition-colors"
+          >
+            <Database size={16} />
+            Switch workspace
+          </button>
 
-        <button
-          type="button"
-          onClick={onGithubSync}
-          className="group flex flex-col items-start p-6 bg-[var(--dashboard-card)] border border-[var(--dashboard-border)] rounded-2xl hover:border-[var(--solar-cyan)]/50 transition-all duration-300 hover:shadow-lg"
-        >
-          <div className="p-3 rounded-xl bg-[var(--dashboard-canvas)] text-[var(--dashboard-muted)] group-hover:text-[var(--solar-cyan)] transition-colors mb-4">
-            <Github size={24} />
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={onOpenFolder}
+              className="group flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-[var(--dashboard-border)] bg-[var(--dashboard-canvas)]/50 hover:border-[var(--solar-cyan)]/40 hover:bg-[var(--dashboard-canvas)] transition-all text-left"
+            >
+              <FolderOpen size={16} className="shrink-0 text-[var(--dashboard-muted)] group-hover:text-[var(--solar-cyan)]" />
+              <span className="min-w-0">
+                <span className="block text-[12px] font-semibold text-[var(--dashboard-text)]">Local folder</span>
+                <span className="block text-[10px] text-[var(--dashboard-muted)] truncate">Browse this machine</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={onGithubSync}
+              className="group flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-[var(--dashboard-border)] bg-[var(--dashboard-canvas)]/50 hover:border-[var(--solar-cyan)]/40 hover:bg-[var(--dashboard-canvas)] transition-all text-left"
+            >
+              <Github size={16} className="shrink-0 text-[var(--dashboard-muted)] group-hover:text-[var(--solar-cyan)]" />
+              <span className="min-w-0">
+                <span className="block text-[12px] font-semibold text-[var(--dashboard-text)]">Clone repo</span>
+                <span className="block text-[10px] text-[var(--dashboard-muted)] truncate">Paste a GitHub URL</span>
+              </span>
+            </button>
           </div>
-          <h3 className="text-sm font-bold text-[var(--dashboard-text)] mb-1">Clone Repository</h3>
-          <p className="text-[11px] text-[var(--dashboard-muted)] text-left">Paste a GitHub URL to clone into your workspace</p>
-        </button>
+        </div>
       </div>
 
       <div className="w-full max-w-3xl animate-in fade-in slide-in-from-bottom-10 duration-1000 delay-300">
         <div className="flex items-center gap-2 mb-4 px-2">
           <HistoryIcon size={14} className="text-[var(--dashboard-muted)]" />
-          <h2 className="text-[11px] font-bold text-[var(--dashboard-muted)] uppercase tracking-widest">Recent Files</h2>
+          <h2 className="text-[11px] font-bold text-[var(--dashboard-muted)] uppercase tracking-widest">Recent Work</h2>
         </div>
 
         <div className="bg-[var(--dashboard-card)] border border-[var(--dashboard-border)] rounded-2xl divide-y divide-[var(--dashboard-border)] overflow-hidden">
-          {recentFiles.length > 0 ? (
-            recentFiles.slice(0, 6).map((file) => (
-              <div
-                key={file.id}
-                role="button"
-                tabIndex={0}
-                className="group flex items-center justify-between p-4 hover:bg-[var(--dashboard-canvas)] transition-colors cursor-pointer"
-                onClick={() => onOpenRecent(file)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') onOpenRecent(file);
-                }}
-              >
-                <div className="flex items-center gap-4 min-w-0">
-                  <div className="w-8 h-8 rounded-lg bg-[var(--dashboard-canvas)] flex items-center justify-center group-hover:opacity-90 transition-opacity">
-                    <SetiFileIcon filename={file.name} size={16} />
+          {hasRecentWork ? (
+            <>
+              {recentWorkspaces.slice(0, 3).map((ws) => (
+                <div
+                  key={`ws-${ws.id}`}
+                  role="button"
+                  tabIndex={0}
+                  className="group flex items-center justify-between p-4 hover:bg-[var(--dashboard-canvas)] transition-colors cursor-pointer"
+                  onClick={() => onSwitchWorkspace(ws.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') onSwitchWorkspace(ws.id);
+                  }}
+                >
+                  <div className="flex items-center gap-4 min-w-0">
+                    <div className="w-8 h-8 rounded-lg bg-[var(--dashboard-canvas)] flex items-center justify-center text-[var(--solar-cyan)] group-hover:opacity-90 transition-opacity">
+                      <Database size={16} />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[13px] font-bold text-[var(--dashboard-text)] truncate">
+                        {ws.display_name || ws.slug || ws.id}
+                      </div>
+                      <div className="text-[10px] text-[var(--dashboard-muted)] font-mono truncate">
+                        Workspace · {ws.slug || ws.id}
+                      </div>
+                    </div>
                   </div>
-                  <div className="min-w-0">
-                    <div className="text-[13px] font-bold text-[var(--dashboard-text)] truncate">{file.name}</div>
-                    <div className="text-[10px] text-[var(--dashboard-muted)] font-mono truncate">{file.label}</div>
-                  </div>
+                  <ArrowRight size={14} className="text-[var(--dashboard-muted)] opacity-0 group-hover:opacity-100 transition-all" />
                 </div>
-                <ArrowRight size={14} className="text-[var(--dashboard-muted)] opacity-0 group-hover:opacity-100 transition-all" />
-              </div>
-            ))
+              ))}
+              {recentFiles.slice(0, 6).map((file) => (
+                <div
+                  key={file.id}
+                  role="button"
+                  tabIndex={0}
+                  className="group flex items-center justify-between p-4 hover:bg-[var(--dashboard-canvas)] transition-colors cursor-pointer"
+                  onClick={() => onOpenRecent(file)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') onOpenRecent(file);
+                  }}
+                >
+                  <div className="flex items-center gap-4 min-w-0">
+                    <div className="w-8 h-8 rounded-lg bg-[var(--dashboard-canvas)] flex items-center justify-center group-hover:opacity-90 transition-opacity">
+                      <SetiFileIcon filename={file.name} size={16} />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[13px] font-bold text-[var(--dashboard-text)] truncate">{file.name}</div>
+                      <div className="text-[10px] text-[var(--dashboard-muted)] font-mono truncate">{file.label}</div>
+                    </div>
+                  </div>
+                  <ArrowRight size={14} className="text-[var(--dashboard-muted)] opacity-0 group-hover:opacity-100 transition-all" />
+                </div>
+              ))}
+            </>
           ) : (
-            <div className="p-8 text-center text-[var(--dashboard-muted)] italic text-[12px]">No recent projects found.</div>
+            <div className="p-8 text-center text-[var(--dashboard-muted)] italic text-[12px]">
+              No recent work yet — switch a workspace or open a file to get started.
+            </div>
           )}
         </div>
       </div>

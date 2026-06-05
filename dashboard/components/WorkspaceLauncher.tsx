@@ -27,6 +27,7 @@ export type AgentsamWorkspaceRow = {
 interface WorkspaceLauncherProps {
   onClose: () => void;
   onOpenLocalFolder?: () => void;
+  onManageEnvironments?: () => void;
   onConnectWorkspace?: () => void;
   /** Session user from GET /api/auth/me — required to namespace `iam_recent_workspaces` in localStorage. */
   sessionUserId?: string | null;
@@ -65,6 +66,7 @@ function formatRelativeTime(updatedAt: number | null | undefined): string {
 export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
   onClose,
   onOpenLocalFolder,
+  onManageEnvironments,
   onConnectWorkspace,
   sessionUserId,
   authWorkspaceId,
@@ -376,12 +378,21 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
               >
                 <Plus size={14} /> New Workspace
               </button>
+              {onOpenLocalFolder ? (
+                <button
+                  type="button"
+                  onClick={() => onOpenLocalFolder()}
+                  className="w-full flex items-center gap-3 text-sm text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors py-2"
+                >
+                  <FolderOpen size={14} /> Open local folder
+                </button>
+              ) : null}
               <button
                 type="button"
-                onClick={() => onConnectWorkspace?.()}
+                onClick={() => onManageEnvironments?.()}
                 className="w-full flex items-center gap-3 text-sm text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors py-2"
               >
-                <Settings size={14} /> Manage Environments
+                <Settings size={14} /> Manage environments
               </button>
             </div>
           </div>
@@ -408,8 +419,18 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
                       Loading workspaces…
                     </div>
                   ) : filtered.length === 0 ? (
-                    <div className="text-[var(--text-muted)] text-center py-16 text-sm">
-                      No workspaces match this filter.
+                    <div className="text-[var(--text-muted)] text-center py-16 text-sm space-y-4">
+                      <p>No workspaces match this filter.</p>
+                      {activeFilter === 'local' && onOpenLocalFolder ? (
+                        <button
+                          type="button"
+                          onClick={() => onOpenLocalFolder()}
+                          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-[var(--border-subtle)] text-[var(--solar-cyan)] text-xs font-bold hover:bg-[var(--bg-hover)]"
+                        >
+                          <FolderOpen size={14} />
+                          Open local folder instead
+                        </button>
+                      ) : null}
                     </div>
                   ) : (
                     filtered.map((w) => (

@@ -76,6 +76,38 @@ export function persistRecentWorkspaceSwitch(
   }
 }
 
+export type RecentWorkspaceEntry = {
+  id: string;
+  display_name: string;
+  slug: string;
+  workspace_type?: string | null;
+  updated_at?: number | null;
+};
+
+export function readRecentWorkspacesFromLocalStorage(
+  sessionUserId: string | null | undefined,
+): RecentWorkspaceEntry[] {
+  if (typeof window === 'undefined') return [];
+  const uid = typeof sessionUserId === 'string' ? sessionUserId.trim() : '';
+  if (!uid) return [];
+  try {
+    const storedUserId = localStorage.getItem(LS_IAM_RECENT_WORKSPACES_USER);
+    if (storedUserId !== uid) return [];
+    const raw = localStorage.getItem(LS_IAM_RECENT_WORKSPACES);
+    const parsed = raw ? (JSON.parse(raw) as unknown) : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((x): x is RecentWorkspaceEntry => {
+        if (!x || typeof x !== 'object') return false;
+        const row = x as RecentWorkspaceEntry;
+        return typeof row.id === 'string' && row.id.trim() !== '';
+      })
+      .slice(0, 5);
+  } catch {
+    return [];
+  }
+}
+
 export function clearRecentWorkspacesLocal(): void {
   if (typeof window === 'undefined') return;
   try {

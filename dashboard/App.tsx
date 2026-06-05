@@ -3549,6 +3549,7 @@ const App: React.FC = () => {
                             workspaceActivity={Array.isArray(workspaceSamState?.recent_adjustments) ? (workspaceSamState!.recent_adjustments as unknown[]) : []}
                             workspaceVerificationCommands={Array.isArray(workspaceSamState?.verification_commands) ? (workspaceSamState!.verification_commands as unknown[]) : []}
                             activeAgentSlug={typeof workspaceSamState?.active_agent_slug === 'string' ? workspaceSamState.active_agent_slug : null}
+                            sessionUserId={sessionUserId}
                           />
                       </div>
                   )}
@@ -3962,6 +3963,10 @@ const App: React.FC = () => {
             setWorkspaceLauncherOpen(false);
             setActiveActivity('files');
             setNativeFolderOpenSignal((n) => n + 1);
+          }}
+          onManageEnvironments={() => {
+            setWorkspaceLauncherOpen(false);
+            navigate('/dashboard/settings/workspace');
           }}
           onConnectWorkspace={() => setWorkspaceLauncherOpen(false)}
         />
