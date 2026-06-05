@@ -100,17 +100,23 @@ async function enrichCfIndex(env, idx, q) {
   };
 }
 
-async function loadPlatformCfIndexes(env, q) {
-  const registry = await q(
-    `SELECT * FROM vectorize_index_registry
-     WHERE tenant_id = ? AND COALESCE(is_active, 1) = 1
-     ORDER BY COALESCE(is_preferred, 0) DESC, display_name`,
-    [PLATFORM_VECTOR_TENANT],
-  );
+async function loadCfIndexCatalog(env, q, tenantId, isSuper) {
+  const registrySql = isSuper
+    ? `SELECT * FROM vectorize_index_registry
+       WHERE COALESCE(is_active, 1) = 1
+       ORDER BY COALESCE(is_preferred, 0) DESC, display_name`
+    : `SELECT * FROM vectorize_index_registry
+       WHERE (tenant_id = ? OR tenant_id IS NULL OR tenant_id = ?)
+         AND COALESCE(is_active, 1) = 1
+       ORDER BY COALESCE(is_preferred, 0) DESC, display_name`;
+  const binds = isSuper ? [] : [tenantId, PLATFORM_VECTOR_TENANT];
+  const registry = await q(registrySql, binds);
   return Promise.all(registry.map((idx) => enrichCfIndex(env, idx, q)));
 }
 
 async function loadPlatformPgvectorLanes(env, q) {
+  // Global lane catalog — no tenant_id on agentsam_pgvector_lane_registry.
+  // Workspace isolation lives on workspace_id in the Supabase pgvector tables.
   const lanes = await q(
     `SELECT id, schema_name, table_name, purpose, dimensions, metric, embedding_model,
             size_label, is_active, is_archive, description, updated_at
@@ -173,17 +179,18 @@ async function loadTenantConnections(env, tenantId, userId, q) {
  * @param {(sql: string, binds?: unknown[], mode?: string) => Promise<any>} q
  */
 export async function buildStorageVectorsPayload(env, authUser, url, tenantId, userId, q) {
+  const isSuper = authUserIsSuperadmin(authUser);
   const canViewPlatform = await canViewPlatformVectorRegistry(env, authUser, tenantId);
   const workspaceId = resolveWorkspaceId(authUser, url, env);
 
-  const platformCfIndexes = canViewPlatform ? await loadPlatformCfIndexes(env, q) : [];
-  const platformPgvectorLanes = canViewPlatform ? await loadPlatformPgvectorLanes(env, q) : [];
+  const platformCfIndexes = await loadCfIndexCatalog(env, q, tenantId, isSuper);
+  const platformPgvectorLanes = await loadPlatformPgvectorLanes(env, q);
   const workspacePgvector = canViewPlatform
     ? []
     : await workspacePgvectorStats(env, workspaceId);
   const tenantConnections = await loadTenantConnections(env, tenantId, userId, q);
 
-  const indexes = canViewPlatform ? platformCfIndexes : [];
+  const indexes = platformCfIndexes;
   const totalsFromCf = platformCfIndexes.reduce(
     (acc, x) => ({
       stored: acc.stored + num(x.stored_vectors),
