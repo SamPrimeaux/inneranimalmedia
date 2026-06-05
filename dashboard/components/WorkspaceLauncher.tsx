@@ -315,9 +315,9 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
   );
 
   return (
-    <div className="workspace-launcher fixed inset-0 z-[100] flex items-center justify-center bg-[var(--bg-app)]/80 backdrop-blur-md animate-in fade-in duration-300">
-      <div className="w-full max-w-4xl h-[600px] bg-[var(--bg-panel)] border border-[var(--border-main)] rounded-2xl shadow-2xl flex flex-col overflow-hidden">
-        <div className="p-6 border-b border-[var(--border-subtle)] flex items-center justify-between">
+    <div className="workspace-launcher fixed inset-0 z-[100] flex items-center justify-center bg-[var(--bg-app)]/80 backdrop-blur-md animate-in fade-in duration-300 p-2 max-md:p-0">
+      <div className="w-full max-w-4xl h-[600px] max-md:h-[min(92dvh,100%)] max-md:max-w-none max-md:rounded-none bg-[var(--bg-panel)] border border-[var(--border-main)] max-md:border-0 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+        <div className="p-6 max-md:p-4 border-b border-[var(--border-subtle)] flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-[var(--solar-cyan)]/10 flex items-center justify-center text-[var(--solar-cyan)]">
               <Server size={24} />
@@ -338,26 +338,27 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
           </button>
         </div>
 
-        <div className="flex-1 flex overflow-hidden">
-          <div className="w-64 border-r border-[var(--border-subtle)] bg-[var(--bg-app)]/50 p-4 space-y-1">
+        <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-h-0">
+          <div className="w-64 max-md:w-full max-md:shrink-0 border-r border-[var(--border-subtle)] max-md:border-r-0 max-md:border-b bg-[var(--bg-app)]/50 p-4 max-md:p-2 max-md:space-y-0 space-y-1 max-md:flex max-md:flex-row max-md:overflow-x-auto max-md:gap-1 max-md:overscroll-x-contain">
             {filters.map((f) => (
               <button
                 key={f.id}
                 type="button"
                 onClick={() => setActiveFilter(f.id)}
                 disabled={uiMode === 'create'}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                title={f.label}
+                className={`w-full max-md:w-auto max-md:shrink-0 flex items-center gap-3 max-md:gap-1.5 max-md:flex-col px-3 max-md:px-2 py-2.5 max-md:py-1.5 rounded-xl max-md:rounded-lg text-sm max-md:text-[10px] font-medium transition-all ${
                   activeFilter === f.id
                     ? 'bg-[var(--bg-panel)] text-[var(--solar-cyan)] shadow-sm border border-[var(--border-subtle)]'
                     : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-panel)]/50'
                 } ${uiMode === 'create' ? 'opacity-40 pointer-events-none' : ''}`}
               >
                 {f.icon}
-                {f.label}
+                <span className="max-md:leading-tight max-md:text-center">{f.label}</span>
               </button>
             ))}
 
-            <div className="pt-8 px-3">
+            <div className="pt-8 px-3 max-md:hidden">
               <p className="text-[10px] uppercase tracking-widest font-bold text-[var(--text-muted)] mb-4">
                 Operations
               </p>
@@ -414,11 +415,11 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
                     filtered.map((w) => (
                       <div
                         key={w.id}
-                        className="flex items-center gap-3 p-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)]/40 hover:bg-[var(--bg-hover)]/50 transition-colors"
+                        className="flex flex-col max-md:flex-col sm:flex-row items-stretch max-md:items-stretch gap-2 max-md:gap-2 p-3 max-md:p-2.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)]/40 hover:bg-[var(--bg-hover)]/50 transition-colors"
                       >
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-bold text-[var(--text-heading)] truncate">
+                            <span className="font-bold text-[var(--text-heading)] truncate max-md:text-[13px]">
                               {w.display_name || w.slug}
                             </span>
                             {w.workspace_type ? (
@@ -438,7 +439,7 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
                         <button
                           type="button"
                           onClick={() => void activateWorkspace(w)}
-                          className="shrink-0 px-4 py-2 rounded-lg bg-[var(--solar-cyan)]/20 text-[var(--solar-cyan)] text-xs font-bold hover:bg-[var(--solar-cyan)]/30"
+                          className="shrink-0 w-full max-md:w-full sm:w-auto px-4 py-2 max-md:py-1.5 rounded-lg bg-[var(--solar-cyan)]/20 text-[var(--solar-cyan)] text-xs font-bold hover:bg-[var(--solar-cyan)]/30"
                         >
                           Open
                         </button>

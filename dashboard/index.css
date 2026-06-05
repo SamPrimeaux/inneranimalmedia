@@ -115,6 +115,12 @@ samp.font-mono {
   max-width: min(60vw, calc(100vw - 2rem));
 }
 
+.iam-nav-search--toolbar .nav-dropdown {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+
 /* Split Editor Layout */
 [data-editor-split="true"] {
   display: grid !important;

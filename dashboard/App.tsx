@@ -760,10 +760,8 @@ const App: React.FC = () => {
 
   const workspaceDashboardRecentFiles = useMemo(() => {
     if (recentFiles.length > 0) return recentFiles;
-    const convId = activeAgentConversationId?.trim();
-    if (convId) return recentFiles;
     return readRecentFilesFromLocalStorage();
-  }, [recentFiles, activeAgentConversationId, recentFilesLsTick]);
+  }, [recentFiles, recentFilesLsTick]);
 
   // Tabs: Workspace matches default activeTab (welcome had no panel — stranded tab id removed from defaults).
   const [openTabs, setOpenTabs] = useState<TabId[]>(['Workspace']);
@@ -2720,8 +2718,10 @@ const App: React.FC = () => {
 
   /** Mobile: only fullscreen agent chat hides the editor; activity drawer is a side panel. */
   const narrowBlocksCenter = isNarrowViewport && agentPosition !== 'off';
+  /** Explorer drawer has its own close control — no floating back pill while files panel is open. */
   const narrowNeedsBack =
-    isNarrowViewport && (agentPosition !== 'off' || !!activeActivity);
+    isNarrowViewport &&
+    (agentPosition !== 'off' || (!!activeActivity && activeActivity !== 'files'));
 
   const mobileBackLabel = useMemo(
     () =>
@@ -2794,11 +2794,10 @@ const App: React.FC = () => {
               )}
           </div>
 
-          {/* Unified search (Cmd+K) + Knowledge panel (RAG / chats list) */}
-          <div className="flex-1 flex justify-center items-center min-w-0 px-2 gap-2 overflow-visible max-md:flex-none max-md:px-1">
+          {/* Unified search (Cmd+K) — desktop center; mobile lives in right cluster */}
+          <div className="flex-1 flex justify-center items-center min-w-0 px-2 gap-2 overflow-visible max-md:hidden">
               <UnifiedSearchBar
                 workspaceLabel={workspaceDisplayLine}
-                hideWorkspaceSegment={isNarrowViewport}
                 onWorkspacePickerClick={() => setWorkspaceLauncherOpen(true)}
                 recentFiles={mappedRecentFiles}
                 onNavigate={(nav, _q) => handleUnifiedNavigate(nav)}
@@ -2811,8 +2810,24 @@ const App: React.FC = () => {
               />
           </div>
 
-          {/* Right layout cluster: split | side panel | bottom aux | terminal (IAM shell) */}
-          <div className="flex gap-0.5 items-center mr-1 shrink-0">
+          {/* Right layout cluster — mobile: Search icon + More; desktop adds terminal/globe/etc. */}
+          <div className="flex gap-0.5 items-center mr-1 shrink-0 max-md:ml-auto">
+              <div className="md:hidden shrink-0">
+                <UnifiedSearchBar
+                  workspaceLabel={workspaceDisplayLine}
+                  hideWorkspaceSegment
+                  mobileToolbar
+                  onWorkspacePickerClick={() => setWorkspaceLauncherOpen(true)}
+                  recentFiles={mappedRecentFiles}
+                  onNavigate={(nav, _q) => handleUnifiedNavigate(nav)}
+                  onRunCommand={(cmd) => terminalRef.current?.runCommand(cmd)}
+                  controlledOpen={searchOpen}
+                  onControlledOpenChange={onUnifiedSearchOpenChange}
+                  initialFacets={searchInitialFacets}
+                  initialQuery={searchInitialQuery}
+                  onInitialQueryConsumed={() => setSearchInitialQuery('')}
+                />
+              </div>
               <button
                   type="button"
                   title="More tools (mobile)"
@@ -2845,7 +2860,7 @@ const App: React.FC = () => {
               <button
                   type="button"
                   title="Terminal (Cmd+J)"
-                  className={`p-1.5 rounded transition-colors ${isTerminalOpen ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]' : 'text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]'}`}
+                  className={`max-md:hidden p-1.5 rounded transition-colors ${isTerminalOpen ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]' : 'text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]'}`}
                   onClick={() =>
                     setIsTerminalOpen((p) => {
                       const next = !p;
@@ -3328,9 +3343,37 @@ const App: React.FC = () => {
                       />
                   )}
 
-                  {/* Quick-open buttons for closed panels */}
+                  {/* Tab row tools — mobile: globe + terminal; desktop: + Browser text */}
                   <div className="ml-auto flex items-center gap-0.5 pr-2 shrink-0">
-                      {!openTabs.includes('browser') && <QuickOpen label="Browser" onClick={() => openTab('browser')} />}
+                      {!openTabs.includes('browser') && (
+                        <>
+                          <button
+                            type="button"
+                            title="Open Browser"
+                            className="md:hidden p-1.5 rounded transition-colors text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]"
+                            onClick={() => openTab('browser')}
+                          >
+                            <Globe size={15} strokeWidth={1.75} />
+                          </button>
+                          <span className="max-md:hidden">
+                            <QuickOpen label="Browser" onClick={() => openTab('browser')} />
+                          </span>
+                        </>
+                      )}
+                      <button
+                        type="button"
+                        title="Terminal (Cmd+J)"
+                        className={`md:hidden p-1.5 rounded transition-colors ${isTerminalOpen ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]' : 'text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]'}`}
+                        onClick={() =>
+                          setIsTerminalOpen((p) => {
+                            const next = !p;
+                            if (next) setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
+                            return next;
+                          })
+                        }
+                      >
+                        <TermIcon size={15} strokeWidth={1.75} />
+                      </button>
                   </div>
 
                   {/* Decorative line below tabs */}
@@ -3697,6 +3740,12 @@ const App: React.FC = () => {
               </button>
             </div>
             <div className="overflow-y-auto p-2 flex flex-col gap-0.5">
+              {/*
+                MOBILE SEARCH AUDIT (Round 4 — do not remove until approved):
+                • Top-bar search icon → UnifiedSearchBar Cmd+K palette (commands, R2, D1, files, recent via /api/unified-search/recent).
+                • More → "Search" → toggleActivity('search') → KnowledgeSearchPanel (RAG /api/rag/query + agent session threads).
+                Different components and data sources — not duplicate. If we label later: "Search files & commands" vs "Knowledge & chats".
+              */}
               <MobileMoreRow icon={Search} label="Search" onClick={() => { setMobileMoreOpen(false); toggleActivity('search'); }} />
               <MobileMoreRow icon={GitBranch} label="Source Control" onClick={() => { setMobileMoreOpen(false); toggleActivity('git'); }} />
               <MobileMoreRow icon={Bug} label="Run & Debug" onClick={() => { setMobileMoreOpen(false); toggleActivity('debug'); }} />

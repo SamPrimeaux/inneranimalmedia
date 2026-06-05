@@ -375,8 +375,10 @@ function rowIcon(category: PaletteCategory) {
 
 export const UnifiedSearchBar: React.FC<{
   workspaceLabel?: string;
-  /** Mobile (≤767px): search-only center strip — no workspace chip in top bar on any route. */
+  /** Mobile (≤767px): search-only trigger — no workspace chip in top bar on any route. */
   hideWorkspaceSegment?: boolean;
+  /** Mobile top-bar right cluster: anchor palette to the right edge. */
+  mobileToolbar?: boolean;
   onWorkspacePickerClick?: () => void;
   recentFiles?: { name: string; path: string; label?: string }[];
   onNavigate: (nav: UnifiedSearchNavigate, searchQuery: string) => void;
@@ -389,6 +391,7 @@ export const UnifiedSearchBar: React.FC<{
 }> = ({
   workspaceLabel,
   hideWorkspaceSegment = false,
+  mobileToolbar = false,
   onWorkspacePickerClick,
   recentFiles = [],
   onNavigate,
@@ -1029,23 +1032,31 @@ export const UnifiedSearchBar: React.FC<{
   return (
     <div
       ref={paletteRef}
-      className={`nav-search-container min-w-0 ${mobileCompact ? 'iam-nav-search--mobile' : 'w-full max-w-lg'}`}
+      className={`nav-search-container min-w-0 ${mobileCompact ? `iam-nav-search--mobile${mobileToolbar ? ' iam-nav-search--toolbar' : ''}` : 'w-full max-w-lg'}`}
       data-mobile-compact={mobileCompact ? 'true' : undefined}
     >
       {mobileCompact ? (
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
-          className={`flex items-center justify-center w-9 h-9 rounded-md border transition-colors ${
-            open
-              ? 'border-[var(--solar-cyan)]/50 bg-[var(--bg-hover)] text-[var(--solar-cyan)]'
-              : 'border-[var(--border-subtle)] bg-[var(--bg-app)] text-[var(--text-muted)] hover:border-[var(--solar-cyan)]/40 hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'
-          }`}
-          title="Search"
+          className={
+            mobileToolbar
+              ? `p-1.5 rounded transition-colors ${
+                  open
+                    ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]'
+                    : 'text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]'
+                }`
+              : `flex items-center justify-center w-9 h-9 rounded-md border transition-colors ${
+                  open
+                    ? 'border-[var(--solar-cyan)]/50 bg-[var(--bg-hover)] text-[var(--solar-cyan)]'
+                    : 'border-[var(--border-subtle)] bg-[var(--bg-app)] text-[var(--text-muted)] hover:border-[var(--solar-cyan)]/40 hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'
+                }`
+          }
+          title="Search (Cmd+K)"
           aria-label="Search"
           aria-expanded={open}
         >
-          <Search size={18} strokeWidth={1.75} aria-hidden />
+          <Search size={mobileToolbar ? 15 : 18} strokeWidth={1.75} aria-hidden />
         </button>
       ) : (
       <div className="flex items-stretch w-full rounded-md border border-[var(--border-subtle)] bg-[var(--bg-app)] hover:border-[var(--solar-cyan)]/40 transition-colors overflow-hidden">
