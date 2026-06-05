@@ -37,6 +37,13 @@ import { ExtensionsPanel } from './components/ExtensionsPanel';
 import type { EditorModelMeta } from './components/MonacoEditorView';
 import { LocalExplorer } from './components/LocalExplorer';
 import { BrowserView } from './components/BrowserView';
+import { EditorPreviewPane } from './components/EditorPreviewPane';
+import {
+  resolvePreviewMode,
+  parseDevServerFromTerminalLine,
+  probeDevServerUrl,
+} from './lib/resolvePreviewMode';
+import { buildPreviewSrcDoc } from './lib/buildPreviewSrcDoc';
 import { StatusBar, type AgentNotificationRow } from './components/StatusBar';
 import { DatabaseBrowser, type DatabaseExplorerJump } from './components/DatabaseBrowser';
 import { UnifiedSearchBar, type UnifiedSearchNavigate } from './components/UnifiedSearchBar';
@@ -67,6 +74,7 @@ import {
   type IdeWorkspaceSnapshot,
   type RecentFileEntry,
   type AgentWorkspaceContextPacket,
+  type DevServerState,
 } from './src/ideWorkspace';
 import { useEditor } from './src/EditorContext';
 import { useWorkspace } from './src/context/WorkspaceContext';
@@ -156,12 +164,12 @@ function isRenderablePreviewFilename(name: string): boolean {
 }
 
 function previewButtonTitle(name: string): string {
-  if (/\.(html|htm)$/i.test(name)) return 'Preview HTML in Browser tab';
-  if (/\.svg$/i.test(name)) return 'Preview SVG in Browser tab';
-  if (/\.md$/i.test(name)) return 'Preview Markdown in Browser tab';
-  if (/\.jsx$/i.test(name)) return 'Open JSX preview (build step required) in Browser tab';
-  if (/\.tsx$/i.test(name)) return 'Open TSX preview (build step required) in Browser tab';
-  return 'Preview in Browser tab';
+  if (/\.(html|htm)$/i.test(name)) return 'Preview HTML';
+  if (/\.svg$/i.test(name)) return 'Preview SVG';
+  if (/\.md$/i.test(name)) return 'Preview Markdown';
+  if (/\.jsx$/i.test(name)) return 'Preview JSX (dev server)';
+  if (/\.tsx$/i.test(name)) return 'Preview TSX (dev server)';
+  return 'Preview file';
 }
 
 /** Preview size thresholds — blob preview above SERVE causes blank/freeze; redirect to PTY. */
@@ -447,6 +455,7 @@ const App: React.FC = () => {
   const [recentFiles, setRecentFiles] = useState<RecentFileEntry[]>([]);
   const [recentFilesLsTick, setRecentFilesLsTick] = useState(0);
   const [gitBranch, setGitBranch] = useState(() => '');
+  const [devServer, setDevServer] = useState<DevServerState | null>(null);
   const [gitHash, setGitHash] = useState<string | null>(null);
   const stableAgentChatTabId = useMemo(
     () =>
@@ -631,6 +640,16 @@ const App: React.FC = () => {
             new CustomEvent('iam:excalidraw_action', { detail: { action: msg.action, params: msg.params } }),
           );
         }
+        if (msg.type === 'iam_monaco_patch') {
+          window.dispatchEvent(
+            new CustomEvent('iam:monaco_patch', {
+              detail: {
+                filePath: typeof msg.filePath === 'string' ? msg.filePath : '',
+                patch: typeof msg.patch === 'string' ? msg.patch : '',
+              },
+            }),
+          );
+        }
       } catch (_) {}
     };
     ws.onerror = () => {};
@@ -685,10 +704,11 @@ const App: React.FC = () => {
     ideWorkspace: { source: 'none' } as IdeWorkspaceSnapshot,
     gitBranch: '',
     recentFiles: [] as RecentFileEntry[],
+    devServer: null as DevServerState | null,
   });
   useEffect(() => {
-    idePersistRef.current = { ideWorkspace, gitBranch, recentFiles };
-  }, [ideWorkspace, gitBranch, recentFiles]);
+    idePersistRef.current = { ideWorkspace, gitBranch, recentFiles, devServer };
+  }, [ideWorkspace, gitBranch, recentFiles, devServer]);
 
   const hydrateGenRef = useRef(0);
   const prevAgentConvRef = useRef<string>('');
@@ -704,6 +724,7 @@ const App: React.FC = () => {
         ideWorkspace: s.ideWorkspace,
         gitBranch: s.gitBranch,
         recentFiles: s.recentFiles,
+        devServer: s.devServer ?? null,
       });
     }
 
@@ -715,6 +736,7 @@ const App: React.FC = () => {
       setIdeWorkspace(b.ideWorkspace);
       setGitBranch(b.gitBranch);
       setRecentFiles(b.recentFiles);
+      setDevServer(b.devServer ?? null);
       const buffers = b.recentFiles.filter(
         (e) =>
           e.source === 'buffer' &&
@@ -749,10 +771,11 @@ const App: React.FC = () => {
         ideWorkspace,
         gitBranch,
         recentFiles,
+        devServer,
       });
     }, 650);
     return () => clearTimeout(t);
-  }, [activeAgentConversationId, ideWorkspace, gitBranch, recentFiles]);
+  }, [activeAgentConversationId, ideWorkspace, gitBranch, recentFiles, devServer]);
   
   const mappedRecentFiles = useMemo(() => {
     return recentFiles.map(f => ({
@@ -825,6 +848,18 @@ const App: React.FC = () => {
   /** When set with a blob browser URL, Browser tab shows this label (e.g. r2://binding/key) instead of blob:. */
   const [browserAddressDisplay, setBrowserAddressDisplay] = useState<string | null>(null);
   const [browserTabTitle, setBrowserTabTitle] = useState<string | null>(null);
+  /** Agent browser automation vs passive editor URL (never MYBROWSER for editor). */
+  const [browserPreviewSource, setBrowserPreviewSource] = useState<'editor' | 'agent'>('agent');
+  const [editorPreviewOpen, setEditorPreviewOpen] = useState(false);
+  const [editorPreviewMode, setEditorPreviewMode] = useState<'srcdoc' | 'devserver'>('srcdoc');
+  const [editorPreviewSrcDoc, setEditorPreviewSrcDoc] = useState<string | null>(null);
+  const [editorPreviewUrl, setEditorPreviewUrl] = useState<string | null>(null);
+  const [editorPreviewLoading, setEditorPreviewLoading] = useState(false);
+  const [editorPreviewStatus, setEditorPreviewStatus] = useState<string | null>(null);
+  const editorPreviewLoadingRef = useRef(false);
+  useEffect(() => {
+    editorPreviewLoadingRef.current = editorPreviewLoading;
+  }, [editorPreviewLoading]);
   const [glbViewerUrl, setGlbViewerUrl] = useState<string>(
     'https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/6454d6fa-d4f1-43ec-33fd-628d0e7cdb00/public'
   );
@@ -1603,6 +1638,7 @@ const App: React.FC = () => {
       revealMainWorkspaceIfNarrow();
       if (s === 'browser') {
         const safeUrl = sanitizeBrowserNavigateUrl(d?.url);
+        setBrowserPreviewSource('agent');
         if (safeUrl) {
           setBrowserAddressDisplay(null);
           setBrowserTabTitle(null);
@@ -2366,6 +2402,7 @@ const App: React.FC = () => {
         }),
       );
       revealMainWorkspaceIfNarrow();
+      setBrowserPreviewSource('agent');
       setBrowserAddressDisplay(null);
       setBrowserTabTitle(null);
       setBrowserUrl(url);
@@ -2377,6 +2414,12 @@ const App: React.FC = () => {
     },
     [revealMainWorkspaceIfNarrow, isNarrowViewport],
   );
+
+  useEffect(() => {
+    if (location.pathname !== '/dashboard/meet') return;
+    setOpenTabs((prev) => prev.filter((t) => t !== 'excalidraw'));
+    setActiveTab((cur) => (cur === 'excalidraw' ? 'Workspace' : cur));
+  }, [location.pathname]);
 
   const htmlPreviewBlobRef = useRef<string | null>(null);
 
@@ -2551,11 +2594,19 @@ const App: React.FC = () => {
   }, [isTerminalOpen]);
 
   const openBrowserTab = useCallback(
-    (url: string, opts?: { addressDisplay?: string | null; tabTitle?: string | null }) => {
+    (
+      url: string,
+      opts?: {
+        addressDisplay?: string | null;
+        tabTitle?: string | null;
+        previewSource?: 'editor' | 'agent';
+      },
+    ) => {
       if (htmlPreviewBlobRef.current && !url.startsWith('blob:')) {
         URL.revokeObjectURL(htmlPreviewBlobRef.current);
         htmlPreviewBlobRef.current = null;
       }
+      setBrowserPreviewSource(opts?.previewSource ?? 'agent');
       setBrowserAddressDisplay(opts?.addressDisplay ?? null);
       setBrowserTabTitle(opts?.tabTitle ?? null);
       setBrowserUrl(url);
@@ -2581,94 +2632,88 @@ const App: React.FC = () => {
     [openBrowserTab],
   );
 
-  /** Open current buffer in Browser tab; large files redirect to PTY serve / Vite (no silent blank blob). */
+  const closeEditorPreview = useCallback(() => {
+    setEditorPreviewOpen(false);
+    setEditorPreviewSrcDoc(null);
+    setEditorPreviewUrl(null);
+    setEditorPreviewLoading(false);
+    setEditorPreviewStatus(null);
+  }, []);
+
+  /** Open inline preview pane — srcDoc or PTY dev server. Never MYBROWSER. */
   const openEditorPreview = useCallback(() => {
     if (!activeFile?.content) return;
     const name = activeFile.name || '';
     if (!isRenderablePreviewFilename(name)) return;
 
-    const ext = name.split('.').pop()?.toLowerCase() ?? '';
     const bytes = new TextEncoder().encode(activeFile.content).length;
-    const isJsx = ext === 'jsx' || ext === 'tsx';
-    const isHtml = ext === 'html' || ext === 'htm';
-    const isSvg = ext === 'svg';
-    const isMd = ext === 'md';
+    const ext = name.split('.').pop()?.toLowerCase() ?? '';
+    const mode = resolvePreviewMode({ fileName: name, workspace: ideWorkspace, bytes });
 
-    const redirectToLocalServer = (reason: string) => {
-      const cmd = isJsx ? 'npm run dev' : 'npx --yes serve . -l 3000';
-      const port = isJsx ? 5173 : 3000;
-      runInTerminal(cmd);
-      window.setTimeout(() => {
-        openBrowserTab(`http://localhost:${port}`, {
-          addressDisplay: `localhost:${port}`,
-          tabTitle: isJsx ? 'Vite dev server' : 'Static serve',
-        });
-      }, 2500);
-      setToastMsg(reason);
-      console.info(`[Preview] ${reason}`);
-    };
+    setEditorPreviewOpen(true);
+    setOpenTabs((prev) => (prev.includes('code') ? prev : [...prev, 'code']));
+    setActiveTab('code');
 
-    if (bytes >= PREVIEW_SERVE_BYTES || (isJsx && bytes > 12_000)) {
-      redirectToLocalServer(
-        `File is ${(bytes / 1e6).toFixed(1)} MB — opening in local server instead of blob preview.`,
-      );
-      return;
-    }
-
-    if (bytes >= PREVIEW_WARN_BYTES && (isHtml || isMd)) {
-      setToastMsg(`Large file (${(bytes / 1e6).toFixed(1)} MB) — preview may be slow.`);
-    }
-
-    if (isSvg) {
-      if (!activeFile.content.trim()) {
+    if (mode === 'srcdoc') {
+      if (ext === 'svg' && !activeFile.content.trim()) {
         setToastMsg('SVG is empty — nothing to preview.');
-        console.warn('[Preview] SVG has no content');
         return;
       }
-      openPreviewBlob(
-        new Blob([activeFile.content], { type: 'image/svg+xml;charset=utf-8' }),
-        activeFile,
-      );
-      return;
-    }
-
-    if (isMd) {
-      const doc = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>${escapeHtmlForPreview(
-        name,
-      )}</title><style>body{font-family:system-ui,-apple-system,sans-serif;max-width:52rem;margin:1rem auto;padding:0 1rem;line-height:1.5}</style></head><body><pre style="white-space:pre-wrap;font-family:Menlo,Monaco,monospace;font-size:13px">${escapeHtmlForPreview(
-        activeFile.content,
-      )}</pre></body></html>`;
-      openPreviewBlob(new Blob([doc], { type: 'text/html; charset=utf-8' }), activeFile);
-      return;
-    }
-
-    if (isHtml) {
-      const hasRelativeAssets =
-        /<script[^>]+src=["'](?!https?:\/\/|\/\/|data:|blob:)[^"']+["']/i.test(activeFile.content) ||
-        /<link[^>]+href=["'](?!https?:\/\/|\/\/|data:|blob:)[^"']*\.(?:css|js)["']/i.test(activeFile.content);
-
-      if (hasRelativeAssets) {
-        setToastMsg(
-          'Relative assets detected — blob preview may be incomplete. Use terminal serve for full fidelity.',
-        );
+      if (bytes >= PREVIEW_WARN_BYTES && (ext === 'html' || ext === 'htm' || ext === 'md')) {
+        setToastMsg(`Large file (${(bytes / 1e6).toFixed(1)} MB) — preview may be slow.`);
       }
-
-      openPreviewBlob(
-        new Blob([activeFile.content], { type: 'text/html; charset=utf-8' }),
-        activeFile,
+      const hasRelativeAssets =
+        (ext === 'html' || ext === 'htm') &&
+        (/<script[^>]+src=["'](?!https?:\/\/|\/\/|data:|blob:)[^"']+["']/i.test(activeFile.content) ||
+          /<link[^>]+href=["'](?!https?:\/\/|\/\/|data:|blob:)[^"']*\.(?:css|js)["']/i.test(
+            activeFile.content,
+          ));
+      setEditorPreviewMode('srcdoc');
+      setEditorPreviewSrcDoc(buildPreviewSrcDoc(name, activeFile.content));
+      setEditorPreviewUrl(null);
+      setEditorPreviewLoading(false);
+      setEditorPreviewStatus(
+        hasRelativeAssets
+          ? 'Relative assets may not resolve in inline preview — use a dev server for full fidelity.'
+          : null,
       );
       return;
     }
 
-    if (isJsx) {
-      const isTsx = ext === 'tsx';
-      const srcEsc = escapeHtmlForPreview(activeFile.content.slice(0, 12_000));
-      const doc = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>${escapeHtmlForPreview(
-        name,
-      )}</title><style>body{font-family:system-ui,-apple-system,sans-serif;max-width:52rem;margin:2rem auto;padding:1rem;line-height:1.5}.note{margin-bottom:1rem;padding:0.75rem;border:1px solid #ccc;border-radius:6px;background:#f5f5f5}</style></head><body><p class="note"><strong>React preview requires a build step.</strong> ${isTsx ? 'TSX' : 'JSX'} — run <code>npm run dev</code> in the terminal for a live preview.</p><p style="font-size:12px;color:#555">Source (first 12 KB)</p><pre style="white-space:pre-wrap;font-family:Menlo,Monaco,monospace;font-size:12px">${srcEsc}</pre></body></html>`;
-      openPreviewBlob(new Blob([doc], { type: 'text/html; charset=utf-8' }), activeFile);
+    setEditorPreviewMode('devserver');
+    setEditorPreviewSrcDoc(null);
+    void (async () => {
+      if (devServer?.url) {
+        const ok = await probeDevServerUrl(devServer.url);
+        if (ok) {
+          setEditorPreviewUrl(devServer.url);
+          setEditorPreviewLoading(false);
+          setEditorPreviewStatus('Using running dev server');
+          return;
+        }
+      }
+      setEditorPreviewLoading(true);
+      setEditorPreviewStatus('Starting dev server in terminal…');
+      const cmd =
+        ext === 'jsx' || ext === 'tsx' || ext === 'vue' || ext === 'js'
+          ? 'npm run dev'
+          : 'npx --yes serve . -l 3000';
+      runInTerminal(cmd);
+    })();
+  }, [activeFile, ideWorkspace, devServer, runInTerminal]);
+
+  const handleTerminalOutputLine = useCallback((line: string) => {
+    setShellOutputLines((prev) => [...prev.slice(-250), line]);
+    const hit = parseDevServerFromTerminalLine(line);
+    if (!hit) return;
+    const next: DevServerState = { port: hit.port, url: hit.url, updatedAt: Date.now() };
+    setDevServer(next);
+    if (editorPreviewLoadingRef.current) {
+      setEditorPreviewUrl(hit.url);
+      setEditorPreviewLoading(false);
+      setEditorPreviewStatus(null);
     }
-  }, [activeFile, runInTerminal, openBrowserTab, openPreviewBlob]);
+  }, []);
 
   useEffect(() => {
     const onInvalidateActiveThemeFetch = () => {
@@ -2925,6 +2970,7 @@ const App: React.FC = () => {
                   </button>
                   {topChromeMoreOpen && (
                       <div className="absolute right-0 top-full mt-1 z-[120] min-w-[200px] rounded-lg border border-[var(--dashboard-border)] bg-[var(--bg-elevated)] shadow-xl py-1">
+                          {location.pathname !== '/dashboard/meet' ? (
                           <button
                               type="button"
                               className="w-full flex items-center gap-2 px-3 py-2 text-left text-[12px] text-[var(--text-main)] hover:bg-[var(--bg-hover)]"
@@ -2937,6 +2983,7 @@ const App: React.FC = () => {
                               <PenTool size={14} className="text-[var(--text-muted)]" />
                               Draw
                           </button>
+                          ) : null}
                           <button
                               type="button"
                               className="w-full flex items-center gap-2 px-3 py-2 text-left text-[12px] text-[var(--text-main)] hover:bg-[var(--bg-hover)]"
@@ -3354,7 +3401,7 @@ const App: React.FC = () => {
                               className="shrink-0 h-8 w-8 p-0 inline-flex items-center justify-center rounded-md border border-[var(--dashboard-border)] bg-[var(--bg-hover)] text-[var(--text-main)] hover:bg-[var(--dashboard-panel)] hover:border-[var(--solar-cyan)]"
                           >
                               <Eye size={15} className="text-[var(--solar-cyan)]" strokeWidth={1.75} aria-hidden />
-                              <span className="sr-only">Preview in Browser tab</span>
+                              <span className="sr-only">Preview file</span>
                           </button>
                       )}
                       {activeFile?.r2Key?.trim() && activeFile?.r2Bucket?.trim() && (
@@ -3491,37 +3538,62 @@ const App: React.FC = () => {
                   )}
 
                   {activeTab === 'code' && (
-                      <div className="absolute inset-0 z-10">
-                          <Suspense
-                            fallback={
-                              <div className="flex h-full items-center justify-center text-[12px] text-[var(--text-muted)]">
-                                Loading editor…
-                              </div>
-                            }
-                          >
-                            <MonacoEditorView
-                              onSave={handleSaveFile}
-                              onCursorPositionChange={handleEditorCursorPosition}
-                              onEditorModelMeta={setEditorMeta}
-                              workspaceContext={agentWorkspaceContext}
-                            />
-                          </Suspense>
+                      <div className="absolute inset-0 z-10 flex min-h-0 min-w-0">
+                          <div className={`flex flex-col min-h-0 min-w-0 ${editorPreviewOpen ? 'w-1/2' : 'w-full'}`}>
+                            <Suspense
+                              fallback={
+                                <div className="flex h-full items-center justify-center text-[12px] text-[var(--text-muted)]">
+                                  Loading editor…
+                                </div>
+                              }
+                            >
+                              <MonacoEditorView
+                                onSave={handleSaveFile}
+                                onCursorPositionChange={handleEditorCursorPosition}
+                                onEditorModelMeta={setEditorMeta}
+                                workspaceContext={agentWorkspaceContext}
+                              />
+                            </Suspense>
+                          </div>
+                          {editorPreviewOpen && activeFile ? (
+                            <div className="w-1/2 min-w-0 min-h-0">
+                              <EditorPreviewPane
+                                fileName={activeFile.name}
+                                mode={editorPreviewMode}
+                                srcDoc={editorPreviewSrcDoc}
+                                url={editorPreviewUrl}
+                                loading={editorPreviewLoading}
+                                statusMessage={editorPreviewStatus}
+                                onClose={closeEditorPreview}
+                                onRefresh={
+                                  editorPreviewMode === 'devserver'
+                                    ? () => {
+                                        if (editorPreviewUrl) {
+                                          setEditorPreviewUrl(`${editorPreviewUrl.split('?')[0]}?t=${Date.now()}`);
+                                        }
+                                      }
+                                    : undefined
+                                }
+                              />
+                            </div>
+                          ) : null}
                       </div>
                   )}
                   {activeTab === 'browser' && (
                       <div className="absolute inset-0 z-10 overflow-hidden">
                           <BrowserView
-                            isActive={activeTab === 'browser'}
                             url={browserUrl}
                             addressDisplay={browserAddressDisplay}
+                            previewSource={browserPreviewSource}
                             onUrlCommitted={(url) => {
                               const n = url.trim();
                               if (!n || n === browserUrl) return;
                               setBrowserAddressDisplay(null);
                               setBrowserTabTitle(null);
                               setBrowserUrl(n);
+                              setBrowserPreviewSource('agent');
                             }}
-                            agentRunId={activeAgentRunId}
+                            agentRunId={browserPreviewSource === 'editor' ? null : activeAgentRunId}
                             workspaceContext={agentWorkspaceContext}
                           />
                       </div>
@@ -3571,9 +3643,7 @@ const App: React.FC = () => {
                           productLabel={PRODUCT_NAME}
                           layout="page"
                           outputLines={shellOutputLines}
-                          onOutputLine={(line) =>
-                            setShellOutputLines((prev) => [...prev.slice(-250), line])
-                          }
+                          onOutputLine={handleTerminalOutputLine}
                           workspaceContext={agentWorkspaceContext}
                       />
                   )}
@@ -3616,7 +3686,7 @@ const App: React.FC = () => {
                     productLabel="IAM"
                     layout="drawer"
                     outputLines={shellOutputLines}
-                    onOutputLine={(line) => setShellOutputLines((prev) => [...prev.slice(-250), line])}
+                    onOutputLine={handleTerminalOutputLine}
                     problems={systemProblems ?? []}
                     onProblemsTabOpen={() => void fetchGitAndProblems()}
                     onClose={() => setIsTerminalOpen(false)}

@@ -54,6 +54,46 @@ interface MonacoEditorViewProps {
 
 const LARGE_FILE_CHAR_THRESHOLD = 100_000;
 
+function normalizeCollabPath(p: string): string {
+  return p.trim().replace(/\\/g, '/').replace(/^\/+/, '');
+}
+
+function collabPathMatchesTab(
+  tab: { id: string; workspacePath?: string; name: string },
+  filePath: string,
+): boolean {
+  const target = normalizeCollabPath(filePath);
+  if (!target) return false;
+  const candidates = [
+    tab.workspacePath,
+    tab.id,
+    tab.name,
+    resolveMonacoModelPath(tab),
+  ]
+    .filter((v): v is string => typeof v === 'string' && v.trim() !== '')
+    .map((v) => normalizeCollabPath(v));
+  return candidates.some(
+    (c) => c === target || c.endsWith(`/${target}`) || target.endsWith(`/${c}`),
+  );
+}
+
+/** Extract replacement text from a unified diff (full-file replace hunks). */
+function contentAfterUnifiedDiff(patch: string): string | null {
+  const lines = patch.split('\n');
+  const out: string[] = [];
+  let inHunk = false;
+  for (const line of lines) {
+    if (line.startsWith('@@')) {
+      inHunk = true;
+      continue;
+    }
+    if (!inHunk) continue;
+    if (line.startsWith('+++') || line.startsWith('---')) continue;
+    if (line.startsWith('+')) out.push(line.slice(1));
+  }
+  return out.length > 0 ? out.join('\n') : null;
+}
+
 export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
   onChange,
   onSave,
@@ -177,6 +217,40 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
     window.addEventListener('iam-format-document', onFormat);
     return () => window.removeEventListener('iam-format-document', onFormat);
   }, []);
+
+  // IAM_COLLAB iam_monaco_patch — apply agent file writes when this tab is open
+  useEffect(() => {
+    const onMonacoPatch = (e: Event) => {
+      const detail = (e as CustomEvent<{ filePath?: string; patch?: string }>).detail || {};
+      const filePath = typeof detail.filePath === 'string' ? detail.filePath.trim() : '';
+      const patch = typeof detail.patch === 'string' ? detail.patch : '';
+      if (!filePath || !patch) return;
+
+      const tab = activeFileRef.current;
+      const editor = editorRef.current;
+      const monacoApi = monaco;
+      if (!tab || !editor || !monacoApi) return;
+      if (!collabPathMatchesTab(tab, filePath)) return;
+
+      const nextContent = contentAfterUnifiedDiff(patch);
+      if (nextContent == null) return;
+
+      const model = editor.getModel();
+      if (!model) return;
+
+      syncingContentRef.current = true;
+      try {
+        const fullRange = model.getFullModelRange();
+        editor.executeEdits('iam_monaco_patch', [{ range: fullRange, text: nextContent }]);
+        updateActiveContentRef.current(nextContent);
+        onChangeRef.current?.(nextContent);
+      } finally {
+        syncingContentRef.current = false;
+      }
+    };
+    window.addEventListener('iam:monaco_patch', onMonacoPatch as EventListener);
+    return () => window.removeEventListener('iam:monaco_patch', onMonacoPatch as EventListener);
+  }, [monaco]);
 
   // Cmd+S / Ctrl+S handler
   useEffect(() => {

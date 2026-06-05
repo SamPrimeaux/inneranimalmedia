@@ -96,7 +96,7 @@ export async function createPlanExcalidrawArtifact(env, p, ctx = null) {
   const json = JSON.stringify(scene);
   const planTitle = String(plan.title || 'Plan').slice(0, 400);
 
-  return putR2AndInsertPlanArtifact(env, ctx, {
+  const out = await putR2AndInsertPlanArtifact(env, ctx, {
     userId,
     tenantId,
     workspaceId,
@@ -111,6 +111,7 @@ export async function createPlanExcalidrawArtifact(env, p, ctx = null) {
     sourceRunId: p.sourceRunId ?? null,
     sourceSessionId: p.sourceSessionId ?? null,
   });
+  return { ...out, elements: Array.isArray(scene.elements) ? scene.elements : [] };
 }
 
 /**

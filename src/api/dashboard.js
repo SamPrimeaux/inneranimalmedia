@@ -32,7 +32,7 @@ import { chatWithAnthropic } from '../integrations/anthropic.js';
 import { chatWithToolsOpenAI } from '../integrations/openai.js';
 import { chatWithToolsGemini } from '../integrations/gemini.js';
 import { chatWithToolsVertex } from '../integrations/vertex.js';
-import { handleCanvasApi } from '../integrations/canvas.js';
+import { handleDrawApi } from './draw.js';
 import { handleHyperdriveRoutes } from '../integrations/hyperdrive.js';
 import { handleBrowserRequest, handlePlaywrightJobApi } from '../integrations/playwright.js';
 import { handleBrowserRunQuickActionsRoute } from './browser-run-quickactions-route.js';
@@ -465,7 +465,7 @@ export async function handleDashboardApi(request, url, env, ctx) {
         const ptySlot =
             ptySlotRaw && /^[a-zA-Z0-9_-]{1,16}$/.test(ptySlotRaw) ? ptySlotRaw : '';
         const slotSuffix = ptySlot ? `:${ptySlot}` : '';
-        const sessionName = `terminal:v2:${authUser.id}:${workspaceId}:${executionMode}${slotSuffix}`;
+        const sessionName = `terminal:${authUser.id}:${workspaceId}:${executionMode}${slotSuffix}`;
         const doId = env.AGENT_SESSION.idFromName(sessionName);
         const stub = env.AGENT_SESSION.get(doId);
         const doUrl = new URL(request.url);
@@ -723,9 +723,9 @@ export async function handleDashboardApi(request, url, env, ctx) {
         }
     }
 
-    // ── /api/draw/* (Canvas Engine) ──────────────────────────────────────────
+    // ── /api/draw/* (Excalidraw + collab wrappers) ───────────────────────────
     if (pathLower.startsWith('/api/draw')) {
-        return handleCanvasApi(request, env);
+        return handleDrawApi(request, url, env, ctx);
     }
 
     // ── /api/hyperdrive/* (Postgres via Hyperdrive — SQL CRUD + table browser) ─

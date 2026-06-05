@@ -37,6 +37,7 @@ import {
   consumeOpenAIResponsesSse,
   tryEmitCodeDiffFromToolOutput,
 } from './agent-sse-consumer.js';
+import { tryBroadcastMonacoPatchFromToolOutput } from './collab-broadcast.js';
 import {
   validateToolCall,
   dispatchToolCallWithBudget,
@@ -1367,6 +1368,9 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
               });
             }
             tryEmitCodeDiffFromToolOutput(emit, call.name, toolOutput);
+            if (workspaceId) {
+              void tryBroadcastMonacoPatchFromToolOutput(env, workspaceId, toolOutput).catch(() => {});
+            }
           }
         } catch (_) {
           /* not JSON — skip preview */

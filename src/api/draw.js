@@ -16,6 +16,10 @@
 
 import { getAuthUser, jsonResponse } from '../core/auth.js';
 import { resolveOAuthAccessToken } from './oauth.js';
+import {
+  broadcastExcalidrawAction,
+  persistCollabCanvasElements,
+} from '../core/collab-broadcast.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -448,6 +452,32 @@ export async function handleDrawApi(request, url, env, ctx) {
           .filter(([, v]) => !v?.ok)
           .reduce((acc, [k, v]) => ({ ...acc, [k]: v.error }), {}),
       });
+    }
+
+    // ── POST /api/draw/elements — IAM_COLLAB fanout for agent/dashboard Excalidraw sync ─
+    if (pathLower === '/api/draw/elements' && method === 'POST') {
+      const body = await request.json().catch(() => ({}));
+      const workspaceId = String(
+        body.workspace_id || url.searchParams.get('workspace_id') || '',
+      ).trim();
+      if (!workspaceId) return jsonResponse({ error: 'workspace_id required' }, 400);
+      const elements = Array.isArray(body.elements) ? body.elements : [];
+      await broadcastExcalidrawAction(env, workspaceId, 'add_elements', { elements });
+      if (body.replace_scene === true && elements.length > 0) {
+        await persistCollabCanvasElements(env, workspaceId, elements);
+      }
+      return jsonResponse({ ok: true, element_count: elements.length });
+    }
+
+    // ── POST /api/draw/clear — IAM_COLLAB fanout for Excalidraw clear ─────────
+    if (pathLower === '/api/draw/clear' && method === 'POST') {
+      const body = await request.json().catch(() => ({}));
+      const workspaceId = String(
+        body.workspace_id || url.searchParams.get('workspace_id') || '',
+      ).trim();
+      if (!workspaceId) return jsonResponse({ error: 'workspace_id required' }, 400);
+      await broadcastExcalidrawAction(env, workspaceId, 'clear', {});
+      return jsonResponse({ ok: true });
     }
 
     // ── DELETE /api/draw/:id ──────────────────────────────────────────────────

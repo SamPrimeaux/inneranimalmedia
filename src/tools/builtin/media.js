@@ -4,6 +4,11 @@
  */
 
 import { createPlanExcalidrawArtifact } from '../../core/agentsam-plan-excalidraw-artifact.js';
+import {
+  broadcastExcalidrawAction,
+  persistCollabCanvasElements,
+  resolveCollabWorkspaceId,
+} from '../../core/collab-broadcast.js';
 
 async function invokeMediaOp(env, endpoint, method = 'POST', body = null) {
     const origin = env.IAM_ORIGIN || 'https://inneranimalmedia.com';
@@ -23,9 +28,28 @@ async function invokeMediaOp(env, endpoint, method = 'POST', body = null) {
 
 export const handlers = {
     // ── Excalidraw (UI) ───────────────────────────────────────────────────
-    async excalidraw_open(params, env) { return { ok: true, message: 'Canvas activated in main panel' }; },
-    async excalidraw_clear(params, env) { return await invokeMediaOp(env, '/api/draw/clear', 'POST', params); },
-    async excalidraw_add_elements(params, env) { return await invokeMediaOp(env, '/api/draw/elements', 'POST', params); },
+    async excalidraw_open(params, env) {
+        const workspaceId = resolveCollabWorkspaceId(params);
+        if (workspaceId) {
+            await broadcastExcalidrawAction(env, workspaceId, 'open', {});
+        }
+        return { ok: true, message: 'Canvas activated in main panel' };
+    },
+    async excalidraw_clear(params, env) {
+        const workspaceId = resolveCollabWorkspaceId(params);
+        if (workspaceId) {
+            await broadcastExcalidrawAction(env, workspaceId, 'clear', {});
+        }
+        return { ok: true };
+    },
+    async excalidraw_add_elements(params, env) {
+        const workspaceId = resolveCollabWorkspaceId(params);
+        const elements = Array.isArray(params?.elements) ? params.elements : [];
+        if (workspaceId) {
+            await broadcastExcalidrawAction(env, workspaceId, 'add_elements', { elements });
+        }
+        return { ok: true, element_count: elements.length };
+    },
     async excalidraw_export(params, env) { return await invokeMediaOp(env, '/api/draw/export', 'POST', params); },
     async excalidraw_load_library(params, env) { return await invokeMediaOp(env, '/api/draw/library', 'POST', params); },
 
@@ -50,6 +74,11 @@ export const handlers = {
                 sourceRunId: params.agent_run_id ?? params.run_id ?? null,
                 sourceSessionId: params.conversation_id ?? params.session_id ?? null,
             });
+            const planElements = Array.isArray(out.elements) ? out.elements : [];
+            if (planElements.length > 0) {
+                await broadcastExcalidrawAction(env, workspaceId, 'add_elements', { elements: planElements });
+                await persistCollabCanvasElements(env, workspaceId, planElements);
+            }
             return {
                 ok: true,
                 artifact_type: 'excalidraw',
