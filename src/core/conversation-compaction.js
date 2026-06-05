@@ -63,7 +63,7 @@ function estimateTokensFromMessages(messages) {
   return Math.max(0, Math.ceil(text.length / 4));
 }
 
-function normalizeMessages(messages) {
+export function normalizeMessagesForCompaction(messages) {
   return (Array.isArray(messages) ? messages : [])
     .filter((m) => m && typeof m === 'object')
     .map((m) => ({
@@ -71,6 +71,10 @@ function normalizeMessages(messages) {
       content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content ?? ''),
       ...(m.tool_calls ? { tool_calls: m.tool_calls } : {}),
     }));
+}
+
+function normalizeMessages(messages) {
+  return normalizeMessagesForCompaction(messages);
 }
 
 /**
@@ -244,6 +248,7 @@ async function indexCompactionSummary(env, ctx, { workspaceId, conversationId, r
  *   activeTools?: string[],
  *   systemPromptCacheHash?: string|null,
  *   agentRunId?: string|null,
+ *   force?: boolean,
  * }} params
  */
 export async function compactConversationMessagesIfNeeded(env, ctx, params) {
@@ -261,8 +266,22 @@ export async function compactConversationMessagesIfNeeded(env, ctx, params) {
   const threshold = COMPACTION_THRESHOLDS[sessionType] ?? COMPACTION_THRESHOLDS.default;
   const estimated = estimateTokensFromMessages(messages);
 
-  if (estimated <= threshold || messages.length <= COMPACTION_MESSAGES_TO_RETAIN + 1) {
+  if (
+    !params.force &&
+    (estimated <= threshold || messages.length <= COMPACTION_MESSAGES_TO_RETAIN + 1)
+  ) {
     return { messages, compacted: false, estimated, sessionType, threshold };
+  }
+
+  if (messages.length < 2) {
+    return {
+      messages,
+      compacted: false,
+      estimated,
+      sessionType,
+      threshold,
+      reason: 'min_messages',
+    };
   }
 
   const toCompact = messages.slice(0, -COMPACTION_MESSAGES_TO_RETAIN);
@@ -396,5 +415,17 @@ export async function compactConversationMessagesIfNeeded(env, ctx, params) {
     sessionType,
     threshold,
     r2Key,
+    summaryPreview: summaryText.slice(0, 400),
+    retained: COMPACTION_MESSAGES_TO_RETAIN,
   };
+}
+
+/**
+ * User-triggered /compact — bypasses token threshold; still retains last N turns.
+ * @param {any} env
+ * @param {any} ctx
+ * @param {Parameters<typeof compactConversationMessagesIfNeeded>[2]} params
+ */
+export async function forceCompactConversationMessages(env, ctx, params) {
+  return compactConversationMessagesIfNeeded(env, ctx, { ...params, force: true });
 }

@@ -277,7 +277,10 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
     .map((t) => String(t?.name || t?.function?.name || '').trim())
     .filter(Boolean);
 
-  if (userId && workspaceId && sessionId) {
+  const { parseThreadSlashCommand } = await import('../thread-on-demand.js');
+  const threadSlashAction = parseThreadSlashCommand(message);
+
+  if (userId && workspaceId && sessionId && !threadSlashAction) {
     try {
       const compacted = await compactConversationMessagesIfNeeded(env, ctx, {
         messages: chatMessages,
@@ -304,6 +307,25 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
   (async () => {
     const chatT0 = Date.now();
     try {
+      if (threadSlashAction && userId && workspaceId && sessionId) {
+        const { runThreadActionOnDemand } = await import('../thread-on-demand.js');
+        const threadOut = await runThreadActionOnDemand(env, ctx, {
+          action: threadSlashAction,
+          userId,
+          workspaceId,
+          tenantId,
+          conversationId: sessionId,
+          agentRunId: chatAgentRunId,
+          messages: chatMessages,
+        });
+        emit('thread_action', { type: 'thread_action', ...threadOut });
+        if (threadOut.user_message) {
+          emit('text', { text: threadOut.user_message });
+        }
+        emit('done', {});
+        return;
+      }
+
       if (chatAgentRunId && userId && workspaceId) {
         scheduleAgentsamChatAgentRunStart(env, ctx, {
           runId: chatAgentRunId,

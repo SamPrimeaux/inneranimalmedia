@@ -1253,6 +1253,7 @@ export async function executeCommand(env, ctx, o) {
     workspaceId: resolvedWorkspace,
     userId: canonicalCmdUser ?? userId,
     sessionId,
+    conversationId,
     commandRunId,
     agentRunId,
     chainId,

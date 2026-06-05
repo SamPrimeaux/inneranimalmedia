@@ -74,6 +74,10 @@ export async function dispatchAgentsamCommand(env, cmdRow, args = {}, runContext
         runContext,
       );
     }
+    case 'in_app': {
+      const { dispatchInAppThreadCommand } = await import('./thread-on-demand.js');
+      return dispatchInAppThreadCommand(env, null, toolKey || mappedCommand || slug, args, runContext);
+    }
     default:
       throw new Error(`[dispatch] unknown router_type=${routerType} for command ${slug}`);
   }

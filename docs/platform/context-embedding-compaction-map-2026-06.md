@@ -137,12 +137,16 @@ Four distinct systems — do not conflate.
 
 **Best for:** D1 bloat control — not semantic retrieval.
 
-### E) Thread summarization (optional hook)
+### E) Thread summarization (on-demand slash)
 
 | Aspect | Detail |
 |--------|--------|
-| Code | `src/core/summarize-thread.js` |
+| Code | `src/core/summarize-thread.js`, `src/core/thread-on-demand.js` |
 | Role | Post-archive LLM summary — non-blocking, never throws |
+| Slash | `/summarize` → Supabase `summarize-thread` edge → `session_summaries` (force, any message count) |
+| Slash | `/compact` → `forceCompactConversationMessages` → R2 digest + `agentsam_context_digest` + docs lane (keeps last 6 turns) |
+| Dispatch | `agentsam_commands` `router_type=in_app`, `tool_key=thread.summarize` \| `thread.compact` |
+| Chat | Type `/compact` or `/summarize` and send, or pick from slash palette (`/api/agent/commands/execute`) |
 
 ---
 

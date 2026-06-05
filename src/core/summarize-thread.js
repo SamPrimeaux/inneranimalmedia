@@ -222,4 +222,51 @@ export async function queueSummarizeThreadBatch(env, sessions, opts = {}) {
   return results;
 }
 
+/**
+ * On-demand /summarize — force invoke edge function (non-blocking, never throws).
+ * @param {any} env
+ * @param {{
+ *   sessionId: string,
+ *   tenantId?: string|null,
+ *   workspaceId?: string|null,
+ *   messageCount?: number,
+ *   force?: boolean,
+ *   max_messages?: number,
+ * }} opts
+ */
+export async function summarizeThreadOnDemand(env, opts) {
+  const sessionId = String(opts?.sessionId || '').trim();
+  const messageCount = Number(opts?.messageCount) || 0;
+  const force = opts?.force === true;
+
+  if (!sessionId) {
+    return { invoked: false, reason: 'missing_session_id' };
+  }
+  if (!force && messageCount <= MIN_MESSAGES_FOR_SUMMARY) {
+    return { invoked: false, reason: 'below_message_threshold' };
+  }
+  if (!supabaseBase(env) || !serviceRoleKey(env)) {
+    return { invoked: false, reason: 'supabase_not_configured' };
+  }
+
+  try {
+    if (!force && (await sessionHasSummaryRow(env, sessionId))) {
+      return { invoked: false, reason: 'summary_exists' };
+    }
+    const result = await invokeSummarizeThreadEdgeFunction(env, {
+      session_id: sessionId,
+      tenant_id: opts.tenantId ?? undefined,
+      workspace_id: opts.workspaceId ?? undefined,
+      max_messages: opts.max_messages,
+    });
+    if (!result.ok) {
+      console.debug('[summarize-thread] on_demand failed', sessionId, result.error || result.status);
+    }
+    return { invoked: true, ok: result.ok, result };
+  } catch (e) {
+    console.debug('[summarize-thread] on_demand skipped', sessionId, e?.message ?? e);
+    return { invoked: false, reason: 'error', error: String(e?.message || e) };
+  }
+}
+
 export { MIN_MESSAGES_FOR_SUMMARY, DEFAULT_MAX_MESSAGES };

@@ -7962,6 +7962,8 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     }
     if (!cmdRow?.id) return jsonResponse({ error: 'command_not_found' }, 404);
     const { executeCommand } = await import('./command-run-telemetry.js');
+    const cmdArgs = body.args && typeof body.args === 'object' ? { ...body.args } : {};
+    if (Array.isArray(body.messages)) cmdArgs.messages = body.messages;
     const out = await executeCommand(env, ctx, {
       commandId: String(cmdRow.id),
       userId: authUser.id,
@@ -7969,7 +7971,7 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
       workspaceId,
       sessionId: body.session_id ?? body.conversation_id ?? body.sessionId ?? null,
       agentRunId: body.agent_run_id ?? body.agentRunId ?? null,
-      args: body.args && typeof body.args === 'object' ? body.args : {},
+      args: cmdArgs,
       taskType: body.task_type ?? cmdRow.task_type ?? null,
       skipApprovalGate: body.skip_approval === true,
     });
