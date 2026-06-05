@@ -1162,7 +1162,10 @@ const App: React.FC = () => {
 
   const beginTerminalResize = useCallback((e: React.PointerEvent) => {
     e.preventDefault();
-    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    const handle = e.currentTarget as HTMLElement;
+    handle.setPointerCapture?.(e.pointerId);
+    handle.dataset.dragging = 'true';
+    document.body.classList.add('is-terminal-resizing');
     terminalResizeRef.current = { startY: e.clientY, startH: terminalDrawerH };
 
     const onMove = (pe: PointerEvent) => {
@@ -1170,16 +1173,19 @@ const App: React.FC = () => {
       if (!s) return;
       const next = clampTerminalH(s.startH + (s.startY - pe.clientY));
       setTerminalDrawerH(next);
-      // Let xterm FitAddon recompute.
       window.dispatchEvent(new Event('resize'));
     };
     const onUp = () => {
       terminalResizeRef.current = null;
+      handle.dataset.dragging = 'false';
+      document.body.classList.remove('is-terminal-resizing');
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
   }, [terminalDrawerH, clampTerminalH]);
 
   const chatMessages = useMemo(() => {
@@ -2797,7 +2803,7 @@ const App: React.FC = () => {
                     return next;
                   });
                 }}
-                className="max-phone:hidden shrink-0 p-1.5 rounded-md text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)] transition-colors ml-1"
+                className="iam-topbar-desktop-only max-phone:hidden shrink-0 p-1.5 rounded-md text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)] transition-colors ml-1"
                 title={sidebarRailExpanded ? 'Collapse navigation' : 'Expand navigation'}
                 aria-expanded={sidebarRailExpanded}
               >
@@ -2807,7 +2813,7 @@ const App: React.FC = () => {
                 <button
                   type="button"
                   onClick={toggleExplorer}
-                  className={`max-phone:hidden shrink-0 p-1.5 rounded-md transition-colors ml-0.5 ${
+                  className={`iam-topbar-desktop-only max-phone:hidden shrink-0 p-1.5 rounded-md transition-colors ml-0.5 ${
                     activeActivity === 'files'
                       ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]'
                       : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]'
@@ -2821,7 +2827,7 @@ const App: React.FC = () => {
           </div>
 
           {/* Unified search (Cmd+K) — desktop center; mobile lives in right cluster */}
-          <div className="flex-1 flex justify-center items-center min-w-0 px-2 gap-2 overflow-visible max-phone:hidden">
+          <div className="iam-topbar-desktop-only flex-1 flex justify-center items-center min-w-0 px-2 gap-2 overflow-visible max-phone:hidden">
               <UnifiedSearchBar
                 workspaceLabel={workspaceDisplayLine}
                 onWorkspacePickerClick={() => setWorkspaceLauncherOpen(true)}
@@ -2838,7 +2844,7 @@ const App: React.FC = () => {
 
           {/* Right layout cluster — mobile: Search icon + More; desktop adds terminal/globe/etc. */}
           <div className="flex gap-0.5 items-center mr-1 shrink-0 max-phone:ml-auto">
-              <div className="hidden max-phone:block shrink-0">
+              <div className="iam-topbar-mobile-only hidden max-phone:block shrink-0">
                 <UnifiedSearchBar
                   workspaceLabel={workspaceDisplayLine}
                   hideWorkspaceSegment
@@ -2857,7 +2863,7 @@ const App: React.FC = () => {
               <button
                   type="button"
                   title="More tools (mobile)"
-                  className="hidden max-phone:block p-1.5 rounded transition-colors text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]"
+                  className="iam-topbar-mobile-block hidden max-phone:block p-1.5 rounded transition-colors text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]"
                   onClick={() => setMobileMoreOpen(true)}
               >
                   <MoreHorizontal size={15} strokeWidth={1.75} />
@@ -2865,7 +2871,7 @@ const App: React.FC = () => {
               <button
                   type="button"
                   title="Open Browser"
-                  className="max-phone:hidden p-1.5 rounded transition-colors text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]"
+                  className="iam-topbar-desktop-only max-phone:hidden p-1.5 rounded transition-colors text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]"
                   onClick={() => {
                     openTab('browser');
                   }}
@@ -2875,7 +2881,7 @@ const App: React.FC = () => {
               <button
                   type="button"
                   title="Toggle agent panel"
-                  className={`max-phone:hidden p-1.5 rounded transition-colors ${agentPosition !== 'off' ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]' : 'text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]'}`}
+                  className={`iam-topbar-desktop-only max-phone:hidden p-1.5 rounded transition-colors ${agentPosition !== 'off' ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]' : 'text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]'}`}
                   onClick={onChatLayoutToggle}
               >
                   {agentPosition === 'left' ? <PanelLeftClose size={15} strokeWidth={1.75} /> : <PanelRightClose size={15} strokeWidth={1.75} />}
@@ -2886,7 +2892,7 @@ const App: React.FC = () => {
               <button
                   type="button"
                   title="Terminal (Cmd+J)"
-                  className={`max-phone:hidden p-1.5 rounded transition-colors ${isTerminalOpen ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]' : 'text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]'}`}
+                  className={`iam-topbar-desktop-only max-phone:hidden p-1.5 rounded transition-colors ${isTerminalOpen ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]' : 'text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]'}`}
                   onClick={() =>
                     setIsTerminalOpen((p) => {
                       const next = !p;
@@ -2900,12 +2906,12 @@ const App: React.FC = () => {
               <button
                   type="button"
                   title="Settings"
-                  className={`max-phone:hidden p-1.5 rounded transition-colors ${location.pathname.startsWith('/dashboard/settings') ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]' : 'text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]'}`}
+                  className={`iam-topbar-desktop-only max-phone:hidden p-1.5 rounded transition-colors ${location.pathname.startsWith('/dashboard/settings') ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]' : 'text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]'}`}
                   onClick={() => navigate('/dashboard/settings/general')}
               >
                   <Settings size={15} strokeWidth={1.75} />
               </button>
-              <div className="relative hidden min-[431px]:block" ref={topChromeMoreRef}>
+              <div className="iam-topbar-desktop-only relative hidden tablet-up:block" ref={topChromeMoreRef}>
                   <button
                       type="button"
                       title="More tools"
@@ -2983,7 +2989,7 @@ const App: React.FC = () => {
           {/* 2. ACTIVITY BAR (Extreme Left) — hidden ≤430px; use bottom tab bar + More */}
           {/* Activity bar: icon rail (width toggled via ☰ — localStorage iam_sidebar_expanded) */}
           <div
-            className="hidden min-[431px]:flex flex-col py-3 gap-1 px-1 bg-[var(--dashboard-panel)] border-r border-[var(--dashboard-border)] shrink-0 z-50 overflow-x-hidden overflow-y-auto transition-[width] duration-200 ease-in-out"
+            className="hidden tablet-up:flex flex-col py-3 gap-1 px-1 bg-[var(--dashboard-panel)] border-r border-[var(--dashboard-border)] shrink-0 z-50 overflow-x-hidden overflow-y-auto transition-[width] duration-200 ease-in-out"
             style={{ width: sidebarRailExpanded ? 180 : 48 }}
           >
               <DashboardActivityNav
@@ -3077,10 +3083,10 @@ const App: React.FC = () => {
 
           <div className="flex flex-1 min-w-0 overflow-hidden">
           <div 
-              className={`transition-all duration-75 shrink-0 bg-[var(--dashboard-panel)] flex flex-col z-40 overflow-hidden shadow-2xl min-[431px]:shadow-none hover:border-[var(--solar-cyan)] relative group
+              className={`transition-all duration-75 shrink-0 bg-[var(--dashboard-panel)] flex flex-col z-40 overflow-hidden shadow-2xl tablet-up:shadow-none hover:border-[var(--solar-cyan)] relative group
               ${
                 activeActivity
-                  ? 'min-[431px]:relative min-[431px]:left-0 border-r border-[var(--dashboard-border)] opacity-100 pointer-events-auto max-phone:iam-mobile-activity-panel'
+                  ? 'tablet-up:relative tablet-up:left-0 border-r border-[var(--dashboard-border)] opacity-100 pointer-events-auto max-phone:iam-mobile-activity-panel'
                   : 'border-none opacity-0 pointer-events-none max-phone:iam-mobile-activity-panel'
               }`}
               data-open={activeActivity ? 'true' : 'false'}
@@ -3161,7 +3167,7 @@ const App: React.FC = () => {
               aria-orientation="vertical"
               title="Drag to resize · double-click to close"
               aria-label="Resize activity panel"
-              className="hidden min-[431px]:flex shrink-0 z-50 group relative cursor-col-resize touch-none select-none justify-center"
+              className="hidden tablet-up:flex shrink-0 z-50 group relative cursor-col-resize touch-none select-none justify-center"
               style={{ width: ACTIVITY_SIDEBAR_GRAB_PX }}
               onPointerDown={(e) => beginPanelResize('sidebar', e)}
               onDoubleClick={() => setActiveActivity(null)}
@@ -3194,7 +3200,7 @@ const App: React.FC = () => {
               {isAgentHomePath(location.pathname) && !activeActivity && (
                 <button
                   type="button"
-                  className="hidden min-[431px]:flex absolute left-0 top-1/2 -translate-y-1/2 z-20 flex-col items-center gap-1 py-3 px-1 rounded-r-md border border-l-0 border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] text-[var(--text-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/40 shadow-md transition-colors"
+                  className="hidden tablet-up:flex absolute left-0 top-1/2 -translate-y-1/2 z-20 flex-col items-center gap-1 py-3 px-1 rounded-r-md border border-l-0 border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] text-[var(--text-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/40 shadow-md transition-colors"
                   title="Show Explorer (⌘B)"
                   aria-label="Show Explorer"
                   onClick={() => setActiveActivity('files')}
@@ -3568,23 +3574,13 @@ const App: React.FC = () => {
                   overflowX: 'hidden',
                 }}
               >
-                {/* Drag handle (vertical resize) */}
                 <div
-                  onPointerDown={beginTerminalResize}
-                  style={{
-                    height: 4,
-                    cursor: 'ns-resize',
-                    background: 'transparent',
-                    borderBottom: '1px solid var(--dashboard-border)',
-                  }}
-                  onMouseEnter={(e) => {
-                    (e.currentTarget as HTMLDivElement).style.background = 'var(--solar-cyan)';
-                  }}
-                  onMouseLeave={(e) => {
-                    (e.currentTarget as HTMLDivElement).style.background = 'transparent';
-                  }}
+                  role="separator"
+                  aria-orientation="horizontal"
+                  aria-label="Drag to resize terminal"
                   title="Drag to resize terminal"
-                  aria-label="Resize terminal"
+                  className="iam-terminal-drawer-resizer"
+                  onPointerDown={beginTerminalResize}
                 />
                 <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
                   <XTermShell

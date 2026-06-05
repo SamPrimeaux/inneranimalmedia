@@ -2,6 +2,7 @@
 @import './styles/mobile-nav-hamburger.css';
 @import './styles/mobile-activity-drawer.css';
 @import './styles/terminal-mobile.css';
+@import './styles/mobile-header.css';
 @import './styles/image-generation.css';
 @import './components/database/database-page.css';
 @import './features/mode-presence/agentModePresenceMotion.css';
@@ -11,6 +12,10 @@
 
 @import "tailwindcss";
 @config "./tailwind.config.js";
+
+/* Tailwind v4: phone shell breakpoint (iPhone 13 Pro 390px → Pro Max 428px + slack) */
+@custom-variant max-phone (@media (max-width: 430px));
+@custom-variant tablet-up (@media (min-width: 431px));
 @source "./index.html";
 @source "./index.tsx";
 @source "./App.tsx";
@@ -18,6 +23,7 @@
 @source "./pages/**/*.{js,jsx,ts,tsx}";
 @source "./features/**/*.{js,jsx,ts,tsx}";
 @source "./src/**/*.{js,jsx,ts,tsx}";
+@source "./lib/**/*.{js,jsx,ts,tsx}";
 @source "!./dist/**";
 @source "!./node_modules/**";
 
@@ -55,6 +61,18 @@ body.is-resizing {
 }
 body.is-resizing * {
   cursor: col-resize !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
+body.is-terminal-resizing {
+  cursor: ns-resize !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  touch-action: none;
+}
+body.is-terminal-resizing * {
+  cursor: ns-resize !important;
   user-select: none !important;
   -webkit-user-select: none !important;
 }

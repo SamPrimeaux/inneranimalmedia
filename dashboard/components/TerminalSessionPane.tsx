@@ -850,10 +850,15 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
         `}</style>
         <div
           className="iam-terminal-pane-root relative flex-1 min-h-0 min-w-0 flex h-full w-full flex-col bg-[var(--terminal-surface)] overflow-hidden"
-          onTouchStartCapture={() => {
+          onPointerDown={(e) => {
             if (!isNarrowViewport()) return;
+            if (e.pointerType === 'mouse' && e.button !== 0) return;
             const term = xtermRef.current;
-            if (term) focusXtermSurface(term, terminalRef.current);
+            const host = terminalRef.current;
+            if (!term || !host) return;
+            const screen = host.querySelector('.xterm-screen');
+            if (screen && term.getSelection()?.length) return;
+            focusXtermSurface(term, host);
           }}
         >
           {status === 'timed_out' && (
