@@ -3646,18 +3646,14 @@ export async function handleSettingsRequest(request, env, ctx) {
     const workspaceId = await resolveRequestWorkspaceId(env, authUser, url);
     if (!workspaceId) return jsonResponse({ error: 'workspace_id required' }, 400);
     try {
-      await env.DB.prepare(
-        `INSERT INTO agentsam_code_index_job (
-          workspace_id, status, progress_percent, file_count, indexed_file_count, last_sync_at, last_error, updated_at
-        ) VALUES (?, 'running', 0, 0, 0, NULL, NULL, datetime('now'))
-        ON CONFLICT(workspace_id) DO UPDATE SET
-          status = 'running',
-          progress_percent = 0,
-          last_error = NULL,
-          updated_at = datetime('now')`,
-      )
-        .bind(workspaceId)
-        .run();
+      const { queueCodeIndexJobAfterDeploy } = await import('../core/deploy-code-index-queue.js');
+      const queued = await queueCodeIndexJobAfterDeploy(env, {
+        workspaceId,
+        triggeredBy: 'dashboard_reindex',
+      });
+      if (!queued.ok && !queued.skipped) {
+        return jsonResponse({ error: queued.error || 'queue_failed' }, 500);
+      }
       return jsonResponse({ ok: true });
     } catch (e) {
       return jsonResponse({ error: e?.message ?? String(e) }, 500);

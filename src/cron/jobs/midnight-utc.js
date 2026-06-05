@@ -257,4 +257,13 @@ export function scheduleOneAmMaintenance(env, ctx) {
       }),
     ),
   );
+  ctx.waitUntil(
+    cronLedgerWrap(env, 'code_index_runner', CRON_ONE_AM, async () => {
+      const { runCodeIndexCronStep } = await import('./code-index-runner.js');
+      return runCodeIndexCronStep(env).catch((e) => {
+        console.warn('[cron] code_index_runner', e?.message ?? e);
+        throw e;
+      });
+    }),
+  );
 }

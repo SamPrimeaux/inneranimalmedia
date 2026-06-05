@@ -307,6 +307,11 @@ export async function dispatchProductionDomainRoutes(rc) {
     return handleCronSelfTest(request, env, ctx);
   }
 
+  if (pathLower === '/api/internal/code-index/run' && methodUpper === 'POST') {
+    const { handleCodeIndexRun } = await import('../api/code-index-run.js');
+    return handleCodeIndexRun(request, env, ctx);
+  }
+
   if (pathLower === '/api/internal/google/refresh-token' && methodUpper === 'POST') {
     const { isInternalSecretAuthorized, handleGoogleTokenRefresh } = await import(
       '../api/internal-google-refresh.js'
