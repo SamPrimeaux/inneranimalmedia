@@ -161,7 +161,7 @@ function resolveDispatchPlatform(meta) {
   let plat = String(
     meta?.api_platform ? meta.api_platform : deriveApiPlatformFromProvider(meta?.provider || '', ''),
   ).toLowerCase();
-  if (plat === 'google_ai') plat = 'gemini_api';
+  if (plat === 'google_ai' || plat === 'google_ai_studio') plat = 'gemini_api';
   return plat;
 }
 

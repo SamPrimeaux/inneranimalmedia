@@ -154,7 +154,7 @@ Rules: Under 450 words. No fluff. No emojis. Direct and actionable. Treat Sam li
     if (!emailBody && geminiKey) {
       try {
         const gRes = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${geminiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=${geminiKey}`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

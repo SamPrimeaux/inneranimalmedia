@@ -114,7 +114,9 @@ export function llmSecretNameForApiPlatform(apiPlatform) {
   const p = String(apiPlatform || '').trim().toLowerCase();
   if (p === 'openai' || p === 'cursor') return 'OPENAI_API_KEY';
   if (p === 'anthropic_api' || p === 'anthropic') return 'ANTHROPIC_API_KEY';
-  if (p === 'gemini_api' || p === 'google_ai' || p === 'vertex_ai') return 'GEMINI_API_KEY';
+  if (p === 'gemini_api' || p === 'google_ai' || p === 'google_ai_studio' || p === 'vertex_ai') {
+    return 'GEMINI_API_KEY';
+  }
   return null;
 }
 

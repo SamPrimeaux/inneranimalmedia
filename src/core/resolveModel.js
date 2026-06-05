@@ -1,3 +1,5 @@
+import { redirectDeprecatedGoogleModelKey } from './google-model-routes.js';
+
 /**
  * AgentSam — Canonical Model Resolver  v2.0
  * src/core/resolveModel.js
@@ -270,6 +272,8 @@ async function loadModelRecord(db, model_key, source, arm_id = null, opts = {}) 
     require_vision  = false,
     require_json_mode = false,
   } = opts;
+
+  model_key = redirectDeprecatedGoogleModelKey(model_key);
 
   // Join both tables — catalog has specs, agentsam_ai has runtime config
   const row = await db.prepare(`

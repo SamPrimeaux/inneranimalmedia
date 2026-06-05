@@ -225,7 +225,7 @@ export async function createEmbedding(env, text, lane = RAG_EMBED_LANE_TEXT_DEFA
     ).trim();
     if (apiKey) {
       try {
-        const modelId = String(env.RAG_MULTIMODAL_EMBEDDING_MODEL || 'gemini-embedding-001')
+        const modelId = String(env.RAG_MULTIMODAL_EMBEDDING_MODEL || 'gemini-embedding-2')
           .trim()
           .replace(/^models\//, '');
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelId)}:embedContent?key=${encodeURIComponent(apiKey)}`;

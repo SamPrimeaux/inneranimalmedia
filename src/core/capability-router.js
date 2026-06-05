@@ -15,9 +15,10 @@ import {
   messageRequestsWebFetch,
   messageRequestsWorkspaceGrep,
 } from './agent-lane-router.js';
+import { GOOGLE_MODEL_ROUTES } from './google-model-routes.js';
 
-/** Cheap classifier — same family as routing arms default (gemini-2.5-flash-lite). */
-const GEMINI_CLASSIFIER_MODEL = 'gemini-2.5-flash-lite';
+/** Cheap classifier — aligns with router_micro / intent_classification arms. */
+const GEMINI_CLASSIFIER_MODEL = GOOGLE_MODEL_ROUTES.cheapFast;
 
 const DEFAULT_DECISION = {
   intent: 'general_chat',
@@ -296,7 +297,7 @@ export function capabilityRouterPromptBlock(decision) {
   const d = decision && typeof decision === 'object' ? decision : DEFAULT_DECISION;
   return [
     '## Workspace capability routing',
-    'The following JSON was produced by a cheap classifier (gemini-2.5-flash-lite or heuristic). It does NOT auto-run tools.',
+    `The following JSON was produced by a cheap classifier (${GEMINI_CLASSIFIER_MODEL} or heuristic). It does NOT auto-run tools.`,
     'Use it to choose tools intentionally:',
     '- Browser: when should_use_browser is true, prefer browser_navigate → browser_content or playwright_screenshot (and cdt_* for interaction). Respect trusted origins (agentsam_browser_trusted_origin).',
     '- Monaco/files: when should_use_monaco is true, emit concrete file content; the dashboard may open the editor from tool results or code blocks.',

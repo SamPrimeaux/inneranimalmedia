@@ -9123,65 +9123,135 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
         if (!tid) tid = (await fetchAuthUserTenantId(env, authUser.id)) || '';
         if (!tid && authUser.email) tid = (await fetchAuthUserTenantId(env, authUser.email)) || '';
         if (!tid) return jsonResponse({ error: 'Tenant not configured for this account' }, 403);
-        const uwsId  = `uws:${tid}:${userId}:${wsId}`;
 
-        // Attempt retrieval from both tables
-        const [globalWs, personalWs] = await Promise.all([
-          env.DB.prepare(`SELECT * FROM workspaces WHERE id = ? OR handle = ? LIMIT 1`).bind(wsId, wsId).first().catch(() => null),
-          env.DB.prepare(`SELECT state_json FROM agentsam_workspace_state WHERE id = ?`).bind(uwsId).first().catch(() => null)
-        ]);
-        
-        const row = globalWs || (personalWs ? { id: wsId, state_json: personalWs.state_json, name: 'Personal' } : null);
-        if (!row) {
-          const canWs =
-            wsId &&
-            (await userCanAccessWorkspace(env, authUser, wsId).catch(() => false));
-          if (canWs) {
-            return jsonResponse({
-              id: wsId,
-              name: 'Workspace',
-              environment: 'local',
-              status: 'active',
-              settings: {},
-              state: {},
-              state_json: '{}',
-            });
-          }
-          return jsonResponse({ error: 'Workspace not found' }, 404);
-        }
-        
-        const safeJson = (v) => { 
-          if (!v) return {}; 
+        const safeJson = (v) => {
+          if (!v) return {};
           if (typeof v === 'object' && v !== null) return v;
-          try { return JSON.parse(v); } catch(e) { return {}; }
+          try { return JSON.parse(String(v)); } catch { return {}; }
+        };
+        const parseFilesOpen = (raw) => {
+          if (Array.isArray(raw)) return raw;
+          try {
+            const parsed = JSON.parse(String(raw || '[]'));
+            return Array.isArray(parsed) ? parsed : [];
+          } catch {
+            return [];
+          }
         };
 
-        const stateObj = safeJson(row.state_json);
-        const stateJsonStr =
-          typeof row.state_json === 'string' && row.state_json.trim()
-            ? row.state_json
-            : JSON.stringify(stateObj || {});
+        const isWorkspaceKey = /^ws_/i.test(wsId);
 
-        return jsonResponse({
-          id: row.id,
-          name: row.name || 'Workspace',
-          environment: row.environment || 'local',
-          status: row.status || 'active',
-          settings: safeJson(row.settings_json),
-          state:    stateObj,
-          state_json: stateJsonStr,
-        });
-      } catch (e) { 
-        return jsonResponse({ error: `Fetch error: ${e.message}` }, 500); 
+        // Platform workspace id (ws_*) — resume spine from agentsam_workspace_state.workspace_id.
+        if (isWorkspaceKey) {
+          const canWs = await userCanAccessWorkspace(env, authUser, wsId).catch(() => false);
+          if (!canWs) return jsonResponse({ error: 'Forbidden' }, 403);
+
+          const awsRow = await env.DB.prepare(
+            `SELECT workspace_id, conversation_id, active_file, files_open, state_json, updated_at, created_at
+             FROM agentsam_workspace_state
+             WHERE workspace_id = ?
+             LIMIT 1`,
+          )
+            .bind(wsId)
+            .first()
+            .catch(() => null);
+
+          const stateObj = safeJson(awsRow?.state_json);
+          const stateJsonStr =
+            typeof awsRow?.state_json === 'string' && awsRow.state_json.trim()
+              ? awsRow.state_json
+              : JSON.stringify(stateObj || {});
+
+          return jsonResponse({
+            id: wsId,
+            workspace_id: wsId,
+            conversation_id: awsRow?.conversation_id ?? null,
+            active_file: awsRow?.active_file ?? null,
+            files_open: parseFilesOpen(awsRow?.files_open),
+            updated_at: awsRow?.updated_at ?? null,
+            created_at: awsRow?.created_at ?? null,
+            name: 'Workspace',
+            environment: 'local',
+            status: 'active',
+            settings: {},
+            state: stateObj,
+            state_json: stateJsonStr,
+          });
+        }
+
+        // Conversation-scoped IDE bundle (UUID) — legacy uws:* row id.
+        const uwsId = `uws:${tid}:${userId}:${wsId}`;
+        const personalWs = await env.DB.prepare(
+          `SELECT state_json, updated_at, conversation_id, active_file, files_open, workspace_id
+           FROM agentsam_workspace_state WHERE id = ? LIMIT 1`,
+        )
+          .bind(uwsId)
+          .first()
+          .catch(() => null);
+
+        if (personalWs) {
+          const stateObj = safeJson(personalWs.state_json);
+          const stateJsonStr =
+            typeof personalWs.state_json === 'string' && personalWs.state_json.trim()
+              ? personalWs.state_json
+              : JSON.stringify(stateObj || {});
+          return jsonResponse({
+            id: wsId,
+            workspace_id: personalWs.workspace_id ?? null,
+            conversation_id: personalWs.conversation_id ?? wsId,
+            active_file: personalWs.active_file ?? null,
+            files_open: parseFilesOpen(personalWs.files_open),
+            updated_at: personalWs.updated_at ?? null,
+            name: 'Personal',
+            environment: 'local',
+            status: 'active',
+            settings: {},
+            state: stateObj,
+            state_json: stateJsonStr,
+          });
+        }
+
+        const globalWs = await env.DB.prepare(
+          `SELECT * FROM workspaces WHERE id = ? OR handle = ? LIMIT 1`,
+        )
+          .bind(wsId, wsId)
+          .first()
+          .catch(() => null);
+
+        if (globalWs) {
+          const stateObj = safeJson(globalWs.state_json);
+          const stateJsonStr =
+            typeof globalWs.state_json === 'string' && globalWs.state_json.trim()
+              ? globalWs.state_json
+              : JSON.stringify(stateObj || {});
+          return jsonResponse({
+            id: globalWs.id,
+            workspace_id: globalWs.id,
+            conversation_id: null,
+            active_file: null,
+            files_open: [],
+            updated_at: null,
+            name: globalWs.name || 'Workspace',
+            environment: globalWs.environment || 'local',
+            status: globalWs.status || 'active',
+            settings: safeJson(globalWs.settings_json),
+            state: stateObj,
+            state_json: stateJsonStr,
+          });
+        }
+
+        return jsonResponse({ error: 'Workspace not found' }, 404);
+      } catch (e) {
+        return jsonResponse({ error: `Fetch error: ${e.message}` }, 500);
       }
     }
 
     if (method === 'PUT') {
       try {
-        const body    = await request.json().catch(() => ({}));
-        const state   = body.state || body.state_json;
+        const body = await request.json().catch(() => ({}));
+        const state = body.state || body.state_json;
         const stateStr = typeof state === 'string' ? state : JSON.stringify(state || {});
-        
+
         const userId = String(authUser?.id || 'anonymous').trim();
         let tid =
           authUser?.tenant_id != null && String(authUser.tenant_id).trim() !== ''
@@ -9190,32 +9260,51 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
         if (!tid) tid = (await fetchAuthUserTenantId(env, authUser.id)) || '';
         if (!tid && authUser.email) tid = (await fetchAuthUserTenantId(env, authUser.email)) || '';
         if (!tid) return jsonResponse({ error: 'Tenant not configured for this account' }, 403);
-        const uwsId  = `uws:${tid}:${userId}:${wsId}`;
 
-        // Attempt update in both locations (idempotent for the relevant table)
+        if (/^ws_/i.test(wsId)) {
+          const canWs = await userCanAccessWorkspace(env, authUser, wsId).catch(() => false);
+          if (!canWs) return jsonResponse({ error: 'Forbidden' }, 403);
+          await env.DB.prepare(
+            `INSERT INTO agentsam_workspace_state (
+               id, workspace_id, state_json, workspace_type, created_at, updated_at
+             ) VALUES ('wss_' || lower(hex(randomblob(8))), ?, ?, 'ide', unixepoch(), unixepoch())
+             ON CONFLICT(workspace_id) DO UPDATE SET
+               state_json = excluded.state_json,
+               updated_at = unixepoch()`,
+          )
+            .bind(wsId, stateStr)
+            .run();
+          return jsonResponse({ ok: true, id: wsId, workspace_id: wsId });
+        }
+
+        const uwsId = `uws:${tid}:${userId}:${wsId}`;
         try {
           if (env.DB) {
             const results = await Promise.allSettled([
               env.DB.prepare(`UPDATE workspaces SET state_json = ?, updated_at = datetime('now') WHERE id = ?`)
                 .bind(stateStr, wsId).run(),
-              env.DB.prepare(`UPDATE agentsam_workspace_state SET state_json = ?, updated_at = unixepoch() WHERE id = ?`)
-                .bind(stateStr, uwsId).run()
+              env.DB.prepare(
+                `INSERT INTO agentsam_workspace_state (id, workspace_id, state_json, conversation_id, workspace_type, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, 'ide', unixepoch(), unixepoch())
+                 ON CONFLICT(id) DO UPDATE SET state_json = excluded.state_json, updated_at = unixepoch()`,
+              )
+                .bind(uwsId, wsId, stateStr, wsId)
+                .run(),
             ]);
             results.forEach((r, i) => {
               if (r.status === 'rejected') {
                 console.warn('[agent] workspace update op', i, 'rejected:', r.reason);
               }
             });
-            console.log('[agent] workspace update results:', results.map(r => r.status));
           }
         } catch (dbErr) {
           console.warn('[agent] non-critical workspace update failure:', dbErr.message);
         }
-        
+
         return jsonResponse({ ok: true, id: wsId });
-      } catch (e) { 
+      } catch (e) {
         console.error('[agent] workspace PUT error:', e.stack);
-        return jsonResponse({ error: e.message }, 500); 
+        return jsonResponse({ error: e.message }, 500);
       }
     }
 
