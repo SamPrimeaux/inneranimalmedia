@@ -14,7 +14,7 @@
  *  - DevTools panel — console + network via cdt_* tools
  *  - Element picker — hover/highlight/select, populates chat
  *  - Area screenshot drag-select
- *  - WebSocket bridge to IAM_COLLAB for live Agent Sam events
+ *  - Window events for Agent Sam browser navigation
  *  - Split pane A/B
  */
 
@@ -1311,6 +1311,8 @@ interface PaneProps {
   initialAutomation?:  boolean;
   /** Open Browser Run Live View (shared agent session) instead of screenshot overlay. */
   initialAgentLive?:   boolean;
+  /** Passive editor preview — never MYBROWSER. */
+  previewSource?:      'editor' | 'agent';
   addressDisplay?: string | null;
   label?:          'A' | 'B';
   onClose?:        () => void;
@@ -1328,6 +1330,7 @@ const BrowserPane: React.FC<PaneProps> = ({
   initialPreview,
   initialAutomation = false,
   initialAgentLive = false,
+  previewSource = 'agent',
   addressDisplay,
   label,
   onClose,
@@ -2266,14 +2269,19 @@ const BrowserPane: React.FC<PaneProps> = ({
       await loadRegistryPickersIfNeeded();
       const n = normalize(s);
       if (!(await ensureOriginTrust(n))) return;
+      const isPassiveEditorUrl =
+        previewSource === 'editor' ||
+        /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?/i.test(n) ||
+        n.startsWith('blob:');
       const useAgentLive =
-        opts?.agentLive === true ||
-        (opts?.automation === true && Boolean(agentRunId?.trim()) && !opts?.preview?.screenshot_url);
+        !isPassiveEditorUrl &&
+        (opts?.agentLive === true ||
+          (opts?.automation === true && Boolean(agentRunId?.trim()) && !opts?.preview?.screenshot_url));
       if (useAgentLive) {
         await openAgentLiveSession(n);
         return;
       }
-      if (opts?.automation === true || Boolean(opts?.preview?.screenshot_url)) {
+      if (!isPassiveEditorUrl && (opts?.automation === true || Boolean(opts?.preview?.screenshot_url))) {
         await loadAutomationPreview(n, opts?.preview ?? null);
         return;
       }
@@ -2287,6 +2295,7 @@ const BrowserPane: React.FC<PaneProps> = ({
       loadRegistryPickersIfNeeded,
       openAgentLiveSession,
       openPassiveIframeView,
+      previewSource,
     ],
   );
 
@@ -2297,12 +2306,18 @@ const BrowserPane: React.FC<PaneProps> = ({
     if (!initialUrl?.trim()) return;
     const n = normalize(initialUrl);
     if (n === currentUrlRef.current) return;
+    const passiveEditor =
+      previewSource === 'editor' ||
+      /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?/i.test(n) ||
+      n.startsWith('blob:');
     void navigateRef.current(n, {
       preview: initialPreview?.screenshot_url ? initialPreview : null,
-      automation: initialAutomation === true || Boolean(initialPreview?.screenshot_url),
-      agentLive: initialAgentLive === true,
+      automation: passiveEditor
+        ? false
+        : initialAutomation === true || Boolean(initialPreview?.screenshot_url),
+      agentLive: passiveEditor ? false : initialAgentLive === true,
     });
-  }, [initialUrl, initialPreview, initialAutomation, initialAgentLive]);
+  }, [initialUrl, initialPreview, initialAutomation, initialAgentLive, previewSource]);
 
   // ── Screenshot (Playwright) ─────────────────────────────────────────────────
   const runScreenshot = useCallback(async (clip?: { x: number; y: number; width: number; height: number }) => {
@@ -2981,20 +2996,20 @@ interface BrowserViewProps {
   addressDisplay?: string | null;
   /** Persist user-entered URL to parent state (survives tab remounts). */
   onUrlCommitted?: (url: string) => void;
-  /** When false, no collab HTTP probe or WebSocket (avoids IAM_COLLAB churn when panel is hidden). */
-  isActive?:       boolean;
   /** `agentsam_agent_run.id` from chat SSE — full-page screenshot POST only. */
   agentRunId?:     string | null;
   workspaceContext?: AgentWorkspaceContextPacket | null;
+  /** Editor-sourced opens must never escalate to MYBROWSER / Agent Live. */
+  previewSource?:  'editor' | 'agent';
 }
 
 export const BrowserView: React.FC<BrowserViewProps> = ({
   url: urlFromParent,
   addressDisplay,
   onUrlCommitted,
-  isActive = false,
   agentRunId = null,
   workspaceContext: _workspaceContext = null,
+  previewSource = 'agent',
 }) => {
   const [primaryUrl,         setPrimaryUrl]         = useState('');
   const [primaryAutomation, setPrimaryAutomation] = useState(false);
@@ -3009,11 +3024,14 @@ export const BrowserView: React.FC<BrowserViewProps> = ({
     urlFromParentRef.current = urlFromParent;
     if (!u || u === prev || u === primaryUrl) return;
     setPrimaryUrl(u);
-  }, [urlFromParent, primaryUrl]);
+    if (previewSource === 'editor') {
+      setPrimaryAutomation(false);
+      setPrimaryAgentLive(false);
+      setPrimaryPreview(null);
+    }
+  }, [urlFromParent, primaryUrl, previewSource]);
 
   const [secondaryUrl,    setSecondaryUrl]    = useState<string | null>(null);
-  const [agentActive,   setAgentActive]   = useState(false);
-  const [collabBridge, setCollabBridge] = useState<'live' | 'offline' | 'unavailable'>('live');
 
   // ── Window event listeners (Agent Sam navigation) ───────────────────────────
   useEffect(() => {
@@ -3068,128 +3086,8 @@ export const BrowserView: React.FC<BrowserViewProps> = ({
     };
   }, []);
 
-  // ── WebSocket bridge to IAM_COLLAB (exponential backoff; no retry storm on stub/503) ─
-  useEffect(() => {
-    if (!isActive) {
-      setCollabBridge('live');
-      return;
-    }
-
-    const host = window.location.host;
-    const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${host}/api/collab/room/browser`;
-    const httpProbeUrl = `${window.location.protocol === 'https:' ? 'https:' : 'http:'}//${host}/api/collab/room/browser`;
-
-    let ws: WebSocket | null = null;
-    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
-    let reconnectAttempts = 0;
-    const maxReconnects = 5;
-    const delayMs = (n: number) =>
-      n <= 0 ? 5000 : n === 1 ? 15000 : n === 2 ? 60000 : 300000;
-
-    let cancelled = false;
-
-    const stopReconnects = (reason: 'offline' | 'unavailable') => {
-      setCollabBridge(reason);
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-    };
-
-    const scheduleReconnect = () => {
-      if (cancelled || reconnectAttempts >= maxReconnects) {
-        if (reconnectAttempts >= maxReconnects) stopReconnects('offline');
-        return;
-      }
-      const wait = delayMs(reconnectAttempts);
-      reconnectAttempts += 1;
-      reconnectTimer = setTimeout(() => void connect(), wait);
-    };
-
-    const connect = async () => {
-      if (cancelled) return;
-
-      try {
-        const probe = await fetch(httpProbeUrl, { credentials: 'same-origin', cache: 'no-store' });
-        if (probe.status === 503) {
-          stopReconnects('unavailable');
-          return;
-        }
-        if (probe.status === 204) {
-          stopReconnects('unavailable');
-          return;
-        }
-      } catch {
-        stopReconnects('unavailable');
-        return;
-      }
-
-      if (cancelled) return;
-
-      try {
-        ws = new WebSocket(wsUrl);
-      } catch {
-        scheduleReconnect();
-        return;
-      }
-
-      ws.onmessage = (e) => {
-        try {
-          const msg = JSON.parse(e.data);
-          switch (msg.type) {
-            case 'navigate':
-              if (msg.url) setPrimaryUrl(msg.url);
-              break;
-            case 'screenshot':
-              if (msg.screenshot_url) {
-                window.dispatchEvent(new CustomEvent('iam-browser-screenshot', {
-                  detail: { screenshot_url: msg.screenshot_url },
-                }));
-              }
-              break;
-            case 'agent_active':
-              setAgentActive(!!msg.active);
-              break;
-            case 'job_update':
-              if (msg.status === 'running') setAgentActive(true);
-              if (msg.status === 'completed' || msg.status === 'failed') setAgentActive(false);
-              break;
-          }
-        } catch { /* ignore */ }
-      };
-
-      ws.onerror = () => {};
-      ws.onopen = () => {
-        setCollabBridge('live');
-        reconnectAttempts = 0;
-      };
-      ws.onclose = () => {
-        ws = null;
-        if (cancelled) return;
-        scheduleReconnect();
-      };
-    };
-
-    void connect();
-
-    return () => {
-      cancelled = true;
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      try {
-        ws?.close();
-      } catch { /* ignore */ }
-    };
-  }, [isActive]);
-
   return (
     <div className="flex w-full h-full overflow-hidden bg-[var(--bg-app)] flex-col">
-      {collabBridge !== 'live' && (
-        <div
-          className="shrink-0 px-2 py-1 text-[11px] text-center border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] text-[var(--text-muted)]"
-          role="status"
-        >
-          {collabBridge === 'unavailable'
-            ? 'Collaboration bridge unavailable (live sync off).'
-            : 'Collaboration offline — live browser sync paused.'}
-        </div>
-      )}
       <div className="flex w-full min-h-0 flex-1 overflow-hidden">
       <div className={`flex flex-col min-h-0 min-w-0 overflow-hidden transition-all duration-200 ${
         secondaryUrl ? 'w-1/2 border-r border-[var(--border-subtle)]' : 'w-full'
@@ -3199,13 +3097,13 @@ export const BrowserView: React.FC<BrowserViewProps> = ({
           initialPreview={primaryPreview}
           initialAutomation={primaryAutomation}
           initialAgentLive={primaryAgentLive}
+          previewSource={previewSource}
           addressDisplay={addressDisplay}
           label={secondaryUrl ? 'A' : undefined}
           isSplit={!!secondaryUrl}
           onSplit={url => setSecondaryUrl(url)}
           onUrlCommitted={onUrlCommitted}
-          agentActive={agentActive}
-          agentRunId={agentRunId}
+          agentRunId={previewSource === 'editor' ? null : agentRunId}
           autoFocus
         />
       </div>
@@ -3217,8 +3115,7 @@ export const BrowserView: React.FC<BrowserViewProps> = ({
             isSplit
             onClose={() => setSecondaryUrl(null)}
             autoFocus
-            agentActive={agentActive}
-            agentRunId={agentRunId}
+          agentRunId={agentRunId}
           />
         </div>
       )}

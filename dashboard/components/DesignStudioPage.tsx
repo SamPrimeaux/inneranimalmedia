@@ -32,8 +32,10 @@ import {
   UserCircle,
   Globe,
   ChevronLeft,
+  Users,
 } from 'lucide-react';
-import { VoxelEngine } from '../services/VoxelEngine';
+type VoxelEngineClass = typeof import('../services/VoxelEngine').VoxelEngine;
+type VoxelEngineInstance = InstanceType<VoxelEngineClass>;
 import { normalizeGlbUrl, normalizeChessPieceUrls } from '../lib/glbAssets';
 import { UIOverlay } from './UIOverlay';
 import { ToolLauncherBar } from './ToolLauncherBar';
@@ -683,7 +685,7 @@ export const DesignStudioPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const containerRef = useRef<HTMLDivElement>(null);
-  const engineRef = useRef<VoxelEngine | null>(null);
+  const engineRef = useRef<VoxelEngineInstance | null>(null);
   const pendingConsumedRef = useRef(false);
 
   const [engineReady, setEngineReady] = useState(false);
@@ -715,6 +717,10 @@ export const DesignStudioPage: React.FC = () => {
   >([]);
   const [sceneName, setSceneName] = useState('');
   const [sceneBusy, setSceneBusy] = useState(false);
+  const [multiplayerBusy, setMultiplayerBusy] = useState(false);
+  const [multiplayerRoomId, setMultiplayerRoomId] = useState<string | null>(null);
+  const [multiplayerColor, setMultiplayerColor] = useState<string | null>(null);
+  const chessWsRef = useRef<WebSocket | null>(null);
 
   const refreshSceneList = useCallback(() => {
     fetch('/api/designstudio/scenes', { credentials: 'include' })
@@ -759,33 +765,118 @@ export const DesignStudioPage: React.FC = () => {
   useEffect(() => {
     const container = containerRef.current;
     if (!container || engineRef.current) return;
-    const engine = new VoxelEngine(container, (s) => setAppState(s), (c) => setVoxelCount(c));
-    engineRef.current = engine;
-    engine.setOnEntityCreated((entity) => {
-      setUndoStack((prev) => [...prev, entity]);
-      setRedoStack([]);
-    });
-    engine.updateLighting(sceneConfig);
-    engine.setCADPlane(genConfig.cadPlane);
-    engine.setExtrusion(genConfig.extrusion);
-    engine.setProjectType(ProjectType.CHESS);
 
-    const settleViewport = () => engine.handleResize();
-    requestAnimationFrame(() => {
-      settleViewport();
-      requestAnimationFrame(settleViewport);
+    let cancelled = false;
+    let engine: VoxelEngineInstance | null = null;
+
+    void import('../services/VoxelEngine').then(({ VoxelEngine }) => {
+      if (cancelled || !containerRef.current || engineRef.current) return;
+      engine = new VoxelEngine(container, (s) => setAppState(s), (c) => setVoxelCount(c));
+      engineRef.current = engine;
+      engine.setOnEntityCreated((entity) => {
+        setUndoStack((prev) => [...prev, entity]);
+        setRedoStack([]);
+      });
+      engine.updateLighting(sceneConfig);
+      engine.setCADPlane(genConfig.cadPlane);
+      engine.setExtrusion(genConfig.extrusion);
+      engine.setProjectType(ProjectType.CHESS);
+      engine.setOnChessMove((from, to) => {
+        const ws = chessWsRef.current;
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        ws.send(JSON.stringify({ type: 'move', from, to }));
+      });
+
+      const settleViewport = () => engine?.handleResize();
+      requestAnimationFrame(() => {
+        settleViewport();
+        requestAnimationFrame(settleViewport);
+      });
+
+      setEngineReady(true);
     });
 
-    const handleResize = () => engine.handleResize();
+    const handleResize = () => engineRef.current?.handleResize();
     window.addEventListener('resize', handleResize);
-    setEngineReady(true);
     return () => {
+      cancelled = true;
       window.removeEventListener('resize', handleResize);
+      chessWsRef.current?.close();
+      chessWsRef.current = null;
       setEngineReady(false);
-      engine.cleanup();
+      engine?.cleanup();
       engineRef.current = null;
     };
   }, []);
+
+  const handleStartMultiplayer = useCallback(async () => {
+    if (!engineRef.current || multiplayerBusy) return;
+    setMultiplayerBusy(true);
+    try {
+      chessWsRef.current?.close();
+      chessWsRef.current = null;
+
+      const res = await fetch('/api/games/rooms', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof (data as { error?: string }).error === 'string'
+            ? (data as { error: string }).error
+            : 'Failed to create room',
+        );
+      }
+      const roomId = String((data as { roomId?: string }).roomId || '').trim();
+      if (!roomId) throw new Error('Room id missing');
+
+      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const ws = new WebSocket(`${proto}//${window.location.host}/api/games/ws/${roomId}`);
+      chessWsRef.current = ws;
+      setMultiplayerRoomId(roomId);
+
+      ws.onmessage = (ev) => {
+        let msg: {
+          type?: string;
+          fen?: string;
+          from?: string;
+          to?: string;
+          color?: string;
+          message?: string;
+        };
+        try {
+          msg = JSON.parse(String(ev.data));
+        } catch {
+          return;
+        }
+        const engine = engineRef.current;
+        if (!engine) return;
+        if (msg.type === 'state' || msg.type === 'joined') {
+          if (msg.color) setMultiplayerColor(msg.color);
+          if (msg.fen) void engine.syncBoardFromFen(msg.fen);
+        } else if (msg.type === 'move' && msg.from && msg.to) {
+          engine.movePiece(msg.from, msg.to);
+        } else if (msg.type === 'error' && msg.message) {
+          console.warn('[Chess multiplayer]', msg.message);
+        }
+      };
+
+      ws.onclose = () => {
+        if (chessWsRef.current === ws) {
+          chessWsRef.current = null;
+        }
+      };
+    } catch (e) {
+      console.warn('[Chess multiplayer] start failed', e);
+      setMultiplayerRoomId(null);
+      setMultiplayerColor(null);
+    } finally {
+      setMultiplayerBusy(false);
+    }
+  }, [multiplayerBusy]);
 
   useEffect(() => {
     engineRef.current?.updateLighting(sceneConfig);
@@ -1039,6 +1130,26 @@ export const DesignStudioPage: React.FC = () => {
           className="absolute inset-0 z-0 overflow-hidden"
           style={{ background: 'var(--scene-bg)' }}
         />
+
+        {activeProject === ProjectType.CHESS && (
+          <div className="absolute top-4 right-4 z-20 flex flex-col items-end gap-2">
+            <button
+              type="button"
+              onClick={() => void handleStartMultiplayer()}
+              disabled={multiplayerBusy}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[var(--solar-violet)]/90 hover:opacity-90 disabled:opacity-40 text-white text-[10px] font-black uppercase tracking-widest shadow-lg"
+            >
+              <Users size={14} />
+              {multiplayerBusy ? 'Connecting…' : 'Multiplayer'}
+            </button>
+            {multiplayerRoomId && (
+              <div className="px-3 py-1.5 rounded-lg bg-[var(--bg-panel)]/90 border border-[var(--border-subtle)] text-[9px] font-mono text-[var(--text-muted)]">
+                {multiplayerRoomId}
+                {multiplayerColor ? ` · ${multiplayerColor}` : ''}
+              </div>
+            )}
+          </div>
+        )}
 
         <UIOverlay
           voxelCount={voxelCount}

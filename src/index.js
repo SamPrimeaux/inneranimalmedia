@@ -345,7 +345,10 @@ export default {
         // Old-school: serve the raw TSX guide from ASSETS R2
         '/apiguide/providers': 'ApiProviderGuide.tsx',
       };
-      const assetHtmlKey = ASSET_ROUTES[pathLower] || ASSET_ROUTES[path];
+      let assetHtmlKey = ASSET_ROUTES[pathLower] || ASSET_ROUTES[path];
+      if (!assetHtmlKey && /^\/games\/room_[a-z0-9]+$/i.test(pathLower)) {
+        assetHtmlKey = 'pages/games/room.html';
+      }
       if (assetHtmlKey) {
         let obj = null;
         if (env.ASSETS) obj = await env.ASSETS.get(assetHtmlKey);

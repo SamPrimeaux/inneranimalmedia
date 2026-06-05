@@ -11,6 +11,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { AppState, GameEntity, ProjectType, SceneConfig, CADTool, VoxelData, CADPlane } from '../types';
 import { chessPieceGlbPath, normalizeGlbUrl } from '../lib/glbAssets';
+import { parseFenPlacement, positionToSquare, squareToPosition } from '../lib/chessSquares';
 
 const CHESS_PIECES = ['bishop', 'king', 'knight', 'pawn', 'queen', 'rook'] as const;
 
@@ -68,6 +69,8 @@ export class VoxelEngine {
 
   private onCountChange: (count: number) => void;
   private onEntityCreated: ((entity: GameEntity) => void) | null = null;
+  private onChessMove: ((from: string, to: string) => void) | null = null;
+  private dragFromSquare: string | null = null;
   private animationId: number = 0;
   private dummy = new THREE.Object3D();
   private projectType: ProjectType = ProjectType.SANDBOX;
@@ -162,6 +165,87 @@ export class VoxelEngine {
 
   public setOnEntityCreated(cb: (entity: GameEntity) => void) {
     this.onEntityCreated = cb;
+  }
+
+  public setOnChessMove(cb: ((from: string, to: string) => void) | null) {
+    this.onChessMove = cb;
+  }
+
+  /** Move a chess piece entity between algebraic squares (used by multiplayer sync). */
+  public movePiece(from: string, to: string): boolean {
+    const fromPos = squareToPosition(from);
+    const toPos = squareToPosition(to);
+    if (!fromPos || !toPos) return false;
+
+    let movingId: string | null = null;
+    let capturedId: string | null = null;
+
+    for (const [id, ent] of this.entities.entries()) {
+      if (ent.data.type !== 'piece') continue;
+      const sq = (ent.data.behavior.metadata?.square as string | undefined) ?? '';
+      if (sq === to) capturedId = id;
+      if (sq === from) movingId = id;
+    }
+
+    if (!movingId) {
+      for (const [id, ent] of this.entities.entries()) {
+        if (ent.data.type !== 'piece') continue;
+        const visual = ent.mesh || ent.model;
+        if (!visual) continue;
+        if (positionToSquare(visual.position.x, visual.position.z) === from) {
+          movingId = id;
+          break;
+        }
+      }
+    }
+
+    if (capturedId && capturedId !== movingId) this.removeEntity(capturedId);
+    if (!movingId) return false;
+
+    const ent = this.entities.get(movingId);
+    if (!ent) return false;
+    const visual = ent.mesh || ent.model;
+    if (visual) {
+      visual.position.set(toPos.x, toPos.y, toPos.z);
+      if (ent.body) {
+        ent.body.position.set(toPos.x, toPos.y, toPos.z);
+        ent.body.velocity.set(0, 0, 0);
+      }
+    }
+    ent.data.position = { x: toPos.x, y: toPos.y, z: toPos.z };
+    ent.data.behavior = {
+      ...ent.data.behavior,
+      metadata: { ...(ent.data.behavior.metadata || {}), square: to },
+    };
+    return true;
+  }
+
+  /** Rebuild chess pieces from a FEN string (keeps the voxel board). */
+  public async syncBoardFromFen(fen: string): Promise<void> {
+    if (this.projectType !== ProjectType.CHESS) return;
+    for (const id of Array.from(this.entities.keys())) {
+      if (id === 'chess_board') continue;
+      const ent = this.entities.get(id);
+      if (ent?.data.type === 'piece') this.removeEntity(id);
+    }
+    const placements = parseFenPlacement(fen);
+    for (const p of placements) {
+      const pos = squareToPosition(p.square);
+      if (!pos) continue;
+      const modelUrl = CHESS_MODELS[p.color][p.piece] || CHESS_MODELS[p.color].pawn;
+      await this.spawnEntity({
+        id: `piece_${p.square}`,
+        name: `${p.color} ${p.piece}`,
+        type: 'piece',
+        modelUrl,
+        scale: 0.8,
+        position: pos,
+        behavior: {
+          type: 'chess_piece',
+          metadata: { square: p.square, color: p.color, piece: p.piece, fenChar: p.fenChar },
+        },
+      });
+    }
   }
 
   private setupDragIndicator() {
@@ -290,6 +374,10 @@ export class VoxelEngine {
           for (const [id, entity] of this.entities.entries()) {
             if ((entity.model === current || entity.mesh === current) && entity.data.type === 'piece') {
               this.draggedEntityId = id;
+              const visual = entity.mesh || entity.model;
+              this.dragFromSquare =
+                (entity.data.behavior.metadata?.square as string | undefined) ??
+                (visual ? positionToSquare(visual.position.x, visual.position.z) : null);
               this.controls.enabled = false;
               if (entity.body) entity.body.type = CANNON.Body.KINEMATIC;
               return;
@@ -357,6 +445,7 @@ export class VoxelEngine {
 
     if (this.draggedEntityId) {
       const ent = this.entities.get(this.draggedEntityId);
+      const fromSquare = this.dragFromSquare;
       if (ent) {
         const visual = ent.mesh || ent.model;
         if (visual) {
@@ -368,9 +457,21 @@ export class VoxelEngine {
             ent.body.position.set(x, 0.5, z);
             ent.body.velocity.set(0, 0, 0);
           }
+          const toSquare = positionToSquare(x, z);
+          if (toSquare) {
+            ent.data.behavior = {
+              ...ent.data.behavior,
+              metadata: { ...(ent.data.behavior.metadata || {}), square: toSquare },
+            };
+            ent.data.position = { x, y: 0.5, z };
+            if (fromSquare && toSquare !== fromSquare && this.onChessMove) {
+              this.onChessMove(fromSquare, toSquare);
+            }
+          }
         }
       }
       this.draggedEntityId = null;
+      this.dragFromSquare = null;
       this.controls.enabled = true;
     }
 

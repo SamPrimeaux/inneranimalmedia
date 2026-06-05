@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Play the interface. | Inner Animal Media</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg: #050508; --panel: #0f111a; --border: #1e2230; --text: #e2e8f0; --muted: #94a3b8; --accent: #2563eb; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Inter, system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+    main { max-width: 960px; margin: 0 auto; padding: 4rem 1.5rem 6rem; }
+    h1 { font-size: clamp(2rem, 5vw, 3rem); font-weight: 800; letter-spacing: -0.03em; margin-bottom: 0.75rem; }
+    .lead { color: var(--muted); font-size: 1.05rem; max-width: 42rem; line-height: 1.6; margin-bottom: 2.5rem; }
+    .card { background: var(--panel); border: 1px solid var(--border); border-radius: 1.25rem; padding: 1.75rem; margin-bottom: 1.5rem; }
+    .card h2 { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.2em; color: var(--muted); margin-bottom: 1rem; }
+    .btn { display: inline-flex; align-items: center; gap: 0.5rem; background: var(--accent); color: #fff; border: 0; border-radius: 0.75rem; padding: 0.85rem 1.35rem; font-weight: 700; font-size: 0.85rem; cursor: pointer; }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .btn-secondary { background: transparent; border: 1px solid var(--border); color: var(--text); }
+    .room-list { list-style: none; display: grid; gap: 0.65rem; }
+    .room-list li { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.85rem 1rem; border-radius: 0.75rem; background: #0a0c14; border: 1px solid var(--border); }
+    .room-list a { color: var(--accent); font-weight: 600; text-decoration: none; font-size: 0.9rem; }
+    .status { font-size: 0.8rem; color: var(--muted); margin-top: 0.75rem; min-height: 1.2em; }
+    .empty { color: var(--muted); font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>3D Chess</h1>
+    <p class="lead">Create a room, invite a friend, and play over WebSockets backed by Cloudflare Durable Objects.</p>
+
+    <section class="card">
+      <h2>New game</h2>
+      <button type="button" class="btn" id="create-room">Create Room</button>
+      <p class="status" id="create-status" aria-live="polite"></p>
+    </section>
+
+    <section class="card">
+      <h2>Open rooms</h2>
+      <ul class="room-list" id="room-list"></ul>
+      <p class="empty" id="room-empty" hidden>No open rooms right now — create one above.</p>
+    </section>
+  </main>
+  <script>
+    const createBtn = document.getElementById('create-room');
+    const createStatus = document.getElementById('create-status');
+    const roomList = document.getElementById('room-list');
+    const roomEmpty = document.getElementById('room-empty');
+
+    async function createRoom() {
+      createBtn.disabled = true;
+      createStatus.textContent = 'Creating room…';
+      try {
+        const res = await fetch('/api/games/rooms', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}',
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'Failed to create room');
+        const roomId = data.roomId;
+        if (!roomId) throw new Error('Missing room id');
+        window.location.href = '/games/' + encodeURIComponent(roomId);
+      } catch (err) {
+        createStatus.textContent = err.message || 'Could not create room';
+        createBtn.disabled = false;
+      }
+    }
+
+    async function loadRooms() {
+      try {
+        const res = await fetch('/api/games/rooms', { credentials: 'include' });
+        const data = await res.json().catch(() => ({}));
+        const rows = Array.isArray(data.results) ? data.results : [];
+        roomList.innerHTML = '';
+        if (!rows.length) {
+          roomEmpty.hidden = false;
+          return;
+        }
+        roomEmpty.hidden = true;
+        for (const row of rows) {
+          const li = document.createElement('li');
+          const id = row.id || row.room_id || '';
+          const host = row.host_display_name || row.host_player_id || 'Guest';
+          li.innerHTML = '<span><strong>' + host + '</strong><br><span style="color:#64748b;font-size:0.8rem;font-family:monospace">' + id + '</span></span>';
+          const join = document.createElement('a');
+          join.href = '/games/' + encodeURIComponent(id);
+          join.textContent = 'Join';
+          li.appendChild(join);
+          roomList.appendChild(li);
+        }
+      } catch {
+        roomEmpty.hidden = false;
+        roomEmpty.textContent = 'Could not load rooms.';
+      }
+    }
+
+    createBtn.addEventListener('click', createRoom);
+    loadRooms();
+  </script>
+</body>
+</html>
