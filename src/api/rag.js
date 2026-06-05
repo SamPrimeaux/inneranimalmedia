@@ -1,8 +1,7 @@
 /**
  * RAG API — OpenAI embeddings + Supabase (Hyperdrive/pgvector) + R2 (S3-compatible).
  * `createEmbedding` supports lanes: text_default (**OpenAI first**, Ollama fallback @1024), edge_bulk (Workers AI bge-m3),
- * multimodal (Gemini embed @1024 when GOOGLE_AI_API_KEY is set). Vectorize / long-doc paths use
- * `generateWorkersAiEmbedding` in `embed-workers-ai.js`.
+ * multimodal (Gemini gemini-embedding-2 @1536 — separate index; never mixed with OpenAI text vectors).
  */
 import { AwsClient } from 'aws4fetch';
 import { jsonResponse } from '../core/responses.js';
@@ -13,6 +12,12 @@ import {
   isHyperdriveUsable,
   runHyperdriveQuery,
 } from '../core/hyperdrive-query.js';
+import {
+  embeddingPolicy,
+  googleEmbeddingApiModelId,
+  resolveMultimodalEmbeddingRoute,
+  EMBEDDING_DIMS,
+} from '../core/embedding-routes.js';
 import {
   AGENTSAM_VECTOR_DIM,
   agentsamEmbeddingDims,
@@ -138,7 +143,7 @@ export const RAG_EMBED_LANE_MULTIMODAL = 'multimodal';
  *
  * - **text_default** — **OpenAI** `text-embedding-3-small` @1024 first, then **Ollama** `mxbai-embed-large` @1024 fallback.
  * - **edge_bulk** — Workers AI `@cf/baai/bge-m3` @1024, then same stack as text_default if unavailable.
- * - **multimodal** — Gemini `embedContent` @1024 when Google API key set, else text_default.
+ * - **multimodal** — Gemini `gemini-embedding-2` @1536 (see `embedding-routes.js`); separate index only.
  *
  * `RAG_EMBEDDING_DIMENSIONS` must remain **1024** for Supabase ingest unless the DB migration changes column width.
  *
@@ -220,35 +225,49 @@ export async function createEmbedding(env, text, lane = RAG_EMBED_LANE_TEXT_DEFA
   }
 
   if (laneNorm === RAG_EMBED_LANE_MULTIMODAL) {
+    const route = resolveMultimodalEmbeddingRoute();
     const apiKey = String(
       env.GOOGLE_AI_API_KEY || env.GEMINI_API_KEY || env.GOOGLE_API_KEY || '',
     ).trim();
-    if (apiKey) {
-      try {
-        const modelId = String(env.RAG_MULTIMODAL_EMBEDDING_MODEL || 'gemini-embedding-2')
-          .trim()
-          .replace(/^models\//, '');
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelId)}:embedContent?key=${encodeURIComponent(apiKey)}`;
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            model: `models/${modelId}`,
-            content: { parts: [{ text: input }] },
-            outputDimensionality: dim,
-          }),
-        });
-        const d = await res.json().catch(() => ({}));
-        let emb = d?.embedding?.values;
-        if (!Array.isArray(emb) && Array.isArray(d?.embedding)) emb = d.embedding;
-        if (Array.isArray(emb) && emb.length === dim) {
-          return { embedding: emb, provider: 'google' };
-        }
-      } catch (_) {
-        /* fall through */
-      }
+    if (!apiKey) {
+      throw new Error(
+        `multimodal_embedding_unavailable: ${embeddingPolicy.multimodalAssetSearch} requires Google API key`,
+      );
     }
-    return embedTextDefault();
+    const dim = Number(
+      env.RAG_MULTIMODAL_EMBEDDING_DIMENSIONS || route.dimensions || EMBEDDING_DIMS.balancedProductionRag,
+    );
+    const modelId = googleEmbeddingApiModelId(
+      env.RAG_MULTIMODAL_EMBEDDING_MODEL || route.model,
+    );
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelId)}:embedContent?key=${encodeURIComponent(apiKey)}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: `models/${modelId}`,
+          content: { parts: [{ text: input }] },
+          outputDimensionality: dim,
+        }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(d?.error?.message || `Gemini embed HTTP ${res.status}`);
+      }
+      let emb = d?.embedding?.values;
+      if (!Array.isArray(emb) && Array.isArray(d?.embedding)) emb = d.embedding;
+      if (Array.isArray(emb) && emb.length === dim) {
+        return { embedding: emb, provider: 'google', model: modelId, dimensions: dim };
+      }
+      throw new Error(`Gemini embed: expected ${dim} dimensions, got ${emb?.length ?? 0}`);
+    } catch (e) {
+      throw new Error(
+        e?.message != null
+          ? String(e.message)
+          : `multimodal_embedding_failed (${embeddingPolicy.migrationRule})`,
+      );
+    }
   }
 
   if (laneNorm === RAG_EMBED_LANE_EDGE_BULK && env?.AI) {

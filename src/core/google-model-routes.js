@@ -15,7 +15,8 @@ export const GOOGLE_MODEL_ROUTES = Object.freeze({
   computerUse: 'models/gemini-2.5-computer-use-preview-10-2025',
   deepResearch: 'deep-research-preview-04-2026',
   deepResearchMax: 'deep-research-max-preview-04-2026',
-  embedding: 'models/gemini-embedding-2',
+  /** Multimodal embedding lane only — not primary text RAG (see embedding-routes.js). */
+  multimodalEmbedding: 'models/gemini-embedding-2',
   videoFast: 'models/veo-3.1-lite-generate-preview',
   videoStandard: 'models/veo-3.1-generate-preview',
   videoFastAlt: 'models/veo-3.1-fast-generate-preview',

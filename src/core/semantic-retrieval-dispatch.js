@@ -5,6 +5,7 @@
 import { createAgentsamEmbedding } from './agentsam-vectorize.js';
 import { runHyperdriveQuery, isHyperdriveUsable } from './hyperdrive-query.js';
 import { resolveSupabaseWorkspaceId, LANES } from './rag-lanes.js';
+import { resolveTextEmbeddingRoute } from './embedding-routes.js';
 
 export const SEMANTIC_LANE_KEYS = Object.freeze([
   'code_semantic_search',
@@ -53,8 +54,8 @@ export const SEMANTIC_LANE_REGISTRY = Object.freeze({
   },
 });
 
-const EMBEDDING_MODEL_1536 = 'text-embedding-3-large';
-const EMBEDDING_MODEL_3072 = 'text-embedding-3-large';
+const EMBEDDING_MODEL_1536 = resolveTextEmbeddingRoute('docs').model;
+const EMBEDDING_MODEL_3072 = resolveTextEmbeddingRoute('docs').model;
 const SEMANTIC_CACHE_TTL_SEC = 3600;
 
 /**

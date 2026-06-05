@@ -2,6 +2,7 @@
  * AGENTSAMVECTORIZE (`inneranimalmedia-vectors`) — describe + embedding spec resolution.
  * One index, one dimension, one model. Index config from binding.describe() is source of truth.
  */
+import { resolveTextEmbeddingRoute } from './embedding-routes.js';
 
 export const AGENTSAM_VECTORIZE_INDEX_NAME = 'inneranimalmedia-vectors';
 
@@ -59,7 +60,8 @@ export async function describeAgentsamVectorizeIndex(env) {
 export function resolveAgentsamEmbeddingSpecForDimensions(dimensions) {
   const dim = Number(dimensions);
   if (dim === 1536) {
-    return { provider: 'openai', model: 'text-embedding-3-large', dimensions: 1536 };
+    const route = resolveTextEmbeddingRoute('docs');
+    return { provider: route.provider, model: route.model, dimensions: route.dimensions };
   }
   if (dim === 768) {
     return { provider: 'workers_ai', model: '@cf/baai/bge-large-en-v1.5', dimensions: 768 };
