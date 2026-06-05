@@ -64,5 +64,40 @@ INSERT OR IGNORE INTO agentsam_routing_arms (
   1.5, 1.0, 0.58, 1, 0, 1, 0, 0, 40, 0, '[]', 'media', 'low', unixepoch(), unixepoch()
 );
 
--- Legacy ai_models pricing table (optional — not present on all D1 deployments)
--- UPDATE ai_models SET updated_at = unixepoch() WHERE model_key = 'gpt-image-1-mini' AND provider = 'openai';
+-- ── 4) agentsam_model_pricing — retire mini; ensure gpt-image-1 image lane ────
+UPDATE agentsam_model_pricing
+SET is_active = 0,
+    routing_eligible = 0,
+    effective_to = datetime('now'),
+    notes = COALESCE(notes, '') || ' Deprecated 2026-06-04 — OpenAI retired gpt-image-1-mini; use gpt-image-1.',
+    updated_at = datetime('now')
+WHERE provider = 'openai'
+  AND model_key = 'gpt-image-1-mini';
+
+INSERT OR REPLACE INTO agentsam_model_pricing (
+  id, provider, model_key, pricing_kind, currency,
+  input_rate_per_mtok, output_rate_per_mtok,
+  supports_prompt_cache, supports_batch, supports_fast_mode,
+  source_url, source_label, notes, is_active, routing_eligible, updated_at
+) VALUES (
+  'openai:gpt-image-1:image',
+  'openai', 'gpt-image-1', 'image', 'USD',
+  2.5, 8.0,
+  0, 0, 0,
+  'https://platform.openai.com/docs/pricing',
+  'OpenAI Images API',
+  'Fast OpenAI image generation lane (replaces gpt-image-1-mini).',
+  1, 1, datetime('now')
+);
+
+-- ── 5) Drift / routing memory hygiene (no ai_models — table is dead) ─────────
+UPDATE agentsam_model_drift_signals
+SET acknowledged = 1,
+    acknowledged_at = unixepoch(),
+    notes = COALESCE(notes, '') || ' Auto-ack: gpt-image-1-mini deprecated.',
+    updated_at = unixepoch()
+WHERE model_key = 'gpt-image-1-mini'
+  AND COALESCE(acknowledged, 0) = 0;
+
+DELETE FROM agentsam_model_routing_memory
+WHERE model_key = 'gpt-image-1-mini';
