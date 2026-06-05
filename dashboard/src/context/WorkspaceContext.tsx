@@ -270,6 +270,16 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         writeIamWorkspaceSession(withUser);
         hydrateFromPayload(withUser, userId);
         if (!cancelled) setLoading(false);
+        try {
+          const fresh = await fetchSettingsWorkspaces();
+          if (!cancelled && fresh) {
+            fresh.sessionUserId = userId;
+            writeIamWorkspaceSession(fresh);
+            hydrateFromPayload(fresh, userId);
+          }
+        } catch {
+          /* cache hydrate already applied */
+        }
         return;
       }
 

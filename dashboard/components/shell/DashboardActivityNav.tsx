@@ -84,6 +84,13 @@ export function DashboardActivityNav({
   return (
     <>
       <ActivityRailItem
+        icon={Bot}
+        label="Agent"
+        expanded={expanded}
+        active={isAgentShellPath(location.pathname)}
+        onClick={() => go(AGENT_HOME_PATH)}
+      />
+      <ActivityRailItem
         icon={Home}
         label="Overview"
         expanded={expanded}
@@ -110,13 +117,6 @@ export function DashboardActivityNav({
         expanded={expanded}
         active={location.pathname.startsWith('/dashboard/analytics')}
         onClick={() => go('/dashboard/analytics')}
-      />
-      <ActivityRailItem
-        icon={Bot}
-        label="Agent"
-        expanded={expanded}
-        active={isAgentShellPath(location.pathname)}
-        onClick={() => go(AGENT_HOME_PATH)}
       />
       <ActivityRailItem
         icon={Network}

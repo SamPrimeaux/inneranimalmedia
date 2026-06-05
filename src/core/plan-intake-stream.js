@@ -201,6 +201,7 @@ export async function emitPlanRoadblockQuestions(env, ctx, emit, opts) {
     phase: 'roadblock',
     roadblock: opts.roadblock,
     userId: opts.userId,
+    workspaceId: opts.workspaceId,
   });
 
   if (!intake.needs_questions) return { emitted: false };

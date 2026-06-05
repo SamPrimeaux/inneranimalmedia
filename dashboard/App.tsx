@@ -1974,7 +1974,7 @@ const App: React.FC = () => {
           ? String(gitData.repo)
           : '';
       let branchName = gitData.branch ? String(gitData.branch) : '';
-      if (repo) {
+      if (!branchName && repo) {
         try {
           const stored = localStorage.getItem(`iam_branch_${repo}`);
           if (stored?.trim()) branchName = stored.trim();
@@ -2019,12 +2019,16 @@ const App: React.FC = () => {
 
   const fetchGitAndProblems = useCallback(async () => {
     const cred = { credentials: 'same-origin' as const };
+    const ws = authWorkspaceId?.trim();
+    const gitStatusUrl = ws
+      ? `/api/agent/git/status?workspace_id=${encodeURIComponent(ws)}`
+      : '/api/agent/git/status';
     const cached = readIamGitStatusCache();
     if (isIamGitStatusCacheFresh(cached)) {
       applyGitStatusPayload(cached);
     } else {
       try {
-        const gitRes = await fetch('/api/agent/git/status', cred);
+        const gitRes = await fetch(gitStatusUrl, cred);
         const gitData = await gitRes.json().catch(() => ({}));
         if (gitRes.ok) {
           writeIamGitStatusCache({
@@ -2048,7 +2052,7 @@ const App: React.FC = () => {
     } catch {
       /* ignore */
     }
-  }, [applyGitStatusPayload, applyProblemsPayload]);
+  }, [applyGitStatusPayload, applyProblemsPayload, authWorkspaceId]);
 
   const fetchTunnelStatusOnly = useCallback(async () => {
     const cred = { credentials: 'same-origin' as const };
@@ -2116,19 +2120,23 @@ const App: React.FC = () => {
     setErrorCount(0);
     setWarningCount(0);
     if (sessionUserId) void fetchGitAndProblems();
-  }, [sessionUserId, fetchGitAndProblems]);
+  }, [sessionUserId, authWorkspaceId, fetchGitAndProblems]);
 
   const fetchLiveStatus = useCallback(async () => {
     const cred = { credentials: 'same-origin' as const };
 
     void fetchHealth();
 
+    const ws = authWorkspaceId?.trim();
+    const gitStatusUrl = ws
+      ? `/api/agent/git/status?workspace_id=${encodeURIComponent(ws)}`
+      : '/api/agent/git/status';
     const cachedGit = readIamGitStatusCache();
     if (isIamGitStatusCacheFresh(cachedGit)) {
       applyGitStatusPayload(cachedGit);
     } else {
       try {
-        const gitRes = await fetch('/api/agent/git/status', cred);
+        const gitRes = await fetch(gitStatusUrl, cred);
         const gitData = await gitRes.json().catch(() => ({}));
         if (gitRes.ok) {
           writeIamGitStatusCache({
@@ -2168,7 +2176,7 @@ const App: React.FC = () => {
     }
 
     void fetchTelemetryPoll();
-  }, [fetchHealth, fetchTunnelStatusOnly, fetchTerminalConfigOnly, fetchDeploymentsPoll, fetchTelemetryPoll, applyGitStatusPayload, applyProblemsPayload]);
+  }, [fetchHealth, fetchTunnelStatusOnly, fetchTerminalConfigOnly, fetchDeploymentsPoll, fetchTelemetryPoll, applyGitStatusPayload, applyProblemsPayload, authWorkspaceId]);
 
   useEffect(() => {
     // Polling (ms): health 5m, notifications 2m, git+problems 3m, tunnel 5m, terminal config 10m,

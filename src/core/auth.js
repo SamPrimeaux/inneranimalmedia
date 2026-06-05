@@ -28,7 +28,7 @@ export const DEFAULT_AGENT_SESSION_TTL_SECONDS = 900;
 /** Canonical browser routes (never send users to legacy `/login` or `/signup`). */
 export const AUTH_LOGIN_PATH = '/auth/login';
 export const AUTH_SIGNUP_PATH = '/auth/signup';
-export const DASHBOARD_AFTER_LOGIN_PATH = '/dashboard/overview';
+export const DASHBOARD_AFTER_LOGIN_PATH = '/dashboard/agent';
 
 /**
  * Same-origin relative paths only. Rewrites deprecated `/login` and `/signup`.

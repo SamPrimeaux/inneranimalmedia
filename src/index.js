@@ -477,7 +477,7 @@ export default {
         const u = new URL(request.url);
         u.pathname = '/api/oauth/cloudflare/start';
         if (!u.searchParams.get('return_to')) {
-          u.searchParams.set('return_to', '/dashboard/overview');
+          u.searchParams.set('return_to', '/dashboard/agent');
         }
         return handleOAuthApi(new Request(u.toString(), request), env, ctx);
       }
@@ -888,7 +888,7 @@ export default {
         // C. Production (R2 Fallback)
         if (env.ASSETS) {
           if (pathLower === '/dashboard' || pathLower === '/dashboard/') {
-            return withSessionHealing(Response.redirect(`${url.origin}/dashboard/overview`, 302));
+            return withSessionHealing(Response.redirect(`${url.origin}/dashboard/agent`, 302));
           }
 
           const assetKey = path.slice(1) || 'index.html';

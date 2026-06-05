@@ -1,65 +1,102 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  Github, 
-  GitBranch, 
-  GitCommit, 
-  AlertCircle, 
-  CheckCircle2, 
-  Clock, 
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  Github,
+  GitBranch,
+  GitCommit,
+  AlertCircle,
+  CheckCircle2,
+  Clock,
   RefreshCcw,
   ArrowRight,
-  Sparkles
+  Sparkles,
 } from 'lucide-react';
 import { SetiFileIcon } from '../src/components/SetiFileIcon';
+import { useWorkspace } from '../src/context/WorkspaceContext';
 
 interface GitStatus {
-  branch: string;
-  staged: Array<{ path: string; status: string }>;
-  unstaged: Array<{ path: string; status: string }>;
-  commits: Array<{ hash: string; author: string; date: string; msg: string }>;
-  root: string;
+  status: 'live' | 'cached' | 'no_repo' | 'no_workspace';
+  branch: string | null;
+  repo_full_name: string | null;
+  workspace_id: string | null;
+  staged?: Array<{ path: string; status: string }>;
+  unstaged?: Array<{ path: string; status: string }>;
+  commits?: Array<{ hash: string; author: string; date: string; msg: string }>;
 }
 
-/**
- * Phase 7: Source Control Panel
- * Provides a high-fidelity view of current git state with monospace standardization.
- */
+function looksLikeShellError(value: string | null | undefined): boolean {
+  const s = String(value || '').trim();
+  if (!s) return false;
+  return /fatal:|cannot change to|no such file or directory/i.test(s);
+}
+
 export const SourcePanel: React.FC = () => {
+  const { workspaceId } = useWorkspace();
   const [data, setData] = useState<GitStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchStatus = async () => {
+  const fetchStatus = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/internal/git-status');
-      if (!res.ok) throw new Error('Failed to fetch git status');
-      const json = await res.json();
-      setData(json);
+      const ws = workspaceId?.trim();
+      const url = ws
+        ? `/api/agent/git/status?workspace_id=${encodeURIComponent(ws)}`
+        : '/api/agent/git/status';
+      const res = await fetch(url, { credentials: 'same-origin' });
+      const json = (await res.json().catch(() => ({}))) as Partial<GitStatus> & { error?: string };
+      if (!res.ok) {
+        throw new Error(json.error || 'Failed to fetch git status');
+      }
+
+      const status =
+        json.status === 'live' ||
+        json.status === 'cached' ||
+        json.status === 'no_repo' ||
+        json.status === 'no_workspace'
+          ? json.status
+          : json.branch == null && !json.repo_full_name
+            ? 'no_workspace'
+            : 'cached';
+
+      const branch = looksLikeShellError(json.branch) ? null : (json.branch ?? null);
+
+      setData({
+        status,
+        branch,
+        repo_full_name: json.repo_full_name ?? null,
+        workspace_id: json.workspace_id ?? ws ?? null,
+        staged: Array.isArray(json.staged) ? json.staged : [],
+        unstaged: Array.isArray(json.unstaged) ? json.unstaged : [],
+        commits: Array.isArray(json.commits) ? json.commits : [],
+      });
       setError(null);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch git status');
     } finally {
       setLoading(false);
     }
-  };
+  }, [workspaceId]);
 
   useEffect(() => {
-    fetchStatus();
-    // Refresh every 30s
-    const timer = setInterval(fetchStatus, 30000);
-    return () => clearInterval(timer);
-  }, []);
+    void fetchStatus();
+    const timer = window.setInterval(() => void fetchStatus(), 30000);
+    return () => window.clearInterval(timer);
+  }, [fetchStatus]);
 
-  const mono = "'Menlo', 'Monaco', 'Courier New', monospace";
+  useEffect(() => {
+    const onWs = () => void fetchStatus();
+    window.addEventListener('iam_workspace_id', onWs);
+    return () => window.removeEventListener('iam_workspace_id', onWs);
+  }, [fetchStatus]);
 
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center h-full p-8 text-center text-[var(--text-muted)]">
         <AlertCircle size={48} className="mb-4 opacity-20" />
         <p className="text-sm mb-4">{error}</p>
-        <button 
-          onClick={fetchStatus}
+        <button
+          type="button"
+          onClick={() => void fetchStatus()}
           className="px-4 py-2 bg-[var(--bg-panel)] border border-[var(--border-subtle)] rounded-lg hover:bg-[var(--bg-app)] transition-colors text-xs"
         >
           Try Again
@@ -68,104 +105,135 @@ export const SourcePanel: React.FC = () => {
     );
   }
 
+  const branchLabel =
+    data?.status === 'no_repo'
+      ? 'No repo linked'
+      : data?.status === 'no_workspace'
+        ? 'No workspace'
+        : data?.branch || 'HEAD';
+
+  const staged = data?.staged ?? [];
+  const unstaged = data?.unstaged ?? [];
+  const commits = data?.commits ?? [];
+
   return (
     <div className="flex flex-col h-full bg-[var(--bg-app)] text-[var(--text-main)] overflow-hidden">
-      {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-[var(--border-subtle)] bg-[var(--bg-panel)]/50">
         <div className="flex items-center gap-2">
           <Github size={18} className="text-[var(--text-muted)]" />
           <h2 className="text-xs font-bold uppercase tracking-widest text-[var(--text-muted)]">Source Control</h2>
         </div>
-        <div className="flex items-center gap-2">
-           <button 
-             onClick={fetchStatus}
-             disabled={loading}
-             className="p-1.5 rounded-md hover:bg-[var(--bg-hover)] text-[var(--text-muted)] transition-colors"
-           >
-             <RefreshCcw size={14} className={loading ? 'animate-spin' : ''} />
-           </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => void fetchStatus()}
+          disabled={loading}
+          className="p-1.5 rounded-md hover:bg-[var(--bg-hover)] text-[var(--text-muted)] transition-colors"
+          title="Refresh git status"
+        >
+          <RefreshCcw size={14} className={loading ? 'animate-spin' : ''} />
+        </button>
       </div>
 
       <div className="flex-1 overflow-y-auto no-scrollbar p-0">
-        {/* Branch Selector (Display Only) */}
         <div className="px-4 py-3 flex items-center justify-between border-b border-[var(--border-subtle)]/30 group cursor-pointer hover:bg-[var(--bg-panel)]/30">
-          <div className="flex items-center gap-3">
-             <div className="p-1.5 rounded bg-[var(--solar-cyan)]/10 text-[var(--solar-cyan)]">
-               <GitBranch size={14} />
-             </div>
-             <div>
-                <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-tighter">Current Branch</div>
-                <div className="text-[13px] font-bold" style={{ fontFamily: mono }}>{data?.branch || 'HEAD'}</div>
-             </div>
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="p-1.5 rounded bg-[var(--solar-cyan)]/10 text-[var(--solar-cyan)] shrink-0">
+              <GitBranch size={14} />
+            </div>
+            <div className="min-w-0">
+              <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-tighter">Current Branch</div>
+              <div className="text-[13px] font-bold truncate" style={{ fontFamily: 'var(--font-mono)' }}>
+                {branchLabel}
+              </div>
+            </div>
           </div>
-          <ArrowRight size={14} className="text-[var(--text-muted)] opacity-0 group-hover:opacity-100 transition-all" />
+          {data?.repo_full_name ? (
+            <span className="text-[10px] text-[var(--text-muted)] opacity-50 truncate max-w-[40%] ml-2">
+              {data.repo_full_name}
+            </span>
+          ) : null}
+          <ArrowRight size={14} className="text-[var(--text-muted)] opacity-0 group-hover:opacity-100 transition-all shrink-0" />
         </div>
 
-        {/* Changes Section */}
+        {data?.status === 'no_repo' ? (
+          <div className="px-4 py-6 text-center text-[11px] text-[var(--text-muted)] border-b border-[var(--border-subtle)]/30">
+            Link a GitHub repo on this workspace in Settings to enable live branch tracking and history.
+          </div>
+        ) : null}
+
         <div className="p-4">
-           <div className="flex items-center gap-2 mb-3">
-              <Sparkles size={12} className="text-[var(--solar-cyan)]" />
-              <h3 className="text-[11px] font-bold text-[var(--text-muted)] uppercase">Changes</h3>
-              <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-panel)] text-[var(--text-muted)]" style={{ fontFamily: mono }}>
-                {(data?.staged.length || 0) + (data?.unstaged.length || 0)}
-              </span>
-           </div>
-
-           <div className="space-y-1">
-              {data?.staged.map((f, i) => (
-                <FileItem key={`staged-${i}`} path={f.path} status={f.status} isStaged />
-              ))}
-              {data?.unstaged.map((f, i) => (
-                <FileItem key={`unstaged-${i}`} path={f.path} status={f.status} />
-              ))}
-              {!data?.staged.length && !data?.unstaged.length && (
-                <div className="py-8 text-center border-2 border-dashed border-[var(--border-subtle)]/30 rounded-xl">
-                   <CheckCircle2 size={24} className="mx-auto mb-2 text-[var(--solar-green)] opacity-20" />
-                   <p className="text-[11px] text-[var(--text-muted)]">Working directory clean</p>
-                </div>
-              )}
-           </div>
+          <div className="flex items-center gap-2 mb-3">
+            <Sparkles size={12} className="text-[var(--solar-cyan)]" />
+            <h3 className="text-[11px] font-bold text-[var(--text-muted)] uppercase">Changes</h3>
+            <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-panel)] text-[var(--text-muted)]">
+              {staged.length + unstaged.length}
+            </span>
+          </div>
+          <div className="space-y-1">
+            {staged.map((f, i) => (
+              <FileItem key={`staged-${i}`} path={f.path} status={f.status} isStaged />
+            ))}
+            {unstaged.map((f, i) => (
+              <FileItem key={`unstaged-${i}`} path={f.path} status={f.status} />
+            ))}
+            {staged.length === 0 && unstaged.length === 0 && (
+              <div className="py-8 text-center border-2 border-dashed border-[var(--border-subtle)]/30 rounded-xl">
+                <CheckCircle2 size={24} className="mx-auto mb-2 text-[var(--solar-green)] opacity-20" />
+                <p className="text-[11px] text-[var(--text-muted)]">
+                  {data?.status === 'no_repo' ? 'No local working tree — GitHub API only' : 'Working directory clean'}
+                </p>
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* History Section */}
         <div className="p-4 pt-0">
-           <div className="flex items-center gap-2 mb-3">
-              <Clock size={12} className="text-[var(--text-muted)]" />
-              <h3 className="text-[11px] font-bold text-[var(--text-muted)] uppercase">Recent History</h3>
-           </div>
-           
-           <div className="bg-[var(--bg-panel)]/30 rounded-xl border border-[var(--border-subtle)]/30 overflow-hidden divide-y divide-[var(--border-subtle)]/20">
-              {data?.commits.map((c, i) => (
-                <div key={i} className="p-3 hover:bg-[var(--bg-panel)]/50 transition-colors cursor-pointer group">
-                   <div className="flex items-center justify-between mb-1">
-                      <span className="text-[10px] text-[var(--solar-cyan)] font-mono" style={{ fontFamily: mono }}>{c.hash}</span>
-                      <span className="text-[10px] text-[var(--text-muted)] opacity-60">{c.date}</span>
-                   </div>
-                   <div className="text-[12px] font-medium text-[var(--text-main)] line-clamp-1 group-hover:text-[var(--solar-cyan)] transition-colors">{c.msg}</div>
-                   <div className="text-[10px] text-[var(--text-muted)] mt-1 flex items-center gap-1">
-                      <div className="w-1.5 h-1.5 rounded-full bg-[var(--text-muted)] opacity-30" />
-                      {c.author}
-                   </div>
+          <div className="flex items-center gap-2 mb-3">
+            <Clock size={12} className="text-[var(--text-muted)]" />
+            <h3 className="text-[11px] font-bold text-[var(--text-muted)] uppercase">Recent History</h3>
+          </div>
+          <div className="bg-[var(--bg-panel)]/30 rounded-xl border border-[var(--border-subtle)]/30 overflow-hidden divide-y divide-[var(--border-subtle)]/20">
+            {commits.length === 0 && (
+              <div className="p-4 text-center text-[11px] text-[var(--text-muted)] opacity-50">
+                {data?.status === 'no_repo' ? 'Link a GitHub repo to see history' : 'No commits found'}
+              </div>
+            )}
+            {commits.map((c, i) => (
+              <div key={i} className="p-3 hover:bg-[var(--bg-panel)]/50 transition-colors cursor-pointer group">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[10px] text-[var(--solar-cyan)]" style={{ fontFamily: 'var(--font-mono)' }}>
+                    {c.hash}
+                  </span>
+                  <span className="text-[10px] text-[var(--text-muted)] opacity-60">{c.date}</span>
                 </div>
-              ))}
-           </div>
+                <div className="text-[12px] font-medium text-[var(--text-main)] line-clamp-1 group-hover:text-[var(--solar-cyan)] transition-colors">
+                  {c.msg}
+                </div>
+                <div className="text-[10px] text-[var(--text-muted)] mt-1 flex items-center gap-1">
+                  <div className="w-1.5 h-1.5 rounded-full bg-[var(--text-muted)] opacity-30" />
+                  {c.author}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Footer / Action */}
-      <div className="p-4 border-top border-[var(--border-subtle)] bg-[var(--bg-panel)]/50">
-         <div className="flex flex-col gap-2">
-            <input 
-              type="text"
-              placeholder="Post-reversion commit message..."
-              className="w-full bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded-lg px-3 py-2 text-xs focus:ring-1 focus:ring-[var(--solar-cyan)] outline-none"
-            />
-            <button className="w-full py-2 bg-[var(--solar-cyan)]/10 hover:bg-[var(--solar-cyan)]/20 text-[var(--solar-cyan)] border border-[var(--solar-cyan)]/30 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2">
-              <GitCommit size={14} />
-              Commit Changes
-            </button>
-         </div>
+      <div className="p-4 border-t border-[var(--border-subtle)] bg-[var(--bg-panel)]/50">
+        <div className="flex flex-col gap-2">
+          <input
+            type="text"
+            placeholder="Post-reversion commit message..."
+            className="w-full bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded-lg px-3 py-2 text-xs focus:ring-1 focus:ring-[var(--solar-cyan)] outline-none"
+          />
+          <button
+            type="button"
+            className="w-full py-2 bg-[var(--solar-cyan)]/10 hover:bg-[var(--solar-cyan)]/20 text-[var(--solar-cyan)] border border-[var(--solar-cyan)]/30 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2"
+          >
+            <GitCommit size={14} />
+            Commit Changes
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -175,10 +243,9 @@ const FileItem: React.FC<{ path: string; status: string; isStaged?: boolean }> =
   const parts = path.split('/');
   const name = parts.pop();
   const dir = parts.join('/');
-  const mono = "'Menlo', 'Monaco', 'Courier New', monospace";
 
   const getStatusColor = () => {
-    if (status.includes('M')) return 'text-[#dab98f]'; // Modified (Solarized base1)
+    if (status.includes('M')) return 'text-[#dab98f]';
     if (status.includes('A') || status.includes('?')) return 'text-[var(--solar-green)]';
     if (status.includes('D')) return 'text-[var(--solar-red)]';
     return 'text-[var(--text-muted)]';
@@ -186,22 +253,37 @@ const FileItem: React.FC<{ path: string; status: string; isStaged?: boolean }> =
 
   return (
     <div className="flex items-center gap-3 p-2 hover:bg-[var(--bg-panel)]/50 rounded-lg transition-colors cursor-pointer group">
-       <div className={`text-[10px] w-4 text-center font-bold ${getStatusColor()}`} style={{ fontFamily: mono }}>
-         {status.includes('?') ? 'U' : status[0]}
-       </div>
-       <div className="p-1 px-1.5 rounded bg-[var(--bg-app)] text-[var(--text-muted)] border border-[var(--border-subtle)] group-hover:border-[var(--solar-cyan)]/30 transition-colors">
-          <SetiFileIcon filename={name} size={13} />
-       </div>
-       <div className="min-w-0">
-          <div className="text-[12px] font-medium text-[var(--text-main)] truncate" style={{ fontFamily: mono }}>{name}</div>
-          {dir && <div className="text-[9px] text-[var(--text-muted)] truncate opacity-50">{dir}</div>}
-       </div>
-       {isStaged && (
-         <div className="ml-auto flex items-center gap-1 text-[9px] text-[var(--solar-cyan)] opacity-60">
-            <Sparkles size={8} />
-            STAGED
-         </div>
-       )}
+      <div
+        className={`text-[10px] w-4 text-center font-bold ${getStatusColor()}`}
+        style={{ fontFamily: 'var(--font-mono)' }}
+      >
+        {status.includes('?') ? 'U' : status[0]}
+      </div>
+      <div className="p-1 px-1.5 rounded bg-[var(--bg-app)] text-[var(--text-muted)] border border-[var(--border-subtle)] group-hover:border-[var(--solar-cyan)]/30 transition-colors">
+        <SetiFileIcon filename={name} size={13} />
+      </div>
+      <div className="min-w-0">
+        <div
+          className="text-[12px] font-medium text-[var(--text-main)] truncate"
+          style={{ fontFamily: 'var(--font-mono)' }}
+        >
+          {name}
+        </div>
+        {dir ? (
+          <div
+            className="text-[9px] text-[var(--text-muted)] truncate opacity-50"
+            style={{ fontFamily: 'var(--font-mono)' }}
+          >
+            {dir}
+          </div>
+        ) : null}
+      </div>
+      {isStaged ? (
+        <div className="ml-auto flex items-center gap-1 text-[9px] text-[var(--solar-cyan)] opacity-60">
+          <Sparkles size={8} />
+          STAGED
+        </div>
+      ) : null}
     </div>
   );
 };

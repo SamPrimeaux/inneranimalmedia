@@ -522,7 +522,7 @@ async function handleEmailVerification(request, url, env) {
   } catch (e) {
     console.warn('[verify-email]', e?.message);
   }
-  return Response.redirect(`${origin}/dashboard/overview`, 302);
+  return Response.redirect(`${origin}/dashboard/agent`, 302);
 }
 
 const DISPOSABLE_SIGNUP_DOMAINS = new Set([
@@ -704,7 +704,7 @@ async function handleEmailSignup(request, url, env) {
     provider: 'email_signup',
   });
 
-  const next = '/dashboard/overview';
+  const next = '/dashboard/agent';
   if (wantsJson) {
     const res = jsonResponse({ ok: true, redirect: next });
     res.headers.append(

@@ -158,7 +158,7 @@ async function kvDeleteIntegrationOAuthState(env, provider, state) {
   await env.SESSION_CACHE.delete(integrationOAuthKvKey(provider, state));
 }
 
-const DEFAULT_OAUTH_RETURN = '/dashboard/overview';
+const DEFAULT_OAUTH_RETURN = '/dashboard/agent';
 
 function safeReturnTo(url) {
   const raw = String(url || '').trim();
@@ -182,7 +182,7 @@ async function loginGoogleOAuthStart(_request, url, env) {
   const safeReturn =
     returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') && !returnTo.includes(':')
       ? returnTo
-      : '/dashboard/overview';
+      : '/dashboard/agent';
   const state = crypto.randomUUID();
   const redirectUri = googleLoginOAuthRedirectUri(url);
   const scope = connectDrive
@@ -219,7 +219,7 @@ async function loginGitHubOAuthStart(_request, url, env) {
   const safeReturn =
     returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') && !returnTo.includes(':')
       ? returnTo
-      : '/dashboard/overview';
+      : '/dashboard/agent';
   const state = crypto.randomUUID();
   const redirectUri = githubLoginOAuthRedirectUri(url);
   const statePayload = JSON.stringify({

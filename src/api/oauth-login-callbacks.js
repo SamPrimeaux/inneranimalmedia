@@ -54,7 +54,7 @@ export function appendBrowserLoginSessionCookies(headers, sessionId) {
   );
 }
 
-const DASHBOARD_LOGIN_FALLBACK = '/dashboard/overview';
+const DASHBOARD_LOGIN_FALLBACK = '/dashboard/agent';
 
 /**
  * Path (pathname + search) for same-origin post-OAuth app login redirect.
@@ -85,17 +85,17 @@ function safeDashboardLoginRedirectPath(originBase, returnTo) {
 
 /** Match worker.js oauthPostLoginGlobeRedirectUrl */
 export function oauthPostLoginGlobeRedirectUrl(originBase, returnToFullUrl) {
-  let path = '/dashboard/overview';
+  let path = '/dashboard/agent';
   try {
     const u = new URL(returnToFullUrl);
     path = u.pathname + (u.search || '');
   } catch (_) {
     /* keep default */
   }
-  if (!path.startsWith('/') || path.startsWith('//')) path = '/dashboard/overview';
-  if (path.startsWith('/dashboard/settings/integrations')) path = '/dashboard/overview';
+  if (!path.startsWith('/') || path.startsWith('//')) path = '/dashboard/agent';
+  if (path.startsWith('/dashboard/settings/integrations')) path = '/dashboard/agent';
   if (!isMcpOAuthLoginChallengeResumePath(path) && !path.startsWith('/dashboard')) {
-    path = '/dashboard/overview';
+    path = '/dashboard/agent';
   }
   return `${originBase}/auth/login?globe_exit=1&next=${encodeURIComponent(path)}`;
 }
@@ -151,7 +151,7 @@ export async function finalizeInboundOAuth(env, request, input) {
       ? String(input.supabaseUserId).trim()
       : null;
   const source = String(input?.source || `${provider}_oauth`).trim();
-  const pageContext = String(input?.pageContext || '/dashboard/overview').trim();
+  const pageContext = String(input?.pageContext || '/dashboard/agent').trim();
 
   if (!env?.DB || !oauthEmail || !provider || !providerUid) {
     return { ok: false, error: 'provision_failed' };
@@ -315,7 +315,7 @@ export async function handleGitHubLoginOAuthCallback(request, url, env, options 
   }
 
   let redirectUri = cachedRedirect;
-  let returnTo = `${oauthOrigin(url)}/dashboard/overview`;
+  let returnTo = `${oauthOrigin(url)}/dashboard/agent`;
   let connectGitHub = false;
   try {
     const parsed = JSON.parse(cachedRedirect);
@@ -484,7 +484,7 @@ export async function handleGoogleLoginOAuthCallback(request, url, env, options 
   }
 
   let redirectUri = cachedRedirect;
-  let returnTo = `${oauthOrigin(url)}/dashboard/overview`;
+  let returnTo = `${oauthOrigin(url)}/dashboard/agent`;
   let connectDrive = false;
   try {
     const parsed = JSON.parse(cachedRedirect);
@@ -495,7 +495,7 @@ export async function handleGoogleLoginOAuthCallback(request, url, env, options 
     if (parsed.returnTo && parsed.returnTo.startsWith('/')) returnTo = `${oauthOrigin(url)}${parsed.returnTo}`;
     if (parsed.connectDrive) connectDrive = true;
   } catch (_) {
-    returnTo = `${oauthOrigin(url)}/dashboard/overview`;
+    returnTo = `${oauthOrigin(url)}/dashboard/agent`;
   }
 
   const clientSecret = googleClientSecret(env);

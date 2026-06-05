@@ -204,7 +204,11 @@ export const StatusBar: React.FC<StatusBarProps> = ({
     setBranchLoading(true);
     setBranchError(null);
     try {
-      const res = await fetch('/api/agent/git/branches', { credentials: 'same-origin' });
+      const ws = activeWorkspaceId?.trim();
+      const url = ws
+        ? `/api/agent/git/branches?workspace_id=${encodeURIComponent(ws)}`
+        : '/api/agent/git/branches';
+      const res = await fetch(url, { credentials: 'same-origin' });
       const json = (await res.json()) as {
         current?: string;
         repo?: string;
@@ -223,7 +227,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
     } finally {
       setBranchLoading(false);
     }
-  }, []);
+  }, [activeWorkspaceId]);
 
   useLayoutEffect(() => {
     if (!branchMenuOpen) return;

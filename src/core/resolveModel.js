@@ -174,7 +174,7 @@ export function normalizeCanonicalTaskType(task_type) {
   if (CANONICAL_TASK_TYPES.includes(tt)) return tt;
   if (tt === 'subagent_dispatch') return 'multitask';
   if (tt === 'terminal_execution') return 'agent';
-  if (tt === 'plan' || tt === 'research') return 'plan';
+  if (tt === 'plan' || tt === 'research' || tt === 'plan_pipeline') return 'plan';
   if (tt === 'debug' || tt === 'debug_live_page' || tt === 'browser_ui_repair') return 'debug';
   if (tt === 'embedding') return 'ask';
   if (
@@ -549,19 +549,27 @@ async function queryGlobalPolicyArm(db, { task_type, mode, workspace_id, require
  * @param {boolean}  [opts.require_json_mode=false]
  * @returns {Promise<ResolvedModel>}
  */
-export async function resolveModelForTask(env, {
-  task_type,
-  mode            = 'auto',
-  requested_model_key = null,
-  routing_arm_id  = null,
-  workspace_id    = null,
-  tenant_id       = null,
-  require_tools   = false,
-  require_vision  = false,
-  require_json_mode = false,
-} = {}) {
+export async function resolveModelForTask(env, opts = {}) {
+  const {
+    task_type: taskTypeSnake = null,
+    taskType: taskTypeCamel = null,
+    mode            = 'auto',
+    requested_model_key = null,
+    routing_arm_id  = null,
+    workspace_id    = null,
+    tenant_id       = null,
+    require_tools   = false,
+    require_vision  = false,
+    require_json_mode = false,
+  } = opts;
+  const task_type =
+    (taskTypeSnake != null && String(taskTypeSnake).trim() !== '')
+      ? String(taskTypeSnake).trim()
+      : (taskTypeCamel != null && String(taskTypeCamel).trim() !== '')
+        ? String(taskTypeCamel).trim()
+        : 'agent';
+
   if (!env?.DB) throw new ResolutionError('NO_DB', 'env.DB unavailable');
-  if (!task_type) throw new ResolutionError('MISSING_TASK_TYPE', 'task_type is required');
 
   const normalizedTaskType = normalizeCanonicalTaskType(task_type);
   const routingMode = resolveRoutingMode(normalizedTaskType, mode);

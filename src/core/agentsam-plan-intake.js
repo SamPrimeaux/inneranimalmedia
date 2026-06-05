@@ -164,20 +164,19 @@ export async function generatePlanIntakeQuestions(env, opts) {
     .filter(Boolean)
     .join('\n\n');
 
-  const model = await resolveModelForTask(env, {
-    taskType: 'plan_pipeline',
-    capability: 'planning',
-    userId: opts?.userId ?? null,
+  const resolved = await resolveModelForTask(env, {
+    task_type: 'plan',
+    mode: 'agent',
+    workspace_id: opts?.workspaceId != null ? String(opts.workspaceId).trim() : null,
   });
+  if (!resolved?.model_key) throw new Error('plan_intake: resolveModelForTask returned no model');
 
   const result = await dispatchComplete(env, {
-    model,
-    messages: [
-      { role: 'system', content: INTAKE_QUESTIONS_SYSTEM },
-      { role: 'user', content: userBlock },
-    ],
-    maxTokens: 1200,
-    temperature: 0.2,
+    modelKey: resolved.model_key,
+    taskType: 'plan',
+    systemPrompt: INTAKE_QUESTIONS_SYSTEM,
+    messages: [{ role: 'user', content: userBlock }],
+    options: { reasoningEffort: 'low', verbosity: 'low' },
   });
 
   let parsed;

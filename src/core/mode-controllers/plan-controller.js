@@ -243,6 +243,7 @@ export async function executePlanTurn(env, ctx, input) {
         explore,
         phase: 'pre_plan',
         userId,
+        workspaceId,
       });
 
       if (intake.needs_questions) {

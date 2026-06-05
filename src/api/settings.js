@@ -189,8 +189,8 @@ async function resolveRequestWorkspaceId(env, authUser, url) {
     )
       .bind(uid)
       .first();
-    if (row?.default_workspace_id != null && String(row.default_workspace_id).trim() !== '') {
-      return String(row.default_workspace_id).trim();
+    if (row?.active_workspace_id != null && String(row.active_workspace_id).trim() !== '') {
+      return String(row.active_workspace_id).trim();
     }
   } catch (_) {
     /* ignore */
@@ -1324,7 +1324,15 @@ export async function handleSettingsRequest(request, env, ctx) {
           if (r.theme != null && r.theme.trim()) workspaceThemes[r.workspace_id] = r.theme.trim();
         }
         
-        const current = us?.default_workspace_id || env.DEFAULT_WORKSPACE_ID || null;
+        const settingsCurrent =
+          us?.default_workspace_id != null && String(us.default_workspace_id).trim() !== ''
+            ? String(us.default_workspace_id).trim()
+            : null;
+        const authCurrent =
+          authUser?.active_workspace_id != null && String(authUser.active_workspace_id).trim() !== ''
+            ? String(authUser.active_workspace_id).trim()
+            : null;
+        const current = settingsCurrent || authCurrent || env.DEFAULT_WORKSPACE_ID || null;
         return jsonResponse({ data: wsRows.length > 0 ? wsRows : CORE_WORKSPACES_DATA, current, workspaceThemes, workspaces });
       } catch (e) {
         const msg = e?.message != null ? String(e.message) : String(e);
@@ -1404,13 +1412,32 @@ export async function handleSettingsRequest(request, env, ctx) {
       await env.DB.prepare(`UPDATE workspaces SET updated_at = datetime('now') WHERE id = ?`).bind(id).run();
 
       try {
-        await env.DB.prepare(
+        const upd = await env.DB.prepare(
           `UPDATE user_settings SET default_workspace_id = ?, updated_at = unixepoch() WHERE user_id = ?`,
         )
           .bind(id, sessionUserId)
           .run();
+        if (!upd?.meta?.changes) {
+          await env.DB.prepare(
+            `INSERT INTO user_settings (id, user_id, default_workspace_id, theme, updated_at)
+             VALUES (?, ?, ?, 'meaux-storm-gray', unixepoch())`,
+          )
+            .bind(`us_${sessionUserId}`, sessionUserId, id)
+            .run()
+            .catch(() => {});
+        }
       } catch (_) {
         /* optional legacy row */
+      }
+
+      try {
+        await env.DB.prepare(
+          `UPDATE auth_users SET active_workspace_id = ?, updated_at = datetime('now') WHERE id = ?`,
+        )
+          .bind(id, sessionUserId)
+          .run();
+      } catch (_) {
+        /* ignore */
       }
 
       return jsonResponse({
