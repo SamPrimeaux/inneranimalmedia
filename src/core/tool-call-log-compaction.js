@@ -212,6 +212,20 @@ export async function compactToolCallLogBeforePurge(env, opts = {}) {
     .first()
     .catch(() => null);
 
+  /** Distinct agentsam_agent_run.id values on rows about to be purged (migration 164). */
+  let agentsamAgentRunIds = [];
+  if (srcCols.has('agent_run_id')) {
+    const { results: runRows = [] } = await env.DB.prepare(
+      `${batchCte}
+       SELECT DISTINCT agent_run_id FROM purge_batch
+       WHERE agent_run_id IS NOT NULL AND trim(agent_run_id) != ''
+       LIMIT 50`,
+    )
+      .all()
+      .catch(() => ({ results: [] }));
+    agentsamAgentRunIds = runRows.map((r) => String(r.agent_run_id));
+  }
+
   try {
     scheduleCompactionEvent(env, null, {
       tenantId,
@@ -230,7 +244,8 @@ export async function compactToolCallLogBeforePurge(env, opts = {}) {
         source_table: 'agentsam_tool_call_log',
         source_row_count: rowsAboutToDelete,
         cost_before_usd: Number(batchMeta?.total_cost) || 0,
-        agent_id: 'retention_cron',
+        agentsam_agent_run_ids: agentsamAgentRunIds,
+        trigger: 'one_am_compaction_pipeline',
         status: 'completed',
         compacted_at_epoch: Math.floor(Date.now() / 1000),
       },

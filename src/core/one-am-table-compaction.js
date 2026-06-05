@@ -200,7 +200,7 @@ export async function purgeErrorLog(env) {
         source_table: 'agentsam_error_log',
         source_row_count: totalToDelete,
         summary_json: { by_type },
-        agent_id: 'retention_cron',
+        trigger: 'one_am_compaction_pipeline',
         status: 'completed',
       },
     });
@@ -267,7 +267,7 @@ export async function purgeHookExecution(env) {
         source_table: 'agentsam_hook_execution',
         source_row_count: totalToDelete,
         summary_json: { by_hook: byHook },
-        agent_id: 'retention_cron',
+        trigger: 'one_am_compaction_pipeline',
         status: 'completed',
       },
     });

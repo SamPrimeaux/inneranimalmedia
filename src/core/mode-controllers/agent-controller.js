@@ -285,6 +285,7 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
         workspaceId,
         tenantId,
         conversationId: sessionId,
+        agentRunId: chatAgentRunId,
         activeTools: activeToolNames,
       });
       chatMessages = compacted.messages;

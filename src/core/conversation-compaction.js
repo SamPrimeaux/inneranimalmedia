@@ -173,6 +173,7 @@ async function insertConversationContextDigest(env, fields) {
 }
 
 async function scheduleCompactionSideEffects(env, ctx, fields) {
+  const agentRunId = fields.agentRunId != null ? String(fields.agentRunId).trim() : '';
   scheduleCompactionEvent(env, ctx, {
     tenantId: fields.tenantId,
     workspaceId: fields.workspaceId,
@@ -187,7 +188,9 @@ async function scheduleCompactionSideEffects(env, ctx, fields) {
       compaction_type: 'conversation',
       compaction_scope: 'session',
       source_kind: 'd1',
-      source_table: 'agentsam_chat_sessions',
+      source_table: agentRunId ? 'agentsam_agent_run' : 'agentsam_chat_sessions',
+      source_id: agentRunId || fields.sessionId,
+      conversation_id: fields.sessionId,
       report_artifact_url: fields.r2Key,
       status: 'completed',
     },
@@ -240,6 +243,7 @@ async function indexCompactionSummary(env, ctx, { workspaceId, conversationId, r
  *   conversationId: string,
  *   activeTools?: string[],
  *   systemPromptCacheHash?: string|null,
+ *   agentRunId?: string|null,
  * }} params
  */
 export async function compactConversationMessagesIfNeeded(env, ctx, params) {
@@ -302,6 +306,22 @@ export async function compactConversationMessagesIfNeeded(env, ctx, params) {
   });
   console.log('[compaction]', 'r2_write', { key: r2Key });
 
+  if (r2Key && env?.DB) {
+    const chatSessionUpdate = env.DB.prepare(
+      `UPDATE agentsam_chat_sessions
+       SET latest_digest_r2_key = ?,
+           digest_count = COALESCE(digest_count, 0) + 1,
+           last_compacted_at = unixepoch(),
+           updated_at = unixepoch()
+       WHERE conversation_id = ?`,
+    )
+      .bind(r2Key, conversationId)
+      .run()
+      .catch((e) => console.error('[compaction] chat_sessions update failed', e?.message ?? e));
+    if (ctx?.waitUntil) ctx.waitUntil(chatSessionUpdate);
+    else void chatSessionUpdate;
+  }
+
   const rawSize = toCompact.map((m) => m.content).join('').length;
   const reducedSize = summaryText.length;
   const tokensAfter =
@@ -334,6 +354,7 @@ export async function compactConversationMessagesIfNeeded(env, ctx, params) {
         workspaceId,
         userId,
         sessionId: conversationId,
+        agentRunId: params.agentRunId ?? null,
         tokensBefore: estimated,
         tokensAfter,
         r2Key,
