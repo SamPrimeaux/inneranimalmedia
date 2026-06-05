@@ -20,7 +20,8 @@ const EMBED_SPEC = resolveAgentsamEmbeddingSpecForDimensions(1536);
 const CHUNK_TARGET_CHARS = 1600; // ~400 tokens
 const CHUNK_OVERLAP_CHARS = 200; // ~50 tokens
 const EMBED_BATCH = 20;
-const MAX_FILES_PER_RUN = 25;
+const MAX_FILES_PER_RUN = 8;
+const STALE_RUNNING_MINUTES = 3;
 const MAX_FILE_BYTES = 250 * 1024;
 const SKIP_DIRS = new Set(['node_modules', 'dist', '.wrangler', '.git', 'build', 'coverage', '.next']);
 const ALLOWED_EXT = new Set(['.js', '.ts', '.tsx', '.jsx', '.md']);
@@ -560,6 +561,23 @@ export async function runCodeIndexJob(env, jobId, opts = {}) {
         errors.push({ file_path: filePath, error: String(e?.message || e) });
         console.warn('[code-indexer] file_error', filePath, e?.message ?? e);
       }
+
+      // Checkpoint so a killed waitUntil still leaves resume offset + heartbeat.
+      const checkpointOffset = offset + filesProcessed;
+      const checkpointChunks = priorChunks + chunksWritten;
+      await patchJob(
+        env,
+        job.id,
+        {
+          indexed_file_count: checkpointOffset,
+          chunk_count: checkpointChunks,
+          progress_percent: allFiles.length
+            ? Math.min(100, Math.round((checkpointOffset / allFiles.length) * 100))
+            : 100,
+          status: 'running',
+        },
+        cols,
+      );
     }
 
     const newOffset = offset + filesProcessed;
@@ -628,6 +646,11 @@ export async function runCodeIndexJob(env, jobId, opts = {}) {
         status: 'idle',
         triggered_by: 'resume',
         last_error: msg.slice(0, 500),
+        indexed_file_count: offset + filesProcessed,
+        chunk_count: priorChunks + chunksWritten,
+        progress_percent: allFiles.length
+          ? Math.min(100, Math.round(((offset + filesProcessed) / allFiles.length) * 100))
+          : 100,
       },
       cols,
     );
@@ -646,7 +669,7 @@ export async function runPendingCodeIndexJob(env, opts = {}) {
       `UPDATE agentsam_code_index_job
           SET status = 'idle', triggered_by = 'stale_recovery'
         WHERE status = 'running'
-          AND updated_at < datetime('now', '-10 minutes')`,
+          AND updated_at < datetime('now', '-${STALE_RUNNING_MINUTES} minutes')`,
     )
       .run()
       .catch(() => null);
