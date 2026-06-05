@@ -6,7 +6,7 @@
  * |-----------------|-----|
  * | `*/30 * * * *`  | `runThirtyMinuteJobs` — DB queue drain, overnight progress, stale terminal sweep |
  * | `0 * * * *`     | `runHourlyRoutingJobs` |
- * | `0 0 * * *`     | `runMidnightUtcJobs` — **retention purge** (`data_retention_policies`), OAuth expiry, master retention, security scan, usage rollups, archive, daily digest; snapshot + weekly rollup piggyback |
+ * | `0 0 * * *`     | `runMidnightUtcJobs` — **retention purge** (`data_retention_policies`), OAuth expiry, master retention, security scan, usage rollups, archive, daily digest; snapshot + Sunday `runWeeklyRollup` + `webhook_weekly_rollup` |
  * | `0 1 * * *`     | `scheduleOneAmMaintenance` — webhook payload purge, **worker analytics rollup** (hourly+daily, 72h event trim, 30d hourly trim), **agentsam_tool_cache TTL**, tool-call stats, execution performance, OTLP rollup |
  * | `0 6 * * *`     | `scheduleSixAmRagJobs` — RAG compact/sync/index, **memory decay** (moved from 01:00), webhook events DELETE (14d), snapshot |
  * | `0 9 * * *`     | `runFinancialCommandCron` |

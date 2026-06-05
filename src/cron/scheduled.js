@@ -7,6 +7,7 @@ import { runMidnightUtcJobs } from './jobs/midnight-utc.js';
 import { runFinancialCommandCron } from './jobs/financial-command-cron.js';
 import { sendDailyPlanEmail } from './jobs/daily-plan-email.js';
 import { runWeeklyRollup } from './jobs/weekly-rollup.js';
+import { runWebhookWeeklyRollupCron } from './jobs/webhook-weekly-rollup.js';
 import { runFirstOfMonthJobs } from './jobs/first-of-month.js';
 import { scheduleSixAmRagJobs } from './jobs/rag-six-am.js';
 import { writeDailySnapshot } from './jobs/write-daily-snapshot.js';
@@ -119,6 +120,11 @@ export async function handleScheduled(event, env, ctx) {
         ctx.waitUntil(writeDailySnapshot(env, 'cron_0010').catch(() => {}));
         if (new Date().getUTCDay() === 0) {
           ctx.waitUntil(runWeeklyRollup(env));
+          ctx.waitUntil(
+            runWebhookWeeklyRollupCron(env).catch((e) =>
+              console.warn('[cron] webhook_weekly_rollup', e?.message ?? e),
+            ),
+          );
         }
       }
       break;

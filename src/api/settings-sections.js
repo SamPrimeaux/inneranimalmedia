@@ -725,7 +725,10 @@ async function getHooksStatus(env) {
   const webhookWeekly = await safeQueryAll(
     db,
     'agentsam_webhook_weekly',
-    `SELECT week, total_events, succeeded, failed FROM agentsam_webhook_weekly ORDER BY week DESC LIMIT 8`,
+    `SELECT week_start_unix, tenant_id, workspace_id, provider, event_type,
+            total_received, total_processed, total_failed, total_cost_usd, updated_at
+     FROM agentsam_webhook_weekly
+     ORDER BY week_start_unix DESC LIMIT 8`,
     [],
     warnings,
     cache,
