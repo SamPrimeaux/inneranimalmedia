@@ -4,7 +4,7 @@
  * Fully theme-variable-driven. No hardcoded colors.
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import {
   Mic, MicOff, Camera, CameraOff, MonitorUp, ScreenShareOff,
   PhoneOff, MessageSquare, Users, Sparkles, Copy, Send,
