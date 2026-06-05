@@ -669,7 +669,12 @@ async function handleProviderSync(env, authUser, provider) {
         const counts = await getMcpToolCounts(env);
         changes.push({ enabled_tools: counts.enabled, total_tools: counts.total });
     } else if (provider === 'vectorize') {
-        const stats = await safeFirst(env.DB, `SELECT COUNT(*) AS indexes FROM vectorize_index_registry WHERE COALESCE(is_active, 1) = 1`, []);
+        const stats = await safeFirst(
+            env.DB,
+            `SELECT COUNT(*) AS indexes FROM vectorize_index_registry
+             WHERE COALESCE(is_active, 1) = 1 AND (tenant_id = ? OR tenant_id IS NULL)`,
+            [tenantId],
+        );
         changes.push({ active_indexes: Number(stats?.indexes || 0) });
     } else if (provider === 'cloudflare_r2') {
         changes.push({ rollup_job: 'storage_rollup_bucket_summary' });

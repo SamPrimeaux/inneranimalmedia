@@ -972,7 +972,10 @@ async function getStorageStatus(env, authUser, workspaceId) {
   const vectorIndexes = await safeQueryAll(
     db,
     'vectorize_index_registry',
-    `SELECT name, dimensions, distance_metric, status, last_updated_at FROM vectorize_index_registry ORDER BY name LIMIT 50`,
+    `SELECT display_name, binding_name, dimensions, metric, is_active,
+            stored_vectors, last_indexed_at
+     FROM vectorize_index_registry
+     ORDER BY display_name LIMIT 50`,
     [],
     warnings,
     cache,
