@@ -604,7 +604,7 @@ export async function runPendingCodeIndexJob(env, opts = {}) {
       `UPDATE agentsam_code_index_job
           SET status = 'idle', triggered_by = 'stale_recovery'
         WHERE status = 'running'
-          AND updated_at < datetime('now', '-8 minutes')`,
+          AND updated_at < datetime('now', '-3 minutes')`,
     )
       .run()
       .catch(() => null);
