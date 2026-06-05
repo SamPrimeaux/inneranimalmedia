@@ -8,10 +8,11 @@ import {
   Search,
   ExternalLink,
   Check,
+  Box,
 } from 'lucide-react';
 import type { ConnectableIntegration } from './useComposerIntegrations';
 import type { ChatComposerSource } from './types';
-import { WEB_SEARCH_SOURCE, WEB_SEARCH_SOURCE_ID } from './types';
+import { WEB_SEARCH_SOURCE, WEB_SEARCH_SOURCE_ID, SANDBOX_AGENT_SOURCE_ID } from './types';
 
 export type AgentComposerPlusMenuProps = {
   style: React.CSSProperties;
@@ -19,9 +20,11 @@ export type AgentComposerPlusMenuProps = {
   connectablesLoading: boolean;
   activeSourceIds: Set<string>;
   webSearchAllowed: boolean;
+  sandboxAgentAllowed?: boolean;
   onUploadFile: () => void;
   onUploadImage: () => void;
   onToggleWebSearch: () => void;
+  onToggleSandboxAgent?: () => void;
   onToggleSource: (source: ChatComposerSource, enabled: boolean) => void;
   sourceFromIntegration: (item: ConnectableIntegration) => ChatComposerSource;
 };
@@ -32,9 +35,11 @@ export function AgentComposerPlusMenu({
   connectablesLoading,
   activeSourceIds,
   webSearchAllowed,
+  sandboxAgentAllowed = true,
   onUploadFile,
   onUploadImage,
   onToggleWebSearch,
+  onToggleSandboxAgent,
   onToggleSource,
   sourceFromIntegration,
 }: AgentComposerPlusMenuProps) {
@@ -98,6 +103,26 @@ export function AgentComposerPlusMenu({
               Web search
             </span>
             {activeSourceIds.has(WEB_SEARCH_SOURCE_ID) ? (
+              <Check size={14} className="text-[var(--solar-cyan)] shrink-0" />
+            ) : null}
+          </button>
+        ) : null}
+        {sandboxAgentAllowed && onToggleSandboxAgent ? (
+          <button
+            type="button"
+            className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-[var(--dashboard-panel)] text-[var(--dashboard-text)]"
+            onClick={onToggleSandboxAgent}
+          >
+            <span className="inline-flex items-center gap-3 min-w-0">
+              <Box size={14} className="text-[var(--dashboard-muted)] shrink-0" />
+              <span className="flex flex-col min-w-0">
+                <span>Remote sandbox</span>
+                <span className="text-[0.5625rem] text-[var(--dashboard-muted)] leading-tight">
+                  Isolated Linux agent for repo/test/research tasks
+                </span>
+              </span>
+            </span>
+            {activeSourceIds.has(SANDBOX_AGENT_SOURCE_ID) ? (
               <Check size={14} className="text-[var(--solar-cyan)] shrink-0" />
             ) : null}
           </button>

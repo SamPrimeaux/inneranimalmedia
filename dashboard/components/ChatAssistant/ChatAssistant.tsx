@@ -101,6 +101,7 @@ import { AgentMessageList } from './components/AgentMessageList';
 import { AgentMobileHomePanel } from './components/AgentMobileHomePanel';
 import { AgentComposerSourceChips } from './composer/AgentComposerSourceChips';
 import { AgentComposerPlusMenu } from './composer/AgentComposerPlusMenu';
+import { AgentComposerMicButton } from './composer/AgentComposerMicButton';
 import { useComposerIntegrations } from './composer/useComposerIntegrations';
 import {
   composerSourcesStorageKey,
@@ -108,7 +109,7 @@ import {
   writeComposerSources,
 } from './composer/composerSourcesStorage';
 import type { ChatComposerSource } from './composer/types';
-import { WEB_SEARCH_SOURCE, WEB_SEARCH_SOURCE_ID } from './composer/types';
+import { WEB_SEARCH_SOURCE, WEB_SEARCH_SOURCE_ID, SANDBOX_AGENT_SOURCE, SANDBOX_AGENT_SOURCE_ID } from './composer/types';
 import { PlanWorkbenchPanel } from './components/PlanWorkbenchPanel';
 import { ThinkingCard } from '../../src/components/ThinkingCard';
 import type { ThinkingCardState } from '../../src/components/ThinkingCard';
@@ -1156,6 +1157,28 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     });
   };
 
+  const appendSpeechToInput = useCallback(
+    (text: string) => {
+      const t = text.trim();
+      if (!t) return;
+      setInput((prev) => {
+        const sep = prev && !prev.endsWith(' ') ? ' ' : '';
+        return prev + sep + t;
+      });
+      requestAnimationFrame(() => {
+        const el = textareaRef.current;
+        if (el) {
+          el.focus();
+          syncComposerTextareaHeight(
+            el,
+            isNarrow ? COMPOSER_TEXTAREA_MAX_PX_NARROW : COMPOSER_TEXTAREA_MAX_PX_WIDE,
+          );
+        }
+      });
+    },
+    [isNarrow],
+  );
+
   const applyMention = (item: PickerItem) => {
     const el = textareaRef.current;
     const q = mentionQueryRef.current;
@@ -1994,6 +2017,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           provider_key: s.providerKey ?? null,
         })),
         web_search_enabled: composerSources.some((s) => s.id === WEB_SEARCH_SOURCE_ID),
+        antigravity_sandbox_enabled: composerSources.some((s) => s.id === SANDBOX_AGENT_SOURCE_ID),
       };
       browserCtxPayload.workspaceContext = workspaceContextPacket;
       form.append('workspaceContext', JSON.stringify(workspaceContextPacket));
@@ -2950,6 +2974,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                 </button>
               </div>
               <div className="flex items-center gap-1 shrink-0">
+                <AgentComposerMicButton onTranscript={appendSpeechToInput} disabled={isLoading} />
                 <button
                   type="button"
                   ref={attachButtonRef}
@@ -3076,6 +3101,11 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
               onToggleWebSearch={() => {
                 const on = activeComposerSourceIds.has(WEB_SEARCH_SOURCE_ID);
                 toggleComposerSource(WEB_SEARCH_SOURCE, !on);
+              }}
+              sandboxAgentAllowed
+              onToggleSandboxAgent={() => {
+                const on = activeComposerSourceIds.has(SANDBOX_AGENT_SOURCE_ID);
+                toggleComposerSource(SANDBOX_AGENT_SOURCE, !on);
               }}
               onToggleSource={toggleComposerSource}
               sourceFromIntegration={sourceFromIntegration}
