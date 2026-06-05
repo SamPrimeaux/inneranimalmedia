@@ -631,10 +631,15 @@ export async function generateImage(env, params) {
   const prompt = String(params.prompt || '').trim();
   if (!prompt) throw new Error('prompt required');
 
-  const provider = String(params.provider || '')
+  const providerRaw = String(params.provider || '')
     .trim()
     .toLowerCase()
     .replace(/-/g, '_');
+  const provider = providerRaw.startsWith('openai')
+    ? 'openai'
+    : providerRaw === 'gemini_api' || providerRaw.startsWith('google') || providerRaw === 'gemini'
+      ? 'google'
+      : providerRaw;
   const model = params.model ? String(params.model).trim() : '';
 
   if (provider === 'openai' || provider === 'openai_compatible') {

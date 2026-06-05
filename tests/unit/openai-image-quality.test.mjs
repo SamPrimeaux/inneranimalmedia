@@ -4,7 +4,7 @@ import { normalizeOpenAiImageQuality } from '../../src/integrations/openai.js';
 import { isCodeImplementationIntent } from '../../src/core/code-implementation-intent.js';
 
 test('gpt-image maps legacy standard quality to auto', () => {
-  assert.equal(normalizeOpenAiImageQuality('gpt-image-1-mini', 'standard'), 'auto');
+  assert.equal(normalizeOpenAiImageQuality('chatgpt-image-latest', 'standard'), 'auto');
   assert.equal(normalizeOpenAiImageQuality('gpt-image-2', 'hd'), 'high');
   assert.equal(normalizeOpenAiImageQuality('gpt-image-1', 'high'), 'high');
 });
