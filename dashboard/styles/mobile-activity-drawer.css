@@ -1,0 +1,50 @@
+/* Mobile activity / file explorer — left drawer (~50vw), not fullscreen */
+@media (max-width: 767px) {
+  .iam-mobile-activity-panel {
+    top: 2.5rem;
+    bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px) + 52px);
+    max-width: 85vw;
+    min-width: 32vw;
+    transition: transform 220ms ease, width 80ms ease;
+  }
+
+  .iam-mobile-activity-panel[data-open='false'] {
+    transform: translateX(-100%);
+    pointer-events: none;
+    opacity: 0;
+  }
+
+  .iam-mobile-activity-panel[data-open='true'] {
+    transform: translateX(0);
+    opacity: 1;
+  }
+
+  .iam-mobile-activity-resizer {
+    position: fixed;
+    z-index: 47;
+    top: 2.5rem;
+    bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px) + 52px);
+    width: 14px;
+    margin-left: -7px;
+    cursor: col-resize;
+    touch-action: none;
+  }
+
+  .iam-mobile-activity-resizer::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    width: 2px;
+    transform: translateX(-50%);
+    background: var(--dashboard-border, rgba(255, 255, 255, 0.12));
+    border-radius: 1px;
+    transition: background 120ms ease;
+  }
+
+  .iam-mobile-activity-resizer:active::after,
+  .iam-mobile-activity-resizer:hover::after {
+    background: var(--solar-cyan, #13d6c6);
+  }
+}

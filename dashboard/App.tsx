@@ -85,6 +85,7 @@ import MountIamMcpConsent from './components/auth/MountIamMcpConsent';
 import { OnboardingPage } from './components/onboarding/OnboardingPage';
 import { DashboardActivityNav } from './components/shell/DashboardActivityNav';
 import { MobileNavShell } from './components/shell/MobileNavShell';
+import { mobileNavBackLabel } from './components/shell/mobileNavBackLabel';
 import { Files, Search, GitBranch, Settings, PanelLeft, PanelLeftClose, PanelRightClose, Terminal as TermIcon, Layers, Monitor, Bug, Github, Database, FolderOpen, FolderCode, Globe, PenTool, Cloud, X as XIcon, Eye, MessageSquare, MoreHorizontal, ChevronLeft, Link2, HardDrive, Package, History, Camera, FileCode2, Rocket } from 'lucide-react';
 import { SetiFileIcon } from './src/components/SetiFileIcon';
 const ProjectManagement = lazy(() => import('./pages/projects/ProjectManagement'));
@@ -226,6 +227,22 @@ const AGENT_RESIZER_HIT_PX = 10;
 const ACTIVITY_SIDEBAR_GRAB_PX = 10;
 const LS_ACTIVITY_PANEL_W = 'iam_activity_panel_w';
 const DEFAULT_ACTIVITY_PANEL_W = 260;
+const LS_MOBILE_ACTIVITY_PANEL_VW = 'iam_mobile_activity_panel_vw';
+const MOBILE_ACTIVITY_PANEL_MIN_VW = 32;
+const MOBILE_ACTIVITY_PANEL_MAX_VW = 85;
+const MOBILE_ACTIVITY_PANEL_DEFAULT_VW = 50;
+
+function readMobileActivityPanelVw(): number {
+  try {
+    const n = Number(sessionStorage.getItem(LS_MOBILE_ACTIVITY_PANEL_VW));
+    if (Number.isFinite(n) && n >= MOBILE_ACTIVITY_PANEL_MIN_VW && n <= MOBILE_ACTIVITY_PANEL_MAX_VW) {
+      return Math.round(n * 10) / 10;
+    }
+  } catch {
+    /* ignore */
+  }
+  return MOBILE_ACTIVITY_PANEL_DEFAULT_VW;
+}
 
 function readActivityPanelW(): number {
   try {
@@ -950,6 +967,8 @@ const App: React.FC = () => {
   // Dynamic Layout & Lifted State
   // Resizable panels using pointer events
   const [sidebarW, setSidebarW] = useState(readActivityPanelW);
+  const [mobileActivityPanelVw, setMobileActivityPanelVw] = useState(readMobileActivityPanelVw);
+  const mobileActivityPanelVwRef = useRef(mobileActivityPanelVw);
   const [agentW, setAgentW] = useState(360);
 
   const shellLayoutRef = useRef({
@@ -1080,6 +1099,59 @@ const App: React.FC = () => {
     },
     [sidebarW, agentW, agentPosition],
   );
+
+  useEffect(() => {
+    mobileActivityPanelVwRef.current = mobileActivityPanelVw;
+  }, [mobileActivityPanelVw]);
+
+  const beginMobileActivityPanelResize = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const el = e.currentTarget;
+    const pointerId = e.pointerId;
+    const startX = e.clientX;
+    const startVw = mobileActivityPanelVwRef.current;
+    try {
+      el.setPointerCapture(pointerId);
+    } catch {
+      /* ignore */
+    }
+    document.body.classList.add('is-resizing');
+
+    const onMove = (pe: PointerEvent) => {
+      if (pe.pointerId !== pointerId) return;
+      const vw = window.innerWidth || 390;
+      const deltaVw = ((pe.clientX - startX) / vw) * 100;
+      const next = Math.min(
+        MOBILE_ACTIVITY_PANEL_MAX_VW,
+        Math.max(MOBILE_ACTIVITY_PANEL_MIN_VW, startVw + deltaVw),
+      );
+      setMobileActivityPanelVw(Math.round(next * 10) / 10);
+    };
+
+    const endDrag = () => {
+      document.body.classList.remove('is-resizing');
+      try {
+        sessionStorage.setItem(
+          LS_MOBILE_ACTIVITY_PANEL_VW,
+          String(mobileActivityPanelVwRef.current),
+        );
+      } catch {
+        /* ignore */
+      }
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+    };
+
+    const onUp = (pe: PointerEvent) => {
+      if (pe.pointerId !== pointerId) return;
+      endDrag();
+    };
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+  }, []);
 
   const terminalResizeRef = useRef<{ startY: number; startH: number } | null>(null);
   const clampTerminalH = useCallback((h: number) => {
@@ -1418,12 +1490,13 @@ const App: React.FC = () => {
   }, [narrowBackToCenter]);
 
   /**
-   * Mobile: agent chat is `fixed inset-0` above the main workspace. Opening Monaco only
-   * switched `activeTab` while the overlay stayed on top — Context / Open in Monaco looked broken.
+   * Mobile: dismiss fullscreen agent chat so Monaco/workbench is visible.
+   * Keeps the activity drawer open so explorer + editor can sit side-by-side.
    */
   const revealMainWorkspaceIfNarrow = useCallback(() => {
-    if (isNarrowViewport) narrowBackToCenter();
-  }, [isNarrowViewport, narrowBackToCenter]);
+    if (!isNarrowViewport) return;
+    if (agentPosition !== 'off') setAgentPosition('off');
+  }, [isNarrowViewport, agentPosition]);
 
   const openInMonacoFromChat = useCallback(
     (file: Pick<ActiveFile, 'name' | 'content'> & Partial<ActiveFile>) => {
@@ -2645,8 +2718,22 @@ const App: React.FC = () => {
     e.preventDefault();
   };
 
-  const narrowBlocksCenter = isNarrowViewport && (!!activeActivity || agentPosition !== 'off');
-  const narrowNeedsBack = narrowBlocksCenter;
+  /** Mobile: only fullscreen agent chat hides the editor; activity drawer is a side panel. */
+  const narrowBlocksCenter = isNarrowViewport && agentPosition !== 'off';
+  const narrowNeedsBack =
+    isNarrowViewport && (agentPosition !== 'off' || !!activeActivity);
+
+  const mobileBackLabel = useMemo(
+    () =>
+      narrowNeedsBack
+        ? mobileNavBackLabel({
+            agentChatOpen: agentPosition !== 'off',
+            activeActivity,
+            pathname: location.pathname,
+          })
+        : null,
+    [narrowNeedsBack, agentPosition, activeActivity, location.pathname],
+  );
 
   const statusIndentLabel = useMemo(
     () => `${editorMeta.insertSpaces ? 'Spaces' : 'Tabs'}: ${editorMeta.tabSize}`,
@@ -2664,17 +2751,6 @@ const App: React.FC = () => {
       <header className="shrink-0 z-[110] max-md:sticky max-md:top-0 bg-[var(--dashboard-panel)]">
       <div className="h-10 border-b border-[var(--dashboard-border)] flex items-center justify-between px-3 overflow-visible relative">
           <div className="flex items-center gap-1 opacity-80 pl-1 shrink-0 min-w-0">
-              {narrowNeedsBack && (
-                <button
-                  type="button"
-                  className="md:hidden shrink-0 p-1.5 rounded-md text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)] transition-colors"
-                  title="Back to editor"
-                  aria-label="Back to editor"
-                  onClick={narrowBackToCenter}
-                >
-                  <ChevronLeft size={18} strokeWidth={1.75} />
-                </button>
-              )}
               <img
                 src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/ac515729-af6b-4ea5-8b10-e581a4d02100/thumbnail"
                 alt=""
@@ -2705,7 +2781,7 @@ const App: React.FC = () => {
                 <button
                   type="button"
                   onClick={toggleExplorer}
-                  className={`shrink-0 p-1.5 rounded-md transition-colors ml-0.5 ${
+                  className={`max-md:hidden shrink-0 p-1.5 rounded-md transition-colors ml-0.5 ${
                     activeActivity === 'files'
                       ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]'
                       : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]'
@@ -2719,9 +2795,10 @@ const App: React.FC = () => {
           </div>
 
           {/* Unified search (Cmd+K) + Knowledge panel (RAG / chats list) */}
-          <div className="flex-1 flex justify-center items-center min-w-0 px-2 gap-2 overflow-visible">
+          <div className="flex-1 flex justify-center items-center min-w-0 px-2 gap-2 overflow-visible max-md:flex-none max-md:px-1">
               <UnifiedSearchBar
                 workspaceLabel={workspaceDisplayLine}
+                hideWorkspaceSegment={isNarrowViewport}
                 onWorkspacePickerClick={() => setWorkspaceLauncherOpen(true)}
                 recentFiles={mappedRecentFiles}
                 onNavigate={(nav, _q) => handleUnifiedNavigate(nav)}
@@ -2747,7 +2824,7 @@ const App: React.FC = () => {
               <button
                   type="button"
                   title="Open Browser"
-                  className="p-1.5 rounded transition-colors text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]"
+                  className="max-md:hidden p-1.5 rounded transition-colors text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]"
                   onClick={() => {
                     openTab('browser');
                   }}
@@ -2757,7 +2834,7 @@ const App: React.FC = () => {
               <button
                   type="button"
                   title="Toggle agent panel"
-                  className={`p-1.5 rounded transition-colors ${agentPosition !== 'off' ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]' : 'text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]'}`}
+                  className={`max-md:hidden p-1.5 rounded transition-colors ${agentPosition !== 'off' ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]' : 'text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]'}`}
                   onClick={onChatLayoutToggle}
               >
                   {agentPosition === 'left' ? <PanelLeftClose size={15} strokeWidth={1.75} /> : <PanelRightClose size={15} strokeWidth={1.75} />}
@@ -2782,7 +2859,7 @@ const App: React.FC = () => {
               <button
                   type="button"
                   title="Settings"
-                  className={`p-1.5 rounded transition-colors ${location.pathname.startsWith('/dashboard/settings') ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]' : 'text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]'}`}
+                  className={`max-md:hidden p-1.5 rounded transition-colors ${location.pathname.startsWith('/dashboard/settings') ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]' : 'text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]'}`}
                   onClick={() => navigate('/dashboard/settings/general')}
               >
                   <Settings size={15} strokeWidth={1.75} />
@@ -2844,6 +2921,9 @@ const App: React.FC = () => {
         onToggle={() => setMobileNavOpen((v) => !v)}
         onClose={() => setMobileNavOpen(false)}
         settingsIntegrationsActive={settingsIntegrationsActive}
+        showBack={narrowNeedsBack}
+        backLabel={mobileBackLabel}
+        onBack={narrowBackToCenter}
       />
 
       {securityShieldAlert && !securityBannerDismissed && (
@@ -2954,8 +3034,19 @@ const App: React.FC = () => {
           <div className="flex flex-1 min-w-0 overflow-hidden">
           <div 
               className={`transition-all duration-75 shrink-0 bg-[var(--dashboard-panel)] flex flex-col z-40 overflow-hidden shadow-2xl md:shadow-none hover:border-[var(--solar-cyan)] relative group
-              ${activeActivity ? 'absolute inset-y-0 left-0 md:relative md:left-0 max-md:!w-full max-md:z-[46] max-md:inset-0 border-r border-[var(--dashboard-border)] opacity-100 pointer-events-auto' : 'border-none opacity-0 pointer-events-none'}`}
-              style={{ width: activeActivity ? sidebarW : 0 }}
+              ${
+                activeActivity
+                  ? 'md:relative md:left-0 border-r border-[var(--dashboard-border)] opacity-100 pointer-events-auto max-md:iam-mobile-activity-panel'
+                  : 'border-none opacity-0 pointer-events-none max-md:iam-mobile-activity-panel'
+              }`}
+              data-open={activeActivity ? 'true' : 'false'}
+              style={
+                isNarrowViewport
+                  ? activeActivity
+                    ? { width: `${mobileActivityPanelVw}vw` }
+                    : { width: 0 }
+                  : { width: activeActivity ? sidebarW : 0 }
+              }
               {...(narrowNeedsBack && !!activeActivity ? mobileEdgeSwipeHandlers : {})}
           >
               <div className="w-full h-full flex flex-col relative">
@@ -3019,7 +3110,7 @@ const App: React.FC = () => {
               </div>
           </div>
 
-          {/* Sidebar Grab Bar */}
+          {/* Sidebar Grab Bar — desktop */}
           {activeActivity && (
             <div
               role="separator"
@@ -3036,6 +3127,18 @@ const App: React.FC = () => {
                 aria-hidden
               />
             </div>
+          )}
+          {/* Mobile activity drawer edge — drag width (32–85vw, default 50) */}
+          {activeActivity && isNarrowViewport && (
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize explorer panel"
+              title="Drag to resize explorer"
+              className="iam-mobile-activity-resizer md:hidden"
+              style={{ left: `${mobileActivityPanelVw}vw` }}
+              onPointerDown={beginMobileActivityPanelResize}
+            />
           )}
 
           {/* 4. MAIN EDITOR AREA */}

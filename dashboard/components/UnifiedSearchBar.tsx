@@ -375,6 +375,8 @@ function rowIcon(category: PaletteCategory) {
 
 export const UnifiedSearchBar: React.FC<{
   workspaceLabel?: string;
+  /** Mobile (≤767px): search-only center strip — no workspace chip in top bar on any route. */
+  hideWorkspaceSegment?: boolean;
   onWorkspacePickerClick?: () => void;
   recentFiles?: { name: string; path: string; label?: string }[];
   onNavigate: (nav: UnifiedSearchNavigate, searchQuery: string) => void;
@@ -386,6 +388,7 @@ export const UnifiedSearchBar: React.FC<{
   onInitialQueryConsumed?: () => void;
 }> = ({
   workspaceLabel,
+  hideWorkspaceSegment = false,
   onWorkspacePickerClick,
   recentFiles = [],
   onNavigate,
@@ -1020,11 +1023,33 @@ export const UnifiedSearchBar: React.FC<{
   };
 
   const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+  const mobileCompact = hideWorkspaceSegment;
   let rowIndex = -1;
 
   return (
-    <div ref={paletteRef} className="nav-search-container w-full max-w-lg min-w-0">
+    <div
+      ref={paletteRef}
+      className={`nav-search-container min-w-0 ${mobileCompact ? 'iam-nav-search--mobile' : 'w-full max-w-lg'}`}
+      data-mobile-compact={mobileCompact ? 'true' : undefined}
+    >
+      {mobileCompact ? (
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className={`flex items-center justify-center w-9 h-9 rounded-md border transition-colors ${
+            open
+              ? 'border-[var(--solar-cyan)]/50 bg-[var(--bg-hover)] text-[var(--solar-cyan)]'
+              : 'border-[var(--border-subtle)] bg-[var(--bg-app)] text-[var(--text-muted)] hover:border-[var(--solar-cyan)]/40 hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'
+          }`}
+          title="Search"
+          aria-label="Search"
+          aria-expanded={open}
+        >
+          <Search size={18} strokeWidth={1.75} aria-hidden />
+        </button>
+      ) : (
       <div className="flex items-stretch w-full rounded-md border border-[var(--border-subtle)] bg-[var(--bg-app)] hover:border-[var(--solar-cyan)]/40 transition-colors overflow-hidden">
+        {!hideWorkspaceSegment ? (
         <div ref={bucketMenuRef} className="relative shrink-0 max-w-[45%] border-r border-[var(--border-subtle)]">
           <button
             type="button"
@@ -1082,6 +1107,7 @@ export const UnifiedSearchBar: React.FC<{
             </div>
           ) : null}
         </div>
+        ) : null}
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
@@ -1095,6 +1121,7 @@ export const UnifiedSearchBar: React.FC<{
           </kbd>
         </button>
       </div>
+      )}
 
       {open && (
           <div

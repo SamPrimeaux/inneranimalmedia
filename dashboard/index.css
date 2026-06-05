@@ -1,5 +1,6 @@
 @import './inneranimalmedia.css';
 @import './styles/mobile-nav-hamburger.css';
+@import './styles/mobile-activity-drawer.css';
 @import './styles/terminal-mobile.css';
 @import './styles/image-generation.css';
 @import './components/database/database-page.css';
@@ -101,6 +102,17 @@ samp.font-mono {
   width: min(520px, calc(100vw - 1.5rem));
   max-width: 520px;
   z-index: 121;
+}
+
+/* Mobile top bar: icon trigger + ~60vw centered palette */
+.iam-nav-search--mobile {
+  width: auto;
+  flex: 0 0 auto;
+}
+
+.iam-nav-search--mobile .nav-dropdown {
+  width: clamp(17.5rem, 60vw, 22.5rem);
+  max-width: min(60vw, calc(100vw - 2rem));
 }
 
 /* Split Editor Layout */
