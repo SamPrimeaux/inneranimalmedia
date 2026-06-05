@@ -351,8 +351,40 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
   let readCount = 0;
   let emptyRun = 0;
   const MAX_STREAM_MS = 900000;
-  const MAX_READS = 2000;
+  /** Raised for long artifact/HTML streams (many small SSE reads). */
+  const MAX_READS = 12000;
   const MAX_EMPTY_RUN = 200;
+
+  const stopStreamForSafety = (reason: 'max_ms' | 'max_reads' | 'max_empty_run') => {
+    console.warn('[useAgentChatStream] safety_stop', {
+      reason,
+      readCount,
+      emptyRun,
+      fileEchoSuppress,
+      elapsedMs: Date.now() - streamStartedAt,
+      bufLen: assistantStreamBuf.length,
+    });
+    if (typeof window !== 'undefined') {
+      patchIamAgentStreamDebug({
+        safety_stop_reason: reason,
+        safety_stop_at: Date.now(),
+        read_count: readCount,
+        empty_run: emptyRun,
+        file_echo_suppress: fileEchoSuppress,
+      });
+    }
+    const suffix =
+      reason === 'max_empty_run'
+        ? '\n\n[Stream stopped: too many non-text chunks.]'
+        : `\n\n[Stream stopped: exceeded safety limits (${reason}).]`;
+    assistantStreamBuf += suffix;
+    assistantContent = assistantStreamBuf;
+    setMessages((prev) => {
+      const last = [...prev];
+      last[last.length - 1] = { role: 'assistant', content: assistantContent };
+      return last;
+    });
+  };
 
   /** Active SSE tool row id for tool_output / tool_done / tool_error pairing. */
   let activeToolTraceId: string | null = null;
@@ -391,14 +423,11 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
 
   sseLoop: while (true) {
     if (signal.aborted) break sseLoop;
-    if (Date.now() - streamStartedAt > MAX_STREAM_MS || readCount >= MAX_READS || emptyRun >= MAX_EMPTY_RUN) {
-      assistantStreamBuf += '\n\n[Stream stopped: exceeded safety limits.]';
-      assistantContent = assistantStreamBuf;
-      setMessages((prev) => {
-        const last = [...prev];
-        last[last.length - 1] = { role: 'assistant', content: assistantContent };
-        return last;
-      });
+    const overMs = Date.now() - streamStartedAt > MAX_STREAM_MS;
+    const overReads = !fileEchoSuppress && readCount >= MAX_READS;
+    const overEmpty = !fileEchoSuppress && emptyRun >= MAX_EMPTY_RUN;
+    if (overMs || overReads || overEmpty) {
+      stopStreamForSafety(overMs ? 'max_ms' : overReads ? 'max_reads' : 'max_empty_run');
       break sseLoop;
     }
 
@@ -435,6 +464,38 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
         markFirstSse();
 
         const evType = (data as { type?: string }).type;
+        if (typeof evType === 'string' && evType.startsWith('antigravity_') && data && typeof data === 'object') {
+          emptyRun = 0;
+          onSubagentEvent?.({ type: evType, subagent_slug: 'antigravity_scout' });
+          if (evType === 'antigravity_step') {
+            const step = (data as { step?: { title?: string; detail?: string } }).step;
+            const title = step?.title ? String(step.title).trim() : 'Remote sandbox';
+            const detail = step?.detail ? String(step.detail).trim() : '';
+            if (detail) {
+              setMessages((prev) => {
+                const next = [...prev];
+                const last = next[next.length - 1];
+                const line = `**${title}:** ${detail.slice(0, 400)}`;
+                if (last?.role === 'assistant') {
+                  next[next.length - 1] = {
+                    ...last,
+                    content: `${last.content}${last.content.trim() ? '\n\n' : ''}${line}`,
+                  };
+                } else {
+                  next.push({ role: 'assistant', content: line });
+                }
+                return next;
+              });
+            }
+          } else if (evType === 'antigravity_interaction_started') {
+            onSubagentEvent?.({ type: 'agentsam_subagent_run_started', subagent_slug: 'antigravity_scout' });
+          } else if (evType === 'antigravity_interaction_complete') {
+            onSubagentEvent?.({ type: 'agentsam_subagent_run_result', subagent_slug: 'antigravity_scout', status: 'ok' });
+          } else if (evType === 'antigravity_interaction_error') {
+            onSubagentEvent?.({ type: 'agentsam_subagent_run_result', subagent_slug: 'antigravity_scout', status: 'failed' });
+          }
+          continue;
+        }
         if (typeof evType === 'string' && evType.startsWith('agentsam_subagent_') && data && typeof data === 'object') {
           // Multitask emits structured non-text events; surface a short line and
           // reset emptyRun so the stream isn't treated as "stuck".
@@ -1892,16 +1953,12 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
         }
         const delta = normalizeAssistantSseText(data);
         if (!delta && ssePayloadLooksReasoningOnly(data)) {
-          emptyRun += 1;
-          if (emptyRun >= MAX_EMPTY_RUN) {
-            assistantStreamBuf += '\n\n[Stream stopped: too many non-text chunks.]';
-            assistantContent = assistantStreamBuf;
-            setMessages((prev) => {
-              const last = [...prev];
-              last[last.length - 1] = { role: 'assistant', content: assistantContent };
-              return last;
-            });
-            break sseLoop;
+          if (!fileEchoSuppress) {
+            emptyRun += 1;
+            if (emptyRun >= MAX_EMPTY_RUN) {
+              stopStreamForSafety('max_empty_run');
+              break sseLoop;
+            }
           }
         } else if (delta) {
           emptyRun = 0;
@@ -1912,39 +1969,47 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             }
           }
         }
-        if (!fileEchoSuppress) {
-          const trialBuf = assistantStreamBuf + normalizeAssistantSseText(data);
-          const extracted = extractMonacoInvokesFromBuffer(trialBuf);
-          const nextBuf = extracted.text;
-          const nextVisible = hideIncompleteMonacoInvokeTail(nextBuf);
-          if (looksLikeEmbeddedFileDumpStart(nextVisible)) {
-            fileEchoSuppress = true;
-          } else {
-            assistantStreamBuf = nextBuf;
-            for (const f of extracted.files) {
-              try {
-                if (/\.py$/i.test(f.name)) {
-                  onPythonDraftOpened?.(f.name);
-                }
-                onFileSelect?.({ name: f.name, content: f.content, originalContent: '' });
-                if (typeof window !== 'undefined') {
-                  window.dispatchEvent(
-                    new CustomEvent('iam:agent-open-surface', {
-                      detail: { surface: 'code', reason: 'monaco_invoke' },
-                    }),
-                  );
-                }
-              } catch (e) {
-                console.warn('[ChatAssistant] onFileSelect failed for monaco invoke', e);
-              }
-            }
-            assistantContent = truncateCodeFencesForChat(nextVisible, 10);
-            setMessages((prev) => {
-              const last = [...prev];
-              last[last.length - 1] = { role: 'assistant', content: assistantContent };
-              return last;
-            });
+        const sseText = normalizeAssistantSseText(data);
+        const trialBuf = assistantStreamBuf + sseText;
+        const extracted = extractMonacoInvokesFromBuffer(trialBuf);
+        const nextBuf = extracted.text;
+        const nextVisible = hideIncompleteMonacoInvokeTail(nextBuf);
+
+        if (!fileEchoSuppress && looksLikeEmbeddedFileDumpStart(nextVisible)) {
+          fileEchoSuppress = true;
+          if (typeof window !== 'undefined') {
+            patchIamAgentStreamDebug({ artifact_echo_suppress: true, artifact_echo_at: Date.now() });
           }
+        }
+
+        // Always accumulate — artifact/HTML must reach code-block + monaco invoke handlers even when chat echo is suppressed.
+        assistantStreamBuf = nextBuf;
+
+        for (const f of extracted.files) {
+          try {
+            if (/\.py$/i.test(f.name)) {
+              onPythonDraftOpened?.(f.name);
+            }
+            onFileSelect?.({ name: f.name, content: f.content, originalContent: '' });
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(
+                new CustomEvent('iam:agent-open-surface', {
+                  detail: { surface: 'code', reason: 'monaco_invoke' },
+                }),
+              );
+            }
+          } catch (e) {
+            console.warn('[ChatAssistant] onFileSelect failed for monaco invoke', e);
+          }
+        }
+
+        if (!fileEchoSuppress) {
+          assistantContent = truncateCodeFencesForChat(nextVisible, 10);
+          setMessages((prev) => {
+            const last = [...prev];
+            last[last.length - 1] = { role: 'assistant', content: assistantContent };
+            return last;
+          });
         }
       }
     }
@@ -1953,6 +2018,24 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
   if (typeof window !== 'undefined' && window.__IAM_AGENT_LAST_STREAM_DEBUG) {
     patchIamAgentStreamDebug({
       assistant_text_length: assistantContent.length,
+      assistant_stream_buf_length: assistantStreamBuf.length,
+      file_echo_suppress: fileEchoSuppress,
+    });
+  }
+
+  const fullStreamText = hideIncompleteMonacoInvokeTail(assistantStreamBuf);
+  const artifactExtractionSource = fileEchoSuppress ? fullStreamText : assistantContent;
+
+  if (fileEchoSuppress) {
+    const preview = truncateCodeFencesForChat(fullStreamText, 10);
+    assistantContent =
+      preview.trim() ||
+      'Writing file… (full content opens in the editor or artifacts when the stream completes.)';
+    setMessages((prev) => {
+      const next = [...prev];
+      const last = next[next.length - 1];
+      if (last?.role === 'assistant') next[next.length - 1] = { ...last, content: assistantContent };
+      return next;
     });
   }
 
@@ -1970,7 +2053,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
   }
 
   const codeBlockRegex2 = /```(\w+)?\n([\s\S]*?)\n```/g;
-  let firstMatch = codeBlockRegex2.exec(assistantContent);
+  let firstMatch = codeBlockRegex2.exec(artifactExtractionSource);
   if (firstMatch) {
     const lang = firstMatch[1] || 'txt';
     const code = firstMatch[2];

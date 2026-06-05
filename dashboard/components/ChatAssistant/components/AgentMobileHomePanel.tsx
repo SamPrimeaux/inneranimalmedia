@@ -35,7 +35,7 @@ function sessionTitle(s: AgentSessionRow): string {
   if (title) return title;
   const name = s.name && String(s.name).replace(/\s+/g, ' ').trim();
   if (name) return name;
-  const id = (s.name_key || s.id || '').trim();
+  const id = (s.conversation_id || s.id || '').trim();
   if (id) return `Chat ${id.slice(0, 8)}`;
   return 'Untitled';
 }
@@ -138,12 +138,13 @@ export function AgentMobileHomePanel({
                 {g.label}
               </div>
               {g.items.map((s) => {
-                const id = (s.name_key || s.id || '').trim();
+                const conversationId = String(s.conversation_id || '').trim();
+                if (!conversationId) return null;
                 return (
                   <button
-                    key={id || sessionTitle(s)}
+                    key={conversationId}
                     type="button"
-                    onClick={() => selectConversation(id)}
+                    onClick={() => selectConversation(conversationId)}
                     className="w-full text-left min-h-[52px] py-2 border-b border-[var(--dashboard-border)] flex items-start gap-2 transition-colors hover:bg-[var(--bg-hover)] rounded-sm"
                   >
                     <div className="flex-1 min-w-0 pt-0.5">
