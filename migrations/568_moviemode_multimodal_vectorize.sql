@@ -4,10 +4,13 @@
 --
 -- Prerequisite (once per account):
 --   ./scripts/with-cloudflare-env.sh npx wrangler vectorize create agentsam-moviemode-gemini2-1536 --dimensions=1536 --metric=cosine -c wrangler.production.toml
-
-ALTER TABLE media_assets ADD COLUMN vectorize_id TEXT;
-ALTER TABLE media_assets ADD COLUMN embed_model TEXT;
-ALTER TABLE media_assets ADD COLUMN embedded_at TEXT;
+--
+-- embed columns applied on production 2026-06-05 before ledger entry.
+-- D1 SQLite has no ADD COLUMN IF NOT EXISTS. Fresh DBs: if PRAGMA table_info lacks
+-- vectorize_id / embed_model / embedded_at, run once:
+--   ALTER TABLE media_assets ADD COLUMN vectorize_id TEXT;
+--   ALTER TABLE media_assets ADD COLUMN embed_model TEXT;
+--   ALTER TABLE media_assets ADD COLUMN embedded_at TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_media_assets_vectorize ON media_assets(workspace_id, vectorize_id);
 
