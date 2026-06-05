@@ -4,6 +4,7 @@
  * Key resolved via resolveOpenAiCompatibleApiKey (OpenAI, DeepSeek, BYOK).
  * Proxies OpenAI SSE stream directly — frontend handles choices[0].delta.content format.
  */
+import { assertOpenAiImageModelActive } from '../core/image-model-routes.js';
 import {
   resolveOpenAiApiKey,
   resolveOpenAiCompatibleApiKey,
@@ -653,6 +654,7 @@ export async function generateImageOpenAI(env, params) {
   const { modelKey, prompt, size = '1024x1024', quality = 'standard', n = 1, userId } = params;
   const resolvedModelKey = modelKey != null ? String(modelKey).trim() : '';
   if (!resolvedModelKey) throw new Error('modelKey required for OpenAI image generation');
+  assertOpenAiImageModelActive(resolvedModelKey);
 
   const apiKey = await resolveOpenAiApiKey(env, resolvedModelKey, userId, {
     secretKeyName: params.secretKeyName ?? params.secret_key_name,

@@ -9,12 +9,14 @@
  */
 
 import { registerAgentStepHandler } from './agent-step.js';
+import { assertOpenAiImageModelActive, RETIRED_OPENAI_IMAGE_MODEL_KEYS } from './image-model-routes.js';
 
 const D1_ID = 'cf87b717-d4e2-4cf8-bab0-a81268e32d49';
 const CF_ACCOUNT = 'ede6590ac0d2fb7daf155b35653457b2';
 const EXCLUDED_MODELS = [
   'claude-opus-4-6','claude-opus-4-7',
   'claude-sonnet-4-6','claude-sonnet-4-5',
+  ...RETIRED_OPENAI_IMAGE_MODEL_KEYS,
 ];
 
 function thompsonSample(arms) {
@@ -266,7 +268,7 @@ registerAgentStepHandler('cms.uploadCoverCFImages', async (env, { input }) => {
 
   if (!slug || !coverPrompt) return { ok: false, error: 'missing slug or cover prompt' };
 
-  const model_key = arm?.model_key || 'gpt-image-1';
+  const model_key = arm?.model_key || 'gemini-3.1-flash-image';
   const arm_id    = arm?.arm_id;
 
   // Call image generation API
@@ -324,6 +326,7 @@ registerAgentStepHandler('cms.uploadCoverCFImages', async (env, { input }) => {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 async function generateCoverImage(env, model_key, prompt) {
+  assertOpenAiImageModelActive(model_key);
   // Route by model family
   if (model_key.startsWith('gpt-image')) {
     const apiKey = env.OPENAI_API_KEY;

@@ -6,7 +6,7 @@ import { isCodeImplementationIntent } from '../../src/core/code-implementation-i
 test('gpt-image maps legacy standard quality to auto', () => {
   assert.equal(normalizeOpenAiImageQuality('chatgpt-image-latest', 'standard'), 'auto');
   assert.equal(normalizeOpenAiImageQuality('gpt-image-2', 'hd'), 'high');
-  assert.equal(normalizeOpenAiImageQuality('gpt-image-1', 'high'), 'high');
+  assert.equal(normalizeOpenAiImageQuality('gpt-image-2', 'high'), 'high');
 });
 
 test('dall-e-3 keeps standard and hd', () => {

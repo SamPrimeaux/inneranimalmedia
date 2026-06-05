@@ -4,6 +4,7 @@
  */
 
 import { generateImageOpenAI, normalizeOpenAiImageQuality } from '../integrations/openai.js';
+import { assertOpenAiImageModelActive } from '../core/image-model-routes.js';
 import { stripUserTextForIntent } from '../core/active-file-envelope.js';
 import { isCodeImplementationIntent } from '../core/code-implementation-intent.js';
 import { resolveModelApiKey } from '../integrations/tokens.js';
@@ -224,6 +225,7 @@ export async function pickImageModelFromDb(env, workspaceId) {
        AND ra.workspace_id = ?
        AND ra.is_paused    = 0
        AND ra.is_active    = 1
+       AND ra.model_key NOT IN ('gpt-image-1', 'gpt-image-1-mini', 'gpt-image-1.5')
        AND (mc.deprecated_after IS NULL OR mc.deprecated_after > date('now'))`,
   )
     .bind(ws)
@@ -491,6 +493,7 @@ async function fetchImageBytes(url) {
 async function generateOpenAI(env, opts) {
   const modelKey = String(opts.model || '').trim();
   if (!modelKey) throw new Error('OpenAI image model required');
+  assertOpenAiImageModelActive(modelKey);
   const dims = parseImageDimensions(opts.size);
   const row = await generateImageOpenAI(env, {
     modelKey,
