@@ -21,6 +21,7 @@ const CHUNK_TARGET_CHARS = 1600; // ~400 tokens
 const CHUNK_OVERLAP_CHARS = 200; // ~50 tokens
 const EMBED_BATCH = 20;
 const MAX_FILES_PER_RUN = 25;
+const MAX_FILE_BYTES = 250 * 1024;
 const SKIP_DIRS = new Set(['node_modules', 'dist', '.wrangler', '.git', 'build', 'coverage', '.next']);
 const ALLOWED_EXT = new Set(['.js', '.ts', '.tsx', '.jsx', '.md']);
 
@@ -455,118 +456,141 @@ export async function runCodeIndexJob(env, jobId, opts = {}) {
   let fileErrors = 0;
   let filesOk = 0;
   let chunksWritten = 0;
+  let filesProcessed = 0;
   const errors = [];
 
-  for (const filePath of batchFiles) {
-    if (Date.now() - startedAt > cpuBudgetMs) break;
+  try {
+    for (const filePath of batchFiles) {
+      if (Date.now() - startedAt > cpuBudgetMs) break;
+      filesProcessed++;
 
-    try {
-      const raw = await fetchRepoFile(gh.token, gh.repo, filePath, branch);
-      const chunks = chunkFileContent(raw);
-      await deleteChunksForFile(env, workspaceUuid, filePath);
-
-      for (let i = 0; i < chunks.length; i += EMBED_BATCH) {
-        const slice = chunks.slice(i, i + EMBED_BATCH);
-        const embeddings = [];
-        for (const text of slice) {
-          const { embedding } = await createAgentsamEmbedding(env, text, {
-            spec: EMBED_SPEC,
-            userId: job.user_id != null ? String(job.user_id) : null,
-          });
-          embeddings.push(embedding);
+      try {
+        const raw = await fetchRepoFile(gh.token, gh.repo, filePath, branch);
+        if (raw.length > MAX_FILE_BYTES) {
+          filesOk++;
+          continue;
         }
+        const chunks = chunkFileContent(raw);
+        await deleteChunksForFile(env, workspaceUuid, filePath);
 
-        for (let j = 0; j < slice.length; j++) {
-          const chunkIndex = i + j;
-          const content = slice[j];
-          const vectorizeId = await buildCodeVectorizeId(d1WorkspaceId, filePath, chunkIndex);
-          const rowId = crypto.randomUUID();
-          const metadata = {
-            workspace_id: d1WorkspaceId,
-            workspace_uuid: workspaceUuid,
-            file_path: filePath,
-            chunk_index: chunkIndex,
-            repo: gh.repo,
-            branch,
-            source: 'code-indexer',
-            embedding_model: resolveTextEmbeddingRoute('code').model,
-          };
+        for (let i = 0; i < chunks.length; i += EMBED_BATCH) {
+          if (Date.now() - startedAt > cpuBudgetMs) break;
+          const slice = chunks.slice(i, i + EMBED_BATCH);
+          const embeddings = [];
+          for (const text of slice) {
+            const { embedding } = await createAgentsamEmbedding(env, text, {
+              spec: EMBED_SPEC,
+              userId: job.user_id != null ? String(job.user_id) : null,
+            });
+            embeddings.push(embedding);
+          }
 
-          await upsertChunkRow(env, {
-            id: rowId,
-            workspace_id: workspaceUuid,
-            file_path: filePath,
-            content,
-            chunk_index: chunkIndex,
-            token_count: estimateTokens(content),
-            embedding: embeddings[j],
-            metadata,
-          });
+          for (let j = 0; j < slice.length; j++) {
+            const chunkIndex = i + j;
+            const content = slice[j];
+            const vectorizeId = await buildCodeVectorizeId(d1WorkspaceId, filePath, chunkIndex);
+            const rowId = crypto.randomUUID();
+            const metadata = {
+              workspace_id: d1WorkspaceId,
+              workspace_uuid: workspaceUuid,
+              file_path: filePath,
+              chunk_index: chunkIndex,
+              repo: gh.repo,
+              branch,
+              source: 'code-indexer',
+              embedding_model: resolveTextEmbeddingRoute('code').model,
+            };
 
-          await upsertCodeVector(env, {
-            id: vectorizeId,
-            embedding: embeddings[j],
-            metadata,
-          });
-          chunksWritten++;
+            await upsertChunkRow(env, {
+              id: rowId,
+              workspace_id: workspaceUuid,
+              file_path: filePath,
+              content,
+              chunk_index: chunkIndex,
+              token_count: estimateTokens(content),
+              embedding: embeddings[j],
+              metadata,
+            });
+
+            await upsertCodeVector(env, {
+              id: vectorizeId,
+              embedding: embeddings[j],
+              metadata,
+            });
+            chunksWritten++;
+          }
         }
+        filesOk++;
+      } catch (e) {
+        fileErrors++;
+        errors.push({ file_path: filePath, error: String(e?.message || e) });
+        console.warn('[code-indexer] file_error', filePath, e?.message ?? e);
       }
-      filesOk++;
-    } catch (e) {
-      fileErrors++;
-      errors.push({ file_path: filePath, error: String(e?.message || e) });
-      console.warn('[code-indexer] file_error', filePath, e?.message ?? e);
     }
-  }
 
-  const newOffset = offset + batchFiles.length;
-  const complete = newOffset >= allFiles.length;
-  const failRate = batchFiles.length ? fileErrors / batchFiles.length : 0;
+    const newOffset = offset + filesProcessed;
+    const complete = newOffset >= allFiles.length;
+    const failRate = filesProcessed ? fileErrors / filesProcessed : 0;
 
-  const totalChunks = priorChunks + chunksWritten;
-  const finishPatch = {
-    indexed_file_count: newOffset,
-    chunk_count: totalChunks,
-    progress_percent: allFiles.length
-      ? Math.min(100, Math.round((newOffset / allFiles.length) * 100))
-      : 100,
-  };
+    const totalChunks = priorChunks + chunksWritten;
+    const finishPatch = {
+      indexed_file_count: newOffset,
+      chunk_count: totalChunks,
+      progress_percent: allFiles.length
+        ? Math.min(100, Math.round((newOffset / allFiles.length) * 100))
+        : 100,
+    };
 
-  if (complete) {
-    if (failRate > 0.5) {
-      finishPatch.status = 'failed';
-      finishPatch.last_error = `>${Math.round(failRate * 100)}% file errors`;
+    if (complete) {
+      if (failRate > 0.5) {
+        finishPatch.status = 'failed';
+        finishPatch.last_error = `>${Math.round(failRate * 100)}% file errors`;
+      } else {
+        finishPatch.status = 'completed';
+        finishPatch.last_error = null;
+      }
+      if (cols.has('finished_at')) finishPatch.finished_at = new Date().toISOString();
+      if (cols.has('completed_at')) finishPatch.completed_at = new Date().toISOString();
+      if (cols.has('last_sync_at')) finishPatch.last_sync_at = new Date().toISOString();
+      await patchJob(env, job.id, finishPatch, cols);
+      if (finishPatch.status === 'completed') {
+        await updateVectorizeRegistry(env, totalChunks);
+      }
     } else {
-      finishPatch.status = 'completed';
-      finishPatch.last_error = null;
+      finishPatch.status = 'idle';
+      finishPatch.triggered_by = 'resume';
+      await patchJob(env, job.id, finishPatch, cols);
     }
-    if (cols.has('finished_at')) finishPatch.finished_at = new Date().toISOString();
-    if (cols.has('completed_at')) finishPatch.completed_at = new Date().toISOString();
-    if (cols.has('last_sync_at')) finishPatch.last_sync_at = new Date().toISOString();
-    await patchJob(env, job.id, finishPatch, cols);
-    if (finishPatch.status === 'completed') {
-      await updateVectorizeRegistry(env, totalChunks);
-    }
-  } else {
-    finishPatch.status = 'idle';
-    finishPatch.triggered_by = 'resume';
-    await patchJob(env, job.id, finishPatch, cols);
-  }
 
-  return {
-    ok: true,
-    job_id: job.id,
-    repo: gh.repo,
-    complete,
-    files_total: allFiles.length,
-    files_processed_this_run: batchFiles.length,
-    files_ok: filesOk,
-    file_errors: fileErrors,
-    chunks_written: chunksWritten,
-    chunk_count_total: totalChunks,
-    resume_at_file: complete ? null : newOffset,
-    errors: errors.slice(0, 5),
-  };
+    return {
+      ok: true,
+      job_id: job.id,
+      repo: gh.repo,
+      complete,
+      files_total: allFiles.length,
+      files_processed_this_run: filesProcessed,
+      files_ok: filesOk,
+      file_errors: fileErrors,
+      chunks_written: chunksWritten,
+      chunk_count_total: totalChunks,
+      resume_at_file: complete ? null : newOffset,
+      errors: errors.slice(0, 5),
+    };
+  } catch (e) {
+    const msg = String(e?.message || e);
+    console.warn('[code-indexer] run_failed', job.id, msg);
+    await patchJob(
+      env,
+      job.id,
+      {
+        status: 'idle',
+        triggered_by: 'resume',
+        last_error: msg.slice(0, 500),
+      },
+      cols,
+    );
+    return { ok: false, error: msg, job_id: job.id, chunks_written: chunksWritten };
+  }
 }
 
 /**
@@ -575,5 +599,15 @@ export async function runCodeIndexJob(env, jobId, opts = {}) {
  * @param {{ cpuBudgetMs?: number }} [opts]
  */
 export async function runPendingCodeIndexJob(env, opts = {}) {
+  if (env?.DB) {
+    await env.DB.prepare(
+      `UPDATE agentsam_code_index_job
+          SET status = 'idle', triggered_by = 'stale_recovery'
+        WHERE status = 'running'
+          AND updated_at < datetime('now', '-8 minutes')`,
+    )
+      .run()
+      .catch(() => null);
+  }
   return runCodeIndexJob(env, null, opts);
 }
