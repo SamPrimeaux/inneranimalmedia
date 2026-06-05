@@ -266,19 +266,23 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
       if (body.create_visual_map === true) wantVisual = true;
       else if (body.create_visual_map === false) wantVisual = false;
       else wantVisual = taskCount >= 2;
-      if (wantVisual && env.DASHBOARD && authUser?.id) {
+      if (wantVisual && env.AUTORAG_BUCKET?.put && authUser?.id) {
         try {
-          visual_map = await createPlanExcalidrawArtifact(env, {
-            tenantId,
-            workspaceId,
-            userId: String(authUser.id),
-            planId,
-          });
+          visual_map = await createPlanExcalidrawArtifact(
+            env,
+            {
+              tenantId,
+              workspaceId,
+              userId: String(authUser.id),
+              planId,
+            },
+            ctx,
+          );
         } catch (e) {
           visual_map_error = e?.message != null ? String(e.message) : String(e);
         }
-      } else if (wantVisual && !env.DASHBOARD) {
-        visual_map_error = 'DASHBOARD bucket not configured';
+      } else if (wantVisual && !env.AUTORAG_BUCKET?.put) {
+        visual_map_error = 'AUTORAG_BUCKET binding not configured';
       } else if (wantVisual && !authUser?.id) {
         visual_map_error = 'user_id missing for artifact';
       }
@@ -289,19 +293,23 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
       if (body.create_plan_markdown === true) wantMd = true;
       else if (body.create_plan_markdown === false) wantMd = false;
       else wantMd = true;
-      if (wantMd && env.DASHBOARD && authUser?.id) {
+      if (wantMd && env.AUTORAG_BUCKET?.put && authUser?.id) {
         try {
-          plan_markdown = await createPlanMarkdownArtifact(env, {
-            tenantId,
-            workspaceId,
-            userId: String(authUser.id),
-            planId,
-          });
+          plan_markdown = await createPlanMarkdownArtifact(
+            env,
+            {
+              tenantId,
+              workspaceId,
+              userId: String(authUser.id),
+              planId,
+            },
+            ctx,
+          );
         } catch (e) {
           plan_markdown_error = e?.message != null ? String(e.message) : String(e);
         }
-      } else if (wantMd && !env.DASHBOARD) {
-        plan_markdown_error = 'DASHBOARD bucket not configured';
+      } else if (wantMd && !env.AUTORAG_BUCKET?.put) {
+        plan_markdown_error = 'AUTORAG_BUCKET binding not configured';
       } else if (wantMd && !authUser?.id) {
         plan_markdown_error = 'user_id missing for artifact';
       }

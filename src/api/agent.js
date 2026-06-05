@@ -700,7 +700,7 @@ function inferArtifactFromAssistantText(text) {
   let artifact_type = 'other';
   if (rawLang.includes('html')) artifact_type = 'html';
   else if (rawLang === 'js' || rawLang === 'javascript') artifact_type = 'js';
-  else if (rawLang === 'ts' || rawLang === 'typescript') artifact_type = 'ts';
+  else if (rawLang === 'ts' || rawLang === 'typescript' || rawLang === 'tsx') artifact_type = 'tsx';
   else if (rawLang === 'css') artifact_type = 'css';
   else if (rawLang === 'json') artifact_type = 'json';
   else if (rawLang === 'sql') artifact_type = 'sql';
@@ -734,43 +734,32 @@ function scheduleAgentsamArtifactFromChatOutput(env, ctx, opts) {
   if (!meta) return;
   const uid = userId != null ? String(userId).trim() : '';
   const tid = tenantId != null ? String(tenantId).trim() : '';
-  if (!uid || !tid) return;
-  const ws = workspaceId != null ? String(workspaceId).trim() : null;
-  const srcRun =
-    sourceAgentRunId != null && String(sourceAgentRunId).trim() !== ''
-      ? String(sourceAgentRunId).trim().slice(0, 120)
-      : null;
-  const srcSession =
-    sourceSessionId != null && String(sourceSessionId).trim() !== ''
-      ? String(sourceSessionId).trim().slice(0, 200)
-      : null;
+  const ws = workspaceId != null ? String(workspaceId).trim() : '';
+  if (!uid || !tid || !ws) return;
+
   ctx.waitUntil(
     (async () => {
       try {
-        const cols = await pragmaTableInfo(env.DB, 'agentsam_artifacts');
-        const names = [
-          'user_id',
-          'tenant_id',
-          'workspace_id',
-          'name',
-          'artifact_type',
-          'r2_key',
-          'source',
-        ];
-        const binds = [uid, tid, ws, meta.name, meta.artifact_type, '', 'agent_response'];
-        if (srcRun && cols.has('source_run_id')) {
-          names.push('source_run_id');
-          binds.push(srcRun);
+        const { extractFencedArtifactContent, writeWorkspaceArtifact } = await import(
+          '../core/artifact-r2-store.js'
+        );
+        const content = extractFencedArtifactContent(outputText || '');
+        if (!content) return;
+        const out = await writeWorkspaceArtifact(env, ctx, {
+          userId: uid,
+          tenantId: tid,
+          workspaceId: ws,
+          content,
+          artifactType: meta.artifact_type,
+          name: meta.name,
+          source: 'agent_response',
+          sourceRunId: sourceAgentRunId ?? null,
+          sourceSessionId: sourceSessionId ?? null,
+          origin: env?.IAM_ORIGIN ?? null,
+        });
+        if (!out.ok) {
+          console.error('[agentsam_artifacts]', out.user_message || out.error);
         }
-        if (srcSession && cols.has('source_session_id')) {
-          names.push('source_session_id');
-          binds.push(srcSession);
-        }
-        await env.DB.prepare(
-          `INSERT INTO agentsam_artifacts (${names.join(', ')}) VALUES (${names.map(() => '?').join(', ')})`,
-        )
-          .bind(...binds)
-          .run();
       } catch (e) {
         console.warn('[agentsam_artifacts]', e?.message ?? e);
       }

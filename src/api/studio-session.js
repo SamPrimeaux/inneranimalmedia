@@ -184,13 +184,17 @@ export async function handleStudioSessionApi(request, url, env, ctx) {
         }
       }
 
-      const r2Object = await (env.DASHBOARD || env.ASSETS)?.get(artifact.r2_key);
+      const { readWorkspaceArtifact } = await import('../core/artifact-r2-store.js');
+      const r2Object = await readWorkspaceArtifact(env, artifact.r2_key);
       if (!r2Object) return new Response('Artifact file not found', { status: 404 });
 
       const contentTypeMap = {
         html: 'text/html;charset=UTF-8',
         css: 'text/css;charset=UTF-8',
         js: 'text/javascript;charset=UTF-8',
+        tsx: 'text/plain;charset=UTF-8',
+        ts: 'text/plain;charset=UTF-8',
+        sql: 'text/plain;charset=UTF-8',
         json: 'application/json',
         excalidraw: 'application/json',
         markdown: 'text/markdown;charset=UTF-8',

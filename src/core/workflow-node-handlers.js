@@ -153,64 +153,50 @@ const DB_QUERY_HANDLERS = {
 
   async 'db.upsert_agentsam_artifact'(env, input, ctx) {
     const flat = flattenWorkflowInput(input);
-    const cols = await pragmaTableInfo(env.DB, 'agentsam_artifacts');
-    if (!cols.size) return { ok: false, error: 'agentsam_artifacts table missing' };
+    const userId = String(ctx.userId || flat.user_id || '').trim();
+    const workspaceId = String(ctx.workspaceId || flat.workspace_id || '').trim();
+    const tenantId = String(ctx.tenantId || flat.tenant_id || '').trim();
+    if (!userId || !workspaceId || !tenantId) {
+      return { ok: false, error: 'identity_required' };
+    }
 
-    const artifactId = String(flat.artifact_id || flat.id || newId('art'));
-    const r2Key = String(flat.r2_key || flat.r2Key || '').trim();
-    const name = String(flat.name || flat.title || 'workflow artifact').slice(0, 500);
     const content = flat.content ?? flat.body ?? flat.artifact_content;
+    if (content == null) return { ok: false, error: 'content_required' };
 
-    const bucket = env.DASHBOARD || env.ASSETS || env.R2;
-    if (bucket?.put && r2Key && content != null) {
-      const body = typeof content === 'string' ? content : JSON.stringify(content);
-      await bucket.put(r2Key, body, {
-        httpMetadata: { contentType: flat.content_type || 'application/json' },
-      });
-    }
-
-    const row = {
-      id: artifactId,
-      tenant_id: ctx.tenantId,
-      workspace_id: ctx.workspaceId,
-      user_id: ctx.userId,
-      name,
-      description: String(flat.description || '').slice(0, 2000) || null,
-      artifact_type: String(flat.artifact_type || 'json').slice(0, 64),
-      r2_key: r2Key || null,
-      public_url: flat.public_url || flat.url || null,
+    const { writeWorkspaceArtifact, ARTIFACT_WRITE_USER_ERROR } = await import('./artifact-r2-store.js');
+    const body = typeof content === 'string' ? content : JSON.stringify(content);
+    const out = await writeWorkspaceArtifact(env, ctx, {
+      userId,
+      workspaceId,
+      tenantId,
+      artifactId: flat.artifact_id || flat.id || undefined,
+      name: String(flat.name || flat.title || 'workflow artifact').slice(0, 500),
+      description: flat.description != null ? String(flat.description).slice(0, 2000) : null,
+      artifactType: String(flat.artifact_type || 'json').slice(0, 64),
+      content: body,
       source: 'workflow_graph',
-      source_workflow_id: ctx.workflowKey || null,
-      source_run_id: ctx.runId || null,
-      source_session_id:
+      sourceRunId: ctx.runId || null,
+      sourceWorkflowId: ctx.workflowKey || null,
+      sourceSessionId:
         ctx.conversationId || ctx.sessionId || ctx.conversation_id || ctx.session_id || null,
-      file_size_bytes: content != null ? new TextEncoder().encode(String(content)).length : 0,
-      is_public: flat.is_public ? 1 : 0,
-    };
-    if (cols.has('metadata_json')) {
-      row.metadata_json = JSON.stringify({ workflow_run_id: ctx.runId, node: flat.node_key });
-    }
+      isPublic: !!flat.is_public,
+      metadata: { workflow_run_id: ctx.runId, node: flat.node_key },
+      origin: env?.IAM_ORIGIN ?? null,
+    });
 
-    const names = [];
-    const ph = [];
-    const binds = [];
-    for (const [k, v] of Object.entries(row)) {
-      if (v === undefined) continue;
-      if (!cols.has(k.toLowerCase())) continue;
-      names.push(k);
-      ph.push('?');
-      binds.push(v);
+    if (!out.ok) {
+      return { ok: false, error: out.user_message || ARTIFACT_WRITE_USER_ERROR };
     }
-    if (!names.length) return { ok: false, error: 'no insertable artifact columns' };
-
-    const sql = cols.has('updated_at')
-      ? `INSERT OR REPLACE INTO agentsam_artifacts (${names.join(', ')}) VALUES (${ph.join(', ')})`
-      : `INSERT INTO agentsam_artifacts (${names.join(', ')}) VALUES (${ph.join(', ')})`;
-    await env.DB.prepare(sql).bind(...binds).run();
 
     return {
       ok: true,
-      output: { artifact_id: artifactId, r2_key: r2Key, name, registered: true },
+      output: {
+        artifact_id: out.artifact_id,
+        r2_key: out.r2_key,
+        public_url: out.public_url,
+        name: String(flat.name || flat.title || 'workflow artifact'),
+        registered: true,
+      },
     };
   },
 };
@@ -218,21 +204,39 @@ const DB_QUERY_HANDLERS = {
 const SCRIPT_HANDLERS = {
   async 'script.r2_put_artifact'(env, input, ctx) {
     const flat = flattenWorkflowInput(input);
-    const bucket = env.DASHBOARD || env.ASSETS;
-    if (!bucket?.put) return { ok: false, error: 'No R2 binding (DASHBOARD/ASSETS)' };
-    const r2Key = String(flat.r2_key || flat.key || `artifacts/workflow/${ctx.runId || 'run'}/${Date.now()}.json`);
+    const userId = String(ctx.userId || flat.user_id || '').trim();
+    const workspaceId = String(ctx.workspaceId || flat.workspace_id || '').trim();
+    const tenantId = String(ctx.tenantId || flat.tenant_id || '').trim();
+    if (!userId || !workspaceId || !tenantId) {
+      return { ok: false, error: 'identity_required' };
+    }
     const body =
       flat.content ?? flat.body ?? flat.artifact_content ?? JSON.stringify(flat, null, 2);
     const text = typeof body === 'string' ? body : JSON.stringify(body);
-    await bucket.put(r2Key, text, {
-      httpMetadata: { contentType: flat.content_type || 'application/json' },
+    const { writeWorkspaceArtifact, ARTIFACT_WRITE_USER_ERROR } = await import('./artifact-r2-store.js');
+    const out = await writeWorkspaceArtifact(env, ctx, {
+      userId,
+      workspaceId,
+      tenantId,
+      content: text,
+      artifactType: String(flat.artifact_type || 'json').slice(0, 64),
+      name: String(flat.name || 'workflow artifact').slice(0, 500),
+      source: 'workflow_script',
+      sourceRunId: ctx.runId || null,
+      sourceWorkflowId: ctx.workflowKey || null,
+      origin: env?.IAM_ORIGIN ?? null,
     });
+    if (!out.ok) {
+      return { ok: false, error: out.user_message || ARTIFACT_WRITE_USER_ERROR };
+    }
     return {
       ok: true,
       output: {
-        r2_key: r2Key,
-        bytes: new TextEncoder().encode(text).length,
-        bucket: 'DASHBOARD',
+        artifact_id: out.artifact_id,
+        r2_key: out.r2_key,
+        public_url: out.public_url,
+        bytes: out.file_size_bytes,
+        bucket: 'AUTORAG_BUCKET',
       },
     };
   },

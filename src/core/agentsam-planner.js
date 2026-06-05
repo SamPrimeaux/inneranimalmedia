@@ -734,14 +734,18 @@ export async function createPlan(
   let visual_map = null;
   let visual_map_error = null;
   const uidForArt = canonicalUser || uidRaw;
-  if (env.DASHBOARD && uidForArt && String(ws0).trim() && tasks.length >= 2) {
+  if (env.AUTORAG_BUCKET?.put && uidForArt && String(ws0).trim() && tasks.length >= 2) {
     try {
-      const vm = await createPlanExcalidrawArtifact(env, {
-        tenantId: tid0,
-        workspaceId: String(ws0).trim(),
-        userId: String(uidForArt),
-        planId: pid,
-      });
+      const vm = await createPlanExcalidrawArtifact(
+        env,
+        {
+          tenantId: tid0,
+          workspaceId: String(ws0).trim(),
+          userId: String(uidForArt),
+          planId: pid,
+        },
+        ctx,
+      );
       visual_map = {
         artifact_id: vm.artifact_id,
         r2_key: vm.r2_key,
@@ -754,14 +758,18 @@ export async function createPlan(
 
   let plan_markdown = null;
   let plan_markdown_error = null;
-  if (env.DASHBOARD && uidForArt && String(ws0).trim()) {
+  if (env.AUTORAG_BUCKET?.put && uidForArt && String(ws0).trim()) {
     try {
-      const pm = await createPlanMarkdownArtifact(env, {
-        tenantId: tid0,
-        workspaceId: String(ws0).trim(),
-        userId: String(uidForArt),
-        planId: pid,
-      });
+      const pm = await createPlanMarkdownArtifact(
+        env,
+        {
+          tenantId: tid0,
+          workspaceId: String(ws0).trim(),
+          userId: String(uidForArt),
+          planId: pid,
+        },
+        ctx,
+      );
       plan_markdown = {
         artifact_id: pm.artifact_id,
         r2_key: pm.r2_key,

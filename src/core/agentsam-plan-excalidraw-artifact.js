@@ -1,20 +1,8 @@
 /**
- * Persist plan artifacts (Excalidraw JSON, Markdown) in R2 + agentsam_artifacts (D1).
+ * Persist plan artifacts (Excalidraw JSON, Markdown) in AUTORAG_BUCKET/workspaces/ + agentsam_artifacts (D1).
  */
 
-import { pragmaTableInfo } from './retention.js';
-import { buildExcalidrawPlanScene } from './agentsam-excalidraw-plan.js';
-import { buildPlanMarkdown } from './agentsam-plan-markdown.js';
-
-function newArtifactId() {
-  const b = crypto.getRandomValues(new Uint8Array(8));
-  return `art_${Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('')}`;
-}
-
-function iamOrigin(env) {
-  const o = env?.IAM_ORIGIN != null ? String(env.IAM_ORIGIN).trim().replace(/\/$/, '') : '';
-  return o || 'https://inneranimalmedia.com';
-}
+import { writeWorkspaceArtifact, ARTIFACT_WRITE_USER_ERROR } from './artifact-r2-store.js';
 
 /**
  * @param {any} env
@@ -39,15 +27,14 @@ async function loadPlanAndTasksForArtifact(env, p) {
 
 /**
  * @param {any} env
+ * @param {any} ctx
  * @param {{
  *   userId: string,
  *   tenantId: string,
  *   workspaceId: string,
  *   planId: string,
  *   planTitle: string,
- *   r2Key: string,
  *   body: string,
- *   putContentType: string,
  *   artifactType: string,
  *   name: string,
  *   description: string,
@@ -57,68 +44,30 @@ async function loadPlanAndTasksForArtifact(env, p) {
  *   sourceSessionId?: string|null,
  * }} row
  */
-async function putR2AndInsertPlanArtifact(env, row) {
-  const cols = await pragmaTableInfo(env.DB, 'agentsam_artifacts');
-  if (!cols.size) throw new Error('agentsam_artifacts table missing');
-
-  const bytes = new TextEncoder().encode(row.body);
-  await env.DASHBOARD.put(row.r2Key, row.body, {
-    httpMetadata: { contentType: row.putContentType },
-  });
-
-  const artifactId = newArtifactId();
-  const origin = iamOrigin(env);
-  const publicUrl = `${origin}/api/artifacts/${encodeURIComponent(artifactId)}/content`;
-
-  const ins = {
-    id: artifactId,
-    user_id: row.userId,
-    tenant_id: row.tenantId,
-    workspace_id: row.workspaceId,
-    name: row.name.slice(0, 500),
-    description: row.description.slice(0, 2000),
-    artifact_type: row.artifactType,
-    r2_key: row.r2Key,
-    public_url: publicUrl,
+async function putR2AndInsertPlanArtifact(env, ctx, row) {
+  const out = await writeWorkspaceArtifact(env, ctx, {
+    userId: row.userId,
+    tenantId: row.tenantId,
+    workspaceId: row.workspaceId,
+    content: row.body,
+    artifactType: row.artifactType,
+    name: row.name,
+    description: row.description,
     source: 'agentsam_plan',
-    tags: JSON.stringify(row.tags),
-    file_size_bytes: bytes.byteLength,
-    is_public: 0,
-  };
-
-  if (cols.has('metadata_json')) {
-    ins.metadata_json = JSON.stringify({ plan_id: row.planId, kind: row.metadataKind });
+    sourceRunId: row.sourceRunId ?? null,
+    sourceSessionId: row.sourceSessionId ?? null,
+    tags: row.tags,
+    metadata: { plan_id: row.planId, kind: row.metadataKind },
+    origin: env?.IAM_ORIGIN ?? null,
+  });
+  if (!out.ok) {
+    throw new Error(out.user_message || ARTIFACT_WRITE_USER_ERROR);
   }
-  if (row.sourceRunId && cols.has('source_run_id')) {
-    ins.source_run_id = String(row.sourceRunId).trim().slice(0, 120);
-  }
-  if (row.sourceSessionId && cols.has('source_session_id')) {
-    ins.source_session_id = String(row.sourceSessionId).trim().slice(0, 200);
-  }
-
-  const names = [];
-  const ph = [];
-  const binds = [];
-  for (const [k, v] of Object.entries(ins)) {
-    if (v === undefined) continue;
-    const kl = k.toLowerCase();
-    if (!cols.has(kl)) continue;
-    names.push(k);
-    ph.push('?');
-    binds.push(v);
-  }
-  if (!names.length) throw new Error('agentsam_artifacts: no insertable columns');
-
-  await env.DB
-    .prepare(`INSERT INTO agentsam_artifacts (${names.join(', ')}) VALUES (${ph.join(', ')})`)
-    .bind(...binds)
-    .run();
-
   return {
-    artifact_id: artifactId,
-    r2_key: row.r2Key,
-    public_url: publicUrl,
-    open_url: publicUrl,
+    artifact_id: out.artifact_id,
+    r2_key: out.r2_key,
+    public_url: out.public_url,
+    open_url: out.open_url,
     plan_id: row.planId,
   };
 }
@@ -126,9 +75,10 @@ async function putR2AndInsertPlanArtifact(env, row) {
 /**
  * @param {any} env
  * @param {{ tenantId: string, workspaceId: string, userId: string, planId: string, sourceRunId?: string|null, sourceSessionId?: string|null }} p
+ * @param {any} [ctx]
  * @returns {Promise<{ artifact_id: string, r2_key: string, public_url: string, plan_id: string, open_url: string }>}
  */
-export async function createPlanExcalidrawArtifact(env, p) {
+export async function createPlanExcalidrawArtifact(env, p, ctx = null) {
   if (!env?.DB) throw new Error('DB not available');
   const tenantId = String(p.tenantId || '').trim();
   const workspaceId = String(p.workspaceId || '').trim();
@@ -138,25 +88,21 @@ export async function createPlanExcalidrawArtifact(env, p) {
   if (!workspaceId) throw new Error('workspace_id required');
   if (!userId) throw new Error('user_id required');
   if (!planId) throw new Error('plan_id required');
-  if (!env.DASHBOARD || typeof env.DASHBOARD.put !== 'function') {
-    throw new Error('DASHBOARD R2 binding not available');
-  }
+  if (!env.AUTORAG_BUCKET?.put) throw new Error('AUTORAG_BUCKET binding not available');
 
+  const { buildExcalidrawPlanScene } = await import('./agentsam-excalidraw-plan.js');
   const { plan, tasks } = await loadPlanAndTasksForArtifact(env, p);
   const scene = buildExcalidrawPlanScene({ plan, tasks });
   const json = JSON.stringify(scene);
-  const r2Key = `agentsam/plans/${workspaceId}/${planId}/plan-map.excalidraw`;
   const planTitle = String(plan.title || 'Plan').slice(0, 400);
 
-  return putR2AndInsertPlanArtifact(env, {
+  return putR2AndInsertPlanArtifact(env, ctx, {
     userId,
     tenantId,
     workspaceId,
     planId,
     planTitle,
-    r2Key,
     body: json,
-    putContentType: 'application/json',
     artifactType: 'excalidraw',
     name: `${planTitle} - Plan Map`,
     description: `Excalidraw plan map for ${planId}`,
@@ -170,9 +116,10 @@ export async function createPlanExcalidrawArtifact(env, p) {
 /**
  * @param {any} env
  * @param {{ tenantId: string, workspaceId: string, userId: string, planId: string, sourceRunId?: string|null, sourceSessionId?: string|null }} p
+ * @param {any} [ctx]
  * @returns {Promise<{ artifact_id: string, r2_key: string, public_url: string, plan_id: string, open_url: string }>}
  */
-export async function createPlanMarkdownArtifact(env, p) {
+export async function createPlanMarkdownArtifact(env, p, ctx = null) {
   if (!env?.DB) throw new Error('DB not available');
   const tenantId = String(p.tenantId || '').trim();
   const workspaceId = String(p.workspaceId || '').trim();
@@ -182,24 +129,20 @@ export async function createPlanMarkdownArtifact(env, p) {
   if (!workspaceId) throw new Error('workspace_id required');
   if (!userId) throw new Error('user_id required');
   if (!planId) throw new Error('plan_id required');
-  if (!env.DASHBOARD || typeof env.DASHBOARD.put !== 'function') {
-    throw new Error('DASHBOARD R2 binding not available');
-  }
+  if (!env.AUTORAG_BUCKET?.put) throw new Error('AUTORAG_BUCKET binding not available');
 
+  const { buildPlanMarkdown } = await import('./agentsam-plan-markdown.js');
   const { plan, tasks } = await loadPlanAndTasksForArtifact(env, p);
   const md = buildPlanMarkdown({ plan, tasks });
-  const r2Key = `agentsam/plans/${workspaceId}/${planId}/plan.md`;
   const planTitle = String(plan.title || 'Plan').slice(0, 400);
 
-  return putR2AndInsertPlanArtifact(env, {
+  return putR2AndInsertPlanArtifact(env, ctx, {
     userId,
     tenantId,
     workspaceId,
     planId,
     planTitle,
-    r2Key,
     body: md,
-    putContentType: 'text/markdown;charset=UTF-8',
     artifactType: 'markdown',
     name: `${planTitle} - Plan.md`,
     description: `Markdown plan export for ${planId}`,
