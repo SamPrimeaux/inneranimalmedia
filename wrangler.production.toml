@@ -108,6 +108,11 @@ index_name = "agentsam-schema-oai3large-1536"
 binding = "AGENTSAM_VECTORIZE_MEMORY"
 index_name = "agentsam-memory-oai3large-1536"
 
+# MovieMode / media — Gemini gemini-embedding-2 @1536 (never mix OpenAI vectors here).
+[[vectorize]]
+binding = "AGENTSAM_VECTORIZE_MEDIA"
+index_name = "agentsam-moviemode-gemini2-1536"
+
 # Dashboard labels: KV → MCP_TOKENS, SESSION_CACHE → production-KV_SESSIONS
 [[kv_namespaces]]
 binding = "KV"

@@ -14,10 +14,10 @@ import {
 } from '../core/hyperdrive-query.js';
 import {
   embeddingPolicy,
-  googleEmbeddingApiModelId,
   resolveMultimodalEmbeddingRoute,
   EMBEDDING_DIMS,
 } from '../core/embedding-routes.js';
+import { embedMultimodalContent } from '../core/multimodal-embedding.js';
 import {
   AGENTSAM_VECTOR_DIM,
   agentsamEmbeddingDims,
@@ -150,12 +150,14 @@ export const RAG_EMBED_LANE_MULTIMODAL = 'multimodal';
  * @param {any} env
  * @param {string} text
  * @param {RagEmbedLane} [lane='text_default']
- * @returns {Promise<{ embedding: number[], provider: 'ollama' | 'openai' | 'workers_ai' | 'google' }>}
+ * @param {{ parts?: import('../core/multimodal-embedding.js').MultimodalContentPart[] }} [options]
+ * @returns {Promise<{ embedding: number[], provider: 'ollama' | 'openai' | 'workers_ai' | 'google', model?: string, dimensions?: number }>}
  */
-export async function createEmbedding(env, text, lane = RAG_EMBED_LANE_TEXT_DEFAULT) {
+export async function createEmbedding(env, text, lane = RAG_EMBED_LANE_TEXT_DEFAULT, options = {}) {
   const input = String(text ?? '');
   const laneNorm = String(lane || RAG_EMBED_LANE_TEXT_DEFAULT).trim();
   const dim = RAG_SUPABASE_VECTOR_DIM;
+  const multimodalParts = Array.isArray(options?.parts) ? options.parts : null;
 
   async function embedTextDefault() {
     /** @type {string|null} */
@@ -226,41 +228,16 @@ export async function createEmbedding(env, text, lane = RAG_EMBED_LANE_TEXT_DEFA
 
   if (laneNorm === RAG_EMBED_LANE_MULTIMODAL) {
     const route = resolveMultimodalEmbeddingRoute();
-    const apiKey = String(
-      env.GOOGLE_AI_API_KEY || env.GEMINI_API_KEY || env.GOOGLE_API_KEY || '',
-    ).trim();
-    if (!apiKey) {
-      throw new Error(
-        `multimodal_embedding_unavailable: ${embeddingPolicy.multimodalAssetSearch} requires Google API key`,
-      );
-    }
-    const dim = Number(
+    const embedDim = Number(
       env.RAG_MULTIMODAL_EMBEDDING_DIMENSIONS || route.dimensions || EMBEDDING_DIMS.balancedProductionRag,
     );
-    const modelId = googleEmbeddingApiModelId(
-      env.RAG_MULTIMODAL_EMBEDDING_MODEL || route.model,
-    );
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelId)}:embedContent?key=${encodeURIComponent(apiKey)}`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: `models/${modelId}`,
-          content: { parts: [{ text: input }] },
-          outputDimensionality: dim,
-        }),
+      return await embedMultimodalContent(env, {
+        text: input,
+        parts: multimodalParts || undefined,
+        dimensions: embedDim,
+        modelKey: env.RAG_MULTIMODAL_EMBEDDING_MODEL || route.model,
       });
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(d?.error?.message || `Gemini embed HTTP ${res.status}`);
-      }
-      let emb = d?.embedding?.values;
-      if (!Array.isArray(emb) && Array.isArray(d?.embedding)) emb = d.embedding;
-      if (Array.isArray(emb) && emb.length === dim) {
-        return { embedding: emb, provider: 'google', model: modelId, dimensions: dim };
-      }
-      throw new Error(`Gemini embed: expected ${dim} dimensions, got ${emb?.length ?? 0}`);
     } catch (e) {
       throw new Error(
         e?.message != null

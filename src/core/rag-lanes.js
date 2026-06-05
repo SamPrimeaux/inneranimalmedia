@@ -27,6 +27,13 @@ export const LANES = {
     vectorize: null,
     supabase_table: 'agentsam_deep_archive_oai3large_3072',
   },
+  media: {
+    name: 'media',
+    vectorize: 'AGENTSAM_VECTORIZE_MEDIA',
+    supabase_table: null,
+    embed_lane: 'multimodal',
+    embed_model: 'gemini-embedding-2',
+  },
 };
 
 function resolveLaneConfig(laneName) {

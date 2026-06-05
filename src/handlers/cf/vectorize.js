@@ -3,9 +3,15 @@
  */
 import { createAgentsamEmbedding } from '../../core/agentsam-vectorize.js';
 import { resolveAgentsamEmbeddingSpecForDimensions } from '../../core/agentsam-vectorize-index.js';
+import {
+  RAG_EMBED_LANE_MULTIMODAL,
+  createEmbedding,
+} from '../../api/rag.js';
+import { MULTIMODAL_EMBED_DIMS } from '../../core/multimodal-embedding.js';
 
 const LANE_DIM = 1536;
 const EMBED_SPEC_1536 = resolveAgentsamEmbeddingSpecForDimensions(LANE_DIM);
+const MEDIA_INDEX_NAME = 'agentsam-moviemode-gemini2-1536';
 
 /** @type {Record<string, string>} */
 const INDEX_ALIASES = {
@@ -14,12 +20,15 @@ const INDEX_ALIASES = {
   'agentsam-memory-oai3large-1536': 'AGENTSAM_VECTORIZE_MEMORY',
   'agentsam-schema-oai3large-1536': 'AGENTSAM_VECTORIZE_SCHEMA',
   'agentsam-documents-oai3large-1536': 'AGENTSAM_VECTORIZE_DOCUMENTS',
+  [MEDIA_INDEX_NAME]: 'AGENTSAM_VECTORIZE_MEDIA',
   code: 'AGENTSAM_VECTORIZE_CODE',
   courses: 'AGENTSAM_VECTORIZE_COURSES',
   memory: 'AGENTSAM_VECTORIZE_MEMORY',
   schema: 'AGENTSAM_VECTORIZE_SCHEMA',
   documents: 'AGENTSAM_VECTORIZE_DOCUMENTS',
   docs: 'AGENTSAM_VECTORIZE_DOCUMENTS',
+  media: 'AGENTSAM_VECTORIZE_MEDIA',
+  moviemode: 'AGENTSAM_VECTORIZE_MEDIA',
 };
 
 function trim(v) {
@@ -31,7 +40,9 @@ function buildBindingMap(env) {
   /** @type {Record<string, string>} */
   const map = {};
   for (const [indexName, bindingName] of Object.entries(INDEX_ALIASES)) {
-    if (indexName.includes('-oai3large-') && env?.[bindingName]) {
+    const isOai = indexName.includes('-oai3large-');
+    const isMedia = indexName === MEDIA_INDEX_NAME;
+    if ((isOai || isMedia) && env?.[bindingName]) {
       map[indexName] = bindingName;
     }
   }
@@ -55,6 +66,7 @@ function resolveVectorizeBinding(env, indexName) {
 
 /** @param {string} key @param {string} bindingName */
 function canonicalIndexName(key, bindingName) {
+  if (bindingName === 'AGENTSAM_VECTORIZE_MEDIA') return MEDIA_INDEX_NAME;
   for (const [name, binding] of Object.entries(INDEX_ALIASES)) {
     if (binding === bindingName && name.includes('-oai3large-')) return name;
   }
@@ -64,9 +76,35 @@ function canonicalIndexName(key, bindingName) {
 function listValidIndexes(env) {
   const out = [];
   for (const [name, bindingName] of Object.entries(INDEX_ALIASES)) {
-    if (name.includes('-oai3large-') && env?.[bindingName]) out.push(name);
+    const isOai = name.includes('-oai3large-');
+    const isMedia = name === MEDIA_INDEX_NAME;
+    if ((isOai || isMedia) && env?.[bindingName]) out.push(name);
   }
   return out;
+}
+
+/** @param {string} indexName */
+function isMultimodalMediaIndex(indexName) {
+  return String(indexName || '').trim() === MEDIA_INDEX_NAME;
+}
+
+/**
+ * @param {any} env
+ * @param {string} queryText
+ * @param {string|null} userId
+ * @param {Record<string, unknown>} [input]
+ */
+async function embedForIndex(env, indexName, queryText, userId, input = {}) {
+  if (isMultimodalMediaIndex(indexName)) {
+    const parts = Array.isArray(input?.parts) ? input.parts : null;
+    const { embedding } = await createEmbedding(env, queryText, RAG_EMBED_LANE_MULTIMODAL, { parts });
+    return embedding;
+  }
+  const { embedding } = await createAgentsamEmbedding(env, queryText, {
+    spec: EMBED_SPEC_1536,
+    userId,
+  });
+  return embedding;
 }
 
 function sanitizeMetadata(metadata) {
@@ -121,11 +159,7 @@ export async function handleCfVectorizeManage(env, input, scope = {}) {
 
     if ((!vector || !vector.length) && queryText) {
       try {
-        const { embedding } = await createAgentsamEmbedding(env, queryText, {
-          spec: EMBED_SPEC_1536,
-          userId,
-        });
-        vector = embedding;
+        vector = await embedForIndex(env, indexName, queryText, userId, input);
       } catch (e) {
         return { ok: false, error: 'embedding_failed', message: String(e?.message || e) };
       }
@@ -134,12 +168,13 @@ export async function handleCfVectorizeManage(env, input, scope = {}) {
     if (!Array.isArray(vector) || !vector.length) {
       return { ok: false, error: 'vector or query required for query operation' };
     }
-    if (vector.length !== LANE_DIM) {
+    const expectedDim = isMultimodalMediaIndex(indexName) ? MULTIMODAL_EMBED_DIMS : LANE_DIM;
+    if (vector.length !== expectedDim) {
       return {
         ok: false,
         error: 'invalid_vector_dimensions',
         got: vector.length,
-        expected: LANE_DIM,
+        expected: expectedDim,
       };
     }
 
@@ -173,11 +208,7 @@ export async function handleCfVectorizeManage(env, input, scope = {}) {
     const text = trim(input?.text || input?.content || input?.value);
     if ((!vector || !vector.length) && text) {
       try {
-        const { embedding } = await createAgentsamEmbedding(env, text, {
-          spec: EMBED_SPEC_1536,
-          userId,
-        });
-        vector = embedding;
+        vector = await embedForIndex(env, indexName, text, userId, input);
       } catch (e) {
         return { ok: false, error: 'embedding_failed', message: String(e?.message || e) };
       }
@@ -186,12 +217,13 @@ export async function handleCfVectorizeManage(env, input, scope = {}) {
     if (!Array.isArray(vector) || !vector.length) {
       return { ok: false, error: 'vector or text required for upsert' };
     }
-    if (vector.length !== LANE_DIM) {
+    const expectedDimUpsert = isMultimodalMediaIndex(indexName) ? MULTIMODAL_EMBED_DIMS : LANE_DIM;
+    if (vector.length !== expectedDimUpsert) {
       return {
         ok: false,
         error: 'invalid_vector_dimensions',
         got: vector.length,
-        expected: LANE_DIM,
+        expected: expectedDimUpsert,
       };
     }
 

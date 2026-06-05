@@ -12,6 +12,7 @@ export const SEMANTIC_LANE_KEYS = Object.freeze([
   'schema_semantic_search',
   'memory_semantic_search',
   'docs_knowledge_search',
+  'media_semantic_search',
   'deep_archive_search',
 ]);
 
@@ -44,6 +45,14 @@ export const SEMANTIC_LANE_REGISTRY = Object.freeze({
     binding: 'AGENTSAM_VECTORIZE_DOCUMENTS',
     tables: ['agentsam_documents_oai3large_1536'],
     dims: 1536,
+  },
+  media_semantic_search: {
+    laneKey: 'media_semantic_search',
+    ragLane: 'media',
+    binding: 'AGENTSAM_VECTORIZE_MEDIA',
+    tables: [],
+    dims: 1536,
+    embedModel: 'gemini-embedding-2',
   },
   deep_archive_search: {
     laneKey: 'deep_archive_search',
@@ -454,6 +463,64 @@ export async function dispatchSemanticRetrieval(env, opts) {
         ...cached,
         duration_ms: Date.now() - t0,
         cached: true,
+      };
+    }
+  }
+
+  if (lane === 'media_semantic_search') {
+    try {
+      const { searchMovieModeMedia } = await import('./moviemode-media-vectorize.js');
+      const out = await searchMovieModeMedia(env, {
+        workspaceId: workspaceIdD1,
+        query,
+        topK,
+        projectId: opts.project_id || null,
+        mediaKind: opts.media_kind || null,
+      });
+      const results = (out.results || []).map((r) => ({
+        lane,
+        id: String(r.asset_id || ''),
+        title: String(r.filename || r.asset_id || 'media'),
+        content: [r.media_kind, r.filename, r.object_key].filter(Boolean).join(' · '),
+        source_ref: String(r.object_key || ''),
+        file_path: String(r.object_key || ''),
+        score: Number(r.score) || 0,
+        metadata: {
+          bucket: r.bucket,
+          media_kind: r.media_kind,
+          content_type: r.content_type,
+          project_id: r.project_id,
+        },
+      }));
+      const payload = {
+        ok: out.ok !== false,
+        lane,
+        backend: 'cloudflare_vectorize',
+        binding: reg.binding,
+        table: 'media_assets',
+        query_hash: queryHash,
+        results,
+        result_count: results.length,
+        duration_ms: Date.now() - t0,
+        fallback_used: false,
+        embed_model: out.model || reg.embedModel || 'gemini-embedding-2',
+      };
+      await writeSemanticCache(env, cacheKey, payload);
+      return payload;
+    } catch (e) {
+      return {
+        ok: false,
+        lane,
+        backend: 'cloudflare_vectorize',
+        binding: reg.binding,
+        table: 'media_assets',
+        query_hash: queryHash,
+        results: [],
+        result_count: 0,
+        duration_ms: Date.now() - t0,
+        fallback_used: false,
+        degraded_reason: 'media_search_failed',
+        error: e?.message ? String(e.message) : String(e),
       };
     }
   }

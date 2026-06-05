@@ -142,7 +142,88 @@ export async function handleMoviemodeApi(request, url, env, ctx) {
         body.etag || null,
       )
       .run();
+
+    const indexForSearch = body.index_for_search === true || body.index === true;
+    if (indexForSearch) {
+      const row = await env.DB.prepare(
+        `SELECT * FROM media_assets WHERE workspace_id = ? AND bucket = ? AND object_key = ? LIMIT 1`,
+      )
+        .bind(workspaceId, bucket, object_key)
+        .first();
+      if (row) {
+        try {
+          const { indexMediaAssetForSearch } = await import('../core/moviemode-media-vectorize.js');
+          const indexed = await indexMediaAssetForSearch(env, row, {
+            caption: body.caption || body.description || null,
+            transcript: body.transcript || null,
+            force: !!body.force_reindex,
+          });
+          return jsonResponse({ ok: true, id: row.id, bucket, object_key, index: indexed });
+        } catch (e) {
+          return jsonResponse({
+            ok: true,
+            id: row.id,
+            bucket,
+            object_key,
+            index: { ok: false, error: String(e?.message || e).slice(0, 300) },
+          });
+        }
+      }
+    }
+
     return jsonResponse({ ok: true, id, bucket, object_key });
+  }
+
+  if (path === '/api/moviemode/search' && method === 'POST') {
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {
+      body = {};
+    }
+    const query = String(body.query || body.q || '').trim();
+    if (!query) return jsonResponse({ error: 'query required' }, 400);
+    try {
+      const { searchMovieModeMedia } = await import('../core/moviemode-media-vectorize.js');
+      const out = await searchMovieModeMedia(env, {
+        workspaceId,
+        query,
+        topK: body.top_k ?? body.limit ?? 12,
+        projectId: body.project_id || null,
+        mediaKind: body.media_kind || null,
+      });
+      return jsonResponse(out);
+    } catch (e) {
+      return jsonResponse({ ok: false, error: String(e?.message || e).slice(0, 400) }, 502);
+    }
+  }
+
+  if (path === '/api/media/assets/index' && method === 'POST') {
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {
+      body = {};
+    }
+    const assetId = String(body.asset_id || body.id || '').trim();
+    if (!assetId) return jsonResponse({ error: 'asset_id required' }, 400);
+    const row = await env.DB.prepare(
+      `SELECT * FROM media_assets WHERE id = ? AND workspace_id = ? LIMIT 1`,
+    )
+      .bind(assetId, workspaceId)
+      .first();
+    if (!row) return jsonResponse({ error: 'Not found' }, 404);
+    try {
+      const { indexMediaAssetForSearch } = await import('../core/moviemode-media-vectorize.js');
+      const indexed = await indexMediaAssetForSearch(env, row, {
+        caption: body.caption || body.description || null,
+        transcript: body.transcript || null,
+        force: body.force !== false,
+      });
+      return jsonResponse({ ok: true, asset_id: assetId, index: indexed });
+    } catch (e) {
+      return jsonResponse({ ok: false, error: String(e?.message || e).slice(0, 400) }, 502);
+    }
   }
 
   if (path === '/api/moviemode/render-jobs' && method === 'POST') {
