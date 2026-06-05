@@ -858,6 +858,16 @@ export async function handleAgentsamWorkspacesApi(request, url, env, ctx, authUs
 
       await db.prepare(`UPDATE workspaces SET ${sets.join(', ')} WHERE id = ?`).bind(...binds).run();
 
+      if (col.github_repo !== undefined) {
+        await db
+          .prepare(
+            `UPDATE agentsam_workspace SET github_repo = ?, updated_at = unixepoch() WHERE id = ?`,
+          )
+          .bind(col.github_repo, workspaceId)
+          .run()
+          .catch(() => {});
+      }
+
       const newRow = await db.prepare(`SELECT * FROM workspaces WHERE id = ?`).bind(workspaceId).first();
 
       await insertAuditLog(db, {

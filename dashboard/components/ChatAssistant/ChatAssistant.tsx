@@ -199,7 +199,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   activePlanId,
   onActivePlanChange,
 }) => {
-  const { sessionUserId, workspaceId: ctxWorkspaceId, workspaces } = useWorkspace();
+  const { sessionUserId, workspaceId: ctxWorkspaceId, workspaces, persistGithubRepo } = useWorkspace();
   const effectiveWsId = (workspaceId || ctxWorkspaceId || '').trim() || null;
 
   const saveGithubRepoSelection = useCallback(
@@ -210,8 +210,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       } catch {
         /* ignore */
       }
+      void persistGithubRepo(full, effectiveWsId);
     },
-    [sessionUserId, effectiveWsId],
+    [sessionUserId, effectiveWsId, persistGithubRepo],
   );
 
   const agentsamPolicyRef = useRef<Record<string, unknown> | null>(null);

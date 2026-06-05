@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import type { ActiveFile } from '../types';
 import { SetiFileIcon } from '../src/components/SetiFileIcon';
+import { useWorkspace } from '../src/context/WorkspaceContext';
 
 type GhItem = {
   name: string;
@@ -49,6 +50,8 @@ export const GitHubExplorer: React.FC<{
   onExpandRepoConsumed?: () => void;
   workspace_id?: string | null;
 }> = ({ onOpenInEditor, expandRepoFullName, onExpandRepoConsumed, workspace_id = null }) => {
+  const { workspaceId: ctxWorkspaceId, persistGithubRepo } = useWorkspace();
+  const effectiveWorkspaceId = (workspace_id?.trim() || ctxWorkspaceId || '').trim() || null;
   const [isAuthenticated, setIsAuthenticated] = useState(true);
   /** True when repo list returned 404 — show “Reconnect” copy vs first-time connect. */
   const [reconnectAfterReposFailure, setReconnectAfterReposFailure] = useState(false);
@@ -311,6 +314,7 @@ export const GitHubExplorer: React.FC<{
     setExpandedRepo(fullName);
     setPathByRepo((p) => ({ ...p, [fullName]: '' }));
     void loadContents(fullName, '', defaultBranchFor(fullName));
+    if (effectiveWorkspaceId) void persistGithubRepo(fullName, effectiveWorkspaceId);
   };
 
   const enterDir = (fullName: string, path: string) => {

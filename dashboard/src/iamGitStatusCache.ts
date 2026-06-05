@@ -43,3 +43,12 @@ export function isIamGitStatusCacheFresh(cache: IamGitStatusCache | null): boole
   if (!cache) return false;
   return Date.now() - cache.fetchedAt < IAM_GIT_STATUS_TTL_MS;
 }
+
+export function clearIamGitStatusCache(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    sessionStorage.removeItem(IAM_GIT_STATUS_SESSION_KEY);
+  } catch {
+    /* ignore */
+  }
+}

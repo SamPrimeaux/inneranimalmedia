@@ -2125,6 +2125,12 @@ const App: React.FC = () => {
     if (sessionUserId) void fetchGitAndProblems();
   }, [sessionUserId, authWorkspaceId, fetchGitAndProblems]);
 
+  useEffect(() => {
+    const onGithubRepo = () => void fetchGitAndProblems();
+    window.addEventListener('iam_workspace_github_repo', onGithubRepo);
+    return () => window.removeEventListener('iam_workspace_github_repo', onGithubRepo);
+  }, [fetchGitAndProblems]);
+
   const fetchLiveStatus = useCallback(async () => {
     const cred = { credentials: 'same-origin' as const };
 

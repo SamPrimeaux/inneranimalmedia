@@ -12,6 +12,8 @@ import {
   type IamWorkspaceSessionPayload,
   type IamWorkspaceSettingsRow,
 } from "../iamWorkspaceStorage";
+import { clearIamGitStatusCache } from "../iamGitStatusCache";
+import { normalizeGithubRepo } from "../normalizeGithubRepo";
 
 export type WorkspaceRow = {
   id: string;
@@ -36,6 +38,8 @@ type WorkspaceContextValue = {
     id: string,
     meta?: { displayName?: string; slug?: string; github_repo?: string | null; sync?: boolean },
   ) => Promise<void>;
+  /** Persist repo pick to D1 workspaces.github_repo (status bar + git SSOT). */
+  persistGithubRepo: (repoFullName: string, workspaceIdOverride?: string | null) => Promise<void>;
 };
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
@@ -241,6 +245,38 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     void switchWorkspace(id, { sync: false });
   }, [switchWorkspace]);
 
+  const persistGithubRepo = useCallback(
+    async (repoFullName: string, workspaceIdOverride?: string | null) => {
+      const wsId = (workspaceIdOverride ?? workspaceId ?? "").trim();
+      const normalized = normalizeGithubRepo(repoFullName);
+      if (!wsId || !normalized) return;
+
+      const current = workspaces.find((w) => w.id === wsId)?.github_repo?.trim() || null;
+      if (current === normalized) return;
+
+      setWorkspaces((prev) =>
+        prev.map((w) => (w.id === wsId ? { ...w, github_repo: normalized } : w)),
+      );
+      patchIamWorkspaceSessionCurrent(wsId, { github_repo: normalized });
+      clearIamGitStatusCache();
+
+      try {
+        const r = await fetch(`/api/workspaces/${encodeURIComponent(wsId)}`, {
+          method: "PATCH",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ github_repo: normalized }),
+        });
+        if (r.ok) {
+          window.dispatchEvent(new CustomEvent("iam_workspace_github_repo", { detail: { workspaceId: wsId, github_repo: normalized } }));
+        }
+      } catch {
+        /* local cache already updated */
+      }
+    },
+    [workspaceId, workspaces],
+  );
+
   useEffect(() => {
     if (bootstrapDoneRef.current) return;
     bootstrapDoneRef.current = true;
@@ -321,8 +357,9 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       loading,
       refreshWorkspaces,
       switchWorkspace,
+      persistGithubRepo,
     }),
-    [sessionUserId, workspaceId, setWorkspaceId, workspaces, displayName, loading, refreshWorkspaces, switchWorkspace],
+    [sessionUserId, workspaceId, setWorkspaceId, workspaces, displayName, loading, refreshWorkspaces, switchWorkspace, persistGithubRepo],
   );
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;
