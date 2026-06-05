@@ -125,6 +125,9 @@ const MonacoEditorView = lazy(() =>
 const LaunchDeskPage = lazy(() =>
   import('./pages/LaunchDeskPage').then((m) => ({ default: m.LaunchDeskPage })),
 );
+const DocsPage = lazy(() =>
+  import('./pages/DocsPage').then((m) => ({ default: m.DocsPage })),
+);
 
 function DashboardRoutesFallback() {
   return (
@@ -3242,7 +3245,22 @@ const App: React.FC = () => {
                       <Route path="/dashboard/health/*" element={<Navigate to="/dashboard/analytics" replace />} />
                       <Route path="/dashboard/learn" element={<LearnPage />} />
                       <Route path="/dashboard/workflows" element={<WorkflowsPage />} />
-                      <Route path="/dashboard/database" element={<DatabasePage />} />
+                      <Route
+                        path="/dashboard/database"
+                        element={
+                          <div className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+                            <DatabasePage />
+                          </div>
+                        }
+                      />
+                      <Route
+                        path="/dashboard/docs"
+                        element={
+                          <div className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+                            <DocsPage />
+                          </div>
+                        }
+                      />
                       <Route path="/dashboard/mcp/:agentSlug?" element={<McpPage />} />
                       <Route
                         path="/dashboard/integrations"
@@ -3250,7 +3268,14 @@ const App: React.FC = () => {
                           <Navigate to="/dashboard/settings/integrations" replace />
                         }
                       />
-                      <Route path="/dashboard/designstudio" element={<DesignStudioPage />} />
+                      <Route
+                        path="/dashboard/designstudio"
+                        element={
+                          <div className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+                            <DesignStudioPage />
+                          </div>
+                        }
+                      />
                       <Route
                         path="/dashboard/storage"
                         element={<Navigate to="/dashboard/settings/storage" replace />}
