@@ -928,10 +928,21 @@ const App: React.FC = () => {
     [persistActiveWorkspace],
   );
 
-  const handleStatusBarBranchSelect = useCallback((branchName: string) => {
-    const b = branchName.trim();
-    if (b) setGitBranch(b);
-  }, []);
+  const handleStatusBarBranchSelect = useCallback(
+    (branchName: string) => {
+      const b = branchName.trim();
+      if (!b) return;
+      setGitBranch(b);
+      const ws = authWorkspaceId?.trim();
+      void fetch('/api/agent/git/branch', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ branch: b, workspace_id: ws || undefined }),
+      }).catch(() => {});
+    },
+    [authWorkspaceId],
+  );
 
   const lastPersistedTabRef = useRef<TabId | null>(null);
   useEffect(() => {
@@ -1973,15 +1984,7 @@ const App: React.FC = () => {
         : gitData.repo
           ? String(gitData.repo)
           : '';
-      let branchName = gitData.branch ? String(gitData.branch) : '';
-      if (!branchName && repo) {
-        try {
-          const stored = localStorage.getItem(`iam_branch_${repo}`);
-          if (stored?.trim()) branchName = stored.trim();
-        } catch {
-          /* ignore */
-        }
-      }
+      const branchName = gitData.branch ? String(gitData.branch) : '';
       if (branchName) setGitBranch(branchName);
     },
     [],

@@ -3,7 +3,14 @@
  */
 import { resolveTerminalWorkspaceId } from './bootstrap.js';
 import { fetchAuthUserTenantId } from './auth.js';
+import { userCanAccessWorkspace } from './cms-theme-resolve.js';
 import { resolveGitHubToken } from './github-token.js';
+
+const GH_HEADERS_BASE = {
+  Accept: 'application/vnd.github+json',
+  'X-GitHub-Api-Version': '2022-11-28',
+  'User-Agent': 'inneranimalmedia-status-bar/1.0',
+};
 
 async function resolveAuthTenantId(env, authUser) {
   if (authUser?.tenant_id != null && String(authUser.tenant_id).trim() !== '') {
@@ -56,6 +63,171 @@ export async function fetchWorkspaceGithubRepo(env, authUser, request, url) {
   }
 
   return { repo, workspace_id: tw.workspaceId, tenant_id: tenantId };
+}
+
+/**
+ * @param {any} env
+ * @param {string} userId
+ * @param {string} workspaceId
+ * @returns {Promise<string|null>}
+ */
+export async function readUserWorkspaceActiveBranch(env, userId, workspaceId) {
+  if (!env?.DB || !userId || !workspaceId) return null;
+  try {
+    const row = await env.DB.prepare(
+      `SELECT active_branch FROM user_workspace_settings WHERE user_id = ? AND workspace_id = ? LIMIT 1`,
+    )
+      .bind(String(userId).trim(), String(workspaceId).trim())
+      .first();
+    const b = row?.active_branch != null ? String(row.active_branch).trim() : '';
+    return b || null;
+  } catch (e) {
+    const msg = String(e?.message || '');
+    if (msg.includes('no such column') && msg.includes('active_branch')) return null;
+    return null;
+  }
+}
+
+/**
+ * @param {any} env
+ * @param {string} userId
+ * @param {string} workspaceId
+ * @param {string} branch
+ */
+export async function persistUserWorkspaceActiveBranch(env, userId, workspaceId, branch) {
+  if (!env?.DB || !userId || !workspaceId) throw new Error('DB or scope missing');
+  const b = String(branch || '').trim();
+  if (!b) throw new Error('branch required');
+  const uid = String(userId).trim();
+  const wid = String(workspaceId).trim();
+  const now = Math.floor(Date.now() / 1000);
+  try {
+    const upd = await env.DB.prepare(
+      `UPDATE user_workspace_settings SET active_branch = ?, updated_at = ? WHERE user_id = ? AND workspace_id = ?`,
+    )
+      .bind(b, now, uid, wid)
+      .run();
+    if (!upd?.meta?.changes) {
+      await env.DB.prepare(
+        `INSERT INTO user_workspace_settings (user_id, workspace_id, active_branch, updated_at)
+         VALUES (?, ?, ?, ?)`,
+      )
+        .bind(uid, wid, b, now)
+        .run();
+    }
+  } catch (e) {
+    const msg = String(e?.message || '');
+    if (msg.includes('no such column') && msg.includes('active_branch')) {
+      throw new Error('active_branch column missing — apply migrations/570_user_workspace_active_branch.sql');
+    }
+    throw e;
+  }
+  return { user_id: uid, workspace_id: wid, active_branch: b };
+}
+
+async function githubBranchExists(repoSlug, branch, token) {
+  const enc = encodeURIComponent(String(branch || '').trim());
+  if (!enc || !repoSlug || !token) return false;
+  try {
+    const res = await fetch(`https://api.github.com/repos/${repoSlug}/branches/${enc}`, {
+      headers: { ...GH_HEADERS_BASE, Authorization: `Bearer ${token}` },
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolve display branch: user preference (D1) when valid on GitHub, else repo default_branch.
+ * @param {any} env
+ * @param {{ id?: string }} authUser
+ * @param {{ repo: string, workspace_id: string }} repoCtx
+ * @param {string} token
+ * @param {string} defaultBranch
+ */
+export async function resolveWorkspaceGitBranch(env, authUser, repoCtx, token, defaultBranch) {
+  const userId = authUser?.id != null ? String(authUser.id).trim() : '';
+  const workspaceId = repoCtx?.workspace_id != null ? String(repoCtx.workspace_id).trim() : '';
+  const repoSlug = String(repoCtx?.repo || '').replace('https://github.com/', '').trim();
+  const fallback = defaultBranch != null && String(defaultBranch).trim() !== ''
+    ? String(defaultBranch).trim()
+    : 'main';
+
+  const persisted = userId && workspaceId
+    ? await readUserWorkspaceActiveBranch(env, userId, workspaceId)
+    : null;
+
+  if (persisted && (await githubBranchExists(repoSlug, persisted, token))) {
+    return {
+      branch: persisted,
+      default_branch: fallback,
+      active_branch: persisted,
+      branch_source: 'user',
+    };
+  }
+
+  return {
+    branch: fallback,
+    default_branch: fallback,
+    active_branch: persisted,
+    branch_source: 'default',
+  };
+}
+
+/**
+ * POST body: { branch, workspace_id? } — persist per-user active branch for workspace repo.
+ */
+export async function setUserWorkspaceActiveBranch(env, authUser, request, body) {
+  if (!env?.DB) return { error: 'DB not configured', status: 503 };
+  const userId = authUser?.id != null ? String(authUser.id).trim() : '';
+  if (!userId) return { error: 'Unauthorized', status: 401 };
+
+  const branch = body?.branch != null ? String(body.branch).trim() : '';
+  if (!branch) return { error: 'branch required', status: 400 };
+
+  const url = new URL(request.url);
+  const explicitWs = body?.workspace_id != null ? String(body.workspace_id).trim() : '';
+  const tw = await resolveTerminalWorkspaceId(
+    env,
+    request,
+    authUser,
+    explicitWs || url.searchParams.get('workspace_id'),
+  );
+  if (!tw.workspaceId) {
+    return { error: tw.error || 'workspace_missing', status: tw.error === 'Forbidden' ? 403 : 400 };
+  }
+  if (!(await userCanAccessWorkspace(env, authUser, tw.workspaceId))) {
+    return { error: 'Forbidden', status: 403 };
+  }
+
+  const scopedUrl = new URL(request.url);
+  scopedUrl.searchParams.set('workspace_id', tw.workspaceId);
+  const repoCtx = await fetchWorkspaceGithubRepo(env, authUser, request, scopedUrl);
+  if (repoCtx.error === 'no_github_repo') {
+    return { error: 'no_github_repo', workspace_id: tw.workspaceId, status: 400 };
+  }
+  if (repoCtx.error) {
+    return { error: repoCtx.error, status: repoCtx.status || 500 };
+  }
+
+  const owner = repoCtx.repo.split('/')[0];
+  const { token, error, status } = await resolveGitHubToken(authUser, env, owner);
+  if (error) return { error, status: status || 401 };
+
+  const repoSlug = repoCtx.repo.replace('https://github.com/', '');
+  if (!(await githubBranchExists(repoSlug, branch, token))) {
+    return { error: 'branch_not_found', branch, repo: repoCtx.repo, status: 404 };
+  }
+
+  await persistUserWorkspaceActiveBranch(env, userId, tw.workspaceId, branch);
+  return {
+    ok: true,
+    branch,
+    workspace_id: tw.workspaceId,
+    repo: repoCtx.repo,
+    branch_source: 'user',
+  };
 }
 
 async function readWorkspaceGitCache(env, workspaceId) {
@@ -161,6 +333,9 @@ export async function fetchAgentGitStatus(env, authUser, request, url) {
   return {
     status: 'live',
     branch: live.branch,
+    default_branch: live.default_branch ?? live.branch,
+    active_branch: live.active_branch ?? null,
+    branch_source: live.branch_source ?? 'default',
     repo: live.repo,
     repo_full_name: live.repo_full_name,
     workspace_id: live.workspace_id || workspaceId,
@@ -169,12 +344,6 @@ export async function fetchAgentGitStatus(env, authUser, request, url) {
     checkpoint_sha: cached?.checkpoint_sha ?? null,
   };
 }
-
-const GH_HEADERS_BASE = {
-  Accept: 'application/vnd.github+json',
-  'X-GitHub-Api-Version': '2022-11-28',
-  'User-Agent': 'inneranimalmedia-status-bar/1.0',
-};
 
 /**
  * Live GitHub repo metadata for status bar (branch + repo from GET /repos/{owner}/{repo}).
@@ -207,9 +376,14 @@ export async function fetchGitStatusFromGitHub(env, authUser, request, url) {
     gh?.full_name != null && String(gh.full_name).trim() !== ''
       ? String(gh.full_name).trim()
       : repoCtx.repo;
+  const defaultBranch = gh?.default_branch != null ? String(gh.default_branch) : 'main';
+  const resolved = await resolveWorkspaceGitBranch(env, authUser, repoCtx, token, defaultBranch);
 
   return {
-    branch: gh?.default_branch != null ? String(gh.default_branch) : 'main',
+    branch: resolved.branch,
+    default_branch: resolved.default_branch,
+    active_branch: resolved.active_branch,
+    branch_source: resolved.branch_source,
     repo: fullName,
     repo_full_name: fullName,
     workspace_id: repoCtx.workspace_id,

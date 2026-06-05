@@ -41,8 +41,10 @@ import { resolveGitHubToken } from '../core/github-token.js';
 import { handleAgentArtifactsApi } from './agent-artifacts.js';
 import {
     fetchAgentGitStatus,
+    fetchGitStatusFromGitHub,
     fetchWorkspaceGithubRepo,
     pingPtyServiceHealth,
+    setUserWorkspaceActiveBranch,
 } from '../core/status-bar-runtime.js';
 
 function terminalNotEnabledResponse() {
@@ -162,6 +164,21 @@ export async function handleDashboardApi(request, url, env, ctx) {
         const authUser = await getAuthUser(request, env);
         if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
         return jsonResponse(await pingPtyServiceHealth(env));
+    }
+
+    // ── POST /api/agent/git/branch — persist per-user active branch (D1) ─────
+    if (pathLower === '/api/agent/git/branch' && method === 'POST') {
+        const authUser = await getAuthUser(request, env);
+        if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+        if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+        try {
+            const body = await request.json().catch(() => ({}));
+            const result = await setUserWorkspaceActiveBranch(env, authUser, request, body);
+            if (result.error) return jsonResponse({ error: result.error, ...result }, result.status || 500);
+            return jsonResponse(result);
+        } catch (e) {
+            return jsonResponse({ error: e?.message || 'Update failed' }, 500);
+        }
     }
 
     // ── GET /api/agent/git/branches ───────────────────────────────────────────
@@ -289,9 +306,18 @@ export async function handleDashboardApi(request, url, env, ctx) {
                 });
             }
 
+            const statusPayload = await fetchGitStatusFromGitHub(env, authUser, request, url);
+            const currentBranch =
+                statusPayload?.branch != null && String(statusPayload.branch).trim() !== ''
+                    ? String(statusPayload.branch).trim()
+                    : 'main';
+
             return jsonResponse({
+                current: currentBranch,
+                repo: repoFull,
                 branches: branchesOut,
                 repo_full_name: repoFull,
+                branch_source: statusPayload?.branch_source ?? 'default',
                 source: 'github_api',
             });
         } catch (e) {

@@ -54,6 +54,7 @@ import {
   fetchGitStatusFromGitHub,
   fetchWorkspaceGithubRepo,
   pingPtyServiceHealth,
+  setUserWorkspaceActiveBranch,
 } from '../core/status-bar-runtime.js';
 import { resolveIdentity, resolveIamActorContext } from '../core/identity.js';
 import { selectAgentsamMcpToolsList } from '../core/agentsam-mcp-tools.js';
@@ -2807,6 +2808,21 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     return jsonResponse(await pingPtyServiceHealth(env));
+  }
+
+  // ── POST /api/agent/git/branch — persist per-user active branch (D1) ─────
+  if (path === '/api/agent/git/branch' && method === 'POST') {
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    try {
+      const body = await request.json().catch(() => ({}));
+      const result = await setUserWorkspaceActiveBranch(env, authUser, request, body);
+      if (result.error) return jsonResponse({ error: result.error, ...result }, result.status || 500);
+      return jsonResponse(result);
+    } catch (e) {
+      return jsonResponse({ error: e?.message || 'Update failed' }, 500);
+    }
   }
 
   // ── GET /api/agent/git/branches ───────────────────────────────────────────

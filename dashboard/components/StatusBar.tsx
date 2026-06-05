@@ -341,7 +341,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
                         </div>
                       )}
                       {n.created_at && (
-                        <div className="text-[10px] text-[var(--text-muted)] mt-1 font-mono">{n.created_at}</div>
+                        <div className="text-[10px] text-[var(--text-muted)] mt-1 font-[var(--font-sans)]">{n.created_at}</div>
                       )}
                     </button>
                   </li>
@@ -497,13 +497,6 @@ export const StatusBar: React.FC<StatusBarProps> = ({
                           key={b.ref}
                           type="button"
                           onClick={() => {
-                            if (branchData?.repo) {
-                              try {
-                                localStorage.setItem(`iam_branch_${branchData.repo}`, b.ref);
-                              } catch {
-                                /* ignore */
-                              }
-                            }
                             onBranchSelect?.(b.ref);
                             setBranchMenuOpen(false);
                           }}
@@ -525,7 +518,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
                             <span className="w-[11px] shrink-0 inline-block" />
                           )}
                           <span className="font-medium truncate text-[var(--text-main)] flex-1 min-w-0">{b.ref}</span>
-                          <span className="font-mono text-[10px] text-[var(--text-muted)] shrink-0">{b.sha}</span>
+                          <span className="font-[var(--font-sans)] text-[10px] text-[var(--text-muted)] shrink-0">{b.sha}</span>
                           {b.protected ? (
                             <span className="iam-branch-protected text-[9px] shrink-0">protected</span>
                           ) : null}
@@ -618,7 +611,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
       <div className="flex items-stretch flex-1 min-w-0 overflow-hidden">
         {gitHash?.trim() ? (
           <div
-            className="hidden sm:flex items-center px-2 h-full text-[0.5625rem] font-mono text-[var(--text-muted)] border-r border-[var(--border-subtle)]/30 shrink-0"
+            className="hidden sm:flex items-center px-2 h-full text-[0.5625rem] font-[var(--font-sans)] text-[var(--text-muted)] border-r border-[var(--border-subtle)]/30 shrink-0"
             title="Latest deployed commit (short hash)"
           >
             {gitHash.trim()}
@@ -711,7 +704,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
               title="Indentation — controls whether Tab inserts spaces or a tab character, and how many spaces per indent. Click to change (Spaces vs Tabs, size per level)."
               className="px-2 h-full hover:bg-[var(--bg-hover)] transition-colors flex items-center"
             >
-              <span className="text-[0.5625rem] font-mono text-[var(--text-muted)]">{indentLabel}</span>
+              <span className="text-[0.5625rem] font-[var(--font-sans)] text-[var(--text-muted)]">{indentLabel}</span>
             </button>
 
             <button
@@ -719,7 +712,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
               title="File Encoding — UTF-8 stores every character (all languages + emoji) as universal bytes. Most files should stay UTF-8. Only change for legacy files expecting Latin-1 or Windows-1252."
               className="px-2 h-full hover:bg-[var(--bg-hover)] transition-colors flex items-center"
             >
-              <span className="text-[0.5625rem] font-mono text-[var(--text-muted)]">{encodingLabel}</span>
+              <span className="text-[0.5625rem] font-[var(--font-sans)] text-[var(--text-muted)]">{encodingLabel}</span>
             </button>
 
             <button
@@ -727,7 +720,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
               title="Line Endings — the invisible character at the end of each line. LF = Unix/Mac. CRLF = Windows. Mismatches cause every line to appear changed in git diffs even when nothing actually changed. Click to change for this file."
               className="px-2 h-full hover:bg-[var(--bg-hover)] transition-colors flex items-center"
             >
-              <span className="text-[0.5625rem] font-mono text-[var(--text-muted)]">{eolLabel}</span>
+              <span className="text-[0.5625rem] font-[var(--font-sans)] text-[var(--text-muted)]">{eolLabel}</span>
             </button>
 
             {canFormatDocument && (
@@ -755,7 +748,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
         <button
           type="button"
           onClick={onVersionClick}
-          className="hidden sm:flex items-center px-2 h-full hover:bg-[var(--bg-hover)] transition-colors text-[0.5625rem] font-mono text-[var(--text-muted)]"
+          className="hidden sm:flex items-center px-2 h-full hover:bg-[var(--bg-hover)] transition-colors text-[0.5625rem] font-[var(--font-sans)] text-[var(--text-muted)]"
           title={`Shell ${version}`}
         >
           {version}
