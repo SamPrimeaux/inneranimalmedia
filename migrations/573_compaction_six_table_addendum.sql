@@ -23,5 +23,4 @@ WHERE NOT EXISTS (
   WHERE table_name = 'agentsam_usage_events' AND COALESCE(is_active, 1) = 1
 );
 
--- Granular error type tracking on daily rollups (error_log rollup at 1 AM).
-ALTER TABLE agentsam_usage_rollups_daily ADD COLUMN error_breakdown_json TEXT DEFAULT '{}';
+-- error_breakdown_json: applied manually before first deploy (ALTER is not idempotent in batch import).
