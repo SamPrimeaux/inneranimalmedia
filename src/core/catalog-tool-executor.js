@@ -1046,6 +1046,23 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
           };
           break;
         }
+        if (runContext.mcp_panel_slug || params.zone_slug || params.zoneSlug) {
+          const { recordMcpZonePatchSession, resolveMcpZoneConversationId } = await import(
+            './mcp-zone-spine.js'
+          );
+          void recordMcpZonePatchSession(env, {
+            zoneSlug,
+            tenantId,
+            conversationId:
+              runContext.sessionId ??
+              runContext.session_id ??
+              resolveMcpZoneConversationId(zoneSlug, tenantId),
+            modelKey: runContext.modelKey ?? null,
+            taskFile: rawCmd.slice(0, 200),
+            passed: sb.body?.exit_code === 0 ? 1 : 0,
+            applied: 1,
+          });
+        }
         result = { ok: true, body: sb.body };
         break;
       }

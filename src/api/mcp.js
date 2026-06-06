@@ -24,6 +24,19 @@ import { resolveEffectiveWorkspaceId } from '../core/bootstrap.js';
 import { dispatchByToolCode } from '../core/dispatch-by-tool-code.js';
 import { mcpPanelAgentChatSse } from './agent.js';
 import { resolveCanonicalUserId } from './auth.js';
+import {
+  ensureMcpZoneWorkspace,
+  finalizeMcpZoneChat,
+  loadMcpZoneSession,
+  mapZoneStateToSession,
+  parseMcpZoneStateJson,
+  resetAllMcpZoneSessions,
+  patchMcpZoneWorkspaceState,
+  resetMcpZoneSession,
+  resolveMcpZoneConversationId,
+  resolveMcpZoneWorkspaceId,
+  startMcpZoneSession,
+} from '../core/mcp-zone-spine.js';
 
 const MCP_CARD_AGENT_IDS = [
   'mcp_agent_architect',
@@ -38,17 +51,9 @@ function normalizeMcpAgentId(agentId) {
   return s;
 }
 
-/** Deterministic MCP panel session PK per subagent slug + tenant (matches INSERT upsert). */
+/** @deprecated Use resolveMcpZoneConversationId — kept for session_id validation alias. */
 function deterministicMcpPanelSessionId(slug, tenantId) {
-  const s = String(slug || '')
-    .trim()
-    .replace(/[^a-zA-Z0-9_-]/g, '_')
-    .slice(0, 80);
-  const t = String(tenantId || '')
-    .trim()
-    .replace(/[^a-zA-Z0-9_-]/g, '_')
-    .slice(0, 120);
-  return `mcpsess_${s}_${t}`;
+  return resolveMcpZoneConversationId(slug, tenantId);
 }
 
 /**
@@ -436,33 +441,23 @@ export async function handleMcpApi(request, url, env, ctx) {
       const zoneSlug = normalizeMcpPanelZoneSlug(slug);
       if (!zoneSlug) return jsonResponse({ error: 'invalid mcp zone slug' }, 400);
 
-      const sessionId = deterministicMcpPanelSessionId(zoneSlug, tenantId);
-      const activeToolsJson = String(profile.allowed_tool_globs || '[]');
-      const now = Math.floor(Date.now() / 1000);
-      try {
-        await env.DB.prepare(
-          `INSERT INTO mcp_agent_sessions (
-             id, agent_id, tenant_id, status, current_task, progress_pct, stage,
-             logs_json, active_tools_json, cost_usd, messages_json, tool_calls_count,
-             last_activity, created_at, updated_at, panel
-           ) VALUES (?, ?, ?, 'idle', NULL, 0, NULL, '[]', ?, 0, '[]', 0, datetime('now'), ?, ?, ?)
-           ON CONFLICT(id) DO UPDATE SET
-             active_tools_json = excluded.active_tools_json,
-             panel             = excluded.panel,
-             status            = 'idle',
-             updated_at        = excluded.updated_at,
-             last_activity     = excluded.last_activity`,
-        )
-          .bind(sessionId, zoneSlug, tenantId, activeToolsJson, now, now, zoneSlug)
-          .run();
-      } catch (e) {
-        return jsonResponse({ error: 'session upsert failed', detail: String(e?.message || e) }, 503);
+      const started = await startMcpZoneSession(env, ctx, {
+        zoneSlug,
+        tenantId,
+        userId: String(authUser.id),
+        callerWorkspaceId: wsRes.workspaceId,
+      });
+      if (!started.ok) {
+        return jsonResponse({ error: 'zone session start failed', detail: started.error }, 503);
       }
       return jsonResponse({
-        session_id: sessionId,
+        session_id: started.conversationId,
+        workspace_id: started.workspaceId,
         slug: zoneSlug,
         status: 'idle',
         display_name: profile.display_name || zoneSlug,
+        spawn_job_id: started.spawnJobId,
+        master_run_id: started.masterRunId,
       });
     }
 
@@ -477,7 +472,20 @@ export async function handleMcpApi(request, url, env, ctx) {
       if (!identity?.workspaceId) {
         return jsonResponse({ error: 'no_workspace', redirect: '/onboarding' }, 403);
       }
-      const workspaceId = String(identity.workspaceId).trim();
+      const callerWorkspaceId = String(identity.workspaceId).trim();
+      const zoneSlug = normalizeMcpPanelZoneSlug(slug);
+      if (!zoneSlug) return jsonResponse({ error: 'invalid mcp zone slug' }, 400);
+
+      const zoneBoot = await ensureMcpZoneWorkspace(env, {
+        zoneSlug,
+        tenantId,
+        userId: String(authUser.id),
+        callerWorkspaceId,
+      });
+      if (!zoneBoot.ok) {
+        return jsonResponse({ error: 'zone workspace missing', detail: zoneBoot.error }, 503);
+      }
+      const workspaceId = zoneBoot.workspaceId;
 
       let profile = null;
       try {
@@ -491,7 +499,7 @@ export async function handleMcpApi(request, url, env, ctx) {
       }
       if (!profile) return jsonResponse({ error: 'agent not found' }, 404);
 
-      const expectedSession = deterministicMcpPanelSessionId(slug, tenantId);
+      const expectedSession = resolveMcpZoneConversationId(zoneSlug, tenantId);
       const sessionPk = String(body.session_id || '').trim() || expectedSession;
       if (String(body.session_id || '').trim() && sessionPk !== expectedSession) {
         return jsonResponse({ error: 'invalid session_id' }, 400);
@@ -505,23 +513,23 @@ export async function handleMcpApi(request, url, env, ctx) {
         );
       }
 
-      let sessRow = null;
-      try {
-        sessRow = await env.DB.prepare(
-          `SELECT messages_json FROM mcp_agent_sessions WHERE id = ? AND tenant_id = ?`,
-        )
-          .bind(sessionPk, tenantId)
-          .first();
-      } catch (_) {
-        sessRow = null;
-      }
-      let prior = [];
-      try {
-        const mj = sessRow?.messages_json;
-        prior = typeof mj === 'string' ? JSON.parse(mj || '[]') : Array.isArray(mj) ? mj : [];
-      } catch {
-        prior = [];
-      }
+      const wsStateRow = await env.DB.prepare(
+        `SELECT state_json FROM agentsam_workspace_state WHERE workspace_id = ? LIMIT 1`,
+      )
+        .bind(workspaceId)
+        .first()
+        .catch(() => null);
+      const zoneState = parseMcpZoneStateJson(wsStateRow?.state_json);
+      const prior = Array.isArray(zoneState.messages) ? zoneState.messages : [];
+
+      await startMcpZoneSession(env, ctx, {
+        zoneSlug,
+        tenantId,
+        userId: String(authUser.id),
+        callerWorkspaceId,
+        task: message,
+        createSpawnJob: false,
+      }).catch(() => null);
       const recent = prior
         .filter((m) => m && (m.role === 'user' || m.role === 'assistant'))
         .map((m) => ({ role: m.role, content: String(m.content || '') }))
@@ -556,17 +564,25 @@ export async function handleMcpApi(request, url, env, ctx) {
     if (mcpAgentSessionGet && method === 'GET') {
       const slug = decodeURIComponent(String(mcpAgentSessionGet[1] || '').trim());
       if (!slug) return jsonResponse({ error: 'slug required' }, 400);
-      const sid = deterministicMcpPanelSessionId(slug, tenantId);
-      const row = await env.DB.prepare(
-        `SELECT id, agent_id, tenant_id, status, messages_json, cost_usd, tool_calls_count, last_activity,
-                current_task, progress_pct, updated_at, panel
-           FROM mcp_agent_sessions WHERE id = ? AND tenant_id = ?`,
+      const zoneSlug = normalizeMcpPanelZoneSlug(slug);
+      if (!zoneSlug) return jsonResponse({ error: 'invalid mcp zone slug' }, 400);
+      const workspaceId = resolveMcpZoneWorkspaceId(zoneSlug, tenantId);
+      const wsRow = await env.DB.prepare(
+        `SELECT id, workspace_id, conversation_id, state_json, updated_at, workspace_type
+           FROM agentsam_workspace_state WHERE workspace_id = ? LIMIT 1`,
       )
-        .bind(sid, tenantId)
+        .bind(workspaceId)
         .first()
         .catch(() => null);
-      if (!row) return jsonResponse({ error: 'session not found' }, 404);
-      return jsonResponse({ session: row });
+      if (!wsRow) return jsonResponse({ error: 'session not found' }, 404);
+      const session = mapZoneStateToSession(wsRow, zoneSlug);
+      return jsonResponse({
+        session: {
+          ...session,
+          workspace_id: workspaceId,
+          spine: 'agentsam_workspace_state',
+        },
+      });
     }
 
     const mcpAgentWfMatch = pathLower.match(/^\/api\/mcp\/agent\/([^/]+)\/workflows$/);
@@ -626,35 +642,14 @@ export async function handleMcpApi(request, url, env, ctx) {
     // ── D1-driven agent status (latest row per agent_id for tenant) ─────────
     if (pathLower === '/api/mcp/agents/status' && method === 'GET') {
       const timeoutSec = await resolveWorkflowTimeoutSeconds(env, tenantId);
-      let rows = [];
-      try {
-        const r = await env.DB.prepare(
-          `SELECT id, agent_id, status, current_task, progress_pct, stage,
-                  cost_usd, tool_calls_count, last_activity, updated_at, logs_json
-             FROM mcp_agent_sessions
-            WHERE tenant_id = ?
-            ORDER BY updated_at DESC`
-        ).bind(tenantId).all();
-        rows = r.results || [];
-      } catch (e) {
-        return jsonResponse({ error: 'mcp_agent_sessions query failed', detail: String(e?.message || e) }, 500);
-      }
-
-      const latestByRaw = new Map();
-      for (const row of rows) {
-        const aid = String(row.agent_id || '');
-        if (!aid || latestByRaw.has(aid)) continue;
-        latestByRaw.set(aid, row);
-      }
-
-      const agents = MCP_CARD_AGENT_IDS.map((canonicalId) => {
-        const row =
-          latestByRaw.get(canonicalId) ||
-          (canonicalId === 'mcp_agent_inspector' ? latestByRaw.get('mcp_agent_tester') : undefined);
-        if (!row) {
-          return {
-            agent_id: canonicalId,
+      const agents = [];
+      for (const zoneSlug of MCP_PANEL_ZONE_SLUGS) {
+        const sess = await loadMcpZoneSession(env, { zoneSlug, tenantId });
+        if (!sess) {
+          agents.push({
+            agent_id: zoneSlug,
             session_id: null,
+            workspace_id: resolveMcpZoneWorkspaceId(zoneSlug, tenantId),
             status: 'idle',
             current_task: null,
             progress_pct: 0,
@@ -665,44 +660,46 @@ export async function handleMcpApi(request, url, env, ctx) {
             updated_at: null,
             logs_json: [],
             is_stale: false,
-          };
+          });
+          continue;
         }
-        const mappedRow =
-          canonicalId === 'mcp_agent_inspector' && String(row.agent_id) === 'mcp_agent_tester'
-            ? { ...row, agent_id: 'mcp_agent_inspector' }
-            : row;
-        const isStale = isSessionStale(mappedRow, timeoutSec);
-        return {
-          agent_id: canonicalId,
-          session_id: mappedRow.id,
-          status: mappedRow.status ?? 'idle',
-          current_task: mappedRow.current_task ?? null,
-          progress_pct: Number(mappedRow.progress_pct) || 0,
-          stage: mappedRow.stage ?? null,
-          cost_usd: Number(mappedRow.cost_usd) || 0,
-          tool_calls_count: Number(mappedRow.tool_calls_count) || 0,
-          last_activity: mappedRow.last_activity ?? null,
-          updated_at: mappedRow.updated_at != null ? Number(mappedRow.updated_at) : null,
-          logs_json: parseLogsJson(mappedRow.logs_json),
+        const isStale = isSessionStale(sess, timeoutSec);
+        agents.push({
+          agent_id: zoneSlug,
+          session_id: sess.id,
+          workspace_id: sess.workspace_id,
+          status: sess.status ?? 'idle',
+          current_task: sess.current_task ?? null,
+          progress_pct: Number(sess.progress_pct) || 0,
+          stage: null,
+          cost_usd: Number(sess.cost_usd) || 0,
+          tool_calls_count: Number(sess.tool_calls_count) || 0,
+          last_activity: sess.last_activity ?? null,
+          updated_at: sess.updated_at != null ? Number(sess.updated_at) : null,
+          logs_json: [],
           is_stale: isStale,
-        };
-      });
-
-      return jsonResponse({ agents, timeout_seconds: timeoutSec });
+        });
+      }
+      return jsonResponse({ agents, timeout_seconds: timeoutSec, spine: 'agentsam_workspace_state' });
     }
 
     if (pathLower === '/api/mcp/agents/reset' && method === 'POST') {
       const body = await request.json().catch(() => ({}));
+      const zoneFromBody = normalizeMcpPanelZoneSlug(body.zone_slug || body.agent_id || body.slug);
       const sessionId = String(body.id || body.session_id || '').trim();
-      if (!sessionId) return jsonResponse({ error: 'id or session_id required' }, 400);
+      let zoneSlug = zoneFromBody;
+      if (!zoneSlug && sessionId) {
+        for (const z of MCP_PANEL_ZONE_SLUGS) {
+          if (sessionId === resolveMcpZoneConversationId(z, tenantId)) {
+            zoneSlug = z;
+            break;
+          }
+        }
+      }
+      if (!zoneSlug) return jsonResponse({ error: 'zone_slug or known session_id required' }, 400);
       try {
-        const res = await env.DB.prepare(
-          `UPDATE mcp_agent_sessions
-              SET status = 'idle', current_task = NULL, stage = NULL, progress_pct = 0, updated_at = unixepoch()
-            WHERE id = ? AND tenant_id = ?`
-        ).bind(sessionId, tenantId).run();
-        const changes = res?.meta?.changes ?? 0;
-        return jsonResponse({ ok: true, updated: changes > 0 });
+        const res = await resetMcpZoneSession(env, { zoneSlug, tenantId });
+        return jsonResponse({ ok: res.ok === true, updated: res.ok === true, zone_slug: zoneSlug });
       } catch (e) {
         return jsonResponse({ error: String(e?.message || e) }, 500);
       }
@@ -710,11 +707,7 @@ export async function handleMcpApi(request, url, env, ctx) {
 
     if (pathLower === '/api/mcp/agents/reset-all' && method === 'POST') {
       try {
-        await env.DB.prepare(
-          `UPDATE mcp_agent_sessions
-              SET status = 'idle', current_task = NULL, stage = NULL, progress_pct = 0, updated_at = unixepoch()
-            WHERE tenant_id = ?`
-        ).bind(tenantId).run();
+        await resetAllMcpZoneSessions(env, tenantId);
       } catch (e) {
         return jsonResponse({ error: String(e?.message || e) }, 500);
       }
@@ -739,23 +732,8 @@ export async function handleMcpApi(request, url, env, ctx) {
         const r = await resolveAgentIdFromIntent(env, task);
         agentId = r.agentId;
       }
-
-      const sessionId = crypto.randomUUID();
-      const toolCallId = crypto.randomUUID();
-      const now = Math.floor(Date.now() / 1000);
-      const messagesJson = JSON.stringify([{ role: 'user', content: task }]);
-
-      try {
-        await env.DB.prepare(
-          `INSERT INTO mcp_agent_sessions (id, agent_id, tenant_id, status, current_task, progress_pct, stage, logs_json, active_tools_json, cost_usd, messages_json, tool_calls_count, last_activity, created_at, updated_at)
-               VALUES (?, ?, ?, 'running', ?, 0, 'queued', '[]', '[]', 0, ?, 1, ?, ?, ?)`
-        ).bind(sessionId, agentId, tenantId, task, messagesJson, String(now), now, now).run();
-      } catch (err) {
-        return jsonResponse(
-          { error: 'mcp_agent_sessions table missing or insert failed', detail: String(err?.message || err) },
-          503
-        );
-      }
+      const zoneSlug =
+        normalizeMcpPanelZoneSlug(body.zone_slug || body.agent_slug || agentId) || 'engineer';
 
       const actorCtxAd = await resolveIamActorContext(request, env).catch(() => null);
       const wsAd =
@@ -771,10 +749,42 @@ export async function handleMcpApi(request, url, env, ctx) {
       if (!wsAd) {
         return jsonResponse({ error: 'WORKSPACE_CONTEXT_MISSING' }, 400);
       }
+      if (!uidAd) {
+        return jsonResponse({ error: 'USER_CONTEXT_MISSING' }, 400);
+      }
+
+      const zoneStarted = await startMcpZoneSession(env, ctx, {
+        zoneSlug,
+        tenantId,
+        userId: uidAd,
+        callerWorkspaceId: wsAd,
+        task,
+        createSpawnJob: true,
+      });
+      if (!zoneStarted.ok) {
+        return jsonResponse(
+          { error: 'mcp zone session start failed', detail: zoneStarted.error },
+          503,
+        );
+      }
+      const sessionId = zoneStarted.conversationId;
+      const toolCallId = crypto.randomUUID();
+      const zoneWs = zoneStarted.workspaceId;
+
+      await patchMcpZoneWorkspaceState(env, {
+        zoneSlug,
+        tenantId,
+        patch: {
+          status: 'running',
+          current_task: task.slice(0, 500),
+          messages: [{ role: 'user', content: task }],
+        },
+      }).catch(() => null);
+
       scheduleRecordMcpToolExecution(env, ctx, {
         id: toolCallId,
         tenant_id: tenantId,
-        workspace_id: wsAd,
+        workspace_id: zoneWs,
         user_id: uidAd,
         person_uuid: actorCtxAd?.personUuid ?? null,
         session_id: sessionId,
@@ -789,11 +799,21 @@ export async function handleMcpApi(request, url, env, ctx) {
         tenantId,
         sessionId,
         userId: uidAd,
-        workspaceId: wsAd,
+        workspaceId: zoneWs,
         inputSummary: JSON.stringify({ route: 'agents/dispatch', task: task.slice(0, 120) }),
       });
 
-      return jsonResponse({ ok: true, session_id: sessionId, tool_call_id: toolCallId, agent_id: agentId });
+      return jsonResponse({
+        ok: true,
+        session_id: sessionId,
+        workspace_id: zoneWs,
+        spawn_job_id: zoneStarted.spawnJobId,
+        master_run_id: zoneStarted.masterRunId,
+        tool_call_id: toolCallId,
+        agent_id: zoneSlug,
+        zone_slug: zoneSlug,
+        spine: 'agentsam_workspace_state',
+      });
     }
 
     if (pathLower === '/api/mcp/agents' && method === 'GET') {
@@ -828,22 +848,13 @@ export async function handleMcpApi(request, url, env, ctx) {
         const slug = String(p.slug || '').trim();
         let session = null;
         if (slug) {
-          try {
-            session = await env.DB.prepare(
-              `SELECT id, status, current_task, progress_pct, cost_usd,
-                      tool_calls_count, last_activity
-                 FROM mcp_agent_sessions
-                WHERE agent_id = ? AND tenant_id = ?
-                ORDER BY updated_at DESC
-                LIMIT 1`,
-            )
-              .bind(slug, tenantId)
-              .first();
-          } catch (_) {
-            session = null;
-          }
+          session = await loadMcpZoneSession(env, { zoneSlug: slug, tenantId });
         }
-        agents.push({ ...p, session: session || null });
+        agents.push({
+          ...p,
+          session: session || null,
+          workspace_id: slug ? resolveMcpZoneWorkspaceId(slug, tenantId) : null,
+        });
       }
       return jsonResponse({ agents });
     }
@@ -1064,30 +1075,31 @@ export async function handleMcpApi(request, url, env, ctx) {
 
       const dispatchTenantId = actorRes.tenantId;
 
-      const sessionId = deterministicMcpPanelSessionId(zoneSlug, dispatchTenantId);
-      const toolCallId = crypto.randomUUID();
-      const now = Math.floor(Date.now() / 1000);
-      const messagesJson = JSON.stringify([{ role: 'user', content: prompt }]);
-      try {
-        await env.DB.prepare(
-          `INSERT INTO mcp_agent_sessions (id, agent_id, tenant_id, status, current_task, progress_pct, stage, logs_json, active_tools_json, cost_usd, messages_json, tool_calls_count, last_activity, created_at, updated_at, panel)
-               VALUES (?, ?, ?, 'running', ?, 0, 'queued', '[]', '[]', 0, ?, 1, ?, ?, ?, ?)
-           ON CONFLICT(id) DO UPDATE SET
-             agent_id = excluded.agent_id,
-             status = 'running',
-             current_task = excluded.current_task,
-             stage = 'queued',
-             messages_json = excluded.messages_json,
-             panel = excluded.panel,
-             updated_at = excluded.updated_at,
-             last_activity = excluded.last_activity`
-        ).bind(sessionId, agentId, dispatchTenantId, prompt, messagesJson, String(now), now, now, zoneSlug).run();
-      } catch (err) {
+      const zoneStarted = await startMcpZoneSession(env, ctx, {
+        zoneSlug,
+        tenantId: dispatchTenantId,
+        userId: actorRes.userId,
+        callerWorkspaceId: actorRes.workspaceId,
+        task: prompt,
+        createSpawnJob: true,
+      });
+      if (!zoneStarted.ok) {
         return jsonResponse(
-          { error: 'mcp_agent_sessions table missing or insert failed', detail: String(err?.message || err) },
-          503
+          { error: 'mcp zone session start failed', detail: zoneStarted.error },
+          503,
         );
       }
+      const sessionId = zoneStarted.conversationId;
+      const toolCallId = crypto.randomUUID();
+      await patchMcpZoneWorkspaceState(env, {
+        zoneSlug,
+        tenantId: dispatchTenantId,
+        patch: {
+          status: 'running',
+          current_task: prompt.slice(0, 500),
+          messages: [{ role: 'user', content: prompt }],
+        },
+      }).catch(() => null);
 
       const mcpRow = authDispatch.mcpRow || {};
       const toolRowId = mcpRow.id != null ? String(mcpRow.id).trim() : '';
@@ -1095,7 +1107,7 @@ export async function handleMcpApi(request, url, env, ctx) {
       scheduleRecordMcpToolExecution(env, ctx, {
         id: toolCallId,
         tenant_id: actorRes.tenantId,
-        workspace_id: actorRes.workspaceId,
+        workspace_id: zoneStarted.workspaceId,
         user_id: actorRes.userId,
         person_uuid: actorRes.personUuid,
         session_id: sessionId,
@@ -1121,15 +1133,19 @@ export async function handleMcpApi(request, url, env, ctx) {
         tenantId: actorRes.tenantId,
         sessionId,
         userId: actorRes.userId,
-        workspaceId: actorRes.workspaceId,
+        workspaceId: zoneStarted.workspaceId,
         inputSummary: JSON.stringify({ route: 'mcp/dispatch', prompt: prompt.slice(0, 120) }),
       });
       return jsonResponse({
         ok: true,
         session_id: sessionId,
+        workspace_id: zoneStarted.workspaceId,
+        spawn_job_id: zoneStarted.spawnJobId,
+        master_run_id: zoneStarted.masterRunId,
         agent_id: agentId,
         agent_name: agentName,
         routed_by: routedBy,
+        spine: 'agentsam_workspace_state',
       });
     }
 

@@ -882,25 +882,14 @@ export async function mcpPanelAgentChatSse(env, request, ctx, panel) {
             ].filter((m) => m.content && (m.role === 'user' || m.role === 'assistant'));
             const capped = nextMsgs.slice(-40);
 
-            await env.DB.prepare(
-              `UPDATE mcp_agent_sessions SET
-                 status = 'idle',
-                 messages_json = ?,
-                 cost_usd = COALESCE(cost_usd, 0) + ?,
-                 tool_calls_count = COALESCE(tool_calls_count, 0) + ?,
-                 last_activity = datetime('now'),
-                 updated_at = unixepoch(),
-                 current_task = NULL
-               WHERE id = ? AND tenant_id = ?`,
-            )
-              .bind(
-                JSON.stringify(capped),
-                0,
-                toolCallsUsed,
-                sessionPkId,
-                tenantId,
-              )
-              .run();
+            const { finalizeMcpZoneChat } = await import('./mcp-zone-spine.js');
+            await finalizeMcpZoneChat(env, {
+              zoneSlug: slug,
+              tenantId,
+              messages: capped,
+              toolCallsUsed,
+              status: 'idle',
+            });
           } catch (e) {
             console.warn('[mcp_panel_chat] session update failed:', e?.message ?? e);
           }
@@ -916,11 +905,12 @@ export async function mcpPanelAgentChatSse(env, request, ctx, panel) {
         (async () => {
           try {
             if (!env.DB) return;
-            await env.DB.prepare(
-              `UPDATE mcp_agent_sessions SET status = 'idle', updated_at = unixepoch(), last_activity = datetime('now') WHERE id = ? AND tenant_id = ?`,
-            )
-              .bind(sessionPkId, tenantId)
-              .run();
+            const { finalizeMcpZoneChat } = await import('./mcp-zone-spine.js');
+            await finalizeMcpZoneChat(env, {
+              zoneSlug: slug,
+              tenantId,
+              status: 'idle',
+            });
           } catch (_) {}
         })(),
       );

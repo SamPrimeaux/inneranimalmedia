@@ -3,22 +3,14 @@
  * Runs commands under {workspace_root}/.mcp-zones/{zone_slug}/ (caller workspace by default).
  */
 import { runTerminalCommand } from './terminal.js';
+import { normalizeMcpZoneSlug, resolveMcpZoneWorkspaceId } from './mcp-zone-spine.js';
 import {
   buildTerminalToolResponseBody,
   terminalRecoveryHints,
   wrapShellCommandWithPath,
 } from './mcp-terminal-contract.js';
 
-const DEFAULT_ZONE_SLUGS = new Set(['engineer', 'architect', 'cms', 'specialist']);
-
-/** @param {string} raw */
-export function normalizeMcpZoneSlug(raw) {
-  const s = String(raw || 'specialist')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]/g, '');
-  return DEFAULT_ZONE_SLUGS.has(s) ? s : 'specialist';
-}
+export { normalizeMcpZoneSlug } from './mcp-zone-spine.js';
 
 /** @param {string} raw */
 function shellQuote(raw) {
@@ -64,10 +56,14 @@ export async function runMcpZoneSandboxCommand(env, request, opts) {
 
   const zoneSlug = normalizeMcpZoneSlug(opts.zoneSlug);
   const config = opts.config && typeof opts.config === 'object' ? opts.config : {};
-  const useCallerWs = config.use_caller_workspace !== false;
+  const zoneWs =
+    opts.zoneSlug != null
+      ? resolveMcpZoneWorkspaceId(normalizeMcpZoneSlug(opts.zoneSlug), String(opts.tenantId || ''))
+      : null;
+  const useCallerWs = config.use_caller_workspace === true && !zoneWs;
   const execWorkspaceId = useCallerWs
     ? String(opts.workspaceId || '').trim()
-    : String(config.sandbox_workspace_id || 'ws_agentsandbox').trim();
+    : zoneWs || String(config.sandbox_workspace_id || opts.workspaceId || '').trim();
 
   if (!execWorkspaceId) {
     return { ok: false, error: 'workspace_id required for sandbox execution' };
