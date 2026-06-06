@@ -19,9 +19,15 @@ import {
   resolvePtyTenantIdForUser,
   buildPtySessionWorkingDir,
 } from '../core/pty-workspace-paths.js';
-import { dispatchComplete,
-         dispatchStream }    from '../core/provider.js';
+import { dispatchComplete } from '../core/provider.js';
 import { resolveModelForTask, normalizeCanonicalTaskType } from '../core/resolveModel.js';
+import {
+  extractDispatchUsage,
+  finalizeTerminalAssistAgentRun,
+  logTerminalAssistError,
+  mintTerminalAssistAgentRunId,
+  startTerminalAssistAgentRun,
+} from '../core/terminal-assist-telemetry.js';
 import {
   computeTerminalSessionAuthTokenHash,
   sha256HexUtf8,
@@ -588,17 +594,21 @@ Complete this task or provide a specific actionable response.`,
     };
 
     const userPrompt = prompts[mode] || prompts.ask;
+    const assistMode = mode != null ? String(mode) : 'ask';
+    const runStartedAt = Date.now();
 
     let workspaceId = '';
     let tenantId = '';
+    let userId = '';
     if (session_id && env.DB) {
       const sess = await env.DB.prepare(
-        'SELECT workspace_id, tenant_id FROM terminal_sessions WHERE id = ? LIMIT 1',
+        'SELECT workspace_id, tenant_id, user_id FROM terminal_sessions WHERE id = ? LIMIT 1',
       )
         .bind(session_id)
         .first();
       workspaceId = sess?.workspace_id != null ? String(sess.workspace_id).trim() : '';
       tenantId = sess?.tenant_id != null ? String(sess.tenant_id).trim() : '';
+      userId = sess?.user_id != null ? String(sess.user_id).trim() : '';
     }
     if (!workspaceId) {
       return jsonResponse({ error: 'unauthorized' }, 401);
@@ -618,6 +628,15 @@ Complete this task or provide a specific actionable response.`,
       if (allowed?.model_key) {
         modelKey = String(allowed.model_key);
       } else {
+        logTerminalAssistError(env, ctx, {
+          workspaceId,
+          tenantId,
+          sessionId: session_id ?? null,
+          errorCode: 'model_not_allowed',
+          errorMessage: `model_not_allowed: ${override}`,
+          mode: assistMode,
+          command: command ?? null,
+        });
         return jsonResponse({ error: 'model_not_allowed', model_key: override }, 400);
       }
     } else {
@@ -629,11 +648,44 @@ Complete this task or provide a specific actionable response.`,
         });
         modelKey = String(resolved?.model_key || '').trim();
       } catch (e) {
-        return jsonResponse({ error: 'model_resolve_failed', detail: e?.message }, 500);
+        const detail = e?.message != null ? String(e.message) : 'model_resolve_failed';
+        logTerminalAssistError(env, ctx, {
+          workspaceId,
+          tenantId,
+          sessionId: session_id ?? null,
+          errorCode: 'model_resolve_failed',
+          errorMessage: detail,
+          mode: assistMode,
+          command: command ?? null,
+        });
+        return jsonResponse({ error: 'model_resolve_failed', detail }, 500);
       }
       if (!modelKey) {
+        logTerminalAssistError(env, ctx, {
+          workspaceId,
+          tenantId,
+          sessionId: session_id ?? null,
+          errorCode: 'model_resolve_empty',
+          errorMessage: 'model_resolve_empty',
+          mode: assistMode,
+          command: command ?? null,
+        });
         return jsonResponse({ error: 'model_resolve_empty' }, 500);
       }
+    }
+
+    const agentRunId =
+      userId && workspaceId ? mintTerminalAssistAgentRunId(env, ctx, { userId, workspaceId }) : null;
+    if (agentRunId) {
+      startTerminalAssistAgentRun(env, ctx, {
+        agentRunId,
+        userId,
+        tenantId,
+        workspaceId,
+        sessionId: session_id ?? null,
+        modelKey,
+        mode: assistMode,
+      });
     }
 
     const systemPrompt = `You are a developer assistant embedded in the IAM terminal.
@@ -641,26 +693,18 @@ Be concise. Plain text only. No markdown headers. Dashes not bullet asterisks.
 Max 10 lines unless more detail is essential.`;
 
     try {
-      if (mode === 'agent') {
-        // Agent mode — stream back (SSE)
-        return dispatchStream(env, request, {
-          modelKey,
-          systemPrompt,
-          messages: [{ role: 'user', content: userPrompt }],
-          reasoningEffort: mode === 'agent' ? 'medium' : 'none',
-          verbosity: 'low',
-        });
-      }
-
-      // Non-agent — blocking JSON response (PTY server awaits and prints)
+      // Blocking JSON — iam-pty handleAssist expects { text }, not SSE.
       const result = await dispatchComplete(env, {
         modelKey,
         systemPrompt,
         messages: [{ role: 'user', content: userPrompt }],
-        options: { reasoningEffort: 'none', verbosity: 'low' },
+        userId: userId || undefined,
+        options: {
+          reasoningEffort: assistMode === 'agent' ? 'medium' : 'none',
+          verbosity: 'low',
+        },
       });
 
-      // Extract text from various response shapes
       const text =
         result?.content?.[0]?.text ||
         result?.choices?.[0]?.message?.content ||
@@ -668,10 +712,56 @@ Max 10 lines unless more detail is essential.`;
         result?.output_text ||
         (typeof result === 'string' ? result : JSON.stringify(result));
 
-      return jsonResponse({ text: String(text).slice(0, 1200) });
+      const usage = extractDispatchUsage(result);
+      if (agentRunId) {
+        await finalizeTerminalAssistAgentRun(env, ctx, {
+          agentRunId,
+          userId,
+          tenantId,
+          workspaceId,
+          sessionId: session_id ?? null,
+          modelKey,
+          mode: assistMode,
+          command: command ?? null,
+          success: true,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          durationMs: Date.now() - runStartedAt,
+        });
+      }
 
+      return jsonResponse({
+        text: String(text).slice(0, 1200),
+        ...(agentRunId ? { agent_run_id: agentRunId } : {}),
+      });
     } catch (e) {
-      return jsonResponse({ error: 'assist failed', detail: e.message }, 500);
+      const detail = e?.message != null ? String(e.message) : 'assist failed';
+      if (agentRunId) {
+        await finalizeTerminalAssistAgentRun(env, ctx, {
+          agentRunId,
+          userId,
+          tenantId,
+          workspaceId,
+          sessionId: session_id ?? null,
+          modelKey,
+          mode: assistMode,
+          command: command ?? null,
+          success: false,
+          errorMessage: detail,
+          durationMs: Date.now() - runStartedAt,
+        });
+      } else if (tenantId) {
+        logTerminalAssistError(env, ctx, {
+          workspaceId,
+          tenantId,
+          sessionId: session_id ?? null,
+          errorCode: 'terminal_assist_failed',
+          errorMessage: detail,
+          mode: assistMode,
+          command: command ?? null,
+        });
+      }
+      return jsonResponse({ error: 'assist failed', detail }, 500);
     }
   }
 
