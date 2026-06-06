@@ -719,6 +719,7 @@ async function listApiKeys(request, env, authUser, url) {
           scope: 'workspace',
           last_four: r2.r2_access_key_id_preview || '????',
           cloudflare_account_mask: r2.cf_account_id ? maskAccountId(r2.cf_account_id) : null,
+          byok_r2_bucket: bucket,
           validated_at:
             r2.validated_at != null
               ? new Date(Number(r2.validated_at) * 1000).toISOString()
@@ -1260,8 +1261,26 @@ async function revokeApiKey(env, authUser, request, id) {
   }
   if (wsRes.error) return clientError('WORKSPACE_ERROR', wsRes.error, 400);
   const workspaceId = wsRes.workspaceId;
+  const userId = String(authUser?.id || '').trim();
+  const keyId = String(id || '').trim();
 
-  const { row, cols, tenantId, userId } = await loadApiKeyRowScoped(env, authUser, id, workspaceId);
+  const r2Summary = await getUserCloudflareR2KeySummary(env, userId);
+  if (r2Summary?.id === keyId || keyId.startsWith('usak_cf_')) {
+    try {
+      await db
+        .prepare(
+          `UPDATE user_storage_access_keys SET status = 'revoked', updated_at = unixepoch()
+           WHERE id = ? AND user_id = ?`,
+        )
+        .bind(keyId, userId)
+        .run();
+      return jsonResponse({ ok: true, revoked: true });
+    } catch (e) {
+      return jsonResponse({ error: e?.message ?? String(e) }, 500);
+    }
+  }
+
+  const { row, cols, tenantId } = await loadApiKeyRowScoped(env, authUser, id, workspaceId);
   if (!row) return clientError('NOT_FOUND', 'API key not found.', 404);
 
   const previousLast4 =

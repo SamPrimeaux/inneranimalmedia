@@ -24,6 +24,7 @@ type ApiKeyItem = {
   scope: string;
   last_four: string;
   cloudflare_account_mask?: string | null;
+  byok_r2_bucket?: string | null;
   validated_at?: string | null;
   created_at: string | null;
   updated_at: string | null;
@@ -58,6 +59,7 @@ function providerLabel(p: string | null) {
     anthropic: 'Anthropic',
     google: 'Google',
     cloudflare: 'Cloudflare',
+    cloudflare_r2: 'Cloudflare R2',
     resend: 'Resend',
     github: 'GitHub',
     supabase: 'Supabase',
@@ -65,6 +67,18 @@ function providerLabel(p: string | null) {
   };
   return map[s] || (p ? p : '—');
 }
+
+const PROVIDER_OPTIONS = [
+  'openai',
+  'anthropic',
+  'google',
+  'cloudflare',
+  'cloudflare_r2',
+  'resend',
+  'github',
+  'supabase',
+  'other',
+] as const;
 
 function badgeClass(status: string) {
   const s = String(status || '').toLowerCase();
@@ -143,6 +157,9 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
   const [label, setLabel] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [cloudflareAccountId, setCloudflareAccountId] = useState('');
+  const [r2AccessKeyId, setR2AccessKeyId] = useState('');
+  const [r2SecretAccessKey, setR2SecretAccessKey] = useState('');
+  const [r2Bucket, setR2Bucket] = useState('');
   const [scope, setScope] = useState<'user' | 'workspace'>('workspace');
   const [expiresAt, setExpiresAt] = useState('');
 
@@ -174,6 +191,8 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
   } | null>(null);
 
   const isCloudflare = provider.trim().toLowerCase() === 'cloudflare';
+  const isCloudflareR2 = provider.trim().toLowerCase() === 'cloudflare_r2';
+  const isCfFamily = isCloudflare || isCloudflareR2;
   const hasCloudflareKey = items.some(
     (i) => String(i.provider || '').toLowerCase() === 'cloudflare' && String(i.status || '').toLowerCase() === 'active',
   );
@@ -386,10 +405,66 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
     }
   };
 
+  const resetCreateForm = useCallback(() => {
+    setLabel('');
+    setApiKey('');
+    setCloudflareAccountId('');
+    setR2AccessKeyId('');
+    setR2SecretAccessKey('');
+    setR2Bucket('');
+    setProvider('openai');
+    setScope('workspace');
+    setExpiresAt('');
+    setTestResult(null);
+  }, []);
+
   const onTestKey = async () => {
     if (!ws) return;
+    const prov = provider.trim().toLowerCase();
+    if (!prov) {
+      setError('Provider is required to test.');
+      return;
+    }
+    if (isCloudflareR2) {
+      const accountT = cloudflareAccountId.trim();
+      const accessT = r2AccessKeyId.trim();
+      const secretT = r2SecretAccessKey.trim();
+      if (!accountT || !accessT || !secretT) {
+        setError('Account ID, R2 access key ID, and secret access key are required.');
+        return;
+      }
+      setTesting(true);
+      setTestResult(null);
+      setError(null);
+      try {
+        const payload: Record<string, string> = {
+          provider: 'cloudflare_r2',
+          cloudflare_account_id: accountT,
+          r2_access_key_id: accessT,
+          r2_secret_access_key: secretT,
+        };
+        const bucketT = r2Bucket.trim();
+        if (bucketT) payload.byok_r2_bucket = bucketT;
+        const r = await fetch(`${KEYS_API}/validate`, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: apiKeysJsonHeaders(ws),
+          body: JSON.stringify(payload),
+        });
+        const j = (await r.json().catch(() => ({}))) as ValidateResult;
+        setTestResult(j);
+        if (!r.ok || !j.ok) {
+          setError(j.message || j.error || 'Validation failed');
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Validation failed');
+      } finally {
+        setTesting(false);
+      }
+      return;
+    }
     const keyT = apiKey.trim();
-    if (!provider.trim() || !keyT) {
+    if (!keyT) {
       setError('Provider and key are required to test.');
       return;
     }
@@ -429,8 +504,50 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
     const labelT = label.trim();
     const keyT = apiKey.trim();
     const accountT = cloudflareAccountId.trim();
-    if (!provider.trim()) {
+    const prov = provider.trim().toLowerCase();
+    if (!prov) {
       setError('Provider is required.');
+      return;
+    }
+    if (isCloudflareR2) {
+      const accessT = r2AccessKeyId.trim();
+      const secretT = r2SecretAccessKey.trim();
+      if (!accountT || !accessT || !secretT) {
+        setError('Account ID, R2 access key ID, and secret access key are required.');
+        return;
+      }
+      setSaving(true);
+      setError(null);
+      try {
+        const body: Record<string, unknown> = {
+          category: 'provider',
+          provider: 'cloudflare_r2',
+          cloudflare_account_id: accountT,
+          r2_access_key_id: accessT,
+          r2_secret_access_key: secretT,
+          scope: 'workspace',
+          validate: true,
+        };
+        const bucketT = r2Bucket.trim();
+        if (bucketT) body.byok_r2_bucket = bucketT;
+        if (labelT) body.label = labelT;
+        const r = await fetch(KEYS_API, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: apiKeysJsonHeaders(ws),
+          body: JSON.stringify(body),
+        });
+        const j = (await r.json().catch(() => ({}))) as Record<string, unknown>;
+        if (!r.ok) throw new Error(readApiError(j, `Create failed (${r.status})`));
+        setCreateOpen(false);
+        resetCreateForm();
+        await load();
+        await loadAudit();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Create failed');
+      } finally {
+        setSaving(false);
+      }
       return;
     }
     if (!isCloudflare && !labelT) {
@@ -472,12 +589,7 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
       const j = (await r.json().catch(() => ({}))) as Record<string, unknown>;
       if (!r.ok) throw new Error(readApiError(j, `Create failed (${r.status})`));
       setCreateOpen(false);
-      setLabel('');
-      setApiKey('');
-      setCloudflareAccountId('');
-      setProvider('openai');
-      setScope('workspace');
-      setExpiresAt('');
+      resetCreateForm();
       await load();
       await loadAudit();
       await loadCloudflareD1();
@@ -660,7 +772,11 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
                   <div className="text-[10px] text-[var(--text-muted)] font-mono truncate">
                     {String(r.provider || '').toLowerCase() === 'cloudflare' && r.cloudflare_account_mask
                       ? `Account: ${r.cloudflare_account_mask} · Token: ••••${r.last_four}`
-                      : `••••${r.last_four}`}
+                      : String(r.provider || '').toLowerCase() === 'cloudflare_r2'
+                        ? `Account: ${r.cloudflare_account_mask || '—'} · Access key: ••••${r.last_four}${
+                            r.byok_r2_bucket ? ` · ${r.byok_r2_bucket}` : ''
+                          }`
+                        : `••••${r.last_four}`}
                   </div>
                 </div>
               ),
@@ -704,7 +820,9 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
               key: 'actions',
               label: '',
               widthClass: '210px',
-              render: (r) => (
+              render: (r) => {
+                const isR2 = String(r.provider || '').toLowerCase() === 'cloudflare_r2';
+                return (
                 <div className="flex justify-end gap-2">
                   <button
                     type="button"
@@ -715,6 +833,7 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
                   >
                     {validatingId === r.id ? 'Testing…' : 'Test'}
                   </button>
+                  {!isR2 ? (
                   <button
                     type="button"
                     disabled={rotatingId === r.id}
@@ -727,6 +846,7 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
                       Rotate
                     </span>
                   </button>
+                  ) : null}
                   <button
                     type="button"
                     disabled={revokingId === r.id}
@@ -740,7 +860,8 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
                     </span>
                   </button>
                 </div>
-              ),
+                );
+              },
             },
           ]}
           rows={items}
@@ -973,7 +1094,10 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
         <div className="fixed inset-0 z-[250]">
           <div
             className="absolute inset-0 bg-[var(--text-main)]/40"
-            onClick={() => setCreateOpen(false)}
+            onClick={() => {
+              setCreateOpen(false);
+              resetCreateForm();
+            }}
             role="presentation"
           />
           <div className="absolute top-0 right-0 h-full w-[520px] max-w-[92vw] bg-[var(--bg-panel)] border-l border-[var(--border-subtle)] shadow-2xl flex flex-col">
@@ -982,7 +1106,10 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
               <button
                 type="button"
                 className="text-[11px] text-[var(--text-muted)]"
-                onClick={() => setCreateOpen(false)}
+                onClick={() => {
+                  setCreateOpen(false);
+                  resetCreateForm();
+                }}
               >
                 Close
               </button>
@@ -995,19 +1122,21 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
                   onChange={(e) => {
                     setProvider(e.target.value);
                     setTestResult(null);
+                    setApiKey('');
+                    setR2AccessKeyId('');
+                    setR2SecretAccessKey('');
+                    setR2Bucket('');
                   }}
                   className="px-3 py-2 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[12px]"
                 >
-                  {['openai', 'anthropic', 'google', 'cloudflare', 'resend', 'github', 'supabase', 'other'].map(
-                    (p) => (
-                      <option key={p} value={p}>
-                        {providerLabel(p)}
-                      </option>
-                    ),
-                  )}
+                  {PROVIDER_OPTIONS.map((p) => (
+                    <option key={p} value={p}>
+                      {providerLabel(p)}
+                    </option>
+                  ))}
                 </select>
               </label>
-              {isCloudflare ? (
+              {isCfFamily ? (
                 <label className="flex flex-col gap-1 text-[11px]">
                   <span className="text-[var(--text-muted)]">Cloudflare Account ID</span>
                   <input
@@ -1019,15 +1148,58 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
                   />
                 </label>
               ) : null}
+              {isCloudflareR2 ? (
+                <>
+                  <label className="flex flex-col gap-1 text-[11px]">
+                    <span className="text-[var(--text-muted)]">R2 Access Key ID</span>
+                    <input
+                      value={r2AccessKeyId}
+                      onChange={(e) => setR2AccessKeyId(e.target.value)}
+                      placeholder="R2 API token access key id"
+                      autoComplete="off"
+                      className="px-3 py-2 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[12px] font-mono"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-[11px]">
+                    <span className="text-[var(--text-muted)]">R2 Secret Access Key</span>
+                    <input
+                      type="password"
+                      value={r2SecretAccessKey}
+                      onChange={(e) => setR2SecretAccessKey(e.target.value)}
+                      autoComplete="off"
+                      className="px-3 py-2 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[12px] font-mono"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-[11px]">
+                    <span className="text-[var(--text-muted)]">Default bucket (optional)</span>
+                    <input
+                      value={r2Bucket}
+                      onChange={(e) => setR2Bucket(e.target.value)}
+                      placeholder="my-artifacts-bucket"
+                      autoComplete="off"
+                      className="px-3 py-2 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[12px] font-mono"
+                    />
+                  </label>
+                </>
+              ) : null}
               <label className="flex flex-col gap-1 text-[11px]">
-                <span className="text-[var(--text-muted)]">{isCloudflare ? 'Label (optional)' : 'Label'}</span>
+                <span className="text-[var(--text-muted)]">
+                  {isCfFamily ? 'Label (optional)' : 'Label'}
+                </span>
                 <input
                   value={label}
                   onChange={(e) => setLabel(e.target.value)}
-                  placeholder={isCloudflare ? 'Production Cloudflare' : 'OpenAI production key'}
+                  placeholder={
+                    isCloudflareR2
+                      ? 'Production R2'
+                      : isCloudflare
+                        ? 'Production Cloudflare'
+                        : 'OpenAI production key'
+                  }
                   className="px-3 py-2 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[12px]"
                 />
               </label>
+              {!isCloudflareR2 ? (
               <label className="flex flex-col gap-1 text-[11px]">
                 <span className="text-[var(--text-muted)]">{isCloudflare ? 'API Token' : 'API key'}</span>
                 <input
@@ -1041,6 +1213,13 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
                   This key will not be shown again after you save it.
                 </div>
               </label>
+              ) : (
+                <div className="text-[10px] text-[var(--text-muted)]">
+                  R2 credentials are encrypted with the platform vault and never shown again after save.
+                </div>
+              )}
+              {!isCloudflareR2 ? (
+              <>
               <label className="flex flex-col gap-1 text-[11px]">
                 <span className="text-[var(--text-muted)]">Scope</span>
                 <select
@@ -1061,6 +1240,8 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
                   className="px-3 py-2 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[12px] font-mono"
                 />
               </label>
+              </>
+              ) : null}
             </div>
             {testResult?.checks?.length ? (
               <div className="px-4 pb-2 space-y-1">
@@ -1079,7 +1260,10 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
               <button
                 type="button"
                 className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-[var(--text-muted)]"
-                onClick={() => setCreateOpen(false)}
+                onClick={() => {
+                  setCreateOpen(false);
+                  resetCreateForm();
+                }}
               >
                 Cancel
               </button>
@@ -1087,10 +1271,13 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
                 type="button"
                 disabled={
                   testing ||
-                  !apiKey.trim() ||
                   !provider.trim() ||
                   !ws ||
-                  (isCloudflare && !cloudflareAccountId.trim())
+                  (isCloudflareR2
+                    ? !cloudflareAccountId.trim() ||
+                      !r2AccessKeyId.trim() ||
+                      !r2SecretAccessKey.trim()
+                    : !apiKey.trim() || (isCloudflare && !cloudflareAccountId.trim()))
                 }
                 className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-[var(--text-muted)] disabled:opacity-50"
                 onClick={() => void onTestKey()}
@@ -1101,11 +1288,15 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
                 type="button"
                 disabled={
                   saving ||
-                  !apiKey.trim() ||
                   !provider.trim() ||
                   !ws ||
-                  (isCloudflare && !cloudflareAccountId.trim()) ||
-                  (!isCloudflare && !label.trim())
+                  (isCloudflareR2
+                    ? !cloudflareAccountId.trim() ||
+                      !r2AccessKeyId.trim() ||
+                      !r2SecretAccessKey.trim()
+                    : !apiKey.trim() ||
+                      (isCloudflare && !cloudflareAccountId.trim()) ||
+                      (!isCloudflare && !label.trim()))
                 }
                 className="px-3 py-1.5 rounded-lg bg-[var(--solar-cyan)]/20 text-[11px] font-semibold text-[var(--solar-cyan)] border border-[var(--solar-cyan)]/30 disabled:opacity-50"
                 onClick={() => void onCreate()}
