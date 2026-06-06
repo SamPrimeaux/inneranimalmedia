@@ -7,7 +7,9 @@ import type { AgentToolTraceRow } from '../agent-chat/execution/types';
 import type { WorkflowLedgerState, AgentMode } from '../agent-chat/types';
 import type { ThinkingCardState } from '../../src/components/ThinkingCard';
 import type { AgentPresence, AgentPresenceState, AgentLogoMotion } from './presenceTypes';
-import { pickPresenceLine, toolPersonaLine } from './presenceCopy';
+import { pickPresenceLine } from './presenceCopy';
+import { formatThinkingStepName } from '../agent-chat/formatThinkingStepName';
+import { formatToolTraceDisplayTitle, resolveToolTraceCommand } from '../../lib/formatToolTraceDisplayTitle';
 
 export type DerivePresenceInput = {
   isLoading: boolean;
@@ -196,11 +198,14 @@ export function deriveAgentPresence(i: DerivePresenceInput): { presence: AgentPr
   const runningRow = [...i.toolTraceRows].reverse().find((r) => r.status === 'running');
   if (i.isLoading && runningRow) {
     const st = classifyRunningTool(runningRow);
-    const persona = toolPersonaLine(runningRow.toolName) || pickPresenceLine(st, runningRow.id);
-    const detail = runningRow.lines.join('\n').trim().slice(0, 180) || runningRow.toolName;
+    const label = formatToolTraceDisplayTitle(runningRow);
+    const detail =
+      resolveToolTraceCommand(runningRow) ||
+      runningRow.lines.join('\n').trim().slice(0, 180) ||
+      runningRow.toolName;
     const p: AgentPresence = {
       state: st,
-      label: persona,
+      label,
       detail,
       toolName: runningRow.toolName,
     };
@@ -229,7 +234,11 @@ export function deriveAgentPresence(i: DerivePresenceInput): { presence: AgentPr
       const st = classifyRunningTool(pseudoRow);
       const p: AgentPresence = {
         state: st,
-        label: toolPersonaLine(runStep.name) || pickPresenceLine(st, runStep.id),
+        label: formatThinkingStepName({
+          tool_name: runStep.name,
+          title: runStep.name,
+          node_key: runStep.id,
+        }),
         detail: runStep.preview,
         toolName: runStep.name,
       };
@@ -298,7 +307,9 @@ export function deriveAgentPresence(i: DerivePresenceInput): { presence: AgentPr
       }
       const p: AgentPresence = {
         state: 'thinking',
-        label: pickPresenceLine('thinking', seed),
+        label:
+          i.thinkingState.thinkingText?.trim().slice(0, 120) ||
+          pickPresenceLine('thinking', seed),
         detail: i.thinkingState.thinkingText?.trim().slice(0, 120) || undefined,
       };
       return { presence: p, logoMotion: motionFor('thinking') };

@@ -54,9 +54,12 @@ export function normalizeChatPresenceState(
     if (raw === 'multitask_fanout') return 'multitask_fanout';
   }
 
-  if (raw === 'browser_live' || raw === 'browser_debug') return 'browser';
-  if (raw === 'browser_capture') return 'browser';
-  if (raw === 'web_search' || raw === 'web_fetch') return 'reading';
+  if (raw === 'browser_live') return 'browser_live';
+  if (raw === 'browser_debug') return 'browser_debug';
+  if (raw === 'browser_capture') return 'browser_capture';
+  if (raw === 'browser_human_input') return 'browser_human_input';
+  if (raw === 'web_search') return 'web_search';
+  if (raw === 'web_fetch') return 'web_fetch';
   if (raw === 'filing') return 'files';
   if (raw === 'database') return 'database';
   if (raw === 'imaging') return 'imaging';

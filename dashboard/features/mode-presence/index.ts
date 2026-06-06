@@ -14,4 +14,9 @@ export {
   type AgentMode,
 } from './agentModePresenceMap';
 export { resolveAgentPresenceState } from './resolveAgentPresenceState';
+export {
+  resolveInlinePresenceDisplay,
+  shouldShowInlinePresence,
+  type InlinePresenceDisplay,
+} from './resolveInlinePresenceDisplay';
 

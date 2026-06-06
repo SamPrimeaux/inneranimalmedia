@@ -1,27 +1,8 @@
 import React from 'react';
-import type { AgentMode } from './agentModePresenceMap';
+import type { AgentMode, ModePresenceIconKey } from './agentModePresenceMap';
 import { ChatPresenceIcon } from './ChatPresenceIcon';
 import { normalizeChatPresenceState } from './normalizeChatPresenceState';
 import './agentPresenceInline.css';
-
-const SHIMMER_STATES = new Set([
-  'thinking',
-  'map-build',
-  'task-stack',
-  'context-scan',
-  'source-thread',
-  'trace-probe',
-  'risk-radar',
-  'delegate-chain',
-  'mapping',
-  'task_stack',
-  'reading_context',
-  'trace_probe',
-  'multitask_fanout',
-  'parallel_work',
-  'subagent_spawn',
-  'planning',
-]);
 
 export type AgentPresenceInlineProps = {
   mode?: AgentMode;
@@ -38,13 +19,23 @@ export type AgentPresenceInlineProps = {
   onStop?: (e: React.MouseEvent) => void;
   onClick?: () => void;
   cardStatus?: 'thinking' | 'working' | 'blocked' | 'done' | 'error';
+  /** Direct lane icon — skips generic state → icon fallback. */
+  iconKey?: ModePresenceIconKey;
+  /** When set, overrides cardStatus-derived shimmer (from resolveInlinePresenceDisplay). */
+  shimmer?: boolean;
 };
 
-function shouldShimmer(state: string | null | undefined, mode: AgentMode = 'agent'): boolean {
-  const raw = String(state || 'thinking').trim().toLowerCase();
-  if (SHIMMER_STATES.has(raw)) return true;
-  const normalized = normalizeChatPresenceState(raw, mode);
-  return SHIMMER_STATES.has(normalized);
+function shouldShimmer(
+  cardStatus: AgentPresenceInlineProps['cardStatus'],
+  shimmerOverride: boolean | undefined,
+  state: string | null | undefined,
+  mode: AgentMode,
+): boolean {
+  if (typeof shimmerOverride === 'boolean') return shimmerOverride;
+  if (cardStatus === 'thinking' || cardStatus === 'working') return true;
+  if (cardStatus === 'blocked' || cardStatus === 'done' || cardStatus === 'error') return false;
+  const normalized = normalizeChatPresenceState(state, mode);
+  return !['idle', 'complete', 'failed', 'approval_required'].includes(normalized);
 }
 
 export function AgentPresenceInline({
@@ -60,17 +51,19 @@ export function AgentPresenceInline({
   onStop,
   onClick,
   cardStatus,
+  iconKey,
+  shimmer: shimmerOverride,
 }: AgentPresenceInlineProps) {
   /** 2× prior sizes so loading-state SVGs read clearly in the thread. */
   const iconPx = size === 'sm' ? 32 : 44;
   const textSize = titleFontSizePx ?? (size === 'sm' ? 12 : 12);
   const metaSize = size === 'sm' ? 11 : 11;
-  const shimmer = shouldShimmer(state, mode);
+  const shimmer = shouldShimmer(cardStatus, shimmerOverride, state, mode);
   const rowClass = `agent-inline-row min-w-0 flex-1${onClick ? ' agent-inline-row--clickable' : ''}`;
 
   const inner = (
     <div className={rowClass} onClick={onClick} role={onClick ? 'button' : undefined} tabIndex={onClick ? 0 : undefined}>
-      <ChatPresenceIcon mode={mode} state={state} size={iconPx} cardStatus={cardStatus} className="shrink-0" />
+      <ChatPresenceIcon mode={mode} state={state} iconKey={iconKey} size={iconPx} cardStatus={cardStatus} className="shrink-0" />
       <div className="min-w-0 flex-1 pr-14">
         <div className="flex items-center gap-2 min-w-0">
           <span

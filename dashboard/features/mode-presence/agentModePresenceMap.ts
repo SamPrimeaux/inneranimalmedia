@@ -146,6 +146,55 @@ export const modePresenceStateMap: Partial<Record<AgentMode, Partial<Record<Agen
   },
 };
 
+/** Runtime SSE / tool states → best-matching animated icon (prefer concrete tool glyphs). */
+const runtimeStateIconMap: Partial<Record<string, ModePresenceIconKey>> = {
+  terminal: 'terminal',
+  browser: 'browser',
+  browser_live: 'browser',
+  browser_debug: 'scan',
+  browser_capture: 'pixel',
+  browser_human_input: 'approval-wait',
+  database: 'scan',
+  reading: 'scan',
+  web_search: 'context-scan',
+  web_fetch: 'source-thread',
+  writing: 'diff',
+  filing: 'files',
+  files: 'files',
+  drawing: 'path',
+  imaging: 'pixel',
+  tool: 'tool-router',
+  executing: 'execute-pulse',
+  verifying: 'verify-bloom',
+  mapping: 'map-build',
+  task_stack: 'task-stack',
+  risk_scan: 'risk-radar',
+  handoff_ready: 'handoff-ready',
+  trace_probe: 'trace-probe',
+  fault_isolate: 'fault-isolate',
+  hypothesis: 'patch-hypothesis',
+  regression_check: 'regression-check',
+  reading_context: 'context-scan',
+  tracing_sources: 'source-thread',
+  answering: 'answer-forming',
+  clarifying: 'clarify-gate',
+  subagent_spawn: 'subagent-swarm',
+  delegate_subtask: 'delegate-chain',
+  multitask_fanout: 'fanout-orbit',
+  parallel_work: 'parallel-orbit',
+  merge_results: 'merge-weave',
+  summarizing_subagents: 'merge-weave',
+  waiting_approval: 'review-gate',
+  approval_required: 'approval-wait',
+  complete: 'done-bloom',
+  failed: 'error-signal',
+  loading_panel: 'skeleton-plan',
+  thinking: 'agent-spark',
+  planning: 'agent-spark',
+  task_queue: 'work-queue',
+  tool_routing: 'tool-router',
+};
+
 /** Global semantic state → icon mapping (used when you only have state). */
 export const stateIconMap: Partial<Record<AgentPresenceState, ModePresenceIconKey>> = {
   thinking: 'agent-spark',
@@ -189,9 +238,10 @@ export function resolvePresenceIconKey(input: {
   const s = String(input.state || '').trim().toLowerCase();
   const state = (s || 'thinking') as AgentPresenceState;
 
+  if (runtimeStateIconMap[s]) return runtimeStateIconMap[s]!;
+  if (legacySurfaceStateMap[state]) return legacySurfaceStateMap[state]!;
   if (mode && modePresenceStateMap[mode]?.[state]) return modePresenceStateMap[mode]![state]!;
   if (stateIconMap[state]) return stateIconMap[state]!;
-  if (legacySurfaceStateMap[state]) return legacySurfaceStateMap[state]!;
   if (mode) {
     const defState = modeDefaultStateMap[mode];
     const iconFromDefault = stateIconMap[defState] || modePresenceStateMap[mode]?.[defState];

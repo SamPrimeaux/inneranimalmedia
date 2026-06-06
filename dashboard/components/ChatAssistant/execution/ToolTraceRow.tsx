@@ -104,6 +104,7 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({
             <ChatPresenceIcon
               mode={mode}
               state={tracePresence.presenceState}
+              iconKey={tracePresence.iconKey}
               size={TOOL_TRACE_ICON_PX}
               cardStatus={cardStatus}
             />

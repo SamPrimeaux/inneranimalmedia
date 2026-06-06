@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { User, Bot, ChevronRight, FileText, ShieldAlert } from 'lucide-react';
 import { SetiFileIcon } from '../../../src/components/SetiFileIcon';
 import type { ActiveFile } from '../../../types';
@@ -15,7 +15,11 @@ import type {
 } from '../types';
 import type { ThinkingCardState } from '../../../src/components/ThinkingCard';
 import { IAM_AGENT_CHAT_CONVERSATION_CHANGE } from '../../../agentChatConstants';
-import { simplifyToolName } from '../../../features/agent-chat/formatThinkingStepName';
+import type { AgentPresence } from '../../../features/agent-presence/presenceTypes';
+import {
+  resolveInlinePresenceDisplay,
+  shouldShowInlinePresence,
+} from '../../../features/mode-presence/resolveInlinePresenceDisplay';
 import { AgentChatMarkdown } from './AgentChatMarkdown';
 import { AgentCodeFencePreview } from './AgentCodeFencePreview';
 import { AgentCodeDiffPreview } from './AgentCodeDiffPreview';
@@ -99,8 +103,7 @@ export type AgentMessageListProps = {
   displayMessages: Message[];
   isLoading: boolean;
   mode: AgentMode;
-  presenceState: string;
-  presenceLabel?: string;
+  presence: Pick<AgentPresence, 'state' | 'label' | 'detail' | 'toolName'>;
   thinkingState?: ThinkingCardState | null;
   showInlinePresence?: boolean;
   isNarrow?: boolean;
@@ -485,8 +488,7 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
   displayMessages,
   isLoading,
   mode,
-  presenceState,
-  presenceLabel = '',
+  presence,
   thinkingState = null,
   showInlinePresence = false,
   isNarrow = false,
@@ -511,6 +513,14 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
   onDenyPendingTool,
   suppressEmptyPlaceholder = false,
 }) => {
+  const inlinePresence = useMemo(
+    () =>
+      shouldShowInlinePresence({ showInlinePresence, toolTraceRows })
+        ? resolveInlinePresenceDisplay({ mode, presence, thinkingState })
+        : null,
+    [showInlinePresence, toolTraceRows, mode, presence, thinkingState],
+  );
+
   return (
     <div
       ref={scrollRef}
@@ -706,30 +716,18 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
         </div>
       ) : null}
 
-      {showInlinePresence ? (
+      {inlinePresence ? (
         <div className="flex justify-start w-full min-w-0" role="status" aria-live="polite">
           <AgentPresenceInline
             mode={mode}
-            state={presenceState}
-            title={
-              presenceLabel ||
-              (() => {
-                const runningStep = thinkingState?.steps.find((s) => s.status === 'running');
-                if (runningStep?.name) return simplifyToolName(runningStep.name);
-                return simplifyToolName(thinkingState?.thinkingText || 'working');
-              })()
-            }
+            state={inlinePresence.state}
+            title={inlinePresence.title}
+            meta={inlinePresence.meta}
             size="sm"
             titleFontSizePx={thinkingState?.surface === 'plan' ? 16 : undefined}
-            cardStatus={
-              thinkingState?.status === 'blocked'
-                ? 'blocked'
-                : thinkingState?.status === 'error'
-                  ? 'error'
-                  : thinkingState?.status === 'done'
-                    ? 'done'
-                    : 'working'
-            }
+            cardStatus={inlinePresence.cardStatus}
+            shimmer={inlinePresence.shimmer}
+            iconKey={inlinePresence.iconKey}
           />
         </div>
       ) : null}

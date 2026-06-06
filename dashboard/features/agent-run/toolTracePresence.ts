@@ -1,4 +1,4 @@
-import type { AgentMode } from '../mode-presence/agentModePresenceMap';
+import type { AgentMode, ModePresenceIconKey } from '../mode-presence/agentModePresenceMap';
 import type { AgentToolTraceStatus } from '../../components/ChatAssistant/execution/types';
 import { resolveAgentPresence } from './resolveAgentPresence';
 import { laneLabel, toolNameToLane } from './lanes';
@@ -9,6 +9,7 @@ export type ToolTracePresenceDisplay = {
   label: string;
   description: string;
   presenceState: string;
+  iconKey: ModePresenceIconKey;
 };
 
 export function resolveToolTracePresence(input: {
@@ -42,5 +43,6 @@ export function resolveToolTracePresence(input: {
       : `${resolved.label} · ${input.toolName}`,
     description: description.slice(0, 200),
     presenceState: resolved.presenceState,
+    iconKey: resolved.iconKey,
   };
 }
