@@ -1,7 +1,8 @@
 /**
  * IAM Terminal API
  *
- * POST /api/terminal/assist          — AI assist for terminal context
+ * POST /api/terminal/assist          — AI assist for terminal context (Agent Sam / agentsam_model_catalog)
+ * GET  /api/terminal/models          — PTY-auth model list for /agents slash command
  * POST /api/terminal/session/register — register new PTY session
  * GET  /api/terminal/session/validate — validate PTY auth token via KV
  * POST /api/terminal/session/verify — PTY backend: SHA256(token) vs terminal_sessions.auth_token_hash
@@ -504,9 +505,42 @@ export async function handleTerminalApi(request, url, env, ctx) {
     return jsonResponse({ ok: true });
   }
 
+  // GET /api/terminal/models — PTY server /agents slash (no browser cookie)
+  if (path === '/api/terminal/models' && method === 'GET') {
+    const auth = request.headers.get('Authorization') || request.headers.get('x-pty-auth') || '';
+    const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : auth.trim();
+    if (!token || token !== (env.PTY_AUTH_TOKEN || '')) {
+      return jsonResponse({ error: 'unauthorized' }, 401);
+    }
+    const sessionId = String(url.searchParams.get('session_id') || '').trim();
+    if (!sessionId || !env.DB) {
+      return jsonResponse({ error: 'session_id required' }, 400);
+    }
+    const sess = await env.DB.prepare(
+      'SELECT workspace_id, tenant_id FROM terminal_sessions WHERE id = ? LIMIT 1',
+    )
+      .bind(sessionId)
+      .first();
+    const tenantId = sess?.tenant_id != null ? String(sess.tenant_id).trim() : '';
+    if (!tenantId) {
+      return jsonResponse({ error: 'session_not_found' }, 404);
+    }
+    const { results } = await env.DB.prepare(
+      `SELECT model_key, name, provider, api_platform, size_class, sort_order
+       FROM agentsam_ai
+       WHERE mode = 'model' AND status = 'active'
+         AND COALESCE(picker_eligible, 1) = 1
+         AND (is_global = 1 OR allowed_tenants_json LIKE ('%"' || ? || '"%'))
+       ORDER BY sort_order ASC, name ASC`,
+    )
+      .bind(tenantId)
+      .all();
+    return jsonResponse({ models: results || [] });
+  }
+
   // POST /api/terminal/assist
   if (path === '/api/terminal/assist' && method === 'POST') {
-    const auth  = request.headers.get('Authorization') || '';
+    const auth  = request.headers.get('Authorization') || request.headers.get('x-pty-auth') || '';
     const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : auth.trim();
     if (!token || token !== (env.PTY_AUTH_TOKEN || '')) {
       return jsonResponse({ error: 'unauthorized' }, 401);
@@ -515,7 +549,7 @@ export async function handleTerminalApi(request, url, env, ctx) {
     let body = {};
     try { body = await request.json(); } catch (_) {}
 
-    const { mode, context, command, output, exit_code, session_id } = body;
+    const { mode, context, command, output, exit_code, session_id, model_key: modelKeyOverride } = body;
 
     // Strip ANSI escape codes from terminal output
     const cleanOutput = (output || '')
@@ -555,27 +589,52 @@ Complete this task or provide a specific actionable response.`,
 
     const userPrompt = prompts[mode] || prompts.ask;
 
-    let modelKey = 'gpt-5.4-nano';
-    try {
-      let workspaceId = '';
-      if (session_id && env.DB) {
-        const sess = await env.DB.prepare(
-          'SELECT workspace_id FROM terminal_sessions WHERE id = ? LIMIT 1',
-        )
-          .bind(session_id)
-          .first();
-        workspaceId = sess?.workspace_id != null ? String(sess.workspace_id).trim() : '';
+    let workspaceId = '';
+    let tenantId = '';
+    if (session_id && env.DB) {
+      const sess = await env.DB.prepare(
+        'SELECT workspace_id, tenant_id FROM terminal_sessions WHERE id = ? LIMIT 1',
+      )
+        .bind(session_id)
+        .first();
+      workspaceId = sess?.workspace_id != null ? String(sess.workspace_id).trim() : '';
+      tenantId = sess?.tenant_id != null ? String(sess.tenant_id).trim() : '';
+    }
+    if (!workspaceId) {
+      return jsonResponse({ error: 'unauthorized' }, 401);
+    }
+
+    let modelKey = '';
+    const override = String(modelKeyOverride || '').trim();
+    if (override && tenantId) {
+      const allowed = await env.DB.prepare(
+        `SELECT model_key FROM agentsam_ai
+         WHERE model_key = ? AND mode = 'model' AND status = 'active'
+           AND (is_global = 1 OR allowed_tenants_json LIKE ('%"' || ? || '"%'))
+         LIMIT 1`,
+      )
+        .bind(override, tenantId)
+        .first();
+      if (allowed?.model_key) {
+        modelKey = String(allowed.model_key);
+      } else {
+        return jsonResponse({ error: 'model_not_allowed', model_key: override }, 400);
       }
-      if (!workspaceId) {
-        return jsonResponse({ error: 'unauthorized' }, 401);
+    } else {
+      try {
+        const resolved = await resolveModelForTask(env, {
+          task_type: normalizeCanonicalTaskType('terminal_execution'),
+          mode: 'agent',
+          workspace_id: workspaceId,
+        });
+        modelKey = String(resolved?.model_key || '').trim();
+      } catch (e) {
+        return jsonResponse({ error: 'model_resolve_failed', detail: e?.message }, 500);
       }
-      const resolved = await resolveModelForTask(env, {
-        task_type: normalizeCanonicalTaskType('terminal_execution'),
-        mode: 'agent',
-        workspace_id: workspaceId,
-      });
-      modelKey = resolved.model_key;
-    } catch (_) {}
+      if (!modelKey) {
+        return jsonResponse({ error: 'model_resolve_empty' }, 500);
+      }
+    }
 
     const systemPrompt = `You are a developer assistant embedded in the IAM terminal.
 Be concise. Plain text only. No markdown headers. Dashes not bullet asterisks.
