@@ -6,6 +6,11 @@
  *   artifacts/{scope}/{workspace_id}/{kind}/{artifact_id}.{ext}
  */
 
+import {
+  getAgentsamWorkspace,
+  resolveWorkspaceByokR2Bucket,
+  resolveWorkspaceCloudflareAccountId,
+} from './agentsam-workspace.js';
 import { pragmaTableInfo } from './retention.js';
 import { authUserIsSuperadmin } from './auth.js';
 import {
@@ -27,6 +32,10 @@ export { ARTIFACT_EXT };
 
 export const ARTIFACT_WRITE_USER_ERROR =
   'Artifact could not be saved — reply to retry.';
+
+function trim(v) {
+  return v == null ? '' : String(v).trim();
+}
 
 /** @param {string} text */
 function contentToBase64(text) {
@@ -234,6 +243,9 @@ export async function writeWorkspaceArtifact(env, ctx, opts) {
 
   const authUser = await resolveArtifactAuthUser(env, userId, opts.authUser);
   const isSuper = authUserIsSuperadmin(authUser);
+  const wsRow = await getAgentsamWorkspace(env, workspaceId);
+  const wsCfAccountId = resolveWorkspaceCloudflareAccountId(wsRow);
+  const wsByokBucket = resolveWorkspaceByokR2Bucket(wsRow);
   const byokCreds = !isSuper ? await loadUserCloudflareR2Credentials(env, userId) : null;
 
   if (!isSuper && !byokCreds) {
@@ -304,8 +316,15 @@ export async function writeWorkspaceArtifact(env, ctx, opts) {
       return { ok: false, error: 'r2_put_failed', user_message: ARTIFACT_WRITE_USER_ERROR };
     }
   } else {
-    const userEnv = await mergeR2S3EnvFromUserStorage(env, authUser || { id: userId });
-    r2BucketName = String(opts.tenantR2Bucket || opts.r2Bucket || 'artifacts').trim();
+    let userEnv = await mergeR2S3EnvFromUserStorage(env, authUser || { id: userId });
+    const resolvedAccountId =
+      trim(userEnv.CLOUDFLARE_ACCOUNT_ID) || wsCfAccountId || trim(env.CLOUDFLARE_ACCOUNT_ID) || null;
+    if (resolvedAccountId) {
+      userEnv = { ...userEnv, CLOUDFLARE_ACCOUNT_ID: resolvedAccountId };
+    }
+    r2BucketName = String(
+      opts.tenantR2Bucket || opts.r2Bucket || wsByokBucket || defaultArtifactBucket(),
+    ).trim();
     putOk = await r2PutViaBindingOrS3(userEnv, null, r2BucketName, r2Key, content, contentType);
     if (!putOk) {
       await logArtifactR2WriteFailure(env, ctx, {

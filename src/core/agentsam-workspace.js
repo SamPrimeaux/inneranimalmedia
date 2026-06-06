@@ -9,6 +9,79 @@ function trim(v) {
   return s;
 }
 
+/** @param {unknown} raw */
+export function parseWorkspaceMetadata(raw) {
+  if (raw == null || raw === '') return {};
+  if (typeof raw === 'object') return raw;
+  try {
+    const o = JSON.parse(String(raw));
+    return typeof o === 'object' && o !== null ? o : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Column-first BYOK / deploy fields (metadata_json fallback).
+ * @param {Record<string, unknown>|null|undefined} row
+ */
+export function resolveWorkspaceCloudflareAccountId(row) {
+  if (!row) return null;
+  const fromCol = trim(row.cloudflare_account_id);
+  if (fromCol) return fromCol;
+  const meta = parseWorkspaceMetadata(row.metadata_json);
+  return trim(meta.cloudflare_account_id) || trim(meta.cf_account_id) || trim(meta.account_id) || null;
+}
+
+/**
+ * @param {Record<string, unknown>|null|undefined} row
+ */
+export function resolveWorkspaceByokR2Bucket(row) {
+  if (!row) return null;
+  const fromCol = trim(row.byok_r2_bucket);
+  if (fromCol) return fromCol;
+  const meta = parseWorkspaceMetadata(row.metadata_json);
+  return trim(meta.byok_r2_bucket) || trim(meta.r2_bucket_override) || null;
+}
+
+/**
+ * @param {Record<string, unknown>|null|undefined} row
+ */
+export function resolveWorkspaceDeployUrl(row) {
+  if (!row) return null;
+  const fromCol = trim(row.deploy_url);
+  if (fromCol) return fromCol;
+  const meta = parseWorkspaceMetadata(row.metadata_json);
+  return trim(meta.deploy_url) || trim(meta.live_url) || null;
+}
+
+/**
+ * @param {any} env
+ * @param {string} workspaceId
+ */
+export async function getWorkspaceCloudflareAccountId(env, workspaceId) {
+  const row = await getAgentsamWorkspace(env, workspaceId);
+  return resolveWorkspaceCloudflareAccountId(row);
+}
+
+/**
+ * @param {any} env
+ * @param {string} workspaceId
+ */
+export async function getWorkspaceByokR2Bucket(env, workspaceId) {
+  const row = await getAgentsamWorkspace(env, workspaceId);
+  return resolveWorkspaceByokR2Bucket(row);
+}
+
+/**
+ * @param {any} env
+ * @param {string} workspaceId
+ */
+export async function getWorkspaceDeployUrl(env, workspaceId) {
+  const row = await getAgentsamWorkspace(env, workspaceId);
+  return resolveWorkspaceDeployUrl(row);
+}
+
 /**
  * @param {any} env
  * @param {string} workspaceId

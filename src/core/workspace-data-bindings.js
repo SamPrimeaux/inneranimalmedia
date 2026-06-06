@@ -2,35 +2,16 @@
  * Workspace BYO resource selection — SSOT is agentsam_workspace columns + user_storage_access_keys.
  */
 
+import {
+  getAgentsamWorkspace,
+  parseWorkspaceMetadata,
+  resolveWorkspaceByokR2Bucket,
+  resolveWorkspaceCloudflareAccountId,
+  resolveWorkspaceDeployUrl,
+} from './agentsam-workspace.js';
+
 function trim(v) {
   return v == null ? '' : String(v).trim();
-}
-
-function parseMeta(raw) {
-  if (raw == null || raw === '') return {};
-  if (typeof raw === 'object') return raw;
-  try {
-    return JSON.parse(String(raw));
-  } catch {
-    return {};
-  }
-}
-
-/**
- * @param {any} env
- * @param {string} workspaceId
- */
-async function loadAgentsamWorkspace(env, workspaceId) {
-  if (!env?.DB || !workspaceId) return null;
-  return env.DB.prepare(
-    `SELECT id, tenant_id, d1_database_id, d1_binding, metadata_json, r2_bucket, worker_name
-       FROM agentsam_workspace
-      WHERE id = ?
-      LIMIT 1`,
-  )
-    .bind(String(workspaceId))
-    .first()
-    .catch(() => null);
 }
 
 /**
@@ -43,20 +24,42 @@ export async function getDefaultWorkspaceDataBinding(env, workspaceId, provider)
   const prov = trim(provider).toLowerCase();
   if (!ws || !prov) return null;
 
-  const row = await loadAgentsamWorkspace(env, ws);
+  const row = await getAgentsamWorkspace(env, ws);
   if (!row) return null;
 
-  const meta = parseMeta(row.metadata_json);
+  const meta = parseWorkspaceMetadata(row.metadata_json);
+  const accountId = resolveWorkspaceCloudflareAccountId(row);
+  const byokR2 = resolveWorkspaceByokR2Bucket(row);
+  const deployUrl = resolveWorkspaceDeployUrl(row);
 
   if (prov === 'cloudflare_d1' || prov === 'cloudflare') {
     const d1Id = trim(row.d1_database_id);
-    if (!d1Id) return null;
+    if (prov === 'cloudflare_d1' && !d1Id) return null;
     return {
       id: row.id,
       workspace_id: ws,
       provider: prov,
-      external_database_id: d1Id,
-      external_account_id: trim(meta.cloudflare_account_id) || trim(meta.account_id) || null,
+      external_database_id: d1Id || null,
+      external_account_id: accountId,
+      byok_r2_bucket: byokR2,
+      deploy_url: deployUrl,
+      d1_binding: trim(row.d1_binding) || null,
+      worker_name: trim(row.worker_name) || null,
+      r2_bucket: trim(row.r2_bucket) || null,
+      selected_as_default: 1,
+      metadata_json: row.metadata_json,
+    };
+  }
+
+  if (prov === 'cloudflare_r2') {
+    if (!byokR2 && !trim(row.r2_bucket)) return null;
+    return {
+      id: row.id,
+      workspace_id: ws,
+      provider: 'cloudflare_r2',
+      external_account_id: accountId,
+      byok_r2_bucket: byokR2 || trim(row.r2_bucket) || null,
+      deploy_url: deployUrl,
       selected_as_default: 1,
       metadata_json: row.metadata_json,
     };
@@ -75,6 +78,8 @@ export async function getDefaultWorkspaceDataBinding(env, workspaceId, provider)
       provider: 'supabase',
       external_project_ref: ref,
       external_project_id: trim(meta.supabase_project_id) || trim(meta.project_id) || null,
+      external_account_id: accountId,
+      deploy_url: deployUrl,
       selected_as_default: 1,
       metadata_json: row.metadata_json,
     };
@@ -89,16 +94,14 @@ export async function getDefaultWorkspaceDataBinding(env, workspaceId, provider)
  * @param {string} [provider]
  */
 export async function listWorkspaceDataBindings(env, workspaceId, provider = null) {
-  const binding = await getDefaultWorkspaceDataBinding(
-    env,
-    workspaceId,
-    provider || 'cloudflare_d1',
-  );
-  if (binding) return [binding];
-  if (provider) return [];
-  const supa = await getDefaultWorkspaceDataBinding(env, workspaceId, 'supabase');
+  if (provider) {
+    const binding = await getDefaultWorkspaceDataBinding(env, workspaceId, provider);
+    return binding ? [binding] : [];
+  }
   const cf = await getDefaultWorkspaceDataBinding(env, workspaceId, 'cloudflare_d1');
-  return [cf, supa].filter(Boolean);
+  const r2 = await getDefaultWorkspaceDataBinding(env, workspaceId, 'cloudflare_r2');
+  const supa = await getDefaultWorkspaceDataBinding(env, workspaceId, 'supabase');
+  return [cf, r2, supa].filter(Boolean);
 }
 
 /**
@@ -114,6 +117,8 @@ export async function listWorkspaceDataBindings(env, workspaceId, provider = nul
  *   external_project_id?: string|null,
  *   external_project_ref?: string|null,
  *   external_database_id?: string|null,
+ *   byok_r2_bucket?: string|null,
+ *   deploy_url?: string|null,
  *   display_name?: string|null,
  *   selected_as_default?: boolean|number,
  *   capabilities_json?: string|null,
@@ -126,8 +131,8 @@ export async function upsertWorkspaceDataBinding(env, row) {
   if (!env?.DB) throw new Error('DB unavailable');
   const ws = String(row.workspace_id);
   const provider = String(row.provider).toLowerCase();
-  const existing = (await loadAgentsamWorkspace(env, ws)) || { metadata_json: '{}' };
-  const meta = parseMeta(existing.metadata_json);
+  const existing = (await getAgentsamWorkspace(env, ws)) || { metadata_json: '{}' };
+  const meta = parseWorkspaceMetadata(existing.metadata_json);
 
   if (provider === 'cloudflare_d1' && row.external_database_id != null) {
     await env.DB.prepare(
@@ -137,7 +142,52 @@ export async function upsertWorkspaceDataBinding(env, row) {
     )
       .bind(String(row.external_database_id), ws)
       .run();
-    return;
+  }
+
+  if (row.external_account_id != null) {
+    const acct = String(row.external_account_id);
+    meta.cloudflare_account_id = acct;
+    meta.account_id = acct;
+    await env.DB.prepare(
+      `UPDATE agentsam_workspace
+          SET cloudflare_account_id = ?,
+              metadata_json = json_set(
+                json_set(COALESCE(metadata_json, '{}'), '$.cloudflare_account_id', ?),
+                '$.account_id', ?
+              ),
+              updated_at = unixepoch()
+        WHERE id = ?`,
+    )
+      .bind(acct, acct, acct, ws)
+      .run();
+  }
+
+  if (row.byok_r2_bucket != null) {
+    const bucket = String(row.byok_r2_bucket);
+    meta.byok_r2_bucket = bucket;
+    await env.DB.prepare(
+      `UPDATE agentsam_workspace
+          SET byok_r2_bucket = ?,
+              metadata_json = json_set(COALESCE(metadata_json, '{}'), '$.byok_r2_bucket', ?),
+              updated_at = unixepoch()
+        WHERE id = ?`,
+    )
+      .bind(bucket, bucket, ws)
+      .run();
+  }
+
+  if (row.deploy_url != null) {
+    const url = String(row.deploy_url);
+    meta.deploy_url = url;
+    await env.DB.prepare(
+      `UPDATE agentsam_workspace
+          SET deploy_url = ?,
+              metadata_json = json_set(COALESCE(metadata_json, '{}'), '$.deploy_url', ?),
+              updated_at = unixepoch()
+        WHERE id = ?`,
+    )
+      .bind(url, url, ws)
+      .run();
   }
 
   if (provider === 'supabase') {
@@ -148,23 +198,10 @@ export async function upsertWorkspaceDataBinding(env, row) {
     if (row.external_project_id != null) {
       meta.supabase_project_id = String(row.external_project_id);
     }
-    if (row.external_account_id != null) {
-      meta.cloudflare_account_id = String(row.external_account_id);
-    }
     await env.DB.prepare(
       `UPDATE agentsam_workspace
           SET metadata_json = ?, updated_at = unixepoch()
         WHERE id = ?`,
-    )
-      .bind(JSON.stringify(meta), ws)
-      .run();
-    return;
-  }
-
-  if (row.external_account_id != null) {
-    meta.cloudflare_account_id = String(row.external_account_id);
-    await env.DB.prepare(
-      `UPDATE agentsam_workspace SET metadata_json = ?, updated_at = unixepoch() WHERE id = ?`,
     )
       .bind(JSON.stringify(meta), ws)
       .run();
