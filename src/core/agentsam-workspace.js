@@ -21,6 +21,7 @@ export async function getAgentsamWorkspace(env, workspaceId) {
             root_path, r2_bucket, r2_prefix, status, metadata_json,
             github_repo, default_model_id, primary_subagent_id,
             d1_database_id, d1_binding, worker_name, workspace_ref_id,
+            cloudflare_account_id, byok_r2_bucket, deploy_url,
             created_at, updated_at
        FROM agentsam_workspace
       WHERE id = ?

@@ -6,6 +6,7 @@ import { fetchAuthUserTenantId } from './auth.js';
 import { userCanAccessWorkspace } from './cms-theme-resolve.js';
 import { resolveGitHubToken } from './github-token.js';
 import { getWorkspaceGithubRepo } from './agentsam-workspace.js';
+import { persistUserGitActiveBranch, readUserGitActiveBranch } from './workspace-user-prefs.js';
 
 const GH_HEADERS_BASE = {
   Accept: 'application/vnd.github+json',
@@ -66,20 +67,7 @@ export async function fetchWorkspaceGithubRepo(env, authUser, request, url) {
  * @returns {Promise<string|null>}
  */
 export async function readUserWorkspaceActiveBranch(env, userId, workspaceId) {
-  if (!env?.DB || !userId || !workspaceId) return null;
-  try {
-    const row = await env.DB.prepare(
-      `SELECT active_branch FROM user_workspace_settings WHERE user_id = ? AND workspace_id = ? LIMIT 1`,
-    )
-      .bind(String(userId).trim(), String(workspaceId).trim())
-      .first();
-    const b = row?.active_branch != null ? String(row.active_branch).trim() : '';
-    return b || null;
-  } catch (e) {
-    const msg = String(e?.message || '');
-    if (msg.includes('no such column') && msg.includes('active_branch')) return null;
-    return null;
-  }
+  return readUserGitActiveBranch(env, userId, workspaceId);
 }
 
 /**
@@ -89,34 +77,7 @@ export async function readUserWorkspaceActiveBranch(env, userId, workspaceId) {
  * @param {string} branch
  */
 export async function persistUserWorkspaceActiveBranch(env, userId, workspaceId, branch) {
-  if (!env?.DB || !userId || !workspaceId) throw new Error('DB or scope missing');
-  const b = String(branch || '').trim();
-  if (!b) throw new Error('branch required');
-  const uid = String(userId).trim();
-  const wid = String(workspaceId).trim();
-  const now = Math.floor(Date.now() / 1000);
-  try {
-    const upd = await env.DB.prepare(
-      `UPDATE user_workspace_settings SET active_branch = ?, updated_at = ? WHERE user_id = ? AND workspace_id = ?`,
-    )
-      .bind(b, now, uid, wid)
-      .run();
-    if (!upd?.meta?.changes) {
-      await env.DB.prepare(
-        `INSERT INTO user_workspace_settings (user_id, workspace_id, active_branch, updated_at)
-         VALUES (?, ?, ?, ?)`,
-      )
-        .bind(uid, wid, b, now)
-        .run();
-    }
-  } catch (e) {
-    const msg = String(e?.message || '');
-    if (msg.includes('no such column') && msg.includes('active_branch')) {
-      throw new Error('active_branch column missing — apply migrations/570_user_workspace_active_branch.sql');
-    }
-    throw e;
-  }
-  return { user_id: uid, workspace_id: wid, active_branch: b };
+  return persistUserGitActiveBranch(env, userId, workspaceId, branch);
 }
 
 async function githubBranchExists(repoSlug, branch, token) {

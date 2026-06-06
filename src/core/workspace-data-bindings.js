@@ -1,5 +1,5 @@
 /**
- * Workspace BYO resource selection — SSOT is agentsam_workspace (not agentsam_workspace_data_bindings).
+ * Workspace BYO resource selection — SSOT is agentsam_workspace columns + user_storage_access_keys.
  */
 
 function trim(v) {

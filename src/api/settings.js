@@ -33,6 +33,7 @@ import { handleSettingsWorkspaceApi } from './settings-workspace.js';
 import { encryptApiKeyForStorage } from './provisioning.js';
 import { canUsePlatformAssetsR2Upload } from '../core/cms-theme-resolve.js';
 import { fetchWorkspaceRowsForSettingsApi, userCanAccessWorkspace } from '../core/workspace-access.js';
+import { loadWorkspaceThemeMap, persistWorkspaceThemeSlug } from '../core/workspace-user-prefs.js';
 import { generateMcpToken } from '../core/mcp-auth.js';
 import { MCP_CANONICAL_CLIENT_ID } from './mcp-oauth-shared.js';
 
@@ -1256,48 +1257,19 @@ export async function handleSettingsRequest(request, env, ctx) {
 
         const { userId: canonicalUserId } = await resolveCanonicalUserId(env, sessionUserId, authUser.email);
 
-        const loadUws = async (uid) => {
-          try {
-            const res = await env.DB.prepare(
-              'SELECT workspace_id, brand, plans, budget, time, theme FROM user_workspace_settings WHERE user_id = ?',
-            )
-              .bind(uid)
-              .all();
-            return res.results || [];
-          } catch (e) {
-            const errMsg = String(e?.message || '');
-            if (errMsg.includes('no such column: theme')) {
-              const res = await env.DB.prepare(
-                'SELECT workspace_id, brand, plans, budget, time FROM user_workspace_settings WHERE user_id = ?',
-              )
-                .bind(uid)
-                .all();
-              return res.results || [];
-            }
-            if (errMsg.includes('no such table') && errMsg.includes('user_workspace_settings')) {
-              return [];
-            }
-            throw e;
-          }
-        };
-
-        const [wsRows, rowsPrimary, usPrimary] = await Promise.all([
+        const [wsRows, usPrimary] = await Promise.all([
           fetchWorkspaceRowsForSettingsApi(env.DB, env, authUser),
-          loadUws(sessionUserId),
           env.DB.prepare('SELECT default_workspace_id FROM user_settings WHERE user_id = ? LIMIT 1')
             .bind(sessionUserId)
             .first()
             .catch(() => null),
         ]);
 
-        let rows = rowsPrimary;
-        if (
-          rows.length === 0 &&
-          canonicalUserId &&
-          String(canonicalUserId).trim() !== String(sessionUserId).trim()
-        ) {
-          rows = await loadUws(String(canonicalUserId).trim());
-        }
+        const workspaceThemes = await loadWorkspaceThemeMap(
+          env,
+          wsRows.map((r) => r.id),
+        );
+        const workspaces = {};
 
         let us = usPrimary;
         if (
@@ -1312,18 +1284,6 @@ export async function handleSettingsRequest(request, env, ctx) {
           if (u2?.default_workspace_id) us = u2;
         }
 
-        const workspaces = {};
-        const workspaceThemes = {};
-        for (const r of rows) {
-          workspaces[r.workspace_id] = {
-            brand: r.brand ?? '',
-            plans: r.plans ?? '',
-            budget: r.budget ?? '',
-            time: r.time ?? '',
-          };
-          if (r.theme != null && r.theme.trim()) workspaceThemes[r.workspace_id] = r.theme.trim();
-        }
-        
         const settingsCurrent =
           us?.default_workspace_id != null && String(us.default_workspace_id).trim() !== ''
             ? String(us.default_workspace_id).trim()
@@ -1361,24 +1321,8 @@ export async function handleSettingsRequest(request, env, ctx) {
           return jsonResponse({ error: 'Workspace not found' }, 404);
         }
 
-        await env.DB.prepare(
-          `INSERT INTO user_workspace_settings (user_id, workspace_id, brand, plans, budget, time, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, unixepoch())
-           ON CONFLICT(user_id, workspace_id) DO UPDATE SET
-             brand = excluded.brand, plans = excluded.plans, budget = excluded.budget, time = excluded.time, updated_at = unixepoch()`
-        ).bind(sessionUserId, workspace_id, brand ?? '', plans ?? '', budget ?? '', time ?? '').run();
-        return jsonResponse({ ok: true });
+        return jsonResponse({ ok: true, deprecated: true, note: 'brand/plans/budget/time prefs retired' });
       } catch (e) {
-        const msg = String(e?.message || '');
-        if (msg.includes('no such table') && msg.includes('user_workspace_settings')) {
-          return jsonResponse(
-            {
-              error: 'user_workspace_settings table missing',
-              hint: 'Apply migrations/141_user_workspace_settings.sql (optional theme column: migrations/148_workspace_default_and_theme.sql)',
-            },
-            503,
-          );
-        }
         return jsonResponse({ error: e?.message ?? 'Save failed' }, 500);
       }
     }
@@ -1484,24 +1428,12 @@ export async function handleSettingsRequest(request, env, ctx) {
     try {
       const body = await request.json().catch(() => ({}));
       const theme = body.theme != null ? String(body.theme).trim() : null;
-      
-      await env.DB.prepare(
-        `INSERT INTO user_workspace_settings (user_id, workspace_id, brand, plans, budget, time, theme, updated_at)
-         VALUES (?, ?, '', '', '', '', ?, unixepoch())
-         ON CONFLICT(user_id, workspace_id) DO UPDATE SET theme = excluded.theme, updated_at = unixepoch()`
-      ).bind(sessionUserId, workspaceId, theme || null).run();
+      if (!(await userCanAccessWorkspace(env, authUser, workspaceId))) {
+        return jsonResponse({ error: 'Workspace not found' }, 404);
+      }
+      if (theme) await persistWorkspaceThemeSlug(env, workspaceId, theme);
       return jsonResponse({ ok: true });
     } catch (e) {
-      const msg = String(e?.message || '');
-      if (msg.includes('no such table') && msg.includes('user_workspace_settings')) {
-        return jsonResponse(
-          {
-            error: 'user_workspace_settings table missing',
-            hint: 'Apply migrations/141_user_workspace_settings.sql and migrations/148_workspace_default_and_theme.sql',
-          },
-          503,
-        );
-      }
       return jsonResponse({ error: e?.message ?? 'Save failed' }, 500);
     }
   }

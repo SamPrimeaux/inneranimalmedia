@@ -15,7 +15,7 @@
  */
 
 import { getAuthUser, jsonResponse } from '../core/auth.js';
-import { platformR2WriteGateResponse } from '../core/r2-storage-scope.js';
+import { persistWorkspaceThemeSlug } from '../core/workspace-user-prefs.js';
 import { resolveOAuthAccessToken } from './oauth.js';
 import {
   broadcastExcalidrawAction,
@@ -189,32 +189,8 @@ export async function handleDrawApi(request, url, env, ctx) {
       if (!workspace_id) return jsonResponse({ error: 'workspace_id required' }, 400);
       if (!theme_slug) return jsonResponse({ error: 'theme_slug required' }, 400);
 
-      // Store per-user per-workspace theme in user_workspace_settings (existing schema).
-      try {
-        await env.DB.prepare(
-          `INSERT INTO user_workspace_settings (user_id, workspace_id, theme, updated_at)
-           VALUES (?, ?, ?, unixepoch())
-           ON CONFLICT(user_id, workspace_id) DO UPDATE SET
-             theme = excluded.theme,
-             updated_at = excluded.updated_at`,
-        )
-          .bind(String(userId), workspace_id, theme_slug)
-          .run();
-      } catch (_) {
-        // Fallback for older schema without theme column.
-        try {
-          await env.DB.prepare(
-            `INSERT INTO user_workspace_settings (user_id, workspace_id, updated_at)
-             VALUES (?, ?, unixepoch())
-             ON CONFLICT(user_id, workspace_id) DO UPDATE SET
-               updated_at = excluded.updated_at`,
-          )
-            .bind(String(userId), workspace_id)
-            .run();
-        } catch (__) {}
-      }
-
-      return jsonResponse({ success: true, theme: theme_slug });
+      await persistWorkspaceThemeSlug(env, workspace_id, theme_slug);
+      return jsonResponse({ ok: true, workspace_id, theme_slug });
     }
 
     // ── GET /api/draw/libraries ───────────────────────────────────────────────
