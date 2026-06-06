@@ -11,6 +11,8 @@ import {
   Settings,
   ShieldCheck,
   Server,
+  FolderGit2,
+  Loader2,
 } from 'lucide-react';
 
 export type AgentsamWorkspaceRow = {
@@ -60,6 +62,22 @@ function formatRelativeTime(updatedAt: number | null | undefined): string {
   return `${Math.floor(d / 86400)} days ago`;
 }
 
+function normalizeGithubRepoRef(ref: string | null | undefined): string {
+  return String(ref || '')
+    .trim()
+    .replace(/^https?:\/\/github\.com\//i, '')
+    .replace(/\.git$/i, '')
+    .toLowerCase();
+}
+
+type GithubRepoRow = {
+  id?: number | string;
+  full_name?: string;
+  name?: string;
+  html_url?: string;
+  default_branch?: string;
+};
+
 /**
  * Workspace switchboard: loads agentsam_workspace rows from GET /api/workspaces/list.
  */
@@ -86,6 +104,9 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
   const [extraField, setExtraField] = useState('');
   const [createError, setCreateError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [githubRepos, setGithubRepos] = useState<GithubRepoRow[]>([]);
+  const [githubReposLoading, setGithubReposLoading] = useState(false);
+  const [githubReposAuthed, setGithubReposAuthed] = useState(true);
 
   const loadList = useCallback(async () => {
     setLoading(true);
@@ -102,9 +123,36 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
     }
   }, []);
 
+  const loadGithubRepos = useCallback(async () => {
+    setGithubReposLoading(true);
+    try {
+      const hdr: Record<string, string> = {};
+      if (authWorkspaceId?.trim()) hdr['X-IAM-Workspace-Id'] = authWorkspaceId.trim();
+      const res = await fetch('/api/integrations/github/repos', {
+        credentials: 'same-origin',
+        headers: hdr,
+      });
+      if (!res.ok) {
+        setGithubReposAuthed(false);
+        setGithubRepos([]);
+        return;
+      }
+      setGithubReposAuthed(true);
+      const data = await res.json();
+      const list = Array.isArray(data) ? data : data.repos || [];
+      setGithubRepos(Array.isArray(list) ? (list as GithubRepoRow[]) : []);
+    } catch {
+      setGithubReposAuthed(false);
+      setGithubRepos([]);
+    } finally {
+      setGithubReposLoading(false);
+    }
+  }, [authWorkspaceId]);
+
   useEffect(() => {
     void loadList();
-  }, [loadList]);
+    void loadGithubRepos();
+  }, [loadList, loadGithubRepos]);
 
   useEffect(() => {
     const prev = document.body.style.overflow;
@@ -138,6 +186,20 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
     }
     return list;
   }, [rows, activeFilter, search]);
+
+  const filteredGithubRepos = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    let list = githubRepos.filter((r) => String(r.full_name || r.name || '').trim());
+    if (q) {
+      list = list.filter((r) => {
+        const full = String(r.full_name || r.name || '').toLowerCase();
+        return full.includes(q);
+      });
+    }
+    return list;
+  }, [githubRepos, search]);
+
+  const githubRepoCount = githubRepos.length;
 
   const activeWorkspaceLabel = useMemo(() => {
     if (!authWorkspaceId?.trim()) return '';
@@ -194,6 +256,89 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
       });
       onWorkspaceActivated?.(ws);
       onClose();
+    }
+  };
+
+  const openGithubRepo = async (repo: GithubRepoRow) => {
+    const full = String(repo.full_name || '').trim();
+    if (!full) return;
+    const norm = normalizeGithubRepoRef(full);
+
+    const existing = rows.find((w) => normalizeGithubRepoRef(w.github_repo) === norm);
+    if (existing) {
+      await activateWorkspace(existing);
+      return;
+    }
+
+    const wsId = authWorkspaceId?.trim();
+    if (wsId) {
+      try {
+        const r = await fetch(`/api/workspaces/${encodeURIComponent(wsId)}`, {
+          method: 'PATCH',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ github_repo: full }),
+        });
+        if (r.ok) {
+          const updated = (await r.json().catch(() => ({}))) as Record<string, unknown>;
+          const linked: AgentsamWorkspaceRow = {
+            id: wsId,
+            display_name: String(updated.display_name || updated.name || full.split('/').pop() || full),
+            slug: String(updated.slug || updated.handle || slugify(full)),
+            github_repo: full,
+            workspace_type:
+              updated.workspace_type != null ? String(updated.workspace_type) : undefined,
+          };
+          setRows((prev) =>
+            prev.map((w) => (w.id === wsId ? { ...w, github_repo: full } : w)),
+          );
+          await activateWorkspace(linked);
+          return;
+        }
+      } catch {
+        /* fall through to create */
+      }
+    }
+
+    const shortName = full.split('/').pop() || full;
+    setCreating(true);
+    setCreateError(null);
+    try {
+      const r = await fetch('/api/workspaces', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: shortName,
+          slug: slugify(shortName),
+          workspace_type: 'project',
+          github_repo: full,
+        }),
+      });
+      const data = (await r.json().catch(() => ({}))) as {
+        workspace?: AgentsamWorkspaceRow;
+        error?: string;
+      } & AgentsamWorkspaceRow;
+      if (!r.ok) {
+        setToastMsg(typeof data.error === 'string' ? data.error : 'Failed to link repository');
+        return;
+      }
+      const row = data.workspace ?? data;
+      const ws: AgentsamWorkspaceRow = {
+        id: String(row.id),
+        display_name: String(row.display_name || shortName),
+        slug: String(row.slug || slugify(shortName)),
+        workspace_type: row.workspace_type ?? 'project',
+        github_repo: full,
+        r2_prefix: row.r2_prefix ?? null,
+        updated_at: row.updated_at != null ? Number(row.updated_at) : undefined,
+      };
+      setRows((prev) => [ws, ...prev.filter((x) => x.id !== ws.id)]);
+      await activateWorkspace(ws);
+    } catch (e) {
+      setToastMsg(e instanceof Error ? e.message : 'Failed to open repository');
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -455,7 +600,111 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
                 </div>
 
                 <div className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4 space-y-2 [-webkit-overflow-scrolling:touch]">
-                  {loading ? (
+                  {activeFilter === 'github' ? (
+                    githubReposLoading && githubRepos.length === 0 ? (
+                      <div className="h-full flex items-center justify-center gap-2 text-[var(--text-muted)] text-[13px]">
+                        <Loader2 size={16} className="animate-spin" />
+                        Loading GitHub repositories…
+                      </div>
+                    ) : !githubReposAuthed ? (
+                      <div className="text-center py-10 sm:py-16 space-y-4 px-4">
+                        <p className="text-[13px] text-[var(--text-muted)]">
+                          Connect GitHub to browse your repositories here.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            window.location.href = '/api/integrations/github/connect';
+                          }}
+                          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-[var(--border-subtle)] text-[var(--solar-cyan)] text-xs font-bold hover:bg-[var(--bg-hover)]"
+                        >
+                          <Github size={14} />
+                          Connect GitHub
+                        </button>
+                      </div>
+                    ) : filteredGithubRepos.length === 0 ? (
+                      <div className="text-[var(--text-muted)] text-center py-10 sm:py-16 text-[13px] sm:text-sm">
+                        No GitHub repositories match this search.
+                      </div>
+                    ) : (
+                      <>
+                        <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--text-muted)] px-1">
+                          Your GitHub repositories ({githubRepoCount})
+                        </p>
+                        {filteredGithubRepos.map((repo) => {
+                          const full = String(repo.full_name || repo.name || '').trim();
+                          const linked = rows.some(
+                            (w) => normalizeGithubRepoRef(w.github_repo) === normalizeGithubRepoRef(full),
+                          );
+                          return (
+                            <div
+                              key={String(repo.id ?? full)}
+                              className="flex flex-col sm:flex-row items-stretch gap-2 p-2.5 sm:p-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)]/40 hover:bg-[var(--bg-hover)]/50 transition-colors"
+                            >
+                              <div className="flex-1 min-w-0 flex items-start gap-2">
+                                <FolderGit2
+                                  size={16}
+                                  className="shrink-0 text-[var(--solar-cyan)] mt-0.5"
+                                />
+                                <div className="min-w-0">
+                                  <div className="font-bold text-[var(--text-heading)] truncate text-[13px] sm:text-sm">
+                                    {full}
+                                  </div>
+                                  <div className="text-[10px] sm:text-[11px] text-[var(--text-muted)] mt-0.5 flex flex-wrap gap-x-2">
+                                    {repo.default_branch ? (
+                                      <span>branch: {repo.default_branch}</span>
+                                    ) : null}
+                                    {linked ? (
+                                      <span className="text-[var(--solar-cyan)]">Linked workspace</span>
+                                    ) : (
+                                      <span>Not linked yet</span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                disabled={creating}
+                                onClick={() => void openGithubRepo(repo)}
+                                className="shrink-0 w-full sm:w-auto px-4 py-2 sm:py-1.5 rounded-lg bg-[var(--solar-cyan)]/20 text-[var(--solar-cyan)] text-xs font-bold hover:bg-[var(--solar-cyan)]/30 disabled:opacity-40"
+                              >
+                                Open
+                              </button>
+                            </div>
+                          );
+                        })}
+                        {filtered.length > 0 ? (
+                          <div className="pt-4 space-y-2">
+                            <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--text-muted)] px-1">
+                              Linked workspaces
+                            </p>
+                            {filtered.map((w) => (
+                              <div
+                                key={w.id}
+                                className="flex flex-col sm:flex-row items-stretch gap-2 p-2.5 sm:p-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)]/40 hover:bg-[var(--bg-hover)]/50 transition-colors"
+                              >
+                                <div className="flex-1 min-w-0">
+                                  <div className="font-bold text-[var(--text-heading)] truncate text-[13px] sm:text-sm">
+                                    {w.display_name || w.slug}
+                                  </div>
+                                  <div className="text-[10px] sm:text-[11px] text-[var(--text-muted)] mt-1 truncate">
+                                    GH: {w.github_repo}
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => void activateWorkspace(w)}
+                                  className="shrink-0 w-full sm:w-auto px-4 py-2 sm:py-1.5 rounded-lg bg-[var(--solar-cyan)]/20 text-[var(--solar-cyan)] text-xs font-bold hover:bg-[var(--solar-cyan)]/30"
+                                >
+                                  Open
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+                      </>
+                    )
+                  ) : loading ? (
                     <div className="h-full flex items-center justify-center text-[var(--text-muted)] animate-pulse">
                       Loading workspaces…
                     </div>
