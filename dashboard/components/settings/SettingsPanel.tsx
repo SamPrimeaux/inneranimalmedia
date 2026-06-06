@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { lazy, Suspense, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { SLUG_TO_LABEL, LABEL_TO_SLUG, DEFAULT_SLUG, DEFAULT_LABEL } from './settingsConstants';
 import { Package } from 'lucide-react';
@@ -6,24 +6,47 @@ import { useSettingsData } from './hooks/useSettingsData';
 import { useSettingsSections } from './hooks/useSettingsSections';
 import { SectionNav } from './components/SectionNav';
 import { initialsFromDisplayName, formatPlanLabel } from './settingsUi';
-import { GeneralSection } from './sections/GeneralSection';
-import { AgentsSection } from './sections/AgentsSection';
-import { AIModelsSection } from './sections/AIModelsSection';
-import { ToolsMcpSection } from './sections/ToolsMcpSection';
-import { RulesSkillsSection } from './sections/RulesSkillsSection';
-import { WorkspaceSection } from './sections/WorkspaceSection';
-import { HooksSection } from './sections/HooksSection';
-import { GitHubSection } from './sections/GitHubSection';
-import { CiCdSection } from './sections/CiCdSection';
-import { NetworkSection } from './sections/NetworkSection';
-import { ThemesSection } from './sections/ThemesSection';
-import { StorageSection } from './sections/StorageSection';
-import { SecuritySection } from './sections/SecuritySection';
-import { KeysSection } from './sections/ApiKeysSection';
-import { PlanUsageSection } from './sections/PlanUsageSection';
-import { NotificationsSection } from './sections/NotificationsSection';
-import { DocsSection } from './sections/DocsSection';
-import { IntegrationsSection } from './sections/IntegrationsSection';
+
+const SECTION_LOADERS: Record<string, React.LazyExoticComponent<React.ComponentType<any>>> = {
+  General: lazy(() => import('./sections/GeneralSection').then((m) => ({ default: m.GeneralSection }))),
+  Agents: lazy(() => import('./sections/AgentsSection').then((m) => ({ default: m.AgentsSection }))),
+  'AI Models': lazy(() => import('./sections/AIModelsSection').then((m) => ({ default: m.AIModelsSection }))),
+  'Tools & MCP': lazy(() => import('./sections/ToolsMcpSection').then((m) => ({ default: m.ToolsMcpSection }))),
+  'Rules & Skills': lazy(() =>
+    import('./sections/RulesSkillsSection').then((m) => ({ default: m.RulesSkillsSection })),
+  ),
+  Workspace: lazy(() => import('./sections/WorkspaceSection').then((m) => ({ default: m.WorkspaceSection }))),
+  Hooks: lazy(() => import('./sections/HooksSection').then((m) => ({ default: m.HooksSection }))),
+  GitHub: lazy(() => import('./sections/GitHubSection').then((m) => ({ default: m.GitHubSection }))),
+  Integrations: lazy(() =>
+    import('./sections/IntegrationsSection').then((m) => ({ default: m.IntegrationsSection })),
+  ),
+  'CI/CD': lazy(() => import('./sections/CiCdSection').then((m) => ({ default: m.CiCdSection }))),
+  Network: lazy(() => import('./sections/NetworkSection').then((m) => ({ default: m.NetworkSection }))),
+  Themes: lazy(() => import('./sections/ThemesSection').then((m) => ({ default: m.ThemesSection }))),
+  Storage: lazy(() => import('./sections/StorageSection').then((m) => ({ default: m.StorageSection }))),
+  Security: lazy(() => import('./sections/SecuritySection').then((m) => ({ default: m.SecuritySection }))),
+  'Keys & Secrets': lazy(() => import('./sections/ApiKeysSection').then((m) => ({ default: m.KeysSection }))),
+  'Plan & Usage': lazy(() => import('./sections/PlanUsageSection').then((m) => ({ default: m.PlanUsageSection }))),
+  Notifications: lazy(() =>
+    import('./sections/NotificationsSection').then((m) => ({ default: m.NotificationsSection })),
+  ),
+  Docs: lazy(() => import('./sections/DocsSection').then((m) => ({ default: m.DocsSection }))),
+};
+
+function SectionSkeleton() {
+  return (
+    <div className="px-6 py-8 flex flex-col gap-3 opacity-40">
+      {[200, 160, 240, 120].map((w, i) => (
+        <div
+          key={i}
+          className="h-3.5 rounded animate-pulse bg-[var(--dashboard-border)]"
+          style={{ width: w, animationDelay: `${i * 0.1}s` }}
+        />
+      ))}
+    </div>
+  );
+}
 
 export interface SettingsPanelProps {
   onClose: () => void;
@@ -75,61 +98,84 @@ export default function SettingsPanel({
 
   const sectionBody = () => {
     switch (resolvedLabel) {
-      case 'General':
-        return <GeneralSection workspaceId={workspaceId} data={data} />;
-      case 'Agents':
-        return <AgentsSection data={data} workspaceId={workspaceId} />;
-      case 'AI Models':
+      case 'General': {
+        const C = SECTION_LOADERS.General;
+        return <C workspaceId={workspaceId} data={data} />;
+      }
+      case 'Agents': {
+        const C = SECTION_LOADERS.Agents;
+        return <C data={data} workspaceId={workspaceId} />;
+      }
+      case 'AI Models': {
+        const C = SECTION_LOADERS['AI Models'];
+        return <C data={data} modelsTab={nav.modelsTab} setModelsTab={nav.setModelsTab} />;
+      }
+      case 'Tools & MCP': {
+        const C = SECTION_LOADERS['Tools & MCP'];
+        return <C data={data} activeSection={resolvedLabel} />;
+      }
+      case 'Rules & Skills': {
+        const C = SECTION_LOADERS['Rules & Skills'];
         return (
-          <AIModelsSection
-            data={data}
-            modelsTab={nav.modelsTab}
-            setModelsTab={nav.setModelsTab}
-          />
-        );
-      case 'Tools & MCP':
-        return <ToolsMcpSection data={data} activeSection={resolvedLabel} />;
-      case 'Rules & Skills':
-        return (
-          <RulesSkillsSection
+          <C
             data={data}
             rulesSkillsTab={nav.rulesSkillsTab}
             setRulesSkillsTab={nav.setRulesSkillsTab}
           />
         );
-      case 'Workspace':
-        return <WorkspaceSection data={data} workspaceId={workspaceId} />;
-      case 'Hooks':
-        return <HooksSection data={data} />;
-      case 'GitHub':
-        return <GitHubSection repos={data.repos} />;
-      case 'Integrations':
-        return (
-          <IntegrationsSection
-            userId={data.profileEmail || null}
-            onOpenInMonaco={onOpenInMonaco}
-          />
-        );
-      case 'CI/CD':
-        return <CiCdSection />;
-      case 'Network':
-        return <NetworkSection data={data} workspaceId={workspaceId} />;
-      case 'Themes':
-        return <ThemesSection workspaceId={workspaceId} />;
-      case 'Storage':
-        return <StorageSection />;
-      case 'Security':
-        return <SecuritySection data={data} />;
-      case 'Keys & Secrets':
-        return <KeysSection workspaceId={workspaceId} />;
-      case 'Plan & Usage':
-        return <PlanUsageSection data={data} />;
-      case 'Notifications':
-        return <NotificationsSection data={data} />;
-      case 'Docs':
-        return (
-          <DocsSection onOpenInMonaco={onOpenInMonaco} onFileSelect={onFileSelect} />
-        );
+      }
+      case 'Workspace': {
+        const C = SECTION_LOADERS.Workspace;
+        return <C data={data} workspaceId={workspaceId} />;
+      }
+      case 'Hooks': {
+        const C = SECTION_LOADERS.Hooks;
+        return <C data={data} />;
+      }
+      case 'GitHub': {
+        const C = SECTION_LOADERS.GitHub;
+        return <C repos={data.repos} />;
+      }
+      case 'Integrations': {
+        const C = SECTION_LOADERS.Integrations;
+        return <C userId={data.profileEmail || null} onOpenInMonaco={onOpenInMonaco} />;
+      }
+      case 'CI/CD': {
+        const C = SECTION_LOADERS['CI/CD'];
+        return <C />;
+      }
+      case 'Network': {
+        const C = SECTION_LOADERS.Network;
+        return <C data={data} workspaceId={workspaceId} />;
+      }
+      case 'Themes': {
+        const C = SECTION_LOADERS.Themes;
+        return <C workspaceId={workspaceId} />;
+      }
+      case 'Storage': {
+        const C = SECTION_LOADERS.Storage;
+        return <C />;
+      }
+      case 'Security': {
+        const C = SECTION_LOADERS.Security;
+        return <C data={data} />;
+      }
+      case 'Keys & Secrets': {
+        const C = SECTION_LOADERS['Keys & Secrets'];
+        return <C workspaceId={workspaceId} />;
+      }
+      case 'Plan & Usage': {
+        const C = SECTION_LOADERS['Plan & Usage'];
+        return <C data={data} />;
+      }
+      case 'Notifications': {
+        const C = SECTION_LOADERS.Notifications;
+        return <C data={data} />;
+      }
+      case 'Docs': {
+        const C = SECTION_LOADERS.Docs;
+        return <C onOpenInMonaco={onOpenInMonaco} onFileSelect={onFileSelect} />;
+      }
       default:
         return (
           <div className="flex flex-col items-center justify-center h-40 gap-3 text-[var(--text-muted)]">
@@ -211,7 +257,7 @@ export default function SettingsPanel({
             </div>
           )}
 
-          {sectionBody()}
+          <Suspense fallback={<SectionSkeleton />}>{sectionBody()}</Suspense>
         </div>
       </div>
     </div>
