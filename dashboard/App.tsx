@@ -105,7 +105,6 @@ const ProjectManagement = lazy(() => import('./pages/projects/ProjectManagement'
 const CalendarPage = lazy(() => import('./components/CalendarPage').then((m) => ({ default: m.CalendarPage })));
 const OverviewPage = lazy(() => import('./components/overview'));
 const FinanceDashboard = lazy(() => import('./components/finance'));
-const HealthPage = lazy(() => import('./pages/HealthPage').then((m) => ({ default: m.HealthPage })));
 const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage').then((m) => ({ default: m.AnalyticsPage })));
 const RedirectHealthToAnalytics = lazy(() =>
   import('./pages/RedirectHealthToAnalytics').then((m) => ({ default: m.RedirectHealthToAnalytics })),

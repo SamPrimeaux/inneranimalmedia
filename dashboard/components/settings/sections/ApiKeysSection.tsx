@@ -1368,6 +1368,3 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
     </div>
   );
 }
-
-/** @deprecated use KeysSection */
-export const ApiKeysSection = KeysSection;
