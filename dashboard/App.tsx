@@ -134,9 +134,6 @@ const MonacoEditorView = lazy(() =>
 const LaunchDeskPage = lazy(() =>
   import('./pages/LaunchDeskPage').then((m) => ({ default: m.LaunchDeskPage })),
 );
-const DocsPage = lazy(() =>
-  import('./pages/DocsPage').then((m) => ({ default: m.DocsPage })),
-);
 
 function DashboardRoutesFallback() {
   return (
@@ -3303,11 +3300,7 @@ const App: React.FC = () => {
                       />
                       <Route
                         path="/dashboard/docs"
-                        element={
-                          <div className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
-                            <DocsPage />
-                          </div>
-                        }
+                        element={<Navigate to="/dashboard/settings/docs" replace />}
                       />
                       <Route path="/dashboard/mcp/:agentSlug?" element={<McpPage />} />
                       <Route

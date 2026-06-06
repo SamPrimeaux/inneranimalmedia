@@ -5,7 +5,7 @@ export function QuickNav() {
     { label: "Projects", href: "/dashboard/projects" },
     { label: "Tasks", href: "/dashboard/tasks" },
     { label: "Library", href: "/dashboard/library" },
-    { label: "Docs", href: "/dashboard/docs" },
+    { label: "Docs", href: "/dashboard/settings/docs" },
     { label: "Finance", href: "/dashboard/finance" },
   ];
   return (
