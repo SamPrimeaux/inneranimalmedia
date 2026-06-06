@@ -3008,7 +3008,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           </div>
         ) : null}
 
-        {composerVisible && (mode === 'plan' || showEmptyThreadPlaceholder) ? (
+        {composerVisible && mode === 'plan' ? (
           <div className={`${composerFlexOrder} flex-shrink-0 w-full min-w-0 max-w-full px-3`}>
             <PlanRecentPicker
               workspaceId={effectiveWsId}
