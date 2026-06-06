@@ -85,7 +85,6 @@ import {
 } from '../core/agent-costs.js';
 import { evaluateGuardrails } from '../core/guardrails.js';
 import { extractBrowserNavigateUrl } from '../core/extract-browser-url.js';
-import { scheduleAgentsamErrorLog } from '../core/agentsam-error-log.js';
 import { scheduleToolCallLog } from '../core/agentsam-ops-ledger.js';
 import {
   scheduleRecordMcpToolExecution,
@@ -2103,7 +2102,10 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     }
 
     const { buildUnifiedProblems } = await import('../core/agent-problems.js');
-    const problems = buildUnifiedProblems({ error_log, mcp_tool_errors, audit_failures, worker_errors });
+    const problems = buildUnifiedProblems(
+      { error_log, mcp_tool_errors, audit_failures, worker_errors },
+      { surface: 'terminal' },
+    );
 
     return jsonResponse({
       checked_at: checkedAt,
@@ -2112,6 +2114,67 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
       audit_failures,
       worker_errors,
       problems,
+    });
+  }
+
+  // ── /api/agent/problems/resolve ───────────────────────────────────────────
+  if (path === '/api/agent/problems/resolve' && method === 'POST') {
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+
+    const body = await request.json().catch(() => ({}));
+    const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, body);
+    const wid = wsRes.workspaceId != null ? String(wsRes.workspaceId).trim() : '';
+    if (!wid) return jsonResponse({ error: 'workspace_id required' }, 400);
+
+    const ids = [];
+    if (Array.isArray(body.ids)) {
+      for (const raw of body.ids) {
+        const id = raw != null ? String(raw).trim() : '';
+        if (id) ids.push(id.slice(0, 120));
+      }
+    } else if (body.id != null && String(body.id).trim() !== '') {
+      ids.push(String(body.id).trim().slice(0, 120));
+    }
+
+    const olderThanDays = Number(body.older_than_days);
+    const bulkByAge = Number.isFinite(olderThanDays) && olderThanDays > 0;
+    if (!ids.length && !bulkByAge) {
+      return jsonResponse({ error: 'id, ids, or older_than_days required' }, 400);
+    }
+
+    let resolvedCount = 0;
+    try {
+      if (bulkByAge) {
+        const cutoff = Math.floor(Date.now() / 1000) - Math.floor(olderThanDays) * 86400;
+        const q = await env.DB.prepare(
+          `UPDATE agentsam_error_log
+           SET resolved = 1
+           WHERE workspace_id = ? AND COALESCE(resolved, 0) = 0 AND created_at < ?`,
+        )
+          .bind(wid, cutoff)
+          .run();
+        resolvedCount = Number(q.meta?.changes) || 0;
+      }
+      for (const id of ids.slice(0, 100)) {
+        const q = await env.DB.prepare(
+          `UPDATE agentsam_error_log
+           SET resolved = 1
+           WHERE id = ? AND workspace_id = ? AND COALESCE(resolved, 0) = 0`,
+        )
+          .bind(id, wid)
+          .run();
+        resolvedCount += Number(q.meta?.changes) || 0;
+      }
+    } catch (e) {
+      return jsonResponse({ error: e?.message || 'resolve_failed' }, 500);
+    }
+
+    return jsonResponse({
+      ok: true,
+      resolved_count: resolvedCount,
+      workspace_id: wid,
     });
   }
 

@@ -87,6 +87,7 @@ export function logTerminalAssistError(env, ctx, o) {
     source: 'terminal_assist',
     sourceId: o.agentRunId ?? o.sessionId ?? null,
     contextJson: JSON.stringify({
+      terminal_session_id: o.sessionId ?? null,
       mode: o.mode ?? null,
       command: o.command != null ? String(o.command).slice(0, 400) : null,
     }),

@@ -3,13 +3,13 @@
  * Inserts bind every table column explicitly (no reliance on D1 defaults).
  */
 
-import { scheduleAgentsamErrorLog } from './agentsam-error-log.js';
 import { scheduleMirrorToolCallEventToSupabase } from './hyperdrive-write.js';
 import { recordSpan } from './tracer.js';
 import { resolveCanonicalUserId } from '../api/auth.js';
 import { pickRunSpineIds } from './run-spine-ids.js';
 import { loadAgentsamToolPolicyKeySet } from './agentsam-tool-policy-keys.js';
 import { scheduleUpsertMcpUsageLog } from './mcp-usage-log.js';
+import { fireForgetAgentToolChainRow } from '../api/command-run-telemetry.js';
 
 /** SHA-256 hex of canonical JSON for tool-cache keys (Workers Web Crypto). */
 export async function hashToolInputJson(obj) {
@@ -341,42 +341,37 @@ export function scheduleRecordMcpToolExecution(env, ctx, fields) {
           success: succ,
         });
       }
-      if (succ || !ctx?.waitUntil || !execId) return execId;
-      if (!ws || !tid) return execId;
-      let policy = null;
-      try {
-        policy =
-          merged.policy_decision_json != null ? JSON.parse(String(merged.policy_decision_json)) : null;
-      } catch {
-        policy = null;
-      }
-      scheduleAgentsamErrorLog(env, ctx, {
-        workspaceId: ws,
-        tenantId: tid,
-        sessionId: merged.session_id ?? merged.sessionId ?? null,
-        errorCode: merged.error_code != null ? String(merged.error_code).slice(0, 120) : 'mcp_exec_failed',
-        errorType: merged.error_family != null ? String(merged.error_family).slice(0, 120) : 'mcp_tool_execution',
-        errorMessage:
-          merged.error_message != null && String(merged.error_message).trim() !== ''
-            ? String(merged.error_message).slice(0, 8000)
-            : 'mcp_tool_execution_failed',
-        source: 'agentsam_mcp_tool_execution',
-        sourceId: execId,
-        contextJson: JSON.stringify({
-          tool_id: merged.tool_id ?? merged.agentsam_tools_id ?? null,
-          tool_key: merged.tool_key ?? null,
-          tool_name: merged.tool_name ?? null,
-          user_id: merged.user_id ?? null,
-          workspace_id: ws,
-          tenant_id: tid,
-          action_type: merged.action_type ?? null,
-          resource_type: merged.resource_type ?? null,
-          policy_decision: policy,
-          denial_code: merged.denial_code ?? null,
-          input_json:
+      if (
+        !succ &&
+        ctx &&
+        ws &&
+        tid &&
+        uid &&
+        merged.skip_tool_chain_row !== true &&
+        merged.skip_tool_chain_row !== 1
+      ) {
+        void fireForgetAgentToolChainRow(env, {
+          toolName: merged.tool_name || merged.tool_key || 'mcp_tool',
+          agentSessionId: merged.session_id ?? merged.sessionId ?? null,
+          workspaceId: ws,
+          userId: uid,
+          tenantId: tid,
+          error: {
+            message:
+              merged.error_message != null && String(merged.error_message).trim() !== ''
+                ? String(merged.error_message).slice(0, 4000)
+                : 'mcp_tool_execution_failed',
+          },
+          mcpToolCallId: execId,
+          durationMs: Math.max(0, Math.floor(Number(merged.duration_ms) || 0)),
+          terminalSessionId: merged.terminal_session_id ?? merged.terminalSessionId ?? null,
+          agentRunId: merged.agent_run_id ?? merged.agentRunId ?? null,
+          conversationId: merged.conversation_id ?? merged.conversationId ?? null,
+          toolInputJson:
             merged.input_json != null ? String(merged.input_json).slice(0, 8000) : null,
-        }),
-      });
+          ctx,
+        });
+      }
       return execId;
     })
     .catch((e) => console.warn('[scheduleRecordMcpToolExecution]', e?.message ?? e));

@@ -1436,6 +1436,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
         user_id: userId,
         invoked_by: userId || 'iam_agent',
         status: execErr ? 'error' : 'completed',
+        skip_tool_chain_row: true,
         ...runSpineIds,
       });
       const canonicalToolChainUserId = await resolveCanonicalUserId(userId, env);

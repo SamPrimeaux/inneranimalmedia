@@ -314,6 +314,23 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
     const [isCollapsed, setIsCollapsed] = useState(false);
     const [activeTab, setActiveTab] = useState<ShellTab>('terminal');
     const problemsTabOpenedRef = useRef(false);
+    const [resolvingProblemId, setResolvingProblemId] = useState<string | null>(null);
+    const [bulkResolving, setBulkResolving] = useState(false);
+
+    const resolveProblems = useCallback(
+      async (payload: { id?: string; older_than_days?: number }) => {
+        const res = await fetch('/api/agent/problems/resolve', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) return false;
+        onProblemsTabOpen?.();
+        return true;
+      },
+      [onProblemsTabOpen],
+    );
 
     useEffect(() => {
       if (activeTab !== 'problems') {
@@ -990,6 +1007,21 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
 
               {activeTab === 'problems' && (
                 <div className="absolute inset-0 overflow-y-auto custom-scrollbar p-4 space-y-2 bg-[var(--terminal-surface)] z-[20]">
+                  {problems.length > 0 && (
+                    <div className="flex items-center justify-end gap-2 pb-1">
+                      <button
+                        type="button"
+                        disabled={bulkResolving}
+                        onClick={() => {
+                          setBulkResolving(true);
+                          void resolveProblems({ older_than_days: 7 }).finally(() => setBulkResolving(false));
+                        }}
+                        className="text-[10px] font-mono px-2 py-1 rounded border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)] disabled:opacity-40"
+                      >
+                        {bulkResolving ? 'Clearing…' : 'Dismiss 7d+ stale'}
+                      </button>
+                    </div>
+                  )}
                   {problems.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-full text-[var(--text-muted)] opacity-40 gap-2">
                       <CircleCheck size={28} />
@@ -1009,7 +1041,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                             p.severity === 'error' ? 'text-[var(--solar-red)]' : 'text-[var(--solar-yellow)]'
                           }
                         />
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                           <div className="text-[11px] font-medium text-[var(--text-main)] font-mono">{p.msg}</div>
                           <div className="text-[10px] text-[var(--text-muted)] font-mono">
                             {p.ts ? (
@@ -1019,6 +1051,20 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                             {p.line > 0 ? `${p.file}:${p.line}` : p.file || 'error'}
                           </div>
                         </div>
+                        {p.id ? (
+                          <button
+                            type="button"
+                            title="Dismiss"
+                            disabled={resolvingProblemId === p.id}
+                            onClick={() => {
+                              setResolvingProblemId(p.id!);
+                              void resolveProblems({ id: p.id }).finally(() => setResolvingProblemId(null));
+                            }}
+                            className="shrink-0 p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)] disabled:opacity-40"
+                          >
+                            <X size={12} strokeWidth={2} />
+                          </button>
+                        ) : null}
                       </div>
                     ))
                   )}

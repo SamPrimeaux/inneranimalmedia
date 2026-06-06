@@ -1,7 +1,6 @@
 import { authUserFromRequest, platformTenantIdFromEnv } from './auth.js';
 import { resolveEffectiveWorkspaceId } from './bootstrap.js';
 import { scheduleToolCallLog } from './agentsam-ops-ledger.js';
-import { scheduleAgentsamErrorLog } from './agentsam-error-log.js';
 import { logPromptCacheUsage } from './prompt-cache-economics.js';
 import {
   isReadOnlyFileContextIntent,
@@ -153,19 +152,7 @@ export function scheduleAgentsamToolCallLog(env, ctx, fields) {
     conversation_id: conversation_id ?? conversationId ?? sessionId,
     routing_arm_id: routing_arm_id ?? routingArmId ?? null,
   });
-  if (stat === 'error' && errMsg && ctx?.waitUntil) {
-    scheduleAgentsamErrorLog(env, ctx, {
-      workspaceId: ws,
-      tenantId: tid,
-      sessionId: sessionId ?? null,
-      errorCode: 'tool_call_log_error',
-      errorType: 'tool_execution',
-      errorMessage: errMsg,
-      source: 'tool_call_log',
-      sourceId: correlationId,
-      contextJson: JSON.stringify({ tool_name: toolName, input_summary: summary, correlation_id: correlationId }),
-    });
-  }
+  // Tool failures are logged once via agentsam_tool_chain → scheduleAgentsamErrorLog (source: tool_chain).
 }
 
 /** Maps validateToolCall result into agentsam_tool_call_log identity columns (D1 PRAGMA-filtered insert). */
