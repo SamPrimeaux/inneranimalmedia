@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { registerIamServiceWorker, subscribeIamWebPush } from "../pwa/registerServiceWorker";
+import { readLastSessionSnapshot } from "../pwa/OfflineReconnectBanner";
 import {
   getTrustedRecentWorkspaceId,
   prepareRecentWorkspacesForSession,
@@ -9,6 +10,7 @@ import {
   clearIamWorkspaceSession,
   patchIamWorkspaceSessionCurrent,
   readIamWorkspaceSession,
+  readLatestIamWorkspaceSession,
   writeIamWorkspaceSession,
   type IamWorkspaceSessionPayload,
   type IamWorkspaceSettingsRow,
@@ -194,7 +196,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         display_name: meta?.displayName,
         slug: meta?.slug,
         github_repo: meta?.github_repo,
-      });
+      }, userId);
 
       persistRecentWorkspaceSwitch(userId, {
         id: trimmed,
@@ -227,7 +229,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
               display_name: data.workspace.display_name,
               slug: data.workspace.slug,
               github_repo: data.workspace.github_repo ?? null,
-            });
+            }, userId);
             if (data.workspace.display_name?.trim()) {
               setDisplayName(data.workspace.display_name.trim());
             }
@@ -258,7 +260,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       setWorkspaces((prev) =>
         prev.map((w) => (w.id === wsId ? { ...w, github_repo: normalized } : w)),
       );
-      patchIamWorkspaceSessionCurrent(wsId, { github_repo: normalized });
+      patchIamWorkspaceSessionCurrent(wsId, { github_repo: normalized }, sessionUserIdRef.current);
       clearIamGitStatusCache();
 
       try {
@@ -284,7 +286,19 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
 
     void (async () => {
-      setLoading(true);
+      const early = readLatestIamWorkspaceSession();
+      if (early?.payload?.data?.length) {
+        hydrateFromPayload(
+          { ...early.payload, sessionUserId: early.userId ?? early.payload.sessionUserId },
+          early.userId,
+        );
+        if (early.userId) {
+          sessionUserIdRef.current = early.userId;
+          setSessionUserId(early.userId);
+        }
+      } else {
+        setLoading(true);
+      }
       let userId: string | null = null;
       try {
         const meRes = await fetch("/api/auth/me", { credentials: "same-origin" });
@@ -338,6 +352,15 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         /* ignore */
       }
       if (!cancelled) setLoading(false);
+
+      const snap = readLastSessionSnapshot();
+      const snapWs = snap?.workspaceId?.trim();
+      if (snapWs) {
+        setWorkspaceIdState((prev) => prev || snapWs);
+        if (snap?.displayName?.trim()) {
+          setDisplayName((prev) => prev || snap.displayName!.trim());
+        }
+      }
     })();
 
     return () => {

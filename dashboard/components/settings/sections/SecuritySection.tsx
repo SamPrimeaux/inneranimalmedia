@@ -1,22 +1,14 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Key,
   Shield,
-  ShieldCheck,
   ShieldAlert,
-  AlertTriangle,
 } from 'lucide-react';
 import type { SettingsPanelModel } from '../hooks/useSettingsData';
 import { formatVaultCreated, relativeTime } from '../settingsUi';
 
 export type SecuritySectionProps = { data: SettingsPanelModel };
-
-function capitalizeProvider(p: string) {
-  const s = String(p || '').trim();
-  if (!s) return '';
-  return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
-}
 
 export function SecuritySection({ data }: SecuritySectionProps) {
   const navigate = useNavigate();
@@ -31,46 +23,6 @@ export function SecuritySection({ data }: SecuritySectionProps) {
   const [newEmail, setNewEmail] = useState('');
   const [emailMsg, setEmailMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [emailLoading, setEmailLoading] = useState(false);
-
-  const [identities, setIdentities] = useState<Array<{ provider: string; email: string; created_at: string }>>(
-    [],
-  );
-  const [identitiesLoaded, setIdentitiesLoaded] = useState(false);
-
-  const [findingsBusy, setFindingsBusy] = useState<string | null>(null);
-  const [findingActionMsg, setFindingActionMsg] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetch('/api/auth/identities', { credentials: 'include' })
-      .then((r) => r.json())
-      .then((j: { identities?: typeof identities }) => {
-        setIdentities(Array.isArray(j.identities) ? j.identities : []);
-        setIdentitiesLoaded(true);
-      })
-      .catch(() => setIdentitiesLoaded(true));
-  }, []);
-
-  const patchFinding = async (id: string, status: string) => {
-    setFindingsBusy(id);
-    setFindingActionMsg(null);
-    try {
-      const r = await fetch(`/api/settings/security/findings/${encodeURIComponent(id)}`, {
-        method: 'PATCH',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status }),
-      });
-      if (!r.ok) {
-        setFindingActionMsg('Status update is not available on the server yet.');
-        return;
-      }
-      await data.loadSecurity();
-    } catch {
-      setFindingActionMsg('Could not update finding.');
-    } finally {
-      setFindingsBusy(null);
-    }
-  };
 
   const suspiciousUa = (ua: string) => {
     const u = ua.toLowerCase();
@@ -88,11 +40,6 @@ export function SecuritySection({ data }: SecuritySectionProps) {
     void data.revokeOtherSessions();
   };
 
-  const openFindings = useMemo(
-    () => data.findings.filter((f: { status?: string }) => (f.status ?? 'open') === 'open'),
-    [data.findings],
-  );
-
   return (
     <div className="flex flex-col gap-6 max-w-3xl">
       <h2 className="text-[13px] font-bold text-[var(--text-heading)] uppercase tracking-widest">
@@ -107,8 +54,8 @@ export function SecuritySection({ data }: SecuritySectionProps) {
           </h3>
         </div>
         <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
-          Provider API keys and personal secrets live in one place. Agent Sam uses your BYOK keys at
-          runtime — test before save, rotate anytime.
+          Provider API keys, R2 BYOK, personal secrets, connected accounts, and security findings
+          live on Keys &amp; Secrets.
         </p>
         <button
           type="button"
@@ -119,7 +66,7 @@ export function SecuritySection({ data }: SecuritySectionProps) {
         </button>
       </section>
 
-      {/* Password / email / identities — preserved */}
+      {/* Password / email — preserved */}
       <section className="space-y-3 p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)]">
         <h3 className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">Password</h3>
         {data.user?.passwordMethod === 'oauth' ? (
@@ -309,128 +256,6 @@ export function SecuritySection({ data }: SecuritySectionProps) {
         ) : null}
       </section>
 
-      <section className="space-y-3 p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)]">
-        <h3 className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-          Connected accounts
-        </h3>
-        {!identitiesLoaded ? null : identities.length === 0 ? (
-          <p className="text-[11px] text-[var(--text-muted)]">No external accounts connected.</p>
-        ) : (
-          <div className="flex flex-col gap-2">
-            {identities.map((identity, idx) => (
-              <div
-                key={`${identity.provider}-${identity.email}-${idx}`}
-                className="flex flex-wrap items-center gap-2 text-[11px] text-[var(--text-main)]"
-              >
-                <span className="text-[9px] px-2 py-0.5 rounded bg-[var(--bg-panel)] border border-[var(--border-subtle)] text-[var(--text-muted)] font-black uppercase tracking-widest">
-                  {capitalizeProvider(identity.provider)}
-                </span>
-                <span className="text-[var(--text-muted)]">{identity.email}</span>
-                <span className="text-[10px] text-[var(--text-muted)]">
-                  Connected {identity.created_at ? formatVaultCreated(identity.created_at) : '—'}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section className="space-y-3 p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)]">
-        <h3 className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-          Legacy vault slots
-        </h3>
-        <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
-          Older env-name vault keys (OpenAI / Anthropic / Gemini slots) now live at the bottom of Keys
-          &amp; Secrets. Provider keys and R2 BYOK stay in the main Keys table above.
-        </p>
-        <button
-          type="button"
-          onClick={() => navigate('/dashboard/settings/keys#legacy-vault')}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--solar-cyan)]/20 text-[11px] font-semibold text-[var(--solar-cyan)] border border-[var(--solar-cyan)]/30 hover:bg-[var(--solar-cyan)]/30"
-        >
-          Open legacy vault on Keys &amp; Secrets
-        </button>
-      </section>
-
-      {/* Panel 2 — Security findings */}
-      <section className="space-y-2 p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-panel)]">
-        <div className="flex items-center gap-2">
-          <AlertTriangle className="h-4 w-4 text-[var(--color-warning)]" />
-          <h3 className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-            Security findings
-          </h3>
-        </div>
-        {findingActionMsg ? (
-          <p className="text-[10px] text-[var(--color-warning)]">{findingActionMsg}</p>
-        ) : null}
-        {openFindings.length === 0 ? (
-          <div className="flex items-center gap-2 rounded-xl border border-[var(--color-success)]/30 bg-[var(--color-success)]/5 p-4 text-[11px] text-[var(--color-success)]">
-            <ShieldCheck className="h-5 w-5 shrink-0" />
-            No open security findings
-          </div>
-        ) : (
-          <div className="flex flex-col gap-2">
-            {openFindings.map((f: Record<string, unknown>, i: number) => {
-              const id = String(f.id ?? `idx_${i}`);
-              const sev = String(f.severity ?? 'info').toUpperCase();
-              const title = String(f.finding_type ?? f.title ?? 'finding');
-              const snippet = String(f.snippet_redacted ?? f.description ?? '');
-              const status = String(f.status ?? 'open');
-              const created = f.created_at;
-              return (
-                <div
-                  key={id}
-                  className="rounded-lg border border-[var(--border-subtle)] p-3 space-y-2 bg-[var(--bg-app)]"
-                >
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span
-                      className={`text-[9px] px-2 py-0.5 rounded font-black uppercase tracking-widest border ${
-                        sev === 'CRITICAL'
-                          ? 'bg-[var(--color-danger)]/15 text-[var(--color-danger)] border-[var(--color-danger)]/40'
-                          : sev === 'HIGH'
-                            ? 'bg-[var(--color-warning)]/15 text-[var(--color-warning)] border-[var(--color-warning)]/40'
-                            : 'bg-[var(--bg-hover)] text-[var(--text-muted)] border-[var(--border-subtle)]'
-                      }`}
-                    >
-                      {sev}
-                    </span>
-                    <span className="text-[12px] text-[var(--text-main)]">{title}</span>
-                    <span className="text-[9px] px-2 py-0.5 rounded bg-[var(--bg-hover)] text-[var(--text-muted)]">
-                      {status}
-                    </span>
-                  </div>
-                  <pre className="font-mono text-[10px] text-[var(--text-muted)] whitespace-pre-wrap break-all">
-                    {snippet || '—'}
-                  </pre>
-                  <div className="text-[10px] text-[var(--text-muted)]">
-                    {created != null ? <>Recorded {relativeTime(String(created))}</> : null}
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      disabled={findingsBusy === id}
-                      onClick={() => void patchFinding(id, 'triaged')}
-                      className="text-[10px] px-2 py-1 rounded border border-[var(--border-subtle)] text-[var(--text-main)]"
-                    >
-                      Acknowledge
-                    </button>
-                    <button
-                      type="button"
-                      disabled={findingsBusy === id}
-                      onClick={() => void patchFinding(id, 'false_positive')}
-                      className="text-[10px] px-2 py-1 rounded border border-[var(--border-subtle)] text-[var(--text-muted)]"
-                    >
-                      Dismiss
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
-
-      {/* Panel 3 — Active sessions */}
       <section className="space-y-2 p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-panel)]">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <h3 className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
@@ -518,7 +343,10 @@ export function SecuritySection({ data }: SecuritySectionProps) {
       </section>
 
       <section className="space-y-2 p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-panel)]">
-        <h3 className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">MCP Auth Token</h3>
+        <div className="flex items-center gap-2">
+          <Shield className="h-4 w-4 text-[var(--solar-cyan)]" />
+          <h3 className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">MCP Auth Token</h3>
+        </div>
         <div className="flex items-center justify-between">
           <div className="text-[11px] text-[var(--text-muted)]">MCP Auth Token</div>
           <div className="flex items-center gap-2">

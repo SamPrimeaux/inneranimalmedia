@@ -84,12 +84,46 @@ export function writeIamWorkspaceSession(payload: IamWorkspaceSessionPayload): v
   }
 }
 
+/** Best-effort read of the most recently cached workspace payload (sync, before auth/me). */
+export function readLatestIamWorkspaceSession(): {
+  payload: IamWorkspaceSessionPayload;
+  userId: string | null;
+} | null {
+  if (typeof window === 'undefined') return null;
+  let best: IamWorkspaceSessionPayload | null = null;
+  let bestUserId: string | null = null;
+  try {
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (!key?.startsWith(`${IAM_WORKSPACE_LS_PREFIX}:`)) continue;
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw) as unknown;
+      if (!isPayload(parsed) || parsed.data.length === 0) continue;
+      const uid = key.slice(`${IAM_WORKSPACE_LS_PREFIX}:`.length) || null;
+      if (!best || parsed.fetchedAt >= best.fetchedAt) {
+        best = parsed;
+        bestUserId = uid;
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  if (best) return { payload: best, userId: bestUserId };
+  const legacy = readIamWorkspaceSession(null);
+  if (legacy && legacy.data.length > 0) {
+    return { payload: legacy, userId: legacy.sessionUserId ?? null };
+  }
+  return null;
+}
+
 /** Update active workspace id in local cache after selector switch (no API round-trip). */
 export function patchIamWorkspaceSessionCurrent(
   workspaceId: string,
   patch?: Partial<IamWorkspaceSettingsRow>,
+  userId?: string | null,
 ): void {
-  const prev = readIamWorkspaceSession();
+  const prev = readIamWorkspaceSession(userId ?? undefined);
   if (!prev) return;
   const id = workspaceId.trim();
   if (!id) return;
@@ -105,6 +139,7 @@ export function patchIamWorkspaceSessionCurrent(
   }
   writeIamWorkspaceSession({
     ...prev,
+    sessionUserId: userId ?? prev.sessionUserId ?? null,
     current: id,
     data,
     fetchedAt: Date.now(),

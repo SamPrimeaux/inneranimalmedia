@@ -11,7 +11,7 @@ import {
   WarningStrip,
 } from '../components/SectionPrimitives';
 import { PtyTerminalSetupSection } from './PtyTerminalSetupSection';
-import { LegacyVaultSection } from './LegacyVaultSection';
+import { KeysSecurityExtras } from './KeysSecurityExtras';
 
 type ApiKeyItem = {
   id: string;
@@ -122,7 +122,13 @@ type CloudflareD1Row = {
 
 export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
   const workspaceCtx = useWorkspace();
-  const ws = (workspaceId || workspaceCtx.workspaceId || '').trim() || null;
+  const ws = useMemo(() => {
+    const fromProps = (workspaceId || '').trim();
+    if (fromProps) return fromProps;
+    const fromCtx = (workspaceCtx.workspaceId || '').trim();
+    if (fromCtx) return fromCtx;
+    return workspaceCtx.workspaces[0]?.id?.trim() || null;
+  }, [workspaceId, workspaceCtx.workspaceId, workspaceCtx.workspaces]);
   const wsLoading = workspaceCtx.loading && !ws;
 
   const [loading, setLoading] = useState(true);
@@ -901,9 +907,7 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
         )}
       </section>
 
-      <section className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4 space-y-3">
-        <LegacyVaultSection embeddedInKeys />
-      </section>
+      <KeysSecurityExtras />
 
       {personalCreateOpen && (
         <div className="fixed inset-0 z-[250]">

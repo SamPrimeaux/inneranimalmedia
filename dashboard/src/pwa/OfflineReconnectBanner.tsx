@@ -10,18 +10,18 @@ type LastSessionSnapshot = {
 
 export function persistLastSessionSnapshot(snapshot: LastSessionSnapshot): void {
   try {
-    sessionStorage.setItem(
-      LS_LAST_SESSION,
-      JSON.stringify({ ...snapshot, savedAt: Date.now() }),
-    );
+    const payload = { ...snapshot, savedAt: Date.now() };
+    sessionStorage.setItem(LS_LAST_SESSION, JSON.stringify(payload));
+    localStorage.setItem(LS_LAST_SESSION, JSON.stringify(payload));
   } catch {
     /* ignore quota */
   }
 }
 
-function readLastSessionSnapshot(): LastSessionSnapshot | null {
+export function readLastSessionSnapshot(): LastSessionSnapshot | null {
   try {
-    const raw = sessionStorage.getItem(LS_LAST_SESSION);
+    const raw =
+      sessionStorage.getItem(LS_LAST_SESSION) || localStorage.getItem(LS_LAST_SESSION);
     if (!raw) return null;
     return JSON.parse(raw) as LastSessionSnapshot;
   } catch {
