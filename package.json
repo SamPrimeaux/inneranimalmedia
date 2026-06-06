@@ -29,8 +29,6 @@
     "embed:sitemap-html": "node scripts/embed-sitemap-html.mjs",
     "upload:sitemap": "bash scripts/upload-sitemap-page.sh",
     "build:codebase-priority": "node scripts/build-index-priority-files.mjs",
-    "codebase-rag:fresh:dry-run": "./scripts/with-cloudflare-env.sh node scripts/fresh-codebase-rag-reindex.mjs --dry-run",
-    "codebase-rag:fresh:apply": "./scripts/with-cloudflare-env.sh node scripts/fresh-codebase-rag-reindex.mjs --apply",
     "reingest:supabase-documents:dry-run": "./scripts/with-cloudflare-env.sh node scripts/reingest-supabase-documents.mjs --dry-run",
     "reingest:supabase-documents:apply": "./scripts/with-cloudflare-env.sh node scripts/reingest-supabase-documents.mjs --apply",
     "verify:supabase-documents": "./scripts/with-cloudflare-env.sh node scripts/verify-supabase-documents.mjs",

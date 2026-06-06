@@ -123,7 +123,7 @@ async function maybeInsertErrorLogs(root, ctx, opts) {
         tenant_id: opts.tenantId,
         error_type: 'codebase_index_failed',
         error_message: String(opts.codebaseReason || 'codebase_index_failed').slice(0, 8000),
-        source: 'index-codebase-snapshot.mjs',
+        source: 'agentsam_codebase_reindex.mjs',
         source_id: ctx.run_group_id,
         context_json: JSON.stringify(baseCtx),
       }).catch(() => {});

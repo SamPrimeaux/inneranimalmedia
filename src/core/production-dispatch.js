@@ -296,11 +296,6 @@ export async function dispatchProductionDomainRoutes(rc) {
     return handleHealthKvDirty(request, env);
   }
 
-  if (pathLower === '/api/internal/embed-codebase-chunks-backfill' && methodUpper === 'POST') {
-    const { handleEmbedCodebaseChunksBackfill } = await import('../api/embed-codebase-chunks-backfill.js');
-    return handleEmbedCodebaseChunksBackfill(request, env);
-  }
-
   if (pathLower === '/api/internal/agentsam-vectorize/describe' && methodUpper === 'GET') {
     const { handleAgentsamVectorizeDescribe } = await import('../api/agentsam-vectorize-describe.js');
     return handleAgentsamVectorizeDescribe(request, env);

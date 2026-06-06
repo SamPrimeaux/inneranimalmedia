@@ -37,14 +37,7 @@ else
 fi
 
 if command -v curl >/dev/null 2>&1 && [[ -n "${INTERNAL_API_SECRET:-}" ]]; then
-  echo "→ codebase_chunks Worker backfill (batch 15)"
-  curl -sS --max-time 120 -X POST "https://inneranimalmedia.com/api/internal/embed-codebase-chunks-backfill" \
-    -H "Authorization: Bearer ${INTERNAL_API_SECRET}" \
-    -H "Content-Type: application/json" \
-    -d '{"batch_size":15}' | head -c 2000 || echo "[warn] codebase chunks backfill failed"
-  echo ""
-elif command -v curl >/dev/null 2>&1; then
-  echo "[skip] INTERNAL_API_SECRET unset — codebase_chunks backfill needs internal secret (not service role)"
+  echo "[skip] public.codebase_* backfill retired — use: node scripts/agentsam_codebase_reindex.mjs"
 fi
 
 if curl -sfS http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then

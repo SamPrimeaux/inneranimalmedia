@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Writes analytics/codebase-index/<WORKSPACE_ID>/index-priority-files.json for R2 upload
- * (see src/queue/codebase-index-sync.js — expects { path, content } entries).
+ * (optional input to agentsam_codebase_reindex.mjs).
  *
  * Run from deploy after route-map: `node scripts/build-index-priority-files.mjs`
  * Requires WORKSPACE_ID (or .deploy-run-context.json workspace_id).

@@ -1,6 +1,6 @@
 /**
  * Canonical Agent Sam repo paths for priority codebase ingestion (chunks + knowledge graph seeds).
- * Used by build-index-priority-files.mjs and index-codebase-snapshot.mjs — keep in sync.
+ * Used by build-index-priority-files.mjs and agentsam_codebase_reindex.mjs.
  */
 import { existsSync, readdirSync, statSync } from 'fs';
 import { join, relative } from 'path';

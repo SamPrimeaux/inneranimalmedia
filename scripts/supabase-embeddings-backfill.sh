@@ -50,7 +50,7 @@ done
 BASE="${SUPABASE_FUNCTIONS_URL:-$DEFAULT_FUNCTIONS_BASE}"
 BATCH="${SUPABASE_EMBEDDINGS_BATCH_SIZE:-25}"
 # Order: smaller / agent-context tables first; session_summaries last (often largest).
-# codebase_chunks: use POST /api/internal/embed-codebase-chunks-backfill (embed-on-ingest), not this script
+# codebase_chunks: retired public.codebase_* lane — use agentsam_codebase_reindex.mjs + rag_ingest --lane code
 TABLES_DEFAULT="agent_context_snapshots agent_decisions agent_memory documents session_summaries"
 TABLES="${SUPABASE_EMBEDDINGS_BACKFILL_TABLES:-$TABLES_DEFAULT}"
 

@@ -35,7 +35,6 @@ import {
 } from './core/tunnel-status.js';
 import { handleScheduled } from './cron/scheduled.js';
 import { dispatchQueueMessage } from './queue/dispatcher.js';
-import { handleCodebaseIndexSyncFromQueue } from './queue/codebase-index-sync.js';
 import { handleCatalogApi } from './api/catalog.js';
 import {
   handleGoogleLoginOAuthCallback,
@@ -1024,35 +1023,10 @@ export default {
       const isCfSystem = typeof body?.type === 'string' && body.type.startsWith('cf.workers');
 
       if (body?.type === 'codebase_index_sync') {
-        try {
-          if (!tenantId || !workspaceId) {
-            console.warn('[queue] missing tenantId/workspaceId in payload, skipping codebase_index_sync');
-            msg.ack();
-            continue;
-          }
-          await handleCodebaseIndexSyncFromQueue(env, body, ctx);
-          msg.ack();
-          if (env?.DB) {
-            const { ingestWebhookEventAndDispatch } = await import('./core/webhook-ingest-dispatch.js');
-            ctx.waitUntil(
-              ingestWebhookEventAndDispatch(env, ctx, {
-                tenantId: isCfSystem ? null : tenantId ?? null,
-                workspaceId: isCfSystem ? null : workspaceId ?? null,
-                provider: isCfSystem ? 'cloudflare' : 'internal',
-                eventType: String(body?.type ?? 'unknown'),
-                payload: {
-                  ...(typeof body === 'object' && body ? body : {}),
-                  workspace_id: workspaceId,
-                },
-                endpointPath: '/queue',
-                signatureValid: true,
-              }).catch((e) => console.warn('[queue webhook_events]', e?.message ?? e)),
-            );
-          }
-        } catch (e) {
-          console.warn('[queue codebase_index_sync]', e?.message ?? e);
-          msg.retry();
-        }
+        console.warn(
+          '[queue] codebase_index_sync retired — use agentsam_codebase_reindex.mjs + rag_ingest --lane code',
+        );
+        msg.ack();
         continue;
       }
 

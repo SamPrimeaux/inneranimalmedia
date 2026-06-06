@@ -117,28 +117,13 @@ if missing:
     print("  Run: source /Users/samprimeaux/inneranimalmedia/.env.cloudflare")
     sys.exit(1)
 
-# ── 1. Backfill Status ────────────────────────────────────────
-header("1. Codebase Embedding Backfill Status")
+# ── 1. Code index lane (canonical agentsam @ 1536) ─────────────
+header("1. Code Index Lane (agentsam_codebase_* @ 1536)")
 
-backfill = http_post(
-    f"{WORKER_URL}/api/internal/embed-codebase-chunks-backfill",
-    {"limit": 1, "batch_size": 1, "delay_ms": 0},
-    {"Authorization": f"Bearer {INTERNAL_API_SECRET}", "Content-Type": "application/json"}
+warn(
+    "public.codebase_* + embed-codebase-chunks-backfill retired. "
+    "Use: node scripts/agentsam_codebase_reindex.mjs && node scripts/rag_ingest.mjs --lane code"
 )
-
-if backfill.get("ok"):
-    null_embed = backfill.get("remaining_null_embedding", "?")
-    null_tokens = backfill.get("remaining_null_token_count", "?")
-    if null_embed == 0:
-        ok("All chunks have embeddings")
-    else:
-        warn(f"{null_embed} chunks missing embeddings — run iam-reindex")
-    if null_tokens == 0:
-        ok("All chunks have token counts")
-    else:
-        warn(f"{null_tokens} chunks missing token_count — run backfill loop")
-else:
-    warn(f"Could not reach backfill endpoint: {backfill.get('error', 'unknown')}")
 
 # ── 2. Stale Supabase Snapshots ───────────────────────────────
 header("2. Supabase Stale Snapshots (> 7 days)")

@@ -1,7 +1,6 @@
 /**
  * Routes Cloudflare Queue messages by payload shape (legacy worker.js parity).
  */
-import { handleCodebaseIndexSyncFromQueue } from './codebase-index-sync.js';
 import { deleteVectorsForDocKey, performDocsBucketVectorizeIndex } from './docs-vectorize.js';
 import { handlePlaywrightQueueJob } from './playwright-queue-job.js';
 
@@ -115,13 +114,10 @@ export async function dispatchQueueMessage(env, ctx, queueMsg) {
   }
 
   if (body.type === 'codebase_index_sync') {
-    if (!tenantId || !workspaceId) {
-      console.warn('[queue] missing tenantId/workspaceId for codebase_index_sync');
-      return { handled: true, kind: 'codebase_index_sync_skipped' };
-    }
-    await handleCodebaseIndexSyncFromQueue(env, body, ctx);
-    await recordWebhookEvent(env, ctx, tenantId, workspaceId, body);
-    return { handled: true, kind: 'codebase_index_sync' };
+    console.warn(
+      '[queue] codebase_index_sync retired — use agentsam_codebase_reindex.mjs + rag_ingest --lane code (public.codebase_* removed)',
+    );
+    return { handled: true, kind: 'codebase_index_sync_retired' };
   }
 
   const r2SourceOk = body.source === 'r2' || body.source == null || body.source === undefined;

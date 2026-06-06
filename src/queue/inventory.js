@@ -8,7 +8,7 @@
 export const QUEUE_MESSAGE_KINDS = {
   /** Cloudflare Workers Builds notifications (build.started / build.succeeded / …) */
   CF_WORKERS_BUILDS: 'cf.workersBuilds.worker.build.*',
-  /** Handled: src/queue/codebase-index-sync via handleCodebaseIndexSyncFromQueue */
+  /** Retired: public.codebase_* queue sync — use agentsam_codebase_reindex.mjs */
   CODEBASE_INDEX_SYNC: 'codebase_index_sync',
   /**
    * R2 event notification: bucket `iam-docs`, object `.md`, actions PutObject|CopyObject|CompleteMultipartUpload|DeleteObject.
