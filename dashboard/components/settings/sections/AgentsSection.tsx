@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Plus } from 'lucide-react';
+import { IAM_AGENT_CHAT_COMPOSE } from '../../../agentChatConstants';
 import type { AgentsamUserPolicy } from '../types';
 import type { SettingsPanelModel } from '../hooks/useSettingsData';
 import { Toggle } from '../settingsUi';
@@ -15,13 +17,25 @@ import {
 
 export type AgentsSectionProps = { data: SettingsPanelModel; workspaceId?: string | null };
 
-function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
+const SUBAGENT_SETUP_COMPOSE_MESSAGE =
+  '/create-subagent Help me set up a custom subagent for my workspace. Suggest what kinds of subagents would be useful for my projects and guide me through creating one.';
+
+function SectionCard({
+  title,
+  action,
+  children,
+}: {
+  title: string;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
     <section className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)]/80 p-5 flex flex-col gap-4">
-      <div className="border-b border-[var(--border-subtle)]/60 pb-2">
+      <div className="border-b border-[var(--border-subtle)]/60 pb-2 flex items-center justify-between gap-2">
         <h3 className="text-sm font-semibold uppercase tracking-wider text-[var(--text-muted)]">
           {title}
         </h3>
+        {action}
       </div>
       {children}
     </section>
@@ -101,6 +115,21 @@ export function AgentsSection({ data, workspaceId }: AgentsSectionProps) {
     [data],
   );
 
+  const composeSubagentSetupInChat = useCallback(() => {
+    const message = SUBAGENT_SETUP_COMPOSE_MESSAGE;
+    window.dispatchEvent(
+      new CustomEvent(IAM_AGENT_CHAT_COMPOSE, {
+        detail: {
+          message,
+          selectionStart: message.length,
+          selectionEnd: message.length,
+          ensureAgentPanel: true,
+          send: false,
+        },
+      }),
+    );
+  }, []);
+
   const handleTextSizeChange = (textSize: string) => {
     patchPolicy({ text_size: textSize });
     applyTextSizeToDom(textSize);
@@ -134,7 +163,7 @@ export function AgentsSection({ data, workspaceId }: AgentsSectionProps) {
   };
 
   return (
-    <div className="flex flex-col gap-6 max-w-4xl w-full">
+    <div className="flex flex-col gap-6 w-full max-w-none px-6">
       <div className="flex items-center justify-between">
         <h2 className="text-[13px] font-bold text-[var(--text-heading)] uppercase tracking-widest">
           Agents
@@ -254,7 +283,20 @@ export function AgentsSection({ data, workspaceId }: AgentsSectionProps) {
           </SectionCard>
 
           {/* Section 2: Subagents */}
-          <SectionCard title="Subagents">
+          <SectionCard
+            title="Subagents"
+            action={
+              <button
+                type="button"
+                onClick={composeSubagentSetupInChat}
+                className="inline-flex items-center justify-center w-7 h-7 rounded-lg border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]/40 transition-colors"
+                title="Create subagent via chat"
+                aria-label="Create subagent via chat"
+              >
+                <Plus size={14} aria-hidden />
+              </button>
+            }
+          >
             {Array.isArray(data.agentsSubagents) && data.agentsSubagents.length > 0 ? (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-[11px] border-collapse">
@@ -381,7 +423,6 @@ export function AgentsSection({ data, workspaceId }: AgentsSectionProps) {
               />
               <ToggleRow
                 label="Apply .agentsamignore files"
-                desc="Uses agentsam_rule_documents per user"
                 on={Number(policy.hierarchical_ignore) === 1}
                 disabled={disabled}
                 onChange={(v) => patchPolicy({ hierarchical_ignore: v ? 1 : 0 })}

@@ -29,6 +29,9 @@ export type AgentReviewSettings = {
 export type PolicySettingsJson = AgentReviewSettings & {
   branch_prefix?: string;
   auto_approve_mode_transitions?: boolean;
+  conversation_density?: 'detailed' | 'minimal';
+  completion_sound?: boolean;
+  pr_destination?: 'github_web' | 'github_desktop' | 'ide';
 };
 
 export function parsePolicySettingsJson(raw: string | null | undefined): PolicySettingsJson {

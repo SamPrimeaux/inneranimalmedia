@@ -3,6 +3,8 @@ import { Check, ExternalLink, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Toggle, formatVaultCreated } from '../settingsUi';
 import type { SettingsPanelModel } from '../hooks/useSettingsData';
+import { parsePolicySettingsJson } from '../components/agentsSectionHelpers';
+import type { AgentsamUserPolicy } from '../types';
 
 const PREF_KEYS = {
   sync_layouts: 'iam_pref_sync_layouts',
@@ -107,6 +109,11 @@ export function GeneralSection({ workspaceId, data }: GeneralSectionProps) {
   const [autohideEditor, setAutohideEditor] = useState(false);
   const [autoinjectCode, setAutoinjectCode] = useState(true);
 
+  const [conversationDensity, setConversationDensity] = useState<'detailed' | 'minimal'>('detailed');
+  const [completionSound, setCompletionSound] = useState(false);
+  const [prDestination, setPrDestination] = useState<'github_web' | 'github_desktop' | 'ide'>('github_web');
+  const [policySettingsRaw, setPolicySettingsRaw] = useState<string | null>(null);
+
   const [showPasswordForm, setShowPasswordForm] = useState(false);
   const [pwCurrent, setPwCurrent] = useState('');
   const [pwNew, setPwNew] = useState('');
@@ -154,6 +161,39 @@ export function GeneralSection({ workspaceId, data }: GeneralSectionProps) {
     setAutoinjectCode(readStoredBool(PREF_KEYS.autoinject_code, true));
   }, [loadProfile]);
 
+  const loadUserPolicy = useCallback(async () => {
+    try {
+      const qp =
+        workspaceId && workspaceId.trim()
+          ? `?workspace_id=${encodeURIComponent(workspaceId.trim())}`
+          : '';
+      const r = await fetch(`/api/settings/user-policy${qp}`, { credentials: 'same-origin' });
+      if (!r.ok) return;
+      const d = (await r.json()) as { policy?: AgentsamUserPolicy & Record<string, unknown> };
+      const row = d.policy;
+      if (!row || typeof row !== 'object') return;
+      if (row.sync_layouts != null) setSyncLayouts(Number(row.sync_layouts) === 1);
+      if (row.show_status_bar != null) setShowStatusBar(Number(row.show_status_bar) === 1);
+      if (row.autohide_editor != null) setAutohideEditor(Number(row.autohide_editor) === 1);
+      if (row.autoinject_code != null) setAutoinjectCode(Number(row.autoinject_code) === 1);
+      const rawJson = row.settings_json != null ? String(row.settings_json) : null;
+      setPolicySettingsRaw(rawJson);
+      const sj = parsePolicySettingsJson(rawJson);
+      if (sj.conversation_density === 'minimal') setConversationDensity('minimal');
+      else setConversationDensity('detailed');
+      setCompletionSound(Boolean(sj.completion_sound));
+      const pr = String(sj.pr_destination || 'github_web').toLowerCase();
+      if (pr === 'github_desktop' || pr === 'ide') setPrDestination(pr);
+      else setPrDestination('github_web');
+    } catch {
+      /* keep localStorage defaults */
+    }
+  }, [workspaceId]);
+
+  useEffect(() => {
+    void loadUserPolicy();
+  }, [loadUserPolicy]);
+
   const patchUserPolicyFireAndForget = (body: Record<string, unknown>) => {
     try {
       void fetch('/api/settings/user-policy', {
@@ -177,6 +217,25 @@ export function GeneralSection({ workspaceId, data }: GeneralSectionProps) {
       /* ignore */
     }
     patchUserPolicyFireAndForget({ [apiKey]: value ? 1 : 0 });
+  };
+
+  const patchPolicySettingsJson = (patch: Record<string, unknown>) => {
+    const current = parsePolicySettingsJson(policySettingsRaw);
+    const nextJson = JSON.stringify({ ...current, ...patch });
+    setPolicySettingsRaw(nextJson);
+    try {
+      void fetch('/api/settings/agents/policy', {
+        method: 'PATCH',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workspace_id: workspaceId?.trim() || '',
+          policy: { settings_json: nextJson },
+        }),
+      });
+    } catch {
+      /* ignore */
+    }
   };
 
   const onAvatarPick = async (file: File | null) => {
@@ -282,7 +341,7 @@ export function GeneralSection({ workspaceId, data }: GeneralSectionProps) {
   const avatarLabel = displayName || fullName || primaryEmail;
 
   return (
-    <div className="flex flex-col gap-5 max-w-xl">
+    <div className="flex flex-col gap-5 w-full max-w-none px-6">
       <h2 className="text-[13px] font-bold text-[var(--text-heading)] uppercase tracking-widest">General</h2>
 
       <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4 space-y-4">
@@ -650,36 +709,119 @@ export function GeneralSection({ workspaceId, data }: GeneralSectionProps) {
         </section>
       </div>
 
-      {rows.map((row) => (
-        <div
-          key={row.label}
-          className="flex items-center justify-between py-3 border-b border-[var(--border-subtle)]/50"
-        >
+      <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4 space-y-3">
+        <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+          Layout
+        </div>
+        {rows.map((row) => (
+          <div
+            key={row.label}
+            className="flex items-center justify-between py-3 border-b border-[var(--border-subtle)]/50 last:border-0"
+          >
+            <div>
+              <div className="text-[12px] font-semibold text-[var(--text-main)]">{row.label}</div>
+              <div className="text-[11px] text-[var(--text-muted)] mt-0.5">{row.desc}</div>
+            </div>
+            <Toggle
+              on={row.on}
+              onChange={(v) => {
+                row.setOn(v);
+                persistToggle(row.storageKey, row.apiKey, v);
+              }}
+            />
+          </div>
+        ))}
+      </div>
+
+      <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4 space-y-4">
+        <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+          Preferences
+        </div>
+        <label className="block space-y-1 max-w-md">
+          <span className="text-[11px] font-semibold text-[var(--text-muted)]">Conversation density</span>
+          <select
+            value={conversationDensity}
+            onChange={(e) => {
+              const v = e.target.value === 'minimal' ? 'minimal' : 'detailed';
+              setConversationDensity(v);
+              patchPolicySettingsJson({ conversation_density: v });
+            }}
+            className={fieldClass}
+          >
+            <option value="detailed">Detailed</option>
+            <option value="minimal">Minimal</option>
+          </select>
+        </label>
+        <div className="flex items-center justify-between py-2">
           <div>
-            <div className="text-[12px] font-semibold text-[var(--text-main)]">{row.label}</div>
-            <div className="text-[11px] text-[var(--text-muted)] mt-0.5">{row.desc}</div>
+            <div className="text-[12px] font-semibold text-[var(--text-main)]">Completion sound</div>
+            <div className="text-[11px] text-[var(--text-muted)] mt-0.5">Play a sound when the agent finishes</div>
           </div>
           <Toggle
-            on={row.on}
+            on={completionSound}
             onChange={(v) => {
-              row.setOn(v);
-              persistToggle(row.storageKey, row.apiKey, v);
+              setCompletionSound(v);
+              patchPolicySettingsJson({ completion_sound: v });
             }}
           />
         </div>
-      ))}
-      <div className="flex items-start justify-between py-3 border-b border-[var(--border-subtle)]/50">
-        <div>
-          <div className="text-[12px] font-semibold text-[var(--text-main)]">Manage Account</div>
-          <div className="text-[11px] text-[var(--text-muted)] mt-0.5">Billing, seats, and usage limits</div>
+      </div>
+
+      <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4">
+        <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] mb-3">
+          Notifications
         </div>
+        <p className="text-[11px] text-[var(--text-muted)] mb-3">
+          Deployment alerts, agent errors, spend thresholds, and webhook delivery.
+        </p>
         <button
           type="button"
-          onClick={() => navigate('/dashboard/settings/plan-usage')}
-          className="flex items-center gap-1 px-2.5 py-1.5 bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded-lg text-[11px] hover:border-[var(--solar-cyan)]/50 transition-colors"
+          onClick={() => navigate('/dashboard/settings/notifications')}
+          className="inline-flex items-center gap-1 text-[11px] font-semibold text-[var(--solar-cyan)] hover:underline"
         >
-          Open <ExternalLink size={10} />
+          Manage notifications →
         </button>
+      </div>
+
+      <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4 space-y-4">
+        <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+          PR preferences
+        </div>
+        <label className="block space-y-1 max-w-md">
+          <span className="text-[11px] font-semibold text-[var(--text-muted)]">Preferred PR destination</span>
+          <select
+            value={prDestination}
+            onChange={(e) => {
+              const v = e.target.value as 'github_web' | 'github_desktop' | 'ide';
+              setPrDestination(v);
+              patchPolicySettingsJson({ pr_destination: v });
+            }}
+            className={fieldClass}
+          >
+            <option value="github_web">GitHub Web</option>
+            <option value="github_desktop">GitHub Desktop</option>
+            <option value="ide">IDE</option>
+          </select>
+        </label>
+      </div>
+
+      <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] mb-2">
+              Manage account
+            </div>
+            <div className="text-[12px] font-semibold text-[var(--text-main)]">Plan &amp; billing</div>
+            <div className="text-[11px] text-[var(--text-muted)] mt-0.5">Billing, seats, and usage limits</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => navigate('/dashboard/settings/billing')}
+            className="flex items-center gap-1 px-2.5 py-1.5 bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded-lg text-[11px] hover:border-[var(--solar-cyan)]/50 transition-colors shrink-0"
+          >
+            Open <ExternalLink size={10} />
+          </button>
+        </div>
       </div>
     </div>
   );
