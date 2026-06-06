@@ -10,12 +10,19 @@ import {
 } from '../core/auth.js';
 import { getR2Binding, listBoundR2BucketNames, r2LiveBucketStats } from './r2-api.js';
 import { listWorkerR2BindingCatalog } from '../core/r2-storage-scope.js';
-import { upsertUserCloudflareR2Keys } from '../core/user-storage-r2-credentials.js';
+import {
+  upsertUserCloudflareR2Keys,
+  loadUserCloudflareR2Credentials,
+  getUserCloudflareR2KeySummary,
+  markUserCloudflareR2Validated,
+} from '../core/user-storage-r2-credentials.js';
 import {
   buildStorageVectorsPayload,
   upsertTenantVectorConnection,
   deactivateTenantVectorConnection,
 } from '../core/storage-vectors-surface.js';
+import { validateR2ByokCredentials } from '../core/storage-byok-test.js';
+import { getDefaultWorkspaceDataBinding } from '../core/workspace-data-bindings.js';
 
 function knownLiveStorage(env) {
   return listWorkerR2BindingCatalog(env).map((row) => ({
@@ -877,6 +884,79 @@ export async function handleStorageApi(request, url, env) {
     } catch (e) {
       return jsonResponse({ prefs: {}, ...baseMeta, error: String(e?.message || e) }, 200);
     }
+  }
+
+  // ── BYOK R2 status + test (Keys page) ───────────────────────────────────
+  if (pathLower === '/api/storage/byok/status' && method === 'GET') {
+    const summary = await getUserCloudflareR2KeySummary(env, userId);
+    const workspaceId = String(
+      request.headers.get('x-iam-workspace-id') || authUser?.active_workspace_id || '',
+    ).trim();
+    let byok_r2_bucket = null;
+    if (workspaceId) {
+      const binding = await getDefaultWorkspaceDataBinding(env, workspaceId, 'cloudflare_r2');
+      byok_r2_bucket = binding?.byok_r2_bucket ?? null;
+    }
+    return jsonResponse({
+      ok: true,
+      ...baseMeta,
+      connected: !!(summary?.configured),
+      summary,
+      byok_r2_bucket,
+      workspace_id: workspaceId || null,
+    });
+  }
+
+  if (pathLower === '/api/storage/byok/test' && method === 'POST') {
+    const body = await request.json().catch(() => ({}));
+    let cfAccountId = body?.cloudflare_account_id != null ? String(body.cloudflare_account_id).trim() : '';
+    let accessKeyId =
+      body?.r2_access_key_id != null
+        ? String(body.r2_access_key_id).trim()
+        : body?.access_key_id != null
+          ? String(body.access_key_id).trim()
+          : '';
+    let secretAccessKey =
+      body?.r2_secret_access_key != null
+        ? String(body.r2_secret_access_key).trim()
+        : body?.secret_access_key != null
+          ? String(body.secret_access_key).trim()
+          : body?.api_key != null
+            ? String(body.api_key).trim()
+            : '';
+    const bucketName =
+      body?.byok_r2_bucket != null
+        ? String(body.byok_r2_bucket).trim()
+        : body?.bucket != null
+          ? String(body.bucket).trim()
+          : body?.default_bucket != null
+            ? String(body.default_bucket).trim()
+            : '';
+
+    if (!accessKeyId || !secretAccessKey) {
+      const stored = await loadUserCloudflareR2Credentials(env, userId);
+      if (stored) {
+        accessKeyId = accessKeyId || stored.accessKeyId;
+        secretAccessKey = secretAccessKey || stored.secretAccessKey;
+        cfAccountId = cfAccountId || stored.cfAccountId;
+      }
+    }
+
+    const result = await validateR2ByokCredentials({
+      cfAccountId,
+      accessKeyId,
+      secretAccessKey,
+      bucketName: bucketName || null,
+    });
+
+    if (accessKeyId && secretAccessKey && cfAccountId) {
+      await markUserCloudflareR2Validated(env, userId, {
+        ok: result.ok,
+        checks: result.checks,
+      });
+    }
+
+    return jsonResponse({ ...result, ...baseMeta });
   }
 
   return jsonResponse({ error: 'Storage route not found', path: pathLower }, 404);

@@ -23,6 +23,14 @@ import {
   resolveWorkspaceCloudflareCredentials,
 } from '../core/workspace-cloudflare-credentials.js';
 import { customerCloudflareSelectWorkspaceResource } from '../core/customer-cloudflare-dispatch.js';
+import {
+  upsertUserCloudflareR2Keys,
+  getUserCloudflareR2KeySummary,
+  loadUserCloudflareR2Credentials,
+  markUserCloudflareR2Validated,
+} from '../core/user-storage-r2-credentials.js';
+import { validateR2ByokCredentials } from '../core/storage-byok-test.js';
+import { getDefaultWorkspaceDataBinding } from '../core/workspace-data-bindings.js';
 
 const KEY_CATEGORIES = new Set(['provider', 'personal', 'internal']);
 
@@ -31,6 +39,7 @@ const PROVIDERS = new Set([
   'anthropic',
   'google',
   'cloudflare',
+  'cloudflare_r2',
   'resend',
   'github',
   'supabase',
@@ -215,6 +224,139 @@ async function upsertCloudflareAccountBinding(env, { tenantId, userId, workspace
   return bindingId;
 }
 
+function r2SecretFromBody(body) {
+  return String(
+    body?.r2_secret_access_key ??
+      body?.secret_access_key ??
+      body?.api_key ??
+      body?.secret_value ??
+      '',
+  ).trim();
+}
+
+function r2AccessKeyFromBody(body) {
+  return String(body?.r2_access_key_id ?? body?.access_key_id ?? '').trim();
+}
+
+function r2BucketFromBody(body) {
+  const b = body?.byok_r2_bucket ?? body?.default_bucket ?? body?.bucket ?? '';
+  const s = String(b || '').trim();
+  return s || null;
+}
+
+async function upsertR2ProviderPreference(env, { userId, tenantId, workspaceId, cfAccountId, bucket }) {
+  if (!env?.DB || !userId) return;
+  const prefs = {
+    cf_account_id: cfAccountId,
+    byok_r2_bucket: bucket,
+    source: 'settings_keys',
+    updated_at: nowIso(),
+  };
+  try {
+    await env.DB.prepare(
+      `INSERT INTO user_storage_provider_preferences (user_id, tenant_id, workspace_id, provider, preferences_json, updated_at)
+       VALUES (?, ?, ?, 'r2', ?, unixepoch())
+       ON CONFLICT(user_id, provider) DO UPDATE SET
+         tenant_id = excluded.tenant_id,
+         workspace_id = excluded.workspace_id,
+         preferences_json = excluded.preferences_json,
+         updated_at = excluded.updated_at`,
+    )
+      .bind(userId, tenantId, workspaceId || null, JSON.stringify(prefs))
+      .run();
+  } catch (e) {
+    console.warn('[settings-api-keys] user_storage_provider_preferences r2', e?.message ?? e);
+  }
+}
+
+async function createCloudflareR2Key(env, authUser, request, body, wsRes) {
+  const cfAccountId =
+    body?.cloudflare_account_id != null ? String(body.cloudflare_account_id).trim() : '';
+  const accessKeyId = r2AccessKeyFromBody(body);
+  const secretAccessKey = r2SecretFromBody(body);
+  const bucket = r2BucketFromBody(body);
+  const validationOnCreate = body.validate === true;
+
+  if (!cfAccountId) {
+    return clientError('CLOUDFLARE_ACCOUNT_ID_REQUIRED', 'Cloudflare Account ID is required.');
+  }
+  if (!accessKeyId || !secretAccessKey) {
+    return clientError(
+      'R2_CREDENTIALS_REQUIRED',
+      'R2 Access Key ID and secret access key are required.',
+    );
+  }
+
+  let preValidateResult = null;
+  if (validationOnCreate) {
+    preValidateResult = await validateR2ByokCredentials({
+      cfAccountId,
+      accessKeyId,
+      secretAccessKey,
+      bucketName: bucket,
+    });
+    if (!preValidateResult.ok) {
+      return jsonResponse({ ok: false, error: 'validation_failed', ...preValidateResult }, 400);
+    }
+  }
+
+  const tenantId = await resolveTenantIdOrFetch(env, authUser);
+  const userId = String(authUser?.id || '').trim();
+  const workspaceId = wsRes.workspaceId;
+
+  let stored;
+  try {
+    stored = await upsertUserCloudflareR2Keys(env, {
+      userId,
+      tenantId,
+      cfAccountId,
+      r2AccessKeyId: accessKeyId,
+      r2SecretAccessKey: secretAccessKey,
+      personUuid: authUser?.person_uuid ?? null,
+    });
+  } catch (e) {
+    return clientError('STORAGE_KEY_SAVE_FAILED', e?.message ?? String(e), 500);
+  }
+
+  await upsertWorkspaceDataBinding(env, {
+    id: `wsbind_r2_${String(workspaceId).replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 40)}`,
+    tenant_id: tenantId,
+    user_id: userId,
+    workspace_id: workspaceId,
+    provider: 'cloudflare_r2',
+    external_account_id: cfAccountId,
+    byok_r2_bucket: bucket,
+    display_name: bucket ? `Cloudflare R2 · ${bucket}` : 'Cloudflare R2',
+    selected_as_default: true,
+    health_status: 'active',
+    metadata_json: JSON.stringify({ source: 'settings_keys', storage_key_id: stored.id }),
+  });
+
+  await markUserCloudflareR2Validated(env, userId, {
+    ok: validationOnCreate ? true : preValidateResult?.ok !== false,
+    checks: preValidateResult?.checks ?? [],
+  });
+  await upsertR2ProviderPreference(env, { userId, tenantId, workspaceId, cfAccountId, bucket });
+
+  const preview = stored.r2_access_key_id_preview || lastFourOfKey(accessKeyId);
+  return jsonResponse({
+    ok: true,
+    item: {
+      id: stored.id,
+      workspace_id: workspaceId,
+      category: 'provider',
+      provider: 'cloudflare_r2',
+      label: bucket ? `Cloudflare R2 · ${bucket}` : 'Cloudflare R2',
+      status: 'active',
+      scope: 'workspace',
+      last_four: preview,
+      cloudflare_account_mask: maskAccountId(cfAccountId),
+      validated_at: validationOnCreate ? nowIso() : null,
+      byok_r2_bucket: bucket,
+    },
+  });
+}
+
 /** Canonical /api/settings/keys paths; legacy /api/settings/api-keys maps here. */
 function normalizeKeysPath(pathLower) {
   if (pathLower.startsWith('/api/settings/api-keys')) {
@@ -311,24 +453,64 @@ async function validateKeysRequest(env, authUser, request, body, keyId = null) {
     body?.cloudflare_account_id != null ? String(body.cloudflare_account_id).trim() : '';
 
   if (keyId) {
-    const tenantId = await resolveTenantIdOrFetch(env, authUser);
-    const { row, cols } = await loadApiKeyRowScoped(env, authUser, keyId, wsRes.workspaceId);
-    if (!row) return clientError('NOT_FOUND', 'Key not found.', 404);
-    provider = String(row.provider || 'other').toLowerCase();
-    apiKey = await decryptVaultSecret(env, row.vault_secret_id, userId, tenantId, wsRes.workspaceId);
-    if (!apiKey) return clientError('DECRYPT_FAILED', 'Could not decrypt stored key for validation.', 500);
-    if (!cloudflareAccountId) {
-      const meta = parseMeta(row);
-      cloudflareAccountId =
-        meta.cloudflare_account_id != null
-          ? String(meta.cloudflare_account_id).trim()
-          : meta.account_id != null
-            ? String(meta.account_id).trim()
-            : '';
+    const r2Summary = await getUserCloudflareR2KeySummary(env, userId);
+    if (r2Summary?.id === keyId || String(keyId).startsWith('usak_cf_')) {
+      provider = 'cloudflare_r2';
+    } else {
+      const tenantId = await resolveTenantIdOrFetch(env, authUser);
+      const { row, cols } = await loadApiKeyRowScoped(env, authUser, keyId, wsRes.workspaceId);
+      if (!row) return clientError('NOT_FOUND', 'Key not found.', 404);
+      provider = String(row.provider || 'other').toLowerCase();
+      apiKey = await decryptVaultSecret(env, row.vault_secret_id, userId, tenantId, wsRes.workspaceId);
+      if (!apiKey && provider !== 'cloudflare_r2') {
+        return clientError('DECRYPT_FAILED', 'Could not decrypt stored key for validation.', 500);
+      }
+      if (!cloudflareAccountId) {
+        const meta = parseMeta(row);
+        cloudflareAccountId =
+          meta.cloudflare_account_id != null
+            ? String(meta.cloudflare_account_id).trim()
+            : meta.account_id != null
+              ? String(meta.account_id).trim()
+              : '';
+      }
     }
   }
 
   if (!provider) return clientError('PROVIDER_REQUIRED', 'Provider is required.');
+  if (!apiKey && provider !== 'cloudflare_r2') {
+    return clientError('API_KEY_REQUIRED', 'API key value is required.');
+  }
+  if (provider === 'cloudflare_r2') {
+    const cfAccountId =
+      cloudflareAccountId ||
+      (body?.cloudflare_account_id != null ? String(body.cloudflare_account_id).trim() : '');
+    const accessKeyId = r2AccessKeyFromBody(body);
+    const secretAccessKey = r2SecretFromBody(body) || apiKey;
+    const bucketName = r2BucketFromBody(body);
+
+    if (keyId) {
+      const stored = await loadUserCloudflareR2Credentials(env, userId);
+      const result = await validateR2ByokCredentials({
+        cfAccountId: cfAccountId || stored?.cfAccountId || '',
+        accessKeyId: accessKeyId || stored?.accessKeyId || '',
+        secretAccessKey: secretAccessKey || stored?.secretAccessKey || '',
+        bucketName,
+      });
+      if (result.ok) {
+        await markUserCloudflareR2Validated(env, userId, { ok: true, checks: result.checks });
+      }
+      return jsonResponse(result);
+    }
+
+    const result = await validateR2ByokCredentials({
+      cfAccountId,
+      accessKeyId,
+      secretAccessKey,
+      bucketName,
+    });
+    return jsonResponse(result);
+  }
   if (!apiKey) return clientError('API_KEY_REQUIRED', 'API key value is required.');
   if (provider === 'cloudflare' && !cloudflareAccountId) {
     return clientError('CLOUDFLARE_ACCOUNT_ID_REQUIRED', 'Cloudflare Account ID is required.');
@@ -520,6 +702,36 @@ async function listApiKeys(request, env, authUser, url) {
       LIMIT 500`;
     const res = await db.prepare(sql).bind(...binds).all();
     const items = (res?.results || []).map((r) => toSafeItem(r, cols));
+
+    if (!categoryFilter || categoryFilter === 'provider') {
+      const r2 = await getUserCloudflareR2KeySummary(env, userId);
+      if (r2?.configured) {
+        const binding = await getDefaultWorkspaceDataBinding(env, workspaceId, 'cloudflare_r2');
+        const bucket = binding?.byok_r2_bucket ?? null;
+        items.unshift({
+          id: r2.id,
+          workspace_id: workspaceId,
+          category: 'provider',
+          provider: 'cloudflare_r2',
+          secret_name: null,
+          label: bucket ? `Cloudflare R2 · ${bucket}` : 'Cloudflare R2',
+          status: r2.status || 'active',
+          scope: 'workspace',
+          last_four: r2.r2_access_key_id_preview || '????',
+          cloudflare_account_mask: r2.cf_account_id ? maskAccountId(r2.cf_account_id) : null,
+          validated_at:
+            r2.validated_at != null
+              ? new Date(Number(r2.validated_at) * 1000).toISOString()
+              : null,
+          created_at: r2.created_at != null ? new Date(Number(r2.created_at) * 1000).toISOString() : null,
+          updated_at: null,
+          last_used_at: null,
+          rotated_at: null,
+          expires_at: null,
+        });
+      }
+    }
+
     return jsonResponse({ items });
   } catch (e) {
     return jsonResponse({ error: e?.message ?? String(e), items: [] }, 500);
@@ -548,6 +760,11 @@ async function createApiKey(env, authUser, request) {
   const categoryRaw = String(body.category || 'provider').trim().toLowerCase();
   const category = KEY_CATEGORIES.has(categoryRaw) ? categoryRaw : 'provider';
   let provider = String(body.provider || '').trim().toLowerCase();
+
+  if (category === 'provider' && provider === 'cloudflare_r2') {
+    return createCloudflareR2Key(env, authUser, request, body, wsRes);
+  }
+
   const secretName = String(body.secret_name || '').trim();
   const cloudflareAccountId =
     body.cloudflare_account_id != null ? String(body.cloudflare_account_id).trim() : '';
@@ -580,10 +797,10 @@ async function createApiKey(env, authUser, request) {
   if (!keyLabel && category !== 'provider') {
     return clientError('KEY_NAME_REQUIRED', 'Label is required.');
   }
-  if (category === 'provider' && provider !== 'cloudflare' && !keyLabel) {
+  if (category === 'provider' && provider !== 'cloudflare' && provider !== 'cloudflare_r2' && !keyLabel) {
     return clientError('KEY_NAME_REQUIRED', 'Label is required.');
   }
-  if (!api_key) return clientError('API_KEY_REQUIRED', 'Secret value is required.');
+  if (!api_key && provider !== 'cloudflare_r2') return clientError('API_KEY_REQUIRED', 'Secret value is required.');
   if (category === 'provider' && provider === 'cloudflare' && !cloudflareAccountId) {
     return clientError('CLOUDFLARE_ACCOUNT_ID_REQUIRED', 'Cloudflare Account ID is required.');
   }

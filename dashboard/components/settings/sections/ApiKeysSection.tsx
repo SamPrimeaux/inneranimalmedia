@@ -11,6 +11,7 @@ import {
   WarningStrip,
 } from '../components/SectionPrimitives';
 import { PtyTerminalSetupSection } from './PtyTerminalSetupSection';
+import { LegacyVaultSection } from './LegacyVaultSection';
 
 type ApiKeyItem = {
   id: string;
@@ -898,6 +899,10 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
             ))}
           </div>
         )}
+      </section>
+
+      <section className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4 space-y-3">
+        <LegacyVaultSection embeddedInKeys />
       </section>
 
       {personalCreateOpen && (

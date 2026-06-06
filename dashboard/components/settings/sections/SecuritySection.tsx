@@ -335,97 +335,20 @@ export function SecuritySection({ data }: SecuritySectionProps) {
         )}
       </section>
 
-      {/* Legacy LLM keys table — keep for BYOK slots */}
-      <section className="space-y-3">
-        <h3 className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-          Model provider keys (BYOK)
-        </h3>
-        <p className="text-[11px] text-[var(--text-muted)]">
-          Legacy BYOK slots. Prefer Settings → Keys &amp; Secrets for new provider keys.
-        </p>
-        {data.llmKeys.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-[var(--border-subtle)] bg-[var(--bg-app)] p-6 text-[12px] text-[var(--text-muted)]">
-            No keys stored yet.
-          </div>
-        ) : (
-          <div className="rounded-xl border border-[var(--border-subtle)] overflow-hidden bg-[var(--bg-panel)]">
-            <table className="w-full text-[11px]">
-              <thead className="bg-[var(--bg-hover)] text-[var(--text-muted)] text-left">
-                <tr>
-                  <th className="px-3 py-2 font-semibold">Provider</th>
-                  <th className="px-3 py-2 font-semibold">Masked</th>
-                  <th className="px-3 py-2 font-semibold">Added</th>
-                  <th className="px-3 py-2 font-semibold w-24" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[var(--border-subtle)]">
-                {data.llmKeys.map((k) => (
-                  <tr key={k.id}>
-                    <td className="px-3 py-2 text-[var(--text-main)]">{k.provider || k.key_name}</td>
-                    <td className="px-3 py-2 font-mono text-[var(--solar-cyan)]">{k.masked}</td>
-                    <td className="px-3 py-2 text-[var(--text-muted)]">{formatVaultCreated(k.created_at)}</td>
-                    <td className="px-3 py-2">
-                      <button
-                        type="button"
-                        disabled={data.llmBusy === k.id}
-                        onClick={() => void data.removeLlmKey(k.id)}
-                        className="text-[10px] px-2 py-1 rounded border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--color-danger)] hover:border-[var(--color-danger)]/40"
-                      >
-                        Remove
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
       <section className="space-y-3 p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)]">
-        <h3 className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">Add model key</h3>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="flex flex-col gap-1 text-[11px]">
-            <span className="text-[var(--text-muted)]">Provider</span>
-            <select
-              value={data.vaultProvider}
-              onChange={(e) =>
-                data.setVaultProvider(e.target.value as typeof data.vaultProvider)
-              }
-              className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-3 py-2 text-[12px] text-[var(--text-main)]"
-            >
-              <option value="OPENAI_API_KEY">OpenAI</option>
-              <option value="ANTHROPIC_API_KEY">Anthropic</option>
-              <option value="GEMINI_API_KEY">Gemini</option>
-            </select>
-          </label>
-          <label className="flex flex-col gap-1 text-[11px] sm:col-span-2">
-            <span className="text-[var(--text-muted)]">Key name (vault slot)</span>
-            <input
-              type="text"
-              readOnly
-              value={data.vaultProvider}
-              className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-3 py-2 text-[12px] font-mono text-[var(--text-muted)]"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-[11px] sm:col-span-2">
-            <span className="text-[var(--text-muted)]">API key</span>
-            <input
-              type="password"
-              autoComplete="off"
-              value={data.vaultKeyValue}
-              onChange={(e) => data.setVaultKeyValue(e.target.value)}
-              className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-3 py-2 text-[12px] text-[var(--text-main)]"
-            />
-          </label>
-        </div>
+        <h3 className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+          Legacy vault slots
+        </h3>
+        <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
+          Older env-name vault keys (OpenAI / Anthropic / Gemini slots) now live at the bottom of Keys
+          &amp; Secrets. Provider keys and R2 BYOK stay in the main Keys table above.
+        </p>
         <button
           type="button"
-          disabled={data.llmBusy === data.vaultProvider || !data.vaultKeyValue.trim()}
-          onClick={() => void data.saveVaultKeyFromSecurity()}
-          className="px-4 py-2 rounded-lg bg-[var(--solar-cyan)]/20 text-[11px] font-semibold text-[var(--solar-cyan)] border border-[var(--solar-cyan)]/30 hover:bg-[var(--solar-cyan)]/30 disabled:opacity-40"
+          onClick={() => navigate('/dashboard/settings/keys#legacy-vault')}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--solar-cyan)]/20 text-[11px] font-semibold text-[var(--solar-cyan)] border border-[var(--solar-cyan)]/30 hover:bg-[var(--solar-cyan)]/30"
         >
-          Save
+          Open legacy vault on Keys &amp; Secrets
         </button>
       </section>
 

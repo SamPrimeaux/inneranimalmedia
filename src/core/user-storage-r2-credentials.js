@@ -181,3 +181,97 @@ export async function upsertUserCloudflareR2Keys(
     access_key_registry: registryKey,
   };
 }
+
+/**
+ * Active R2 key row summary for dashboard (no secret material).
+ * @returns {Promise<object|null>}
+ */
+export async function getUserCloudflareR2KeySummary(env, userId) {
+  const uid = String(userId || '').trim();
+  if (!uid || !env?.DB) return null;
+
+  const cols = await pragmaColumns(env.DB, 'user_storage_access_keys');
+  const selectCols = ['id', 'status', 'cf_account_id', 'r2_access_key_id', 'created_at'];
+  if (cols.has('validated_at')) selectCols.push('validated_at');
+  if (cols.has('validation_status')) selectCols.push('validation_status');
+  if (cols.has('access_key_id_encrypted')) selectCols.push('access_key_id_encrypted');
+  if (cols.has('secret_encrypted')) selectCols.push('secret_encrypted');
+
+  let row;
+  try {
+    row = await env.DB.prepare(
+      `SELECT ${selectCols.join(', ')}
+       FROM user_storage_access_keys
+       WHERE user_id = ? AND status = 'active'
+       ORDER BY created_at DESC
+       LIMIT 1`,
+    )
+      .bind(uid)
+      .first();
+  } catch {
+    return null;
+  }
+  if (!row?.id) return null;
+
+  const hasEncrypted =
+    cols.has('access_key_id_encrypted') &&
+    cols.has('secret_encrypted') &&
+    row.access_key_id_encrypted &&
+    row.secret_encrypted;
+
+  return {
+    id: String(row.id),
+    provider: 'cloudflare_r2',
+    status: String(row.status || 'active'),
+    cf_account_id: row.cf_account_id != null ? String(row.cf_account_id).trim() : null,
+    r2_access_key_id_preview:
+      row.r2_access_key_id != null ? String(row.r2_access_key_id).trim() : null,
+    validated_at:
+      cols.has('validated_at') && row.validated_at != null ? Number(row.validated_at) : null,
+    validation_status:
+      cols.has('validation_status') && row.validation_status != null
+        ? String(row.validation_status)
+        : null,
+    created_at: row.created_at != null ? Number(row.created_at) : null,
+    configured: !!hasEncrypted,
+  };
+}
+
+/**
+ * Persist validation outcome on the active user_storage_access_keys row.
+ */
+export async function markUserCloudflareR2Validated(env, userId, { ok, checks }) {
+  const uid = String(userId || '').trim();
+  if (!uid || !env?.DB) return;
+
+  const cols = await pragmaColumns(env.DB, 'user_storage_access_keys');
+  if (!cols.has('validated_at') && !cols.has('validation_status')) return;
+
+  const validated_at = Math.floor(Date.now() / 1000);
+  const validation_status = ok ? 'pass' : 'fail';
+  const sets = [];
+  const binds = [];
+  if (cols.has('validated_at')) {
+    sets.push('validated_at = ?');
+    binds.push(validated_at);
+  }
+  if (cols.has('validation_status')) {
+    sets.push('validation_status = ?');
+    binds.push(validation_status);
+  }
+  if (sets.length === 0) return;
+
+  binds.push(uid);
+  await env.DB.prepare(
+    `UPDATE user_storage_access_keys
+     SET ${sets.join(', ')}
+     WHERE user_id = ? AND status = 'active'`,
+  )
+    .bind(...binds)
+    .run()
+    .catch((e) => {
+      console.warn('[user-storage-r2-credentials] mark validated', e?.message ?? e);
+    });
+
+  void checks;
+}
