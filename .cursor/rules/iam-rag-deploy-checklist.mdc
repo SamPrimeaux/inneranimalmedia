@@ -1,0 +1,55 @@
+---
+description: Deploy and RAG/vector ingest checklist — receipts, lane law, cross-repo isolation, post-deploy verification. Load for deploy:full, reindex, ingest, or Vectorize lane changes.
+alwaysApply: false
+---
+
+# IAM RAG + deploy operating checklist
+
+## Source law (non-negotiable)
+
+- **Canonical:** Git, R2, D1 Layer 0, live provider/binding config
+- **Derived mirrors:** Supabase pgvector + Cloudflare Vectorize — rebuildable search cache, not SSOT
+- Skill: `skills/agentsam-vectorize-lanes/SKILL.md` · D1 rules: `rule_agentsam_vectorize_embed_pipeline`, `rule_vectorize_router`, `vectorize_dimension_integrity_rule`
+
+## Before changing vector/RAG behavior
+
+Inspect the lane contract: model, dims, Supabase table, Vectorize index/binding, R2/git source path, D1 receipt table, `workspace_id`.
+
+## Before `npm run deploy:full`
+
+1. `git status` — inneranimalmedia clean or intentionally scoped; **report** `iam-pwa-services` dirty files separately; never mix PWA signup/auth-proxy with vector/RAG commits
+2. Migrations applied or explicitly deferred; repo migration files match prod
+3. R2 skill/script uploads done when content changed
+4. `node --check` on touched `.js` / `.mjs`
+5. Optional (when search behavior changed): `./scripts/with-cloudflare-env.sh node scripts/verify-rag-ingest-protocol.mjs --require-fresh`
+
+## Ingest / reindex protocol (scripts)
+
+Shared lib: `scripts/lib/rag-ingest-protocol.mjs`
+
+| Guard | Requirement |
+|-------|-------------|
+| Retry/backoff | OpenAI 503/429/502/504 and Vectorize transient errors — do not abort whole run |
+| Hash skip | Skip unchanged content by `content_hash` |
+| Receipts | D1 `vectorize_sync_log.details_json`: `run_id`, `git_commit_sha`, `workspace_id`, index, counts, status |
+| Prune | After successful **full** run only: delete mirror rows + Vectorize ids for paths missing from approved source set (`--no-prune` to disable) |
+| Index scope | Production `main` or explicit approved branch; skip build output, logs, cache, `node_modules`, WIP noise |
+| Lane routing | One lane per job — CODE vs DOCUMENTS vs SCHEMA vs MEMORY vs MEDIA; no blind all-lane query |
+
+Scripts: `reindex_codebase_dashboard_agent.mjs`, `ingest_r2_to_rag.mjs`, `ingest_repo_skills_rag.mjs`
+
+## After deploy — verify (stop and report on failure)
+
+1. `npm run deploy:full` completed successfully
+2. Worker live (`curl /api/health` or dashboard load)
+3. D1 migration state matches repo
+4. `vectorize_sync_log` run receipts present when ingest/reindex ran
+5. Services manifest reachable (PWA tier-1 when applicable)
+6. Agent Sam answers a question using freshly indexed code/docs (manual smoke)
+
+**Do not claim deploy/reindex success until receipts and smoke checks pass.**
+
+## Do not bundle in deploy gate
+
+- Full Playwright suite / multi-route smokes (unless user explicitly asks)
+- Full reindex “just because” — only when source set or lane contract changed
