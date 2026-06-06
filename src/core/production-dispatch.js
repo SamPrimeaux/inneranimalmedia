@@ -209,7 +209,11 @@ export async function dispatchProductionDomainRoutes(rc) {
   if (pathLower.startsWith('/api/agent/intake')) {
     return handleIntakeApi(request, url, env, ctx);
   }
-  if (pathLower.startsWith('/api/cad/') || pathLower === '/api/cad') {
+  if (
+    pathLower.startsWith('/api/cad/') ||
+    pathLower === '/api/cad' ||
+    pathLower.startsWith('/api/internal/cad/')
+  ) {
     return handleCadApi(request, url, env, ctx);
   }
   if (pathLower.startsWith('/api/studio/') || pathLower === '/api/studio') {

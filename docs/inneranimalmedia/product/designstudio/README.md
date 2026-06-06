@@ -9,6 +9,7 @@
 
 **Related files (this folder)**
 
+- `E2E-COMPLETE-PLAN-2026-06.md` — **execution plan (no stubs)**: full E2E, Supabase map, runner, UI, Meaux Games, agent delegation.
 - `PIPELINE.md` — **implementation plan**: remote runner, Worker APIs, UI, VoxelEngine gaps, phases.
 - `E2E-TEST-PIPELINE.md` — **Meshy/Spline-free** E2E: blueprint → OpenSCAD → STL → GLB → R2 → D1 → Design Studio; test cases + iPhone proof.
 - `design-blueprints-schema.sql` — DDL for `designstudio_design_blueprints` (mirror of `migrations/247_*`).

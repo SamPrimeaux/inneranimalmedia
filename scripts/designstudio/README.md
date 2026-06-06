@@ -20,6 +20,25 @@ Set `OPENSCAD_BIN`, `BLENDER_BIN`, `FREECAD_BIN` if binaries are not on `PATH`.
 | `run-openscad.sh` | `input.scad` → `output.stl` |
 | `stl-to-glb.py` | `input.stl` → `output.glb` via Blender `--background` |
 | `run-blender-glb.sh` | Wrapper calling `stl-to-glb.py` |
+| `cad-job-runner.mjs` | Poll D1 `agentsam_cad_jobs` (pending) → OpenSCAD/Blender → R2 → `POST /api/internal/cad/job-complete` |
+
+## CAD runner (off-edge execution)
+
+```bash
+# Long-running daemon (Mac with OpenSCAD + Blender)
+export OPENSCAD_BIN=/opt/homebrew/bin/openscad
+export BLENDER_BIN=/usr/local/bin/blender
+npm run designstudio:runner
+
+# Single pass (CI / smoke)
+npm run designstudio:runner:once
+```
+
+Worker flow:
+
+1. `POST /api/cad/openscad/generate` → `script_ready`
+2. `POST /api/cad/jobs/:id/execute` → `pending`
+3. Runner claims job → GLB in R2 → `cms_assets` + `scene_snapshots` link via job-complete
 | `freecad-check.sh` | Exit 0 if FreeCAD CLI found |
 | `pipeline-smoke.sh` | Temp dir; minimal cube `.scad` → `.stl` → `.glb` |
 | `upload-asset.sh` | `wrangler r2 object put` to bucket `inneranimalmedia` |

@@ -1,7 +1,17 @@
 /**
- * CAD pipelines: Meshy, OpenSCAD (Worker generates script), Blender Python script.
+ * CAD pipelines: Meshy, OpenSCAD, Blender, job execute + runner completion.
  */
-import { getAuthUser, jsonResponse } from '../core/auth.js';
+import { getAuthUser, jsonResponse, verifyInternalApiSecret } from '../core/auth.js';
+import {
+  decodeCadScriptPayload,
+  resolveCadJobScope,
+  buildCadExportR2Key,
+  buildCadAssetPublicUrl,
+} from '../core/cad-job-scope.js';
+import {
+  finalizeCadJobComplete,
+  ingestRemoteGlbToR2,
+} from '../core/cad-job-complete.js';
 
 const MESHY_BASE = 'https://api.meshy.ai/openapi/v2';
 const OPENSCAD_BIN = '/opt/homebrew/bin/openscad';
@@ -10,32 +20,206 @@ function isStubKey(key) {
   return !key || key.startsWith('sk-meshy-stub') || key === 'stub';
 }
 
+/**
+ * @param {any} env
+ * @param {Record<string, unknown>} fields
+ */
+async function insertCadJob(env, fields) {
+  await env.DB.prepare(
+    `INSERT INTO agentsam_cad_jobs (
+       id, user_id, session_id, engine, prompt, mode, status,
+       external_task_id, r2_key, r2_bucket, workspace_id, tenant_id,
+       project_id, scene_snapshot_id, progress_pct, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch(), unixepoch())`,
+  )
+    .bind(
+      fields.id,
+      fields.user_id,
+      fields.session_id ?? null,
+      fields.engine,
+      fields.prompt ?? '',
+      fields.mode ?? 'text',
+      fields.status,
+      fields.external_task_id ?? null,
+      fields.r2_key ?? null,
+      fields.r2_bucket ?? 'inneranimalmedia',
+      fields.workspace_id ?? null,
+      fields.tenant_id ?? null,
+      fields.project_id ?? null,
+      fields.scene_snapshot_id ?? null,
+      Number(fields.progress_pct) || 0,
+    )
+    .run();
+}
+
+/**
+ * @param {any} env
+ * @param {Record<string, unknown>} job
+ * @param {Record<string, unknown>} scope
+ */
+async function meshyIngestIfDone(env, ctx, job, scope, glbUrl) {
+  const url = String(glbUrl || '').trim();
+  if (!url || !scope.workspaceId || !scope.tenantId) return null;
+  try {
+    if (!job.workspace_id && scope.workspaceId) {
+      await env.DB.prepare(
+        `UPDATE agentsam_cad_jobs SET
+           workspace_id = ?, tenant_id = ?, project_id = COALESCE(?, project_id),
+           scene_snapshot_id = COALESCE(?, scene_snapshot_id), updated_at = unixepoch()
+         WHERE id = ?`,
+      )
+        .bind(scope.workspaceId, scope.tenantId, scope.projectId, scope.sceneSnapshotId, job.id)
+        .run();
+    }
+    const ingested = await ingestRemoteGlbToR2(env, {
+      tenantId: scope.tenantId || job.tenant_id,
+      workspaceId: scope.workspaceId || job.workspace_id,
+      jobId: String(job.id),
+      sourceUrl: url,
+    });
+    return finalizeCadJobComplete(env, ctx, {
+      job_id: job.id,
+      status: 'done',
+      r2_key: ingested.r2_key,
+      r2_bucket: ingested.r2_bucket,
+      public_url: ingested.public_url,
+      size_bytes: ingested.size_bytes,
+    });
+  } catch (e) {
+    console.warn('[cad/meshy] r2 ingest failed:', e?.message ?? e);
+    return null;
+  }
+}
+
 export async function handleCadApi(request, url, env, ctx) {
   const method = request.method.toUpperCase();
   const path = url.pathname.toLowerCase();
 
   try {
+    if (path === '/api/internal/cad/job-complete' && method === 'POST') {
+      if (!verifyInternalApiSecret(request, env)) {
+        return jsonResponse({ error: 'Forbidden' }, 403);
+      }
+      const body = await request.json().catch(() => ({}));
+      const result = await finalizeCadJobComplete(env, ctx, body);
+      return jsonResponse(result);
+    }
+
+    const executeMatch = url.pathname.match(/^\/api\/cad\/jobs\/([^/]+)\/execute$/i);
+    if (executeMatch && method === 'POST') {
+      const authUser = await getAuthUser(request, env);
+      if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+      if (!env.DB) return jsonResponse({ error: 'Database not configured' }, 503);
+
+      const jobId = executeMatch[1];
+      const body = await request.json().catch(() => ({}));
+      const job = await env.DB.prepare(`SELECT * FROM agentsam_cad_jobs WHERE id = ? LIMIT 1`)
+        .bind(jobId)
+        .first();
+      if (!job) return jsonResponse({ error: 'Job not found' }, 404);
+      if (String(job.user_id) !== String(authUser.id)) {
+        return jsonResponse({ error: 'Forbidden' }, 403);
+      }
+
+      const runnable = ['script_ready', 'pending', 'failed'];
+      if (!runnable.includes(String(job.status || ''))) {
+        return jsonResponse(
+          { error: 'job_not_executable', status: job.status },
+          409,
+        );
+      }
+
+      const scope = await resolveCadJobScope(env, request, authUser, body);
+      if (!scope.workspaceId) {
+        return jsonResponse({ error: 'WORKSPACE_CONTEXT_MISSING' }, 400);
+      }
+
+      await env.DB.prepare(
+        `UPDATE agentsam_cad_jobs SET
+           status = 'pending',
+           workspace_id = ?,
+           tenant_id = ?,
+           project_id = COALESCE(?, project_id),
+           scene_snapshot_id = COALESCE(?, scene_snapshot_id),
+           progress_pct = 0,
+           error = NULL,
+           error_code = NULL,
+           updated_at = unixepoch()
+         WHERE id = ?`,
+      )
+        .bind(
+          scope.workspaceId,
+          scope.tenantId,
+          scope.projectId,
+          scope.sceneSnapshotId,
+          jobId,
+        )
+        .run();
+
+      return jsonResponse({
+        ok: true,
+        job_id: jobId,
+        status: 'pending',
+        workspace_id: scope.workspaceId,
+        message: 'Job queued for CAD runner',
+      });
+    }
+
+    const jobOneMatch = url.pathname.match(/^\/api\/cad\/jobs\/([^/]+)$/i);
+    if (jobOneMatch && method === 'GET') {
+      const authUser = await getAuthUser(request, env);
+      if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+      if (!env.DB) return jsonResponse({ error: 'Database not configured' }, 503);
+
+      const jobId = jobOneMatch[1];
+      const job = await env.DB.prepare(`SELECT * FROM agentsam_cad_jobs WHERE id = ? LIMIT 1`)
+        .bind(jobId)
+        .first();
+      if (!job) return jsonResponse({ error: 'Job not found' }, 404);
+      if (String(job.user_id) !== String(authUser.id)) {
+        return jsonResponse({ error: 'Forbidden' }, 403);
+      }
+
+      const publicUrl =
+        job.r2_key && !String(job.r2_key).includes('\n') && !String(job.r2_key).startsWith('b64:')
+          ? buildCadAssetPublicUrl(job.r2_key)
+          : job.result_url;
+
+      return jsonResponse({
+        job: {
+          ...job,
+          public_url: publicUrl,
+        },
+      });
+    }
+
     if (path === '/api/cad/meshy/generate' && method === 'POST') {
       const authUser = await getAuthUser(request, env);
       if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
-
-      if (!env.DB) {
-        return jsonResponse({ error: 'Database not configured' }, 503);
-      }
+      if (!env.DB) return jsonResponse({ error: 'Database not configured' }, 503);
 
       const body = await request.json().catch(() => ({}));
-      const { prompt, mode = 'text', session_id, image_url } = body;
+      const { prompt, mode = 'text', image_url } = body;
       if (!prompt && mode === 'text') return jsonResponse({ error: 'prompt required' }, 400);
       if (mode === 'image' && !image_url) return jsonResponse({ error: 'image_url required for image mode' }, 400);
 
+      const scope = await resolveCadJobScope(env, request, authUser, body);
       const jobId = 'cadj_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
 
       if (isStubKey(env.MESHYAI_API_KEY)) {
-        await env.DB.prepare(`
-          INSERT INTO agentsam_cad_jobs (id, user_id, session_id, engine, prompt, mode, status, created_at, updated_at)
-          VALUES (?, ?, ?, 'meshy', ?, ?, 'stub', unixepoch(), unixepoch())
-        `).bind(jobId, authUser.id, session_id || null, prompt || '', mode).run();
-
+        await insertCadJob(env, {
+          id: jobId,
+          user_id: authUser.id,
+          session_id: scope.sessionId,
+          engine: 'meshy',
+          prompt: prompt || '',
+          mode,
+          status: 'stub',
+          workspace_id: scope.workspaceId,
+          tenant_id: scope.tenantId,
+          project_id: scope.projectId,
+          scene_snapshot_id: scope.sceneSnapshotId,
+        });
         return jsonResponse({
           job_id: jobId,
           status: 'stub',
@@ -67,30 +251,55 @@ export async function handleCadApi(request, url, env, ctx) {
       const meshyData = await meshyRes.json();
       const externalTaskId = meshyData.result || meshyData.id || null;
 
-      await env.DB.prepare(`
-        INSERT INTO agentsam_cad_jobs
-          (id, user_id, session_id, engine, prompt, mode, status, external_task_id, created_at, updated_at)
-        VALUES (?, ?, ?, 'meshy', ?, ?, 'pending', ?, unixepoch(), unixepoch())
-      `).bind(jobId, authUser.id, session_id || null, prompt || '', mode, externalTaskId).run();
+      await insertCadJob(env, {
+        id: jobId,
+        user_id: authUser.id,
+        session_id: scope.sessionId,
+        engine: 'meshy',
+        prompt: prompt || '',
+        mode,
+        status: 'pending',
+        external_task_id: externalTaskId,
+        workspace_id: scope.workspaceId,
+        tenant_id: scope.tenantId,
+        project_id: scope.projectId,
+        scene_snapshot_id: scope.sceneSnapshotId,
+      });
 
-      return jsonResponse({ job_id: jobId, status: 'pending', external_task_id: externalTaskId });
+      return jsonResponse({
+        job_id: jobId,
+        status: 'pending',
+        external_task_id: externalTaskId,
+        workspace_id: scope.workspaceId,
+      });
     }
 
     const statusMatch = url.pathname.match(/^\/api\/cad\/meshy\/status\/([^/]+)$/i);
     if (statusMatch && method === 'GET') {
       const authUser = await getAuthUser(request, env);
       if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
-
-      if (!env.DB) {
-        return jsonResponse({ error: 'Database not configured' }, 503);
-      }
+      if (!env.DB) return jsonResponse({ error: 'Database not configured' }, 503);
 
       const jobId = statusMatch[1];
-      const job = await env.DB.prepare('SELECT * FROM agentsam_cad_jobs WHERE id = ?').bind(jobId).first();
+      const job = await env.DB.prepare(`SELECT * FROM agentsam_cad_jobs WHERE id = ? LIMIT 1`)
+        .bind(jobId)
+        .first();
       if (!job) return jsonResponse({ error: 'Job not found' }, 404);
 
-      if (['done', 'failed', 'stub'].includes(job.status)) {
-        return jsonResponse({ job_id: jobId, status: job.status, result_url: job.result_url, error: job.error });
+      if (['done', 'failed', 'stub'].includes(String(job.status))) {
+        const publicUrl =
+          job.r2_key && !String(job.r2_key).startsWith('b64:')
+            ? buildCadAssetPublicUrl(job.r2_key)
+            : job.result_url;
+        return jsonResponse({
+          job_id: jobId,
+          status: job.status,
+          result_url: job.result_url,
+          public_url: publicUrl,
+          r2_key: job.r2_key,
+          error: job.error,
+          progress_pct: job.progress_pct,
+        });
       }
 
       if (isStubKey(env.MESHYAI_API_KEY)) {
@@ -115,44 +324,66 @@ export async function handleCadApi(request, url, env, ctx) {
       }
 
       const pollData = await pollRes.json();
-
       const statusMap = { PENDING: 'pending', IN_PROGRESS: 'running', SUCCEEDED: 'done', FAILED: 'failed' };
       const newStatus = statusMap[pollData.status] || job.status;
+      const progress = Number(pollData.progress) || null;
 
-      if (newStatus === 'done') {
-        const glbUrl = pollData.model_urls?.glb || pollData.model_url || null;
-        await env.DB.prepare(`
-          UPDATE agentsam_cad_jobs SET status='done', result_url=?, updated_at=unixepoch() WHERE id=?
-        `).bind(glbUrl, jobId).run();
-        return jsonResponse({ job_id: jobId, status: 'done', result_url: glbUrl });
+      if (newStatus === 'running' || newStatus === 'pending') {
+        await env.DB.prepare(
+          `UPDATE agentsam_cad_jobs SET status = ?, progress_pct = COALESCE(?, progress_pct), updated_at = unixepoch() WHERE id = ?`,
+        )
+          .bind(newStatus, progress, jobId)
+          .run();
+        return jsonResponse({ job_id: jobId, status: newStatus, progress });
       }
 
       if (newStatus === 'failed') {
         const errMsg = pollData.message || pollData.error || 'Meshy generation failed';
-        await env.DB.prepare(`
-          UPDATE agentsam_cad_jobs SET status='failed', error=?, updated_at=unixepoch() WHERE id=?
-        `).bind(errMsg, jobId).run();
+        await env.DB.prepare(
+          `UPDATE agentsam_cad_jobs SET status='failed', error=?, updated_at=unixepoch() WHERE id=?`,
+        )
+          .bind(errMsg, jobId)
+          .run();
+        ctx.waitUntil?.(
+          finalizeCadJobComplete(env, ctx, { job_id: jobId, status: 'failed', error: errMsg }).catch(
+            () => null,
+          ),
+        );
         return jsonResponse({ job_id: jobId, status: 'failed', error: errMsg });
       }
 
-      return jsonResponse({ job_id: jobId, status: newStatus, progress: pollData.progress || null });
+      const glbUrl = pollData.model_urls?.glb || pollData.model_url || null;
+      const scope = {
+        workspaceId: job.workspace_id,
+        tenantId: job.tenant_id,
+        projectId: job.project_id,
+        sceneSnapshotId: job.scene_snapshot_id,
+      };
+      const ingested = await meshyIngestIfDone(env, ctx, job, scope, glbUrl);
+      const publicUrl = ingested?.public_url || buildCadAssetPublicUrl(ingested?.r2_key) || glbUrl;
+
+      return jsonResponse({
+        job_id: jobId,
+        status: 'done',
+        result_url: publicUrl || glbUrl,
+        public_url: publicUrl,
+        r2_key: ingested?.r2_key ?? null,
+        cms_asset: ingested?.cms_asset ?? null,
+        progress_pct: 100,
+      });
     }
 
     if (path === '/api/cad/openscad/generate' && method === 'POST') {
       const authUser = await getAuthUser(request, env);
       if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
-
-      if (!env.ANTHROPIC_API_KEY) {
-        return jsonResponse({ error: 'ANTHROPIC_API_KEY not configured' }, 503);
-      }
-      if (!env.DB) {
-        return jsonResponse({ error: 'Database not configured' }, 503);
-      }
+      if (!env.ANTHROPIC_API_KEY) return jsonResponse({ error: 'ANTHROPIC_API_KEY not configured' }, 503);
+      if (!env.DB) return jsonResponse({ error: 'Database not configured' }, 503);
 
       const body = await request.json().catch(() => ({}));
-      const { prompt, session_id } = body;
+      const { prompt } = body;
       if (!prompt) return jsonResponse({ error: 'prompt required' }, 400);
 
+      const scope = await resolveCadJobScope(env, request, authUser, body);
       const jobId = 'cadj_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
 
       const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
@@ -167,7 +398,7 @@ export async function handleCadApi(request, url, env, ctx) {
           max_tokens: 4096,
           system: `You are an OpenSCAD expert. Output ONLY valid OpenSCAD code.
 No markdown fences, no explanation, no comments unless they are OpenSCAD inline comments.
-The code must be immediately runnable with: openscad --export-format asciistl -o output.stl script.scad
+The code must be immediately runnable with: openscad -o output.stl input.scad
 Use parametric variables at the top. Make the model well-structured and printable.`,
           messages: [{ role: 'user', content: `Create an OpenSCAD model: ${prompt}` }],
         }),
@@ -176,40 +407,45 @@ Use parametric variables at the top. Make the model well-structured and printabl
       if (!aiRes.ok) return jsonResponse({ error: 'AI service error' }, 502);
       const aiData = await aiRes.json();
       const script = aiData.content?.[0]?.text || '';
-
       const scriptStored =
         script.length > 4000 ? 'b64:' + btoa(unescape(encodeURIComponent(script))) : script;
 
-      await env.DB.prepare(`
-        INSERT INTO agentsam_cad_jobs
-          (id, user_id, session_id, engine, prompt, mode, status, r2_key, created_at, updated_at)
-        VALUES (?, ?, ?, 'openscad', ?, 'text', 'done', ?, unixepoch(), unixepoch())
-      `).bind(jobId, authUser.id, session_id || null, prompt, scriptStored).run();
+      await insertCadJob(env, {
+        id: jobId,
+        user_id: authUser.id,
+        session_id: scope.sessionId,
+        engine: 'openscad',
+        prompt,
+        mode: 'text',
+        status: 'script_ready',
+        r2_key: scriptStored,
+        workspace_id: scope.workspaceId,
+        tenant_id: scope.tenantId,
+        project_id: scope.projectId,
+        scene_snapshot_id: scope.sceneSnapshotId,
+      });
 
       return jsonResponse({
         job_id: jobId,
         script,
-        status: 'done',
+        status: 'script_ready',
         engine: 'openscad',
         openscad_bin: OPENSCAD_BIN,
+        next_step: 'POST /api/cad/jobs/{job_id}/execute',
       });
     }
 
     if (path === '/api/cad/blender/script' && method === 'POST') {
       const authUser = await getAuthUser(request, env);
       if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
-
-      if (!env.ANTHROPIC_API_KEY) {
-        return jsonResponse({ error: 'ANTHROPIC_API_KEY not configured' }, 503);
-      }
-      if (!env.DB) {
-        return jsonResponse({ error: 'Database not configured' }, 503);
-      }
+      if (!env.ANTHROPIC_API_KEY) return jsonResponse({ error: 'ANTHROPIC_API_KEY not configured' }, 503);
+      if (!env.DB) return jsonResponse({ error: 'Database not configured' }, 503);
 
       const body = await request.json().catch(() => ({}));
-      const { prompt, scene_json, session_id } = body;
+      const { prompt, scene_json } = body;
       if (!prompt) return jsonResponse({ error: 'prompt required' }, 400);
 
+      const scope = await resolveCadJobScope(env, request, authUser, body);
       const jobId = 'cadj_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
 
       const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
@@ -227,8 +463,9 @@ The script must:
 - Clear the default scene (delete default cube)
 - Create the requested geometry using bpy.ops or bpy.data
 - Set up basic lighting
-- Export to GLB: bpy.ops.export_scene.gltf(filepath='/tmp/output.glb', export_format='GLB')
-No markdown, no explanation. Pure Python only. The script runs headless: blender --background --python script.py`,
+- Export to GLB: bpy.ops.export_scene.gltf(filepath=OUTPUT_GLB, export_format='GLB')
+Use OUTPUT_GLB as the filepath variable defined at the top of the script.
+No markdown, no explanation. Pure Python only.`,
           messages: [
             {
               role: 'user',
@@ -241,38 +478,57 @@ No markdown, no explanation. Pure Python only. The script runs headless: blender
       if (!aiRes.ok) return jsonResponse({ error: 'AI service error' }, 502);
       const aiData = await aiRes.json();
       const script = aiData.content?.[0]?.text || '';
+      const scriptStored =
+        script.length > 4000 ? 'b64:' + btoa(unescape(encodeURIComponent(script))) : script.slice(0, 8000);
 
-      await env.DB.prepare(`
-        INSERT INTO agentsam_cad_jobs
-          (id, user_id, session_id, engine, prompt, mode, status, r2_key, created_at, updated_at)
-        VALUES (?, ?, ?, 'blender', ?, 'text', 'script_ready', ?, unixepoch(), unixepoch())
-      `).bind(jobId, authUser.id, session_id || null, prompt, script.slice(0, 4000)).run();
+      await insertCadJob(env, {
+        id: jobId,
+        user_id: authUser.id,
+        session_id: scope.sessionId,
+        engine: 'blender',
+        prompt,
+        mode: 'text',
+        status: 'script_ready',
+        r2_key: scriptStored,
+        workspace_id: scope.workspaceId,
+        tenant_id: scope.tenantId,
+        project_id: scope.projectId,
+        scene_snapshot_id: scope.sceneSnapshotId,
+      });
 
       return jsonResponse({
         job_id: jobId,
         script,
         status: 'script_ready',
         engine: 'blender',
-        run_command: 'blender --background --python script.py',
-        note: 'Run this script locally via your PTY terminal, then upload the output GLB to R2',
+        next_step: 'POST /api/cad/jobs/{job_id}/execute',
       });
     }
 
     if (path === '/api/cad/jobs' && method === 'GET') {
       const authUser = await getAuthUser(request, env);
       if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
-
-      if (!env.DB) {
-        return jsonResponse({ error: 'Database not configured' }, 503);
-      }
+      if (!env.DB) return jsonResponse({ error: 'Database not configured' }, 503);
 
       const limit = Math.min(parseInt(url.searchParams.get('limit') || '50', 10), 100);
-      const { results } = await env.DB.prepare(`
-        SELECT id, engine, prompt, mode, status, result_url, error, created_at, updated_at
-        FROM agentsam_cad_jobs WHERE user_id = ? ORDER BY created_at DESC LIMIT ?
-      `).bind(authUser.id, limit).all();
+      const { results } = await env.DB.prepare(
+        `SELECT id, engine, prompt, mode, status, result_url, r2_key, r2_bucket, error,
+                workspace_id, tenant_id, project_id, scene_snapshot_id, progress_pct,
+                created_at, updated_at
+         FROM agentsam_cad_jobs WHERE user_id = ? ORDER BY created_at DESC LIMIT ?`,
+      )
+        .bind(authUser.id, limit)
+        .all();
 
-      return jsonResponse({ jobs: results || [] });
+      const jobs = (results || []).map((row) => ({
+        ...row,
+        public_url:
+          row.r2_key && !String(row.r2_key).startsWith('b64:')
+            ? buildCadAssetPublicUrl(row.r2_key)
+            : row.result_url,
+      }));
+
+      return jsonResponse({ jobs });
     }
 
     return jsonResponse({ error: 'Not found' }, 404);
