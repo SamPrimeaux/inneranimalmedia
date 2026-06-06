@@ -317,8 +317,10 @@ export async function writeWorkspaceArtifact(env, ctx, opts) {
     }
   } else {
     let userEnv = await mergeR2S3EnvFromUserStorage(env, authUser || { id: userId });
+    // key row cf_account_id → workspace column → platform env (do not trust merge fallback alone)
+    const keyCfAccountId = trim(byokCreds?.cfAccountId);
     const resolvedAccountId =
-      trim(userEnv.CLOUDFLARE_ACCOUNT_ID) || wsCfAccountId || trim(env.CLOUDFLARE_ACCOUNT_ID) || null;
+      keyCfAccountId || wsCfAccountId || trim(env.CLOUDFLARE_ACCOUNT_ID) || null;
     if (resolvedAccountId) {
       userEnv = { ...userEnv, CLOUDFLARE_ACCOUNT_ID: resolvedAccountId };
     }

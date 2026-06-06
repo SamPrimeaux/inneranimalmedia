@@ -27,10 +27,10 @@ export async function getDefaultWorkspaceDataBinding(env, workspaceId, provider)
   const row = await getAgentsamWorkspace(env, ws);
   if (!row) return null;
 
-  const meta = parseWorkspaceMetadata(row.metadata_json);
   const accountId = resolveWorkspaceCloudflareAccountId(row);
   const byokR2 = resolveWorkspaceByokR2Bucket(row);
   const deployUrl = resolveWorkspaceDeployUrl(row);
+  const meta = parseWorkspaceMetadata(row.metadata_json);
 
   if (prov === 'cloudflare_d1' || prov === 'cloudflare') {
     const d1Id = trim(row.d1_database_id);
@@ -41,6 +41,7 @@ export async function getDefaultWorkspaceDataBinding(env, workspaceId, provider)
       provider: prov,
       external_database_id: d1Id || null,
       external_account_id: accountId,
+      cloudflare_account_id: accountId,
       byok_r2_bucket: byokR2,
       deploy_url: deployUrl,
       d1_binding: trim(row.d1_binding) || null,
@@ -58,6 +59,7 @@ export async function getDefaultWorkspaceDataBinding(env, workspaceId, provider)
       workspace_id: ws,
       provider: 'cloudflare_r2',
       external_account_id: accountId,
+      cloudflare_account_id: accountId,
       byok_r2_bucket: byokR2 || trim(row.r2_bucket) || null,
       deploy_url: deployUrl,
       selected_as_default: 1,
@@ -79,6 +81,7 @@ export async function getDefaultWorkspaceDataBinding(env, workspaceId, provider)
       external_project_ref: ref,
       external_project_id: trim(meta.supabase_project_id) || trim(meta.project_id) || null,
       external_account_id: accountId,
+      cloudflare_account_id: accountId,
       deploy_url: deployUrl,
       selected_as_default: 1,
       metadata_json: row.metadata_json,
