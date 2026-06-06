@@ -46,6 +46,7 @@
     "r2:prune:apply": "node scripts/prune-r2-orphans.mjs --apply --bucket inneranimalmedia --tenant-id tenant_sam_primeaux --workspace-id ws_inneranimalmedia --project-id inneranimalmedia",
     "r2:prune": "node scripts/run-with-agentsam-script-telemetry.mjs --script-id script_connor_r2_prune --workspace-id ws_inneranimalmedia --triggered-by deploy-frontend -- npm run r2:prune:apply",
     "deploy:full": "bash scripts/deploy-frontend.sh",
+    "post:services-sw-manifest-ingest": "./scripts/with-cloudflare-env.sh node scripts/post-services-sw-manifest-ingest.mjs",
     "cron:runs:recent": "./scripts/with-cloudflare-env.sh npx wrangler d1 execute inneranimalmedia-business --remote -c wrangler.production.toml --command \"SELECT job_name, status, tenant_id, workspace_id, rows_read, rows_written, error_message, datetime(started_at,'unixepoch') AS started_at, datetime(completed_at,'unixepoch') AS completed_at, duration_ms FROM agentsam_cron_runs ORDER BY started_at DESC LIMIT 25\"",
     "audit:tenant-workspace:repo": "python3 scripts/audit_tenant_workspace_hardcoding.py --repo-only",
     "audit:tenant-workspace:d1": "./scripts/with-cloudflare-env.sh python3 scripts/audit_tenant_workspace_hardcoding.py --remote --wrangler-config wrangler.production.toml --database inneranimalmedia-business",

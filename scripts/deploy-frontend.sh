@@ -141,25 +141,19 @@ if command -v node >/dev/null 2>&1; then
     || { echo "✗ R2 manifest-diff reconcile failed" >&2; exit 1; }
 fi
 
-# Notify services control-plane so it can publish /sw/manifest.json (non-blocking).
+# Notify services control-plane so it can publish /sw/manifest.json (optional, timeout-safe).
 SW_TIERED_MANIFEST="$REPO_ROOT/.deploy-sw-tiered-manifest.json"
-if [[ -f "$SW_TIERED_MANIFEST" ]]; then
-  if [[ -n "${PUSH_SERVICE_TOKEN:-}" ]] && command -v jq >/dev/null 2>&1; then
-    _SW_CACHE_BUST="$(jq -r '.cache_bust // empty' "$SW_TIERED_MANIFEST" 2>/dev/null || true)"
-    if [[ -n "${_SW_CACHE_BUST:-}" ]]; then
-      echo "→ Services SW manifest ingest (optional control-plane)…"
-      _INGEST_BODY="$(jq -c \
-        --argjson manifest "$(cat "$SW_TIERED_MANIFEST")" \
-        '$manifest')"
-      curl -sf -X POST "https://services.inneranimalmedia.com/api/deploy/ingest" \
-        -H "Authorization: Bearer ${PUSH_SERVICE_TOKEN}" \
-        -H "Content-Type: application/json" \
-        -d "$_INGEST_BODY" --max-time 30 \
-        || echo "[deploy-frontend] warning: services /api/deploy/ingest non-zero (non-fatal)"
-    fi
-  elif [[ -z "${PUSH_SERVICE_TOKEN:-}" ]]; then
-    echo "[deploy-frontend] note: PUSH_SERVICE_TOKEN unset — skipping services SW manifest ingest"
-  fi
+if [[ "${SKIP_SERVICES_SW_INGEST:-}" == "1" ]]; then
+  echo "[deploy-frontend] SKIP_SERVICES_SW_INGEST=1 — skipping services SW manifest ingest"
+elif [[ -f "$SW_TIERED_MANIFEST" ]] && command -v node >/dev/null 2>&1; then
+  node "$REPO_ROOT/scripts/post-services-sw-manifest-ingest.mjs" \
+    --manifest="$SW_TIERED_MANIFEST" \
+    || {
+      if [[ "${STRICT_SERVICES_SW_INGEST:-}" == "1" ]]; then
+        echo "✗ Services SW manifest ingest failed (STRICT_SERVICES_SW_INGEST=1)" >&2
+        exit 1
+      fi
+    }
 fi
 
 # Canonical URL `/static/dashboard/shell.css` (HTML + shells) must hit this exact key; Vite copies
