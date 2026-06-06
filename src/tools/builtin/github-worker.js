@@ -3,6 +3,10 @@
  */
 import { getUserGithubToken, githubCommitHandshake } from '../../integrations/github.js';
 import { resolveIntegrationUserId } from '../../core/integration-user-id.js';
+import {
+  filterGithubReposListForUser,
+  GITHUB_USER_REPOS_AFFILIATION,
+} from '../../core/github-repos-list-filter.js';
 
 function trim(v) {
   return v == null ? '' : String(v).trim();
@@ -152,11 +156,13 @@ export const handlers = {
     if (t.success === false || t.error) return t;
     const data = await ghPaged(
       t.token,
-      '/user/repos?sort=updated&affiliation=owner,collaborator,organization_member',
+      `/user/repos?sort=updated&affiliation=${GITHUB_USER_REPOS_AFFILIATION}`,
       2,
     );
     if (data?.success === false) return { ...data, ...toolMeta(params) };
-    return { success: true, repos: Array.isArray(data.data) ? data.data : [] };
+    const raw = Array.isArray(data.data) ? data.data : [];
+    const repos = filterGithubReposListForUser(raw, t.account_identifier || '');
+    return { success: true, repos };
   },
 
   async github_file(params, env) {

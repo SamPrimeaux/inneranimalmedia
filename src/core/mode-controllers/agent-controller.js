@@ -221,6 +221,23 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
     }
   }
 
+  const userMessageText = String(input.message || input.prompt || '').toLowerCase();
+  if (
+    userMessageText.includes('create-subagent') ||
+    userMessageText.includes('create subagent') ||
+    userMessageText.includes('custom subagent')
+  ) {
+    try {
+      const { buildSubagentScopeSystemPromptLine } = await import('../subagent-profile-write.js');
+      const subLine = buildSubagentScopeSystemPromptLine();
+      if (subLine && !systemPrompt.includes('agentsam_subagent_profile')) {
+        systemPrompt = `${systemPrompt}\n\n## Subagents\n${subLine}`;
+      }
+    } catch (e) {
+      console.warn('[agent-controller] subagent_scope_prompt', e?.message ?? e);
+    }
+  }
+
   if (profile.mode === 'ask') {
     systemPrompt +=
       '\n\n## Ask mode (read-only)\nAnswer directly. Use read-only evidence tools when the question ' +

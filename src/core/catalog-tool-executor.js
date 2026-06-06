@@ -2048,13 +2048,23 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
     }
 
     case 'agent': {
-      if (trim(config.sql)) {
+      if (String(config.sql || '').trim()) {
         result = await executeCatalogInlineAgentSql(env, config, params, runContext);
         break;
       }
+      {
+        const handlerKey = String(config.handler || row.handler_key || toolKey || '').trim();
+        const { handlers: agentHandlers } = await import('../tools/builtin/agent.js');
+        const fn = agentHandlers[handlerKey];
+        if (typeof fn === 'function') {
+          const out = await fn(params, env);
+          result = out?.error ? { ok: false, error: String(out.error), body: out } : { ok: true, body: out };
+          break;
+        }
+      }
       result = {
         ok: false,
-        error: `handler_type agent requires handler_config.sql for tool_key=${row.tool_key}`,
+        error: `handler_type agent requires handler_config.sql or registered handler for tool_key=${row.tool_key}`,
       };
       break;
     }

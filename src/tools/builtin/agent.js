@@ -1,16 +1,15 @@
 /**
- * Agent Sam workflow tools (list / run / status).
+ * Agent Sam subagent profile tools + workflow runner.
  *
- * These were previously wired to GET/POST https://IAM_ORIGIN/api/agent/{list,run,status},
- * but those routes are not implemented in handleAgentApi — and Worker self-fetch has no
- * session cookies, so they always failed with upstream_request_failed.
- *
- * Implementation: D1 agentsam_workflows + agentsam_workflow_runs + executeWorkflowGraph.
+ * Subagent CRUD uses D1 `agentsam_subagent_profile` (singular table name).
+ * Workflow execution uses agentsam_workflows / executeWorkflowGraph.
  */
+import {
+  createSubagentProfile,
+  getSubagentProfileBySlug,
+  listSubagentProfilesForScope,
+} from '../../core/subagent-profile-write.js';
 
-/**
- * @param {Record<string, unknown>} params
- */
 function toolSessionContext(params) {
   const s = params?.session && typeof params.session === 'object' ? params.session : {};
   const workspaceId =
@@ -32,20 +31,94 @@ function toolSessionContext(params) {
 export const handlers = {
   async agentsam_list_agents(params, env) {
     if (!env?.DB) return { error: 'Agent Sam Error: DB not configured' };
+    const { workspaceId, tenantId, userId } = toolSessionContext(params);
+    if (!userId) return { error: 'Agent Sam Error: user_id required' };
     try {
-      const { results } = await env.DB.prepare(
-        `SELECT id, workflow_key, display_name, description, workflow_type, trigger_type,
-                default_mode, default_task_type, risk_level, requires_approval, is_active
-         FROM agentsam_workflows
-         WHERE COALESCE(is_active, 1) = 1
-         ORDER BY COALESCE(display_name, workflow_key)
-         LIMIT 200`,
-      ).all();
-      const rows = results || [];
+      const rows = await listSubagentProfilesForScope(env, {
+        userId,
+        workspaceId,
+        tenantId,
+        includePlatformGlobal: true,
+      });
       return {
-        workflows: rows,
+        success: true,
+        table: 'agentsam_subagent_profile',
+        subagents: rows,
         count: rows.length,
-        note: 'Active rows from agentsam_workflows (use workflow_key with agentsam_run_agent).',
+      };
+    } catch (e) {
+      return { error: `Agent Sam Error: ${e instanceof Error ? e.message : String(e)}` };
+    }
+  },
+
+  async agentsam_get_agent(params, env) {
+    if (!env?.DB) return { error: 'Agent Sam Error: DB not configured' };
+    const { workspaceId, tenantId, userId } = toolSessionContext(params);
+    if (!userId) return { error: 'Agent Sam Error: user_id required' };
+    const slug = String(
+      params.slug || params.agent_slug || params.profile_slug || params.agent_id || '',
+    ).trim();
+    const runId = String(params.id || params.run_id || '').trim();
+    if (!slug && runId) {
+      return handlers.agentsam_get_workflow_run({ ...params, id: runId }, env);
+    }
+    if (!slug) return { error: 'Agent Sam Error: slug required' };
+    try {
+      const row = await getSubagentProfileBySlug(env, { userId, workspaceId, tenantId }, slug);
+      if (!row && runId) {
+        return handlers.agentsam_get_workflow_run({ ...params, id: runId }, env);
+      }
+      if (!row) {
+        return {
+          error: 'Agent Sam Error: subagent not found',
+          slug,
+          table: 'agentsam_subagent_profile',
+        };
+      }
+      return { success: true, table: 'agentsam_subagent_profile', subagent: row };
+    } catch (e) {
+      return { error: `Agent Sam Error: ${e instanceof Error ? e.message : String(e)}` };
+    }
+  },
+
+  async agentsam_create_subagent(params, env) {
+    if (!env?.DB) return { error: 'Agent Sam Error: DB not configured' };
+    const { workspaceId, tenantId, userId } = toolSessionContext(params);
+    if (!userId) return { error: 'Agent Sam Error: user_id required' };
+    if (!workspaceId) return { error: 'Agent Sam Error: workspace_id required' };
+    try {
+      const out = await createSubagentProfile(
+        env,
+        { userId, workspaceId, tenantId },
+        {
+          display_name: params.display_name ?? params.displayName ?? params.name,
+          slug: params.slug,
+          description: params.description,
+          instructions_markdown: params.instructions_markdown ?? params.instructions,
+          allowed_tool_globs: params.allowed_tool_globs ?? params.tools,
+          default_model_id: params.default_model_id ?? params.model_id,
+          personality_tone: params.personality_tone,
+          sandbox_mode: params.sandbox_mode,
+          model_reasoning_effort: params.model_reasoning_effort,
+          access_mode: params.access_mode,
+          agent_type: params.agent_type,
+          run_in_background: params.run_in_background,
+          sort_order: params.sort_order,
+        },
+      );
+      if (!out.ok) {
+        return {
+          error: `Agent Sam Error: ${out.error || 'create_failed'}`,
+          table: 'agentsam_subagent_profile',
+          slug: out.slug || null,
+        };
+      }
+      return {
+        success: true,
+        table: 'agentsam_subagent_profile',
+        id: out.id,
+        slug: out.slug,
+        subagent: out.subagent,
       };
     } catch (e) {
       return { error: `Agent Sam Error: ${e instanceof Error ? e.message : String(e)}` };
@@ -88,13 +161,13 @@ export const handlers = {
     }
   },
 
-  async agentsam_get_agent(params, env) {
+  /** Poll workflow run status (legacy id param). Subagent profiles: use agentsam_get_agent + slug. */
+  async agentsam_get_workflow_run(params, env) {
     const id = String(params.id || params.run_id || '').trim();
     if (!id) return { error: 'Agent Sam Error: id or run_id required' };
     if (!env?.DB) return { error: 'Agent Sam Error: DB not configured' };
     try {
-      const row = await env.DB
-        .prepare(`SELECT * FROM agentsam_workflow_runs WHERE id = ? LIMIT 1`)
+      const row = await env.DB.prepare(`SELECT * FROM agentsam_workflow_runs WHERE id = ? LIMIT 1`)
         .bind(id)
         .first();
       if (!row) return { error: 'Agent Sam Error: workflow run not found', id };

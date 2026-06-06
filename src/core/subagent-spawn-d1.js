@@ -13,6 +13,7 @@
 import { scheduleToolCallLog } from './agentsam-ops-ledger.js';
 import { estimateModelRunCostUsd } from './model-pricing.js';
 import { pragmaTableInfo } from './retention.js';
+import { ensureDefaultSubagentProfile } from './subagent-profile-write.js';
 
 function unixNow() {
   return Math.floor(Date.now() / 1000);
@@ -117,7 +118,6 @@ export async function ensureSubagentProfilesAvailable(env, scope) {
     return { ok: false, profiles: [], createdDefault: false, reason: 'missing_scope' };
   }
 
-  // Prefer workspace-scoped profiles. Fall back to platform globals.
   const selectSql = `SELECT * FROM agentsam_subagent_profile
     WHERE is_active = 1
       AND (
@@ -139,47 +139,21 @@ export async function ensureSubagentProfilesAvailable(env, scope) {
   }
   if (rows.length) return { ok: true, profiles: rows, createdDefault: false, reason: null };
 
-  // Auto-provision a minimal default for seamless installation.
-  const now = unixNow();
-  const profileId = id('asp');
-  const insertSql = `INSERT INTO agentsam_subagent_profile (
-      id, user_id, workspace_id, slug, display_name,
-      description, access_mode, is_active,
-      created_at_unix, updated_at_unix
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`;
-  try {
-    await env.DB.prepare(insertSql)
-      .bind(
-        profileId,
-        userId,
-        workspaceId,
-        'primary',
-        'Primary',
-        'Auto-provisioned default subagent profile (seamless install).',
-        'read_write',
-        now,
-        now,
-      )
-      .run();
-  } catch (e) {
+  const provisioned = await ensureDefaultSubagentProfile(env, { userId, workspaceId, tenantId });
+  if (!provisioned.ok) {
     return {
       ok: false,
       profiles: [],
       createdDefault: false,
-      reason: `default_profile_insert_failed:${e?.message ?? String(e)}`,
+      reason: provisioned.reason || 'default_profile_insert_failed',
     };
   }
-
-  // Re-read after insert.
-  try {
-    const out = await env.DB.prepare(selectSql)
-      .bind(userId, workspaceId, tenantId, userId, workspaceId)
-      .all();
-    rows = out?.results || [];
-  } catch (_) {
-    rows = [];
-  }
-  return { ok: true, profiles: rows, createdDefault: true, reason: null };
+  return {
+    ok: true,
+    profiles: provisioned.profiles || [],
+    createdDefault: provisioned.createdDefault === true,
+    reason: null,
+  };
 }
 
 /**

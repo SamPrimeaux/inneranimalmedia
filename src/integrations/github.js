@@ -5,6 +5,10 @@ import { getIntegrationToken } from './tokens.js';
 import { getIntegrationOAuthRow } from '../core/user-oauth-token.js';
 import { resolveIntegrationUserId, githubPrivateResponse } from '../core/integration-user-id.js';
 import { resolveGitHubToken as resolveUserGitHubToken } from '../core/github-token.js';
+import {
+  filterGithubReposListForUser,
+  GITHUB_USER_REPOS_AFFILIATION,
+} from '../core/github-repos-list-filter.js';
 
 /**
  * GitHub Service Integration.
@@ -32,15 +36,27 @@ export async function handleGitHubApi(request, env) {
     // ── GET /api/agent/github/repos ──────────────────────────────────────────
     if (pathLower === '/api/agent/github/repos' && method === 'GET') {
         try {
-            const response = await fetch('https://api.github.com/user/repos?sort=updated&per_page=50', {
+            const accountLogin = tokenRow?.account_identifier != null
+              ? String(tokenRow.account_identifier).trim()
+              : '';
+            const response = await fetch(
+              `https://api.github.com/user/repos?sort=updated&per_page=50&affiliation=${GITHUB_USER_REPOS_AFFILIATION}`,
+              {
                 headers: {
                     'Authorization': `Bearer ${ghAccess}`,
                     'User-Agent': 'AgentSam-Dashboard',
                     'Accept': 'application/vnd.github.v3+json'
                 }
-            });
+              },
+            );
             const repos = await response.json();
-            return jsonResponse({ repos: Array.isArray(repos) ? repos : [] });
+            const raw = Array.isArray(repos) ? repos : [];
+            const allowPlatform =
+              Number(authUser?.is_superadmin) === 1 || authUser?.is_superadmin === true;
+            const scoped = filterGithubReposListForUser(raw, accountLogin, {
+              allowPlatformRepos: allowPlatform,
+            });
+            return jsonResponse({ repos: scoped });
         } catch (e) {
             return jsonResponse({ error: 'GitHub fetch failed', detail: e.message }, 500);
         }
@@ -177,7 +193,13 @@ export function githubReposCacheKey(userId, providerAccountId, workspaceId) {
   const uid = String(userId || '').trim() || '_';
   const acct = String(providerAccountId || '').trim() || '_';
   const ws = String(workspaceId || '').trim() || '_';
-  return `github:repos:${uid}:${acct}:${ws}`;
+  return `github:repos:v2:${uid}:${acct}:${ws}`;
+}
+
+function scopeGithubReposListForAuthUser(list, userLogin, authUser) {
+  const allowPlatform =
+    Number(authUser?.is_superadmin) === 1 || authUser?.is_superadmin === true;
+  return filterGithubReposListForUser(list, userLogin, { allowPlatformRepos: allowPlatform });
 }
 
 function githubReposDebugEnabled(env) {
@@ -262,21 +284,26 @@ export async function handleGithubReposList(request, env, authUser, urlIn) {
     try {
       const cached = await env.SESSION_CACHE.get(cacheKey, 'json');
       if (Array.isArray(cached)) {
+        const scopedCached = scopeGithubReposListForAuthUser(
+          cached,
+          identity.login || tokenResult.account_identifier || '',
+          authUser,
+        );
         if (githubReposDebugEnabled(env)) {
           console.log('[github/repos] cache_hit', {
             user_id: userId,
             provider_account_id: providerAccountId,
             account_login: identity.login || tokenResult.account_identifier || null,
-            repo_count: cached.length,
+            repo_count: scopedCached.length,
           });
         }
-        return githubPrivateResponse(cached);
+        return githubPrivateResponse(scopedCached);
       }
     } catch (_) { /* non-fatal */ }
   }
 
   const res = await fetch(
-    'https://api.github.com/user/repos?sort=updated&per_page=100&affiliation=owner,collaborator,organization_member',
+    `https://api.github.com/user/repos?sort=updated&per_page=100&affiliation=${GITHUB_USER_REPOS_AFFILIATION}`,
     {
       headers: {
         Authorization: `Bearer ${tokenResult.token}`,
@@ -294,7 +321,12 @@ export async function handleGithubReposList(request, env, authUser, urlIn) {
   }
 
   const repos = await res.json();
-  const list = Array.isArray(repos) ? repos : [];
+  const rawList = Array.isArray(repos) ? repos : [];
+  const list = scopeGithubReposListForAuthUser(
+    rawList,
+    identity.login || tokenResult.account_identifier || '',
+    authUser,
+  );
 
   if (env?.SESSION_CACHE?.put) {
     try {
@@ -308,6 +340,7 @@ export async function handleGithubReposList(request, env, authUser, urlIn) {
       provider_account_id: providerAccountId,
       account_login: identity.login || tokenResult.account_identifier || null,
       repo_count: list.length,
+      raw_repo_count: rawList.length,
     });
   }
 

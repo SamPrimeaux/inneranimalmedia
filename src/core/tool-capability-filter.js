@@ -156,7 +156,12 @@ function isArtifactOrR2ToolName(name) {
 
 function isAgentSamAgentToolName(name) {
   const n = String(name || '');
-  return n === 'agentsam_get_agent' || n === 'agentsam_list_agents' || n === 'agentsam_run_agent';
+  return (
+    n === 'agentsam_get_agent' ||
+    n === 'agentsam_list_agents' ||
+    n === 'agentsam_create_subagent' ||
+    n === 'agentsam_run_agent'
+  );
 }
 
 /** Re-attach capability-family tools after narrowing when message intent requires them. */

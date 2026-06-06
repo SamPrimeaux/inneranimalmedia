@@ -27,6 +27,10 @@ export async function invalidateGithubReposSessionCache(env, userId, accountIden
   const acct = String(accountIdentifier || '').trim() || '_';
   const ws = String(workspaceId || '').trim() || '_';
   const keys = new Set([
+    `github:repos:v2:${uid}:${acct}:${ws}`,
+    `github:repos:v2:${uid}:_:_`,
+    `github:repos:v2:${uid}:${acct}:_`,
+    `github:repos:v2:${uid}:_:${ws}`,
     `github:repos:${uid}:${acct}:${ws}`,
     `github:repos:${uid}:_:_`,
     `github:repos:${uid}:${acct}:_`,
