@@ -1,0 +1,840 @@
+#!/usr/bin/env node
+/**
+ * reindex_codebase_dashboard_agent.mjs
+ *
+ * Targeted reindex of 169 dashboard/agent files into:
+ *   - Supabase agentsam.agentsam_codebase_files_oai3large_1536
+ *   - Supabase agentsam.agentsam_codebase_chunks_oai3large_1536
+ *   - CF Vectorize agentsam-codebase-oai3large-1536 (REST v2 NDJSON)
+ *   - D1 vectorize_sync_log (one row per run: chunk_id = run:reindex_codebase_dashboard_agent)
+ *
+ * Required env (from .env.cloudflare or shell):
+ *   OPENAI_API_KEY
+ *   SUPABASE_DB_URL          — direct Postgres (not Hyperdrive)
+ *   CLOUDFLARE_API_TOKEN
+ *   CLOUDFLARE_ACCOUNT_ID    — default ede6590ac0d2fb7daf155b35653457b2
+ *
+ * Usage:
+ *   ./scripts/with-cloudflare-env.sh node scripts/reindex_codebase_dashboard_agent.mjs --dry-run
+ *   ./scripts/with-cloudflare-env.sh node scripts/reindex_codebase_dashboard_agent.mjs
+ */
+import { readFileSync, existsSync } from 'fs';
+import { resolve, dirname, extname, join } from 'path';
+import { fileURLToPath } from 'url';
+import { createHash, randomUUID } from 'crypto';
+import { execFileSync } from 'child_process';
+import pg from 'pg';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const ROOT = resolve(__dirname, '..');
+
+try {
+  const lines = readFileSync(resolve(ROOT, '.env.cloudflare'), 'utf8').split('\n');
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq === -1) continue;
+    const key = trimmed.slice(0, eq).trim().replace(/^export\s+/, '');
+    const val = trimmed.slice(eq + 1).trim();
+    if (key && !(key in process.env)) process.env[key] = val;
+  }
+} catch { /* no .env.cloudflare in CI */ }
+
+const ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID || 'ede6590ac0d2fb7daf155b35653457b2';
+const WORKSPACE_UUID = 'fa1f12a8-c841-4b79-a26c-d53a78b17dac';
+const WORKSPACE_KEY = 'ws_inneranimalmedia';
+const VECTORIZE_INDEX = 'agentsam-codebase-oai3large-1536';
+const EMBED_MODEL = 'text-embedding-3-large';
+const EMBED_DIMS = 1536;
+const REPO = 'SamPrimeaux/inneranimalmedia';
+const BRANCH = 'main';
+const SOURCE = 'reindex_dashboard_agent';
+
+const MIN_TOKENS = 10;
+const MAX_TOKENS = 400;
+const OVERLAP_TOKENS = 0;
+const EMBED_DELAY_MS = 200;
+const VECTORIZE_BATCH = 100;
+
+const VECTORIZE_UPSERT_URL = `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/vectorize/v2/indexes/${VECTORIZE_INDEX}/upsert`;
+
+const DRY_RUN = process.argv.includes('--dry-run');
+
+const OPENAI_KEY = (process.env.OPENAI_API_KEY || '').trim();
+const CF_TOKEN = (process.env.CLOUDFLARE_API_TOKEN || '').trim();
+const DB_URL = (process.env.SUPABASE_DB_URL || '').trim();
+
+if (!DRY_RUN) {
+  if (!OPENAI_KEY) {
+    console.error('Missing OPENAI_API_KEY');
+    process.exit(1);
+  }
+  if (!CF_TOKEN) {
+    console.error('Missing CLOUDFLARE_API_TOKEN');
+    process.exit(1);
+  }
+  if (!DB_URL) {
+    console.error('Missing SUPABASE_DB_URL');
+    process.exit(1);
+  }
+}
+
+/** @type {readonly string[]} */
+const DASHBOARD_FILES = Object.freeze([
+  'dashboard/App.tsx',
+  'dashboard/agentChatConstants.ts',
+  'dashboard/agentSessionsCatalog.ts',
+  'dashboard/components/AgentImageGenerationCard.tsx',
+  'dashboard/components/AgentQuickstartPage.tsx',
+  'dashboard/components/BrowserLiveTimeline.tsx',
+  'dashboard/components/BrowserView.tsx',
+  'dashboard/components/ChatAssistant/ChatAssistant.tsx',
+  'dashboard/components/ChatAssistant/RepoPickerBottomSheet.tsx',
+  'dashboard/components/ChatAssistant/artifacts/EmailArtifactCard.tsx',
+  'dashboard/components/ChatAssistant/components/AgentChatMarkdown.tsx',
+  'dashboard/components/ChatAssistant/components/AgentCodeDiffPreview.tsx',
+  'dashboard/components/ChatAssistant/components/AgentCodeFencePreview.tsx',
+  'dashboard/components/ChatAssistant/components/AgentMessageList.tsx',
+  'dashboard/components/ChatAssistant/components/AgentMobileHomePanel.tsx',
+  'dashboard/components/ChatAssistant/components/AgentPlanChecklist.tsx',
+  'dashboard/components/ChatAssistant/components/AgentQuestionsCard.tsx',
+  'dashboard/components/ChatAssistant/components/DiffViewer.tsx',
+  'dashboard/components/ChatAssistant/components/PlanRecentPicker.tsx',
+  'dashboard/components/ChatAssistant/components/PlanStartOverBar.tsx',
+  'dashboard/components/ChatAssistant/components/ToolApprovalCard.tsx',
+  'dashboard/components/ChatAssistant/components/WorkflowRunBoard.tsx',
+  'dashboard/components/ChatAssistant/components/deriveHeroThinking.ts',
+  'dashboard/components/ChatAssistant/components/workflowRunPresence.ts',
+  'dashboard/components/ChatAssistant/composer/AgentComposerMicButton.tsx',
+  'dashboard/components/ChatAssistant/composer/AgentComposerPlusMenu.tsx',
+  'dashboard/components/ChatAssistant/composer/AgentComposerSourceChips.tsx',
+  'dashboard/components/ChatAssistant/composer/composerSourcesStorage.ts',
+  'dashboard/components/ChatAssistant/composer/types.ts',
+  'dashboard/components/ChatAssistant/composer/useComposerIntegrations.ts',
+  'dashboard/components/ChatAssistant/composer/useComposerSpeechInput.ts',
+  'dashboard/components/ChatAssistant/composerLayout.ts',
+  'dashboard/components/ChatAssistant/execution/ArtifactChipList.tsx',
+  'dashboard/components/ChatAssistant/execution/ExecutionTimeline.tsx',
+  'dashboard/components/ChatAssistant/execution/ScriptDraftPanel.tsx',
+  'dashboard/components/ChatAssistant/execution/ScrollablePreviewPanel.tsx',
+  'dashboard/components/ChatAssistant/execution/ToolTraceRow.tsx',
+  'dashboard/components/ChatAssistant/execution/index.ts',
+  'dashboard/components/ChatAssistant/execution/shShellQuote.ts',
+  'dashboard/components/ChatAssistant/execution/types.ts',
+  'dashboard/components/ChatAssistant/hooks/useAgentChatStream.ts',
+  'dashboard/components/ChatAssistant/index.ts',
+  'dashboard/components/ChatAssistant/mentionContext.ts',
+  'dashboard/components/ChatAssistant/repoPickerCache.ts',
+  'dashboard/components/ChatAssistant/streamDebug.ts',
+  'dashboard/components/ChatAssistant/streamParsing.ts',
+  'dashboard/components/ChatAssistant/toolApprovalCopy.ts',
+  'dashboard/components/ChatAssistant/types.ts',
+  'dashboard/components/DataGrid.tsx',
+  'dashboard/components/DatabaseAgentChat.tsx',
+  'dashboard/components/DatabaseBrowser.tsx',
+  'dashboard/components/EditorPreviewPane.tsx',
+  'dashboard/components/ExcalidrawView.tsx',
+  'dashboard/components/GitHubExplorer.tsx',
+  'dashboard/components/GoogleDriveExplorer.tsx',
+  'dashboard/components/KnowledgeSearchPanel.tsx',
+  'dashboard/components/LocalExplorer.tsx',
+  'dashboard/components/LocalTerminalSetup.tsx',
+  'dashboard/components/MCPPanel.tsx',
+  'dashboard/components/MonacoEditorView.tsx',
+  'dashboard/components/ProgressiveImagePreview.tsx',
+  'dashboard/components/SQLConsole.tsx',
+  'dashboard/components/SecurityShieldBanner.tsx',
+  'dashboard/components/SourcePanel.tsx',
+  'dashboard/components/StatusBar.css',
+  'dashboard/components/StatusBar.tsx',
+  'dashboard/components/TerminalSessionPane.tsx',
+  'dashboard/components/UnifiedSearchBar.tsx',
+  'dashboard/components/VirtualizedFileTree.tsx',
+  'dashboard/components/WorkspaceDashboard.tsx',
+  'dashboard/components/WorkspaceLauncher.tsx',
+  'dashboard/components/XTermShell.tsx',
+  'dashboard/components/database/database-page.css',
+  'dashboard/components/shell/DashboardActivityNav.tsx',
+  'dashboard/components/shell/MobileNavBackButton.tsx',
+  'dashboard/components/shell/MobileNavDrawer.tsx',
+  'dashboard/components/shell/MobileNavHamburger.tsx',
+  'dashboard/components/shell/MobileNavShell.tsx',
+  'dashboard/components/shell/mobileNavBackLabel.ts',
+  'dashboard/features/agent-chat/formatThinkingStepName.ts',
+  'dashboard/features/agent-presence/AgentPresenceLogo.tsx',
+  'dashboard/features/agent-presence/AgentPresenceStatus.tsx',
+  'dashboard/features/agent-presence/deriveAgentPresence.ts',
+  'dashboard/features/agent-presence/iamDerivePresenceState.ts',
+  'dashboard/features/agent-presence/iamPresenceStateMap.ts',
+  'dashboard/features/agent-presence/index.ts',
+  'dashboard/features/agent-presence/presenceColorways.ts',
+  'dashboard/features/agent-presence/presenceCopy.ts',
+  'dashboard/features/agent-presence/presenceIcons.css',
+  'dashboard/features/agent-presence/presenceIcons.ts',
+  'dashboard/features/agent-presence/presenceMotion.css',
+  'dashboard/features/agent-presence/presenceTypes.ts',
+  'dashboard/features/agent-presence/useAgentPresence.ts',
+  'dashboard/features/agent-run/agentRunPresence.css',
+  'dashboard/features/agent-run/lanes.ts',
+  'dashboard/features/agent-run/resolveAgentPresence.ts',
+  'dashboard/features/agent-run/toolTracePresence.ts',
+  'dashboard/features/agent-run/types.ts',
+  'dashboard/features/mode-presence/AgentModePresenceIcon.tsx',
+  'dashboard/features/mode-presence/AgentPresenceCard.tsx',
+  'dashboard/features/mode-presence/AgentPresenceInline.tsx',
+  'dashboard/features/mode-presence/ChatPresenceIcon.tsx',
+  'dashboard/features/mode-presence/agentModePresenceMap.ts',
+  'dashboard/features/mode-presence/agentModePresenceMotion.css',
+  'dashboard/features/mode-presence/agentPresenceInline.css',
+  'dashboard/features/mode-presence/normalizeChatPresenceState.ts',
+  'dashboard/features/moviemode/ExportPanel.tsx',
+  'dashboard/features/moviemode/MediaLibrary.tsx',
+  'dashboard/features/moviemode/MovieModeComposition.tsx',
+  'dashboard/features/moviemode/MovieModeStudio.tsx',
+  'dashboard/features/moviemode/TextOverlayEditor.tsx',
+  'dashboard/features/moviemode/TimelineRail.tsx',
+  'dashboard/features/moviemode/createEmptyTimeline.ts',
+  'dashboard/features/moviemode/editSessionAdapter.ts',
+  'dashboard/features/moviemode/remotion-utils.ts',
+  'dashboard/features/moviemode/types.ts',
+  'dashboard/hooks/useAgentLiveBrowserWs.ts',
+  'dashboard/index.css',
+  'dashboard/index.tsx',
+  'dashboard/inneranimalmedia.css',
+  'dashboard/public/sw-agent-cache.js',
+  'dashboard/lib/agentRoutes.ts',
+  'dashboard/lib/breakpoints.ts',
+  'dashboard/lib/browserLiveViewUrl.ts',
+  'dashboard/lib/buildPreviewSrcDoc.ts',
+  'dashboard/lib/formatToolTraceSummary.ts',
+  'dashboard/lib/plan-mode-utils.ts',
+  'dashboard/lib/resolvePreviewMode.ts',
+  'dashboard/lib/sanitizeBrowserUrl.ts',
+  'dashboard/lib/wranglerCommandCatalog.ts',
+  'dashboard/src/EditorContext.tsx',
+  'dashboard/src/applyCmsTheme.ts',
+  'dashboard/src/components/FilePreview.tsx',
+  'dashboard/src/components/SetiFileIcon.tsx',
+  'dashboard/src/components/ThinkingCard.tsx',
+  'dashboard/src/components/ToolApprovalModal.tsx',
+  'dashboard/src/context/WorkspaceContext.tsx',
+  'dashboard/src/hooks/usePlanTasksRealtime.ts',
+  'dashboard/src/iamGitStatusCache.ts',
+  'dashboard/src/iamWorkspaceStorage.ts',
+  'dashboard/src/ideWorkspace.ts',
+  'dashboard/src/lib/databaseSqlSafety.ts',
+  'dashboard/src/lib/databaseStudioEvents.ts',
+  'dashboard/src/lib/fileKind.ts',
+  'dashboard/src/lib/localFileTree.ts',
+  'dashboard/src/lib/localTerminalDefaults.ts',
+  'dashboard/src/lib/mapAgentProblems.ts',
+  'dashboard/src/lib/mediaPreview.ts',
+  'dashboard/src/lib/monacoModelRegistry.ts',
+  'dashboard/src/lib/monacoThemes.ts',
+  'dashboard/src/lib/r2Buckets.ts',
+  'dashboard/src/lib/r2Listing.ts',
+  'dashboard/src/lib/setiFileIcon.ts',
+  'dashboard/src/lib/setiIconTheme.generated.ts',
+  'dashboard/src/lib/supabase.ts',
+  'dashboard/src/monaco-diff.css',
+  'dashboard/src/normalizeGithubRepo.ts',
+  'dashboard/src/pwa/OfflineReconnectBanner.tsx',
+  'dashboard/src/pwa/registerServiceWorker.ts',
+  'dashboard/src/pwa/warmAgentChunks.ts',
+  'dashboard/src/recentWorkspacesStorage.ts',
+  'dashboard/src/seti-icons.css',
+  'dashboard/src/shellVersion.ts',
+  'dashboard/src/types/moviemode.ts',
+  'dashboard/styles/image-generation.css',
+  'dashboard/styles/mobile-activity-drawer.css',
+  'dashboard/styles/mobile-header.css',
+  'dashboard/styles/mobile-nav-hamburger.css',
+  'dashboard/styles/terminal-mobile.css',
+  'dashboard/types.ts',
+  'scripts/lib/pwa-sw-manifest-tiers.mjs',
+]);
+
+// Task 1 cited 169; list includes PWA phase-1 files + deploy manifest tiers helper.
+console.assert(DASHBOARD_FILES.length >= 170, 'DASHBOARD_FILES unexpectedly short');
+
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function contentHash(str) {
+  return createHash('sha256').update(String(str ?? ''), 'utf8').digest('hex');
+}
+
+function estimateTokens(text) {
+  return Math.ceil(String(text ?? '').length / 4);
+}
+
+function languageFromPath(filePath) {
+  const ext = extname(filePath).toLowerCase();
+  if (ext === '.ts' || ext === '.tsx') return 'typescript';
+  if (ext === '.js' || ext === '.mjs') return 'javascript';
+  if (ext === '.css') return 'css';
+  return 'text';
+}
+
+function pgClientOptions() {
+  const useSsl =
+    /\.supabase\.co\b/.test(DB_URL) ||
+    /\.pooler\.supabase\.com\b/.test(DB_URL) ||
+    /supabase\.com/.test(DB_URL);
+  return {
+    connectionString: DB_URL,
+    ...(useSsl ? { ssl: { rejectUnauthorized: false } } : {}),
+  };
+}
+
+const TOP_LEVEL_START_RE =
+  /^\s*(?:export\s+default\s+|export\s+(?:async\s+)?function\*?\s+\w|export\s+(?:async\s+)?function\s*\(|export\s+(?:async\s+)?function\s+|(?:async\s+)?function\s+\w|(?:async\s+)?function\s*\(|class\s+\w|const\s+\w+\s*=\s*(?:async\s*)?\(|const\s+\w+\s*=\s*(?:async\s+)?function|let\s+\w+\s*=\s*(?:async\s*)?\(|var\s+\w+\s*=\s*(?:async\s*)?\()/;
+
+function braceDelta(line) {
+  let delta = 0;
+  let inSingle = false;
+  let inDouble = false;
+  let inTemplate = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    const next = line[i + 1];
+    if (inLineComment) continue;
+    if (inBlockComment) {
+      if (ch === '*' && next === '/') {
+        inBlockComment = false;
+        i++;
+      }
+      continue;
+    }
+    if (!inSingle && !inDouble && !inTemplate) {
+      if (ch === '/' && next === '/') {
+        inLineComment = true;
+        continue;
+      }
+      if (ch === '/' && next === '*') {
+        inBlockComment = true;
+        i++;
+        continue;
+      }
+    }
+    if (inSingle) {
+      if (ch === '\\') {
+        i++;
+        continue;
+      }
+      if (ch === "'") inSingle = false;
+      continue;
+    }
+    if (inDouble) {
+      if (ch === '\\') {
+        i++;
+        continue;
+      }
+      if (ch === '"') inDouble = false;
+      continue;
+    }
+    if (inTemplate) {
+      if (ch === '\\') {
+        i++;
+        continue;
+      }
+      if (ch === '`') inTemplate = false;
+      continue;
+    }
+    if (ch === "'") {
+      inSingle = true;
+      continue;
+    }
+    if (ch === '"') {
+      inDouble = true;
+      continue;
+    }
+    if (ch === '`') {
+      inTemplate = true;
+      continue;
+    }
+    if (ch === '{') delta++;
+    if (ch === '}') delta--;
+  }
+  return delta;
+}
+
+/**
+ * Split TS/TS/JS on top-level declarations.
+ * @param {string} text
+ * @returns {string[]}
+ */
+function splitJsTsBlocks(text) {
+  const lines = String(text ?? '').split('\n');
+  if (!lines.length) return [];
+
+  const blocks = [];
+  let cur = [];
+  let depth = 0;
+
+  const flush = () => {
+    const content = cur.join('\n').trim();
+    if (content) blocks.push(content);
+    cur = [];
+  };
+
+  for (const line of lines) {
+    const atTop = depth === 0;
+    const isBoundary = atTop && cur.length > 0 && TOP_LEVEL_START_RE.test(line);
+    if (isBoundary) flush();
+    cur.push(line);
+    depth = Math.max(0, depth + braceDelta(line));
+  }
+  flush();
+
+  return blocks.length ? blocks : [String(text ?? '').trim()].filter(Boolean);
+}
+
+/**
+ * Split CSS on top-level rule blocks (closing brace at depth 0).
+ * @param {string} text
+ * @returns {string[]}
+ */
+function splitCssBlocks(text) {
+  const lines = String(text ?? '').split('\n');
+  if (!lines.length) return [];
+
+  const blocks = [];
+  let cur = [];
+  let depth = 0;
+
+  const flush = () => {
+    const content = cur.join('\n').trim();
+    if (content) blocks.push(content);
+    cur = [];
+  };
+
+  for (const line of lines) {
+    cur.push(line);
+    depth = Math.max(0, depth + braceDelta(line));
+    if (depth === 0 && line.includes('}')) flush();
+  }
+  if (cur.length) flush();
+
+  return blocks.length ? blocks : [String(text ?? '').trim()].filter(Boolean);
+}
+
+/**
+ * Split a text block into windows of at most maxTokens (overlap 0).
+ * @param {string} text
+ * @param {number} maxTokens
+ * @returns {string[]}
+ */
+function splitByTokenWindow(text, maxTokens) {
+  const src = String(text ?? '').trim();
+  if (!src) return [];
+  if (estimateTokens(src) <= maxTokens) return [src];
+
+  const lines = src.split('\n');
+  const out = [];
+  let buf = [];
+
+  const flush = () => {
+    const content = buf.join('\n').trim();
+    if (content) out.push(content);
+    buf = [];
+  };
+
+  for (const line of lines) {
+    const candidate = buf.length ? `${buf.join('\n')}\n${line}` : line;
+    if (buf.length && estimateTokens(candidate) > maxTokens) {
+      flush();
+      buf.push(line);
+      if (estimateTokens(line) > maxTokens) {
+        let rest = line;
+        while (estimateTokens(rest) > maxTokens) {
+          const targetChars = maxTokens * 4;
+          out.push(rest.slice(0, targetChars).trim());
+          rest = rest.slice(targetChars);
+        }
+        if (rest.trim()) buf = [rest.trim()];
+        else buf = [];
+      }
+    } else {
+      buf.push(line);
+    }
+  }
+  flush();
+  return out.length ? out : [src];
+}
+
+/**
+ * Merge small blocks (< minTokens) forward; split large blocks (> maxTokens).
+ * @param {string[]} blocks
+ * @returns {string[]}
+ */
+function normalizeTokenBounds(blocks) {
+  const merged = [];
+  let pending = '';
+
+  for (const block of blocks) {
+    const parts = splitByTokenWindow(block, MAX_TOKENS);
+    for (const part of parts) {
+      if (!part) continue;
+      if (estimateTokens(part) < MIN_TOKENS) {
+        pending = pending ? `${pending}\n\n${part}` : part;
+        if (estimateTokens(pending) >= MIN_TOKENS) {
+          merged.push(pending);
+          pending = '';
+        }
+      } else if (pending) {
+        if (estimateTokens(`${pending}\n\n${part}`) <= MAX_TOKENS) {
+          merged.push(`${pending}\n\n${part}`);
+          pending = '';
+        } else {
+          merged.push(pending);
+          pending = part;
+        }
+      } else {
+        merged.push(part);
+      }
+    }
+  }
+
+  if (pending) {
+    if (merged.length) {
+      const last = merged.pop();
+      merged.push(`${last}\n\n${pending}`);
+    } else {
+      merged.push(pending);
+    }
+  }
+
+  const final = [];
+  for (const chunk of merged) {
+    if (estimateTokens(chunk) > MAX_TOKENS) {
+      final.push(...splitByTokenWindow(chunk, MAX_TOKENS));
+    } else {
+      final.push(chunk);
+    }
+  }
+
+  return final.filter((c) => c.trim());
+}
+
+/**
+ * @param {string} text
+ * @param {string} language
+ * @returns {string[]}
+ */
+function chunkFile(text, language) {
+  let blocks;
+  if (language === 'css') {
+    blocks = splitCssBlocks(text);
+  } else if (language === 'typescript' || language === 'javascript') {
+    blocks = splitJsTsBlocks(text);
+  } else {
+    blocks = [String(text ?? '').trim()].filter(Boolean);
+  }
+  return normalizeTokenBounds(blocks);
+}
+
+async function embedText(text) {
+  const truncated = text.length > 32000 ? text.slice(0, 32000) : text;
+  const res = await fetch('https://api.openai.com/v1/embeddings', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${OPENAI_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: EMBED_MODEL,
+      input: truncated,
+      dimensions: EMBED_DIMS,
+    }),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(`OpenAI embed HTTP ${res.status}: ${JSON.stringify(json).slice(0, 400)}`);
+  }
+  const vec = json?.data?.[0]?.embedding;
+  if (!Array.isArray(vec) || vec.length !== EMBED_DIMS) {
+    throw new Error(`Unexpected embed shape: length=${vec?.length} expected=${EMBED_DIMS}`);
+  }
+  return vec;
+}
+
+async function vectorizeUpsertBatch(vectors) {
+  if (!vectors.length) return;
+  const ndjson = vectors
+    .map((v) =>
+      JSON.stringify({
+        id: v.id,
+        values: v.values,
+        metadata: v.metadata,
+      }),
+    )
+    .join('\n');
+
+  const res = await fetch(VECTORIZE_UPSERT_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${CF_TOKEN}`,
+      'Content-Type': 'application/x-ndjson',
+    },
+    body: ndjson,
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || json.success === false) {
+    throw new Error(`Vectorize upsert HTTP ${res.status}: ${JSON.stringify(json).slice(0, 400)}`);
+  }
+}
+
+const WRAPPER = join(ROOT, 'scripts', 'with-cloudflare-env.sh');
+const D1_ARGS_BASE = [
+  'npx',
+  'wrangler',
+  'd1',
+  'execute',
+  'inneranimalmedia-business',
+  '--remote',
+  '-c',
+  'wrangler.production.toml',
+  '--json',
+];
+
+const RUN_SYNC_CHUNK_ID = 'run:reindex_codebase_dashboard_agent';
+
+/** One coarse D1 receipt per script run (not per file/chunk). */
+function logRunVectorizeSync() {
+  const chunkId = RUN_SYNC_CHUNK_ID.replace(/'/g, "''");
+  const sql = `INSERT INTO vectorize_sync_log (chunk_id, vectorize_index, status, synced_at)
+    VALUES ('${chunkId}', '${VECTORIZE_INDEX}', 'ok', unixepoch())
+    ON CONFLICT (chunk_id) DO UPDATE SET
+      vectorize_index = '${VECTORIZE_INDEX}',
+      status = 'ok',
+      synced_at = unixepoch()`;
+  execFileSync(WRAPPER, [...D1_ARGS_BASE, '--command', sql], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    maxBuffer: 8 * 1024 * 1024,
+  });
+}
+
+async function fetchExistingFileHash(client, filePath) {
+  const res = await client.query(
+    `SELECT id, metadata->>'content_hash' AS content_hash
+     FROM agentsam.agentsam_codebase_files_oai3large_1536
+     WHERE workspace_id = $1::uuid AND file_path = $2
+     LIMIT 1`,
+    [WORKSPACE_UUID, filePath],
+  );
+  return res.rows[0] ?? null;
+}
+
+async function upsertFileRow(client, { filePath, language, sizeBytes, hash, totalChunks }) {
+  const now = new Date().toISOString();
+  const metadata = {
+    content_hash: hash,
+    repo: REPO,
+    branch: BRANCH,
+    file_path: filePath,
+    total_chunks: totalChunks,
+    embedding_model: EMBED_MODEL,
+  };
+  const res = await client.query(
+    `INSERT INTO agentsam.agentsam_codebase_files_oai3large_1536 (
+      workspace_id, file_path, language, size_bytes, last_indexed, metadata, updated_at
+    ) VALUES ($1::uuid, $2, $3, $4, $5::timestamptz, $6::jsonb, $5::timestamptz)
+    ON CONFLICT (workspace_id, file_path) DO UPDATE SET
+      last_indexed = EXCLUDED.last_indexed,
+      size_bytes = EXCLUDED.size_bytes,
+      metadata = EXCLUDED.metadata,
+      updated_at = EXCLUDED.updated_at
+    RETURNING id`,
+    [WORKSPACE_UUID, filePath, language, sizeBytes, now, JSON.stringify(metadata)],
+  );
+  return res.rows[0]?.id;
+}
+
+async function deleteChunksForFile(client, filePath) {
+  await client.query(
+    `DELETE FROM agentsam.agentsam_codebase_chunks_oai3large_1536
+     WHERE workspace_id = $1::uuid AND file_path = $2`,
+    [WORKSPACE_UUID, filePath],
+  );
+}
+
+async function insertChunkRow(client, { chunkId, fileId, filePath, content, chunkIndex, tokenCount, embedding }) {
+  const metadata = {
+    repo: REPO,
+    branch: BRANCH,
+    source: SOURCE,
+    file_path: filePath,
+    chunk_index: chunkIndex,
+    workspace_id: WORKSPACE_KEY,
+    workspace_uuid: WORKSPACE_UUID,
+    embedding_model: EMBED_MODEL,
+  };
+  const vecLiteral = `[${embedding.join(',')}]`;
+  const res = await client.query(
+    `INSERT INTO agentsam.agentsam_codebase_chunks_oai3large_1536 (
+      id, workspace_id, file_id, file_path, content, embedding, chunk_index, token_count, metadata
+    ) VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6::vector, $7, $8, $9::jsonb)
+    RETURNING id`,
+    [
+      chunkId,
+      WORKSPACE_UUID,
+      fileId,
+      filePath,
+      content,
+      vecLiteral,
+      chunkIndex,
+      tokenCount,
+      JSON.stringify(metadata),
+    ],
+  );
+  return res.rows[0]?.id ?? chunkId;
+}
+
+async function main() {
+  console.log('\nreindex_codebase_dashboard_agent.mjs');
+  console.log(`mode: ${DRY_RUN ? 'DRY RUN (zero writes)' : 'LIVE'}`);
+  console.log(`files: ${DASHBOARD_FILES.length}`);
+  console.log(`workspace: ${WORKSPACE_UUID} (${WORKSPACE_KEY})`);
+  console.log(`vectorize_index: ${VECTORIZE_INDEX}`);
+  console.log(`chunk bounds: min=${MIN_TOKENS} max=${MAX_TOKENS} overlap=${OVERLAP_TOKENS}\n`);
+
+  /** @type {pg.Client | null} */
+  let client = null;
+  if (!DRY_RUN || DB_URL) {
+    if (DB_URL) {
+      client = new pg.Client(pgClientOptions());
+      await client.connect();
+    }
+  }
+
+  let filesSkipped = 0;
+  let filesIndexed = 0;
+  let chunksEmbedded = 0;
+  let missing = 0;
+  const vectorizeQueue = [];
+
+  try {
+    for (const filePath of DASHBOARD_FILES) {
+      const abs = join(ROOT, filePath);
+      if (!existsSync(abs)) {
+        console.error(`  missing: ${filePath}`);
+        missing++;
+        continue;
+      }
+
+      const raw = readFileSync(abs, 'utf8');
+      const hash = contentHash(raw);
+      const language = languageFromPath(filePath);
+      const sizeBytes = Buffer.byteLength(raw, 'utf8');
+
+      if (client) {
+        const existing = await fetchExistingFileHash(client, filePath);
+        if (existing?.content_hash === hash) {
+          console.log(`  skip (unchanged): ${filePath}`);
+          filesSkipped++;
+          continue;
+        }
+      }
+
+      const chunks = chunkFile(raw, language);
+      if (!chunks.length) {
+        console.log(`  skip (empty): ${filePath}`);
+        continue;
+      }
+
+      if (DRY_RUN) {
+        console.log(`  [dry-run] ${filePath} (${language}) → ${chunks.length} chunks`);
+        for (let i = 0; i < chunks.length; i++) {
+          const tokens = estimateTokens(chunks[i]);
+          const preview = chunks[i].slice(0, 80).replace(/\s+/g, ' ');
+          console.log(`    chunk ${i}: ~${tokens} tokens — ${preview}${chunks[i].length > 80 ? '…' : ''}`);
+        }
+        filesIndexed++;
+        chunksEmbedded += chunks.length;
+        continue;
+      }
+
+      const fileId = await upsertFileRow(client, {
+        filePath,
+        language,
+        sizeBytes,
+        hash,
+        totalChunks: chunks.length,
+      });
+      if (!fileId) throw new Error(`file upsert returned no id: ${filePath}`);
+
+      await deleteChunksForFile(client, filePath);
+
+      for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+        const content = chunks[chunkIndex];
+        const tokenCount = estimateTokens(content);
+        const embedding = await embedText(content);
+        await sleep(EMBED_DELAY_MS);
+
+        const chunkId = randomUUID();
+        const rowId = await insertChunkRow(client, {
+          chunkId,
+          fileId,
+          filePath,
+          content,
+          chunkIndex,
+          tokenCount,
+          embedding,
+        });
+
+        vectorizeQueue.push({
+          id: rowId,
+          values: embedding,
+          metadata: {
+            file_path: filePath,
+            chunk_index: chunkIndex,
+            source: SOURCE,
+            workspace_id: WORKSPACE_KEY,
+            workspace_uuid: WORKSPACE_UUID,
+            repo: REPO,
+            branch: BRANCH,
+          },
+        });
+
+        if (vectorizeQueue.length >= VECTORIZE_BATCH) {
+          await vectorizeUpsertBatch(vectorizeQueue.splice(0, VECTORIZE_BATCH));
+        }
+
+        chunksEmbedded++;
+      }
+
+      if (vectorizeQueue.length > 0) {
+        await vectorizeUpsertBatch(vectorizeQueue.splice(0));
+      }
+
+      filesIndexed++;
+      console.log(`  indexed: ${filePath} (${chunks.length} chunks)`);
+    }
+  } finally {
+    if (client) await client.end().catch(() => {});
+  }
+
+  console.log(`\n${'═'.repeat(60)}`);
+  console.log(
+    `done — files indexed: ${filesIndexed}, skipped (unchanged): ${filesSkipped}, chunks embedded: ${chunksEmbedded}, missing: ${missing}`,
+  );
+  if (!DRY_RUN) {
+    logRunVectorizeSync();
+    console.log(`Vectorize index: ${VECTORIZE_INDEX} (propagation ~5–10s after upsert)`);
+    console.log(`D1 sync log: ${RUN_SYNC_CHUNK_ID} (one row per run)`);
+  }
+  console.log(`${'═'.repeat(60)}\n`);
+
+  if (missing > 0) process.exit(1);
+}
+
+main().catch((err) => {
+  console.error(err?.stack || String(err));
+  process.exit(1);
+});

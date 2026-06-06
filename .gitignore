@@ -56,6 +56,7 @@ analytics/deploys/
 # Deploy ledger scratch (Supabase record-* scripts)
 .deploy-run-context.json
 .deploy-worker-stats.json
+.deploy-sw-tiered-manifest.json
 .deploy-eval-results.json
 .deploy-tool-events.jsonl
 .deploy-pipeline-stats.json
