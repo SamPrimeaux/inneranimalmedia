@@ -85,8 +85,6 @@ interface StatusBarProps {
   tunnelLabel?: string | null;
   /** TERMINAL_WS_URL + secret configured */
   terminalOk?: boolean | null;
-  /** Short line from latest deployment row */
-  lastDeployLine?: string | null;
   /** Monaco model: "Spaces: 2" or "Tabs: 4" */
   indentLabel?: string;
   encodingLabel?: string;
@@ -124,7 +122,6 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   tunnelHealthy = null,
   tunnelLabel = null,
   terminalOk = null,
-  lastDeployLine = null,
   indentLabel = 'Spaces: 2',
   encodingLabel = 'UTF-8',
   eolLabel = 'LF',
@@ -229,6 +226,11 @@ export const StatusBar: React.FC<StatusBarProps> = ({
     }
   }, [activeWorkspaceId]);
 
+  useEffect(() => {
+    setBranchData(null);
+    setBranchError(null);
+  }, [activeWorkspaceId]);
+
   useLayoutEffect(() => {
     if (!branchMenuOpen) return;
     const el = branchChipRef.current;
@@ -290,6 +292,8 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   }, [branchData, branchMenuFilter]);
 
   const pickWorkspaceEnabled = Array.isArray(workspaceMenuItems) && workspaceMenuItems.length > 0;
+  const workspaceRepoHint =
+    workspaceMenuItems?.find((w) => w.id === activeWorkspaceId)?.github_repo?.trim() || null;
 
   const stop = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -406,9 +410,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
             onClick={() => {
               setBranchMenuOpen((open) => {
                 const next = !open;
-                if (next && !branchData && !branchLoading) {
-                  void loadBranches();
-                }
+                if (next) void loadBranches();
                 return next;
               });
             }}
@@ -442,7 +444,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
                 onMouseDown={stop}
               >
                 <div className="iam-branch-panel-header border-b border-[var(--border-subtle)] px-3 py-2 text-[0.6875rem] font-semibold text-[var(--text-main)] truncate font-[var(--font-sans)]">
-                  {branchData?.repo || '…'}
+                  {branchLoading ? 'Loading…' : branchData?.repo || workspaceRepoHint || 'Repository'}
                 </div>
                 <div className="px-3 py-2 border-b border-[var(--border-subtle)] shrink-0">
                   <input
@@ -615,14 +617,6 @@ export const StatusBar: React.FC<StatusBarProps> = ({
             title="Latest deployed commit (short hash)"
           >
             {gitHash.trim()}
-          </div>
-        ) : null}
-        {lastDeployLine?.trim() ? (
-          <div
-            className="hidden md:flex items-center px-2 h-full text-[0.5625rem] text-[var(--text-muted)] truncate min-w-0 max-w-[220px]"
-            title={lastDeployLine.trim()}
-          >
-            {lastDeployLine.trim()}
           </div>
         ) : null}
         {healthOk != null ? (

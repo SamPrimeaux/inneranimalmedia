@@ -443,22 +443,6 @@ export async function getSelectedTerminalConnection(db, opts = {}) {
       sql += ' ORDER BY is_default DESC, target_priority ASC, updated_at DESC LIMIT 1';
       const row = await db.prepare(sql).bind(...binds).first();
       if (row) return { connection: row, error: null };
-
-      let sharedSql = `SELECT ${TERMINAL_CONN_SELECT}
-         FROM terminal_connections
-         WHERE workspace_id = ? AND (user_id IS NULL OR user_id = '') AND is_active = 1`;
-      const sharedBinds = [wid];
-      if (tt) {
-        sharedSql += ' AND target_type = ?';
-        sharedBinds.push(tt);
-      }
-      if (tid) {
-        sharedSql += " AND (tenant_id = ? OR tenant_id IS NULL OR tenant_id = '')";
-        sharedBinds.push(tid);
-      }
-      sharedSql += ' ORDER BY is_default DESC, target_priority ASC, updated_at DESC LIMIT 1';
-      const shared = await db.prepare(sharedSql).bind(...sharedBinds).first();
-      if (shared) return { connection: shared, error: null };
     }
 
     return { connection: null, error: 'connection_missing' };

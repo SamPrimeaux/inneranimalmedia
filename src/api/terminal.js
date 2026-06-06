@@ -40,6 +40,7 @@ import {
   getTerminalInputHistory,
   loadAuthUserRowForPty,
   ptyBackendBearerValid,
+  buildTerminalConfigStatus,
 } from '../core/terminal.js';
 import {
   generateUserPtyAuthToken,
@@ -252,6 +253,54 @@ export async function handleTerminalApi(request, url, env, ctx) {
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     const commands = await getTerminalInputHistory(env, authUser.id, 200);
     return jsonResponse({ commands, count: commands.length });
+  }
+
+  // GET /api/terminal/connections/targets — local + cloud lane readiness for splash UI
+  if (path === '/api/terminal/connections/targets' && method === 'GET') {
+    const authUser = await getAuthUser(request, env);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    const tw = await resolveTerminalWorkspaceId(env, request, authUser, url.searchParams.get('workspace_id'));
+    if (!tw.workspaceId) {
+      return jsonResponse({ error: WORKSPACE_CONTEXT_MISSING, code: WORKSPACE_CONTEXT_MISSING }, 400);
+    }
+    const canPty = await userCanRunPtyFromPolicy(env, authUser.id, tw.workspaceId);
+    if (!canPty) {
+      return jsonResponse({
+        can_run_pty: false,
+        error: 'terminal_not_enabled',
+        local: { target_type: 'user_hosted_tunnel', ready: false, configured: false },
+        cloud: { target_type: 'platform_vm', ready: false, configured: false },
+      });
+    }
+
+    const twCfg = { workspaceId: tw.workspaceId };
+    const [localCfg, cloudCfg] = await Promise.all([
+      buildTerminalConfigStatus(env, authUser, twCfg, { target_type: 'user_hosted_tunnel' }),
+      buildTerminalConfigStatus(env, authUser, twCfg, { target_type: 'platform_vm' }),
+    ]);
+
+    const localRow = await getUserHostedTunnelConnection(env.DB, authUser.id, tw.workspaceId);
+    const localShell = localRow?.shell != null ? String(localRow.shell).trim() : null;
+
+    return jsonResponse({
+      can_run_pty: true,
+      workspace_id: tw.workspaceId,
+      local: {
+        target_type: 'user_hosted_tunnel',
+        ready: localCfg.terminal_configured === true,
+        configured: localCfg.terminal_configured === true,
+        connection_id: localCfg.selected_connection_id ?? null,
+        shell: localShell,
+        error_code: localCfg.error_code ?? null,
+      },
+      cloud: {
+        target_type: 'platform_vm',
+        ready: cloudCfg.terminal_configured === true,
+        configured: cloudCfg.terminal_configured === true,
+        connection_id: cloudCfg.selected_connection_id ?? null,
+        error_code: cloudCfg.error_code ?? null,
+      },
+    });
   }
 
   // GET /api/terminal/connections/local — user_hosted_tunnel row for current user/workspace

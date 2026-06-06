@@ -179,6 +179,8 @@ export interface TerminalSessionPaneHandle {
   writeAnsi: (text: string) => void;
   runCommand: (cmd: string) => void;
   reconnectClean: () => void;
+  /** Stop PTY without reconnecting (e.g. return to welcome splash). */
+  disconnectQuiet: () => void;
   getSessionId: () => string | null;
 }
 
@@ -197,6 +199,8 @@ export interface TerminalSessionPaneProps {
   onSessionIdChange?: (id: string | null) => void;
   /** PTY stdout lines (ANSI stripped) — dev-server port detection, output tab, etc. */
   onTerminalOutputLine?: (line: string) => void;
+  /** Config/backend hard failure — parent may re-show welcome splash. */
+  onHardFailure?: () => void;
 }
 
 function emitTerminalOutputLines(text: string, onLine?: (line: string) => void) {
@@ -220,6 +224,7 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
       onConnectionChange,
       onSessionIdChange,
       onTerminalOutputLine,
+      onHardFailure,
     },
     ref,
   ) => {
@@ -375,8 +380,9 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
         setStatus('offline');
         xtermRef.current?.writeln(
           `\r\n\x1b[1;31m  ✗ ${reason}\x1b[0m\r\n` +
-            `\x1b[38;5;240m  Terminal is offline (5 failed attempts). Click Retry to reconnect.\x1b[0m`,
+            `\x1b[38;5;240m  Terminal is offline (5 failed attempts). Returning to welcome screen…\x1b[0m`,
         );
+        onHardFailure?.();
         return;
       }
 
@@ -391,7 +397,7 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
       retryTimerRef.current = window.setTimeout(() => {
         if (!intentionalCloseRef.current) activeConnectRef.current();
       }, delay) as unknown as number;
-    }, []);
+    }, [onHardFailure]);
 
     const appendBuffer = useCallback((text: string) => {
       bufferRef.current = (bufferRef.current + text).slice(-8000);
@@ -432,7 +438,11 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
             }
             if (boot.terminalConfigured !== true) {
               setStatus('backend_unavailable');
-              scheduleReconnectRef.current('Terminal backend unavailable');
+              xtermRef.current?.writeln(
+                `\r\n\x1b[1;31m  ✗ Terminal backend unavailable\x1b[0m\r\n` +
+                  `\x1b[38;5;240m  Check terminal connection in Settings or pick another lane on the welcome screen.\x1b[0m`,
+              );
+              onHardFailure?.();
               return;
             }
 
@@ -673,7 +683,7 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
         closeSocketQuietly(socketRef.current);
         socketRef.current = null;
       };
-    }, [visible, connectEnabled, workspaceId, ptySlot, shell, targetType, bumpActivity, clearInactivityTimer]);
+    }, [visible, connectEnabled, workspaceId, ptySlot, shell, targetType, bumpActivity, clearInactivityTimer, onHardFailure]);
 
     useEffect(() => {
       const observer = new MutationObserver(() => {
@@ -763,6 +773,21 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
           setStatus('connecting');
           activeConnectRef.current();
         });
+      },
+      disconnectQuiet: () => {
+        intentionalCloseRef.current = true;
+        retryCountRef.current = 0;
+        connectSeqRef.current += 1;
+        if (retryTimerRef.current) {
+          clearTimeout(retryTimerRef.current);
+          retryTimerRef.current = null;
+        }
+        clearInactivityTimer();
+        closeSocketQuietly(socketRef.current);
+        socketRef.current = null;
+        ptySessionIdRef.current = null;
+        setSessionIdState(null);
+        setStatus('disconnected');
       },
       getSessionId: () => ptySessionIdRef.current,
     }));

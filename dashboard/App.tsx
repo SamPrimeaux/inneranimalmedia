@@ -504,7 +504,6 @@ const App: React.FC = () => {
   const [tunnelHealthy, setTunnelHealthy] = useState<boolean | null>(null);
   const [tunnelLabel, setTunnelLabel] = useState<string | null>(null);
   const [terminalOk, setTerminalOk] = useState<boolean | null>(null);
-  const [lastDeployLine, setLastDeployLine] = useState<string | null>(null);
   const [editorMeta, setEditorMeta] = useState<EditorModelMeta>({
     tabSize: 2,
     insertSpaces: true,
@@ -2102,27 +2101,6 @@ const App: React.FC = () => {
     }
   }, []);
 
-  const fetchDeploymentsPoll = useCallback(async () => {
-    const cred = { credentials: 'same-origin' as const };
-    try {
-      const dr = await fetch('/api/overview/deployments', cred);
-      const dj = await dr.json().catch(() => ({}));
-      if (dr.ok && Array.isArray(dj.deployments) && dj.deployments[0]) {
-        const d = dj.deployments[0] as {
-          worker_name?: string;
-          environment?: string;
-          status?: string;
-        };
-        const bits = [d.worker_name, d.environment, d.status].filter(Boolean).map(String);
-        setLastDeployLine(bits.join(' · ') || null);
-      } else {
-        setLastDeployLine(null);
-      }
-    } catch {
-      setLastDeployLine(null);
-    }
-  }, []);
-
   const fetchTelemetryPoll = useCallback(async () => {
     fetch('/api/agent/telemetry', { method: 'GET', credentials: 'same-origin' }).catch(() => {});
   }, []);
@@ -2181,7 +2159,6 @@ const App: React.FC = () => {
 
     void fetchTunnelStatusOnly();
     void fetchTerminalConfigOnly();
-    void fetchDeploymentsPoll();
 
     try {
       const nr = await fetch('/api/agent/notifications', cred);
@@ -2194,11 +2171,11 @@ const App: React.FC = () => {
     }
 
     void fetchTelemetryPoll();
-  }, [fetchHealth, fetchTunnelStatusOnly, fetchTerminalConfigOnly, fetchDeploymentsPoll, fetchTelemetryPoll, applyGitStatusPayload, applyProblemsPayload, authWorkspaceId]);
+  }, [fetchHealth, fetchTunnelStatusOnly, fetchTerminalConfigOnly, fetchTelemetryPoll, applyGitStatusPayload, applyProblemsPayload, authWorkspaceId]);
 
   useEffect(() => {
     // Polling (ms): health 5m, notifications 2m, git+problems 3m, tunnel 5m, terminal config 10m,
-    // deployments 2m, telemetry 5m. Paused while tab hidden (visibilitychange).
+    // telemetry 5m. Paused while tab hidden (visibilitychange).
     const ids: number[] = [];
     const clearAll = () => {
       ids.forEach((id) => clearInterval(id));
@@ -2215,7 +2192,6 @@ const App: React.FC = () => {
       void fetchSecurityShieldPulse(true);
       void fetchTunnelStatusOnly();
       void fetchTerminalConfigOnly();
-      void fetchDeploymentsPoll();
       void fetchTelemetryPoll();
 
       ids.push(window.setInterval(() => void fetchHealth(), 300_000));
@@ -2223,7 +2199,6 @@ const App: React.FC = () => {
       ids.push(window.setInterval(() => void fetchGitAndProblems(), 180_000));
       ids.push(window.setInterval(() => void fetchTunnelStatusOnly(), 300_000));
       ids.push(window.setInterval(() => void fetchTerminalConfigOnly(), 600_000));
-      ids.push(window.setInterval(() => void fetchDeploymentsPoll(), 120_000));
       ids.push(window.setInterval(() => void fetchTelemetryPoll(), 300_000));
     };
 
@@ -2246,7 +2221,6 @@ const App: React.FC = () => {
     fetchSecurityShieldPulse,
     fetchTunnelStatusOnly,
     fetchTerminalConfigOnly,
-    fetchDeploymentsPoll,
     fetchTelemetryPoll,
   ]);
 
@@ -3923,7 +3897,6 @@ const App: React.FC = () => {
         tunnelHealthy={tunnelHealthy}
         tunnelLabel={tunnelLabel}
         terminalOk={terminalOk}
-        lastDeployLine={lastDeployLine}
         indentLabel={statusIndentLabel}
         encodingLabel={editorMeta.encoding}
         eolLabel={editorMeta.eol}

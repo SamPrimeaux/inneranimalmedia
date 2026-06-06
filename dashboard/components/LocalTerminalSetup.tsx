@@ -8,6 +8,56 @@ import {
 
 export type TerminalTarget = 'platform_vm' | 'user_hosted_tunnel';
 
+export type TerminalTargetsPayload = {
+  can_run_pty: boolean;
+  local: {
+    target_type: 'user_hosted_tunnel';
+    ready: boolean;
+    configured: boolean;
+    connection_id: string | null;
+    shell?: string | null;
+    error_code?: string | null;
+  };
+  cloud: {
+    target_type: 'platform_vm';
+    ready: boolean;
+    configured: boolean;
+    connection_id: string | null;
+    error_code?: string | null;
+  };
+};
+
+export async function fetchTerminalTargets(workspaceId: string): Promise<TerminalTargetsPayload | null> {
+  try {
+    const qs = new URLSearchParams({ workspace_id: workspaceId.trim() });
+    const r = await fetch(`/api/terminal/connections/targets?${qs}`, { credentials: 'same-origin' });
+    if (!r.ok) return null;
+    const j = await r.json().catch(() => null);
+    if (!j || typeof j !== 'object') return null;
+    return j as TerminalTargetsPayload;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchLocalTerminalConnection(workspaceId: string): Promise<{
+  isActive: boolean;
+  shell?: string;
+}> {
+  try {
+    const qs = new URLSearchParams({ workspace_id: workspaceId.trim() });
+    const r = await fetch(`/api/terminal/connections/local?${qs}`, { credentials: 'same-origin' });
+    if (!r.ok) return { isActive: false };
+    const j = await r.json().catch(() => ({}));
+    const conn = j?.connection as LocalTerminalConnection | null | undefined;
+    const isActive = conn?.is_active === true && conn?.ws_url_present === true;
+    const connShell = typeof conn?.shell === 'string' ? conn.shell.trim() : undefined;
+    return { isActive, shell: connShell || undefined };
+  } catch {
+    return { isActive: false };
+  }
+}
+
 interface LocalTerminalSettingsPanelProps {
   workspaceId?: string;
 }
@@ -250,22 +300,4 @@ export function LocalTerminalSettingsPanel({ workspaceId }: LocalTerminalSetting
       {success && <p className="text-[10px] font-mono text-[var(--solar-green)]">{success}</p>}
     </div>
   );
-}
-
-export async function fetchLocalTerminalConnection(workspaceId: string): Promise<{
-  isActive: boolean;
-  shell?: string;
-}> {
-  try {
-    const qs = new URLSearchParams({ workspace_id: workspaceId.trim() });
-    const r = await fetch(`/api/terminal/connections/local?${qs}`, { credentials: 'same-origin' });
-    if (!r.ok) return { isActive: false };
-    const j = await r.json().catch(() => ({}));
-    const conn = j?.connection as LocalTerminalConnection | null | undefined;
-    const isActive = conn?.is_active === true && conn?.ws_url_present === true;
-    const connShell = typeof conn?.shell === 'string' ? conn.shell.trim() : undefined;
-    return { isActive, shell: connShell || undefined };
-  } catch {
-    return { isActive: false };
-  }
 }

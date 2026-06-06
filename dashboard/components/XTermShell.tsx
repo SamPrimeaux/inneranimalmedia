@@ -15,7 +15,7 @@ import {
 } from './TerminalSessionPane';
 import type { AgentWorkspaceContextPacket } from '../src/ideWorkspace';
 import { PHONE_MQ } from '../lib/breakpoints';
-import { fetchLocalTerminalConnection, type TerminalTarget } from './LocalTerminalSetup';
+import { fetchLocalTerminalConnection, fetchTerminalTargets, type TerminalTarget } from './LocalTerminalSetup';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 const DEFAULT_PRODUCT = 'Agent Sam';
@@ -121,22 +121,32 @@ type SplashAction = 'local' | 'cloud' | 'models';
 
 interface WelcomeSplashProps {
   cdCommand?: string;
-  showLocalOption: boolean;
+  localReady: boolean;
+  cloudReady: boolean;
   onAction: (action: SplashAction) => void;
 }
 
-const SPLASH_MENU: { action: SplashAction; label: string; desc: string; localOnly?: boolean }[] = [
-  { action: 'local', label: 'Start local', desc: 'Your Mac via localpty', localOnly: true },
+const SPLASH_MENU: { action: SplashAction; label: string; desc: string }[] = [
+  { action: 'local', label: 'Start local', desc: 'Your Mac via local tunnel' },
   { action: 'cloud', label: 'Cloud terminal', desc: 'Hosted shell in your workspace' },
   { action: 'models', label: 'Agent Sam', desc: 'View available models' },
 ];
 
-function WelcomeSplash({ cdCommand, showLocalOption, onAction }: WelcomeSplashProps) {
+function WelcomeSplash({ cdCommand, localReady, cloudReady, onAction }: WelcomeSplashProps) {
   const splashFontPx = useSplashFontPx();
-  const menuItems = SPLASH_MENU.filter((item) => !item.localOnly || showLocalOption).map((item, index) => ({
-    ...item,
-    displayKey: String(index + 1),
-  }));
+  const menuItems = SPLASH_MENU.map((item, index) => {
+    let desc = item.desc;
+    if (item.action === 'local' && !localReady) {
+      desc = 'Not configured — Settings → Network';
+    } else if (item.action === 'cloud' && !cloudReady) {
+      desc = 'Provisioning — retry shortly or contact support';
+    }
+    return {
+      ...item,
+      desc,
+      displayKey: String(index + 1),
+    };
+  });
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -343,7 +353,8 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
     }, [activeTab, onProblemsTabOpen]);
 
     const [showSplash, setShowSplash] = useState(true);
-    const [showLocalSplashOption, setShowLocalSplashOption] = useState(false);
+    const [localTargetReady, setLocalTargetReady] = useState(false);
+    const [cloudTargetReady, setCloudTargetReady] = useState(true);
     const [restarting, setRestarting] = useState(false);
     const [tunnelHealth, setTunnelHealth] = useState<{ healthy: boolean; connections: number } | null>(null);
     const [uptime, setUptime] = useState(0);
@@ -376,17 +387,26 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
 
     useEffect(() => {
       if (!showSplash || !workspaceId?.trim()) {
-        setShowLocalSplashOption(false);
+        setLocalTargetReady(false);
+        setCloudTargetReady(true);
         return;
       }
       let cancelled = false;
-      void fetchLocalTerminalConnection(workspaceId).then(({ isActive }) => {
-        if (!cancelled) setShowLocalSplashOption(isActive);
+      void fetchTerminalTargets(workspaceId).then((targets) => {
+        if (cancelled) return;
+        setLocalTargetReady(targets?.local?.ready === true);
+        setCloudTargetReady(targets?.cloud?.ready !== false);
       });
       return () => {
         cancelled = true;
       };
     }, [showSplash, workspaceId]);
+
+    const handleTerminalHardFailure = useCallback(() => {
+      setShowSplash(true);
+      primaryPaneRef.current?.disconnectQuiet();
+      if (splitEnabled) secondaryPaneRef.current?.disconnectQuiet();
+    }, [splitEnabled]);
 
     const startTerminalConnection = useCallback(
       async (target: TerminalTarget) => {
@@ -504,6 +524,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
         setActiveTab('terminal');
 
         if (action === 'cloud') {
+          if (!cloudTargetReady) return;
           setShowSplash(false);
           await startTerminalConnection('platform_vm');
           return;
@@ -511,8 +532,12 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
 
         if (action === 'local') {
           if (!workspaceId?.trim()) return;
-          const { isActive, shell: connShell } = await fetchLocalTerminalConnection(workspaceId);
-          if (!isActive) return;
+          const targets = await fetchTerminalTargets(workspaceId);
+          if (targets?.local?.ready !== true) {
+            setLocalTargetReady(false);
+            return;
+          }
+          const connShell = targets.local.shell?.trim();
           if (connShell) setShellPref(connShell);
           setShowSplash(false);
           await startTerminalConnection('user_hosted_tunnel');
@@ -527,7 +552,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
           }, 80);
         }
       },
-      [startTerminalConnection, workspaceId],
+      [startTerminalConnection, workspaceId, cloudTargetReady],
     );
 
     const terminalAreaVisible = activeTab === 'terminal' && !isCollapsed;
@@ -948,12 +973,14 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                       onConnectionChange={setPrimaryStatus}
                       onSessionIdChange={setPrimarySessionId}
                       onTerminalOutputLine={onOutputLine}
+                      onHardFailure={handleTerminalHardFailure}
                     />
                   </div>
                   {showSplash && showIamWelcomeBar && (
                     <WelcomeSplash
                       cdCommand={resolvedCdCmd}
-                      showLocalOption={showLocalSplashOption}
+                      localReady={localTargetReady}
+                      cloudReady={cloudTargetReady}
                       onAction={handleSplashAction}
                     />
                   )}
