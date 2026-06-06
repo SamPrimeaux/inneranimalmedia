@@ -7,6 +7,8 @@ import {
   parseMigrationNumericPrefix,
   isDestructiveMigration,
   diffPending,
+  parseAddColumnStatements,
+  isDuplicateColumnError,
 } from '../../scripts/lib/d1-migration-ledger.mjs';
 
 test('parseMigrationNumericPrefix extracts leading number', () => {
@@ -51,4 +53,22 @@ test('diffPending returns disk files missing from applied set', () => {
 test('isDestructiveMigration flags DROP TABLE', () => {
   assert.equal(isDestructiveMigration('UPDATE agentsam_tools SET x=1;'), false);
   assert.equal(isDestructiveMigration('DROP TABLE foo;'), true);
+});
+
+test('parseAddColumnStatements extracts table and column', () => {
+  const sql = `-- comment
+ALTER TABLE vectorize_sync_log ADD COLUMN details_json TEXT;
+ALTER TABLE agentsam_tools ADD COLUMN oauth_visible INTEGER;`;
+  assert.deepEqual(parseAddColumnStatements(sql), [
+    { table: 'vectorize_sync_log', column: 'details_json' },
+    { table: 'agentsam_tools', column: 'oauth_visible' },
+  ]);
+});
+
+test('isDuplicateColumnError detects SQLite duplicate column failures', () => {
+  assert.equal(
+    isDuplicateColumnError(new Error('duplicate column name: details_json: SQLITE_ERROR')),
+    true,
+  );
+  assert.equal(isDuplicateColumnError(new Error('no such table: foo')), false);
 });
