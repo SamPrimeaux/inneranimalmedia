@@ -21,9 +21,21 @@
 import { readFileSync, existsSync } from 'fs';
 import { resolve, dirname, extname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { createHash, randomUUID } from 'crypto';
-import { execFileSync } from 'child_process';
+import { randomUUID } from 'crypto';
 import pg from 'pg';
+import {
+  LANE_CONTRACTS,
+  assertLaneContract,
+  buildReceiptDetails,
+  createRunId,
+  openaiEmbedSingle,
+  pruneCodebaseMirrorMissingPaths,
+  resolveGitCommitSha,
+  sleep,
+  vectorizeUpsertNdjson,
+  writeVectorizeSyncReceipt,
+  contentHash,
+} from './lib/rag-ingest-protocol.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
@@ -57,9 +69,13 @@ const OVERLAP_TOKENS = 0;
 const EMBED_DELAY_MS = 200;
 const VECTORIZE_BATCH = 100;
 
-const VECTORIZE_UPSERT_URL = `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/vectorize/v2/indexes/${VECTORIZE_INDEX}/upsert`;
-
 const DRY_RUN = process.argv.includes('--dry-run');
+const NO_PRUNE = process.argv.includes('--no-prune');
+const LANE = LANE_CONTRACTS.code;
+const RUN_ID = createRunId();
+const GIT_COMMIT_SHA = resolveGitCommitSha(ROOT);
+const SCRIPT_KEY = 'reindex_codebase_dashboard_agent';
+const RUN_SYNC_CHUNK_ID = `run:${SCRIPT_KEY}`;
 
 const OPENAI_KEY = (process.env.OPENAI_API_KEY || '').trim();
 const CF_TOKEN = (process.env.CLOUDFLARE_API_TOKEN || '').trim();
@@ -257,14 +273,6 @@ const DASHBOARD_FILES = Object.freeze([
 
 // Task 1 cited 169; list includes PWA phase-1 files + deploy manifest tiers helper.
 console.assert(DASHBOARD_FILES.length >= 170, 'DASHBOARD_FILES unexpectedly short');
-
-function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-function contentHash(str) {
-  return createHash('sha256').update(String(str ?? ''), 'utf8').digest('hex');
-}
 
 function estimateTokens(text) {
   return Math.ceil(String(text ?? '').length / 4);
@@ -539,85 +547,64 @@ function chunkFile(text, language) {
 }
 
 async function embedText(text) {
-  const truncated = text.length > 32000 ? text.slice(0, 32000) : text;
-  const res = await fetch('https://api.openai.com/v1/embeddings', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${OPENAI_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: EMBED_MODEL,
-      input: truncated,
-      dimensions: EMBED_DIMS,
-    }),
+  return openaiEmbedSingle({
+    apiKey: OPENAI_KEY,
+    text,
+    model: EMBED_MODEL,
+    dims: EMBED_DIMS,
   });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(`OpenAI embed HTTP ${res.status}: ${JSON.stringify(json).slice(0, 400)}`);
-  }
-  const vec = json?.data?.[0]?.embedding;
-  if (!Array.isArray(vec) || vec.length !== EMBED_DIMS) {
-    throw new Error(`Unexpected embed shape: length=${vec?.length} expected=${EMBED_DIMS}`);
-  }
-  return vec;
 }
 
 async function vectorizeUpsertBatch(vectors) {
-  if (!vectors.length) return;
-  const ndjson = vectors
-    .map((v) =>
-      JSON.stringify({
-        id: v.id,
-        values: v.values,
-        metadata: v.metadata,
-      }),
-    )
-    .join('\n');
-
-  const res = await fetch(VECTORIZE_UPSERT_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${CF_TOKEN}`,
-      'Content-Type': 'application/x-ndjson',
-    },
-    body: ndjson,
+  await vectorizeUpsertNdjson({
+    accountId: ACCOUNT_ID,
+    token: CF_TOKEN,
+    index: VECTORIZE_INDEX,
+    vectors,
+    dryRun: DRY_RUN,
   });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok || json.success === false) {
-    throw new Error(`Vectorize upsert HTTP ${res.status}: ${JSON.stringify(json).slice(0, 400)}`);
-  }
 }
 
-const WRAPPER = join(ROOT, 'scripts', 'with-cloudflare-env.sh');
-const D1_ARGS_BASE = [
-  'npx',
-  'wrangler',
-  'd1',
-  'execute',
-  'inneranimalmedia-business',
-  '--remote',
-  '-c',
-  'wrangler.production.toml',
-  '--json',
-];
-
-const RUN_SYNC_CHUNK_ID = 'run:reindex_codebase_dashboard_agent';
-
-/** One coarse D1 receipt per script run (not per file/chunk). */
-function logRunVectorizeSync() {
-  const chunkId = RUN_SYNC_CHUNK_ID.replace(/'/g, "''");
-  const sql = `INSERT INTO vectorize_sync_log (chunk_id, vectorize_index, status, synced_at)
-    VALUES ('${chunkId}', '${VECTORIZE_INDEX}', 'ok', unixepoch())
-    ON CONFLICT (chunk_id) DO UPDATE SET
-      vectorize_index = '${VECTORIZE_INDEX}',
-      status = 'ok',
-      synced_at = unixepoch()`;
-  execFileSync(WRAPPER, [...D1_ARGS_BASE, '--command', sql], {
-    cwd: ROOT,
-    encoding: 'utf8',
-    maxBuffer: 8 * 1024 * 1024,
+function writeRunReceipt(stats, status = 'ok', error = null) {
+  const details = buildReceiptDetails({
+    run_id: RUN_ID,
+    script_key: SCRIPT_KEY,
+    git_commit_sha: GIT_COMMIT_SHA,
+    workspace_id: WORKSPACE_KEY,
+    workspace_uuid: WORKSPACE_UUID,
+    vectorize_index: VECTORIZE_INDEX,
+    lane: LANE.lane,
+    binding: LANE.binding,
+    embed_model: EMBED_MODEL,
+    embed_dims: EMBED_DIMS,
+    repo: REPO,
+    branch: BRANCH,
+    files_indexed: stats.filesIndexed,
+    files_skipped: stats.filesSkipped,
+    chunks_embedded: stats.chunksEmbedded,
+    files_missing: stats.missing,
+    files_deleted: stats.filesDeleted ?? 0,
+    status,
+    error,
   });
+  writeVectorizeSyncReceipt({
+    root: ROOT,
+    chunk_id: RUN_SYNC_CHUNK_ID,
+    vectorize_index: VECTORIZE_INDEX,
+    status,
+    details,
+    dryRun: DRY_RUN,
+  });
+  if (!DRY_RUN && status === 'ok') {
+    writeVectorizeSyncReceipt({
+      root: ROOT,
+      chunk_id: `${RUN_SYNC_CHUNK_ID}:${RUN_ID}`,
+      vectorize_index: VECTORIZE_INDEX,
+      status,
+      details,
+      dryRun: false,
+    });
+  }
 }
 
 async function fetchExistingFileHash(client, filePath) {
@@ -697,12 +684,28 @@ async function insertChunkRow(client, { chunkId, fileId, filePath, content, chun
 }
 
 async function main() {
+  assertLaneContract(LANE);
+  if (EMBED_MODEL !== LANE.embed_model || EMBED_DIMS !== LANE.embed_dims || VECTORIZE_INDEX !== LANE.vectorize_index) {
+    throw new Error('Script constants diverge from LANE_CONTRACTS.code — fix before run');
+  }
+
   console.log('\nreindex_codebase_dashboard_agent.mjs');
   console.log(`mode: ${DRY_RUN ? 'DRY RUN (zero writes)' : 'LIVE'}`);
+  console.log(`run_id: ${RUN_ID}`);
+  console.log(`git_commit_sha: ${GIT_COMMIT_SHA}`);
   console.log(`files: ${DASHBOARD_FILES.length}`);
   console.log(`workspace: ${WORKSPACE_UUID} (${WORKSPACE_KEY})`);
   console.log(`vectorize_index: ${VECTORIZE_INDEX}`);
+  console.log(`prune: ${NO_PRUNE ? 'disabled' : 'enabled after successful full run'}`);
   console.log(`chunk bounds: min=${MIN_TOKENS} max=${MAX_TOKENS} overlap=${OVERLAP_TOKENS}\n`);
+
+  const stats = {
+    filesIndexed: 0,
+    filesSkipped: 0,
+    chunksEmbedded: 0,
+    missing: 0,
+    filesDeleted: 0,
+  };
 
   /** @type {pg.Client | null} */
   let client = null;
@@ -713,18 +716,15 @@ async function main() {
     }
   }
 
-  let filesSkipped = 0;
-  let filesIndexed = 0;
-  let chunksEmbedded = 0;
-  let missing = 0;
   const vectorizeQueue = [];
+  const approvedPaths = new Set(DASHBOARD_FILES);
 
   try {
     for (const filePath of DASHBOARD_FILES) {
       const abs = join(ROOT, filePath);
       if (!existsSync(abs)) {
         console.error(`  missing: ${filePath}`);
-        missing++;
+        stats.missing++;
         continue;
       }
 
@@ -737,7 +737,7 @@ async function main() {
         const existing = await fetchExistingFileHash(client, filePath);
         if (existing?.content_hash === hash) {
           console.log(`  skip (unchanged): ${filePath}`);
-          filesSkipped++;
+          stats.filesSkipped++;
           continue;
         }
       }
@@ -755,8 +755,8 @@ async function main() {
           const preview = chunks[i].slice(0, 80).replace(/\s+/g, ' ');
           console.log(`    chunk ${i}: ~${tokens} tokens — ${preview}${chunks[i].length > 80 ? '…' : ''}`);
         }
-        filesIndexed++;
-        chunksEmbedded += chunks.length;
+        stats.filesIndexed++;
+        stats.chunksEmbedded += chunks.length;
         continue;
       }
 
@@ -806,32 +806,64 @@ async function main() {
           await vectorizeUpsertBatch(vectorizeQueue.splice(0, VECTORIZE_BATCH));
         }
 
-        chunksEmbedded++;
+        stats.chunksEmbedded++;
       }
 
       if (vectorizeQueue.length > 0) {
         await vectorizeUpsertBatch(vectorizeQueue.splice(0));
       }
 
-      filesIndexed++;
+      stats.filesIndexed++;
       console.log(`  indexed: ${filePath} (${chunks.length} chunks)`);
     }
+
+    if (stats.missing > 0) {
+      throw new Error(`${stats.missing} approved source file(s) missing from disk — aborting before prune`);
+    }
+
+    if (client && !NO_PRUNE && stats.missing === 0) {
+      console.log('\nprune: removing mirror rows for paths not in approved source set…');
+      const prune = await pruneCodebaseMirrorMissingPaths({
+        client,
+        workspaceUuid: WORKSPACE_UUID,
+        approvedPaths,
+        accountId: ACCOUNT_ID,
+        token: CF_TOKEN,
+        vectorizeIndex: VECTORIZE_INDEX,
+        dryRun: DRY_RUN,
+      });
+      stats.filesDeleted = prune.deletedFiles.length;
+      if (prune.deletedFiles.length) {
+        console.log(`  pruned ${prune.deletedFiles.length} file(s), ${prune.deletedChunks} chunk(s), ${prune.deletedVectors} vector(s)`);
+      } else {
+        console.log('  nothing to prune');
+      }
+    }
+  } catch (err) {
+    if (!DRY_RUN) {
+      try {
+        writeRunReceipt(stats, 'failed', err?.message || String(err));
+      } catch (receiptErr) {
+        console.error('Failed to write error receipt:', receiptErr?.message || receiptErr);
+      }
+    }
+    throw err;
   } finally {
     if (client) await client.end().catch(() => {});
   }
 
   console.log(`\n${'═'.repeat(60)}`);
   console.log(
-    `done — files indexed: ${filesIndexed}, skipped (unchanged): ${filesSkipped}, chunks embedded: ${chunksEmbedded}, missing: ${missing}`,
+    `done — files indexed: ${stats.filesIndexed}, skipped (unchanged): ${stats.filesSkipped}, chunks embedded: ${stats.chunksEmbedded}, missing: ${stats.missing}, pruned: ${stats.filesDeleted}`,
   );
   if (!DRY_RUN) {
-    logRunVectorizeSync();
+    writeRunReceipt(stats, 'ok');
     console.log(`Vectorize index: ${VECTORIZE_INDEX} (propagation ~5–10s after upsert)`);
-    console.log(`D1 sync log: ${RUN_SYNC_CHUNK_ID} (one row per run)`);
+    console.log(`D1 sync log: ${RUN_SYNC_CHUNK_ID} (+ history ${RUN_SYNC_CHUNK_ID}:${RUN_ID})`);
   }
   console.log(`${'═'.repeat(60)}\n`);
 
-  if (missing > 0) process.exit(1);
+  if (stats.missing > 0) process.exit(1);
 }
 
 main().catch((err) => {

@@ -81,9 +81,18 @@ import { readFileSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { createHash } from 'crypto';
-import { execFileSync } from 'child_process';
 import pathMod from 'path';
 import pg from 'pg';
+import {
+  LANE_CONTRACTS,
+  assertLaneContract,
+  buildReceiptDetails,
+  createRunId,
+  openaiEmbedSingle,
+  resolveGitCommitSha,
+  vectorizeUpsertNdjson,
+  writeVectorizeSyncReceipt,
+} from './lib/rag-ingest-protocol.mjs';
 
 // ─── Load .env.cloudflare ────────────────────────────────────────────────────
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -109,6 +118,12 @@ const ACCOUNT_ID       = process.env.CLOUDFLARE_API_TOKEN
 
 // Supabase workspace UUID for ws_inneranimalmedia (from live agentsam_workspaces)
 const WORKSPACE_UUID   = 'fa1f12a8-c841-4b79-a26c-d53a78b17dac';
+const WORKSPACE_KEY    = 'ws_inneranimalmedia';
+const LANE             = LANE_CONTRACTS.documents;
+const RUN_ID           = createRunId();
+const GIT_COMMIT_SHA   = resolveGitCommitSha(ROOT);
+const SCRIPT_KEY       = 'ingest_r2_to_rag';
+const RUN_SYNC_CHUNK_ID = `run:${SCRIPT_KEY}`;
 
 // Active CF Vectorize index for documents lane (from wrangler vectorize list)
 const VECTORIZE_INDEX  = 'agentsam-documents-oai3large-1536';
@@ -120,13 +135,6 @@ const EMBED_DIMS       = 1536;
 
 // R2 bucket (from live R2 listing — this is the active bucket)
 const R2_BUCKET        = 'inneranimalmedia-autorag';
-
-// CF Vectorize REST API v2 upsert endpoint
-const VECTORIZE_UPSERT_URL = `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/vectorize/v2/indexes/${VECTORIZE_INDEX}/upsert`;
-
-// D1 database name and config
-const D1_DB_NAME       = 'inneranimalmedia-business';
-const D1_TOML          = 'wrangler.production.toml';
 
 // Rate limiting
 const EMBED_DELAY_MS   = Number(process.env.INGEST_DELAY_MS || 200);
@@ -220,59 +228,27 @@ function splitMarkdownH2(md, title) {
 
 // ─── OpenAI embedding ─────────────────────────────────────────────────────────
 async function embedText(text) {
-  const truncated = text.length > 32000 ? text.slice(0, 32000) : text;
-  const res = await fetch('https://api.openai.com/v1/embeddings', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${OPENAI_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ model: EMBED_MODEL, input: truncated }),
+  return openaiEmbedSingle({
+    apiKey: OPENAI_KEY,
+    text,
+    model: EMBED_MODEL,
+    dims: EMBED_DIMS,
   });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(`OpenAI embed HTTP ${res.status}: ${JSON.stringify(json).slice(0, 400)}`);
-  }
-  const vec = json?.data?.[0]?.embedding;
-  if (!Array.isArray(vec) || vec.length !== EMBED_DIMS) {
-    throw new Error(`Unexpected embed shape: length=${vec?.length} expected=${EMBED_DIMS}`);
-  }
-  return vec;
 }
 
 // ─── CF Vectorize upsert (REST API v2) ───────────────────────────────────────
-/**
- * Upsert a batch of vectors via CF REST API v2.
- * Body is NDJSON (one JSON object per line, no wrapping array).
- * vector.id must be ≤ 64 chars. We use supabase UUID (36 chars).
- */
 async function vectorizeUpsertBatch(vectors) {
   if (DRY_RUN) {
     console.log(`  [dry-run] would upsert ${vectors.length} vectors to ${VECTORIZE_INDEX}`);
     return;
   }
-  const ndjson = vectors
-    .map(v => JSON.stringify({
-      id: v.id,               // supabase UUID — 36 chars, within maxLength=64
-      values: v.values,
-      metadata: v.metadata,   // { r2_key, source_type, title, chunk_index }
-    }))
-    .join('\n');
-
-  const res = await fetch(VECTORIZE_UPSERT_URL, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${CF_TOKEN}`,
-      'Content-Type': 'application/x-ndjson',
-    },
-    body: ndjson,
+  await vectorizeUpsertNdjson({
+    accountId: ACCOUNT_ID,
+    token: CF_TOKEN,
+    index: VECTORIZE_INDEX,
+    vectors,
   });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok || json.success === false) {
-    throw new Error(`Vectorize upsert HTTP ${res.status}: ${JSON.stringify(json).slice(0, 400)}`);
-  }
-  // json.result.mutationId is returned — async, propagates within seconds
-  console.log(`  ✓ Vectorize upsert ${vectors.length} vecs — mutationId: ${json.result?.mutationId ?? 'n/a'}`);
+  console.log(`  ✓ Vectorize upsert ${vectors.length} vecs`);
 }
 
 // ─── R2 list objects ──────────────────────────────────────────────────────────
@@ -463,21 +439,32 @@ async function upsertSupabaseRow(client, {
 }
 
 // ─── D1 vectorize_sync_log ────────────────────────────────────────────────────
-const WRAPPER = pathMod.join(ROOT, 'scripts', 'with-cloudflare-env.sh');
-const D1_ARGS_BASE = [
-  'npx', 'wrangler', 'd1', 'execute', D1_DB_NAME,
-  '--remote', '-c', D1_TOML, '--json',
-];
-
-function d1Write(sql) {
-  if (DRY_RUN) {
-    console.log(`  [dry-run] D1: ${sql.slice(0, 120)}...`);
-    return;
-  }
-  execFileSync(WRAPPER, [...D1_ARGS_BASE, '--command', sql], {
-    cwd: ROOT,
-    encoding: 'utf8',
-    maxBuffer: 8 * 1024 * 1024,
+function writeRunReceipt(totals, status = 'ok', error = null) {
+  const details = buildReceiptDetails({
+    run_id: RUN_ID,
+    script_key: SCRIPT_KEY,
+    git_commit_sha: GIT_COMMIT_SHA,
+    workspace_id: WORKSPACE_KEY,
+    workspace_uuid: WORKSPACE_UUID,
+    vectorize_index: VECTORIZE_INDEX,
+    lane: LANE.lane,
+    binding: VECTORIZE_BINDING,
+    embed_model: EMBED_MODEL,
+    embed_dims: EMBED_DIMS,
+    chunks_embedded: totals.processed,
+    files_skipped: totals.skipped,
+    errors: totals.errors,
+    status,
+    error,
+    extra: { batch_filter: BATCH_ARG || 'all', r2_bucket: R2_BUCKET },
+  });
+  writeVectorizeSyncReceipt({
+    root: ROOT,
+    chunk_id: RUN_SYNC_CHUNK_ID,
+    vectorize_index: VECTORIZE_INDEX,
+    status,
+    details,
+    dryRun: DRY_RUN,
   });
 }
 
@@ -487,14 +474,26 @@ function d1Write(sql) {
  */
 function logR2FileVectorizeSync(r2Key) {
   const chunkId = `r2:${String(r2Key).replace(/'/g, "''")}`;
-  d1Write(
-    `INSERT INTO vectorize_sync_log (chunk_id, vectorize_index, status, synced_at)
-     VALUES ('${chunkId}', '${VECTORIZE_INDEX}', 'ok', unixepoch())
-     ON CONFLICT (chunk_id) DO UPDATE SET
-       vectorize_index = '${VECTORIZE_INDEX}',
-       status = 'ok',
-       synced_at = unixepoch()`,
-  );
+  const details = buildReceiptDetails({
+    run_id: RUN_ID,
+    script_key: SCRIPT_KEY,
+    git_commit_sha: GIT_COMMIT_SHA,
+    workspace_id: WORKSPACE_KEY,
+    workspace_uuid: WORKSPACE_UUID,
+    vectorize_index: VECTORIZE_INDEX,
+    lane: LANE.lane,
+    binding: VECTORIZE_BINDING,
+    status: 'ok',
+    extra: { r2_key: r2Key },
+  });
+  writeVectorizeSyncReceipt({
+    root: ROOT,
+    chunk_id: chunkId,
+    vectorize_index: VECTORIZE_INDEX,
+    status: 'ok',
+    details,
+    dryRun: DRY_RUN,
+  });
 }
 
 // ─── Check existing content_hash to skip unchanged files ─────────────────────
@@ -672,8 +671,16 @@ async function verifyUniqueIndex(client) {
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
+assertLaneContract(LANE);
+if (EMBED_MODEL !== LANE.embed_model || EMBED_DIMS !== LANE.embed_dims || VECTORIZE_INDEX !== LANE.vectorize_index) {
+  console.error('Script constants diverge from LANE_CONTRACTS.documents');
+  process.exit(1);
+}
+
 console.log(`\ningest_r2_to_rag.mjs`);
 console.log(`mode: ${DRY_RUN ? 'DRY RUN' : 'LIVE'}`);
+console.log(`run_id: ${RUN_ID}`);
+console.log(`git_commit_sha: ${GIT_COMMIT_SHA}`);
 console.log(`batch filter: ${BATCH_ARG || 'all'}`);
 console.log(`target Vectorize index: ${VECTORIZE_INDEX} (${EMBED_DIMS}d, cosine)`);
 console.log(`target Supabase table: agentsam.agentsam_documents_oai3large_1536`);
@@ -710,6 +717,15 @@ try {
   console.log(`Note: CF Vectorize propagation takes ~5-10s after upsert.`);
   console.log(`${'═'.repeat(60)}\n`);
 
+  writeRunReceipt(totals, totals.errors > 0 ? 'partial' : 'ok');
+} catch (err) {
+  if (!DRY_RUN) {
+    try {
+      writeRunReceipt({ processed: 0, skipped: 0, errors: 1 }, 'failed', err?.message || String(err));
+    } catch { /* ignore receipt failure */ }
+  }
+  console.error(err?.stack || err?.message || err);
+  process.exit(1);
 } finally {
   if (!DRY_RUN && client) await client.end().catch(() => {});
 }
