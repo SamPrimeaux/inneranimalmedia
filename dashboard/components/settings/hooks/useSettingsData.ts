@@ -934,10 +934,10 @@ export function useSettingsData({
     }
   }, [agentsPolicy, agentsWorkspaceId, workspaceId]);
 
-  const addAgentsCommand = useCallback(async () => {
-    const v = newCommand.trim();
-    if (!v) return;
-    try {
+  const addAgentsCommandValue = useCallback(
+    async (command: string) => {
+      const v = String(command || '').trim();
+      if (!v) return;
       setAgentsError(null);
       const r = await fetch('/api/settings/agents/commands', {
         method: 'POST',
@@ -947,11 +947,39 @@ export function useSettingsData({
       });
       if (!r.ok) throw new Error(await r.text());
       setAgentsCommands((p) => Array.from(new Set([...p, v])).sort());
+    },
+    [agentsWorkspaceId, workspaceId],
+  );
+
+  const addAgentsCommand = useCallback(async () => {
+    const v = newCommand.trim();
+    if (!v) return;
+    try {
+      await addAgentsCommandValue(v);
       setNewCommand('');
     } catch (e) {
       setAgentsError(e instanceof Error ? e.message : 'Failed to add command');
     }
-  }, [newCommand, agentsWorkspaceId, workspaceId]);
+  }, [newCommand, addAgentsCommandValue]);
+
+  const addAgentsCommandsBulk = useCallback(
+    async (commands: string[]) => {
+      const unique = Array.from(
+        new Set(commands.map((c) => String(c || '').trim()).filter(Boolean)),
+      );
+      if (!unique.length) return;
+      try {
+        setAgentsError(null);
+        for (const cmd of unique) {
+          await addAgentsCommandValue(cmd);
+        }
+      } catch (e) {
+        setAgentsError(e instanceof Error ? e.message : 'Failed to add commands');
+        throw e;
+      }
+    },
+    [addAgentsCommandValue],
+  );
 
   const removeAgentsCommand = useCallback(
     async (c: string) => {
@@ -1482,6 +1510,7 @@ export function useSettingsData({
     loadAgentsSettings,
     saveAgentsPolicy,
     addAgentsCommand,
+    addAgentsCommandsBulk,
     removeAgentsCommand,
     addAgentsDomain,
     removeAgentsDomain,

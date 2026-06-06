@@ -151,3 +151,21 @@ samp.font-mono {
   background: var(--bg-app);
 }
 
+/* Agent chat text size — driven by settings Agents → Text Size */
+[data-text-size="small"] .agent-content,
+[data-text-size="small"] .chat-message {
+  font-size: 0.8125rem;
+}
+[data-text-size="default"] .agent-content,
+[data-text-size="default"] .chat-message {
+  font-size: 0.8125rem;
+}
+[data-text-size="large"] .agent-content,
+[data-text-size="large"] .chat-message {
+  font-size: 1rem;
+}
+[data-text-size="xl"] .agent-content,
+[data-text-size="xl"] .chat-message {
+  font-size: 1.0625rem;
+}
+

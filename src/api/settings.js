@@ -1967,6 +1967,63 @@ export async function handleSettingsRequest(request, env, ctx) {
     }
   }
 
+  if (pathLower === '/api/settings/allowlist/command-suggestions' && method === 'GET') {
+    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    const workspaceId = await resolveRequestWorkspaceId(env, authUser, url);
+
+    const stored = await env.DB.prepare(
+      `SELECT user_id FROM agentsam_user_policy
+       WHERE workspace_id = ?
+         AND user_id IN (${agentsamUserCandidates.map(() => '?').join(', ')})
+       LIMIT 1`,
+    )
+      .bind(workspaceId || null, ...agentsamUserCandidates)
+      .first()
+      .catch(() => null);
+    const agentsamUserId = stored?.user_id ? String(stored.user_id) : String(canonicalAuthId || sessionUserId);
+
+    const [patternRows, allowRows] = await Promise.all([
+      env.DB.prepare(
+        `SELECT pattern, mapped_command, category
+         FROM agentsam_command_pattern
+         WHERE is_active = 1
+           AND (workspace_id = ? OR workspace_id IS NULL OR workspace_id = '')
+         ORDER BY use_count DESC, created_at ASC
+         LIMIT 200`,
+      )
+        .bind(workspaceId || null)
+        .all()
+        .then((r) => r.results || [])
+        .catch(() => []),
+      env.DB.prepare(
+        `SELECT command FROM agentsam_command_allowlist
+         WHERE user_id = ? AND workspace_id = ?`,
+      )
+        .bind(agentsamUserId, workspaceId || null)
+        .all()
+        .then((r) => r.results || [])
+        .catch(() => []),
+    ]);
+
+    const existing = new Set(
+      allowRows.map((row) => String(row.command || '').trim()).filter(Boolean),
+    );
+    const seen = new Set();
+    const suggestions = [];
+    for (const row of patternRows) {
+      const pattern = String(row.mapped_command || row.pattern || '').trim();
+      if (!pattern || existing.has(pattern) || seen.has(pattern)) continue;
+      seen.add(pattern);
+      suggestions.push({
+        pattern,
+        category: row.category != null ? String(row.category) : undefined,
+      });
+      if (suggestions.length >= 50) break;
+    }
+
+    return jsonResponse({ suggestions });
+  }
+
   // ── AI Models catalog + BYOK (/api/settings/ai-models*) ───────────────────
   const normalizeAiProviderSlug = (p) => {
     const s = String(p || '').trim().toLowerCase();

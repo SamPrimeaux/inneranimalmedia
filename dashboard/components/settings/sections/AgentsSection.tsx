@@ -1,46 +1,144 @@
-import React from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { AgentsamUserPolicy } from '../types';
 import type { SettingsPanelModel } from '../hooks/useSettingsData';
 import { Toggle } from '../settingsUi';
 import { AgentsAllowlists } from '../components/AgentsAllowlists';
+import { AllowlistChipInput } from '../components/AllowlistChipInput';
+import {
+  applyTextSizeToDom,
+  joinVoiceKeywords,
+  mergePolicySettingsJson,
+  parsePolicySettingsJson,
+  splitVoiceKeywords,
+} from '../components/agentsSectionHelpers';
 
 export type AgentsSectionProps = { data: SettingsPanelModel; workspaceId?: string | null };
 
-const POLICY_TOGGLES: { key: keyof AgentsamUserPolicy; label: string; desc: string }[] = [
-  { key: 'browser_protection', label: 'Browser protection', desc: 'Require confirmation for risky browser actions' },
-  { key: 'mcp_tools_protection', label: 'MCP tools protection', desc: 'Require approval/allowlist for MCP tools' },
-  { key: 'file_deletion_protection', label: 'File deletion protection', desc: 'Block or require confirmation for deletes' },
-  { key: 'external_file_protection', label: 'External file protection', desc: 'Protect files outside the workspace' },
-  { key: 'web_search_enabled', label: 'Web search enabled', desc: 'Allow web search tool usage' },
-  { key: 'auto_accept_web_search', label: 'Auto-accept web search', desc: 'Skip confirm step for web search' },
-  { key: 'web_fetch_enabled', label: 'Web fetch enabled', desc: 'Allow fetching web pages' },
-  { key: 'agent_autocomplete', label: 'Agent autocomplete', desc: 'Autocomplete suggestions from the agent' },
-  { key: 'auto_clear_chat', label: 'Auto-clear chat', desc: 'Automatically clear chat between tasks' },
-  { key: 'submit_with_mod_enter', label: 'Submit with Mod+Enter', desc: 'Use Cmd/Ctrl+Enter to submit' },
-  { key: 'hierarchical_ignore', label: 'Hierarchical ignore', desc: 'Use hierarchical ignore resolution' },
-  { key: 'ignore_symlinks', label: 'Ignore symlinks', desc: 'Skip symlink traversal' },
-  { key: 'inline_diffs', label: 'Inline diffs', desc: 'Show inline diffs for edits' },
-  { key: 'jump_next_diff_on_accept', label: 'Jump next diff on accept', desc: 'Auto-jump diff cursor after accepting' },
-  { key: 'auto_format_on_agent_finish', label: 'Auto-format on finish', desc: 'Format files after agent completion' },
-  { key: 'legacy_terminal_tool', label: 'Legacy terminal tool', desc: 'Use legacy terminal tool behavior' },
-  { key: 'toolbar_on_selection', label: 'Toolbar on selection', desc: 'Show actions toolbar on text selection' },
-  { key: 'auto_parse_links', label: 'Auto-parse links', desc: 'Parse links from text automatically' },
-  { key: 'themed_diff_backgrounds', label: 'Themed diff backgrounds', desc: 'Use themed diff backgrounds' },
-  { key: 'terminal_hint', label: 'Terminal hint', desc: 'Show terminal hints' },
-  { key: 'terminal_preview_box', label: 'Terminal preview box', desc: 'Show terminal preview panel' },
-  { key: 'collapse_auto_run_commands', label: 'Collapse auto-run commands', desc: 'Collapse auto-run command output' },
-  { key: 'commit_attribution', label: 'Commit attribution', desc: 'Attribute commits to agent' },
-  { key: 'pr_attribution', label: 'PR attribution', desc: 'Attribute PRs to agent' },
-];
+function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)]/80 p-5 flex flex-col gap-4">
+      <div className="border-b border-[var(--border-subtle)]/60 pb-2">
+        <h3 className="text-sm font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+          {title}
+        </h3>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return <span className="text-[11px] text-[var(--text-muted)]">{children}</span>;
+}
+
+function ToggleRow({
+  label,
+  desc,
+  on,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  desc?: string;
+  on: boolean;
+  onChange: (v: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-2 border-b border-[var(--border-subtle)]/40 last:border-0">
+      <div className="min-w-0">
+        <div className="text-[12px] font-semibold text-[var(--text-main)]">{label}</div>
+        {desc ? <div className="text-[11px] text-[var(--text-muted)] mt-0.5">{desc}</div> : null}
+      </div>
+      <DisabledToggleWrap disabled={disabled}>
+        <Toggle on={on} onChange={onChange} />
+      </DisabledToggleWrap>
+    </div>
+  );
+}
+
+function DisabledToggleWrap({ disabled, children }: { disabled?: boolean; children: React.ReactNode }) {
+  if (!disabled) return <>{children}</>;
+  return <div className="opacity-40 pointer-events-none shrink-0">{children}</div>;
+}
+
+const selectClass =
+  'rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-3 py-2 text-[12px] text-[var(--text-main)] w-full disabled:opacity-40';
 
 export function AgentsSection({ data, workspaceId }: AgentsSectionProps) {
   const navigate = useNavigate();
+  const policy = data.agentsPolicy;
+  const settingsJson = parsePolicySettingsJson(policy?.settings_json);
+  const disabled = data.agentsSaving || data.agentsLoading;
+
+  const [voiceKeywords, setVoiceKeywords] = useState<string[]>(() =>
+    splitVoiceKeywords(policy?.voice_submit_keyword),
+  );
+  const [newVoiceKeyword, setNewVoiceKeyword] = useState('');
+
+  useEffect(() => {
+    setVoiceKeywords(splitVoiceKeywords(policy?.voice_submit_keyword));
+  }, [policy?.voice_submit_keyword]);
+
+  useEffect(() => {
+    if (policy?.text_size) applyTextSizeToDom(policy.text_size);
+  }, [policy?.text_size]);
+
+  const patchPolicy = useCallback(
+    (patch: Partial<AgentsamUserPolicy>) => {
+      data.setAgentsPolicy((p) => (p ? { ...p, ...patch } : p));
+    },
+    [data],
+  );
+
+  const patchSettingsJson = useCallback(
+    (patch: Record<string, unknown>) => {
+      data.setAgentsPolicy((p) =>
+        p ? { ...p, settings_json: mergePolicySettingsJson(p, patch) } : p,
+      );
+    },
+    [data],
+  );
+
+  const handleTextSizeChange = (textSize: string) => {
+    patchPolicy({ text_size: textSize });
+    applyTextSizeToDom(textSize);
+    void fetch('/api/settings/agents/policy', {
+      method: 'PATCH',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        workspace_id: data.agentsWorkspaceId || workspaceId || '',
+        policy: { text_size: textSize },
+      }),
+    }).catch(() => {});
+  };
+
+  const addVoiceKeyword = () => {
+    const word = newVoiceKeyword.trim().toLowerCase();
+    if (!word || /\s/.test(word) || voiceKeywords.includes(word)) {
+      setNewVoiceKeyword('');
+      return;
+    }
+    const next = [...voiceKeywords, word];
+    setVoiceKeywords(next);
+    patchPolicy({ voice_submit_keyword: joinVoiceKeywords(next) });
+    setNewVoiceKeyword('');
+  };
+
+  const removeVoiceKeyword = (word: string) => {
+    const next = voiceKeywords.filter((w) => w !== word);
+    setVoiceKeywords(next);
+    patchPolicy({ voice_submit_keyword: joinVoiceKeywords(next) });
+  };
 
   return (
-    <div className="flex flex-col gap-5 max-w-2xl">
+    <div className="flex flex-col gap-6 max-w-4xl w-full">
       <div className="flex items-center justify-between">
-        <h2 className="text-[13px] font-bold text-[var(--text-heading)] uppercase tracking-widest">Agents</h2>
+        <h2 className="text-[13px] font-bold text-[var(--text-heading)] uppercase tracking-widest">
+          Agents
+        </h2>
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -52,7 +150,7 @@ export function AgentsSection({ data, workspaceId }: AgentsSectionProps) {
           </button>
           <button
             type="button"
-            disabled={data.agentsSaving || !data.agentsPolicy}
+            disabled={data.agentsSaving || !policy}
             onClick={() => void data.saveAgentsPolicy()}
             className="px-3 py-1.5 rounded-lg bg-[var(--solar-cyan)]/20 text-[11px] font-semibold text-[var(--solar-cyan)] border border-[var(--solar-cyan)]/30 disabled:opacity-40"
           >
@@ -69,166 +167,353 @@ export function AgentsSection({ data, workspaceId }: AgentsSectionProps) {
 
       <div className="text-[11px] text-[var(--text-muted)]">
         Workspace scope:{' '}
-        <code className="font-mono text-[var(--solar-cyan)]">{data.agentsWorkspaceId || workspaceId || '—'}</code>
+        <code className="font-mono text-[var(--solar-cyan)]">
+          {data.agentsWorkspaceId || workspaceId || '—'}
+        </code>
       </div>
 
-      <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] p-4 space-y-3">
-        {data.agentsLoading && !data.agentsPolicy ? (
-          <div className="text-[12px] text-[var(--text-muted)]">Loading…</div>
-        ) : null}
+      {data.agentsLoading && !policy ? (
+        <div className="text-[12px] text-[var(--text-muted)]">Loading…</div>
+      ) : null}
 
-        {data.agentsPolicy ? (
-          <>
+      {policy ? (
+        <>
+          {/* Section 1: Agents */}
+          <SectionCard title="Agents">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <label className="flex flex-col gap-1 text-[11px]">
-                <span className="text-[var(--text-muted)]">Auto-run mode</span>
+              <label className="flex flex-col gap-1">
+                <FieldLabel>Text size</FieldLabel>
                 <select
-                  value={data.agentsPolicy.auto_run_mode}
-                  onChange={(e) =>
-                    data.setAgentsPolicy((p) => (p ? { ...p, auto_run_mode: e.target.value } : p))
-                  }
-                  className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-3 py-2 text-[12px] text-[var(--text-main)]"
+                  value={policy.text_size || 'default'}
+                  disabled={disabled}
+                  onChange={(e) => handleTextSizeChange(e.target.value)}
+                  className={selectClass}
                 >
-                  <option value="disabled">disabled</option>
-                  <option value="manual">manual</option>
-                  <option value="allowlist">allowlist</option>
-                  <option value="auto">full_auto</option>
+                  <option value="small">Small</option>
+                  <option value="default">Default</option>
+                  <option value="large">Large</option>
                 </select>
               </label>
-              <label className="flex flex-col gap-1 text-[11px]">
-                <span className="text-[var(--text-muted)]">Text size</span>
-                <select
-                  value={data.agentsPolicy.text_size || 'default'}
-                  onChange={(e) =>
-                    data.setAgentsPolicy((p) => (p ? { ...p, text_size: e.target.value } : p))
-                  }
-                  className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-3 py-2 text-[12px] text-[var(--text-main)]"
-                >
-                  <option value="small">small</option>
-                  <option value="default">default</option>
-                  <option value="large">large</option>
-                  <option value="xl">xl</option>
-                </select>
-              </label>
-              <label className="flex flex-col gap-1 text-[11px]">
-                <span className="text-[var(--text-muted)]">Max tabs</span>
+              <label className="flex flex-col gap-1">
+                <FieldLabel>Max tab count</FieldLabel>
                 <input
                   type="number"
                   min={1}
                   max={50}
-                  value={data.agentsPolicy.max_tab_count}
+                  disabled={disabled}
+                  value={policy.max_tab_count}
                   onChange={(e) =>
-                    data.setAgentsPolicy((p) =>
-                      p ? { ...p, max_tab_count: Number(e.target.value || 0) } : p,
-                    )
+                    patchPolicy({ max_tab_count: Number(e.target.value || 0) })
                   }
-                  className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-3 py-2 text-[12px] text-[var(--text-main)]"
+                  className={selectClass}
                 />
               </label>
-              <label className="flex flex-col gap-1 text-[11px]">
-                <span className="text-[var(--text-muted)]">Voice submit keyword</span>
-                <input
-                  type="text"
-                  value={data.agentsPolicy.voice_submit_keyword || ''}
-                  onChange={(e) =>
-                    data.setAgentsPolicy((p) =>
-                      p ? { ...p, voice_submit_keyword: e.target.value } : p,
-                    )
-                  }
-                  className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-3 py-2 text-[12px] text-[var(--text-main)]"
-                />
+              <label className="flex flex-col gap-1">
+                <FieldLabel>Queue messages</FieldLabel>
+                <select
+                  value={policy.queue_messages_mode || 'after_current'}
+                  disabled={disabled}
+                  onChange={(e) => patchPolicy({ queue_messages_mode: e.target.value })}
+                  className={selectClass}
+                >
+                  <option value="after_current">After current</option>
+                  <option value="immediately">Immediately</option>
+                  <option value="never">Never</option>
+                </select>
+              </label>
+              <label className="flex flex-col gap-1">
+                <FieldLabel>Usage summary</FieldLabel>
+                <select
+                  value={policy.usage_summary_mode || 'auto'}
+                  disabled={disabled}
+                  onChange={(e) => patchPolicy({ usage_summary_mode: e.target.value })}
+                  className={selectClass}
+                >
+                  <option value="auto">Auto</option>
+                  <option value="always">Always</option>
+                  <option value="off">Off</option>
+                </select>
               </label>
             </div>
+            <div className="flex flex-col">
+              <ToggleRow
+                label="Agent autocomplete"
+                desc="Autocomplete suggestions from the agent"
+                on={Number(policy.agent_autocomplete) === 1}
+                disabled={disabled}
+                onChange={(v) => patchPolicy({ agent_autocomplete: v ? 1 : 0 })}
+              />
+              <ToggleRow
+                label="Auto-approve mode transitions"
+                desc="Allow Agent Sam to switch modes without asking each time"
+                on={Boolean(settingsJson.auto_approve_mode_transitions)}
+                disabled={disabled}
+                onChange={(v) => patchSettingsJson({ auto_approve_mode_transitions: v })}
+              />
+            </div>
+          </SectionCard>
 
-            {POLICY_TOGGLES.map((row) => {
-              const k = row.key;
-              const on = Number(data.agentsPolicy[k] as unknown) === 1;
-              return (
-                <div
-                  key={row.key}
-                  className="flex items-center justify-between py-3 border-b border-[var(--border-subtle)]/50"
-                >
-                  <div className="min-w-0 pr-3">
-                    <div className="text-[12px] font-semibold text-[var(--text-main)]">{row.label}</div>
-                    <div className="text-[11px] text-[var(--text-muted)] mt-0.5">{row.desc}</div>
-                  </div>
-                  <Toggle
-                    on={on}
-                    onChange={(v) =>
-                      data.setAgentsPolicy((p) => (p ? { ...p, [k]: v ? 1 : 0 } : p))
-                    }
-                  />
-                </div>
-              );
-            })}
-          </>
-        ) : null}
-      </div>
-
-      <AgentsAllowlists data={data} workspaceId={workspaceId} />
-
-      {Array.isArray(data.agentsSubagents) && data.agentsSubagents.length > 0 ? (
-        <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-[12px] font-bold text-[var(--text-heading)] uppercase tracking-widest">
-              Subagent profiles
-            </h3>
-            <span className="text-[10px] font-mono text-[var(--text-muted)]">{data.agentsSubagents.length} rows</span>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-[11px] border-collapse">
-              <thead>
-                <tr className="text-[var(--text-muted)] uppercase tracking-wider border-b border-[var(--border-subtle)]">
-                  <th className="py-2 pr-2">Active</th>
-                  <th className="py-2 pr-2">Slug</th>
-                  <th className="py-2 pr-2">Name</th>
-                  <th className="py-2 pr-2">Model</th>
-                  <th className="py-2 pr-2">Sandbox</th>
-                  <th className="py-2">MCP</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.agentsSubagents.map((row) => {
-                  const id = String(row.id || '').trim();
-                  const slug = String(row.slug || '').trim();
-                  const on = Number(row.is_active) !== 0;
-                  return (
-                    <tr key={id || slug} className="border-b border-[var(--border-subtle)]/40">
-                      <td className="py-2 pr-2 align-middle">
-                        <Toggle
-                          on={on}
-                          onChange={(v) => {
-                            if (!id) return;
-                            void data.patchAgentsSubagent(id, { is_active: v }).catch(() => {});
-                          }}
-                        />
-                      </td>
-                      <td className="py-2 pr-2 font-mono text-[var(--solar-cyan)]">{slug || '—'}</td>
-                      <td className="py-2 pr-2">{String(row.display_name || '')}</td>
-                      <td className="py-2 pr-2 font-mono text-[var(--text-muted)]">
-                        {String(row.default_model_id || '—')}
-                      </td>
-                      <td className="py-2 pr-2 text-[var(--text-muted)]">{String(row.sandbox_mode ?? row.access_mode ?? '—')}</td>
-                      <td className="py-2">
-                        {slug ? (
-                          <button
-                            type="button"
-                            onClick={() => navigate(`/dashboard/mcp/${encodeURIComponent(slug)}`)}
-                            className="px-2 py-1 rounded-md border border-[var(--border-subtle)] text-[10px] font-semibold uppercase tracking-wide text-[var(--solar-cyan)] hover:bg-[var(--bg-hover)]"
-                          >
-                            Open
-                          </button>
-                        ) : (
-                          '—'
-                        )}
-                      </td>
+          {/* Section 2: Subagents */}
+          <SectionCard title="Subagents">
+            {Array.isArray(data.agentsSubagents) && data.agentsSubagents.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-[11px] border-collapse">
+                  <thead>
+                    <tr className="text-[var(--text-muted)] uppercase tracking-wider border-b border-[var(--border-subtle)]">
+                      <th className="py-2 pr-2">Active</th>
+                      <th className="py-2 pr-2">Slug</th>
+                      <th className="py-2 pr-2">Name</th>
+                      <th className="py-2 pr-2">Model</th>
+                      <th className="py-2 pr-2">Sandbox</th>
+                      <th className="py-2">MCP</th>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
+                  </thead>
+                  <tbody>
+                    {data.agentsSubagents.map((row) => {
+                      const id = String(row.id || '').trim();
+                      const slug = String(row.slug || '').trim();
+                      const on = Number(row.is_active) !== 0;
+                      return (
+                        <tr key={id || slug} className="border-b border-[var(--border-subtle)]/40">
+                          <td className="py-2 pr-2 align-middle">
+                            <Toggle
+                              on={on}
+                              onChange={(v) => {
+                                if (!id) return;
+                                void data.patchAgentsSubagent(id, { is_active: v }).catch(() => {});
+                              }}
+                            />
+                          </td>
+                          <td className="py-2 pr-2 font-mono text-[var(--solar-cyan)]">
+                            {slug || '—'}
+                          </td>
+                          <td className="py-2 pr-2">{String(row.display_name || '')}</td>
+                          <td className="py-2 pr-2 font-mono text-[var(--text-muted)]">
+                            {String(row.default_model_id || '—')}
+                          </td>
+                          <td className="py-2 pr-2 text-[var(--text-muted)]">
+                            {String(row.sandbox_mode ?? row.access_mode ?? '—')}
+                          </td>
+                          <td className="py-2">
+                            {slug ? (
+                              <button
+                                type="button"
+                                onClick={() => navigate(`/dashboard/mcp/${encodeURIComponent(slug)}`)}
+                                className="px-2 py-1 rounded-md border border-[var(--border-subtle)] text-[10px] font-semibold uppercase tracking-wide text-[var(--solar-cyan)] hover:bg-[var(--bg-hover)]"
+                              >
+                                Open
+                              </button>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="text-[12px] text-[var(--text-muted)]">No subagent profiles yet.</div>
+            )}
+          </SectionCard>
+
+          {/* Section 3: Agent Review */}
+          <SectionCard title="Agent review">
+            <div className="flex flex-col">
+              <ToggleRow
+                label="Start agent review on commit"
+                on={Boolean(settingsJson.agent_review_on_commit)}
+                disabled={disabled}
+                onChange={(v) => patchSettingsJson({ agent_review_on_commit: v })}
+              />
+              <ToggleRow
+                label="Include submodules in agent review"
+                on={Boolean(settingsJson.agent_review_submodules)}
+                disabled={disabled}
+                onChange={(v) => patchSettingsJson({ agent_review_submodules: v })}
+              />
+              <ToggleRow
+                label="Include untracked files in agent review"
+                on={Boolean(settingsJson.agent_review_untracked)}
+                disabled={disabled}
+                onChange={(v) => patchSettingsJson({ agent_review_untracked: v })}
+              />
+            </div>
+            <label className="flex flex-col gap-1 max-w-md">
+              <FieldLabel>Default approach</FieldLabel>
+              <select
+                value={settingsJson.agent_review_approach || 'quick'}
+                disabled={disabled}
+                onChange={(e) =>
+                  patchSettingsJson({
+                    agent_review_approach: e.target.value === 'deep' ? 'deep' : 'quick',
+                  })
+                }
+                className={selectClass}
+              >
+                <option value="quick">Quick</option>
+                <option value="deep">Deep</option>
+              </select>
+            </label>
+          </SectionCard>
+
+          {/* Section 4: Context */}
+          <SectionCard title="Context">
+            <div className="flex flex-col">
+              <ToggleRow
+                label="Web search tool"
+                on={Number(policy.web_search_enabled) === 1}
+                disabled={disabled}
+                onChange={(v) => patchPolicy({ web_search_enabled: v ? 1 : 0 })}
+              />
+              <ToggleRow
+                label="Auto-accept web search"
+                on={Number(policy.auto_accept_web_search) === 1}
+                disabled={disabled}
+                onChange={(v) => patchPolicy({ auto_accept_web_search: v ? 1 : 0 })}
+              />
+              <ToggleRow
+                label="Web fetch tool"
+                on={Number(policy.web_fetch_enabled) === 1}
+                disabled={disabled}
+                onChange={(v) => patchPolicy({ web_fetch_enabled: v ? 1 : 0 })}
+              />
+              <ToggleRow
+                label="Apply .agentsamignore files"
+                desc="Uses agentsam_rule_documents per user"
+                on={Number(policy.hierarchical_ignore) === 1}
+                disabled={disabled}
+                onChange={(v) => patchPolicy({ hierarchical_ignore: v ? 1 : 0 })}
+              />
+            </div>
+          </SectionCard>
+
+          {/* Section 5: Approvals & Execution */}
+          <SectionCard title="Approvals & execution">
+            <AgentsAllowlists
+              data={data}
+              workspaceId={workspaceId}
+              policy={policy}
+              onPolicyChange={patchPolicy}
+            />
+          </SectionCard>
+
+          {/* Section 6: Applying Changes */}
+          <SectionCard title="Applying changes">
+            <div className="flex flex-col">
+              <ToggleRow
+                label="Inline diffs"
+                desc="Show inline diffs for edits"
+                on={Number(policy.inline_diffs) === 1}
+                disabled={disabled}
+                onChange={(v) => patchPolicy({ inline_diffs: v ? 1 : 0 })}
+              />
+              <ToggleRow
+                label="Auto format on agent finish"
+                desc="Format files after agent completion"
+                on={Number(policy.auto_format_on_agent_finish) === 1}
+                disabled={disabled}
+                onChange={(v) => patchPolicy({ auto_format_on_agent_finish: v ? 1 : 0 })}
+              />
+            </div>
+          </SectionCard>
+
+          {/* Section 7: Inline Editing & Terminal */}
+          <SectionCard title="Inline editing & terminal">
+            <div className="flex flex-col">
+              <ToggleRow
+                label="Legacy terminal tool"
+                on={Number(policy.legacy_terminal_tool) === 1}
+                disabled={disabled}
+                onChange={(v) => patchPolicy({ legacy_terminal_tool: v ? 1 : 0 })}
+              />
+              <ToggleRow
+                label="Toolbar on selection"
+                on={Number(policy.toolbar_on_selection) === 1}
+                disabled={disabled}
+                onChange={(v) => patchPolicy({ toolbar_on_selection: v ? 1 : 0 })}
+              />
+              <ToggleRow
+                label="Auto-parse links"
+                on={Number(policy.auto_parse_links) === 1}
+                disabled={disabled}
+                onChange={(v) => patchPolicy({ auto_parse_links: v ? 1 : 0 })}
+              />
+              <ToggleRow
+                label="Themed diff backgrounds"
+                on={Number(policy.themed_diff_backgrounds) === 1}
+                disabled={disabled}
+                onChange={(v) => patchPolicy({ themed_diff_backgrounds: v ? 1 : 0 })}
+              />
+              <ToggleRow
+                label="Terminal hint"
+                on={Number(policy.terminal_hint) === 1}
+                disabled={disabled}
+                onChange={(v) => patchPolicy({ terminal_hint: v ? 1 : 0 })}
+              />
+              <ToggleRow
+                label="Preview box for terminal"
+                on={Number(policy.terminal_preview_box) === 1}
+                disabled={disabled}
+                onChange={(v) => patchPolicy({ terminal_preview_box: v ? 1 : 0 })}
+              />
+            </div>
+          </SectionCard>
+
+          {/* Section 8: Voice Mode */}
+          <SectionCard title="Voice mode">
+            <AllowlistChipInput
+              label="Submit keywords"
+              hint="Single words only — no spaces. Agent listens for these to submit voice input."
+              placeholder="e.g. submit"
+              items={voiceKeywords}
+              inputValue={newVoiceKeyword}
+              onInputChange={setNewVoiceKeyword}
+              onAdd={addVoiceKeyword}
+              onRemove={removeVoiceKeyword}
+              disabled={disabled}
+            />
+          </SectionCard>
+
+          {/* Section 9: Attribution */}
+          <SectionCard title="Attribution">
+            <div className="flex flex-col">
+              <ToggleRow
+                label="Commit attribution"
+                desc="Mark Agent commits as 'Made with Agent Sam'"
+                on={Number(policy.commit_attribution) === 1}
+                disabled={disabled}
+                onChange={(v) => patchPolicy({ commit_attribution: v ? 1 : 0 })}
+              />
+              <ToggleRow
+                label="PR attribution"
+                desc="Mark pull requests as made with Agent Sam"
+                on={Number(policy.pr_attribution) === 1}
+                disabled={disabled}
+                onChange={(v) => patchPolicy({ pr_attribution: v ? 1 : 0 })}
+              />
+            </div>
+          </SectionCard>
+
+          {/* Section 10: Git */}
+          <SectionCard title="Git">
+            <label className="flex flex-col gap-1 max-w-md">
+              <FieldLabel>Branch prefix</FieldLabel>
+              <input
+                type="text"
+                disabled={disabled}
+                value={String(settingsJson.branch_prefix ?? 'agentsam/')}
+                placeholder="agentsam/"
+                onChange={(e) => patchSettingsJson({ branch_prefix: e.target.value })}
+                className={selectClass}
+              />
+              <span className="text-[10px] text-[var(--text-muted)] mt-1">
+                Prefix for new branches created by Agent Sam (e.g., agentsam/, username/)
+              </span>
+            </label>
+          </SectionCard>
+        </>
       ) : null}
     </div>
   );
