@@ -614,7 +614,9 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
                         <button
                           type="button"
                           onClick={() => {
-                            window.location.href = '/api/integrations/github/connect';
+                            window.location.href =
+                              '/api/oauth/github/start?return_to=' +
+                              encodeURIComponent('/dashboard/agent');
                           }}
                           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-[var(--border-subtle)] text-[var(--solar-cyan)] text-xs font-bold hover:bg-[var(--bg-hover)]"
                         >
