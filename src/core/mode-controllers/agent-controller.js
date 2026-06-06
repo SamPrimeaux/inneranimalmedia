@@ -13,6 +13,11 @@ import {
   getOrBuildCodemodeRuntime,
   buildHybridCodemodeManifest,
 } from '../codemode-agent-bridge.js';
+import {
+  buildCreateSubagentFlowSystemPromptLine,
+  resolveCreateSubagentFlow,
+} from '../create-subagent-flow.js';
+import { filterToolsForCapabilityDecision } from '../tool-capability-filter.js';
 
 const SSE_HEADERS = {
   'Content-Type': 'text/event-stream',
@@ -80,6 +85,12 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
     return jsonResponse({ error: 'no_model_resolved', profile_id: profile.profile_id }, 503);
   }
 
+  let chatMessages =
+    Array.isArray(body.messages) && body.messages.length
+      ? [...body.messages]
+      : [{ role: 'user', content: message }];
+  const createSubagentFlow = resolveCreateSubagentFlow(chatMessages);
+
   const promptRouteRow = profile._prompt_route_row ?? null;
   let tools = toolsManifestFromCompiledRows(profile._compiled_tool_rows || []);
   if (activeFileEnvelope && env?.DB) {
@@ -91,7 +102,9 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
   /** Codemode hybrid manifest (multitask / tool-chain planning) — non-fatal if build fails. */
   let codemodeRuntime = null;
   const rawBodyTaskType = body.task_type ?? body.taskType ?? null;
-  const useCodemode = shouldUseCodemodeForRequest(env, {
+  const useCodemode =
+    !createSubagentFlow.active &&
+    shouldUseCodemodeForRequest(env, {
     agentLikeTooling:
       profile.mode === 'agent' || profile.mode === 'debug' || profile.mode === 'multitask',
     resolvedRoutingTaskType: profile.routing_task_type,
@@ -134,6 +147,7 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
 
   let contextBlock = '';
   const includeRag =
+    !createSubagentFlow.active &&
     !minimalAsk &&
     profile.context_policy?.include_rag !== false &&
     Number(promptRouteRow?.include_rag ?? 1) !== 0;
@@ -209,7 +223,7 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
       'Add instrumentation when reproduction is needed; remove it after the fix is verified.';
   }
 
-  if (userId) {
+  if (userId && !createSubagentFlow.active) {
     try {
       const { buildGithubScopeSystemPromptLine } = await import('../github-repo-scope.js');
       const ghLine = await buildGithubScopeSystemPromptLine(env, userId);
@@ -221,20 +235,14 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
     }
   }
 
-  const userMessageText = String(input.message || input.prompt || '').toLowerCase();
-  if (
-    userMessageText.includes('create-subagent') ||
-    userMessageText.includes('create subagent') ||
-    userMessageText.includes('custom subagent')
-  ) {
+  if (createSubagentFlow.active && createSubagentFlow.phase) {
     try {
-      const { buildSubagentScopeSystemPromptLine } = await import('../subagent-profile-write.js');
-      const subLine = buildSubagentScopeSystemPromptLine();
-      if (subLine && !systemPrompt.includes('agentsam_subagent_profile')) {
-        systemPrompt = `${systemPrompt}\n\n## Subagents\n${subLine}`;
+      const flowLine = buildCreateSubagentFlowSystemPromptLine(createSubagentFlow.phase);
+      if (flowLine && !systemPrompt.includes('Create subagent (step')) {
+        systemPrompt = `${systemPrompt}\n\n## Subagents\n${flowLine}`;
       }
     } catch (e) {
-      console.warn('[agent-controller] subagent_scope_prompt', e?.message ?? e);
+      console.warn('[agent-controller] create_subagent_flow_prompt', e?.message ?? e);
     }
   }
 
@@ -327,10 +335,16 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
   );
 
   const maxRunMs = profile.max_runtime_ms || 90000;
-  let chatMessages =
-    Array.isArray(body.messages) && body.messages.length
-      ? [...body.messages]
-      : [{ role: 'user', content: message }];
+
+  try {
+    tools = await filterToolsForCapabilityDecision(env, tools, capabilityDecision, message, {
+      requestedMode: profile.mode,
+      workspaceId,
+      messages: chatMessages,
+    });
+  } catch (e) {
+    console.warn('[agent-controller] tool_capability_filter', e?.message ?? e);
+  }
 
   const activeToolNames = tools
     .map((t) => String(t?.name || t?.function?.name || '').trim())
@@ -412,6 +426,7 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
         : null;
 
       if (
+        !createSubagentFlow.active &&
         capabilityDecision?.should_use_antigravity &&
         workspaceId &&
         profile.mode !== 'ask'

@@ -17,8 +17,7 @@ import {
 
 export type AgentsSectionProps = { data: SettingsPanelModel; workspaceId?: string | null };
 
-const SUBAGENT_SETUP_COMPOSE_MESSAGE =
-  '/create-subagent Help me set up a custom subagent for my workspace. Suggest what kinds of subagents would be useful for my projects and guide me through creating one.';
+const SUBAGENT_SETUP_COMPOSE_MESSAGE = '/create-subagent';
 
 function SectionCard({
   title,

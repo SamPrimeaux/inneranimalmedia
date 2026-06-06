@@ -18,6 +18,11 @@ import {
   messageRequestsWebFetch,
   messageRequestsWorkspaceGrep,
 } from './agent-lane-router.js';
+import {
+  CREATE_SUBAGENT_TOOL_NAME,
+  pickCreateSubagentTools,
+  resolveCreateSubagentFlow,
+} from './create-subagent-flow.js';
 
 function parseJsonSafe(value, fallback = null) {
   if (value == null || value === '') return fallback;
@@ -126,12 +131,11 @@ function inferGithubIntentMessage(message, capabilityDecision) {
 
 export function inferAgentManagementIntent(message) {
   const m = String(message || '');
+  if (/\/create-subagent\b/i.test(m)) return false;
   return (
-    /\/create-subagent\b|\bcreate[-_\s]subagent\b|\bcustom\s+subagent\b|\bagentsam_create_subagent\b/i.test(
-      m,
-    ) ||
-    /\b(list|run|get|show|create)\s+(my\s+)?(sub)?agents?\b/i.test(m) ||
-    /\bagentsam_(get_agent|list_agents|run_agent|create_subagent)\b/i.test(m) ||
+    /\bcreate[-_\s]subagent\b|\bcustom\s+subagent\b|\bagentsam_create_subagent\b/i.test(m) ||
+    /\b(list|run|get|show)\s+(my\s+)?(sub)?agents?\b/i.test(m) ||
+    /\bagentsam_(get_agent|list_agents|run_agent)\b/i.test(m) ||
     /\bcursor\s+cloud\s+agent\b/i.test(m)
   );
 }
@@ -234,7 +238,7 @@ async function mergeVideoCapabilityTools(env, narrowed, originalTools, userMessa
  * @param {any[]} tools
  * @param {Record<string, unknown>|null} capabilityDecision
  * @param {string} userMessage
- * @param {{ requestedMode?: string, emit?: (type: string, payload: unknown) => void }} [opts]
+ * @param {{ requestedMode?: string, workspaceId?: string, messages?: unknown[], emit?: (type: string, payload: unknown) => void }} [opts]
  * @returns {Promise<any[]>}
  */
 export async function filterToolsForCapabilityDecision(env, tools, capabilityDecision, userMessage, opts = {}) {
@@ -245,6 +249,13 @@ export async function filterToolsForCapabilityDecision(env, tools, capabilityDec
   const before = tools.map((t) => String(t?.name || '')).filter(Boolean);
   const d = capabilityDecision && typeof capabilityDecision === 'object' ? capabilityDecision : {};
   const msg = String(userMessage || '');
+  const threadMessages =
+    Array.isArray(opts.messages) && opts.messages.length
+      ? opts.messages
+      : msg
+        ? [{ role: 'user', content: msg }]
+        : [];
+  const createFlow = resolveCreateSubagentFlow(threadMessages);
 
   const wantsD1 = inferWantsD1FromMessage(msg, d);
   const d1ReadOnly = inferD1ReadOnlyIntent(msg);
@@ -253,7 +264,9 @@ export async function filterToolsForCapabilityDecision(env, tools, capabilityDec
 
   let next = tools;
 
-  if (wantsAgentMgmt) {
+  if (createFlow.active) {
+    next = await narrowToToolNames(env, pickCreateSubagentTools(tools), [CREATE_SUBAGENT_TOOL_NAME]);
+  } else if (wantsAgentMgmt) {
     next = await narrowToToolNames(env, tools, AGENT_MGMT_TOOL_NAMES);
   } else if (wantsD1 && d1ReadOnly) {
     next = await narrowToToolNames(env, tools, ['d1_query', 'd1_explain', 'd1_schema_introspect']);
@@ -292,8 +305,10 @@ export async function filterToolsForCapabilityDecision(env, tools, capabilityDec
         ? String(opts.workspaceId)
         : '';
   const mode = requestedMode || 'agent';
-  next = await mergeImageCapabilityTools(env, next, tools, msg, ws, mode);
-  next = await mergeVideoCapabilityTools(env, next, tools, msg, ws, mode);
+  if (!createFlow.active) {
+    next = await mergeImageCapabilityTools(env, next, tools, msg, ws, mode);
+    next = await mergeVideoCapabilityTools(env, next, tools, msg, ws, mode);
+  }
 
   const after = next.map((t) => String(t?.name || '')).filter(Boolean);
   const debug =

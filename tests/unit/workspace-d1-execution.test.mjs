@@ -44,7 +44,7 @@ test('non-owner without D1 binding fails closed', async () => {
   assert.equal(out.user_message, CUSTOMER_D1_NOT_CONFIGURED);
 });
 
-test('owner without customer D1 binding uses platform mode', async () => {
+test('tenant owner without customer D1 binding fails closed (not platform operator)', async () => {
   const env = {
     DB: {
       prepare(sql) {
@@ -53,7 +53,8 @@ test('owner without customer D1 binding uses platform mode', async () => {
           bind() {
             return {
               async first() {
-                if (q.includes('agentsam_workspace_data_bindings')) return null;
+                if (q.includes('FROM agentsam_workspace')) return null;
+                if (q.includes('FROM workspace_limits')) return null;
                 return null;
               },
             };
@@ -70,11 +71,43 @@ test('owner without customer D1 binding uses platform mode', async () => {
     authUser: { role: 'owner' },
   });
 
+  assert.equal(out.ok, false);
+  assert.equal(out.mode, 'denied');
+  assert.equal(out.error, 'customer_d1_not_configured');
+});
+
+test('superadmin without customer D1 binding uses platform mode when policy allows', async () => {
+  const env = {
+    DB: {
+      prepare(sql) {
+        const q = String(sql);
+        return {
+          bind() {
+            return {
+              async first() {
+                if (q.includes('FROM agentsam_workspace')) return null;
+                if (q.includes('FROM workspace_limits')) return null;
+                return null;
+              },
+            };
+          },
+        };
+      },
+    },
+  };
+
+  const out = await resolveWorkspaceD1Execution(env, {
+    user_id: 'au_sam',
+    tenant_id: 'tenant_sam_primeaux',
+    workspace_id: 'ws_inneranimalmedia',
+    authUser: { role: 'superadmin', is_superadmin: 1 },
+  });
+
   assert.equal(out.ok, true);
   assert.equal(out.mode, 'platform');
 });
 
-test('workspace owner via membership_role uses platform mode when auth_users.role is member', async () => {
+test('workspace owner via membership_role fails closed without customer D1', async () => {
   const env = {
     DB: {
       prepare() {
@@ -98,8 +131,9 @@ test('workspace owner via membership_role uses platform mode when auth_users.rol
     authUser: { role: 'member', membership_role: 'owner' },
   });
 
-  assert.equal(out.ok, true);
-  assert.equal(out.mode, 'platform');
+  assert.equal(out.ok, false);
+  assert.equal(out.mode, 'denied');
+  assert.equal(out.error, 'customer_d1_not_configured');
 });
 
 test('customer workspace with D1 binding but no credentials fails closed', async () => {
@@ -111,12 +145,11 @@ test('customer workspace with D1 binding but no credentials fails closed', async
           bind() {
             return {
               async first() {
-                if (q.includes('agentsam_workspace_data_bindings')) {
+                if (q.includes('FROM agentsam_workspace')) {
                   return {
-                    id: 'wsbind_d1_1',
-                    external_account_id: 'acct1234567890abcd',
-                    external_database_id: 'db-uuid-1',
-                    selected_as_default: 1,
+                    id: 'ws_customer',
+                    d1_database_id: 'db-uuid-1',
+                    cloudflare_account_id: 'acct1234567890abcd',
                   };
                 }
                 if (q.includes('FROM user_api_keys')) return null;
@@ -140,6 +173,6 @@ test('customer workspace with D1 binding but no credentials fails closed', async
   assert.equal(out.mode, 'denied');
   assert.equal(out.error, 'cloudflare_key_missing');
   assert.equal(out.user_message, CUSTOMER_D1_NOT_CONFIGURED);
-  assert.equal(out.binding_id, 'wsbind_d1_1');
+  assert.equal(out.binding_id, 'ws_customer');
   assert.equal(out.database_id, 'db-uuid-1');
 });

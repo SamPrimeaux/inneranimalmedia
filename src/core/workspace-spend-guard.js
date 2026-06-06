@@ -111,11 +111,25 @@ export async function loadWorkspaceSpendLimits(env, workspaceId) {
         Number(limits.max_monthly_cost_usd) > 0 ? Number(limits.max_monthly_cost_usd) : null,
       spend_alerts: Array.isArray(limits.spend_alerts) ? limits.spend_alerts : [],
       byok_required_after_allowance: limits.byok_required_after_allowance === true,
+      allow_platform_fallback: limits.allow_platform_fallback !== false,
+      byok_required: limits.byok_required === true,
     };
   } catch (e) {
     console.warn('[workspace-spend-guard] load limits', e?.message ?? e);
     return null;
   }
+}
+
+/**
+ * Whether this workspace may use platform Wrangler secrets / env.DB (default true when no row).
+ * @param {any} env
+ * @param {string} workspaceId
+ */
+export async function workspaceAllowsPlatformFallback(env, workspaceId) {
+  const row = await loadWorkspaceSpendLimits(env, workspaceId);
+  if (!row) return true;
+  if (row.byok_required === true) return false;
+  return row.allow_platform_fallback !== false;
 }
 
 function spentForPeriod(period, amounts) {

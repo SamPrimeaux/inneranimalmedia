@@ -496,11 +496,10 @@ export async function resolveCredential(env, workspaceId, tenantId, handlerConfi
        WHERE user_id = ? AND LOWER(provider) = LOWER(?)
          AND COALESCE(is_active, 1) = 1
          AND (tenant_id IS NULL OR tenant_id = '' OR tenant_id = ?)
-         AND (workspace_id IS NULL OR workspace_id = '' OR workspace_id = ?)
-       ORDER BY CASE WHEN workspace_id = ? THEN 0 ELSE 1 END, updated_at DESC
+       ${cols.has('updated_at') ? 'ORDER BY updated_at DESC' : cols.has('created_at') ? 'ORDER BY created_at DESC' : 'ORDER BY rowid DESC'}
        LIMIT 1`,
     )
-      .bind(uid, provider, tid, ws, ws)
+      .bind(uid, provider, tid)
       .first();
 
     if (!row) {

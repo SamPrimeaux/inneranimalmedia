@@ -1,32 +1,21 @@
 /**
  * Workspace-scoped D1 execution resolver for agentsam_d1_* (catalog handler_type cf, operation d1.*).
- * Platform env.DB only for owner/superadmin without a customer D1 binding.
+ * Platform env.DB only for superadmin without a customer D1 binding (and when workspace policy allows).
  * Customer workspaces fail closed when no BYO Cloudflare D1 is configured.
  */
 import { authUserIsSuperadmin } from './auth.js';
 import { getDefaultWorkspaceDataBinding } from './workspace-data-bindings.js';
 import { resolveWorkspaceCloudflareCredentials } from './workspace-cloudflare-credentials.js';
 import { logDataPlaneSecurityEvent } from './data-plane-access-guard.js';
+import { workspaceAllowsPlatformFallback } from './workspace-spend-guard.js';
 
 export const CUSTOMER_D1_NOT_CONFIGURED =
   'No Cloudflare D1 database is configured for this workspace. Add Cloudflare credentials and select a default D1 in Settings.';
 
-/**
- * Workspace owner/admin (workspace_members) may use platform D1 when no BYO D1 is bound,
- * even when auth_users.role is `member`.
- *
- * @param {unknown} authUser
- */
-function resolveOwnerFlags(authUser) {
-  const role = String(authUser?.role ?? '').trim().toLowerCase();
-  const membershipRole = String(authUser?.membership_role ?? '').trim().toLowerCase();
+/** @param {unknown} authUser */
+function resolvePlatformOperatorFlags(authUser) {
   const isSuperadmin = authUserIsSuperadmin(authUser);
-  const isOwner =
-    isSuperadmin ||
-    role === 'owner' ||
-    membershipRole === 'owner' ||
-    membershipRole === 'admin';
-  return { isSuperadmin, isOwner };
+  return { isSuperadmin };
 }
 
 /**
@@ -73,7 +62,7 @@ export async function resolveWorkspaceD1Execution(env, ctx) {
   const workspaceId = ctx?.workspace_id != null ? String(ctx.workspace_id).trim() : '';
   const userId = ctx?.user_id != null ? String(ctx.user_id).trim() : '';
   const tenantId = ctx?.tenant_id != null ? String(ctx.tenant_id).trim() : '';
-  const { isOwner, isSuperadmin } = resolveOwnerFlags(ctx?.authUser);
+  const { isSuperadmin } = resolvePlatformOperatorFlags(ctx?.authUser);
 
   const meta = {
     workspace_id: workspaceId || null,
@@ -137,7 +126,7 @@ export async function resolveWorkspaceD1Execution(env, ctx) {
     };
   }
 
-  if (isOwner || isSuperadmin) {
+  if (isSuperadmin && (await workspaceAllowsPlatformFallback(env, workspaceId))) {
     logDataPlaneSecurityEvent('workspace_d1_platform', meta);
     return {
       ok: true,

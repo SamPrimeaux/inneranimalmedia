@@ -28,8 +28,7 @@ export const CREATE_SKILL_SEED_MESSAGE =
   'I want to create a new Agent Sam skill. Please start with an intake interview (do not auto-run a multi-step plan yet): what should it do, when should it trigger, and is it a Cursor skill or a Worker/D1 skill?';
 
 /** Prefill Agent Sam composer when creating a subagent from Settings (user sends manually). */
-export const CREATE_SUBAGENT_COMPOSE_MESSAGE =
-  '/create-subagent Help me create this subagent for Agent Sam:';
+export const CREATE_SUBAGENT_COMPOSE_MESSAGE = '/create-subagent';
 
 /** Window event: prefill composer; does not send unless detail.send === true. */
 export const IAM_AGENT_CHAT_COMPOSE = 'iam:agent-chat-compose';

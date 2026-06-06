@@ -5,6 +5,7 @@
 import { getAESKey, aesGcmDecryptFromB64 } from './crypto-vault.js';
 import { getDefaultWorkspaceDataBinding } from './workspace-data-bindings.js';
 import { userHasSuperadminRole } from './resolve-credential.js';
+import { workspaceAllowsPlatformFallback } from './workspace-spend-guard.js';
 
 function trim(v) {
   return v == null ? '' : String(v).trim();
@@ -76,7 +77,8 @@ export async function resolveWorkspaceCloudflareCredentials(env, userId, tenantI
   }
 
   const authUser = await loadAuthUserForCredentials(env, uid);
-  if (userHasSuperadminRole(authUser)) {
+  const platformFallbackOk = await workspaceAllowsPlatformFallback(env, ws);
+  if (userHasSuperadminRole(authUser) && platformFallbackOk) {
     const token = trim(env?.CLOUDFLARE_API_TOKEN);
     const platformAccountId = trim(env?.CLOUDFLARE_ACCOUNT_ID);
     if (token && platformAccountId) {
@@ -100,9 +102,8 @@ export async function resolveWorkspaceCloudflareCredentials(env, userId, tenantI
     'tenant_id = ?',
     'user_id = ?',
     "LOWER(provider) = 'cloudflare'",
-    'workspace_id = ?',
   ];
-  const binds = [tid, uid, ws];
+  const binds = [tid, uid];
   if (cols.has('status')) {
     where.push("COALESCE(status, 'active') = 'active'");
   }
@@ -114,7 +115,9 @@ export async function resolveWorkspaceCloudflareCredentials(env, userId, tenantI
       ? 'ORDER BY updated_at DESC, created_at DESC'
       : cols.has('updated_at')
         ? 'ORDER BY updated_at DESC'
-        : '';
+        : cols.has('created_at')
+          ? 'ORDER BY created_at DESC'
+          : '';
 
   const row = await env.DB.prepare(
     `SELECT ${selectCols.join(', ')} FROM user_api_keys

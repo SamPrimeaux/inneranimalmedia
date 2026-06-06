@@ -80,10 +80,10 @@ export async function buildGithubScopeSystemPromptLine(env, userId) {
   }
   return (
     `GitHub scope (enforced): your connected account is \`${login}\`. ` +
-    `All repo paths must use \`${login}/<repo-name>\` (example: \`${login}/thermos-heat-and-air\`). ` +
+    `All repo paths must use \`${login}/<repo-name>\`. ` +
     `Do not prefix customer repos with \`SamPrimeaux/\` — that org is the platform operator only (` +
     `\`SamPrimeaux/inneranimalmedia\`, etc.), not your personal repositories. ` +
-    `Use agentsam_github_repo_list to list repos you own.`
+    `Use agentsam_github_repo_list to list repos you own. Do not guess repository names.`
   );
 }
 

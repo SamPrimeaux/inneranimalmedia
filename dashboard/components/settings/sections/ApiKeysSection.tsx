@@ -103,15 +103,6 @@ function StatusPill({ status }: { status: string }) {
   );
 }
 
-function ScopePill({ scope }: { scope: string }) {
-  const s = String(scope || '').toLowerCase() || 'workspace';
-  return (
-    <span className="inline-block px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-widest border border-[var(--border-subtle)] bg-[var(--bg-app)] text-[var(--text-muted)]">
-      {s}
-    </span>
-  );
-}
-
 export type ApiKeysSectionProps = { workspaceId?: string | null };
 
 function apiKeysJsonHeaders(workspaceId: string | null) {
@@ -160,7 +151,6 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
   const [r2AccessKeyId, setR2AccessKeyId] = useState('');
   const [r2SecretAccessKey, setR2SecretAccessKey] = useState('');
   const [r2Bucket, setR2Bucket] = useState('');
-  const [scope, setScope] = useState<'user' | 'workspace'>('workspace');
   const [expiresAt, setExpiresAt] = useState('');
 
   const [rotateOpen, setRotateOpen] = useState(false);
@@ -388,7 +378,7 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
           secret_name: name,
           label: name,
           api_key: val,
-          scope: 'workspace',
+          scope: 'user',
         }),
       });
       const j = (await r.json().catch(() => ({}))) as Record<string, unknown>;
@@ -413,7 +403,6 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
     setR2SecretAccessKey('');
     setR2Bucket('');
     setProvider('openai');
-    setScope('workspace');
     setExpiresAt('');
     setTestResult(null);
   }, []);
@@ -525,7 +514,7 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
           cloudflare_account_id: accountT,
           r2_access_key_id: accessT,
           r2_secret_access_key: secretT,
-          scope: 'workspace',
+          scope: 'user',
           validate: true,
         };
         const bucketT = r2Bucket.trim();
@@ -562,10 +551,6 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
       setError('Cloudflare Account ID is required.');
       return;
     }
-    if (!scope) {
-      setError('Scope is required.');
-      return;
-    }
     setSaving(true);
     setError(null);
     try {
@@ -575,7 +560,7 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
         label: labelT || undefined,
         key_name: labelT || undefined,
         api_key: keyT,
-        scope,
+        scope: 'user',
         validate: true,
         expires_at: expiresAt.trim() ? expiresAt.trim() : null,
       };
@@ -684,7 +669,7 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
     <div className="flex flex-col gap-5 max-w-4xl">
       <SectionHeader
         title="Keys & Secrets"
-        description="Provider keys power Agent Sam (BYOK). Run npm run sync:operator-keys to import from .env.cloudflare. Secrets are never shown again after save."
+        description="Provider keys are saved per your account (BYOK). Run npm run sync:operator-keys to import from .env.cloudflare. Raw secrets are encrypted at rest and never returned after save."
         right={
           <div className="flex items-center gap-2">
             <button
@@ -780,12 +765,6 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
                   </div>
                 </div>
               ),
-            },
-            {
-              key: 'scope',
-              label: 'Scope',
-              widthClass: '110px',
-              render: (r) => <ScopePill scope={r.scope} />,
             },
             {
               key: 'validated_at',
@@ -1226,18 +1205,6 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
                 </div>
               )}
               {!isCloudflareR2 ? (
-              <>
-              <label className="flex flex-col gap-1 text-[11px]">
-                <span className="text-[var(--text-muted)]">Scope</span>
-                <select
-                  value={scope}
-                  onChange={(e) => setScope((e.target.value as 'user' | 'workspace') || 'workspace')}
-                  className="px-3 py-2 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[12px]"
-                >
-                  <option value="workspace">workspace</option>
-                  <option value="user">user</option>
-                </select>
-              </label>
               <label className="flex flex-col gap-1 text-[11px]">
                 <span className="text-[var(--text-muted)]">Expiration (optional)</span>
                 <input
@@ -1247,7 +1214,6 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
                   className="px-3 py-2 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[12px] font-mono"
                 />
               </label>
-              </>
               ) : null}
             </div>
             {testResult?.checks?.length ? (

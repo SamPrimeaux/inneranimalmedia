@@ -9,7 +9,13 @@
  * - Scope every operation by authenticated user + tenant_id (when available) + workspace_id.
  * - Schema drift safety: probe columns via PRAGMA and omit missing fields.
  */
-import { jsonResponse, fetchAuthUserTenantId, fallbackSystemTenantId, getSession } from '../core/auth.js';
+import {
+  jsonResponse,
+  fetchAuthUserTenantId,
+  fallbackSystemTenantId,
+  getSession,
+  authUserIsSuperadmin,
+} from '../core/auth.js';
 import {
   canonicalUserSecretId,
   handleKeySecurityAfterOp,
@@ -37,6 +43,7 @@ import { validateR2ByokCredentials } from '../core/storage-byok-test.js';
 import { getDefaultWorkspaceDataBinding } from '../core/workspace-data-bindings.js';
 
 const KEY_CATEGORIES = new Set(['provider', 'personal', 'internal']);
+const BYOK_USER_SCOPE = 'user';
 
 const PROVIDERS = new Set([
   'openai',
@@ -111,6 +118,20 @@ async function tableColumns(db, table) {
 
 function has(cols, col) {
   return cols && cols.has(col);
+}
+
+function apiKeysOrderClause(cols) {
+  if (has(cols, 'updated_at') && has(cols, 'created_at')) {
+    return 'ORDER BY updated_at DESC, created_at DESC';
+  }
+  if (has(cols, 'updated_at')) return 'ORDER BY updated_at DESC';
+  if (has(cols, 'created_at')) return 'ORDER BY created_at DESC';
+  return 'ORDER BY rowid DESC';
+}
+
+/** BYOK keys are always stored per authenticated user (not workspace-gated). */
+function normalizeByokScope(_body) {
+  return BYOK_USER_SCOPE;
 }
 
 /** @param {string} code @param {string} message @param {number} [status] */
@@ -195,7 +216,7 @@ function toSafeItem(row, cols) {
       row.key_name ??
       null,
     status: row.status ?? 'active',
-    scope: row.scope ?? 'workspace',
+    scope: row.scope ?? BYOK_USER_SCOPE,
     last_four: lastFour,
     cloudflare_account_mask: cloudflareAccountId ? maskAccountId(cloudflareAccountId) : null,
     validated_at: meta.validated_at ?? null,
@@ -382,10 +403,7 @@ async function decryptVaultSecret(env, vaultSecretId, userId, tenantId, workspac
     where.push('tenant_id = ?');
     binds.push(tenantId);
   }
-  if (workspaceId && has(sCols, 'workspace_id')) {
-    where.push('workspace_id = ?');
-    binds.push(workspaceId);
-  }
+
   const row = await env.DB.prepare(
     `SELECT secret_value_encrypted FROM user_secrets WHERE ${where.join(' AND ')} LIMIT 1`,
   )
@@ -597,10 +615,6 @@ async function loadApiKeyRowScoped(env, authUser, id, workspaceId) {
     where.push('tenant_id = ?');
     binds.push(tenantId);
   }
-  if (workspaceId && has(cols, 'workspace_id')) {
-    where.push('workspace_id = ?');
-    binds.push(workspaceId);
-  }
 
   // Soft-delete support
   if (has(cols, 'is_active')) where.push('COALESCE(is_active, 1) = 1');
@@ -613,7 +627,7 @@ async function loadApiKeyRowScoped(env, authUser, id, workspaceId) {
     has(cols, 'provider') ? 'provider' : 'NULL AS provider',
     has(cols, 'label') ? 'label' : has(cols, 'key_name') ? 'key_name AS label' : 'NULL AS label',
     has(cols, 'status') ? 'status' : `'active' AS status`,
-    has(cols, 'scope') ? 'scope' : `'workspace' AS scope`,
+    has(cols, 'scope') ? 'scope' : `'${BYOK_USER_SCOPE}' AS scope`,
     has(cols, 'last_four')
       ? 'last_four'
       : has(cols, 'key_preview')
@@ -667,10 +681,7 @@ async function listApiKeys(request, env, authUser, url) {
     where.push('tenant_id = ?');
     binds.push(tenantId);
   }
-  if (has(cols, 'workspace_id')) {
-    where.push('workspace_id = ?');
-    binds.push(workspaceId);
-  }
+
   if (has(cols, 'is_active')) where.push('COALESCE(is_active, 1) = 1');
   if (categoryFilter && has(cols, 'category') && KEY_CATEGORIES.has(categoryFilter)) {
     where.push('category = ?');
@@ -685,7 +696,7 @@ async function listApiKeys(request, env, authUser, url) {
     has(cols, 'metadata_json') ? 'metadata_json' : 'NULL AS metadata_json',
     has(cols, 'label') ? 'label' : has(cols, 'key_name') ? 'key_name AS label' : 'NULL AS label',
     has(cols, 'status') ? 'status' : `'active' AS status`,
-    has(cols, 'scope') ? 'scope' : `'workspace' AS scope`,
+    has(cols, 'scope') ? 'scope' : `'${BYOK_USER_SCOPE}' AS scope`,
     has(cols, 'last_four')
       ? 'last_four'
       : has(cols, 'key_preview')
@@ -702,7 +713,7 @@ async function listApiKeys(request, env, authUser, url) {
     const sql = `SELECT ${select}
       FROM user_api_keys
       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-      ORDER BY COALESCE(updated_at, created_at) DESC, created_at DESC
+      ${apiKeysOrderClause(cols)}
       LIMIT 500`;
     const res = await db.prepare(sql).bind(...binds).all();
     const items = (res?.results || []).map((r) => toSafeItem(r, cols));
@@ -777,11 +788,7 @@ async function createApiKey(env, authUser, request) {
     body.label ?? body.key_name ?? (category === 'personal' ? secretName : ''),
   ).trim();
   const api_key = normalizeApiKeySecret(body.api_key || body.secret_value || '');
-  const scopeRaw =
-    body.scope == null || String(body.scope).trim() === ''
-      ? 'workspace'
-      : String(body.scope).trim().toLowerCase();
-  const scope = scopeRaw;
+  const scope = normalizeByokScope(body);
   const workspaceId = wsRes.workspaceId;
   const expires_at = body.expires_at ?? null;
   const metadata = body.metadata ?? null;
@@ -818,9 +825,6 @@ async function createApiKey(env, authUser, request) {
     if (!preValidateResult.ok) {
       return jsonResponse({ ok: false, error: 'validation_failed', ...preValidateResult }, 400);
     }
-  }
-  if (!['user', 'workspace'].includes(scope)) {
-    return clientError('INVALID_SCOPE', 'Scope must be user or workspace.');
   }
 
   const tenantId = await resolveTenantIdOrFetch(env, authUser);
@@ -867,7 +871,7 @@ async function createApiKey(env, authUser, request) {
       ['id', vaultSecretId],
       ['user_id', userId],
       ['tenant_id', tenantId],
-      ['workspace_id', workspaceId],
+      ...(has(sCols, 'workspace_id') ? [['workspace_id', null]] : []),
       [
         'secret_name',
         category === 'personal' && secretName
@@ -929,7 +933,7 @@ async function createApiKey(env, authUser, request) {
       ['id', keyRowId],
       ['tenant_id', tenantId],
       ['user_id', userId],
-      ['workspace_id', workspaceId],
+      ...(has(cols, 'workspace_id') ? [['workspace_id', null]] : []),
       ['category', category],
       ['provider', provider],
       ['label', effectiveLabel],
@@ -1061,10 +1065,8 @@ async function patchApiKey(env, authUser, request, id) {
     binds.push(String(body.status).trim());
   }
   if (body.scope != null && has(cols, 'scope')) {
-    const s = String(body.scope).trim().toLowerCase();
-    if (!['user', 'workspace'].includes(s)) return jsonResponse({ error: 'scope must be user or workspace' }, 400);
     updates.push('scope = ?');
-    binds.push(s);
+    binds.push(BYOK_USER_SCOPE);
   }
   if (body.expires_at !== undefined && has(cols, 'expires_at')) {
     updates.push('expires_at = ?');
@@ -1438,7 +1440,7 @@ async function listCloudflareD1Databases(env, authUser, request, url) {
 
   const creds = await resolveWorkspaceCloudflareCredentials(env, userId, tenantId, workspaceId);
   if (!creds.ok) {
-    return clientError('CLOUDFLARE_CREDENTIALS_MISSING', 'Add a Cloudflare API token for this workspace first.', 400);
+    return clientError('CLOUDFLARE_CREDENTIALS_MISSING', 'Add your Cloudflare API token in Keys & Secrets first.', 400);
   }
 
   const accountId = accountIdParam || creds.account_id;
@@ -1489,7 +1491,7 @@ async function listCloudflareZones(env, authUser, request) {
 
   const creds = await resolveWorkspaceCloudflareCredentials(env, userId, tenantId, workspaceId);
   if (!creds.ok) {
-    return clientError('CLOUDFLARE_CREDENTIALS_MISSING', 'Add a Cloudflare API token for this workspace first.', 400);
+    return clientError('CLOUDFLARE_CREDENTIALS_MISSING', 'Add your Cloudflare API token in Keys & Secrets first.', 400);
   }
 
   const accountId = creds.account_id;
@@ -1596,7 +1598,7 @@ async function getKeysFormHints(env, authUser, request) {
   const creds = await resolveWorkspaceCloudflareCredentials(env, userId, tenantId, workspaceId);
   if (creds.ok && creds.account_id) {
     cloudflareAccountId = creds.account_id;
-  } else if (env?.CLOUDFLARE_ACCOUNT_ID) {
+  } else if (authUserIsSuperadmin(authUser) && env?.CLOUDFLARE_ACCOUNT_ID) {
     cloudflareAccountId = String(env.CLOUDFLARE_ACCOUNT_ID).trim() || null;
   }
 
@@ -1665,7 +1667,7 @@ async function selectCloudflareD1Database(env, authUser, request) {
 
   const creds = await resolveWorkspaceCloudflareCredentials(env, userId, tenantId, workspaceId);
   if (!creds.ok) {
-    return clientError('CLOUDFLARE_CREDENTIALS_MISSING', 'Add a Cloudflare API token for this workspace first.', 400);
+    return clientError('CLOUDFLARE_CREDENTIALS_MISSING', 'Add your Cloudflare API token in Keys & Secrets first.', 400);
   }
 
   const resolvedAccountId = accountId || creds.account_id;
