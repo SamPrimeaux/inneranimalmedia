@@ -73,6 +73,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
     mode, modeConfig, userPolicy,
     sessionId, tenantId, userId,
     workspaceId,
+    authUser: authUserParam = null,
     routingTaskType,
     qualityScore,
     mcpRuntimeContext,
@@ -170,6 +171,9 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
 
   const mcpBase =
     mcpRuntimeContext && typeof mcpRuntimeContext === 'object' ? { ...mcpRuntimeContext } : {};
+  if (!mcpBase.authUser && authUserParam) {
+    mcpBase.authUser = authUserParam;
+  }
   if (params.chatRouteKey != null && String(params.chatRouteKey).trim() !== '') {
     mcpBase.routeKey = String(params.chatRouteKey).trim();
   }
@@ -1083,6 +1087,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
                 tenantId,
                 userId,
                 workspaceId,
+                authUser: mcpCtx.authUser ?? authUserParam ?? null,
                 personUuid: mcpCtx.personUuid,
                 isSuperadmin: mcpCtx.isSuperadmin,
                 request,

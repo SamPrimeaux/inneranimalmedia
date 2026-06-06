@@ -74,6 +74,34 @@ test('owner without customer D1 binding uses platform mode', async () => {
   assert.equal(out.mode, 'platform');
 });
 
+test('workspace owner via membership_role uses platform mode when auth_users.role is member', async () => {
+  const env = {
+    DB: {
+      prepare() {
+        return {
+          bind() {
+            return {
+              async first() {
+                return null;
+              },
+            };
+          },
+        };
+      },
+    },
+  };
+
+  const out = await resolveWorkspaceD1Execution(env, {
+    user_id: 'au_connor',
+    tenant_id: 'tenant_connor_mcneely',
+    workspace_id: 'ws_connor_mcneely',
+    authUser: { role: 'member', membership_role: 'owner' },
+  });
+
+  assert.equal(out.ok, true);
+  assert.equal(out.mode, 'platform');
+});
+
 test('customer workspace with D1 binding but no credentials fails closed', async () => {
   const env = {
     DB: {

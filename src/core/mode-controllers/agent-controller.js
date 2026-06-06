@@ -67,7 +67,7 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
   const profile = input.profile;
   const body = input.body || {};
   const message = String(input.message || '').trim();
-  const { userId, tenantId, workspaceId, sessionId } = input.session || {};
+  const { userId, tenantId, workspaceId, sessionId, authUser: sessionAuthUser } = input.session || {};
   const quickstartBatch = input.quickstartBatch != null ? String(input.quickstartBatch) : '';
   const activeFileEnvelope = input.activeFileEnvelope ?? null;
   const subagentProfileRow = input.subagentProfileRow ?? null;
@@ -464,6 +464,7 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
         tenantId,
         workspaceId,
         sessionId,
+        authUser: sessionAuthUser ?? null,
         taskType: profile.routing_task_type,
         routeKey: profile.refined_route_key || profile.mode,
         writePolicy: profile.write_policy,
@@ -492,6 +493,7 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
           tenantId,
           userId,
           workspaceId,
+          authUser: sessionAuthUser ?? null,
           routingTaskType: profile.routing_task_type,
           mcpRuntimeContext,
           routingArmId: profile.routing_arm_id,

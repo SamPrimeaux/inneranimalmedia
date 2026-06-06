@@ -1211,6 +1211,13 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
                 />
                 <div className="text-[10px] text-[var(--text-muted)]">
                   This key will not be shown again after you save it.
+                  {isCloudflare ? (
+                    <>
+                      {' '}
+                      Create an <strong>API Token</strong> at Cloudflare → My Profile → API Tokens (not the
+                      legacy Global API Key). Include Account Read and D1 Read at minimum.
+                    </>
+                  ) : null}
                 </div>
               </label>
               ) : (

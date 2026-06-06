@@ -12,12 +12,20 @@ export const CUSTOMER_D1_NOT_CONFIGURED =
   'No Cloudflare D1 database is configured for this workspace. Add Cloudflare credentials and select a default D1 in Settings.';
 
 /**
+ * Workspace owner/admin (workspace_members) may use platform D1 when no BYO D1 is bound,
+ * even when auth_users.role is `member`.
+ *
  * @param {unknown} authUser
  */
 function resolveOwnerFlags(authUser) {
   const role = String(authUser?.role ?? '').trim().toLowerCase();
+  const membershipRole = String(authUser?.membership_role ?? '').trim().toLowerCase();
   const isSuperadmin = authUserIsSuperadmin(authUser);
-  const isOwner = isSuperadmin || role === 'owner';
+  const isOwner =
+    isSuperadmin ||
+    role === 'owner' ||
+    membershipRole === 'owner' ||
+    membershipRole === 'admin';
   return { isSuperadmin, isOwner };
 }
 

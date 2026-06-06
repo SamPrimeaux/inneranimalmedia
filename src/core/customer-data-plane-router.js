@@ -71,8 +71,13 @@ function messageWantsPlatformAgentsam(message) {
  */
 function resolveOwnerFlags(authUser) {
   const role = String(authUser?.role ?? '').trim().toLowerCase();
+  const membershipRole = String(authUser?.membership_role ?? '').trim().toLowerCase();
   const isSuperadmin = authUserIsSuperadmin(authUser);
-  const isOwner = isSuperadmin || role === 'owner';
+  const isOwner =
+    isSuperadmin ||
+    role === 'owner' ||
+    membershipRole === 'owner' ||
+    membershipRole === 'admin';
   return { isSuperadmin, isOwner };
 }
 

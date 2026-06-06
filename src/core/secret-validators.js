@@ -4,6 +4,21 @@
 
 const VALIDATE_TIMEOUT_MS = 12_000;
 
+const CF_INVALID_TOKEN_HINT =
+  'Use an API Token from Cloudflare Dashboard → My Profile → API Tokens (Create Token). ' +
+  'Do not paste the legacy Global API Key from My Profile → API Keys — that format is not supported here. ' +
+  'Required permissions: Account → Read, and D1 → Read (plus any services you need).';
+
+/** Strip paste artifacts (Bearer prefix, whitespace, zero-width chars). */
+export function normalizeApiKeySecret(raw) {
+  let s = String(raw ?? '');
+  s = s.replace(/[\u200B-\u200D\uFEFF]/g, '');
+  s = s.trim();
+  if (/^bearer\s+/i.test(s)) s = s.replace(/^bearer\s+/i, '').trim();
+  s = s.replace(/\s+/g, '');
+  return s;
+}
+
 async function fetchWithTimeout(url, init, timeoutMs = VALIDATE_TIMEOUT_MS) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -33,7 +48,7 @@ function check(id, status, latencyMs, detail = null, extra = {}) {
  */
 export async function validateProviderKey(provider, apiKey, env = {}, opts = {}) {
   const prov = String(provider || '').trim().toLowerCase();
-  const key = String(apiKey || '').trim();
+  const key = normalizeApiKeySecret(apiKey);
   const warnings = [];
   const checks = [];
 
@@ -46,11 +61,22 @@ export async function validateProviderKey(provider, apiKey, env = {}, opts = {})
     if (prov === 'cloudflare') {
       const submittedAccountId =
         opts.cloudflare_account_id != null && String(opts.cloudflare_account_id).trim()
-          ? String(opts.cloudflare_account_id).trim()
+          ? String(opts.cloudflare_account_id).trim().replace(/\s+/g, '')
           : null;
 
       if (!submittedAccountId) {
         checks.push(check('account_id', 'fail', 0, 'Cloudflare Account ID is required'));
+        return { ok: false, provider: prov, checks, warnings };
+      }
+      if (!/^[a-f0-9]{32}$/i.test(submittedAccountId)) {
+        checks.push(
+          check(
+            'account_id',
+            'fail',
+            0,
+            'Account ID must be 32 hex characters (Dashboard → Account Home → right sidebar)',
+          ),
+        );
         return { ok: false, provider: prov, checks, warnings };
       }
 
@@ -64,15 +90,19 @@ export async function validateProviderKey(provider, apiKey, env = {}, opts = {})
       const verifyBody = await verifyRes.json().catch(() => ({}));
       const ms = Date.now() - t0;
       if (!verifyRes.ok || verifyBody?.success === false) {
-        checks.push(
-          check(
-            'token_verify',
-            'fail',
-            ms,
-            verifyBody?.errors?.[0]?.message || `HTTP ${verifyRes.status}`,
-          ),
-        );
-        return { ok: false, provider: prov, checks, warnings };
+        const cfMsg = verifyBody?.errors?.[0]?.message || `HTTP ${verifyRes.status}`;
+        const detail =
+          /invalid api token/i.test(String(cfMsg)) || /invalid access token/i.test(String(cfMsg))
+            ? CF_INVALID_TOKEN_HINT
+            : cfMsg;
+        checks.push(check('token_verify', 'fail', ms, detail));
+        return {
+          ok: false,
+          provider: prov,
+          checks,
+          warnings,
+          message: detail,
+        };
       }
       checks.push(check('token_verify', 'pass', ms, 'Token is valid'));
 

@@ -124,11 +124,24 @@ function inferGithubIntentMessage(message, capabilityDecision) {
   return /\bgithub\b|github\.com\/|pull request|create_pr|\.git\b/i.test(String(message || ''));
 }
 
-function inferAgentManagementIntent(message) {
-  return /\b(list|run|get|show)\s+(my\s+)?agents?\b|\bagentsam_(get_agent|list_agents|run_agent)\b|\bcursor\s+cloud\s+agent\b/i.test(
-    String(message || ''),
+export function inferAgentManagementIntent(message) {
+  const m = String(message || '');
+  return (
+    /\/create-subagent\b|\bcreate[-_\s]subagent\b|\bcustom\s+subagent\b|\bagentsam_create_subagent\b/i.test(
+      m,
+    ) ||
+    /\b(list|run|get|show|create)\s+(my\s+)?(sub)?agents?\b/i.test(m) ||
+    /\bagentsam_(get_agent|list_agents|run_agent|create_subagent)\b/i.test(m) ||
+    /\bcursor\s+cloud\s+agent\b/i.test(m)
   );
 }
+
+const AGENT_MGMT_TOOL_NAMES = [
+  'agentsam_list_agents',
+  'agentsam_get_agent',
+  'agentsam_create_subagent',
+  'agentsam_run_agent',
+];
 
 function isBrowserToolName(name) {
   return isBrowserInspectToolName(String(name || ''));
@@ -240,7 +253,9 @@ export async function filterToolsForCapabilityDecision(env, tools, capabilityDec
 
   let next = tools;
 
-  if (wantsD1 && d1ReadOnly) {
+  if (wantsAgentMgmt) {
+    next = await narrowToToolNames(env, tools, AGENT_MGMT_TOOL_NAMES);
+  } else if (wantsD1 && d1ReadOnly) {
     next = await narrowToToolNames(env, tools, ['d1_query', 'd1_explain', 'd1_schema_introspect']);
   } else if (wantsD1 && !d1ReadOnly) {
     next = await narrowToToolNames(env, tools, [
@@ -268,8 +283,6 @@ export async function filterToolsForCapabilityDecision(env, tools, capabilityDec
     next = tools.filter((t) => isTerminalToolName(t.name));
   } else if (d.should_use_artifact_r2) {
     next = tools.filter((t) => isArtifactOrR2ToolName(t.name));
-  } else if (wantsAgentMgmt) {
-    next = tools.filter((t) => isAgentSamAgentToolName(t.name));
   }
 
   const ws =

@@ -16,7 +16,11 @@ import {
 } from '../core/keys-security.js';
 import { encryptApiKeyForStorage } from './provisioning.js';
 import { userCanAccessWorkspace } from '../core/cms-theme-resolve.js';
-import { validateProviderKey, checkValidateRateLimit } from '../core/secret-validators.js';
+import {
+  validateProviderKey,
+  checkValidateRateLimit,
+  normalizeApiKeySecret,
+} from '../core/secret-validators.js';
 import { upsertWorkspaceDataBinding, listWorkspaceDataBindings } from '../core/workspace-data-bindings.js';
 import {
   maskAccountId,
@@ -448,9 +452,9 @@ async function validateKeysRequest(env, authUser, request, body, keyId = null) {
   if (wsRes.error) return clientError('WORKSPACE_ERROR', wsRes.error, 400);
 
   let provider = String(body?.provider || '').trim().toLowerCase();
-  let apiKey = String(body?.api_key || body?.secret_value || '').trim();
+  let apiKey = normalizeApiKeySecret(body?.api_key || body?.secret_value || '');
   let cloudflareAccountId =
-    body?.cloudflare_account_id != null ? String(body.cloudflare_account_id).trim() : '';
+    body?.cloudflare_account_id != null ? String(body.cloudflare_account_id).trim().replace(/\s+/g, '') : '';
 
   if (keyId) {
     const r2Summary = await getUserCloudflareR2KeySummary(env, userId);
@@ -768,11 +772,11 @@ async function createApiKey(env, authUser, request) {
 
   const secretName = String(body.secret_name || '').trim();
   const cloudflareAccountId =
-    body.cloudflare_account_id != null ? String(body.cloudflare_account_id).trim() : '';
+    body.cloudflare_account_id != null ? String(body.cloudflare_account_id).trim().replace(/\s+/g, '') : '';
   const keyLabel = String(
     body.label ?? body.key_name ?? (category === 'personal' ? secretName : ''),
   ).trim();
-  const api_key = String(body.api_key || body.secret_value || '').trim();
+  const api_key = normalizeApiKeySecret(body.api_key || body.secret_value || '');
   const scopeRaw =
     body.scope == null || String(body.scope).trim() === ''
       ? 'workspace'
