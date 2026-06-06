@@ -23,7 +23,6 @@ const KNOWN_R2_BINDINGS = [
   { binding: 'TOOLS', storage_name: 'tools', public: true, url: 'https://tools.inneranimalmedia.com' },
   { binding: 'R2', storage_name: 'iam-platform', public: false },
   { binding: 'DOCS_BUCKET', storage_name: 'iam-docs', public: false },
-  { binding: 'EMAIL', storage_name: 'inneranimalmedia-email-archive', public: false },
 ];
 
 /** Resolve tenant for row scoping (prefs, keys). */

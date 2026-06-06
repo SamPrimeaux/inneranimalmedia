@@ -3,26 +3,23 @@
 # deploy-gate.sh — IAM / CI/CD quality gate (+ optional AI Test Suite direct deploy)
 # Tracks every deploy, enforces protocol, writes to D1.
 # Usage:
-#   ./scripts/deploy-gate.sh sandbox  --note "fix excalidraw bridge"
-#   ./scripts/deploy-gate.sh promote  --note "promote v203 to prod"
+#   ./scripts/deploy-gate.sh audit
+#   ./scripts/deploy-gate.sh production  --note "worker + R2 via deploy:full"
 #   ./scripts/deploy-gate.sh aitestsuite --note "shell bump"
-#   ./scripts/deploy-gate.sh audit    (read-only compliance check)
 # ============================================================
 set -euo pipefail
 
 # ── Config ──────────────────────────────────────────────────
 DB_ID="cf87b717-d4e2-4cf8-bab0-a81268e32d49"
 IAM_WORKER="inneranimalmedia"
-SANDBOX_WORKER="inneranimal-dashboard"
-AITESTSUITE_WORKER="${AITESTSUITE_WORKER:-aitestsuite}"
 IAM_PROD_CONFIG="wrangler.production.toml"
-SANDBOX_CONFIG="wrangler.toml"
+AITESTSUITE_WORKER="${AITESTSUITE_WORKER:-aitestsuite}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # TODO: When AI Test Suite sources live in this repo, add wrangler.aitestsuite.toml + aitestsuite-worker.js at REPO_ROOT (do not add speculatively).
 AITESTSUITE_SCRIPT="$REPO_ROOT/aitestsuite-worker.js"
 AITESTSUITE_CONFIG="$REPO_ROOT/wrangler.aitestsuite.toml"
 DIST_DIR="$REPO_ROOT/dashboard/dist"
-DASHBOARD_HTML="$REPO_ROOT/dashboard/agent.html"
+DASHBOARD_HTML="$REPO_ROOT/dashboard/dist/index.html"
 BENCHMARK_SCRIPT="$REPO_ROOT/scripts/benchmark-full.sh"
 CF_ENV_WRAPPER="$REPO_ROOT/scripts/with-cloudflare-env.sh"
 BENCHMARK_PASS_THRESHOLD=31   # required passing tests
@@ -152,7 +149,7 @@ audit_assets() {
   log "Local hashes:"
   log "  dashboard.js  → $js_hash ($(file_bytes "$js_file") bytes)"
   log "  dashboard.css → $css_hash ($(file_bytes "$css_file") bytes)"
-  log "  agent.html          → $html_hash ($(file_bytes "$html_file") bytes)"
+  log "  app.html (dist)   → $html_hash ($(file_bytes "$html_file") bytes)"
 
   shopt -s nullglob
   for df in "$DIST_DIR"/*; do
@@ -317,7 +314,7 @@ write_dashboard_versions() {
 
   local html_hash; html_hash=$(file_md5 "$html_file")
   local html_size; html_size=$(file_bytes "$html_file")
-  local html_row="('${env}-agent-html-${ver}-${now}', 'agent-html', '${ver_esc}', '$html_hash', $html_size, 'static/dashboard/agent.html', '$env', $is_prod, $is_prod, '$gc_esc', '$st_esc', $now)"
+  local html_row="('${env}-agent-html-${ver}-${now}', 'agent-html', '${ver_esc}', '$html_hash', $html_size, 'static/dashboard/app.html', '$env', $is_prod, $is_prod, '$gc_esc', '$st_esc', $now)"
 
   if [[ -n "$values_sql" ]]; then
     d1 "INSERT OR REPLACE INTO dashboard_versions
@@ -332,7 +329,7 @@ write_dashboard_versions() {
           ${html_row};"
   fi
 
-  ok "dashboard_versions written for dist assets + agent.html (ver=$ver)"
+  ok "dashboard_versions written for dist assets + app.html shell (ver=$ver)"
 }
 
 # ── SECTION 8: AI Test Suite — optional R2 + D1 deploy audit ─
@@ -469,34 +466,15 @@ case "$MODE" in
     write_cicd_log "audit" "all" "scheduled audit" "5"
     ;;
 
-  sandbox)
-    [[ -z "$DEPLOY_NOTE" ]] && die "--note required. Example: ./scripts/deploy-gate.sh sandbox --note 'fix excalidraw bridge'"
+  production)
+    [[ -z "$DEPLOY_NOTE" ]] && die "--note required. Example: ./scripts/deploy-gate.sh production --note 'dashboard fix'"
     preflight
-    hr; log "Building frontend..."; hr
-    cd "$REPO_ROOT/agent-dashboard" && npm run build
-    hr; log "Deploying to sandbox worker ($SANDBOX_WORKER)..."; hr
+    hr; log "Production deploy ($IAM_WORKER) via deploy-frontend.sh..."; hr
     START_MS=$(($(date +%s%N)/1000000))
-    DEPLOY_MSG="$(cat "$REPO_ROOT/agent-dashboard/.sandbox-deploy-version" 2>/dev/null | xargs printf 'v%s' || echo 'v?') | $(git_hash | cut -c1-7) | ${DEPLOY_NOTE:-sandbox}"
-    "$CF_ENV_WRAPPER" wrangler deploy --config "$SANDBOX_CONFIG" --message "$DEPLOY_MSG"
+    (cd "$REPO_ROOT" && npm run deploy:full)
     END_MS=$(($(date +%s%N)/1000000))
     DURATION=$(( END_MS - START_MS ))
     local_ver="v$(date +%Y%m%d)"
-    hash=$(git_hash)
-    write_deploy_record "sandbox" "$SANDBOX_WORKER" "$local_ver" ""
-    write_cicd_log "deploy_sandbox" "$SANDBOX_WORKER" "$DEPLOY_NOTE" "5"
-    compliance_report
-    hr; ok "Sandbox deploy complete — verify at https://inneranimal-dashboard.meauxbility.workers.dev"
-    ;;
-
-  promote)
-    [[ -z "$DEPLOY_NOTE" ]] && die "--note required. Example: ./scripts/deploy-gate.sh promote --note 'promote v203 to prod'"
-    preflight
-    run_benchmark
-    hr; log "Promoting to production ($IAM_WORKER)..."; hr
-    DEPLOY_MSG="$(cat "$REPO_ROOT/agent-dashboard/.sandbox-deploy-version" 2>/dev/null | xargs printf 'v%s' || echo 'v?') | $(git_hash | cut -c1-7) | ${DEPLOY_NOTE:-promote}"
-    "$CF_ENV_WRAPPER" wrangler deploy --config "$IAM_PROD_CONFIG" --message "$DEPLOY_MSG"
-    local_ver="v$(date +%Y%m%d)"
-    hash=$(git_hash)
     write_deploy_record "production" "$IAM_WORKER" "$local_ver" ""
     write_cicd_log "deploy_production" "$IAM_WORKER" "$DEPLOY_NOTE" "5"
     compliance_report
@@ -528,7 +506,7 @@ case "$MODE" in
     ;;
 
   *)
-    echo "Usage: $0 [audit|sandbox|promote|aitestsuite] [--note 'description'] [--tag session-tag]"
+    echo "Usage: $0 [audit|production|aitestsuite] [--note 'description'] [--tag session-tag]"
     exit 1
     ;;
 

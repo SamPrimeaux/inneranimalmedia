@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Sync version-controlled email HTML → R2 EMAIL bucket (inneranimalmedia-email-archive).
+# Sync version-controlled email HTML → ASSETS bucket (inneranimalmedia/email/…).
 #
-# Layout (Worker onboarding loads templates/{name}.html via env.EMAIL):
-#   src/email-templates/*.html     → templates/{basename}.html
-#   docs/onboarding/*.html         → guides/{basename}.html  (interactive / attachment guides)
+# Layout (Worker onboarding loads via getEmailR2Bucket / emailTemplateKey):
+#   src/email-templates/*.html     → email/templates/{basename}.html
+#   docs/onboarding/*.html         → email/guides/{basename}.html
 #
 # Usage:
 #   ./scripts/upload-email-templates.sh
@@ -15,7 +15,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
 TOML="wrangler.production.toml"
-BUCKET="inneranimalmedia-email-archive"
+BUCKET="inneranimalmedia"
 DRY_RUN=0
 
 if [[ "${1:-}" == "--dry-run" ]]; then
@@ -45,18 +45,18 @@ put_object() {
     -c "$TOML"
 }
 
-echo "=== upload-email-templates (R2 EMAIL: ${BUCKET}) ==="
+echo "=== upload-email-templates (R2 ASSETS: ${BUCKET}/email/) ==="
 
 shopt -s nullglob
 for f in "${REPO_ROOT}/src/email-templates/"*.html; do
   base="$(basename "$f" .html)"
-  put_object "templates/${base}.html" "$f"
+  put_object "email/templates/${base}.html" "$f"
 done
 
 for f in "${REPO_ROOT}/docs/onboarding/"*.html; do
   base="$(basename "$f" .html)"
-  put_object "guides/${base}.html" "$f"
+  put_object "email/guides/${base}.html" "$f"
 done
 shopt -u nullglob
 
-echo "✓ Email templates synced to R2 (${BUCKET})"
+echo "✓ Email templates synced to R2 (${BUCKET}/email/)"

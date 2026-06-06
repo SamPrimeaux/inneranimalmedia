@@ -1,6 +1,6 @@
 /**
  * MCP_TOKENS (env.KV) is for small JSON config — never screenshots or binary blobs.
- * Screenshots belong on R2: reports/quality-report/…, screenshots/agent/, screenshots/browser/, etc.
+ * Screenshots: ephemeral by default; platform R2 only for IAM quality reports (reports/quality-report/…).
  */
 
 /** @type {readonly string[]} */
@@ -38,7 +38,7 @@ function looksLikeBinaryKvValue(value) {
 export function assertKvPutAllowed(key, value) {
   if (isKvScreenshotOrBinaryKey(key)) {
     throw new Error(
-      `KV (MCP_TOKENS) must not store screenshots. Key "${key}" — use R2 (DASHBOARD, DOCS_BUCKET, or ASSETS).`,
+      `KV (MCP_TOKENS) must not store screenshots. Key "${key}" — use ephemeral capture or user storage save API.`,
     );
   }
   if (looksLikeBinaryKvValue(value)) {

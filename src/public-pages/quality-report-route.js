@@ -217,8 +217,14 @@ export async function handleQualityReportRegisterApi(request, env, authUser, ing
     return jsonResponse({ error: 'unauthenticated' }, 401);
   }
 
+  const scope = ingestBypass
+    ? String(body.scope || 'platform').trim() || 'platform'
+    : String(body.scope || 'user').trim() || 'user';
+  const isPublic = ingestBypass ? 1 : scope === 'platform' ? 1 : 0;
+
   const id = String(body.id || `aqr_${reportDate.replace(/-/g, '')}_${reportTime}`).trim();
   const metadata = typeof body.metadata === 'object' ? body.metadata : {};
+  metadata.scope = scope;
 
   await env.DB.prepare(
     `INSERT INTO agentsam_quality_reports (
@@ -226,12 +232,14 @@ export async function handleQualityReportRegisterApi(request, env, authUser, ing
       report_date, report_time, r2_bucket, r2_prefix,
       public_path, public_url, label, uploaded_files,
       scope, is_public, metadata_json, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'quality-report', ?, ?, 1, ?, unixepoch(), unixepoch())
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'quality-report', ?, ?, ?, ?, unixepoch(), unixepoch())
     ON CONFLICT(id) DO UPDATE SET
       public_url = excluded.public_url,
       public_path = excluded.public_path,
       r2_prefix = excluded.r2_prefix,
       uploaded_files = excluded.uploaded_files,
+      scope = excluded.scope,
+      is_public = excluded.is_public,
       metadata_json = excluded.metadata_json,
       updated_at = unixepoch()`,
   )
@@ -248,7 +256,8 @@ export async function handleQualityReportRegisterApi(request, env, authUser, ing
       publicPath,
       publicUrl,
       uploadedFiles,
-      workspaceId ? 'workspace' : 'platform',
+      scope,
+      isPublic,
       JSON.stringify(metadata),
     )
     .run();
@@ -261,5 +270,23 @@ export async function handleQualityReportRegisterApi(request, env, authUser, ing
     public_url: publicUrl,
     r2_bucket: r2Bucket,
     r2_prefix: r2Prefix,
+    scope,
+    is_public: isPublic,
   });
+}
+
+/**
+ * Save a platform-staged quality report to user storage (BYOK R2 or local manifest).
+ */
+export async function handleQualityReportSaveApi(request, env, authUser) {
+  if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+  let body = {};
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ error: 'Invalid JSON' }, 400);
+  }
+  const { saveQualityReportForUser } = await import('../core/quality-report-user-export.js');
+  const out = await saveQualityReportForUser(env, authUser, body);
+  return jsonResponse(out, out.ok ? 200 : 400);
 }

@@ -9,7 +9,7 @@
 #       → deploy manifest JSON + prune old manifests (keep last 10).
 # R2: BUCKET=inneranimalmedia, prefix dashboard/app (DASHBOARD binding points at this bucket).
 #
-# Do not confuse with: ./scripts/deploy-sandbox.sh or promote-to-prod.sh (different pipelines).
+# Do not confuse with removed sandbox scripts. Production: npm run deploy:full or this CF Builds hook.
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

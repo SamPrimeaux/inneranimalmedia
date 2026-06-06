@@ -20,7 +20,7 @@ import {
 } from './browser-live-do-client.js';
 
 function screenshotR2Bucket(env) {
-  return env.DOCS_BUCKET || env.ASSETS || env.R2 || null;
+  return env.ASSETS || env.R2 || null;
 }
 
 /** @param {string} targetUrl */

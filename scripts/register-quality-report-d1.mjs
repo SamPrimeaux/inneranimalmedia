@@ -42,6 +42,7 @@ const payload = {
   workspace_id: process.env.IAM_WORKSPACE_ID || null,
   tenant_id: process.env.IAM_TENANT_ID || null,
   user_id: process.env.IAM_USER_ID || null,
+  scope: 'platform',
 };
 
 function loadIngestSecret() {

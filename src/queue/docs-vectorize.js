@@ -1,22 +1,42 @@
 /**
- * iam-docs R2 → VECTORIZE_DOCS indexing (queue-driven Put/Delete events).
- * Lifted from worker.js — keep behavior aligned with legacy queue consumer.
+ * inneranimalmedia-autorag R2 → AGENTSAM_VECTORIZE_DOCUMENTS indexing (queue-driven Put/Delete).
  */
-import { generateWorkersAiEmbedding } from '../core/embed-workers-ai.js';
+import { createAgentsamEmbedding } from '../core/agentsam-vectorize.js';
+import { resolveAgentsamEmbeddingSpecForDimensions } from '../core/agentsam-vectorize-index.js';
 import { chunkTextForCodebaseReindex } from './docs-chunk.js';
 
+const AUTORAG_BUCKET_NAME = 'inneranimalmedia-autorag';
 const DOCS_VECTOR_CHUNK_SIZE = 1000;
 const DOCS_VECTOR_CHUNK_OVERLAP = 100;
-const DOCS_EMBED_DIM = 1024;
+const DOCS_EMBED_DIM = 1536;
 const RAG_EMBED_BATCH_SIZE = 32;
+const SKIP_KEY_PREFIXES = ['screenshots/', 'reports/quality-report/'];
+const EMBED_SPEC = resolveAgentsamEmbeddingSpecForDimensions(DOCS_EMBED_DIM);
+
+function documentsVectorizeIndex(env) {
+  return env?.AGENTSAM_VECTORIZE_DOCUMENTS || null;
+}
+
+function autoragDocsBucket(env) {
+  return env?.AUTORAG_BUCKET || null;
+}
+
+function shouldIndexAutoragKey(key) {
+  const k = String(key || '').trim();
+  if (!k.endsWith('.md')) return false;
+  if (SKIP_KEY_PREFIXES.some((p) => k.startsWith(p))) return false;
+  if (k.includes('/screenshots/')) return false;
+  return true;
+}
 
 /**
- * Remove all VECTORIZE_DOCS vectors for one R2 object key.
+ * Remove all document-lane vectors for one R2 object key.
  * @param {any} env
  * @param {string} objectKey
  */
 export async function deleteVectorsForDocKey(env, objectKey) {
-  if (!env.VECTORIZE_DOCS?.deleteByIds || !objectKey) return;
+  const index = documentsVectorizeIndex(env);
+  if (!index?.deleteByIds || !objectKey) return;
   const slug = objectKey.replace(/\//g, '_').replace(/\./g, '_');
   let n = null;
   if (env.DB) {
@@ -27,13 +47,15 @@ export async function deleteVectorsForDocKey(env, objectKey) {
         .bind(objectKey)
         .first();
       n = row?.chunk_count;
-    } catch (_) { /* non-fatal */ }
+    } catch (_) {
+      /* non-fatal */
+    }
   }
   if (n != null && n > 0) {
     const ids = [];
     for (let i = 0; i < n; i++) ids.push(`${slug}#${i}`);
     for (let o = 0; o < ids.length; o += 100) {
-      await env.VECTORIZE_DOCS.deleteByIds(ids.slice(o, o + 100));
+      await index.deleteByIds(ids.slice(o, o + 100));
     }
     return;
   }
@@ -42,7 +64,7 @@ export async function deleteVectorsForDocKey(env, objectKey) {
   while (safety++ < 200) {
     let matches;
     try {
-      const res = await env.VECTORIZE_DOCS.query(zeroVec, {
+      const res = await index.query(zeroVec, {
         topK: 100,
         returnMetadata: 'all',
         filter: { key: { $eq: objectKey } },
@@ -55,12 +77,12 @@ export async function deleteVectorsForDocKey(env, objectKey) {
     if (!matches.length) break;
     const delIds = matches.map((m) => m.id).filter(Boolean);
     if (!delIds.length) break;
-    await env.VECTORIZE_DOCS.deleteByIds(delIds);
+    await index.deleteByIds(delIds);
   }
 }
 
 /**
- * Embed .md objects from DOCS_BUCKET into VECTORIZE_DOCS.
+ * Embed .md objects from AUTORAG_BUCKET into AGENTSAM_VECTORIZE_DOCUMENTS.
  * @param {any} env
  * @param {string} [keyFilter] If set, only index this key (single-file queue updates).
  */
@@ -68,25 +90,24 @@ export async function performDocsBucketVectorizeIndex(env, keyFilter) {
   let files = 0;
   let chunks = 0;
   try {
-    if (!env.DOCS_BUCKET || !env.AI || !env.VECTORIZE_DOCS?.upsert) {
-      console.warn('[docs-vector-index] missing DOCS_BUCKET, AI, or VECTORIZE_DOCS.upsert');
+    const bucket = autoragDocsBucket(env);
+    const index = documentsVectorizeIndex(env);
+    if (!bucket || !index?.upsert) {
+      console.warn('[docs-vector-index] missing AUTORAG_BUCKET or AGENTSAM_VECTORIZE_DOCUMENTS.upsert');
       return { files: 0, chunks: 0 };
     }
+
     const keys = [];
     if (keyFilter && typeof keyFilter === 'string') {
       const k = keyFilter.trim();
-      if (!k.endsWith('.md')) return { files: 0, chunks: 0 };
-      if (k.startsWith('screenshots/') || k.includes('/screenshots/')) return { files: 0, chunks: 0 };
-      keys.push(k);
+      if (shouldIndexAutoragKey(k)) keys.push(k);
     } else {
       let listCursor;
       do {
-        const list = await env.DOCS_BUCKET.list({ cursor: listCursor, limit: 1000 });
+        const list = await bucket.list({ cursor: listCursor, limit: 1000 });
         for (const o of list.objects || []) {
           const key = o.key;
-          if (!key || !key.endsWith('.md')) continue;
-          if (key.startsWith('screenshots/') || key.includes('/screenshots/')) continue;
-          keys.push(key);
+          if (shouldIndexAutoragKey(key)) keys.push(key);
         }
         listCursor = list.truncated ? list.cursor : undefined;
       } while (listCursor);
@@ -94,7 +115,7 @@ export async function performDocsBucketVectorizeIndex(env, keyFilter) {
 
     for (const key of keys) {
       await deleteVectorsForDocKey(env, key);
-      const obj = await env.DOCS_BUCKET.get(key);
+      const obj = await bucket.get(key);
       if (!obj) continue;
       const text = await obj.text();
       if (!text.trim()) {
@@ -115,43 +136,46 @@ export async function performDocsBucketVectorizeIndex(env, keyFilter) {
       let chunkCountForKey = 0;
       for (let i = 0; i < parts.length; i += RAG_EMBED_BATCH_SIZE) {
         const batchParts = parts.slice(i, i + RAG_EMBED_BATCH_SIZE);
-        const texts = batchParts.map((c) => c);
-        let values;
-        try {
-          const vecs = await generateWorkersAiEmbedding(env, texts);
-          values = Array.isArray(vecs) ? vecs : [];
-        } catch (e) {
-          console.warn('[docs-vector-index] embed batch failed', key, e?.message ?? e);
-          continue;
-        }
         const vectors = [];
-        batchParts.forEach((_, j) => {
+        for (let j = 0; j < batchParts.length; j++) {
           const chunkIndex = i + j;
-          const vec = values[j];
-          if (vec && Array.isArray(vec)) {
+          const textPart = batchParts[j];
+          let embedding;
+          try {
+            ({ embedding } = await createAgentsamEmbedding(env, textPart, { spec: EMBED_SPEC }));
+          } catch (e) {
+            console.warn('[docs-vector-index] embed failed', key, chunkIndex, e?.message ?? e);
+            continue;
+          }
+          if (embedding && Array.isArray(embedding)) {
             vectors.push({
               id: `${slug}#${chunkIndex}`,
-              values: vec,
-              metadata: { key, chunk_index: chunkIndex, source: 'r2' },
+              values: embedding,
+              metadata: {
+                key,
+                chunk_index: chunkIndex,
+                source: 'autorag_r2',
+                bucket: AUTORAG_BUCKET_NAME,
+              },
             });
           }
-        });
+        }
         if (vectors.length) {
-          await env.VECTORIZE_DOCS.upsert(vectors);
+          await index.upsert(vectors);
           chunkCountForKey += vectors.length;
         }
       }
       chunks += chunkCountForKey;
       if (env.DB && chunkCountForKey > 0) {
         await env.DB.prepare(
-          `INSERT OR REPLACE INTO docs_index_log (key, chunk_count, indexed_at, deleted_at, source, status) VALUES (?, ?, datetime('now'), NULL, 'r2', 'indexed')`,
+          `INSERT OR REPLACE INTO docs_index_log (key, chunk_count, indexed_at, deleted_at, source, status) VALUES (?, ?, datetime('now'), NULL, 'autorag_r2', 'indexed')`,
         )
           .bind(key, chunkCountForKey)
           .run()
           .catch((e) => console.warn('[docs_index_log]', e?.message ?? e));
       }
     }
-    console.log('[docs-vector-index] done', { files, chunks, keyFilter: keyFilter || null });
+    console.log('[docs-vector-index] done', { files, chunks, keyFilter: keyFilter || null, bucket: AUTORAG_BUCKET_NAME });
     return { files, chunks };
   } catch (e) {
     console.warn('[docs-vector-index]', e?.message ?? e);

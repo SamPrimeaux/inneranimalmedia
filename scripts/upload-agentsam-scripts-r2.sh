@@ -22,7 +22,7 @@ TIER1_MANIFEST=(
   "scripts/deploy-gate.sh|deploy/deploy-gate.sh|deploy_gate|deploy|high|Pre-deploy gate checks before worker ship"
   "scripts/deploy-full.sh|deploy/deploy-full.sh|deploy_full|deploy|high|Full prod pipeline (frontend R2 + worker wrangler deploy)"
   "scripts/deploy-with-record.sh|deploy/deploy-with-record.sh|deploy_with_record|deploy|high|Deploy with D1 deployment ledger record"
-  "scripts/deploy-sandbox.sh|deploy/deploy-sandbox.sh|deploy_sandbox|deploy|high|Sandbox worker deploy path"
+  "scripts/deploy-gate.sh|deploy/deploy-gate.sh|deploy_gate|deploy|high|Pre-deploy audit / production gate (npm run deploy:full)"
   "scripts/deploy-frontend.sh|deploy/deploy-frontend.sh|deploy_frontend|deploy|high|Vite build + R2 dashboard sync + worker deploy"
   "scripts/deploy-cf-builds-prod.sh|deploy/deploy-cf-builds-prod.sh|deploy_cf_builds|deploy|high|Cloudflare Builds production deploy hook"
   "scripts/deploy-test-promote.sh|deploy/deploy-test-promote.sh|deploy_test_promote|deploy|high|Test-to-prod promote script"

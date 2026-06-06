@@ -1,34 +1,49 @@
 /**
- * Async Playwright screenshot/render jobs from queue (legacy worker.js parity).
+ * Async Playwright screenshot/render jobs from queue.
+ * - Ad-hoc captures → ephemeral (no platform R2 by default)
+ * - IAM quality reports → ASSETS reports/quality-report/ only when scope=platform
  */
 import { assertBrowserTrustedOrigin } from '../core/agentsam-ops-ledger.js';
-const DOCS_SCREENSHOTS_PUBLIC_BASE = 'https://docs.inneranimalmedia.com';
-const DASHBOARD_SCREENSHOTS_PUBLIC_BASE = 'https://pub-b845a8f899834f0faf95dc83eda3c505.r2.dev';
+import {
+  resolveBrowserScreenshotCapture,
+  shouldPersistCaptureToPlatformR2,
+} from '../core/browser-capture-storage.js';
+import {
+  IAM_ASSETS_PUBLIC_ORIGIN,
+  qualityReportPublicUrl,
+  qualityReportR2Base,
+  qualityReportStamp,
+} from '../core/playwright-r2-paths.js';
 
-async function putAgentBrowserScreenshotToR2(env, buf, contentType) {
+function parseJobMetadata(raw) {
+  if (raw == null) return {};
+  if (typeof raw === 'object') return raw;
+  try {
+    const parsed = JSON.parse(String(raw));
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function isQualityReportJob(jobType, metadata) {
+  if (jobType === 'quality_report') return true;
+  return metadata?.quality_report === true || metadata?.report_kind === 'quality-report';
+}
+
+async function putQualityReportAssetToR2(env, buf, contentType, { date, time, filename }) {
+  const bucket = env.ASSETS;
+  if (!bucket) throw new Error('ASSETS R2 bucket required for quality reports');
   const ct = contentType || 'image/png';
-  if (env.DOCS_BUCKET) {
-    const ts = Date.now();
-    const id = crypto.randomUUID();
-    const key = `screenshots/agent/${ts}-${id}.png`;
-    await env.DOCS_BUCKET.put(key, buf, { httpMetadata: { contentType: ct } });
-    return { screenshot_url: `${DOCS_SCREENSHOTS_PUBLIC_BASE}/${key}`, job_id: id };
-  }
-  if (env.ASSETS) {
-    const ts = Date.now();
-    const id = crypto.randomUUID();
-    const key = `screenshots/agent/${ts}-${id}.png`;
-    await env.ASSETS.put(key, buf, { httpMetadata: { contentType: ct } });
-    return { screenshot_url: `${DASHBOARD_SCREENSHOTS_PUBLIC_BASE}/${key}`, job_id: id };
-  }
-  if (env.R2) {
-    const ts = Date.now();
-    const id = crypto.randomUUID();
-    const key = `screenshots/agent/${ts}-${id}.png`;
-    await env.R2.put(key, buf, { httpMetadata: { contentType: ct } });
-    return { screenshot_url: `${DASHBOARD_SCREENSHOTS_PUBLIC_BASE}/${key}`, job_id: id };
-  }
-  throw new Error('No R2 bucket for screenshots');
+  const name = String(filename || 'screenshot.png').replace(/^\/+/, '');
+  const key = `${qualityReportR2Base(date, time)}/${name}`;
+  await bucket.put(key, buf, { httpMetadata: { contentType: ct } });
+  return {
+    screenshot_url: qualityReportPublicUrl(date, time, name),
+    r2_key: key,
+    report_date: date,
+    report_time: time,
+  };
 }
 
 /**
@@ -37,31 +52,35 @@ async function putAgentBrowserScreenshotToR2(env, buf, contentType) {
  */
 export async function handlePlaywrightQueueJob(env, body) {
   const { jobId, job_type, url } = body;
-  if (!jobId || !env.MYBROWSER || !env.DB || (!env.ASSETS && !env.DOCS_BUCKET)) return;
+  if (!jobId || !env.MYBROWSER || !env.DB || !env.ASSETS) return;
 
-  if (job_type === 'render' && !env.ASSETS) {
-    try {
-      await env.DB.prepare("UPDATE playwright_jobs SET status='failed', error=? WHERE id=?")
-        .bind('DASHBOARD bucket required for render jobs', jobId)
-        .run();
-    } catch (_) { /* non-fatal */ }
-    return;
-  }
-
-  if (job_type !== 'screenshot' && job_type !== 'render') return;
+  const jobType = String(job_type || '').trim();
+  if (!['screenshot', 'render', 'quality_report'].includes(jobType)) return;
 
   const targetUrl = String(url || '').trim() || 'https://example.com';
   let userId = null;
   let workspaceId = null;
+  let metadata = {};
   try {
-    const row = await env.DB.prepare('SELECT user_id, workspace_id, url FROM playwright_jobs WHERE id = ?')
+    const row = await env.DB.prepare(
+      'SELECT user_id, workspace_id, url, metadata FROM playwright_jobs WHERE id = ?',
+    )
       .bind(jobId)
       .first();
     if (row?.user_id) userId = String(row.user_id);
     if (row?.workspace_id) workspaceId = String(row.workspace_id);
+    metadata = parseJobMetadata(row?.metadata);
   } catch (_) {
     /* non-fatal */
   }
+
+  const qualityReport = isQualityReportJob(jobType, metadata);
+  const platformPersist = shouldPersistCaptureToPlatformR2({
+    scope: metadata.scope || body.scope,
+    metadata,
+    jobType,
+  });
+
   if (userId) {
     try {
       await assertBrowserTrustedOrigin(env, {
@@ -84,21 +103,64 @@ export async function handlePlaywrightQueueJob(env, body) {
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto(targetUrl, { waitUntil: 'networkidle', timeout: 30000 });
     let resultUrl = null;
-    if (job_type === 'screenshot') {
+    let resultMeta = null;
+
+    if (jobType === 'screenshot' || jobType === 'quality_report') {
       const buf = await page.screenshot({ type: 'png', fullPage: true });
-      const out = await putAgentBrowserScreenshotToR2(env, buf, 'image/png');
-      resultUrl = out.screenshot_url;
-    } else if (job_type === 'render') {
+      if (qualityReport && platformPersist) {
+        const stamp = qualityReportStamp();
+        const date = String(metadata.report_date || stamp.date);
+        const time = String(metadata.report_time || stamp.time);
+        const out = await putQualityReportAssetToR2(env, buf, 'image/png', {
+          date,
+          time,
+          filename: metadata.asset_name || 'screenshot.png',
+        });
+        resultUrl = out.screenshot_url;
+        resultMeta = { ...out, scope: 'platform' };
+      } else {
+        const out = await resolveBrowserScreenshotCapture(env, buf, 'image/png', {
+          scope: metadata.scope,
+          metadata,
+          jobType,
+        });
+        resultUrl = out.data_url || out.screenshot_url || null;
+        resultMeta = out;
+      }
+    } else if (jobType === 'render') {
       const html = await page.content();
-      const key = `renders/${jobId}.html`;
-      await env.ASSETS.put(key, html, { httpMetadata: { contentType: 'text/html' } });
-      resultUrl = `${DASHBOARD_SCREENSHOTS_PUBLIC_BASE}/${key}`;
+      if (qualityReport && platformPersist) {
+        const stamp = qualityReportStamp();
+        const date = String(metadata.report_date || stamp.date);
+        const time = String(metadata.report_time || stamp.time);
+        const key = `${qualityReportR2Base(date, time)}/render.html`;
+        await env.ASSETS.put(key, html, { httpMetadata: { contentType: 'text/html' } });
+        resultUrl = qualityReportPublicUrl(date, time, 'render.html');
+        resultMeta = { r2_key: key, report_date: date, report_time: time, scope: 'platform' };
+      } else if (env.SESSION_CACHE) {
+        const captureId = `render_${jobId}`;
+        await env.SESSION_CACHE.put(
+          `browser_capture:${captureId}`,
+          JSON.stringify({ content_type: 'text/html', html: html.slice(0, 500_000) }),
+          { expirationTtl: 3600 },
+        );
+        resultUrl = null;
+        resultMeta = { storage: 'ephemeral', capture_id: captureId, content_type: 'text/html' };
+      }
     }
+
     await env.DB.prepare(
       "UPDATE playwright_jobs SET status='completed', result_url=?, completed_at=CURRENT_TIMESTAMP WHERE id=?",
     )
       .bind(resultUrl, jobId)
       .run();
+
+    if (resultMeta && env.DB) {
+      await env.DB.prepare(`UPDATE playwright_jobs SET metadata = ? WHERE id = ?`)
+        .bind(JSON.stringify({ ...metadata, ...resultMeta }), jobId)
+        .run()
+        .catch(() => {});
+    }
   } catch (err) {
     await env.DB.prepare("UPDATE playwright_jobs SET status='failed', error=? WHERE id=?")
       .bind(String(err?.message || err), jobId)

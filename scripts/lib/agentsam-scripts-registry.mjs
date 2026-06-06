@@ -140,28 +140,6 @@ export const SCRIPT_ROWS = [
       'Deploy-related gate — requires explicit approval. Prefer npm run deploy:full:safe when R2 reconcile should stay disabled.',
   },
   {
-    file: 'deploy-sandbox.sh',
-    name: 'deploy-sandbox',
-    description: 'Sandbox dashboard/worker deploy (legacy CI path — repo marks discontinued).',
-    purpose: 'deploy',
-    requires_env: 1,
-    owner_only: 1,
-    safe_to_run: 0,
-    notes:
-      'Sandbox deploy script — dangerous/discontinued per repo rules; requires explicit approval.',
-  },
-  {
-    file: 'deploy-test-promote.sh',
-    name: 'deploy-test-promote',
-    description: 'Test promotion flow between environments.',
-    purpose: 'deploy',
-    requires_env: 1,
-    owner_only: 1,
-    safe_to_run: 0,
-    notes:
-      'Deploy script — requires explicit approval. Prefer npm run deploy:full:safe when R2 reconcile should stay disabled.',
-  },
-  {
     file: 'deploy-with-record.sh',
     name: 'deploy-with-record',
     description: 'Wrangler deploy with optional D1/cloudflare deployment recording.',

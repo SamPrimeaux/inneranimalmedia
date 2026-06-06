@@ -110,10 +110,9 @@ Do **not** guess routes or folder layout from memory. Use this order:
 | `AI` | Workers AI | catalog |
 | `MYBROWSER` | Browser | — |
 | `LOADER` | Dynamic Workers | in-code |
-| `ASSETS` / `DASHBOARD` | R2 | `inneranimalmedia` |
+| `ASSETS` / `DASHBOARD` | R2 | `inneranimalmedia` (includes `email/` prefix for templates/archive) |
 | `AUTORAG_BUCKET` | R2 | `inneranimalmedia-autorag` |
 | `DOCS_BUCKET` | R2 | `iam-docs` |
-| `EMAIL` | R2 | `inneranimalmedia-email-archive` |
 | `DB` | D1 | `inneranimalmedia-business` |
 | `HYPERDRIVE` | Hyperdrive | `inneranimalmedia-supabase-hyperdrive` |
 | `AGENTSAM_VECTORIZE_CODE` | Vectorize | `agentsam-codebase-oai3large-1536` |

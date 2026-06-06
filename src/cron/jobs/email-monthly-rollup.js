@@ -1,4 +1,5 @@
 import { completeCronRun, failCronRun, startCronRun } from '../../core/cron-run-ledger.js';
+import { emailSentLogKey, getEmailR2Bucket } from '../../core/r2-email.js';
 
 const CRON_EXPR = '0 0 1 * *';
 const LOG_DELETE_BATCH = 200;
@@ -12,17 +13,22 @@ const RECEIVED_RETENTION_DAYS = 90;
  * @param {string[]} logIds
  */
 async function purgeSentArchiveObjects(env, logIds) {
-  const archive = env.EMAIL || env.EMAIL_ARCHIVE;
+  const archive = getEmailR2Bucket(env);
   if (!archive || !Array.isArray(logIds) || logIds.length === 0) return 0;
   let deleted = 0;
   for (const rawId of logIds) {
     const id = String(rawId || '').trim();
     if (!id) continue;
     try {
-      await archive.delete(`sent/${id}.json`);
+      await archive.delete(emailSentLogKey(id));
       deleted += 1;
     } catch {
       /* non-fatal */
+    }
+    try {
+      await archive.delete(`sent/${id}.json`);
+    } catch {
+      /* legacy key cleanup */
     }
   }
   return deleted;

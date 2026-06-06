@@ -3,9 +3,9 @@
  * Send Connor's Agent Sam platform setup guide via Resend.
  *
  * Email body: src/email-templates/connor-platform-setup.html (email-client safe)
- *   R2 (EMAIL): templates/connor-platform-setup.html
+ *   R2 (ASSETS): email/templates/connor-platform-setup.html
  * Attachment: docs/onboarding/connor-platform-setup.html (interactive checklist)
- *   R2 (EMAIL): guides/connor-platform-setup.html
+ *   R2 (ASSETS): email/guides/connor-platform-setup.html
  *
  * Sync templates to R2: ./scripts/upload-email-templates.sh
  *

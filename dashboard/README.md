@@ -71,28 +71,14 @@ Designed as a **First-Class Citizen**:
 
 ---
 
-## 🚦 Deployment & Staging Workflow
+## Deployment
 
-This buildout uses a dual-repo architectural sync for rapid iteration.
+**Production only:** `npm run deploy:full` from repo root (`scripts/deploy-frontend.sh`).
 
-### 1. Shell Propagation (`meauxcad`)
-The frontend shell is hosted as a static asset within the R2 dashboard environment.
-- **Base Path**: `/static/dashboard/agent/`
-- **Promotion**: HTML and JS chunks are manually uploaded to the `agent-sam-sandbox-cicd` bucket.
-- **Protection**: R2 keys are restricted to authenticated IAM sessions.
+- R2 prefix: `/static/dashboard/app/`
+- Worker: `wrangler.production.toml` → `inneranimalmedia.com`
 
-### 2. Backend Synchronization (`agentsam-dashboard`)
-Core routing and AI logic updates follow a specific branch-based workflow:
-- **Repository**: `SamPrimeaux/inneranimalmedia-agentsam-dashboard`
-- **Branch**: `agentsam-clean`
-- **Path**: `source/worker.js`
-- **Workflow**: Local `worker.js` edits are pushed to the `agentsam-clean` branch for staging before promotion to production.
-
-### Local Build Command
-```bash
-npm run build
-# Assets uploaded manually to R2 static/dashboard/agent/assets/
-```
+There is **no sandbox deploy lane** in this repo. See `docs/dashboard/README.md`.
 
 ### Prompting Strategy (Environment Bindings)
 When instructing future agents, use the following placeholder syntax:

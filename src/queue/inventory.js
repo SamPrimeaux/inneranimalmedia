@@ -11,12 +11,12 @@ export const QUEUE_MESSAGE_KINDS = {
   /** Retired: public.codebase_* queue sync — use agentsam_codebase_reindex.mjs */
   CODEBASE_INDEX_SYNC: 'codebase_index_sync',
   /**
-   * R2 event notification: bucket `iam-docs`, object `.md`, actions PutObject|CopyObject|CompleteMultipartUpload|DeleteObject.
-   * Handled: docs-vectorize.js (Vectorize + docs_index_log).
+   * R2 event notification: bucket `inneranimalmedia-autorag`, object `.md`, actions PutObject|CopyObject|CompleteMultipartUpload|DeleteObject.
+   * Handled: docs-vectorize.js → AGENTSAM_VECTORIZE_DOCUMENTS + docs_index_log.
    */
-  R2_IAM_DOCS_MD: 'r2_event_iam_docs_md',
+  R2_AUTORAG_MD: 'r2_event_autorag_md',
   /**
-   * Playwright batch job: body.jobId + job_type `screenshot`|`render` + url.
+   * Playwright batch job: body.jobId + job_type `screenshot`|`render`|`quality_report` + url.
    * Handled: playwright-queue-job.js
    */
   PLAYWRIGHT_JOB: 'playwright_screenshot_or_render',
@@ -27,8 +27,8 @@ Known Cloudflare Queue message shapes (production):
 
 1. type=codebase_index_sync — tenantId/tenant_id, workspaceId/workspace_id, payload for codebase index sync.
 2. type=cf.workersBuilds.worker.build.* — Cloudflare build lifecycle; audited to agentsam_webhook_events (provider cloudflare).
-3. R2 notification (no type): bucketName iam-docs, object.key ending in .md, action PutObject|CopyObject|...
-4. Playwright: jobId, job_type screenshot|render, url — updates playwright_jobs in D1.
+3. R2 notification (no type): bucket inneranimalmedia-autorag, object.key ending in .md, action PutObject|CopyObject|...
+4. Playwright: jobId, job_type screenshot|render|quality_report, url — updates playwright_jobs in D1.
 
 Unhandled types are logged with [queue] unhandled_message_type and should be acked after instrumentation.
 `;

@@ -5,6 +5,10 @@
  */
 
 import { escapeXmlText } from './r2-xml.js';
+export {
+  resolveBrowserScreenshotCapture,
+  putAgentBrowserScreenshotToR2,
+} from './browser-capture-storage.js';
 
 /**
  * Returns the S3-compatible host for R2.
@@ -13,26 +17,6 @@ export function getR2S3Host(env) {
   if (!env || env.CLOUDFLARE_ACCOUNT_ID == null) return null;
   const id = String(env.CLOUDFLARE_ACCOUNT_ID).trim();
   return id ? `${id}.r2.cloudflarestorage.com` : null;
-}
-
-/**
- * Store agent/browser tool screenshots.
- */
-export async function putAgentBrowserScreenshotToR2(env, buf, contentType) {
-  const ct = contentType || 'image/png';
-  const blen = buf?.byteLength ?? buf?.length ?? 0;
-  
-  const bucket = env.DOCS_BUCKET || env.ASSETS || env.R2;
-  if (!bucket) throw new Error('No R2 bucket available for screenshots');
-
-  const ts = Date.now();
-  const id = crypto.randomUUID();
-  const key = `screenshots/agent/${ts}-${id}.png`;
-  
-  await bucket.put(key, buf, { httpMetadata: { contentType: ct } });
-  
-  const baseUrl = env.DOCS_BUCKET ? 'https://docs.inneranimalmedia.com' : 'https://pub-b845a8f899834f0faf95dc83eda3c505.r2.dev';
-  return { screenshot_url: `${baseUrl}/${key}`, job_id: id };
 }
 
 // --- S3 Failover & Signing Helpers ---

@@ -1,10 +1,10 @@
 /**
  * API Service: CMS (Content Management System)
  * Handles page metadata in D1 and content persistence in R2.
- * 
+ *
  * Rules:
  * 1. D1 row = metadata + routing.
- * 2. Actual content = R2 object (HTML/MD).
+ * 2. Actual content = R2 object (HTML/MD) on ASSETS (inneranimalmedia).
  * 3. R2 key format: cms/{workspace_id}/{project_id}/{slug}/[draft|published].html
  * 4. Every INSERT must write person_uuid and tenant_id.
  * 5. R2 writes must succeed before D1 writes.
@@ -13,13 +13,18 @@
 import { getAuthUser, jsonResponse } from '../core/auth.js';
 import { resolveIamActorContext } from '../core/identity.js';
 
-// --- R2 Helpers ---
+export const CMS_DEFAULT_R2_BUCKET = 'inneranimalmedia';
+
+function cmsPageKey(workspaceId, projectId, slug, variant) {
+  return `cms/${workspaceId}/${projectId}/${slug}/${variant}.html`;
+}
 
 function getCmsR2Binding(env, bucketName) {
-  // R2: 'iam-docs' for client sites; DASHBOARD bucket (inneranimalmedia) for internal dashboard assets
-  if (bucketName === 'iam-docs') return env.DOCS_BUCKET || env.R2;
-  if (bucketName === 'inneranimalmedia' || bucketName === 'dashboard') return env.ASSETS || env.R2;
-  return env.R2;
+  const name = String(bucketName || CMS_DEFAULT_R2_BUCKET).trim();
+  if (name === 'inneranimalmedia' || name === 'dashboard' || name === 'iam-docs') {
+    return env.ASSETS || env.R2;
+  }
+  return env.ASSETS || env.R2;
 }
 
 /**
@@ -143,7 +148,7 @@ export async function handleCmsApi(request, url, env, ctx) {
       if (!page) return jsonResponse({ error: 'Page not found' }, 404);
 
       // Generate presigned URL for the R2 content
-      const bucket = page.r2_bucket || 'iam-docs';
+      const bucket = page.r2_bucket || CMS_DEFAULT_R2_BUCKET;
       const key = page.r2_key;
       let contentUrl = null;
       if (key) {
@@ -168,9 +173,8 @@ export async function handleCmsApi(request, url, env, ctx) {
       return jsonResponse({ error: 'project_id, slug, and title are required' }, 400);
     }
 
-    // Determine R2 path and bucket
-    const r2Bucket = 'iam-docs'; // Default for client sites
-    const r2Key = `cms/${workspaceId}/${project_id}/${slug}/published.html`;
+    const r2Bucket = CMS_DEFAULT_R2_BUCKET;
+    const r2Key = cmsPageKey(workspaceId, project_id, slug, 'published');
     const r2Binding = getCmsR2Binding(env, r2Bucket);
 
     if (!r2Binding) return jsonResponse({ error: 'R2 storage unavailable' }, 503);
@@ -222,8 +226,8 @@ export async function handleCmsApi(request, url, env, ctx) {
 
       if (!page) return jsonResponse({ error: 'Page not found' }, 404);
 
-      const r2Bucket = page.r2_bucket || 'iam-docs';
-      const r2Key = `cms/${workspaceId}/${page.project_id}/${page.slug}/draft.html`;
+      const r2Bucket = page.r2_bucket || CMS_DEFAULT_R2_BUCKET;
+      const r2Key = cmsPageKey(workspaceId, page.project_id, page.slug, 'draft');
       const r2Binding = getCmsR2Binding(env, r2Bucket);
 
       if (!r2Binding) return jsonResponse({ error: 'R2 storage unavailable' }, 503);
@@ -268,9 +272,9 @@ export async function handleCmsApi(request, url, env, ctx) {
 
       if (!page) return jsonResponse({ error: 'Page not found' }, 404);
 
-      const r2Bucket = page.r2_bucket || 'iam-docs';
-      const draftKey = `cms/${workspaceId}/${page.project_id}/${page.slug}/draft.html`;
-      const publishedKey = `cms/${workspaceId}/${page.project_id}/${page.slug}/published.html`;
+      const r2Bucket = page.r2_bucket || CMS_DEFAULT_R2_BUCKET;
+      const draftKey = cmsPageKey(workspaceId, page.project_id, page.slug, 'draft');
+      const publishedKey = cmsPageKey(workspaceId, page.project_id, page.slug, 'published');
       const r2Binding = getCmsR2Binding(env, r2Bucket);
 
       if (!r2Binding) return jsonResponse({ error: 'R2 storage unavailable' }, 503);

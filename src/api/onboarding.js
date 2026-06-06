@@ -1,6 +1,6 @@
 /**
  * Onboarding API — external intake, profile setup, invite email (Resend).
- * Transactional HTML templates load from R2 binding `EMAIL` (inneranimalmedia-email-archive).
+ * Transactional HTML templates load from ASSETS: inneranimalmedia/email/templates/.
  */
 import {
   getAuthUser,
@@ -10,6 +10,12 @@ import {
   establishIamSession,
 } from '../core/auth.js';
 import { generateAppUserId } from '../core/ensureAppUser.js';
+import {
+  emailArchiveKey,
+  emailR2Ready,
+  emailTemplateKey,
+  getEmailR2Bucket,
+} from '../core/r2-email.js';
 
 const ONBOARDING_STEPS = ['intake', 'profile_setup', 'agent_calibration', 'environment_setup'];
 
@@ -55,8 +61,13 @@ const IAM_ONBOARDING_CATALOG = [
 const ORG_INNERANIMALMEDIA = 'org-inneranimalmedia';
 
 async function loadEmailTemplate(env, templateName) {
-  if (!env.EMAIL) throw new Error('EMAIL R2 binding not configured');
-  const obj = await env.EMAIL.get(`templates/${templateName}.html`);
+  const bucket = getEmailR2Bucket(env);
+  if (!bucket) throw new Error('ASSETS R2 bucket not configured for email templates');
+  const key = emailTemplateKey(templateName);
+  let obj = await bucket.get(key);
+  if (!obj) {
+    obj = await bucket.get(`templates/${templateName}.html`);
+  }
   if (!obj) throw new Error(`Email template not found: ${templateName}`);
   return await obj.text();
 }
@@ -68,10 +79,12 @@ function renderTemplate(html, tokens) {
 }
 
 async function archiveSentEmail(env, messageId, renderedHtml) {
-  if (!env.EMAIL || !messageId) return;
+  const bucket = getEmailR2Bucket(env);
+  if (!bucket || !messageId) return;
   const date = new Date().toISOString().slice(0, 10);
-  const key = `archive/${date}/${messageId}.html`;
-  await env.EMAIL.put(key, renderedHtml, { httpMetadata: { contentType: 'text/html' } });
+  await bucket.put(emailArchiveKey(date, messageId), renderedHtml, {
+    httpMetadata: { contentType: 'text/html' },
+  });
 }
 
 function stripHtmlToText(html) {
@@ -481,7 +494,7 @@ async function runIntakeD1SideEffects(env, ctx) {
 async function sendOnboardingInviteEmail(env, { to, name, intakeToken, personalMessage }) {
   const key = env.RESEND_API_KEY;
   if (!key) return { ok: false, error: 'RESEND_API_KEY not configured' };
-  if (!env.EMAIL) return { ok: false, error: 'EMAIL R2 bucket not configured' };
+  if (!emailR2Ready(env)) return { ok: false, error: 'Email R2 storage not configured (ASSETS)' };
 
   const onboardingUrl = `https://inneranimalmedia.com/onboarding?token=${encodeURIComponent(intakeToken)}&step=intake`;
   const displayName = (name || to.split('@')[0] || 'there').replace(/</g, '');
@@ -730,7 +743,7 @@ export async function handleOnboardingApi(request, url, env, _ctx = null) {
 
     await seedOnboardingSteps(env, tenantId, platformUserId);
 
-    if (!env.EMAIL) return jsonResponse({ error: 'EMAIL R2 bucket not configured' }, 503);
+    if (!emailR2Ready(env)) return jsonResponse({ error: 'Email R2 storage not configured (ASSETS)' }, 503);
 
     const send = await sendOnboardingInviteEmail(env, {
       to: email,

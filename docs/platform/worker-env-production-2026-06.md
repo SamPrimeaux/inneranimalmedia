@@ -20,7 +20,6 @@
 | `DASHBOARD` | R2 | `inneranimalmedia` |
 | `DB` | D1 | `inneranimalmedia-business` |
 | `DOCS_BUCKET` | R2 | `iam-docs` |
-| `EMAIL` | R2 | `inneranimalmedia-email-archive` |
 | `HYPERDRIVE` | Hyperdrive | `inneranimalmedia-supabase-hyperdrive` |
 | `IAM_COLLAB` | Durable Object | `inneranimalmedia_IAMCollaborationSession` |
 | `KV` | KV | `MCP_TOKENS` |
@@ -39,6 +38,7 @@
 | `AGENTSAMVECTORIZE` | `inneranimalmedia-vectors` | **`src/core/agentsam-vectorize.js`** still references this binding — migrate callers to `AGENTSAM_VECTORIZE_*` via `src/core/rag-lanes.js` / `semantic-retrieval-dispatch.js` |
 | `R2` | `iam-platform` | **`env.R2`** in agent/cron/r2-api paths; registry may use S3 API + `R2_ACCESS_KEY_*` secrets |
 | `TOOLS` | `tools` | `src/api/r2-api.js` bucket map; falls back to `DASHBOARD` when unset |
+| `EMAIL` | `inneranimalmedia-email-archive` | **`src/core/r2-email.js`** — templates/archive/sent under `ASSETS` prefix `email/` |
 | `AI_SEARCH` | Workers AI Search instance | Never bound in prod; use `AI_SEARCH_ENDPOINT` + `AI_SEARCH_TOKEN` vars |
 
 `wrangler.production.toml` is aligned with the **active** binding list above.

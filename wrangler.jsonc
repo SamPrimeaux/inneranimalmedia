@@ -68,10 +68,6 @@
 		{
 			"binding": "TOOLS",
 			"bucket_name": "tools"
-		},
-		{
-			"binding": "EMAIL",
-			"bucket_name": "inneranimalmedia-email-archive"
 		}
 	],
 	"hyperdrive": [

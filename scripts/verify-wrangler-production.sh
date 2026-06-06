@@ -23,7 +23,6 @@ required_bindings=(
   DASHBOARD
   DB
   DOCS_BUCKET
-  EMAIL
   HYPERDRIVE
   IAM_COLLAB
   KV
@@ -40,6 +39,7 @@ removed_bindings=(
   AGENTSAMVECTORIZE
   R2
   TOOLS
+  EMAIL
 )
 
 echo "=== wrangler.production.toml binding verify ==="

@@ -4,7 +4,7 @@
 # Requires: .env.cloudflare with export lines for CLOUDFLARE_API_TOKEN, INTERNAL_API_SECRET, SESSION_COOKIE
 # Env:
 #   E2E_TOOLS_MODE=full|entry   (default: full) — full = entire dashboard/dist; entry = agent-dashboard.js only
-#   E2E_COPY_DASHBOARD_HTML=1   optional — also upload dashboard/agent.html as shell/agent.html under same prefix
+#   E2E_COPY_DASHBOARD_HTML=1   optional — also upload dashboard/dist/index.html as shell/agent.html under same prefix
 # Usage: ./scripts/e2e-overnight.sh
 set -euo pipefail
 
@@ -107,10 +107,10 @@ if [[ "${E2E_SKIP_TOOLS:-0}" != "1" ]]; then
     done < <(find "$DIST_ROOT" -type f -print0)
     echo "Uploaded ${n} files from dist/"
 
-    if [[ "${E2E_COPY_DASHBOARD_HTML:-0}" == "1" ]] && [[ -f "${REPO_ROOT}/dashboard/agent.html" ]]; then
+    if [[ "${E2E_COPY_DASHBOARD_HTML:-0}" == "1" ]] && [[ -f "${REPO_ROOT}/dashboard/dist/index.html" ]]; then
       HKEY="${TOOLS_PREFIX}/shell/agent.html"
       ./scripts/with-cloudflare-env.sh npx wrangler r2 object put "tools/${HKEY}" \
-        --file="${REPO_ROOT}/dashboard/agent.html" \
+        --file="${REPO_ROOT}/dashboard/dist/index.html" \
         --content-type=text/html \
         --remote \
         -c wrangler.production.toml
@@ -159,7 +159,9 @@ if not base.endswith("/"):
     base += "/"
 run_id = os.environ["RUN_ID"]
 out_path = os.environ["PREVIEW_LOCAL"]
-agent_path = os.path.join(repo, "dashboard", "agent.html")
+agent_path = os.path.join(repo, "dashboard", "dist", "index.html")
+if not os.path.isfile(agent_path):
+    agent_path = os.path.join(repo, "dashboard", "index.html")
 with open(agent_path, encoding="utf-8") as f:
     html = f.read()
 html = html.replace(
@@ -167,14 +169,14 @@ html = html.replace(
     'href="https://inneranimalmedia.com/static/dashboard/shell.css"',
 )
 html = re.sub(
-    r'href="/static/dashboard/(?:agent|app)/agent-dashboard\.css[^"]*"',
-    'href="' + base + 'agent-dashboard.css"',
+    r'href="/static/dashboard/(?:agent|app)/dashboard\.css[^"]*"',
+    'href="' + base + 'dashboard.css"',
     html,
     count=1,
 )
 html = re.sub(
-    r'src="/static/dashboard/(?:agent|app)/agent-dashboard\.js[^"]*"',
-    'src="' + base + 'agent-dashboard.js"',
+    r'src="/static/dashboard/(?:agent|app)/dashboard\.js[^"]*"',
+    'src="' + base + 'dashboard.js"',
     html,
     count=1,
 )

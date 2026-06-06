@@ -10,6 +10,11 @@ import { jsonResponse } from '../core/responses.js';
 import { sendPlatformEmail, sendUserGmail } from '../lib/email.js';
 import { resolveOAuthAccessToken, resolveOAuthRefreshToken } from './oauth.js';
 import { upsertOauthToken } from '../core/oauth-token-store.js';
+import {
+  emailSentLogKey,
+  getEmailR2Bucket,
+  getEmailSentLogObject,
+} from '../core/r2-email.js';
 
 const PAGE_SIZE = 50;
 const GMAIL_PROVIDER = 'google_gmail';
@@ -58,22 +63,19 @@ function mapEmailLogRow(logRow) {
 }
 
 async function loadSentLogBody(env, authUser, logId, logRow) {
-  const archive = env.EMAIL || env.EMAIL_ARCHIVE;
-  if (archive) {
-    try {
-      const obj = await archive.get(`sent/${logId}.json`);
-      if (obj) {
-        const payload = safeJsonParse(await obj.text());
-        if (payload) {
-          const html = payload.html != null ? String(payload.html).trim() : '';
-          const text = payload.text != null ? String(payload.text).trim() : '';
-          if (html) return html;
-          if (text) return text;
-        }
+  try {
+    const obj = await getEmailSentLogObject(env, logId);
+    if (obj) {
+      const payload = safeJsonParse(await obj.text());
+      if (payload) {
+        const html = payload.html != null ? String(payload.html).trim() : '';
+        const text = payload.text != null ? String(payload.text).trim() : '';
+        if (html) return html;
+        if (text) return text;
       }
-    } catch {
-      /* fall through */
     }
+  } catch {
+    /* fall through */
   }
 
   const extId = logRow?.resend_id ? String(logRow.resend_id).trim() : '';
@@ -90,10 +92,10 @@ async function loadSentLogBody(env, authUser, logId, logRow) {
 }
 
 async function archiveSentEmailPayload(env, logId, payload) {
-  const archive = env.EMAIL || env.EMAIL_ARCHIVE;
-  if (!archive) return;
+  const bucket = getEmailR2Bucket(env);
+  if (!bucket) return;
   try {
-    await archive.put(`sent/${logId}.json`, JSON.stringify(payload), {
+    await bucket.put(emailSentLogKey(logId), JSON.stringify(payload), {
       httpMetadata: { contentType: 'application/json' },
     });
   } catch (e) {
@@ -799,10 +801,10 @@ export async function handleMailApi(request, url, env, ctx) {
 
       let body = null;
       const r2Key = email?.r2_key ? String(email.r2_key).trim() : '';
-      const emailArchive = env.EMAIL || env.EMAIL_ARCHIVE;
-      if (r2Key && emailArchive) {
+      const emailBucket = getEmailR2Bucket(env);
+      if (r2Key && emailBucket) {
         try {
-          const obj = await emailArchive.get(r2Key);
+          const obj = await emailBucket.get(r2Key);
           if (obj) {
             body = await obj.text();
           }

@@ -1112,7 +1112,6 @@ export function getR2Binding(env, bucketName) {
     'iam-platform': env.R2,
     'iam-docs': env.DOCS_BUCKET,
     tools: env.TOOLS || env.ASSETS,
-    'inneranimalmedia-email-archive': env.EMAIL,
   };
   return map[bucketName] || null;
 }
@@ -1124,7 +1123,6 @@ export function listBoundR2BucketNames(env) {
   if (env.R2) names.push('iam-platform');
   if (env.DOCS_BUCKET) names.push('iam-docs');
   if (env.TOOLS) names.push('tools');
-  if (env.EMAIL) names.push('inneranimalmedia-email-archive');
   return names;
 }
 

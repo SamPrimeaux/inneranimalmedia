@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # cicd-d1-log.sh — append CICD audit rows to D1 (inneranimalmedia-business)
-# Sourced by deploy-sandbox.sh and promote-to-prod.sh.
+# Historical: was sourced by removed sandbox/promote scripts. Kept for reference / future CICD hooks.
 #
 # Tables written: cicd_github_runs, cicd_pipeline_runs, cicd_run_steps, cicd_events,
 #                 cicd_runs, pipelines, pipeline_runs, cicd_notifications,

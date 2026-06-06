@@ -52,25 +52,27 @@ async function recordWebhookEvent(env, ctx, tenantId, workspaceId, body) {
 }
 
 /**
- * Handle iam-docs R2 Put/Delete → Vectorize (worker.js queue branch).
+ * Handle inneranimalmedia-autorag R2 Put/Delete → documents Vectorize lane.
  * @param {any} env
  * @param {Record<string, unknown>} body
  */
-async function handleIamDocsMdEvent(env, body) {
+async function handleAutoragMdEvent(env, body) {
   const r2SourceOk = body.source === 'r2' || body.source == null || body.source === undefined;
   const objectKey = body.object && typeof body.object.key === 'string' ? body.object.key : null;
   const bucketName = body.bucket;
   const action = body.action;
-  if (!r2SourceOk || bucketName !== 'iam-docs' || !objectKey) return false;
+  const autoragBucket =
+    typeof env?.R2_AUTORAG_BUCKET_NAME === 'string' && env.R2_AUTORAG_BUCKET_NAME.trim()
+      ? env.R2_AUTORAG_BUCKET_NAME.trim()
+      : 'inneranimalmedia-autorag';
+  if (!r2SourceOk || bucketName !== autoragBucket || !objectKey) return false;
   if (!objectKey.endsWith('.md')) return true;
 
   const putActions = new Set(['PutObject', 'CopyObject', 'CompleteMultipartUpload']);
   const delActions = new Set(['DeleteObject', 'LifecycleDeletion']);
   try {
     if (putActions.has(action)) {
-      if (!objectKey.startsWith('screenshots/') && !objectKey.includes('/screenshots/')) {
-        await performDocsBucketVectorizeIndex(env, objectKey);
-      }
+      await performDocsBucketVectorizeIndex(env, objectKey);
     } else if (delActions.has(action)) {
       await deleteVectorsForDocKey(env, objectKey);
       if (env.DB) {
@@ -81,7 +83,7 @@ async function handleIamDocsMdEvent(env, body) {
       }
     }
   } catch (e) {
-    console.warn('[queue iam-docs]', e?.message ?? e);
+    console.warn('[queue autorag-docs]', e?.message ?? e);
   }
   return true;
 }
@@ -89,7 +91,7 @@ async function handleIamDocsMdEvent(env, body) {
 function isPlaywrightJobBody(body) {
   const jobId = body?.jobId;
   const jt = body?.job_type;
-  return !!(jobId && (jt === 'screenshot' || jt === 'render'));
+  return !!(jobId && (jt === 'screenshot' || jt === 'render' || jt === 'quality_report'));
 }
 
 /**
@@ -123,9 +125,13 @@ export async function dispatchQueueMessage(env, ctx, queueMsg) {
   const r2SourceOk = body.source === 'r2' || body.source == null || body.source === undefined;
   const bucketName = body.bucket;
   const objectKey = body.object && typeof body.object.key === 'string' ? body.object.key : null;
-  if (r2SourceOk && bucketName === 'iam-docs' && objectKey) {
-    await handleIamDocsMdEvent(env, body);
-    return { handled: true, kind: 'r2_iam_docs_md' };
+  const autoragBucket =
+    typeof env?.R2_AUTORAG_BUCKET_NAME === 'string' && env.R2_AUTORAG_BUCKET_NAME.trim()
+      ? env.R2_AUTORAG_BUCKET_NAME.trim()
+      : 'inneranimalmedia-autorag';
+  if (r2SourceOk && bucketName === autoragBucket && objectKey) {
+    await handleAutoragMdEvent(env, body);
+    return { handled: true, kind: 'r2_autorag_md' };
   }
 
   if (isPlaywrightJobBody(body)) {
