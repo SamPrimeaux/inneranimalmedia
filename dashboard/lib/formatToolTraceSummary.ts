@@ -102,6 +102,21 @@ export function formatToolTraceInput(toolName: string, inputPreview: string | nu
   }
 
   if (parsed) {
+    const tn = String(toolName || '').toLowerCase();
+    if (/terminal|pty|shell|bash|run_command/.test(tn)) {
+      const cmd =
+        parsed.command ??
+        parsed.cmd ??
+        parsed.shell_command ??
+        parsed.shell ??
+        parsed.query;
+      if (cmd != null && String(cmd).trim()) {
+        return {
+          summaryLines: [String(cmd).trim().slice(0, 400)],
+          detailsJson,
+        };
+      }
+    }
     const keys = Object.keys(parsed).slice(0, 4);
     const lines = keys.map((k) => `${k}: ${String(parsed[k]).slice(0, 120)}`);
     return { summaryLines: lines.length ? lines : [toolName], detailsJson };

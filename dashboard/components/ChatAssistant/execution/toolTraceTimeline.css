@@ -1,0 +1,154 @@
+/* Claude-style stacked tool trace — minimal title, shimmer, expand for command/output. */
+
+.tool-trace-stack {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+  padding-left: 2px;
+}
+
+.tool-trace-item {
+  position: relative;
+  min-width: 0;
+}
+
+.tool-trace-item:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  left: 15px;
+  top: 36px;
+  bottom: -2px;
+  width: 1px;
+  background: color-mix(in srgb, var(--dashboard-border, rgba(255, 255, 255, 0.12)) 70%, transparent);
+  pointer-events: none;
+}
+
+.tool-trace-row-btn {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  padding: 6px 4px 6px 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background 120ms ease;
+}
+
+.tool-trace-row-btn:hover {
+  background: color-mix(in srgb, var(--dashboard-border, rgba(255, 255, 255, 0.08)) 40%, transparent);
+}
+
+.tool-trace-row-btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--solar-cyan, #5ad4e6) 45%, transparent);
+  outline-offset: 2px;
+}
+
+.tool-trace-icon {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.tool-trace-body {
+  min-width: 0;
+  flex: 1 1 auto;
+  padding-top: 1px;
+}
+
+.tool-trace-title {
+  display: block;
+  font-size: 13px;
+  font-weight: 450;
+  line-height: 1.35;
+  color: var(--color-text-secondary, var(--dashboard-muted, #8a8a9e));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-trace-title--shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--color-text-secondary, var(--dashboard-muted, #8a8a9e)) 0%,
+    var(--color-text-primary, var(--dashboard-text, #e6e6f0)) 40%,
+    var(--color-text-secondary, var(--dashboard-muted, #8a8a9e)) 100%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: tool-trace-shimmer 1.8s linear infinite;
+  font-weight: 500;
+}
+
+@keyframes tool-trace-shimmer {
+  0% {
+    background-position: 200% center;
+  }
+  100% {
+    background-position: -200% center;
+  }
+}
+
+.tool-trace-meta {
+  margin-top: 1px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text-muted, var(--dashboard-muted, #6b6b80));
+  font-family: var(--font-mono, 'JetBrains Mono', ui-monospace, monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-trace-chevron {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  margin-top: 5px;
+  border-right: 2px solid var(--text-muted, #8a8a9e);
+  border-bottom: 2px solid var(--text-muted, #8a8a9e);
+  transform: rotate(-45deg);
+  opacity: 0.55;
+  transition: transform 140ms ease, opacity 140ms ease;
+}
+
+.tool-trace-chevron--open {
+  transform: rotate(45deg);
+  margin-top: 7px;
+}
+
+.tool-trace-expand {
+  margin: 0 0 8px 42px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--dashboard-border, rgba(255, 255, 255, 0.1)) 80%, transparent);
+  background: color-mix(in srgb, var(--scene-bg, #0b0b10) 92%, transparent);
+}
+
+.tool-trace-done {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0 2px 42px;
+  font-size: 12px;
+  color: var(--dashboard-muted, #8a8a9e);
+}
+
+.tool-trace-done-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: color-mix(in srgb, #34d399 18%, transparent);
+  color: #34d399;
+  font-size: 9px;
+  font-weight: 700;
+}

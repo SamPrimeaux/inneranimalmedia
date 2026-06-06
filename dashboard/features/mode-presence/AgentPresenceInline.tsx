@@ -61,7 +61,8 @@ export function AgentPresenceInline({
   onClick,
   cardStatus,
 }: AgentPresenceInlineProps) {
-  const iconPx = size === 'sm' ? 16 : 22;
+  /** 2× prior sizes so loading-state SVGs read clearly in the thread. */
+  const iconPx = size === 'sm' ? 32 : 44;
   const textSize = titleFontSizePx ?? (size === 'sm' ? 12 : 12);
   const metaSize = size === 'sm' ? 11 : 11;
   const shimmer = shouldShimmer(state, mode);

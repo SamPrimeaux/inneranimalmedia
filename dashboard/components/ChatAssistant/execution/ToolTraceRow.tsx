@@ -8,7 +8,16 @@ import type { AgentMode } from '../types';
 import type { AgentToolTraceRow } from './types';
 import { ScrollablePreviewPanel } from './ScrollablePreviewPanel';
 import { resolveToolTracePresence } from '../../../features/agent-run/toolTracePresence';
-import { simplifyToolName } from '../../../features/agent-chat/formatThinkingStepName';
+import { ChatPresenceIcon } from '../../../features/mode-presence/ChatPresenceIcon';
+import {
+  formatToolTraceDisplayTitle,
+  resolveToolTraceCommand,
+  resolveToolTraceMetaLabel,
+} from '../../../lib/formatToolTraceDisplayTitle';
+import './toolTraceTimeline.css';
+
+/** Presence / loading SVG slot — 2× prior inline trace size (~16px → 32px). */
+const TOOL_TRACE_ICON_PX = 32;
 
 export type ToolTraceRowProps = {
   row: AgentToolTraceRow;
@@ -41,20 +50,15 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-function statusDot(status: AgentToolTraceRow['status']): string {
-  if (status === 'error') return 'bg-red-400';
-  if (status === 'running') return 'bg-amber-400';
-  return 'bg-emerald-400';
-}
-
 export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({
   row,
   mode = 'agent',
+  defaultExpanded = false,
   onDismiss,
 }) => {
   const failed = row.status === 'error';
   const running = row.status === 'running';
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultExpanded);
 
   const tracePresence = useMemo(
     () =>
@@ -67,39 +71,58 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({
     [row.toolName, row.status, row.lines, mode],
   );
 
+  const title = formatToolTraceDisplayTitle(row);
+  const command = useMemo(() => resolveToolTraceCommand(row), [row]);
+  const metaLabel = resolveToolTraceMetaLabel(row, command);
   const detailsText = row.detailsJson?.trim() || '';
-  const toolLabel = simplifyToolName(row.toolName || tracePresence.label);
+  const hasExpandable = Boolean(detailsText || row.lines.length || command);
+  const cardStatus = failed ? 'error' : running ? 'working' : 'done';
+
   const durationLabel =
     row.durationMs != null && !running
       ? row.durationMs < 1000
         ? `${row.durationMs}ms`
         : `${(row.durationMs / 1000).toFixed(1)}s`
-      : running
-        ? '…'
-        : '';
+      : '';
+
+  const toggle = () => {
+    if (hasExpandable) setOpen((v) => !v);
+  };
 
   return (
-    <div className="min-w-0" data-status={row.status === 'done' ? 'passed' : row.status} data-lane={tracePresence.lane}>
-      <div className="flex items-center gap-2 py-0.5 text-[11px] text-[var(--dashboard-muted)] min-w-0">
-        <span className={`shrink-0 w-1.5 h-1.5 rounded-full ${statusDot(row.status)}`} aria-hidden />
-        <span className="truncate min-w-0 flex-1">
-          {toolLabel}
-          {durationLabel ? <span className="ml-1.5 opacity-70">{durationLabel}</span> : null}
-        </span>
-        {detailsText || row.lines.length ? (
-          <button
-            type="button"
-            className="shrink-0 text-[10px] text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] transition-colors"
-            onClick={() => setOpen((v) => !v)}
-            aria-expanded={open}
-          >
-            details ›
-          </button>
-        ) : null}
+    <div className="tool-trace-item min-w-0" data-status={row.status} data-lane={tracePresence.lane}>
+      <div className="tool-trace-row-btn flex items-start">
+        <button
+          type="button"
+          className="flex items-start gap-2.5 min-w-0 flex-1 border-none bg-transparent p-0 text-left"
+          onClick={toggle}
+          aria-expanded={open}
+          disabled={!hasExpandable}
+          style={{ cursor: hasExpandable ? 'pointer' : 'default' }}
+        >
+          <span className="tool-trace-icon">
+            <ChatPresenceIcon
+              mode={mode}
+              state={tracePresence.presenceState}
+              size={TOOL_TRACE_ICON_PX}
+              cardStatus={cardStatus}
+            />
+          </span>
+          <span className="tool-trace-body min-w-0 flex-1">
+            <span className={`tool-trace-title block truncate${running ? ' tool-trace-title--shimmer' : ''}`}>
+              {title}
+              {durationLabel ? <span className="ml-1.5 opacity-60 font-normal">{durationLabel}</span> : null}
+            </span>
+            <span className="tool-trace-meta block">{metaLabel}</span>
+          </span>
+          {hasExpandable ? (
+            <span className={`tool-trace-chevron${open ? ' tool-trace-chevron--open' : ''}`} aria-hidden />
+          ) : null}
+        </button>
         {onDismiss && !running ? (
           <button
             type="button"
-            className="shrink-0 text-[10px] text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)]"
+            className="shrink-0 ml-1 text-[10px] text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] self-start mt-1"
             onClick={onDismiss}
           >
             ×
@@ -107,13 +130,33 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({
         ) : null}
       </div>
 
-      {open ? (
-        <div className="pl-4 pb-1 space-y-1">
-          {row.lines.map((line) => (
-            <p key={line} className="text-[10px] text-[var(--dashboard-muted)] m-0 font-mono truncate">
-              {line}
-            </p>
-          ))}
+      {open && hasExpandable ? (
+        <div className="tool-trace-expand">
+          {command ? (
+            <div className="mb-2">
+              <div className="text-[9px] uppercase tracking-wide text-[var(--dashboard-muted)] mb-1">Command</div>
+              <pre className="m-0 whitespace-pre-wrap break-words text-[11px] text-[var(--dashboard-text)] font-mono leading-relaxed">
+                {command}
+              </pre>
+            </div>
+          ) : null}
+          {row.lines.length ? (
+            <div className={command ? 'mb-2' : ''}>
+              {!command ? (
+                <div className="text-[9px] uppercase tracking-wide text-[var(--dashboard-muted)] mb-1">
+                  {running ? 'Output' : 'Result'}
+                </div>
+              ) : null}
+              {row.lines.map((line, idx) => (
+                <p
+                  key={`${row.id}-line-${idx}`}
+                  className="text-[11px] text-[var(--dashboard-muted)] m-0 font-mono whitespace-pre-wrap break-words"
+                >
+                  {line}
+                </p>
+              ))}
+            </div>
+          ) : null}
           {detailsText ? (
             <ScrollablePreviewPanel>
               <div className="flex justify-end mb-1">
@@ -124,8 +167,8 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({
               </pre>
             </ScrollablePreviewPanel>
           ) : null}
-          {failed && !detailsText ? (
-            <p className="text-[10px] text-red-400 m-0">Tool failed</p>
+          {failed && !detailsText && !row.lines.length ? (
+            <p className="text-[11px] text-red-400 m-0">Tool failed</p>
           ) : null}
         </div>
       ) : null}

@@ -738,6 +738,7 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
         rows={toolTraceRows}
         mode={mode}
         compact={isNarrow}
+        showDoneFooter={!isLoading}
         onDismissRow={(id) => setToolTraceRows((prev) => prev.filter((r) => r.id !== id))}
         onClear={() => setToolTraceRows([])}
       />

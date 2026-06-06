@@ -1900,6 +1900,12 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             (d.tool_name.includes('d1') || d.tool_name.includes('sql') || d.tool_name.includes('query'));
           const preview = d.input_preview != null ? String(d.input_preview) : '';
           const { summaryLines, detailsJson } = formatToolTraceInput(tn, preview);
+          const startIntegrationLabel =
+            /terminal|mcp/i.test(tn) && tn.includes('mcp')
+              ? 'inneranimalmedia-mcp-server'
+              : /terminal/.test(tn)
+                ? 'Agent Sam'
+                : undefined;
           setToolTraceRows?.((prev) => [
             ...prev,
             {
@@ -1909,6 +1915,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
               status: 'running',
               lines: summaryLines,
               detailsJson,
+              integrationLabel: startIntegrationLabel,
               startedAtLabel: new Date().toLocaleTimeString(),
               isSql,
             },
