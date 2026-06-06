@@ -4,6 +4,7 @@
  * Deconstructed from legacy worker.js.
  */
 import { getAuthUser, fetchAuthUserTenantId } from './auth';
+import { getPlatformWorkspaceEnvId } from './platform-workspace-env.js';
 import {
   resolveTerminalWorkspaceId,
   WORKSPACE_CONTEXT_MISSING,
@@ -1216,13 +1217,10 @@ export async function resolveIamWorkspaceRoot(env, opts = {}) {
 
   if (!wid) {
     if (allowPlatformFallback) {
-      const plat =
-        env?.DEFAULT_WORKSPACE_ID != null && String(env.DEFAULT_WORKSPACE_ID).trim() !== ''
-          ? String(env.DEFAULT_WORKSPACE_ID).trim()
-          : '';
+      const plat = getPlatformWorkspaceEnvId(env) || '';
       if (plat) {
         console.warn(
-          '[resolveIamWorkspaceRoot] platform-scoped: using env.DEFAULT_WORKSPACE_ID (allowPlatformFallback=true)',
+          '[resolveIamWorkspaceRoot] platform-scoped: using env.WORKSPACE_ID (allowPlatformFallback=true)',
         );
         wid = plat;
       }

@@ -317,6 +317,7 @@ export async function compactConversationMessagesIfNeeded(env, ctx, params) {
   }
 
   const r2Key = await writeContextToR2(env, {
+    tenantId: String(params.tenantId || 'system').trim(),
     userId,
     workspaceId,
     conversationId,

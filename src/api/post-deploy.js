@@ -11,6 +11,7 @@
  */
 
 import { isIngestSecretAuthorized, verifyInternalApiSecret, jsonResponse } from '../core/auth.js';
+import { getPlatformWorkspaceEnvId } from '../core/platform-workspace-env.js';
 import { fireHooks } from './cicd-event.js';
 import { scheduleMirrorDeployEventToSupabase } from '../core/hyperdrive-write.js';
 
@@ -235,9 +236,7 @@ export async function handlePostDeploy(request, env, ctx) {
     const workspaceId =
       typeof body.workspace_id === 'string' && body.workspace_id.trim()
         ? body.workspace_id.trim()
-        : env.DEFAULT_WORKSPACE_ID != null && String(env.DEFAULT_WORKSPACE_ID).trim()
-          ? String(env.DEFAULT_WORKSPACE_ID).trim()
-          : '';
+        : getPlatformWorkspaceEnvId(env) || '';
     if (workspaceId) {
       scheduleMirrorDeployEventToSupabase(env, ctx, {
         workspace_id: workspaceId,

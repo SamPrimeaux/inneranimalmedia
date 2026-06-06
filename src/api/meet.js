@@ -5,6 +5,7 @@
 
 import { jsonResponse } from '../core/responses.js';
 import { getAuthUser } from '../core/auth.js';
+import { platformR2WriteGateResponse } from '../core/r2-storage-scope.js';
 import { resolveIdentity } from '../core/identity.js';
 import {
   assertCanInviteToRoom,
@@ -595,12 +596,17 @@ async function handleInvite(request, env, roomId) {
 }
 
 async function handleRecordingSave(request, env) {
+  const authUser = await getAuthUser(request, env);
+  if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+  const r2Denied = platformR2WriteGateResponse(authUser);
+  if (r2Denied) return r2Denied;
+
   const form = await request.formData().catch(() => null);
   if (!form) return jsonResponse({ error: 'FormData required' }, 400);
   const file = form.get('recording');
   const roomId = form.get('roomId') || 'unknown';
   if (!file || typeof file === 'string') return jsonResponse({ error: 'recording file required' }, 400);
-  const { userId } = await getUserId(request, env);
+  const userId = authUser.id || authUser.user_id || authUser.userId;
   if (!userId) return jsonResponse({ error: 'Unauthorized' }, 401);
   const r2Key = `meet/recordings/${userId}/${roomId}_${Date.now()}.webm`;
   await env.ASSETS.put(r2Key, file.stream(), {

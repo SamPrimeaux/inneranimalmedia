@@ -1,9 +1,20 @@
 /**
  * User/workspace-scoped bootstrap attachments — no platform R2 or tenant-wide bucket leakage.
+ * Resolves persisted account state from D1 (auth_users, user_settings, agentsam_bootstrap).
  */
-import { authUserIsSuperadmin } from './auth.js';
+import {
+  authUserIsSuperadmin,
+  fetchAuthUserTenantId,
+} from './auth.js';
+import {
+  resolveActiveBootstrap,
+  resolveEffectiveWorkspaceId,
+  resolveTenantIdForWorkspace,
+  WORKSPACE_CONTEXT_MISSING,
+} from './bootstrap.js';
 import { fetchUserGithubLogin, fetchWorkspaceGithubRepo } from './github-repo-scope.js';
 import { loadUserCloudflareR2Credentials } from './user-storage-r2-credentials.js';
+import { userCanAccessWorkspace } from './workspace-access.js';
 
 function trim(v) {
   return v == null ? '' : String(v).trim();
@@ -60,6 +71,205 @@ export async function loadTenantScopedStorageNames(env, tenantId) {
 }
 
 /**
+ * Load D1-persisted workspace preference for this user (survives browser tab close).
+ * @param {any} env
+ * @param {Record<string, unknown>|null|undefined} authUser
+ */
+export async function loadPersistedWorkspacePreference(env, authUser) {
+  const userId = trim(authUser?.id);
+  if (!userId || !env?.DB) {
+    return {
+      active_workspace_id: null,
+      default_workspace_id: null,
+      preferred_workspace_id: null,
+      preferred_source: null,
+    };
+  }
+
+  const [auRow, usRow] = await Promise.all([
+    env.DB.prepare(
+      `SELECT active_workspace_id, active_tenant_id, tenant_id
+         FROM auth_users WHERE id = ? LIMIT 1`,
+    )
+      .bind(userId)
+      .first()
+      .catch(() => null),
+    env.DB.prepare(
+      `SELECT default_workspace_id FROM user_settings WHERE user_id = ? LIMIT 1`,
+    )
+      .bind(userId)
+      .first()
+      .catch(() => null),
+  ]);
+
+  const activeWorkspaceId = trim(auRow?.active_workspace_id) || null;
+  const defaultWorkspaceId = trim(usRow?.default_workspace_id) || null;
+
+  const candidates = [
+    { id: activeWorkspaceId, source: 'auth_users.active_workspace_id' },
+    { id: defaultWorkspaceId, source: 'user_settings.default_workspace_id' },
+  ];
+
+  for (const c of candidates) {
+    if (!c.id) continue;
+    if (authUserIsSuperadmin(authUser) || (await userCanAccessWorkspace(env, authUser, c.id))) {
+      return {
+        active_workspace_id: activeWorkspaceId,
+        default_workspace_id: defaultWorkspaceId,
+        preferred_workspace_id: c.id,
+        preferred_source: c.source,
+      };
+    }
+  }
+
+  return {
+    active_workspace_id: activeWorkspaceId,
+    default_workspace_id: defaultWorkspaceId,
+    preferred_workspace_id: null,
+    preferred_source: null,
+  };
+}
+
+/**
+ * Resolve workspace + tenant for the authenticated user (request-aware when provided).
+ * @param {any} env
+ * @param {{
+ *   authUser: Record<string, unknown>,
+ *   request?: Request|null,
+ *   cache?: Record<string, unknown>,
+ *   workspaceId?: string|null,
+ *   tenantId?: string|null,
+ * }} opts
+ */
+export async function resolvePersistedUserAccount(env, opts) {
+  const authUser = opts.authUser || {};
+  const userId = trim(authUser.id);
+
+  if (!userId) {
+    return {
+      user_id: null,
+      tenant_id: null,
+      workspace_id: null,
+      workspace_source: null,
+      workspace_error: WORKSPACE_CONTEXT_MISSING,
+      persisted: null,
+    };
+  }
+
+  const persisted = await loadPersistedWorkspacePreference(env, authUser);
+
+  let workspaceId = trim(opts.workspaceId) || '';
+  let workspaceSource = workspaceId ? 'caller' : null;
+  let workspaceError = null;
+
+  if (!workspaceId && opts.request) {
+    const wsRes = await resolveEffectiveWorkspaceId(env, opts.request, authUser, opts.cache || {});
+    workspaceId = trim(wsRes.workspaceId);
+    workspaceSource = workspaceId ? 'resolve_effective_workspace' : null;
+    workspaceError = wsRes.error || null;
+  }
+
+  if (!workspaceId && persisted.preferred_workspace_id) {
+    workspaceId = persisted.preferred_workspace_id;
+    workspaceSource = persisted.preferred_source;
+  }
+
+  let tenantId =
+    trim(opts.tenantId) ||
+    trim(authUser.active_tenant_id) ||
+    trim(authUser.tenant_id) ||
+    '';
+
+  if (!tenantId) {
+    tenantId = trim(await fetchAuthUserTenantId(env, userId)) || '';
+  }
+  if (!tenantId && workspaceId) {
+    tenantId = trim(await resolveTenantIdForWorkspace(env, workspaceId)) || '';
+  }
+
+  if (!workspaceId) {
+    workspaceError = workspaceError || WORKSPACE_CONTEXT_MISSING;
+  }
+
+  return {
+    user_id: userId,
+    tenant_id: tenantId || null,
+    workspace_id: workspaceId || null,
+    workspace_source: workspaceSource,
+    workspace_error: workspaceError,
+    persisted,
+  };
+}
+
+/**
+ * Idempotent minimal agentsam_bootstrap row for user + workspace (stops bootstrap_missing churn).
+ * @param {any} env
+ * @param {{
+ *   authUser: Record<string, unknown>,
+ *   userId: string,
+ *   workspaceId: string,
+ *   tenantId?: string|null,
+ * }} opts
+ */
+export async function ensureUserBootstrapRow(env, opts) {
+  const userId = trim(opts.userId);
+  const workspaceId = trim(opts.workspaceId);
+  if (!env?.DB || !userId || !workspaceId) return null;
+
+  const existing = await resolveActiveBootstrap(env, {
+    userId,
+    personUuid: opts.authUser?.person_uuid ?? null,
+    tenantId: trim(opts.tenantId) || null,
+    workspaceId,
+  });
+  if (existing && bootstrapRowMatchesUser(existing, userId)) return existing;
+
+  const tid =
+    trim(opts.tenantId) ||
+    trim(opts.authUser?.tenant_id) ||
+    trim(await fetchAuthUserTenantId(env, userId)) ||
+    trim(await resolveTenantIdForWorkspace(env, workspaceId)) ||
+    null;
+
+  const bid = `asb_${userId}`.slice(0, 80);
+  const email = trim(opts.authUser?.email) || null;
+  const displayName =
+    trim(opts.authUser?.display_name) ||
+    trim(opts.authUser?.name) ||
+    null;
+
+  try {
+    await env.DB.prepare(
+      `INSERT INTO agentsam_bootstrap (
+         id, workspace_id, tenant_id, user_id, email, display_name,
+         environment, is_active, capabilities_json, governance_roles_json, approval_required_json,
+         allowed_execution_modes_json, default_execution_mode, runtime_status_json, backend_health_json,
+         feature_flags_json, ui_preferences_json, created_at, updated_at
+       ) VALUES (?,?,?,?,?,?,
+         'production', 1, '{}','[]','[]','[\"pty\"]','pty','{}','{}','{}','{}',
+         datetime('now'), datetime('now'))
+       ON CONFLICT(id) DO UPDATE SET
+         workspace_id = excluded.workspace_id,
+         tenant_id = COALESCE(excluded.tenant_id, agentsam_bootstrap.tenant_id),
+         user_id = excluded.user_id,
+         is_active = 1,
+         updated_at = datetime('now')`,
+    )
+      .bind(bid, workspaceId, tid, userId, email, displayName)
+      .run();
+  } catch {
+    return null;
+  }
+
+  return resolveActiveBootstrap(env, {
+    userId,
+    personUuid: opts.authUser?.person_uuid ?? null,
+    tenantId: tid,
+    workspaceId,
+  });
+}
+
+/**
  * Safe runtime slice merged into /api/agentsam/config and agent bootstrap cache.
  * @param {any} env
  * @param {{
@@ -67,6 +277,7 @@ export async function loadTenantScopedStorageNames(env, tenantId) {
  *   workspaceId: string,
  *   tenantId?: string|null,
  *   bootstrapRow?: Record<string, unknown>|null,
+ *   account?: Record<string, unknown>|null,
  * }} opts
  */
 export async function buildScopedBootstrapContext(env, opts) {
@@ -78,6 +289,7 @@ export async function buildScopedBootstrapContext(env, opts) {
     trim(authUser.tenant_id) ||
     '';
   const isSuper = authUserIsSuperadmin(authUser);
+  const account = opts.account || {};
 
   const [githubLogin, workspaceRepo, tenantBuckets, r2Creds] = await Promise.all([
     userId ? fetchUserGithubLogin(env, userId) : Promise.resolve(null),
@@ -87,6 +299,7 @@ export async function buildScopedBootstrapContext(env, opts) {
   ]);
 
   const capabilities = parseJsonSafe(opts.bootstrapRow?.capabilities_json, {});
+  const persisted = account.persisted || null;
 
   return {
     isolation: {
@@ -94,6 +307,15 @@ export async function buildScopedBootstrapContext(env, opts) {
       user_id: userId || null,
       tenant_id: tenantId || null,
       workspace_id: workspaceId || null,
+    },
+    account: {
+      user_id: userId || null,
+      tenant_id: tenantId || null,
+      workspace_id: workspaceId || null,
+      workspace_source: account.workspace_source || null,
+      active_workspace_id: persisted?.active_workspace_id ?? null,
+      default_workspace_id: persisted?.default_workspace_id ?? null,
+      bootstrap_present: !!opts.bootstrapRow,
     },
     github: {
       login: githubLogin,
@@ -112,36 +334,84 @@ export async function buildScopedBootstrapContext(env, opts) {
 
 /**
  * API payload: bootstrap row (user-matched only) + scoped_context.
+ * Resolves workspace/tenant/bootstrap from D1 when request + authUser are provided.
  * @param {any} env
  * @param {{
  *   authUser: { id?: string, tenant_id?: string, is_superadmin?: number|boolean },
- *   workspaceId: string,
+ *   workspaceId?: string|null,
  *   tenantId?: string|null,
  *   bootstrapRow?: Record<string, unknown>|null,
+ *   request?: Request|null,
+ *   cache?: Record<string, unknown>,
+ *   ensureBootstrap?: boolean,
  * }} opts
  */
 export async function buildBootstrapApiPayload(env, opts) {
-  const userId = trim(opts.authUser?.id);
-  const row = opts.bootstrapRow;
-  const matched = bootstrapRowMatchesUser(row, userId) ? row : null;
+  const authUser = opts.authUser || {};
+  const userId = trim(authUser.id);
+
+  const account = await resolvePersistedUserAccount(env, {
+    authUser,
+    request: opts.request ?? null,
+    cache: opts.cache,
+    workspaceId: opts.workspaceId,
+    tenantId: opts.tenantId,
+  });
+
+  const workspaceId = trim(opts.workspaceId) || account.workspace_id || '';
+  const tenantId = trim(opts.tenantId) || account.tenant_id || trim(authUser.tenant_id) || '';
+
+  let row =
+    opts.bootstrapRow !== undefined
+      ? opts.bootstrapRow
+      : workspaceId && userId
+        ? await resolveActiveBootstrap(env, {
+            userId,
+            personUuid: authUser.person_uuid ?? null,
+            tenantId: tenantId || null,
+            workspaceId,
+          })
+        : null;
+
+  let matched = bootstrapRowMatchesUser(row, userId) ? row : null;
+
+  if (!matched && workspaceId && userId && opts.ensureBootstrap !== false) {
+    matched = await ensureUserBootstrapRow(env, {
+      authUser,
+      userId,
+      workspaceId,
+      tenantId,
+    });
+  }
 
   const scoped_context = await buildScopedBootstrapContext(env, {
-    ...opts,
+    authUser,
+    workspaceId,
+    tenantId,
     bootstrapRow: matched,
+    account,
   });
+
+  const base = {
+    workspace_id: workspaceId || null,
+    user_id: userId || null,
+    tenant_id: tenantId || null,
+    scoped_context,
+    account: scoped_context.account,
+    workspace_source: account.workspace_source,
+    workspace_error: account.workspace_error,
+  };
 
   if (!matched) {
     return {
-      workspace_id: opts.workspaceId,
-      user_id: userId,
-      scoped_context,
+      ...base,
       bootstrap_missing: true,
     };
   }
 
   return {
     ...matched,
-    scoped_context,
+    ...base,
     bootstrap_missing: false,
   };
 }

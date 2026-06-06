@@ -172,7 +172,7 @@ export async function handleStudioSessionApi(request, url, env, ctx) {
     if (artifactMatch && method === 'GET') {
       const artifactId = artifactMatch[1];
       const artifact = await env.DB.prepare(
-        'SELECT r2_key, artifact_type, is_public, user_id FROM agentsam_artifacts WHERE id = ?',
+        'SELECT r2_key, r2_bucket, artifact_type, is_public, user_id FROM agentsam_artifacts WHERE id = ?',
       ).bind(artifactId).first();
 
       if (!artifact) return new Response('Not found', { status: 404 });
@@ -185,7 +185,7 @@ export async function handleStudioSessionApi(request, url, env, ctx) {
       }
 
       const { readWorkspaceArtifact } = await import('../core/artifact-r2-store.js');
-      const r2Object = await readWorkspaceArtifact(env, artifact.r2_key);
+      const r2Object = await readWorkspaceArtifact(env, artifact.r2_key, artifact.r2_bucket);
       if (!r2Object) return new Response('Artifact file not found', { status: 404 });
 
       const contentTypeMap = {

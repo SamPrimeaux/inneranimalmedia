@@ -1,5 +1,6 @@
 import { jsonResponse } from '../core/responses.js';
 import { getAuthUser } from '../core/auth.js';
+import { platformR2WriteGateResponse } from '../core/r2-storage-scope.js';
 
 /**
  * Handlers for Voxel scenes and Excalidraw state persistence.
@@ -36,6 +37,9 @@ export async function handleCanvasApi(request, env) {
 
     // ── POST /api/draw/save ──────────────────────────────────────────────────
     if (pathLower === '/api/draw/save' && method === 'POST') {
+        const r2Denied = platformR2WriteGateResponse(authUser);
+        if (r2Denied) return r2Denied;
+
         try {
             const body = await request.json();
             const { scene, projectId, type = 'voxel' } = body;

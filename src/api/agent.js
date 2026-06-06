@@ -3447,11 +3447,7 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     }
 
     if (method === 'POST') {
-      const defaultWs =
-        env?.DEFAULT_WORKSPACE_ID != null && String(env.DEFAULT_WORKSPACE_ID).trim() !== ''
-          ? String(env.DEFAULT_WORKSPACE_ID).trim()
-          : '';
-      const isAgentsamWs = /^ws_/i.test(wsId) || (defaultWs !== '' && wsId === defaultWs);
+      const isAgentsamWs = /^ws_/i.test(wsId);
       if (!isAgentsamWs) {
         return jsonResponse(
           { error: 'Use PUT for conversation workspace snapshots; POST merge is for ws_* workspace ids.' },

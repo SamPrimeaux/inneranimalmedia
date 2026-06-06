@@ -1,5 +1,6 @@
 /**
- * Persist plan artifacts (Excalidraw JSON, Markdown) in AUTORAG_BUCKET/workspaces/ + agentsam_artifacts (D1).
+ * Persist plan artifacts (Excalidraw JSON, Markdown) in ARTIFACTS bucket + agentsam_artifacts (D1).
+ * Keys: artifacts/workspace/{workspace_id}/plan/{artifact_id}.{ext}
  */
 
 import { writeWorkspaceArtifact, ARTIFACT_WRITE_USER_ERROR } from './artifact-r2-store.js';
@@ -42,6 +43,7 @@ async function loadPlanAndTasksForArtifact(env, p) {
  *   metadataKind: string,
  *   sourceRunId?: string|null,
  *   sourceSessionId?: string|null,
+ *   authUser?: Record<string, unknown>|null,
  * }} row
  */
 async function putR2AndInsertPlanArtifact(env, ctx, row) {
@@ -54,12 +56,23 @@ async function putR2AndInsertPlanArtifact(env, ctx, row) {
     name: row.name,
     description: row.description,
     source: 'agentsam_plan',
+    kind: 'plan',
+    scope: 'workspace',
     sourceRunId: row.sourceRunId ?? null,
     sourceSessionId: row.sourceSessionId ?? null,
     tags: row.tags,
     metadata: { plan_id: row.planId, kind: row.metadataKind },
     origin: env?.IAM_ORIGIN ?? null,
+    authUser: row.authUser ?? null,
   });
+  if (out.skipped_r2) {
+    return {
+      skipped_r2: true,
+      content_base64: out.content_base64,
+      plan_id: row.planId,
+      user_message: out.user_message,
+    };
+  }
   if (!out.ok) {
     throw new Error(out.user_message || ARTIFACT_WRITE_USER_ERROR);
   }
@@ -74,9 +87,8 @@ async function putR2AndInsertPlanArtifact(env, ctx, row) {
 
 /**
  * @param {any} env
- * @param {{ tenantId: string, workspaceId: string, userId: string, planId: string, sourceRunId?: string|null, sourceSessionId?: string|null }} p
+ * @param {{ tenantId: string, workspaceId: string, userId: string, planId: string, sourceRunId?: string|null, sourceSessionId?: string|null, authUser?: Record<string, unknown>|null }} p
  * @param {any} [ctx]
- * @returns {Promise<{ artifact_id: string, r2_key: string, public_url: string, plan_id: string, open_url: string }>}
  */
 export async function createPlanExcalidrawArtifact(env, p, ctx = null) {
   if (!env?.DB) throw new Error('DB not available');
@@ -88,7 +100,6 @@ export async function createPlanExcalidrawArtifact(env, p, ctx = null) {
   if (!workspaceId) throw new Error('workspace_id required');
   if (!userId) throw new Error('user_id required');
   if (!planId) throw new Error('plan_id required');
-  if (!env.AUTORAG_BUCKET?.put) throw new Error('AUTORAG_BUCKET binding not available');
 
   const { buildExcalidrawPlanScene } = await import('./agentsam-excalidraw-plan.js');
   const { plan, tasks } = await loadPlanAndTasksForArtifact(env, p);
@@ -110,15 +121,16 @@ export async function createPlanExcalidrawArtifact(env, p, ctx = null) {
     metadataKind: 'plan_map',
     sourceRunId: p.sourceRunId ?? null,
     sourceSessionId: p.sourceSessionId ?? null,
+    authUser: p.authUser ?? null,
   });
+  if (out.skipped_r2) return { ...out, elements: Array.isArray(scene.elements) ? scene.elements : [] };
   return { ...out, elements: Array.isArray(scene.elements) ? scene.elements : [] };
 }
 
 /**
  * @param {any} env
- * @param {{ tenantId: string, workspaceId: string, userId: string, planId: string, sourceRunId?: string|null, sourceSessionId?: string|null }} p
+ * @param {{ tenantId: string, workspaceId: string, userId: string, planId: string, sourceRunId?: string|null, sourceSessionId?: string|null, authUser?: Record<string, unknown>|null }} p
  * @param {any} [ctx]
- * @returns {Promise<{ artifact_id: string, r2_key: string, public_url: string, plan_id: string, open_url: string }>}
  */
 export async function createPlanMarkdownArtifact(env, p, ctx = null) {
   if (!env?.DB) throw new Error('DB not available');
@@ -130,7 +142,6 @@ export async function createPlanMarkdownArtifact(env, p, ctx = null) {
   if (!workspaceId) throw new Error('workspace_id required');
   if (!userId) throw new Error('user_id required');
   if (!planId) throw new Error('plan_id required');
-  if (!env.AUTORAG_BUCKET?.put) throw new Error('AUTORAG_BUCKET binding not available');
 
   const { buildPlanMarkdown } = await import('./agentsam-plan-markdown.js');
   const { plan, tasks } = await loadPlanAndTasksForArtifact(env, p);
@@ -151,5 +162,6 @@ export async function createPlanMarkdownArtifact(env, p, ctx = null) {
     metadataKind: 'plan_markdown',
     sourceRunId: p.sourceRunId ?? null,
     sourceSessionId: p.sourceSessionId ?? null,
+    authUser: p.authUser ?? null,
   });
 }

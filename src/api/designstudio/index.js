@@ -19,9 +19,6 @@ const BLUEPRINTS = 'designstudio_design_blueprints';
 const MCP_WORKFLOWS = 'agentsam_mcp_workflows';
 const WORKSPACE_TABLE = 'agentsam_workspace';
 function defaultWorkspaceId(env) {
-  if (env?.DEFAULT_WORKSPACE_ID != null && String(env.DEFAULT_WORKSPACE_ID).trim() !== '') {
-    return String(env.DEFAULT_WORKSPACE_ID).trim();
-  }
   return null;
 }
 

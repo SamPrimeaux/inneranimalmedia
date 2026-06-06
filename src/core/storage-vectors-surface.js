@@ -64,9 +64,6 @@ function resolveWorkspaceId(authUser, url, env) {
   if (authUser?.active_workspace_id != null && String(authUser.active_workspace_id).trim() !== '') {
     return String(authUser.active_workspace_id).trim();
   }
-  if (env?.DEFAULT_WORKSPACE_ID != null && String(env.DEFAULT_WORKSPACE_ID).trim() !== '') {
-    return String(env.DEFAULT_WORKSPACE_ID).trim();
-  }
   return null;
 }
 

@@ -11,6 +11,7 @@ import {
   resolveDefaultWorkspaceForTenant,
   userHasWorkspaceMembership,
 } from './workspace-provisioning.js';
+import { defaultWorkspaceIdFromUserKey, getPlatformWorkspaceEnvId } from './platform-workspace-env.js';
 
 /** Cached superadmin identifiers: auth_users.id, emails (TTL 5m). */
 let SUPERADMIN_IDS_CACHE = null;
@@ -512,8 +513,15 @@ export async function resolveWorkspaceIdAtLogin(env, userRow, opts = {}) {
     candidate = await resolveFirstMembershipWorkspaceId(env, userId);
   }
 
-  if (!candidate && tenantId) {
-    candidate = workspaceSlugFromTenantId(tenantId);
+  const isSuper = Number(userRow?.is_superadmin) === 1;
+  if (!candidate && isSuper) {
+    candidate = getPlatformWorkspaceEnvId(env) || null;
+  }
+
+  if (!candidate && userId && !isSuper) {
+    const uk = trimSessionField(userRow?.user_key);
+    const fromKey = uk ? defaultWorkspaceIdFromUserKey(uk) : null;
+    if (fromKey) candidate = fromKey;
   }
 
   return candidate;
@@ -1089,6 +1097,21 @@ export async function establishIamSession(request, env, userId, bodyObj = { ok: 
     return jsonResponse({ error: 'User not found' }, 404);
   }
 
+  try {
+    const { ensureUserTenantWorkspace } = await import('./workspace-provisioning.js');
+    await ensureUserTenantWorkspace(env, { ...userRow, id: userId });
+    const refreshed = await env.DB.prepare(
+      `SELECT active_workspace_id, default_workspace_id, active_tenant_id, tenant_id, user_key
+         FROM auth_users WHERE id = ? LIMIT 1`,
+    )
+      .bind(userId)
+      .first()
+      .catch(() => null);
+    if (refreshed) userRow = { ...userRow, ...refreshed };
+  } catch (e) {
+    console.warn('[establishIamSession] ensureUserTenantWorkspace', e?.message ?? e);
+  }
+
   const sessionFields = sessionFieldsFromAuthUser(userRow, sessionProvider);
   const resolvedWorkspaceId = await resolveWorkspaceIdAtLogin(env, userRow, {});
   sessionFields.workspaceId = resolvedWorkspaceId ?? sessionFields.workspaceId;
@@ -1200,6 +1223,22 @@ export async function createLoginSession(request, env, userId, sessionProvider =
     if (!gap?.ok) {
       throw new Error(`identity_plane_gap_fill_failed:${gap?.reason ?? 'unknown'}`);
     }
+    userRow = await env.DB.prepare(`SELECT * FROM auth_users WHERE id = ? LIMIT 1`).bind(userId).first().catch(() => userRow);
+  }
+
+  try {
+    const { ensureUserTenantWorkspace } = await import('./workspace-provisioning.js');
+    await ensureUserTenantWorkspace(env, { ...userRow, id: userId });
+    const refreshed = await env.DB.prepare(
+      `SELECT active_workspace_id, default_workspace_id, active_tenant_id, tenant_id, user_key
+         FROM auth_users WHERE id = ? LIMIT 1`,
+    )
+      .bind(userId)
+      .first()
+      .catch(() => null);
+    if (refreshed) userRow = { ...userRow, ...refreshed };
+  } catch (e) {
+    console.warn('[createLoginSession] ensureUserTenantWorkspace', e?.message ?? e);
   }
 
   const sessionFields = sessionFieldsFromAuthUser(userRow, sessionProvider, {

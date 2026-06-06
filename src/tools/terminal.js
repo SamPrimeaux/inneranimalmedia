@@ -26,7 +26,6 @@ export const handlers = {
       const wid =
         workspace_id ??
         workspaceId ??
-        env?.DEFAULT_WORKSPACE_ID ??
         null;
       const res = await fetch(`${origin}/api/agent/terminal/run`, {
         method: 'POST',

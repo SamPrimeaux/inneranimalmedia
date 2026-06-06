@@ -4,8 +4,16 @@
  * Deconstructed from legacy worker.js.
  */
 
-import { getAuthUser, jsonResponse } from '../core/auth';
+import { getAuthUser, jsonResponse, authUserIsSuperadmin } from '../core/auth';
 import { mergeR2S3EnvFromUserStorage } from '../core/user-storage-r2-credentials.js';
+import {
+  assertDashboardR2BucketAccess,
+  getPlatformWorkerR2Binding,
+  listDashboardVisibleR2Buckets,
+  listWorkerR2BindingCatalog,
+  normalizeR2BucketParam,
+  WORKER_R2_BINDING_SPECS,
+} from '../core/r2-storage-scope.js';
 import { canAccessMediaObjectKey } from '../core/media-r2-access.js';
 import { detectFileKind, isEditableTextKind } from '../core/file-kind.js';
 import {
@@ -62,13 +70,12 @@ async function assertR2ObjectAccess(request, env, bucket, key) {
   return null;
 }
 
-/** Dashboard /api/r2/file sends binding labels; map to canonical R2 bucket names. */
-const BINDING_LABEL_TO_BUCKET = {
-  DASHBOARD: 'inneranimalmedia',
-  ASSETS: 'inneranimalmedia',
-  R2: 'iam-platform',
-  AUTORAG_BUCKET: 'inneranimalmedia-autorag',
-};
+/** Dashboard /api/r2/file sends binding labels; map to canonical bucket names (live bindings only). */
+const BINDING_LABEL_TO_BUCKET = Object.fromEntries(
+  WORKER_R2_BINDING_SPECS.flatMap((spec) =>
+    spec.labels.map((label) => [label, spec.bucketName]),
+  ),
+);
 
 export function resolveR2BucketName(env, bucketOrBinding) {
   const raw = String(bucketOrBinding || '').trim();
@@ -254,7 +261,7 @@ async function listR2ObjectPage(env, bucketName, binding, prefix, opts = {}) {
   };
 }
 
-async function handleR2FileRoute(request, url, env, method) {
+async function handleR2FileRoute(request, url, env, method, authUser) {
   let body = {};
   if (method !== 'GET' && method !== 'HEAD') {
     try {
@@ -268,6 +275,14 @@ async function handleR2FileRoute(request, url, env, method) {
     (url.searchParams.get('bucket') || body.bucket || '').trim();
   const key = (url.searchParams.get('key') || body.key || '').trim();
   if (!bucketParam || !key) return jsonResponse({ error: 'bucket and key required' }, 400);
+
+  const access = await assertDashboardR2BucketAccess(env, authUser, bucketParam);
+  if (!access.ok) {
+    return jsonResponse(
+      { error: access.error, user_message: access.user_message, bucket: access.bucket },
+      access.status || 403,
+    );
+  }
 
   const { bucketName, binding } = resolveR2Access(env, bucketParam);
 
@@ -374,9 +389,34 @@ export async function handleR2Api(request, url, env) {
   const authUser = await getAuthUser(request, env).catch(() => null);
   env = await mergeR2S3EnvFromUserStorage(env, authUser);
 
+  async function denyUnlessBucketAllowed(bucketOrBinding) {
+    const access = await assertDashboardR2BucketAccess(env, authUser, bucketOrBinding);
+    if (!access.ok) {
+      return jsonResponse(
+        {
+          error: access.error,
+          user_message: access.user_message,
+          bucket: access.bucket,
+        },
+        access.status || 403,
+      );
+    }
+    return null;
+  }
+
   // 1. Buckets & Inventory
   if (pathLower === '/api/r2/buckets' && method === 'GET') {
-    const payload = await listR2BucketsForCatalog(env, { all: url.searchParams.get('all') === 'true' });
+    const wantAll = url.searchParams.get('all') === 'true';
+    if (wantAll && !(authUser && authUserIsSuperadmin(authUser))) {
+      return jsonResponse(
+        {
+          error: 'forbidden',
+          user_message: 'Account-wide bucket listing is platform-owner only.',
+        },
+        403,
+      );
+    }
+    const payload = await listR2BucketsForCatalog(env, { all: wantAll, authUser });
     return jsonResponse(payload);
   }
 
@@ -406,6 +446,8 @@ export async function handleR2Api(request, url, env) {
 
   if (pathLower === '/api/r2/stats' && method === 'GET' && url.searchParams.get('bucket')) {
     const b = url.searchParams.get('bucket').trim();
+    const denied = await denyUnlessBucketAllowed(b);
+    if (denied) return denied;
     const { binding } = resolveR2Access(env, b);
     const s3Denied = await assertR2UnboundS3Auth(request, env, binding);
     if (s3Denied) return s3Denied;
@@ -428,6 +470,10 @@ export async function handleR2Api(request, url, env) {
     const syncPrefix = syncBody.prefix != null ? String(syncBody.prefix) : '';
     
     if (source_bucket && dest_bucket) {
+      const srcDenied = await denyUnlessBucketAllowed(source_bucket);
+      if (srcDenied) return srcDenied;
+      const dstDenied = await denyUnlessBucketAllowed(dest_bucket);
+      if (dstDenied) return dstDenied;
       const src = resolveR2Access(env, source_bucket);
       const dst = resolveR2Access(env, dest_bucket);
       if (!src.binding) {
@@ -491,7 +537,17 @@ export async function handleR2Api(request, url, env) {
   // 2. Object Management
   if (pathLower === '/api/r2/list' && method === 'GET') {
     if (url.searchParams.get('buckets') === 'true') {
-      const payload = await listR2BucketsForCatalog(env, { all: url.searchParams.get('all') === 'true' });
+      const wantAll = url.searchParams.get('all') === 'true';
+      if (wantAll && !(authUser && authUserIsSuperadmin(authUser))) {
+        return jsonResponse(
+          {
+            error: 'forbidden',
+            user_message: 'Account-wide bucket listing is platform-owner only.',
+          },
+          403,
+        );
+      }
+      const payload = await listR2BucketsForCatalog(env, { all: wantAll, authUser });
       return jsonResponse(payload);
     }
 
@@ -501,6 +557,8 @@ export async function handleR2Api(request, url, env) {
     const limitParam = Math.min(5000, Math.max(1, parseInt(url.searchParams.get('limit') || '1000', 10) || 1000));
     
     if (!bucket) return jsonResponse({ error: 'bucket required' }, 400);
+    const denied = await denyUnlessBucketAllowed(bucket);
+    if (denied) return denied;
     const { bucketName, binding } = resolveR2Access(env, bucket);
 
     const listViaBinding = async () => {
@@ -576,6 +634,8 @@ export async function handleR2Api(request, url, env) {
     const q = (url.searchParams.get('q') || '').trim().toLowerCase();
     const keyPrefix = (url.searchParams.get('prefix') || '').trim();
     if (!bucket) return jsonResponse({ error: 'bucket required' }, 400);
+    const denied = await denyUnlessBucketAllowed(bucket);
+    if (denied) return denied;
     const { bucketName, binding } = resolveR2Access(env, bucket);
     const s3Denied = await assertR2UnboundS3Auth(request, env, binding);
     if (s3Denied) return s3Denied;
@@ -633,6 +693,8 @@ export async function handleR2Api(request, url, env) {
       );
     }
 
+    const deniedUpload = await denyUnlessBucketAllowed(bucket);
+    if (deniedUpload) return deniedUpload;
     const { bucketName, binding } = resolveR2Access(env, bucket);
     const s3Denied = await assertR2UnboundS3Auth(request, env, binding);
     if (s3Denied) return s3Denied;
@@ -683,6 +745,8 @@ export async function handleR2Api(request, url, env) {
       }
     }
     if (!bucket || !key) return jsonResponse({ error: 'bucket and key required' }, 400);
+    const deniedDel = await denyUnlessBucketAllowed(bucket);
+    if (deniedDel) return deniedDel;
     const { bucketName, binding } = resolveR2Access(env, bucket);
     const s3Denied = await assertR2UnboundS3Auth(request, env, binding);
     if (s3Denied) return s3Denied;
@@ -706,6 +770,8 @@ export async function handleR2Api(request, url, env) {
     const keys = Array.isArray(batchBody.keys) ? batchBody.keys.map((k) => String(k || '').trim()).filter(Boolean) : [];
     if (!bucket || !keys.length) return jsonResponse({ error: 'bucket and keys[] required' }, 400);
 
+    const deniedBatch = await denyUnlessBucketAllowed(bucket);
+    if (deniedBatch) return deniedBatch;
     const { bucketName, binding } = resolveR2Access(env, bucket);
     const s3Denied = await assertR2UnboundS3Auth(request, env, binding);
     if (s3Denied) return s3Denied;
@@ -728,6 +794,8 @@ export async function handleR2Api(request, url, env) {
     const bucket = url.searchParams.get('bucket');
     const key = url.searchParams.get('key');
     if (!bucket || !key) return jsonResponse({ error: 'bucket and key required' }, 400);
+    const deniedHead = await denyUnlessBucketAllowed(bucket);
+    if (deniedHead) return deniedHead;
     const { bucketName, binding } = resolveR2Access(env, bucket);
     const meta = await r2HeadViaBindingOrS3(env, binding, bucketName, key);
     if (meta) {
@@ -751,6 +819,8 @@ export async function handleR2Api(request, url, env) {
     if (!bucket || !fromKey || !toKey) {
       return jsonResponse({ error: 'bucket, from, and to required' }, 400);
     }
+    const deniedCopy = await denyUnlessBucketAllowed(bucket);
+    if (deniedCopy) return deniedCopy;
     const { bucketName, binding } = resolveR2Access(env, bucket);
     const s3Denied = await assertR2UnboundS3Auth(request, env, binding);
     if (s3Denied) return s3Denied;
@@ -781,6 +851,8 @@ export async function handleR2Api(request, url, env) {
     const bucketParam = (url.searchParams.get('bucket') || '').trim();
     const key = (url.searchParams.get('key') || '').trim();
     if (!bucketParam || !key) return jsonResponse({ error: 'bucket and key required' }, 400);
+    const deniedStream = await denyUnlessBucketAllowed(bucketParam);
+    if (deniedStream) return deniedStream;
     const { bucketName, binding } = resolveR2Access(env, bucketParam);
     const streamRes = await r2ObjectGetResponse(request, env, binding, bucketName, key, getContentTypeFromKey(key));
     if (streamRes) {
@@ -798,7 +870,7 @@ export async function handleR2Api(request, url, env) {
   }
 
   if (pathLower === '/api/r2/file') {
-    return handleR2FileRoute(request, url, env, method);
+    return handleR2FileRoute(request, url, env, method, authUser);
   }
 
   if (pathLower === '/api/r2/multipart/create' && method === 'POST') {
@@ -811,6 +883,8 @@ export async function handleR2Api(request, url, env) {
     const bucketRaw = String(body.bucket || '').trim();
     const keyRaw = String(body.key || '').trim();
     if (!bucketRaw || !keyRaw) return jsonResponse({ error: 'bucket and key required' }, 400);
+    const deniedMpCreate = await denyUnlessBucketAllowed(bucketRaw);
+    if (deniedMpCreate) return deniedMpCreate;
     const keyCheck = await assertR2UploadKey(request, env, keyRaw);
     if (keyCheck.error) return keyCheck.error;
     const { bucketName, binding } = resolveR2Access(env, bucketRaw);
@@ -840,6 +914,8 @@ export async function handleR2Api(request, url, env) {
     if (!bucketRaw || !keyRaw || !uploadId || !partNumber) {
       return jsonResponse({ error: 'bucket, key, uploadId, partNumber required' }, 400);
     }
+    const deniedMpPart = await denyUnlessBucketAllowed(bucketRaw);
+    if (deniedMpPart) return deniedMpPart;
     const keyCheck = await assertR2UploadKey(request, env, keyRaw);
     if (keyCheck.error) return keyCheck.error;
     const { bucketName, binding } = resolveR2Access(env, bucketRaw);
@@ -882,6 +958,8 @@ export async function handleR2Api(request, url, env) {
     if (!bucketRaw || !keyRaw || !uploadId || !parts.length) {
       return jsonResponse({ error: 'bucket, key, uploadId, parts[] required' }, 400);
     }
+    const deniedMpComplete = await denyUnlessBucketAllowed(bucketRaw);
+    if (deniedMpComplete) return deniedMpComplete;
     const keyCheck = await assertR2UploadKey(request, env, keyRaw);
     if (keyCheck.error) return keyCheck.error;
     const { bucketName, binding } = resolveR2Access(env, bucketRaw);
@@ -939,6 +1017,8 @@ export async function handleR2Api(request, url, env) {
     if (!bucketRaw || !keyRaw || !uploadId) {
       return jsonResponse({ error: 'bucket, key, uploadId required' }, 400);
     }
+    const deniedMpAbort = await denyUnlessBucketAllowed(bucketRaw);
+    if (deniedMpAbort) return deniedMpAbort;
     const { bucketName, binding } = resolveR2Access(env, bucketRaw);
     const s3Denied = await assertR2UnboundS3Auth(request, env, binding);
     if (s3Denied) return s3Denied;
@@ -952,6 +1032,8 @@ export async function handleR2Api(request, url, env) {
     const key = url.searchParams.get('key');
     const exp = parseInt(url.searchParams.get('expires') || '3600', 10);
     if (!bucket || !key) return jsonResponse({ error: 'bucket and key required' }, 400);
+    const deniedUrl = await denyUnlessBucketAllowed(bucket);
+    if (deniedUrl) return deniedUrl;
     
     const workerUrl = `${url.origin}/api/r2/buckets/${encodeURIComponent(bucket)}/object/${encodeURIComponent(key)}`;
     const presigned = await presignR2GetObjectUrl(env, bucket, key, exp);
@@ -962,6 +1044,8 @@ export async function handleR2Api(request, url, env) {
   const bucketsObjectsMatch = path.match(/^\/api\/r2\/buckets\/([^/]+)\/objects$/i);
   if (bucketsObjectsMatch && method === 'GET') {
     const name = decodeURIComponent(bucketsObjectsMatch[1]);
+    const deniedInv = await denyUnlessBucketAllowed(name);
+    if (deniedInv) return deniedInv;
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
     const { results } = await env.DB.prepare('SELECT * FROM r2_object_inventory WHERE bucket_name = ? ORDER BY object_key').bind(name).all();
     return jsonResponse({ objects: results || [] });
@@ -971,6 +1055,8 @@ export async function handleR2Api(request, url, env) {
   if (objectKeyMatch) {
     const name = decodeURIComponent(objectKeyMatch[1]);
     const key = decodeURIComponent(objectKeyMatch[2]);
+    const deniedObj = await denyUnlessBucketAllowed(name);
+    if (deniedObj) return deniedObj;
     const { bucketName, binding } = resolveR2Access(env, name);
 
     if (method === 'GET' || method === 'HEAD') {
@@ -1026,34 +1112,12 @@ export async function handleR2Api(request, url, env) {
  * @param {{ all?: boolean }} [opts]
  */
 export async function listR2BucketsForCatalog(env, opts = {}) {
-  const all = opts.all === true;
-  const bound = listBoundR2BucketNames(env);
-  const display = dedupeBoundR2BucketNames(env);
+  const visible = await listDashboardVisibleR2Buckets(env, opts.authUser ?? null, {
+    all: opts.all === true,
+    listAccountViaS3: listAllR2BucketsViaS3,
+  });
   const resolve = buildR2BucketResolveMap(env);
-  if (!all) {
-    return { buckets: display, bound, resolve, source: 'bindings', count: display.length };
-  }
-  const account = await listAllR2BucketsViaS3(env);
-  if (account?.length) {
-    const boundSet = new Set(bound);
-    const merged = [...display];
-    const mergedSet = new Set(merged);
-    for (const name of account) {
-      if (!boundSet.has(name) && !mergedSet.has(name)) {
-        merged.push(name);
-        mergedSet.add(name);
-      }
-    }
-    return {
-      buckets: merged,
-      bound,
-      resolve,
-      account,
-      source: 'bindings+s3',
-      count: merged.length,
-    };
-  }
-  return { buckets: display, bound, resolve, source: 'bindings', count: display.length };
+  return { ...visible, resolve };
 }
 
 /**
@@ -1102,35 +1166,20 @@ export async function listR2ObjectsForCatalog(env, opts = {}) {
 }
 
 export function getR2Binding(env, bucketName) {
-  const map = {
-    inneranimalmedia: env.ASSETS,
-    'inneranimalmedia-autorag': env.AUTORAG_BUCKET,
-    autorag: env.AUTORAG_BUCKET,
-    dashboard: env.ASSETS,
-    'inneranimalmedia-sandbox-cicd': env.ASSETS,
-    'iam-platform': env.R2,
-    tools: env.TOOLS || env.ASSETS,
-  };
-  return map[bucketName] || null;
+  return getPlatformWorkerR2Binding(env, normalizeR2BucketParam(env, bucketName));
 }
 
 export function listBoundR2BucketNames(env) {
-  const names = [];
-  if (env.ASSETS) names.push('inneranimalmedia');
-  if (env.AUTORAG_BUCKET) names.push('inneranimalmedia-autorag');
-  if (env.R2) names.push('iam-platform');
-  if (env.TOOLS) names.push('tools');
-  return names;
+  return listWorkerR2BindingCatalog(env).map((row) => row.bucket_name);
 }
 
 /** Stable id for buckets that share the same Worker binding (e.g. inneranimalmedia + tools). */
 export function getR2BindingSlot(env, bucketName) {
   const binding = getR2Binding(env, bucketName);
   if (!binding) return `unbound:${String(bucketName || '').trim()}`;
-  if (binding === env.ASSETS) return 'DASHBOARD';
-  if (binding === env.ASSETS) return 'ASSETS';
-  if (binding === env.R2) return 'R2';
-  if (binding === env.AUTORAG_BUCKET) return 'AUTORAG_BUCKET';
+  for (const spec of WORKER_R2_BINDING_SPECS) {
+    if (env?.[spec.bindingKey] === binding) return spec.bindingKey;
+  }
   return `binding:${String(bucketName || '').trim()}`;
 }
 

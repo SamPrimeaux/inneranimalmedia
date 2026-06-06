@@ -7,6 +7,7 @@
  *   scenes/{workspace_id}/{scene_id}_thumb.png  — thumbnail (optional)
  */
 import { getAuthUser, jsonResponse, fetchAuthUserTenantId } from '../../core/auth.js';
+import { platformR2WriteGateResponse } from '../../core/r2-storage-scope.js';
 import {
   resolveEffectiveWorkspaceId,
   resolveTerminalWorkspaceId,
@@ -87,7 +88,9 @@ async function resolveActor(request, env, bodyWorkspaceId) {
   return { authUser, workspaceId, tenantId, userId };
 }
 
-async function putEntitiesR2(env, r2Key, entities) {
+async function putEntitiesR2(env, r2Key, entities, authUser) {
+  const denied = platformR2WriteGateResponse(authUser);
+  if (denied) return denied;
   if (!env?.ASSETS?.put) throw new Error('ASSETS R2 binding not configured');
   const body = JSON.stringify({ version: 1, entities: Array.isArray(entities) ? entities : [] });
   await env.ASSETS.put(r2Key, body, {
@@ -211,7 +214,8 @@ export async function handleDesignStudioScenesApi(request, url, env) {
       const publicUrl = scenePublicUrl(request, r2Key);
       const projectType = trim(body.project_type) || 'SANDBOX';
 
-      await putEntitiesR2(env, r2Key, entities);
+      const putDenied = await putEntitiesR2(env, r2Key, entities, actor.authUser);
+      if (putDenied instanceof Response) return putDenied;
 
       const existing = await env.DB.prepare(
         `SELECT id FROM ${TABLE} WHERE user_id = ? AND workspace_id = ? AND is_autosave = 1 LIMIT 1`,
@@ -305,7 +309,8 @@ export async function handleDesignStudioScenesApi(request, url, env) {
     const r2Key = sceneEntitiesR2Key(actor.workspaceId, sceneId, false);
     const publicUrl = scenePublicUrl(request, r2Key);
 
-    await putEntitiesR2(env, r2Key, entities);
+    const putDenied = await putEntitiesR2(env, r2Key, entities, actor.authUser);
+    if (putDenied instanceof Response) return putDenied;
 
     if (updating) {
       await env.DB.prepare(

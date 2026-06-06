@@ -4,6 +4,7 @@
  * Deconstructed from legacy worker.js.
  */
 import { jsonResponse } from '../core/auth.js';
+import { pickAuthUserWorkspaceId } from '../core/platform-workspace-env.js';
 import { listAccessibleWorkspaces } from '../core/workspace-access.js';
 import { handleAgentsamWorkspacesApi } from './workspaces.js';
 
@@ -180,7 +181,7 @@ export async function handleWorkspaceApi(request, url, env, ctx, authUser) {
     // ── /api/workspaces/current/shell ───────────────────────────────────────
     if (pathLower === '/api/workspaces/current/shell' && method === 'GET') {
         return jsonResponse({
-            workspace_id: env.DEFAULT_WORKSPACE_ID || null,
+            workspace_id: pickAuthUserWorkspaceId(authUser),
             product_name: 'IAM Explorer',
             version: 'v6'
         });

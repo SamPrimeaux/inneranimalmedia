@@ -107,9 +107,7 @@ function mapRunToHyperdrivePayload(env, run) {
   const workspaceId =
     run.workspace_id != null && String(run.workspace_id).trim() !== ''
       ? String(run.workspace_id).trim()
-      : env?.DEFAULT_WORKSPACE_ID != null && String(env.DEFAULT_WORKSPACE_ID).trim() !== ''
-        ? String(env.DEFAULT_WORKSPACE_ID).trim()
-        : '';
+      : '';
 
   return {
     id: String(run.id),

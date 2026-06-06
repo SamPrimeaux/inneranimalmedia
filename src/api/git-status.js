@@ -3,6 +3,7 @@
  * Provides git metadata to the dashboard UI.
  */
 import { getAuthUser, jsonResponse, verifyInternalApiSecret } from '../core/auth.js';
+import { getPlatformWorkspaceEnvId } from '../core/platform-workspace-env.js';
 import { resolveIamWorkspaceRoot, runTerminalCommand } from '../core/terminal.js';
 import {
   resolveTerminalWorkspaceId,
@@ -25,10 +26,7 @@ export async function handleGitStatusRequest(request, env, ctx) {
   try {
     if (internalOk) {
       root = await resolveIamWorkspaceRoot(env, { allowPlatformFallback: true });
-      const platWid =
-        env?.DEFAULT_WORKSPACE_ID != null && String(env.DEFAULT_WORKSPACE_ID).trim() !== ''
-          ? String(env.DEFAULT_WORKSPACE_ID).trim()
-          : '';
+      const platWid = getPlatformWorkspaceEnvId(env);
       if (platWid) executionCtx = { workspace_id: platWid };
     } else {
       const authUser = await getAuthUser(request, env);

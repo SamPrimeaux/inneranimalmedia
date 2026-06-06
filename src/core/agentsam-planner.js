@@ -731,7 +731,7 @@ export async function createPlan(
   let visual_map = null;
   let visual_map_error = null;
   const uidForArt = canonicalUser || uidRaw;
-  if (env.AUTORAG_BUCKET?.put && uidForArt && String(ws0).trim() && tasks.length >= 2) {
+  if (uidForArt && String(ws0).trim() && tasks.length >= 2) {
     try {
       const vm = await createPlanExcalidrawArtifact(
         env,
@@ -743,11 +743,19 @@ export async function createPlan(
         },
         ctx,
       );
-      visual_map = {
-        artifact_id: vm.artifact_id,
-        r2_key: vm.r2_key,
-        public_url: vm.public_url,
-      };
+      if (vm.skipped_r2) {
+        visual_map = {
+          skipped_r2: true,
+          content_base64: vm.content_base64,
+          user_message: vm.user_message,
+        };
+      } else {
+        visual_map = {
+          artifact_id: vm.artifact_id,
+          r2_key: vm.r2_key,
+          public_url: vm.public_url,
+        };
+      }
     } catch (e) {
       visual_map_error = e?.message != null ? String(e.message) : String(e);
     }
@@ -755,7 +763,7 @@ export async function createPlan(
 
   let plan_markdown = null;
   let plan_markdown_error = null;
-  if (env.AUTORAG_BUCKET?.put && uidForArt && String(ws0).trim()) {
+  if (uidForArt && String(ws0).trim()) {
     try {
       const pm = await createPlanMarkdownArtifact(
         env,
@@ -767,11 +775,19 @@ export async function createPlan(
         },
         ctx,
       );
-      plan_markdown = {
-        artifact_id: pm.artifact_id,
-        r2_key: pm.r2_key,
-        public_url: pm.public_url,
-      };
+      if (pm.skipped_r2) {
+        plan_markdown = {
+          skipped_r2: true,
+          content_base64: pm.content_base64,
+          user_message: pm.user_message,
+        };
+      } else {
+        plan_markdown = {
+          artifact_id: pm.artifact_id,
+          r2_key: pm.r2_key,
+          public_url: pm.public_url,
+        };
+      }
     } catch (e) {
       plan_markdown_error = e?.message != null ? String(e.message) : String(e);
     }

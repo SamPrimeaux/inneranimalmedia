@@ -15,6 +15,7 @@
  */
 
 import { getAuthUser, jsonResponse } from '../core/auth.js';
+import { platformR2WriteGateResponse } from '../core/r2-storage-scope.js';
 import { resolveOAuthAccessToken } from './oauth.js';
 import {
   broadcastExcalidrawAction,
@@ -294,6 +295,9 @@ export async function handleDrawApi(request, url, env, ctx) {
 
     // ── POST /api/draw/save ───────────────────────────────────────────────────
     if (pathLower === '/api/draw/save' && method === 'POST') {
+      const r2Denied = platformR2WriteGateResponse(authUser);
+      if (r2Denied) return r2Denied;
+
       const body     = await request.json().catch(() => ({}));
       const title    = (body.title || '').trim() || `Drawing ${new Date().toLocaleDateString()}`;
       const filename = safeFilename(body.filename || title);
@@ -342,6 +346,9 @@ export async function handleDrawApi(request, url, env, ctx) {
     //   github        object  — { repo, path?, sha?, commitMessage? }
     //
     if (pathLower === '/api/draw/export' && method === 'POST') {
+      const r2Denied = platformR2WriteGateResponse(authUser);
+      if (r2Denied) return r2Denied;
+
       const body         = await request.json().catch(() => ({}));
       const title        = (body.title || '').trim() || `Export ${new Date().toLocaleDateString()}`;
       const baseName     = safeFilename(body.filename || title);

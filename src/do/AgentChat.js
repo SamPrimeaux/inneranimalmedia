@@ -307,7 +307,7 @@ export class AgentChatSqlV1 extends DurableObject {
 
   /**
    * @param {string|null|undefined} workspaceId
-   * @param {{ allowPlatformFallback?: boolean }} [opts] — When true only: may load `env.DEFAULT_WORKSPACE_ID` and log platform scope. Default false: no env fallback (empty id → empty settings, no D1 row).
+   * @param {{ allowPlatformFallback?: boolean }} [opts] — When true only: may load `env.WORKSPACE_ID` and log platform scope. Default false: no env fallback (empty id → empty settings, no D1 row).
    */
   async ensureWorkspaceSettingsLoaded(workspaceId, opts = {}) {
     const allowPlatformFallback = opts.allowPlatformFallback === true;
@@ -316,12 +316,12 @@ export class AgentChatSqlV1 extends DurableObject {
 
     if (!nextWorkspaceId && allowPlatformFallback) {
       const plat =
-        this.env?.DEFAULT_WORKSPACE_ID != null && String(this.env.DEFAULT_WORKSPACE_ID).trim() !== ""
-          ? String(this.env.DEFAULT_WORKSPACE_ID).trim()
+        this.env?.WORKSPACE_ID != null && String(this.env.WORKSPACE_ID).trim() !== ""
+          ? String(this.env.WORKSPACE_ID).trim()
           : "";
       if (plat) {
         console.log(
-          "[AgentChatSqlV1] platform-scoped workspace settings: using DEFAULT_WORKSPACE_ID (allowPlatformFallback=true)",
+          "[AgentChatSqlV1] platform-scoped workspace settings: using WORKSPACE_ID (allowPlatformFallback=true)",
         );
         nextWorkspaceId = plat;
       }

@@ -4,6 +4,7 @@
  */
 
 import { getAuthUser } from '../core/auth.js';
+import { pickAuthUserWorkspaceId } from '../core/platform-workspace-env.js';
 import { resolveCanonicalUserId } from '../api/auth.js';
 import { startAgentsamScriptRun, finalizeAgentsamScriptRun } from '../core/agentsam-script-runs.js';
 import { runTerminalCommand } from '../core/terminal.js';
@@ -21,12 +22,11 @@ export async function handleTerminalRequest(path, method, body, env, request, ct
 
     const agentsamScriptId =
       typeof body?.agentsam_script_id === 'string' ? body.agentsam_script_id.trim() : '';
+    const authUser = await getAuthUser(request, env).catch(() => null);
     const workspaceForTelemetry =
       typeof body?.workspace_id === 'string' && body.workspace_id.trim()
         ? body.workspace_id.trim()
-        : env.DEFAULT_WORKSPACE_ID != null && String(env.DEFAULT_WORKSPACE_ID).trim() !== ''
-          ? String(env.DEFAULT_WORKSPACE_ID).trim()
-          : '';
+        : pickAuthUserWorkspaceId(authUser) || '';
     const triggerSrcRaw = body?.trigger_source;
     const triggerSource =
       typeof triggerSrcRaw === 'string' && SCRIPT_TRIGGER_SOURCES.has(triggerSrcRaw.trim())
@@ -75,10 +75,7 @@ export async function handleTerminalRequest(path, method, body, env, request, ct
         ctx,
       );
       const execId = crypto.randomUUID();
-      const wid =
-        env.DEFAULT_WORKSPACE_ID != null && String(env.DEFAULT_WORKSPACE_ID).trim() !== ''
-          ? String(env.DEFAULT_WORKSPACE_ID).trim()
-          : null;
+      const wid = pickAuthUserWorkspaceId(await getAuthUser(request, env).catch(() => null));
       const tenantId = env.DEFAULT_TENANT_ID ?? null;
 
       // Audit execution to D1

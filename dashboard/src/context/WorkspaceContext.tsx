@@ -154,7 +154,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const refreshWorkspaces = useCallback(async (opts?: { force?: boolean }) => {
     const userId = sessionUserIdRef.current;
     if (!opts?.force) {
-      const cached = readIamWorkspaceSession();
+      const cached = readIamWorkspaceSession(userId);
       if (cached && cached.data.length > 0) {
         if (!userId || !cached.sessionUserId || cached.sessionUserId === userId) {
           hydrateFromPayload(cached, userId);
@@ -305,7 +305,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         void registerIamServiceWorker().then(() => subscribeIamWebPush().catch(() => false));
       }
 
-      const cached = readIamWorkspaceSession();
+      const cached = readIamWorkspaceSession(userId);
       if (cached && cached.data.length > 0 && (!userId || !cached.sessionUserId || cached.sessionUserId === userId)) {
         const withUser = { ...cached, sessionUserId: userId };
         writeIamWorkspaceSession(withUser);
@@ -325,7 +325,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (cached?.sessionUserId && userId && cached.sessionUserId !== userId) {
-        clearIamWorkspaceSession();
+        clearIamWorkspaceSession(cached.sessionUserId);
       }
 
       try {

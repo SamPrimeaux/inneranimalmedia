@@ -1,31 +1,57 @@
 /**
- * Workspace artifact store — inneranimalmedia-autorag via env.AUTORAG_BUCKET only.
- * Never write generated artifacts to env.R2, DASHBOARD, or ASSETS.
+ * Agent Sam artifact store — dedicated `artifacts` R2 bucket via env.ARTIFACTS.
+ * Legacy rows may still reference inneranimalmedia-autorag / inneranimalmedia (migration 593 backfill).
  *
- * Key schema:
- *   workspaces/{user_id}/{workspace_id}/artifacts/{artifact_type}/{artifact_id}.{ext}
+ * New key schema (artifacts bucket):
+ *   artifacts/{scope}/{workspace_id}/{kind}/{artifact_id}.{ext}
  */
 
 import { pragmaTableInfo } from './retention.js';
+import { authUserIsSuperadmin } from './auth.js';
+import {
+  loadUserCloudflareR2Credentials,
+  mergeR2S3EnvFromUserStorage,
+} from './user-storage-r2-credentials.js';
+import { r2PutViaBindingOrS3 } from './r2.js';
+import {
+  ARTIFACT_EXT,
+  buildArtifactR2Key,
+  buildWorkspaceAutoragArtifactKey,
+  defaultArtifactBucket,
+  inferLegacyArtifactBucket,
+  normalizeArtifactFormat,
+  resolveArtifactR2Binding,
+} from './artifact-key.js';
+
+export { ARTIFACT_EXT };
 
 export const ARTIFACT_WRITE_USER_ERROR =
   'Artifact could not be saved — reply to retry.';
 
-export const ARTIFACT_EXT = {
-  html: 'html',
-  css: 'css',
-  js: 'js',
-  tsx: 'tsx',
-  ts: 'ts',
-  sql: 'sql',
-  markdown: 'md',
-  md: 'md',
-  json: 'json',
-  txt: 'txt',
-  excalidraw: 'excalidraw',
-  report: 'md',
-  other: 'txt',
-};
+/** @param {string} text */
+function contentToBase64(text) {
+  const bytes = new TextEncoder().encode(text);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
+
+/**
+ * @param {any} env
+ * @param {string} userId
+ * @param {Record<string, unknown>|null|undefined} authUser
+ */
+async function resolveArtifactAuthUser(env, userId, authUser) {
+  if (authUser && typeof authUser === 'object' && authUser.id) return authUser;
+  if (!env?.DB || !userId) return null;
+  return env.DB.prepare(
+    `SELECT id, role, COALESCE(is_superadmin, 0) AS is_superadmin
+     FROM auth_users WHERE id = ? LIMIT 1`,
+  )
+    .bind(userId)
+    .first()
+    .catch(() => null);
+}
 
 const CONTENT_TYPE = {
   html: 'text/html;charset=UTF-8',
@@ -43,13 +69,6 @@ const CONTENT_TYPE = {
   other: 'text/plain;charset=UTF-8',
 };
 
-function safePathSegment(value) {
-  const s = String(value ?? '').trim();
-  if (!s) return null;
-  if (s.includes('/') || s.includes('\\') || s.includes('..')) return null;
-  return s;
-}
-
 export function newArtifactId() {
   const b = crypto.getRandomValues(new Uint8Array(8));
   return `art_${Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('')}`;
@@ -59,13 +78,12 @@ export function newArtifactId() {
  * @param {{ userId: string, workspaceId: string, artifactType: string, artifactId: string }} p
  */
 export function buildWorkspaceArtifactR2Key(p) {
-  const uid = safePathSegment(p.userId);
-  const wid = safePathSegment(p.workspaceId);
-  const id = safePathSegment(p.artifactId);
-  if (!uid || !wid || !id) return null;
-  const type = String(p.artifactType || 'other').toLowerCase().slice(0, 64);
-  const ext = ARTIFACT_EXT[type] || ARTIFACT_EXT.other;
-  return `workspaces/${uid}/${wid}/artifacts/${type}/${id}.${ext}`;
+  return buildWorkspaceAutoragArtifactKey({
+    userId: p.userId,
+    workspaceId: p.workspaceId,
+    format: p.artifactType,
+    artifactId: p.artifactId,
+  });
 }
 
 /**
@@ -94,14 +112,18 @@ export function extractFencedArtifactContent(text) {
 /**
  * @param {any} env
  * @param {string} r2Key
+ * @param {string} [r2Bucket] agentsam_artifacts.r2_bucket when known
  */
-export async function readWorkspaceArtifact(env, r2Key) {
+export async function readWorkspaceArtifact(env, r2Key, r2Bucket) {
   const key = String(r2Key || '').trim();
-  if (!key || !env?.AUTORAG_BUCKET?.get) return null;
+  if (!key) return null;
+  const bucketName = r2Bucket ? String(r2Bucket).trim() : inferLegacyArtifactBucket(key);
+  const binding = resolveArtifactR2Binding(env, bucketName);
+  if (!binding?.get) return null;
   try {
-    return await env.AUTORAG_BUCKET.get(key);
+    return await binding.get(key);
   } catch (e) {
-    console.warn('[artifact-r2-store] read failed', key, e?.message ?? e);
+    console.warn('[artifact-r2-store] read failed', bucketName, key, e?.message ?? e);
     return null;
   }
 }
@@ -168,7 +190,7 @@ async function logArtifactR2WriteFailure(env, ctx, o) {
 }
 
 /**
- * PUT to AUTORAG_BUCKET first; INSERT agentsam_artifacts only after confirmed put.
+ * Platform ARTIFACTS bucket (superadmin) or tenant BYOK S3; D1 insert after confirmed put.
  * @param {any} env
  * @param {any} ctx
  * @param {{
@@ -188,6 +210,10 @@ async function logArtifactR2WriteFailure(env, ctx, o) {
  *   metadata?: Record<string, unknown>,
  *   isPublic?: boolean,
  *   origin?: string|null,
+ *   authUser?: Record<string, unknown>|null,
+ *   kind?: string,
+ *   scope?: string,
+ *   tenantR2Bucket?: string,
  * }} opts
  */
 export async function writeWorkspaceArtifact(env, ctx, opts) {
@@ -206,44 +232,91 @@ export async function writeWorkspaceArtifact(env, ctx, opts) {
     return { ok: false, error: 'empty_content', user_message: ARTIFACT_WRITE_USER_ERROR };
   }
 
+  const authUser = await resolveArtifactAuthUser(env, userId, opts.authUser);
+  const isSuper = authUserIsSuperadmin(authUser);
+  const byokCreds = !isSuper ? await loadUserCloudflareR2Credentials(env, userId) : null;
+
+  if (!isSuper && !byokCreds) {
+    return {
+      ok: true,
+      skipped_r2: true,
+      reason: 'tenant_r2_byok_required',
+      content_base64: contentToBase64(content),
+      artifact_type: normalizeArtifactFormat(String(opts.artifactType || 'other')),
+      user_message:
+        'Connect Cloudflare R2 in Settings → Storage to persist artifacts. Content returned inline as base64.',
+    };
+  }
+
   const artifactId = String(opts.artifactId || newArtifactId()).trim();
   const artifactType = String(opts.artifactType || 'other').toLowerCase().slice(0, 64);
-  const r2Key = buildWorkspaceArtifactR2Key({
-    userId,
-    workspaceId,
-    artifactType,
-    artifactId,
-  });
+  const source = String(opts.source || 'agent_response').slice(0, 120);
+  let artifactKind = opts.kind != null ? String(opts.kind) : 'generated';
+  let artifactScope = opts.scope != null ? String(opts.scope) : 'user';
+  if (source === 'agentsam_plan') {
+    artifactKind = 'plan';
+    artifactScope = 'workspace';
+  }
+  const r2Key =
+    opts.r2Key != null
+      ? String(opts.r2Key).trim()
+      : buildArtifactR2Key({
+          scope: artifactScope,
+          workspaceId,
+          kind: artifactKind,
+          artifactId,
+          format: artifactType,
+        });
   if (!r2Key) {
     return { ok: false, error: 'invalid_r2_key', user_message: ARTIFACT_WRITE_USER_ERROR };
   }
 
-  const bucket = env.AUTORAG_BUCKET;
-  if (!bucket?.put) {
-    await logArtifactR2WriteFailure(env, ctx, {
-      workspaceId,
-      tenantId,
-      artifactId,
-      sessionId: opts.sourceSessionId ?? null,
-      errorMessage: 'AUTORAG_BUCKET binding missing',
-    });
-    return { ok: false, error: 'no_autorag_bucket', user_message: ARTIFACT_WRITE_USER_ERROR };
-  }
-
+  let r2BucketName =
+    opts.r2Bucket != null ? String(opts.r2Bucket).trim() : defaultArtifactBucket();
   const contentType = artifactContentType(artifactType);
-  try {
-    await bucket.put(r2Key, content, { httpMetadata: { contentType } });
-  } catch (e) {
-    const errMsg = String(e?.message || e).slice(0, 8000);
-    console.error('[artifact-r2-store] put failed', r2Key, errMsg);
-    await logArtifactR2WriteFailure(env, ctx, {
-      workspaceId,
-      tenantId,
-      artifactId,
-      sessionId: opts.sourceSessionId ?? null,
-      errorMessage: errMsg,
-    });
-    return { ok: false, error: 'r2_put_failed', user_message: ARTIFACT_WRITE_USER_ERROR };
+  let putOk = false;
+
+  if (isSuper) {
+    const bucket = resolveArtifactR2Binding(env, r2BucketName);
+    if (!bucket?.put) {
+      await logArtifactR2WriteFailure(env, ctx, {
+        workspaceId,
+        tenantId,
+        artifactId,
+        sessionId: opts.sourceSessionId ?? null,
+        errorMessage: 'ARTIFACTS binding missing',
+      });
+      return { ok: false, error: 'no_artifacts_bucket', user_message: ARTIFACT_WRITE_USER_ERROR };
+    }
+    try {
+      await bucket.put(r2Key, content, { httpMetadata: { contentType } });
+      putOk = true;
+    } catch (e) {
+      const errMsg = String(e?.message || e).slice(0, 8000);
+      console.error('[artifact-r2-store] platform put failed', r2Key, errMsg);
+      await logArtifactR2WriteFailure(env, ctx, {
+        workspaceId,
+        tenantId,
+        artifactId,
+        sessionId: opts.sourceSessionId ?? null,
+        errorMessage: errMsg,
+      });
+      return { ok: false, error: 'r2_put_failed', user_message: ARTIFACT_WRITE_USER_ERROR };
+    }
+  } else {
+    const userEnv = await mergeR2S3EnvFromUserStorage(env, authUser || { id: userId });
+    r2BucketName = String(opts.tenantR2Bucket || opts.r2Bucket || 'artifacts').trim();
+    putOk = await r2PutViaBindingOrS3(userEnv, null, r2BucketName, r2Key, content, contentType);
+    if (!putOk) {
+      await logArtifactR2WriteFailure(env, ctx, {
+        workspaceId,
+        tenantId,
+        artifactId,
+        sessionId: opts.sourceSessionId ?? null,
+        errorMessage: 'tenant BYOK R2 put failed',
+      });
+      return { ok: false, error: 'tenant_r2_put_failed', user_message: ARTIFACT_WRITE_USER_ERROR };
+    }
   }
 
   const origin =
@@ -267,14 +340,23 @@ export async function writeWorkspaceArtifact(env, ctx, opts) {
     workspace_id: workspaceId,
     name: String(opts.name || artifactType).slice(0, 500),
     description: opts.description != null ? String(opts.description).slice(0, 2000) : null,
-    artifact_type: artifactType,
+    artifact_type: normalizeArtifactFormat(artifactType),
     artifact_status: 'draft',
     r2_key: r2Key,
     public_url: publicUrl,
-    source: String(opts.source || 'agent_response').slice(0, 120),
+    source,
     file_size_bytes: bytes,
     is_public: opts.isPublic ? 1 : 0,
   };
+  if (cols.has('r2_bucket')) {
+    row.r2_bucket = r2BucketName.slice(0, 120);
+  }
+  if (cols.has('scope')) {
+    row.scope = artifactScope.slice(0, 32);
+  }
+  if (opts.expiresAt != null && cols.has('expires_at')) {
+    row.expires_at = Number(opts.expiresAt) || null;
+  }
   if (opts.sourceRunId && cols.has('source_run_id')) {
     row.source_run_id = String(opts.sourceRunId).slice(0, 120);
   }

@@ -30,6 +30,7 @@ export async function archiveAgentRunsDailyToR2(env) {
 
   const { results: users = [] } = await env.DB.prepare(
     `SELECT ar.user_id, ar.workspace_id,
+            COALESCE(NULLIF(trim(ar.tenant_id), ''), NULLIF(trim(au.active_tenant_id), ''), NULLIF(trim(au.tenant_id), ''), 'system') AS tenant_id,
             COUNT(*) AS run_count,
             SUM(COALESCE(ar.cost_usd, 0)) AS total_cost,
             SUM(COALESCE(ar.input_tokens, 0)) AS total_in,
@@ -37,13 +38,14 @@ export async function archiveAgentRunsDailyToR2(env) {
             SUM(CASE WHEN ar.status = 'completed' THEN 1 ELSE 0 END) AS completed,
             SUM(CASE WHEN ar.status = 'failed' THEN 1 ELSE 0 END) AS failed
      FROM agentsam_agent_run ar
+     LEFT JOIN auth_users au ON au.id = ar.user_id
      WHERE ar.status NOT IN ('running', 'queued')
        AND COALESCE(ar.created_at_unix, CAST(strftime('%s', ar.created_at) AS INTEGER)) < ${cutoff}
        AND EXISTS (
          SELECT 1 FROM agentsam_performance_eto_events e
          WHERE e.source_table = 'agentsam_agent_run' AND e.source_id = ar.id
        )
-     GROUP BY ar.user_id, ar.workspace_id
+     GROUP BY ar.user_id, ar.workspace_id, tenant_id
      LIMIT ${BATCH_LIMIT}`,
   )
     .all()
@@ -53,6 +55,7 @@ export async function archiveAgentRunsDailyToR2(env) {
   for (const row of users) {
     const userId = String(row.user_id || '').trim();
     const workspaceId = String(row.workspace_id || '').trim();
+    const tenantId = String(row.tenant_id || 'system').trim();
     if (!userId || !workspaceId) continue;
 
     const payload = {
@@ -69,6 +72,7 @@ export async function archiveAgentRunsDailyToR2(env) {
     };
 
     const key = await writeContextToR2(env, {
+      tenantId,
       userId,
       workspaceId,
       conversationId: 'runs',

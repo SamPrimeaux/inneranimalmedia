@@ -2,11 +2,11 @@
  * Compaction context store — inneranimalmedia-autorag via env.AUTORAG_BUCKET only.
  * Never write compaction artifacts to env.R2 or other buckets.
  *
- * Key schema (strict, no variation):
- *   context/{userId}/{workspaceId}/{conversationId}/{type}_{unixepoch}.json
+ * Key schema (strict):
+ *   context/{tenantId}/{userId}/{workspaceId}/{conversationId}/{type}_{unixepoch}.json
  *
- * userId is the authenticated au_* ID — outermost isolation prefix per user.
- * Legacy bucket-root docs (e.g. context/iam_multi_tenant_architecture.md) are unrelated.
+ * tenantId is the outermost isolation prefix (prevents cross-tenant context bleed).
+ * Legacy keys without tenantId segment still readable when full key is stored in D1.
  */
 
 function safePathSegment(value) {
@@ -16,25 +16,35 @@ function safePathSegment(value) {
   return s;
 }
 
-function buildContextR2Key({ userId, workspaceId, conversationId, type }) {
+/**
+ * @param {{ tenantId: string, userId: string, workspaceId: string, conversationId: string, type: string }} p
+ */
+export function buildContextR2Key({ tenantId, userId, workspaceId, conversationId, type }) {
+  const tid = safePathSegment(tenantId);
   const uid = safePathSegment(userId);
   const wid = safePathSegment(workspaceId);
   const cid = safePathSegment(conversationId);
   const t = safePathSegment(type);
-  if (!uid || !wid || !cid || !t) return null;
-  return `context/${uid}/${wid}/${cid}/${t}_${Date.now()}.json`;
+  if (!tid || !uid || !wid || !cid || !t) return null;
+  return `context/${tid}/${uid}/${wid}/${cid}/${t}_${Date.now()}.json`;
 }
 
 /**
  * @param {object} env Worker env (AUTORAG_BUCKET binding required)
- * @param {{ userId: string, workspaceId: string, conversationId: string, type: string, content: unknown }} params
+ * @param {{ tenantId: string, userId: string, workspaceId: string, conversationId: string, type: string, content: unknown }} params
  * @returns {Promise<string|null>} Full R2 key on success; null on failure (never throws)
  */
-export async function writeContextToR2(env, { userId, workspaceId, conversationId, type, content }) {
+export async function writeContextToR2(env, { tenantId, userId, workspaceId, conversationId, type, content }) {
   try {
-    const key = buildContextR2Key({ userId, workspaceId, conversationId, type });
+    const key = buildContextR2Key({ tenantId, userId, workspaceId, conversationId, type });
     if (!key) {
-      console.error('[r2-context-store] invalid key params', { userId, workspaceId, conversationId, type });
+      console.error('[r2-context-store] invalid key params', {
+        tenantId,
+        userId,
+        workspaceId,
+        conversationId,
+        type,
+      });
       return null;
     }
 

@@ -1245,7 +1245,7 @@ export async function handleSettingsRequest(request, env, ctx) {
       if (!env.DB) {
         return jsonResponse({
           data: CORE_WORKSPACES_DATA,
-          current: env.DEFAULT_WORKSPACE_ID || null,
+          current: null,
           workspaceThemes: {},
           workspaces: {},
         });
@@ -1332,7 +1332,7 @@ export async function handleSettingsRequest(request, env, ctx) {
           authUser?.active_workspace_id != null && String(authUser.active_workspace_id).trim() !== ''
             ? String(authUser.active_workspace_id).trim()
             : null;
-        const current = settingsCurrent || authCurrent || env.DEFAULT_WORKSPACE_ID || null;
+        const current = authCurrent || settingsCurrent || null;
         return jsonResponse({ data: wsRows.length > 0 ? wsRows : CORE_WORKSPACES_DATA, current, workspaceThemes, workspaces });
       } catch (e) {
         const msg = e?.message != null ? String(e.message) : String(e);
@@ -1341,7 +1341,7 @@ export async function handleSettingsRequest(request, env, ctx) {
         return jsonResponse(
           {
             data: CORE_WORKSPACES_DATA,
-            current: env.DEFAULT_WORKSPACE_ID || null,
+            current: null,
             error: msg,
             error_name: e?.name != null ? String(e.name) : 'Error',
             detail: stack ? stack.split('\n').slice(0, 12).join('\n') : msg,

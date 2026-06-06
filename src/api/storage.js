@@ -9,6 +9,7 @@ import {
   authUserIsSuperadmin,
 } from '../core/auth.js';
 import { getR2Binding, listBoundR2BucketNames, r2LiveBucketStats } from './r2-api.js';
+import { listWorkerR2BindingCatalog } from '../core/r2-storage-scope.js';
 import { upsertUserCloudflareR2Keys } from '../core/user-storage-r2-credentials.js';
 import {
   buildStorageVectorsPayload,
@@ -16,13 +17,17 @@ import {
   deactivateTenantVectorConnection,
 } from '../core/storage-vectors-surface.js';
 
-const KNOWN_R2_BINDINGS = [
-  { binding: 'ASSETS', storage_name: 'inneranimalmedia-assets', public: true },
-  { binding: 'AUTORAG_BUCKET', storage_name: 'autorag', public: true, url: 'https://autorag.inneranimalmedia.com' },
-  { binding: 'DASHBOARD', storage_name: 'inneranimalmedia', public: false },
-  { binding: 'TOOLS', storage_name: 'tools', public: true, url: 'https://tools.inneranimalmedia.com' },
-  { binding: 'R2', storage_name: 'iam-platform', public: false },
-];
+function knownLiveStorage(env) {
+  return listWorkerR2BindingCatalog(env).map((row) => ({
+    binding: row.binding,
+    storage_name: row.storage_name,
+    storage_id: row.storage_id,
+    storage_type: row.storage_type,
+    public: row.public,
+    url: row.url,
+    region: 'auto',
+  }));
+}
 
 /** Resolve tenant for row scoping (prefs, keys). */
 async function resolveTenantId(env, authUser) {
@@ -62,12 +67,6 @@ function parseJsonObject(value) {
   } catch {
     return {};
   }
-}
-
-function knownLiveStorage(env) {
-  return KNOWN_R2_BINDINGS
-    .filter((b) => !!env[b.binding])
-    .map((b) => ({ ...b, storage_type: 'r2_bucket', storage_id: b.storage_name, region: 'auto' }));
 }
 
 async function cachedStorageResponse(env, endpoint, tenantId, producer) {
@@ -138,10 +137,10 @@ async function requireStorageSuperadmin(env, authUser) {
 /** Dedupe stats when multiple logical names map to the same R2 binding (e.g. inneranimalmedia + tools → DASHBOARD). */
 function bindingIdentity(env, logicalName) {
   const b = getR2Binding(env, logicalName);
-  if (b === env.ASSETS) return 'ASSETS';
-  if (b === env.AUTORAG_BUCKET) return 'AUTORAG_BUCKET';
-  if (b === env.ASSETS) return 'DASHBOARD';
-  if (b === env.R2) return 'R2';
+  if (!b) return logicalName;
+  for (const row of listWorkerR2BindingCatalog(env)) {
+    if (env?.[row.binding] === b) return row.binding;
+  }
   return logicalName;
 }
 
@@ -418,9 +417,6 @@ export async function handleStorageApi(request, url, env) {
           : null) ||
         (authUser.active_workspace_id != null && String(authUser.active_workspace_id).trim() !== ''
           ? String(authUser.active_workspace_id).trim()
-          : null) ||
-        (env.DEFAULT_WORKSPACE_ID != null && String(env.DEFAULT_WORKSPACE_ID).trim() !== ''
-          ? String(env.DEFAULT_WORKSPACE_ID).trim()
           : null);
       const isSuper = authUserIsSuperadmin(authUser);
       const summarySql = isSuper

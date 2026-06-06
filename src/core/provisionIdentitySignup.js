@@ -5,6 +5,7 @@
  */
 import { generateAppUserId } from './ensureAppUser.js';
 import { workspaceSlugFromTenantId } from '../api/provisioning.js';
+import { defaultWorkspaceIdFromUserKey } from './platform-workspace-env.js';
 import { buildDefaultShieldRuleStatements } from './keys-security.js';
 
 function trimOrNull(v) {
@@ -134,9 +135,9 @@ export async function provisionIdentitySignup(env, identity) {
   let workspaceId =
     trimOrNull(existingRow?.active_workspace_id) ||
     trimOrNull(existingRow?.default_workspace_id) ||
-    workspaceSlugFromTenantId(tenantId);
-  if (!workspaceId.startsWith('ws_')) {
-    workspaceId = workspaceSlugFromTenantId(tenantId);
+    defaultWorkspaceIdFromUserKey(userKey);
+  if (!workspaceId || !workspaceId.startsWith('ws_')) {
+    workspaceId = defaultWorkspaceIdFromUserKey(userKey) || workspaceSlugFromTenantId(tenantId);
   }
 
   const passwordHash =

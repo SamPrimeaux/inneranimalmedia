@@ -393,28 +393,16 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
       if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
       if (!env.DB) return jsonResponse({});
       try {
-        const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {});
-        if (wsRes.error === WORKSPACE_CONTEXT_MISSING || !wsRes.workspaceId) {
-          return jsonResponse({ error: WORKSPACE_CONTEXT_MISSING, code: WORKSPACE_CONTEXT_MISSING }, 400);
-        }
-        const actorCtx = await resolveIamActorContext(request, env).catch(() => null);
-        const tid =
-          actorCtx?.tenantId ||
-          (authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
-            ? String(authUser.tenant_id).trim()
-            : null);
-        const row = await resolveActiveBootstrap(env, {
-          userId: authUser.id,
-          personUuid: actorCtx?.personUuid ?? authUser.person_uuid ?? null,
-          tenantId: tid,
-          workspaceId: wsRes.workspaceId,
-        });
         const payload = await buildBootstrapApiPayload(env, {
           authUser,
-          workspaceId: wsRes.workspaceId,
-          tenantId: tid,
-          bootstrapRow: row,
+          request,
         });
+        if (payload.workspace_error === WORKSPACE_CONTEXT_MISSING && !payload.workspace_id) {
+          return jsonResponse(
+            { error: WORKSPACE_CONTEXT_MISSING, code: WORKSPACE_CONTEXT_MISSING, ...payload },
+            400,
+          );
+        }
         return jsonResponse(payload);
       } catch (e) {
         return jsonResponse({ error: e?.message ?? String(e) }, 500);
