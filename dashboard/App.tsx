@@ -36,7 +36,6 @@ import { mapProblemsApiPayload, countProblemSeverities } from './src/lib/mapAgen
 import { ExtensionsPanel } from './components/ExtensionsPanel';
 import type { EditorModelMeta } from './components/MonacoEditorView';
 import { LocalExplorer } from './components/LocalExplorer';
-import { BrowserView } from './components/BrowserView';
 import { EditorPreviewPane } from './components/EditorPreviewPane';
 import {
   resolvePreviewMode,
@@ -133,6 +132,9 @@ const MonacoEditorView = lazy(() =>
 );
 const LaunchDeskPage = lazy(() =>
   import('./pages/LaunchDeskPage').then((m) => ({ default: m.LaunchDeskPage })),
+);
+const BrowserView = lazy(() =>
+  import('./components/BrowserView').then((m) => ({ default: m.BrowserView })),
 );
 
 function DashboardRoutesFallback() {
@@ -3576,21 +3578,29 @@ const App: React.FC = () => {
                   )}
                   {activeTab === 'browser' && (
                       <div className="absolute inset-0 z-10 overflow-hidden">
-                          <BrowserView
-                            url={browserUrl}
-                            addressDisplay={browserAddressDisplay}
-                            previewSource={browserPreviewSource}
-                            onUrlCommitted={(url) => {
-                              const n = url.trim();
-                              if (!n || n === browserUrl) return;
-                              setBrowserAddressDisplay(null);
-                              setBrowserTabTitle(null);
-                              setBrowserUrl(n);
-                              setBrowserPreviewSource('agent');
-                            }}
-                            agentRunId={browserPreviewSource === 'editor' ? null : activeAgentRunId}
-                            workspaceContext={agentWorkspaceContext}
-                          />
+                          <Suspense
+                            fallback={
+                              <div className="flex items-center justify-center h-full text-[var(--text-muted)] text-sm">
+                                Loading browser…
+                              </div>
+                            }
+                          >
+                            <BrowserView
+                              url={browserUrl}
+                              addressDisplay={browserAddressDisplay}
+                              previewSource={browserPreviewSource}
+                              onUrlCommitted={(url) => {
+                                const n = url.trim();
+                                if (!n || n === browserUrl) return;
+                                setBrowserAddressDisplay(null);
+                                setBrowserTabTitle(null);
+                                setBrowserUrl(n);
+                                setBrowserPreviewSource('agent');
+                              }}
+                              agentRunId={browserPreviewSource === 'editor' ? null : activeAgentRunId}
+                              workspaceContext={agentWorkspaceContext}
+                            />
+                          </Suspense>
                       </div>
                   )}
 
