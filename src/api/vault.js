@@ -3,6 +3,7 @@ import { getAuthUser, fetchAuthUserTenantId } from '../core/auth.js';
 import { resolveEffectiveWorkspaceId } from '../core/bootstrap.js';
 import { logSecretAudit } from '../core/security-scan.js';
 import { encryptWithVault, decryptWithVault } from '../core/oauth-token-store.js';
+import { isVaultConfigured, VAULT_SETUP_HINT } from '../core/vault-key-material.js';
 
 const LLM_VAULT_PROJECT = 'iam_user_llm_keys';
 const LLM_ALLOWED_NAMES = new Set(['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY']);
@@ -824,7 +825,9 @@ async function vaultDeleteUserLlmKey(request, env, id) {
 }
 
 export async function handleVaultApi(request, urlIn, env, _ctx) {
-  if (!env.VAULT_MASTER_KEY) return vaultErr('VAULT_MASTER_KEY not configured. Run: wrangler secret put VAULT_MASTER_KEY', 500);
+  if (!isVaultConfigured(env)) {
+    return vaultErr(`Vault encryption not configured. Run: ${VAULT_SETUP_HINT}`, 500);
+  }
   const url = urlIn instanceof URL ? urlIn : new URL(request.url);
   const path = url.pathname;
   const method = request.method.toUpperCase();

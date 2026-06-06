@@ -5,11 +5,15 @@
  * - Do not import AES keys directly from env bytes.
  * - Always derive a stable 256-bit AES-GCM key via HKDF so any-length env keys are valid.
  *
- * This is used for VAULT_MASTER_KEY / VAULT_KEY based encryption at rest (D1).
+ * Key material: VAULT_MASTER_KEY → VAULT_KEY (see vault-key-material.js).
  */
 
+import { getVaultKeyMaterial } from './vault-key-material.js';
+
+export { getVaultKeyMaterial, isVaultConfigured, assertVaultConfigured, VAULT_NOT_CONFIGURED_ERROR } from './vault-key-material.js';
+
 export async function getAESKey(env, usage = ['encrypt', 'decrypt']) {
-  const material = String(env?.VAULT_MASTER_KEY || env?.VAULT_KEY || '').trim();
+  const material = getVaultKeyMaterial(env);
   if (!material) throw new Error('Vault key material not configured');
 
   const raw = new TextEncoder().encode(material);

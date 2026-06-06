@@ -76,7 +76,7 @@ export default function SettingsPanel({
   const sectionBody = () => {
     switch (resolvedLabel) {
       case 'General':
-        return <GeneralSection workspaceId={workspaceId} />;
+        return <GeneralSection workspaceId={workspaceId} data={data} />;
       case 'Agents':
         return <AgentsSection data={data} workspaceId={workspaceId} />;
       case 'AI Models':

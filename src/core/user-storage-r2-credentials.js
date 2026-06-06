@@ -1,9 +1,10 @@
 /**
  * Per-user Cloudflare R2 S3 credentials in D1 user_storage_access_keys.
- * Secrets encrypted with VAULT_MASTER_KEY (same pattern as oauth token storage).
+ * Secrets encrypted with VAULT_MASTER_KEY (oauth token pattern).
  */
 import { encryptWithVault, decryptWithVault } from './oauth-token-store.js';
 import { authUserIsSuperadmin, fetchAuthUserTenantId } from './auth.js';
+import { assertVaultConfigured, isVaultConfigured } from './vault-key-material.js';
 
 const VAULT_SECRET_HASH_PLACEHOLDER = 'vault_encrypted';
 
@@ -62,7 +63,7 @@ export async function loadUserCloudflareR2Credentials(env, userId) {
   }
 
   if (!row?.access_key_id_encrypted || !row?.secret_encrypted) return null;
-  if (!env.VAULT_MASTER_KEY && !env.VAULT_KEY) return null;
+  if (!isVaultConfigured(env)) return null;
 
   try {
     const accessKeyId = await decryptWithVault(env, row.access_key_id_encrypted);
@@ -110,7 +111,7 @@ export async function upsertUserCloudflareR2Keys(
   { userId, tenantId, personUuid, cfAccountId, r2AccessKeyId, r2SecretAccessKey },
 ) {
   if (!env?.DB) throw new Error('DB not configured');
-  if (!env.VAULT_MASTER_KEY && !env.VAULT_KEY) throw new Error('VAULT_MASTER_KEY not configured');
+  assertVaultConfigured(env);
 
   const uid = String(userId || '').trim();
   const cfId = String(cfAccountId || '').trim();

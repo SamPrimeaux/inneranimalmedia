@@ -3,6 +3,7 @@
  */
 import { jsonResponse } from '../../core/auth.js';
 import { getVaultSecrets, secretFromVault } from '../../core/vault.js';
+import { isVaultConfigured } from '../../core/vault-key-material.js';
 import { ingestWebhookEventAndDispatch } from '../../core/webhook-ingest-dispatch.js';
 
 /** @param {string} a @param {string} b */
@@ -20,7 +21,7 @@ function timingSafeEqualUtf8(a, b) {
 export async function resolveInternalWebhookSecret(env) {
   let secret = env?.INTERNAL_WEBHOOK_SECRET;
   if (secret != null && String(secret).trim() !== '') return String(secret).trim();
-  if (env?.DB && (env?.VAULT_KEY || env?.VAULT_MASTER_KEY)) {
+  if (env?.DB && isVaultConfigured(env)) {
     try {
       const vault = await getVaultSecrets(env);
       secret = secretFromVault(vault, env, 'INTERNAL_WEBHOOK_SECRET');

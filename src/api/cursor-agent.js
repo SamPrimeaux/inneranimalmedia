@@ -3,6 +3,7 @@
  */
 import { getAuthUser, jsonResponse } from '../core/auth.js';
 import { getVaultSecrets, secretFromVault } from '../core/vault.js';
+import { isVaultConfigured } from '../core/vault-key-material.js';
 import { pragmaTableInfo } from '../core/retention.js';
 
 const CURSOR_API_BASE = 'https://api.cursor.com/v1';
@@ -18,7 +19,7 @@ export function resolveCursorApiKey(env) {
 export async function resolveCursorWebhookSecret(env) {
   let secret = env?.CURSOR_WEBHOOK_SECRET;
   if (secret != null && String(secret).trim() !== '') return String(secret).trim();
-  if (env?.DB && (env?.VAULT_KEY || env?.VAULT_MASTER_KEY)) {
+  if (env?.DB && isVaultConfigured(env)) {
     try {
       const vault = await getVaultSecrets(env);
       secret = secretFromVault(vault, env, 'CURSOR_WEBHOOK_SECRET');

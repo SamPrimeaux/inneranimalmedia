@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, ExternalLink, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { Toggle } from '../settingsUi';
+import { Toggle, formatVaultCreated } from '../settingsUi';
+import type { SettingsPanelModel } from '../hooks/useSettingsData';
 
 const PREF_KEYS = {
   sync_layouts: 'iam_pref_sync_layouts',
@@ -74,7 +75,12 @@ function initialsFromName(name: string, email: string) {
   return local.slice(0, 2).toUpperCase();
 }
 
-export function GeneralSection({ workspaceId }: { workspaceId?: string | null }) {
+export type GeneralSectionProps = {
+  workspaceId?: string | null;
+  data?: Pick<SettingsPanelModel, 'user' | 'profileEmail'>;
+};
+
+export function GeneralSection({ workspaceId, data }: GeneralSectionProps) {
   const navigate = useNavigate();
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
@@ -100,6 +106,21 @@ export function GeneralSection({ workspaceId }: { workspaceId?: string | null })
   const [showStatusBar, setShowStatusBar] = useState(true);
   const [autohideEditor, setAutohideEditor] = useState(false);
   const [autoinjectCode, setAutoinjectCode] = useState(true);
+
+  const [showPasswordForm, setShowPasswordForm] = useState(false);
+  const [pwCurrent, setPwCurrent] = useState('');
+  const [pwNew, setPwNew] = useState('');
+  const [pwConfirm, setPwConfirm] = useState('');
+  const [pwMsg, setPwMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [pwLoading, setPwLoading] = useState(false);
+
+  const [showEmailForm, setShowEmailForm] = useState(false);
+  const [newEmail, setNewEmail] = useState('');
+  const [emailMsg, setEmailMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [emailLoading, setEmailLoading] = useState(false);
+
+  const authUser = data?.user ?? null;
+  const loginEmail = authUser?.email ?? data?.profileEmail ?? primaryEmail;
 
   const loadProfile = useCallback(async () => {
     setProfileLoading(true);
@@ -432,6 +453,201 @@ export function GeneralSection({ workspaceId }: { workspaceId?: string | null })
             </div>
           </>
         )}
+      </div>
+
+      <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4 space-y-4">
+        <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+          Sign-in &amp; password
+        </div>
+
+        <section className="space-y-3">
+          <h3 className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+            Login email
+          </h3>
+          <p className="text-[11px] text-[var(--text-muted)]">
+            Current: {loginEmail || '—'}
+          </p>
+          {!showEmailForm ? (
+            <button
+              type="button"
+              onClick={() => {
+                setEmailMsg(null);
+                setShowEmailForm(true);
+              }}
+              className="px-4 py-2 rounded-lg bg-[var(--solar-cyan)]/20 text-[11px] font-semibold text-[var(--solar-cyan)] border border-[var(--solar-cyan)]/30 hover:bg-[var(--solar-cyan)]/30"
+            >
+              Change login email
+            </button>
+          ) : (
+            <form
+              className="grid gap-3 max-w-md"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void (async () => {
+                  setEmailLoading(true);
+                  try {
+                    const res = await fetch('/api/auth/email-change/request', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ newEmail }),
+                      credentials: 'include',
+                    });
+                    const json = (await res.json().catch(() => ({}))) as { error?: string };
+                    if (res.ok) {
+                      setEmailMsg({
+                        ok: true,
+                        text: 'Check your inbox to confirm the new address.',
+                      });
+                      setShowEmailForm(false);
+                      setNewEmail('');
+                    } else {
+                      setEmailMsg({
+                        ok: false,
+                        text:
+                          typeof json.error === 'string' ? json.error : 'Failed to send verification.',
+                      });
+                    }
+                  } finally {
+                    setEmailLoading(false);
+                  }
+                })();
+              }}
+            >
+              <input
+                type="email"
+                autoComplete="email"
+                placeholder="New email address"
+                value={newEmail}
+                onChange={(e) => setNewEmail(e.target.value)}
+                className={fieldClass}
+              />
+              <button
+                type="submit"
+                disabled={emailLoading}
+                className="px-4 py-2 rounded-lg bg-[var(--solar-cyan)]/20 text-[11px] font-semibold text-[var(--solar-cyan)] border border-[var(--solar-cyan)]/30 hover:bg-[var(--solar-cyan)]/30 disabled:opacity-40"
+              >
+                Send verification
+              </button>
+            </form>
+          )}
+          {emailMsg ? (
+            <div
+              className={`text-[11px] ${emailMsg.ok ? 'text-[var(--color-success)]' : 'text-[var(--color-danger)]'}`}
+            >
+              {emailMsg.text}
+            </div>
+          ) : null}
+        </section>
+
+        <section className="space-y-3 pt-2 border-t border-[var(--border-subtle)]">
+          <h3 className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">Password</h3>
+          {authUser?.passwordMethod === 'oauth' ? (
+            <p className="text-[11px] text-[var(--text-muted)]">
+              You sign in via {authUser?.provider ?? 'external provider'}. No password set.
+            </p>
+          ) : !authUser ? (
+            <p className="text-[11px] text-[var(--text-muted)]">Loading account…</p>
+          ) : (
+            <>
+              <p className="text-[11px] text-[var(--text-muted)]">
+                Last changed:{' '}
+                {authUser?.passwordUpdatedAt ? formatVaultCreated(authUser.passwordUpdatedAt) : '—'}
+              </p>
+              {!showPasswordForm ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPwMsg(null);
+                    setShowPasswordForm(true);
+                  }}
+                  className="px-4 py-2 rounded-lg bg-[var(--solar-cyan)]/20 text-[11px] font-semibold text-[var(--solar-cyan)] border border-[var(--solar-cyan)]/30 hover:bg-[var(--solar-cyan)]/30"
+                >
+                  Change password
+                </button>
+              ) : (
+                <form
+                  className="grid gap-3 max-w-md"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void (async () => {
+                      if (pwNew.length < 10) {
+                        setPwMsg({ ok: false, text: 'Min 10 characters' });
+                        return;
+                      }
+                      if (pwNew !== pwConfirm) {
+                        setPwMsg({ ok: false, text: 'Passwords do not match' });
+                        return;
+                      }
+                      setPwLoading(true);
+                      try {
+                        const res = await fetch('/api/auth/password-change', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ currentPassword: pwCurrent, newPassword: pwNew }),
+                          credentials: 'include',
+                        });
+                        const json = (await res.json().catch(() => ({}))) as { error?: string };
+                        if (res.ok) {
+                          setPwMsg({ ok: true, text: 'Password updated.' });
+                          setShowPasswordForm(false);
+                          setPwCurrent('');
+                          setPwNew('');
+                          setPwConfirm('');
+                        } else {
+                          setPwMsg({
+                            ok: false,
+                            text: typeof json.error === 'string' ? json.error : 'Failed to update password.',
+                          });
+                        }
+                      } finally {
+                        setPwLoading(false);
+                      }
+                    })();
+                  }}
+                >
+                  <input
+                    type="password"
+                    autoComplete="current-password"
+                    placeholder="Current password"
+                    value={pwCurrent}
+                    onChange={(e) => setPwCurrent(e.target.value)}
+                    className={fieldClass}
+                  />
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    placeholder="New password (min 10 chars)"
+                    value={pwNew}
+                    onChange={(e) => setPwNew(e.target.value)}
+                    className={fieldClass}
+                  />
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    placeholder="Confirm new password"
+                    value={pwConfirm}
+                    onChange={(e) => setPwConfirm(e.target.value)}
+                    className={fieldClass}
+                  />
+                  <button
+                    type="submit"
+                    disabled={pwLoading}
+                    className="px-4 py-2 rounded-lg bg-[var(--solar-cyan)]/20 text-[11px] font-semibold text-[var(--solar-cyan)] border border-[var(--solar-cyan)]/30 hover:bg-[var(--solar-cyan)]/30 disabled:opacity-40"
+                  >
+                    Save new password
+                  </button>
+                </form>
+              )}
+              {pwMsg ? (
+                <div
+                  className={`text-[11px] ${pwMsg.ok ? 'text-[var(--color-success)]' : 'text-[var(--color-danger)]'}`}
+                >
+                  {pwMsg.text}
+                </div>
+              ) : null}
+            </>
+          )}
+        </section>
       </div>
 
       {rows.map((row) => (

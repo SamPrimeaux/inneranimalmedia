@@ -35,6 +35,7 @@ import { canUsePlatformAssetsR2Upload } from '../core/cms-theme-resolve.js';
 import { fetchWorkspaceRowsForSettingsApi, userCanAccessWorkspace } from '../core/workspace-access.js';
 import { loadWorkspaceThemeMap, persistWorkspaceThemeSlug } from '../core/workspace-user-prefs.js';
 import { generateMcpToken } from '../core/mcp-auth.js';
+import { isVaultConfigured } from '../core/vault-key-material.js';
 import { MCP_CANONICAL_CLIENT_ID } from './mcp-oauth-shared.js';
 
 /** Deep-merge `cms_pipeline` into `workspaces.settings_json` (no new tables). */
@@ -2173,7 +2174,7 @@ export async function handleSettingsRequest(request, env, ctx) {
 
   if (pathLower === '/api/settings/ai-models/keys' && method === 'POST') {
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
-    if (!env.VAULT_MASTER_KEY && !env.VAULT_KEY) {
+    if (!isVaultConfigured(env)) {
       return jsonResponse({ error: 'Vault not configured' }, 503);
     }
     const tenantId = await resolveAuthTenantId(env, authUser);

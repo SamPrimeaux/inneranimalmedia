@@ -7,6 +7,7 @@
  */
 
 import { aesGcmDecryptFromB64, aesGcmEncryptToB64, getAESKey } from './crypto-vault.js';
+import { assertVaultConfigured } from './vault-key-material.js';
 import { resolveIntegrationUserId, invalidateGithubReposSessionCache } from './integration-user-id.js';
 
 async function pragmaColumns(DB, tableName) {
@@ -88,7 +89,7 @@ export async function upsertOauthToken(
 ) {
   const skipRegistry = !!opts.skipRegistry;
   if (!env?.DB) throw new Error('DB not configured');
-  if (!env.VAULT_MASTER_KEY) throw new Error('VAULT_MASTER_KEY not configured');
+  assertVaultConfigured(env);
 
   let canonicalUserId = String(user_id || '').trim();
   if (canonicalUserId) {

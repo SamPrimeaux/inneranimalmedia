@@ -37,6 +37,7 @@ import {
   signupEmailVerificationEnabled,
   userNeedsSignupEmailVerification,
 } from '../core/auth-email-verify.js';
+import { isVaultConfigured } from '../core/vault-key-material.js';
 
 /**
  * Primary Auth Dispatcher
@@ -1597,7 +1598,7 @@ export async function handleSupabaseOAuthCallback(request, env) {
     .first();
 
   const expiresAt = Math.floor(Date.now() / 1000) + (expires_in || 3600);
-  if (env.VAULT_MASTER_KEY) {
+  if (isVaultConfigured(env)) {
     try {
       await upsertOauthToken(
         env,

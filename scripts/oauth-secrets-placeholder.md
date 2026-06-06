@@ -73,7 +73,7 @@ npx wrangler secret put RESEND_API_KEY --name inneranimalmedia --config wrangler
 
 ## Vault encryption (required)
 
-User tokens and API keys are stored **encrypted** in D1 using `VAULT_MASTER_KEY`.
+User tokens and API keys are stored **encrypted** in D1 using `VAULT_MASTER_KEY` (fallback: `VAULT_KEY`).
 
 ```bash
 npx wrangler secret put VAULT_MASTER_KEY --name inneranimalmedia --config wrangler.jsonc

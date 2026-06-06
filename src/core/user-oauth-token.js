@@ -3,6 +3,7 @@
  * optional Google refresh, and persistence after refresh.
  */
 import { encryptWithVault, decryptWithVault } from './oauth-token-store.js';
+import { isVaultConfigured } from './vault-key-material.js';
 
 function nowSeconds() {
   return Math.floor(Date.now() / 1000);
@@ -59,7 +60,7 @@ async function resolveAccessToken(env, userId, row, cols) {
     const t = await decryptFromVaultSecretId(env, userId, row.vault_access_token_id);
     if (t) return t;
   }
-  if (row.access_token_encrypted && env?.VAULT_MASTER_KEY) {
+  if (row.access_token_encrypted && isVaultConfigured(env)) {
     const t = await decryptWithVault(env, row.access_token_encrypted).catch(() => null);
     if (t) return t;
   }
@@ -71,7 +72,7 @@ async function resolveRefreshToken(env, userId, row, cols) {
     const t = await decryptFromVaultSecretId(env, userId, row.vault_refresh_token_id);
     if (t) return t;
   }
-  if (row.refresh_token_encrypted && env?.VAULT_MASTER_KEY) {
+  if (row.refresh_token_encrypted && isVaultConfigured(env)) {
     const t = await decryptWithVault(env, row.refresh_token_encrypted).catch(() => null);
     if (t) return t;
   }
@@ -157,7 +158,7 @@ export async function refreshGoogleToken(env, userId, provider, refreshToken, ro
   const accountId = row?.account_identifier != null ? String(row.account_identifier) : '';
 
   let encrypted = null;
-  if (cols.has('access_token_encrypted') && env.VAULT_MASTER_KEY) {
+  if (cols.has('access_token_encrypted') && isVaultConfigured(env)) {
     encrypted = await encryptWithVault(env, newToken).catch(() => null);
   }
 

@@ -20,6 +20,7 @@ import {
   encryptWithVault,
   decryptWithVault,
 } from '../core/oauth-token-store.js';
+import { isVaultConfigured } from '../core/vault-key-material.js';
 import {
   handleGoogleLoginOAuthCallback,
   handleGitHubLoginOAuthCallback,
@@ -579,7 +580,7 @@ async function gmailOAuthCallback(_request, url, env) {
 
   await env.SESSION_CACHE.delete(gmailOauthStateKvKey(state));
 
-  if (!env.DB || !env.VAULT_MASTER_KEY) return fail();
+  if (!env.DB || !isVaultConfigured(env)) return fail();
 
   try {
     const tok = await exchangeGoogleAuthCodeForGmail(env, code);
@@ -695,7 +696,7 @@ async function validateApiKey(provider, apiKey) {
 
 async function storeApiKeyAsOauth(env, authUser, provider, apiKey) {
   if (!env?.DB) throw new Error('DB not configured');
-  if (!env.VAULT_MASTER_KEY) throw new Error('VAULT_MASTER_KEY not configured');
+  if (!isVaultConfigured(env)) throw new Error('VAULT_MASTER_KEY not configured');
   const userId = integrationUserId(authUser);
   let tenantId =
     authUser?.tenant_id != null && String(authUser.tenant_id).trim() !== ''
@@ -1656,7 +1657,7 @@ async function refreshSupabaseAccessToken(env, refreshToken) {
  * Rows are scoped per workspace via account_identifier workspace:<workspace_id> when workspace_id was set at connect time.
  */
 export async function getUserSupabaseToken(env, userId, workspaceId = null) {
-  if (!env?.DB || !userId || !env.VAULT_MASTER_KEY) return null;
+  if (!env?.DB || !userId || !isVaultConfigured(env)) return null;
   await ensureOauthTokenColumns(env.DB);
   const acct = supabaseOAuthAccountIdentifier(workspaceId);
   const fullRow = await env.DB.prepare(
@@ -1669,11 +1670,11 @@ export async function getUserSupabaseToken(env, userId, workspaceId = null) {
   if (!fullRow) return null;
 
   let access =
-    fullRow.access_token_encrypted && env.VAULT_MASTER_KEY
+    fullRow.access_token_encrypted && isVaultConfigured(env)
       ? await decryptWithVault(env, fullRow.access_token_encrypted).catch(() => fullRow.access_token || null)
       : fullRow.access_token || null;
   let refresh =
-    fullRow.refresh_token_encrypted && env.VAULT_MASTER_KEY
+    fullRow.refresh_token_encrypted && isVaultConfigured(env)
       ? await decryptWithVault(env, fullRow.refresh_token_encrypted).catch(() => fullRow.refresh_token || null)
       : fullRow.refresh_token || null;
 

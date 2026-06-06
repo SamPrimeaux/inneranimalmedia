@@ -60,7 +60,7 @@ export async function handleUserStorageKeysApi(request, url, env) {
       });
     } catch (e) {
       const msg = String(e?.message || e);
-      if (msg.includes('VAULT_MASTER_KEY')) {
+      if (msg.includes('Vault encryption') || msg.includes('VAULT_MASTER_KEY')) {
         return jsonResponse({ error: 'Vault encryption not configured on Worker' }, 503);
       }
       if (msg.includes('migration 340') || msg.includes('encryption columns')) {
