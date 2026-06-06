@@ -31,6 +31,8 @@ export async function fetchActiveProjectContextBlocks(env, opts = {}) {
        FROM agentsam_project_context
        WHERE status = 'active'
          AND workspace_id = ?
+         AND COALESCE(project_type, '') NOT IN ('bootstrap_cache')
+         AND COALESCE(project_key, '') NOT IN ('agent_bootstrap')
        ORDER BY ${orderBy}
        LIMIT ${limit}`,
     )
