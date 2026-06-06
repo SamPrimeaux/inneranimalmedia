@@ -1179,7 +1179,7 @@ export async function executeCommand(env, ctx, o) {
     userId,
     tenantId,
   }).catch(() => null);
-  const modelKey = arm?.model_key || 'gpt-5.4-nano'; // baseline; arm resolution preferred
+  const modelKey = arm?.model_key || null; // no hardcoded fallback — arm resolution required
   // Resolve provider from catalog — never hardcode 'openai' as default
   const provider = arm?.provider || (
     await env.DB.prepare(
