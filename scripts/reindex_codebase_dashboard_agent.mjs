@@ -2,7 +2,7 @@
 /**
  * reindex_codebase_dashboard_agent.mjs
  *
- * Targeted reindex of 169 dashboard/agent files into:
+ * Targeted reindex of dashboard/agent source (git-discovered + policy) into:
  *   - Supabase agentsam.agentsam_codebase_files_oai3large_1536
  *   - Supabase agentsam.agentsam_codebase_chunks_oai3large_1536
  *   - CF Vectorize agentsam-codebase-oai3large-1536 (REST v2 NDJSON)
@@ -16,7 +16,9 @@
  *
  * Usage:
  *   ./scripts/with-cloudflare-env.sh node scripts/reindex_codebase_dashboard_agent.mjs --dry-run
+ *   ./scripts/with-cloudflare-env.sh node scripts/reindex_codebase_dashboard_agent.mjs --dry-run --verbose
  *   ./scripts/with-cloudflare-env.sh node scripts/reindex_codebase_dashboard_agent.mjs
+ *   ./scripts/with-cloudflare-env.sh node scripts/reindex_codebase_dashboard_agent.mjs --no-prune
  */
 import { readFileSync, existsSync } from 'fs';
 import { resolve, dirname, extname, join } from 'path';
@@ -36,6 +38,12 @@ import {
   writeVectorizeSyncReceipt,
   contentHash,
 } from './lib/rag-ingest-protocol.mjs';
+import {
+  buildEligibleManifest,
+  loadPreviouslyIndexedPaths,
+  printManifestDriftSummary,
+  summarizeManifestDrift,
+} from './lib/dashboard-index-manifest.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
@@ -71,6 +79,7 @@ const VECTORIZE_BATCH = 100;
 
 const DRY_RUN = process.argv.includes('--dry-run');
 const NO_PRUNE = process.argv.includes('--no-prune');
+const VERBOSE = process.argv.includes('--verbose');
 const LANE = LANE_CONTRACTS.code;
 const RUN_ID = createRunId();
 const GIT_COMMIT_SHA = resolveGitCommitSha(ROOT);
@@ -96,183 +105,6 @@ if (!DRY_RUN) {
   }
 }
 
-/** @type {readonly string[]} */
-const DASHBOARD_FILES = Object.freeze([
-  'dashboard/App.tsx',
-  'dashboard/agentChatConstants.ts',
-  'dashboard/agentSessionsCatalog.ts',
-  'dashboard/components/AgentImageGenerationCard.tsx',
-  'dashboard/components/AgentQuickstartPage.tsx',
-  'dashboard/components/BrowserLiveTimeline.tsx',
-  'dashboard/components/BrowserView.tsx',
-  'dashboard/components/ChatAssistant/ChatAssistant.tsx',
-  'dashboard/components/ChatAssistant/RepoPickerBottomSheet.tsx',
-  'dashboard/components/ChatAssistant/artifacts/EmailArtifactCard.tsx',
-  'dashboard/components/ChatAssistant/components/AgentChatMarkdown.tsx',
-  'dashboard/components/ChatAssistant/components/AgentCodeDiffPreview.tsx',
-  'dashboard/components/ChatAssistant/components/AgentCodeFencePreview.tsx',
-  'dashboard/components/ChatAssistant/components/AgentMessageList.tsx',
-  'dashboard/components/ChatAssistant/components/AgentMobileHomePanel.tsx',
-  'dashboard/components/ChatAssistant/components/AgentPlanChecklist.tsx',
-  'dashboard/components/ChatAssistant/components/AgentQuestionsCard.tsx',
-  'dashboard/components/ChatAssistant/components/DiffViewer.tsx',
-  'dashboard/components/ChatAssistant/components/PlanRecentPicker.tsx',
-  'dashboard/components/ChatAssistant/components/PlanStartOverBar.tsx',
-  'dashboard/components/ChatAssistant/components/ToolApprovalCard.tsx',
-  'dashboard/components/ChatAssistant/components/WorkflowRunBoard.tsx',
-  'dashboard/components/ChatAssistant/components/deriveHeroThinking.ts',
-  'dashboard/components/ChatAssistant/components/workflowRunPresence.ts',
-  'dashboard/components/ChatAssistant/composer/AgentComposerMicButton.tsx',
-  'dashboard/components/ChatAssistant/composer/AgentComposerPlusMenu.tsx',
-  'dashboard/components/ChatAssistant/composer/AgentComposerSourceChips.tsx',
-  'dashboard/components/ChatAssistant/composer/composerSourcesStorage.ts',
-  'dashboard/components/ChatAssistant/composer/types.ts',
-  'dashboard/components/ChatAssistant/composer/useComposerIntegrations.ts',
-  'dashboard/components/ChatAssistant/composer/useComposerSpeechInput.ts',
-  'dashboard/components/ChatAssistant/composerLayout.ts',
-  'dashboard/components/ChatAssistant/execution/ArtifactChipList.tsx',
-  'dashboard/components/ChatAssistant/execution/ExecutionTimeline.tsx',
-  'dashboard/components/ChatAssistant/execution/ScriptDraftPanel.tsx',
-  'dashboard/components/ChatAssistant/execution/ScrollablePreviewPanel.tsx',
-  'dashboard/components/ChatAssistant/execution/ToolTraceRow.tsx',
-  'dashboard/components/ChatAssistant/execution/index.ts',
-  'dashboard/components/ChatAssistant/execution/shShellQuote.ts',
-  'dashboard/components/ChatAssistant/execution/types.ts',
-  'dashboard/components/ChatAssistant/hooks/useAgentChatStream.ts',
-  'dashboard/components/ChatAssistant/index.ts',
-  'dashboard/components/ChatAssistant/mentionContext.ts',
-  'dashboard/components/ChatAssistant/repoPickerCache.ts',
-  'dashboard/components/ChatAssistant/streamDebug.ts',
-  'dashboard/components/ChatAssistant/streamParsing.ts',
-  'dashboard/components/ChatAssistant/toolApprovalCopy.ts',
-  'dashboard/components/ChatAssistant/types.ts',
-  'dashboard/components/DataGrid.tsx',
-  'dashboard/components/DatabaseAgentChat.tsx',
-  'dashboard/components/DatabaseBrowser.tsx',
-  'dashboard/components/EditorPreviewPane.tsx',
-  'dashboard/components/ExcalidrawView.tsx',
-  'dashboard/components/GitHubExplorer.tsx',
-  'dashboard/components/GoogleDriveExplorer.tsx',
-  'dashboard/components/KnowledgeSearchPanel.tsx',
-  'dashboard/components/LocalExplorer.tsx',
-  'dashboard/components/LocalTerminalSetup.tsx',
-  'dashboard/components/MCPPanel.tsx',
-  'dashboard/components/MonacoEditorView.tsx',
-  'dashboard/components/ProgressiveImagePreview.tsx',
-  'dashboard/components/SQLConsole.tsx',
-  'dashboard/components/SecurityShieldBanner.tsx',
-  'dashboard/components/SourcePanel.tsx',
-  'dashboard/components/StatusBar.css',
-  'dashboard/components/StatusBar.tsx',
-  'dashboard/components/TerminalSessionPane.tsx',
-  'dashboard/components/UnifiedSearchBar.tsx',
-  'dashboard/components/VirtualizedFileTree.tsx',
-  'dashboard/components/WorkspaceDashboard.tsx',
-  'dashboard/components/WorkspaceLauncher.tsx',
-  'dashboard/components/XTermShell.tsx',
-  'dashboard/components/database/database-page.css',
-  'dashboard/components/shell/DashboardActivityNav.tsx',
-  'dashboard/components/shell/MobileNavBackButton.tsx',
-  'dashboard/components/shell/MobileNavDrawer.tsx',
-  'dashboard/components/shell/MobileNavHamburger.tsx',
-  'dashboard/components/shell/MobileNavShell.tsx',
-  'dashboard/components/shell/mobileNavBackLabel.ts',
-  'dashboard/features/agent-chat/formatThinkingStepName.ts',
-  'dashboard/features/agent-presence/AgentPresenceLogo.tsx',
-  'dashboard/features/agent-presence/AgentPresenceStatus.tsx',
-  'dashboard/features/agent-presence/deriveAgentPresence.ts',
-  'dashboard/features/agent-presence/iamDerivePresenceState.ts',
-  'dashboard/features/agent-presence/iamPresenceStateMap.ts',
-  'dashboard/features/agent-presence/index.ts',
-  'dashboard/features/agent-presence/presenceColorways.ts',
-  'dashboard/features/agent-presence/presenceCopy.ts',
-  'dashboard/features/agent-presence/presenceIcons.css',
-  'dashboard/features/agent-presence/presenceIcons.ts',
-  'dashboard/features/agent-presence/presenceMotion.css',
-  'dashboard/features/agent-presence/presenceTypes.ts',
-  'dashboard/features/agent-presence/useAgentPresence.ts',
-  'dashboard/features/agent-run/agentRunPresence.css',
-  'dashboard/features/agent-run/lanes.ts',
-  'dashboard/features/agent-run/resolveAgentPresence.ts',
-  'dashboard/features/agent-run/toolTracePresence.ts',
-  'dashboard/features/agent-run/types.ts',
-  'dashboard/features/mode-presence/AgentModePresenceIcon.tsx',
-  'dashboard/features/mode-presence/AgentPresenceCard.tsx',
-  'dashboard/features/mode-presence/AgentPresenceInline.tsx',
-  'dashboard/features/mode-presence/ChatPresenceIcon.tsx',
-  'dashboard/features/mode-presence/agentModePresenceMap.ts',
-  'dashboard/features/mode-presence/agentModePresenceMotion.css',
-  'dashboard/features/mode-presence/agentPresenceInline.css',
-  'dashboard/features/mode-presence/normalizeChatPresenceState.ts',
-  'dashboard/features/moviemode/ExportPanel.tsx',
-  'dashboard/features/moviemode/MediaLibrary.tsx',
-  'dashboard/features/moviemode/MovieModeComposition.tsx',
-  'dashboard/features/moviemode/MovieModeStudio.tsx',
-  'dashboard/features/moviemode/TextOverlayEditor.tsx',
-  'dashboard/features/moviemode/TimelineRail.tsx',
-  'dashboard/features/moviemode/createEmptyTimeline.ts',
-  'dashboard/features/moviemode/editSessionAdapter.ts',
-  'dashboard/features/moviemode/remotion-utils.ts',
-  'dashboard/features/moviemode/types.ts',
-  'dashboard/hooks/useAgentLiveBrowserWs.ts',
-  'dashboard/index.css',
-  'dashboard/index.tsx',
-  'dashboard/inneranimalmedia.css',
-  'dashboard/public/sw-agent-cache.js',
-  'dashboard/lib/agentRoutes.ts',
-  'dashboard/lib/breakpoints.ts',
-  'dashboard/lib/browserLiveViewUrl.ts',
-  'dashboard/lib/buildPreviewSrcDoc.ts',
-  'dashboard/lib/formatToolTraceSummary.ts',
-  'dashboard/lib/plan-mode-utils.ts',
-  'dashboard/lib/resolvePreviewMode.ts',
-  'dashboard/lib/sanitizeBrowserUrl.ts',
-  'dashboard/lib/wranglerCommandCatalog.ts',
-  'dashboard/src/EditorContext.tsx',
-  'dashboard/src/applyCmsTheme.ts',
-  'dashboard/src/components/FilePreview.tsx',
-  'dashboard/src/components/SetiFileIcon.tsx',
-  'dashboard/src/components/ThinkingCard.tsx',
-  'dashboard/src/components/ToolApprovalModal.tsx',
-  'dashboard/src/context/WorkspaceContext.tsx',
-  'dashboard/src/hooks/usePlanTasksRealtime.ts',
-  'dashboard/src/iamGitStatusCache.ts',
-  'dashboard/src/iamWorkspaceStorage.ts',
-  'dashboard/src/ideWorkspace.ts',
-  'dashboard/src/lib/databaseSqlSafety.ts',
-  'dashboard/src/lib/databaseStudioEvents.ts',
-  'dashboard/src/lib/fileKind.ts',
-  'dashboard/src/lib/localFileTree.ts',
-  'dashboard/src/lib/localTerminalDefaults.ts',
-  'dashboard/src/lib/mapAgentProblems.ts',
-  'dashboard/src/lib/mediaPreview.ts',
-  'dashboard/src/lib/monacoModelRegistry.ts',
-  'dashboard/src/lib/monacoThemes.ts',
-  'dashboard/src/lib/r2Buckets.ts',
-  'dashboard/src/lib/r2Listing.ts',
-  'dashboard/src/lib/setiFileIcon.ts',
-  'dashboard/src/lib/setiIconTheme.generated.ts',
-  'dashboard/src/lib/supabase.ts',
-  'dashboard/src/monaco-diff.css',
-  'dashboard/src/normalizeGithubRepo.ts',
-  'dashboard/src/pwa/OfflineReconnectBanner.tsx',
-  'dashboard/src/pwa/registerServiceWorker.ts',
-  'dashboard/src/pwa/warmAgentChunks.ts',
-  'dashboard/src/recentWorkspacesStorage.ts',
-  'dashboard/src/seti-icons.css',
-  'dashboard/src/shellVersion.ts',
-  'dashboard/src/types/moviemode.ts',
-  'dashboard/styles/image-generation.css',
-  'dashboard/styles/mobile-activity-drawer.css',
-  'dashboard/styles/mobile-header.css',
-  'dashboard/styles/mobile-nav-hamburger.css',
-  'dashboard/styles/terminal-mobile.css',
-  'dashboard/types.ts',
-  'scripts/lib/pwa-sw-manifest-tiers.mjs',
-]);
-
-// Task 1 cited 169; list includes PWA phase-1 files + deploy manifest tiers helper.
-console.assert(DASHBOARD_FILES.length >= 170, 'DASHBOARD_FILES unexpectedly short');
 
 function estimateTokens(text) {
   return Math.ceil(String(text ?? '').length / 4);
@@ -586,6 +418,15 @@ function writeRunReceipt(stats, status = 'ok', error = null) {
     files_deleted: stats.filesDeleted ?? 0,
     status,
     error,
+    extra: stats.drift
+      ? {
+          eligible_count: stats.drift.eligibleCount,
+          indexed_count: stats.drift.indexedCount,
+          new_eligible_count: stats.drift.newEligible.length,
+          stale_indexed_count: stats.drift.staleIndexed.length,
+          manifest_source: 'git_ls_files_policy',
+        }
+      : { manifest_source: 'git_ls_files_policy' },
   });
   writeVectorizeSyncReceipt({
     root: ROOT,
@@ -689,11 +530,13 @@ async function main() {
     throw new Error('Script constants diverge from LANE_CONTRACTS.code — fix before run');
   }
 
+  const { paths: eligiblePaths, deniedSkipped } = buildEligibleManifest(ROOT);
+
   console.log('\nreindex_codebase_dashboard_agent.mjs');
   console.log(`mode: ${DRY_RUN ? 'DRY RUN (zero writes)' : 'LIVE'}`);
   console.log(`run_id: ${RUN_ID}`);
   console.log(`git_commit_sha: ${GIT_COMMIT_SHA}`);
-  console.log(`files: ${DASHBOARD_FILES.length}`);
+  console.log(`manifest: git ls-files + policy (${eligiblePaths.length} eligible)`);
   console.log(`workspace: ${WORKSPACE_UUID} (${WORKSPACE_KEY})`);
   console.log(`vectorize_index: ${VECTORIZE_INDEX}`);
   console.log(`prune: ${NO_PRUNE ? 'disabled' : 'enabled after successful full run'}`);
@@ -705,6 +548,7 @@ async function main() {
     chunksEmbedded: 0,
     missing: 0,
     filesDeleted: 0,
+    drift: null,
   };
 
   /** @type {pg.Client | null} */
@@ -716,11 +560,22 @@ async function main() {
     }
   }
 
+  const indexedPaths = client
+    ? await loadPreviouslyIndexedPaths(client, WORKSPACE_UUID)
+    : new Set();
+  const drift = summarizeManifestDrift({ eligiblePaths, indexedPaths });
+  stats.drift = drift;
+  printManifestDriftSummary(drift, deniedSkipped);
+
+  if (!drift.requiredIncluded) {
+    throw new Error('Required paths missing from eligible manifest — aborting');
+  }
+
   const vectorizeQueue = [];
-  const approvedPaths = new Set(DASHBOARD_FILES);
+  const approvedPaths = new Set(eligiblePaths);
 
   try {
-    for (const filePath of DASHBOARD_FILES) {
+    for (const filePath of eligiblePaths) {
       const abs = join(ROOT, filePath);
       if (!existsSync(abs)) {
         console.error(`  missing: ${filePath}`);
@@ -736,7 +591,7 @@ async function main() {
       if (client) {
         const existing = await fetchExistingFileHash(client, filePath);
         if (existing?.content_hash === hash) {
-          console.log(`  skip (unchanged): ${filePath}`);
+          if (VERBOSE) console.log(`  skip (unchanged): ${filePath}`);
           stats.filesSkipped++;
           continue;
         }
@@ -744,16 +599,18 @@ async function main() {
 
       const chunks = chunkFile(raw, language);
       if (!chunks.length) {
-        console.log(`  skip (empty): ${filePath}`);
+        if (VERBOSE) console.log(`  skip (empty): ${filePath}`);
         continue;
       }
 
       if (DRY_RUN) {
         console.log(`  [dry-run] ${filePath} (${language}) → ${chunks.length} chunks`);
-        for (let i = 0; i < chunks.length; i++) {
-          const tokens = estimateTokens(chunks[i]);
-          const preview = chunks[i].slice(0, 80).replace(/\s+/g, ' ');
-          console.log(`    chunk ${i}: ~${tokens} tokens — ${preview}${chunks[i].length > 80 ? '…' : ''}`);
+        if (VERBOSE) {
+          for (let i = 0; i < chunks.length; i++) {
+            const tokens = estimateTokens(chunks[i]);
+            const preview = chunks[i].slice(0, 80).replace(/\s+/g, ' ');
+            console.log(`    chunk ${i}: ~${tokens} tokens — ${preview}${chunks[i].length > 80 ? '…' : ''}`);
+          }
         }
         stats.filesIndexed++;
         stats.chunksEmbedded += chunks.length;
