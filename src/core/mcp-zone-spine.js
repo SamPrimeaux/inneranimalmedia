@@ -3,6 +3,7 @@
  * Replaces mcp_agent_sessions for /dashboard/mcp experiment zones.
  */
 import { newChatAgentRunId } from './agent-run-routing.js';
+import { recordAgentsamPatchSession } from './agentsam-patch-sessions.js';
 import { createSpawnJob } from './subagent-spawn-d1.js';
 
 export const MCP_ZONE_SLUGS = ['engineer', 'architect', 'cms', 'specialist'];
@@ -391,12 +392,15 @@ export async function resetAllMcpZoneSessions(env, tenantId) {
 }
 
 /**
- * Record sandbox/patch activity in agentsam_patch_sessions.
+ * Record sandbox/patch activity in agentsam_patch_sessions (linked to agentsam_agent_run when provided).
  * @param {any} env
+ * @param {any} [ctx]
  * @param {{
  *   zoneSlug: string,
  *   tenantId: string,
+ *   workspaceId?: string | null,
  *   conversationId: string,
+ *   agentRunId?: string | null,
  *   modelKey?: string|null,
  *   taskFile?: string|null,
  *   passed?: number,
@@ -405,33 +409,21 @@ export async function resetAllMcpZoneSessions(env, tenantId) {
  *   failReason?: string|null,
  * }} p
  */
-export async function recordMcpZonePatchSession(env, p) {
-  if (!env?.DB) return;
-  const id = `patch_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-  const now = Math.floor(Date.now() / 1000);
-  try {
-    await env.DB.prepare(
-      `INSERT INTO agentsam_patch_sessions (
-         id, session_ts, plan_id, task_file, model_used, provider, passed, applied,
-         tok_in, tok_out, cost_usd, latency_ms, fail_reason, created_at
-       ) VALUES (?, ?, ?, ?, ?, 'mcp_zone', ?, ?, 0, 0, ?, 0, ?, datetime('now'))`,
-    )
-      .bind(
-        id,
-        String(p.conversationId || '').slice(0, 120),
-        `mcp_zone_${normalizeMcpZoneSlug(p.zoneSlug)}`,
-        String(p.taskFile || p.zoneSlug || 'sandbox').slice(0, 200),
-        String(p.modelKey || 'mcp_zone').slice(0, 80),
-        Number(p.passed) ? 1 : 0,
-        Number(p.applied) ? 1 : 0,
-        Number(p.costUsd) || 0,
-        p.failReason != null ? String(p.failReason).slice(0, 500) : null,
-      )
-      .run();
-  } catch (e) {
-    console.warn('[mcp_zone_patch_session]', e?.message ?? e);
-  }
-  void now;
+export function recordMcpZonePatchSession(env, ctx, p) {
+  recordAgentsamPatchSession(env, ctx, {
+    agentRunId: p.agentRunId ?? null,
+    tenantId: p.tenantId,
+    workspaceId: p.workspaceId ?? null,
+    conversationId: p.conversationId,
+    planId: p.agentRunId || `mcp_zone_${normalizeMcpZoneSlug(p.zoneSlug)}`,
+    taskFile: String(p.taskFile || p.zoneSlug || 'sandbox'),
+    modelKey: p.modelKey ?? 'mcp_zone',
+    provider: 'mcp_zone',
+    passed: !!p.passed,
+    applied: !!p.applied,
+    costUsd: Number(p.costUsd) || 0,
+    failReason: p.failReason ?? null,
+  });
 }
 
 /**

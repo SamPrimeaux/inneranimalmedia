@@ -61,13 +61,31 @@ export function scheduleChatExecutionContextSnapshot(env, ctx, params) {
     if (cols.has('recent_error')) {
       const patchCols = await pragmaTableInfo(env.DB, 'agentsam_patch_sessions');
       if (patchCols.has('fail_reason')) {
-        const err = await env.DB.prepare(
-          `SELECT fail_reason FROM agentsam_patch_sessions
-           WHERE fail_reason IS NOT NULL AND trim(fail_reason) != ''
-           ORDER BY rowid DESC LIMIT 1`,
-        )
-          .first()
-          .catch(() => null);
+        const agentRunId = params.agentRunId != null ? String(params.agentRunId).trim() : '';
+        const ws = String(params.workspaceId || '').trim();
+        let err = null;
+        if (agentRunId && patchCols.has('agent_run_id')) {
+          err = await env.DB.prepare(
+            `SELECT fail_reason FROM agentsam_patch_sessions
+             WHERE agent_run_id = ?
+               AND fail_reason IS NOT NULL AND trim(fail_reason) != ''
+             ORDER BY COALESCE(created_at, session_ts, 0) DESC LIMIT 1`,
+          )
+            .bind(agentRunId)
+            .first()
+            .catch(() => null);
+        }
+        if (!err?.fail_reason && ws && patchCols.has('workspace_id')) {
+          err = await env.DB.prepare(
+            `SELECT fail_reason FROM agentsam_patch_sessions
+             WHERE workspace_id = ?
+               AND fail_reason IS NOT NULL AND trim(fail_reason) != ''
+             ORDER BY COALESCE(created_at, session_ts, 0) DESC LIMIT 1`,
+          )
+            .bind(ws)
+            .first()
+            .catch(() => null);
+        }
         recentError = err?.fail_reason != null ? String(err.fail_reason).slice(0, 2000) : null;
       }
     }

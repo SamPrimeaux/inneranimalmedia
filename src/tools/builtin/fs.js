@@ -12,6 +12,10 @@ import { getUserGithubToken, githubCommitHandshake } from '../../integrations/gi
 import { getIntegrationToken } from '../../integrations/tokens.js';
 import { resolveOAuthAccessToken } from '../../api/oauth.js';
 import { executeFsSearchFiles } from '../../core/fs-search-files.js';
+import {
+  finalizeAgentsamPatchSessionForChangeSet,
+  scheduleAgentsamPatchSessionInsert,
+} from '../../core/agentsam-patch-sessions.js';
 
 function toolContext(params, runContext = {}) {
   const sess = params?.session && typeof params.session === 'object' ? params.session : {};
@@ -26,6 +30,7 @@ function toolContext(params, runContext = {}) {
     ).trim(),
     sessionId: String(runContext.sessionId || params.session_id || sess.session_id || '').trim(),
     agentRunId: String(runContext.agentRunId || params.agent_run_id || '').trim(),
+    modelKey: pickFirst(runContext.modelKey, runContext.model_key, params.model_key),
   };
 }
 
@@ -102,7 +107,7 @@ function resolveFilePath(envelope) {
   return envelope.workspacePath || 'unknown';
 }
 
-async function insertPendingChangeSet(env, ctx, envelope) {
+async function insertPendingChangeSet(env, ctx, envelope, runContext = {}) {
   if (!env?.DB) return { error: 'Database not configured' };
   if (!ctx.userId) return { error: 'user_id required' };
   if (!ctx.tenantId) return { error: 'tenant_id required' };
@@ -112,6 +117,7 @@ async function insertPendingChangeSet(env, ctx, envelope) {
 
   const filePath = resolveFilePath(envelope);
   const changeSetId = newChangeSetId();
+  const agentRunId = ctx.agentRunId || null;
 
   await env.DB.prepare(
     `INSERT INTO change_sets (
@@ -125,7 +131,7 @@ async function insertPendingChangeSet(env, ctx, envelope) {
       ctx.tenantId,
       ctx.workspaceId || null,
       ctx.userId,
-      ctx.agentRunId || null,
+      agentRunId,
       ctx.conversationId || null,
       envelope.source,
       filePath,
@@ -138,6 +144,20 @@ async function insertPendingChangeSet(env, ctx, envelope) {
       envelope.content,
     )
     .run();
+
+  void scheduleAgentsamPatchSessionInsert(env, runContext.ctx ?? null, {
+    agentRunId,
+    tenantId: ctx.tenantId,
+    workspaceId: ctx.workspaceId || null,
+    conversationId: ctx.conversationId || null,
+    changeSetId,
+    planId: agentRunId || changeSetId,
+    taskFile: filePath,
+    modelKey: ctx.modelKey || null,
+    provider: 'change_set',
+    passed: false,
+    applied: false,
+  });
 
   return { changeSetId, filePath };
 }
@@ -294,7 +314,7 @@ async function writeFileImpl(params, env, runContext = {}) {
     if (!envelope.r2Bucket || !envelope.r2Key) {
       return { error: 'r2_bucket and r2_key required for R2 writes' };
     }
-    const ins = await insertPendingChangeSet(env, ctx, { ...envelope, source: 'r2' });
+    const ins = await insertPendingChangeSet(env, ctx, { ...envelope, source: 'r2' }, runContext);
     if (ins.error) return ins;
     return {
       status: 'pending_confirmation',
@@ -314,7 +334,7 @@ async function writeFileImpl(params, env, runContext = {}) {
     if (!envelope.githubRepo || !envelope.githubPath) {
       return { error: 'github_repo and github_path required for GitHub writes' };
     }
-    const ins = await insertPendingChangeSet(env, ctx, { ...envelope, source: 'github' });
+    const ins = await insertPendingChangeSet(env, ctx, { ...envelope, source: 'github' }, runContext);
     if (ins.error) return ins;
     return {
       status: 'pending_confirmation',
@@ -327,7 +347,7 @@ async function writeFileImpl(params, env, runContext = {}) {
     if (!envelope.driveFileId) {
       return { error: 'drive_file_id required for Drive writes' };
     }
-    const ins = await insertPendingChangeSet(env, ctx, { ...envelope, source: 'drive' });
+    const ins = await insertPendingChangeSet(env, ctx, { ...envelope, source: 'drive' }, runContext);
     if (ins.error) return ins;
     return {
       status: 'pending_confirmation',
@@ -343,6 +363,7 @@ async function applyChangeSetImpl(params, env, runContext = {}) {
   const ctx = toolContext(params, runContext);
   const changeSetId = pickFirst(params.change_set_id, params.changeSetId);
   const action = pickFirst(params.action).toLowerCase();
+  const workerCtx = runContext.ctx ?? null;
 
   if (!changeSetId) return { error: 'change_set_id required' };
   if (action !== 'accept' && action !== 'reject') {
@@ -352,7 +373,7 @@ async function applyChangeSetImpl(params, env, runContext = {}) {
   if (!ctx.userId) return { error: 'user_id required' };
 
   const row = await env.DB.prepare(
-    `SELECT id, user_id, tenant_id, source, file_path, r2_bucket, r2_key,
+    `SELECT id, user_id, tenant_id, agent_run_id, source, file_path, r2_bucket, r2_key,
             github_repo, github_path, github_branch, drive_file_id, proposed_content, status
      FROM change_sets WHERE id = ? LIMIT 1`,
   )
@@ -375,6 +396,12 @@ async function applyChangeSetImpl(params, env, runContext = {}) {
     )
       .bind(now, changeSetId)
       .run();
+    finalizeAgentsamPatchSessionForChangeSet(env, workerCtx, {
+      changeSetId,
+      passed: false,
+      applied: false,
+      failReason: 'user_rejected',
+    });
     return { status: 'rejected', change_set_id: changeSetId, source: row.source };
   }
 
@@ -385,7 +412,15 @@ async function applyChangeSetImpl(params, env, runContext = {}) {
   else if (src === 'drive') applyResult = await applyDriveChange(env, ctx.userId, row);
   else return { error: `Cannot apply change_set for source: ${src}` };
 
-  if (applyResult?.error) return applyResult;
+  if (applyResult?.error) {
+    finalizeAgentsamPatchSessionForChangeSet(env, workerCtx, {
+      changeSetId,
+      passed: false,
+      applied: false,
+      failReason: String(applyResult.error).slice(0, 500),
+    });
+    return applyResult;
+  }
 
   await env.DB.prepare(
     `UPDATE change_sets SET status = 'accepted', accepted_at = ? WHERE id = ?`,
@@ -393,11 +428,18 @@ async function applyChangeSetImpl(params, env, runContext = {}) {
     .bind(now, changeSetId)
     .run();
 
+  finalizeAgentsamPatchSessionForChangeSet(env, workerCtx, {
+    changeSetId,
+    passed: true,
+    applied: true,
+  });
+
   return {
     status: 'applied',
     change_set_id: changeSetId,
     source: src,
     path: applyResult.path || applyResult.uri || row.file_path,
+    agent_run_id: row.agent_run_id != null ? String(row.agent_run_id) : null,
     ...applyResult,
   };
 }

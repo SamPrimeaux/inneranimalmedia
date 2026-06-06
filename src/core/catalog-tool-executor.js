@@ -1050,17 +1050,20 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
           const { recordMcpZonePatchSession, resolveMcpZoneConversationId } = await import(
             './mcp-zone-spine.js'
           );
-          void recordMcpZonePatchSession(env, {
+          void recordMcpZonePatchSession(env, runContext.ctx ?? null, {
             zoneSlug,
             tenantId,
+            workspaceId,
+            agentRunId: agentRunId != null ? String(agentRunId) : null,
             conversationId:
               runContext.sessionId ??
               runContext.session_id ??
               resolveMcpZoneConversationId(zoneSlug, tenantId),
-            modelKey: runContext.modelKey ?? null,
+            modelKey: runContext.modelKey ?? runContext.model_key ?? null,
             taskFile: rawCmd.slice(0, 200),
             passed: sb.body?.exit_code === 0 ? 1 : 0,
-            applied: 1,
+            applied: sb.body?.exit_code === 0 ? 1 : 0,
+            failReason: sb.body?.exit_code === 0 ? null : sb.error || 'sandbox_exit_nonzero',
           });
         }
         result = { ok: true, body: sb.body };
