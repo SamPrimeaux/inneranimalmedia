@@ -132,6 +132,20 @@ export async function workspaceAllowsPlatformFallback(env, workspaceId) {
   return row.allow_platform_fallback !== false;
 }
 
+/**
+ * Whether superadmin may use platform Wrangler / env.DB for this workspace.
+ * @param {any} env
+ * @param {unknown} authUser
+ * @param {string|null|undefined} workspaceId
+ */
+export async function canUsePlatformDataPlane(env, authUser, workspaceId) {
+  const { authUserIsSuperadmin } = await import('./auth.js');
+  if (!authUserIsSuperadmin(authUser)) return false;
+  const ws = workspaceId != null ? String(workspaceId).trim() : '';
+  if (!ws) return true;
+  return workspaceAllowsPlatformFallback(env, ws);
+}
+
 function spentForPeriod(period, amounts) {
   const p = trim(period).toLowerCase() || 'total';
   if (p === 'daily' || p === 'day') return amounts.daily_usd;

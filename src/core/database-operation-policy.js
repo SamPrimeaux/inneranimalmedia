@@ -59,7 +59,7 @@ export function resolveDatabaseRuntimeContext(authUser, opts = {}) {
     opts.workspaceId != null && String(opts.workspaceId).trim() ? String(opts.workspaceId).trim() : null;
   const role = String(opts.role ?? authUser?.role ?? '').trim().toLowerCase();
   const isSuperadmin = authUserIsSuperadmin(authUser);
-  const isOwner = isSuperadmin || role === 'owner';
+  const isPlatformOperator = isSuperadmin;
   const canRunD1 = opts.canRunD1 !== false;
   const canRunHyperdrive = opts.canRunHyperdrive !== false;
 
@@ -68,13 +68,13 @@ export function resolveDatabaseRuntimeContext(authUser, opts = {}) {
     tenant_id: tenantId,
     workspace_id: workspaceId,
     roles: role ? [role] : [],
-    is_owner: isOwner,
+    is_owner: isPlatformOperator,
     is_superadmin: isSuperadmin,
     can_run_d1: canRunD1,
     can_run_hyperdrive: canRunHyperdrive,
-    can_apply_ddl: isOwner,
-    allowed_schemas: isOwner ? [...OWNER_PLATFORM_SCHEMAS, 'public'] : [...NON_OWNER_ALLOWED_SCHEMAS],
-    approval_required: !isOwner,
+    can_apply_ddl: isPlatformOperator,
+    allowed_schemas: isPlatformOperator ? [...OWNER_PLATFORM_SCHEMAS, 'public'] : [...NON_OWNER_ALLOWED_SCHEMAS],
+    approval_required: !isPlatformOperator,
   };
 }
 

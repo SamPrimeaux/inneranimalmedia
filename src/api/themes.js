@@ -24,6 +24,7 @@ async function resolveCanonicalUserIdShort(env, sessionUserId, email) {
   }
 }
 import { buildActiveThemeApiPayload, hydrateCmsThemeCssVarsFromR2 } from "../core/cms-theme-active.js";
+import { getAgentsamWorkspace } from "../core/agentsam-workspace.js";
 import {
   resolveActiveCmsThemeRow,
   resolveTenantIdForCmsThemeOps,
@@ -57,11 +58,21 @@ async function fetchWorkspaceRow(env, workspaceId) {
   const wid = String(workspaceId || "").trim();
   if (!wid || !env.DB) return null;
   try {
-    return await env.DB.prepare(
-      `SELECT id, tenant_id, r2_prefix, github_repo, settings_json FROM workspaces WHERE id = ? LIMIT 1`,
+    const aw = await getAgentsamWorkspace(env, wid);
+    const ui = await env.DB.prepare(
+      `SELECT settings_json FROM workspaces WHERE id = ? LIMIT 1`,
     )
       .bind(wid)
-      .first();
+      .first()
+      .catch(() => null);
+    if (!aw && !ui) return null;
+    return {
+      id: wid,
+      tenant_id: aw?.tenant_id ?? null,
+      r2_prefix: aw?.r2_prefix ?? null,
+      github_repo: aw?.github_repo ?? null,
+      settings_json: ui?.settings_json ?? null,
+    };
   } catch {
     return null;
   }

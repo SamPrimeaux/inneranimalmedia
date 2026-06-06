@@ -186,6 +186,13 @@ export async function getWorkspaceGithubRepo(env, workspaceId) {
   return gh != null && trim(gh) ? trim(gh) : null;
 }
 
+/** Operational binding fields — write agentsam_workspace only (not workspaces compat table). */
+export const AGENTSAM_WORKSPACE_BINDING_PATCH_KEYS = new Set([
+  'r2_prefix',
+  'github_repo',
+  'default_model_id',
+]);
+
 /**
  * Sync operational patch fields to agentsam_workspace (best-effort).
  * @param {any} env

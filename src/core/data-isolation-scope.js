@@ -30,17 +30,26 @@ export async function resolveAgentDataScope(env, authUser, request, identity = {
 }
 
 /**
- * D1 binding for Database Studio — platform DB only for superadmin; otherwise null (onboarding).
+ * D1 binding for Database Studio — platform DB only for superadmin when workspace policy allows.
  * @param {unknown} env
  * @param {string} userId
  * @param {unknown} authUser
- * @returns {D1Database | null}
+ * @param {unknown} [request]
+ * @returns {Promise<import('@cloudflare/workers-types').D1Database | null>}
  */
-export function resolveUserWorkspaceBinding(env, userId, authUser) {
+export async function resolveUserWorkspaceBinding(env, userId, authUser, request = null) {
   void userId;
   if (!env?.DB) return null;
-  if (authUserIsSuperadmin(authUser)) return env.DB;
-  return null;
+  if (!authUserIsSuperadmin(authUser)) return null;
+  const wsId =
+    request?.headers?.get('x-iam-workspace-id') != null
+      ? String(request.headers.get('x-iam-workspace-id')).trim()
+      : '';
+  if (wsId) {
+    const { canUsePlatformDataPlane } = await import('./workspace-spend-guard.js');
+    if (!(await canUsePlatformDataPlane(env, authUser, wsId))) return null;
+  }
+  return env.DB;
 }
 
 /**

@@ -8,6 +8,7 @@
 import { jsonResponse, fetchAuthUserTenantId } from '../core/auth.js';
 import {
   agentsamWorkspaceExists,
+  AGENTSAM_WORKSPACE_BINDING_PATCH_KEYS,
   getWorkspaceOwnerUserId,
   insertAgentsamWorkspaceRow,
   patchAgentsamWorkspaceFromApiCol,
@@ -871,14 +872,26 @@ export async function handleAgentsamWorkspacesApi(request, url, env, ctx, authUs
       const keys = Object.keys(col);
       if (keys.length === 0) return jsonResponse(oldRow);
 
-      const sets = keys.map((k) => `${k} = ?`);
-      const binds = keys.map((k) => col[k]);
-      sets.push(`updated_at = datetime('now')`);
-      binds.push(workspaceId);
+      const agentsamCol = {};
+      const workspacesCol = {};
+      for (const [k, v] of Object.entries(col)) {
+        if (AGENTSAM_WORKSPACE_BINDING_PATCH_KEYS.has(k)) agentsamCol[k] = v;
+        else workspacesCol[k] = v;
+      }
 
-      await db.prepare(`UPDATE workspaces SET ${sets.join(', ')} WHERE id = ?`).bind(...binds).run();
+      if (Object.keys(agentsamCol).length) {
+        await patchAgentsamWorkspaceFromApiCol(env, workspaceId, agentsamCol);
+      }
 
-      await patchAgentsamWorkspaceFromApiCol(env, workspaceId, col);
+      if (Object.keys(workspacesCol).length) {
+        const sets = Object.keys(workspacesCol).map((k) => `${k} = ?`);
+        const binds = Object.keys(workspacesCol).map((k) => workspacesCol[k]);
+        sets.push(`updated_at = datetime('now')`);
+        binds.push(workspaceId);
+        await db.prepare(`UPDATE workspaces SET ${sets.join(', ')} WHERE id = ?`).bind(...binds).run();
+      }
+
+      await patchAgentsamWorkspaceFromApiCol(env, workspaceId, workspacesCol);
 
       const newRow = await db.prepare(`SELECT * FROM workspaces WHERE id = ?`).bind(workspaceId).first();
 

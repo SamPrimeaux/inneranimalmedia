@@ -43,10 +43,10 @@ function d1OnboardingResponse() {
  * @param {unknown} env
  * @param {unknown} authUser
  */
-async function requireScopedD1(env, authUser) {
+async function requireScopedD1(env, authUser, request) {
   const rawId = String(authUser?.id || '').trim();
   const userId = rawId ? await resolveCanonicalUserId(rawId, env).catch(() => rawId) : '';
-  const db = resolveUserWorkspaceBinding(env, userId, authUser);
+  const db = await resolveUserWorkspaceBinding(env, userId, authUser, request);
   return { db, userId };
 }
 
@@ -63,7 +63,7 @@ export async function handleD1DashboardRoutes(request, url, env) {
   const authUser = await getAuthUser(request, env);
   if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
 
-  const { db: userDb } = await requireScopedD1(env, authUser);
+  const { db: userDb } = await requireScopedD1(env, authUser, request);
 
   if (pathLower === '/api/d1/tables' && method === 'GET') {
     if (!userDb) return d1OnboardingResponse();

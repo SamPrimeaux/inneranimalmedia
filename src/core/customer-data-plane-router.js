@@ -1,10 +1,11 @@
 /**
  * Canonical runtime data-plane resolver — platform vs customer vs public learning.
- * SECURITY: non-owner customer DB intents never resolve to platform_d1 / platform_supabase_agentsam.
+ * SECURITY: platform planes require superadmin + workspace policy; tenant owner ≠ platform operator.
  */
 import { authUserIsSuperadmin } from './auth.js';
 import { getDefaultWorkspaceDataBinding } from './workspace-data-bindings.js';
 import { isPlatformDataPlane, logDataPlaneSecurityEvent } from './data-plane-access-guard.js';
+import { canUsePlatformDataPlane } from './workspace-spend-guard.js';
 
 /** @typedef {'platform_d1'|'platform_supabase_agentsam'|'platform_access_denied'|'public_learning'|'customer_supabase'|'customer_cloudflare_d1'|'customer_cloudflare_r2'|'customer_github'|'customer_drive'} DataPlane */
 
@@ -67,21 +68,6 @@ function messageWantsPlatformAgentsam(message) {
 }
 
 /**
- * @param {unknown} authUser
- */
-function resolveOwnerFlags(authUser) {
-  const role = String(authUser?.role ?? '').trim().toLowerCase();
-  const membershipRole = String(authUser?.membership_role ?? '').trim().toLowerCase();
-  const isSuperadmin = authUserIsSuperadmin(authUser);
-  const isOwner =
-    isSuperadmin ||
-    role === 'owner' ||
-    membershipRole === 'owner' ||
-    membershipRole === 'admin';
-  return { isSuperadmin, isOwner };
-}
-
-/**
  * @param {{
  *   user_id?: string|null,
  *   tenant_id?: string|null,
@@ -102,7 +88,8 @@ export async function resolveCustomerDataPlane(env, input) {
   const userId = input.user_id != null ? String(input.user_id).trim() : '';
   const tenantId = input.tenant_id != null ? String(input.tenant_id).trim() : '';
   const requestedProvider = input.requested_provider != null ? String(input.requested_provider).trim().toLowerCase() : '';
-  const { isOwner, isSuperadmin } = resolveOwnerFlags(input.authUser);
+  const isSuperadmin = authUserIsSuperadmin(input.authUser);
+  const platformOk = isSuperadmin && (await canUsePlatformDataPlane(env, input.authUser, workspaceId));
 
   /** @type {DataPlane} */
   let data_plane = 'public_learning';
@@ -143,18 +130,20 @@ export async function resolveCustomerDataPlane(env, input) {
   } else if (messageWantsCustomerSupabase(message)) {
     data_plane = 'customer_supabase';
   } else if (messageWantsPlatformAgentsam(message)) {
-    if (isOwner || isSuperadmin) {
+    if (platformOk) {
       data_plane = 'platform_supabase_agentsam';
     } else {
       data_plane = 'platform_access_denied';
-      degraded_reason = 'platform_schema_denied_non_owner';
+      degraded_reason = isSuperadmin
+        ? 'platform_binding_blocked_by_workspace_policy'
+        : 'platform_schema_denied_non_owner';
       logDataPlaneSecurityEvent('platform_binding_blocked_for_non_owner', {
         user_id: userId,
         workspace_id: workspaceId,
         message_preview: message.slice(0, 120),
       });
     }
-  } else if (isOwner || isSuperadmin) {
+  } else if (platformOk) {
     data_plane = 'platform_supabase_agentsam';
   } else if (wantsCustomer) {
     data_plane = messageWantsCustomerCloudflareD1(message)
@@ -167,9 +156,9 @@ export async function resolveCustomerDataPlane(env, input) {
     degraded_reason = 'default_public_learning_for_non_owner';
   }
 
-  if (isPlatformDataPlane(data_plane) && !isOwner && !isSuperadmin) {
+  if (isPlatformDataPlane(data_plane) && !platformOk) {
     data_plane = 'platform_access_denied';
-    degraded_reason = 'platform_binding_blocked_for_non_owner';
+    degraded_reason = degraded_reason || 'platform_binding_blocked_for_non_owner';
   }
 
   owner_type =
@@ -225,11 +214,11 @@ export async function resolveCustomerDataPlane(env, input) {
   if (data_plane === 'platform_supabase_agentsam' || data_plane === 'platform_d1') {
     schema = 'agentsam';
     permissions = {
-      read: isOwner || isSuperadmin,
-      write: isOwner || isSuperadmin,
-      ddl: isOwner || isSuperadmin,
+      read: platformOk,
+      write: platformOk,
+      ddl: platformOk,
     };
-    requires_approval = !(isOwner || isSuperadmin);
+    requires_approval = !platformOk;
   }
 
   if (data_plane === 'public_learning') {
@@ -261,7 +250,7 @@ export async function resolveCustomerDataPlane(env, input) {
     tenant_id: tenantId || null,
     workspace_id: workspaceId || null,
     user_id: userId || null,
-    is_owner: isOwner,
+    is_owner: platformOk,
     is_superadmin: isSuperadmin,
   };
 }

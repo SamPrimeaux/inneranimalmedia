@@ -1,5 +1,6 @@
 /**
- * Workspace BYO resource selection — SSOT is agentsam_workspace columns + user_storage_access_keys.
+ * Workspace BYO resource selection — SSOT is agentsam_workspace columns (d1_database_id,
+ * cloudflare_account_id, byok_r2_bucket, …). Legacy agentsam_workspace_data_bindings dropped in 597.
  */
 
 import {
