@@ -48,6 +48,9 @@ TIER1_MANIFEST=(
   "scripts/guard-no-hardcoded-identity.sh|cicd/guard-no-hardcoded-identity.sh|guard_no_hardcoded_identity|cicd|low|Fail CI if hardcoded tenant/ws ids in hot paths"
   "scripts/agentsam-tools-catalog-smoke.mjs|test/agentsam-tools-catalog-smoke.mjs|agentsam_tools_catalog_smoke|test|low|Smoke agentsam_tools catalog resolution"
   "scripts/mcp-smoke.mjs|test/mcp-smoke.mjs|smoke_mcp|test|low|MCP OAuth + tools smoke"
+  "scripts/reindex_codebase_dashboard_agent.mjs|ingest/reindex_codebase_dashboard_agent.mjs|reindex_codebase_dashboard_agent|ingest|medium|Reindex dashboard/agent source into Supabase + Vectorize codebase index"
+  "scripts/ingest_r2_to_rag.mjs|ingest/ingest_r2_to_rag.mjs|ingest_r2_to_rag|ingest|medium|Ingest autorag R2 knowledge/recipes/skills into documents Vectorize index"
+  "scripts/lib/pwa-sw-manifest-tiers.mjs|deploy/pwa-sw-manifest-tiers.mjs|pwa_sw_manifest_tiers|deploy|low|Build tiered PWA precache manifest from dashboard/dist at deploy time"
 )
 
 content_type_for() {
