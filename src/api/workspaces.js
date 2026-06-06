@@ -1,10 +1,17 @@
 /**
- * Workspaces API — reads use VIEW agentsam_workspace where helpful; all writes go to `workspaces`.
+ * Workspaces API — SSOT reads/writes use `agentsam_workspace`; `workspaces` holds UI compat
+ * (settings_json, state_json, theme_id, user_id) until fully retired.
  *
  * Multi-tenant: env.R2, env.AI, env.DB are this Worker’s bindings. Other tenants’ Cloudflare
  * credentials belong in workspace_secrets (encrypted_value BLOB), not env bindings.
  */
 import { jsonResponse, fetchAuthUserTenantId } from '../core/auth.js';
+import {
+  agentsamWorkspaceExists,
+  getWorkspaceOwnerUserId,
+  insertAgentsamWorkspaceRow,
+  patchAgentsamWorkspaceFromApiCol,
+} from '../core/agentsam-workspace.js';
 import {
   listAccessibleWorkspaces,
   userCanAccessWorkspace,
@@ -162,9 +169,10 @@ async function upsertConnectivity(db, workspaceId, service, status, latencyMs, d
  * @param {import('@cloudflare/workers-types').D1Database} db
  */
 async function callerCanAdminWorkspace(db, workspaceId, userId, tenantId) {
-  const ws = await db.prepare(`SELECT user_id, tenant_id FROM workspaces WHERE id = ?`).bind(workspaceId).first();
-  if (!ws) return false;
-  if (String(ws.user_id || '') === userId) return true;
+  const env = { DB: db };
+  if (!(await agentsamWorkspaceExists(env, workspaceId))) return false;
+  const ownerUserId = await getWorkspaceOwnerUserId(env, workspaceId);
+  if (ownerUserId && ownerUserId === userId) return true;
   const m = await db
     .prepare(
       `SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ? AND COALESCE(is_active, 1) = 1`,
@@ -177,10 +185,11 @@ async function callerCanAdminWorkspace(db, workspaceId, userId, tenantId) {
 /** Member or workspace owner, or superadmin — never tenant-wide for non-super. */
 async function callerCanViewWorkspace(db, workspaceId, authUser, isSuper) {
   if (isSuper) return true;
-  const candidates = await workspaceMemberUserCandidates({ DB: db }, authUser);
-  const ws = await db.prepare(`SELECT user_id FROM workspaces WHERE id = ?`).bind(workspaceId).first();
-  if (!ws) return false;
-  if (candidates.some((c) => String(ws.user_id || '') === c)) return true;
+  const env = { DB: db };
+  const candidates = await workspaceMemberUserCandidates(env, authUser);
+  if (!(await agentsamWorkspaceExists(env, workspaceId))) return false;
+  const ownerUserId = await getWorkspaceOwnerUserId(env, workspaceId);
+  if (ownerUserId && candidates.some((c) => ownerUserId === c)) return true;
   if (!candidates.length) return false;
   const ph = candidates.map(() => '?').join(', ');
   const m = await db
@@ -303,7 +312,7 @@ export async function handleAgentsamWorkspacesApi(request, url, env, ctx, authUs
     let baseId = `ws_${slugify(display_name)}`;
     let id = baseId;
     for (let i = 0; i < 12; i++) {
-      const exists = await db.prepare(`SELECT 1 FROM workspaces WHERE id = ?`).bind(id).first();
+      const exists = await agentsamWorkspaceExists({ DB: db }, id);
       if (!exists) break;
       id = `${baseId}_${crypto.randomUUID().slice(0, 8)}`;
     }
@@ -339,6 +348,17 @@ export async function handleAgentsamWorkspacesApi(request, url, env, ctx, authUs
           iso,
         )
         .run();
+
+      await insertAgentsamWorkspaceRow(env, {
+        id,
+        workspaceSlug: slug,
+        tenantId: tenantForRow,
+        name: display_name,
+        displayName: display_name,
+        githubRepo: github_repo,
+        r2Prefix: r2_prefix,
+        description,
+      });
 
       const memId = `wsm_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
       await db
@@ -858,15 +878,7 @@ export async function handleAgentsamWorkspacesApi(request, url, env, ctx, authUs
 
       await db.prepare(`UPDATE workspaces SET ${sets.join(', ')} WHERE id = ?`).bind(...binds).run();
 
-      if (col.github_repo !== undefined) {
-        await db
-          .prepare(
-            `UPDATE agentsam_workspace SET github_repo = ?, updated_at = unixepoch() WHERE id = ?`,
-          )
-          .bind(col.github_repo, workspaceId)
-          .run()
-          .catch(() => {});
-      }
+      await patchAgentsamWorkspaceFromApiCol(env, workspaceId, col);
 
       const newRow = await db.prepare(`SELECT * FROM workspaces WHERE id = ?`).bind(workspaceId).first();
 

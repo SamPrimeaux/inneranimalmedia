@@ -48,7 +48,7 @@ async function lookupWorkspaceScopeByGithubRepo(db, repoFullName) {
   try {
     const row = await db
       .prepare(
-        `SELECT id, tenant_id FROM workspaces
+        `SELECT id, tenant_id FROM agentsam_workspace
          WHERE lower(replace(replace(replace(trim(github_repo), 'https://github.com/', ''), 'http://github.com/', ''), '.git', '')) = lower(?)
             OR trim(github_repo) = ?
             OR lower(trim(github_repo)) = lower(?)
@@ -84,7 +84,7 @@ export async function resolvePlatformWebhookScope(env, workspaceId) {
   if (!ws) return null;
   try {
     const row = await db
-      .prepare(`SELECT id, tenant_id FROM workspaces WHERE id = ? LIMIT 1`)
+      .prepare(`SELECT id, tenant_id FROM agentsam_workspace WHERE id = ? LIMIT 1`)
       .bind(ws)
       .first();
     if (!row?.tenant_id || !String(row.tenant_id).trim()) return null;

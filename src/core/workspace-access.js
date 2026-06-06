@@ -7,6 +7,7 @@
  * regardless of tenant, membership, or session resolution.
  */
 import { fetchAuthUserTenantId, platformTenantIdFromEnv } from './auth.js';
+import { getWorkspaceOwnerUserId, getWorkspaceTenantIdWithFallback, workspaceRowExists } from './agentsam-workspace.js';
 
 export function isAuthSuperadmin(authUser) {
   return Number(authUser?.is_superadmin) === 1;
@@ -133,12 +134,11 @@ export async function userCanAccessWorkspace(env, authUser, workspaceId) {
   if (!candidates.length) return false;
 
   try {
-    const ws = await env.DB.prepare(`SELECT user_id, tenant_id FROM workspaces WHERE id = ? LIMIT 1`)
-      .bind(wid)
-      .first();
-    if (!ws) return false;
-    if (!workspaceTenantMatchesUser(ws.tenant_id, userTenantId)) return false;
-    if (candidates.some((c) => String(ws.user_id || '') === c)) return true;
+    if (!(await workspaceRowExists(env, wid))) return false;
+    const wsTenantId = await getWorkspaceTenantIdWithFallback(env, wid);
+    if (!workspaceTenantMatchesUser(wsTenantId, userTenantId)) return false;
+    const ownerUserId = await getWorkspaceOwnerUserId(env, wid);
+    if (ownerUserId && candidates.some((c) => ownerUserId === c)) return true;
     const ph = inClausePlaceholders(candidates);
     const m = await env.DB.prepare(
       `SELECT 1 AS ok FROM workspace_members
@@ -165,7 +165,7 @@ export async function listAccessibleWorkspaces(db, env, authUser, opts = {}) {
     env,
     authUser,
   );
-  const orderBy = opts.orderBy || 'w.updated_at DESC';
+  const orderBy = opts.orderBy || 'aw.updated_at DESC';
   const limit = opts.limit != null && Number(opts.limit) > 0 ? Math.min(Number(opts.limit), 500) : null;
   const limitSql = limit ? ` LIMIT ${limit}` : '';
 
@@ -177,22 +177,24 @@ export async function listAccessibleWorkspaces(db, env, authUser, opts = {}) {
     // Superadmin sees platform tenant workspaces — but blocklist still applies
     // for non-owner superadmin sessions (prevents cross-account admin bleed).
     const sql = `
-      SELECT DISTINCT w.id, w.display_name, w.slug, w.workspace_type,
-        w.status, w.r2_prefix, w.github_repo, w.settings_json,
-        w.description, w.tenant_id, w.user_id, w.created_at, w.updated_at,
-        w.name, w.handle, w.category, w.brand,
+      SELECT DISTINCT aw.id, aw.display_name, aw.workspace_slug AS slug,
+        COALESCE(w.workspace_type, w.category) AS workspace_type,
+        aw.status, aw.r2_prefix, aw.github_repo, w.settings_json,
+        aw.description, aw.tenant_id, w.user_id, aw.created_at, aw.updated_at,
+        aw.name, aw.workspace_slug AS handle, w.category, w.brand,
         COALESCE(wm.role, 'owner') AS member_role
-      FROM workspaces w
+      FROM agentsam_workspace aw
+      LEFT JOIN workspaces w ON w.id = aw.id
       LEFT JOIN workspace_members wm
-        ON wm.workspace_id = w.id AND wm.user_id = ?
+        ON wm.workspace_id = aw.id AND wm.user_id = ?
       LEFT JOIN agentsam_workspace_blocklist bl
-        ON bl.workspace_id = w.id
+        ON bl.workspace_id = aw.id
       WHERE (
-          w.tenant_id = ?
+          aw.tenant_id = ?
           OR wm.user_id = ?
-          OR (w.tenant_id IS NULL AND ? = 1)
+          OR (aw.tenant_id IS NULL AND ? = 1)
         )
-        AND (w.is_archived = 0 OR w.is_archived IS NULL)
+        AND aw.status != 'archived'
         AND (bl.workspace_id IS NULL OR bl.owner_user_id = ?)
       ORDER BY ${orderBy}${limitSql}`;
     const { results } = await db
@@ -206,30 +208,32 @@ export async function listAccessibleWorkspaces(db, env, authUser, opts = {}) {
   const ph = inClausePlaceholders(candidates);
   const tid = tenantId != null ? String(tenantId).trim() : '';
   const tenantClause = tid
-    ? ` AND (w.tenant_id IS NULL OR w.tenant_id = ?)`
-    : ` AND w.tenant_id IS NULL`;
+    ? ` AND (aw.tenant_id IS NULL OR aw.tenant_id = ?)`
+    : ` AND aw.tenant_id IS NULL`;
   const sql = `
-    SELECT DISTINCT w.id, w.display_name, w.slug, w.workspace_type,
-      w.status, w.r2_prefix, w.github_repo, w.settings_json,
-      w.description, w.tenant_id, w.user_id, w.created_at, w.updated_at,
-      w.name, w.handle, w.category, w.brand,
+    SELECT DISTINCT aw.id, aw.display_name, aw.workspace_slug AS slug,
+      COALESCE(w.workspace_type, w.category) AS workspace_type,
+      aw.status, aw.r2_prefix, aw.github_repo, w.settings_json,
+      aw.description, aw.tenant_id, w.user_id, aw.created_at, aw.updated_at,
+      aw.name, aw.workspace_slug AS handle, w.category, w.brand,
       COALESCE(wm.role, 'owner') AS member_role
-    FROM workspaces w
+    FROM agentsam_workspace aw
+    LEFT JOIN workspaces w ON w.id = aw.id
     LEFT JOIN workspace_members wm
-      ON wm.workspace_id = w.id AND wm.user_id IN (${ph})
+      ON wm.workspace_id = aw.id AND wm.user_id IN (${ph})
     LEFT JOIN agentsam_workspace_blocklist bl
-      ON bl.workspace_id = w.id
+      ON bl.workspace_id = aw.id
     WHERE (
         EXISTS (
           SELECT 1 FROM workspace_members wm2
-          WHERE wm2.workspace_id = w.id
+          WHERE wm2.workspace_id = aw.id
             AND wm2.user_id IN (${ph})
             AND COALESCE(wm2.is_active, 1) = 1
         )
         OR w.user_id IN (${ph})
       )
       ${tenantClause}
-      AND (w.is_archived = 0 OR w.is_archived IS NULL)
+      AND aw.status != 'archived'
       AND (bl.workspace_id IS NULL OR bl.owner_user_id IN (${ph}))
     ORDER BY ${orderBy}${limitSql}`;
   const binds = [...candidates, ...candidates, ...candidates];
@@ -246,7 +250,7 @@ export async function listAccessibleWorkspaces(db, env, authUser, opts = {}) {
  * @param {any} authUser
  */
 export async function fetchWorkspaceRowsForSettingsApi(db, env, authUser) {
-  const rows = await listAccessibleWorkspaces(db, env, authUser, { orderBy: 'COALESCE(w.display_name, w.name, w.id) ASC' });
+  const rows = await listAccessibleWorkspaces(db, env, authUser, { orderBy: 'COALESCE(aw.display_name, aw.name, aw.id) ASC' });
   return rows.map((w) => ({
     id: w.id,
     name:

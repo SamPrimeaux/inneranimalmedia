@@ -4,6 +4,7 @@
  * Rewrites mistaken SamPrimeaux/<customer-repo> prefixes to the user's GitHub login.
  */
 import { getUserGithubToken } from '../integrations/github.js';
+import { getWorkspaceGithubRepo } from './agentsam-workspace.js';
 
 function trim(v) {
   return v == null ? '' : String(v).trim();
@@ -45,13 +46,7 @@ function fullRepo(ownerLogin, slug) {
 export async function fetchWorkspaceGithubRepo(env, tenantId, workspaceId) {
   const wid = trim(workspaceId);
   if (!env?.DB || !wid) return null;
-  const row = await env.DB.prepare(
-    `SELECT github_repo FROM workspaces WHERE id = ? LIMIT 1`,
-  )
-    .bind(wid)
-    .first()
-    .catch(() => null);
-  const repo = row?.github_repo != null ? trim(row.github_repo) : '';
+  const repo = (await getWorkspaceGithubRepo(env, wid)) || '';
   return repo.includes('/') ? repo : null;
 }
 

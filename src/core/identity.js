@@ -156,10 +156,9 @@ export async function resolveIdentity(env, request) {
   if (workspaceIdResolved) {
     try {
       const row = await env.DB.prepare(
-        `SELECT w.id AS workspace_id, w.handle AS handle, aw.default_model_id
-         FROM workspaces w
-         LEFT JOIN agentsam_workspace aw ON aw.id = w.id
-         WHERE w.id = ?
+        `SELECT aw.id AS workspace_id, aw.workspace_slug AS handle, aw.default_model_id
+         FROM agentsam_workspace aw
+         WHERE aw.id = ?
          LIMIT 1`,
       )
         .bind(workspaceIdResolved)
@@ -171,11 +170,10 @@ export async function resolveIdentity(env, request) {
     } catch (_) {}
   } else {
     const defaultWs = await env.DB.prepare(
-      `SELECT tw.workspace_id AS workspace_id, w.handle AS handle,
+      `SELECT tw.workspace_id AS workspace_id, aw.workspace_slug AS handle,
               aw.default_model_id
        FROM tenant_workspaces tw
-       JOIN workspaces w ON w.id = tw.workspace_id
-       LEFT JOIN agentsam_workspace aw ON aw.id = tw.workspace_id
+       JOIN agentsam_workspace aw ON aw.id = tw.workspace_id
        WHERE tw.tenant_id = ?
          AND tw.is_default = 1
          AND tw.is_active = 1
@@ -188,16 +186,15 @@ export async function resolveIdentity(env, request) {
     const fallbackWs = defaultWs
       ? null
       : await env.DB.prepare(
-          `SELECT w.id AS workspace_id, w.handle AS handle,
+          `SELECT aw.id AS workspace_id, aw.workspace_slug AS handle,
                   aw.default_model_id
-           FROM workspaces w
-           LEFT JOIN agentsam_workspace aw ON aw.id = w.id
-           WHERE w.status = 'active'
-             AND (w.owner_tenant_id = ? OR w.default_tenant_id = ?)
-           ORDER BY w.created_at ASC
+           FROM agentsam_workspace aw
+           WHERE aw.status = 'active'
+             AND aw.tenant_id = ?
+           ORDER BY aw.created_at ASC
            LIMIT 1`,
         )
-          .bind(tenantId, tenantId)
+          .bind(tenantId)
           .first()
           .catch(() => null);
 

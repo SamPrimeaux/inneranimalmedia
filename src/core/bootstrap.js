@@ -2,6 +2,7 @@
  * agentsam_bootstrap resolution — multi-tenant workspace + bootstrap row selection.
  */
 import { getSession, fetchAuthUserTenantId, authUserIsSuperadmin } from './auth.js';
+import { getWorkspaceTenantIdWithFallback } from './agentsam-workspace.js';
 import { resolveIamActorContext } from './identity.js';
 import { userCanAccessWorkspace, workspaceMemberUserCandidates } from './workspace-access.js';
 
@@ -66,14 +67,7 @@ export async function resolveTenantIdForWorkspace(env, workspaceId) {
       .bind(ws)
       .first();
     if (tw?.tenant_id) return trim(tw.tenant_id) || null;
-    const row = await env.DB.prepare(
-      `SELECT COALESCE(owner_tenant_id, default_tenant_id) AS tid
-       FROM workspaces WHERE id = ? LIMIT 1`,
-    )
-      .bind(ws)
-      .first();
-    const tid = row?.tid;
-    return tid != null && trim(tid) ? trim(tid) : null;
+    return await getWorkspaceTenantIdWithFallback(env, ws);
   } catch {
     return null;
   }

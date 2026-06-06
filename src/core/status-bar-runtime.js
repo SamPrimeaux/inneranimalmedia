@@ -5,6 +5,7 @@ import { resolveTerminalWorkspaceId } from './bootstrap.js';
 import { fetchAuthUserTenantId } from './auth.js';
 import { userCanAccessWorkspace } from './cms-theme-resolve.js';
 import { resolveGitHubToken } from './github-token.js';
+import { getWorkspaceGithubRepo } from './agentsam-workspace.js';
 
 const GH_HEADERS_BASE = {
   Accept: 'application/vnd.github+json',
@@ -46,14 +47,7 @@ export async function fetchWorkspaceGithubRepo(env, authUser, request, url) {
   const tenantId = await resolveAuthTenantId(env, authUser);
   if (!tenantId) return { error: 'tenant_missing', status: 403 };
 
-  const row = await env.DB.prepare(
-    `SELECT github_repo FROM workspaces WHERE id = ? LIMIT 1`,
-  )
-    .bind(tw.workspaceId)
-    .first()
-    .catch(() => null);
-
-  const repo = row?.github_repo != null ? String(row.github_repo).trim() : '';
+  const repo = (await getWorkspaceGithubRepo(env, tw.workspaceId)) || '';
   if (!repo || !repo.includes('/')) {
     return {
       error: 'no_github_repo',

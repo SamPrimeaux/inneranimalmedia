@@ -11,6 +11,7 @@
 import { getSession, jsonResponse, fetchAuthUserTenantId } from '../core/auth.js';
 import { WORKSPACE_CONTEXT_MISSING } from '../core/bootstrap.js';
 import { userCanAccessWorkspace } from '../core/cms-theme-resolve.js';
+import { getAgentsamWorkspace, getWorkspaceOwnerUserId } from '../core/agentsam-workspace.js';
 import { sendResendEmail } from '../services/resend.js';
 
 function trimOrNull(v) {
@@ -57,8 +58,8 @@ async function resolveStrictWorkspaceIdFromSession(request, env, authUser) {
 async function callerWorkspaceRole(env, workspaceId, userId) {
   if (!env?.DB || !workspaceId || !userId) return null;
   try {
-    const ws = await env.DB.prepare(`SELECT user_id FROM workspaces WHERE id = ? LIMIT 1`).bind(workspaceId).first();
-    if (ws && String(ws.user_id || '') === String(userId)) return 'owner';
+    const ownerUserId = await getWorkspaceOwnerUserId(env, workspaceId);
+    if (ownerUserId && ownerUserId === String(userId)) return 'owner';
   } catch (_) {}
 
   try {
@@ -263,12 +264,13 @@ export async function handleSettingsWorkspaceApi(request, env, ctx, authContext)
     const okWs = await userCanAccessWorkspace(env, authUser, workspaceId);
     if (!okWs) return jsonResponse({ error: 'Forbidden' }, 403);
 
-    const workspace = await env.DB
-      .prepare(`SELECT * FROM workspaces WHERE id = ? LIMIT 1`)
+    const aw = await getAgentsamWorkspace(env, workspaceId);
+    if (!aw) return jsonResponse({ error: 'Workspace not found' }, 404);
+    const ui = await env.DB.prepare(`SELECT settings_json, theme_id, user_id FROM workspaces WHERE id = ? LIMIT 1`)
       .bind(workspaceId)
       .first()
       .catch(() => null);
-    if (!workspace) return jsonResponse({ error: 'Workspace not found' }, 404);
+    const workspace = { ...aw, ...(ui || {}), slug: aw.workspace_slug, handle: aw.workspace_slug };
 
     const hasLimits = await tableExists(env.DB, 'workspace_limits');
     const workspace_limits = hasLimits
@@ -413,7 +415,7 @@ export async function handleSettingsWorkspaceApi(request, env, ctx, authContext)
     }
 
     const member_id = `wsm_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
-    const ws = await env.DB.prepare(`SELECT tenant_id, display_name, name FROM workspaces WHERE id = ? LIMIT 1`).bind(workspaceId).first().catch(() => null);
+    const ws = await getAgentsamWorkspace(env, workspaceId);
     const tenant_id = ws?.tenant_id != null && String(ws.tenant_id).trim() !== '' ? String(ws.tenant_id).trim() : (await resolveAuthTenantId(env, authUser));
 
     await env.DB
@@ -508,11 +510,7 @@ export async function handleSettingsWorkspaceApi(request, env, ctx, authContext)
       const email = normalizeEmail(invite.email);
       if (!email) return jsonResponse({ error: 'invite_missing_email' }, 400);
 
-      const ws = await env.DB
-        .prepare(`SELECT tenant_id, display_name, name FROM workspaces WHERE id = ? LIMIT 1`)
-        .bind(workspaceId)
-        .first()
-        .catch(() => null);
+      const ws = await getAgentsamWorkspace(env, workspaceId);
       const tenant_id =
         ws?.tenant_id != null && String(ws.tenant_id).trim() !== ''
           ? String(ws.tenant_id).trim()
@@ -673,7 +671,7 @@ export async function handleSettingsWorkspaceApi(request, env, ctx, authContext)
     if (!moduleKeyAllowed(env, module_key)) return jsonResponse({ error: 'module_key not allowed' }, 400);
     const is_enabled = body.is_enabled === true || body.is_enabled === 1 || body.is_enabled === '1' ? 1 : 0;
 
-    const ws = await env.DB.prepare(`SELECT tenant_id FROM workspaces WHERE id = ? LIMIT 1`).bind(workspaceId).first().catch(() => null);
+    const ws = await getAgentsamWorkspace(env, workspaceId);
     const tenantId =
       ws?.tenant_id != null && String(ws.tenant_id).trim() !== ''
         ? String(ws.tenant_id).trim()

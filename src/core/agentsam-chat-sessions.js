@@ -2,6 +2,7 @@
  * agentsam_chat_sessions — conversation titling metadata (display layer).
  * INSERT OR IGNORE on first chat message; never overwrites existing titles.
  */
+import { getWorkspaceGithubRepo } from './agentsam-workspace.js';
 
 const STOP_WORDS = new Set([
   'a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'is', 'are', 'was',
@@ -64,15 +65,7 @@ export async function resolveGithubRepoForChatSession(env, input) {
   const workspaceId = input.workspaceId != null ? String(input.workspaceId).trim() : '';
   if (!env?.DB || !workspaceId) return null;
 
-  const row = await env.DB.prepare(
-    `SELECT github_repo FROM workspaces WHERE id = ? LIMIT 1`,
-  )
-    .bind(workspaceId)
-    .first()
-    .catch(() => null);
-
-  const repo = row?.github_repo != null ? String(row.github_repo).trim() : '';
-  return repo || null;
+  return (await getWorkspaceGithubRepo(env, workspaceId)) || null;
 }
 
 /**
