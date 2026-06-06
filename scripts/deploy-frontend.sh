@@ -148,10 +148,9 @@ if [[ -f "$SW_TIERED_MANIFEST" ]]; then
     _SW_CACHE_BUST="$(jq -r '.cache_bust // empty' "$SW_TIERED_MANIFEST" 2>/dev/null || true)"
     if [[ -n "${_SW_CACHE_BUST:-}" ]]; then
       echo "→ Services SW manifest ingest (optional control-plane)…"
-      _INGEST_BODY="$(jq -nc \
-        --arg sha "$(jq -r '.git_sha // "unknown"' "$SW_TIERED_MANIFEST" 2>/dev/null || echo unknown)" \
-        --arg bust "$_SW_CACHE_BUST" \
-        '{git_sha:$sha, cache_bust:$bust}')"
+      _INGEST_BODY="$(jq -c \
+        --argjson manifest "$(cat "$SW_TIERED_MANIFEST")" \
+        '$manifest')"
       curl -sf -X POST "https://services.inneranimalmedia.com/api/deploy/ingest" \
         -H "Authorization: Bearer ${PUSH_SERVICE_TOKEN}" \
         -H "Content-Type: application/json" \
