@@ -22,7 +22,6 @@ required_bindings=(
   CHESS_SESSION
   DASHBOARD
   DB
-  DOCS_BUCKET
   HYPERDRIVE
   IAM_COLLAB
   KV
@@ -40,6 +39,7 @@ removed_bindings=(
   R2
   TOOLS
   EMAIL
+  DOCS_BUCKET
 )
 
 echo "=== wrangler.production.toml binding verify ==="
@@ -77,7 +77,7 @@ if [[ "$stale" -gt 0 ]]; then
 fi
 
 echo "✓ All required production bindings present in wrangler.production.toml"
-echo "✓ Removed bindings (VECTORIZE, AGENTSAMVECTORIZE, R2, TOOLS) absent from toml"
+echo "✓ Removed bindings (VECTORIZE, AGENTSAMVECTORIZE, R2, TOOLS, EMAIL, DOCS_BUCKET) absent from toml"
 echo ""
 echo "Secrets (names only):"
 "${REPO_ROOT}/scripts/with-cloudflare-env.sh" npm exec -- wrangler secret list -c "$TOML" 2>/dev/null | grep '"name"' | sed 's/.*"name": "\([^"]*\)".*/  \1/' | sort

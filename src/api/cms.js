@@ -21,7 +21,7 @@ function cmsPageKey(workspaceId, projectId, slug, variant) {
 
 function getCmsR2Binding(env, bucketName) {
   const name = String(bucketName || CMS_DEFAULT_R2_BUCKET).trim();
-  if (name === 'inneranimalmedia' || name === 'dashboard' || name === 'iam-docs') {
+  if (name === 'inneranimalmedia' || name === 'dashboard') {
     return env.ASSETS || env.R2;
   }
   return env.ASSETS || env.R2;

@@ -58,10 +58,6 @@
 			"bucket_name": "inneranimalmedia-autorag"
 		},
 		{
-			"binding": "DOCS_BUCKET",
-			"bucket_name": "iam-docs"
-		},
-		{
 			"binding": "R2",
 			"bucket_name": "iam-platform"
 		},

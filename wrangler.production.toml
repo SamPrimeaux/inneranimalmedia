@@ -61,13 +61,10 @@ bucket_name = "inneranimalmedia"
 binding = "AUTORAG_BUCKET"
 bucket_name = "inneranimalmedia-autorag"
 
-[[r2_buckets]]
-binding = "DOCS_BUCKET"
-bucket_name = "iam-docs"
-
 # iam-platform (`R2`) and `tools` buckets removed from production bindings 2026-06-02.
 # Platform R2 CRUD uses registry + S3 credentials where needed (see src/api/r2-api.js).
 # Email templates/archive: inneranimalmedia/email/… on ASSETS (EMAIL binding dropped 2026-06-06).
+# DOCS_BUCKET (iam-docs) dropped 2026-06-06 — docs/screenshots on ASSETS / AUTORAG; S3 API for legacy bucket.
 
 [[d1_databases]]
 binding = "DB"

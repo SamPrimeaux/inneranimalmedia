@@ -67,7 +67,6 @@ const BINDING_LABEL_TO_BUCKET = {
   DASHBOARD: 'inneranimalmedia',
   ASSETS: 'inneranimalmedia',
   R2: 'iam-platform',
-  DOCS_BUCKET: 'iam-docs',
   AUTORAG_BUCKET: 'inneranimalmedia-autorag',
 };
 
@@ -1110,7 +1109,6 @@ export function getR2Binding(env, bucketName) {
     dashboard: env.ASSETS,
     'inneranimalmedia-sandbox-cicd': env.ASSETS,
     'iam-platform': env.R2,
-    'iam-docs': env.DOCS_BUCKET,
     tools: env.TOOLS || env.ASSETS,
   };
   return map[bucketName] || null;
@@ -1121,7 +1119,6 @@ export function listBoundR2BucketNames(env) {
   if (env.ASSETS) names.push('inneranimalmedia');
   if (env.AUTORAG_BUCKET) names.push('inneranimalmedia-autorag');
   if (env.R2) names.push('iam-platform');
-  if (env.DOCS_BUCKET) names.push('iam-docs');
   if (env.TOOLS) names.push('tools');
   return names;
 }
@@ -1133,7 +1130,6 @@ export function getR2BindingSlot(env, bucketName) {
   if (binding === env.ASSETS) return 'DASHBOARD';
   if (binding === env.ASSETS) return 'ASSETS';
   if (binding === env.R2) return 'R2';
-  if (binding === env.DOCS_BUCKET) return 'DOCS_BUCKET';
   if (binding === env.AUTORAG_BUCKET) return 'AUTORAG_BUCKET';
   return `binding:${String(bucketName || '').trim()}`;
 }

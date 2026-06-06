@@ -22,7 +22,6 @@ const KNOWN_R2_BINDINGS = [
   { binding: 'DASHBOARD', storage_name: 'inneranimalmedia', public: false },
   { binding: 'TOOLS', storage_name: 'tools', public: true, url: 'https://tools.inneranimalmedia.com' },
   { binding: 'R2', storage_name: 'iam-platform', public: false },
-  { binding: 'DOCS_BUCKET', storage_name: 'iam-docs', public: false },
 ];
 
 /** Resolve tenant for row scoping (prefs, keys). */
@@ -143,7 +142,6 @@ function bindingIdentity(env, logicalName) {
   if (b === env.AUTORAG_BUCKET) return 'AUTORAG_BUCKET';
   if (b === env.ASSETS) return 'DASHBOARD';
   if (b === env.R2) return 'R2';
-  if (b === env.DOCS_BUCKET) return 'DOCS_BUCKET';
   return logicalName;
 }
 

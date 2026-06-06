@@ -217,14 +217,23 @@ export async function handleQualityReportRegisterApi(request, env, authUser, ing
     return jsonResponse({ error: 'unauthenticated' }, 401);
   }
 
-  const scope = ingestBypass
-    ? String(body.scope || 'platform').trim() || 'platform'
-    : String(body.scope || 'user').trim() || 'user';
-  const isPublic = ingestBypass ? 1 : scope === 'platform' ? 1 : 0;
+  // Server-enforced scope: ingest secret → platform only; session auth → user only (ignore body.scope).
+  const scope = ingestBypass ? 'platform' : 'user';
+  const isPublic = ingestBypass ? 1 : 0;
 
   const id = String(body.id || `aqr_${reportDate.replace(/-/g, '')}_${reportTime}`).trim();
   const metadata = typeof body.metadata === 'object' ? body.metadata : {};
   metadata.scope = scope;
+
+  const boundUserId = ingestBypass
+    ? userId
+    : authUser?.id || authUser?.user_id || null;
+  const boundWorkspaceId = ingestBypass
+    ? workspaceId
+    : authUser?.workspace_id || null;
+  const boundTenantId = ingestBypass
+    ? tenantId
+    : authUser?.tenant_id || null;
 
   await env.DB.prepare(
     `INSERT INTO agentsam_quality_reports (
@@ -246,9 +255,9 @@ export async function handleQualityReportRegisterApi(request, env, authUser, ing
     .bind(
       id,
       reportId,
-      tenantId,
-      workspaceId,
-      userId,
+      boundTenantId,
+      boundWorkspaceId,
+      boundUserId,
       reportDate,
       reportTime,
       r2Bucket,
