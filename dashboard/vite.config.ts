@@ -124,7 +124,7 @@ export default defineConfig(({ mode }) => {
           ],
         },
         workbox: {
-          importScripts: ['push-handler.js'],
+          importScripts: ['push-handler.js', 'sw-agent-cache.js'],
           globDirectory: 'dist',
           globPatterns: [
             'dashboard.js',

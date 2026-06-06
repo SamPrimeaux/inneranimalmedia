@@ -10,14 +10,19 @@
  *     --dist dashboard/dist --bucket inneranimalmedia --prefix static/dashboard/app
  *
  *   node scripts/r2-dashboard-manifest-reconcile.mjs ... --dry-run
+ *
+ * Also builds tiered PWA manifest (tier0/1/2 + tier2_tabs) and uploads to R2
+ * analytics/deploys/sw-manifest-tiered.json for services.inneranimalmedia.com ingest.
  */
+import { execFileSync } from 'child_process';
 import { createHash } from 'crypto';
-import { createReadStream } from 'fs';
+import { createReadStream, writeFileSync } from 'fs';
 import { readdirSync, statSync, existsSync } from 'fs';
 import pathMod from 'path';
 import { fileURLToPath } from 'url';
 import { AwsClient } from 'aws4fetch';
 import { loadEnvCloudflare, repoRootDefault } from './lib/r2-inventory-core.mjs';
+import { buildSwManifestTiers } from './lib/pwa-sw-manifest-tiers.mjs';
 
 const __dirname = pathMod.dirname(fileURLToPath(import.meta.url));
 const root = repoRootDefault;
@@ -33,8 +38,20 @@ function parseArgs() {
     bucket: get('--bucket', 'inneranimalmedia'),
     prefix: get('--prefix', 'static/dashboard/app').replace(/^\/+|\/+$/g, ''),
     previousKey: get('--previous-key', 'analytics/deploys/previous-manifest.json'),
+    swTieredKey: get('--sw-tiered-key', 'analytics/deploys/sw-manifest-tiered.json'),
+    gitSha: get('--git-sha', ''),
     dryRun: a.includes('--dry-run'),
   };
+}
+
+function resolveGitSha(explicit) {
+  const trimmed = String(explicit || '').trim();
+  if (trimmed) return trimmed;
+  try {
+    return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+  } catch {
+    return '';
+  }
 }
 
 function walkFiles(absDir, files = []) {
@@ -163,6 +180,14 @@ async function main() {
   const manifest = await buildManifest(absDist, o.prefix);
   console.log(`[r2-manifest] new manifest objects=${manifest.object_count} bytes=${manifest.total_size_bytes}`);
 
+  const gitSha = resolveGitSha(o.gitSha);
+  const swTiered = buildSwManifestTiers({ absDist, gitSha });
+  console.log(
+    `[r2-manifest] sw-tiered deploy_id=${swTiered.deploy_id} cache_bust=${swTiered.cache_bust} ` +
+      `tier0=${swTiered.tier0.length} tier1=${swTiered.tier1.length} ` +
+      `tier2_routes=${Object.keys(swTiered.tier2).length} tier2_tabs=${Object.keys(swTiered.tier2_tabs).length}`,
+  );
+
   const client = r2Client();
   const previous = await fetchPreviousManifest(client, o.bucket, o.previousKey);
   const newKeys = keysFromManifest(o.prefix, manifest);
@@ -188,8 +213,12 @@ async function main() {
   if (!o.dryRun) {
     await putManifest(client, o.bucket, o.previousKey, manifest);
     console.log(`[r2-manifest] uploaded ${o.previousKey}`);
+    await putManifest(client, o.bucket, o.swTieredKey, swTiered);
+    console.log(`[r2-manifest] uploaded ${o.swTieredKey}`);
+    writeFileSync(pathMod.join(root, '.deploy-sw-tiered-manifest.json'), JSON.stringify(swTiered, null, 2));
   } else {
     console.log(`[r2-manifest] dry-run — skipped upload of ${o.previousKey}`);
+    console.log(`[r2-manifest] dry-run — skipped upload of ${o.swTieredKey}`);
   }
 }
 

@@ -79,6 +79,7 @@ import {
 import { useEditor } from './src/EditorContext';
 import { useWorkspace } from './src/context/WorkspaceContext';
 import { OfflineReconnectBanner, persistLastSessionSnapshot } from './src/pwa/OfflineReconnectBanner';
+import { warmAgentChunksForTab } from './src/pwa/warmAgentChunks';
 import {
   readIamGitStatusCache,
   writeIamGitStatusCache,
@@ -1005,6 +1006,7 @@ const App: React.FC = () => {
       return [...prev, tab];
     });
     setActiveTab(tab);
+    warmAgentChunksForTab(tab);
   }, []);
 
   const closeTab = (tab: TabId, e: React.MouseEvent) => {
