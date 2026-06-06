@@ -6,7 +6,12 @@ import { readdirSync, readFileSync } from 'fs';
 import { resolve } from 'path';
 import { execFile as execFileCb } from 'child_process';
 import { promisify } from 'util';
-import { runD1Query, runD1Exec, wranglerWrapperPath } from './d1-deploy-record.mjs';
+import {
+  runD1Query,
+  runD1Exec,
+  wranglerWrapperPath,
+  pragmaTableInfo,
+} from './d1-deploy-record.mjs';
 
 const execFile = promisify(execFileCb);
 
@@ -26,6 +31,8 @@ export const DEFAULT_MIN_NUMERIC = 450;
 const NUMERIC_MIGRATION_RE = /^(\d+)_.+\.sql$/;
 const DESTRUCTIVE_RE =
   /\bDROP\s+TABLE\b|\bTRUNCATE\s+TABLE\b|\bDROP\s+INDEX\b|\bDROP\s+COLUMN\b|\bDELETE\s+FROM\b/i;
+const ADD_COLUMN_RE = /ALTER\s+TABLE\s+([a-zA-Z_][\w]*)\s+ADD\s+COLUMN\s+([a-zA-Z_][\w]*)/gi;
+const DUPLICATE_COLUMN_RE = /duplicate column name/i;
 
 export function parseMigrationNumericPrefix(filename) {
   const m = String(filename).match(NUMERIC_MIGRATION_RE);
@@ -89,8 +96,36 @@ export function isDestructiveMigration(content) {
   return DESTRUCTIVE_RE.test(String(content || ''));
 }
 
+/** @returns {{ table: string, column: string }[]} */
+export function parseAddColumnStatements(content) {
+  const out = [];
+  const re = new RegExp(ADD_COLUMN_RE.source, 'gi');
+  let m;
+  while ((m = re.exec(String(content || ''))) !== null) {
+    out.push({ table: m[1], column: m[2] });
+  }
+  return out;
+}
+
+export function isDuplicateColumnError(err) {
+  const msg = String(err?.stderr || err?.message || err || '');
+  return DUPLICATE_COLUMN_RE.test(msg);
+}
+
+/** True when every ADD COLUMN in the file already exists (manual apply / re-run). */
+export function addColumnTargetsAlreadyApplied(repoRoot, content) {
+  const adds = parseAddColumnStatements(content);
+  if (!adds.length) return false;
+  for (const { table, column } of adds) {
+    const cols = pragmaTableInfo(repoRoot, table);
+    if (!cols.has(column)) return false;
+  }
+  return true;
+}
+
 export async function runD1MigrationFile(repoRoot, filename) {
   const rel = `./${MIGRATIONS_DIR}/${filename}`;
+  const content = readMigrationContent(repoRoot, filename);
   const wrapper = wranglerWrapperPath(repoRoot);
   const args = [
     'npx',
@@ -104,10 +139,22 @@ export async function runD1MigrationFile(repoRoot, filename) {
     '--file',
     rel,
   ];
-  await execFile(wrapper, args, {
-    cwd: repoRoot,
-    maxBuffer: 64 * 1024 * 1024,
-  });
+  try {
+    await execFile(wrapper, args, {
+      cwd: repoRoot,
+      maxBuffer: 64 * 1024 * 1024,
+    });
+  } catch (err) {
+    if (!isDuplicateColumnError(err) || !addColumnTargetsAlreadyApplied(repoRoot, content)) {
+      throw err;
+    }
+    const adds = parseAddColumnStatements(content);
+    console.warn(
+      `[d1-migration-ledger] ${filename}: ADD COLUMN already present (${adds
+        .map((a) => `${a.table}.${a.column}`)
+        .join(', ')}); treating migration as applied`,
+    );
+  }
 }
 
 export async function registerMigration(repoRoot, filename) {
