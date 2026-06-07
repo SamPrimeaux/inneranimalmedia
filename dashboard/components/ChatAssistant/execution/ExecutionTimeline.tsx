@@ -12,12 +12,11 @@ import './toolTraceTimeline.css';
 export type ExecutionTimelineProps = {
   rows: AgentToolTraceRow[];
   mode?: AgentMode;
-  /** Mobile: plain rows — details collapsed behind text links. */
   compact?: boolean;
   onDismissRow?: (id: string) => void;
   onClear?: () => void;
-  /** When stream idle and no running tools — show Claude-style Done footer. */
   showDoneFooter?: boolean;
+  onOpenInEditor?: (file: { name: string; content: string }) => void;
 };
 
 export const ExecutionTimeline: React.FC<ExecutionTimelineProps> = ({
@@ -26,6 +25,7 @@ export const ExecutionTimeline: React.FC<ExecutionTimelineProps> = ({
   onDismissRow,
   onClear,
   showDoneFooter = false,
+  onOpenInEditor,
 }) => {
   if (!rows.length) return null;
   const anyRunning = rows.some((r) => r.status === 'running');
@@ -49,6 +49,8 @@ export const ExecutionTimeline: React.FC<ExecutionTimelineProps> = ({
             key={row.id}
             row={row}
             mode={mode}
+            defaultExpanded={row.status === 'running'}
+            onOpenInEditor={onOpenInEditor}
             onDismiss={onDismissRow ? () => onDismissRow(row.id) : undefined}
           />
         ))}

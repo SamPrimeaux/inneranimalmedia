@@ -1015,10 +1015,12 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
       const toolStartNs = toolT0 * 1_000_000;
       let toolOutput = '';
       let execErr = null;
+      const inputPreviewMax =
+        /terminal|shell|pty|bash|run_command/i.test(String(call.name || '')) ? 4000 : 200;
       emit('tool_start', {
         tool_name: call.name,
         tool_call_id: call.id,
-        input_preview: JSON.stringify(call.input || {}).slice(0, 200),
+        input_preview: JSON.stringify(call.input || {}).slice(0, inputPreviewMax),
       });
       try {
         const { emitBrowserLiveSessionSse } = await import('../integrations/agent-live-browser-session.js');

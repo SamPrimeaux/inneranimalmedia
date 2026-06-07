@@ -17,8 +17,8 @@
 .tool-trace-item:not(:last-child)::before {
   content: '';
   position: absolute;
-  left: 15px;
-  top: 36px;
+  left: 6px;
+  top: 28px;
   bottom: -2px;
   width: 1px;
   background: color-mix(in srgb, var(--dashboard-border, rgba(255, 255, 255, 0.12)) 70%, transparent);
@@ -28,36 +28,33 @@
 .tool-trace-row-btn {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: 6px;
   width: 100%;
   min-width: 0;
-  padding: 6px 4px 6px 0;
+  padding: 4px 4px 4px 0;
+}
+
+.tool-trace-collapsed-btn {
   border: none;
   background: transparent;
   text-align: left;
   cursor: pointer;
-  border-radius: 8px;
+  border-radius: 6px;
+  padding: 4px 6px 4px 0;
   transition: background 120ms ease;
 }
 
-.tool-trace-row-btn:hover {
+.tool-trace-collapsed-btn:hover:not(:disabled) {
   background: color-mix(in srgb, var(--dashboard-border, rgba(255, 255, 255, 0.08)) 40%, transparent);
 }
 
-.tool-trace-row-btn:focus-visible {
+.tool-trace-collapsed-btn:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--solar-cyan, #5ad4e6) 45%, transparent);
   outline-offset: 2px;
 }
 
-.tool-trace-icon {
-  flex: 0 0 auto;
-  margin-top: 1px;
-}
-
-.tool-trace-body {
-  min-width: 0;
-  flex: 1 1 auto;
-  padding-top: 1px;
+.tool-trace-collapsed-btn:disabled {
+  cursor: default;
 }
 
 .tool-trace-title {
@@ -69,6 +66,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .tool-trace-title--shimmer {
@@ -108,9 +107,9 @@
 
 .tool-trace-chevron {
   flex: 0 0 auto;
-  width: 10px;
-  height: 10px;
-  margin-top: 5px;
+  width: 8px;
+  height: 8px;
+  margin-top: 4px;
   border-right: 2px solid var(--text-muted, #8a8a9e);
   border-bottom: 2px solid var(--text-muted, #8a8a9e);
   transform: rotate(-45deg);
@@ -120,22 +119,118 @@
 
 .tool-trace-chevron--open {
   transform: rotate(45deg);
-  margin-top: 7px;
+  margin-top: 6px;
 }
 
 .tool-trace-expand {
-  margin: 0 0 8px 42px;
+  margin: 2px 0 10px 14px;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: 10px;
   border: 1px solid color-mix(in srgb, var(--dashboard-border, rgba(255, 255, 255, 0.1)) 80%, transparent);
   background: color-mix(in srgb, var(--scene-bg, #0b0b10) 92%, transparent);
+}
+
+.tool-trace-expand-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 8px;
+  min-width: 0;
+}
+
+.tool-trace-expand-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--dashboard-text, #e6e6f0);
+  line-height: 1.35;
+}
+
+.tool-trace-code-block {
+  margin-top: 6px;
+}
+
+.tool-trace-code-block__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.tool-trace-code-block__label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--dashboard-muted, #8a8a9e);
+}
+
+.tool-trace-code-viewport {
+  max-height: calc(1.45em * 9);
+  overflow: auto;
+  overscroll-behavior: contain;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--dashboard-border, rgba(255, 255, 255, 0.12)) 85%, transparent);
+  background: var(--bg-code-pre, #0d0d12);
+  padding: 8px 10px;
+}
+
+.tool-trace-code-viewport--idle {
+  display: flex;
+  align-items: center;
+  min-height: calc(1.45em * 2);
+}
+
+.tool-trace-code-pre {
+  font-family: var(--font-mono, 'JetBrains Mono', ui-monospace, monospace);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--dashboard-text, #e6e6f0);
+}
+
+.tool-trace-k {
+  color: #f472b6;
+}
+
+.tool-trace-p {
+  color: var(--dashboard-muted, #8a8a9e);
+}
+
+.tool-trace-s {
+  color: #86efac;
+}
+
+.tool-trace-n {
+  color: #fcd34d;
+}
+
+.tool-trace-path {
+  color: #7dd3fc;
+}
+
+.tool-trace-diff-meta {
+  color: #a78bfa;
+}
+
+.tool-trace-diff-add {
+  color: #86efac;
+}
+
+.tool-trace-diff-del {
+  color: #fca5a5;
+}
+
+.tool-trace-diff-hunk {
+  color: #7dd3fc;
 }
 
 .tool-trace-done {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 0 2px 42px;
+  padding: 4px 0 2px 14px;
   font-size: 12px;
   color: var(--dashboard-muted, #8a8a9e);
 }

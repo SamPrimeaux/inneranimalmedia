@@ -7,6 +7,7 @@ export type { AgentToolTraceRow, AgentToolTraceStatus, ArtifactChipListProps } f
 export { shellSingleQuote } from './shShellQuote';
 export { ScrollablePreviewPanel } from './ScrollablePreviewPanel';
 export { ToolTraceRow } from './ToolTraceRow';
+export { ToolTraceCodeBlock } from './ToolTraceCodeBlock';
 export { ExecutionTimeline } from './ExecutionTimeline';
 export { ArtifactChipList } from './ArtifactChipList';
 export { ScriptDraftPanel } from './ScriptDraftPanel';

@@ -737,6 +737,11 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
         mode={mode}
         compact={isNarrow}
         showDoneFooter={!isLoading}
+        onOpenInEditor={
+          onFileSelect
+            ? (file) => onFileSelect({ name: file.name, content: file.content, originalContent: file.content })
+            : undefined
+        }
         onDismissRow={(id) => setToolTraceRows((prev) => prev.filter((r) => r.id !== id))}
         onClear={() => setToolTraceRows([])}
       />

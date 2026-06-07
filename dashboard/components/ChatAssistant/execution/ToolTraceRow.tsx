@@ -2,22 +2,23 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
-import React, { useState, useCallback, useMemo } from 'react';
-import { Copy, Check } from 'lucide-react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import type { AgentMode } from '../types';
 import type { AgentToolTraceRow } from './types';
-import { ScrollablePreviewPanel } from './ScrollablePreviewPanel';
 import { resolveToolTracePresence } from '../../../features/agent-run/toolTracePresence';
 import { ChatPresenceIcon } from '../../../features/mode-presence/ChatPresenceIcon';
 import {
   formatToolTraceDisplayTitle,
-  resolveToolTraceCommand,
   resolveToolTraceMetaLabel,
 } from '../../../lib/formatToolTraceDisplayTitle';
+import {
+  monacoHandoffFilename,
+  resolveToolTraceBlocks,
+} from '../../../lib/toolTracePreview';
+import { ToolTraceCodeBlock } from './ToolTraceCodeBlock';
 import './toolTraceTimeline.css';
 
-/** Presence / loading SVG slot — 2× prior inline trace size (~16px → 32px). */
-const TOOL_TRACE_ICON_PX = 32;
+const TOOL_TRACE_ICON_PX = 24;
 
 export type ToolTraceRowProps = {
   row: AgentToolTraceRow;
@@ -25,40 +26,23 @@ export type ToolTraceRowProps = {
   defaultExpanded?: boolean;
   compact?: boolean;
   onDismiss?: () => void;
+  onOpenInEditor?: (file: { name: string; content: string }) => void;
 };
-
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  const handleCopy = useCallback(
-    (e: React.MouseEvent) => {
-      e.stopPropagation();
-      navigator.clipboard?.writeText(text).catch(() => {});
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    },
-    [text],
-  );
-  return (
-    <button
-      type="button"
-      onClick={handleCopy}
-      className="flex items-center gap-1 text-[10px] text-[var(--text-muted)] hover:text-[var(--solar-cyan)] transition-colors"
-    >
-      {copied ? <Check size={11} /> : <Copy size={11} />}
-      {copied ? 'Copied' : 'Copy'}
-    </button>
-  );
-}
 
 export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({
   row,
   mode = 'agent',
   defaultExpanded = false,
   onDismiss,
+  onOpenInEditor,
 }) => {
   const failed = row.status === 'error';
   const running = row.status === 'running';
-  const [open, setOpen] = useState(defaultExpanded);
+  const [open, setOpen] = useState(defaultExpanded || running);
+
+  useEffect(() => {
+    if (running) setOpen(true);
+  }, [running, row.id]);
 
   const tracePresence = useMemo(
     () =>
@@ -72,10 +56,8 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({
   );
 
   const title = formatToolTraceDisplayTitle(row);
-  const command = useMemo(() => resolveToolTraceCommand(row), [row]);
+  const { command, request, result } = useMemo(() => resolveToolTraceBlocks(row), [row]);
   const metaLabel = resolveToolTraceMetaLabel(row, command);
-  const detailsText = row.detailsJson?.trim() || '';
-  const hasExpandable = Boolean(detailsText || row.lines.length || command);
   const cardStatus = failed ? 'error' : running ? 'working' : 'done';
 
   const durationLabel =
@@ -85,36 +67,25 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({
         : `${(row.durationMs / 1000).toFixed(1)}s`
       : '';
 
-  const toggle = () => {
+  const hasExpandable = running || Boolean(request || result || failed);
+
+  const toggle = useCallback(() => {
     if (hasExpandable) setOpen((v) => !v);
-  };
+  }, [hasExpandable]);
 
   return (
     <div className="tool-trace-item min-w-0" data-status={row.status} data-lane={tracePresence.lane}>
       <div className="tool-trace-row-btn flex items-start">
         <button
           type="button"
-          className="flex items-start gap-2.5 min-w-0 flex-1 border-none bg-transparent p-0 text-left"
+          className="tool-trace-collapsed-btn flex items-center gap-2 min-w-0 flex-1"
           onClick={toggle}
           aria-expanded={open}
           disabled={!hasExpandable}
-          style={{ cursor: hasExpandable ? 'pointer' : 'default' }}
         >
-          <span className="tool-trace-icon">
-            <ChatPresenceIcon
-              mode={mode}
-              state={tracePresence.presenceState}
-              iconKey={tracePresence.iconKey}
-              size={TOOL_TRACE_ICON_PX}
-              cardStatus={cardStatus}
-            />
-          </span>
-          <span className="tool-trace-body min-w-0 flex-1">
-            <span className={`tool-trace-title block truncate${running ? ' tool-trace-title--shimmer' : ''}`}>
-              {title}
-              {durationLabel ? <span className="ml-1.5 opacity-60 font-normal">{durationLabel}</span> : null}
-            </span>
-            <span className="tool-trace-meta block">{metaLabel}</span>
+          <span className={`tool-trace-title truncate${running ? ' tool-trace-title--shimmer' : ''}`}>
+            {title}
+            {durationLabel ? <span className="ml-1.5 opacity-60 font-normal">{durationLabel}</span> : null}
           </span>
           {hasExpandable ? (
             <span className={`tool-trace-chevron${open ? ' tool-trace-chevron--open' : ''}`} aria-hidden />
@@ -133,43 +104,49 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({
 
       {open && hasExpandable ? (
         <div className="tool-trace-expand">
-          {command ? (
-            <div className="mb-2">
-              <div className="text-[9px] uppercase tracking-wide text-[var(--dashboard-muted)] mb-1">Command</div>
-              <pre className="m-0 whitespace-pre-wrap break-words text-[11px] text-[var(--dashboard-text)] font-mono leading-relaxed">
-                {command}
-              </pre>
+          <div className="tool-trace-expand-header">
+            <ChatPresenceIcon
+              mode={mode}
+              state={tracePresence.presenceState}
+              iconKey={tracePresence.iconKey}
+              size={TOOL_TRACE_ICON_PX}
+              cardStatus={cardStatus}
+            />
+            <div className="min-w-0 flex-1">
+              <div className="tool-trace-expand-title">{title}</div>
+              <div className="tool-trace-meta">{metaLabel}</div>
             </div>
+          </div>
+
+          {request ? (
+            <ToolTraceCodeBlock
+              label="Request"
+              text={request.text}
+              lang={request.lang}
+              onOpenInEditor={onOpenInEditor}
+              editorFilename={monacoHandoffFilename(row, 'request', request.lang)}
+            />
           ) : null}
-          {row.lines.length ? (
-            <div className={command ? 'mb-2' : ''}>
-              {!command ? (
-                <div className="text-[9px] uppercase tracking-wide text-[var(--dashboard-muted)] mb-1">
-                  {running ? 'Output' : 'Result'}
-                </div>
-              ) : null}
-              {row.lines.map((line, idx) => (
-                <p
-                  key={`${row.id}-line-${idx}`}
-                  className="text-[11px] text-[var(--dashboard-muted)] m-0 font-mono whitespace-pre-wrap break-words"
-                >
-                  {line}
-                </p>
-              ))}
-            </div>
-          ) : null}
-          {detailsText ? (
-            <ScrollablePreviewPanel>
-              <div className="flex justify-end mb-1">
-                <CopyButton text={detailsText} />
+
+          {result ? (
+            <ToolTraceCodeBlock
+              label={running ? 'Output' : 'Result'}
+              text={result.text}
+              lang={result.lang}
+              onOpenInEditor={onOpenInEditor}
+              editorFilename={monacoHandoffFilename(row, 'result', result.lang)}
+            />
+          ) : running ? (
+            <div className="tool-trace-code-block">
+              <span className="tool-trace-code-block__label">Result</span>
+              <div className="tool-trace-code-viewport tool-trace-code-viewport--idle">
+                <span className="tool-trace-meta">Waiting for output…</span>
               </div>
-              <pre className="m-0 whitespace-pre-wrap break-words text-[10px] text-[var(--dashboard-text)] font-mono leading-relaxed">
-                {detailsText}
-              </pre>
-            </ScrollablePreviewPanel>
+            </div>
           ) : null}
-          {failed && !detailsText && !row.lines.length ? (
-            <p className="text-[11px] text-red-400 m-0">Tool failed</p>
+
+          {failed && !request && !result ? (
+            <p className="text-[11px] text-red-400 m-0 px-1">Tool failed</p>
           ) : null}
         </div>
       ) : null}
