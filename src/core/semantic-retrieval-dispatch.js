@@ -1,7 +1,11 @@
 /**
- * Canonical Agent Sam semantic retrieval — 1536 Vectorize lanes + Hyperdrive pgvector fallback.
+ * Canonical Agent Sam semantic retrieval — Vectorize for lanes with clean ID/filter contracts;
+ * Hyperdrive pgvector for codebase (SSOT) and as fallback elsewhere.
  * No env.VECTORIZE / AGENTSAMVECTORIZE / public.* in normal Agent chat paths.
  */
+
+/** Exclude legacy docs/* rows from codebase lane queries (repo source files only). */
+export const CODEBASE_PGVECTOR_FILE_FILTER = "file_path NOT LIKE 'docs/%'";
 import { createAgentsamEmbedding } from './agentsam-vectorize.js';
 import { runHyperdriveQuery, isHyperdriveUsable } from './hyperdrive-query.js';
 import { resolveSupabaseWorkspaceId, LANES } from './rag-lanes.js';
@@ -21,7 +25,7 @@ export const SEMANTIC_LANE_REGISTRY = Object.freeze({
   code_semantic_search: {
     laneKey: 'code_semantic_search',
     ragLane: 'code',
-    binding: 'AGENTSAM_VECTORIZE_CODE',
+    binding: null,
     tables: ['agentsam_codebase_chunks_oai3large_1536', 'agentsam_codebase_files_oai3large_1536'],
     dims: 1536,
   },
@@ -208,6 +212,7 @@ function pgvectorSelectSqlForTable(table, dims) {
       FROM agentsam.${table}
      WHERE workspace_id = $2::uuid
        AND embedding IS NOT NULL
+       AND ${CODEBASE_PGVECTOR_FILE_FILTER}
      ORDER BY embedding <=> ${vec}
      LIMIT $3`;
   }
@@ -582,7 +587,7 @@ export async function dispatchSemanticRetrieval(env, opts) {
     };
   }
 
-  let backend = 'cloudflare_vectorize';
+  let backend = reg.binding ? 'cloudflare_vectorize' : 'pgvector';
   let binding = reg.binding;
   let table = reg.tables[0];
   let fallbackUsed = false;

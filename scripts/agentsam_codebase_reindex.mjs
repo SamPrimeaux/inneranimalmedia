@@ -8,7 +8,7 @@
  * - builds a lightweight file catalog for selected files
  * - chunks only selected files (syntax-ish heuristics + safe fallback)
  * - embeds chunks using OpenAI text-embedding-3-large @ 1536 dims
- * - writes chunk vectors to Supabase (agentsam schema) and optionally Cloudflare Vectorize
+ * - writes chunk embeddings to Supabase agentsam schema (pgvector SSOT for codebase lane)
  *
  * Dry-run is the default. Use explicit flags to write.
  */
@@ -59,7 +59,7 @@ function parseArgs(argv) {
     const k = a.slice(2);
     const next = argv[i + 1];
     const isBool =
-      next == null || next.startsWith('--') || k === 'dry-run' || k === 'write-supabase' || k === 'write-vectorize';
+      next == null || next.startsWith('--') || k === 'dry-run' || k === 'write-supabase';
     if (isBool) {
       out[k] = true;
     } else {
@@ -349,13 +349,6 @@ function buildChunkHeader({ file_path, branch, sha, language, start_line, end_li
   ].join('\n');
 }
 
-function shortVectorizeId({ scope, filePathHash16, chunkIndex }) {
-  const scopeTag = scope === 'dashboard_agent' ? 'da' : 's';
-  const idx = String(Number(chunkIndex) || 0).padStart(4, '0');
-  // Cloudflare Vectorize id max is 64 bytes; keep it short + deterministic.
-  return `codebase::${scopeTag}::${filePathHash16}::${idx}`;
-}
-
 async function openaiEmbedBatch(apiKey, texts, dimensions = 1536) {
   const base = String(process.env.OPENAI_API_BASE_URL || 'https://api.openai.com/v1').trim().replace(/\/$/, '');
   const res = await fetch(`${base}/embeddings`, {
@@ -378,27 +371,6 @@ async function openaiEmbedBatch(apiKey, texts, dimensions = 1536) {
     }
   }
   return vecs;
-}
-
-async function vectorizeUpsertNdjson({ accountId, apiToken, indexName, vectors }) {
-  const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/vectorize/v2/indexes/${indexName}/upsert`;
-  const ndjson = vectors.map((v) => JSON.stringify(v)).join('\n');
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiToken}`, 'Content-Type': 'application/x-ndjson' },
-    body: ndjson,
-  });
-  const text = await res.text();
-  let json;
-  try {
-    json = text ? JSON.parse(text) : null;
-  } catch {
-    json = { raw: text };
-  }
-  if (!res.ok || json?.success === false) {
-    throw new Error(`Vectorize upsert failed: HTTP ${res.status} ${text.slice(0, 400)}`);
-  }
-  return json;
 }
 
 function selectionReasonFor(relPath, changedSet) {
@@ -430,6 +402,7 @@ function shouldChunkFile(relPath) {
   if (p.startsWith('src/core/catalog-tool-executor.js')) return true;
   if (p.startsWith('src/core/semantic-retrieval-dispatch.js')) return true;
   if (p.startsWith('src/core/rag-lanes.js')) return true;
+  if (p === 'src/core/auth.js') return true;
   if (p.startsWith('dashboard/components/ChatAssistant/')) return true;
   // Minimal IDE neighborhood for /dashboard/agent usefulness.
   if (
@@ -576,12 +549,17 @@ async function main() {
   const branch = String(args.branch || '').trim() || 'production';
   const sha = String(args.sha || '').trim();
   const baseSha = String(args['base-sha'] || '').trim();
-  const dryRun = Boolean(args['dry-run'] || (!args['write-supabase'] && !args['write-vectorize']));
+  const dryRun = Boolean(args['dry-run'] || !args['write-supabase']);
   const writeSupabase = Boolean(args['write-supabase']);
-  const writeVectorize = Boolean(args['write-vectorize']);
   const limitFiles = args['limit-files'] ? Number(args['limit-files']) : null;
   const limitChunks = args['limit-chunks'] ? Number(args['limit-chunks']) : null;
   const allowLargeRun = Boolean(args['allow-large-run']);
+  const onlyPaths = args['only-paths']
+    ? String(args['only-paths'])
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : null;
 
   if (!workspaceKey) die('Missing --workspace-key');
   if (!workspaceId) die('Missing --workspace-id');
@@ -602,6 +580,7 @@ async function main() {
     'dashboard/lib/agentRoutes.ts',
     'dashboard/components/ChatAssistant/index.ts',
     'dashboard/components/ChatAssistant/ChatAssistant.tsx',
+    'src/core/auth.js',
   ].filter((p) => existsSync(join(root, p)));
 
   const entrypoints = explicitEntrypoints;
@@ -781,7 +760,12 @@ async function main() {
   }
 
   willIndexAndChunk.sort((a, b) => a.file_path.localeCompare(b.file_path));
-  const cappedFiles = limitFiles ? willIndexAndChunk.slice(0, limitFiles) : willIndexAndChunk;
+  let cappedFiles = limitFiles ? willIndexAndChunk.slice(0, limitFiles) : willIndexAndChunk;
+  if (onlyPaths?.length) {
+    const allow = new Set(onlyPaths);
+    cappedFiles = cappedFiles.filter((f) => allow.has(f.file_path));
+    if (!cappedFiles.length) die(`--only-paths matched no selected files: ${onlyPaths.join(', ')}`);
+  }
 
   const chunkTargetTokens = args['chunk-target-tokens'] ? Number(args['chunk-target-tokens']) : DEFAULT_CHUNK_TARGET_TOKENS;
   const chunkMaxTokens = args['chunk-max-tokens'] ? Number(args['chunk-max-tokens']) : DEFAULT_CHUNK_MAX_TOKENS;
@@ -856,7 +840,7 @@ async function main() {
   }
 
   // ── Writes ────────────────────────────────────────────────────────────────
-  if (!writeSupabase && !writeVectorize) die('Refusing to write with no --write-supabase or --write-vectorize');
+  if (!writeSupabase) die('Refusing to write without --write-supabase');
 
   // Safety gates
   if (workspaceId !== 'fa1f12a8-c841-4b79-a26c-d53a78b17dac') die('Safety gate: unexpected workspace_id');
@@ -878,24 +862,16 @@ async function main() {
   const openaiKey = String(process.env.OPENAI_API_KEY || '').trim();
   if (!openaiKey) die('OPENAI_API_KEY required');
 
-  const cfAccount = String(process.env.CLOUDFLARE_ACCOUNT_ID || '').trim();
-  const cfToken = String(process.env.CLOUDFLARE_API_TOKEN || '').trim();
-  const vectorizeIndex = String(process.env.CLOUDFLARE_VECTORIZE_INDEX_NAME || 'agentsam-codebase-oai3large-1536').trim();
-  if (writeVectorize && (!cfAccount || !cfToken)) die('CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN required for vectorize');
-
   let wroteFiles = 0;
   let wroteChunks = 0;
-  let wroteVectors = 0;
 
   const EMBED_BATCH = 20;
-  const VECTORIZE_BATCH = 100;
 
   for (const f of cappedFiles) {
     const abs = join(root, f.file_path);
     if (!existsSync(abs)) continue;
     const raw = readFileSync(abs, 'utf8');
     const fileHash = await sha256Hex(raw);
-    const filePathHash16 = (await sha256Hex(f.file_path)).slice(0, 16);
 
     // Check prior hash BEFORE any upsert so "unchanged" is meaningful.
     let existingFile = null;
@@ -936,6 +912,7 @@ async function main() {
         workspace_key: workspaceKey,
         workspace_id: workspaceId,
         scope,
+        source_type: 'repo_file',
         source: 'agentsam_codebase_reindex',
         file_hash: fileHash,
         language: f.language,
@@ -946,7 +923,6 @@ async function main() {
         dependency_hop: f.dependency_hop,
         changed_in_range: f.changed_in_range,
         chunked: true,
-        vectorized: Boolean(writeVectorize),
         indexed_at: nowIso(),
       },
     };
@@ -1010,11 +986,6 @@ async function main() {
         const chunkBody = `${header}${w.content}`.trim();
         const chunkHash = await sha256Hex(normalizeChunkHashInput(chunkBody));
         const idx = chunks.length;
-        const vectorizeId = shortVectorizeId({
-          scope,
-          filePathHash16,
-          chunkIndex: idx,
-        });
         chunks.push({
           file_path: f.file_path,
           file_id: fileId,
@@ -1027,7 +998,6 @@ async function main() {
           symbol_type: w.symbol_type,
           chunk_hash: chunkHash,
           file_hash: fileHash,
-          vectorize_id: vectorizeId,
           embedding_model: 'text-embedding-3-large',
           embedding_dimensions: 1536,
           selection_reason: f.selection_reason,
@@ -1061,6 +1031,7 @@ async function main() {
           workspace_key: workspaceKey,
           workspace_id: workspaceId,
           scope,
+          source_type: 'repo_file',
           source: 'agentsam_codebase_reindex',
           file_path: c.file_path,
           language: f.language,
@@ -1070,7 +1041,6 @@ async function main() {
           symbol_type: c.symbol_type,
           chunk_hash: c.chunk_hash,
           file_hash: c.file_hash,
-          vectorize_id: c.vectorize_id,
           chunk_index: c.chunk_index,
           token_count: c.token_count,
           selection_reason: c.selection_reason,
@@ -1079,8 +1049,6 @@ async function main() {
           dependency_hop: f.dependency_hop,
           embedding_model: c.embedding_model,
           embedding_dimensions: c.embedding_dimensions,
-          vectorize_binding: 'AGENTSAM_VECTORIZE_CODE',
-          vectorize_index: vectorizeIndex,
           indexed_at: nowIso(),
         },
       }));
@@ -1090,7 +1058,6 @@ async function main() {
         for (const r of chunkRows) {
           if (!r.file_id) throw new Error(`Safety gate: missing file_id for chunk ${r.file_path}#${r.chunk_index}`);
           if (!r.token_count || r.token_count <= 0) throw new Error('Safety gate: bad token_count');
-          if (!r.metadata?.vectorize_id) throw new Error('Safety gate: missing vectorize_id');
           if (r.metadata?.production_live !== true) throw new Error('Safety gate: chunk not production_live');
         }
         const url = `${supabaseUrl}/rest/v1/agentsam_codebase_chunks_oai3large_1536`;
@@ -1101,40 +1068,10 @@ async function main() {
         });
         wroteChunks += chunkRows.length;
       }
-
-      if (writeVectorize) {
-        // Mirror Supabase chunks only (one vector per chunk row)
-        const vectors = batch.map((c, j) => ({
-          id: c.vectorize_id,
-          values: vecs[j],
-          metadata: {
-            workspace_id: workspaceId,
-            workspace_key: workspaceKey,
-            scope,
-            file_path: c.file_path,
-            chunk_index: c.chunk_index,
-            start_line: c.start_line,
-            end_line: c.end_line,
-            language: f.language,
-            git_sha: sha,
-            base_sha: baseSha,
-            chunk_hash: c.chunk_hash,
-            file_hash: c.file_hash,
-            production_live: true,
-            production_live_reason: f.production_live_reason,
-            source: 'agentsam_codebase_reindex',
-          },
-        }));
-        for (let v = 0; v < vectors.length; v += VECTORIZE_BATCH) {
-          const part = vectors.slice(v, v + VECTORIZE_BATCH);
-          await vectorizeUpsertNdjson({ accountId: cfAccount, apiToken: cfToken, indexName: vectorizeIndex, vectors: part });
-          wroteVectors += part.length;
-        }
-      }
     }
   }
 
-  console.log('[agentsam_codebase_reindex] wrote files=%s chunks=%s vectors=%s', wroteFiles, wroteChunks, wroteVectors);
+  console.log('[agentsam_codebase_reindex] wrote files=%s chunks=%s', wroteFiles, wroteChunks);
 
   // Post-write verification (Supabase-only; prints quick counts).
   if (writeSupabase) {

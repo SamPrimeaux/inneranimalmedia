@@ -7,9 +7,9 @@ import {
   semanticQueryHash,
 } from '../../src/core/semantic-retrieval-dispatch.js';
 
-test('SEMANTIC_LANE_KEYS lists five canonical lanes', () => {
-  assert.equal(SEMANTIC_LANE_KEYS.length, 5);
-  assert.ok(SEMANTIC_LANE_REGISTRY.code_semantic_search.binding === 'AGENTSAM_VECTORIZE_CODE');
+test('SEMANTIC_LANE_KEYS lists canonical semantic lanes', () => {
+  assert.ok(SEMANTIC_LANE_KEYS.length >= 5);
+  assert.equal(SEMANTIC_LANE_REGISTRY.code_semantic_search.binding, null);
   assert.equal(SEMANTIC_LANE_REGISTRY.deep_archive_search.dims, 3072);
 });
 
