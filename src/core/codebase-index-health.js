@@ -51,7 +51,7 @@ async function fetchGitHubLastCommitMs(env, repo, filePath, token) {
  * @returns {Promise<string|null>}
  */
 async function fetchGitHubHeadSha(env, repo, token) {
-  const url = `https://api.github.com/repos/${repo}/commits/main?per_page=1`;
+  const url = `https://api.github.com/repos/${repo}/commits?sha=main&per_page=1`;
   const res = await fetch(url, {
     headers: {
       Authorization: `Bearer ${token}`,
