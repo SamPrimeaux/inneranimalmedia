@@ -137,16 +137,6 @@ export function AgentCodeFencePreview({
           )}
         </button>
       ) : null}
-      <div className="px-3 py-2 flex justify-end bg-[var(--scene-bg)]/80">
-        <button
-          type="button"
-          onClick={openMonaco}
-          disabled={!onOpenMonaco}
-          className="px-3 py-1.5 rounded-lg text-[0.6875rem] font-semibold bg-[var(--solar-cyan)]/15 border border-[var(--solar-cyan)]/35 text-[var(--solar-cyan)] hover:bg-[var(--solar-cyan)]/25 transition-colors disabled:opacity-40"
-        >
-          Open in Monaco
-        </button>
-      </div>
     </div>
   );
 }

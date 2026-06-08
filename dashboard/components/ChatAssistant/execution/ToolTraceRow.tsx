@@ -2,7 +2,7 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import type { AgentMode } from '../types';
 import type { AgentToolTraceRow } from './types';
 import { resolveToolTracePresence } from '../../../features/agent-run/toolTracePresence';
@@ -12,6 +12,7 @@ import {
   resolveToolTraceMetaLabel,
 } from '../../../lib/formatToolTraceDisplayTitle';
 import {
+  extractToolTraceDebugMeta,
   monacoHandoffFilename,
   resolveToolTraceBlocks,
   resolveSqlResultTable,
@@ -40,11 +41,8 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({
 }) => {
   const failed = row.status === 'error';
   const running = row.status === 'running';
-  const [open, setOpen] = useState(defaultExpanded || running);
-
-  useEffect(() => {
-    if (running) setOpen(true);
-  }, [running, row.id]);
+  const [open, setOpen] = useState(defaultExpanded);
+  const [debugOpen, setDebugOpen] = useState(false);
 
   const tracePresence = useMemo(
     () =>
@@ -62,6 +60,7 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({
   const sqlTable = useMemo(() => resolveSqlResultTable(row), [row]);
   const metaLabel = resolveToolTraceMetaLabel(row, command);
   const cardStatus = failed ? 'error' : running ? 'working' : 'done';
+  const debugMeta = useMemo(() => extractToolTraceDebugMeta(row), [row]);
 
   const durationLabel =
     row.durationMs != null && !running
@@ -86,6 +85,11 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({
           aria-expanded={open}
           disabled={!hasExpandable}
         >
+          <span
+            className={`tool-trace-status-dot${running ? ' tool-trace-status-dot--running' : ''}`}
+            data-status={row.status}
+            aria-hidden
+          />
           <span className={`tool-trace-title truncate${running ? ' tool-trace-title--shimmer' : ''}`}>
             {title}
             {durationLabel ? <span className="ml-1.5 opacity-60 font-normal">{durationLabel}</span> : null}
@@ -157,6 +161,25 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({
 
           {failed && !request && !result ? (
             <p className="text-[11px] text-red-400 m-0 px-1">Tool failed</p>
+          ) : null}
+
+          {debugMeta ? (
+            <div className="tool-trace-debug mt-2">
+              <button
+                type="button"
+                className="tool-trace-debug-toggle"
+                onClick={() => setDebugOpen((v) => !v)}
+                aria-expanded={debugOpen}
+              >
+                Debug metadata
+                <span className={`tool-trace-chevron ml-1${debugOpen ? ' tool-trace-chevron--open' : ''}`} aria-hidden />
+              </button>
+              {debugOpen ? (
+                <pre className="tool-trace-debug-pre m-0 mt-1">
+                  {JSON.stringify(debugMeta, null, 2)}
+                </pre>
+              ) : null}
+            </div>
           ) : null}
         </div>
       ) : null}

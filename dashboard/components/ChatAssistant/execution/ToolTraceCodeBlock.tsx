@@ -62,14 +62,15 @@ export const ToolTraceCodeBlock: React.FC<ToolTraceCodeBlockProps> = ({
           {showEditor ? (
             <button
               type="button"
-              className="flex items-center gap-1 text-[10px] text-[var(--solar-cyan)] hover:opacity-90"
+              title="Open in editor"
+              aria-label="Open in editor"
+              className="p-1 rounded-md text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] transition-colors"
               onClick={(e) => {
                 e.stopPropagation();
                 onOpenInEditor?.({ name: editorFilename!, content: text });
               }}
             >
-              <ExternalLink size={11} />
-              Open in editor
+              <ExternalLink size={13} aria-hidden />
             </button>
           ) : null}
           <CopyButton text={text} />

@@ -2,6 +2,7 @@
  * Claude-style D1 result table — column headers + grid cells, no JSON fence.
  */
 import React, { useMemo } from 'react';
+import { TOOL_TRACE_RESULT_META_KEYS } from '../../../lib/toolTracePreview';
 
 function formatCell(value: unknown): string {
   if (value == null) return '';
@@ -27,7 +28,7 @@ export const ToolTraceSqlTable: React.FC<ToolTraceSqlTableProps> = ({ rows, maxR
     for (const row of display) {
       for (const key of Object.keys(row)) keys.add(key);
     }
-    return Array.from(keys);
+    return Array.from(keys).filter((k) => !TOOL_TRACE_RESULT_META_KEYS.has(k));
   }, [display]);
 
   if (!display.length || !columns.length) {

@@ -49,7 +49,7 @@ export const ExecutionTimeline: React.FC<ExecutionTimelineProps> = ({
             key={row.id}
             row={row}
             mode={mode}
-            defaultExpanded={row.status === 'running'}
+            defaultExpanded={false}
             onOpenInEditor={onOpenInEditor}
             onDismiss={onDismissRow ? () => onDismissRow(row.id) : undefined}
           />

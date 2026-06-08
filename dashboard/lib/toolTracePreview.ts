@@ -6,6 +6,22 @@ import type { AgentToolTraceRow } from '../components/ChatAssistant/execution/ty
 
 export type ToolTracePreviewLang = 'json' | 'shell' | 'diff' | 'text';
 
+/** MCP / D1 envelope fields — hide from tabular result; optional debug row only. */
+export const TOOL_TRACE_RESULT_META_KEYS = new Set([
+  'scope_enforced',
+  'workspace_id',
+  'tenant_id',
+  'truncated',
+  'limit_applied',
+  'mode',
+  'meta',
+  'data_plane',
+  'ok',
+  'error',
+  'user_message',
+  'smoke_debug',
+]);
+
 /** ~9 lines at 11px / 1.45 line-height — viewport, not truncation. */
 export const TOOL_TRACE_VIEWPORT_MAX_LINES = 9;
 
@@ -142,8 +158,7 @@ export function resolveSqlResultTable(
       if (rows.length) return { rows, rowCount: rows.length };
     }
 
-    const skipKeys = new Set(['meta', 'data_plane', 'ok', 'error', 'user_message']);
-    const dataKeys = Object.keys(parsed).filter((k) => !skipKeys.has(k));
+    const dataKeys = Object.keys(parsed).filter((k) => !TOOL_TRACE_RESULT_META_KEYS.has(k) && k !== 'rows');
     if (dataKeys.length && !('rows' in parsed)) {
       const row: Record<string, unknown> = {};
       for (const k of dataKeys) row[k] = parsed[k];
@@ -197,7 +212,12 @@ export function buildToolTraceResultText(row: AgentToolTraceRow): { text: string
 
   if (rawOut) {
     try {
-      return { text: JSON.stringify(JSON.parse(rawOut), null, 2), lang: 'json' };
+      const parsed = JSON.parse(rawOut) as Record<string, unknown>;
+      const dataOnly: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(parsed)) {
+        if (!TOOL_TRACE_RESULT_META_KEYS.has(k)) dataOnly[k] = v;
+      }
+      return { text: JSON.stringify(dataOnly, null, 2), lang: 'json' };
     } catch {
       return { text: rawOut, lang: detectToolTraceLang(rawOut) };
     }
@@ -226,6 +246,21 @@ export function resolveToolTraceCommand(row: AgentToolTraceRow): string | null {
     if (m?.[1]?.trim()) return m[1].trim();
   }
   return null;
+}
+
+export function extractToolTraceDebugMeta(row: AgentToolTraceRow): Record<string, unknown> | null {
+  const raw = String(row.outputDetailsJson || '').trim();
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const meta: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(parsed)) {
+      if (TOOL_TRACE_RESULT_META_KEYS.has(k)) meta[k] = v;
+    }
+    return Object.keys(meta).length ? meta : null;
+  } catch {
+    return null;
+  }
 }
 
 export function resolveToolTraceBlocks(row: AgentToolTraceRow): {

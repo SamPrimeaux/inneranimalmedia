@@ -26,6 +26,7 @@ import { AgentCodeDiffPreview } from './AgentCodeDiffPreview';
 import type { WorkflowLedgerState } from '../types';
 import type { AgentToolTraceRow } from '../execution/types';
 import { ExecutionTimeline } from '../execution/ExecutionTimeline';
+import { prepareAssistantMessageWithToolTrace } from '../../../lib/stripToolTraceMessageContent';
 import { AgentPresenceInline } from '../../../features/mode-presence/AgentPresenceInline';
 import { WorkflowRunPresenceBanner } from './WorkflowRunBoard';
 import { ArtifactChipList } from '../execution/ArtifactChipList';
@@ -521,6 +522,13 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
     [showInlinePresence, toolTraceRows, mode, presence, thinkingState],
   );
 
+  const lastAssistantMessageIndex = useMemo(() => {
+    for (let i = displayMessages.length - 1; i >= 0; i--) {
+      if (displayMessages[i].role === 'assistant') return i;
+    }
+    return -1;
+  }, [displayMessages]);
+
   return (
     <div
       ref={scrollRef}
@@ -545,7 +553,14 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
           </p>
         </div>
       ) : (
-        displayMessages.map((msg, i) => (
+        displayMessages.map((msg, i) => {
+          const isLastAssistant = msg.role === 'assistant' && i === lastAssistantMessageIndex;
+          const assistantContent =
+            isLastAssistant && toolTraceRows.length
+              ? prepareAssistantMessageWithToolTrace(msg.content, toolTraceRows)
+              : msg.content;
+
+          return (
           <div key={i} className={`flex w-full min-w-0 max-w-full ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div
               className={`flex gap-2.5 min-w-0 ${
@@ -591,10 +606,26 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
                       onImagePreview={onImagePreview}
                     />
                   ) : null}
-                  {msg.content.trim() ? (
+                  {assistantContent.trim() ? (
                     <div className="agent-content text-[0.8125rem] leading-relaxed min-w-0 break-words [overflow-wrap:anywhere] text-[var(--dashboard-text)] w-full">
-                      {renderMessageContent(msg.content, i, onFileSelect, onRunInTerminal, true, onImagePreview)}
+                      {renderMessageContent(assistantContent, i, onFileSelect, onRunInTerminal, true, onImagePreview)}
                     </div>
+                  ) : null}
+                  {isLastAssistant && toolTraceRows.length > 0 ? (
+                    <ExecutionTimeline
+                      rows={toolTraceRows}
+                      mode={mode}
+                      compact={isNarrow}
+                      showDoneFooter={!isLoading}
+                      onOpenInEditor={
+                        onFileSelect
+                          ? (file) =>
+                              onFileSelect({ name: file.name, content: file.content, originalContent: file.content })
+                          : undefined
+                      }
+                      onDismissRow={(id) => setToolTraceRows((prev) => prev.filter((r) => r.id !== id))}
+                      onClear={() => setToolTraceRows([])}
+                    />
                   ) : null}
                   {msg.planQuestionsBatch && !msg.planQuestionsBatch.submitted ? (
                     <div className="agent-content min-w-0 w-full mt-2 mb-1">
@@ -665,7 +696,8 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
               )}
             </div>
           </div>
-        ))
+          );
+        })
       )}
 
       {activeSubagents.map((row) => (
@@ -732,19 +764,6 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
         </div>
       ) : null}
 
-      <ExecutionTimeline
-        rows={toolTraceRows}
-        mode={mode}
-        compact={isNarrow}
-        showDoneFooter={!isLoading}
-        onOpenInEditor={
-          onFileSelect
-            ? (file) => onFileSelect({ name: file.name, content: file.content, originalContent: file.content })
-            : undefined
-        }
-        onDismissRow={(id) => setToolTraceRows((prev) => prev.filter((r) => r.id !== id))}
-        onClear={() => setToolTraceRows([])}
-      />
     </div>
   );
 };
