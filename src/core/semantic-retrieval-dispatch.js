@@ -10,6 +10,12 @@ import { createAgentsamEmbedding } from './agentsam-vectorize.js';
 import { runHyperdriveQuery, isHyperdriveUsable } from './hyperdrive-query.js';
 import { resolveSupabaseWorkspaceId, LANES } from './rag-lanes.js';
 import { resolveTextEmbeddingRoute } from './embedding-routes.js';
+import {
+  getLaneForSemanticKey,
+  isPgvectorLane,
+  isVectorizeLane,
+  resolveLanePurpose,
+} from './vectorize-lane-config.js';
 
 export const SEMANTIC_LANE_KEYS = Object.freeze([
   'code_semantic_search',
@@ -587,32 +593,54 @@ export async function dispatchSemanticRetrieval(env, opts) {
     };
   }
 
-  let backend = reg.binding ? 'cloudflare_vectorize' : 'pgvector';
+  const lanePurpose = resolveLanePurpose(lane);
+  const laneConfig = getLaneForSemanticKey(lane);
+  const configDriven = Boolean(laneConfig && lanePurpose);
+
+  let backend = configDriven
+    ? isPgvectorLane(lanePurpose)
+      ? 'pgvector'
+      : 'cloudflare_vectorize'
+    : reg.binding
+      ? 'cloudflare_vectorize'
+      : 'pgvector';
   let binding = reg.binding;
   let table = reg.tables[0];
   let fallbackUsed = false;
   let hits = [];
   let pgError = null;
 
-  if (lane !== 'deep_archive_search' && reg.binding) {
+  const shouldTryVectorize = configDriven
+    ? isVectorizeLane(lanePurpose)
+    : lane !== 'deep_archive_search' && Boolean(reg.binding);
+  const shouldTryPgvector = configDriven
+    ? isPgvectorLane(lanePurpose)
+    : true;
+
+  if (shouldTryVectorize) {
     const vz = await queryVectorizeLane(env, lane, embedding, workspaceIdD1, workspaceUuid, topK);
     hits = vz.hits || [];
     backend = vz.backend;
     binding = vz.binding ?? reg.binding;
     table = vz.table ?? table;
-    if (!hits.length && !vz.skipped) {
+    if (!hits.length && !vz.skipped && !configDriven) {
       fallbackUsed = true;
     }
   }
 
-  if (!hits.length) {
+  if (shouldTryPgvector && (!hits.length || (configDriven && isPgvectorLane(lanePurpose)))) {
     const pg = await queryPgvectorLane(env, lane, embedding, workspaceUuid, topK);
     hits = pg.hits || [];
     backend = pg.backend;
     table = pg.table ?? table;
     pgError = pg.error ? String(pg.error) : null;
-    if (lane === 'deep_archive_search') binding = null;
-    fallbackUsed = lane === 'deep_archive_search' || fallbackUsed || Boolean(pgError);
+    if (lane === 'deep_archive_search' || (configDriven && isPgvectorLane(lanePurpose))) {
+      binding = null;
+    }
+    fallbackUsed =
+      (configDriven && isPgvectorLane(lanePurpose) ? false : lane === 'deep_archive_search') ||
+      fallbackUsed ||
+      Boolean(pgError);
   }
 
   const results = hits.map((h) => ({
