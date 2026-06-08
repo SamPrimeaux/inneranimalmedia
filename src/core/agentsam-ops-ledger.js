@@ -138,12 +138,38 @@ function reportHelperFailure(env, ctx, source, err, scope = {}) {
  *   approval_id?: string|null,
  *   policyDecisionJson?: string|Record<string, unknown>|null,
  *   policy_decision_json?: string|Record<string, unknown>|null,
+ *   inputJson?: string|Record<string, unknown>|null,
+ *   input_json?: string|Record<string, unknown>|null,
+ *   outputJson?: string|Record<string, unknown>|null,
+ *   output_json?: string|Record<string, unknown>|null,
+ *   toolCategory?: string|null,
+ *   tool_category?: string|null,
+ *   inputCostUsd?: number|null,
+ *   input_cost_usd?: number|null,
+ *   outputCostUsd?: number|null,
+ *   output_cost_usd?: number|null,
  *   agent_run_id?: string|null,
  *   agentRunId?: string|null,
  *   conversation_id?: string|null,
  *   conversationId?: string|null,
  * }} fields
  */
+function jsonColumnValue(raw, maxLen) {
+  if (raw === undefined || raw === null) return undefined;
+  const text =
+    typeof raw === 'string'
+      ? raw
+      : (() => {
+          try {
+            return JSON.stringify(raw);
+          } catch {
+            return null;
+          }
+        })();
+  if (text == null) return undefined;
+  return String(text).slice(0, maxLen);
+}
+
 export function scheduleToolCallLog(env, ctx, fields) {
   if (!env?.DB) return;
   const tid =
@@ -225,6 +251,20 @@ export function scheduleToolCallLog(env, ctx, fields) {
       server_key: pick('serverKey', 'server_key') ?? undefined,
       approval_id: pick('approvalId', 'approval_id') ?? undefined,
       policy_decision_json: policyJson ?? undefined,
+      input_json: jsonColumnValue(pick('inputJson', 'input_json'), 100000),
+      output_json: jsonColumnValue(pick('outputJson', 'output_json'), 50000),
+      tool_category:
+        pick('toolCategory', 'tool_category') != null
+          ? String(pick('toolCategory', 'tool_category')).slice(0, 80)
+          : undefined,
+      input_cost_usd:
+        pick('inputCostUsd', 'input_cost_usd') != null
+          ? Number(pick('inputCostUsd', 'input_cost_usd')) || 0
+          : undefined,
+      output_cost_usd:
+        pick('outputCostUsd', 'output_cost_usd') != null
+          ? Number(pick('outputCostUsd', 'output_cost_usd')) || 0
+          : undefined,
       created_at_unix: agentRunUnixNow(),
     };
 

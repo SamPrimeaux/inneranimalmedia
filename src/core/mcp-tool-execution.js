@@ -8,7 +8,7 @@ import { recordSpan } from './tracer.js';
 import { resolveCanonicalUserId } from '../api/auth.js';
 import { pickRunSpineIds } from './run-spine-ids.js';
 import { loadAgentsamToolPolicyKeySet } from './agentsam-tool-policy-keys.js';
-import { scheduleUpsertMcpUsageLog } from './mcp-usage-log.js';
+import { scheduleToolCallLog } from './agentsam-ops-ledger.js';
 import { fireForgetAgentToolChainRow } from '../api/command-run-telemetry.js';
 
 /** SHA-256 hex of canonical JSON for tool-cache keys (Workers Web Crypto). */
@@ -332,13 +332,27 @@ export function scheduleRecordMcpToolExecution(env, ctx, fields) {
         merged.user_id != null && String(merged.user_id).trim() !== ''
           ? String(merged.user_id).trim()
           : '';
-      if (execId && tid && ws && uid) {
-        scheduleUpsertMcpUsageLog(env, ctx, {
+      if (execId && tid && ws) {
+        scheduleToolCallLog(env, ctx, {
           tenantId: tid,
           workspaceId: ws,
-          userId: uid,
+          userId: uid || undefined,
+          sessionId: merged.session_id ?? merged.sessionId ?? null,
+          agentRunId: merged.agent_run_id ?? merged.agentRunId ?? null,
+          conversationId: merged.conversation_id ?? merged.conversationId ?? null,
           toolName: merged.tool_name || merged.tool_key || 'unknown',
-          success: succ,
+          toolKey: merged.tool_key ?? merged.tool_name ?? undefined,
+          agentsamToolsId: merged.agentsam_tools_id ?? merged.agentsamToolsId ?? undefined,
+          status: succ ? 'success' : 'error',
+          durationMs: Math.max(0, Math.floor(Number(merged.duration_ms ?? merged.latency_ms) || 0)),
+          costUsd: Number(merged.cost_usd) || 0,
+          inputTokens: Number(merged.input_tokens) || 0,
+          outputTokens: Number(merged.output_tokens) || 0,
+          errorMessage: merged.error_message ?? merged.errorMessage ?? null,
+          inputJson: merged.input_json ?? merged.inputJson,
+          outputJson: merged.output_json ?? merged.outputJson,
+          policyDecisionJson: merged.policy_decision_json ?? merged.policyDecisionJson,
+          toolCategory: 'mcp',
         });
       }
       if (
