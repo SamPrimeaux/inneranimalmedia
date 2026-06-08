@@ -6,7 +6,7 @@
  *   scenes/{workspace_id}/autosave.json         — rolling autosave
  *   scenes/{workspace_id}/{scene_id}_thumb.png  — thumbnail (optional)
  */
-import { jsonResponse, resolveRequestContext } from '../core/auth.js';
+import { jsonResponse, resolveRequestContext } from '../../core/auth.js';
 import { platformR2WriteGateResponse } from '../../core/r2-storage-scope.js';
 import { WORKSPACE_CONTEXT_MISSING } from '../../core/bootstrap.js';
 
