@@ -20,7 +20,6 @@ const RETENTION_PURGE_TABLE_CONFIG = {
   deployment_notifications: { dateColumn: 'created_at', compare: 'datetime' },
   terminal_history: { dateColumn: 'created_at', compare: 'unix' },
   agentsam_mcp_tool_execution: { dateColumn: 'created_at', compare: 'datetime' },
-  mcp_usage_log: { dateColumn: 'date', compare: 'date_col' },
   mcp_agent_sessions: { dateColumn: 'created_at', compare: 'unix' },
   agentsam_tool_stats_compacted: { dateColumn: 'date', compare: 'date_col' },
   agentsam_workflow_runs: { dateColumn: 'created_at', compare: 'unix' },

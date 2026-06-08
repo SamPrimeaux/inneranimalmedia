@@ -264,6 +264,10 @@ else
   echo "✓ Worker deployed (could not parse Current Version ID from wrangler output)"
 fi
 
+echo "→ Sync pgvector lane registry from vectorize-lane-config.js…"
+./scripts/with-cloudflare-env.sh node "$REPO_ROOT/scripts/sync_lane_registry.mjs" \
+  || { echo "✗ sync_lane_registry failed" >&2; exit 1; }
+
 CACHE_SNIP="$(grep -oE '(dashboard|agent-dashboard|agent-core)\.(js|css)\?v=[0-9]+' "$REPO_ROOT/$DIST/index.html" 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]*$//' || true)"
 R2_LOCAL_OBJECTS="$(find "$REPO_ROOT/$DIST" -type f 2>/dev/null | wc -l | tr -d ' ')"
 GIT_STATUS_URL="https://inneranimalmedia.com/api/agent/git/status"
