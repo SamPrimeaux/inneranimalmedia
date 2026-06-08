@@ -116,6 +116,46 @@ export function monacoHandoffFilename(
   return `tool-trace-${slug}-${kind}-${row.id.slice(0, 8)}.${ext}`;
 }
 
+function isD1ToolRow(row: AgentToolTraceRow): boolean {
+  if (row.isSql) return true;
+  const t = String(row.toolName || '').toLowerCase();
+  return t.includes('d1') || t.includes('sql') || t.endsWith('_query');
+}
+
+/** Extract D1 tabular rows from sqlRows or tool output JSON. */
+export function resolveSqlResultTable(
+  row: AgentToolTraceRow,
+): { rows: Record<string, unknown>[]; rowCount: number } | null {
+  if (row.sqlRows?.length) {
+    return { rows: row.sqlRows, rowCount: row.sqlRows.length };
+  }
+
+  const raw = String(row.outputDetailsJson || '').trim();
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (Array.isArray(parsed.rows)) {
+      const rows = parsed.rows.filter(
+        (r): r is Record<string, unknown> => r != null && typeof r === 'object' && !Array.isArray(r),
+      );
+      if (rows.length) return { rows, rowCount: rows.length };
+    }
+
+    const skipKeys = new Set(['meta', 'data_plane', 'ok', 'error', 'user_message']);
+    const dataKeys = Object.keys(parsed).filter((k) => !skipKeys.has(k));
+    if (dataKeys.length && !('rows' in parsed)) {
+      const row: Record<string, unknown> = {};
+      for (const k of dataKeys) row[k] = parsed[k];
+      if (Object.keys(row).length) return { rows: [row], rowCount: 1 };
+    }
+  } catch {
+    /* ignore */
+  }
+
+  return null;
+}
+
 export function buildToolTraceRequestText(
   row: AgentToolTraceRow,
   command: string | null,
@@ -124,7 +164,7 @@ export function buildToolTraceRequestText(
   if (raw) {
     try {
       const parsed = JSON.parse(raw) as Record<string, unknown>;
-      if (row.isSql) {
+      if (isD1ToolRow(row)) {
         const sql = parsed.sql ?? parsed.query ?? parsed.statement ?? command;
         if (sql != null && String(sql).trim()) {
           return { text: String(sql).trim(), lang: 'text' };
@@ -136,16 +176,25 @@ export function buildToolTraceRequestText(
     }
   }
   if (command) {
-    if (row.isSql) return { text: command, lang: 'text' };
+    if (isD1ToolRow(row)) return { text: command, lang: 'text' };
     return { text: JSON.stringify({ command }, null, 2), lang: 'json' };
   }
   return null;
 }
 
 export function buildToolTraceResultText(row: AgentToolTraceRow): { text: string; lang: ToolTracePreviewLang } | null {
-  if (row.isSql && row.sqlRows?.length) return null;
+  if (isD1ToolRow(row) && resolveSqlResultTable(row)) return null;
 
   const rawOut = String(row.outputDetailsJson || '').trim();
+  if (rawOut && isD1ToolRow(row)) {
+    try {
+      const parsed = JSON.parse(rawOut) as Record<string, unknown>;
+      if (Array.isArray(parsed.rows)) return null;
+    } catch {
+      /* ignore */
+    }
+  }
+
   if (rawOut) {
     try {
       return { text: JSON.stringify(JSON.parse(rawOut), null, 2), lang: 'json' };

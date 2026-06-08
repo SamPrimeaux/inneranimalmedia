@@ -14,9 +14,10 @@ import {
 import {
   monacoHandoffFilename,
   resolveToolTraceBlocks,
+  resolveSqlResultTable,
 } from '../../../lib/toolTracePreview';
 import { ToolTraceCodeBlock } from './ToolTraceCodeBlock';
-import { DataGrid } from '../../DataGrid';
+import { ToolTraceSqlTable } from './ToolTraceSqlTable';
 import './toolTraceTimeline.css';
 
 const TOOL_TRACE_ICON_PX = 24;
@@ -58,6 +59,7 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({
 
   const title = formatToolTraceDisplayTitle(row);
   const { command, request, result } = useMemo(() => resolveToolTraceBlocks(row), [row]);
+  const sqlTable = useMemo(() => resolveSqlResultTable(row), [row]);
   const metaLabel = resolveToolTraceMetaLabel(row, command);
   const cardStatus = failed ? 'error' : running ? 'working' : 'done';
 
@@ -68,7 +70,7 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({
         : `${(row.durationMs / 1000).toFixed(1)}s`
       : '';
 
-  const hasExpandable = running || Boolean(request || result || failed);
+  const hasExpandable = running || Boolean(request || sqlTable || result || failed);
 
   const toggle = useCallback(() => {
     if (hasExpandable) setOpen((v) => !v);
@@ -129,7 +131,14 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({
             />
           ) : null}
 
-          {result ? (
+          {sqlTable ? (
+            <div className="tool-trace-code-block">
+              <span className="tool-trace-code-block__label">Result</span>
+              <div className="tool-trace-code-viewport px-1 pb-1">
+                <ToolTraceSqlTable rows={sqlTable.rows} />
+              </div>
+            </div>
+          ) : result ? (
             <ToolTraceCodeBlock
               label={running ? 'Output' : 'Result'}
               text={result.text}
@@ -137,13 +146,6 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({
               onOpenInEditor={onOpenInEditor}
               editorFilename={monacoHandoffFilename(row, 'result', result.lang)}
             />
-          ) : row.isSql && row.sqlRows && row.sqlRows.length > 0 ? (
-            <div className="tool-trace-code-block">
-              <span className="tool-trace-code-block__label">Result</span>
-              <div className="tool-trace-code-viewport px-1 pb-1">
-                <DataGrid data={row.sqlRows.slice(0, 25)} />
-              </div>
-            </div>
           ) : running ? (
             <div className="tool-trace-code-block">
               <span className="tool-trace-code-block__label">Result</span>

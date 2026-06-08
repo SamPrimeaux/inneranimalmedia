@@ -2158,6 +2158,9 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
                     status: d.status === 'error' || !doneOk ? 'error' : 'done',
                     durationMs: d.duration_ms,
                     sqlRows: parsedSqlRows ?? undefined,
+                    isSql:
+                      r.isSql ||
+                      /d1|sql|query/i.test(doneToolName),
                     integrationLabel: integrationLabel ?? r.integrationLabel,
                     connectionResolution:
                       receiptMeta?.connectionResolution ?? r.connectionResolution,
