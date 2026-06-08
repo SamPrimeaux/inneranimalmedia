@@ -26,6 +26,9 @@ const TERM_WRITE_TOOLS = new Set(['terminal_run', 'terminal_execute', 'run_comma
 
 const WRITE_LIKE_PREFIXES = ['d1_', 'worker_', 'resend_', 'meshyai_'];
 
+/** Legacy workflow_key for historical rows — chat tools no longer INSERT agentsam_workflow_runs. */
+export const CHAT_TOOL_SESSION_LEDGER_KIND = 'chat_tool_session';
+
 export function chatToolSessionSseBase(ledger) {
   const runId = ledger?.runId != null ? String(ledger.runId).trim() : '';
   return {

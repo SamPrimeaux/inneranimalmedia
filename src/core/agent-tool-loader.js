@@ -305,9 +305,6 @@ export function filterAgentToolsForRequest(env, tools, message, intentResult, ca
 }
 
 
-/** Legacy workflow_key for historical rows only — chat tools no longer INSERT agentsam_workflow_runs. */
-const CHAT_TOOL_SESSION_LEDGER_KIND = 'chat_tool_session';
-
 const AGENT_CHAT_MINIMUM_AGENTSAM_TOOLS = [
   'd1_query',
   'github_file',

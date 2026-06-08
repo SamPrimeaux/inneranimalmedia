@@ -16,6 +16,7 @@ import {
   resolveToolTraceBlocks,
 } from '../../../lib/toolTracePreview';
 import { ToolTraceCodeBlock } from './ToolTraceCodeBlock';
+import { DataGrid } from '../../DataGrid';
 import './toolTraceTimeline.css';
 
 const TOOL_TRACE_ICON_PX = 24;
@@ -136,6 +137,13 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({
               onOpenInEditor={onOpenInEditor}
               editorFilename={monacoHandoffFilename(row, 'result', result.lang)}
             />
+          ) : row.isSql && row.sqlRows && row.sqlRows.length > 0 ? (
+            <div className="tool-trace-code-block">
+              <span className="tool-trace-code-block__label">Result</span>
+              <div className="tool-trace-code-viewport px-1 pb-1">
+                <DataGrid data={row.sqlRows.slice(0, 25)} />
+              </div>
+            </div>
           ) : running ? (
             <div className="tool-trace-code-block">
               <span className="tool-trace-code-block__label">Result</span>

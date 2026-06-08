@@ -19,6 +19,8 @@ export type AgentToolTraceRow = {
   lines: string[];
   /** Raw JSON payload for Details disclosure. */
   detailsJson?: string;
+  /** Tool output JSON — kept separate from request detailsJson. */
+  outputDetailsJson?: string;
   /** Optional smoke / debug object from browser lane. */
   smokeDebug?: Record<string, unknown> | null;
   durationMs?: number;

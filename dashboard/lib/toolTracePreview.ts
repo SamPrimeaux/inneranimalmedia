@@ -123,19 +123,37 @@ export function buildToolTraceRequestText(
   const raw = String(row.detailsJson || '').trim();
   if (raw) {
     try {
-      const parsed = JSON.parse(raw) as unknown;
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      if (row.isSql) {
+        const sql = parsed.sql ?? parsed.query ?? parsed.statement ?? command;
+        if (sql != null && String(sql).trim()) {
+          return { text: String(sql).trim(), lang: 'text' };
+        }
+      }
       return { text: JSON.stringify(parsed, null, 2), lang: 'json' };
     } catch {
       return { text: raw, lang: detectToolTraceLang(raw) };
     }
   }
   if (command) {
+    if (row.isSql) return { text: command, lang: 'text' };
     return { text: JSON.stringify({ command }, null, 2), lang: 'json' };
   }
   return null;
 }
 
 export function buildToolTraceResultText(row: AgentToolTraceRow): { text: string; lang: ToolTracePreviewLang } | null {
+  if (row.isSql && row.sqlRows?.length) return null;
+
+  const rawOut = String(row.outputDetailsJson || '').trim();
+  if (rawOut) {
+    try {
+      return { text: JSON.stringify(JSON.parse(rawOut), null, 2), lang: 'json' };
+    } catch {
+      return { text: rawOut, lang: detectToolTraceLang(rawOut) };
+    }
+  }
+
   const lines = row.lines.map((l) => String(l || '').trim()).filter(Boolean);
   if (!lines.length) return null;
   const text = lines.join('\n');

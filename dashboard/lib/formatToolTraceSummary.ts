@@ -62,6 +62,31 @@ function tryParseJson(raw: string): Record<string, unknown> | null {
   }
 }
 
+function isD1ToolName(toolName: string): boolean {
+  const t = String(toolName || '').toLowerCase();
+  return t.includes('d1') || t === 'agentsam_d1_query' || t.endsWith('_d1_query');
+}
+
+function formatD1ResultSummary(parsed: Record<string, unknown>): string[] {
+  const rows = Array.isArray(parsed.rows) ? (parsed.rows as Record<string, unknown>[]) : [];
+  const lines: string[] = [];
+  if (rows.length === 1 && rows[0] && typeof rows[0] === 'object') {
+    const keys = Object.keys(rows[0]);
+    if (keys.length === 1) {
+      lines.push(`${keys[0]}: ${String(rows[0][keys[0]] ?? '')}`);
+    } else {
+      lines.push(`${rows.length} row${rows.length === 1 ? '' : 's'}`);
+    }
+  } else {
+    lines.push(`${rows.length} row${rows.length === 1 ? '' : 's'}`);
+  }
+  const meta = nestedRecord(parsed.meta);
+  if (meta?.workspace_id != null && String(meta.workspace_id).trim()) {
+    lines.push(`workspace: ${String(meta.workspace_id).trim()}`);
+  }
+  return lines;
+}
+
 export function formatToolTraceInput(toolName: string, inputPreview: string | null | undefined): ToolTraceSummary {
   const raw = String(inputPreview || '').trim();
   const parsed = raw ? tryParseJson(raw) : null;
@@ -103,6 +128,16 @@ export function formatToolTraceInput(toolName: string, inputPreview: string | nu
 
   if (parsed) {
     const tn = String(toolName || '').toLowerCase();
+    if (isD1ToolName(tn)) {
+      const sql = parsed.sql ?? parsed.query ?? parsed.statement;
+      if (sql != null && String(sql).trim()) {
+        const sqlText = String(sql).trim();
+        return {
+          summaryLines: [sqlText.length > 160 ? `${sqlText.slice(0, 160)}…` : sqlText],
+          detailsJson: JSON.stringify({ sql: sqlText }, null, 2),
+        };
+      }
+    }
     if (/terminal|pty|shell|bash|run_command/.test(tn)) {
       const cmd =
         parsed.command ??
@@ -131,6 +166,9 @@ export function formatToolTraceOutput(toolName: string, outputPreview: string | 
   const detailsJson = raw && parsed ? raw : undefined;
 
   if (parsed) {
+    if (isD1ToolName(toolName)) {
+      return { summaryLines: formatD1ResultSummary(parsed), detailsJson: raw };
+    }
     const url = typeof parsed.url === 'string' ? parsed.url : '';
     const title = typeof parsed.title === 'string' ? parsed.title : '';
     const verified = parsed.verified === true || parsed.url_verified === true;

@@ -2046,7 +2046,19 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
               : /terminal/.test(doneToolName)
                 ? 'Agent Sam'
                 : undefined;
-          const { summaryLines, detailsJson } = formatToolTraceOutput(doneToolName, outputPreview);
+          const { summaryLines, detailsJson: outputDetailsJson } = formatToolTraceOutput(
+            doneToolName,
+            outputPreview,
+          );
+          let parsedSqlRows = d.rows ?? undefined;
+          if (!parsedSqlRows && outputPreview) {
+            try {
+              const parsedOut = JSON.parse(outputPreview) as { rows?: Record<string, unknown>[] };
+              if (Array.isArray(parsedOut?.rows)) parsedSqlRows = parsedOut.rows;
+            } catch {
+              /* ignore */
+            }
+          }
           let smokeDebug: Record<string, unknown> | null = null;
           try {
             const parsed = outputPreview ? JSON.parse(outputPreview) : null;
@@ -2145,7 +2157,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
                     ...r,
                     status: d.status === 'error' || !doneOk ? 'error' : 'done',
                     durationMs: d.duration_ms,
-                    sqlRows: d.rows ?? undefined,
+                    sqlRows: parsedSqlRows ?? undefined,
                     integrationLabel: integrationLabel ?? r.integrationLabel,
                     connectionResolution:
                       receiptMeta?.connectionResolution ?? r.connectionResolution,
@@ -2157,7 +2169,8 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
                         : summaryLines.length
                           ? summaryLines
                           : r.lines,
-                    detailsJson: detailsJson ?? r.detailsJson,
+                    detailsJson: r.detailsJson,
+                    outputDetailsJson: outputDetailsJson ?? r.outputDetailsJson,
                     smokeDebug: smokeDebug ?? r.smokeDebug,
                   }
                 : r,
