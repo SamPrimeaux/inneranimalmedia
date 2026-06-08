@@ -3,19 +3,23 @@
  * Hyperdrive pgvector for codebase (SSOT) and as fallback elsewhere.
  * No env.VECTORIZE / AGENTSAMVECTORIZE / public.* in normal Agent chat paths.
  */
-
-/** Exclude legacy docs/* rows from codebase lane queries (repo source files only). */
-export const CODEBASE_PGVECTOR_FILE_FILTER = "file_path NOT LIKE 'docs/%'";
 import { createAgentsamEmbedding } from './agentsam-vectorize.js';
 import { runHyperdriveQuery, isHyperdriveUsable } from './hyperdrive-query.js';
 import { resolveSupabaseWorkspaceId, LANES } from './rag-lanes.js';
 import { resolveTextEmbeddingRoute } from './embedding-routes.js';
 import {
+  buildCodebasePgvectorFilterSql,
+  CODEBASE_DEFINITION_PATH_BOOST_ORDER,
+  CODEBASE_PGVECTOR_FILE_FILTER,
+  expandDefinitionQuery,
   getLaneForSemanticKey,
+  isDefinitionIntent,
   isPgvectorLane,
   isVectorizeLane,
   resolveLanePurpose,
 } from './vectorize-lane-config.js';
+
+export { CODEBASE_PGVECTOR_FILE_FILTER };
 
 export const SEMANTIC_LANE_KEYS = Object.freeze([
   'code_semantic_search',
@@ -196,10 +200,12 @@ async function queryVectorizeLane(env, laneKey, embedding, d1WorkspaceId, worksp
 /**
  * @param {string} table
  * @param {number} dims
+ * @param {{ definitionBoost?: boolean }} [opts]
  * @returns {string}
  */
-function pgvectorSelectSqlForTable(table, dims) {
+function pgvectorSelectSqlForTable(table, dims, opts = {}) {
   const vec = `$1::vector(${dims})`;
+  const definitionBoost = opts.definitionBoost === true;
   if (table.includes('database_schema')) {
     return `
     SELECT id, title, content, database_name, object_type, table_name, schema_name, metadata,
@@ -211,6 +217,10 @@ function pgvectorSelectSqlForTable(table, dims) {
      LIMIT $3`;
   }
   if (table.includes('codebase_chunks')) {
+    const codebaseFilter = buildCodebasePgvectorFilterSql({ source_type: 'repo_file' });
+    const orderBy = definitionBoost
+      ? `ORDER BY embedding <=> ${vec},${CODEBASE_DEFINITION_PATH_BOOST_ORDER}`
+      : `ORDER BY embedding <=> ${vec}`;
     return `
     SELECT id, file_path, content, chunk_index, metadata,
            COALESCE(file_path, '') AS title,
@@ -218,8 +228,8 @@ function pgvectorSelectSqlForTable(table, dims) {
       FROM agentsam.${table}
      WHERE workspace_id = $2::uuid
        AND embedding IS NOT NULL
-       AND ${CODEBASE_PGVECTOR_FILE_FILTER}
-     ORDER BY embedding <=> ${vec}
+       AND ${codebaseFilter}
+     ${orderBy}
      LIMIT $3`;
   }
   const titleCol = table.includes('memory') ? 'memory_key' : 'title';
@@ -373,8 +383,9 @@ async function hydrateVectorHit(env, ragLane, workspaceUuid, match) {
  * @param {number[]} embedding
  * @param {string} workspaceUuid
  * @param {number} topK
+ * @param {{ definitionBoost?: boolean }} [opts]
  */
-async function queryPgvectorLane(env, laneKey, embedding, workspaceUuid, topK) {
+async function queryPgvectorLane(env, laneKey, embedding, workspaceUuid, topK, opts = {}) {
   const reg = SEMANTIC_LANE_REGISTRY[laneKey];
   if (laneKey === 'deep_archive_search') {
     const table = reg.tables[0];
@@ -419,7 +430,9 @@ async function queryPgvectorLane(env, laneKey, embedding, workspaceUuid, topK) {
      ORDER BY embedding <=> $1::vector(${dims})
      LIMIT $3`;
   } else {
-    sql = pgvectorSelectSqlForTable(table, dims);
+    sql = pgvectorSelectSqlForTable(table, dims, {
+      definitionBoost: opts.definitionBoost === true && table.includes('codebase_chunks'),
+    });
   }
 
   const r = await runHyperdriveQuery(env, sql, [vectorLiteral(embedding), workspaceUuid, topK]);
@@ -572,9 +585,12 @@ export async function dispatchSemanticRetrieval(env, opts) {
   }
 
   let embedding;
+  const definitionBoost =
+    lane === 'code_semantic_search' && isDefinitionIntent(query);
+  const embedQuery = definitionBoost ? expandDefinitionQuery(query) : query;
   try {
     const spec = embeddingSpecForSemanticLane(lane);
-    ({ embedding } = await createAgentsamEmbedding(env, query, { spec }));
+    ({ embedding } = await createAgentsamEmbedding(env, embedQuery, { spec }));
     assertEmbeddingDimensions(embedding, spec.dimensions);
   } catch (e) {
     return {
@@ -629,7 +645,7 @@ export async function dispatchSemanticRetrieval(env, opts) {
   }
 
   if (shouldTryPgvector && (!hits.length || (configDriven && isPgvectorLane(lanePurpose)))) {
-    const pg = await queryPgvectorLane(env, lane, embedding, workspaceUuid, topK);
+    const pg = await queryPgvectorLane(env, lane, embedding, workspaceUuid, topK, { definitionBoost });
     hits = pg.hits || [];
     backend = pg.backend;
     table = pg.table ?? table;

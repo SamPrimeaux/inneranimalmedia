@@ -110,3 +110,40 @@ export function isVectorizeLane(purpose) {
 export function isPgvectorLane(purpose) {
   return LANE_CONFIG[purpose]?.ssot === 'pgvector';
 }
+
+const DEFINITION_INTENT_RE = /\b(defined|definition|where is|export|function|class|const)\b/i;
+
+/** @param {string} query */
+export function isDefinitionIntent(query) {
+  return DEFINITION_INTENT_RE.test(String(query ?? ''));
+}
+
+/** @param {string} query */
+export function expandDefinitionQuery(query) {
+  const q = String(query ?? '').trim();
+  if (!q || /^definition of /i.test(q)) return q;
+  return `definition of ${q}`;
+}
+
+/** SQL WHERE fragments for codebase lane filters (metadata + legacy path guard). */
+export const CODEBASE_PGVECTOR_FILE_FILTER = "file_path NOT LIKE 'docs/%'";
+
+/**
+ * @param {Record<string, unknown>} [filters]
+ * @returns {string}
+ */
+export function buildCodebasePgvectorFilterSql(filters = {}) {
+  const parts = [CODEBASE_PGVECTOR_FILE_FILTER];
+  if (filters.source_type === 'repo_file') {
+    parts.push("(metadata->>'source_type' IS NULL OR metadata->>'source_type' = 'repo_file')");
+  }
+  return parts.join('\n       AND ');
+}
+
+/** Secondary ORDER BY for definition-intent codebase queries (src paths over dashboard). */
+export const CODEBASE_DEFINITION_PATH_BOOST_ORDER = `
+         CASE
+           WHEN file_path LIKE 'src/core/%' OR file_path LIKE 'src/api/%' THEN 0
+           WHEN file_path LIKE 'dashboard/%' THEN 2
+           ELSE 1
+         END`;
