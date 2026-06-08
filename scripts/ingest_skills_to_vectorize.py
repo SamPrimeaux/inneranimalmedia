@@ -52,7 +52,7 @@ EMBED_BATCH = 100
 VECTORIZE_BATCH = 100
 EMBED_COST_PER_M = 0.02
 
-SUPABASE_TABLE = "agentsam_schema_oai3large_1536"
+SUPABASE_TABLE = "agentsam_database_schema_oai3large_1536"
 VECTORIZE_INDEX = "agentsam-schema-oai3large-1536"
 VECTORIZE_BINDING = "AGENTSAM_VECTORIZE_SCHEMA"
 R2_BUCKET = "inneranimalmedia-autorag"
@@ -393,19 +393,19 @@ def save_schema_row(
     else:
         data = supabase_post(f"/rest/v1/{SUPABASE_TABLE}", [row], config)
     if not isinstance(data, list) or not data:
-        raise RuntimeError(f"Supabase upsert returned no row for {row.get('source_ref')}")
+        raise RuntimeError(f"Supabase upsert returned no row for {row.get('source_path')}")
     return data[0]
 
 
-def existing_schema_by_ref(
+def existing_schema_by_path(
     config: dict[str, str],
     workspace_uuid: str,
-    source_ref: str,
+    source_path: str,
 ) -> dict[str, Any] | None:
     query = urllib.parse.urlencode({
         "select": "id,content_hash",
         "workspace_id": f"eq.{workspace_uuid}",
-        "source_ref": f"eq.{source_ref}",
+        "source_path": f"eq.{source_path}",
         "limit": "1",
     })
     rows = supabase_get(f"/rest/v1/{SUPABASE_TABLE}?{query}", config) or []
@@ -573,12 +573,12 @@ def process_skill(
         if supabase_hash_exists(config, workspace_uuid, chunk_hash):
             print(f"  chunk {idx}: SKIP hash exists")
             continue
-        source_ref = f"{source_base}#chunk{idx:04d}"
+        source_path = f"{source_base}#chunk{idx:04d}"
         pending.append({
             "idx": idx,
             "chunk_text": chunk_text,
             "chunk_hash": chunk_hash,
-            "source_ref": source_ref,
+            "source_path": source_path,
         })
 
     if not pending and len(chunks) > 0:
@@ -592,8 +592,8 @@ def process_skill(
             idx = item["idx"]
             chunk_text = item["chunk_text"]
             chunk_hash = item["chunk_hash"]
-            source_ref = item["source_ref"]
-            existing = existing_schema_by_ref(config, workspace_uuid, source_ref)
+            source_path = item["source_path"]
+            existing = existing_schema_by_path(config, workspace_uuid, source_path)
             row_id = str(existing["id"]) if existing and existing.get("id") else str(uuid.uuid4())
             now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             metadata = {
@@ -609,13 +609,14 @@ def process_skill(
                 "database_kind": "workers_ai",
                 "database_name": "agentsam_skill",
                 "schema_name": "agentsam",
-                "object_name": skill_id,
+                "table_name": skill_id,
                 "object_type": "query_pattern",
                 "title": f"{name} (chunk {idx + 1}/{len(chunks)})",
                 "content": chunk_text,
-                "source_ref": source_ref,
+                "source_path": source_path,
                 "metadata": metadata,
                 "content_hash": chunk_hash,
+                "token_count": max(1, len(chunk_text) // 4),
                 "embedding": vector_literal(embedding),
                 "vectorize_binding": VECTORIZE_BINDING,
                 "vectorize_index": VECTORIZE_INDEX,
@@ -635,7 +636,7 @@ def process_skill(
                 "values": embedding,
                 "metadata": {
                     "workspace_id": config["workspace_key"],
-                    "source_ref": source_ref,
+                    "source_path": source_path,
                     "skill_id": skill_id,
                     "chunk_index": str(idx),
                     "title": name[:200],

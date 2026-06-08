@@ -28,7 +28,7 @@ ENV_FILES = [
     ROOT / ".env",
 ]
 WORKSPACE_KEY = "ws_inneranimalmedia"
-SUPABASE_TABLE = "agentsam_schema_oai3large_1536"
+SUPABASE_TABLE = "agentsam_database_schema_oai3large_1536"
 VECTORIZE_INDEX = "agentsam-schema-oai3large-1536"
 OPENAI_EMBED_MODEL = "text-embedding-3-large"
 OPENAI_EMBED_DIMS = 1536
@@ -228,11 +228,11 @@ def vector_literal(embedding: list[float]) -> str:
     return "[" + ",".join(str(x) for x in embedding) + "]"
 
 
-def existing_schema_row(config: dict[str, str], workspace_uuid: str, source_ref: str) -> dict[str, Any] | None:
+def existing_schema_row(config: dict[str, str], workspace_uuid: str, source_path: str) -> dict[str, Any] | None:
     query = urllib.parse.urlencode({
         "select": "id,content_hash",
         "workspace_id": f"eq.{workspace_uuid}",
-        "source_ref": f"eq.{source_ref}",
+        "source_path": f"eq.{source_path}",
         "limit": "1",
     })
     rows = supabase_get(f"/rest/v1/{SUPABASE_TABLE}?{query}", config) or []
@@ -258,11 +258,11 @@ def save_supabase_schema_row(config: dict[str, str], row: dict[str, Any], existi
     if existing_id:
         data = supabase_patch(f"/rest/v1/{SUPABASE_TABLE}?id=eq.{existing_id}", row, config)
         if not isinstance(data, list) or not data:
-            raise RuntimeError(f"Supabase patch returned no row for {row['source_ref']}")
+            raise RuntimeError(f"Supabase patch returned no row for {row['source_path']}")
         return data[0]
     data = supabase_post(f"/rest/v1/{SUPABASE_TABLE}", [row], config)
     if not isinstance(data, list) or not data:
-        raise RuntimeError(f"Supabase insert returned no row for {row['source_ref']}")
+        raise RuntimeError(f"Supabase insert returned no row for {row['source_path']}")
     return data[0]
 
 
@@ -306,7 +306,7 @@ def build_d1_entries(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         entries.append({
             "title": f"D1 Table: {table_name}",
             "content": f"D1 Table: {table_name}\n\nSchema:\n{sql}",
-            "source_ref": f"d1.{table_name}",
+            "source_path": f"d1::inneranimalmedia-business::{table_name}",
             "database_kind": "d1",
             "database_name": "inneranimalmedia-business",
             "schema_name": None,
@@ -349,7 +349,7 @@ def build_supabase_entries(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 f"Supabase table: agentsam.{table_name}\nColumns:\n"
                 + "\n".join(cols)
             ),
-            "source_ref": f"supabase.agentsam.{table_name}",
+            "source_path": f"supabase::agentsam::{table_name}",
             "database_kind": "supabase",
             "database_name": "agentsam",
             "schema_name": "agentsam",
@@ -367,11 +367,11 @@ def build_supabase_entries(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def ingest_entry(config: dict[str, str], workspace_uuid: str, entry: dict[str, Any]) -> bool:
     title = entry["title"]
     content = entry["content"]
-    source_ref = entry["source_ref"]
+    source_path = entry["source_path"]
     content_hash = sha256_text(content)
-    existing = existing_schema_row(config, workspace_uuid, source_ref)
+    existing = existing_schema_row(config, workspace_uuid, source_path)
     if existing and str(existing.get("content_hash") or "") == content_hash:
-        print(f"SKIP {source_ref} unchanged")
+        print(f"SKIP {source_path} unchanged")
         return False
 
     embedding = openai_embed(content, config)
@@ -383,13 +383,14 @@ def ingest_entry(config: dict[str, str], workspace_uuid: str, entry: dict[str, A
         "database_kind": entry["database_kind"],
         "database_name": entry.get("database_name"),
         "schema_name": entry.get("schema_name"),
-        "object_name": entry["object_name"],
+        "table_name": entry["object_name"],
         "object_type": entry["object_type"],
         "title": title,
         "content": content,
-        "source_ref": source_ref,
+        "source_path": source_path,
         "metadata": entry["metadata"],
         "content_hash": content_hash,
+        "token_count": max(1, len(content) // 4),
         "embedding": vector_literal(embedding),
         "vectorize_binding": "AGENTSAM_VECTORIZE_SCHEMA",
         "vectorize_index": VECTORIZE_INDEX,
@@ -408,12 +409,12 @@ def ingest_entry(config: dict[str, str], workspace_uuid: str, entry: dict[str, A
         embedding,
         {
             "workspace_id": WORKSPACE_KEY,
-            "source_ref": source_ref,
+            "source_path": source_path,
             "source_type": entry["object_type"],
             "title": title,
         },
     )
-    print(f"UPSERT {source_ref}")
+    print(f"UPSERT {source_path}")
     return True
 
 
