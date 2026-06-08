@@ -1,7 +1,7 @@
 /**
  * CAD pipelines: Meshy, OpenSCAD, Blender, job execute + runner completion.
  */
-import { getAuthUser, jsonResponse, verifyInternalApiSecret } from '../core/auth.js';
+import { jsonResponse, verifyInternalApiSecret, resolveRequestContext } from '../core/auth.js';
 import {
   decodeCadScriptPayload,
   resolveCadJobScope,
@@ -107,8 +107,9 @@ export async function handleCadApi(request, url, env, ctx) {
 
     const executeMatch = url.pathname.match(/^\/api\/cad\/jobs\/([^/]+)\/execute$/i);
     if (executeMatch && method === 'POST') {
-      const authUser = await getAuthUser(request, env);
-      if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+      const reqCtx = await resolveRequestContext(request, env);
+      if (reqCtx.error) return jsonResponse({ error: 'Unauthorized' }, 401);
+      const authUser = { id: reqCtx.userId, tenant_id: reqCtx.tenantId };
       if (!env.DB) return jsonResponse({ error: 'Database not configured' }, 503);
 
       const jobId = executeMatch[1];
@@ -167,8 +168,9 @@ export async function handleCadApi(request, url, env, ctx) {
 
     const jobOneMatch = url.pathname.match(/^\/api\/cad\/jobs\/([^/]+)$/i);
     if (jobOneMatch && method === 'GET') {
-      const authUser = await getAuthUser(request, env);
-      if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+      const reqCtx = await resolveRequestContext(request, env);
+      if (reqCtx.error) return jsonResponse({ error: 'Unauthorized' }, 401);
+      const authUser = { id: reqCtx.userId, tenant_id: reqCtx.tenantId };
       if (!env.DB) return jsonResponse({ error: 'Database not configured' }, 503);
 
       const jobId = jobOneMatch[1];
@@ -194,8 +196,9 @@ export async function handleCadApi(request, url, env, ctx) {
     }
 
     if (path === '/api/cad/meshy/generate' && method === 'POST') {
-      const authUser = await getAuthUser(request, env);
-      if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+      const reqCtx = await resolveRequestContext(request, env);
+      if (reqCtx.error) return jsonResponse({ error: 'Unauthorized' }, 401);
+      const authUser = { id: reqCtx.userId, tenant_id: reqCtx.tenantId };
       if (!env.DB) return jsonResponse({ error: 'Database not configured' }, 503);
 
       const body = await request.json().catch(() => ({}));
@@ -276,8 +279,9 @@ export async function handleCadApi(request, url, env, ctx) {
 
     const statusMatch = url.pathname.match(/^\/api\/cad\/meshy\/status\/([^/]+)$/i);
     if (statusMatch && method === 'GET') {
-      const authUser = await getAuthUser(request, env);
-      if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+      const reqCtx = await resolveRequestContext(request, env);
+      if (reqCtx.error) return jsonResponse({ error: 'Unauthorized' }, 401);
+      const authUser = { id: reqCtx.userId, tenant_id: reqCtx.tenantId };
       if (!env.DB) return jsonResponse({ error: 'Database not configured' }, 503);
 
       const jobId = statusMatch[1];
@@ -374,8 +378,9 @@ export async function handleCadApi(request, url, env, ctx) {
     }
 
     if (path === '/api/cad/openscad/generate' && method === 'POST') {
-      const authUser = await getAuthUser(request, env);
-      if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+      const reqCtx = await resolveRequestContext(request, env);
+      if (reqCtx.error) return jsonResponse({ error: 'Unauthorized' }, 401);
+      const authUser = { id: reqCtx.userId, tenant_id: reqCtx.tenantId };
       if (!env.ANTHROPIC_API_KEY) return jsonResponse({ error: 'ANTHROPIC_API_KEY not configured' }, 503);
       if (!env.DB) return jsonResponse({ error: 'Database not configured' }, 503);
 
@@ -436,8 +441,9 @@ Use parametric variables at the top. Make the model well-structured and printabl
     }
 
     if (path === '/api/cad/blender/script' && method === 'POST') {
-      const authUser = await getAuthUser(request, env);
-      if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+      const reqCtx = await resolveRequestContext(request, env);
+      if (reqCtx.error) return jsonResponse({ error: 'Unauthorized' }, 401);
+      const authUser = { id: reqCtx.userId, tenant_id: reqCtx.tenantId };
       if (!env.ANTHROPIC_API_KEY) return jsonResponse({ error: 'ANTHROPIC_API_KEY not configured' }, 503);
       if (!env.DB) return jsonResponse({ error: 'Database not configured' }, 503);
 
@@ -506,8 +512,9 @@ No markdown, no explanation. Pure Python only.`,
     }
 
     if (path === '/api/cad/jobs' && method === 'GET') {
-      const authUser = await getAuthUser(request, env);
-      if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+      const reqCtx = await resolveRequestContext(request, env);
+      if (reqCtx.error) return jsonResponse({ error: 'Unauthorized' }, 401);
+      const authUser = { id: reqCtx.userId, tenant_id: reqCtx.tenantId };
       if (!env.DB) return jsonResponse({ error: 'Database not configured' }, 503);
 
       const limit = Math.min(parseInt(url.searchParams.get('limit') || '50', 10), 100);

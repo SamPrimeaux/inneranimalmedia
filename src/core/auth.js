@@ -987,6 +987,29 @@ export async function resolveAuth(request, env, opts = {}) {
 }
 
 /**
+ * resolveRequestContext — single identity spine.
+ * Lane A: session cookie → authType 'session'
+ * Lane B: Authorization: Bearer (MCP token) → authType 'bearer'
+ *
+ * Never trusts client-supplied user_id or workspace_id.
+ * workspace derived server-side via workspace_members check.
+ *
+ * @returns {{ userId, workspaceId, tenantId, authType: 'session'|'bearer', error?: string }}
+ */
+export async function resolveRequestContext(request, env, opts = {}) {
+  const ctx = await resolveAuth(request, env, opts);
+  if (!ctx) return { error: 'unauthenticated' };
+
+  return {
+    userId: ctx.userId,
+    workspaceId: ctx.workspaceId,
+    tenantId: ctx.tenantId,
+    // resolveAuth returns 'mcp' today — normalize to 'bearer'
+    authType: ctx.authType === 'mcp' ? 'bearer' : 'session',
+  };
+}
+
+/**
  * Canonical identity resolver for handlers (session, MCP, bridge).
  * @param {Request} request
  * @param {any} env

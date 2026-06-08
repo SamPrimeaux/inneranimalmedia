@@ -72,6 +72,7 @@ import { handleMoviemodeApi } from '../api/moviemode-api.js';
  * @property {unknown} authUser
  * @property {import('./auth.js').AuthContext | null} [authCtx]
  * @property {unknown} identity
+ * @property {import('./auth.js').ReturnType<typeof import('./auth.js').resolveRequestContext>} [requestContext]
  * @property {string} methodUpper
  * @property {string} pathLower Normalized path (lower case)
  * @property {string} path Normalized path (original casing from pathname collapse)
@@ -91,6 +92,7 @@ export async function dispatchProductionDomainRoutes(rc) {
     authUser,
     authCtx = null,
     identity,
+    requestContext = null,
     methodUpper,
     pathLower,
   } = rc;

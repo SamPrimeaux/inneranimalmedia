@@ -7,6 +7,7 @@ import {
   jsonResponse,
   fetchAuthUserTenantId,
   fallbackSystemTenantId,
+  resolveRequestContext,
 } from '../../core/auth.js';
 import { syncRunToSupabase, buildCadCreationsPrefix } from './sync.js';
 import { handleDesignStudioScenesApi } from './scenes.js';
@@ -18,25 +19,6 @@ const WORKFLOW_RUNS = 'agentsam_workflow_runs';
 const BLUEPRINTS = 'designstudio_design_blueprints';
 const MCP_WORKFLOWS = 'agentsam_mcp_workflows';
 const WORKSPACE_TABLE = 'agentsam_workspace';
-function defaultWorkspaceId(env) {
-  return null;
-}
-
-async function resolveWorkspaceId(env, tenantId, explicit) {
-  const ex = explicit != null && String(explicit).trim() !== '' ? String(explicit).trim() : null;
-  if (ex) return ex;
-  if (!env?.DB) return defaultWorkspaceId(env);
-  try {
-    const row = await env.DB.prepare(
-      `SELECT id FROM ${WORKSPACE_TABLE} WHERE tenant_id = ? ORDER BY updated_at DESC LIMIT 1`,
-    )
-      .bind(tenantId)
-      .first();
-    return row?.id ? String(row.id) : defaultWorkspaceId(env);
-  } catch (_) {
-    return defaultWorkspaceId(env);
-  }
-}
 
 function internalSecretOk(request, env) {
   const secret = env?.INTERNAL_API_SECRET;
@@ -414,7 +396,9 @@ export async function handleDesignStudioApi(request, url, env, _ctx) {
       }
       const title = String(body.title || '').trim();
       if (!title) return jsonResponse({ error: 'title required' }, 400);
-      const workspaceId = await resolveWorkspaceId(env, tenantId, body.workspace_id);
+      const reqCtx = await resolveRequestContext(request, env);
+      if (reqCtx.error) return jsonResponse({ error: 'Unauthorized' }, 401);
+      const workspaceId = reqCtx.workspaceId || '';
       if (!workspaceId) return jsonResponse({ error: 'workspace required' }, 400);
       const sketchJson =
         typeof body.sketch_json === 'object' && body.sketch_json !== null
@@ -563,7 +547,9 @@ export async function handleDesignStudioApi(request, url, env, _ctx) {
       if (!wf?.id || !wf.workflow_key) {
         return jsonResponse({ error: 'No active DesignStudio workflow configured' }, 503);
       }
-      const workspaceId = await resolveWorkspaceId(env, tenantId, body.workspace_id ?? blueprint.workspace_id);
+      const reqCtx = await resolveRequestContext(request, env);
+      if (reqCtx.error) return jsonResponse({ error: 'Unauthorized' }, 401);
+      const workspaceId = reqCtx.workspaceId || '';
       if (!workspaceId) return jsonResponse({ error: 'workspace required' }, 400);
       const inputPayload = {
         blueprint_id: blueprintId,

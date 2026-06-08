@@ -2,7 +2,7 @@
  * API Service: Model Context Protocol (MCP) Manager
  * Handles agent session tracking, tool registration listings, and intent-based routing.
  */
-import { getAuthUser, jsonResponse, fetchAuthUserTenantId } from '../core/auth.js';
+import { getAuthUser, jsonResponse, fetchAuthUserTenantId, resolveRequestContext } from '../core/auth.js';
 import { resolveIamActorContext, resolveIdentity } from '../core/identity.js';
 import { inferMcpCapabilityLane } from '../core/mcp-tools-branded.js';
 import {
@@ -12,7 +12,6 @@ import {
   toolCategoriesFromLanes,
   DEFAULT_AGENT_TOOL_LIST_LIMIT,
 } from '../core/agentsam-tools-catalog.js';
-import { validateMcpToken } from '../core/mcp-auth.js';
 import { MCP_CANONICAL_CLIENT_ID } from './mcp-oauth-shared.js';
 import { maxAgentsamWorkflowTimeoutSeconds, AGENTSAM_MCP_WORKFLOWS } from '../core/agentsam-workflows.js';
 import { AGENTSAM_WORKFLOW_RUNS_TABLE } from '../core/agentsam-supabase-sync.js';
@@ -20,7 +19,6 @@ import { scheduleRecordMcpToolExecution } from '../core/mcp-tool-execution.js';
 import { scheduleMirrorToolCallEventToSupabase } from '../core/hyperdrive-write.js';
 import { resolveActorContext } from '../core/actor-context.js';
 import { authorizeMcpTool } from '../core/mcp-authorization.js';
-import { resolveEffectiveWorkspaceId } from '../core/bootstrap.js';
 import { dispatchByToolCode } from '../core/dispatch-by-tool-code.js';
 import { mcpPanelAgentChatSse } from './agent.js';
 import { resolveCanonicalUserId } from './auth.js';
@@ -352,10 +350,8 @@ export async function handleMcpApi(request, url, env, ctx) {
     // JSON-RPC MCP endpoint (Bearer: HMAC user token, legacy hash, or master env token).
     // Validated here, then proxied to dedicated MCP worker with the same Authorization header.
     if (pathLower === '/mcp' && method === 'POST') {
-      const auth = request.headers.get('Authorization') || '';
-      const bearer = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
-      const mcpIdentity = await validateMcpToken(env, bearer);
-      if (!mcpIdentity) {
+      const reqCtx = await resolveRequestContext(request, env);
+      if (reqCtx.error || reqCtx.authType !== 'bearer') {
         return new Response(
           JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32001, message: 'Unauthorized' } }),
           { status: 401, headers: { 'Content-Type': 'application/json' } }
@@ -423,9 +419,9 @@ export async function handleMcpApi(request, url, env, ctx) {
       const body = await request.json().catch(() => ({}));
       const slug = String(body.slug || '').trim();
       if (!slug) return jsonResponse({ error: 'slug required' }, 400);
-      const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {}).catch(() => null);
-      if (!wsRes || wsRes.error || !wsRes.workspaceId) {
-        return jsonResponse({ error: wsRes?.error || 'no_workspace', redirect: '/onboarding' }, 403);
+      const reqCtx = await resolveRequestContext(request, env);
+      if (reqCtx.error || !reqCtx.workspaceId) {
+        return jsonResponse({ error: 'no_workspace', redirect: '/onboarding' }, 403);
       }
       let profile = null;
       try {
@@ -445,7 +441,7 @@ export async function handleMcpApi(request, url, env, ctx) {
         zoneSlug,
         tenantId,
         userId: String(authUser.id),
-        callerWorkspaceId: wsRes.workspaceId,
+        callerWorkspaceId: reqCtx.workspaceId,
       });
       if (!started.ok) {
         return jsonResponse({ error: 'zone session start failed', detail: started.error }, 503);

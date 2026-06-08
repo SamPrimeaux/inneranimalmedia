@@ -1,8 +1,7 @@
 /**
  * CAD job scope + R2 key helpers (Design Studio / agentsam_cad_jobs).
  */
-import { fetchAuthUserTenantId, fallbackSystemTenantId } from './auth.js';
-import { resolveEffectiveWorkspaceId } from './bootstrap.js';
+import { fetchAuthUserTenantId, fallbackSystemTenantId, resolveRequestContext } from './auth.js';
 
 const DEFAULT_R2_BUCKET = 'inneranimalmedia';
 
@@ -48,15 +47,15 @@ export function buildCadAssetPublicUrl(r2Key) {
  * @param {Record<string, unknown>} [body]
  */
 export async function resolveCadJobScope(env, request, authUser, body = {}) {
-  const explicitWs =
-    body.workspace_id != null && String(body.workspace_id).trim() !== ''
-      ? String(body.workspace_id).trim()
-      : null;
-  const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {
-    workspaceIdParam: explicitWs,
-  });
-  const workspaceId = explicitWs || wsRes.workspaceId || '';
-  let tenantId = authUser?.tenant_id != null ? String(authUser.tenant_id).trim() : '';
+  // Never trust body.workspace_id — derive from membership only
+  const reqCtx = await resolveRequestContext(request, env);
+  const workspaceId = reqCtx.error ? '' : (reqCtx.workspaceId || '');
+  let tenantId =
+    reqCtx.error || !reqCtx.tenantId
+      ? authUser?.tenant_id != null
+        ? String(authUser.tenant_id).trim()
+        : ''
+      : String(reqCtx.tenantId).trim();
   if (!tenantId && authUser?.id) tenantId = (await fetchAuthUserTenantId(env, authUser.id)) || '';
   if (!tenantId) tenantId = fallbackSystemTenantId(env) || '';
   return {

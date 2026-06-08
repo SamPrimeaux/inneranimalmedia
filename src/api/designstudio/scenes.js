@@ -6,13 +6,9 @@
  *   scenes/{workspace_id}/autosave.json         — rolling autosave
  *   scenes/{workspace_id}/{scene_id}_thumb.png  — thumbnail (optional)
  */
-import { getAuthUser, jsonResponse, fetchAuthUserTenantId } from '../../core/auth.js';
+import { jsonResponse, resolveRequestContext } from '../core/auth.js';
 import { platformR2WriteGateResponse } from '../../core/r2-storage-scope.js';
-import {
-  resolveEffectiveWorkspaceId,
-  resolveTerminalWorkspaceId,
-  WORKSPACE_CONTEXT_MISSING,
-} from '../../core/bootstrap.js';
+import { WORKSPACE_CONTEXT_MISSING } from '../../core/bootstrap.js';
 
 const TABLE = 'scene_snapshots';
 const R2_BUCKET = 'inneranimalmedia';
@@ -54,37 +50,22 @@ export function scenePublicUrl(request, r2Key) {
   }
 }
 
-async function resolveActor(request, env, bodyWorkspaceId) {
-  const authUser = await getAuthUser(request, env);
-  if (!authUser) return { error: jsonResponse({ error: 'Unauthorized' }, 401) };
+async function resolveActor(request, env) {
+  const reqCtx = await resolveRequestContext(request, env);
+  if (reqCtx.error) return { error: jsonResponse({ error: 'Unauthorized' }, 401) };
 
-  const explicit = trim(bodyWorkspaceId);
-  let workspaceId = '';
-  if (explicit) {
-    const ex = await resolveTerminalWorkspaceId(env, request, authUser, explicit);
-    if (ex.error === 'Forbidden') {
-      return { error: jsonResponse({ error: 'Forbidden', code: 'WORKSPACE_FORBIDDEN' }, 403) };
-    }
-    workspaceId = ex.workspaceId || '';
-  } else {
-    const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {});
-    workspaceId = wsRes.workspaceId || '';
-  }
+  const { userId, workspaceId, tenantId } = reqCtx;
   if (!workspaceId) {
     return {
       error: jsonResponse({ error: WORKSPACE_CONTEXT_MISSING, code: WORKSPACE_CONTEXT_MISSING }, 400),
     };
   }
-
-  let tenantId = trim(authUser.tenant_id);
-  if (!tenantId) tenantId = trim(await fetchAuthUserTenantId(env, authUser.id)) || '';
   if (!tenantId) {
     return { error: jsonResponse({ error: 'tenant_id required', code: 'TENANT_CONTEXT_REQUIRED' }, 403) };
   }
-
-  const userId = trim(authUser.id);
   if (!userId) return { error: jsonResponse({ error: 'user_id required' }, 403) };
 
+  const authUser = { id: userId, tenant_id: tenantId };
   return { authUser, workspaceId, tenantId, userId };
 }
 
@@ -175,7 +156,7 @@ export async function handleDesignStudioScenesApi(request, url, env) {
 
   // GET /api/designstudio/scenes — list metadata (no R2 blob)
   if (pathLower === '/api/designstudio/scenes' && method === 'GET') {
-    const actor = await resolveActor(request, env, url.searchParams.get('workspace_id'));
+    const actor = await resolveActor(request, env);
     if (actor.error) return actor.error;
 
     const includeAutosave = url.searchParams.get('include_autosave') === '1';
@@ -202,7 +183,7 @@ export async function handleDesignStudioScenesApi(request, url, env) {
       } catch {
         return autosaveSkippedResponse('invalid_json');
       }
-      const actor = await resolveActor(request, env, body.workspace_id);
+      const actor = await resolveActor(request, env);
       if (actor.error) return autosaveSkippedResponse('session_unresolved');
 
       const entities = body.entities;
@@ -281,7 +262,7 @@ export async function handleDesignStudioScenesApi(request, url, env) {
     } catch {
       return jsonResponse({ error: 'Invalid JSON' }, 400);
     }
-    const actor = await resolveActor(request, env, body.workspace_id);
+    const actor = await resolveActor(request, env);
     if (actor.error) return actor.error;
 
     const entities = body.entities;
@@ -368,7 +349,7 @@ export async function handleDesignStudioScenesApi(request, url, env) {
 
   // GET /api/designstudio/scenes/:id/entities — stream R2 JSON
   if (entitiesMatch && method === 'GET') {
-    const actor = await resolveActor(request, env, url.searchParams.get('workspace_id'));
+    const actor = await resolveActor(request, env);
     if (actor.error) return actor.error;
 
     const sceneId = entitiesMatch[1];
@@ -388,7 +369,7 @@ export async function handleDesignStudioScenesApi(request, url, env) {
 
   // GET /api/designstudio/scenes/:id — metadata only
   if (oneMatch && method === 'GET') {
-    const actor = await resolveActor(request, env, url.searchParams.get('workspace_id'));
+    const actor = await resolveActor(request, env);
     if (actor.error) return actor.error;
 
     const row = await fetchSceneRow(env, oneMatch[1], actor.userId, actor.workspaceId);
@@ -398,7 +379,7 @@ export async function handleDesignStudioScenesApi(request, url, env) {
 
   // DELETE /api/designstudio/scenes/:id
   if (oneMatch && method === 'DELETE') {
-    const actor = await resolveActor(request, env, null);
+    const actor = await resolveActor(request, env);
     if (actor.error) return actor.error;
 
     const sceneId = oneMatch[1];

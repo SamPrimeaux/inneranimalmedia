@@ -47,7 +47,8 @@ import { authUserFromRequest, getSession,
          isIngestSecretAuthorized,
          fetchAuthUserTenantId,
          authUserIsSuperadmin,
-         platformTenantIdFromEnv }    from '../core/auth.js';
+         platformTenantIdFromEnv,
+         resolveRequestContext }    from '../core/auth.js';
 import { resolveGitHubToken } from '../core/github-token.js';
 import {
   fetchAgentGitStatus,
@@ -63,7 +64,7 @@ import {
   resolveAgentChatRouteToolRequirements,
   effectiveAgentChatToolCap,
 } from '../core/agentsam-route-tool-resolver.js';
-import { resolveEffectiveWorkspaceId, resolveActiveBootstrap } from '../core/bootstrap.js';
+import { resolveActiveBootstrap } from '../core/bootstrap.js';
 import { buildScopedBootstrapContext } from '../core/bootstrap-scoped-context.js';
 import {
   readAgentBootstrapCache,
@@ -1580,11 +1581,11 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
     const actorCtx = await resolveIamActorContext(request, env).catch(() => null);
-    const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {});
-    if (wsRes.error || !wsRes.workspaceId) {
-      return jsonResponse({ error: wsRes.error || 'no_workspace', redirect: '/onboarding' }, 403);
+    const reqCtx = await resolveRequestContext(request, env);
+    if (reqCtx.error || !reqCtx.workspaceId) {
+      return jsonResponse({ error: 'no_workspace', redirect: '/onboarding' }, 403);
     }
-    const effectiveWs = String(wsRes.workspaceId).trim();
+    const effectiveWs = String(reqCtx.workspaceId).trim();
     const uid = String(authUser.id || '').trim();
     let tid =
       actorCtx?.tenantId != null && String(actorCtx.tenantId).trim() !== ''
@@ -1986,13 +1987,16 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     if (!slug && !commandId) {
       return jsonResponse({ error: 'slug_or_command_id_required' }, 400);
     }
-    const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, body);
-    const workspaceId = wsRes?.workspaceId != null ? String(wsRes.workspaceId).trim() : '';
+    const reqCtx = await resolveRequestContext(request, env);
+    if (reqCtx.error) return jsonResponse({ error: 'Unauthorized' }, 401);
+    const workspaceId = reqCtx.workspaceId != null ? String(reqCtx.workspaceId).trim() : '';
     if (!workspaceId) return jsonResponse({ error: 'WORKSPACE_CONTEXT_MISSING' }, 400);
     let tenantId =
-      authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
-        ? String(authUser.tenant_id).trim()
-        : null;
+      reqCtx.tenantId != null && String(reqCtx.tenantId).trim() !== ''
+        ? String(reqCtx.tenantId).trim()
+        : authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
+          ? String(authUser.tenant_id).trim()
+          : null;
     if (!tenantId) tenantId = await fetchAuthUserTenantId(env, authUser.id);
     let cmdRow = null;
     if (commandId) {
@@ -2044,12 +2048,10 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
           : null;
       if (!tenantId && authUser?.id) tenantId = await fetchAuthUserTenantId(env, authUser.id);
       if (!tenantId && authUser?.email) tenantId = await fetchAuthUserTenantId(env, authUser.email);
-      const wsRes = authUser
-        ? await resolveEffectiveWorkspaceId(env, request, authUser, {})
-        : { workspaceId: null };
+      const reqCtx = authUser ? await resolveRequestContext(request, env) : { error: 'unauthenticated' };
       const results = await listAgentsamSlashCommands(env.DB, {
         tenantId,
-        workspaceId: wsRes?.workspaceId ?? null,
+        workspaceId: reqCtx.error ? null : (reqCtx.workspaceId ?? null),
         limit: 200,
       });
       return jsonResponse(results || []);
@@ -2080,8 +2082,8 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     let mcp_tool_errors = [], audit_failures = [], worker_errors = [];
 
     try {
-      const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {});
-      const wid = wsRes.workspaceId != null ? String(wsRes.workspaceId).trim() : '';
+      const reqCtx = await resolveRequestContext(request, env);
+      const wid = !reqCtx.error && reqCtx.workspaceId != null ? String(reqCtx.workspaceId).trim() : '';
       if (wid) {
         const q = await env.DB.prepare(
           `SELECT id, workspace_id, error_code, error_type, error_message, source, source_id, resolved, created_at
@@ -2124,8 +2126,9 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
 
     const body = await request.json().catch(() => ({}));
-    const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, body);
-    const wid = wsRes.workspaceId != null ? String(wsRes.workspaceId).trim() : '';
+    const reqCtx = await resolveRequestContext(request, env);
+    if (reqCtx.error) return jsonResponse({ error: 'Unauthorized' }, 401);
+    const wid = reqCtx.workspaceId != null ? String(reqCtx.workspaceId).trim() : '';
     if (!wid) return jsonResponse({ error: 'workspace_id required' }, 400);
 
     const ids = [];
@@ -3907,13 +3910,11 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     const batchId = String(body.batch_id ?? body.batchId ?? '').trim();
     if (!batchId) return jsonResponse({ error: 'batch_id required' }, 400);
 
-    const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {}).catch(() => null);
-    const workspaceId =
-      (authUser.active_workspace_id != null && String(authUser.active_workspace_id).trim() !== ''
-        ? String(authUser.active_workspace_id).trim()
-        : null) ||
-      (wsRes && !wsRes.error && wsRes.workspaceId ? String(wsRes.workspaceId).trim() : null);
-    if (!workspaceId) return jsonResponse({ error: 'no_workspace', redirect: '/onboarding' }, 403);
+    const reqCtx = await resolveRequestContext(request, env);
+    if (reqCtx.error || !reqCtx.workspaceId) {
+      return jsonResponse({ error: 'no_workspace', redirect: '/onboarding' }, 403);
+    }
+    const workspaceId = String(reqCtx.workspaceId).trim();
 
     let tenantId =
       authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
@@ -3958,13 +3959,11 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     const planId = String(body.plan_id ?? body.planId ?? '').trim();
     if (!planId) return jsonResponse({ error: 'plan_id required' }, 400);
 
-    const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {}).catch(() => null);
-    const workspaceId =
-      (authUser.active_workspace_id != null && String(authUser.active_workspace_id).trim() !== ''
-        ? String(authUser.active_workspace_id).trim()
-        : null) ||
-      (wsRes && !wsRes.error && wsRes.workspaceId ? String(wsRes.workspaceId).trim() : null);
-    if (!workspaceId) return jsonResponse({ error: 'no_workspace', redirect: '/onboarding' }, 403);
+    const reqCtx = await resolveRequestContext(request, env);
+    if (reqCtx.error || !reqCtx.workspaceId) {
+      return jsonResponse({ error: 'no_workspace', redirect: '/onboarding' }, 403);
+    }
+    const workspaceId = String(reqCtx.workspaceId).trim();
 
     let tenantId =
       authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
@@ -4002,13 +4001,11 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     if (!planId) return jsonResponse({ error: 'plan_id required' }, 400);
     if (!refinement) return jsonResponse({ error: 'refinement required' }, 400);
 
-    const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {}).catch(() => null);
-    const workspaceId =
-      (authUser.active_workspace_id != null && String(authUser.active_workspace_id).trim() !== ''
-        ? String(authUser.active_workspace_id).trim()
-        : null) ||
-      (wsRes && !wsRes.error && wsRes.workspaceId ? String(wsRes.workspaceId).trim() : null);
-    if (!workspaceId) return jsonResponse({ error: 'no_workspace', redirect: '/onboarding' }, 403);
+    const reqCtx = await resolveRequestContext(request, env);
+    if (reqCtx.error || !reqCtx.workspaceId) {
+      return jsonResponse({ error: 'no_workspace', redirect: '/onboarding' }, 403);
+    }
+    const workspaceId = String(reqCtx.workspaceId).trim();
 
     let tenantId =
       authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
@@ -4052,13 +4049,11 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     const planId = String(body.plan_id ?? body.planId ?? '').trim();
     if (!planId) return jsonResponse({ error: 'plan_id required' }, 400);
 
-    const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {}).catch(() => null);
-    const workspaceId =
-      (authUser.active_workspace_id != null && String(authUser.active_workspace_id).trim() !== ''
-        ? String(authUser.active_workspace_id).trim()
-        : null) ||
-      (wsRes && !wsRes.error && wsRes.workspaceId ? String(wsRes.workspaceId).trim() : null);
-    if (!workspaceId) return jsonResponse({ error: 'no_workspace', redirect: '/onboarding' }, 403);
+    const reqCtx = await resolveRequestContext(request, env);
+    if (reqCtx.error || !reqCtx.workspaceId) {
+      return jsonResponse({ error: 'no_workspace', redirect: '/onboarding' }, 403);
+    }
+    const workspaceId = String(reqCtx.workspaceId).trim();
 
     let tenantId =
       authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
@@ -4106,13 +4101,11 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
       return jsonResponse({ error: 'plan_id, task_id, and approval_id required' }, 400);
     }
 
-    const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {}).catch(() => null);
-    const workspaceId =
-      (authUser.active_workspace_id != null && String(authUser.active_workspace_id).trim() !== ''
-        ? String(authUser.active_workspace_id).trim()
-        : null) ||
-      (wsRes && !wsRes.error && wsRes.workspaceId ? String(wsRes.workspaceId).trim() : null);
-    if (!workspaceId) return jsonResponse({ error: 'no_workspace', redirect: '/onboarding' }, 403);
+    const reqCtx = await resolveRequestContext(request, env);
+    if (reqCtx.error || !reqCtx.workspaceId) {
+      return jsonResponse({ error: 'no_workspace', redirect: '/onboarding' }, 403);
+    }
+    const workspaceId = String(reqCtx.workspaceId).trim();
 
     let tenantId =
       authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
@@ -4243,13 +4236,11 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
         : null;
     if (!tenantId) tenantId = await fetchAuthUserTenantId(env, authUser.id);
     if (!tenantId) return jsonResponse({ error: 'Tenant could not be resolved' }, 403);
-    const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {}).catch(() => null);
-    const workspaceId =
-      (authUser.active_workspace_id != null && String(authUser.active_workspace_id).trim() !== ''
-        ? String(authUser.active_workspace_id).trim()
-        : null) ||
-      (wsRes && !wsRes.error && wsRes.workspaceId ? String(wsRes.workspaceId).trim() : null);
-    if (!workspaceId) return jsonResponse({ error: 'no_workspace', redirect: '/onboarding' }, 403);
+    const reqCtx = await resolveRequestContext(request, env);
+    if (reqCtx.error || !reqCtx.workspaceId) {
+      return jsonResponse({ error: 'no_workspace', redirect: '/onboarding' }, 403);
+    }
+    const workspaceId = String(reqCtx.workspaceId).trim();
     const result = await executeWorkflowGraph(env, {
       workflowKey: String(workflowKeyBody).trim(),
       input: input || {},
@@ -4608,11 +4599,9 @@ async function handleAgentBootstrapRequest(request, env, ctx, identity) {
       tenant_id: tenantId,
       is_superadmin: isSuper ? 1 : 0,
     };
-    const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {}).catch(() => ({
-      workspaceId: identity?.workspaceId ?? null,
-      error: null,
-    }));
-    const workspaceId = wsRes?.workspaceId ?? identity?.workspaceId ?? null;
+    const reqCtx = await resolveRequestContext(request, env).catch(() => ({ error: 'unauthenticated' }));
+    const workspaceId =
+      !reqCtx.error && reqCtx.workspaceId ? reqCtx.workspaceId : (identity?.workspaceId ?? null);
 
     const bootstrapRow =
       env.DB && workspaceId && userId !== 'system'

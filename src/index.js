@@ -13,6 +13,7 @@ import {
   getSession,
   isIngestSecretAuthorized,
   fetchAuthUserTenantId,
+  resolveRequestContext,
 } from './core/auth';
 import { resolveIdentity } from './core/identity.js';
 import { generateMcpToken } from './core/mcp-auth.js';
@@ -135,6 +136,8 @@ export default {
           { status: 404, headers: { 'Content-Type': 'text/html;charset=UTF-8' } },
         );
       }
+      const requestContext = await resolveRequestContext(request, env);
+      // keep primeRequestAuth for cache compatibility during migration
       await primeRequestAuth(request, env);
       const identity = await resolveIdentity(env, request);
       // Canonical auth URLs first — before health, assets, dashboard shell, or legacy fallthrough.
@@ -878,6 +881,7 @@ export default {
         authUser,
         authCtx: authCtx ?? null,
         identity,
+        requestContext,
         methodUpper,
         pathLower,
         path,
