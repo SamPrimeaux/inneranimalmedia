@@ -303,6 +303,45 @@ export async function fetchAgentsamD1Telemetry(env, scope) {
     out.tables.agentsam_analytics = { available: false, recent: [], note: 'Table not present in this D1 schema.' };
   }
 
+  // --- agentsam_codebase_index_health (weekly pgvector vs git staleness) ---
+  if (await tableExists(db, 'agentsam_codebase_index_health')) {
+    const rows = await all(
+      db,
+      `SELECT id, workspace_id, workspace_key, checked_at, week_start,
+              total_indexed, stale_index_count, stale_files_json, head_sha, repo, metadata_json
+         FROM agentsam_codebase_index_health
+        ORDER BY checked_at DESC
+        LIMIT 8`,
+    );
+    const latest = rows[0] ?? null;
+    let stalePreview = [];
+    if (latest?.stale_files_json) {
+      try {
+        stalePreview = JSON.parse(String(latest.stale_files_json)).slice(0, 10);
+      } catch {
+        stalePreview = [];
+      }
+    }
+    out.tables.agentsam_codebase_index_health = {
+      available: true,
+      summary: latest
+        ? {
+            week_start: latest.week_start,
+            checked_at: latest.checked_at,
+            total_indexed: latest.total_indexed,
+            stale_index_count: latest.stale_index_count,
+            head_sha: latest.head_sha,
+            repo: latest.repo,
+          }
+        : {},
+      stale_preview: stalePreview,
+      recent: rows,
+      note: 'Weekly cron flags files where last_reindexed_at is >30d and GitHub has newer commits.',
+    };
+  } else {
+    out.tables.agentsam_codebase_index_health = { available: false, recent: [], stale_preview: [] };
+  }
+
   if (!tid) {
     out.hint =
       'No tenant_id on session — tenant-scoped tables (usage, webhooks, agentsam_execution_performance_metrics, etc.) return empty until the account is associated with a tenant.';

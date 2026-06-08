@@ -471,10 +471,11 @@ async function upsertFileRow(client, { filePath, language, sizeBytes, hash, tota
   };
   const res = await client.query(
     `INSERT INTO agentsam.agentsam_codebase_files_oai3large_1536 (
-      workspace_id, file_path, language, size_bytes, last_indexed, metadata, updated_at
-    ) VALUES ($1::uuid, $2, $3, $4, $5::timestamptz, $6::jsonb, $5::timestamptz)
+      workspace_id, file_path, language, size_bytes, last_indexed, last_reindexed_at, metadata, updated_at
+    ) VALUES ($1::uuid, $2, $3, $4, $5::timestamptz, $5::timestamptz, $6::jsonb, $5::timestamptz)
     ON CONFLICT (workspace_id, file_path) DO UPDATE SET
       last_indexed = EXCLUDED.last_indexed,
+      last_reindexed_at = EXCLUDED.last_reindexed_at,
       size_bytes = EXCLUDED.size_bytes,
       metadata = EXCLUDED.metadata,
       updated_at = EXCLUDED.updated_at

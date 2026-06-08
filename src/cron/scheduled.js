@@ -8,6 +8,7 @@ import { runFinancialCommandCron } from './jobs/financial-command-cron.js';
 import { sendDailyPlanEmail } from './jobs/daily-plan-email.js';
 import { runWeeklyRollup } from './jobs/weekly-rollup.js';
 import { runWebhookWeeklyRollupCron } from './jobs/webhook-weekly-rollup.js';
+import { runCodebaseIndexWeeklyHealthCron } from './jobs/codebase-index-weekly-health.js';
 import { runFirstOfMonthJobs } from './jobs/first-of-month.js';
 import { scheduleSixAmRagJobs } from './jobs/rag-six-am.js';
 import { writeDailySnapshot } from './jobs/write-daily-snapshot.js';
@@ -123,6 +124,11 @@ export async function handleScheduled(event, env, ctx) {
           ctx.waitUntil(
             runWebhookWeeklyRollupCron(env).catch((e) =>
               console.warn('[cron] webhook_weekly_rollup', e?.message ?? e),
+            ),
+          );
+          ctx.waitUntil(
+            runCodebaseIndexWeeklyHealthCron(env).catch((e) =>
+              console.warn('[cron] codebase_index_weekly_health', e?.message ?? e),
             ),
           );
         }

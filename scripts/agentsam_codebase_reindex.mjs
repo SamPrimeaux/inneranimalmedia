@@ -904,6 +904,7 @@ async function main() {
       language: f.language,
       size_bytes: f.size_bytes,
       last_indexed: nowIso(),
+      last_reindexed_at: shouldChunkFile(f.file_path) ? nowIso() : undefined,
       metadata: {
         repo: 'github.com/SamPrimeaux/inneranimalmedia',
         branch,
@@ -929,9 +930,11 @@ async function main() {
 
     let fileId = null;
     if (writeSupabase) {
+      const rowPayload = { ...fileRow };
+      if (rowPayload.last_reindexed_at == null) delete rowPayload.last_reindexed_at;
       const q = new URLSearchParams({ on_conflict: 'workspace_id,file_path' });
       const url = `${supabaseUrl}/rest/v1/agentsam_codebase_files_oai3large_1536?${q.toString()}&select=id`;
-      const res = await sbRequest('POST', url, supabaseKey, [fileRow], {
+      const res = await sbRequest('POST', url, supabaseKey, [rowPayload], {
         Prefer: 'resolution=merge-duplicates,return=representation',
         'Accept-Profile': 'agentsam',
         'Content-Profile': 'agentsam',
@@ -1067,6 +1070,14 @@ async function main() {
           'Content-Profile': 'agentsam',
         });
         wroteChunks += chunkRows.length;
+        const reindexPatchUrl = `${supabaseUrl}/rest/v1/agentsam_codebase_files_oai3large_1536?id=eq.${encodeURIComponent(fileId)}`;
+        await sbRequest(
+          'PATCH',
+          reindexPatchUrl,
+          supabaseKey,
+          { last_reindexed_at: nowIso(), updated_at: nowIso() },
+          { Prefer: 'return=minimal', 'Accept-Profile': 'agentsam', 'Content-Profile': 'agentsam' },
+        );
       }
     }
   }

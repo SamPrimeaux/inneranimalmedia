@@ -5,6 +5,7 @@ type TableBundle = {
   available?: boolean;
   recent?: Record<string, unknown>[];
   summary?: Record<string, unknown>;
+  stale_preview?: Record<string, unknown>[];
   note?: string;
 };
 
@@ -197,6 +198,32 @@ export const D1TelemetryTab: React.FC<Props> = ({ payload }) => {
             Superadmin: all runs in tenant. Otherwise tenant + your user.
           </p>
           <DataTable rows={(t.agentsam_workflow_runs?.recent || []) as Record<string, unknown>[]} title="workflows" />
+        </Section>
+
+        <Section name="agentsam_codebase_index_health" bundle={t.agentsam_codebase_index_health}>
+          {t.agentsam_codebase_index_health?.summary &&
+          Object.keys(t.agentsam_codebase_index_health.summary).length > 0 ? (
+            <div className="flex flex-wrap gap-2 mb-2">
+              {Object.entries(t.agentsam_codebase_index_health.summary).map(([k, v]) => (
+                <div
+                  key={k}
+                  className="rounded-md bg-[var(--bg-elevated)] px-2 py-1 text-[11px] border border-[var(--border-subtle)]"
+                >
+                  <span className="text-[var(--text-muted)]">{k}: </span>
+                  <span className="font-mono text-[var(--text)]">{formatCell(v)}</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {(t.agentsam_codebase_index_health?.stale_preview?.length ?? 0) > 0 ? (
+            <DataTable
+              rows={(t.agentsam_codebase_index_health?.stale_preview || []) as Record<string, unknown>[]}
+              title="stale codebase files"
+            />
+          ) : (
+            <p className="text-[12px] text-[var(--text-muted)]">No stale index flags in latest weekly check.</p>
+          )}
+          <DataTable rows={(t.agentsam_codebase_index_health?.recent || []) as Record<string, unknown>[]} title="weekly runs" />
         </Section>
 
         <Section name="agentsam_analytics" bundle={t.agentsam_analytics}>
