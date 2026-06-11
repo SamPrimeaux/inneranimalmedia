@@ -319,7 +319,8 @@ export function mcpOAuthIsHostedConnectorRedirect(u) {
   const host = String(u?.hostname || '').toLowerCase();
   const path = String(u?.pathname || '').toLowerCase();
   return (
-    (host === 'chatgpt.com' && path.startsWith('/connector/oauth/')) ||
+    ((host === 'chatgpt.com' || host === 'chat.openai.com') &&
+      (path.startsWith('/connector/oauth/') || path === '/connector_platform_oauth_redirect')) ||
     (host === 'claude.ai' && path.includes('/api/mcp/auth_callback')) ||
     (host === 'claude.com' && path.includes('/api/mcp/auth_callback'))
   );

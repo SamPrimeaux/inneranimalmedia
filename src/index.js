@@ -14,7 +14,9 @@ import {
   isIngestSecretAuthorized,
   fetchAuthUserTenantId,
   resolveRequestContext,
+  AuthError,
 } from './core/auth';
+import { isPublicOAuthPath, publicOAuthRequestContext } from './core/public-oauth-paths.js';
 import { resolveIdentity } from './core/identity.js';
 import { generateMcpToken } from './core/mcp-auth.js';
 import {
@@ -136,8 +138,10 @@ export default {
           { status: 404, headers: { 'Content-Type': 'text/html;charset=UTF-8' } },
         );
       }
-      const requestContext = await resolveRequestContext(request, env);
-      // keep primeRequestAuth for cache compatibility during migration
+      const requestContext = isPublicOAuthPath(pathLower)
+        ? publicOAuthRequestContext()
+        : await resolveRequestContext(request, env, { required: true });
+      // keep primeRequestAuth for cache compatibility during migration (never required)
       await primeRequestAuth(request, env);
       const identity = await resolveIdentity(env, request);
       // Canonical auth URLs first — before health, assets, dashboard shell, or legacy fallthrough.
@@ -982,6 +986,15 @@ export default {
       return new Response('Not Found', { status: 404 });
 
     } catch (e) {
+      if (e instanceof AuthError) {
+        const status = e.status || 401;
+        const body =
+          isPublicOAuthPath(pathLower) || pathLower.startsWith('/api/oauth/')
+            ? { error: e.code || 'unauthorized', error_description: 'Unauthorized' }
+            : { error: 'Unauthorized', code: e.code || 'UNAUTHORIZED' };
+        return jsonResponse(body, status);
+      }
+
       console.error('[Worker Error]', e.message);
 
       ctx.waitUntil(recordWorkerAnalyticsError(env, {
