@@ -10,98 +10,87 @@
   <link rel="canonical" href="https://inneranimalmedia.com/contact">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
   <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.5.0/model-viewer.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --navy:   #0A1628;
-      --blue:   #167BFC;
-      --muted:  #5c6b82;
-      --line:   rgba(10, 22, 40, 0.08);
-      --paper:  #f7f9fc;
-      --glass:  rgba(255, 255, 255, 0.76);
-      --radius: 18px;
+      --ink:    #0a0a0a;
+      --muted:  #6b7280;
+      --line:   rgba(10, 10, 10, 0.12);
+      --paper:  #f5f5f5;
       --header-h: 76px;
     }
 
     html { scroll-behavior: smooth; }
 
     body {
-      font-family: 'Nunito', system-ui, sans-serif;
-      background: linear-gradient(180deg, #ffffff 0%, var(--paper) 42%, #e8eef6 100%);
-      color: var(--navy);
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: #fff;
+      color: var(--ink);
       padding-top: var(--header-h);
       -webkit-font-smoothing: antialiased;
     }
 
     main { overflow-x: clip; }
 
-    /* ── HERO: typography forward, jet as ambient scene ── */
+    /* ── HERO: Clay-style editorial grid ── */
     .contact-hero {
       position: relative;
-      max-width: 1180px;
+      max-width: 1240px;
       margin: 0 auto;
-      min-height: clamp(420px, 52vw, 580px);
-      padding: clamp(56px, 9vw, 108px) clamp(20px, 5vw, 48px) clamp(40px, 6vw, 72px);
-      overflow: hidden;
-      isolation: isolate;
+      min-height: clamp(480px, 58vh, 640px);
+      padding: clamp(48px, 7vw, 96px) clamp(20px, 5vw, 56px) clamp(32px, 5vw, 64px);
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: clamp(24px, 4vw, 48px);
+      align-items: center;
+      overflow: visible;
     }
 
     .contact-hero-copy {
       position: relative;
       z-index: 2;
-      max-width: min(36ch, 92vw);
+      max-width: 28ch;
     }
 
     .contact-hero-copy .eyebrow {
       font-size: 12px;
-      font-weight: 800;
-      letter-spacing: 0.14em;
+      font-weight: 500;
+      letter-spacing: 0.08em;
       text-transform: uppercase;
       color: var(--muted);
-      margin-bottom: 14px;
-    }
-
-    .contact-hero-copy .sub {
-      margin-top: 18px;
-      font-size: 16px;
-      line-height: 1.6;
-      font-weight: 500;
-      color: var(--muted);
-      max-width: 42ch;
+      margin-bottom: 20px;
     }
 
     .contact-hero-copy h1 {
-      font-size: clamp(2.75rem, 7.5vw, 4.75rem);
-      font-weight: 800;
-      letter-spacing: -0.045em;
-      line-height: 0.95;
-      color: var(--navy);
+      font-size: clamp(3rem, 7.5vw, 5.25rem);
+      font-weight: 500;
+      letter-spacing: -0.035em;
+      line-height: 0.98;
+      color: var(--ink);
     }
 
-    /* Ambient 3D — right bleed, masked, non-interactive */
+    .contact-hero-copy .sub {
+      margin-top: 24px;
+      font-size: clamp(15px, 1.6vw, 17px);
+      line-height: 1.55;
+      font-weight: 400;
+      color: var(--muted);
+      max-width: 40ch;
+    }
+
+    /* 3D scene — crisp on load, motion only on scroll-away */
     .contact-hero-scene {
-      position: absolute;
-      top: -8%;
-      right: -18%;
-      width: min(72vw, 640px);
-      height: 120%;
-      z-index: 0;
-      pointer-events: none;
-      opacity: 0.38;
-      -webkit-mask-image: linear-gradient(100deg, transparent 0%, transparent 22%, rgba(0,0,0,0.18) 34%, rgba(0,0,0,0.72) 52%, #000 68%);
-      mask-image: linear-gradient(100deg, transparent 0%, transparent 22%, rgba(0,0,0,0.18) 34%, rgba(0,0,0,0.72) 52%, #000 68%);
-      will-change: transform;
-    }
-
-    .contact-hero-scene::after {
-      content: '';
-      position: absolute;
-      inset: 0;
-      background: linear-gradient(180deg, rgba(255,255,255,0.55) 0%, transparent 35%, transparent 70%, rgba(247,249,252,0.4) 100%);
+      position: relative;
       z-index: 1;
+      width: 100%;
+      height: clamp(320px, 42vw, 520px);
+      pointer-events: none;
+      opacity: 1;
+      will-change: transform;
+      transform: translate3d(0, 0, 0) scale(1);
     }
 
     .contact-hero-scene--empty { display: none; }
@@ -111,207 +100,149 @@
       height: 100%;
       --poster-color: transparent;
       background: transparent;
-      filter: saturate(0.82) contrast(0.95);
     }
 
-    /* ── PATH CARDS ── */
+    /* ── PATHS: editorial, not glass cards ── */
     .contact-paths {
-      max-width: 1180px;
+      max-width: 1240px;
       margin: 0 auto;
-      padding: 0 clamp(20px, 5vw, 48px) clamp(40px, 6vw, 72px);
+      padding: clamp(32px, 5vw, 56px) clamp(20px, 5vw, 56px) clamp(24px, 4vw, 40px);
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: clamp(16px, 3vw, 28px);
+      gap: clamp(40px, 6vw, 80px);
+      border-top: 1px solid var(--line);
     }
 
-    .path-card {
-      padding: clamp(28px, 4vw, 40px);
-      border-radius: var(--radius);
-      border: 1px solid var(--line);
-      background: var(--glass);
-      backdrop-filter: blur(14px);
-      -webkit-backdrop-filter: blur(14px);
-      box-shadow: 0 12px 40px rgba(10, 22, 40, 0.04);
-    }
-
-    .path-card-label {
-      font-size: 11px;
-      font-weight: 800;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
+    .contact-path h2 {
+      font-size: clamp(1.1rem, 2vw, 1.25rem);
+      font-weight: 500;
+      letter-spacing: -0.02em;
+      margin-bottom: 12px;
       color: var(--muted);
-      margin-bottom: 10px;
     }
 
-    .path-card h2 {
-      font-size: clamp(1.35rem, 2.5vw, 1.75rem);
-      font-weight: 800;
-      letter-spacing: -0.03em;
-      margin-bottom: 14px;
-    }
-
-    .path-card p {
+    .contact-path p {
       font-size: 15px;
-      line-height: 1.65;
+      line-height: 1.6;
       color: var(--muted);
-      margin-bottom: 22px;
-      max-width: 38ch;
-    }
-
-    .path-card .path-email {
-      display: block;
-      font-size: 14px;
-      font-weight: 600;
-      color: var(--navy);
-      text-decoration: none;
-      margin-bottom: 18px;
-      letter-spacing: 0.01em;
-    }
-
-    .path-card .path-email:hover { color: var(--blue); }
-
-    .path-cta {
-      display: inline-flex;
-      align-items: center;
-      font-size: 14px;
-      font-weight: 700;
-      color: var(--navy);
-      text-decoration: none;
-      border-bottom: 1.5px solid var(--navy);
-      padding-bottom: 2px;
-      transition: color 0.2s, border-color 0.2s;
-    }
-
-    .path-cta:hover {
-      color: var(--blue);
-      border-color: var(--blue);
-    }
-
-    /* ── FORM ── */
-    .contact-form-wrap {
-      max-width: 1180px;
-      margin: 0 auto clamp(48px, 7vw, 80px);
-      padding: 0 clamp(20px, 5vw, 48px);
-    }
-
-    .contact-form-glass {
-      border-radius: calc(var(--radius) + 4px);
-      border: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.88);
-      backdrop-filter: blur(18px);
-      -webkit-backdrop-filter: blur(18px);
-      padding: clamp(28px, 4vw, 48px);
-      box-shadow: 0 20px 60px rgba(10, 22, 40, 0.05);
-    }
-
-    .contact-form-glass h2 {
-      font-size: clamp(1.4rem, 3vw, 1.85rem);
-      font-weight: 800;
-      letter-spacing: -0.03em;
-      margin-bottom: 8px;
-    }
-
-    .form-lead {
-      font-size: 14px;
-      color: var(--muted);
-      margin-bottom: 28px;
-      max-width: 52ch;
-    }
-
-    .form-alert {
-      padding: 12px 16px;
-      border-radius: 10px;
-      font-size: 14px;
-      font-weight: 600;
       margin-bottom: 20px;
-      display: none;
+      max-width: 36ch;
     }
 
-    .form-alert.success { background: rgba(34, 197, 94, 0.12); color: #15803d; }
-    .form-alert.error   { background: rgba(239, 68, 68, 0.12); color: #b91c1c; }
-
-    .form-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 20px;
+    .contact-link {
+      display: block;
+      font-size: clamp(1.25rem, 2.5vw, 1.5rem);
+      font-weight: 500;
+      color: var(--ink);
+      text-decoration: underline;
+      text-underline-offset: 5px;
+      text-decoration-thickness: 1px;
+      margin-bottom: 14px;
+      width: fit-content;
+      transition: opacity 0.2s;
     }
 
-    .form-group { display: flex; flex-direction: column; gap: 6px; }
-    .form-group.full { grid-column: 1 / -1; }
+    .contact-link:hover { opacity: 0.65; }
 
-    .form-group label {
-      font-size: 13px;
-      font-weight: 700;
-      color: var(--navy);
+    .contact-link-cta {
+      display: inline-block;
+      font-size: clamp(1.25rem, 2.5vw, 1.5rem);
+      font-weight: 500;
+      color: var(--ink);
+      text-decoration: underline;
+      text-underline-offset: 5px;
+      text-decoration-thickness: 1px;
+      transition: opacity 0.2s;
     }
 
-    .form-group input,
-    .form-group select,
-    .form-group textarea {
-      font-family: inherit;
-      font-size: 14px;
-      padding: 12px 14px;
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      background: rgba(255, 255, 255, 0.92);
-      color: var(--navy);
-      outline: none;
-      transition: border-color 0.2s, box-shadow 0.2s;
+    .contact-link-cta:hover { opacity: 0.65; }
+
+    /* ── PROPOSAL: minimal modular Resend touch ── */
+    .contact-proposal {
+      max-width: 1240px;
+      margin: 0 auto clamp(48px, 7vw, 80px);
+      padding: 0 clamp(20px, 5vw, 56px);
     }
 
-    .form-group input:focus,
-    .form-group select:focus,
-    .form-group textarea:focus {
-      border-color: rgba(22, 123, 252, 0.45);
-      box-shadow: 0 0 0 3px rgba(22, 123, 252, 0.1);
-    }
-
-    .form-group textarea { resize: vertical; min-height: 128px; }
-
-    .field-error { font-size: 12px; color: #b91c1c; font-weight: 600; }
-
-    .checkbox-wrap {
+    .contact-proposal-form {
+      max-width: 520px;
       display: flex;
-      align-items: flex-start;
-      gap: 10px;
-      font-size: 13px;
-      color: var(--muted);
-      cursor: pointer;
+      flex-direction: column;
+      gap: 0;
     }
 
-    .checkbox-wrap a { color: var(--blue); }
-
-    .form-submit {
+    .contact-proposal-form input,
+    .contact-proposal-form textarea {
       font-family: inherit;
-      font-size: 15px;
-      font-weight: 700;
-      background: var(--blue);
+      font-size: 16px;
+      font-weight: 400;
+      padding: 14px 0;
+      border: none;
+      border-bottom: 1px solid var(--line);
+      background: transparent;
+      color: var(--ink);
+      outline: none;
+      border-radius: 0;
+      transition: border-color 0.2s;
+    }
+
+    .contact-proposal-form input::placeholder,
+    .contact-proposal-form textarea::placeholder {
+      color: #9ca3af;
+    }
+
+    .contact-proposal-form input:focus,
+    .contact-proposal-form textarea:focus {
+      border-bottom-color: var(--ink);
+    }
+
+    .contact-proposal-form textarea {
+      resize: vertical;
+      min-height: 88px;
+      margin-top: 4px;
+    }
+
+    .proposal-submit {
+      font-family: inherit;
+      font-size: 16px;
+      font-weight: 500;
+      background: var(--ink);
       color: #fff;
       border: none;
-      border-radius: 12px;
-      padding: 13px 28px;
+      border-radius: 999px;
+      padding: 14px 28px;
       cursor: pointer;
-      margin-top: 8px;
-      transition: background 0.2s, transform 0.15s, opacity 0.2s;
+      margin-top: 28px;
+      width: fit-content;
+      transition: opacity 0.2s, transform 0.15s;
     }
 
-    .form-submit:hover:not(:disabled) {
-      background: #0d6de8;
+    .proposal-submit:hover:not(:disabled) {
+      opacity: 0.88;
       transform: translateY(-1px);
     }
 
-    .form-submit:disabled { opacity: 0.45; cursor: not-allowed; }
+    .proposal-submit:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .proposal-status {
+      margin-top: 16px;
+      font-size: 14px;
+      font-weight: 500;
+      line-height: 1.5;
+    }
+
+    .proposal-status.success { color: #15803d; }
+    .proposal-status.error   { color: #b91c1c; }
 
     /* ── DARK COLLAB SECTION ── */
     .contact-build {
-      background: linear-gradient(165deg, #060d18 0%, #0a1628 55%, #0f1f38 100%);
-      color: #f4f7fb;
-      padding: clamp(56px, 8vw, 88px) clamp(20px, 5vw, 48px);
-      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      background: var(--ink);
+      color: #f5f5f5;
+      padding: clamp(56px, 8vw, 88px) clamp(20px, 5vw, 56px);
     }
 
     .contact-build-inner {
-      max-width: 1180px;
+      max-width: 1240px;
       margin: 0 auto;
       display: grid;
       grid-template-columns: 1.2fr 0.8fr;
@@ -320,17 +251,17 @@
     }
 
     .contact-build h2 {
-      font-size: clamp(2rem, 5vw, 3.25rem);
-      font-weight: 800;
-      letter-spacing: -0.04em;
-      line-height: 1;
+      font-size: clamp(2rem, 5vw, 3rem);
+      font-weight: 500;
+      letter-spacing: -0.035em;
+      line-height: 1.05;
       margin-bottom: 16px;
     }
 
     .contact-build p {
       font-size: 16px;
       line-height: 1.65;
-      color: rgba(244, 247, 251, 0.68);
+      color: rgba(245, 245, 245, 0.65);
       max-width: 46ch;
     }
 
@@ -338,40 +269,54 @@
 
     .contact-build-cta {
       display: inline-flex;
-      font-size: 15px;
-      font-weight: 700;
+      font-size: 16px;
+      font-weight: 500;
       color: #fff;
-      text-decoration: none;
-      border-bottom: 1.5px solid rgba(255, 255, 255, 0.85);
-      padding-bottom: 4px;
-      transition: color 0.2s, border-color 0.2s;
+      text-decoration: underline;
+      text-underline-offset: 5px;
+      text-decoration-thickness: 1px;
+      transition: opacity 0.2s;
     }
 
-    .contact-build-cta:hover {
-      color: #67e8ff;
-      border-color: #67e8ff;
-    }
+    .contact-build-cta:hover { opacity: 0.7; }
 
     @media (max-width: 900px) {
+      .contact-hero {
+        grid-template-columns: 1fr;
+        min-height: auto;
+        padding-top: clamp(40px, 8vw, 64px);
+      }
+
+      .contact-hero-copy { max-width: none; }
+
+      .contact-hero-scene {
+        position: absolute;
+        top: 0;
+        right: -8%;
+        width: 62%;
+        height: clamp(200px, 38vw, 280px);
+        opacity: 1;
+        -webkit-mask-image: linear-gradient(90deg, transparent 0%, rgba(0,0,0,0.35) 28%, #000 55%);
+        mask-image: linear-gradient(90deg, transparent 0%, rgba(0,0,0,0.35) 28%, #000 55%);
+      }
+
+      .contact-hero { overflow: hidden; min-height: clamp(360px, 52vh, 440px); }
+
+      .contact-paths { grid-template-columns: 1fr; gap: 40px; }
       .contact-build-inner { grid-template-columns: 1fr; }
       .contact-build-cta-wrap { justify-self: start; }
+    }
+
+    @media (max-width: 520px) {
       .contact-hero-scene {
-        right: -28%;
-        width: 78vw;
-        opacity: 0.28;
+        right: -14%;
+        width: 72%;
+        height: clamp(180px, 44vw, 240px);
       }
     }
 
-    @media (max-width: 720px) {
-      .contact-hero-scene { display: none; }
-      .contact-hero-copy { max-width: none; }
-      .contact-paths,
-      .form-grid { grid-template-columns: 1fr; }
-      .form-group.full { grid-column: 1; }
-    }
-
     @media (prefers-reduced-motion: reduce) {
-      .contact-hero-scene { display: none; }
+      .contact-hero-scene { will-change: auto; }
     }
   </style>
 </head>
@@ -393,7 +338,7 @@
           min-camera-orbit="auto 60deg auto"
           max-camera-orbit="auto 95deg auto"
           shadow-intensity="0.2"
-          exposure="0.88"
+          exposure="1"
           environment-image="neutral"
           interaction-prompt="none"
         ></model-viewer>
@@ -401,85 +346,27 @@
     </section>
 
     <div class="contact-paths">
-      <article class="path-card">
+      <div class="contact-path">
         <h2 id="cms-client-title">Become a Client</h2>
         <p id="cms-client-copy">Websites, platforms, dashboards, AI tools, automation, and custom digital systems.</p>
-        <a class="path-email" id="cms-client-email-link" href="mailto:hey@inneranimalmedia.com">hey@inneranimalmedia.com</a>
-        <a class="path-cta" id="cms-client-cta" href="mailto:hey@inneranimalmedia.com"><span id="cms-client-cta-label">Start a Project</span></a>
-      </article>
-      <article class="path-card">
+        <a class="contact-link" id="cms-client-email-link" href="mailto:hey@inneranimalmedia.com">hey@inneranimalmedia.com</a>
+        <a class="contact-link-cta" id="cms-client-cta" href="#contact-proposal"><span id="cms-client-cta-label">Get in Touch</span></a>
+      </div>
+      <div class="contact-path">
         <h2 id="cms-join-title">Join Us</h2>
         <p id="cms-join-copy">Designers, developers, creators, operators, and collaborators interested in building with IAM.</p>
-        <a class="path-cta" id="cms-join-cta" href="/work"><span id="cms-join-cta-label">See Opportunities</span></a>
-      </article>
+        <a class="contact-link-cta" id="cms-join-cta" href="/work"><span id="cms-join-cta-label">See Opportunities</span></a>
+      </div>
     </div>
 
-    <div class="contact-form-wrap">
-      <div class="contact-form-glass">
-        <h2>Send a Message</h2>
-        <p class="form-lead">Share a short brief. We read every note and respond with care.</p>
-        <div id="formSuccess" class="form-alert success"></div>
-        <div id="formError" class="form-alert error"></div>
-        <form id="contactForm" novalidate>
-          <div class="form-grid">
-            <div class="form-group">
-              <label for="cf-name">Full Name *</label>
-              <input type="text" id="cf-name" name="name" required maxlength="200" autocomplete="name">
-              <span class="field-error" id="err-name"></span>
-            </div>
-            <div class="form-group">
-              <label for="cf-email">Email Address *</label>
-              <input type="email" id="cf-email" name="email" required maxlength="320" autocomplete="email">
-              <span class="field-error" id="err-email"></span>
-            </div>
-            <div class="form-group">
-              <label for="cf-company">Company</label>
-              <input type="text" id="cf-company" name="company" maxlength="200" autocomplete="organization">
-            </div>
-            <div class="form-group">
-              <label for="cf-phone">Phone</label>
-              <input type="tel" id="cf-phone" name="phone" maxlength="30" autocomplete="tel">
-            </div>
-            <div class="form-group">
-              <label for="cf-type">Project Type *</label>
-              <select id="cf-type" name="projectType" required>
-                <option value="">Select type</option>
-                <option>New Website / Application</option>
-                <option>SaaS Platform Development</option>
-                <option>Cloudflare / Edge Migration</option>
-                <option>AI Integration</option>
-                <option>Collaboration / Opportunity</option>
-                <option>Other</option>
-              </select>
-              <span class="field-error" id="err-type"></span>
-            </div>
-            <div class="form-group">
-              <label for="cf-budget">Budget Range</label>
-              <select id="cf-budget" name="budget">
-                <option value="">Select range</option>
-                <option>Under $5,000</option>
-                <option>$5,000 – $15,000</option>
-                <option>$15,000 – $50,000</option>
-                <option>$50,000+</option>
-                <option>Not sure yet</option>
-              </select>
-            </div>
-            <div class="form-group full">
-              <label for="cf-message">Message *</label>
-              <textarea id="cf-message" name="message" required minlength="10" maxlength="10000" placeholder="Tell us what you are building or exploring."></textarea>
-              <span class="field-error" id="err-message"></span>
-            </div>
-            <div class="form-group full">
-              <label class="checkbox-wrap">
-                <input type="checkbox" id="cf-agree" name="agreeToTerms" required>
-                <span>I agree to the <a href="/privacy">Privacy Policy</a> and <a href="/terms">Terms of Service</a></span>
-              </label>
-              <span class="field-error" id="err-agree"></span>
-            </div>
-          </div>
-          <button type="submit" class="form-submit" id="contactSubmit" disabled>Send Message</button>
-        </form>
-      </div>
+    <div id="contact-proposal" class="contact-proposal">
+      <form id="contactProposalForm" class="contact-proposal-form" novalidate>
+        <input type="text" id="cp-name" name="name" placeholder="Your name" required maxlength="200" autocomplete="name">
+        <input type="email" id="cp-email" name="email" placeholder="Email" required maxlength="320" autocomplete="email">
+        <textarea id="cp-message" name="message" placeholder="Brief proposal — what are you building?" required minlength="10" maxlength="10000" rows="3"></textarea>
+        <button type="submit" class="proposal-submit" id="proposalSubmit" disabled>Get in Touch</button>
+        <p id="proposalStatus" class="proposal-status" hidden></p>
+      </form>
     </div>
 
     <section class="contact-build" aria-labelledby="cms-build-title">
@@ -513,11 +400,20 @@
 
     function onScroll() {
       var rect = hero.getBoundingClientRect();
-      var vh = window.innerHeight || 1;
-      var progress = Math.min(1, Math.max(0, (vh - rect.top) / (vh + rect.height * 0.45)));
-      var theta = theta0 + progress * 26;
-      mv.setAttribute('camera-orbit', theta + 'deg ' + phi + ' ' + radius);
-      scene.style.transform = 'translate3d(0,' + (progress * 28 - 10) + 'px,0)';
+      var progress = Math.min(1, Math.max(0, -rect.top / Math.max(rect.height * 0.85, 1)));
+
+      if (progress < 0.02) {
+        scene.style.transform = 'translate3d(0, 0, 0) scale(1)';
+        mv.setAttribute('camera-orbit', base);
+      } else {
+        var tx = -progress * 64;
+        var ty = -progress * 96;
+        var tz = -progress * 48;
+        var scale = 1 - progress * 0.16;
+        scene.style.transform = 'translate3d(' + tx + 'px, ' + ty + 'px, ' + tz + 'px) scale(' + scale + ')';
+        var theta = theta0 + progress * 22;
+        mv.setAttribute('camera-orbit', theta + 'deg ' + phi + ' ' + radius);
+      }
       ticking = false;
     }
 
@@ -530,70 +426,61 @@
 
   <script>
   (function () {
-    var form    = document.getElementById('contactForm');
-    var submit  = document.getElementById('contactSubmit');
-    var success = document.getElementById('formSuccess');
-    var error   = document.getElementById('formError');
+    var form = document.getElementById('contactProposalForm');
+    var submit = document.getElementById('proposalSubmit');
+    var status = document.getElementById('proposalStatus');
+    if (!form || !submit) return;
 
     function val(id) { return (document.getElementById(id).value || '').trim(); }
-    function checked(id) { return document.getElementById(id).checked; }
-    function showErr(id, msg) { var el = document.getElementById(id); if (el) el.textContent = msg || ''; }
 
     function validate() {
-      var ok = val('cf-name') && val('cf-email') && val('cf-type') && val('cf-message').length >= 10 && checked('cf-agree');
+      var ok = val('cp-name') && val('cp-email') && val('cp-message').length >= 10;
       submit.disabled = !ok;
       return ok;
     }
 
-    form.querySelectorAll('input, select, textarea').forEach(function (el) {
+    form.querySelectorAll('input, textarea').forEach(function (el) {
       el.addEventListener('input', validate);
-      el.addEventListener('change', validate);
     });
-
     validate();
 
     form.addEventListener('submit', function (e) {
       e.preventDefault();
-      ['err-name','err-email','err-type','err-message','err-agree'].forEach(function (id) { showErr(id, ''); });
-      success.style.display = 'none';
-      error.style.display   = 'none';
+      if (!validate()) return;
+
+      status.hidden = true;
       submit.disabled = true;
       submit.textContent = 'Sending…';
-
-      var body = {
-        name: val('cf-name'),
-        email: val('cf-email'),
-        company: val('cf-company'),
-        phone: val('cf-phone'),
-        projectType: val('cf-type'),
-        budget: val('cf-budget'),
-        message: val('cf-message'),
-        agreeToTerms: checked('cf-agree'),
-        source: 'contact-page'
-      };
 
       fetch('/api/contact', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
+        body: JSON.stringify({
+          name: val('cp-name'),
+          email: val('cp-email'),
+          message: val('cp-message'),
+          source: 'contact-proposal'
+        })
       })
       .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); })
       .then(function (res) {
         if (res.ok) {
-          success.textContent = "Message sent — we'll be in touch soon.";
-          success.style.display = 'block';
+          status.textContent = "Thanks — we'll be in touch within 24 hours.";
+          status.className = 'proposal-status success';
+          status.hidden = false;
           form.reset();
           validate();
-          submit.textContent = 'Send Message';
+          submit.textContent = 'Get in Touch';
         } else {
-          throw new Error(res.data.error || 'Unknown error');
+          throw new Error(res.data.error || 'Unable to send');
         }
       })
       .catch(function (err) {
-        error.textContent = err.message || 'Something went wrong. Email hey@inneranimalmedia.com directly.';
-        error.style.display = 'block';
+        status.textContent = err.message || 'Something went wrong — email hey@inneranimalmedia.com directly.';
+        status.className = 'proposal-status error';
+        status.hidden = false;
         submit.disabled = false;
-        submit.textContent = 'Send Message';
+        submit.textContent = 'Get in Touch';
         validate();
       });
     });

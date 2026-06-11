@@ -44,8 +44,8 @@ const DEFAULTS = {
     title: 'Become a Client',
     copy: 'Websites, platforms, dashboards, AI tools, automation, and custom digital systems.',
     email: 'hey@inneranimalmedia.com',
-    cta_label: 'Start a Project',
-    cta_href: 'mailto:hey@inneranimalmedia.com',
+    cta_label: 'Get in Touch',
+    cta_href: '#contact-proposal',
   },
   join: {
     title: 'Join Us',
@@ -105,20 +105,6 @@ export function hydrateContactPageHtml(html, sections) {
     out = out.replace(
       /(<h1 id="cms-hero-headline"[^>]*>[\s\S]*?<\/h1>)/,
       `$1\n        <p class="sub">${escHtml(hero.sub)}</p>`,
-    );
-  }
-
-  if (client.label) {
-    out = out.replace(
-      /(<h2 id="cms-client-title")/,
-      `<p class="path-card-label">${escHtml(client.label)}</p>\n        $1`,
-    );
-  }
-
-  if (join.label) {
-    out = out.replace(
-      /(<h2 id="cms-join-title")/,
-      `<p class="path-card-label">${escHtml(join.label)}</p>\n        $1`,
     );
   }
 

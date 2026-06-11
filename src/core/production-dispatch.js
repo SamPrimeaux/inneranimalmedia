@@ -34,6 +34,7 @@ import { handleClientConfig } from '../api/config.js';
 import { handleDashboardApi } from '../api/dashboard.js';
 import { handleMailApi } from '../api/mail.js';
 import { handleEmailApi } from '../api/email.js';
+import { handleContactApi } from '../api/contact.js';
 import { handleLearnApi } from '../api/learn.js';
 import { handleOnboardingApi } from '../api/onboarding.js';
 import { handleAuthApi } from '../api/auth.js';
@@ -401,6 +402,10 @@ export async function dispatchProductionDomainRoutes(rc) {
 
   if (pathLower === '/api/email/send' && methodUpper === 'POST') {
     return handleEmailApi(request, env);
+  }
+
+  if (pathLower === '/api/contact' && methodUpper === 'POST') {
+    return handleContactApi(request, env);
   }
 
   if (pathLower === '/api/notifications/email' && methodUpper === 'POST') {
