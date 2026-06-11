@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Contact — Inner Animal Media</title>
+  <meta name="description" content="Get connected with Inner Animal Media — client projects, collaboration, and custom digital systems.">
+  <meta property="og:title" content="Contact — Inner Animal Media">
+  <meta property="og:url" content="https://inneranimalmedia.com/contact">
+  <link rel="canonical" href="https://inneranimalmedia.com/contact">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.5.0/model-viewer.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --navy:   #0A1628;
+      --blue:   #167BFC;
+      --muted:  #5c6b82;
+      --line:   rgba(10, 22, 40, 0.08);
+      --paper:  #f7f9fc;
+      --glass:  rgba(255, 255, 255, 0.76);
+      --radius: 18px;
+      --header-h: 76px;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Nunito', system-ui, sans-serif;
+      background: linear-gradient(180deg, #ffffff 0%, var(--paper) 42%, #e8eef6 100%);
+      color: var(--navy);
+      padding-top: var(--header-h);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    main { overflow-x: clip; }
+
+    /* ── HERO ── */
+    .contact-hero {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: clamp(48px, 8vw, 96px) clamp(20px, 5vw, 48px) clamp(32px, 5vw, 56px);
+      display: grid;
+      grid-template-columns: 1.05fr 0.95fr;
+      gap: clamp(24px, 4vw, 56px);
+      align-items: center;
+    }
+
+    .contact-hero-copy h1 {
+      font-size: clamp(2.75rem, 7.5vw, 4.75rem);
+      font-weight: 800;
+      letter-spacing: -0.045em;
+      line-height: 0.95;
+      color: var(--navy);
+    }
+
+    .contact-hero-visual {
+      min-height: clamp(280px, 38vw, 420px);
+      border-radius: calc(var(--radius) + 6px);
+      border: 1px solid var(--line);
+      background:
+        radial-gradient(circle at 30% 20%, rgba(22, 123, 252, 0.12), transparent 45%),
+        radial-gradient(circle at 80% 70%, rgba(31, 170, 173, 0.1), transparent 40%),
+        var(--glass);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      box-shadow: 0 24px 80px rgba(10, 22, 40, 0.06);
+      overflow: hidden;
+      position: relative;
+    }
+
+    .contact-hero-visual--empty {
+      background: linear-gradient(135deg, rgba(255,255,255,0.9), rgba(232,238,246,0.95));
+    }
+
+    model-viewer#cms-hero-glb {
+      width: 100%;
+      height: 100%;
+      min-height: inherit;
+      --poster-color: transparent;
+      background: transparent;
+    }
+
+    /* ── PATH CARDS ── */
+    .contact-paths {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 0 clamp(20px, 5vw, 48px) clamp(40px, 6vw, 72px);
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: clamp(16px, 3vw, 28px);
+    }
+
+    .path-card {
+      padding: clamp(28px, 4vw, 40px);
+      border-radius: var(--radius);
+      border: 1px solid var(--line);
+      background: var(--glass);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      box-shadow: 0 12px 40px rgba(10, 22, 40, 0.04);
+    }
+
+    .path-card h2 {
+      font-size: clamp(1.35rem, 2.5vw, 1.75rem);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      margin-bottom: 14px;
+    }
+
+    .path-card p {
+      font-size: 15px;
+      line-height: 1.65;
+      color: var(--muted);
+      margin-bottom: 22px;
+      max-width: 38ch;
+    }
+
+    .path-card .path-email {
+      display: block;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--navy);
+      text-decoration: none;
+      margin-bottom: 18px;
+      letter-spacing: 0.01em;
+    }
+
+    .path-card .path-email:hover { color: var(--blue); }
+
+    .path-cta {
+      display: inline-flex;
+      align-items: center;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--navy);
+      text-decoration: none;
+      border-bottom: 1.5px solid var(--navy);
+      padding-bottom: 2px;
+      transition: color 0.2s, border-color 0.2s;
+    }
+
+    .path-cta:hover {
+      color: var(--blue);
+      border-color: var(--blue);
+    }
+
+    /* ── FORM ── */
+    .contact-form-wrap {
+      max-width: 1180px;
+      margin: 0 auto clamp(48px, 7vw, 80px);
+      padding: 0 clamp(20px, 5vw, 48px);
+    }
+
+    .contact-form-glass {
+      border-radius: calc(var(--radius) + 4px);
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.88);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      padding: clamp(28px, 4vw, 48px);
+      box-shadow: 0 20px 60px rgba(10, 22, 40, 0.05);
+    }
+
+    .contact-form-glass h2 {
+      font-size: clamp(1.4rem, 3vw, 1.85rem);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      margin-bottom: 8px;
+    }
+
+    .form-lead {
+      font-size: 14px;
+      color: var(--muted);
+      margin-bottom: 28px;
+      max-width: 52ch;
+    }
+
+    .form-alert {
+      padding: 12px 16px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 20px;
+      display: none;
+    }
+
+    .form-alert.success { background: rgba(34, 197, 94, 0.12); color: #15803d; }
+    .form-alert.error   { background: rgba(239, 68, 68, 0.12); color: #b91c1c; }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    .form-group { display: flex; flex-direction: column; gap: 6px; }
+    .form-group.full { grid-column: 1 / -1; }
+
+    .form-group label {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--navy);
+    }
+
+    .form-group input,
+    .form-group select,
+    .form-group textarea {
+      font-family: inherit;
+      font-size: 14px;
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.92);
+      color: var(--navy);
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .form-group input:focus,
+    .form-group select:focus,
+    .form-group textarea:focus {
+      border-color: rgba(22, 123, 252, 0.45);
+      box-shadow: 0 0 0 3px rgba(22, 123, 252, 0.1);
+    }
+
+    .form-group textarea { resize: vertical; min-height: 128px; }
+
+    .field-error { font-size: 12px; color: #b91c1c; font-weight: 600; }
+
+    .checkbox-wrap {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      font-size: 13px;
+      color: var(--muted);
+      cursor: pointer;
+    }
+
+    .checkbox-wrap a { color: var(--blue); }
+
+    .form-submit {
+      font-family: inherit;
+      font-size: 15px;
+      font-weight: 700;
+      background: var(--blue);
+      color: #fff;
+      border: none;
+      border-radius: 12px;
+      padding: 13px 28px;
+      cursor: pointer;
+      margin-top: 8px;
+      transition: background 0.2s, transform 0.15s, opacity 0.2s;
+    }
+
+    .form-submit:hover:not(:disabled) {
+      background: #0d6de8;
+      transform: translateY(-1px);
+    }
+
+    .form-submit:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    /* ── DARK COLLAB SECTION ── */
+    .contact-build {
+      background: linear-gradient(165deg, #060d18 0%, #0a1628 55%, #0f1f38 100%);
+      color: #f4f7fb;
+      padding: clamp(56px, 8vw, 88px) clamp(20px, 5vw, 48px);
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .contact-build-inner {
+      max-width: 1180px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 32px;
+      align-items: end;
+    }
+
+    .contact-build h2 {
+      font-size: clamp(2rem, 5vw, 3.25rem);
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      line-height: 1;
+      margin-bottom: 16px;
+    }
+
+    .contact-build p {
+      font-size: 16px;
+      line-height: 1.65;
+      color: rgba(244, 247, 251, 0.68);
+      max-width: 46ch;
+    }
+
+    .contact-build-cta-wrap { justify-self: end; }
+
+    .contact-build-cta {
+      display: inline-flex;
+      font-size: 15px;
+      font-weight: 700;
+      color: #fff;
+      text-decoration: none;
+      border-bottom: 1.5px solid rgba(255, 255, 255, 0.85);
+      padding-bottom: 4px;
+      transition: color 0.2s, border-color 0.2s;
+    }
+
+    .contact-build-cta:hover {
+      color: #67e8ff;
+      border-color: #67e8ff;
+    }
+
+    @media (max-width: 900px) {
+      .contact-hero,
+      .contact-build-inner { grid-template-columns: 1fr; }
+      .contact-build-cta-wrap { justify-self: start; }
+    }
+
+    @media (max-width: 720px) {
+      .contact-paths,
+      .form-grid { grid-template-columns: 1fr; }
+      .form-group.full { grid-column: 1; }
+    }
+  </style>
+</head>
+<body data-iam-header="light" data-footer-theme="dark">
+
+  <main>
+
+    <section class="contact-hero" aria-labelledby="cms-hero-headline">
+      <div class="contact-hero-copy">
+        <h1 id="cms-hero-headline">Get Connected</h1>
+      </div>
+      <div class="contact-hero-visual">
+        <model-viewer
+          id="cms-hero-glb"
+          src="https://pub-e733f82cb31c4f34b6a719e749d0416d.r2.dev/Kinetic_Symmetry_0831084700_generate%20(1).glb"
+          alt="Abstract form"
+          auto-rotate
+          rotation-per-second="12deg"
+          camera-controls
+          touch-action="pan-y"
+          shadow-intensity="0.55"
+          exposure="0.92"
+          environment-image="neutral"
+          interaction-prompt="none"
+        ></model-viewer>
+      </div>
+    </section>
+
+    <div class="contact-paths">
+      <article class="path-card">
+        <h2 id="cms-client-title">Become a Client</h2>
+        <p id="cms-client-copy">Websites, platforms, dashboards, AI tools, automation, and custom digital systems.</p>
+        <a class="path-email" id="cms-client-email-link" href="mailto:hey@inneranimalmedia.com">hey@inneranimalmedia.com</a>
+        <a class="path-cta" id="cms-client-cta" href="mailto:hey@inneranimalmedia.com"><span id="cms-client-cta-label">Start a Project</span></a>
+      </article>
+      <article class="path-card">
+        <h2 id="cms-join-title">Join Us</h2>
+        <p id="cms-join-copy">Designers, developers, creators, operators, and collaborators interested in building with IAM.</p>
+        <a class="path-cta" id="cms-join-cta" href="/work"><span id="cms-join-cta-label">See Opportunities</span></a>
+      </article>
+    </div>
+
+    <div class="contact-form-wrap">
+      <div class="contact-form-glass">
+        <h2>Send a Message</h2>
+        <p class="form-lead">Share a short brief. We read every note and respond with care.</p>
+        <div id="formSuccess" class="form-alert success"></div>
+        <div id="formError" class="form-alert error"></div>
+        <form id="contactForm" novalidate>
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="cf-name">Full Name *</label>
+              <input type="text" id="cf-name" name="name" required maxlength="200" autocomplete="name">
+              <span class="field-error" id="err-name"></span>
+            </div>
+            <div class="form-group">
+              <label for="cf-email">Email Address *</label>
+              <input type="email" id="cf-email" name="email" required maxlength="320" autocomplete="email">
+              <span class="field-error" id="err-email"></span>
+            </div>
+            <div class="form-group">
+              <label for="cf-company">Company</label>
+              <input type="text" id="cf-company" name="company" maxlength="200" autocomplete="organization">
+            </div>
+            <div class="form-group">
+              <label for="cf-phone">Phone</label>
+              <input type="tel" id="cf-phone" name="phone" maxlength="30" autocomplete="tel">
+            </div>
+            <div class="form-group">
+              <label for="cf-type">Project Type *</label>
+              <select id="cf-type" name="projectType" required>
+                <option value="">Select type</option>
+                <option>New Website / Application</option>
+                <option>SaaS Platform Development</option>
+                <option>Cloudflare / Edge Migration</option>
+                <option>AI Integration</option>
+                <option>Collaboration / Opportunity</option>
+                <option>Other</option>
+              </select>
+              <span class="field-error" id="err-type"></span>
+            </div>
+            <div class="form-group">
+              <label for="cf-budget">Budget Range</label>
+              <select id="cf-budget" name="budget">
+                <option value="">Select range</option>
+                <option>Under $5,000</option>
+                <option>$5,000 – $15,000</option>
+                <option>$15,000 – $50,000</option>
+                <option>$50,000+</option>
+                <option>Not sure yet</option>
+              </select>
+            </div>
+            <div class="form-group full">
+              <label for="cf-message">Message *</label>
+              <textarea id="cf-message" name="message" required minlength="10" maxlength="10000" placeholder="Tell us what you are building or exploring."></textarea>
+              <span class="field-error" id="err-message"></span>
+            </div>
+            <div class="form-group full">
+              <label class="checkbox-wrap">
+                <input type="checkbox" id="cf-agree" name="agreeToTerms" required>
+                <span>I agree to the <a href="/privacy">Privacy Policy</a> and <a href="/terms">Terms of Service</a></span>
+              </label>
+              <span class="field-error" id="err-agree"></span>
+            </div>
+          </div>
+          <button type="submit" class="form-submit" id="contactSubmit" disabled>Send Message</button>
+        </form>
+      </div>
+    </div>
+
+    <section class="contact-build" aria-labelledby="cms-build-title">
+      <div class="contact-build-inner">
+        <div>
+          <h2 id="cms-build-title">Build with us.</h2>
+          <p id="cms-build-copy">We partner with people who care about craft, systems, and long-term product quality.</p>
+        </div>
+        <div class="contact-build-cta-wrap">
+          <a class="contact-build-cta" id="cms-build-cta" href="/work"><span id="cms-build-cta-label">See Opportunities</span></a>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <script>
+  (function () {
+    var form    = document.getElementById('contactForm');
+    var submit  = document.getElementById('contactSubmit');
+    var success = document.getElementById('formSuccess');
+    var error   = document.getElementById('formError');
+
+    function val(id) { return (document.getElementById(id).value || '').trim(); }
+    function checked(id) { return document.getElementById(id).checked; }
+    function showErr(id, msg) { var el = document.getElementById(id); if (el) el.textContent = msg || ''; }
+
+    function validate() {
+      var ok = val('cf-name') && val('cf-email') && val('cf-type') && val('cf-message').length >= 10 && checked('cf-agree');
+      submit.disabled = !ok;
+      return ok;
+    }
+
+    form.querySelectorAll('input, select, textarea').forEach(function (el) {
+      el.addEventListener('input', validate);
+      el.addEventListener('change', validate);
+    });
+
+    validate();
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      ['err-name','err-email','err-type','err-message','err-agree'].forEach(function (id) { showErr(id, ''); });
+      success.style.display = 'none';
+      error.style.display   = 'none';
+      submit.disabled = true;
+      submit.textContent = 'Sending…';
+
+      var body = {
+        name: val('cf-name'),
+        email: val('cf-email'),
+        company: val('cf-company'),
+        phone: val('cf-phone'),
+        projectType: val('cf-type'),
+        budget: val('cf-budget'),
+        message: val('cf-message'),
+        agreeToTerms: checked('cf-agree'),
+        source: 'contact-page'
+      };
+
+      fetch('/api/contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      })
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); })
+      .then(function (res) {
+        if (res.ok) {
+          success.textContent = "Message sent — we'll be in touch soon.";
+          success.style.display = 'block';
+          form.reset();
+          validate();
+          submit.textContent = 'Send Message';
+        } else {
+          throw new Error(res.data.error || 'Unknown error');
+        }
+      })
+      .catch(function (err) {
+        error.textContent = err.message || 'Something went wrong. Email hey@inneranimalmedia.com directly.';
+        error.style.display = 'block';
+        submit.disabled = false;
+        submit.textContent = 'Send Message';
+        validate();
+      });
+    });
+  })();
+  </script>
+
+</body>
+</html>

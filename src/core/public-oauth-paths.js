@@ -66,6 +66,9 @@ export const PUBLIC_OAUTH_PATHS = [
   '/learn',
   '/start',
   '/auth/reset',
+
+  // Public CMS section reads (marketing page hydration)
+  '/api/public/cms',
 ];
 
 /**

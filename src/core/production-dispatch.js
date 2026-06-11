@@ -8,6 +8,7 @@
 
 import { handleAgentRequest } from '../api/agent.js';
 import { handleCmsApi } from '../api/cms.js';
+import { handlePublicCmsApi } from '../api/cms-public.js';
 import { handleBrowserTrust } from '../api/browser-trust.js';
 import { handleAgentSamRegistryRequest } from '../api/agentsam.js';
 import { handleTimeDispatch } from '../tools/time.js';
@@ -123,6 +124,10 @@ export async function dispatchProductionDomainRoutes(rc) {
   if (pathLower.startsWith('/api/agentsam')) {
     const res = await handleAgentSamRegistryRequest(request, env, ctx, authUser);
     if (res && res.status !== 404) return res;
+  }
+
+  if (pathLower.startsWith('/api/public/cms')) {
+    return handlePublicCmsApi(request, url, env);
   }
 
   if (pathLower.startsWith('/api/cms')) {

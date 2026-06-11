@@ -17,6 +17,8 @@ import {
   AuthError,
 } from './core/auth';
 import { isPublicOAuthPath, publicOAuthRequestContext } from './core/public-oauth-paths.js';
+import { loadPublishedCmsSectionsByRoute } from './core/cms-public-page.js';
+import { hydrateContactPageHtml } from './core/cms-contact-hydrate.js';
 import { resolveIdentity } from './core/identity.js';
 import { generateMcpToken } from './core/mcp-auth.js';
 import {
@@ -390,6 +392,19 @@ export default {
         // iam-header/iam-footer duplicates chrome and breaks fixed globe/canvas layout.
         const skipShellInject =
           typeof assetHtmlKey === 'string' && assetHtmlKey.startsWith('pages/auth/');
+        let pageBody = obj.body;
+        if (assetHtmlKey === 'pages/contact/index.html') {
+          let htmlText = await obj.text();
+          if (env.DB) {
+            try {
+              const cmsBundle = await loadPublishedCmsSectionsByRoute(env.DB, '/contact');
+              htmlText = hydrateContactPageHtml(htmlText, cmsBundle.sections);
+            } catch (e) {
+              console.warn('[contact] cms hydrate failed (serving static shell):', e?.message);
+            }
+          }
+          pageBody = htmlText;
+        }
         return new HTMLRewriter()
           .on('body', {
             element(el) {
@@ -397,7 +412,7 @@ export default {
               if (!skipShellInject && footerHtml) el.append(footerHtml, { html: true });
             }
           })
-          .transform(new Response(obj.body, {
+          .transform(new Response(pageBody, {
             headers: { 'Content-Type': contentType, 'Cache-Control': 'public, max-age=300' },
           }));
       }

@@ -331,5 +331,71 @@ export async function handleCmsApi(request, url, env, ctx) {
     }
   }
 
+  /**
+   * GET /api/cms/sections?page_id=
+   * List editable sections for a CMS page (dashboard / CMS editor).
+   */
+  if (path === '/api/cms/sections' && method === 'GET') {
+    const pageId = String(url.searchParams.get('page_id') || '').trim();
+    if (!pageId) return jsonResponse({ error: 'page_id is required' }, 400);
+    try {
+      const page = await env.DB.prepare(
+        `SELECT id, route_path, slug, title FROM cms_pages WHERE id = ? AND tenant_id = ? LIMIT 1`,
+      )
+        .bind(pageId, tenantId)
+        .first();
+      if (!page) return jsonResponse({ error: 'Page not found' }, 404);
+      const { results } = await env.DB.prepare(
+        `SELECT id, page_id, section_type, section_name, section_data, sort_order, is_visible, updated_at
+         FROM cms_page_sections WHERE page_id = ? ORDER BY sort_order ASC, section_name ASC`,
+      )
+        .bind(pageId)
+        .all();
+      return jsonResponse({ page, sections: results || [] });
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
+  /**
+   * PUT /api/cms/sections/:id
+   * Update section_data JSON for a page section.
+   */
+  const sectionIdMatch = path.match(/^\/api\/cms\/sections\/([^/]+)$/);
+  if (sectionIdMatch && method === 'PUT') {
+    const sectionId = sectionIdMatch[1];
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: 'Invalid JSON body' }, 400);
+    }
+    const sectionData = body.section_data ?? body.sectionData;
+    if (sectionData == null) return jsonResponse({ error: 'section_data is required' }, 400);
+    const payload =
+      typeof sectionData === 'string' ? sectionData : JSON.stringify(sectionData);
+    try {
+      const row = await env.DB.prepare(
+        `SELECT s.id, s.page_id, p.tenant_id
+         FROM cms_page_sections s
+         JOIN cms_pages p ON p.id = s.page_id
+         WHERE s.id = ? LIMIT 1`,
+      )
+        .bind(sectionId)
+        .first();
+      if (!row || String(row.tenant_id) !== String(tenantId)) {
+        return jsonResponse({ error: 'Section not found' }, 404);
+      }
+      await env.DB.prepare(
+        `UPDATE cms_page_sections SET section_data = ?, updated_at = datetime('now') WHERE id = ?`,
+      )
+        .bind(payload, sectionId)
+        .run();
+      return jsonResponse({ success: true, id: sectionId });
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
   return jsonResponse({ error: 'CMS route not found' }, 404);
 }
