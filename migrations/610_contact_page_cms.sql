@@ -51,7 +51,7 @@ INSERT OR IGNORE INTO cms_page_sections (
   'page_contact',
   'hero',
   'contact_hero',
-  '{"headline":"Get Connected","glb_asset_id":"ds_stock_kinetic_symmetry","glb_url":"https://pub-e733f82cb31c4f34b6a719e749d0416d.r2.dev/Kinetic_Symmetry_0831084700_generate%20(1).glb","glb_alt":"Abstract form","glb_enabled":true}',
+  '{"headline":"Get Connected","glb_asset_id":"ds_stock_meshy_jet","glb_url":"/assets/glb/Meshy_AI_Jet_in_Flight_0104205113_texture.glb","glb_alt":"Meshy jet in flight","glb_enabled":true}',
   10,
   1
 );
