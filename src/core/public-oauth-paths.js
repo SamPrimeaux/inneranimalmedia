@@ -13,6 +13,9 @@ export const PUBLIC_OAUTH_PATHS = [
   '/api/oauth/userinfo',
   '/api/oauth/mcp/consent',
   '/oauth/mcp/consent',
+  '/auth/login',
+  '/auth/signup',
+  '/auth/reset',
   '/api/health',
   '/health',
 ];
