@@ -39,20 +39,8 @@ function parseJsonObject(value) {
  * @param {string} tenantId
  */
 export async function canViewPlatformVectorRegistry(env, authUser, tenantId) {
-  if (authUserIsSuperadmin(authUser)) return true;
-  const email = String(authUser?.email || '').trim().toLowerCase();
-  if (email && env?.DB) {
-    try {
-      const row = await env.DB.prepare(
-        `SELECT 1 FROM superadmin_identity WHERE LOWER(email) = ? AND COALESCE(is_enabled, 0) = 1 LIMIT 1`,
-      )
-        .bind(email)
-        .first();
-      if (row) return true;
-    } catch (_) {
-      /* table optional */
-    }
-  }
+  const { isPlatformOwner } = await import('./operator-identity.js');
+  if (await isPlatformOwner(env, authUser)) return true;
   const uid = String(authUser?.id || '').trim();
   if (!uid.startsWith('au_')) return false;
   return String(tenantId || '').trim() === PLATFORM_VECTOR_TENANT;

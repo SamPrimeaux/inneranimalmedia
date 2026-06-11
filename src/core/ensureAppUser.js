@@ -1,6 +1,7 @@
 /**
  * D1 owns canonical app user ids (auth_users.id). Supabase Auth UUID lives in auth_users.supabase_user_id only.
  */
+import { resolveAuthUserByEmail, upsertAuthUserEmail } from './resolve-auth-user.js';
 
 /**
  * @returns {string} e.g. au_ + 16 hex chars (8 random bytes)
@@ -100,11 +101,7 @@ export async function ensureAppUser(env, identity, options = {}) {
       }
     }
 
-    const byEmail = await env.DB.prepare(
-      `SELECT id, email, name, tenant_id, supabase_user_id FROM auth_users WHERE LOWER(email) = ? LIMIT 1`,
-    )
-      .bind(email)
-      .first();
+    const byEmail = await resolveAuthUserByEmail(env, email);
 
     if (byEmail?.id) {
       const id = String(byEmail.id);
@@ -156,6 +153,14 @@ export async function ensureAppUser(env, identity, options = {}) {
     )
       .bind(id, email, name, passwordHash, salt, supabaseUserId || null, tenantId, userKey, workspaceId)
       .run();
+
+    await upsertAuthUserEmail(env, {
+      authUserId: id,
+      email,
+      kind: 'primary',
+      tenantId,
+      isLoginEnabled: true,
+    });
 
     const row = await env.DB.prepare(
       `SELECT id, email, name, tenant_id, supabase_user_id FROM auth_users WHERE id = ? LIMIT 1`,

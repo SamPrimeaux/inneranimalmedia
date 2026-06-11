@@ -130,9 +130,8 @@ export async function buildSuperadminContext(env, sessionId, sessionUserKey) {
   if (!key) throw new Error('empty session user key');
   let authRow = null;
   if (key.includes('@')) {
-    authRow = await env.DB.prepare(
-      `SELECT * FROM auth_users WHERE LOWER(email) = LOWER(?) LIMIT 1`
-    ).bind(key).first();
+    const { resolveAuthUserByEmail } = await import('./resolve-auth-user.js');
+    authRow = await resolveAuthUserByEmail(env, key);
   } else {
     authRow = await env.DB.prepare(
       `SELECT * FROM auth_users WHERE id = ? LIMIT 1`

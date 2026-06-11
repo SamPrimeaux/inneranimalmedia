@@ -389,7 +389,10 @@ export default {
         // Auth shells (pages/auth/*.html) ship their own nav + compact footer; injecting
         // iam-header/iam-footer duplicates chrome and breaks fixed globe/canvas layout.
         const skipShellInject =
-          typeof assetHtmlKey === 'string' && assetHtmlKey.startsWith('pages/auth/');
+          typeof assetHtmlKey === 'string' &&
+          (assetHtmlKey.startsWith('pages/auth/') ||
+            assetHtmlKey === 'pages/privacy/index.html' ||
+            assetHtmlKey === 'pages/terms/index.html');
         return new HTMLRewriter()
           .on('body', {
             element(el) {

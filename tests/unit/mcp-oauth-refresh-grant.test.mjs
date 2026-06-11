@@ -9,8 +9,8 @@ import {
 } from '../../src/api/mcp-oauth-shared.js';
 
 describe('MCP OAuth refresh grant constants', () => {
-  it('exposes 1h access + 90d refresh defaults', () => {
-    assert.equal(MCP_OAUTH_ACCESS_WITH_REFRESH_TTL_SECONDS, 3600);
+  it('exposes 7d access + 90d refresh defaults', () => {
+    assert.equal(MCP_OAUTH_ACCESS_WITH_REFRESH_TTL_SECONDS, 7 * 24 * 60 * 60);
     assert.equal(MCP_OAUTH_REFRESH_TOKEN_TTL_SECONDS, 90 * 86400);
   });
 
@@ -22,9 +22,9 @@ describe('MCP OAuth refresh grant constants', () => {
 });
 
 describe('resolveMcpOAuthAccessTtlSeconds', () => {
-  it('uses 1h for standard OAuth clients', () => {
-    assert.equal(resolveMcpOAuthAccessTtlSeconds({}, 'claude'), 3600);
-    assert.equal(resolveMcpOAuthAccessTtlSeconds({}, null), 3600);
+  it('uses 7d for standard OAuth clients', () => {
+    assert.equal(resolveMcpOAuthAccessTtlSeconds({}, 'claude'), 7 * 24 * 60 * 60);
+    assert.equal(resolveMcpOAuthAccessTtlSeconds({}, null), 7 * 24 * 60 * 60);
   });
 
   it('keeps long TTL for Cursor', () => {

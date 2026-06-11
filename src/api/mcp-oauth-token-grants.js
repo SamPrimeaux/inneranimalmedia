@@ -39,6 +39,16 @@ import {
   assertMcpOAuthTokenClientAuth,
   logMcpOAuthTokenFailure,
 } from './oauth.js';
+import {
+  isPlatformOperator,
+  platformOperatorDefaultWorkspaceId,
+} from '../core/operator-identity.js';
+import { isIamServiceIdentityLane } from '../core/resolve-auth-user.js';
+import { mcpOAuthRecoveryExtras } from '../core/identity-recovery.js';
+
+function trim(v) {
+  return v == null ? '' : String(v).trim();
+}
 
 function mcpOAuthRequestMeta(request) {
   return {
@@ -172,7 +182,11 @@ async function buildAuthorizationCodeTokenContext(env, request, body) {
   if (!userId) return { error: mcpOAuthJsonError('invalid_user', 400) };
 
   const authRow = await env.DB.prepare(
-    `SELECT id, email, name, tenant_id, person_uuid
+    `SELECT id, email, name, tenant_id, person_uuid, role,
+            COALESCE(is_superadmin, 0) AS is_superadmin,
+            account_type, COALESCE(iam_owned, 0) AS iam_owned,
+            COALESCE(downgrade_protected, 0) AS downgrade_protected,
+            default_workspace_id, active_workspace_id
        FROM auth_users
       WHERE id = ?
       LIMIT 1`,
@@ -182,12 +196,24 @@ async function buildAuthorizationCodeTokenContext(env, request, body) {
     .catch(() => null);
 
   const tenantId = String(authCodeRow.tenant_id || authRow?.tenant_id || env.TENANT_ID || '');
-  const workspaceId = await resolveCanonicalWorkspace(env, userId);
-  if (!workspaceId) {
+  let workspaceId = await resolveCanonicalWorkspace(env, userId);
+  const operatorAtMint = await isPlatformOperator(env, authRow);
+  const serviceLane = isIamServiceIdentityLane(authRow);
+  if (!workspaceId && !operatorAtMint && !serviceLane) {
     await logMcpOAuthTokenFailure(env, request, 'invalid_workspace', {
       client_id: body.client_id || authCodeRow.client_id,
     });
-    return { error: mcpOAuthJsonError('invalid_workspace', 400) };
+    return {
+      error: mcpOAuthJsonError('invalid_workspace', 400, mcpOAuthRecoveryExtras('invalid_workspace')),
+    };
+  }
+  if (operatorAtMint) {
+    workspaceId = await platformOperatorDefaultWorkspaceId(env);
+  } else if (serviceLane) {
+    workspaceId =
+      trim(authRow?.active_workspace_id) ||
+      trim(authRow?.default_workspace_id) ||
+      workspaceId;
   }
 
   let boundResource = IAM_MCP_RESOURCE_URL;
@@ -248,12 +274,26 @@ async function buildAuthorizationCodeTokenContext(env, request, body) {
     personUuid: authRow?.person_uuid || null,
     clientId: authCodeRow.client_id,
   };
-  const intersected = await intersectOAuthToolsWithUserPolicy(env, actorScope, authCodeRow.client_id);
-  let tokenToolKeys = intersected.keys;
-  if (!tokenToolKeys.length) {
-    const fallbackKeys = await loadMcpOAuthExternalToolKeys(env, MCP_CANONICAL_CLIENT_ID);
-    if (fallbackKeys?.length) tokenToolKeys = fallbackKeys;
+
+  let tokenToolKeys;
+  let intersected;
+  let domainsPayload;
+  let oauthAllowedToolsJson;
+
+  if (operatorAtMint || serviceLane) {
+    tokenToolKeys = (await loadMcpOAuthExternalToolKeys(env, authCodeRow.client_id)) || [];
+    intersected = { keys: tokenToolKeys, policy: { require_allowlist_for_mcp: 0 }, requireAllowlist: false };
+    oauthAllowedToolsJson = null;
+  } else {
+    intersected = await intersectOAuthToolsWithUserPolicy(env, actorScope, authCodeRow.client_id);
+    tokenToolKeys = intersected.keys;
+    if (!tokenToolKeys.length) {
+      const fallbackKeys = await loadMcpOAuthExternalToolKeys(env, MCP_CANONICAL_CLIENT_ID);
+      if (fallbackKeys?.length) tokenToolKeys = fallbackKeys;
+    }
+    oauthAllowedToolsJson = tokenToolKeys.length ? JSON.stringify(tokenToolKeys) : '[]';
   }
+
   const allowlistRows = await loadMcpOAuthAllowlistRows(env, authCodeRow.client_id);
   const scopeWithAgent = augmentMcpOAuthScopeForWriteTools(scope, allowlistRows, tokenToolKeys);
   const entitlements = await buildMcpOAuthTokenEntitlements(
@@ -262,9 +302,9 @@ async function buildAuthorizationCodeTokenContext(env, request, body) {
     scopeWithAgent,
     tokenToolKeys,
   );
-  const domainsPayload = oauthToolAccessDomainsPayload(
+  domainsPayload = oauthToolAccessDomainsPayload(
     entitlements,
-    intersected.policy,
+    operatorAtMint || serviceLane ? { require_allowlist_for_mcp: 0 } : intersected.policy,
     externalClientKey,
   );
 
@@ -279,13 +319,57 @@ async function buildAuthorizationCodeTokenContext(env, request, body) {
     scopeWithAgent,
     resourceCheck,
     externalClientKey,
-    oauthAllowedToolsJson: tokenToolKeys.length ? JSON.stringify(tokenToolKeys) : '[]',
+    oauthAllowedToolsJson,
     entitlements,
     domainsPayload,
   };
 }
 
 async function issueMcpOAuthTokens(env, request, ctx) {
+  const userRow = await env.DB.prepare(
+    `SELECT id, role, tenant_id, person_uuid, COALESCE(is_superadmin, 0) AS is_superadmin,
+            account_type, COALESCE(iam_owned, 0) AS iam_owned,
+            COALESCE(downgrade_protected, 0) AS downgrade_protected,
+            default_workspace_id, active_workspace_id
+       FROM auth_users WHERE id = ? LIMIT 1`,
+  )
+    .bind(ctx.userId)
+    .first()
+    .catch(() => null);
+
+  const operator = await isPlatformOperator(env, userRow);
+  const serviceLane = isIamServiceIdentityLane(userRow);
+  let workspaceId = ctx.workspaceId;
+  let tenantId = ctx.tenantId;
+  let allowedTools = ctx.oauthAllowedToolsJson;
+  let domainsPayload = ctx.domainsPayload;
+
+  if (operator) {
+    workspaceId = await platformOperatorDefaultWorkspaceId(env);
+    tenantId = String(userRow?.tenant_id || ctx.tenantId || '').trim() || ctx.tenantId;
+    allowedTools = null;
+    try {
+      const parsed = typeof domainsPayload === 'string' ? JSON.parse(domainsPayload) : { ...domainsPayload };
+      parsed.require_allowlist_for_mcp = 0;
+      domainsPayload = JSON.stringify(parsed);
+    } catch {
+      domainsPayload = JSON.stringify({ require_allowlist_for_mcp: 0 });
+    }
+  } else if (serviceLane) {
+    workspaceId =
+      trim(userRow?.active_workspace_id) ||
+      trim(userRow?.default_workspace_id) ||
+      ctx.workspaceId;
+    allowedTools = null;
+    try {
+      const parsed = typeof domainsPayload === 'string' ? JSON.parse(domainsPayload) : { ...domainsPayload };
+      parsed.require_allowlist_for_mcp = 0;
+      domainsPayload = JSON.stringify(parsed);
+    } catch {
+      domainsPayload = JSON.stringify({ require_allowlist_for_mcp: 0 });
+    }
+  }
+
   const accessToken = mcpOAuthRandomToken('mcp_oauth', 32);
   const refreshToken = mcpOAuthRandomToken('mcp_rfr', 32);
   const tokenHash = await mcpOAuthSha256Hex(accessToken);
@@ -297,11 +381,11 @@ async function issueMcpOAuthTokens(env, request, ctx) {
 
   await insertMcpOAuthTokenRow(env, {
     id: `tok_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`,
-    workspace_id: ctx.workspaceId,
-    tenant_id: ctx.tenantId,
+    workspace_id: workspaceId,
+    tenant_id: tenantId,
     label: `MCP OAuth ${ctx.authRow?.email || ctx.userId}`,
     token_hash: tokenHash,
-    allowed_tools: ctx.oauthAllowedToolsJson,
+    allowed_tools: allowedTools,
     repo_path: ctx.wsBindings.repo_path || null,
     github_repo: ctx.wsBindings.github_repo || null,
     rate_limit_per_hour: 100,
@@ -311,7 +395,7 @@ async function issueMcpOAuthTokens(env, request, ctx) {
     allowed_capability_keys_json: JSON.stringify(ctx.entitlements.capabilityKeys),
     allowed_lanes_json: JSON.stringify(ctx.entitlements.lanes),
     allowed_risk_levels_json: JSON.stringify(ctx.entitlements.riskLevels),
-    allowed_domains_json: ctx.domainsPayload,
+    allowed_domains_json: domainsPayload,
     audience: ctx.resourceCheck.resource,
     refresh_token_hash: refreshHash,
     refresh_expires_at: refreshExpiresAt,
@@ -319,7 +403,7 @@ async function issueMcpOAuthTokens(env, request, ctx) {
 
   await logMcpTokenIssued(env, request, ctx.userId, {
     client_id: ctx.authCodeRow?.client_id || ctx.clientId || null,
-    workspace_id: ctx.workspaceId,
+    workspace_id: workspaceId,
   });
 
   await logAuthEvent(env, {
@@ -328,7 +412,7 @@ async function issueMcpOAuthTokens(env, request, ctx) {
     userId: ctx.userId,
     metadata: {
       client_id: ctx.authCodeRow?.client_id || ctx.clientId || null,
-      workspace_id: ctx.workspaceId,
+      workspace_id: workspaceId,
       ...mcpOAuthRequestMeta(request),
     },
   }).catch(() => {});
@@ -411,8 +495,9 @@ export async function handleMcpOAuthRefreshTokenGrant(request, env, body) {
     await logMcpOAuthTokenFailure(env, request, 'invalid_grant_expired', {
       grant: 'refresh_token',
       token_id: row.id,
+      ...mcpOAuthRecoveryExtras('invalid_grant_expired'),
     });
-    return mcpOAuthJsonError('invalid_grant', 400);
+    return mcpOAuthJsonError('invalid_grant_expired', 400, mcpOAuthRecoveryExtras('invalid_grant_expired'));
   }
 
   const storedClientId = parseOAuthClientIdFromDomains(row.allowed_domains_json);

@@ -4,7 +4,7 @@
  * Superadmin may use Worker bindings when present, otherwise account S3 credentials.
  * Non-owners remain blocked from auth_source=platform R2 paths.
  */
-import { authUserIsSuperadmin } from './auth.js';
+export { isPlatformOwner, isPlatformOperator, platformOperatorDefaultWorkspaceId } from './operator-identity.js';
 
 /**
  * @param {any} env
@@ -107,29 +107,6 @@ export async function resolveToolRunAuthUser(env, runContext) {
     return { ...(existing && typeof existing === 'object' ? existing : {}), ...row };
   } catch {
     return existing;
-  }
-}
-
-/**
- * @param {any} env
- * @param {Record<string, unknown>|null|undefined} authUser
- */
-export async function isPlatformOwner(env, authUser) {
-  if (!authUser) return false;
-  if (authUserIsSuperadmin(authUser)) return true;
-  const email = String(authUser?.email || '').trim().toLowerCase();
-  if (!email || !env?.DB) return false;
-  try {
-    const row = await env.DB.prepare(
-      `SELECT 1 FROM superadmin_identity
-        WHERE LOWER(email) = ? AND COALESCE(is_enabled, 0) = 1
-        LIMIT 1`,
-    )
-      .bind(email)
-      .first();
-    return !!row;
-  } catch {
-    return false;
   }
 }
 

@@ -81,11 +81,18 @@ function mcpOAuthRequestMeta(request) {
 }
 
 async function logMcpOAuthTokenFailure(env, request, error, extra = {}) {
+  let recovery = extra.recovery ?? null;
+  if (!recovery) {
+    try {
+      const { mcpOAuthRecoveryExtras } = await import('../core/identity-recovery.js');
+      recovery = mcpOAuthRecoveryExtras(error)?.recovery ?? null;
+    } catch (_) {}
+  }
   await logAuthEvent(env, {
     request,
     eventType: 'iam_mcp_oauth_token_failed',
     status: 'fail',
-    metadata: { error, ...mcpOAuthRequestMeta(request), ...extra },
+    metadata: { error, recovery, ...mcpOAuthRequestMeta(request), ...extra },
   });
 }
 
@@ -178,8 +185,7 @@ async function loginGoogleOAuthStart(_request, url, env) {
   const returnTo = url.searchParams.get('return_to') || url.searchParams.get('next') || '';
   const connectDrive =
     url.searchParams.get('connectDrive') === '1' ||
-    url.searchParams.get('connect') === 'drive' ||
-    (returnTo && returnTo.includes('/dashboard/agent'));
+    url.searchParams.get('connect') === 'drive';
   const safeReturn =
     returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') && !returnTo.includes(':')
       ? returnTo
@@ -187,7 +193,7 @@ async function loginGoogleOAuthStart(_request, url, env) {
   const state = crypto.randomUUID();
   const redirectUri = googleLoginOAuthRedirectUri(url);
   const scope = connectDrive
-    ? 'openid email profile https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file'
+    ? 'openid email profile https://www.googleapis.com/auth/drive.file'
     : 'openid email profile';
   const statePayload = JSON.stringify({
     redirectUri,
@@ -292,10 +298,10 @@ function integrationUserId(authUser) {
 }
 
 function isGoogleDriveConnectRequest(url) {
-  const connectDrive =
-    url.searchParams.get('connectDrive') === '1' || url.searchParams.get('connect') === 'drive';
-  const returnTo = String(url.searchParams.get('return_to') || url.searchParams.get('next') || '');
-  return connectDrive || returnTo.includes('/dashboard/agent');
+  return (
+    url.searchParams.get('connectDrive') === '1' ||
+    url.searchParams.get('connect') === 'drive'
+  );
 }
 
 /** Sign-in / sign-up Google OAuth — must not bind to an existing session's user_id (integration path). */
@@ -373,7 +379,7 @@ function googleAuthUrl(env, state, oauthScopeString) {
     (oauthScopeString && String(oauthScopeString).trim())
       ? String(oauthScopeString).trim()
       : [
-          'https://www.googleapis.com/auth/drive.readonly',
+          'https://www.googleapis.com/auth/drive.file',
           'https://www.googleapis.com/auth/userinfo.email',
           'https://www.googleapis.com/auth/userinfo.profile',
         ].join(' '),

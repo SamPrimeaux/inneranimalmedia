@@ -7,6 +7,7 @@ import { generateAppUserId } from './ensureAppUser.js';
 import { workspaceSlugFromTenantId } from '../api/provisioning.js';
 import { defaultWorkspaceIdFromUserKey } from './platform-workspace-env.js';
 import { buildDefaultShieldRuleStatements } from './keys-security.js';
+import { upsertAuthUserEmail } from './resolve-auth-user.js';
 
 function trimOrNull(v) {
   if (v == null) return null;
@@ -401,6 +402,21 @@ export async function provisionIdentitySignup(env, identity) {
       .run();
   } catch {
     /* schema variant — non-fatal */
+  }
+
+  try {
+    const personRow = await env.DB.prepare(`SELECT person_uuid FROM auth_users WHERE id = ? LIMIT 1`)
+      .bind(authUserId)
+      .first();
+    await upsertAuthUserEmail(env, {
+      authUserId,
+      email,
+      personUuid: personRow?.person_uuid,
+      tenantId,
+      kind: 'primary',
+    });
+  } catch (e) {
+    console.warn('[provisionIdentitySignup] auth_user_emails upsert:', e?.message ?? e);
   }
 
   return {

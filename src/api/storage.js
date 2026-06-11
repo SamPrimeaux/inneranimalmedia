@@ -128,17 +128,8 @@ function cleanupBreakdown(bucketRows) {
 }
 
 async function requireStorageSuperadmin(env, authUser) {
-  if (authUserIsSuperadmin(authUser)) return true;
-  const email = String(authUser?.email || '').trim().toLowerCase();
-  if (!email || !env.DB) return false;
-  try {
-    const row = await env.DB.prepare(
-      `SELECT 1 FROM superadmin_identity WHERE LOWER(email) = ? AND COALESCE(is_enabled, 0) = 1 LIMIT 1`,
-    ).bind(email).first();
-    return !!row;
-  } catch (_) {
-    return false;
-  }
+  const { isPlatformOwner } = await import('../core/operator-identity.js');
+  return isPlatformOwner(env, authUser);
 }
 
 /** Dedupe stats when multiple logical names map to the same R2 binding (e.g. inneranimalmedia + tools → DASHBOARD). */

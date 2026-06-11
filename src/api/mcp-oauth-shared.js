@@ -58,7 +58,7 @@ export const MCP_OAUTH_CODE_TTL_SECONDS = 10 * 60;
 /** OAuth access tokens — 24h legacy default (prefer MCP_OAUTH_ACCESS_WITH_REFRESH_TTL_SECONDS). */
 export const MCP_OAUTH_TOKEN_TTL_SECONDS = 60 * 60 * 24;
 /** Short-lived access when refresh_token is issued (RFC 6749 refresh flow). */
-export const MCP_OAUTH_ACCESS_WITH_REFRESH_TTL_SECONDS = 60 * 60;
+export const MCP_OAUTH_ACCESS_WITH_REFRESH_TTL_SECONDS = 7 * 24 * 60 * 60;
 /** Refresh grant lifetime — 90 days from issuance. */
 export const MCP_OAUTH_REFRESH_TOKEN_TTL_SECONDS = 90 * 86400;
 /** Cursor native OAuth — 30d; Cursor re-auths via mcp.json on startup. */

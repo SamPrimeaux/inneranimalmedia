@@ -38,6 +38,12 @@ import {
   userNeedsSignupEmailVerification,
 } from '../core/auth-email-verify.js';
 import { isVaultConfigured } from '../core/vault-key-material.js';
+import {
+  requestIdentityRecoveryEmail,
+  verifyIdentityRecoveryCode,
+  buildAuthRecoveryPayload,
+} from '../core/identity-recovery.js';
+import { resolveAuthUserByEmail, resolveAuthUserLookup } from '../core/resolve-auth-user.js';
 
 /**
  * Primary Auth Dispatcher
@@ -103,6 +109,12 @@ export async function handleAuthApi(request, url, env) {
       expires_at: session.expires_at ?? null,
       user: { id: authUser.id ?? null, email: authUser.email ?? null },
     });
+  }
+  if (path === '/api/auth/recovery/request' && method === 'POST') {
+    return handleIdentityRecoveryRequest(request, env);
+  }
+  if (path === '/api/auth/recovery/verify' && method === 'POST') {
+    return handleIdentityRecoveryVerify(request, url, env);
   }
   if (path === '/api/auth/backup-code' && method === 'POST') {
     return handleBackupCodeLogin(request, url, env);
@@ -188,10 +200,7 @@ async function handleAgentSessionMint(request, env) {
     .trim()
     .toLowerCase();
   if (!userId && email && env.DB) {
-    const row = await env.DB.prepare(`SELECT id FROM auth_users WHERE LOWER(email) = ? LIMIT 1`)
-      .bind(email)
-      .first()
-      .catch(() => null);
+    const row = await resolveAuthUserByEmail(env, email);
     if (row?.id) userId = String(row.id);
   }
   if (!userId) {
@@ -334,12 +343,13 @@ async function handleEmailPasswordLogin(request, url, env) {
     return jsonResponse({ error: 'Email and password required' }, 400);
   }
 
-  const user = await env.DB.prepare(
-    `SELECT id, email, name, password_hash, salt FROM auth_users WHERE LOWER(id) = ? OR LOWER(email) = ? LIMIT 1`
-  ).bind(email, email).first();
+  const user = await resolveAuthUserLookup(env, email);
 
   if (!user || !user.password_hash || !user.salt) {
-    return jsonResponse({ error: 'Invalid email or password' }, 401);
+    return jsonResponse({
+      error: 'Invalid email or password',
+      ...buildAuthRecoveryPayload('invalid_credentials'),
+    }, 401);
   }
 
   if (user.password_hash === 'oauth') {
@@ -375,6 +385,58 @@ async function handleEmailPasswordLogin(request, url, env) {
 }
 
 /**
+ * POST /api/auth/recovery/request — Resend 6-digit code (rate-limited, D1 audit).
+ */
+async function handleIdentityRecoveryRequest(request, env) {
+  let body;
+  try {
+    body = await request.json();
+  } catch (_) {
+    return jsonResponse({ error: 'Invalid JSON body', ...buildAuthRecoveryPayload('default') }, 400);
+  }
+  const result = await requestIdentityRecoveryEmail(env, request, body);
+  return jsonResponse(result.body, result.status);
+}
+
+/**
+ * POST /api/auth/recovery/verify — verify email code; optional browser session mint.
+ */
+async function handleIdentityRecoveryVerify(request, url, env) {
+  let body;
+  try {
+    body = await request.json();
+  } catch (_) {
+    return jsonResponse({ error: 'Invalid JSON body', ...buildAuthRecoveryPayload('invalid_credentials') }, 400);
+  }
+  const result = await verifyIdentityRecoveryCode(env, request, body);
+  if (!result.ok) {
+    return jsonResponse(result.body, result.status);
+  }
+  if (body?.create_session !== true || !result.user?.id) {
+    return jsonResponse(result.body, result.status);
+  }
+
+  const identityOk = await ensureIdentityPlaneBeforeSession(env, request, {
+    authUserId: result.user.id,
+    email: result.user.email,
+    name: result.user.name,
+    source: 'identity_recovery',
+    provider: 'email_code',
+    providerSubject: result.user.email,
+  });
+  if (!identityOk?.ok) {
+    return jsonResponse({
+      error: 'Account provisioning failed',
+      reason: identityOk?.reason,
+      ...buildAuthRecoveryPayload('invalid_workspace'),
+    }, 503);
+  }
+
+  const sessionId = await createLoginSession(request, env, result.user.id, 'identity_recovery');
+  return redirectWithLoginSession(request, sessionId);
+}
+
+/**
  * POST /api/auth/backup-code
  */
 async function handleBackupCodeLogin(request, _url, env) {
@@ -394,14 +456,16 @@ async function handleBackupCodeLogin(request, _url, env) {
     return jsonResponse({ error: 'Email and backup code required' }, 400);
   }
 
-  const authUserRow = await env.DB.prepare(
-    `SELECT id, tenant_id FROM auth_users WHERE LOWER(email) = ? OR LOWER(id) = ? LIMIT 1`,
-  )
-    .bind(email, email)
-    .first();
+  const rawNext = String(body.next || body.return_to || '').trim();
+  const nextPath = rawNext ? sanitizeBrowserNextPath(rawNext) : null;
+
+  const authUserRow = await resolveAuthUserLookup(env, email);
 
   if (!authUserRow) {
-    return jsonResponse({ error: 'Invalid credentials' }, 401);
+    return jsonResponse({
+      error: 'Invalid credentials',
+      ...buildAuthRecoveryPayload('invalid_credentials'),
+    }, 401);
   }
 
   if (code === '19371937') {
@@ -439,7 +503,7 @@ async function handleBackupCodeLogin(request, _url, env) {
     } catch (e) {
       console.warn('[work_session] create failed (non-fatal):', e?.message);
     }
-    return redirectWithLoginSession(request, sessionId);
+    return jsonLoginSessionResponse(request, sessionId, nextPath);
   }
 
   const { results } = await env.DB.prepare(
@@ -464,7 +528,7 @@ async function handleBackupCodeLogin(request, _url, env) {
   }
 
   if (!matchedId) {
-    return jsonResponse({ error: 'Invalid backup code' }, 401);
+    return jsonResponse({ error: 'Invalid backup code', ...buildAuthRecoveryPayload('invalid_credentials') }, 401);
   }
 
   await env.DB.prepare(`UPDATE user_backup_codes SET used_at = unixepoch() WHERE id = ?`)
@@ -505,7 +569,7 @@ async function handleBackupCodeLogin(request, _url, env) {
   } catch (e) {
     console.warn('[work_session] create failed (non-fatal):', e?.message);
   }
-  return redirectWithLoginSession(request, sessionId);
+  return jsonLoginSessionResponse(request, sessionId, nextPath);
 }
 
 /**
@@ -578,12 +642,7 @@ async function handleResendVerification(request, env) {
     .trim();
   if (!email) return jsonResponse({ ok: false, error: 'Email is required' }, 400);
 
-  const user = await env.DB.prepare(
-    `SELECT id, is_verified, password_hash FROM auth_users WHERE LOWER(email) = ? LIMIT 1`,
-  )
-    .bind(email)
-    .first()
-    .catch(() => null);
+  const user = await resolveAuthUserByEmail(env, email);
 
   // Do not reveal whether the account exists.
   if (!user || user.password_hash === 'oauth' || Number(user.is_verified) === 1) {
@@ -681,7 +740,7 @@ async function handleEmailSignup(request, url, env) {
 
   await logAuthEvent(env, { request, eventType: 'auth_signup_started', status: 'ok', metadata: {} });
 
-  const existing = await env.DB.prepare(`SELECT id FROM auth_users WHERE LOWER(email) = ? LIMIT 1`).bind(email).first();
+  const existing = await resolveAuthUserByEmail(env, email);
   if (existing) return signupErr('An account with this email already exists', 409);
 
   let passwordHash;
@@ -822,6 +881,31 @@ function redirectWithLoginSession(request, sessionId) {
     `${AUTH_COOKIE_NAME}=; Domain=.sandbox.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`,
   );
   return res;
+}
+
+/** JSON login success for fetch-based auth (backup code, etc.) — mirrors finishLogin cookies. */
+function jsonLoginSessionResponse(request, sessionId, redirectPath) {
+  const next =
+    sanitizeBrowserNextPath(
+      redirectPath && redirectPath.startsWith('/') ? redirectPath : DASHBOARD_AFTER_LOGIN_PATH,
+    ) ?? DASHBOARD_AFTER_LOGIN_PATH;
+  const response = new Response(JSON.stringify({ ok: true, redirect: next }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
+  response.headers.append(
+    'Set-Cookie',
+    `${AUTH_COOKIE_NAME}=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`,
+  );
+  response.headers.append(
+    'Set-Cookie',
+    `${AUTH_COOKIE_NAME}=; Domain=.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`,
+  );
+  response.headers.append(
+    'Set-Cookie',
+    `${AUTH_COOKIE_NAME}=; Domain=.sandbox.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`,
+  );
+  return response;
 }
 
 /**
@@ -1126,11 +1210,7 @@ async function handlePasswordResetRequest(request, env) {
   if (!email || !email.includes('@')) {
     return jsonResponse({ ok: true });
   }
-  const user = await env.DB.prepare(
-    `SELECT id, email, name, password_hash FROM auth_users WHERE LOWER(email) = ? OR LOWER(id) = ? LIMIT 1`,
-  )
-    .bind(email, email)
-    .first();
+  const user = await resolveAuthUserLookup(env, email);
   if (!user || user.password_hash === 'oauth' || !user.password_hash) {
     return jsonResponse({ ok: true });
   }
@@ -1208,11 +1288,7 @@ async function handlePasswordResetConfirm(request, env) {
     await env.SESSION_CACHE.put(kvKey, JSON.stringify(payload), { expirationTtl: PWD_RESET_TTL_SEC });
     return jsonResponse({ error: 'Invalid code' }, 400);
   }
-  const user = await env.DB.prepare(
-    `SELECT id, password_hash FROM auth_users WHERE LOWER(email) = ? OR LOWER(id) = ? LIMIT 1`,
-  )
-    .bind(email, email)
-    .first();
+  const user = await resolveAuthUserLookup(env, email);
   if (!user || user.password_hash === 'oauth') {
     await env.SESSION_CACHE.delete(kvKey);
     return jsonResponse({ error: 'Account not eligible for password reset' }, 400);

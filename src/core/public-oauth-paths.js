@@ -35,6 +35,11 @@ export const PUBLIC_OAUTH_PATHS = [
   // Auth REST endpoints — login/signup POST, hooks webhook receiver
   '/api/auth/login',
   '/api/auth/signup',
+  '/api/auth/backup-code',
+  '/api/auth/recovery',
+  '/api/auth/password-reset',
+  '/api/auth/verify-email',
+  '/api/auth/resend-verification',
   '/api/auth-hooks',
 
   // Unauthenticated social-login starts (Google/GitHub/Supabase login flow,
@@ -47,6 +52,20 @@ export const PUBLIC_OAUTH_PATHS = [
   '/api/health',
   '/api/system/health',
   '/health',
+
+  // Public marketing / legal pages (R2 HTML, no session required)
+  '/',
+  '/work',
+  '/about',
+  '/services',
+  '/contact',
+  '/pricing',
+  '/terms',
+  '/privacy',
+  '/games',
+  '/learn',
+  '/start',
+  '/auth/reset',
 ];
 
 /**

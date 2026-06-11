@@ -109,20 +109,11 @@ async function verifyCFAccessJWT(env, token) {
 async function resolveTenantFromEmail(db, email) {
   const em = String(email || '').trim();
   if (!em) return null;
-  const authUser = await db
-    .prepare(`SELECT tenant_id FROM auth_users WHERE LOWER(email) = LOWER(?) LIMIT 1`)
-    .bind(em)
-    .first()
-    .catch(() => null);
-  if (authUser?.tenant_id != null && String(authUser.tenant_id).trim() !== '') return String(authUser.tenant_id).trim();
-
-  const user = await db
-    .prepare(`SELECT tenant_id FROM auth_users WHERE LOWER(email) = LOWER(?) LIMIT 1`)
-    .bind(em)
-    .first()
-    .catch(() => null);
-  if (user?.tenant_id != null && String(user.tenant_id).trim() !== '') return String(user.tenant_id).trim();
-
+  const { resolveAuthUserByEmail } = await import('../core/resolve-auth-user.js');
+  const authUser = await resolveAuthUserByEmail({ DB: db }, em);
+  if (authUser?.tenant_id != null && String(authUser.tenant_id).trim() !== '') {
+    return String(authUser.tenant_id).trim();
+  }
   return null;
 }
 

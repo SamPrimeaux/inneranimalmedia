@@ -603,7 +603,9 @@ export async function handleGoogleLoginOAuthCallback(request, url, env, options 
   const { sessionId } = finalizedGo;
 
   const safeDest = safeDashboardLoginRedirectPath(oauthOrigin(url), returnTo);
-  const headers = new Headers({ Location: `${oauthOrigin(url)}${safeDest}` });
+  const headers = new Headers({
+    Location: oauthPostLoginGlobeRedirectUrl(oauthOrigin(url), `${oauthOrigin(url)}${safeDest}`),
+  });
 
   appendBrowserLoginSessionCookies(headers, sessionId);
 

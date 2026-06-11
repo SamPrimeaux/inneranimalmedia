@@ -125,11 +125,8 @@ async function handleCustomAccessTokenHook(request, env) {
         .first();
     }
     if (!row?.id) {
-      row = await env.DB.prepare(
-        `SELECT id, tenant_id, supabase_user_id, email FROM auth_users WHERE LOWER(email) = ? LIMIT 1`,
-      )
-        .bind(email)
-        .first();
+      const { resolveAuthUserByEmail } = await import('../core/resolve-auth-user.js');
+      row = await resolveAuthUserByEmail(env, email);
     }
 
     if (row?.id && supabaseSub) {
