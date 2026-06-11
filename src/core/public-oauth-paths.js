@@ -69,6 +69,9 @@ export const PUBLIC_OAUTH_PATHS = [
 
   // Public CMS section reads (marketing page hydration)
   '/api/public/cms',
+
+  // Public marketing 3D assets (contact hero, etc.)
+  '/assets/glb',
 ];
 
 /**
