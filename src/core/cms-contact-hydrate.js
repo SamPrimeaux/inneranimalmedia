@@ -16,6 +16,22 @@ function escAttr(value) {
   return escHtml(value).replace(/'/g, '&#39;');
 }
 
+function setModelViewerAttr(html, attr, value) {
+  if (value == null || value === '') return html;
+  const safe = escAttr(value);
+  const quoted = new RegExp(`(id="cms-hero-glb"[^>]*${attr}=")[^"]*"`);
+  if (quoted.test(html)) {
+    return html.replace(quoted, `$1${safe}"`);
+  }
+  return html.replace(/id="cms-hero-glb"/, `id="cms-hero-glb" ${attr}="${safe}"`);
+}
+
+function stripAutoRotate(html) {
+  return html
+    .replace(/\sauto-rotate\b/g, '')
+    .replace(/\srotation-per-second="[^"]*"/g, '');
+}
+
 const DEFAULTS = {
   hero: {
     headline: 'Get Connected',
@@ -78,6 +94,34 @@ export function hydrateContactPageHtml(html, sections) {
     out = out.replace(re, `$1${escHtml(text)}$3`);
   }
 
+  if (hero.eyebrow) {
+    out = out.replace(
+      /(<div class="contact-hero-copy">\s*)/,
+      `$1<p class="eyebrow">${escHtml(hero.eyebrow)}</p>\n        `,
+    );
+  }
+
+  if (hero.sub) {
+    out = out.replace(
+      /(<h1 id="cms-hero-headline"[^>]*>[\s\S]*?<\/h1>)/,
+      `$1\n        <p class="sub">${escHtml(hero.sub)}</p>`,
+    );
+  }
+
+  if (client.label) {
+    out = out.replace(
+      /(<h2 id="cms-client-title")/,
+      `<p class="path-card-label">${escHtml(client.label)}</p>\n        $1`,
+    );
+  }
+
+  if (join.label) {
+    out = out.replace(
+      /(<h2 id="cms-join-title")/,
+      `<p class="path-card-label">${escHtml(join.label)}</p>\n        $1`,
+    );
+  }
+
   out = out.replace(
     /id="cms-client-cta"([^>]*)href="[^"]*"/,
     `id="cms-client-cta"$1href="${escAttr(client.cta_href || DEFAULTS.client.cta_href)}"`,
@@ -105,11 +149,17 @@ export function hydrateContactPageHtml(html, sections) {
       '',
     );
   } else {
+    out = stripAutoRotate(out);
     out = out.replace(/id="cms-hero-glb"([^>]*)src="[^"]*"/, `id="cms-hero-glb"$1src="${escAttr(glbUrl)}"`);
     out = out.replace(
       /id="cms-hero-glb"([^>]*)alt="[^"]*"/,
       `id="cms-hero-glb"$1alt="${escAttr(hero.glb_alt || DEFAULTS.hero.glb_alt)}"`,
     );
+    if (hero.camera_orbit) out = setModelViewerAttr(out, 'camera-orbit', hero.camera_orbit);
+    if (hero.exposure != null && hero.exposure !== '') out = setModelViewerAttr(out, 'exposure', hero.exposure);
+    if (hero.shadow_intensity != null && hero.shadow_intensity !== '') {
+      out = setModelViewerAttr(out, 'shadow-intensity', hero.shadow_intensity);
+    }
   }
 
   return out;
