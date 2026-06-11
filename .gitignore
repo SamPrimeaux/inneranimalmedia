@@ -71,6 +71,8 @@ analytics/deploys/
 
 # Local artifacts (Playwright bundles, HAR/trace/session material, etc.)
 artifacts/
+playwright-report/
+test-results/
 
 # Optional local R2 upload helper for theme-debug bundles (uses production wrangler config)
 scripts/upload-theme-debug-to-r2.sh
