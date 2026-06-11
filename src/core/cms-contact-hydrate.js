@@ -21,6 +21,8 @@ const DEFAULTS = {
     headline: 'Get Connected',
     glb_url: '/assets/glb/Meshy_AI_Jet_in_Flight_0104205113_texture.glb',
     glb_alt: 'Meshy jet in flight',
+    glb_mode: 'ambient',
+    glb_enabled: true,
   },
   client: {
     title: 'Become a Client',
@@ -99,8 +101,8 @@ export function hydrateContactPageHtml(html, sections) {
 
   if (glbHidden) {
     out = out.replace(
-      /<div class="contact-hero-visual"[\s\S]*?<\/div>\s*(?=<\/section>)/,
-      '<div class="contact-hero-visual contact-hero-visual--empty" aria-hidden="true"></div>\n    ',
+      /<div class="contact-hero-scene"[\s\S]*?<\/div>\s*(?=<\/section>)/,
+      '',
     );
   } else {
     out = out.replace(/id="cms-hero-glb"([^>]*)src="[^"]*"/, `id="cms-hero-glb"$1src="${escAttr(glbUrl)}"`);

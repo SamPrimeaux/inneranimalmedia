@@ -38,15 +38,21 @@
 
     main { overflow-x: clip; }
 
-    /* ── HERO ── */
+    /* ── HERO: typography forward, jet as ambient scene ── */
     .contact-hero {
+      position: relative;
       max-width: 1180px;
       margin: 0 auto;
-      padding: clamp(48px, 8vw, 96px) clamp(20px, 5vw, 48px) clamp(32px, 5vw, 56px);
-      display: grid;
-      grid-template-columns: 1.05fr 0.95fr;
-      gap: clamp(24px, 4vw, 56px);
-      align-items: center;
+      min-height: clamp(220px, 32vw, 340px);
+      padding: clamp(56px, 9vw, 108px) clamp(20px, 5vw, 48px) clamp(40px, 6vw, 72px);
+      overflow: hidden;
+      isolation: isolate;
+    }
+
+    .contact-hero-copy {
+      position: relative;
+      z-index: 2;
+      max-width: min(14ch, 72vw);
     }
 
     .contact-hero-copy h1 {
@@ -57,31 +63,36 @@
       color: var(--navy);
     }
 
-    .contact-hero-visual {
-      min-height: clamp(280px, 38vw, 420px);
-      border-radius: calc(var(--radius) + 6px);
-      border: 1px solid var(--line);
-      background:
-        radial-gradient(circle at 30% 20%, rgba(22, 123, 252, 0.12), transparent 45%),
-        radial-gradient(circle at 80% 70%, rgba(31, 170, 173, 0.1), transparent 40%),
-        var(--glass);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      box-shadow: 0 24px 80px rgba(10, 22, 40, 0.06);
-      overflow: hidden;
-      position: relative;
+    /* Ambient 3D — right bleed, masked, non-interactive */
+    .contact-hero-scene {
+      position: absolute;
+      top: -8%;
+      right: -18%;
+      width: min(72vw, 640px);
+      height: 120%;
+      z-index: 0;
+      pointer-events: none;
+      opacity: 0.38;
+      -webkit-mask-image: linear-gradient(90deg, transparent 0%, rgba(0,0,0,0.15) 28%, rgba(0,0,0,0.85) 62%, #000 100%);
+      mask-image: linear-gradient(90deg, transparent 0%, rgba(0,0,0,0.15) 28%, rgba(0,0,0,0.85) 62%, #000 100%);
     }
 
-    .contact-hero-visual--empty {
-      background: linear-gradient(135deg, rgba(255,255,255,0.9), rgba(232,238,246,0.95));
+    .contact-hero-scene::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(180deg, rgba(255,255,255,0.55) 0%, transparent 35%, transparent 70%, rgba(247,249,252,0.4) 100%);
+      z-index: 1;
     }
+
+    .contact-hero-scene--empty { display: none; }
 
     model-viewer#cms-hero-glb {
       width: 100%;
       height: 100%;
-      min-height: inherit;
       --poster-color: transparent;
       background: transparent;
+      filter: saturate(0.82) contrast(0.95);
     }
 
     /* ── PATH CARDS ── */
@@ -314,15 +325,25 @@
     }
 
     @media (max-width: 900px) {
-      .contact-hero,
       .contact-build-inner { grid-template-columns: 1fr; }
       .contact-build-cta-wrap { justify-self: start; }
+      .contact-hero-scene {
+        right: -28%;
+        width: 78vw;
+        opacity: 0.28;
+      }
     }
 
     @media (max-width: 720px) {
+      .contact-hero-scene { display: none; }
+      .contact-hero-copy { max-width: none; }
       .contact-paths,
       .form-grid { grid-template-columns: 1fr; }
       .form-group.full { grid-column: 1; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .contact-hero-scene { display: none; }
     }
   </style>
 </head>
@@ -334,17 +355,19 @@
       <div class="contact-hero-copy">
         <h1 id="cms-hero-headline">Get Connected</h1>
       </div>
-      <div class="contact-hero-visual">
+      <div class="contact-hero-scene" aria-hidden="true">
         <model-viewer
           id="cms-hero-glb"
           src="/assets/glb/Meshy_AI_Jet_in_Flight_0104205113_texture.glb"
-          alt="Meshy jet in flight"
+          alt=""
+          tabindex="-1"
           auto-rotate
-          rotation-per-second="8deg"
-          camera-controls
-          touch-action="pan-y"
-          shadow-intensity="0.55"
-          exposure="0.92"
+          rotation-per-second="4deg"
+          camera-orbit="215deg 78deg 120%"
+          min-camera-orbit="auto 60deg auto"
+          max-camera-orbit="auto 95deg auto"
+          shadow-intensity="0.35"
+          exposure="0.78"
           environment-image="neutral"
           interaction-prompt="none"
         ></model-viewer>
