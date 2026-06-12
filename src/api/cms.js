@@ -54,6 +54,12 @@ import {
   maybeSpawnCmsSessionHandoff,
 } from '../core/cms-spawn-bridge.js';
 import { logPromptCacheUsage } from '../core/prompt-cache-economics.js';
+import {
+  listCmsSitesForScope,
+  persistBootstrapCmsProjectSlug,
+  resolveCmsBootstrapProjectSlug,
+  resolveCmsWorkspaceContext,
+} from '../core/cms-workspace-resolve.js';
 
 export const CMS_DEFAULT_R2_BUCKET = 'inneranimalmedia';
 
@@ -170,6 +176,55 @@ export async function handleCmsApi(request, url, env, ctx) {
   }
 
   if (!env.DB) return jsonResponse({ error: 'Database unavailable' }, 503);
+
+  const requestCache = {};
+
+  if (path === '/api/cms/workspace-context' && method === 'GET') {
+    try {
+      const explicit =
+        url.searchParams.get('project_slug') ||
+        url.searchParams.get('site') ||
+        null;
+      const ctx = await resolveCmsWorkspaceContext(env, request, authUser, requestCache, {
+        explicitProjectSlug: explicit,
+      });
+      if (ctx.error) return jsonResponse({ error: ctx.error, sites: ctx.sites || [] }, 400);
+      return jsonResponse(ctx);
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
+  if (path === '/api/cms/workspace-context' && method === 'POST') {
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: 'invalid JSON' }, 400);
+    }
+    const projectSlug = String(body.project_slug || body.site || '').trim();
+    if (!projectSlug) return jsonResponse({ error: 'project_slug required' }, 400);
+    try {
+      const ctx = await resolveCmsWorkspaceContext(env, request, authUser, requestCache);
+      if (ctx.error) return jsonResponse({ error: ctx.error }, 400);
+      const allowed = (ctx.sites || []).some((s) => s.slug === projectSlug);
+      if (!allowed) return jsonResponse({ error: 'CMS_SITE_NOT_ALLOWED', project_slug: projectSlug }, 403);
+      if (!ctx.bootstrap_id) return jsonResponse({ error: 'BOOTSTRAP_ROW_MISSING' }, 409);
+      const saved = await persistBootstrapCmsProjectSlug(env, {
+        bootstrapId: ctx.bootstrap_id,
+        userId: authUser.id,
+        workspaceId,
+        projectSlug,
+      });
+      if (!saved.ok) return jsonResponse({ error: saved.error || 'persist_failed' }, 409);
+      const next = await resolveCmsWorkspaceContext(env, request, authUser, requestCache, {
+        explicitProjectSlug: projectSlug,
+      });
+      return jsonResponse({ ok: true, ...next });
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
 
   /**
    * GET /api/cms/pages
@@ -1035,24 +1090,13 @@ export async function handleCmsApi(request, url, env, ctx) {
 
   if (path === '/api/cms/tenants' && method === 'GET') {
     try {
-      const { results: tenants } = await env.DB.prepare(
-        `SELECT id, name, slug, domain, is_active, theme, primary_color
-         FROM cms_tenants WHERE is_active = 1 ORDER BY name`,
-      ).all();
-      const counts = {};
-      for (const t of tenants || []) {
-        const row = await env.DB.prepare(
-          `SELECT COUNT(*) as n FROM cms_pages WHERE project_slug = ? AND status != 'archived'`,
-        )
-          .bind(t.slug)
-          .first()
-          .catch(() => ({ n: 0 }));
-        counts[t.slug] = row?.n ?? 0;
-      }
-      const websites = (tenants || []).map((t) => ({
-        ...t,
-        page_count: counts[t.slug] ?? 0,
-        url: t.domain ? `https://${t.domain}` : null,
+      const sites = await listCmsSitesForScope(env, { tenantId, workspaceId });
+      const websites = sites.map((s) => ({
+        slug: s.slug,
+        name: s.name || s.slug,
+        domain: s.domain || null,
+        page_count: s.page_count ?? 0,
+        url: s.domain ? `https://${s.domain}` : null,
       }));
       return jsonResponse({ tenants: websites, websites });
     } catch (e) {
@@ -1228,25 +1272,14 @@ export async function handleCmsApi(request, url, env, ctx) {
 
   if (path === '/api/cms/websites' && method === 'GET') {
     try {
-      const { results: tenants } = await env.DB.prepare(
-        `SELECT id, name, slug, domain, is_active, theme, primary_color
-         FROM cms_tenants WHERE is_active = 1 ORDER BY name`,
-      ).all();
-      const counts = {};
-      for (const t of tenants || []) {
-        const row = await env.DB.prepare(
-          `SELECT COUNT(*) as n FROM cms_pages WHERE project_slug = ? AND status != 'archived'`,
-        )
-          .bind(t.slug)
-          .first()
-          .catch(() => ({ n: 0 }));
-        counts[t.slug] = row?.n ?? 0;
-      }
+      const sites = await listCmsSitesForScope(env, { tenantId, workspaceId });
       return jsonResponse({
-        websites: (tenants || []).map((t) => ({
-          ...t,
-          page_count: counts[t.slug] ?? 0,
-          url: t.domain ? `https://${t.domain}` : null,
+        websites: sites.map((s) => ({
+          slug: s.slug,
+          name: s.name || s.slug,
+          domain: s.domain || null,
+          page_count: s.page_count ?? 0,
+          url: s.domain ? `https://${s.domain}` : null,
         })),
       });
     } catch (e) {
@@ -1454,7 +1487,27 @@ export async function handleCmsApi(request, url, env, ctx) {
   }
 
   if (path === '/api/cms/bootstrap' && method === 'GET') {
-    const projectSlug = url.searchParams.get('project_slug') || 'inneranimalmedia';
+    const explicitSlug =
+      url.searchParams.get('project_slug') || url.searchParams.get('site') || null;
+    const resolved = await resolveCmsBootstrapProjectSlug(
+      env,
+      request,
+      authUser,
+      workspaceId,
+      explicitSlug,
+      requestCache,
+    );
+    if (resolved.error) {
+      return jsonResponse(
+        {
+          error: resolved.error,
+          message: resolved.message || resolved.error,
+          sites: resolved.context?.sites || [],
+        },
+        resolved.error === 'CMS_PROJECT_UNRESOLVED' ? 404 : 400,
+      );
+    }
+    const projectSlug = resolved.project_slug;
     const focusPageIdParam = String(url.searchParams.get('page_id') || '').trim();
     const cacheKey = cmsBootstrapKey(workspaceId, projectSlug);
 
@@ -1677,6 +1730,10 @@ export async function handleCmsApi(request, url, env, ctx) {
 
       const payload = {
         project_slug: projectSlug,
+        workspace_id: workspaceId,
+        workspace_name: resolved.context?.workspace_name || null,
+        workspace_label: resolved.context?.ui_label || resolved.context?.workspace_name || null,
+        resolved_from: resolved.context?.resolved_from || null,
         tenant: tenantRow,
         pages,
         sections_by_page: sectionsByPage,
@@ -1918,7 +1975,23 @@ export async function handleCmsApi(request, url, env, ctx) {
     if (!import_name || !source_type) {
       return jsonResponse({ error: 'import_name and source_type required' }, 400);
     }
-    const projectSlug = project_id || url.searchParams.get('project_slug') || 'inneranimalmedia';
+    const explicitImportProject =
+      project_id || url.searchParams.get('project_slug') || url.searchParams.get('site') || null;
+    const importResolved = await resolveCmsBootstrapProjectSlug(
+      env,
+      request,
+      authUser,
+      workspaceId,
+      explicitImportProject,
+      requestCache,
+    );
+    if (importResolved.error) {
+      return jsonResponse(
+        { error: importResolved.error, message: importResolved.message, sites: importResolved.context?.sites || [] },
+        importResolved.error === 'CMS_PROJECT_UNRESOLVED' ? 404 : 400,
+      );
+    }
+    const projectSlug = importResolved.project_slug;
     try {
       const importId = `limp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
       const importKey = import_name.toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 64);

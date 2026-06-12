@@ -272,11 +272,7 @@ export function DashboardSidebar({
                                   : false;
                                 const editorHref =
                                   sub.id === 'cms-editor'
-                                    ? `/dashboard/cms/editor?project=${encodeURIComponent(
-                                        typeof localStorage !== 'undefined'
-                                          ? localStorage.getItem('iam_cms_project') || 'inneranimalmedia'
-                                          : 'inneranimalmedia',
-                                      )}`
+                                    ? '/dashboard/cms/pages'
                                     : sub.path;
                                 return (
                                   <button

@@ -1,122 +1,13 @@
 import React, { Suspense, lazy, useCallback, useEffect, useMemo } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { useCmsWorkspaceContext } from '../../hooks/useCmsWorkspaceContext';
+import { buildCmsPath, parseCmsRoute, type CmsView } from './cmsRoute';
 
 const CmsRoot = lazy(() =>
   import('../../../src/dashboard/cms/CmsRoot.jsx').then((m) => ({
     default: m.CmsRoot ?? m.default,
   })),
 );
-
-const CMS_PROJECT_KEY = 'iam_cms_project';
-const PRIMARY_CMS_SLUG = 'inneranimalmedia';
-
-/** Legacy path segments — not project slugs. */
-const CMS_RESERVED = new Set(['sites', 'websites', 'editor', 'templates', 'imports', 'pages', 'studio']);
-
-export type CmsView = 'sites' | 'pages' | 'templates' | 'imports';
-
-type ParsedCmsRoute = {
-  view: CmsView;
-  projectSlug: string | null;
-  pageId: string | null;
-  panel: 'pages' | 'templates' | 'imports';
-  legacy: boolean;
-};
-
-export function parseCmsRoute(pathname: string, searchParams: URLSearchParams): ParsedCmsRoute {
-  const parts = pathname.split('/').filter(Boolean);
-  const cmsIdx = parts.indexOf('cms');
-  const rest = cmsIdx >= 0 ? parts.slice(cmsIdx + 1) : [];
-
-  const storedProject =
-    searchParams.get('project') ||
-    (typeof localStorage !== 'undefined' ? localStorage.getItem(CMS_PROJECT_KEY) : null) ||
-    PRIMARY_CMS_SLUG;
-
-  if (rest.length === 0 || rest[0] === 'sites' || rest[0] === 'websites') {
-    return { view: 'sites', projectSlug: null, pageId: null, panel: 'pages', legacy: false };
-  }
-
-  if (rest[0] === 'editor') {
-    return {
-      view: 'pages',
-      projectSlug: storedProject,
-      pageId: searchParams.get('page'),
-      panel: 'pages',
-      legacy: true,
-    };
-  }
-  if (rest[0] === 'templates') {
-    return {
-      view: 'pages',
-      projectSlug: storedProject,
-      pageId: searchParams.get('add_to_page'),
-      panel: 'templates',
-      legacy: true,
-    };
-  }
-  if (rest[0] === 'imports') {
-    return {
-      view: 'pages',
-      projectSlug: storedProject,
-      pageId: null,
-      panel: 'imports',
-      legacy: true,
-    };
-  }
-
-  const projectSlug = rest[0];
-  if (CMS_RESERVED.has(projectSlug)) {
-    return { view: 'sites', projectSlug: null, pageId: null, panel: 'pages', legacy: false };
-  }
-
-  const seg2 = rest[1];
-  const seg3 = rest[2];
-
-  if (!seg2 || seg2 === 'pages' || seg2 === 'studio') {
-    return {
-      view: 'pages',
-      projectSlug,
-      pageId: seg3 || searchParams.get('page'),
-      panel: 'pages',
-      legacy: false,
-    };
-  }
-  if (seg2 === 'templates') {
-    return {
-      view: 'pages',
-      projectSlug,
-      pageId: searchParams.get('add_to_page'),
-      panel: 'templates',
-      legacy: false,
-    };
-  }
-  if (seg2 === 'imports') {
-    return {
-      view: 'pages',
-      projectSlug,
-      pageId: null,
-      panel: 'imports',
-      legacy: false,
-    };
-  }
-
-  return {
-    view: 'pages',
-    projectSlug,
-    pageId: null,
-    panel: 'pages',
-    legacy: false,
-  };
-}
-
-function flatPath(parsed: ParsedCmsRoute): string {
-  const slug = parsed.projectSlug || PRIMARY_CMS_SLUG;
-  if (parsed.panel === 'templates') return `/dashboard/cms/${slug}/templates`;
-  if (parsed.panel === 'imports') return `/dashboard/cms/${slug}/imports`;
-  if (parsed.pageId) return `/dashboard/cms/${slug}/pages/${parsed.pageId}`;
-  return `/dashboard/cms/${slug}/pages`;
-}
 
 type CmsPageProps = {
   workspaceId?: string;
@@ -132,21 +23,17 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
     [location.pathname, searchParams],
   );
 
-  useEffect(() => {
-    if (parsed.legacy) {
-      navigate(flatPath(parsed), { replace: true });
-    }
-  }, [parsed, navigate]);
+  const { context, loading, error, persistSite } = useCmsWorkspaceContext({
+    workspaceId,
+    siteSlug: parsed.siteSlug,
+    enabled: parsed.view !== 'sites',
+  });
 
   useEffect(() => {
-    if (parsed.projectSlug) {
-      try {
-        localStorage.setItem(CMS_PROJECT_KEY, parsed.projectSlug);
-      } catch {
-        /* ignore */
-      }
+    if (parsed.legacy && parsed.legacyTarget) {
+      navigate(parsed.legacyTarget, { replace: true });
     }
-  }, [parsed.projectSlug]);
+  }, [parsed, navigate]);
 
   const cmsNavigate = useCallback(
     (target: string) => {
@@ -154,24 +41,20 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
       const legacy = pathPart.replace(/^\//, '').split('/');
       const idx = legacy.indexOf('cms');
       const seg = idx >= 0 ? legacy[idx + 1] : pathPart;
+      const q = new URLSearchParams(queryPart || '');
+      const site = q.get('project') || q.get('site') || parsed.siteSlug || context?.project_slug || null;
+
       if (seg === 'editor' || seg === 'templates' || seg === 'imports') {
-        const q = new URLSearchParams(queryPart || '');
-        const slug = q.get('project') || parsed.projectSlug || PRIMARY_CMS_SLUG;
         if (seg === 'editor') {
-          const page = q.get('page');
-          navigate(
-            page
-              ? `/dashboard/cms/${slug}/pages/${page}`
-              : `/dashboard/cms/${slug}/pages`,
-          );
+          navigate(buildCmsPath({ panel: 'pages', pageId: q.get('page'), siteSlug: site }));
           return;
         }
-        navigate(`/dashboard/cms/${slug}/${seg}`);
+        navigate(buildCmsPath({ panel: seg === 'templates' ? 'templates' : 'imports', siteSlug: site }));
         return;
       }
       navigate(pathPart.startsWith('/') ? pathPart : `/dashboard/cms/${pathPart}`);
     },
-    [navigate, parsed.projectSlug],
+    [navigate, parsed.siteSlug, context?.project_slug],
   );
 
   const cmsNavigatePath = useCallback(
@@ -190,26 +73,65 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
           ? 'imports'
           : 'pages';
 
+  const needsSitePick =
+    parsed.view !== 'sites' && !loading && !context?.project_slug && (context?.sites?.length || 0) !== 1;
+
   return (
     <div className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden bg-[var(--dashboard-canvas)]">
-      <Suspense
-        fallback={
-          <div className="flex flex-1 items-center justify-center text-sm text-[var(--text-muted)]">
-            Loading CMS Suite…
+      {needsSitePick ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center">
+          <h2 className="text-lg font-semibold text-[var(--text-heading)]">Choose a CMS site</h2>
+          <p className="max-w-md text-sm text-[var(--text-muted)]">
+            {context?.ui_label || 'This workspace'} has multiple sites. Pick one to open PrimeTech Studio.
+          </p>
+          <div className="flex flex-wrap justify-center gap-2">
+            {(context?.sites || []).map((site) => (
+              <button
+                key={site.slug}
+                type="button"
+                className="rounded-md border border-[var(--dashboard-border)] px-3 py-2 text-sm hover:bg-[var(--bg-hover)]"
+                onClick={() => {
+                  void persistSite(site.slug).then(() => {
+                    navigate(
+                      buildCmsPath({
+                        panel: parsed.panel,
+                        pageId: parsed.pageId,
+                        siteSlug: site.slug,
+                      }),
+                      { replace: true },
+                    );
+                  });
+                }}
+              >
+                {site.name || site.slug}
+              </button>
+            ))}
           </div>
-        }
-      >
-        <CmsRoot
-          workspaceId={workspaceId}
-          view={viewForRoot}
-          projectSlug={parsed.projectSlug || PRIMARY_CMS_SLUG}
-          pageId={parsed.pageId}
-          studioPanel={parsed.panel}
-          addToPageId={searchParams.get('add_to_page')}
-          onNavigate={cmsNavigate}
-          onNavigatePath={cmsNavigatePath}
-        />
-      </Suspense>
+        </div>
+      ) : null}
+      {!needsSitePick ? (
+        <Suspense
+          fallback={
+            <div className="flex flex-1 items-center justify-center text-sm text-[var(--text-muted)]">
+              Loading CMS Suite…
+            </div>
+          }
+        >
+          <CmsRoot
+            workspaceId={workspaceId}
+            workspaceLabel={context?.ui_label || context?.workspace_name || null}
+            view={viewForRoot}
+            projectSlug={context?.project_slug || null}
+            pageId={parsed.pageId}
+            studioPanel={parsed.panel}
+            addToPageId={searchParams.get('add_to_page')}
+            loadingProject={loading}
+            projectError={error}
+            onNavigate={cmsNavigate}
+            onNavigatePath={cmsNavigatePath}
+          />
+        </Suspense>
+      ) : null}
     </div>
   );
 }

@@ -6,9 +6,15 @@ PrimeTech Studio is the Inner Animal Media CMS live editor: view published pages
 
 | Route | Purpose |
 |-------|---------|
-| `/dashboard/cms/{project}/pages` | Project pages list (iframe studio) |
-| `/dashboard/cms/{project}/pages/{pageId}` | Live edit studio for one page |
-| `/dashboard/cms/{project}/imports` | Same studio, Assets tab (`?panel=imports`) |
+| `/dashboard/cms` | Sites list (workspace-scoped via session) |
+| `/dashboard/cms/pages` | Studio pages list — project from `GET /api/cms/workspace-context` + `agentsam_bootstrap` |
+| `/dashboard/cms/pages/{pageId}` | Live edit studio for one page |
+| `/dashboard/cms/templates` | Templates panel (`?site=` when multiple sites) |
+| `/dashboard/cms/imports` | Assets / theme imports |
+| Legacy | `/dashboard/cms/{slug}/pages/...` redirects to canonical routes |
+
+Project slug is **never hardcoded**. Resolution order: explicit `?site=` / `project_slug` → `agentsam_bootstrap.ui_preferences_json.cms_project_slug` → single site for workspace/tenant in D1 → pick from Sites UI (persisted to bootstrap).
+
 | Iframe shell | `/static/dashboard/app/cms/designstudiocmslite.html?project=…&page=…&workspace_id=…` |
 
 ## Live edit loop (view → draft → publish → redeploy)

@@ -19,12 +19,12 @@ export type ShellProductItem = {
   children?: ShellProductItem[];
 };
 
-/** CMS Suite child routes — flattened URLs: /dashboard/cms/{project}/pages|templates|imports */
+/** CMS Suite — workspace-scoped URLs (project resolved via /api/cms/workspace-context + agentsam_bootstrap) */
 export const CMS_SUITE_NAV: ShellProductItem[] = [
   { id: 'cms-sites', label: 'Sites', path: '/dashboard/cms', match: 'exact' },
-  { id: 'cms-editor', label: 'Pages', path: '/dashboard/cms/inneranimalmedia/pages', match: 'prefix' },
-  { id: 'cms-templates', label: 'Templates', path: '/dashboard/cms/inneranimalmedia/templates', match: 'prefix' },
-  { id: 'cms-imports', label: 'Imports', path: '/dashboard/cms/inneranimalmedia/imports', match: 'prefix' },
+  { id: 'cms-editor', label: 'Pages', path: '/dashboard/cms/pages', match: 'prefix' },
+  { id: 'cms-templates', label: 'Templates', path: '/dashboard/cms/templates', match: 'prefix' },
+  { id: 'cms-imports', label: 'Imports', path: '/dashboard/cms/imports', match: 'prefix' },
 ];
 
 export type ShellProduct = {

@@ -149,9 +149,10 @@ const IAM_ASSETS_ORIGIN = "https://assets.inneranimalmedia.com";
 function readStudioContext() {
   const params = new URLSearchParams(location.search);
   return {
-    projectSlug: params.get("project") || "inneranimalmedia",
+    projectSlug: params.get("project") || "",
     pageId: params.get("page") || "",
     workspaceId: params.get("workspace_id") || "",
+    workspaceLabel: params.get("workspace_label") || "",
     studioPanel: params.get("panel") || "pages",
   };
 }
@@ -560,7 +561,7 @@ function Studio() {
     if (focusPageId) bootQs.set("page_id", focusPageId);
     const data = await apiJson(`/api/cms/bootstrap?${bootQs.toString()}`);
     setBootstrap(data);
-    setWorkspaceLabel(data.tenant?.name || projectSlug);
+    setWorkspaceLabel(data.workspace_label || data.workspace_name || data.tenant?.name || projectSlug);
     if (data.active_theme?.css_vars) applyCmsThemeVars(data.active_theme.css_vars);
     if (data.active_theme?.slug) document.documentElement.setAttribute("data-theme", data.active_theme.slug);
     if (focusPageId) {
@@ -580,6 +581,10 @@ function Studio() {
   }, [pageId]);
 
   useEffect(() => {
+    if (!projectSlug) {
+      setWorkspaceLabel(ctx.workspaceLabel || "PrimeTech Workspace");
+      return;
+    }
     let cancelled = false;
     (async () => {
       try {
@@ -716,7 +721,7 @@ function Studio() {
   };
 
   const handleShare = async () => {
-    const url = `${location.origin}/dashboard/cms/${encodeURIComponent(projectSlug)}/pages`;
+    const url = `${location.origin}/dashboard/cms/pages${projectSlug ? `?site=${encodeURIComponent(projectSlug)}` : ""}`;
     try {
       if (navigator.share) {
         await navigator.share({ title: "PrimeTech Studio", text: workspaceLabel, url });
@@ -851,11 +856,17 @@ function Studio() {
 
   const navigateToPage = (nextPageId) => {
     if (!nextPageId) return;
-    const base = `/dashboard/cms/${encodeURIComponent(projectSlug)}/pages/${encodeURIComponent(nextPageId)}`;
+    const qs = projectSlug ? `?site=${encodeURIComponent(projectSlug)}` : "";
+    const base = `/dashboard/cms/pages/${encodeURIComponent(nextPageId)}${qs}`;
     try {
       window.parent.postMessage({ type: "iam-cms-navigate", path: base }, window.location.origin);
     } catch (_) {}
-    window.location.search = `?project=${encodeURIComponent(projectSlug)}&page=${encodeURIComponent(nextPageId)}&workspace_id=${encodeURIComponent(ctx.workspaceId || "")}`;
+    const search = new URLSearchParams();
+    if (projectSlug) search.set("project", projectSlug);
+    search.set("page", nextPageId);
+    if (ctx.workspaceId) search.set("workspace_id", ctx.workspaceId);
+    if (ctx.workspaceLabel) search.set("workspace_label", ctx.workspaceLabel);
+    window.location.search = `?${search.toString()}`;
   };
 
   const tree = useMemo(() => buildTree(files), [files]);

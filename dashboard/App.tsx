@@ -69,7 +69,8 @@ import {
   type AgentWorkspaceContextPacket,
   type DevServerState,
 } from './src/ideWorkspace';
-import { parseCmsRoute } from './pages/cms/CmsPage';
+import { parseCmsRoute } from './pages/cms/cmsRoute';
+import { useCmsWorkspaceContext } from './hooks/useCmsWorkspaceContext';
 import { useEditor } from './src/EditorContext';
 import { useWorkspace } from './src/context/WorkspaceContext';
 import { OfflineReconnectBanner, persistLastSessionSnapshot } from './src/pwa/OfflineReconnectBanner';
@@ -389,13 +390,37 @@ const App: React.FC = () => {
   /** TODO: Movie Mode right rail — split Media bin + ChatAssistant (dual panel). */
   const isDrawRoute = location.pathname.startsWith('/dashboard/draw');
   const isCmsRoute = location.pathname.startsWith('/dashboard/cms');
+  const cmsRouteParsed = useMemo(() => {
+    if (!isCmsRoute) return null;
+    return parseCmsRoute(location.pathname, new URLSearchParams(location.search));
+  }, [isCmsRoute, location.pathname, location.search]);
+
+  const { context: cmsWorkspaceContext } = useCmsWorkspaceContext({
+    workspaceId: authWorkspaceId,
+    siteSlug: cmsRouteParsed?.siteSlug || null,
+    enabled: isCmsRoute && cmsRouteParsed?.view !== 'sites',
+  });
 
   const cmsRouteContext = useMemo<AgentWorkspaceContextPacket | null>(() => {
-    if (!isCmsRoute) return null;
-    const params = new URLSearchParams(location.search);
-    const parsed = parseCmsRoute(location.pathname, params);
-    const slug = parsed.projectSlug || 'inneranimalmedia';
+    if (!isCmsRoute || !cmsRouteParsed) return null;
+    const slug = cmsWorkspaceContext?.project_slug || cmsRouteParsed.siteSlug || null;
     const ws = (authWorkspaceId || '').trim();
+    if (!slug) {
+      return {
+        activeTab: 'cms',
+        browserUrl: null,
+        openFiles: [],
+        plan_id: null,
+        workflow_run_id: null,
+        project_slug: null,
+        page_id: cmsRouteParsed.pageId,
+        studio_panel: cmsRouteParsed.panel,
+        bootstrap_cache_key: null,
+        collab_room: cmsRouteParsed.pageId ? `cms:${cmsRouteParsed.pageId}` : null,
+        r2_bucket: null,
+        r2_key: null,
+      };
+    }
     return {
       activeTab: 'cms',
       browserUrl: null,
@@ -403,14 +428,14 @@ const App: React.FC = () => {
       plan_id: null,
       workflow_run_id: null,
       project_slug: slug,
-      page_id: parsed.pageId,
-      studio_panel: parsed.panel,
+      page_id: cmsRouteParsed.pageId,
+      studio_panel: cmsRouteParsed.panel,
       bootstrap_cache_key: ws ? `cms:bootstrap:${ws}:${slug}` : null,
-      collab_room: parsed.pageId ? `cms:${parsed.pageId}` : null,
-      r2_bucket: 'inneranimalmedia',
+      collab_room: cmsRouteParsed.pageId ? `cms:${cmsRouteParsed.pageId}` : null,
+      r2_bucket: null,
       r2_key: null,
     };
-  }, [isCmsRoute, location.pathname, location.search, authWorkspaceId]);
+  }, [isCmsRoute, cmsRouteParsed, cmsWorkspaceContext?.project_slug, authWorkspaceId]);
   const movieModeProjectId = useMemo(() => {
     const m = location.pathname.match(/^\/dashboard\/moviemode\/([^/?#]+)/);
     if (m?.[1]) return decodeURIComponent(m[1]);

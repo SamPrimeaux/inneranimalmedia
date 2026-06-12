@@ -23,25 +23,27 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { CmsStudioEditor } from './CmsStudioEditor.jsx';
 
-const CMS_PROJECT_KEY = 'iam_cms_project';
-const PRIMARY_CMS_SLUG = 'inneranimalmedia';
-
-function persistCmsProject(slug) {
-  try {
-    if (slug) localStorage.setItem(CMS_PROJECT_KEY, slug);
-  } catch {
-    /* ignore */
-  }
+function sortWebsites(list) {
+  return [...(list || [])].sort((a, b) =>
+    String(a.name || a.slug).localeCompare(String(b.name || b.slug)),
+  );
 }
 
-function sortWebsites(list) {
-  const arr = [...(list || [])];
-  arr.sort((a, b) => {
-    if (a.slug === PRIMARY_CMS_SLUG) return -1;
-    if (b.slug === PRIMARY_CMS_SLUG) return 1;
-    return String(a.name || a.slug).localeCompare(String(b.name || b.slug));
-  });
-  return arr;
+function cmsPagesPath(siteSlug, pageId) {
+  const qs = siteSlug ? `?site=${encodeURIComponent(siteSlug)}` : '';
+  if (pageId) return `/dashboard/cms/pages/${encodeURIComponent(pageId)}${qs}`;
+  return `/dashboard/cms/pages${qs}`;
+}
+
+async function persistCmsSiteSelection(projectSlug) {
+  const slug = String(projectSlug || '').trim();
+  if (!slug) return;
+  await fetch('/api/cms/workspace-context', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project_slug: slug }),
+  }).catch(() => {});
 }
 
 // ─── API helper ───────────────────────────────────────────────────────────────
@@ -945,7 +947,7 @@ function EditorView({ projectSlug, workspaceId, pageId, onNavigate, onNavigatePa
   const [dragging, setDragging] = useState(null);
   const [dragOver, setDragOver] = useState(null);
   const { msg: toastMsg, show: showToast } = useToast();
-  const slug = projectSlug || PRIMARY_CMS_SLUG;
+  const slug = projectSlug || '';
   const { peers, liveSession } = usePresence(activePage?.id, workspaceId);
 
   const selectPage = useCallback(
@@ -961,7 +963,7 @@ function EditorView({ projectSlug, workspaceId, pageId, onNavigate, onNavigatePa
   );
 
   useEffect(() => {
-    persistCmsProject(slug);
+    if (slug) void persistCmsSiteSelection(slug);
   }, [slug]);
 
   useEffect(() => {
@@ -1392,8 +1394,8 @@ function WebsitesView({ onNavigatePath }) {
 
   const openEditor = useCallback(
     (slug) => {
-      persistCmsProject(slug);
-      onNavigatePath?.(`/dashboard/cms/${encodeURIComponent(slug)}/pages`);
+      void persistCmsSiteSelection(slug);
+      onNavigatePath?.(cmsPagesPath(slug));
     },
     [onNavigatePath],
   );
@@ -1406,17 +1408,21 @@ function WebsitesView({ onNavigatePath }) {
 
   if (error) return <div className="cms-error">{error}</div>;
   if (!websites) return <div className="cms-loading">Loading sites…</div>;
+  if (websites.length === 0) {
+    return (
+      <div className="cms-empty" style={{ padding: 24 }}>
+        No CMS sites are configured for this workspace yet.
+      </div>
+    );
+  }
 
-  const primary = websites.find((w) => w.slug === PRIMARY_CMS_SLUG);
-  const others = websites.filter((w) => w.slug !== PRIMARY_CMS_SLUG);
-
-  const renderSiteRow = (w, { primarySite = false } = {}) => {
+  const renderSiteRow = (w) => {
     const domain = w.domain || `${w.slug}.workers.dev`;
     const storeUrl = w.domain ? `https://${w.domain}` : null;
     return (
       <div
-        key={w.id}
-        className={`cms-site-row${primarySite ? ' primary' : ''}`}
+        key={w.slug || w.id}
+        className="cms-site-row"
         onClick={() => openEditor(w.slug)}
         role="button"
         tabIndex={0}
@@ -1433,12 +1439,6 @@ function WebsitesView({ onNavigatePath }) {
             {w.theme ? ` · ${w.theme} theme` : ''}
           </div>
           <div className="cms-site-badges">
-            {primarySite ? (
-              <span className="cms-pill">
-                <span className="cms-dot" style={{ color: 'var(--ca)' }} />
-                <span style={{ fontSize: 10, color: 'var(--ca)' }}>Primary</span>
-              </span>
-            ) : null}
             <span className="cms-pill">
               <span className="cms-dot" style={{ color: 'var(--cg)' }} />
               <span style={{ fontSize: 10, color: 'var(--cg)' }}>Live</span>
@@ -1480,36 +1480,18 @@ function WebsitesView({ onNavigatePath }) {
           <p>Websites connected to your workspace. Edit pages and publish to production.</p>
         </div>
         <div className="cms-page-hdr-actions">
-          {primary?.domain ? (
-            <a
-              className="cms-btn cms-btn-sm cms-btn-d"
-              href={`https://${primary.domain}`}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              View inneranimalmedia.com
-            </a>
-          ) : null}
           <button type="button" className="cms-btn cms-btn-sm" onClick={() => show('Tenant onboarding — coming soon')}>
             Add site
           </button>
         </div>
       </div>
       <div className="cms-sites-wrap">
-        {primary ? (
-          <div className="cms-sites-section">
-            <p className="cms-sites-section-label">Current site</p>
-            {renderSiteRow(primary, { primarySite: true })}
+        <div className="cms-sites-section">
+          <p className="cms-sites-section-label">Your sites</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {websites.map((w) => renderSiteRow(w))}
           </div>
-        ) : null}
-        {others.length > 0 ? (
-          <div className="cms-sites-section">
-            <p className="cms-sites-section-label">All sites</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {others.map((w) => renderSiteRow(w))}
-            </div>
-          </div>
-        ) : null}
+        </div>
         <div
           className="cms-site-card add"
           role="button"
@@ -1744,11 +1726,14 @@ function normalizeCmsView(segment) {
 
 export function CmsRoot({
   workspaceId: propWorkspaceId,
+  workspaceLabel = null,
   view = 'sites',
   projectSlug: projectSlugProp,
   pageId = null,
   studioPanel = 'pages',
   addToPageId = null,
+  loadingProject = false,
+  projectError = null,
   onNavigate,
   onNavigatePath,
 }) {
@@ -1762,7 +1747,7 @@ export function CmsRoot({
     window.__IAM_USER?.workspace_id ||
     '';
 
-  const projectSlug = projectSlugProp || PRIMARY_CMS_SLUG;
+  const projectSlug = projectSlugProp || null;
   const studioView = view === 'editor' ? 'pages' : view;
   const panel =
     studioPanel ||
@@ -1771,14 +1756,27 @@ export function CmsRoot({
   return (
     <div className="iam-cms-root" style={{ display: 'flex', flex: 1, flexDirection: 'column', minHeight: 0 }}>
       {studioView === 'sites' && <WebsitesView onNavigatePath={onNavigatePath} />}
-      {(studioView === 'pages' || studioView === 'templates' || studioView === 'imports') && (
+      {(studioView === 'pages' || studioView === 'templates' || studioView === 'imports') && loadingProject ? (
+        <div className="cms-loading">Resolving CMS site for {workspaceLabel || 'your workspace'}…</div>
+      ) : null}
+      {(studioView === 'pages' || studioView === 'templates' || studioView === 'imports') &&
+      !loadingProject &&
+      !projectSlug ? (
+        <div className="cms-empty" style={{ padding: 24 }}>
+          {projectError || 'No CMS site resolved for this workspace. Open Sites to choose one.'}
+        </div>
+      ) : null}
+      {(studioView === 'pages' || studioView === 'templates' || studioView === 'imports') &&
+      !loadingProject &&
+      projectSlug ? (
         <CmsStudioEditor
           projectSlug={projectSlug}
           pageId={pageId || addToPageId}
           panel={panel}
           workspaceId={resolvedWorkspaceId}
+          workspaceLabel={workspaceLabel}
         />
-      )}
+      ) : null}
       {!CMS_VIEWS.includes(studioView) && <WebsitesView onNavigatePath={onNavigatePath} />}
     </div>
   );

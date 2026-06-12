@@ -36,7 +36,7 @@ export function extractCmsAgentContext(body, browserContext) {
     live_session_id: ws?.live_session_id ?? bc.live_session_id ?? null,
     collab_room: ws?.collab_room ?? bc.collab_room ?? null,
     bootstrap_cache_key: ws?.bootstrap_cache_key ?? bc.bootstrap_cache_key ?? null,
-    r2_bucket: ws?.r2_bucket ?? bc.r2_bucket ?? 'inneranimalmedia',
+    r2_bucket: ws?.r2_bucket ?? bc.r2_bucket ?? null,
     r2_key: ws?.r2_key ?? bc.r2_key ?? null,
     do_binding: 'IAM_COLLAB',
     kv_binding: 'SESSION_CACHE',
@@ -66,7 +66,7 @@ export function formatCmsContextForAgent(cms) {
     `live_session_id: ${cms.live_session_id || '(none)'}`,
     `collab_room (IAM_COLLAB): ${cms.collab_room || '(none)'}`,
     `bootstrap_cache_key (SESSION_CACHE): ${cms.bootstrap_cache_key || '(none)'}`,
-    `r2_bucket: ${cms.r2_bucket || 'inneranimalmedia'}`,
+    `r2_bucket: ${cms.r2_bucket || '(none)'}`,
     `r2_key: ${cms.r2_key || '(none)'}`,
   ];
   return `## CMS context\n${lines.join('\n')}`;

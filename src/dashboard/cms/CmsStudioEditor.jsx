@@ -49,18 +49,21 @@ export function CmsStudioEditor({
   pageId = null,
   panel = 'pages',
   workspaceId = '',
+  workspaceLabel = null,
 }) {
   const [sketchOpen, setSketchOpen] = useState(false);
   const iframeRef = useRef(null);
 
   const src = useMemo(() => {
+    if (!projectSlug) return null;
     const q = new URLSearchParams();
-    q.set('project', projectSlug || 'inneranimalmedia');
+    q.set('project', projectSlug);
     if (pageId) q.set('page', pageId);
     if (panel && panel !== 'pages') q.set('panel', panel);
     if (workspaceId) q.set('workspace_id', workspaceId);
+    if (workspaceLabel) q.set('workspace_label', workspaceLabel);
     return `${STUDIO_BASE}?${q.toString()}`;
-  }, [projectSlug, pageId, panel, workspaceId]);
+  }, [projectSlug, pageId, panel, workspaceId, workspaceLabel]);
 
   const postThemeToIframe = useCallback(() => {
     const win = iframeRef.current?.contentWindow;
@@ -133,22 +136,28 @@ export function CmsStudioEditor({
       className="iam-cms-studio-shell"
       style={{ position: 'relative', flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
     >
-      <iframe
-        ref={iframeRef}
-        title="CMS Studio Lite"
-        src={src}
-        onLoad={onIframeLoad}
-        className="iam-cms-studio-frame"
-        style={{
-          flex: 1,
-          width: '100%',
-          height: '100%',
-          border: 0,
-          minHeight: 0,
-          background: 'var(--dashboard-canvas, var(--bg-canvas, #00212b))',
-        }}
-        allow="clipboard-read; clipboard-write"
-      />
+      {src ? (
+        <iframe
+          ref={iframeRef}
+          title="CMS Studio Lite"
+          src={src}
+          onLoad={onIframeLoad}
+          className="iam-cms-studio-frame"
+          style={{
+            flex: 1,
+            width: '100%',
+            height: '100%',
+            border: 0,
+            minHeight: 0,
+            background: 'var(--dashboard-canvas, var(--bg-canvas, #00212b))',
+          }}
+          allow="clipboard-read; clipboard-write"
+        />
+      ) : (
+        <div className="flex flex-1 items-center justify-center text-sm text-[var(--text-muted)]">
+          CMS site not resolved for this workspace.
+        </div>
+      )}
 
       {sketchOpen && (
         <div
