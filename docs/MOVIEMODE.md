@@ -6,11 +6,18 @@ MovieMode is the AI-assisted media production orchestration layer under Agent Sa
 
 ## Storage
 
-- **R2:** binary media and renders (canonical bytes)
-- **D1:** `media_assets`, `media_scenes`, `moviemode_projects`, `moviemode_timelines`, `moviemode_render_jobs`, `moviemode_exports`
+- **ARTIFACTS R2:** canonical MovieMode export bytes (`artifacts/{scope}/{workspace_id}/export/{artifact_id}.webm`)
+- **D1:** `agentsam_artifacts`, `media_assets`, `moviemode_projects`, `moviemode_timelines`, `moviemode_render_jobs`, `moviemode_exports`, `moviemode_edit_sessions`
+- **KV:** ephemeral export job status + Veo job polling cache
 - **Supabase:** planning mirror / observability (not video bytes)
 
-### R2 prefix convention
+### Export ingest flow
+
+1. PTY runs `scripts/moviemode-remotion-render.mjs` → `RENDER_DONE`
+2. Script POSTs bytes to `/api/moviemode/ingest` (X-Bridge-Key) → `finalizeMoviemodeOutput` writes ARTIFACTS + D1 rows
+3. Job KV status moves `rendering` → `uploading` → `done`
+
+### R2 prefix convention (project-scoped media)
 
 ```
 moviemode/{workspace_id}/{project_slug}/source/{asset_id}/{filename}
