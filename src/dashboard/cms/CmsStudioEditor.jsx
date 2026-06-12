@@ -1,9 +1,9 @@
 /**
- * Atelier CMS Studio — full-viewport iframe wired to live D1 bootstrap via cms-studio-bridge.js
+ * Atelier CMS Lite — full-viewport iframe (designstudiocmslite.html + studio.jsx)
  */
 import { useMemo } from 'react';
 
-const STUDIO_BASE = '/static/dashboard/app/cms/design-studio-cms.html';
+const STUDIO_BASE = '/static/dashboard/app/cms/designstudiocmslite.html';
 
 export function CmsStudioEditor({
   projectSlug,
@@ -22,7 +22,7 @@ export function CmsStudioEditor({
 
   return (
     <iframe
-      title="CMS Studio"
+      title="CMS Studio Lite"
       src={src}
       className="iam-cms-studio-frame"
       style={{
