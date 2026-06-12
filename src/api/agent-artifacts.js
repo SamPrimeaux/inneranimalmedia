@@ -292,10 +292,17 @@ export async function handleAgentArtifactsApi(request, url, env) {
     return jsonResponse({ ok: false, error: 'Database not configured' }, 503);
   }
 
-  const authUser = await getAuthUser(request, env);
-  if (!authUser) return jsonResponse({ ok: false, error: 'Unauthorized' }, 401);
+  const purgePath = pathLower === '/api/agent/artifacts/purge' && method === 'POST';
+  const internalAutomation = purgePath && verifyInternalApiSecret(request, env);
 
-  const scope = await resolveTenantScope(env, authUser, request);
+  let scope;
+  if (internalAutomation) {
+    scope = { isSa: true, tenantId: null, userId: null, workspaceId: null };
+  } else {
+    const authUser = await getAuthUser(request, env);
+    if (!authUser) return jsonResponse({ ok: false, error: 'Unauthorized' }, 401);
+    scope = await resolveTenantScope(env, authUser, request);
+  }
 
   try {
     if (pathLower === '/api/agent/artifact-filters' && method === 'GET') {
@@ -358,8 +365,7 @@ export async function handleAgentArtifactsApi(request, url, env) {
       if (String(body?.confirm || '') !== PURGE_CONFIRM) {
         return jsonResponse({ ok: false, error: 'confirm_required', expected: PURGE_CONFIRM }, 400);
       }
-      const internal = verifyInternalApiSecret(request, env);
-      if (!internal && !scope.isSa) {
+      if (!internalAutomation && !scope.isSa) {
         return jsonResponse({ ok: false, error: 'Forbidden — superadmin or internal secret required' }, 403);
       }
       const workspaceId = String(body?.workspace_id || scope.workspaceId || '').trim() || null;
