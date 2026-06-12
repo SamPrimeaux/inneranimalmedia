@@ -15,6 +15,7 @@ import {
   handleDatabasesQueries,
   handleDatabasesTables,
   handleDatabasesTimeseries,
+  handleDatabasesEvents,
 } from './databases.js';
 import {
   handleAnalyticsAdvisors,
@@ -177,6 +178,10 @@ export async function handleAnalyticsApi(request, url, env, ctx, authUser, ident
 
   if (pathLower === '/api/analytics/databases/queries' && request.method === 'GET') {
     return handleDatabasesQueries(request, url, env, { tenantId, workspaceId });
+  }
+
+  if (pathLower === '/api/analytics/databases/events' && request.method === 'GET') {
+    return handleDatabasesEvents(request, url, env, { tenantId, workspaceId });
   }
 
   // Stub endpoints for now — return standard AnalyticsResponse shape.

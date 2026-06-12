@@ -2,6 +2,7 @@
  * GET /api/analytics/databases/summary
  * GET /api/analytics/databases/timeseries
  * GET /api/analytics/databases/tables
+ * GET /api/analytics/databases/events
  *
  * P0 telemetry: otlp_traces, agentsam_tool_call_log, agentsam_cron_runs,
  * agentsam_error_log, D1/Hyperdrive health probes. No new tables.
@@ -442,7 +443,7 @@ async function loadSupabaseHotTables(env, warnings) {
     const schema = String(row.schemaname || 'public');
     const rel = String(row.relname || '');
     if (!rel) continue;
-    const name = schema === 'public' ? rel : `${schema}.${rel}`;
+    const name = pgQualifiedName(schema, rel);
     const sizeBytes = Number(row.size_bytes) || 0;
     const readCount = Number(row.read_count) || 0;
     const writeCount = Number(row.write_count) || 0;
@@ -476,6 +477,268 @@ async function loadSupabaseHotTables(env, warnings) {
     mostRead: mostRead.slice(0, 5),
     mostWritten: mostWritten.slice(0, 5),
   };
+}
+
+const D1_STORAGE_LIMIT_BYTES = 2 * 1024 * 1024 * 1024;
+/** Supabase provisioned disk display when tier metadata is unavailable. */
+const SUPABASE_PROVISIONED_BYTES = 8 * 1024 * 1024 * 1024;
+
+function pgQualifiedName(schema, rel) {
+  const s = String(schema || 'public');
+  const r = String(rel || '');
+  return s === 'public' ? r : `${s}.${r}`;
+}
+
+/** @param {import('@cloudflare/workers-types').D1Database} db */
+async function loadD1StorageEstimate(db, warnings) {
+  const row = await d1First(
+    db,
+    'd1_storage',
+    'SELECT (page_count * page_size) AS bytes FROM pragma_page_count(), pragma_page_size()',
+    [],
+    warnings,
+  );
+  const usedBytes = Number(row?.bytes) || 0;
+  if (usedBytes <= 0) return { usedBytes: null, limitBytes: D1_STORAGE_LIMIT_BYTES, wired: false };
+  return { usedBytes, limitBytes: D1_STORAGE_LIMIT_BYTES, wired: true };
+}
+
+/** @param {any} env @param {Array<{code:string,message:string,severity?:string}>} warnings */
+async function loadSupabaseStorage(env, warnings) {
+  if (!isHyperdriveUsable(env)) {
+    return {
+      usedBytes: null,
+      limitBytes: SUPABASE_PROVISIONED_BYTES,
+      connections: null,
+      largeObjects: [],
+      wired: false,
+    };
+  }
+
+  const sizeR = await runHyperdriveQuery(env, 'SELECT pg_database_size(current_database())::bigint AS bytes', []);
+  const connR = await runHyperdriveQuery(
+    env,
+    `SELECT count(*)::int AS c FROM pg_stat_activity WHERE datname = current_database()`,
+    [],
+  );
+  const objR = await runHyperdriveQuery(
+    env,
+    `SELECT schemaname, relname, pg_total_relation_size(relid) AS size_bytes
+     FROM pg_stat_user_tables
+     WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+     ORDER BY pg_total_relation_size(relid) DESC NULLS LAST
+     LIMIT 8`,
+    [],
+  );
+
+  const usedBytes = sizeR.ok ? Number(sizeR.rows[0]?.bytes) || 0 : null;
+  const connections = connR.ok ? Number(connR.rows[0]?.c) || 0 : null;
+
+  if (!sizeR.ok) {
+    warnings.push({
+      code: 'PG_STORAGE_SIZE_FAILED',
+      message: sizeR.error || 'pg_database_size query failed',
+      severity: 'warn',
+    });
+  }
+
+  const largeObjects = [];
+  if (objR.ok) {
+    const total = usedBytes && usedBytes > 0 ? usedBytes : 1;
+    for (const row of objR.rows) {
+      const sizeBytes = Number(row.size_bytes) || 0;
+      if (sizeBytes <= 0) continue;
+      largeObjects.push({
+        name: pgQualifiedName(row.schemaname, row.relname),
+        size: formatBytes(sizeBytes),
+        sizeBytes,
+        pct: `${((sizeBytes / total) * 100).toFixed(2)}%`,
+      });
+    }
+  }
+
+  return {
+    usedBytes,
+    limitBytes: SUPABASE_PROVISIONED_BYTES,
+    connections,
+    largeObjects: largeObjects.slice(0, 5),
+    wired: usedBytes != null,
+  };
+}
+
+/** @param {import('@cloudflare/workers-types').D1Database} db */
+async function loadD1SchemaHealth(db, warnings, limit = 8) {
+  const tables = await d1All(
+    db,
+    'd1_schema_tables',
+    `SELECT name FROM sqlite_master
+     WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%'
+     ORDER BY name`,
+    [],
+    warnings,
+  );
+
+  const noPrimaryKey = [];
+  const missingIndexes = [];
+
+  for (const row of tables) {
+    const tableName = String(row.name || '');
+    if (!tableName) continue;
+    const safe = tableName.replace(/"/g, '""');
+
+    const info = await d1All(db, `d1_pk_${tableName}`, `PRAGMA table_info("${safe}")`, [], warnings);
+    const hasPk = info.some((c) => Number(c.pk) > 0);
+    if (!hasPk) {
+      noPrimaryKey.push({ name: tableName, ds: 'd1', severity: 'warn' });
+    }
+
+    const indexes = await d1All(db, `d1_idx_${tableName}`, `PRAGMA index_list("${safe}")`, [], warnings);
+    const hasUserIndex = indexes.some((ix) => {
+      const n = String(ix.name || '');
+      return n && !n.startsWith('sqlite_autoindex');
+    });
+    if (!hasUserIndex && !hasPk) {
+      missingIndexes.push({ name: tableName, ds: 'd1', severity: 'warn' });
+    } else if (!hasUserIndex && hasPk) {
+      const rowCount = await d1First(db, `d1_rc_${tableName}`, `SELECT COUNT(*) AS c FROM "${safe}"`, [], warnings);
+      if (Number(rowCount?.c) > 5000) {
+        missingIndexes.push({ name: tableName, ds: 'd1', severity: 'info' });
+      }
+    }
+
+    if (noPrimaryKey.length >= limit && missingIndexes.length >= limit) break;
+  }
+
+  return { noPrimaryKey: noPrimaryKey.slice(0, limit), missingIndexes: missingIndexes.slice(0, limit), fkIssues: [] };
+}
+
+/** @param {any} env @param {Array<{code:string,message:string,severity?:string}>} warnings */
+async function loadSupabaseSchemaHealth(env, warnings, limit = 8) {
+  if (!isHyperdriveUsable(env)) {
+    return { noPrimaryKey: [], missingIndexes: [], fkIssues: [], wired: false };
+  }
+
+  const noPkR = await runHyperdriveQuery(
+    env,
+    `SELECT n.nspname AS schemaname, c.relname AS relname
+     FROM pg_class c
+     JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE c.relkind = 'r'
+       AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+       AND NOT EXISTS (
+         SELECT 1 FROM pg_constraint con
+         WHERE con.conrelid = c.oid AND con.contype = 'p'
+       )
+     ORDER BY n.nspname, c.relname
+     LIMIT ${limit}`,
+    [],
+  );
+
+  const missIdxR = await runHyperdriveQuery(
+    env,
+    `SELECT schemaname, relname
+     FROM pg_stat_user_tables
+     WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+       AND seq_scan > 100
+       AND COALESCE(idx_scan, 0) < seq_scan
+     ORDER BY seq_scan DESC
+     LIMIT ${limit}`,
+    [],
+  );
+
+  const fkR = await runHyperdriveQuery(
+    env,
+    `SELECT conname, conrelid::regclass::text AS table_name
+     FROM pg_constraint
+     WHERE contype = 'f' AND NOT convalidated
+     LIMIT ${limit}`,
+    [],
+  );
+
+  if (!noPkR.ok) {
+    warnings.push({
+      code: 'PG_SCHEMA_PK_SCAN_FAILED',
+      message: noPkR.error || 'Postgres PK scan failed',
+      severity: 'warn',
+    });
+  }
+
+  const noPrimaryKey = (noPkR.ok ? noPkR.rows : []).map((r) => ({
+    name: pgQualifiedName(r.schemaname, r.relname),
+    ds: 'supabase',
+    severity: 'warn',
+  }));
+
+  const missingIndexes = (missIdxR.ok ? missIdxR.rows : []).map((r) => ({
+    name: pgQualifiedName(r.schemaname, r.relname),
+    ds: 'supabase',
+    severity: 'info',
+  }));
+
+  const fkIssues = (fkR.ok ? fkR.rows : []).map((r) => ({
+    name: String(r.table_name || r.conname || ''),
+    ds: 'supabase',
+    severity: 'warn',
+  }));
+
+  return { noPrimaryKey, missingIndexes, fkIssues, wired: noPkR.ok || missIdxR.ok };
+}
+
+/**
+ * @param {import('@cloudflare/workers-types').D1Database} db
+ * @param {{ tenantId: string|null, workspaceId: string|null }} scope
+ * @param {string} range
+ */
+async function loadRecentDbEvents(db, scope, range, warnings) {
+  if (!(await tableExists(db, 'agentsam_tool_call_log'))) return [];
+  const cols = await pragmaTableInfo(db, 'agentsam_tool_call_log');
+  if (!cols.has('created_at')) return [];
+
+  const binds = [rangeStartSec(range)];
+  const where = ['created_at >= ?', `(${SQL_DB_TOOL_D1} OR ${SQL_DB_TOOL_SUPABASE})`];
+  where.push(...tenantWorkspaceClause({ ...scope, tableCols: cols }, binds));
+
+  const detailExpr = cols.has('input_summary')
+    ? `COALESCE(NULLIF(trim(input_summary), ''), tool_name)`
+    : 'tool_name';
+
+  const rows = await d1All(
+    db,
+    'db_recent_events',
+    `SELECT tool_name, status, ${detailExpr} AS detail, created_at, COALESCE(duration_ms, 0) AS duration_ms
+     FROM agentsam_tool_call_log
+     WHERE ${where.join(' AND ')}
+     ORDER BY created_at DESC
+     LIMIT 12`,
+    binds,
+    warnings,
+  );
+
+  return rows.map((r) => {
+    const status = String(r.status || '').toLowerCase();
+    const isErr = status === 'error' || status === 'failed';
+    const ms = Number(r.duration_ms) || 0;
+    const tool = String(r.tool_name || '');
+    const ds = tool.includes('hyperdrive') ? 'supabase' : 'd1';
+    let kind = 'ok';
+    if (isErr) kind = 'err';
+    else if (ms >= 1500) kind = 'warn';
+    else if (tool.includes('schema') || tool.includes('write')) kind = 'info';
+
+    const created = Number(r.created_at) || 0;
+    const d = created ? new Date(created * 1000) : new Date();
+    const time = `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC`;
+
+    return {
+      time,
+      kind,
+      datasource: ds,
+      label: isErr ? `${ds === 'supabase' ? 'Hyperdrive' : 'D1'} error` : `${ds === 'supabase' ? 'Hyperdrive' : 'D1'} query`,
+      detail: String(r.detail || tool).slice(0, 200),
+      meta: isErr ? ds : ms > 0 ? `${ms} ms` : ds,
+      created_at: created,
+    };
+  });
 }
 
 /**
@@ -805,6 +1068,8 @@ export async function handleDatabasesSummary(request, url, env, { tenantId, work
   }
 
   const health = await probeHealth(env, scope, warnings);
+  const d1Storage = env?.DB ? await loadD1StorageEstimate(env.DB, warnings) : { usedBytes: null, wired: false };
+  const supStorage = await loadSupabaseStorage(env, warnings);
   const kpiRaw = await aggregateKpis(env, scope, range, ds, warnings);
 
   const hasSignal =
@@ -827,10 +1092,14 @@ export async function handleDatabasesSummary(request, url, env, { tenantId, work
     });
   }
 
-  const sectionNotices = [
-    'D1 storage MB and Supabase disk metrics: /api/analytics/databases/storage not implemented.',
-    'Recent events timeline: /api/analytics/databases/events not implemented (P1).',
-  ];
+  const sectionNotices = [];
+  if (!d1Storage.wired && !supStorage.wired) {
+    warnings.push({
+      code: 'SECTION_STORAGE_PARTIAL',
+      message: 'Storage metrics unavailable — D1 pragma or Hyperdrive pg_database_size failed.',
+      severity: 'info',
+    });
+  }
 
   const qTrend = pctTrend(kpiRaw.queries, kpiRaw.queriesPrev);
   const rrTrend = pctTrend(kpiRaw.rowsRead, kpiRaw.rowsReadPrev);
@@ -839,13 +1108,17 @@ export async function handleDatabasesSummary(request, url, env, { tenantId, work
 
   const errorRatePct = kpiRaw.queries > 0 ? (kpiRaw.errors / kpiRaw.queries) * 100 : 0;
 
+  const storageParts = [];
+  if (d1Storage.wired && d1Storage.usedBytes != null) storageParts.push(`D1 ${formatBytes(d1Storage.usedBytes)}`);
+  if (supStorage.wired && supStorage.usedBytes != null) storageParts.push(`PG ${formatBytes(supStorage.usedBytes)}`);
+
   const miniStats = [
     {
       key: 'storage',
       label: 'Storage used',
-      value: null,
+      value: storageParts.length ? storageParts.join(' · ') : null,
       status: null,
-      wired: false,
+      wired: Boolean(storageParts.length),
     },
     {
       key: 'tables',
@@ -910,16 +1183,22 @@ export async function handleDatabasesSummary(request, url, env, { tenantId, work
       wired: health.hyperdrive.status !== 'unknown',
     },
     supabase: {
-      status: health.hyperdrive.status === 'healthy' ? 'healthy' : 'unknown',
-      lines: ['Host CPU/memory: not wired (P2)', 'Use Hyperdrive probe for connectivity'],
-      wired: false,
+      status: health.hyperdrive.status === 'healthy' ? 'healthy' : health.hyperdrive.status === 'error' ? 'error' : 'unknown',
+      lines: [
+        health.supabase.tableCount != null ? `Tables: ${health.supabase.tableCount} PG` : 'Tables: —',
+        supStorage.wired && supStorage.usedBytes != null
+          ? `Disk: ${formatBytes(supStorage.usedBytes)} / ${formatBytes(supStorage.limitBytes)}`
+          : 'Disk: —',
+        supStorage.connections != null ? `Connections: ${supStorage.connections}` : 'Connections: —',
+      ],
+      wired: health.hyperdrive.status !== 'unknown',
     },
     lastEvents: {
       status: kpiRaw.errors > 0 ? 'degraded' : 'healthy',
       lines: [
         `Errors in window: ${kpiRaw.errors}`,
         `Error rate: ${errorRatePct < 0.01 ? '<0.01' : errorRatePct.toFixed(2)}%`,
-        'Event stream: not wired (P1)',
+        'Recent tool calls: /api/analytics/databases/events',
       ],
       wired: true,
     },
@@ -1327,6 +1606,25 @@ export async function handleDatabasesTables(request, url, env, { tenantId, works
     writePool.push(...pg.mostWritten);
   }
 
+  /** @type {{ noPrimaryKey: Array<{name:string,ds:string,severity:string}>, missingIndexes: Array<{name:string,ds:string,severity:string}>, fkIssues: Array<{name:string,ds:string,severity:string}>, wired: boolean }} */
+  let schemaHealth = { noPrimaryKey: [], missingIndexes: [], fkIssues: [], wired: false };
+  if ((ds === 'all' || ds === 'd1') && env?.DB) {
+    const d1Health = await loadD1SchemaHealth(env.DB, warnings);
+    schemaHealth.noPrimaryKey.push(...d1Health.noPrimaryKey);
+    schemaHealth.missingIndexes.push(...d1Health.missingIndexes);
+    schemaHealth.wired = true;
+  }
+  if (ds === 'all' || ds === 'supabase') {
+    const pgHealth = await loadSupabaseSchemaHealth(env, warnings);
+    schemaHealth.noPrimaryKey.push(...pgHealth.noPrimaryKey);
+    schemaHealth.missingIndexes.push(...pgHealth.missingIndexes);
+    schemaHealth.fkIssues.push(...pgHealth.fkIssues);
+    schemaHealth.wired = schemaHealth.wired || pgHealth.wired;
+  }
+
+  const d1Storage = env?.DB ? await loadD1StorageEstimate(env.DB, warnings) : { usedBytes: null, limitBytes: D1_STORAGE_LIMIT_BYTES, wired: false };
+  const supStorage = await loadSupabaseStorage(env, warnings);
+
   const largest = topHotTables(largestPool, ds, 5);
   const mostRead = topHotTables(readPool, ds, 5);
   const mostWritten = topHotTables(writePool, ds, 5);
@@ -1387,7 +1685,73 @@ export async function handleDatabasesTables(request, url, env, { tenantId, works
         mostRead,
         mostWritten,
       },
+      {
+        key: 'schemaHealth',
+        noPrimaryKey: schemaHealth.noPrimaryKey,
+        missingIndexes: schemaHealth.missingIndexes,
+        fkIssues: schemaHealth.fkIssues,
+        wired: schemaHealth.wired,
+      },
+      {
+        key: 'storage',
+        d1: {
+          usedBytes: d1Storage.usedBytes,
+          limitBytes: d1Storage.limitBytes,
+          usedLabel: d1Storage.usedBytes != null ? formatBytes(d1Storage.usedBytes) : null,
+          limitLabel: formatBytes(d1Storage.limitBytes),
+          pctUsed:
+            d1Storage.usedBytes != null && d1Storage.limitBytes > 0
+              ? Math.round((d1Storage.usedBytes / d1Storage.limitBytes) * 1000) / 10
+              : null,
+          tableCount: d1Count,
+          wired: d1Storage.wired,
+        },
+        supabase: {
+          usedBytes: supStorage.usedBytes,
+          limitBytes: supStorage.limitBytes,
+          usedLabel: supStorage.usedBytes != null ? formatBytes(supStorage.usedBytes) : null,
+          limitLabel: formatBytes(supStorage.limitBytes),
+          pctUsed:
+            supStorage.usedBytes != null && supStorage.limitBytes > 0
+              ? Math.round((supStorage.usedBytes / supStorage.limitBytes) * 1000) / 10
+              : null,
+          connections: supStorage.connections,
+          largeObjects: supStorage.largeObjects,
+          tableCount: supabaseCount,
+          wired: supStorage.wired,
+        },
+      },
     ],
+    warnings,
+    meta: { tenantId: scope.tenantId, workspaceId: scope.workspaceId },
+  });
+}
+
+export async function handleDatabasesEvents(request, url, env, { tenantId, workspaceId }) {
+  void request;
+  const range = parseDatabasesRange(url);
+  const ds = parseDatabasesDs(url);
+  const warnings = [];
+  const scope = {
+    tenantId: tenantId && String(tenantId).trim() ? String(tenantId).trim() : null,
+    workspaceId: workspaceId && String(workspaceId).trim() ? String(workspaceId).trim() : null,
+  };
+
+  let events = [];
+  if (env?.DB && (ds === 'all' || ds === 'd1' || ds === 'supabase')) {
+    events = await loadRecentDbEvents(env.DB, scope, range, warnings);
+    if (ds !== 'all') {
+      events = events.filter((e) => e.datasource === ds);
+    }
+  }
+
+  return analyticsResponse({
+    ok: true,
+    backend: 'd1_registry',
+    range,
+    ds,
+    events,
+    wired: events.length > 0,
     warnings,
     meta: { tenantId: scope.tenantId, workspaceId: scope.workspaceId },
   });

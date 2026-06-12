@@ -14,10 +14,6 @@ import {
 
 import styles from './DatabasesTab.module.css';
 import {
-  largestTables, mostReadTables, mostWrittenTables,
-  largeObjects, timelineEvents,
-} from './mockDatabasesObservability';
-import {
   useDatabasesObservability,
   formatCompact,
   formatTrend,
@@ -29,6 +25,7 @@ import {
   type HotTable,
   type KpiMetric,
   type MiniStat,
+  type SchemaHealthRow,
 } from './useDatabasesObservability';
 
 // ── recharts color tokens (canvas cannot use CSS vars) ─────────────────────
@@ -528,6 +525,45 @@ function QueryTable({
 }
 
 // ── Hot table list ─────────────────────────────────────────────────────────
+function SchemaHealthList({
+  title,
+  icon,
+  rows,
+  loading,
+  emptyOk,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  rows: SchemaHealthRow[];
+  loading: boolean;
+  emptyOk?: React.ReactNode;
+}) {
+  return (
+    <div className={styles.tableList}>
+      <div className={styles.tableListHeader}>{icon} {title}</div>
+      {loading ? (
+        <div className={styles.emptyState} style={{ padding: '12px 10px', fontSize: 11 }}>Loading…</div>
+      ) : rows.length === 0 ? (
+        emptyOk ?? (
+          <div className={styles.emptyState} style={{ padding: '12px 10px', fontSize: 11 }}>
+            None detected
+          </div>
+        )
+      ) : (
+        rows.map((t) => (
+          <div key={`${t.ds}:${t.name}`} className={styles.tableRow}>
+            <span className={styles.tableRowName}>{t.name}</span>
+            <DsBadge ds={t.ds} />
+            <span className={`${styles.healthBadge} ${t.severity === 'warn' ? styles.healthBadgeWarn : styles.healthBadgeHealthy}`}>
+              {t.severity}
+            </span>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
 function HotTableList({
   title, icon, tables, emptyLabel = 'No tables for this filter',
 }: { title: string; icon: React.ReactNode; tables: HotTable[]; emptyLabel?: string }) {
@@ -595,9 +631,8 @@ export default function DatabasesTab() {
   const topWarnings = obs.alertWarnings;
 
   const hot = obs.hotTables;
-  const largestDisplay = hot.wired ? hot.largest : largestTables;
-  const mostReadDisplay = hot.wired ? hot.mostRead : mostReadTables;
-  const mostWrittenDisplay = hot.wired ? hot.mostWritten : mostWrittenTables;
+  const schema = obs.schemaHealth;
+  const storage = obs.storage;
 
   const inventoryCaption = useMemo(() => {
     const c = hot.counts;
@@ -608,8 +643,8 @@ export default function DatabasesTab() {
     return parts.length ? parts.join(' · ') : null;
   }, [hot.counts]);
 
-  const d1StorageTableCount =
-    hot.counts?.d1 != null ? String(hot.counts.d1) : '—';
+  const d1Storage = storage.d1;
+  const supStorage = storage.supabase;
 
   return (
     <div className={styles['analytics-databases']}>
@@ -692,61 +727,56 @@ export default function DatabasesTab() {
           <HotTableList
             title="Largest"
             icon={<Database size={11} />}
-            tables={largestDisplay}
-            emptyLabel={hot.wired ? 'No row-count signal in this window' : 'Loading table inventory…'}
+            tables={hot.largest}
+            emptyLabel={obs.loading ? 'Loading table inventory…' : 'No size signal for this filter'}
           />
           <HotTableList
             title="Most read"
             icon={<Eye size={11} />}
-            tables={mostReadDisplay}
-            emptyLabel={hot.wired ? 'No read signal in this window' : 'Loading read ranks…'}
+            tables={hot.mostRead}
+            emptyLabel={obs.loading ? 'Loading read ranks…' : 'No read signal in this window'}
           />
           <HotTableList
             title="Most written"
             icon={<Pencil size={11} />}
-            tables={mostWrittenDisplay}
-            emptyLabel={hot.wired ? 'No write signal in this window' : 'Loading write ranks…'}
+            tables={hot.mostWritten}
+            emptyLabel={obs.loading ? 'Loading write ranks…' : 'No write signal in this window'}
           />
         </div>
 
         {/* Schema health */}
         <div className={styles.schemaGrid}>
-          <div className={styles.tableList}>
-            <div className={styles.tableListHeader} style={{ color: 'var(--db-status-degraded)' }}>
-              <AlertCircle size={11} /> No primary key
-            </div>
-            {['agentsam_raw_events', 'cf_log_ingest_tmp'].map(t => (
-              <div key={t} className={styles.tableRow}>
-                <span className={styles.tableRowName}>{t}</span>
-                <span className={`${styles.healthBadge} ${styles.healthBadgeWarn}`}>warn</span>
+          <SchemaHealthList
+            title="No primary key"
+            icon={<AlertCircle size={11} />}
+            rows={schema.noPrimaryKey}
+            loading={obs.loading && !schema.wired}
+          />
+          <SchemaHealthList
+            title="Missing indexes"
+            icon={<AlertCircle size={11} />}
+            rows={schema.missingIndexes}
+            loading={obs.loading && !schema.wired}
+          />
+          <SchemaHealthList
+            title="FK issues"
+            icon={<ExternalLink size={11} />}
+            rows={schema.fkIssues}
+            loading={obs.loading && !schema.wired}
+            emptyOk={(
+              <div className={styles.emptyState}>
+                <CheckCircle size={16} style={{ color: 'var(--db-status-healthy)' }} />
+                No foreign key issues detected
               </div>
-            ))}
-          </div>
-          <div className={styles.tableList}>
-            <div className={styles.tableListHeader} style={{ color: 'var(--db-status-degraded)' }}>
-              <AlertCircle size={11} /> Missing indexes
-            </div>
-            {['agentsam_execution_steps', 'agentsam_tool_call_log'].map(t => (
-              <div key={t} className={styles.tableRow}>
-                <span className={styles.tableRowName}>{t}</span>
-                <span className={`${styles.healthBadge} ${styles.healthBadgeWarn}`}>warn</span>
-              </div>
-            ))}
-          </div>
-          <div className={styles.tableList}>
-            <div className={styles.tableListHeader}><ExternalLink size={11} /> FK issues</div>
-            <div className={styles.emptyState}>
-              <CheckCircle size={16} style={{ color: 'var(--db-status-healthy)' }} />
-              No foreign key issues detected
-            </div>
-          </div>
+            )}
+          />
         </div>
       </div>
 
       {/* ── Storage & capacity ── */}
       <div>
         <div className={styles.sectionTitle}>Storage &amp; capacity</div>
-        <SectionNotice message={obs.sectionWarnings.get('SECTION_STORAGE_NOT_WIRED')} />
+        <SectionNotice message={obs.sectionWarnings.get('SECTION_STORAGE_PARTIAL')} />
         <div className={styles.storageGrid}>
           {/* D1 */}
           <div className={styles.chartPanel}>
@@ -756,7 +786,11 @@ export default function DatabasesTab() {
             </div>
             <div className={styles.chartBody}>
               <div className={styles.storageMetaRow}>
-                {[['Used', '52.1 MB'], ['Tables', d1StorageTableCount], ['Max', '2 GB']].map(([l, v]) => (
+                {[
+                  ['Used', obs.loading ? '…' : d1Storage.usedLabel ?? '—'],
+                  ['Tables', obs.loading ? '…' : d1Storage.tableCount != null ? String(d1Storage.tableCount) : hot.counts?.d1 != null ? String(hot.counts.d1) : '—'],
+                  ['Max', d1Storage.limitLabel ?? '2 GB'],
+                ].map(([l, v]) => (
                   <div key={l} className={styles.storageMetaItem}>
                     <div className={styles.storageMetaLabel}>{l}</div>
                     <div className={styles.storageMetaVal}>{v}</div>
@@ -764,9 +798,16 @@ export default function DatabasesTab() {
                 ))}
               </div>
               <div className={styles.storageBar}>
-                <div className={styles.storageBarFill} style={{ width: '2.6%' }} />
+                <div
+                  className={styles.storageBarFill}
+                  style={{ width: `${Math.min(d1Storage.pctUsed ?? 0, 100)}%` }}
+                />
               </div>
-              <div className={styles.storageBarLabel}>2.6% of 2 GB limit used</div>
+              <div className={styles.storageBarLabel}>
+                {d1Storage.pctUsed != null
+                  ? `${d1Storage.pctUsed}% of ${d1Storage.limitLabel ?? '2 GB'} limit used`
+                  : 'D1 page-size estimate unavailable'}
+              </div>
             </div>
           </div>
 
@@ -774,11 +815,15 @@ export default function DatabasesTab() {
           <div className={styles.chartPanel}>
             <div className={styles.chartHeader}>
               <div className={styles.chartTitle}><Database size={14} /> Supabase database</div>
-              <span style={{ fontSize: 11, color: 'var(--db-text-muted)' }}>dpmuvynqixblxsilnlut</span>
+              <span style={{ fontSize: 11, color: 'var(--db-text-muted)' }}>agentsam schema</span>
             </div>
             <div className={styles.chartBody}>
               <div className={styles.storageMetaRow}>
-                {[['Disk used', '422 MB'], ['Provisioned', '8 GB'], ['Connections', '18']].map(([l, v]) => (
+                {[
+                  ['Disk used', obs.loading ? '…' : supStorage.usedLabel ?? '—'],
+                  ['Provisioned', supStorage.limitLabel ?? '8 GB'],
+                  ['Connections', obs.loading ? '…' : supStorage.connections != null ? String(supStorage.connections) : '—'],
+                ].map(([l, v]) => (
                   <div key={l} className={styles.storageMetaItem}>
                     <div className={styles.storageMetaLabel}>{l}</div>
                     <div className={styles.storageMetaVal}>{v}</div>
@@ -786,13 +831,19 @@ export default function DatabasesTab() {
                 ))}
               </div>
               <div style={{ fontSize: 11, color: 'var(--db-text-muted)', marginBottom: 8 }}>Large objects</div>
-              {largeObjects.map(o => (
-                <div key={o.name} className={styles.largeObjectRow}>
-                  <span className={styles.largeObjectName}>{o.name}</span>
-                  <span className={styles.largeObjectSize}>{o.size}</span>
-                  <span className={styles.largeObjectPct}>{o.pct}</span>
+              {(supStorage.largeObjects ?? []).length === 0 ? (
+                <div className={styles.emptyState} style={{ padding: '8px 0', fontSize: 11 }}>
+                  {obs.loading ? 'Loading…' : 'No relation size data'}
                 </div>
-              ))}
+              ) : (
+                (supStorage.largeObjects ?? []).map((o) => (
+                  <div key={o.name} className={styles.largeObjectRow}>
+                    <span className={styles.largeObjectName}>{o.name}</span>
+                    <span className={styles.largeObjectSize}>{o.size}</span>
+                    <span className={styles.largeObjectPct}>{o.pct}</span>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>
@@ -861,18 +912,23 @@ export default function DatabasesTab() {
       {/* ── Recent events ── */}
       <div>
         <div className={styles.sectionTitle}>Recent database events</div>
-        <SectionNotice message={obs.sectionWarnings.get('SECTION_EVENTS_NOT_WIRED')} />
         <div className={styles.timeline}>
-          {timelineEvents.map((e, i) => (
-            <div key={i} className={styles.timelineItem}>
-              <span className={styles.tlTime}>{e.time}</span>
-              <span className={styles.tlDesc}>
-                <span className={`${styles.tlDot} ${tlDotClass[e.kind]}`} />
-                {e.label} &mdash; <span className={styles.tlDetail}>{e.detail}</span>
-              </span>
-              <span className={styles.tlMeta}>{e.meta}</span>
+          {!obs.timeline.wired && !obs.loading ? (
+            <div className={styles.emptyState} style={{ padding: '12px 10px', fontSize: 11 }}>
+              No database tool calls in this window.
             </div>
-          ))}
+          ) : (
+            obs.timeline.events.map((e, i) => (
+              <div key={`${e.created_at ?? i}-${e.detail.slice(0, 24)}`} className={styles.timelineItem}>
+                <span className={styles.tlTime}>{e.time}</span>
+                <span className={styles.tlDesc}>
+                  <span className={`${styles.tlDot} ${tlDotClass[e.kind] ?? styles.tlDotInfo}`} />
+                  {e.label} &mdash; <span className={styles.tlDetail}>{e.detail}</span>
+                </span>
+                <span className={styles.tlMeta}>{e.meta}</span>
+              </div>
+            ))
+          )}
         </div>
       </div>
 

@@ -108,6 +108,22 @@ export type DatabasesTimeseriesPayload = {
 
 export type HotTable = { name: string; val: string; ds: 'd1' | 'supabase' };
 
+export type SchemaHealthRow = { name: string; ds: 'd1' | 'supabase'; severity: string };
+
+export type LargeObjectRow = { name: string; size: string; pct: string };
+
+export type StorageBreakdown = {
+  usedBytes?: number | null;
+  limitBytes?: number;
+  usedLabel?: string | null;
+  limitLabel?: string;
+  pctUsed?: number | null;
+  tableCount?: number | null;
+  connections?: number | null;
+  largeObjects?: LargeObjectRow[];
+  wired?: boolean;
+};
+
 export type DatabasesTablesPayload = {
   ok: boolean;
   range: string;
@@ -121,7 +137,30 @@ export type DatabasesTablesPayload = {
     largest?: HotTable[];
     mostRead?: HotTable[];
     mostWritten?: HotTable[];
+    noPrimaryKey?: SchemaHealthRow[];
+    missingIndexes?: SchemaHealthRow[];
+    fkIssues?: SchemaHealthRow[];
+    wired?: boolean;
+    d1?: StorageBreakdown;
+    supabase?: StorageBreakdown;
   }>;
+  warnings?: DatabasesWarning[];
+};
+
+export type DbTimelineEvent = {
+  time: string;
+  kind: 'ok' | 'err' | 'warn' | 'info';
+  label: string;
+  detail: string;
+  meta: string;
+  created_at?: number;
+};
+
+export type DatabasesEventsPayload = {
+  ok: boolean;
+  range: string;
+  events?: DbTimelineEvent[];
+  wired?: boolean;
   warnings?: DatabasesWarning[];
 };
 
@@ -179,6 +218,7 @@ export function useDatabasesObservability(ds: DatabasesDs, range: DatabasesRange
   const [timeseries, setTimeseries] = useState<DatabasesTimeseriesPayload | null>(null);
   const [tables, setTables] = useState<DatabasesTablesPayload | null>(null);
   const [queries, setQueries] = useState<DatabasesQueriesPayload | null>(null);
+  const [events, setEvents] = useState<DatabasesEventsPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -186,17 +226,19 @@ export function useDatabasesObservability(ds: DatabasesDs, range: DatabasesRange
     setLoading(true);
     setError(null);
     const q = new URLSearchParams({ range, ds });
-    const [s, t, tbl, qry] = await Promise.all([
+    const [s, t, tbl, qry, ev] = await Promise.all([
       fetchJson<DatabasesSummaryPayload>(`/api/analytics/databases/summary?${q}`),
       fetchJson<DatabasesTimeseriesPayload>(`/api/analytics/databases/timeseries?${q}`),
       fetchJson<DatabasesTablesPayload>(`/api/analytics/databases/tables?${q}`),
       fetchJson<DatabasesQueriesPayload>(`/api/analytics/databases/queries?${q}`),
+      fetchJson<DatabasesEventsPayload>(`/api/analytics/databases/events?${q}`),
     ]);
     setSummary(s);
     setTimeseries(t);
     setTables(tbl);
     setQueries(qry);
-    if (!s && !t && !tbl && !qry) setError('Could not load database analytics.');
+    setEvents(ev);
+    if (!s && !t && !tbl && !qry && !ev) setError('Could not load database analytics.');
     setLoading(false);
   }, [ds, range]);
 
@@ -317,16 +359,43 @@ export function useDatabasesObservability(ds: DatabasesDs, range: DatabasesRange
     };
   }, [tables]);
 
+  const schemaHealth = useMemo(() => {
+    const b = tables?.breakdowns?.find((x) => x.key === 'schemaHealth');
+    return {
+      wired: Boolean(b?.wired),
+      noPrimaryKey: b?.noPrimaryKey ?? [],
+      missingIndexes: b?.missingIndexes ?? [],
+      fkIssues: b?.fkIssues ?? [],
+    };
+  }, [tables]);
+
+  const storage = useMemo(() => {
+    const b = tables?.breakdowns?.find((x) => x.key === 'storage');
+    return {
+      d1: b?.d1 ?? { wired: false },
+      supabase: b?.supabase ?? { wired: false },
+    };
+  }, [tables]);
+
+  const timeline = useMemo(() => ({
+    wired: Boolean(events?.wired && (events?.events?.length ?? 0) > 0),
+    events: events?.events ?? [],
+  }), [events]);
+
   return {
     summary,
     timeseries,
     tables,
     queries,
+    events,
     queryPerformance,
     hero,
     latency,
     errorChart,
     hotTables,
+    schemaHealth,
+    storage,
+    timeline,
     loading,
     error,
     warnings,
