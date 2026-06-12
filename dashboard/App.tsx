@@ -3956,9 +3956,9 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* Mobile (≤430px): bottom tab bar above StatusBar */}
+      {/* Mobile (≤430px): bottom tab bar above StatusBar — Movie Mode uses its own nav */}
       <nav
-        className="hidden max-phone:flex fixed inset-x-0 z-[90] items-stretch justify-around gap-0 border-t border-[var(--dashboard-border)] bg-[var(--dashboard-panel)]/95 backdrop-blur-sm"
+        className={`hidden max-phone:flex fixed inset-x-0 z-[90] items-stretch justify-around gap-0 border-t border-[var(--dashboard-border)] bg-[var(--dashboard-panel)]/95 backdrop-blur-sm ${isMovieModeRoute ? '!hidden' : ''}`}
         style={{ bottom: 'calc(1.5rem + env(safe-area-inset-bottom, 0px))' }}
         aria-label="Primary"
       >

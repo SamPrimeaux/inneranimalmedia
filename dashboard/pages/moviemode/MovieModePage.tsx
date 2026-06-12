@@ -1,10 +1,19 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Loader2, X } from 'lucide-react';
 import { MovieModeWorkbench } from '../../features/moviemode/MovieModeWorkbench';
 import { MovieModeToolbar } from '../../features/moviemode/MovieModeToolbar';
 import { ExportPanel } from '../../features/moviemode/ExportPanel';
+import { MovieModeBottomNav } from '../../features/moviemode/MovieModeBottomNav';
+import { MovieModeHome, primeStreamImport } from '../../features/moviemode/MovieModeHome';
+import { MovieModeProjectsTab } from '../../features/moviemode/MovieModeProjectsTab';
+import { MovieModePlaceholderTab } from '../../features/moviemode/MovieModePlaceholderTab';
+import {
+  isMovieModeProjectId,
+  parseMovieModeRoute,
+} from '../../features/moviemode/movieModeRoutes';
 import { useMovieModeProject } from '../../hooks/useMovieModeProject';
+import { useMovieModeProjects } from '../../hooks/useMovieModeProjects';
 import { timelineToEditSession } from '../../features/moviemode/editSessionAdapter';
 
 type SaveDestination = 'local' | 'google_drive' | 'byok_r2';
@@ -12,13 +21,34 @@ type SaveDestination = 'local' | 'google_drive' | 'byok_r2';
 export default function MovieModePage() {
   const { projectId: routeProjectId } = useParams<{ projectId?: string }>();
   const [searchParams] = useSearchParams();
-  const projectId = routeProjectId || searchParams.get('project_id');
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  const parsedRoute = useMemo(() => parseMovieModeRoute(location.pathname), [location.pathname]);
+  const queryProjectId = searchParams.get('project_id');
+  const projectId = useMemo(() => {
+    if (isMovieModeProjectId(routeProjectId)) return routeProjectId;
+    if (isMovieModeProjectId(queryProjectId)) return queryProjectId;
+    return parsedRoute.projectId;
+  }, [routeProjectId, queryProjectId, parsedRoute.projectId]);
+
+  const inEditorWorkbench = parsedRoute.tab === 'editor' && isMovieModeProjectId(projectId);
+
   const { project, timeline, loading, error, saving, setTimeline } = useMovieModeProject({
-    projectId,
+    projectId: inEditorWorkbench ? projectId : null,
   });
+  const {
+    projects,
+    loading: projectsLoading,
+    createProject,
+  } = useMovieModeProjects(
+    (parsedRoute.tab === 'editor' && !inEditorWorkbench) || parsedRoute.tab === 'projects',
+  );
+
   const [lastExportKey, setLastExportKey] = useState<string | null>(null);
   const [mirrorBusy, setMirrorBusy] = useState<SaveDestination | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   const session = useMemo(() => (timeline ? timelineToEditSession(timeline) : null), [timeline]);
 
@@ -78,11 +108,36 @@ export default function MovieModePage() {
     [mirrorExport],
   );
 
-  if (loading) {
+  const handleCreateProject = useCallback(async () => {
+    setCreating(true);
+    try {
+      const id = await createProject();
+      navigate(`/dashboard/moviemode/${encodeURIComponent(id)}`);
+    } catch (e) {
+      alert(String((e as Error)?.message || e));
+    } finally {
+      setCreating(false);
+    }
+  }, [createProject, navigate]);
+
+  const handleImportStream = useCallback(async () => {
+    setCreating(true);
+    try {
+      primeStreamImport();
+      const id = await createProject();
+      navigate(`/dashboard/moviemode/${encodeURIComponent(id)}`);
+    } catch (e) {
+      alert(String((e as Error)?.message || e));
+    } finally {
+      setCreating(false);
+    }
+  }, [createProject, navigate]);
+
+  if (inEditorWorkbench && loading) {
     return (
       <div className="flex flex-1 min-h-0 items-center justify-center gap-2 text-[var(--text-muted)]">
         <Loader2 size={18} className="animate-spin" />
-        <span className="text-sm">Loading MovieMode…</span>
+        <span className="text-sm">Loading Movie Mode…</span>
       </div>
     );
   }
@@ -109,25 +164,70 @@ export default function MovieModePage() {
       </div>
     ) : null;
 
-  return (
-    <div className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
-      <MovieModeToolbar
-        title={project?.title || 'Movie Mode'}
-        subtitle={project?.slug || 'Untitled project · 16:9'}
-        saving={saving}
-        onExport={session ? () => setExportOpen(true) : undefined}
-        exportDisabled={!session}
-        extraActions={driveActions}
+  let main: React.ReactNode = null;
+
+  if (parsedRoute.tab === 'templates') {
+    main = (
+      <MovieModePlaceholderTab
+        title="Templates"
+        subtitle="Starter layouts and branded packs — coming in the next Movie Mode sprint."
       />
-      {error ? <p className="px-3 py-1 text-xs text-amber-400/90">{error}</p> : null}
-      <div className="flex-1 min-h-0 flex flex-col">
-        <MovieModeWorkbench
-          projectId={projectId}
-          projectSlug={project?.slug}
-          timeline={timeline}
-          onTimelineChange={setTimeline}
+    );
+  } else if (parsedRoute.tab === 'ai-studio') {
+    main = (
+      <MovieModePlaceholderTab
+        title="AI Studio"
+        subtitle="AutoCut, captions, voice, and generative tools will live here."
+      />
+    );
+  } else if (parsedRoute.tab === 'projects') {
+    main = (
+      <MovieModeProjectsTab
+        projects={projects}
+        loading={projectsLoading}
+        onCreate={() => void handleCreateProject()}
+        creating={creating}
+      />
+    );
+  } else if (inEditorWorkbench) {
+    main = (
+      <>
+        <MovieModeToolbar
+          title={project?.title || 'Movie Mode'}
+          subtitle={project?.slug || 'Untitled project · 16:9'}
+          saving={saving}
+          onExport={session ? () => setExportOpen(true) : undefined}
+          exportDisabled={!session}
+          extraActions={driveActions}
         />
-      </div>
+        {error ? <p className="px-3 py-1 text-xs text-amber-400/90">{error}</p> : null}
+        <div className="flex-1 min-h-0 flex flex-col">
+          <MovieModeWorkbench
+            projectId={projectId}
+            projectSlug={project?.slug}
+            timeline={timeline}
+            onTimelineChange={setTimeline}
+          />
+        </div>
+      </>
+    );
+  } else {
+    main = (
+      <MovieModeHome
+        projects={projects}
+        projectsLoading={projectsLoading}
+        onNewMovie={() => void handleCreateProject()}
+        onImportStream={() => void handleImportStream()}
+        creating={creating}
+      />
+    );
+  }
+
+  return (
+    <div className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden max-phone:pb-[52px]">
+      {main}
+
+      <MovieModeBottomNav activeTab={parsedRoute.tab} projectId={projectId} />
 
       {exportOpen && session ? (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/50">
