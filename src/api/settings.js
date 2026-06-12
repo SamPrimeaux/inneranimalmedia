@@ -3785,16 +3785,20 @@ export async function handleSettingsRequest(request, env, ctx) {
 
   if (pathLower === '/api/settings/security/findings' && method === 'GET') {
     if (!env.DB) return jsonResponse({ findings: [] });
+    const tenantId = await resolveAuthTenantId(env, authUser);
+    if (!tenantId) return jsonResponse({ findings: [] });
     const storedUserId = canonicalAuthId || sessionUserId;
+    const userScope = storedUserId != null ? String(storedUserId).trim() : '';
     try {
       const { results } = await env.DB.prepare(
-        `SELECT severity, title, description, created_at
+        `SELECT id, finding_type, severity, snippet_redacted, status, source_type, source_ref, created_at
          FROM security_findings
-         WHERE user_id = ?
-         ORDER BY datetime(created_at) DESC
+         WHERE tenant_id = ?
+           AND (? = '' OR user_id IS NULL OR user_id = '' OR user_id = ?)
+         ORDER BY created_at DESC
          LIMIT 100`,
       )
-        .bind(String(storedUserId))
+        .bind(tenantId, userScope, userScope)
         .all()
         .catch(() => ({ results: [] }));
       return jsonResponse({ findings: results || [] });

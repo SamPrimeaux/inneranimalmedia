@@ -332,7 +332,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
     const [bulkResolving, setBulkResolving] = useState(false);
 
     const resolveProblems = useCallback(
-      async (payload: { id?: string; older_than_days?: number }) => {
+      async (payload: { id?: string; older_than_days?: number; resolve_all?: boolean }) => {
         const res = await fetch('/api/agent/problems/resolve', {
           method: 'POST',
           credentials: 'same-origin',
@@ -1070,6 +1070,24 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                         className="text-[10px] font-mono px-2 py-1 rounded border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)] disabled:opacity-40"
                       >
                         {bulkResolving ? 'Clearing…' : 'Dismiss 7d+ stale'}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={bulkResolving}
+                        onClick={() => {
+                          if (
+                            !window.confirm(
+                              `Dismiss all ${problems.length} problem(s) for this workspace? New errors will still appear if they recur.`,
+                            )
+                          ) {
+                            return;
+                          }
+                          setBulkResolving(true);
+                          void resolveProblems({ resolve_all: true }).finally(() => setBulkResolving(false));
+                        }}
+                        className="text-[10px] font-mono px-2 py-1 rounded border border-[var(--solar-red)]/30 text-[var(--solar-red)] hover:bg-[var(--solar-red)]/10 disabled:opacity-40"
+                      >
+                        {bulkResolving ? 'Clearing…' : `Dismiss all (${problems.length})`}
                       </button>
                     </div>
                   )}

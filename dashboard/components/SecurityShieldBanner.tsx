@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { ShieldAlert, X } from 'lucide-react';
 
 interface SecurityShieldBannerProps {
@@ -31,12 +32,12 @@ export function SecurityShieldBanner({
         </span>
       </div>
       <div className="flex items-center gap-2 shrink-0">
-        <a
-          href={detailsUrl}
+        <Link
+          to={detailsUrl}
           className="text-[11px] font-mono text-[var(--solar-cyan)] hover:underline whitespace-nowrap"
         >
-          View details
-        </a>
+          View findings
+        </Link>
         {onDismiss && (
           <button
             type="button"

@@ -2143,13 +2143,32 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
 
     const olderThanDays = Number(body.older_than_days);
     const bulkByAge = Number.isFinite(olderThanDays) && olderThanDays > 0;
-    if (!ids.length && !bulkByAge) {
-      return jsonResponse({ error: 'id, ids, or older_than_days required' }, 400);
+    const resolveAll = body.resolve_all === true || body.resolve_all === 1 || body.resolve_all === '1';
+    if (!ids.length && !bulkByAge && !resolveAll) {
+      return jsonResponse({ error: 'id, ids, older_than_days, or resolve_all required' }, 400);
     }
 
     let resolvedCount = 0;
+    let workerErrorsCleared = 0;
     try {
-      if (bulkByAge) {
+      if (resolveAll) {
+        const q = await env.DB.prepare(
+          `UPDATE agentsam_error_log
+           SET resolved = 1
+           WHERE workspace_id = ? AND COALESCE(resolved, 0) = 0`,
+        )
+          .bind(wid)
+          .run();
+        resolvedCount = Number(q.meta?.changes) || 0;
+        if (authUserIsSuperadmin(authUser)) {
+          try {
+            const wq = await env.DB.prepare(`DELETE FROM worker_analytics_errors`).run();
+            workerErrorsCleared = Number(wq.meta?.changes) || 0;
+          } catch (_) {
+            /* table optional */
+          }
+        }
+      } else if (bulkByAge) {
         const cutoff = Math.floor(Date.now() / 1000) - Math.floor(olderThanDays) * 86400;
         const q = await env.DB.prepare(
           `UPDATE agentsam_error_log
@@ -2159,6 +2178,18 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
           .bind(wid, cutoff)
           .run();
         resolvedCount = Number(q.meta?.changes) || 0;
+        if (authUserIsSuperadmin(authUser)) {
+          try {
+            const wq = await env.DB.prepare(
+              `DELETE FROM worker_analytics_errors WHERE created_at < ?`,
+            )
+              .bind(cutoff)
+              .run();
+            workerErrorsCleared = Number(wq.meta?.changes) || 0;
+          } catch (_) {
+            /* table optional */
+          }
+        }
       }
       for (const id of ids.slice(0, 100)) {
         const q = await env.DB.prepare(
@@ -2177,6 +2208,7 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     return jsonResponse({
       ok: true,
       resolved_count: resolvedCount,
+      worker_errors_cleared: workerErrorsCleared,
       workspace_id: wid,
     });
   }

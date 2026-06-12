@@ -354,7 +354,7 @@ export async function runSecurityShieldPulse(env, opts = {}) {
   const userId = opts.userId != null ? String(opts.userId).trim() : '';
   const fireNotifications = opts.fireNotifications === true;
   const throttleSec = Number(opts.throttleSec) > 0 ? Number(opts.throttleSec) : 1800;
-  const detailsUrl = '/dashboard/settings/security';
+  const detailsUrl = '/dashboard/settings/keys#security-findings';
 
   if (!env?.DB || !tenantId) {
     return {
@@ -410,7 +410,8 @@ export async function runSecurityShieldPulse(env, opts = {}) {
     console.warn('[keys-security] pulse audit log scan failed', e?.message ?? e);
   }
 
-  const alert = openFindingsCount > 0 || auditEvents24h > 0;
+  // Banner only for actionable open findings — routine secret_audit_log volume is not an alert.
+  const alert = openFindingsCount > 0;
   const ruleTypesToFire = new Set();
   if (auditEvents24h > 0) ruleTypesToFire.add('audit_anomaly');
   if (openFindingsCount > 0) {
@@ -473,7 +474,11 @@ export async function runSecurityShieldPulse(env, opts = {}) {
     open_findings_count: openFindingsCount,
     audit_events_24h: auditEvents24h,
     details_url: detailsUrl,
-    message: alert ? 'Security finding detected — view details' : null,
+    message: alert
+      ? openFindingsCount === 1
+        ? '1 open security finding — review in Keys & Secrets'
+        : `${openFindingsCount} open security findings — review in Keys & Secrets`
+      : null,
   };
 }
 
