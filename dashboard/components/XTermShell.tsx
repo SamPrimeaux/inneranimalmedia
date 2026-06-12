@@ -117,22 +117,24 @@ const GORILLA_LINES = [
   '         ▲      ▲         ',
 ];
 
-type SplashAction = 'local' | 'cloud' | 'models';
+type SplashAction = 'local' | 'cloud' | 'sandbox' | 'models';
 
 interface WelcomeSplashProps {
   cdCommand?: string;
   localReady: boolean;
   cloudReady: boolean;
+  sandboxReady: boolean;
   onAction: (action: SplashAction) => void;
 }
 
 const SPLASH_MENU: { action: SplashAction; label: string; desc: string }[] = [
-  { action: 'local', label: 'Start local', desc: 'Your Mac via local tunnel' },
-  { action: 'cloud', label: 'Cloud terminal', desc: 'Hosted shell in your workspace' },
+  { action: 'local', label: 'Start local', desc: 'Your Mac repo via localpty' },
+  { action: 'cloud', label: 'Cloud terminal', desc: 'Hosted shell (terminal.*)' },
+  { action: 'sandbox', label: 'Sandbox terminal', desc: 'Isolated GCP /workspace lane' },
   { action: 'models', label: 'Agent Sam', desc: 'View available models' },
 ];
 
-function WelcomeSplash({ cdCommand, localReady, cloudReady, onAction }: WelcomeSplashProps) {
+function WelcomeSplash({ cdCommand, localReady, cloudReady, sandboxReady, onAction }: WelcomeSplashProps) {
   const splashFontPx = useSplashFontPx();
   const menuItems = SPLASH_MENU.map((item, index) => {
     let desc = item.desc;
@@ -140,6 +142,8 @@ function WelcomeSplash({ cdCommand, localReady, cloudReady, onAction }: WelcomeS
       desc = 'Not configured — Settings → Network';
     } else if (item.action === 'cloud' && !cloudReady) {
       desc = 'Provisioning — retry shortly or contact support';
+    } else if (item.action === 'sandbox' && !sandboxReady) {
+      desc = 'GCP sandbox lane not ready — check tunnel + sandboxterminal.*';
     }
     return {
       ...item,
@@ -355,6 +359,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
     const [showSplash, setShowSplash] = useState(true);
     const [localTargetReady, setLocalTargetReady] = useState(false);
     const [cloudTargetReady, setCloudTargetReady] = useState(true);
+    const [sandboxTargetReady, setSandboxTargetReady] = useState(false);
     const [restarting, setRestarting] = useState(false);
     const [tunnelHealth, setTunnelHealth] = useState<{ healthy: boolean; connections: number } | null>(null);
     const [uptime, setUptime] = useState(0);
@@ -389,6 +394,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
       if (!showSplash || !workspaceId?.trim()) {
         setLocalTargetReady(false);
         setCloudTargetReady(true);
+        setSandboxTargetReady(false);
         return;
       }
       let cancelled = false;
@@ -396,6 +402,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
         if (cancelled) return;
         setLocalTargetReady(targets?.local?.ready === true);
         setCloudTargetReady(targets?.cloud?.ready !== false);
+        setSandboxTargetReady(targets?.sandbox?.ready === true);
       });
       return () => {
         cancelled = true;
@@ -544,6 +551,18 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
           return;
         }
 
+        if (action === 'sandbox') {
+          if (!workspaceId?.trim()) return;
+          const targets = await fetchTerminalTargets(workspaceId);
+          if (targets?.sandbox?.ready !== true) {
+            setSandboxTargetReady(false);
+            return;
+          }
+          setShowSplash(false);
+          await startTerminalConnection('sandbox');
+          return;
+        }
+
         if (action === 'models') {
           setShowSplash(false);
           const write = (text: string) => primaryPaneRef.current?.writeAnsi(text);
@@ -558,7 +577,11 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
     const terminalAreaVisible = activeTab === 'terminal' && !isCollapsed;
     const terminalConnectEnabled = terminalAreaVisible && !showSplash;
     const connectionTargetLabel =
-      terminalTarget === 'user_hosted_tunnel' ? 'Local' : 'Cloud';
+      terminalTarget === 'user_hosted_tunnel'
+        ? 'Local'
+        : terminalTarget === 'sandbox'
+          ? 'Sandbox'
+          : 'Cloud';
 
     useImperativeHandle(ref, () => ({
       writeToTerminal: (text: string) => {
@@ -981,6 +1004,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                       cdCommand={resolvedCdCmd}
                       localReady={localTargetReady}
                       cloudReady={cloudTargetReady}
+                      sandboxReady={sandboxTargetReady}
                       onAction={handleSplashAction}
                     />
                   )}

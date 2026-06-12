@@ -807,7 +807,6 @@ export async function buildTerminalConfigStatus(env, authUser, twCfg, query = {}
   let errorCode = sel.error;
 
   if (targetType === 'ssh_target') errorCode = errorCode || 'ssh_target_not_enabled';
-  if (targetType === 'sandbox') errorCode = errorCode || 'sandbox_not_enabled';
 
   const vpcPty = !!env.PTY_SERVICE;
   const httpsUrl = (env.TERMINAL_WS_URL || '').trim();
@@ -825,10 +824,12 @@ export async function buildTerminalConfigStatus(env, authUser, twCfg, query = {}
     if (!vpcPty && !httpsUrl && !secret && !dbBridgeOk && !wsUrlPresent) {
       errorCode = errorCode || 'pty_backend_unconfigured';
     }
-  } else if (targetType === 'user_hosted_tunnel') {
+  } else if (targetType === 'user_hosted_tunnel' || targetType === 'sandbox') {
     routeWillUsePtyService = false;
     routeWillUseConnectionWsUrl = wsUrlPresent;
-    if (!wsUrlPresent) errorCode = errorCode || 'connection_missing';
+    if (!wsUrlPresent) {
+      errorCode = errorCode || (targetType === 'sandbox' ? 'sandbox_unreachable' : 'connection_missing');
+    }
   }
 
   const { resolveTerminalCwd } = await import('./pty-workspace-paths.js');
@@ -840,11 +841,13 @@ export async function buildTerminalConfigStatus(env, authUser, twCfg, query = {}
   });
 
   const terminalConfigured =
-    targetType === 'ssh_target' || targetType === 'sandbox'
+    targetType === 'ssh_target'
       ? false
-      : targetType === 'platform_vm'
-        ? !!(vpcPty || (httpsUrl && secret) || dbBridgeOk || wsUrlPresent)
-        : wsUrlPresent;
+      : targetType === 'sandbox'
+        ? wsUrlPresent && (!!secret || dbBridgeOk)
+        : targetType === 'platform_vm'
+          ? !!(vpcPty || (httpsUrl && secret) || dbBridgeOk || wsUrlPresent)
+          : wsUrlPresent;
 
   return {
     terminal_enabled: true,

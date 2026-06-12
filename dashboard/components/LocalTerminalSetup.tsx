@@ -6,7 +6,7 @@ import {
   type LocalTerminalPlatform,
 } from '../src/lib/localTerminalDefaults';
 
-export type TerminalTarget = 'platform_vm' | 'user_hosted_tunnel';
+export type TerminalTarget = 'platform_vm' | 'user_hosted_tunnel' | 'sandbox';
 
 export type TerminalTargetsPayload = {
   can_run_pty: boolean;
@@ -23,6 +23,14 @@ export type TerminalTargetsPayload = {
     ready: boolean;
     configured: boolean;
     connection_id: string | null;
+    error_code?: string | null;
+  };
+  sandbox?: {
+    target_type: 'sandbox';
+    ready: boolean;
+    configured: boolean;
+    connection_id: string | null;
+    ws_url_present?: boolean;
     error_code?: string | null;
   };
 };

@@ -220,7 +220,7 @@ REMOTE
 
 verify_endpoints() {
   local host code
-  for host in localpty.inneranimalmedia.com terminal.inneranimalmedia.com; do
+  for host in localpty.inneranimalmedia.com terminal.inneranimalmedia.com sandboxterminal.inneranimalmedia.com; do
     code="$(curl -sS -m 8 -o /dev/null -w '%{http_code}' "https://${host}/health" || echo '000')"
     echo "health https://${host}/health → HTTP ${code}"
   done

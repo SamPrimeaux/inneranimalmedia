@@ -187,7 +187,7 @@ export interface TerminalSessionPaneHandle {
 export interface TerminalSessionPaneProps {
   workspaceId?: string;
   /** platform_vm (cloud) or user_hosted_tunnel (local machine). */
-  targetType?: 'platform_vm' | 'user_hosted_tunnel';
+  targetType?: 'platform_vm' | 'user_hosted_tunnel' | 'sandbox';
   /** Secondary pane id → Worker routes to distinct DO (split terminals). */
   ptySlot?: string;
   /** Full path, e.g. /bin/zsh — forwarded to PTY */

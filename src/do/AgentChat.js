@@ -989,7 +989,6 @@ export class AgentChatSqlV1 extends DurableObject {
     ).trim();
 
     if (targetType === "ssh_target") throw new Error("ssh_target_not_enabled");
-    if (targetType === "sandbox") throw new Error("sandbox_not_enabled");
 
     this.selectedTargetType = targetType;
     await this.applyPtyWorkingDir(tid, uid, conn);
@@ -1085,9 +1084,13 @@ export class AgentChatSqlV1 extends DurableObject {
     const workspaceUrl =
       targetType === "platform_vm" ? this.workspaceSettings?.terminal_ws_url : null;
     let rawUrl = null;
-    if (targetType === "user_hosted_tunnel") {
+    if (targetType === "user_hosted_tunnel" || targetType === "sandbox") {
       rawUrl = resolvedWsUrl;
-      if (!rawUrl) throw new Error("user_hosted_tunnel_unreachable");
+      if (!rawUrl) {
+        throw new Error(
+          targetType === "sandbox" ? "sandbox_unreachable" : "user_hosted_tunnel_unreachable",
+        );
+      }
     } else {
       rawUrl = workspaceUrl || resolvedWsUrl || String(this.env?.TERMINAL_WS_URL || "").trim();
     }
@@ -1095,7 +1098,9 @@ export class AgentChatSqlV1 extends DurableObject {
       throw new Error(
         targetType === "user_hosted_tunnel"
           ? "user_hosted_tunnel_unreachable"
-          : "PTY backend is not configured — set PTY_SERVICE (vpc_services) or TERMINAL_WS_URL + PTY_AUTH_TOKEN",
+          : targetType === "sandbox"
+            ? "sandbox_unreachable"
+            : "PTY backend is not configured — set PTY_SERVICE (vpc_services) or TERMINAL_WS_URL + PTY_AUTH_TOKEN",
       );
     }
     let wsUrl = normalizeWebSocketUrl(rawUrl);
@@ -1212,9 +1217,11 @@ export class AgentChatSqlV1 extends DurableObject {
         conn = sel.connection;
       } catch (_) {}
     }
-    if (execTarget === "user_hosted_tunnel") {
+    if (execTarget === "user_hosted_tunnel" || execTarget === "sandbox") {
       execBase = conn?.ws_url?.trim() || "";
-      if (!execBase) throw new Error("user_hosted_tunnel_unreachable");
+      if (!execBase) {
+        throw new Error(execTarget === "sandbox" ? "sandbox_unreachable" : "user_hosted_tunnel_unreachable");
+      }
     } else if (conn?.ws_url?.trim()) {
       execBase = conn.ws_url.trim();
     }

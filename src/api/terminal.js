@@ -274,9 +274,10 @@ export async function handleTerminalApi(request, url, env, ctx) {
     }
 
     const twCfg = { workspaceId: tw.workspaceId };
-    const [localCfg, cloudCfg] = await Promise.all([
+    const [localCfg, cloudCfg, sandboxCfg] = await Promise.all([
       buildTerminalConfigStatus(env, authUser, twCfg, { target_type: 'user_hosted_tunnel' }),
       buildTerminalConfigStatus(env, authUser, twCfg, { target_type: 'platform_vm' }),
+      buildTerminalConfigStatus(env, authUser, twCfg, { target_type: 'sandbox' }),
     ]);
 
     const localRow = await getUserHostedTunnelConnection(env.DB, authUser.id, tw.workspaceId);
@@ -299,6 +300,14 @@ export async function handleTerminalApi(request, url, env, ctx) {
         configured: cloudCfg.terminal_configured === true,
         connection_id: cloudCfg.selected_connection_id ?? null,
         error_code: cloudCfg.error_code ?? null,
+      },
+      sandbox: {
+        target_type: 'sandbox',
+        ready: sandboxCfg.terminal_configured === true,
+        configured: sandboxCfg.terminal_configured === true,
+        connection_id: sandboxCfg.selected_connection_id ?? null,
+        ws_url_present: sandboxCfg.selected_connection_ws_url_present === true,
+        error_code: sandboxCfg.error_code ?? null,
       },
     });
   }
