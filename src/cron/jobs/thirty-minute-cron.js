@@ -194,6 +194,11 @@ export async function runThirtyMinuteJobs(env, ctx) {
       .catch((e) => console.warn('[cron] security_shield_pulse', e?.message ?? e)),
   );
   ctx.waitUntil(runMcpServerHealthCron(env).catch((e) => console.warn('[cron] mcp_server_health', e?.message ?? e)));
+  ctx.waitUntil(
+    import('../../core/moviemode-veo-poll.js')
+      .then(({ pollPendingVeoJobs }) => pollPendingVeoJobs(env))
+      .catch((e) => console.warn('[cron] moviemode_veo_poll', e?.message ?? e)),
+  );
 }
 
 export async function runHourlyRoutingJobs(env, ctx) {
