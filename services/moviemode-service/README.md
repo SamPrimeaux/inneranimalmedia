@@ -1,19 +1,24 @@
 # moviemode-service
 
-**Inner Animal Media product worker** — MovieMode encode lane, studio UI, and the scroll-driven **3D globe landing** (`Code = Communication`).
+**Inner Animal Media product worker** — scroll-driven **3D globe landing** (`Code = Communication`) and legacy `/meaux*` routes.
 
-Deploy: Cloudflare Worker `moviemode-service` · Git: `SamPrimeaux/moviemode-service` · **Consumed by `inneranimalmedia.com`** via service binding.
+Deploy: Cloudflare Worker `moviemode-service` · Git: [SamPrimeaux/moviemode-service](https://github.com/SamPrimeaux/moviemode-service) · Consumed by **inneranimalmedia.com** via service binding.
 
-## inneranimalmedia alignment
+> **Encode / MovieMode APIs** live on the **main** `inneranimalmedia` worker today (`/api/moviemode/*`, `/api/cloudconvert/*`, `/api/stream/*`). This worker is intentionally **slim** (landing + legacy) until full API offload is bundled.
 
-| What | Where |
-|------|--------|
-| Globe (production) | `https://inneranimalmedia.com/globe` — main worker proxies → this worker `/` |
-| MovieMode editor | `https://inneranimalmedia.com/dashboard/moviemode` — IAM dashboard (main worker) |
-| Standalone studio build | `https://moviemode.inneranimalmedia.com/studio/` — optional subdomain route |
-| Encode APIs | Main worker `/api/moviemode/*` today; can offload to this worker later |
+## Surfaces
 
-### Main worker binding (`inneranimalmedia` / `wrangler.production.toml`)
+| URL | What |
+|-----|------|
+| `https://moviemode.inneranimalmedia.com/` | Globe landing (this worker `public/`) |
+| `https://inneranimalmedia.com/globe` | Same scene — main worker proxies via `MOVIEMODE_SERVICE` |
+| `https://inneranimalmedia.com/work` | Same scene pattern on **main ASSETS** (no tweaks on public); see `docs/platform/work-globe-scene.md` |
+| `https://inneranimalmedia.com/dashboard/moviemode` | Studio UI — main worker dashboard |
+| `https://moviemode.inneranimalmedia.com/studio/` | Optional standalone studio (`npm run build:all`) |
+
+## Main worker binding
+
+`inneranimalmedia` / `wrangler.production.toml`:
 
 ```toml
 [[services]]
@@ -21,10 +26,7 @@ binding = "MOVIEMODE_SERVICE"
 service = "moviemode-service"
 ```
 
-Proxy (`src/core/moviemode-service-proxy.js`):
-
-- `/globe` → moviemode-service `/`
-- `/globe/globe.js` → `/globe.js`, etc.
+Proxy: `src/core/moviemode-service-proxy.js` — `GET /globe` → moviemode-service `/`.
 
 Optional shared secret on both workers: `IAM_SERVICE_KEY` (header `X-IAM-Service-Key`).
 
@@ -32,35 +34,46 @@ Optional shared secret on both workers: `IAM_SERVICE_KEY` (header `X-IAM-Service
 
 ```
 moviemode-service/
-├── public/                 # Globe landing (served at /)
-│   ├── index.html
+├── public/                 # Globe landing (STATIC assets binding)
+│   ├── index.html          # MovieMode-branded hero + tweaks panel
 │   ├── globe.js            # window.GlobeScene — procedural Three.js earth
-│   ├── scroll.js
+│   ├── scroll.js           # Scroll choreography; tweaks only if #tweak-toggle exists
 │   └── charts.js
-├── studio/                 # Standalone MovieMode Vite app → /studio/
-├── worker/src/             # API + webhooks (CloudConvert, Stream, conversions)
-├── migrations/
+├── studio/                 # Standalone MovieMode Vite app → /studio/ (optional build)
+├── worker/src/
+│   ├── index.js            # Slim: health + legacy + STATIC.fetch
+│   └── legacy-routes.js    # /meauxcad/*, /meauxmedia/*, /meauxcreate/*, …
+├── migrations/             # moviemode D1 SQL (341–619); apply via main repo wrangler
 └── scripts/sync-from-iam.sh
 ```
 
+Full API sources are copied under `worker/src/api/` and `worker/src/core/` for future offload; they are **not** imported by the slim `index.js` deploy.
+
 ## Routes (this worker)
 
-| URL | What |
-|-----|------|
-| `/` | Globe landing |
-| `/studio/` | Built studio (`npm run build:all`) |
-| `/api/moviemode/*` | Media / conversions / templates |
-| `/api/cloudconvert/*` | Presets + jobs |
-| `/api/stream/*` | Live inputs + library |
-| `/api/webhooks/cloudconvert` | CloudConvert lifecycle |
-| `/api/webhooks/stream/*` | Stream VOD + live |
-| `/health` | Liveness |
+| Path | Handler |
+|------|---------|
+| `/`, `/globe.js`, `/scroll.js`, `/charts.js` | `[assets]` → `public/` |
+| `/health`, `/api/health` | JSON liveness (`landing: globe`) |
+| `/meaux*` | `legacy-routes.js` |
+| `/studio/*` | Static after `npm run build:all` |
 
-## Secrets
+## Deploy
+
+```bash
+npm install
+npx wrangler deploy -c wrangler.toml   # always -c wrangler.toml
+```
+
+**Do not** run bare `npx wrangler deploy` from this directory without `-c` — that can target the wrong worker.
+
+GitHub Workers Builds: build command should use `npx wrangler deploy -c wrangler.toml`.
+
+## Secrets (Cloudflare dashboard)
 
 | Secret | Purpose |
 |--------|---------|
-| `CLOUDCONVERT_API_KEY` | Encode jobs |
+| `CLOUDCONVERT_API_KEY` | Encode jobs (when API offload restored) |
 | `CLOUDCONVERT_WEBHOOK_SECRET` | Webhook HMAC |
 | `CLOUDFLARE_API_TOKEN` | Stream API |
 | `MESHYAI_API_KEY` | 3D mesh lane |
@@ -75,13 +88,24 @@ Bindings: D1 `inneranimalmedia-business`, R2 `inneranimalmedia` + `artifacts`, `
 ```bash
 IAM_ROOT=../inneranimalmedia npm run sync   # from monorepo mirror
 npm install && npm run dev                  # globe at :8787/
-npm run build:all && npx wrangler deploy
 ```
 
-## Relationship to inneranimalmedia monorepo
+## Sync with monorepo
+
+```bash
+cd services/moviemode-service && IAM_ROOT=../.. npm run sync
+# then push product repo:
+rsync -a --delete --exclude '.git' services/moviemode-service/ /path/to/moviemode-service-clone/
+cd /path/to/moviemode-service-clone && git add -A && git commit && git push
+```
+
+## Relationship to inneranimalmedia
 
 | Concern | Owner |
 |---------|--------|
-| Dashboard MovieMode UX | `inneranimalmedia/dashboard/features/moviemode` |
-| Production APIs (today) | `inneranimalmedia` main worker |
-| Product iteration / globe | **This repo** — `npm run sync` keeps parity |
+| Dashboard MovieMode UX | `dashboard/features/moviemode` |
+| Production APIs | `inneranimalmedia` main worker |
+| `/work` globe (public, no tweaks) | `static/pages/work` + `static/assets/scenes/work-globe` |
+| Globe landing + subdomain | **This repo** |
+
+Docs: `inneranimalmedia/docs/MOVIEMODE.md`, `inneranimalmedia/docs/platform/work-globe-scene.md`.

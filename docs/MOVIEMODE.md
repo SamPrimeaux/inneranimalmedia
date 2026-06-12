@@ -127,17 +127,56 @@ Dedicated Worker repo: [github.com/SamPrimeaux/moviemode-service](https://github
 | Surface | URL |
 |---------|-----|
 | Globe landing | `https://inneranimalmedia.com/globe` |
+| Work portfolio scene | `https://inneranimalmedia.com/work` (scroll globe replaces first 3 CMS sections; no public tweaks panel) |
 | Dashboard studio | `https://inneranimalmedia.com/dashboard/moviemode` |
 | Product subdomain (optional) | `https://moviemode.inneranimalmedia.com/` |
 | APIs (main worker today) | `/api/moviemode/*`, `/api/cloudconvert/*`, `/api/stream/*` |
 
 Main worker binds `MOVIEMODE_SERVICE` → `moviemode-service` (`wrangler.production.toml`). `GET /globe` proxies to the scroll-driven Three.js scene.
 
+**Product worker deploy (landing only):**
+
+```bash
+cd services/moviemode-service && npx wrangler deploy -c wrangler.toml
+```
+
+Slim worker: `public/` globe + legacy `/meaux*` — full MovieMode API bundle not wired in this worker yet.
+
 Sync product repo from monorepo: `cd services/moviemode-service && IAM_ROOT=../.. npm run sync`.
+
+### `/work` globe scene (main ASSETS)
+
+Scroll scene on the portfolio page — **no public tweaks panel**. Replaces CMS sections hero + case-study-one/two/three.
+
+| Artifact | R2 key |
+|----------|--------|
+| Page shell | `pages/work/index.html` |
+| Scene assets | `assets/scenes/work-globe/{work-globe.css,globe.js,scroll.js,charts.js}` |
+
+Upload (no worker redeploy): `./scripts/upload-work-page.sh`
+
+Handoff: **`docs/platform/work-globe-scene.md`** (CMS sections, tomorrow pickup).
+
+## PTY / Remotion render
+
+| Step | Where |
+|------|--------|
+| Queue job | `POST /api/moviemode/export` or tool `moviemode.render` → `moviemode_render_jobs` |
+| Execute | `execOnPtyHost` → `scripts/moviemode-remotion-render.mjs` on resolved repo |
+| Ingest | Script → `POST /api/moviemode/ingest` → ARTIFACTS + D1 |
+
+Terminal: D1 `terminal_connections` — `ORDER BY is_default DESC, target_priority ASC`. See `iam-terminal-connections.mdc`.
 
 ## Timeline JSON
 
 See `dashboard/src/types/moviemode.ts` — version `1`, tracks/clips with optional `r2: { bucket, key }` references.
+
+## Next session (pickup)
+
+1. **CMS editor** — `/work` sections (`work-globe-scene`, `case-study-four`, …) editable from dashboard; R2 write + D1 `cms_page_sections` (contact hydrate pattern).
+2. **Editor preview** — globe scene with tweaks panel; public pages omit `#tweak-toggle`.
+3. **MovieMode renders** — exercise `/dashboard/moviemode` export; confirm PTY `validateMoviemodeRepoOnPty`.
+4. **Optional** — full API on moviemode-service worker; `npm run build:all` for `/studio/` subdomain.
 
 ## Active plan (Supabase)
 

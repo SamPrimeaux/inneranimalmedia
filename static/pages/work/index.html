@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Selected work with a point of view | Inner Animal Media</title>
+<meta name="description" content="A living portfolio layer for client builds, internal systems, experiments, and production-grade digital infrastructure.">
+<link rel="canonical" href="https://inneranimalmedia.com/work">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Hanken+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/scenes/work-globe/work-globe.css?v=20260612">
+<style>
+:root{--bg:#050713;--ink:#f8fbff;--muted:#9daac2;--blue:#2f7bff;--cyan:#67e8ff;--panel:rgba(255,255,255,.075);--line:rgba(255,255,255,.15);--paper:#f4f7fb;--dark:#060914}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;font-family:Nunito,Inter,system-ui,sans-serif;background:var(--bg);color:var(--ink)}a{color:inherit}
+.iam-public-page{overflow:hidden}.section{padding:clamp(72px,9vw,140px) clamp(20px,6vw,92px);border-bottom:1px solid var(--line);position:relative}
+.light{background:linear-gradient(180deg,#f8faff,#dfe9fa);color:#07111f}.dark{background:linear-gradient(180deg,#050713,#0a1022)}
+.eyebrow{text-transform:uppercase;letter-spacing:.18em;color:var(--cyan);font-size:12px;font-weight:800}
+h1{font-size:clamp(58px,10vw,142px);line-height:.86;letter-spacing:-.08em;margin:18px 0}h2{font-size:clamp(36px,6vw,84px);line-height:.92;letter-spacing:-.06em;margin:0 0 24px}
+p{font-size:clamp(16px,1.65vw,21px);line-height:1.55;color:var(--muted);max-width:900px}.light p{color:#42506a}
+.split{display:grid;grid-template-columns:1.05fr .95fr;gap:24px;align-items:center}.code-window{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:#06101e;border:1px solid var(--line);border-radius:28px;padding:22px;color:#9ee7ff;min-height:320px;box-shadow:0 30px 120px rgba(0,0,0,.38)}
+.badge{display:inline-flex;border:1px solid var(--line);padding:8px 12px;border-radius:999px;color:var(--muted);font-size:13px;margin:4px}
+@media(max-width:860px){.split{grid-template-columns:1fr}h1{font-size:58px}.section{padding:64px 20px}}
+</style>
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+</script>
+</head>
+<body data-footer-theme="dark">
+
+<main class="iam-public-page route-work">
+
+<!-- cms: section work-globe-scene | route: /work | replaces: hero, case-study-one, case-study-two, case-study-three -->
+<section class="stage-wrap" id="globe-section" data-screen-label="work globe" data-cms-section="work-globe-scene" data-mood="mineral">
+  <div class="stage">
+    <div class="stage-bg" id="stage-bg"></div>
+    <div class="stage-tint"></div>
+    <canvas id="globe-canvas"></canvas>
+    <div class="globe-fallback"><div class="orb"></div></div>
+
+    <div class="overlay">
+      <div class="hero-intro" id="hero-intro">
+        <div class="eyebrow">Inner Animal Media / work</div>
+        <h1>Selected work with a <em>point of view</em></h1>
+        <p>Our projects pair strategic clarity with high-end execution to create digital experiences that feel distinct, modern, and durable.</p>
+      </div>
+    </div>
+
+    <div class="overlay">
+      <div class="headline" id="headline">
+        <div class="kicker">Inner Animal Media</div>
+        <h2>Code<span class="eq">=</span>Communication</h2>
+        <p class="sub">The best software does not announce itself. It translates ideas, teams, and operations into one clear system.</p>
+      </div>
+    </div>
+
+    <div class="cards" id="cards">
+      <article class="card lg" data-card="ideas">
+        <div class="card-head">
+          <div class="card-title">
+            <span class="dot"><svg viewBox="0 0 10 10" fill="none"><circle cx="5" cy="5" r="2.4" fill="#fff"/></svg></span>
+            <span class="label">Narrative</span>
+          </div>
+          <span class="meta">Launch</span>
+        </div>
+        <p class="card-copy">Messaging, layout, and motion aligned into a crisp story from first screen to final CTA.</p>
+        <div class="chart" data-chart="dots"></div>
+        <div class="card-foot"><span class="k">Clarity at launch</span><span class="v">94%</span></div>
+      </article>
+
+      <article class="card lg" data-card="systems">
+        <div class="card-head">
+          <div class="card-title">
+            <span class="dot"><svg viewBox="0 0 10 10" fill="none"><rect x="2" y="2" width="6" height="6" rx="1.4" stroke="#fff" stroke-width="1.1"/></svg></span>
+            <span class="label">Systems</span>
+          </div>
+          <span class="meta">One source</span>
+        </div>
+        <p class="card-copy">Dashboards, content, data, and automations working from one shared source of truth.</p>
+        <div class="chart" data-chart="bars"></div>
+        <div class="card-foot"><span class="k">Content paths</span><span class="v">12 active</span></div>
+      </article>
+
+      <article class="card lg" data-card="launch">
+        <div class="card-head">
+          <div class="card-title">
+            <span class="dot"><svg viewBox="0 0 10 10" fill="none"><path d="M2 5h6M5.4 2.6 8 5 5.4 7.4" stroke="#fff" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <span class="label">Experience</span>
+          </div>
+          <span class="meta">Retention</span>
+        </div>
+        <p class="card-copy">Scroll-based moments balanced with smooth usability — expressive without getting in the way.</p>
+        <div class="chart" data-chart="line"></div>
+        <div class="card-foot"><span class="k">Engagement lift</span><span class="v">38%</span></div>
+      </article>
+
+      <article class="card sm" data-card="response">
+        <div class="card-head">
+          <div class="card-title"><span class="label">Response loop</span></div>
+        </div>
+        <div class="chip-metric"><span class="v">2.4</span><span class="u">hrs avg</span></div>
+        <div class="spark" data-chart="spark"></div>
+      </article>
+
+      <article class="card sm" data-card="automations">
+        <div class="card-head">
+          <div class="card-title"><span class="label">Automations</span></div>
+        </div>
+        <div class="chip-metric"><span class="v">36</span><span class="u">running</span></div>
+        <div class="spark" data-chart="spark2"></div>
+      </article>
+    </div>
+
+    <div class="overlay">
+      <div class="closing" id="closing">
+        <p><strong>Proof over promises.</strong> We build systems that help people understand, move, and collaborate — the quiet infrastructure behind cleaner launches and sharper workflows.</p>
+        <a class="cta" href="/contact">Start a build <span class="arrow">→</span></a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section light" id="case-study-four" data-cms-section="case-study-four">
+  <div class="split">
+    <div>
+      <div class="eyebrow">case-study-four</div>
+      <h2>A content system built for scale</h2>
+      <p>We designed a flexible page structure that lets teams publish more consistently without losing quality. The system supports growth while protecting brand tone and visual order.</p>
+      <div><span class="badge">Reusable content modules</span><span class="badge">Better editorial control</span><span class="badge">Scalable design logic</span></div>
+    </div>
+    <div class="code-window">
+      <div>route: /work</div>
+      <div>section: case-study-four</div>
+      <div>cms: editable</div>
+      <div>r2: pages/work/index.html</div>
+    </div>
+  </div>
+</section>
+
+<section class="section dark" data-cms-section="approach">
+  <div class="split">
+    <div>
+      <div class="eyebrow">approach</div>
+      <h2>Every project starts with the same question</h2>
+      <p>What does this experience need to say, and how should it feel? That answer guides everything from typography to motion to the smallest content decision.</p>
+      <div><span class="badge">Define the job to be done</span><span class="badge">Shape the experience flow</span><span class="badge">Refine the details</span></div>
+    </div>
+    <div class="code-window">
+      <div>route: /work</div>
+      <div>section: approach</div>
+      <div>cms: editable</div>
+      <div>r2: pages/work/index.html</div>
+    </div>
+  </div>
+</section>
+
+<section class="section dark" data-cms-section="outcomes">
+  <div class="split">
+    <div>
+      <div class="eyebrow">outcomes</div>
+      <h2>The value is in the lift</h2>
+      <p>Our work is designed to improve how a brand is perceived and how a site performs. Better structure, stronger story, and sharper design can change the way people move through the experience.</p>
+      <div><span class="badge">More trust at first glance</span><span class="badge">Clearer user decisions</span><span class="badge">Stronger brand recall</span></div>
+    </div>
+    <div class="code-window">
+      <div>route: /work</div>
+      <div>section: outcomes</div>
+      <div>cms: editable</div>
+      <div>r2: pages/work/index.html</div>
+    </div>
+  </div>
+</section>
+
+<section class="section light" data-cms-section="portfolio-close">
+  <div class="split">
+    <div>
+      <div class="eyebrow">portfolio-close</div>
+      <h2>Built to stand in a crowded field</h2>
+      <p>The work we choose to show reflects the standard we aim to keep: elegant, strategic, and built with enough character to last beyond the trend cycle.</p>
+      <div><span class="badge">Timeless over trendy</span><span class="badge">Focused over decorative</span><span class="badge">Polished end to end</span></div>
+    </div>
+    <div class="code-window">
+      <div>route: /work</div>
+      <div>section: portfolio-close</div>
+      <div>cms: editable</div>
+      <div>r2: pages/work/index.html</div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<script src="/assets/scenes/work-globe/charts.js?v=20260612"></script>
+<script type="module" src="/assets/scenes/work-globe/globe.js?v=20260612"></script>
+<script src="/assets/scenes/work-globe/scroll.js?v=20260612"></script>
+<script>
+(function () {
+  var header = document.getElementById('iam-header');
+  var lightAnchor = document.getElementById('case-study-four');
+  if (!header || !lightAnchor || !('IntersectionObserver' in window)) return;
+  var obs = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) {
+      if (e.isIntersecting) {
+        header.classList.add('iam-header--light-bg');
+        header.classList.add('scrolled');
+      } else if (window.scrollY < lightAnchor.offsetTop * 0.35) {
+        header.classList.remove('iam-header--light-bg');
+      }
+    });
+  }, { rootMargin: '-40% 0px -55% 0px', threshold: 0 });
+  obs.observe(lightAnchor);
+})();
+</script>
+</body>
+</html>

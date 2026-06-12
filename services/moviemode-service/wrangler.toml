@@ -4,15 +4,16 @@ compatibility_date = "2026-01-20"
 compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 
-# Optional dedicated product host (globe at /, studio at /studio/)
+# Product host — globe landing at /
 [[routes]]
-pattern = "moviemode.inneranimalmedia.com/*"
-zone_name = "inneranimalmedia.com"
+pattern = "moviemode.inneranimalmedia.com"
+custom_domain = true
 
-# Landing (globe) + built studio — uploaded at deploy
+# Globe landing + studio static — worker handles /api/* first
 [assets]
 directory = "./public"
 binding = "STATIC"
+run_worker_first = ["/health", "/.well-known/*", "/meaux*"]
 
 [ai]
 binding = "AI"
