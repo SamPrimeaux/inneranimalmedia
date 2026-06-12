@@ -44,6 +44,7 @@ import {
   printManifestDriftSummary,
   summarizeManifestDrift,
 } from './lib/dashboard-index-manifest.mjs';
+import { buildCreateSurfacesManifest } from './lib/create-surfaces-manifest.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
@@ -78,12 +79,13 @@ const EMBED_DELAY_MS = 200;
 const VECTORIZE_BATCH = 100;
 
 const DRY_RUN = process.argv.includes('--dry-run');
-const NO_PRUNE = process.argv.includes('--no-prune');
+const CREATE_SURFACES_ONLY = process.argv.includes('--create-surfaces-only');
+const NO_PRUNE = process.argv.includes('--no-prune') || CREATE_SURFACES_ONLY;
 const VERBOSE = process.argv.includes('--verbose');
 const LANE = LANE_CONTRACTS.code;
 const RUN_ID = createRunId();
 const GIT_COMMIT_SHA = resolveGitCommitSha(ROOT);
-const SCRIPT_KEY = 'reindex_codebase_dashboard_agent';
+const SCRIPT_KEY = CREATE_SURFACES_ONLY ? 'ingest_create_surfaces_rag' : 'reindex_codebase_dashboard_agent';
 const RUN_SYNC_CHUNK_ID = `run:${SCRIPT_KEY}`;
 
 const OPENAI_KEY = (process.env.OPENAI_API_KEY || '').trim();
@@ -531,13 +533,18 @@ async function main() {
     throw new Error('Script constants diverge from LANE_CONTRACTS.code — fix before run');
   }
 
-  const { paths: eligiblePaths, deniedSkipped } = buildEligibleManifest(ROOT);
+  const manifest = CREATE_SURFACES_ONLY
+    ? buildCreateSurfacesManifest(ROOT)
+    : buildEligibleManifest(ROOT);
+  const { paths: eligiblePaths, deniedSkipped } = manifest;
 
-  console.log('\nreindex_codebase_dashboard_agent.mjs');
+  console.log(`\n${SCRIPT_KEY}.mjs`);
   console.log(`mode: ${DRY_RUN ? 'DRY RUN (zero writes)' : 'LIVE'}`);
   console.log(`run_id: ${RUN_ID}`);
   console.log(`git_commit_sha: ${GIT_COMMIT_SHA}`);
-  console.log(`manifest: git ls-files + policy (${eligiblePaths.length} eligible)`);
+  console.log(
+    `manifest: ${CREATE_SURFACES_ONLY ? 'create-surfaces focused' : 'git ls-files + policy'} (${eligiblePaths.length} eligible)`,
+  );
   console.log(`workspace: ${WORKSPACE_UUID} (${WORKSPACE_KEY})`);
   console.log(`vectorize_index: ${VECTORIZE_INDEX}`);
   console.log(`prune: ${NO_PRUNE ? 'disabled' : 'enabled after successful full run'}`);
@@ -568,7 +575,7 @@ async function main() {
   stats.drift = drift;
   printManifestDriftSummary(drift, deniedSkipped);
 
-  if (!drift.requiredIncluded) {
+  if (!CREATE_SURFACES_ONLY && !drift.requiredIncluded) {
     throw new Error('Required paths missing from eligible manifest — aborting');
   }
 

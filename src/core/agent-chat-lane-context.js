@@ -6,6 +6,7 @@ import {
   classifyDatabaseAssistantIntent,
   shouldSupplementDeepArchive,
 } from './semantic-lane-classifier.js';
+import { resolveRagIntentLaneOrder } from './rag-intent-router.js';
 import { dispatchSemanticRetrieval } from './semantic-retrieval-dispatch.js';
 import {
   dispatchCustomerDataPlaneOperation,
@@ -315,8 +316,12 @@ export async function resolveAgentChatLaneContextBlock(env, opts = {}) {
     }
   }
 
-  const semanticLane =
+  let semanticLane =
     classifySemanticLane(message) || semanticLaneFromRoutingTaskType(opts.routingTaskType);
+  if (!semanticLane) {
+    const intentRoute = await resolveRagIntentLaneOrder(env, message);
+    semanticLane = intentRoute.primary_lane;
+  }
   if (!semanticLane) {
     return { block: '', lane: null, source: null };
   }

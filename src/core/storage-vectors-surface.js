@@ -16,6 +16,16 @@ const PGVECTOR_LANE_PURPOSES = [
   { purpose: 'media', table: 'agentsam_media_gemini2_1536', dimensions: 1536 },
 ];
 
+/** CF binding → Supabase lane purpose for drift comparison. */
+const BINDING_PG_PURPOSE = Object.freeze({
+  AGENTSAM_VECTORIZE_CODE: 'codebase_chunks',
+  AGENTSAM_VECTORIZE_DOCUMENTS: 'documents',
+  AGENTSAM_VECTORIZE_MEMORY: 'memory',
+  AGENTSAM_VECTORIZE_SCHEMA: 'database_schema',
+  AGENTSAM_VECTORIZE_MEDIA: 'media',
+  AGENTSAM_VECTORIZE_COURSES: 'documents',
+});
+
 function num(value, fallback = 0) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
@@ -55,8 +65,64 @@ function resolveWorkspaceId(authUser, url, env) {
   return null;
 }
 
-async function enrichCfIndex(env, idx, q) {
-  const [docRow, staleRow, recentDocs] = await Promise.all([
+async function liveVectorizeVectorCount(env, bindingName) {
+  const key = String(bindingName || '').trim();
+  if (!key || !env?.[key]?.describe) return null;
+  try {
+    const described = await env[key].describe();
+    const raw =
+      described?.vectorsCount ??
+      described?.vectorCount ??
+      described?.count ??
+      described?.vectors ??
+      null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+async function loadSyncReceiptForIndex(q, indexName) {
+  const name = String(indexName || '').trim();
+  if (!name) return { last_synced_at: null, receipt_status: null };
+  const row = await q(
+    `SELECT status, synced_at, chunk_id
+       FROM vectorize_sync_log
+      WHERE vectorize_index = ?
+      ORDER BY synced_at DESC
+      LIMIT 1`,
+    [name],
+    'first',
+  );
+  if (!row) return { last_synced_at: null, receipt_status: null };
+  return {
+    last_synced_at: row.synced_at ?? null,
+    receipt_status: row.status ?? null,
+    last_receipt_id: row.chunk_id ?? null,
+  };
+}
+
+function computeDrift(cfCount, pgCount) {
+  const cf = num(cfCount);
+  const pg = num(pgCount);
+  if (pg <= 0 && cf <= 0) return { drift_status: 'empty', drift_delta: 0, drift_pct: 0 };
+  if (pg <= 0) return { drift_status: 'pg_empty', drift_delta: cf, drift_pct: 100 };
+  if (cf <= 0) return { drift_status: 'cf_empty', drift_delta: -pg, drift_pct: 100 };
+  const delta = cf - pg;
+  const pct = Math.round((Math.abs(delta) / Math.max(pg, 1)) * 100);
+  if (Math.abs(delta) <= Math.max(5, Math.floor(pg * 0.02))) {
+    return { drift_status: 'aligned', drift_delta: delta, drift_pct: pct };
+  }
+  return {
+    drift_status: delta > 0 ? 'cf_ahead' : 'cf_behind',
+    drift_delta: delta,
+    drift_pct: pct,
+  };
+}
+
+async function enrichCfIndex(env, idx, q, pgStatsByPurpose) {
+  const [docRow, staleRow, recentDocs, syncReceipt, liveCfCount] = await Promise.all([
     q(
       `SELECT COUNT(*) AS doc_count FROM vectorize_indexed_docs WHERE index_id = ? AND COALESCE(is_current,1) = 1`,
       [idx.id],
@@ -72,8 +138,17 @@ async function enrichCfIndex(env, idx, q) {
        FROM vectorize_indexed_docs WHERE index_id = ? ORDER BY indexed_at DESC LIMIT 5`,
       [idx.id],
     ),
+    loadSyncReceiptForIndex(q, idx.index_name),
+    liveVectorizeVectorCount(env, idx.binding_name),
   ]);
   const binding = idx.binding_name && env[idx.binding_name] ? env[idx.binding_name] : null;
+  const registryStored = num(idx.stored_vectors);
+  const cf_live_vectors = liveCfCount != null ? liveCfCount : registryStored;
+  const pgPurpose = BINDING_PG_PURPOSE[String(idx.binding_name || '')] || null;
+  const pgLane = pgPurpose ? pgStatsByPurpose.get(pgPurpose) : null;
+  const supabase_embedded_rows = pgLane?.workspace_embedded_count ?? pgLane?.workspace_row_count ?? null;
+  const drift = computeDrift(cf_live_vectors, supabase_embedded_rows);
+
   return {
     ...idx,
     provider: 'cloudflare_vectorize',
@@ -82,10 +157,20 @@ async function enrichCfIndex(env, idx, q) {
     recent_docs: recentDocs,
     is_live_connected: !!binding,
     registry_status: 'registered',
+    registry_stored_vectors: registryStored,
+    cf_live_vectors,
+    cf_count_source: liveCfCount != null ? 'binding.describe' : 'd1_registry',
+    supabase_purpose: pgPurpose,
+    supabase_table: pgLane?.table_name ?? null,
+    supabase_embedded_rows,
+    ...drift,
+    last_sync_receipt_at: syncReceipt.last_synced_at,
+    last_sync_receipt_status: syncReceipt.receipt_status,
+    last_sync_receipt_id: syncReceipt.last_receipt_id,
   };
 }
 
-async function loadCfIndexCatalog(env, q, tenantId, isSuper) {
+async function loadCfIndexCatalog(env, q, tenantId, isSuper, pgStatsByPurpose) {
   const registrySql = isSuper
     ? `SELECT * FROM vectorize_index_registry
        WHERE COALESCE(is_active, 1) = 1
@@ -96,7 +181,7 @@ async function loadCfIndexCatalog(env, q, tenantId, isSuper) {
        ORDER BY COALESCE(is_preferred, 0) DESC, display_name`;
   const binds = isSuper ? [] : [tenantId, PLATFORM_VECTOR_TENANT];
   const registry = await q(registrySql, binds);
-  return Promise.all(registry.map((idx) => enrichCfIndex(env, idx, q)));
+  return Promise.all(registry.map((idx) => enrichCfIndex(env, idx, q, pgStatsByPurpose)));
 }
 
 async function loadPlatformPgvectorLanes(env, q) {
@@ -123,10 +208,14 @@ async function workspacePgvectorStats(env, d1WorkspaceId) {
 
   const out = [];
   for (const lane of PGVECTOR_LANE_PURPOSES) {
-    const sql = `SELECT COUNT(*)::bigint AS row_count
+    const sql = `SELECT
+        COUNT(*)::bigint AS row_count,
+        COUNT(*) FILTER (WHERE embedding IS NOT NULL)::bigint AS embedded_count
       FROM agentsam.${lane.table}
       WHERE workspace_id = $1::uuid`;
     const result = await runHyperdriveQuery(env, sql, [pgWorkspaceId]);
+    const rowCount = result.ok ? num(result.rows?.[0]?.row_count) : null;
+    const embeddedCount = result.ok ? num(result.rows?.[0]?.embedded_count) : null;
     out.push({
       provider: 'supabase_pgvector',
       purpose: lane.purpose,
@@ -135,12 +224,21 @@ async function workspacePgvectorStats(env, d1WorkspaceId) {
       dimensions: lane.dimensions,
       is_archive: !!lane.is_archive,
       workspace_id: d1WorkspaceId,
-      workspace_row_count: result.ok ? num(result.rows?.[0]?.row_count) : null,
+      workspace_row_count: rowCount,
+      workspace_embedded_count: embeddedCount,
       query_ok: result.ok,
       query_error: result.ok ? null : result.error || 'query_failed',
     });
   }
   return out;
+}
+
+function pgStatsMap(lanes) {
+  const map = new Map();
+  for (const lane of lanes || []) {
+    if (lane?.purpose) map.set(String(lane.purpose), lane);
+  }
+  return map;
 }
 
 async function loadTenantConnections(env, tenantId, userId, q) {
@@ -168,22 +266,41 @@ export async function buildStorageVectorsPayload(env, authUser, url, tenantId, u
   const canViewPlatform = await canViewPlatformVectorRegistry(env, authUser, tenantId);
   const workspaceId = resolveWorkspaceId(authUser, url, env);
 
-  const platformCfIndexes = await loadCfIndexCatalog(env, q, tenantId, isSuper);
+  const workspacePgvector = await workspacePgvectorStats(env, workspaceId);
+  const pgStatsByPurpose = pgStatsMap(workspacePgvector);
+  const platformCfIndexes = await loadCfIndexCatalog(env, q, tenantId, isSuper, pgStatsByPurpose);
   const platformPgvectorLanes = await loadPlatformPgvectorLanes(env, q);
-  const workspacePgvector = canViewPlatform
-    ? []
-    : await workspacePgvectorStats(env, workspaceId);
   const tenantConnections = await loadTenantConnections(env, tenantId, userId, q);
 
   const indexes = platformCfIndexes;
-  const totalsFromCf = platformCfIndexes.reduce(
+  const totalsFromCfLive = platformCfIndexes.reduce(
     (acc, x) => ({
-      stored: acc.stored + num(x.stored_vectors),
+      stored: acc.stored + num(x.cf_live_vectors),
       docs: acc.docs + num(x.doc_count),
       queries: acc.queries + num(x.queries_30d),
     }),
     { stored: 0, docs: 0, queries: 0 },
   );
+  const totalsFromPg = workspacePgvector.reduce(
+    (acc, x) => ({
+      rows: acc.rows + num(x.workspace_row_count),
+      embedded: acc.embedded + num(x.workspace_embedded_count),
+    }),
+    { rows: 0, embedded: 0 },
+  );
+  const driftLanes = platformCfIndexes.filter(
+    (x) => x.drift_status && x.drift_status !== 'aligned' && x.drift_status !== 'empty',
+  );
+  const lastSyncFromReceipts = platformCfIndexes.reduce((m, x) => {
+    const ts = x.last_sync_receipt_at;
+    if (ts == null) return m;
+    return !m || Number(ts) > Number(m) ? ts : m;
+  }, null);
+  const lastSyncFromRegistry = platformCfIndexes.reduce((m, x) => {
+    const ts = x.last_indexed_at;
+    if (!ts) return m;
+    return !m || String(ts) > String(m) ? ts : m;
+  }, null);
 
   return {
     can_view_platform: canViewPlatform,
@@ -191,19 +308,30 @@ export async function buildStorageVectorsPayload(env, authUser, url, tenantId, u
     platform_cf_indexes: platformCfIndexes,
     platform_pgvector_lanes: platformPgvectorLanes,
     workspace_pgvector_lanes: workspacePgvector,
+    lane_drift_summary: {
+      aligned: platformCfIndexes.filter((x) => x.drift_status === 'aligned').length,
+      drifted: driftLanes.length,
+      lanes: driftLanes.map((x) => ({
+        binding: x.binding_name,
+        index: x.index_name,
+        drift_status: x.drift_status,
+        cf_live_vectors: x.cf_live_vectors,
+        supabase_embedded_rows: x.supabase_embedded_rows,
+      })),
+    },
     tenant_connections: tenantConnections.map((row) => ({
       ...row,
       config: parseJsonObject(row.config_json),
     })),
     indexes,
-    total_stored_vectors: totalsFromCf.stored,
-    total_indexed_docs: totalsFromCf.docs,
-    total_queries_30d: totalsFromCf.queries,
-    last_synced_at: platformCfIndexes.reduce(
-      (m, x) =>
-        x.last_indexed_at && (!m || String(x.last_indexed_at) > String(m)) ? x.last_indexed_at : m,
-      null,
-    ),
+    total_stored_vectors: totalsFromCfLive.stored,
+    total_supabase_embedded: totalsFromPg.embedded,
+    total_supabase_rows: totalsFromPg.rows,
+    total_indexed_docs: totalsFromCfLive.docs,
+    total_queries_30d: totalsFromCfLive.queries,
+    last_synced_at: lastSyncFromReceipts ?? lastSyncFromRegistry,
+    data_quality:
+      driftLanes.length === 0 && totalsFromPg.embedded > 0 ? 'healthy' : driftLanes.length ? 'drift' : 'partial',
   };
 }
 

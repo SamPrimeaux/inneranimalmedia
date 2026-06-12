@@ -35,6 +35,8 @@
     "verify:rag-ingest-protocol": "./scripts/with-cloudflare-env.sh node scripts/verify-rag-ingest-protocol.mjs",
     "run:reindex_codebase_dashboard_agent": "./scripts/with-cloudflare-env.sh node scripts/reindex_codebase_dashboard_agent.mjs",
     "run:reindex_codebase_dashboard_agent:dry-run": "./scripts/with-cloudflare-env.sh node scripts/reindex_codebase_dashboard_agent.mjs --dry-run",
+    "run:ingest_create_surfaces_rag": "./scripts/with-cloudflare-env.sh node scripts/reindex_codebase_dashboard_agent.mjs --create-surfaces-only",
+    "run:ingest_create_surfaces_rag:dry-run": "./scripts/with-cloudflare-env.sh node scripts/reindex_codebase_dashboard_agent.mjs --create-surfaces-only --dry-run",
     "r2:inventory:inneranimalmedia": "./scripts/with-cloudflare-env.sh node scripts/inventory-r2-bucket.mjs --bucket inneranimalmedia",
     "r2:inventory:upsert": "./scripts/with-cloudflare-env.sh node scripts/inventory-r2-bucket.mjs --bucket inneranimalmedia --upsert-d1",
     "r2:inventory:autorag": "./scripts/with-cloudflare-env.sh node scripts/inventory-r2-bucket.mjs --bucket autorag",

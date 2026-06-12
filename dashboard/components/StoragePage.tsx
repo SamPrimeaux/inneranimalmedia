@@ -44,6 +44,27 @@ function fmtTs(v: string | number | null | undefined) {
   return Number.isNaN(ms) ? String(v) : new Date(ms).toLocaleString();
 }
 
+function isR2BucketRow(b: Row) {
+  const t = String(b.storage_type || 'r2_bucket').toLowerCase();
+  return t === 'r2_bucket' || t === 'r2' || !t || t === 'bucket';
+}
+
+function formatObjectCount(b: Row) {
+  if (!isR2BucketRow(b)) return '—';
+  return n(b.object_count).toLocaleString();
+}
+
+function formatSizeMb(b: Row) {
+  if (!isR2BucketRow(b)) return '—';
+  return mb(b.total_mb);
+}
+
+function driftTone(status: string | undefined): 'ok' | 'warn' | 'bad' | 'muted' {
+  if (!status || status === 'aligned' || status === 'empty') return 'ok';
+  if (status === 'cf_behind' || status === 'pg_empty') return 'warn';
+  return 'bad';
+}
+
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T | null> {
   try {
     const res = await fetch(url, { credentials: 'same-origin', ...init });
@@ -96,6 +117,7 @@ export const StoragePage: React.FC<StoragePageProps> = ({ embeddedInSettings = f
   const [providerSaving, setProviderSaving] = useState<string | null>(null);
   const [vectorConnSaving, setVectorConnSaving] = useState(false);
   const [reindexQueued, setReindexQueued] = useState<string | null>(null);
+  const [registrySyncing, setRegistrySyncing] = useState(false);
   const [vectorConnDraft, setVectorConnDraft] = useState({
     display_name: '',
     provider: 'cloudflare_vectorize',
@@ -166,6 +188,18 @@ export const StoragePage: React.FC<StoragePageProps> = ({ embeddedInSettings = f
   }, [nav, analytics]);
 
   const bucketRows = buckets?.buckets || [];
+  const r2BucketRows = bucketRows.filter((b: Row) => isR2BucketRow(b));
+  const missingRegistry = buckets?.missing_registry_rows || [];
+
+  const syncProjectStorage = async () => {
+    setRegistrySyncing(true);
+    try {
+      await fetchJson('/api/storage/jobs/sync-project-storage', { method: 'POST' });
+      await loadBuckets();
+    } finally {
+      setRegistrySyncing(false);
+    }
+  };
   const platformIndexes = vectors?.platform_cf_indexes || vectors?.indexes || [];
   const selectedVector =
     platformIndexes.find((x: Row) => x.id === selectedIndex) || platformIndexes[0];
@@ -334,13 +368,20 @@ export const StoragePage: React.FC<StoragePageProps> = ({ embeddedInSettings = f
               </select>
             </div>
             <div className="storage-grid">
-              <Stat label="Total Objects" value={n(buckets?.total_objects).toLocaleString()} />
-              <Stat label="Total Size" value={mb(buckets?.total_mb)} />
-              <Stat label="Buckets" value={bucketRows.length} />
+              <Stat label="R2 Objects" value={n(buckets?.total_objects).toLocaleString()} />
+              <Stat label="R2 Size" value={mb(buckets?.total_mb)} />
+              <Stat label="Registry Rows" value={bucketRows.length} />
               <Stat label="Last Inventoried" value={fmtTs(buckets?.last_synced_at)} />
             </div>
-            {!!buckets?.missing_registry_rows?.length && <div className="storage-banner">{buckets.missing_registry_rows.length} live bindings are missing project_storage registry rows.</div>}
-            <div className="storage-card"><table className="storage-table"><thead><tr><th>Name</th><th>Type</th><th>Objects</th><th>Size</th><th>Status</th><th>Cleanup</th><th>Owner</th><th>Last Inventoried</th><th>Live</th><th>Actions</th></tr></thead><tbody>{bucketRows.filter((b: Row) => !selectedBucket || (b.storage_name || b.bucket_name) === selectedBucket).map((b: Row) => <tr key={b.storage_name || b.bucket_name}><td>{b.storage_name || b.bucket_name}</td><td>{b.storage_type || 'r2_bucket'}</td><td>{n(b.object_count).toLocaleString()}</td><td>{mb(b.total_mb)}</td><td><Badge tone={b.status === 'active' ? 'ok' : 'muted'}>{b.status || 'active'}</Badge></td><td><Badge tone={b.cleanup_status === 'reviewed' ? 'ok' : b.cleanup_status === 'archived' ? 'muted' : 'warn'}>{b.cleanup_status || 'unreviewed'}</Badge></td><td>{b.owner || 'n/a'}</td><td>{fmtTs(b.last_inventoried_at)}</td><td><Dot ok={!!b.is_live_connected} /></td><td>{b.registry_status || 'registered'}</td></tr>)}</tbody></table></div>
+            {!!missingRegistry.length && (
+              <div className="storage-banner">
+                {missingRegistry.length} live R2 binding(s) missing <code>project_storage</code> rows — inventory may be incomplete.
+                <button type="button" className="storage-btn" style={{ marginLeft: 10 }} disabled={registrySyncing} onClick={() => void syncProjectStorage()}>
+                  {registrySyncing ? 'Syncing…' : 'Sync registry'}
+                </button>
+              </div>
+            )}
+            <div className="storage-card"><table className="storage-table"><thead><tr><th>Name</th><th>Type</th><th>Objects</th><th>Size</th><th>Status</th><th>Cleanup</th><th>Owner</th><th>Last Inventoried</th><th>Live</th><th>Registry</th></tr></thead><tbody>{bucketRows.filter((b: Row) => !selectedBucket || (b.storage_name || b.bucket_name) === selectedBucket).map((b: Row) => <tr key={b.storage_name || b.bucket_name}><td>{b.storage_name || b.bucket_name}</td><td>{b.storage_type || 'r2_bucket'}</td><td>{formatObjectCount(b)}</td><td>{formatSizeMb(b)}</td><td><Badge tone={b.status === 'active' ? 'ok' : 'muted'}>{b.status || 'active'}</Badge></td><td><Badge tone={b.cleanup_status === 'reviewed' ? 'ok' : b.cleanup_status === 'archived' ? 'muted' : 'warn'}>{isR2BucketRow(b) ? (b.cleanup_status || 'unreviewed') : 'n/a'}</Badge></td><td>{b.owner || 'n/a'}</td><td>{isR2BucketRow(b) ? fmtTs(b.last_inventoried_at) : '—'}</td><td><Dot ok={!!b.is_live_connected} /></td><td><Badge tone={b.registry_status === 'registered' ? 'ok' : 'warn'}>{b.registry_status || 'registered'}</Badge></td></tr>)}</tbody></table></div>
           </>
         )}
 
@@ -369,14 +410,17 @@ export const StoragePage: React.FC<StoragePageProps> = ({ embeddedInSettings = f
                 ? 'Platform operator view — Cloudflare Vectorize bindings and Supabase pgvector lane catalog.'
                 : `Shared platform vector catalog plus workspace lanes for ${vectors?.workspace_id || 'active workspace'}.`}
             </p>
-            {vectors?.can_view_platform ? (
-              <div className="storage-grid">
-                <Stat label="CF Stored Vectors" value={n(vectors?.total_stored_vectors).toLocaleString()} />
-                <Stat label="Indexed Docs" value={n(vectors?.total_indexed_docs).toLocaleString()} />
-                <Stat label="Queries 30d" value={n(vectors?.total_queries_30d).toLocaleString()} />
-                <Stat label="CF Indexes" value={platformIndexes.length} />
+            <div className="storage-grid">
+              <Stat label="CF Live Vectors" value={n(vectors?.total_stored_vectors).toLocaleString()} />
+              <Stat label="Supabase Embedded" value={n(vectors?.total_supabase_embedded).toLocaleString()} />
+              <Stat label="Lane Drift" value={n(vectors?.lane_drift_summary?.drifted)} />
+              <Stat label="CF Indexes" value={platformIndexes.length} />
+            </div>
+            {!!vectors?.lane_drift_summary?.drifted && (
+              <div className="storage-banner">
+                {vectors.lane_drift_summary.drifted} lane(s) out of sync between Cloudflare Vectorize and Supabase pgvector mirrors.
               </div>
-            ) : null}
+            )}
             <h3 className="storage-muted" style={{ fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', margin: '0 0 8px' }}>
               Cloudflare Vectorize
             </h3>
@@ -402,11 +446,16 @@ export const StoragePage: React.FC<StoragePageProps> = ({ embeddedInSettings = f
                     <p className="storage-muted">
                       {idx.binding_name} / {idx.source_type}
                     </p>
-                    <div className="storage-grid" style={{ gridTemplateColumns: 'repeat(3,1fr)' }}>
-                      <Stat label="Vectors" value={n(idx.stored_vectors).toLocaleString()} />
-                      <Stat label="Docs" value={n(idx.doc_count).toLocaleString()} />
-                      <Stat label="Stale" value={n(idx.stale_doc_count).toLocaleString()} />
+                    <div className="storage-grid" style={{ gridTemplateColumns: 'repeat(4,1fr)' }}>
+                      <Stat label="CF live" value={n(idx.cf_live_vectors ?? idx.stored_vectors).toLocaleString()} />
+                      <Stat label="Supabase" value={idx.supabase_embedded_rows != null ? n(idx.supabase_embedded_rows).toLocaleString() : '—'} />
+                      <Stat label="Drift" value={<Badge tone={driftTone(idx.drift_status)}>{idx.drift_status || 'unknown'}</Badge>} />
+                      <Stat label="Last sync" value={fmtTs(idx.last_sync_receipt_at || idx.last_indexed_at)} />
                     </div>
+                    <p className="storage-muted" style={{ fontSize: 10 }}>
+                      Registry: {n(idx.registry_stored_vectors).toLocaleString()} · source: {idx.cf_count_source || 'd1_registry'}
+                      {idx.supabase_table ? ` · pg: agentsam.${idx.supabase_table}` : ''}
+                    </p>
                     <p className="storage-muted">{idx.description}</p>
                     <div className="storage-row-actions" style={{ marginTop: 8 }}>
                       <button
@@ -510,43 +559,54 @@ export const StoragePage: React.FC<StoragePageProps> = ({ embeddedInSettings = f
                 </tbody>
               </table>
             </div>
-            {!vectors?.can_view_platform ? (
-              <>
-                <h3 className="storage-muted" style={{ fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', margin: '0 0 8px' }}>
-                  Your Supabase pgvector rows
-                </h3>
-                <div className="storage-card" style={{ marginBottom: 14 }}>
-                  <table className="storage-table">
-                    <thead>
-                      <tr>
-                        <th>Lane</th>
-                        <th>Table</th>
-                        <th>Dims</th>
-                        <th>Workspace rows</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(vectors?.workspace_pgvector_lanes || []).map((lane: Row) => (
-                        <tr key={lane.purpose}>
-                          <td>{lane.purpose}</td>
-                          <td>
-                            {lane.schema_name}.{lane.table_name}
-                          </td>
-                          <td>{lane.dimensions}</td>
-                          <td>
-                            {lane.query_ok === false ? (
-                              <Badge tone="warn">unavailable</Badge>
-                            ) : (
-                              n(lane.workspace_row_count).toLocaleString()
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            ) : null}
+            <h3 className="storage-muted" style={{ fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', margin: '0 0 8px' }}>
+              Supabase pgvector (live workspace mirror)
+            </h3>
+            <div className="storage-card" style={{ marginBottom: 14 }}>
+              <table className="storage-table">
+                <thead>
+                  <tr>
+                    <th>Lane</th>
+                    <th>Table</th>
+                    <th>Dims</th>
+                    <th>Rows</th>
+                    <th>Embedded</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(vectors?.workspace_pgvector_lanes || []).map((lane: Row) => (
+                    <tr key={lane.purpose}>
+                      <td>{lane.purpose}</td>
+                      <td>
+                        {lane.schema_name}.{lane.table_name}
+                      </td>
+                      <td>{lane.dimensions}</td>
+                      <td>
+                        {lane.query_ok === false ? (
+                          <Badge tone="warn">unavailable</Badge>
+                        ) : (
+                          n(lane.workspace_row_count).toLocaleString()
+                        )}
+                      </td>
+                      <td>
+                        {lane.query_ok === false ? (
+                          <Badge tone="warn">—</Badge>
+                        ) : (
+                          n(lane.workspace_embedded_count).toLocaleString()
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {!(vectors?.workspace_pgvector_lanes || []).length && (
+                    <tr>
+                      <td colSpan={5} className="storage-muted">
+                        Hyperdrive unavailable or workspace not resolved — cannot read Supabase lane counts.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
 
             <h3 className="storage-muted" style={{ fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', margin: '16px 0 8px' }}>
               Your vector connections
@@ -685,8 +745,8 @@ export const StoragePage: React.FC<StoragePageProps> = ({ embeddedInSettings = f
 
         {nav === 'cleanup' && (
           <>
-            <div className="storage-grid"><Stat label="Unreviewed" value={n(cleanup.unreviewed)} /><Stat label="Reviewed" value={n(cleanup.reviewed)} /><Stat label="Archived" value={n(cleanup.archived)} /><Stat label="Buckets" value={bucketRows.length} /></div>
-            <div className="storage-card"><table className="storage-table"><thead><tr><th>Bucket</th><th>Objects</th><th>Size</th><th>Project</th><th>Owner</th><th>Last Inventoried</th><th>Actions</th></tr></thead><tbody>{bucketRows.filter((b: Row) => (b.cleanup_status || 'unreviewed') === 'unreviewed').map((b: Row) => <tr key={b.bucket_name || b.storage_name}><td>{b.bucket_name || b.storage_name}</td><td>{n(b.object_count).toLocaleString()}</td><td>{mb(b.total_mb)}</td><td>{b.project_ref}</td><td>{b.owner}</td><td>{fmtTs(b.last_inventoried_at)}</td><td><div className="storage-row-actions"><button className="storage-btn" onClick={() => markCleanup(b.bucket_name || b.storage_name, 'reviewed')}>Mark Reviewed</button><button className="storage-btn" onClick={() => markCleanup(b.bucket_name || b.storage_name, 'archived')}>Archive</button></div></td></tr>)}</tbody></table></div>
+            <div className="storage-grid"><Stat label="Unreviewed" value={n(cleanup.unreviewed)} /><Stat label="Reviewed" value={n(cleanup.reviewed)} /><Stat label="Archived" value={n(cleanup.archived)} /><Stat label="R2 Buckets" value={r2BucketRows.length} /></div>
+            <div className="storage-card"><table className="storage-table"><thead><tr><th>Bucket</th><th>Objects</th><th>Size</th><th>Project</th><th>Owner</th><th>Last Inventoried</th><th>Actions</th></tr></thead><tbody>{r2BucketRows.filter((b: Row) => isR2BucketRow(b) && (b.cleanup_status || 'unreviewed') === 'unreviewed').map((b: Row) => <tr key={b.bucket_name || b.storage_name}><td>{b.bucket_name || b.storage_name}</td><td>{formatObjectCount(b)}</td><td>{formatSizeMb(b)}</td><td>{b.project_ref || '—'}</td><td>{b.owner || '—'}</td><td>{fmtTs(b.last_inventoried_at)}</td><td><div className="storage-row-actions"><button className="storage-btn" onClick={() => markCleanup(b.bucket_name || b.storage_name, 'reviewed')}>Mark Reviewed</button><button className="storage-btn" onClick={() => markCleanup(b.bucket_name || b.storage_name, 'archived')}>Archive</button></div></td></tr>)}</tbody></table></div>
           </>
         )}
 

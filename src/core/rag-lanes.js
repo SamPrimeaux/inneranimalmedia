@@ -338,13 +338,13 @@ export async function queryLanes(env, opts = {}) {
 }
 
 const ROUTE_LANE_MAP = {
-  db_write: ['schema', 'memory'],
-  db_read: ['schema', 'memory'],
-  debug: ['schema', 'memory'],
-  cf_ops: ['schema', 'memory'],
-  ask: ['docs', 'memory'],
-  agent_spawn: ['docs', 'memory'],
-  research: ['docs', 'memory'],
+  db_write: ['schema', 'code', 'memory'],
+  db_read: ['schema', 'code', 'memory'],
+  debug: ['schema', 'code', 'memory'],
+  cf_ops: ['schema', 'docs', 'memory'],
+  ask: ['docs', 'code', 'memory'],
+  agent_spawn: ['docs', 'code', 'memory'],
+  research: ['docs', 'code', 'memory'],
 };
 
 /**
