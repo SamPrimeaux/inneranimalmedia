@@ -11,7 +11,7 @@ INSERT OR REPLACE INTO agentsam_memory (
 SELECT
   'mem_cms_plan_intake_seed_v1',
   'tenant_sam_primeaux',
-  NULL,
+  u.id,
   'ws_inneranimalmedia',
   'policy',
   'cms_plan_intake_seed',
@@ -24,4 +24,6 @@ SELECT
   80,
   1,
   unixepoch()
-WHERE EXISTS (SELECT 1 FROM cms_pages LIMIT 1);
+FROM users u
+WHERE u.role = 'superadmin'
+LIMIT 1;
