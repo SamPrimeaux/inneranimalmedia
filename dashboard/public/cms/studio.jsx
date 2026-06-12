@@ -375,42 +375,57 @@ function PreviewSkeleton() {
   );
 }
 
-function BuiltAppPreview({ projectName }) {
+function CmsHtmlPreview({ html, contentUrl, pageTitle }) {
+  const iframeRef = useRef(null);
+  useEffect(() => {
+    const frame = iframeRef.current;
+    if (!frame) return;
+    if (html) {
+      frame.srcdoc = html;
+      return;
+    }
+    if (contentUrl) {
+      frame.removeAttribute("srcdoc");
+      frame.src = contentUrl;
+    }
+  }, [html, contentUrl]);
+  if (!html && !contentUrl) {
+    return (
+      <div style={{ padding: 32, textAlign: "center", color: "var(--muted)", fontSize: 13 }}>
+        No preview content for {pageTitle || "this page"} yet.
+      </div>
+    );
+  }
   return (
-    <div className="built-app">
-      <div className="nav">
-        <div className="nav-logo"><span className="ico"></span> {projectName || "Folio"}</div>
-        <div className="nav-links">
-          <a>Recipes</a>
-          <a>Menu</a>
-          <a>Story</a>
-          <a>Visit</a>
-        </div>
-        <div className="nav-cta">Reserve</div>
-      </div>
-      <div className="body">
-        <h1 className="h1">A neighborhood kitchen, written down.</h1>
-        <p className="lede">Mediterranean cooking, weekly menus, and the recipes regulars keep asking for — published from a CMS you can edit like a doc.</p>
-        <div className="btn-row">
-          <button className="btn-primary">Browse recipes →</button>
-          <button className="btn-ghost">This week's menu</button>
-        </div>
-        <div className="cards">
-          {[
-            { title: "Saffron orzo, lemon", desc: "Weekday · 25m · serves 4", emoji: "◐" },
-            { title: "Burnt-honey halloumi", desc: "Brunch · 15m · serves 2", emoji: "◇" },
-            { title: "Charred greens, tahini", desc: "Side · 12m · serves 4", emoji: "◑" },
-          ].map(c => (
-            <div className="card" key={c.title}>
-              <div className="chip">{c.emoji}</div>
-              <h3>{c.title}</h3>
-              <p>{c.desc}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
+    <iframe
+      ref={iframeRef}
+      title={pageTitle || "CMS preview"}
+      sandbox="allow-same-origin"
+      style={{ width: "100%", height: "100%", border: 0, background: "#fff" }}
+    />
   );
+}
+
+function bootstrapToFiles(bootstrap, pageId) {
+  if (!bootstrap || !pageId) return [];
+  const page = (bootstrap.pages || []).find((p) => p.id === pageId);
+  if (!page) return [];
+  const sections = bootstrap.sections_by_page?.[pageId] || [];
+  const out = [
+    { path: `pages/${page.slug || page.id}/index.html`, isNew: false },
+    { path: `pages/${page.slug || page.id}/meta.json`, isNew: false },
+  ];
+  for (const s of sections) {
+    out.push({ path: `sections/${s.section_type || "section"}/${s.section_name || s.id}.json`, isNew: false });
+    const comps = bootstrap.components_by_section?.[s.id] || [];
+    for (const c of comps) {
+      out.push({
+        path: `components/${s.section_type || "section"}/${c.component_type || c.id}.json`,
+        isNew: false,
+      });
+    }
+  }
+  return out;
 }
 
 /* ─── Main app ──────────────────────────────────────────── */
@@ -429,6 +444,8 @@ function Studio() {
   }, [t.accent]);
 
   const ctx = useMemo(() => readStudioContext(), []);
+  const [bootstrap, setBootstrap] = useState(null);
+  const [pagePayload, setPagePayload] = useState(null);
   const [files, setFiles] = useState(STARTER_FILES);
   const [activeTab, setActiveTab] = useState("preview");
   const [phase, setPhase] = useState("Idle");
@@ -441,7 +458,11 @@ function Studio() {
   const [workspaceLabel, setWorkspaceLabel] = useState("");
   const [userInitials, setUserInitials] = useState("IA");
   const [toast, setToast] = useState("");
+  const [liveSession, setLiveSession] = useState(null);
+  const draftTimerRef = useRef(null);
+  const heartbeatRef = useRef(null);
   const projectSlug = ctx.projectSlug;
+  const pageId = ctx.pageId;
 
   useEffect(() => {
     tryCopyParentTheme();
@@ -456,20 +477,56 @@ function Studio() {
     return () => window.removeEventListener('message', onTheme);
   }, []);
 
+  const saveDraft = (draftData, flush = false) => {
+    if (!pageId) return;
+    clearTimeout(draftTimerRef.current);
+    const run = () => {
+      apiJson(`/api/cms/pages/${encodeURIComponent(pageId)}/draft`, {
+        method: "PUT",
+        body: { draft_data: draftData, flush },
+      }).catch(() => {});
+    };
+    if (flush) run();
+    else draftTimerRef.current = setTimeout(run, 1400);
+  };
+
+  const loadCmsContext = async (focusPageId) => {
+    const bootQs = new URLSearchParams({ project_slug: projectSlug });
+    if (focusPageId) bootQs.set("page_id", focusPageId);
+    const data = await apiJson(`/api/cms/bootstrap?${bootQs.toString()}`);
+    setBootstrap(data);
+    setWorkspaceLabel(data.tenant?.name || projectSlug);
+    if (data.active_theme?.css_vars) applyCmsThemeVars(data.active_theme.css_vars);
+    if (data.active_theme?.slug) document.documentElement.setAttribute("data-theme", data.active_theme.slug);
+    if (focusPageId) {
+      const page = (data.pages || []).find((p) => p.id === focusPageId);
+      setProjectName(page?.title || page?.route_path || projectSlug);
+      const treeFiles = bootstrapToFiles(data, focusPageId);
+      setFiles(treeFiles);
+      setStats({ files: treeFiles.length, lines: treeFiles.length * 12, time: "live" });
+      if (treeFiles.length) setCanvasMode("preview");
+      if (data.live_session) setLiveSession(data.live_session);
+    }
+    return data;
+  };
+
   useEffect(() => {
     let cancelled = false;
-    apiJson(`/api/cms/bootstrap?project_slug=${encodeURIComponent(projectSlug)}`)
-      .then((data) => {
+    (async () => {
+      try {
+        const data = await loadCmsContext(pageId || null);
         if (cancelled) return;
-        setWorkspaceLabel(data.tenant?.name || projectSlug);
-        if (data.active_theme?.css_vars) applyCmsThemeVars(data.active_theme.css_vars);
-        if (data.active_theme?.slug) {
-          document.documentElement.setAttribute('data-theme', data.active_theme.slug);
+        const focusId = pageId || data.pages?.find((p) => p.is_homepage)?.id || data.pages?.[0]?.id;
+        if (focusId) {
+          const payload = await apiJson(`/api/cms/pages/${encodeURIComponent(focusId)}`);
+          if (cancelled) return;
+          setPagePayload(payload);
+          if (payload.preview_html || payload.content_url) setCanvasMode("preview");
         }
-      })
-      .catch(() => {
+      } catch (_) {
         if (!cancelled) setWorkspaceLabel(projectSlug);
-      });
+      }
+    })();
     try {
       const parentUser = window.parent?.__IAM_USER;
       const name = parentUser?.display_name || parentUser?.name || "";
@@ -481,7 +538,50 @@ function Studio() {
     return () => {
       cancelled = true;
     };
-  }, [projectSlug]);
+  }, [projectSlug, pageId]);
+
+  useEffect(() => {
+    if (!pageId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const join = await apiJson("/api/cms/live-session/join", {
+          method: "POST",
+          body: { page_id: pageId },
+        });
+        if (!cancelled && join?.ok) setLiveSession(join);
+      } catch (_) {}
+    })();
+    heartbeatRef.current = setInterval(() => {
+      apiJson("/api/cms/live-session/heartbeat", {
+        method: "POST",
+        body: { page_id: pageId },
+      }).catch(() => {});
+    }, 15000);
+    return () => {
+      cancelled = true;
+      if (heartbeatRef.current) clearInterval(heartbeatRef.current);
+      clearTimeout(draftTimerRef.current);
+      apiJson("/api/cms/live-session/leave", {
+        method: "POST",
+        body: { page_id: pageId },
+      }).catch(() => {});
+    };
+  }, [pageId]);
+
+  useEffect(() => {
+    if (!pageId || !bootstrap) return;
+    const sections = bootstrap.sections_by_page?.[pageId] || [];
+    const draftPayload = {
+      page_id: pageId,
+      sections: {},
+      updated_at: Math.floor(Date.now() / 1000),
+    };
+    for (const s of sections) {
+      draftPayload.sections[s.id] = s.section_data || {};
+    }
+    saveDraft(draftPayload, false);
+  }, [pageId, bootstrap]);
 
   const showToast = (msg) => {
     setToast(msg);
@@ -506,16 +606,42 @@ function Studio() {
   const handleDeploy = async () => {
     try {
       setPhase("Deploying");
-      setActivity("Publishing CMS pages to production…");
-      const data = await apiJson(`/api/cms/bootstrap?project_slug=${encodeURIComponent(projectSlug)}`);
+      setActivity("Draft → override → version → publish…");
+      const data = bootstrap || (await apiJson(`/api/cms/bootstrap?project_slug=${encodeURIComponent(projectSlug)}`));
       const pages = data.pages || [];
-      const home = pages.find((p) => p.is_homepage) || pages[0];
-      if (!home) throw new Error("No pages to publish");
-      await apiJson(`/api/cms/pages/${encodeURIComponent(home.id)}/snapshot`, { method: "POST", body: {} });
-      await apiJson(`/api/cms/pages/${encodeURIComponent(home.id)}/publish`, { method: "POST", body: {} });
+      const target = pageId
+        ? pages.find((p) => p.id === pageId)
+        : pages.find((p) => p.is_homepage) || pages[0];
+      if (!target) throw new Error("No pages to publish");
+      const sections = data.sections_by_page?.[target.id] || [];
+      await apiJson(`/api/cms/pages/${encodeURIComponent(target.id)}/draft`, {
+        method: "PUT",
+        body: {
+          draft_data: {
+            page_id: target.id,
+            sections: Object.fromEntries(sections.map((s) => [s.id, s.section_data || {}])),
+          },
+          flush: true,
+        },
+      });
+      for (const s of sections) {
+        await apiJson("/api/cms/overrides", {
+          method: "POST",
+          body: {
+            project_slug: projectSlug,
+            path: target.route_path || `/${target.slug}`,
+            section: s.id,
+            overrides_json: s.section_data || {},
+          },
+        }).catch(() => {});
+      }
+      await apiJson(`/api/cms/pages/${encodeURIComponent(target.id)}/snapshot`, { method: "POST", body: {} });
+      const pub = await apiJson(`/api/cms/pages/${encodeURIComponent(target.id)}/publish`, { method: "POST", body: {} });
       setPhase("Ready");
-      setActivity(`Published ${home.title || home.route_path} · live`);
-      showToast(`Deployed ${home.route_path || "/"}`);
+      setActivity(`Published ${target.title || target.route_path} · ${(pub.override_chain || []).length} overrides`);
+      showToast(`Deployed ${target.route_path || "/"}`);
+      const payload = await apiJson(`/api/cms/pages/${encodeURIComponent(target.id)}`);
+      setPagePayload(payload);
     } catch (e) {
       setPhase("Idle");
       setActivity("Deploy failed — check CMS bootstrap");
@@ -624,7 +750,13 @@ function Studio() {
                   <div className={`preview-frame ${device}`}><PreviewSkeleton /></div>
                 )}
                 {activeTab === "preview" && canvasMode === "preview" && (
-                  <div className={`preview-frame ${device}`}><BuiltAppPreview projectName={projectName} /></div>
+                  <div className={`preview-frame ${device}`}>
+                    <CmsHtmlPreview
+                      html={pagePayload?.preview_html}
+                      contentUrl={pagePayload?.content_url}
+                      pageTitle={projectName}
+                    />
+                  </div>
                 )}
                 {activeTab === "code" && (
                   files.length === 0
@@ -652,7 +784,7 @@ function Studio() {
               <div className="activity-strip">
                 <span className="dot idle"></span>
                 <span><b>{phase}</b></span>
-                <span className="ticker">{activity}</span>
+                <span className="ticker">{activity}{liveSession?.session_id ? ` · session ${String(liveSession.session_id).slice(0, 8)}` : ""}</span>
                 <span className="stat"><b>{stats.files}</b> files</span>
                 <span className="stat"><b>{stats.lines.toLocaleString()}</b> loc</span>
                 <span className="stat"><b>{stats.time}</b></span>

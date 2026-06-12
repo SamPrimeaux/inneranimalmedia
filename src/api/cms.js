@@ -20,13 +20,47 @@ import {
   putCmsDraftCache,
   releaseCmsPublishLock,
 } from '../core/cms-kv-cache.js';
-import { joinCmsLiveEditSession } from '../core/cms-live-edit-session.js';
+import {
+  auditCmsMutation,
+  clearCmsDraftHotCache,
+  cmsOverrideProjectId,
+  copyR2Object,
+  flushCmsDraftToD1,
+  invalidateCmsBootstrap,
+  logCmsActivity,
+  promoteCmsDraftOverrides,
+  renderCmsSectionTreeHtml,
+  stageCmsDraftKv,
+} from '../core/cms-edit-safety.js';
+import {
+  joinCmsLiveEditSession,
+  leaveCmsLiveEditSession,
+  touchCmsLiveEditSession,
+} from '../core/cms-live-edit-session.js';
 import { upsertCmsSiteProjectContext } from '../core/cms-project-context.js';
 
 export const CMS_DEFAULT_R2_BUCKET = 'inneranimalmedia';
 
 function cmsPageKey(workspaceId, projectId, slug, variant) {
   return `cms/${workspaceId}/${projectId}/${slug}/${variant}.html`;
+}
+
+function cmsSnapshotKey(workspaceId, projectId, slug, ts) {
+  return `cms/${workspaceId}/${projectId}/${slug}/snapshots/${ts}.html`;
+}
+
+/** @param {import('../core/auth.js').AuthUser} authUser @param {Request} request */
+function cmsMutationMeta(authUser, request) {
+  const routeKey = request.headers.get('x-iam-route-key') || request.headers.get('X-IAM-Route-Key') || '';
+  let agentApplied = false;
+  try {
+    // body not parsed yet — caller may pass flag separately
+  } catch (_) {}
+  return {
+    userId: authUser.id,
+    routeKey: String(routeKey || '').trim(),
+    agentApplied: agentApplied || routeKey === 'cms_edit',
+  };
 }
 
 function getCmsR2Binding(env, bucketName) {
@@ -165,7 +199,164 @@ export async function handleCmsApi(request, url, env, ctx) {
         contentUrl = await presignR2GetObjectUrl(env, bucket, key);
       }
 
-      return jsonResponse({ page, content_url: contentUrl });
+      const { results: sectionRows } = await env.DB.prepare(
+        `SELECT id, section_type, section_name, section_data, sort_order, is_visible
+         FROM cms_page_sections WHERE page_id = ? ORDER BY sort_order`,
+      )
+        .bind(pageId)
+        .all()
+        .catch(() => ({ results: [] }));
+
+      const sections = (sectionRows || []).map((s) => ({
+        ...s,
+        section_data: s.section_data
+          ? (() => {
+              try {
+                return typeof s.section_data === 'string' ? JSON.parse(s.section_data) : s.section_data;
+              } catch {
+                return {};
+              }
+            })()
+          : {},
+      }));
+
+      const sectionIds = sections.map((s) => s.id).filter(Boolean);
+      let componentsBySection = {};
+      if (sectionIds.length) {
+        const placeholders = sectionIds.map(() => '?').join(',');
+        const { results: compRows } = await env.DB.prepare(
+          `SELECT id, section_id, component_type, component_data, sort_order, is_visible
+           FROM cms_section_components WHERE section_id IN (${placeholders}) ORDER BY sort_order`,
+        )
+          .bind(...sectionIds)
+          .all()
+          .catch(() => ({ results: [] }));
+        for (const c of compRows || []) {
+          if (!componentsBySection[c.section_id]) componentsBySection[c.section_id] = [];
+          componentsBySection[c.section_id].push({
+            ...c,
+            component_data: c.component_data
+              ? (() => {
+                  try {
+                    return typeof c.component_data === 'string' ? JSON.parse(c.component_data) : c.component_data;
+                  } catch {
+                    return {};
+                  }
+                })()
+              : {},
+          });
+        }
+      }
+
+      const preview_html = renderCmsSectionTreeHtml(sections, componentsBySection);
+
+      return jsonResponse({
+        page,
+        content_url: contentUrl,
+        preview_html,
+        sections,
+        components_by_section: componentsBySection,
+      });
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
+  const draftPageMatch = path.match(/^\/api\/cms\/pages\/([^/]+)\/draft$/);
+  if (draftPageMatch && (method === 'GET' || method === 'PUT')) {
+    const pageId = draftPageMatch[1];
+    try {
+      const page = await env.DB.prepare(
+        `SELECT id, project_id, project_slug, slug, route_path, tenant_id FROM cms_pages WHERE id = ? AND tenant_id = ? LIMIT 1`,
+      )
+        .bind(pageId, tenantId)
+        .first();
+      if (!page) return jsonResponse({ error: 'Page not found' }, 404);
+
+      if (method === 'GET') {
+        const kvDraft = await getCmsDraftCache(env, pageId, authUser.id);
+        const row = await env.DB.prepare(
+          `SELECT draft_data, updated_at FROM cms_page_drafts WHERE page_id = ? AND user_id = ? LIMIT 1`,
+        )
+          .bind(pageId, authUser.id)
+          .first()
+          .catch(() => null);
+        let draftData = null;
+        if (kvDraft?.draft_data) draftData = kvDraft.draft_data;
+        else if (kvDraft && typeof kvDraft === 'object') draftData = kvDraft;
+        else if (row?.draft_data) {
+          try {
+            draftData = JSON.parse(row.draft_data);
+          } catch {
+            draftData = row.draft_data;
+          }
+        }
+        return jsonResponse({
+          page_id: pageId,
+          draft_data: draftData,
+          source: kvDraft ? 'kv' : row ? 'd1' : null,
+          updated_at: row?.updated_at || kvDraft?.cached_at || null,
+        });
+      }
+
+      let body = {};
+      try {
+        body = await request.json();
+      } catch {
+        return jsonResponse({ error: 'Invalid JSON body' }, 400);
+      }
+      const draftData = body.draft_data ?? body.draftData ?? body;
+      const flush = body.flush === true || body.flush === 1;
+      const meta = cmsMutationMeta(authUser, request);
+      if (body.agent_applied === true) meta.agentApplied = true;
+
+      await stageCmsDraftKv(env, {
+        pageId,
+        userId: authUser.id,
+        payload: typeof draftData === 'object' ? draftData : { content: draftData },
+      });
+
+      let flushed = null;
+      if (flush) {
+        flushed = await flushCmsDraftToD1(env, {
+          pageId,
+          userId: authUser.id,
+          draftData: typeof draftData === 'object' ? draftData : { content: draftData },
+        });
+      }
+
+      await touchCmsLiveEditSession(env, { pageId, userId: authUser.id });
+
+      const projectSlug = String(page.project_slug || page.project_id || '').trim();
+      ctx.waitUntil(
+        logCmsActivity(env, {
+          tenantId,
+          userId: authUser.id,
+          action: flush ? 'draft_flush' : 'draft_save',
+          resourceType: 'draft',
+          resourceId: pageId,
+          details: { flushed: !!flushed?.ok },
+        }),
+      );
+      auditCmsMutation(env, ctx, {
+        workspaceId,
+        tenantId,
+        userId: authUser.id,
+        projectSlug,
+        pageId,
+        sectionId: body.section_id || 'draft',
+        agentApplied: meta.agentApplied,
+        routeKey: meta.routeKey,
+        changeSetId: body.change_set_id || null,
+      });
+      invalidateCmsBootstrap(env, ctx, workspaceId, projectSlug);
+
+      return jsonResponse({
+        success: true,
+        page_id: pageId,
+        kv_draft_key: `cms:draft:${pageId}:${authUser.id}`,
+        flushed: !!flushed?.ok,
+      });
     } catch (e) {
       return jsonResponse({ error: e.message }, 500);
     }
@@ -359,6 +550,43 @@ export async function handleCmsApi(request, url, env, ctx) {
         return jsonResponse({ error: 'No draft found to publish' }, 400);
       }
 
+      const draftRow = await env.DB.prepare(
+        `SELECT draft_data FROM cms_page_drafts WHERE page_id = ? AND user_id = ? LIMIT 1`,
+      )
+        .bind(pageId, authUser.id)
+        .first()
+        .catch(() => null);
+      let draftData = null;
+      if (draftRow?.draft_data) {
+        try {
+          draftData = JSON.parse(draftRow.draft_data);
+        } catch {
+          draftData = null;
+        }
+      }
+      if (!draftData) {
+        const kvDraft = await getCmsDraftCache(env, pageId, authUser.id);
+        draftData = kvDraft?.draft_data || null;
+      }
+      let overrideChain = [];
+      if (draftData && typeof draftData === 'object') {
+        overrideChain = await promoteCmsDraftOverrides(env, {
+          page: { ...page, id: pageId },
+          draftData,
+          userId: authUser.id,
+        });
+        ctx.waitUntil(
+          logCmsActivity(env, {
+            tenantId,
+            userId: authUser.id,
+            action: 'draft_promote',
+            resourceType: 'page',
+            resourceId: pageId,
+            details: { overrides: overrideChain.length },
+          }),
+        );
+      }
+
       const content = await draftObj.arrayBuffer();
       await r2Binding.put(publishedKey, content, {
         httpMetadata: { contentType: page.content_type || 'text/html' }
@@ -383,12 +611,32 @@ export async function handleCmsApi(request, url, env, ctx) {
         ctx.waitUntil(invalidateCmsBootstrapCache(env, workspaceId, projectSlug));
       }
 
+      auditCmsMutation(env, ctx, {
+        workspaceId,
+        tenantId,
+        userId: authUser.id,
+        projectSlug,
+        pageId,
+        sectionId: 'publish',
+      });
+      ctx.waitUntil(
+        logCmsActivity(env, {
+          tenantId,
+          userId: authUser.id,
+          action: 'publish',
+          resourceType: 'page',
+          resourceId: pageId,
+        }),
+      );
+      await clearCmsDraftHotCache(env, pageId, authUser.id);
+
       return jsonResponse({
         success: true,
         status: 'published',
         r2_key: publishedKey,
         r2_bucket: r2Bucket,
         bootstrap_cache_key: cmsBootstrapKey(workspaceId, projectSlug),
+        override_chain: overrideChain,
       });
     } catch (e) {
       if (projectSlug) ctx.waitUntil(releaseCmsPublishLock(env, projectSlug, authUser.id));
@@ -478,6 +726,65 @@ export async function handleCmsApi(request, url, env, ctx) {
       )
         .bind(payload, sectionId)
         .run();
+
+      const page = await env.DB.prepare(
+        `SELECT id, project_slug, project_id FROM cms_pages WHERE id = ? LIMIT 1`,
+      )
+        .bind(row.page_id)
+        .first()
+        .catch(() => null);
+      const projectSlug = String(page?.project_slug || page?.project_id || '').trim();
+      const meta = cmsMutationMeta(authUser, request);
+      if (body.agent_applied === true) meta.agentApplied = true;
+
+      const parsed =
+        typeof sectionData === 'string'
+          ? (() => {
+              try {
+                return JSON.parse(sectionData);
+              } catch {
+                return { raw: sectionData };
+              }
+            })()
+          : sectionData;
+      await stageCmsDraftKv(env, {
+        pageId: row.page_id,
+        userId: authUser.id,
+        payload: {
+          sections: { [sectionId]: parsed },
+          page_id: row.page_id,
+          updated_at: Math.floor(Date.now() / 1000),
+        },
+      });
+      ctx.waitUntil(
+        flushCmsDraftToD1(env, {
+          pageId: row.page_id,
+          userId: authUser.id,
+          draftData: { sections: { [sectionId]: parsed }, page_id: row.page_id },
+        }),
+      );
+      ctx.waitUntil(
+        logCmsActivity(env, {
+          tenantId,
+          userId: authUser.id,
+          action: 'section_update',
+          resourceType: 'section',
+          resourceId: sectionId,
+        }),
+      );
+      auditCmsMutation(env, ctx, {
+        workspaceId,
+        tenantId,
+        userId: authUser.id,
+        projectSlug,
+        pageId: row.page_id,
+        sectionId,
+        agentApplied: meta.agentApplied,
+        routeKey: meta.routeKey,
+        changeSetId: body.change_set_id || null,
+      });
+      if (projectSlug) invalidateCmsBootstrap(env, ctx, workspaceId, projectSlug);
+
       return jsonResponse({ success: true, id: sectionId });
     } catch (e) {
       return jsonResponse({ error: e.message }, 500);
@@ -510,11 +817,78 @@ export async function handleCmsApi(request, url, env, ctx) {
       if (!row || String(row.tenant_id) !== String(tenantId)) {
         return jsonResponse({ error: 'Component not found' }, 404);
       }
+      const section = await env.DB.prepare(
+        `SELECT s.id, s.page_id FROM cms_page_sections s WHERE s.id = ? LIMIT 1`,
+      )
+        .bind(row.section_id)
+        .first()
+        .catch(() => null);
       await env.DB.prepare(
         `UPDATE cms_section_components SET component_data = ?, updated_at = datetime('now') WHERE id = ?`,
       )
         .bind(payload, componentId)
         .run();
+
+      const page = section?.page_id
+        ? await env.DB.prepare(`SELECT project_slug, project_id FROM cms_pages WHERE id = ? LIMIT 1`)
+            .bind(section.page_id)
+            .first()
+            .catch(() => null)
+        : null;
+      const projectSlug = String(page?.project_slug || page?.project_id || '').trim();
+      const meta = cmsMutationMeta(authUser, request);
+      if (body.agent_applied === true) meta.agentApplied = true;
+
+      if (section?.page_id) {
+        const parsed =
+          typeof componentData === 'string'
+            ? (() => {
+                try {
+                  return JSON.parse(componentData);
+                } catch {
+                  return { raw: componentData };
+                }
+              })()
+            : componentData;
+        await stageCmsDraftKv(env, {
+          pageId: section.page_id,
+          userId: authUser.id,
+          payload: {
+            components: { [componentId]: parsed },
+            page_id: section.page_id,
+            updated_at: Math.floor(Date.now() / 1000),
+          },
+        });
+        ctx.waitUntil(
+          flushCmsDraftToD1(env, {
+            pageId: section.page_id,
+            userId: authUser.id,
+            draftData: { components: { [componentId]: parsed }, page_id: section.page_id },
+          }),
+        );
+        auditCmsMutation(env, ctx, {
+          workspaceId,
+          tenantId,
+          userId: authUser.id,
+          projectSlug,
+          pageId: section.page_id,
+          sectionId: row.section_id,
+          agentApplied: meta.agentApplied,
+          routeKey: meta.routeKey,
+          changeSetId: body.change_set_id || null,
+        });
+      }
+      ctx.waitUntil(
+        logCmsActivity(env, {
+          tenantId,
+          userId: authUser.id,
+          action: 'component_update',
+          resourceType: 'component',
+          resourceId: componentId,
+        }),
+      );
+      if (projectSlug) invalidateCmsBootstrap(env, ctx, workspaceId, projectSlug);
+
       return jsonResponse({ success: true, id: componentId });
     } catch (e) {
       return jsonResponse({ error: e.message }, 500);
@@ -570,14 +944,169 @@ export async function handleCmsApi(request, url, env, ctx) {
     return jsonResponse(result);
   }
 
+  if (path === '/api/cms/live-session/heartbeat' && method === 'POST') {
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: 'invalid JSON' }, 400);
+    }
+    const pageId = String(body.page_id || body.pageId || '').trim();
+    if (!pageId) return jsonResponse({ error: 'page_id required' }, 400);
+    await touchCmsLiveEditSession(env, { pageId, userId: authUser.id });
+    return jsonResponse({ ok: true, page_id: pageId });
+  }
+
+  if (path === '/api/cms/live-session/leave' && method === 'POST') {
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: 'invalid JSON' }, 400);
+    }
+    const pageId = String(body.page_id || body.pageId || '').trim();
+    if (!pageId) return jsonResponse({ error: 'page_id required' }, 400);
+    const flushed = await flushCmsDraftToD1(env, { pageId, userId: authUser.id });
+    await leaveCmsLiveEditSession(env, { pageId, userId: authUser.id });
+    await clearCmsDraftHotCache(env, pageId, authUser.id);
+    const page = await env.DB.prepare(`SELECT project_slug, project_id FROM cms_pages WHERE id = ? LIMIT 1`)
+      .bind(pageId)
+      .first()
+      .catch(() => null);
+    const projectSlug = String(page?.project_slug || page?.project_id || '').trim();
+    if (projectSlug) invalidateCmsBootstrap(env, ctx, workspaceId, projectSlug);
+    ctx.waitUntil(
+      logCmsActivity(env, {
+        tenantId,
+        userId: authUser.id,
+        action: 'live_session_leave',
+        resourceType: 'page',
+        resourceId: pageId,
+        details: { draft_flushed: !!flushed?.ok },
+      }),
+    );
+    return jsonResponse({ ok: true, page_id: pageId, draft_flushed: !!flushed?.ok });
+  }
+
+  if (path === '/api/cms/overrides' && method === 'POST') {
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: 'invalid JSON' }, 400);
+    }
+    const projectSlug = String(body.project_slug || body.project_id || url.searchParams.get('project_slug') || '').trim();
+    const pathVal = String(body.path || '').trim();
+    const section = String(body.section || 'hero').trim();
+    const overridesJson = body.overrides_json ?? body.overridesJson ?? {};
+    if (!projectSlug || !pathVal) {
+      return jsonResponse({ error: 'project_slug and path required' }, 400);
+    }
+    const projectIdNum = cmsOverrideProjectId(body.project_id || projectSlug);
+    const payload =
+      typeof overridesJson === 'string' ? overridesJson : JSON.stringify(overridesJson || {});
+    try {
+      const existing = await env.DB.prepare(
+        `SELECT id, version FROM cms_page_overrides WHERE project_id = ? AND path = ? AND section = ? LIMIT 1`,
+      )
+        .bind(projectIdNum, pathVal, section)
+        .first()
+        .catch(() => null);
+      let overrideId = existing?.id;
+      if (overrideId) {
+        await env.DB.prepare(
+          `UPDATE cms_page_overrides
+           SET overrides_json = ?, status = 'draft', updated_at = datetime('now'), project_slug = ?
+           WHERE id = ?`,
+        )
+          .bind(payload, projectSlug, overrideId)
+          .run();
+      } else {
+        overrideId = `ov_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+        await env.DB.prepare(
+          `INSERT INTO cms_page_overrides
+           (id, project_id, project_slug, path, section, overrides_json, status, version, created_by, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, 'draft', 1, ?, datetime('now'), datetime('now'))`,
+        )
+          .bind(overrideId, projectIdNum, projectSlug, pathVal, section, payload, authUser.id)
+          .run();
+      }
+      ctx.waitUntil(
+        logCmsActivity(env, {
+          tenantId,
+          userId: authUser.id,
+          action: 'override_upsert',
+          resourceType: 'override',
+          resourceId: overrideId,
+        }),
+      );
+      invalidateCmsBootstrap(env, ctx, workspaceId, projectSlug);
+      return jsonResponse({ success: true, id: overrideId });
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
+  const overridePublishMatch = path.match(/^\/api\/cms\/overrides\/([^/]+)\/publish$/);
+  if (overridePublishMatch && method === 'POST') {
+    const overrideId = overridePublishMatch[1];
+    try {
+      const row = await env.DB.prepare(`SELECT * FROM cms_page_overrides WHERE id = ? LIMIT 1`)
+        .bind(overrideId)
+        .first();
+      if (!row) return jsonResponse({ error: 'Override not found' }, 404);
+      const nextVersion = (Number(row.version) || 0) + 1;
+      const versionId = `ovv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+      await env.DB.prepare(
+        `INSERT INTO cms_override_versions
+         (override_id, project_id, project_slug, path, section, overrides_json, version, status, created_by, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'published', ?, datetime('now'))`,
+      )
+        .bind(
+          overrideId,
+          row.project_id,
+          row.project_slug,
+          row.path,
+          row.section,
+          row.overrides_json,
+          nextVersion,
+          authUser.id,
+        )
+        .run();
+      await env.DB.prepare(
+        `UPDATE cms_page_overrides
+         SET status = 'published', version = ?, published_at = datetime('now'), published_by = ?, updated_at = datetime('now')
+         WHERE id = ?`,
+      )
+        .bind(nextVersion, authUser.id, overrideId)
+        .run();
+      ctx.waitUntil(
+        logCmsActivity(env, {
+          tenantId,
+          userId: authUser.id,
+          action: 'override_publish',
+          resourceType: 'override_version',
+          resourceId: versionId,
+          details: { override_id: overrideId, version: nextVersion },
+        }),
+      );
+      invalidateCmsBootstrap(env, ctx, workspaceId, String(row.project_slug || '').trim());
+      return jsonResponse({ success: true, override_id: overrideId, version_id: versionId, version: nextVersion });
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
   if (path === '/api/cms/bootstrap' && method === 'GET') {
     const projectSlug = url.searchParams.get('project_slug') || 'inneranimalmedia';
+    const focusPageIdParam = String(url.searchParams.get('page_id') || '').trim();
     const cacheKey = cmsBootstrapKey(workspaceId, projectSlug);
 
-    if (env.SESSION_CACHE) {
+    let cachedPayload = null;
+    if (env.SESSION_CACHE && !focusPageIdParam) {
       try {
-        const cached = await env.SESSION_CACHE.get(cacheKey, { type: 'json' });
-        if (cached) return jsonResponse({ ...cached, _cache: 'hit' });
+        cachedPayload = await env.SESSION_CACHE.get(cacheKey, { type: 'json' });
+        if (cachedPayload) return jsonResponse({ ...cachedPayload, _cache: 'hit' });
       } catch (_) {}
     }
 
@@ -738,6 +1267,55 @@ export async function handleCmsApi(request, url, env, ctx) {
       }
 
       const homePage = pages.find((p) => p.is_homepage) || pages[0] || null;
+      const focusPageId = focusPageIdParam;
+
+      let activeDraft = null;
+      let liveSession = null;
+      if (focusPageId) {
+        const draftRow = await env.DB.prepare(
+          `SELECT draft_data, updated_at FROM cms_page_drafts WHERE page_id = ? AND user_id = ? LIMIT 1`,
+        )
+          .bind(focusPageId, authUser.id)
+          .first()
+          .catch(() => null);
+        const kvDraft = await getCmsDraftCache(env, focusPageId, authUser.id);
+        let draftData = null;
+        if (kvDraft?.draft_data) draftData = kvDraft.draft_data;
+        else if (draftRow?.draft_data) {
+          try {
+            draftData = JSON.parse(draftRow.draft_data);
+          } catch {
+            draftData = draftRow.draft_data;
+          }
+        }
+        if (draftData) {
+          activeDraft = {
+            page_id: focusPageId,
+            draft_data: draftData,
+            source: kvDraft ? 'kv' : 'd1',
+            updated_at: draftRow?.updated_at || kvDraft?.cached_at || null,
+          };
+        }
+        const sessionRow = await env.DB.prepare(
+          `SELECT id, session_token, is_active, last_activity
+           FROM cms_live_edit_sessions WHERE page_id = ? AND user_id = ? AND is_active = 1
+           ORDER BY last_activity DESC LIMIT 1`,
+        )
+          .bind(focusPageId, authUser.id)
+          .first()
+          .catch(() => null);
+        if (sessionRow?.id) {
+          liveSession = {
+            session_id: sessionRow.id,
+            session_token: sessionRow.session_token,
+            page_id: focusPageId,
+            collab_room: `cms:${focusPageId}`,
+            is_active: !!sessionRow.is_active,
+            last_activity: sessionRow.last_activity,
+          };
+        }
+      }
+
       const payload = {
         project_slug: projectSlug,
         tenant: tenantRow,
@@ -751,6 +1329,8 @@ export async function handleCmsApi(request, url, env, ctx) {
         liquid_imports: importsRes.results || [],
         global_settings: globalSettingsRes || null,
         assets_3d: assets3dRes.results || [],
+        active_draft: activeDraft,
+        live_session: liveSession,
         storage: {
           r2_bucket: CMS_DEFAULT_R2_BUCKET,
           r2_key: homePage?.r2_key || null,
@@ -1093,16 +1673,27 @@ export async function handleCmsApi(request, url, env, ctx) {
     const pageId = path.split('/')[4];
     try {
       const page = await env.DB.prepare(
-        `SELECT id, slug, r2_key, r2_bucket FROM cms_pages WHERE id = ? AND tenant_id = ? LIMIT 1`,
+        `SELECT id, slug, project_id, project_slug, r2_key, r2_bucket FROM cms_pages WHERE id = ? AND tenant_id = ? LIMIT 1`,
       )
         .bind(pageId, tenantId)
         .first();
       if (!page) return jsonResponse({ error: 'Page not found' }, 404);
 
+      const r2Bucket = page.r2_bucket || CMS_DEFAULT_R2_BUCKET;
+      const projectId = String(page.project_id || page.project_slug || '').trim();
+      const snapshotTs = Math.floor(Date.now() / 1000);
+      let snapshotKey = page.r2_key || '';
       let htmlHash = null;
-      if (page.r2_key && env.ASSETS) {
-        const obj = await env.ASSETS.head(page.r2_key).catch(() => null);
-        htmlHash = obj?.etag ? String(obj.etag).replace(/"/g, '') : null;
+
+      if (page.r2_key) {
+        const r2Binding = getCmsR2Binding(env, r2Bucket);
+        if (r2Binding) {
+          const obj = await r2Binding.head(page.r2_key).catch(() => null);
+          htmlHash = obj?.etag ? String(obj.etag).replace(/"/g, '') : null;
+          snapshotKey = cmsSnapshotKey(workspaceId, projectId, page.slug, snapshotTs);
+          const copied = await copyR2Object(env, r2Bucket, page.r2_key, snapshotKey);
+          if (!copied) snapshotKey = page.r2_key;
+        }
       }
 
       const rollbackId = `rb_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
@@ -1114,14 +1705,24 @@ export async function handleCmsApi(request, url, env, ctx) {
         .bind(
           rollbackId,
           pageId,
+          projectId,
           page.slug,
-          page.slug,
-          page.r2_key || '',
+          snapshotKey,
           htmlHash || '',
-          Math.floor(Date.now() / 1000),
+          snapshotTs,
         )
         .run();
-      return jsonResponse({ success: true, id: rollbackId });
+      ctx.waitUntil(
+        logCmsActivity(env, {
+          tenantId,
+          userId: authUser.id,
+          action: 'snapshot',
+          resourceType: 'rollback',
+          resourceId: rollbackId,
+          details: { previous_r2_key: snapshotKey },
+        }),
+      );
+      return jsonResponse({ success: true, id: rollbackId, previous_r2_key: snapshotKey });
     } catch (e) {
       return jsonResponse({ error: e.message }, 500);
     }
@@ -1146,31 +1747,65 @@ export async function handleCmsApi(request, url, env, ctx) {
         .first();
       if (!rb) return jsonResponse({ error: 'Rollback not found' }, 404);
 
-      if (rb.previous_r2_key && env.ASSETS) {
+      const page = await env.DB.prepare(
+        `SELECT id, slug, project_id, project_slug, r2_bucket, r2_key, content_type FROM cms_pages WHERE id = ? AND tenant_id = ? LIMIT 1`,
+      )
+        .bind(page_id, tenantId)
+        .first();
+      if (!page) return jsonResponse({ error: 'Page not found' }, 404);
+
+      const r2Bucket = page.r2_bucket || CMS_DEFAULT_R2_BUCKET;
+      const publishedKey = cmsPageKey(
+        workspaceId,
+        page.project_id,
+        page.slug,
+        'published',
+      );
+      let restoredKey = rb.previous_r2_key;
+
+      if (rb.previous_r2_key) {
+        const r2Binding = getCmsR2Binding(env, r2Bucket);
+        if (r2Binding) {
+          const restored = await copyR2Object(env, r2Bucket, rb.previous_r2_key, publishedKey);
+          if (restored) restoredKey = publishedKey;
+        }
         const now = Math.floor(Date.now() / 1000);
         await env.DB.prepare(
           `UPDATE cms_pages SET r2_key = ?, status = 'published', published_at = ?, updated_at = ?
            WHERE id = ? AND tenant_id = ?`,
         )
-          .bind(rb.previous_r2_key, now, now, page_id, tenantId)
+          .bind(restoredKey, now, now, page_id, tenantId)
           .run();
       }
 
-      await env.DB.prepare(
-        `INSERT INTO cms_activity_log (id, tenant_id, user_id, action, resource_type, resource_id, created_at)
-         VALUES (?, ?, ?, 'rollback', 'page', ?, ?)`,
-      )
-        .bind(
-          `al_${Date.now().toString(36)}`,
+      const projectSlug = String(page.project_slug || page.project_id || '').trim();
+      invalidateCmsBootstrap(env, ctx, workspaceId, projectSlug);
+      auditCmsMutation(env, ctx, {
+        workspaceId,
+        tenantId,
+        userId: authUser.id,
+        projectSlug,
+        pageId: page_id,
+        sectionId: 'rollback',
+      });
+      ctx.waitUntil(
+        logCmsActivity(env, {
           tenantId,
-          authUser.id,
-          page_id,
-          Math.floor(Date.now() / 1000),
-        )
-        .run()
-        .catch(() => {});
+          userId: authUser.id,
+          action: 'rollback',
+          resourceType: 'page',
+          resourceId: page_id,
+          details: { rollback_id, previous_r2_key: rb.previous_r2_key, restored_r2_key: restoredKey },
+        }),
+      );
 
-      return jsonResponse({ success: true, page_id, previous_r2_key: rb.previous_r2_key });
+      return jsonResponse({
+        success: true,
+        page_id,
+        previous_r2_key: rb.previous_r2_key,
+        restored_r2_key: restoredKey,
+        r2_restored: restoredKey === publishedKey,
+      });
     } catch (e) {
       return jsonResponse({ error: e.message }, 500);
     }

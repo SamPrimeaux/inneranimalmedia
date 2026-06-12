@@ -21,6 +21,11 @@ const CMS_RELATED_ROUTES = JSON.stringify([
   '/dashboard/cms/*',
   '/api/cms/bootstrap',
   '/api/cms/live-session/join',
+  '/api/cms/live-session/heartbeat',
+  '/api/cms/live-session/leave',
+  '/api/cms/pages/*/draft',
+  '/api/cms/overrides',
+  '/api/cms/rollback',
 ]);
 
 /**

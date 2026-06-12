@@ -172,3 +172,16 @@ export async function deleteCmsLiveSessionKv(env, pageId, userId) {
   if (!kv || !pid || !uid) return;
   await kv.delete(cmsLiveSessionKey(pid, uid)).catch(() => {});
 }
+
+/**
+ * @param {any} env
+ * @param {string} pageId
+ * @param {string} userId
+ */
+export async function deleteCmsDraftCache(env, pageId, userId) {
+  const kv = env?.SESSION_CACHE;
+  const pid = String(pageId || '').trim();
+  const uid = String(userId || '').trim();
+  if (!kv || !pid || !uid) return;
+  await kv.delete(cmsDraftKey(pid, uid)).catch(() => {});
+}
