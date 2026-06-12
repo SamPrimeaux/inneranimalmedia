@@ -18,12 +18,9 @@ import {
     Search,
     RefreshCw,
     AlertTriangle,
-    Camera,
     PanelLeftClose,
     GripVertical,
 } from 'lucide-react';
-import { MediaLibrary } from '../features/moviemode/MediaLibrary';
-import type { MediaLibraryItem } from '../features/moviemode/types';
 import type { ActiveFile } from '../types';
 import { GitHubExplorer } from './GitHubExplorer';
 import { GoogleDriveExplorer } from './GoogleDriveExplorer';
@@ -245,8 +242,6 @@ export const LocalExplorer: React.FC<{
     onWorkspaceRootChange?: (info: { folderName: string }) => void;
     /** Open R2 object in Monaco (same as R2 panel). */
     onOpenInEditor?: (file: ActiveFile) => void;
-    /** Open clip in MovieMode studio (Remotion timeline). */
-    onOpenMovieMode?: (item: MediaLibraryItem) => void;
     /** Bumps when Welcome (or parent) should open the native folder picker (showDirectoryPicker). */
     nativeFolderOpenSignal?: number;
     workspace_id?: string | null;
@@ -256,7 +251,6 @@ export const LocalExplorer: React.FC<{
     onFileSelect,
     onWorkspaceRootChange,
     onOpenInEditor,
-    onOpenMovieMode,
     nativeFolderOpenSignal = 0,
     workspace_id = null,
     user_id = null,
@@ -276,7 +270,6 @@ export const LocalExplorer: React.FC<{
         r2: false,
         github: false,
         drive: false,
-        moviemode: false,
     });
     /** Local tunnel registry row is connected but last_verified_at is missing or older than 5 minutes. */
     const [localTunnelVerifyWarning, setLocalTunnelVerifyWarning] = useState(false);
@@ -1390,26 +1383,6 @@ export const LocalExplorer: React.FC<{
                         <GoogleDriveExplorer
                             key={googleDriveOAuthRefresh}
                             onOpenInEditor={onOpenInEditor}
-                        />
-                    </div>
-                )}
-            </div>
-
-            {/* Section 5: MovieMode — Media Library */}
-            <div className="flex flex-col border-b border-[var(--border-subtle)]/50 pb-1 mb-8">
-                <div
-                    onClick={() => toggleSection('moviemode')}
-                    className="flex items-center gap-2 px-4 py-2 hover:bg-[var(--bg-hover)] cursor-pointer group"
-                >
-                    {expandedSections.moviemode ? <ChevronDown size={14} className="text-[var(--text-muted)] group-hover:text-white" /> : <ChevronRight size={14} className="text-[var(--text-muted)] group-hover:text-white" />}
-                    <Camera size={14} className="text-[var(--solar-orange)] group-hover:text-white" />
-                    <span className="text-[11px] font-bold tracking-wide uppercase text-[var(--text-muted)] group-hover:text-white transition-colors">MovieMode</span>
-                </div>
-                {expandedSections.moviemode && onOpenMovieMode && (
-                    <div className="flex flex-col overflow-hidden border-t border-[var(--border-subtle)]/30 mx-1 mb-1 rounded border border-[var(--border-subtle)]/40">
-                        <MediaLibrary
-                            rootHandle={rootDir?.handle ?? null}
-                            onOpenInMovieMode={onOpenMovieMode}
                         />
                     </div>
                 )}

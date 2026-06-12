@@ -1721,16 +1721,6 @@ const App: React.FC = () => {
     [openFile, openTab, revealMainWorkspaceIfNarrow],
   );
 
-  const openMovieModeFromExplorer = useCallback(
-    async (item: import('./features/moviemode/types').MediaLibraryItem) => {
-      const { dispatchMovieModeAddClip } = await import('./features/moviemode/movieModeMediaEvents');
-      navigate('/dashboard/moviemode');
-      queueMicrotask(() => dispatchMovieModeAddClip(item));
-      revealMainWorkspaceIfNarrow();
-    },
-    [navigate, revealMainWorkspaceIfNarrow],
-  );
-
   const onExplorerWorkspaceRootChange = useCallback(({ folderName }: { folderName: string }) => {
     setIdeWorkspace({ source: 'local', folderName });
   }, []);
@@ -3265,7 +3255,6 @@ const App: React.FC = () => {
                           onWorkspaceRootChange={onExplorerWorkspaceRootChange}
                           onFileSelect={openInEditorFromExplorer}
                           onOpenInEditor={openInEditorFromExplorer}
-                          onOpenMovieMode={openMovieModeFromExplorer}
                           onClose={() => setActiveActivity(null)}
                         />
                       </Suspense>
@@ -3428,7 +3417,14 @@ const App: React.FC = () => {
                           </div>
                         }
                       />
-                      <Route path="/dashboard/draw" element={<DrawPage />} />
+                      <Route
+                        path="/dashboard/draw"
+                        element={
+                          <div className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+                            <DrawPage />
+                          </div>
+                        }
+                      />
                       <Route path="/dashboard/cms" element={<Navigate to="/dashboard/cms/sites" replace />} />
                       <Route
                         path="/dashboard/cms/*"

@@ -1,17 +1,28 @@
 import React, { useEffect, useRef, useState } from 'react';
 
 const EXCALIDRAW_STYLES_ID = 'iam-excalidraw-stylesheet';
-/** Emitted as assets/vendor-excalidraw.css — injected only when Draw mounts (never in index.html). */
+/** Build output when vite emits assets/vendor-excalidraw.css (fallback link injection). */
 const EXCALIDRAW_CSS_HREF = `${import.meta.env.BASE_URL}assets/vendor-excalidraw.css`;
 
-function ensureExcalidrawStyles(): void {
+/** Load Excalidraw CSS before mount — unstyled SVG toolbar icons break without it. */
+async function loadExcalidrawStyles(): Promise<void> {
     if (typeof document === 'undefined') return;
+    try {
+        await import('@excalidraw/excalidraw/index.css');
+        return;
+    } catch {
+        /* chunk import failed — try deployed asset or link fallback */
+    }
     if (document.getElementById(EXCALIDRAW_STYLES_ID)) return;
-    const link = document.createElement('link');
-    link.id = EXCALIDRAW_STYLES_ID;
-    link.rel = 'stylesheet';
-    link.href = EXCALIDRAW_CSS_HREF;
-    document.head.appendChild(link);
+    await new Promise<void>((resolve, reject) => {
+        const link = document.createElement('link');
+        link.id = EXCALIDRAW_STYLES_ID;
+        link.rel = 'stylesheet';
+        link.href = EXCALIDRAW_CSS_HREF;
+        link.onload = () => resolve();
+        link.onerror = () => reject(new Error('Excalidraw stylesheet failed to load'));
+        document.head.appendChild(link);
+    });
 }
 
 /** Scene elements — deep paths under @excalidraw/excalidraw are not resolved by this project's tsc. */
@@ -32,14 +43,29 @@ export const ExcalidrawView: React.FC = () => {
     const [ExcalidrawComp, setExcalidrawComp] = useState<React.ComponentType<Record<string, unknown>> | null>(null);
     const [initialElements, setInitialElements] = useState<readonly ExcalidrawElement[]>([]);
     const [initialDataLoaded, setInitialDataLoaded] = useState(false);
+    const [stylesReady, setStylesReady] = useState(false);
+    const [loadError, setLoadError] = useState<string | null>(null);
 
     useEffect(() => {
         let cancelled = false;
-        ensureExcalidrawStyles();
-        void import('@excalidraw/excalidraw').then((m) => {
-            if (!cancelled) setExcalidrawComp(() => m.Excalidraw as React.ComponentType<Record<string, unknown>>);
-        });
-        return () => { cancelled = true; };
+        void (async () => {
+            try {
+                await loadExcalidrawStyles();
+                if (cancelled) return;
+                setStylesReady(true);
+                const m = await import('@excalidraw/excalidraw');
+                if (!cancelled) {
+                    setExcalidrawComp(() => m.Excalidraw as React.ComponentType<Record<string, unknown>>);
+                }
+            } catch (e) {
+                if (!cancelled) {
+                    setLoadError(e instanceof Error ? e.message : 'Failed to load Draw canvas');
+                }
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
     }, []);
     const excalidrawApiRef = useRef<ExcalidrawImperativeAPI | null>(null);
     const isLocalChangeRef = useRef(false);
@@ -160,7 +186,15 @@ export const ExcalidrawView: React.FC = () => {
         }, DEBOUNCE_MS);
     };
 
-    if (!initialDataLoaded || !ExcalidrawComp) {
+    if (loadError) {
+        return (
+            <div className="flex-1 flex items-center justify-center text-sm text-amber-400/90 px-6 text-center">
+                {loadError}
+            </div>
+        );
+    }
+
+    if (!initialDataLoaded || !stylesReady || !ExcalidrawComp) {
         return (
             <div className="flex-1 flex items-center justify-center text-[var(--text-muted)] text-sm">
                 Loading canvas…

@@ -6,7 +6,7 @@ const ExcalidrawView = lazy(() =>
 
 export default function DrawPage() {
   return (
-    <div className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden bg-[var(--dashboard-canvas)]">
+    <div className="flex flex-1 flex-col min-h-0 min-w-0 h-full overflow-hidden bg-[var(--dashboard-canvas)] isolate">
       <Suspense
         fallback={
           <div className="flex flex-1 items-center justify-center text-sm text-[var(--text-muted)]">
