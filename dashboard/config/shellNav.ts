@@ -15,7 +15,17 @@ export type ShellProductItem = {
   path?: string;
   match?: 'exact' | 'prefix';
   action?: 'movie-mode';
+  /** Nested sub-nav (Shopify-style parent → children). */
+  children?: ShellProductItem[];
 };
+
+/** CMS Suite child routes — single source for sidebar + in-app breadcrumbs. */
+export const CMS_SUITE_NAV: ShellProductItem[] = [
+  { id: 'cms-sites', label: 'Sites', path: '/dashboard/cms/sites', match: 'exact' },
+  { id: 'cms-editor', label: 'Pages', path: '/dashboard/cms/editor', match: 'prefix' },
+  { id: 'cms-templates', label: 'Templates', path: '/dashboard/cms/templates', match: 'exact' },
+  { id: 'cms-imports', label: 'Imports', path: '/dashboard/cms/imports', match: 'exact' },
+];
 
 export type ShellProduct = {
   id: ShellProductId;
@@ -57,7 +67,13 @@ export const SHELL_PRODUCTS: ShellProduct[] = [
     items: [
       { id: 'designstudio', label: 'Design Studio', path: '/dashboard/designstudio', match: 'exact' },
       { id: 'draw', label: 'Draw', path: '/dashboard/draw', match: 'exact' },
-      { id: 'cms', label: 'CMS Suite', path: '/dashboard/cms', match: 'prefix' },
+      {
+        id: 'cms-suite',
+        label: 'CMS Suite',
+        path: '/dashboard/cms/sites',
+        match: 'prefix',
+        children: CMS_SUITE_NAV,
+      },
       { id: 'images', label: 'Images', path: '/dashboard/images', match: 'exact' },
       { id: 'moviemode', label: 'Movie Mode', path: '/dashboard/moviemode', match: 'prefix' },
     ],

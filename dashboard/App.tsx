@@ -387,6 +387,7 @@ const App: React.FC = () => {
   const isMovieModeRoute = location.pathname.startsWith('/dashboard/moviemode');
   /** TODO: Movie Mode right rail — split Media bin + ChatAssistant (dual panel). */
   const isDrawRoute = location.pathname.startsWith('/dashboard/draw');
+  const isCmsRoute = location.pathname.startsWith('/dashboard/cms');
   const movieModeProjectId = useMemo(() => {
     const m = location.pathname.match(/^\/dashboard\/moviemode\/([^/?#]+)/);
     if (m?.[1]) return decodeURIComponent(m[1]);
@@ -3197,7 +3198,9 @@ const App: React.FC = () => {
                         activeAgentChatShellTabId={activeAgentChatTabId}
                         onAgentChatShellTabSelect={selectAgentChatTab}
                         onAgentChatShellNewTab={createNewAgentChatTab}
-                        activeWorkbenchTab={isMovieModeRoute ? 'moviemode' : isDrawRoute ? 'draw' : activeTab}
+                        activeWorkbenchTab={
+                          isMovieModeRoute ? 'moviemode' : isCmsRoute ? 'cms' : isDrawRoute ? 'draw' : activeTab
+                        }
                         browserUrl={browserUrl}
                         openFilePaths={agentWorkbenchOpenFiles}
                         activePlanId={activePlanIdForChat}
@@ -3862,7 +3865,9 @@ const App: React.FC = () => {
                             onAgentChatShellTabSelect={selectAgentChatTab}
                             onAgentChatShellNewTab={createNewAgentChatTab}
                             onAgentRunContext={setActiveAgentRunId}
-                            activeWorkbenchTab={isMovieModeRoute ? 'moviemode' : isDrawRoute ? 'draw' : activeTab}
+                            activeWorkbenchTab={
+                          isMovieModeRoute ? 'moviemode' : isCmsRoute ? 'cms' : isDrawRoute ? 'draw' : activeTab
+                        }
                             browserUrl={browserUrl}
                             openFilePaths={agentWorkbenchOpenFiles}
                             activePlanId={activePlanIdForChat}

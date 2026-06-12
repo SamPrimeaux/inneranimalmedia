@@ -20,7 +20,28 @@
  *  - All state scoped — no global overrides, no emojis
  */
 
-import { useState, useEffect, useCallback, useRef, useReducer } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+
+const CMS_PROJECT_KEY = 'iam_cms_project';
+const PRIMARY_CMS_SLUG = 'inneranimalmedia';
+
+function persistCmsProject(slug) {
+  try {
+    if (slug) localStorage.setItem(CMS_PROJECT_KEY, slug);
+  } catch {
+    /* ignore */
+  }
+}
+
+function sortWebsites(list) {
+  const arr = [...(list || [])];
+  arr.sort((a, b) => {
+    if (a.slug === PRIMARY_CMS_SLUG) return -1;
+    if (b.slug === PRIMARY_CMS_SLUG) return 1;
+    return String(a.name || a.slug).localeCompare(String(b.name || b.slug));
+  });
+  return arr;
+}
 
 // ─── API helper ───────────────────────────────────────────────────────────────
 
@@ -45,19 +66,18 @@ const STYLES = `
 .iam-cms-root {
   display:flex;flex-direction:column;height:100%;min-height:0;
   font-size:13px;color:var(--color-text-primary,#f0f0f8);
-  --cv:var(--color-background-secondary,#18181f);
-  --ce:var(--color-background-tertiary,#1e1e28);
-  --cb:var(--color-border-tertiary,rgba(255,255,255,.07));
-  --ca:#7c6aff;--ct:#1de9b6;--cg:#22c55e;--cam:#f59e0b;--cr:#ef4444;
+  --cv:var(--dashboard-panel,#18181f);
+  --ce:var(--dashboard-canvas,#141418);
+  --cb:var(--dashboard-border,rgba(255,255,255,.08));
+  --ca:var(--solar-cyan,#1de9b6);--ct:var(--solar-cyan,#1de9b6);--cg:#22c55e;--cam:#f59e0b;--cr:#ef4444;
   --cm:var(--color-text-secondary,#6b7080);
   --mono:JetBrains Mono,ui-monospace,monospace;
 }
-.cms-suite-subnav{display:flex;align-items:center;gap:4px;padding:0 16px;height:40px;
-  border-bottom:1px solid var(--cb);background:var(--ce);flex-shrink:0;}
-.cms-suite-subnav-item{background:none;border:none;border-radius:6px;padding:6px 12px;
-  font-size:12px;font-weight:500;color:var(--cm);cursor:pointer;transition:background 120ms,color 120ms;}
-.cms-suite-subnav-item:hover{color:var(--color-text-primary,#f0f0f8);background:rgba(255,255,255,.04);}
-.cms-suite-subnav-item.active{color:var(--ca);background:rgba(124,106,255,.12);}
+.cms-page-hdr{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;
+  padding:20px 24px 12px;flex-shrink:0;border-bottom:1px solid var(--cb);}
+.cms-page-hdr h1{margin:0;font-size:20px;font-weight:600;color:var(--color-text-primary,#f0f0f8);}
+.cms-page-hdr p{margin:4px 0 0;font-size:12px;color:var(--cm);}
+.cms-page-hdr-actions{display:flex;align-items:center;gap:8px;flex-shrink:0;}
 .cms-topbar{display:flex;align-items:center;gap:8px;padding:0 16px;height:44px;
   border-bottom:1px solid var(--cb);background:var(--cv);flex-shrink:0;}
 .cms-topbar-crumb{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--cm);}
@@ -75,8 +95,8 @@ const STYLES = `
   transition:background 120ms,border-color 120ms;}
 .cms-btn:hover{background:var(--ce);border-color:rgba(255,255,255,.15);}
 .cms-btn:disabled{opacity:.4;cursor:not-allowed;}
-.cms-btn-p{background:var(--ca);border-color:var(--ca);color:#fff;}
-.cms-btn-p:hover{background:#6a59ee;border-color:#6a59ee;}
+.cms-btn-p{background:var(--ca);border-color:var(--ca);color:#0a0f14;font-weight:600;}
+.cms-btn-p:hover{opacity:.92;}
 .cms-btn-t{background:transparent;border-color:var(--ct);color:var(--ct);}
 .cms-btn-t:hover{background:rgba(29,233,182,.08);}
 .cms-btn-d{border-color:transparent;}
@@ -221,19 +241,30 @@ const STYLES = `
 .cms-rollback-hash{font-family:var(--mono);font-size:10px;color:var(--cm);flex:1;}
 .cms-rollback-time{font-family:var(--mono);font-size:10px;color:var(--cm);opacity:.5;}
 
-/* Websites */
-.cms-sites-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));
-  gap:12px;padding:20px;}
-.cms-site-card{background:var(--ce);border:1px solid var(--cb);border-radius:8px;
-  padding:16px;cursor:pointer;transition:border-color 120ms,background 120ms;}
-.cms-site-card:hover{border-color:rgba(124,106,255,.4);background:rgba(124,106,255,.04);}
+/* Websites — Shopify-style site list */
+.cms-sites-wrap{flex:1;overflow-y:auto;padding:0 24px 24px;}
+.cms-sites-section{margin-top:20px;}
+.cms-sites-section-label{font-family:var(--mono);font-size:10px;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--cm);margin:0 0 10px;}
+.cms-site-row{display:flex;align-items:stretch;gap:16px;padding:16px;
+  border:1px solid var(--cb);border-radius:10px;background:var(--cv);
+  transition:border-color 120ms,box-shadow 120ms;cursor:pointer;}
+.cms-site-row:hover{border-color:rgba(29,233,182,.35);box-shadow:0 4px 24px rgba(0,0,0,.18);}
+.cms-site-row.primary{border-color:rgba(29,233,182,.25);}
+.cms-site-thumb{width:120px;min-height:72px;border-radius:6px;background:var(--ce);
+  border:1px solid var(--cb);flex-shrink:0;display:flex;align-items:center;
+  justify-content:center;font-size:10px;color:var(--cm);text-align:center;padding:8px;}
+.cms-site-body{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:4px;}
+.cms-site-title{font-size:14px;font-weight:600;color:var(--color-text-primary,#f0f0f8);}
+.cms-site-domain{font-size:12px;color:var(--cm);}
+.cms-site-meta{font-size:11px;color:var(--cm);}
+.cms-site-badges{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;}
+.cms-site-actions-col{display:flex;flex-direction:column;align-items:flex-end;
+  justify-content:center;gap:8px;flex-shrink:0;}
 .cms-site-card.add{border-style:dashed;text-align:center;color:var(--cm);
   display:flex;flex-direction:column;align-items:center;justify-content:center;
-  gap:6px;min-height:100px;}
+  gap:6px;min-height:88px;margin-top:12px;}
 .cms-site-card.add:hover{border-color:var(--ca);color:var(--ca);}
-.cms-site-domain{font-size:13px;font-weight:500;margin-bottom:2px;}
-.cms-site-meta{font-size:11px;color:var(--cm);margin-top:4px;}
-.cms-site-actions{margin-top:12px;}
 
 /* Templates */
 .cms-tmpl-layout{display:flex;flex-direction:column;height:100%;}
@@ -857,7 +888,7 @@ function usePresence(pageId, workspaceId) {
 
 // ─── Main Editor view ─────────────────────────────────────────────────────────
 
-function EditorView({ projectSlug, workspaceId, onNavigate }) {
+function EditorView({ projectSlug, workspaceId, pageId, onNavigate, onNavigatePath }) {
   const [bootstrap, setBootstrap] = useState(null);
   const [error, setError] = useState(null);
   const [activePage, setActivePage] = useState(null);
@@ -868,18 +899,52 @@ function EditorView({ projectSlug, workspaceId, onNavigate }) {
   const [dragging, setDragging] = useState(null);
   const [dragOver, setDragOver] = useState(null);
   const { msg: toastMsg, show: showToast } = useToast();
-  const slug = projectSlug || 'inneranimalmedia';
+  const slug = projectSlug || PRIMARY_CMS_SLUG;
   const peers = usePresence(activePage?.id, workspaceId);
 
+  const selectPage = useCallback(
+    (page) => {
+      if (!page) return;
+      setActivePage(page);
+      const params = new URLSearchParams();
+      params.set('project', slug);
+      params.set('page', page.id);
+      onNavigatePath?.(`/dashboard/cms/editor?${params.toString()}`, { replace: true });
+    },
+    [onNavigatePath, slug],
+  );
+
   useEffect(() => {
-    api(`/api/cms/bootstrap?project_slug=${slug}`)
-      .then(d => {
-        setBootstrap(d);
-        const first = (d.pages || []).find(p => p.is_homepage) || d.pages?.[0];
-        if (first) setActivePage(first);
-      })
-      .catch(e => setError(e.message));
+    persistCmsProject(slug);
   }, [slug]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setBootstrap(null);
+    setError(null);
+    api(`/api/cms/bootstrap?project_slug=${encodeURIComponent(slug)}`)
+      .then((d) => {
+        if (!cancelled) setBootstrap(d);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e.message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [slug]);
+
+  useEffect(() => {
+    if (!bootstrap?.pages?.length) return;
+    const pages = bootstrap.pages;
+    if (pageId) {
+      const p = pages.find((x) => x.id === pageId);
+      if (p) setActivePage(p);
+      return;
+    }
+    const home = pages.find((p) => p.is_homepage) || pages[0];
+    if (home) selectPage(home);
+  }, [bootstrap, pageId, selectPage]);
 
   const currentSections = activePage
     ? ((bootstrap?.sections_by_page?.[activePage.id] || [])).slice().sort((a,b) => a.sort_order - b.sort_order)
@@ -1013,7 +1078,7 @@ function EditorView({ projectSlug, workspaceId, onNavigate }) {
     <>
       <div className="cms-topbar">
         <div className="cms-topbar-crumb">
-          <button onClick={() => onNavigate('sites')}>CMS Suite</button>
+          <button type="button" onClick={() => onNavigate('sites')}>Sites</button>
           <span style={{ opacity:.4 }}>/</span>
           <span style={{ color:'var(--cm)' }}>{slug}</span>
           {activePage && <>
@@ -1057,7 +1122,7 @@ function EditorView({ projectSlug, workspaceId, onNavigate }) {
             {pages.map(p => (
               <div key={p.id}
                 className={`cms-page-row${activePage?.id === p.id ? ' active' : ''}`}
-                onClick={() => { setActivePage(p); setActiveSection(null); }}>
+                onClick={() => { selectPage(p); setActiveSection(null); }}>
                 <span className="cms-dot" style={{ color: statusColor(p.status), flexShrink:0 }} />
                 <span className="cms-page-route">{p.route_path}</span>
                 {dirtyPages.has(p.id) && <div className="cms-dirty-dot" />}
@@ -1274,55 +1339,139 @@ function EditorView({ projectSlug, workspaceId, onNavigate }) {
 
 // ─── Websites view ────────────────────────────────────────────────────────────
 
-function WebsitesView({ onNavigate }) {
+function WebsitesView({ onNavigatePath }) {
   const [websites, setWebsites] = useState(null);
   const [error, setError] = useState(null);
   const { msg, show } = useToast();
 
+  const openEditor = useCallback(
+    (slug) => {
+      persistCmsProject(slug);
+      onNavigatePath?.(`/dashboard/cms/editor?project=${encodeURIComponent(slug)}`);
+    },
+    [onNavigatePath],
+  );
+
   useEffect(() => {
-    api('/api/cms/websites').then(d => setWebsites(d.websites || [])).catch(e => setError(e.message));
+    api('/api/cms/websites')
+      .then((d) => setWebsites(sortWebsites(d.websites || [])))
+      .catch((e) => setError(e.message));
   }, []);
 
   if (error) return <div className="cms-error">{error}</div>;
-  if (!websites) return <div className="cms-loading">Loading...</div>;
+  if (!websites) return <div className="cms-loading">Loading sites…</div>;
+
+  const primary = websites.find((w) => w.slug === PRIMARY_CMS_SLUG);
+  const others = websites.filter((w) => w.slug !== PRIMARY_CMS_SLUG);
+
+  const renderSiteRow = (w, { primarySite = false } = {}) => {
+    const domain = w.domain || `${w.slug}.workers.dev`;
+    const storeUrl = w.domain ? `https://${w.domain}` : null;
+    return (
+      <div
+        key={w.id}
+        className={`cms-site-row${primarySite ? ' primary' : ''}`}
+        onClick={() => openEditor(w.slug)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') openEditor(w.slug);
+        }}
+      >
+        <div className="cms-site-thumb">{w.name || w.slug}</div>
+        <div className="cms-site-body">
+          <div className="cms-site-title">{w.name || w.slug}</div>
+          <div className="cms-site-domain">{domain}</div>
+          <div className="cms-site-meta">
+            {w.page_count} page{w.page_count !== 1 ? 's' : ''}
+            {w.theme ? ` · ${w.theme} theme` : ''}
+          </div>
+          <div className="cms-site-badges">
+            {primarySite ? (
+              <span className="cms-pill">
+                <span className="cms-dot" style={{ color: 'var(--ca)' }} />
+                <span style={{ fontSize: 10, color: 'var(--ca)' }}>Primary</span>
+              </span>
+            ) : null}
+            <span className="cms-pill">
+              <span className="cms-dot" style={{ color: 'var(--cg)' }} />
+              <span style={{ fontSize: 10, color: 'var(--cg)' }}>Live</span>
+            </span>
+          </div>
+        </div>
+        <div className="cms-site-actions-col">
+          {storeUrl ? (
+            <a
+              className="cms-btn cms-btn-sm cms-btn-d"
+              href={storeUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+            >
+              View store
+            </a>
+          ) : null}
+          <button
+            type="button"
+            className="cms-btn cms-btn-p cms-btn-sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              openEditor(w.slug);
+            }}
+          >
+            Customize
+          </button>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <>
-      <div className="cms-topbar">
-        <span style={{ fontWeight:500 }}>CMS</span>
-        <div className="cms-spacer" />
-        <button className="cms-btn cms-btn-p cms-btn-sm" onClick={() => show('Coming soon')}>
-          Connect website
-        </button>
+      <div className="cms-page-hdr">
+        <div>
+          <h1>Sites</h1>
+          <p>Websites connected to your workspace. Edit pages and publish to production.</p>
+        </div>
+        <div className="cms-page-hdr-actions">
+          {primary?.domain ? (
+            <a
+              className="cms-btn cms-btn-sm cms-btn-d"
+              href={`https://${primary.domain}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              View inneranimalmedia.com
+            </a>
+          ) : null}
+          <button type="button" className="cms-btn cms-btn-sm" onClick={() => show('Tenant onboarding — coming soon')}>
+            Add site
+          </button>
+        </div>
       </div>
-      <div className="cms-body" style={{ overflow:'auto' }}>
-        <div className="cms-sites-grid">
-          {websites.map(w => (
-            <div key={w.id} className="cms-site-card"
-              onClick={() => onNavigate(`editor?project=${w.slug}`)}>
-              <div className="cms-site-domain">{w.domain || `${w.slug}.workers.dev`}</div>
-              <div className="cms-site-meta">
-                {w.page_count} page{w.page_count !== 1 ? 's' : ''}
-                {w.theme ? ` · ${w.theme} theme` : ''}
-              </div>
-              <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:6 }}>
-                <span className="cms-pill">
-                  <span className="cms-dot" style={{ color:'var(--cg)' }} />
-                  <span style={{ fontSize:10, color:'var(--cg)' }}>Live</span>
-                </span>
-              </div>
-              <div className="cms-site-actions">
-                <button className="cms-btn cms-btn-p cms-btn-sm" style={{ width:'100%', justifyContent:'center' }}
-                  onClick={e => { e.stopPropagation(); onNavigate(`editor?project=${w.slug}`); }}>
-                  Open editor
-                </button>
-              </div>
-            </div>
-          ))}
-          <div className="cms-site-card add" onClick={() => show('Coming soon')}>
-            <span style={{ fontSize:20, opacity:.5 }}>+</span>
-            <span style={{ fontSize:12 }}>Connect a new website</span>
+      <div className="cms-sites-wrap">
+        {primary ? (
+          <div className="cms-sites-section">
+            <p className="cms-sites-section-label">Current site</p>
+            {renderSiteRow(primary, { primarySite: true })}
           </div>
+        ) : null}
+        {others.length > 0 ? (
+          <div className="cms-sites-section">
+            <p className="cms-sites-section-label">All sites</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {others.map((w) => renderSiteRow(w))}
+            </div>
+          </div>
+        ) : null}
+        <div
+          className="cms-site-card add"
+          role="button"
+          tabIndex={0}
+          onClick={() => show('Tenant onboarding — coming soon')}
+        >
+          <span style={{ fontSize: 20, opacity: 0.5 }}>+</span>
+          <span style={{ fontSize: 12 }}>Connect another website</span>
         </div>
       </div>
       <Toast msg={msg} />
@@ -1535,8 +1684,6 @@ function LiquidImportsView({ onNavigate }) {
   );
 }
 
-// ─── Suite subnav ─────────────────────────────────────────────────────────────
-
 const CMS_VIEWS = ['sites', 'editor', 'templates', 'imports'];
 
 function normalizeCmsView(segment) {
@@ -1544,100 +1691,44 @@ function normalizeCmsView(segment) {
   return CMS_VIEWS.includes(segment) ? segment : 'sites';
 }
 
-function CmsSubnav({ view, projectSlug, onNavigate }) {
-  const items = [
-    { id: 'sites', label: 'Sites' },
-    { id: 'editor', label: 'Editor' },
-    { id: 'templates', label: 'Templates' },
-    { id: 'imports', label: 'Imports' },
-  ];
-  const go = (id) => {
-    if (id === 'sites') return onNavigate('sites');
-    if (id === 'editor') return onNavigate(`editor?project=${encodeURIComponent(projectSlug)}`);
-    if (id === 'templates') return onNavigate(`templates?project=${encodeURIComponent(projectSlug)}`);
-    return onNavigate(`imports?project=${encodeURIComponent(projectSlug)}`);
-  };
-  return (
-    <nav className="cms-suite-subnav" aria-label="CMS Suite">
-      {items.map((item) => (
-        <button
-          key={item.id}
-          type="button"
-          className={`cms-suite-subnav-item${view === item.id ? ' active' : ''}`}
-          onClick={() => go(item.id)}
-        >
-          {item.label}
-        </button>
-      ))}
-      <span className="cms-spacer" />
-      {projectSlug ? (
-        <span className="cms-pill" title="Active project">
-          {projectSlug}
-        </span>
-      ) : null}
-    </nav>
-  );
-}
-
 // ─── Root ─────────────────────────────────────────────────────────────────────
 
-export function CmsRoot({ workspaceId: propWorkspaceId }) {
-  useEffect(() => { injectStyles(); }, []);
+export function CmsRoot({
+  workspaceId: propWorkspaceId,
+  view = 'sites',
+  projectSlug: projectSlugProp,
+  pageId = null,
+  addToPageId = null,
+  onNavigate,
+  onNavigatePath,
+}) {
+  useEffect(() => {
+    injectStyles();
+  }, []);
 
-  // Try to get workspace ID from global or prop
-  const resolvedWorkspaceId = propWorkspaceId ||
+  const resolvedWorkspaceId =
+    propWorkspaceId ||
     window.__IAM_USER?.active_workspace_id ||
     window.__IAM_USER?.workspace_id ||
     '';
 
-  const getState = () => {
-    const parts = window.location.pathname.split('/').filter(Boolean);
-    const idx = parts.indexOf('cms');
-    const view = normalizeCmsView(idx >= 0 ? parts[idx + 1] : 'sites');
-    const params = new URLSearchParams(window.location.search);
-    return { view, params };
-  };
-
-  const [{ view, params }, dispatch] = useReducer((_, action) => {
-    if (action.type === 'navigate') {
-      const [viewPart, queryPart] = action.target.split('?');
-      const normalized = normalizeCmsView(viewPart);
-      const newPath = `/dashboard/cms/${normalized}${queryPart ? '?' + queryPart : ''}`;
-      window.history.pushState({}, '', newPath);
-      return { view: normalized, params: new URLSearchParams(queryPart || '') };
-    }
-    return getState();
-  }, null, () => getState());
-
-  const navigate = useCallback(target => dispatch({ type:'navigate', target }), []);
-
-  useEffect(() => {
-    const handler = () => dispatch({ type:'pop' });
-    window.addEventListener('popstate', handler);
-    return () => window.removeEventListener('popstate', handler);
-  }, []);
-
-  const projectSlug = params.get('project') || 'inneranimalmedia';
-  const addToPageId = params.get('add_to_page') || null;
-
-  useEffect(() => {
-    const parts = window.location.pathname.split('/').filter(Boolean);
-    const idx = parts.indexOf('cms');
-    const seg = idx >= 0 ? parts[idx + 1] : '';
-    if (!seg || seg === 'websites') {
-      const qs = window.location.search || '';
-      window.history.replaceState({}, '', `/dashboard/cms/sites${qs}`);
-    }
-  }, []);
+  const projectSlug = projectSlugProp || PRIMARY_CMS_SLUG;
 
   return (
     <div className="iam-cms-root">
-      <CmsSubnav view={view} projectSlug={projectSlug} onNavigate={navigate} />
-      {view === 'sites'     && <WebsitesView onNavigate={navigate} />}
-      {view === 'editor'    && <EditorView projectSlug={projectSlug} workspaceId={resolvedWorkspaceId} onNavigate={navigate} />}
-      {view === 'templates' && <TemplatesView onNavigate={navigate} addToPageId={addToPageId} />}
-      {view === 'imports'   && <LiquidImportsView onNavigate={navigate} />}
-      {!CMS_VIEWS.includes(view) && <WebsitesView onNavigate={navigate} />}
+      {view === 'sites' && <WebsitesView onNavigatePath={onNavigatePath} />}
+      {view === 'editor' && (
+        <EditorView
+          projectSlug={projectSlug}
+          workspaceId={resolvedWorkspaceId}
+          pageId={pageId}
+          onNavigate={onNavigate}
+          onNavigatePath={onNavigatePath}
+        />
+      )}
+      {view === 'templates' && <TemplatesView onNavigate={onNavigate} addToPageId={addToPageId} />}
+      {view === 'imports' && <LiquidImportsView onNavigate={onNavigate} />}
+      {!CMS_VIEWS.includes(view) && <WebsitesView onNavigatePath={onNavigatePath} />}
     </div>
   );
 }

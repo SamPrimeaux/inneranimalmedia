@@ -1,7 +1,7 @@
 /**
  * Phase 1 shell sidebar — Claude-shaped core nav + Code / Create / Collaborate products.
  */
-import { useEffect, useState, type ComponentType, type FC } from 'react';
+import { useEffect, useMemo, useState, type ComponentType, type FC } from 'react';
 import {
   CalendarDays,
   ChevronDown,
@@ -18,7 +18,12 @@ import {
   SlidersHorizontal,
 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { SHELL_CORE_NAV, SHELL_PRODUCTS, type ShellProductId } from '../../config/shellNav';
+import {
+  SHELL_CORE_NAV,
+  SHELL_PRODUCTS,
+  type ShellProductId,
+  type ShellProductItem,
+} from '../../config/shellNav';
 import {
   isCoreRouteActive,
   isProductItemActive,
@@ -67,10 +72,30 @@ export function DashboardSidebar({
   const navigate = useNavigate();
   const activeProduct = resolveActiveProduct(location.pathname);
   const [expandedProduct, setExpandedProduct] = useState<ShellProductId | null>(activeProduct);
+  const [expandedNested, setExpandedNested] = useState<Record<string, boolean>>({});
+
+  const cmsRouteActive = location.pathname.startsWith('/dashboard/cms');
 
   useEffect(() => {
     setExpandedProduct(activeProduct);
   }, [activeProduct]);
+
+  useEffect(() => {
+    if (cmsRouteActive) {
+      setExpandedNested((prev) => ({ ...prev, 'cms-suite': true }));
+    }
+  }, [cmsRouteActive]);
+
+  const isNestedOpen = useMemo(
+    () => (item: ShellProductItem) => {
+      if (expandedNested[item.id] != null) return expandedNested[item.id];
+      if (item.children?.length) {
+        return item.children.some((child) => isProductItemActive(location.pathname, child));
+      }
+      return false;
+    },
+    [expandedNested, location.pathname],
+  );
 
   const go = (path: string) => {
     navigate(path);
@@ -204,6 +229,77 @@ export function DashboardSidebar({
               {expanded && isOpen ? (
                 <div className="ml-3 pl-2 border-l border-[var(--dashboard-border)]/80 flex flex-col gap-0.5 mb-1">
                   {product.items.map((child) => {
+                    if (child.children?.length) {
+                      const groupActive = isProductItemActive(location.pathname, child);
+                      const nestedOpen = isNestedOpen(child);
+                      return (
+                        <div key={child.id} className="flex flex-col gap-0.5">
+                          <div className="flex items-center pr-0.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (child.path) go(child.path);
+                                setExpandedNested((prev) => ({ ...prev, [child.id]: true }));
+                              }}
+                              className={`flex flex-1 items-center gap-2 w-full text-left min-h-[32px] px-2 rounded-md text-[11px] font-medium transition-colors ${
+                                groupActive
+                                  ? 'text-[var(--text-main)] bg-[var(--bg-hover)]/40'
+                                  : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]/40'
+                              }`}
+                            >
+                              <span className="truncate">{child.label}</span>
+                            </button>
+                            <button
+                              type="button"
+                              className="shrink-0 p-0.5 rounded text-[var(--text-muted)] hover:text-[var(--text-main)]"
+                              aria-label={nestedOpen ? `Collapse ${child.label}` : `Expand ${child.label}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setExpandedNested((prev) => ({
+                                  ...prev,
+                                  [child.id]: !nestedOpen,
+                                }));
+                              }}
+                            >
+                              {nestedOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                            </button>
+                          </div>
+                          {nestedOpen ? (
+                            <div className="ml-2 pl-2 border-l border-[var(--dashboard-border)]/60 flex flex-col gap-0.5 pb-0.5">
+                              {child.children.map((sub) => {
+                                const subActive = sub.path
+                                  ? isProductItemActive(location.pathname, sub)
+                                  : false;
+                                const editorHref =
+                                  sub.id === 'cms-editor'
+                                    ? `/dashboard/cms/editor?project=${encodeURIComponent(
+                                        typeof localStorage !== 'undefined'
+                                          ? localStorage.getItem('iam_cms_project') || 'inneranimalmedia'
+                                          : 'inneranimalmedia',
+                                      )}`
+                                    : sub.path;
+                                return (
+                                  <button
+                                    key={sub.id}
+                                    type="button"
+                                    onClick={() => {
+                                      if (editorHref) go(editorHref);
+                                    }}
+                                    className={`flex items-center gap-2 w-full text-left min-h-[30px] px-2 rounded-md text-[11px] font-medium transition-colors ${
+                                      subActive
+                                        ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]/50'
+                                        : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]/40'
+                                    }`}
+                                  >
+                                    <span className="truncate">{sub.label}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    }
                     const childActive = child.path
                       ? isProductItemActive(location.pathname, child)
                       : false;

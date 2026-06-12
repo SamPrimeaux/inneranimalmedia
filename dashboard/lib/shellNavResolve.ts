@@ -19,6 +19,9 @@ export function pathMatches(pathname: string, path: string, match: 'exact' | 'pr
 }
 
 export function isProductItemActive(pathname: string, item: ShellProductItem): boolean {
+  if (item.children?.length) {
+    return item.children.some((child) => isProductItemActive(pathname, child));
+  }
   if (!item.path) return false;
   return pathMatches(pathname, item.path, item.match ?? 'exact');
 }
