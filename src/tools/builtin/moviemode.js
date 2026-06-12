@@ -3,6 +3,7 @@
  */
 import { getR2Binding } from '../../api/r2-api.js';
 import { ensureMoviemodeProject } from '../../core/moviemode-projects.js';
+import { resolveMoviemodeKv } from '../../core/moviemode-kv.js';
 
 const MOVIE_JOB_KV_PREFIX = 'moviemode_job_';
 const VEO_JOB_KV_PREFIX = 'veo_job_';
@@ -12,8 +13,9 @@ function jobKvKey(jobId) {
 }
 
 async function readMoviemodeKvJob(env, jobId) {
-  if (!env?.KV) return null;
-  const raw = await env.KV.get(jobKvKey(jobId));
+  const kv = resolveMoviemodeKv(env);
+  if (!kv) return null;
+  const raw = await kv.get(jobKvKey(jobId));
   return raw ? JSON.parse(raw) : null;
 }
 
@@ -350,8 +352,9 @@ export async function handleVeoGenerate(env, params) {
     created_at: Date.now(),
   };
 
-  if (env.KV) {
-    await env.KV.put(`${VEO_JOB_KV_PREFIX}${jobId}`, JSON.stringify(jobRow), { expirationTtl: 86400 });
+  const kv = resolveMoviemodeKv(env);
+  if (kv) {
+    await kv.put(`${VEO_JOB_KV_PREFIX}${jobId}`, JSON.stringify(jobRow), { expirationTtl: 86400 });
   }
 
   if (env.DB && tenantId) {

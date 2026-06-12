@@ -350,12 +350,29 @@ async function extractPageText(page, maxChars = 120_000) {
  * @param {import('@cloudflare/playwright').Page} page
  * @param {{ fullPage?: boolean }} [opts]
  */
+function normalizeBrowserCaptureResult(out) {
+  if (!out || typeof out !== 'object') return out;
+  const screenshot_url =
+    out.screenshot_url ||
+    out.data_url ||
+    (out.image_base64
+      ? `data:${out.content_type || 'image/png'};base64,${out.image_base64}`
+      : null);
+  if (!screenshot_url) return out;
+  return {
+    ...out,
+    screenshot_url,
+    result_url: out.result_url || screenshot_url,
+  };
+}
+
 async function captureViewportScreenshot(env, page, opts = {}) {
   const buf = await page.screenshot({
     type: 'png',
     fullPage: Boolean(opts.fullPage),
   });
-  return putAgentBrowserScreenshotToR2(env, buf, 'image/png');
+  const out = await putAgentBrowserScreenshotToR2(env, buf, 'image/png');
+  return normalizeBrowserCaptureResult(out);
 }
 
 /**

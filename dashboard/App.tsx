@@ -1551,9 +1551,10 @@ const App: React.FC = () => {
     const message = detail.message?.trim();
     if (!message) return;
     requestAnimationFrame(() => {
+      // ChatAssistant sends only when ensureAgentPanel === false (App already opened the panel).
       window.dispatchEvent(
         new CustomEvent(IAM_AGENT_CHAT_NEW_THREAD, {
-          detail: { ...detail, message },
+          detail: { ...detail, message, ensureAgentPanel: false },
         }),
       );
     });
@@ -2512,8 +2513,10 @@ const App: React.FC = () => {
       if (/\/api\/r2\/file\b/i.test(url)) {
         return;
       }
-      const automation = event.automation === true;
-      const agentLive = event.agent_live === true || (automation && !event.screenshot_url);
+      const hasLiveView = Boolean(event.live_view_url?.trim());
+      const agentLive =
+        hasLiveView && (event.agent_live === true || event.automation === true);
+      const automation = !agentLive && event.automation === true;
       window.dispatchEvent(
         new CustomEvent('iam:agent-open-surface', {
           detail: { surface: 'browser', url, automation, agent_live: agentLive },

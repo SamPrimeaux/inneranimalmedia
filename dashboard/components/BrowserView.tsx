@@ -135,6 +135,7 @@ function pickScreenshotUrl(data: Record<string, unknown> | PlaywrightJobSnapshot
   if (!data) return null;
   if (typeof data.screenshot_url === 'string' && data.screenshot_url) return data.screenshot_url;
   if (typeof data.result_url === 'string' && data.result_url) return data.result_url;
+  if (typeof data.data_url === 'string' && data.data_url) return data.data_url;
   return null;
 }
 
@@ -407,7 +408,7 @@ async function invokeCdt(tool_name: string, params: Record<string, unknown>): Pr
 
 function pickNavigatePreview(data: BrowserInvokeResult) {
   const screenshot_url =
-    (typeof data.screenshot_url === 'string' && data.screenshot_url) ||
+    pickScreenshotUrl(data) ||
     (typeof data.result_url === 'string' && data.result_url) ||
     '';
   return { screenshot_url: screenshot_url || null };
@@ -2113,52 +2114,6 @@ const BrowserPane: React.FC<PaneProps> = ({
     };
   }, [onUrlCommitted, setAgentLiveIframeUrl]);
 
-  /** MYBROWSER / CDT automation preview — explicit screenshot path only (not agent live default). */
-  const loadAutomationPreview = useCallback(
-    async (targetUrl: string, preview?: BrowserPreviewPayload | null) => {
-      const n = normalize(targetUrl);
-      setCurrentUrl(n);
-      setInputVal(addressDisplay?.trim() && /^(blob:|data:)/i.test(n) ? addressDisplay : n);
-      setMode('browse');
-      setNavigateError(null);
-      setInspectedEl(null);
-      setIframeBlocked(false);
-
-      if (preview?.screenshot_url) {
-        setScreenshotUrl(preview.screenshot_url);
-        setLoading(false);
-        return;
-      }
-
-      setLoading(true);
-      setScreenshotUrl(null);
-      const navTool = registryPickersRef.current.navigate || 'browser_navigate';
-      try {
-        const data = await invokeCdt(navTool, {
-          url: n,
-          automation: true,
-          ...(agentRunId?.trim() ? { agent_run_id: agentRunId.trim() } : {}),
-        });
-        if (data.error) {
-          setNavigateError(String(data.error));
-          return;
-        }
-        const { screenshot_url } = pickNavigatePreview(data);
-        if (typeof data.url === 'string' && data.url.trim()) {
-          setCurrentUrl(data.url.trim());
-          setInputVal(data.url.trim());
-        }
-        if (screenshot_url) setScreenshotUrl(screenshot_url);
-        else setNavigateError('Automation finished but no screenshot_url was returned');
-      } catch (e) {
-        setNavigateError(String(e));
-      } finally {
-        setLoading(false);
-      }
-    },
-    [addressDisplay, agentRunId],
-  );
-
   const releaseBrowserRunSession = useCallback(async () => {
     const sid = browserRunSessionRef.current;
     const rid = agentRunId?.trim();
@@ -2183,6 +2138,7 @@ const BrowserPane: React.FC<PaneProps> = ({
       setScreenshotUrl(null);
       setScreenshotErr(null);
       setMode('browse');
+      setViewSurface('preview');
       setInspectedEl(null);
       setIframeBlocked(false);
       setLoading(true);
@@ -2195,6 +2151,64 @@ const BrowserPane: React.FC<PaneProps> = ({
       setLoading(false);
     },
     [addressDisplay, onUrlCommitted, releaseBrowserRunSession],
+  );
+
+  /** MYBROWSER / CDT automation preview — explicit screenshot path only (not agent live default). */
+  const loadAutomationPreview = useCallback(
+    async (targetUrl: string, preview?: BrowserPreviewPayload | null) => {
+      const n = normalize(targetUrl);
+      setCurrentUrl(n);
+      setInputVal(addressDisplay?.trim() && /^(blob:|data:)/i.test(n) ? addressDisplay : n);
+      onUrlCommitted?.(n);
+      setMode('browse');
+      setNavigateError(null);
+      setInspectedEl(null);
+      setIframeBlocked(false);
+
+      if (preview?.screenshot_url) {
+        setScreenshotUrl(preview.screenshot_url);
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      setScreenshotUrl(null);
+      const navTool = registryPickersRef.current.navigate || 'browser_navigate';
+      try {
+        const data = await invokeCdt(navTool, {
+          url: n,
+          automation: true,
+          ...(agentRunId?.trim() ? { agent_run_id: agentRunId.trim() } : {}),
+        });
+        if (data.error) {
+          setNavigateError(String(data.error));
+          await openPassiveIframeView(n);
+          return;
+        }
+        const { screenshot_url } = pickNavigatePreview(data);
+        const resolvedUrl =
+          typeof data.url === 'string' && data.url.trim() ? data.url.trim() : n;
+        setCurrentUrl(resolvedUrl);
+        setInputVal(
+          addressDisplay?.trim() && /^(blob:|data:)/i.test(resolvedUrl)
+            ? addressDisplay
+            : resolvedUrl,
+        );
+        onUrlCommitted?.(resolvedUrl);
+        if (screenshot_url) {
+          setScreenshotUrl(screenshot_url);
+        } else {
+          setNavigateError('Automation finished but no screenshot_url was returned');
+          await openPassiveIframeView(resolvedUrl);
+        }
+      } catch (e) {
+        setNavigateError(String(e));
+        await openPassiveIframeView(n);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [addressDisplay, agentRunId, onUrlCommitted, openPassiveIframeView],
   );
 
   /** Browser Run Live View (live.browser.run) — tab-mode page watch; agent-only / explicit fallback. */
@@ -2517,7 +2531,7 @@ const BrowserPane: React.FC<PaneProps> = ({
           onKeyDown={e => {
             if (e.key !== 'Enter') return;
             const n = normalizeUrl(inputVal);
-            if (n) void navigate(n);
+            if (n) void navigate(n, { automation: false, agentLive: false });
           }}
           placeholder={
             viewSurface === 'agentLive' && !liveSessionReady
@@ -3011,18 +3025,28 @@ export const BrowserView: React.FC<BrowserViewProps> = ({
   workspaceContext: _workspaceContext = null,
   previewSource = 'agent',
 }) => {
-  const [primaryUrl,         setPrimaryUrl]         = useState('');
+  const [primaryUrl,         setPrimaryUrl]         = useState(() => urlFromParent?.trim() || '');
   const [primaryAutomation, setPrimaryAutomation] = useState(false);
   const [primaryAgentLive,  setPrimaryAgentLive]  = useState(false);
   const [primaryPreview,    setPrimaryPreview]    = useState<BrowserPreviewPayload | null>(null);
   const urlFromParentRef = useRef(urlFromParent);
 
+  const commitUrlToParent = useCallback(
+    (url: string) => {
+      setPrimaryAutomation(false);
+      setPrimaryAgentLive(false);
+      setPrimaryPreview(null);
+      onUrlCommitted?.(url);
+    },
+    [onUrlCommitted],
+  );
+
   // Parent App state after user commit or agent surface_open — not the stale default on first mount.
   useEffect(() => {
     const u = urlFromParent?.trim();
-    const prev = urlFromParentRef.current?.trim();
+    if (!u) return;
     urlFromParentRef.current = urlFromParent;
-    if (!u || u === prev || u === primaryUrl) return;
+    if (u === primaryUrl) return;
     setPrimaryUrl(u);
     if (previewSource === 'editor') {
       setPrimaryAutomation(false);
@@ -3052,8 +3076,11 @@ export const BrowserView: React.FC<BrowserViewProps> = ({
       }>).detail;
       if (d?.url) {
         setPrimaryUrl(d.url);
-        setPrimaryAutomation(d.automation === true);
-        setPrimaryAgentLive(d.agent_live === true || (d.automation === true && !d.screenshot_url));
+        const hasLive = Boolean(d.live_view_url?.trim());
+        setPrimaryAutomation(d.automation === true && !hasLive);
+        setPrimaryAgentLive(
+          hasLive && (d.agent_live === true || d.automation === true),
+        );
         if (d.screenshot_url) {
           setPrimaryPreview({ screenshot_url: d.screenshot_url });
         } else {
@@ -3102,7 +3129,7 @@ export const BrowserView: React.FC<BrowserViewProps> = ({
           label={secondaryUrl ? 'A' : undefined}
           isSplit={!!secondaryUrl}
           onSplit={url => setSecondaryUrl(url)}
-          onUrlCommitted={onUrlCommitted}
+          onUrlCommitted={commitUrlToParent}
           agentRunId={previewSource === 'editor' ? null : agentRunId}
           autoFocus
         />

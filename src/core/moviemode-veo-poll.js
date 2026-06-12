@@ -1,6 +1,8 @@
 /**
  * Poll pending Vertex Veo long-running jobs and finalize outputs to ARTIFACTS.
  */
+import { resolveMoviemodeKv } from './moviemode-kv.js';
+
 const VEO_JOB_KV_PREFIX = 'veo_job_';
 
 function parseInputJson(raw) {
@@ -96,12 +98,13 @@ export async function pollPendingVeoJobs(env, opts = {}) {
         .bind(row.id)
         .run()
         .catch(() => {});
-      if (env.KV && veoJobId) {
+      const kv = resolveMoviemodeKv(env);
+      if (kv && veoJobId) {
         const key = `${VEO_JOB_KV_PREFIX}${veoJobId}`;
-        const prev = await env.KV.get(key);
+        const prev = await kv.get(key);
         if (prev) {
           const job = JSON.parse(prev);
-          await env.KV.put(key, JSON.stringify({ ...job, status: 'running' }), {
+          await kv.put(key, JSON.stringify({ ...job, status: 'running' }), {
             expirationTtl: 86400,
           });
         }
@@ -117,12 +120,13 @@ export async function pollPendingVeoJobs(env, opts = {}) {
         .bind(JSON.stringify(op.error).slice(0, 500), row.id)
         .run()
         .catch(() => {});
-      if (env.KV && veoJobId) {
+      const kvFail = resolveMoviemodeKv(env);
+      if (kvFail && veoJobId) {
         const key = `${VEO_JOB_KV_PREFIX}${veoJobId}`;
-        const prev = await env.KV.get(key);
+        const prev = await kvFail.get(key);
         if (prev) {
           const job = JSON.parse(prev);
-          await env.KV.put(
+          await kvFail.put(
             key,
             JSON.stringify({ ...job, status: 'failed', error: op.error }),
             { expirationTtl: 86400 },
@@ -154,11 +158,12 @@ export async function pollPendingVeoJobs(env, opts = {}) {
       });
 
       completed += 1;
-      if (env.KV && veoJobId) {
+      const kvDone = resolveMoviemodeKv(env);
+      if (kvDone && veoJobId) {
         const key = `${VEO_JOB_KV_PREFIX}${veoJobId}`;
-        const prev = await env.KV.get(key);
+        const prev = await kvDone.get(key);
         const job = prev ? JSON.parse(prev) : {};
-        await env.KV.put(
+        await kvDone.put(
           key,
           JSON.stringify({
             ...job,

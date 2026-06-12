@@ -8,6 +8,7 @@ import {
   resolveMoviemodeRepoRootForSession,
   validateMoviemodeRepoOnPty,
 } from '../core/pty-workspace-paths.js';
+import { resolveMoviemodeKv } from '../core/moviemode-kv.js';
 
 async function requireAuth(request, env) {
   const authUser = await getAuthUser(request, env);
@@ -947,14 +948,16 @@ function jobKvKey(jobId) {
 }
 
 async function readJob(env, jobId) {
-  if (!env.KV) return null;
-  const raw = await env.KV.get(jobKvKey(jobId));
+  const kv = resolveMoviemodeKv(env);
+  if (!kv) return null;
+  const raw = await kv.get(jobKvKey(jobId));
   return raw ? JSON.parse(raw) : null;
 }
 
 async function writeJob(env, jobId, row) {
-  if (env.KV) {
-    await env.KV.put(jobKvKey(jobId), JSON.stringify(row), { expirationTtl: 3600 });
+  const kv = resolveMoviemodeKv(env);
+  if (kv) {
+    await kv.put(jobKvKey(jobId), JSON.stringify(row), { expirationTtl: 3600 });
   }
 }
 
@@ -1151,8 +1154,9 @@ export async function handleMoviemodeSessionGet(env, { workspaceId, tenantId, se
   }
 
   const sessionKey = `${SESSION_KV_PREFIX}${workspaceId}`;
-  if (env.KV) {
-    const raw = await env.KV.get(sessionKey);
+  const kv = resolveMoviemodeKv(env);
+  if (kv) {
+    const raw = await kv.get(sessionKey);
     if (raw) {
       const session = JSON.parse(raw);
       return jsonResponse({
@@ -1184,9 +1188,9 @@ export async function handleMoviemodeSessionPut(request, env, { workspaceId, ten
   const overlaysJson = JSON.stringify(session.overlays || []);
   const exportConfig = JSON.stringify(session.export_config || session.exportConfig || {});
 
-  if (env.KV) {
+  if (kv) {
     const sessionKey = `${SESSION_KV_PREFIX}${workspaceId}`;
-    await env.KV.put(sessionKey, JSON.stringify(session), { expirationTtl: 86400 });
+    await kv.put(sessionKey, JSON.stringify(session), { expirationTtl: 86400 });
   }
 
   if (env.DB) {
@@ -1296,8 +1300,9 @@ export async function handleMoviemodeAssetSave(request, env, { workspaceId, auth
 const VEO_JOB_KV_PREFIX = 'veo_job_';
 
 export async function handleMoviemodeVeoJobGet(env, jobId, workspaceId) {
-  if (!env.KV) return jsonResponse({ error: 'KV not configured' }, 503);
-  const raw = await env.KV.get(`${VEO_JOB_KV_PREFIX}${jobId}`);
+  const kv = resolveMoviemodeKv(env);
+  if (!kv) return jsonResponse({ error: 'KV not configured' }, 503);
+  const raw = await kv.get(`${VEO_JOB_KV_PREFIX}${jobId}`);
   if (!raw) return jsonResponse({ error: 'Not found' }, 404);
   const job = JSON.parse(raw);
   if (workspaceId && job.workspace_id && job.workspace_id !== workspaceId) {
@@ -1317,12 +1322,14 @@ export async function handleMoviemodeAgent(request, env, { workspaceId, tenantId
   const defaultSession = { clips: [], overlays: [], fps: 30, width: 1280, height: 720 };
 
   const getSession = async () => {
-    if (!env.KV) return defaultSession;
-    const raw = await env.KV.get(sessionKey);
+    const kv = resolveMoviemodeKv(env);
+    if (!kv) return defaultSession;
+    const raw = await kv.get(sessionKey);
     return raw ? JSON.parse(raw) : defaultSession;
   };
   const saveSession = async (s) => {
-    if (env.KV) await env.KV.put(sessionKey, JSON.stringify(s), { expirationTtl: 86400 });
+    const kv = resolveMoviemodeKv(env);
+    if (kv) await kv.put(sessionKey, JSON.stringify(s), { expirationTtl: 86400 });
   };
 
   const action = String(body.action || '').trim();

@@ -178,7 +178,13 @@ function parseScreenshotUrlFromToolPayload(raw: string | null | undefined): stri
       parsed.public_url,
     ];
     for (const c of candidates) {
-      if (typeof c === 'string' && c.trim() && /^https?:/i.test(c.trim())) return c.trim();
+      if (typeof c === 'string' && c.trim()) {
+        const v = c.trim();
+        if (/^https?:/i.test(v) || v.startsWith('data:')) return v;
+      }
+    }
+    if (typeof parsed.data_url === 'string' && parsed.data_url.trim()) {
+      return parsed.data_url.trim();
     }
     const nested = parsed.result;
     if (nested && typeof nested === 'object') {

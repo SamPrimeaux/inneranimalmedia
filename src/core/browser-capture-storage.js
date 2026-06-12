@@ -101,7 +101,11 @@ export async function resolveBrowserScreenshotCapture(env, buf, contentType, opt
     byte_length: capture.byte_length,
     created_at: Date.now(),
   });
-  return capture;
+  return {
+    ...capture,
+    screenshot_url: capture.data_url,
+    result_url: capture.data_url,
+  };
 }
 
 /** @deprecated use resolveBrowserScreenshotCapture */

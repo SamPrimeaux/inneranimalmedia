@@ -1,6 +1,7 @@
 // src/api/games.js
 import { jsonResponse } from '../core/responses.js';
 import { pickAuthUserWorkspaceId } from '../core/platform-workspace-env.js';
+import { normalizeGlbPublicUrl } from '../core/glb-public-url.js';
 
 export async function handleGamesApi(request, url, env, _ctx, authUser) {
   const path = url.pathname.toLowerCase();
