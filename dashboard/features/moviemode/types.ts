@@ -13,9 +13,15 @@ export type MediaLibraryItem = {
   r2Bucket?: string;
   r2Key?: string;
   assetId?: string;
+  vectorizeId?: string | null;
 };
 
 export type MovieModeStudioProps = {
   timeline: MovieModeTimeline | null;
   onTimelineChange: (timeline: MovieModeTimeline) => void;
+  onExportComplete?: (r2Key: string) => void;
+  onSaveToDrive?: (r2Key: string) => void;
+  showMediaBin?: boolean;
+  playheadFrame?: number;
+  onSeekFrame?: (frame: number) => void;
 };

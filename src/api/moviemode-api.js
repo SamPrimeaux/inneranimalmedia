@@ -24,6 +24,47 @@ export function buildMoviemodeR2Prefix(workspaceId, projectSlug) {
   return `moviemode/${workspaceId}/${projectSlug}`;
 }
 
+/** Gemini multimodal media lane — POST /api/agentsam/video-embed or /api/moviemode/embed */
+export async function handleVideoEmbedRequest(request, env, { workspaceId }) {
+  let body = {};
+  try {
+    body = await request.json();
+  } catch {
+    body = {};
+  }
+  const assetId = String(body.asset_id || body.id || '').trim();
+  if (!assetId) return jsonResponse({ error: 'asset_id required' }, 400);
+
+  const row = await env.DB.prepare(
+    `SELECT * FROM media_assets WHERE id = ? AND workspace_id = ? LIMIT 1`,
+  )
+    .bind(assetId, workspaceId)
+    .first();
+  if (!row) return jsonResponse({ error: 'Not found' }, 404);
+
+  const { transcriptFromAssetRow } = await import('../core/moviemode-whisper.js');
+  const transcript =
+    body.transcript != null ? String(body.transcript || '').trim() || null : transcriptFromAssetRow(row);
+
+  try {
+    const { indexMediaAssetForSearch } = await import('../core/moviemode-media-vectorize.js');
+    const indexed = await indexMediaAssetForSearch(env, row, {
+      caption: body.caption || body.description || null,
+      transcript,
+      force: body.force !== false,
+    });
+    return jsonResponse({
+      ok: true,
+      asset_id: assetId,
+      lane: 'moviemode_media',
+      embed_model: 'gemini-embedding-2',
+      index: indexed,
+    });
+  } catch (e) {
+    return jsonResponse({ ok: false, error: String(e?.message || e).slice(0, 400) }, 502);
+  }
+}
+
 export async function handleMoviemodeApi(request, url, env, ctx) {
   if (ctx) env._ctx = ctx;
   const path = url.pathname.replace(/\/$/, '') || '/';
@@ -143,35 +184,64 @@ export async function handleMoviemodeApi(request, url, env, ctx) {
       )
       .run();
 
+    const row = await env.DB.prepare(
+      `SELECT * FROM media_assets WHERE workspace_id = ? AND bucket = ? AND object_key = ? LIMIT 1`,
+    )
+      .bind(workspaceId, bucket, object_key)
+      .first();
+
+    const mediaKind = String(row?.media_kind || body.media_kind || '').trim().toLowerCase();
+    const shouldTranscribe =
+      body.transcribe !== false && (mediaKind === 'video' || mediaKind === 'audio');
+    if (shouldTranscribe && row && env._ctx?.waitUntil) {
+      env._ctx.waitUntil(
+        import('../core/moviemode-whisper.js').then(({ transcribeAndReindexMediaAsset }) =>
+          transcribeAndReindexMediaAsset(env, row),
+        ),
+      );
+    }
+
     const indexForSearch = body.index_for_search === true || body.index === true;
-    if (indexForSearch) {
-      const row = await env.DB.prepare(
-        `SELECT * FROM media_assets WHERE workspace_id = ? AND bucket = ? AND object_key = ? LIMIT 1`,
-      )
-        .bind(workspaceId, bucket, object_key)
-        .first();
-      if (row) {
-        try {
-          const { indexMediaAssetForSearch } = await import('../core/moviemode-media-vectorize.js');
-          const indexed = await indexMediaAssetForSearch(env, row, {
-            caption: body.caption || body.description || null,
-            transcript: body.transcript || null,
-            force: !!body.force_reindex,
-          });
-          return jsonResponse({ ok: true, id: row.id, bucket, object_key, index: indexed });
-        } catch (e) {
-          return jsonResponse({
-            ok: true,
-            id: row.id,
-            bucket,
-            object_key,
-            index: { ok: false, error: String(e?.message || e).slice(0, 300) },
-          });
-        }
+    if (indexForSearch && row) {
+      try {
+        const { indexMediaAssetForSearch } = await import('../core/moviemode-media-vectorize.js');
+        const { transcriptFromAssetRow } = await import('../core/moviemode-whisper.js');
+        const indexed = await indexMediaAssetForSearch(env, row, {
+          caption: body.caption || body.description || null,
+          transcript: body.transcript || transcriptFromAssetRow(row) || null,
+          force: !!body.force_reindex,
+        });
+        return jsonResponse({
+          ok: true,
+          id: row.id,
+          bucket,
+          object_key,
+          transcribe_queued: shouldTranscribe,
+          index: indexed,
+        });
+      } catch (e) {
+        return jsonResponse({
+          ok: true,
+          id: row.id,
+          bucket,
+          object_key,
+          transcribe_queued: shouldTranscribe,
+          index: { ok: false, error: String(e?.message || e).slice(0, 300) },
+        });
       }
     }
 
-    return jsonResponse({ ok: true, id, bucket, object_key });
+    return jsonResponse({
+      ok: true,
+      id: row?.id || id,
+      bucket,
+      object_key,
+      transcribe_queued: shouldTranscribe,
+    });
+  }
+
+  if (path === '/api/moviemode/embed' && method === 'POST') {
+    return handleVideoEmbedRequest(request, env, { workspaceId });
   }
 
   if (path === '/api/moviemode/search' && method === 'POST') {
@@ -215,9 +285,10 @@ export async function handleMoviemodeApi(request, url, env, ctx) {
     if (!row) return jsonResponse({ error: 'Not found' }, 404);
     try {
       const { indexMediaAssetForSearch } = await import('../core/moviemode-media-vectorize.js');
+      const { transcriptFromAssetRow } = await import('../core/moviemode-whisper.js');
       const indexed = await indexMediaAssetForSearch(env, row, {
         caption: body.caption || body.description || null,
-        transcript: body.transcript || null,
+        transcript: body.transcript || transcriptFromAssetRow(row) || null,
         force: body.force !== false,
       });
       return jsonResponse({ ok: true, asset_id: assetId, index: indexed });

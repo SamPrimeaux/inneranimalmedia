@@ -122,6 +122,17 @@ export async function dispatchProductionDomainRoutes(rc) {
     return handleTimeDispatch(request, env, ctx, authUser);
   }
 
+  if (pathLower === '/api/agentsam/video-embed' && methodUpper === 'POST') {
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    const { handleVideoEmbedRequest } = await import('../api/moviemode-api.js');
+    const workspaceId = String(
+      authUser?.active_workspace_id || authUser?.workspace_id || '',
+    ).trim();
+    if (!workspaceId) return jsonResponse({ error: 'workspace_id required' }, 400);
+    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    return handleVideoEmbedRequest(request, env, { workspaceId });
+  }
+
   if (pathLower.startsWith('/api/agentsam')) {
     const res = await handleAgentSamRegistryRequest(request, env, ctx, authUser);
     if (res && res.status !== 404) return res;

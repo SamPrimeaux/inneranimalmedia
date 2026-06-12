@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Film, Loader2, Music, Image as ImageIcon, Play } from 'lucide-react';
+import { Film, Loader2, Music, Image as ImageIcon, Play, Search, Plus } from 'lucide-react';
 import { detectFileKind } from '../../src/lib/fileKind';
 import type { MediaLibraryItem } from './types';
+import { MOVIEMODE_CLIP_DRAG } from './createEmptyTimeline';
 
 type FileNode = {
   name: string;
@@ -55,11 +56,14 @@ export const MediaLibrary: React.FC<{
   rootHandle: FileSystemDirectoryHandle | null;
   onOpenInMovieMode: (item: MediaLibraryItem) => void;
   onOpenPreview?: (item: MediaLibraryItem) => void;
-}> = ({ rootHandle, onOpenInMovieMode, onOpenPreview }) => {
+  onAddToTimeline?: (item: MediaLibraryItem) => void;
+}> = ({ rootHandle, onOpenInMovieMode, onOpenPreview, onAddToTimeline }) => {
   const [items, setItems] = useState<MediaLibraryItem[]>([]);
   const [apiItems, setApiItems] = useState<MediaLibraryItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [indexingId, setIndexingId] = useState<string | null>(null);
+  const [indexedIds, setIndexedIds] = useState<Set<string>>(new Set());
 
   const rootHandleRef = useRef(rootHandle);
   rootHandleRef.current = rootHandle;
@@ -81,13 +85,15 @@ export const MediaLibrary: React.FC<{
       return;
     }
     const mapped: MediaLibraryItem[] = (data.assets || []).map((a) => {
-      const key = String(a.r2_key || a.key || '');
-      const bucket = String(a.r2_bucket || a.bucket || 'inneranimalmedia');
-      const name = key.split('/').pop() || String(a.filename || a.id || 'asset');
+      const key = String(a.object_key || a.r2_key || a.key || '');
+      const bucket = String(a.bucket || a.r2_bucket || 'inneranimalmedia');
+      const name = String(a.filename || key.split('/').pop() || a.id || 'asset');
       const ct = String(a.content_type || a.mime_type || '');
       const kind = detectFileKind({ name, key, contentType: ct });
+      const assetId = String(a.id || '');
+      const vectorizeId = a.vectorize_id ? String(a.vectorize_id) : null;
       return {
-        id: `api:${a.id}`,
+        id: `api:${assetId}`,
         name,
         kind: kind === 'text' ? 'binary' : kind,
         previewUrl: `/api/r2/buckets/${encodeURIComponent(bucket)}/object/${encodeURIComponent(key)}`,
@@ -96,10 +102,13 @@ export const MediaLibrary: React.FC<{
         source: 'api' as const,
         r2Bucket: bucket,
         r2Key: key,
-        assetId: String(a.id || ''),
+        assetId,
+        vectorizeId,
       };
     });
-    setApiItems(mapped.filter((i) => i.kind === 'video' || i.kind === 'audio' || i.kind === 'image'));
+    const filtered = mapped.filter((i) => i.kind === 'video' || i.kind === 'audio' || i.kind === 'image');
+    setApiItems(filtered);
+    setIndexedIds(new Set(filtered.filter((i) => i.vectorizeId).map((i) => i.id)));
   }, []);
 
   const scanLocal = useCallback(async () => {
@@ -186,6 +195,35 @@ export const MediaLibrary: React.FC<{
     }
   }, [loadApiAssets, scanLocal]);
 
+  const indexForSearch = useCallback(async (item: MediaLibraryItem) => {
+    if (!item.assetId) return;
+    setIndexingId(item.id);
+    setErr(null);
+    try {
+      const res = await fetch('/api/agentsam/video-embed', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ asset_id: item.assetId, force: true }),
+      });
+      const data = (await res.json()) as { ok?: boolean; error?: string; index?: { ok?: boolean } };
+      if (!res.ok || data.ok === false) {
+        setErr(data.error || 'Index failed');
+        return;
+      }
+      setIndexedIds((prev) => new Set(prev).add(item.id));
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Index failed');
+    } finally {
+      setIndexingId(null);
+    }
+  }, []);
+
+  const onDragStart = (e: React.DragEvent, item: MediaLibraryItem) => {
+    e.dataTransfer.setData(MOVIEMODE_CLIP_DRAG, JSON.stringify(item));
+    e.dataTransfer.effectAllowed = 'copy';
+  };
+
   const all = [...items, ...apiItems];
 
   const iconFor = (kind: MediaLibraryItem['kind']) => {
@@ -220,16 +258,48 @@ export const MediaLibrary: React.FC<{
       <ul className="flex-1 overflow-y-auto py-1">
         {all.map((item) => (
           <li key={item.id}>
-            <div className="flex items-center gap-1 px-2 py-1 hover:bg-[var(--bg-hover)] group">
+            <div
+              className="flex items-center gap-1 px-2 py-1 hover:bg-[var(--bg-hover)] group"
+              draggable
+              onDragStart={(e) => onDragStart(e, item)}
+            >
               {iconFor(item.kind)}
               <button
                 type="button"
                 className="flex-1 text-left text-[12px] truncate text-[var(--text-main)]"
                 onClick={() => onOpenInMovieMode(item)}
-                title="Open in MovieMode editor"
+                title="Add / open in MovieMode"
               >
                 {item.name}
+                {indexedIds.has(item.id) ? (
+                  <span className="ml-1 text-[8px] text-[var(--solar-green)]">indexed</span>
+                ) : null}
               </button>
+              {onAddToTimeline ? (
+                <button
+                  type="button"
+                  className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-[var(--dashboard-border)]"
+                  onClick={() => onAddToTimeline(item)}
+                  title="Add to timeline at playhead"
+                >
+                  <Plus size={12} />
+                </button>
+              ) : null}
+              {item.assetId ? (
+                <button
+                  type="button"
+                  className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-[var(--dashboard-border)] disabled:opacity-40"
+                  disabled={indexingId === item.id}
+                  onClick={() => void indexForSearch(item)}
+                  title="Index for search (Gemini embed)"
+                >
+                  {indexingId === item.id ? (
+                    <Loader2 size={12} className="animate-spin" />
+                  ) : (
+                    <Search size={12} />
+                  )}
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-[var(--dashboard-border)]"

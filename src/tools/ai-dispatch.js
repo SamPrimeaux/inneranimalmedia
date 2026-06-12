@@ -143,6 +143,7 @@ export async function runBuiltinTool(env, toolName, params, runContext = {}) {
         case toolName === 'moviemode_render':
         case toolName === 'moviemode_export':
         case toolName === 'veo_generate_video':
+        case toolName === 'agentsam_video_embed':
             return await moviemodeHandlers[toolName]?.(env, params);
 
         // ── CATEGORY: context / RAG (11 Tools) ───────────────────────────

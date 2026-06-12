@@ -6,7 +6,8 @@ import { MovieModeComposition } from './MovieModeComposition';
 import { TimelineRail } from './TimelineRail';
 import { TextOverlayEditor } from './TextOverlayEditor';
 import { ExportPanel } from './ExportPanel';
-import { createEmptyTimeline } from './createEmptyTimeline';
+import { MediaLibrary } from './MediaLibrary';
+import { createEmptyTimeline, appendClipToTimeline } from './createEmptyTimeline';
 import {
   applyOverlayChange,
   editSessionDurationFrames,
@@ -19,11 +20,20 @@ import {
   persistMovieModeRightPanelCollapsed,
   readMovieModeRightPanelCollapsed,
 } from '../../src/lib/moviemodeStudioEvents';
+import { framesToMs } from './remotion-utils';
+import type { MediaLibraryItem } from './types';
 
-export const MovieModeStudio: React.FC<MovieModeStudioProps> = ({ timeline, onTimelineChange }) => {
+export const MovieModeStudio: React.FC<MovieModeStudioProps> = ({
+  timeline,
+  onTimelineChange,
+  onExportComplete,
+  onSaveToDrive,
+  showMediaBin = false,
+}) => {
   const active = timeline ?? createEmptyTimeline();
   const playerRef = useRef<PlayerRef>(null);
-  const [playheadMs] = useState(0);
+  const [playheadFrame, setPlayheadFrame] = useState(0);
+  const playheadMs = framesToMs(playheadFrame, active.fps);
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(() => {
     const stored = readMovieModeRightPanelCollapsed();
     return stored ?? defaultMovieModeRightPanelCollapsed();
@@ -31,6 +41,39 @@ export const MovieModeStudio: React.FC<MovieModeStudioProps> = ({ timeline, onTi
 
   const session = useMemo(() => timelineToEditSession(active), [active]);
   const durationInFrames = useMemo(() => editSessionDurationFrames(session), [session]);
+
+  const handleSeekFrame = useCallback((frame: number) => {
+    const clamped = Math.max(0, Math.min(frame, durationInFrames - 1));
+    setPlayheadFrame(clamped);
+    playerRef.current?.seekTo(clamped);
+  }, [durationInFrames]);
+
+  useEffect(() => {
+    const player = playerRef.current;
+    if (!player) return;
+    const onFrame = () => {
+      setPlayheadFrame(player.getCurrentFrame());
+    };
+    player.addEventListener('frameupdate', onFrame);
+    return () => player.removeEventListener('frameupdate', onFrame);
+  }, [active.fps, durationInFrames]);
+
+  useEffect(() => {
+    if (playheadFrame > durationInFrames - 1) {
+      setPlayheadFrame(Math.max(0, durationInFrames - 1));
+    }
+  }, [durationInFrames, playheadFrame]);
+
+  const addClipFromLibrary = useCallback(
+    (item: MediaLibraryItem) => {
+      if (!timeline) {
+        onTimelineChange(appendClipToTimeline(createEmptyTimeline(), item, { startFrame: playheadFrame }));
+        return;
+      }
+      onTimelineChange(appendClipToTimeline(timeline, item, { startFrame: playheadFrame }));
+    },
+    [timeline, onTimelineChange, playheadFrame],
+  );
 
   const toggleRightPanel = useCallback(() => {
     setRightPanelCollapsed((prev) => {
@@ -83,6 +126,18 @@ export const MovieModeStudio: React.FC<MovieModeStudioProps> = ({ timeline, onTi
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-[var(--scene-bg)]">
       <div className="flex-1 min-h-0 flex overflow-hidden">
+        {showMediaBin ? (
+          <aside className="w-56 shrink-0 border-r border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] flex flex-col overflow-hidden">
+            <p className="px-2 py-1 text-[9px] font-bold uppercase tracking-widest text-[var(--text-muted)] border-b border-[var(--border-subtle)]">
+              Media
+            </p>
+            <MediaLibrary
+              rootHandle={null}
+              onOpenInMovieMode={addClipFromLibrary}
+              onAddToTimeline={addClipFromLibrary}
+            />
+          </aside>
+        ) : null}
         <div className="flex-1 min-h-0 flex flex-col items-center justify-center p-4 overflow-hidden relative min-w-0">
           <div className="absolute top-3 right-3 z-10 flex flex-col gap-1 rounded-lg border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] p-1 shadow-sm">
             <button
@@ -139,12 +194,21 @@ export const MovieModeStudio: React.FC<MovieModeStudioProps> = ({ timeline, onTi
               <p className="px-2 py-1 text-[9px] font-bold uppercase tracking-widest text-[var(--text-muted)]">
                 Export
               </p>
-              <ExportPanel session={session} />
+              <ExportPanel
+                session={session}
+                onExportComplete={onExportComplete}
+                onSaveToDrive={onSaveToDrive}
+              />
             </div>
           </aside>
         ) : null}
       </div>
-      <TimelineRail timeline={active} onTimelineChange={onTimelineChange} />
+      <TimelineRail
+        timeline={active}
+        onTimelineChange={onTimelineChange}
+        playheadFrame={playheadFrame}
+        onSeekFrame={handleSeekFrame}
+      />
     </div>
   );
 };

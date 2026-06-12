@@ -1689,8 +1689,12 @@ const App: React.FC = () => {
 
   const openMovieModeFromExplorer = useCallback(
     async (item: import('./features/moviemode/types').MediaLibraryItem) => {
-      const { createTimelineWithClip } = await import('./features/moviemode/createEmptyTimeline');
-      setMovieModeTimeline(createTimelineWithClip(item));
+      const { createTimelineWithClip, appendClipToTimeline } = await import(
+        './features/moviemode/createEmptyTimeline'
+      );
+      setMovieModeTimeline((prev) =>
+        prev ? appendClipToTimeline(prev, item) : createTimelineWithClip(item),
+      );
       openTab('moviemode');
       revealMainWorkspaceIfNarrow();
     },
@@ -3386,7 +3390,7 @@ const App: React.FC = () => {
                         }
                       />
                       <Route
-                        path="/dashboard/moviemode"
+                        path="/dashboard/moviemode/:projectId?"
                         element={
                           <div className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
                             <MovieModePage />

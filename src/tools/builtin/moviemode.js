@@ -417,8 +417,50 @@ export async function handleVeoGenerate(env, params) {
   };
 }
 
+/**
+ * handler.agentsam_video_embed — Gemini multimodal index for media_assets (AGENTSAM_VECTORIZE_MEDIA).
+ */
+export async function handleAgentsamVideoEmbed(env, params) {
+  const workspaceId = String(params?.workspace_id || params?.workspaceId || '').trim();
+  const assetId = String(params?.asset_id || params?.id || '').trim();
+  if (!env?.DB) return { ok: false, error: 'DB not configured' };
+  if (!workspaceId || !assetId) return { ok: false, error: 'workspace_id and asset_id required' };
+
+  const row = await env.DB.prepare(
+    `SELECT * FROM media_assets WHERE id = ? AND workspace_id = ? LIMIT 1`,
+  )
+    .bind(assetId, workspaceId)
+    .first();
+  if (!row) return { ok: false, error: 'asset not found' };
+
+  const { transcriptFromAssetRow } = await import('../../core/moviemode-whisper.js');
+  const transcript =
+    params?.transcript != null
+      ? String(params.transcript || '').trim() || null
+      : transcriptFromAssetRow(row);
+
+  try {
+    const { indexMediaAssetForSearch } = await import('../../core/moviemode-media-vectorize.js');
+    const index = await indexMediaAssetForSearch(env, row, {
+      caption: params?.caption || params?.description || null,
+      transcript,
+      force: params?.force !== false,
+    });
+    return {
+      ok: true,
+      asset_id: assetId,
+      lane: 'moviemode_media',
+      embed_model: 'gemini-embedding-2',
+      index,
+    };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e).slice(0, 400) };
+  }
+}
+
 export const handlers = {
   moviemode_render: handleMoviemodeRender,
   moviemode_export: handleMoviemodeExport,
   veo_generate_video: handleVeoGenerate,
+  agentsam_video_embed: handleAgentsamVideoEmbed,
 };

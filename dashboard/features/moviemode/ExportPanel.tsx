@@ -13,6 +13,7 @@ type ExportConfig = {
 type Props = {
   session: EditSession;
   onExportComplete?: (r2Key: string) => void;
+  onSaveToDrive?: (r2Key: string) => void;
 };
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -24,7 +25,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-export const ExportPanel: React.FC<Props> = ({ session, onExportComplete }) => {
+export const ExportPanel: React.FC<Props> = ({ session, onExportComplete, onSaveToDrive }) => {
   const [config, setConfig] = useState<ExportConfig>({ codec: 'h264', quality: '720p', fps: 30 });
   const [job, setJob] = useState<ExportJob | null>(null);
 
@@ -119,13 +120,22 @@ export const ExportPanel: React.FC<Props> = ({ session, onExportComplete }) => {
           <span className="text-green-400">✓ Exported</span>
           <code className="block text-[9px] break-all opacity-70">{job.r2Key}</code>
           <a
-            className="text-[var(--solar-cyan)] underline"
+            className="text-[var(--solar-cyan)] underline block"
             href={`/api/r2/serve/${encodeURIComponent(job.r2Key)}`}
             target="_blank"
             rel="noreferrer"
           >
             Download
           </a>
+          {onSaveToDrive ? (
+            <button
+              type="button"
+              className="text-[10px] text-[var(--text-main)] underline"
+              onClick={() => onSaveToDrive(job.r2Key!)}
+            >
+              Save to Google Drive
+            </button>
+          ) : null}
           <button type="button" className="block text-xs mt-1" onClick={() => setJob(null)}>
             Export again
           </button>

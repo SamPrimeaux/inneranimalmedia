@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import React, { useCallback, useMemo, useState } from 'react';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { Clapperboard, Loader2 } from 'lucide-react';
 import { MovieModeStudio } from '../../features/moviemode/MovieModeStudio';
 import { useMovieModeProject } from '../../hooks/useMovieModeProject';
@@ -8,36 +8,71 @@ import { timelineToEditSession } from '../../features/moviemode/editSessionAdapt
 type SaveDestination = 'local' | 'google_drive' | 'byok_r2';
 
 export default function MovieModePage() {
+  const { projectId: routeProjectId } = useParams<{ projectId?: string }>();
   const [searchParams] = useSearchParams();
-  const projectId = searchParams.get('project_id');
+  const projectId = routeProjectId || searchParams.get('project_id');
   const { project, timeline, loading, error, saving, setTimeline } = useMovieModeProject({
     projectId,
   });
+  const [lastExportKey, setLastExportKey] = useState<string | null>(null);
+  const [mirrorBusy, setMirrorBusy] = useState<SaveDestination | null>(null);
 
   const session = useMemo(() => (timeline ? timelineToEditSession(timeline) : null), [timeline]);
 
-  const mirrorExport = async (r2Key: string, destination: SaveDestination) => {
+  const mirrorExport = useCallback(async (r2Key: string, destination: SaveDestination) => {
     if (!r2Key) return;
-    const res = await fetch('/api/moviemode/assets/save', {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        destination,
-        bucket: 'artifacts',
-        r2_key: r2Key,
-        filename: r2Key.split('/').pop(),
-      }),
-    });
-    const data = (await res.json()) as { ok?: boolean; error?: string; video_base64?: string };
-    if (!data.ok && data.error) alert(data.error);
-    if (destination === 'local' && data.video_base64) {
-      const a = document.createElement('a');
-      a.href = `data:video/mp4;base64,${data.video_base64}`;
-      a.download = r2Key.split('/').pop() || 'moviemode-export.mp4';
-      a.click();
+    setMirrorBusy(destination);
+    try {
+      const res = await fetch('/api/moviemode/assets/save', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          destination,
+          bucket: 'artifacts',
+          r2_key: r2Key,
+          filename: r2Key.split('/').pop(),
+        }),
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        video_base64?: string;
+        web_view_link?: string;
+      };
+      if (!data.ok && data.error) {
+        alert(data.error);
+        return;
+      }
+      if (destination === 'local' && data.video_base64) {
+        const a = document.createElement('a');
+        a.href = `data:video/mp4;base64,${data.video_base64}`;
+        a.download = r2Key.split('/').pop() || 'moviemode-export.mp4';
+        a.click();
+      }
+      if (destination === 'google_drive' && data.web_view_link) {
+        window.open(data.web_view_link, '_blank', 'noopener,noreferrer');
+      }
+    } finally {
+      setMirrorBusy(null);
     }
-  };
+  }, []);
+
+  const onExportComplete = useCallback(
+    (r2Key: string) => {
+      setLastExportKey(r2Key);
+      void mirrorExport(r2Key, 'local');
+    },
+    [mirrorExport],
+  );
+
+  const onSaveToDrive = useCallback(
+    (r2Key: string) => {
+      setLastExportKey(r2Key);
+      void mirrorExport(r2Key, 'google_drive');
+    },
+    [mirrorExport],
+  );
 
   if (loading) {
     return (
@@ -63,27 +98,23 @@ export default function MovieModePage() {
         {saving ? (
           <span className="text-[10px] text-[var(--text-muted)]">Saving…</span>
         ) : null}
-        {session && timeline ? (
+        {lastExportKey ? (
           <div className="flex items-center gap-1">
             <button
               type="button"
-              className="text-[10px] px-2 py-1 rounded border border-[var(--dashboard-border)] text-[var(--text-muted)] hover:text-[var(--text-main)]"
-              onClick={() => {
-                const key = prompt('Paste export r2_key to mirror (after export completes):');
-                if (key) void mirrorExport(key, 'google_drive');
-              }}
+              disabled={mirrorBusy !== null}
+              className="text-[10px] px-2 py-1 rounded border border-[var(--dashboard-border)] text-[var(--text-muted)] hover:text-[var(--text-main)] disabled:opacity-50"
+              onClick={() => void mirrorExport(lastExportKey, 'google_drive')}
             >
-              Drive
+              {mirrorBusy === 'google_drive' ? 'Drive…' : 'Drive'}
             </button>
             <button
               type="button"
-              className="text-[10px] px-2 py-1 rounded border border-[var(--dashboard-border)] text-[var(--text-muted)] hover:text-[var(--text-main)]"
-              onClick={() => {
-                const key = prompt('Paste export r2_key to download:');
-                if (key) void mirrorExport(key, 'local');
-              }}
+              disabled={mirrorBusy !== null}
+              className="text-[10px] px-2 py-1 rounded border border-[var(--dashboard-border)] text-[var(--text-muted)] hover:text-[var(--text-main)] disabled:opacity-50"
+              onClick={() => void mirrorExport(lastExportKey, 'local')}
             >
-              Download
+              {mirrorBusy === 'local' ? 'Saving…' : 'Download'}
             </button>
           </div>
         ) : null}
@@ -92,7 +123,13 @@ export default function MovieModePage() {
         <p className="px-3 py-1 text-xs text-amber-400/90">{error}</p>
       ) : null}
       <div className="flex-1 min-h-0 flex flex-col">
-        <MovieModeStudio timeline={timeline} onTimelineChange={setTimeline} />
+        <MovieModeStudio
+          timeline={timeline}
+          onTimelineChange={setTimeline}
+          showMediaBin
+          onExportComplete={onExportComplete}
+          onSaveToDrive={onSaveToDrive}
+        />
       </div>
     </div>
   );
