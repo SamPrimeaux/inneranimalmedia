@@ -4,7 +4,7 @@
 # Exit 0 when local + Worker are configured; exit 1 with actionable errors otherwise.
 
 emulate -R zsh
-set -e
+# Do not use set -e — wrangler/API flakes must surface via FAIL, not silent exit.
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ENV_FILE="${REPO_ROOT}/.env.cloudflare"
 WRANGLER_CONFIG="${REPO_ROOT}/wrangler.production.toml"
@@ -32,20 +32,45 @@ else
 fi
 
 # --- Worker secrets (production) ---
+wrangler_secret_list() {
+  local attempt max_attempts=3
+  local wr_err wr_out wr_exit
+  wr_err="$(mktemp)"
+  for attempt in 1 2 3; do
+    wr_out="$("$REPO_ROOT/scripts/with-cloudflare-env.sh" npx wrangler secret list -c "$WRANGLER_CONFIG" 2>"$wr_err")"
+    wr_exit=$?
+    if (( wr_exit == 0 )) && [[ -n "${wr_out//[[:space:]]/}" ]]; then
+      rm -f "$wr_err"
+      print -r -- "$wr_out"
+      return 0
+    fi
+    if (( attempt < max_attempts )); then
+      warn "wrangler secret list attempt $attempt/$max_attempts failed (exit $wr_exit) — retrying…"
+      sleep 2
+    fi
+  done
+  err "wrangler secret list failed after $max_attempts attempts (exit $wr_exit): $(tr '\n' ' ' < "$wr_err")"
+  err "  Retry: ./scripts/with-cloudflare-env.sh npx wrangler secret list -c wrangler.production.toml"
+  rm -f "$wr_err"
+  return 1
+}
+
 if [[ ! -f "$WRANGLER_CONFIG" ]]; then
   err "Missing $WRANGLER_CONFIG"
 else
   if [[ -z "${CLOUDFLARE_API_TOKEN:-}" ]]; then
     warn "CLOUDFLARE_API_TOKEN unset — skipping Worker secret list (set in .env.cloudflare or ~/.zshrc)"
   else
-  SECRET_JSON="$("$REPO_ROOT/scripts/with-cloudflare-env.sh" npx wrangler secret list -c "$WRANGLER_CONFIG" 2>/dev/null || true)"
-  for k in R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY; do
-    if print -r -- "$SECRET_JSON" | grep -q "\"name\": \"$k\""; then
-      ok "Worker secret: $k"
-    else
-      err "Worker secret missing: $k — run: ./scripts/with-cloudflare-env.sh npx wrangler secret put $k -c wrangler.production.toml"
+    wr_out="$(wrangler_secret_list)" || wr_out=""
+    if [[ -n "${wr_out//[[:space:]]/}" ]]; then
+      for k in R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY; do
+        if print -r -- "$wr_out" | grep -qE "\"name\"[[:space:]]*:[[:space:]]*\"${k}\""; then
+          ok "Worker secret: $k"
+        else
+          err "Worker secret missing on inneranimalmedia: $k — run: ./scripts/with-cloudflare-env.sh npx wrangler secret put $k -c wrangler.production.toml"
+        fi
+      done
     fi
-  done
   fi
 fi
 
@@ -58,8 +83,10 @@ fi
 
 if (( FAIL )); then
   print -u2 ""
-  print -u2 "Fix local creds: cp .env.cloudflare.example .env.cloudflare"
-  print -u2 "Run Node R2 scripts: ./scripts/with-cloudflare-env.sh node scripts/…"
+  print -u2 "Local creds live in .env.cloudflare (gitignored) — not .env.cloudflare.example."
+  print -u2 "If secrets exist on the Worker, this is usually a transient wrangler API flake."
+  print -u2 "  ./scripts/with-cloudflare-env.sh npx wrangler secret list -c wrangler.production.toml"
+  print -u2 "Deploy anyway (R2 sync uses local .env.cloudflare): SKIP_R2_WORKER_SECRET_CHECK=1 npm run deploy:full"
   exit 1
 fi
 

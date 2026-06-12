@@ -92,11 +92,12 @@ if [ -z "${R2_ACCESS_KEY_ID:-}" ] || [ -z "${R2_SECRET_ACCESS_KEY:-}" ] || [ -z 
   exit 1
 fi
 if [ "${SKIP_R2_WORKER_SECRET_CHECK:-0}" != "1" ]; then
-  "$REPO_ROOT/scripts/check-r2-s3-env.sh" || {
-    echo "✗ Worker R2 S3 secrets missing — unbound-bucket API fallback will fail in production." >&2
-    echo "  Set secrets, or SKIP_R2_WORKER_SECRET_CHECK=1 to deploy anyway." >&2
+  if ! "$REPO_ROOT/scripts/check-r2-s3-env.sh"; then
+    echo "✗ R2 preflight failed (see lines above — often a transient wrangler secret list flake)." >&2
+    echo "  Secrets may already be on the Worker. Retry deploy, or:" >&2
+    echo "  SKIP_R2_WORKER_SECRET_CHECK=1 npm run deploy:full" >&2
     exit 1
-  }
+  fi
 fi
 if ! command -v rclone >/dev/null 2>&1; then
   echo "✗ rclone is required for dashboard R2 sync (https://rclone.org/install/)" >&2
