@@ -117,6 +117,9 @@ const WorkflowsPage = lazy(() =>
 const MovieModePage = lazy(() =>
   import('./pages/moviemode/MovieModePage').then((m) => ({ default: m.default })),
 );
+const MovieModeMediaPanel = lazy(() =>
+  import('./features/moviemode/MovieModeMediaPanel').then((m) => ({ default: m.MovieModeMediaPanel })),
+);
 const DrawPage = lazy(() =>
   import('./pages/draw/DrawPage').then((m) => ({ default: m.default })),
 );
@@ -3154,9 +3157,20 @@ const App: React.FC = () => {
                     {...(narrowNeedsBack && !activeActivity ? mobileEdgeSwipeHandlers : {})}
                 >
                     <div className="h-10 max-phone:hidden border-b border-[var(--dashboard-border)] flex items-center px-4 font-semibold text-[11px] tracking-widest uppercase text-[var(--text-muted)] shrink-0">
-                      {PRODUCT_NAME}
+                      {isMovieModeRoute ? 'Media bin' : PRODUCT_NAME}
                     </div>
                     <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+                    {isMovieModeRoute ? (
+                      <Suspense
+                        fallback={
+                          <div className="flex flex-1 items-center justify-center text-[11px] text-[var(--text-muted)]">
+                            Loading media…
+                          </div>
+                        }
+                      >
+                        <MovieModeMediaPanel projectId={movieModeProjectId} />
+                      </Suspense>
+                    ) : (
                     <ChatAssistant 
                         activeProject={activeProject} 
                         activeFileContent={activeFile?.content}
@@ -3197,12 +3211,13 @@ const App: React.FC = () => {
                         activeAgentChatShellTabId={activeAgentChatTabId}
                         onAgentChatShellTabSelect={selectAgentChatTab}
                         onAgentChatShellNewTab={createNewAgentChatTab}
-                        activeWorkbenchTab={isMovieModeRoute ? 'moviemode' : isDrawRoute ? 'draw' : activeTab}
+                        activeWorkbenchTab={isDrawRoute ? 'draw' : activeTab}
                         browserUrl={browserUrl}
                         openFilePaths={agentWorkbenchOpenFiles}
                         activePlanId={activePlanIdForChat}
                         onActivePlanChange={handleActivePlanChange}
                     />
+                    )}
                     </div>
                 </div>
                 {/* Grab Bar — wide hit target; stroke is 1px inside */}
@@ -3819,9 +3834,20 @@ const App: React.FC = () => {
                     {...(narrowNeedsBack && !activeActivity ? mobileEdgeSwipeHandlers : {})}
                 >
                     <div className="h-10 max-phone:hidden border-b border-[var(--dashboard-border)] flex items-center px-4 font-semibold text-[11px] tracking-widest uppercase text-[var(--text-muted)] shrink-0">
-                      {PRODUCT_NAME}
+                      {isMovieModeRoute ? 'Media bin' : PRODUCT_NAME}
                     </div>
                     <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+                         {isMovieModeRoute ? (
+                           <Suspense
+                             fallback={
+                               <div className="flex flex-1 items-center justify-center text-[11px] text-[var(--text-muted)]">
+                                 Loading media…
+                               </div>
+                             }
+                           >
+                             <MovieModeMediaPanel projectId={movieModeProjectId} />
+                           </Suspense>
+                         ) : (
                          <ChatAssistant 
                             activeProject={activeProject} 
                             activeFileContent={activeFile?.content}
@@ -3862,12 +3888,13 @@ const App: React.FC = () => {
                             onAgentChatShellTabSelect={selectAgentChatTab}
                             onAgentChatShellNewTab={createNewAgentChatTab}
                             onAgentRunContext={setActiveAgentRunId}
-                            activeWorkbenchTab={isMovieModeRoute ? 'moviemode' : isDrawRoute ? 'draw' : activeTab}
+                            activeWorkbenchTab={isDrawRoute ? 'draw' : activeTab}
                             browserUrl={browserUrl}
                             openFilePaths={agentWorkbenchOpenFiles}
                             activePlanId={activePlanIdForChat}
                             onActivePlanChange={handleActivePlanChange}
                          />
+                         )}
                     </div>
                 </div>
               </>

@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { Loader2, X } from 'lucide-react';
-import { MovieModeStudio } from '../../features/moviemode/MovieModeStudio';
+import { MovieModeWorkbench } from '../../features/moviemode/MovieModeWorkbench';
 import { MovieModeToolbar } from '../../features/moviemode/MovieModeToolbar';
 import { ExportPanel } from '../../features/moviemode/ExportPanel';
 import { useMovieModeProject } from '../../hooks/useMovieModeProject';
@@ -121,7 +121,12 @@ export default function MovieModePage() {
       />
       {error ? <p className="px-3 py-1 text-xs text-amber-400/90">{error}</p> : null}
       <div className="flex-1 min-h-0 flex flex-col">
-        <MovieModeStudio timeline={timeline} onTimelineChange={setTimeline} />
+        <MovieModeWorkbench
+          projectId={projectId}
+          projectSlug={project?.slug}
+          timeline={timeline}
+          onTimelineChange={setTimeline}
+        />
       </div>
 
       {exportOpen && session ? (

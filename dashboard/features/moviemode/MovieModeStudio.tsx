@@ -82,8 +82,8 @@ export const MovieModeStudio: React.FC<MovieModeStudioProps> = ({
       <div className="flex-1 flex flex-col items-center justify-center gap-3 text-[var(--text-muted)] p-8">
         <Clapperboard size={40} className="opacity-30" />
         <p className="text-sm text-center max-w-sm">
-          Pick a clip from the <strong className="text-[var(--text-main)]">Media bin</strong> on the
-          right, or upload / import from Stream.
+          Pick a clip from the <strong className="text-[var(--text-main)]">media library</strong> on the
+          left, or upload / import from Stream.
         </p>
       </div>
     );

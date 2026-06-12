@@ -7,7 +7,7 @@ import { isPhoneViewport } from '../../lib/breakpoints';
 
 export const IAM_MOVIEMODE_PANEL_TOGGLE = 'iam:moviemode-panel-toggle';
 export const IAM_MOVIEMODE_SURFACE_CONTEXT = 'iam:moviemode-surface-context';
-export const IAM_MOVIEMODE_RIGHT_PANEL_COLLAPSED = 'iam.moviemode.rightPanelCollapsed';
+export const IAM_MOVIEMODE_RIGHT_PANEL_COLLAPSED = 'iam.moviemode.mediaBinCollapsed';
 
 export type MovieModeSurfaceContext = {
   route: '/dashboard/moviemode';
@@ -19,7 +19,7 @@ export type MovieModeSurfaceContext = {
   fps: number;
   width: number;
   height: number;
-  rightPanelCollapsed: boolean;
+  mediaBinCollapsed: boolean;
 };
 
 export function readMovieModeRightPanelCollapsed(): boolean | null {
@@ -72,7 +72,7 @@ export function dispatchMovieModeSurfaceContext(
     fps: timeline?.fps ?? 30,
     width: timeline?.width ?? 1920,
     height: timeline?.height ?? 1080,
-    rightPanelCollapsed,
+    mediaBinCollapsed: rightPanelCollapsed,
   };
   window.dispatchEvent(new CustomEvent(IAM_MOVIEMODE_SURFACE_CONTEXT, { detail: payload }));
 }
