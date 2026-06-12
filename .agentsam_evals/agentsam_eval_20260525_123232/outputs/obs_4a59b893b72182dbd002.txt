@@ -1,1 +1,0 @@
-{"task_type":"implementation","recommended_profile":"senior_engineer","should_write_files":true,"risk":"medium"}

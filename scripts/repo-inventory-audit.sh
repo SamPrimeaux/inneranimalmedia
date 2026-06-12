@@ -144,6 +144,7 @@ if (( INCLUDE_REPOS )); then
 fi
 
 section "SUGGESTED CLEANUP WORKFLOW"
+emit "  0. Safe local nuke: python3 scripts/repo-cleanup.py  then  --apply"
 emit "  1. Run with --write --repos to save reports under .scratch/repo-inventory-*/"
 emit "  2. Review stale-candidates.txt — never delete without git grep / deploy check"
 emit "  3. Archive then delete: git rm legacy dirs only after confirming zero imports"
