@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronDown, Plus, RefreshCw, Search, SlidersHorizontal } from 'lucide-react';
 import type { ArtifactRecord } from '../../api/artifacts';
-import { fetchArtifacts, fetchArtifactFilters } from '../../api/artifacts';
+import { fetchArtifacts, fetchArtifactFilters, purgeWorkspaceArtifacts } from '../../api/artifacts';
 import { ArtifactCategoryPicker } from '../../components/library/ArtifactCategoryPicker';
 import { ArtifactHomeCard } from '../../components/library/ArtifactHomeCard';
 import { ArtifactFilters } from '../../components/library/ArtifactFilters';
@@ -39,6 +39,7 @@ export default function LibraryPage() {
   const [selected, setSelected] = useState<ArtifactRecord | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [purging, setPurging] = useState(false);
   const [filterMeta, setFilterMeta] = useState<{
     artifact_type: { value: string; count: number }[];
     artifact_status: { value: string; count: number }[];
@@ -142,6 +143,42 @@ export default function LibraryPage() {
   const openArtifact = (a: ArtifactRecord) => {
     setSelected(a);
     setPanelOpen(true);
+  };
+
+  const runLibraryPurge = async () => {
+    if (purging) return;
+    const ok = window.confirm(
+      'Delete ALL artifacts in this workspace from D1 and R2? This cannot be undone. Superadmin only.',
+    );
+    if (!ok) return;
+    setPurging(true);
+    try {
+      const preview = await purgeWorkspaceArtifacts({ dry_run: true });
+      if (!preview.ok) {
+        setToast(preview.error || 'Purge not allowed');
+        return;
+      }
+      const n = preview.d1_rows ?? preview.d1_rows_deleted ?? 0;
+      const r2 = preview.r2_keys_planned ?? preview.r2_keys_deleted ?? 0;
+      const go = window.confirm(`Remove ${n} library rows and ${r2} R2 objects?`);
+      if (!go) return;
+      const out = await purgeWorkspaceArtifacts({ dry_run: false });
+      if (!out.ok) {
+        setToast(out.error || 'Purge failed');
+        return;
+      }
+      setArtifacts([]);
+      setTotal(0);
+      setKpis(null);
+      setSelected(null);
+      setPanelOpen(false);
+      setToast(`Cleared ${out.d1_rows_deleted ?? 0} artifacts`);
+      void load();
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : 'Purge failed');
+    } finally {
+      setPurging(false);
+    }
   };
 
   return (
@@ -275,6 +312,20 @@ export default function LibraryPage() {
                 ))}
               </div>
             ) : null}
+            <div className="rounded-xl border border-[var(--solar-red)]/35 bg-[var(--solar-red)]/5 p-4">
+              <div className="text-sm font-medium text-[var(--text-primary)]">Clean slate</div>
+              <p className="text-xs text-[var(--text-muted)] mt-1 max-w-lg">
+                Wipe every artifact in this workspace (D1 + R2) to preview the empty-state build flow. Superadmin only.
+              </p>
+              <button
+                type="button"
+                className="iam-lib-btn mt-3 w-full sm:w-auto border-[var(--solar-red)]/50 text-[var(--solar-red)]"
+                disabled={purging}
+                onClick={() => void runLibraryPurge()}
+              >
+                {purging ? 'Purging…' : 'Clear workspace library'}
+              </button>
+            </div>
           </div>
         ) : null}
       </div>

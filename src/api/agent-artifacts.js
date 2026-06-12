@@ -6,8 +6,9 @@
  * (agent-artifacts.js: tenant-only scope fixed — all reads require user_id + workspace_id.)
  */
 import { jsonResponse } from '../core/responses.js';
-import { getAuthUser, authUserIsSuperadmin, fetchAuthUserTenantId } from '../core/auth.js';
+import { getAuthUser, authUserIsSuperadmin, fetchAuthUserTenantId, verifyInternalApiSecret } from '../core/auth.js';
 import { resolveAgentDataScope } from '../core/data-isolation-scope.js';
+import { purgeWorkspaceArtifacts, PURGE_CONFIRM } from '../core/artifact-purge.js';
 
 const ARTIFACT_COLS = `a.id, a.user_id, a.tenant_id, a.workspace_id, a.workspace_slug, a.project_key,
   a.name, a.description, a.artifact_type, a.artifact_status, a.validation_status, a.visibility,
@@ -350,6 +351,25 @@ export async function handleAgentArtifactsApi(request, url, env) {
           source: (srcRows || []).map((r) => ({ value: r.value, count: Number(r.n) || 0 })),
         },
       });
+    }
+
+    if (pathLower === '/api/agent/artifacts/purge' && method === 'POST') {
+      const body = await request.json().catch(() => ({}));
+      if (String(body?.confirm || '') !== PURGE_CONFIRM) {
+        return jsonResponse({ ok: false, error: 'confirm_required', expected: PURGE_CONFIRM }, 400);
+      }
+      const internal = verifyInternalApiSecret(request, env);
+      if (!internal && !scope.isSa) {
+        return jsonResponse({ ok: false, error: 'Forbidden — superadmin or internal secret required' }, 403);
+      }
+      const workspaceId = String(body?.workspace_id || scope.workspaceId || '').trim() || null;
+      const out = await purgeWorkspaceArtifacts(env, scope, {
+        workspaceId,
+        dryRun: !!body?.dry_run,
+        deleteR2: body?.delete_r2 !== false,
+      });
+      if (!out.ok) return jsonResponse({ ok: false, ...out }, 400);
+      return jsonResponse({ ok: true, ...out });
     }
 
     if (pathLower === '/api/agent/artifacts' && method === 'GET') {

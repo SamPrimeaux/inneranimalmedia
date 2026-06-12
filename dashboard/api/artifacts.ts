@@ -99,6 +99,38 @@ export async function fetchArtifactFilters(signal?: AbortSignal): Promise<Artifa
   return (await r.json()) as ArtifactFiltersResponse;
 }
 
+export type ArtifactPurgeResponse = {
+  ok: boolean;
+  dry_run?: boolean;
+  workspace_id?: string;
+  d1_rows?: number;
+  d1_rows_deleted?: number;
+  r2_keys_planned?: number;
+  r2_keys_deleted?: number;
+  r2_buckets?: { bucket: string; keys: number }[];
+  error?: string;
+  expected?: string;
+};
+
+export async function purgeWorkspaceArtifacts(opts: {
+  workspace_id?: string;
+  dry_run?: boolean;
+  delete_r2?: boolean;
+}): Promise<ArtifactPurgeResponse> {
+  const r = await fetch('/api/agent/artifacts/purge', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      confirm: 'PURGE_WORKSPACE_ARTIFACTS',
+      workspace_id: opts.workspace_id,
+      dry_run: !!opts.dry_run,
+      delete_r2: opts.delete_r2 !== false,
+    }),
+  });
+  return (await r.json()) as ArtifactPurgeResponse;
+}
+
 export async function patchArtifact(
   id: string,
   body: Record<string, unknown>,
