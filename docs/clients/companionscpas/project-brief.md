@@ -209,17 +209,18 @@ Worker handler: `POST /api/webhooks/stripe` — must verify signature with `STRI
 | Worker version | `446c6431-8841-4fa6-93bd-c5f2c1f93a9c` |
 | D1 project context row | `ctx_cpas_donation_modal_session` (priority 80, `ws_companionscpas`) |
 
-### Donations — D1 telemetry gap (audit)
+### Donations — smoke receipt (2026-06-12)
 
-As of 2026-06-12 D1 query:
+End-to-end smoke **passed** after `STRIPE_WEBHOOK_SECRET` rotation and deploy `070fcadb`.
 
-| Table | Rows | Note |
-|-------|------|------|
-| `donation_intents` | 2 | 1× Stripe test checkout (`checkout_created`); 1× demo |
-| `donations` | **0** | No completed donation rows yet |
-| `stripe_webhooks` | **0** | No persisted webhook events despite Stripe dashboard subscription |
+| Field | Value |
+|-------|-------|
+| PaymentIntent | `pi_3ThUsRRGnRsvqnfi1kMVqPb5` |
+| Amount | $30.00 (3000 cents) |
+| `stripe_webhooks` | `payment_intent.succeeded`, `checkout.session.completed` — both `processed` |
+| `donations` | `succeeded` row(s) created |
 
-**Action:** Run a live/test Elements payment end-to-end; confirm webhook delivery in Stripe dashboard and row inserts in `stripe_webhooks` → `donations`. If webhooks fail, check signing secret, route on custom domain, and handler logs (enable observability first).
+**Follow-up:** Both webhook types fired for one payment → duplicate `donations` row possible; add PaymentIntent idempotency on `checkout.session.completed` in `payments_email.js`.
 
 ## Agent Sam context layers (two databases)
 
@@ -249,7 +250,7 @@ IAM in-app Agent Sam (`ws_inneranimalmedia`) injects `ctx_companionscpas` into `
 
 | Priority | Item |
 |----------|------|
-| P0 | **Donation D1 pipeline unproven** — webhook subscribed in Stripe but `stripe_webhooks` and `donations` empty; smoke-test Elements + hosted paths |
+| P0 | ~~Donation D1 pipeline~~ — **smoke passed** 2026-06-12 (`pi_3ThUsRRGnRsvqnfi1kMVqPb5`); fix dual-webhook duplicate donation idempotency |
 | P1 | ~~Consolidate CPAS `agentsam_project_context`~~ — **done** (624: 2 active + 5 archived) |
 | P1 | ~~IAM project context~~ — **done** (`ctx_companionscpas` active on `ws_inneranimalmedia`, 623/625) |
 | P1 | **Enable worker observability** — logs/traces disabled |

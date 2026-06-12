@@ -208,38 +208,25 @@ Preferred operational memory types:
     memory_type: 'state',
     title: 'CompanionsCPAS Stripe Elements donation — live Jun 2026',
     importance: 9,
-    tags: ['companionscpas', 'donations', 'stripe', 'elements', 'webhook', 'production', 'jun2026'],
-    source: 'project_brief_20260612',
-    value: `CompanionsCPAS Stripe Elements in-modal donation flow is live on companionsofcaddo.org (Jun 2026).
+    tags: ['companionscpas', 'donations', 'stripe', 'elements', 'webhook', 'production', 'jun2026', 'smoke-passed'],
+    source: 'donation_smoke_20260612',
+    value: `CompanionsCPAS Stripe Elements in-modal donation flow is live and smoke-tested on companionsofcaddo.org (Jun 2026).
 
-Flow:
-1. Donor clicks Support Our Mission on /donate.
-2. donate-modal.js opens dark-themed modal.
-3. Donor selects campaign + amount.
-4. Stripe PaymentElement mounts inline (mode elements).
-5. Payment confirms in-modal; hosted Checkout remains fallback (mode checkout).
+Flow: Support Our Mission on /donate → donate-modal.js → campaign + amount → Stripe PaymentElement (mode elements) → confirm in-modal; hosted Checkout fallback (mode checkout).
 
-API: POST /api/donations/checkout
-- elements → client_secret (PaymentIntent)
-- checkout → checkout_url (legacy hosted)
+API: POST /api/donations/checkout — elements returns client_secret; checkout returns checkout_url.
 
-Stripe webhook:
-- Destination: we_1ThIx5RGnRsvqnfiDsw6zLfE (Companions Website Donations Webhook)
-- URL: https://companionsofcaddo.org/api/webhooks/stripe
-- Events: payment_intent.succeeded, payment_intent.payment_failed, checkout.session.completed, charge.refunded
-- API version: 2026-04-22.dahlia
+Stripe webhook destination we_1ThIx5RGnRsvqnfiDsw6zLfE → POST /api/webhooks/stripe.
 
-Deploy receipt: git b591b34, worker 446c6431-8841-4fa6-93bd-c5f2c1f93a9c
-CPAS D1 project context: ctx_cpas_donation_modal_session (priority 80, ws_companionscpas)
+SMOKE PASSED 2026-06-12 13:12:05 UTC:
+- PaymentIntent pi_3ThUsRRGnRsvqnfi1kMVqPb5 — $30.00 (3000 cents) succeeded
+- stripe_webhooks: payment_intent.succeeded + checkout.session.completed — both processed
+- donations row created (succeeded)
+- Worker STRIPE_WEBHOOK_SECRET rotated; deploy 070fcadb-c51b-4874-840a-958553ce1fa5
 
-Active campaigns:
-- campaign_companions_second_chances_2026 (companions-second-chance-fund)
-- camp_medical (emergency-medical-fund)
-- camp_food (feed-the-shelter)
-- camp_transport (transport-support)
+Known follow-up: dual webhook events can duplicate donations (same stripe_payment_intent_id) — PI idempotency on checkout.session.completed in payments_email.js.
 
-D1 audit 2026-06-12: donation_intents=2, donations=0, stripe_webhooks=0.
-Action: run $1 Elements smoke; confirm Stripe dashboard delivery + D1 row inserts.`,
+Active campaigns: campaign_companions_second_chances_2026, camp_medical, camp_food, camp_transport.`,
   },
 ];
 
