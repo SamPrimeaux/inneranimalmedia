@@ -157,8 +157,8 @@
 	"containers": [
 		{
 			"class_name": "MyContainer",
-			"image": "registry.cloudflare.com/ede6590ac0d2fb7daf155b35653457b2/meauxcontainer-mycontainer:6d6f76d2",
-			"instance_type": "lite",
+			"image": "registry.cloudflare.com/ede6590ac0d2fb7daf155b35653457b2/meauxcontainer-mycontainer:sandbox-v2",
+			"instance_type": "basic",
 			"max_instances": 10
 		}
 	],

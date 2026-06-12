@@ -1,5 +1,5 @@
 /**
- * Cloudflare Container DO — reuses registry image meauxcontainer-mycontainer (Jan 2026).
+ * Cloudflare Container DO — iam-sandbox image (sandbox-v2, basic tier).
  * Binding: env.MY_CONTAINER
  */
 import { Container } from '@cloudflare/containers';

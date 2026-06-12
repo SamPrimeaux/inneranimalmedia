@@ -1,7 +1,11 @@
 /**
- * MY_CONTAINER lane — health probe + exec/render dispatch (PTY fallback when needed).
- * Image: registry …/meauxcontainer-mycontainer:6d6f76d2 (lite, 256 MiB).
+ * MY_CONTAINER lane — health probe, exec, render dispatch (PTY fallback when needed).
+ * Image: registry …/meauxcontainer-mycontainer:sandbox-v2 (basic, 1 GiB).
  */
+
+export const CONTAINER_IMAGE_REF =
+  'registry.cloudflare.com/ede6590ac0d2fb7daf155b35653457b2/meauxcontainer-mycontainer:sandbox-v2';
+export const CONTAINER_IMAGE_TAG = 'meauxcontainer-mycontainer:sandbox-v2';
 
 const CONTAINER_POOL_ID = 'meaux-pool';
 const CONTAINER_PORT = 8080;
@@ -13,6 +17,18 @@ function containerNamespace(env) {
 
 /**
  * @param {any} env
+ * @param {{ ports?: number[] }} [opts]
+ */
+async function getContainerStub(env, opts = {}) {
+  const ns = containerNamespace(env);
+  if (!ns?.getByName) return null;
+  const stub = ns.getByName(CONTAINER_POOL_ID);
+  await stub.startAndWaitForPorts({ ports: opts.ports || [CONTAINER_PORT] });
+  return stub;
+}
+
+/**
+ * @param {any} env
  */
 export async function probeMyContainer(env) {
   const ns = containerNamespace(env);
@@ -20,9 +36,11 @@ export async function probeMyContainer(env) {
     return { ok: false, bound: false, lane: 'container', image: null };
   }
   try {
-    const stub = ns.getByName(CONTAINER_POOL_ID);
-    await stub.startAndWaitForPorts({ ports: [CONTAINER_PORT] });
-    const res = await stub.fetch('http://container/');
+    const stub = await getContainerStub(env);
+    if (!stub) {
+      return { ok: false, bound: false, lane: 'container', image: CONTAINER_IMAGE_TAG };
+    }
+    const res = await stub.fetch('http://container/health');
     const text = await res.text().catch(() => '');
     let json = null;
     try {
@@ -31,11 +49,11 @@ export async function probeMyContainer(env) {
       json = { bodyPreview: text.slice(0, 200) };
     }
     return {
-      ok: res.ok,
+      ok: res.ok && json?.ok !== false,
       bound: true,
       lane: 'container',
       status: res.status,
-      image: 'meauxcontainer-mycontainer:6d6f76d2',
+      image: CONTAINER_IMAGE_TAG,
       response: json,
     };
   } catch (e) {
@@ -43,7 +61,7 @@ export async function probeMyContainer(env) {
       ok: false,
       bound: true,
       lane: 'container',
-      image: 'meauxcontainer-mycontainer:6d6f76d2',
+      image: CONTAINER_IMAGE_TAG,
       error: String(e?.message || e).slice(0, 400),
     };
   }
@@ -51,6 +69,54 @@ export async function probeMyContainer(env) {
 
 /** @deprecated use probeMyContainer */
 export const probeMoviemodeRenderContainer = probeMyContainer;
+
+/**
+ * @param {any} env
+ * @param {{ command: string, cwd?: string, timeout_ms?: number }} opts
+ */
+export async function tryContainerExec(env, opts) {
+  const command = String(opts?.command || '').trim();
+  if (!command) {
+    return { ok: false, error: 'command_required', lane: 'container' };
+  }
+
+  const ns = containerNamespace(env);
+  if (!ns?.getByName) {
+    return { ok: false, error: 'container_unbound', lane: 'container' };
+  }
+
+  try {
+    const stub = await getContainerStub(env);
+    if (!stub) {
+      return { ok: false, error: 'container_unbound', lane: 'container' };
+    }
+
+    const res = await stub.fetch('http://container/exec', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        command,
+        cwd: opts.cwd ? String(opts.cwd) : '/tmp',
+        timeout_ms: opts.timeout_ms,
+      }),
+    });
+
+    const data = await res.json().catch(() => ({}));
+    return {
+      lane: 'container',
+      image: CONTAINER_IMAGE_TAG,
+      http_status: res.status,
+      ...data,
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      lane: 'container',
+      image: CONTAINER_IMAGE_TAG,
+      error: String(e?.message || e).slice(0, 400),
+    };
+  }
+}
 
 /**
  * @param {any} env
@@ -64,8 +130,11 @@ export async function tryMoviemodeRenderOnContainer(env, jobId, job) {
   }
 
   try {
-    const stub = ns.getByName(CONTAINER_POOL_ID);
-    await stub.startAndWaitForPorts({ ports: [CONTAINER_PORT] });
+    const stub = await getContainerStub(env);
+    if (!stub) {
+      return { handled: false, fallback: true, reason: 'container_unbound' };
+    }
+
     const res = await stub.fetch('http://container/render', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
