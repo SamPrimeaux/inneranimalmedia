@@ -2083,6 +2083,17 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         result = await executeCatalogInlineAgentSql(env, config, params, runContext);
         break;
       }
+      const moduleKey = String(config.module || config.executor_module || '').toLowerCase();
+      if (moduleKey.includes('cms')) {
+        const handlerKey = String(config.handler || row.handler_key || toolKey || '').trim();
+        const { handlers: cmsHandlers } = await import('../tools/builtin/cms.js');
+        const fn = cmsHandlers[handlerKey] || cmsHandlers[row.tool_key] || cmsHandlers[row.tool_name];
+        if (typeof fn === 'function') {
+          const out = await fn(params, env, { ...runContext, executionCtx: runContext.ctx });
+          result = out?.error ? { ok: false, error: String(out.error), body: out } : { ok: true, body: out };
+          break;
+        }
+      }
       {
         const handlerKey = String(config.handler || row.handler_key || toolKey || '').trim();
         const { handlers: agentHandlers } = await import('../tools/builtin/agent.js');

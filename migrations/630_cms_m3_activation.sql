@@ -10,14 +10,13 @@ WHERE project_id_text IS NULL OR trim(project_id_text) = '';
 CREATE INDEX IF NOT EXISTS idx_cms_page_overrides_slug_path
   ON cms_page_overrides(project_slug, path, section);
 
--- 5.3 Agent cms_edit tool bridge — route catalog tools through builtin cms handlers
+-- 5.3 Agent cms_edit tool bridge — route catalog tools through builtin cms handlers (handler_type=agent)
 UPDATE agentsam_tools
 SET
-  handler_type = 'cms',
+  handler_type = 'agent',
   handler_config = json_object(
     'handler', COALESCE(NULLIF(trim(handler_key), ''), tool_key),
     'module', 'tools/builtin/cms.js'
   ),
   updated_at = unixepoch()
-WHERE tool_key IN ('agentsam_cms_read', 'agentsam_cms_write', 'agentsam_cms_publish')
-  AND is_active = 1;
+WHERE tool_key IN ('agentsam_cms_read', 'agentsam_cms_write', 'agentsam_cms_publish');
