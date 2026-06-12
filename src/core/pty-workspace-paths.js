@@ -86,35 +86,56 @@ export function buildPtySessionWorkingDir(env, { tenantId, userId }) {
 }
 
 /**
- * Resolve PTY cwd from connection target + cwd_strategy.
+ * Operator / workspace repo root from D1 workspace_settings (e.g. /Users/samprimeaux/inneranimalmedia).
  * @param {any} env
- * @param {{ connection?: Record<string, unknown> | null, tenantId: string, userId: string }} ctx
- * @returns {{ cwd: string | null, strategy: string }}
+ * @param {string} workspaceId
+ * @returns {Promise<string | null>}
  */
-export function resolveTerminalCwd(env, { connection = null, tenantId, userId }) {
-  const targetType = String(connection?.target_type || 'platform_vm').trim();
+export async function loadWorkspaceRootFromSettings(env, workspaceId) {
+  const wid = String(workspaceId || '').trim();
+  if (!wid || !env?.DB) return null;
+  try {
+    const row = await env.DB.prepare(
+      'SELECT settings_json FROM workspace_settings WHERE workspace_id = ? LIMIT 1',
+    )
+      .bind(wid)
+      .first();
+    if (!row?.settings_json) return null;
+    const parsed = JSON.parse(String(row.settings_json));
+    const root = typeof parsed?.workspace_root === 'string' ? parsed.workspace_root.trim() : '';
+    return root || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve PTY cwd from connection cwd_strategy (not target_type alone).
+ * - host_default: workspace_settings.workspace_root for operators; null → host shell default
+ * - platform_workspace: isolated /workspace/{tenant_id}/{user_id}/ for customers (Connor, BYOK)
+ * @param {any} env
+ * @param {{ connection?: Record<string, unknown> | null, tenantId: string, userId: string, workspaceId?: string | null }} ctx
+ * @returns {Promise<{ cwd: string | null, strategy: string, unsupported?: boolean }>}
+ */
+export async function resolveTerminalCwd(env, { connection = null, tenantId, userId, workspaceId = null }) {
   const strategy = String(connection?.cwd_strategy || 'platform_workspace').trim() || 'platform_workspace';
-  const platform = String(connection?.platform || 'linux').trim().toLowerCase();
-  const isWindows = platform === 'windows' || platform === 'win32';
 
   if (strategy === 'custom') {
     return { cwd: null, strategy, unsupported: true };
   }
 
-  if (targetType === 'platform_vm' || strategy === 'platform_workspace') {
-    const cwd = buildPtySessionWorkingDir(env, { tenantId, userId });
-    return { cwd, strategy: strategy === 'custom' ? 'platform_workspace' : strategy };
-  }
-
-  if (targetType === 'user_hosted_tunnel') {
-    if (strategy === 'user_home' || strategy === 'host_default') {
-      return { cwd: null, strategy };
-    }
-    if (strategy === 'platform_workspace' && !isWindows) {
-      const cwd = buildPtySessionWorkingDir(env, { tenantId, userId });
-      return { cwd, strategy };
+  if (strategy === 'host_default' || strategy === 'user_home') {
+    const wid = String(workspaceId || connection?.workspace_id || '').trim();
+    if (strategy === 'host_default' && wid) {
+      const root = await loadWorkspaceRootFromSettings(env, wid);
+      if (root) return { cwd: root, strategy: 'host_default' };
     }
     return { cwd: null, strategy };
+  }
+
+  if (strategy === 'platform_workspace') {
+    const cwd = buildPtySessionWorkingDir(env, { tenantId, userId });
+    return { cwd, strategy };
   }
 
   const cwd = buildPtySessionWorkingDir(env, { tenantId, userId });

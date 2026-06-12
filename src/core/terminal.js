@@ -832,10 +832,11 @@ export async function buildTerminalConfigStatus(env, authUser, twCfg, query = {}
   }
 
   const { resolveTerminalCwd } = await import('./pty-workspace-paths.js');
-  const cwdResult = resolveTerminalCwd(env, {
+  const cwdResult = await resolveTerminalCwd(env, {
     connection: conn,
     tenantId,
     userId,
+    workspaceId,
   });
 
   const terminalConfigured =

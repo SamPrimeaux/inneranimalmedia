@@ -528,10 +528,11 @@ export async function handleDashboardApi(request, url, env, ctx) {
             const shellForSession =
                 String(connSel.connection?.shell || shellQ || '/bin/zsh').trim() || '/bin/zsh';
             const { resolveTerminalCwd } = await import('../core/pty-workspace-paths.js');
-            const cwdResolved = resolveTerminalCwd(env, {
+            const cwdResolved = await resolveTerminalCwd(env, {
                 connection: connSel.connection,
                 tenantId: termCtx.tenantId,
                 userId,
+                workspaceId,
             });
             const cwdForSession = cwdResolved.cwd || termCtx.workingDir || '';
             await env.DB.prepare(

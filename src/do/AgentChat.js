@@ -181,11 +181,12 @@ export class AgentChatSqlV1 extends DurableObject {
     return await resolvePtyTenantIdForUser(this.env, null, userId || this.ptSessionUserId);
   }
 
-  applyPtyWorkingDir(tenantId, userId, connection = null) {
-    const cwdResult = resolveTerminalCwd(this.env, {
+  async applyPtyWorkingDir(tenantId, userId, connection = null) {
+    const cwdResult = await resolveTerminalCwd(this.env, {
       connection: connection || this.selectedTerminalConnection,
       tenantId,
       userId,
+      workspaceId: this.workspaceId,
     });
     this.ptyWorkingDir = cwdResult.cwd;
     return cwdResult.cwd;
@@ -627,7 +628,7 @@ export class AgentChatSqlV1 extends DurableObject {
       } catch (_) {}
     }
 
-    this.applyPtyWorkingDir(tenantForRow, this.ptSessionUserId, this.selectedTerminalConnection);
+    await this.applyPtyWorkingDir(tenantForRow, this.ptSessionUserId, this.selectedTerminalConnection);
 
     this.terminalShellOverride = normalizeShellOverride(url.searchParams.get("shell"));
     this.requestedTargetType = (url.searchParams.get("target_type") || "platform_vm").trim();
@@ -738,7 +739,7 @@ export class AgentChatSqlV1 extends DurableObject {
           { status: 403 },
         );
       }
-      this.applyPtyWorkingDir(tidEx, this.ptSessionUserId);
+      await this.applyPtyWorkingDir(tidEx, this.ptSessionUserId);
     }
 
     const command = String(body?.command || "").trim();
@@ -846,7 +847,12 @@ export class AgentChatSqlV1 extends DurableObject {
     } catch (_) {}
     const shellVal = String(this.terminalShellOverride || conn?.shell || "/bin/zsh").trim() || "/bin/zsh";
     const connectionId = conn?.id != null && String(conn.id).trim() !== "" ? String(conn.id).trim() : null;
-    const cwdResult = resolveTerminalCwd(this.env, { connection: conn, tenantId: tid, userId: uid });
+    const cwdResult = await resolveTerminalCwd(this.env, {
+      connection: conn,
+      tenantId: tid,
+      userId: uid,
+      workspaceId: wid,
+    });
     const cwdVal = cwdResult.cwd || "";
     if (conn?.auth_mode === 'token_mint') {
       const existingMint = this.ptSessionMintedToken != null ? String(this.ptSessionMintedToken).trim() : '';
@@ -986,7 +992,7 @@ export class AgentChatSqlV1 extends DurableObject {
     if (targetType === "sandbox") throw new Error("sandbox_not_enabled");
 
     this.selectedTargetType = targetType;
-    this.applyPtyWorkingDir(tid, uid, conn);
+    await this.applyPtyWorkingDir(tid, uid, conn);
 
     let resolvedWsUrl = null;
     if (conn?.ws_url?.trim()) resolvedWsUrl = conn.ws_url.trim();
@@ -996,7 +1002,12 @@ export class AgentChatSqlV1 extends DurableObject {
 
     const shellOpt =
       String(this.terminalShellOverride || conn?.shell || "/bin/zsh").trim() || "/bin/zsh";
-    const cwdResult = resolveTerminalCwd(this.env, { connection: conn, tenantId: tid, userId: uid });
+    const cwdResult = await resolveTerminalCwd(this.env, {
+      connection: conn,
+      tenantId: tid,
+      userId: uid,
+      workspaceId: wid,
+    });
     const cwdOpt = cwdResult.cwd != null ? String(cwdResult.cwd).trim() : "";
 
     const usePtyService = targetType === "platform_vm" && !!this.env?.PTY_SERVICE;
