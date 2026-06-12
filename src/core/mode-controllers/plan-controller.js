@@ -11,6 +11,11 @@ import {
   supersedePendingBatchesForSession,
 } from '../agentsam-plan-intake.js';
 import { scheduleMirrorAgentsamPlanEmbeddingToSupabase } from '../agentsam-plan-supabase-public-sync.js';
+import {
+  isCmsPlanGoal,
+  parseCmsSlugFromPlanGoal,
+} from '../agentsam-plan-intake.js';
+import { linkCmsProjectPlan } from '../cms-project-context.js';
 
 const SSE_HEADERS = {
   'Content-Type': 'text/event-stream',
@@ -96,6 +101,10 @@ async function runPlanCreationPipeline(env, ctx, emit, input) {
   });
 
   const planId = plan.plan_id;
+  const cmsSlugFromGoal = isCmsPlanGoal(input.message) ? parseCmsSlugFromPlanGoal(input.message) : null;
+  if (cmsSlugFromGoal && input.workspaceId) {
+    await linkCmsProjectPlan(env, input.workspaceId, cmsSlugFromGoal, planId);
+  }
   const r2Url = plan.plan_markdown?.public_url ? String(plan.plan_markdown.public_url).trim() : '';
   const filename = `plan-${planId}.md`;
 
@@ -251,6 +260,17 @@ export async function executePlanTurn(env, ctx, input) {
         const batchId = newPlanIntakeBatchId();
         const questionsUi = formatPlanIntakeQuestionsForUi(intake.questions);
 
+        const cmsSlug = isCmsPlanGoal(message) ? parseCmsSlugFromPlanGoal(message) : null;
+        const cmsMeta = cmsSlug
+          ? JSON.stringify({
+              source: 'cms_studio',
+              project_slug: cmsSlug,
+              page_id: body.page_id ?? body.pageId ?? null,
+              bootstrap_cache_key: body.bootstrap_cache_key ?? null,
+              collab_room: body.collab_room ?? (cmsSlug ? `cms:${body.page_id || ''}` : null),
+            })
+          : null;
+
         await insertPlanIntakeBatch(env, {
           id: batchId,
           tenant_id: tenantId || env?.TENANT_ID || '',
@@ -262,6 +282,7 @@ export async function executePlanTurn(env, ctx, input) {
           goal_text: message,
           explore_summary_json: JSON.stringify({ ...explore, synthesis: intake.synthesis }),
           questions_json: JSON.stringify(intake.questions),
+          optional_details: cmsMeta,
         });
 
         emit('plan_questions_batch', {

@@ -7,28 +7,96 @@ const Icon = ({ id, size = 14, className = "" }) => (
   </svg>
 );
 
-/* ─── Build script ──────────────────────────────────────── */
-// Simulated build: each step adds files, posts an activity line,
-// and advances the canvas. Tuned to feel like real work.
+/* Initial files when Agent Sam produces artifacts */
+const STARTER_FILES = [];
 
-const BUILD_SCRIPT = [
-  { delay: 350, log: "Parsing intent · extracting domain entities", phase: "Planning" },
-  { delay: 550, log: "Spec drafted: 4 entities, 7 routes, 2 background jobs", phase: "Planning" },
-  { delay: 400, addFiles: ["spec/PROJECT.md", "spec/schema.yaml"], log: "+ spec/PROJECT.md  + spec/schema.yaml", phase: "Planning" },
-  { delay: 500, addFiles: ["app/routes.ts"], log: "Scaffolding routes …", phase: "Scaffolding" },
-  { delay: 450, addFiles: ["db/migrations/001_init.sql", "db/seed.ts"], log: "+ db/migrations/001_init.sql", phase: "Scaffolding" },
-  { delay: 600, addFiles: ["app/models/User.ts", "app/models/Project.ts", "app/models/Asset.ts", "app/models/Comment.ts"], log: "Generated 4 models from schema", phase: "Models", switchCanvas: "schema" },
-  { delay: 600, addFiles: ["app/api/projects.ts", "app/api/assets.ts", "app/api/comments.ts"], log: "Wired API handlers · 7 endpoints", phase: "API" },
-  { delay: 550, addFiles: ["app/ui/Layout.tsx", "app/ui/Sidebar.tsx", "app/ui/Composer.tsx"], log: "Composing UI shell", phase: "UI", switchCanvas: "code" },
-  { delay: 700, addFiles: ["app/ui/Canvas.tsx", "app/ui/FileTree.tsx", "app/ui/Hero.tsx"], log: "Hero · cards · file tree", phase: "UI" },
-  { delay: 500, addFiles: ["app/lib/claude.ts", "app/lib/stream.ts"], log: "Anthropic client wired · streaming on", phase: "AI" },
-  { delay: 450, addFiles: ["public/og.png", "public/favicon.svg", "tailwind.config.ts"], log: "Theming · tokens · brand assets", phase: "UI" },
-  { delay: 800, log: "Compiling · 142 modules · 0 errors", phase: "Building", switchCanvas: "preview-skeleton" },
-  { delay: 900, log: "Hot reload ready · http://localhost:3000", phase: "Ready", switchCanvas: "preview", status: "done" },
+const DASHBOARD_THEME_KEYS = [
+  '--bg-canvas', '--bg-app', '--bg-panel', '--bg-hover', '--bg-elevated',
+  '--border-subtle', '--border-focus', '--text-main', '--text-muted', '--text-heading',
+  '--solar-cyan', '--solar-orange', '--solar-green', '--solar-blue', '--solar-red',
+  '--dashboard-panel', '--dashboard-canvas', '--dashboard-border',
 ];
 
-/* Initial files when nothing has been built */
-const STARTER_FILES = [];
+function applyCmsThemeVars(vars) {
+  if (!vars || typeof vars !== 'object') return;
+  const root = document.documentElement;
+  for (const [rawKey, val] of Object.entries(vars)) {
+    if (val == null || String(val).trim() === '') continue;
+    const key = String(rawKey).startsWith('--') ? String(rawKey) : `--${String(rawKey).replace(/^-+/, '')}`;
+    root.style.setProperty(key, String(val));
+  }
+}
+
+function tryCopyParentTheme() {
+  try {
+    const parentRoot = window.parent?.document?.documentElement;
+    if (!parentRoot || parentRoot === document.documentElement) return;
+    const cs = window.parent.getComputedStyle(parentRoot);
+    const vars = {};
+    for (const key of DASHBOARD_THEME_KEYS) {
+      const v = cs.getPropertyValue(key).trim();
+      if (v) vars[key] = v;
+    }
+    const slug = parentRoot.getAttribute('data-theme');
+    if (slug) document.documentElement.setAttribute('data-theme', slug);
+    applyCmsThemeVars(vars);
+  } catch (_) {}
+}
+
+function askAgentSam(message, opts = {}) {
+  const text = String(message || '').trim();
+  if (!text) return;
+  const ctx = readStudioContext();
+  const detail = {
+    message: text,
+    task_type: opts.task_type || 'cms_edit',
+    route_key: opts.route_key || 'cms_edit',
+    ensureAgentPanel: true,
+    send: opts.send !== false,
+    force_plan_mode: opts.force_plan_mode === true,
+    project_slug: ctx.projectSlug,
+    page_id: ctx.pageId || null,
+    workspace_id: ctx.workspaceId || null,
+    bootstrap_cache_key: ctx.workspaceId
+      ? `cms:bootstrap:${ctx.workspaceId}:${ctx.projectSlug}`
+      : null,
+    collab_room: ctx.pageId ? `cms:${ctx.pageId}` : null,
+  };
+  try {
+    window.parent.postMessage(
+      {
+        type: detail.send ? 'iam-agent-chat-new-thread' : 'iam-agent-chat-compose',
+        detail,
+      },
+      window.location.origin,
+    );
+  } catch (_) {}
+}
+
+function askAgentSamPlan(goalSuffix, opts = {}) {
+  const ctx = readStudioContext();
+  const goal = `[CMS · ${ctx.projectSlug}] ${String(goalSuffix || '').trim()}`;
+  askAgentSam(goal, {
+    ...opts,
+    task_type: 'plan',
+    route_key: 'plan',
+    force_plan_mode: true,
+  });
+}
+
+const STARTER_PROMPTS = {
+  'Use a template': 'Help me pick a CMS template and scaffold pages for this project from cms_component_templates.',
+  'Add a screenshot': 'I will attach a screenshot — match this UI and map sections to cms_pages and cms_page_sections.',
+  'Connect a codebase': 'Connect my GitHub repo and continue building CMS pages from existing code.',
+  'Drop in a Figma file': 'Import design tokens and components from a Figma file into this CMS project.',
+};
+
+const EXAMPLE_PROMPTS = [
+  'A recipe CMS for a Mediterranean café',
+  'A reading-list app with weekly digests',
+  'An internal admin for managing leads',
+  'A subscription paywall on top of my blog',
+];
 
 /* ─── File tree ─────────────────────────────────────────── */
 function buildTree(files) {
@@ -72,13 +140,14 @@ function fileIcon(name) {
 
 const IAM_LOGO =
   "https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/8e323ffb-4338-41dc-1f71-9c7bdc57bb00/public";
-const AGENT_MODES = ["Agent", "Plan", "Debug", "Ask", "Multitask"];
 
 function readStudioContext() {
   const params = new URLSearchParams(location.search);
   return {
     projectSlug: params.get("project") || "inneranimalmedia",
+    pageId: params.get("page") || "",
     workspaceId: params.get("workspace_id") || "",
+    studioPanel: params.get("panel") || "pages",
   };
 }
 
@@ -101,7 +170,7 @@ async function apiJson(path, opts = {}) {
   return res.json();
 }
 
-function Topbar({ phase, building, workspaceLabel, projectSlug, projectLabel, userInitials, onShare, onDeploy }) {
+function Topbar({ phase, workspaceLabel, projectSlug, projectLabel, userInitials, onShare, onDeploy }) {
   return (
     <div className="topbar">
       <div className="logo-mark">
@@ -118,7 +187,7 @@ function Topbar({ phase, building, workspaceLabel, projectSlug, projectLabel, us
       <div className="spacer"></div>
       <span className="pill">
         <span className="dot"></span>
-        {building ? phase : "Idle · ready"}
+        {phase === "Deploying" ? phase : "Idle · ready"}
       </span>
       <button type="button" className="btn" onClick={onShare}><Icon id="share" />Share</button>
       <button type="button" className="btn primary" onClick={onDeploy}><Icon id="deploy" />Deploy</button>
@@ -127,174 +196,54 @@ function Topbar({ phase, building, workspaceLabel, projectSlug, projectLabel, us
   );
 }
 
-function Welcome({ onPick, onSendExample }) {
+function EmptyCanvas({ onSketch, onAskAgent, showToast }) {
   const starters = [
-    { ic: "doc", color: "var(--accent-3)", label: "Use a template", desc: "Blog · SaaS · Storefront · Admin", kbd: "T" },
-    { ic: "image", color: "var(--blue)", label: "Add a screenshot", desc: "Match an existing UI", kbd: "S" },
-    { ic: "code", color: "var(--ink-2)", label: "Connect a codebase", desc: "Continue from a repo", kbd: "C" },
-    { ic: "figma", color: "var(--red)", label: "Drop in a Figma file", desc: "Bring tokens + components", kbd: "F" },
+    { ic: "doc", color: "var(--accent-3)", label: "Use a template", desc: "Blog · SaaS · Storefront · Admin" },
+    { ic: "image", color: "var(--solar-blue, #3a9fe8)", label: "Add a screenshot", desc: "Match an existing UI" },
+    { ic: "code", color: "var(--ink-2)", label: "Connect a codebase", desc: "Continue from a repo" },
+    { ic: "figma", color: "var(--solar-red, #e63333)", label: "Drop in a Figma file", desc: "Bring tokens + components" },
   ];
-  const examples = [
-    "A recipe CMS for a Mediterranean café",
-    "A reading-list app with weekly digests",
-    "An internal admin for managing leads",
-    "A subscription paywall on top of my blog",
-  ];
+
+  const pickStarter = (label) => {
+    const msg = STARTER_PROMPTS[label] || label;
+    askAgentSamPlan(msg);
+    showToast?.('Opening Plan mode →');
+    onAskAgent?.();
+  };
+
+  const pickExample = (ex) => {
+    askAgentSamPlan(`Build: ${ex}`);
+    showToast?.('Opening Plan mode →');
+    onAskAgent?.();
+  };
+
   return (
-    <div>
+    <div className="empty empty-with-starters">
       <div className="welcome">
-        <h1>Supercharge <em>Success</em></h1>
-        <p>Build and refine apps for your workspace — drop assets, connect repos, sketch ideas, and ship to production.</p>
+        <h1>Start in <em>Agent Sam</em></h1>
+        <p>Quick actions open Agent Sam on the right with CMS context for this project — pages, sections, and themes from D1.</p>
       </div>
-      <div className="starters">
+      <div className="starters starters-grid">
         {starters.map((s) => (
-          <button key={s.label} className="starter" onClick={() => onPick(s.label)}>
+          <button key={s.label} type="button" className="starter" onClick={() => pickStarter(s.label)}>
             <span className="ic" style={{ background: s.color }}><Icon id={s.ic} size={14} /></span>
             <span className="body">
               <div className="label">{s.label}</div>
               <div className="desc">{s.desc}</div>
             </span>
-            <span className="kbd">{s.kbd}</span>
           </button>
         ))}
       </div>
       <div className="examples-label">Or try one of these</div>
-      {examples.map((ex) => (
-        <div key={ex} className="example" onClick={() => onSendExample(ex)}>
-          <Icon id="sparkle" />
-          <span>{ex}</span>
-          <Icon id="chev" className="arr" size={12} />
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function Composer({ value, setValue, onSend, disabled, agentMode, setAgentMode, onAttach, onToolPick }) {
-  const taRef = useRef(null);
-  const fileRef = useRef(null);
-  const [toolsOpen, setToolsOpen] = useState(false);
-  useEffect(() => {
-    const ta = taRef.current;
-    if (!ta) return;
-    ta.style.height = "44px";
-    ta.style.height = Math.min(ta.scrollHeight, 140) + "px";
-  }, [value]);
-
-  const handleKey = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      if (value.trim()) onSend();
-    }
-  };
-
-  const tools = [
-    { id: "attach", label: "Attach file", icon: "paperclip" },
-    { id: "repo", label: "Connect codebase", icon: "code" },
-    { id: "screenshot", label: "Add screenshot", icon: "image" },
-    { id: "mcp", label: "MCP tools", icon: "bolt" },
-  ];
-
-  return (
-    <div className="composer">
-      {toolsOpen && (
-        <div className="composer-tools-menu">
-          {tools.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => {
-                setToolsOpen(false);
-                if (t.id === "attach") fileRef.current?.click();
-                else onToolPick?.(t.id);
-              }}
-            >
-              <Icon id={t.icon} size={12} /> {t.label}
-            </button>
-          ))}
-        </div>
-      )}
-      <input ref={fileRef} type="file" hidden multiple onChange={(e) => onAttach?.(e.target.files)} />
-      <div className="composer-box">
-        <textarea
-          ref={taRef}
-          value={value}
-          placeholder="Describe what you want to build…"
-          onChange={(e) => setValue(e.target.value)}
-          onKeyDown={handleKey}
-          disabled={disabled}
-        />
-        <div className="composer-row">
-          <button type="button" className="plus-btn" title="Add files & tools" onClick={() => setToolsOpen((v) => !v)}>
-            <Icon id="plus" size={13} />
+      <div className="examples-compact">
+        {EXAMPLE_PROMPTS.map((ex) => (
+          <button key={ex} type="button" className="example" onClick={() => pickExample(ex)}>
+            <Icon id="sparkle" />
+            <span>{ex}</span>
+            <Icon id="chev" className="arr" size={12} />
           </button>
-          <select className="agent-mode" value={agentMode} onChange={(e) => setAgentMode(e.target.value)} aria-label="Agent mode">
-            {AGENT_MODES.map((m) => (
-              <option key={m} value={m}>{m}</option>
-            ))}
-          </select>
-          <button type="button" className="chip" title="Voice"><Icon id="mic" /></button>
-          <button type="button" className="model">
-            <Icon id="sparkle" size={11} />
-            Agent Sam
-            <Icon id="chev-d" size={11} />
-          </button>
-          <button type="button" className="send" disabled={disabled || !value.trim()} onClick={onSend}>
-            <Icon id="send" size={11} /> Build
-          </button>
-        </div>
+        ))}
       </div>
-    </div>
-  );
-}
-
-function ChatMessages({ messages, building }) {
-  const scrollRef = useRef(null);
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [messages.length, building]);
-
-  return (
-    <div className="chat-scroll" ref={scrollRef}>
-      {messages.map((m, i) => (
-        <div key={i} className={`msg ${m.role}`}>
-          <div className="av">{m.role === "user" ? "S" : "A"}</div>
-          <div className="body">
-            <div className="meta">
-              <b style={{ color: "var(--ink)", fontWeight: 500 }}>{m.role === "user" ? "You" : "PrimeTech"}</b>
-              <span>·</span>
-              <span>{m.time}</span>
-            </div>
-            <div style={{ whiteSpace: "pre-wrap" }}>{m.text}</div>
-            {m.tags && (
-              <div className="pill-row">
-                {m.tags.map((t) => <span key={t} className="tag">{t}</span>)}
-              </div>
-            )}
-            {m.actions && m.actions.map((a, j) => (
-              <div key={j} className={`action-card ${a.done ? "done" : ""}`}>
-                <span className="spin"></span>
-                <span>{a.label}</span>
-                {a.done && a.detail && <span style={{ marginLeft: "auto", color: "var(--muted)", fontFamily: 'JetBrains Mono, monospace', fontSize: 11 }}>{a.detail}</span>}
-              </div>
-            ))}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/* ─── Canvas content variants ───────────────────────────── */
-
-function EmptyCanvas({ onSketch }) {
-  return (
-    <div className="empty">
-      <Icon id="sparkle" size={28} className="" />
-      <div className="title">Your studio is empty</div>
-      <div className="sub">Describe an idea on the left and watch it materialize here — files, schema, UI, and a live preview, all at once.</div>
       <button type="button" className="cta" onClick={onSketch}><Icon id="plus" size={11} /> Start with a sketch</button>
     </div>
   );
@@ -480,12 +429,8 @@ function Studio() {
   }, [t.accent]);
 
   const ctx = useMemo(() => readStudioContext(), []);
-  const [composerValue, setComposerValue] = useState("");
-  const [agentMode, setAgentMode] = useState("Agent");
-  const [messages, setMessages] = useState([]);
   const [files, setFiles] = useState(STARTER_FILES);
   const [activeTab, setActiveTab] = useState("preview");
-  const [building, setBuilding] = useState(false);
   const [phase, setPhase] = useState("Idle");
   const [activity, setActivity] = useState("Awaiting your move.");
   const [stats, setStats] = useState({ files: 0, lines: 0, time: "0s" });
@@ -496,9 +441,20 @@ function Studio() {
   const [workspaceLabel, setWorkspaceLabel] = useState("");
   const [userInitials, setUserInitials] = useState("IA");
   const [toast, setToast] = useState("");
-  const buildStart = useRef(null);
-  const buildTimer = useRef(null);
   const projectSlug = ctx.projectSlug;
+
+  useEffect(() => {
+    tryCopyParentTheme();
+    const onTheme = (event) => {
+      if (event.origin !== window.location.origin) return;
+      const data = event.data;
+      if (!data || data.type !== 'iam-cms-theme') return;
+      applyCmsThemeVars(data.vars);
+      if (data.slug) document.documentElement.setAttribute('data-theme', data.slug);
+    };
+    window.addEventListener('message', onTheme);
+    return () => window.removeEventListener('message', onTheme);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -506,6 +462,10 @@ function Studio() {
       .then((data) => {
         if (cancelled) return;
         setWorkspaceLabel(data.tenant?.name || projectSlug);
+        if (data.active_theme?.css_vars) applyCmsThemeVars(data.active_theme.css_vars);
+        if (data.active_theme?.slug) {
+          document.documentElement.setAttribute('data-theme', data.active_theme.slug);
+        }
       })
       .catch(() => {
         if (!cancelled) setWorkspaceLabel(projectSlug);
@@ -563,141 +523,8 @@ function Studio() {
     }
   };
 
-  const onAttach = (fileList) => {
-    if (!fileList?.length) return;
-    const names = [...fileList].map((f) => f.name).join(", ");
-    setComposerValue((v) => (v ? `${v}\n` : "") + `[attached: ${names}]`);
-    showToast(`Attached ${fileList.length} file(s)`);
-  };
-
-  const onToolPick = (toolId) => {
-    const prompts = {
-      repo: "Connect my GitHub repo and scaffold from existing code: ",
-      screenshot: "Match this screenshot UI and wire it to cms_pages: ",
-      mcp: "Use MCP tools to inspect D1 schema and generate CMS sections: ",
-    };
-    if (prompts[toolId]) setComposerValue((v) => (v ? `${v} ` : "") + prompts[toolId]);
-  };
-
   const tree = useMemo(() => buildTree(files), [files]);
   const flat = useMemo(() => flattenTree(tree), [tree]);
-
-  const startBuild = (prompt) => {
-    const tagged = `[${agentMode}] ${prompt}`;
-    setBuilding(true);
-    setActiveTab("preview");
-    setCanvasMode("preview-skeleton");
-    buildStart.current = Date.now();
-
-    // Determine a project name from the prompt
-    const inferredName = (() => {
-      if (/recipe|café|cafe|menu|kitchen/i.test(prompt)) return "Folio";
-      if (/reading|digest|blog/i.test(prompt)) return "Margins";
-      if (/admin|lead|crm/i.test(prompt)) return "Console";
-      return "Untitled";
-    })();
-    setProjectName(inferredName);
-
-    const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    setMessages((m) => [
-      ...m,
-      { role: "user", text: tagged, time: now },
-      { role: "ai", time: now,
-        text: "Working on it. I'll plan the schema, scaffold routes, generate the UI, and stream a live preview as it builds.",
-        tags: ["claude-sonnet-4-5", "full-stack", "Anthropic SDK"],
-        actions: [
-          { label: "Plan domain & schema", done: false },
-          { label: "Scaffold backend + DB", done: false },
-          { label: "Compose UI from templates", done: false },
-          { label: "Boot preview server", done: false },
-        ],
-      },
-    ]);
-
-    let idx = 0;
-    const runStep = () => {
-      if (idx >= BUILD_SCRIPT.length) {
-        setBuilding(false);
-        setPhase("Ready");
-        setActivity("Build complete · preview live at localhost:3000");
-        // mark all actions done
-        setMessages((ms) => {
-          const out = [...ms];
-          const last = out[out.length - 1];
-          if (last && last.actions) {
-            last.actions = last.actions.map(a => ({ ...a, done: true }));
-          }
-          return out;
-        });
-        return;
-      }
-      const step = BUILD_SCRIPT[idx];
-      buildTimer.current = setTimeout(() => {
-        if (step.addFiles) {
-          setFiles((prev) => {
-            const next = [...prev];
-            step.addFiles.forEach((p) => {
-              if (!next.find((f) => f.path === p)) next.push({ path: p, isNew: true });
-            });
-            // Clear isNew on old additions
-            return next.map((f, i) => i < prev.length ? { ...f, isNew: false } : f);
-          });
-        }
-        if (step.phase) setPhase(step.phase);
-        if (step.log) setActivity(step.log);
-        if (step.switchCanvas) setCanvasMode(step.switchCanvas);
-
-        // progressively mark message actions done
-        const actionMap = {
-          "Planning": 0,
-          "Scaffolding": 1,
-          "Models": 1,
-          "API": 1,
-          "UI": 2,
-          "AI": 2,
-          "Building": 3,
-          "Ready": 3,
-        };
-        const completeIdx = actionMap[step.phase];
-        if (completeIdx != null) {
-          setMessages((ms) => {
-            const out = [...ms];
-            const last = out[out.length - 1];
-            if (last && last.actions) {
-              last.actions = last.actions.map((a, j) => j <= completeIdx ? { ...a, done: true } : a);
-            }
-            return out;
-          });
-        }
-
-        // stats
-        const elapsed = Math.round((Date.now() - buildStart.current) / 1000);
-        setStats((s) => ({
-          files: (step.addFiles ? s.files + step.addFiles.length : s.files),
-          lines: s.lines + Math.floor(Math.random() * 80 + 40),
-          time: `${elapsed}s`,
-        }));
-
-        idx++;
-        runStep();
-      }, step.delay);
-    };
-    runStep();
-  };
-
-  useEffect(() => () => clearTimeout(buildTimer.current), []);
-
-  const onSend = () => {
-    if (!composerValue.trim() || building) return;
-    const v = composerValue.trim();
-    setComposerValue("");
-    startBuild(v);
-  };
-
-  const onSendExample = (text) => {
-    setComposerValue(text);
-    setTimeout(() => startBuild(text), 60);
-  };
 
   const onSketch = () => {
     try {
@@ -718,7 +545,6 @@ function Studio() {
     <>
       <Topbar
         phase={phase}
-        building={building}
         workspaceLabel={workspaceLabel}
         projectSlug={projectSlug}
         projectLabel={projectName || "New project"}
@@ -727,35 +553,6 @@ function Studio() {
         onDeploy={handleDeploy}
       />
       <div className="main">
-        {/* LEFT: Chat */}
-        <div className="chat">
-          <div className="chat-header">
-            <h2>{projectName ? projectName : "New project"}</h2>
-            <div style={{ display: 'flex', gap: 4 }}>
-              <button className="icon-btn" title="History"><Icon id="history" /></button>
-              <button className="icon-btn" title="New"><Icon id="plus" /></button>
-            </div>
-          </div>
-          {messages.length === 0 ? (
-            <div className="chat-scroll">
-              <Welcome onPick={(l) => setComposerValue(l + ": ")} onSendExample={onSendExample} />
-            </div>
-          ) : (
-            <ChatMessages messages={messages} building={building} />
-          )}
-          <Composer
-            value={composerValue}
-            setValue={setComposerValue}
-            onSend={onSend}
-            disabled={building}
-            agentMode={agentMode}
-            setAgentMode={setAgentMode}
-            onAttach={onAttach}
-            onToolPick={onToolPick}
-          />
-        </div>
-
-        {/* RIGHT: Workspace */}
         <div className="work">
           <div className="tabs">
             {tabs.map((tab) => (
@@ -766,7 +563,6 @@ function Studio() {
               >
                 <Icon id={tab.icon} size={12} />
                 {tab.label}
-                {tab.id === "preview" && building && <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)', marginLeft: 4 }}></span>}
               </button>
             ))}
             <div className="spacer"></div>
@@ -783,7 +579,7 @@ function Studio() {
               <div className="tree-section">project</div>
               {flat.length === 0 && (
                 <div style={{ padding: '24px 12px', textAlign: 'center', color: 'var(--muted)', fontSize: 11.5 }}>
-                  Files will appear here as PrimeTech produces them.
+                  Files will appear here as Agent Sam builds this project.
                 </div>
               )}
               {flat.map((node, i) => (
@@ -821,14 +617,8 @@ function Studio() {
               </div>
 
               <div className="canvas">
-                {canvasMode !== "empty" && (
-                  <div className={`build-status ${!building ? "done" : ""}`}>
-                    <span className="dot"></span>
-                    {building ? `${phase}…` : "Live · synced just now"}
-                  </div>
-                )}
                 {activeTab === "preview" && canvasMode === "empty" && (
-                  <EmptyCanvas onSketch={onSketch} />
+                  <EmptyCanvas onSketch={onSketch} showToast={showToast} />
                 )}
                 {activeTab === "preview" && canvasMode === "preview-skeleton" && (
                   <div className={`preview-frame ${device}`}><PreviewSkeleton /></div>
@@ -838,17 +628,17 @@ function Studio() {
                 )}
                 {activeTab === "code" && (
                   files.length === 0
-                    ? <EmptyCanvas onSketch={onSketch} />
+                    ? <EmptyCanvas onSketch={onSketch} showToast={showToast} />
                     : <CodeCanvas />
                 )}
                 {activeTab === "schema" && (
                   files.length === 0
-                    ? <EmptyCanvas onSketch={onSketch} />
+                    ? <EmptyCanvas onSketch={onSketch} showToast={showToast} />
                     : <SchemaCanvas />
                 )}
                 {activeTab === "assets" && (
                   <div style={{ width: '100%', height: '100%', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, alignContent: 'start' }}>
-                    {files.length === 0 ? <div style={{ gridColumn: '1/-1' }}><EmptyCanvas onSketch={onSketch} /></div> :
+                    {files.length === 0 ? <div style={{ gridColumn: '1/-1' }}><EmptyCanvas onSketch={onSketch} showToast={showToast} /></div> :
                       [...Array(8)].map((_, i) => (
                         <div key={i} style={{ aspectRatio: '4/3', background: 'var(--paper)', border: '1px solid var(--line)', borderRadius: 10, display: 'grid', placeItems: 'center', color: 'var(--muted)', fontFamily: 'JetBrains Mono, monospace', fontSize: 11 }}>
                           asset_{(i+1).toString().padStart(2, '0')}
@@ -860,7 +650,7 @@ function Studio() {
 
               {/* Activity strip */}
               <div className="activity-strip">
-                <span className={`dot ${building ? "" : "idle"}`}></span>
+                <span className="dot idle"></span>
                 <span><b>{phase}</b></span>
                 <span className="ticker">{activity}</span>
                 <span className="stat"><b>{stats.files}</b> files</span>
@@ -891,7 +681,6 @@ function Studio() {
             />
             <window.TweakButton onClick={() => {
               setFiles([]);
-              setMessages([]);
               setCanvasMode("empty");
               setActiveTab("preview");
               setPhase("Idle");
@@ -901,9 +690,9 @@ function Studio() {
             }}>Reset session</window.TweakButton>
           </window.TweakSection>
           <window.TweakSection title="Try a prompt">
-            <window.TweakButton onClick={() => onSendExample("A recipe CMS for a Mediterranean café")}>Recipe CMS</window.TweakButton>
-            <window.TweakButton onClick={() => onSendExample("A reading-list app with weekly digests")}>Reading list</window.TweakButton>
-            <window.TweakButton onClick={() => onSendExample("An internal admin for managing leads")}>Lead admin</window.TweakButton>
+            <window.TweakButton onClick={() => askAgentSam('[CMS] A recipe CMS for a Mediterranean café')}>Recipe CMS</window.TweakButton>
+            <window.TweakButton onClick={() => askAgentSam('[CMS] A reading-list app with weekly digests')}>Reading list</window.TweakButton>
+            <window.TweakButton onClick={() => askAgentSam('[CMS] An internal admin for managing leads')}>Lead admin</window.TweakButton>
           </window.TweakSection>
         </window.TweaksPanel>
       )}

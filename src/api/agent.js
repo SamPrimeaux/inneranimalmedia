@@ -1223,6 +1223,12 @@ export async function agentChatSseHandler(env, request, ctx, opts = {}) {
   } catch (_) {
     browserContextPayload = null;
   }
+  const cmsRaw = body.cms_context ?? body.cmsContext;
+  if (cmsRaw && typeof cmsRaw === 'object') {
+    browserContextPayload = browserContextPayload && typeof browserContextPayload === 'object'
+      ? { ...browserContextPayload, cms_context: cmsRaw }
+      : { cms_context: cmsRaw };
+  }
 
   logSurfacePreflightIntentDebug(message, requestedMode);
   const surfacePreflight = await resolveSurfaceWorkflowPreflightExecution(

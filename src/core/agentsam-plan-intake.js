@@ -143,11 +143,60 @@ Rules:
  *   userId?: string|null,
  * }} opts
  */
+/** CMS plan intake — used when goal is tagged [CMS · slug]. */
+export function cmsPlanIntakeSeedQuestions(projectSlug) {
+  const slug = String(projectSlug || 'this site').trim();
+  return [
+    {
+      id: 'cms_start',
+      question: `How should we build CMS pages for **${slug}**?`,
+      options: ['Start from cms_component_templates', 'Build from scratch in studio', 'Import existing R2/HTML'],
+    },
+    {
+      id: 'cms_home',
+      question: `What should be the homepage route for **${slug}**?`,
+      options: ['/', '/home', 'Keep existing homepage from cms_pages'],
+    },
+    {
+      id: 'cms_theme',
+      question: `Which theme should we activate for **${slug}**?`,
+      options: ['Use active cms_themes row', 'Clone inneranimalmedia theme', 'Define new theme slug'],
+    },
+  ];
+}
+
+/**
+ * @param {string} goal
+ */
+export function isCmsPlanGoal(goal) {
+  return /^\[CMS\b/i.test(String(goal || '').trim());
+}
+
+/**
+ * @param {string} goal
+ */
+export function parseCmsSlugFromPlanGoal(goal) {
+  const m = String(goal || '').match(/^\[CMS\s*[·•]\s*([^\]]+)\]/i);
+  return m ? String(m[1]).trim() : null;
+}
+
 export async function generatePlanIntakeQuestions(env, opts) {
   const goal = String(opts?.goal || '').trim();
   const explore = opts?.explore || {};
   const phase = String(opts?.phase || 'pre_plan');
   const roadblock = opts?.roadblock || null;
+
+  if (isCmsPlanGoal(goal)) {
+    const slug = parseCmsSlugFromPlanGoal(goal) || 'site';
+    const questions = cmsPlanIntakeSeedQuestions(slug);
+    return {
+      needs_questions: true,
+      synthesis:
+        explore.synthesis ||
+        `CMS plan for ${slug} — clarify template vs scratch, homepage route, and theme before execution.`,
+      questions,
+    };
+  }
 
   const findingLines = (Array.isArray(explore.findings) ? explore.findings : [])
     .slice(0, 5)

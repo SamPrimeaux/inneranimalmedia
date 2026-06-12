@@ -23,7 +23,7 @@ type ParsedCmsRoute = {
   legacy: boolean;
 };
 
-function parseCmsRoute(pathname: string, searchParams: URLSearchParams): ParsedCmsRoute {
+export function parseCmsRoute(pathname: string, searchParams: URLSearchParams): ParsedCmsRoute {
   const parts = pathname.split('/').filter(Boolean);
   const cmsIdx = parts.indexOf('cms');
   const rest = cmsIdx >= 0 ? parts.slice(cmsIdx + 1) : [];

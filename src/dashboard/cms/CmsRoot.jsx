@@ -849,42 +849,80 @@ function ThemePanel({ themes, activeThemeId, projectSlug, onActivate, onToast })
 
 function usePresence(pageId, workspaceId) {
   const [peers, setPeers] = useState([]);
+  const [liveSession, setLiveSession] = useState(null);
   const wsRef = useRef(null);
 
   useEffect(() => {
     if (!pageId || !workspaceId) return;
-    const room = `cms:${pageId}`;
-    const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/collab/room/${encodeURIComponent(room)}?workspace_id=${workspaceId}`;
-
+    let cancelled = false;
     let ws;
-    try {
-      ws = new WebSocket(url);
-      wsRef.current = ws;
-    } catch (_) { return; }
+    let heartbeat;
 
-    ws.onopen = () => ws.send(JSON.stringify({ type:'presence_join', page_id: pageId }));
-    ws.onmessage = (e) => {
+    const connect = async () => {
+      let session = null;
       try {
-        const msg = JSON.parse(e.data);
-        if (msg.type === 'presence_state') {
-          setPeers(msg.peers || []);
-        }
+        const joinRes = await fetch('/api/cms/live-session/join', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ page_id: pageId }),
+        });
+        if (joinRes.ok) session = await joinRes.json();
       } catch (_) {}
-    };
-    ws.onclose = () => setPeers([]);
 
-    // Send heartbeat
-    const heartbeat = setInterval(() => {
-      if (ws.readyState === 1) ws.send(JSON.stringify({ type:'heartbeat' }));
-    }, 15000);
+      if (cancelled) return;
+      if (session?.ok) setLiveSession(session);
+
+      const room = session?.collab_room || `cms:${pageId}`;
+      const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/collab/room/${encodeURIComponent(room)}?workspace_id=${encodeURIComponent(workspaceId)}`;
+
+      try {
+        ws = new WebSocket(url);
+        wsRef.current = ws;
+      } catch (_) {
+        return;
+      }
+
+      ws.onopen = () =>
+        ws.send(
+          JSON.stringify({
+            type: 'presence_join',
+            page_id: pageId,
+            session_id: session?.session_id || null,
+            session_token: session?.session_token || null,
+          }),
+        );
+      ws.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+          if (msg.type === 'presence_state') {
+            setPeers(msg.peers || []);
+          }
+        } catch (_) {}
+      };
+      ws.onclose = () => setPeers([]);
+
+      heartbeat = setInterval(() => {
+        if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'heartbeat', page_id: pageId }));
+      }, 15000);
+    };
+
+    void connect();
 
     return () => {
-      clearInterval(heartbeat);
-      ws.close();
+      cancelled = true;
+      if (heartbeat) clearInterval(heartbeat);
+      if (ws) {
+        try {
+          ws.send(JSON.stringify({ type: 'presence_leave', page_id: pageId }));
+        } catch (_) {}
+        ws.close();
+      }
+      setLiveSession(null);
     };
   }, [pageId, workspaceId]);
 
-  return peers;
+  return { peers, liveSession };
 }
 
 // ─── Main Editor view ─────────────────────────────────────────────────────────
@@ -901,7 +939,7 @@ function EditorView({ projectSlug, workspaceId, pageId, onNavigate, onNavigatePa
   const [dragOver, setDragOver] = useState(null);
   const { msg: toastMsg, show: showToast } = useToast();
   const slug = projectSlug || PRIMARY_CMS_SLUG;
-  const peers = usePresence(activePage?.id, workspaceId);
+  const { peers, liveSession } = usePresence(activePage?.id, workspaceId);
 
   const selectPage = useCallback(
     (page) => {

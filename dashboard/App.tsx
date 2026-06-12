@@ -69,6 +69,7 @@ import {
   type AgentWorkspaceContextPacket,
   type DevServerState,
 } from './src/ideWorkspace';
+import { parseCmsRoute } from './pages/cms/CmsPage';
 import { useEditor } from './src/EditorContext';
 import { useWorkspace } from './src/context/WorkspaceContext';
 import { OfflineReconnectBanner, persistLastSessionSnapshot } from './src/pwa/OfflineReconnectBanner';
@@ -388,6 +389,28 @@ const App: React.FC = () => {
   /** TODO: Movie Mode right rail — split Media bin + ChatAssistant (dual panel). */
   const isDrawRoute = location.pathname.startsWith('/dashboard/draw');
   const isCmsRoute = location.pathname.startsWith('/dashboard/cms');
+
+  const cmsRouteContext = useMemo<AgentWorkspaceContextPacket | null>(() => {
+    if (!isCmsRoute) return null;
+    const params = new URLSearchParams(location.search);
+    const parsed = parseCmsRoute(location.pathname, params);
+    const slug = parsed.projectSlug || 'inneranimalmedia';
+    const ws = (authWorkspaceId || '').trim();
+    return {
+      activeTab: 'cms',
+      browserUrl: null,
+      openFiles: [],
+      plan_id: null,
+      workflow_run_id: null,
+      project_slug: slug,
+      page_id: parsed.pageId,
+      studio_panel: parsed.panel,
+      bootstrap_cache_key: ws ? `cms:bootstrap:${ws}:${slug}` : null,
+      collab_room: parsed.pageId ? `cms:${parsed.pageId}` : null,
+      r2_bucket: 'inneranimalmedia',
+      r2_key: null,
+    };
+  }, [isCmsRoute, location.pathname, location.search, authWorkspaceId]);
   const movieModeProjectId = useMemo(() => {
     const m = location.pathname.match(/^\/dashboard\/moviemode\/([^/?#]+)/);
     if (m?.[1]) return decodeURIComponent(m[1]);
@@ -1566,6 +1589,18 @@ const App: React.FC = () => {
     createNewAgentChatTab();
     dispatchNewThreadMessage(pending);
   }, [agentPosition, createNewAgentChatTab, dispatchNewThreadMessage]);
+
+  useEffect(() => {
+    const onNewThreadRequest = (e: Event) => {
+      const detail = (e as CustomEvent<QuickstartThreadDetail>).detail;
+      if (!detail?.message?.trim()) return;
+      if (detail.ensureAgentPanel === false) return;
+      e.stopImmediatePropagation();
+      startAgentNewThreadWithMessage(detail);
+    };
+    window.addEventListener(IAM_AGENT_CHAT_NEW_THREAD, onNewThreadRequest, true);
+    return () => window.removeEventListener(IAM_AGENT_CHAT_NEW_THREAD, onNewThreadRequest, true);
+  }, [startAgentNewThreadWithMessage]);
 
   useEffect(() => {
     const onComposeRequest = (e: Event) => {
@@ -3195,6 +3230,7 @@ const App: React.FC = () => {
                         openFilePaths={agentWorkbenchOpenFiles}
                         activePlanId={activePlanIdForChat}
                         onActivePlanChange={handleActivePlanChange}
+                        cmsContext={cmsRouteContext}
                     />
                     </div>
                 </div>
@@ -3875,6 +3911,7 @@ const App: React.FC = () => {
                             openFilePaths={agentWorkbenchOpenFiles}
                             activePlanId={activePlanIdForChat}
                             onActivePlanChange={handleActivePlanChange}
+                            cmsContext={cmsRouteContext}
                          />
                     </div>
                 </div>

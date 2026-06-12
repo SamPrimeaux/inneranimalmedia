@@ -19,6 +19,13 @@ export type QuickstartThreadDetail = {
   workspace_id?: string;
   /** Force Auto routing (Thompson); do not pin a model. */
   modelKey?: string;
+  ensureAgentPanel?: boolean;
+  force_plan_mode?: boolean;
+  project_slug?: string;
+  page_id?: string | null;
+  bootstrap_cache_key?: string | null;
+  collab_room?: string | null;
+  live_session_id?: string | null;
 };
 
 /** Window event: App created a new shell tab; ChatAssistant should send detail in that thread. */

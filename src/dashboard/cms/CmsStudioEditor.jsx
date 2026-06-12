@@ -1,7 +1,8 @@
 /**
- * PrimeTech CMS Lite — iframe studio + optional Excalidraw sketch overlay (same shell, no /draw route).
+ * PrimeTech CMS Lite — iframe workspace + Excalidraw sketch overlay.
+ * Inherits cms_themes from parent shell; quick-start actions route to ChatAssistant.
  */
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 const ExcalidrawView = lazy(() =>
   import('../../../dashboard/components/ExcalidrawView').then((m) => ({
@@ -11,6 +12,38 @@ const ExcalidrawView = lazy(() =>
 
 const STUDIO_BASE = '/static/dashboard/app/cms/designstudiocmslite.html';
 
+const DASHBOARD_THEME_KEYS = [
+  '--bg-canvas',
+  '--bg-app',
+  '--bg-panel',
+  '--bg-hover',
+  '--bg-elevated',
+  '--border-subtle',
+  '--border-focus',
+  '--text-main',
+  '--text-muted',
+  '--text-heading',
+  '--solar-cyan',
+  '--solar-orange',
+  '--solar-green',
+  '--solar-blue',
+  '--solar-red',
+  '--dashboard-panel',
+  '--dashboard-canvas',
+  '--dashboard-border',
+];
+
+function collectDashboardThemeVars() {
+  const root = document.documentElement;
+  const cs = getComputedStyle(root);
+  const vars = {};
+  for (const key of DASHBOARD_THEME_KEYS) {
+    const v = cs.getPropertyValue(key).trim();
+    if (v) vars[key] = v;
+  }
+  return vars;
+}
+
 export function CmsStudioEditor({
   projectSlug,
   pageId = null,
@@ -18,6 +51,7 @@ export function CmsStudioEditor({
   workspaceId = '',
 }) {
   const [sketchOpen, setSketchOpen] = useState(false);
+  const iframeRef = useRef(null);
 
   const src = useMemo(() => {
     const q = new URLSearchParams();
@@ -28,18 +62,71 @@ export function CmsStudioEditor({
     return `${STUDIO_BASE}?${q.toString()}`;
   }, [projectSlug, pageId, panel, workspaceId]);
 
+  const postThemeToIframe = useCallback(() => {
+    const win = iframeRef.current?.contentWindow;
+    if (!win) return;
+    const slug = document.documentElement.getAttribute('data-theme') || '';
+    win.postMessage(
+      { type: 'iam-cms-theme', slug, vars: collectDashboardThemeVars() },
+      window.location.origin,
+    );
+  }, []);
+
   const onMessage = useCallback((event) => {
     if (event.origin !== window.location.origin) return;
     const data = event.data;
     if (!data || typeof data !== 'object') return;
+
     if (data.type === 'iam-primetech-sketch') setSketchOpen(true);
     if (data.type === 'iam-primetech-sketch-close') setSketchOpen(false);
-  }, []);
+
+    if (data.type === 'iam-agent-chat-compose' && data.detail?.message) {
+      window.dispatchEvent(
+        new CustomEvent('iam:agent-chat-compose', {
+          detail: {
+            message: data.detail.message,
+            send: data.detail.send === true,
+            ensureAgentPanel: data.detail.ensureAgentPanel !== false,
+          },
+        }),
+      );
+    }
+
+    if (data.type === 'iam-agent-chat-new-thread' && data.detail?.message) {
+      window.dispatchEvent(
+        new CustomEvent('iam-agent-chat-new-thread', {
+          detail: {
+            message: data.detail.message,
+            task_type: data.detail.task_type,
+            route_key: data.detail.route_key,
+            ensureAgentPanel: data.detail.ensureAgentPanel !== false,
+            force_plan_mode: data.detail.force_plan_mode === true,
+            project_slug: data.detail.project_slug || projectSlug,
+            page_id: data.detail.page_id || pageId,
+            workspace_id: data.detail.workspace_id || workspaceId,
+            bootstrap_cache_key: data.detail.bootstrap_cache_key || null,
+            collab_room: data.detail.collab_room || (pageId ? `cms:${pageId}` : null),
+          },
+        }),
+      );
+    }
+  }, [projectSlug, pageId, workspaceId]);
 
   useEffect(() => {
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
   }, [onMessage]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const obs = new MutationObserver(() => postThemeToIframe());
+    obs.observe(root, { attributes: true, attributeFilter: ['data-theme', 'style'] });
+    return () => obs.disconnect();
+  }, [postThemeToIframe]);
+
+  const onIframeLoad = useCallback(() => {
+    postThemeToIframe();
+  }, [postThemeToIframe]);
 
   return (
     <div
@@ -47,8 +134,10 @@ export function CmsStudioEditor({
       style={{ position: 'relative', flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
     >
       <iframe
+        ref={iframeRef}
         title="CMS Studio Lite"
         src={src}
+        onLoad={onIframeLoad}
         className="iam-cms-studio-frame"
         style={{
           flex: 1,
@@ -56,7 +145,7 @@ export function CmsStudioEditor({
           height: '100%',
           border: 0,
           minHeight: 0,
-          background: '#F6F2EA',
+          background: 'var(--dashboard-canvas, var(--bg-canvas, #00212b))',
         }}
         allow="clipboard-read; clipboard-write"
       />

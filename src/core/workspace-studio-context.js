@@ -15,8 +15,23 @@ export function formatWorkspaceContextForAgent(raw) {
     : [];
   const planId = raw.plan_id != null ? String(raw.plan_id).trim() : '';
   const workflowRunId = raw.workflow_run_id != null ? String(raw.workflow_run_id).trim() : '';
+  const projectSlug = raw.project_slug != null ? String(raw.project_slug).trim() : '';
+  const pageId = raw.page_id != null ? String(raw.page_id).trim() : '';
+  const studioPanel = raw.studio_panel != null ? String(raw.studio_panel).trim() : '';
+  const liveSessionId = raw.live_session_id != null ? String(raw.live_session_id).trim() : '';
+  const collabRoom = raw.collab_room != null ? String(raw.collab_room).trim() : '';
+  const bootstrapCacheKey =
+    raw.bootstrap_cache_key != null ? String(raw.bootstrap_cache_key).trim() : '';
 
-  if (!activeTab && !browserUrl && !openFiles.length && !planId && !workflowRunId) {
+  if (
+    !activeTab &&
+    !browserUrl &&
+    !openFiles.length &&
+    !planId &&
+    !workflowRunId &&
+    !projectSlug &&
+    !pageId
+  ) {
     return null;
   }
 
@@ -28,6 +43,16 @@ export function formatWorkspaceContextForAgent(raw) {
     `plan_id: ${planId || '(none)'}`,
     `workflow_run_id: ${workflowRunId || '(none)'}`,
   ];
+  if (projectSlug || pageId || studioPanel) {
+    lines.push(
+      `cms_project_slug: ${projectSlug || '(none)'}`,
+      `cms_page_id: ${pageId || '(none)'}`,
+      `cms_studio_panel: ${studioPanel || '(none)'}`,
+      `cms_live_session_id: ${liveSessionId || '(none)'}`,
+      `cms_collab_room (IAM_COLLAB): ${collabRoom || '(none)'}`,
+      `cms_bootstrap_cache_key (SESSION_CACHE): ${bootstrapCacheKey || '(none)'}`,
+    );
+  }
   return lines.join('\n');
 }
 
@@ -63,6 +88,15 @@ export function normalizeWorkspaceContextPacket(browserContext, body) {
     openFiles,
     plan_id: raw.plan_id != null ? String(raw.plan_id).trim() : null,
     workflow_run_id: raw.workflow_run_id != null ? String(raw.workflow_run_id).trim() : null,
+    project_slug: raw.project_slug != null ? String(raw.project_slug).trim() : null,
+    page_id: raw.page_id != null ? String(raw.page_id).trim() : null,
+    studio_panel: raw.studio_panel != null ? String(raw.studio_panel).trim() : null,
+    live_session_id: raw.live_session_id != null ? String(raw.live_session_id).trim() : null,
+    collab_room: raw.collab_room != null ? String(raw.collab_room).trim() : null,
+    bootstrap_cache_key:
+      raw.bootstrap_cache_key != null ? String(raw.bootstrap_cache_key).trim() : null,
+    r2_bucket: raw.r2_bucket != null ? String(raw.r2_bucket).trim() : null,
+    r2_key: raw.r2_key != null ? String(raw.r2_key).trim() : null,
     web_search_enabled: raw.web_search_enabled === true,
     antigravity_sandbox_enabled: raw.antigravity_sandbox_enabled === true,
   };

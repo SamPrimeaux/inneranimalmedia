@@ -12,6 +12,16 @@
 
 import { getAuthUser, jsonResponse } from '../core/auth.js';
 import { resolveIamActorContext } from '../core/identity.js';
+import {
+  acquireCmsPublishLock,
+  cmsBootstrapKey,
+  getCmsDraftCache,
+  invalidateCmsBootstrapCache,
+  putCmsDraftCache,
+  releaseCmsPublishLock,
+} from '../core/cms-kv-cache.js';
+import { joinCmsLiveEditSession } from '../core/cms-live-edit-session.js';
+import { upsertCmsSiteProjectContext } from '../core/cms-project-context.js';
 
 export const CMS_DEFAULT_R2_BUCKET = 'inneranimalmedia';
 
@@ -252,7 +262,7 @@ export async function handleCmsApi(request, url, env, ctx) {
 
     try {
       const page = await env.DB.prepare(
-        `SELECT project_id, slug, r2_bucket FROM cms_pages WHERE id = ? AND tenant_id = ?`
+        `SELECT project_id, project_slug, slug, r2_bucket FROM cms_pages WHERE id = ? AND tenant_id = ?`
       ).bind(pageId, tenantId).first();
 
       if (!page) return jsonResponse({ error: 'Page not found' }, 404);
@@ -269,6 +279,18 @@ export async function handleCmsApi(request, url, env, ctx) {
         httpMetadata: { contentType: content_type }
       });
 
+      await putCmsDraftCache(env, {
+        pageId,
+        userId: authUser.id,
+        payload: {
+          content_type,
+          r2_key: r2Key,
+          r2_bucket: r2Bucket,
+          title: title || null,
+          byte_length: contentBuffer.byteLength,
+        },
+      });
+
       // 2. Update D1 metadata
       const now = Math.floor(Date.now() / 1000);
       await env.DB.prepare(`
@@ -280,11 +302,16 @@ export async function handleCmsApi(request, url, env, ctx) {
             content_size_bytes = ?,
             status = 'draft'
         WHERE id = ? AND tenant_id = ?
-      `).bind(
+      `      ).bind(
         title || null, authUser.id, now, r2Key, contentBuffer.byteLength, pageId, tenantId
       ).run();
 
-      return jsonResponse({ success: true, r2_key: r2Key, status: 'draft' });
+      const projectSlug = String(page.project_slug || page.project_id || '').trim();
+      if (projectSlug) {
+        ctx.waitUntil(invalidateCmsBootstrapCache(env, workspaceId, projectSlug));
+      }
+
+      return jsonResponse({ success: true, r2_key: r2Key, status: 'draft', kv_draft_key: `cms:draft:${pageId}:${authUser.id}` });
     } catch (e) {
       return jsonResponse({ error: e.message }, 500);
     }
@@ -296,24 +323,41 @@ export async function handleCmsApi(request, url, env, ctx) {
    */
   if (path.endsWith('/publish') && method === 'POST') {
     const pageId = pathParts[pathParts.length - 2];
+    let projectSlug = '';
     try {
       const page = await env.DB.prepare(
-        `SELECT project_id, slug, r2_bucket, content_type FROM cms_pages WHERE id = ? AND tenant_id = ?`
+        `SELECT project_id, project_slug, slug, r2_bucket, content_type FROM cms_pages WHERE id = ? AND tenant_id = ?`
       ).bind(pageId, tenantId).first();
 
       if (!page) return jsonResponse({ error: 'Page not found' }, 404);
+
+      projectSlug = String(page.project_slug || page.project_id || '').trim();
+      const lock = await acquireCmsPublishLock(env, projectSlug, authUser.id);
+      if (!lock.acquired) {
+        return jsonResponse({ error: 'publish_in_progress', holder: lock.holder || null }, 409);
+      }
 
       const r2Bucket = page.r2_bucket || CMS_DEFAULT_R2_BUCKET;
       const draftKey = cmsPageKey(workspaceId, page.project_id, page.slug, 'draft');
       const publishedKey = cmsPageKey(workspaceId, page.project_id, page.slug, 'published');
       const r2Binding = getCmsR2Binding(env, r2Bucket);
 
-      if (!r2Binding) return jsonResponse({ error: 'R2 storage unavailable' }, 503);
+      if (!r2Binding) {
+        await releaseCmsPublishLock(env, projectSlug, authUser.id);
+        return jsonResponse({ error: 'R2 storage unavailable' }, 503);
+      }
 
       // 1. Copy draft to published in R2
       // Note: Cloudflare R2 binding doesn't have a direct 'copy' yet, so we get and put.
-      const draftObj = await r2Binding.get(draftKey);
-      if (!draftObj) return jsonResponse({ error: 'No draft found to publish' }, 400);
+      let draftObj = await r2Binding.get(draftKey);
+      if (!draftObj) {
+        const kvDraft = await getCmsDraftCache(env, pageId, authUser.id);
+        if (kvDraft?.r2_key) draftObj = await r2Binding.get(String(kvDraft.r2_key)).catch(() => null);
+      }
+      if (!draftObj) {
+        await releaseCmsPublishLock(env, projectSlug, authUser.id);
+        return jsonResponse({ error: 'No draft found to publish' }, 400);
+      }
 
       const content = await draftObj.arrayBuffer();
       await r2Binding.put(publishedKey, content, {
@@ -330,12 +374,24 @@ export async function handleCmsApi(request, url, env, ctx) {
             updated_at = ?,
             r2_key = ?
         WHERE id = ? AND tenant_id = ?
-      `).bind(
+      `      ).bind(
         now, authUser.id, now, publishedKey, pageId, tenantId
       ).run();
 
-      return jsonResponse({ success: true, status: 'published', r2_key: publishedKey });
+      ctx.waitUntil(releaseCmsPublishLock(env, projectSlug, authUser.id));
+      if (projectSlug) {
+        ctx.waitUntil(invalidateCmsBootstrapCache(env, workspaceId, projectSlug));
+      }
+
+      return jsonResponse({
+        success: true,
+        status: 'published',
+        r2_key: publishedKey,
+        r2_bucket: r2Bucket,
+        bootstrap_cache_key: cmsBootstrapKey(workspaceId, projectSlug),
+      });
     } catch (e) {
+      if (projectSlug) ctx.waitUntil(releaseCmsPublishLock(env, projectSlug, authUser.id));
       return jsonResponse({ error: e.message }, 500);
     }
   }
@@ -495,9 +551,28 @@ export async function handleCmsApi(request, url, env, ctx) {
     }
   }
 
+  if (path === '/api/cms/live-session/join' && method === 'POST') {
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: 'invalid JSON' }, 400);
+    }
+    const pageId = String(body.page_id || body.pageId || '').trim();
+    if (!pageId) return jsonResponse({ error: 'page_id required' }, 400);
+    const result = await joinCmsLiveEditSession(env, {
+      pageId,
+      userId: authUser.id,
+      workspaceId,
+      tenantId,
+    });
+    if (!result.ok) return jsonResponse({ error: result.error || 'join_failed' }, 404);
+    return jsonResponse(result);
+  }
+
   if (path === '/api/cms/bootstrap' && method === 'GET') {
     const projectSlug = url.searchParams.get('project_slug') || 'inneranimalmedia';
-    const cacheKey = `cms:bootstrap:${workspaceId}:${projectSlug}`;
+    const cacheKey = cmsBootstrapKey(workspaceId, projectSlug);
 
     if (env.SESSION_CACHE) {
       try {
@@ -662,6 +737,7 @@ export async function handleCmsApi(request, url, env, ctx) {
         });
       }
 
+      const homePage = pages.find((p) => p.is_homepage) || pages[0] || null;
       const payload = {
         project_slug: projectSlug,
         tenant: tenantRow,
@@ -675,7 +751,23 @@ export async function handleCmsApi(request, url, env, ctx) {
         liquid_imports: importsRes.results || [],
         global_settings: globalSettingsRes || null,
         assets_3d: assets3dRes.results || [],
+        storage: {
+          r2_bucket: CMS_DEFAULT_R2_BUCKET,
+          r2_key: homePage?.r2_key || null,
+          bootstrap_cache_key: cacheKey,
+          kv_binding: 'SESSION_CACHE',
+          do_binding: 'IAM_COLLAB',
+        },
       };
+
+      ctx.waitUntil(
+        upsertCmsSiteProjectContext(env, {
+          tenantId,
+          workspaceId,
+          projectSlug,
+          pageCount: pages.length,
+        }),
+      );
 
       if (env.SESSION_CACHE) {
         ctx.waitUntil(

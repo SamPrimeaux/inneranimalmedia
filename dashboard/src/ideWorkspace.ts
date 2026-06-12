@@ -60,6 +60,14 @@ export type AgentWorkspaceContextPacket = {
   openFiles: string[];
   plan_id: string | null;
   workflow_run_id: string | null;
+  project_slug?: string | null;
+  page_id?: string | null;
+  studio_panel?: string | null;
+  live_session_id?: string | null;
+  collab_room?: string | null;
+  bootstrap_cache_key?: string | null;
+  r2_bucket?: string | null;
+  r2_key?: string | null;
 };
 
 export function defaultIdeBundle(): IdePersistedBundle {

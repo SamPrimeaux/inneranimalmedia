@@ -272,6 +272,8 @@ export interface ChatAssistantProps {
   activePlanId?: string | null;
   /** Notify host when chat creates or selects a plan. */
   onActivePlanChange?: (planId: string | null) => void;
+  /** CMS route context (project_slug, page_id, KV/DO keys) when on /dashboard/cms. */
+  cmsContext?: AgentWorkspaceContextPacket | null;
 }
 
 export type StagedAttachment = {

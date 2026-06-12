@@ -144,6 +144,12 @@ type ChatRoutingSendOpts = {
   quickstart_batch?: string;
   apply_eto_after_run?: boolean;
   workspace_id?: string;
+  force_plan_mode?: boolean;
+  project_slug?: string;
+  page_id?: string | null;
+  bootstrap_cache_key?: string | null;
+  collab_room?: string | null;
+  live_session_id?: string | null;
   /** Handoff child session — bypass stale React conversationId on auto-continue. */
   conversationIdOverride?: string;
   handoffResume?: boolean;
@@ -158,6 +164,16 @@ function routingSendOptsFromDetail(detail?: QuickstartThreadDetail | null): Chat
   if (detail.quickstart_batch?.trim()) opts.quickstart_batch = detail.quickstart_batch.trim();
   if (detail.apply_eto_after_run) opts.apply_eto_after_run = true;
   if (detail.workspace_id?.trim()) opts.workspace_id = detail.workspace_id.trim();
+  if (detail.force_plan_mode) opts.force_plan_mode = true;
+  if (detail.project_slug?.trim()) opts.project_slug = detail.project_slug.trim();
+  if (detail.page_id != null && String(detail.page_id).trim()) {
+    opts.page_id = String(detail.page_id).trim();
+  }
+  if (detail.bootstrap_cache_key?.trim()) {
+    opts.bootstrap_cache_key = detail.bootstrap_cache_key.trim();
+  }
+  if (detail.collab_room?.trim()) opts.collab_room = detail.collab_room.trim();
+  if (detail.live_session_id?.trim()) opts.live_session_id = detail.live_session_id.trim();
   return Object.keys(opts).length ? opts : undefined;
 }
 
@@ -198,6 +214,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   openFilePaths,
   activePlanId,
   onActivePlanChange,
+  cmsContext = null,
 }) => {
   const { sessionUserId, workspaceId: ctxWorkspaceId, workspaces, persistGithubRepo } = useWorkspace();
   const effectiveWsId = (workspaceId || ctxWorkspaceId || '').trim() || null;
@@ -574,6 +591,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       const detail = (e as CustomEvent<QuickstartThreadDetail>).detail;
       const msg = detail?.message?.trim();
       if (!msg) return;
+      if (detail.ensureAgentPanel !== false) return;
       setMobileThreadTab('chat');
       setThreadTitle('New Chat');
       setPythonDraftHint(null);
@@ -2041,6 +2059,11 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     const rawText = overrideMessage ?? input;
     let text = rawText;
     let sendMode: AgentMode = mode;
+    if (sendOpts?.force_plan_mode) {
+      sendMode = 'plan';
+      setMode('plan');
+      setPlanSuggestDismissed(true);
+    }
     if (isPlanSlashMessage(rawText)) {
       sendMode = 'plan';
       setMode('plan');
@@ -2221,6 +2244,18 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     if (sendOpts?.apply_eto_after_run) {
       form.append('apply_eto_after_run', 'true');
     }
+    if (sendOpts?.force_plan_mode) {
+      form.append('force_plan_mode', 'true');
+    }
+    if (sendOpts?.project_slug?.trim()) form.append('project_slug', sendOpts.project_slug.trim());
+    if (sendOpts?.page_id?.trim()) form.append('page_id', sendOpts.page_id.trim());
+    if (sendOpts?.bootstrap_cache_key?.trim()) {
+      form.append('bootstrap_cache_key', sendOpts.bootstrap_cache_key.trim());
+    }
+    if (sendOpts?.collab_room?.trim()) form.append('collab_room', sendOpts.collab_room.trim());
+    if (sendOpts?.live_session_id?.trim()) {
+      form.append('live_session_id', sendOpts.live_session_id.trim());
+    }
     try {
       const browserCtxPayload: Record<string, unknown> = {
         ...(browserSurfaceRef.current && typeof browserSurfaceRef.current === 'object' ? browserSurfaceRef.current : {}),
@@ -2248,6 +2283,14 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         openFiles: [...new Set(openFilesList)].slice(0, 32),
         plan_id: activePlanIdRef.current || null,
         workflow_run_id: workflowLedger.runId || null,
+        project_slug: cmsContext?.project_slug ?? null,
+        page_id: cmsContext?.page_id ?? null,
+        studio_panel: cmsContext?.studio_panel ?? null,
+        live_session_id: cmsContext?.live_session_id ?? null,
+        collab_room: cmsContext?.collab_room ?? null,
+        bootstrap_cache_key: cmsContext?.bootstrap_cache_key ?? null,
+        r2_bucket: cmsContext?.r2_bucket ?? null,
+        r2_key: cmsContext?.r2_key ?? null,
         composer_sources: composerSources.map((s) => ({
           id: s.id,
           label: s.label,

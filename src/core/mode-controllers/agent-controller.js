@@ -217,6 +217,16 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
     systemPrompt = `${systemPrompt}\n\n${projectContextBlock}`;
   }
 
+  try {
+    const { extractCmsAgentContext, formatCmsContextForAgent } = await import('../cms-agent-context.js');
+    const cmsBlock = formatCmsContextForAgent(extractCmsAgentContext(body, browserContextPayload));
+    if (cmsBlock && !systemPrompt.includes('## CMS context')) {
+      systemPrompt = `${systemPrompt}\n\n${cmsBlock}`;
+    }
+  } catch (e) {
+    console.warn('[agent-controller] cms_context', e?.message ?? e);
+  }
+
   if (profile.mode === 'debug') {
     systemPrompt +=
       '\n\n## Debug mode\nHypothesize first. Prefer read/search/log evidence before broad edits. ' +
