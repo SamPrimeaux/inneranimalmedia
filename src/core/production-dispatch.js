@@ -260,7 +260,10 @@ export async function dispatchProductionDomainRoutes(rc) {
     pathLower.startsWith('/api/chat') ||
     pathLower.startsWith('/api/playwright')
   ) {
-    const postAgentFirst = pathLower.startsWith('/api/agent') && methodUpper === 'POST';
+    const postAgentFirst =
+      pathLower.startsWith('/api/agent') &&
+      methodUpper === 'POST' &&
+      pathLower !== '/api/agent/artifacts/purge';
     let postAgentRes = null;
     if (postAgentFirst) {
       postAgentRes = await handleAgentRequest(request, env, ctx, routeAuth);

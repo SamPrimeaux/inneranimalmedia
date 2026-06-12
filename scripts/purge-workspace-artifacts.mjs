@@ -40,7 +40,7 @@ async function main() {
     process.exit(1);
   }
 
-  const url = `${origin}/api/agent/artifacts/purge`;
+  const url = `${origin}/api/internal/artifacts/purge`;
   const body = {
     confirm: PURGE_CONFIRM,
     workspace_id: workspace,

@@ -140,6 +140,11 @@ export default {
           { status: 404, headers: { 'Content-Type': 'text/html;charset=UTF-8' } },
         );
       }
+      if (pathLower === '/api/internal/artifacts/purge' && methodUpper === 'POST') {
+        const { handleArtifactPurgeInternal } = await import('./api/artifact-purge-internal.js');
+        return handleArtifactPurgeInternal(request, env);
+      }
+
       const requestContext = isPublicOAuthPath(pathLower)
         ? publicOAuthRequestContext()
         : await resolveRequestContext(request, env, { required: true });
