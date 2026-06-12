@@ -117,6 +117,9 @@ const WorkflowsPage = lazy(() =>
 const MovieModeStudio = lazy(() =>
   import('./features/moviemode/MovieModeStudio').then((m) => ({ default: m.MovieModeStudio })),
 );
+const MovieModePage = lazy(() =>
+  import('./pages/moviemode/MovieModePage').then((m) => ({ default: m.default })),
+);
 const ExcalidrawView = lazy(() =>
   import('./components/ExcalidrawView').then((m) => ({ default: m.ExcalidrawView })),
 );
@@ -1054,9 +1057,8 @@ const App: React.FC = () => {
   }, [location.pathname, navigate]);
 
   const shellOpenMovieMode = useCallback(() => {
-    if (!isAgentShellPath(location.pathname)) navigate(AGENT_HOME_PATH);
-    openTab('moviemode');
-  }, [location.pathname, navigate, openTab]);
+    navigate('/dashboard/moviemode');
+  }, [navigate]);
 
   const closeTab = (tab: TabId, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -1737,6 +1739,9 @@ const App: React.FC = () => {
         if (isNarrowViewport) setToastMsg('Code editor opened. Tap Chat to return to Agent Sam.');
       } else if (s === 'r2') {
         window.dispatchEvent(new CustomEvent('iam:palette-open-r2'));
+      } else if (s === 'moviemode' || s === 'movie') {
+        navigate('/dashboard/moviemode');
+        if (isNarrowViewport) setToastMsg('MovieMode opened. Tap Chat to return to Agent Sam.');
       }
     };
     window.addEventListener('iam:agent-open-surface', h as EventListener);
@@ -3378,6 +3383,14 @@ const App: React.FC = () => {
                         path="/dashboard/integrations"
                         element={
                           <Navigate to="/dashboard/settings/integrations" replace />
+                        }
+                      />
+                      <Route
+                        path="/dashboard/moviemode"
+                        element={
+                          <div className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+                            <MovieModePage />
+                          </div>
                         }
                       />
                       <Route

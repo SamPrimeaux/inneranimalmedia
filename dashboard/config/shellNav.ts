@@ -57,7 +57,7 @@ export const SHELL_PRODUCTS: ShellProduct[] = [
     items: [
       { id: 'designstudio', label: 'Design Studio', path: '/dashboard/designstudio', match: 'exact' },
       { id: 'images', label: 'Images', path: '/dashboard/images', match: 'exact' },
-      { id: 'moviemode', label: 'Movie Mode', action: 'movie-mode' },
+      { id: 'moviemode', label: 'Movie Mode', path: '/dashboard/moviemode', match: 'exact' },
     ],
   },
   {

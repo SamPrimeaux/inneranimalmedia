@@ -204,22 +204,14 @@ export function DashboardSidebar({
               {expanded && isOpen ? (
                 <div className="ml-3 pl-2 border-l border-[var(--dashboard-border)]/80 flex flex-col gap-0.5 mb-1">
                   {product.items.map((child) => {
-                    const childActive =
-                      child.action === 'movie-mode'
-                        ? false
-                        : child.path
-                          ? isProductItemActive(location.pathname, child)
-                          : false;
+                    const childActive = child.path
+                      ? isProductItemActive(location.pathname, child)
+                      : false;
                     return (
                       <button
                         key={child.id}
                         type="button"
                         onClick={() => {
-                          if (child.action === 'movie-mode') {
-                            onOpenMovieMode?.();
-                            onItemActivate?.();
-                            return;
-                          }
                           if (child.path) go(child.path);
                         }}
                         className={`flex items-center gap-2 w-full text-left min-h-[32px] px-2 rounded-md text-[11px] font-medium transition-colors ${
