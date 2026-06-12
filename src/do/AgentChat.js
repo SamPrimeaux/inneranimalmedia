@@ -84,6 +84,14 @@ function normalizeWebSocketUrl(raw) {
   return "wss://" + value.replace(/^\/+/, "");
 }
 
+/** Workers outbound WebSocket upgrade uses https:// (or http://), not wss:// — see docs/TERMINAL_KEYS_RESET.md */
+function toFetchWebSocketUrl(wsUrl) {
+  const u = String(wsUrl || "").trim();
+  if (u.startsWith("wss://")) return "https://" + u.slice(6);
+  if (u.startsWith("ws://")) return "http://" + u.slice(5);
+  return u;
+}
+
 function normalizeExecHttpUrl(raw) {
   let value = String(raw || "").trim().split("?")[0];
   if (!value) return "";
@@ -1096,7 +1104,7 @@ export class AgentChatSqlV1 extends DurableObject {
         wsUrl = `${wsUrl}${s3}session_id=${encodeURIComponent(sid)}&session_token=${encodeURIComponent(minted)}`;
       }
     }
-    const wsResp = await fetch(wsUrl, {
+    const wsResp = await fetch(toFetchWebSocketUrl(wsUrl), {
       headers: {
         "Upgrade": "websocket",
         "Connection": "Upgrade",
