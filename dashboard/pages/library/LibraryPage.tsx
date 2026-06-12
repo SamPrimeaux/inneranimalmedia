@@ -15,6 +15,55 @@ function toOpts(rows: { value: string; count: number }[]) {
   }));
 }
 
+// Pill filter bar — visible type pills derived from live filter meta
+type TypePillsProps = {
+  active: string;
+  options: { value: string; label: string }[];
+  onSelect: (v: string) => void;
+};
+function TypePills({ active, options, onSelect }: TypePillsProps) {
+  if (!options.length) return null;
+  return (
+    <div className="flex flex-wrap gap-1.5 mt-3">
+      <button
+        type="button"
+        onClick={() => onSelect('')}
+        className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors touch-manipulation ${
+          !active
+            ? 'border-[color-mix(in_srgb,var(--solar-cyan)_50%,var(--dashboard-border))] bg-[color-mix(in_srgb,var(--solar-cyan)_10%,transparent)] text-[var(--solar-cyan)]'
+            : 'border-[var(--dashboard-border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]'
+        }`}
+      >
+        All
+      </button>
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          onClick={() => onSelect(o.value === active ? '' : o.value)}
+          className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors touch-manipulation ${
+            active === o.value
+              ? 'border-[color-mix(in_srgb,var(--solar-cyan)_50%,var(--dashboard-border))] bg-[color-mix(in_srgb,var(--solar-cyan)_10%,transparent)] text-[var(--solar-cyan)]'
+              : 'border-[var(--dashboard-border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]'
+          }`}
+        >
+          {o.value}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// Section header for workspace grouping
+function SectionLabel({ label, count }: { label: string; count: number }) {
+  return (
+    <div className="flex items-center gap-2 mb-3">
+      <span className="text-[11px] uppercase tracking-widest font-medium text-[var(--text-muted)]">{label}</span>
+      <span className="text-[11px] text-[var(--text-muted)] tabular-nums">{count}</span>
+    </div>
+  );
+}
+
 export default function LibraryPage() {
   const [q, setQ] = useState('');
   const [type, setType] = useState('');
@@ -140,10 +189,26 @@ export default function LibraryPage() {
     setQ('');
   };
 
-  const openArtifact = (a: ArtifactRecord) => {
+  const openDetails = (a: ArtifactRecord) => {
     setSelected(a);
     setPanelOpen(true);
   };
+
+  // Group artifacts by workspace_id for section headers when multiple workspaces present
+  const { myArtifacts, otherGroups } = useMemo(() => {
+    const myWs = artifacts.filter((a) => a.workspace_id !== null && !a.workspace_id?.startsWith('ws_connor'));
+    const foreign = artifacts.filter((a) => a.workspace_id?.startsWith('ws_connor'));
+    // Build groups keyed by workspace_slug or workspace_id
+    const groups: Map<string, ArtifactRecord[]> = new Map();
+    for (const a of foreign) {
+      const key = a.workspace_slug || a.workspace_id || 'other';
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(a);
+    }
+    return { myArtifacts: myWs, otherGroups: groups };
+  }, [artifacts]);
+
+  const showGrouped = otherGroups.size > 0;
 
   const runLibraryPurge = async () => {
     if (purging) return;
@@ -224,6 +289,7 @@ export default function LibraryPage() {
         @keyframes iam-artifact-shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
       `}</style>
 
+      {/* Header */}
       <div className="shrink-0 border-b border-[var(--dashboard-border)] px-4 sm:px-6 py-4 sm:py-5 bg-[var(--dashboard-canvas)]">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
@@ -246,6 +312,7 @@ export default function LibraryPage() {
           </div>
         </div>
 
+        {/* Search */}
         <div className="mt-4 relative">
           <Search
             size={16}
@@ -261,6 +328,10 @@ export default function LibraryPage() {
           />
         </div>
 
+        {/* Type pill filter bar — primary quick filter */}
+        <TypePills active={type} options={typeOptions} onSelect={(v) => setType(v)} />
+
+        {/* Advanced filters toggle */}
         <button
           type="button"
           className="mt-3 flex w-full sm:w-auto items-center gap-2 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] py-2 touch-manipulation"
@@ -330,6 +401,7 @@ export default function LibraryPage() {
         ) : null}
       </div>
 
+      {/* Grid body */}
       <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 py-4 sm:py-5">
         {err ? (
           <div className="max-w-lg rounded-xl border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] p-5">
@@ -356,11 +428,39 @@ export default function LibraryPage() {
               <Plus size={18} /> New artifact
             </button>
           </div>
+        ) : showGrouped ? (
+          <>
+            {myArtifacts.length > 0 && (
+              <div className="mb-8">
+                <SectionLabel label="Your workspace" count={myArtifacts.length} />
+                <div className="grid grid-cols-1 min-[480px]:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4">
+                  {myArtifacts.map((a) => (
+                    <ArtifactHomeCard key={a.id || a.r2_key} artifact={a} onDetails={() => openDetails(a)} />
+                  ))}
+                </div>
+              </div>
+            )}
+            {Array.from(otherGroups.entries()).map(([wsKey, group]) => (
+              <div key={wsKey} className="mb-8">
+                <SectionLabel label={wsKey} count={group.length} />
+                <div className="grid grid-cols-1 min-[480px]:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4">
+                  {group.map((a) => (
+                    <ArtifactHomeCard key={a.id || a.r2_key} artifact={a} onDetails={() => openDetails(a)} />
+                  ))}
+                </div>
+              </div>
+            ))}
+            {!loading && total > artifacts.length ? (
+              <div className="text-center text-[11px] text-[var(--text-muted)] mt-2">
+                Showing {artifacts.length} of {total} — open advanced filters to narrow the list.
+              </div>
+            ) : null}
+          </>
         ) : (
           <>
             <div className="grid grid-cols-1 min-[480px]:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4">
               {artifacts.map((a) => (
-                <ArtifactHomeCard key={a.id || a.r2_key} artifact={a} onOpen={() => openArtifact(a)} />
+                <ArtifactHomeCard key={a.id || a.r2_key} artifact={a} onDetails={() => openDetails(a)} />
               ))}
             </div>
             {!loading && total > artifacts.length ? (
