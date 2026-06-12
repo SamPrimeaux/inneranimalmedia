@@ -229,7 +229,7 @@ CompanionsCPAS project truth is split across **client D1** and **IAM platform D1
 
 | Store | Rows | Role |
 |-------|------|------|
-| `agentsam_project_context` | 7 **active** (noisy — consolidate recommended) | Layer 0 `## Active Projects` on CPAS worker |
+| `agentsam_project_context` | **2 active** (624 consolidated: `ctx_companionscpas_cms_publish_v1` + `ctx_cpas_donation_modal_session`; 5 legacy archived) | Layer 0 `## Active Projects` on CPAS worker |
 | `agentsam_memory` | 21 | Worker-local facts (`donation_pipeline`, `cms_structure`, …) |
 
 Notable project context rows: `ctx_companionscpas_cms_publish_v1`, `ctx_cpas_donation_modal_session`, `ctx_cpas_master_v1` (multiple at priority 100 — only top 3 inject).
@@ -238,10 +238,10 @@ Notable project context rows: `ctx_companionscpas_cms_publish_v1`, `ctx_cpas_don
 
 | Store | CompanionsCPAS state |
 |-------|----------------------|
-| `agentsam_project_context` | `ctx_f72a887a8da9b004` — **`archived`** on `ws_inneranimalmedia` (stale May blockers) |
-| `agentsam_memory` | 7× `companionscpas_*` keys (CMS publish, sync policy, architecture, sprint status) |
+| `agentsam_project_context` | **`ctx_companionscpas`** — **active** on `ws_inneranimalmedia` (priority 90, migration 623/625). Legacy `ctx_f72a887a8da9b004` archived. |
+| `agentsam_memory` | `companionscpas_*` pack + `companionscpas_stripe_elements_donation_live_2026_06` (pinned state) |
 
-IAM in-app Agent Sam (`ws_inneranimalmedia`) does **not** inject CPAS into `## Active Projects` until an active IAM row is added or the archived row is refreshed and reactivated.
+IAM in-app Agent Sam (`ws_inneranimalmedia`) injects `ctx_companionscpas` into `## Active Projects` (top 3 by priority alongside `ctx_inneranimalmedia`).
 
 **RAG lane:** `client_project_semantic_search` reads **IAM memory + documents vectors**, not CPAS D1 `agentsam_project_context`. Ingest this brief into `AGENTSAM_VECTORIZE_DOCUMENTS` and add `companionscpas_stripe_elements_donation_live_2026_06` to IAM memory for retrieval.
 
@@ -250,8 +250,8 @@ IAM in-app Agent Sam (`ws_inneranimalmedia`) does **not** inject CPAS into `## A
 | Priority | Item |
 |----------|------|
 | P0 | **Donation D1 pipeline unproven** — webhook subscribed in Stripe but `stripe_webhooks` and `donations` empty; smoke-test Elements + hosted paths |
-| P1 | **Consolidate CPAS `agentsam_project_context`** — 7 active rows → 1 canonical + archive legacy |
-| P1 | **IAM project context** — reactivate or add `ctx_companionscpas` on `ws_inneranimalmedia` with Jun 2026 facts |
+| P1 | ~~Consolidate CPAS `agentsam_project_context`~~ — **done** (624: 2 active + 5 archived) |
+| P1 | ~~IAM project context~~ — **done** (`ctx_companionscpas` active on `ws_inneranimalmedia`, 623/625) |
 | P1 | **Enable worker observability** — logs/traces disabled |
 | P2 | **`cms_publish_artifacts`** — empty despite 25 done publish jobs |
 | P2 | **Meta OAuth** — confirm `META_APP_ID` / `META_APP_SECRET` have real values (not empty plaintext) |

@@ -203,6 +203,44 @@ Preferred operational memory types:
 * preference for Sam/user preference
 * fact for stable reference`,
   },
+  {
+    key: 'companionscpas_stripe_elements_donation_live_2026_06',
+    memory_type: 'state',
+    title: 'CompanionsCPAS Stripe Elements donation — live Jun 2026',
+    importance: 9,
+    tags: ['companionscpas', 'donations', 'stripe', 'elements', 'webhook', 'production', 'jun2026'],
+    source: 'project_brief_20260612',
+    value: `CompanionsCPAS Stripe Elements in-modal donation flow is live on companionsofcaddo.org (Jun 2026).
+
+Flow:
+1. Donor clicks Support Our Mission on /donate.
+2. donate-modal.js opens dark-themed modal.
+3. Donor selects campaign + amount.
+4. Stripe PaymentElement mounts inline (mode elements).
+5. Payment confirms in-modal; hosted Checkout remains fallback (mode checkout).
+
+API: POST /api/donations/checkout
+- elements → client_secret (PaymentIntent)
+- checkout → checkout_url (legacy hosted)
+
+Stripe webhook:
+- Destination: we_1ThIx5RGnRsvqnfiDsw6zLfE (Companions Website Donations Webhook)
+- URL: https://companionsofcaddo.org/api/webhooks/stripe
+- Events: payment_intent.succeeded, payment_intent.payment_failed, checkout.session.completed, charge.refunded
+- API version: 2026-04-22.dahlia
+
+Deploy receipt: git b591b34, worker 446c6431-8841-4fa6-93bd-c5f2c1f93a9c
+CPAS D1 project context: ctx_cpas_donation_modal_session (priority 80, ws_companionscpas)
+
+Active campaigns:
+- campaign_companions_second_chances_2026 (companions-second-chance-fund)
+- camp_medical (emergency-medical-fund)
+- camp_food (feed-the-shelter)
+- camp_transport (transport-support)
+
+D1 audit 2026-06-12: donation_intents=2, donations=0, stripe_webhooks=0.
+Action: run $1 Elements smoke; confirm Stripe dashboard delivery + D1 row inserts.`,
+  },
 ];
 
 const UPSERT_SQL = `
