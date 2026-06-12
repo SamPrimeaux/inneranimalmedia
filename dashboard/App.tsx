@@ -18,7 +18,6 @@ import {
 } from './lib/agentRoutes';
 import { BREAKPOINTS, PHONE_MQ } from './lib/breakpoints';
 import { sanitizeBrowserNavigateUrl } from './lib/sanitizeBrowserUrl';
-import { MCPPanel } from './components/MCPPanel';
 import {
   IAM_AGENT_CHAT_CONVERSATION_CHANGE,
   IAM_AGENT_CHAT_NEW_THREAD,
@@ -32,12 +31,11 @@ import {
   type QuickstartThreadDetail,
 } from './agentChatConstants';
 import { WorkspaceLauncher } from './components/WorkspaceLauncher';
-import { XTermShell, XTermShellHandle } from './components/XTermShell';
+import type { XTermShellHandle } from './components/XTermShell';
 import { SecurityShieldBanner } from './components/SecurityShieldBanner';
 import { mapProblemsApiPayload, countProblemSeverities } from './src/lib/mapAgentProblems';
 import { ExtensionsPanel } from './components/ExtensionsPanel';
-import type { EditorModelMeta } from './components/MonacoEditorView';
-import { LocalExplorer } from './components/LocalExplorer';
+import type { EditorModelMeta } from './types/editorModel';
 import { EditorPreviewPane } from './components/EditorPreviewPane';
 import {
   resolvePreviewMode,
@@ -46,16 +44,10 @@ import {
 } from './lib/resolvePreviewMode';
 import { buildPreviewSrcDoc } from './lib/buildPreviewSrcDoc';
 import { StatusBar, type AgentNotificationRow } from './components/StatusBar';
-import { DatabaseBrowser, type DatabaseExplorerJump } from './components/DatabaseBrowser';
 import { UnifiedSearchBar, type UnifiedSearchNavigate } from './components/UnifiedSearchBar';
-import { GitHubActionsPanel } from './components/GitHubActionsPanel';
-import { GitHubExplorer } from './components/GitHubExplorer';
-import { KnowledgeSearchPanel } from './components/KnowledgeSearchPanel';
-// import { ProblemsDebugPanel } from './components/ProblemsDebugPanel';
-import { GoogleDriveExplorer } from './components/GoogleDriveExplorer';
-import { SourcePanel } from './components/SourcePanel';
 import { ProjectType, type ActiveFile } from './types';
-import { prepareActiveFileForEditor } from './src/lib/mediaPreview';
+import type { DatabaseExplorerJump } from './types/databaseExplorer';
+import { prepareActiveFileForEditor } from './src/lib/prepareActiveFileForEditor';
 import { SHELL_VERSION } from './src/shellVersion';
 import {
   fetchAndApplyActiveCmsTheme,
@@ -137,6 +129,40 @@ const LaunchDeskPage = lazy(() =>
 const BrowserView = lazy(() =>
   import('./components/BrowserView').then((m) => ({ default: m.BrowserView })),
 );
+
+/** Activity drawer + agent-only tools — not on critical path for /dashboard/artifacts etc. */
+const LocalExplorer = lazy(() =>
+  import('./components/LocalExplorer').then((m) => ({ default: m.LocalExplorer })),
+);
+const GitHubExplorer = lazy(() =>
+  import('./components/GitHubExplorer').then((m) => ({ default: m.GitHubExplorer })),
+);
+const DatabaseBrowser = lazy(() =>
+  import('./components/DatabaseBrowser').then((m) => ({ default: m.DatabaseBrowser })),
+);
+const GoogleDriveExplorer = lazy(() =>
+  import('./components/GoogleDriveExplorer').then((m) => ({ default: m.GoogleDriveExplorer })),
+);
+const SourcePanel = lazy(() =>
+  import('./components/SourcePanel').then((m) => ({ default: m.SourcePanel })),
+);
+const MCPPanel = lazy(() =>
+  import('./components/MCPPanel').then((m) => ({ default: m.MCPPanel })),
+);
+const KnowledgeSearchPanel = lazy(() =>
+  import('./components/KnowledgeSearchPanel').then((m) => ({ default: m.KnowledgeSearchPanel })),
+);
+const XTermShell = lazy(() =>
+  import('./components/XTermShell').then((m) => ({ default: m.XTermShell })),
+);
+
+function ActivityPanelFallback() {
+  return (
+    <div className="flex flex-1 min-h-[120px] items-center justify-center text-[12px] text-[var(--text-muted)]">
+      Loading…
+    </div>
+  );
+}
 
 function DashboardRoutesFallback() {
   return (
@@ -3180,16 +3206,19 @@ const App: React.FC = () => {
           >
               <div className="w-full h-full flex flex-col relative">
                   {activeActivity === 'search' ? (
-                      <KnowledgeSearchPanel
-                        onClose={() => setActiveActivity(null)}
-                        activeConversationId={activeAgentConversationId}
-                      />
+                      <Suspense fallback={<ActivityPanelFallback />}>
+                        <KnowledgeSearchPanel
+                          onClose={() => setActiveActivity(null)}
+                          activeConversationId={activeAgentConversationId}
+                        />
+                      </Suspense>
                   ) : location.pathname === '/dashboard/meet' && meetCtxValue ? (
                       <MeetProvider value={meetCtxValue}>
                         <MeetShellPanel />
                       </MeetProvider>
                   ) : activeActivity === 'files' && isAgentHomePath(location.pathname) ? (
-                      <LocalExplorer
+                      <Suspense fallback={<ActivityPanelFallback />}>
+                        <LocalExplorer
                           workspace_id={authWorkspaceId}
                           user_id={sessionUserId}
                           nativeFolderOpenSignal={nativeFolderOpenSignal}
@@ -3198,30 +3227,39 @@ const App: React.FC = () => {
                           onOpenInEditor={openInEditorFromExplorer}
                           onOpenMovieMode={openMovieModeFromExplorer}
                           onClose={() => setActiveActivity(null)}
-                      />
+                        />
+                      </Suspense>
                   ) : activeActivity === 'mcps' ? (
-                      <MCPPanel />
+                      <Suspense fallback={<ActivityPanelFallback />}>
+                        <MCPPanel />
+                      </Suspense>
                   ) : activeActivity === 'actions' ? (
-                      <GitHubExplorer
+                      <Suspense fallback={<ActivityPanelFallback />}>
+                        <GitHubExplorer
                           workspace_id={authWorkspaceId}
                           expandRepoFullName={githubExpandRepo}
                           onExpandRepoConsumed={consumeGithubExpandRepo}
                           onOpenInEditor={openInEditorFromExplorer}
-                      />
+                        />
+                      </Suspense>
                   ) : activeActivity === 'drive' ? (
-                      <GoogleDriveExplorer
-                          onOpenInEditor={openInEditorFromExplorer}
-                      />
+                      <Suspense fallback={<ActivityPanelFallback />}>
+                        <GoogleDriveExplorer onOpenInEditor={openInEditorFromExplorer} />
+                      </Suspense>
                   ) : activeActivity === 'debug' ? (
                       <div className="p-4 text-xs text-[var(--text-muted)]">Redirecting to terminal problems...</div>
                   ) : activeActivity === 'git' ? (
-                      <SourcePanel />
+                      <Suspense fallback={<ActivityPanelFallback />}>
+                        <SourcePanel />
+                      </Suspense>
                   ) : activeActivity === 'database' ? (
-                      <DatabaseBrowser
+                      <Suspense fallback={<ActivityPanelFallback />}>
+                        <DatabaseBrowser
                           explorerJump={dbExplorerJump}
                           onExplorerJumpConsumed={() => setDbExplorerJump(null)}
                           onClose={() => setActiveActivity(null)}
-                      />
+                        />
+                      </Suspense>
                   ) : activeActivity === 'files' ? (
                       <div className="flex flex-col items-center justify-center h-full px-6 text-center gap-3">
                         <p className="text-[12px] text-[var(--text-muted)]">The file explorer is available on the Agent page.</p>
@@ -3668,7 +3706,14 @@ const App: React.FC = () => {
 
                   {/* Agent page keeps integrated terminal mount (existing behavior). */}
                   {isTerminalOpen && (
-                      <XTermShell
+                      <Suspense
+                        fallback={
+                          <div className="flex flex-1 items-center justify-center text-[11px] text-[var(--text-muted)]">
+                            Loading terminal…
+                          </div>
+                        }
+                      >
+                        <XTermShell
                           ref={terminalRef}
                           onClose={() => setIsTerminalOpen(false)}
                           problems={systemProblems ?? []}
@@ -3681,7 +3726,8 @@ const App: React.FC = () => {
                           outputLines={shellOutputLines}
                           onOutputLine={handleTerminalOutputLine}
                           workspaceContext={agentWorkspaceContext}
-                      />
+                        />
+                      </Suspense>
                   )}
               </div>
           </>
@@ -3714,19 +3760,27 @@ const App: React.FC = () => {
                   onPointerDown={beginTerminalResize}
                 />
                 <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
-                  <XTermShell
-                    ref={terminalRef}
-                    iamOrigin={window.location.origin}
-                    workspaceLabel={workspaceDisplayName || ''}
-                    workspaceId={authWorkspaceId || ''}
-                    productLabel="IAM"
-                    layout="drawer"
-                    outputLines={shellOutputLines}
-                    onOutputLine={handleTerminalOutputLine}
-                    problems={systemProblems ?? []}
-                    onProblemsTabOpen={() => void fetchGitAndProblems()}
-                    onClose={() => setIsTerminalOpen(false)}
-                  />
+                  <Suspense
+                    fallback={
+                      <div className="flex flex-1 items-center justify-center text-[11px] text-[var(--text-muted)]">
+                        Loading terminal…
+                      </div>
+                    }
+                  >
+                    <XTermShell
+                      ref={terminalRef}
+                      iamOrigin={window.location.origin}
+                      workspaceLabel={workspaceDisplayName || ''}
+                      workspaceId={authWorkspaceId || ''}
+                      productLabel="IAM"
+                      layout="drawer"
+                      outputLines={shellOutputLines}
+                      onOutputLine={handleTerminalOutputLine}
+                      problems={systemProblems ?? []}
+                      onProblemsTabOpen={() => void fetchGitAndProblems()}
+                      onClose={() => setIsTerminalOpen(false)}
+                    />
+                  </Suspense>
                 </div>
               </div>
               )}

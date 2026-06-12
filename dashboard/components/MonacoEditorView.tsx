@@ -14,7 +14,7 @@ import { useEditor } from '../src/EditorContext';
 import { FilePreview } from '../src/components/FilePreview';
 import { SetiFileIcon } from '../src/components/SetiFileIcon';
 import { detectFileKind, isEditableTextKind } from '../src/lib/fileKind';
-import { buildR2ObjectUrl } from '../src/lib/mediaPreview';
+import { buildR2ObjectUrl } from '../src/lib/r2Urls';
 import {
   applyMonacoTheme,
   buildDiffEditorOptions,
@@ -28,18 +28,14 @@ import {
   resolveMonacoModelPath,
 } from '../src/lib/monacoModelRegistry';
 import type { AgentWorkspaceContextPacket } from '../src/ideWorkspace';
+import type { EditorModelMeta } from '../types/editorModel';
 import { X } from 'lucide-react';
 
 const IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.ico', '.avif'];
 const isImageKey = (key: string) => IMAGE_EXTS.some((e) => key.toLowerCase().endsWith(e));
 const isImageMime = (ct: string) => ct.trim().toLowerCase().startsWith('image/');
 
-export type EditorModelMeta = {
-  tabSize: number;
-  insertSpaces: boolean;
-  eol: 'LF' | 'CRLF';
-  encoding: string;
-};
+export type { EditorModelMeta } from '../types/editorModel';
 
 interface MonacoEditorViewProps {
   onChange?: (val?: string) => void;

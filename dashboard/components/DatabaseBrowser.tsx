@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { SQLConsole, SqlDialect } from './SQLConsole';
 import { DatabaseAgentChat } from './DatabaseAgentChat';
+import type { DatabaseExplorerJump } from '../types/databaseExplorer';
 
 type DBView = 'console' | 'agent' | 'settings';
 type DBTarget = 'd1' | 'hyperdrive';
@@ -48,14 +49,7 @@ function normalizeHyperTables(payload: unknown): TableEntry[] {
     .filter((t) => t.name);
 }
 
-export type DatabaseExplorerJump = {
-  token: number;
-  /** Prefill console (takes precedence over table). */
-  querySql?: string;
-  /** When set without querySql, open console with SELECT * preview for this table. */
-  table?: string;
-  dbTarget?: DBTarget;
-};
+export type { DatabaseExplorerJump } from '../types/databaseExplorer';
 
 export const DatabaseBrowser: React.FC<{
   onClose?: () => void;

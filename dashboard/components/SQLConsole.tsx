@@ -1,7 +1,10 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo, Suspense, lazy } from 'react';
 import { Play, RotateCcw, Save, Trash2, Download } from 'lucide-react';
 import { DataGrid } from './DataGrid';
-import { MonacoEditorView } from './MonacoEditorView';
+
+const MonacoEditorView = lazy(() =>
+  import('./MonacoEditorView').then((m) => ({ default: m.MonacoEditorView })),
+);
 
 export type SqlDialect = 'd1' | 'postgres';
 
@@ -184,16 +187,24 @@ export const SQLConsole: React.FC<SQLConsoleProps> = ({
         ref={editorShellRef}
         className="flex-1 flex flex-col min-h-0 border-b border-[var(--border-subtle)] overflow-hidden"
       >
-        <MonacoEditorView
-          onChange={(newContent) => {
-            const next = newContent ?? '';
-            sqlRef.current = next;
-            setSql(next);
-          }}
-          onSave={(content) => void runQuery(content)}
-          onCursorPositionChange={() => {}}
-          onEditorModelMeta={() => {}}
-        />
+        <Suspense
+          fallback={
+            <div className="flex flex-1 items-center justify-center text-[11px] text-[var(--text-muted)]">
+              Loading editor…
+            </div>
+          }
+        >
+          <MonacoEditorView
+            onChange={(newContent) => {
+              const next = newContent ?? '';
+              sqlRef.current = next;
+              setSql(next);
+            }}
+            onSave={(content) => void runQuery(content)}
+            onCursorPositionChange={() => {}}
+            onEditorModelMeta={() => {}}
+          />
+        </Suspense>
       </div>
 
       {/* Results Area */}
