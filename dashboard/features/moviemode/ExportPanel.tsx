@@ -54,6 +54,9 @@ export const ExportPanel: React.FC<Props> = ({ session, onExportComplete }) => {
         if (data.r2Key) onExportComplete?.(data.r2Key);
       }
       if (data.status === 'error') window.clearInterval(iv);
+      if (data.status === 'uploading') {
+        /* keep polling until ingest confirms */
+      }
     }, 1500);
   };
 
