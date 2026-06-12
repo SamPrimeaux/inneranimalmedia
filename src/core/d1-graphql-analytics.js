@@ -115,7 +115,7 @@ export async function fetchD1AnalyticsOverview(env, opts) {
   const { accountId, token, databaseId, range } = opts;
   const win = rangeWindow(range);
   const kv = env?.SESSION_CACHE || env?.KV || null;
-  const cacheKey = `d1_gql:v1:${databaseId}:${range}`;
+  const cacheKey = `d1_gql:v2:${databaseId}:${range}`;
 
   return cachedFetch(kv, cacheKey, async () => {
     const useDatetime = range === '1h' || range === '24h';
@@ -149,36 +149,57 @@ export async function fetchD1AnalyticsOverview(env, opts) {
             }
             storage: d1StorageAdaptiveGroups(
               limit: 1
-              filter: { databaseId: $databaseId }
-              orderBy: [date_DESC]
+              filter: { databaseId: $databaseId, ${startKey}: $start, ${endKey}: $end }
+              orderBy: [max_databaseSizeBytes_DESC]
             ) {
               max { databaseSizeBytes }
-            }
-            topQueries: d1QueriesAdaptiveGroups(
-              limit: 20
-              filter: { databaseId: $databaseId, ${startKey}: $start, ${endKey}: $end }
-              orderBy: [sum_queryBatchTimeMs_DESC]
-            ) {
-              dimensions { query }
-              sum { count rowsRead rowsWritten queryBatchTimeMs }
-              quantiles { queryBatchTimeMsP50 queryBatchTimeMsP99 }
             }
           }
         }
       }`;
 
-    const data = await cloudflareGraphql(env, accountId, token, analyticsQuery, {
+    const vars = {
       databaseId,
       start: startVal,
       end: endVal,
       prevStart: prevStartVal,
-    });
+    };
+
+    const data = await cloudflareGraphql(env, accountId, token, analyticsQuery, vars);
+
+    let queryRows = [];
+    try {
+      const insightsQuery = `
+        query D1QueryInsights($accountTag: string!, $databaseId: string!, $start: ${useDatetime ? 'DateTime' : 'Date'}!, $end: ${useDatetime ? 'DateTime' : 'Date'}!) {
+          viewer {
+            accounts(filter: { accountTag: $accountTag }) {
+              topQueries: d1QueriesAdaptiveGroups(
+                limit: 20
+                filter: { databaseId: $databaseId, ${startKey}: $start, ${endKey}: $end }
+                orderBy: [sum_queryDurationMs_DESC]
+              ) {
+                count
+                dimensions { query }
+                sum { rowsRead rowsWritten queryDurationMs }
+                quantiles { queryDurationMsP50 queryDurationMsP99 }
+              }
+            }
+          }
+        }`;
+      const insightsData = await cloudflareGraphql(env, accountId, token, insightsQuery, {
+        databaseId,
+        start: startVal,
+        end: endVal,
+      });
+      queryRows = insightsData?.viewer?.accounts?.[0]?.topQueries ?? [];
+    } catch {
+      queryRows = [];
+    }
 
     const account = data?.viewer?.accounts?.[0] ?? {};
     const currentRows = account.current ?? [];
     const previousRows = account.previous ?? [];
     const storageRows = account.storage ?? [];
-    const queryRows = account.topQueries ?? [];
 
     const sumRows = (rows, pick) =>
       rows.reduce(
@@ -222,7 +243,7 @@ export async function fetchD1AnalyticsOverview(env, opts) {
     const storageBytes = Number(storageRows[0]?.max?.databaseSizeBytes) || 0;
 
     const totalRuntimeMs = queryRows.reduce(
-      (s, r) => s + (Number(r?.sum?.queryBatchTimeMs) || 0),
+      (s, r) => s + (Number(r?.sum?.queryDurationMs) || 0),
       0,
     );
 
@@ -230,10 +251,10 @@ export async function fetchD1AnalyticsOverview(env, opts) {
       .map((row) => {
         const q = String(row?.dimensions?.query || '').trim();
         if (!q) return null;
-        const count = Number(row?.sum?.count) || 0;
-        const totalMs = Number(row?.sum?.queryBatchTimeMs) || 0;
-        const p50 = Number(row?.quantiles?.queryBatchTimeMsP50) || 0;
-        const p99 = Number(row?.quantiles?.queryBatchTimeMsP99) || 0;
+        const count = Number(row?.count) || 0;
+        const totalMs = Number(row?.sum?.queryDurationMs) || 0;
+        const p50 = Number(row?.quantiles?.queryDurationMsP50) || 0;
+        const p99 = Number(row?.quantiles?.queryDurationMsP99) || 0;
         const rowsRead = Number(row?.sum?.rowsRead) || 0;
         const rowsWritten = Number(row?.sum?.rowsWritten) || 0;
         return {
