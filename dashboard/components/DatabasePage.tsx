@@ -73,7 +73,7 @@ export const DatabasePage: React.FC = () => {
 
   return (
     <div
-      className="flex h-full min-h-0 flex-col overflow-auto"
+      className="flex h-full min-h-0 flex-col overflow-auto px-4 py-4 md:px-6 md:py-5"
       onClickCapture={onOverviewClickCapture}
     >
       <DatabasesTab />

@@ -40,6 +40,8 @@
 
   /* ── layout ── */
   width: 100%;
+  max-width: 1600px;
+  margin: 0 auto;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -47,8 +49,90 @@
   color: var(--db-text);
 }
 
-/* ── mock data banner ── */
-.mockBanner {
+/* ── Cloudflare surface (light CF dashboard vibe) ── */
+.analytics-databases[data-surface="cloudflare"] {
+  --db-panel:        #ffffff;
+  --db-surface:      #f6f6f8;
+  --db-surface-2:    #ececf0;
+  --db-border:       rgba(0, 0, 0, 0.08);
+  --db-border-strong:rgba(0, 0, 0, 0.12);
+  --db-text:         #1a1a2e;
+  --db-text-muted:   #6b6b80;
+  --db-text-dim:     #9a9ab0;
+  --db-accent:       #6c8fff;
+  --db-accent-muted: rgba(108, 143, 255, 0.14);
+  --db-accent-2:     #9b8afb;
+  --db-radius-lg:    10px;
+}
+
+/* ── Supabase surface (dark dev observability) ── */
+.analytics-databases[data-surface="supabase"] {
+  --db-panel:        #161616;
+  --db-surface:      #1c1c1c;
+  --db-surface-2:    #232323;
+  --db-border:       rgba(255, 255, 255, 0.06);
+  --db-text:         #ededed;
+  --db-text-muted:   #8a8a96;
+  --db-accent:       #00d37e;
+  --db-accent-muted: rgba(0, 211, 126, 0.14);
+  --db-accent-2:     #3ecf8e;
+  --db-radius-lg:    10px;
+}
+
+.surfaceMeta {
+  font-size: 11px;
+  color: var(--db-text-muted);
+  margin-top: -8px;
+}
+
+.chartSubtitle {
+  font-size: 11px;
+  color: var(--db-text-muted);
+}
+
+.kpiMetaHint {
+  color: var(--db-text-dim);
+  font-size: 11px;
+}
+
+.chartGrid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 768px) {
+  .chartGrid2 { grid-template-columns: 1fr; }
+}
+
+.queryTableActions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.largeObjects {
+  margin-top: 14px;
+}
+
+.largeObjectRow {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--db-border);
+  font-size: 11px;
+}
+
+.largeObjectName {
+  font-family: var(--db-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.alertBanner {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -60,7 +144,7 @@
   color: var(--db-accent-3);
 }
 
-.mockBanner strong { font-weight: 600; }
+.alertBanner strong { font-weight: 600; }
 
 .sectionNotice {
   display: flex;
@@ -111,7 +195,8 @@
   border-radius: var(--db-radius-md);
   font-size: 12px;
   font-weight: 500;
-  padding: 5px 12px;
+  padding: 8px 14px;
+  min-height: 36px;
   cursor: pointer;
   text-decoration: none;
   white-space: nowrap;
@@ -132,7 +217,8 @@
   border: none;
   color: var(--db-text-muted);
   font-size: 12px;
-  padding: 5px 10px;
+  padding: 8px 12px;
+  min-height: 36px;
   cursor: pointer;
   white-space: nowrap;
   line-height: 1;
@@ -145,8 +231,9 @@
   border: 1px solid var(--db-border);
   border-radius: var(--db-radius-md);
   color: var(--db-text-muted);
-  width: 30px;
-  height: 30px;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -158,18 +245,19 @@
 .kpiGrid {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
-  gap: 8px;
+  gap: 10px;
 }
 @media (max-width: 1024px) { .kpiGrid { grid-template-columns: repeat(3, 1fr); } }
-@media (max-width: 640px)  { .kpiGrid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 640px)  { .kpiGrid { grid-template-columns: repeat(2, 1fr); gap: 8px; } }
 
 .kpiCard {
   background: var(--db-panel);
   border: 1px solid var(--db-border);
   border-radius: var(--db-radius-lg);
-  padding: 12px 14px 10px;
+  padding: 14px 16px 12px;
   position: relative;
   overflow: hidden;
+  min-height: 88px;
 }
 
 .kpiLabel {

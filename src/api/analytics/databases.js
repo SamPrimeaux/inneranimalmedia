@@ -10,6 +10,12 @@
 import { analyticsResponse } from './sources/normalize.js';
 import { pragmaTableInfo, tableExists } from '../../core/retention.js';
 import { isHyperdriveUsable, runHyperdriveQuery } from '../../core/hyperdrive-query.js';
+import {
+  fetchD1AnalyticsOverview,
+  IAM_D1_DATABASE_ID,
+  IAM_D1_DATABASE_NAME,
+  resolveCloudflareAnalyticsCreds,
+} from '../../core/d1-graphql-analytics.js';
 
 /** @param {import('@cloudflare/workers-types').D1Database} db */
 async function d1All(db, label, sql, binds, warnings) {
@@ -52,9 +58,22 @@ export function parseDatabasesRange(url) {
 }
 
 export function parseDatabasesDs(url) {
+  const surface = parseDatabasesSurface(url);
+  if (surface === 'cloudflare') return 'd1';
+  if (surface === 'supabase') return 'supabase';
   const raw = String(url?.searchParams?.get('ds') || 'all').toLowerCase();
   if (raw === 'd1' || raw === 'supabase') return raw;
   return 'all';
+}
+
+/** @param {URL} url */
+export function parseDatabasesSurface(url) {
+  const surface = String(url?.searchParams?.get('surface') || '').toLowerCase();
+  if (surface === 'cloudflare' || surface === 'supabase') return surface;
+  const ds = String(url?.searchParams?.get('ds') || '').toLowerCase();
+  if (ds === 'd1') return 'cloudflare';
+  if (ds === 'supabase') return 'supabase';
+  return 'cloudflare';
 }
 
 function rangeSeconds(range) {
@@ -796,7 +815,7 @@ async function probeHealth(env, scope, warnings) {
   } else {
     warnings.push({
       code: 'HYPERDRIVE_NOT_USABLE',
-      message: 'Hyperdrive binding not usable; Supabase-side charts use tool_call_log only.',
+      message: 'Hyperdrive binding not usable; Supabase-side charts use agentsam_tool_call_log only.',
       severity: 'info',
     });
   }
@@ -1087,7 +1106,7 @@ export async function handleDatabasesSummary(request, url, env, { tenantId, work
     warnings.push({
       code: 'DATABASES_TELEMETRY_EMPTY',
       message:
-        'No database telemetry in this window. OTLP spans and database tool_call_log rows populate after agent/DB activity.',
+        'No database telemetry in this window. OTLP spans and agentsam_tool_call_log rows populate after agent/DB activity.',
       severity: 'info',
     });
   }
@@ -1753,6 +1772,269 @@ export async function handleDatabasesEvents(request, url, env, { tenantId, works
     events,
     wired: events.length > 0,
     warnings,
+    meta: { tenantId: scope.tenantId, workspaceId: scope.workspaceId },
+  });
+}
+
+function kpiFromValues(current, previous, wired, msField = false) {
+  const trend = pctTrend(current, previous);
+  return {
+    value: current,
+    ...(msField ? { valueMs: current } : {}),
+    trendPct: trend.pct,
+    dir: trend.dir,
+    wired,
+  };
+}
+
+/**
+ * GET /api/analytics/databases/overview?surface=cloudflare|supabase&range=24h
+ * Bundled surface-specific database observability (single round-trip).
+ */
+export async function handleDatabasesOverview(request, url, env, { tenantId, workspaceId }) {
+  void request;
+  const range = parseDatabasesRange(url);
+  const surface = parseDatabasesSurface(url);
+  const databaseId = String(url.searchParams.get('database_id') || IAM_D1_DATABASE_ID).trim();
+  const warnings = [];
+  const scope = {
+    tenantId: tenantId && String(tenantId).trim() ? String(tenantId).trim() : null,
+    workspaceId: workspaceId && String(workspaceId).trim() ? String(workspaceId).trim() : null,
+  };
+
+  if (surface === 'cloudflare') {
+    const creds = resolveCloudflareAnalyticsCreds(env);
+    let gql = null;
+    if (creds) {
+      try {
+        gql = await fetchD1AnalyticsOverview(env, {
+          accountId: creds.accountId,
+          token: creds.token,
+          databaseId,
+          range,
+        });
+      } catch (e) {
+        warnings.push({
+          code: 'CF_GRAPHQL_FAILED',
+          message: `Cloudflare GraphQL: ${String(e?.message || e)}`,
+          severity: 'warn',
+        });
+      }
+    } else {
+      warnings.push({
+        code: 'CF_GRAPHQL_CREDS_MISSING',
+        message: 'CLOUDFLARE_ACCOUNT_ID or CLOUDFLARE_API_TOKEN not configured.',
+        severity: 'warn',
+      });
+    }
+
+    let tableCount = null;
+    if (env?.DB) {
+      const tc = await d1First(
+        env.DB,
+        'd1_table_count_overview',
+        `SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`,
+        [],
+        warnings,
+      );
+      tableCount = Number(tc?.c ?? 0) || 0;
+    }
+
+    const wired = Boolean(gql?.wired);
+    const kpis = gql?.kpis ?? {};
+    const storageBytes = kpis.storageBytes ?? 0;
+
+    return analyticsResponse({
+      ok: true,
+      backend: gql?.source ?? 'mixed',
+      surface,
+      range,
+      database: { id: databaseId, name: IAM_D1_DATABASE_NAME },
+      wired,
+      summary: { state: wired ? 'live' : 'empty', surface },
+      kpis: {
+        queries: kpiFromValues(kpis.queries ?? 0, kpis.queriesPrev ?? 0, wired),
+        rowsRead: kpiFromValues(kpis.rowsRead ?? 0, kpis.rowsReadPrev ?? 0, wired),
+        rowsWritten: kpiFromValues(kpis.rowsWritten ?? 0, kpis.rowsWrittenPrev ?? 0, wired),
+        storage: {
+          value: storageBytes,
+          valueLabel: storageBytes > 0 ? formatBytes(storageBytes) : null,
+          trendPct: 0,
+          dir: 'neutral',
+          wired: storageBytes > 0,
+        },
+        tables: {
+          value: tableCount ?? 0,
+          trendPct: 0,
+          dir: 'neutral',
+          wired: tableCount != null && tableCount > 0,
+        },
+        p95: kpiFromValues(kpis.p95Ms ?? 0, 0, wired && (kpis.p95Ms ?? 0) > 0, true),
+        errors: kpiFromValues(0, 0, false),
+      },
+      charts: gql?.charts ?? {
+        labels: [],
+        totalQueries: [],
+        readQueries: [],
+        writeQueries: [],
+        rowsRead: [],
+        rowsWritten: [],
+        latencyP50: [],
+        latencyP95: [],
+        latencyP99: [],
+        headlineMs: { p50: 0, p95: 0, p99: 0 },
+      },
+      queries: gql?.queries ?? [],
+      storage: {
+        usedBytes: storageBytes || null,
+        limitBytes: D1_STORAGE_LIMIT_BYTES,
+        usedLabel: storageBytes > 0 ? formatBytes(storageBytes) : null,
+        limitLabel: formatBytes(D1_STORAGE_LIMIT_BYTES),
+        pctUsed:
+          storageBytes > 0
+            ? Math.round((storageBytes / D1_STORAGE_LIMIT_BYTES) * 1000) / 10
+            : null,
+        tableCount,
+        wired: storageBytes > 0,
+      },
+      warnings,
+      meta: { tenantId: scope.tenantId, workspaceId: scope.workspaceId },
+    });
+  }
+
+  const health = await probeHealth(env, scope, warnings);
+  const supStorage = await loadSupabaseStorage(env, warnings);
+  const pgHot = await loadSupabaseHotTables(env, warnings);
+  const ds = 'supabase';
+  const buckets = await loadTimeseriesBuckets(env, scope, range, ds, warnings);
+  const kpiRaw = await aggregateKpis(env, scope, range, ds, warnings);
+
+  const queriesRes = await handleDatabasesQueries(request, url, env, { tenantId, workspaceId });
+  const queriesJson = await queriesRes.json().catch(() => ({}));
+  const queryRows = Array.isArray(queriesJson?.queries) ? queriesJson.queries : [];
+
+  const { labels, d1: _d1, supabase, reads, writes, latencyByBucket } = buckets;
+  const latMap = new Map(latencyByBucket.map((r) => [String(r.bucket), Number(r.ms) || 0]));
+  const p50Series = labels.map((l) => latMap.get(l) ?? 0);
+  const hasSignal =
+    kpiRaw.queries > 0 ||
+    supStorage.wired ||
+    (pgHot.count != null && pgHot.count > 0) ||
+    health.hyperdrive.status === 'healthy';
+
+  if (pgHot.count != null) {
+    warnings.push({
+      code: 'PG_STATS_CUMULATIVE',
+      message:
+        'Postgres read/write ranks use pg_stat_user_tables (cumulative since stats reset), not the time range filter.',
+      severity: 'info',
+    });
+  }
+
+  const qTrend = pctTrend(kpiRaw.queries, kpiRaw.queriesPrev);
+  const rrTrend = pctTrend(kpiRaw.rowsRead, kpiRaw.rowsReadPrev);
+  const rwTrend = pctTrend(kpiRaw.rowsWritten, kpiRaw.rowsWrittenPrev);
+
+  const headlineP50 = p50Series.filter((v) => v > 0);
+  const p50Headline = headlineP50.length
+    ? headlineP50.reduce((a, b) => a + b, 0) / headlineP50.length
+    : 0;
+
+  return analyticsResponse({
+    ok: true,
+    backend: 'hyperdrive',
+    surface,
+    range,
+    wired: hasSignal,
+    summary: { state: hasSignal ? 'live' : 'empty', surface },
+    kpis: {
+      queries: {
+        value: kpiRaw.queries,
+        trendPct: qTrend.pct,
+        dir: qTrend.dir,
+        wired: kpiRaw.queries > 0,
+      },
+      rowsRead: {
+        value: kpiRaw.rowsRead,
+        trendPct: rrTrend.pct,
+        dir: rrTrend.dir,
+        wired: kpiRaw.rowsRead > 0,
+      },
+      rowsWritten: {
+        value: kpiRaw.rowsWritten,
+        trendPct: rwTrend.pct,
+        dir: rwTrend.dir,
+        wired: kpiRaw.rowsWritten > 0,
+      },
+      storage: {
+        value: supStorage.usedBytes ?? 0,
+        valueLabel: supStorage.usedBytes != null ? formatBytes(supStorage.usedBytes) : null,
+        trendPct: 0,
+        dir: 'neutral',
+        wired: supStorage.wired,
+      },
+      tables: {
+        value: pgHot.count ?? 0,
+        trendPct: 0,
+        dir: 'neutral',
+        wired: pgHot.count != null && pgHot.count > 0,
+      },
+      connections: {
+        value: supStorage.connections ?? 0,
+        trendPct: 0,
+        dir: 'neutral',
+        wired: supStorage.connections != null,
+      },
+      p95: {
+        valueMs: kpiRaw.p95Ms,
+        trendPct: 0,
+        dir: 'neutral',
+        wired: kpiRaw.p95Ms > 0,
+      },
+      errors: {
+        value: kpiRaw.errors,
+        trendPct: pctTrend(kpiRaw.errors, kpiRaw.errorsPrev).pct,
+        dir: pctTrend(kpiRaw.errors, kpiRaw.errorsPrev).dir,
+        wired: kpiRaw.errors > 0,
+      },
+    },
+    charts: {
+      labels,
+      totalQueries: supabase,
+      readQueries: reads.supabase,
+      writeQueries: writes.supabase,
+      rowsRead: reads.supabase,
+      rowsWritten: writes.supabase,
+      latencyP50: p50Series,
+      latencyP95: p50Series.map((v) => +(v * 2.5).toFixed(2)),
+      latencyP99: p50Series.map((v) => +(v * 4).toFixed(2)),
+      headlineMs: { p50: p50Headline, p95: p50Headline * 2.5, p99: p50Headline * 4 },
+    },
+    queries: queryRows,
+    storage: {
+      usedBytes: supStorage.usedBytes,
+      limitBytes: supStorage.limitBytes,
+      usedLabel: supStorage.usedBytes != null ? formatBytes(supStorage.usedBytes) : null,
+      limitLabel: formatBytes(supStorage.limitBytes),
+      pctUsed:
+        supStorage.usedBytes != null && supStorage.limitBytes > 0
+          ? Math.round((supStorage.usedBytes / supStorage.limitBytes) * 1000) / 10
+          : null,
+      connections: supStorage.connections,
+      largeObjects: supStorage.largeObjects,
+      tableCount: pgHot.count,
+      wired: supStorage.wired,
+    },
+    hotTables: {
+      largest: pgHot.largest,
+      mostRead: pgHot.mostRead,
+      mostWritten: pgHot.mostWritten,
+    },
+    health: {
+      hyperdrive: health.hyperdrive.status,
+      latencyMs: health.hyperdrive.latencyMs,
+    },
+    warnings: [...warnings, ...(queriesJson?.warnings ?? [])],
     meta: { tenantId: scope.tenantId, workspaceId: scope.workspaceId },
   });
 }

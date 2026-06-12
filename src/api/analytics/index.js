@@ -16,6 +16,7 @@ import {
   handleDatabasesTables,
   handleDatabasesTimeseries,
   handleDatabasesEvents,
+  handleDatabasesOverview,
 } from './databases.js';
 import {
   handleAnalyticsAdvisors,
@@ -162,6 +163,10 @@ export async function handleAnalyticsApi(request, url, env, ctx, authUser, ident
 
   if (pathLower === '/api/analytics/advisors/guardrails' && request.method === 'GET') {
     return handleAnalyticsAdvisorsGuardrails(request, url, env, { tenantId, workspaceId });
+  }
+
+  if (pathLower === '/api/analytics/databases/overview' && request.method === 'GET') {
+    return handleDatabasesOverview(request, url, env, { tenantId, workspaceId });
   }
 
   if (pathLower === '/api/analytics/databases/summary' && request.method === 'GET') {
