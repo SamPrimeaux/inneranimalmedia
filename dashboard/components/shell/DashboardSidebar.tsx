@@ -12,6 +12,8 @@ import {
   Layers,
   MessageSquare,
   Palette,
+  PanelLeft,
+  PanelLeftClose,
   Plus,
   SlidersHorizontal,
 } from 'lucide-react';
@@ -32,6 +34,7 @@ const PRODUCT_ICONS: Record<ShellProductId, ComponentType<{ size?: number; class
 
 type DashboardSidebarProps = {
   expanded: boolean;
+  onToggleExpanded?: () => void;
   onItemActivate?: () => void;
   onNewChat?: () => void;
   onOpenChats?: () => void;
@@ -52,6 +55,7 @@ const CoreIcon: FC<{ id: string; size?: number }> = ({ id, size = 18 }) => {
 
 export function DashboardSidebar({
   expanded,
+  onToggleExpanded,
   onItemActivate,
   onNewChat,
   onOpenChats,
@@ -79,6 +83,22 @@ export function DashboardSidebar({
 
   return (
     <div className="flex flex-col h-full min-h-0 gap-0.5">
+      <div className="flex flex-col gap-0.5 shrink-0 pb-1 mb-0.5 border-b border-[var(--dashboard-border)]/60">
+        <button
+          type="button"
+          title={expanded ? 'Collapse navigation' : 'Expand navigation'}
+          aria-expanded={expanded}
+          onClick={() => onToggleExpanded?.()}
+          className={`relative flex w-full min-h-[40px] shrink-0 items-center rounded-lg transition-colors ${
+            expanded ? 'gap-2.5 px-2 justify-start' : 'justify-center px-0'
+          } text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]/60`}
+        >
+          {expanded ? <PanelLeftClose size={20} strokeWidth={1} /> : <PanelLeft size={18} strokeWidth={1} />}
+          {expanded ? (
+            <span className="min-w-0 truncate text-left text-[12px] font-medium leading-tight">Collapse</span>
+          ) : null}
+        </button>
+      </div>
       <div className="flex flex-col gap-0.5 shrink-0">
         {SHELL_CORE_NAV.map((item) => {
           if (item.kind === 'action') {

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { RefreshCw, LayoutGrid, List, Plus } from 'lucide-react';
+import { ChevronDown, Plus, RefreshCw, Search, SlidersHorizontal } from 'lucide-react';
 import type { ArtifactRecord } from '../../api/artifacts';
 import { fetchArtifacts, fetchArtifactFilters } from '../../api/artifacts';
-import { ArtifactGrid } from '../../components/library/ArtifactGrid';
+import { ArtifactCategoryPicker } from '../../components/library/ArtifactCategoryPicker';
+import { ArtifactHomeCard } from '../../components/library/ArtifactHomeCard';
 import { ArtifactFilters } from '../../components/library/ArtifactFilters';
 import { ArtifactPreviewPanel } from '../../components/library/ArtifactPreviewPanel';
+import { continueArtifactInChat, isCodeArtifact, openArtifactInBuilder } from '../../lib/artifactChat';
 
 function toOpts(rows: { value: string; count: number }[]) {
   return (rows || []).map((r) => ({
@@ -15,14 +16,14 @@ function toOpts(rows: { value: string; count: number }[]) {
 }
 
 export default function LibraryPage() {
-  const navigate = useNavigate();
   const [q, setQ] = useState('');
   const [type, setType] = useState('');
   const [status, setStatus] = useState('');
   const [validation, setValidation] = useState('');
   const [visibility, setVisibility] = useState('');
   const [source, setSource] = useState('');
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [categoryOpen, setCategoryOpen] = useState(false);
   const [artifacts, setArtifacts] = useState<ArtifactRecord[]>([]);
   const [total, setTotal] = useState(0);
   const [kpis, setKpis] = useState<{
@@ -45,6 +46,8 @@ export default function LibraryPage() {
     visibility: { value: string; count: number }[];
     source: { value: string; count: number }[];
   } | null>(null);
+
+  const hasActiveFilters = Boolean(type || status || validation || visibility || source);
 
   const loadFilters = useCallback(async () => {
     try {
@@ -109,7 +112,7 @@ export default function LibraryPage() {
 
   useEffect(() => {
     if (!toast) return;
-    const t = setTimeout(() => setToast(null), 2400);
+    const t = setTimeout(() => setToast(null), 2800);
     return () => clearTimeout(t);
   }, [toast]);
 
@@ -136,30 +139,30 @@ export default function LibraryPage() {
     setQ('');
   };
 
+  const openArtifact = (a: ArtifactRecord) => {
+    setSelected(a);
+    setPanelOpen(true);
+  };
+
   return (
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
       <style>{`
-        .iam-lib-card {
-          display: block;
-          padding: 14px;
-          border-radius: 12px;
-          border: 1px solid var(--dashboard-border);
-          background: var(--dashboard-panel);
-          transition: border-color 0.15s ease, box-shadow 0.15s ease;
-        }
-        .iam-lib-card:hover { border-color: color-mix(in srgb, var(--solar-cyan) 35%, var(--dashboard-border)); }
-        .iam-lib-card--list { padding: 12px 14px; }
         .iam-lib-btn {
-          display: inline-flex; align-items: center; gap: 6px;
-          padding: 6px 10px; border-radius: 8px; font-size: 11px;
+          display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+          padding: 8px 12px; border-radius: 10px; font-size: 13px; min-height: 40px;
           border: 1px solid var(--dashboard-border);
           background: transparent; color: var(--text-primary);
+          touch-action: manipulation;
         }
         .iam-lib-btn:hover { background: var(--bg-hover); }
-        .iam-lib-btn--primary { border-color: color-mix(in srgb, var(--solar-green) 50%, var(--dashboard-border)); color: var(--solar-green); }
-        .iam-lib-btn--ghost { border-color: transparent; opacity: 0.85; }
+        .iam-lib-btn--primary {
+          border-color: color-mix(in srgb, var(--solar-green) 50%, var(--dashboard-border));
+          color: var(--solar-green);
+          background: color-mix(in srgb, var(--solar-green) 8%, transparent);
+        }
+        .iam-lib-btn--ghost { border-color: transparent; opacity: 0.9; }
         .iam-lib-select {
-          font-size: 13px; padding: 8px 10px; border-radius: 8px;
+          font-size: 14px; padding: 10px 12px; border-radius: 10px; min-height: 44px;
           border: 1px solid var(--dashboard-border);
           background: var(--dashboard-canvas); color: var(--text-primary);
         }
@@ -176,90 +179,107 @@ export default function LibraryPage() {
         .iam-lib-badge--red { background: color-mix(in srgb, #f87171 20%, transparent); color: #fca5a5; }
         .iam-lib-badge--amber { background: color-mix(in srgb, #fbbf24 18%, transparent); color: #fcd34d; }
         .iam-lib-badge--orange { background: color-mix(in srgb, #fb923c 18%, transparent); color: #fdba74; }
+        .iam-artifact-skel {
+          border-radius: 12px; border: 1px solid var(--dashboard-border);
+          background: linear-gradient(90deg, var(--dashboard-panel) 0%, var(--bg-hover) 50%, var(--dashboard-panel) 100%);
+          background-size: 200% 100%; animation: iam-artifact-shimmer 1.2s ease-in-out infinite;
+        }
+        @keyframes iam-artifact-shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
       `}</style>
 
-      <div className="shrink-0 border-b border-[var(--dashboard-border)] px-6 py-5 bg-[var(--dashboard-canvas)]">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h1 className="text-xl font-semibold text-[var(--text-primary)] tracking-tight">Artifacts</h1>
-            <p className="text-sm text-[var(--text-muted)] mt-1 max-w-2xl">
-              Saved outputs from Agent Sam, workflows, and creative tools — scoped to your workspace.
+      <div className="shrink-0 border-b border-[var(--dashboard-border)] px-4 sm:px-6 py-4 sm:py-5 bg-[var(--dashboard-canvas)]">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <h1 className="text-xl sm:text-2xl font-semibold text-[var(--text-primary)] tracking-tight">Artifacts</h1>
+            <p className="text-sm text-[var(--text-muted)] mt-1 max-w-xl">
+              Build something new or pick up where you left off — chat stays on this page.
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" className="iam-lib-btn iam-lib-btn--primary" onClick={() => navigate('/dashboard/agent')}>
-              <Plus size={16} /> New artifact
-            </button>
-            <button type="button" className="iam-lib-btn" onClick={() => void load()}>
-              <RefreshCw size={16} /> Refresh
-            </button>
+          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto sm:shrink-0">
             <button
               type="button"
-              className={`iam-lib-btn ${viewMode === 'grid' ? 'ring-1 ring-[var(--solar-cyan)]' : ''}`}
-              onClick={() => setViewMode('grid')}
-              title="Grid"
+              className="iam-lib-btn iam-lib-btn--primary w-full sm:w-auto"
+              onClick={() => setCategoryOpen(true)}
             >
-              <LayoutGrid size={16} />
+              <Plus size={18} /> New artifact
             </button>
-            <button
-              type="button"
-              className={`iam-lib-btn ${viewMode === 'list' ? 'ring-1 ring-[var(--solar-cyan)]' : ''}`}
-              onClick={() => setViewMode('list')}
-              title="List"
-            >
-              <List size={16} />
+            <button type="button" className="iam-lib-btn w-full sm:w-auto" onClick={() => void load()}>
+              <RefreshCw size={18} /> Refresh
             </button>
           </div>
         </div>
 
-        <div className="mt-5 flex flex-col lg:flex-row lg:items-center gap-3">
+        <div className="mt-4 relative">
+          <Search
+            size={16}
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)] pointer-events-none"
+            aria-hidden
+          />
           <input
-            className="iam-lib-select flex-1 max-w-xl"
-            placeholder="Search name, type, source, R2 key…"
+            className="iam-lib-select w-full pl-9"
+            placeholder="Search artifacts…"
             value={q}
             onChange={(e) => setQ(e.target.value)}
             aria-label="Search artifacts"
           />
         </div>
-        <div className="mt-4">
-          <ArtifactFilters
-            type={type}
-            status={status}
-            validation={validation}
-            visibility={visibility}
-            source={source}
-            typeOptions={typeOptions}
-            statusOptions={statusOptions}
-            validationOptions={validationOptions}
-            visibilityOptions={visibilityOptions}
-            sourceOptions={sourceOptions}
-            onChange={onFilterChange}
-            onClear={clearFilters}
-          />
-        </div>
 
-        {kpis ? (
-          <div className="mt-5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-            {[
-              ['Total', kpis.total_artifacts],
-              ['Draft', kpis.draft],
-              ['Approved / Pub / Deploy', kpis.approved_published_deployed],
-              ['Passed validation', kpis.passed_validation],
-              ['Untested / Failed', kpis.untested_or_failed],
-            ].map(([label, val]) => (
-              <div
-                key={String(label)}
-                className="rounded-lg border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] px-3 py-2"
-              >
-                <div className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">{label}</div>
-                <div className="text-lg font-semibold text-[var(--text-primary)] tabular-nums">{val}</div>
+        <button
+          type="button"
+          className="mt-3 flex w-full sm:w-auto items-center gap-2 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] py-2 touch-manipulation"
+          onClick={() => setShowAdvanced((v) => !v)}
+          aria-expanded={showAdvanced}
+        >
+          <SlidersHorizontal size={14} />
+          Advanced filters
+          {hasActiveFilters ? (
+            <span className="rounded-full bg-[var(--solar-cyan)]/20 text-[var(--solar-cyan)] px-2 py-0.5 text-[10px]">
+              active
+            </span>
+          ) : null}
+          <ChevronDown size={14} className={`transition-transform ${showAdvanced ? 'rotate-180' : ''}`} />
+        </button>
+
+        {showAdvanced ? (
+          <div className="mt-2 space-y-4 pb-1">
+            <ArtifactFilters
+              type={type}
+              status={status}
+              validation={validation}
+              visibility={visibility}
+              source={source}
+              typeOptions={typeOptions}
+              statusOptions={statusOptions}
+              validationOptions={validationOptions}
+              visibilityOptions={visibilityOptions}
+              sourceOptions={sourceOptions}
+              onChange={onFilterChange}
+              onClear={clearFilters}
+            />
+            {kpis ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3">
+                {[
+                  ['Total', kpis.total_artifacts],
+                  ['Draft', kpis.draft],
+                  ['Approved / Pub', kpis.approved_published_deployed],
+                  ['Passed', kpis.passed_validation],
+                  ['Failed', kpis.untested_or_failed],
+                ].map(([label, val]) => (
+                  <div
+                    key={String(label)}
+                    className="rounded-lg border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] px-3 py-2"
+                  >
+                    <div className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">{label}</div>
+                    <div className="text-base sm:text-lg font-semibold text-[var(--text-primary)] tabular-nums">{val}</div>
+                  </div>
+                ))}
               </div>
-            ))}
+            ) : null}
           </div>
         ) : null}
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5">
+      <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 py-4 sm:py-5">
         {err ? (
           <div className="max-w-lg rounded-xl border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] p-5">
             <div className="text-sm font-medium text-[var(--text-primary)]">Could not load artifacts</div>
@@ -269,37 +289,43 @@ export default function LibraryPage() {
               Retry
             </button>
           </div>
+        ) : loading && artifacts.length === 0 ? (
+          <div className="grid grid-cols-1 min-[480px]:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="iam-artifact-skel aspect-[4/3] w-full" />
+            ))}
+          </div>
         ) : !loading && artifacts.length === 0 ? (
-          <div className="max-w-md py-16 text-center mx-auto">
+          <div className="max-w-md py-12 sm:py-16 text-center mx-auto px-2">
             <div className="text-lg font-medium text-[var(--text-primary)]">No artifacts yet</div>
             <p className="text-sm text-[var(--text-muted)] mt-2">
-              Start in Agent or Create — new artifacts will show up here for this workspace.
+              Tap New artifact to pick a category — Agent Sam will start on this page.
             </p>
+            <button type="button" className="iam-lib-btn iam-lib-btn--primary mt-6 w-full sm:w-auto" onClick={() => setCategoryOpen(true)}>
+              <Plus size={18} /> New artifact
+            </button>
           </div>
         ) : (
-          <ArtifactGrid
-            artifacts={artifacts}
-            loading={loading}
-            selectedId={selected?.id ?? null}
-            viewMode={viewMode}
-            onSelect={(a) => {
-              setSelected(a);
-              setPanelOpen(true);
-            }}
-            onDetails={(a) => {
-              setSelected(a);
-              setPanelOpen(true);
-            }}
-            onCopied={(msg) => setToast(msg)}
-          />
+          <>
+            <div className="grid grid-cols-1 min-[480px]:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4">
+              {artifacts.map((a) => (
+                <ArtifactHomeCard key={a.id || a.r2_key} artifact={a} onOpen={() => openArtifact(a)} />
+              ))}
+            </div>
+            {!loading && total > artifacts.length ? (
+              <div className="text-center text-[11px] text-[var(--text-muted)] mt-6">
+                Showing {artifacts.length} of {total} — open advanced filters to narrow the list.
+              </div>
+            ) : null}
+          </>
         )}
-
-        {!loading && total > artifacts.length ? (
-          <div className="text-center text-[11px] text-[var(--text-muted)] mt-4">
-            Showing {artifacts.length} of {total} — refine filters or raise limit in API for full export.
-          </div>
-        ) : null}
       </div>
+
+      <ArtifactCategoryPicker
+        open={categoryOpen}
+        onClose={() => setCategoryOpen(false)}
+        onStarted={(title) => setToast(`Starting ${title} — chat opened`)}
+      />
 
       <ArtifactPreviewPanel
         artifact={selected}
@@ -311,10 +337,32 @@ export default function LibraryPage() {
           void load();
         }}
         onToast={(msg) => setToast(msg)}
+        onContinueInChat={
+          selected
+            ? () => {
+                continueArtifactInChat(selected);
+                setPanelOpen(false);
+                setToast('Continuing in chat');
+              }
+            : undefined
+        }
+        onOpenInBuilder={
+          selected && isCodeArtifact(selected)
+            ? () => {
+                openArtifactInBuilder(selected);
+                setPanelOpen(false);
+                setToast('Opening in builder');
+              }
+            : undefined
+        }
       />
 
       {toast ? (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[80] px-4 py-2 rounded-lg bg-[var(--dashboard-panel)] border border-[var(--dashboard-border)] text-sm shadow-lg">
+        <div
+          className="fixed left-1/2 z-[80] -translate-x-1/2 px-4 py-2.5 rounded-xl bg-[var(--dashboard-panel)] border border-[var(--dashboard-border)] text-sm shadow-lg max-w-[min(92vw,360px)] text-center"
+          style={{ bottom: 'calc(1.5rem + env(safe-area-inset-bottom, 0px) + 56px)' }}
+          role="status"
+        >
           {toast}
         </div>
       ) : null}

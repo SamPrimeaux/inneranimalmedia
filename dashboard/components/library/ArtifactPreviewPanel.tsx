@@ -1,4 +1,4 @@
-import { X, ExternalLink, Copy } from 'lucide-react';
+import { X, ExternalLink, Copy, MessageSquare, Code2 } from 'lucide-react';
 import type { ArtifactRecord } from '../../api/artifacts';
 import { formatArtifactType, statusBadgeClass, typeBadgeClass } from './utils';
 import { patchArtifact } from '../../api/artifacts';
@@ -9,9 +9,19 @@ type Props = {
   onClose: () => void;
   onPatched: (a: ArtifactRecord) => void;
   onToast: (msg: string) => void;
+  onContinueInChat?: () => void;
+  onOpenInBuilder?: () => void;
 };
 
-export function ArtifactPreviewPanel({ artifact, open, onClose, onPatched, onToast }: Props) {
+export function ArtifactPreviewPanel({
+  artifact,
+  open,
+  onClose,
+  onPatched,
+  onToast,
+  onContinueInChat,
+  onOpenInBuilder,
+}: Props) {
   if (!open || !artifact) return null;
 
   const metaStr =
@@ -109,6 +119,16 @@ export function ArtifactPreviewPanel({ artifact, open, onClose, onPatched, onToa
           </div>
         </div>
         <div className="p-4 border-t border-[var(--dashboard-border)] flex flex-col gap-2 shrink-0">
+          {onContinueInChat ? (
+            <button type="button" className="iam-lib-btn iam-lib-btn--primary justify-center min-h-[44px]" onClick={onContinueInChat}>
+              <MessageSquare size={16} /> Continue in chat
+            </button>
+          ) : null}
+          {onOpenInBuilder ? (
+            <button type="button" className="iam-lib-btn justify-center min-h-[44px]" onClick={onOpenInBuilder}>
+              <Code2 size={16} /> Open in builder
+            </button>
+          ) : null}
           {artifact.preview_url ? (
             <a
               className="iam-lib-btn justify-center"

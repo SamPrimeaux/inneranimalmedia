@@ -42,3 +42,12 @@ export type AgentChatComposeDetail = {
   /** When true, sends immediately (default false). */
   send?: boolean;
 };
+
+/** Navigate to Agent workbench and open a tab (from Artifacts build flow). */
+export const IAM_ARTIFACT_OPEN_BUILDER = 'iam:artifact-open-builder';
+
+export type ArtifactOpenBuilderDetail = {
+  tab?: 'code' | 'browser' | 'moviemode' | 'Workspace' | 'excalidraw';
+  artifactId?: string | null;
+  r2Key?: string | null;
+};

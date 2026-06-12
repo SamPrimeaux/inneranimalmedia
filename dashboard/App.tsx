@@ -23,10 +23,12 @@ import {
   IAM_AGENT_CHAT_CONVERSATION_CHANGE,
   IAM_AGENT_CHAT_NEW_THREAD,
   IAM_AGENT_CHAT_COMPOSE,
+  IAM_ARTIFACT_OPEN_BUILDER,
   LS_AGENT_CHAT_CONVERSATION_ID,
   QUICKSTART_BATCH_LABEL,
   QUICKSTART_WORKSPACE_ID,
   type AgentChatComposeDetail,
+  type ArtifactOpenBuilderDetail,
   type QuickstartThreadDetail,
 } from './agentChatConstants';
 import { WorkspaceLauncher } from './components/WorkspaceLauncher';
@@ -96,7 +98,7 @@ import { OnboardingPage } from './components/onboarding/OnboardingPage';
 import { DashboardSidebar } from './components/shell/DashboardSidebar';
 import { MobileNavShell } from './components/shell/MobileNavShell';
 import { mobileNavBackLabel } from './components/shell/mobileNavBackLabel';
-import { Files, Search, GitBranch, Settings, PanelLeft, PanelLeftClose, PanelRightClose, Terminal as TermIcon, Layers, Monitor, Bug, Github, Database, FolderOpen, FolderCode, Globe, PenTool, Cloud, X as XIcon, Eye, MessageSquare, MoreHorizontal, ChevronLeft, Link2, HardDrive, Package, History, Camera, FileCode2, Rocket } from 'lucide-react';
+import { Files, Search, GitBranch, Settings, PanelLeftClose, PanelRightClose, Terminal as TermIcon, Layers, Monitor, Bug, Github, Database, FolderOpen, FolderCode, Globe, PenTool, Cloud, X as XIcon, Eye, MessageSquare, MoreHorizontal, ChevronLeft, Link2, HardDrive, Package, History, Camera, FileCode2, Rocket } from 'lucide-react';
 import { SetiFileIcon } from './src/components/SetiFileIcon';
 const ProjectManagement = lazy(() => import('./pages/projects/ProjectManagement'));
 
@@ -1002,6 +1004,18 @@ const App: React.FC = () => {
     warmAgentChunksForTab(tab);
   }, []);
 
+  const toggleSidebarRail = useCallback(() => {
+    setSidebarRailExpanded((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(LS_SIDEBAR_RAIL, next ? '1' : '0');
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }, []);
+
   const shellNewChat = useCallback(() => {
     if (!isAgentShellPath(location.pathname)) navigate(AGENT_HOME_PATH);
     setActiveTab('Workspace');
@@ -1702,6 +1716,20 @@ const App: React.FC = () => {
     window.addEventListener('iam:agent-open-surface', h as EventListener);
     return () => window.removeEventListener('iam:agent-open-surface', h as EventListener);
   }, [openTab, revealMainWorkspaceIfNarrow, isNarrowViewport]);
+
+  /** Artifacts → category/builder: open Agent workbench tab without leaving chat-first flow on phone. */
+  useEffect(() => {
+    const onOpenBuilder = (e: Event) => {
+      const detail = (e as CustomEvent<ArtifactOpenBuilderDetail>).detail;
+      const tab = detail?.tab ?? 'code';
+      if (!isAgentShellPath(location.pathname)) navigate(AGENT_HOME_PATH);
+      revealMainWorkspaceIfNarrow();
+      openTab(tab);
+      if (isNarrowViewport) setToastMsg('Builder opened. Tap Chat to return to Agent Sam.');
+    };
+    window.addEventListener(IAM_ARTIFACT_OPEN_BUILDER, onOpenBuilder);
+    return () => window.removeEventListener(IAM_ARTIFACT_OPEN_BUILDER, onOpenBuilder);
+  }, [location.pathname, navigate, openTab, revealMainWorkspaceIfNarrow, isNarrowViewport]);
 
   /** Browser / cdt_* tool activity from Agent SSE — surface the Browser tab so the workbench matches agent actions. */
   useEffect(() => {
@@ -2850,25 +2878,6 @@ const App: React.FC = () => {
                 title={workspaceDisplayLine}
                 onClick={() => setActiveTab('Workspace')}
               />
-              <button
-                type="button"
-                onClick={() => {
-                  setSidebarRailExpanded((prev) => {
-                    const next = !prev;
-                    try {
-                      localStorage.setItem(LS_SIDEBAR_RAIL, next ? '1' : '0');
-                    } catch {
-                      /* ignore */
-                    }
-                    return next;
-                  });
-                }}
-                className="iam-topbar-desktop-only max-phone:hidden shrink-0 p-1.5 rounded-md text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)] transition-colors ml-1"
-                title={sidebarRailExpanded ? 'Collapse navigation' : 'Expand navigation'}
-                aria-expanded={sidebarRailExpanded}
-              >
-                {sidebarRailExpanded ? <PanelLeftClose size={18} strokeWidth={1.75} /> : <PanelLeft size={18} strokeWidth={1.75} />}
-              </button>
               {isAgentShellPath(location.pathname) && (
                 <button
                   type="button"
@@ -3060,6 +3069,7 @@ const App: React.FC = () => {
           >
               <DashboardSidebar
                 expanded={sidebarRailExpanded}
+                onToggleExpanded={toggleSidebarRail}
                 onNewChat={shellNewChat}
                 onOpenChats={shellOpenChats}
                 onOpenMovieMode={shellOpenMovieMode}
