@@ -12,6 +12,7 @@ import {
 } from './agent.js';
 import {
   handleDatabasesSummary,
+  handleDatabasesQueries,
   handleDatabasesTables,
   handleDatabasesTimeseries,
 } from './databases.js';
@@ -172,6 +173,10 @@ export async function handleAnalyticsApi(request, url, env, ctx, authUser, ident
 
   if (pathLower === '/api/analytics/databases/tables' && request.method === 'GET') {
     return handleDatabasesTables(request, url, env, { tenantId, workspaceId });
+  }
+
+  if (pathLower === '/api/analytics/databases/queries' && request.method === 'GET') {
+    return handleDatabasesQueries(request, url, env, { tenantId, workspaceId });
   }
 
   // Stub endpoints for now — return standard AnalyticsResponse shape.

@@ -8,7 +8,7 @@
  *   workspace_grep  — repo/code search (PTY rg / fs_search_files)
  *   internal_knowledge_search — legacy bucket (prefer explicit semantic_* lanes)
  *   code_semantic_search | schema_semantic_search | memory_semantic_search |
- *   docs_knowledge_search | deep_archive_search — canonical 1536 lanes
+ *   docs_knowledge_search | client_project_semantic_search | deep_archive_search — canonical 1536 lanes
  *   database_assistant — Hyperdrive/D1 schema + read-only SQL (+ approval DDL)
  */
 
@@ -29,13 +29,14 @@ import { classifyDatabaseAssistantIntent, classifySemanticLane } from './semanti
 
 export { resolveOpenWebSearchBackend };
 
-/** @typedef {'read_only_file_context'|'open_web_search'|'web_fetch'|'browser_inspect'|'workspace_grep'|'internal_knowledge_search'|'code_semantic_search'|'schema_semantic_search'|'memory_semantic_search'|'docs_knowledge_search'|'deep_archive_search'|'database_assistant'|'none'} ExecutionLane */
+/** @typedef {'read_only_file_context'|'open_web_search'|'web_fetch'|'browser_inspect'|'workspace_grep'|'internal_knowledge_search'|'code_semantic_search'|'schema_semantic_search'|'memory_semantic_search'|'docs_knowledge_search'|'client_project_semantic_search'|'deep_archive_search'|'database_assistant'|'none'} ExecutionLane */
 
 export const SEMANTIC_EXECUTION_LANES = new Set([
   'code_semantic_search',
   'schema_semantic_search',
   'memory_semantic_search',
   'docs_knowledge_search',
+  'client_project_semantic_search',
   'deep_archive_search',
 ]);
 
@@ -44,6 +45,7 @@ export const SEMANTIC_TOOL_NAMES = new Set([
   'schema_semantic_search',
   'memory_semantic_search',
   'docs_knowledge_search',
+  'client_project_semantic_search',
   'deep_archive_search',
 ]);
 
@@ -408,6 +410,7 @@ export function filterToolsForExecutionLane(tools, laneResult, opts = {}) {
     case 'schema_semantic_search':
     case 'memory_semantic_search':
     case 'docs_knowledge_search':
+    case 'client_project_semantic_search':
     case 'deep_archive_search':
       out = out.filter((t) => {
         const n = String(t?.name || '');

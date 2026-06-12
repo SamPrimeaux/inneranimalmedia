@@ -8,6 +8,11 @@ export const DEFAULT_RAG_INTENT_ROUTES = Object.freeze({
   code_question: ['code_semantic_search', 'docs_knowledge_search', 'schema_semantic_search'],
   docs_question: ['docs_knowledge_search', 'memory_semantic_search', 'code_semantic_search'],
   memory_question: ['memory_semantic_search', 'docs_knowledge_search'],
+  client_project_question: [
+    'client_project_semantic_search',
+    'memory_semantic_search',
+    'docs_knowledge_search',
+  ],
   create_surfaces: ['code_semantic_search', 'docs_knowledge_search', 'memory_semantic_search'],
   architecture_question: ['deep_archive_search', 'docs_knowledge_search', 'schema_semantic_search'],
 });
@@ -45,6 +50,12 @@ export function classifyRagIntentKey(message) {
   }
   if (/\b(remember|we decided|prior session|memory)\b/i.test(m)) {
     return 'memory_question';
+  }
+  if (
+    /\b(client|customer|tenant|account)\b/i.test(m) &&
+    /\b(project|onboarding|contract|deliverable|milestone|kickoff|scope|sow)\b/i.test(m)
+  ) {
+    return 'client_project_question';
   }
   if (/\b(doc|runbook|recipe|roadmap|workflow|knowledge)\b/i.test(m)) {
     return 'docs_question';

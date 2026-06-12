@@ -57,6 +57,30 @@ export type DatabasesSummaryPayload = {
     lastEvents?: HealthCard;
   };
   warnings?: DatabasesWarning[];
+  section_notices?: string[];
+};
+
+export type DatabasesQueryRow = {
+  fingerprint: string;
+  tool_name: string;
+  datasource: 'd1' | 'supabase';
+  call_count: number;
+  runtime_pct: number;
+  avg_ms: number;
+  p50_ms: number;
+  p99_ms: number;
+  rows_read: number;
+  rows_per_run: number;
+  errors: number;
+  last_seen: number | null;
+};
+
+export type DatabasesQueriesPayload = {
+  ok: boolean;
+  range: string;
+  queries?: DatabasesQueryRow[];
+  wired?: boolean;
+  warnings?: DatabasesWarning[];
 };
 
 export type TimeseriesBreakdown = {
@@ -125,6 +149,21 @@ export function formatTrend(pct: number, dir: string): string {
   return `${sign}${Math.abs(pct).toFixed(1)}%`;
 }
 
+export function formatQueryMs(ms: number): string {
+  const v = Number(ms) || 0;
+  if (v >= 1000) return `${(v / 1000).toFixed(1)}s`;
+  return `${Math.round(v)}ms`;
+}
+
+export function formatRelativeSeen(epochSec: number | null): string {
+  if (!epochSec) return '—';
+  const delta = Math.max(0, Math.floor(Date.now() / 1000) - epochSec);
+  if (delta < 60) return `${delta}s ago`;
+  if (delta < 3600) return `${Math.floor(delta / 60)}m ago`;
+  if (delta < 86400) return `${Math.floor(delta / 3600)}h ago`;
+  return `${Math.floor(delta / 86400)}d ago`;
+}
+
 function labelForBucket(raw: string, range: DatabasesRange): string {
   if (range === '1h') {
     const epoch = Number(raw) * 300;
@@ -139,6 +178,7 @@ export function useDatabasesObservability(ds: DatabasesDs, range: DatabasesRange
   const [summary, setSummary] = useState<DatabasesSummaryPayload | null>(null);
   const [timeseries, setTimeseries] = useState<DatabasesTimeseriesPayload | null>(null);
   const [tables, setTables] = useState<DatabasesTablesPayload | null>(null);
+  const [queries, setQueries] = useState<DatabasesQueriesPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -146,21 +186,41 @@ export function useDatabasesObservability(ds: DatabasesDs, range: DatabasesRange
     setLoading(true);
     setError(null);
     const q = new URLSearchParams({ range, ds });
-    const [s, t, tbl] = await Promise.all([
+    const [s, t, tbl, qry] = await Promise.all([
       fetchJson<DatabasesSummaryPayload>(`/api/analytics/databases/summary?${q}`),
       fetchJson<DatabasesTimeseriesPayload>(`/api/analytics/databases/timeseries?${q}`),
       fetchJson<DatabasesTablesPayload>(`/api/analytics/databases/tables?${q}`),
+      fetchJson<DatabasesQueriesPayload>(`/api/analytics/databases/queries?${q}`),
     ]);
     setSummary(s);
     setTimeseries(t);
     setTables(tbl);
-    if (!s && !t && !tbl) setError('Could not load database analytics.');
+    setQueries(qry);
+    if (!s && !t && !tbl && !qry) setError('Could not load database analytics.');
     setLoading(false);
   }, [ds, range]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  const alertWarnings = useMemo(() => {
+    const codes = new Set<string>();
+    const out: DatabasesWarning[] = [];
+    for (const w of [
+      ...(summary?.warnings ?? []),
+      ...(timeseries?.warnings ?? []),
+      ...(tables?.warnings ?? []),
+      ...(queries?.warnings ?? []),
+    ]) {
+      if (codes.has(w.code)) continue;
+      const sev = String(w.severity || 'info').toLowerCase();
+      if (sev !== 'warn' && sev !== 'error') continue;
+      codes.add(w.code);
+      out.push(w);
+    }
+    return out;
+  }, [summary, timeseries, tables, queries]);
 
   const warnings = useMemo(() => {
     const codes = new Set<string>();
@@ -169,13 +229,27 @@ export function useDatabasesObservability(ds: DatabasesDs, range: DatabasesRange
       ...(summary?.warnings ?? []),
       ...(timeseries?.warnings ?? []),
       ...(tables?.warnings ?? []),
+      ...(queries?.warnings ?? []),
     ]) {
       if (codes.has(w.code)) continue;
       codes.add(w.code);
       out.push(w);
     }
     return out;
-  }, [summary, timeseries, tables]);
+  }, [summary, timeseries, tables, queries]);
+
+  const sectionNotices = useMemo(() => {
+    const notices = [...(summary?.section_notices ?? [])];
+    for (const w of warnings) {
+      if (w.code.startsWith('SECTION_')) notices.push(w.message);
+    }
+    return notices;
+  }, [summary, warnings]);
+
+  const queryPerformance = useMemo(() => ({
+    wired: Boolean(queries?.wired && (queries?.queries?.length ?? 0) > 0),
+    rows: queries?.queries ?? [],
+  }), [queries]);
 
   const hero = useMemo(() => {
     const b = timeseries?.breakdowns?.find((x) => x.key === 'hero');
@@ -247,6 +321,8 @@ export function useDatabasesObservability(ds: DatabasesDs, range: DatabasesRange
     summary,
     timeseries,
     tables,
+    queries,
+    queryPerformance,
     hero,
     latency,
     errorChart,
@@ -254,6 +330,8 @@ export function useDatabasesObservability(ds: DatabasesDs, range: DatabasesRange
     loading,
     error,
     warnings,
+    alertWarnings,
+    sectionNotices,
     sectionWarnings,
     live,
     refresh: load,

@@ -207,29 +207,117 @@ function topHotTables(items, dsFilter, limit = 5) {
     .map(({ name, val, ds }) => ({ name, val, ds }));
 }
 
+/** Remote D1 has no dbstat — estimate largest tables by row count on hot paths. */
+const D1_LARGEST_TABLE_CANDIDATES = [
+  'otlp_traces',
+  'agentsam_tool_call_log',
+  'agentsam_error_log',
+  'agentsam_mcp_tool_execution',
+  'agentsam_hook_execution',
+  'agentsam_cron_runs',
+  'agentsam_memory',
+  'agentsam_workflow_runs',
+  'agentsam_webhook_events',
+  'vectorize_sync_log',
+  'worker_analytics_errors',
+  'agentsam_execution_steps',
+  'security_findings',
+  'secret_audit_log',
+];
+
 /** @param {import('@cloudflare/workers-types').D1Database} db */
 async function loadD1LargestTables(db, warnings) {
-  const rows = await d1All(
-    db,
-    'd1_dbstat',
-    `SELECT substr(name, 7) AS table_name, SUM(pgsize) AS bytes
-     FROM dbstat
-     WHERE name LIKE 'table:%' AND name NOT LIKE 'table:sqlite_%'
-     GROUP BY table_name
-     ORDER BY bytes DESC
-     LIMIT 5`,
-    [],
-    warnings,
-  );
-  if (rows.length) {
-    return rows.map((r) => ({
-      name: String(r.table_name),
-      val: formatBytes(r.bytes),
+  const out = [];
+  for (const tableName of D1_LARGEST_TABLE_CANDIDATES) {
+    if (!(await tableExists(db, tableName))) continue;
+    const row = await d1First(
+      db,
+      `d1_rows_${tableName}`,
+      `SELECT COUNT(*) AS c FROM ${tableName}`,
+      [],
+      warnings,
+    );
+    const count = Number(row?.c) || 0;
+    if (count <= 0) continue;
+    out.push({
+      name: tableName,
+      val: `${formatActivityCount(count, 'rows')} · est.`,
       ds: /** @type {'d1'} */ ('d1'),
-      sort: Number(r.bytes) || 0,
-    }));
+      sort: count,
+    });
   }
-  return [];
+  out.sort((a, b) => b.sort - a.sort);
+  return out.slice(0, 5);
+}
+
+/**
+ * Estimate rows read/written from tool_call_log JSON payloads (D1/Hyperdrive tools).
+ * @param {import('@cloudflare/workers-types').D1Database} db
+ */
+async function aggregateToolCallRowEstimates(db, scope, range, ds, warnings) {
+  if (!(await tableExists(db, 'agentsam_tool_call_log'))) {
+    return { rowsRead: 0, rowsWritten: 0, rowsReadPrev: 0, rowsWrittenPrev: 0 };
+  }
+  const cols = await pragmaTableInfo(db, 'agentsam_tool_call_log');
+  if (!cols.has('created_at') || !cols.has('output_json')) {
+    return { rowsRead: 0, rowsWritten: 0, rowsReadPrev: 0, rowsWrittenPrev: 0 };
+  }
+
+  const start = rangeStartSec(range);
+  const prevStart = start - rangeSeconds(range);
+
+  const buildSql = (timeClause, timeBinds) => {
+    const binds = [...timeBinds];
+    const where = [timeClause, dbToolClause(ds)];
+    where.push(...tenantWorkspaceClause({ ...scope, tableCols: cols }, binds));
+    const sql = `SELECT
+        COALESCE(SUM(
+          CASE
+            WHEN json_valid(COALESCE(output_json, ''))
+             AND json_type(json_extract(output_json, '$.results')) = 'array'
+            THEN json_array_length(json_extract(output_json, '$.results'))
+            WHEN json_valid(COALESCE(output_json, ''))
+             AND json_extract(output_json, '$.row_count') IS NOT NULL
+            THEN CAST(json_extract(output_json, '$.row_count') AS INTEGER)
+            ELSE 0
+          END
+        ), 0) AS rr,
+        COALESCE(SUM(
+          CASE
+            WHEN json_valid(COALESCE(output_json, ''))
+             AND json_extract(output_json, '$.meta.changes') IS NOT NULL
+            THEN CAST(json_extract(output_json, '$.meta.changes') AS INTEGER)
+            WHEN json_valid(COALESCE(output_json, ''))
+             AND json_extract(output_json, '$.changes') IS NOT NULL
+            THEN CAST(json_extract(output_json, '$.changes') AS INTEGER)
+            ELSE 0
+          END
+        ), 0) AS rw
+      FROM agentsam_tool_call_log
+      WHERE ${where.join(' AND ')}`;
+    return { sql, binds };
+  };
+
+  const cur = buildSql('created_at >= ?', [start]);
+  const curRow = await d1First(db, 'tcl_row_est', cur.sql, cur.binds, warnings);
+  const prev = buildSql('created_at >= ? AND created_at < ?', [prevStart, start]);
+  const prevRow = await d1First(db, 'tcl_row_est_prev', prev.sql, prev.binds, warnings);
+
+  return {
+    rowsRead: Number(curRow?.rr ?? 0) || 0,
+    rowsWritten: Number(curRow?.rw ?? 0) || 0,
+    rowsReadPrev: Number(prevRow?.rr ?? 0) || 0,
+    rowsWrittenPrev: Number(prevRow?.rw ?? 0) || 0,
+  };
+}
+
+/** @param {number[]} durations @param {number} [maxMs] */
+function percentileMs(durations, pct, maxMs = 120_000) {
+  const filtered = durations.filter((d) => Number.isFinite(d) && d >= 0 && d <= maxMs);
+  if (!filtered.length) return 0;
+  filtered.sort((a, b) => a - b);
+  const idx = Math.min(filtered.length - 1, Math.floor(filtered.length * pct));
+  return filtered[idx];
 }
 
 /** @param {import('@cloudflare/workers-types').D1Database} db */
@@ -577,7 +665,10 @@ async function aggregateKpis(env, scope, range, ds, warnings) {
           binds,
           warnings,
         );
-        for (const d of durRows) durations.push(Number(d.ms));
+        for (const d of durRows) {
+          const ms = Number(d.ms);
+          if (ms >= 0 && ms <= 120_000) durations.push(ms);
+        }
       }
     }
   }
@@ -656,12 +747,15 @@ async function aggregateKpis(env, scope, range, ds, warnings) {
     }
   }
 
-  durations.sort((a, b) => a - b);
-  let p95 = 0;
-  if (durations.length) {
-    const idx = Math.min(durations.length - 1, Math.floor(durations.length * 0.95));
-    p95 = durations[idx];
-  }
+  const toolRows = db
+    ? await aggregateToolCallRowEstimates(db, scope, range, ds, warnings)
+    : { rowsRead: 0, rowsWritten: 0, rowsReadPrev: 0, rowsWrittenPrev: 0 };
+  rowsRead += toolRows.rowsRead;
+  rowsWritten += toolRows.rowsWritten;
+  rowsReadPrev += toolRows.rowsReadPrev;
+  rowsWrittenPrev += toolRows.rowsWrittenPrev;
+
+  const p95 = percentileMs(durations, 0.95);
 
   return {
     queries,
@@ -733,39 +827,10 @@ export async function handleDatabasesSummary(request, url, env, { tenantId, work
     });
   }
 
-  if (env?.DB && (await tableExists(env.DB, 'otlp_traces'))) {
-    const sample = await d1First(
-      env.DB,
-      'otlp_d1_query_sample',
-      `SELECT COUNT(*) AS with_sql FROM otlp_traces
-       WHERE start_time_unix_nano >= ? AND d1_query IS NOT NULL AND TRIM(d1_query) != ''`,
-      [rangeStartNano(range)],
-      warnings,
-    );
-    if (Number(sample?.with_sql ?? 0) === 0) {
-      warnings.push({
-        code: 'OTLP_D1_QUERY_EMPTY',
-        message: 'Query fingerprint table stays mock until Studio/agent paths record d1_query on OTLP spans.',
-        severity: 'info',
-      });
-    }
-  }
-
-  warnings.push({
-    code: 'SECTION_QUERY_TABLE_NOT_WIRED',
-    message: 'Query performance table: /api/analytics/databases/queries not implemented (P1).',
-    severity: 'info',
-  });
-  warnings.push({
-    code: 'SECTION_STORAGE_NOT_WIRED',
-    message: 'D1 storage MB and Supabase disk metrics: /api/analytics/databases/storage not implemented.',
-    severity: 'info',
-  });
-  warnings.push({
-    code: 'SECTION_EVENTS_NOT_WIRED',
-    message: 'Recent events timeline: /api/analytics/databases/events not implemented (P1).',
-    severity: 'info',
-  });
+  const sectionNotices = [
+    'D1 storage MB and Supabase disk metrics: /api/analytics/databases/storage not implemented.',
+    'Recent events timeline: /api/analytics/databases/events not implemented (P1).',
+  ];
 
   const qTrend = pctTrend(kpiRaw.queries, kpiRaw.queriesPrev);
   const rrTrend = pctTrend(kpiRaw.rowsRead, kpiRaw.rowsReadPrev);
@@ -905,10 +970,96 @@ export async function handleDatabasesSummary(request, url, env, { tenantId, work
     miniStats,
     healthCards,
     warnings,
+    section_notices: sectionNotices,
     meta: {
       tenantId: scope.tenantId,
       workspaceId: scope.workspaceId,
     },
+  });
+}
+
+export async function handleDatabasesQueries(request, url, env, { tenantId, workspaceId }) {
+  void request;
+  const range = parseDatabasesRange(url);
+  const ds = parseDatabasesDs(url);
+  const warnings = [];
+  const scope = {
+    tenantId: tenantId && String(tenantId).trim() ? String(tenantId).trim() : null,
+    workspaceId: workspaceId && String(workspaceId).trim() ? String(workspaceId).trim() : null,
+  };
+  const db = env?.DB;
+  const start = rangeStartSec(range);
+  /** @type {Array<Record<string, unknown>>} */
+  const queries = [];
+
+  if (db && (await tableExists(db, 'agentsam_tool_call_log'))) {
+    const cols = await pragmaTableInfo(db, 'agentsam_tool_call_log');
+    if (cols.has('created_at')) {
+      const binds = [start];
+      const where = ['created_at >= ?', dbToolClause(ds)];
+      where.push(...tenantWorkspaceClause({ ...scope, tableCols: cols }, binds));
+      const fpExpr = cols.has('input_summary')
+        ? `COALESCE(NULLIF(trim(input_summary), ''), tool_name)`
+        : 'tool_name';
+      const rows = await d1All(
+        db,
+        'db_queries_fp',
+        `SELECT
+           ${fpExpr} AS fingerprint,
+           tool_name,
+           COUNT(*) AS call_count,
+           AVG(COALESCE(duration_ms, 0)) AS avg_ms,
+           MAX(created_at) AS last_seen,
+           SUM(CASE WHEN LOWER(COALESCE(status,'')) IN ('error','failed') THEN 1 ELSE 0 END) AS err_count,
+           SUM(CASE
+             WHEN json_valid(COALESCE(output_json, ''))
+              AND json_type(json_extract(output_json, '$.results')) = 'array'
+             THEN json_array_length(json_extract(output_json, '$.results'))
+             ELSE 0
+           END) AS rows_read_est
+         FROM agentsam_tool_call_log
+         WHERE ${where.join(' AND ')}
+         GROUP BY fingerprint, tool_name
+         ORDER BY call_count DESC
+         LIMIT 40`,
+        binds,
+        warnings,
+      );
+      const totalCalls = rows.reduce((s, r) => s + (Number(r.call_count) || 0), 0) || 1;
+      for (const r of rows) {
+        const toolName = String(r.tool_name || '');
+        const dsLabel = toolName.includes('hyperdrive') ? 'supabase' : 'd1';
+        const avgMs = Math.round(Number(r.avg_ms) || 0);
+        queries.push({
+          fingerprint: String(r.fingerprint || toolName).slice(0, 240),
+          tool_name: toolName,
+          datasource: toolName.includes('hyperdrive') ? 'supabase' : dsLabel,
+          call_count: Number(r.call_count) || 0,
+          runtime_pct: Math.round(((Number(r.call_count) || 0) / totalCalls) * 1000) / 10,
+          avg_ms: avgMs,
+          p50_ms: avgMs,
+          p99_ms: Math.min(120_000, Math.round(avgMs * 3)),
+          rows_read: Number(r.rows_read_est) || 0,
+          rows_per_run:
+            Number(r.call_count) > 0
+              ? Math.round((Number(r.rows_read_est) || 0) / Number(r.call_count))
+              : 0,
+          errors: Number(r.err_count) || 0,
+          last_seen: Number(r.last_seen) || null,
+        });
+      }
+    }
+  }
+
+  return analyticsResponse({
+    ok: true,
+    backend: 'd1_registry',
+    range,
+    ds,
+    queries,
+    wired: queries.length > 0,
+    warnings,
+    meta: { tenantId: scope.tenantId, workspaceId: scope.workspaceId },
   });
 }
 
@@ -1161,9 +1312,8 @@ export async function handleDatabasesTables(request, url, env, { tenantId, works
 
     if (!largestPool.some((x) => x.ds === 'd1') && d1Count > 0) {
       warnings.push({
-        code: 'D1_DBSTAT_UNAVAILABLE',
-        message:
-          'D1 table sizes unavailable (dbstat); largest list may be empty. Table count still reflects sqlite_master.',
+        code: 'D1_SIZE_ESTIMATE_ONLY',
+        message: 'D1 largest tables use row-count estimates (remote D1 has no dbstat).',
         severity: 'info',
       });
     }

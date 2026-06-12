@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   BarChart, Bar, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip,
@@ -14,15 +14,17 @@ import {
 
 import styles from './DatabasesTab.module.css';
 import {
-  queryRows, largestTables, mostReadTables, mostWrittenTables,
+  largestTables, mostReadTables, mostWrittenTables,
   largeObjects, timelineEvents,
-  type QueryRow,
 } from './mockDatabasesObservability';
 import {
   useDatabasesObservability,
   formatCompact,
   formatTrend,
+  formatQueryMs,
+  formatRelativeSeen,
   type DatabasesDs,
+  type DatabasesQueryRow,
   type DatabasesRange,
   type HotTable,
   type KpiMetric,
@@ -378,17 +380,27 @@ function ErrorChart({
 }
 
 // ── Query performance table ────────────────────────────────────────────────
-function QueryTable() {
-  const [search, setSearch]   = useState('');
+function QueryTable({
+  rows,
+  wired,
+  loading,
+  onRefresh,
+}: {
+  rows: DatabasesQueryRow[];
+  wired: boolean;
+  loading: boolean;
+  onRefresh?: () => void;
+}) {
+  const [search, setSearch] = useState('');
   const [expanded, setExpanded] = useState<string | null>(null);
 
-  const filtered = useMemo(() =>
-    queryRows.filter(r => r.fp.toLowerCase().includes(search.toLowerCase())),
-    [search]
+  const filtered = useMemo(
+    () => rows.filter((r) => r.fingerprint.toLowerCase().includes(search.toLowerCase())),
+    [rows, search],
   );
 
   const toggleExpand = useCallback((fp: string) => {
-    setExpanded(prev => prev === fp ? null : fp);
+    setExpanded((prev) => (prev === fp ? null : fp));
   }, []);
 
   return (
@@ -403,109 +415,113 @@ function QueryTable() {
               type="text"
               placeholder="Search queries..."
               value={search}
-              onChange={e => setSearch(e.target.value)}
+              onChange={(e) => setSearch(e.target.value)}
               aria-label="Search query fingerprints"
             />
           </div>
-          <IconBtn title="Refresh"><RefreshCw size={13} /></IconBtn>
+          <IconBtn onClick={onRefresh} title="Refresh"><RefreshCw size={13} /></IconBtn>
         </div>
       </div>
 
-      <div className={styles.tableScroll}>
-        <table className={styles.queryTable}>
-          <thead>
-            <tr>
-              <th style={{ width: 340 }}>Query fingerprint</th>
-              <th>% runtime</th>
-              <th>Count</th>
-              <th>Total</th>
-              <th>P50</th>
-              <th>P99</th>
-              <th>Rows read</th>
-              <th>Rows/run</th>
-              <th>Datasource</th>
-              <th>Last seen</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map(row => (
-              <>
-                <tr
-                  key={row.fp}
-                  className={styles.queryRow}
-                  onClick={() => toggleExpand(row.fp)}
-                >
-                  <td>
-                    <div className={styles.queryFp}>
-                      <ChevronRight
-                        size={12}
-                        className={`${styles.expandIcon} ${expanded === row.fp ? styles.expandIconOpen : ''}`}
-                      />
-                      {row.fp}
-                    </div>
-                  </td>
-                  <td>
-                    <div className={styles.runtimeBarWrap}>
-                      <div className={styles.runtimeBar}>
-                        <div
-                          className={styles.runtimeBarFill}
-                          style={{ width: `${Math.min(row.pct * 4, 100)}%` }}
-                        />
-                      </div>
-                      <span className={styles.mono}>{row.pct}%</span>
-                    </div>
-                  </td>
-                  <td className={styles.mono}>{row.count.toLocaleString()}</td>
-                  <td className={styles.mono}>{row.total}</td>
-                  <td className={styles.mono}>{row.p50}</td>
-                  <td className={styles.mono}>{row.p99}</td>
-                  <td className={styles.mono}>{row.rowsRead}</td>
-                  <td className={styles.mono}>{row.rpr}</td>
-                  <td><DsBadge ds={row.ds} /></td>
-                  <td className={styles.monoMuted}>{row.lastSeen}</td>
-                </tr>
-
-                {expanded === row.fp && (
-                  <tr key={`${row.fp}-exp`}>
-                    <td colSpan={10} className={styles.expandedTd}>
-                      <div className={styles.expandedContent}>
-                        <div className={styles.expandedLabel}>Normalized SQL</div>
-                        <pre className={styles.expandedSql}>{row.fullSql}</pre>
-                        <div className={styles.expandedActions}>
-                          <a
-                            href={`/dashboard/database?tab=sql&q=${encodeURIComponent(row.fullSql)}`}
-                            className={styles.actionBtn}
-                          >
-                            <ExternalLink size={11} /> Open in Database Studio
-                          </a>
-                          <button className={styles.actionBtn}>
-                            <Activity size={11} /> View EXPLAIN plan
-                          </button>
-                          <button className={styles.actionBtn}>
-                            <ListFilter size={11} /> Recent errors
-                          </button>
-                          <button className={`${styles.actionBtn} ${styles.actionBtnWarn}`}>
-                            Affected tables: {row.ds === 'd1'
-                              ? 'agentsam_agent_run, auth_users'
-                              : 'public.documents, public.codebase_chunks'}
-                          </button>
+      {!wired && !loading ? (
+        <div className={styles.emptyState} style={{ padding: '16px 12px', fontSize: 11 }}>
+          No database tool activity in this window yet.
+        </div>
+      ) : (
+        <div className={styles.tableScroll}>
+          <table className={styles.queryTable}>
+            <thead>
+              <tr>
+                <th style={{ width: 340 }}>Query fingerprint</th>
+                <th>% runtime</th>
+                <th>Count</th>
+                <th>Total</th>
+                <th>P50</th>
+                <th>P99</th>
+                <th>Rows read</th>
+                <th>Rows/run</th>
+                <th>Datasource</th>
+                <th>Last seen</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((row) => {
+                const totalMs = row.avg_ms * row.call_count;
+                return (
+                  <React.Fragment key={row.fingerprint}>
+                    <tr
+                      className={styles.queryRow}
+                      onClick={() => toggleExpand(row.fingerprint)}
+                    >
+                      <td>
+                        <div className={styles.queryFp}>
+                          <ChevronRight
+                            size={12}
+                            className={`${styles.expandIcon} ${expanded === row.fingerprint ? styles.expandIconOpen : ''}`}
+                          />
+                          {row.fingerprint}
                         </div>
-                      </div>
-                    </td>
-                  </tr>
-                )}
-              </>
-            ))}
-          </tbody>
-        </table>
-      </div>
+                      </td>
+                      <td>
+                        <div className={styles.runtimeBarWrap}>
+                          <div className={styles.runtimeBar}>
+                            <div
+                              className={styles.runtimeBarFill}
+                              style={{ width: `${Math.min(row.runtime_pct * 4, 100)}%` }}
+                            />
+                          </div>
+                          <span className={styles.mono}>{row.runtime_pct}%</span>
+                        </div>
+                      </td>
+                      <td className={styles.mono}>{row.call_count.toLocaleString()}</td>
+                      <td className={styles.mono}>{formatQueryMs(totalMs)}</td>
+                      <td className={styles.mono}>{formatQueryMs(row.p50_ms)}</td>
+                      <td className={styles.mono}>{formatQueryMs(row.p99_ms)}</td>
+                      <td className={styles.mono}>{formatCompact(row.rows_read)}</td>
+                      <td className={styles.mono}>{row.rows_per_run.toLocaleString()}</td>
+                      <td><DsBadge ds={row.datasource} /></td>
+                      <td className={styles.monoMuted}>{formatRelativeSeen(row.last_seen)}</td>
+                    </tr>
+
+                    {expanded === row.fingerprint && (
+                      <tr>
+                        <td colSpan={10} className={styles.expandedTd}>
+                          <div className={styles.expandedContent}>
+                            <div className={styles.expandedLabel}>Tool call</div>
+                            <pre className={styles.expandedSql}>{row.tool_name}</pre>
+                            <div className={styles.expandedActions}>
+                              <a
+                                href={`/dashboard/database?tab=sql&q=${encodeURIComponent(row.fingerprint)}`}
+                                className={styles.actionBtn}
+                              >
+                                <ExternalLink size={11} /> Open in Database Studio
+                              </a>
+                              {row.errors > 0 ? (
+                                <span className={`${styles.actionBtn} ${styles.actionBtnWarn}`}>
+                                  {row.errors} error{row.errors === 1 ? '' : 's'} in window
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       <div className={styles.tableFoot}>
-        <span>Showing 1–{filtered.length} of 200</span>
-        <div style={{ display: 'flex', gap: 6 }}>
-          <IconBtn title="Previous page"><ChevronRight size={12} style={{ transform: 'rotate(180deg)' }} /></IconBtn>
-          <IconBtn title="Next page"><ChevronRight size={12} /></IconBtn>
-        </div>
+        <span>
+          {wired
+            ? `Showing ${filtered.length} tool fingerprint${filtered.length === 1 ? '' : 's'}`
+            : loading
+              ? 'Loading…'
+              : 'No rows'}
+        </span>
       </div>
     </div>
   );
@@ -576,8 +592,7 @@ export default function DatabasesTab() {
     };
   }, [obs.hero, obs.latency]);
 
-  const topWarnings = obs.warnings.filter((w) => !w.code.startsWith('SECTION_'));
-  const envWarning = topWarnings.find((w) => w.code === 'ENV_FILTER_NOT_WIRED');
+  const topWarnings = obs.alertWarnings;
 
   const hot = obs.hotTables;
   const largestDisplay = hot.wired ? hot.largest : largestTables;
@@ -599,19 +614,19 @@ export default function DatabasesTab() {
   return (
     <div className={styles['analytics-databases']}>
 
-      {(obs.error || topWarnings.length > 0) && (
+      {obs.error && (
         <div className={styles.mockBanner}>
           <AlertCircle size={13} />
+          <span><strong>{obs.error}</strong></span>
+        </div>
+      )}
+
+      {topWarnings.length > 0 && (
+        <div className={styles.mockBanner}>
+          <AlertTriangle size={13} />
           <span>
-            {obs.error ? (
-              <strong>{obs.error}</strong>
-            ) : (
-              <>
-                <strong>Live telemetry (P0).</strong>{' '}
-                {topWarnings.slice(0, 2).map((w) => w.message).join(' ')}
-                {obs.live.kpis ? ' KPIs and charts use D1 OTLP + tool_call_log.' : ' Waiting for database activity in this window.'}
-              </>
-            )}
+            <strong>Telemetry degraded.</strong>{' '}
+            {topWarnings.slice(0, 2).map((w) => w.message).join(' ')}
           </span>
         </div>
       )}
@@ -653,8 +668,15 @@ export default function DatabasesTab() {
       </div>
 
       {/* ── Query table ── */}
-      <SectionNotice message={obs.sectionWarnings.get('SECTION_QUERY_TABLE_NOT_WIRED')} />
-      <QueryTable />
+      {obs.sectionNotices.map((msg) => (
+        <SectionNotice key={msg} message={msg} />
+      ))}
+      <QueryTable
+        rows={obs.queryPerformance.rows}
+        wired={obs.queryPerformance.wired}
+        loading={obs.loading}
+        onRefresh={handleRefresh}
+      />
 
       {/* ── Hot tables ── */}
       <div>
@@ -671,7 +693,7 @@ export default function DatabasesTab() {
             title="Largest"
             icon={<Database size={11} />}
             tables={largestDisplay}
-            emptyLabel={hot.wired ? 'No size data (dbstat/pg_stat)' : 'Loading table inventory…'}
+            emptyLabel={hot.wired ? 'No row-count signal in this window' : 'Loading table inventory…'}
           />
           <HotTableList
             title="Most read"

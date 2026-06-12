@@ -50,7 +50,7 @@ function messageRequestsBrowserInspectLocal(message) {
   );
 }
 
-/** @typedef {'code_semantic_search'|'schema_semantic_search'|'memory_semantic_search'|'docs_knowledge_search'|'deep_archive_search'|null} SemanticLane */
+/** @typedef {'code_semantic_search'|'schema_semantic_search'|'memory_semantic_search'|'docs_knowledge_search'|'client_project_semantic_search'|'deep_archive_search'|null} SemanticLane */
 
 /** @typedef {'inspect_schema'|'run_readonly_sql'|'propose_migration'|'explain_table'|null} DatabaseAssistantIntent */
 
@@ -72,6 +72,14 @@ export function classifySemanticLane(message) {
     )
   ) {
     return 'deep_archive_search';
+  }
+
+  if (
+    /\b(client|customer|tenant|account|workspace)\b/i.test(m) &&
+    /\b(project|onboarding|contract|sow|statement of work|deliverable|milestone|kickoff|scope)\b/i.test(m) &&
+    !/\b(table|schema|column|migration|route|handler|component)\b/i.test(m)
+  ) {
+    return 'client_project_semantic_search';
   }
 
   if (

@@ -26,6 +26,7 @@ export const SEMANTIC_LANE_KEYS = Object.freeze([
   'schema_semantic_search',
   'memory_semantic_search',
   'docs_knowledge_search',
+  'client_project_semantic_search',
   'media_semantic_search',
   'deep_archive_search',
 ]);
@@ -59,6 +60,14 @@ export const SEMANTIC_LANE_REGISTRY = Object.freeze({
     binding: 'AGENTSAM_VECTORIZE_DOCUMENTS',
     tables: ['agentsam_documents_oai3large_1536'],
     dims: 1536,
+  },
+  client_project_semantic_search: {
+    laneKey: 'client_project_semantic_search',
+    ragLane: 'docs',
+    binding: 'AGENTSAM_VECTORIZE_DOCUMENTS',
+    tables: ['agentsam_documents_oai3large_1536', 'agentsam_memory_oai3large_1536'],
+    dims: 1536,
+    composite: ['docs_knowledge_search', 'memory_semantic_search'],
   },
   media_semantic_search: {
     laneKey: 'media_semantic_search',
@@ -489,6 +498,47 @@ export async function dispatchSemanticRetrieval(env, opts) {
         cached: true,
       };
     }
+  }
+
+  if (Array.isArray(reg.composite) && reg.composite.length) {
+    const perLane = Math.min(topK, Math.max(3, Math.ceil(topK / reg.composite.length) + 1));
+    const parts = await Promise.all(
+      reg.composite.map((subLane) =>
+        dispatchSemanticRetrieval(env, {
+          ...opts,
+          lane: subLane,
+          top_k: perLane,
+          bypass_cache: true,
+        }),
+      ),
+    );
+    const merged = [];
+    const seen = new Set();
+    for (const part of parts) {
+      for (const hit of part?.results || []) {
+        const id = String(hit.id || hit.chunk_id || hit.source_ref || hit.title || JSON.stringify(hit));
+        if (seen.has(id)) continue;
+        seen.add(id);
+        merged.push({ ...hit, lane: hit.lane || part.lane });
+      }
+    }
+    merged.sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0));
+    const results = merged.slice(0, topK);
+    const payload = {
+      ok: results.length > 0 || parts.some((p) => p?.ok),
+      lane,
+      backend: 'composite',
+      binding: reg.binding,
+      table: reg.tables.join(','),
+      query_hash: queryHash,
+      results,
+      result_count: results.length,
+      duration_ms: Date.now() - t0,
+      fallback_used: false,
+      composite_sources: reg.composite,
+    };
+    if (payload.ok) await writeSemanticCache(env, cacheKey, payload);
+    return payload;
   }
 
   if (lane === 'media_semantic_search') {

@@ -18,6 +18,7 @@ export const LANE_CONTEXT_HEADINGS = Object.freeze({
   schema_semantic_search: '## Schema semantic context',
   memory_semantic_search: '## Memory semantic context',
   docs_knowledge_search: '## Docs knowledge context',
+  client_project_semantic_search: '## Client & project context',
   deep_archive_search: '## Deep archive context',
   database_assistant: '## Database assistant context',
 });
@@ -26,7 +27,7 @@ const MAX_LANE_BLOCK_CHARS = 3000;
 const MAX_PRIMARY_WHEN_DEEP = 1600;
 const MAX_DEEP_SUPPLEMENT = 1400;
 
-/** @typedef {'code_semantic_search'|'schema_semantic_search'|'memory_semantic_search'|'docs_knowledge_search'|'deep_archive_search'|null} SemanticLane */
+/** @typedef {'code_semantic_search'|'schema_semantic_search'|'memory_semantic_search'|'docs_knowledge_search'|'client_project_semantic_search'|'deep_archive_search'|null} SemanticLane */
 
 /**
  * When message heuristics miss, map classified routing task type → semantic lane (P0-A).
