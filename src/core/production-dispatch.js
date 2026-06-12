@@ -101,6 +101,16 @@ export async function dispatchProductionDomainRoutes(rc) {
 
   const routeAuth = { authCtx, authUser };
 
+  if (methodUpper === 'GET' || methodUpper === 'HEAD') {
+    const { shouldProxyToMoviemodeService, proxyToMoviemodeService } = await import(
+      './moviemode-service-proxy.js'
+    );
+    if (shouldProxyToMoviemodeService(pathLower)) {
+      const proxied = await proxyToMoviemodeService(request, env);
+      if (proxied) return proxied;
+    }
+  }
+
   if (pathLower === '/api/quality-reports/register' && methodUpper === 'POST') {
     const ingestBypass = isIngestSecretAuthorized(request, env);
     return handleQualityReportRegisterApi(request, env, authUser, ingestBypass);

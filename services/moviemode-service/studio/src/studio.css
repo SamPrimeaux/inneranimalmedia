@@ -1,0 +1,10 @@
+:root {
+  --scene-bg: #0b0e0f;
+  --dashboard-panel: #12161a;
+  --dashboard-border: rgba(255, 255, 255, 0.08);
+  --text-main: #e9edee;
+  --text-muted: #8a9396;
+  --color-primary: #3b82f6;
+}
+* { box-sizing: border-box; }
+html, body, #root { margin: 0; min-height: 100vh; background: var(--scene-bg); color: var(--text-main); font-family: system-ui, sans-serif; }

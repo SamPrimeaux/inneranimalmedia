@@ -1,61 +1,87 @@
 # moviemode-service
 
-Shared media pipeline presets and workflow builders for **Inner Animal Media** — used by the main Worker (`inneranimalmedia.com`) and any dedicated encode microservice.
+**Inner Animal Media product worker** — MovieMode encode lane, studio UI, and the scroll-driven **3D globe landing** (`Code = Communication`).
 
-## Canonical source
+Deploy: Cloudflare Worker `moviemode-service` · Git: `SamPrimeaux/moviemode-service` · **Consumed by `inneranimalmedia.com`** via service binding.
 
-Production implementations live in the main repo:
+## inneranimalmedia alignment
 
-| Module | Path |
-|--------|------|
-| CloudConvert presets + job chains | `src/core/cloudconvert-workflows.js` |
-| CloudConvert API client | `src/core/cloudconvert-api.js` |
-| MovieMode conversion lane | `src/core/moviemode-conversions.js` |
-| Webhook finalizer | `src/core/moviemode-cloudconvert-webhook.js` |
+| What | Where |
+|------|--------|
+| Globe (production) | `https://inneranimalmedia.com/globe` — main worker proxies → this worker `/` |
+| MovieMode editor | `https://inneranimalmedia.com/dashboard/moviemode` — IAM dashboard (main worker) |
+| Standalone studio build | `https://moviemode.inneranimalmedia.com/studio/` — optional subdomain route |
+| Encode APIs | Main worker `/api/moviemode/*` today; can offload to this worker later |
 
-This package mirrors preset definitions for standalone deploys (PTY workers, future Cloudflare Worker encode lane).
+### Main worker binding (`inneranimalmedia` / `wrangler.production.toml`)
 
-## CloudConvert capabilities wired
-
-- **Video encode:** H.264, HEVC, AV1 (+ GPU NVENC preset)
-- **Proxy / remux:** 720p proxy, MOV→MP4
-- **Thumbnails:** poster frames (`encode-plus-thumb`, `thumbnail-only`)
-- **Capture website:** PDF / PNG screenshots
-- **Custom ffmpeg:** `command` task with user arguments
-- **R2 direct I/O:** `import/s3` + `export/s3` when `R2_ACCESS_KEY_ID` + `R2_SECRET_ACCESS_KEY` + `CLOUDFLARE_ACCOUNT_ID` are set
-- **Async webhooks:** `POST /api/webhooks/cloudconvert` → D1 + R2
-- **Sync jobs:** `redirect: true` for small tasks (`POST /api/cloudconvert/jobs` with `sync: true`)
-- **Operations catalog:** `GET /api/cloudconvert/operations`
-
-## API (main Worker)
-
-```
-GET  /api/cloudconvert/presets
-GET  /api/cloudconvert/operations?operation=convert&output_format=mp4
-POST /api/cloudconvert/jobs
-GET  /api/cloudconvert/jobs/:id
-
-POST /api/moviemode/conversions  { service: "cloudconvert", preset: "video-h264-gpu", asset_id }
-POST /api/moviemode/conversions  { service: "cloudconvert", preset: "capture-website-pdf", capture_url }
+```toml
+[[services]]
+binding = "MOVIEMODE_SERVICE"
+service = "moviemode-service"
 ```
 
-## Push to GitHub
+Proxy (`src/core/moviemode-service-proxy.js`):
 
-```bash
-cd services/moviemode-service
-git init
-git add .
-git commit -m "moviemode-service: CloudConvert preset package"
-git branch -M main
-git remote add origin git@github.com:SamPrimeaux/moviemode-service.git
-git push -u origin main
+- `/globe` → moviemode-service `/`
+- `/globe/globe.js` → `/globe.js`, etc.
+
+Optional shared secret on both workers: `IAM_SERVICE_KEY` (header `X-IAM-Service-Key`).
+
+## Layout
+
+```
+moviemode-service/
+├── public/                 # Globe landing (served at /)
+│   ├── index.html
+│   ├── globe.js            # window.GlobeScene — procedural Three.js earth
+│   ├── scroll.js
+│   └── charts.js
+├── studio/                 # Standalone MovieMode Vite app → /studio/
+├── worker/src/             # API + webhooks (CloudConvert, Stream, conversions)
+├── migrations/
+└── scripts/sync-from-iam.sh
 ```
 
-## Env
+## Routes (this worker)
+
+| URL | What |
+|-----|------|
+| `/` | Globe landing |
+| `/studio/` | Built studio (`npm run build:all`) |
+| `/api/moviemode/*` | Media / conversions / templates |
+| `/api/cloudconvert/*` | Presets + jobs |
+| `/api/stream/*` | Live inputs + library |
+| `/api/webhooks/cloudconvert` | CloudConvert lifecycle |
+| `/api/webhooks/stream/*` | Stream VOD + live |
+| `/health` | Liveness |
+
+## Secrets
 
 | Secret | Purpose |
 |--------|---------|
-| `CLOUDCONVERT_API_KEY` | Job create / operations |
-| `CLOUDCONVERT_WEBHOOK_SECRET` | Webhook HMAC verify |
-| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | Direct S3 import/export |
-| `CLOUDFLARE_ACCOUNT_ID` | R2 endpoint host |
+| `CLOUDCONVERT_API_KEY` | Encode jobs |
+| `CLOUDCONVERT_WEBHOOK_SECRET` | Webhook HMAC |
+| `CLOUDFLARE_API_TOKEN` | Stream API |
+| `MESHYAI_API_KEY` | 3D mesh lane |
+| `OPEN_AI_KEY` | Whisper / tooling |
+| `OIDC_PRIVATE_KEY` | Service auth |
+| `IAM_SERVICE_KEY` | Service binding auth from inneranimalmedia |
+
+Bindings: D1 `inneranimalmedia-business`, R2 `inneranimalmedia` + `artifacts`, `AI`, `[assets]` → `./public`.
+
+## Develop
+
+```bash
+IAM_ROOT=../inneranimalmedia npm run sync   # from monorepo mirror
+npm install && npm run dev                  # globe at :8787/
+npm run build:all && npx wrangler deploy
+```
+
+## Relationship to inneranimalmedia monorepo
+
+| Concern | Owner |
+|---------|--------|
+| Dashboard MovieMode UX | `inneranimalmedia/dashboard/features/moviemode` |
+| Production APIs (today) | `inneranimalmedia` main worker |
+| Product iteration / globe | **This repo** — `npm run sync` keeps parity |

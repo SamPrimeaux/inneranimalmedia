@@ -115,6 +115,11 @@ id = "09438d5e4f664bf78467a15af7743c44"
 binding = "SESSION_CACHE"
 id = "dc87920b0a9247979a213c09df9a0234"
 
+# MovieMode product worker — globe landing at /globe, encode lane (optional offload)
+[[services]]
+binding = "MOVIEMODE_SERVICE"
+service = "moviemode-service"
+
 [[durable_objects.bindings]]
 name = "IAM_COLLAB"
 class_name = "IAMCollaborationSession"

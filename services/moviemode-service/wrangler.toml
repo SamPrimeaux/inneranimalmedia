@@ -1,0 +1,42 @@
+name = "moviemode-service"
+main = "worker/src/index.js"
+compatibility_date = "2026-01-20"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+# Optional dedicated product host (globe at /, studio at /studio/)
+[[routes]]
+pattern = "moviemode.inneranimalmedia.com/*"
+zone_name = "inneranimalmedia.com"
+
+# Landing (globe) + built studio — uploaded at deploy
+[assets]
+directory = "./public"
+binding = "STATIC"
+
+[ai]
+binding = "AI"
+
+[[r2_buckets]]
+binding = "ASSETS"
+bucket_name = "inneranimalmedia"
+
+[[r2_buckets]]
+binding = "ARTIFACTS"
+bucket_name = "artifacts"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "inneranimalmedia-business"
+database_id = "cf87b717-d4e2-4cf8-bab0-a81268e32d49"
+
+# Optional: bind IAM session KV (same namespace as inneranimalmedia) for cookie auth.
+# [[kv_namespaces]]
+# binding = "IAM_SESSION"
+# id = "<kv-namespace-id>"
+
+# inneranimalmedia main worker calls this via MOVIEMODE_SERVICE binding (see wrangler.production.toml).
+
+[vars]
+DEPLOY_ENV = "production"
+ENVIRONMENT = "production"

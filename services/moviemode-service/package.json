@@ -1,13 +1,19 @@
 {
-  "name": "@inneranimalmedia/moviemode-service",
-  "version": "0.1.0",
-  "description": "CloudConvert workflow presets and encode helpers for MovieMode",
+  "name": "moviemode-service",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Inner Animal Media — MovieMode product worker (encode, studio, globe landing)",
   "type": "module",
-  "main": "src/index.js",
-  "exports": {
-    ".": "./src/index.js",
-    "./presets": "./src/presets.js"
+  "scripts": {
+    "sync": "IAM_ROOT=\"${IAM_ROOT:-../inneranimalmedia}\" bash scripts/sync-from-iam.sh",
+    "build:studio": "npm --prefix studio run build",
+    "build": "node scripts/build-public.mjs",
+    "build:all": "npm run build:studio && node scripts/build-public.mjs",
+    "deploy": "npx wrangler deploy",
+    "dev": "npx wrangler dev",
+    "check": "node --check worker/src/index.js"
   },
-  "license": "UNLICENSED",
-  "private": true
+  "devDependencies": {
+    "wrangler": "^4.100.0"
+  }
 }

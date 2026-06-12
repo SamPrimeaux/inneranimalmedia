@@ -118,22 +118,7 @@ Example:
 { "service": "cloudconvert", "preset": "capture-website-pdf", "capture_url": "https://example.com" }
 ```
 
-## moviemode-service (product worker)
-
-Dedicated Worker repo: [github.com/SamPrimeaux/moviemode-service](https://github.com/SamPrimeaux/moviemode-service). Monorepo mirror: `services/moviemode-service/`.
-
-**Aligned to inneranimalmedia.com** (not meauxcloud):
-
-| Surface | URL |
-|---------|-----|
-| Globe landing | `https://inneranimalmedia.com/globe` |
-| Dashboard studio | `https://inneranimalmedia.com/dashboard/moviemode` |
-| Product subdomain (optional) | `https://moviemode.inneranimalmedia.com/` |
-| APIs (main worker today) | `/api/moviemode/*`, `/api/cloudconvert/*`, `/api/stream/*` |
-
-Main worker binds `MOVIEMODE_SERVICE` → `moviemode-service` (`wrangler.production.toml`). `GET /globe` proxies to the scroll-driven Three.js scene.
-
-Sync product repo from monorepo: `cd services/moviemode-service && IAM_ROOT=../.. npm run sync`.
+Standalone package: `services/moviemode-service/` (mirror for `github.com/SamPrimeaux/moviemode-service`).
 
 ## Timeline JSON
 

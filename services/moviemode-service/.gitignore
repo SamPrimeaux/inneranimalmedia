@@ -1,0 +1,8 @@
+node_modules/
+.wrangler/
+dist/
+studio/dist/
+.env
+.env.*
+*.bak
+.DS_Store
