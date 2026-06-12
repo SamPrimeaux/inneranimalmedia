@@ -80,8 +80,12 @@ export const PUBLIC_OAUTH_PATHS = [
   // CloudConvert job webhooks
   '/api/webhooks/cloudconvert',
 
-  // Public marketing 3D assets (contact hero, etc.)
+  // Public marketing 3D assets (contact hero, work globe scene, etc.)
   '/assets/glb',
+  '/assets/scenes',
+
+  // MovieMode globe proxy (main worker → moviemode-service)
+  '/globe',
 ];
 
 /**

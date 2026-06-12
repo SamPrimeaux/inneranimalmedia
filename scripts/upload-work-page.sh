@@ -41,11 +41,12 @@ upload_asset() {
 
 upload_html "pages/work/index.html" "static/pages/work/index.html"
 
+# Worker /assets/* passthrough strips the prefix: URL /assets/scenes/... → R2 key scenes/...
 SCENE_DIR="static/assets/scenes/work-globe"
 for f in work-globe.css globe.js scroll.js charts.js; do
   case "$f" in
-    *.css) upload_asset "assets/scenes/work-globe/$f" "$SCENE_DIR/$f" "text/css; charset=utf-8" ;;
-    *)     upload_asset "assets/scenes/work-globe/$f" "$SCENE_DIR/$f" "text/javascript; charset=utf-8" ;;
+    *.css) upload_asset "scenes/work-globe/$f" "$SCENE_DIR/$f" "text/css; charset=utf-8" ;;
+    *)     upload_asset "scenes/work-globe/$f" "$SCENE_DIR/$f" "text/javascript; charset=utf-8" ;;
   esac
 done
 

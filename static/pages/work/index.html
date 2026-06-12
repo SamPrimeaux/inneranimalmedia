@@ -9,15 +9,16 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Hanken+Grotesk:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/assets/scenes/work-globe/work-globe.css?v=20260612">
+<link rel="stylesheet" href="/assets/scenes/work-globe/work-globe.css?v=20260612b">
 <style>
 :root{--bg:#050713;--ink:#f8fbff;--muted:#9daac2;--blue:#2f7bff;--cyan:#67e8ff;--panel:rgba(255,255,255,.075);--line:rgba(255,255,255,.15);--paper:#f4f7fb;--dark:#060914}
 *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;font-family:Nunito,Inter,system-ui,sans-serif;background:var(--bg);color:var(--ink)}a{color:inherit}
-.iam-public-page{overflow:hidden}.section{padding:clamp(72px,9vw,140px) clamp(20px,6vw,92px);border-bottom:1px solid var(--line);position:relative}
+.iam-public-page.route-work{overflow:visible}
+.section{padding:clamp(72px,9vw,140px) clamp(20px,6vw,92px);border-bottom:1px solid var(--line);position:relative}
 .light{background:linear-gradient(180deg,#f8faff,#dfe9fa);color:#07111f}.dark{background:linear-gradient(180deg,#050713,#0a1022)}
-.eyebrow{text-transform:uppercase;letter-spacing:.18em;color:var(--cyan);font-size:12px;font-weight:800}
-h1{font-size:clamp(58px,10vw,142px);line-height:.86;letter-spacing:-.08em;margin:18px 0}h2{font-size:clamp(36px,6vw,84px);line-height:.92;letter-spacing:-.06em;margin:0 0 24px}
-p{font-size:clamp(16px,1.65vw,21px);line-height:1.55;color:var(--muted);max-width:900px}.light p{color:#42506a}
+.section .eyebrow{text-transform:uppercase;letter-spacing:.18em;color:var(--cyan);font-size:12px;font-weight:800}
+.section h1{font-size:clamp(58px,10vw,142px);line-height:.86;letter-spacing:-.08em;margin:18px 0}.section h2{font-size:clamp(36px,6vw,84px);line-height:.92;letter-spacing:-.06em;margin:0 0 24px}
+.section p{font-size:clamp(16px,1.65vw,21px);line-height:1.55;color:var(--muted);max-width:900px}.light p{color:#42506a}
 .split{display:grid;grid-template-columns:1.05fr .95fr;gap:24px;align-items:center}.code-window{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:#06101e;border:1px solid var(--line);border-radius:28px;padding:22px;color:#9ee7ff;min-height:320px;box-shadow:0 30px 120px rgba(0,0,0,.38)}
 .badge{display:inline-flex;border:1px solid var(--line);padding:8px 12px;border-radius:999px;color:var(--muted);font-size:13px;margin:4px}
 @media(max-width:860px){.split{grid-template-columns:1fr}h1{font-size:58px}.section{padding:64px 20px}}
@@ -190,9 +191,9 @@ p{font-size:clamp(16px,1.65vw,21px);line-height:1.55;color:var(--muted);max-widt
 
 </main>
 
-<script src="/assets/scenes/work-globe/charts.js?v=20260612"></script>
-<script type="module" src="/assets/scenes/work-globe/globe.js?v=20260612"></script>
-<script src="/assets/scenes/work-globe/scroll.js?v=20260612"></script>
+<script src="/assets/scenes/work-globe/charts.js?v=20260612b"></script>
+<script type="module" src="/assets/scenes/work-globe/globe.js?v=20260612b"></script>
+<script src="/assets/scenes/work-globe/scroll.js?v=20260612b"></script>
 <script>
 (function () {
   var header = document.getElementById('iam-header');

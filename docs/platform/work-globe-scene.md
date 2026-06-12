@@ -22,10 +22,12 @@ The first three CMS sections on `/work` (hero, case-study-one, case-study-two, c
 | `static/assets/scenes/work-globe/globe.js` | Three.js procedural globe (`window.GlobeScene`) |
 | `static/assets/scenes/work-globe/scroll.js` | Scroll choreography; skips tweaks if `#tweak-toggle` absent |
 | `static/assets/scenes/work-globe/charts.js` | SVG mini-charts on cards |
-| `scripts/upload-work-page.sh` | Upload page + scene assets to R2 (**no worker redeploy**) |
+| `scripts/upload-work-page.sh` | Upload page + scene assets to R2 (**no worker redeploy**); scene R2 keys are `scenes/work-globe/*` (not `assets/scenes/…`) |
 | `src/index.js` | `ASSET_ROUTES['/work']` → `pages/work/index.html` + iam-header/footer inject |
 
-Worker serves scene JS/CSS via existing `/assets/*` passthrough (`ASSETS.get(key)`).
+Worker serves scene JS/CSS via `/assets/*` passthrough (`ASSETS.get(key)`). Paths under `/assets/scenes/*` are listed in `PUBLIC_OAUTH_PATHS` (`src/core/public-oauth-paths.js`) so unauthenticated visitors are not blocked with `SESSION_MISSING` (401).
+
+**CSS note:** `#globe-section` and `.stage-wrap` are the **same element** — scroll height (`380svh`) must be on `#globe-section`, not a descendant selector.
 
 ## Deploy (public page only)
 

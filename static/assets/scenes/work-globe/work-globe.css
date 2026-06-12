@@ -1,5 +1,9 @@
 
+  /* #globe-section and .stage-wrap are the same element */
   #globe-section{
+    position:relative;
+    height:380svh;
+    background:var(--bg-deep);
     --bg-deep: #0b0e0f;
     --bg-soft: #16191b;
     --ink: #e9edee;
@@ -17,6 +21,7 @@
     --card-ink-dim: #6a7376;
     --card-line: rgba(40,48,50,0.28);
   }
+  #globe-section.compact{ height:240svh; }
   #globe-section a{ color:inherit; text-decoration:none; }
 
   /* nav removed per request — the page relies on the site's own minimal nav */
@@ -43,8 +48,6 @@
   }
 
   /* ---------- signature scroll section ---------- */
-  #globe-section .stage-wrap{ position:relative; height:380svh; }
-  #globe-section .stage-wrap.compact{ height:240svh; }
   #globe-section .stage{
     position:sticky; top:0; height:100svh; width:100%;
     overflow:hidden;
@@ -57,8 +60,8 @@
     transition:opacity .7s ease, background-color .7s ease;
     background:radial-gradient(120% 95% at 50% 28%, var(--mood-wash,transparent) 0%, transparent 66%);
   }
-  body[data-mood="slate"] .stage-tint{ --mood-wash:#2f5688; opacity:.55; }
-  body[data-mood="clay"]  .stage-tint{ --mood-wash:#7d5a36; opacity:.5; }
+  #globe-section[data-mood="slate"] .stage-tint{ --mood-wash:#2f5688; opacity:.55; }
+  #globe-section[data-mood="clay"]  .stage-tint{ --mood-wash:#7d5a36; opacity:.5; }
   #globe-section #globe-canvas{ position:absolute; inset:0; z-index:2; display:block; width:100%; height:100%; }
 
   /* fallback static globe (no webgl) */
@@ -70,7 +73,7 @@
       radial-gradient(120% 120% at 32% 28%, #d6dcde 0%, #969ea1 30%, #3a4143 70%, #1a1f21 100%);
     box-shadow:0 0 120px rgba(180,200,205,.18);
   }
-  #globe-section .no-webgl .globe-fallback{ display:block; }
+  body.no-webgl #globe-section .globe-fallback{ display:block; }
 
   #globe-section .overlay{ position:absolute; inset:0; z-index:2; pointer-events:none; }
 
