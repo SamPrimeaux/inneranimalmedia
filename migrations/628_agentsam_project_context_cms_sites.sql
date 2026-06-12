@@ -11,8 +11,8 @@ INSERT OR REPLACE INTO agentsam_project_context (
 )
 SELECT
   'ctx_cms_' || replace(replace(trim(p.project_slug), '-', '_'), ' ', '_'),
-  COALESCE(ct.tenant_id, p.tenant_id, 'tenant_sam_primeaux'),
-  COALESCE(p.workspace_id, ct.workspace_id, 'ws_inneranimalmedia'),
+  COALESCE(ct.tenant_ref_id, p.tenant_id, 'tenant_sam_primeaux'),
+  COALESCE(NULLIF(trim(p.workspace_id), ''), 'ws_inneranimalmedia'),
   trim(p.project_slug),
   'CMS · ' || trim(p.project_slug),
   'cms_site',
