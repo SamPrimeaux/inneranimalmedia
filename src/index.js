@@ -81,11 +81,12 @@ function getMimeType(key) {
 import { createTracer } from './core/tracer.js';
 import { isLikelyWordPressProbePath } from './core/wp-probe-path.js';
 
-// --- Durable Objects (ACTIVE: 4 production classes) ---
+// --- Durable Objects (ACTIVE: 5 production classes incl. MyContainer) ---
 export { IAMCollaborationSession } from './do/Collaboration.js';
 export { AgentChatSqlV1 } from './do/AgentChat.js';
 export { AgentBrowserLiveV1 } from './do/AgentBrowserLive.js';
 export { ChessRoom } from './do/Legacy.js';
+export { MyContainer } from './do/MyContainer.js';
 
 export default {
 

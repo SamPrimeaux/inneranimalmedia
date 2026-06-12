@@ -139,18 +139,27 @@
 			]
 		},
 		{
-			"tag": "v6",
-			"deleted_classes": [
-				"MeauxSession",
-				"IAMAgentSession",
-				"IAMSession"
-			]
+			"tag": "v6"
 		},
 		{
 			"tag": "v7",
 			"new_sqlite_classes": [
 				"AgentBrowserLiveV1"
 			]
+		},
+		{
+			"tag": "v8",
+			"new_sqlite_classes": [
+				"MyContainer"
+			]
+		}
+	],
+	"containers": [
+		{
+			"class_name": "MyContainer",
+			"image": "registry.cloudflare.com/ede6590ac0d2fb7daf155b35653457b2/meauxcontainer-mycontainer:6d6f76d2",
+			"instance_type": "lite",
+			"max_instances": 10
 		}
 	],
 	// Match wrangler.production.toml so CF Builds (`wrangler deploy -c wrangler.jsonc`) exposes DO stubs.
@@ -171,6 +180,10 @@
 			{
 				"name": "BROWSER_SESSION",
 				"class_name": "AgentBrowserLiveV1"
+			},
+			{
+				"name": "MY_CONTAINER",
+				"class_name": "MyContainer"
 			}
 		]
 	},

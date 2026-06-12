@@ -9,6 +9,7 @@ import {
   validateMoviemodeRepoOnPty,
 } from '../core/pty-workspace-paths.js';
 import { resolveMoviemodeKv } from '../core/moviemode-kv.js';
+import { tryMoviemodeRenderOnContainer } from '../core/my-container.js';
 
 async function requireAuth(request, env) {
   const authUser = await getAuthUser(request, env);
@@ -1021,7 +1022,7 @@ export async function handleMoviemodeExport(request, env, { workspaceId, tenantI
     }
   }
 
-  const runPromise = startRemotionRenderOnPty(env, jobId, job).catch(async (err) => {
+  const runPromise = startRemotionRender(env, jobId, job).catch(async (err) => {
     await writeJob(env, jobId, {
       ...job,
       status: 'error',
@@ -1439,6 +1440,23 @@ async function writeMoviemodeJobError(env, jobId, job, errPayload) {
     installCommand: errPayload.installCommand || null,
     uiHint: errPayload.uiHint || null,
   });
+}
+
+async function startRemotionRender(env, jobId, job) {
+  const containerTry = await tryMoviemodeRenderOnContainer(env, jobId, job);
+  if (containerTry.handled) {
+    await writeJob(env, jobId, {
+      ...job,
+      status: containerTry.result?.status === 'complete' ? 'complete' : 'rendering',
+      progressPercent: containerTry.result?.progressPercent ?? 0,
+      renderLane: 'container',
+    });
+    return;
+  }
+  if (containerTry.fallback && (env.MY_CONTAINER || env.MOVIEMODE_RENDER)) {
+    console.log('[moviemode] container fallback → PTY', containerTry.reason || containerTry.error);
+  }
+  return startRemotionRenderOnPty(env, jobId, job);
 }
 
 async function startRemotionRenderOnPty(env, jobId, job) {

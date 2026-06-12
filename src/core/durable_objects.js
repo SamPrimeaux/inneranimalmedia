@@ -10,3 +10,4 @@ export { AgentChatSqlV1 };
 export { AgentBrowserLiveV1 };
 export { IAMCollaborationSession } from '../do/Collaboration.js';
 export { ChessRoom } from '../do/Legacy.js';
+export { MyContainer } from '../do/MyContainer.js';

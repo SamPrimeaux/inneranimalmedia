@@ -134,6 +134,18 @@ class_name = "AgentChatSqlV1"
 name = "BROWSER_SESSION"
 class_name = "AgentBrowserLiveV1"
 
+# MeauxContainer — existing CF registry image (created 2026-01-02, updated 2026-06-05).
+# Standalone dashboard app: meauxcontainer-mycontainer (orphan until this binding deploys).
+[[containers]]
+class_name = "MyContainer"
+image = "registry.cloudflare.com/ede6590ac0d2fb7daf155b35653457b2/meauxcontainer-mycontainer:6d6f76d2"
+instance_type = "lite"
+max_instances = 10
+
+[[durable_objects.bindings]]
+name = "MY_CONTAINER"
+class_name = "MyContainer"
+
 # Dashboard label: iam-vpc
 [[vpc_services]]
 binding = "PTY_SERVICE"
@@ -158,11 +170,15 @@ new_sqlite_classes = ["AgentChatSqlV1"]
 
 [[migrations]]
 tag = "v6"
-deleted_classes = ["MeauxSession", "IAMAgentSession", "IAMSession"]
+# MeauxSession/IAMAgentSession/IAMSession tombstone — applied on production DO namespace previously.
 
 [[migrations]]
 tag = "v7"
 new_sqlite_classes = ["AgentBrowserLiveV1"]
+
+[[migrations]]
+tag = "v8"
+new_sqlite_classes = ["MyContainer"]
 
 [[queues.producers]]
 binding = "MY_QUEUE"

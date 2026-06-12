@@ -346,6 +346,20 @@ export async function dispatchProductionDomainRoutes(rc) {
     return handleHealthKvDirty(request, env);
   }
 
+  if (pathLower === '/api/internal/moviemode-render/health' && methodUpper === 'GET') {
+    const { probeMyContainer } = await import('../core/my-container.js');
+    const { jsonResponse } = await import('../core/auth.js');
+    const out = await probeMyContainer(env);
+    return jsonResponse(out, out.ok ? 200 : 503);
+  }
+
+  if (pathLower === '/api/internal/my-container/health' && methodUpper === 'GET') {
+    const { probeMyContainer } = await import('../core/my-container.js');
+    const { jsonResponse } = await import('../core/auth.js');
+    const out = await probeMyContainer(env);
+    return jsonResponse(out, out.ok ? 200 : 503);
+  }
+
   if (pathLower === '/api/internal/agentsam-vectorize/describe' && methodUpper === 'GET') {
     const { handleAgentsamVectorizeDescribe } = await import('../api/agentsam-vectorize-describe.js');
     return handleAgentsamVectorizeDescribe(request, env);

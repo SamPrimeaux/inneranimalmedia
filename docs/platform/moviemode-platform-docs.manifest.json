@@ -1,0 +1,23 @@
+{
+  "workspace_key": "ws_inneranimalmedia",
+  "entries": [
+    {
+      "file": "docs/MOVIEMODE-INFRA-PLAN.md",
+      "autorag_key": "docs/platform/moviemode-infra-plan.md",
+      "topic": "moviemode-infra-plan",
+      "lane_key": "docs_knowledge_search"
+    },
+    {
+      "file": "docs/platform/workers-vpc-moviemode.md",
+      "autorag_key": "docs/platform/workers-vpc-moviemode.md",
+      "topic": "workers-vpc-moviemode",
+      "lane_key": "docs_knowledge_search"
+    },
+    {
+      "file": "docs/MOVIEMODE.md",
+      "autorag_key": "docs/platform/moviemode-api-reference.md",
+      "topic": "moviemode-api-reference",
+      "lane_key": "docs_knowledge_search"
+    }
+  ]
+}
