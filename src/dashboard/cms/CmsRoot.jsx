@@ -927,10 +927,14 @@ function usePresence(pageId, workspaceId) {
 
 // ─── Main Editor view ─────────────────────────────────────────────────────────
 
-// ─── Legacy EditorView (M2-canonical path: CmsStudioEditor iframe + /api/cms/pages/:id/draft) ───
-// Kept for reference; CmsRoot routes editor → CmsStudioEditor. Publish uses POST /api/cms/pages/:id/publish with M3 gates.
+// ─── LEGACY M2 VIEWS (deprecated M3) ─────────────────────────────────────────
+// Not mounted. Canonical path: CmsStudioEditor → designstudiocmslite.html + studio.jsx.
+// Set CMS_ENABLE_LEGACY_EDITOR=true only for local debugging of M2 EditorView.
+const CMS_ENABLE_LEGACY_EDITOR = false;
 
+/** @deprecated M3 — use CmsStudioEditor iframe */
 function EditorView({ projectSlug, workspaceId, pageId, onNavigate, onNavigatePath }) {
+  if (!CMS_ENABLE_LEGACY_EDITOR) return null;
   const [bootstrap, setBootstrap] = useState(null);
   const [error, setError] = useState(null);
   const [activePage, setActivePage] = useState(null);
@@ -1628,7 +1632,9 @@ function TemplatesView({ onNavigate, addToPageId }) {
 
 // ─── Liquid imports view ──────────────────────────────────────────────────────
 
+/** @deprecated M3 — import UI lives in studio.jsx Assets tab */
 function LiquidImportsView({ onNavigate }) {
+  if (!CMS_ENABLE_LEGACY_EDITOR) return null;
   const [imports, setImports] = useState(null);
   const [dragOver, setDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);

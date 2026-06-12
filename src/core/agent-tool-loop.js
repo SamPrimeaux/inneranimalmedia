@@ -18,6 +18,10 @@ import {
   executeAgentHandoffFromLoop,
   patchAgentRunBudgetProgress,
 } from './agent-handoff.js';
+import {
+  CMS_SPAWN_SESSION_TURN_THRESHOLD,
+  maybeSpawnCmsSessionHandoff,
+} from './cms-spawn-bridge.js';
 import { scheduleRecordMcpToolExecution, recordMcpToolOtlpSpan } from './mcp-tool-execution.js';
 import { writeTelemetry } from '../api/telemetry.js';
 import { resolveProviderForModelKey } from './usage-event-writer.js';
@@ -1605,6 +1609,26 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
       sourceAgentRunId: chatAgentRunId,
       sourceSessionId: sessionId,
     });
+  }
+
+  if (
+    routingTaskType === 'cms_edit' &&
+    turnCount >= CMS_SPAWN_SESSION_TURN_THRESHOLD &&
+    chatAgentRunId &&
+    sessionId
+  ) {
+    ctx.waitUntil(
+      maybeSpawnCmsSessionHandoff(env, ctx, {
+        userId,
+        workspaceId: routingWs || workspaceId,
+        tenantId,
+        parentRunId: String(chatAgentRunId),
+        parentSessionId: String(sessionId),
+        turnCount,
+        goal: 'Continue CMS edit — apply section changes and redeploy',
+        messages: conversationMessages,
+      }).catch(() => {}),
+    );
   }
 
   safeDone({ tool_calls_used: toolCallsUsed, turns: turnCount });

@@ -11,6 +11,19 @@ import {
 } from './cms-kv-cache.js';
 
 const CMS_EDIT_SKILL_ID = 'skill_iam_cms_edit';
+const CMS_DEFAULT_R2_BUCKET = 'inneranimalmedia';
+
+/** @param {string} workspaceId @param {string} projectId @param {string} slug @param {string} variant */
+export function cmsPageHtmlKey(workspaceId, projectId, slug, variant) {
+  return `cms/${workspaceId}/${projectId}/${slug}/${variant}.html`;
+}
+
+/** @param {any} env @param {string} bucketName */
+function getCmsR2Binding(env, bucketName) {
+  const name = String(bucketName || CMS_DEFAULT_R2_BUCKET).trim();
+  if (name === 'inneranimalmedia' || name === 'dashboard') return env.ASSETS || env.R2;
+  return env.ASSETS || env.R2;
+}
 
 /** @param {string} raw */
 export function cmsOverrideProjectId(raw) {
@@ -192,12 +205,14 @@ export async function copyR2Object(env, bucket, sourceKey, destKey) {
  * @param {Array<Record<string, unknown>>} sections
  * @param {Record<string, Array<Record<string, unknown>>>} componentsBySection
  */
-export function renderCmsSectionTreeHtml(sections, componentsBySection = {}) {
+export function renderCmsSectionTreeHtml(sections, componentsBySection = {}, opts = {}) {
   const sorted = [...(sections || [])].sort(
     (a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0),
   );
+  const themeCss = String(opts.themeCss || '').trim();
   const parts = [
     '<!DOCTYPE html><html><head><meta charset="utf-8"><title>CMS Preview</title>',
+    themeCss ? `<style id="cms-theme">${themeCss}</style>` : '',
     '<style>body{font-family:system-ui,sans-serif;margin:0;padding:24px;background:#faf9f7;color:#1a1815}',
     'section{margin-bottom:32px;padding:20px;border:1px solid #e8e4dc;border-radius:10px}',
     'h1,h2{margin:0 0 8px}p{margin:0 0 8px;line-height:1.5;color:#444}',
@@ -375,4 +390,203 @@ export async function promoteCmsDraftOverrides(env, opts) {
   }
 
   return published;
+}
+
+/**
+ * Merge KV/D1 draft section overrides onto page sections for preview/publish HTML.
+ * @param {Array<Record<string, unknown>>} sections
+ * @param {Record<string, unknown>|null} draftData
+ */
+export function mergeCmsDraftSections(sections, draftData) {
+  const draftSections =
+    draftData && typeof draftData === 'object'
+      ? /** @type {Record<string, unknown>} */ (draftData).sections
+      : null;
+  if (!draftSections || typeof draftSections !== 'object') return sections;
+  return (sections || []).map((s) => {
+    const override = draftSections[s.id];
+    if (!override || typeof override !== 'object') return s;
+    const base =
+      s.section_data && typeof s.section_data === 'object'
+        ? s.section_data
+        : (() => {
+            try {
+              return typeof s.section_data === 'string' ? JSON.parse(s.section_data) : {};
+            } catch {
+              return {};
+            }
+          })();
+    return { ...s, section_data: { ...base, ...override } };
+  });
+}
+
+/**
+ * @param {any} env
+ * @param {string} pageId
+ * @param {string} userId
+ * @param {Record<string, unknown>|null} [draftDataOverride]
+ */
+export async function loadCmsPagePreviewContext(env, pageId, userId, draftDataOverride = null) {
+  const page = await env.DB.prepare(
+    `SELECT id, project_id, project_slug, slug, route_path, title, r2_bucket, content_type
+     FROM cms_pages WHERE id = ? LIMIT 1`,
+  )
+    .bind(pageId)
+    .first()
+    .catch(() => null);
+  if (!page?.id) return null;
+
+  const { results: sectionRows } = await env.DB.prepare(
+    `SELECT id, section_type, section_name, section_data, sort_order, is_visible
+     FROM cms_page_sections WHERE page_id = ? ORDER BY sort_order`,
+  )
+    .bind(pageId)
+    .all()
+    .catch(() => ({ results: [] }));
+
+  let sections = (sectionRows || []).map((s) => ({
+    ...s,
+    section_data: s.section_data
+      ? (() => {
+          try {
+            return typeof s.section_data === 'string' ? JSON.parse(s.section_data) : s.section_data;
+          } catch {
+            return {};
+          }
+        })()
+      : {},
+  }));
+
+  let draftData = draftDataOverride;
+  if (!draftData) {
+    const kvDraft = await getCmsDraftCache(env, pageId, userId).catch(() => null);
+    if (kvDraft?.draft_data) draftData = kvDraft.draft_data;
+    else if (kvDraft && typeof kvDraft === 'object') draftData = kvDraft;
+    else {
+      const row = await env.DB.prepare(
+        `SELECT draft_data FROM cms_page_drafts WHERE page_id = ? AND user_id = ? LIMIT 1`,
+      )
+        .bind(pageId, userId)
+        .first()
+        .catch(() => null);
+      if (row?.draft_data) {
+        try {
+          draftData = JSON.parse(row.draft_data);
+        } catch {
+          draftData = null;
+        }
+      }
+    }
+  }
+  sections = mergeCmsDraftSections(sections, draftData);
+
+  const sectionIds = sections.map((s) => s.id).filter(Boolean);
+  const componentsBySection = {};
+  if (sectionIds.length) {
+    const placeholders = sectionIds.map(() => '?').join(',');
+    const { results: compRows } = await env.DB.prepare(
+      `SELECT id, section_id, component_type, component_data, sort_order, is_visible
+       FROM cms_section_components WHERE section_id IN (${placeholders}) ORDER BY sort_order`,
+    )
+      .bind(...sectionIds)
+      .all()
+      .catch(() => ({ results: [] }));
+    for (const c of compRows || []) {
+      if (!componentsBySection[c.section_id]) componentsBySection[c.section_id] = [];
+      componentsBySection[c.section_id].push({
+        ...c,
+        component_data: c.component_data
+          ? (() => {
+              try {
+                return typeof c.component_data === 'string'
+                  ? JSON.parse(c.component_data)
+                  : c.component_data;
+              } catch {
+                return {};
+              }
+            })()
+          : {},
+      });
+    }
+  }
+
+  return { page, sections, componentsBySection, draftData };
+}
+
+/**
+ * Render section tree HTML and persist to R2 draft.html (publish prerequisite).
+ * @param {any} env
+ * @param {{
+ *   workspaceId: string,
+ *   page: Record<string, unknown>,
+ *   userId: string,
+ *   draftData?: Record<string, unknown>|null,
+ * }} opts
+ */
+export async function writeCmsDraftHtmlToR2(env, opts) {
+  const workspaceId = String(opts.workspaceId || '').trim();
+  const userId = String(opts.userId || '').trim();
+  const page = opts.page || {};
+  const pageId = String(page.id || '').trim();
+  if (!env?.DB || !workspaceId || !userId || !pageId) {
+    return { ok: false, error: 'missing_context' };
+  }
+
+  const ctx = await loadCmsPagePreviewContext(env, pageId, userId, opts.draftData || null);
+  if (!ctx) return { ok: false, error: 'page_not_found' };
+
+  const html = renderCmsSectionTreeHtml(ctx.sections, ctx.componentsBySection);
+  const r2Bucket = String(page.r2_bucket || CMS_DEFAULT_R2_BUCKET).trim();
+  const r2Binding = getCmsR2Binding(env, r2Bucket);
+  if (!r2Binding) return { ok: false, error: 'r2_unavailable' };
+
+  const draftKey = cmsPageHtmlKey(
+    workspaceId,
+    String(page.project_id || page.project_slug || ''),
+    String(page.slug || ''),
+    'draft',
+  );
+  const contentBuffer = new TextEncoder().encode(html);
+  await r2Binding.put(draftKey, contentBuffer, {
+    httpMetadata: { contentType: String(page.content_type || 'text/html') },
+  });
+
+  await putCmsDraftCache(env, {
+    pageId,
+    userId,
+    payload: {
+      draft_data: ctx.draftData || opts.draftData || null,
+      r2_key: draftKey,
+      r2_bucket: r2Bucket,
+      byte_length: contentBuffer.byteLength,
+      html_rendered_at: Math.floor(Date.now() / 1000),
+    },
+  });
+
+  return { ok: true, r2_key: draftKey, r2_bucket: r2Bucket, byte_length: contentBuffer.byteLength };
+}
+
+/**
+ * Ensure draft.html exists in R2 before publish (build from D1 sections + KV draft if missing).
+ * @param {any} env
+ * @param {{
+ *   workspaceId: string,
+ *   page: Record<string, unknown>,
+ *   userId: string,
+ *   r2Binding: unknown,
+ *   draftKey: string,
+ * }} opts
+ */
+export async function ensureCmsDraftR2BeforePublish(env, opts) {
+  const r2Binding = opts.r2Binding;
+  const draftKey = String(opts.draftKey || '').trim();
+  if (r2Binding && draftKey) {
+    const head = await r2Binding.head(draftKey).catch(() => null);
+    if (head) return { ok: true, existed: true, r2_key: draftKey };
+  }
+  return writeCmsDraftHtmlToR2(env, {
+    workspaceId: opts.workspaceId,
+    page: opts.page,
+    userId: opts.userId,
+  });
 }

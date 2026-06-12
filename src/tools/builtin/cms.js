@@ -7,6 +7,7 @@ import {
   flushCmsDraftToD1,
   logCmsActivity,
   stageCmsDraftKv,
+  writeCmsDraftHtmlToR2,
 } from '../../core/cms-edit-safety.js';
 import { verifyCmsPublishContract, runCmsPromotionGate, cmsPublishGateErrorResponse } from '../../core/cms-promotion-gates.js';
 
@@ -110,6 +111,21 @@ async function cmsWrite(params, env, runContext) {
   await stageCmsDraftKv(env, { pageId: row.page_id, userId, payload: draftPayload });
   await flushCmsDraftToD1(env, { pageId: row.page_id, userId, draftData: draftPayload });
 
+  const page = await env.DB.prepare(
+    `SELECT id, project_slug, project_id, slug, r2_bucket, content_type FROM cms_pages WHERE id = ? LIMIT 1`,
+  )
+    .bind(row.page_id)
+    .first()
+    .catch(() => null);
+  if (page && workspaceId) {
+    await writeCmsDraftHtmlToR2(env, {
+      workspaceId,
+      page,
+      userId,
+      draftData: draftPayload,
+    });
+  }
+
   const projectSlug = String(row.project_slug || row.project_id || '').trim();
   const ctx = runContext.executionCtx || null;
   auditCmsMutation(env, ctx, {
@@ -132,7 +148,15 @@ async function cmsWrite(params, env, runContext) {
     details: { agent_applied: true, route_key: 'cms_edit' },
   });
 
-  return { ok: true, section_id: sectionId, page_id: row.page_id, agent_applied: true };
+  return {
+    ok: true,
+    section_id: sectionId,
+    page_id: row.page_id,
+    agent_applied: true,
+    r2_draft_key: page
+      ? cmsPageKey(workspaceId, page.project_id, page.slug, 'draft')
+      : null,
+  };
 }
 
 /**

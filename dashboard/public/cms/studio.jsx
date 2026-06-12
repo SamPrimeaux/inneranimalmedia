@@ -55,12 +55,15 @@ function askAgentSam(message, opts = {}) {
     send: opts.send !== false,
     force_plan_mode: opts.force_plan_mode === true,
     project_slug: ctx.projectSlug,
-    page_id: ctx.pageId || null,
+    page_id: opts.page_id || ctx.pageId || null,
     workspace_id: ctx.workspaceId || null,
+    r2_key: opts.r2_key || null,
+    live_url: opts.live_url || null,
+    preview_mode: opts.preview_mode || null,
     bootstrap_cache_key: ctx.workspaceId
       ? `cms:bootstrap:${ctx.workspaceId}:${ctx.projectSlug}`
       : null,
-    collab_room: ctx.pageId ? `cms:${ctx.pageId}` : null,
+    collab_room: (opts.page_id || ctx.pageId) ? `cms:${opts.page_id || ctx.pageId}` : null,
   };
   try {
     window.parent.postMessage(
@@ -375,20 +378,25 @@ function PreviewSkeleton() {
   );
 }
 
-function CmsHtmlPreview({ html, contentUrl, pageTitle }) {
+function CmsHtmlPreview({ html, contentUrl, pageTitle, refreshKey = 0, preferUrl = false }) {
   const iframeRef = useRef(null);
   useEffect(() => {
     const frame = iframeRef.current;
     if (!frame) return;
+    if (preferUrl && contentUrl) {
+      frame.removeAttribute("srcdoc");
+      frame.src = contentUrl + (contentUrl.includes("?") ? "&" : "?") + `_r=${refreshKey}`;
+      return;
+    }
     if (html) {
       frame.srcdoc = html;
       return;
     }
     if (contentUrl) {
       frame.removeAttribute("srcdoc");
-      frame.src = contentUrl;
+      frame.src = contentUrl + (contentUrl.includes("?") ? "&" : "?") + `_r=${refreshKey}`;
     }
-  }, [html, contentUrl]);
+  }, [html, contentUrl, refreshKey, preferUrl]);
   if (!html && !contentUrl) {
     return (
       <div style={{ padding: 32, textAlign: "center", color: "var(--muted)", fontSize: 13 }}>
@@ -447,7 +455,8 @@ function Studio() {
   const [bootstrap, setBootstrap] = useState(null);
   const [pagePayload, setPagePayload] = useState(null);
   const [files, setFiles] = useState(STARTER_FILES);
-  const [activeTab, setActiveTab] = useState("preview");
+  const panelTab = ctx.studioPanel === "imports" || ctx.studioPanel === "assets" ? "assets" : "preview";
+  const [activeTab, setActiveTab] = useState(panelTab);
   const [phase, setPhase] = useState("Idle");
   const [activity, setActivity] = useState("Awaiting your move.");
   const [stats, setStats] = useState({ files: 0, lines: 0, time: "0s" });
@@ -459,8 +468,16 @@ function Studio() {
   const [userInitials, setUserInitials] = useState("IA");
   const [toast, setToast] = useState("");
   const [studioStatus, setStudioStatus] = useState(null);
+  const [liveSession, setLiveSession] = useState(null);
+  const [cmsAssets, setCmsAssets] = useState([]);
+  const [liquidImports, setLiquidImports] = useState([]);
+  const [conversions, setConversions] = useState([]);
+  const [previewNonce, setPreviewNonce] = useState(0);
+  const [previewMode, setPreviewMode] = useState("published");
+  const [uploadingTheme, setUploadingTheme] = useState(false);
   const draftTimerRef = useRef(null);
   const heartbeatRef = useRef(null);
+  const themeFileRef = useRef(null);
   const projectSlug = ctx.projectSlug;
   const pageId = ctx.pageId;
 
@@ -488,6 +505,22 @@ function Studio() {
     };
     if (flush) run();
     else draftTimerRef.current = setTimeout(run, 1400);
+  };
+
+  const refreshPreview = async (opts = {}) => {
+    const focusId = opts.pageId || pageId;
+    if (!focusId) return;
+    const useDraft = opts.draft === true || previewMode === "draft";
+    try {
+      const qs = useDraft ? "?draft=1" : "";
+      const payload = await apiJson(`/api/cms/pages/${encodeURIComponent(focusId)}${qs}`);
+      setPagePayload(payload);
+      if (payload.preview_html || payload.content_url) setCanvasMode("preview");
+      setPreviewNonce((n) => n + 1);
+      if (opts.mode) setPreviewMode(opts.mode);
+    } catch (e) {
+      showToast(e.message || "Preview refresh failed");
+    }
   };
 
   const loadCmsContext = async (focusPageId) => {
@@ -522,6 +555,8 @@ function Studio() {
           if (cancelled) return;
           setPagePayload(payload);
           if (payload.preview_html || payload.content_url) setCanvasMode("preview");
+          const page = (data.pages || []).find((p) => p.id === focusId);
+          if (page?.route_path) setActiveFile(page.route_path.replace(/^\//, "") || "home");
         }
       } catch (_) {
         if (!cancelled) setWorkspaceLabel(projectSlug);
@@ -581,6 +616,33 @@ function Studio() {
       }).catch(() => {});
     };
   }, [pageId]);
+
+  useEffect(() => {
+    if (activeTab !== "assets") return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [assetsRes, importsRes, convRes] = await Promise.all([
+          apiJson("/api/cms/assets"),
+          apiJson("/api/cms/liquid-imports"),
+          apiJson("/api/cms/conversions"),
+        ]);
+        if (cancelled) return;
+        setCmsAssets(assetsRes.assets || []);
+        setLiquidImports(importsRes.imports || []);
+        setConversions(convRes.conversions || []);
+      } catch (_) {}
+    })();
+    const id = setInterval(() => {
+      apiJson("/api/cms/liquid-imports")
+        .then((d) => setLiquidImports(d.imports || []))
+        .catch(() => {});
+      apiJson("/api/cms/conversions")
+        .then((d) => setConversions(d.conversions || []))
+        .catch(() => {});
+    }, 12000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [activeTab]);
 
   useEffect(() => {
     if (!pageId || !bootstrap) return;
@@ -653,8 +715,9 @@ function Studio() {
       setPhase("Ready");
       setActivity(`Published ${target.title || target.route_path} · ${(pub.override_chain || []).length} overrides`);
       showToast(`Deployed ${target.route_path || "/"}`);
-      const payload = await apiJson(`/api/cms/pages/${encodeURIComponent(target.id)}`);
-      setPagePayload(payload);
+      await loadCmsContext(target.id);
+      setPreviewMode("published");
+      await refreshPreview({ pageId: target.id, mode: "published" });
     } catch (e) {
       setPhase("Idle");
       setActivity("Deploy failed — check CMS bootstrap");
@@ -662,22 +725,85 @@ function Studio() {
     }
   };
 
-  const handleImportConversion = async () => {
+  const handleThemeImport = async (file) => {
+    if (!file) return;
+    setUploadingTheme(true);
+    setActivity(`Uploading ${file.name}…`);
     try {
-      setActivity("Queuing Liquid/HTML → sections import…");
-      const res = await apiJson("/api/cms/conversions", {
+      const r2Key = `cms/liquid-imports/${Date.now()}-${file.name.replace(/[^a-z0-9._-]/gi, "_")}`;
+      const form = new FormData();
+      form.append("file", file);
+      form.append("bucket", "inneranimalmedia");
+      form.append("key", r2Key);
+      await apiJson("/api/r2/upload", { method: "POST", body: form });
+      const importName = file.name.replace(/\.(zip|tar\.gz|tgz)$/i, "").replace(/[_-]+/g, " ");
+      const sourceType = /\.tar\.gz$|\.tgz$/i.test(file.name) ? "shopify_tar_gz" : "shopify_zip";
+      await apiJson("/api/cms/liquid-imports", {
         method: "POST",
         body: {
-          import_name: `${projectSlug}_studio_import`,
-          source_format: "liquid",
-          target_format: "sections",
+          import_name: importName,
+          source_type: sourceType,
+          r2_key: r2Key,
+          r2_bucket: "inneranimalmedia",
+          project_id: projectSlug,
         },
       });
-      setActivity(`Import queued · ${res.conversion_id || "pending"}`);
-      showToast("Import conversion queued (M3 wizard)");
+      setActivity(`Theme import queued · ${importName}`);
+      showToast("Shopify theme import queued — watch Assets tab for status");
+      setActiveTab("assets");
+      const importsRes = await apiJson("/api/cms/liquid-imports");
+      setLiquidImports(importsRes.imports || []);
     } catch (e) {
-      showToast(e.message || "Import failed");
+      showToast(e.message || "Theme import failed");
+    } finally {
+      setUploadingTheme(false);
     }
+  };
+
+  const handleApplyImportToPage = (imp) => {
+    const sections = imp?.sections_found || 0;
+    askAgentSam(
+      `[CMS · ${projectSlug}] Apply Shopify theme import "${imp.import_name}" (${sections} liquid sections) to page ${pageId || "homepage"}. Map cms_liquid_sections → cms_page_sections and redeploy.`,
+      {
+        task_type: "cms_edit",
+        page_id: pageId,
+        r2_key: pagePayload?.r2_key || null,
+        live_url: pagePayload?.live_url || null,
+      },
+    );
+    showToast("Agent Sam prompted to scaffold sections");
+  };
+
+  const handleRedeployWithAgent = () => {
+    askAgentSam(
+      `[CMS · ${projectSlug}] Update section content for page ${pageId || "current"} and redeploy (draft → publish). Current r2_key: ${pagePayload?.r2_key || "none"}. Live: ${pagePayload?.live_url || "n/a"}`,
+      {
+        task_type: "cms_edit",
+        page_id: pageId,
+        r2_key: pagePayload?.r2_key || null,
+        live_url: pagePayload?.live_url || null,
+        preview_mode: previewMode,
+      },
+    );
+    showToast("Agent Sam ready — describe your section change");
+  };
+
+  const handleOpenLive = () => {
+    const url = pagePayload?.live_url || pagePayload?.content_url;
+    if (!url) {
+      showToast("No live URL yet — publish first");
+      return;
+    }
+    window.open(url, "_blank", "noopener");
+  };
+
+  const navigateToPage = (nextPageId) => {
+    if (!nextPageId) return;
+    const base = `/dashboard/cms/${encodeURIComponent(projectSlug)}/pages/${encodeURIComponent(nextPageId)}`;
+    try {
+      window.parent.postMessage({ type: "iam-cms-navigate", path: base }, window.location.origin);
+    } catch (_) {}
+    window.location.search = `?project=${encodeURIComponent(projectSlug)}&page=${encodeURIComponent(nextPageId)}&workspace_id=${encodeURIComponent(ctx.workspaceId || "")}`;
   };
 
   const tree = useMemo(() => buildTree(files), [files]);
@@ -724,8 +850,22 @@ function Studio() {
             ))}
             <div className="spacer"></div>
             <div className="tab-actions">
+              {(bootstrap?.pages || []).length > 0 && (
+                <select
+                  className="ta"
+                  value={pageId || ""}
+                  onChange={(e) => navigateToPage(e.target.value)}
+                  style={{ maxWidth: 180 }}
+                >
+                  {(bootstrap.pages || []).map((p) => (
+                    <option key={p.id} value={p.id}>{p.title || p.route_path || p.slug}</option>
+                  ))}
+                </select>
+              )}
               <button className="ta">{stats.files} files · {stats.lines.toLocaleString()} lines</button>
-              <button className="ta primary"><Icon id="refresh" size={11} /> Refresh</button>
+              <button type="button" className="ta" onClick={() => { setPreviewMode("draft"); refreshPreview({ draft: true, mode: "draft" }); }}>Draft</button>
+              <button type="button" className="ta primary" onClick={() => refreshPreview({ mode: previewMode })}><Icon id="refresh" size={11} /> Refresh</button>
+              <button type="button" className="ta" onClick={handleRedeployWithAgent}><Icon id="bolt" size={11} /> Agent redeploy</button>
               <button type="button" className="ta primary" onClick={handleShare}><Icon id="share" size={11} /> Share</button>
             </div>
           </div>
@@ -765,12 +905,12 @@ function Studio() {
                 </div>
                 <div className="url-bar">
                   <Icon id="bolt" size={10} className="lk" />
-                  <span className="lk">localhost:3000</span>
+                  <span className="lk">{pagePayload?.live_url ? new URL(pagePayload.live_url).host : "preview"}</span>
                   <span className="lk">/</span>
-                  <span className="pathseg">{activeFile ? activeFile.replace(/\.[^.]+$/, "") : "home"}</span>
+                  <span className="pathseg">{activeFile ? activeFile.replace(/^\//, "").replace(/\.[^.]+$/, "") : "home"}</span>
                 </div>
-                <button className="ta primary"><Icon id="refresh" size={11} /></button>
-                <button className="ta primary"><Icon id="share" size={11} /> Open</button>
+                <button type="button" className="ta primary" onClick={() => refreshPreview({ mode: previewMode })}><Icon id="refresh" size={11} /></button>
+                <button type="button" className="ta primary" onClick={handleOpenLive}><Icon id="share" size={11} /> Open</button>
               </div>
 
               <div className="canvas">
@@ -783,9 +923,11 @@ function Studio() {
                 {activeTab === "preview" && canvasMode === "preview" && (
                   <div className={`preview-frame ${device}`}>
                     <CmsHtmlPreview
-                      html={pagePayload?.preview_html}
+                      html={previewMode === "draft" ? pagePayload?.preview_html : null}
                       contentUrl={pagePayload?.content_url}
                       pageTitle={projectName}
+                      refreshKey={previewNonce}
+                      preferUrl={previewMode === "published" && !!pagePayload?.content_url}
                     />
                   </div>
                 )}
@@ -800,19 +942,65 @@ function Studio() {
                     : <SchemaCanvas />
                 )}
                 {activeTab === "assets" && (
-                  <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', gap: 12, padding: 12 }}>
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                      <button type="button" className="btn primary" onClick={handleImportConversion}>
-                        Import Liquid/HTML → sections
-                      </button>
+                  <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', gap: 12, padding: 12, overflow: 'auto' }}>
+                    <div
+                      style={{ border: '2px dashed var(--line)', borderRadius: 12, padding: 20, textAlign: 'center', cursor: 'pointer' }}
+                      onClick={() => themeFileRef.current?.click()}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => { e.preventDefault(); handleThemeImport(e.dataTransfer.files[0]); }}
+                    >
+                      <div style={{ fontWeight: 600, marginBottom: 6 }}>
+                        {uploadingTheme ? "Uploading theme…" : "Drop Shopify theme .tar.gz / .zip"}
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                        Extracts to R2 staging → conversion job → Agent Sam scaffold
+                      </div>
+                      <input ref={themeFileRef} type="file" accept=".zip,.tar.gz,.tgz" style={{ display: 'none' }}
+                        onChange={(e) => handleThemeImport(e.target.files?.[0])} />
                     </div>
-                    <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, alignContent: 'start' }}>
-                    {files.length === 0 ? <div style={{ gridColumn: '1/-1' }}><EmptyCanvas onSketch={onSketch} showToast={showToast} /></div> :
-                      [...Array(8)].map((_, i) => (
-                        <div key={i} style={{ aspectRatio: '4/3', background: 'var(--paper)', border: '1px solid var(--line)', borderRadius: 10, display: 'grid', placeItems: 'center', color: 'var(--muted)', fontFamily: 'JetBrains Mono, monospace', fontSize: 11 }}>
-                          asset_{(i+1).toString().padStart(2, '0')}
+                    {liquidImports.length > 0 && (
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 8, color: 'var(--muted)' }}>Theme imports</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          {liquidImports.slice(0, 8).map((imp) => (
+                            <div key={imp.id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: 10, border: '1px solid var(--line)', borderRadius: 8 }}>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontWeight: 500, fontSize: 13 }}>{imp.import_name}</div>
+                                <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                                  {imp.sections_found || 0} sections · {imp.status}
+                                </div>
+                              </div>
+                              {imp.status === 'completed' && (
+                                <button type="button" className="btn primary" onClick={() => handleApplyImportToPage(imp)}>Apply to page</button>
+                              )}
+                            </div>
+                          ))}
                         </div>
-                    ))}
+                      </div>
+                    )}
+                    {conversions.length > 0 && (
+                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                        Conversions: {conversions.slice(0, 5).map((c) => `${c.source_format}→${c.target_format} (${c.status})`).join(' · ')}
+                      </div>
+                    )}
+                    <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, alignContent: 'start' }}>
+                      {(cmsAssets.length ? cmsAssets.slice(0, 16) : []).map((a) => (
+                        <div key={a.id} style={{ aspectRatio: '4/3', background: 'var(--paper)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                          {a.thumbnail_url || a.public_url ? (
+                            <img src={a.thumbnail_url || a.public_url} alt={a.label || a.filename} style={{ width: '100%', height: '70%', objectFit: 'cover' }} />
+                          ) : (
+                            <div style={{ flex: 1, display: 'grid', placeItems: 'center', color: 'var(--muted)', fontSize: 11 }}>{a.mime_type || 'asset'}</div>
+                          )}
+                          <div style={{ padding: '6px 8px', fontSize: 10, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {a.label || a.filename || a.id}
+                          </div>
+                        </div>
+                      ))}
+                      {cmsAssets.length === 0 && (
+                        <div style={{ gridColumn: '1/-1', color: 'var(--muted)', fontSize: 12, textAlign: 'center', padding: 24 }}>
+                          No CMS assets yet — upload a Shopify theme or add images via Agent Sam.
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}

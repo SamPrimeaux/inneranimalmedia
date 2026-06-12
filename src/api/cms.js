@@ -25,12 +25,15 @@ import {
   clearCmsDraftHotCache,
   cmsOverrideProjectId,
   copyR2Object,
+  ensureCmsDraftR2BeforePublish,
   flushCmsDraftToD1,
   invalidateCmsBootstrap,
+  loadCmsPagePreviewContext,
   logCmsActivity,
   promoteCmsDraftOverrides,
   renderCmsSectionTreeHtml,
   stageCmsDraftKv,
+  writeCmsDraftHtmlToR2,
 } from '../core/cms-edit-safety.js';
 import {
   joinCmsLiveEditSession,
@@ -48,6 +51,7 @@ import {
   cmsDraftSectionCount,
   cmsExceedsSpawnThreshold,
   maybeSpawnCmsHeavyJob,
+  maybeSpawnCmsSessionHandoff,
 } from '../core/cms-spawn-bridge.js';
 import { logPromptCacheUsage } from '../core/prompt-cache-economics.js';
 
@@ -196,6 +200,7 @@ export async function handleCmsApi(request, url, env, ctx) {
   const pageIdMatch = path.match(/^\/api\/cms\/pages\/([^/]+)$/);
   if (pageIdMatch && method === 'GET') {
     const pageId = pageIdMatch[1];
+    const useDraft = url.searchParams.get('draft') === '1' || url.searchParams.get('preview') === 'draft';
     try {
       const page = await env.DB.prepare(
         `SELECT * FROM cms_pages WHERE id = ? AND tenant_id = ?`
@@ -203,71 +208,100 @@ export async function handleCmsApi(request, url, env, ctx) {
 
       if (!page) return jsonResponse({ error: 'Page not found' }, 404);
 
-      // Generate presigned URL for the R2 content
+      const tenantRow = await env.DB.prepare(
+        `SELECT domain, slug FROM cms_tenants WHERE slug = ? LIMIT 1`,
+      )
+        .bind(String(page.project_slug || page.project_id || '').trim())
+        .first()
+        .catch(() => null);
+
       const bucket = page.r2_bucket || CMS_DEFAULT_R2_BUCKET;
-      const key = page.r2_key;
       let contentUrl = null;
-      if (key) {
-        contentUrl = await presignR2GetObjectUrl(env, bucket, key);
+      const publishedKey = page.r2_key;
+      if (publishedKey) {
+        contentUrl = await presignR2GetObjectUrl(env, bucket, publishedKey);
       }
 
-      const { results: sectionRows } = await env.DB.prepare(
-        `SELECT id, section_type, section_name, section_data, sort_order, is_visible
-         FROM cms_page_sections WHERE page_id = ? ORDER BY sort_order`,
-      )
-        .bind(pageId)
-        .all()
-        .catch(() => ({ results: [] }));
-
-      const sections = (sectionRows || []).map((s) => ({
-        ...s,
-        section_data: s.section_data
-          ? (() => {
-              try {
-                return typeof s.section_data === 'string' ? JSON.parse(s.section_data) : s.section_data;
-              } catch {
-                return {};
-              }
-            })()
-          : {},
-      }));
-
-      const sectionIds = sections.map((s) => s.id).filter(Boolean);
+      let sections = [];
       let componentsBySection = {};
-      if (sectionIds.length) {
-        const placeholders = sectionIds.map(() => '?').join(',');
-        const { results: compRows } = await env.DB.prepare(
-          `SELECT id, section_id, component_type, component_data, sort_order, is_visible
-           FROM cms_section_components WHERE section_id IN (${placeholders}) ORDER BY sort_order`,
+      let activeDraft = null;
+      if (useDraft) {
+        const previewCtx = await loadCmsPagePreviewContext(env, pageId, authUser.id);
+        sections = previewCtx?.sections || [];
+        componentsBySection = previewCtx?.componentsBySection || {};
+        activeDraft = previewCtx?.draftData || null;
+      } else {
+        const { results: sectionRows } = await env.DB.prepare(
+          `SELECT id, section_type, section_name, section_data, sort_order, is_visible
+           FROM cms_page_sections WHERE page_id = ? ORDER BY sort_order`,
         )
-          .bind(...sectionIds)
+          .bind(pageId)
           .all()
           .catch(() => ({ results: [] }));
-        for (const c of compRows || []) {
-          if (!componentsBySection[c.section_id]) componentsBySection[c.section_id] = [];
-          componentsBySection[c.section_id].push({
-            ...c,
-            component_data: c.component_data
-              ? (() => {
-                  try {
-                    return typeof c.component_data === 'string' ? JSON.parse(c.component_data) : c.component_data;
-                  } catch {
-                    return {};
-                  }
-                })()
-              : {},
-          });
+        sections = (sectionRows || []).map((s) => ({
+          ...s,
+          section_data: s.section_data
+            ? (() => {
+                try {
+                  return typeof s.section_data === 'string' ? JSON.parse(s.section_data) : s.section_data;
+                } catch {
+                  return {};
+                }
+              })()
+            : {},
+        }));
+        const sectionIds = sections.map((s) => s.id).filter(Boolean);
+        if (sectionIds.length) {
+          const placeholders = sectionIds.map(() => '?').join(',');
+          const { results: compRows } = await env.DB.prepare(
+            `SELECT id, section_id, component_type, component_data, sort_order, is_visible
+             FROM cms_section_components WHERE section_id IN (${placeholders}) ORDER BY sort_order`,
+          )
+            .bind(...sectionIds)
+            .all()
+            .catch(() => ({ results: [] }));
+          for (const c of compRows || []) {
+            if (!componentsBySection[c.section_id]) componentsBySection[c.section_id] = [];
+            componentsBySection[c.section_id].push({
+              ...c,
+              component_data: c.component_data
+                ? (() => {
+                    try {
+                      return typeof c.component_data === 'string'
+                        ? JSON.parse(c.component_data)
+                        : c.component_data;
+                    } catch {
+                      return {};
+                    }
+                  })()
+                : {},
+            });
+          }
         }
       }
-
       const preview_html = renderCmsSectionTreeHtml(sections, componentsBySection);
+
+      let draftContentUrl = null;
+      if (useDraft) {
+        const draftKey = cmsPageKey(workspaceId, page.project_id, page.slug, 'draft');
+        draftContentUrl = await presignR2GetObjectUrl(env, bucket, draftKey);
+      }
+
+      const routePath = String(page.route_path || `/${page.slug || ''}`).trim() || '/';
+      const liveUrl = tenantRow?.domain
+        ? `https://${tenantRow.domain}${routePath.startsWith('/') ? routePath : `/${routePath}`}`
+        : null;
 
       return jsonResponse({
         page,
-        content_url: contentUrl,
+        content_url: useDraft && draftContentUrl ? draftContentUrl : contentUrl,
         preview_html,
+        preview_mode: useDraft ? 'draft' : 'published',
+        live_url: liveUrl,
+        r2_key: useDraft ? cmsPageKey(workspaceId, page.project_id, page.slug, 'draft') : publishedKey,
         sections,
         components_by_section: componentsBySection,
+        active_draft: activeDraft,
       });
     } catch (e) {
       return jsonResponse({ error: e.message }, 500);
@@ -329,9 +363,16 @@ export async function handleCmsApi(request, url, env, ctx) {
       });
 
       let flushed = null;
+      let draftR2 = null;
       if (flush) {
         flushed = await flushCmsDraftToD1(env, {
           pageId,
+          userId: authUser.id,
+          draftData: typeof draftData === 'object' ? draftData : { content: draftData },
+        });
+        draftR2 = await writeCmsDraftHtmlToR2(env, {
+          workspaceId,
+          page,
           userId: authUser.id,
           draftData: typeof draftData === 'object' ? draftData : { content: draftData },
         });
@@ -368,6 +409,7 @@ export async function handleCmsApi(request, url, env, ctx) {
         page_id: pageId,
         kv_draft_key: `cms:draft:${pageId}:${authUser.id}`,
         flushed: !!flushed?.ok,
+        r2_draft_key: draftR2?.r2_key || null,
       });
     } catch (e) {
       return jsonResponse({ error: e.message }, 500);
@@ -538,6 +580,15 @@ export async function handleCmsApi(request, url, env, ctx) {
       const r2BucketPre = page.r2_bucket || CMS_DEFAULT_R2_BUCKET;
       const draftKeyPre = cmsPageKey(workspaceId, page.project_id, page.slug, 'draft');
       const r2BindingPre = getCmsR2Binding(env, r2BucketPre);
+
+      await ensureCmsDraftR2BeforePublish(env, {
+        workspaceId,
+        page: { ...page, id: pageId },
+        userId: authUser.id,
+        r2Binding: r2BindingPre,
+        draftKey: draftKeyPre,
+      });
+
       let hasKvDraftPre = false;
       const kvDraftPre = await getCmsDraftCache(env, pageId, authUser.id).catch(() => null);
       hasKvDraftPre = !!(kvDraftPre?.draft_data || kvDraftPre?.r2_key);
@@ -782,7 +833,7 @@ export async function handleCmsApi(request, url, env, ctx) {
         .run();
 
       const page = await env.DB.prepare(
-        `SELECT id, project_slug, project_id FROM cms_pages WHERE id = ? LIMIT 1`,
+        `SELECT id, project_slug, project_id, slug, r2_bucket, content_type FROM cms_pages WHERE id = ? LIMIT 1`,
       )
         .bind(row.page_id)
         .first()
@@ -801,22 +852,33 @@ export async function handleCmsApi(request, url, env, ctx) {
               }
             })()
           : sectionData;
+      const draftPayload = {
+        sections: { [sectionId]: parsed },
+        page_id: row.page_id,
+        updated_at: Math.floor(Date.now() / 1000),
+      };
       await stageCmsDraftKv(env, {
         pageId: row.page_id,
         userId: authUser.id,
-        payload: {
-          sections: { [sectionId]: parsed },
-          page_id: row.page_id,
-          updated_at: Math.floor(Date.now() / 1000),
-        },
+        payload: draftPayload,
       });
       ctx.waitUntil(
         flushCmsDraftToD1(env, {
           pageId: row.page_id,
           userId: authUser.id,
-          draftData: { sections: { [sectionId]: parsed }, page_id: row.page_id },
+          draftData: draftPayload,
         }),
       );
+      if (page) {
+        ctx.waitUntil(
+          writeCmsDraftHtmlToR2(env, {
+            workspaceId,
+            page,
+            userId: authUser.id,
+            draftData: draftPayload,
+          }),
+        );
+      }
       ctx.waitUntil(
         logCmsActivity(env, {
           tenantId,
@@ -1012,9 +1074,9 @@ export async function handleCmsApi(request, url, env, ctx) {
         .catch(() => null);
       const liveRow = pageId
         ? await env.DB.prepare(
-            `SELECT id, page_id, user_id, status, last_heartbeat_at, created_at
-             FROM cms_live_edit_sessions WHERE page_id = ? AND status = 'active'
-             ORDER BY last_heartbeat_at DESC LIMIT 1`,
+            `SELECT id, page_id, user_id, is_active, last_activity, created_at
+             FROM cms_live_edit_sessions WHERE page_id = ? AND is_active = 1
+             ORDER BY last_activity DESC LIMIT 1`,
           )
             .bind(pageId)
             .first()
@@ -1035,7 +1097,12 @@ export async function handleCmsApi(request, url, env, ctx) {
             }
           : null,
         live_session: liveRow
-          ? { session_id: liveRow.id, user_id: liveRow.user_id, status: liveRow.status }
+          ? {
+              session_id: liveRow.id,
+              user_id: liveRow.user_id,
+              is_active: !!liveRow.is_active,
+              last_activity: liveRow.last_activity,
+            }
           : null,
       });
     } catch (e) {
@@ -1176,6 +1243,33 @@ export async function handleCmsApi(request, url, env, ctx) {
     } catch (e) {
       return jsonResponse({ error: e.message }, 500);
     }
+  }
+
+  if (path === '/api/cms/spawn-handoff' && method === 'POST') {
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: 'invalid JSON' }, 400);
+    }
+    const turnCount = Number(body.turn_count ?? body.turnCount ?? 0);
+    const parentRunId = String(body.parent_run_id ?? body.parentRunId ?? '').trim();
+    const parentSessionId = String(body.parent_session_id ?? body.parentSessionId ?? '').trim();
+    const pageId = String(body.page_id ?? body.pageId ?? '').trim();
+    const goal =
+      String(body.goal || '').trim() ||
+      (pageId ? `Continue CMS edit for page ${pageId}` : 'Continue CMS edit session');
+    const handoff = await maybeSpawnCmsSessionHandoff(env, ctx, {
+      userId: authUser.id,
+      workspaceId,
+      tenantId,
+      parentRunId: parentRunId || `cms_${pageId || 'studio'}_${Date.now().toString(36)}`,
+      parentSessionId: parentSessionId || `cms_session_${pageId || 'studio'}`,
+      turnCount,
+      goal,
+      messages: body.messages || [],
+    });
+    return jsonResponse({ ok: true, ...handoff });
   }
 
   if (path === '/api/cms/live-session/join' && method === 'POST') {
@@ -1858,6 +1952,10 @@ export async function handleCmsApi(request, url, env, ctx) {
             type: 'cms_liquid_import',
             import_id: importId,
             tenant_id: tenantId,
+            workspace_id: workspaceId,
+            r2_key: r2_key || '',
+            r2_bucket: r2_bucket || CMS_DEFAULT_R2_BUCKET,
+            import_name,
           }).catch(() => {}),
         );
       }

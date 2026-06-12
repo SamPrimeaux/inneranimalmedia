@@ -1,69 +1,223 @@
 /**
- * CMS liquid import queue consumer (M3 stub — BROWSER_SESSION wiring deferred).
- * Enqueues from POST /api/cms/liquid-imports and POST /api/cms/conversions.
+ * CMS liquid import queue consumer — tar.gz/zip extract → R2 staging → cms_liquid_sections.
+ * BROWSER_SESSION CDP screenshots remain optional (deferred).
  */
+
+import {
+  extractThemeArchive,
+  findShopifyLiquidSections,
+} from '../../core/cms-theme-archive.js';
+
+const CMS_DEFAULT_R2_BUCKET = 'inneranimalmedia';
+
+/** @param {any} env @param {string} bucketName */
+function getR2(env, bucketName) {
+  const name = String(bucketName || CMS_DEFAULT_R2_BUCKET).trim();
+  if (name === 'inneranimalmedia' || name === 'dashboard') return env.ASSETS || env.R2;
+  return env.ASSETS || env.R2;
+}
 
 /**
  * @param {any} env
  * @param {Record<string, unknown>} body
  */
 export async function handleCmsLiquidImportQueueJob(env, body) {
-  const importId = String(body.import_id || body.conversion_id || '').trim();
+  const importId = String(body.import_id || '').trim();
+  const conversionId = String(body.conversion_id || '').trim();
   const tenantId = String(body.tenant_id || '').trim();
-  if (!env?.DB || !importId) {
-    return { ok: false, error: 'missing_db_or_import_id' };
+  const workspaceId = String(body.workspace_id || '').trim();
+  const jobId = importId || conversionId;
+
+  if (!env?.DB || !jobId) {
+    return { ok: false, error: 'missing_db_or_job_id' };
   }
 
-  const browserBinding = env.BROWSER_SESSION || env.AGENT_BROWSER;
-  if (!browserBinding) {
-    const err = 'BROWSER_SESSION binding unavailable — liquid section screenshots deferred (see INTEGRATION.md Step 7)';
-    if (body.import_id) {
-      await env.DB.prepare(
-        `UPDATE cms_liquid_imports SET status = 'failed', error_log = ?, updated_at = ? WHERE id = ?`,
-      )
-        .bind(err, Math.floor(Date.now() / 1000), importId)
-        .run()
-        .catch(() => {});
-    }
-    if (body.conversion_id) {
-      await env.DB.prepare(
-        `UPDATE cms_conversions SET status = 'failed', error_message = ? WHERE id = ?`,
-      )
-        .bind(err, importId)
-        .run()
-        .catch(() => {});
-    }
-    return { ok: false, error: err, stub: true };
+  let importRow = null;
+  if (importId) {
+    importRow = await env.DB.prepare(`SELECT * FROM cms_liquid_imports WHERE id = ? LIMIT 1`)
+      .bind(importId)
+      .first()
+      .catch(() => null);
   }
 
-  await env.DB.prepare(
-    `UPDATE cms_liquid_imports SET status = 'processing', updated_at = ? WHERE id = ?`,
-  )
-    .bind(Math.floor(Date.now() / 1000), importId)
-    .run()
-    .catch(() => {});
+  const r2Key = String(importRow?.r2_key || body.r2_key || '').trim();
+  const r2Bucket = String(importRow?.r2_bucket || body.r2_bucket || CMS_DEFAULT_R2_BUCKET).trim();
+  const sourceName = String(importRow?.import_name || body.import_name || 'theme').trim();
 
-  await env.DB.prepare(
-    `INSERT INTO cms_liquid_sections
-     (id, tenant_id, import_id, section_key, section_name, parse_status, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, 'queued', datetime('now'), datetime('now'))`,
-  )
-    .bind(
-      `lsec_${Date.now().toString(36)}`,
-      tenantId || 'unknown',
-      importId,
-      'import_queue_stub',
-      'Queue stub section',
+  if (!r2Key) {
+    const err = 'missing_r2_key_for_theme_archive';
+    await markJobFailed(env, { importId, conversionId, err });
+    return { ok: false, error: err };
+  }
+
+  const r2 = getR2(env, r2Bucket);
+  if (!r2) {
+    const err = 'R2 binding unavailable';
+    await markJobFailed(env, { importId, conversionId, err });
+    return { ok: false, error: err };
+  }
+
+  if (importId) {
+    await env.DB.prepare(
+      `UPDATE cms_liquid_imports SET status = 'processing', updated_at = ? WHERE id = ?`,
     )
-    .run()
-    .catch(() => {});
+      .bind(Math.floor(Date.now() / 1000), importId)
+      .run()
+      .catch(() => {});
+  }
+  if (conversionId) {
+    await env.DB.prepare(`UPDATE cms_conversions SET status = 'processing', started_at = ? WHERE id = ?`)
+      .bind(Math.floor(Date.now() / 1000), conversionId)
+      .run()
+      .catch(() => {});
+  }
 
-  await env.DB.prepare(
-    `UPDATE cms_liquid_imports SET status = 'completed', completed_at = ?, updated_at = ? WHERE id = ?`,
-  )
-    .bind(Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000), importId)
-    .run()
-    .catch(() => {});
+  try {
+    const obj = await r2.get(r2Key);
+    if (!obj) throw new Error(`archive_not_found:${r2Key}`);
+    const buf = await obj.arrayBuffer();
+    const entries = await extractThemeArchive(buf, sourceName);
+    const liquidSections = findShopifyLiquidSections(entries);
+    const stagingPrefix = importId
+      ? `cms/liquid-imports/${importId}/extracted`
+      : `cms/conversions/${conversionId}/extracted`;
 
-  return { ok: true, import_id: importId, stub: true, note: 'browser binding present but full CDP pipeline not wired in M3' };
+    const stagedPaths = [];
+    for (const e of entries.slice(0, 500)) {
+      const safePath = String(e.path || '').replace(/\.\./g, '').replace(/^\/+/, '');
+      if (!safePath) continue;
+      const stageKey = `${stagingPrefix}/${safePath}`;
+      await r2.put(stageKey, e.content).catch(() => {});
+      stagedPaths.push(stageKey);
+    }
+
+    const sectionRows = [];
+    if (importId && importRow?.id) {
+      for (const sec of liquidSections) {
+        const lsecId = `lsec_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+        const stageKey = `${stagingPrefix}/${sec.path}`;
+        const fileName = sec.path.split('/').pop() || sec.section_key;
+        await env.DB.prepare(
+          `INSERT INTO cms_liquid_sections
+           (id, tenant_id, import_id, file_name, section_key, section_type, liquid_source, parse_status, created_at)
+           VALUES (?, ?, ?, ?, ?, 'shopify_section', ?, 'parsed', unixepoch())`,
+        )
+          .bind(
+            lsecId,
+            tenantId || importRow.tenant_id || 'unknown',
+            importId,
+            fileName,
+            sec.section_key,
+            sec.liquid_source?.slice(0, 32000) || '',
+          )
+          .run()
+          .catch(() => {});
+        sectionRows.push({
+          id: lsecId,
+          section_key: sec.section_key,
+          path: sec.path,
+          r2_key: stageKey,
+          file_name: fileName,
+        });
+      }
+    } else {
+      for (const sec of liquidSections) {
+        sectionRows.push({
+          section_key: sec.section_key,
+          path: sec.path,
+          r2_key: `${stagingPrefix}/${sec.path}`,
+          file_name: sec.path.split('/').pop() || sec.section_key,
+        });
+      }
+    }
+
+    const resultJson = {
+      staging_prefix: stagingPrefix,
+      archive_r2_key: r2Key,
+      entries_total: entries.length,
+      liquid_sections: sectionRows,
+      staged_paths_sample: stagedPaths.slice(0, 20),
+      cdp_deferred: !(env.BROWSER_SESSION || env.AGENT_BROWSER),
+      scaffold_prompt: sectionRows.length
+        ? `Apply Shopify theme sections to CMS pages for project. ${sectionRows.length} liquid sections extracted at ${stagingPrefix}. Use agentsam_cms_write to map sections to cms_page_sections.`
+        : null,
+    };
+
+    if (importId) {
+      await env.DB.prepare(
+        `UPDATE cms_liquid_imports
+         SET status = 'completed',
+             sections_found = ?,
+             sections_mapped = 0,
+             templates_found = ?,
+             result_json = ?,
+             completed_at = ?,
+             updated_at = ?
+         WHERE id = ?`,
+      )
+        .bind(
+          liquidSections.length,
+          entries.filter((e) => /templates\//i.test(e.path)).length,
+          JSON.stringify(resultJson),
+          Math.floor(Date.now() / 1000),
+          Math.floor(Date.now() / 1000),
+          importId,
+        )
+        .run();
+    }
+    if (conversionId) {
+      await env.DB.prepare(
+        `UPDATE cms_conversions
+         SET status = 'completed',
+             output_url = ?,
+             error_message = NULL,
+             completed_at = ?
+         WHERE id = ?`,
+      )
+        .bind(stagingPrefix, Math.floor(Date.now() / 1000), conversionId)
+        .run()
+        .catch(() => {});
+      await env.DB.prepare(
+        `UPDATE cms_conversion_jobs SET status = 'completed', result_url = ? WHERE asset_id = ? OR id LIKE ?`,
+      )
+        .bind(stagingPrefix, conversionId, `%${conversionId}%`)
+        .run()
+        .catch(() => {});
+    }
+
+    return {
+      ok: true,
+      import_id: importId || null,
+      conversion_id: conversionId || null,
+      sections_found: liquidSections.length,
+      staging_prefix: stagingPrefix,
+      workspace_id: workspaceId || null,
+      result: resultJson,
+    };
+  } catch (e) {
+    const err = String(e?.message || e);
+    await markJobFailed(env, { importId, conversionId, err });
+    return { ok: false, error: err };
+  }
+}
+
+/** @param {any} env @param {{ importId?: string, conversionId?: string, err: string }} opts */
+async function markJobFailed(env, opts) {
+  const now = Math.floor(Date.now() / 1000);
+  if (opts.importId) {
+    await env.DB.prepare(
+      `UPDATE cms_liquid_imports SET status = 'failed', error_log = ?, updated_at = ? WHERE id = ?`,
+    )
+      .bind(opts.err, now, opts.importId)
+      .run()
+      .catch(() => {});
+  }
+  if (opts.conversionId) {
+    await env.DB.prepare(
+      `UPDATE cms_conversions SET status = 'failed', error_message = ? WHERE id = ?`,
+    )
+      .bind(opts.err, opts.conversionId)
+      .run()
+      .catch(() => {});
+  }
 }
