@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "description": "Curated team milestone markdown — ingest via npm run run:ingest_team_milestones (not full codebase reindex).",
+  "workspace_key": "ws_inneranimalmedia",
+  "entries": [
+    {
+      "file": "docs/milestones/2026-06-11-moviemode-progress.md",
+      "topic": "moviemode",
+      "lane_key": "docs_knowledge_search"
+    },
+    {
+      "file": "docs/milestones/2026-06-12-companionscpas-donation-smoke.md",
+      "topic": "companionscpas",
+      "lane_key": "client_project_semantic_search"
+    }
+  ]
+}
