@@ -21,6 +21,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { CmsStudioEditor } from './CmsStudioEditor.jsx';
 
 const CMS_PROJECT_KEY = 'iam_cms_project';
 const PRIMARY_CMS_SLUG = 'inneranimalmedia';
@@ -1347,7 +1348,7 @@ function WebsitesView({ onNavigatePath }) {
   const openEditor = useCallback(
     (slug) => {
       persistCmsProject(slug);
-      onNavigatePath?.(`/dashboard/cms/editor?project=${encodeURIComponent(slug)}`);
+      onNavigatePath?.(`/dashboard/cms/${encodeURIComponent(slug)}/pages`);
     },
     [onNavigatePath],
   );
@@ -1684,10 +1685,11 @@ function LiquidImportsView({ onNavigate }) {
   );
 }
 
-const CMS_VIEWS = ['sites', 'editor', 'templates', 'imports'];
+const CMS_VIEWS = ['sites', 'pages', 'editor', 'templates', 'imports'];
 
 function normalizeCmsView(segment) {
   if (!segment || segment === 'websites') return 'sites';
+  if (segment === 'editor') return 'pages';
   return CMS_VIEWS.includes(segment) ? segment : 'sites';
 }
 
@@ -1698,6 +1700,7 @@ export function CmsRoot({
   view = 'sites',
   projectSlug: projectSlugProp,
   pageId = null,
+  studioPanel = 'pages',
   addToPageId = null,
   onNavigate,
   onNavigatePath,
@@ -1713,22 +1716,23 @@ export function CmsRoot({
     '';
 
   const projectSlug = projectSlugProp || PRIMARY_CMS_SLUG;
+  const studioView = view === 'editor' ? 'pages' : view;
+  const panel =
+    studioPanel ||
+    (studioView === 'templates' ? 'templates' : studioView === 'imports' ? 'imports' : 'pages');
 
   return (
-    <div className="iam-cms-root">
-      {view === 'sites' && <WebsitesView onNavigatePath={onNavigatePath} />}
-      {view === 'editor' && (
-        <EditorView
+    <div className="iam-cms-root" style={{ display: 'flex', flex: 1, flexDirection: 'column', minHeight: 0 }}>
+      {studioView === 'sites' && <WebsitesView onNavigatePath={onNavigatePath} />}
+      {(studioView === 'pages' || studioView === 'templates' || studioView === 'imports') && (
+        <CmsStudioEditor
           projectSlug={projectSlug}
+          pageId={pageId || addToPageId}
+          panel={panel}
           workspaceId={resolvedWorkspaceId}
-          pageId={pageId}
-          onNavigate={onNavigate}
-          onNavigatePath={onNavigatePath}
         />
       )}
-      {view === 'templates' && <TemplatesView onNavigate={onNavigate} addToPageId={addToPageId} />}
-      {view === 'imports' && <LiquidImportsView onNavigate={onNavigate} />}
-      {!CMS_VIEWS.includes(view) && <WebsitesView onNavigatePath={onNavigatePath} />}
+      {!CMS_VIEWS.includes(studioView) && <WebsitesView onNavigatePath={onNavigatePath} />}
     </div>
   );
 }

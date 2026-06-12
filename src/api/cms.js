@@ -428,6 +428,43 @@ export async function handleCmsApi(request, url, env, ctx) {
     }
   }
 
+  const componentIdMatch = path.match(/^\/api\/cms\/components\/([^/]+)$/);
+  if (componentIdMatch && method === 'PUT') {
+    const componentId = componentIdMatch[1];
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: 'Invalid JSON body' }, 400);
+    }
+    const componentData = body.component_data ?? body.componentData;
+    if (componentData == null) return jsonResponse({ error: 'component_data is required' }, 400);
+    const payload =
+      typeof componentData === 'string' ? componentData : JSON.stringify(componentData);
+    try {
+      const row = await env.DB.prepare(
+        `SELECT c.id, c.section_id, p.tenant_id
+         FROM cms_section_components c
+         JOIN cms_page_sections s ON s.id = c.section_id
+         JOIN cms_pages p ON p.id = s.page_id
+         WHERE c.id = ? LIMIT 1`,
+      )
+        .bind(componentId)
+        .first();
+      if (!row || String(row.tenant_id) !== String(tenantId)) {
+        return jsonResponse({ error: 'Component not found' }, 404);
+      }
+      await env.DB.prepare(
+        `UPDATE cms_section_components SET component_data = ?, updated_at = datetime('now') WHERE id = ?`,
+      )
+        .bind(payload, componentId)
+        .run();
+      return jsonResponse({ success: true, id: componentId });
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
   // ─── Phase 2 routes (bootstrap, websites, templates, themes, imports, rollbacks) ───
 
   if (path === '/api/cms/websites' && method === 'GET') {
@@ -470,8 +507,18 @@ export async function handleCmsApi(request, url, env, ctx) {
     }
 
     try {
-      const [pagesRes, sectionsRes, themesRes, navsRes, templatesRes, tenantRow, importsRes] =
-        await Promise.all([
+      const [
+        pagesRes,
+        sectionsRes,
+        componentsRes,
+        themesRes,
+        navsRes,
+        templatesRes,
+        tenantRow,
+        importsRes,
+        globalSettingsRes,
+        assets3dRes,
+      ] = await Promise.all([
           env.DB.prepare(
             `SELECT id, project_slug, slug, route_path, title, status, page_type,
                     is_homepage, sort_order, seo_title, meta_description, robots,
@@ -488,6 +535,17 @@ export async function handleCmsApi(request, url, env, ctx) {
              FROM cms_page_sections s
              JOIN cms_pages p ON p.id = s.page_id
              WHERE p.project_slug = ? ORDER BY s.sort_order`,
+          )
+            .bind(projectSlug)
+            .all()
+            .catch(() => ({ results: [] })),
+          env.DB.prepare(
+            `SELECT c.id, c.section_id, c.component_type, c.component_data,
+                    c.sort_order, c.is_visible, c.updated_at
+             FROM cms_section_components c
+             JOIN cms_page_sections s ON s.id = c.section_id
+             JOIN cms_pages p ON p.id = s.page_id
+             WHERE p.project_slug = ? ORDER BY c.sort_order`,
           )
             .bind(projectSlug)
             .all()
@@ -530,6 +588,23 @@ export async function handleCmsApi(request, url, env, ctx) {
             .bind(tenantId)
             .all()
             .catch(() => ({ results: [] })),
+          env.DB.prepare(
+            `SELECT id, project_id, site_name, site_logo_url, site_favicon_url,
+                    contact_email, analytics_id, settings_json, seo_defaults
+             FROM cms_global_settings WHERE project_id = ? LIMIT 1`,
+          )
+            .bind(projectSlug)
+            .first()
+            .catch(() => null),
+          env.DB.prepare(
+            `SELECT a.id, a.asset_id, a.meshy_task_id, a.model_type, a.prompt,
+                    a.glb_url, a.thumbnail_url, a.r2_key, a.r2_bucket, a.status, a.poly_count
+             FROM cms_3d_assets a
+             WHERE a.tenant_id = ? ORDER BY a.created_at DESC LIMIT 50`,
+          )
+            .bind(tenantId)
+            .all()
+            .catch(() => ({ results: [] })),
         ]);
 
       const pages = pagesRes.results || [];
@@ -567,16 +642,39 @@ export async function handleCmsApi(request, url, env, ctx) {
         });
       }
 
+      const components = componentsRes.results || [];
+      const componentsBySection = {};
+      for (const c of components) {
+        if (!componentsBySection[c.section_id]) componentsBySection[c.section_id] = [];
+        componentsBySection[c.section_id].push({
+          ...c,
+          component_data: c.component_data
+            ? (() => {
+                try {
+                  return typeof c.component_data === 'string'
+                    ? JSON.parse(c.component_data)
+                    : c.component_data;
+                } catch {
+                  return {};
+                }
+              })()
+            : {},
+        });
+      }
+
       const payload = {
         project_slug: projectSlug,
         tenant: tenantRow,
         pages,
         sections_by_page: sectionsByPage,
+        components_by_section: componentsBySection,
         active_theme: themes.find((t) => t.is_active) || themes[0] || null,
         themes,
         nav_menus: navsRes.results || [],
         component_templates: templatesRes.results || [],
         liquid_imports: importsRes.results || [],
+        global_settings: globalSettingsRes || null,
+        assets_3d: assets3dRes.results || [],
       };
 
       if (env.SESSION_CACHE) {

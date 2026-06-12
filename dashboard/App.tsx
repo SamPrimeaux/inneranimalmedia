@@ -1749,7 +1749,7 @@ const App: React.FC = () => {
         });
         if (isNarrowViewport) setToastMsg('Draw opened. Tap Chat to return to Agent Sam.');
       } else if (s === 'cms') {
-        navigate('/dashboard/cms/sites');
+        navigate('/dashboard/cms');
         if (isNarrowViewport) setToastMsg('CMS Suite opened. Tap Chat to return to Agent Sam.');
       } else if (s === 'monaco' || s === 'code') {
         openTab('code');
@@ -3425,7 +3425,14 @@ const App: React.FC = () => {
                           </div>
                         }
                       />
-                      <Route path="/dashboard/cms" element={<Navigate to="/dashboard/cms/sites" replace />} />
+                      <Route
+                        path="/dashboard/cms/sites"
+                        element={<Navigate to="/dashboard/cms" replace />}
+                      />
+                      <Route
+                        path="/dashboard/cms"
+                        element={<CmsPage workspaceId={authWorkspaceId || undefined} />}
+                      />
                       <Route
                         path="/dashboard/cms/*"
                         element={<CmsPage workspaceId={authWorkspaceId || undefined} />}
