@@ -20,14 +20,17 @@ async function resolveOAuthCatalogToolRow(db, publicKey) {
   return loadAgentsamToolRow({ DB: db }, k);
 }
 
+const OPERATOR_TERMINAL_TOOLS = new Set(['agentsam_terminal_local', 'agentsam_terminal_remote']);
+
 /**
  * Build tools/list for OAuth sessions (ChatGPT). Uses agentsam_tools + canonical input schemas.
  *
  * @param {import('@cloudflare/workers-types').D1Database} db
  * @param {string[]} tokenAllowedTools
  * @param {string} oauthClientId
+ * @param {{ isPlatformOperator?: boolean }} [opts]
  */
-export async function buildOAuthToolsList(db, tokenAllowedTools, oauthClientId) {
+export async function buildOAuthToolsList(db, tokenAllowedTools, oauthClientId, opts = {}) {
   if (!Array.isArray(tokenAllowedTools) || tokenAllowedTools.length === 0) {
     return [];
   }
@@ -41,7 +44,13 @@ export async function buildOAuthToolsList(db, tokenAllowedTools, oauthClientId) 
     .all();
 
   const catalogSet = new Set((catalogRows || []).map((r) => String(r.tool_key || '').toLowerCase()));
-  const eligible = tokenAllowedTools.filter((key) => catalogSet.has(String(key || '').toLowerCase()));
+  const isOp = opts.isPlatformOperator === true;
+  const eligible = tokenAllowedTools.filter((key) => {
+    const k = String(key || '').toLowerCase();
+    if (!catalogSet.has(k)) return false;
+    if (!isOp && OPERATOR_TERMINAL_TOOLS.has(k)) return false;
+    return true;
+  });
   if (!eligible.length) return [];
 
   const settled = await Promise.allSettled(

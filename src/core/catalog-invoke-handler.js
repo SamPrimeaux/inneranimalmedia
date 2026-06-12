@@ -12,6 +12,7 @@ import { dispatchByToolCode } from './dispatch-by-tool-code.js';
 import { loadAgentsamToolRow } from './agentsam-tools-catalog.js';
 import { scheduleMirrorToolCallEventToSupabase } from './hyperdrive-write.js';
 import { isAuthSuperadmin } from './workspace-access.js';
+import { userIsPlatformOperator } from './platform-operator-policy.js';
 
 /**
  * @param {Request} request
@@ -39,7 +40,7 @@ export async function handleCatalogInvokeApi(request, env, ctx) {
   const authUser = await getAuthUser(request, env);
   if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
 
-  // Derive superadmin from auth_users.is_superadmin — drives isOperatorCall for
+  // Platform operator policy (D1) + superadmin — drives isOperatorCall for
   // platform credential gate in resolveCredential. Never trust client input.
   const isSuperadmin = isAuthSuperadmin(authUser);
 
@@ -73,6 +74,8 @@ export async function handleCatalogInvokeApi(request, env, ctx) {
     return jsonResponse({ error: 'WORKSPACE_CONTEXT_MISSING' }, 400);
   }
 
+  const isPlatformOp = await userIsPlatformOperator(env, authUser, workspaceId);
+
   let toolRow = null;
   try {
     toolRow = await loadAgentsamToolRow(env, toolName);
@@ -85,11 +88,10 @@ export async function handleCatalogInvokeApi(request, env, ctx) {
     workspaceId,
     authUser,
     request,
-    // Superadmin (Sam's MCP OAuth sessions via Cursor, Claude, etc.) gets full
-    // platform credential access — isOperatorCall unlocks platform auth_source.
-    // Non-superadmin callers (Connor, external users) remain false — no escalation.
-    isOperatorCall: isSuperadmin,
-    isInternalAgent: isSuperadmin,
+    // Platform operators (Sam superadmin au_*) get platform credential access.
+    // Connor and other members: isOperatorCall false — no terminal.* MCP escalation.
+    isOperatorCall: isPlatformOp,
+    isInternalAgent: isPlatformOp,
     isSuperadmin,
   });
   const invokeDurationMs = Math.max(0, Date.now() - execT0);

@@ -31,7 +31,7 @@ LIMIT 1;
 
 ## Per-tenant: Connor
 
-- `conn_connor_primary` → GCP VM (`wss://terminal.inneranimalmedia.com`) until he provisions his own tunnel.
+- `conn_connor_primary` → sandbox only (`wss://sandboxterminal.inneranimalmedia.com`, `platform_workspace` cwd). No `terminal.*` or `localpty.*`.
 - Connor self-service: `self_service_enabled = 1` + his `ws_url` on a `user_hosted_tunnel` row.
 
 ## Auth

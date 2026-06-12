@@ -1016,6 +1016,24 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
         terminalRecoveryHints,
         wrapShellCommandWithPath,
       } = await import('./mcp-terminal-contract.js');
+      const { isOperatorOnlyTerminalTool, userIsPlatformOperator } = await import(
+        './platform-operator-policy.js'
+      );
+
+      if (isOperatorOnlyTerminalTool(toolKey)) {
+        const op = await userIsPlatformOperator(env, runContext?.authUser, workspaceId);
+        if (!op) {
+          result = {
+            ok: false,
+            error: 'platform_operator_required',
+            body: {
+              user_message:
+                'agentsam_terminal_local and agentsam_terminal_remote are restricted to platform operators.',
+            },
+          };
+          break;
+        }
+      }
 
       if (toolKey === 'agentsam_terminal_sandbox') {
         const { runMcpZoneSandboxCommand, normalizeMcpZoneSlug } = await import('./terminal-sandbox.js');

@@ -1343,6 +1343,11 @@ export async function handleSettingsRequest(request, env, ctx) {
       const allowed = isSuper || (await userCanAccessWorkspace(env, authUser, id));
       if (!allowed) return jsonResponse({ error: 'Workspace not found' }, 404);
 
+      const { userCanActivatePlatformWorkspace } = await import('../core/platform-operator-policy.js');
+      if (!(await userCanActivatePlatformWorkspace(env, authUser, id))) {
+        return jsonResponse({ error: 'Workspace not found' }, 404);
+      }
+
       const row = await env.DB.prepare(
         `SELECT w.id, w.display_name, w.slug, w.workspace_type, w.r2_prefix, w.github_repo, w.settings_json,
                 w.tenant_id

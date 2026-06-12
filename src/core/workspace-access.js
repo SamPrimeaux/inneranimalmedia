@@ -8,6 +8,7 @@
  */
 import { fetchAuthUserTenantId, platformTenantIdFromEnv } from './auth.js';
 import { getWorkspaceOwnerUserId, getWorkspaceTenantIdWithFallback, workspaceRowExists } from './agentsam-workspace.js';
+import { filterWorkspacesForOperatorPolicy, userIsPlatformOperator } from './platform-operator-policy.js';
 
 export function isAuthSuperadmin(authUser) {
   return Number(authUser?.is_superadmin) === 1;
@@ -240,7 +241,8 @@ export async function listAccessibleWorkspaces(db, env, authUser, opts = {}) {
   if (tid) binds.push(tid);
   binds.push(...candidates); // for blocklist owner check
   const { results } = await db.prepare(sql).bind(...binds).all();
-  return results || [];
+  const isOp = await userIsPlatformOperator(env, authUser, authUser?.active_workspace_id);
+  return filterWorkspacesForOperatorPolicy(results || [], isOp);
 }
 
 /**
