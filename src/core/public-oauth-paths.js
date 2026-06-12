@@ -73,6 +73,13 @@ export const PUBLIC_OAUTH_PATHS = [
   // Public contact proposal (Resend)
   '/api/contact',
 
+  // Cloudflare Stream VOD + Live Input webhooks (unsigned gate bypass)
+  '/api/webhooks/stream/vod',
+  '/api/webhooks/stream/live',
+
+  // CloudConvert job webhooks
+  '/api/webhooks/cloudconvert',
+
   // Public marketing 3D assets (contact hero, etc.)
   '/assets/glb',
 ];

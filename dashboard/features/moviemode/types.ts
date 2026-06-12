@@ -8,12 +8,14 @@ export type MediaLibraryItem = {
   previewUrl: string;
   contentType?: string | null;
   size?: number | null;
-  source: 'local' | 'r2' | 'api';
+  source: 'local' | 'r2' | 'api' | 'stream';
   workspacePath?: string;
   r2Bucket?: string;
   r2Key?: string;
   assetId?: string;
   vectorizeId?: string | null;
+  durationSec?: number | null;
+  streamUid?: string;
 };
 
 export type MovieModeStudioProps = {

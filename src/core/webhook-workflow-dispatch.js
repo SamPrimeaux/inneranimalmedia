@@ -14,6 +14,8 @@ const DISPATCH_PROVIDERS = new Set([
   'resend',
   'internal',
   'stripe',
+  'stream',
+  'cloudconvert',
 ]);
 
 /** Queue / legacy provider labels → agentsam_webhooks.provider */
@@ -72,15 +74,40 @@ export async function dispatchWebhookRegistryWorkflow(env, ctx, opts) {
   try {
     const webhookCols = await pragmaTableInfo(env.DB, 'agentsam_webhooks');
     const selectAllowed = webhookCols.has('allowed_events') ? ', allowed_events' : '';
-    endpointRow = await env.DB.prepare(
-      `SELECT id, workflow_key, tenant_id, workspace_id${selectAllowed}
-       FROM agentsam_webhooks
-       WHERE provider = ? AND is_active = 1
-         AND workflow_key IS NOT NULL AND TRIM(workflow_key) != ''
-       ORDER BY rowid ASC LIMIT 1`,
-    )
-      .bind(lookupProvider)
-      .first();
+
+    if (eventId) {
+      const evCols = await pragmaTableInfo(env.DB, 'agentsam_webhook_events');
+      if (evCols.has('endpoint_id')) {
+        const ev = await env.DB.prepare(
+          `SELECT endpoint_id FROM agentsam_webhook_events WHERE id = ? LIMIT 1`,
+        )
+          .bind(eventId)
+          .first();
+        const endpointId =
+          ev?.endpoint_id != null ? String(ev.endpoint_id).trim() : '';
+        if (endpointId) {
+          endpointRow = await env.DB.prepare(
+            `SELECT id, workflow_key, tenant_id, workspace_id${selectAllowed}
+             FROM agentsam_webhooks
+             WHERE id = ? AND is_active = 1 LIMIT 1`,
+          )
+            .bind(endpointId)
+            .first();
+        }
+      }
+    }
+
+    if (!endpointRow) {
+      endpointRow = await env.DB.prepare(
+        `SELECT id, workflow_key, tenant_id, workspace_id${selectAllowed}
+         FROM agentsam_webhooks
+         WHERE provider = ? AND is_active = 1
+           AND workflow_key IS NOT NULL AND TRIM(workflow_key) != ''
+         ORDER BY rowid ASC LIMIT 1`,
+      )
+        .bind(lookupProvider)
+        .first();
+    }
     workflowKey =
       endpointRow?.workflow_key != null ? String(endpointRow.workflow_key).trim() : null;
   } catch (e) {

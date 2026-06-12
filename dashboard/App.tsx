@@ -120,6 +120,9 @@ const MovieModeStudio = lazy(() =>
 const MovieModePage = lazy(() =>
   import('./pages/moviemode/MovieModePage').then((m) => ({ default: m.default })),
 );
+const MovieModeMediaPanel = lazy(() =>
+  import('./features/moviemode/MovieModeMediaPanel').then((m) => ({ default: m.MovieModeMediaPanel })),
+);
 const ExcalidrawView = lazy(() =>
   import('./components/ExcalidrawView').then((m) => ({ default: m.ExcalidrawView })),
 );
@@ -384,6 +387,16 @@ const App: React.FC = () => {
     refreshWorkspaces,
   } = useWorkspace();
   const location = useLocation();
+  const isMovieModeRoute = location.pathname.startsWith('/dashboard/moviemode');
+  const movieModeProjectId = useMemo(() => {
+    const m = location.pathname.match(/^\/dashboard\/moviemode\/([^/?#]+)/);
+    if (m?.[1]) return decodeURIComponent(m[1]);
+    try {
+      return new URLSearchParams(location.search).get('project_id');
+    } catch {
+      return null;
+    }
+  }, [location.pathname, location.search]);
   const navigate = useNavigate();
   const terminalRef = useRef<XTermShellHandle>(null);
   const collabWsRef = useRef<WebSocket | null>(null);
@@ -3127,8 +3140,21 @@ const App: React.FC = () => {
                     }
                     {...(narrowNeedsBack && !activeActivity ? mobileEdgeSwipeHandlers : {})}
                 >
-                    <div className="h-10 max-phone:hidden border-b border-[var(--dashboard-border)] flex items-center px-4 font-semibold text-[11px] tracking-widest uppercase text-[var(--text-muted)] shrink-0">{PRODUCT_NAME}</div>
+                    <div className="h-10 max-phone:hidden border-b border-[var(--dashboard-border)] flex items-center px-4 font-semibold text-[11px] tracking-widest uppercase text-[var(--text-muted)] shrink-0">
+                      {isMovieModeRoute ? 'Media bin' : PRODUCT_NAME}
+                    </div>
                     <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+                    {isMovieModeRoute ? (
+                      <Suspense
+                        fallback={
+                          <div className="flex flex-1 items-center justify-center text-[11px] text-[var(--text-muted)]">
+                            Loading media…
+                          </div>
+                        }
+                      >
+                        <MovieModeMediaPanel projectId={movieModeProjectId} />
+                      </Suspense>
+                    ) : (
                     <ChatAssistant 
                         activeProject={activeProject} 
                         activeFileContent={activeFile?.content}
@@ -3175,6 +3201,7 @@ const App: React.FC = () => {
                         activePlanId={activePlanIdForChat}
                         onActivePlanChange={handleActivePlanChange}
                     />
+                    )}
                     </div>
                 </div>
                 {/* Grab Bar — wide hit target; stroke is 1px inside */}
@@ -3832,8 +3859,21 @@ const App: React.FC = () => {
                     }
                     {...(narrowNeedsBack && !activeActivity ? mobileEdgeSwipeHandlers : {})}
                 >
-                    <div className="h-10 max-phone:hidden border-b border-[var(--dashboard-border)] flex items-center px-4 font-semibold text-[11px] tracking-widest uppercase text-[var(--text-muted)] shrink-0">{PRODUCT_NAME}</div>
+                    <div className="h-10 max-phone:hidden border-b border-[var(--dashboard-border)] flex items-center px-4 font-semibold text-[11px] tracking-widest uppercase text-[var(--text-muted)] shrink-0">
+                      {isMovieModeRoute ? 'Media bin' : PRODUCT_NAME}
+                    </div>
                     <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+                         {isMovieModeRoute ? (
+                           <Suspense
+                             fallback={
+                               <div className="flex flex-1 items-center justify-center text-[11px] text-[var(--text-muted)]">
+                                 Loading media…
+                               </div>
+                             }
+                           >
+                             <MovieModeMediaPanel projectId={movieModeProjectId} />
+                           </Suspense>
+                         ) : (
                          <ChatAssistant 
                             activeProject={activeProject} 
                             activeFileContent={activeFile?.content}
@@ -3880,6 +3920,7 @@ const App: React.FC = () => {
                             activePlanId={activePlanIdForChat}
                             onActivePlanChange={handleActivePlanChange}
                          />
+                         )}
                     </div>
                 </div>
               </>

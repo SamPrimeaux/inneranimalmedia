@@ -90,9 +90,13 @@ export async function finalizeMoviemodeOutput(env, buffer, meta) {
   const origin = String(env.IAM_ORIGIN || 'https://inneranimalmedia.com').replace(/\/$/, '');
   const publicUrl = artifactPublicUrl(artifactId, origin);
   const variantType = String(meta.variantType || 'custom').trim() || 'custom';
-  const projectId =
-    String(meta.projectId || '').trim() ||
-    `mmproj_export_${workspaceId.slice(0, 12)}`;
+  let projectId = String(meta.projectId || '').trim();
+  if (env.DB) {
+    const { ensureMoviemodeExportProject } = await import('./moviemode-projects.js');
+    projectId = projectId || (await ensureMoviemodeExportProject(env, { tenantId, workspaceId }));
+  } else if (!projectId) {
+    projectId = `mmproj_export_${workspaceId.slice(0, 12)}`;
+  }
   const exportId = newExportId();
   const assetId = newAssetId();
   const renderJobId = meta.renderJobId
@@ -102,6 +106,8 @@ export async function finalizeMoviemodeOutput(env, buffer, meta) {
       : null;
 
   if (env.DB) {
+    // Lane law: moviemode_exports + media_assets are canonical for MovieMode outputs.
+    // agentsam_artifacts is an optional cross-surface mirror (source=moviemode_export only).
     const cols = await pragmaTableInfo(env.DB, 'agentsam_artifacts');
     if (cols.size) {
       const artRow = {

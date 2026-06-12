@@ -1,8 +1,8 @@
 /**
  * MovieMode + Veo agent tool handlers (metadata / queue only — heavy render on PTY or Vertex async).
  */
-import { buildMoviemodeR2Prefix } from '../../api/moviemode-api.js';
 import { getR2Binding } from '../../api/r2-api.js';
+import { ensureMoviemodeProject } from '../../core/moviemode-projects.js';
 
 const MOVIE_JOB_KV_PREFIX = 'moviemode_job_';
 const VEO_JOB_KV_PREFIX = 'veo_job_';
@@ -89,39 +89,6 @@ async function pickVeoModelFromDb(env, workspaceId) {
     }
   }
   return best;
-}
-
-/**
- * @param {unknown} env
- * @param {{ tenantId: string, workspaceId: string, projectId: string }} scope
- */
-async function ensureMoviemodeProject(env, scope) {
-  const { tenantId, workspaceId, projectId } = scope;
-  const existing = await env.DB.prepare(
-    `SELECT id FROM moviemode_projects WHERE id = ? AND workspace_id = ? LIMIT 1`,
-  )
-    .bind(projectId, workspaceId)
-    .first()
-    .catch(() => null);
-  if (existing?.id) return String(existing.id);
-
-  const slug = `agent-${projectId.slice(0, 20).replace(/[^a-z0-9-]/gi, '-')}`;
-  await env.DB.prepare(
-    `INSERT OR IGNORE INTO moviemode_projects
-       (id, tenant_id, workspace_id, slug, title, r2_prefix, status)
-     VALUES (?, ?, ?, ?, ?, ?, 'draft')`,
-  )
-    .bind(
-      projectId,
-      tenantId,
-      workspaceId,
-      slug,
-      'Agent MovieMode',
-      buildMoviemodeR2Prefix(workspaceId, slug),
-    )
-    .run()
-    .catch((e) => console.warn('[moviemode] ensure project', e?.message ?? e));
-  return projectId;
 }
 
 function resolveScope(params) {

@@ -24,6 +24,18 @@ export function buildMoviemodeR2Prefix(workspaceId, projectSlug) {
   return `moviemode/${workspaceId}/${projectSlug}`;
 }
 
+function bodyDeleteR2Allowed(objectKey) {
+  const key = String(objectKey || '').trim();
+  if (!key) return false;
+  return (
+    key.startsWith('moviemode/') ||
+    key.startsWith('users/') ||
+    key.startsWith('workspace-media/') ||
+    key.startsWith('uploads/') ||
+    key.startsWith('media/')
+  );
+}
+
 /** Gemini multimodal media lane — POST /api/agentsam/video-embed or /api/moviemode/embed */
 export async function handleVideoEmbedRequest(request, env, { workspaceId }) {
   let body = {};
@@ -132,15 +144,436 @@ export async function handleMoviemodeApi(request, url, env, ctx) {
 
   if (path === '/api/media/assets' && method === 'GET') {
     const projectId = url.searchParams.get('project_id');
-    const stmt = projectId
-      ? env.DB.prepare(
-          `SELECT * FROM media_assets WHERE workspace_id = ? AND project_id = ? ORDER BY updated_at DESC LIMIT 200`,
-        ).bind(workspaceId, projectId)
-      : env.DB.prepare(
-          `SELECT * FROM media_assets WHERE workspace_id = ? ORDER BY updated_at DESC LIMIT 200`,
-        ).bind(workspaceId);
-    const { results } = await stmt.all();
+    const mediaKind = url.searchParams.get('media_kind');
+    const q = url.searchParams.get('q');
+    let sql = `SELECT * FROM media_assets WHERE workspace_id = ?`;
+    const binds = [workspaceId];
+    if (projectId) {
+      sql += ` AND project_id = ?`;
+      binds.push(projectId);
+    }
+    if (mediaKind) {
+      sql += ` AND media_kind = ?`;
+      binds.push(String(mediaKind).trim().toLowerCase());
+    }
+    if (q) {
+      sql += ` AND (filename LIKE ? OR object_key LIKE ? OR metadata_json LIKE ?)`;
+      const like = `%${String(q).trim()}%`;
+      binds.push(like, like, like);
+    }
+    sql += ` ORDER BY updated_at DESC LIMIT 200`;
+    const { results } = await env.DB.prepare(sql).bind(...binds).all();
     return jsonResponse({ assets: results || [] });
+  }
+
+  const mediaAssetMatch = path.match(/^\/api\/media\/assets\/([^/]+)$/);
+  if (mediaAssetMatch && method === 'PATCH') {
+    const assetId = decodeURIComponent(mediaAssetMatch[1]);
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {
+      body = {};
+    }
+    const row = await env.DB.prepare(
+      `SELECT * FROM media_assets WHERE id = ? AND workspace_id = ? LIMIT 1`,
+    )
+      .bind(assetId, workspaceId)
+      .first();
+    if (!row) return jsonResponse({ error: 'Not found' }, 404);
+
+    let meta = {};
+    try {
+      meta = JSON.parse(row.metadata_json || '{}');
+    } catch {
+      meta = {};
+    }
+    if (body.metadata && typeof body.metadata === 'object') {
+      meta = { ...meta, ...body.metadata };
+    }
+    if (body.tags) meta.tags = body.tags;
+    if (body.stream_uid) meta.stream_uid = String(body.stream_uid);
+
+    const filename =
+      body.filename != null ? String(body.filename).trim() || row.filename : row.filename;
+    const projectId =
+      body.project_id !== undefined ? body.project_id || null : row.project_id;
+
+    await env.DB.prepare(
+      `UPDATE media_assets SET
+         filename = ?,
+         project_id = ?,
+         metadata_json = ?,
+         updated_at = datetime('now')
+       WHERE id = ? AND workspace_id = ?`,
+    )
+      .bind(filename, projectId, JSON.stringify(meta), assetId, workspaceId)
+      .run();
+
+    const updated = await env.DB.prepare(
+      `SELECT * FROM media_assets WHERE id = ? AND workspace_id = ? LIMIT 1`,
+    )
+      .bind(assetId, workspaceId)
+      .first();
+    return jsonResponse({ ok: true, asset: updated });
+  }
+
+  if (mediaAssetMatch && method === 'DELETE') {
+    const assetId = decodeURIComponent(mediaAssetMatch[1]);
+    const row = await env.DB.prepare(
+      `SELECT * FROM media_assets WHERE id = ? AND workspace_id = ? LIMIT 1`,
+    )
+      .bind(assetId, workspaceId)
+      .first();
+    if (!row) return jsonResponse({ error: 'Not found' }, 404);
+
+    if (isDashboardMediaBucket(row.bucket) && env.ASSETS && bodyDeleteR2Allowed(row.object_key)) {
+      try {
+        await env.ASSETS.delete(String(row.object_key));
+      } catch {
+        /* best-effort */
+      }
+    }
+    await env.DB.prepare(`DELETE FROM media_assets WHERE id = ? AND workspace_id = ?`)
+      .bind(assetId, workspaceId)
+      .run();
+    return jsonResponse({ ok: true, id: assetId });
+  }
+
+  if (path === '/api/stream/videos' && method === 'GET') {
+    try {
+      const { listStreamVideos, mapStreamVideoRow, getStreamCredentials } = await import(
+        '../core/stream-api.js'
+      );
+      const limit = Math.min(Number(url.searchParams.get('limit') || 100), 100);
+      const { videos, total } = await listStreamVideos(env, { limit });
+      const { accountId } = getStreamCredentials(env);
+      return jsonResponse({
+        ok: true,
+        total,
+        videos: videos.map((v) => mapStreamVideoRow(v, accountId)),
+      });
+    } catch (e) {
+      return jsonResponse({ ok: false, error: String(e?.message || e).slice(0, 400) }, 502);
+    }
+  }
+
+  if (path === '/api/stream/import' && method === 'POST') {
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {
+      body = {};
+    }
+    const streamUid = String(body.stream_uid || body.uid || '').trim();
+    if (!streamUid) return jsonResponse({ error: 'stream_uid required' }, 400);
+
+    const projectSlug = String(body.project_slug || body.slug || 'imports').trim() || 'imports';
+    const filename = String(body.filename || `${streamUid}.mp4`).trim();
+    const objectKey =
+      String(body.object_key || '').trim() ||
+      `moviemode/${workspaceId}/${projectSlug}/source/stream/${streamUid}/${filename}`;
+
+    try {
+      const { importStreamVideoToR2, listStreamVideos, mapStreamVideoRow, getStreamCredentials } =
+        await import('../core/stream-api.js');
+      const copied = await importStreamVideoToR2(env, { uid: streamUid, objectKey });
+
+      const id = `asset_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
+      let streamMeta = { stream_uid: streamUid, imported_from: 'cloudflare_stream' };
+      try {
+        const { videos } = await listStreamVideos(env, { limit: 100 });
+        const hit = videos.find((v) => v.uid === streamUid);
+        if (hit) {
+          const { accountId } = getStreamCredentials(env);
+          streamMeta = { ...streamMeta, ...mapStreamVideoRow(hit, accountId) };
+        }
+      } catch {
+        /* optional enrichment */
+      }
+
+      const durationMs =
+        streamMeta.duration_sec != null
+          ? Math.round(Number(streamMeta.duration_sec) * 1000)
+          : null;
+
+      await env.DB.prepare(
+        `INSERT INTO media_assets (
+           id, tenant_id, workspace_id, project_id, source_kind, source_uri,
+           bucket, object_key, filename, content_type, media_kind, size_bytes,
+           duration_ms, status, metadata_json
+         ) VALUES (?, ?, ?, ?, 'stream', ?, ?, ?, ?, ?, 'video', ?, ?, 'uploaded', ?)
+         ON CONFLICT(workspace_id, bucket, object_key) DO UPDATE SET
+           filename = excluded.filename,
+           content_type = excluded.content_type,
+           size_bytes = excluded.size_bytes,
+           duration_ms = excluded.duration_ms,
+           status = 'uploaded',
+           metadata_json = excluded.metadata_json,
+           updated_at = datetime('now')`,
+      )
+        .bind(
+          id,
+          tenantId,
+          workspaceId,
+          body.project_id || null,
+          streamUid,
+          copied.bucket,
+          copied.object_key,
+          filename,
+          copied.content_type,
+          copied.size_bytes,
+          durationMs,
+          JSON.stringify(streamMeta),
+        )
+        .run();
+
+      const row = await env.DB.prepare(
+        `SELECT * FROM media_assets WHERE workspace_id = ? AND bucket = ? AND object_key = ? LIMIT 1`,
+      )
+        .bind(workspaceId, copied.bucket, copied.object_key)
+        .first();
+
+      const shouldTranscribe = body.transcribe !== false;
+      if (shouldTranscribe && row && env._ctx?.waitUntil) {
+        env._ctx.waitUntil(
+          import('../core/moviemode-whisper.js').then(({ transcribeAndReindexMediaAsset }) =>
+            transcribeAndReindexMediaAsset(env, row),
+          ),
+        );
+      }
+
+      return jsonResponse({
+        ok: true,
+        asset: row,
+        transcribe_queued: shouldTranscribe,
+      });
+    } catch (e) {
+      return jsonResponse({ ok: false, error: String(e?.message || e).slice(0, 400) }, 502);
+    }
+  }
+
+  if (path === '/api/stream/live-inputs' && method === 'GET') {
+    try {
+      const { listMoviemodeLiveInputs } = await import('../core/moviemode-live-inputs.js');
+      const projectId = url.searchParams.get('project_id');
+      const live_inputs = await listMoviemodeLiveInputs(env, workspaceId, {
+        project_id: projectId,
+        limit: Number(url.searchParams.get('limit') || 50),
+      });
+      return jsonResponse({ ok: true, live_inputs });
+    } catch (e) {
+      return jsonResponse({ ok: false, error: String(e?.message || e).slice(0, 400) }, 502);
+    }
+  }
+
+  if (path === '/api/stream/live-inputs' && method === 'POST') {
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {
+      body = {};
+    }
+    const name = String(body.name || body.title || '').trim();
+    if (!name) return jsonResponse({ error: 'name required' }, 400);
+    try {
+      const { createMoviemodeLiveInput } = await import('../core/moviemode-live-inputs.js');
+      const out = await createMoviemodeLiveInput(
+        env,
+        { workspaceId, tenantId, userId },
+        {
+          name,
+          project_id: body.project_id || null,
+          recording_mode: body.recording_mode || 'automatic',
+        },
+      );
+      return jsonResponse({ ok: true, ...out });
+    } catch (e) {
+      return jsonResponse({ ok: false, error: String(e?.message || e).slice(0, 400) }, 502);
+    }
+  }
+
+  const liveInputMatch = path.match(/^\/api\/stream\/live-inputs\/([^/]+)$/);
+  if (liveInputMatch && method === 'GET') {
+    const id = decodeURIComponent(liveInputMatch[1]);
+    const row = await env.DB.prepare(
+      `SELECT * FROM moviemode_live_inputs WHERE workspace_id = ? AND (id = ? OR stream_live_input_uid = ?) LIMIT 1`,
+    )
+      .bind(workspaceId, id, id)
+      .first();
+    if (!row) return jsonResponse({ error: 'Not found' }, 404);
+    const { serializeLiveInputRow } = await import('../core/moviemode-live-inputs.js');
+    return jsonResponse({ ok: true, live_input: serializeLiveInputRow(row) });
+  }
+
+  if (liveInputMatch && method === 'DELETE') {
+    const id = decodeURIComponent(liveInputMatch[1]);
+    const row = await env.DB.prepare(
+      `SELECT * FROM moviemode_live_inputs WHERE workspace_id = ? AND (id = ? OR stream_live_input_uid = ?) LIMIT 1`,
+    )
+      .bind(workspaceId, id, id)
+      .first();
+    if (!row) return jsonResponse({ error: 'Not found' }, 404);
+    try {
+      const { deleteLiveInput } = await import('../core/stream-api.js');
+      await deleteLiveInput(env, row.stream_live_input_uid);
+    } catch (e) {
+      console.warn('[live-input] cf delete', e?.message ?? e);
+    }
+    await env.DB.prepare(
+      `UPDATE moviemode_live_inputs SET status = 'archived', updated_at = datetime('now') WHERE id = ?`,
+    )
+      .bind(row.id)
+      .run();
+    return jsonResponse({ ok: true, id: row.id });
+  }
+
+  if (path === '/api/stream/webhook' && method === 'GET') {
+    try {
+      const { getStreamWebhook } = await import('../core/stream-api.js');
+      const webhook = await getStreamWebhook(env);
+      return jsonResponse({
+        ok: true,
+        webhook,
+        endpoints: {
+          vod: 'https://inneranimalmedia.com/api/webhooks/stream/vod',
+          live: 'https://inneranimalmedia.com/api/webhooks/stream/live',
+        },
+      });
+    } catch (e) {
+      return jsonResponse({ ok: false, error: String(e?.message || e).slice(0, 400) }, 502);
+    }
+  }
+
+  if (path === '/api/stream/webhook/install' && method === 'POST') {
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {
+      body = {};
+    }
+    const notificationUrl =
+      String(body.notification_url || body.notificationUrl || '').trim() ||
+      'https://inneranimalmedia.com/api/webhooks/stream/vod';
+    try {
+      const { putStreamWebhook } = await import('../core/stream-api.js');
+      const result = await putStreamWebhook(env, notificationUrl);
+      return jsonResponse({
+        ok: true,
+        webhook: result,
+        note: 'Store result.secret as CLOUDFLARE_STREAM_WEBHOOK_SECRET on the Worker.',
+      });
+    } catch (e) {
+      return jsonResponse({ ok: false, error: String(e?.message || e).slice(0, 400) }, 502);
+    }
+  }
+
+  if (path === '/api/moviemode/templates' && method === 'GET') {
+    try {
+      const { listMoviemodeTemplates } = await import('../core/moviemode-templates.js');
+      const pack = url.searchParams.get('pack');
+      const templates = await listMoviemodeTemplates(env, workspaceId, { pack });
+      return jsonResponse({ ok: true, templates });
+    } catch (e) {
+      return jsonResponse({ ok: false, error: String(e?.message || e).slice(0, 400) }, 502);
+    }
+  }
+
+  const templateApplyMatch = path.match(/^\/api\/moviemode\/templates\/([^/]+)\/apply$/);
+  if (templateApplyMatch && method === 'POST') {
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {
+      body = {};
+    }
+    const templateId = decodeURIComponent(templateApplyMatch[1]);
+    try {
+      const { applyMoviemodeTemplate } = await import('../core/moviemode-templates.js');
+      const out = await applyMoviemodeTemplate(
+        env,
+        { workspaceId, tenantId, userId },
+        templateId,
+        body,
+      );
+      return jsonResponse({ ok: true, ...out });
+    } catch (e) {
+      return jsonResponse({ ok: false, error: String(e?.message || e).slice(0, 400) }, 502);
+    }
+  }
+
+  if (path === '/api/moviemode/conversions' && method === 'GET') {
+    const status = url.searchParams.get('status');
+    let sql = `SELECT * FROM moviemode_conversion_jobs WHERE workspace_id = ?`;
+    const binds = [workspaceId];
+    if (status) {
+      sql += ` AND status = ?`;
+      binds.push(String(status).trim());
+    }
+    sql += ` ORDER BY created_at DESC LIMIT 50`;
+    const { results } = await env.DB.prepare(sql).bind(...binds).all();
+    return jsonResponse({ jobs: results || [] });
+  }
+
+  if (path === '/api/moviemode/conversions' && method === 'POST') {
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {
+      body = {};
+    }
+    try {
+      const { enqueueMoviemodeConversion } = await import('../core/moviemode-conversions.js');
+      const job = await enqueueMoviemodeConversion(env, { workspaceId, tenantId, userId }, body);
+      return jsonResponse({ ok: true, job });
+    } catch (e) {
+      return jsonResponse({ ok: false, error: String(e?.message || e).slice(0, 400) }, 400);
+    }
+  }
+
+  const conversionMatch = path.match(/^\/api\/moviemode\/conversions\/([^/]+)$/);
+  if (conversionMatch && method === 'GET') {
+    const id = decodeURIComponent(conversionMatch[1]);
+    const job = await env.DB.prepare(
+      `SELECT * FROM moviemode_conversion_jobs WHERE id = ? AND workspace_id = ? LIMIT 1`,
+    )
+      .bind(id, workspaceId)
+      .first();
+    if (!job) return jsonResponse({ error: 'Not found' }, 404);
+    const { results: history } = await env.DB.prepare(
+      `SELECT * FROM moviemode_conversions WHERE conversion_job_id = ? ORDER BY created_at DESC LIMIT 10`,
+    )
+      .bind(id)
+      .all();
+    return jsonResponse({ job, history: history || [] });
+  }
+
+  if (conversionMatch && method === 'PATCH') {
+    const id = decodeURIComponent(conversionMatch[1]);
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {
+      body = {};
+    }
+    const owned = await env.DB.prepare(
+      `SELECT id FROM moviemode_conversion_jobs WHERE id = ? AND workspace_id = ? LIMIT 1`,
+    )
+      .bind(id, workspaceId)
+      .first();
+    if (!owned) return jsonResponse({ error: 'Not found' }, 404);
+    const bridgeKey = request.headers.get('X-Bridge-Key');
+    const isBridge = env.AGENTSAM_BRIDGE_KEY && bridgeKey === env.AGENTSAM_BRIDGE_KEY;
+    if (!isBridge && body.status && !['cancelled'].includes(String(body.status))) {
+      return jsonResponse({ error: 'Forbidden' }, 403);
+    }
+    try {
+      const { finalizeMoviemodeConversionJob } = await import('../core/moviemode-conversions.js');
+      const out = await finalizeMoviemodeConversionJob(env, id, body);
+      return jsonResponse(out);
+    } catch (e) {
+      return jsonResponse({ ok: false, error: String(e?.message || e).slice(0, 400) }, 400);
+    }
   }
 
   if (path === '/api/media/assets/register' && method === 'POST') {
@@ -546,6 +979,7 @@ export async function handleMoviemodeExport(request, env, { workspaceId, tenantI
     workspaceId,
     tenantId,
     userId,
+    projectId: body.project_id || null,
     startedAt: Date.now(),
     config,
     session,
@@ -554,6 +988,19 @@ export async function handleMoviemodeExport(request, env, { workspaceId, tenantI
 
   if (env.DB) {
     try {
+      const { ensureMoviemodeExportProject, ensureMoviemodeProject } = await import(
+        '../core/moviemode-projects.js',
+      );
+      let exportProjectId = body.project_id
+        ? String(body.project_id).trim()
+        : await ensureMoviemodeExportProject(env, { tenantId, workspaceId });
+      if (body.project_id) {
+        await ensureMoviemodeProject(env, {
+          tenantId,
+          workspaceId,
+          projectId: exportProjectId,
+        });
+      }
       await env.DB.prepare(
         `INSERT INTO moviemode_render_jobs (id, tenant_id, workspace_id, project_id, renderer, status, input_json, progress_pct)
          VALUES (?, ?, ?, ?, 'remotion', 'queued', ?, 0)`,
@@ -562,7 +1009,7 @@ export async function handleMoviemodeExport(request, env, { workspaceId, tenantI
           `mmrender_${jobId}`,
           tenantId,
           workspaceId,
-          body.project_id || `mmproj_export_${workspaceId.slice(0, 12)}`,
+          exportProjectId,
           JSON.stringify({ session, config, outputFilename }),
         )
         .run();
@@ -677,15 +1124,28 @@ export async function handleMoviemodeSessionGet(env, { workspaceId, tenantId, se
       .bind(sessionId, workspaceId)
       .first();
     if (row) {
+      let parsed = null;
+      try {
+        parsed = JSON.parse(row.clips_json || '[]');
+      } catch {
+        parsed = null;
+      }
+      if (parsed?.version === 1 && Array.isArray(parsed.tracks)) {
+        return jsonResponse({
+          session: { ...parsed, id: row.id, project_id: row.project_id || null },
+          storage: 'd1_timeline',
+        });
+      }
       return jsonResponse({
         session: {
           id: row.id,
-          clips: JSON.parse(row.clips_json || '[]'),
+          clips: Array.isArray(parsed) ? parsed : [],
           overlays: JSON.parse(row.overlays_json || '[]'),
           export_config: JSON.parse(row.export_config || '{}'),
           project_id: row.project_id || null,
           status: row.status,
         },
+        storage: 'd1_legacy',
       });
     }
   }
@@ -694,7 +1154,11 @@ export async function handleMoviemodeSessionGet(env, { workspaceId, tenantId, se
   if (env.KV) {
     const raw = await env.KV.get(sessionKey);
     if (raw) {
-      return jsonResponse({ session: JSON.parse(raw), storage: 'kv' });
+      const session = JSON.parse(raw);
+      return jsonResponse({
+        session,
+        storage: session?.version === 1 ? 'kv_timeline' : 'kv',
+      });
     }
   }
 
@@ -713,7 +1177,10 @@ export async function handleMoviemodeSessionPut(request, env, { workspaceId, ten
   }
   const session = body.session || body;
   const id = sessionId || body.id || `mms_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
-  const clipsJson = JSON.stringify(session.clips || []);
+  const clipsJson =
+    session?.version === 1 && Array.isArray(session.tracks)
+      ? JSON.stringify(session)
+      : JSON.stringify(session.clips || []);
   const overlaysJson = JSON.stringify(session.overlays || []);
   const exportConfig = JSON.stringify(session.export_config || session.exportConfig || {});
 

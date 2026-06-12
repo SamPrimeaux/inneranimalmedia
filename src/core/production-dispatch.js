@@ -199,7 +199,16 @@ export async function dispatchProductionDomainRoutes(rc) {
     return handleR2Api(request, url, env);
   }
 
-  if (pathLower.startsWith('/api/moviemode/') || pathLower.startsWith('/api/media/assets')) {
+  if (pathLower.startsWith('/api/cloudconvert/')) {
+    const { handleCloudConvertApi } = await import('../api/cloudconvert-api.js');
+    return handleCloudConvertApi(request, url, env);
+  }
+
+  if (
+    pathLower.startsWith('/api/moviemode/') ||
+    pathLower.startsWith('/api/media/assets') ||
+    pathLower.startsWith('/api/stream/')
+  ) {
     return handleMoviemodeApi(request, url, env, ctx);
   }
 

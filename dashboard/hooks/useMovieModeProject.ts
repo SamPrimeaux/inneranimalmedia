@@ -59,11 +59,11 @@ export function useMovieModeProject(opts: UseMovieModeProjectOptions = {}) {
         const sessionRes = await fetch('/api/moviemode/sessions', { credentials: 'include' });
         if (sessionRes.ok) {
           const data = (await sessionRes.json()) as {
-            session?: { clips?: unknown[]; overlays?: unknown[]; fps?: number; width?: number; height?: number };
+            session?: MovieModeTimeline & { clips?: unknown[]; overlays?: unknown[] };
           };
           const s = data.session;
-          if (s?.clips?.length || s?.overlays?.length) {
-            setTimeline(createEmptyTimeline());
+          if (s?.version === 1 && Array.isArray(s.tracks)) {
+            setTimeline(s);
           } else {
             setTimeline(createEmptyTimeline());
           }

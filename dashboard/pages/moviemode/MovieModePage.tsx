@@ -1,7 +1,9 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { Clapperboard, Loader2 } from 'lucide-react';
+import { Loader2, X } from 'lucide-react';
 import { MovieModeStudio } from '../../features/moviemode/MovieModeStudio';
+import { MovieModeToolbar } from '../../features/moviemode/MovieModeToolbar';
+import { ExportPanel } from '../../features/moviemode/ExportPanel';
 import { useMovieModeProject } from '../../hooks/useMovieModeProject';
 import { timelineToEditSession } from '../../features/moviemode/editSessionAdapter';
 
@@ -16,6 +18,7 @@ export default function MovieModePage() {
   });
   const [lastExportKey, setLastExportKey] = useState<string | null>(null);
   const [mirrorBusy, setMirrorBusy] = useState<SaveDestination | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
 
   const session = useMemo(() => (timeline ? timelineToEditSession(timeline) : null), [timeline]);
 
@@ -61,6 +64,7 @@ export default function MovieModePage() {
   const onExportComplete = useCallback(
     (r2Key: string) => {
       setLastExportKey(r2Key);
+      setExportOpen(false);
       void mirrorExport(r2Key, 'local');
     },
     [mirrorExport],
@@ -83,54 +87,72 @@ export default function MovieModePage() {
     );
   }
 
+  const driveActions =
+    lastExportKey ? (
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          disabled={mirrorBusy !== null}
+          className="text-[10px] px-2 py-1 rounded border border-[var(--dashboard-border)] text-[var(--text-muted)] hover:text-[var(--text-main)] disabled:opacity-50"
+          onClick={() => void mirrorExport(lastExportKey, 'google_drive')}
+        >
+          {mirrorBusy === 'google_drive' ? 'Drive…' : 'Drive'}
+        </button>
+        <button
+          type="button"
+          disabled={mirrorBusy !== null}
+          className="text-[10px] px-2 py-1 rounded border border-[var(--dashboard-border)] text-[var(--text-muted)] hover:text-[var(--text-main)] disabled:opacity-50"
+          onClick={() => void mirrorExport(lastExportKey, 'local')}
+        >
+          {mirrorBusy === 'local' ? 'Saving…' : 'Download'}
+        </button>
+      </div>
+    ) : null;
+
   return (
     <div className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
-      <header className="shrink-0 flex items-center gap-2 px-3 py-2 border-b border-[var(--dashboard-border)] bg-[var(--dashboard-panel)]">
-        <Clapperboard size={16} className="text-[var(--solar-cyan)]" />
-        <div className="min-w-0 flex-1">
-          <h1 className="text-sm font-semibold text-[var(--text-main)] truncate">
-            {project?.title || 'Movie Mode'}
-          </h1>
-          {project?.slug ? (
-            <p className="text-[10px] text-[var(--text-muted)] truncate">{project.slug}</p>
-          ) : null}
-        </div>
-        {saving ? (
-          <span className="text-[10px] text-[var(--text-muted)]">Saving…</span>
-        ) : null}
-        {lastExportKey ? (
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              disabled={mirrorBusy !== null}
-              className="text-[10px] px-2 py-1 rounded border border-[var(--dashboard-border)] text-[var(--text-muted)] hover:text-[var(--text-main)] disabled:opacity-50"
-              onClick={() => void mirrorExport(lastExportKey, 'google_drive')}
-            >
-              {mirrorBusy === 'google_drive' ? 'Drive…' : 'Drive'}
-            </button>
-            <button
-              type="button"
-              disabled={mirrorBusy !== null}
-              className="text-[10px] px-2 py-1 rounded border border-[var(--dashboard-border)] text-[var(--text-muted)] hover:text-[var(--text-main)] disabled:opacity-50"
-              onClick={() => void mirrorExport(lastExportKey, 'local')}
-            >
-              {mirrorBusy === 'local' ? 'Saving…' : 'Download'}
-            </button>
-          </div>
-        ) : null}
-      </header>
-      {error ? (
-        <p className="px-3 py-1 text-xs text-amber-400/90">{error}</p>
-      ) : null}
+      <MovieModeToolbar
+        title={project?.title || 'Movie Mode'}
+        subtitle={project?.slug || 'Untitled project · 16:9'}
+        saving={saving}
+        onExport={session ? () => setExportOpen(true) : undefined}
+        exportDisabled={!session}
+        extraActions={driveActions}
+      />
+      {error ? <p className="px-3 py-1 text-xs text-amber-400/90">{error}</p> : null}
       <div className="flex-1 min-h-0 flex flex-col">
-        <MovieModeStudio
-          timeline={timeline}
-          onTimelineChange={setTimeline}
-          showMediaBin
-          onExportComplete={onExportComplete}
-          onSaveToDrive={onSaveToDrive}
-        />
+        <MovieModeStudio timeline={timeline} onTimelineChange={setTimeline} />
       </div>
+
+      {exportOpen && session ? (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/50">
+          <div
+            role="dialog"
+            aria-labelledby="moviemode-export-title"
+            className="w-full max-w-md rounded-xl border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] shadow-2xl overflow-hidden"
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--dashboard-border)]">
+              <h2 id="moviemode-export-title" className="text-sm font-semibold text-[var(--text-main)]">
+                Export
+              </h2>
+              <button
+                type="button"
+                onClick={() => setExportOpen(false)}
+                className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-main)]"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="p-4 max-h-[70vh] overflow-y-auto">
+              <ExportPanel
+                session={session}
+                onExportComplete={onExportComplete}
+                onSaveToDrive={onSaveToDrive}
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -1,0 +1,13 @@
+{
+  "name": "@inneranimalmedia/moviemode-service",
+  "version": "0.1.0",
+  "description": "CloudConvert workflow presets and encode helpers for MovieMode",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./presets": "./src/presets.js"
+  },
+  "license": "UNLICENSED",
+  "private": true
+}
