@@ -151,7 +151,7 @@ Scroll scene on the portfolio page — **no public tweaks panel**. Replaces CMS 
 | Artifact | R2 key |
 |----------|--------|
 | Page shell | `pages/work/index.html` |
-| Scene assets | `assets/scenes/work-globe/{work-globe.css,globe.js,scroll.js,charts.js}` |
+| Scene assets | R2 `scenes/work-globe/*` → URL `/assets/scenes/work-globe/*` |
 
 Upload (no worker redeploy): `./scripts/upload-work-page.sh`
 
