@@ -285,6 +285,84 @@ export async function handleMoviemodeApi(request, url, env, ctx) {
     return jsonResponse({ ok: true, id });
   }
 
+  const timelineGetMatch = path.match(/^\/api\/moviemode\/timelines\/([^/]+)$/);
+  if (timelineGetMatch && method === 'GET') {
+    const id = decodeURIComponent(timelineGetMatch[1]);
+    const row = await env.DB.prepare(
+      `SELECT * FROM moviemode_timelines WHERE id = ? AND workspace_id = ? LIMIT 1`,
+    )
+      .bind(id, workspaceId)
+      .first();
+    if (!row) return jsonResponse({ error: 'Not found' }, 404);
+    let timeline_json = {};
+    try {
+      timeline_json = JSON.parse(row.timeline_json || '{}');
+    } catch {
+      timeline_json = {};
+    }
+    return jsonResponse({ timeline: { ...row, timeline_json } });
+  }
+
+  if (timelineGetMatch && method === 'PUT') {
+    const id = decodeURIComponent(timelineGetMatch[1]);
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {
+      body = {};
+    }
+    const existing = await env.DB.prepare(
+      `SELECT id FROM moviemode_timelines WHERE id = ? AND workspace_id = ? LIMIT 1`,
+    )
+      .bind(id, workspaceId)
+      .first();
+    if (!existing) return jsonResponse({ error: 'Not found' }, 404);
+    const timelineJson =
+      body.timeline_json != null
+        ? JSON.stringify(body.timeline_json)
+        : body.timeline != null
+          ? JSON.stringify(body.timeline)
+          : null;
+    await env.DB.prepare(
+      `UPDATE moviemode_timelines SET
+         timeline_json = COALESCE(?, timeline_json),
+         version = COALESCE(?, version),
+         fps = COALESCE(?, fps),
+         width = COALESCE(?, width),
+         height = COALESCE(?, height),
+         duration_frames = COALESCE(?, duration_frames),
+         status = COALESCE(?, status),
+         updated_at = datetime('now')
+       WHERE id = ? AND workspace_id = ?`,
+    )
+      .bind(
+        timelineJson,
+        body.version ?? null,
+        body.fps ?? null,
+        body.width ?? null,
+        body.height ?? null,
+        body.duration_frames ?? null,
+        body.status || null,
+        id,
+        workspaceId,
+      )
+      .run();
+    return jsonResponse({ ok: true, id, autosaved: true });
+  }
+
+  if (path === '/api/moviemode/timelines' && method === 'GET') {
+    const projectId = url.searchParams.get('project_id');
+    const stmt = projectId
+      ? env.DB.prepare(
+          `SELECT * FROM moviemode_timelines WHERE workspace_id = ? AND project_id = ? ORDER BY updated_at DESC LIMIT 50`,
+        ).bind(workspaceId, projectId)
+      : env.DB.prepare(
+          `SELECT * FROM moviemode_timelines WHERE workspace_id = ? ORDER BY updated_at DESC LIMIT 50`,
+        ).bind(workspaceId);
+    const { results } = await stmt.all();
+    return jsonResponse({ timelines: results || [] });
+  }
+
   if (path === '/api/moviemode/timelines' && method === 'POST') {
     let body = {};
     try {
@@ -329,6 +407,25 @@ export async function handleMoviemodeApi(request, url, env, ctx) {
 
   if (path === '/api/moviemode/ingest' && method === 'POST') {
     return handleMoviemodeIngest(request, env);
+  }
+
+  const sessionMatch = path.match(/^\/api\/moviemode\/sessions(?:\/([^/]+))?$/);
+  if (sessionMatch && method === 'GET') {
+    const sessionId = sessionMatch[1] ? decodeURIComponent(sessionMatch[1]) : null;
+    return handleMoviemodeSessionGet(env, { workspaceId, tenantId, sessionId });
+  }
+  if (sessionMatch && method === 'PUT') {
+    const sessionId = sessionMatch[1] ? decodeURIComponent(sessionMatch[1]) : null;
+    return handleMoviemodeSessionPut(request, env, { workspaceId, tenantId, sessionId });
+  }
+
+  if (path === '/api/moviemode/assets/save' && method === 'POST') {
+    return handleMoviemodeAssetSave(request, env, { workspaceId, authUser });
+  }
+
+  const veoJobMatch = path.match(/^\/api\/moviemode\/veo-jobs\/([^/]+)$/);
+  if (veoJobMatch && method === 'GET') {
+    return handleMoviemodeVeoJobGet(env, decodeURIComponent(veoJobMatch[1]), workspaceId);
   }
 
   if (path === '/api/moviemode/agent' && method === 'POST') {
@@ -441,29 +538,234 @@ export async function handleMoviemodeIngest(request, env) {
   const jobId = request.headers.get('X-Job-Id') || '';
   const filename = request.headers.get('X-Filename') || `export_${Date.now()}.mp4`;
   const buffer = await request.arrayBuffer();
-  if (!env.R2) return jsonResponse({ error: 'R2 not configured' }, 503);
+  if (!buffer?.byteLength) return jsonResponse({ error: 'empty body' }, 400);
+
+  const kvJob = jobId ? (await readJob(env, jobId)) || {} : {};
+  const workspaceId =
+    request.headers.get('X-Workspace-Id') ||
+    kvJob.workspaceId ||
+    '';
+  const tenantId =
+    request.headers.get('X-Tenant-Id') ||
+    kvJob.tenantId ||
+    '';
+  const userId = request.headers.get('X-User-Id') || kvJob.userId || '';
+
+  if (!workspaceId || !tenantId) {
+    return jsonResponse({ error: 'workspace_id and tenant_id required' }, 400);
+  }
 
   const ext = filename.split('.').pop() || 'mp4';
-  const r2Key = `moviemode/exports/${filename}`;
   const mime = ext === 'webm' ? 'video/webm' : ext === 'gif' ? 'image/gif' : 'video/mp4';
 
-  await env.R2.put(r2Key, buffer, {
-    httpMetadata: { contentType: mime },
-    customMetadata: { source: 'remotion_export', job_id: jobId },
-  });
+  let finalized;
+  try {
+    const { finalizeMoviemodeOutput } = await import('../core/moviemode-persistence.js');
+    finalized = await finalizeMoviemodeOutput(env, buffer, {
+      jobId,
+      filename,
+      contentType: mime,
+      workspaceId: String(workspaceId),
+      tenantId: String(tenantId),
+      userId: String(userId),
+      projectId: kvJob.projectId || request.headers.get('X-Project-Id') || null,
+      renderJobId: jobId ? `mmrender_${jobId}` : null,
+      width: kvJob.config?.quality === '1080p' ? 1920 : kvJob.config?.quality === '480p' ? 854 : 1280,
+      height: kvJob.config?.quality === '1080p' ? 1080 : kvJob.config?.quality === '480p' ? 480 : 720,
+      fps: kvJob.config?.fps ?? 30,
+      variantType: 'custom',
+    });
+  } catch (e) {
+    return jsonResponse({ error: String(e?.message || e).slice(0, 400) }, 502);
+  }
 
   if (jobId) {
-    const prev = (await readJob(env, jobId)) || {};
     await writeJob(env, jobId, {
-      ...prev,
+      ...kvJob,
       status: 'done',
       progressPercent: 100,
-      r2Key,
+      r2Key: finalized.r2_key,
+      artifactId: finalized.artifact_id,
       outputFilename: filename,
     });
   }
 
-  return jsonResponse({ r2Key });
+  return jsonResponse({
+    ok: true,
+    r2Key: finalized.r2_key,
+    artifact_id: finalized.artifact_id,
+    export_id: finalized.export_id,
+  });
+}
+
+export async function handleMoviemodeSessionGet(env, { workspaceId, tenantId, sessionId }) {
+  if (sessionId && env.DB) {
+    const row = await env.DB.prepare(
+      `SELECT * FROM moviemode_edit_sessions WHERE id = ? AND workspace_id = ? LIMIT 1`,
+    )
+      .bind(sessionId, workspaceId)
+      .first();
+    if (row) {
+      return jsonResponse({
+        session: {
+          id: row.id,
+          clips: JSON.parse(row.clips_json || '[]'),
+          overlays: JSON.parse(row.overlays_json || '[]'),
+          export_config: JSON.parse(row.export_config || '{}'),
+          project_id: row.project_id || null,
+          status: row.status,
+        },
+      });
+    }
+  }
+
+  const sessionKey = `${SESSION_KV_PREFIX}${workspaceId}`;
+  if (env.KV) {
+    const raw = await env.KV.get(sessionKey);
+    if (raw) {
+      return jsonResponse({ session: JSON.parse(raw), storage: 'kv' });
+    }
+  }
+
+  return jsonResponse({
+    session: { clips: [], overlays: [], fps: 30, width: 1280, height: 720 },
+    storage: 'default',
+  });
+}
+
+export async function handleMoviemodeSessionPut(request, env, { workspaceId, tenantId, sessionId }) {
+  let body = {};
+  try {
+    body = await request.json();
+  } catch {
+    body = {};
+  }
+  const session = body.session || body;
+  const id = sessionId || body.id || `mms_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
+  const clipsJson = JSON.stringify(session.clips || []);
+  const overlaysJson = JSON.stringify(session.overlays || []);
+  const exportConfig = JSON.stringify(session.export_config || session.exportConfig || {});
+
+  if (env.KV) {
+    const sessionKey = `${SESSION_KV_PREFIX}${workspaceId}`;
+    await env.KV.put(sessionKey, JSON.stringify(session), { expirationTtl: 86400 });
+  }
+
+  if (env.DB) {
+    await env.DB.prepare(
+      `INSERT INTO moviemode_edit_sessions (id, workspace_id, tenant_id, session_name, clips_json, overlays_json, export_config, project_id, status, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', unixepoch())
+       ON CONFLICT(id) DO UPDATE SET
+         clips_json = excluded.clips_json,
+         overlays_json = excluded.overlays_json,
+         export_config = excluded.export_config,
+         project_id = COALESCE(excluded.project_id, project_id),
+         updated_at = unixepoch()`,
+    )
+      .bind(
+        id,
+        workspaceId,
+        tenantId,
+        String(body.session_name || body.name || 'Untitled Edit').slice(0, 200),
+        clipsJson,
+        overlaysJson,
+        exportConfig,
+        body.project_id || session.project_id || null,
+      )
+      .run()
+      .catch((e) => console.warn('[moviemode] session autosave', e?.message));
+  }
+
+  return jsonResponse({ ok: true, id, autosaved: true });
+}
+
+export async function handleMoviemodeAssetSave(request, env, { workspaceId, authUser }) {
+  let body = {};
+  try {
+    body = await request.json();
+  } catch {
+    body = {};
+  }
+  const destination = String(body.destination || '').trim().toLowerCase();
+  if (!['byok_r2', 'google_drive', 'local'].includes(destination)) {
+    return jsonResponse({ error: 'destination must be byok_r2, google_drive, or local' }, 400);
+  }
+
+  let bytes;
+  let contentType = String(body.content_type || 'video/mp4');
+  let filename = String(body.filename || `moviemode-${Date.now()}.mp4`).trim();
+
+  if (body.r2_key || body.object_key) {
+    const bucketName = String(body.bucket || 'artifacts').trim();
+    const key = String(body.r2_key || body.object_key).trim();
+    const { resolveArtifactR2Binding } = await import('../core/artifact-key.js');
+    const { getR2Binding } = await import('./r2-api.js');
+    const binding =
+      resolveArtifactR2Binding(env, bucketName) || getR2Binding(env, bucketName);
+    if (!binding?.get) return jsonResponse({ error: 'source bucket not available' }, 503);
+    const obj = await binding.get(key);
+    if (!obj) return jsonResponse({ error: 'source object not found' }, 404);
+    bytes = new Uint8Array(await obj.arrayBuffer());
+    contentType = obj.httpMetadata?.contentType || contentType;
+    if (!body.filename) filename = key.split('/').pop() || filename;
+  } else if (body.video_base64) {
+    bytes = Uint8Array.from(atob(String(body.video_base64)), (c) => c.charCodeAt(0));
+  } else {
+    return jsonResponse({ error: 'r2_key or video_base64 required' }, 400);
+  }
+
+  if (destination === 'local') {
+    let video_base64 = body.video_base64;
+    if (!video_base64 && bytes) {
+      let binary = '';
+      const chunk = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+      }
+      video_base64 = btoa(binary);
+    }
+    return jsonResponse({
+      ok: true,
+      destination: 'local',
+      content_type: contentType,
+      filename,
+      video_base64,
+      byte_length: bytes.byteLength,
+    });
+  }
+
+  const { saveBrowserCaptureForUser } = await import('../core/browser-capture-storage.js');
+  let image_base64 = body.video_base64;
+  if (!image_base64 && bytes) {
+    let binary = '';
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+    }
+    image_base64 = btoa(binary);
+  }
+  const out = await saveBrowserCaptureForUser(env, authUser, {
+    destination,
+    image_base64,
+    content_type: contentType,
+    filename,
+    dest_bucket: body.dest_bucket,
+    dest_key: body.dest_key,
+  });
+  return jsonResponse(out, out.ok ? 200 : 400);
+}
+
+const VEO_JOB_KV_PREFIX = 'veo_job_';
+
+export async function handleMoviemodeVeoJobGet(env, jobId, workspaceId) {
+  if (!env.KV) return jsonResponse({ error: 'KV not configured' }, 503);
+  const raw = await env.KV.get(`${VEO_JOB_KV_PREFIX}${jobId}`);
+  if (!raw) return jsonResponse({ error: 'Not found' }, 404);
+  const job = JSON.parse(raw);
+  if (workspaceId && job.workspace_id && job.workspace_id !== workspaceId) {
+    return jsonResponse({ error: 'Forbidden' }, 403);
+  }
+  return jsonResponse({ job });
 }
 
 export async function handleMoviemodeAgent(request, env, { workspaceId, tenantId, userId }) {
@@ -674,11 +976,13 @@ async function startRemotionRenderOnPty(env, jobId, job) {
   }
 
   if (out.includes('RENDER_DONE:')) {
+    const ingested = out.includes('INGEST_OK:');
     await writeJob(env, jobId, {
       ...job,
-      status: 'done',
-      progressPercent: 100,
-      r2Key: `moviemode/exports/${job.outputFilename}`,
+      status: ingested ? 'done' : 'uploading',
+      progressPercent: ingested ? 100 : 95,
+      r2Key: ingested ? job.r2Key : undefined,
+      outputFilename: job.outputFilename,
     });
     return;
   }

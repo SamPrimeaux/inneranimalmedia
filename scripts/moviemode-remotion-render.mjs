@@ -12,6 +12,34 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(__dirname, '..');
 
+async function ingestOutput(outputLocation, outputFilename, jobId) {
+  const bridgeKey = process.env.AGENTSAM_BRIDGE_KEY || '';
+  if (!bridgeKey) {
+    console.warn('INGEST_SKIP:no_bridge_key');
+    return false;
+  }
+  const origin = (process.env.IAM_ORIGIN || 'https://inneranimalmedia.com').replace(/\/$/, '');
+  const buf = readFileSync(outputLocation);
+  const res = await fetch(`${origin}/api/moviemode/ingest`, {
+    method: 'POST',
+    headers: {
+      'X-Bridge-Key': bridgeKey,
+      'X-Job-Id': jobId || '',
+      'X-Filename': outputFilename,
+      'Content-Type': 'application/octet-stream',
+    },
+    body: buf,
+  });
+  if (!res.ok) {
+    const err = await res.text().catch(() => '');
+    console.error(`INGEST_FAIL:${res.status}:${err.slice(0, 200)}`);
+    return false;
+  }
+  const data = await res.json().catch(() => ({}));
+  console.log(`INGEST_OK:${data.r2Key || data.r2_key || 'ok'}`);
+  return true;
+}
+
 async function main() {
   const configPath = process.argv[2];
   if (!configPath) {
@@ -74,6 +102,7 @@ async function main() {
 
   console.log(`RENDER_DONE:${outputFilename}`);
   console.log(`OUTPUT:${outputLocation}`);
+  await ingestOutput(outputLocation, outputFilename, jobId);
 }
 
 main().catch((e) => {
