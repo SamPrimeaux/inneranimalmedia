@@ -49,6 +49,7 @@ import { ProjectType, type ActiveFile } from './types';
 import type { DatabaseExplorerJump } from './types/databaseExplorer';
 import { prepareActiveFileForEditor } from './src/lib/prepareActiveFileForEditor';
 import { SHELL_VERSION } from './src/shellVersion';
+import { mobileTabBarBottomOffset, showDashboardStatusBar } from './config/shellChrome';
 import {
   fetchAndApplyActiveCmsTheme,
   applyCachedCmsThemeFallback,
@@ -387,6 +388,8 @@ const App: React.FC = () => {
   } = useWorkspace();
   const location = useLocation();
   const isMovieModeRoute = location.pathname.startsWith('/dashboard/moviemode');
+  const showStatusBar = showDashboardStatusBar(location.pathname);
+  const mobileTabBarBottom = mobileTabBarBottomOffset(showStatusBar);
   /** TODO: Movie Mode right rail — split Media bin + ChatAssistant (dual panel). */
   const isDrawRoute = location.pathname.startsWith('/dashboard/draw');
   const isCmsRoute = location.pathname.startsWith('/dashboard/cms');
@@ -3949,7 +3952,11 @@ const App: React.FC = () => {
       {/* 8. STATUS BAR (FOOTER) */}
       {toastMsg && (
         <div
-          className="fixed bottom-16 left-1/2 z-[200] -translate-x-1/2 px-4 py-2 rounded-lg border border-[var(--dashboard-border)] bg-[var(--dashboard-canvas)] text-[11px] text-[var(--text-main)] shadow-lg max-w-md text-center max-phone:[bottom:calc(56px+1.5rem+env(safe-area-inset-bottom,0px)+8px)]"
+          className={`fixed bottom-16 left-1/2 z-[200] -translate-x-1/2 px-4 py-2 rounded-lg border border-[var(--dashboard-border)] bg-[var(--dashboard-canvas)] text-[11px] text-[var(--text-main)] shadow-lg max-w-md text-center ${
+            showStatusBar
+              ? 'max-phone:[bottom:calc(56px+1.5rem+env(safe-area-inset-bottom,0px)+8px)]'
+              : 'max-phone:[bottom:calc(56px+env(safe-area-inset-bottom,0px)+8px)]'
+          }`}
           role="status"
         >
           {toastMsg}
@@ -3959,7 +3966,7 @@ const App: React.FC = () => {
       {/* Mobile (≤430px): bottom tab bar above StatusBar — Movie Mode uses its own nav */}
       <nav
         className={`hidden max-phone:flex fixed inset-x-0 z-[90] items-stretch justify-around gap-0 border-t border-[var(--dashboard-border)] bg-[var(--dashboard-panel)]/95 backdrop-blur-sm ${isMovieModeRoute ? '!hidden' : ''}`}
-        style={{ bottom: 'calc(1.5rem + env(safe-area-inset-bottom, 0px))' }}
+        style={{ bottom: mobileTabBarBottom }}
         aria-label="Primary"
       >
         <button
@@ -4014,7 +4021,7 @@ const App: React.FC = () => {
           />
           <div
             className="hidden max-phone:flex fixed left-2 right-2 z-[96] max-h-[min(72vh,calc(100dvh-10rem))] flex-col rounded-t-xl border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] shadow-2xl overflow-hidden"
-            style={{ bottom: 'calc(1.5rem + env(safe-area-inset-bottom, 0px) + 52px)' }}
+            style={{ bottom: `calc(${showStatusBar ? '1.5rem + ' : ''}env(safe-area-inset-bottom, 0px) + 52px)` }}
           >
             <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--dashboard-border)] shrink-0">
               <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">More</span>
@@ -4046,6 +4053,7 @@ const App: React.FC = () => {
         </>
       )}
 
+      {showStatusBar ? (
       <StatusBar 
         branch={gitBranch}
         gitHash={gitHash}
@@ -4091,6 +4099,7 @@ const App: React.FC = () => {
           window.dispatchEvent(new CustomEvent('iam-format-document'));
         }}
       />
+      ) : null}
 
       {isWorkspaceLauncherOpen && (
         <WorkspaceLauncher

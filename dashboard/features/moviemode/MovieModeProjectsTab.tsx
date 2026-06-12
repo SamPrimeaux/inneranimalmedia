@@ -124,7 +124,7 @@ export function MovieModeProjectsTab({ projects, loading, onCreate, creating }: 
         disabled={creating}
         onClick={onCreate}
         className="fixed max-phone:right-4 right-8 z-[92] inline-flex items-center gap-2 rounded-full bg-[var(--solar-cyan,#2dd4bf)] px-5 py-3 text-[14px] font-bold text-[#0a1018] shadow-lg disabled:opacity-60"
-        style={{ bottom: 'calc(1.5rem + env(safe-area-inset-bottom, 0px) + 64px)' }}
+        style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 64px)' }}
       >
         <Plus size={18} strokeWidth={2.5} />
         Create

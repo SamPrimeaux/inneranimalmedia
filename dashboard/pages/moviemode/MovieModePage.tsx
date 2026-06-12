@@ -224,7 +224,7 @@ export default function MovieModePage() {
   }
 
   return (
-    <div className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden max-phone:pb-[52px]">
+    <div className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
       {main}
 
       <MovieModeBottomNav activeTab={parsedRoute.tab} projectId={projectId} />

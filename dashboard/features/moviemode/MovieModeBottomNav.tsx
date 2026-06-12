@@ -22,7 +22,7 @@ export function MovieModeBottomNav({ activeTab, projectId }: Props) {
   return (
     <nav
       className="hidden max-phone:flex fixed inset-x-0 z-[91] items-stretch justify-around gap-0 border-t border-[var(--dashboard-border)] bg-[var(--dashboard-panel)]/98 backdrop-blur-sm"
-      style={{ bottom: 'calc(1.5rem + env(safe-area-inset-bottom, 0px))' }}
+      style={{ bottom: 'env(safe-area-inset-bottom, 0px)' }}
       aria-label="Movie Mode"
     >
       {TABS.map((tab) => {
