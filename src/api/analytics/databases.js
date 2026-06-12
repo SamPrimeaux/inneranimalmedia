@@ -498,9 +498,126 @@ async function loadSupabaseHotTables(env, warnings) {
   };
 }
 
-const D1_STORAGE_LIMIT_BYTES = 2 * 1024 * 1024 * 1024;
+const D1_STORAGE_LIMIT_BYTES = 10 * 1024 * 1024 * 1024;
 /** Supabase provisioned disk display when tier metadata is unavailable. */
 const SUPABASE_PROVISIONED_BYTES = 8 * 1024 * 1024 * 1024;
+
+/** @param {number|null|undefined} pct */
+function capacityLevel(pct) {
+  if (pct == null || Number.isNaN(pct)) return 'unknown';
+  if (pct >= 90) return 'critical';
+  if (pct >= 75) return 'action';
+  if (pct >= 50) return 'watch';
+  return 'ok';
+}
+
+/**
+ * @param {number} epochSec
+ */
+function formatRelativeEpoch(epochSec) {
+  if (!epochSec) return null;
+  const delta = Math.max(0, Math.floor(Date.now() / 1000) - epochSec);
+  if (delta < 3600) return `${Math.max(1, Math.floor(delta / 60))}m ago`;
+  if (delta < 86400) return `${Math.floor(delta / 3600)}h ago`;
+  return `${Math.floor(delta / 86400)}d ago`;
+}
+
+/**
+ * @param {{ usedBytes?: number|null, limitBytes: number, usedLabel?: string|null, limitLabel: string, subtitle?: string|null, subtitleOk?: boolean, level?: string, retentionAt?: number|null, retentionOk?: boolean, connectionsUsed?: number|null, connectionsMax?: number|null, hyperdriveStatus?: string|null, hyperdriveLatencyMs?: number|null, autovacuumAt?: number|null }} opts
+ */
+function buildCapacityPayload(opts) {
+  const usedBytes = opts.usedBytes ?? null;
+  const limitBytes = opts.limitBytes;
+  const pctUsed =
+    usedBytes != null && limitBytes > 0
+      ? Math.round((usedBytes / limitBytes) * 1000) / 10
+      : null;
+  return {
+    usedBytes,
+    limitBytes,
+    usedLabel: opts.usedLabel ?? (usedBytes != null ? formatBytes(usedBytes) : null),
+    limitLabel: opts.limitLabel,
+    pctUsed,
+    level: opts.level ?? capacityLevel(pctUsed),
+    subtitle: opts.subtitle ?? null,
+    subtitleOk: opts.subtitleOk ?? true,
+    retentionAt: opts.retentionAt ?? null,
+    retentionOk: opts.retentionOk ?? null,
+    autovacuumAt: opts.autovacuumAt ?? null,
+    connectionsUsed: opts.connectionsUsed ?? null,
+    connectionsMax: opts.connectionsMax ?? null,
+    hyperdriveStatus: opts.hyperdriveStatus ?? null,
+    hyperdriveLatencyMs: opts.hyperdriveLatencyMs ?? null,
+    wired: usedBytes != null && usedBytes > 0,
+  };
+}
+
+/** @param {import('@cloudflare/workers-types').D1Database|null|undefined} db @param {Array<{code:string,message:string,severity?:string}>} warnings */
+async function loadLastRetentionRun(db, warnings) {
+  if (!db || !(await tableExists(db, 'agentsam_cron_runs'))) return null;
+  const cols = await pragmaTableInfo(db, 'agentsam_cron_runs');
+  if (!cols.has('started_at')) return null;
+  const jobCol = cols.has('job_name') ? 'job_name' : cols.has('cron_job') ? 'cron_job' : null;
+  if (!jobCol) return null;
+  const row = await d1First(
+    db,
+    'last_retention',
+    `SELECT started_at, status FROM agentsam_cron_runs
+     WHERE ${jobCol} = 'one_am_compaction_pipeline'
+     ORDER BY started_at DESC LIMIT 1`,
+    [],
+    warnings,
+  );
+  if (!row) return null;
+  const status = String(row.status || 'unknown').toLowerCase();
+  return {
+    at: Number(row.started_at) || null,
+    ok: !['error', 'failed'].includes(status),
+    status,
+  };
+}
+
+/** @param {any} env @param {Array<{code:string,message:string,severity?:string}>} warnings */
+async function loadSupabaseOpsSignals(env, warnings) {
+  if (!isHyperdriveUsable(env)) {
+    return { maxConnections: null, lastAutovacuumAt: null, wired: false };
+  }
+  const maxR = await runHyperdriveQuery(
+    env,
+    `SELECT setting::int AS v FROM pg_settings WHERE name = 'max_connections'`,
+    [],
+  );
+  const vacR = await runHyperdriveQuery(
+    env,
+    `SELECT EXTRACT(EPOCH FROM MAX(GREATEST(
+       COALESCE(last_autovacuum, 'epoch'::timestamptz),
+       COALESCE(last_vacuum, 'epoch'::timestamptz)
+     )))::bigint AS ts
+     FROM pg_stat_user_tables
+     WHERE schemaname NOT IN ('pg_catalog', 'information_schema')`,
+    [],
+  );
+  if (!maxR.ok) {
+    warnings.push({
+      code: 'PG_MAX_CONNECTIONS_FAILED',
+      message: maxR.error || 'max_connections query failed',
+      severity: 'info',
+    });
+  }
+  if (!vacR.ok) {
+    warnings.push({
+      code: 'PG_AUTOVACUUM_PROBE_FAILED',
+      message: vacR.error || 'autovacuum probe failed',
+      severity: 'info',
+    });
+  }
+  const vacTs = vacR.ok ? Number(vacR.rows[0]?.ts) || null : null;
+  return {
+    maxConnections: maxR.ok ? Number(maxR.rows[0]?.v) || null : null,
+    lastAutovacuumAt: vacTs && vacTs > 0 ? vacTs : null,
+    wired: maxR.ok || vacR.ok,
+  };
+}
 
 function pgQualifiedName(schema, rel) {
   const s = String(schema || 'public');
@@ -1843,6 +1960,16 @@ export async function handleDatabasesOverview(request, url, env, { tenantId, wor
     const wired = Boolean(gql?.wired);
     const kpis = gql?.kpis ?? {};
     const storageBytes = kpis.storageBytes ?? 0;
+    const retention = env?.DB ? await loadLastRetentionRun(env.DB, warnings) : null;
+    const d1Schema = env?.DB
+      ? await loadD1SchemaHealth(env.DB, warnings)
+      : { noPrimaryKey: [], missingIndexes: [], fkIssues: [], wired: false };
+
+    const retentionAgeSec = retention?.at ? Math.floor(Date.now() / 1000) - retention.at : null;
+    const retentionFresh = retentionAgeSec != null && retentionAgeSec < 26 * 3600;
+    const retentionLabel = retention?.at
+      ? `Retention ${retention.ok ? '✓' : '!'} · ${formatRelativeEpoch(retention.at)}`
+      : 'Retention not logged';
 
     return analyticsResponse({
       ok: true,
@@ -1872,6 +1999,15 @@ export async function handleDatabasesOverview(request, url, env, { tenantId, wor
         p95: kpiFromValues(kpis.p95Ms ?? 0, 0, wired && (kpis.p95Ms ?? 0) > 0, true),
         errors: kpiFromValues(0, 0, false),
       },
+      capacity: buildCapacityPayload({
+        usedBytes: storageBytes > 0 ? storageBytes : null,
+        limitBytes: D1_STORAGE_LIMIT_BYTES,
+        limitLabel: formatBytes(D1_STORAGE_LIMIT_BYTES),
+        subtitle: retentionLabel,
+        subtitleOk: Boolean(retention?.ok && retentionFresh),
+        retentionAt: retention?.at ?? null,
+        retentionOk: retention?.ok ?? null,
+      }),
       charts: gql?.charts ?? {
         labels: [],
         totalQueries: [],
@@ -1897,6 +2033,12 @@ export async function handleDatabasesOverview(request, url, env, { tenantId, wor
         tableCount,
         wired: storageBytes > 0,
       },
+      schemaHealth: {
+        noPrimaryKey: d1Schema.noPrimaryKey,
+        missingIndexes: d1Schema.missingIndexes,
+        fkIssues: d1Schema.fkIssues ?? [],
+        wired: d1Schema.wired,
+      },
       warnings,
       meta: { tenantId: scope.tenantId, workspaceId: scope.workspaceId },
     });
@@ -1905,6 +2047,8 @@ export async function handleDatabasesOverview(request, url, env, { tenantId, wor
   const health = await probeHealth(env, scope, warnings);
   const supStorage = await loadSupabaseStorage(env, warnings);
   const pgHot = await loadSupabaseHotTables(env, warnings);
+  const pgOps = await loadSupabaseOpsSignals(env, warnings);
+  const pgSchema = await loadSupabaseSchemaHealth(env, warnings);
   const ds = 'supabase';
   const buckets = await loadTimeseriesBuckets(env, scope, range, ds, warnings);
   const kpiRaw = await aggregateKpis(env, scope, range, ds, warnings);
@@ -1939,6 +2083,22 @@ export async function handleDatabasesOverview(request, url, env, { tenantId, wor
   const p50Headline = headlineP50.length
     ? headlineP50.reduce((a, b) => a + b, 0) / headlineP50.length
     : 0;
+
+  const connUsed = supStorage.connections ?? null;
+  const connMax = pgOps.maxConnections ?? null;
+  const connPct =
+    connUsed != null && connMax != null && connMax > 0
+      ? Math.round((connUsed / connMax) * 1000) / 10
+      : null;
+  const hdOk = health.hyperdrive.status === 'healthy';
+  const hdLabel = hdOk
+    ? `Hyperdrive ✓ · ${health.hyperdrive.latencyMs ?? '—'}ms`
+    : `Hyperdrive ${health.hyperdrive.status}`;
+  const autoLabel = pgOps.lastAutovacuumAt
+    ? `Autovacuum · ${formatRelativeEpoch(pgOps.lastAutovacuumAt)}`
+    : 'Autovacuum —';
+  const connLabel =
+    connUsed != null && connMax != null ? `Connections ${connUsed}/${connMax}` : null;
 
   return analyticsResponse({
     ok: true,
@@ -1998,6 +2158,18 @@ export async function handleDatabasesOverview(request, url, env, { tenantId, wor
         wired: kpiRaw.errors > 0,
       },
     },
+    capacity: buildCapacityPayload({
+      usedBytes: supStorage.usedBytes,
+      limitBytes: supStorage.limitBytes,
+      limitLabel: formatBytes(supStorage.limitBytes),
+      subtitle: [hdLabel, connLabel, autoLabel].filter(Boolean).join(' · '),
+      subtitleOk: hdOk && (connPct == null || connPct < 80),
+      autovacuumAt: pgOps.lastAutovacuumAt,
+      connectionsUsed: connUsed,
+      connectionsMax: connMax,
+      hyperdriveStatus: health.hyperdrive.status,
+      hyperdriveLatencyMs: health.hyperdrive.latencyMs,
+    }),
     charts: {
       labels,
       totalQueries: supabase,
@@ -2029,6 +2201,12 @@ export async function handleDatabasesOverview(request, url, env, { tenantId, wor
       largest: pgHot.largest,
       mostRead: pgHot.mostRead,
       mostWritten: pgHot.mostWritten,
+    },
+    schemaHealth: {
+      noPrimaryKey: pgSchema.noPrimaryKey,
+      missingIndexes: pgSchema.missingIndexes,
+      fkIssues: pgSchema.fkIssues,
+      wired: pgSchema.wired,
     },
     health: {
       hyperdrive: health.hyperdrive.status,

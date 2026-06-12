@@ -21,6 +21,25 @@ export type KpiMetric = {
   wired: boolean;
 };
 
+export type CapacityMetric = {
+  usedBytes?: number | null;
+  limitBytes: number;
+  usedLabel?: string | null;
+  limitLabel: string;
+  pctUsed?: number | null;
+  level?: 'ok' | 'watch' | 'action' | 'critical' | 'unknown';
+  subtitle?: string | null;
+  subtitleOk?: boolean;
+  retentionAt?: number | null;
+  retentionOk?: boolean | null;
+  autovacuumAt?: number | null;
+  connectionsUsed?: number | null;
+  connectionsMax?: number | null;
+  hyperdriveStatus?: string | null;
+  hyperdriveLatencyMs?: number | null;
+  wired?: boolean;
+};
+
 export type DatabasesQueryRow = {
   fingerprint: string;
   tool_name: string;
@@ -53,6 +72,13 @@ export type StorageBreakdown = {
   wired?: boolean;
 };
 
+export type SchemaHealthPayload = {
+  noPrimaryKey?: Array<{ name: string; ds?: string; severity?: string }>;
+  missingIndexes?: Array<{ name: string; ds?: string; severity?: string }>;
+  fkIssues?: Array<{ name?: string; table_name?: string; conname?: string }>;
+  wired?: boolean;
+};
+
 export type DatabasesOverviewPayload = {
   ok: boolean;
   surface?: DatabasesSurface;
@@ -70,6 +96,7 @@ export type DatabasesOverviewPayload = {
     p95?: KpiMetric;
     errors?: KpiMetric;
   };
+  capacity?: CapacityMetric;
   charts?: {
     labels: string[];
     totalQueries: number[];
@@ -89,6 +116,7 @@ export type DatabasesOverviewPayload = {
     mostRead?: HotTable[];
     mostWritten?: HotTable[];
   };
+  schemaHealth?: SchemaHealthPayload;
   health?: { hyperdrive?: string; latencyMs?: number | null };
   warnings?: DatabasesWarning[];
 };
@@ -191,12 +219,14 @@ export function useDatabasesObservability(surface: DatabasesSurface, range: Data
     summary: overview,
     charts,
     sparks,
+    capacity: overview?.capacity ?? null,
     queryPerformance: {
       wired: Boolean(overview?.queries?.length),
       rows: overview?.queries ?? [],
     },
     storage: overview?.storage ?? { wired: false },
     hotTables: overview?.hotTables ?? { largest: [], mostRead: [], mostWritten: [] },
+    schemaHealth: overview?.schemaHealth ?? { wired: false },
     health: overview?.health,
     database: overview?.database,
     loading,

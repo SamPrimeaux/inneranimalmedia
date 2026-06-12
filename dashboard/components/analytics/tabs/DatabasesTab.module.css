@@ -80,9 +80,41 @@
 }
 
 .surfaceMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 11px;
   color: var(--db-text-muted);
   margin-top: -8px;
+}
+
+.dbIdChip {
+  font-family: var(--db-mono);
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 20px;
+  background: var(--db-surface);
+  border: 1px solid var(--db-border);
+  color: var(--db-text-dim);
+}
+
+.opsStrip {
+  font-size: 11px;
+  padding: 8px 12px;
+  border-radius: var(--db-radius-md);
+  background: var(--db-surface);
+  border: 1px solid var(--db-border);
+  color: var(--db-text-muted);
+}
+
+.opsStrip[data-status="healthy"] {
+  border-color: rgba(61, 188, 140, 0.35);
+  color: var(--db-status-healthy);
+}
+
+.opsStrip[data-status="error"] {
+  border-color: rgba(224, 85, 85, 0.35);
+  color: var(--db-status-error);
 }
 
 .chartSubtitle {
@@ -250,6 +282,70 @@
 @media (max-width: 1024px) { .kpiGrid { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 640px)  { .kpiGrid { grid-template-columns: repeat(2, 1fr); gap: 8px; } }
 
+.capacityCard {
+  background: var(--db-panel);
+  border: 1px solid var(--db-border);
+  border-radius: var(--db-radius-lg);
+  padding: 14px 16px 12px;
+  min-height: 88px;
+  display: flex;
+  flex-direction: column;
+}
+
+.capacityBody {
+  position: relative;
+  width: 88px;
+  height: 88px;
+  margin: 0 auto 4px;
+}
+
+.capacityRing {
+  width: 88px;
+  height: 88px;
+  display: block;
+}
+
+.capacityCenter {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.capacityPct {
+  font-size: 15px;
+  font-weight: 600;
+  font-family: var(--db-mono);
+  color: var(--db-text);
+  line-height: 1.1;
+}
+
+.capacityUsed {
+  font-size: 10px;
+  color: var(--db-text-muted);
+  margin-top: 2px;
+}
+
+.capacityFoot {
+  text-align: center;
+  font-size: 10px;
+  color: var(--db-text-dim);
+}
+
+.capacitySubOk,
+.capacitySubWarn {
+  margin-top: 8px;
+  font-size: 10px;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.capacitySubOk { color: var(--db-status-healthy); }
+.capacitySubWarn { color: var(--db-status-degraded); }
+
 .kpiCard {
   background: var(--db-panel);
   border: 1px solid var(--db-border);
@@ -293,7 +389,9 @@
   position: absolute;
   right: 0;
   bottom: 0;
-  opacity: 0.3;
+  width: 72px;
+  height: 28px;
+  opacity: 0.35;
   pointer-events: none;
 }
 
@@ -380,6 +478,7 @@
   border-radius: 2px;
   margin-right: 4px;
   vertical-align: middle;
+  background: var(--db-accent-2);
 }
 
 /* ── section heading ── */
@@ -699,10 +798,16 @@
 .tlDotInfo { background: var(--db-accent);           }
 
 /* ── recharts overrides ── */
-.analytics-databases .recharts-cartesian-grid-horizontal line,
-.analytics-databases .recharts-cartesian-grid-vertical line {
-  stroke: rgba(255,255,255,0.04);
+.analytics-databases[data-surface="cloudflare"] .recharts-cartesian-grid-horizontal line,
+.analytics-databases[data-surface="cloudflare"] .recharts-cartesian-grid-vertical line {
+  stroke: rgba(0, 0, 0, 0.06);
 }
+
+.analytics-databases[data-surface="supabase"] .recharts-cartesian-grid-horizontal line,
+.analytics-databases[data-surface="supabase"] .recharts-cartesian-grid-vertical line {
+  stroke: rgba(255, 255, 255, 0.04);
+}
+
 .analytics-databases .recharts-text {
   fill: var(--db-text-dim);
   font-size: 10px;

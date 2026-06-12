@@ -5,9 +5,8 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import {
-  Zap, Eye, Pencil, Clock, Database, RefreshCw, ExternalLink,
-  Search, ChevronRight, TrendingUp, TrendingDown, AlertCircle,
-  AlertTriangle, BarChart2, ListFilter, Table2, Activity,
+  Database, RefreshCw, ExternalLink, Search, ChevronRight, TrendingUp, TrendingDown,
+  AlertCircle, AlertTriangle, BarChart2, ListFilter, Table2, Activity, ShieldAlert, Layers,
 } from 'lucide-react';
 
 import styles from './DatabasesTab.module.css';
@@ -16,11 +15,13 @@ import {
   formatCompact,
   formatTrend,
   formatQueryMs,
-  formatRelativeSeen,
   type DatabasesSurface,
   type DatabasesRange,
   type DatabasesQueryRow,
   type KpiMetric,
+  type CapacityMetric,
+  type HotTable,
+  type SchemaHealthPayload,
 } from './useDatabasesObservability';
 
 type LatencyKey = 'p50' | 'p95' | 'p99';
@@ -29,7 +30,6 @@ function chartColors(surface: DatabasesSurface) {
   if (surface === 'cloudflare') {
     return {
       primary: '#9b8afb',
-      secondary: '#6c8fff',
       grid: 'rgba(0,0,0,0.06)',
       axis: 'rgba(0,0,0,0.35)',
       tooltip: { bg: '#ffffff', border: 'rgba(0,0,0,0.1)', title: '#6b6b80', body: '#1a1a2e' },
@@ -37,11 +37,17 @@ function chartColors(surface: DatabasesSurface) {
   }
   return {
     primary: '#00d37e',
-    secondary: '#3ecf8e',
     grid: 'rgba(255,255,255,0.06)',
     axis: 'rgba(255,255,255,0.25)',
     tooltip: { bg: '#1c1c1c', border: 'rgba(255,255,255,0.1)', title: '#7a7a8a', body: '#ededed' },
   };
+}
+
+function capacityRingColor(level: string | undefined, surface: DatabasesSurface) {
+  if (level === 'critical') return '#e05555';
+  if (level === 'action') return '#f0a050';
+  if (level === 'watch') return '#6c8fff';
+  return surface === 'supabase' ? '#00d37e' : '#9b8afb';
 }
 
 function CtrlGroup<T extends string>({
@@ -87,36 +93,71 @@ function Sparkline({ data, color }: { data: number[]; color: string }) {
   );
 }
 
+function CapacityRing({
+  capacity, loading, surface,
+}: { capacity: CapacityMetric | null; loading: boolean; surface: DatabasesSurface }) {
+  const pct = capacity?.pctUsed ?? 0;
+  const r = 36;
+  const circ = 2 * Math.PI * r;
+  const offset = circ - (Math.min(pct, 100) / 100) * circ;
+  const stroke = capacityRingColor(capacity?.level, surface);
+
+  return (
+    <div className={styles.capacityCard}>
+      <div className={styles.kpiLabel}>Capacity</div>
+      <div className={styles.capacityBody}>
+        <svg viewBox="0 0 88 88" className={styles.capacityRing} aria-hidden>
+          <circle cx="44" cy="44" r={r} fill="none" stroke="var(--db-surface-2)" strokeWidth="8" />
+          <circle
+            cx="44"
+            cy="44"
+            r={r}
+            fill="none"
+            stroke={stroke}
+            strokeWidth="8"
+            strokeDasharray={circ}
+            strokeDashoffset={loading ? circ : offset}
+            strokeLinecap="round"
+            transform="rotate(-90 44 44)"
+          />
+        </svg>
+        <div className={styles.capacityCenter}>
+          <div className={styles.capacityPct}>{loading ? '…' : `${pct.toFixed(1)}%`}</div>
+          <div className={styles.capacityUsed}>{capacity?.usedLabel ?? '—'}</div>
+        </div>
+      </div>
+      <div className={styles.capacityFoot}>
+        {capacity?.limitLabel ? `of ${capacity.limitLabel}` : null}
+      </div>
+      {capacity?.subtitle ? (
+        <div className={capacity.subtitleOk ? styles.capacitySubOk : styles.capacitySubWarn}>
+          {capacity.subtitle}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 type KpiDef = { id: string; label: string; key: keyof NonNullable<ReturnType<typeof useDatabasesObservability>['overview']>['kpis'] };
 
 const CF_KPIS: KpiDef[] = [
   { id: 'queries', label: 'Total queries', key: 'queries' },
   { id: 'rowsRead', label: 'Rows read', key: 'rowsRead' },
   { id: 'rowsWritten', label: 'Rows written', key: 'rowsWritten' },
-  { id: 'storage', label: 'Storage used', key: 'storage' },
   { id: 'tables', label: 'Tables', key: 'tables' },
 ];
 
 const SB_KPIS: KpiDef[] = [
-  { id: 'connections', label: 'Connections', key: 'connections' },
   { id: 'storage', label: 'Database size', key: 'storage' },
   { id: 'tables', label: 'Tables', key: 'tables' },
+  { id: 'connections', label: 'Connections', key: 'connections' },
   { id: 'queries', label: 'Agent queries', key: 'queries' },
-  { id: 'p95', label: 'P95 latency', key: 'p95' },
 ];
 
-function kpiDisplay(def: KpiDef, m?: KpiMetric, spark?: number[]): { value: string; trend: string; dir: 'up' | 'down' | 'neutral' } {
+function kpiDisplay(def: KpiDef, m?: KpiMetric): { value: string; trend: string; dir: 'up' | 'down' | 'neutral' } {
   if (!m?.wired) return { value: '—', trend: '—', dir: 'neutral' };
   if (def.id === 'storage' && m.valueLabel) {
     return { value: m.valueLabel, trend: formatTrend(m.trendPct, m.dir), dir: m.dir };
-  }
-  if (def.id === 'p95') {
-    const ms = m.valueMs ?? m.value ?? 0;
-    return {
-      value: formatQueryMs(ms),
-      trend: formatTrend(m.trendPct, m.dir),
-      dir: m.dir,
-    };
   }
   return {
     value: formatCompact(m.value),
@@ -125,7 +166,7 @@ function kpiDisplay(def: KpiDef, m?: KpiMetric, spark?: number[]): { value: stri
   };
 }
 
-function KpiGrid({
+function KpiCards({
   defs, kpis, sparks, loading, surface,
 }: {
   defs: KpiDef[];
@@ -136,10 +177,11 @@ function KpiGrid({
 }) {
   const color = chartColors(surface).primary;
   return (
-    <div className={styles.kpiGrid}>
+    <>
       {defs.map(def => {
         const m = kpis?.[def.key as keyof typeof kpis] as KpiMetric | undefined;
-        const d = kpiDisplay(def, m, sparks[def.id.replace('connections', 'queries')]);
+        const d = kpiDisplay(def, m);
+        const sparkKey = def.id === 'connections' ? 'queries' : def.id;
         const trendClass =
           d.dir === 'up' ? styles.trendUp : d.dir === 'down' ? styles.trendDown : styles.trendNeutral;
         return (
@@ -153,18 +195,18 @@ function KpiGrid({
               </span>
               <span className={styles.kpiMetaHint}>vs prev period</span>
             </div>
-            {sparks[def.id === 'connections' ? 'queries' : def.id]?.length ? (
-              <Sparkline data={sparks[def.id === 'connections' ? 'queries' : def.id]} color={color} />
+            {sparks[sparkKey]?.length ? (
+              <Sparkline data={sparks[sparkKey]} color={color} />
             ) : null}
           </div>
         );
       })}
-    </div>
+    </>
   );
 }
 
 function BarPanel({
-  title, data, dataKey, loading, empty, surface, height = 200,
+  title, data, dataKey, loading, empty, surface, height = 220, legendTotal,
 }: {
   title: string;
   data: { h: string; v: number }[];
@@ -173,10 +215,11 @@ function BarPanel({
   empty?: string;
   surface: DatabasesSurface;
   height?: number;
+  legendTotal?: string;
 }) {
   const C = chartColors(surface);
   const key = dataKey ?? 'v';
-  const hasData = data.some(d => (d as Record<string, number>)[key] > 0);
+  const hasData = data.some(d => d.v > 0);
   const tooltipStyle = {
     contentStyle: { background: C.tooltip.bg, border: `1px solid ${C.tooltip.border}`, borderRadius: 8, fontSize: 11 },
     labelStyle: { color: C.tooltip.title, fontSize: 10 },
@@ -186,6 +229,12 @@ function BarPanel({
     <div className={styles.chartPanel}>
       <div className={styles.chartHeader}>
         <div className={styles.chartTitle}><BarChart2 size={14} /> {title}</div>
+        {legendTotal ? (
+          <div className={styles.legend}>
+            <span className={styles.legendDot} style={{ background: C.primary }} />
+            {legendTotal}
+          </div>
+        ) : null}
       </div>
       <div className={styles.chartBody}>
         {!loading && !hasData && empty ? (
@@ -194,8 +243,8 @@ function BarPanel({
         <ResponsiveContainer width="100%" height={height}>
           <BarChart data={data.length ? data : [{ h: '—', v: 0 }]} margin={{ top: 4, right: 8, bottom: 0, left: 0 }} barCategoryGap="18%">
             <CartesianGrid strokeDasharray="0" stroke={C.grid} vertical={false} />
-            <XAxis dataKey="h" tick={{ fontSize: 10, fill: C.axis }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
-            <YAxis tick={{ fontSize: 10, fill: C.axis }} tickLine={false} axisLine={false} width={36} />
+            <XAxis dataKey="h" tick={{ fontSize: 10, fill: C.axis }} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={24} />
+            <YAxis tick={{ fontSize: 10, fill: C.axis }} tickLine={false} axisLine={false} width={40} />
             <Tooltip {...tooltipStyle} />
             <Bar dataKey={key} fill={C.primary} fillOpacity={0.85} radius={[3, 3, 0, 0]} />
           </BarChart>
@@ -222,6 +271,7 @@ function LatencyPanel({
     return charts.labels.map((h, i) => ({ h, ms: series[i] ?? 0 }));
   }, [charts, series]);
   const headline = charts?.headlineMs?.[key] ?? 0;
+  const hasData = data.some(d => d.ms > 0);
   const tooltipStyle = {
     contentStyle: { background: C.tooltip.bg, border: `1px solid ${C.tooltip.border}`, borderRadius: 8, fontSize: 11 },
     labelStyle: { color: C.tooltip.title, fontSize: 10 },
@@ -231,18 +281,18 @@ function LatencyPanel({
     <div className={styles.chartPanel}>
       <div className={styles.chartHeader}>
         <div className={styles.chartTitle}><Activity size={14} /> Query latency</div>
-        <CtrlGroup options={['p50', 'p95', 'p99'] as LatencyKey[]} value={key} onChange={setKey} />
+        <CtrlGroup options={['p50', 'p95', 'p99'] as LatencyKey[]} value={key} onChange={v => setKey(v)} />
       </div>
       <div className={styles.chartBody}>
         <div className={styles.latencyHero}>
-          {loading ? '…' : live ? formatQueryMs(headline) : '—'}
+          {loading ? '…' : live && hasData ? formatQueryMs(headline) : '—'}
           <span className={styles.latencyHeroLabel}>{key.toUpperCase()}</span>
         </div>
         <ResponsiveContainer width="100%" height={130}>
           <LineChart data={data.length ? data : [{ h: '—', ms: 0 }]} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
             <CartesianGrid strokeDasharray="0" stroke={C.grid} vertical={false} />
-            <XAxis dataKey="h" tick={{ fontSize: 10, fill: C.axis }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
-            <YAxis tick={{ fontSize: 10, fill: C.axis }} tickLine={false} axisLine={false} width={36} />
+            <XAxis dataKey="h" tick={{ fontSize: 10, fill: C.axis }} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={24} />
+            <YAxis tick={{ fontSize: 10, fill: C.axis }} tickLine={false} axisLine={false} width={40} />
             <Tooltip {...tooltipStyle} formatter={(v: number) => [formatQueryMs(v), key.toUpperCase()]} />
             <Line type="monotone" dataKey="ms" stroke={C.primary} strokeWidth={1.5} dot={false} />
           </LineChart>
@@ -267,6 +317,9 @@ function QueryTable({
     () => rows.filter(r => r.fingerprint.toLowerCase().includes(search.toLowerCase())),
     [rows, search],
   );
+  const emptyMsg = surface === 'cloudflare'
+    ? 'No query insights in this window yet.'
+    : 'No Hyperdrive agent activity in this window yet.';
 
   return (
     <div className={styles.queryWrap}>
@@ -278,7 +331,7 @@ function QueryTable({
             <input
               className={styles.searchInput}
               type="search"
-              placeholder="Search queries…"
+              placeholder="Search queries (case sensitive)…"
               value={search}
               onChange={e => setSearch(e.target.value)}
               aria-label="Search queries"
@@ -288,122 +341,131 @@ function QueryTable({
         </div>
       </div>
       {!wired && !loading ? (
-        <div className={styles.emptyState}>
-          {surface === 'cloudflare'
-            ? 'No query insights in this window yet.'
-            : 'No Hyperdrive agent activity in this window yet.'}
-        </div>
+        <div className={styles.emptyState}>{emptyMsg}</div>
       ) : (
-        <div className={styles.tableScroll}>
-          <table className={styles.queryTable}>
-            <thead>
-              <tr>
-                <th>Query</th>
-                <th>% runtime</th>
-                <th>Count</th>
-                <th>Total</th>
-                <th>P50</th>
-                <th>P99</th>
-                <th>Rows read</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map(row => {
-                const totalMs = row.avg_ms * row.call_count;
-                return (
-                  <React.Fragment key={row.fingerprint}>
-                    <tr className={styles.queryRow} onClick={() => setExpanded(expanded === row.fingerprint ? null : row.fingerprint)}>
-                      <td>
-                        <div className={styles.queryFp}>
-                          <ChevronRight size={12} className={`${styles.expandIcon} ${expanded === row.fingerprint ? styles.expandIconOpen : ''}`} />
-                          {row.fingerprint}
-                        </div>
-                      </td>
-                      <td className={styles.mono}>{row.runtime_pct}%</td>
-                      <td className={styles.mono}>{row.call_count.toLocaleString()}</td>
-                      <td className={styles.mono}>{formatQueryMs(totalMs)}</td>
-                      <td className={styles.mono}>{formatQueryMs(row.p50_ms)}</td>
-                      <td className={styles.mono}>{formatQueryMs(row.p99_ms)}</td>
-                      <td className={styles.mono}>{formatCompact(row.rows_read)}</td>
-                    </tr>
-                    {expanded === row.fingerprint ? (
-                      <tr>
-                        <td colSpan={7} className={styles.expandedTd}>
-                          <pre className={styles.expandedSql}>{row.fingerprint}</pre>
-                          <a href={`/dashboard/database?tab=sql&q=${encodeURIComponent(row.fingerprint)}`} className={styles.actionBtn}>
-                            <ExternalLink size={11} /> Explore Data
-                          </a>
+        <>
+          <div className={styles.tableScroll}>
+            <table className={styles.queryTable}>
+              <thead>
+                <tr>
+                  <th>Query</th>
+                  <th>% runtime</th>
+                  <th>Count</th>
+                  <th>Total</th>
+                  <th>P50</th>
+                  <th>P99</th>
+                  <th>Rows read</th>
+                  <th>Rows written</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.slice(0, 20).map(row => {
+                  const totalMs = row.avg_ms * row.call_count;
+                  return (
+                    <React.Fragment key={row.fingerprint}>
+                      <tr className={styles.queryRow} onClick={() => setExpanded(expanded === row.fingerprint ? null : row.fingerprint)}>
+                        <td>
+                          <div className={styles.queryFp}>
+                            <ChevronRight size={12} className={`${styles.expandIcon} ${expanded === row.fingerprint ? styles.expandIconOpen : ''}`} />
+                            {row.fingerprint}
+                          </div>
                         </td>
+                        <td className={styles.mono}>{row.runtime_pct}%</td>
+                        <td className={styles.mono}>{row.call_count.toLocaleString()}</td>
+                        <td className={styles.mono}>{formatQueryMs(totalMs)}</td>
+                        <td className={styles.mono}>{formatQueryMs(row.p50_ms)}</td>
+                        <td className={styles.mono}>{formatQueryMs(row.p99_ms)}</td>
+                        <td className={styles.mono}>{formatCompact(row.rows_read)}</td>
+                        <td className={styles.mono}>{formatCompact(row.rows_written ?? 0)}</td>
                       </tr>
-                    ) : null}
-                  </React.Fragment>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                      {expanded === row.fingerprint ? (
+                        <tr>
+                          <td colSpan={8} className={styles.expandedTd}>
+                            <pre className={styles.expandedSql}>{row.fingerprint}</pre>
+                            <a href={`/dashboard/database?studio=1&q=${encodeURIComponent(row.fingerprint)}`} className={styles.actionBtn}>
+                              <ExternalLink size={11} /> Explore Data
+                            </a>
+                          </td>
+                        </tr>
+                      ) : null}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {filtered.length > 0 ? (
+            <div className={styles.tableFoot}>
+              <span>Showing 1–{Math.min(20, filtered.length)} of {filtered.length}</span>
+            </div>
+          ) : null}
+        </>
       )}
     </div>
   );
 }
 
-function StoragePanel({
-  storage, surface, loading, databaseName,
-}: {
-  storage: ReturnType<typeof useDatabasesObservability>['storage'];
-  surface: DatabasesSurface;
-  loading: boolean;
-  databaseName?: string;
-}) {
-  const pct = storage.pctUsed ?? 0;
+function HotTablesPanel({ hotTables, surface }: { hotTables: { largest?: HotTable[]; mostRead?: HotTable[]; mostWritten?: HotTable[] }; surface: DatabasesSurface }) {
+  const cols = [
+    { title: 'Largest', rows: hotTables.largest ?? [] },
+    { title: surface === 'cloudflare' ? 'Most read' : 'Most read · cumulative', rows: hotTables.mostRead ?? [] },
+    { title: surface === 'cloudflare' ? 'Most written' : 'Most written · cumulative', rows: hotTables.mostWritten ?? [] },
+  ];
+  if (!cols.some(c => c.rows.length > 0)) return null;
   return (
-    <div className={styles.chartPanel}>
-      <div className={styles.chartHeader}>
-        <div className={styles.chartTitle}>
-          <Database size={14} />
-          {surface === 'cloudflare' ? 'D1 storage' : 'Database size'}
-        </div>
-        {databaseName ? <span className={styles.chartSubtitle}>{databaseName}</span> : null}
-      </div>
-      <div className={styles.chartBody}>
-        <div className={styles.storageMetaRow}>
-          <div className={styles.storageMetaItem}>
-            <div className={styles.storageMetaLabel}>Used</div>
-            <div className={styles.storageMetaVal}>{loading ? '…' : storage.usedLabel ?? '—'}</div>
-          </div>
-          <div className={styles.storageMetaItem}>
-            <div className={styles.storageMetaLabel}>Limit</div>
-            <div className={styles.storageMetaVal}>{storage.limitLabel ?? '—'}</div>
-          </div>
-          {storage.connections != null ? (
-            <div className={styles.storageMetaItem}>
-              <div className={styles.storageMetaLabel}>Connections</div>
-              <div className={styles.storageMetaVal}>{storage.connections}</div>
+    <div className={styles.hotGrid}>
+      {cols.map(col => (
+        <div key={col.title} className={styles.tableList}>
+          <div className={styles.tableListHeader}><Layers size={12} /> {col.title}</div>
+          {col.rows.slice(0, 5).map(row => (
+            <div key={row.name} className={styles.tableRow}>
+              <span className={styles.tableRowName}>{row.name}</span>
+              <span className={styles.tableRowVal}>{row.val}</span>
             </div>
-          ) : null}
-          {storage.tableCount != null ? (
-            <div className={styles.storageMetaItem}>
-              <div className={styles.storageMetaLabel}>Tables</div>
-              <div className={styles.storageMetaVal}>{storage.tableCount}</div>
-            </div>
-          ) : null}
+          ))}
+          {!col.rows.length ? <div className={styles.emptyState}>—</div> : null}
         </div>
-        <div className={styles.storageBarTrack}>
-          <div className={styles.storageBarFill} style={{ width: `${Math.min(pct, 100)}%` }} />
-        </div>
-        {storage.largeObjects?.length ? (
-          <div className={styles.largeObjects}>
-            <div className={styles.sectionTitle}>Large objects</div>
-            {storage.largeObjects.map(obj => (
-              <div key={obj.name} className={styles.largeObjectRow}>
-                <span className={styles.largeObjectName}>{obj.name}</span>
-                <span className={styles.mono}>{obj.size}</span>
-                <span className={styles.monoMuted}>{obj.pct}</span>
-              </div>
-            ))}
+      ))}
+    </div>
+  );
+}
+
+function SchemaWatchPanel({ schema }: { schema: SchemaHealthPayload }) {
+  const issues = [
+    ...(schema.noPrimaryKey ?? []).map(i => ({ kind: 'No primary key', name: i.name })),
+    ...(schema.missingIndexes ?? []).map(i => ({ kind: 'Index watch', name: i.name })),
+    ...(schema.fkIssues ?? []).map(i => ({ kind: 'Invalid FK', name: i.table_name || i.conname || i.name || '—' })),
+  ];
+  if (!schema.wired && !issues.length) return null;
+  return (
+    <div className={styles.tableList}>
+      <div className={styles.tableListHeader}><ShieldAlert size={12} /> Schema watch</div>
+      {!issues.length ? (
+        <div className={styles.emptyState}>No schema issues flagged.</div>
+      ) : (
+        issues.slice(0, 8).map(issue => (
+          <div key={`${issue.kind}-${issue.name}`} className={styles.tableRow}>
+            <span className={styles.tableRowName}>{issue.name}</span>
+            <span className={styles.healthBadgeWarn}>{issue.kind}</span>
           </div>
-        ) : null}
-      </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+function LargeObjectsPanel({ objects }: { objects: Array<{ name: string; size: string; pct: string }> }) {
+  if (!objects?.length) return null;
+  return (
+    <div className={styles.tableList}>
+      <div className={styles.tableListHeader}><Database size={12} /> Largest relations</div>
+      {objects.map(obj => (
+        <div key={obj.name} className={styles.tableRow}>
+          <span className={styles.tableRowName}>{obj.name}</span>
+          <span className={styles.tableRowVal}>{obj.size}</span>
+          <span className={styles.monoMuted}>{obj.pct}</span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -433,11 +495,18 @@ export default function DatabasesTab() {
     };
   }, [obs.charts]);
 
+  const totalQueryLegend = useMemo(() => {
+    const sum = chartData.total.reduce((a, b) => a + b.v, 0);
+    if (!sum) return undefined;
+    return `Eastern North America (ENAM) ${formatCompact(sum)}`;
+  }, [chartData.total]);
+
+  const chartEmpty = surface === 'supabase'
+    ? 'No Hyperdrive agent activity in this window yet.'
+    : undefined;
+
   return (
-    <div
-      className={styles['analytics-databases']}
-      data-surface={surface}
-    >
+    <div className={styles['analytics-databases']} data-surface={surface}>
       {obs.error ? (
         <div className={styles.alertBanner} role="alert">
           <AlertCircle size={13} />
@@ -460,9 +529,13 @@ export default function DatabasesTab() {
           options={['cloudflare', 'supabase'] as DatabasesSurface[]}
           labels={{ cloudflare: 'Cloudflare', supabase: 'Supabase' }}
           value={surface}
-          onChange={setSurface}
+          onChange={v => setSurface(v)}
         />
-        <CtrlGroup options={['1h', '24h', '7d', '30d'] as DatabasesRange[]} value={range} onChange={setRange} />
+        <CtrlGroup
+          options={['1h', '24h', '7d', '30d'] as DatabasesRange[]}
+          value={range}
+          onChange={v => setRange(v)}
+        />
         <IconBtn onClick={handleRefresh} title="Refresh data">
           <RefreshCw
             size={13}
@@ -472,62 +545,54 @@ export default function DatabasesTab() {
             }}
           />
         </IconBtn>
-        <a href="/dashboard/database" className={styles.ctaBtn}>
+        <a href="/dashboard/database?studio=1" className={styles.ctaBtn}>
           <Table2 size={13} /> Explore Data
         </a>
       </div>
 
       {obs.database?.name && surface === 'cloudflare' ? (
-        <div className={styles.surfaceMeta}>{obs.database.name}</div>
+        <div className={styles.surfaceMeta}>
+          {obs.database.name}
+          <span className={styles.dbIdChip}>{obs.database.id.slice(0, 8)}…</span>
+        </div>
       ) : null}
 
-      <KpiGrid
-        defs={kpiDefs}
-        kpis={obs.overview?.kpis}
-        sparks={obs.sparks}
-        loading={obs.loading}
-        surface={surface}
-      />
+      {surface === 'supabase' && obs.health?.hyperdrive ? (
+        <div className={styles.opsStrip} data-status={obs.health.hyperdrive}>
+          Hyperdrive {obs.health.hyperdrive}
+          {obs.health.latencyMs != null ? ` · ${obs.health.latencyMs}ms probe` : ''}
+        </div>
+      ) : null}
+
+      <div className={styles.kpiGrid}>
+        <CapacityRing capacity={obs.capacity} loading={obs.loading} surface={surface} />
+        <KpiCards
+          defs={kpiDefs}
+          kpis={obs.overview?.kpis}
+          sparks={obs.sparks}
+          loading={obs.loading}
+          surface={surface}
+        />
+      </div>
 
       <BarPanel
         title="Total queries"
         data={chartData.total}
         loading={obs.loading}
         surface={surface}
-        empty="No query volume in this window yet."
+        height={240}
+        legendTotal={totalQueryLegend}
+        empty={chartEmpty ?? (obs.overview?.kpis?.queries?.wired ? undefined : 'No query volume in this window yet.')}
       />
 
       <div className={styles.chartGrid2}>
-        <BarPanel
-          title="Read queries"
-          data={chartData.read}
-          loading={obs.loading}
-          surface={surface}
-          height={160}
-        />
-        <BarPanel
-          title="Write queries"
-          data={chartData.write}
-          loading={obs.loading}
-          surface={surface}
-          height={160}
-        />
+        <BarPanel title="Read queries" data={chartData.read} loading={obs.loading} surface={surface} height={180} />
+        <BarPanel title="Write queries" data={chartData.write} loading={obs.loading} surface={surface} height={180} />
       </div>
 
       <div className={styles.chartGrid2}>
-        <LatencyPanel
-          charts={obs.charts}
-          loading={obs.loading}
-          live={obs.live.charts}
-          surface={surface}
-        />
-        <BarPanel
-          title={surface === 'cloudflare' ? 'Rows read' : 'Query volume'}
-          data={surface === 'cloudflare' ? chartData.rowsRead : chartData.total}
-          loading={obs.loading}
-          surface={surface}
-          height={160}
-        />
+        <LatencyPanel charts={obs.charts} loading={obs.loading} live={obs.live.charts} surface={surface} />
+        <BarPanel title="Rows read" data={chartData.rowsRead} loading={obs.loading} surface={surface} height={180} />
       </div>
 
       <QueryTable
@@ -539,29 +604,13 @@ export default function DatabasesTab() {
       />
 
       <div className={styles.chartGrid2}>
-        <StoragePanel
-          storage={obs.storage}
-          surface={surface}
-          loading={obs.loading}
-          databaseName={obs.database?.name}
-        />
-        {surface === 'cloudflare' ? (
-          <BarPanel
-            title="Rows written"
-            data={chartData.rowsWritten}
-            loading={obs.loading}
-            surface={surface}
-            height={160}
-          />
-        ) : (
-          <BarPanel
-            title="Rows written"
-            data={chartData.rowsWritten}
-            loading={obs.loading}
-            surface={surface}
-            height={160}
-          />
-        )}
+        <BarPanel title="Rows written" data={chartData.rowsWritten} loading={obs.loading} surface={surface} height={180} />
+        <LargeObjectsPanel objects={obs.storage.largeObjects ?? []} />
+      </div>
+
+      <div className={styles.chartGrid2}>
+        <HotTablesPanel hotTables={obs.hotTables} surface={surface} />
+        <SchemaWatchPanel schema={obs.schemaHealth} />
       </div>
     </div>
   );

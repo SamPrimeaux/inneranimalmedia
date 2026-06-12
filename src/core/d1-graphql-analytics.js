@@ -34,18 +34,114 @@ function rangeWindow(range) {
   };
 }
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** @param {string} range */
+function bucketMsForRange(range) {
+  if (range === '1h') return 5 * 60 * 1000;
+  if (range === '24h') return 60 * 60 * 1000;
+  return 24 * 60 * 60 * 1000;
+}
+
 /**
- * @param {string} iso
+ * @param {number} tsMs
  * @param {string} range
  */
-function formatBucketLabel(iso, range) {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return String(iso);
-  if (range === '1h' || range === '24h') {
+function formatBucketLabel(tsMs, range) {
+  const d = new Date(tsMs);
+  if (Number.isNaN(d.getTime())) return '—';
+  const day = d.getUTCDate();
+  const mon = MONTHS[d.getUTCMonth()];
+  if (range === '1h') {
     return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
   }
-  return d.toISOString().slice(0, 10);
+  if (range === '24h') {
+    return `${mon} ${day}, ${String(d.getUTCHours()).padStart(2, '0')}:00`;
+  }
+  return `${mon} ${day}`;
+}
+
+/**
+ * @param {Array<Record<string, unknown>>} rows
+ * @param {string} range
+ * @param {string} filterKey
+ */
+function aggregateChartBuckets(rows, range, filterKey) {
+  const bucketMs = bucketMsForRange(range);
+  /** @type {Map<number, { readQueries: number, writeQueries: number, rowsRead: number, rowsWritten: number, latW: number, p50: number, p95: number, p99: number }>} */
+  const buckets = new Map();
+
+  for (const row of rows) {
+    const dim = row?.dimensions ?? {};
+    const raw = dim[filterKey] ?? dim.datetime ?? dim.date ?? '';
+    const ts = new Date(String(raw)).getTime();
+    if (Number.isNaN(ts)) continue;
+    const key = Math.floor(ts / bucketMs) * bucketMs;
+    if (!buckets.has(key)) {
+      buckets.set(key, {
+        readQueries: 0,
+        writeQueries: 0,
+        rowsRead: 0,
+        rowsWritten: 0,
+        latW: 0,
+        p50: 0,
+        p95: 0,
+        p99: 0,
+      });
+    }
+    const b = buckets.get(key);
+    const rq = Number(row?.sum?.readQueries) || 0;
+    const wq = Number(row?.sum?.writeQueries) || 0;
+    const vol = rq + wq;
+    b.readQueries += rq;
+    b.writeQueries += wq;
+    b.rowsRead += Number(row?.sum?.rowsRead) || 0;
+    b.rowsWritten += Number(row?.sum?.rowsWritten) || 0;
+    const p50 = Number(row?.quantiles?.queryBatchTimeMsP50) || 0;
+    const p95 = Number(row?.quantiles?.queryBatchTimeMsP90) || 0;
+    const p99 = Number(row?.quantiles?.queryBatchTimeMsP99) || 0;
+    if (vol > 0 && p50 > 0) {
+      b.p50 = (b.p50 * b.latW + p50 * vol) / (b.latW + vol);
+      b.p95 = (b.p95 * b.latW + p95 * vol) / (b.latW + vol);
+      b.p99 = (b.p99 * b.latW + p99 * vol) / (b.latW + vol);
+      b.latW += vol;
+    }
+  }
+
+  const sorted = [...buckets.entries()].sort((a, b) => a[0] - b[0]);
+  const labels = [];
+  const readQueries = [];
+  const writeQueries = [];
+  const totalQueries = [];
+  const rowsReadSeries = [];
+  const rowsWrittenSeries = [];
+  const latencyP50 = [];
+  const latencyP95 = [];
+  const latencyP99 = [];
+
+  for (const [ts, b] of sorted) {
+    labels.push(formatBucketLabel(ts, range));
+    readQueries.push(b.readQueries);
+    writeQueries.push(b.writeQueries);
+    totalQueries.push(b.readQueries + b.writeQueries);
+    rowsReadSeries.push(b.rowsRead);
+    rowsWrittenSeries.push(b.rowsWritten);
+    latencyP50.push(Math.round(b.p50 * 100) / 100);
+    latencyP95.push(Math.round(b.p95 * 100) / 100);
+    latencyP99.push(Math.round(b.p99 * 100) / 100);
+  }
+
+  return {
+    labels,
+    totalQueries,
+    readQueries,
+    writeQueries,
+    rowsRead: rowsReadSeries,
+    rowsWritten: rowsWrittenSeries,
+    latencyP50,
+    latencyP95,
+    latencyP99,
+  };
 }
 
 /**
@@ -115,7 +211,7 @@ export async function fetchD1AnalyticsOverview(env, opts) {
   const { accountId, token, databaseId, range } = opts;
   const win = rangeWindow(range);
   const kv = env?.SESSION_CACHE || env?.KV || null;
-  const cacheKey = `d1_gql:v2:${databaseId}:${range}`;
+  const cacheKey = `d1_gql:v3:${databaseId}:${range}`;
 
   return cachedFetch(kv, cacheKey, async () => {
     const useDatetime = range === '1h' || range === '24h';
@@ -214,31 +310,18 @@ export async function fetchD1AnalyticsOverview(env, opts) {
     const currentSum = sumRows(currentRows, ['readQueries', 'writeQueries', 'rowsRead', 'rowsWritten']);
     const previousSum = sumRows(previousRows, ['readQueries', 'writeQueries', 'rowsRead', 'rowsWritten']);
 
-    const labels = [];
-    const readQueries = [];
-    const writeQueries = [];
-    const totalQueries = [];
-    const rowsReadSeries = [];
-    const rowsWrittenSeries = [];
-    const latencyP50 = [];
-    const latencyP95 = [];
-    const latencyP99 = [];
-
-    for (const row of currentRows) {
-      const dim = row?.dimensions ?? {};
-      const raw = dim[filterKey] ?? dim.datetime ?? dim.date ?? '';
-      labels.push(formatBucketLabel(String(raw), range));
-      const rq = Number(row?.sum?.readQueries) || 0;
-      const wq = Number(row?.sum?.writeQueries) || 0;
-      readQueries.push(rq);
-      writeQueries.push(wq);
-      totalQueries.push(rq + wq);
-      rowsReadSeries.push(Number(row?.sum?.rowsRead) || 0);
-      rowsWrittenSeries.push(Number(row?.sum?.rowsWritten) || 0);
-      latencyP50.push(Number(row?.quantiles?.queryBatchTimeMsP50) || 0);
-      latencyP95.push(Number(row?.quantiles?.queryBatchTimeMsP90) || 0);
-      latencyP99.push(Number(row?.quantiles?.queryBatchTimeMsP99) || 0);
-    }
+    const chartBuckets = aggregateChartBuckets(currentRows, range, filterKey);
+    const {
+      labels,
+      totalQueries,
+      readQueries,
+      writeQueries,
+      rowsRead: rowsReadSeries,
+      rowsWritten: rowsWrittenSeries,
+      latencyP50,
+      latencyP95,
+      latencyP99,
+    } = chartBuckets;
 
     const storageBytes = Number(storageRows[0]?.max?.databaseSizeBytes) || 0;
 
