@@ -144,6 +144,8 @@ function fileIcon(name) {
 const IAM_LOGO =
   "https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/8e323ffb-4338-41dc-1f71-9c7bdc57bb00/public";
 
+const IAM_ASSETS_ORIGIN = "https://assets.inneranimalmedia.com";
+
 function readStudioContext() {
   const params = new URLSearchParams(location.search);
   return {
@@ -152,6 +154,31 @@ function readStudioContext() {
     workspaceId: params.get("workspace_id") || "",
     studioPanel: params.get("panel") || "pages",
   };
+}
+
+function publicCmsAssetUrl(r2Key) {
+  if (!r2Key) return null;
+  return `${IAM_ASSETS_ORIGIN}/${String(r2Key).replace(/^\/+/, "")}`;
+}
+
+function resolvePageCandidates(bootstrap, preferredPageId) {
+  const pages = bootstrap?.pages || [];
+  if (!pages.length) return [];
+  const order = [];
+  if (preferredPageId) order.push(preferredPageId);
+  const home = pages.find((p) => p.is_homepage);
+  if (home?.id && !order.includes(home.id)) order.push(home.id);
+  for (const p of pages) {
+    if (p.id && !order.includes(p.id)) order.push(p.id);
+  }
+  return order;
+}
+
+function enrichPagePayload(payload) {
+  if (!payload || typeof payload !== "object") return payload;
+  if (payload.preview_html || payload.content_url) return payload;
+  const fallback = publicCmsAssetUrl(payload.page?.r2_key);
+  return fallback ? { ...payload, content_url: fallback } : payload;
 }
 
 async function apiJson(path, opts = {}) {
@@ -480,6 +507,8 @@ function Studio() {
   const themeFileRef = useRef(null);
   const projectSlug = ctx.projectSlug;
   const pageId = ctx.pageId;
+  const [selectedPageId, setSelectedPageId] = useState(pageId || "");
+  const activePageId = selectedPageId || pageId || "";
 
   useEffect(() => {
     tryCopyParentTheme();
@@ -495,10 +524,10 @@ function Studio() {
   }, []);
 
   const saveDraft = (draftData, flush = false) => {
-    if (!pageId) return;
+    if (!activePageId) return;
     clearTimeout(draftTimerRef.current);
     const run = () => {
-      apiJson(`/api/cms/pages/${encodeURIComponent(pageId)}/draft`, {
+      apiJson(`/api/cms/pages/${encodeURIComponent(activePageId)}/draft`, {
         method: "PUT",
         body: { draft_data: draftData, flush },
       }).catch(() => {});
@@ -508,12 +537,15 @@ function Studio() {
   };
 
   const refreshPreview = async (opts = {}) => {
-    const focusId = opts.pageId || pageId;
+    const focusId = opts.pageId || activePageId;
     if (!focusId) return;
     const useDraft = opts.draft === true || previewMode === "draft";
     try {
-      const qs = useDraft ? "?draft=1" : "";
-      const payload = await apiJson(`/api/cms/pages/${encodeURIComponent(focusId)}${qs}`);
+      const qs = new URLSearchParams({ project_slug: projectSlug });
+      if (useDraft) qs.set("draft", "1");
+      const payload = enrichPagePayload(
+        await apiJson(`/api/cms/pages/${encodeURIComponent(focusId)}?${qs.toString()}`),
+      );
       setPagePayload(payload);
       if (payload.preview_html || payload.content_url) setCanvasMode("preview");
       setPreviewNonce((n) => n + 1);
@@ -544,20 +576,40 @@ function Studio() {
   };
 
   useEffect(() => {
+    if (pageId) setSelectedPageId(pageId);
+  }, [pageId]);
+
+  useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const data = await loadCmsContext(pageId || null);
         if (cancelled) return;
-        const focusId = pageId || data.pages?.find((p) => p.is_homepage)?.id || data.pages?.[0]?.id;
-        if (focusId) {
-          const payload = await apiJson(`/api/cms/pages/${encodeURIComponent(focusId)}`);
-          if (cancelled) return;
-          setPagePayload(payload);
-          if (payload.preview_html || payload.content_url) setCanvasMode("preview");
-          const page = (data.pages || []).find((p) => p.id === focusId);
-          if (page?.route_path) setActiveFile(page.route_path.replace(/^\//, "") || "home");
+        const candidates = resolvePageCandidates(data, pageId || selectedPageId);
+        let focusId = null;
+        let payload = null;
+        for (const candidateId of candidates) {
+          try {
+            const qs = new URLSearchParams({ project_slug: projectSlug });
+            payload = enrichPagePayload(
+              await apiJson(`/api/cms/pages/${encodeURIComponent(candidateId)}?${qs.toString()}`),
+            );
+            focusId = candidateId;
+            break;
+          } catch (_) {}
         }
+        if (!focusId || !payload) {
+          if (!cancelled) setWorkspaceLabel(projectSlug);
+          return;
+        }
+        if (cancelled) return;
+        setSelectedPageId(focusId);
+        await loadCmsContext(focusId);
+        if (cancelled) return;
+        setPagePayload(payload);
+        if (payload.preview_html || payload.content_url) setCanvasMode("preview");
+        const page = (data.pages || []).find((p) => p.id === focusId);
+        if (page?.route_path) setActiveFile(page.route_path.replace(/^\//, "") || "home");
       } catch (_) {
         if (!cancelled) setWorkspaceLabel(projectSlug);
       }
@@ -573,29 +625,29 @@ function Studio() {
     return () => {
       cancelled = true;
     };
-  }, [projectSlug, pageId]);
+  }, [projectSlug, pageId, selectedPageId]);
 
   useEffect(() => {
-    if (!pageId) return;
+    if (!activePageId) return;
     let cancelled = false;
     const poll = () => {
-      apiJson(`/api/cms/studio-status?page_id=${encodeURIComponent(pageId)}&project_slug=${encodeURIComponent(projectSlug)}`)
+      apiJson(`/api/cms/studio-status?page_id=${encodeURIComponent(activePageId)}&project_slug=${encodeURIComponent(projectSlug)}`)
         .then((d) => { if (!cancelled) setStudioStatus(d); })
         .catch(() => {});
     };
     poll();
     const id = setInterval(poll, 15000);
     return () => { cancelled = true; clearInterval(id); };
-  }, [pageId, projectSlug]);
+  }, [activePageId, projectSlug]);
 
   useEffect(() => {
-    if (!pageId) return;
+    if (!activePageId) return;
     let cancelled = false;
     (async () => {
       try {
         const join = await apiJson("/api/cms/live-session/join", {
           method: "POST",
-          body: { page_id: pageId },
+          body: { page_id: activePageId },
         });
         if (!cancelled && join?.ok) setLiveSession(join);
       } catch (_) {}
@@ -603,7 +655,7 @@ function Studio() {
     heartbeatRef.current = setInterval(() => {
       apiJson("/api/cms/live-session/heartbeat", {
         method: "POST",
-        body: { page_id: pageId },
+        body: { page_id: activePageId },
       }).catch(() => {});
     }, 15000);
     return () => {
@@ -612,10 +664,10 @@ function Studio() {
       clearTimeout(draftTimerRef.current);
       apiJson("/api/cms/live-session/leave", {
         method: "POST",
-        body: { page_id: pageId },
+        body: { page_id: activePageId },
       }).catch(() => {});
     };
-  }, [pageId]);
+  }, [activePageId]);
 
   useEffect(() => {
     if (activeTab !== "assets") return;
@@ -645,10 +697,10 @@ function Studio() {
   }, [activeTab]);
 
   useEffect(() => {
-    if (!pageId || !bootstrap) return;
-    const sections = bootstrap.sections_by_page?.[pageId] || [];
+    if (!activePageId || !bootstrap) return;
+    const sections = bootstrap.sections_by_page?.[activePageId] || [];
     const draftPayload = {
-      page_id: pageId,
+      page_id: activePageId,
       sections: {},
       updated_at: Math.floor(Date.now() / 1000),
     };
@@ -656,7 +708,7 @@ function Studio() {
       draftPayload.sections[s.id] = s.section_data || {};
     }
     saveDraft(draftPayload, false);
-  }, [pageId, bootstrap]);
+  }, [activePageId, bootstrap]);
 
   const showToast = (msg) => {
     setToast(msg);
@@ -684,8 +736,8 @@ function Studio() {
       setActivity("Draft → override → version → publish…");
       const data = bootstrap || (await apiJson(`/api/cms/bootstrap?project_slug=${encodeURIComponent(projectSlug)}`));
       const pages = data.pages || [];
-      const target = pageId
-        ? pages.find((p) => p.id === pageId)
+      const target = activePageId
+        ? pages.find((p) => p.id === activePageId)
         : pages.find((p) => p.is_homepage) || pages[0];
       if (!target) throw new Error("No pages to publish");
       const sections = data.sections_by_page?.[target.id] || [];
@@ -853,7 +905,7 @@ function Studio() {
               {(bootstrap?.pages || []).length > 0 && (
                 <select
                   className="ta"
-                  value={pageId || ""}
+                  value={activePageId || ""}
                   onChange={(e) => navigateToPage(e.target.value)}
                   style={{ maxWidth: 180 }}
                 >

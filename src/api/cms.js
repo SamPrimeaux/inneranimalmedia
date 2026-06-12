@@ -201,10 +201,19 @@ export async function handleCmsApi(request, url, env, ctx) {
   if (pageIdMatch && method === 'GET') {
     const pageId = pageIdMatch[1];
     const useDraft = url.searchParams.get('draft') === '1' || url.searchParams.get('preview') === 'draft';
+    const projectSlugParam = String(url.searchParams.get('project_slug') || '').trim();
     try {
-      const page = await env.DB.prepare(
-        `SELECT * FROM cms_pages WHERE id = ? AND tenant_id = ?`
-      ).bind(pageId, tenantId).first();
+      const page = projectSlugParam
+        ? await env.DB.prepare(
+            `SELECT * FROM cms_pages WHERE id = ? AND project_slug = ? LIMIT 1`,
+          )
+            .bind(pageId, projectSlugParam)
+            .first()
+        : await env.DB.prepare(
+            `SELECT * FROM cms_pages WHERE id = ? AND tenant_id = ? LIMIT 1`,
+          )
+            .bind(pageId, tenantId)
+            .first();
 
       if (!page) return jsonResponse({ error: 'Page not found' }, 404);
 
@@ -1473,7 +1482,7 @@ export async function handleCmsApi(request, url, env, ctx) {
           env.DB.prepare(
             `SELECT id, project_slug, slug, route_path, title, status, page_type,
                     is_homepage, sort_order, seo_title, meta_description, robots,
-                    published_at, updated_at
+                    r2_key, r2_bucket, published_at, updated_at
              FROM cms_pages WHERE project_slug = ? AND status != 'archived'
              ORDER BY sort_order, route_path`,
           )
@@ -1540,9 +1549,12 @@ export async function handleCmsApi(request, url, env, ctx) {
             .all()
             .catch(() => ({ results: [] })),
           env.DB.prepare(
-            `SELECT id, project_id, site_name, site_logo_url, site_favicon_url,
-                    contact_email, analytics_id, settings_json, seo_defaults
-             FROM cms_global_settings WHERE project_id = ? LIMIT 1`,
+            `SELECT gs.id, gs.project_id, gs.site_name, gs.site_logo_url, gs.site_favicon_url,
+                    gs.contact_email, gs.analytics_id, gs.settings_json, gs.seo_defaults
+             FROM cms_global_settings gs
+             INNER JOIN cms_tenants t ON t.slug = ?
+             WHERE gs.site_name = t.name OR CAST(gs.project_id AS TEXT) = t.slug
+             LIMIT 1`,
           )
             .bind(projectSlug)
             .first()
