@@ -93,7 +93,7 @@ export default function AgendaPanel() {
       </div>
 
       <div className="shrink-0 border-t border-[var(--dashboard-border)] px-5 py-2">
-        <Link to="/dashboard/launch-desk" className="text-xs font-medium text-cyan-300 hover:text-cyan-200">
+        <Link to="/dashboard/collaborate" className="text-xs font-medium text-cyan-300 hover:text-cyan-200">
           Open Launch Desk →
         </Link>
       </div>

@@ -176,7 +176,7 @@ export const WorkspaceDashboard: React.FC<WorkspaceDashboardProps> = ({
           <button
             type="button"
             onClick={() => {
-              window.location.href = '/dashboard/library';
+              window.location.href = '/dashboard/artifacts';
             }}
             className="flex items-center gap-2 px-4 py-2 rounded-full border border-[var(--dashboard-border)] bg-[var(--dashboard-card)]/50 hover:bg-[var(--dashboard-card)] transition-all text-[12px] font-medium text-[var(--dashboard-muted)] hover:text-[var(--dashboard-text)]"
           >

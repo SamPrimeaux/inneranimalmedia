@@ -4,7 +4,7 @@ export function QuickNav() {
   const links = [
     { label: "Projects", href: "/dashboard/projects" },
     { label: "Tasks", href: "/dashboard/tasks" },
-    { label: "Library", href: "/dashboard/library" },
+    { label: "Artifacts", href: "/dashboard/artifacts" },
     { label: "Docs", href: "/dashboard/settings/docs" },
     { label: "Finance", href: "/dashboard/finance" },
   ];

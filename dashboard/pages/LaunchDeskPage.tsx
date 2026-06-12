@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ChevronLeft, ChevronRight, Video, X } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { CalendarPlus, ChevronLeft, ChevronRight, Mail, Video, X } from 'lucide-react';
 import { OpsDeskDayView } from './launch-desk/OpsDeskDayView';
 import { OpsDeskEventView } from './launch-desk/OpsDeskEventView';
 import {
@@ -18,6 +19,7 @@ import {
 import './launch-desk/launch-desk.css';
 
 export function LaunchDeskPage() {
+  const routerNavigate = useNavigate();
   const [view, setView] = useState<CalView>('month');
   const [surface, setSurface] = useState<OpsSurface>('calendar');
   const [date, setDate] = useState(() => new Date());
@@ -124,7 +126,7 @@ export function LaunchDeskPage() {
     setDate(d);
   };
 
-  const navigate = (dir: 1 | -1) => {
+  const shiftCalendar = (dir: 1 | -1) => {
     setDate((prev) => {
       const d = new Date(prev);
       if (view === 'week') d.setDate(d.getDate() + 7 * dir);
@@ -389,18 +391,27 @@ export function LaunchDeskPage() {
       {surface === 'calendar' ? (
         <header className="ops-desk-header">
           <div className="ops-desk-title-block">
-            <h1>Ops Desk</h1>
-            <p>Calendar and meetings</p>
+            <h1>Collaborate</h1>
+            <p className="ops-desk-subtitle-row">
+              Calendar, mail &amp; meet
+              <button
+                type="button"
+                className="ops-desk-learn-link"
+                onClick={() => routerNavigate('/dashboard/learn')}
+              >
+                Learn →
+              </button>
+            </p>
           </div>
           <div className="ops-desk-header-actions">
             <div className="ops-desk-cal-nav">
               <button type="button" className="ops-desk-btn" onClick={() => setDate(new Date())}>
                 Today
               </button>
-              <button type="button" className="ops-desk-btn" aria-label="Previous" onClick={() => navigate(-1)}>
+              <button type="button" className="ops-desk-btn" aria-label="Previous month" onClick={() => shiftCalendar(-1)}>
                 <ChevronLeft size={14} />
               </button>
-              <button type="button" className="ops-desk-btn" aria-label="Next" onClick={() => navigate(1)}>
+              <button type="button" className="ops-desk-btn" aria-label="Next month" onClick={() => shiftCalendar(1)}>
                 <ChevronRight size={14} />
               </button>
               <span className="ops-desk-cal-title">{titleText()}</span>
@@ -413,10 +424,30 @@ export function LaunchDeskPage() {
                 Month
               </button>
             </div>
-            <button type="button" className="ops-desk-btn ops-desk-btn-primary" onClick={() => openSchedule()}>
-              <Video size={14} />
-              Schedule meeting
-            </button>
+            <div className="ops-desk-collab-shortcuts">
+              <button
+                type="button"
+                className="ops-desk-btn ops-desk-btn-ghost"
+                onClick={() => routerNavigate('/dashboard/mail')}
+                title="Mail"
+              >
+                <Mail size={14} />
+                <span className="ops-desk-btn-label">Mail</span>
+              </button>
+              <button
+                type="button"
+                className="ops-desk-btn ops-desk-btn-ghost"
+                onClick={() => routerNavigate('/dashboard/meet')}
+                title="Meet"
+              >
+                <Video size={14} />
+                <span className="ops-desk-btn-label">Meet</span>
+              </button>
+              <button type="button" className="ops-desk-btn ops-desk-btn-primary" onClick={() => openSchedule()}>
+                <CalendarPlus size={14} />
+                Schedule meeting
+              </button>
+            </div>
           </div>
         </header>
       ) : null}

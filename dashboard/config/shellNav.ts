@@ -1,0 +1,81 @@
+/**
+ * Dashboard shell navigation — single source for sidebar + mobile drawer.
+ * Phase 1: core rows, Code / Create / Collaborate product menus.
+ */
+
+export type ShellProductId = 'code' | 'create' | 'collaborate';
+
+export type ShellCoreItem =
+  | { id: string; kind: 'action'; label: string; action: 'new-chat' | 'open-chats' }
+  | { id: string; kind: 'route'; label: string; path: string; match?: 'exact' | 'prefix' };
+
+export type ShellProductItem = {
+  id: string;
+  label: string;
+  path?: string;
+  match?: 'exact' | 'prefix';
+  action?: 'movie-mode';
+};
+
+export type ShellProduct = {
+  id: ShellProductId;
+  label: string;
+  home: string;
+  items: ShellProductItem[];
+};
+
+export const SHELL_CORE_NAV: ShellCoreItem[] = [
+  { id: 'new-chat', kind: 'action', label: 'New chat', action: 'new-chat' },
+  { id: 'chats', kind: 'action', label: 'Chats', action: 'open-chats' },
+  { id: 'projects', kind: 'route', label: 'Projects', path: '/dashboard/projects', match: 'exact' },
+  { id: 'artifacts', kind: 'route', label: 'Artifacts', path: '/dashboard/artifacts', match: 'exact' },
+  {
+    id: 'customize',
+    kind: 'route',
+    label: 'Customize',
+    path: '/dashboard/settings/general',
+    match: 'prefix',
+  },
+];
+
+export const SHELL_PRODUCTS: ShellProduct[] = [
+  {
+    id: 'code',
+    label: 'Code',
+    home: '/dashboard/agent',
+    items: [
+      { id: 'agent', label: 'Agent', path: '/dashboard/agent', match: 'prefix' },
+      { id: 'workflows', label: 'Workflows', path: '/dashboard/workflows', match: 'exact' },
+      { id: 'database', label: 'Database', path: '/dashboard/database', match: 'exact' },
+      { id: 'mcp', label: 'MCP & AI', path: '/dashboard/mcp', match: 'prefix' },
+    ],
+  },
+  {
+    id: 'create',
+    label: 'Create',
+    home: '/dashboard/designstudio',
+    items: [
+      { id: 'designstudio', label: 'Design Studio', path: '/dashboard/designstudio', match: 'exact' },
+      { id: 'images', label: 'Images', path: '/dashboard/images', match: 'exact' },
+      { id: 'moviemode', label: 'Movie Mode', action: 'movie-mode' },
+    ],
+  },
+  {
+    id: 'collaborate',
+    label: 'Collaborate',
+    home: '/dashboard/collaborate',
+    items: [
+      { id: 'calendar', label: 'Calendar', path: '/dashboard/collaborate', match: 'exact' },
+      { id: 'mail', label: 'Mail', path: '/dashboard/mail', match: 'exact' },
+      { id: 'meet', label: 'Meet', path: '/dashboard/meet', match: 'prefix' },
+      { id: 'learn', label: 'Learn', path: '/dashboard/learn', match: 'exact' },
+    ],
+  },
+];
+
+/** Legacy paths → canonical (router redirects). */
+export const SHELL_ROUTE_ALIASES: Record<string, string> = {
+  '/dashboard/library': '/dashboard/artifacts',
+  '/dashboard/launch-desk': '/dashboard/collaborate',
+  '/dashboard/calendar': '/dashboard/collaborate',
+};

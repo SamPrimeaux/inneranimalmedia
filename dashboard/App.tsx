@@ -93,7 +93,7 @@ import { AuthResetPage } from './components/auth/AuthResetPage';
 import AuthOAuthConsentPage from './components/auth/AuthOAuthConsentPage';
 import MountIamMcpConsent from './components/auth/MountIamMcpConsent';
 import { OnboardingPage } from './components/onboarding/OnboardingPage';
-import { DashboardActivityNav } from './components/shell/DashboardActivityNav';
+import { DashboardSidebar } from './components/shell/DashboardSidebar';
 import { MobileNavShell } from './components/shell/MobileNavShell';
 import { mobileNavBackLabel } from './components/shell/mobileNavBackLabel';
 import { Files, Search, GitBranch, Settings, PanelLeft, PanelLeftClose, PanelRightClose, Terminal as TermIcon, Layers, Monitor, Bug, Github, Database, FolderOpen, FolderCode, Globe, PenTool, Cloud, X as XIcon, Eye, MessageSquare, MoreHorizontal, ChevronLeft, Link2, HardDrive, Package, History, Camera, FileCode2, Rocket } from 'lucide-react';
@@ -101,7 +101,6 @@ import { SetiFileIcon } from './src/components/SetiFileIcon';
 const ProjectManagement = lazy(() => import('./pages/projects/ProjectManagement'));
 
 /** Route-level code splitting: heavy dashboard pages load on demand; shell + /dashboard/agent stay eager. */
-const CalendarPage = lazy(() => import('./components/CalendarPage').then((m) => ({ default: m.CalendarPage })));
 const OverviewPage = lazy(() => import('./components/overview'));
 const FinanceDashboard = lazy(() => import('./components/finance'));
 const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage').then((m) => ({ default: m.AnalyticsPage })));
@@ -355,10 +354,6 @@ const App: React.FC = () => {
   } = useWorkspace();
   const location = useLocation();
   const navigate = useNavigate();
-  const integrationsSlug =
-    (Object.entries(SETTINGS_SLUG_MAP) as [string, string][]).find(([, lab]) => lab === 'Integrations')?.[0] ??
-    'integrations';
-  const settingsIntegrationsActive = location.pathname === `/dashboard/settings/${integrationsSlug}`;
   const terminalRef = useRef<XTermShellHandle>(null);
   const collabWsRef = useRef<WebSocket | null>(null);
 
@@ -1006,6 +1001,22 @@ const App: React.FC = () => {
     setActiveTab(tab);
     warmAgentChunksForTab(tab);
   }, []);
+
+  const shellNewChat = useCallback(() => {
+    if (!isAgentShellPath(location.pathname)) navigate(AGENT_HOME_PATH);
+    setActiveTab('Workspace');
+    setOpenTabs((prev) => (prev.includes('Workspace') ? prev : [...prev, 'Workspace']));
+  }, [location.pathname, navigate]);
+
+  const shellOpenChats = useCallback(() => {
+    if (!isAgentShellPath(location.pathname)) navigate(AGENT_HOME_PATH);
+    setActiveActivity('search');
+  }, [location.pathname, navigate]);
+
+  const shellOpenMovieMode = useCallback(() => {
+    if (!isAgentShellPath(location.pathname)) navigate(AGENT_HOME_PATH);
+    openTab('moviemode');
+  }, [location.pathname, navigate, openTab]);
 
   const closeTab = (tab: TabId, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -3018,12 +3029,16 @@ const App: React.FC = () => {
         open={mobileNavOpen}
         onToggle={() => setMobileNavOpen((v) => !v)}
         onClose={() => setMobileNavOpen(false)}
-        settingsIntegrationsActive={settingsIntegrationsActive}
         showBack={narrowNeedsBack && !mobileHamburgerConversationBack}
         backLabel={mobileBackLabel}
         onBack={narrowBackToCenter}
         hamburgerBackMode={mobileHamburgerConversationBack}
         onHamburgerBack={narrowBackToAgentHome}
+        onNewChat={shellNewChat}
+        onOpenChats={shellOpenChats}
+        onOpenMovieMode={shellOpenMovieMode}
+        userLabel={workspaceDisplayName}
+        planLabel="Workspace"
       />
 
       {securityShieldAlert && !securityBannerDismissed && (
@@ -3040,12 +3055,16 @@ const App: React.FC = () => {
           {/* 2. ACTIVITY BAR (Extreme Left) — hidden ≤430px; use bottom tab bar + More */}
           {/* Activity bar: icon rail (width toggled via ☰ — localStorage iam_sidebar_expanded) */}
           <div
-            className="hidden tablet-up:flex flex-col py-3 gap-1 px-1 bg-[var(--dashboard-panel)] border-r border-[var(--dashboard-border)] shrink-0 z-50 overflow-x-hidden overflow-y-auto transition-[width] duration-200 ease-in-out"
-            style={{ width: sidebarRailExpanded ? 180 : 48 }}
+            className="hidden tablet-up:flex flex-col h-full min-h-0 py-3 gap-1 px-1 bg-[var(--dashboard-panel)] border-r border-[var(--dashboard-border)] shrink-0 z-50 overflow-x-hidden overflow-y-auto transition-[width] duration-200 ease-in-out"
+            style={{ width: sidebarRailExpanded ? 200 : 48 }}
           >
-              <DashboardActivityNav
+              <DashboardSidebar
                 expanded={sidebarRailExpanded}
-                settingsIntegrationsActive={settingsIntegrationsActive}
+                onNewChat={shellNewChat}
+                onOpenChats={shellOpenChats}
+                onOpenMovieMode={shellOpenMovieMode}
+                userLabel={workspaceDisplayName}
+                planLabel="Workspace"
               />
           </div>
 
@@ -3264,7 +3283,7 @@ const App: React.FC = () => {
                   <Suspense fallback={<DashboardRoutesFallback />}>
                     <div className="flex flex-1 flex-col min-h-0 min-w-0">
                     <Routes>
-                      <Route path="/dashboard/calendar" element={<CalendarPage />} />
+                      <Route path="/dashboard/calendar" element={<Navigate to="/dashboard/collaborate" replace />} />
                       <Route path="/dashboard/overview" element={<OverviewPage />} />
                       <Route
                         path="/dashboard/finance"
@@ -3274,11 +3293,13 @@ const App: React.FC = () => {
                           </div>
                         }
                       />
-                      <Route path="/dashboard/library" element={<LibraryPage />} />
+                      <Route path="/dashboard/library" element={<Navigate to="/dashboard/artifacts" replace />} />
+                      <Route path="/dashboard/artifacts" element={<LibraryPage />} />
                       <Route path="/dashboard/projects" element={<ProjectManagement />} />
                       <Route path="/dashboard/tasks" element={<TasksPage />} />
+                      <Route path="/dashboard/launch-desk" element={<Navigate to="/dashboard/collaborate" replace />} />
                       <Route
-                        path="/dashboard/launch-desk"
+                        path="/dashboard/collaborate"
                         element={
                           <div className="flex-1 min-h-0 min-w-0 overflow-auto">
                             <LaunchDeskPage />
@@ -3877,7 +3898,7 @@ const App: React.FC = () => {
               <MobileMoreRow icon={Layers} label="Tools & MCP" onClick={() => { setMobileMoreOpen(false); toggleActivity('mcps'); }} />
               <MobileMoreRow icon={Cloud} label="Cloud Sync" onClick={() => { setMobileMoreOpen(false); toggleActivity('drive'); }} />
               <MobileMoreRow icon={Monitor} label="Engine View" onClick={() => { setMobileMoreOpen(false); navigate('/dashboard/designstudio'); }} />
-              <MobileMoreRow icon={Rocket} label="Launch Desk" onClick={() => { setMobileMoreOpen(false); navigate('/dashboard/launch-desk'); }} />
+              <MobileMoreRow icon={Rocket} label="Collaborate" onClick={() => { setMobileMoreOpen(false); navigate('/dashboard/collaborate'); }} />
             </div>
           </div>
         </>

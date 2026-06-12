@@ -1,13 +1,25 @@
 import { useEffect } from 'react';
-import { DashboardActivityNav } from './DashboardActivityNav';
+import { DashboardSidebar } from './DashboardSidebar';
 
 type MobileNavDrawerProps = {
   open: boolean;
   onClose: () => void;
-  settingsIntegrationsActive: boolean;
+  onNewChat?: () => void;
+  onOpenChats?: () => void;
+  onOpenMovieMode?: () => void;
+  userLabel?: string | null;
+  planLabel?: string | null;
 };
 
-export function MobileNavDrawer({ open, onClose, settingsIntegrationsActive }: MobileNavDrawerProps) {
+export function MobileNavDrawer({
+  open,
+  onClose,
+  onNewChat,
+  onOpenChats,
+  onOpenMovieMode,
+  userLabel,
+  planLabel,
+}: MobileNavDrawerProps) {
   useEffect(() => {
     if (!open) return;
     const prev = document.body.style.overflow;
@@ -43,10 +55,14 @@ export function MobileNavDrawer({ open, onClose, settingsIntegrationsActive }: M
         aria-hidden={!open}
         style={open ? undefined : { pointerEvents: 'none' }}
       >
-        <DashboardActivityNav
+        <DashboardSidebar
           expanded
-          settingsIntegrationsActive={settingsIntegrationsActive}
           onItemActivate={onClose}
+          onNewChat={onNewChat}
+          onOpenChats={onOpenChats}
+          onOpenMovieMode={onOpenMovieMode}
+          userLabel={userLabel}
+          planLabel={planLabel}
         />
       </nav>
     </>

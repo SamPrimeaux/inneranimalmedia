@@ -105,7 +105,7 @@ export function AgentMobileHomePanel({
             type="button"
             className={chipClass}
             onClick={() => {
-              window.location.href = '/dashboard/library';
+              window.location.href = '/dashboard/artifacts';
             }}
           >
             View Artifacts

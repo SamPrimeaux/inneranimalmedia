@@ -6,13 +6,17 @@ type MobileNavShellProps = {
   open: boolean;
   onToggle: () => void;
   onClose: () => void;
-  settingsIntegrationsActive: boolean;
   showBack?: boolean;
   backLabel?: string | null;
   onBack?: () => void;
   /** Agent thread active — hamburger morphs to back chevron. */
   hamburgerBackMode?: boolean;
   onHamburgerBack?: () => void;
+  onNewChat?: () => void;
+  onOpenChats?: () => void;
+  onOpenMovieMode?: () => void;
+  userLabel?: string | null;
+  planLabel?: string | null;
 };
 
 /**
@@ -22,12 +26,16 @@ export function MobileNavShell({
   open,
   onToggle,
   onClose,
-  settingsIntegrationsActive,
   showBack = false,
   backLabel = null,
   onBack,
   hamburgerBackMode = false,
   onHamburgerBack,
+  onNewChat,
+  onOpenChats,
+  onOpenMovieMode,
+  userLabel,
+  planLabel,
 }: MobileNavShellProps) {
   return (
     <>
@@ -50,7 +58,11 @@ export function MobileNavShell({
       <MobileNavDrawer
         open={open}
         onClose={onClose}
-        settingsIntegrationsActive={settingsIntegrationsActive}
+        onNewChat={onNewChat}
+        onOpenChats={onOpenChats}
+        onOpenMovieMode={onOpenMovieMode}
+        userLabel={userLabel}
+        planLabel={planLabel}
       />
     </>
   );
