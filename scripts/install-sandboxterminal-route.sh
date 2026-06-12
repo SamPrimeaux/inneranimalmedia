@@ -90,7 +90,8 @@ if command -v cloudflared >/dev/null 2>&1; then
   if (( DRY_RUN )); then
     echo "[dry-run] cloudflared tunnel route dns ${TUNNEL_NAME} ${HOST_SANDBOX}"
   else
-    cloudflared tunnel route dns "${TUNNEL_NAME}" "${HOST_SANDBOX}" 2>/dev/null \
+    # Use tunnel UUID + -f: tunnel *name* can still point at a deleted tunnel (de599bdf…) in CF routing metadata.
+    cloudflared tunnel route dns -f "${TUNNEL_ID}" "${HOST_SANDBOX}" 2>/dev/null \
       || echo "  (DNS route may already exist — check CF dashboard)"
   fi
 fi
