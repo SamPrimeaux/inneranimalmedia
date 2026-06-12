@@ -38,6 +38,18 @@ import {
   touchCmsLiveEditSession,
 } from '../core/cms-live-edit-session.js';
 import { upsertCmsSiteProjectContext } from '../core/cms-project-context.js';
+import {
+  cmsPublishGateErrorResponse,
+  runCmsPromotionGate,
+  verifyCmsPublishContract,
+} from '../core/cms-promotion-gates.js';
+import {
+  cmsDraftPayloadBytes,
+  cmsDraftSectionCount,
+  cmsExceedsSpawnThreshold,
+  maybeSpawnCmsHeavyJob,
+} from '../core/cms-spawn-bridge.js';
+import { logPromptCacheUsage } from '../core/prompt-cache-economics.js';
 
 export const CMS_DEFAULT_R2_BUCKET = 'inneranimalmedia';
 
@@ -523,6 +535,33 @@ export async function handleCmsApi(request, url, env, ctx) {
       if (!page) return jsonResponse({ error: 'Page not found' }, 404);
 
       projectSlug = String(page.project_slug || page.project_id || '').trim();
+      const r2BucketPre = page.r2_bucket || CMS_DEFAULT_R2_BUCKET;
+      const draftKeyPre = cmsPageKey(workspaceId, page.project_id, page.slug, 'draft');
+      const r2BindingPre = getCmsR2Binding(env, r2BucketPre);
+      let hasKvDraftPre = false;
+      const kvDraftPre = await getCmsDraftCache(env, pageId, authUser.id).catch(() => null);
+      hasKvDraftPre = !!(kvDraftPre?.draft_data || kvDraftPre?.r2_key);
+
+      const contract = await verifyCmsPublishContract(env, {
+        page,
+        workspaceId,
+        tenantId,
+        r2Binding: r2BindingPre,
+        draftKey: draftKeyPre,
+        hasKvDraft: hasKvDraftPre,
+      });
+      const promotion = await runCmsPromotionGate(env, {
+        page,
+        tenantId,
+        projectSlug,
+        r2Binding: r2BindingPre,
+        draftKey: draftKeyPre,
+        hasKvDraft: hasKvDraftPre,
+      });
+      if (!contract.passed || !promotion.passed) {
+        return jsonResponse(cmsPublishGateErrorResponse({ contract, promotion }), 422);
+      }
+
       const lock = await acquireCmsPublishLock(env, projectSlug, authUser.id);
       if (!lock.acquired) {
         return jsonResponse({ error: 'publish_in_progress', holder: lock.holder || null }, 409);
@@ -570,6 +609,21 @@ export async function handleCmsApi(request, url, env, ctx) {
       }
       let overrideChain = [];
       if (draftData && typeof draftData === 'object') {
+        const sectionCount = cmsDraftSectionCount(draftData);
+        const payloadBytes = cmsDraftPayloadBytes(draftData);
+        const spawnHint = cmsExceedsSpawnThreshold({ sectionCount, payloadBytes });
+        if (spawnHint.spawn) {
+          ctx.waitUntil(
+            maybeSpawnCmsHeavyJob(env, ctx, {
+              userId: authUser.id,
+              workspaceId,
+              tenantId,
+              masterRunId: `cms_pub_${pageId}_${Date.now().toString(36)}`,
+              taskDescription: `CMS publish promote ${sectionCount} sections (${payloadBytes} bytes)`,
+              chunkCount: sectionCount,
+            }),
+          );
+        }
         overrideChain = await promoteCmsDraftOverrides(env, {
           page: { ...page, id: pageId },
           draftData,
@@ -582,7 +636,7 @@ export async function handleCmsApi(request, url, env, ctx) {
             action: 'draft_promote',
             resourceType: 'page',
             resourceId: pageId,
-            details: { overrides: overrideChain.length },
+            details: { overrides: overrideChain.length, spawn_hint: spawnHint },
           }),
         );
       }
@@ -783,6 +837,19 @@ export async function handleCmsApi(request, url, env, ctx) {
         routeKey: meta.routeKey,
         changeSetId: body.change_set_id || null,
       });
+      if (meta.agentApplied || meta.routeKey === 'cms_edit') {
+        ctx.waitUntil(
+          logPromptCacheUsage(
+            env,
+            tenantId,
+            [`cms_edit:${row.page_id}:${sectionId}`],
+            meta.routeKey || 'cms_edit',
+            'cms_api',
+            'cms_edit',
+            64,
+          ).catch(() => {}),
+        );
+      }
       if (projectSlug) invalidateCmsBootstrap(env, ctx, workspaceId, projectSlug);
 
       return jsonResponse({ success: true, id: sectionId });
@@ -895,7 +962,193 @@ export async function handleCmsApi(request, url, env, ctx) {
     }
   }
 
-  // ─── Phase 2 routes (bootstrap, websites, templates, themes, imports, rollbacks) ───
+  if (path === '/api/cms/tenants' && method === 'GET') {
+    try {
+      const { results: tenants } = await env.DB.prepare(
+        `SELECT id, name, slug, domain, is_active, theme, primary_color
+         FROM cms_tenants WHERE is_active = 1 ORDER BY name`,
+      ).all();
+      const counts = {};
+      for (const t of tenants || []) {
+        const row = await env.DB.prepare(
+          `SELECT COUNT(*) as n FROM cms_pages WHERE project_slug = ? AND status != 'archived'`,
+        )
+          .bind(t.slug)
+          .first()
+          .catch(() => ({ n: 0 }));
+        counts[t.slug] = row?.n ?? 0;
+      }
+      const websites = (tenants || []).map((t) => ({
+        ...t,
+        page_count: counts[t.slug] ?? 0,
+        url: t.domain ? `https://${t.domain}` : null,
+      }));
+      return jsonResponse({ tenants: websites, websites });
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
+  if (path === '/api/cms/studio-status' && method === 'GET') {
+    const pageId = String(url.searchParams.get('page_id') || '').trim();
+    const projectSlug = String(url.searchParams.get('project_slug') || '').trim();
+    try {
+      let page = null;
+      if (pageId) {
+        page = await env.DB.prepare(
+          `SELECT id, slug, title, status, project_slug, published_at, updated_at FROM cms_pages WHERE id = ? AND tenant_id = ? LIMIT 1`,
+        )
+          .bind(pageId, tenantId)
+          .first();
+      }
+      const patchRow = await env.DB.prepare(
+        `SELECT plan_id, change_set_id, task_file, passed, applied, created_at
+         FROM agentsam_patch_sessions
+         WHERE task_file LIKE ?
+         ORDER BY created_at DESC LIMIT 1`,
+      )
+        .bind(pageId ? `cms/%/${pageId}/%` : 'cms/%')
+        .first()
+        .catch(() => null);
+      const liveRow = pageId
+        ? await env.DB.prepare(
+            `SELECT id, page_id, user_id, status, last_heartbeat_at, created_at
+             FROM cms_live_edit_sessions WHERE page_id = ? AND status = 'active'
+             ORDER BY last_heartbeat_at DESC LIMIT 1`,
+          )
+            .bind(pageId)
+            .first()
+            .catch(() => null)
+        : null;
+      return jsonResponse({
+        page_id: pageId || null,
+        project_slug: projectSlug || page?.project_slug || null,
+        publish_status: page?.status || 'unknown',
+        published_at: page?.published_at || null,
+        active_plan_id: patchRow?.plan_id || patchRow?.change_set_id || null,
+        last_patch_session: patchRow
+          ? {
+              task_file: patchRow.task_file,
+              passed: patchRow.passed,
+              applied: patchRow.applied,
+              created_at: patchRow.created_at,
+            }
+          : null,
+        live_session: liveRow
+          ? { session_id: liveRow.id, user_id: liveRow.user_id, status: liveRow.status }
+          : null,
+      });
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
+  if (path === '/api/cms/conversions' && method === 'GET') {
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT id, asset_id, tenant_id, source_format, target_format, status,
+                output_url, error_message, started_at, completed_at, created_at
+         FROM cms_conversions WHERE tenant_id = ? ORDER BY created_at DESC LIMIT 30`,
+      )
+        .bind(tenantId)
+        .all();
+      const jobs = await env.DB.prepare(
+        `SELECT id, asset_id, service, status, input_format, output_format, job_id, result_url, error, created_at
+         FROM cms_conversion_jobs WHERE tenant_id = ? ORDER BY created_at DESC LIMIT 30`,
+      )
+        .bind(tenantId)
+        .all()
+        .catch(() => ({ results: [] }));
+      return jsonResponse({ conversions: results || [], jobs: jobs.results || [] });
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
+  if (path === '/api/cms/conversions' && method === 'POST') {
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: 'invalid JSON' }, 400);
+    }
+    const sourceFormat = String(body.source_format || body.sourceFormat || 'liquid').trim();
+    const targetFormat = String(body.target_format || body.targetFormat || 'sections').trim();
+    const assetId = String(body.asset_id || body.assetId || '').trim() || null;
+    const importName = String(body.import_name || body.importName || 'cms_import').trim();
+    try {
+      const conversionId = `cnv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+      const jobId = `cjob_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+      const now = Math.floor(Date.now() / 1000);
+      await env.DB.prepare(
+        `INSERT INTO cms_conversions
+         (id, asset_id, tenant_id, source_format, target_format, status, created_at)
+         VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
+      )
+        .bind(conversionId, assetId || conversionId, tenantId, sourceFormat, targetFormat, now)
+        .run();
+      await env.DB.prepare(
+        `INSERT INTO cms_conversion_jobs
+         (id, tenant_id, asset_id, service, status, input_format, output_format, created_at)
+         VALUES (?, ?, ?, 'cms_import_wizard', 'pending', ?, ?, datetime('now'))`,
+      )
+        .bind(jobId, tenantId, assetId || conversionId, sourceFormat, targetFormat)
+        .run();
+      const spawnHint = cmsExceedsSpawnThreshold({ importName });
+      let spawnMeta = null;
+      if (spawnHint.spawn) {
+        spawnMeta = await maybeSpawnCmsHeavyJob(env, ctx, {
+          userId: authUser.id,
+          workspaceId,
+          tenantId,
+          masterRunId: `cms_cnv_${conversionId}`,
+          taskDescription: `CMS conversion import ${importName} (${sourceFormat} → ${targetFormat})`,
+          chunkCount: 1,
+        });
+      }
+      if (env.MY_QUEUE) {
+        ctx.waitUntil(
+          env.MY_QUEUE.send({
+            type: 'cms_liquid_import',
+            conversion_id: conversionId,
+            import_name: importName,
+            tenant_id: tenantId,
+            workspace_id: workspaceId,
+          }).catch(() => {}),
+        );
+      }
+      return jsonResponse({
+        success: true,
+        conversion_id: conversionId,
+        job_id: jobId,
+        status: 'pending',
+        spawn: spawnMeta,
+      });
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
+  if (path === '/api/cms/collection-assets' && method === 'GET') {
+    const collectionId = String(url.searchParams.get('collection_id') || '').trim();
+    try {
+      let q = `SELECT ca.collection_id, ca.asset_id, ca.order_index, ca.added_at,
+                      a.filename, a.public_url, a.cdn_url, a.thumbnail_url, a.mime_type, a.label
+               FROM cms_collection_assets ca
+               JOIN cms_assets a ON a.id = ca.asset_id
+               WHERE a.tenant_id = ?`;
+      const binds = [tenantId];
+      if (collectionId) {
+        q += ` AND ca.collection_id = ?`;
+        binds.push(collectionId);
+      }
+      q += ` ORDER BY ca.order_index ASC, ca.added_at DESC LIMIT 100`;
+      const { results } = await env.DB.prepare(q).bind(...binds).all();
+      return jsonResponse({ assets: results || [] });
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
 
   if (path === '/api/cms/websites' && method === 'GET') {
     try {
@@ -1591,6 +1844,14 @@ export async function handleCmsApi(request, url, env, ctx) {
           now,
         )
         .run();
+      const spawnMeta = await maybeSpawnCmsHeavyJob(env, ctx, {
+        userId: authUser.id,
+        workspaceId,
+        tenantId,
+        masterRunId: `cms_limp_${importId}`,
+        taskDescription: `CMS liquid import ${import_name} (${source_type})`,
+        chunkCount: 1,
+      });
       if (env.MY_QUEUE) {
         ctx.waitUntil(
           env.MY_QUEUE.send({
@@ -1600,7 +1861,7 @@ export async function handleCmsApi(request, url, env, ctx) {
           }).catch(() => {}),
         );
       }
-      return jsonResponse({ success: true, id: importId, status: 'pending' });
+      return jsonResponse({ success: true, id: importId, status: 'pending', spawn: spawnMeta });
     } catch (e) {
       return jsonResponse({ error: e.message }, 500);
     }

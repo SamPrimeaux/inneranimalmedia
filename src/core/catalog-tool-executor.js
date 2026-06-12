@@ -1875,6 +1875,19 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
       break;
     }
 
+    case 'cms': {
+      const handlerKey = String(config.handler || row.handler_key || row.tool_key || toolKey || '').trim();
+      const { handlers: cmsHandlers } = await import('../tools/builtin/cms.js');
+      const fn = cmsHandlers[handlerKey] || cmsHandlers[row.tool_key] || cmsHandlers[row.tool_name];
+      if (typeof fn !== 'function') {
+        result = { ok: false, error: `cms handler not registered: ${handlerKey}` };
+        break;
+      }
+      const out = await fn(params, env, { ...runContext, executionCtx: runContext.ctx });
+      result = out?.error ? { ok: false, error: String(out.error), body: out } : { ok: true, body: out };
+      break;
+    }
+
     case 'deploy': {
       const commandSource = String(config.command_source || 'workspace_settings.deploy_command').trim();
       let deployCommand = '';

@@ -927,6 +927,9 @@ function usePresence(pageId, workspaceId) {
 
 // ─── Main Editor view ─────────────────────────────────────────────────────────
 
+// ─── Legacy EditorView (M2-canonical path: CmsStudioEditor iframe + /api/cms/pages/:id/draft) ───
+// Kept for reference; CmsRoot routes editor → CmsStudioEditor. Publish uses POST /api/cms/pages/:id/publish with M3 gates.
+
 function EditorView({ projectSlug, workspaceId, pageId, onNavigate, onNavigatePath }) {
   const [bootstrap, setBootstrap] = useState(null);
   const [error, setError] = useState(null);

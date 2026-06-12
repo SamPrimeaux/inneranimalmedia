@@ -458,7 +458,7 @@ function Studio() {
   const [workspaceLabel, setWorkspaceLabel] = useState("");
   const [userInitials, setUserInitials] = useState("IA");
   const [toast, setToast] = useState("");
-  const [liveSession, setLiveSession] = useState(null);
+  const [studioStatus, setStudioStatus] = useState(null);
   const draftTimerRef = useRef(null);
   const heartbeatRef = useRef(null);
   const projectSlug = ctx.projectSlug;
@@ -539,6 +539,19 @@ function Studio() {
       cancelled = true;
     };
   }, [projectSlug, pageId]);
+
+  useEffect(() => {
+    if (!pageId) return;
+    let cancelled = false;
+    const poll = () => {
+      apiJson(`/api/cms/studio-status?page_id=${encodeURIComponent(pageId)}&project_slug=${encodeURIComponent(projectSlug)}`)
+        .then((d) => { if (!cancelled) setStudioStatus(d); })
+        .catch(() => {});
+    };
+    poll();
+    const id = setInterval(poll, 15000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [pageId, projectSlug]);
 
   useEffect(() => {
     if (!pageId) return;
@@ -646,6 +659,24 @@ function Studio() {
       setPhase("Idle");
       setActivity("Deploy failed — check CMS bootstrap");
       showToast(e.message || "Deploy failed");
+    }
+  };
+
+  const handleImportConversion = async () => {
+    try {
+      setActivity("Queuing Liquid/HTML → sections import…");
+      const res = await apiJson("/api/cms/conversions", {
+        method: "POST",
+        body: {
+          import_name: `${projectSlug}_studio_import`,
+          source_format: "liquid",
+          target_format: "sections",
+        },
+      });
+      setActivity(`Import queued · ${res.conversion_id || "pending"}`);
+      showToast("Import conversion queued (M3 wizard)");
+    } catch (e) {
+      showToast(e.message || "Import failed");
     }
   };
 
@@ -769,22 +800,35 @@ function Studio() {
                     : <SchemaCanvas />
                 )}
                 {activeTab === "assets" && (
-                  <div style={{ width: '100%', height: '100%', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, alignContent: 'start' }}>
+                  <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', gap: 12, padding: 12 }}>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      <button type="button" className="btn primary" onClick={handleImportConversion}>
+                        Import Liquid/HTML → sections
+                      </button>
+                    </div>
+                    <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, alignContent: 'start' }}>
                     {files.length === 0 ? <div style={{ gridColumn: '1/-1' }}><EmptyCanvas onSketch={onSketch} showToast={showToast} /></div> :
                       [...Array(8)].map((_, i) => (
                         <div key={i} style={{ aspectRatio: '4/3', background: 'var(--paper)', border: '1px solid var(--line)', borderRadius: 10, display: 'grid', placeItems: 'center', color: 'var(--muted)', fontFamily: 'JetBrains Mono, monospace', fontSize: 11 }}>
                           asset_{(i+1).toString().padStart(2, '0')}
                         </div>
                     ))}
+                    </div>
                   </div>
                 )}
               </div>
 
               {/* Activity strip */}
               <div className="activity-strip">
-                <span className="dot idle"></span>
+                <span className={`dot ${liveSession?.session_id || studioStatus?.live_session ? "live" : "idle"}`}></span>
                 <span><b>{phase}</b></span>
-                <span className="ticker">{activity}{liveSession?.session_id ? ` · session ${String(liveSession.session_id).slice(0, 8)}` : ""}</span>
+                <span className="ticker">
+                  {activity}
+                  {studioStatus?.active_plan_id ? ` · plan ${String(studioStatus.active_plan_id).slice(0, 10)}` : ""}
+                  {studioStatus?.last_patch_session?.task_file ? ` · patch ${String(studioStatus.last_patch_session.task_file).split("/").pop()}` : ""}
+                  {studioStatus?.publish_status ? ` · ${studioStatus.publish_status}` : ""}
+                  {liveSession?.session_id ? ` · session ${String(liveSession.session_id).slice(0, 8)}` : studioStatus?.live_session?.session_id ? ` · session ${String(studioStatus.live_session.session_id).slice(0, 8)}` : ""}
+                </span>
                 <span className="stat"><b>{stats.files}</b> files</span>
                 <span className="stat"><b>{stats.lines.toLocaleString()}</b> loc</span>
                 <span className="stat"><b>{stats.time}</b></span>

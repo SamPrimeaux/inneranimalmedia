@@ -299,9 +299,9 @@ export async function promoteCmsDraftOverrides(env, opts) {
       typeof sectionPayload === 'string' ? sectionPayload : JSON.stringify(sectionPayload || {});
     const existing = await env.DB.prepare(
       `SELECT id, version FROM cms_page_overrides
-       WHERE project_id = ? AND path = ? AND section = ? LIMIT 1`,
+       WHERE project_slug = ? AND path = ? AND section = ? LIMIT 1`,
     )
-      .bind(projectIdNum, path, sectionKey)
+      .bind(projectSlug, path, sectionKey)
       .first()
       .catch(() => null);
 
@@ -320,11 +320,29 @@ export async function promoteCmsDraftOverrides(env, opts) {
       overrideId = `ov_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
       await env.DB.prepare(
         `INSERT INTO cms_page_overrides
-         (id, project_id, project_slug, path, section, overrides_json, status, version, created_by, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, 'draft', 1, ?, datetime('now'), datetime('now'))`,
+         (id, project_id, project_slug, path, section, overrides_json, status, version, created_by, created_at, updated_at, project_id_text)
+         VALUES (?, ?, ?, ?, ?, ?, 'draft', 1, ?, datetime('now'), datetime('now'), ?)`,
       )
-        .bind(overrideId, projectIdNum, projectSlug, path, sectionKey, overridesJson, userId)
-        .run();
+        .bind(
+          overrideId,
+          projectIdNum,
+          projectSlug,
+          path,
+          sectionKey,
+          overridesJson,
+          userId,
+          String(page.project_id || projectSlug),
+        )
+        .run()
+        .catch(async () => {
+          await env.DB.prepare(
+            `INSERT INTO cms_page_overrides
+             (id, project_id, project_slug, path, section, overrides_json, status, version, created_by, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, 'draft', 1, ?, datetime('now'), datetime('now'))`,
+          )
+            .bind(overrideId, projectIdNum, projectSlug, path, sectionKey, overridesJson, userId)
+            .run();
+        });
     }
 
     const versionId = `ovv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;

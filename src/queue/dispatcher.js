@@ -143,6 +143,16 @@ export async function dispatchQueueMessage(env, ctx, queueMsg) {
     return { handled: true, kind: 'playwright_job' };
   }
 
+  if (body.type === 'cms_liquid_import') {
+    try {
+      const { handleCmsLiquidImportQueueJob } = await import('./handlers/cms-liquid-import.js');
+      await handleCmsLiquidImportQueueJob(env, body);
+    } catch (e) {
+      console.warn('[queue cms_liquid_import]', e?.message ?? e);
+    }
+    return { handled: true, kind: 'cms_liquid_import' };
+  }
+
   if (typeof body.type === 'string' && body.type.startsWith('cf.workersBuilds.')) {
     await recordWebhookEvent(env, ctx, tenantId, workspaceId, body);
     return { handled: true, kind: body.type };

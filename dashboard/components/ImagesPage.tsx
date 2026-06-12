@@ -161,9 +161,12 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
-    fetch('/api/cms/tenants', { credentials: 'same-origin' })
+    fetch('/api/cms/websites', { credentials: 'same-origin' })
       .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d?.tenants) setTenants(d.tenants); })
+      .then(d => {
+        const list = d?.tenants || d?.websites;
+        if (list) setTenants(list);
+      })
       .catch(() => {});
   }, []);
 
