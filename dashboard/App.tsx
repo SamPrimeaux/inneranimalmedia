@@ -90,7 +90,7 @@ import { OnboardingPage } from './components/onboarding/OnboardingPage';
 import { DashboardSidebar } from './components/shell/DashboardSidebar';
 import { MobileNavShell } from './components/shell/MobileNavShell';
 import { mobileNavBackLabel } from './components/shell/mobileNavBackLabel';
-import { Files, Search, GitBranch, Settings, PanelLeftClose, PanelRightClose, Terminal as TermIcon, Layers, Monitor, Bug, Github, Database, FolderOpen, FolderCode, Globe, PenTool, Cloud, X as XIcon, Eye, MessageSquare, MoreHorizontal, ChevronLeft, Link2, HardDrive, Package, History, Camera, FileCode2, Rocket } from 'lucide-react';
+import { Files, Search, GitBranch, Settings, PanelLeftClose, PanelRightClose, Terminal as TermIcon, Layers, Monitor, Bug, Github, Database, FolderOpen, FolderCode, Globe, PenTool, Cloud, X as XIcon, Eye, MessageSquare, MoreHorizontal, ChevronLeft, Link2, HardDrive, Package, History, FileCode2, Rocket } from 'lucide-react';
 import { SetiFileIcon } from './src/components/SetiFileIcon';
 const ProjectManagement = lazy(() => import('./pages/projects/ProjectManagement'));
 
@@ -114,17 +114,17 @@ const LibraryPage = lazy(() => import('./pages/library/LibraryPage'));
 const WorkflowsPage = lazy(() =>
   import('./pages/workflows/WorkflowsPage').then((m) => ({ default: m.WorkflowsPage })),
 );
-const MovieModeStudio = lazy(() =>
-  import('./features/moviemode/MovieModeStudio').then((m) => ({ default: m.MovieModeStudio })),
-);
 const MovieModePage = lazy(() =>
   import('./pages/moviemode/MovieModePage').then((m) => ({ default: m.default })),
 );
 const MovieModeMediaPanel = lazy(() =>
   import('./features/moviemode/MovieModeMediaPanel').then((m) => ({ default: m.MovieModeMediaPanel })),
 );
-const ExcalidrawView = lazy(() =>
-  import('./components/ExcalidrawView').then((m) => ({ default: m.ExcalidrawView })),
+const DrawPage = lazy(() =>
+  import('./pages/draw/DrawPage').then((m) => ({ default: m.default })),
+);
+const CmsPage = lazy(() =>
+  import('./pages/cms/CmsPage').then((m) => ({ default: m.default })),
 );
 const MonacoEditorView = lazy(() =>
   import('./components/MonacoEditorView').then((m) => ({ default: m.MonacoEditorView })),
@@ -388,6 +388,8 @@ const App: React.FC = () => {
   } = useWorkspace();
   const location = useLocation();
   const isMovieModeRoute = location.pathname.startsWith('/dashboard/moviemode');
+  /** TODO: Movie Mode right rail — split Media bin + ChatAssistant (dual panel). */
+  const isDrawRoute = location.pathname.startsWith('/dashboard/draw');
   const movieModeProjectId = useMemo(() => {
     const m = location.pathname.match(/^\/dashboard\/moviemode\/([^/?#]+)/);
     if (m?.[1]) return decodeURIComponent(m[1]);
@@ -466,7 +468,7 @@ const App: React.FC = () => {
   const [activeProject] = useState<ProjectType>(ProjectType.SANDBOX);
 
   // IDE State
-  type TabId = 'Workspace' | 'welcome' | 'code' | 'browser' | 'glb' | 'excalidraw' | 'moviemode';
+  type TabId = 'Workspace' | 'welcome' | 'code' | 'browser' | 'glb';
   const [activeActivity, setActiveActivity] = useState<'files' | 'search' | 'mcps' | 'git' | 'debug' | 'actions' | 'drive' | 'database' | null>(null);
   const LS_SIDEBAR_RAIL = 'iam_sidebar_expanded';
   /** User-chosen agent column side; survives reloads (not overwritten by workspace policy fetch). */
@@ -839,7 +841,6 @@ const App: React.FC = () => {
   // Tabs: Workspace matches default activeTab (welcome had no panel — stranded tab id removed from defaults).
   const [openTabs, setOpenTabs] = useState<TabId[]>(['Workspace']);
   const [activeTab, setActiveTab] = useState<TabId>('Workspace');
-  const [movieModeTimeline, setMovieModeTimeline] = useState<import('./src/types/moviemode').MovieModeTimeline | null>(null);
   
   // Derived from EditorContext to minimize massive refactor breakage
   const activeFile = tabs.find(t => t.id === activeTabId) || null;
@@ -1072,6 +1073,28 @@ const App: React.FC = () => {
   const shellOpenMovieMode = useCallback(() => {
     navigate('/dashboard/moviemode');
   }, [navigate]);
+
+  const shellOpenDraw = useCallback(
+    (detail?: { load_url?: string | null; artifact_id?: string | null }) => {
+      navigate('/dashboard/draw');
+      const load = detail?.load_url?.trim() || '';
+      const aid = detail?.artifact_id?.trim() || '';
+      if (load || aid) {
+        queueMicrotask(() => {
+          window.dispatchEvent(
+            new CustomEvent('iam:excalidraw_load_document', {
+              detail: {
+                load_url: load || null,
+                artifact_id: aid || null,
+                replace_workspace: true,
+              },
+            }),
+          );
+        });
+      }
+    },
+    [navigate],
+  );
 
   const closeTab = (tab: TabId, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -1702,16 +1725,12 @@ const App: React.FC = () => {
 
   const openMovieModeFromExplorer = useCallback(
     async (item: import('./features/moviemode/types').MediaLibraryItem) => {
-      const { createTimelineWithClip, appendClipToTimeline } = await import(
-        './features/moviemode/createEmptyTimeline'
-      );
-      setMovieModeTimeline((prev) =>
-        prev ? appendClipToTimeline(prev, item) : createTimelineWithClip(item),
-      );
-      openTab('moviemode');
+      const { dispatchMovieModeAddClip } = await import('./features/moviemode/movieModeMediaEvents');
+      navigate('/dashboard/moviemode');
+      queueMicrotask(() => dispatchMovieModeAddClip(item));
       revealMainWorkspaceIfNarrow();
     },
-    [openTab, revealMainWorkspaceIfNarrow],
+    [navigate, revealMainWorkspaceIfNarrow],
   );
 
   const onExplorerWorkspaceRootChange = useCallback(({ folderName }: { folderName: string }) => {
@@ -1736,21 +1755,14 @@ const App: React.FC = () => {
         openTab('browser');
         if (isNarrowViewport) setToastMsg('Browser tab opened. Tap Chat to return to Agent Sam.');
       } else if (s === 'excalidraw' || s === 'draw') {
-        openTab('excalidraw');
-        const load = typeof d?.load_url === 'string' ? d.load_url.trim() : '';
-        const aid = typeof d?.artifact_id === 'string' ? d.artifact_id.trim() : '';
-        if (load || aid) {
-          window.dispatchEvent(
-            new CustomEvent('iam:excalidraw_load_document', {
-              detail: {
-                load_url: load || null,
-                artifact_id: aid || null,
-                replace_workspace: true,
-              },
-            }),
-          );
-        }
-        if (isNarrowViewport) setToastMsg('Canvas opened. Tap Chat to return to Agent Sam.');
+        shellOpenDraw({
+          load_url: typeof d?.load_url === 'string' ? d.load_url : null,
+          artifact_id: typeof d?.artifact_id === 'string' ? d.artifact_id : null,
+        });
+        if (isNarrowViewport) setToastMsg('Draw opened. Tap Chat to return to Agent Sam.');
+      } else if (s === 'cms') {
+        navigate('/dashboard/cms/sites');
+        if (isNarrowViewport) setToastMsg('CMS Suite opened. Tap Chat to return to Agent Sam.');
       } else if (s === 'monaco' || s === 'code') {
         openTab('code');
         if (isNarrowViewport) setToastMsg('Code editor opened. Tap Chat to return to Agent Sam.');
@@ -1763,21 +1775,31 @@ const App: React.FC = () => {
     };
     window.addEventListener('iam:agent-open-surface', h as EventListener);
     return () => window.removeEventListener('iam:agent-open-surface', h as EventListener);
-  }, [openTab, revealMainWorkspaceIfNarrow, isNarrowViewport]);
+  }, [openTab, revealMainWorkspaceIfNarrow, isNarrowViewport, shellOpenDraw, navigate]);
 
   /** Artifacts → category/builder: open Agent workbench tab without leaving chat-first flow on phone. */
   useEffect(() => {
     const onOpenBuilder = (e: Event) => {
       const detail = (e as CustomEvent<ArtifactOpenBuilderDetail>).detail;
       const tab = detail?.tab ?? 'code';
+      if (tab === 'moviemode') {
+        navigate('/dashboard/moviemode');
+        if (isNarrowViewport) setToastMsg('Movie Mode opened. Tap Chat to return to Agent Sam.');
+        return;
+      }
+      if (tab === 'excalidraw') {
+        shellOpenDraw();
+        if (isNarrowViewport) setToastMsg('Draw opened. Tap Chat to return to Agent Sam.');
+        return;
+      }
       if (!isAgentShellPath(location.pathname)) navigate(AGENT_HOME_PATH);
       revealMainWorkspaceIfNarrow();
-      openTab(tab);
+      openTab(tab === 'Workspace' || tab === 'code' || tab === 'browser' ? tab : 'code');
       if (isNarrowViewport) setToastMsg('Builder opened. Tap Chat to return to Agent Sam.');
     };
     window.addEventListener(IAM_ARTIFACT_OPEN_BUILDER, onOpenBuilder);
     return () => window.removeEventListener(IAM_ARTIFACT_OPEN_BUILDER, onOpenBuilder);
-  }, [location.pathname, navigate, openTab, revealMainWorkspaceIfNarrow, isNarrowViewport]);
+  }, [location.pathname, navigate, openTab, revealMainWorkspaceIfNarrow, isNarrowViewport, shellOpenDraw]);
 
   /** Browser / cdt_* tool activity from Agent SSE — surface the Browser tab so the workbench matches agent actions. */
   useEffect(() => {
@@ -2502,11 +2524,6 @@ const App: React.FC = () => {
     [revealMainWorkspaceIfNarrow, isNarrowViewport],
   );
 
-  useEffect(() => {
-    if (location.pathname !== '/dashboard/meet') return;
-    setOpenTabs((prev) => prev.filter((t) => t !== 'excalidraw'));
-    setActiveTab((cur) => (cur === 'excalidraw' ? 'Workspace' : cur));
-  }, [location.pathname]);
 
   const htmlPreviewBlobRef = useRef<string | null>(null);
 
@@ -3045,8 +3062,7 @@ const App: React.FC = () => {
                               className="w-full flex items-center gap-2 px-3 py-2 text-left text-[12px] text-[var(--text-main)] hover:bg-[var(--bg-hover)]"
                               onClick={() => {
                                   setTopChromeMoreOpen(false);
-                                  navigate(AGENT_HOME_PATH);
-                                  queueMicrotask(() => openTab('excalidraw'));
+                                  shellOpenDraw();
                               }}
                           >
                               <PenTool size={14} className="text-[var(--text-muted)]" />
@@ -3195,7 +3211,7 @@ const App: React.FC = () => {
                         activeAgentChatShellTabId={activeAgentChatTabId}
                         onAgentChatShellTabSelect={selectAgentChatTab}
                         onAgentChatShellNewTab={createNewAgentChatTab}
-                        activeWorkbenchTab={activeTab}
+                        activeWorkbenchTab={isDrawRoute ? 'draw' : activeTab}
                         browserUrl={browserUrl}
                         openFilePaths={agentWorkbenchOpenFiles}
                         activePlanId={activePlanIdForChat}
@@ -3424,6 +3440,12 @@ const App: React.FC = () => {
                           </div>
                         }
                       />
+                      <Route path="/dashboard/draw" element={<DrawPage />} />
+                      <Route path="/dashboard/cms" element={<Navigate to="/dashboard/cms/sites" replace />} />
+                      <Route
+                        path="/dashboard/cms/*"
+                        element={<CmsPage workspaceId={authWorkspaceId || undefined} />}
+                      />
                       <Route
                         path="/dashboard/designstudio"
                         element={
@@ -3540,25 +3562,6 @@ const App: React.FC = () => {
                           onClose={(e) => closeTab('browser', e)}
                       />
                   )}
-                  {openTabs.includes('excalidraw') && (
-                      <Tab
-                          title="Draw"
-                          icon={<PenTool size={13} className="text-[var(--solar-orange)]"/>}
-                          active={activeTab === 'excalidraw'}
-                          onClick={() => setActiveTab('excalidraw')}
-                          onClose={(e) => closeTab('excalidraw', e)}
-                      />
-                  )}
-                  {openTabs.includes('moviemode') && (
-                      <Tab
-                          title="MovieMode"
-                          icon={<Camera size={13} className="text-[var(--solar-orange)]"/>}
-                          active={activeTab === 'moviemode'}
-                          onClick={() => setActiveTab('moviemode')}
-                          onClose={(e) => closeTab('moviemode', e)}
-                      />
-                  )}
-
                   {/* Tab row tools — mobile: globe + terminal; desktop: + Browser text */}
                   <div className="ml-auto flex items-center gap-0.5 pr-2 shrink-0">
                       {!openTabs.includes('browser') && (
@@ -3717,35 +3720,6 @@ const App: React.FC = () => {
                       </div>
                   )}
 
-                  {activeTab === 'excalidraw' && (
-                      <div className="absolute inset-0 z-10 flex flex-col">
-                          <Suspense
-                            fallback={
-                              <div className="flex-1 flex items-center justify-center text-[var(--text-muted)] text-sm">
-                                Loading canvas…
-                              </div>
-                            }
-                          >
-                            <ExcalidrawView />
-                          </Suspense>
-                      </div>
-                  )}
-                  {activeTab === 'moviemode' && (
-                      <div className="absolute inset-0 z-10 flex flex-col">
-                          <Suspense
-                            fallback={
-                              <div className="flex-1 flex items-center justify-center text-[var(--text-muted)] text-sm">
-                                Loading MovieMode…
-                              </div>
-                            }
-                          >
-                            <MovieModeStudio
-                              timeline={movieModeTimeline}
-                              onTimelineChange={setMovieModeTimeline}
-                            />
-                          </Suspense>
-                      </div>
-                  )}
                   </div>
 
                   {/* Agent page keeps integrated terminal mount (existing behavior). */}
@@ -3914,7 +3888,7 @@ const App: React.FC = () => {
                             onAgentChatShellTabSelect={selectAgentChatTab}
                             onAgentChatShellNewTab={createNewAgentChatTab}
                             onAgentRunContext={setActiveAgentRunId}
-                            activeWorkbenchTab={activeTab}
+                            activeWorkbenchTab={isDrawRoute ? 'draw' : activeTab}
                             browserUrl={browserUrl}
                             openFilePaths={agentWorkbenchOpenFiles}
                             activePlanId={activePlanIdForChat}

@@ -15,7 +15,6 @@ const PAGES = [
   { name: 'tools', title: 'Dev Tools — Inner Animal Media', activeHref: '/dashboard/tools' },
   { name: 'calendar', title: 'Calendar — Inner Animal Media', activeHref: '/dashboard/calendar' },
   { name: 'kanban', title: 'Kanban — Inner Animal Media', activeHref: '/dashboard/kanban' },
-  { name: 'cms', title: 'CMS — Inner Animal Media', activeHref: '/dashboard/cms' },
   { name: 'mail', title: 'Mail — Inner Animal Media', activeHref: '/dashboard/mail' },
   { name: 'pipelines', title: 'Pipelines — Inner Animal Media', activeHref: '/dashboard/pipelines' },
   { name: 'onboarding', title: 'Onboarding — Inner Animal Media', activeHref: '/dashboard/onboarding' },
