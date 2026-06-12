@@ -16,7 +16,11 @@ import {
   resolveRequestContext,
   AuthError,
 } from './core/auth';
-import { isPublicOAuthPath, publicOAuthRequestContext } from './core/public-oauth-paths.js';
+import {
+  isPublicOAuthPath,
+  publicOAuthRequestContext,
+  isAutomationApiPath,
+} from './core/public-oauth-paths.js';
 import { loadPublishedCmsSectionsByRoute } from './core/cms-public-page.js';
 import { hydrateContactPageHtml } from './core/cms-contact-hydrate.js';
 import { resolveIdentity } from './core/identity.js';
@@ -147,9 +151,10 @@ export default {
         return handleArtifactPurgeInternal(request, env);
       }
 
-      const requestContext = isPublicOAuthPath(pathLower)
-        ? publicOAuthRequestContext()
-        : await resolveRequestContext(request, env, { required: true });
+      const requestContext =
+        isPublicOAuthPath(pathLower) || isAutomationApiPath(pathLower, methodUpper)
+          ? publicOAuthRequestContext()
+          : await resolveRequestContext(request, env, { required: true });
       // keep primeRequestAuth for cache compatibility during migration (never required)
       await primeRequestAuth(request, env);
       const identity = await resolveIdentity(env, request);

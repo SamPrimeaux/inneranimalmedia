@@ -101,3 +101,15 @@ export function isPublicOAuthPath(pathname) {
 export function publicOAuthRequestContext() {
   return { identity: null, auth: null, publicRoute: true, error: 'unauthenticated' };
 }
+
+/**
+ * Routes that authenticate with INTERNAL_API_SECRET / bridge / ingest — not browser session.
+ * Bypass resolveRequestContext(required:true); each handler enforces its own secret gate.
+ */
+export function isAutomationApiPath(pathname, method = 'GET') {
+  const p = String(pathname || '/').replace(/\/$/, '') || '/';
+  const m = String(method || 'GET').toUpperCase();
+  if (p.startsWith('/api/internal/')) return true;
+  if (p === '/api/email/send' && m === 'POST') return true;
+  return false;
+}
