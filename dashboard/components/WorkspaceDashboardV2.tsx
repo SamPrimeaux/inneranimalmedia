@@ -105,6 +105,19 @@ export const WorkspaceDashboardV2: React.FC<WorkspaceDashboardProps> = ({
 
   const [activeNav, setActiveNav] = useState<NavTab>('recent');
   const [showDSSetup, setShowDSSetup] = useState(false);
+  const [templateMap, setTemplateMap] = useState<Record<string, import('./AgentQuickstartPage').QuickstartTemplate>>({});
+
+  useEffect(() => {
+    fetch('/api/agent/quickstart/templates', { credentials: 'same-origin' })
+      .then((r) => r.json())
+      .then((body: { templates?: import('./AgentQuickstartPage').QuickstartTemplate[] }) => {
+        if (!Array.isArray(body.templates)) return;
+        const map: Record<string, import('./AgentQuickstartPage').QuickstartTemplate> = {};
+        for (const t of body.templates) map[t.slug] = t;
+        setTemplateMap(map);
+      })
+      .catch(() => { /* silently fall back to hardcoded seeds */ });
+  }, []);
   const [searchVal, setSearchVal] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number>(0);
@@ -467,9 +480,12 @@ export const WorkspaceDashboardV2: React.FC<WorkspaceDashboardProps> = ({
                           name: card.label,
                           description: card.sub,
                           modelHint: 'auto',
-                          seedMessage: `Quickstart: ${card.label}. Load the design-intake skill branch ${card.slug}. Run the intake questionnaire for this card type.`,
-                          task_type: 'design_intake',
-                          route_key: 'design_intake',
+                          seedMessage: templateMap[card.slug]?.seedMessage
+                            ?? `Quickstart: ${card.label}. Load the design-intake skill branch ${card.slug}. Run the intake questionnaire for this card type.`,
+                          task_type: templateMap[card.slug]?.task_type ?? 'design_intake',
+                          route_key: templateMap[card.slug]?.route_key ?? 'design_intake',
+                          subagentSlug: templateMap[card.slug]?.subagentSlug,
+                          subagentProfileId: templateMap[card.slug]?.subagentProfileId ?? null,
                         });
                       } else {
                         onQuickstart();
