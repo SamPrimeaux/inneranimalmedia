@@ -574,11 +574,19 @@ const App: React.FC = () => {
     return [{ id: stableAgentChatTabId, conversationId: persisted, title: persisted ? 'Chat' : 'New chat' }];
   });
   const [activeAgentChatTabId, setActiveAgentChatTabId] = useState(() => stableAgentChatTabId);
+  const MESSAGES_SS_KEY = 'iam-agent-chat-messages-v1';
   const [messagesByTabId, setMessagesByTabId] = useState<
     Record<string, { role: 'user' | 'assistant'; content: string }[]>
-  >(() => ({
-    [stableAgentChatTabId]: [{ role: 'assistant', content: buildAgentSamGreeting(formatWorkspaceStatusLine({ source: 'none' })) }],
-  }));
+  >(() => {
+    try {
+      const raw = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('iam-agent-chat-messages-v1') : null;
+      if (raw) {
+        const parsed = JSON.parse(raw) as Record<string, { role: 'user' | 'assistant'; content: string }[]>;
+        if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) return parsed;
+      }
+    } catch { /* ignore */ }
+    return { [stableAgentChatTabId]: [{ role: 'assistant', content: buildAgentSamGreeting(formatWorkspaceStatusLine({ source: 'none' })) }] };
+  });
   const [dbExplorerJump, setDbExplorerJump] = useState<DatabaseExplorerJump | null>(null);
   const [errorCount, setErrorCount] = useState(0);
   const [warningCount, setWarningCount] = useState(0);
@@ -1434,6 +1442,17 @@ const App: React.FC = () => {
       return { ...prev, [activeAgentChatTabId]: [{ role: 'assistant', content: next }] };
     });
   }, [workspaceDisplayLine, activeAgentChatTabId]);
+
+  // Persist chat messages across route navigation (sessionStorage — clears on tab close)
+  useEffect(() => {
+    try {
+      const TRIM_THRESHOLD = 200; // messages per tab
+      const trimmed = Object.fromEntries(
+        Object.entries(messagesByTabId).map(([k, v]) => [k, v.slice(-TRIM_THRESHOLD)])
+      );
+      sessionStorage.setItem(MESSAGES_SS_KEY, JSON.stringify(trimmed));
+    } catch { /* quota or SSR — ignore */ }
+  }, [messagesByTabId, MESSAGES_SS_KEY]);
 
   useEffect(() => {
     const onConv = (e: Event) => {
