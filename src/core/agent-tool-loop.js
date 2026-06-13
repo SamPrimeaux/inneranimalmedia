@@ -1,4 +1,5 @@
 import { dispatchStream, resolveModelMeta } from './provider.js';
+import { appendChatMessage } from './agentsam-chat-sessions.js';
 import { evaluateGuardrails } from './guardrails.js';
 import { pragmaTableInfo } from './retention.js';
 import {
@@ -1629,6 +1630,38 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
         messages: conversationMessages,
       }).catch(() => {}),
     );
+  }
+
+  // Persist user turn + assistant turns to AUTORAG_BUCKET R2 (non-blocking)
+  if (sessionId && userId) {
+    const userMsg = messages?.[0];
+    const userContent = typeof userMsg?.content === 'string'
+      ? userMsg.content
+      : (Array.isArray(userMsg?.content) ? userMsg.content.filter(b => b.type === 'text').map(b => b.text).join('') : '');
+    if (userContent) {
+      appendChatMessage(env, sessionId, {
+        role: 'user',
+        content: userContent,
+        model_key: modelKey ?? null,
+        tokens_in: 0,
+        tokens_out: 0,
+      }).catch((e) => console.warn('[tool-loop] appendChatMessage user', e?.message ?? e));
+    }
+    const assistantText = conversationMessages
+      .filter(m => m.role === 'assistant')
+      .flatMap(m => Array.isArray(m.content) ? m.content : [{ type: 'text', text: String(m.content || '') }])
+      .filter(b => b.type === 'text')
+      .map(b => b.text)
+      .join('');
+    if (assistantText) {
+      appendChatMessage(env, sessionId, {
+        role: 'assistant',
+        content: assistantText,
+        model_key: modelKey ?? null,
+        tokens_in: totalUsage.input_tokens ?? 0,
+        tokens_out: totalUsage.output_tokens ?? 0,
+      }).catch((e) => console.warn('[tool-loop] appendChatMessage assistant', e?.message ?? e));
+    }
   }
 
   safeDone({ tool_calls_used: toolCallsUsed, turns: turnCount });
