@@ -18,7 +18,7 @@ export function newPlanIntakeBatchId() {
 }
 
 /**
- * @param {Array<{ id: string, question: string, options?: string[] }>} raw
+ * @param {Array<{ id: string, question: string, options?: string[], multi_select?: boolean }>} raw
  */
 export function formatPlanIntakeQuestionsForUi(raw) {
   const list = Array.isArray(raw) ? raw : [];
@@ -26,12 +26,12 @@ export function formatPlanIntakeQuestionsForUi(raw) {
     const id = String(q?.id || `q${qi + 1}`).trim();
     const question = String(q?.question || '').trim();
     const opts = Array.isArray(q?.options) ? q.options.map((o) => String(o).trim()).filter(Boolean) : [];
-    const choices = opts.slice(0, 4).map((label, i) => ({
+    const choices = opts.slice(0, 9).map((label, i) => ({
       key: LETTERS[i] || String(i + 1),
       label,
     }));
     choices.push({ key: 'OTHER', label: 'Other…' });
-    return { id, question, choices };
+    return { id, question, choices, multi_select: Boolean(q?.multi_select) };
   });
 }
 
@@ -123,13 +123,15 @@ Return ONLY valid JSON:
     {
       "id": "q1",
       "question": "Specific prioritized question with context",
-      "options": ["option A", "option B", "option C"]
+      "options": ["option A", "option B", "option C"],
+      "multi_select": false
     }
   ]
 }
 Rules:
 - needs_questions false when the goal is already specific (paths, routes, acceptance criteria).
-- Max 3 questions, 3-4 options each (worker adds "Other…").
+- Max 3 questions, 3-9 options each (worker adds "Other…").
+- Set multi_select: true only if picking more than one option genuinely makes sense for that question; otherwise false.
 - Questions must reference the actual goal and exploration — never generic onboarding fluff.
 - phase roadblock: focus on how to unblock (scope change, skip task, alternate approach).`;
 
