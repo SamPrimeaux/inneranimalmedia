@@ -8,6 +8,7 @@ import React, { useEffect, useRef, useState, useCallback, useMemo, Suspense, laz
 import { useLocation, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { ChatAssistant } from './components/ChatAssistant';
 import { WorkspaceDashboard } from './components/WorkspaceDashboard';
+import { WorkspaceDashboardV2 } from './components/WorkspaceDashboardV2';
 import { AgentQuickstartPage, type QuickstartTemplate } from './components/AgentQuickstartPage';
 import {
   AGENT_HOME_PATH,
@@ -3692,7 +3693,7 @@ const App: React.FC = () => {
 
                   {isAgentHomePath(location.pathname) && activeTab === 'Workspace' && (
                       <div className="absolute inset-0 z-10">
-                          <WorkspaceDashboard 
+                          <WorkspaceDashboardV2 
                             onOpenFolder={() => {
                               setActiveActivity('files');
                               setNativeFolderOpenSignal(n => n + 1);
