@@ -32,7 +32,7 @@ import {
   isWorkspaceCapabilityActionIntent,
 } from '../core/workspace-capability-actions/index.js';
 import { scheduleMirrorAgentsamPlanToSupabasePublic } from '../core/agentsam-plan-supabase-public-sync.js';
-import { listUserChatSessions, patchUserChatSession } from '../core/agentsam-chat-sessions.js';
+import { listUserChatSessions, patchUserChatSession, initChatSessionR2, appendChatMessage, getChatMessages } from '../core/agentsam-chat-sessions.js';
 import {
   legacyUnifiedRagSearch,
   handleAgentMemorySync,
@@ -3139,19 +3139,12 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
         return jsonResponse(Array.isArray(rows) ? rows : (rows.messages || []));
       } catch (_) {}
     }
-    if (!env.DB) return jsonResponse([]);
+    // R2 primary storage — fetch messages.jsonl
     const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
-    const userId = await resolveCanonicalUserId(String(authUser.id || ''), env).catch(() => String(authUser.id || ''));
-    const run = await env.DB.prepare(
-      `SELECT id FROM agentsam_agent_run
-       WHERE (id = ? OR conversation_id = ?) AND user_id = ?
-       LIMIT 1`,
-    )
-      .bind(convId, convId, userId)
-      .first()
-      .catch(() => null);
-    if (!run?.id) return jsonResponse([]);
+    const messages = await getChatMessages(env, convId);
+    if (messages.length > 0) return jsonResponse(messages);
+    // Fallback: Durable Object history if R2 empty
     return jsonResponse([]);
   }
 
@@ -3207,10 +3200,6 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
       const body   = await request.json().catch(() => ({}));
       const id     = crypto.randomUUID();
       const name   = (typeof body.name === 'string' && body.name.trim()) ? body.name.trim() : 'New Conversation';
-      const r2Key  = `agent-sessions/${id}/context.json`;
-      const sessCtx = JSON.stringify({ session_id: id, name, created_at: Date.now(), message_count: 0, messages: [] });
-      if (env.R2) await env.R2.put(r2Key, sessCtx, { httpMetadata: { contentType: 'application/json' } }).catch(() => {});
-      if (env.SESSION_CACHE) await env.SESSION_CACHE.put(`sess_ctx:${id}`, sessCtx, { expirationTtl: 86400 }).catch(() => {});
       const wsId =
         authUser.active_workspace_id != null && String(authUser.active_workspace_id).trim() !== ''
           ? String(authUser.active_workspace_id).trim()
@@ -3223,6 +3212,15 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
         .bind(id, userId, wsId, tenantId, id, 'running', body.session_type || 'chat')
         .run()
         .catch(() => {});
+      // Init R2 primary storage for this session (non-blocking)
+      initChatSessionR2(env, {
+        conversationId: id,
+        userId,
+        workspaceId: wsId,
+        tenantId,
+        title: name,
+        modelKey: body.model_key ?? body.modelKey ?? null,
+      }).catch(() => {});
       return jsonResponse({ id, status: 'active' });
     }
     const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit') || '40', 10) || 40, 1), 100);
