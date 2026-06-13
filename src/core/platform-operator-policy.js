@@ -9,6 +9,7 @@ export const PLATFORM_WORKSPACE_ID = 'ws_inneranimalmedia';
 const OPERATOR_TERMINAL_TOOL_KEYS = new Set([
   'agentsam_terminal_local',
   'agentsam_terminal_remote',
+  'agentsam_container_exec',
 ]);
 
 function trim(v) {

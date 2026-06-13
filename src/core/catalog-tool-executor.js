@@ -1009,6 +1009,85 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
       break;
     }
 
+    case 'container': {
+      const { buildTerminalToolResponseBody } = await import('./mcp-terminal-contract.js');
+      const { isOperatorOnlyTerminalTool, userIsPlatformOperator } = await import(
+        './platform-operator-policy.js'
+      );
+      const { tryContainerExec } = await import('./my-container.js');
+
+      if (isOperatorOnlyTerminalTool(toolKey)) {
+        const op = await userIsPlatformOperator(env, runContext?.authUser, workspaceId);
+        if (!op) {
+          result = {
+            ok: false,
+            error: 'platform_operator_required',
+            body: {
+              user_message:
+                'agentsam_container_exec is restricted to platform operators (cloud sandbox batch exec).',
+            },
+          };
+          break;
+        }
+      }
+
+      const cmd = String(params.command || params.cmd || '').trim();
+      if (!cmd) {
+        result = { ok: false, error: 'container tool requires command in input' };
+        break;
+      }
+
+      const cwd = params.cwd != null ? String(params.cwd).trim() : '';
+      const timeoutMs =
+        params.timeout_ms != null
+          ? Number(params.timeout_ms)
+          : params.timeoutMs != null
+            ? Number(params.timeoutMs)
+            : undefined;
+
+      const execOut = await tryContainerExec(env, {
+        command: cmd,
+        cwd: cwd || undefined,
+        timeout_ms: Number.isFinite(timeoutMs) ? timeoutMs : undefined,
+      });
+
+      if (!execOut?.ok) {
+        result = {
+          ok: false,
+          error: execOut?.error || 'container_exec_failed',
+          body: {
+            lane: 'container',
+            image: execOut?.image ?? null,
+            command: cmd,
+            stdout: execOut?.stdout ?? '',
+            stderr: execOut?.stderr ?? '',
+            exit_code: execOut?.exit_code ?? null,
+            http_status: execOut?.http_status ?? null,
+          },
+        };
+        break;
+      }
+
+      const body = buildTerminalToolResponseBody({
+        explicitPath: cwd || '/tmp',
+        executedCommand: cmd,
+        stdout: String(execOut.stdout ?? ''),
+        stderr: String(execOut.stderr ?? ''),
+        exitCode: execOut.exit_code ?? 0,
+        status: execOut.exit_code === 0 ? 'success' : 'error',
+      });
+
+      result = {
+        ok: true,
+        body: {
+          ...body,
+          lane: 'container',
+          image: execOut.image ?? null,
+        },
+      };
+      break;
+    }
+
     case 'terminal': {
       const {
         assertTerminalLocalArgs,

@@ -126,6 +126,37 @@ export function agentsamTerminalSandboxInputSchema() {
   };
 }
 
+/** @type {Record<string, unknown>} */
+export const CANONICAL_AGENTSAM_CONTAINER_EXEC_INPUT_SCHEMA = {
+  type: 'object',
+  properties: {
+    command: {
+      type: 'string',
+      description:
+        'Non-interactive shell command to run in the MY_CONTAINER cloud sandbox (Alpine Linux). Example: uname -a',
+    },
+    cwd: {
+      type: 'string',
+      description: 'Optional working directory inside the container (default /tmp).',
+    },
+    timeout_ms: {
+      type: 'integer',
+      description: 'Optional timeout in milliseconds.',
+    },
+  },
+  required: ['command'],
+  additionalProperties: false,
+};
+
+/** @returns {Record<string, unknown>} */
+export function agentsamContainerExecInputSchema() {
+  return {
+    ...CANONICAL_AGENTSAM_CONTAINER_EXEC_INPUT_SCHEMA,
+    properties: { ...CANONICAL_AGENTSAM_CONTAINER_EXEC_INPUT_SCHEMA.properties },
+    required: [...CANONICAL_AGENTSAM_CONTAINER_EXEC_INPUT_SCHEMA.required],
+  };
+}
+
 /**
  * @param {Record<string, unknown>} params
  * @returns {string|null} error message when invalid

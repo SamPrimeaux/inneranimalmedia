@@ -12,6 +12,7 @@ import { agentsamGithubWriteInputSchema } from './mcp-github-write-schema.js';
 import {
   agentsamTerminalLocalInputSchema,
   agentsamTerminalRemoteInputSchema,
+  agentsamContainerExecInputSchema,
 } from './mcp-terminal-contract.js';
 
 /** Lightweight lane inference (avoids mcp-tools-branded → retention import chain in Node smoke). */
@@ -19,6 +20,7 @@ function inferLaneFromMessage(message, modeSlug) {
   const m = String(message || '').toLowerCase();
   const mode = String(modeSlug || '').toLowerCase();
   if (/\b(browser|playwright|screenshot|inspect dom|devtools)\b/i.test(m)) return 'inspect';
+  if (/\b(cloud sandbox|my.container|container exec|batch exec)\b/i.test(m)) return 'terminal';
   if (/\b(sql|d1|database|github|terminal|wrangler|code|patch)\b/i.test(m)) return 'develop';
   if (/\b(remember|recall|rag|search docs|embedding|context)\b/i.test(m)) return 'research';
   if (mode === 'ask') return 'think';
@@ -67,6 +69,7 @@ export const EXECUTABLE_HANDLER_TYPES = new Set([
   'media',
   'canvas',
   'integrations',
+  'container',
 ]);
 
 /**
@@ -238,7 +241,7 @@ async function loadCatalogRowsForMcpTemplate(db, runtimeCtx, serverKeys, limit =
 }
 
 export const LANE_TO_TOOL_CATEGORIES = {
-  develop: ['terminal', 'filesystem', 'd1', 'github', 'deploy', 'cloudflare', 'agent', 'storage'],
+  develop: ['terminal', 'container', 'filesystem', 'd1', 'github', 'deploy', 'cloudflare', 'agent', 'storage'],
   inspect: ['browser', 'ui'],
   research: ['knowledge', 'context', 'memory', 'ai'],
   think: ['ai', 'memory', 'context', 'agent', 'knowledge'],
@@ -250,7 +253,7 @@ export const LANE_TO_TOOL_CATEGORIES = {
   general: ['agent', 'ai', 'context', 'knowledge'],
   memory: ['memory'],
   data: ['d1', 'supabase'],
-  terminal: ['terminal'],
+  terminal: ['terminal', 'container'],
 };
 
 /** Lane category → dotted `tool_category` prefixes (canonical catalog rows). */
@@ -258,6 +261,7 @@ const CATEGORY_LIKE_PREFIXES = /** @type {Record<string, string[]>} */ ({
   d1: ['database.d1%'],
   supabase: ['database.supabase%', 'database.hyperdrive%'],
   terminal: ['terminal.%'],
+  container: ['container.%'],
   filesystem: ['filesystem.%'],
   github: ['github.%'],
   memory: ['memory.%'],
@@ -441,6 +445,7 @@ export function inputSchemaFromAgentsamToolRow(row) {
   if (tk === 'agentsam_github_write') return agentsamGithubWriteInputSchema();
   if (tk === 'agentsam_terminal_local') return agentsamTerminalLocalInputSchema();
   if (tk === 'agentsam_terminal_remote') return agentsamTerminalRemoteInputSchema();
+  if (tk === 'agentsam_container_exec') return agentsamContainerExecInputSchema();
 
   const parsed = parseJsonSafe(row?.input_schema, null);
   if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
@@ -519,6 +524,7 @@ export function validateHandlerConfigForExecution(row, config, executableTypes =
       break;
     case 'hyperdrive':
     case 'supabase':
+    case 'container':
     case 'terminal':
     case 'r2':
     case 'websearch':
