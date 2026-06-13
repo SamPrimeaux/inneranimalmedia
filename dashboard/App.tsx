@@ -920,6 +920,8 @@ const App: React.FC = () => {
 
   const [browserUrl, setBrowserUrl] = useState<string>('https://inneranimalmedia.com');
 
+  const isDesignStudioRoute = location.pathname.startsWith('/dashboard/designstudio');
+
   const agentWorkspaceContext = useMemo<AgentWorkspaceContextPacket>(
     () => ({
       activeTab: String(activeTab),
@@ -3245,6 +3247,7 @@ const App: React.FC = () => {
                         editorCursorColumn={cursorPos.col}
                         agentsamPolicy={agentsamChatPolicy}
                         workspaceId={authWorkspaceId}
+                        defaultSubagentSlug={isDesignStudioRoute ? 'cadcreator' : undefined}
                         messages={chatMessages} 
                         setMessages={setChatMessages} 
                         onOpenChatHistory={() => setActiveActivity('search')}
@@ -3927,6 +3930,7 @@ const App: React.FC = () => {
                             editorCursorColumn={cursorPos.col}
                             agentsamPolicy={agentsamChatPolicy}
                             workspaceId={authWorkspaceId}
+                            defaultSubagentSlug={isDesignStudioRoute ? 'cadcreator' : undefined}
                             messages={chatMessages} 
                             setMessages={setChatMessages} 
                             onOpenChatHistory={() => setActiveActivity('search')}

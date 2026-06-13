@@ -579,7 +579,7 @@ export async function compileModeProfile(env, input) {
   const effectiveRouteReq = (() => {
     let req = routeToolRequirements;
     // Routes that own their own tool set — skip evidence augmentation entirely
-    const AUGMENTATION_EXEMPT_ROUTES = new Set(['design_intake', 'cms_code_pass', 'mcp_panel']);
+    const AUGMENTATION_EXEMPT_ROUTES = new Set(['design_intake', 'cad_generation', 'design_studio', 'cms_code_pass', 'mcp_panel']);
     const skipAugment =
       AUGMENTATION_EXEMPT_ROUTES.has(routeKey) ||
       AUGMENTATION_EXEMPT_ROUTES.has(taskType) ||

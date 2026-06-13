@@ -208,6 +208,8 @@ export type { AgentWorkspaceContextPacket };
 export interface ChatAssistantProps {
   activeProject: ProjectType;
   activeFileContent?: string;
+  /** Surface-level default subagent slug — pinned on every message from this surface. */
+  defaultSubagentSlug?: string;
   messages: Message[];
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
   onFileSelect?: (file: Pick<ActiveFile, 'name' | 'content'> & Partial<ActiveFile> & { workspacePath?: string }) => void;

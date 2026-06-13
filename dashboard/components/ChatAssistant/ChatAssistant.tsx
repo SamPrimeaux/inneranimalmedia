@@ -140,6 +140,7 @@ import {
 
 type ChatRoutingSendOpts = {
   modelKey?: string;
+  subagent_slug?: string;
   task_type?: string;
   route_key?: string;
   quickstart_batch?: string;
@@ -183,6 +184,7 @@ export { IAM_AGENT_CHAT_CONVERSATION_CHANGE, IAM_AGENT_CHAT_NEW_THREAD } from '.
 export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   activeProject,
   activeFileContent,
+  defaultSubagentSlug,
   activeFileName,
   activeFile,
   editorCursorLine,
@@ -2239,6 +2241,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     if (effectiveWsId) form.append('workspace_id', effectiveWsId);
     if (sendOpts?.task_type?.trim()) form.append('task_type', sendOpts.task_type.trim());
     if (sendOpts?.route_key?.trim()) form.append('route_key', sendOpts.route_key.trim());
+    const effectiveSubagentSlug = sendOpts?.subagent_slug?.trim() || defaultSubagentSlug?.trim() || '';
+    if (effectiveSubagentSlug) form.append('subagent_slug', effectiveSubagentSlug);
     if (sendOpts?.quickstart_batch?.trim()) {
       form.append('quickstart_batch', sendOpts.quickstart_batch.trim());
     }
