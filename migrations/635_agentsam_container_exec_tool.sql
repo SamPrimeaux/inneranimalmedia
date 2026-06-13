@@ -16,7 +16,7 @@ INSERT OR REPLACE INTO agentsam_tools (
   'agentsam_container_exec',
   'Container Batch Exec',
   'container.exec',
-  'container',
+  'terminal',
   'Run a non-interactive shell command in the Cloudflare MY_CONTAINER cloud sandbox (Alpine Linux, batch exec). Use when the user asks for cloud sandbox, container lane, or batch exec (e.g. uname -a). NOT for interactive shells — use agentsam_terminal_local or agentsam_terminal_remote for PTY/tunnel shells. Platform operators only.',
   '{"type":"object","properties":{"command":{"type":"string","description":"Shell command inside the cloud container (e.g. uname -a)."},"cwd":{"type":"string","description":"Optional cwd inside container (default /tmp)."},"timeout_ms":{"type":"integer","description":"Optional timeout ms."}},"required":["command"],"additionalProperties":false}',
   '{"auth_source":"platform","target_type":"my_container","binding":"MY_CONTAINER","pool_id":"meaux-pool","image_tag":"sandbox-v2"}',

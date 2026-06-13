@@ -535,6 +535,13 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
   const toolName = String(row.tool_name || row.tool_key || '').trim();
 
   if (
+    toolKey === 'agentsam_container_exec' ||
+    String(config.target_type || '').toLowerCase() === 'my_container'
+  ) {
+    handlerType = 'container';
+  }
+
+  if (
     toolKey === 'knowledge_search' ||
     ((handlerType === 'hyperdrive' || handlerType === 'supabase') &&
       String(execConfig.dispatcher || '').toLowerCase().includes('semantic'))
