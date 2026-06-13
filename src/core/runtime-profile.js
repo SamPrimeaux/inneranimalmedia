@@ -576,10 +576,20 @@ export async function compileModeProfile(env, input) {
       })
     : null;
 
+  // Routes that own their own tool set — skip evidence augmentation entirely
+  const AUGMENTATION_EXEMPT_ROUTES = new Set(['design_intake', 'cad_generation', 'design_studio', 'cms_code_pass', 'mcp_panel']);
+  // Hard tool_key allowlist for exempt routes — bypasses lane/category catalog selection entirely.
+  // routeKeyRaw collapses to modeSlug ('agent') inside resolveAgentChatRouteToolRequirements,
+  // so route_key/task_type never narrow the base catalog there. This allowlist is the only
+  // reliable narrowing point and is applied via selectAgentsamToolsForAgentChat's allowlistKeys.
+  const EXEMPT_ROUTE_TOOL_ALLOWLIST = {
+    design_intake: ['agentsam_d1_write', 'fs_read_file', 'agentsam_memory_manager'],
+    cad_generation: ['agentsam_d1_write', 'fs_read_file', 'agentsam_memory_manager', 'agentsam_r2_put'],
+    design_studio: ['agentsam_d1_write', 'fs_read_file', 'agentsam_memory_manager', 'agentsam_r2_put'],
+  };
+
   const effectiveRouteReq = (() => {
     let req = routeToolRequirements;
-    // Routes that own their own tool set — skip evidence augmentation entirely
-    const AUGMENTATION_EXEMPT_ROUTES = new Set(['design_intake', 'cad_generation', 'design_studio', 'cms_code_pass', 'mcp_panel']);
     const skipAugment =
       AUGMENTATION_EXEMPT_ROUTES.has(routeKey) ||
       AUGMENTATION_EXEMPT_ROUTES.has(taskType) ||
@@ -631,7 +641,17 @@ export async function compileModeProfile(env, input) {
     maxTools > 0
   ) {
     const { selectAgentsamToolsForAgentChat } = await import('./agentsam-tools-catalog.js');
+    const exemptAllowlistKey = AUGMENTATION_EXEMPT_ROUTES.has(routeKey)
+      ? routeKey
+      : AUGMENTATION_EXEMPT_ROUTES.has(taskType)
+        ? taskType
+        : AUGMENTATION_EXEMPT_ROUTES.has(input.routeKeyPin)
+          ? input.routeKeyPin
+          : null;
+    const exemptAllowlist = exemptAllowlistKey ? EXEMPT_ROUTE_TOOL_ALLOWLIST[exemptAllowlistKey] : null;
+    const allowlistKeys = exemptAllowlist ? new Set(exemptAllowlist.map((k) => k.toLowerCase())) : null;
     const det = await selectAgentsamToolsForAgentChat(env.DB, { userId, tenantId, workspaceId }, {
+      allowlistKeys,
       routeToolRequirements: effectiveRouteReq || {
         route_key: routeKey,
         task_type: taskType,
