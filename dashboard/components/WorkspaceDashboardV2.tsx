@@ -481,7 +481,7 @@ export const WorkspaceDashboardV2: React.FC<WorkspaceDashboardProps> = ({
                           description: card.sub,
                           modelHint: 'auto',
                           seedMessage: templateMap[card.slug]?.seedMessage
-                            ?? `Quickstart: ${card.label}. Load the design-intake skill branch ${card.slug}. Run the intake questionnaire for this card type.`,
+                            ?? `Quickstart: ${card.label}. You are handling a card-triggered design intake. Follow the ${card.label} branch in skill_design_intake. Ask the intake questionnaire for ${card.label} — do not generate anything until questions are answered.`,
                           task_type: templateMap[card.slug]?.task_type ?? 'design_intake',
                           route_key: templateMap[card.slug]?.route_key ?? 'design_intake',
                           subagentSlug: templateMap[card.slug]?.subagentSlug,
