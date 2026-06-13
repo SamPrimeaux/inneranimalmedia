@@ -20,6 +20,7 @@ import {
   GitBranch,
 } from 'lucide-react';
 import type { RecentFileEntry } from '../src/ideWorkspace';
+import type { QuickstartTemplate } from './AgentQuickstartPage';
 import { SetiFileIcon } from '../src/components/SetiFileIcon';
 import { usePlanTasksRealtime } from '../src/hooks/usePlanTasksRealtime';
 import { readRecentWorkspacesFromLocalStorage } from '../src/recentWorkspacesStorage';
@@ -33,6 +34,7 @@ interface WorkspaceDashboardProps {
   authWorkspaceId: string | null;
   onSwitchWorkspace: (id: string) => void;
   onQuickstart: () => void;
+  onBeginTemplate?: (template: QuickstartTemplate) => void;
   onRunVerificationCommand?: (command: string) => void;
   onOpenEditor?: () => void;
   onOpenRecent: (entry: RecentFileEntry) => void;
@@ -47,15 +49,15 @@ interface WorkspaceDashboardProps {
 type NavTab = 'recent' | 'workspaces' | 'systems' | 'examples';
 
 const TEMPLATE_CARDS = [
-  { id: 'start',     icon: Plus,          label: 'Start anywhere',    sub: 'Add a file and design',    start: true },
-  { id: 'slides',    icon: Layout,        label: 'Slides',            sub: 'Decks & reviews' },
-  { id: 'prototype', icon: MousePointer,  label: 'Prototype',         sub: 'Clickable & interactive' },
-  { id: 'wireframe', icon: Square,        label: 'Product wireframe', sub: 'Lo-fi screens & flows' },
-  { id: 'doc',       icon: FileText,      label: 'Doc',               sub: 'Resumes, PDFs, etc.' },
-  { id: 'animation', icon: Film,          label: 'Animation',         sub: 'Motion & video' },
-  { id: 'blank',     icon: Square,        label: 'Blank canvas',      sub: 'Start from scratch' },
-  { id: 'flow',      icon: GitBranch,     label: 'Flowchart',         sub: 'Diagrams & maps' },
-  { id: 'component', icon: Sparkles,      label: 'Component set',     sub: 'Reusable UI pieces' },
+  { id: 'start',     slug: 'start-anywhere',    icon: Plus,          label: 'Start anywhere',    sub: 'Add a file and design',    start: true },
+  { id: 'slides',    slug: 'card-slides',        icon: Layout,        label: 'Slides',            sub: 'Decks & reviews' },
+  { id: 'prototype', slug: 'card-prototype',     icon: MousePointer,  label: 'Prototype',         sub: 'Clickable & interactive' },
+  { id: 'wireframe', slug: 'card-wireframe',     icon: Square,        label: 'Product wireframe', sub: 'Lo-fi screens & flows' },
+  { id: 'doc',       slug: 'card-doc',           icon: FileText,      label: 'Doc',               sub: 'Resumes, PDFs, etc.' },
+  { id: 'animation', slug: 'card-animation',     icon: Film,          label: 'Animation',         sub: 'Motion & video' },
+  { id: 'blank',     slug: 'card-blank-canvas',  icon: Square,        label: 'Blank canvas',      sub: 'Start from scratch' },
+  { id: 'flow',      slug: 'card-flowchart',     icon: GitBranch,     label: 'Flowchart',         sub: 'Diagrams & maps' },
+  { id: 'component', slug: 'card-component-set', icon: Sparkles,      label: 'Component set',     sub: 'Reusable UI pieces' },
 ] as const;
 
 function summarizeUnknownTask(row: unknown): string {
@@ -88,6 +90,7 @@ export const WorkspaceDashboardV2: React.FC<WorkspaceDashboardProps> = ({
   authWorkspaceId,
   onSwitchWorkspace,
   onQuickstart,
+  onBeginTemplate,
   onRunVerificationCommand,
   onOpenRecent,
   workspacePlanTasks = [],
@@ -456,7 +459,22 @@ export const WorkspaceDashboardV2: React.FC<WorkspaceDashboardProps> = ({
                   <button
                     key={card.id}
                     type="button"
-                    onClick={onQuickstart}
+                    onClick={() => {
+                      if (onBeginTemplate) {
+                        onBeginTemplate({
+                          id: `card_${card.id}`,
+                          slug: card.slug,
+                          name: card.label,
+                          description: card.sub,
+                          modelHint: 'auto',
+                          seedMessage: `Quickstart: ${card.label}. Load the design-intake skill branch ${card.slug}. Run the intake questionnaire for this card type.`,
+                          task_type: 'design_intake',
+                          route_key: 'design_intake',
+                        });
+                      } else {
+                        onQuickstart();
+                      }
+                    }}
                     className="flex-none flex flex-col rounded-xl overflow-hidden transition-all text-left"
                     style={{
                       width: 148,

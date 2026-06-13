@@ -3709,6 +3709,7 @@ const App: React.FC = () => {
                             authWorkspaceId={authWorkspaceId}
                             onSwitchWorkspace={persistActiveWorkspace}
                             onQuickstart={openAgentQuickstart}
+                            onBeginTemplate={beginQuickstartTemplate}
                             onRunVerificationCommand={runVerificationInAgent}
                             onOpenEditor={focusCodeEditorFromChat}
                             workspacePlanTasks={Array.isArray(workspaceSamState?.next_tasks) ? (workspaceSamState!.next_tasks as unknown[]) : []}
