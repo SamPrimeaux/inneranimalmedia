@@ -1,6 +1,12 @@
 /**
  * agentsam_chat_sessions — conversation titling metadata (display layer).
  * INSERT OR IGNORE on first chat message; never overwrites existing titles.
+ *
+ * R2 primary storage (migration 637):
+ *   context/{au_id}/{ws_id}/chats/{conversation_id}/meta.json
+ *   context/{au_id}/{ws_id}/chats/{conversation_id}/messages.jsonl
+ *   context/{au_id}/{ws_id}/chats/{conversation_id}/digest.md        ← compaction
+ *   context/{au_id}/{ws_id}/chats/{conversation_id}/digests/{epoch}.md
  */
 import { getWorkspaceGithubRepo } from './agentsam-workspace.js';
 
@@ -10,6 +16,20 @@ const STOP_WORDS = new Set([
   'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'i', 'you', 'he', 'she', 'it', 'we',
   'they', 'my', 'your', 'me', 'us', 'them', 'this', 'that', 'these', 'those', 'please', 'hey', 'hi',
 ]);
+
+/**
+ * Build the canonical R2 key prefix for a chat session.
+ * Pattern: context/{au_id}/{ws_id}/chats/{conversation_id}/
+ *
+ * @param {{ userId: string, workspaceId: string, conversationId: string }} input
+ * @returns {string}
+ */
+function chatSessionR2Prefix({ userId, workspaceId, conversationId }) {
+  const au = String(userId || '').trim();
+  const ws = String(workspaceId || '').trim();
+  const cv = String(conversationId || '').trim();
+  return `context/${au}/${ws}/chats/${cv}`;
+}
 
 /**
  * @param {string} message
@@ -69,6 +89,230 @@ export async function resolveGithubRepoForChatSession(env, input) {
 }
 
 /**
+ * Write meta.json to R2 and backfill r2_messages_key + r2_meta_key on the D1 row.
+ * Called once after a new agentsam_chat_sessions row is inserted.
+ *
+ * @param {any} env
+ * @param {{
+ *   conversationId: string,
+ *   userId: string,
+ *   workspaceId: string,
+ *   tenantId: string,
+ *   title?: string,
+ *   modelKey?: string|null,
+ *   githubRepo?: string|null,
+ * }} session
+ * @returns {Promise<{ ok: boolean, metaKey: string, messagesKey: string }>}
+ */
+export async function initChatSessionR2(env, session) {
+  const conversationId = String(session.conversationId || '').trim();
+  const userId = String(session.userId || '').trim();
+  const workspaceId = String(session.workspaceId || '').trim();
+  const tenantId = String(session.tenantId || '').trim();
+
+  if (!conversationId || !userId || !workspaceId) {
+    return { ok: false, metaKey: '', messagesKey: '' };
+  }
+
+  const prefix = chatSessionR2Prefix({ userId, workspaceId, conversationId });
+  const metaKey = `${prefix}/meta.json`;
+  const messagesKey = `${prefix}/messages.jsonl`;
+
+  const meta = {
+    conversation_id: conversationId,
+    user_id: userId,
+    workspace_id: workspaceId,
+    tenant_id: tenantId,
+    title: String(session.title || 'New Chat').trim(),
+    model_key: session.modelKey ?? null,
+    github_repo: session.githubRepo ?? null,
+    created_at: new Date().toISOString(),
+    r2_messages_key: messagesKey,
+  };
+
+  try {
+    if (env.AUTORAG_BUCKET) {
+      await env.AUTORAG_BUCKET.put(metaKey, JSON.stringify(meta), {
+        httpMetadata: { contentType: 'application/json' },
+      });
+    } else if (env.R2) {
+      await env.R2.put(metaKey, JSON.stringify(meta), {
+        httpMetadata: { contentType: 'application/json' },
+      });
+    }
+  } catch (e) {
+    console.warn('[initChatSessionR2] R2 meta write failed', e?.message ?? e);
+  }
+
+  if (env.DB && conversationId && tenantId) {
+    try {
+      await env.DB.prepare(
+        `UPDATE agentsam_chat_sessions
+         SET r2_meta_key = ?, r2_messages_key = ?, updated_at = unixepoch()
+         WHERE conversation_id = ? AND tenant_id = ?`,
+      )
+        .bind(metaKey, messagesKey, conversationId, tenantId)
+        .run();
+    } catch (e) {
+      console.warn('[initChatSessionR2] D1 key backfill failed', e?.message ?? e);
+    }
+  }
+
+  return { ok: true, metaKey, messagesKey };
+}
+
+/**
+ * Append a turn to messages.jsonl in R2 (get → append → put).
+ * Increments message_count and token accumulators on the D1 row.
+ *
+ * @param {any} env
+ * @param {string} conversationId
+ * @param {{
+ *   role: 'user'|'assistant'|'tool',
+ *   content: string,
+ *   model_key?: string|null,
+ *   tokens_in?: number,
+ *   tokens_out?: number,
+ * }} turn
+ * @returns {Promise<{ ok: boolean }>}
+ */
+export async function appendChatMessage(env, conversationId, turn) {
+  const convId = String(conversationId || '').trim();
+  if (!convId) return { ok: false };
+
+  // Resolve the R2 key from D1 — avoids duplicating key-building logic if userId/workspaceId differ
+  let messagesKey = null;
+  if (env.DB) {
+    try {
+      const row = await env.DB.prepare(
+        `SELECT r2_messages_key, user_id, workspace_id FROM agentsam_chat_sessions
+         WHERE conversation_id = ? LIMIT 1`,
+      )
+        .bind(convId)
+        .first();
+      messagesKey = row?.r2_messages_key ?? null;
+      // If key not yet written (race: first message before initChatSessionR2 completes), build it
+      if (!messagesKey && row?.user_id && row?.workspace_id) {
+        const prefix = chatSessionR2Prefix({
+          userId: row.user_id,
+          workspaceId: row.workspace_id,
+          conversationId: convId,
+        });
+        messagesKey = `${prefix}/messages.jsonl`;
+      }
+    } catch (e) {
+      console.warn('[appendChatMessage] D1 key lookup failed', e?.message ?? e);
+    }
+  }
+
+  if (!messagesKey) return { ok: false };
+
+  const bucket = env.AUTORAG_BUCKET ?? env.R2 ?? null;
+  if (!bucket) return { ok: false };
+
+  const line = JSON.stringify({
+    role: String(turn.role || 'user'),
+    content: String(turn.content || ''),
+    ts: new Date().toISOString(),
+    model_key: turn.model_key ?? null,
+    tokens_in: Number(turn.tokens_in) || 0,
+    tokens_out: Number(turn.tokens_out) || 0,
+  }) + '\n';
+
+  try {
+    let existing = '';
+    const obj = await bucket.get(messagesKey);
+    if (obj) existing = await obj.text();
+    await bucket.put(messagesKey, existing + line, {
+      httpMetadata: { contentType: 'application/x-ndjson' },
+    });
+  } catch (e) {
+    console.warn('[appendChatMessage] R2 append failed', e?.message ?? e);
+    return { ok: false };
+  }
+
+  // Update D1 accumulators — best-effort, non-blocking
+  if (env.DB) {
+    env.DB.prepare(
+      `UPDATE agentsam_chat_sessions
+       SET message_count    = COALESCE(message_count, 0) + 1,
+           total_tokens_in  = COALESCE(total_tokens_in, 0) + ?,
+           total_tokens_out = COALESCE(total_tokens_out, 0) + ?,
+           last_model_key   = COALESCE(?, last_model_key),
+           updated_at       = unixepoch()
+       WHERE conversation_id = ?`,
+    )
+      .bind(
+        Number(turn.tokens_in) || 0,
+        Number(turn.tokens_out) || 0,
+        turn.model_key ?? null,
+        convId,
+      )
+      .run()
+      .catch((e) => console.warn('[appendChatMessage] D1 accumulator update failed', e?.message ?? e));
+  }
+
+  return { ok: true };
+}
+
+/**
+ * Fetch and parse messages.jsonl from R2.
+ * Returns an array of turn objects in chronological order.
+ *
+ * @param {any} env
+ * @param {string} conversationId
+ * @returns {Promise<Array<{ role: string, content: string, ts: string, model_key: string|null, tokens_in: number, tokens_out: number }>>}
+ */
+export async function getChatMessages(env, conversationId) {
+  const convId = String(conversationId || '').trim();
+  if (!convId) return [];
+
+  let messagesKey = null;
+  if (env.DB) {
+    try {
+      const row = await env.DB.prepare(
+        `SELECT r2_messages_key, user_id, workspace_id FROM agentsam_chat_sessions
+         WHERE conversation_id = ? LIMIT 1`,
+      )
+        .bind(convId)
+        .first();
+      messagesKey = row?.r2_messages_key ?? null;
+      if (!messagesKey && row?.user_id && row?.workspace_id) {
+        const prefix = chatSessionR2Prefix({
+          userId: row.user_id,
+          workspaceId: row.workspace_id,
+          conversationId: convId,
+        });
+        messagesKey = `${prefix}/messages.jsonl`;
+      }
+    } catch (e) {
+      console.warn('[getChatMessages] D1 key lookup failed', e?.message ?? e);
+    }
+  }
+
+  if (!messagesKey) return [];
+
+  const bucket = env.AUTORAG_BUCKET ?? env.R2 ?? null;
+  if (!bucket) return [];
+
+  try {
+    const obj = await bucket.get(messagesKey);
+    if (!obj) return [];
+    const raw = await obj.text();
+    return raw
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => {
+        try { return JSON.parse(line); } catch { return null; }
+      })
+      .filter(Boolean);
+  } catch (e) {
+    console.warn('[getChatMessages] R2 fetch failed', e?.message ?? e);
+    return [];
+  }
+}
+
+/**
  * Non-blocking INSERT OR IGNORE for first message on a conversation.
  *
  * @param {any} env
@@ -123,6 +367,20 @@ export function scheduleChatSessionTitleInsert(env, ctx, input) {
         .run();
 
       const inserted = Number(ins?.meta?.changes ?? ins?.changes ?? 0) > 0;
+
+      // Fire R2 init for new sessions — non-blocking
+      if (inserted && workspaceId) {
+        initChatSessionR2(env, {
+          conversationId,
+          userId,
+          workspaceId,
+          tenantId,
+          title,
+          modelKey,
+          githubRepo,
+        }).catch((e) => console.warn('[scheduleChatSessionTitleInsert] initChatSessionR2', e?.message ?? e));
+      }
+
       if (inserted) return;
 
       await env.DB.prepare(
