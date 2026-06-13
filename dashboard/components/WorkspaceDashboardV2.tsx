@@ -101,6 +101,7 @@ export const WorkspaceDashboardV2: React.FC<WorkspaceDashboardProps> = ({
   const displayPlanTasks: unknown[] = activePlanId ? (realtimePlanTasks as unknown[]) : workspacePlanTasks;
 
   const [activeNav, setActiveNav] = useState<NavTab>('recent');
+  const [showDSSetup, setShowDSSetup] = useState(false);
   const [searchVal, setSearchVal] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number>(0);
@@ -215,7 +216,187 @@ export const WorkspaceDashboardV2: React.FC<WorkspaceDashboardProps> = ({
       </div>
 
       {/* ── BODY ── */}
-      <div className="flex-1 overflow-y-auto px-8 py-8 no-scrollbar">
+      <div className="flex-1 overflow-y-auto no-scrollbar" style={{ position: 'relative' }}>
+
+        {/* ── Design System Setup full panel ── */}
+        {showDSSetup && (
+          <div
+            className="flex flex-col h-full overflow-y-auto no-scrollbar"
+            style={{ background: 'var(--dashboard-canvas)' }}
+          >
+            {/* Header */}
+            <div
+              className="flex items-center justify-between px-8 py-5"
+              style={{ borderBottom: '1px solid var(--dashboard-border)' }}
+            >
+              <button
+                type="button"
+                onClick={() => setShowDSSetup(false)}
+                className="flex items-center gap-1.5 text-[13px] transition-colors"
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = 'var(--dashboard-text)'; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)'; }}
+              >
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <path d="M9 2L3 7l6 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                Back
+              </button>
+              <button
+                type="button"
+                className="flex items-center gap-2 px-4 py-1.5 rounded-lg text-[12px] font-medium"
+                style={{
+                  background: 'var(--dashboard-panel)',
+                  border: '1px solid var(--dashboard-border)',
+                  color: 'var(--text-muted)',
+                  cursor: 'pointer',
+                }}
+              >
+                Continue to generation
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <path d="M2 6h8M7 3l3 3-3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="flex flex-col items-center px-8 py-12 gap-8" style={{ maxWidth: 640, margin: '0 auto', width: '100%' }}>
+
+              {/* Icon + title */}
+              <div className="flex flex-col items-center gap-3 text-center">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" style={{ color: 'var(--dashboard-text)' }}>
+                  <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
+                </svg>
+                <h2 className="text-[22px] font-semibold tracking-tight" style={{ color: 'var(--dashboard-text)' }}>
+                  Set up your design system
+                </h2>
+                <p className="text-[13px]" style={{ color: 'var(--text-muted)', maxWidth: 400 }}>
+                  Tell Agent Sam about your company and attach any design resources you have.
+                </p>
+              </div>
+
+              {/* Company blurb */}
+              <div className="flex flex-col gap-2 w-full">
+                <label className="text-[12px] font-medium" style={{ color: 'var(--dashboard-text)' }}>
+                  Company name and blurb{' '}
+                  <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(or name of design system)</span>
+                </label>
+                <textarea
+                  rows={3}
+                  placeholder="e.g. Inner Animal Media — AI agent SaaS platform. Dark-first UI, Cloudflare Workers + React/Vite, no emoji in agent output, D1-driven everything."
+                  className="w-full rounded-lg px-4 py-3 text-[13px] resize-none"
+                  style={{
+                    background: 'var(--dashboard-panel)',
+                    border: '1px solid var(--dashboard-border)',
+                    color: 'var(--dashboard-text)',
+                    outline: 'none',
+                    fontFamily: 'inherit',
+                    lineHeight: 1.5,
+                  }}
+                />
+              </div>
+
+              {/* Upload group */}
+              <div className="flex flex-col gap-2 w-full">
+                <div className="flex flex-col gap-0.5 mb-1">
+                  <span className="text-[13px] font-medium" style={{ color: 'var(--dashboard-text)' }}>
+                    Provide examples of your design system and products{' '}
+                    <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(all optional)</span>
+                  </span>
+                  <span className="text-[12px]" style={{ color: 'var(--text-muted)' }}>
+                    What works best: code and designs for your design system and your code products.
+                  </span>
+                </div>
+
+                <div className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--dashboard-border)' }}>
+                  {/* GitHub row */}
+                  <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid var(--dashboard-border)' }}>
+                    <span className="text-[12px] font-medium" style={{ color: 'var(--dashboard-text)' }}>Link code from GitHub</span>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        placeholder="https://github.com/owner/repo"
+                        className="rounded-md px-3 py-1.5 text-[12px]"
+                        style={{
+                          background: 'var(--dashboard-canvas)',
+                          border: '1px solid var(--dashboard-border)',
+                          color: 'var(--dashboard-text)',
+                          outline: 'none',
+                          width: 220,
+                          fontFamily: 'inherit',
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="px-3 py-1.5 rounded-md text-[12px]"
+                        style={{
+                          background: 'var(--dashboard-canvas)',
+                          border: '1px solid var(--dashboard-border)',
+                          color: 'var(--dashboard-text)',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Add
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Computer row */}
+                  <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid var(--dashboard-border)' }}>
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-[12px] font-medium" style={{ color: 'var(--dashboard-text)' }}>Link code from your computer</span>
+                      <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>For large codebases, recommend attaching a frontend-focused subfolder.</span>
+                    </div>
+                    <button type="button" className="px-3 py-1.5 rounded-md text-[12px] whitespace-nowrap ml-4" style={{ background: 'var(--dashboard-canvas)', border: '1px solid var(--dashboard-border)', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                      Drag a folder here or browse
+                    </button>
+                  </div>
+
+                  {/* Fig row */}
+                  <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid var(--dashboard-border)' }}>
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-[12px] font-medium" style={{ color: 'var(--dashboard-text)' }}>Upload a .fig file</span>
+                      <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>Parsed locally in your browser — never uploaded.</span>
+                    </div>
+                    <button type="button" className="px-3 py-1.5 rounded-md text-[12px] whitespace-nowrap ml-4" style={{ background: 'var(--dashboard-canvas)', border: '1px solid var(--dashboard-border)', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                      Drop .fig here or browse
+                    </button>
+                  </div>
+
+                  {/* Assets row */}
+                  <div className="flex items-center justify-between px-4 py-3">
+                    <span className="text-[12px] font-medium" style={{ color: 'var(--dashboard-text)' }}>Add fonts, logos and assets</span>
+                    <button type="button" className="px-3 py-1.5 rounded-md text-[12px] whitespace-nowrap ml-4" style={{ background: 'var(--dashboard-canvas)', border: '1px solid var(--dashboard-border)', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                      Drag files here or browse
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Notes */}
+              <div className="flex flex-col gap-2 w-full">
+                <label className="text-[12px] font-medium" style={{ color: 'var(--dashboard-text)' }}>Any other notes?</label>
+                <textarea
+                  rows={3}
+                  placeholder="e.g. Solar cyan (#00d4c8) is our primary accent. No !important in CSS. All colors via CSS vars. Dark-first, light-mode as override."
+                  className="w-full rounded-lg px-4 py-3 text-[13px] resize-none"
+                  style={{
+                    background: 'var(--dashboard-panel)',
+                    border: '1px solid var(--dashboard-border)',
+                    color: 'var(--dashboard-text)',
+                    outline: 'none',
+                    fontFamily: 'inherit',
+                    lineHeight: 1.5,
+                  }}
+                />
+              </div>
+
+            </div>
+          </div>
+        )}
+
+        {/* ── Normal body content ── */}
+        {!showDSSetup && <div className="px-8 py-8">
 
 
         {/* Make something new */}
@@ -321,9 +502,28 @@ export const WorkspaceDashboardV2: React.FC<WorkspaceDashboardProps> = ({
 
         {/* Designs / Recent table */}
         <div>
-          <p className="text-[14px] font-medium mb-3" style={{ color: 'var(--dashboard-text)' }}>
-            {activeNav === 'workspaces' ? 'Workspaces' : 'Designs'}
-          </p>
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-[14px] font-medium" style={{ color: 'var(--dashboard-text)' }}>
+              {activeNav === 'workspaces' ? 'Workspaces' : activeNav === 'systems' ? 'Design systems' : 'Designs'}
+            </p>
+            {activeNav === 'systems' && (
+              <button
+                type="button"
+                onClick={() => setShowDSSetup(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] transition-colors"
+                style={{
+                  border: '1px solid var(--dashboard-border)',
+                  color: 'var(--dashboard-text)',
+                  background: 'var(--dashboard-panel)',
+                  cursor: 'pointer',
+                }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--text-muted)'; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--dashboard-border)'; }}
+              >
+                Create
+              </button>
+            )}
+          </div>
 
           <div
             className="rounded-xl overflow-hidden"
@@ -482,6 +682,7 @@ export const WorkspaceDashboardV2: React.FC<WorkspaceDashboardProps> = ({
             </button>
           </div>
         </div>
+        </div>}{/* end !showDSSetup */}
       </div>
     </div>
   );
