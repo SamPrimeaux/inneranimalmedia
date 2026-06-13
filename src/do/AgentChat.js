@@ -20,6 +20,7 @@ import {
 } from "../core/pty-workspace-paths.js";
 import {
   computeTerminalSessionAuthTokenHash,
+  isShellHistorySeedLine,
   mintSessionToken,
   sha256HexUtf8,
 } from "../core/terminal.js";
@@ -1411,7 +1412,7 @@ export class AgentChatSqlV1 extends DurableObject {
         } catch (_) {
           if (/[\r\n]/.test(raw)) recordLine = raw.replace(/[\r\n]+$/, "").trim();
         }
-        if (recordLine && recordLine.length > 0) {
+        if (recordLine && recordLine.length > 0 && !isShellHistorySeedLine(recordLine)) {
           void this.insertTerminalHistoryRow("input", recordLine.slice(0, 4000), { triggeredBy: "user" });
         }
         let outbound = raw;

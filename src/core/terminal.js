@@ -309,6 +309,23 @@ export async function purgeStaleTerminalSessions(env) {
 }
 
 /**
+ * Lines injected to seed shell history (print -s / history -s) must never round-trip into D1 input history.
+ * @param {string} line
+ */
+export function isShellHistorySeedLine(line) {
+  const t = String(line || '').replace(/[\r\n]+$/, '').trim();
+  if (!t) return true;
+  if (/^print\s+-s\b/i.test(t)) return true;
+  if (/^history\s+-s\b/i.test(t)) return true;
+  if (/^Add-History\b/i.test(t)) return true;
+  if (/\x1b\[[0-9;]*200~|\x1b\[[0-9;]*201~|\[200~|\[201~/.test(t)) return true;
+  if (t.length > 2000) return true;
+  if ((t.match(/print\s+-s/gi) || []).length > 0) return true;
+  if ((t.match(/\\'/g) || []).length > 6) return true;
+  return false;
+}
+
+/**
  * Recent terminal input lines for cross-session shell history (user-scoped).
  * @param {Record<string, unknown>} env
  * @param {string} userId
@@ -335,7 +352,7 @@ export async function getTerminalInputHistory(env, userId, limit = 200) {
     const commands = [];
     for (const row of rows) {
       const raw = String(row.content || '').replace(/[\r\n]+$/, '').trim();
-      if (!raw || raw.startsWith('/') || seen.has(raw)) continue;
+      if (!raw || raw.startsWith('/') || seen.has(raw) || isShellHistorySeedLine(raw)) continue;
       seen.add(raw);
       commands.push(raw);
     }

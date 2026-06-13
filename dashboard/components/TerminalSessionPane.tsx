@@ -81,6 +81,19 @@ function detectShellKind(shellPath: string): 'zsh' | 'bash' | 'powershell' | 'sh
   return 'sh';
 }
 
+function isShellHistorySeedLine(line: string): boolean {
+  const t = line.replace(/[\r\n]+$/, '').trim();
+  if (!t) return true;
+  if (/^print\s+-s\b/i.test(t)) return true;
+  if (/^history\s+-s\b/i.test(t)) return true;
+  if (/^Add-History\b/i.test(t)) return true;
+  if (/\x1b\[[0-9;]*200~|\x1b\[[0-9;]*201~|\[200~|\[201~/.test(t)) return true;
+  if (t.length > 2000) return true;
+  if (/print\s+-s/i.test(t)) return true;
+  if ((t.match(/\\'/g) || []).length > 6) return true;
+  return false;
+}
+
 function buildHistorySeedLine(cmd: string, shellPath: string): string {
   const kind = detectShellKind(shellPath);
   if (kind === 'powershell') {
@@ -149,7 +162,9 @@ async function fetchTerminalHistoryCommands(): Promise<string[]> {
 
 function seedShellHistoryViaPty(ws: WebSocket, commands: string[], shellPath: string) {
   if (!commands.length || ws.readyState !== WebSocket.OPEN) return;
-  for (const cmd of commands) {
+  const safe = commands.map((c) => String(c || '').trim()).filter((c) => c && !isShellHistorySeedLine(c));
+  if (!safe.length) return;
+  for (const cmd of safe) {
     if (ws.readyState !== WebSocket.OPEN) break;
     ws.send(buildHistorySeedLine(cmd, shellPath));
   }
