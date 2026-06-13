@@ -3,6 +3,7 @@
  * Never hardcode operator project slugs as fallbacks.
  */
 import { resolveActiveBootstrap, resolveBootstrapWorkspaceContext } from './bootstrap.js';
+import { ensureUserBootstrapRow } from './bootstrap-scoped-context.js';
 import { cmsBootstrapKey } from './cms-kv-cache.js';
 
 function trim(v) {
@@ -206,69 +207,87 @@ export async function resolveCmsProjectSlug(env, opts) {
  * @param {{ explicitProjectSlug?: string|null }} [opts]
  */
 export async function resolveCmsWorkspaceContext(env, request, authUser, cache = {}, opts = {}) {
-  const userId = trim(authUser?.id);
-  const tenantId = trim(authUser?.tenant_id);
-  if (!userId || !tenantId) {
-    return { error: 'AUTH_CONTEXT_MISSING', workspace_id: null, project_slug: null, sites: [] };
-  }
+  try {
+    const userId = trim(authUser?.id);
+    const tenantId = trim(authUser?.tenant_id);
+    if (!userId || !tenantId) {
+      return { error: 'AUTH_CONTEXT_MISSING', workspace_id: null, project_slug: null, sites: [] };
+    }
 
-  const bootCtx = await resolveBootstrapWorkspaceContext(env, request, userId, cache);
-  if (bootCtx.error || !bootCtx.workspace_id) {
+    const bootCtx = await resolveBootstrapWorkspaceContext(env, request, userId, cache);
+    if (bootCtx.error || !bootCtx.workspace_id) {
+      return {
+        error: bootCtx.error || 'WORKSPACE_CONTEXT_MISSING',
+        workspace_id: null,
+        project_slug: null,
+        sites: [],
+      };
+    }
+
+    const workspaceId = trim(bootCtx.workspace_id);
+    let bootstrapRow = bootCtx.bootstrap || null;
+    if (!bootstrapRow) {
+      bootstrapRow = await ensureUserBootstrapRow(env, {
+        authUser,
+        userId,
+        workspaceId,
+        tenantId,
+      });
+    }
+    const bootstrapPrefs = parseJsonSafe(bootstrapRow?.ui_preferences_json, {});
+
+    let workspaceName = trim(bootstrapRow?.workspace_name) || null;
+    let workspaceSlug = trim(bootstrapRow?.workspace_slug) || null;
+    if (!workspaceName || !workspaceSlug) {
+      try {
+        const wsRow = await env.DB.prepare(
+          `SELECT name, slug FROM workspaces WHERE id = ? LIMIT 1`,
+        )
+          .bind(workspaceId)
+          .first();
+        workspaceName = workspaceName || trim(wsRow?.name) || null;
+        workspaceSlug = workspaceSlug || trim(wsRow?.slug) || null;
+      } catch (_) {}
+    }
+
+    const sites = await listCmsSitesForScope(env, { tenantId, workspaceId });
+    const project = await resolveCmsProjectSlug(env, {
+      tenantId,
+      workspaceId,
+      explicitSlug: opts.explicitProjectSlug,
+      bootstrapRow,
+      sites,
+    });
+
+    const projectSlug = project.project_slug;
     return {
-      error: bootCtx.error || 'WORKSPACE_CONTEXT_MISSING',
+      error: null,
+      user_id: userId,
+      tenant_id: tenantId,
+      workspace_id: workspaceId,
+      workspace_name: workspaceName,
+      workspace_slug: workspaceSlug,
+      bootstrap_id: trim(bootstrapRow?.id) || null,
+      project_slug: projectSlug,
+      project_name: project.project_name,
+      resolved_from: project.resolved_from,
+      bootstrap_cache_key:
+        projectSlug && workspaceId ? cmsBootstrapKey(workspaceId, projectSlug) : null,
+      sites,
+      ui_label: workspaceName || workspaceSlug || 'PrimeTech Workspace',
+      bootstrap_prefs: {
+        cms_project_slug: trim(bootstrapPrefs.cms_project_slug) || null,
+      },
+    };
+  } catch (e) {
+    console.warn('[cms] resolveCmsWorkspaceContext', e?.message || e);
+    return {
+      error: String(e?.message || e || 'CMS_CONTEXT_FAILED').slice(0, 400),
       workspace_id: null,
       project_slug: null,
       sites: [],
     };
   }
-
-  const workspaceId = trim(bootCtx.workspace_id);
-  const bootstrapRow = bootCtx.bootstrap || null;
-  const bootstrapPrefs = parseJsonSafe(bootstrapRow?.ui_preferences_json, {});
-
-  let workspaceName = trim(bootstrapRow?.workspace_name) || null;
-  let workspaceSlug = trim(bootstrapRow?.workspace_slug) || null;
-  if (!workspaceName || !workspaceSlug) {
-    try {
-      const wsRow = await env.DB.prepare(
-        `SELECT name, slug FROM workspaces WHERE id = ? LIMIT 1`,
-      )
-        .bind(workspaceId)
-        .first();
-      workspaceName = workspaceName || trim(wsRow?.name) || null;
-      workspaceSlug = workspaceSlug || trim(wsRow?.slug) || null;
-    } catch (_) {}
-  }
-
-  const sites = await listCmsSitesForScope(env, { tenantId, workspaceId });
-  const project = await resolveCmsProjectSlug(env, {
-    tenantId,
-    workspaceId,
-    explicitSlug: opts.explicitProjectSlug,
-    bootstrapRow,
-    sites,
-  });
-
-  const projectSlug = project.project_slug;
-  return {
-    error: null,
-    user_id: userId,
-    tenant_id: tenantId,
-    workspace_id: workspaceId,
-    workspace_name: workspaceName,
-    workspace_slug: workspaceSlug,
-    bootstrap_id: trim(bootstrapRow?.id) || null,
-    project_slug: projectSlug,
-    project_name: project.project_name,
-    resolved_from: project.resolved_from,
-    bootstrap_cache_key:
-      projectSlug && workspaceId ? cmsBootstrapKey(workspaceId, projectSlug) : null,
-    sites,
-    ui_label: workspaceName || workspaceSlug || 'PrimeTech Workspace',
-    bootstrap_prefs: {
-      cms_project_slug: trim(bootstrapPrefs.cms_project_slug) || null,
-    },
-  };
 }
 
 /**

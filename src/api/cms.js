@@ -185,13 +185,20 @@ export async function handleCmsApi(request, url, env, ctx) {
         url.searchParams.get('project_slug') ||
         url.searchParams.get('site') ||
         null;
-      const ctx = await resolveCmsWorkspaceContext(env, request, authUser, requestCache, {
+      const wsCtx = await resolveCmsWorkspaceContext(env, request, authUser, requestCache, {
         explicitProjectSlug: explicit,
       });
-      if (ctx.error) return jsonResponse({ error: ctx.error, sites: ctx.sites || [] }, 400);
-      return jsonResponse(ctx);
+      if (wsCtx.error) {
+        return jsonResponse({ error: wsCtx.error, sites: wsCtx.sites || [] }, 400);
+      }
+      return jsonResponse(wsCtx);
     } catch (e) {
-      return jsonResponse({ error: e.message }, 500);
+      console.warn('[cms] workspace-context GET', e?.message || e);
+      let sites = [];
+      try {
+        sites = await listCmsSitesForScope(env, { tenantId, workspaceId });
+      } catch (_) {}
+      return jsonResponse({ error: e.message, sites }, 500);
     }
   }
 
@@ -205,13 +212,13 @@ export async function handleCmsApi(request, url, env, ctx) {
     const projectSlug = String(body.project_slug || body.site || '').trim();
     if (!projectSlug) return jsonResponse({ error: 'project_slug required' }, 400);
     try {
-      const ctx = await resolveCmsWorkspaceContext(env, request, authUser, requestCache);
-      if (ctx.error) return jsonResponse({ error: ctx.error }, 400);
-      const allowed = (ctx.sites || []).some((s) => s.slug === projectSlug);
+      const wsCtx = await resolveCmsWorkspaceContext(env, request, authUser, requestCache);
+      if (wsCtx.error) return jsonResponse({ error: wsCtx.error }, 400);
+      const allowed = (wsCtx.sites || []).some((s) => s.slug === projectSlug);
       if (!allowed) return jsonResponse({ error: 'CMS_SITE_NOT_ALLOWED', project_slug: projectSlug }, 403);
-      if (!ctx.bootstrap_id) return jsonResponse({ error: 'BOOTSTRAP_ROW_MISSING' }, 409);
+      if (!wsCtx.bootstrap_id) return jsonResponse({ error: 'BOOTSTRAP_ROW_MISSING' }, 409);
       const saved = await persistBootstrapCmsProjectSlug(env, {
-        bootstrapId: ctx.bootstrap_id,
+        bootstrapId: wsCtx.bootstrap_id,
         userId: authUser.id,
         workspaceId,
         projectSlug,

@@ -86,6 +86,16 @@ export const PUBLIC_OAUTH_PATHS = [
 
   // MovieMode globe proxy (main worker → moviemode-service)
   '/globe',
+
+  // PWA — must be fetchable without session (manifest, SW, offline shell, icons)
+  '/manifest.webmanifest',
+  '/sw.js',
+  '/push-handler.js',
+  '/offline.html',
+  '/static/dashboard/manifest.webmanifest',
+  '/static/dashboard/app/manifest.webmanifest',
+  '/static/dashboard/sw.js',
+  '/static/dashboard/app/pwa',
 ];
 
 /**

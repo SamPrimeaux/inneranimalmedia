@@ -23,7 +23,7 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
     [location.pathname, searchParams],
   );
 
-  const { context, loading, error, persistSite } = useCmsWorkspaceContext({
+  const { context, loading, error, persistSite, reload: load } = useCmsWorkspaceContext({
     workspaceId,
     siteSlug: parsed.siteSlug,
     enabled: parsed.view !== 'sites',
@@ -74,7 +74,12 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
           : 'pages';
 
   const needsSitePick =
-    parsed.view !== 'sites' && !loading && !context?.project_slug && (context?.sites?.length || 0) !== 1;
+    parsed.view !== 'sites' &&
+    !loading &&
+    !context?.project_slug &&
+    (context?.sites?.length || 0) !== 1;
+
+  const siteCount = context?.sites?.length || 0;
 
   return (
     <div className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden bg-[var(--dashboard-canvas)]">
@@ -82,8 +87,27 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
         <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center">
           <h2 className="text-lg font-semibold text-[var(--text-heading)]">Choose a CMS site</h2>
           <p className="max-w-md text-sm text-[var(--text-muted)]">
-            {context?.ui_label || 'This workspace'} has multiple sites. Pick one to open PrimeTech Studio.
+            {loading
+              ? 'Loading sites for this workspace…'
+              : error
+                ? `Could not load CMS sites (${error}). Retry or pick a site below if listed.`
+                : siteCount > 1
+                  ? `${context?.ui_label || 'This workspace'} has ${siteCount} sites. Pick one to open PrimeTech Studio.`
+                  : siteCount === 0
+                    ? `No CMS sites are configured for ${context?.ui_label || 'this workspace'} yet.`
+                    : `${context?.ui_label || 'This workspace'} has multiple sites. Pick one to open PrimeTech Studio.`}
           </p>
+          {error ? (
+            <button
+              type="button"
+              className="rounded-md border border-[var(--dashboard-border)] px-3 py-2 text-sm hover:bg-[var(--bg-hover)]"
+              onClick={() => {
+                void load();
+              }}
+            >
+              Retry
+            </button>
+          ) : null}
           <div className="flex flex-wrap justify-center gap-2">
             {(context?.sites || []).map((site) => (
               <button
