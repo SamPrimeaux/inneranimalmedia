@@ -580,9 +580,13 @@ export async function compileModeProfile(env, input) {
   const AUGMENTATION_EXEMPT_ROUTES = new Set(['design_intake', 'cad_generation', 'design_studio', 'cms_code_pass', 'mcp_panel']);
   // Hard tool_key allowlist for exempt routes — bypasses lane/category catalog selection entirely.
   // routeKeyRaw collapses to modeSlug ('agent') inside resolveAgentChatRouteToolRequirements,
-  // so route_key/task_type never narrow the base catalog there. This allowlist is the only
-  // reliable narrowing point and is applied via selectAgentsamToolsForAgentChat's allowlistKeys.
-  const EXEMPT_ROUTE_TOOL_ALLOWLIST = {
+  // so agentsam_prompt_routes.tool_keys for the real route_key is never consulted there — the
+  // base catalog always comes from the broad 'agent' defaults. For AUGMENTATION_EXEMPT_ROUTES,
+  // promptRouteRow (resolved by the REAL route_key via resolvePromptRouteForCompile/routeKeyPin,
+  // not modeSlug) IS the correct row, so its tool_keys column is read live below as the
+  // allowlistKeys source — edit that D1 row to change the allowlist, no deploy needed.
+  // This fallback only fires if that row is missing/empty for an exempt route.
+  const EXEMPT_ROUTE_TOOL_ALLOWLIST_FALLBACK = {
     design_intake: ['agentsam_d1_write', 'fs_read_file', 'agentsam_memory_manager'],
     cad_generation: ['agentsam_d1_write', 'fs_read_file', 'agentsam_memory_manager', 'agentsam_r2_put'],
     design_studio: ['agentsam_d1_write', 'fs_read_file', 'agentsam_memory_manager', 'agentsam_r2_put'],
@@ -648,7 +652,26 @@ export async function compileModeProfile(env, input) {
         : AUGMENTATION_EXEMPT_ROUTES.has(input.routeKeyPin)
           ? input.routeKeyPin
           : null;
-    const exemptAllowlist = exemptAllowlistKey ? EXEMPT_ROUTE_TOOL_ALLOWLIST[exemptAllowlistKey] : null;
+    // Live source: agentsam_prompt_routes.tool_keys for the row that matches this exempt
+    // route_key (promptRouteRow is resolved by the real route_key, not modeSlug — see
+    // resolvePromptRouteForCompile). Editing that D1 row's tool_keys changes the allowlist
+    // with no deploy. Falls back to the hardcoded map only if that row/column is empty.
+    let exemptAllowlist = null;
+    if (exemptAllowlistKey) {
+      if (promptRouteRow?.route_key === exemptAllowlistKey && promptRouteRow?.tool_keys) {
+        try {
+          const parsed = JSON.parse(String(promptRouteRow.tool_keys));
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            exemptAllowlist = parsed.map((k) => String(k).trim()).filter(Boolean);
+          }
+        } catch (_) {
+          /* fall through to hardcoded fallback */
+        }
+      }
+      if (!exemptAllowlist) {
+        exemptAllowlist = EXEMPT_ROUTE_TOOL_ALLOWLIST_FALLBACK[exemptAllowlistKey] || null;
+      }
+    }
     const allowlistKeys = exemptAllowlist ? new Set(exemptAllowlist.map((k) => k.toLowerCase())) : null;
     const det = await selectAgentsamToolsForAgentChat(env.DB, { userId, tenantId, workspaceId }, {
       allowlistKeys,
