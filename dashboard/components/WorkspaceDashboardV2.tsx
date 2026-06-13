@@ -186,7 +186,7 @@ export const WorkspaceDashboardV2: React.FC<WorkspaceDashboardProps> = ({
             <button
               key={n.id}
               type="button"
-              onClick={() => setActiveNav(n.id)}
+              onClick={() => { setActiveNav(n.id); setShowDSSetup(n.id === 'systems'); }}
               className="relative px-3 py-1.5 text-[13px] rounded-md transition-colors"
               style={{
                 color: activeNav === n.id ? 'var(--dashboard-text)' : 'var(--text-muted)',
@@ -506,23 +506,7 @@ export const WorkspaceDashboardV2: React.FC<WorkspaceDashboardProps> = ({
             <p className="text-[14px] font-medium" style={{ color: 'var(--dashboard-text)' }}>
               {activeNav === 'workspaces' ? 'Workspaces' : activeNav === 'systems' ? 'Design systems' : 'Designs'}
             </p>
-            {activeNav === 'systems' && (
-              <button
-                type="button"
-                onClick={() => setShowDSSetup(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] transition-colors"
-                style={{
-                  border: '1px solid var(--dashboard-border)',
-                  color: 'var(--dashboard-text)',
-                  background: 'var(--dashboard-panel)',
-                  cursor: 'pointer',
-                }}
-                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--text-muted)'; }}
-                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--dashboard-border)'; }}
-              >
-                Create
-              </button>
-            )}
+
           </div>
 
           <div
