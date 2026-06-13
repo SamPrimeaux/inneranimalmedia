@@ -211,107 +211,12 @@ export const WorkspaceDashboardV2: React.FC<WorkspaceDashboardProps> = ({
           ))}
         </div>
 
-        {/* Search */}
-        <div
-          className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-[13px]"
-          style={{
-            background: 'var(--dashboard-canvas)',
-            border: '1px solid var(--dashboard-border)',
-            color: 'var(--text-muted)',
-            minWidth: 160,
-          }}
-        >
-          <Search size={13} style={{ opacity: 0.5, flexShrink: 0 }} />
-          <input
-            type="text"
-            placeholder="Search designs"
-            value={searchVal}
-            onChange={(e) => setSearchVal(e.target.value)}
-            style={{
-              background: 'transparent',
-              border: 'none',
-              outline: 'none',
-              color: 'var(--dashboard-text)',
-              fontSize: 13,
-              width: '100%',
-            }}
-          />
-        </div>
 
-        {/* Workspace pill */}
-        <button
-          type="button"
-          onClick={onConnectWorkspace}
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[12px] transition-colors"
-          style={{
-            background: 'var(--bg-hover)',
-            border: '1px solid var(--dashboard-border)',
-            color: 'var(--text-muted)',
-            cursor: 'pointer',
-          }}
-        >
-          <Database size={11} />
-          <span>{activeWorkspace?.name ?? 'Workspace'}</span>
-          <ChevronDown size={11} style={{ opacity: 0.5 }} />
-        </button>
       </div>
 
       {/* ── BODY ── */}
       <div className="flex-1 overflow-y-auto px-8 py-8 no-scrollbar">
 
-        {/* Status banner */}
-        {hasStatusBanner && (
-          <div
-            className="w-full mb-6 rounded-xl p-4 grid grid-cols-1 md:grid-cols-2 gap-3 text-left"
-            style={{ border: '1px solid var(--dashboard-border)', background: 'var(--dashboard-panel)' }}
-          >
-            {activeAgentSlug && (
-              <div className="md:col-span-2">
-                <p className="text-[10px] font-black uppercase tracking-widest mb-0.5" style={{ color: 'var(--text-muted)' }}>Active subagent</p>
-                <p className="text-[13px] font-mono" style={{ color: 'var(--solar-cyan)' }}>{activeAgentSlug}</p>
-              </div>
-            )}
-            {displayPlanTasks.length > 0 && (
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-widest mb-1.5" style={{ color: 'var(--text-muted)' }}>Next tasks</p>
-                <ul className="space-y-1.5 text-[12px]" style={{ color: 'var(--dashboard-text)' }}>
-                  {displayPlanTasks.slice(0, 6).map((t, i) => (
-                    <li key={i} className="flex gap-2">
-                      <Target size={11} className="mt-0.5 shrink-0" style={{ color: 'var(--solar-yellow)' }} />
-                      <span className="leading-snug">{summarizeUnknownTask(t)}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {workspaceVerificationCommands.length > 0 && (
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-widest mb-1.5" style={{ color: 'var(--text-muted)' }}>Verification</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {workspaceVerificationCommands.slice(0, 8).map((c, i) => {
-                    const cmd = typeof c === 'string' ? c : summarizeUnknownTask(c);
-                    return (
-                      <button
-                        key={i}
-                        type="button"
-                        onClick={() => onRunVerificationCommand?.(`Run in terminal: ${cmd}`)}
-                        className="px-2 py-0.5 rounded text-[11px] font-mono transition-colors"
-                        style={{
-                          border: '1px solid var(--dashboard-border)',
-                          color: 'var(--dashboard-text)',
-                          background: 'transparent',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        {cmd}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
 
         {/* Make something new */}
         <div className="mb-8">
