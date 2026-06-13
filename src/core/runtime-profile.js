@@ -578,12 +578,20 @@ export async function compileModeProfile(env, input) {
 
   const effectiveRouteReq = (() => {
     let req = routeToolRequirements;
+    // Routes that own their own tool set — skip evidence augmentation entirely
+    const AUGMENTATION_EXEMPT_ROUTES = new Set(['design_intake', 'cms_code_pass', 'mcp_panel']);
+    const skipAugment =
+      AUGMENTATION_EXEMPT_ROUTES.has(routeKey) ||
+      AUGMENTATION_EXEMPT_ROUTES.has(taskType) ||
+      AUGMENTATION_EXEMPT_ROUTES.has(input.routeKeyPin);
     if (
-      mode === 'ask' ||
-      mode === 'agent' ||
-      mode === 'debug' ||
-      mode === 'plan' ||
-      mode === 'multitask'
+      !skipAugment && (
+        mode === 'ask' ||
+        mode === 'agent' ||
+        mode === 'debug' ||
+        mode === 'plan' ||
+        mode === 'multitask'
+      )
     ) {
       req = augmentAskRouteRequirements(message, req, mode);
     }
