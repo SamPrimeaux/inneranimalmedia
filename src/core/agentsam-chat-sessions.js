@@ -599,3 +599,106 @@ export async function patchUserChatSession(env, input) {
     return { ok: false, error: e?.message || 'patch_failed' };
   }
 }
+
+// ── R2 message storage helpers ────────────────────────────────────────────────
+
+/**
+ * R2 key layout:
+ *   chat-sessions/{tenantId}/{userId}/{conversationId}/meta.json
+ *   chat-sessions/{tenantId}/{userId}/{conversationId}/messages.jsonl
+ *
+ * meta.json  — { conversation_id, user_id, workspace_id, tenant_id, title, model_key, created_at, message_count }
+ * messages.jsonl — one JSON object per line: { role, content, ts, id? }
+ */
+
+function r2Prefix(env, conversationId) {
+  // Fallback: flat key if we don't have tenant/user context at call site.
+  return `chat-sessions/${conversationId}`;
+}
+
+/**
+ * Initialize R2 storage for a new chat session.
+ * Writes meta.json; messages.jsonl starts empty (written on first append).
+ *
+ * @param {object} env
+ * @param {{ conversationId: string, userId: string, workspaceId: string|null, tenantId: string, title?: string, modelKey?: string|null }} input
+ * @returns {Promise<void>}
+ */
+export async function initChatSessionR2(env, { conversationId, userId, workspaceId, tenantId, title, modelKey }) {
+  if (!env.R2) return;
+  const prefix = r2Prefix(env, conversationId);
+  const meta = {
+    conversation_id: conversationId,
+    user_id: userId,
+    workspace_id: workspaceId ?? null,
+    tenant_id: tenantId,
+    title: title || 'New Conversation',
+    model_key: modelKey ?? null,
+    created_at: Date.now(),
+    message_count: 0,
+  };
+  await env.R2.put(
+    `${prefix}/meta.json`,
+    JSON.stringify(meta),
+    { httpMetadata: { contentType: 'application/json' } },
+  ).catch(() => {});
+}
+
+/**
+ * Append a single message to the session's messages.jsonl in R2.
+ * Also increments message_count in meta.json (best-effort).
+ *
+ * @param {object} env
+ * @param {string} conversationId
+ * @param {{ role: 'user'|'assistant'|'system', content: string, id?: string }} message
+ * @returns {Promise<void>}
+ */
+export async function appendChatMessage(env, conversationId, message) {
+  if (!env.R2) return;
+  const prefix = r2Prefix(env, conversationId);
+  const key = `${prefix}/messages.jsonl`;
+
+  // Read existing blob
+  const existing = await env.R2.get(key).catch(() => null);
+  const prev = existing ? await existing.text().catch(() => '') : '';
+
+  const line = JSON.stringify({ ...message, ts: message.ts ?? Date.now() });
+  const next = prev ? `${prev}\n${line}` : line;
+
+  await env.R2.put(key, next, { httpMetadata: { contentType: 'application/x-ndjson' } }).catch(() => {});
+
+  // Best-effort meta increment
+  const metaKey = `${prefix}/meta.json`;
+  const metaObj = await env.R2.get(metaKey).catch(() => null);
+  if (metaObj) {
+    try {
+      const meta = JSON.parse(await metaObj.text());
+      meta.message_count = (meta.message_count || 0) + 1;
+      meta.last_message_at = Date.now();
+      await env.R2.put(metaKey, JSON.stringify(meta), { httpMetadata: { contentType: 'application/json' } }).catch(() => {});
+    } catch (_) {}
+  }
+}
+
+/**
+ * Read all messages for a session from R2.
+ * Parses messages.jsonl and returns array of message objects.
+ *
+ * @param {object} env
+ * @param {string} conversationId
+ * @returns {Promise<Array<{ role: string, content: string, ts: number, id?: string }>>}
+ */
+export async function getChatMessages(env, conversationId) {
+  if (!env.R2) return [];
+  const key = `${r2Prefix(env, conversationId)}/messages.jsonl`;
+  const obj = await env.R2.get(key).catch(() => null);
+  if (!obj) return [];
+  const text = await obj.text().catch(() => '');
+  if (!text.trim()) return [];
+  return text
+    .split('\n')
+    .map((line) => {
+      try { return JSON.parse(line.trim()); } catch { return null; }
+    })
+    .filter(Boolean);
+}
