@@ -1119,6 +1119,23 @@ const App: React.FC = () => {
     setActiveActivity('search');
   }, [location.pathname, navigate]);
 
+  const shellSelectChat = useCallback(
+    (conversationId: string) => {
+      const id = String(conversationId || '').trim();
+      if (!id) return;
+      if (!isAgentShellPath(location.pathname)) navigate(AGENT_HOME_PATH);
+      setActiveTab('Workspace');
+      setOpenTabs((prev) => (prev.includes('Workspace') ? prev : [...prev, 'Workspace']));
+      try {
+        localStorage.setItem(LS_AGENT_CHAT_CONVERSATION_ID, id);
+      } catch {
+        /* ignore */
+      }
+      window.dispatchEvent(new CustomEvent(IAM_AGENT_CHAT_CONVERSATION_CHANGE, { detail: { id } }));
+    },
+    [location.pathname, navigate],
+  );
+
   const shellOpenMovieMode = useCallback(() => {
     navigate('/dashboard/moviemode');
   }, [navigate]);
@@ -3164,6 +3181,8 @@ const App: React.FC = () => {
         onNewChat={shellNewChat}
         onOpenChats={shellOpenChats}
         onOpenMovieMode={shellOpenMovieMode}
+        onSelectChat={shellSelectChat}
+        activeConversationId={activeAgentConversationId}
         userLabel={workspaceDisplayName}
         planLabel="Workspace"
       />
@@ -3191,6 +3210,8 @@ const App: React.FC = () => {
                 onNewChat={shellNewChat}
                 onOpenChats={shellOpenChats}
                 onOpenMovieMode={shellOpenMovieMode}
+                onSelectChat={shellSelectChat}
+                activeConversationId={activeAgentConversationId}
                 userLabel={workspaceDisplayName}
                 planLabel="Workspace"
               />

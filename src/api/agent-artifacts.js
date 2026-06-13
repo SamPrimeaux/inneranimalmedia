@@ -157,6 +157,7 @@ function buildListFilters(url, scope) {
   const source = (sp.get('source') || '').trim();
   const workspace_id = (sp.get('workspace_id') || '').trim();
   const project_key = (sp.get('project_key') || '').trim();
+  const session_id = (sp.get('session_id') || '').trim();
 
   const where = [];
   const binds = [];
@@ -185,6 +186,20 @@ function buildListFilters(url, scope) {
   if (project_key) {
     where.push('a.project_key = ?');
     binds.push(project_key);
+  }
+  if (session_id) {
+    if (scope.userId) {
+      where.push(
+        `(a.source_session_id = ? OR a.source_run_id IN (
+          SELECT r.id FROM agentsam_agent_run r
+          WHERE r.conversation_id = ? AND r.user_id = ?
+        ))`,
+      );
+      binds.push(session_id, session_id, scope.userId);
+    } else {
+      where.push('a.source_session_id = ?');
+      binds.push(session_id);
+    }
   }
   if (type) {
     where.push('a.artifact_type = ?');
@@ -215,7 +230,25 @@ function buildListFilters(url, scope) {
   }
 
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
-  return { limit, offset, whereSql, binds, filters: { limit, offset, q, type, status, validation, visibility, source, workspace_id, project_key } };
+  return {
+    limit,
+    offset,
+    whereSql,
+    binds,
+    filters: {
+      limit,
+      offset,
+      q,
+      type,
+      status,
+      validation,
+      visibility,
+      source,
+      workspace_id,
+      project_key,
+      session_id,
+    },
+  };
 }
 
 /** KPI scope: tenant + optional workspace/project from URL, no text/type filters */

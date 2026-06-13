@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronDown, Plus, RefreshCw, Search, SlidersHorizontal } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import { ChevronDown, Plus, RefreshCw, Search, SlidersHorizontal, X } from 'lucide-react';
 import type { ArtifactRecord } from '../../api/artifacts';
 import { fetchArtifacts, fetchArtifactFilters, purgeWorkspaceArtifacts } from '../../api/artifacts';
 import { ArtifactCategoryPicker } from '../../components/library/ArtifactCategoryPicker';
@@ -65,6 +66,8 @@ function SectionLabel({ label, count }: { label: string; count: number }) {
 }
 
 export default function LibraryPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const sessionFilter = (searchParams.get('session_id') || '').trim();
   const [q, setQ] = useState('');
   const [type, setType] = useState('');
   const [status, setStatus] = useState('');
@@ -97,7 +100,15 @@ export default function LibraryPage() {
     source: { value: string; count: number }[];
   } | null>(null);
 
-  const hasActiveFilters = Boolean(type || status || validation || visibility || source);
+  const hasActiveFilters = Boolean(type || status || validation || visibility || source || sessionFilter);
+
+  const clearSessionFilter = () => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete('session_id');
+      return next;
+    });
+  };
 
   const loadFilters = useCallback(async () => {
     try {
@@ -120,6 +131,7 @@ export default function LibraryPage() {
     if (validation) qs.set('validation', validation);
     if (visibility) qs.set('visibility', visibility);
     if (source) qs.set('source', source);
+    if (sessionFilter) qs.set('session_id', sessionFilter);
     const ep = `/api/agent/artifacts?${qs.toString()}`;
     setEndpoint(ep);
     try {
@@ -132,6 +144,7 @@ export default function LibraryPage() {
         validation: validation || undefined,
         visibility: visibility || undefined,
         source: source || undefined,
+        session_id: sessionFilter || undefined,
       });
       if (!data.ok) {
         setErr(data.error || 'Request failed');
@@ -149,7 +162,7 @@ export default function LibraryPage() {
     } finally {
       setLoading(false);
     }
-  }, [q, type, status, validation, visibility, source]);
+  }, [q, type, status, validation, visibility, source, sessionFilter]);
 
   useEffect(() => {
     void loadFilters();
@@ -313,7 +326,23 @@ export default function LibraryPage() {
         </div>
 
         {/* Search */}
-        <div className="mt-4 relative">
+        {sessionFilter ? (
+          <div className="mt-4 flex items-center gap-2 rounded-lg border border-[color-mix(in_srgb,var(--solar-cyan)_35%,var(--dashboard-border))] bg-[color-mix(in_srgb,var(--solar-cyan)_8%,transparent)] px-3 py-2">
+            <span className="text-xs text-[var(--text-primary)] flex-1 min-w-0 truncate">
+              Artifacts from chat <code className="font-mono text-[10px] opacity-80">{sessionFilter.slice(0, 8)}…</code>
+            </span>
+            <button
+              type="button"
+              className="iam-lib-btn iam-lib-btn--ghost shrink-0 py-1 px-2 min-h-0 text-xs"
+              onClick={clearSessionFilter}
+              aria-label="Clear chat filter"
+            >
+              <X size={14} /> Clear
+            </button>
+          </div>
+        ) : null}
+
+        <div className={`${sessionFilter ? 'mt-3' : 'mt-4'} relative`}>
           <Search
             size={16}
             className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)] pointer-events-none"

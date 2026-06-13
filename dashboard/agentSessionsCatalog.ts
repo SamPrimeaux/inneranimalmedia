@@ -5,8 +5,10 @@ export type AgentSessionRow = {
   session_type?: string;
   status?: string;
   started_at?: number | string;
+  updated_at?: number | string;
   message_count?: number;
   has_artifacts?: boolean;
+  artifact_count?: number;
   name?: string | null;
   title?: string | null;
   github_repo?: string | null;
@@ -15,7 +17,20 @@ export type AgentSessionRow = {
   model_key?: string | null;
   active_file?: string | null;
   files_open?: string | null;
+  is_starred?: boolean;
+  project_id?: string | null;
+  project_name?: string | null;
 };
+
+export function sessionDisplayTitle(s: AgentSessionRow): string {
+  const title = s.title && String(s.title).replace(/\s+/g, ' ').trim();
+  if (title) return title;
+  const name = s.name && String(s.name).replace(/\s+/g, ' ').trim();
+  if (name) return name;
+  const id = (s.conversation_id || s.id || '').trim();
+  if (id) return `Chat ${id.slice(0, 8)}`;
+  return 'New chat';
+}
 
 export function sessionStartedAtMs(s: AgentSessionRow): number {
   const st = s.started_at;

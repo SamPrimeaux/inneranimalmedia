@@ -5,7 +5,7 @@ import {
   LS_AGENT_CHAT_CONVERSATION_ID,
 } from '../../../agentChatConstants';
 import type { AgentSessionRow } from '../../../agentSessionsCatalog';
-import { groupSessionsByBucket, relativeSessionTime } from '../../../agentSessionsCatalog';
+import { groupSessionsByBucket, relativeSessionTime, sessionDisplayTitle } from '../../../agentSessionsCatalog';
 
 type WorkspaceRow = { id: string; name: string; github_repo?: string | null };
 
@@ -28,16 +28,6 @@ function mobileSessionGroups(rows: AgentSessionRow[]): { label: string; items: A
     primary.push({ label: 'Older', items: olderItems });
   }
   return primary;
-}
-
-function sessionTitle(s: AgentSessionRow): string {
-  const title = s.title && String(s.title).replace(/\s+/g, ' ').trim();
-  if (title) return title;
-  const name = s.name && String(s.name).replace(/\s+/g, ' ').trim();
-  if (name) return name;
-  const id = (s.conversation_id || s.id || '').trim();
-  if (id) return `Chat ${id.slice(0, 8)}`;
-  return 'Untitled';
 }
 
 function workspaceRepoLabel(
@@ -149,7 +139,7 @@ export function AgentMobileHomePanel({
                   >
                     <div className="flex-1 min-w-0 pt-0.5">
                       <div className="text-[0.8125rem] text-[var(--dashboard-text)] truncate">
-                        {sessionTitle(s)}
+                        {sessionDisplayTitle(s)}
                       </div>
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5 text-[0.6875rem] text-[var(--dashboard-muted)]">
                         <span className="truncate max-w-[45%]">

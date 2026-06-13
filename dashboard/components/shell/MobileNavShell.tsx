@@ -15,6 +15,8 @@ type MobileNavShellProps = {
   onNewChat?: () => void;
   onOpenChats?: () => void;
   onOpenMovieMode?: () => void;
+  onSelectChat?: (conversationId: string) => void;
+  activeConversationId?: string | null;
   userLabel?: string | null;
   planLabel?: string | null;
 };
@@ -34,6 +36,8 @@ export function MobileNavShell({
   onNewChat,
   onOpenChats,
   onOpenMovieMode,
+  onSelectChat,
+  activeConversationId,
   userLabel,
   planLabel,
 }: MobileNavShellProps) {
@@ -61,6 +65,8 @@ export function MobileNavShell({
         onNewChat={onNewChat}
         onOpenChats={onOpenChats}
         onOpenMovieMode={onOpenMovieMode}
+        onSelectChat={onSelectChat}
+        activeConversationId={activeConversationId}
         userLabel={userLabel}
         planLabel={planLabel}
       />

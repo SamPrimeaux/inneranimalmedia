@@ -85,6 +85,7 @@ export async function fetchArtifacts(params: {
   source?: string;
   workspace_id?: string;
   project_key?: string;
+  session_id?: string;
   signal?: AbortSignal;
 }): Promise<ArtifactListResponse> {
   const r = await fetch(`/api/agent/artifacts${qs(params)}`, {

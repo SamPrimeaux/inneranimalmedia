@@ -32,6 +32,7 @@ import {
   isWorkspaceCapabilityActionIntent,
 } from '../core/workspace-capability-actions/index.js';
 import { scheduleMirrorAgentsamPlanToSupabasePublic } from '../core/agentsam-plan-supabase-public-sync.js';
+import { listUserChatSessions, patchUserChatSession } from '../core/agentsam-chat-sessions.js';
 import {
   legacyUnifiedRagSearch,
   handleAgentMemorySync,
@@ -3157,10 +3158,35 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
   // ── /api/agent/sessions PATCH /:id ───────────────────────────────────────
   const sessionPatchMatch = path.match(/^\/api\/agent\/sessions\/([^/]+)$/);
   if (sessionPatchMatch && method === 'PATCH') {
-    const convId = sessionPatchMatch[1];
-    const body   = await request.json().catch(() => ({}));
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
-    await env.DB.prepare(`UPDATE mcp_agent_sessions SET status = ?, last_activity = ?, updated_at = unixepoch() WHERE conversation_id = ?`).bind(String(body.status||'completed'), new Date().toISOString(), convId).run().catch(() => {});
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    let tenantId =
+      authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
+        ? String(authUser.tenant_id).trim()
+        : null;
+    if (!tenantId) tenantId = await fetchAuthUserTenantId(env, authUser.id);
+    if (!tenantId && authUser.email) tenantId = await fetchAuthUserTenantId(env, authUser.email);
+    if (!tenantId) return jsonResponse({ error: 'Tenant not configured for this account' }, 403);
+    const userId = await resolveCanonicalUserId(String(authUser.id || ''), env).catch(() => String(authUser.id || ''));
+    const convId = decodeURIComponent(sessionPatchMatch[1] || '').trim();
+    const body = await request.json().catch(() => ({}));
+    const patchResult = await patchUserChatSession(env, {
+      conversationId: convId,
+      userId,
+      tenantId,
+      patch: body,
+    });
+    if (!patchResult.ok) {
+      const status = patchResult.error === 'not_found' ? 404 : 400;
+      return jsonResponse({ error: patchResult.error || 'patch_failed' }, status);
+    }
+    await env.DB.prepare(
+      `UPDATE mcp_agent_sessions SET status = ?, last_activity = ?, updated_at = unixepoch() WHERE conversation_id = ?`,
+    )
+      .bind(String(body.status || 'completed'), new Date().toISOString(), convId)
+      .run()
+      .catch(() => {});
     return jsonResponse({ success: true });
   }
 
@@ -3197,42 +3223,11 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
         .bind(id, userId, wsId, tenantId, id, 'running', body.session_type || 'chat')
         .run()
         .catch(() => {});
-      await env.DB.prepare(
-        `INSERT OR IGNORE INTO agentsam_chat_sessions (
-           conversation_id, tenant_id, user_id, workspace_id, title, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, unixepoch(), unixepoch())`,
-      )
-        .bind(id, tenantId, userId, wsId, name)
-        .run()
-        .catch(() => null);
       return jsonResponse({ id, status: 'active' });
     }
-    const { results } = await env.DB.prepare(
-      `SELECT r.conversation_id AS id,
-              r.conversation_id,
-              MAX(r.created_at) AS started_at,
-              MAX(cs.title) AS title,
-              MAX(COALESCE(cs.github_repo, r.conversation_id)) AS github_repo,
-              MAX(cs.model_key) AS model_key,
-              r.conversation_id AS name_key,
-              MAX(r.workspace_id) AS workspace_id,
-              MAX(CASE WHEN ws.conversation_id = r.conversation_id THEN ws.active_file ELSE NULL END) AS active_file,
-              MAX(CASE WHEN ws.conversation_id = r.conversation_id THEN ws.files_open ELSE NULL END) AS files_open,
-              'chat' AS session_type,
-              MAX(r.status) AS status,
-              0 AS message_count
-       FROM agentsam_agent_run r
-       LEFT JOIN agentsam_chat_sessions cs ON cs.conversation_id = r.conversation_id
-       LEFT JOIN agentsam_workspace_state ws ON ws.workspace_id = r.workspace_id
-       WHERE r.user_id = ? AND r.tenant_id = ? AND r.conversation_id IS NOT NULL
-       GROUP BY r.conversation_id
-       ORDER BY MAX(r.created_at) DESC
-       LIMIT 30`,
-    )
-      .bind(userId, tenantId)
-      .all()
-      .catch(() => ({ results: [] }));
-    return jsonResponse(results || []);
+    const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit') || '40', 10) || 40, 1), 100);
+    const results = await listUserChatSessions(env, { userId, tenantId, limit });
+    return jsonResponse(results);
   }
 
   // ── /api/agent/workspace/:id ──────────────────────────────────────────────

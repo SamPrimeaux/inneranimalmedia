@@ -30,6 +30,7 @@ import {
   resolveActiveProduct,
 } from '../../lib/shellNavResolve';
 import { ActivityRailItem } from './DashboardActivityNav';
+import { AgentChatSessionList } from './AgentChatSessionList';
 
 const PRODUCT_ICONS: Record<ShellProductId, ComponentType<{ size?: number; className?: string }>> = {
   code: Code2,
@@ -44,6 +45,8 @@ type DashboardSidebarProps = {
   onNewChat?: () => void;
   onOpenChats?: () => void;
   onOpenMovieMode?: () => void;
+  onSelectChat?: (conversationId: string) => void;
+  activeConversationId?: string | null;
   userLabel?: string | null;
   planLabel?: string | null;
 };
@@ -65,6 +68,8 @@ export function DashboardSidebar({
   onNewChat,
   onOpenChats,
   onOpenMovieMode,
+  onSelectChat,
+  activeConversationId,
   userLabel,
   planLabel,
 }: DashboardSidebarProps) {
@@ -329,17 +334,19 @@ export function DashboardSidebar({
       {expanded ? (
         <>
           <div className="px-2 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)] opacity-70">
-            Starred
+            Chats
           </div>
-          <p className="px-2 pb-2 text-[10px] leading-snug text-[var(--text-muted)] opacity-80">
-            Pin chats and artifacts — coming soon.
-          </p>
-          <div className="px-2 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)] opacity-70">
-            Recents
+          <div className="flex-1 min-h-0 max-h-[42vh] overflow-hidden flex flex-col">
+            <AgentChatSessionList
+              variant="sidebar"
+              expanded={expanded}
+              activeConversationId={activeConversationId}
+              onSelect={(id) => {
+                onSelectChat?.(id);
+                onItemActivate?.();
+              }}
+            />
           </div>
-          <p className="px-2 pb-2 text-[10px] leading-snug text-[var(--text-muted)] opacity-80">
-            Recent sessions appear in Chats.
-          </p>
         </>
       ) : null}
 

@@ -105,11 +105,11 @@ export function scheduleChatSessionTitleInsert(env, ctx, input) {
         body: input.body ?? null,
       });
 
-      await env.DB.prepare(
+      const ins = await env.DB.prepare(
         `INSERT OR IGNORE INTO agentsam_chat_sessions (
            conversation_id, tenant_id, user_id, workspace_id, title, github_repo, model_key,
-           created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, unixepoch(), unixepoch())`,
+           message_count, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, unixepoch(), unixepoch())`,
       )
         .bind(
           conversationId,
@@ -120,6 +120,20 @@ export function scheduleChatSessionTitleInsert(env, ctx, input) {
           githubRepo,
           modelKey,
         )
+        .run();
+
+      const inserted = Number(ins?.meta?.changes ?? ins?.changes ?? 0) > 0;
+      if (inserted) return;
+
+      await env.DB.prepare(
+        `UPDATE agentsam_chat_sessions
+         SET updated_at = unixepoch(),
+             message_count = COALESCE(message_count, 0) + 1,
+             model_key = COALESCE(?, model_key),
+             github_repo = COALESCE(?, github_repo)
+         WHERE conversation_id = ? AND user_id = ? AND tenant_id = ?`,
+      )
+        .bind(modelKey, githubRepo, conversationId, userId, tenantId)
         .run();
     } catch (e) {
       console.warn('[agentsam_chat_sessions] title insert', e?.message ?? e);
@@ -173,4 +187,157 @@ export function scheduleWorkspaceStateConversationUpdate(env, ctx, input) {
 
   if (ctx?.waitUntil) ctx.waitUntil(work);
   else void work;
+}
+
+/**
+ * List real chat threads for nav/history (agentsam_chat_sessions SSOT — not raw agent_run rows).
+ * @param {any} env
+ * @param {{ userId: string, tenantId: string, limit?: number, includeArchived?: boolean }} input
+ */
+export async function listUserChatSessions(env, input) {
+  if (!env?.DB) return [];
+  const userId = String(input.userId || '').trim();
+  const tenantId = String(input.tenantId || '').trim();
+  if (!userId || !tenantId) return [];
+  const lim = Math.min(Math.max(Number(input.limit) || 40, 1), 100);
+  const archivedClause = input.includeArchived ? '' : 'AND COALESCE(cs.is_archived, 0) = 0';
+
+  try {
+    const res = await env.DB.prepare(
+      `SELECT cs.conversation_id AS id,
+              cs.conversation_id,
+              cs.title,
+              cs.title AS name,
+              cs.github_repo,
+              cs.model_key,
+              cs.workspace_id,
+              cs.is_starred,
+              cs.project_id,
+              cs.message_count,
+              cs.created_at AS started_at,
+              cs.updated_at,
+              wp.name AS project_name,
+              (SELECT COUNT(*)
+               FROM agentsam_artifacts aa
+               WHERE aa.user_id = cs.user_id
+                 AND (aa.source_session_id = cs.conversation_id
+                      OR aa.source_run_id IN (
+                        SELECT r.id FROM agentsam_agent_run r
+                        WHERE r.conversation_id = cs.conversation_id AND r.user_id = cs.user_id
+                      ))
+              ) AS artifact_count
+       FROM agentsam_chat_sessions cs
+       LEFT JOIN workspace_projects wp ON wp.id = cs.project_id
+       WHERE cs.user_id = ? AND cs.tenant_id = ?
+         ${archivedClause}
+       ORDER BY cs.is_starred DESC, cs.updated_at DESC
+       LIMIT ?`,
+    )
+      .bind(userId, tenantId, lim)
+      .all();
+    const rows = res?.results || [];
+    return rows.map((r) => ({
+      ...r,
+      message_count: Number(r.message_count) || 1,
+      is_starred: Number(r.is_starred) === 1,
+      has_artifacts: Number(r.artifact_count) > 0,
+      artifact_count: Number(r.artifact_count) || 0,
+      session_type: 'chat',
+      status: 'active',
+    }));
+  } catch (e) {
+    console.warn('[listUserChatSessions]', e?.message ?? e);
+    try {
+      const res = await env.DB.prepare(
+        `SELECT cs.conversation_id AS id,
+                cs.conversation_id,
+                cs.title,
+                cs.title AS name,
+                cs.github_repo,
+                cs.model_key,
+                cs.workspace_id,
+                cs.created_at AS started_at,
+                cs.updated_at,
+                0 AS is_starred,
+                NULL AS project_id,
+                1 AS message_count,
+                NULL AS project_name,
+                0 AS artifact_count
+         FROM agentsam_chat_sessions cs
+         WHERE cs.user_id = ? AND cs.tenant_id = ?
+         ORDER BY cs.updated_at DESC
+         LIMIT ?`,
+      )
+        .bind(userId, tenantId, lim)
+        .all();
+      const rows = res?.results || [];
+      return rows.map((r) => ({
+        ...r,
+        message_count: Number(r.message_count) || 1,
+        is_starred: false,
+        has_artifacts: false,
+        artifact_count: 0,
+        session_type: 'chat',
+        status: 'active',
+      }));
+    } catch (e2) {
+      console.warn('[listUserChatSessions] fallback', e2?.message ?? e2);
+      return [];
+    }
+  }
+}
+
+/**
+ * @param {any} env
+ * @param {{ conversationId: string, userId: string, tenantId: string, patch: Record<string, unknown> }} input
+ */
+export async function patchUserChatSession(env, input) {
+  if (!env?.DB) return { ok: false, error: 'DB not configured' };
+  const conversationId = String(input.conversationId || '').trim();
+  const userId = String(input.userId || '').trim();
+  const tenantId = String(input.tenantId || '').trim();
+  const patch = input.patch && typeof input.patch === 'object' ? input.patch : {};
+  if (!conversationId || !userId || !tenantId) return { ok: false, error: 'missing_context' };
+
+  const sets = [];
+  const binds = [];
+
+  if (typeof patch.title === 'string' && patch.title.trim()) {
+    sets.push('title = ?');
+    binds.push(patch.title.trim().slice(0, 200));
+  }
+  if (patch.is_starred === true || patch.is_starred === 1 || patch.is_starred === '1') {
+    sets.push('is_starred = 1');
+  } else if (patch.is_starred === false || patch.is_starred === 0 || patch.is_starred === '0') {
+    sets.push('is_starred = 0');
+  }
+  if (patch.is_archived === true || patch.is_archived === 1 || patch.is_archived === '1') {
+    sets.push('is_archived = 1');
+  } else if (patch.is_archived === false || patch.is_archived === 0 || patch.is_archived === '0') {
+    sets.push('is_archived = 0');
+  }
+  if (patch.project_id === null || patch.project_id === '') {
+    sets.push('project_id = NULL');
+  } else if (typeof patch.project_id === 'string' && patch.project_id.trim()) {
+    sets.push('project_id = ?');
+    binds.push(patch.project_id.trim());
+  }
+
+  if (!sets.length) return { ok: false, error: 'no_changes' };
+  sets.push('updated_at = unixepoch()');
+  binds.push(conversationId, userId, tenantId);
+
+  try {
+    const r = await env.DB.prepare(
+      `UPDATE agentsam_chat_sessions SET ${sets.join(', ')}
+       WHERE conversation_id = ? AND user_id = ? AND tenant_id = ?`,
+    )
+      .bind(...binds)
+      .run();
+    const changed = Number(r.meta?.changes ?? r.changes ?? 0);
+    if (!changed) return { ok: false, error: 'not_found' };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e?.message || 'patch_failed' };
+  }
 }

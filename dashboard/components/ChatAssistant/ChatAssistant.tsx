@@ -50,6 +50,7 @@ import {
   type QuickstartThreadDetail,
 } from '../../agentChatConstants';
 import type { AgentSessionRow } from '../../agentSessionsCatalog';
+import { sessionDisplayTitle } from '../../agentSessionsCatalog';
 import type {
   ChatAssistantProps,
   ChatModelRow,
@@ -1144,9 +1145,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
   useEffect(() => {
     if (!conversationId.trim()) return;
-    const row = sessions.find((s) => s.id === conversationId);
-    const n = row?.name && String(row.name).replace(/\s+/g, ' ').trim();
-    if (n) setThreadTitle(n);
+    const row = sessions.find((s) => s.id === conversationId || s.conversation_id === conversationId);
+    const n = row ? sessionDisplayTitle(row) : '';
+    if (n && n !== 'New chat') setThreadTitle(n);
   }, [conversationId, sessions]);
 
   useEffect(() => {

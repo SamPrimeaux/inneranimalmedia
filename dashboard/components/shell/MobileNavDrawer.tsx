@@ -7,6 +7,8 @@ type MobileNavDrawerProps = {
   onNewChat?: () => void;
   onOpenChats?: () => void;
   onOpenMovieMode?: () => void;
+  onSelectChat?: (conversationId: string) => void;
+  activeConversationId?: string | null;
   userLabel?: string | null;
   planLabel?: string | null;
 };
@@ -17,6 +19,8 @@ export function MobileNavDrawer({
   onNewChat,
   onOpenChats,
   onOpenMovieMode,
+  onSelectChat,
+  activeConversationId,
   userLabel,
   planLabel,
 }: MobileNavDrawerProps) {
@@ -61,6 +65,8 @@ export function MobileNavDrawer({
           onNewChat={onNewChat}
           onOpenChats={onOpenChats}
           onOpenMovieMode={onOpenMovieMode}
+          onSelectChat={onSelectChat}
+          activeConversationId={activeConversationId}
           userLabel={userLabel}
           planLabel={planLabel}
         />
