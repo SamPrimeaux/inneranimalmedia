@@ -3,6 +3,7 @@
  */
 import { normalizeGlbPublicUrl } from './glb-public-url.js';
 import { writeUsageEvent } from './usage-event-writer.js';
+import { emitAgentSessionDesignStudioEvent } from '../api/designstudio/sync.js';
 import {
   buildCadAssetPublicUrl,
   buildCadExportR2Key,
@@ -306,6 +307,21 @@ export async function finalizeCadJobComplete(env, ctx, body) {
     cost_usd: Number(body.cost_usd) || 0,
     status: 'ok',
   });
+
+  if (publicUrl) {
+    await emitAgentSessionDesignStudioEvent(env, job.session_id, {
+      type: 'cad_glb_ready',
+      job_id: jobId,
+      url: publicUrl,
+      public_url: publicUrl,
+      r2_key: r2Key || null,
+      blueprint_id: job.project_id ?? null,
+      scene_snapshot_id: job.scene_snapshot_id ?? null,
+      engine: job.engine ?? null,
+    }).catch((e) => {
+      console.warn('[cad-job-complete] cad_glb_ready stream failed:', e?.message ?? e);
+    });
+  }
 
   return {
     ok: true,

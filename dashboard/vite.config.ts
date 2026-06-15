@@ -355,8 +355,15 @@ export default defineConfig(({ mode }) => {
         warnOnError: false,
       },
       rollupOptions: {
+        input: {
+          dashboard: path.resolve(__dirname, 'index.html'),
+          'games-room': path.resolve(__dirname, 'entries/games-room.tsx'),
+        },
         output: {
-          entryFileNames: (chunk) => (chunk.isEntry ? 'dashboard.js' : '[name].js'),
+          entryFileNames: (chunk) => {
+            if (chunk.name === 'games-room') return 'games-room.js';
+            return chunk.isEntry ? 'dashboard.js' : '[name].js';
+          },
           chunkFileNames: '[name].js',
           assetFileNames: (asset) => {
             if (!asset.name?.endsWith('.css')) return '[name][extname]';

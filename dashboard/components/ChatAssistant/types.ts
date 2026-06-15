@@ -209,6 +209,10 @@ export type { AgentWorkspaceContextPacket };
 
 export interface ChatAssistantProps {
   activeProject: ProjectType;
+  /** Design Studio linkage when on /dashboard/designstudio */
+  designStudioSceneId?: string | null;
+  designStudioBlueprintId?: string | null;
+  designStudioCadJobId?: string | null;
   activeFileContent?: string;
   /** Surface-level default subagent slug — pinned on every message from this surface. */
   defaultSubagentSlug?: string;

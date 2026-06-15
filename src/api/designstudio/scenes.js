@@ -104,7 +104,8 @@ async function fetchSceneRow(env, sceneId, userId, workspaceId) {
   return env.DB.prepare(
     `SELECT id, workspace_id, user_id, tenant_id, name, project_type, entity_count,
             r2_key, r2_bucket, public_url, thumbnail_r2_key, thumbnail_url, tags,
-            description, is_autosave, version, created_at, updated_at
+            description, is_autosave, version, created_at, updated_at,
+            project_id, glb_r2_key, cad_job_id, voxel_count, style_preset
      FROM ${TABLE}
      WHERE id = ? AND user_id = ? AND workspace_id = ?
      LIMIT 1`,
@@ -140,6 +141,11 @@ function rowToJson(row) {
     version: row.version,
     created_at: row.created_at,
     updated_at: row.updated_at,
+    project_id: row.project_id ?? null,
+    glb_r2_key: row.glb_r2_key ?? null,
+    cad_job_id: row.cad_job_id ?? null,
+    voxel_count: row.voxel_count ?? null,
+    style_preset: row.style_preset ?? null,
   };
 }
 
@@ -161,7 +167,8 @@ export async function handleDesignStudioScenesApi(request, url, env) {
 
     const includeAutosave = url.searchParams.get('include_autosave') === '1';
     let sql = `SELECT id, workspace_id, user_id, name, project_type, entity_count, r2_key, public_url,
-                      thumbnail_url, tags, description, is_autosave, version, created_at, updated_at
+                      thumbnail_url, tags, description, is_autosave, version, created_at, updated_at,
+                      project_id, glb_r2_key, cad_job_id, voxel_count, style_preset
                FROM ${TABLE}
                WHERE user_id = ? AND workspace_id = ?`;
     if (!includeAutosave) sql += ` AND is_autosave = 0`;
@@ -274,6 +281,14 @@ export async function handleDesignStudioScenesApi(request, url, env) {
     const tagsJson = Array.isArray(body.tags) ? JSON.stringify(body.tags) : '[]';
     const entityCount = entities.length;
     const now = Math.floor(Date.now() / 1000);
+    const projectId = body.project_id != null ? trim(body.project_id) || null : null;
+    const glbR2Key = body.glb_r2_key != null ? trim(body.glb_r2_key) || null : null;
+    const cadJobId = body.cad_job_id != null ? trim(body.cad_job_id) || null : null;
+    const voxelCount =
+      body.voxel_count != null && Number.isFinite(Number(body.voxel_count))
+        ? Number(body.voxel_count)
+        : null;
+    const stylePreset = body.style_preset != null ? trim(body.style_preset) || null : null;
 
     let sceneId = trim(body.id || body.scene_id);
     const updating = !!sceneId;
@@ -297,7 +312,12 @@ export async function handleDesignStudioScenesApi(request, url, env) {
       await env.DB.prepare(
         `UPDATE ${TABLE}
          SET name = ?, project_type = ?, entity_count = ?, r2_key = ?, public_url = ?,
-             description = ?, tags = ?, version = version + 1, updated_at = ?
+             description = ?, tags = ?, version = version + 1, updated_at = ?,
+             project_id = COALESCE(?, project_id),
+             glb_r2_key = COALESCE(?, glb_r2_key),
+             cad_job_id = COALESCE(?, cad_job_id),
+             voxel_count = COALESCE(?, voxel_count),
+             style_preset = COALESCE(?, style_preset)
          WHERE id = ? AND user_id = ? AND workspace_id = ? AND is_autosave = 0`,
       )
         .bind(
@@ -309,6 +329,11 @@ export async function handleDesignStudioScenesApi(request, url, env) {
           description,
           tagsJson,
           now,
+          projectId,
+          glbR2Key,
+          cadJobId,
+          voxelCount,
+          stylePreset,
           sceneId,
           actor.userId,
           actor.workspaceId,
@@ -318,8 +343,9 @@ export async function handleDesignStudioScenesApi(request, url, env) {
       await env.DB.prepare(
         `INSERT INTO ${TABLE}
            (id, workspace_id, user_id, tenant_id, name, project_type, entity_count,
-            r2_key, r2_bucket, public_url, description, tags, is_autosave, version, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, ?, ?)`,
+            r2_key, r2_bucket, public_url, description, tags, is_autosave, version, created_at, updated_at,
+            project_id, glb_r2_key, cad_job_id, voxel_count, style_preset)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, ?, ?, ?, ?, ?, ?, ?)`,
       )
         .bind(
           sceneId,
@@ -336,6 +362,11 @@ export async function handleDesignStudioScenesApi(request, url, env) {
           tagsJson,
           now,
           now,
+          projectId,
+          glbR2Key,
+          cadJobId,
+          voxelCount,
+          stylePreset,
         )
         .run();
     }

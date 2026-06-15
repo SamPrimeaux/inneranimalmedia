@@ -593,8 +593,73 @@ export class VoxelEngine {
         const minA = Math.min(s.a, e.a), maxA = Math.max(s.a, e.a);
         const minB = Math.min(s.b, e.b), maxB = Math.max(s.b, e.b);
         for (let a = minA; a <= maxA; a++) for (let b = minB; b <= maxB; b++) for (let c = 0; c < this.extrusion; c++) addVoxel(a, b, s.fixed + c);
+    } else if (this.cadTool === CADTool.CIRCLE) {
+        const centerA = s.a;
+        const centerB = s.b;
+        const radius = Math.max(1, Math.round(Math.hypot(e.a - s.a, e.b - s.b)));
+        this.rasterizeCircle2D(centerA, centerB, radius, (a, b) => {
+            for (let c = 0; c < this.extrusion; c++) addVoxel(a, b, s.fixed + c);
+        });
+    } else if (this.cadTool === CADTool.SPHERE) {
+        const radius = Math.max(1, Math.round(Math.hypot(e.a - s.a, e.b - s.b, e.fixed - s.fixed)));
+        this.rasterizeSphere3D(s.a, s.b, s.fixed, radius, (a, b, c) => addVoxel(a, b, c));
+    } else if (this.cadTool === CADTool.CONE) {
+        const baseRadius = Math.max(1, Math.round(Math.hypot(e.a - s.a, e.b - s.b)));
+        this.rasterizeCone(s.a, s.b, s.fixed, baseRadius, this.extrusion, (a, b, c) => addVoxel(a, b, c));
     }
     return voxels;
+  }
+
+  private rasterizeCircle2D(centerA: number, centerB: number, radius: number, add: (a: number, b: number) => void) {
+    const r2 = radius * radius;
+    for (let a = centerA - radius; a <= centerA + radius; a++) {
+      for (let b = centerB - radius; b <= centerB + radius; b++) {
+        const da = a - centerA;
+        const db = b - centerB;
+        if (da * da + db * db <= r2) add(a, b);
+      }
+    }
+  }
+
+  private rasterizeSphere3D(cx: number, cy: number, cz: number, radius: number, add: (a: number, b: number, c: number) => void) {
+    const r2 = radius * radius;
+    for (let a = cx - radius; a <= cx + radius; a++) {
+      for (let b = cy - radius; b <= cy + radius; b++) {
+        for (let c = cz - radius; c <= cz + radius; c++) {
+          const da = a - cx;
+          const db = b - cy;
+          const dc = c - cz;
+          if (da * da + db * db + dc * dc <= r2) add(a, b, c);
+        }
+      }
+    }
+  }
+
+  private rasterizeCone(
+    baseA: number,
+    baseB: number,
+    baseFixed: number,
+    baseRadius: number,
+    height: number,
+    add: (a: number, b: number, c: number) => void,
+  ) {
+    const h = Math.max(1, height);
+    for (let step = 0; step < h; step++) {
+      const t = step / h;
+      const r = Math.max(0, Math.round(baseRadius * (1 - t)));
+      if (r === 0) {
+        add(baseA, baseB, baseFixed + step);
+        continue;
+      }
+      const r2 = r * r;
+      for (let a = baseA - r; a <= baseA + r; a++) {
+        for (let b = baseB - r; b <= baseB + r; b++) {
+          const da = a - baseA;
+          const db = b - baseB;
+          if (da * da + db * db <= r2) add(a, b, baseFixed + step);
+        }
+      }
+    }
   }
 
   private rasterizeLine2D(a0: number, b0: number, a1: number, b1: number, add: (a: number, b: number) => void) {
@@ -618,6 +683,23 @@ export class VoxelEngine {
   }
 
   private setupChessBoard() {
+    void this.spawnChessBoardGlb().catch(() => this.spawnChessBoardVoxels());
+  }
+
+  private async spawnChessBoardGlb(): Promise<void> {
+    const { chessBoardGlbPath } = await import('../lib/glbAssets');
+    await this.spawnEntity({
+      id: 'chess_board',
+      name: 'Board',
+      type: 'prop',
+      modelUrl: chessBoardGlbPath(),
+      scale: 1,
+      position: { x: 0, y: 0, z: 0 },
+      behavior: { type: 'static' },
+    });
+  }
+
+  private spawnChessBoardVoxels() {
     const boardVoxels: VoxelData[] = [];
     for (let x = -5; x < 5; x++) {
       for (let z = -5; z < 5; z++) {

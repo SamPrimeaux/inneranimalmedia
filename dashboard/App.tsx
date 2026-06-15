@@ -47,6 +47,8 @@ import { buildPreviewSrcDoc } from './lib/buildPreviewSrcDoc';
 import { StatusBar, type AgentNotificationRow } from './components/StatusBar';
 import { UnifiedSearchBar, type UnifiedSearchNavigate } from './components/UnifiedSearchBar';
 import { ProjectType, type ActiveFile } from './types';
+import { DesignStudioProvider } from './components/designstudio/DesignStudioContext';
+import { ChatAssistantWithStudioContext } from './components/designstudio/ChatAssistantWithStudioContext';
 import type { DatabaseExplorerJump } from './types/databaseExplorer';
 import { prepareActiveFileForEditor } from './src/lib/prepareActiveFileForEditor';
 import { SHELL_VERSION } from './src/shellVersion';
@@ -3018,6 +3020,7 @@ const App: React.FC = () => {
   );
 
   return (
+    <DesignStudioProvider>
     <div className="w-full h-[100dvh] bg-[var(--dashboard-canvas)] overflow-hidden text-[var(--dashboard-text)] font-sans flex flex-col">
       <OfflineReconnectBanner />
       <div
@@ -3257,8 +3260,8 @@ const App: React.FC = () => {
                       {PRODUCT_NAME}
                     </div>
                     <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-                    <ChatAssistant 
-                        activeProject={activeProject} 
+                    <ChatAssistantWithStudioContext 
+                        fallbackProject={activeProject}
                         activeFileContent={activeFile?.content}
                         activeFileName={activeFile?.name}
                         activeFile={activeFile}
@@ -3940,8 +3943,8 @@ const App: React.FC = () => {
                       {PRODUCT_NAME}
                     </div>
                     <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-                         <ChatAssistant 
-                            activeProject={activeProject} 
+                         <ChatAssistantWithStudioContext 
+                            fallbackProject={activeProject}
                             activeFileContent={activeFile?.content}
                             activeFileName={activeFile?.name}
                             activeFile={activeFile}
@@ -4177,6 +4180,7 @@ const App: React.FC = () => {
         />
       )}
     </div>
+    </DesignStudioProvider>
   );
 };
 

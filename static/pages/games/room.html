@@ -3,175 +3,44 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Chess room | Inner Animal Media</title>
+  <title>3D Chess room | Inner Animal Media</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
   <style>
-    :root { --bg: #050508; --panel: #0f111a; --border: #1e2230; --text: #e2e8f0; --muted: #94a3b8; --light: #f8fafc; --dark: #1e293b; --accent: #2563eb; }
+    :root { --bg: #050508; --panel: #0f111a; --border: #1e2230; --text: #e2e8f0; --muted: #94a3b8; --accent: #2563eb; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: Inter, system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
-    main { max-width: 720px; margin: 0 auto; padding: 2.5rem 1rem 4rem; }
-    .top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem; }
+    main { max-width: 960px; margin: 0 auto; padding: 2rem 1rem 3rem; }
+    .top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
     h1 { font-size: 1.35rem; font-weight: 700; }
     .meta { font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: var(--muted); }
     .badge { display: inline-block; padding: 0.25rem 0.6rem; border-radius: 999px; background: #172554; color: #93c5fd; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; }
-    #board { display: grid; grid-template-columns: repeat(8, 1fr); width: min(92vw, 480px); aspect-ratio: 1; margin: 0 auto 1.25rem; border-radius: 0.75rem; overflow: hidden; border: 1px solid var(--border); }
-    .sq { display: flex; align-items: center; justify-content: center; font-size: clamp(1.4rem, 6vw, 2.2rem); cursor: pointer; user-select: none; transition: outline 0.1s; }
-    .sq.light { background: var(--light); color: #0f172a; }
-    .sq.dark { background: var(--dark); color: #f8fafc; }
-    .sq.selected { outline: 3px solid var(--accent); outline-offset: -3px; }
-    .sq.target { background: #1d4ed8 !important; }
+    #viewport { width: min(92vw, 720px); height: min(92vw, 720px); max-height: 70vh; margin: 0 auto 1rem; border-radius: 0.75rem; overflow: hidden; border: 1px solid var(--border); background: #000; }
+    .turn { text-align: center; margin-bottom: 0.75rem; font-size: 0.85rem; }
     .status { text-align: center; color: var(--muted); font-size: 0.85rem; min-height: 1.4em; }
     .actions { display: flex; justify-content: center; gap: 0.75rem; margin-top: 1rem; flex-wrap: wrap; }
     .btn { border: 1px solid var(--border); background: var(--panel); color: var(--text); border-radius: 0.65rem; padding: 0.55rem 1rem; font-size: 0.8rem; font-weight: 600; cursor: pointer; text-decoration: none; }
     .btn:hover { border-color: #334155; }
-    .turn { text-align: center; margin-bottom: 0.75rem; font-size: 0.85rem; }
+    .hint { text-align: center; font-size: 0.75rem; color: var(--muted); margin-top: 0.5rem; }
   </style>
 </head>
 <body>
   <main>
     <div class="top">
       <div>
-        <h1>Chess room</h1>
+        <h1>3D Chess</h1>
         <p class="meta" id="room-id"></p>
       </div>
       <span class="badge" id="player-color">connecting…</span>
     </div>
     <p class="turn" id="turn-label"></p>
-    <div id="board" aria-label="Chess board"></div>
+    <div id="viewport" aria-label="3D chess board"></div>
+    <p class="hint">Drag to orbit · Click piece then square to move</p>
     <p class="status" id="status" aria-live="polite"></p>
     <div class="actions">
       <a class="btn" href="/games">← Lobby</a>
       <button type="button" class="btn" id="resign-btn">Resign</button>
     </div>
   </main>
-  <script>
-    const UNICODE = {
-      K: '♔', Q: '♕', R: '♖', B: '♗', N: '♘', P: '♙',
-      k: '♚', q: '♛', r: '♜', b: '♝', n: '♞', p: '♟',
-    };
-    const FILES = 'abcdefgh';
-
-    const roomId = (location.pathname.match(/\/games\/(room_[^/]+)/i) || [])[1] || '';
-    document.getElementById('room-id').textContent = roomId || 'unknown room';
-    if (!roomId) {
-      document.getElementById('status').textContent = 'Invalid room URL.';
-      throw new Error('no room');
-    }
-
-    let fen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
-    let turn = 'white';
-    let myColor = null;
-    let selected = null;
-    let ws = null;
-
-    function parseBoard(fenStr) {
-      const placement = fenStr.split(/\s+/)[0] || '';
-      const ranks = placement.split('/');
-      const grid = [];
-      for (const rank of ranks) {
-        const row = [];
-        for (const ch of rank) {
-          if (/\d/.test(ch)) {
-            for (let i = 0; i < parseInt(ch, 10); i++) row.push(null);
-          } else row.push(ch);
-        }
-        grid.push(row);
-      }
-      return grid;
-    }
-
-    function squareAt(file, rankIdx) {
-      return FILES[file] + (8 - rankIdx);
-    }
-
-    function renderBoard() {
-      const board = document.getElementById('board');
-      board.innerHTML = '';
-      const grid = parseBoard(fen);
-      for (let r = 0; r < 8; r++) {
-        for (let f = 0; f < 8; f++) {
-          const sq = document.createElement('div');
-          const isLight = (f + r) % 2 === 0;
-          sq.className = 'sq ' + (isLight ? 'light' : 'dark');
-          const algebraic = squareAt(f, r);
-          sq.dataset.square = algebraic;
-          const piece = grid[r] && grid[r][f];
-          sq.textContent = piece ? (UNICODE[piece] || piece) : '';
-          if (selected === algebraic) sq.classList.add('selected');
-          sq.addEventListener('click', () => onSquareClick(algebraic, piece));
-          board.appendChild(sq);
-        }
-      }
-      document.getElementById('turn-label').textContent = 'Turn: ' + turn + (myColor ? ' · You are ' + myColor : '');
-    }
-
-    function onSquareClick(square, pieceOnSquare) {
-      if (!ws || ws.readyState !== WebSocket.OPEN) return;
-      if (myColor && myColor !== turn && myColor !== 'spectator') {
-        setStatus('Wait for your turn.');
-        return;
-      }
-      if (!selected) {
-        if (!pieceOnSquare) return;
-        const isWhite = pieceOnSquare === pieceOnSquare.toUpperCase();
-        if (myColor === 'white' && !isWhite) return;
-        if (myColor === 'black' && isWhite) return;
-        selected = square;
-        renderBoard();
-        return;
-      }
-      if (selected === square) {
-        selected = null;
-        renderBoard();
-        return;
-      }
-      const from = selected;
-      const to = square;
-      ws.send(JSON.stringify({ type: 'move', from, to }));
-      selected = null;
-      renderBoard();
-    }
-
-    function setStatus(msg) {
-      document.getElementById('status').textContent = msg || '';
-    }
-
-    function connect() {
-      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      ws = new WebSocket(proto + '//' + location.host + '/api/games/ws/' + encodeURIComponent(roomId));
-      ws.onopen = () => setStatus('Connected — waiting for opponent…');
-      ws.onclose = () => setStatus('Disconnected.');
-      ws.onmessage = (ev) => {
-        let msg;
-        try { msg = JSON.parse(ev.data); } catch { return; }
-        if (msg.type === 'state' || msg.type === 'joined') {
-          if (msg.fen) fen = msg.fen;
-          if (msg.turn) turn = msg.turn;
-          if (msg.color) {
-            myColor = msg.color;
-            document.getElementById('player-color').textContent = msg.color;
-          }
-          renderBoard();
-        } else if (msg.type === 'move') {
-          if (msg.fen) fen = msg.fen;
-          if (msg.turn) turn = msg.turn;
-          renderBoard();
-        } else if (msg.type === 'error') {
-          setStatus(msg.message || 'Move rejected');
-        } else if (msg.type === 'game_over') {
-          setStatus('Game over: ' + (msg.winner || 'draw'));
-        }
-      };
-    }
-
-    document.getElementById('resign-btn').addEventListener('click', () => {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'resign' }));
-      }
-    });
-
-    renderBoard();
-    connect();
-  </script>
+  <script type="module" src="/static/dashboard/app/games-room.js"></script>
 </body>
 </html>

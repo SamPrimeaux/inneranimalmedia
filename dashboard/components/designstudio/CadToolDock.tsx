@@ -1,0 +1,191 @@
+import React, { useState } from 'react';
+import { ChevronDown, Download, Layers } from 'lucide-react';
+import { ArtStyle, CADPlane, CADTool, type CustomAsset, type GenerationConfig } from '../../types';
+import { BlueprintPanel } from './BlueprintPanel';
+import { CadGeneratePanel } from './CadGeneratePanel';
+import { CadJobPanel } from './CadJobPanel';
+import { AssetLibrary } from './shared/AssetLibrary';
+import { ScenePanel, type SavedSceneRow } from './shared/ScenePanel';
+import type { useDesignStudioCad } from './hooks/useDesignStudioCad';
+import type { CadJobRow } from './api';
+
+type CadHook = ReturnType<typeof useDesignStudioCad>;
+
+type Props = {
+  cad: CadHook;
+  sceneName: string;
+  onSceneNameChange: (name: string) => void;
+  savedScenes: SavedSceneRow[];
+  sceneBusy: boolean;
+  onSaveScene: () => void;
+  onLoadScene: (id: string) => void;
+  cadJobId?: string | null;
+  glbR2Key?: string | null;
+  customAssets: CustomAsset[];
+  onSpawnModel: (name: string, url: string, scale: number) => void;
+  onAddCustomAsset: (name: string, url: string) => void | Promise<void>;
+  onRemoveCustomAsset: (id: string) => void | Promise<void>;
+  onRefreshUserAssets?: () => void;
+  onDeployJob: (job: CadJobRow) => void;
+  onImportGlb?: (file: File) => void;
+  onExportSceneJson?: () => void;
+  onDownloadLatestGlb?: () => void;
+  genConfig: GenerationConfig;
+  onUpdateGenConfig: (cfg: Partial<GenerationConfig>) => void;
+};
+
+export function CadToolDock({
+  cad,
+  sceneName,
+  onSceneNameChange,
+  savedScenes,
+  sceneBusy,
+  onSaveScene,
+  onLoadScene,
+  cadJobId,
+  glbR2Key,
+  customAssets,
+  onSpawnModel,
+  onAddCustomAsset,
+  onRemoveCustomAsset,
+  onRefreshUserAssets,
+  onDeployJob,
+  onImportGlb,
+  onExportSceneJson,
+  onDownloadLatestGlb,
+  genConfig,
+  onUpdateGenConfig,
+}: Props) {
+  const [sketchOpen, setSketchOpen] = useState(false);
+  const activeJob = cad.polledJob || cad.activeJob;
+
+  return (
+    <div className="space-y-6 flex-1 pb-8">
+      <BlueprintPanel
+        blueprints={cad.blueprints}
+        activeBlueprintId={cad.activeBlueprintId}
+        onSelect={cad.setActiveBlueprintId}
+        onCreate={async (title, prompt) => {
+          await cad.createNewBlueprint(title, prompt);
+        }}
+        busy={cad.busy}
+      />
+
+      <CadGeneratePanel
+        activeBlueprint={cad.activeBlueprint}
+        busy={cad.busy}
+        meshyStub={cad.meshyStub}
+        onGenerateOpenScad={cad.runOpenScadGenerate}
+        onExecuteJob={() => cad.runExecuteJob()}
+        onMeshyGenerate={cad.runMeshyGenerate}
+        onImportGlb={onImportGlb}
+        activeJobStatus={activeJob?.status ?? null}
+      />
+
+      <CadJobPanel
+        jobs={cad.jobs}
+        activeJob={activeJob}
+        polling={cad.isGenerating}
+        onSelectJob={cad.setActiveJobId}
+        onDeploy={onDeployJob}
+      />
+
+      {cad.error ? (
+        <p className="text-[10px] text-red-400 px-1">{cad.error}</p>
+      ) : null}
+
+      <ScenePanel
+        sceneName={sceneName}
+        onSceneNameChange={onSceneNameChange}
+        savedScenes={savedScenes}
+        sceneBusy={sceneBusy}
+        onSaveScene={onSaveScene}
+        onLoadScene={onLoadScene}
+        cadJobId={cadJobId}
+        glbR2Key={glbR2Key}
+      />
+
+      <AssetLibrary
+        customAssets={customAssets}
+        onSpawnModel={onSpawnModel}
+        onAddCustomAsset={onAddCustomAsset}
+        onRemoveCustomAsset={onRemoveCustomAsset}
+        onRefreshUserAssets={onRefreshUserAssets}
+        showDirectUrlLoader={false}
+      />
+
+      <section className="bg-[var(--bg-hover)] p-4 rounded-2xl border border-[var(--border-subtle)] space-y-2">
+        <button
+          type="button"
+          onClick={() => setSketchOpen((v) => !v)}
+          className="w-full flex items-center justify-between text-[10px] font-black text-[var(--text-muted)] uppercase tracking-[0.2em]"
+        >
+          <span className="flex items-center gap-2">
+            <Layers size={14} className="text-cyan-400" />
+            Sketch (plane & extrusion)
+          </span>
+          <ChevronDown size={14} className={`transition-transform ${sketchOpen ? 'rotate-180' : ''}`} />
+        </button>
+        {sketchOpen && (
+          <div className="space-y-3 pt-2">
+            <div className="flex gap-2">
+              {[CADPlane.XZ, CADPlane.XY, CADPlane.YZ].map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => onUpdateGenConfig({ cadPlane: p })}
+                  className={`flex-1 py-1.5 rounded-lg text-[9px] font-black uppercase border ${
+                    genConfig.cadPlane === p
+                      ? 'bg-cyan-500 text-black border-cyan-500'
+                      : 'bg-[var(--bg-panel)] text-[var(--text-muted)] border-[var(--border-subtle)]'
+                  }`}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+            <div>
+              <div className="flex justify-between text-[9px] text-[var(--text-muted)] mb-1">
+                <span>Extrusion</span>
+                <span className="font-mono text-cyan-400">{genConfig.extrusion}</span>
+              </div>
+              <input
+                type="range"
+                min={1}
+                max={30}
+                value={genConfig.extrusion}
+                onChange={(e) => onUpdateGenConfig({ extrusion: parseInt(e.target.value, 10) })}
+                className="w-full accent-cyan-500"
+              />
+            </div>
+            <p className="text-[9px] text-[var(--text-muted)]">
+              Style: {genConfig.style || ArtStyle.CYBERPUNK} · Tool: {genConfig.cadTool || CADTool.NONE}
+            </p>
+          </div>
+        )}
+      </section>
+
+      <div className="space-y-2">
+        {onDownloadLatestGlb && activeJob?.public_url ? (
+          <button
+            type="button"
+            onClick={onDownloadLatestGlb}
+            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-[var(--border-subtle)] text-[10px] font-black uppercase"
+          >
+            <Download size={14} />
+            Download Latest GLB
+          </button>
+        ) : null}
+        {onExportSceneJson ? (
+          <button
+            type="button"
+            onClick={onExportSceneJson}
+            className="w-full py-2 text-[9px] font-bold text-[var(--text-muted)] uppercase hover:text-[var(--text-main)]"
+          >
+            Export scene JSON (dev)
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}

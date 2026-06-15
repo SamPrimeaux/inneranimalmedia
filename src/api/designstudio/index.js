@@ -661,6 +661,10 @@ export async function handleDesignStudioApi(request, url, env, _ctx) {
         .bind(runId, tenantId)
         .first();
       if (!run) return jsonResponse({ error: 'Not found' }, 404);
+      const reqCtx = await resolveRequestContext(request, env);
+      const ws =
+        (url.searchParams.get('workspace_id') || '').trim() ||
+        (reqCtx.error ? '' : reqCtx.workspaceId || '');
       try {
         const base = supabaseRestBase(env);
         const res = await fetch(
@@ -669,13 +673,9 @@ export async function handleDesignStudioApi(request, url, env, _ctx) {
         );
         const text = await res.text();
         const rows = text ? JSON.parse(text) : [];
-        const ws =
-          (url.searchParams.get('workspace_id') || '').trim() || defaultWorkspaceId(env) || '';
         const prefix = buildCadCreationsPrefix(tenantId, ws, runId);
         return jsonResponse({ workflow_run_id: runId, r2_prefix: prefix, assets: Array.isArray(rows) ? rows : [] }, 200);
       } catch (e) {
-        const ws =
-          (url.searchParams.get('workspace_id') || '').trim() || defaultWorkspaceId(env) || '';
         const prefix = buildCadCreationsPrefix(tenantId, ws, runId);
         return jsonResponse(
           { workflow_run_id: runId, r2_prefix: prefix, assets: [], supabase_error: String(e?.message || e) },

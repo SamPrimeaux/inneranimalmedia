@@ -99,9 +99,9 @@ export const handlers = {
     async voxel_spawn_model(params, env) { return await invokeMediaOp(env, '/api/voxel/spawn', 'POST', params); },
 
     // ── Meshy AI (Mesh Generation) ────────────────────────────────────────
-    async meshyai_text_to_3d(params, env) { return await invokeMediaOp(env, '/api/meshy/text-to-3d', 'POST', params); },
-    async meshyai_image_to_3d(params, env) { return await invokeMediaOp(env, '/api/meshy/image-to-3d', 'POST', params); },
-    async meshyai_get_task(params, env) { return await invokeMediaOp(env, `/api/meshy/task?id=${params.id}`, 'GET'); },
+    async meshyai_text_to_3d(params, env) { return await invokeMediaOp(env, '/api/cad/meshy/generate', 'POST', params); },
+    async meshyai_image_to_3d(params, env) { return await invokeMediaOp(env, '/api/cad/meshy/generate', 'POST', params); },
+    async meshyai_get_task(params, env) { return await invokeMediaOp(env, `/api/cad/meshy/status/${encodeURIComponent(params.id)}`, 'GET'); },
 
     // ── Image Generation (OpenAI / Google) ───────────────────────────────
     async imgx_generate_image(params, env) { return await invokeMediaOp(env, '/api/images/generate', 'POST', params); },

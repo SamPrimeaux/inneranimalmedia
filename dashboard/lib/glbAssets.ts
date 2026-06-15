@@ -5,6 +5,11 @@
 
 const CANONICAL_CHESS_BASE = '/assets/glb/chess/v1';
 
+/** Relative path for chess board GLB. */
+export function chessBoardGlbPath(): string {
+  return `${CANONICAL_CHESS_BASE}/board/board_main.glb`;
+}
+
 /** Relative path for a chess piece GLB (Worker ASSETS key: glb/chess/v1/pieces/{color}/{piece}.glb). */
 export function chessPieceGlbPath(color: 'white' | 'black', piece: string): string {
   const c = color === 'white' || color === 'black' ? color : 'white';

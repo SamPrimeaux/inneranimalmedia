@@ -184,6 +184,9 @@ export { IAM_AGENT_CHAT_CONVERSATION_CHANGE, IAM_AGENT_CHAT_NEW_THREAD } from '.
 
 export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   activeProject,
+  designStudioSceneId,
+  designStudioBlueprintId,
+  designStudioCadJobId,
   activeFileContent,
   defaultSubagentSlug,
   activeFileName,
@@ -2288,6 +2291,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     }
     form.append('conversationId', effectiveConvId);
     form.append('contextMode', String(activeProject));
+    if (designStudioSceneId?.trim()) form.append('scene_snapshot_id', designStudioSceneId.trim());
+    if (designStudioBlueprintId?.trim()) form.append('blueprint_id', designStudioBlueprintId.trim());
+    if (designStudioCadJobId?.trim()) form.append('cad_job_id', designStudioCadJobId.trim());
     if (effectiveWsId) form.append('workspace_id', effectiveWsId);
     if (sendOpts?.task_type?.trim()) form.append('task_type', sendOpts.task_type.trim());
     if (sendOpts?.route_key?.trim()) form.append('route_key', sendOpts.route_key.trim());

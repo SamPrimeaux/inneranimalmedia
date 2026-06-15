@@ -1,44 +1,25 @@
 /**
  * Design Studio — full 3D workspace (/dashboard/designstudio).
- * Left controls + VoxelEngine viewport + overlays (migrated from App.tsx / StudioSidebar / ToolLauncherBar).
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import {
-  Gamepad2,
-  Layers,
-  Box,
-  Download,
-  Package,
-  Sparkles,
-  Zap,
-  Mountain,
-  Trees,
-  LayoutGrid,
-  Dumbbell,
-  Sun,
-  Moon,
-  Ghost,
-  Plane,
-  Activity,
-  Shield,
-  Palette,
-  Plus,
-  Trash2,
-  Link,
-  UploadCloud,
-  Eye,
-  Sword,
-  UserCircle,
-  Globe,
-  ChevronLeft,
-  Users,
-} from 'lucide-react';
-type VoxelEngineClass = typeof import('../services/VoxelEngine').VoxelEngine;
-type VoxelEngineInstance = InstanceType<VoxelEngineClass>;
-import { normalizeGlbUrl, normalizeChessPieceUrls } from '../lib/glbAssets';
+import { Users } from 'lucide-react';
+import { normalizeGlbUrl } from '../lib/glbAssets';
 import { UIOverlay } from './UIOverlay';
 import { ToolLauncherBar } from './ToolLauncherBar';
+import {
+  DesignStudioLeftPanel,
+  readStoredDesignStudioProject,
+} from './designstudio/DesignStudioLeftPanel';
+import { useDesignStudioCad } from './designstudio/hooks/useDesignStudioCad';
+import { spawnGlbInEngine } from './designstudio/spawnGlb';
+import { useDesignStudioContext } from './designstudio/DesignStudioContext';
+import type { CadJobRow } from './designstudio/api';
+import type { SavedSceneRow } from './designstudio/shared/ScenePanel';
+import {
+  IAM_AGENT_CHAT_CONVERSATION_CHANGE,
+  LS_AGENT_CHAT_CONVERSATION_ID,
+} from '../agentChatConstants';
 import {
   ProjectType,
   AppState,
@@ -51,6 +32,9 @@ import {
   CADPlane,
 } from '../types';
 
+type VoxelEngineClass = typeof import('../services/VoxelEngine').VoxelEngine;
+type VoxelEngineInstance = InstanceType<VoxelEngineClass>;
+
 type PendingGlbState = { pendingGlb?: { url: string; name: string } };
 
 type StudioStockAsset = {
@@ -58,14 +42,12 @@ type StudioStockAsset = {
   name: string;
   url: string;
   scale: number;
-  iconKey: string | null;
 };
 
 function parseStudioAssetApiRow(row: {
   id?: string;
   label?: string;
   public_url?: string;
-  icon?: string | null;
   scale?: number;
 }): StudioStockAsset | null {
   const id = String(row.id || '').trim();
@@ -74,627 +56,28 @@ function parseStudioAssetApiRow(row: {
   const name = String(row.label || id).trim() || id;
   const scale =
     typeof row.scale === 'number' && Number.isFinite(row.scale) && row.scale > 0 ? row.scale : 1;
-  const iconKey = row.icon != null && String(row.icon).trim() ? String(row.icon).trim() : null;
-  return { id, name, url, scale, iconKey };
-}
-
-function studioAssetIcon(iconKey: string | null): React.ReactNode {
-  const k = String(iconKey || '').toLowerCase();
-  switch (k) {
-    case 'shield':
-    case 'building':
-      return <Shield size={14} />;
-    case 'activity':
-      return <Activity size={14} />;
-    case 'plane':
-      return <Plane size={14} />;
-    case 'link':
-      return <Link size={14} />;
-    default:
-      return <Box size={14} />;
-  }
-}
-
-function DesignStudioLeftPanel(props: {
-  activeProject: ProjectType;
-  onSwitchProject: (type: ProjectType) => void;
-  onExport: () => void;
-  genConfig: GenerationConfig;
-  onUpdateGenConfig: (config: Partial<GenerationConfig>) => void;
-  sceneConfig: SceneConfig;
-  onUpdateSceneConfig: (config: Partial<SceneConfig>) => void;
-  onSpawnModel: (name: string, url: string, scale: number) => void;
-  customAssets: CustomAsset[];
-  onAddCustomAsset: (name: string, url: string) => void | Promise<void>;
-  onRemoveCustomAsset: (id: string) => void | Promise<void>;
-  sceneName: string;
-  onSceneNameChange: (name: string) => void;
-  savedScenes: { id: string; name: string; entity_count: number; updated_at: number }[];
-  sceneBusy: boolean;
-  onSaveScene: () => void;
-  onLoadScene: (id: string) => void;
-}) {
-  const {
-    activeProject,
-    onSwitchProject,
-    onExport,
-    genConfig,
-    onUpdateGenConfig,
-    sceneConfig,
-    onUpdateSceneConfig,
-    onSpawnModel,
-    customAssets,
-    onAddCustomAsset,
-    onRemoveCustomAsset,
-    sceneName,
-    onSceneNameChange,
-    savedScenes,
-    sceneBusy,
-    onSaveScene,
-    onLoadScene,
-  } = props;
-
-  const [newAssetName, setNewAssetName] = useState('');
-  const [newAssetUrl, setNewAssetUrl] = useState('');
-  const [directUrl, setDirectUrl] = useState('');
-  const [isAdding, setIsAdding] = useState(false);
-  const [chessPieces, setChessPieces] = useState<
-    { type: string; name: string; white_url: string; black_url: string }[]
-  >([]);
-  const [stockAssets, setStockAssets] = useState<StudioStockAsset[]>([]);
-  const [stockAssetsLoading, setStockAssetsLoading] = useState(true);
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    fetch('/api/games/pieces')
-      .then((r) => r.json())
-      .then(({ results }) => {
-        const map: Record<
-          string,
-          { type: string; name: string; white_url?: string; black_url?: string }
-        > = {};
-        for (const row of results || []) {
-          let meta: Record<string, unknown> = {};
-          try {
-            meta =
-              typeof (row as { metadata?: unknown }).metadata === 'string'
-                ? JSON.parse((row as { metadata: string }).metadata || '{}')
-                : ((row as { metadata?: Record<string, unknown> }).metadata ?? {});
-          } catch {
-            meta = {};
-          }
-          const piece = meta.piece;
-          const color = meta.color;
-          if (typeof piece !== 'string' || typeof color !== 'string') continue;
-          if (!map[piece]) {
-            const label = meta.piece_armory_label;
-            map[piece] = {
-              type: piece,
-              name: typeof label === 'string' ? label : piece,
-            };
-          }
-          if (color === 'white' || color === 'black') {
-            map[piece][`${color}_url` as 'white_url' | 'black_url'] = (row as { public_url: string })
-              .public_url;
-          }
-        }
-        setChessPieces(
-          Object.values(map).map((p) =>
-            normalizeChessPieceUrls({
-              type: p.type,
-              name: p.name,
-              white_url: p.white_url || '',
-              black_url: p.black_url || '',
-            }),
-          ),
-        );
-      })
-      .catch((e) => console.warn('[Piece Armory] fetch failed', e));
-  }, []);
-
-  useEffect(() => {
-    setStockAssetsLoading(true);
-    fetch('/api/designstudio/assets?category=3d_studio&is_live=1', { credentials: 'include' })
-      .then((r) => r.json())
-      .then((data) => {
-        const rows = Array.isArray(data?.results) ? data.results : [];
-        const parsed = rows
-          .map((row: Parameters<typeof parseStudioAssetApiRow>[0]) => parseStudioAssetApiRow(row))
-          .filter((a): a is StudioStockAsset => a != null);
-        const byUrl = new Map<string, StudioStockAsset>();
-        for (const a of parsed) {
-          const k = a.url.trim().toLowerCase();
-          if (!k || byUrl.has(k)) continue;
-          byUrl.set(k, a);
-        }
-        setStockAssets(Array.from(byUrl.values()));
-      })
-      .catch((e) => console.warn('[Asset Library] stock fetch failed', e))
-      .finally(() => setStockAssetsLoading(false));
-  }, []);
-
-  const projects = [
-    { id: ProjectType.CHESS, name: 'Games', icon: <Gamepad2 size={20} />, desc: '3D Physics Chess' },
-    { id: ProjectType.CAD, name: 'Agent Sam', icon: <Layers size={20} />, desc: 'Precision Blueprints' },
-    { id: ProjectType.SANDBOX, name: 'Sandbox Lab', icon: <Box size={20} />, desc: 'Voxel Physics Fun' },
-  ];
-
-  const styles = [
-    { id: ArtStyle.CYBERPUNK, name: 'Cyberpunk', icon: <Zap size={14} />, colors: 'from-cyan-500 to-blue-600' },
-    { id: ArtStyle.BRUTALIST, name: 'Brutalist', icon: <Mountain size={14} />, colors: 'from-slate-600 to-slate-800' },
-    { id: ArtStyle.ORGANIC, name: 'Organic', icon: <Trees size={14} />, colors: 'from-emerald-500 to-teal-600' },
-    { id: ArtStyle.LOW_POLY, name: 'Low-Poly', icon: <LayoutGrid size={14} />, colors: 'from-amber-400 to-orange-500' },
-  ];
-
-  const sunPresets = [
-    { id: '#00ffff', name: 'Neon', icon: <Zap size={12} /> },
-    { id: '#ffcc00', name: 'Sol', icon: <Sun size={12} /> },
-    { id: '#ffffff', name: 'Cold', icon: <Moon size={12} /> },
-    { id: '#ff3366', name: 'Ghost', icon: <Ghost size={12} /> },
-    { id: '#ef4444', name: 'Ruby', icon: <Palette size={12} /> },
-    { id: '#10b981', name: 'Emerald', icon: <Palette size={12} /> },
-    { id: '#6366f1', name: 'Indigo', icon: <Palette size={12} /> },
-    { id: '#0a0a0f', name: 'Void', icon: <Palette size={12} /> },
-  ];
-
-  const handleQuickSpawn = () => {
-    if (newAssetUrl) {
-      onSpawnModel(newAssetName || 'Imported Asset', newAssetUrl, 1);
-    }
-  };
-
-  const handleDirectSpawn = () => {
-    if (directUrl.trim()) {
-      onSpawnModel('Remote Asset', directUrl.trim(), 1);
-      setDirectUrl('');
-    }
-  };
-
-  const handleAddAsset = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (newAssetName && newAssetUrl) {
-      try {
-        await onAddCustomAsset(newAssetName, newAssetUrl);
-        setNewAssetName('');
-        setNewAssetUrl('');
-        setIsAdding(false);
-      } catch (err) {
-        console.warn('[Asset Library] save failed', err);
-      }
-    }
-  };
-
-  return (
-    <div className="w-[260px] min-w-[260px] h-full bg-[var(--bg-panel)] border-r border-[var(--border-subtle)] flex flex-col p-4 z-20 overflow-y-auto custom-scrollbar">
-      <div className="mb-6 flex-shrink-0 flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => navigate('/dashboard/agent')}
-          className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]"
-          title="Back to Agent"
-        >
-          <ChevronLeft size={20} strokeWidth={1.75} />
-        </button>
-        <div>
-          <h1 className="text-[13px] font-black tracking-wide text-[var(--text-heading)]">Design Studio</h1>
-          <p className="text-[9px] font-bold text-[var(--text-muted)] uppercase tracking-widest">3D workspace</p>
-        </div>
-      </div>
-
-      <div className="space-y-6 flex-1 pb-8">
-        <section>
-          <p className="text-[10px] font-black text-[var(--text-muted)] uppercase tracking-[0.2em] mb-3">Workspace</p>
-          <div className="space-y-2">
-            {projects.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => onSwitchProject(p.id)}
-                className={`w-full group flex items-start gap-3 p-3 rounded-xl transition-all border text-left ${
-                  activeProject === p.id
-                    ? 'bg-[var(--bg-hover)] border-[var(--solar-cyan)]/30'
-                    : 'bg-transparent border-transparent hover:bg-[var(--bg-hover)]'
-                }`}
-              >
-                <div
-                  className={`mt-1 p-2 rounded-lg transition-colors ${
-                    activeProject === p.id
-                      ? 'bg-[var(--solar-cyan)] text-black shadow-[0_0_10px_rgba(0,255,255,0.2)]'
-                      : 'bg-[var(--bg-hover)] text-[var(--text-muted)] group-hover:text-[var(--text-main)]'
-                  }`}
-                >
-                  {React.cloneElement(p.icon as React.ReactElement<{ size?: number }>, { size: 16 })}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div
-                    className={`text-[11px] font-bold tracking-tight ${
-                      activeProject === p.id ? 'text-[var(--solar-cyan)]' : 'text-[var(--text-main)]'
-                    }`}
-                  >
-                    {p.name}
-                  </div>
-                  <div className="text-[10px] text-[var(--text-muted)] font-medium">{p.desc}</div>
-                </div>
-              </button>
-            ))}
-          </div>
-        </section>
-
-        <section className="bg-[var(--bg-hover)] p-4 rounded-2xl border border-[var(--border-subtle)] space-y-3">
-          <div className="flex items-center gap-2 mb-1">
-            <Package size={14} className="text-[var(--solar-cyan)]" />
-            <p className="text-[10px] font-black text-[var(--text-muted)] uppercase tracking-[0.2em]">Scene</p>
-          </div>
-          <input
-            type="text"
-            placeholder="Scene name"
-            className="w-full bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded-xl px-3 py-2 text-[11px]"
-            value={sceneName}
-            onChange={(e) => onSceneNameChange(e.target.value)}
-          />
-          <button
-            type="button"
-            disabled={sceneBusy}
-            onClick={onSaveScene}
-            className="w-full bg-[var(--solar-cyan)] text-black py-2 rounded-xl text-[10px] font-black uppercase disabled:opacity-40"
-          >
-            {sceneBusy ? 'Saving…' : 'Save Scene'}
-          </button>
-          {savedScenes.length > 0 && (
-            <div className="max-h-32 overflow-y-auto space-y-1">
-              {savedScenes.map((s) => (
-                <button
-                  key={s.id}
-                  type="button"
-                  disabled={sceneBusy}
-                  onClick={() => onLoadScene(s.id)}
-                  className="w-full text-left px-2 py-1.5 rounded-lg text-[10px] font-bold bg-[var(--bg-panel)] border border-[var(--border-subtle)] hover:border-[var(--solar-cyan)]/40"
-                >
-                  {s.name}{' '}
-                  <span className="text-[var(--text-muted)] font-mono">({s.entity_count})</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </section>
-
-        <section className="bg-gradient-to-br from-indigo-500/10 to-blue-500/5 p-4 rounded-2xl border border-[var(--border-subtle)] space-y-3">
-          <div className="flex items-center gap-2 mb-1">
-            <Globe size={14} className="text-[var(--solar-cyan)]" />
-            <p className="text-[10px] font-black text-[var(--text-muted)] uppercase tracking-[0.2em]">Direct URL Loader</p>
-          </div>
-          <input
-            type="url"
-            placeholder="https://.../model.glb"
-            className="w-full bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded-xl px-3 py-2.5 text-[11px] font-mono text-[var(--solar-cyan)] focus:outline-none focus:border-[var(--solar-cyan)]/50"
-            value={directUrl}
-            onChange={(e) => setDirectUrl(e.target.value)}
-          />
-          <button
-            type="button"
-            onClick={handleDirectSpawn}
-            disabled={!directUrl.trim()}
-            className="w-full bg-[var(--solar-cyan)] hover:opacity-90 disabled:opacity-30 text-black py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wide flex items-center justify-center gap-2"
-          >
-            <Plus size={14} />
-            Deploy to Scene
-          </button>
-        </section>
-
-        {activeProject === ProjectType.CHESS && (
-          <section className="bg-[var(--bg-hover)] p-4 rounded-2xl border border-[var(--border-subtle)] space-y-3">
-            <div className="flex items-center gap-2 mb-1">
-              <Sword size={14} className="text-[var(--solar-violet)]" />
-              <p className="text-[10px] font-black text-[var(--text-muted)] uppercase tracking-[0.2em]">Piece Armory</p>
-            </div>
-            <div className="space-y-3">
-              <div>
-                <p className="text-[9px] font-bold text-[var(--text-muted)] uppercase mb-2">White Pieces</p>
-                <div className="grid grid-cols-3 gap-2">
-                  {chessPieces.map((piece) => (
-                    <button
-                      type="button"
-                      key={`white-${piece.type}`}
-                      onClick={() => onSpawnModel(`White ${piece.name}`, piece.white_url, 0.8)}
-                      disabled={!piece.white_url}
-                      className="flex flex-col items-center gap-1 p-2 rounded-xl bg-[var(--bg-panel)] border border-[var(--border-subtle)] hover:bg-[var(--bg-hover)] disabled:opacity-30 disabled:cursor-not-allowed"
-                    >
-                      <UserCircle size={16} className="text-[var(--text-muted)]" />
-                      <span className="text-[8px] font-black uppercase text-[var(--text-muted)]">{piece.name}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <p className="text-[9px] font-bold text-[var(--text-muted)] uppercase mb-2">Black Pieces</p>
-                <div className="grid grid-cols-3 gap-2">
-                  {chessPieces.map((piece) => (
-                    <button
-                      type="button"
-                      key={`black-${piece.type}`}
-                      onClick={() => onSpawnModel(`Black ${piece.name}`, piece.black_url, 0.8)}
-                      disabled={!piece.black_url}
-                      className="flex flex-col items-center gap-1 p-2 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] hover:bg-[var(--bg-hover)] disabled:opacity-30 disabled:cursor-not-allowed"
-                    >
-                      <UserCircle size={16} className="text-[var(--solar-violet)]" />
-                      <span className="text-[8px] font-black uppercase text-[var(--text-muted)]">{piece.name}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </section>
-        )}
-
-        <section className="bg-[var(--bg-hover)] p-4 rounded-2xl border border-[var(--border-subtle)] space-y-3">
-          <div className="flex items-center justify-between mb-1">
-            <div className="flex items-center gap-2">
-              <Package size={14} className="text-[var(--solar-green)]" />
-              <p className="text-[10px] font-black text-[var(--text-muted)] uppercase tracking-[0.2em]">Asset Library</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setIsAdding(!isAdding)}
-              className={`p-1 rounded-md ${isAdding ? 'bg-red-500/10 text-red-400' : 'bg-emerald-500/10 text-emerald-400'}`}
-            >
-              <Plus size={14} className={isAdding ? 'rotate-45 transition-transform' : ''} />
-            </button>
-          </div>
-
-          {isAdding && (
-            <form onSubmit={handleAddAsset} className="space-y-2 p-3 bg-[var(--bg-app)] rounded-xl border border-[var(--border-subtle)]">
-              <input
-                type="text"
-                placeholder="Name"
-                className="w-full bg-[var(--bg-panel)] border border-[var(--border-subtle)] rounded-lg px-3 py-2 text-[11px]"
-                value={newAssetName}
-                onChange={(e) => setNewAssetName(e.target.value)}
-              />
-              <input
-                type="url"
-                placeholder="https://.../model.glb"
-                className="w-full bg-[var(--bg-panel)] border border-[var(--border-subtle)] rounded-lg px-3 py-2 text-[11px] font-mono"
-                value={newAssetUrl}
-                onChange={(e) => setNewAssetUrl(e.target.value)}
-              />
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={handleQuickSpawn}
-                  disabled={!newAssetUrl}
-                  className="flex-1 bg-[var(--text-main)] text-[var(--bg-app)] py-2 rounded-lg text-[9px] font-black uppercase disabled:opacity-30"
-                >
-                  Quick Spawn
-                </button>
-                <button
-                  type="submit"
-                  disabled={!newAssetUrl || !newAssetName}
-                  className="flex-1 bg-emerald-500 text-black py-2 rounded-lg text-[9px] font-black uppercase disabled:opacity-30"
-                >
-                  Save to List
-                </button>
-              </div>
-            </form>
-          )}
-
-          <p className="text-[9px] font-bold text-[var(--text-muted)] uppercase mb-1">
-            Stock Presets
-            {!stockAssetsLoading && stockAssets.length > 0 ? (
-              <span className="text-[var(--text-muted)] font-normal normal-case ml-1">
-                ({stockAssets.length})
-              </span>
-            ) : null}
-          </p>
-          <div className="grid grid-cols-1 gap-2 max-h-[220px] overflow-y-auto pr-1">
-            {stockAssetsLoading && (
-              <p className="text-[10px] text-[var(--text-muted)] px-2 py-1">Loading presets…</p>
-            )}
-            {!stockAssetsLoading && stockAssets.length === 0 && (
-              <p className="text-[10px] text-[var(--text-muted)] px-2 py-1">
-                No live stock assets in D1 (<code className="font-mono">3d_studio</code>).
-              </p>
-            )}
-            {stockAssets.map((asset) => (
-              <button
-                type="button"
-                key={asset.id}
-                onClick={() => onSpawnModel(asset.name, asset.url, asset.scale)}
-                className="flex items-center gap-3 p-2 rounded-xl bg-[var(--bg-panel)] border border-[var(--border-subtle)] hover:bg-[var(--bg-hover)] text-[10px] font-bold uppercase text-left"
-              >
-                <span className="text-emerald-400">{studioAssetIcon(asset.iconKey)}</span>
-                {asset.name}
-              </button>
-            ))}
-            {customAssets.length > 0 && (
-              <p className="text-[9px] font-bold text-[var(--text-muted)] uppercase mb-1 mt-2">Your Assets</p>
-            )}
-            {customAssets.map((asset) => (
-              <div key={asset.id} className="group relative flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => onSpawnModel(asset.name, asset.url, asset.scale ?? 1)}
-                  className="flex-1 flex items-center gap-3 p-2 rounded-xl bg-[var(--bg-panel)] border border-[var(--border-subtle)] text-[10px] font-bold uppercase text-left"
-                >
-                  <span className="text-[var(--solar-cyan)] shrink-0">{studioAssetIcon('link')}</span>
-                  {asset.name}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void onRemoveCustomAsset(asset.id)}
-                  className="p-2 text-red-400 opacity-0 group-hover:opacity-100 hover:bg-red-500/10 rounded-lg"
-                  title="Remove"
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="bg-[var(--bg-hover)] p-4 rounded-2xl border border-[var(--border-subtle)] space-y-4">
-          <div className="flex items-center gap-2 mb-1">
-            <Palette size={14} className="text-amber-400" />
-            <p className="text-[10px] font-black text-[var(--text-muted)] uppercase tracking-[0.2em]">Theme & Paint</p>
-          </div>
-          <div>
-            <div className="flex justify-between items-center mb-2">
-              <label className="text-[10px] font-bold text-[var(--text-muted)] uppercase">Ambient</label>
-              <span className="text-[10px] font-mono text-amber-400">{sceneConfig.ambientIntensity.toFixed(1)}</span>
-            </div>
-            <input
-              type="range"
-              min={0}
-              max={5}
-              step={0.1}
-              value={sceneConfig.ambientIntensity}
-              onChange={(e) => onUpdateSceneConfig({ ambientIntensity: parseFloat(e.target.value) })}
-              className="w-full h-1.5 bg-[var(--bg-panel)] rounded-lg accent-amber-500"
-            />
-          </div>
-          <div>
-            <label className="text-[10px] font-bold text-[var(--text-muted)] uppercase block mb-2">Sun Color</label>
-            <div className="grid grid-cols-4 gap-2">
-              {sunPresets.map((s) => (
-                <button
-                  type="button"
-                  key={s.id}
-                  onClick={() => onUpdateSceneConfig({ sunColor: s.id })}
-                  className={`flex flex-col items-center gap-1 p-2 rounded-xl border ${
-                    sceneConfig.sunColor === s.id
-                      ? 'bg-[var(--bg-panel)] border-[var(--solar-cyan)] scale-105'
-                      : 'bg-[var(--bg-app)] border-[var(--border-subtle)] opacity-70 hover:opacity-100'
-                  }`}
-                  title={s.name}
-                >
-                  <span style={{ color: s.id }}>{s.icon}</span>
-                  <span className="text-[8px] font-bold text-[var(--text-muted)]">{s.name}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="flex items-center justify-between p-3 bg-[var(--bg-panel)] rounded-xl border border-[var(--border-subtle)]">
-            <div className="flex items-center gap-2">
-              <Sun size={16} className={sceneConfig.castShadows ? 'text-amber-400' : 'text-[var(--text-muted)]'} />
-              <span className="text-[10px] font-black uppercase text-[var(--text-main)]">Ray Shadows</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => onUpdateSceneConfig({ castShadows: !sceneConfig.castShadows })}
-              className={`w-10 h-5 rounded-full relative ${sceneConfig.castShadows ? 'bg-amber-500' : 'bg-[var(--border-subtle)]'}`}
-            >
-              <span
-                className={`absolute top-1 left-1 w-3 h-3 bg-white rounded-full transition-transform ${
-                  sceneConfig.castShadows ? 'translate-x-5' : ''
-                }`}
-              />
-            </button>
-          </div>
-          <div className="flex items-center justify-between p-3 bg-[var(--bg-panel)] rounded-xl border border-[var(--border-subtle)]">
-            <div className="flex items-center gap-2">
-              <Eye size={16} className={sceneConfig.showPhysicsDebug ? 'text-[var(--solar-cyan)]' : 'text-[var(--text-muted)]'} />
-              <span className="text-[10px] font-black uppercase text-[var(--text-main)]">Physics Gizmos</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => onUpdateSceneConfig({ showPhysicsDebug: !sceneConfig.showPhysicsDebug })}
-              className={`w-10 h-5 rounded-full relative ${sceneConfig.showPhysicsDebug ? 'bg-[var(--solar-cyan)]' : 'bg-[var(--border-subtle)]'}`}
-            >
-              <span
-                className={`absolute top-1 left-1 w-3 h-3 bg-white rounded-full transition-transform ${
-                  sceneConfig.showPhysicsDebug ? 'translate-x-5' : ''
-                }`}
-              />
-            </button>
-          </div>
-        </section>
-
-        <section className="bg-[var(--bg-hover)] p-4 rounded-2xl border border-[var(--border-subtle)] space-y-4">
-          <div className="flex items-center gap-2 mb-1">
-            <Sparkles size={14} className="text-[var(--solar-cyan)]" />
-            <p className="text-[10px] font-black text-[var(--text-muted)] uppercase tracking-[0.2em]">Gen Config</p>
-          </div>
-          <div>
-            <label className="text-[10px] font-bold text-[var(--text-muted)] uppercase block mb-2">Artistic Style</label>
-            <div className="grid grid-cols-2 gap-2">
-              {styles.map((s) => (
-                <button
-                  type="button"
-                  key={s.id}
-                  onClick={() => onUpdateGenConfig({ style: s.id })}
-                  className={`flex items-center gap-2 p-2 rounded-xl border text-[10px] font-black ${
-                    genConfig.style === s.id
-                      ? `bg-gradient-to-br ${s.colors} text-white border-transparent`
-                      : 'bg-[var(--bg-panel)] border-[var(--border-subtle)] text-[var(--text-muted)]'
-                  }`}
-                >
-                  {s.icon}
-                  {s.name}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <div className="flex justify-between items-center mb-2">
-              <label className="text-[10px] font-bold text-[var(--text-muted)] uppercase">Voxel Density</label>
-              <span className="text-[10px] font-mono text-[var(--solar-cyan)]">{genConfig.density}/10</span>
-            </div>
-            <input
-              type="range"
-              min={1}
-              max={10}
-              value={genConfig.density}
-              onChange={(e) => onUpdateGenConfig({ density: parseInt(e.target.value, 10) })}
-              className="w-full h-1.5 bg-[var(--bg-panel)] rounded-lg accent-[var(--solar-cyan)]"
-            />
-          </div>
-          <div className="flex items-center justify-between p-3 bg-[var(--bg-panel)] rounded-xl border border-[var(--border-subtle)]">
-            <div className="flex items-center gap-2">
-              <Dumbbell size={16} className={genConfig.usePhysics ? 'text-[var(--solar-cyan)]' : 'text-[var(--text-muted)]'} />
-              <span className="text-[10px] font-black uppercase text-[var(--text-main)]">Simulate Physics</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => onUpdateGenConfig({ usePhysics: !genConfig.usePhysics })}
-              className={`w-10 h-5 rounded-full relative ${genConfig.usePhysics ? 'bg-[var(--solar-cyan)]' : 'bg-[var(--border-subtle)]'}`}
-            >
-              <span
-                className={`absolute top-1 left-1 w-3 h-3 bg-white rounded-full transition-transform ${
-                  genConfig.usePhysics ? 'translate-x-5' : ''
-                }`}
-              />
-            </button>
-          </div>
-        </section>
-      </div>
-
-      <div className="mt-auto pt-3 flex-shrink-0">
-        <button
-          type="button"
-          onClick={onExport}
-          className="w-full flex items-center justify-center gap-2 py-3 bg-[var(--text-main)] text-[var(--bg-app)] rounded-xl font-black text-[11px] uppercase tracking-widest hover:opacity-90"
-        >
-          <Download size={18} />
-          Blender Bridge
-        </button>
-      </div>
-    </div>
-  );
+  return { id, name, url, scale };
 }
 
 export const DesignStudioPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { setStudioContext } = useDesignStudioContext();
   const containerRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<VoxelEngineInstance | null>(null);
   const pendingConsumedRef = useRef(false);
+  const lastSpawnedJobRef = useRef<string | null>(null);
 
   const [engineReady, setEngineReady] = useState(false);
-  const [activeProject, setActiveProject] = useState<ProjectType>(ProjectType.CHESS);
+  const [activeProject, setActiveProject] = useState<ProjectType>(readStoredDesignStudioProject);
   const [appState, setAppState] = useState<AppState>(AppState.EDITING);
   const [voxelCount, setVoxelCount] = useState(0);
   const [customAssets, setCustomAssets] = useState<CustomAsset[]>([]);
   const [undoStack, setUndoStack] = useState<GameEntity[]>([]);
   const [redoStack, setRedoStack] = useState<GameEntity[]>([]);
+  const [currentSceneId, setCurrentSceneId] = useState<string | null>(null);
+  const [linkedCadJobId, setLinkedCadJobId] = useState<string | null>(null);
+  const [linkedGlbR2Key, setLinkedGlbR2Key] = useState<string | null>(null);
 
   const [genConfig, setGenConfig] = useState<GenerationConfig>({
     style: ArtStyle.CYBERPUNK,
@@ -712,9 +95,7 @@ export const DesignStudioPage: React.FC = () => {
     showPhysicsDebug: false,
   });
 
-  const [savedScenes, setSavedScenes] = useState<
-    { id: string; name: string; entity_count: number; updated_at: number }[]
-  >([]);
+  const [savedScenes, setSavedScenes] = useState<SavedSceneRow[]>([]);
   const [sceneName, setSceneName] = useState('');
   const [sceneBusy, setSceneBusy] = useState(false);
   const [multiplayerBusy, setMultiplayerBusy] = useState(false);
@@ -722,26 +103,81 @@ export const DesignStudioPage: React.FC = () => {
   const [multiplayerColor, setMultiplayerColor] = useState<string | null>(null);
   const chessWsRef = useRef<WebSocket | null>(null);
 
+  const deployJobToScene = useCallback(async (job: CadJobRow, opts?: { auto?: boolean }) => {
+    const url = job.public_url || job.result_url;
+    if (!url) return false;
+    const name =
+      job.prompt?.slice(0, 40) ||
+      `${job.engine} export`;
+    const ok = await spawnGlbInEngine(engineRef.current, { url, name });
+    if (ok) {
+      setLinkedCadJobId(job.id);
+      if (job.r2_key && !String(job.r2_key).startsWith('b64:')) {
+        setLinkedGlbR2Key(job.r2_key);
+      }
+      lastSpawnedJobRef.current = job.id;
+      if (opts?.auto) {
+        console.info('[DesignStudio] auto-spawned GLB from job', job.id);
+      }
+    }
+    return ok;
+  }, []);
+
+  const [chatSessionId, setChatSessionId] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem(LS_AGENT_CHAT_CONVERSATION_ID)?.trim() || null;
+    } catch {
+      return null;
+    }
+  });
+
+  useEffect(() => {
+    const onConv = (ev: Event) => {
+      const id = (ev as CustomEvent<{ conversationId?: string }>).detail?.conversationId?.trim();
+      if (id) setChatSessionId(id);
+    };
+    window.addEventListener(IAM_AGENT_CHAT_CONVERSATION_CHANGE, onConv);
+    return () => window.removeEventListener(IAM_AGENT_CHAT_CONVERSATION_CHANGE, onConv);
+  }, []);
+
+  const cad = useDesignStudioCad({
+    sessionId: chatSessionId,
+    sceneId: currentSceneId,
+    onJobDone: (job) => {
+      void refreshUserAssets();
+      if (job.status === 'done' && job.public_url && lastSpawnedJobRef.current !== job.id) {
+        void deployJobToScene(job, { auto: true });
+      }
+    },
+  });
+
   const refreshSceneList = useCallback(() => {
     fetch('/api/designstudio/scenes', { credentials: 'include' })
       .then((r) => r.json())
       .then((data) => {
         const rows = Array.isArray(data?.scenes) ? data.scenes : [];
         setSavedScenes(
-          rows.map((s: { id: string; name: string; entity_count: number; updated_at: number }) => ({
-            id: s.id,
-            name: s.name,
-            entity_count: s.entity_count,
-            updated_at: s.updated_at,
-          })),
+          rows.map(
+            (s: {
+              id: string;
+              name: string;
+              entity_count: number;
+              updated_at: number;
+              cad_job_id?: string | null;
+              glb_r2_key?: string | null;
+            }) => ({
+              id: s.id,
+              name: s.name,
+              entity_count: s.entity_count,
+              updated_at: s.updated_at,
+              cad_job_id: s.cad_job_id,
+              glb_r2_key: s.glb_r2_key,
+            }),
+          ),
         );
       })
       .catch(() => {});
   }, []);
-
-  useEffect(() => {
-    refreshSceneList();
-  }, [refreshSceneList]);
 
   const refreshUserAssets = useCallback(() => {
     fetch('/api/designstudio/assets?category=3d_studio_user&is_live=1', { credentials: 'include' })
@@ -759,8 +195,27 @@ export const DesignStudioPage: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    refreshSceneList();
     refreshUserAssets();
-  }, [refreshUserAssets]);
+  }, [refreshSceneList, refreshUserAssets]);
+
+  useEffect(() => {
+    setStudioContext({
+      activeProject,
+      sceneId: currentSceneId,
+      blueprintId: cad.activeBlueprintId,
+      cadJobId: cad.activeJobId || linkedCadJobId,
+      sessionId: chatSessionId,
+    });
+  }, [
+    activeProject,
+    currentSceneId,
+    cad.activeBlueprintId,
+    cad.activeJobId,
+    linkedCadJobId,
+    chatSessionId,
+    setStudioContext,
+  ]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -768,6 +223,7 @@ export const DesignStudioPage: React.FC = () => {
 
     let cancelled = false;
     let engine: VoxelEngineInstance | null = null;
+    const initialProject = readStoredDesignStudioProject();
 
     void import('../services/VoxelEngine').then(({ VoxelEngine }) => {
       if (cancelled || !containerRef.current || engineRef.current) return;
@@ -780,7 +236,7 @@ export const DesignStudioPage: React.FC = () => {
       engine.updateLighting(sceneConfig);
       engine.setCADPlane(genConfig.cadPlane);
       engine.setExtrusion(genConfig.extrusion);
-      engine.setProjectType(ProjectType.CHESS);
+      engine.setProjectType(initialProject);
       engine.setOnChessMove((from, to) => {
         const ws = chessWsRef.current;
         if (!ws || ws.readyState !== WebSocket.OPEN) return;
@@ -852,22 +308,20 @@ export const DesignStudioPage: React.FC = () => {
         } catch {
           return;
         }
-        const engine = engineRef.current;
-        if (!engine) return;
+        const eng = engineRef.current;
+        if (!eng) return;
         if (msg.type === 'state' || msg.type === 'joined') {
           if (msg.color) setMultiplayerColor(msg.color);
-          if (msg.fen) void engine.syncBoardFromFen(msg.fen);
+          if (msg.fen) void eng.syncBoardFromFen(msg.fen);
         } else if (msg.type === 'move' && msg.from && msg.to) {
-          engine.movePiece(msg.from, msg.to);
+          eng.movePiece(msg.from, msg.to);
         } else if (msg.type === 'error' && msg.message) {
           console.warn('[Chess multiplayer]', msg.message);
         }
       };
 
       ws.onclose = () => {
-        if (chessWsRef.current === ws) {
-          chessWsRef.current = null;
-        }
+        if (chessWsRef.current === ws) chessWsRef.current = null;
       };
     } catch (e) {
       console.warn('[Chess multiplayer] start failed', e);
@@ -893,15 +347,7 @@ export const DesignStudioPage: React.FC = () => {
     const st = (location.state as PendingGlbState | null)?.pendingGlb;
     if (!st?.url) return;
     pendingConsumedRef.current = true;
-    engineRef.current.spawnEntity({
-      id: `route-glb-${Date.now()}`,
-      name: st.name || 'Imported',
-      type: 'prop',
-      position: { x: 0, y: 1, z: 0 },
-      behavior: { type: 'dynamic', mass: 10, restitution: 0.2 },
-      modelUrl: st.url,
-      scale: 1,
-    });
+    void spawnGlbInEngine(engineRef.current, { url: st.url, name: st.name || 'Imported' });
     navigate(location.pathname, { replace: true, state: {} });
   }, [engineReady, location.state, location.pathname, navigate]);
 
@@ -998,16 +444,12 @@ export const DesignStudioPage: React.FC = () => {
     [refreshUserAssets],
   );
 
-  const handleImportGlbFile = useCallback((file: File) => {
-    const url = URL.createObjectURL(file);
-    handleSpawnModel(file.name.replace(/\.glb$/i, ''), url, 1);
-  }, [handleSpawnModel]);
-
-  const handleToolNavigate = useCallback(
-    (url: string) => {
-      window.open(url, '_blank', 'noopener,noreferrer');
+  const handleImportGlbFile = useCallback(
+    (file: File) => {
+      const url = URL.createObjectURL(file);
+      handleSpawnModel(file.name.replace(/\.glb$/i, ''), url, 1);
     },
-    [],
+    [handleSpawnModel],
   );
 
   const handleFileDrop = useCallback(
@@ -1037,43 +479,86 @@ export const DesignStudioPage: React.FC = () => {
     setSceneBusy(true);
     try {
       const entities = engineRef.current.exportEntities();
+      const activeJob = cad.polledJob || cad.activeJob;
       const res = await fetch('/api/designstudio/scenes', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
+          id: currentSceneId || undefined,
           name: sceneName.trim() || `Scene ${new Date().toLocaleString()}`,
           project_type: activeProject,
           entities,
+          cad_job_id: linkedCadJobId || activeJob?.id || null,
+          glb_r2_key:
+            linkedGlbR2Key ||
+            (activeJob?.r2_key && !String(activeJob.r2_key).startsWith('b64:')
+              ? activeJob.r2_key
+              : null),
+          voxel_count: voxelCount,
+          style_preset: genConfig.style,
+          project_id: cad.activeBlueprintId,
         }),
       });
       if (!res.ok) throw new Error(await res.text());
+      const data = await res.json().catch(() => ({}));
+      const scene = (data as { scene?: { id?: string; cad_job_id?: string; glb_r2_key?: string } }).scene;
+      if (scene?.id) setCurrentSceneId(scene.id);
+      if (scene?.cad_job_id) setLinkedCadJobId(String(scene.cad_job_id));
+      if (scene?.glb_r2_key) setLinkedGlbR2Key(String(scene.glb_r2_key));
       refreshSceneList();
     } catch (e) {
       console.warn('[DesignStudio] save scene failed', e);
     } finally {
       setSceneBusy(false);
     }
-  }, [activeProject, sceneName, refreshSceneList]);
+  }, [
+    activeProject,
+    sceneName,
+    refreshSceneList,
+    cad,
+    linkedCadJobId,
+    linkedGlbR2Key,
+    voxelCount,
+    genConfig.style,
+    currentSceneId,
+  ]);
 
-  const handleLoadScene = useCallback(async (sceneId: string) => {
-    if (!engineRef.current) return;
-    setSceneBusy(true);
-    try {
-      const res = await fetch(`/api/designstudio/scenes/${encodeURIComponent(sceneId)}/entities`, {
-        credentials: 'include',
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const data = await res.json();
-      await engineRef.current.loadEntities(data.entities || [], { keepBoard: true });
-      setUndoStack([]);
-      setRedoStack([]);
-    } catch (e) {
-      console.warn('[DesignStudio] load scene failed', e);
-    } finally {
-      setSceneBusy(false);
-    }
-  }, [refreshSceneList]);
+  const handleLoadScene = useCallback(
+    async (sceneId: string) => {
+      if (!engineRef.current) return;
+      setSceneBusy(true);
+      try {
+        const [entitiesRes, metaRes] = await Promise.all([
+          fetch(`/api/designstudio/scenes/${encodeURIComponent(sceneId)}/entities`, {
+            credentials: 'include',
+          }),
+          fetch(`/api/designstudio/scenes/${encodeURIComponent(sceneId)}`, { credentials: 'include' }),
+        ]);
+        if (!entitiesRes.ok) throw new Error(await entitiesRes.text());
+        const data = await entitiesRes.json();
+        await engineRef.current.loadEntities(data.entities || [], { keepBoard: true });
+        setCurrentSceneId(sceneId);
+        if (metaRes.ok) {
+          const meta = await metaRes.json();
+          const scene = (meta as { scene?: SavedSceneRow & { project_type?: string } }).scene;
+          if (scene?.cad_job_id) setLinkedCadJobId(String(scene.cad_job_id));
+          if (scene?.glb_r2_key) setLinkedGlbR2Key(String(scene.glb_r2_key));
+          if (scene?.name) setSceneName(scene.name);
+          if (scene?.project_type && Object.values(ProjectType).includes(scene.project_type as ProjectType)) {
+            handleProjectSwitch(scene.project_type as ProjectType);
+          }
+        }
+        setUndoStack([]);
+        setRedoStack([]);
+      } catch (e) {
+        console.warn('[DesignStudio] load scene failed', e);
+      } finally {
+        setSceneBusy(false);
+      }
+    },
+    [handleProjectSwitch],
+  );
 
   useEffect(() => {
     if (!engineReady || !engineRef.current) return;
@@ -1098,6 +583,18 @@ export const DesignStudioPage: React.FC = () => {
     return () => window.clearInterval(tick);
   }, [engineReady, activeProject]);
 
+  const activeJobForBar = cad.polledJob || cad.activeJob;
+
+  const handleDownloadLatestGlb = useCallback(() => {
+    const url = activeJobForBar?.public_url;
+    if (!url) return;
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${activeJobForBar?.engine || 'cad'}-export.glb`;
+    a.rel = 'noopener';
+    a.click();
+  }, [activeJobForBar]);
+
   return (
     <div
       className="flex h-full min-h-0 bg-[var(--bg-app)] overflow-hidden"
@@ -1120,8 +617,15 @@ export const DesignStudioPage: React.FC = () => {
         onSceneNameChange={setSceneName}
         savedScenes={savedScenes}
         sceneBusy={sceneBusy}
-        onSaveScene={handleSaveScene}
-        onLoadScene={handleLoadScene}
+        onSaveScene={() => void handleSaveScene()}
+        onLoadScene={(id) => void handleLoadScene(id)}
+        cad={cad}
+        cadJobId={linkedCadJobId}
+        glbR2Key={linkedGlbR2Key}
+        onRefreshUserAssets={refreshUserAssets}
+        onDeployJob={(job) => void deployJobToScene(job)}
+        onImportGlb={handleImportGlbFile}
+        onDownloadLatestGlb={handleDownloadLatestGlb}
       />
 
       <div className="flex-1 min-w-0 min-h-0 relative">
@@ -1155,7 +659,7 @@ export const DesignStudioPage: React.FC = () => {
           voxelCount={voxelCount}
           appState={appState}
           activeProject={activeProject}
-          isGenerating={false}
+          isGenerating={cad.isGenerating}
           onTogglePlay={() => {}}
           onClear={onClear}
           genConfig={genConfig}
@@ -1168,7 +672,17 @@ export const DesignStudioPage: React.FC = () => {
 
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 pointer-events-none flex justify-center w-full max-w-[90vw]">
           <div className="pointer-events-auto">
-            <ToolLauncherBar onNavigate={handleToolNavigate} onImportGlb={handleImportGlbFile} />
+            <ToolLauncherBar
+              activeProject={activeProject}
+              onImportGlb={handleImportGlbFile}
+              onMeshyGenerate={
+                activeProject === ProjectType.CAD
+                  ? (prompt) => cad.runMeshyGenerate(prompt)
+                  : undefined
+              }
+              latestGlbUrl={activeProject === ProjectType.CAD ? activeJobForBar?.public_url : undefined}
+              onDownloadGlb={activeProject === ProjectType.CAD ? handleDownloadLatestGlb : undefined}
+            />
           </div>
         </div>
       </div>
