@@ -40,6 +40,25 @@ function withTimeout(promise, ms) {
 }
 
 /**
+ * Quickstart seed messages are meta-instructions to the MODEL ("Ask the user what they
+ * need before doing anything. Wait for answers before generating."), not task
+ * descriptions. Fed verbatim to the plan-intake LLM, it reads "the goal is to ask
+ * questions" and returns needs_questions: false -- and even if it didn't, the
+ * fallthrough message would still tell the model to ask via free text either way.
+ * Strip sentences instructing the model to ask/wait, leaving just the descriptive
+ * goal (e.g. "Quickstart: Slides.") for both the intake decision and, on fallthrough,
+ * the message actually sent to the model.
+ */
+function stripQuickstartAskInstructions(text) {
+  const raw = String(text || '').trim();
+  const sentences = raw
+    .split(/(?<=[.!?])\s+/)
+    .filter((s) => !/\b(ask|wait for (the )?answers?)\b/i.test(s));
+  const cleaned = sentences.join(' ').trim();
+  return cleaned || raw;
+}
+
+/**
  * Agent controller
  * - execution_kind: agent_tool_loop
  * - purpose: do the work, policy gated by compiled profile
@@ -410,18 +429,20 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
             supersedePendingBatchesForSession,
           } = await import('../agentsam-plan-intake.js');
 
+          const goalForIntake = stripQuickstartAskInstructions(message);
+
           if (userId && workspaceId && sessionId) {
             await supersedePendingBatchesForSession(env, { workspaceId, sessionId });
           }
 
           const explore = await runPlanIntakeExplore(env, {
-            goal: message,
+            goal: goalForIntake,
             workspaceId: workspaceId || '',
             intent: 'mixed',
           });
 
           const intake = await generatePlanIntakeQuestions(env, {
-            goal: message,
+            goal: goalForIntake,
             explore,
             phase: 'quickstart_intake',
             userId,
@@ -440,7 +461,7 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
               session_id: sessionId,
               phase: 'quickstart_intake',
               status: 'pending',
-              goal_text: message,
+              goal_text: goalForIntake,
               explore_summary_json: JSON.stringify({ ...explore, synthesis: intake.synthesis }),
               questions_json: JSON.stringify(intake.questions),
               // Stash routing info here (not optional_details — submitPlanIntakeBatch
@@ -471,8 +492,12 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
             emit('done', {});
             return;
           }
-          // needs_questions === false: goal already specific enough — fall through to the
-          // normal agent tool loop below with the original message/chatMessages untouched.
+          // needs_questions === false: goal already specific enough -- still rewrite the
+          // first message to the cleaned goal so the model doesn't redundantly free-write
+          // questions from the original "ask the user / wait for answers" seed text.
+          if (chatMessages.length === 1 && chatMessages[0]?.role === 'user') {
+            chatMessages[0] = { ...chatMessages[0], content: goalForIntake };
+          }
         } catch (e) {
           console.warn('[agent-controller] quickstart_intake', e?.message ?? e);
           // Non-fatal — fall through to the normal agent tool loop on any intake error.
