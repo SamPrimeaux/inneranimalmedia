@@ -12,6 +12,7 @@ import {
 import type { ActiveFile } from '../types';
 import { useEditor } from '../src/EditorContext';
 import { FilePreview } from '../src/components/FilePreview';
+import { QuestionsIntakePage } from '../src/components/QuestionsIntakePage';
 import { SetiFileIcon } from '../src/components/SetiFileIcon';
 import { detectFileKind, isEditableTextKind } from '../src/lib/fileKind';
 import { buildR2ObjectUrl } from '../src/lib/r2Urls';
@@ -97,7 +98,7 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
   onEditorModelMeta,
   workspaceContext: _workspaceContext = null,
 }) => {
-  const { tabs, activeTabId, setActiveTab, closeFile, updateActiveContent, discardChanges } = useEditor();
+  const { tabs, activeTabId, setActiveTab, closeFile, updateActiveContent, discardChanges, questionsIntake } = useEditor();
   const activeFile = tabs.find(t => t.id === activeTabId) || null;
   const isDirty = activeFile?.isDirty;
 
@@ -135,12 +136,13 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
               size: activeFile.size,
             })
           : 'text');
-  const showMediaPreview = Boolean(activeFile && !isEditableTextKind(resolvedKind));
+  const showQuestionsIntake = activeFile?.fileKind === 'questions_intake';
+  const showMediaPreview = Boolean(activeFile && !isEditableTextKind(resolvedKind) && !showQuestionsIntake);
   const hasDiffData =
     activeFile?.originalContent !== undefined &&
     activeFile.originalContent !== activeFile.content;
   const showMonacoBody = Boolean(
-    activeFile && !showMediaPreview && !(showDiff && hasDiffData),
+    activeFile && !showMediaPreview && !showQuestionsIntake && !(showDiff && hasDiffData),
   );
 
   useEffect(() => {
@@ -579,7 +581,19 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
 
       {/* ── Editor Body ── */}
       <div className="flex-1 overflow-hidden">
-        {showMediaPreview ? (
+        {showQuestionsIntake ? (
+          questionsIntake ? (
+            <QuestionsIntakePage
+              batch={questionsIntake.batch}
+              busy={questionsIntake.busy}
+              onSubmit={questionsIntake.onSubmit}
+            />
+          ) : (
+            <div className="flex h-full items-center justify-center text-[12px] text-[var(--dashboard-muted)]">
+              No pending questions.
+            </div>
+          )
+        ) : showMediaPreview ? (
           <FilePreview
             kind={resolvedKind === 'unknown' ? 'binary' : resolvedKind}
             name={activeFile.name}

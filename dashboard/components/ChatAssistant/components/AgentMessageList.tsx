@@ -4,7 +4,7 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { User, Bot, ChevronRight, FileText, ShieldAlert } from 'lucide-react';
+import { User, Bot, ChevronRight, FileText, ShieldAlert, Sparkles } from 'lucide-react';
 import { SetiFileIcon } from '../../../src/components/SetiFileIcon';
 import type { ActiveFile } from '../../../types';
 import type {
@@ -32,7 +32,6 @@ import { WorkflowRunPresenceBanner } from './WorkflowRunBoard';
 import { ArtifactChipList } from '../execution/ArtifactChipList';
 import type { AgentMode } from '../types';
 import { AgentPlanChecklist } from './AgentPlanChecklist';
-import { AgentQuestionsCard } from './AgentQuestionsCard';
 import { AgentImageGenerationCard } from '../../../components/AgentImageGenerationCard';
 import { EmailArtifactCard } from '../artifacts/EmailArtifactCard';
 import { ToolApprovalCard } from './ToolApprovalCard';
@@ -629,12 +628,24 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
                   ) : null}
                   {msg.planQuestionsBatch && !msg.planQuestionsBatch.submitted ? (
                     <div className="agent-content min-w-0 w-full mt-2 mb-1">
-                      <AgentQuestionsCard
-                        batch={msg.planQuestionsBatch}
-                        busy={planIntakeBusy}
-                        isNarrow={isNarrow}
-                        onSubmit={(payload) => onPlanIntakeSubmit?.(payload)}
-                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onFileSelect?.({
+                            name: 'Questions',
+                            content: '',
+                            fileKind: 'questions_intake',
+                            workspacePath: `questions:${msg.planQuestionsBatch!.batch_id}`,
+                          })
+                        }
+                        className="flex w-full items-center gap-2.5 rounded-xl border border-[var(--solar-cyan)]/25 bg-[var(--solar-cyan)]/8 px-3.5 py-2.5 text-left transition-colors hover:bg-[var(--solar-cyan)]/12"
+                      >
+                        <Sparkles size={15} className="shrink-0 text-[var(--solar-cyan)]" aria-hidden />
+                        <span className="text-[13px] font-medium text-[var(--dashboard-text)]">
+                          Agent Sam has questions — open the Questions tab
+                        </span>
+                        <ChevronRight size={14} className="ml-auto shrink-0 text-[var(--dashboard-muted)]" aria-hidden />
+                      </button>
                     </div>
                   ) : null}
                   {msg.agentQuestion ? (

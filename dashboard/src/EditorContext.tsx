@@ -1,9 +1,24 @@
 import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
 import type { ActiveFile } from '../types';
+import type { PlanQuestionsBatchPayload } from '../components/ChatAssistant/types';
+import type { QuestionsIntakePageSubmitPayload } from './components/QuestionsIntakePage';
 
 /**
  * IDE Editor Context — Handles multi-tab buffers and state.
  */
+
+/**
+ * Live state for the 'questions_intake' tab (Agent Sam plan-intake Questions
+ * surface). Holds the current plan_questions_batch payload plus the busy flag
+ * and submit handler owned by ChatAssistant's handlePlanIntakeSubmit, so
+ * MonacoEditorView can render QuestionsIntakePage without prop-drilling
+ * through the chat <-> editor split.
+ */
+export type QuestionsIntakeState = {
+  batch: PlanQuestionsBatchPayload;
+  busy: boolean;
+  onSubmit: (payload: QuestionsIntakePageSubmitPayload) => void;
+} | null;
 
 export interface EditorTab extends ActiveFile {
   id: string; // Typically the file path
@@ -21,6 +36,8 @@ interface EditorContextType {
   updateActiveFile: (updates: Partial<ActiveFile> | ((prev: ActiveFile | null) => ActiveFile | null)) => void;
   saveActiveFile: (onSave: (id: string, content: string) => Promise<void>) => Promise<void>;
   discardChanges: (id: string) => void;
+  questionsIntake: QuestionsIntakeState;
+  setQuestionsIntake: (state: QuestionsIntakeState) => void;
 }
 
 const EditorContext = createContext<EditorContextType | undefined>(undefined);
@@ -28,6 +45,7 @@ const EditorContext = createContext<EditorContextType | undefined>(undefined);
 export const EditorProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [tabs, setTabs] = useState<EditorTab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  const [questionsIntake, setQuestionsIntake] = useState<QuestionsIntakeState>(null);
 
   const getFileId = (file: ActiveFile) => {
     return file.workspacePath || file.name;
@@ -138,7 +156,9 @@ export const EditorProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       updateActiveContent,
       updateActiveFile,
       saveActiveFile,
-      discardChanges
+      discardChanges,
+      questionsIntake,
+      setQuestionsIntake
     }}>
       {children}
     </EditorContext.Provider>

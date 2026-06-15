@@ -6,6 +6,7 @@
 
 import React, { useState, useEffect, useRef, useLayoutEffect, useCallback, useMemo } from 'react';
 import { PHONE_MQ } from '../../lib/breakpoints';
+import { useEditor } from '../../src/EditorContext';
 import { createPortal } from 'react-dom';
 import {
   ArrowUp,
@@ -116,7 +117,7 @@ import {
 import type { ChatComposerSource } from './composer/types';
 import { WEB_SEARCH_SOURCE, WEB_SEARCH_SOURCE_ID, SANDBOX_AGENT_SOURCE, SANDBOX_AGENT_SOURCE_ID } from './composer/types';
 import type { ThinkingCardState } from '../../src/components/ThinkingCard';
-import type { ActiveSubagentRow } from './types';
+import type { ActiveSubagentRow, PlanQuestionsBatchPayload } from './types';
 import { deriveHeroThinkingState } from './components/deriveHeroThinking';
 import { ToolApprovalModal } from '../../src/components/ToolApprovalModal';
 import {
@@ -389,6 +390,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const [mobileThreadTab, setMobileThreadTab] = useState<'chat' | 'context'>('chat');
   const [repoDrawerOpen, setRepoDrawerOpen] = useState(false);
   const [githubRepoContext, setGithubRepoContext] = useState<string | null>(null);
+  const { setQuestionsIntake } = useEditor();
+  const lastQuestionsBatchIdRef = useRef<string | null>(null);
 
   const clearBrowserElementContext = useCallback(() => {
     setBrowserElementContext(null);
@@ -1924,6 +1927,53 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       onFileSelect,
     ],
   );
+
+  /**
+   * Sync the latest plan_questions_batch into the shared EditorContext so
+   * MonacoEditorView's 'questions_intake' tab can render QuestionsIntakePage
+   * with live busy/onSubmit. Auto-opens the Questions tab once per new
+   * batch_id; doesn't re-focus it on every render after that, so it doesn't
+   * fight the user if they've switched away.
+   */
+  useEffect(() => {
+    let latest: PlanQuestionsBatchPayload | undefined;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const candidate = messages[i]?.planQuestionsBatch;
+      if (candidate) {
+        latest = candidate;
+        break;
+      }
+    }
+
+    if (!latest) {
+      if (lastQuestionsBatchIdRef.current !== null) {
+        lastQuestionsBatchIdRef.current = null;
+        setQuestionsIntake(null);
+      }
+      return;
+    }
+
+    if (latest.submitted) {
+      setQuestionsIntake({ batch: latest, busy: false, onSubmit: () => {} });
+      return;
+    }
+
+    setQuestionsIntake({
+      batch: latest,
+      busy: planIntakeBusy,
+      onSubmit: (payload) => void handlePlanIntakeSubmit(payload),
+    });
+
+    if (lastQuestionsBatchIdRef.current !== latest.batch_id) {
+      lastQuestionsBatchIdRef.current = latest.batch_id;
+      onFileSelect?.({
+        name: 'Questions',
+        content: '',
+        fileKind: 'questions_intake',
+        workspacePath: `questions:${latest.batch_id}`,
+      });
+    }
+  }, [messages, planIntakeBusy, handlePlanIntakeSubmit, onFileSelect, setQuestionsIntake]);
 
   const handleRunPlan = useCallback(async (planId: string) => {
     const pid = planId.trim();
