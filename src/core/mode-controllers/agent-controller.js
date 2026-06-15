@@ -390,6 +390,95 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
   (async () => {
     const chatT0 = Date.now();
     try {
+      // Quickstart-card first turn ("Slides", "Prototype", etc.): instead of letting the
+      // model free-write a markdown question dump, run the same explore -> intake pipeline
+      // Plan mode uses for pre_plan, and emit plan_questions_batch so the Questions tab
+      // handles it. Only fires on the literal first turn of a quickstart-seeded thread.
+      if (
+        quickstartBatch &&
+        chatMessages.length <= 1 &&
+        !threadSlashAction &&
+        !createSubagentFlow.active
+      ) {
+        try {
+          const {
+            runPlanIntakeExplore,
+            generatePlanIntakeQuestions,
+            formatPlanIntakeQuestionsForUi,
+            insertPlanIntakeBatch,
+            newPlanIntakeBatchId,
+            supersedePendingBatchesForSession,
+          } = await import('../agentsam-plan-intake.js');
+
+          if (userId && workspaceId && sessionId) {
+            await supersedePendingBatchesForSession(env, { workspaceId, sessionId });
+          }
+
+          const explore = await runPlanIntakeExplore(env, {
+            goal: message,
+            workspaceId: workspaceId || '',
+            intent: 'mixed',
+          });
+
+          const intake = await generatePlanIntakeQuestions(env, {
+            goal: message,
+            explore,
+            phase: 'quickstart_intake',
+            userId,
+            workspaceId,
+          });
+
+          if (intake.needs_questions) {
+            const batchId = newPlanIntakeBatchId();
+            const questionsUi = formatPlanIntakeQuestionsForUi(intake.questions);
+
+            await insertPlanIntakeBatch(env, {
+              id: batchId,
+              tenant_id: tenantId || env?.TENANT_ID || '',
+              workspace_id: workspaceId || '',
+              user_id: userId,
+              session_id: sessionId,
+              phase: 'quickstart_intake',
+              status: 'pending',
+              goal_text: message,
+              explore_summary_json: JSON.stringify({ ...explore, synthesis: intake.synthesis }),
+              questions_json: JSON.stringify(intake.questions),
+              // Stash routing info here (not optional_details — submitPlanIntakeBatch
+              // overwrites optional_details with the user's free-text "Anything else?"
+              // answer). The quickstart_intake submit-resume branch reads this back to
+              // re-resolve the same route_key/task_type/model_key for the real agent turn.
+              roadblock_context_json: JSON.stringify({
+                source: 'quickstart_intake',
+                route_key: profile.refined_route_key || profile.mode,
+                task_type: profile.routing_task_type || null,
+                model_key: profile.model_key || null,
+                subagent_slug: subagentProfileRow?.slug ?? null,
+                requested_mode: profile.mode,
+              }),
+            });
+
+            emit('plan_questions_batch', {
+              batch_id: batchId,
+              phase: 'quickstart_intake',
+              explore_summary: {
+                synthesis: intake.synthesis || explore.synthesis,
+                files_searched: explore.files_searched,
+                searches: explore.searches,
+              },
+              questions: questionsUi,
+              allow_skip: true,
+            });
+            emit('done', {});
+            return;
+          }
+          // needs_questions === false: goal already specific enough — fall through to the
+          // normal agent tool loop below with the original message/chatMessages untouched.
+        } catch (e) {
+          console.warn('[agent-controller] quickstart_intake', e?.message ?? e);
+          // Non-fatal — fall through to the normal agent tool loop on any intake error.
+        }
+      }
+
       if (threadSlashAction && userId && workspaceId && sessionId) {
         const { runThreadActionOnDemand } = await import('../thread-on-demand.js');
         const threadOut = await runThreadActionOnDemand(env, ctx, {

@@ -47,7 +47,20 @@ function buildPlanSummaryText(plan, goal) {
  *   sessionId?: string|null,
  * }} input
  */
-export function startPlanIntakeSubmitSseResponse(env, ctx, input) {
+export async function startPlanIntakeSubmitSseResponse(env, ctx, input) {
+  const batchId = String(input.batchId || '').trim();
+  const submitted = await submitPlanIntakeBatch(env, batchId, {
+    selections: input.selections,
+    optionalDetails: input.optionalDetails,
+    skipped: input.skip === true,
+  });
+
+  // quickstart_intake batches (Quickstart-card first turn) don't produce a Plan — resume
+  // the original agent/ask/debug turn with the enriched goal and stream that back directly.
+  if (submitted.ok && String(submitted.batch.phase || '') === 'quickstart_intake') {
+    return resumeQuickstartIntakeTurn(env, ctx, { batch: submitted.batch, input });
+  }
+
   const encoder = new TextEncoder();
   const { readable, writable } = new TransformStream();
   const writer = writable.getWriter();
@@ -59,12 +72,6 @@ export function startPlanIntakeSubmitSseResponse(env, ctx, input) {
 
   (async () => {
     try {
-      const batchId = String(input.batchId || '').trim();
-      const submitted = await submitPlanIntakeBatch(env, batchId, {
-        selections: input.selections,
-        optionalDetails: input.optionalDetails,
-        skipped: input.skip === true,
-      });
       if (!submitted.ok) {
         emit('text', { text: `**Plan intake error:** ${submitted.error}` });
         emit('done', {});
@@ -239,4 +246,80 @@ export async function emitPlanRoadblockQuestions(env, ctx, emit, opts) {
   });
 
   return { emitted: true, batch_id: batchId };
+}
+
+/**
+ * Resume an agent/ask/debug turn after a quickstart_intake plan_questions_batch is
+ * answered (Continue/Skip on the Questions tab). Re-resolves the RuntimeProfile using
+ * the route_key/task_type/model_key stashed at intake time (roadblock_context_json --
+ * not optional_details, which submitPlanIntakeBatch overwrites with the user's
+ * free-text "Anything else?" answer) and re-runs runSharedProfileToolLoop with the
+ * enriched goal as a fresh first message. Returns that turn's SSE Response directly.
+ *
+ * @param {any} env
+ * @param {any} ctx
+ * @param {{ batch: Record<string, unknown>, input: Record<string, unknown> }} args
+ */
+async function resumeQuickstartIntakeTurn(env, ctx, { batch, input }) {
+  const { resolveRuntimeProfile } = await import('./runtime-profile.js');
+  const { loadProjectContextSystemBlock } = await import('./project-context-budget.js');
+  const { runSharedProfileToolLoop } = await import('./mode-controllers/agent-controller.js');
+
+  const goal = buildEnrichedGoalFromIntakeBatch(batch);
+
+  let resumeCtx = {};
+  try {
+    resumeCtx = JSON.parse(String(batch.roadblock_context_json || '{}'));
+  } catch {
+    resumeCtx = {};
+  }
+
+  const tenantId = input.tenantId != null ? String(input.tenantId) : String(batch.tenant_id || '');
+  const workspaceId =
+    input.workspaceId != null ? String(input.workspaceId) : String(batch.workspace_id || '');
+  const userId = input.userId != null ? String(input.userId) : String(batch.user_id || '');
+  const sessionId = input.sessionId != null ? String(input.sessionId) : String(batch.session_id || '');
+
+  const requestedMode = String(resumeCtx.requested_mode || 'agent');
+  const modelOverride =
+    resumeCtx.model_key != null && String(resumeCtx.model_key).trim().toLowerCase() !== 'auto'
+      ? String(resumeCtx.model_key).trim()
+      : null;
+
+  const profile = await resolveRuntimeProfile(env, {
+    mode: requestedMode,
+    message: goal,
+    session: { userId, workspaceId, tenantId, conversationId: sessionId },
+    overrides: {
+      model_key: modelOverride,
+      subagent_slug: resumeCtx.subagent_slug || null,
+      route_key: resumeCtx.route_key || null,
+      task_type: resumeCtx.task_type || null,
+    },
+    compile_lane: 'live',
+  });
+  profile.source.compile_lane = 'live';
+
+  const projectContextBlock = await loadProjectContextSystemBlock(env, workspaceId);
+
+  return runSharedProfileToolLoop(env, ctx, {
+    body: { messages: [{ role: 'user', content: goal }] },
+    message: goal,
+    profile,
+    session: {
+      userId,
+      workspaceId,
+      tenantId,
+      sessionId,
+      authUser: { id: userId, tenant_id: tenantId },
+    },
+    modelOverride,
+    quickstartBatch: '',
+    activeFileEnvelope: null,
+    subagentProfileRow: null,
+    browserContextPayload: null,
+    handoffResume: null,
+    agentChatResolvedContext: null,
+    projectContextBlock,
+  });
 }
