@@ -6,7 +6,9 @@ export type FileKind =
   | 'audio'
   | 'pdf'
   | 'binary'
-  | 'unknown';
+  | 'unknown'
+  /** Agent Sam plan-intake Questions surface — renders QuestionsIntakePage, not Monaco/FilePreview. */
+  | 'questions_intake';
 
 /** Max characters passed to Monaco; larger text files are sliced with fileKind `truncated`. */
 export const MAX_MONACO_CHARS = 500_000;

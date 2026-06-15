@@ -1036,6 +1036,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
               id: string;
               question: string;
               choices?: Array<{ key: string; label: string }>;
+              multi_select?: boolean;
             }>;
             allow_skip?: boolean;
           };
@@ -1054,6 +1055,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
                 choices: Array.isArray(q.choices)
                   ? q.choices.map((c) => ({ key: String(c.key), label: String(c.label) }))
                   : [],
+                multi_select: Boolean(q.multi_select),
               })),
               allow_skip: d.allow_skip !== false,
             };

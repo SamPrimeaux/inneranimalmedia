@@ -140,6 +140,8 @@ export type PlanIntakeQuestion = {
   id: string;
   question: string;
   choices: PlanQuestionChoice[];
+  /** When true, the Questions UI allows selecting more than one choice. */
+  multi_select?: boolean;
 };
 
 /** Cursor-style batched plan questions (SSE plan_questions_batch). */
