@@ -1,7 +1,7 @@
 ---
 title: CompanionsCPAS Client Project Brief
-summary: Canonical client/project reference for Companions of CPAS — Cloudflare Worker, D1, R2, KV, CMS, Stripe Elements donations, integrations, and known gaps (2026-06-12).
-description: Ground-truth project dossier for Agent Sam client_project_semantic_search and docs_knowledge_search retrieval.
+summary: IAM compass for Companions of CPAS — bindings, handoff status Jun 2026, pattern pointers. File-level truth in client repo.
+description: Ground-truth client dossier for client_project_semantic_search. Platform patterns in docs/patterns/.
 doc_type: client_project_brief
 system: CompanionsCPAS
 client: Companions of CPAS
@@ -12,271 +12,153 @@ public_domain: companionsofcaddo.org
 worker_name: companionscpas
 worker_url: https://companionscpas.meauxbility.workers.dev
 github_repo: SamPrimeaux/companionscpas
+local_repo_path: /Users/samprimeaux/companionscpas
 d1_database_id: fd6dd6fb-156b-4b6a-8ff0-505422652391
 d1_database_name: companionscpas
 r2_bucket: companionscpas
 kv_namespace: companionscpas-cache
+cdn_assets: https://assets.companionsofcaddo.org
 embedding_model: text-embedding-3-large
 embedding_dimensions: 1536
 lane_key: client_project_semantic_search
-rag_lane: docs
+rag_lane: documents
 primary_binding: AGENTSAM_VECTORIZE_DOCUMENTS
 tags:
   - companionscpas
   - companions-of-cpas
   - client-project
   - nonprofit
-  - animal-rescue
   - cloudflare-workers
-  - d1
-  - r2
-  - kv
-  - cms
-  - dashboard
-  - donations
-  - stripe
-  - resend
 chunk_strategy: markdown_headings
-target_chunk_tokens: 600
-chunk_overlap_tokens: 100
-updated_at: 2026-06-12
+updated_at: 2026-06-19
 ---
 
 # CompanionsCPAS Client Project Brief
 
 ## Client and mission
 
-**CompanionsCPAS** is the production platform for **Companions of CPAS** (Companion Animal Protection & Adoption Services), a nonprofit animal rescue and adoption organization serving Caddo Parish, Louisiana.
+**Companions of CPAS** — nonprofit dog rescue serving Caddo Parish, Louisiana. Production domain: [companionsofcaddo.org](https://companionsofcaddo.org).
 
-| Surface | URL |
-|---------|-----|
-| **Production domain** | [companionsofcaddo.org](https://companionsofcaddo.org) |
-| **Worker origin** | `https://companionscpas.meauxbility.workers.dev` |
-| **GitHub** | [SamPrimeaux/companionscpas](https://github.com/SamPrimeaux/companionscpas) (`main`, auto-deploy via Workers Builds) |
+| Surface | Value |
+|---|---|
+| Worker | `companionscpas` |
+| GitHub | [SamPrimeaux/companionscpas](https://github.com/SamPrimeaux/companionscpas) |
+| Local path | `/Users/samprimeaux/companionscpas` |
+| Deploy | `npm run deploy:full` (R2 sync + wrangler) on `main` |
+| Identity | `tenant_companionscpas` / `ws_companionscpas` |
 
-The platform is a **Cloudflare Workers monolith** with its **own D1 database** (not IAM main), R2 static/CMS artifacts, KV page cache, dashboard SPA, CMS publish pipeline, foster intake, animal profiles, and Stripe donations.
+**IAM rule:** Client code and D1 changes happen in the **companionscpas repo only** — never patch from `inneranimalmedia` Worker.
 
-**Identity (D1 / worker):**
-
-| Field | Value |
-|-------|-------|
-| `tenant_id` | `tenant_companionscpas` |
-| `workspace_id` | `ws_companionscpas` |
-| `APP_NAME` | Companions of CPAS |
-| `APP_DOMAIN` | `companionsofcaddo.org` |
-| `ADMIN_EMAIL` | `ljmusland@gmail.com` |
-
-## Production architecture (bindings)
+## Bindings
 
 | Binding | Resource | Role |
-|---------|----------|------|
-| Worker | `companionscpas` | HTTP API, public SSR pages, dashboard, webhooks, cron |
-| D1 `DB` | `companionscpas` (`fd6dd6fb-156b-4b6a-8ff0-505422652391`) | CMS, animals, fosters, donations, users, local Agent Sam tables |
-| R2 `WEBSITE_ASSETS` | `companionscpas` | Published HTML, `/static/**`, `donate-modal.js` |
-| KV `CMS_CACHE` | `companionscpas-cache` | Published page cache |
-| Cron | `0 6 * * *` | Daily scheduled handler (`scheduled()`) |
+|---|---|---|
+| `DB` | D1 `companionscpas` (`fd6dd6fb-…`) | CMS, animals, fosters, donations, users, Agent Sam local tables |
+| `WEBSITE_ASSETS` | R2 `companionscpas` | Dashboard JSX, static pages, media |
+| `CMS_CACHE` | KV `companionscpas-cache` | `page:{route}` cache |
+| `AGENTSAM_WAI` | Workers AI | Agent Sam inference |
 
-**Deploy:** `npx wrangler deploy` from repo root on push to `main`.  
-**Compatibility date:** 2025-04-01.
+Public assets CDN: **`https://assets.companionsofcaddo.org`**.
 
-### Publish pipeline (non-negotiable)
+## Handoff status (2026-06-19)
 
-D1 (source of truth) → R2 (published artifacts) → KV (cache) → verify on `companionsofcaddo.org`.
+| Area | Status |
+|---|---|
+| Public site (6 CMS routes) | **Live** — D1 → R2 fragments → KV |
+| Animals + foster placement | **Live** — POST/PATCH fosters, profile panel |
+| Applications | **Live** — `cpas_foster_applications` |
+| Volunteers | **Live** — GET/POST API + Add Volunteer |
+| CMS page list status | **Live** — from D1 |
+| Donations / Stripe | **Live** — test mode (smoke passed 2026-06-12) |
+| Email inbox | **Live** — Resend + per-user Gmail |
+| Overview / Daily Care / Reports (most tabs) | **Mixed or mock** — see milestone doc |
+| Lane B social publish | **Future** — 501 stubs until client approval |
+| Agent Sam Phase 2 UI | **Backlog** — chat baseline live |
 
-- Edit and publish through the **dashboard CMS**, not ad-hoc production HTML edits.
-- Sync dashboard/static assets to R2 before declaring a change live.
-- Purge KV after public page, theme, or brand changes.
+Milestone receipt: `docs/milestones/2026-06-19-companionscpas-handoff.md`.
 
-Durable policy memory key: `companionscpas_non_negotiable_change_sync_contract` (IAM `agentsam_memory`).
+## Platform patterns (IAM — reusable)
 
-## Runtime secrets and environment (worker dashboard)
+| Topic | Pattern doc |
+|---|---|
+| CMS publish pipeline | `docs/patterns/cms-fragment-publish-pipeline.md` |
+| Email workspace | `docs/patterns/email-resend-gmail-workspace.md` |
+| Social Lane A / B | `docs/patterns/social-lane-a-embed-lane-b-publish.md` |
+| Dashboard auth gate | `docs/patterns/worker-session-gate-dashboard.md` |
+| Agent Sam AI policy | `docs/patterns/agentsam-client-ai-policy.md` |
+| Agent Sam Phase 2 | `docs/patterns/agentsam-phase2-tool-picker-playbook.md` |
+| D1 legacy hygiene | `docs/patterns/client-d1-legacy-table-hygiene.md` |
+| Feature doc template | `docs/patterns/feature-doc-template.md` |
 
-Verified on Cloudflare Worker **companionscpas** (2026-06-12):
+## Client repo docs (CPAS — runtime detail)
 
-| Name | Type | Notes |
-|------|------|-------|
-| `ADMIN_EMAIL` | plaintext | `ljmusland@gmail.com` |
-| `ALLOWED_ORIGINS` | plaintext | `https://companionsofcaddo.org` |
-| `APP_DOMAIN` | plaintext | `companionsofcaddo.org` |
-| `APP_NAME` | plaintext | Companions of CPAS |
-| `GOOGLE_CLIENT_ID` | secret | Set (encrypted) |
-| `GOOGLE_CLIENT_SECRET` | secret | Set (encrypted) |
-| `GOOGLE_REDIRECT_URI` | plaintext | `https://companionsofcaddo.org/api/social/oauth/youtube/callback` |
-| `META_APP_ID` | plaintext | Present in dashboard (verify non-empty value) |
-| `META_APP_SECRET` | plaintext | Present in dashboard (verify non-empty value) |
-| `META_REDIRECT_URI` | plaintext | `https://companionsofcaddo.org/api/social/oauth/meta/callback` |
-| `RESEND_API_KEY` | secret | Set (encrypted) |
-| `RESEND_FROM_EMAIL` | plaintext | `Companions of CPAS <no-reply@companionsofcaddo.org>` |
-| `STRIPE_PUBLISHABLE_KEY` | secret | Set (encrypted) |
-| `STRIPE_SECRET_KEY` | secret | Set (encrypted) |
-| `STRIPE_WEBHOOK_SECRET` | secret | Set (encrypted) |
-| `OPENAI_API_KEY` | secret | Set (encrypted) |
-| `CLOUDFLARE_ACCOUNT_ID` | secret | Set |
-| `CLOUDFLARE_API_TOKEN` | secret | Set |
-| `AGENTSAM_BRIDGE_KEY` | secret | IAM telemetry bridge |
-| `IAM_TELEMETRY_URL` | secret | IAM telemetry |
-| `INTERNAL_PUBLISH_KEY` | secret | CMS publish auth |
-| `PASSWORD_RESET_SECRET` | secret | Auth |
+| Doc | Purpose |
+|---|---|
+| `docs/current-file-map.md` | Live route → file → API → table |
+| `docs/features/README.md` | Per-feature vectorization catalog |
+| `docs/HANDOFF.md` | Canonical vs dropped D1 tables |
+| `docs/AGENTSAM_CPAS_ROADMAP.md` | CPAS-specific Agent Sam Phase 2 |
+| `ARCHITECTURE.md` | Bindings, deploy commands |
 
-**Observability:** Logs, traces, exports, and sampling are **disabled** on this worker — enable before production debugging sessions.
+Feature overlay (this IAM repo): `docs/clients/companionscpas/features-overlay.md`.
 
-## Public CMS (D1 audit 2026-06-12)
+## Publish contract (non-negotiable)
 
-| Metric | Value |
-|--------|-------|
-| `cms_pages` | **6** routes, all **published** |
-| `cms_publish_jobs` | **25**, all **done** |
-| `cms_publish_artifacts` | **0** rows (artifact tracking gap — jobs succeed but table unused or writes skipped) |
+D1 (SSOT) → R2 fragments → KV bust → verify on `companionsofcaddo.org`. No ad-hoc production HTML edits. Policy memory key: `companionscpas_non_negotiable_change_sync_contract`.
 
-| Route | Title | Published |
-|-------|-------|-----------|
-| `/` | Companions of CPAS — Second Chances for Caddo Dogs | 2026-06-11 |
-| `/about` | About | 2026-06-11 |
-| `/adopt` | Adopt | 2026-06-11 |
-| `/community` | Community | 2026-06-11 |
-| `/donate` | Donate | 2026-06-11 |
-| `/services` | Services | 2026-06-11 |
+## Canonical D1 tables (summary)
 
-Global shell: `/static/global/shared.css`, `shared.js`, header assets on R2 bucket `companionscpas`. Prefer **`assets.companionsofcaddo.org`** for public asset URLs; migrate off legacy `assets.meauxxx.com` where any remain.
+| Domain | Table |
+|---|---|
+| Animals | `animal_profiles` |
+| Applications | `cpas_foster_applications` |
+| Fosters | `foster_records` |
+| Volunteers | `volunteer_records` |
+| Fundraising | `fundraising_campaigns` |
+| CMS | `cms_pages`, `cms_page_sections`, `cms_page_content_blocks`, `cms_brand_settings` |
+| Donations | `donations`, `donors`, `donation_payments`, `donation_intents` |
 
-## Animals, foster, users (D1)
+**Dropped from live D1 (2026-06-23):** `applications`, `agentsam_mcp_tools`, `agentsam_mcp_workflows`, `cms_editor_sessions`, `cms_editor_events`.
 
-| Table | Rows (2026-06-12) |
-|-------|---------------------|
-| `animal_profiles` | 19 |
-| `cpas_foster_applications` | 4 |
-| `users` | 6 |
+## Donations (Stripe)
 
-## Donations — Stripe Elements (in-modal, live)
+Stripe Elements in-modal on `/donate`; webhook `POST /api/webhooks/stripe`. **Test mode** until client live keys. Smoke passed 2026-06-12 — see `docs/milestones/2026-06-12-companionscpas-donation-smoke.md`. Follow-up: PaymentIntent idempotency on dual webhook events.
 
-**Status:** Full **Stripe Elements** in-modal donation flow deployed for **companionsofcaddo.org**.
+## Agent Sam context layers
 
-### User flow
+| Store | Where | Role |
+|---|---|---|
+| `ctx_companionscpas` | IAM D1 `agentsam_project_context` | Platform Agent Sam client compass |
+| `agentsam_project_context` | CPAS D1 | Worker-local Layer 0 |
+| This brief + patterns | IAM Vectorize documents | `client_project_semantic_search` |
 
-1. Donor clicks **Support Our Mission** on `/donate`.
-2. Dark-themed modal opens (`/static/js/donate-modal.js` on R2).
-3. Donor selects campaign + amount.
-4. **Stripe PaymentElement** mounts inline (no redirect in Elements mode).
-5. Payment confirms in-modal; legacy **hosted Checkout** redirect remains as fallback.
+**RAG:** `client_project_semantic_search` reads IAM documents + memory — **not** CPAS D1 for platform Agent Sam retrieval.
 
-### API
+## Ingest (IAM)
 
-**Checkout:** `POST /api/donations/checkout`
+```bash
+npm run run:ingest_client_companionscpas
+# dry-run: npm run run:ingest_client_companionscpas:dry-run
+```
 
-| Mode | Behavior | Response |
-|------|----------|----------|
-| `elements` | PaymentIntent path for inline PaymentElement | `client_secret` |
-| `checkout` | Hosted Checkout (legacy) | `checkout_url` |
-
-### Stripe webhook (dashboard configuration)
-
-| Field | Value |
-|-------|-------|
-| Destination ID | `we_1ThIx5RGnRsvqnfiDsw6zLfE` |
-| Name | Companions Website Donations Webhook |
-| Endpoint URL | `https://companionsofcaddo.org/api/webhooks/stripe` |
-| API version | `2026-04-22.dahlia` |
-| Events | `payment_intent.succeeded`, `payment_intent.payment_failed`, `checkout.session.completed`, `charge.refunded` |
-
-Worker handler: `POST /api/webhooks/stripe` — must verify signature with `STRIPE_WEBHOOK_SECRET` and persist to D1.
-
-### D1 donations domain
-
-| Table | Purpose |
-|-------|---------|
-| `donation_intents` | Checkout / intent creation |
-| `donations` | Completed gifts |
-| `donation_payments` | Payment ledger |
-| `donors` | Donor records |
-| `stripe_webhooks` | Webhook event receipts |
-| `donation_settings` | Configuration |
-| `fundraising_campaigns` | Campaign definitions |
-
-**Campaign IDs (active, public):**
-
-| ID | Slug | Title |
-|----|------|-------|
-| `campaign_companions_second_chances_2026` | companions-second-chance-fund | Companions of CPAS Second Chance Fund |
-| `camp_medical` | emergency-medical-fund | Emergency Medical Fund |
-| `camp_food` | feed-the-shelter | Feed the Shelter |
-| `camp_transport` | transport-support | Transport Support |
-
-### Deploy receipt (donation milestone)
-
-| Field | Value |
-|-------|-------|
-| Git commit | `b591b34` |
-| Worker version | `446c6431-8841-4fa6-93bd-c5f2c1f93a9c` |
-| D1 project context row | `ctx_cpas_donation_modal_session` (priority 80, `ws_companionscpas`) |
-
-### Donations — smoke receipt (2026-06-12)
-
-End-to-end smoke **passed** after `STRIPE_WEBHOOK_SECRET` rotation and deploy `070fcadb`.
-
-| Field | Value |
-|-------|-------|
-| PaymentIntent | `pi_3ThUsRRGnRsvqnfi1kMVqPb5` |
-| Amount | $30.00 (3000 cents) |
-| `stripe_webhooks` | `payment_intent.succeeded`, `checkout.session.completed` — both `processed` |
-| `donations` | `succeeded` row(s) created |
-
-**Follow-up:** Both webhook types fired for one payment → duplicate `donations` row possible; add PaymentIntent idempotency on `checkout.session.completed` in `payments_email.js`.
-
-## Agent Sam context layers (two databases)
-
-CompanionsCPAS project truth is split across **client D1** and **IAM platform D1**.
-
-### companionscpas D1 — local Agent Sam
-
-| Store | Rows | Role |
-|-------|------|------|
-| `agentsam_project_context` | **2 active** (624 consolidated: `ctx_companionscpas_cms_publish_v1` + `ctx_cpas_donation_modal_session`; 5 legacy archived) | Layer 0 `## Active Projects` on CPAS worker |
-| `agentsam_memory` | 21 | Worker-local facts (`donation_pipeline`, `cms_structure`, …) |
-
-Notable project context rows: `ctx_companionscpas_cms_publish_v1`, `ctx_cpas_donation_modal_session`, `ctx_cpas_master_v1` (multiple at priority 100 — only top 3 inject).
-
-### inneranimalmedia-business D1 — IAM platform
-
-| Store | CompanionsCPAS state |
-|-------|----------------------|
-| `agentsam_project_context` | **`ctx_companionscpas`** — **active** on `ws_inneranimalmedia` (priority 90, migration 623/625). Legacy `ctx_f72a887a8da9b004` archived. |
-| `agentsam_memory` | `companionscpas_*` pack + `companionscpas_stripe_elements_donation_live_2026_06` (pinned state) |
-
-IAM in-app Agent Sam (`ws_inneranimalmedia`) injects `ctx_companionscpas` into `## Active Projects` (top 3 by priority alongside `ctx_inneranimalmedia`).
-
-**RAG lane:** `client_project_semantic_search` reads **IAM memory + documents vectors**, not CPAS D1 `agentsam_project_context`. Ingest this brief into `AGENTSAM_VECTORIZE_DOCUMENTS` and add `companionscpas_stripe_elements_donation_live_2026_06` to IAM memory for retrieval.
-
-## Known gaps and open work
-
-| Priority | Item |
-|----------|------|
-| P0 | ~~Donation D1 pipeline~~ — **smoke passed** 2026-06-12 (`pi_3ThUsRRGnRsvqnfi1kMVqPb5`); fix dual-webhook duplicate donation idempotency |
-| P1 | ~~Consolidate CPAS `agentsam_project_context`~~ — **done** (624: 2 active + 5 archived) |
-| P1 | ~~IAM project context~~ — **done** (`ctx_companionscpas` active on `ws_inneranimalmedia`, 623/625) |
-| P1 | **Enable worker observability** — logs/traces disabled |
-| P2 | **`cms_publish_artifacts`** — empty despite 25 done publish jobs |
-| P2 | **Meta OAuth** — confirm `META_APP_ID` / `META_APP_SECRET` have real values (not empty plaintext) |
-| P2 | **Asset hostname** — finish migration to `assets.companionsofcaddo.org` |
-| P2 | **Git hygiene** — commit `public/index.html` and `public/static/` including modal assets |
-| P3 | **`ws_companionscpas` workspace status** — reconcile archived flag in IAM workspace registry |
-
-## Recommended next milestones
-
-1. End-to-end donation smoke test on `companionsofcaddo.org` with webhook receipt in D1.
-2. Single canonical `agentsam_project_context` row on CPAS D1; mirror summary to IAM for platform Agent Sam.
-3. Ingest this brief + refresh `companionscpas_*` memory pack; vector-sync to `AGENTSAM_VECTORIZE_MEMORY` / `AGENTSAM_VECTORIZE_DOCUMENTS`.
-4. Enable Cloudflare observability on `companionscpas` worker.
-5. Client UAT on CMS publish, foster flow, and board dashboard access.
+Manifest: `docs/clients/companionscpas/ingest.manifest.json`.
 
 ## How Agent Sam should use this document
 
-| Question type | Lane |
-|---------------|------|
-| Client writeup, scope, gaps, milestones | `client_project_semantic_search` |
-| Runbooks, this brief | `docs_knowledge_search` |
-| Handler/route implementation | `code_semantic_search` |
-| Table/schema | `schema_semantic_search` |
+| Question | Lane |
+|---|---|
+| Client scope, bindings, handoff status | `client_project_semantic_search` |
+| Reusable CMS/email/social/AI pattern | `docs_knowledge_search` → `docs/patterns/*` |
+| Handler implementation | `code_semantic_search` (companionscpas repo, scoped paths) |
+| IAM platform runtime | `docs_knowledge_search` → `iam-platform-snapshot` |
 
-**Example prompt:**
+## Open work (priority)
 
-> Write an extensive client project writeup for CompanionsCPAS — mission, architecture, CMS publish flow, Stripe Elements donations, webhook configuration, binding map, deploy policy, integration status, known gaps, and next milestones.
+| P | Item |
+|---|---|
+| P1 | Reports / Overview wire-up or explicit demo labels |
+| P1 | Agent Sam refresh — real AI usage in Reports |
+| P2 | Lane B Meta — client approval + real OAuth |
+| P2 | Live Stripe keys after client sign-off |
+| P2 | Cloudflare observability enable on companionscpas worker |
+| P3 | Account transfer to client Cloudflare when approved |

@@ -1,0 +1,79 @@
+{
+  "workspace_key": "ws_inneranimalmedia",
+  "topic": "iam_platform_snapshot",
+  "d1_context_id": "ctx_inneranimalmedia",
+  "entries": [
+    {
+      "file": "docs/platform/iam-platform-snapshot.md",
+      "topic": "iam_platform_snapshot",
+      "lane_key": "docs_knowledge_search",
+      "priority": 100
+    },
+    {
+      "file": "docs/platform/iam-runtime-architecture-2026-06.md",
+      "topic": "iam_runtime_architecture",
+      "lane_key": "docs_knowledge_search",
+      "priority": 90
+    },
+    {
+      "file": "docs/platform/workers-vpc-moviemode.md",
+      "topic": "iam_pty_tunnel_vpc",
+      "lane_key": "docs_knowledge_search",
+      "priority": 80
+    },
+    {
+      "file": "docs/patterns/README.md",
+      "topic": "iam_platform_patterns",
+      "lane_key": "docs_knowledge_search",
+      "priority": 75
+    },
+    {
+      "file": "docs/patterns/cms-fragment-publish-pipeline.md",
+      "topic": "cms_fragment_publish",
+      "lane_key": "docs_knowledge_search",
+      "priority": 74
+    },
+    {
+      "file": "docs/patterns/email-resend-gmail-workspace.md",
+      "topic": "email_workspace",
+      "lane_key": "docs_knowledge_search",
+      "priority": 73
+    },
+    {
+      "file": "docs/patterns/social-lane-a-embed-lane-b-publish.md",
+      "topic": "social_integrations",
+      "lane_key": "docs_knowledge_search",
+      "priority": 72
+    },
+    {
+      "file": "docs/patterns/worker-session-gate-dashboard.md",
+      "topic": "dashboard_auth",
+      "lane_key": "docs_knowledge_search",
+      "priority": 71
+    },
+    {
+      "file": "docs/patterns/agentsam-client-ai-policy.md",
+      "topic": "agentsam_client_policy",
+      "lane_key": "docs_knowledge_search",
+      "priority": 70
+    },
+    {
+      "file": "docs/patterns/agentsam-phase2-tool-picker-playbook.md",
+      "topic": "agentsam_phase2",
+      "lane_key": "docs_knowledge_search",
+      "priority": 69
+    },
+    {
+      "file": "docs/patterns/client-d1-legacy-table-hygiene.md",
+      "topic": "d1_legacy_hygiene",
+      "lane_key": "docs_knowledge_search",
+      "priority": 68
+    },
+    {
+      "file": "docs/patterns/feature-doc-template.md",
+      "topic": "feature_doc_template",
+      "lane_key": "docs_knowledge_search",
+      "priority": 67
+    }
+  ]
+}

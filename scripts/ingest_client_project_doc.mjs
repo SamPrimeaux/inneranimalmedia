@@ -6,6 +6,7 @@
  *   ./scripts/with-cloudflare-env.sh node scripts/ingest_client_project_doc.mjs --dry-run
  *   ./scripts/with-cloudflare-env.sh node scripts/ingest_client_project_doc.mjs
  *   ./scripts/with-cloudflare-env.sh node scripts/ingest_client_project_doc.mjs --file docs/clients/companionscpas/project-brief.md
+ *   ./scripts/with-cloudflare-env.sh node scripts/ingest_client_project_doc.mjs --manifest docs/clients/companionscpas/ingest.manifest.json
  */
 import { readFileSync, existsSync } from 'fs';
 import { join, relative, basename, dirname } from 'path';
@@ -38,15 +39,19 @@ const KNOWN_WORKSPACE_UUIDS = Object.freeze({
 });
 
 const DEFAULT_FILE = 'docs/clients/companionscpas/project-brief.md';
+const DEFAULT_MANIFEST = 'docs/clients/companionscpas/ingest.manifest.json';
 
 function parseArgs(argv) {
-  const out = { dryRun: false, file: DEFAULT_FILE };
+  const out = { dryRun: false, file: null, manifest: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--dry-run') out.dryRun = true;
     else if (a === '--file' && argv[i + 1]) out.file = String(argv[++i]);
     else if (a.startsWith('--file=')) out.file = a.slice(7);
+    else if (a === '--manifest' && argv[i + 1]) out.manifest = String(argv[++i]);
+    else if (a.startsWith('--manifest=')) out.manifest = a.slice(11);
   }
+  if (!out.file && !out.manifest) out.file = DEFAULT_FILE;
   return out;
 }
 
@@ -182,13 +187,16 @@ async function vectorizeUpsert(vectors) {
   await vectorizeUpsertNdjson({ accountId, token, index: VECTORIZE_INDEX, vectors });
 }
 
-function buildRows(relPath, docTitle, projectKey, sections, workspaceUuid, gitSha) {
+function buildRows(relPath, docTitle, projectKey, sections, workspaceUuid, gitSha, meta = {}) {
   const now = new Date().toISOString();
   const slug = relPath.replace(/\.md$/i, '').replace(/\//g, '-');
+  const docSlug = basename(relPath, '.md');
+  const laneKey = meta.lane_key || 'client_project_semantic_search';
+  const docType = meta.doc_type || 'client_project_brief';
   return sections.map((sec, i) => {
     const body = sec.content;
     const h = contentHash(`${relPath}:${i}:${body}`);
-    const sourceRef = `clients/${projectKey || basename(dirname(relPath))}/brief#${i}`;
+    const sourceRef = `clients/${projectKey || basename(dirname(relPath))}/${docSlug}#${i}`;
     return {
       workspace_id: workspaceUuid,
       title: `${docTitle} — ${sec.section}`.slice(0, 200),
@@ -213,144 +221,191 @@ function buildRows(relPath, docTitle, projectKey, sections, workspaceUuid, gitSh
         section_index: i,
         git_sha: gitSha,
         chunk_strategy: 'h2_section',
-        lane_key: 'client_project_semantic_search',
-        doc_type: 'client_project_brief',
+        lane_key: laneKey,
+        doc_type: docType,
       },
     };
   });
+}
+
+function loadManifest(root, manifestPath) {
+  const p = join(root, manifestPath);
+  if (!existsSync(p)) die(`Missing manifest: ${manifestPath}`);
+  const data = JSON.parse(readFileSync(p, 'utf8'));
+  return {
+    workspaceKey: data.workspace_key || 'ws_inneranimalmedia',
+    projectKey: data.project_key || 'companionscpas',
+    entries: Array.isArray(data.entries) ? data.entries : [],
+  };
+}
+
+function resolveFiles(root, args) {
+  if (args.file) {
+    return [{ file: args.file.replace(/^\//, ''), lane_key: 'client_project_semantic_search' }];
+  }
+  const manifestPath = args.manifest || DEFAULT_MANIFEST;
+  const { entries } = loadManifest(root, manifestPath);
+  return entries
+    .filter((e) => e?.file)
+    .sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0))
+    .map((e) => ({
+      file: String(e.file).replace(/^\//, ''),
+      lane_key: e.lane_key || 'client_project_semantic_search',
+      topic: e.topic || null,
+    }));
+}
+
+async function ingestOneFile({ root, rel, workspaceUuid, d1Key, gitSha, dryRun, client, runId, defaultProjectKey }) {
+  const abs = join(root, rel);
+  if (!existsSync(abs)) {
+    console.warn(`skip missing: ${rel}`);
+    return { chunks: 0, projectKey: defaultProjectKey };
+  }
+
+  const raw = readFileSync(abs, 'utf8');
+  const { meta, body } = parseFrontmatter(raw);
+  const docTitle = meta.title || basename(rel, '.md');
+  const projectKey = meta.project_key || defaultProjectKey || basename(dirname(rel));
+  const sections = splitByH2(body);
+  const pending = buildRows(rel, docTitle, projectKey, sections, workspaceUuid, gitSha, meta);
+
+  console.log(`\n── ${rel}`);
+  console.log(`   project_key: ${projectKey}`);
+  console.log(`   chunks: ${pending.length} (H2 sections)`);
+  for (const r of pending) {
+    console.log(`   • ${r.source_ref} (~${r.token_count} tok)`);
+  }
+
+  if (dryRun || !pending.length) return { chunks: pending.length, projectKey };
+
+  const runSyncChunkId = `run:${SCRIPT_KEY}:${rel}`;
+  const savedRows = [];
+  for (let i = 0; i < pending.length; i += EMBED_BATCH) {
+    const batch = pending.slice(i, i + EMBED_BATCH);
+    const vecs = await openaiEmbed(batch.map((r) => r.content));
+    for (let j = 0; j < batch.length; j++) {
+      batch[j].embedding = vecs[j];
+      const saved = await upsertDocumentRow(client, batch[j]);
+      savedRows.push(saved);
+    }
+    console.log(`   ✓ Supabase ${batch.length} (${Math.min(i + batch.length, pending.length)}/${pending.length})`);
+  }
+
+  let upserted = 0;
+  for (let i = 0; i < savedRows.length; i += VECTORIZE_BATCH) {
+    const batch = savedRows.slice(i, i + VECTORIZE_BATCH);
+    const vectors = batch
+      .map((row) => {
+        const emb = parseEmbedding(row.embedding);
+        if (!emb || emb.length !== EMBED_DIMS) return null;
+        return {
+          id: String(row.id),
+          values: emb,
+          metadata: {
+            workspace_id: d1Key,
+            source_ref: String(row.source_ref || ''),
+            title: String(row.title || '').slice(0, 200),
+            source_type: 'clients',
+            project_key: projectKey,
+          },
+        };
+      })
+      .filter(Boolean);
+    if (!vectors.length) continue;
+    await vectorizeUpsert(vectors);
+    upserted += vectors.length;
+    console.log(`   ✓ Vectorize ${vectors.length} (${upserted}/${savedRows.length})`);
+  }
+
+  writeVectorizeSyncReceipt({
+    root,
+    chunk_id: runSyncChunkId,
+    vectorize_index: VECTORIZE_INDEX,
+    status: 'ok',
+    details: buildReceiptDetails({
+      run_id: runId,
+      script_key: SCRIPT_KEY,
+      git_commit_sha: gitSha,
+      workspace_id: d1Key,
+      workspace_uuid: workspaceUuid,
+      vectorize_index: VECTORIZE_INDEX,
+      lane: LANE.lane,
+      binding: VECTORIZE_BINDING,
+      embed_model: EMBED_MODEL,
+      embed_dims: EMBED_DIMS,
+      chunks_embedded: savedRows.length,
+      files_indexed: 1,
+      status: 'ok',
+      source_path: rel,
+      project_key: projectKey,
+    }),
+    dryRun: false,
+  });
+
+  return { chunks: savedRows.length, projectKey };
 }
 
 async function main() {
   assertLaneContract(LANE);
   const args = parseArgs(process.argv.slice(2));
   const root = repoRoot();
-  const abs = join(root, args.file);
-  if (!existsSync(abs)) die(`File not found: ${args.file}`);
+  const files = resolveFiles(root, args);
+  if (!files.length) die('No files to ingest');
 
   const runId = createRunId();
-  const d1Key = String(process.env.D1_WORKSPACE_KEY || 'ws_inneranimalmedia').trim();
+  const manifestMeta = args.manifest ? loadManifest(root, args.manifest) : null;
+  const d1Key = String(process.env.D1_WORKSPACE_KEY || manifestMeta?.workspaceKey || 'ws_inneranimalmedia').trim();
   const workspaceUuid =
     String(process.env.SUPABASE_WORKSPACE_UUID || '').trim() ||
     KNOWN_WORKSPACE_UUIDS[d1Key] ||
     die(`Unknown workspace_key ${d1Key}`);
   const gitSha = resolveGitCommitSha(root);
-  const rel = relative(root, abs).replace(/\\/g, '/');
-
-  const raw = readFileSync(abs, 'utf8');
-  const { meta, body } = parseFrontmatter(raw);
-  const docTitle = meta.title || basename(rel, '.md');
-  const projectKey = meta.project_key || basename(dirname(rel));
-  const sections = splitByH2(body);
-  const pending = buildRows(rel, docTitle, projectKey, sections, workspaceUuid, gitSha);
+  const defaultProjectKey = manifestMeta?.projectKey || 'companionscpas';
 
   console.log(`ingest_client_project_doc — ${args.dryRun ? 'DRY RUN' : 'LIVE'}`);
   console.log(`run_id: ${runId}`);
-  console.log(`file: ${rel}`);
-  console.log(`project_key: ${projectKey}`);
-  console.log(`chunks: ${pending.length} (H2 sections)`);
-  for (const r of pending) {
-    console.log(`  • ${r.source_ref} (~${r.token_count} tok)`);
-  }
+  console.log(`files: ${files.length}`);
+  if (args.manifest) console.log(`manifest: ${args.manifest}`);
 
-  if (args.dryRun || !pending.length) return;
+  if (args.dryRun) {
+    for (const entry of files) {
+      await ingestOneFile({
+        root,
+        rel: entry.file,
+        workspaceUuid,
+        d1Key,
+        gitSha,
+        dryRun: true,
+        client: null,
+        runId,
+        defaultProjectKey,
+      });
+    }
+    return;
+  }
 
   const dbUrl = String(process.env.SUPABASE_DB_URL || '').trim();
   if (!dbUrl) die('SUPABASE_DB_URL required for live ingest');
 
-  const runSyncChunkId = `run:${SCRIPT_KEY}:${rel}`;
   const client = new pg.Client({ connectionString: dbUrl });
   await client.connect();
   try {
-    const savedRows = [];
-    for (let i = 0; i < pending.length; i += EMBED_BATCH) {
-      const batch = pending.slice(i, i + EMBED_BATCH);
-      const vecs = await openaiEmbed(batch.map((r) => r.content));
-      for (let j = 0; j < batch.length; j++) {
-        batch[j].embedding = vecs[j];
-        const saved = await upsertDocumentRow(client, batch[j]);
-        savedRows.push(saved);
-      }
-      console.log(`  ✓ Supabase ${batch.length} (${Math.min(i + batch.length, pending.length)}/${pending.length})`);
+    let totalChunks = 0;
+    for (const entry of files) {
+      const result = await ingestOneFile({
+        root,
+        rel: entry.file,
+        workspaceUuid,
+        d1Key,
+        gitSha,
+        dryRun: false,
+        client,
+        runId,
+        defaultProjectKey,
+      });
+      totalChunks += result.chunks;
     }
-
-    let upserted = 0;
-    for (let i = 0; i < savedRows.length; i += VECTORIZE_BATCH) {
-      const batch = savedRows.slice(i, i + VECTORIZE_BATCH);
-      const vectors = batch
-        .map((row) => {
-          const emb = parseEmbedding(row.embedding);
-          if (!emb || emb.length !== EMBED_DIMS) return null;
-          return {
-            id: String(row.id),
-            values: emb,
-            metadata: {
-              workspace_id: d1Key,
-              source_ref: String(row.source_ref || ''),
-              title: String(row.title || '').slice(0, 200),
-              source_type: 'clients',
-              project_key: projectKey,
-            },
-          };
-        })
-        .filter(Boolean);
-      if (!vectors.length) continue;
-      await vectorizeUpsert(vectors);
-      upserted += vectors.length;
-      console.log(`  ✓ Vectorize ${vectors.length} (${upserted}/${savedRows.length})`);
-    }
-
-    writeVectorizeSyncReceipt({
-      root,
-      chunk_id: runSyncChunkId,
-      vectorize_index: VECTORIZE_INDEX,
-      status: 'ok',
-      details: buildReceiptDetails({
-        run_id: runId,
-        script_key: SCRIPT_KEY,
-        git_commit_sha: gitSha,
-        workspace_id: d1Key,
-        workspace_uuid: workspaceUuid,
-        vectorize_index: VECTORIZE_INDEX,
-        lane: LANE.lane,
-        binding: VECTORIZE_BINDING,
-        embed_model: EMBED_MODEL,
-        embed_dims: EMBED_DIMS,
-        chunks_embedded: savedRows.length,
-        files_indexed: 1,
-        status: 'ok',
-        source_path: rel,
-        project_key: projectKey,
-      }),
-      dryRun: false,
-    });
-
-    console.log(`Done — ${savedRows.length} chunks → agentsam.${TABLE} + ${VECTORIZE_INDEX}`);
-  } catch (err) {
-    writeVectorizeSyncReceipt({
-      root,
-      chunk_id: runSyncChunkId,
-      vectorize_index: VECTORIZE_INDEX,
-      status: 'failed',
-      details: buildReceiptDetails({
-        run_id: runId,
-        script_key: SCRIPT_KEY,
-        git_commit_sha: gitSha,
-        workspace_id: d1Key,
-        workspace_uuid: workspaceUuid,
-        vectorize_index: VECTORIZE_INDEX,
-        lane: LANE.lane,
-        binding: VECTORIZE_BINDING,
-        embed_model: EMBED_MODEL,
-        embed_dims: EMBED_DIMS,
-        chunks_embedded: 0,
-        files_indexed: 1,
-        status: 'failed',
-        error: err?.message || String(err),
-        source_path: rel,
-      }),
-      dryRun: false,
-    });
-    throw err;
+    console.log(`\nDone — ${totalChunks} chunks across ${files.length} file(s) → agentsam.${TABLE} + ${VECTORIZE_INDEX}`);
   } finally {
     await client.end().catch(() => {});
   }

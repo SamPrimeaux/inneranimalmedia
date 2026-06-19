@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "description": "CompanionsCPAS client docs for client_project_semantic_search — ingest via npm run run:ingest_client_companionscpas",
+  "workspace_key": "ws_companionscpas",
+  "project_key": "companionscpas",
+  "d1_context_id": "ctx_companionscpas",
+  "entries": [
+    {
+      "file": "docs/clients/companionscpas/project-brief.md",
+      "topic": "companionscpas",
+      "lane_key": "client_project_semantic_search",
+      "priority": 100
+    },
+    {
+      "file": "docs/clients/companionscpas/features-overlay.md",
+      "topic": "companionscpas_features",
+      "lane_key": "client_project_semantic_search",
+      "priority": 90
+    },
+    {
+      "file": "docs/milestones/2026-06-19-companionscpas-handoff.md",
+      "topic": "companionscpas_handoff",
+      "lane_key": "client_project_semantic_search",
+      "priority": 80
+    }
+  ]
+}

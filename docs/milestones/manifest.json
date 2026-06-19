@@ -12,6 +12,11 @@
       "file": "docs/milestones/2026-06-12-companionscpas-donation-smoke.md",
       "topic": "companionscpas",
       "lane_key": "client_project_semantic_search"
+    },
+    {
+      "file": "docs/milestones/2026-06-19-companionscpas-handoff.md",
+      "topic": "companionscpas_handoff",
+      "lane_key": "client_project_semantic_search"
     }
   ]
 }
