@@ -1,0 +1,14 @@
+{
+  "workspace_key": "ws_inneranimalmedia",
+  "topic": "byok_sprint",
+  "d1_context_id": "ctx_inneranimalmedia",
+  "memory_router_key": "byok_sprint_router_v1",
+  "entries": [
+    {
+      "file": "docs/platform/byok-sprint-plan.md",
+      "topic": "byok_sprint",
+      "lane_key": "docs_knowledge_search",
+      "priority": 100
+    }
+  ]
+}

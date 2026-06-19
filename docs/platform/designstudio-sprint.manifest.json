@@ -1,0 +1,14 @@
+{
+  "workspace_key": "ws_inneranimalmedia",
+  "topic": "designstudio_sprint",
+  "d1_context_id": "ctx_inneranimalmedia",
+  "memory_router_key": "designstudio_sprint_router_v1",
+  "entries": [
+    {
+      "file": "docs/platform/designstudio-sprint-plan.md",
+      "topic": "designstudio_sprint",
+      "lane_key": "docs_knowledge_search",
+      "priority": 100
+    }
+  ]
+}
