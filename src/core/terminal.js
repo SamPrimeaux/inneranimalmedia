@@ -13,6 +13,7 @@ import {
 import { resolvePtyTenantIdForUser, buildPtySessionWorkingDir } from './pty-workspace-paths.js';
 import { notifySam } from './notifications';
 import { resolveUserPtyToken, USER_PTY_TOKEN_SENTINEL } from './user-secrets.js';
+import { selectHealthyTerminalConnection } from './terminal-connection-health.js';
 
 /**
  * Deterministic SHA-256 for `terminal_sessions.auth_token_hash` (never store raw session secrets in D1).
@@ -446,6 +447,33 @@ export async function getSelectedTerminalConnection(db, opts = {}) {
     }
 
     if (uid && wid) {
+      if (opts.healthAware !== false) {
+        const healthy = await selectHealthyTerminalConnection(db, {
+          userId: uid,
+          workspaceId: wid,
+          tenantId: tid,
+          targetType: tt || 'auto',
+          healthAware: true,
+        });
+        if (healthy.connection) {
+          return {
+            connection: healthy.connection,
+            error: healthy.error === 'lane_unhealthy_fallback' ? null : healthy.error,
+            resolution: healthy.resolution,
+            lane: healthy.lane ?? null,
+            health: healthy.health ?? null,
+          };
+        }
+        if (healthy.error && healthy.error !== 'connection_missing') {
+          return {
+            connection: healthy.connection,
+            error: healthy.error,
+            resolution: healthy.resolution,
+            health: healthy.health ?? null,
+          };
+        }
+      }
+
       let sql = `SELECT ${TERMINAL_CONN_SELECT}
          FROM terminal_connections
          WHERE user_id = ? AND workspace_id = ? AND is_active = 1`;
@@ -480,22 +508,24 @@ export async function getSelectedTerminalConnection(db, opts = {}) {
  * @param {{ targetType?: string | null, connectionId?: string | null, tenantId?: string | null }} [opts]
  */
 export async function getDefaultTerminalConnection(db, userId = null, workspaceId = null, opts = {}) {
-  const targetType = opts.targetType != null ? opts.targetType : 'platform_vm';
+  const targetType = opts.targetType != null ? opts.targetType : 'auto';
   const sel = await getSelectedTerminalConnection(db, {
     userId,
     workspaceId,
     tenantId: opts.tenantId ?? null,
     connectionId: opts.connectionId ?? null,
-    targetType,
+    targetType: targetType === 'auto' ? null : targetType,
+    healthAware: opts.healthAware !== false,
   });
   if (sel.connection) return sel.connection;
-  if (targetType !== 'platform_vm') {
+  if (targetType && targetType !== 'auto' && targetType !== 'platform_vm') {
     const fallback = await getSelectedTerminalConnection(db, {
       userId,
       workspaceId,
       tenantId: opts.tenantId ?? null,
       connectionId: opts.connectionId ?? null,
-      targetType: null,
+      targetType: 'platform_vm',
+      healthAware: true,
     });
     return fallback.connection;
   }
@@ -768,9 +798,14 @@ export async function buildTerminalConfigStatus(env, authUser, twCfg, query = {}
     return { ...baseDisabled, terminal_enabled: false, error_code: 'tenant_missing' };
   }
 
-  const targetTypeRaw = (query.target_type || query.targetType || 'platform_vm').trim();
-  const targetType = VALID_TARGET_TYPES.includes(targetTypeRaw) ? targetTypeRaw : null;
-  if (!targetType) {
+  const targetTypeRaw = (query.target_type || query.targetType || 'auto').trim();
+  const targetType =
+    targetTypeRaw === 'auto'
+      ? null
+      : VALID_TARGET_TYPES.includes(targetTypeRaw)
+        ? targetTypeRaw
+        : null;
+  if (targetTypeRaw !== 'auto' && !targetType) {
     return {
       ...baseDisabled,
       terminal_enabled: true,
@@ -789,6 +824,7 @@ export async function buildTerminalConfigStatus(env, authUser, twCfg, query = {}
     tenantId,
     connectionId,
     targetType,
+    healthAware: true,
   });
 
   if (sel.error === 'connection_forbidden') {
@@ -822,8 +858,10 @@ export async function buildTerminalConfigStatus(env, authUser, twCfg, query = {}
 
   const conn = sel.connection;
   let errorCode = sel.error;
+  const effectiveTargetType =
+    targetType || String(conn?.target_type || 'platform_vm').trim();
 
-  if (targetType === 'ssh_target') errorCode = errorCode || 'ssh_target_not_enabled';
+  if (effectiveTargetType === 'ssh_target') errorCode = errorCode || 'ssh_target_not_enabled';
 
   const vpcPty = !!env.PTY_SERVICE;
   const httpsUrl = (env.TERMINAL_WS_URL || '').trim();
@@ -835,17 +873,19 @@ export async function buildTerminalConfigStatus(env, authUser, twCfg, query = {}
   let routeWillUsePtyService = false;
   let routeWillUseConnectionWsUrl = false;
 
-  if (targetType === 'platform_vm') {
+  if (effectiveTargetType === 'platform_vm') {
     routeWillUsePtyService = vpcPty;
     routeWillUseConnectionWsUrl = !vpcPty && wsUrlPresent;
     if (!vpcPty && !httpsUrl && !secret && !dbBridgeOk && !wsUrlPresent) {
       errorCode = errorCode || 'pty_backend_unconfigured';
     }
-  } else if (targetType === 'user_hosted_tunnel' || targetType === 'sandbox') {
+  } else if (effectiveTargetType === 'user_hosted_tunnel' || effectiveTargetType === 'sandbox') {
     routeWillUsePtyService = false;
     routeWillUseConnectionWsUrl = wsUrlPresent;
     if (!wsUrlPresent) {
-      errorCode = errorCode || (targetType === 'sandbox' ? 'sandbox_unreachable' : 'connection_missing');
+      errorCode =
+        errorCode ||
+        (effectiveTargetType === 'sandbox' ? 'sandbox_unreachable' : 'connection_missing');
     }
   }
 
@@ -858,11 +898,11 @@ export async function buildTerminalConfigStatus(env, authUser, twCfg, query = {}
   });
 
   const terminalConfigured =
-    targetType === 'ssh_target'
+    effectiveTargetType === 'ssh_target'
       ? false
-      : targetType === 'sandbox'
+      : effectiveTargetType === 'sandbox'
         ? wsUrlPresent && (!!secret || dbBridgeOk)
-        : targetType === 'platform_vm'
+        : effectiveTargetType === 'platform_vm'
           ? !!(vpcPty || (httpsUrl && secret) || dbBridgeOk || wsUrlPresent)
           : wsUrlPresent;
 
@@ -875,8 +915,10 @@ export async function buildTerminalConfigStatus(env, authUser, twCfg, query = {}
     workspace_id: workspaceId,
     tenant_id: tenantId,
     can_run_pty: true,
-    selected_target_type: targetType,
+    selected_target_type: conn?.target_type ?? targetTypeRaw,
     selected_connection_id: conn?.id ?? null,
+    exec_lane: sel.lane ?? null,
+    exec_resolution: sel.resolution ?? null,
     selected_connection_platform: conn?.platform ?? null,
     selected_connection_shell: conn?.shell ?? null,
     selected_connection_auth_mode: conn?.auth_mode ?? null,

@@ -17,7 +17,7 @@ INSERT INTO agentsam_memory (
   'ws_inneranimalmedia',
   'fact',
   'repo_canonical_inneranimalmedia_v1',
-  'Git remote: https://github.com/SamPrimeaux/inneranimalmedia | branch: main | baseline commit: 81d3ed3 chore: establish clean inneranimalmedia repo root. Local path: /Users/samprimeaux/Downloads/inneranimalmedia. Layout: dashboard/ = Dashboard Vite app; public marketing HTML = R2 pages/* via ASSETS; src/ = Worker; scripts/ = root deploy scripts; wrangler.jsonc + wrangler.production.toml. Do not use legacy path inneranimalmedia-agentsam-dashboard, old origin history, or nested agent-dashboard roots. Never commit .env.cloudflare or real secrets.',
+  'Git remote: https://github.com/SamPrimeaux/inneranimalmedia | branch: main. Local path: /Users/samprimeaux/inneranimalmedia. Worker entry: src/index.js. Deploy: npm run deploy:full. Platform context router: agentsam_memory.key=iam_platform_context_router_v1 (pinned). D1 compass: ctx_inneranimalmedia. Do not use inneranimalmedia-agentsam-dashboard or ~/Downloads/inneranimalmedia.',
   'sam_platform_setup_2026-05-02',
   1.0
 )
@@ -27,42 +27,5 @@ ON CONFLICT(user_id, workspace_id, key) DO UPDATE SET
   confidence = excluded.confidence,
   updated_at = unixepoch();
 
-INSERT INTO agentsam_project_context (
-  id,
-  project_key,
-  project_name,
-  project_type,
-  status,
-  priority,
-  description,
-  goals,
-  key_files,
-  related_routes,
-  notes,
-  workspace_id,
-  tenant_id,
-  created_by
-) VALUES (
-  'ctx_inneranimalmedia_clean_root',
-  'inneranimalmedia_monorepo',
-  'Inner Animal Media (clean root)',
-  'platform',
-  'active',
-  100,
-  'Single canonical repository for worker (src/) and dashboard (dashboard/) after repo flattening.',
-  'Keep dashboard build via npm run build:vite-only from repo root; deploy worker with wrangler.production.toml; public marketing HTML remains R2 (ASSETS) with shared iam-header; do not regress to nested agent-dashboard-only workflows.',
-  'package.json, wrangler.production.toml, wrangler.jsonc, dashboard/, src/index.js, scripts/promote-to-prod.sh (if present)',
-  '/dashboard/agent, /api/*, public ASSET_ROUTES in src/index.js',
-  'Linked memory key: repo_canonical_inneranimalmedia_v1. Supersedes ad-hoc notes about inneranimalmedia-agentsam-dashboard checkout.',
-  'ws_inneranimalmedia',
-  'tenant_sam_primeaux',
-  'sam_primeaux'
-)
-ON CONFLICT(id) DO UPDATE SET
-  project_name = excluded.project_name,
-  description = excluded.description,
-  goals = excluded.goals,
-  key_files = excluded.key_files,
-  related_routes = excluded.related_routes,
-  notes = excluded.notes,
-  updated_at = unixepoch();
+-- Project context SSOT: ctx_inneranimalmedia only (see migrations/637_ctx_inneranimalmedia_platform_refresh.sql).
+-- ctx_inneranimalmedia_clean_root was deleted 2026-06-14 — do not re-seed a duplicate row.

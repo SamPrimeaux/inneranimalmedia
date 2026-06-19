@@ -620,7 +620,8 @@ export class AgentChatSqlV1 extends DurableObject {
           workspaceId,
           tenantId: tenantForRow,
           connectionId: this.requestedConnectionId || null,
-          targetType: this.requestedTargetType || "platform_vm",
+          targetType: this.requestedTargetType || null,
+          healthAware: true,
         });
         this.selectedTerminalConnection = sel.connection;
         if (sel.connection?.target_type) {
@@ -840,7 +841,8 @@ export class AgentChatSqlV1 extends DurableObject {
         workspaceId: wid,
         tenantId: tid,
         connectionId: this.requestedConnectionId || null,
-        targetType: this.requestedTargetType || "platform_vm",
+        targetType: this.requestedTargetType || null,
+        healthAware: true,
       });
       conn = sel.connection;
       this.selectedTerminalConnection = conn;
@@ -974,7 +976,8 @@ export class AgentChatSqlV1 extends DurableObject {
           workspaceId: wid,
           tenantId: tid,
           connectionId: this.requestedConnectionId || null,
-          targetType: this.requestedTargetType || "platform_vm",
+          targetType: this.requestedTargetType || null,
+          healthAware: true,
         });
         conn = sel.connection;
         this.selectedTerminalConnection = conn;
@@ -1203,7 +1206,7 @@ export class AgentChatSqlV1 extends DurableObject {
     let dbTok = null;
     const execUid = String(this.ptSessionUserId || "").trim();
     const execWid = String(this.workspaceId || "").trim();
-    const execTarget = String(this.selectedTargetType || "platform_vm").trim();
+    const execTarget = String(this.selectedTargetType || this.requestedTargetType || '').trim() || null;
     const pinnedId = String(this.requestedConnectionId || "").trim() || null;
     let conn = pinnedId ? null : this.selectedTerminalConnection;
     if (!conn && this.env?.DB) {
@@ -1214,6 +1217,7 @@ export class AgentChatSqlV1 extends DurableObject {
           tenantId: String(this.ptSessionTenantId || "").trim() || null,
           connectionId: pinnedId,
           targetType: execTarget,
+          healthAware: true,
         });
         conn = sel.connection;
       } catch (_) {}
