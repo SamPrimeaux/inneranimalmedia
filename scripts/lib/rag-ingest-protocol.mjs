@@ -27,6 +27,28 @@ export const LANE_CONTRACTS = Object.freeze({
     embed_dims: 1536,
     supabase_table: 'agentsam.agentsam_documents_oai3large_1536',
   }),
+  memory: Object.freeze({
+    lane: 'memory',
+    binding: 'AGENTSAM_VECTORIZE_MEMORY',
+    vectorize_index: 'agentsam-memory-oai3large-1536',
+    embed_model: 'text-embedding-3-large',
+    embed_dims: 1536,
+    supabase_table: 'agentsam.agentsam_memory_oai3large_1536',
+  }),
+  schema: Object.freeze({
+    lane: 'schema',
+    binding: 'AGENTSAM_VECTORIZE_SCHEMA',
+    vectorize_index: 'agentsam-schema-oai3large-1536',
+    embed_model: 'text-embedding-3-large',
+    embed_dims: 1536,
+    supabase_table: 'agentsam.agentsam_database_schema_oai3large_1536',
+  }),
+  // NOTE: deep_archive (agentsam_deep_archive_oai3large_3072) is intentionally
+  // excluded from LANE_CONTRACTS. Cloudflare Vectorize does not offer a 3072-dim
+  // index tier, so this lane is Supabase pgvector-only by design — there is no
+  // Vectorize mirror for assertLaneContract()/writeVectorizeSyncReceipt() to guard.
+  // If/when a Vectorize tier supports 3072d, add a contract here and start logging
+  // receipts the same way the other four lanes do.
 });
 
 export function sleep(ms) {
