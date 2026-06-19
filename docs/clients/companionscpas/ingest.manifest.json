@@ -1,9 +1,10 @@
 {
   "version": 1,
   "description": "CompanionsCPAS client docs for client_project_semantic_search — ingest via npm run run:ingest_client_companionscpas",
-  "workspace_key": "ws_companionscpas",
+  "workspace_key": "ws_inneranimalmedia",
   "project_key": "companionscpas",
   "d1_context_id": "ctx_companionscpas",
+  "note": "Documents ingest under IAM workspace UUID; filter retrieval by project_key companionscpas",
   "entries": [
     {
       "file": "docs/clients/companionscpas/project-brief.md",
