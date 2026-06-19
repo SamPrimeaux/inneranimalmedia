@@ -51,6 +51,9 @@ TIER1_MANIFEST=(
   "scripts/reindex_codebase_dashboard_agent.mjs|ingest/reindex_codebase_dashboard_agent.mjs|reindex_codebase_dashboard_agent|ingest|medium|Reindex dashboard/agent source into Supabase + Vectorize codebase index"
   "scripts/ingest_r2_to_rag.mjs|ingest/ingest_r2_to_rag.mjs|ingest_r2_to_rag|ingest|medium|Ingest autorag R2 knowledge/recipes/skills into documents Vectorize index"
   "scripts/lib/pwa-sw-manifest-tiers.mjs|deploy/pwa-sw-manifest-tiers.mjs|pwa_sw_manifest_tiers|deploy|low|Build tiered PWA precache manifest from dashboard/dist at deploy time"
+  "scripts/test/smoke-execos-chain.sh|test/smoke-execos-chain.sh|smoke_execos_chain|test|low|Smoke execos health, /run gcp chain, demo models gate"
+  "scripts/test/smoke-workers-ai-catalog.mjs|test/smoke-workers-ai-catalog.mjs|smoke_workers_ai_catalog|test|low|Smoke execos WAI probe + D1 active picker count"
+  "scripts/audit/audit-workers-ai-inventory.mjs|audit/audit-workers-ai-inventory.mjs|audit_workers_ai_inventory|audit|low|Audit agentsam_model_catalog vs agentsam_ai Workers AI inventory"
 )
 
 content_type_for() {
