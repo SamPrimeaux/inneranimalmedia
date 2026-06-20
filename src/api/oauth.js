@@ -1059,7 +1059,22 @@ async function handleMcpOAuthAuthorize(request, env, _ctx) {
   if (codeChallengeMethod !== 'S256') return mcpOAuthJsonError('unsupported_code_challenge_method', 400);
 
   const client = await mcpOAuthLoadClient(env, clientId);
-  if (!client) return mcpOAuthJsonError('invalid_client', 400);
+  if (!client) {
+    const extra =
+      /^Ov23/i.test(clientId)
+        ? {
+            hint:
+              'This client_id looks like a GitHub OAuth App ID, not an IAM MCP client. ' +
+              'In Claude/ChatGPT add connector URL https://mcp.inneranimalmedia.com/mcp only — ' +
+              'do not paste Client ID manually. Expected MCP client_id: iam_mcp_inneranimalmedia.',
+          }
+        : {
+            hint:
+              'Unknown OAuth client. Connect MCP at https://mcp.inneranimalmedia.com/mcp and let the app ' +
+              'discover OAuth automatically (client_id iam_mcp_inneranimalmedia).',
+          };
+    return mcpOAuthJsonError('invalid_client', 400, extra);
+  }
   if (Number(client.requires_pkce) === 1 && !codeChallenge) {
     return mcpOAuthJsonError('missing_code_challenge', 400);
   }

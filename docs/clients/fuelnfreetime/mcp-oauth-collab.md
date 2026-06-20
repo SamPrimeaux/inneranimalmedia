@@ -5,9 +5,26 @@ Remote dev on **fuelnfreetime** from Claude, ChatGPT, or phone — same MCP serv
 ## Connect once per app
 
 1. Open **Claude** or **ChatGPT** → Settings → Integrations / Connectors
-2. Add MCP server: `https://mcp.inneranimalmedia.com`
-3. Sign in with your IAM account when prompted
-4. Approve OAuth consent (tools + workspace)
+2. **Remove** any existing Inner Animal / MCP connector that failed
+3. Add connector — **URL only** (no manual OAuth fields):
+
+```
+https://mcp.inneranimalmedia.com/mcp
+```
+
+4. Sign in as your IAM account when the browser opens
+5. Approve consent
+
+**Do not** paste a Client ID, Client Secret, or `inneranimalmedia.com` as the MCP URL.
+
+### If you see `{"error":"invalid_client"}` with `client_id=Ov23...`
+
+That means a **GitHub OAuth App ID** was sent instead of the MCP client (`iam_mcp_inneranimalmedia`). Usually caused by:
+
+- Wrong connector URL (e.g. `inneranimalmedia.com` instead of `mcp.inneranimalmedia.com/mcp`)
+- Manually filling OAuth Client ID in Claude's advanced settings
+
+**Fix:** Delete the connector and re-add using only the MCP URL above. On the login redirect, the URL should contain `client_id=iam_mcp_inneranimalmedia`, not `Ov23...`.
 
 **Connor:** use `connordmcneely@leadershiplegacydigital.com`  
 **Sam:** any superadmin IAM email
