@@ -83,14 +83,23 @@ export async function handleDeploymentsApi(request, url, env, ctx) {
         const gitHash = (body.git_hash || body.gitHash || '').trim();
         const versionId = (body.version_id || body.version || '').trim();
         const deployId = 'rec-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
-        
+
+        // DORA / spend attribution -- explicit scope, never rely on column
+        // defaults. tenant_id falls back to tenant_sam_primeaux only for
+        // legacy callers that predate this field; new callers (e.g. the
+        // fuelnfreetime deploy pipeline) should always send tenant_id.
+        const tenantId = (body.tenant_id || body.tenantId || 'tenant_sam_primeaux');
+        const workspaceId = (body.workspace_id || body.workspaceId || null);
+        const projectId = (body.project_id || body.projectId || null);
+        const workerName = (body.worker_name || body.workerName || 'inneranimalmedia');
+
         if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
 
         try {
             await env.DB.prepare(
-                `INSERT INTO deployments (id, timestamp, version, git_hash, description, status, deployed_by, environment, deploy_time_seconds, worker_name, triggered_by, notes) 
-                 VALUES (?, datetime('now'), ?, ?, 'Internal record-deploy (API)', 'success', ?, 'production', 0, 'inneranimalmedia', ?, ?)`
-            ).bind(deployId, versionId || deployId, gitHash || null, triggeredBy, triggeredBy, notes).run();
+                `INSERT INTO deployments (id, timestamp, version, git_hash, description, status, deployed_by, environment, deploy_time_seconds, worker_name, triggered_by, notes, tenant_id, workspace_id, project_id)
+                 VALUES (?, datetime('now'), ?, ?, 'Internal record-deploy (API)', 'success', ?, 'production', 0, ?, ?, ?, ?, ?, ?)`
+            ).bind(deployId, versionId || deployId, gitHash || null, triggeredBy, workerName, triggeredBy, notes, tenantId, workspaceId, projectId).run();
 
             appendCidiPipelineRunFromDeploy(env, {
                 deploymentId: deployId,
