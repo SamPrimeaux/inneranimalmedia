@@ -353,6 +353,8 @@ export function scheduleRecordMcpToolExecution(env, ctx, fields) {
           outputJson: merged.output_json ?? merged.outputJson,
           policyDecisionJson: merged.policy_decision_json ?? merged.policyDecisionJson,
           toolCategory: 'mcp',
+          agentId: merged.agent_id ?? merged.agentId ?? undefined,
+          sourceTool: merged.source_tool ?? merged.sourceTool ?? 'mcp_proxy',
         });
       }
       if (

@@ -152,6 +152,10 @@ function reportHelperFailure(env, ctx, source, err, scope = {}) {
  *   agentRunId?: string|null,
  *   conversation_id?: string|null,
  *   conversationId?: string|null,
+ *   agentId?: string|null,
+ *   agent_id?: string|null,
+ *   sourceTool?: string|null,
+ *   source_tool?: string|null,
  * }} fields
  */
 function jsonColumnValue(raw, maxLen) {
@@ -238,6 +242,14 @@ export function scheduleToolCallLog(env, ctx, fields) {
       routing_arm_id:
         pick('routingArmId', 'routing_arm_id') != null
           ? String(pick('routingArmId', 'routing_arm_id')).slice(0, 120)
+          : undefined,
+      agent_id:
+        pick('agentId', 'agent_id') != null
+          ? String(pick('agentId', 'agent_id')).slice(0, 120)
+          : undefined,
+      source_tool:
+        pick('sourceTool', 'source_tool') != null
+          ? String(pick('sourceTool', 'source_tool')).slice(0, 120)
           : undefined,
       trace_id: fields.traceId ?? null,
       span_id: fields.spanId ?? null,
