@@ -568,7 +568,11 @@ async function handlePatch(request, env, authUser, id) {
   if (!updates.length) return jsonResponse({ ok: true, project: row });
   updates.push('updated_at = datetime(\'now\')');
   binds.push(id);
-  await env.DB.prepare(`UPDATE projects SET ${updates.join(', ')} WHERE id = ?`).bind(...binds).run();
+  try {
+    await env.DB.prepare(`UPDATE projects SET ${updates.join(', ')} WHERE id = ?`).bind(...binds).run();
+  } catch (e) {
+    return jsonResponse({ ok: false, error: `db_update_failed: ${e?.message || e}` }, 500);
+  }
   const next = await env.DB.prepare(`SELECT * FROM projects WHERE id = ?`).bind(id).first();
   return jsonResponse({ ok: true, project: next });
 }
@@ -611,36 +615,44 @@ async function handlePost(request, env, authUser) {
     /* */
   }
 
-  await env.DB
-    .prepare(
-      `INSERT INTO projects (
-        id, name, client_name, project_type, status, tenant_id, description, priority,
-        workspace_id, tags_json, domain, worker_id, d1_databases, r2_buckets,
-        launch_date, accessibility_target, performance_budget, owner_user_id,
-        created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
-    )
-    .bind(
-      projectId,
-      name,
-      clientName,
-      projectType,
-      status,
-      tenantId,
-      description,
-      prio,
-      workspaceId,
-      tagsJson,
-      body.domain || null,
-      body.worker_id || null,
-      body.d1_database || body.d1_databases || null,
-      body.r2_buckets || null,
-      body.target_launch_date || body.launch_date || null,
-      body.accessibility_target || null,
-      body.performance_budget || null,
-      ownerUserId,
-    )
-    .run();
+  // Main row insert is the only failure mode that should ever surface as a hard
+  // error to the caller — everything below this point is best-effort sidecar
+  // bookkeeping and stays wrapped in its own try/catch so a missing/odd table
+  // never turns "project created" into a 500.
+  try {
+    await env.DB
+      .prepare(
+        `INSERT INTO projects (
+          id, name, client_name, project_type, status, tenant_id, description, priority,
+          workspace_id, tags_json, domain, worker_id, d1_databases, r2_buckets,
+          launch_date, accessibility_target, performance_budget, owner_user_id,
+          created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+      )
+      .bind(
+        projectId,
+        name,
+        clientName,
+        projectType,
+        status,
+        tenantId,
+        description,
+        prio,
+        workspaceId,
+        tagsJson,
+        body.domain || null,
+        body.worker_id || null,
+        body.d1_database || body.d1_databases || null,
+        body.r2_buckets || null,
+        body.target_launch_date || body.launch_date || null,
+        body.accessibility_target || null,
+        body.performance_budget || null,
+        ownerUserId,
+      )
+      .run();
+  } catch (e) {
+    return jsonResponse({ ok: false, error: `db_insert_failed: ${e?.message || e}` }, 500);
+  }
 
   const wpId = `wp_${slugifyBase(name)}_${Math.random().toString(36).slice(2, 6)}`;
   const slug = slugifyBase(name);
@@ -672,6 +684,46 @@ async function handlePost(request, env, authUser) {
       .run();
   } catch (e) {
     console.warn('[projects POST workspace_projects]', e?.message || e);
+  }
+
+  // Every project gets exactly one kanban board + the canonical 7-column
+  // template, matching what /api/kanban/boards self-heals to on first read.
+  // Created eagerly here so the dashboard's Workspace Kanban panel never
+  // shows a transient "no board" state for a brand-new project.
+  try {
+    const boardId = `kb_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+    const now = Math.floor(Date.now() / 1000);
+    await env.DB
+      .prepare(
+        `INSERT INTO kanban_boards (
+           id, tenant_id, workspace_id, owner_id, name, description, board_type, is_active, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, 'Workspace Board', 'Default workspace kanban', 'workspace', 1, ?, ?)`,
+      )
+      .bind(boardId, tenantId, workspaceId, ownerUserId, now, now)
+      .run();
+
+    const defaultColumns = [
+      { name: 'Backlog', position: 0, status: 'backlog' },
+      { name: 'To Do', position: 1, status: 'todo' },
+      { name: 'In Progress', position: 2, status: 'in_progress' },
+      { name: 'Testing', position: 3, status: 'testing' },
+      { name: 'Awaiting Approval', position: 4, status: 'awaiting_approval' },
+      { name: 'Complete', position: 5, status: 'complete' },
+      { name: 'Blocked', position: 6, status: 'blocked' },
+    ];
+    for (const col of defaultColumns) {
+      const columnId = `kcol_${crypto.randomUUID().replace(/-/g, '').slice(0, 14)}`;
+      await env.DB
+        .prepare(
+          `INSERT INTO kanban_columns (
+             id, tenant_id, board_id, name, position, config_json, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(columnId, tenantId, boardId, col.name, col.position, JSON.stringify({ status: col.status }), now, now)
+        .run();
+    }
+  } catch (e) {
+    console.warn('[projects POST kanban_boards]', e?.message || e);
   }
 
   try {
