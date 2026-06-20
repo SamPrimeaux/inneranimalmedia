@@ -17,6 +17,14 @@
     },
     "gemini-api-docs-mcp": {
       "url": "https://gemini-api-docs-mcp.dev"
+    },
+    "cloudflare-docs": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://docs.mcp.cloudflare.com/mcp"
+      ]
     }
   }
 }
