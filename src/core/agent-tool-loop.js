@@ -139,6 +139,16 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
   };
 
   const attributedRoutingArmId = () => routingArmIdStr || null;
+  const ledgerAgentId =
+    String(params.agentId ?? params.agent_id ?? agentSlugParam ?? '').trim() || null;
+  const ledgerSourceTool =
+    String(
+      params.sourceTool ?? params.source_tool ?? params.chatRouteKey ?? 'dashboard_chat',
+    ).trim() || 'dashboard_chat';
+  const ledgerIdentityFields = {
+    agentId: ledgerAgentId,
+    sourceTool: ledgerSourceTool,
+  };
 
   const routeArmOutcome = (success) => {
     const aid = attributedRoutingArmId();
@@ -833,6 +843,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
           routingArmId: attributedRoutingArmId(),
           ...toolLogFieldsFromValidation(validation),
           ...runSpineIds,
+          ...ledgerIdentityFields,
         });
         await auditToolDecision(env, {
           tenantId,
@@ -898,6 +909,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
           routingArmId: attributedRoutingArmId(),
           ...toolLogFieldsFromValidation(validation),
           ...runSpineIds,
+          ...ledgerIdentityFields,
         });
         await auditToolDecision(env, {
           tenantId,
@@ -1433,6 +1445,7 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
         routingArmId: attributedRoutingArmId(),
         ...toolLogFieldsFromValidation(validation),
         ...runSpineIds,
+        ...ledgerIdentityFields,
       });
       const mcpExecId = scheduleRecordMcpToolExecution(env, ctx, {
         tenant_id: tenantId,

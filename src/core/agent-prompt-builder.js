@@ -113,6 +113,10 @@ export function scheduleAgentsamToolCallLog(env, ctx, fields) {
     conversationId,
     routingArmId,
     routing_arm_id,
+    agentId,
+    agent_id,
+    sourceTool,
+    source_tool,
   } = fields;
   const tid = tenantId != null && String(tenantId).trim() !== '' ? String(tenantId).trim() : '';
   const ws =
@@ -151,6 +155,8 @@ export function scheduleAgentsamToolCallLog(env, ctx, fields) {
     agent_run_id: agent_run_id ?? agentRunId,
     conversation_id: conversation_id ?? conversationId ?? sessionId,
     routing_arm_id: routing_arm_id ?? routingArmId ?? null,
+    agent_id: agent_id ?? agentId ?? null,
+    source_tool: source_tool ?? sourceTool ?? null,
   });
   // Tool failures are logged once via agentsam_tool_chain → scheduleAgentsamErrorLog (source: tool_chain).
 }
