@@ -233,6 +233,19 @@ export async function handlePostDeploy(request, env, ctx) {
       ),
     );
 
+    const gitShort = gitHash !== 'unknown' ? String(gitHash).slice(0, 7) : version;
+    ctx.waitUntil(
+      (async () => {
+        const { broadcastWebPushToActiveSubscriptions } = await import('../core/web-push.js');
+        return broadcastWebPushToActiveSubscriptions(env, {
+          title: 'Deploy complete',
+          body: `IAM production deploy ${gitShort} is live`,
+          url: '/dashboard/agent',
+          tag: `deploy-${gitShort}`,
+        });
+      })().catch((e) => console.warn('[post-deploy] web push broadcast', e?.message || e)),
+    );
+
     const workspaceId =
       typeof body.workspace_id === 'string' && body.workspace_id.trim()
         ? body.workspace_id.trim()

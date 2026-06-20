@@ -120,6 +120,47 @@ export async function sendWebPushToUser(env, payload) {
 }
 
 /**
+ * Send a push notification to every active web_push agentsam_hook subscription.
+ * Used after deploy:full (post-deploy handler) and POST /api/push/notify.
+ *
+ * @param {*} env
+ * @param {{ title?: string, body?: string, url?: string, tag?: string }} message
+ */
+export async function broadcastWebPushToActiveSubscriptions(env, message = {}) {
+  if (!vapidConfigured(env) || !env.DB) {
+    return { ok: false, reason: 'vapid_not_configured', sent: 0, failed: 0, total: 0 };
+  }
+
+  const { results } = await env.DB.prepare(`
+    SELECT handler_config, target_id, hook_key
+    FROM agentsam_hook
+    WHERE handler_type = 'web_push' AND is_active = 1
+  `)
+    .all()
+    .catch(() => ({ results: [] }));
+
+  const rows = Array.isArray(results) ? results : [];
+  if (!rows.length) return { ok: true, sent: 0, failed: 0, total: 0, reason: 'no_subscriptions' };
+
+  let sent = 0;
+  let failed = 0;
+  for (const row of rows) {
+    let cfg = {};
+    try {
+      cfg = typeof row.handler_config === 'string' ? JSON.parse(row.handler_config) : row.handler_config || {};
+    } catch {
+      failed += 1;
+      continue;
+    }
+    const result = await sendWebPushFromSubscription(env, cfg, message);
+    if (result.ok) sent += 1;
+    else failed += 1;
+  }
+
+  return { ok: true, sent, failed, total: rows.length };
+}
+
+/**
  * @param {*} env
  * @param {{ workspaceId?: string, actorUserId?: string, type: string, entityType?: string, entityId?: string, metadata?: Record<string, unknown> }} evt
  */

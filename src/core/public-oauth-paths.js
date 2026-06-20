@@ -121,5 +121,6 @@ export function isAutomationApiPath(pathname, method = 'GET') {
   const m = String(method || 'GET').toUpperCase();
   if (p.startsWith('/api/internal/')) return true;
   if (p === '/api/email/send' && m === 'POST') return true;
+  if (p === '/api/push/notify' && m === 'POST') return true;
   return false;
 }

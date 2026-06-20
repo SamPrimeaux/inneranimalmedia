@@ -17,11 +17,13 @@ const OUT_DIR = resolve(ROOT, 'dashboard/public/pwa');
 
 const ACCOUNT_HASH =
   process.env.CLOUDFLARE_IMAGES_ACCOUNT_HASH || 'g7wf09fCONpnidkRnR_5vw';
+/** Official iOS B&W icon — CF Images IA-IOS-BW-BASIC-1024.png */
 const IMAGE_ID =
-  process.env.CF_PWA_IMAGE_ID || 'b1d0bd36-0f88-4301-4e68-7e8d5e255b00';
+  process.env.CF_PWA_IMAGE_ID || 'e5327954-d123-4a7a-2138-589146758b00';
 const VARIANT = process.env.CF_PWA_SOURCE_VARIANT || 'large';
-const THEME_BG = process.env.PWA_ICON_BG || '#00212b';
-const FILL_RATIO = Number(process.env.PWA_ICON_FILL || '0.94');
+const THEME_BG = process.env.PWA_ICON_BG || '#000000';
+const FILL_RATIO = Number(process.env.PWA_ICON_FILL || '1');
+const DIRECT_RESIZE = process.env.PWA_ICON_DIRECT === '1' || FILL_RATIO >= 1;
 
 const SOURCE_URL = `https://imagedelivery.net/${ACCOUNT_HASH}/${IMAGE_ID}/${VARIANT}`;
 
@@ -38,6 +40,13 @@ const OUTPUTS = [
  * @param {number} size
  */
 async function renderIconSquare(input, size) {
+  if (DIRECT_RESIZE) {
+    return sharp(input)
+      .resize(size, size, { fit: 'cover', position: 'centre' })
+      .png({ compressionLevel: 9 })
+      .toBuffer();
+  }
+
   const logoMax = Math.max(32, Math.round(size * FILL_RATIO));
   let pipeline = sharp(input).flatten({ background: THEME_BG });
 

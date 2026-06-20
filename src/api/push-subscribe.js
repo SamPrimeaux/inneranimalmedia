@@ -3,7 +3,7 @@
  * POST /api/push/subscribe — session auth required.
  */
 
-import { getAuthUser, jsonResponse } from '../core/auth.js';
+import { getAuthUser, jsonResponse, verifyInternalApiSecret } from '../core/auth.js';
 import { sha256Hex } from '../core/cms-theme-hashing.js';
 
 function newHookId() {
@@ -80,10 +80,73 @@ export async function handlePushSubscribe(request, env) {
   return jsonResponse({ ok: true, hook_key: hookKey });
 }
 
-export async function handlePushVapidPublicKey(_request, env) {
+export async function handlePushVapidPublicKey(request, env) {
+  const authUser = await getAuthUser(request, env);
+  if (!authUser?.id) return jsonResponse({ error: 'Unauthorized', code: 'SESSION_MISSING' }, 401);
+
   const key = env?.VAPID_PUBLIC_KEY && String(env.VAPID_PUBLIC_KEY).trim();
   if (!key) return jsonResponse({ error: 'Web Push not configured' }, 503);
   return jsonResponse({ publicKey: key });
+}
+
+function isPushNotifyAuthorized(request, env) {
+  if (verifyInternalApiSecret(request, env)) return true;
+  const auth = request.headers.get('Authorization') || '';
+  const bearer = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+  const pushToken = env?.PUSH_SERVICE_TOKEN != null ? String(env.PUSH_SERVICE_TOKEN).trim() : '';
+  if (pushToken && bearer === pushToken) return true;
+  const bridge = env?.AGENTSAM_BRIDGE_KEY != null ? String(env.AGENTSAM_BRIDGE_KEY).trim() : '';
+  if (bridge && bearer === bridge) return true;
+  return false;
+}
+
+/**
+ * POST /api/push/notify — internal broadcast (deploy CI, automation).
+ * Auth: INTERNAL_API_SECRET, Bearer PUSH_SERVICE_TOKEN, or Bearer AGENTSAM_BRIDGE_KEY.
+ */
+export async function handlePushNotify(request, env) {
+  if (request.method !== 'POST') {
+    return jsonResponse({ error: 'Method not allowed' }, 405);
+  }
+  if (!isPushNotifyAuthorized(request, env)) {
+    return jsonResponse({ error: 'Unauthorized' }, 401);
+  }
+
+  let body = {};
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const title = String(body.title || 'Inner Animal Media').trim();
+  const messageBody = String(body.body ?? body.message ?? '').trim();
+  const url = String(body.url || '/dashboard/agent').trim();
+  const tag = String(body.tag || 'iam').trim();
+  const userId = body.userId != null ? String(body.userId).trim() : '';
+
+  const { sendWebPushToUser, broadcastWebPushToActiveSubscriptions } = await import('../core/web-push.js');
+
+  if (userId) {
+    const result = await sendWebPushToUser(env, {
+      userId,
+      tenantId: body.tenantId != null ? String(body.tenantId).trim() : undefined,
+      workspaceId: body.workspaceId != null ? String(body.workspaceId).trim() : undefined,
+      title,
+      body: messageBody,
+      url,
+      tag,
+    });
+    return jsonResponse({ ok: true, mode: 'user', ...result });
+  }
+
+  const result = await broadcastWebPushToActiveSubscriptions(env, {
+    title,
+    body: messageBody,
+    url,
+    tag,
+  });
+  return jsonResponse({ ok: true, mode: 'broadcast', ...result });
 }
 
 export async function handlePushUnsubscribe(request, env) {

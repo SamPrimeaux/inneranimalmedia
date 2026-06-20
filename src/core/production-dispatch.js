@@ -493,6 +493,11 @@ export async function dispatchProductionDomainRoutes(rc) {
     return handlePushUnsubscribe(request, env);
   }
 
+  if (pathLower === '/api/push/notify' && methodUpper === 'POST') {
+    const { handlePushNotify } = await import('../api/push-subscribe.js');
+    return handlePushNotify(request, env);
+  }
+
   if (pathLower.startsWith('/api/auth') || pathLower === '/api/settings/profile') {
     return handleAuthApi(request, url, env);
   }

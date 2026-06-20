@@ -78,6 +78,8 @@ import { useCmsWorkspaceContext } from './hooks/useCmsWorkspaceContext';
 import { useEditor } from './src/EditorContext';
 import { useWorkspace } from './src/context/WorkspaceContext';
 import { OfflineReconnectBanner, persistLastSessionSnapshot } from './src/pwa/OfflineReconnectBanner';
+import { InstallCoach } from './src/pwa/InstallCoach';
+import { PwaUpdateBanner } from './src/pwa/PwaUpdateBanner';
 import { warmAgentChunksForTab } from './src/pwa/warmAgentChunks';
 import {
   readIamGitStatusCache,
@@ -3023,6 +3025,8 @@ const App: React.FC = () => {
     <DesignStudioProvider>
     <div className="w-full h-[100dvh] bg-[var(--dashboard-canvas)] overflow-hidden text-[var(--dashboard-text)] font-sans flex flex-col">
       <OfflineReconnectBanner />
+      <PwaUpdateBanner />
+      <InstallCoach />
       <div
         className="iam-agent-browser-live-vignette"
         data-active={agentBrowserPresenceActive ? 'true' : 'false'}

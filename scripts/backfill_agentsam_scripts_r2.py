@@ -213,6 +213,11 @@ def resolve_content(row: ScriptRow) -> tuple[str, str]:
         abs_path = ROOT / repo_path
         if abs_path.is_file():
             return abs_path.read_text(encoding="utf-8", errors="replace"), f"repo:{repo_path}"
+        base = Path(repo_path).name
+        if base:
+            alt = ROOT / "scripts" / base
+            if alt.is_file():
+                return alt.read_text(encoding="utf-8", errors="replace"), f"repo:scripts/{base}"
 
     body = row.body or ""
     if looks_like_script_content(body):
@@ -295,12 +300,12 @@ def fetch_rows(limit: int | None) -> list[ScriptRow]:
     return rows
 
 
-def build_plans(rows: list[ScriptRow]) -> list[UploadPlan]:
+def build_plans(rows: list[ScriptRow], *, force_r2_upload: bool = False) -> list[UploadPlan]:
     used_keys: dict[str, str] = {}
     plans: list[UploadPlan] = []
 
     for row in rows:
-        if already_on_autorag(row):
+        if already_on_autorag(row) and not force_r2_upload:
             plans.append(
                 UploadPlan(
                     slug=row.slug,
@@ -314,6 +319,28 @@ def build_plans(rows: list[ScriptRow]) -> list[UploadPlan]:
                     skip_reason="already on autorag",
                 )
             )
+            continue
+
+        if already_on_autorag(row) and force_r2_upload:
+            r2_key = row.source_stored.replace(f"r2:{BUCKET}/", "")
+            lane = lane_for(row.purpose, row.is_active)
+            content, source = resolve_content(row)
+            local_file = STAGING / r2_key
+            local_file.parent.mkdir(parents=True, exist_ok=True)
+            local_file.write_text(content, encoding="utf-8")
+            sha = hashlib.sha256(content.encode("utf-8")).hexdigest()
+            meta_file = STAGING / f"{r2_key}.meta.md"
+            plan = UploadPlan(
+                slug=row.slug,
+                lane=lane,
+                r2_key=r2_key,
+                local_file=local_file,
+                meta_file=meta_file,
+                sha256=sha,
+                content_source=source,
+            )
+            write_meta(row, plan)
+            plans.append(plan)
             continue
 
         lane = lane_for(row.purpose, row.is_active)
@@ -522,6 +549,11 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--skip-upload", action="store_true", help="Only regenerate SQL/report")
+    parser.add_argument(
+        "--force-r2-upload",
+        action="store_true",
+        help="Re-upload bytes for rows already pointing at inneranimalmedia-autorag (D1 pointers without R2 objects)",
+    )
     args = parser.parse_args()
 
     if Path.cwd().name != "inneranimalmedia":
@@ -534,10 +566,10 @@ def main() -> int:
     print(f"  {len(rows)} rows")
 
     rows_by_slug = {r.slug: r for r in rows}
-    plans = build_plans(rows)
+    plans = build_plans(rows, force_r2_upload=args.force_r2_upload)
     to_upload = [p for p in plans if not p.skipped]
 
-    print(f"  {len(to_upload)} to upload, {len(plans) - len(to_upload)} already on autorag")
+    print(f"  {len(to_upload)} to upload, {len(plans) - len(to_upload)} skipped")
 
     if args.dry_run:
         for p in to_upload[:15]:

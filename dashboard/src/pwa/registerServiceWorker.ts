@@ -107,6 +107,13 @@ export async function registerIamServiceWorker(): Promise<void> {
 
 export async function subscribeIamWebPush(): Promise<boolean> {
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) return false;
+  if (!('Notification' in window)) return false;
+
+  let permission = Notification.permission;
+  if (permission === 'default') {
+    permission = await Notification.requestPermission();
+  }
+  if (permission !== 'granted') return false;
 
   const registration = await navigator.serviceWorker.ready;
   const existing = await registration.pushManager.getSubscription();
@@ -139,15 +146,19 @@ export async function subscribeIamWebPush(): Promise<boolean> {
 
 async function syncPushSubscription(subscription: PushSubscription): Promise<void> {
   const json = subscription.toJSON();
-  await fetch('/api/push/subscribe', {
+  const res = await fetch('/api/push/subscribe', {
     method: 'POST',
     credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       endpoint: json.endpoint,
       keys: json.keys,
+      user_agent: navigator.userAgent,
     }),
   });
+  if (!res.ok) {
+    throw new Error(`push subscribe HTTP ${res.status}`);
+  }
 }
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {

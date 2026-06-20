@@ -106,8 +106,8 @@ export default defineConfig(({ mode }) => {
           scope: '/',
           display: 'standalone',
           orientation: 'any',
-          background_color: '#00212b',
-          theme_color: '#2dd4bf',
+          background_color: '#000000',
+          theme_color: '#000000',
           icons: [
             {
               src: '/static/dashboard/app/pwa/icon-192.png',

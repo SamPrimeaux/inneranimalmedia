@@ -1,28 +1,22 @@
 # agentsam_scripts overlap & stale audit
 
-Generated: 2026-06-04T19:04:29.975658+00:00
+Generated: 2026-06-20T05:18:00.704490+00:00
 
 ## Summary
 
-- Total registry rows: **373**
-- Uploaded this run: **343**
-- Already on autorag (skipped): **30**
-- Inactive (`is_active=0`): **6**
+- Total registry rows: **384**
+- Uploaded this run: **384**
+- Already on autorag (skipped): **0**
+- Inactive (`is_active=0`): **7**
 - Notes flagged stale/risky: **4**
 
 ## Duplicate paths (same `path`, multiple slugs)
 
 These are prime consolidation candidates — pick one canonical slug per path.
 
-- `scripts/dev-deploy.sh` → `dev-deploy-auto`, `dev-deploy-front`, `dev-deploy-full`, `dev-deploy-worker`, `pty-health`
-- `scripts/verify-cloudflare-cli.sh` → `r2_verify`, `verify_cf_cli`, `wf_r2_verify_bindings`
-- `scripts/benchmark-providers.sh` → `abenchmark_providers`, `benchmark`
 - `scripts/deploy/deploy-cf-builds-prod.sh` → `adeploy_cf_builds_prod`, `deploy_cf_builds`
-- `package.json` → `build-vite-only`, `wrangler-tail`
-- `scripts/cms/theme-r2-upload.sh` → `cms_theme_r2_upload`, `wf_cms_live_editor_r2`
-- `scripts/sync-scripts-to-r2.sh` → `r2_sync_scripts`, `r2_sync_skills`
-- `scripts/upload-frontend-prod.sh` → `r2_upload_frontend`, `upload_frontend`
-- `npm run deploy` → `script_connor_deploy_worker`, `script_learning_os_worker_deploy`
+- `scripts/deploy/deploy-sandbox.sh` → `adeploy_sandbox`, `deploy_sandbox`
+- `scripts/deploy/d1-dump-deploy-metrics-last2.sh` → `d1_dump_deploy_metrics_last2`, `d1_dump_deploy_metrics_last2`
 
 ## Deploy slug clusters (likely overlap)
 
@@ -70,23 +64,3 @@ These are prime consolidation candidates — pick one canonical slug per path.
 
 ## Largest D1 bodies moved this run
 
-- `iam_agentsam_audit` — 68,778 bytes
-- `agentsam_full_mirrored_eval_series` — 49,871 bytes
-- `agentsam_benchmark_v3` — 49,274 bytes
-- `agentsam_execution_fabric_designer` — 48,597 bytes
-- `agentsam_command_workflow_designer` — 44,044 bytes
-- `agentsam_true_e2e_workflow_runner` — 43,091 bytes
-- `agentsam_mcp_tool_e2e_sprint` — 41,850 bytes
-- `seed_real_agentsam_workflows` — 41,188 bytes
-- `agentsam_e2e_workflow_runner` — 40,116 bytes
-- `agentsam_planner_challenge` — 39,773 bytes
-- `agentsam_benchmark_flood_v2` — 39,302 bytes
-- `smoke_todo_fix` — 38,211 bytes
-- `cicd_d1_log` — 37,073 bytes
-- `d1_schema_audit` — 36,894 bytes
-- `agentsam_route_tool_alignment_e2e` — 36,711 bytes
-- `smoke_agentsam_latency` — 36,146 bytes
-- `iam_cms_agentsam_structure_audit` — 33,379 bytes
-- `agentsam_workflows_frontend_runtime_planner` — 33,031 bytes
-- `agentsam_capability_fabric_planner` — 32,717 bytes
-- `agentsam_agent_chat_plan_workflow` — 31,685 bytes
