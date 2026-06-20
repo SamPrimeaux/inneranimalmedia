@@ -25,6 +25,7 @@
     "deploy": "./scripts/with-cloudflare-env.sh npm exec -- wrangler deploy -c wrangler.production.toml",
     "deploy:worker": "./scripts/with-cloudflare-env.sh npm exec -- wrangler deploy -c wrangler.production.toml",
     "deploy:frontend": "bash scripts/deploy-frontend.sh",
+    "pwa:sync-icons": "node scripts/pwa/sync-pwa-icons-from-cf-images.mjs",
     "generate:route-map": "node scripts/generate-route-map.js",
     "embed:sitemap-html": "node scripts/embed-sitemap-html.mjs",
     "upload:sitemap": "bash scripts/upload-sitemap-page.sh",

@@ -97,7 +97,7 @@ export default defineConfig(({ mode }) => {
         strategies: 'generateSW',
         filename: 'sw.js',
         manifestFilename: 'manifest.webmanifest',
-        includeAssets: ['pwa/icon-192.png', 'pwa/icon-512.png', 'offline.html'],
+        includeAssets: ['pwa/icon-192.png', 'pwa/icon-512.png', 'pwa/apple-touch-icon.png', 'offline.html'],
         manifest: {
           name: 'Inner Animal Media',
           short_name: 'IAM',
@@ -116,10 +116,22 @@ export default defineConfig(({ mode }) => {
               purpose: 'any',
             },
             {
+              src: '/static/dashboard/app/pwa/apple-touch-icon.png',
+              sizes: '180x180',
+              type: 'image/png',
+              purpose: 'any',
+            },
+            {
               src: '/static/dashboard/app/pwa/icon-512.png',
               sizes: '512x512',
               type: 'image/png',
-              purpose: 'any maskable',
+              purpose: 'any',
+            },
+            {
+              src: '/static/dashboard/app/pwa/icon-512.png',
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'maskable',
             },
           ],
         },
@@ -225,6 +237,18 @@ export default defineConfig(({ mode }) => {
               out = out.replace(
                 '<link rel="manifest"',
                 '<meta name="theme-color" content="#2dd4bf" />\n  <link rel="manifest"',
+              );
+            }
+            if (!out.includes('apple-touch-icon')) {
+              out = out.replace(
+                '<link rel="manifest"',
+                '<link rel="apple-touch-icon" sizes="180x180" href="/static/dashboard/app/pwa/apple-touch-icon.png" />\n  <link rel="manifest"',
+              );
+            }
+            if (!out.includes('apple-mobile-web-app-capable')) {
+              out = out.replace(
+                '<head>',
+                '<head>\n  <meta name="apple-mobile-web-app-capable" content="yes" />\n  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />\n  <meta name="apple-mobile-web-app-title" content="IAM" />',
               );
             }
             return out;
