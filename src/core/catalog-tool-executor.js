@@ -384,8 +384,9 @@ async function insertToolCallLog(env, payload, runContext) {
        input_summary, output_summary,
        input_tokens, output_tokens,
        input_cost_usd, output_cost_usd, cost_usd,
-       duration_ms, timed_out, tool_category)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       duration_ms, timed_out, tool_category,
+       agent_id, source_tool)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   )
     .bind(
       payload.tenantId,
@@ -412,6 +413,8 @@ async function insertToolCallLog(env, payload, runContext) {
       payload.durationMs,
       payload.timedOut ? 1 : 0,
       payload.toolCategory,
+      payload.agentId,
+      payload.sourceTool,
     )
     .run();
   return String(stmt?.meta?.last_row_id ?? stmt?.lastRowId ?? '') || null;
@@ -562,6 +565,10 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
     runContext.agentRunId ?? runContext.agent_run_id ?? null;
   const routingArmId =
     runContext.routingArmId ?? runContext.routing_arm_id ?? null;
+  const agentId =
+    String(runContext.agentId ?? runContext.agent_id ?? '').trim() || null;
+  const sourceTool =
+    String(runContext.sourceTool ?? runContext.source_tool ?? '').trim() || null;
   const conversationId =
     runContext.conversationId ??
     runContext.conversation_id ??
@@ -630,6 +637,8 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
               durationMs: 0,
               timedOut: false,
               toolCategory: row.tool_category ?? null,
+              agentId,
+              sourceTool,
             },
             runContext,
           );
@@ -687,6 +696,8 @@ export async function executeCatalogTool(env, row, config, input, runContext, cr
           durationMs,
           timedOut,
           toolCategory: row.tool_category ?? null,
+          agentId,
+          sourceTool,
         },
         runContext,
       );
