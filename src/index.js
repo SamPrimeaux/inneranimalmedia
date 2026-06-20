@@ -152,10 +152,12 @@ export default {
         return handleArtifactPurgeInternal(request, env);
       }
 
+      const isDashboardHtmlNav =
+        (methodUpper === 'GET' || methodUpper === 'HEAD') && isDashboardSpaShellPath(pathLower);
       const requestContext =
         isPublicOAuthPath(pathLower) || isAutomationApiPath(pathLower, methodUpper)
           ? publicOAuthRequestContext()
-          : await resolveRequestContext(request, env, { required: true });
+          : await resolveRequestContext(request, env, { required: !isDashboardHtmlNav });
       // keep primeRequestAuth for cache compatibility during migration (never required)
       await primeRequestAuth(request, env);
       const identity = await resolveIdentity(env, request);
@@ -1027,6 +1029,17 @@ export default {
 
     } catch (e) {
       if (e instanceof AuthError) {
+        const accept = request.headers.get('Accept') || '';
+        const wantsHtml = accept.includes('text/html');
+        if (
+          wantsHtml &&
+          (isDashboardSpaShellPath(pathLower) || pathLower === '/dashboard' || pathLower === '/dashboard/')
+        ) {
+          const next = encodeURIComponent(`${path}${url.search || ''}`);
+          return withSessionHealing(
+            Response.redirect(`${url.origin}/auth/login?next=${next}`, 302),
+          );
+        }
         const status = e.status || 401;
         const body =
           isPublicOAuthPath(pathLower) || pathLower.startsWith('/api/oauth/')

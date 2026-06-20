@@ -1,14 +1,13 @@
 #!/usr/bin/env node
 /**
- * Download CF Images source + emit PWA icon PNGs for dashboard/public/pwa/.
+ * Download CF Images source + emit full-bleed PWA icon PNGs for dashboard/public/pwa/.
  *
  * Usage:
  *   node scripts/pwa/sync-pwa-icons-from-cf-images.mjs
  *   CF_PWA_IMAGE_ID=... CF_PWA_SOURCE_VARIANT=large node scripts/pwa/...
  */
-import { execFileSync } from 'child_process';
-import { mkdir, writeFile, readFile } from 'fs/promises';
-import { existsSync } from 'fs';
+import sharp from 'sharp';
+import { mkdir, writeFile } from 'fs/promises';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -21,6 +20,8 @@ const ACCOUNT_HASH =
 const IMAGE_ID =
   process.env.CF_PWA_IMAGE_ID || 'b1d0bd36-0f88-4301-4e68-7e8d5e255b00';
 const VARIANT = process.env.CF_PWA_SOURCE_VARIANT || 'large';
+const THEME_BG = process.env.PWA_ICON_BG || '#00212b';
+const FILL_RATIO = Number(process.env.PWA_ICON_FILL || '0.94');
 
 const SOURCE_URL = `https://imagedelivery.net/${ACCOUNT_HASH}/${IMAGE_ID}/${VARIANT}`;
 
@@ -31,12 +32,39 @@ const OUTPUTS = [
   { name: 'apple-touch-icon.png', size: 180 },
 ];
 
-function resizeWithSips(src, dest, size) {
-  execFileSync(
-    'sips',
-    ['-z', String(size), String(size), '-s', 'format', 'png', '--out', dest, src],
-    { stdio: 'pipe' },
-  );
+/**
+ * Trim light/white margins, flatten on theme bg, scale logo to fill iOS icon square.
+ * @param {Buffer} input
+ * @param {number} size
+ */
+async function renderIconSquare(input, size) {
+  const logoMax = Math.max(32, Math.round(size * FILL_RATIO));
+  let pipeline = sharp(input).flatten({ background: THEME_BG });
+
+  try {
+    pipeline = sharp(await pipeline.trim({ threshold: 12 }).toBuffer()).flatten({
+      background: THEME_BG,
+    });
+  } catch {
+    /* trim unavailable — use full frame */
+  }
+
+  const logo = await pipeline
+    .resize(logoMax, logoMax, { fit: 'inside', withoutEnlargement: false })
+    .png()
+    .toBuffer();
+
+  return sharp({
+    create: {
+      width: size,
+      height: size,
+      channels: 4,
+      background: THEME_BG,
+    },
+  })
+    .composite([{ input: logo, gravity: 'centre' }])
+    .png({ compressionLevel: 9 })
+    .toBuffer();
 }
 
 async function main() {
@@ -45,27 +73,23 @@ async function main() {
   if (!res.ok) {
     throw new Error(`CF Images fetch failed: HTTP ${res.status} ${SOURCE_URL}`);
   }
-  const buf = Buffer.from(await res.arrayBuffer());
-  if (buf.length < 1000) {
+  const sourceBuf = Buffer.from(await res.arrayBuffer());
+  if (sourceBuf.length < 1000) {
     throw new Error('CF Images response too small — check image ID / variant');
   }
 
-  await mkdir(OUT_DIR, { recursive: true });
-  const sourcePath = resolve(OUT_DIR, '.source-large.png');
-  await writeFile(sourcePath, buf);
+  const meta = await sharp(sourceBuf).metadata();
+  console.log(
+    `[pwa-icons] downloaded ${sourceBuf.length} bytes (${meta.width}x${meta.height})`,
+  );
 
-  const meta = execFileSync('sips', ['-g', 'pixelWidth', '-g', 'pixelHeight', sourcePath], {
-    encoding: 'utf8',
-  });
-  console.log(`[pwa-icons] downloaded ${buf.length} bytes (${meta.trim().replace(/\n/g, ', ')})`);
+  await mkdir(OUT_DIR, { recursive: true });
 
   for (const { name, size } of OUTPUTS) {
+    const outBuf = await renderIconSquare(sourceBuf, size);
     const dest = resolve(OUT_DIR, name);
-    resizeWithSips(sourcePath, dest, size);
-    const outMeta = execFileSync('sips', ['-g', 'pixelWidth', '-g', 'pixelHeight', dest], {
-      encoding: 'utf8',
-    });
-    console.log(`[pwa-icons] wrote ${name} (${outMeta.trim().replace(/\n/g, ', ')})`);
+    await writeFile(dest, outBuf);
+    console.log(`[pwa-icons] wrote ${name} (${size}x${size}, fill ${FILL_RATIO})`);
   }
 
   const manifestSnippet = {
@@ -73,6 +97,8 @@ async function main() {
     account_hash: ACCOUNT_HASH,
     source_variant: VARIANT,
     source_url: SOURCE_URL,
+    theme_bg: THEME_BG,
+    fill_ratio: FILL_RATIO,
     synced_at: new Date().toISOString(),
     outputs: OUTPUTS.map(({ name, size }) => ({ name, size: `${size}x${size}` })),
   };
@@ -81,7 +107,7 @@ async function main() {
     `${JSON.stringify(manifestSnippet, null, 2)}\n`,
   );
 
-  console.log('[pwa-icons] OK — commit dashboard/public/pwa/*.png then deploy:full');
+  console.log('[pwa-icons] OK — deploy:full to publish');
 }
 
 main().catch((err) => {

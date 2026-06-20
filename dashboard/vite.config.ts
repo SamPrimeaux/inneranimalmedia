@@ -99,7 +99,7 @@ export default defineConfig(({ mode }) => {
         manifestFilename: 'manifest.webmanifest',
         includeAssets: ['pwa/icon-192.png', 'pwa/icon-512.png', 'pwa/apple-touch-icon.png', 'offline.html'],
         manifest: {
-          name: 'Inner Animal Media',
+          name: 'IAM',
           short_name: 'IAM',
           description: 'Agent Sam workspace — build, deploy, and optimize.',
           start_url: '/dashboard/agent',
@@ -161,7 +161,13 @@ export default defineConfig(({ mode }) => {
             { url: '/offline.html', revision: null },
           ],
           navigateFallback: '/offline.html',
-          navigateFallbackDenylist: [/^\/api\//, /^\/auth/, /^\/oauth\//],
+          navigateFallbackDenylist: [
+            /^\/api\//,
+            /^\/auth/,
+            /^\/oauth\//,
+            /^\/dashboard/,
+            /^\/onboarding/,
+          ],
           runtimeCaching: [
             {
               urlPattern: ({ request, url }) =>

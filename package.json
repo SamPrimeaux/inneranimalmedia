@@ -157,6 +157,7 @@
     "react-markdown": "^10.1.0",
     "react-syntax-highlighter": "^16.1.1",
     "remotion": "^4.0.462",
+    "sharp": "^0.35.2",
     "wrangler": "^4.100.0",
     "ws": "^8.21.0"
   },

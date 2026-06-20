@@ -3,7 +3,9 @@
   "account_hash": "g7wf09fCONpnidkRnR_5vw",
   "source_variant": "large",
   "source_url": "https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/b1d0bd36-0f88-4301-4e68-7e8d5e255b00/large",
-  "synced_at": "2026-06-20T03:52:41.428Z",
+  "theme_bg": "#00212b",
+  "fill_ratio": 0.94,
+  "synced_at": "2026-06-20T04:04:31.952Z",
   "outputs": [
     {
       "name": "icon-512.png",
