@@ -403,6 +403,20 @@ function shouldChunkFile(relPath) {
   if (p.startsWith('src/core/semantic-retrieval-dispatch.js')) return true;
   if (p.startsWith('src/core/rag-lanes.js')) return true;
   if (p === 'src/core/auth.js') return true;
+  if (
+    p === 'src/api/push-subscribe.js' ||
+    p === 'src/api/post-deploy.js' ||
+    p === 'src/core/web-push.js' ||
+    p === 'src/core/production-dispatch.js' ||
+    p === 'src/core/public-oauth-paths.js' ||
+    p === 'src/core/terminal-connection-health.js' ||
+    p === 'src/core/terminal.js' ||
+    p === 'src/do/AgentChat.js'
+  ) {
+    return true;
+  }
+  if (p.startsWith('dashboard/src/pwa/')) return true;
+  if (p === 'dashboard/vite.config.ts') return true;
   if (p.startsWith('dashboard/components/ChatAssistant/')) return true;
   // Minimal IDE neighborhood for /dashboard/agent usefulness.
   if (
@@ -763,6 +777,25 @@ async function main() {
   let cappedFiles = limitFiles ? willIndexAndChunk.slice(0, limitFiles) : willIndexAndChunk;
   if (onlyPaths?.length) {
     const allow = new Set(onlyPaths);
+    const known = new Set(cappedFiles.map((f) => f.file_path));
+    for (const rel of onlyPaths) {
+      if (known.has(rel)) continue;
+      const abs = join(root, rel);
+      if (!existsSync(abs)) continue;
+      const st = statSync(abs);
+      const lang = fileLanguage(rel);
+      cappedFiles.push({
+        file_path: rel,
+        language: lang,
+        size_bytes: st.size,
+        selection_reason: 'explicit_only_paths',
+        changed_in_range: changedSet.has(rel),
+        production_live: true,
+        production_live_reason: 'explicit_only_paths',
+        dependency_hop: 0,
+      });
+      known.add(rel);
+    }
     cappedFiles = cappedFiles.filter((f) => allow.has(f.file_path));
     if (!cappedFiles.length) die(`--only-paths matched no selected files: ${onlyPaths.join(', ')}`);
   }

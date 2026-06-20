@@ -11,8 +11,9 @@
  *   ./scripts/with-cloudflare-env.sh node scripts/ingest_repo_skills_rag.mjs --only mcp-oauth-field-guide,docx
  */
 import { readFileSync, readdirSync, existsSync } from 'fs';
-import { join, resolve } from 'path';
+import { join, resolve, basename } from 'path';
 import { execFileSync } from 'child_process';
+import pg from 'pg';
 import {
   LANE_CONTRACTS,
   assertLaneContract,
@@ -119,6 +120,73 @@ function splitByH2(markdown) {
   }
   flush();
   return chunks;
+}
+
+async function upsertDocumentRow(client, row) {
+  const vecLiteral = `[${row.embedding.join(',')}]`;
+  const now = row.embedded_at || new Date().toISOString();
+  const slug = String(row.source_path || '')
+    .replace(/\.md$/i, '')
+    .replace(/\//g, '-');
+  const result = await client.query(
+    `INSERT INTO agentsam.agentsam_documents_oai3large_1536 (
+      workspace_id, user_id, title, content, source_type, source_url, source_path, source_ref,
+      slug, heading_path, chunk_index, chunk_type, content_hash, token_count,
+      embedding, embedding_model, embedding_dims, embedded_at,
+      vectorize_binding, vectorize_index, metadata, created_at, updated_at
+    ) VALUES (
+      $1, NULL, $2, $3, $4, $5, $6, $7,
+      $8, $9::text[], $10, 'section', $11, $12,
+      $13::vector, $14, $15, $16,
+      $17, $18, $19::jsonb, $16, $16
+    )
+    ON CONFLICT (workspace_id, source_path, chunk_index)
+    DO UPDATE SET
+      content = EXCLUDED.content,
+      content_hash = EXCLUDED.content_hash,
+      embedding = EXCLUDED.embedding,
+      embedded_at = EXCLUDED.embedded_at,
+      token_count = EXCLUDED.token_count,
+      title = EXCLUDED.title,
+      heading_path = EXCLUDED.heading_path,
+      metadata = EXCLUDED.metadata,
+      vectorize_binding = EXCLUDED.vectorize_binding,
+      vectorize_index = EXCLUDED.vectorize_index,
+      updated_at = EXCLUDED.updated_at
+    WHERE agentsam.agentsam_documents_oai3large_1536.content_hash IS DISTINCT FROM EXCLUDED.content_hash
+       OR agentsam.agentsam_documents_oai3large_1536.embedding IS NULL
+    RETURNING id, source_ref, title, embedding`,
+    [
+      row.workspace_id,
+      row.title,
+      row.content,
+      row.source_type,
+      row.source_url,
+      row.source_path,
+      row.source_ref,
+      slug,
+      row.heading_path,
+      row.chunk_index,
+      row.content_hash,
+      row.token_count,
+      vecLiteral,
+      row.embedding_model,
+      row.embedding_dims,
+      now,
+      row.vectorize_binding,
+      row.vectorize_index,
+      JSON.stringify(row.metadata || {}),
+    ],
+  );
+  if (result.rows[0]) return result.rows[0];
+  const fallback = await client.query(
+    `SELECT id, source_ref, title, embedding
+       FROM agentsam.agentsam_documents_oai3large_1536
+      WHERE workspace_id = $1 AND source_path = $2 AND chunk_index = $3
+      LIMIT 1`,
+    [row.workspace_id, row.source_path, row.chunk_index],
+  );
+  return fallback.rows[0] || null;
 }
 
 function supabaseConfig() {
@@ -285,16 +353,28 @@ async function main() {
   }
 
   try {
+    const dbUrl = String(process.env.SUPABASE_DB_URL || '').trim();
+    if (!dbUrl) die('SUPABASE_DB_URL required for live ingest');
+
+    const client = new pg.Client({ connectionString: dbUrl });
+    await client.connect();
+
     const savedRows = [];
-    for (let i = 0; i < pending.length; i += EMBED_BATCH) {
-      const batch = pending.slice(i, i + EMBED_BATCH);
-      const vecs = await openaiEmbed(batch.map((r) => r.content));
-      for (let j = 0; j < batch.length; j++) {
-        batch[j].embedding = vecs[j];
+    try {
+      for (let i = 0; i < pending.length; i += EMBED_BATCH) {
+        const batch = pending.slice(i, i + EMBED_BATCH);
+        const vecs = await openaiEmbed(batch.map((r) => r.content));
+        for (let j = 0; j < batch.length; j++) {
+          batch[j].embedding = vecs[j];
+        }
+        for (const row of batch) {
+          const saved = await upsertDocumentRow(client, row);
+          if (saved) savedRows.push(saved);
+        }
+        console.log(`  ✓ Supabase ${batch.length} (${Math.min(i + batch.length, pending.length)}/${pending.length})`);
       }
-      const inserted = await supabasePost(TABLE, batch, 'content_hash');
-      savedRows.push(...(Array.isArray(inserted) ? inserted : [inserted]));
-      console.log(`  ✓ Supabase ${batch.length} (${Math.min(i + batch.length, pending.length)}/${pending.length})`);
+    } finally {
+      await client.end();
     }
 
     let upserted = 0;
