@@ -27,10 +27,14 @@ export default function WorkspaceKanban({ workspaceId }: Props) {
 
   const load = useCallback(async () => {
     if (!workspaceId?.trim()) {
+      // Workspace context hasn't resolved yet (or genuinely has none selected).
+      // Stay in the loading state rather than declaring "No board" — that
+      // message should only ever describe a workspace we've actually queried.
       setApiColumns([]);
       setTasks([]);
       setBoardName(null);
-      setLoading(false);
+      setError(null);
+      setLoading(true);
       return;
     }
     setLoading(true);
@@ -105,7 +109,9 @@ export default function WorkspaceKanban({ workspaceId }: Props) {
               <Layers3 className="h-4 w-4" />
               Workspace Kanban
             </div>
-            <p className="mt-1 text-xs text-slate-500">{boardName ? boardName : "No board in this workspace"}</p>
+            <p className="mt-1 text-xs text-slate-500">
+              {loading ? "Loading…" : boardName ? boardName : "No board in this workspace"}
+            </p>
           </div>
           <button
             type="button"
