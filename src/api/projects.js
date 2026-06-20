@@ -36,10 +36,48 @@ function priorityToLabel(n) {
 // Normalize + validate here so the UI can send whatever casing it wants.
 const VALID_PROJECT_TYPES = ['dashboard', 'landing-page', 'saas-product', 'e-commerce', 'internal-tool', 'template'];
 const VALID_PROJECT_STATUSES = ['discovery', 'design', 'development', 'qa', 'staging', 'production', 'maintenance', 'archived'];
+const VALID_WORKSPACE_PROJECT_TYPES = ['website', 'mpa', 'spa', 'api', 'mobile', 'cms', 'ecommerce', 'brand', 'internal', 'other'];
+const VALID_WORKSPACE_PROJECT_STATUSES = ['active', 'on_hold', 'done', 'archived'];
 
 function normalizeEnum(value, allowed, fallback) {
   const v = String(value || '').trim().toLowerCase().replace(/\s+/g, '-').replace(/-+/g, '-');
-  return allowed.includes(v) ? v : fallback;
+  if (allowed.includes(v)) return v;
+  // Dashboard / agent chat often says "saas" — map to canonical enum.
+  if (v === 'saas' || v === 'saas-platform') return 'saas-product';
+  return fallback;
+}
+
+/** workspace_projects uses a legacy enum — map canonical projects.project_type. */
+function mapWorkspaceProjectType(projectType) {
+  const t = String(projectType || '').trim().toLowerCase();
+  const map = {
+    'landing-page': 'website',
+    'saas-product': 'api',
+    'e-commerce': 'ecommerce',
+    'internal-tool': 'internal',
+    template: 'other',
+    dashboard: 'internal',
+    website: 'website',
+    mpa: 'mpa',
+    spa: 'spa',
+    api: 'api',
+    mobile: 'mobile',
+    cms: 'cms',
+    ecommerce: 'ecommerce',
+    brand: 'brand',
+    internal: 'internal',
+    other: 'other',
+  };
+  return map[t] || 'other';
+}
+
+/** workspace_projects status enum differs from projects.status. */
+function mapWorkspaceProjectStatus(projectStatus) {
+  const s = String(projectStatus || '').trim().toLowerCase();
+  if (s === 'archived' || s === 'maintenance') return 'archived';
+  if (s === 'production') return 'done';
+  if (s === 'staging' || s === 'qa') return 'on_hold';
+  return 'active';
 }
 
 function mapDbStatusToUi(status) {
@@ -697,8 +735,8 @@ async function handlePost(request, env, authUser) {
         slug,
         description,
         clientName,
-        projectType,
-        'active',
+        mapWorkspaceProjectType(projectType),
+        mapWorkspaceProjectStatus(status),
         budget,
         meta,
       )

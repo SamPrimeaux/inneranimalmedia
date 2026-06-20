@@ -49,7 +49,7 @@ DESCRIPTION="${DEPLOY_DESCRIPTION:-${DEPLOYMENT_NOTES:-Worker deploy (inneranima
 # DORA/spend attribution scope -- defaults are this repo's own platform identity.
 TENANT_ID="${TENANT_ID:-tenant_sam_primeaux}"
 WORKSPACE_ID="${WORKSPACE_ID:-ws_inneranimalmedia}"
-PROJECT_ID="${PROJECT_ID:-}"
+PROJECT_ID="${PROJECT_ID:-inneranimalmedia}"
 
 # Escape single quotes for SQL: ' -> ''
 VID_ESC="${VERSION_ID//\'/\'\'}"

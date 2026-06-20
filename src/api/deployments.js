@@ -90,7 +90,7 @@ export async function handleDeploymentsApi(request, url, env, ctx) {
         // fuelnfreetime deploy pipeline) should always send tenant_id.
         const tenantId = (body.tenant_id || body.tenantId || 'tenant_sam_primeaux');
         const workspaceId = (body.workspace_id || body.workspaceId || null);
-        const projectId = (body.project_id || body.projectId || null);
+        const projectId = (body.project_id || body.projectId || 'inneranimalmedia');
         const workerName = (body.worker_name || body.workerName || 'inneranimalmedia');
 
         if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
