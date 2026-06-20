@@ -29,6 +29,19 @@ function priorityToLabel(n) {
   return 'P3';
 }
 
+// projects.project_type / projects.status are both CHECK-constrained against
+// exact lowercase-hyphenated enums in D1. The dashboard's New Project form
+// sends human-readable casing (e.g. "E-Commerce"), which fails the exact
+// string match and previously surfaced as a raw, unhandled D1_ERROR/500.
+// Normalize + validate here so the UI can send whatever casing it wants.
+const VALID_PROJECT_TYPES = ['dashboard', 'landing-page', 'saas-product', 'e-commerce', 'internal-tool', 'template'];
+const VALID_PROJECT_STATUSES = ['discovery', 'design', 'development', 'qa', 'staging', 'production', 'maintenance', 'archived'];
+
+function normalizeEnum(value, allowed, fallback) {
+  const v = String(value || '').trim().toLowerCase().replace(/\s+/g, '-').replace(/-+/g, '-');
+  return allowed.includes(v) ? v : fallback;
+}
+
 function mapDbStatusToUi(status) {
   const s = String(status || '').toLowerCase();
   if (s === 'blocked' || s === 'maintenance') return 'blocked';
@@ -538,6 +551,14 @@ async function handlePatch(request, env, authUser, id) {
     return jsonResponse({ ok: false, error: 'forbidden' }, 403);
   }
   const body = await request.json().catch(() => ({}));
+
+  if (Object.prototype.hasOwnProperty.call(body, 'project_type')) {
+    body.project_type = normalizeEnum(body.project_type, VALID_PROJECT_TYPES, row.project_type || 'dashboard');
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'status')) {
+    body.status = normalizeEnum(body.status, VALID_PROJECT_STATUSES, row.status || 'discovery');
+  }
+
   const allowed = [
     'name',
     'description',
@@ -597,8 +618,8 @@ async function handlePost(request, env, authUser) {
   const tagsJson = JSON.stringify(tags);
   const priority = Number(body.priority);
   const prio = Number.isFinite(priority) ? Math.max(0, Math.min(100, Math.floor(priority))) : 50;
-  const status = String(body.status || 'development').slice(0, 64);
-  const projectType = String(body.project_type || 'dashboard').slice(0, 64);
+  const status = normalizeEnum(body.status, VALID_PROJECT_STATUSES, 'development');
+  const projectType = normalizeEnum(body.project_type, VALID_PROJECT_TYPES, 'dashboard');
   const clientName = String(body.client_name || '').trim() || null;
   const description = String(body.description || '').trim() || null;
   const budgetUsd = Number(body.budget_usd);
@@ -677,7 +698,7 @@ async function handlePost(request, env, authUser) {
         description,
         clientName,
         projectType,
-        status === 'production' ? 'active' : 'active',
+        'active',
         budget,
         meta,
       )
