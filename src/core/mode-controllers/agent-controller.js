@@ -18,6 +18,10 @@ import {
   resolveCreateSubagentFlow,
   executeGenmediaSkillSpawn,
 } from '../create-subagent-flow.js';
+import {
+  executeLaunchSkillSpawn,
+  executeDeckSkillSpawn,
+} from '../skill-spawn-orchestrator.js';
 import { filterToolsForCapabilityDecision } from '../tool-capability-filter.js';
 
 const SSE_HEADERS = {
@@ -682,12 +686,25 @@ export async function executeAgentTurn(env, ctx, input) {
     );
   }
   const skillRoute = input.skillRoute ?? null;
-  if (
-    skillRoute &&
-    (skillRoute.skill_id === 'skill_on_brand_genmedia' ||
-      skillRoute.master_agent_slug === 'on_brand_genmedia')
-  ) {
-    return executeGenmediaSkillSpawn(env, ctx, input);
+  if (skillRoute) {
+    if (
+      skillRoute.skill_id === 'skill_on_brand_genmedia' ||
+      skillRoute.master_agent_slug === 'on_brand_genmedia'
+    ) {
+      return executeGenmediaSkillSpawn(env, ctx, input);
+    }
+    if (
+      skillRoute.skill_id === 'skill_marketing_agency' ||
+      skillRoute.master_agent_slug === 'marketing_agency'
+    ) {
+      return executeLaunchSkillSpawn(env, ctx, input);
+    }
+    if (
+      skillRoute.skill_id === 'skill_brand_aligned_presentations' ||
+      skillRoute.master_agent_slug === 'brand_aligned_presentations'
+    ) {
+      return executeDeckSkillSpawn(env, ctx, input);
+    }
   }
   if (shouldRunRwsFanout(profile)) {
     return executeRwsSpawnFanout(env, ctx, input);

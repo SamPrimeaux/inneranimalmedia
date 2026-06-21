@@ -26,6 +26,7 @@ import {
   resolveOpenWebSearchBackend,
 } from './tavily-open-web-search.js';
 import { classifyDatabaseAssistantIntent, classifySemanticLane } from './semantic-lane-classifier.js';
+import { findResumableSkillSpawnJob } from './subagent-spawn-d1.js';
 
 export { resolveOpenWebSearchBackend };
 
@@ -507,6 +508,24 @@ export function formatExecutionLaneLogPayload(laneResult, backend = { available:
 }
 
 const GENMEDIA_SLASH_RE = /\/genmedia\b/i;
+const LAUNCH_SLASH_RE = /\/launch\b/i;
+const DECK_SLASH_RE = /\/deck\b/i;
+const DECK_EDIT_RE = /\b(change|update|edit)\b.{0,24}\bslide\s+\d+\b/i;
+
+const SKILL_SLASH_MAP = {
+  genmedia: 'skill_on_brand_genmedia',
+  launch: 'skill_marketing_agency',
+  deck: 'skill_brand_aligned_presentations',
+};
+
+/**
+ * @param {string} msg
+ */
+function isDeckApprovalResume(msg) {
+  return /^(yes|yep|approve|approved|continue|looks good|lgtm|proceed|go ahead)\b/i.test(
+    String(msg || '').trim(),
+  );
+}
 
 /**
  * Skill-triggered spawn routing (Sprint 2B). Reads pipeline order from agentsam_skill.metadata_json — no hardcoded slugs.
@@ -514,11 +533,15 @@ const GENMEDIA_SLASH_RE = /\/genmedia\b/i;
  * @param {any} env
  * @param {unknown} message
  * @param {Record<string, unknown>|null|undefined} body
+ * @param {{ sessionId?: string|null, workspaceId?: string|null }} [scope]
  */
-export async function resolveSkillSpawnRouting(env, message, body = {}) {
+export async function resolveSkillSpawnRouting(env, message, body = {}, scope = {}) {
   const msg = String(message || '').trim();
   const b = body && typeof body === 'object' ? body : {};
-  const skillIdFromBody =
+  const sessionId = scope.sessionId != null ? String(scope.sessionId).trim() : '';
+  const workspaceId = scope.workspaceId != null ? String(scope.workspaceId).trim() : '';
+
+  let skillId =
     b.skill_id != null
       ? String(b.skill_id).trim()
       : b.skillId != null
@@ -531,20 +554,43 @@ export async function resolveSkillSpawnRouting(env, message, body = {}) {
         ? String(b.slashTrigger).trim()
         : '';
 
-  const wantsGenmedia =
-    skillIdFromBody === 'skill_on_brand_genmedia' ||
-    slashFromBody === 'genmedia' ||
-    GENMEDIA_SLASH_RE.test(msg);
+  if (!skillId) {
+    if (slashFromBody && SKILL_SLASH_MAP[slashFromBody]) skillId = SKILL_SLASH_MAP[slashFromBody];
+    else if (GENMEDIA_SLASH_RE.test(msg)) skillId = 'skill_on_brand_genmedia';
+    else if (LAUNCH_SLASH_RE.test(msg)) skillId = 'skill_marketing_agency';
+    else if (DECK_SLASH_RE.test(msg)) skillId = 'skill_brand_aligned_presentations';
+  }
 
-  if (!wantsGenmedia || !env?.DB) return null;
+  if (!skillId && sessionId && workspaceId && env?.DB) {
+    if (DECK_EDIT_RE.test(msg)) {
+      const editJob = await findResumableSkillSpawnJob(env, {
+        conversationId: sessionId,
+        workspaceId,
+        masterAgentSlug: 'brand_aligned_presentations',
+        statuses: ['completed', 'partial'],
+      });
+      if (editJob?.id) skillId = 'skill_brand_aligned_presentations';
+    } else if (isDeckApprovalResume(msg)) {
+      const pendingJob = await findResumableSkillSpawnJob(env, {
+        conversationId: sessionId,
+        workspaceId,
+        masterAgentSlug: 'brand_aligned_presentations',
+        statuses: ['awaiting_approval'],
+      });
+      if (pendingJob?.id) skillId = 'skill_brand_aligned_presentations';
+    }
+  }
+
+  if (!skillId || !env?.DB) return null;
 
   try {
     const row = await env.DB.prepare(
       `SELECT id, name, slash_trigger, metadata_json, task_types_json
          FROM agentsam_skill
-        WHERE id = 'skill_on_brand_genmedia' AND COALESCE(is_active, 1) = 1
+        WHERE id = ? AND COALESCE(is_active, 1) = 1
         LIMIT 1`,
     )
+      .bind(skillId)
       .first();
     if (!row?.id) return null;
     let meta = {};
@@ -557,15 +603,53 @@ export async function resolveSkillSpawnRouting(env, message, body = {}) {
       ? meta.pipeline.map((s) => String(s || '').trim()).filter(Boolean)
       : [];
     if (!pipeline.length) return null;
-    return {
+
+    const route = {
       skill_id: String(row.id),
       skillId: String(row.id),
       taskType: 'agent',
-      master_agent_slug: String(meta.master_agent_slug || 'on_brand_genmedia').trim(),
+      master_agent_slug: String(meta.master_agent_slug || row.id.replace(/^skill_/, '')).trim(),
       pipeline,
       max_iterations: Math.max(1, Math.floor(Number(meta.max_iterations) || 3)),
-      mode: String(meta.mode || 'brand_aligned').trim(),
+      mode: String(meta?.mode || 'brand_aligned').trim(),
+      pause_for_approval: meta.pause_for_approval === true,
+      max_slides: Math.max(1, Math.floor(Number(meta.max_slides) || 20)),
+      phases: Array.isArray(meta.phases) ? meta.phases : [],
+      resume: false,
     };
+
+    if (sessionId && workspaceId) {
+      const pendingJob = await findResumableSkillSpawnJob(env, {
+        conversationId: sessionId,
+        workspaceId,
+        masterAgentSlug: route.master_agent_slug,
+        statuses: ['awaiting_approval'],
+      });
+      if (
+        pendingJob?.id &&
+        (isDeckApprovalResume(msg) ||
+          (skillId === 'skill_brand_aligned_presentations' &&
+            !DECK_SLASH_RE.test(msg) &&
+            !LAUNCH_SLASH_RE.test(msg) &&
+            !GENMEDIA_SLASH_RE.test(msg)))
+      ) {
+        route.resume = true;
+        route.spawnJobId = String(pendingJob.id);
+      }
+      if (DECK_EDIT_RE.test(msg) && skillId === 'skill_brand_aligned_presentations') {
+        route.resume = true;
+        route.resume_mode = 'deck_editor';
+        const doneJob = await findResumableSkillSpawnJob(env, {
+          conversationId: sessionId,
+          workspaceId,
+          masterAgentSlug: 'brand_aligned_presentations',
+          statuses: ['completed', 'partial'],
+        });
+        if (doneJob?.id) route.spawnJobId = String(doneJob.id);
+      }
+    }
+
+    return route;
   } catch {
     return null;
   }

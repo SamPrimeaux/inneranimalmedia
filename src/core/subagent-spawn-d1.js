@@ -364,6 +364,79 @@ export async function getSpawnJobRow(env, spawnJobId) {
 }
 
 /**
+ * @param {unknown} raw
+ * @param {Record<string, unknown>} [defaults]
+ */
+export function parseSkillMergedOutput(raw, defaults = {}) {
+  if (raw == null || raw === '') return { ...defaults };
+  if (typeof raw === 'object') return { ...defaults, .../** @type {any} */ (raw) };
+  try {
+    const parsed = JSON.parse(String(raw));
+    if (parsed && typeof parsed === 'object') return { ...defaults, ...parsed };
+  } catch {
+    /* ignore */
+  }
+  return { ...defaults };
+}
+
+/**
+ * @param {any} env
+ * @param {string} spawnJobId
+ * @param {string} status
+ */
+export async function setSpawnJobStatus(env, spawnJobId, status) {
+  if (!env?.DB || !spawnJobId) return { ok: false, reason: 'no_db' };
+  try {
+    await env.DB.prepare(`UPDATE agentsam_spawn_job SET status = ? WHERE id = ?`)
+      .bind(String(status || '').trim(), String(spawnJobId).trim())
+      .run();
+    return { ok: true, reason: null };
+  } catch (e) {
+    return { ok: false, reason: e?.message ?? String(e) };
+  }
+}
+
+/**
+ * Find the latest resumable skill spawn job for a conversation.
+ *
+ * @param {any} env
+ * @param {{
+ *   conversationId: string,
+ *   workspaceId: string,
+ *   masterAgentSlug: string,
+ *   statuses?: string[],
+ * }} p
+ */
+export async function findResumableSkillSpawnJob(env, p) {
+  if (!env?.DB) return null;
+  const conversationId = String(p.conversationId || '').trim();
+  const workspaceId = String(p.workspaceId || '').trim();
+  const masterSlug = String(p.masterAgentSlug || '').trim();
+  if (!conversationId || !workspaceId || !masterSlug) return null;
+  const statuses = Array.isArray(p.statuses) && p.statuses.length
+    ? p.statuses.map((s) => String(s).trim()).filter(Boolean)
+    : ['awaiting_approval', 'running', 'pending'];
+  const ph = statuses.map(() => '?').join(', ');
+  try {
+    return await env.DB.prepare(
+      `SELECT j.*, r.conversation_id
+         FROM agentsam_spawn_job j
+         JOIN agentsam_agent_run r ON r.id = j.master_run_id
+        WHERE r.conversation_id = ?
+          AND j.workspace_id = ?
+          AND j.master_agent_slug = ?
+          AND j.status IN (${ph})
+        ORDER BY j.created_at DESC
+        LIMIT 1`,
+    )
+      .bind(conversationId, workspaceId, masterSlug, ...statuses)
+      .first();
+  } catch {
+    return null;
+  }
+}
+
+/**
  * @param {any} env
  * @param {string} workspaceId
  */
@@ -401,6 +474,7 @@ export async function getBrandScoreThreshold(env, workspaceId) {
  *   masterAgentSlug?: string,
  *   pipeline?: string[],
  *   maxIterations?: number,
+ *   initialMerged?: Record<string, unknown>,
  * }} p
  */
 export async function createSkillSpawnJob(env, ctx, p) {
@@ -435,7 +509,11 @@ export async function createSkillSpawnJob(env, ctx, p) {
   const firstSlug = pipeline[0] || 'genmedia_prompt_enrichment';
   const idOut = id('sj');
   const tenantId = p.tenantId != null ? String(p.tenantId).trim() : '';
-  const initialMerged = JSON.stringify(emptyGenmediaMergedOutput());
+  const initialMerged = JSON.stringify(
+    p.initialMerged && typeof p.initialMerged === 'object'
+      ? p.initialMerged
+      : emptyGenmediaMergedOutput(),
+  );
 
   try {
     await env.DB.prepare(

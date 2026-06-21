@@ -125,7 +125,10 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
 
   const projectContextBlock = await loadProjectContextSystemBlock(env, workspaceId);
 
-  const skillRoute = await resolveSkillSpawnRouting(env, message, body);
+  const skillRoute = await resolveSkillSpawnRouting(env, message, body, {
+    sessionId,
+    workspaceId,
+  });
 
   const intentMessageForMedia = message;
   const directImageIntent =
