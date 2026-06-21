@@ -54,7 +54,8 @@ export const SHELL_PRODUCTS: ShellProduct[] = [
     label: 'Code',
     home: '/dashboard/agent',
     items: [
-      { id: 'agent', label: 'Agent', path: '/dashboard/agent', match: 'prefix' },
+      { id: 'agent', label: 'Agent', path: '/dashboard/agent', match: 'exact' },
+      { id: 'examples', label: 'Examples', path: '/dashboard/agent/examples', match: 'exact' },
       { id: 'workflows', label: 'Workflows', path: '/dashboard/workflows', match: 'exact' },
       { id: 'database', label: 'Database', path: '/dashboard/database', match: 'exact' },
     ],

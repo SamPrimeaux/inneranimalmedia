@@ -10,11 +10,14 @@ import { ChatAssistant } from './components/ChatAssistant';
 import { WorkspaceDashboard } from './components/WorkspaceDashboard';
 import { WorkspaceDashboardV2 } from './components/WorkspaceDashboardV2';
 import { AgentQuickstartPage, type QuickstartTemplate } from './components/AgentQuickstartPage';
+import { AgentExamplesGalleryPage } from './components/AgentExamplesGalleryPage';
 import {
   AGENT_HOME_PATH,
   AGENT_QUICKSTART_PATH,
+  AGENT_EXAMPLES_PATH,
   isAgentHomePath,
   isAgentQuickstartPath,
+  isAgentExamplesPath,
   isAgentShellPath,
 } from './lib/agentRoutes';
 import { BREAKPOINTS, PHONE_MQ } from './lib/breakpoints';
@@ -1778,6 +1781,47 @@ const App: React.FC = () => {
   const openAgentQuickstart = useCallback(() => {
     navigate(AGENT_QUICKSTART_PATH);
   }, [navigate]);
+
+  const openAgentExamples = useCallback(() => {
+    navigate(AGENT_EXAMPLES_PATH);
+  }, [navigate]);
+
+  const beginExamplesPrompt = useCallback(
+    ({
+      prompt,
+      recipeId,
+      source: _source,
+    }: {
+      prompt: string;
+      recipeId?: string;
+      source?: string;
+    }) => {
+      navigate(AGENT_HOME_PATH);
+      startAgentNewThreadWithMessage({
+        message: prompt,
+        task_type: 'design_intake',
+        route_key: 'design_intake',
+        quickstart_batch: QUICKSTART_BATCH_LABEL,
+        apply_eto_after_run: true,
+        workspace_id: QUICKSTART_WORKSPACE_ID,
+        modelKey: 'auto',
+      });
+      if (recipeId) {
+        fetch(`/api/cookbook/${encodeURIComponent(recipeId)}/use`, {
+          method: 'POST',
+          credentials: 'include',
+        }).catch(() => {});
+      }
+    },
+    [navigate, startAgentNewThreadWithMessage],
+  );
+
+  useEffect(() => {
+    window.iamStartWorkspaceWithPrompt = beginExamplesPrompt;
+    return () => {
+      delete window.iamStartWorkspaceWithPrompt;
+    };
+  }, [beginExamplesPrompt]);
 
   const beginQuickstartTemplate = useCallback(
     (template: QuickstartTemplate) => {
@@ -3808,6 +3852,10 @@ const App: React.FC = () => {
                       </div>
                   )}
 
+                  {isAgentExamplesPath(location.pathname) && (
+                      <AgentExamplesGalleryPage onBack={() => navigate(AGENT_HOME_PATH)} />
+                  )}
+
                   {isAgentHomePath(location.pathname) && activeTab === 'Workspace' && (
                       <div className="absolute inset-0 z-10">
                           <WorkspaceDashboardV2 
@@ -3826,6 +3874,7 @@ const App: React.FC = () => {
                             authWorkspaceId={authWorkspaceId}
                             onSwitchWorkspace={persistActiveWorkspace}
                             onQuickstart={openAgentQuickstart}
+                            onOpenExamples={openAgentExamples}
                             onBeginTemplate={beginQuickstartTemplate}
                             onRunVerificationCommand={runVerificationInAgent}
                             onOpenEditor={focusCodeEditorFromChat}

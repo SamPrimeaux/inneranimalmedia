@@ -1,6 +1,7 @@
 /** Agent IDE shell routes (ChatAssistant + workspace stay mounted). */
 export const AGENT_HOME_PATH = '/dashboard/agent';
 export const AGENT_QUICKSTART_PATH = '/dashboard/agent/quickstart';
+export const AGENT_EXAMPLES_PATH = '/dashboard/agent/examples';
 
 export function normalizePath(pathname: string): string {
   const p = String(pathname || '').trim();
@@ -20,4 +21,8 @@ export function isAgentHomePath(pathname: string): boolean {
 
 export function isAgentQuickstartPath(pathname: string): boolean {
   return normalizePath(pathname) === AGENT_QUICKSTART_PATH;
+}
+
+export function isAgentExamplesPath(pathname: string): boolean {
+  return normalizePath(pathname) === AGENT_EXAMPLES_PATH;
 }

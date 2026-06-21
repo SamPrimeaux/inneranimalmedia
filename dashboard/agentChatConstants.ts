@@ -58,3 +58,16 @@ export type ArtifactOpenBuilderDetail = {
   artifactId?: string | null;
   r2Key?: string | null;
 };
+
+/** Handoff from Examples Gallery iframe → Agent chat (wired in App.tsx). */
+export type ExamplesGalleryPromptHandoff = {
+  prompt: string;
+  recipeId?: string;
+  source?: string;
+};
+
+declare global {
+  interface Window {
+    iamStartWorkspaceWithPrompt?: (detail: ExamplesGalleryPromptHandoff) => void;
+  }
+}

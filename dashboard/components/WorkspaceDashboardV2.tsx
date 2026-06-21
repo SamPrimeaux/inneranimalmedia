@@ -34,6 +34,7 @@ interface WorkspaceDashboardProps {
   authWorkspaceId: string | null;
   onSwitchWorkspace: (id: string) => void;
   onQuickstart: () => void;
+  onOpenExamples?: () => void;
   onBeginTemplate?: (template: QuickstartTemplate) => void;
   onRunVerificationCommand?: (command: string) => void;
   onOpenEditor?: () => void;
@@ -90,6 +91,7 @@ export const WorkspaceDashboardV2: React.FC<WorkspaceDashboardProps> = ({
   authWorkspaceId,
   onSwitchWorkspace,
   onQuickstart,
+  onOpenExamples,
   onBeginTemplate,
   onRunVerificationCommand,
   onOpenRecent,
@@ -202,7 +204,14 @@ export const WorkspaceDashboardV2: React.FC<WorkspaceDashboardProps> = ({
             <button
               key={n.id}
               type="button"
-              onClick={() => { setActiveNav(n.id); setShowDSSetup(n.id === 'systems'); }}
+              onClick={() => {
+                if (n.id === 'examples') {
+                  onOpenExamples?.();
+                  return;
+                }
+                setActiveNav(n.id);
+                setShowDSSetup(n.id === 'systems');
+              }}
               className="relative px-3 py-1.5 text-[13px] rounded-md transition-colors"
               style={{
                 color: activeNav === n.id ? 'var(--dashboard-text)' : 'var(--text-muted)',
