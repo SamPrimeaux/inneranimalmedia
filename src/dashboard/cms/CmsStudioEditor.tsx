@@ -1,5 +1,5 @@
 /**
- * PrimeTech CMS Lite — iframe workspace + Excalidraw sketch overlay.
+ * CMS Studio — iframe workspace + Excalidraw sketch overlay.
  * Inherits cms_themes from parent shell; quick-start actions route to ChatAssistant.
  */
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -149,7 +149,7 @@ export function CmsStudioEditor({
       {src ? (
         <iframe
           ref={iframeRef}
-          title="PrimeTech CMS Lite"
+          title="CMS Studio"
           src={src}
           onLoad={onIframeLoad}
           className="iam-cms-studio-frame"

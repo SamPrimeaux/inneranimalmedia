@@ -80,6 +80,9 @@
   --dashboard-border: var(--border, var(--color-border, var(--border-subtle, rgba(148, 163, 184, 0.14))));
   --dashboard-text: var(--color-text, var(--text-primary, var(--text-main, #e5eef2)));
   --dashboard-muted: var(--text-muted, #8aa0aa);
+  --dashboard-topbar: var(--bg-nav, var(--dashboard-panel));
+  --dashboard-topbar-text: var(--text-nav, var(--dashboard-text));
+  --dashboard-sidebar: var(--bg-shell, var(--dashboard-panel));
 }
 
 /*
@@ -95,6 +98,9 @@
   --dashboard-border: var(--border, var(--color-border, var(--border-subtle, rgba(148, 163, 184, 0.14))));
   --dashboard-text: var(--color-text, var(--text-primary, var(--text-main, #e5eef2)));
   --dashboard-muted: var(--text-muted, #8aa0aa);
+  --dashboard-topbar: var(--bg-nav, var(--dashboard-panel));
+  --dashboard-topbar-text: var(--text-nav, var(--dashboard-text));
+  --dashboard-sidebar: var(--bg-shell, var(--dashboard-panel));
 }
 
 body {
