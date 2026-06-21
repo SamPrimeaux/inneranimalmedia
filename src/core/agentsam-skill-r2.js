@@ -27,7 +27,7 @@ function skillR2Key(row, meta) {
 export async function hydrateSkillRowFromR2(env, row) {
   if (!row) return row;
   const strategy = String(row.retrieval_strategy || 'db').toLowerCase();
-  if (strategy !== 'r2') return row;
+  if (strategy !== 'r2' && strategy !== 'r2_vectorize') return row;
 
   const meta = parseMetadata(row);
   const key = skillR2Key(row, meta);
