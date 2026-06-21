@@ -796,8 +796,8 @@ async function handleLearnProgress(request, env, authUser) {
     try {
       await env.DB.prepare(
         `INSERT INTO enrollments
-           (id, user_id, course_id, tenant_id, status, enrolled_at, created_at)
-         VALUES (?, ?, ?, ?, 'active', datetime('now'), datetime('now'))`,
+           (id, user_id, course_id, tenant_id, status, started_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'active', unixepoch(), unixepoch(), unixepoch())`,
       )
         .bind(enrId, primaryUserId, course_id, tenantId)
         .run();
@@ -805,8 +805,8 @@ async function handleLearnProgress(request, env, authUser) {
     } catch (_) {
       // Fallback for older schemas missing some columns.
       await env.DB.prepare(
-        `INSERT INTO enrollments (user_id, course_id, tenant_id, status, enrolled_at, created_at)
-         VALUES (?, ?, ?, 'active', datetime('now'), datetime('now'))`,
+        `INSERT INTO enrollments (user_id, course_id, tenant_id, status, started_at, created_at, updated_at)
+         VALUES (?, ?, ?, 'active', unixepoch(), unixepoch(), unixepoch())`,
       )
         .bind(primaryUserId, course_id, tenantId)
         .run();
@@ -936,16 +936,16 @@ async function handleLearnSubmit(request, env, authUser) {
     try {
       await env.DB.prepare(
         `INSERT INTO enrollments
-           (id, user_id, course_id, tenant_id, status, enrolled_at, created_at)
-         VALUES (?, ?, ?, ?, 'active', datetime('now'), datetime('now'))`,
+           (id, user_id, course_id, tenant_id, status, started_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'active', unixepoch(), unixepoch(), unixepoch())`,
       )
         .bind(enrId, primaryUserId, course_id, tenantId)
         .run();
       enrollment = { id: enrId, user_id: primaryUserId };
     } catch (_) {
       await env.DB.prepare(
-        `INSERT INTO enrollments (user_id, course_id, tenant_id, status, enrolled_at, created_at)
-         VALUES (?, ?, ?, 'active', datetime('now'), datetime('now'))`,
+        `INSERT INTO enrollments (user_id, course_id, tenant_id, status, started_at, created_at, updated_at)
+         VALUES (?, ?, ?, 'active', unixepoch(), unixepoch(), unixepoch())`,
       )
         .bind(primaryUserId, course_id, tenantId)
         .run();
@@ -1022,4 +1022,3 @@ async function handleLearnSubmit(request, env, authUser) {
 
   return jsonResponse({ ok: true, submission_id: submissionId, submission: submission || null });
 }
-
