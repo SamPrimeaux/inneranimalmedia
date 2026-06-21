@@ -59,7 +59,11 @@ export function CmsStudioEditor({
     const q = new URLSearchParams();
     q.set('project', projectSlug);
     if (pageId) q.set('page', pageId);
-    if (panel && panel !== 'pages') q.set('panel', panel);
+    if (panel === 'themeEditor') {
+      q.set('view', 'themeEditor');
+    } else if (panel && panel !== 'pages') {
+      q.set('panel', panel);
+    }
     if (workspaceId) q.set('workspace_id', workspaceId);
     if (workspaceLabel) q.set('workspace_label', workspaceLabel);
     return `${STUDIO_BASE}?${q.toString()}`;

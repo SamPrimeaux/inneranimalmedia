@@ -22,6 +22,8 @@ export type ShellProductItem = {
 /** CMS Suite — workspace-scoped URLs (project resolved via /api/cms/workspace-context + agentsam_bootstrap) */
 export const CMS_SUITE_NAV: ShellProductItem[] = [
   { id: 'cms-sites', label: 'Sites', path: '/dashboard/cms', match: 'exact' },
+  { id: 'cms-online-store', label: 'Online store', path: '/dashboard/cms/online-store', match: 'prefix' },
+  { id: 'cms-theme-editor', label: 'Theme editor', path: '/dashboard/cms/theme-editor', match: 'prefix' },
   { id: 'cms-editor', label: 'Pages', path: '/dashboard/cms/pages', match: 'prefix' },
   { id: 'cms-templates', label: 'Templates', path: '/dashboard/cms/templates', match: 'prefix' },
   { id: 'cms-imports', label: 'Imports', path: '/dashboard/cms/imports', match: 'prefix' },

@@ -475,6 +475,7 @@
   document.getElementById('deviceDesktop').addEventListener('click', () => { stage.classList.remove('mobile'); showToast('Desktop preview'); });
 
   const params = new URLSearchParams(location.search);
+  if(params.get('view') === 'themeEditor' || params.get('panel') === 'themeEditor') setMode('themeEditor');
   if(params.get('panel') === 'pages') setMode(params.get('page') ? 'themeEditor' : 'pages');
   if(params.get('view') === 'pages') setMode('pages');
   if(params.get('view') === 'page') setMode('pageEditor');

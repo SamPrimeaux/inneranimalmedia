@@ -37,22 +37,24 @@ const CMS_RESERVED = new Set([
   'imports',
   'pages',
   'studio',
+  'online-store',
+  'theme-editor',
 ]);
 
-export type CmsView = 'sites' | 'pages' | 'templates' | 'imports';
+export type CmsView = 'sites' | 'pages' | 'templates' | 'imports' | 'online-store' | 'theme-editor';
 
 export type ParsedCmsRoute = {
   view: CmsView;
   /** Explicit ?site= or legacy slug segment — never a hardcoded default */
   siteSlug: string | null;
   pageId: string | null;
-  panel: 'pages' | 'templates' | 'imports';
+  panel: 'pages' | 'templates' | 'imports' | 'online-store' | 'theme-editor';
   legacy: boolean;
   legacyTarget: string | null;
 };
 
 export function buildCmsPath(opts: {
-  panel?: 'pages' | 'templates' | 'imports';
+  panel?: 'pages' | 'templates' | 'imports' | 'online-store' | 'theme-editor';
   pageId?: string | null;
   siteSlug?: string | null;
 }): string {
@@ -61,6 +63,8 @@ export function buildCmsPath(opts: {
   const site = opts.siteSlug ? String(opts.siteSlug).trim() : '';
   const siteQs = site ? `?site=${encodeURIComponent(site)}` : '';
 
+  if (panel === 'online-store') return `/dashboard/cms/online-store${siteQs}`;
+  if (panel === 'theme-editor') return `/dashboard/cms/theme-editor${siteQs}`;
   if (panel === 'templates') return `/dashboard/cms/templates${siteQs}`;
   if (panel === 'imports') return `/dashboard/cms/imports${siteQs}`;
   if (pageId) return `/dashboard/cms/pages/${encodeURIComponent(pageId)}${siteQs}`;
@@ -122,6 +126,28 @@ export function parseCmsRoute(pathname: string, searchParams: URLSearchParams): 
       siteSlug: siteFromQuery,
       pageId: null,
       panel: 'imports',
+      legacy: false,
+      legacyTarget: null,
+    };
+  }
+
+  if (rest[0] === 'online-store') {
+    return {
+      view: 'online-store',
+      siteSlug: siteFromQuery,
+      pageId: null,
+      panel: 'online-store',
+      legacy: false,
+      legacyTarget: null,
+    };
+  }
+
+  if (rest[0] === 'theme-editor') {
+    return {
+      view: 'theme-editor',
+      siteSlug: siteFromQuery,
+      pageId: null,
+      panel: 'theme-editor',
       legacy: false,
       legacyTarget: null,
     };

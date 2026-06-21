@@ -66,7 +66,9 @@ import {
   persistBootstrapCmsProjectSlug,
   resolveCmsBootstrapProjectSlug,
   resolveCmsWorkspaceContext,
+  sortSitesForWorkspace,
 } from '../core/cms-workspace-resolve.js';
+import { resolveActiveCmsThemeRow } from '../core/cms-theme-resolve.js';
 import { resolveCmsSiteConfig } from '../core/cms-site-config.js';
 import { mintCmsEmbedSession, proxyCmsBridgeRequest } from '../core/cms-client-bridge.js';
 
@@ -1320,14 +1322,21 @@ export async function handleCmsApi(request, url, env, ctx) {
 
   if (path === '/api/cms/websites' && method === 'GET') {
     try {
-      const sites = await listCmsSitesForScope(env, { tenantId: authTenantId, workspaceId });
+      const wsCtx = await resolveCmsWorkspaceContext(env, request, authUser, requestCache);
+      const sorted = sortSitesForWorkspace(wsCtx.sites || [], {
+        primarySlug: wsCtx.project_slug,
+        workspaceSlug: wsCtx.workspace_slug,
+      });
       return jsonResponse({
-        websites: sites.map((s) => ({
+        primary_project_slug: wsCtx.project_slug || null,
+        workspace_slug: wsCtx.workspace_slug || null,
+        websites: sorted.map((s) => ({
           slug: s.slug,
           name: s.name || s.slug,
           domain: s.domain || null,
           page_count: s.page_count ?? 0,
           updated_at: s.updated_at || null,
+          source: s.source || null,
           url: s.domain ? `https://${s.domain}` : null,
         })),
       });
@@ -1674,9 +1683,16 @@ export async function handleCmsApi(request, url, env, ctx) {
 
       const pages = pagesRes.results || [];
       const sections = sectionsRes.results || [];
+      const activeThemeResolved = await resolveActiveCmsThemeRow(env, {
+        tenantId: authTenantId,
+        authUser,
+        workspaceId,
+        projectId: projectSlug,
+      });
+      const activeThemeSlug = activeThemeResolved?.row?.slug || null;
       const themes = (themesRes.results || []).map((t) => ({
         ...t,
-        is_active: !!t.pref_id,
+        is_active: activeThemeSlug ? t.slug === activeThemeSlug : !!t.pref_id,
         css_vars: t.css_vars_json
           ? (() => {
               try {
@@ -1687,6 +1703,30 @@ export async function handleCmsApi(request, url, env, ctx) {
             })()
           : {},
       }));
+      const activeThemeRow = activeThemeResolved?.row;
+      const activeThemeFromList = themes.find((t) => t.is_active) || themes[0] || null;
+      const active_theme = activeThemeRow
+        ? {
+            id: activeThemeRow.id,
+            name: activeThemeRow.name,
+            slug: activeThemeRow.slug,
+            theme_family: activeThemeRow.theme_family,
+            css_r2_key: activeThemeRow.css_r2_key,
+            compiled_css_hash: activeThemeRow.compiled_css_hash,
+            monaco_theme: activeThemeRow.monaco_theme,
+            is_active: true,
+            resolved_from: activeThemeResolved.resolved_from,
+            css_vars: activeThemeRow.css_vars_json
+              ? (() => {
+                  try {
+                    return JSON.parse(activeThemeRow.css_vars_json);
+                  } catch {
+                    return {};
+                  }
+                })()
+              : {},
+          }
+        : activeThemeFromList;
 
       const sectionsByPage = {};
       for (const s of sections) {
@@ -1787,7 +1827,7 @@ export async function handleCmsApi(request, url, env, ctx) {
         pages,
         sections_by_page: sectionsByPage,
         components_by_section: componentsBySection,
-        active_theme: themes.find((t) => t.is_active) || themes[0] || null,
+        active_theme: active_theme,
         themes,
         nav_menus: navsRes.results || [],
         component_templates: templatesRes.results || [],

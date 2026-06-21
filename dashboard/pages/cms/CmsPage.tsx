@@ -33,7 +33,7 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
   const { context, loading, error, persistSite, reload: load } = useCmsWorkspaceContext({
     workspaceId,
     siteSlug: effectiveSiteSlug,
-    enabled: parsed.view !== 'sites',
+    enabled: true,
   });
 
   const isClientWorker = context?.cms_hosting === 'client_worker';
@@ -88,11 +88,15 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
   const viewForRoot: CmsView =
     parsed.view === 'sites'
       ? 'sites'
-      : parsed.panel === 'templates'
-        ? 'templates'
-        : parsed.panel === 'imports'
-          ? 'imports'
-          : 'pages';
+      : parsed.view === 'online-store'
+        ? 'online-store'
+        : parsed.view === 'theme-editor'
+          ? 'theme-editor'
+          : parsed.panel === 'templates'
+            ? 'templates'
+            : parsed.panel === 'imports'
+              ? 'imports'
+              : 'pages';
 
   const needsSitePick =
     parsed.view !== 'sites' &&
@@ -177,12 +181,20 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
           <CmsRoot
             workspaceId={workspaceId}
             workspaceLabel={context?.ui_label || context?.workspace_name || null}
+            workspaceSlug={context?.workspace_slug || null}
+            sites={context?.sites || []}
+            primaryProjectSlug={context?.project_slug || null}
+            loadingSites={loading && parsed.view === 'sites'}
+            sitesError={parsed.view === 'sites' ? error : null}
+            onRetrySites={() => {
+              void load();
+            }}
             view={viewForRoot}
             projectSlug={context?.project_slug || null}
             pageId={parsed.pageId}
             studioPanel={parsed.panel}
             addToPageId={searchParams.get('add_to_page')}
-            loadingProject={loading}
+            loadingProject={loading && parsed.view !== 'sites'}
             projectError={error}
             onNavigate={cmsNavigate}
             onNavigatePath={cmsNavigatePath}

@@ -159,20 +159,57 @@ export async function listCmsSitesForScope(env, { tenantId, workspaceId }) {
   }
 
   const sites = [...bySlug.values()];
-  for (const site of sites) {
-    if (site.page_count > 0) continue;
+  const slugsNeedingCounts = sites.filter((s) => !(Number(s.page_count) > 0)).map((s) => s.slug);
+  if (slugsNeedingCounts.length > 0) {
     try {
-      const row = await env.DB.prepare(
-        `SELECT COUNT(*) AS n FROM cms_pages WHERE project_slug = ? AND status != 'archived'`,
+      const placeholders = slugsNeedingCounts.map(() => '?').join(',');
+      const { results: countRows } = await env.DB.prepare(
+        `SELECT project_slug, COUNT(*) AS n, MAX(updated_at) AS updated_at
+           FROM cms_pages
+          WHERE status != 'archived'
+            AND project_slug IN (${placeholders})
+          GROUP BY project_slug`,
       )
-        .bind(site.slug)
-        .first();
-      site.page_count = Number(row?.n) || 0;
+        .bind(...slugsNeedingCounts)
+        .all();
+      const countBySlug = new Map((countRows || []).map((r) => [trim(r.project_slug), r]));
+      for (const site of sites) {
+        const row = countBySlug.get(site.slug);
+        if (!row) continue;
+        site.page_count = Number(row.n) || site.page_count || 0;
+        site.updated_at = site.updated_at || row.updated_at || null;
+      }
     } catch (_) {}
   }
 
-  sites.sort((a, b) => String(a.name || a.slug).localeCompare(String(b.name || b.slug)));
   return sites;
+}
+
+/**
+ * Order CMS sites with workspace primary + registry rows ahead of tenant-wide fallbacks.
+ * @param {Array<{ slug: string, name?: string, source?: string }>} sites
+ * @param {{ primarySlug?: string|null, workspaceSlug?: string|null }} opts
+ */
+export function sortSitesForWorkspace(sites, opts = {}) {
+  const primary = trim(opts.primarySlug);
+  const wsSlug = trim(opts.workspaceSlug);
+  const score = (site) => {
+    const slug = trim(site?.slug);
+    if (!slug) return 99;
+    if (primary && slug === primary) return 0;
+    if (wsSlug && slug === wsSlug) return 1;
+    if (site.source === 'agentsam_project_context') return 2;
+    if (site.source === 'workspace_slug') return 3;
+    if (site.source === 'cms_tenants') return 4;
+    if (site.source === 'cms_pages') return 5;
+    return 6;
+  };
+  return [...(sites || [])].sort((a, b) => {
+    const sa = score(a);
+    const sb = score(b);
+    if (sa !== sb) return sa - sb;
+    return String(a.name || a.slug).localeCompare(String(b.name || b.slug));
+  });
 }
 
 /**
@@ -279,7 +316,7 @@ export async function resolveCmsWorkspaceContext(env, request, authUser, cache =
       } catch (_) {}
     }
 
-    const sites = await listCmsSitesForScope(env, { tenantId, workspaceId });
+    let sites = await listCmsSitesForScope(env, { tenantId, workspaceId });
     const project = await resolveCmsProjectSlug(env, {
       tenantId,
       workspaceId,
@@ -289,6 +326,7 @@ export async function resolveCmsWorkspaceContext(env, request, authUser, cache =
     });
 
     const projectSlug = project.project_slug;
+    sites = sortSitesForWorkspace(sites, { primarySlug: projectSlug, workspaceSlug });
     return {
       error: null,
       user_id: userId,
