@@ -10,12 +10,11 @@
  */
 import { getWorkspaceGithubRepo } from './agentsam-workspace.js';
 import {
-  chatSessionR2PrefixLocal,
+  chatSessionR2Prefix,
   buildChatDigestText,
   estimateMessagesTokens,
   CHAT_COMPACT_TOKEN_THRESHOLD,
   writeR2Text,
-  readR2Text,
 } from './exec-context-tier.js';
 
 const STOP_WORDS = new Set([
@@ -24,17 +23,6 @@ const STOP_WORDS = new Set([
   'could', 'should', 'may', 'might', 'must', 'shall', 'can', 'i', 'you', 'he', 'she', 'it', 'we',
   'they', 'my', 'your', 'me', 'us', 'them', 'this', 'that', 'these', 'those', 'please', 'hey', 'hi',
 ]);
-
-/**
- * Build the canonical R2 key prefix for a chat session.
- * Pattern: context/{au_id}/{ws_id}/chats/{conversation_id}/
- *
- * @param {{ userId: string, workspaceId: string, conversationId: string }} input
- * @returns {string}
- */
-function chatSessionR2PrefixLocalLocal({ userId, workspaceId, conversationId }) {
-  return chatSessionR2PrefixLocal({ userId, workspaceId, conversationId });
-}
 
 /**
  * @param {string} message
@@ -119,7 +107,7 @@ export async function initChatSessionR2(env, session) {
     return { ok: false, metaKey: '', messagesKey: '' };
   }
 
-  const prefix = chatSessionR2PrefixLocal({ userId, workspaceId, conversationId });
+  const prefix = chatSessionR2Prefix({ userId, workspaceId, conversationId });
   const metaKey = `${prefix}/meta.json`;
   const messagesKey = `${prefix}/messages.jsonl`;
 
@@ -198,7 +186,7 @@ export async function appendChatMessage(env, conversationId, turn) {
       messagesKey = row?.r2_messages_key ?? null;
       // If key not yet written (race: first message before initChatSessionR2 completes), build it
       if (!messagesKey && row?.user_id && row?.workspace_id) {
-        const prefix = chatSessionR2PrefixLocal({
+        const prefix = chatSessionR2Prefix({
           userId: row.user_id,
           workspaceId: row.workspace_id,
           conversationId: convId,
@@ -299,7 +287,7 @@ export async function maybeCompactChatSession(env, conversationId) {
     return { ok: false, reason: 'session_not_found' };
   }
 
-  const prefix = chatSessionR2PrefixLocal({
+  const prefix = chatSessionR2Prefix({
     userId: row.user_id,
     workspaceId: row.workspace_id,
     conversationId: convId,
@@ -351,7 +339,7 @@ export async function getChatMessages(env, conversationId) {
         .first();
       messagesKey = row?.r2_messages_key ?? null;
       if (!messagesKey && row?.user_id && row?.workspace_id) {
-        const prefix = chatSessionR2PrefixLocal({
+        const prefix = chatSessionR2Prefix({
           userId: row.user_id,
           workspaceId: row.workspace_id,
           conversationId: convId,
