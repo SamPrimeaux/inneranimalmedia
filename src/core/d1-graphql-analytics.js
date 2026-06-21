@@ -22,6 +22,29 @@ export function rangeSecondsForAnalytics(range) {
 function rangeWindow(range) {
   const endMs = Date.now();
   const sec = rangeSecondsForAnalytics(range);
+  const useCalendarDays = range === '7d' || range === '30d';
+  const dayCount = range === '7d' ? 7 : range === '30d' ? 30 : 0;
+
+  if (useCalendarDays) {
+    const endDay = new Date(endMs);
+    endDay.setUTCHours(0, 0, 0, 0);
+    const startDay = new Date(endDay);
+    startDay.setUTCDate(startDay.getUTCDate() - (dayCount - 1));
+    const prevEndDay = new Date(startDay);
+    prevEndDay.setUTCDate(prevEndDay.getUTCDate() - 1);
+    const prevStartDay = new Date(prevEndDay);
+    prevStartDay.setUTCDate(prevStartDay.getUTCDate() - (dayCount - 1));
+    return {
+      start: startDay.toISOString(),
+      end: new Date(endMs).toISOString(),
+      prevStart: prevStartDay.toISOString(),
+      startDate: startDay.toISOString().slice(0, 10),
+      endDate: endDay.toISOString().slice(0, 10),
+      prevStartDate: prevStartDay.toISOString().slice(0, 10),
+      prevEndDate: prevEndDay.toISOString().slice(0, 10),
+    };
+  }
+
   const startMs = endMs - sec * 1000;
   const prevStartMs = startMs - sec * 1000;
   return {
@@ -31,6 +54,7 @@ function rangeWindow(range) {
     startDate: new Date(startMs).toISOString().slice(0, 10),
     endDate: new Date(endMs).toISOString().slice(0, 10),
     prevStartDate: new Date(prevStartMs).toISOString().slice(0, 10),
+    prevEndDate: new Date(startMs).toISOString().slice(0, 10),
   };
 }
 
@@ -211,7 +235,7 @@ export async function fetchD1AnalyticsOverview(env, opts) {
   const { accountId, token, databaseId, range } = opts;
   const win = rangeWindow(range);
   const kv = env?.SESSION_CACHE || env?.KV || null;
-  const cacheKey = `d1_gql:v3:${databaseId}:${range}`;
+  const cacheKey = `d1_gql:v4:${databaseId}:${range}`;
 
   return cachedFetch(kv, cacheKey, async () => {
     const useDatetime = range === '1h' || range === '24h';
@@ -224,8 +248,10 @@ export async function fetchD1AnalyticsOverview(env, opts) {
     const endVal = useDatetime ? win.end : win.endDate;
     const prevStartVal = useDatetime ? win.prevStart : win.prevStartDate;
 
+    const prevEndVal = useDatetime ? win.start : (win.prevEndDate ?? win.startDate);
+
     const analyticsQuery = `
-      query D1AnalyticsOverview($accountTag: string!, $databaseId: string!, $start: ${useDatetime ? 'DateTime' : 'Date'}!, $end: ${useDatetime ? 'DateTime' : 'Date'}!, $prevStart: ${useDatetime ? 'DateTime' : 'Date'}!) {
+      query D1AnalyticsOverview($accountTag: string!, $databaseId: string!, $start: ${useDatetime ? 'DateTime' : 'Date'}!, $end: ${useDatetime ? 'DateTime' : 'Date'}!, $prevStart: ${useDatetime ? 'DateTime' : 'Date'}!, $prevEnd: ${useDatetime ? 'DateTime' : 'Date'}!) {
         viewer {
           accounts(filter: { accountTag: $accountTag }) {
             current: d1AnalyticsAdaptiveGroups(
@@ -239,7 +265,7 @@ export async function fetchD1AnalyticsOverview(env, opts) {
             }
             previous: d1AnalyticsAdaptiveGroups(
               limit: 10000
-              filter: { databaseId: $databaseId, ${startKey}: $prevStart, ${endKey}: $start }
+              filter: { databaseId: $databaseId, ${startKey}: $prevStart, ${endKey}: $prevEnd }
             ) {
               sum { readQueries writeQueries rowsRead rowsWritten }
             }
@@ -259,6 +285,7 @@ export async function fetchD1AnalyticsOverview(env, opts) {
       start: startVal,
       end: endVal,
       prevStart: prevStartVal,
+      prevEnd: prevEndVal,
     };
 
     const insightsQuery = `
@@ -374,6 +401,12 @@ export async function fetchD1AnalyticsOverview(env, opts) {
     return {
       source: 'cloudflare_graphql',
       wired: currentSum.readQueries + currentSum.writeQueries > 0 || storageBytes > 0,
+      window: {
+        start: startVal,
+        end: endVal,
+        prevStart: prevStartVal,
+        prevEnd: prevEndVal,
+      },
       kpis: {
         queries: currentSum.readQueries + currentSum.writeQueries,
         queriesPrev: previousSum.readQueries + previousSum.writeQueries,

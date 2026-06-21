@@ -137,7 +137,7 @@ async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T | null
 }
 
 function cacheKey(surface: DatabasesSurface, range: DatabasesRange) {
-  return `iam.db.overview.v2:${surface}:${range}`;
+  return `iam.db.overview.v3:${surface}:${range}`;
 }
 
 export function prefetchDatabasesOverview(surface: DatabasesSurface, range: DatabasesRange) {
@@ -261,6 +261,9 @@ export function useDatabasesObservability(surface: DatabasesSurface, range: Data
       if (opts?.signal?.aborted) return;
       if (data?.ok && matchesScope(data, surface, range)) {
         setOverview(data);
+        if (surface === 'cloudflare') {
+          setQueryRows(data.queries ?? []);
+        }
         writeOverviewCache(surface, range, data);
         setError(null);
       } else if (!background && !overviewRef.current) {
@@ -284,6 +287,10 @@ export function useDatabasesObservability(surface: DatabasesSurface, range: Data
   }, [load, surface, range]);
 
   useEffect(() => {
+    if (surface === 'cloudflare') {
+      setQueryRows(overview?.queries ?? []);
+      return;
+    }
     if (!overview) return;
     const controller = new AbortController();
     void loadQueries({ signal: controller.signal });
@@ -348,7 +355,7 @@ export function useDatabasesObservability(surface: DatabasesSurface, range: Data
     },
     refresh: () => {
       void load({ background: Boolean(overviewRef.current) });
-      void loadQueries();
+      if (surface !== 'cloudflare') void loadQueries();
     },
     queriesLoading,
   };

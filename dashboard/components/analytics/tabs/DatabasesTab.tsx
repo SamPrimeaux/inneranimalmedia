@@ -509,7 +509,7 @@ export default function DatabasesTab() {
   const totalQueryLegend = useMemo(() => {
     const sum = chartData.total.reduce((a, b) => a + b.v, 0);
     if (!sum) return undefined;
-    return `Eastern North America (ENAM) ${formatCompact(sum)}`;
+    return `${formatCompact(sum)} queries`;
   }, [chartData.total]);
 
   const chartEmpty = surface === 'supabase'
@@ -565,6 +565,7 @@ export default function DatabasesTab() {
         <div className={styles.surfaceMeta}>
           {obs.database.name}
           <span className={styles.dbIdChip}>{obs.database.id.slice(0, 8)}…</span>
+          <span className={styles.monoMuted}> · Cloudflare GraphQL (account-wide)</span>
         </div>
       ) : null}
 

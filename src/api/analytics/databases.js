@@ -2185,7 +2185,7 @@ export async function handleDatabasesOverview(request, url, env, { tenantId, wor
 
   if (surface === 'cloudflare') {
     const cfCacheScope = scope.workspaceId || scope.tenantId || databaseId || 'platform';
-    const cfCacheKey = `db_overview:cloudflare:v1:${cfCacheScope}:${databaseId}:${range}`;
+    const cfCacheKey = `db_overview:cloudflare:v2:${cfCacheScope}:${databaseId}:${range}`;
     const cfKv = env?.SESSION_CACHE || env?.KV || null;
     if (cfKv) {
       try {
@@ -2233,7 +2233,7 @@ export async function handleDatabasesOverview(request, url, env, { tenantId, wor
         ? d1First(
             env.DB,
             'd1_table_count_overview',
-            `SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`,
+            `SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%'`,
             [],
             warnings,
           )
@@ -2324,7 +2324,12 @@ export async function handleDatabasesOverview(request, url, env, { tenantId, wor
         wired: d1Schema.wired,
       },
       warnings,
-      meta: { tenantId: scope.tenantId, workspaceId: scope.workspaceId },
+      meta: {
+        tenantId: scope.tenantId,
+        workspaceId: scope.workspaceId,
+        analyticsSource: gql?.source ?? null,
+        analyticsWindow: gql?.window ?? null,
+      },
     };
 
     if (cfKv) {
