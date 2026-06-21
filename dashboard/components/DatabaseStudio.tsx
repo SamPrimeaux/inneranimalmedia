@@ -427,7 +427,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ onBackToOverview
     }
   }, []);
 
-  const loadCapabilities = useCallback(async () => {
+  const loadCapabilities = useCallback(async (): Promise<boolean> => {
     try {
       const payload = await fetchJson<{ capabilities?: { is_superadmin?: boolean } }>('/api/integrations/summary');
       const superadmin = payload.capabilities?.is_superadmin === true;
@@ -435,15 +435,17 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ onBackToOverview
       if (!superadmin) {
         setStudioSection('public_learning');
       }
+      return superadmin;
     } catch {
       setIsSuperadmin(false);
       setStudioSection('public_learning');
+      return false;
     } finally {
       setCapLoaded(true);
     }
   }, []);
 
-  const loadDataPlaneContext = useCallback(async () => {
+  const loadDataPlaneContext = useCallback(async (superadmin: boolean) => {
     try {
       const ctx = await fetchJson<{
         banner?: string;
@@ -451,13 +453,13 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ onBackToOverview
         connections?: { supabase?: boolean };
       }>('/api/data-plane/context');
       setSupabaseConnected(ctx.connections?.supabase === true);
-      if (!isSuperadmin && ctx.active_data_plane === 'customer_supabase' && ctx.connections?.supabase) {
+      if (!superadmin && ctx.active_data_plane === 'customer_supabase' && ctx.connections?.supabase) {
         setStudioSection('customer_supabase');
       }
     } catch {
       /* ignore */
     }
-  }, [isSuperadmin]);
+  }, []);
 
   const loadPublicLearningTables = useCallback(async () => {
     setLearningStatus('loading');
@@ -520,10 +522,6 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ onBackToOverview
     }
   }, []);
 
-  const loadAllTables = useCallback(async () => {
-    await Promise.all([loadTables('d1'), loadTables('hyperdrive')]);
-  }, [loadTables]);
-
   const loadSchema = useCallback(
     async (table: string) => {
       setLoadingMain(true);
@@ -548,25 +546,26 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ onBackToOverview
 
   useEffect(() => {
     let cancelled = false;
+    const initialDs = readStoredDatasource();
     (async () => {
-      await loadCapabilities();
-      await loadDataPlaneContext();
-      if (!cancelled) {
-        const superRes = await fetchJson<{ capabilities?: { is_superadmin?: boolean } }>(
-          '/api/integrations/summary',
-        ).catch(() => ({ capabilities: { is_superadmin: false } }));
-        if (superRes.capabilities?.is_superadmin) {
-          await loadAllTables();
-        } else {
-          await loadPublicLearningTables();
+      await loadThemeAccent();
+      const superadmin = await loadCapabilities();
+      if (cancelled) return;
+      setPageReady(true);
+      void loadDataPlaneContext(superadmin);
+      if (superadmin) {
+        void loadTables(initialDs);
+        if (initialDs === 'd1') {
+          void loadTables('hyperdrive');
         }
+      } else {
+        void loadPublicLearningTables();
       }
-      if (!cancelled) setPageReady(true);
     })();
     return () => {
       cancelled = true;
     };
-  }, [loadAllTables, loadCapabilities, loadDataPlaneContext, loadPublicLearningTables]);
+  }, [loadCapabilities, loadDataPlaneContext, loadPublicLearningTables, loadTables, loadThemeAccent]);
 
   useEffect(() => {
     let cancelled = false;

@@ -706,13 +706,14 @@ async function loadSupabaseStorage(env, warnings) {
 }
 
 /** @param {import('@cloudflare/workers-types').D1Database} db */
-async function loadD1SchemaHealth(db, warnings, limit = 8) {
+async function loadD1SchemaHealth(db, warnings, limit = 8, maxScan = 24) {
   const tables = await d1All(
     db,
     'd1_schema_tables',
     `SELECT name FROM sqlite_master
      WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%'
-     ORDER BY name`,
+     ORDER BY name
+     LIMIT ${Math.max(1, Math.min(maxScan, 80))}`,
     [],
     warnings,
   );
@@ -738,17 +739,17 @@ async function loadD1SchemaHealth(db, warnings, limit = 8) {
     });
     if (!hasUserIndex && !hasPk) {
       missingIndexes.push({ name: tableName, ds: 'd1', severity: 'warn' });
-    } else if (!hasUserIndex && hasPk) {
-      const rowCount = await d1First(db, `d1_rc_${tableName}`, `SELECT COUNT(*) AS c FROM "${safe}"`, [], warnings);
-      if (Number(rowCount?.c) > 5000) {
-        missingIndexes.push({ name: tableName, ds: 'd1', severity: 'info' });
-      }
     }
 
     if (noPrimaryKey.length >= limit && missingIndexes.length >= limit) break;
   }
 
-  return { noPrimaryKey: noPrimaryKey.slice(0, limit), missingIndexes: missingIndexes.slice(0, limit), fkIssues: [] };
+  return {
+    noPrimaryKey: noPrimaryKey.slice(0, limit),
+    missingIndexes: missingIndexes.slice(0, limit),
+    fkIssues: [],
+    wired: noPrimaryKey.length > 0 || missingIndexes.length > 0,
+  };
 }
 
 /** @param {any} env @param {Array<{code:string,message:string,severity?:string}>} warnings */
@@ -1923,7 +1924,25 @@ export async function handleDatabasesOverview(request, url, env, { tenantId, wor
   };
 
   if (surface === 'cloudflare') {
+    const cfCacheScope = scope.workspaceId || scope.tenantId || databaseId || 'platform';
+    const cfCacheKey = `db_overview:cloudflare:v1:${cfCacheScope}:${databaseId}:${range}`;
+    const cfKv = env?.SESSION_CACHE || env?.KV || null;
+    if (cfKv) {
+      try {
+        const raw = await cfKv.get(cfCacheKey);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed?.cachedAt && Date.now() - parsed.cachedAt < 90_000 && parsed.data) {
+            return analyticsResponse(parsed.data);
+          }
+        }
+      } catch {
+        /* ignore cache read errors */
+      }
+    }
+
     const creds = resolveCloudflareAnalyticsCreds(env);
+    const includeSchema = url.searchParams.get('include_schema') === '1';
     let gql = null;
     if (creds) {
       try {
@@ -1948,25 +1967,26 @@ export async function handleDatabasesOverview(request, url, env, { tenantId, wor
       });
     }
 
-    let tableCount = null;
-    if (env?.DB) {
-      const tc = await d1First(
-        env.DB,
-        'd1_table_count_overview',
-        `SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`,
-        [],
-        warnings,
-      );
-      tableCount = Number(tc?.c ?? 0) || 0;
-    }
+    const [tableCountRow, retention, d1Schema] = await Promise.all([
+      env?.DB
+        ? d1First(
+            env.DB,
+            'd1_table_count_overview',
+            `SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`,
+            [],
+            warnings,
+          )
+        : Promise.resolve(null),
+      env?.DB ? loadLastRetentionRun(env.DB, warnings) : Promise.resolve(null),
+      env?.DB && includeSchema
+        ? loadD1SchemaHealth(env.DB, warnings, 8, 24)
+        : Promise.resolve({ noPrimaryKey: [], missingIndexes: [], fkIssues: [], wired: false }),
+    ]);
+    const tableCount = tableCountRow != null ? Number(tableCountRow?.c ?? 0) || 0 : null;
 
     const wired = Boolean(gql?.wired);
     const kpis = gql?.kpis ?? {};
     const storageBytes = kpis.storageBytes ?? 0;
-    const retention = env?.DB ? await loadLastRetentionRun(env.DB, warnings) : null;
-    const d1Schema = env?.DB
-      ? await loadD1SchemaHealth(env.DB, warnings)
-      : { noPrimaryKey: [], missingIndexes: [], fkIssues: [], wired: false };
 
     const retentionAgeSec = retention?.at ? Math.floor(Date.now() / 1000) - retention.at : null;
     const retentionFresh = retentionAgeSec != null && retentionAgeSec < 26 * 3600;
@@ -1974,7 +1994,7 @@ export async function handleDatabasesOverview(request, url, env, { tenantId, wor
       ? `Retention ${retention.ok ? '✓' : '!'} · ${formatRelativeEpoch(retention.at)}`
       : 'Retention not logged';
 
-    return analyticsResponse({
+    const cfPayload = {
       ok: true,
       backend: gql?.source ?? 'mixed',
       surface,
@@ -2044,7 +2064,21 @@ export async function handleDatabasesOverview(request, url, env, { tenantId, wor
       },
       warnings,
       meta: { tenantId: scope.tenantId, workspaceId: scope.workspaceId },
-    });
+    };
+
+    if (cfKv) {
+      try {
+        await cfKv.put(
+          cfCacheKey,
+          JSON.stringify({ cachedAt: Date.now(), data: cfPayload }),
+          { expirationTtl: 120 },
+        );
+      } catch {
+        /* ignore cache write errors */
+      }
+    }
+
+    return analyticsResponse(cfPayload);
   }
 
   // Tenant-scoped short-lived cache. Key MUST include workspace/tenant so one
@@ -2068,9 +2102,19 @@ export async function handleDatabasesOverview(request, url, env, { tenantId, wor
     }
   }
 
-  let health, supStorage, pgHot, pgOps, pgSchema, buckets, kpiRaw, queryRows;
+  let health, supStorage, pgHot, pgOps, pgSchema, buckets, kpiRaw, queryRows, queryWarnings = [];
   if (supCached) {
-    ({ health, supStorage, pgHot, pgOps, pgSchema, buckets, kpiRaw, queryRows } = supCached);
+    ({
+      health,
+      supStorage,
+      pgHot,
+      pgOps,
+      pgSchema,
+      buckets,
+      kpiRaw,
+      queryRows,
+      queryWarnings = [],
+    } = supCached);
   } else {
     // These reads are independent of each other — run them concurrently instead
     // of chaining eight sequential round trips, which was the main cause of the
@@ -2095,6 +2139,7 @@ export async function handleDatabasesOverview(request, url, env, { tenantId, wor
     kpiRaw = kpiRawR;
     const queriesJson = await queriesRes.json().catch(() => ({}));
     queryRows = Array.isArray(queriesJson?.queries) ? queriesJson.queries : [];
+    queryWarnings = Array.isArray(queriesJson?.warnings) ? queriesJson.warnings : [];
 
     if (supKv) {
       try {
@@ -2102,7 +2147,17 @@ export async function handleDatabasesOverview(request, url, env, { tenantId, wor
           supCacheKey,
           JSON.stringify({
             cachedAt: Date.now(),
-            data: { health, supStorage, pgHot, pgOps, pgSchema, buckets, kpiRaw, queryRows },
+            data: {
+              health,
+              supStorage,
+              pgHot,
+              pgOps,
+              pgSchema,
+              buckets,
+              kpiRaw,
+              queryRows,
+              queryWarnings,
+            },
           }),
           { expirationTtl: 120 },
         );
@@ -2267,7 +2322,7 @@ export async function handleDatabasesOverview(request, url, env, { tenantId, wor
       hyperdrive: health.hyperdrive.status,
       latencyMs: health.hyperdrive.latencyMs,
     },
-    warnings: [...warnings, ...(queriesJson?.warnings ?? [])],
+    warnings: [...warnings, ...queryWarnings],
     meta: { tenantId: scope.tenantId, workspaceId: scope.workspaceId },
   });
 }

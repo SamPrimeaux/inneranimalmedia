@@ -200,6 +200,21 @@ export async function handleHyperdriveRoutes(request, url, env) {
 
   if (pathLower === '/api/hyperdrive/tables' && method === 'GET') {
     const schemaFilter = url.searchParams.get('schema');
+    const cacheKey = `hyperdrive_tables:v1:${schemaFilter || 'all'}`;
+    const kv = env?.SESSION_CACHE || env?.KV || null;
+    if (kv) {
+      try {
+        const raw = await kv.get(cacheKey);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed?.cachedAt && Date.now() - parsed.cachedAt < 60_000 && parsed.body) {
+            return jsonResponse(parsed.body);
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    }
     const schemas =
       schemaFilter && HYPERDRIVE_LIST_SCHEMAS.includes(schemaFilter)
         ? [schemaFilter]
@@ -227,7 +242,11 @@ export async function handleHyperdriveRoutes(request, url, env) {
           };
         })
         .filter((r) => r.name);
-      return jsonResponse({ tables, default_schema: HYPERDRIVE_DEFAULT_SCHEMA });
+      const body = { tables, default_schema: HYPERDRIVE_DEFAULT_SCHEMA };
+      if (kv) {
+        kv.put(cacheKey, JSON.stringify({ cachedAt: Date.now(), body }), { expirationTtl: 90 }).catch(() => {});
+      }
+      return jsonResponse(body);
     } catch (e) {
       return jsonResponse({
         tables: [],

@@ -238,17 +238,18 @@ function BarPanel({
       </div>
       <div className={styles.chartBody}>
         {!loading && !hasData && empty ? (
-          <div className={styles.chartEmpty}>{empty}</div>
-        ) : null}
-        <ResponsiveContainer width="100%" height={height}>
-          <BarChart data={data.length ? data : [{ h: '—', v: 0 }]} margin={{ top: 4, right: 8, bottom: 0, left: 0 }} barCategoryGap="18%">
-            <CartesianGrid strokeDasharray="0" stroke={C.grid} vertical={false} />
-            <XAxis dataKey="h" tick={{ fontSize: 10, fill: C.axis }} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={24} />
-            <YAxis tick={{ fontSize: 10, fill: C.axis }} tickLine={false} axisLine={false} width={40} />
-            <Tooltip {...tooltipStyle} />
-            <Bar dataKey={key} fill={C.primary} fillOpacity={0.85} radius={[3, 3, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
+          <div className={styles.chartEmpty} style={{ minHeight: height }}>{empty}</div>
+        ) : (
+          <ResponsiveContainer width="100%" height={height}>
+            <BarChart data={data.length ? data : [{ h: '—', v: 0 }]} margin={{ top: 4, right: 8, bottom: 0, left: 0 }} barCategoryGap="18%">
+              <CartesianGrid strokeDasharray="0" stroke={C.grid} vertical={false} />
+              <XAxis dataKey="h" tick={{ fontSize: 10, fill: C.axis }} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={24} />
+              <YAxis tick={{ fontSize: 10, fill: C.axis }} tickLine={false} axisLine={false} width={40} />
+              <Tooltip {...tooltipStyle} />
+              <Bar dataKey={key} fill={C.primary} fillOpacity={0.85} radius={[3, 3, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        )}
       </div>
     </div>
   );
@@ -288,15 +289,19 @@ function LatencyPanel({
           {loading ? '…' : live && hasData ? formatQueryMs(headline) : '—'}
           <span className={styles.latencyHeroLabel}>{key.toUpperCase()}</span>
         </div>
-        <ResponsiveContainer width="100%" height={130}>
-          <LineChart data={data.length ? data : [{ h: '—', ms: 0 }]} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
-            <CartesianGrid strokeDasharray="0" stroke={C.grid} vertical={false} />
-            <XAxis dataKey="h" tick={{ fontSize: 10, fill: C.axis }} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={24} />
-            <YAxis tick={{ fontSize: 10, fill: C.axis }} tickLine={false} axisLine={false} width={40} />
-            <Tooltip {...tooltipStyle} formatter={(v: number) => [formatQueryMs(v), key.toUpperCase()]} />
-            <Line type="monotone" dataKey="ms" stroke={C.primary} strokeWidth={1.5} dot={false} />
-          </LineChart>
-        </ResponsiveContainer>
+        {!loading && !hasData ? (
+          <div className={styles.chartEmpty} style={{ minHeight: 130 }}>No latency samples in this window yet.</div>
+        ) : (
+          <ResponsiveContainer width="100%" height={130}>
+            <LineChart data={data.length ? data : [{ h: '—', ms: 0 }]} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+              <CartesianGrid strokeDasharray="0" stroke={C.grid} vertical={false} />
+              <XAxis dataKey="h" tick={{ fontSize: 10, fill: C.axis }} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={24} />
+              <YAxis tick={{ fontSize: 10, fill: C.axis }} tickLine={false} axisLine={false} width={40} />
+              <Tooltip {...tooltipStyle} formatter={(v: number) => [formatQueryMs(v), key.toUpperCase()]} />
+              <Line type="monotone" dataKey="ms" stroke={C.primary} strokeWidth={1.5} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        )}
       </div>
     </div>
   );

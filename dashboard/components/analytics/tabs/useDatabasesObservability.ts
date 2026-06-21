@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 export type DatabasesSurface = 'cloudflare' | 'supabase';
 export type DatabasesRange = '1h' | '24h' | '7d' | '30d';
@@ -121,13 +121,54 @@ export type DatabasesOverviewPayload = {
   warnings?: DatabasesWarning[];
 };
 
-async function fetchJson<T>(url: string): Promise<T | null> {
+function isAbortError(err: unknown): boolean {
+  return err instanceof DOMException && err.name === 'AbortError';
+}
+
+async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T | null> {
   try {
-    const res = await fetch(url, { credentials: 'include' });
+    const res = await fetch(url, { credentials: 'include', signal });
     if (!res.ok) return null;
     return (await res.json()) as T;
+  } catch (err) {
+    if (signal?.aborted || isAbortError(err)) return null;
+    return null;
+  }
+}
+
+function cacheKey(surface: DatabasesSurface, range: DatabasesRange) {
+  return `iam.db.overview.v1:${surface}:${range}`;
+}
+
+function matchesScope(
+  data: DatabasesOverviewPayload | null | undefined,
+  surface: DatabasesSurface,
+  range: DatabasesRange,
+): boolean {
+  if (!data?.ok) return false;
+  if (data.surface && data.surface !== surface) return false;
+  if (data.range && data.range !== range) return false;
+  return true;
+}
+
+function readOverviewCache(surface: DatabasesSurface, range: DatabasesRange): DatabasesOverviewPayload | null {
+  try {
+    const raw = sessionStorage.getItem(cacheKey(surface, range));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { at?: number; data?: DatabasesOverviewPayload };
+    if (!parsed?.data || !parsed.at || Date.now() - parsed.at > 120_000) return null;
+    if (!matchesScope(parsed.data, surface, range)) return null;
+    return parsed.data;
   } catch {
     return null;
+  }
+}
+
+function writeOverviewCache(surface: DatabasesSurface, range: DatabasesRange, data: DatabasesOverviewPayload) {
+  try {
+    sessionStorage.setItem(cacheKey(surface, range), JSON.stringify({ at: Date.now(), data }));
+  } catch {
+    /* ignore quota errors */
   }
 }
 
@@ -162,25 +203,53 @@ export function formatRelativeSeen(epochSec: number | null): string {
 }
 
 export function useDatabasesObservability(surface: DatabasesSurface, range: DatabasesRange) {
-  const [overview, setOverview] = useState<DatabasesOverviewPayload | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [overview, setOverview] = useState<DatabasesOverviewPayload | null>(() =>
+    readOverviewCache(surface, range),
+  );
+  const [loading, setLoading] = useState(() => !readOverviewCache(surface, range));
   const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const overviewRef = useRef(overview);
+  overviewRef.current = overview;
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const load = useCallback(async (opts?: { background?: boolean; signal?: AbortSignal }) => {
+    const background = opts?.background === true;
+    if (!background) {
+      setLoading(true);
+      setError(null);
+    } else {
+      setRefreshing(true);
+    }
+
     const q = new URLSearchParams({ range, surface });
-    const data = await fetchJson<DatabasesOverviewPayload>(
-      `/api/analytics/databases/overview?${q}`,
-    );
-    setOverview(data);
-    if (!data) setError('Could not load database analytics.');
-    setLoading(false);
+    try {
+      const data = await fetchJson<DatabasesOverviewPayload>(
+        `/api/analytics/databases/overview?${q}`,
+        opts?.signal,
+      );
+      if (opts?.signal?.aborted) return;
+      if (data?.ok && matchesScope(data, surface, range)) {
+        setOverview(data);
+        writeOverviewCache(surface, range, data);
+        setError(null);
+      } else if (!background && !overviewRef.current) {
+        setError('Could not load database analytics.');
+      }
+    } finally {
+      if (!background) setLoading(false);
+      if (!opts?.signal?.aborted) setRefreshing(false);
+    }
   }, [surface, range]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    const cached = readOverviewCache(surface, range);
+    setOverview(cached);
+    setLoading(!cached);
+    setError(null);
+    const controller = new AbortController();
+    void load({ background: Boolean(cached), signal: controller.signal });
+    return () => controller.abort();
+  }, [load, surface, range]);
 
   const alertWarnings = useMemo(() => {
     const codes = new Set<string>();
@@ -229,14 +298,15 @@ export function useDatabasesObservability(surface: DatabasesSurface, range: Data
     schemaHealth: overview?.schemaHealth ?? { wired: false },
     health: overview?.health,
     database: overview?.database,
-    loading,
-    error,
+    loading: loading && !overview,
+    refreshing,
+    error: error && !overview ? error : null,
     warnings,
     alertWarnings,
     live: {
       kpis: Boolean(overview?.wired && overview?.kpis?.queries?.wired),
       charts: hasChartData,
     },
-    refresh: load,
+    refresh: () => load({ background: Boolean(overviewRef.current) }),
   };
 }

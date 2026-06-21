@@ -261,11 +261,7 @@ export async function fetchD1AnalyticsOverview(env, opts) {
       prevStart: prevStartVal,
     };
 
-    const data = await cloudflareGraphql(env, accountId, token, analyticsQuery, vars);
-
-    let queryRows = [];
-    try {
-      const insightsQuery = `
+    const insightsQuery = `
         query D1QueryInsights($accountTag: string!, $databaseId: string!, $start: ${useDatetime ? 'DateTime' : 'Date'}!, $end: ${useDatetime ? 'DateTime' : 'Date'}!) {
           viewer {
             accounts(filter: { accountTag: $accountTag }) {
@@ -282,14 +278,22 @@ export async function fetchD1AnalyticsOverview(env, opts) {
             }
           }
         }`;
-      const insightsData = await cloudflareGraphql(env, accountId, token, insightsQuery, {
-        databaseId,
-        start: startVal,
-        end: endVal,
-      });
+
+    let data;
+    let queryRows = [];
+    try {
+      const [analyticsData, insightsData] = await Promise.all([
+        cloudflareGraphql(env, accountId, token, analyticsQuery, vars),
+        cloudflareGraphql(env, accountId, token, insightsQuery, {
+          databaseId,
+          start: startVal,
+          end: endVal,
+        }).catch(() => null),
+      ]);
+      data = analyticsData;
       queryRows = insightsData?.viewer?.accounts?.[0]?.topQueries ?? [];
-    } catch {
-      queryRows = [];
+    } catch (e) {
+      throw e;
     }
 
     const account = data?.viewer?.accounts?.[0] ?? {};
