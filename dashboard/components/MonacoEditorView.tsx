@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react';
-import { DiffEditor, useMonaco } from '@monaco-editor/react';
+import { DiffEditor } from '@monaco-editor/react';
 import {
   Save,
   GitCompare,
@@ -30,6 +30,7 @@ import {
 } from '../src/lib/monacoModelRegistry';
 import type { AgentWorkspaceContextPacket } from '../src/ideWorkspace';
 import type { EditorModelMeta } from '../types/editorModel';
+import { useMonacoSafe } from '../src/hooks/useMonacoSafe';
 import { X } from 'lucide-react';
 
 const IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.ico', '.avif'];
@@ -102,7 +103,7 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
   const activeFile = tabs.find(t => t.id === activeTabId) || null;
   const isDirty = activeFile?.isDirty;
 
-  const monaco = useMonaco();
+  const monaco = useMonacoSafe();
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<import('monaco-editor').editor.IStandaloneCodeEditor | null>(null);
   const activeFileRef = useRef(activeFile);
@@ -163,6 +164,22 @@ export const MonacoEditorView: React.FC<MonacoEditorViewProps> = ({
       mo.disconnect();
     };
   }, [monaco]);
+
+  useEffect(() => {
+    const onLayout = () => {
+      try {
+        editorRef.current?.layout();
+      } catch {
+        /* ignore */
+      }
+    };
+    window.addEventListener('iam:monaco-layout', onLayout);
+    window.addEventListener('resize', onLayout);
+    return () => {
+      window.removeEventListener('iam:monaco-layout', onLayout);
+      window.removeEventListener('resize', onLayout);
+    };
+  }, []);
 
   // Agent Cmd+I Handler
   useEffect(() => {

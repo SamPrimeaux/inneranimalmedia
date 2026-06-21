@@ -2839,6 +2839,10 @@ const App: React.FC = () => {
     setEditorPreviewUrl(null);
     setEditorPreviewLoading(false);
     setEditorPreviewStatus(null);
+    setTimeout(() => {
+      window.dispatchEvent(new Event('resize'));
+      window.dispatchEvent(new CustomEvent('iam:monaco-layout'));
+    }, 50);
   }, []);
 
   /** Open inline preview pane — srcDoc or PTY dev server. Never MYBROWSER. */
@@ -2878,6 +2882,10 @@ const App: React.FC = () => {
           ? 'Relative assets may not resolve in inline preview — use a dev server for full fidelity.'
           : null,
       );
+      setTimeout(() => {
+        window.dispatchEvent(new Event('resize'));
+        window.dispatchEvent(new CustomEvent('iam:monaco-layout'));
+      }, 50);
       return;
     }
 
