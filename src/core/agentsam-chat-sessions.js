@@ -9,6 +9,14 @@
  *   context/{au_id}/{ws_id}/chats/{conversation_id}/digests/{epoch}.md
  */
 import { getWorkspaceGithubRepo } from './agentsam-workspace.js';
+import {
+  chatSessionR2PrefixLocal,
+  buildChatDigestText,
+  estimateMessagesTokens,
+  CHAT_COMPACT_TOKEN_THRESHOLD,
+  writeR2Text,
+  readR2Text,
+} from './exec-context-tier.js';
 
 const STOP_WORDS = new Set([
   'a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'is', 'are', 'was',
@@ -24,11 +32,8 @@ const STOP_WORDS = new Set([
  * @param {{ userId: string, workspaceId: string, conversationId: string }} input
  * @returns {string}
  */
-function chatSessionR2Prefix({ userId, workspaceId, conversationId }) {
-  const au = String(userId || '').trim();
-  const ws = String(workspaceId || '').trim();
-  const cv = String(conversationId || '').trim();
-  return `context/${au}/${ws}/chats/${cv}`;
+function chatSessionR2PrefixLocalLocal({ userId, workspaceId, conversationId }) {
+  return chatSessionR2PrefixLocal({ userId, workspaceId, conversationId });
 }
 
 /**
@@ -114,7 +119,7 @@ export async function initChatSessionR2(env, session) {
     return { ok: false, metaKey: '', messagesKey: '' };
   }
 
-  const prefix = chatSessionR2Prefix({ userId, workspaceId, conversationId });
+  const prefix = chatSessionR2PrefixLocal({ userId, workspaceId, conversationId });
   const metaKey = `${prefix}/meta.json`;
   const messagesKey = `${prefix}/messages.jsonl`;
 
@@ -193,7 +198,7 @@ export async function appendChatMessage(env, conversationId, turn) {
       messagesKey = row?.r2_messages_key ?? null;
       // If key not yet written (race: first message before initChatSessionR2 completes), build it
       if (!messagesKey && row?.user_id && row?.workspace_id) {
-        const prefix = chatSessionR2Prefix({
+        const prefix = chatSessionR2PrefixLocal({
           userId: row.user_id,
           workspaceId: row.workspace_id,
           conversationId: convId,
@@ -252,7 +257,75 @@ export async function appendChatMessage(env, conversationId, turn) {
       .catch((e) => console.warn('[appendChatMessage] D1 accumulator update failed', e?.message ?? e));
   }
 
+  maybeCompactChatSession(env, convId).catch((e) =>
+    console.warn('[appendChatMessage] compaction failed', e?.message ?? e),
+  );
+
   return { ok: true };
+}
+
+/**
+ * Compact long chat sessions: write digest.md to R2 cold tier, update D1 markers.
+ * Called after append when token estimate exceeds threshold.
+ *
+ * @param {any} env
+ * @param {string} conversationId
+ * @returns {Promise<{ ok: boolean, reason?: string, digest_key?: string }>}
+ */
+export async function maybeCompactChatSession(env, conversationId) {
+  const convId = String(conversationId || '').trim();
+  if (!convId || !env?.DB) return { ok: false, reason: 'missing_db' };
+
+  const messages = await getChatMessages(env, convId);
+  const tokenEst = estimateMessagesTokens(messages);
+  if (tokenEst < CHAT_COMPACT_TOKEN_THRESHOLD) {
+    return { ok: false, reason: 'below_threshold', token_est: tokenEst };
+  }
+
+  let row = null;
+  try {
+    row = await env.DB.prepare(
+      `SELECT user_id, workspace_id, tenant_id, r2_meta_key, digest_count
+         FROM agentsam_chat_sessions WHERE conversation_id = ? LIMIT 1`,
+    )
+      .bind(convId)
+      .first();
+  } catch (e) {
+    console.warn('[maybeCompactChatSession] D1 lookup failed', e?.message ?? e);
+    return { ok: false, reason: 'd1_lookup_failed' };
+  }
+
+  if (!row?.user_id || !row?.workspace_id) {
+    return { ok: false, reason: 'session_not_found' };
+  }
+
+  const prefix = chatSessionR2PrefixLocal({
+    userId: row.user_id,
+    workspaceId: row.workspace_id,
+    conversationId: convId,
+  });
+  const digestKey = `${prefix}/digest.md`;
+  const digestBody = buildChatDigestText(messages);
+
+  const written = await writeR2Text(env, digestKey, digestBody, 'text/markdown');
+  if (!written) return { ok: false, reason: 'r2_write_failed' };
+
+  try {
+    await env.DB.prepare(
+      `UPDATE agentsam_chat_sessions
+       SET latest_digest_r2_key = ?,
+           digest_count = COALESCE(digest_count, 0) + 1,
+           last_compacted_at = unixepoch(),
+           updated_at = unixepoch()
+       WHERE conversation_id = ?`,
+    )
+      .bind(digestKey, convId)
+      .run();
+  } catch (e) {
+    console.warn('[maybeCompactChatSession] D1 update failed', e?.message ?? e);
+  }
+
+  return { ok: true, digest_key: digestKey, token_est: tokenEst };
 }
 
 /**
@@ -278,7 +351,7 @@ export async function getChatMessages(env, conversationId) {
         .first();
       messagesKey = row?.r2_messages_key ?? null;
       if (!messagesKey && row?.user_id && row?.workspace_id) {
-        const prefix = chatSessionR2Prefix({
+        const prefix = chatSessionR2PrefixLocal({
           userId: row.user_id,
           workspaceId: row.workspace_id,
           conversationId: convId,

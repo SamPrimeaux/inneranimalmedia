@@ -365,6 +365,11 @@ export async function dispatchProductionDomainRoutes(rc) {
     return handleMyContainerExec(request, env);
   }
 
+  if (pathLower === '/api/internal/exec/context/snapshot') {
+    const { handleInternalExecContext } = await import('../api/internal-exec-context.js');
+    return handleInternalExecContext(request, env);
+  }
+
   if (pathLower === '/api/internal/agentsam-vectorize/describe' && methodUpper === 'GET') {
     const { handleAgentsamVectorizeDescribe } = await import('../api/agentsam-vectorize-describe.js');
     return handleAgentsamVectorizeDescribe(request, env);

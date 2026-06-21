@@ -93,16 +93,16 @@ Browser PWA / Cursor MCP
 | **2B** | (Week 2) | Cold start & warm path | inneranimalmedia, MCP |
 | **2C** | (Week 2) | Observability + MCP modularization | all three |
 
-## Sprint 1A — Context tier (Days 1–2)
+## Sprint 1A — Context tier (Days 1–2) ✅ shipped 2026-06-20
 
-**Maps to:** Google Dedicated KV Cache + session retention on TPU 8i
+**Status:** Core implementation landed — internal snapshot API, chat compaction, MCP envelope, ExecOS R2 sync hook.
 
-| # | Task | Owner repo | Done when |
-|---|------|------------|-----------|
-| 1 | R2 prefix `context/{tenant}/{user}/exec/{session_id}/` | inneranimalmedia | Migration + path doc in 1A |
-| 2 | ExecOS `persistSession` → R2 via CORE internal API | ExecOS + CORE | Session survives GCP↔Mac |
-| 3 | Chat compaction policy: hot KV / warm R2 / cold digest | inneranimalmedia | Enforced in agentsam-chat-sessions |
-| 4 | MCP terminal reads same context prefix | MCP | Tool calls include session envelope |
+| # | Task | Status |
+|---|------|--------|
+| 1 | R2 prefix `context/{tenant}/{user}/exec/{session_id}/` | ✅ `src/core/exec-context-tier.js` |
+| 2 | ExecOS `persistSession` → R2 via CORE internal API | ✅ `ExecOS/context-manager.js` |
+| 3 | Chat compaction policy hot/warm/cold | ✅ `maybeCompactChatSession` in agentsam-chat-sessions |
+| 4 | MCP terminal context envelope | ✅ `mcp-exec-context.js` + terminal exec |
 
 See [agentic-edge-sprint-1a-context-tier.md](./agentic-edge-sprint-1a-context-tier.md).
 
