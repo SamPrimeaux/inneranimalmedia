@@ -120,6 +120,7 @@ export async function fetchAgentsamD1Telemetry(env, scope) {
       ? await all(
           db,
           `SELECT id, status, trigger, workspace_id, model_id, cost_usd, input_tokens, output_tokens,
+                  parent_run_id, chain_root_id,
                   created_at, started_at, completed_at, error_message
            FROM agentsam_agent_run
            WHERE user_id = ?
