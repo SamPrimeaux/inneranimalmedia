@@ -1,7 +1,7 @@
 import React, { Suspense, lazy, useCallback, useEffect, useMemo } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useCmsWorkspaceContext } from '../../hooks/useCmsWorkspaceContext';
-import { buildCmsPath, parseCmsRoute, type CmsView } from './cmsRoute';
+import { buildCmsPath, parseCmsRoute, readStoredCmsProjectSlug, type CmsView } from './cmsRoute';
 
 const CmsRoot = lazy(() =>
   import('../../../src/dashboard/cms/CmsRoot.jsx').then((m) => ({
@@ -23,9 +23,15 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
     [location.pathname, searchParams],
   );
 
+  const storedSiteSlug = useMemo(
+    () => readStoredCmsProjectSlug(workspaceId),
+    [workspaceId],
+  );
+  const effectiveSiteSlug = parsed.siteSlug || storedSiteSlug;
+
   const { context, loading, error, persistSite, reload: load } = useCmsWorkspaceContext({
     workspaceId,
-    siteSlug: parsed.siteSlug,
+    siteSlug: effectiveSiteSlug,
     enabled: parsed.view !== 'sites',
   });
 
@@ -34,6 +40,18 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
       navigate(parsed.legacyTarget, { replace: true });
     }
   }, [parsed, navigate]);
+
+  useEffect(() => {
+    if (parsed.view === 'sites' || loading || !context?.project_slug || parsed.siteSlug) return;
+    navigate(
+      buildCmsPath({
+        panel: parsed.panel,
+        pageId: parsed.pageId,
+        siteSlug: context.project_slug,
+      }),
+      { replace: true },
+    );
+  }, [parsed.view, parsed.panel, parsed.pageId, parsed.siteSlug, loading, context?.project_slug, navigate]);
 
   const cmsNavigate = useCallback(
     (target: string) => {
@@ -92,10 +110,10 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
               : error
                 ? `Could not load CMS sites (${error}). Retry or pick a site below if listed.`
                 : siteCount > 1
-                  ? `${context?.ui_label || 'This workspace'} has ${siteCount} sites. Pick one to open PrimeTech Studio.`
+                  ? `${context?.ui_label || 'This workspace'} has ${siteCount} sites. Pick one to open PrimeTech CMS Lite.`
                   : siteCount === 0
                     ? `No CMS sites are configured for ${context?.ui_label || 'this workspace'} yet.`
-                    : `${context?.ui_label || 'This workspace'} has multiple sites. Pick one to open PrimeTech Studio.`}
+                    : `${context?.ui_label || 'This workspace'} has multiple sites. Pick one to open PrimeTech CMS Lite.`}
           </p>
           {error ? (
             <button

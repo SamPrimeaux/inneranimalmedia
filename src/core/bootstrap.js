@@ -1,7 +1,7 @@
 /**
  * agentsam_bootstrap resolution — multi-tenant workspace + bootstrap row selection.
  */
-import { getSession, fetchAuthUserTenantId, authUserIsSuperadmin } from './auth.js';
+import { getSession, fetchAuthUserTenantId, authUserIsSuperadmin, getAuthUser } from './auth.js';
 import { getWorkspaceTenantIdWithFallback } from './agentsam-workspace.js';
 import { resolveIamActorContext } from './identity.js';
 import { userCanAccessWorkspace, workspaceMemberUserCandidates } from './workspace-access.js';

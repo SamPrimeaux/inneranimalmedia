@@ -1286,6 +1286,7 @@ export async function handleCmsApi(request, url, env, ctx) {
           name: s.name || s.slug,
           domain: s.domain || null,
           page_count: s.page_count ?? 0,
+          updated_at: s.updated_at || null,
           url: s.domain ? `https://${s.domain}` : null,
         })),
       });

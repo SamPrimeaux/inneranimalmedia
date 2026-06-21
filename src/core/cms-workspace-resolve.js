@@ -52,6 +52,7 @@ export async function listCmsSitesForScope(env, { tenantId, workspaceId }) {
       name: trim(meta.name) || trim(meta.project_name) || key,
       domain: trim(meta.domain) || null,
       page_count: Number(meta.page_count) || prev.page_count || 0,
+      updated_at: meta.updated_at || prev.updated_at || null,
       source: meta.source || prev.source || 'unknown',
     });
   };
@@ -86,7 +87,7 @@ export async function listCmsSitesForScope(env, { tenantId, workspaceId }) {
 
   try {
     const { results: pageProjects } = await env.DB.prepare(
-      `SELECT project_slug AS slug, COUNT(*) AS page_count
+      `SELECT project_slug AS slug, COUNT(*) AS page_count, MAX(updated_at) AS updated_at
          FROM cms_pages
         WHERE tenant_id = ?
           AND status != 'archived'
@@ -100,6 +101,7 @@ export async function listCmsSitesForScope(env, { tenantId, workspaceId }) {
     for (const row of pageProjects || []) {
       addSite(row.slug, {
         page_count: Number(row.page_count) || 0,
+        updated_at: row.updated_at,
         source: 'cms_pages',
       });
     }
