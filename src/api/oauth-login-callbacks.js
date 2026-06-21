@@ -10,7 +10,6 @@ import {
   resolveTenantAtLogin,
   createLoginSession,
   revokeAuthSession,
-  appendLoginSessionCookies,
 } from '../core/auth.js';
 import { ensureIdentityPlaneBeforeSession } from '../core/ensureIdentityPlaneBeforeSession.js';
 import { ensureAppUser } from '../core/ensureAppUser.js';
@@ -39,9 +38,20 @@ export async function revokeIncomingCookieSession(request, env, reason = 'oauth_
   }
 }
 
-/** Clear stale domain-scoped session cookies, then set apex-scoped session (set last). */
-export function appendBrowserLoginSessionCookies(headers, sessionId, hostname = 'inneranimalmedia.com') {
-  appendLoginSessionCookies(headers, sessionId, hostname);
+/** Clear stale domain-scoped session cookies, then set canonical host-only session (set last). */
+export function appendBrowserLoginSessionCookies(headers, sessionId) {
+  headers.append(
+    'Set-Cookie',
+    `${AUTH_COOKIE_NAME}=; Domain=.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`,
+  );
+  headers.append(
+    'Set-Cookie',
+    `${AUTH_COOKIE_NAME}=; Domain=.sandbox.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`,
+  );
+  headers.append(
+    'Set-Cookie',
+    `${AUTH_COOKIE_NAME}=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`,
+  );
 }
 
 const DASHBOARD_LOGIN_FALLBACK = '/dashboard/agent';
@@ -445,7 +455,7 @@ export async function handleGitHubLoginOAuthCallback(request, url, env, options 
     Location: oauthPostLoginGlobeRedirectUrl(oauthOrigin(url), returnTo),
   });
 
-  appendBrowserLoginSessionCookies(loginHeaders, sessionId, url.hostname);
+  appendBrowserLoginSessionCookies(loginHeaders, sessionId);
 
   return new Response(null, { status: 302, headers: loginHeaders });
 }
@@ -597,7 +607,7 @@ export async function handleGoogleLoginOAuthCallback(request, url, env, options 
     Location: oauthPostLoginGlobeRedirectUrl(oauthOrigin(url), `${oauthOrigin(url)}${safeDest}`),
   });
 
-  appendBrowserLoginSessionCookies(headers, sessionId, url.hostname);
+  appendBrowserLoginSessionCookies(headers, sessionId);
 
   return new Response(null, { status: 302, headers });
 }

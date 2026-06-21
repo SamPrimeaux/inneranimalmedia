@@ -205,27 +205,6 @@ export function getApexDomain(hostname) {
   return hostname;
 }
 
-/** Session cookie shared across *.inneranimalmedia.com (ExecOS zones, etc.). */
-export function buildAuthSessionCookie(sessionId, hostname) {
-  const apex = getApexDomain(hostname);
-  const domainAttr = apex === 'inneranimalmedia.com' ? `; Domain=.${apex}` : '';
-  return `${AUTH_COOKIE_NAME}=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000${domainAttr}`;
-}
-
-const AUTH_SESSION_CLEAR_COOKIES = [
-  `${AUTH_COOKIE_NAME}=; Domain=.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`,
-  `${AUTH_COOKIE_NAME}=; Domain=.sandbox.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`,
-  `${AUTH_COOKIE_NAME}=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`,
-];
-
-/** Clear stale host/domain cookies, then set apex-scoped session for ExecOS + dashboard. */
-export function appendLoginSessionCookies(headers, sessionId, hostname) {
-  for (const clear of AUTH_SESSION_CLEAR_COOKIES) {
-    headers.append('Set-Cookie', clear);
-  }
-  headers.append('Set-Cookie', buildAuthSessionCookie(sessionId, hostname));
-}
-
 /**
  * Loads merged feature flags (global defaults + per-user overrides). Cached ~60s under `ff:{userId}`.
  * Uses agentsam_feature_flag.enabled_globally and agentsam_user_feature_override — schema-driven columns only.
@@ -1210,8 +1189,7 @@ export async function establishIamSession(request, env, userId, bodyObj = { ok: 
   });
 
   const response = jsonResponse(bodyObj);
-  const hostname = new URL(request.url).hostname;
-  response.headers.append('Set-Cookie', buildAuthSessionCookie(sessionId, hostname));
+  response.headers.append('Set-Cookie', `${AUTH_COOKIE_NAME}=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`);
   return response;
 }
 
