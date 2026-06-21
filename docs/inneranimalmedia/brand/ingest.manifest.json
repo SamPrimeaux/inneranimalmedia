@@ -1,0 +1,9 @@
+{
+  "workspace_id": "ws_inneranimalmedia",
+  "source_type": "policy",
+  "source_ref_prefix": "brand/inneranimalmedia",
+  "files": [
+    "docs/inneranimalmedia/brand/genmedia-brand-policy.md",
+    "docs/inneranimalmedia/brand/brand-guidelines.md"
+  ]
+}

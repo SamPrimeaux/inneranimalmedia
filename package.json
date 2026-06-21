@@ -56,6 +56,8 @@
     "run:ingest_designstudio_sprint_plan:dry-run": "./scripts/with-cloudflare-env.sh node scripts/ingest_designstudio_sprint_plan.mjs --dry-run",
     "run:ingest_agentic_edge_sprint_plan": "./scripts/with-cloudflare-env.sh node scripts/ingest_agentic_edge_sprint_plan.mjs",
     "run:ingest_agentic_edge_sprint_plan:dry-run": "./scripts/with-cloudflare-env.sh node scripts/ingest_agentic_edge_sprint_plan.mjs --dry-run",
+    "run:ingest_genmedia_brand_policy": "./scripts/with-cloudflare-env.sh node scripts/ingest_genmedia_brand_policy.mjs",
+    "run:ingest_genmedia_brand_policy:dry-run": "./scripts/with-cloudflare-env.sh node scripts/ingest_genmedia_brand_policy.mjs --dry-run",
     "run:sync_agentic_edge_sprint_memory_vector": "./scripts/with-cloudflare-env.sh node scripts/sync_agentic_edge_sprint_memory_vector.mjs",
     "run:sync_agentic_edge_sprint_memory_vector:dry-run": "./scripts/with-cloudflare-env.sh node scripts/sync_agentic_edge_sprint_memory_vector.mjs --dry-run",
     "run:sync_designstudio_sprint_memory_vector": "./scripts/with-cloudflare-env.sh node scripts/sync_designstudio_sprint_memory_vector.mjs",
