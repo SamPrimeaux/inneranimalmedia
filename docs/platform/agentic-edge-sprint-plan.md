@@ -140,7 +140,15 @@ See [agentic-edge-sprint-1c-exec-fabric.md](./agentic-edge-sprint-1c-exec-fabric
 | **2B** | MCP catalog KV + routing priors warm path | [2b](./agentic-edge-sprint-2b-warm-path.md) |
 | **2C** | Deployment/build analytics tools + dispatch split | [2c](./agentic-edge-sprint-2c-observability-mcp.md) |
 
-**Recommended order:** 2C (observability tools build on 1C audit) → 2A (spawn linkage needs stable audit) → 2B (warm path last, perf polish).
+**Recommended order:** **2A → 2B → 2C**
+
+| Priority | Sprint | Rationale |
+|----------|--------|-----------|
+| 1 | **2A** | Pure code against live tables (`agentsam_agent_run` ~344 rows, `agentsam_spawn_job` exists) — shippable and verifiable immediately |
+| 2 | **2B** | Perf polish; no upstream ingest dependency |
+| 3 | **2C** | `agentsam_build_status` and `agentsam_worker_analytics` need CF Observability ingest cron seeded and run at least once before tools return useful data |
+
+**Parallel track:** Seed the CF Observability → `worker_analytics_events` ingest cron while 2A is in progress; start 2C tool handlers once the first ingest window has data.
 
 ## Decision matrix
 

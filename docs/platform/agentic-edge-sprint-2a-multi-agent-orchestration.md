@@ -12,7 +12,8 @@ updated: 2026-06-21
 
 **Duration:** 3–4 days  
 **Parent:** [agentic-edge-sprint-plan.md](./agentic-edge-sprint-plan.md)  
-**Google analog:** Agentic intent → specialized agent fleet with preserved parent↔child linkage
+**Google analog:** Agentic intent → specialized agent fleet with preserved parent↔child linkage  
+**Week 2 priority:** **#1 — ship first** (live D1 data; no ingest cron dependency)
 
 ## Problem
 

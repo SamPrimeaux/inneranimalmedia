@@ -13,11 +13,14 @@ updated: 2026-06-21
 **Duration:** 3–4 days  
 **Parent:** [agentic-edge-sprint-plan.md](./agentic-edge-sprint-plan.md)  
 **Repos:** inneranimalmedia, inneranimalmedia-mcp-server, ExecOS  
-**Google analog:** Unified telemetry plane — trace coverage on agent + MCP + exec fabric
+**Google analog:** Unified telemetry plane — trace coverage on agent + MCP + exec fabric  
+**Week 2 priority:** **#3 — after 2A/2B**; start ingest cron in parallel with 2A
 
 ## Problem
 
-Live data exists but is hard to query: `mcp_audit_log` (~6k rows, now queryable via `agentsam_mcp_audit` after 1C), `worker_analytics_daily` schema exists but CF Observability API ingest is incomplete, deployment health smoke writes wrong columns (partially fixed 1B), and MCP `index.js` dispatch monolith grows with each handler lane.
+Live data exists but is hard to query: `mcp_audit_log` (~6k rows, queryable via `agentsam_mcp_audit` after 1C), `worker_analytics_daily` schema exists but CF Observability API ingest is incomplete, deployment health smoke writes wrong columns (partially fixed 1B), and MCP `index.js` dispatch monolith grows with each handler lane.
+
+**Why 2C follows 2A:** `agentsam_build_status` and `agentsam_worker_analytics` depend on the Observability ingest cron populating `worker_analytics_events` / daily rollups at least once. Seed that cron while 2A ships against tables that already have rows (`agentsam_agent_run`, `agentsam_spawn_job`).
 
 ## Goal
 
@@ -39,10 +42,11 @@ Operator-grade observability MCP tools + automated CF analytics ingest + thin di
 
 All read-only, `handler_type: telemetry`, OAuth allowlist `read`.
 
-### 2. CF Observability → D1 ingest
+### 2. CF Observability → D1 ingest (seed early — parallel with 2A)
 
 **Files:** `src/core/worker-analytics-rollup.js`, new `scripts/ingest-cf-worker-analytics.mjs`
 
+- **Start this cron/seed job while Sprint 2A is in progress** so 2C tools have data when handlers land
 - Cron or manual script: CF GraphQL/Observability API → `worker_analytics_events` (existing)
 - Ensure rollup cron populates `worker_analytics_daily` (rollup exists; wire scheduled trigger if missing)
 - Fix `scripts/record-d1-deployment-health.mjs` remaining column drift (verify against live schema)
