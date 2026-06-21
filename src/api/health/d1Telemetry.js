@@ -185,23 +185,6 @@ export async function fetchAgentsamD1Telemetry(env, scope) {
     out.tables.agentsam_mcp_tool_execution = { available: false, recent: [] };
   }
 
-  // --- agentsam_model_drift_signals ---
-  if (await tableExists(db, 'agentsam_model_drift_signals')) {
-    const cols = await pragmaTableInfo(db, 'agentsam_model_drift_signals');
-    const hasTid = cols.has('tenant_id');
-    const rows =
-      tid && hasTid
-        ? await all(
-            db,
-            `SELECT * FROM agentsam_model_drift_signals WHERE tenant_id = ? ORDER BY COALESCE(period_end,0) DESC LIMIT 20`,
-            [tid],
-          )
-        : await all(db, `SELECT * FROM agentsam_model_drift_signals ORDER BY COALESCE(period_end,0) DESC LIMIT 20`);
-    out.tables.agentsam_model_drift_signals = { available: true, recent: rows };
-  } else {
-    out.tables.agentsam_model_drift_signals = { available: false, recent: [] };
-  }
-
   // --- agentsam_tool_call_log ---
   if (await tableExists(db, 'agentsam_tool_call_log')) {
     const cols = await pragmaTableInfo(db, 'agentsam_tool_call_log');

@@ -101,7 +101,6 @@ export async function getInsights(env, workspace) {
       `SELECT model_key, provider, task_type, severity,
               baseline_score, current_score, delta, delta_pct,
               detected_at, acknowledged, routing_arm_paused
-       FROM agentsam_model_drift_signals
        WHERE acknowledged = 0
        ORDER BY detected_at DESC LIMIT 20`,
       [],

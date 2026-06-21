@@ -361,131 +361,9 @@ export async function rollupWorkspaceUsageMetrics(env) {
   }
 }
 
-export async function rollupModelPerformanceScores(env) {
-  if (!env?.DB) return { ok: false, skipped: true };
-  const out = await pragmaTableInfo(env.DB, 'agentsam_model_drift_signals');
-  const tel = await pragmaTableInfo(env.DB, 'agentsam_usage_events');
-  if (!out.size || !tel.has('created_at') || (!tel.has('model') && !tel.has('model_key'))) {
-    return { ok: false, skipped: true, reason: 'schema' };
-  }
-
-  const modelDest = out.has('model') ? 'model' : out.has('model_key') ? 'model_key' : null;
-  if (!modelDest) return { ok: false, skipped: true, reason: 'no_model_column' };
-
-  const insertCols = [];
-  const selectExprs = [];
-  if (out.has('tenant_id') && tel.has('tenant_id')) {
-    insertCols.push('tenant_id');
-    selectExprs.push(`COALESCE(NULLIF(trim(tenant_id), ''), '')`);
-  }
-  insertCols.push(modelDest);
-  const modelExpr = tel.has('model_key') && tel.has('model')
-    ? `COALESCE(model_key, model, 'unknown')`
-    : tel.has('model_key')
-      ? `COALESCE(model_key, 'unknown')`
-      : `COALESCE(model, 'unknown')`;
-  selectExprs.push(modelExpr);
-  if (tel.has('provider') && out.has('provider')) {
-    insertCols.push('provider');
-    selectExprs.push(`COALESCE(provider,'unknown')`);
-  }
-  if ((tel.has('event_type') || tel.has('metric_type')) && out.has('task_type')) {
-    insertCols.push('task_type');
-    selectExprs.push(
-      tel.has('event_type') ? `COALESCE(event_type,'general')` : `COALESCE(metric_type,'general')`,
-    );
-  }
-  if (out.has('period_start')) {
-    insertCols.push('period_start');
-    selectExprs.push(`unixepoch(date('now','-7 days'))`);
-  }
-  if (out.has('period_end')) {
-    insertCols.push('period_end');
-    selectExprs.push(`unixepoch('now')`);
-  }
-  if (out.has('calls')) {
-    insertCols.push('calls');
-    selectExprs.push('COUNT(*)');
-  } else if (out.has('call_count')) {
-    insertCols.push('call_count');
-    selectExprs.push('COUNT(*)');
-  }
-  if (out.has('error_count') && tel.has('status')) {
-    insertCols.push('error_count');
-    selectExprs.push(`SUM(CASE WHEN LOWER(COALESCE(status,'')) IN ('error','blocked','timeout') THEN 1 ELSE 0 END)`);
-  }
-  if (out.has('error_rate') && tel.has('status')) {
-    insertCols.push('error_rate');
-    selectExprs.push(
-      `CAST(SUM(CASE WHEN LOWER(COALESCE(status,'')) IN ('error','blocked','timeout') THEN 1 ELSE 0 END) AS REAL) / NULLIF(COUNT(*), 0)`,
-    );
-  }
-  if (out.has('avg_cost_usd')) {
-    insertCols.push('avg_cost_usd');
-    selectExprs.push('AVG(COALESCE(cost_usd,0))');
-  }
-  if (out.has('total_cost_usd')) {
-    insertCols.push('total_cost_usd');
-    selectExprs.push('SUM(COALESCE(cost_usd,0))');
-  }
-  if (out.has('avg_input_tokens')) {
-    insertCols.push('avg_input_tokens');
-    selectExprs.push(
-      tel.has('tokens_in') ? 'AVG(COALESCE(tokens_in,0))' : 'AVG(COALESCE(input_tokens,0))',
-    );
-  }
-  if (out.has('avg_output_tokens')) {
-    insertCols.push('avg_output_tokens');
-    selectExprs.push(
-      tel.has('tokens_out') ? 'AVG(COALESCE(tokens_out,0))' : 'AVG(COALESCE(output_tokens,0))',
-    );
-  }
-  if (out.has('avg_latency_ms')) {
-    insertCols.push('avg_latency_ms');
-    selectExprs.push(
-      tel.has('duration_ms') ? 'AVG(COALESCE(duration_ms,0))' : 'NULL',
-    );
-  }
-  if (out.has('data_quality')) {
-    insertCols.push('data_quality');
-    selectExprs.push(`CASE WHEN COUNT(*) >= 10 THEN 'sufficient' ELSE 'insufficient' END`);
-  }
-  if (out.has('computed_at')) {
-    insertCols.push('computed_at');
-    selectExprs.push('unixepoch()');
-  }
-
-  const groupParts = [];
-  if (tel.has('tenant_id') && out.has('tenant_id')) {
-    groupParts.push(`COALESCE(NULLIF(trim(tenant_id), ''), '')`);
-  }
-  groupParts.push(modelExpr);
-  if (tel.has('provider')) groupParts.push('provider');
-  if (tel.has('event_type')) groupParts.push('event_type');
-  else if (tel.has('metric_type')) groupParts.push('metric_type');
-
-  const sql = `
-    INSERT INTO agentsam_model_drift_signals (${insertCols.join(', ')})
-    SELECT ${selectExprs.join(', ')}
-    FROM agentsam_usage_events
-    WHERE created_at >= unixepoch(date('now','-7 days'))
-      AND length(trim(COALESCE(model_key, model, ''))) > 0
-      ${tel.has('tenant_id') ? `AND length(trim(COALESCE(tenant_id,''))) > 0` : ''}
-    GROUP BY ${groupParts.join(', ')}
-  `;
-
-  try {
-    const r = await env.DB.prepare(sql).run();
-    return { ok: true, changes: r.meta?.changes ?? r.changes ?? 0 };
-  } catch (e) {
-    return { ok: false, error: String(e?.message || e) };
-  }
-}
-
 export async function updateModelRoutingRulesFromScores(env) {
   if (!env?.DB) return { ok: false, skipped: true };
   const rules = await pragmaTableInfo(env.DB, 'agentsam_routing_arms');
-  const scores = await pragmaTableInfo(env.DB, 'agentsam_model_drift_signals');
   if (!rules.has('task_type') || !scores.has('task_type')) {
     return { ok: false, skipped: true };
   }
@@ -507,14 +385,12 @@ export async function updateModelRoutingRulesFromScores(env) {
       UPDATE agentsam_routing_arms SET
         is_active = CASE
           WHEN ${primaryCol} IN (
-            SELECT ${modelCol} FROM agentsam_model_drift_signals
             WHERE ${scores.has('data_quality') ? "data_quality = 'sufficient' AND" : ''}
               ${scores.has('error_rate') ? 'error_rate < 0.1 AND' : ''}
               task_type = agentsam_routing_arms.task_type
             ORDER BY ${orderCol} DESC
             LIMIT 1
           ) THEN 1 ELSE is_active END
-      WHERE task_type IN (SELECT DISTINCT task_type FROM agentsam_model_drift_signals WHERE task_type IS NOT NULL)
     `;
     const r = await env.DB.prepare(sql).run();
     return { ok: true, changes: r.meta?.changes ?? r.changes ?? 0 };
@@ -965,7 +841,6 @@ export async function offloadRetentionToSupabase(env) {
       .catch(() => ({ results: [] }));
 
     const perf = await env.DB.prepare(
-      `SELECT * FROM agentsam_model_drift_signals LIMIT 100`,
     )
       .all()
       .catch(() => ({ results: [] }));
@@ -998,7 +873,6 @@ export async function offloadRetentionToSupabase(env) {
         body: JSON.stringify(
           perf.results.map((row) => ({
             ...row,
-            offload_source: 'agentsam_model_drift_signals',
           })),
         ),
       }).catch(() => {});
@@ -1017,7 +891,6 @@ export async function runMasterDailyRetention(env) {
     agentsam_analytics: await rollupAgentsamAnalyticsDaily(env),
     agentsam_tool_stats_compacted: await rollupMcpToolCallStats(env),
     workspace_usage_metrics: await rollupWorkspaceUsageMetrics(env),
-    agentsam_model_drift_signals: await rollupModelPerformanceScores(env),
     agentsam_routing_arms: await updateModelRoutingRulesFromScores(env),
     thompson_arm_update: (await isEtoThompsonOwner(env))
       ? { skipped: true, reason: 'eto_thompson_owner' }

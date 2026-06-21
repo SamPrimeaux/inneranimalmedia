@@ -304,16 +304,7 @@ export async function handleAnalyticsModelsDrift(request, url, env) {
   const range = parseRange(url);
   const warnings = [];
   const db = env?.DB || null;
-  if (!db || !(await tableExists(db, 'agentsam_model_drift_signals'))) {
-    return analyticsResponse({
-      ok: true,
-      backend: 'd1',
-      range,
-      summary: { state: 'EMPTY' },
-      rows: [],
-      warnings,
-    });
-  }
+  
   const where =
     range === '24h'
       ? `detected_at >= unixepoch('now','-24 hours')`
@@ -325,7 +316,6 @@ export async function handleAnalyticsModelsDrift(request, url, env) {
   const rows = await d1All(
     db,
     'drift',
-    `SELECT * FROM agentsam_model_drift_signals WHERE ${where} ORDER BY detected_at DESC LIMIT 100`,
     [],
     warnings,
   );
