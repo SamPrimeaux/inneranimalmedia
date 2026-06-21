@@ -104,6 +104,11 @@
 			"binding": "AGENTSAM_VECTORIZE_COURSES",
 			"index_name": "agentsam-courses-oai3large-1536",
 			"remote": true
+		},
+		{
+			"binding": "AGENTSAM_VECTORIZE_MEDIA",
+			"index_name": "agentsam-moviemode-gemini2-1536",
+			"remote": true
 		}
 	],
 	"kv_namespaces": [
@@ -162,7 +167,8 @@
 			"max_instances": 10
 		}
 	],
-	// Match wrangler.production.toml so CF Builds (`wrangler deploy -c wrangler.jsonc`) exposes DO stubs.
+	// Match wrangler.production.toml so CF Builds (`wrangler deploy -c wrangler.production.toml`) exposes DO stubs.
+	// Never re-add legacy VECTORIZE / AGENTSAMVECTORIZE bindings — indexes were deleted 2026-06.
 	"durable_objects": {
 		"bindings": [
 			{
