@@ -160,12 +160,15 @@ export async function recordDeployEvalHealth(root, opts) {
   const mj = pickFirstExisting(cols, ['metadata_json', 'details_json', 'context_json', 'payload_json']);
   if (mj) row[mj] = meta;
 
-  const lt = pickFirstExisting(cols, ['latency_ms', 'response_ms', 'duration_ms']);
+  const lt = pickFirstExisting(cols, ['response_time_ms', 'latency_ms', 'response_ms', 'duration_ms']);
   if (lt && evalRes.health_latency_ms != null)
     row[lt] = Math.floor(Number(evalRes.health_latency_ms));
 
-  const hc = pickFirstExisting(cols, ['http_status', 'response_code']);
+  const hc = pickFirstExisting(cols, ['http_status_code', 'http_status', 'response_code']);
   if (hc && evalRes.health_status != null) row[hc] = Math.floor(Number(evalRes.health_status));
+
+  const cu = pickFirstExisting(cols, ['check_url', 'health_check_url']);
+  if (cu && meta.checked_url) row[cu] = String(meta.checked_url).slice(0, 2000);
 
   const aiCost = pickFirstExisting(cols, ['ai_cost_usd']);
   if (aiCost) row[aiCost] = 0;

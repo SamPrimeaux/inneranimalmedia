@@ -106,16 +106,14 @@ Browser PWA / Cursor MCP
 
 See [agentic-edge-sprint-1a-context-tier.md](./agentic-edge-sprint-1a-context-tier.md).
 
-## Sprint 1B — Inference Gateway Lite (Days 3–4)
+## Sprint 1B — Inference Gateway Lite ✅ shipped 2026-06-21
 
-**Maps to:** GKE Inference Gateway predictive latency boost
-
-| # | Task | Owner repo | Done when |
-|---|------|------------|-----------|
-| 5 | D1 `agentsam_model_health` table | inneranimalmedia | Migration 650 applied |
-| 6 | CORE deprioritize high-TTFT arms for interactive chat | inneranimalmedia | routing.js reads health |
-| 7 | MCP logs `time_to_first_token_ms` on tools/call | MCP | Feeds health via cron |
-| 8 | ExecOS `/run` returns `latency_ms` | ExecOS | JSON response field |
+| # | Task | Status |
+|---|------|--------|
+| 1 | TTFT penalty in `routing.js` → `mergeModelRoutingMemoryPriors` | ✅ `applyTtftPenaltyToAlpha` |
+| 2 | `latency_ms` on all `agentsam_agent_run` finalize paths | ✅ `agent-run-routing.js` |
+| 3 | MCP `mcp_audit_log` latency on tools/call | ✅ already wired; verified |
+| — | Fix `agentsam_deployment_health` smoke column mapping | ✅ `record-d1-deployment-health.mjs` |
 
 See [agentic-edge-sprint-1b-inference-gateway.md](./agentic-edge-sprint-1b-inference-gateway.md).
 

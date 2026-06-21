@@ -26,6 +26,9 @@ import {
   normalizeAgentSlug,
   routingArmSlugScopeSql,
 } from './routing-arms-agent-slug.js';
+import { applyTtftPenaltyToAlpha, TTFT_INTERACTIVE_PENALTY_MS } from './exec-context-tier.js';
+
+export { TTFT_INTERACTIVE_PENALTY_MS };
 
 /** Labeled Anthropic smoketest batches — provider chain must not fall through to Gemini/OpenAI. */
 export function isAnthropicSmoketestQuickstartBatch(batch) {
@@ -709,14 +712,16 @@ export async function resolveRoutingArmByModelKey(
 
 /**
  * Cold-start: blend `agentsam_model_routing_memory.success_rate` into Beta priors (in-memory copy only).
+ * Interactive modes (agent/ask): TTFT penalty when avg_latency_ms exceeds threshold.
  */
-export async function mergeModelRoutingMemoryPriors(env, workspaceId, taskType, arms) {
+export async function mergeModelRoutingMemoryPriors(env, workspaceId, taskType, arms, mode = 'agent') {
   if (!env?.DB || !arms?.length) return arms;
   const mem = await pragmaTableInfo(env.DB, 'agentsam_model_routing_memory');
   if (!mem.size || !mem.has('model_key')) return arms;
   const ws = workspaceId != null ? String(workspaceId).trim() : '';
   if (!ws) return arms;
   const tt = normalizeCanonicalTaskType(taskType != null ? taskType : 'ask');
+  const md = String(mode || 'agent').trim().toLowerCase();
   const out = [];
   for (const arm of arms) {
     const mk = String(arm.model_key ?? '').trim();
@@ -728,7 +733,7 @@ export async function mergeModelRoutingMemoryPriors(env, workspaceId, taskType, 
     try {
       row = await env.DB
         .prepare(
-          `SELECT success_rate, avg_latency_ms, avg_cost_usd, code_pass_rate, hallucination_rate
+          `SELECT success_rate, avg_latency_ms, avg_cost_usd, code_pass_rate, hallucination_rate, sample_n
            FROM agentsam_model_routing_memory
            WHERE workspace_id = ? AND task_type = ? AND model_key = ?
            LIMIT 1`,
@@ -746,10 +751,32 @@ export async function mergeModelRoutingMemoryPriors(env, workspaceId, taskType, 
     const pseudo = 12;
     const succ = Math.max(0, Math.round(sr * pseudo));
     const fail = Math.max(0, pseudo - succ);
+    let successAlpha = Math.max(1e-6, Number(arm.success_alpha ?? 1) + succ);
+    const successBeta = Math.max(1e-6, Number(arm.success_beta ?? 1) + fail);
+
+    const penalized = applyTtftPenaltyToAlpha(successAlpha, {
+      mode: md,
+      sampleN: row.sample_n,
+      avgLatencyMs: row.avg_latency_ms,
+    });
+    if (penalized !== successAlpha) {
+      console.info(
+        '[routing] ttft_penalty_applied',
+        JSON.stringify({
+          model_key: mk,
+          task_type: tt,
+          mode: md,
+          avg_latency_ms: row.avg_latency_ms,
+          sample_n: row.sample_n,
+        }),
+      );
+      successAlpha = penalized;
+    }
+
     out.push({
       ...arm,
-      success_alpha: Math.max(1e-6, Number(arm.success_alpha ?? 1) + succ),
-      success_beta: Math.max(1e-6, Number(arm.success_beta ?? 1) + fail),
+      success_alpha: successAlpha,
+      success_beta: successBeta,
     });
   }
   return out;
@@ -861,7 +888,7 @@ export async function getDefaultModelForTask(env, ctx = {}) {
       agentSlug,
     });
     arms = await filterArmsForRouteKey(env, ctx.routeKey ?? null, arms);
-    arms = await mergeModelRoutingMemoryPriors(env, workspaceId, taskType, arms);
+    arms = await mergeModelRoutingMemoryPriors(env, workspaceId, taskType, arms, mode);
     const useThompson = await isThompsonRoutingSamplingEnabled(env, {
       userId: ctx.userId,
       tenantId: ctx.tenantId,
@@ -1010,7 +1037,7 @@ export async function resolveRoutingArm(
     });
     if (!arms.length) return null;
 
-    arms = await mergeModelRoutingMemoryPriors(env, ws, tt, arms);
+    arms = await mergeModelRoutingMemoryPriors(env, ws, tt, arms, md);
 
     if (exclude.size) {
       arms = arms.filter((a) => !exclude.has(String(a.model_key || '').trim()));

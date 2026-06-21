@@ -3,7 +3,7 @@ title: Sprint 1B — Inference Gateway Lite (TTFT-aware routing)
 project_key: inneranimalmedia
 topic: agentic_edge_sprint
 sprint_id: agentic_edge_1b
-sprint_status: planned
+sprint_status: in_progress
 lane_key: docs_knowledge_search
 updated: 2026-06-20
 ---

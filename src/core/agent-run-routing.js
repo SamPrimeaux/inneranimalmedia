@@ -578,6 +578,10 @@ export function scheduleAgentsamChatAgentRunInsert(env, ctx, p) {
         if (typeof p.qualityScore === 'number' && !isNaN(p.qualityScore)) {
           pushSet('quality_score', Math.max(0, Math.min(1, p.qualityScore)));
         }
+        const dur = Math.max(0, Math.floor(Number(p.durationMs) || 0));
+        if (dur > 0) {
+          pushSet('latency_ms', dur);
+        }
         if (p.timedOut === true && cols.has('timed_out')) {
           pushSet('timed_out', 1);
         }
@@ -706,6 +710,9 @@ export function scheduleAgentsamChatAgentRunInsert(env, ctx, p) {
       const dur = Math.max(0, Math.floor(Number(p.durationMs) || 0));
       const isoNow = new Date().toISOString();
       const isoStart = new Date(Date.now() - dur).toISOString();
+      if (dur > 0) {
+        add('latency_ms', dur);
+      }
       if (cols.has('started_at')) {
         parts.push('started_at');
         binds.push(isoStart);

@@ -86,3 +86,22 @@ export function buildChatDigestText(messages) {
     .filter(Boolean);
   return `# Session digest\n\n${lines.join('\n\n')}\n`;
 }
+
+/** TTFT penalty for Thompson priors — pure helper for tests + routing.js */
+export const TTFT_INTERACTIVE_PENALTY_MS = 8000;
+const TTFT_LATENCY_INSENSITIVE_MODES = new Set(['plan', 'multitask']);
+
+/**
+ * @param {number} successAlpha
+ * @param {{ avgLatencyMs?: number, sampleN?: number, mode?: string }} opts
+ */
+export function applyTtftPenaltyToAlpha(successAlpha, opts = {}) {
+  const mode = String(opts.mode || 'agent').trim().toLowerCase();
+  if (TTFT_LATENCY_INSENSITIVE_MODES.has(mode)) return successAlpha;
+  const sampleN = Math.max(0, Math.floor(Number(opts.sampleN) || 0));
+  const avgLat = Number(opts.avgLatencyMs) || 0;
+  if (sampleN >= 5 && avgLat > TTFT_INTERACTIVE_PENALTY_MS) {
+    return successAlpha * 0.7;
+  }
+  return successAlpha;
+}
