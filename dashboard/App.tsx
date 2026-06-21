@@ -3252,7 +3252,7 @@ const App: React.FC = () => {
         aria-hidden="true"
       />
       {/* 1. TOP WINDOW BAR + mobile hamburger (sticky ≤430px) */}
-      <header className="shrink-0 z-[110] max-phone:sticky max-phone:top-0 bg-[var(--dashboard-topbar)] text-[var(--dashboard-topbar-text)]">
+      <header className="shrink-0 z-[110] max-phone:sticky max-phone:top-0 bg-[var(--dashboard-topbar)] text-[var(--dashboard-topbar-text)] [&_.text-\\[var\\(--text-muted\\)\\]]:text-[var(--text-nav-muted,var(--dashboard-muted))] [&_.text-\\[var\\(--text-main\\)\\]]:text-[var(--dashboard-topbar-text)]">
       <div className="h-10 border-b border-[var(--dashboard-border)] flex items-center justify-between px-3 overflow-visible relative">
           <div className="flex items-center gap-1 opacity-80 pl-1 shrink-0 min-w-0">
               <img
@@ -3449,7 +3449,7 @@ const App: React.FC = () => {
           {/* 2. ACTIVITY BAR (Extreme Left) — hidden ≤430px; use bottom tab bar + More */}
           {/* Activity bar: icon rail (width toggled via ☰ — localStorage iam_sidebar_expanded) */}
           <div
-            className="hidden tablet-up:flex flex-col h-full min-h-0 py-3 gap-1 px-1 bg-[var(--dashboard-sidebar)] border-r border-[var(--dashboard-border)] shrink-0 z-50 overflow-x-hidden overflow-y-auto transition-[width] duration-200 ease-in-out"
+            className="hidden tablet-up:flex flex-col h-full min-h-0 py-3 gap-1 px-1 bg-[var(--dashboard-sidebar)] text-[var(--dashboard-sidebar-text,var(--dashboard-text))] border-r border-[var(--dashboard-border)] shrink-0 z-50 overflow-x-hidden overflow-y-auto transition-[width] duration-200 ease-in-out [&_.text-\\[var\\(--text-muted\\)\\]]:text-[var(--dashboard-sidebar-muted,var(--dashboard-muted))] [&_.text-\\[var\\(--text-main\\)\\]]:text-[var(--dashboard-sidebar-text,var(--dashboard-text))]"
             style={{ width: sidebarRailExpanded ? 200 : 48 }}
           >
               <DashboardSidebar

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { applyCmsThemeToDocument, type CmsActiveThemePayload } from '../../src/applyCmsTheme';
 import { ThemePreviewCard, type CatalogTheme } from './ThemePreviewCard';
 import { ThemeJsonInspector } from './ThemeJsonInspector';
+import { ThemeTweaksPanel } from './ThemeTweaksPanel';
 
 type ThemesApiResponse = { themes?: CatalogTheme[] };
 
@@ -29,6 +30,8 @@ export function ThemeBrowser({ workspaceId }: ThemeBrowserProps): React.ReactEle
   const [query, setQuery] = useState('');
   const [view, setView] = useState<'grid' | 'compact'>('grid');
   const [inspectTheme, setInspectTheme] = useState<CatalogTheme | null>(null);
+  const [editTheme, setEditTheme] = useState<CatalogTheme | null>(null);
+  const [createTheme, setCreateTheme] = useState(false);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
 
   const qs =
@@ -222,6 +225,16 @@ export function ThemeBrowser({ workspaceId }: ThemeBrowserProps): React.ReactEle
           </div>
           <button
             type="button"
+            className="text-xs px-3 py-1.5 rounded-lg border border-[var(--dashboard-border)] bg-[var(--color-primary)] text-white"
+            onClick={() => {
+              setCreateTheme(true);
+              setEditTheme(null);
+            }}
+          >
+            New theme
+          </button>
+          <button
+            type="button"
             className="text-xs px-3 py-1.5 rounded-lg border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)]"
             onClick={() => void loadAll()}
           >
@@ -235,27 +248,56 @@ export function ThemeBrowser({ workspaceId }: ThemeBrowserProps): React.ReactEle
       {loading ? (
         <p className="text-xs text-[var(--text-muted)]">Loading themes…</p>
       ) : (
-        <div
-          className={
-            view === 'grid'
-              ? 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4'
-              : 'flex flex-col gap-2'
-          }
-        >
-          {filtered.map((theme) => (
-            <ThemePreviewCard
-              key={theme.id}
-              theme={theme}
-              active={activeSlug === theme.slug}
-              compact={view === 'compact'}
+        <div className={`grid gap-4 ${editTheme || createTheme ? 'xl:grid-cols-[minmax(0,1fr)_380px]' : ''}`}>
+          <div
+            className={
+              view === 'grid'
+                ? 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4'
+                : 'flex flex-col gap-2'
+            }
+          >
+            {filtered.map((theme) => (
+              <ThemePreviewCard
+                key={theme.id}
+                theme={theme}
+                active={activeSlug === theme.slug}
+                compact={view === 'compact'}
+                onApply={(t) => void applyTheme(t)}
+                onEdit={(t) => {
+                  setEditTheme(t);
+                  setCreateTheme(false);
+                }}
+                onPreviewLocal={previewLocal}
+                onInspect={setInspectTheme}
+                onOpenPackage={openPackage}
+                onRegenerate={(t) => void regenerate(t)}
+              />
+            ))}
+          </div>
+
+          {editTheme || createTheme ? (
+            <ThemeTweaksPanel
               workspaceId={workspaceId}
-              onApply={(t) => void applyTheme(t)}
-              onPreviewLocal={previewLocal}
-              onInspect={setInspectTheme}
-              onOpenPackage={openPackage}
-              onRegenerate={(t) => void regenerate(t)}
+              theme={editTheme}
+              createMode={createTheme}
+              onClose={() => {
+                setEditTheme(null);
+                setCreateTheme(false);
+                void loadAll();
+                void fetch(`/api/themes/active${qs}`, { credentials: 'include' })
+                  .then((r) => (r.ok ? r.json() : null))
+                  .then((p) => {
+                    if (p?.data) applyCmsThemeToDocument(p as CmsActiveThemePayload);
+                  })
+                  .catch(() => {});
+              }}
+              onSaved={() => void loadAll()}
+              onDeleted={() => {
+                setEditTheme(null);
+                void loadAll();
+              }}
             />
-          ))}
+          ) : null}
         </div>
       )}
 

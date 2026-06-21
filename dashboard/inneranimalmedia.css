@@ -83,6 +83,8 @@
   --dashboard-topbar: var(--bg-nav, var(--dashboard-panel));
   --dashboard-topbar-text: var(--text-nav, var(--dashboard-text));
   --dashboard-sidebar: var(--bg-shell, var(--dashboard-panel));
+  --dashboard-sidebar-text: var(--text-sidebar, var(--dashboard-text));
+  --dashboard-sidebar-muted: var(--text-sidebar-muted, var(--dashboard-muted));
 }
 
 /*
@@ -101,6 +103,8 @@
   --dashboard-topbar: var(--bg-nav, var(--dashboard-panel));
   --dashboard-topbar-text: var(--text-nav, var(--dashboard-text));
   --dashboard-sidebar: var(--bg-shell, var(--dashboard-panel));
+  --dashboard-sidebar-text: var(--text-sidebar, var(--dashboard-text));
+  --dashboard-sidebar-muted: var(--text-sidebar-muted, var(--dashboard-muted));
 }
 
 body {

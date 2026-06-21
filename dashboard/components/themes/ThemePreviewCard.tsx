@@ -21,6 +21,7 @@ export type ThemePreviewCardProps = {
   active: boolean;
   compact?: boolean;
   onApply: (t: CatalogTheme) => void;
+  onEdit: (t: CatalogTheme) => void;
   onPreviewLocal: (t: CatalogTheme) => void;
   onInspect: (t: CatalogTheme) => void;
   onOpenPackage: (t: CatalogTheme) => void;
@@ -32,6 +33,7 @@ export function ThemePreviewCard({
   active,
   compact,
   onApply,
+  onEdit,
   onPreviewLocal,
   onInspect,
   onOpenPackage,
@@ -109,7 +111,14 @@ export function ThemePreviewCard({
           <div className="flex flex-wrap gap-1.5 mt-2">
             <button
               type="button"
-              className="text-[11px] px-2 py-1 rounded-md bg-[var(--solar-cyan)] text-black font-medium"
+              className="text-[11px] px-2 py-1 rounded-md bg-[var(--color-primary)] text-white font-medium"
+              onClick={() => onEdit(theme)}
+            >
+              Tweaks
+            </button>
+            <button
+              type="button"
+              className="text-[11px] px-2 py-1 rounded-md bg-[var(--color-primary)]/90 text-white font-medium"
               onClick={() => onApply(theme)}
             >
               Apply

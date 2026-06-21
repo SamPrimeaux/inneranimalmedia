@@ -46,6 +46,7 @@ import {
   mergePackageMetaIntoTokensJson,
   recordCmsThemePackageDeploy,
 } from "../core/cms-theme-registry.js";
+import { buildThemeRowUpdateFromBody } from "../core/cms-theme-update.js";
 
 const DEFAULT_ASSETS_ORIGIN = "https://assets.inneranimalmedia.com";
 const DEFAULT_R2_BUCKET = "inneranimalmedia";
@@ -440,23 +441,43 @@ export async function handleThemesApi(request, url, env, ctx) {
           : "light";
 
       const paletteObj = body.palette && typeof body.palette === "object" ? body.palette : {};
-      const cfgObj = buildConfigFromPalette(paletteObj, themeFamily);
-      const configJson = JSON.stringify(cfgObj);
-      const monacoBg =
-        cfgObj.monaco_bg != null && String(cfgObj.monaco_bg).trim() !== ""
-          ? String(cfgObj.monaco_bg).trim()
-          : "#2C4259";
-
-      const monacoThemeDataJson = buildMonacoThemeDataJson({
-        palette: paletteObj,
-        tokens: body.tokens,
-        monaco: body.monaco,
-        theme_family: themeFamily,
-      });
-
-      const sidecars = buildThemeSidecarJson(
-        body.tokens && typeof body.tokens === "object" ? body.tokens : { palette: paletteObj },
-      );
+      const useTweaksPayload = body.cssVars && typeof body.cssVars === "object";
+      let configJson;
+      let monacoBg;
+      let monacoThemeDataJson;
+      let sidecars;
+      let previewImageUrl = null;
+      if (useTweaksPayload) {
+        const patch = buildThemeRowUpdateFromBody(
+          { slug, name, theme_family: themeFamily, config: "{}" },
+          body,
+        );
+        configJson = patch.configJson;
+        monacoBg = patch.monacoBg;
+        monacoThemeDataJson = patch.monacoThemeDataJson;
+        sidecars = patch.sidecars;
+        previewImageUrl = patch.previewImageUrl;
+      } else {
+        const cfgObj = buildConfigFromPalette(paletteObj, themeFamily);
+        configJson = JSON.stringify(cfgObj);
+        monacoBg =
+          cfgObj.monaco_bg != null && String(cfgObj.monaco_bg).trim() !== ""
+            ? String(cfgObj.monaco_bg).trim()
+            : "#2C4259";
+        monacoThemeDataJson = buildMonacoThemeDataJson({
+          palette: paletteObj,
+          tokens: body.tokens,
+          monaco: body.monaco,
+          theme_family: themeFamily,
+        });
+        sidecars = buildThemeSidecarJson(
+          body.tokens && typeof body.tokens === "object" ? body.tokens : { palette: paletteObj },
+        );
+        previewImageUrl =
+          body.preview_image_url != null && String(body.preview_image_url).trim() !== ""
+            ? String(body.preview_image_url).trim()
+            : null;
+      }
 
       const monacoEditorId = expectedMonacoEditorThemeId(slug);
       const requestedId =
@@ -479,11 +500,13 @@ export async function handleThemesApi(request, url, env, ctx) {
            id, tenant_id, name, slug, config, theme_family, sort_order,
            monaco_theme, monaco_bg, monaco_theme_data,
            tokens_json, css_vars_json, brand_json, layout_json, typography_json, components_json, motion_json,
+           preview_image_url,
            status, visibility, is_system, workspace_id, updated_at
          ) VALUES (
            ?, ?, ?, ?, ?, ?, ?,
            ?, ?, ?,
            ?, ?, ?, ?, ?, ?, ?,
+           ?,
            'active', 'public', 0, ?, unixepoch()
          )
          ON CONFLICT(id) DO UPDATE SET
@@ -503,6 +526,7 @@ export async function handleThemesApi(request, url, env, ctx) {
            typography_json = excluded.typography_json,
            components_json = excluded.components_json,
            motion_json = excluded.motion_json,
+           preview_image_url = COALESCE(excluded.preview_image_url, preview_image_url),
            workspace_id = excluded.workspace_id,
            updated_at = unixepoch()`,
       )
@@ -524,6 +548,7 @@ export async function handleThemesApi(request, url, env, ctx) {
           sidecars.typography_json,
           sidecars.components_json,
           sidecars.motion_json,
+          previewImageUrl,
           workspaceId,
         )
         .run();
@@ -931,6 +956,160 @@ export async function handleThemesApi(request, url, env, ctx) {
       }
 
       return jsonResponse(payload);
+    }
+
+    // ── GET /api/themes/detail ──
+    if (pathLower === "/api/themes/detail" && method === "GET") {
+      const authUser = await getAuthUser(request, env).catch(() => null);
+      if (!authUser) return jsonResponse({ error: "Unauthorized" }, 401);
+
+      const themeId = url.searchParams.get("theme_id")?.trim() || "";
+      const slug = url.searchParams.get("slug")?.trim() || "";
+      let row = null;
+      if (themeId) {
+        row = await env.DB.prepare(`SELECT * FROM cms_themes WHERE id = ?`).bind(themeId).first();
+      }
+      if (!row && slug) {
+        row = await fetchThemeRowBySlug(env, slug);
+      }
+      if (!row) return jsonResponse({ error: "Theme not found" }, 404);
+      return jsonResponse({ theme: normalizeCatalogThemeRow(/** @type {Record<string, unknown>} */ (row)) });
+    }
+
+    // ── POST /api/themes/update ──
+    if (pathLower === "/api/themes/update" && method === "POST") {
+      const authUser = await getAuthUser(request, env).catch(() => null);
+      if (!authUser) return jsonResponse({ error: "Unauthorized" }, 401);
+
+      const body = await request.json().catch(() => ({}));
+      const themeId = body.theme_id != null ? String(body.theme_id).trim() : "";
+      const slugIn = body.slug != null ? String(body.slug).trim() : "";
+      let row = null;
+      if (themeId) {
+        row = await env.DB.prepare(`SELECT * FROM cms_themes WHERE id = ?`).bind(themeId).first();
+      }
+      if (!row && slugIn) {
+        row = await fetchThemeRowBySlug(env, slugIn);
+      }
+      if (!row?.id) return jsonResponse({ error: "Theme not found" }, 404);
+
+      const workspaceId =
+        body.workspace_id != null && String(body.workspace_id).trim() !== ""
+          ? String(body.workspace_id).trim()
+          : "";
+      if (workspaceId) {
+        const okWs = await userCanAccessWorkspace(env, authUser, workspaceId);
+        if (!okWs && Number(authUser.is_superadmin) !== 1) {
+          return jsonResponse({ error: "Forbidden" }, 403);
+        }
+      }
+
+      const patch = buildThemeRowUpdateFromBody(/** @type {Record<string, unknown>} */ (row), body);
+      const rowId = String(row.id);
+
+      await env.DB.prepare(
+        `UPDATE cms_themes SET
+           name = ?,
+           slug = ?,
+           config = ?,
+           theme_family = ?,
+           sort_order = ?,
+           monaco_theme = ?,
+           monaco_bg = ?,
+           monaco_theme_data = ?,
+           tokens_json = ?,
+           css_vars_json = ?,
+           brand_json = ?,
+           layout_json = ?,
+           typography_json = ?,
+           components_json = ?,
+           motion_json = ?,
+           preview_image_url = COALESCE(?, preview_image_url),
+           updated_at = unixepoch()
+         WHERE id = ?`,
+      )
+        .bind(
+          patch.name,
+          patch.slug,
+          patch.configJson,
+          patch.themeFamily,
+          patch.sortOrder,
+          patch.monacoTheme,
+          patch.monacoBg,
+          patch.monacoThemeDataJson,
+          patch.sidecars.tokens_json,
+          patch.sidecars.css_vars_json,
+          patch.sidecars.brand_json,
+          patch.sidecars.layout_json,
+          patch.sidecars.typography_json,
+          patch.sidecars.components_json,
+          patch.sidecars.motion_json,
+          patch.previewImageUrl,
+          rowId,
+        )
+        .run();
+
+      const updated = await env.DB.prepare(`SELECT * FROM cms_themes WHERE id = ?`).bind(rowId).first();
+      const normalized = normalizeCatalogThemeRow(/** @type {Record<string, unknown>} */ (updated || row));
+
+      const applyFlag =
+        body.apply_to_workspace === true ||
+        body.apply_to_workspace === 1 ||
+        body.preview_live === true;
+      /** @type {Record<string, unknown>} */
+      const out = { theme: normalized };
+      if (applyFlag && workspaceId) {
+        const tenantId =
+          (await resolveTenantIdForCmsThemeOps(env, authUser, workspaceId)) ||
+          fallbackSystemTenantId(env);
+        const resolved = await upsertWorkspaceThemeAndResolve(
+          env,
+          authUser,
+          String(tenantId),
+          workspaceId,
+          patch.slug,
+        );
+        let outRow = resolved.row || updated;
+        await hydrateCmsThemeCssVarsFromR2(env, outRow);
+        const payload =
+          buildActiveThemeApiPayload(outRow) ||
+          ({ slug: patch.slug, name: patch.name, is_dark: patch.themeFamily === 'dark', data: {}, theme_channel: 'live' });
+        payload.resolved_from = resolved.resolved_from;
+        payload.workspace_id = workspaceId;
+        out.active_theme = payload;
+        await broadcastWorkspaceThemeCollab(env, workspaceId, payload);
+      }
+
+      return jsonResponse(out);
+    }
+
+    // ── POST /api/themes/delete ──
+    if (pathLower === "/api/themes/delete" && method === "POST") {
+      const authUser = await getAuthUser(request, env).catch(() => null);
+      if (!authUser) return jsonResponse({ error: "Unauthorized" }, 401);
+
+      const body = await request.json().catch(() => ({}));
+      const themeId = body.theme_id != null ? String(body.theme_id).trim() : "";
+      const slugIn = body.slug != null ? String(body.slug).trim() : "";
+      let row = null;
+      if (themeId) {
+        row = await env.DB.prepare(`SELECT * FROM cms_themes WHERE id = ?`).bind(themeId).first();
+      }
+      if (!row && slugIn) {
+        row = await fetchThemeRowBySlug(env, slugIn);
+      }
+      if (!row?.id) return jsonResponse({ error: "Theme not found" }, 404);
+      if (Number(row.is_system) === 1) {
+        return jsonResponse({ error: "System themes cannot be deleted" }, 400);
+      }
+
+      await env.DB.prepare(
+        `UPDATE cms_themes SET status = 'archived', visibility = 'private', updated_at = unixepoch() WHERE id = ?`,
+      )
+        .bind(String(row.id))
+        .run();
+
+      return jsonResponse({ ok: true, theme_id: String(row.id), slug: String(row.slug) });
     }
 
     return jsonResponse({ error: "Theme route not found" }, 404);
