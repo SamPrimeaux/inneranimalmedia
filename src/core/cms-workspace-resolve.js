@@ -5,6 +5,7 @@
 import { resolveActiveBootstrap, resolveBootstrapWorkspaceContext } from './bootstrap.js';
 import { ensureUserBootstrapRow } from './bootstrap-scoped-context.js';
 import { cmsBootstrapKey } from './cms-kv-cache.js';
+import { userCanAccessWorkspace } from './workspace-access.js';
 
 function trim(v) {
   return v == null ? '' : String(v).trim();
@@ -57,6 +58,7 @@ export async function listCmsSitesForScope(env, { tenantId, workspaceId }) {
     });
   };
 
+  let hasWorkspaceRegistry = false;
   try {
     const { results: ctxRows } = await env.DB.prepare(
       `SELECT project_key, project_name
@@ -66,70 +68,73 @@ export async function listCmsSitesForScope(env, { tenantId, workspaceId }) {
     )
       .bind(ws)
       .all();
+    hasWorkspaceRegistry = (ctxRows || []).length > 0;
     for (const row of ctxRows || []) {
       addSite(row.project_key, { name: row.project_name, source: 'agentsam_project_context' });
     }
   } catch (_) {}
 
-  try {
-    const { results: tenantSites } = await env.DB.prepare(
-      `SELECT slug, name, domain
-         FROM cms_tenants
-        WHERE tenant_ref_id = ? AND COALESCE(is_active, 1) = 1
-        ORDER BY name, slug`,
-    )
-      .bind(tid)
-      .all();
-    for (const row of tenantSites || []) {
-      addSite(row.slug, { name: row.name, domain: row.domain, source: 'cms_tenants' });
-    }
-  } catch (_) {}
-
-  try {
-    const { results: pageProjects } = await env.DB.prepare(
-      `SELECT project_slug AS slug, COUNT(*) AS page_count, MAX(updated_at) AS updated_at
-         FROM cms_pages
-        WHERE tenant_id = ?
-          AND status != 'archived'
-          AND trim(COALESCE(project_slug, '')) != ''
-          AND (workspace_id = ? OR workspace_id IS NULL OR trim(workspace_id) = '')
-        GROUP BY project_slug
-        ORDER BY project_slug`,
-    )
-      .bind(tid, ws)
-      .all();
-    for (const row of pageProjects || []) {
-      addSite(row.slug, {
-        page_count: Number(row.page_count) || 0,
-        updated_at: row.updated_at,
-        source: 'cms_pages',
-      });
-    }
-  } catch (_) {}
-
-  try {
-    const wsRow = await env.DB.prepare(
-      `SELECT slug, name FROM workspaces WHERE id = ? LIMIT 1`,
-    )
-      .bind(ws)
-      .first();
-    const wsSlug = trim(wsRow?.slug);
-    if (wsSlug && !bySlug.has(wsSlug)) {
-      const tenant = await env.DB.prepare(
-        `SELECT slug, name, domain FROM cms_tenants WHERE slug = ? AND COALESCE(is_active, 1) = 1 LIMIT 1`,
+  if (!hasWorkspaceRegistry) {
+    try {
+      const { results: tenantSites } = await env.DB.prepare(
+        `SELECT slug, name, domain
+           FROM cms_tenants
+          WHERE tenant_ref_id = ? AND COALESCE(is_active, 1) = 1
+          ORDER BY name, slug`,
       )
-        .bind(wsSlug)
-        .first()
-        .catch(() => null);
-      if (tenant) {
-        addSite(tenant.slug, {
-          name: tenant.name,
-          domain: tenant.domain,
-          source: 'workspace_slug',
+        .bind(tid)
+        .all();
+      for (const row of tenantSites || []) {
+        addSite(row.slug, { name: row.name, domain: row.domain, source: 'cms_tenants' });
+      }
+    } catch (_) {}
+
+    try {
+      const { results: pageProjects } = await env.DB.prepare(
+        `SELECT project_slug AS slug, COUNT(*) AS page_count, MAX(updated_at) AS updated_at
+           FROM cms_pages
+          WHERE tenant_id = ?
+            AND status != 'archived'
+            AND trim(COALESCE(project_slug, '')) != ''
+            AND (workspace_id = ? OR workspace_id IS NULL OR trim(workspace_id) = '')
+          GROUP BY project_slug
+          ORDER BY project_slug`,
+      )
+        .bind(tid, ws)
+        .all();
+      for (const row of pageProjects || []) {
+        addSite(row.slug, {
+          page_count: Number(row.page_count) || 0,
+          updated_at: row.updated_at,
+          source: 'cms_pages',
         });
       }
-    }
-  } catch (_) {}
+    } catch (_) {}
+
+    try {
+      const wsRow = await env.DB.prepare(
+        `SELECT slug, name FROM workspaces WHERE id = ? LIMIT 1`,
+      )
+        .bind(ws)
+        .first();
+      const wsSlug = trim(wsRow?.slug);
+      if (wsSlug && !bySlug.has(wsSlug)) {
+        const tenant = await env.DB.prepare(
+          `SELECT slug, name, domain FROM cms_tenants WHERE slug = ? AND COALESCE(is_active, 1) = 1 LIMIT 1`,
+        )
+          .bind(wsSlug)
+          .first()
+          .catch(() => null);
+        if (tenant) {
+          addSite(tenant.slug, {
+            name: tenant.name,
+            domain: tenant.domain,
+            source: 'workspace_slug',
+          });
+        }
+      }
+    } catch (_) {}
+  }
 
   const sites = [...bySlug.values()];
   for (const site of sites) {
@@ -146,6 +151,36 @@ export async function listCmsSitesForScope(env, { tenantId, workspaceId }) {
 
   sites.sort((a, b) => String(a.name || a.slug).localeCompare(String(b.name || b.slug)));
   return sites;
+}
+
+/**
+ * Collab workspaces (explicit cms_site registry) store pages under the workspace tenant.
+ * Connor on ws_fuelnfreetime reads/writes tenant_sam_primeaux CMS rows, not his personal tenant.
+ * @param {any} env
+ * @param {{ tenant_id?: string, id?: string }} authUser
+ * @param {string} workspaceId
+ * @param {Array<{ source?: string }>|null|undefined} sites
+ */
+export async function resolveCmsEffectiveTenantId(env, authUser, workspaceId, sites) {
+  const authTenant = trim(authUser?.tenant_id);
+  const ws = trim(workspaceId);
+  if (!env?.DB || !authTenant || !ws) return authTenant;
+
+  const registryMode = (sites || []).some((s) => s.source === 'agentsam_project_context');
+  if (!registryMode) return authTenant;
+  if (!(await userCanAccessWorkspace(env, authUser, ws))) return authTenant;
+
+  try {
+    const wsRow = await env.DB.prepare(
+      `SELECT tenant_id FROM workspaces WHERE id = ? LIMIT 1`,
+    )
+      .bind(ws)
+      .first();
+    const wsTenant = trim(wsRow?.tenant_id);
+    if (wsTenant) return wsTenant;
+  } catch (_) {}
+
+  return authTenant;
 }
 
 /**

@@ -136,18 +136,21 @@ export async function userCanAccessWorkspace(env, authUser, workspaceId) {
 
   try {
     if (!(await workspaceRowExists(env, wid))) return false;
-    const wsTenantId = await getWorkspaceTenantIdWithFallback(env, wid);
-    if (!workspaceTenantMatchesUser(wsTenantId, userTenantId)) return false;
-    const ownerUserId = await getWorkspaceOwnerUserId(env, wid);
-    if (ownerUserId && candidates.some((c) => ownerUserId === c)) return true;
+
     const ph = inClausePlaceholders(candidates);
-    const m = await env.DB.prepare(
+    const memberRow = await env.DB.prepare(
       `SELECT 1 AS ok FROM workspace_members
        WHERE workspace_id = ? AND user_id IN (${ph}) AND COALESCE(is_active, 1) = 1 LIMIT 1`,
     )
       .bind(wid, ...candidates)
       .first();
-    return !!m;
+    if (memberRow) return true;
+
+    const wsTenantId = await getWorkspaceTenantIdWithFallback(env, wid);
+    if (!workspaceTenantMatchesUser(wsTenantId, userTenantId)) return false;
+    const ownerUserId = await getWorkspaceOwnerUserId(env, wid);
+    if (ownerUserId && candidates.some((c) => ownerUserId === c)) return true;
+    return false;
   } catch {
     return false;
   }
@@ -209,8 +212,25 @@ export async function listAccessibleWorkspaces(db, env, authUser, opts = {}) {
   const ph = inClausePlaceholders(candidates);
   const tid = tenantId != null ? String(tenantId).trim() : '';
   const tenantClause = tid
-    ? ` AND (aw.tenant_id IS NULL OR aw.tenant_id = ?)`
-    : ` AND aw.tenant_id IS NULL`;
+    ? ` AND (
+        aw.tenant_id IS NULL
+        OR aw.tenant_id = ?
+        OR EXISTS (
+          SELECT 1 FROM workspace_members wm_collab
+          WHERE wm_collab.workspace_id = aw.id
+            AND wm_collab.user_id IN (${ph})
+            AND COALESCE(wm_collab.is_active, 1) = 1
+        )
+      )`
+    : ` AND (
+        aw.tenant_id IS NULL
+        OR EXISTS (
+          SELECT 1 FROM workspace_members wm_collab
+          WHERE wm_collab.workspace_id = aw.id
+            AND wm_collab.user_id IN (${ph})
+            AND COALESCE(wm_collab.is_active, 1) = 1
+        )
+      )`;
   const sql = `
     SELECT DISTINCT aw.id, aw.display_name, aw.workspace_slug AS slug,
       COALESCE(w.workspace_type, w.category) AS workspace_type,
@@ -237,7 +257,7 @@ export async function listAccessibleWorkspaces(db, env, authUser, opts = {}) {
       AND aw.status != 'archived'
       AND (bl.workspace_id IS NULL OR bl.owner_user_id IN (${ph}))
     ORDER BY ${orderBy}${limitSql}`;
-  const binds = [...candidates, ...candidates, ...candidates];
+  const binds = [...candidates, ...candidates, ...candidates, ...candidates];
   if (tid) binds.push(tid);
   binds.push(...candidates); // for blocklist owner check
   const { results } = await db.prepare(sql).bind(...binds).all();

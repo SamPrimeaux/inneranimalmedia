@@ -58,6 +58,7 @@ import {
   listCmsSitesForScope,
   persistBootstrapCmsProjectSlug,
   resolveCmsBootstrapProjectSlug,
+  resolveCmsEffectiveTenantId,
   resolveCmsWorkspaceContext,
 } from '../core/cms-workspace-resolve.js';
 
@@ -164,11 +165,11 @@ export async function handleCmsApi(request, url, env, ctx) {
   const pathParts = path.split('/');
   
   // Scoping context
-  const tenantId = authUser.tenant_id;
+  const authTenantId = authUser.tenant_id;
   const personUuid = authUser.person_uuid;
   const actorCtx = await resolveIamActorContext(request, env).catch(() => null);
   const workspaceId = actorCtx?.workspaceId || (authUser.workspace_id ? String(authUser.workspace_id).trim() : '') || null;
-  if (!tenantId || String(tenantId).trim() === '') {
+  if (!authTenantId || String(authTenantId).trim() === '') {
     return jsonResponse({ error: 'TENANT_CONTEXT_MISSING' }, 400);
   }
   if (!workspaceId) {
@@ -178,6 +179,11 @@ export async function handleCmsApi(request, url, env, ctx) {
   if (!env.DB) return jsonResponse({ error: 'Database unavailable' }, 503);
 
   const requestCache = {};
+  let tenantId = authTenantId;
+  try {
+    const scopedSites = await listCmsSitesForScope(env, { tenantId: authTenantId, workspaceId });
+    tenantId = await resolveCmsEffectiveTenantId(env, authUser, workspaceId, scopedSites);
+  } catch (_) {}
 
   if (path === '/api/cms/workspace-context' && method === 'GET') {
     try {
@@ -196,7 +202,7 @@ export async function handleCmsApi(request, url, env, ctx) {
       console.warn('[cms] workspace-context GET', e?.message || e);
       let sites = [];
       try {
-        sites = await listCmsSitesForScope(env, { tenantId, workspaceId });
+        sites = await listCmsSitesForScope(env, { tenantId: authTenantId, workspaceId });
       } catch (_) {}
       return jsonResponse({ error: e.message, sites }, 500);
     }
@@ -518,14 +524,14 @@ export async function handleCmsApi(request, url, env, ctx) {
       
       await env.DB.prepare(`
         INSERT INTO cms_pages (
-          id, project_id, slug, title, status, route_path,
-          tenant_id, person_uuid, created_by, updated_by,
+          id, project_id, project_slug, slug, title, status, route_path,
+          tenant_id, workspace_id, person_uuid, created_by, updated_by,
           r2_key, r2_bucket, content_type, content_size_bytes,
           created_at, updated_at, published_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).bind(
-        pageId, project_id, slug, title, 'published', `/${slug}`,
-        tenantId, personUuid, authUser.id, authUser.id,
+        pageId, project_id, project_id, slug, title, 'published', `/${slug}`,
+        tenantId, workspaceId, personUuid, authUser.id, authUser.id,
         r2Key, r2Bucket, content_type, contentBuffer.byteLength,
         now, now, now
       ).run();
@@ -1097,7 +1103,7 @@ export async function handleCmsApi(request, url, env, ctx) {
 
   if (path === '/api/cms/tenants' && method === 'GET') {
     try {
-      const sites = await listCmsSitesForScope(env, { tenantId, workspaceId });
+      const sites = await listCmsSitesForScope(env, { tenantId: authTenantId, workspaceId });
       const websites = sites.map((s) => ({
         slug: s.slug,
         name: s.name || s.slug,
@@ -1279,7 +1285,7 @@ export async function handleCmsApi(request, url, env, ctx) {
 
   if (path === '/api/cms/websites' && method === 'GET') {
     try {
-      const sites = await listCmsSitesForScope(env, { tenantId, workspaceId });
+      const sites = await listCmsSitesForScope(env, { tenantId: authTenantId, workspaceId });
       return jsonResponse({
         websites: sites.map((s) => ({
           slug: s.slug,
