@@ -222,6 +222,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   activePlanId,
   onActivePlanChange,
   cmsContext = null,
+  dashboardRouteKey = null,
+  dashboardRouteLabel = null,
+  routeQuickActions = [],
 }) => {
   const { sessionUserId, workspaceId: ctxWorkspaceId, workspaces, persistGithubRepo } = useWorkspace();
   const effectiveWsId = (workspaceId || ctxWorkspaceId || '').trim() || null;
@@ -2297,6 +2300,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     if (effectiveWsId) form.append('workspace_id', effectiveWsId);
     if (sendOpts?.task_type?.trim()) form.append('task_type', sendOpts.task_type.trim());
     if (sendOpts?.route_key?.trim()) form.append('route_key', sendOpts.route_key.trim());
+    else if (dashboardRouteKey?.trim()) form.append('route_key', dashboardRouteKey.trim());
     const effectiveSubagentSlug = sendOpts?.subagent_slug?.trim() || defaultSubagentSlug?.trim() || '';
     if (effectiveSubagentSlug) form.append('subagent_slug', effectiveSubagentSlug);
     if (sendOpts?.quickstart_batch?.trim()) {
@@ -2321,6 +2325,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       const browserCtxPayload: Record<string, unknown> = {
         ...(browserSurfaceRef.current && typeof browserSurfaceRef.current === 'object' ? browserSurfaceRef.current : {}),
         dashboard_route: typeof window !== 'undefined' ? window.location.pathname : '',
+        dashboard_route_label: dashboardRouteLabel || null,
+        dashboard_route_key: dashboardRouteKey || null,
       };
       if (snap && typeof snap === 'object') {
         browserCtxPayload.selected_element = snap;
@@ -3316,6 +3322,30 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             ) : null}
             <div className="px-2 pt-2 pb-0 min-w-0">
               <AgentComposerSourceChips sources={composerSources} onRemove={removeComposerSource} />
+              {routeQuickActions.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5 px-1 pb-1">
+                  {dashboardRouteLabel ? (
+                    <span className="self-center text-[10px] uppercase tracking-wide text-[var(--text-muted)] mr-1">
+                      {dashboardRouteLabel}
+                    </span>
+                  ) : null}
+                  {routeQuickActions.map((action) => (
+                    <button
+                      key={action.id}
+                      type="button"
+                      className="rounded-full border border-[var(--dashboard-border)] px-2 py-0.5 text-[11px] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
+                      onClick={() => {
+                        void handleSend(action.message, {
+                          route_key: action.route_key,
+                          task_type: action.task_type,
+                        });
+                      }}
+                    >
+                      {action.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </div>
             <textarea
                 ref={textareaRef}

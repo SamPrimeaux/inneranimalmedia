@@ -183,6 +183,11 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     ) => {
       const trimmed = id.trim();
       if (!trimmed) return;
+      const allowed = workspaces.some((w) => w.id === trimmed);
+      if (!allowed && workspaces.length > 0) {
+        console.warn('[workspace] switch blocked — not in accessible list', trimmed);
+        return;
+      }
       const userId = sessionUserIdRef.current;
       setWorkspaceIdState(trimmed);
       if (meta?.displayName?.trim()) setDisplayName(meta.displayName.trim());

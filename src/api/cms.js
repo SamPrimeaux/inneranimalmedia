@@ -67,6 +67,8 @@ import {
   resolveCmsBootstrapProjectSlug,
   resolveCmsWorkspaceContext,
 } from '../core/cms-workspace-resolve.js';
+import { resolveCmsSiteConfig } from '../core/cms-site-config.js';
+import { mintCmsEmbedSession, proxyCmsBridgeRequest } from '../core/cms-client-bridge.js';
 
 export const CMS_DEFAULT_R2_BUCKET = 'inneranimalmedia';
 
@@ -200,7 +202,8 @@ export async function handleCmsApi(request, url, env, ctx) {
       if (wsCtx.error) {
         return jsonResponse({ error: wsCtx.error, sites: wsCtx.sites || [] }, 400);
       }
-      return jsonResponse(wsCtx);
+      const siteConfig = await resolveCmsSiteConfig(env, workspaceId, wsCtx.project_slug);
+      return jsonResponse({ ...wsCtx, ...siteConfig });
     } catch (e) {
       console.warn('[cms] workspace-context GET', e?.message || e);
       let sites = [];
@@ -236,10 +239,78 @@ export async function handleCmsApi(request, url, env, ctx) {
       const next = await resolveCmsWorkspaceContext(env, request, authUser, requestCache, {
         explicitProjectSlug: projectSlug,
       });
-      return jsonResponse({ ok: true, ...next });
+      const siteConfig = await resolveCmsSiteConfig(env, workspaceId, next.project_slug);
+      return jsonResponse({ ok: true, ...next, ...siteConfig });
     } catch (e) {
       return jsonResponse({ error: e.message }, 500);
     }
+  }
+
+  const explicitProjectSlug =
+    url.searchParams.get('project_slug') || url.searchParams.get('site') || url.searchParams.get('project_id') || null;
+  const siteConfig = await resolveCmsSiteConfig(env, workspaceId, explicitProjectSlug);
+
+  if (path === '/api/cms/bridge/embed-session' && method === 'POST') {
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: 'invalid JSON' }, 400);
+    }
+    const projectSlug = String(body.project_slug || body.site || siteConfig.project_slug || '').trim();
+    if (!projectSlug) return jsonResponse({ error: 'project_slug required' }, 400);
+    if (!cmsScope.allowedSlugs.has(projectSlug)) {
+      return jsonResponse({ error: 'CMS_SITE_NOT_ALLOWED', project_slug: projectSlug }, 403);
+    }
+    const cfg = await resolveCmsSiteConfig(env, workspaceId, projectSlug);
+    if (cfg.cms_mode !== 'client_worker') {
+      return jsonResponse({ error: 'CMS_BRIDGE_NOT_APPLICABLE', cms_mode: cfg.cms_mode }, 409);
+    }
+    const mint = await mintCmsEmbedSession(env, authUser, { ...cfg, project_slug: projectSlug });
+    if (!mint.ok) {
+      return jsonResponse(
+        { error: mint.error || 'embed_session_failed', status: mint.status, hint: 'Client worker bridge middleware pending (Agent 4)' },
+        mint.status && mint.status >= 400 ? mint.status : 502,
+      );
+    }
+    return jsonResponse({
+      embed_url: mint.embed_url,
+      expires_at: mint.expires_at,
+      studio_url: cfg.studio_url,
+      bridge_supported: cfg.bridge_supported,
+    });
+  }
+
+  if (path.startsWith('/api/cms/bridge/')) {
+    const projectSlug =
+      url.searchParams.get('project_slug') ||
+      url.searchParams.get('site') ||
+      explicitProjectSlug ||
+      siteConfig.project_slug;
+    const slug = String(projectSlug || '').trim();
+    if (!slug || !cmsScope.allowedSlugs.has(slug)) {
+      return jsonResponse({ error: 'CMS_SITE_NOT_ALLOWED', project_slug: slug || null }, 403);
+    }
+    const cfg = await resolveCmsSiteConfig(env, workspaceId, slug);
+    if (cfg.cms_mode !== 'client_worker') {
+      return jsonResponse({ error: 'CMS_BRIDGE_NOT_APPLICABLE', cms_mode: cfg.cms_mode }, 409);
+    }
+    const proxied = await proxyCmsBridgeRequest(env, request, authUser, { ...cfg, project_slug: slug }, path);
+    return jsonResponse(proxied.body, proxied.status || (proxied.ok ? 200 : 502));
+  }
+
+  if (siteConfig.cms_mode === 'client_worker' && !path.startsWith('/api/cms/workspace-context')) {
+    return jsonResponse(
+      {
+        error: 'CMS_CLIENT_WORKER_MODE',
+        cms_mode: siteConfig.cms_mode,
+        api_profile: siteConfig.api_profile,
+        studio_url: siteConfig.studio_url,
+        bridge_prefix: siteConfig.api_profile === 'fuel_admin' ? '/api/cms/bridge/admin/cms' : '/api/cms/bridge/cms',
+        message: 'Use ClientWorkerCmsStudio embed or /api/cms/bridge/* — platform PrimeTech D1 is registry-only for this workspace.',
+      },
+      409,
+    );
   }
 
   /**
@@ -677,7 +748,7 @@ export async function handleCmsApi(request, url, env, ctx) {
         return jsonResponse(cmsPublishGateErrorResponse({ contract, promotion }), 422);
       }
 
-      const lock = await acquireCmsPublishLock(env, projectSlug, authUser.id);
+      const lock = await acquireCmsPublishLock(env, workspaceId, projectSlug, authUser.id);
       if (!lock.acquired) {
         return jsonResponse({ error: 'publish_in_progress', holder: lock.holder || null }, 409);
       }
@@ -688,7 +759,7 @@ export async function handleCmsApi(request, url, env, ctx) {
       const r2Binding = getCmsR2Binding(env, r2Bucket);
 
       if (!r2Binding) {
-        await releaseCmsPublishLock(env, projectSlug, authUser.id);
+        await releaseCmsPublishLock(env, workspaceId, projectSlug, authUser.id);
         return jsonResponse({ error: 'R2 storage unavailable' }, 503);
       }
 
@@ -700,7 +771,7 @@ export async function handleCmsApi(request, url, env, ctx) {
         if (kvDraft?.r2_key) draftObj = await r2Binding.get(String(kvDraft.r2_key)).catch(() => null);
       }
       if (!draftObj) {
-        await releaseCmsPublishLock(env, projectSlug, authUser.id);
+        await releaseCmsPublishLock(env, workspaceId, projectSlug, authUser.id);
         return jsonResponse({ error: 'No draft found to publish' }, 400);
       }
 
@@ -775,7 +846,7 @@ export async function handleCmsApi(request, url, env, ctx) {
         now, authUser.id, now, publishedKey, pageId
       ).run();
 
-      ctx.waitUntil(releaseCmsPublishLock(env, projectSlug, authUser.id));
+      ctx.waitUntil(releaseCmsPublishLock(env, workspaceId, projectSlug, authUser.id));
       if (projectSlug) {
         ctx.waitUntil(invalidateCmsBootstrapCache(env, workspaceId, projectSlug));
       }
@@ -808,7 +879,7 @@ export async function handleCmsApi(request, url, env, ctx) {
         override_chain: overrideChain,
       });
     } catch (e) {
-      if (projectSlug) ctx.waitUntil(releaseCmsPublishLock(env, projectSlug, authUser.id));
+      if (projectSlug) ctx.waitUntil(releaseCmsPublishLock(env, workspaceId, projectSlug, authUser.id));
       return jsonResponse({ error: e.message }, 500);
     }
   }

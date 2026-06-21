@@ -20,6 +20,12 @@ export type CmsWorkspaceContext = {
   bootstrap_cache_key: string | null;
   bootstrap_id: string | null;
   sites: CmsWorkspaceSite[];
+  cms_mode?: 'platform_hosted' | 'client_worker';
+  api_profile?: string | null;
+  studio_url?: string | null;
+  bridge_supported?: boolean;
+  worker_base_url?: string | null;
+  public_domain?: string | null;
   error?: string | null;
 };
 

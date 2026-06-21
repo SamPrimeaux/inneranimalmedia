@@ -4,6 +4,7 @@
  * Customer workspaces fail closed when no BYO Cloudflare D1 is configured.
  */
 import { authUserIsSuperadmin } from './auth.js';
+import { IAM_D1_DATABASE_ID } from './d1-graphql-analytics.js';
 import { getDefaultWorkspaceDataBinding } from './workspace-data-bindings.js';
 import { resolveWorkspaceCloudflareCredentials } from './workspace-cloudflare-credentials.js';
 import { logDataPlaneSecurityEvent } from './data-plane-access-guard.js';
@@ -82,8 +83,22 @@ export async function resolveWorkspaceD1Execution(env, ctx) {
   }
 
   const d1Binding = await getDefaultWorkspaceDataBinding(env, workspaceId, 'cloudflare_d1');
-  const hasCustomerD1 =
-    d1Binding?.external_database_id != null && String(d1Binding.external_database_id).trim() !== '';
+  const boundD1Id =
+    d1Binding?.external_database_id != null ? String(d1Binding.external_database_id).trim() : '';
+  const isPlatformD1Binding = boundD1Id && boundD1Id === IAM_D1_DATABASE_ID;
+
+  if (isPlatformD1Binding && isSuperadmin && (await workspaceAllowsPlatformFallback(env, workspaceId))) {
+    logDataPlaneSecurityEvent('workspace_d1_platform', { ...meta, reason: 'platform_d1_id_binding' });
+    return {
+      ok: true,
+      mode: 'platform',
+      binding_id: d1Binding?.id ?? null,
+      database_id: boundD1Id,
+      ...meta,
+    };
+  }
+
+  const hasCustomerD1 = Boolean(boundD1Id);
 
   if (hasCustomerD1) {
     const creds = await resolveWorkspaceCloudflareCredentials(env, userId, tenantId, workspaceId);

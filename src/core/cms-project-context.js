@@ -56,7 +56,7 @@ export async function upsertCmsSiteProjectContext(env, opts) {
 
   const id = cmsProjectContextRowId(projectSlug);
   const bootstrapKey = cmsBootstrapKey(workspaceId, projectSlug);
-  const publishLockKey = cmsPublishLockKey(projectSlug);
+  const publishLockKey = cmsPublishLockKey(workspaceId, projectSlug);
   const pageCount = Number(opts?.pageCount) || 0;
 
   const description = [

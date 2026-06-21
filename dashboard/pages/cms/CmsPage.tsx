@@ -2,6 +2,7 @@ import React, { Suspense, lazy, useCallback, useEffect, useMemo } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useCmsWorkspaceContext } from '../../hooks/useCmsWorkspaceContext';
 import { buildCmsPath, parseCmsRoute, readStoredCmsProjectSlug, type CmsView } from './cmsRoute';
+import ClientWorkerCmsStudio from './ClientWorkerCmsStudio';
 
 const CmsRoot = lazy(() =>
   import('../../../src/dashboard/cms/CmsRoot.jsx').then((m) => ({
@@ -34,6 +35,8 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
     siteSlug: effectiveSiteSlug,
     enabled: parsed.view !== 'sites',
   });
+
+  const isClientWorker = context?.cms_mode === 'client_worker';
 
   useEffect(() => {
     if (parsed.legacy && parsed.legacyTarget) {
@@ -110,10 +113,10 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
               : error
                 ? `Could not load CMS sites (${error}). Retry or pick a site below if listed.`
                 : siteCount > 1
-                  ? `${context?.ui_label || 'This workspace'} has ${siteCount} sites. Pick one to open PrimeTech CMS Lite.`
+                  ? `${context?.ui_label || 'This workspace'} has ${siteCount} sites. Pick one to open CMS.`
                   : siteCount === 0
                     ? `No CMS sites are configured for ${context?.ui_label || 'this workspace'} yet.`
-                    : `${context?.ui_label || 'This workspace'} has multiple sites. Pick one to open PrimeTech CMS Lite.`}
+                    : `${context?.ui_label || 'This workspace'} has multiple sites. Pick one to open CMS.`}
           </p>
           {error ? (
             <button
@@ -146,12 +149,24 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
                 }}
               >
                 {site.name || site.slug}
+                {context?.sites?.length === 1 ? null : null}
               </button>
             ))}
           </div>
         </div>
       ) : null}
-      {!needsSitePick ? (
+      {!needsSitePick && isClientWorker && context?.project_slug ? (
+        <ClientWorkerCmsStudio
+          workspaceId={workspaceId}
+          projectSlug={context.project_slug}
+          projectName={context.project_name}
+          studioUrl={context.studio_url}
+          publicDomain={context.public_domain}
+          bridgeSupported={context.bridge_supported}
+          apiProfile={context.api_profile}
+        />
+      ) : null}
+      {!needsSitePick && !isClientWorker ? (
         <Suspense
           fallback={
             <div className="flex flex-1 items-center justify-center text-sm text-[var(--text-muted)]">

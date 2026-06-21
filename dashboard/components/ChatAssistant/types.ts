@@ -282,6 +282,18 @@ export interface ChatAssistantProps {
   onActivePlanChange?: (planId: string | null) => void;
   /** CMS route context (project_slug, page_id, KV/DO keys) when on /dashboard/cms. */
   cmsContext?: AgentWorkspaceContextPacket | null;
+  /** Route-aware default route_key from dashboard surface. */
+  dashboardRouteKey?: string | null;
+  /** Human label for active dashboard route context. */
+  dashboardRouteLabel?: string | null;
+  /** Per-route quick actions (Fuel admin pattern). */
+  routeQuickActions?: Array<{
+    id: string;
+    label: string;
+    message: string;
+    route_key?: string;
+    task_type?: string;
+  }>;
 }
 
 export type StagedAttachment = {

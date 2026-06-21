@@ -5,7 +5,7 @@
  *   cms:bootstrap:{workspaceId}:{projectSlug}
  *   cms:live-session:{pageId}:{userId}
  *   cms:draft:{pageId}:{userId}
- *   cms:publish-lock:{projectSlug}
+ *   cms:publish-lock:{workspaceId}:{projectSlug}
  */
 
 export const CMS_BOOTSTRAP_TTL_SEC = 300;
@@ -28,9 +28,12 @@ export function cmsDraftKey(pageId, userId) {
   return `cms:draft:${String(pageId || '').trim()}:${String(userId || '').trim()}`;
 }
 
-/** @param {string} projectSlug */
-export function cmsPublishLockKey(projectSlug) {
-  return `cms:publish-lock:${String(projectSlug || '').trim()}`;
+/** @param {string} workspaceId @param {string} projectSlug */
+export function cmsPublishLockKey(workspaceId, projectSlug) {
+  const ws = String(workspaceId || '').trim();
+  const slug = String(projectSlug || '').trim();
+  if (ws && slug) return `cms:publish-lock:${ws}:${slug}`;
+  return `cms:publish-lock:${slug}`;
 }
 
 /**
@@ -48,16 +51,18 @@ export async function invalidateCmsBootstrapCache(env, workspaceId, projectSlug)
 
 /**
  * @param {any} env
+ * @param {string} workspaceId
  * @param {string} projectSlug
  * @param {string} userId
  * @returns {Promise<{ acquired: boolean, holder?: string }>}
  */
-export async function acquireCmsPublishLock(env, projectSlug, userId) {
+export async function acquireCmsPublishLock(env, workspaceId, projectSlug, userId) {
   const kv = env?.SESSION_CACHE;
+  const ws = String(workspaceId || '').trim();
   const slug = String(projectSlug || '').trim();
   const uid = String(userId || '').trim();
   if (!kv || !slug) return { acquired: true };
-  const key = cmsPublishLockKey(slug);
+  const key = cmsPublishLockKey(ws, slug);
   const existing = await kv.get(key).catch(() => null);
   if (existing && existing !== uid) {
     try {
@@ -79,15 +84,17 @@ export async function acquireCmsPublishLock(env, projectSlug, userId) {
 
 /**
  * @param {any} env
+ * @param {string} workspaceId
  * @param {string} projectSlug
  * @param {string} userId
  */
-export async function releaseCmsPublishLock(env, projectSlug, userId) {
+export async function releaseCmsPublishLock(env, workspaceId, projectSlug, userId) {
   const kv = env?.SESSION_CACHE;
+  const ws = String(workspaceId || '').trim();
   const slug = String(projectSlug || '').trim();
   const uid = String(userId || '').trim();
   if (!kv || !slug) return;
-  const key = cmsPublishLockKey(slug);
+  const key = cmsPublishLockKey(ws, slug);
   const existing = await kv.get(key).catch(() => null);
   if (!existing) return;
   try {

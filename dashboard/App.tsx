@@ -22,6 +22,7 @@ import {
   isAgentShellPath,
   type AgentHomeTab,
 } from './lib/agentRoutes';
+import { resolveDashboardRouteAgentContext } from './lib/dashboardRouteContext';
 import { BREAKPOINTS, PHONE_MQ } from './lib/breakpoints';
 import { sanitizeBrowserNavigateUrl } from './lib/sanitizeBrowserUrl';
 import {
@@ -960,15 +961,60 @@ const App: React.FC = () => {
 
   const isDesignStudioRoute = location.pathname.startsWith('/dashboard/designstudio');
 
-  const agentWorkspaceContext = useMemo<AgentWorkspaceContextPacket>(
-    () => ({
+  const agentWorkspaceContext = useMemo<AgentWorkspaceContextPacket>(() => {
+    const routeCtx = resolveDashboardRouteAgentContext({
+      pathname: location.pathname,
+      search: location.search,
+      workspaceId: authWorkspaceId,
+      cmsContext: cmsWorkspaceContext,
+      activeTab: String(activeTab),
+      browserUrl,
+      openFiles: agentWorkbenchOpenFiles,
+      planId: activePlanIdForChat,
+    });
+    return {
       activeTab: String(activeTab),
       browserUrl: browserUrl?.trim() || null,
       openFiles: agentWorkbenchOpenFiles,
       plan_id: activePlanIdForChat,
       workflow_run_id: null,
-    }),
-    [activeTab, browserUrl, agentWorkbenchOpenFiles, activePlanIdForChat],
+      ...routeCtx.workspaceContext,
+      ...(cmsRouteContext || {}),
+    };
+  }, [
+    location.pathname,
+    location.search,
+    authWorkspaceId,
+    cmsWorkspaceContext,
+    activeTab,
+    browserUrl,
+    agentWorkbenchOpenFiles,
+    activePlanIdForChat,
+    cmsRouteContext,
+  ]);
+
+  const routeAgentMeta = useMemo(
+    () =>
+      resolveDashboardRouteAgentContext({
+        pathname: location.pathname,
+        search: location.search,
+        workspaceId: authWorkspaceId,
+        cmsContext: cmsWorkspaceContext,
+        activeTab: String(activeTab),
+        browserUrl,
+        openFiles: agentWorkbenchOpenFiles,
+        planId: activePlanIdForChat,
+      }),
+    [
+      location.pathname,
+      location.search,
+      authWorkspaceId,
+      cmsWorkspaceContext,
+      activeTab,
+      browserUrl,
+      agentWorkbenchOpenFiles,
+      activePlanIdForChat,
+    ],
   );
 
   const { updateActiveFile } = useEditor();
@@ -3454,6 +3500,9 @@ const App: React.FC = () => {
                         activePlanId={activePlanIdForChat}
                         onActivePlanChange={handleActivePlanChange}
                         cmsContext={cmsRouteContext}
+                        dashboardRouteKey={routeAgentMeta.route_key}
+                        dashboardRouteLabel={routeAgentMeta.context_label}
+                        routeQuickActions={routeAgentMeta.quickActions}
                     />
                     </div>
                 </div>
@@ -4174,6 +4223,9 @@ const App: React.FC = () => {
                             activePlanId={activePlanIdForChat}
                             onActivePlanChange={handleActivePlanChange}
                             cmsContext={cmsRouteContext}
+                        dashboardRouteKey={routeAgentMeta.route_key}
+                        dashboardRouteLabel={routeAgentMeta.context_label}
+                        routeQuickActions={routeAgentMeta.quickActions}
                          />
                     </div>
                 </div>

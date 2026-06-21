@@ -111,6 +111,12 @@ export async function fireAgentHooks(env, ctx, eventType, payload = {}) {
     if (!hooks?.length) return;
 
     for (const hook of hooks) {
+      const payloadWs = payload.workspace_id != null ? String(payload.workspace_id).trim() : '';
+      const hookWs = hook.workspace_id != null ? String(hook.workspace_id).trim() : '';
+      if (hookWs && payloadWs && hookWs !== payloadWs) {
+        continue;
+      }
+
       if (hook.handler_type === 'web_push') {
         const recipient = payload.recipient_id ?? payload.user_id ?? null;
         if (!recipient || String(hook.target_id || '') !== String(recipient)) {
@@ -186,8 +192,28 @@ async function dispatchHook(env, hook, payload, ctx) {
       break;
     }
     case 'workers_deploy': {
-      const { postAgentSamDeployHook } = await import('./workers-deploy-hook.js');
-      const pr = await postAgentSamDeployHook(env);
+      const { postWorkersDeployHook } = await import('./workers-deploy-hook.js');
+      let hookCfg = {};
+      try {
+        hookCfg =
+          typeof hook.handler_config === 'string'
+            ? JSON.parse(hook.handler_config || '{}')
+            : hook.handler_config || {};
+      } catch {
+        hookCfg = {};
+      }
+      const workerName =
+        hookCfg.worker_name != null
+          ? String(hookCfg.worker_name).trim()
+          : payload.worker_name != null
+            ? String(payload.worker_name).trim()
+            : null;
+      const pr = await postWorkersDeployHook(env, {
+        deployHookUrl: hookCfg.url || null,
+        workspaceId: payload.workspace_id ?? hook.workspace_id ?? null,
+        workerName,
+        hookConfig: hookCfg,
+      });
       if (pr.error) throw new Error(pr.error);
       if (!pr.ok) throw new Error(`deploy hook HTTP ${pr.status}`);
       break;
