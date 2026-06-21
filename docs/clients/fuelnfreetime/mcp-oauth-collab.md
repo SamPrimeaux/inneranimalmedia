@@ -97,3 +97,14 @@ Both are **owners** on `ws_fuelnfreetime` → **no MCP rate limits** on that wor
 ## DORA project id
 
 Deploy attribution for fuel: `PROJECT_ID=proj_fuelnfreetime`
+
+## PrimeTech CMS (dashboard)
+
+Sam and Connor both edit **Fuel N Free Time** in PrimeTech CMS Lite when the active workspace is **Fuel N Free Time** (`ws_fuelnfreetime`):
+
+1. Switch workspace → **Fuel N Free Time**
+2. Open **Dashboard → CMS** (`/dashboard/cms`)
+
+**Scope:** Only the `fuelnfreetime` site appears — not Sam's full IAM CMS catalog. Connor gets read/write via workspace membership (pages stored under `tenant_sam_primeaux` on the collab workspace).
+
+**Migration:** `660_fuelnfreetime_cms_site.sql` — `cms_tenants`, `ctx_cms_fuelnfreetime`, starter home page + hero section.
