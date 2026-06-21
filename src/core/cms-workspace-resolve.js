@@ -182,7 +182,55 @@ export async function listCmsSitesForScope(env, { tenantId, workspaceId }) {
     } catch (_) {}
   }
 
+  await hydrateSiteDomainsFromTenants(env, sites);
   return sites;
+}
+
+const CMS_TENANT_SLUG_ALIASES = {
+  nicoc: 'newiberiachurchofchrist',
+};
+
+/**
+ * Registry rows from agentsam_project_context often lack domain — hydrate from cms_tenants.
+ * @param {any} env
+ * @param {Array<{ slug: string, domain?: string|null, source?: string }>} sites
+ */
+async function hydrateSiteDomainsFromTenants(env, sites) {
+  if (!env?.DB || !sites?.length) return;
+  const lookupSlugs = [
+    ...new Set(
+      sites.flatMap((s) => {
+        const slug = trim(s.slug);
+        const alias = CMS_TENANT_SLUG_ALIASES[slug];
+        return alias ? [slug, alias] : [slug];
+      }),
+    ),
+  ].filter(Boolean);
+  if (!lookupSlugs.length) return;
+  try {
+    const placeholders = lookupSlugs.map(() => '?').join(',');
+    const { results } = await env.DB.prepare(
+      `SELECT slug, domain
+         FROM cms_tenants
+        WHERE slug IN (${placeholders})
+          AND COALESCE(is_active, 1) = 1`,
+    )
+      .bind(...lookupSlugs)
+      .all();
+    const domainBySlug = new Map(
+      (results || []).map((r) => [trim(r.slug), trim(r.domain) || null]),
+    );
+    for (const site of sites) {
+      if (trim(site.domain)) continue;
+      const slug = trim(site.slug);
+      const alias = CMS_TENANT_SLUG_ALIASES[slug];
+      site.domain =
+        domainBySlug.get(slug) ||
+        (alias ? domainBySlug.get(alias) : null) ||
+        site.domain ||
+        null;
+    }
+  } catch (_) {}
 }
 
 /**
