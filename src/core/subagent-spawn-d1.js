@@ -11,6 +11,7 @@
  */
 
 import { scheduleToolCallLog } from './agentsam-ops-ledger.js';
+import { resolveChainRootIdForParentRun } from './agent-run-routing.js';
 import { estimateModelRunCostUsd } from './model-pricing.js';
 import { pragmaTableInfo } from './retention.js';
 import { ensureDefaultSubagentProfile } from './subagent-profile-write.js';
@@ -456,6 +457,8 @@ export async function createChildRun(env, ctx, p) {
   if (!env?.DB) return { ok: false, runId: null, reason: 'no_db' };
   const runId = id('ar');
   const tenantId = p.tenantId != null ? String(p.tenantId).trim() : '';
+  const parentRunId = String(p.parentRunId).trim();
+  const chainRootId = (await resolveChainRootIdForParentRun(env.DB, parentRunId)) || parentRunId;
 
   try {
     await env.DB.prepare(
@@ -482,8 +485,8 @@ export async function createChildRun(env, ctx, p) {
         String(p.workspaceId).trim(),
         p.conversationId ?? null,
         p.sessionId ?? null,
-        String(p.parentRunId).trim(),
-        String(p.parentRunId).trim(),
+        parentRunId,
+        chainRootId,
         String(p.taskType || 'multitask').trim(),
         unixNow(),
         unixNow(),

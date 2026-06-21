@@ -149,6 +149,29 @@ function agentRunUnixNow() {
   return Math.floor(Date.now() / 1000);
 }
 
+/**
+ * Resolve chain_root_id for a child run from its parent (one D1 lookup).
+ * Inherits parent.chain_root_id when set; otherwise uses parent.id as the chain root.
+ *
+ * @param {import('@cloudflare/workers-types').D1Database} db
+ * @param {string|null|undefined} parentRunId
+ */
+export async function resolveChainRootIdForParentRun(db, parentRunId) {
+  const pid = parentRunId != null ? String(parentRunId).trim() : '';
+  if (!pid || !db) return null;
+  try {
+    const parent = await db
+      .prepare(`SELECT id, chain_root_id FROM agentsam_agent_run WHERE id = ? LIMIT 1`)
+      .bind(pid)
+      .first();
+    if (!parent?.id) return pid;
+    const inherited = parent.chain_root_id != null ? String(parent.chain_root_id).trim() : '';
+    return inherited || String(parent.id).trim();
+  } catch {
+    return pid;
+  }
+}
+
 const CHAT_MODES = new Set(['ask', 'agent', 'plan', 'debug', 'auto']);
 
 /** Normalized chat body mode for `agentsam_agent_run.mode`. */
@@ -392,6 +415,8 @@ export function newChatAgentRunId(opts = {}) {
  *   sourceTool?: string | null,
  *   trigger?: string | null,
  *   metadata?: Record<string, unknown>,
+ *   parentRunId?: string | null,
+ *   parent_run_id?: string | null,
  * }} p
  */
 export function scheduleAgentsamChatAgentRunStart(env, ctx, p) {
@@ -442,6 +467,28 @@ export function scheduleAgentsamChatAgentRunStart(env, ctx, p) {
       add('work_session_id', p.workSessionId != null ? String(p.workSessionId).slice(0, 200) : null);
       add('agent_ai_id', p.agentAiId != null ? String(p.agentAiId).trim().slice(0, 200) : null);
       add('model_catalog_id', p.modelCatalogId != null ? String(p.modelCatalogId).trim().slice(0, 200) : null);
+
+      const parentRunId =
+        p.parentRunId != null
+          ? String(p.parentRunId).trim()
+          : p.parent_run_id != null
+            ? String(p.parent_run_id).trim()
+            : '';
+      let chainRootId =
+        p.chainRootId != null
+          ? String(p.chainRootId).trim()
+          : p.chain_root_id != null
+            ? String(p.chain_root_id).trim()
+            : '';
+      if (parentRunId) {
+        add('parent_run_id', parentRunId.slice(0, 120));
+        if (!chainRootId && cols.has('chain_root_id')) {
+          chainRootId = (await resolveChainRootIdForParentRun(env.DB, parentRunId)) || parentRunId;
+        }
+      }
+      if (chainRootId) {
+        add('chain_root_id', chainRootId.slice(0, 120));
+      }
 
       const isoNow = new Date().toISOString();
       const unixNow = agentRunUnixNow();
@@ -499,6 +546,8 @@ export function scheduleAgentsamChatAgentRunStart(env, ctx, p) {
  *   fallbackReason?: string | null,
  *   modelsTried?: string[],
  *   quickstartBatch?: string | null,
+ *   parentRunId?: string | null,
+ *   parent_run_id?: string | null,
  * }} p
  */
 export function scheduleAgentsamChatAgentRunInsert(env, ctx, p) {
@@ -706,6 +755,29 @@ export function scheduleAgentsamChatAgentRunInsert(env, ctx, p) {
       add('output_tokens', tout);
       add('cost_usd', costUsd);
       add('error_message', p.errorMessage != null ? String(p.errorMessage).slice(0, 8000) : null);
+
+      const legacyParentRunId =
+        p.parentRunId != null
+          ? String(p.parentRunId).trim()
+          : p.parent_run_id != null
+            ? String(p.parent_run_id).trim()
+            : '';
+      let legacyChainRootId =
+        p.chainRootId != null
+          ? String(p.chainRootId).trim()
+          : p.chain_root_id != null
+            ? String(p.chain_root_id).trim()
+            : '';
+      if (legacyParentRunId) {
+        add('parent_run_id', legacyParentRunId.slice(0, 120));
+        if (!legacyChainRootId && cols.has('chain_root_id')) {
+          legacyChainRootId =
+            (await resolveChainRootIdForParentRun(env.DB, legacyParentRunId)) || legacyParentRunId;
+        }
+      }
+      if (legacyChainRootId) {
+        add('chain_root_id', legacyChainRootId.slice(0, 120));
+      }
 
       const dur = Math.max(0, Math.floor(Number(p.durationMs) || 0));
       const isoNow = new Date().toISOString();
