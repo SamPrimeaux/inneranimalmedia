@@ -56,6 +56,11 @@ export async function handleAgentSamRegistryRequest(request, env, ctx, authUser)
     const path = url.pathname.toLowerCase().replace(/\/$/, '') || '/';
     const method = request.method.toUpperCase();
 
+    if (path === '/api/agentsam/spawn-tree' && method === 'GET') {
+      const { handleAgentsamSpawnTree } = await import('./agentsam/spawn-tree.js');
+      return handleAgentsamSpawnTree(request, url, env, authUser);
+    }
+
     const planIdMatch = path.match(/^\/api\/agentsam\/plans\/([^/]+)$/);
     if (planIdMatch && method === 'PATCH') {
       if (!env.DB) return jsonResponse({ error: 'DB unavailable' }, 503);
