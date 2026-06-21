@@ -5,7 +5,7 @@ import { buildCmsPath, parseCmsRoute, readStoredCmsProjectSlug, type CmsView } f
 import ClientWorkerCmsStudio from './ClientWorkerCmsStudio';
 
 const CmsRoot = lazy(() =>
-  import('../../../src/dashboard/cms/CmsRoot.jsx').then((m) => ({
+  import('../../../src/dashboard/cms/CmsRoot').then((m) => ({
     default: m.CmsRoot ?? m.default,
   })),
 );
@@ -182,6 +182,7 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
             workspaceId={workspaceId}
             workspaceLabel={context?.ui_label || context?.workspace_name || null}
             workspaceSlug={context?.workspace_slug || null}
+            publicDomain={context?.public_domain || null}
             sites={context?.sites || []}
             primaryProjectSlug={context?.project_slug || null}
             loadingSites={loading && parsed.view === 'sites'}

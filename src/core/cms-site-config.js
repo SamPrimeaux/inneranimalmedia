@@ -100,6 +100,21 @@ export async function resolveCmsSiteConfig(env, workspaceId, projectSlug = null)
   const studioUrl = workerBaseUrl && isClientWorker ? `${workerBaseUrl}${studioPath}` : null;
   const bridgeSupported = isClientWorker && Boolean(workerBaseUrl);
 
+  let publicDomain = trim(meta.public_domain) || null;
+  if (!publicDomain && slug && env?.DB) {
+    try {
+      const tenant = await env.DB.prepare(
+        `SELECT domain FROM cms_tenants WHERE slug = ? AND COALESCE(is_active, 1) = 1 LIMIT 1`,
+      )
+        .bind(slug)
+        .first();
+      publicDomain = trim(tenant?.domain) || null;
+    } catch (_) {}
+  }
+  if (!publicDomain && trim(wsRow?.worker_name) === PLATFORM_WORKER_NAME) {
+    publicDomain = 'inneranimalmedia.com';
+  }
+
   return {
     workspace_id: ws,
     project_slug: slug || trim(wsRow?.workspace_slug) || null,
@@ -107,7 +122,7 @@ export async function resolveCmsSiteConfig(env, workspaceId, projectSlug = null)
     api_profile: apiProfile,
     worker_name: trim(wsRow?.worker_name) || null,
     worker_base_url: workerBaseUrl,
-    public_domain: trim(meta.public_domain) || null,
+    public_domain: publicDomain,
     studio_path: studioPath,
     studio_url: studioUrl,
     bridge_supported: bridgeSupported,

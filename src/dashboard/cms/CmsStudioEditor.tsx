@@ -50,6 +50,12 @@ export function CmsStudioEditor({
   panel = 'pages',
   workspaceId = '',
   workspaceLabel = null,
+}: {
+  projectSlug: string | null | undefined;
+  pageId?: string | null;
+  panel?: string;
+  workspaceId?: string;
+  workspaceLabel?: string | null;
 }) {
   const [sketchOpen, setSketchOpen] = useState(false);
   const iframeRef = useRef(null);

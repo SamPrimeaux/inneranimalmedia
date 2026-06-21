@@ -1,19 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-
-async function api(path, opts = {}) {
-  const isForm = opts.body instanceof FormData;
-  const res = await fetch(path, {
-    credentials: 'include',
-    headers: isForm ? opts.headers || {} : { 'Content-Type': 'application/json', ...(opts.headers || {}) },
-    ...opts,
-    body: isForm ? opts.body : opts.body ? JSON.stringify(opts.body) : undefined,
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || err.message || res.statusText);
-  }
-  return res.json();
-}
+import { cmsApi } from './cmsApi';
+import { resolveStorefrontUrl, storefrontDisplayHost } from './cmsStorefrontUrl';
+import { StorefrontPreview } from './StorefrontPreview';
+import type { CmsBootstrapData, CmsBootstrapPage, CmsBootstrapSection } from './cmsTypes';
 
 function formatDate(value) {
   if (!value) return 'Not yet';
@@ -63,28 +52,51 @@ function ErrorBox({ error, onRetry }) {
   return <div className="pt-card" style={{ padding: 20, color: 'var(--muted)' }}><strong style={{ color: 'var(--text)' }}>Could not load CMS data.</strong><p>{error}</p>{onRetry ? <button type="button" className="pt-btn" onClick={onRetry}>Retry</button> : null}</div>;
 }
 
-function useBootstrap(projectSlug, pageId) {
-  const [state, setState] = useState({ loading: true, error: '', data: null });
+function useBootstrap(projectSlug: string | null | undefined, pageId: string | null | undefined) {
+  const [state, setState] = useState<{ loading: boolean; error: string; data: CmsBootstrapData | null }>({ loading: true, error: '', data: null });
   const load = () => {
     if (!projectSlug) { setState({ loading: false, error: 'CMS site not resolved.', data: null }); return; }
     setState((s) => ({ ...s, loading: true, error: '' }));
     const q = new URLSearchParams({ project_slug: projectSlug });
     if (pageId) q.set('page_id', pageId);
-    api(`/api/cms/bootstrap?${q}`).then((d) => setState({ loading: false, error: '', data: d })).catch((e) => setState({ loading: false, error: e.message, data: null }));
+    cmsApi<CmsBootstrapData>(`/api/cms/bootstrap?${q}`).then((d) => setState({ loading: false, error: '', data: d })).catch((e: Error) => setState({ loading: false, error: e.message, data: null }));
   };
   useEffect(() => { load(); }, [projectSlug, pageId]);
   return { ...state, reload: load };
 }
 
-export function PageEditor({ projectSlug, pageId, onNavigatePath }) {
+export function PageEditor({
+  projectSlug,
+  pageId,
+  onNavigatePath,
+  publicDomain = null,
+}: {
+  projectSlug: string | null | undefined;
+  pageId: string | null | undefined;
+  onNavigatePath: (path: string) => void;
+  publicDomain?: string | null;
+}) {
   const { loading, error, data, reload } = useBootstrap(projectSlug, pageId);
   const [activeSectionId, setActiveSectionId] = useState(null);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState('');
   const [moreOpen, setMoreOpen] = useState(false);
   const page = useMemo(() => (data?.pages || []).find((p) => p.id === pageId) || data?.page || null, [data, pageId]);
-  const sections = useMemo(() => (data?.sections || []).filter((s) => s.page_id === pageId), [data, pageId]);
+  const sections = useMemo(() => {
+    if (data?.sections_by_page && pageId) return data.sections_by_page[pageId] || [];
+    return (data?.sections || []).filter((s: CmsBootstrapSection) => s.page_id === pageId);
+  }, [data, pageId]);
   const activeSection = sections.find((s) => s.id === activeSectionId) || sections[0] || null;
+  const livePreviewUrl = useMemo(
+    () =>
+      resolveStorefrontUrl({
+        projectSlug,
+        tenantDomain: data?.tenant?.domain,
+        publicDomain,
+        path: page?.route_path || (page?.slug ? `/${page.slug}` : '/'),
+      }),
+    [projectSlug, publicDomain, data?.tenant?.domain, page?.route_path, page?.slug],
+  );
   const [form, setForm] = useState({ title: '', seo_title: '', meta_description: '', robots: 'index,follow' });
   const [sectionJson, setSectionJson] = useState('{}');
 
@@ -101,7 +113,7 @@ export function PageEditor({ projectSlug, pageId, onNavigatePath }) {
   const savePage = async () => {
     setSaving(true);
     try {
-      await api(`/api/cms/pages/${encodeURIComponent(pageId)}`, { method: 'PUT', body: form });
+      await cmsApi(`/api/cms/pages/${encodeURIComponent(pageId)}`, { method: 'PUT', body: form });
       showToast('Page saved');
       reload();
     } catch (e) { alert(e.message); }
@@ -114,7 +126,7 @@ export function PageEditor({ projectSlug, pageId, onNavigatePath }) {
     try { parsed = JSON.parse(sectionJson || '{}'); } catch { alert('Section JSON is invalid.'); return; }
     setSaving(true);
     try {
-      await api(`/api/cms/sections/${encodeURIComponent(activeSection.id)}`, { method: 'PUT', body: { section_data: parsed } });
+      await cmsApi(`/api/cms/sections/${encodeURIComponent(activeSection.id)}`, { method: 'PUT', body: { section_data: parsed } });
       showToast('Section draft saved');
       reload();
     } catch (e) { alert(e.message); }
@@ -125,8 +137,8 @@ export function PageEditor({ projectSlug, pageId, onNavigatePath }) {
     if (!pageId || !window.confirm('Publish this page to production?')) return;
     setSaving(true);
     try {
-      await api(`/api/cms/pages/${encodeURIComponent(pageId)}/snapshot`, { method: 'POST', body: {} }).catch(() => null);
-      await api(`/api/cms/pages/${encodeURIComponent(pageId)}/publish`, { method: 'POST', body: {} });
+      await cmsApi(`/api/cms/pages/${encodeURIComponent(pageId)}/snapshot`, { method: 'POST', body: {} }).catch(() => null);
+      await cmsApi(`/api/cms/pages/${encodeURIComponent(pageId)}/publish`, { method: 'POST', body: {} });
       showToast('Page published');
       reload();
     } catch (e) { alert(e.message); }
@@ -137,7 +149,7 @@ export function PageEditor({ projectSlug, pageId, onNavigatePath }) {
     if (!window.confirm('Archive this page?')) return;
     setSaving(true);
     try {
-      await api(`/api/cms/pages/${encodeURIComponent(pageId)}`, { method: 'DELETE' });
+      await cmsApi(`/api/cms/pages/${encodeURIComponent(pageId)}`, { method: 'DELETE' });
       onNavigatePath(buildPath('pages', projectSlug));
     } catch (e) { alert(e.message); }
     finally { setSaving(false); }
@@ -145,7 +157,7 @@ export function PageEditor({ projectSlug, pageId, onNavigatePath }) {
 
   const toggleSection = async (s) => {
     try {
-      await api(`/api/cms/sections/${encodeURIComponent(s.id)}/visibility`, { method: 'POST', body: { is_visible: !(s.is_visible === 1 || s.is_visible === true) } });
+      await cmsApi(`/api/cms/sections/${encodeURIComponent(s.id)}/visibility`, { method: 'POST', body: { is_visible: !(s.is_visible === 1 || s.is_visible === true) } });
       reload();
     } catch (e) { alert(e.message); }
   };
@@ -198,7 +210,7 @@ export function PageEditor({ projectSlug, pageId, onNavigatePath }) {
           <article className="pt-light-card">
             <div className="pt-side-title">Search engine preview</div>
             <div className="pt-seo-title">{form.seo_title || form.title || page?.title}</div>
-            <div className="pt-subtext">{`https://${projectSlug}.workers.dev › ${page?.slug || ''}`}</div>
+            <div className="pt-subtext">{`${storefrontDisplayHost(livePreviewUrl)} › ${page?.slug || ''}`}</div>
             <p className="pt-subtext">{form.meta_description || 'No meta description yet.'}</p>
           </article>
 
@@ -243,6 +255,12 @@ export function PageEditor({ projectSlug, pageId, onNavigatePath }) {
         </main>
 
         <aside className="pt-editor-sidebar">
+          <article className="pt-light-card">
+            <div className="pt-side-title">Live page preview</div>
+            <div style={{ height: 320, borderRadius: 12, overflow: 'hidden' }}>
+              <StorefrontPreview url={livePreviewUrl} variant="desktop" title={storefrontDisplayHost(livePreviewUrl)} />
+            </div>
+          </article>
           <article className="pt-light-card">
             <div className="pt-side-title">Visibility</div>
             <label className="pt-radio-row"><span className="pt-radio active" /><span><strong>{statusLabel(page?.status)}</strong><div className="pt-subtext">Updated {formatDate(page?.updated_at)}</div></span></label>
