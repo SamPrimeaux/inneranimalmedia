@@ -824,6 +824,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     }
     return AUTO_MODEL_KEY;
   });
+  const selectedModelKeyRef = useRef(selectedModelKey);
+  const userPinnedModelRef = useRef(!isAutoModelSelection(selectedModelKey));
+  selectedModelKeyRef.current = selectedModelKey;
 
   const [mentionOpen, setMentionOpen] = useState(false);
   const [mentionItems, setMentionItems] = useState<PickerItem[]>([]);
@@ -971,6 +974,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           output_rate_per_mtok: raw.output_rate_per_mtok != null ? Number(raw.output_rate_per_mtok) : null,
         }));
         setChatModels(rows);
+        if (userPinnedModelRef.current && !isAutoModelSelection(selectedModelKeyRef.current)) {
+          return;
+        }
         setSelectedModelKey((prev) => {
           if (isAutoModelSelection(prev)) return AUTO_MODEL_KEY;
           if (prev && rows.some((m) => m.model_key === prev)) return prev;
@@ -2133,7 +2139,12 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         return;
       }
     }
-    const rawModelKey = (sendOpts?.modelKey?.trim() || selectedModelKey || AUTO_MODEL_KEY).trim();
+    const rawModelKey = (
+      sendOpts?.modelKey?.trim() ||
+      selectedModelKeyRef.current ||
+      selectedModelKey ||
+      AUTO_MODEL_KEY
+    ).trim();
     const useAutoRouting = isAutoModelSelection(rawModelKey);
     const effectiveModelKey = useAutoRouting
       ? AUTO_MODEL_KEY
@@ -2666,7 +2677,15 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   }, [chatModels]);
 
   const pickModelKey = useCallback((modelKey: string) => {
-    setSelectedModelKey(isAutoModelSelection(modelKey) ? AUTO_MODEL_KEY : modelKey);
+    const next = isAutoModelSelection(modelKey) ? AUTO_MODEL_KEY : modelKey.trim();
+    userPinnedModelRef.current = !isAutoModelSelection(next);
+    selectedModelKeyRef.current = next;
+    setSelectedModelKey(next);
+    try {
+      localStorage.setItem(LS_AGENT_CHAT_MODEL_KEY, next);
+    } catch {
+      /* ignore */
+    }
     setIsModelPickerOpen(false);
     setAttachMenuOpen(false);
   }, []);
@@ -2724,9 +2743,12 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                         {m.size_class}
                       </span>
                     ) : null}
-                    {isDefault ? (
-                      <span className="shrink-0 rounded bg-[var(--solar-cyan)]/15 px-1 py-0 text-[8px] font-bold uppercase tracking-wide text-[var(--solar-cyan)]">
-                        Default
+                    {isDefault && !isSession ? (
+                      <span
+                        className="shrink-0 rounded bg-[var(--dashboard-border)] px-1 py-0 text-[8px] font-bold uppercase tracking-wide text-[var(--dashboard-muted)]"
+                        title="Workspace default model (Thompson routing when Auto is selected)"
+                      >
+                        Workspace default
                       </span>
                     ) : null}
                   </div>
@@ -3322,30 +3344,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             ) : null}
             <div className="px-2 pt-2 pb-0 min-w-0">
               <AgentComposerSourceChips sources={composerSources} onRemove={removeComposerSource} />
-              {routeQuickActions.length > 0 ? (
-                <div className="flex flex-wrap gap-1.5 px-1 pb-1">
-                  {dashboardRouteLabel ? (
-                    <span className="self-center text-[10px] uppercase tracking-wide text-[var(--text-muted)] mr-1">
-                      {dashboardRouteLabel}
-                    </span>
-                  ) : null}
-                  {routeQuickActions.map((action) => (
-                    <button
-                      key={action.id}
-                      type="button"
-                      className="rounded-full border border-[var(--dashboard-border)] px-2 py-0.5 text-[11px] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
-                      onClick={() => {
-                        void handleSend(action.message, {
-                          route_key: action.route_key,
-                          task_type: action.task_type,
-                        });
-                      }}
-                    >
-                      {action.label}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
             </div>
             <textarea
                 ref={textareaRef}

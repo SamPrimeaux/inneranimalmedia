@@ -154,14 +154,7 @@ export function resolveDashboardRouteAgentContext(opts: {
       context_label: tab === 'examples' ? 'Agent · Examples' : 'Agent · Workbench',
       contextMode: 'agent',
       workspaceContext: basePacket,
-      quickActions: [
-        {
-          id: 'agent-plan',
-          label: 'Plan next step',
-          message: 'Review my open files and workspace context, then propose the highest-leverage next step.',
-          route_key: 'agent_sam',
-        },
-      ],
+      quickActions: [],
     };
   }
 

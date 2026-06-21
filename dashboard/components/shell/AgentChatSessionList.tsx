@@ -1,12 +1,9 @@
 import { useMemo, type FC, type MouseEvent } from 'react';
 import { Archive, FolderKanban, Layers, Loader2, Star } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import {
-  IAM_AGENT_CHAT_CONVERSATION_CHANGE,
-  LS_AGENT_CHAT_CONVERSATION_ID,
-} from '../../agentChatConstants';
 import { conversationIdFromSession, sessionDisplayTitle } from '../../agentSessionsCatalog';
 import type { AgentSessionRow } from '../../agentSessionsCatalog';
+import { openAgentConversation } from '../../lib/openAgentConversation';
 import { useAgentChatSessions } from '../../hooks/useAgentChatSessions';
 
 const RECENT_TEASER_LIMIT = 8;
@@ -27,14 +24,14 @@ export const AgentChatSessionList: FC<{
   const starred = useMemo(() => sessions.filter((s) => s.is_starred), [sessions]);
   const recents = useMemo(() => sessions.filter((s) => !s.is_starred), [sessions]);
 
-  const selectConversation = (id: string) => {
+  const selectConversation = (s: AgentSessionRow) => {
+    const id = conversationIdFromSession(s);
     if (!id) return;
-    try {
-      localStorage.setItem(LS_AGENT_CHAT_CONVERSATION_ID, id);
-    } catch {
-      /* ignore */
-    }
-    window.dispatchEvent(new CustomEvent(IAM_AGENT_CHAT_CONVERSATION_CHANGE, { detail: { id } }));
+    openAgentConversation({
+      id,
+      title: sessionDisplayTitle(s),
+      force: true,
+    });
     onSelect?.(id);
   };
 
@@ -76,7 +73,7 @@ export const AgentChatSessionList: FC<{
       <div key={id} className="relative group">
         <button
           type="button"
-          onClick={() => selectConversation(id)}
+          onClick={() => selectConversation(s)}
           title={sessionDisplayTitle(s)}
           className={`w-full text-left flex items-start gap-1.5 rounded-md transition-colors hover:bg-[var(--bg-hover)]/60 min-h-[32px] px-1.5 py-1 ${
             active ? 'bg-[var(--bg-elevated)] border-l-2 border-l-[var(--solar-cyan)]' : ''

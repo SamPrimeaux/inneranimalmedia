@@ -37,6 +37,7 @@ import {
   type ArtifactOpenBuilderDetail,
   type QuickstartThreadDetail,
 } from './agentChatConstants';
+import { IAM_AGENT_ENSURE_PANEL, openAgentConversation } from './lib/openAgentConversation';
 import { WorkspaceLauncher } from './components/WorkspaceLauncher';
 import type { XTermShellHandle } from './components/XTermShell';
 import { SecurityShieldBanner } from './components/SecurityShieldBanner';
@@ -731,8 +732,10 @@ const App: React.FC = () => {
 
   const agentChatTabsRef = useRef(agentChatTabs);
   const activeAgentChatTabIdRef = useRef(activeAgentChatTabId);
+  const messagesByTabIdRef = useRef(messagesByTabId);
   agentChatTabsRef.current = agentChatTabs;
   activeAgentChatTabIdRef.current = activeAgentChatTabId;
+  messagesByTabIdRef.current = messagesByTabId;
 
   // IAM_COLLAB — same workspace DO room as canvas (`canvas:{workspaceId}`): realtime theme + canvas (D1 is authority).
   useEffect(() => {
@@ -1217,20 +1220,14 @@ const App: React.FC = () => {
   }, [navigate]);
 
   const shellSelectChat = useCallback(
-    (conversationId: string) => {
+    (conversationId: string, title?: string) => {
       const id = String(conversationId || '').trim();
       if (!id) return;
-      if (!isAgentShellPath(location.pathname)) navigate(AGENT_HOME_PATH);
       setActiveTab('Workspace');
       setOpenTabs((prev) => (prev.includes('Workspace') ? prev : [...prev, 'Workspace']));
-      try {
-        localStorage.setItem(LS_AGENT_CHAT_CONVERSATION_ID, id);
-      } catch {
-        /* ignore */
-      }
-      window.dispatchEvent(new CustomEvent(IAM_AGENT_CHAT_CONVERSATION_CHANGE, { detail: { id } }));
+      openAgentConversation({ id, title, force: true });
     },
-    [location.pathname, navigate],
+    [],
   );
 
   const shellOpenMovieMode = useCallback(() => {
@@ -1596,8 +1593,17 @@ const App: React.FC = () => {
   }, [messagesByTabId, MESSAGES_SS_KEY]);
 
   useEffect(() => {
+    const ensurePanel = () => {
+      setAgentPosition((p) => (p === 'off' ? 'right' : p));
+    };
+    window.addEventListener(IAM_AGENT_ENSURE_PANEL, ensurePanel);
+    return () => window.removeEventListener(IAM_AGENT_ENSURE_PANEL, ensurePanel);
+  }, []);
+
+  useEffect(() => {
     const onConv = (e: Event) => {
-      const raw = (e as CustomEvent<{ id?: string | null }>).detail?.id;
+      const detail = (e as CustomEvent<{ id?: string | null; force?: boolean; title?: string }>).detail;
+      const raw = detail?.id;
 
       if (raw === null || raw === undefined) {
         const tid = activeAgentChatTabIdRef.current;
@@ -1623,6 +1629,9 @@ const App: React.FC = () => {
         /* ignore */
       }
 
+      const sessionTitle = typeof detail?.title === 'string' ? detail.title.trim() : '';
+      const forceReload = detail?.force === true;
+
       const prevTabs = agentChatTabsRef.current;
       const act = activeAgentChatTabIdRef.current;
       const byConv = prevTabs.find((t) => t.conversationId === convId);
@@ -1631,22 +1640,44 @@ const App: React.FC = () => {
       if (byConv) {
         targetTabId = byConv.id;
         if (byConv.id !== act) setActiveAgentChatTabId(byConv.id);
+        if (sessionTitle) {
+          setAgentChatTabs((prev) =>
+            prev.map((t) => (t.id === byConv.id ? { ...t, title: sessionTitle } : t)),
+          );
+        }
       } else {
         const activeRow = prevTabs.find((t) => t.id === act);
         if (activeRow && !activeRow.conversationId.trim()) {
           targetTabId = act;
           setAgentChatTabs((prev) =>
-            prev.map((t) => (t.id === act ? { ...t, conversationId: convId, title: 'Chat' } : t)),
+            prev.map((t) =>
+              t.id === act
+                ? { ...t, conversationId: convId, title: sessionTitle || 'Chat' }
+                : t,
+            ),
           );
         } else {
           const nid = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `tab_${Date.now()}`;
           targetTabId = nid;
-          setAgentChatTabs((prev) => [...prev, { id: nid, conversationId: convId, title: 'Chat' }]);
+          setAgentChatTabs((prev) => [
+            ...prev,
+            { id: nid, conversationId: convId, title: sessionTitle || 'Chat' },
+          ]);
           setActiveAgentChatTabId(nid);
         }
       }
 
       if (!targetTabId) return;
+
+      const existingMessages = messagesByTabIdRef.current[targetTabId];
+      if (!forceReload && existingMessages && existingMessages.length > 1) {
+        return;
+      }
+
+      setMessagesByTabId((prev) => ({
+        ...prev,
+        [targetTabId]: [{ role: 'assistant', content: 'Loading conversation…' }],
+      }));
 
       void fetch(`/api/agent/sessions/${encodeURIComponent(convId)}/messages`, { credentials: 'same-origin' })
         .then((r) => (r.ok ? r.json() : []))

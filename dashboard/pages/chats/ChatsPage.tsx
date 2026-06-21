@@ -1,10 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { Loader2, Search } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
-import {
-  IAM_AGENT_CHAT_CONVERSATION_CHANGE,
-  LS_AGENT_CHAT_CONVERSATION_ID,
-} from '../../agentChatConstants';
 import {
   chatsListRelativeTime,
   conversationIdFromSession,
@@ -12,22 +7,10 @@ import {
   sessionSortMs,
   type AgentSessionRow,
 } from '../../agentSessionsCatalog';
-import { AGENT_HOME_PATH } from '../../lib/agentRoutes';
+import { openAgentConversation } from '../../lib/openAgentConversation';
 import { useAgentChatSessions } from '../../hooks/useAgentChatSessions';
 
-function openConversation(conversationId: string) {
-  const id = conversationId.trim();
-  if (!id) return;
-  try {
-    localStorage.setItem(LS_AGENT_CHAT_CONVERSATION_ID, id);
-  } catch {
-    /* ignore */
-  }
-  window.dispatchEvent(new CustomEvent(IAM_AGENT_CHAT_CONVERSATION_CHANGE, { detail: { id } }));
-}
-
 export default function ChatsPage() {
-  const navigate = useNavigate();
   const { sessions, loading, projects, reload, patchSession } = useAgentChatSessions({ limit: 200 });
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
@@ -75,13 +58,15 @@ export default function ChatsPage() {
     setMoveOpen(false);
   };
 
-  const navigateToChat = useCallback(
-    (conversationId: string) => {
-      openConversation(conversationId);
-      navigate(AGENT_HOME_PATH);
-    },
-    [navigate],
-  );
+  const resumeChat = useCallback((s: AgentSessionRow) => {
+    const id = conversationIdFromSession(s);
+    if (!id) return;
+    openAgentConversation({
+      id,
+      title: sessionDisplayTitle(s),
+      force: true,
+    });
+  }, []);
 
   const archiveSelected = async () => {
     if (!selectedCount || busy) return;
@@ -234,10 +219,11 @@ export default function ChatsPage() {
                     onChange={() => toggleOne(id)}
                     className="shrink-0 rounded border-[var(--dashboard-border)]"
                     aria-label={`Select ${sessionDisplayTitle(s)}`}
+                    onClick={(e) => e.stopPropagation()}
                   />
                   <button
                     type="button"
-                    onClick={() => navigateToChat(id)}
+                    onClick={() => resumeChat(s)}
                     className="flex min-w-0 flex-1 items-center gap-2 text-left"
                   >
                     <span className="min-w-0 flex-1 truncate text-[14px] font-medium">
@@ -245,9 +231,13 @@ export default function ChatsPage() {
                     </span>
                     {rowBadge(s)}
                   </button>
-                  <span className="shrink-0 text-[12px] text-[var(--text-muted)] tabular-nums">
+                  <button
+                    type="button"
+                    onClick={() => resumeChat(s)}
+                    className="shrink-0 text-[12px] text-[var(--text-muted)] tabular-nums hover:text-[var(--text-main)]"
+                  >
                     {chatsListRelativeTime(s)}
-                  </span>
+                  </button>
                 </li>
               );
             })}

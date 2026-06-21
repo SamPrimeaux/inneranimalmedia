@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { IAM_AGENT_CHAT_CONVERSATION_CHANGE } from '../agentChatConstants';
 import type { AgentSessionRow } from '../agentSessionsCatalog';
+import { conversationIdFromSession } from '../agentSessionsCatalog';
 
 export type AgentChatProjectOption = { id: string; name: string };
 
@@ -27,7 +28,17 @@ export function useAgentChatSessions(opts?: { limit?: number; refreshKey?: numbe
     try {
       const r = await fetch(`/api/agent/sessions?limit=${limit}`, { credentials: 'same-origin' });
       const data = r.ok ? await r.json() : [];
-      setSessions(Array.isArray(data) ? (data as AgentSessionRow[]) : []);
+      const rows = Array.isArray(data) ? (data as AgentSessionRow[]) : [];
+      const deduped = [...rows
+        .reduce((map, row) => {
+          const id = conversationIdFromSession(row);
+          if (!id) return map;
+          const prev = map.get(id);
+          if (!prev) map.set(id, row);
+          return map;
+        }, new Map<string, AgentSessionRow>())
+        .values()];
+      setSessions(deduped);
     } catch {
       setSessions([]);
     } finally {
