@@ -3,7 +3,7 @@
  * INSERT columns are chosen from live PRAGMA table_info (no assumed schemas).
  *
  * Re-exports scheduleAgentsamErrorLog from agentsam-error-log.js (canonical).
- * Does not replace MCP ledgers: tool_invocations, agentsam_mcp_tool_execution, mcp_audit_log, otlp_traces.
+ * Does not replace MCP ledgers: tool_invocations, agentsam_mcp_tool_execution, otlp_traces.
  *
  * web_fetch gating: use assertFetchDomainAllowed (auth.js) + agentsam_fetch_domain_allowlist.
  * Browser automation: use assertBrowserTrustedOrigin (this module) → agentsam_browser_trusted_origin.

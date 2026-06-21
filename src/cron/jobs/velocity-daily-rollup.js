@@ -4,7 +4,7 @@
  * Runs at midnight UTC (0 0 * * *) as part of runMidnightUtcJobs.
  *
  * Auto-writes one task_velocity row per day by counting real signals
- * from live tables — git commits, D1 migrations, mcp_audit_log, 
+ * from live tables — git commits, D1 migrations, agentsam_mcp_tool_execution,
  * agentsam_agent_run, agentsam_cron_runs, agentsam_spawn_job.
  *
  * Personal skill columns (new_concepts, confidence_gains, struggle_areas,
@@ -123,9 +123,10 @@ export async function runVelocityDailyRollup(env) {
     // MCP tool calls yesterday
     const mcpRow = await env.DB.prepare(
       `SELECT COUNT(*) as total_calls,
-              SUM(CASE WHEN status='error' THEN 1 ELSE 0 END) as errors
-       FROM mcp_audit_log
-       WHERE created_at >= unixepoch(?) AND created_at < unixepoch(?)`
+              SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as errors
+       FROM agentsam_mcp_tool_execution
+       WHERE COALESCE(created_at_unix, unixepoch(created_at)) >= unixepoch(?)
+         AND COALESCE(created_at_unix, unixepoch(created_at)) < unixepoch(?)`
     ).bind(yesterday, new Date(Date.now()).toISOString().slice(0, 10)).first().catch(() => null);
 
     // Agent runs yesterday — cost + stuck count

@@ -277,6 +277,11 @@ const AGENT_RESIZER_HIT_PX = 10;
 const ACTIVITY_SIDEBAR_GRAB_PX = 10;
 const LS_ACTIVITY_PANEL_W = 'iam_activity_panel_w';
 const DEFAULT_ACTIVITY_PANEL_W = 260;
+const LS_EDITOR_PREVIEW_SPLIT_PCT = 'iam_editor_preview_split_pct';
+const EDITOR_PREVIEW_SPLIT_MIN = 20;
+const EDITOR_PREVIEW_SPLIT_MAX = 80;
+const DEFAULT_EDITOR_PREVIEW_SPLIT_PCT = 50;
+const EDITOR_PREVIEW_PANEL_MIN_PX = 220;
 const LS_MOBILE_ACTIVITY_PANEL_VW = 'iam_mobile_activity_panel_vw';
 const MOBILE_ACTIVITY_PANEL_MIN_VW = 32;
 const MOBILE_ACTIVITY_PANEL_MAX_VW = 85;
@@ -303,6 +308,19 @@ function readActivityPanelW(): number {
     /* ignore */
   }
   return DEFAULT_ACTIVITY_PANEL_W;
+}
+
+function readEditorPreviewSplitPct(): number {
+  try {
+    const raw = localStorage.getItem(LS_EDITOR_PREVIEW_SPLIT_PCT);
+    const n = raw ? Number(raw) : NaN;
+    if (Number.isFinite(n) && n >= EDITOR_PREVIEW_SPLIT_MIN && n <= EDITOR_PREVIEW_SPLIT_MAX) {
+      return Math.round(n * 10) / 10;
+    }
+  } catch {
+    /* ignore */
+  }
+  return DEFAULT_EDITOR_PREVIEW_SPLIT_PCT;
 }
 
 /**
@@ -968,9 +986,18 @@ const App: React.FC = () => {
   const [editorPreviewLoading, setEditorPreviewLoading] = useState(false);
   const [editorPreviewStatus, setEditorPreviewStatus] = useState<string | null>(null);
   const editorPreviewLoadingRef = useRef(false);
+  const editorPreviewSplitRef = useRef<HTMLDivElement>(null);
+  const [editorPreviewEditorPct, setEditorPreviewEditorPct] = useState(readEditorPreviewSplitPct);
   useEffect(() => {
     editorPreviewLoadingRef.current = editorPreviewLoading;
   }, [editorPreviewLoading]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(LS_EDITOR_PREVIEW_SPLIT_PCT, String(editorPreviewEditorPct));
+    } catch {
+      /* ignore */
+    }
+  }, [editorPreviewEditorPct]);
   const [glbViewerUrl, setGlbViewerUrl] = useState<string>(
     'https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/6454d6fa-d4f1-43ec-33fd-628d0e7cdb00/public'
   );
@@ -1325,6 +1352,61 @@ const App: React.FC = () => {
     },
     [sidebarW, agentW, agentPosition],
   );
+
+  const beginEditorPreviewResize = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const el = e.currentTarget;
+    const pointerId = e.pointerId;
+    try {
+      el.setPointerCapture(pointerId);
+    } catch {
+      /* ignore */
+    }
+    document.body.classList.add('is-resizing');
+
+    const startX = e.clientX;
+    const startPct = editorPreviewEditorPct;
+    const container = editorPreviewSplitRef.current;
+
+    let finished = false;
+    const endDrag = () => {
+      if (finished) return;
+      finished = true;
+      document.body.classList.remove('is-resizing');
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onEnd);
+      window.removeEventListener('pointercancel', onEnd);
+      try {
+        el.releasePointerCapture(pointerId);
+      } catch {
+        /* ignore */
+      }
+      window.dispatchEvent(new Event('resize'));
+      window.dispatchEvent(new CustomEvent('iam:monaco-layout'));
+    };
+
+    const onMove = (pe: PointerEvent) => {
+      if (pe.pointerId !== pointerId) return;
+      const width = container?.getBoundingClientRect().width ?? 0;
+      if (width <= 0) return;
+      const deltaPct = ((pe.clientX - startX) / width) * 100;
+      const next = Math.max(
+        EDITOR_PREVIEW_SPLIT_MIN,
+        Math.min(EDITOR_PREVIEW_SPLIT_MAX, startPct + deltaPct),
+      );
+      setEditorPreviewEditorPct(next);
+      window.dispatchEvent(new CustomEvent('iam:monaco-layout'));
+    };
+
+    const onEnd = (pe: PointerEvent) => {
+      if (pe.pointerId !== pointerId) return;
+      endDrag();
+    };
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onEnd);
+    window.addEventListener('pointercancel', onEnd);
+  }, [editorPreviewEditorPct]);
 
   useEffect(() => {
     mobileActivityPanelVwRef.current = mobileActivityPanelVw;
@@ -3769,8 +3851,18 @@ const App: React.FC = () => {
                   )}
 
                   {activeTab === 'code' && (
-                      <div className="absolute inset-0 z-10 flex min-h-0 min-w-0">
-                          <div className={`flex flex-col min-h-0 min-w-0 ${editorPreviewOpen ? 'w-1/2' : 'w-full'}`}>
+                      <div ref={editorPreviewSplitRef} className="absolute inset-0 z-10 flex min-h-0 min-w-0">
+                          <div
+                            className="flex flex-col min-h-0 min-w-0 shrink-0"
+                            style={
+                              editorPreviewOpen
+                                ? {
+                                    flex: `0 0 ${editorPreviewEditorPct}%`,
+                                    minWidth: EDITOR_PREVIEW_PANEL_MIN_PX,
+                                  }
+                                : { flex: '1 1 auto', width: '100%' }
+                            }
+                          >
                             <Suspense
                               fallback={
                                 <div className="flex h-full items-center justify-center text-[12px] text-[var(--text-muted)]">
@@ -3787,26 +3879,48 @@ const App: React.FC = () => {
                             </Suspense>
                           </div>
                           {editorPreviewOpen && activeFile ? (
-                            <div className="w-1/2 min-w-0 min-h-0">
-                              <EditorPreviewPane
-                                fileName={activeFile.name}
-                                mode={editorPreviewMode}
-                                srcDoc={editorPreviewSrcDoc}
-                                url={editorPreviewUrl}
-                                loading={editorPreviewLoading}
-                                statusMessage={editorPreviewStatus}
-                                onClose={closeEditorPreview}
-                                onRefresh={
-                                  editorPreviewMode === 'devserver'
-                                    ? () => {
-                                        if (editorPreviewUrl) {
-                                          setEditorPreviewUrl(`${editorPreviewUrl.split('?')[0]}?t=${Date.now()}`);
+                            <>
+                              <div
+                                role="separator"
+                                aria-orientation="vertical"
+                                title="Drag to resize editor and preview"
+                                aria-label="Resize editor and preview panels"
+                                className="shrink-0 z-50 flex justify-center cursor-col-resize touch-none select-none group relative"
+                                style={{ width: AGENT_RESIZER_HIT_PX }}
+                                onPointerDown={beginEditorPreviewResize}
+                              >
+                                <span
+                                  className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-[var(--dashboard-border)] group-hover:bg-[var(--solar-cyan)] group-active:bg-[var(--solar-cyan)] transition-colors"
+                                  aria-hidden
+                                />
+                              </div>
+                              <div
+                                className="flex flex-col min-h-0 min-w-0 shrink-0"
+                                style={{
+                                  flex: `1 1 ${100 - editorPreviewEditorPct}%`,
+                                  minWidth: EDITOR_PREVIEW_PANEL_MIN_PX,
+                                }}
+                              >
+                                <EditorPreviewPane
+                                  fileName={activeFile.name}
+                                  mode={editorPreviewMode}
+                                  srcDoc={editorPreviewSrcDoc}
+                                  url={editorPreviewUrl}
+                                  loading={editorPreviewLoading}
+                                  statusMessage={editorPreviewStatus}
+                                  onClose={closeEditorPreview}
+                                  onRefresh={
+                                    editorPreviewMode === 'devserver'
+                                      ? () => {
+                                          if (editorPreviewUrl) {
+                                            setEditorPreviewUrl(`${editorPreviewUrl.split('?')[0]}?t=${Date.now()}`);
+                                          }
                                         }
-                                      }
-                                    : undefined
-                                }
-                              />
-                            </div>
+                                      : undefined
+                                  }
+                                />
+                              </div>
+                            </>
                           ) : null}
                       </div>
                   )}

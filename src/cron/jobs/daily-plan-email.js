@@ -94,11 +94,11 @@ export async function sendDailyPlanEmail(env) {
       // MCP tool activity last 24h
       env.DB.prepare(
         `SELECT tool_name, COUNT(*) as calls,
-                SUM(CASE WHEN status='success' THEN 1 ELSE 0 END) as ok,
-                SUM(CASE WHEN status='error' THEN 1 ELSE 0 END) as errors
-         FROM mcp_audit_log
+                SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as ok,
+                SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as errors
+         FROM agentsam_mcp_tool_execution
          WHERE workspace_id = 'ws_inneranimalmedia'
-           AND created_at > unixepoch('now','-24 hours')
+           AND COALESCE(created_at_unix, unixepoch(created_at)) > unixepoch('now','-24 hours')
          GROUP BY tool_name ORDER BY calls DESC LIMIT 10`
       ).all(),
 
