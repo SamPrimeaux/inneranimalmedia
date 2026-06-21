@@ -18,6 +18,7 @@ import { isCodeImplementationIntent } from '../core/code-implementation-intent.j
 import { executeAskTurn } from '../core/mode-controllers/ask-controller.js';
 import { executePlanTurn } from '../core/mode-controllers/plan-controller.js';
 import { executeAgentTurn } from '../core/mode-controllers/agent-controller.js';
+import { resolveSkillSpawnRouting } from '../core/agent-lane-router.js';
 import { executeDebugTurn } from '../core/mode-controllers/debug-controller.js';
 import { executeMultitaskTurn } from '../core/mode-controllers/multitask-controller.js';
 import { resolveIntegrationUserId } from '../core/integration-user-id.js';
@@ -124,9 +125,13 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
 
   const projectContextBlock = await loadProjectContextSystemBlock(env, workspaceId);
 
+  const skillRoute = await resolveSkillSpawnRouting(env, message, body);
+
   const intentMessageForMedia = message;
   const directImageIntent =
-    hasImageGenerationIntent(intentMessageForMedia) && !isCodeImplementationIntent(intentMessageForMedia) &&
+    !skillRoute &&
+    hasImageGenerationIntent(intentMessageForMedia) &&
+    !isCodeImplementationIntent(intentMessageForMedia) &&
     isPrimaryImageGenerationIntent(intentMessageForMedia);
 
   if (directImageIntent) {
@@ -163,6 +168,24 @@ export async function executeAgentChatSpine(env, request, ctx, pre) {
     agentChatResolvedContext,
     projectContextBlock,
   };
+
+  if (skillRoute) {
+    let agentProfile = profile;
+    if (profile.execution_kind !== 'agent_tool_loop' || profile.routing_task_type !== 'agent') {
+      agentProfile = await resolveRuntimeProfile(env, {
+        mode: 'agent',
+        message,
+        session: { userId, workspaceId, tenantId, conversationId: sessionId },
+        overrides: {
+          model_key: modelOverride,
+          task_type: 'agent',
+          subagent_slug: body.subagent_slug ?? body.subagentSlug ?? null,
+        },
+        compile_lane: 'live',
+      });
+    }
+    return executeAgentTurn(env, ctx, { ...controllerInput, profile: agentProfile, skillRoute });
+  }
 
   switch (profile.mode_controller) {
     case 'ask_controller':

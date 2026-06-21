@@ -16,6 +16,7 @@ import {
 import {
   buildCreateSubagentFlowSystemPromptLine,
   resolveCreateSubagentFlow,
+  executeGenmediaSkillSpawn,
 } from '../create-subagent-flow.js';
 import { filterToolsForCapabilityDecision } from '../tool-capability-filter.js';
 
@@ -679,6 +680,14 @@ export async function executeAgentTurn(env, ctx, input) {
       { error: 'agent_controller_execution_kind_mismatch', execution_kind: profile.execution_kind },
       400,
     );
+  }
+  const skillRoute = input.skillRoute ?? null;
+  if (
+    skillRoute &&
+    (skillRoute.skill_id === 'skill_on_brand_genmedia' ||
+      skillRoute.master_agent_slug === 'on_brand_genmedia')
+  ) {
+    return executeGenmediaSkillSpawn(env, ctx, input);
   }
   if (shouldRunRwsFanout(profile)) {
     return executeRwsSpawnFanout(env, ctx, input);

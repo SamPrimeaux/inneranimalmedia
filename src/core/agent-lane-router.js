@@ -505,3 +505,68 @@ export function formatExecutionLaneLogPayload(laneResult, backend = { available:
     url: laneResult.url,
   };
 }
+
+const GENMEDIA_SLASH_RE = /\/genmedia\b/i;
+
+/**
+ * Skill-triggered spawn routing (Sprint 2B). Reads pipeline order from agentsam_skill.metadata_json — no hardcoded slugs.
+ *
+ * @param {any} env
+ * @param {unknown} message
+ * @param {Record<string, unknown>|null|undefined} body
+ */
+export async function resolveSkillSpawnRouting(env, message, body = {}) {
+  const msg = String(message || '').trim();
+  const b = body && typeof body === 'object' ? body : {};
+  const skillIdFromBody =
+    b.skill_id != null
+      ? String(b.skill_id).trim()
+      : b.skillId != null
+        ? String(b.skillId).trim()
+        : '';
+  const slashFromBody =
+    b.slash_trigger != null
+      ? String(b.slash_trigger).trim()
+      : b.slashTrigger != null
+        ? String(b.slashTrigger).trim()
+        : '';
+
+  const wantsGenmedia =
+    skillIdFromBody === 'skill_on_brand_genmedia' ||
+    slashFromBody === 'genmedia' ||
+    GENMEDIA_SLASH_RE.test(msg);
+
+  if (!wantsGenmedia || !env?.DB) return null;
+
+  try {
+    const row = await env.DB.prepare(
+      `SELECT id, name, slash_trigger, metadata_json, task_types_json
+         FROM agentsam_skill
+        WHERE id = 'skill_on_brand_genmedia' AND COALESCE(is_active, 1) = 1
+        LIMIT 1`,
+    )
+      .first();
+    if (!row?.id) return null;
+    let meta = {};
+    try {
+      meta = JSON.parse(String(row.metadata_json || '{}'));
+    } catch {
+      meta = {};
+    }
+    const pipeline = Array.isArray(meta.pipeline)
+      ? meta.pipeline.map((s) => String(s || '').trim()).filter(Boolean)
+      : [];
+    if (!pipeline.length) return null;
+    return {
+      skill_id: String(row.id),
+      skillId: String(row.id),
+      taskType: 'agent',
+      master_agent_slug: String(meta.master_agent_slug || 'on_brand_genmedia').trim(),
+      pipeline,
+      max_iterations: Math.max(1, Math.floor(Number(meta.max_iterations) || 3)),
+      mode: String(meta.mode || 'brand_aligned').trim(),
+    };
+  } catch {
+    return null;
+  }
+}

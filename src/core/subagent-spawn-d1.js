@@ -296,6 +296,243 @@ export async function createSpawnJob(env, ctx, p) {
   return { ok: true, spawnJobId: idOut, reason: null };
 }
 
+/** Default GenMedia merged_output shape (full replace each iteration). */
+export function emptyGenmediaMergedOutput() {
+  return {
+    iteration: 0,
+    enriched_prompt: '',
+    current_r2_key: '',
+    best_r2_key: '',
+    best_score: 0,
+    last_feedback: '',
+    iterations: [],
+  };
+}
+
+/**
+ * @param {unknown} raw
+ */
+export function parseGenmediaMergedOutput(raw) {
+  if (raw == null || raw === '') return emptyGenmediaMergedOutput();
+  if (typeof raw === 'object') return { ...emptyGenmediaMergedOutput(), ...raw };
+  try {
+    const parsed = JSON.parse(String(raw));
+    if (parsed && typeof parsed === 'object') return { ...emptyGenmediaMergedOutput(), ...parsed };
+  } catch {
+    /* ignore */
+  }
+  return emptyGenmediaMergedOutput();
+}
+
+/**
+ * @param {any} env
+ * @param {string} spawnJobId
+ * @param {Record<string, unknown>} state
+ */
+export async function setSpawnJobMergedOutput(env, spawnJobId, state) {
+  if (!env?.DB || !spawnJobId) return { ok: false, reason: 'no_db' };
+  const json = JSON.stringify(state ?? {});
+  const bestScore = Number(state?.best_score);
+  try {
+    await env.DB.prepare(
+      `UPDATE agentsam_spawn_job SET
+         merged_output = ?,
+         merge_quality_score = ?
+       WHERE id = ?`,
+    )
+      .bind(json.slice(0, 120_000), Number.isFinite(bestScore) ? bestScore : null, String(spawnJobId).trim())
+      .run();
+    return { ok: true, reason: null };
+  } catch (e) {
+    return { ok: false, reason: e?.message ?? String(e) };
+  }
+}
+
+/**
+ * @param {any} env
+ * @param {string} spawnJobId
+ */
+export async function getSpawnJobRow(env, spawnJobId) {
+  if (!env?.DB || !spawnJobId) return null;
+  try {
+    return await env.DB.prepare(`SELECT * FROM agentsam_spawn_job WHERE id = ? LIMIT 1`)
+      .bind(String(spawnJobId).trim())
+      .first();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * @param {any} env
+ * @param {string} workspaceId
+ */
+export async function getBrandScoreThreshold(env, workspaceId) {
+  if (!env?.DB) return 75;
+  try {
+    const row = await env.DB.prepare(
+      `SELECT value FROM agentsam_memory
+        WHERE key = 'brand_score_threshold'
+          AND (workspace_id = ? OR workspace_id IS NULL OR workspace_id = '')
+        ORDER BY CASE WHEN workspace_id = ? THEN 0 ELSE 1 END
+        LIMIT 1`,
+    )
+      .bind(String(workspaceId || '').trim(), String(workspaceId || '').trim())
+      .first();
+    const n = Number.parseFloat(String(row?.value ?? '').trim());
+    return Number.isFinite(n) ? n : 75;
+  } catch {
+    return 75;
+  }
+}
+
+/**
+ * Skill pipeline spawn job — reads pipeline from agentsam_skill.metadata_json (no hardcoded slugs in source).
+ *
+ * @param {any} env
+ * @param {any} ctx
+ * @param {{
+ *   skillId: string,
+ *   parentRunId: string,
+ *   userId: string,
+ *   workspaceId: string,
+ *   tenantId: string|null,
+ *   taskDescription: string,
+ *   masterAgentSlug?: string,
+ *   pipeline?: string[],
+ *   maxIterations?: number,
+ * }} p
+ */
+export async function createSkillSpawnJob(env, ctx, p) {
+  if (!env?.DB) return { ok: false, spawnJobId: null, reason: 'no_db' };
+  const skillId = String(p.skillId || '').trim();
+  if (!skillId) return { ok: false, spawnJobId: null, reason: 'skill_id_required' };
+
+  let masterSlug = String(p.masterAgentSlug || '').trim();
+  let pipeline = Array.isArray(p.pipeline) ? p.pipeline.map((s) => String(s).trim()).filter(Boolean) : [];
+  let maxIterations = Math.max(1, Math.floor(Number(p.maxIterations) || 3));
+
+  if (!pipeline.length || !masterSlug) {
+    try {
+      const skill = await env.DB.prepare(
+        `SELECT metadata_json FROM agentsam_skill WHERE id = ? LIMIT 1`,
+      )
+        .bind(skillId)
+        .first();
+      const meta = JSON.parse(String(skill?.metadata_json || '{}'));
+      if (!masterSlug) masterSlug = String(meta.master_agent_slug || skillId).trim();
+      if (!pipeline.length && Array.isArray(meta.pipeline)) {
+        pipeline = meta.pipeline.map((s) => String(s).trim()).filter(Boolean);
+      }
+      if (meta.max_iterations != null) {
+        maxIterations = Math.max(1, Math.floor(Number(meta.max_iterations) || maxIterations));
+      }
+    } catch {
+      /* use caller defaults */
+    }
+  }
+
+  const firstSlug = pipeline[0] || 'genmedia_prompt_enrichment';
+  const idOut = id('sj');
+  const tenantId = p.tenantId != null ? String(p.tenantId).trim() : '';
+  const initialMerged = JSON.stringify(emptyGenmediaMergedOutput());
+
+  try {
+    await env.DB.prepare(
+      `INSERT INTO agentsam_spawn_job (
+        id, master_run_id, master_agent_slug,
+        user_id, workspace_id, tenant_id,
+        task_description, chunking_strategy, chunk_count,
+        subagent_slug, merge_strategy, merged_output,
+        status, created_at
+      ) VALUES (
+        ?, ?, ?,
+        ?, ?, ?,
+        ?, 'skill_pipeline', ?,
+        ?, 'json_merge', ?,
+        'pending', datetime('now')
+      )`,
+    )
+      .bind(
+        idOut,
+        String(p.parentRunId).trim(),
+        masterSlug || 'on_brand_genmedia',
+        String(p.userId).trim(),
+        String(p.workspaceId).trim(),
+        tenantId,
+        String(p.taskDescription || '').slice(0, 4000),
+        maxIterations,
+        firstSlug,
+        initialMerged,
+      )
+      .run();
+  } catch (e) {
+    return { ok: false, spawnJobId: null, reason: e?.message ?? String(e) };
+  }
+
+  scheduleToolCallLog(env, ctx, {
+    tenantId,
+    workspaceId: p.workspaceId,
+    userId: p.userId,
+    agent_run_id: p.parentRunId,
+    toolName: 'skill_spawn_job_create',
+    status: 'success',
+    inputSummary: `skill_spawn_job ${idOut} skill=${skillId} pipeline=${pipeline.length}`,
+  });
+
+  return { ok: true, spawnJobId: idOut, pipeline, maxIterations, reason: null };
+}
+
+/**
+ * Mark skill spawn job running with active sub-agent slug.
+ *
+ * @param {any} env
+ * @param {string} spawnJobId
+ * @param {string} subagentSlug
+ */
+export async function markSkillSpawnJobRunning(env, spawnJobId, subagentSlug) {
+  if (!env?.DB) return { ok: false, reason: 'no_db' };
+  try {
+    await env.DB.prepare(
+      `UPDATE agentsam_spawn_job SET status = 'running', subagent_slug = ?, started_at = datetime('now') WHERE id = ?`,
+    )
+      .bind(String(subagentSlug || '').trim(), String(spawnJobId).trim())
+      .run();
+    return { ok: true, reason: null };
+  } catch (e) {
+    return { ok: false, reason: e?.message ?? String(e) };
+  }
+}
+
+/**
+ * @param {any} env
+ * @param {any} ctx
+ * @param {{
+ *   spawnJobId: string,
+ *   status?: string,
+ *   bestR2Key?: string|null,
+ * }} p
+ */
+export async function completeSkillSpawnJob(env, ctx, p) {
+  if (!env?.DB) return { ok: false, reason: 'no_db' };
+  const status = String(p.status || 'completed').trim();
+  try {
+    await env.DB.prepare(
+      `UPDATE agentsam_spawn_job SET status = ?, completed_at = datetime('now') WHERE id = ?`,
+    )
+      .bind(status, String(p.spawnJobId).trim())
+      .run();
+  } catch (e) {
+    return { ok: false, reason: e?.message ?? String(e) };
+  }
+  scheduleToolCallLog(env, ctx, {
+    toolName: 'skill_spawn_job_complete',
+    status: 'success',
+    inputSummary: `skill_spawn_job ${p.spawnJobId} ${status} r2=${p.bestR2Key || 'none'}`,
+  });
+  return { ok: true, reason: null, status };
+}
+
 /**
  * @param {any} env
  * @param {any} ctx
