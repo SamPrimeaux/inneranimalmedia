@@ -11,7 +11,6 @@ import {
   GraduationCap,
   Home,
   Image,
-  Layers,
   Library,
   Mail,
   Network,
@@ -152,15 +151,6 @@ export function DashboardActivityNav({
         expanded={expanded}
         active={settingsIntegrationsActive}
         onClick={() => go('/dashboard/settings/integrations')}
-      />
-      <ActivityRailItem
-        icon={Layers}
-        label="ExecOS zones"
-        expanded={expanded}
-        active={false}
-        onClick={() => {
-          window.open('https://execos.inneranimalmedia.com/zones', '_blank', 'noopener,noreferrer');
-        }}
       />
       <ActivityRailItem
         icon={Database}

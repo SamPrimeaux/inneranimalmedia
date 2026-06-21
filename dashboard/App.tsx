@@ -111,9 +111,6 @@ const RedirectHealthToAnalytics = lazy(() =>
 );
 const LearnPage = lazy(() => import('./components/LearnPage'));
 const DatabasePage = lazy(() => import('./components/DatabasePage').then((m) => ({ default: m.DatabasePage })));
-const McpLegacyRedirect = lazy(() =>
-  import('./components/McpLegacyRedirect').then((m) => ({ default: m.McpLegacyRedirect })),
-);
 const DesignStudioPage = lazy(() => import('./components/DesignStudioPage').then((m) => ({ default: m.DesignStudioPage })));
 const ImagesPage = lazy(() => import('./components/ImagesPage'));
 const MailPage = lazy(() => import('./components/MailPage').then((m) => ({ default: m.MailPage })));
@@ -3612,7 +3609,6 @@ const App: React.FC = () => {
                         path="/dashboard/docs"
                         element={<Navigate to="/dashboard/settings/docs" replace />}
                       />
-                      <Route path="/dashboard/mcp/:agentSlug?" element={<McpLegacyRedirect />} />
                       <Route
                         path="/dashboard/integrations"
                         element={

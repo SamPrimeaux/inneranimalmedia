@@ -339,13 +339,7 @@ export function AgentsSection({ data, workspaceId }: AgentsSectionProps) {
                             {slug ? (
                               <button
                                 type="button"
-                                onClick={() => {
-                                  window.open(
-                                    `https://execos.inneranimalmedia.com/zones/${encodeURIComponent(slug)}`,
-                                    '_blank',
-                                    'noopener,noreferrer',
-                                  );
-                                }}
+                                onClick={() => navigate('/dashboard/agent')}
                                 className="px-2 py-1 rounded-md border border-[var(--border-subtle)] text-[10px] font-semibold uppercase tracking-wide text-[var(--solar-cyan)] hover:bg-[var(--bg-hover)]"
                               >
                                 Open
