@@ -139,7 +139,7 @@ export function CmsStudioEditor({
       {src ? (
         <iframe
           ref={iframeRef}
-          title="CMS Studio Lite"
+          title="PrimeTech CMS Lite"
           src={src}
           onLoad={onIframeLoad}
           className="iam-cms-studio-frame"
