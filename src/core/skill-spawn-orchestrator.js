@@ -26,7 +26,7 @@ import { loadAgentSamUserPolicy } from './agent-policy.js';
 import { resolveRuntimeProfile, toolsManifestFromCompiledRows } from './runtime-profile.js';
 import { pollApprovalQueue } from './agent-approval-gate.js';
 
-const SKILL_SSE_HEADERS = {
+export const SKILL_SSE_HEADERS = {
   'Content-Type': 'text/event-stream',
   'Cache-Control': 'no-cache',
   Connection: 'keep-alive',
@@ -96,7 +96,7 @@ function extractJsonArray(text) {
 /**
  * @param {string} msg
  */
-function isApprovalReply(msg) {
+export function isApprovalReply(msg) {
   return /^(yes|yep|approve|approved|continue|looks good|lgtm|proceed|go ahead)\b/i.test(
     String(msg || '').trim(),
   );
@@ -272,7 +272,7 @@ function patchDeckMergedFromStep(mergedPatch, slug, outText, message) {
  * @param {any} ctx
  * @param {any} p
  */
-async function runSkillChildStep(env, ctx, p) {
+export async function runSkillChildStep(env, ctx, p) {
   const {
     slug,
     message,

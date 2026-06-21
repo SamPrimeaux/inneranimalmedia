@@ -46,6 +46,7 @@ import {
   IAM_OAUTH_ISSUER,
   IAM_MCP_RESOURCE_URL,
   MCP_CANONICAL_CLIENT_ID,
+  IAM_MCP_DCR_PLATFORM_TENANT_ID,
   resolveMcpOAuthResourceParam,
   assertMcpOAuthResourceMatches,
   normalizeMcpOAuthResourceUrl,
@@ -952,7 +953,9 @@ async function handleMcpOAuthRegister(request, env, _ctx) {
   const userId = authUser ? integrationUserId(authUser) : 'system_dcr';
   const tenantId = authUser
     ? await mcpOAuthResolveTenantId(env, authUser)
-    : String(env?.TENANT_ID || env?.DEFAULT_TENANT_ID || '').trim();
+    : String(
+        env?.TENANT_ID || env?.DEFAULT_TENANT_ID || IAM_MCP_DCR_PLATFORM_TENANT_ID || '',
+      ).trim();
   if (!userId || !tenantId) return mcpOAuthJsonError('dcr_not_configured', 503);
 
   const createdAt = mcpOAuthNow();

@@ -27,6 +27,7 @@ import {
 } from './tavily-open-web-search.js';
 import { classifyDatabaseAssistantIntent, classifySemanticLane } from './semantic-lane-classifier.js';
 import { findResumableSkillSpawnJob } from './subagent-spawn-d1.js';
+import { resolveExtendedSkillResume } from './skill-spawn-pipelines-ext.js';
 
 export { resolveOpenWebSearchBackend };
 
@@ -510,12 +511,20 @@ export function formatExecutionLaneLogPayload(laneResult, backend = { available:
 const GENMEDIA_SLASH_RE = /\/genmedia\b/i;
 const LAUNCH_SLASH_RE = /\/launch\b/i;
 const DECK_SLASH_RE = /\/deck\b/i;
+const BLOG_SLASH_RE = /\/blog\b/i;
+const RESEARCH_SLASH_RE = /\/research\b/i;
+const VTO_SLASH_RE = /\/vto\b/i;
+const DATAENG_SLASH_RE = /\/dataeng\b/i;
 const DECK_EDIT_RE = /\b(change|update|edit)\b.{0,24}\bslide\s+\d+\b/i;
 
 const SKILL_SLASH_MAP = {
   genmedia: 'skill_on_brand_genmedia',
   launch: 'skill_marketing_agency',
   deck: 'skill_brand_aligned_presentations',
+  blog: 'skill_blogger_agent',
+  research: 'skill_deep_search',
+  vto: 'skill_genmedia_commerce',
+  dataeng: 'skill_data_engineering',
 };
 
 /**
@@ -559,9 +568,17 @@ export async function resolveSkillSpawnRouting(env, message, body = {}, scope = 
     else if (GENMEDIA_SLASH_RE.test(msg)) skillId = 'skill_on_brand_genmedia';
     else if (LAUNCH_SLASH_RE.test(msg)) skillId = 'skill_marketing_agency';
     else if (DECK_SLASH_RE.test(msg)) skillId = 'skill_brand_aligned_presentations';
+    else if (BLOG_SLASH_RE.test(msg)) skillId = 'skill_blogger_agent';
+    else if (RESEARCH_SLASH_RE.test(msg)) skillId = 'skill_deep_search';
+    else if (VTO_SLASH_RE.test(msg)) skillId = 'skill_genmedia_commerce';
+    else if (DATAENG_SLASH_RE.test(msg)) skillId = 'skill_data_engineering';
   }
 
   if (!skillId && sessionId && workspaceId && env?.DB) {
+    const extResume = await resolveExtendedSkillResume(env, sessionId, workspaceId, msg);
+    if (extResume?.skill_id) {
+      skillId = String(extResume.skill_id);
+    }
     if (DECK_EDIT_RE.test(msg)) {
       const editJob = await findResumableSkillSpawnJob(env, {
         conversationId: sessionId,
@@ -614,11 +631,25 @@ export async function resolveSkillSpawnRouting(env, message, body = {}, scope = 
       mode: String(meta?.mode || 'brand_aligned').trim(),
       pause_for_approval: meta.pause_for_approval === true,
       max_slides: Math.max(1, Math.floor(Number(meta.max_slides) || 20)),
+      max_plan_iterations: Math.max(1, Math.floor(Number(meta.max_plan_iterations) || 3)),
+      max_write_iterations: Math.max(1, Math.floor(Number(meta.max_write_iterations) || 3)),
+      pause_for_outline_approval: meta.pause_for_outline_approval === true,
+      max_search_iterations: Math.max(1, Math.floor(Number(meta.max_search_iterations) || 5)),
+      pause_for_plan_approval: meta.pause_for_plan_approval === true,
+      max_validation_retries: Math.max(1, Math.floor(Number(meta.max_validation_retries) || 3)),
+      pipelines: Array.isArray(meta.pipelines) ? meta.pipelines : [],
+      targets: Array.isArray(meta.targets) ? meta.targets : [],
       phases: Array.isArray(meta.phases) ? meta.phases : [],
       resume: false,
     };
 
     if (sessionId && workspaceId) {
+      const extResume = await resolveExtendedSkillResume(env, sessionId, workspaceId, msg);
+      if (extResume?.resume) {
+        route.resume = true;
+        if (extResume.spawnJobId) route.spawnJobId = String(extResume.spawnJobId);
+        if (extResume.resume_mode) route.resume_mode = extResume.resume_mode;
+      }
       const pendingJob = await findResumableSkillSpawnJob(env, {
         conversationId: sessionId,
         workspaceId,

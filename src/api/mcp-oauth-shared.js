@@ -3,6 +3,8 @@ import { jsonResponse } from '../core/auth.js';
 export const MCP_CANONICAL_CLIENT_ID = 'iam_mcp_inneranimalmedia';
 export const IAM_OAUTH_ISSUER = 'https://inneranimalmedia.com';
 export const IAM_MCP_RESOURCE_URL = 'https://mcp.inneranimalmedia.com/mcp';
+/** Tenant for unauthenticated Claude/ChatGPT DCR rows (production has no TENANT_ID env var). */
+export const IAM_MCP_DCR_PLATFORM_TENANT_ID = 'tenant_sam_primeaux';
 
 /** Normalize resource/audience URL for comparison (RFC 8707). */
 export function normalizeMcpOAuthResourceUrl(raw) {

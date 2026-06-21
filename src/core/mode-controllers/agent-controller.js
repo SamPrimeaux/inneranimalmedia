@@ -22,6 +22,7 @@ import {
   executeLaunchSkillSpawn,
   executeDeckSkillSpawn,
 } from '../skill-spawn-orchestrator.js';
+import { executeSkillSpawnByRoute } from '../skill-spawn-pipelines-ext.js';
 import { filterToolsForCapabilityDecision } from '../tool-capability-filter.js';
 
 const SSE_HEADERS = {
@@ -705,6 +706,8 @@ export async function executeAgentTurn(env, ctx, input) {
     ) {
       return executeDeckSkillSpawn(env, ctx, input);
     }
+    const ext = await executeSkillSpawnByRoute(env, ctx, input);
+    if (ext) return ext;
   }
   if (shouldRunRwsFanout(profile)) {
     return executeRwsSpawnFanout(env, ctx, input);
