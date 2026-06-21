@@ -49,7 +49,7 @@ export function resolveDashboardRouteAgentContext(opts: {
   if (path.startsWith('/dashboard/cms')) {
     const cms = opts.cmsContext;
     const slug = cms?.project_slug || null;
-    const isClientWorker = cms?.cms_mode === 'client_worker';
+    const isClientWorker = cms?.cms_hosting === 'client_worker';
     const apiProfile = cms?.api_profile || '';
     const routeKey =
       apiProfile === 'fuel_admin'

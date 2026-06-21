@@ -1,12 +1,15 @@
 /**
- * CMS site config — loads cms_mode / api_profile / studio_url from agentsam_workspace SSOT.
+ * CMS site config — derives cms_hosting from worker_name + cms_site registry;
+ * loads bridge URLs from agentsam_workspace columns/metadata (never stored cms_mode).
  */
 import { getAgentsamWorkspace, parseWorkspaceMetadata } from './agentsam-workspace.js';
-import { PLATFORM_WORKSPACE_ID } from './platform-operator-policy.js';
+import { hasRegisteredCmsSiteContext } from './cms-workspace-resolve.js';
 
 function trim(v) {
   return v == null ? '' : String(v).trim();
 }
+
+const PLATFORM_WORKER_NAME = 'inneranimalmedia';
 
 const DEFAULT_WORKER_BASE = {
   companionscpas: 'https://companionscpas.meauxbility.workers.dev',
@@ -19,6 +22,28 @@ const DEFAULT_STUDIO_PATH = {
   fuel_admin: '/admin/cms',
   primetch: '/dashboard/cms/pages',
 };
+
+const API_PROFILE_BY_WORKER = {
+  companionscpas: 'cpas_fragment',
+  fuelnfreetime: 'fuel_admin',
+};
+
+/**
+ * Client-worker CMS = dedicated worker + registered cms_site context (not IAM platform worker).
+ * @param {Record<string, unknown>|null|undefined} workspaceRow
+ * @param {boolean} hasRegistry
+ */
+export function isClientWorkerCms(workspaceRow, hasRegistry) {
+  const worker = trim(workspaceRow?.worker_name);
+  return Boolean(worker && worker !== PLATFORM_WORKER_NAME && hasRegistry);
+}
+
+/** @param {string|null|undefined} workerName */
+function deriveApiProfile(workerName) {
+  const worker = trim(workerName).toLowerCase();
+  if (worker && API_PROFILE_BY_WORKER[worker]) return API_PROFILE_BY_WORKER[worker];
+  return 'primetch';
+}
 
 /**
  * @param {Record<string, unknown>|null|undefined} meta
@@ -57,7 +82,7 @@ export async function resolveCmsSiteConfig(env, workspaceId, projectSlug = null)
     return {
       workspace_id: ws || null,
       project_slug: slug || null,
-      cms_mode: 'platform_hosted',
+      cms_hosting: 'platform',
       api_profile: 'primetch',
       error: 'missing_workspace',
     };
@@ -65,29 +90,20 @@ export async function resolveCmsSiteConfig(env, workspaceId, projectSlug = null)
 
   const wsRow = await getAgentsamWorkspace(env, ws);
   const meta = parseWorkspaceMetadata(wsRow?.metadata_json);
-
-  let cmsMode = trim(meta.cms_mode).toLowerCase();
-  if (!cmsMode) {
-    cmsMode = ws === PLATFORM_WORKSPACE_ID ? 'platform_hosted' : 'platform_hosted';
-  }
-  if (!['platform_hosted', 'client_worker'].includes(cmsMode)) {
-    cmsMode = 'platform_hosted';
-  }
-
-  let apiProfile = trim(meta.api_profile).toLowerCase();
-  if (!apiProfile) {
-    apiProfile = cmsMode === 'client_worker' ? 'cpas_fragment' : 'primetch';
-  }
+  const hasRegistry = await hasRegisteredCmsSiteContext(env, ws);
+  const isClientWorker = isClientWorkerCms(wsRow, hasRegistry);
+  const cmsHosting = isClientWorker ? 'client_worker' : 'platform';
+  const apiProfile = isClientWorker ? deriveApiProfile(wsRow?.worker_name) : 'primetch';
 
   const workerBaseUrl = resolveWorkerBaseUrl(meta, wsRow);
   const studioPath = resolveStudioPath(apiProfile, meta);
-  const studioUrl = workerBaseUrl && cmsMode === 'client_worker' ? `${workerBaseUrl}${studioPath}` : null;
-  const bridgeSupported = cmsMode === 'client_worker' && Boolean(workerBaseUrl);
+  const studioUrl = workerBaseUrl && isClientWorker ? `${workerBaseUrl}${studioPath}` : null;
+  const bridgeSupported = isClientWorker && Boolean(workerBaseUrl);
 
   return {
     workspace_id: ws,
     project_slug: slug || trim(wsRow?.workspace_slug) || null,
-    cms_mode: cmsMode,
+    cms_hosting: cmsHosting,
     api_profile: apiProfile,
     worker_name: trim(wsRow?.worker_name) || null,
     worker_base_url: workerBaseUrl,

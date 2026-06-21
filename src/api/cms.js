@@ -263,8 +263,8 @@ export async function handleCmsApi(request, url, env, ctx) {
       return jsonResponse({ error: 'CMS_SITE_NOT_ALLOWED', project_slug: projectSlug }, 403);
     }
     const cfg = await resolveCmsSiteConfig(env, workspaceId, projectSlug);
-    if (cfg.cms_mode !== 'client_worker') {
-      return jsonResponse({ error: 'CMS_BRIDGE_NOT_APPLICABLE', cms_mode: cfg.cms_mode }, 409);
+    if (cfg.cms_hosting !== 'client_worker') {
+      return jsonResponse({ error: 'CMS_BRIDGE_NOT_APPLICABLE', cms_hosting: cfg.cms_hosting }, 409);
     }
     const mint = await mintCmsEmbedSession(env, authUser, { ...cfg, project_slug: projectSlug });
     if (!mint.ok) {
@@ -292,18 +292,18 @@ export async function handleCmsApi(request, url, env, ctx) {
       return jsonResponse({ error: 'CMS_SITE_NOT_ALLOWED', project_slug: slug || null }, 403);
     }
     const cfg = await resolveCmsSiteConfig(env, workspaceId, slug);
-    if (cfg.cms_mode !== 'client_worker') {
-      return jsonResponse({ error: 'CMS_BRIDGE_NOT_APPLICABLE', cms_mode: cfg.cms_mode }, 409);
+    if (cfg.cms_hosting !== 'client_worker') {
+      return jsonResponse({ error: 'CMS_BRIDGE_NOT_APPLICABLE', cms_hosting: cfg.cms_hosting }, 409);
     }
     const proxied = await proxyCmsBridgeRequest(env, request, authUser, { ...cfg, project_slug: slug }, path);
     return jsonResponse(proxied.body, proxied.status || (proxied.ok ? 200 : 502));
   }
 
-  if (siteConfig.cms_mode === 'client_worker' && !path.startsWith('/api/cms/workspace-context')) {
+  if (siteConfig.cms_hosting === 'client_worker' && !path.startsWith('/api/cms/workspace-context')) {
     return jsonResponse(
       {
         error: 'CMS_CLIENT_WORKER_MODE',
-        cms_mode: siteConfig.cms_mode,
+        cms_hosting: siteConfig.cms_hosting,
         api_profile: siteConfig.api_profile,
         studio_url: siteConfig.studio_url,
         bridge_prefix: siteConfig.api_profile === 'fuel_admin' ? '/api/cms/bridge/admin/cms' : '/api/cms/bridge/cms',

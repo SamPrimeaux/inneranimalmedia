@@ -36,7 +36,7 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
     enabled: parsed.view !== 'sites',
   });
 
-  const isClientWorker = context?.cms_mode === 'client_worker';
+  const isClientWorker = context?.cms_hosting === 'client_worker';
 
   useEffect(() => {
     if (parsed.legacy && parsed.legacyTarget) {

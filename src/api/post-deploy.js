@@ -2,8 +2,8 @@
  * API Handler: POST /api/internal/post-deploy
  *
  * Called after a successful worker deployment (e.g. promote-to-prod / CI / deploy-frontend.sh).
- * Syncs Agent Sam deploy markers in KV and runs D1 agentsam_hook rows with trigger = post_deploy
- * (see fireHooks in cicd-event.js → agentsam_hook_execution).
+ * Syncs Agent Sam deploy markers in KV and runs workspace-scoped agentsam_hook rows for post_deploy
+ * (see fireAgentHooks in hook-dispatcher.js → agentsam_hook_execution).
  *
  * Auth (any one): X-Ingest-Secret (INGEST_SECRET), X-Internal-Secret or Bearer INTERNAL_API_SECRET,
  *                 or Bearer AGENTSAM_BRIDGE_KEY (same key as MCP bridge).
@@ -11,8 +11,9 @@
  */
 
 import { isIngestSecretAuthorized, verifyInternalApiSecret, jsonResponse } from '../core/auth.js';
+import { fireAgentHooks } from '../core/hook-dispatcher.js';
+import { PLATFORM_WORKSPACE_ID } from '../core/platform-operator-policy.js';
 import { getPlatformWorkspaceEnvId } from '../core/platform-workspace-env.js';
-import { fireHooks } from './cicd-event.js';
 import { scheduleMirrorDeployEventToSupabase } from '../core/hyperdrive-write.js';
 
 function isPostDeployAuthorized(request, env) {
@@ -216,20 +217,26 @@ export async function handlePostDeploy(request, env, ctx) {
       .catch(() => {})
     );
 
-    // agentsam_hook rows with trigger = post_deploy (notify, webhooks, etc.) + agentsam_hook_execution audit
+    const workspaceId =
+      typeof body.workspace_id === 'string' && body.workspace_id.trim()
+        ? body.workspace_id.trim()
+        : getPlatformWorkspaceEnvId(env) || PLATFORM_WORKSPACE_ID;
+
+    // Workspace-scoped post_deploy hooks (workers_deploy, etc.) + agentsam_hook_execution audit
     const hookPayload = {
       environment,
       git_hash: gitHash,
       dashboard_version: version,
       worker_version_id: workerVersion,
+      workspace_id: workspaceId,
       user_id: typeof body.user_id === 'string' && body.user_id.trim() ? body.user_id.trim() : undefined,
       ms_wall: deployDurationMs,
       health_status: body.health_status,
       health_ms: body.health_ms,
     };
     ctx.waitUntil(
-      fireHooks('post_deploy', hookPayload, env).catch((e) =>
-        console.warn('[post-deploy] fireHooks post_deploy', e?.message || e),
+      fireAgentHooks(env, ctx, 'post_deploy', hookPayload).catch((e) =>
+        console.warn('[post-deploy] fireAgentHooks post_deploy', e?.message || e),
       ),
     );
 
@@ -246,10 +253,6 @@ export async function handlePostDeploy(request, env, ctx) {
       })().catch((e) => console.warn('[post-deploy] web push broadcast', e?.message || e)),
     );
 
-    const workspaceId =
-      typeof body.workspace_id === 'string' && body.workspace_id.trim()
-        ? body.workspace_id.trim()
-        : getPlatformWorkspaceEnvId(env) || '';
     if (workspaceId) {
       scheduleMirrorDeployEventToSupabase(env, ctx, {
         workspace_id: workspaceId,

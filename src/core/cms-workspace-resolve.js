@@ -21,6 +21,29 @@ function parseJsonSafe(raw, fallback = {}) {
 }
 
 /**
+ * True when agentsam_project_context has active cms_site rows for this workspace.
+ * @param {any} env
+ * @param {string} workspaceId
+ */
+export async function hasRegisteredCmsSiteContext(env, workspaceId) {
+  const ws = trim(workspaceId);
+  if (!env?.DB || !ws) return false;
+  try {
+    const row = await env.DB.prepare(
+      `SELECT 1 AS ok
+         FROM agentsam_project_context
+        WHERE workspace_id = ? AND project_type = 'cms_site' AND COALESCE(status, 'active') = 'active'
+        LIMIT 1`,
+    )
+      .bind(ws)
+      .first();
+    return !!row?.ok;
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
  * @param {Record<string, unknown>|null|undefined} bootstrapRow
  */
 export function readBootstrapCmsProjectSlug(bootstrapRow) {
