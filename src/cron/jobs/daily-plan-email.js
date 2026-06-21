@@ -7,149 +7,189 @@ export async function sendDailyPlanEmail(env) {
     console.warn('[daily-plan-email] RESEND_FROM or RESEND_TO not set, skipping');
     return;
   }
-  const planTid = cronTenantId(env);
-  if (!planTid) {
-    console.warn('[daily-plan] TENANT_ID not configured; skip');
-    return;
-  }
+  const tid = cronTenantId(env);
+  if (!tid) { console.warn('[daily-plan] TENANT_ID not configured; skip'); return; }
+
   const begun = await startCronRun(env, {
     jobName: 'daily_plan_email',
     cronExpression: '30 13 * * *',
-    tenantId: planTid,
+    tenantId: tid,
     workspaceId: null,
   });
   const runId = begun?.runId ?? null;
   const startedAt = begun?.startedAt ?? Date.now();
   const safe = (p) => (p ? p.catch(() => null) : Promise.resolve(null));
+
   try {
-    const [tasks, cicdPipelines, sprintMemory, deployments, velocity, projects, memory, proposals, overnightSuite, telemetryToday, todayPlan, blockedProviders] = await Promise.all([
-      env.DB.prepare(`SELECT title, description, priority, status, tags FROM agentsam_todo
-        WHERE tenant_id=? AND status IN ('todo','in_progress','blocked')
-        ORDER BY CASE priority WHEN 'urgent' THEN 0 WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END, updated_at DESC LIMIT 10`).bind(planTid).all(),
+    const [
+      memoryRows,
+      platformCtx,
+      clientCtxRows,
+      recentRuns,
+      runCostToday,
+      cronHealth,
+      mcpActivity,
+      spawnJobs,
+      migrations,
+    ] = await Promise.all([
+      // Live sprint memory — decision/skill/state types, recently updated
       env.DB.prepare(
-        `SELECT run_id, environment, status, git_commit_sha, notes, completed_at
-         FROM cicd_pipeline_runs
-         ORDER BY COALESCE(completed_at, 0) DESC
-         LIMIT 8`
-      ).all(),
+        `SELECT key, value, memory_type, updated_at FROM agentsam_memory
+         WHERE tenant_id = ?
+           AND memory_type IN ('decision','skill','state','policy')
+           AND decay_score > 0
+         ORDER BY updated_at DESC LIMIT 12`
+      ).bind(tid).all(),
+
+      // Platform master project context
+      safe(env.DB.prepare(
+        `SELECT project_name, status, description, current_blockers, goals, notes, updated_at
+         FROM agentsam_project_context
+         WHERE id = 'ctx_inneranimalmedia'`
+      ).first()),
+
+      // Active client project contexts
       env.DB.prepare(
-        `SELECT key, value FROM project_memory
-         WHERE project_id='inneranimalmedia'
-           AND (key LIKE '%SPRINT%' OR key LIKE '%CIDI%' OR key IN ('CIDI_THREE_STEP_SYSTEM','AGENT_DASHBOARD_UI_CONTEXT'))
-         ORDER BY updated_at DESC LIMIT 8`
+        `SELECT project_name, status, current_blockers, goals, updated_at
+         FROM agentsam_project_context
+         WHERE tenant_id = ?
+           AND id != 'ctx_inneranimalmedia'
+           AND status IN ('active','blocked_live_platform_regression')
+           AND project_type != 'cms_site'
+         ORDER BY updated_at DESC LIMIT 6`
+      ).bind(tid).all(),
+
+      // Recent agent runs — last 24h cost + activity
+      safe(env.DB.prepare(
+        `SELECT COUNT(*) as total_runs,
+                ROUND(SUM(cost_usd), 4) as total_cost,
+                SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) as completed,
+                SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) as failed,
+                SUM(CASE WHEN status='running' THEN 1 ELSE 0 END) as stuck_running
+         FROM agentsam_agent_run
+         WHERE workspace_id = 'ws_inneranimalmedia'
+           AND created_at_unix > unixepoch('now','-24 hours')`
+      ).first()),
+
+      // Cost this week
+      safe(env.DB.prepare(
+        `SELECT ROUND(SUM(cost_usd), 4) as week_cost
+         FROM agentsam_agent_run
+         WHERE workspace_id = 'ws_inneranimalmedia'
+           AND created_at_unix > unixepoch('now','-7 days')`
+      ).first()),
+
+      // Cron health — last run of each job
+      env.DB.prepare(
+        `SELECT job_name, status, started_at, duration_ms, error_message
+         FROM agentsam_cron_runs
+         WHERE started_at = (
+           SELECT MAX(c2.started_at) FROM agentsam_cron_runs c2
+           WHERE c2.job_name = agentsam_cron_runs.job_name
+         )
+         ORDER BY started_at DESC LIMIT 12`
       ).all(),
-      env.DB.prepare(`SELECT id, version, description, status, timestamp FROM deployments
-        ORDER BY timestamp DESC LIMIT 5`).all(),
-      env.DB.prepare(`SELECT velocity_score, momentum, sprint_goal, sprint_progress_percent,
-        bugs_fixed, features_shipped, notes FROM task_velocity ORDER BY date DESC LIMIT 1`).all(),
-      env.DB.prepare(`SELECT name, status, client_name FROM projects
-        WHERE status NOT IN ('archived','completed') ORDER BY updated_at DESC LIMIT 6`).all(),
-      env.DB.prepare(`SELECT key, value FROM project_memory
-        WHERE project_id='inneranimalmedia' ORDER BY updated_at DESC LIMIT 8`).all(),
-      env.DB.prepare(`SELECT tool_name AS command_name, action_summary AS rationale, risk_level FROM agentsam_approval_queue
-        WHERE status='pending' ORDER BY created_at DESC LIMIT 4`).all(),
-      safe(env.DB.prepare(`SELECT key, value, updated_at FROM project_memory
-        WHERE project_id='inneranimalmedia' AND key='OVERNIGHT_API_SUITE_LAST' LIMIT 1`).first()),
-      safe(env.DB.prepare(
-        `SELECT COALESCE(SUM(ai_calls), 0) AS calls,
-          COALESCE(SUM(tokens_in), 0) AS tokens_in,
-          COALESCE(SUM(tokens_out), 0) AS tokens_out,
-          ROUND(COALESCE(SUM(cost_usd), 0), 4) AS cost_usd,
-          (
-            SELECT COUNT(DISTINCT j.key)
-            FROM agentsam_usage_rollups_daily r2,
-                 json_each(COALESCE(r2.provider_breakdown_json, '{}')) j
-            WHERE r2.day = date('now')
-          ) AS models_used
-         FROM agentsam_usage_rollups_daily
-         WHERE day = date('now')`
-      ).first()),
-      // Today's plan from agentsam_plans + tasks
-      safe(env.DB.prepare(
-        `SELECT p.title, p.morning_brief, p.default_model, p.blocked_providers,
-                COUNT(t.id) AS tasks_total,
-                SUM(CASE WHEN t.status='done' THEN 1 ELSE 0 END) AS tasks_done,
-                SUM(CASE WHEN t.status='blocked' THEN 1 ELSE 0 END) AS tasks_blocked
-         FROM agentsam_plans p
-         LEFT JOIN agentsam_plan_tasks t ON t.plan_id = p.id
-         WHERE p.plan_date = date('now')
-         GROUP BY p.id
-         LIMIT 1`
-      ).first()),
-      // Blocked providers from agentsam_routing_arms
-      safe(env.DB.prepare(
-        `SELECT GROUP_CONCAT(DISTINCT provider) AS blocked
-         FROM agentsam_routing_arms
-         WHERE is_active = 0
-         GROUP BY 1`
-      ).first()),
+
+      // MCP tool activity last 24h
+      env.DB.prepare(
+        `SELECT tool_name, COUNT(*) as calls,
+                SUM(CASE WHEN status='success' THEN 1 ELSE 0 END) as ok,
+                SUM(CASE WHEN status='error' THEN 1 ELSE 0 END) as errors
+         FROM mcp_audit_log
+         WHERE workspace_id = 'ws_inneranimalmedia'
+           AND created_at > unixepoch('now','-24 hours')
+         GROUP BY tool_name ORDER BY calls DESC LIMIT 10`
+      ).all(),
+
+      // Active/recent skill spawn jobs
+      env.DB.prepare(
+        `SELECT master_agent_slug, status, subagents_spawned,
+                subagents_succeeded, subagents_failed,
+                started_at, completed_at
+         FROM agentsam_spawn_job
+         WHERE workspace_id = 'ws_inneranimalmedia'
+         ORDER BY started_at DESC LIMIT 5`
+      ).all(),
+
+      // Recent migrations applied
+      env.DB.prepare(
+        `SELECT id, name, applied_at FROM d1_migrations
+         ORDER BY applied_at DESC LIMIT 5`
+      ).all(),
     ]);
-    console.log('[daily-plan] D1 queries complete — tasks:', tasks?.results?.length, 'cicd:', cicdPipelines?.results?.length, 'sprintMem:', sprintMemory?.results?.length);
 
-    const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
-    const planCtx = todayPlan ? `\nTODAY'S PLAN (from agentsam_plans):\nTitle: ${todayPlan.title}\nTasks: ${todayPlan.tasks_total} total | ${todayPlan.tasks_done} done | ${todayPlan.tasks_blocked} blocked\nMorning Brief: ${todayPlan.morning_brief?.slice(0, 400) || 'none'}\nBlocked providers: ${todayPlan.blocked_providers || '[]'}` : '';
-    const budgetCtx = `\nPROVIDER BUDGET STATUS:\nOpenAI: ~$36 remaining (ACTIVE)\nGoogle/Gemini: ACTIVE (near-free)\nWorkers AI: ACTIVE (free tier)\nAnthropic: DISABLED (zero budget)\nCursor: DISABLED (zero budget)`;
+    // Git log via terminal for real commit context
+    let gitLog = '';
+    try {
+      const r = await env.TERMINAL?.fetch?.(new Request('http://internal/exec', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: 'cd ~/inneranimalmedia && git log --oneline -8' }),
+      }));
+      if (r?.ok) gitLog = await r.text();
+    } catch { /* non-fatal */ }
 
-    const prompt = `You are Agent Sam writing Sam Primeaux's daily morning briefing. Today is ${today}.${planCtx}${budgetCtx}
+    const today = new Date().toLocaleDateString('en-US', {
+      weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+      timeZone: 'America/Chicago',
+    });
 
-OPEN TASKS (live from D1, ordered by priority):
-${JSON.stringify(tasks.results)}
+    const prompt = `You are Agent Sam writing Sam Primeaux's daily morning briefing. Today is ${today}.
 
-CICD PIPELINE RUNS (recent; live from cicd_pipeline_runs):
-${JSON.stringify(cicdPipelines.results)}
+Sam is the solo founder of Inner Animal Media — building Agent Sam, an autonomous AI agent platform on Cloudflare Workers + D1 + R2 + Vectorize. He also manages client projects (CompanionsCPAS, Fuel & Free Time, others) and runs two other brands (Inner Animals apparel, Meauxbility nonprofit). He works entirely solo with AI tools. Time is his scarcest resource.
 
-SPRINT / CIDI CONTEXT (project_memory keys; current sprint status):
-${JSON.stringify(sprintMemory.results)}
+== PLATFORM MASTER CONTEXT (ctx_inneranimalmedia) ==
+${JSON.stringify(platformCtx || {})}
 
-RECENT DEPLOYMENTS:
-${JSON.stringify(deployments.results)}
+== LIVE SPRINT MEMORY (agentsam_memory — decision/skill/state, recent) ==
+${JSON.stringify(memoryRows?.results || [])}
 
-SPRINT VELOCITY:
-${JSON.stringify(velocity.results?.[0] || {})}
+== ACTIVE CLIENT PROJECTS ==
+${JSON.stringify(clientCtxRows?.results || [])}
 
-ACTIVE CLIENT PROJECTS:
-${JSON.stringify(projects.results)}
+== AGENT RUN ACTIVITY (last 24h) ==
+${JSON.stringify(recentRuns || {})}
+Week cost so far: $${runCostToday?.week_cost ?? 0}
 
-PROJECT MEMORY (most recent context):
-${JSON.stringify(memory.results)}
+== CRON JOB HEALTH (last run of each) ==
+${JSON.stringify(cronHealth?.results || [])}
 
-PENDING AGENT PROPOSALS:
-${JSON.stringify(proposals.results)}
+== MCP TOOL ACTIVITY (last 24h) ==
+${JSON.stringify(mcpActivity?.results || [])}
 
-OVERNIGHT API SUITE (last run; written by scripts/overnight-api-suite.mjs with WRITE_OVERNIGHT_TO_D1=1):
-${JSON.stringify(overnightSuite || {})}
+== ACTIVE SKILL SPAWN JOBS ==
+${JSON.stringify(spawnJobs?.results || [])}
 
-AI USAGE TODAY (agentsam_usage_rollups_daily; UTC calendar date):
-${JSON.stringify(telemetryToday || {})}
+== RECENT D1 MIGRATIONS ==
+${JSON.stringify(migrations?.results || [])}
 
-Write a plain-text morning briefing email with these exact sections:
+== RECENT GIT COMMITS ==
+${gitLog || '(not available)'}
 
-TOP 3 MUST-DO TODAY
-[Ordered by urgency + dependency. Be specific — exact steps, exact file names, exact commands where relevant.]
+Write a sharp morning briefing email. Sections:
 
-SPRINT / PIPELINE NEXT STEP
-[Use CICD PIPELINE RUNS + SPRINT / CIDI CONTEXT above — not legacy roadmap_steps. Name the highest-leverage pipeline or memory item to tackle today and how to start.]
+WHAT SHIPPED YESTERDAY
+[Pull from git commits + migrations. Name specific commits/migrations. Max 5 bullets.]
 
-QUICK WINS (under 30 mins each)
-[2-3 small tasks from the list. Be specific.]
+ACTIVE SPRINT FOCUS
+[From agentsam_memory decision keys — what sprint is live, what phase, what's next. Be specific.]
 
-WATCH OUT
-[Any blockers, broken things, failing proposals, or risks. Be blunt.]
+CLIENT WATCH
+[One line per active client project. Flag any current_blockers that need action today.]
 
-DELEGATE TO AGENT SAM
-[What to ask Agent Sam to do autonomously today — specific tool calls or queries.]
+PLATFORM HEALTH
+[Cron jobs: any failures? Agent runs: any stuck_running? MCP activity: normal or spiked?]
 
-CLIENT PROJECTS
-[One line each on any active client needing attention today.]
+COST PULSE
+[24h cost + week cost. Flag if trending high. One line.]
 
-OVERNIGHT METRICS
-[If OVERNIGHT SUITE row has JSON in value, summarize tier pass/fail, ab_fails, and tier_c_target. If empty or missing, say no overnight row yet. Include AI TELEMETRY TODAY numbers: calls, tokens_in/out, cost_usd, models_used.]
+TODAY'S TOP 3
+[Most important things to do today given all the above. Specific and ordered.]
 
-Rules: Under 450 words. No fluff. No emojis. Direct and actionable. Treat Sam like a technical founder with limited time and limited AI spend this week.`;
+Rules: Under 400 words total. No fluff. No emojis. Blunt. Treat Sam like a technical founder who has read the codebase — no explaining what D1 is.`;
 
     let emailBody = '';
 
-    // Priority 1: Gemini Flash — $0.000004/call (750x cheaper than Haiku)
     const geminiKey = env.GOOGLE_AI_API_KEY || env.GEMINI_API_KEY;
     if (!emailBody && geminiKey) {
       try {
@@ -159,62 +199,60 @@ Rules: Under 450 words. No fluff. No emojis. Direct and actionable. Treat Sam li
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              systemInstruction: { parts: [{ text: 'You are Agent Sam writing a concise daily morning briefing. Plain text only. Under 450 words. No fluff. No emojis. Direct and actionable.' }] },
+              systemInstruction: { parts: [{ text: 'You are Agent Sam. Write a concise daily briefing. Plain text only. Under 400 words. No emojis. Blunt and specific.' }] },
               contents: [{ role: 'user', parts: [{ text: prompt }] }],
-              generationConfig: { maxOutputTokens: 900, temperature: 0.3 },
+              generationConfig: { maxOutputTokens: 900, temperature: 0.2 },
             })
           }
         );
         if (gRes.ok) {
           const gData = await gRes.json();
           emailBody = gData?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
-          if (emailBody) console.log('[daily-plan] generated via Gemini Flash');
+          if (emailBody) console.log('[daily-plan] generated via gemini-3.1-flash-lite');
         }
-      } catch (e) { console.warn('[daily-plan] Gemini Flash failed:', e?.message); }
+      } catch (e) { console.warn('[daily-plan] Gemini failed:', e?.message); }
     }
 
-    // Priority 2: OpenAI gpt-5.4-nano via Responses API (P3: catalog/cron-config + dispatch when refactoring)
     if (!emailBody && env.OPENAI_API_KEY) {
       try {
-        const oRes = await fetch('https://api.openai.com/v1/responses', {
+        const oRes = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.OPENAI_API_KEY}` },
           body: JSON.stringify({
-            model: 'gpt-5.4-nano',
-            input: [
-              { role: 'system', content: 'You are Agent Sam writing a concise daily morning briefing. Plain text only. Under 450 words. No fluff. Direct and actionable.' },
+            model: 'gpt-4.1-nano',
+            messages: [
+              { role: 'system', content: 'You are Agent Sam. Write a concise daily briefing. Plain text only. Under 400 words. No emojis. Blunt.' },
               { role: 'user', content: prompt }
             ],
-            reasoning: { effort: 'low' },
-            text: { verbosity: 'low' },
-            max_output_tokens: 900,
+            max_tokens: 900,
+            temperature: 0.2,
           })
         });
         if (oRes.ok) {
           const oData = await oRes.json();
-          emailBody = oData?.output_text?.trim() || '';
-          if (emailBody) console.log('[daily-plan] generated via gpt-5.4-nano');
+          emailBody = oData?.choices?.[0]?.message?.content?.trim() || '';
+          if (emailBody) console.log('[daily-plan] generated via gpt-4.1-nano');
         }
       } catch (e) { console.warn('[daily-plan] OpenAI fallback failed:', e?.message); }
     }
 
-    // Priority 3: Workers AI — free, no external budget needed
     if (!emailBody) {
       try {
         const ai = await env.AI.run('@cf/meta/llama-4-scout-17b-16e-instruct', {
-          messages: [{ role: 'system', content: 'Write a concise daily briefing. Plain text. Under 450 words. No emojis.' }, { role: 'user', content: prompt }],
+          messages: [
+            { role: 'system', content: 'Write a concise daily briefing. Plain text. Under 400 words. No emojis. Blunt.' },
+            { role: 'user', content: prompt }
+          ],
           max_tokens: 900,
         });
         emailBody = (ai?.result?.response ?? ai?.response ?? '').trim();
-        if (emailBody) console.log('[daily-plan] generated via Workers AI Llama 4 Scout (free)');
+        if (emailBody) console.log('[daily-plan] generated via Workers AI Llama 4 Scout');
       } catch (e) { console.warn('[daily-plan] Workers AI failed:', e?.message); }
     }
 
-    if (!emailBody) emailBody = 'Daily plan could not be generated. Check provider budgets.';
-    console.log('[daily-plan] email body length', emailBody.length);
+    if (!emailBody) emailBody = 'Daily briefing could not be generated. Check provider keys.';
 
-    const subject = `IAM Daily Plan — ${today}`;
-    // Wrap plain text in minimal HTML for better email client rendering
+    const subject = `Agent Sam — ${today}`;
     const htmlBody = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
       body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',monospace;background:#0a0a0f;color:#f4f4f5;padding:40px 20px;line-height:1.7}
       .wrap{max-width:680px;margin:0 auto;background:#111;border:1px solid rgba(255,107,0,0.2);border-radius:12px;padding:40px}
@@ -226,33 +264,29 @@ Rules: Under 450 words. No fluff. No emojis. Direct and actionable. Treat Sam li
     </style></head><body><div class="wrap">
       <div class="header"><h1>Agent Sam</h1><div class="date">${subject}</div></div>
       <pre>${emailBody.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>
-      <div class="footer">inneranimalmedia.com &bull; Generated by Gemini Flash &bull; $0.000004</div>
+      <div class="footer">inneranimalmedia.com &bull; gemini-3.1-flash-lite &bull; ~$0.000004</div>
     </div></body></html>`;
 
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from: (typeof env.RESEND_FROM === 'string' && env.RESEND_FROM.trim()) ? env.RESEND_FROM.trim() : '',
-        to: [(typeof env.RESEND_TO === 'string' && env.RESEND_TO.trim()) ? env.RESEND_TO.trim() : ''].filter(Boolean),
+        from: env.RESEND_FROM.trim(),
+        to: [env.RESEND_TO.trim()],
         subject,
         text: emailBody,
         html: htmlBody,
       })
     });
-    console.log('[daily-plan] Resend status', res.status);
+
     if (!res.ok) {
       const err = await res.text();
       throw new Error(`Resend: ${res.status} ${err}`);
     }
-    console.log('[cron] daily-plan email sent');
-    if (runId) {
-      await completeCronRun(env, runId, startedAt, {
-        rowsRead: 12,
-        rowsWritten: 1,
-        metadata: { sent: true },
-      });
-    }
+
+    console.log('[cron] daily-plan email sent to', env.RESEND_TO);
+    if (runId) await completeCronRun(env, runId, startedAt, { rowsRead: 9, rowsWritten: 1, metadata: { sent: true } });
+
   } catch (err) {
     if (runId) await failCronRun(env, runId, startedAt, err);
     console.error('[daily-plan] FATAL:', err?.message, err?.stack);
