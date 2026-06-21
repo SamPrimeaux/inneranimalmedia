@@ -55,10 +55,16 @@ import {
 } from '../core/cms-spawn-bridge.js';
 import { logPromptCacheUsage } from '../core/prompt-cache-economics.js';
 import {
+  buildCmsPagesListQuery,
+  fetchCmsComponentInScope,
+  fetchCmsPageInScope,
+  fetchCmsSectionInScope,
+  resolveCmsApiScope,
+} from '../core/cms-access.js';
+import {
   listCmsSitesForScope,
   persistBootstrapCmsProjectSlug,
   resolveCmsBootstrapProjectSlug,
-  resolveCmsEffectiveTenantId,
   resolveCmsWorkspaceContext,
 } from '../core/cms-workspace-resolve.js';
 
@@ -179,11 +185,8 @@ export async function handleCmsApi(request, url, env, ctx) {
   if (!env.DB) return jsonResponse({ error: 'Database unavailable' }, 503);
 
   const requestCache = {};
-  let tenantId = authTenantId;
-  try {
-    const scopedSites = await listCmsSitesForScope(env, { tenantId: authTenantId, workspaceId });
-    tenantId = await resolveCmsEffectiveTenantId(env, authUser, workspaceId, scopedSites);
-  } catch (_) {}
+  const tenantId = authTenantId;
+  const cmsScope = await resolveCmsApiScope(env, authUser, workspaceId);
 
   if (path === '/api/cms/workspace-context' && method === 'GET') {
     try {
@@ -246,15 +249,12 @@ export async function handleCmsApi(request, url, env, ctx) {
   if (path === '/api/cms/pages' && method === 'GET') {
     const projectId = url.searchParams.get('project_id');
     try {
-      let query = `SELECT id, project_id, slug, title, status, route_path, updated_at, created_at, is_homepage FROM cms_pages WHERE tenant_id = ?`;
-      const params = [tenantId];
-      
-      if (projectId) {
-        query += ` AND project_id = ?`;
-        params.push(projectId);
+      if (projectId && !cmsScope.allowedSlugs.has(String(projectId).trim())) {
+        return jsonResponse({ error: 'CMS_SITE_NOT_ALLOWED', project_id: projectId }, 403);
       }
-      
-      const { results } = await env.DB.prepare(query + ` ORDER BY created_at DESC`).bind(...params).all();
+      const listQuery = buildCmsPagesListQuery(cmsScope, projectId);
+      if (!listQuery) return jsonResponse({ pages: [] });
+      const { results } = await env.DB.prepare(listQuery.sql).bind(...listQuery.binds).all();
       return jsonResponse({ pages: results || [] });
     } catch (e) {
       return jsonResponse({ error: e.message }, 500);
@@ -271,17 +271,7 @@ export async function handleCmsApi(request, url, env, ctx) {
     const useDraft = url.searchParams.get('draft') === '1' || url.searchParams.get('preview') === 'draft';
     const projectSlugParam = String(url.searchParams.get('project_slug') || '').trim();
     try {
-      const page = projectSlugParam
-        ? await env.DB.prepare(
-            `SELECT * FROM cms_pages WHERE id = ? AND project_slug = ? LIMIT 1`,
-          )
-            .bind(pageId, projectSlugParam)
-            .first()
-        : await env.DB.prepare(
-            `SELECT * FROM cms_pages WHERE id = ? AND tenant_id = ? LIMIT 1`,
-          )
-            .bind(pageId, tenantId)
-            .first();
+      const page = await fetchCmsPageInScope(env, pageId, cmsScope, projectSlugParam || null);
 
       if (!page) return jsonResponse({ error: 'Page not found' }, 404);
 
@@ -389,11 +379,7 @@ export async function handleCmsApi(request, url, env, ctx) {
   if (draftPageMatch && (method === 'GET' || method === 'PUT')) {
     const pageId = draftPageMatch[1];
     try {
-      const page = await env.DB.prepare(
-        `SELECT id, project_id, project_slug, slug, route_path, tenant_id FROM cms_pages WHERE id = ? AND tenant_id = ? LIMIT 1`,
-      )
-        .bind(pageId, tenantId)
-        .first();
+      const page = await fetchCmsPageInScope(env, pageId, cmsScope);
       if (!page) return jsonResponse({ error: 'Page not found' }, 404);
 
       if (method === 'GET') {
@@ -504,6 +490,9 @@ export async function handleCmsApi(request, url, env, ctx) {
     if (!project_id || !slug || !title) {
       return jsonResponse({ error: 'project_id, slug, and title are required' }, 400);
     }
+    if (!cmsScope.allowedSlugs.has(String(project_id).trim())) {
+      return jsonResponse({ error: 'CMS_SITE_NOT_ALLOWED', project_id }, 403);
+    }
 
     const r2Bucket = CMS_DEFAULT_R2_BUCKET;
     const r2Key = cmsPageKey(workspaceId, project_id, slug, 'published');
@@ -557,6 +546,8 @@ export async function handleCmsApi(request, url, env, ctx) {
 
     if (!('content' in body)) {
       try {
+        const page = await fetchCmsPageInScope(env, pageId, cmsScope);
+        if (!page) return jsonResponse({ error: 'Page not found' }, 404);
         const updates = [];
         const binds = [];
         const allowed = ['title', 'seo_title', 'meta_description', 'robots', 'page_type', 'sort_order'];
@@ -568,9 +559,9 @@ export async function handleCmsApi(request, url, env, ctx) {
         }
         if (!updates.length) return jsonResponse({ error: 'No valid fields to update' }, 400);
         updates.push(`updated_at = ?`, `updated_by = ?`);
-        binds.push(Math.floor(Date.now() / 1000), authUser.id, pageId, tenantId);
+        binds.push(Math.floor(Date.now() / 1000), authUser.id, pageId);
         await env.DB.prepare(
-          `UPDATE cms_pages SET ${updates.join(', ')} WHERE id = ? AND tenant_id = ?`,
+          `UPDATE cms_pages SET ${updates.join(', ')} WHERE id = ?`,
         )
           .bind(...binds)
           .run();
@@ -583,9 +574,7 @@ export async function handleCmsApi(request, url, env, ctx) {
     const { title, content, content_type = 'text/html' } = body;
 
     try {
-      const page = await env.DB.prepare(
-        `SELECT project_id, project_slug, slug, r2_bucket FROM cms_pages WHERE id = ? AND tenant_id = ?`
-      ).bind(pageId, tenantId).first();
+      const page = await fetchCmsPageInScope(env, pageId, cmsScope);
 
       if (!page) return jsonResponse({ error: 'Page not found' }, 404);
 
@@ -623,9 +612,9 @@ export async function handleCmsApi(request, url, env, ctx) {
             r2_key = ?,
             content_size_bytes = ?,
             status = 'draft'
-        WHERE id = ? AND tenant_id = ?
+        WHERE id = ?
       `      ).bind(
-        title || null, authUser.id, now, r2Key, contentBuffer.byteLength, pageId, tenantId
+        title || null, authUser.id, now, r2Key, contentBuffer.byteLength, pageId
       ).run();
 
       const projectSlug = String(page.project_slug || page.project_id || '').trim();
@@ -647,9 +636,7 @@ export async function handleCmsApi(request, url, env, ctx) {
     const pageId = pathParts[pathParts.length - 2];
     let projectSlug = '';
     try {
-      const page = await env.DB.prepare(
-        `SELECT project_id, project_slug, slug, r2_bucket, content_type FROM cms_pages WHERE id = ? AND tenant_id = ?`
-      ).bind(pageId, tenantId).first();
+      const page = await fetchCmsPageInScope(env, pageId, cmsScope);
 
       if (!page) return jsonResponse({ error: 'Page not found' }, 404);
 
@@ -783,9 +770,9 @@ export async function handleCmsApi(request, url, env, ctx) {
             published_by = ?,
             updated_at = ?,
             r2_key = ?
-        WHERE id = ? AND tenant_id = ?
+        WHERE id = ?
       `      ).bind(
-        now, authUser.id, now, publishedKey, pageId, tenantId
+        now, authUser.id, now, publishedKey, pageId
       ).run();
 
       ctx.waitUntil(releaseCmsPublishLock(env, projectSlug, authUser.id));
@@ -833,14 +820,16 @@ export async function handleCmsApi(request, url, env, ctx) {
   if (pageIdMatch && method === 'DELETE') {
     const pageId = pageIdMatch[1];
     try {
+      const page = await fetchCmsPageInScope(env, pageId, cmsScope);
+      if (!page) return jsonResponse({ error: 'Page not found' }, 404);
       const now = Math.floor(Date.now() / 1000);
       await env.DB.prepare(`
         UPDATE cms_pages 
         SET status = 'archived',
             archived_at = ?,
             updated_at = ?
-        WHERE id = ? AND tenant_id = ?
-      `).bind(now, now, pageId, tenantId).run();
+        WHERE id = ?
+      `).bind(now, now, pageId).run();
 
       return jsonResponse({ success: true, status: 'archived' });
     } catch (e) {
@@ -856,11 +845,7 @@ export async function handleCmsApi(request, url, env, ctx) {
     const pageId = String(url.searchParams.get('page_id') || '').trim();
     if (!pageId) return jsonResponse({ error: 'page_id is required' }, 400);
     try {
-      const page = await env.DB.prepare(
-        `SELECT id, route_path, slug, title FROM cms_pages WHERE id = ? AND tenant_id = ? LIMIT 1`,
-      )
-        .bind(pageId, tenantId)
-        .first();
+      const page = await fetchCmsPageInScope(env, pageId, cmsScope);
       if (!page) return jsonResponse({ error: 'Page not found' }, 404);
       const { results } = await env.DB.prepare(
         `SELECT id, page_id, section_type, section_name, section_data, sort_order, is_visible, updated_at
@@ -892,17 +877,9 @@ export async function handleCmsApi(request, url, env, ctx) {
     const payload =
       typeof sectionData === 'string' ? sectionData : JSON.stringify(sectionData);
     try {
-      const row = await env.DB.prepare(
-        `SELECT s.id, s.page_id, p.tenant_id
-         FROM cms_page_sections s
-         JOIN cms_pages p ON p.id = s.page_id
-         WHERE s.id = ? LIMIT 1`,
-      )
-        .bind(sectionId)
-        .first();
-      if (!row || String(row.tenant_id) !== String(tenantId)) {
-        return jsonResponse({ error: 'Section not found' }, 404);
-      }
+      const scoped = await fetchCmsSectionInScope(env, sectionId, cmsScope);
+      if (!scoped) return jsonResponse({ error: 'Section not found' }, 404);
+      const row = scoped.section;
       await env.DB.prepare(
         `UPDATE cms_page_sections SET section_data = ?, updated_at = datetime('now') WHERE id = ?`,
       )
@@ -1011,18 +988,9 @@ export async function handleCmsApi(request, url, env, ctx) {
     const payload =
       typeof componentData === 'string' ? componentData : JSON.stringify(componentData);
     try {
-      const row = await env.DB.prepare(
-        `SELECT c.id, c.section_id, p.tenant_id
-         FROM cms_section_components c
-         JOIN cms_page_sections s ON s.id = c.section_id
-         JOIN cms_pages p ON p.id = s.page_id
-         WHERE c.id = ? LIMIT 1`,
-      )
-        .bind(componentId)
-        .first();
-      if (!row || String(row.tenant_id) !== String(tenantId)) {
-        return jsonResponse({ error: 'Component not found' }, 404);
-      }
+      const scoped = await fetchCmsComponentInScope(env, componentId, cmsScope);
+      if (!scoped) return jsonResponse({ error: 'Component not found' }, 404);
+      const row = scoped.component;
       const section = await env.DB.prepare(
         `SELECT s.id, s.page_id FROM cms_page_sections s WHERE s.id = ? LIMIT 1`,
       )
@@ -1123,11 +1091,7 @@ export async function handleCmsApi(request, url, env, ctx) {
     try {
       let page = null;
       if (pageId) {
-        page = await env.DB.prepare(
-          `SELECT id, slug, title, status, project_slug, published_at, updated_at FROM cms_pages WHERE id = ? AND tenant_id = ? LIMIT 1`,
-        )
-          .bind(pageId, tenantId)
-          .first();
+        page = await fetchCmsPageInScope(env, pageId, cmsScope, projectSlug || null);
       }
       const patchRow = await env.DB.prepare(
         `SELECT plan_id, change_set_id, task_file, passed, applied, created_at
@@ -1823,11 +1787,7 @@ export async function handleCmsApi(request, url, env, ctx) {
       return jsonResponse({ error: 'page_id and section_type required' }, 400);
     }
     try {
-      const page = await env.DB.prepare(
-        `SELECT id FROM cms_pages WHERE id = ? AND tenant_id = ? LIMIT 1`,
-      )
-        .bind(page_id, tenantId)
-        .first();
+      const page = await fetchCmsPageInScope(env, page_id, cmsScope);
       if (!page) return jsonResponse({ error: 'Page not found' }, 404);
       const sectionId = `sec_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
       const payload =
@@ -1880,13 +1840,12 @@ export async function handleCmsApi(request, url, env, ctx) {
     } catch {}
     const visible = body.is_visible === true || body.is_visible === 1 ? 1 : 0;
     try {
+      const scoped = await fetchCmsSectionInScope(env, sId, cmsScope);
+      if (!scoped) return jsonResponse({ error: 'Section not found' }, 404);
       await env.DB.prepare(
-        `UPDATE cms_page_sections SET is_visible = ?, updated_at = datetime('now')
-         WHERE id = ? AND EXISTS (
-           SELECT 1 FROM cms_pages p WHERE p.id = page_id AND p.tenant_id = ?
-         )`,
+        `UPDATE cms_page_sections SET is_visible = ?, updated_at = datetime('now') WHERE id = ?`,
       )
-        .bind(visible, sId, tenantId)
+        .bind(visible, sId)
         .run();
       return jsonResponse({ success: true, id: sId, is_visible: visible });
     } catch (e) {
@@ -2112,14 +2071,15 @@ export async function handleCmsApi(request, url, env, ctx) {
   if (path.match(/^\/api\/cms\/pages\/[^/]+\/rollbacks$/) && method === 'GET') {
     const pageId = path.split('/')[4];
     try {
+      const page = await fetchCmsPageInScope(env, pageId, cmsScope);
+      if (!page) return jsonResponse({ error: 'Page not found' }, 404);
       const { results } = await env.DB.prepare(
         `SELECT r.id, r.page_id, r.slug, r.previous_r2_key, r.deployed_html_hash, r.created_at
          FROM cms_live_rollbacks r
-         JOIN cms_pages p ON p.id = r.page_id
-         WHERE r.page_id = ? AND p.tenant_id = ?
+         WHERE r.page_id = ?
          ORDER BY r.created_at DESC LIMIT 20`,
       )
-        .bind(pageId, tenantId)
+        .bind(pageId)
         .all();
       return jsonResponse({ rollbacks: results || [] });
     } catch (e) {
@@ -2130,11 +2090,7 @@ export async function handleCmsApi(request, url, env, ctx) {
   if (path.match(/^\/api\/cms\/pages\/[^/]+\/snapshot$/) && method === 'POST') {
     const pageId = path.split('/')[4];
     try {
-      const page = await env.DB.prepare(
-        `SELECT id, slug, project_id, project_slug, r2_key, r2_bucket FROM cms_pages WHERE id = ? AND tenant_id = ? LIMIT 1`,
-      )
-        .bind(pageId, tenantId)
-        .first();
+      const page = await fetchCmsPageInScope(env, pageId, cmsScope);
       if (!page) return jsonResponse({ error: 'Page not found' }, 404);
 
       const r2Bucket = page.r2_bucket || CMS_DEFAULT_R2_BUCKET;
@@ -2196,21 +2152,15 @@ export async function handleCmsApi(request, url, env, ctx) {
       return jsonResponse({ error: 'rollback_id and page_id required' }, 400);
     }
     try {
+      const page = await fetchCmsPageInScope(env, page_id, cmsScope);
+      if (!page) return jsonResponse({ error: 'Page not found' }, 404);
       const rb = await env.DB.prepare(
         `SELECT r.* FROM cms_live_rollbacks r
-         JOIN cms_pages p ON p.id = r.page_id
-         WHERE r.id = ? AND r.page_id = ? AND p.tenant_id = ? LIMIT 1`,
+         WHERE r.id = ? AND r.page_id = ? LIMIT 1`,
       )
-        .bind(rollback_id, page_id, tenantId)
+        .bind(rollback_id, page_id)
         .first();
       if (!rb) return jsonResponse({ error: 'Rollback not found' }, 404);
-
-      const page = await env.DB.prepare(
-        `SELECT id, slug, project_id, project_slug, r2_bucket, r2_key, content_type FROM cms_pages WHERE id = ? AND tenant_id = ? LIMIT 1`,
-      )
-        .bind(page_id, tenantId)
-        .first();
-      if (!page) return jsonResponse({ error: 'Page not found' }, 404);
 
       const r2Bucket = page.r2_bucket || CMS_DEFAULT_R2_BUCKET;
       const publishedKey = cmsPageKey(
@@ -2230,9 +2180,9 @@ export async function handleCmsApi(request, url, env, ctx) {
         const now = Math.floor(Date.now() / 1000);
         await env.DB.prepare(
           `UPDATE cms_pages SET r2_key = ?, status = 'published', published_at = ?, updated_at = ?
-           WHERE id = ? AND tenant_id = ?`,
+           WHERE id = ?`,
         )
-          .bind(restoredKey, now, now, page_id, tenantId)
+          .bind(restoredKey, now, now, page_id)
           .run();
       }
 

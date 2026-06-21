@@ -5,7 +5,6 @@
 import { resolveActiveBootstrap, resolveBootstrapWorkspaceContext } from './bootstrap.js';
 import { ensureUserBootstrapRow } from './bootstrap-scoped-context.js';
 import { cmsBootstrapKey } from './cms-kv-cache.js';
-import { userCanAccessWorkspace } from './workspace-access.js';
 
 function trim(v) {
   return v == null ? '' : String(v).trim();
@@ -151,36 +150,6 @@ export async function listCmsSitesForScope(env, { tenantId, workspaceId }) {
 
   sites.sort((a, b) => String(a.name || a.slug).localeCompare(String(b.name || b.slug)));
   return sites;
-}
-
-/**
- * Collab workspaces (explicit cms_site registry) store pages under the workspace tenant.
- * Connor on ws_fuelnfreetime reads/writes tenant_sam_primeaux CMS rows, not his personal tenant.
- * @param {any} env
- * @param {{ tenant_id?: string, id?: string }} authUser
- * @param {string} workspaceId
- * @param {Array<{ source?: string }>|null|undefined} sites
- */
-export async function resolveCmsEffectiveTenantId(env, authUser, workspaceId, sites) {
-  const authTenant = trim(authUser?.tenant_id);
-  const ws = trim(workspaceId);
-  if (!env?.DB || !authTenant || !ws) return authTenant;
-
-  const registryMode = (sites || []).some((s) => s.source === 'agentsam_project_context');
-  if (!registryMode) return authTenant;
-  if (!(await userCanAccessWorkspace(env, authUser, ws))) return authTenant;
-
-  try {
-    const wsRow = await env.DB.prepare(
-      `SELECT tenant_id FROM workspaces WHERE id = ? LIMIT 1`,
-    )
-      .bind(ws)
-      .first();
-    const wsTenant = trim(wsRow?.tenant_id);
-    if (wsTenant) return wsTenant;
-  } catch (_) {}
-
-  return authTenant;
 }
 
 /**

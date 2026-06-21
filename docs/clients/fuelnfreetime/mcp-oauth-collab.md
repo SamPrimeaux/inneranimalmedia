@@ -105,6 +105,22 @@ Sam and Connor both edit **Fuel N Free Time** in PrimeTech CMS Lite when the act
 1. Switch workspace → **Fuel N Free Time**
 2. Open **Dashboard → CMS** (`/dashboard/cms`)
 
-**Scope:** Only the `fuelnfreetime` site appears — not Sam's full IAM CMS catalog. Connor gets read/write via workspace membership (pages stored under `tenant_sam_primeaux` on the collab workspace).
+**Scope:** Only the `fuelnfreetime` site appears — not Sam's full IAM CMS catalog.
 
-**Migration:** `660_fuelnfreetime_cms_site.sql` — `cms_tenants`, `ctx_cms_fuelnfreetime`, starter home page + hero section.
+**Identity (critical):** Each actor keeps their own `tenant_id` (`tenant_sam_primeaux` vs `tenant_connor_mcneely`). CMS authorization is **workspace membership + `cms_site` project registry** — never routing Connor through Sam's tenant. Activity logs, drafts, and IAM_COLLAB WebSocket attachments use the authenticated user's real identity.
+
+**Migrations:** `660_fuelnfreetime_cms_site.sql` (site seed), `661_fuelnfreetime_cms_workspace_scope.sql` (workspace-scoped registry).
+
+### Runtime wiring (no containers for CMS edit path)
+
+| Layer | Binding | Role for Fuel CMS |
+|---|---|---|
+| D1 | `DB` → `inneranimalmedia-business` | Page/section metadata, live edit sessions, bootstrap prefs |
+| R2 | `ASSETS` → `inneranimalmedia` | Published + draft HTML (`cms/ws_fuelnfreetime/fuelnfreetime/...`) |
+| KV | `SESSION_CACHE` | Bootstrap cache, per-user drafts, publish locks, live session hints |
+| Durable Object | `IAM_COLLAB` → `IAMCollaborationSession` | Realtime presence per page room `cms:{page_id}` via `/api/collab/room/cms:{page_id}` |
+| Worker | `inneranimalmedia` | `/api/cms/*` APIs + dashboard shell |
+
+**Not used for CMS editing:** `MY_CONTAINER`, `PTY_SERVICE`, or fuel's separate D1 (`9fd6ff92…`) — those are MCP terminal / client-app lanes, not PrimeTech CMS Lite.
+
+**Collab flow:** `POST /api/cms/live-session/join` → D1 `cms_live_edit_sessions` + KV `cms:live-session:{pageId}:{userId}` → client opens WebSocket to `IAM_COLLAB` room `cms:{pageId}` (each socket stores the user's own `userId` + `tenantId` from auth).
