@@ -3,9 +3,9 @@ title: Sprint 1C — Exec Fabric (Virgo analog)
 project_key: inneranimalmedia
 topic: agentic_edge_sprint
 sprint_id: agentic_edge_1c
-sprint_status: planned
+sprint_status: shipped
 lane_key: docs_knowledge_search
-updated: 2026-06-20
+updated: 2026-06-21
 ---
 
 # Sprint 1C — Exec Fabric
@@ -13,6 +13,18 @@ updated: 2026-06-20
 **Duration:** 2–3 days  
 **Parent:** [agentic-edge-sprint-plan.md](./agentic-edge-sprint-plan.md)  
 **Google analog:** Virgo Network — collapsed fabric, no scaling tax
+
+## Status (2026-06-21)
+
+| Task | Status |
+|------|--------|
+| Bridge fallback gated behind `execos_bridge_fallback_enabled` (default **off**) | ✅ migration 651 applied |
+| `[execos] bridge_fallback_triggered` log when legacy path used | ✅ deployed |
+| `agentsam_mcp_audit` read-only tool | ✅ migration 652 + handler |
+| Binding-only smoke (`MCP_EXEC_SMOKE=1` + prod `MCP_BRIDGE_TOKEN`) | ⏳ run with prod bridge secret |
+| ExecOS PM2 restart | ✅ done |
+| Full bridge removal (7d green) | planned |
+| `target=container` routing | planned → Sprint 2C stretch |
 
 ## Problem
 

@@ -88,10 +88,10 @@ Browser PWA / Cursor MCP
 |--------|-----|-------|-------|
 | **1A** | [agentic-edge-sprint-1a-context-tier.md](./agentic-edge-sprint-1a-context-tier.md) | Unified context tier (KV Cache analog) | inneranimalmedia, ExecOS |
 | **1B** | [agentic-edge-sprint-1b-inference-gateway.md](./agentic-edge-sprint-1b-inference-gateway.md) | TTFT-aware routing + model health | inneranimalmedia, MCP |
-| **1C** | [agentic-edge-sprint-1c-exec-fabric.md](./agentic-edge-sprint-1c-exec-fabric.md) | Binding-only ExecOS fabric | ExecOS, MCP |
-| **2A** | (Week 2) | Multi-agent orchestration spine | inneranimalmedia |
-| **2B** | (Week 2) | Cold start & warm path | inneranimalmedia, MCP |
-| **2C** | (Week 2) | Observability + MCP modularization | all three |
+| **1C** | [agentic-edge-sprint-1c-exec-fabric.md](./agentic-edge-sprint-1c-exec-fabric.md) | Binding-only ExecOS fabric + MCP audit | ExecOS, MCP | ✅ shipped 2026-06-21 |
+| **2A** | [agentic-edge-sprint-2a-multi-agent-orchestration.md](./agentic-edge-sprint-2a-multi-agent-orchestration.md) | Multi-agent orchestration spine | inneranimalmedia |
+| **2B** | [agentic-edge-sprint-2b-warm-path.md](./agentic-edge-sprint-2b-warm-path.md) | Cold start & warm path | inneranimalmedia, MCP |
+| **2C** | [agentic-edge-sprint-2c-observability-mcp.md](./agentic-edge-sprint-2c-observability-mcp.md) | Observability + MCP modularization | all three |
 
 ## Sprint 1A — Context tier (Days 1–2) ✅ shipped 2026-06-20
 
@@ -117,18 +117,30 @@ See [agentic-edge-sprint-1a-context-tier.md](./agentic-edge-sprint-1a-context-ti
 
 See [agentic-edge-sprint-1b-inference-gateway.md](./agentic-edge-sprint-1b-inference-gateway.md).
 
-## Sprint 1C — Exec fabric (Days 5–7)
+## Sprint 1C — Exec fabric ✅ shipped 2026-06-21
 
 **Maps to:** Virgo collapsed fabric — single reliable transport
 
-| # | Task | Owner repo | Done when |
-|---|------|------------|-----------|
-| 9 | MCP → EXECOS binding → GCP smoke | MCP | `scripts/mcp-smoke.mjs` green |
-| 10 | Mark bridge path deprecated in CONTRACT.md | ExecOS | Docs updated |
-| 11 | Remove bridge fallback after 7d green smoke | MCP | Single auth path |
-| 12 | Wire `target=container` → agentsam_container_exec | CORE | Untrusted snippets isolated |
+| # | Task | Status |
+|---|------|--------|
+| 9 | Gate bridge fallback behind `execos_bridge_fallback_enabled` (default off) | ✅ migration 651 |
+| 10 | `[execos] bridge_fallback_triggered` log + binding failure reason | ✅ MCP deploy |
+| 11 | `agentsam_mcp_audit` read-only tool | ✅ migration 652 |
+| 12 | Binding-only smoke (`MCP_EXEC_SMOKE=1`) | ⏳ prod bridge token |
+| 13 | Remove bridge code path after 7d green | planned |
+| 14 | `target=container` → agentsam_container_exec | planned (2C stretch) |
 
 See [agentic-edge-sprint-1c-exec-fabric.md](./agentic-edge-sprint-1c-exec-fabric.md).
+
+## Sprint 2 — Week 2 (planned)
+
+| Sprint | Focus | Doc |
+|--------|-------|-----|
+| **2A** | Parent↔child spawn linkage, multitask tree API | [2a](./agentic-edge-sprint-2a-multi-agent-orchestration.md) |
+| **2B** | MCP catalog KV + routing priors warm path | [2b](./agentic-edge-sprint-2b-warm-path.md) |
+| **2C** | Deployment/build analytics tools + dispatch split | [2c](./agentic-edge-sprint-2c-observability-mcp.md) |
+
+**Recommended order:** 2C (observability tools build on 1C audit) → 2A (spawn linkage needs stable audit) → 2B (warm path last, perf polish).
 
 ## Decision matrix
 
