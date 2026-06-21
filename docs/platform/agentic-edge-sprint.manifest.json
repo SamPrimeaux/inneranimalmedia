@@ -1,0 +1,32 @@
+{
+  "workspace_key": "ws_inneranimalmedia",
+  "topic": "agentic_edge_sprint",
+  "d1_context_id": "ctx_inneranimalmedia",
+  "memory_router_key": "agentic_edge_sprint_router_v1",
+  "entries": [
+    {
+      "file": "docs/platform/agentic-edge-sprint-plan.md",
+      "topic": "agentic_edge_sprint",
+      "lane_key": "docs_knowledge_search",
+      "priority": 100
+    },
+    {
+      "file": "docs/platform/agentic-edge-sprint-1a-context-tier.md",
+      "topic": "agentic_edge_sprint",
+      "lane_key": "docs_knowledge_search",
+      "priority": 90
+    },
+    {
+      "file": "docs/platform/agentic-edge-sprint-1b-inference-gateway.md",
+      "topic": "agentic_edge_sprint",
+      "lane_key": "docs_knowledge_search",
+      "priority": 90
+    },
+    {
+      "file": "docs/platform/agentic-edge-sprint-1c-exec-fabric.md",
+      "topic": "agentic_edge_sprint",
+      "lane_key": "docs_knowledge_search",
+      "priority": 90
+    }
+  ]
+}
