@@ -21,6 +21,7 @@ import {
   DEFAULT_AGENT_SESSION_TTL_SECONDS,
   MIN_AGENT_SESSION_TTL_SECONDS,
   MAX_AGENT_SESSION_TTL_SECONDS,
+  appendLoginSessionCookies,
 } from '../core/auth';
 
 import { ensureIdentityPlaneBeforeSession } from '../core/ensureIdentityPlaneBeforeSession.js';
@@ -617,10 +618,7 @@ async function handleEmailVerification(request, url, env) {
   });
 
   const headers = new Headers({ Location: `${origin}/dashboard/agent` });
-  headers.append(
-    'Set-Cookie',
-    `${AUTH_COOKIE_NAME}=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`,
-  );
+  appendLoginSessionCookies(headers, sessionId, new URL(request.url).hostname);
   return new Response(null, { status: 302, headers });
 }
 
@@ -849,37 +847,21 @@ async function handleEmailSignup(request, url, env) {
   });
 
   const next = '/dashboard/agent';
+  const hostname = new URL(request.url).hostname;
   if (wantsJson) {
     const res = jsonResponse({ ok: true, redirect: next });
-    res.headers.append(
-      'Set-Cookie',
-      `${AUTH_COOKIE_NAME}=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`,
-    );
+    appendLoginSessionCookies(res.headers, sessionId, hostname);
     return res;
   }
   const headers = new Headers({ Location: `${origin}${next}` });
-  headers.append(
-    'Set-Cookie',
-    `${AUTH_COOKIE_NAME}=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`,
-  );
+  appendLoginSessionCookies(headers, sessionId, hostname);
   return new Response(null, { status: 302, headers });
 }
 
 function redirectWithLoginSession(request, sessionId) {
   const target = new URL(DASHBOARD_AFTER_LOGIN_PATH, request.url).href;
   const res = Response.redirect(target, 302);
-  res.headers.append(
-    'Set-Cookie',
-    `${AUTH_COOKIE_NAME}=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`,
-  );
-  res.headers.append(
-    'Set-Cookie',
-    `${AUTH_COOKIE_NAME}=; Domain=.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`,
-  );
-  res.headers.append(
-    'Set-Cookie',
-    `${AUTH_COOKIE_NAME}=; Domain=.sandbox.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`,
-  );
+  appendLoginSessionCookies(res.headers, sessionId, new URL(request.url).hostname);
   return res;
 }
 
@@ -893,18 +875,7 @@ function jsonLoginSessionResponse(request, sessionId, redirectPath) {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
   });
-  response.headers.append(
-    'Set-Cookie',
-    `${AUTH_COOKIE_NAME}=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`,
-  );
-  response.headers.append(
-    'Set-Cookie',
-    `${AUTH_COOKIE_NAME}=; Domain=.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`,
-  );
-  response.headers.append(
-    'Set-Cookie',
-    `${AUTH_COOKIE_NAME}=; Domain=.sandbox.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`,
-  );
+  appendLoginSessionCookies(response.headers, sessionId, new URL(request.url).hostname);
   return response;
 }
 
@@ -995,19 +966,7 @@ async function finishLogin(request, url, env, userId, redirectPath) {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
   });
-
-  response.headers.append(
-    'Set-Cookie',
-    `${AUTH_COOKIE_NAME}=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`,
-  );
-  response.headers.append(
-    'Set-Cookie',
-    `${AUTH_COOKIE_NAME}=; Domain=.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`,
-  );
-  response.headers.append(
-    'Set-Cookie',
-    `${AUTH_COOKIE_NAME}=; Domain=.sandbox.inneranimalmedia.com; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax`,
-  );
+  appendLoginSessionCookies(response.headers, sessionId, new URL(request.url).hostname);
 
   return response;
 }

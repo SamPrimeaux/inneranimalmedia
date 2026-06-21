@@ -155,10 +155,12 @@ export function DashboardActivityNav({
       />
       <ActivityRailItem
         icon={Layers}
-        label="MCP & AI"
+        label="ExecOS zones"
         expanded={expanded}
-        active={location.pathname.startsWith('/dashboard/mcp')}
-        onClick={() => go('/dashboard/mcp')}
+        active={false}
+        onClick={() => {
+          window.open('https://execos.inneranimalmedia.com/zones', '_blank', 'noopener,noreferrer');
+        }}
       />
       <ActivityRailItem
         icon={Database}
