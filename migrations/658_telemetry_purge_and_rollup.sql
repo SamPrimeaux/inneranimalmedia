@@ -45,28 +45,6 @@ DELETE FROM agentsam_performance_eto_events
 WHERE created_at < datetime('now', '-2 days');
 
 -- ── 3. mcp_audit_log ────────────────────────────────────────────────────────
--- Route errors to agentsam_error_log before dropping.
--- tool_stats_compacted already has per-tool success/failure/latency aggregates.
--- agentsam_usage_rollups_daily.top_tools_json has daily top-tool counts.
--- Raw audit rows add nothing queryable that isn't already rolled up.
-INSERT OR IGNORE INTO agentsam_error_log (
-  id, workspace_id, tenant_id,
-  error_type, error_message, source, source_id,
-  context_json, created_at
-)
-SELECT
-  'err_mcp_' || id,
-  workspace_id,
-  tenant_id,
-  'mcp_tool_error',
-  error_message,
-  'mcp_audit_log',
-  CAST(id as TEXT),
-  json_object('tool_name', tool_name, 'latency_ms', latency_ms),
-  created_at
-FROM mcp_audit_log
-WHERE status = 'error'
-  AND error_message IS NOT NULL
-  AND error_message != '';
-
+-- Legacy raw audit table. May already be absent if purged manually; ongoing MCP
+-- signal lives in agentsam_mcp_tool_execution + mcp_tool_call_stats.
 DROP TABLE IF EXISTS mcp_audit_log;

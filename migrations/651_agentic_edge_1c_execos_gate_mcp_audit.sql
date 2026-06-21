@@ -18,7 +18,7 @@ VALUES (
 
 INSERT OR IGNORE INTO agentsam_tools (
   id, tool_key, tool_name, display_name, tool_category, handler_type,
-  description, input_schema, handler_config, capability_key,
+  description, input_schema, handler_config, capability_key, handler_key,
   risk_level, requires_approval, requires_confirmation,
   is_active, is_degraded, workspace_scope, sort_priority, is_global,
   oauth_visible, modes_json, updated_at
