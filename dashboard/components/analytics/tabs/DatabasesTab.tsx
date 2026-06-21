@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   BarChart, Bar, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip,
@@ -12,6 +12,7 @@ import {
 import styles from './DatabasesTab.module.css';
 import {
   useDatabasesObservability,
+  prefetchDatabasesOverview,
   formatCompact,
   formatTrend,
   formatQueryMs,
@@ -483,6 +484,11 @@ export default function DatabasesTab() {
   const obs = useDatabasesObservability(surface, range);
   const kpiDefs = surface === 'cloudflare' ? CF_KPIS : SB_KPIS;
 
+  useEffect(() => {
+    const other: DatabasesSurface = surface === 'cloudflare' ? 'supabase' : 'cloudflare';
+    prefetchDatabasesOverview(other, range);
+  }, [surface, range]);
+
   const handleRefresh = useCallback(() => {
     setSpinning(true);
     void obs.refresh().finally(() => setSpinning(false));
@@ -603,7 +609,7 @@ export default function DatabasesTab() {
       <QueryTable
         rows={obs.queryPerformance.rows}
         wired={obs.queryPerformance.wired}
-        loading={obs.loading}
+        loading={obs.loading || obs.queriesLoading}
         onRefresh={handleRefresh}
         surface={surface}
       />

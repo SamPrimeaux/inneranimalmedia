@@ -541,15 +541,10 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ onBackToOverview
   );
 
   useEffect(() => {
-    void loadThemeAccent();
-  }, [loadThemeAccent]);
-
-  useEffect(() => {
     let cancelled = false;
     const initialDs = readStoredDatasource();
     (async () => {
-      await loadThemeAccent();
-      const superadmin = await loadCapabilities();
+      const [, superadmin] = await Promise.all([loadThemeAccent(), loadCapabilities()]);
       if (cancelled) return;
       setPageReady(true);
       void loadDataPlaneContext(superadmin);

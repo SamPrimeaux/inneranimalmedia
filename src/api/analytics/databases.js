@@ -9,7 +9,11 @@
  */
 import { analyticsResponse } from './sources/normalize.js';
 import { pragmaTableInfo, tableExists } from '../../core/retention.js';
-import { isHyperdriveUsable, runHyperdriveQuery } from '../../core/hyperdrive-query.js';
+import {
+  isHyperdriveUsable,
+  runHyperdriveQuery,
+  runHyperdriveTransaction,
+} from '../../core/hyperdrive-query.js';
 import {
   fetchD1AnalyticsOverview,
   IAM_D1_DATABASE_ID,
@@ -428,40 +432,11 @@ async function countSupabaseTables(env, warnings) {
 }
 
 /** @param {any} env @param {Array<{code:string,message:string,severity?:string}>} warnings */
-async function loadSupabaseHotTables(env, warnings) {
-  if (!isHyperdriveUsable(env)) {
-    return { count: null, largest: [], mostRead: [], mostWritten: [] };
-  }
-
-  const count = await countSupabaseTables(env, warnings);
-  const r = await runHyperdriveQuery(
-    env,
-    `SELECT
-       schemaname,
-       relname,
-       pg_total_relation_size(relid) AS size_bytes,
-       COALESCE(seq_scan, 0) + COALESCE(idx_scan, 0) AS read_count,
-       COALESCE(n_tup_ins, 0) + COALESCE(n_tup_upd, 0) + COALESCE(n_tup_del, 0) AS write_count
-     FROM pg_stat_user_tables
-     WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
-     ORDER BY pg_total_relation_size(relid) DESC NULLS LAST
-     LIMIT 200`,
-    [],
-  );
-
-  if (!r.ok) {
-    warnings.push({
-      code: 'PG_HOT_TABLES_FAILED',
-      message: r.error || 'pg_stat_user_tables query failed',
-      severity: 'warn',
-    });
-    return { count, largest: [], mostRead: [], mostWritten: [] };
-  }
-
+function parsePgStatUserTableRows(rows) {
   const largest = [];
   const mostRead = [];
   const mostWritten = [];
-  for (const row of r.rows) {
+  for (const row of rows) {
     const schema = String(row.schemaname || 'public');
     const rel = String(row.relname || '');
     if (!rel) continue;
@@ -494,10 +469,256 @@ async function loadSupabaseHotTables(env, warnings) {
   mostWritten.sort((a, b) => b.sort - a.sort);
 
   return {
-    count,
     largest: largest.slice(0, 5),
     mostRead: mostRead.slice(0, 5),
     mostWritten: mostWritten.slice(0, 5),
+  };
+}
+
+function largeObjectsFromPgStatRows(rows, usedBytes, limit = 5) {
+  const total = usedBytes && usedBytes > 0 ? usedBytes : 1;
+  const largeObjects = [];
+  for (const row of rows.slice(0, 8)) {
+    const sizeBytes = Number(row.size_bytes) || 0;
+    if (sizeBytes <= 0) continue;
+    largeObjects.push({
+      name: pgQualifiedName(row.schemaname, row.relname),
+      size: formatBytes(sizeBytes),
+      sizeBytes,
+      pct: `${((sizeBytes / total) * 100).toFixed(2)}%`,
+    });
+  }
+  return largeObjects.slice(0, limit);
+}
+
+async function loadSupabaseHotTables(env, warnings) {
+  if (!isHyperdriveUsable(env)) {
+    return { count: null, largest: [], mostRead: [], mostWritten: [] };
+  }
+
+  const count = await countSupabaseTables(env, warnings);
+  const r = await runHyperdriveQuery(
+    env,
+    `SELECT
+       schemaname,
+       relname,
+       pg_total_relation_size(relid) AS size_bytes,
+       COALESCE(seq_scan, 0) + COALESCE(idx_scan, 0) AS read_count,
+       COALESCE(n_tup_ins, 0) + COALESCE(n_tup_upd, 0) + COALESCE(n_tup_del, 0) AS write_count
+     FROM pg_stat_user_tables
+     WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+     ORDER BY pg_total_relation_size(relid) DESC NULLS LAST
+     LIMIT 200`,
+    [],
+  );
+
+  if (!r.ok) {
+    warnings.push({
+      code: 'PG_HOT_TABLES_FAILED',
+      message: r.error || 'pg_stat_user_tables query failed',
+      severity: 'warn',
+    });
+    return { count, largest: [], mostRead: [], mostWritten: [] };
+  }
+
+  const parsed = parsePgStatUserTableRows(r.rows);
+  return { count, ...parsed };
+}
+
+/** One Hyperdrive connection for all Postgres overview probes (avoids ~10 cold connects). */
+async function loadSupabaseOverviewPostgres(env, warnings) {
+  const empty = {
+    health: {
+      d1: { status: 'unknown', latencyMs: null, tableCount: null },
+      supabase: { tableCount: null },
+      hyperdrive: { status: 'unknown', latencyMs: null },
+      errorRatePct: null,
+      lastErrorAt: null,
+    },
+    supStorage: {
+      usedBytes: null,
+      limitBytes: SUPABASE_PROVISIONED_BYTES,
+      connections: null,
+      largeObjects: [],
+      wired: false,
+    },
+    pgHot: { count: null, largest: [], mostRead: [], mostWritten: [] },
+    pgOps: { maxConnections: null, lastAutovacuumAt: null, wired: false },
+    pgSchema: { noPrimaryKey: [], missingIndexes: [], fkIssues: [], wired: false },
+  };
+
+  if (!isHyperdriveUsable(env)) {
+    warnings.push({
+      code: 'HYPERDRIVE_NOT_USABLE',
+      message: 'Hyperdrive binding not usable; Supabase-side charts use agentsam_tool_call_log only.',
+      severity: 'info',
+    });
+    return empty;
+  }
+
+  const t0 = Date.now();
+  const tx = await runHyperdriveTransaction(env, async (client) => {
+    const ping = await client.query('SELECT 1 AS ok');
+    const [
+      sizeR,
+      connR,
+      statR,
+      countR,
+      maxR,
+      vacR,
+      noPkR,
+      missIdxR,
+      fkR,
+    ] = await Promise.all([
+      client.query('SELECT pg_database_size(current_database())::bigint AS bytes'),
+      client.query(
+        `SELECT count(*)::int AS c FROM pg_stat_activity WHERE datname = current_database()`,
+      ),
+      client.query(
+        `SELECT
+           schemaname,
+           relname,
+           pg_total_relation_size(relid) AS size_bytes,
+           COALESCE(seq_scan, 0) + COALESCE(idx_scan, 0) AS read_count,
+           COALESCE(n_tup_ins, 0) + COALESCE(n_tup_upd, 0) + COALESCE(n_tup_del, 0) AS write_count
+         FROM pg_stat_user_tables
+         WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+         ORDER BY pg_total_relation_size(relid) DESC NULLS LAST
+         LIMIT 200`,
+      ),
+      client.query(
+        `SELECT COUNT(*)::int AS c
+         FROM information_schema.tables
+         WHERE table_schema NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+           AND table_type = 'BASE TABLE'`,
+      ),
+      client.query(`SELECT setting::int AS v FROM pg_settings WHERE name = 'max_connections'`),
+      client.query(
+        `SELECT EXTRACT(EPOCH FROM MAX(GREATEST(
+           COALESCE(last_autovacuum, 'epoch'::timestamptz),
+           COALESCE(last_vacuum, 'epoch'::timestamptz)
+         )))::bigint AS ts
+         FROM pg_stat_user_tables
+         WHERE schemaname NOT IN ('pg_catalog', 'information_schema')`,
+      ),
+      client.query(
+        `SELECT n.nspname AS schemaname, c.relname AS relname
+         FROM pg_class c
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+         WHERE c.relkind = 'r'
+           AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+           AND NOT EXISTS (
+             SELECT 1 FROM pg_constraint con
+             WHERE con.conrelid = c.oid AND con.contype = 'p'
+           )
+         ORDER BY n.nspname, c.relname
+         LIMIT 8`,
+      ),
+      client.query(
+        `SELECT schemaname, relname
+         FROM pg_stat_user_tables
+         WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+           AND seq_scan > 100
+           AND COALESCE(idx_scan, 0) < seq_scan
+         ORDER BY seq_scan DESC
+         LIMIT 8`,
+      ),
+      client.query(
+        `SELECT conname, conrelid::regclass::text AS table_name
+         FROM pg_constraint
+         WHERE contype = 'f' AND NOT convalidated
+         LIMIT 8`,
+      ),
+    ]);
+
+    return { ping, sizeR, connR, statR, countR, maxR, vacR, noPkR, missIdxR, fkR };
+  });
+
+  const latencyMs = Date.now() - t0;
+  if (!tx.ok || !tx.result) {
+    warnings.push({
+      code: 'PG_OVERVIEW_BUNDLE_FAILED',
+      message: tx.error || 'Supabase overview Postgres bundle failed',
+      severity: 'warn',
+    });
+    return empty;
+  }
+
+  const {
+    ping,
+    sizeR,
+    connR,
+    statR,
+    countR,
+    maxR,
+    vacR,
+    noPkR,
+    missIdxR,
+    fkR,
+  } = tx.result;
+  const pingOk = Number(ping?.rows?.[0]?.ok) === 1;
+  const statRows = statR?.rows ?? [];
+  const usedBytes = Number(sizeR?.rows?.[0]?.bytes) || 0;
+  const connections = connR?.rows?.[0]?.c != null ? Number(connR.rows[0].c) || 0 : null;
+  const tableCount = countR?.rows?.[0]?.c != null ? Number(countR.rows[0].c) || 0 : null;
+  const parsedHot = parsePgStatUserTableRows(statRows);
+  const vacTs = vacR?.rows?.[0]?.ts != null ? Number(vacR.rows[0].ts) || null : null;
+
+  if (!sizeR?.rows?.length) {
+    warnings.push({
+      code: 'PG_STORAGE_SIZE_FAILED',
+      message: 'pg_database_size query failed in overview bundle',
+      severity: 'warn',
+    });
+  }
+  if (!countR?.rows?.length) {
+    warnings.push({
+      code: 'PG_TABLE_COUNT_FAILED',
+      message: 'Postgres table count failed in overview bundle',
+      severity: 'warn',
+    });
+  }
+
+  return {
+    health: {
+      ...empty.health,
+      supabase: { tableCount },
+      hyperdrive: {
+        status: pingOk ? 'healthy' : 'error',
+        latencyMs,
+      },
+    },
+    supStorage: {
+      usedBytes: usedBytes > 0 ? usedBytes : null,
+      limitBytes: SUPABASE_PROVISIONED_BYTES,
+      connections,
+      largeObjects: largeObjectsFromPgStatRows(statRows, usedBytes),
+      wired: usedBytes > 0,
+    },
+    pgHot: { count: tableCount, ...parsedHot },
+    pgOps: {
+      maxConnections: maxR?.rows?.[0]?.v != null ? Number(maxR.rows[0].v) || null : null,
+      lastAutovacuumAt: vacTs && vacTs > 0 ? vacTs : null,
+      wired: Boolean(maxR?.rows?.length || vacR?.rows?.length),
+    },
+    pgSchema: {
+      noPrimaryKey: (noPkR?.rows ?? []).map((r) => ({
+        name: pgQualifiedName(r.schemaname, r.relname),
+        ds: 'supabase',
+        severity: 'warn',
+      })),
+      missingIndexes: (missIdxR?.rows ?? []).map((r) => ({
+        name: pgQualifiedName(r.schemaname, r.relname),
+        ds: 'supabase',
+        severity: 'info',
+      })),
+      fkIssues: (fkR?.rows ?? []).map((r) => ({
+        name: String(r.table_name || r.conname || ''),
+        ds: 'supabase',
+        severity: 'warn',
+      })),
+      wired: Boolean(noPkR?.rows?.length || missIdxR?.rows?.length),
+    },
   };
 }
 
@@ -585,21 +806,23 @@ async function loadSupabaseOpsSignals(env, warnings) {
   if (!isHyperdriveUsable(env)) {
     return { maxConnections: null, lastAutovacuumAt: null, wired: false };
   }
-  const maxR = await runHyperdriveQuery(
-    env,
-    `SELECT setting::int AS v FROM pg_settings WHERE name = 'max_connections'`,
-    [],
-  );
-  const vacR = await runHyperdriveQuery(
-    env,
-    `SELECT EXTRACT(EPOCH FROM MAX(GREATEST(
-       COALESCE(last_autovacuum, 'epoch'::timestamptz),
-       COALESCE(last_vacuum, 'epoch'::timestamptz)
-     )))::bigint AS ts
-     FROM pg_stat_user_tables
-     WHERE schemaname NOT IN ('pg_catalog', 'information_schema')`,
-    [],
-  );
+  const [maxR, vacR] = await Promise.all([
+    runHyperdriveQuery(
+      env,
+      `SELECT setting::int AS v FROM pg_settings WHERE name = 'max_connections'`,
+      [],
+    ),
+    runHyperdriveQuery(
+      env,
+      `SELECT EXTRACT(EPOCH FROM MAX(GREATEST(
+         COALESCE(last_autovacuum, 'epoch'::timestamptz),
+         COALESCE(last_vacuum, 'epoch'::timestamptz)
+       )))::bigint AS ts
+       FROM pg_stat_user_tables
+       WHERE schemaname NOT IN ('pg_catalog', 'information_schema')`,
+      [],
+    ),
+  ]);
   if (!maxR.ok) {
     warnings.push({
       code: 'PG_MAX_CONNECTIONS_FAILED',
@@ -655,20 +878,22 @@ async function loadSupabaseStorage(env, warnings) {
   }
 
   const sizeR = await runHyperdriveQuery(env, 'SELECT pg_database_size(current_database())::bigint AS bytes', []);
-  const connR = await runHyperdriveQuery(
-    env,
-    `SELECT count(*)::int AS c FROM pg_stat_activity WHERE datname = current_database()`,
-    [],
-  );
-  const objR = await runHyperdriveQuery(
-    env,
-    `SELECT schemaname, relname, pg_total_relation_size(relid) AS size_bytes
-     FROM pg_stat_user_tables
-     WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
-     ORDER BY pg_total_relation_size(relid) DESC NULLS LAST
-     LIMIT 8`,
-    [],
-  );
+  const [connR, objR] = await Promise.all([
+    runHyperdriveQuery(
+      env,
+      `SELECT count(*)::int AS c FROM pg_stat_activity WHERE datname = current_database()`,
+      [],
+    ),
+    runHyperdriveQuery(
+      env,
+      `SELECT schemaname, relname, pg_total_relation_size(relid) AS size_bytes
+       FROM pg_stat_user_tables
+       WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+       ORDER BY pg_total_relation_size(relid) DESC NULLS LAST
+       LIMIT 8`,
+      [],
+    ),
+  ]);
 
   const usedBytes = sizeR.ok ? Number(sizeR.rows[0]?.bytes) || 0 : null;
   const connections = connR.ok ? Number(connR.rows[0]?.c) || 0 : null;
@@ -1015,7 +1240,7 @@ async function aggregateKpis(env, scope, range, ds, warnings) {
       'otlp_dur',
       `SELECT CAST((end_time_unix_nano - start_time_unix_nano) / 1000000 AS INTEGER) AS ms
        FROM otlp_traces WHERE ${where.join(' AND ')} AND end_time_unix_nano > start_time_unix_nano
-       LIMIT 5000`,
+       LIMIT 500`,
       binds,
       warnings,
     );
@@ -1064,7 +1289,7 @@ async function aggregateKpis(env, scope, range, ds, warnings) {
           db,
           'tcl_dur',
           `SELECT COALESCE(duration_ms, 0) AS ms FROM agentsam_tool_call_log
-           WHERE ${where.join(' AND ')} AND COALESCE(duration_ms, 0) > 0 LIMIT 5000`,
+           WHERE ${where.join(' AND ')} AND COALESCE(duration_ms, 0) > 0 LIMIT 500`,
           binds,
           warnings,
         );
@@ -1578,18 +1803,53 @@ async function loadTimeseriesBuckets(env, scope, range, ds, warnings) {
         addRows(d1Rows, d1Vol, d1Err);
         addRows(supRows, supVol, supErr);
       } else {
+        const includeRowEstimates = ds === 'supabase' && cols.has('output_json');
+        const rowEstimateSql = includeRowEstimates
+          ? `,
+                  COALESCE(SUM(
+                    CASE
+                      WHEN json_valid(COALESCE(output_json, ''))
+                       AND json_type(json_extract(output_json, '$.results')) = 'array'
+                      THEN json_array_length(json_extract(output_json, '$.results'))
+                      WHEN json_valid(COALESCE(output_json, ''))
+                       AND json_extract(output_json, '$.row_count') IS NOT NULL
+                      THEN CAST(json_extract(output_json, '$.row_count') AS INTEGER)
+                      ELSE 0
+                    END
+                  ), 0) AS rr,
+                  COALESCE(SUM(
+                    CASE
+                      WHEN json_valid(COALESCE(output_json, ''))
+                       AND json_extract(output_json, '$.meta.changes') IS NOT NULL
+                      THEN CAST(json_extract(output_json, '$.meta.changes') AS INTEGER)
+                      WHEN json_valid(COALESCE(output_json, ''))
+                       AND json_extract(output_json, '$.changes') IS NOT NULL
+                      THEN CAST(json_extract(output_json, '$.changes') AS INTEGER)
+                      ELSE 0
+                    END
+                  ), 0) AS rw`
+          : '';
         const rows = await d1All(
           db,
           'tcl_ts',
           `SELECT ${bucket} AS bucket,
                   COUNT(*) AS c,
-                  SUM(CASE WHEN LOWER(COALESCE(status,'')) IN ('error','failed') THEN 1 ELSE 0 END) AS err
+                  SUM(CASE WHEN LOWER(COALESCE(status,'')) IN ('error','failed') THEN 1 ELSE 0 END) AS err${rowEstimateSql}
            FROM agentsam_tool_call_log WHERE ${where.join(' AND ')}
            GROUP BY bucket ORDER BY bucket`,
           binds,
           warnings,
         );
         addRows(rows, ds === 'supabase' ? supVol : d1Vol, ds === 'supabase' ? supErr : d1Err);
+        if (includeRowEstimates) {
+          for (const r of rows) {
+            const b = String(r.bucket ?? '');
+            if (supRead.has(b)) {
+              supRead.set(b, (supRead.get(b) || 0) + Number(r.rr ?? 0));
+              supWrite.set(b, (supWrite.get(b) || 0) + Number(r.rw ?? 0));
+            }
+          }
+        }
       }
 
       if (cols.has('duration_ms')) {
@@ -1932,7 +2192,7 @@ export async function handleDatabasesOverview(request, url, env, { tenantId, wor
         const raw = await cfKv.get(cfCacheKey);
         if (raw) {
           const parsed = JSON.parse(raw);
-          if (parsed?.cachedAt && Date.now() - parsed.cachedAt < 90_000 && parsed.data) {
+          if (parsed?.cachedAt && Date.now() - parsed.cachedAt < 180_000 && parsed.data) {
             return analyticsResponse(parsed.data);
           }
         }
@@ -1943,23 +2203,7 @@ export async function handleDatabasesOverview(request, url, env, { tenantId, wor
 
     const creds = resolveCloudflareAnalyticsCreds(env);
     const includeSchema = url.searchParams.get('include_schema') === '1';
-    let gql = null;
-    if (creds) {
-      try {
-        gql = await fetchD1AnalyticsOverview(env, {
-          accountId: creds.accountId,
-          token: creds.token,
-          databaseId,
-          range,
-        });
-      } catch (e) {
-        warnings.push({
-          code: 'CF_GRAPHQL_FAILED',
-          message: `Cloudflare GraphQL: ${String(e?.message || e)}`,
-          severity: 'warn',
-        });
-      }
-    } else {
+    if (!creds) {
       warnings.push({
         code: 'CF_GRAPHQL_CREDS_MISSING',
         message: 'CLOUDFLARE_ACCOUNT_ID or CLOUDFLARE_API_TOKEN not configured.',
@@ -1967,7 +2211,24 @@ export async function handleDatabasesOverview(request, url, env, { tenantId, wor
       });
     }
 
-    const [tableCountRow, retention, d1Schema] = await Promise.all([
+    const gqlPromise = creds
+      ? fetchD1AnalyticsOverview(env, {
+          accountId: creds.accountId,
+          token: creds.token,
+          databaseId,
+          range,
+        }).catch((e) => {
+          warnings.push({
+            code: 'CF_GRAPHQL_FAILED',
+            message: `Cloudflare GraphQL: ${String(e?.message || e)}`,
+            severity: 'warn',
+          });
+          return null;
+        })
+      : Promise.resolve(null);
+
+    const [gql, tableCountRow, retention, d1Schema] = await Promise.all([
+      gqlPromise,
       env?.DB
         ? d1First(
             env.DB,
@@ -2085,7 +2346,7 @@ export async function handleDatabasesOverview(request, url, env, { tenantId, wor
   // tenant's Supabase overview can never be served back to a different tenant.
   const ds = 'supabase';
   const supCacheScope = scope.workspaceId || scope.tenantId || 'platform';
-  const supCacheKey = `db_overview:supabase:v1:${supCacheScope}:${range}`;
+  const supCacheKey = `db_overview:supabase:v2:${supCacheScope}:${range}`;
   const supKv = env?.SESSION_CACHE || env?.KV || null;
   let supCached = null;
   if (supKv) {
@@ -2093,7 +2354,7 @@ export async function handleDatabasesOverview(request, url, env, { tenantId, wor
       const raw = await supKv.get(supCacheKey);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (parsed?.cachedAt && Date.now() - parsed.cachedAt < 90_000) {
+        if (parsed?.cachedAt && Date.now() - parsed.cachedAt < 180_000) {
           supCached = parsed.data;
         }
       }
@@ -2116,30 +2377,20 @@ export async function handleDatabasesOverview(request, url, env, { tenantId, wor
       queryWarnings = [],
     } = supCached);
   } else {
-    // These reads are independent of each other — run them concurrently instead
-    // of chaining eight sequential round trips, which was the main cause of the
-    // multi-second-to-a-minute load time on the Supabase tab.
-    const [healthR, supStorageR, pgHotR, pgOpsR, pgSchemaR, bucketsR, kpiRawR, queriesRes] =
-      await Promise.all([
-        probeHealth(env, scope, warnings),
-        loadSupabaseStorage(env, warnings),
-        loadSupabaseHotTables(env, warnings),
-        loadSupabaseOpsSignals(env, warnings),
-        loadSupabaseSchemaHealth(env, warnings),
-        loadTimeseriesBuckets(env, scope, range, ds, warnings),
-        aggregateKpis(env, scope, range, ds, warnings),
-        handleDatabasesQueries(request, url, env, { tenantId, workspaceId }),
-      ]);
-    health = healthR;
-    supStorage = supStorageR;
-    pgHot = pgHotR;
-    pgOps = pgOpsR;
-    pgSchema = pgSchemaR;
+    const [pgBundle, bucketsR, kpiRawR] = await Promise.all([
+      loadSupabaseOverviewPostgres(env, warnings),
+      loadTimeseriesBuckets(env, scope, range, ds, warnings),
+      aggregateKpis(env, scope, range, ds, warnings),
+    ]);
+    health = pgBundle.health;
+    supStorage = pgBundle.supStorage;
+    pgHot = pgBundle.pgHot;
+    pgOps = pgBundle.pgOps;
+    pgSchema = pgBundle.pgSchema;
     buckets = bucketsR;
     kpiRaw = kpiRawR;
-    const queriesJson = await queriesRes.json().catch(() => ({}));
-    queryRows = Array.isArray(queriesJson?.queries) ? queriesJson.queries : [];
-    queryWarnings = Array.isArray(queriesJson?.warnings) ? queriesJson.warnings : [];
+    queryRows = [];
+    queryWarnings = [];
 
     if (supKv) {
       try {

@@ -137,7 +137,17 @@ async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T | null
 }
 
 function cacheKey(surface: DatabasesSurface, range: DatabasesRange) {
-  return `iam.db.overview.v1:${surface}:${range}`;
+  return `iam.db.overview.v2:${surface}:${range}`;
+}
+
+export function prefetchDatabasesOverview(surface: DatabasesSurface, range: DatabasesRange) {
+  if (readOverviewCache(surface, range)) return;
+  const q = new URLSearchParams({ range, surface });
+  void fetchJson<DatabasesOverviewPayload>(`/api/analytics/databases/overview?${q}`).then((data) => {
+    if (data?.ok && matchesScope(data, surface, range)) {
+      writeOverviewCache(surface, range, data);
+    }
+  });
 }
 
 function matchesScope(
@@ -156,7 +166,7 @@ function readOverviewCache(surface: DatabasesSurface, range: DatabasesRange): Da
     const raw = sessionStorage.getItem(cacheKey(surface, range));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as { at?: number; data?: DatabasesOverviewPayload };
-    if (!parsed?.data || !parsed.at || Date.now() - parsed.at > 120_000) return null;
+    if (!parsed?.data || !parsed.at || Date.now() - parsed.at > 300_000) return null;
     if (!matchesScope(parsed.data, surface, range)) return null;
     return parsed.data;
   } catch {
@@ -206,11 +216,32 @@ export function useDatabasesObservability(surface: DatabasesSurface, range: Data
   const [overview, setOverview] = useState<DatabasesOverviewPayload | null>(() =>
     readOverviewCache(surface, range),
   );
+  const [queryRows, setQueryRows] = useState<DatabasesQueryRow[]>(() =>
+    readOverviewCache(surface, range)?.queries ?? [],
+  );
+  const [queriesLoading, setQueriesLoading] = useState(false);
   const [loading, setLoading] = useState(() => !readOverviewCache(surface, range));
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const overviewRef = useRef(overview);
   overviewRef.current = overview;
+
+  const loadQueries = useCallback(async (opts?: { signal?: AbortSignal }) => {
+    setQueriesLoading(true);
+    const q = new URLSearchParams({ range, surface });
+    try {
+      const data = await fetchJson<{ ok?: boolean; queries?: DatabasesQueryRow[] }>(
+        `/api/analytics/databases/queries?${q}`,
+        opts?.signal,
+      );
+      if (opts?.signal?.aborted) return;
+      if (data?.ok && Array.isArray(data.queries)) {
+        setQueryRows(data.queries);
+      }
+    } finally {
+      if (!opts?.signal?.aborted) setQueriesLoading(false);
+    }
+  }, [surface, range]);
 
   const load = useCallback(async (opts?: { background?: boolean; signal?: AbortSignal }) => {
     const background = opts?.background === true;
@@ -244,12 +275,20 @@ export function useDatabasesObservability(surface: DatabasesSurface, range: Data
   useEffect(() => {
     const cached = readOverviewCache(surface, range);
     setOverview(cached);
+    setQueryRows(cached?.queries ?? []);
     setLoading(!cached);
     setError(null);
     const controller = new AbortController();
     void load({ background: Boolean(cached), signal: controller.signal });
     return () => controller.abort();
   }, [load, surface, range]);
+
+  useEffect(() => {
+    if (!overview) return;
+    const controller = new AbortController();
+    void loadQueries({ signal: controller.signal });
+    return () => controller.abort();
+  }, [loadQueries, overview, surface, range]);
 
   const alertWarnings = useMemo(() => {
     const codes = new Set<string>();
@@ -290,8 +329,8 @@ export function useDatabasesObservability(surface: DatabasesSurface, range: Data
     sparks,
     capacity: overview?.capacity ?? null,
     queryPerformance: {
-      wired: Boolean(overview?.queries?.length),
-      rows: overview?.queries ?? [],
+      wired: Boolean(queryRows.length),
+      rows: queryRows,
     },
     storage: overview?.storage ?? { wired: false },
     hotTables: overview?.hotTables ?? { largest: [], mostRead: [], mostWritten: [] },
@@ -307,6 +346,10 @@ export function useDatabasesObservability(surface: DatabasesSurface, range: Data
       kpis: Boolean(overview?.wired && overview?.kpis?.queries?.wired),
       charts: hasChartData,
     },
-    refresh: () => load({ background: Boolean(overviewRef.current) }),
+    refresh: () => {
+      void load({ background: Boolean(overviewRef.current) });
+      void loadQueries();
+    },
+    queriesLoading,
   };
 }
