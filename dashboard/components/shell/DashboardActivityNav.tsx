@@ -11,7 +11,6 @@ import {
   GraduationCap,
   Home,
   Image,
-  Layers,
   Library,
   Mail,
   Network,
@@ -152,13 +151,6 @@ export function DashboardActivityNav({
         expanded={expanded}
         active={settingsIntegrationsActive}
         onClick={() => go('/dashboard/settings/integrations')}
-      />
-      <ActivityRailItem
-        icon={Layers}
-        label="MCP & AI"
-        expanded={expanded}
-        active={location.pathname.startsWith('/dashboard/mcp')}
-        onClick={() => go('/dashboard/mcp')}
       />
       <ActivityRailItem
         icon={Database}

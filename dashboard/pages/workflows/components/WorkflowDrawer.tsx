@@ -121,7 +121,7 @@ export function WorkflowDrawer({
           loading={mcpLoading}
           error={mcpError}
           onRefresh={onRefreshMcp}
-          onSyncCatalog={() => onToast('MCP catalog sync uses Worker registry paths — trigger from /dashboard/mcp when ready.')}
+          onSyncCatalog={() => onToast('MCP catalog sync uses Worker registry paths — use Settings → Tools & MCP.')}
           onSelectByKey={onSelectMcpKey}
         />
       )}
