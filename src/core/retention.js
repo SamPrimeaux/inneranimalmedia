@@ -912,6 +912,10 @@ export async function purgeHotLogs(env) {
     { table: 'routing_decisions', days: 30, prefs: ['created_at'] },
     { table: 'rag_query_log', days: 60, prefs: ['created_at'] },
     { table: 'rag_ingest_log', days: 60, prefs: ['created_at'] },
+    // Telemetry retention — rolled up, raw rows beyond window are noise
+    { table: 'agentsam_cron_runs', days: 3, prefs: ['started_at'] },
+    { table: 'agentsam_performance_eto_events', days: 2, prefs: ['created_at'] },
+    { table: 'agentsam_error_log', days: 90, prefs: ['created_at'] },
   ];
 
   for (const spec of specs) {
