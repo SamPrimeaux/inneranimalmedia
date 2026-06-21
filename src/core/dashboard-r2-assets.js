@@ -31,6 +31,9 @@ export async function getDashboardR2Object(bucket, assetKey) {
   if (assetKey === 'static/dashboard/shell.css') {
     add(`${DASHBOARD_STATIC_APP_PREFIX}static/dashboard/shell.css`);
   }
+  if (assetKey === 'prototypes/examples-gallery.html') {
+    add(`${DASHBOARD_STATIC_APP_PREFIX}prototypes/examples-gallery.html`);
+  }
 
   for (const key of keys) {
     const obj = await bucket.get(key);
