@@ -113,13 +113,16 @@ function tenantWorkspaceClause(scope, binds) {
 const SQL_DB_TOOL_D1 = `(
   tool_name IN ('d1_query','d1_schema','d1_explain','d1_write','d1_batch_write')
   OR tool_name LIKE 'd1_%'
+  OR tool_name LIKE 'agentsam_d1_%'
   OR COALESCE(tool_category,'') LIKE 'database.d1%'
 )`;
 
 const SQL_DB_TOOL_SUPABASE = `(
   tool_name IN ('hyperdrive_query','hyperdrive_schema','hyperdrive_explain')
   OR tool_name LIKE 'hyperdrive_%'
+  OR tool_name LIKE 'agentsam_supabase_%'
   OR COALESCE(tool_category,'') LIKE 'database.hyperdrive%'
+  OR COALESCE(tool_category,'') LIKE 'database.supabase%'
 )`;
 
 function dbToolClause(ds) {
@@ -2044,18 +2047,70 @@ export async function handleDatabasesOverview(request, url, env, { tenantId, wor
     });
   }
 
-  const health = await probeHealth(env, scope, warnings);
-  const supStorage = await loadSupabaseStorage(env, warnings);
-  const pgHot = await loadSupabaseHotTables(env, warnings);
-  const pgOps = await loadSupabaseOpsSignals(env, warnings);
-  const pgSchema = await loadSupabaseSchemaHealth(env, warnings);
+  // Tenant-scoped short-lived cache. Key MUST include workspace/tenant so one
+  // tenant's Supabase overview can never be served back to a different tenant.
   const ds = 'supabase';
-  const buckets = await loadTimeseriesBuckets(env, scope, range, ds, warnings);
-  const kpiRaw = await aggregateKpis(env, scope, range, ds, warnings);
+  const supCacheScope = scope.workspaceId || scope.tenantId || 'platform';
+  const supCacheKey = `db_overview:supabase:v1:${supCacheScope}:${range}`;
+  const supKv = env?.SESSION_CACHE || env?.KV || null;
+  let supCached = null;
+  if (supKv) {
+    try {
+      const raw = await supKv.get(supCacheKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed?.cachedAt && Date.now() - parsed.cachedAt < 90_000) {
+          supCached = parsed.data;
+        }
+      }
+    } catch {
+      /* ignore cache read errors */
+    }
+  }
 
-  const queriesRes = await handleDatabasesQueries(request, url, env, { tenantId, workspaceId });
-  const queriesJson = await queriesRes.json().catch(() => ({}));
-  const queryRows = Array.isArray(queriesJson?.queries) ? queriesJson.queries : [];
+  let health, supStorage, pgHot, pgOps, pgSchema, buckets, kpiRaw, queryRows;
+  if (supCached) {
+    ({ health, supStorage, pgHot, pgOps, pgSchema, buckets, kpiRaw, queryRows } = supCached);
+  } else {
+    // These reads are independent of each other — run them concurrently instead
+    // of chaining eight sequential round trips, which was the main cause of the
+    // multi-second-to-a-minute load time on the Supabase tab.
+    const [healthR, supStorageR, pgHotR, pgOpsR, pgSchemaR, bucketsR, kpiRawR, queriesRes] =
+      await Promise.all([
+        probeHealth(env, scope, warnings),
+        loadSupabaseStorage(env, warnings),
+        loadSupabaseHotTables(env, warnings),
+        loadSupabaseOpsSignals(env, warnings),
+        loadSupabaseSchemaHealth(env, warnings),
+        loadTimeseriesBuckets(env, scope, range, ds, warnings),
+        aggregateKpis(env, scope, range, ds, warnings),
+        handleDatabasesQueries(request, url, env, { tenantId, workspaceId }),
+      ]);
+    health = healthR;
+    supStorage = supStorageR;
+    pgHot = pgHotR;
+    pgOps = pgOpsR;
+    pgSchema = pgSchemaR;
+    buckets = bucketsR;
+    kpiRaw = kpiRawR;
+    const queriesJson = await queriesRes.json().catch(() => ({}));
+    queryRows = Array.isArray(queriesJson?.queries) ? queriesJson.queries : [];
+
+    if (supKv) {
+      try {
+        await supKv.put(
+          supCacheKey,
+          JSON.stringify({
+            cachedAt: Date.now(),
+            data: { health, supStorage, pgHot, pgOps, pgSchema, buckets, kpiRaw, queryRows },
+          }),
+          { expirationTtl: 120 },
+        );
+      } catch {
+        /* ignore cache write errors */
+      }
+    }
+  }
 
   const { labels, d1: _d1, supabase, reads, writes, latencyByBucket } = buckets;
   const latMap = new Map(latencyByBucket.map((r) => [String(r.bucket), Number(r.ms) || 0]));
