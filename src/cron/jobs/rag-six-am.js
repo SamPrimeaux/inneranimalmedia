@@ -3,6 +3,7 @@ import { indexMemoryMarkdownToVectorize } from './index-memory-vectorize.js';
 import { runKnowledgeDailySync } from './knowledge-daily-sync.js';
 import { runWebhookEventsMaintenanceCron } from './webhook-events-maintenance.js';
 import { writeDailySnapshot } from './write-daily-snapshot.js';
+import { runSkillPlaybookSync } from './skill-trigger-cron.js';
 
 /**
  * 0 6 * * * — compact chats → R2 knowledge files → index stats → memory decay (worker.js chain).
@@ -26,5 +27,10 @@ export function scheduleSixAmRagJobs(env, ctx) {
       .catch((e) => console.error('[cron] RAG sync failed:', e?.message || e)),
   );
   ctx.waitUntil(runWebhookEventsMaintenanceCron(env));
+  ctx.waitUntil(
+    runSkillPlaybookSync(env)
+      .then((r) => console.log('[cron] skill_playbook_sync:', r?.skills ?? 0, 'skills,', r?.chunks ?? 0, 'chunks'))
+      .catch((e) => console.error('[cron] skill_playbook_sync failed:', e?.message || e))
+  );
   ctx.waitUntil(writeDailySnapshot(env, 'cron_6am').catch(() => {}));
 }
