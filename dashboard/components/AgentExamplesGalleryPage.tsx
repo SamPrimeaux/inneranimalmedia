@@ -1,11 +1,12 @@
 import React from 'react';
 import { ArrowLeft } from 'lucide-react';
+import { AgentExamplesGalleryEmbed } from './AgentExamplesGalleryEmbed';
 
 type Props = {
   onBack: () => void;
 };
 
-/** Embeds the standalone examples gallery prototype (public/prototypes/examples-gallery.html). */
+/** Full-screen gallery overlay (legacy route redirects to agent home tab). */
 export function AgentExamplesGalleryPage({ onBack }: Props) {
   return (
     <div className="absolute inset-0 z-10 flex flex-col bg-[var(--scene-bg)]">
@@ -26,12 +27,7 @@ export function AgentExamplesGalleryPage({ onBack }: Props) {
           Back to Agent home
         </button>
       </div>
-      <iframe
-        title="IAM Examples Gallery"
-        src="/prototypes/examples-gallery.html"
-        className="flex-1 w-full border-0 bg-[#f7f5ef]"
-        sandbox="allow-scripts allow-same-origin allow-forms"
-      />
+      <AgentExamplesGalleryEmbed />
     </div>
   );
 }

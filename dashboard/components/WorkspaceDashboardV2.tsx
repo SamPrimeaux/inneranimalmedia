@@ -24,6 +24,8 @@ import type { QuickstartTemplate } from './AgentQuickstartPage';
 import { SetiFileIcon } from '../src/components/SetiFileIcon';
 import { usePlanTasksRealtime } from '../src/hooks/usePlanTasksRealtime';
 import { readRecentWorkspacesFromLocalStorage } from '../src/recentWorkspacesStorage';
+import type { AgentHomeTab } from '../lib/agentRoutes';
+import { AgentExamplesGalleryEmbed } from './AgentExamplesGalleryEmbed';
 
 interface WorkspaceDashboardProps {
   onOpenFolder: () => void;
@@ -34,7 +36,8 @@ interface WorkspaceDashboardProps {
   authWorkspaceId: string | null;
   onSwitchWorkspace: (id: string) => void;
   onQuickstart: () => void;
-  onOpenExamples?: () => void;
+  activeAgentTab?: AgentHomeTab;
+  onAgentTabChange?: (tab: AgentHomeTab) => void;
   onBeginTemplate?: (template: QuickstartTemplate) => void;
   onRunVerificationCommand?: (command: string) => void;
   onOpenEditor?: () => void;
@@ -47,7 +50,7 @@ interface WorkspaceDashboardProps {
   sessionUserId?: string | null;
 }
 
-type NavTab = 'recent' | 'workspaces' | 'systems' | 'examples';
+type NavTab = AgentHomeTab;
 
 const TEMPLATE_CARDS = [
   { id: 'start',     slug: 'start-anywhere',    icon: Plus,          label: 'Start anywhere',    sub: 'Add a file and design',    start: true },
@@ -91,7 +94,8 @@ export const WorkspaceDashboardV2: React.FC<WorkspaceDashboardProps> = ({
   authWorkspaceId,
   onSwitchWorkspace,
   onQuickstart,
-  onOpenExamples,
+  activeAgentTab,
+  onAgentTabChange,
   onBeginTemplate,
   onRunVerificationCommand,
   onOpenRecent,
@@ -105,9 +109,21 @@ export const WorkspaceDashboardV2: React.FC<WorkspaceDashboardProps> = ({
   const { tasks: realtimePlanTasks } = usePlanTasksRealtime(activePlanId ?? null);
   const displayPlanTasks: unknown[] = activePlanId ? (realtimePlanTasks as unknown[]) : workspacePlanTasks;
 
-  const [activeNav, setActiveNav] = useState<NavTab>('recent');
+  const [activeNav, setActiveNav] = useState<NavTab>(activeAgentTab ?? 'recent');
   const [showDSSetup, setShowDSSetup] = useState(false);
   const [templateMap, setTemplateMap] = useState<Record<string, import('./AgentQuickstartPage').QuickstartTemplate>>({});
+
+  useEffect(() => {
+    if (!activeAgentTab) return;
+    setActiveNav(activeAgentTab);
+    setShowDSSetup(activeAgentTab === 'systems');
+  }, [activeAgentTab]);
+
+  const selectNavTab = (tab: NavTab) => {
+    setActiveNav(tab);
+    setShowDSSetup(tab === 'systems');
+    onAgentTabChange?.(tab);
+  };
 
   useEffect(() => {
     fetch('/api/agent/quickstart/templates', { credentials: 'same-origin' })
@@ -204,14 +220,7 @@ export const WorkspaceDashboardV2: React.FC<WorkspaceDashboardProps> = ({
             <button
               key={n.id}
               type="button"
-              onClick={() => {
-                if (n.id === 'examples') {
-                  onOpenExamples?.();
-                  return;
-                }
-                setActiveNav(n.id);
-                setShowDSSetup(n.id === 'systems');
-              }}
+              onClick={() => selectNavTab(n.id)}
               className="relative px-3 py-1.5 text-[13px] rounded-md transition-colors"
               style={{
                 color: activeNav === n.id ? 'var(--dashboard-text)' : 'var(--text-muted)',
@@ -420,8 +429,15 @@ export const WorkspaceDashboardV2: React.FC<WorkspaceDashboardProps> = ({
           </div>
         )}
 
+        {/* ── Examples gallery (inline on /dashboard/agent?tab=examples) ── */}
+        {activeNav === 'examples' && !showDSSetup && (
+          <div className="flex flex-col h-full min-h-0">
+            <AgentExamplesGalleryEmbed />
+          </div>
+        )}
+
         {/* ── Normal body content ── */}
-        {!showDSSetup && <div className="px-8 py-8">
+        {!showDSSetup && activeNav !== 'examples' && <div className="px-8 py-8">
 
 
         {/* Make something new */}

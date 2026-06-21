@@ -3,6 +3,12 @@ import {
   type ShellProductId,
   type ShellProductItem,
 } from '../config/shellNav';
+import {
+  AGENT_EXAMPLES_TAB,
+  AGENT_HOME_PATH,
+  getAgentTabFromSearch,
+  isAgentExamplesTabActive,
+} from './agentRoutes';
 
 export function normalizeDashboardPath(pathname: string): string {
   const raw = String(pathname || '').trim() || '/dashboard/agent';
@@ -18,11 +24,20 @@ export function pathMatches(pathname: string, path: string, match: 'exact' | 'pr
   return p === target;
 }
 
-export function isProductItemActive(pathname: string, item: ShellProductItem): boolean {
+export function isProductItemActive(pathname: string, item: ShellProductItem, search = ''): boolean {
   if (item.children?.length) {
-    return item.children.some((child) => isProductItemActive(pathname, child));
+    return item.children.some((child) => isProductItemActive(pathname, child, search));
   }
   if (!item.path) return false;
+  if (item.id === 'examples') {
+    return isAgentExamplesTabActive(pathname, search);
+  }
+  if (item.id === 'agent' && normalizeDashboardPath(item.path) === AGENT_HOME_PATH) {
+    return (
+      pathMatches(pathname, item.path, item.match ?? 'exact') &&
+      getAgentTabFromSearch(search) !== AGENT_EXAMPLES_TAB
+    );
+  }
   return pathMatches(pathname, item.path, item.match ?? 'exact');
 }
 

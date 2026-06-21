@@ -95,7 +95,7 @@ export function DashboardSidebar({
     () => (item: ShellProductItem) => {
       if (expandedNested[item.id] != null) return expandedNested[item.id];
       if (item.children?.length) {
-        return item.children.some((child) => isProductItemActive(location.pathname, child));
+        return item.children.some((child) => isProductItemActive(location.pathname, child, location.search));
       }
       return false;
     },
@@ -235,7 +235,7 @@ export function DashboardSidebar({
                 <div className="ml-3 pl-2 border-l border-[var(--dashboard-border)]/80 flex flex-col gap-0.5 mb-1">
                   {product.items.map((child) => {
                     if (child.children?.length) {
-                      const groupActive = isProductItemActive(location.pathname, child);
+                      const groupActive = isProductItemActive(location.pathname, child, location.search);
                       const nestedOpen = isNestedOpen(child);
                       return (
                         <div key={child.id} className="flex flex-col gap-0.5">
@@ -273,7 +273,7 @@ export function DashboardSidebar({
                             <div className="ml-2 pl-2 border-l border-[var(--dashboard-border)]/60 flex flex-col gap-0.5 pb-0.5">
                               {child.children.map((sub) => {
                                 const subActive = sub.path
-                                  ? isProductItemActive(location.pathname, sub)
+                                  ? isProductItemActive(location.pathname, sub, location.search)
                                   : false;
                                 const editorHref =
                                   sub.id === 'cms-editor'
@@ -302,7 +302,7 @@ export function DashboardSidebar({
                       );
                     }
                     const childActive = child.path
-                      ? isProductItemActive(location.pathname, child)
+                      ? isProductItemActive(location.pathname, child, location.search)
                       : false;
                     return (
                       <button

@@ -10,15 +10,17 @@ import { ChatAssistant } from './components/ChatAssistant';
 import { WorkspaceDashboard } from './components/WorkspaceDashboard';
 import { WorkspaceDashboardV2 } from './components/WorkspaceDashboardV2';
 import { AgentQuickstartPage, type QuickstartTemplate } from './components/AgentQuickstartPage';
-import { AgentExamplesGalleryPage } from './components/AgentExamplesGalleryPage';
 import {
   AGENT_HOME_PATH,
   AGENT_QUICKSTART_PATH,
   AGENT_EXAMPLES_PATH,
+  agentHomeWithTab,
+  getAgentTabFromSearch,
   isAgentHomePath,
   isAgentQuickstartPath,
   isAgentExamplesPath,
   isAgentShellPath,
+  type AgentHomeTab,
 } from './lib/agentRoutes';
 import { BREAKPOINTS, PHONE_MQ } from './lib/breakpoints';
 import { sanitizeBrowserNavigateUrl } from './lib/sanitizeBrowserUrl';
@@ -412,6 +414,10 @@ const App: React.FC = () => {
     refreshWorkspaces,
   } = useWorkspace();
   const location = useLocation();
+  const agentHomeTab = useMemo(
+    () => getAgentTabFromSearch(location.search),
+    [location.search],
+  );
   const isMovieModeRoute = location.pathname.startsWith('/dashboard/moviemode');
   const showStatusBar = showDashboardStatusBar(location.pathname);
   const mobileTabBarBottom = mobileTabBarBottomOffset(showStatusBar);
@@ -1782,9 +1788,12 @@ const App: React.FC = () => {
     navigate(AGENT_QUICKSTART_PATH);
   }, [navigate]);
 
-  const openAgentExamples = useCallback(() => {
-    navigate(AGENT_EXAMPLES_PATH);
-  }, [navigate]);
+  const handleAgentTabChange = useCallback(
+    (tab: AgentHomeTab) => {
+      navigate(agentHomeWithTab(tab), { replace: true });
+    },
+    [navigate],
+  );
 
   const beginExamplesPrompt = useCallback(
     ({
@@ -1796,7 +1805,6 @@ const App: React.FC = () => {
       recipeId?: string;
       source?: string;
     }) => {
-      navigate(AGENT_HOME_PATH);
       startAgentNewThreadWithMessage({
         message: prompt,
         task_type: 'design_intake',
@@ -1813,7 +1821,7 @@ const App: React.FC = () => {
         }).catch(() => {});
       }
     },
-    [navigate, startAgentNewThreadWithMessage],
+    [startAgentNewThreadWithMessage],
   );
 
   useEffect(() => {
@@ -3853,7 +3861,7 @@ const App: React.FC = () => {
                   )}
 
                   {isAgentExamplesPath(location.pathname) && (
-                      <AgentExamplesGalleryPage onBack={() => navigate(AGENT_HOME_PATH)} />
+                      <Navigate to={agentHomeWithTab('examples')} replace />
                   )}
 
                   {isAgentHomePath(location.pathname) && activeTab === 'Workspace' && (
@@ -3874,7 +3882,8 @@ const App: React.FC = () => {
                             authWorkspaceId={authWorkspaceId}
                             onSwitchWorkspace={persistActiveWorkspace}
                             onQuickstart={openAgentQuickstart}
-                            onOpenExamples={openAgentExamples}
+                            activeAgentTab={agentHomeTab}
+                            onAgentTabChange={handleAgentTabChange}
                             onBeginTemplate={beginQuickstartTemplate}
                             onRunVerificationCommand={runVerificationInAgent}
                             onOpenEditor={focusCodeEditorFromChat}
