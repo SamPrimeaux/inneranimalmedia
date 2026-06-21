@@ -44,6 +44,39 @@ export function sessionStartedAtMs(s: AgentSessionRow): number {
   return 0;
 }
 
+/** Sort key for chat lists — prefers updated_at, falls back to started_at. */
+export function sessionSortMs(s: AgentSessionRow): number {
+  const u = s.updated_at;
+  if (typeof u === 'number') return u < 1e12 ? u * 1000 : u;
+  if (typeof u === 'string') {
+    const n = Number(u);
+    if (!Number.isNaN(n) && n > 0) return n < 1e12 ? n * 1000 : n;
+    const p = Date.parse(u);
+    if (!Number.isNaN(p)) return p;
+  }
+  return sessionStartedAtMs(s);
+}
+
+export function conversationIdFromSession(s: AgentSessionRow): string {
+  return String(s.conversation_id || s.id || '').trim();
+}
+
+/** Human-readable timestamp for /dashboard/chats rows (Claude-style). */
+export function chatsListRelativeTime(s: AgentSessionRow): string {
+  const t = sessionSortMs(s);
+  if (!t) return '';
+  const diffMs = Math.max(0, Date.now() - t);
+  const min = Math.floor(diffMs / 60_000);
+  if (min < 1) return 'just now';
+  if (min < 60) return `${min} minute${min === 1 ? '' : 's'} ago`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `${h} hour${h === 1 ? '' : 's'} ago`;
+  const d = Math.floor(h / 24);
+  if (d === 1) return 'yesterday';
+  if (d < 7) return `${d} days ago`;
+  return new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
 export function relativeSessionTime(s: AgentSessionRow): string {
   const t = sessionStartedAtMs(s);
   if (!t) return '';

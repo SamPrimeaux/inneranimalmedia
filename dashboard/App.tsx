@@ -165,9 +165,7 @@ const SourcePanel = lazy(() =>
 const MCPPanel = lazy(() =>
   import('./components/MCPPanel').then((m) => ({ default: m.MCPPanel })),
 );
-const KnowledgeSearchPanel = lazy(() =>
-  import('./components/KnowledgeSearchPanel').then((m) => ({ default: m.KnowledgeSearchPanel })),
-);
+const ChatsPage = lazy(() => import('./pages/chats/ChatsPage'));
 const XTermShell = lazy(() =>
   import('./components/XTermShell').then((m) => ({ default: m.XTermShell })),
 );
@@ -550,7 +548,7 @@ const App: React.FC = () => {
 
   // IDE State
   type TabId = 'Workspace' | 'welcome' | 'code' | 'browser' | 'glb';
-  const [activeActivity, setActiveActivity] = useState<'files' | 'search' | 'mcps' | 'git' | 'debug' | 'actions' | 'drive' | 'database' | null>(null);
+  const [activeActivity, setActiveActivity] = useState<'files' | 'mcps' | 'git' | 'debug' | 'actions' | 'drive' | 'database' | null>(null);
   const LS_SIDEBAR_RAIL = 'iam_sidebar_expanded';
   /** User-chosen agent column side; survives reloads (not overwritten by workspace policy fetch). */
   const LS_AGENT_POSITION = 'iam_agent_position';
@@ -1211,9 +1209,12 @@ const App: React.FC = () => {
   }, [location.pathname, navigate]);
 
   const shellOpenChats = useCallback(() => {
-    if (!isAgentShellPath(location.pathname)) navigate(AGENT_HOME_PATH);
-    setActiveActivity('search');
-  }, [location.pathname, navigate]);
+    navigate('/dashboard/chats');
+  }, [navigate]);
+
+  const shellOpenChatHistory = useCallback(() => {
+    navigate('/dashboard/chats');
+  }, [navigate]);
 
   const shellSelectChat = useCallback(
     (conversationId: string) => {
@@ -2270,7 +2271,7 @@ const App: React.FC = () => {
   }, [location.pathname, toggleExplorer]);
 
   const toggleActivity = (
-    activity: 'files' | 'search' | 'mcps' | 'git' | 'debug' | 'actions' | 'drive' | 'database',
+    activity: 'files' | 'mcps' | 'git' | 'debug' | 'actions' | 'drive' | 'database',
   ) => {
     if (activity === 'files' && typeof window !== 'undefined') {
       const p = window.location.pathname;
@@ -2324,7 +2325,7 @@ const App: React.FC = () => {
           window.open(nav.url, '_blank', 'noopener,noreferrer');
           return;
         }
-        setActiveActivity('search');
+        navigate('/dashboard/chats');
         return;
       }
       if (nav.kind === 'sql' || nav.kind === 'column') {
@@ -2341,7 +2342,7 @@ const App: React.FC = () => {
         }
       }
     },
-    [],
+    [navigate],
   );
 
   const fetchHealth = useCallback(async () => {
@@ -3361,11 +3362,11 @@ const App: React.FC = () => {
                               className="w-full flex items-center gap-2 px-3 py-2 text-left text-[12px] text-[var(--text-main)] hover:bg-[var(--bg-hover)]"
                               onClick={() => {
                                   setTopChromeMoreOpen(false);
-                                  toggleActivity('search');
+                                  navigate('/dashboard/chats');
                               }}
                           >
                               <Search size={14} className="text-[var(--text-muted)]" />
-                              Search
+                              Chats
                           </button>
                           <button
                               type="button"
@@ -3463,7 +3464,7 @@ const App: React.FC = () => {
                         defaultSubagentSlug={isDesignStudioRoute ? 'cadcreator' : undefined}
                         messages={chatMessages} 
                         setMessages={setChatMessages} 
-                        onOpenChatHistory={() => setActiveActivity('search')}
+                        onOpenChatHistory={shellOpenChatHistory}
                         onFileSelect={openInMonacoFromChat}
                         onGlbFileSelect={(file) => {
                           const glbUrl = URL.createObjectURL(file);
@@ -3543,14 +3544,7 @@ const App: React.FC = () => {
               {...(narrowNeedsBack && !!activeActivity ? mobileEdgeSwipeHandlers : {})}
           >
               <div className="w-full h-full flex flex-col relative">
-                  {activeActivity === 'search' ? (
-                      <Suspense fallback={<ActivityPanelFallback />}>
-                        <KnowledgeSearchPanel
-                          onClose={() => setActiveActivity(null)}
-                          activeConversationId={activeAgentConversationId}
-                        />
-                      </Suspense>
-                  ) : location.pathname === '/dashboard/meet' && meetCtxValue ? (
+                  {location.pathname === '/dashboard/meet' && meetCtxValue ? (
                       <MeetProvider value={meetCtxValue}>
                         <MeetShellPanel />
                       </MeetProvider>
@@ -3682,6 +3676,7 @@ const App: React.FC = () => {
                       <Route path="/dashboard/artifacts" element={<LibraryPage />} />
                       <Route path="/dashboard/projects" element={<ProjectManagement />} />
                       <Route path="/dashboard/tasks" element={<TasksPage />} />
+                      <Route path="/dashboard/chats" element={<ChatsPage />} />
                       <Route path="/dashboard/launch-desk" element={<Navigate to="/dashboard/collaborate" replace />} />
                       <Route
                         path="/dashboard/collaborate"
@@ -4186,7 +4181,7 @@ const App: React.FC = () => {
                             defaultSubagentSlug={isDesignStudioRoute ? 'cadcreator' : undefined}
                             messages={chatMessages} 
                             setMessages={setChatMessages} 
-                            onOpenChatHistory={() => setActiveActivity('search')}
+                            onOpenChatHistory={shellOpenChatHistory}
                             onFileSelect={openInMonacoFromChat}
                             onGlbFileSelect={(file) => {
                               const glbUrl = URL.createObjectURL(file);
@@ -4321,10 +4316,9 @@ const App: React.FC = () => {
               {/*
                 MOBILE SEARCH AUDIT (Round 4 — do not remove until approved):
                 • Top-bar search icon → UnifiedSearchBar Cmd+K palette (commands, R2, D1, files, recent via /api/unified-search/recent).
-                • More → "Search" → toggleActivity('search') → KnowledgeSearchPanel (RAG /api/rag/query + agent session threads).
-                Different components and data sources — not duplicate. If we label later: "Search files & commands" vs "Knowledge & chats".
+                • More → "Chats" → /dashboard/chats (full session list; sidebar teaser uses the same useAgentChatSessions hook).
               */}
-              <MobileMoreRow icon={Search} label="Search" onClick={() => { setMobileMoreOpen(false); toggleActivity('search'); }} />
+              <MobileMoreRow icon={Search} label="Chats" onClick={() => { setMobileMoreOpen(false); navigate('/dashboard/chats'); }} />
               <MobileMoreRow icon={GitBranch} label="Source Control" onClick={() => { setMobileMoreOpen(false); toggleActivity('git'); }} />
               <MobileMoreRow icon={Bug} label="Run & Debug" onClick={() => { setMobileMoreOpen(false); toggleActivity('debug'); }} />
               <MobileMoreRow icon={Layers} label="Tools & MCP" onClick={() => { setMobileMoreOpen(false); toggleActivity('mcps'); }} />
