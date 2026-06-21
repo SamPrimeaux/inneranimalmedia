@@ -31,6 +31,7 @@ export async function sendDailyPlanEmail(env) {
       mcpActivity,
       spawnJobs,
       migrations,
+      velocityRecent,
     ] = await Promise.all([
       // Live sprint memory — decision/skill/state types, recently updated
       env.DB.prepare(
@@ -111,6 +112,15 @@ export async function sendDailyPlanEmail(env) {
          ORDER BY started_at DESC LIMIT 5`
       ).all(),
 
+      // Velocity — last 7 days for trend
+      env.DB.prepare(
+        `SELECT date, velocity_score, momentum, new_concepts, confidence_gains,
+                struggle_areas, ai_collab_score, commits_count, deploys_production,
+                migrations_applied, mcp_tool_calls, notes
+         FROM task_velocity
+         ORDER BY date DESC LIMIT 7`
+      ).all(),
+
       // Recent migrations applied
       env.DB.prepare(
         `SELECT id, name, applied_at FROM d1_migrations
@@ -160,6 +170,9 @@ ${JSON.stringify(mcpActivity?.results || [])}
 == ACTIVE SKILL SPAWN JOBS ==
 ${JSON.stringify(spawnJobs?.results || [])}
 
+== VELOCITY & SKILL TREND (last 7 days) ==
+${JSON.stringify(velocityRecent?.results || [])}
+
 == RECENT D1 MIGRATIONS ==
 ${JSON.stringify(migrations?.results || [])}
 
@@ -179,6 +192,9 @@ CLIENT WATCH
 
 PLATFORM HEALTH
 [Cron jobs: any failures? Agent runs: any stuck_running? MCP activity: normal or spiked?]
+
+SKILL GROWTH
+[From task_velocity last 7 days. Show velocity_score trend. If new_concepts/confidence_gains/struggle_areas are filled in, surface them. If NULLs, say "log today in chat to track". One paragraph max.]
 
 COST PULSE
 [24h cost + week cost. Flag if trending high. One line.]

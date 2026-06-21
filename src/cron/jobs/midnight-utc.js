@@ -11,6 +11,7 @@ import { sweepStaleCronRuns } from './thirty-minute-cron.js';
 import { runOvernightCronStep } from './overnight-progress.js';
 import { runEtoPipeline } from '../../core/performance-eto.js';
 import { archiveOldConversations } from './archive-old-conversations.js';
+import { runVelocityDailyRollup } from './velocity-daily-rollup.js';
 import { sendDailyDigest } from './daily-digest.js';
 import { writeDailySnapshot } from './write-daily-snapshot.js';
 import { scheduleAgentsamErrorLog } from '../../core/agentsam-error-log.js';
@@ -210,6 +211,11 @@ export async function runMidnightUtcJobs(env, ctx) {
     .first()
     .catch(() => null);
   if (already) return;
+  ctx.waitUntil(
+    runVelocityDailyRollup(env)
+      .then((r) => console.log('[cron] velocity_rollup:', r?.date, 'score='+r?.score, r?.momentum ?? ''))
+      .catch((e) => console.warn('[cron] velocity_rollup failed:', e?.message))
+  );
   ctx.waitUntil(writeDailySnapshot(env, 'cron_midnight').catch(() => {}));
   ctx.waitUntil(sendDailyDigest(env));
 }
