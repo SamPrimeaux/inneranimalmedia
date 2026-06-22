@@ -24,6 +24,11 @@ async function resolveCanonicalUserIdShort(env, sessionUserId, email) {
   }
 }
 import { buildActiveThemeApiPayload, hydrateCmsThemeCssVarsFromR2 } from "../core/cms-theme-active.js";
+import {
+  getCachedActiveThemePayload,
+  putCachedActiveThemePayload,
+  invalidateCachedActiveThemePayload,
+} from "../core/cms-theme-kv-cache.js";
 import { getAgentsamWorkspace } from "../core/agentsam-workspace.js";
 import {
   resolveActiveCmsThemeRow,
@@ -260,6 +265,51 @@ async function patchWorkspaceThemeSlug(env, workspaceId, slug) {
  * @param {string} workspaceId
  * @param {string} themeSlug
  */
+/**
+ * Hydrate D1 row, build GET /api/themes/active payload, optionally persist to SESSION_CACHE.
+ * @param {any} env
+ * @param {{
+ *   themeRow: Record<string, unknown> | null,
+ *   resolved: { row?: Record<string, unknown> | null, resolved_from?: string },
+ *   workspaceId?: string | null,
+ *   projectId?: string | null,
+ *   authUser?: { id?: string } | null,
+ *   cache?: boolean,
+ * }} args
+ */
+async function buildResolvedActiveThemeApiPayload(env, args) {
+  let themeRow = args.themeRow;
+  if (!themeRow) {
+    themeRow = await env.DB.prepare(
+      `SELECT * FROM cms_themes WHERE is_system = 1 AND slug = 'dark' LIMIT 1`,
+    ).first();
+  }
+
+  await hydrateCmsThemeCssVarsFromR2(env, themeRow);
+
+  const payload =
+    buildActiveThemeApiPayload(themeRow) ||
+    ({
+      name: "dark",
+      slug: "dark",
+      is_dark: true,
+      data: {},
+      theme_channel: "live",
+    });
+
+  payload.resolved_from = args.resolved?.resolved_from ?? "none";
+  const ws = args.workspaceId != null ? String(args.workspaceId).trim() : "";
+  const proj = args.projectId != null ? String(args.projectId).trim() : "";
+  if (ws) payload.workspace_id = ws;
+  if (proj) payload.project_id = proj;
+
+  if (args.cache !== false && args.authUser?.id) {
+    await putCachedActiveThemePayload(env, ws || null, args.authUser.id, proj || null, payload);
+  }
+
+  return payload;
+}
+
 async function upsertWorkspaceThemeAndResolve(env, authUser, tenantId, workspaceId, themeSlug) {
   const tid = String(tenantId).trim();
   const ws = String(workspaceId).trim();
@@ -381,6 +431,14 @@ export async function handleThemesApi(request, url, env, ctx) {
       }
 
       const tenantId = await resolveTenantIdForCmsThemeOps(env, authUser, workspaceId || null);
+      const uid = authUser?.id != null ? String(authUser.id).trim() : "";
+
+      const cached = await getCachedActiveThemePayload(env, workspaceId || null, uid, projectId || null);
+      if (cached) {
+        cached.theme_channel = cached.theme_channel || "live";
+        cached.cache_hit = "kv";
+        return jsonResponse(cached);
+      }
 
       const resolved = await resolveActiveCmsThemeRow(env, {
         tenantId,
@@ -389,26 +447,14 @@ export async function handleThemesApi(request, url, env, ctx) {
         projectId: projectId || null,
       });
 
-      let themeRow = resolved.row;
-      if (!themeRow) {
-        themeRow = await env.DB.prepare(
-          `SELECT * FROM cms_themes WHERE is_system = 1 AND slug = 'dark' LIMIT 1`,
-        ).first();
-      }
-
-      const payload =
-        buildActiveThemeApiPayload(themeRow) ||
-        ({
-          name: "dark",
-          slug: "dark",
-          is_dark: true,
-          data: {},
-          theme_channel: "live",
-        });
-
-      payload.resolved_from = resolved.resolved_from;
-      if (workspaceId) payload.workspace_id = workspaceId;
-      if (projectId) payload.project_id = projectId;
+      const payload = await buildResolvedActiveThemeApiPayload(env, {
+        themeRow: resolved.row,
+        resolved,
+        workspaceId: workspaceId || null,
+        projectId: projectId || null,
+        authUser,
+        cache: true,
+      });
 
       return jsonResponse(payload);
     }
@@ -927,28 +973,16 @@ export async function handleThemesApi(request, url, env, ctx) {
         resolved = { row: null, resolved_from: "resolve_error" };
       }
 
-      let outRow = resolved.row;
-      if (!outRow) {
-        outRow = await env.DB.prepare(
-          `SELECT * FROM cms_themes WHERE is_system = 1 AND slug = 'dark' LIMIT 1`,
-        ).first();
-      }
+      await invalidateCachedActiveThemePayload(env, resolveWs || workspaceId || null, uid);
 
-      await hydrateCmsThemeCssVarsFromR2(env, outRow);
-
-      const payload =
-        buildActiveThemeApiPayload(outRow) ||
-        ({
-          name: "dark",
-          slug: "dark",
-          is_dark: true,
-          data: {},
-          theme_channel: "live",
-        });
-
-      payload.resolved_from = resolved.resolved_from;
-      if (resolveWs) payload.workspace_id = resolveWs;
-      if (resolveProj) payload.project_id = resolveProj;
+      const payload = await buildResolvedActiveThemeApiPayload(env, {
+        themeRow: resolved.row,
+        resolved,
+        workspaceId: resolveWs || null,
+        projectId: resolveProj || null,
+        authUser,
+        cache: true,
+      });
 
       const broadcastWs = scope === "user_global" ? resolveWs : workspaceId;
       if (broadcastWs) {
@@ -1069,13 +1103,15 @@ export async function handleThemesApi(request, url, env, ctx) {
           workspaceId,
           patch.slug,
         );
-        let outRow = resolved.row || updated;
-        await hydrateCmsThemeCssVarsFromR2(env, outRow);
-        const payload =
-          buildActiveThemeApiPayload(outRow) ||
-          ({ slug: patch.slug, name: patch.name, is_dark: patch.themeFamily === 'dark', data: {}, theme_channel: 'live' });
-        payload.resolved_from = resolved.resolved_from;
-        payload.workspace_id = workspaceId;
+        await invalidateCachedActiveThemePayload(env, workspaceId, authUser?.id);
+        const payload = await buildResolvedActiveThemeApiPayload(env, {
+          themeRow: resolved.row || updated,
+          resolved,
+          workspaceId,
+          projectId: null,
+          authUser,
+          cache: true,
+        });
         out.active_theme = payload;
         await broadcastWorkspaceThemeCollab(env, workspaceId, payload);
       }

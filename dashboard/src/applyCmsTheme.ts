@@ -384,6 +384,58 @@ async function fetchActiveThemePayload(
   return row ? catalogRowToActivePayload(row) : null;
 }
 
+const WEAK_THEME_RESOLVED_FROM = new Set([
+  'system_default',
+  'none',
+  'no_db',
+  'resolve_error',
+  'settings.appearance.theme',
+  'workspace_settings',
+  'workspaces',
+  'user_settings.theme',
+]);
+
+function countThemeCssVars(vars: Record<string, string> | null | undefined): number {
+  if (!vars || typeof vars !== 'object') return 0;
+  return Object.keys(vars).filter((k) => k.startsWith('--')).length;
+}
+
+function readWorkspaceThemeCache(workspaceId: string): {
+  vars: Record<string, string>;
+  slug: string | null;
+} | null {
+  try {
+    const cached = localStorage.getItem(themeCssStorageKey(workspaceId));
+    if (!cached) return null;
+    const vars = JSON.parse(cached) as Record<string, string>;
+    if (!vars || typeof vars !== 'object' || countThemeCssVars(vars) === 0) return null;
+    const slug = localStorage.getItem(themeSlugStorageKey(workspaceId));
+    return { vars, slug: slug?.trim() || null };
+  } catch {
+    return null;
+  }
+}
+
+/** Prefer localStorage when API returns empty/sparse data or weak resolution (common after deploy). */
+function shouldPreferLocalThemeCacheOverApi(
+  raw: CmsActiveThemePayload,
+  workspaceId: string,
+): boolean {
+  const cache = readWorkspaceThemeCache(workspaceId);
+  if (!cache) return false;
+
+  const apiVars =
+    raw.data && typeof raw.data === 'object' && !Array.isArray(raw.data) ? raw.data : {};
+  const apiCount = countThemeCssVars(apiVars);
+  const cacheCount = countThemeCssVars(cache.vars);
+
+  if (apiCount === 0) return true;
+  if (raw.resolved_from && WEAK_THEME_RESOLVED_FROM.has(raw.resolved_from)) return true;
+  if (raw.slug === 'dark' && cache.slug && cache.slug !== 'dark') return true;
+  if (cacheCount > apiCount + 3) return true;
+  return false;
+}
+
 /** Load active theme from API and apply to :root. Returns parsed payload or null. */
 export async function fetchAndApplyActiveCmsTheme(
   workspaceId: string | null | undefined,
@@ -393,21 +445,7 @@ export async function fetchAndApplyActiveCmsTheme(
   if (!raw || init?.signal?.aborted) return null;
 
   const ws = workspaceId?.trim();
-  const hasWorkspaceCache =
-    ws &&
-    (() => {
-      try {
-        const cached = localStorage.getItem(themeCssStorageKey(ws));
-        if (!cached) return false;
-        const vars = JSON.parse(cached) as Record<string, string>;
-        return vars && typeof vars === 'object' && Object.keys(vars).length > 0;
-      } catch {
-        return false;
-      }
-    })();
-
-  // After deploy reload, avoid flashing system default over a user's cached workspace theme.
-  if (raw.resolved_from === 'system_default' && hasWorkspaceCache) {
+  if (ws && shouldPreferLocalThemeCacheOverApi(raw, ws)) {
     applyCachedCmsThemeFallbackForWorkspace(ws);
     return raw;
   }
@@ -442,8 +480,6 @@ export function applyCachedCmsThemeFallbackForWorkspace(workspaceId: string | nu
   const w = workspaceId?.trim();
   if (!w) return applyCachedLegacyGlobalThemeFallback();
   try {
-    const last = localStorage.getItem(INNERANIMALMEDIA_LS_THEME_LAST_WS)?.trim();
-    if (last && last !== w) return false;
     const cached = localStorage.getItem(themeCssStorageKey(w));
     if (!cached) return false;
     const vars = JSON.parse(cached) as Record<string, string>;

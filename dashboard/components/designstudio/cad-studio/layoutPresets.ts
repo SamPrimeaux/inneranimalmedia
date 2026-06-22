@@ -197,3 +197,55 @@ export const WORKSPACE_LAYOUTS: Record<WorkspaceId, WorkspaceLayout> = {
 export function getLayoutForWorkspace(ws: WorkspaceId): WorkspaceLayout {
   return WORKSPACE_LAYOUTS[ws] ?? WORKSPACE_LAYOUTS.Layout;
 }
+
+type PanelVisibilityLike = {
+  outliner: boolean;
+  properties: boolean;
+  assets: boolean;
+  timeline: boolean;
+};
+
+/** Collapse empty grid columns when panels are hidden — prevents white void / orphan columns. */
+export function adjustLayoutForVisibility(
+  layout: WorkspaceLayout,
+  panelVisibility: PanelVisibilityLike,
+): WorkspaceLayout {
+  const rightHidden =
+    !panelVisibility.outliner && !panelVisibility.properties && !panelVisibility.assets;
+  const timelineHidden = !panelVisibility.timeline;
+
+  let areas = layout.gridTemplateAreas.trim();
+  let columns = layout.gridTemplateColumns.trim();
+  let rows = layout.gridTemplateRows.trim();
+
+  if (rightHidden) {
+    areas = areas.replace(/\s+right/g, '').replace(/right\s+/g, '').replace(/"right"/g, '').trim();
+    const colParts = columns.split(/\s+/);
+    if (colParts.length >= 2) {
+      columns = colParts.slice(0, -1).join(' ');
+    }
+  }
+
+  if (timelineHidden) {
+    areas = areas
+      .split('\n')
+      .filter((line) => !line.includes('timeline') && !line.includes('dopesheet'))
+      .join('\n')
+      .trim();
+    const rowParts = rows.split(/\s+/);
+    if (rowParts.length >= 2) {
+      rows = rowParts.slice(0, -1).join(' ');
+    }
+  }
+
+  if (areas === layout.gridTemplateAreas.trim() && columns === layout.gridTemplateColumns.trim() && rows === layout.gridTemplateRows.trim()) {
+    return layout;
+  }
+
+  return {
+    ...layout,
+    gridTemplateAreas: areas,
+    gridTemplateColumns: columns,
+    gridTemplateRows: rows,
+  };
+}

@@ -34,8 +34,6 @@ import type { CustomAsset, GenerationConfig, SceneConfig, GameEntity } from '../
 import type { AgentSamGeneratorKey } from '../../../utils/agentSamGenerators';
 import './cad-studio.css';
 
-const LS_LAYOUT_KEY = 'iam-cad-studio-layout-v1';
-
 export type CadStudioShellProps = {
   engineContainerRef: React.RefObject<HTMLDivElement | null>;
   onEngineContainerMount: () => void;
@@ -147,13 +145,11 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
   const [operatorInitialId, setOperatorInitialId] = useState<string | undefined>();
   const [generateOpen, setGenerateOpen] = useState(false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
-  const [layoutOverride, setLayoutOverride] = useState<string | null>(() => {
-    try {
-      return localStorage.getItem(LS_LAYOUT_KEY);
-    } catch {
-      return null;
-    }
-  });
+  const layoutWrapRef = useRef<HTMLDivElement>(null);
+  const [viewportCellEl, setViewportCellEl] = useState<HTMLDivElement | null>(null);
+  const onViewportCellMount = useCallback((el: HTMLDivElement | null) => {
+    setViewportCellEl(el);
+  }, []);
   const [renderSamples, setRenderSamples] = useState(128);
   const [renderBounces, setRenderBounces] = useState(8);
   const [materialColor, setMaterialColor] = useState('#8a9bb0');
@@ -189,6 +185,14 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
 
   const patchUi = useCallback((patch: Partial<typeof ui>) => {
     setUi((prev) => ({ ...prev, ...patch }));
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.removeItem('iam-cad-studio-layout-v1');
+    } catch {
+      /* ignore */
+    }
   }, []);
 
   const setWorkspace = useCallback((ws: WorkspaceId) => {
@@ -313,8 +317,10 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
     (item: GalleryItem) => {
       onSpawnModel?.(item.name, item.url, item.scale ?? 1);
       protocol.addEvent('asset.spawn', `Spawned ${item.name}`, { url: item.url });
+      onFrameAll?.();
+      protocol.toast('Asset added', `${item.name} placed in viewport`);
     },
-    [onSpawnModel, protocol],
+    [onSpawnModel, protocol, onFrameAll],
   );
 
   const handleRenderViewport = useCallback(() => {
@@ -405,10 +411,42 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
     if (engineContainerRef.current) onEngineContainerMount();
   }, [engineContainerRef, onEngineContainerMount]);
 
+  /** Pin the persistent engine canvas to the primary viewport cell bounds. */
+  useEffect(() => {
+    const wrap = layoutWrapRef.current;
+    const viewport = viewportCellEl;
+    const engine = engineContainerRef.current;
+    if (!wrap || !viewport || !engine) return;
+
+    const sync = () => {
+      const wRect = wrap.getBoundingClientRect();
+      const vRect = viewport.getBoundingClientRect();
+      if (vRect.width < 2 || vRect.height < 2) return;
+      engine.style.position = 'absolute';
+      engine.style.left = `${vRect.left - wRect.left}px`;
+      engine.style.top = `${vRect.top - wRect.top}px`;
+      engine.style.width = `${vRect.width}px`;
+      engine.style.height = `${vRect.height}px`;
+      engine.style.right = 'auto';
+      engine.style.bottom = 'auto';
+      window.dispatchEvent(new Event('resize'));
+    };
+
+    sync();
+    const ro = new ResizeObserver(() => requestAnimationFrame(sync));
+    ro.observe(wrap);
+    ro.observe(viewport);
+    window.addEventListener('resize', sync);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', sync);
+    };
+  }, [viewportCellEl, ui.workspace, ui.panelVisibility, engineContainerRef]);
+
   useEffect(() => {
     const id = window.setTimeout(() => window.dispatchEvent(new Event('resize')), 60);
     return () => window.clearTimeout(id);
-  }, [ui.workspace, layoutOverride]);
+  }, [ui.workspace, ui.panelVisibility]);
 
   const showDiagnostics = useCallback(async () => {
     setDiagnosticsOpen(true);
@@ -765,9 +803,8 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
           )
         }
         onResetLayout={() => {
-          setLayoutOverride(null);
           try {
-            localStorage.removeItem(LS_LAYOUT_KEY);
+            localStorage.removeItem('iam-cad-studio-layout-v1');
           } catch {
             /* ignore */
           }
@@ -789,13 +826,13 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
         onShowDiagnostics={() => void showDiagnostics()}
       />
 
-      <div className="cad-studio__layout-wrap">
+      <div className="cad-studio__layout-wrap" ref={layoutWrapRef}>
         <div ref={engineContainerRef} className="cad-studio__engine-persistent" aria-hidden="true" />
         <WorkspaceLayoutEngine
           workspace={ui.workspace}
-          layoutOverride={layoutOverride}
           panelVisibility={ui.panelVisibility}
           editors={editors}
+          onViewportCellMount={onViewportCellMount}
         />
       </div>
 

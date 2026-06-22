@@ -122,6 +122,9 @@ export const DesignStudioPage: React.FC = () => {
         setLinkedGlbR2Key(job.r2_key);
       }
       lastSpawnedJobRef.current = job.id;
+      if (isAgentSamEngine(engineRef.current)) {
+        requestAnimationFrame(() => engineRef.current?.frameCameraOnObject());
+      }
       if (opts?.auto) console.info('[DesignStudio] auto-spawned GLB', job.id);
     }
     return ok;
@@ -357,8 +360,11 @@ export const DesignStudioPage: React.FC = () => {
         type: 'prop',
         modelUrl: normalized,
         scale,
-        position: { x: 0, y: 0, z: 0 },
+        position: { x: 0, y: 1, z: 0 },
         behavior: { type: 'static' },
+      })
+      .then(() => {
+        requestAnimationFrame(() => engineRef.current?.frameCameraOnObject());
       })
       .catch((err) => console.warn('[DesignStudio] spawn failed', err));
   }, []);
@@ -608,37 +614,49 @@ export const DesignStudioPage: React.FC = () => {
 
   const bootstrapDoneRef = useRef(false);
   useEffect(() => {
-    if (!engineReady || bootstrapDoneRef.current || !isAgentSamEngine(engineRef.current)) return;
-    if (entities.length > 0) {
-      bootstrapDoneRef.current = true;
-      return;
-    }
-    bootstrapDoneRef.current = true;
-    const voxels: GameEntity['voxels'] = [];
-    for (let x = -1; x <= 1; x++) {
-      for (let y = 0; y <= 2; y++) {
-        for (let z = -1; z <= 1; z++) {
-          voxels.push({ x, y, z, color: 0xaeb5bd });
+    if (!engineReady || !isAgentSamEngine(engineRef.current)) return;
+
+    const tryBootstrap = async () => {
+      if (bootstrapDoneRef.current) return;
+      const engine = engineRef.current;
+      if (!isAgentSamEngine(engine)) return;
+
+      const existing = engine.exportEntities();
+      if (existing.length > 0) {
+        bootstrapDoneRef.current = true;
+        engine.frameCameraOnObject();
+        return;
+      }
+
+      const voxels: GameEntity['voxels'] = [];
+      for (let x = -1; x <= 1; x++) {
+        for (let y = 0; y <= 2; y++) {
+          for (let z = -1; z <= 1; z++) {
+            voxels.push({ x, y, z, color: 0xaeb5bd });
+          }
         }
       }
-    }
-    const id = `cube_bootstrap`;
-    void engineRef.current
-      .spawnEntity({
-        id,
-        name: 'Cube.001',
-        type: 'prop',
-        voxels,
-        scale: 1,
-        position: { x: 0, y: 1.5, z: 0 },
-        behavior: { type: 'static' },
-      })
-      .then(() => {
+      const id = `cube_bootstrap`;
+      try {
+        await engine.spawnEntity({
+          id,
+          name: 'Cube.001',
+          type: 'prop',
+          voxels,
+          scale: 1,
+          position: { x: 0, y: 1.5, z: 0 },
+          behavior: { type: 'static' },
+        });
+        bootstrapDoneRef.current = true;
         setSelectedEntityId(id);
-        engineRef.current?.frameCameraOnObject();
-      })
-      .catch((err) => console.warn('[DesignStudio] bootstrap failed', err));
-  }, [engineReady, entities.length]);
+        requestAnimationFrame(() => engine.frameCameraOnObject());
+      } catch (err) {
+        console.warn('[DesignStudio] bootstrap failed', err);
+      }
+    };
+
+    void tryBootstrap();
+  }, [engineReady]);
 
   const handleEntityRename = useCallback(
     async (id: string, name: string) => {
@@ -665,7 +683,7 @@ export const DesignStudioPage: React.FC = () => {
   return (
     <div
       ref={pageRootRef}
-      className="relative flex h-full min-h-0 overflow-hidden bg-[var(--dashboard-canvas,var(--bg-app,#111214))]"
+      className="relative flex h-full w-full min-h-0 min-w-0 flex-1 overflow-hidden bg-[var(--dashboard-canvas,var(--bg-app,#111214))]"
       onDrop={handleFileDrop}
       onDragOver={(e) => e.preventDefault()}
     >
