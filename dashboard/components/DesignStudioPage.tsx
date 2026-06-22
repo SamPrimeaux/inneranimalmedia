@@ -6,6 +6,10 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { normalizeGlbUrl } from '../lib/glbAssets';
 import { UIOverlay } from './UIOverlay';
 import { DesignStudioCreationStation } from './designstudio/creation-station/DesignStudioCreationStation';
+import {
+  DesignStudioLeftPanel,
+  readStoredDesignStudioProject,
+} from './designstudio/DesignStudioLeftPanel';
 import { useDesignStudioCad } from './designstudio/hooks/useDesignStudioCad';
 import { spawnGlbInEngine } from './designstudio/spawnGlb';
 import { useDesignStudioContext } from './designstudio/DesignStudioContext';
@@ -25,10 +29,21 @@ import {
   CADTool,
   CADPlane,
   CustomAsset,
+  DEFAULT_CITY_CONFIG,
+  DEFAULT_FLY_CONFIG,
+  type CityConfig,
+  type FlyConfig,
+  type FlyHud,
+  type CityStats,
 } from '../types';
+
+const ENGINEER_MODES = new Set<ProjectType>([ProjectType.CITY, ProjectType.FLY]);
 
 type VoxelEngineClass = typeof import('../services/VoxelEngine').VoxelEngine;
 type VoxelEngineInstance = InstanceType<VoxelEngineClass>;
+type EngineerEngineClass = typeof import('../services/AgentSamEngineerEngine').AgentSamEngineerEngine;
+type EngineerEngineInstance = InstanceType<EngineerEngineClass>;
+type StudioEngine = VoxelEngineInstance | EngineerEngineInstance;
 
 type PendingGlbState = { pendingGlb?: { url: string; name: string } };
 
@@ -38,6 +53,14 @@ type StudioStockAsset = {
   url: string;
   scale: number;
 };
+
+function isVoxelEngine(engine: StudioEngine | null): engine is VoxelEngineInstance {
+  return engine != null && 'setProjectType' in engine;
+}
+
+function isEngineerEngine(engine: StudioEngine | null): engine is EngineerEngineInstance {
+  return engine != null && 'updateCityConfig' in engine;
+}
 
 function parseStudioAssetApiRow(row: {
   id?: string;
@@ -59,12 +82,12 @@ export const DesignStudioPage: React.FC = () => {
   const location = useLocation();
   const { setStudioContext } = useDesignStudioContext();
   const containerRef = useRef<HTMLDivElement>(null);
-  const engineRef = useRef<VoxelEngineInstance | null>(null);
+  const engineRef = useRef<StudioEngine | null>(null);
   const pendingConsumedRef = useRef(false);
   const lastSpawnedJobRef = useRef<string | null>(null);
 
   const [engineReady, setEngineReady] = useState(false);
-  const activeProject = ProjectType.SANDBOX;
+  const [activeProject, setActiveProject] = useState<ProjectType>(readStoredDesignStudioProject);
   const [appState, setAppState] = useState<AppState>(AppState.EDITING);
   const [voxelCount, setVoxelCount] = useState(0);
   const [customAssets, setCustomAssets] = useState<CustomAsset[]>([]);
@@ -73,6 +96,11 @@ export const DesignStudioPage: React.FC = () => {
   const [currentSceneId, setCurrentSceneId] = useState<string | null>(null);
   const [linkedCadJobId, setLinkedCadJobId] = useState<string | null>(null);
   const [linkedGlbR2Key, setLinkedGlbR2Key] = useState<string | null>(null);
+
+  const [cityConfig, setCityConfig] = useState<CityConfig>(DEFAULT_CITY_CONFIG);
+  const [flyConfig, setFlyConfig] = useState<FlyConfig>(DEFAULT_FLY_CONFIG);
+  const [cityStats, setCityStats] = useState<CityStats | undefined>();
+  const [flyHud, setFlyHud] = useState<FlyHud | undefined>();
 
   const [genConfig, setGenConfig] = useState<GenerationConfig>({
     style: ArtStyle.CYBERPUNK,
@@ -94,11 +122,20 @@ export const DesignStudioPage: React.FC = () => {
   const [sceneName, setSceneName] = useState('');
   const [sceneBusy, setSceneBusy] = useState(false);
 
+  const isEngineerMode = ENGINEER_MODES.has(activeProject);
+
+  const handleProjectSwitch = useCallback((t: ProjectType) => {
+    setActiveProject(t);
+  }, []);
+
   const deployJobToScene = useCallback(async (job: CadJobRow, opts?: { auto?: boolean }) => {
     const url = job.public_url || job.result_url;
     if (!url) return false;
     const name = job.prompt?.slice(0, 40) || `${job.engine} export`;
-    const ok = await spawnGlbInEngine(engineRef.current, { url, name });
+    const ok = await spawnGlbInEngine(isVoxelEngine(engineRef.current) ? engineRef.current : null, {
+      url,
+      name,
+    });
     if (ok) {
       setLinkedCadJobId(job.id);
       if (job.r2_key && !String(job.r2_key).startsWith('b64:')) {
@@ -206,13 +243,31 @@ export const DesignStudioPage: React.FC = () => {
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container || engineRef.current) return;
+    if (!container) return;
 
     let cancelled = false;
-    let engine: VoxelEngineInstance | null = null;
+    let engine: StudioEngine | null = null;
 
-    void import('../services/VoxelEngine').then(({ VoxelEngine }) => {
-      if (cancelled || !containerRef.current || engineRef.current) return;
+    const mountEngineer = async () => {
+      const { AgentSamEngineerEngine } = await import('../services/AgentSamEngineerEngine');
+      if (cancelled || !containerRef.current) return;
+      const mode = activeProject as ProjectType.CITY | ProjectType.FLY;
+      engine = new AgentSamEngineerEngine(container, mode, {
+        onCityStats: setCityStats,
+        onFlyHud: setFlyHud,
+      });
+      engineRef.current = engine;
+      if (mode === ProjectType.CITY) {
+        setCityConfig(engine.getCityConfig());
+      } else {
+        setFlyConfig(engine.getFlyConfig());
+      }
+      setEngineReady(true);
+    };
+
+    const mountVoxel = async () => {
+      const { VoxelEngine } = await import('../services/VoxelEngine');
+      if (cancelled || !containerRef.current) return;
       engine = new VoxelEngine(container, (s) => setAppState(s), (c) => setVoxelCount(c));
       engineRef.current = engine;
       engine.setOnEntityCreated((entity) => {
@@ -222,28 +277,44 @@ export const DesignStudioPage: React.FC = () => {
       engine.updateLighting(sceneConfig);
       engine.setCADPlane(genConfig.cadPlane);
       engine.setExtrusion(genConfig.extrusion);
-      engine.setProjectType(ProjectType.SANDBOX);
-      const settleViewport = () => engine?.handleResize();
+      engine.setProjectType(activeProject);
+      const settleViewport = () => {
+        if (isVoxelEngine(engine)) engine.handleResize();
+      };
       requestAnimationFrame(() => {
         settleViewport();
         requestAnimationFrame(settleViewport);
       });
       setEngineReady(true);
-    });
+    };
 
-    const handleResize = () => engineRef.current?.handleResize();
+    if (ENGINEER_MODES.has(activeProject)) {
+      void mountEngineer();
+    } else {
+      void mountVoxel();
+    }
+
+    const handleResize = () => {
+      if (isVoxelEngine(engineRef.current)) {
+        engineRef.current.handleResize();
+      }
+    };
     window.addEventListener('resize', handleResize);
+
     return () => {
       cancelled = true;
       window.removeEventListener('resize', handleResize);
       setEngineReady(false);
       engine?.cleanup();
       engineRef.current = null;
+      container.innerHTML = '';
     };
-  }, []);
+  }, [activeProject]);
 
   useEffect(() => {
-    engineRef.current?.updateLighting(sceneConfig);
+    if (isVoxelEngine(engineRef.current)) {
+      engineRef.current.updateLighting(sceneConfig);
+    }
   }, [sceneConfig]);
 
   useEffect(() => {
@@ -253,7 +324,7 @@ export const DesignStudioPage: React.FC = () => {
   }, [location.state]);
 
   useEffect(() => {
-    if (!engineReady || !engineRef.current || pendingConsumedRef.current) return;
+    if (!engineReady || !isVoxelEngine(engineRef.current) || pendingConsumedRef.current) return;
     const st = (location.state as PendingGlbState | null)?.pendingGlb;
     if (!st?.url) return;
     pendingConsumedRef.current = true;
@@ -262,17 +333,17 @@ export const DesignStudioPage: React.FC = () => {
   }, [engineReady, location.state, location.pathname, navigate]);
 
   const handleUndo = useCallback(() => {
-    if (undoStack.length === 0) return;
+    if (undoStack.length === 0 || !isVoxelEngine(engineRef.current)) return;
     const last = undoStack[undoStack.length - 1];
-    engineRef.current?.removeEntity(last.id);
+    engineRef.current.removeEntity(last.id);
     setUndoStack((prev) => prev.slice(0, -1));
     setRedoStack((prev) => [...prev, last]);
   }, [undoStack]);
 
   const handleRedo = useCallback(() => {
-    if (redoStack.length === 0) return;
+    if (redoStack.length === 0 || !isVoxelEngine(engineRef.current)) return;
     const next = redoStack[redoStack.length - 1];
-    engineRef.current?.spawnEntity(next);
+    engineRef.current.spawnEntity(next);
     setRedoStack((prev) => prev.slice(0, -1));
     setUndoStack((prev) => [...prev, next]);
   }, [redoStack]);
@@ -280,18 +351,21 @@ export const DesignStudioPage: React.FC = () => {
   const handleUpdateGenConfig = useCallback((cfg: Partial<GenerationConfig>) => {
     setGenConfig((prev) => {
       const next = { ...prev, ...cfg };
-      if (cfg.cadTool !== undefined) engineRef.current?.setCADTool(cfg.cadTool);
-      if (cfg.cadPlane !== undefined) engineRef.current?.setCADPlane(cfg.cadPlane);
-      if (cfg.extrusion !== undefined) engineRef.current?.setExtrusion(cfg.extrusion);
+      if (isVoxelEngine(engineRef.current)) {
+        if (cfg.cadTool !== undefined) engineRef.current.setCADTool(cfg.cadTool);
+        if (cfg.cadPlane !== undefined) engineRef.current.setCADPlane(cfg.cadPlane);
+        if (cfg.extrusion !== undefined) engineRef.current.setExtrusion(cfg.extrusion);
+      }
       return next;
     });
   }, []);
 
   const handleSpawnModel = useCallback((name: string, url: string, scale: number) => {
+    if (!isVoxelEngine(engineRef.current)) return;
     const normalized = normalizeGlbUrl(url);
     if (!normalized) return;
     void engineRef.current
-      ?.spawnEntity({
+      .spawnEntity({
         id: `asset_${Date.now()}`,
         name,
         type: 'prop',
@@ -361,13 +435,14 @@ export const DesignStudioPage: React.FC = () => {
   );
 
   const onClear = useCallback(() => {
-    engineRef.current?.clearWorld();
+    if (!isVoxelEngine(engineRef.current)) return;
+    engineRef.current.clearWorld();
     setUndoStack([]);
     setRedoStack([]);
   }, []);
 
   const handleSaveScene = useCallback(async () => {
-    if (!engineRef.current) return;
+    if (!isVoxelEngine(engineRef.current)) return;
     setSceneBusy(true);
     try {
       const entities = engineRef.current.exportEntities();
@@ -417,7 +492,7 @@ export const DesignStudioPage: React.FC = () => {
   ]);
 
   const handleLoadScene = useCallback(async (sceneId: string) => {
-    if (!engineRef.current) return;
+    if (!isVoxelEngine(engineRef.current)) return;
     setSceneBusy(true);
     try {
       const [entitiesRes, metaRes] = await Promise.all([
@@ -447,9 +522,10 @@ export const DesignStudioPage: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (!engineReady || !engineRef.current) return;
+    if (!engineReady || !isVoxelEngine(engineRef.current) || isEngineerMode) return;
     const tick = window.setInterval(() => {
-      const entities = engineRef.current?.exportEntities();
+      const voxel = isVoxelEngine(engineRef.current) ? engineRef.current : null;
+      const entities = voxel?.exportEntities();
       if (!entities?.length) return;
       const wsId =
         (typeof window !== 'undefined' &&
@@ -467,7 +543,28 @@ export const DesignStudioPage: React.FC = () => {
       }).catch(() => {});
     }, 60_000);
     return () => window.clearInterval(tick);
-  }, [engineReady, activeProject]);
+  }, [engineReady, activeProject, isEngineerMode]);
+
+  const handleUpdateCityConfig = useCallback((patch: Partial<CityConfig>) => {
+    setCityConfig((prev) => ({ ...prev, ...patch }));
+    if (isEngineerEngine(engineRef.current)) {
+      engineRef.current.updateCityConfig(patch);
+    }
+  }, []);
+
+  const handleRegenerateCity = useCallback(() => {
+    if (isEngineerEngine(engineRef.current)) {
+      engineRef.current.regenerateCity();
+      setCityConfig(engineRef.current.getCityConfig());
+    }
+  }, []);
+
+  const handleUpdateFlyConfig = useCallback((patch: Partial<FlyConfig>) => {
+    setFlyConfig((prev) => ({ ...prev, ...patch }));
+    if (isEngineerEngine(engineRef.current)) {
+      engineRef.current.updateFlyConfig(patch);
+    }
+  }, []);
 
   const activeJobForBar = cad.polledJob || cad.activeJob;
 
@@ -483,52 +580,98 @@ export const DesignStudioPage: React.FC = () => {
 
   return (
     <div
-      className="flex h-full min-h-0 bg-[var(--bg-app)] overflow-hidden"
+      className="flex h-full min-h-0 overflow-hidden"
+      style={{ background: 'var(--bg-app)' }}
       onDrop={handleFileDrop}
       onDragOver={(e) => e.preventDefault()}
     >
-      <DesignStudioCreationStation
-        cad={cad}
-        customAssets={customAssets}
+      <DesignStudioLeftPanel
+        activeProject={activeProject}
+        onSwitchProject={handleProjectSwitch}
+        onExport={() => {
+          if (isVoxelEngine(engineRef.current)) {
+            engineRef.current.exportForBlender();
+          }
+        }}
+        genConfig={genConfig}
+        onUpdateGenConfig={handleUpdateGenConfig}
+        sceneConfig={sceneConfig}
+        onUpdateSceneConfig={(c) => setSceneConfig((p) => ({ ...p, ...c }))}
         onSpawnModel={handleSpawnModel}
+        customAssets={customAssets}
         onAddCustomAsset={handleAddCustomAsset}
         onRemoveCustomAsset={handleRemoveCustomAsset}
-        onRefreshUserAssets={refreshUserAssets}
-        onImportGlb={handleImportGlbFile}
-        onBlenderExport={() => engineRef.current?.exportForBlender()}
         sceneName={sceneName}
         onSceneNameChange={setSceneName}
         savedScenes={savedScenes}
         sceneBusy={sceneBusy}
         onSaveScene={() => void handleSaveScene()}
         onLoadScene={(id) => void handleLoadScene(id)}
+        cad={cad}
+        cadJobId={linkedCadJobId || cad.activeJobId}
+        glbR2Key={linkedGlbR2Key}
+        onRefreshUserAssets={refreshUserAssets}
+        onDeployJob={(job) => void deployJobToScene(job)}
+        onImportGlb={handleImportGlbFile}
         onDownloadLatestGlb={handleDownloadLatestGlb}
-        activeJob={activeJobForBar}
-        viewport={
-          <div className="absolute inset-0">
-            <div
-              ref={containerRef}
-              className="absolute inset-0 z-0 overflow-hidden"
-              style={{ background: 'var(--scene-bg)' }}
-            />
-            <UIOverlay
-              voxelCount={voxelCount}
-              appState={appState}
-              activeProject={activeProject}
-              isGenerating={cad.isGenerating}
-              onTogglePlay={() => {}}
-              onClear={onClear}
-              genConfig={genConfig}
-              onUpdateGenConfig={handleUpdateGenConfig}
-              onUndo={handleUndo}
-              onRedo={handleRedo}
-              canUndo={undoStack.length > 0}
-              canRedo={redoStack.length > 0}
-              variant="studio"
-            />
-          </div>
-        }
+        cityConfig={cityConfig}
+        onUpdateCityConfig={handleUpdateCityConfig}
+        onRegenerateCity={handleRegenerateCity}
+        cityStats={cityStats}
+        flyConfig={flyConfig}
+        flyHud={flyHud}
+        onUpdateFlyConfig={handleUpdateFlyConfig}
       />
+
+      <div className="flex-1 min-w-0 h-full relative">
+        <div
+          ref={containerRef}
+          className="absolute inset-0 z-0 overflow-hidden"
+          style={{ background: 'var(--scene-bg)' }}
+        />
+
+        {!isEngineerMode && (
+          <DesignStudioCreationStation
+            cad={cad}
+            viewport={
+              <UIOverlay
+                voxelCount={voxelCount}
+                appState={appState}
+                activeProject={activeProject}
+                isGenerating={cad.isGenerating}
+                onTogglePlay={() => {}}
+                onClear={onClear}
+                genConfig={genConfig}
+                onUpdateGenConfig={handleUpdateGenConfig}
+                onUndo={handleUndo}
+                onRedo={handleRedo}
+                canUndo={undoStack.length > 0}
+                canRedo={redoStack.length > 0}
+                variant="studio"
+              />
+            }
+            customAssets={customAssets}
+            onSpawnModel={handleSpawnModel}
+            onAddCustomAsset={handleAddCustomAsset}
+            onRemoveCustomAsset={handleRemoveCustomAsset}
+            onRefreshUserAssets={refreshUserAssets}
+            onImportGlb={handleImportGlbFile}
+            onBlenderExport={() => {
+              if (isVoxelEngine(engineRef.current)) {
+                engineRef.current.exportForBlender();
+              }
+            }}
+            sceneName={sceneName}
+            onSceneNameChange={setSceneName}
+            savedScenes={savedScenes}
+            sceneBusy={sceneBusy}
+            onSaveScene={() => void handleSaveScene()}
+            onLoadScene={(id) => void handleLoadScene(id)}
+            onDownloadLatestGlb={handleDownloadLatestGlb}
+            activeJob={activeJobForBar}
+          />
+        )}
+      </div>
     </div>
   );
 };

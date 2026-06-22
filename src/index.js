@@ -421,11 +421,10 @@ export default {
         ]);
         const headerHtml = headerObj ? await headerObj.text() : '';
         const footerHtml = footerObj ? await footerObj.text() : '';
-        // Auth shells (pages/auth/*.html) ship their own nav + compact footer; injecting
-        // iam-header/iam-footer duplicates chrome and breaks fixed globe/canvas layout.
+        // Auth shells ship their own nav; chess rooms are fullscreen — no marketing chrome.
         const skipShellInject =
           (typeof assetHtmlKey === 'string' && assetHtmlKey.startsWith('pages/auth/')) ||
-          (typeof assetHtmlKey === 'string' && assetHtmlKey.startsWith('pages/games/'));
+          assetHtmlKey === 'pages/games/room.html';
         let pageBody = obj.body;
         if (assetHtmlKey === 'pages/contact/index.html') {
           let htmlText = await obj.text();

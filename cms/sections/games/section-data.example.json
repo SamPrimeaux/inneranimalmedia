@@ -57,5 +57,19 @@
       "image_url": "https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/f8bfc7dd-7234-4336-1029-6f31a5bd7d00/avatar",
       "image_alt": "Agent Sam"
     }
+  },
+  "london_dream_railway": {
+    "section_id": "sec_games_london_railway",
+    "section_type": "playable_game",
+    "section_name": "london_dream_railway",
+    "section_data": {
+      "theme": "dark",
+      "kicker": "Flagship playable demo",
+      "title": "London Dream Railway",
+      "body": "A bright voxel train-table world where little red trains and Tube-inspired carriages weave through London landmarks.",
+      "card_title": "London Dream Railway",
+      "card_body": "Three.js toy-table city with rails, switches, camera tours, landmarks, tunnels, and smooth train loops.",
+      "footer_note": "Playable flagship demo: city table, landmarks, train paths, branch switches, camera tours, instanced props, and optimized WebGL rendering."
+    }
   }
 }

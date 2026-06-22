@@ -1,6 +1,6 @@
 /**
  * Server-side hydration for pages/games/index.html from cms_page_sections.
- * Four sections: interactive_systems hero + three feature_row blocks.
+ * Five sections: interactive_systems hero + three feature_row blocks + London Dream Railway playable section.
  */
 import { cmsSection, indexCmsSections } from './cms-public-page.js';
 
@@ -47,6 +47,15 @@ const DEFAULTS = {
     badge_tone: 'teal',
     image_url: `https://imagedelivery.net/${CF_HASH}/f8bfc7dd-7234-4336-1029-6f31a5bd7d00/avatar`,
     image_alt: 'Agent Sam',
+  },
+  london_dream_railway: {
+    theme: 'dark',
+    kicker: 'Flagship playable demo',
+    title: 'London Dream Railway',
+    body: 'A bright voxel train-table world where little red trains and Tube-inspired carriages weave through London landmarks.',
+    card_title: 'London Dream Railway',
+    card_body: 'Three.js toy-table city with rails, switches, camera tours, landmarks, tunnels, and smooth train loops.',
+    footer_note: 'Playable flagship demo: city table, landmarks, train paths, branch switches, camera tours, instanced props, and optimized WebGL rendering.',
   },
 };
 
@@ -132,6 +141,7 @@ export function hydrateGamesPageHtml(html, sections) {
   const live = cmsSection(byKey, byType, 'feature_row', 'meauxchess_live', DEFAULTS.meauxchess_live);
   const engine = cmsSection(byKey, byType, 'feature_row', 'meauxgame_engine', DEFAULTS.meauxgame_engine);
   const agent = cmsSection(byKey, byType, 'feature_row', 'agent_sam_practice', DEFAULTS.agent_sam_practice);
+  const railway = cmsSection(byKey, byType, 'playable_game', 'london_dream_railway', DEFAULTS.london_dream_railway);
 
   let out = String(html);
 
@@ -148,6 +158,13 @@ export function hydrateGamesPageHtml(html, sections) {
   out = hydrateFeatureRow(out, 'cms-games-feat-live', live, DEFAULTS.meauxchess_live);
   out = hydrateFeatureRow(out, 'cms-games-feat-engine', engine, DEFAULTS.meauxgame_engine);
   out = hydrateFeatureRow(out, 'cms-games-feat-agent', agent, DEFAULTS.agent_sam_practice);
+
+  out = replaceText(out, 'cms-games-railway-kicker', railway.kicker);
+  out = replaceText(out, 'railway-title', railway.title);
+  out = replaceText(out, 'cms-games-railway-body', railway.body);
+  out = replaceText(out, 'cms-games-railway-card-title', railway.card_title || railway.title);
+  out = replaceText(out, 'cms-games-railway-card-body', railway.card_body || railway.body);
+  out = replaceText(out, 'cms-games-railway-footer', railway.footer_note);
 
   return out;
 }

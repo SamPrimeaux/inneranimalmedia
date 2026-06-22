@@ -7,7 +7,9 @@
 export enum ProjectType {
   CHESS = 'MEAAUX_GAMES',
   CAD = 'MEAUX_CAD',
-  SANDBOX = 'SANDBOX'
+  SANDBOX = 'SANDBOX',
+  CITY = 'PROC_CITY',
+  FLY = 'FLY_SCENE',
 }
 
 export enum ArtStyle {
@@ -131,3 +133,70 @@ export type ActiveFile = {
   /** Full byte/char length when content was truncated for Monaco */
   originalSize?: number;
 };
+
+// ── AgentSamEngineerEngine types ───────────────────────────────────────────
+
+export type CityStreetPattern = 'grid' | 'organic' | 'radial' | 'canal';
+export type CityStyle = 'modernGlass' | 'european' | 'tokyoDense' | 'cyberpunk' | 'brutalist' | 'desert';
+export type CityTerrainStyle = 'flatlands' | 'coastline' | 'hills' | 'delta';
+export type CityViewPreset = 'orbit' | 'overhead' | 'isometric' | 'street' | 'cinematic';
+export type CityDistrictPreset = 'custom' | 'downtown' | 'suburbia' | 'industrialBelt' | 'mixedUse';
+
+export interface CityConfig {
+  citySize: number;
+  density: number;
+  blockSize: number;
+  streetPattern: CityStreetPattern;
+  districtPreset: CityDistrictPreset;
+  commercial: number;
+  residential: number;
+  industrial: number;
+  averageHeight: number;
+  heightVariance: number;
+  landmarkChance: number;
+  cityStyle: CityStyle;
+  riverProbability: number;
+  parksPercentage: number;
+  terrainRoughness: number;
+  terrainStyle: CityTerrainStyle;
+  exposure: number;
+  ambientFill: number;
+  sunPower: number;
+  sunHeight: number;
+  viewPreset: CityViewPreset;
+  seed: number;
+}
+
+export const DEFAULT_CITY_CONFIG: CityConfig = {
+  citySize: 18, density: 70, blockSize: 12, streetPattern: 'grid',
+  districtPreset: 'custom', commercial: 38, residential: 44, industrial: 18,
+  averageHeight: 30, heightVariance: 46, landmarkChance: 8,
+  cityStyle: 'modernGlass', riverProbability: 38, parksPercentage: 14,
+  terrainRoughness: 28, terrainStyle: 'coastline',
+  exposure: 122, ambientFill: 86, sunPower: 136, sunHeight: 96,
+  viewPreset: 'orbit', seed: 4172,
+};
+
+export type FlyMode = 'autopilot' | 'manual';
+
+export interface FlyConfig {
+  mode: FlyMode;
+  viewpoint: number;
+  fov: number;
+}
+
+export const DEFAULT_FLY_CONFIG: FlyConfig = {
+  mode: 'autopilot', viewpoint: 0, fov: 48,
+};
+
+export interface FlyHud {
+  mode: string;
+  altitude: number;
+  heading: string;
+}
+
+export interface CityStats {
+  structures: number;
+  parks: number;
+  styleName: string;
+}
