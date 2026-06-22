@@ -54,6 +54,7 @@ const PROVIDERS = new Set([
   'resend',
   'github',
   'supabase',
+  'meshy',
   'other',
 ]);
 
