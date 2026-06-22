@@ -1,20 +1,36 @@
 #!/usr/bin/env bash
-# Sync MESHYAI_API_KEY from stdin / clipboard → .env.cloudflare + Worker secret.
+# Sync MESHYAI_API_KEY → .env.cloudflare + Worker secret.
 #
-# Usage:
-#   pbpaste | ./scripts/sync-meshy-api-key.sh
-#   printf '%s' 'msk-...' | ./scripts/sync-meshy-api-key.sh
+# Usage (recommended — prompts for key, input hidden):
+#   ./scripts/sync-meshy-api-key.sh
+#
+# Optional:
+#   ./scripts/sync-meshy-api-key.sh --paste     # read from macOS clipboard
+#   printf '%s' 'msy-...' | ./scripts/sync-meshy-api-key.sh --stdin
 #   ./scripts/sync-meshy-api-key.sh --check
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CLOUD_ENV="$REPO_ROOT/.env.cloudflare"
 WRANGLER_CFG="$REPO_ROOT/wrangler.production.toml"
+MODE="prompt"
 CHECK_ONLY=false
 
-if [[ "${1:-}" == "--check" ]]; then
-  CHECK_ONLY=true
-fi
+for arg in "$@"; do
+  case "$arg" in
+    --check) CHECK_ONLY=true ;;
+    --paste) MODE="paste" ;;
+    --stdin) MODE="stdin" ;;
+    -h|--help)
+      sed -n '2,12p' "$0" | sed 's/^# \?//'
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $arg (try --help)" >&2
+      exit 1
+      ;;
+  esac
+done
 
 mask_key() {
   local v="$1"
@@ -40,6 +56,27 @@ line_status() {
   echo "$file: $(mask_key "$val")"
 }
 
+looks_like_meshy_key() {
+  local k="$1"
+  [[ "$k" =~ ^msy[-_][A-Za-z0-9_-]+$ ]] && return 0
+  [[ "$k" == "msy_dummy_api_key_for_test_mode_12345678" ]] && return 0
+  return 1
+}
+
+reject_bad_key() {
+  local k="$1"
+  if looks_like_meshy_key "$k"; then
+    return 0
+  fi
+  echo "ERROR: that does not look like a Meshy API key." >&2
+  echo "  Expected format: msy-... or msy_... (from meshy.ai → Settings → API)" >&2
+  echo "  Got preview: $(mask_key "$k")" >&2
+  if [[ "$k" == *"cd "* || "$k" == *"./scripts"* || "$k" == *"pbpaste"* || "$k" == *".sh"* ]]; then
+    echo "  Hint: your clipboard had shell commands, not the key. Copy the key from meshy.ai first." >&2
+  fi
+  exit 1
+}
+
 if [[ "$CHECK_ONLY" == true ]]; then
   line_status "$CLOUD_ENV" "MESHYAI_API_KEY"
   echo ""
@@ -47,21 +84,42 @@ if [[ "$CHECK_ONLY" == true ]]; then
   "$REPO_ROOT/scripts/with-cloudflare-env.sh" npx wrangler secret list -c "$WRANGLER_CFG" \
     | grep -E 'MESHYAI_API_KEY' || true
   echo ""
-  echo "To sync: pbpaste | ./scripts/sync-meshy-api-key.sh"
+  echo "To sync (interactive prompt): ./scripts/sync-meshy-api-key.sh"
   exit 0
 fi
 
-if [[ -t 0 ]]; then
-  read -rs KEY
-  echo
-else
-  KEY="$(cat)"
-fi
-KEY="$(printf '%s' "$KEY" | tr -d '\n\r')"
+KEY=""
+case "$MODE" in
+  prompt)
+    if [[ -p /dev/stdin ]] && [[ ! -t 0 ]]; then
+      echo "NOTE: stdin is piped — reading piped value. For a hidden prompt, run without pbpaste:" >&2
+      echo "      ./scripts/sync-meshy-api-key.sh" >&2
+      KEY="$(cat)"
+    else
+      echo "Paste your Meshy API key from meshy.ai → Settings → API (input hidden, Enter to submit):"
+      read -rs KEY
+      echo
+    fi
+    ;;
+  paste)
+    if ! command -v pbpaste >/dev/null 2>&1; then
+      echo "ERROR: pbpaste not found (macOS only). Use ./scripts/sync-meshy-api-key.sh instead." >&2
+      exit 1
+    fi
+    KEY="$(pbpaste)"
+    ;;
+  stdin)
+    KEY="$(cat)"
+    ;;
+esac
+
+KEY="$(printf '%s' "$KEY" | tr -d '\n\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
 if [[ -z "$KEY" ]]; then
   echo "ERROR: empty MESHYAI_API_KEY" >&2
   exit 1
 fi
+
+reject_bad_key "$KEY"
 
 if [[ ! -f "$CLOUD_ENV" ]]; then
   echo "ERROR: $CLOUD_ENV not found — copy from .env.cloudflare.example" >&2
