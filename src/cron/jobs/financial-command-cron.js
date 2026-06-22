@@ -1,10 +1,14 @@
 import { completeCronRun, failCronRun, startCronRun } from '../../core/cron-run-ledger.js';
 import { cronTenantId } from '../cron-tenant.js';
 import { notifySam } from '../notify-sam.js';
+import { runBillingReminderCron } from './billing-reminder-cron.js';
 
 /** Daily 09:00 UTC: compare spend_ledger today vs agentsam_guardrails cost_budget policy; email if over. */
 export async function runFinancialCommandCron(env, ctx) {
   if (!env.DB) return;
+  await runBillingReminderCron(env, ctx).catch((e) =>
+    console.warn('[cron] billing reminder hook', e?.message ?? e),
+  );
   const begun = await startCronRun(env, {
     jobName: 'financial_command_daily',
     cronExpression: '0 9 * * *',

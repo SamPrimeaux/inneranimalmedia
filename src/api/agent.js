@@ -2345,6 +2345,41 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
         });
       }
 
+      if (tenantId) {
+        try {
+          const calQ = await env.DB.prepare(
+            `SELECT id, title, description, start_datetime, end_datetime, event_type, status, color
+             FROM calendar_events
+             WHERE workspace_id IN (
+               SELECT id FROM agentsam_workspace WHERE tenant_id = ? LIMIT 20
+             )
+               AND event_type IN ('billing_reminder', 'billing_period')
+               AND date(start_datetime) <= date('now')
+               AND datetime(start_datetime) >= datetime('now', '-14 days')
+               AND status IN ('scheduled', 'reminded')
+             ORDER BY start_datetime DESC
+             LIMIT 10`,
+          ).bind(tenantId).all();
+          for (const r of calQ.results || []) {
+            const ts = toUnixSeconds(r.start_datetime);
+            const title = r.title != null ? String(r.title).trim() : 'Calendar reminder';
+            const desc = r.description != null ? String(r.description).trim() : '';
+            normalized.push({
+              id: `cal:${r.id}`,
+              type: 'billing',
+              title,
+              message: desc.slice(0, 240) || 'Billing reminder',
+              created_at: ts || Math.floor(Date.now() / 1000),
+              read: r.status === 'reminded',
+              meta: r,
+              subject: title,
+            });
+          }
+        } catch {
+          /* calendar_events optional */
+        }
+      }
+
       normalized.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
       const top = normalized.slice(0, 50);
       return jsonResponse({ notifications: top });
