@@ -87,6 +87,12 @@ export const PUBLIC_OAUTH_PATHS = [
   '/assets/glb',
   '/assets/scenes',
 
+  // MeauxChess public room client (ES module + Three.js chunks; no session required)
+  '/static/dashboard/app/games-room.js',
+  '/static/dashboard/app/chessSquares.js',
+  '/static/dashboard/app/glbAssets.js',
+  '/static/dashboard/app/vendor-three.js',
+
   // MovieMode globe proxy (main worker → moviemode-service)
   '/globe',
 
