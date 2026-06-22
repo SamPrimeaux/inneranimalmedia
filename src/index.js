@@ -383,6 +383,8 @@ export default {
         '/privacy': 'pages/privacy/index.html',
         '/learn': 'learn.html',
         '/games': 'pages/games/index.html',
+        '/bridge-5p5': 'pages/bridge-5p5/index.html',
+        '/bridge-5p5/': 'pages/bridge-5p5/index.html',
         '/start': 'start-project.html',
         // Old-school: serve the raw TSX guide from ASSETS R2
         '/apiguide/providers': 'ApiProviderGuide.tsx',
@@ -425,7 +427,8 @@ export default {
         // iam-header/iam-footer duplicates chrome and breaks fixed globe/canvas layout.
         const skipShellInject =
           (typeof assetHtmlKey === 'string' && assetHtmlKey.startsWith('pages/auth/')) ||
-          (typeof assetHtmlKey === 'string' && assetHtmlKey.startsWith('pages/games/'));
+          (typeof assetHtmlKey === 'string' && assetHtmlKey.startsWith('pages/games/')) ||
+          (typeof assetHtmlKey === 'string' && assetHtmlKey.startsWith('pages/bridge-5p5/'));
         let pageBody = obj.body;
         if (assetHtmlKey === 'pages/contact/index.html') {
           let htmlText = await obj.text();
