@@ -5,7 +5,8 @@
  *   CAD_DISPATCH_TARGET=gcp|container|auto  (default: gcp)
  *   CAD_CONTAINER_DISPATCH_ENABLED=1          → auto when target unset
  */
-import { dispatchCadJobToPty, probeCadComputeHealth as probeGcpCadHealth } from './cad-pty-executor.js';
+import { dispatchCadJobToPty } from './cad-pty-executor.js';
+import { probeExecOsCadHealth } from './execos-fabric.js';
 import { probeIamCadWorkerContainer, dispatchCadJobToContainer } from './iam-cad-worker-container.js';
 
 /** @param {any} env */
@@ -58,7 +59,7 @@ export async function dispatchCadJob(env, ctx, jobId, auth) {
  * @param {{ userId?: string|null, tenantId?: string|null, workspaceId?: string|null }} [ctx]
  */
 export async function probeCadComputeHealth(env, ctx = {}) {
-  const gcp = await probeGcpCadHealth(env, ctx);
+  const gcp = await probeExecOsCadHealth(env, ctx);
   const container = await probeIamCadWorkerContainer(env);
   const dispatchTarget = resolveCadDispatchTarget(env);
 
