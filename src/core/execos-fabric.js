@@ -159,8 +159,8 @@ export function resolveCadExecCwd(env, hints = {}) {
   '';
   if (explicit) return explicit;
 
-  // GCP iam-tunnel default (matches ExecOS docker/workspace layout + VM clone path)
-  return '/home/samprimeaux/workspace/tenant_sam_primeaux/au_871d920d1233cbd1/inneranimalmedia';
+  // GCP iam-tunnel default (verified via execos → gcp /run pwd)
+  return '/workspace/tenant_sam_primeaux/au_871d920d1233cbd1/inneranimalmedia';
 }
 
 /**
