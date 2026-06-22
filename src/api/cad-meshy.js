@@ -293,7 +293,10 @@ export async function handleCadMeshyApi(request, url, env, ctx) {
         scene_snapshot_id: scope.sceneSnapshotId,
         task_type: 'text-to-3d',
         credits_consumed: estimateTextTo3dPreviewCost(body),
-        texture_data: textureDataWithMeshySource(null, meshyAuth.source === 'byok' ? 'byok' : 'platform'),
+        texture_data: textureDataWithMeshySource(
+          { auto_refine: false, phase: 'preview' },
+          meshyAuth.source === 'byok' ? 'byok' : 'platform',
+        ),
       });
 
       return jsonResponse({
@@ -722,6 +725,7 @@ export async function handleCadMeshyApi(request, url, env, ctx) {
         job_id: jobId,
         status: applied.status || job.status,
         progress: applied.progress,
+        progress_pct: applied.progress ?? job.progress_pct ?? null,
         phase: applied.phase,
       });
     }

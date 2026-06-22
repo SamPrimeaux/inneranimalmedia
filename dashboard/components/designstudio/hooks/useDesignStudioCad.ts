@@ -299,11 +299,21 @@ export function useDesignStudioCad(opts: UseDesignStudioCadOpts = {}) {
       setError(null);
       try {
         const result = await meshyTextTo3dPreview({ ...scopeBody(), ...body });
+        if (result.stub) {
+          setMeshyStub(true);
+          setError(result.message || 'No Meshy API key configured. Add one in Settings → Keys.');
+          return result;
+        }
+        if (!result.job_id) {
+          setError('Meshy preview did not return a job id');
+          return result;
+        }
         setActiveJobId(result.job_id);
         await refreshJobs();
         return result;
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
+        if (msg.toLowerCase().includes('stub') || msg.includes('MESHY')) setMeshyStub(true);
         setError(msg);
         throw e;
       } finally {
@@ -318,12 +328,26 @@ export function useDesignStudioCad(opts: UseDesignStudioCadOpts = {}) {
       setBusy(true);
       setError(null);
       try {
-        const result = await meshyTextTo3dRefine({ ...scopeBody(), ...body });
+        const result = await meshyTextTo3dRefine({ ...scopeBody(), ...body } as {
+          preview_task_id: string;
+          enable_pbr?: boolean;
+          texture_prompt?: string;
+        });
+        if ((result as { stub?: boolean }).stub) {
+          setMeshyStub(true);
+          setError('No Meshy API key configured. Add one in Settings → Keys.');
+          return result;
+        }
+        if (!result.job_id) {
+          setError('Meshy refine did not return a job id');
+          return result;
+        }
         setActiveJobId(result.job_id);
         await refreshJobs();
         return result;
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
+        if (msg.toLowerCase().includes('stub') || msg.includes('MESHY')) setMeshyStub(true);
         setError(msg);
         throw e;
       } finally {

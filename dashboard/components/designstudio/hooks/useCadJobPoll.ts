@@ -49,7 +49,7 @@ export function useCadJobPoll(
           id: meshy.job_id,
           engine: 'meshy',
           status: meshy.status,
-          progress_pct: meshy.progress_pct,
+          progress_pct: meshy.progress_pct ?? meshy.progress,
           public_url: meshy.public_url,
         };
       } else if (engine) {
@@ -60,7 +60,7 @@ export function useCadJobPoll(
             id: meshy.job_id,
             engine: 'meshy',
             status: meshy.status,
-            progress_pct: meshy.progress_pct,
+            progress_pct: meshy.progress_pct ?? meshy.progress,
             public_url: meshy.public_url,
           }));
         } catch {

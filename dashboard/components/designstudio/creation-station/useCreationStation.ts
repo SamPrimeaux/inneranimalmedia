@@ -155,6 +155,11 @@ export function useCreationStation(cad: CadHook) {
       const result = await cad.runMeshyPreview(body);
       const resJson = JSON.stringify(result, null, 2);
       setLastResponse(resJson);
+      if (result.stub) {
+        setMeshyStub(true);
+        appendLog(result.message || 'Meshy not configured — add key in Settings → Keys', 'error');
+        return;
+      }
       if (result.task_id) {
         patchSettings({ preview_task_id: result.task_id });
         appendLog(`Preview task ${result.task_id}`, 'ok');

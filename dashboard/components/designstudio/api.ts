@@ -146,6 +146,7 @@ export async function pollMeshyStatus(jobId: string): Promise<{
   status: string;
   public_url?: string;
   progress_pct?: number;
+  progress?: number;
 }> {
   return jsonFetch(`/api/cad/meshy/status/${encodeURIComponent(jobId)}`);
 }
@@ -193,9 +194,12 @@ export async function fetchMeshyAnimationLibrary(): Promise<{
 }
 
 export async function meshyTextTo3dPreview(body: Record<string, unknown>): Promise<{
-  job_id: string;
-  task_id: string;
-  status: string;
+  job_id?: string;
+  task_id?: string;
+  status?: string;
+  stub?: boolean;
+  message?: string;
+  key_source?: string;
 }> {
   return jsonFetch('/api/cad/meshy/text-to-3d/preview', {
     method: 'POST',

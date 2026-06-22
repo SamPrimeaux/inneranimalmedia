@@ -72,6 +72,7 @@ export const DesignStudioPage: React.FC = () => {
   const pendingConsumedRef = useRef(false);
   const lastSpawnedJobRef = useRef<string | null>(null);
 
+  const [engineHostReady, setEngineHostReady] = useState(false);
   const [engineReady, setEngineReady] = useState(false);
   const [appState, setAppState] = useState<AppState>(AppState.EDITING);
   const [entityCount, setEntityCount] = useState(0);
@@ -247,7 +248,7 @@ export const DesignStudioPage: React.FC = () => {
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container) return;
+    if (!container || !engineHostReady) return;
 
     let cancelled = false;
     let engine: StudioEngine | null = null;
@@ -292,7 +293,7 @@ export const DesignStudioPage: React.FC = () => {
       engineRef.current = null;
       container.innerHTML = '';
     };
-  }, []);
+  }, [engineHostReady]);
 
   useEffect(() => {
     if (isAgentSamEngine(engineRef.current)) {
@@ -546,32 +547,6 @@ export const DesignStudioPage: React.FC = () => {
     a.click();
   }, [activeJobForBar]);
 
-  const handleViewportRectChange = useCallback((rect: DOMRect | null) => {
-    const container = containerRef.current;
-    const root = pageRootRef.current;
-    if (!container || !root) return;
-    if (!rect) {
-      container.style.left = '';
-      container.style.top = '';
-      container.style.width = '';
-      container.style.height = '';
-      container.style.right = '';
-      container.style.bottom = '';
-      container.classList.add('inset-0');
-      if (isAgentSamEngine(engineRef.current)) engineRef.current.handleResize();
-      return;
-    }
-    container.classList.remove('inset-0');
-    const rootRect = root.getBoundingClientRect();
-    container.style.left = `${rect.left - rootRect.left}px`;
-    container.style.top = `${rect.top - rootRect.top}px`;
-    container.style.width = `${rect.width}px`;
-    container.style.height = `${rect.height}px`;
-    container.style.right = 'auto';
-    container.style.bottom = 'auto';
-    if (isAgentSamEngine(engineRef.current)) engineRef.current.handleResize();
-  }, []);
-
   return (
     <div
       ref={pageRootRef}
@@ -580,9 +555,9 @@ export const DesignStudioPage: React.FC = () => {
       onDrop={handleFileDrop}
       onDragOver={(e) => e.preventDefault()}
     >
-      <div ref={containerRef} className="absolute inset-0 z-0" style={{ background: 'var(--scene-bg)' }} />
-
       <DesignStudioCreationStation
+        engineContainerRef={containerRef}
+        onEngineContainerMount={() => setEngineHostReady(true)}
         cad={cad}
         genConfig={genConfig}
         onUpdateGenConfig={handleUpdateGenConfig}
@@ -633,7 +608,6 @@ export const DesignStudioPage: React.FC = () => {
             onLoadScene={(id) => void handleLoadScene(id)}
             onDownloadLatestGlb={handleDownloadLatestGlb}
             activeJob={activeJobForBar}
-            onViewportRectChange={handleViewportRectChange}
       />
     </div>
   );

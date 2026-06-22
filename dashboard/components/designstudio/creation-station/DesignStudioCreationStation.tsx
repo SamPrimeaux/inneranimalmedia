@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PanelRight } from 'lucide-react';
 import { MeshyBalancePill } from '../MeshyBalancePill';
+import { MeshyPlatformNotice } from './MeshyPlatformNotice';
 import { MeshyToolRail, MobileMeshyToolStrip } from './MeshyToolRail';
 import { MeshyToolkitTweaks } from './MeshyToolkitTweaks';
 import { ApiInspector } from './ApiInspector';
@@ -50,7 +51,8 @@ export type DesignStudioCreationStationProps = {
   sceneConfig: SceneConfig;
   onUpdateSceneConfig: (c: Partial<SceneConfig>) => void;
   activeJob?: CadJobRow | null;
-  onViewportRectChange?: (rect: DOMRect | null) => void;
+  engineContainerRef?: React.RefObject<HTMLDivElement | null>;
+  onEngineContainerMount?: () => void;
 };
 
 export function DesignStudioCreationStation({
@@ -80,7 +82,8 @@ export function DesignStudioCreationStation({
   sceneConfig,
   onUpdateSceneConfig,
   activeJob,
-  onViewportRectChange,
+  engineContainerRef,
+  onEngineContainerMount,
 }: DesignStudioCreationStationProps) {
   const navigate = useNavigate();
   const cs = useCreationStation(cad);
@@ -91,41 +94,24 @@ export function DesignStudioCreationStation({
   const [apiOpen, setApiOpen] = useState(
     () => typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches,
   );
-  const viewportHostRef = React.useRef<HTMLDivElement>(null);
-
-  const syncViewportRect = useCallback(() => {
-    const el = viewportHostRef.current;
-    if (!el || !onViewportRectChange) return;
-    onViewportRectChange(el.getBoundingClientRect());
-  }, [onViewportRectChange]);
-
   const onSegmentChange = useCallback(
     (seg: StudioSegment) => {
       persistStudioSegment(seg);
       setStudioSegment(seg);
       setMobilePane('tools');
-      requestAnimationFrame(syncViewportRect);
     },
-    [syncViewportRect],
+    [],
   );
 
-  useEffect(() => {
-    if (!onViewportRectChange) return;
-    if (studioSegment !== 'advanced') {
-      onViewportRectChange(null);
-      return;
-    }
-    syncViewportRect();
-    const el = viewportHostRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => syncViewportRect());
-    ro.observe(el);
-    window.addEventListener('resize', syncViewportRect);
-    return () => {
-      ro.disconnect();
-      window.removeEventListener('resize', syncViewportRect);
-    };
-  }, [studioSegment, onViewportRectChange, syncViewportRect, apiOpen]);
+  const attachEngineContainer = useCallback(
+    (el: HTMLDivElement | null) => {
+      if (engineContainerRef) {
+        (engineContainerRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+      }
+      if (el) onEngineContainerMount?.();
+    },
+    [engineContainerRef, onEngineContainerMount],
+  );
 
   useEffect(() => {
     if (studioSegment !== 'advanced') return;
@@ -273,20 +259,46 @@ export function DesignStudioCreationStation({
           </div>
         </header>
 
-        <div className="flex-1 min-h-0 relative bg-[var(--scene-bg)] flex">
-          {advancedActive ? (
-            <div className="w-[42%] min-w-[240px] max-w-[50%] shrink-0 hidden md:flex">
-              <OpenScadEditorStrip
-                script={advScript}
-                onChange={(s) => {
-                  setAdvScript(s);
-                  setAdvDirty(true);
-                }}
-              />
+        <div className="flex-1 min-h-0 relative bg-[var(--scene-bg)] flex flex-col">
+          {(cs.meshyStub || cad.meshyStub || cad.error) && (
+            <div className="shrink-0 px-3 pt-2 space-y-2">
+              <MeshyPlatformNotice stub={cs.meshyStub || cad.meshyStub} />
+              {cad.error ? (
+                <p
+                  className="text-[11px] rounded-lg px-3 py-2 border leading-relaxed"
+                  style={{
+                    color: 'var(--text-main)',
+                    background: 'color-mix(in srgb, var(--solar-red, #f87171) 12%, transparent)',
+                    borderColor: 'color-mix(in srgb, var(--solar-red, #f87171) 35%, transparent)',
+                  }}
+                >
+                  {cad.error}
+                </p>
+              ) : null}
             </div>
-          ) : null}
-          <div ref={viewportHostRef} className="flex-1 min-w-0 relative">
-            {viewport}
+          )}
+          <div className="flex-1 min-h-0 flex">
+            {advancedActive ? (
+              <div className="w-[42%] min-w-[240px] max-w-[50%] shrink-0 hidden md:flex">
+                <OpenScadEditorStrip
+                  script={advScript}
+                  onChange={(s) => {
+                    setAdvScript(s);
+                    setAdvDirty(true);
+                  }}
+                />
+              </div>
+            ) : null}
+            <div className="flex-1 min-w-0 relative min-h-[240px]">
+              {engineContainerRef ? (
+                <div
+                  ref={attachEngineContainer}
+                  className="absolute inset-0 z-0"
+                  style={{ background: 'var(--scene-bg)' }}
+                />
+              ) : null}
+              <div className="absolute inset-0 z-10">{viewport}</div>
+            </div>
           </div>
           {cad.isGenerating && (progressPct ?? 0) >= 0 ? (
             <div className="absolute inset-x-0 bottom-0 z-20 px-4 pb-3 pointer-events-none">
