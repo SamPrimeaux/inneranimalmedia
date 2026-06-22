@@ -8,10 +8,8 @@ import {
   buildCadExportR2Key,
   buildCadAssetPublicUrl,
 } from '../core/cad-job-scope.js';
-import {
-  finalizeCadJobComplete,
-  ingestRemoteGlbToR2,
-} from '../core/cad-job-complete.js';
+import { finalizeCadJobComplete } from '../core/cad-job-complete.js';
+import { applyMeshyTaskToCadJob } from '../core/meshy-cad-sync.js';
 
 const MESHY_BASE = 'https://api.meshy.ai/openapi/v2';
 const OPENSCAD_BIN = '/opt/homebrew/bin/openscad';
@@ -50,45 +48,6 @@ async function insertCadJob(env, fields) {
       Number(fields.progress_pct) || 0,
     )
     .run();
-}
-
-/**
- * @param {any} env
- * @param {Record<string, unknown>} job
- * @param {Record<string, unknown>} scope
- */
-async function meshyIngestIfDone(env, ctx, job, scope, glbUrl) {
-  const url = String(glbUrl || '').trim();
-  if (!url || !scope.workspaceId || !scope.tenantId) return null;
-  try {
-    if (!job.workspace_id && scope.workspaceId) {
-      await env.DB.prepare(
-        `UPDATE agentsam_cad_jobs SET
-           workspace_id = ?, tenant_id = ?, project_id = COALESCE(?, project_id),
-           scene_snapshot_id = COALESCE(?, scene_snapshot_id), updated_at = unixepoch()
-         WHERE id = ?`,
-      )
-        .bind(scope.workspaceId, scope.tenantId, scope.projectId, scope.sceneSnapshotId, job.id)
-        .run();
-    }
-    const ingested = await ingestRemoteGlbToR2(env, {
-      tenantId: scope.tenantId || job.tenant_id,
-      workspaceId: scope.workspaceId || job.workspace_id,
-      jobId: String(job.id),
-      sourceUrl: url,
-    });
-    return finalizeCadJobComplete(env, ctx, {
-      job_id: job.id,
-      status: 'done',
-      r2_key: ingested.r2_key,
-      r2_bucket: ingested.r2_bucket,
-      public_url: ingested.public_url,
-      size_bytes: ingested.size_bytes,
-    });
-  } catch (e) {
-    console.warn('[cad/meshy] r2 ingest failed:', e?.message ?? e);
-    return null;
-  }
 }
 
 export async function handleCadApi(request, url, env, ctx) {
@@ -328,52 +287,29 @@ export async function handleCadApi(request, url, env, ctx) {
       }
 
       const pollData = await pollRes.json();
-      const statusMap = { PENDING: 'pending', IN_PROGRESS: 'running', SUCCEEDED: 'done', FAILED: 'failed' };
-      const newStatus = statusMap[pollData.status] || job.status;
-      const progress = Number(pollData.progress) || null;
-
-      if (newStatus === 'running' || newStatus === 'pending') {
-        await env.DB.prepare(
-          `UPDATE agentsam_cad_jobs SET status = ?, progress_pct = COALESCE(?, progress_pct), updated_at = unixepoch() WHERE id = ?`,
-        )
-          .bind(newStatus, progress, jobId)
-          .run();
-        return jsonResponse({ job_id: jobId, status: newStatus, progress });
+      const applied = await applyMeshyTaskToCadJob(env, ctx, pollData);
+      if (applied.ok && applied.status === 'failed') {
+        return jsonResponse({
+          job_id: jobId,
+          status: 'failed',
+          error: applied.error,
+        });
       }
-
-      if (newStatus === 'failed') {
-        const errMsg = pollData.message || pollData.error || 'Meshy generation failed';
-        await env.DB.prepare(
-          `UPDATE agentsam_cad_jobs SET status='failed', error=?, updated_at=unixepoch() WHERE id=?`,
-        )
-          .bind(errMsg, jobId)
-          .run();
-        ctx.waitUntil?.(
-          finalizeCadJobComplete(env, ctx, { job_id: jobId, status: 'failed', error: errMsg }).catch(
-            () => null,
-          ),
-        );
-        return jsonResponse({ job_id: jobId, status: 'failed', error: errMsg });
+      if (applied.ok && applied.status === 'done') {
+        return jsonResponse({
+          job_id: jobId,
+          status: 'done',
+          result_url: applied.public_url,
+          public_url: applied.public_url,
+          r2_key: applied.r2_key,
+          cms_asset: applied.cms_asset,
+          progress_pct: 100,
+        });
       }
-
-      const glbUrl = pollData.model_urls?.glb || pollData.model_url || null;
-      const scope = {
-        workspaceId: job.workspace_id,
-        tenantId: job.tenant_id,
-        projectId: job.project_id,
-        sceneSnapshotId: job.scene_snapshot_id,
-      };
-      const ingested = await meshyIngestIfDone(env, ctx, job, scope, glbUrl);
-      const publicUrl = ingested?.public_url || buildCadAssetPublicUrl(ingested?.r2_key) || glbUrl;
-
       return jsonResponse({
         job_id: jobId,
-        status: 'done',
-        result_url: publicUrl || glbUrl,
-        public_url: publicUrl,
-        r2_key: ingested?.r2_key ?? null,
-        cms_asset: ingested?.cms_asset ?? null,
-        progress_pct: 100,
+        status: applied.status || job.status,
+        progress: applied.progress,
       });
     }
 

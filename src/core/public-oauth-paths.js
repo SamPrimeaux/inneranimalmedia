@@ -80,6 +80,9 @@ export const PUBLIC_OAUTH_PATHS = [
   // CloudConvert job webhooks
   '/api/webhooks/cloudconvert',
 
+  // Meshy Design Studio CAD task webhooks
+  '/api/webhooks/meshy',
+
   // Public marketing 3D assets (contact hero, work globe scene, etc.)
   '/assets/glb',
   '/assets/scenes',

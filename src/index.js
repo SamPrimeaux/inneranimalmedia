@@ -58,6 +58,7 @@ import { handleCloudflareWebhook } from './api/webhooks/cloudflare.js';
 import { handleRealtimeKitWebhook } from './api/webhooks/realtimekit.js';
 import { handleStreamLiveWebhook, handleStreamVodWebhook } from './api/webhooks/stream.js';
 import { handleCloudConvertWebhook } from './api/webhooks/cloudconvert.js';
+import { handleMeshyWebhook } from './api/webhooks/meshy.js';
 import { recordAgentsamWebhookEvent } from './core/webhook-events-writer.js';
 import { getDashboardR2Object, getDashboardSpaHtmlShell } from './core/dashboard-r2-assets.js';
 import { isDashboardSpaShellPath, withDashboardEarlyHints } from './core/dashboard-early-hints.js';
@@ -262,6 +263,10 @@ export default {
 
       if (pathLower === '/api/webhooks/cloudconvert' && methodUpper === 'POST') {
         return handleCloudConvertWebhook(request, env, ctx);
+      }
+
+      if (pathLower === '/api/webhooks/meshy' && methodUpper === 'POST') {
+        return handleMeshyWebhook(request, env, ctx);
       }
 
       if (pathLower === '/api/webhooks/supabase' || pathLower === '/api/hooks/supabase') {
