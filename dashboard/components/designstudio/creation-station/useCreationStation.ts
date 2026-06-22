@@ -35,6 +35,13 @@ export function useCreationStation(cad: CadHook) {
   const [apiKeyDraft, setApiKeyDraft] = useState('');
   const [savingKey, setSavingKey] = useState(false);
 
+  // image-to-3d
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
+
+  // animate / rigging
+  const [rigTaskId, setRigTaskId] = useState('');
+
   const appendLog = useCallback(
     (text: string, level: LogLine['level'] = 'info', opts?: { open?: boolean }) => {
       appendStudioTerminalOutput(text, level, { open: opts?.open, tab: 'output' });
@@ -83,6 +90,8 @@ export function useCreationStation(cad: CadHook) {
   const previewCost = useMemo(() => estimatePreviewCost(settings), [settings]);
   const refineCost = estimateRefineCost();
   const ctaCost = meshyPhase === 'preview' ? previewCost : refineCost;
+
+  // ── text-to-3d ─────────────────────────────────────────────────────────────
 
   const runPreview = useCallback(async () => {
     const body = buildMeshyPreviewBody(settings);
@@ -155,6 +164,70 @@ export function useCreationStation(cad: CadHook) {
     }
   }, [settings, cad, appendLog, refreshBalance]);
 
+  // ── image-to-3d ────────────────────────────────────────────────────────────
+
+  const setImageFileWithPreview = useCallback((file: File | null) => {
+    setImageFile(file);
+    if (!file) { setImageDataUrl(null); return; }
+    const reader = new FileReader();
+    reader.onload = () => setImageDataUrl(reader.result as string);
+    reader.readAsDataURL(file);
+  }, []);
+
+  const runImageTo3D = useCallback(async () => {
+    if (!imageDataUrl) {
+      appendLog('Upload an image first', 'warn');
+      return;
+    }
+    const path = '/api/cad/meshy/generate';
+    const body = { mode: 'image', image_url: imageDataUrl, topology: 'triangle', should_texture: true };
+    setLastRequest(buildCurl('POST', path, body));
+    appendLog('Submitting image-to-3D…', 'info', { open: true });
+    try {
+      const result = await cad.runMeshyGenerate('image-to-3d', body);
+      setLastResponse(JSON.stringify(result, null, 2));
+      appendLog(`Image-to-3D job ${result?.job_id ?? 'queued'}`, 'ok');
+      void refreshBalance();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setLastResponse(JSON.stringify({ error: msg }, null, 2));
+      appendLog(msg, 'error');
+    }
+  }, [imageDataUrl, cad, appendLog, refreshBalance]);
+
+  // ── animate / rigging ──────────────────────────────────────────────────────
+
+  const runRig = useCallback(async () => {
+    const taskId = rigTaskId.trim();
+    if (!taskId) {
+      appendLog('Paste a source model task ID first', 'warn');
+      return;
+    }
+    const path = '/api/cad/meshy/rigging';
+    const body = { model_task_id: taskId, animation: 'walking' };
+    setLastRequest(buildCurl('POST', path, body));
+    appendLog('Submitting rigging job…', 'info', { open: true });
+    try {
+      const res = await fetch(path, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as { error?: string }).error || `HTTP ${res.status}`);
+      setLastResponse(JSON.stringify(data, null, 2));
+      appendLog(`Rigging job ${(data as { job_id?: string }).job_id ?? 'queued'}`, 'ok');
+      void refreshBalance();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setLastResponse(JSON.stringify({ error: msg }, null, 2));
+      appendLog(msg, 'error');
+    }
+  }, [rigTaskId, appendLog, refreshBalance]);
+
+  // ── api key ────────────────────────────────────────────────────────────────
+
   const saveMeshyApiKey = useCallback(async () => {
     const key = apiKeyDraft.trim();
     if (!key) return;
@@ -217,6 +290,15 @@ export function useCreationStation(cad: CadHook) {
     runPreview,
     runRefine,
     runQuickGenerate,
+    // image-to-3d
+    imageFile,
+    imageDataUrl,
+    setImageFile: setImageFileWithPreview,
+    runImageTo3D,
+    // animate
+    rigTaskId,
+    setRigTaskId,
+    runRig,
     openTerminal,
     refreshBalance,
     isGenerating: cad.isGenerating,
