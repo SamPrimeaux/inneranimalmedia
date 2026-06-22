@@ -89,6 +89,12 @@ const SKILL_PLAYBOOKS = [
     localRel: 'docs/skills-playbooks/data_engineering/SKILL.md',
     r2Key: 'skills/data_engineering/SKILL.md',
   },
+  {
+    skill_key: 'meshy_3d_designstudio',
+    skill_id: 'skill_meshy_3d_designstudio',
+    localRel: 'docs/skills-playbooks/meshy_3d_designstudio/SKILL.md',
+    r2Key: 'skills/meshy_3d_designstudio/SKILL.md',
+  },
 ];
 
 function parseArgs(argv) {
