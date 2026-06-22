@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Build + push iam-cad-worker container to Cloudflare Registry.
 # Requires: Docker Desktop running, wrangler logged in.
+# NOTE: --platform linux/amd64 required — CF Containers expect amd64.
+#       On Apple Silicon this uses QEMU emulation (~15-30 min first build).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -16,8 +18,11 @@ IMAGE="meauxcontainer-cad-worker:${TAG}"
 REGISTRY="registry.cloudflare.com/ede6590ac0d2fb7daf155b35653457b2"
 FULL="${REGISTRY}/${IMAGE}"
 
-echo "Building ${FULL} (repo root context) ..."
-docker build -f containers/iam-cad-worker/Dockerfile -t "${FULL}" .
+echo "Building ${FULL} for linux/amd64 (repo root context) ..."
+docker build \
+  --platform linux/amd64 \
+  -f containers/iam-cad-worker/Dockerfile \
+  -t "${FULL}" .
 
 echo "Pushing to Cloudflare registry ..."
 npx wrangler containers push "${FULL}"
