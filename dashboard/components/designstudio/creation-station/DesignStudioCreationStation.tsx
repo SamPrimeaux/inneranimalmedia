@@ -4,9 +4,9 @@ import { MeshyBalancePill } from '../MeshyBalancePill';
 import { MeshyToolRail, MobileMeshyToolStrip } from './MeshyToolRail';
 import { MeshyToolkitTweaks } from './MeshyToolkitTweaks';
 import { ApiInspector } from './ApiInspector';
-import { TerminalLogBar } from './TerminalLogBar';
 import { DEFAULT_SCAD, OpenScadEditorStrip } from './AdvancedOpenScadPanel';
 import { useCreationStation } from './useCreationStation';
+import { openStudioTerminal } from '../studioTerminalOutput';
 import { CS_GRID } from './layout';
 import {
   readStoredStudioSegment,
@@ -142,10 +142,8 @@ export function DesignStudioCreationStation({
   );
 
   const openTerminalWithLogs = useCallback(() => {
-    cs.setLogOpen(true);
-    window.dispatchEvent(new CustomEvent('iam-terminal-toggle', { detail: { open: true } }));
-    cs.openTerminal();
-  }, [cs]);
+    openStudioTerminal({ tab: 'output' });
+  }, []);
 
   const handleCreate = () => {
     openTerminalWithLogs();
@@ -313,7 +311,6 @@ export function DesignStudioCreationStation({
           ) : null}
         </div>
 
-        <TerminalLogBar logs={cs.logs} onOpenTerminal={openTerminalWithLogs} />
       </div>
 
       {apiOpen && (

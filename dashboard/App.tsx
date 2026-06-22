@@ -40,7 +40,7 @@ import {
 import { IAM_AGENT_ENSURE_PANEL, IAM_AGENT_RESUME_CHAT, openAgentConversation, resumeAgentChatSession } from './lib/openAgentConversation';
 import { resolveWorkspaceContextLabel } from './src/workspaceContextLabel';
 import { WorkspaceLauncher } from './components/WorkspaceLauncher';
-import type { XTermShellHandle } from './components/XTermShell';
+import type { XTermShellHandle, ShellTab } from './components/XTermShell';
 import { SecurityShieldBanner } from './components/SecurityShieldBanner';
 import { mapProblemsApiPayload, countProblemSeverities } from './src/lib/mapAgentProblems';
 import { ExtensionsPanel } from './components/ExtensionsPanel';
@@ -2295,10 +2295,15 @@ const App: React.FC = () => {
     };
     
     const onToggle = (e: Event) => {
-      const d = (e as CustomEvent<{ open?: boolean }>).detail;
+      const d = (e as CustomEvent<{ open?: boolean; tab?: ShellTab }>).detail;
       if (d && typeof d.open === 'boolean') {
         setIsTerminalOpen(d.open);
-        if (d.open) setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
+        if (d.open) {
+          setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
+          if (d.tab) {
+            setTimeout(() => terminalRef.current?.setActiveTab(d.tab), 50);
+          }
+        }
       } else {
         setIsTerminalOpen((p) => {
           const next = !p;
@@ -3197,6 +3202,20 @@ const App: React.FC = () => {
       setEditorPreviewStatus(null);
     }
   }, []);
+
+  useEffect(() => {
+    const onStudioOutput = (e: Event) => {
+      const d = (e as CustomEvent<{ line?: string; open?: boolean; tab?: ShellTab }>).detail;
+      if (!d?.line) return;
+      handleTerminalOutputLine(d.line);
+      if (!d.open) return;
+      setIsTerminalOpen(true);
+      setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
+      setTimeout(() => terminalRef.current?.setActiveTab(d.tab ?? 'output'), 50);
+    };
+    window.addEventListener('iam-terminal-output', onStudioOutput as EventListener);
+    return () => window.removeEventListener('iam-terminal-output', onStudioOutput as EventListener);
+  }, [handleTerminalOutputLine]);
 
   useEffect(() => {
     const onInvalidateActiveThemeFetch = () => {

@@ -11,6 +11,7 @@ import {
   type MeshyPhase,
   type MeshySettings,
 } from './meshyTypes';
+import { appendStudioTerminalOutput, openStudioTerminal } from '../studioTerminalOutput';
 
 import type { MeshyRailTool } from './meshyToolkitTypes';
 import { readStoredMeshyRail } from './meshyToolkitTypes';
@@ -25,10 +26,8 @@ export function useCreationStation(cad: CadHook) {
   const [activeTool, setActiveTool] = useState<CreationTool>(readStoredMeshyRail);
   const [panelOpen, setPanelOpen] = useState(true);
   const [apiOpen, setApiOpen] = useState(true);
-  const [logOpen, setLogOpen] = useState(false);
   const [meshyPhase, setMeshyPhase] = useState<MeshyPhase>('preview');
   const [settings, setSettings] = useState<MeshySettings>(DEFAULT_MESHY_SETTINGS);
-  const [logs, setLogs] = useState<LogLine[]>([]);
   const [lastRequest, setLastRequest] = useState('');
   const [lastResponse, setLastResponse] = useState('');
   const [balance, setBalance] = useState<number | null>(null);
@@ -36,9 +35,12 @@ export function useCreationStation(cad: CadHook) {
   const [apiKeyDraft, setApiKeyDraft] = useState('');
   const [savingKey, setSavingKey] = useState(false);
 
-  const appendLog = useCallback((text: string, level: LogLine['level'] = 'info') => {
-    setLogs((prev) => [...prev.slice(-199), { ts: Date.now(), level, text }]);
-  }, []);
+  const appendLog = useCallback(
+    (text: string, level: LogLine['level'] = 'info', opts?: { open?: boolean }) => {
+      appendStudioTerminalOutput(text, level, { open: opts?.open, tab: 'output' });
+    },
+    [],
+  );
 
   const refreshBalance = useCallback(async () => {
     try {
@@ -90,7 +92,7 @@ export function useCreationStation(cad: CadHook) {
     }
     const path = '/api/cad/meshy/text-to-3d/preview';
     setLastRequest(buildCurl('POST', path, body));
-    appendLog('Creating Meshy preview…', 'info');
+    appendLog('Creating Meshy preview…', 'info', { open: true });
     try {
       const result = await cad.runMeshyPreview(body);
       const resJson = JSON.stringify(result, null, 2);
@@ -115,7 +117,7 @@ export function useCreationStation(cad: CadHook) {
     }
     const path = '/api/cad/meshy/text-to-3d/refine';
     setLastRequest(buildCurl('POST', path, body));
-    appendLog('Starting Meshy refine…', 'info');
+    appendLog('Starting Meshy refine…', 'info', { open: true });
     try {
       const result = await cad.runMeshyRefine(body);
       setLastResponse(JSON.stringify(result, null, 2));
@@ -141,7 +143,7 @@ export function useCreationStation(cad: CadHook) {
     };
     const path = '/api/cad/meshy/generate';
     setLastRequest(buildCurl('POST', path, body));
-    appendLog('Quick generate (preview + refine)…', 'info');
+    appendLog('Quick generate (preview + refine)…', 'info', { open: true });
     try {
       const result = await cad.runMeshyGenerate(prompt, body);
       setLastResponse(JSON.stringify(result, null, 2));
@@ -180,18 +182,14 @@ export function useCreationStation(cad: CadHook) {
     }
   }, [apiKeyDraft, appendLog]);
 
-  const openTerminal = useCallback(
-    (cmd?: string) => {
-      window.dispatchEvent(new CustomEvent('iam:open-terminal'));
-      if (cmd) {
-        requestAnimationFrame(() => {
-          window.dispatchEvent(new CustomEvent('iam-run-command', { detail: { cmd } }));
-        });
-      }
-      appendLog(cmd ? `Terminal → ${cmd}` : 'Terminal opened', 'info');
-    },
-    [appendLog],
-  );
+  const openTerminal = useCallback((cmd?: string) => {
+    openStudioTerminal({ tab: cmd ? 'terminal' : 'output' });
+    if (cmd) {
+      requestAnimationFrame(() => {
+        window.dispatchEvent(new CustomEvent('iam-run-command', { detail: { cmd } }));
+      });
+    }
+  }, []);
 
   return {
     activeTool,
@@ -200,13 +198,10 @@ export function useCreationStation(cad: CadHook) {
     setPanelOpen,
     apiOpen,
     setApiOpen,
-    logOpen,
-    setLogOpen,
     meshyPhase,
     setMeshyPhase,
     settings,
     patchSettings,
-    logs,
     appendLog,
     lastRequest,
     lastResponse,

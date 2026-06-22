@@ -240,7 +240,7 @@ export function MeshyToolkitTweaks({
           style={{ background: 'linear-gradient(0deg, var(--bg-panel) 70%, transparent)' }}
         >
           <p className="text-[10px] text-center text-[var(--text-muted)] mb-2">
-            ~{cs.ctaCost} credits · opens terminal log
+            ~{cs.ctaCost} credits · opens terminal output
           </p>
           <button
             type="button"
