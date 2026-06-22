@@ -110,7 +110,7 @@ async function claimNextJob() {
   const rows = runD1Query(
     REPO_ROOT,
     `SELECT id FROM agentsam_cad_jobs
-     WHERE status = 'pending' AND engine IN ('openscad', 'blender')
+     WHERE status = 'pending' AND engine IN ('openscad', 'blender', 'freecad')
      ORDER BY created_at ASC LIMIT 1`,
   );
   if (!rows.length) return null;

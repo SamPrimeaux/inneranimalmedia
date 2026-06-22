@@ -41,7 +41,8 @@ Worker flow:
 2. `POST /api/cad/jobs/:id/execute` → `pending`
 3. Runner claims job → GLB in R2 → `cms_assets` + `scene_snapshots` link via job-complete
 | `run-freecad.sh` | Headless FreeCADCmd / AppImage → Python script |
-| `install-freecad-appimage.sh` | Install FreeCAD AppImage on Linux GCP VM (`--remote` from Mac) |
+| `install-freecad-appimage.sh` | Install AppImage on Linux VM (`--remote-download` skips Mac SCP) |
+| `install-freecad-appimage.sh --remote-apt` | apt install freecad (older, no upload) |
 | `containers/iam-cad-worker/` | CF Container image (OpenSCAD/Blender/FreeCAD) — smoke before enabling `CAD_DISPATCH_TARGET` |
 | `freecad-check.sh` | Exit 0 if FreeCAD CLI found |
 | `pipeline-smoke.sh` | Temp dir; minimal cube `.scad` → `.stl` → `.glb` |

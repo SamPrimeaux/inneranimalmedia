@@ -138,6 +138,9 @@ export function routingTaskTypeCandidates(task_type, mode = '') {
   if (tt === 'plan' || md === 'plan') {
     return ['plan', 'agent', 'chat'];
   }
+  if (tt === 'designstudio_cad_script' || tt === 'cad_generation') {
+    return [tt];
+  }
   return [tt];
 }
 
@@ -176,6 +179,7 @@ export function normalizeCanonicalTaskType(task_type) {
   if (tt === 'terminal_execution') return 'agent';
   if (tt === 'plan' || tt === 'research' || tt === 'plan_pipeline') return 'plan';
   if (tt === 'debug' || tt === 'debug_live_page' || tt === 'browser_ui_repair') return 'debug';
+  if (tt === 'designstudio_cad_script' || tt === 'cad_generation') return tt;
   if (tt === 'embedding') return 'ask';
   if (
     [

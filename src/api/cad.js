@@ -16,8 +16,157 @@ import {
   resolveCadDispatchTarget,
 } from '../core/cad-dispatch.js';
 import { handleCadMeshyApi } from './cad-meshy.js';
+import { resolveModelForTask } from '../core/resolveModel.js';
+import { dispatchComplete } from '../core/provider.js';
 
 const OPENSCAD_BIN = '/opt/homebrew/bin/openscad';
+const CAD_SCRIPT_TASK_TYPE = 'designstudio_cad_script';
+
+const OPENSCAD_SYSTEM_PROMPT = `You are an OpenSCAD expert. Output ONLY valid OpenSCAD code.
+No markdown fences, no explanation, no comments unless they are OpenSCAD inline comments.
+The code must be immediately runnable with: openscad -o output.stl input.scad
+Use parametric variables at the top. Make the model well-structured and printable.`;
+
+const FREECAD_SYSTEM_PROMPT = `You are a FreeCAD Python API expert. Output ONLY a valid FreeCAD Python script for headless FreeCADCmd.
+The script must:
+- Use import FreeCAD, Part, Mesh, Import as needed
+- Create or modify the requested geometry
+- Export mesh to STL as "output.stl" in the current working directory (Mesh.export or Part.export)
+  OR write /tmp/output.stl — required for viewport GLB ingest
+- Use print() for progress messages
+No markdown fences, no explanation. Pure Python only.`;
+
+const BLENDER_SYSTEM_PROMPT = `You are a Blender Python API expert. Output ONLY a valid Blender Python script using bpy.
+The script must:
+- Clear the default scene (delete default cube)
+- Create the requested geometry using bpy.ops or bpy.data
+- Set up basic lighting
+- Export to GLB: bpy.ops.export_scene.gltf(filepath=OUTPUT_GLB, export_format='GLB')
+Use OUTPUT_GLB as the filepath variable defined at the top of the script.
+No markdown, no explanation. Pure Python only.`;
+
+function extractDispatchText(result) {
+  if (!result) return '';
+  if (typeof result === 'string') return result;
+  return (
+    result?.content?.[0]?.text ||
+    result?.choices?.[0]?.message?.content ||
+    result?.text ||
+    result?.output_text ||
+    ''
+  );
+}
+
+function stripMarkdownFences(text) {
+  return String(text || '')
+    .replace(/^```[\w]*\n?/gm, '')
+    .replace(/```$/gm, '')
+    .trim();
+}
+
+function encodeCadScriptPayload(script) {
+  const raw = String(script || '');
+  if (!raw) return '';
+  return raw.length > 4000 ? 'b64:' + btoa(unescape(encodeURIComponent(raw))) : raw;
+}
+
+/**
+ * @param {any} env
+ * @param {{
+ *   authUser: { id: string, tenant_id?: string | null },
+ *   scope: Awaited<ReturnType<typeof resolveCadJobScope>>,
+ *   engine: string,
+ *   prompt: string,
+ *   systemPrompt: string,
+ *   userContent: string,
+ *   mode?: string,
+ *   extraTextureData?: Record<string, unknown>,
+ *   requestedModelKey?: string | null,
+ *   maxScriptLen?: number,
+ * }} opts
+ */
+async function generateCadScriptJob(env, opts) {
+  const {
+    authUser,
+    scope,
+    engine,
+    prompt,
+    systemPrompt,
+    userContent,
+    mode = 'text',
+    extraTextureData = {},
+    requestedModelKey = null,
+    maxScriptLen = 8000,
+  } = opts;
+
+  const resolved = await resolveModelForTask(env, {
+    task_type: CAD_SCRIPT_TASK_TYPE,
+    mode: 'agent',
+    workspace_id: scope.workspaceId,
+    tenant_id: scope.tenantId,
+    require_tools: false,
+    ...(requestedModelKey ? { requested_model_key: String(requestedModelKey).trim() } : {}),
+  });
+  if (!resolved?.model_key) {
+    return { error: 'model_resolve_empty', status: 503 };
+  }
+
+  let result;
+  try {
+    result = await dispatchComplete(env, {
+      modelKey: resolved.model_key,
+      taskType: CAD_SCRIPT_TASK_TYPE,
+      systemPrompt,
+      messages: [{ role: 'user', content: userContent }],
+      userId: authUser.id,
+      options: { maxOutputTokens: 4096, reasoningEffort: 'medium', verbosity: 'low' },
+    });
+  } catch (e) {
+    return { error: String(e?.message || e), status: 502 };
+  }
+
+  const script = stripMarkdownFences(extractDispatchText(result)).slice(0, maxScriptLen);
+  if (!script.trim()) {
+    return { error: 'empty_script_generation', status: 502 };
+  }
+
+  const jobId = 'cadj_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+  const scriptStored = encodeCadScriptPayload(script);
+  const textureMeta = {
+    ...extraTextureData,
+    script_model_key: resolved.model_key,
+    ...(resolved.routing_arm_id ? { script_routing_arm_id: resolved.routing_arm_id } : {}),
+  };
+
+  await insertCadJob(env, {
+    id: jobId,
+    user_id: authUser.id,
+    session_id: scope.sessionId,
+    engine,
+    prompt,
+    mode,
+    status: 'script_ready',
+    r2_key: scriptStored,
+    workspace_id: scope.workspaceId,
+    tenant_id: scope.tenantId,
+    project_id: scope.projectId,
+    scene_snapshot_id: scope.sceneSnapshotId,
+  });
+
+  if (Object.keys(textureMeta).length) {
+    await env.DB.prepare(`UPDATE agentsam_cad_jobs SET texture_data = ? WHERE id = ?`)
+      .bind(JSON.stringify(textureMeta), jobId)
+      .run();
+  }
+
+  return {
+    jobId,
+    script,
+    model_key: resolved.model_key,
+    routing_arm_id: resolved.routing_arm_id ?? null,
+    resolution_source: resolved.resolution_source ?? null,
+  };
+}
 
 /**
  * @param {any} env
@@ -240,61 +389,73 @@ export async function handleCadApi(request, url, env, ctx) {
       const reqCtx = await resolveRequestContext(request, env);
       if (reqCtx.error) return jsonResponse({ error: 'Unauthorized' }, 401);
       const authUser = { id: reqCtx.userId, tenant_id: reqCtx.tenantId };
-      if (!env.ANTHROPIC_API_KEY) return jsonResponse({ error: 'ANTHROPIC_API_KEY not configured' }, 503);
       if (!env.DB) return jsonResponse({ error: 'Database not configured' }, 503);
 
       const body = await request.json().catch(() => ({}));
-      const { prompt } = body;
+      const { prompt, model_key: requestedModelKey } = body;
       if (!prompt) return jsonResponse({ error: 'prompt required' }, 400);
 
       const scope = await resolveCadJobScope(env, request, authUser, body);
-      const jobId = 'cadj_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
-
-      const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': env.ANTHROPIC_API_KEY,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 4096,
-          system: `You are an OpenSCAD expert. Output ONLY valid OpenSCAD code.
-No markdown fences, no explanation, no comments unless they are OpenSCAD inline comments.
-The code must be immediately runnable with: openscad -o output.stl input.scad
-Use parametric variables at the top. Make the model well-structured and printable.`,
-          messages: [{ role: 'user', content: `Create an OpenSCAD model: ${prompt}` }],
-        }),
-      });
-
-      if (!aiRes.ok) return jsonResponse({ error: 'AI service error' }, 502);
-      const aiData = await aiRes.json();
-      const script = aiData.content?.[0]?.text || '';
-      const scriptStored =
-        script.length > 4000 ? 'b64:' + btoa(unescape(encodeURIComponent(script))) : script;
-
-      await insertCadJob(env, {
-        id: jobId,
-        user_id: authUser.id,
-        session_id: scope.sessionId,
+      const generated = await generateCadScriptJob(env, {
+        authUser,
+        scope,
         engine: 'openscad',
         prompt,
-        mode: 'text',
-        status: 'script_ready',
-        r2_key: scriptStored,
-        workspace_id: scope.workspaceId,
-        tenant_id: scope.tenantId,
-        project_id: scope.projectId,
-        scene_snapshot_id: scope.sceneSnapshotId,
+        systemPrompt: OPENSCAD_SYSTEM_PROMPT,
+        userContent: `Create an OpenSCAD model: ${prompt}`,
+        requestedModelKey: requestedModelKey ?? null,
       });
+      if (generated.error) {
+        return jsonResponse({ error: generated.error }, generated.status || 500);
+      }
 
       return jsonResponse({
-        job_id: jobId,
-        script,
+        job_id: generated.jobId,
+        script: generated.script,
         status: 'script_ready',
         engine: 'openscad',
+        model_key: generated.model_key,
+        routing_arm_id: generated.routing_arm_id,
         openscad_bin: OPENSCAD_BIN,
+        next_step: 'POST /api/cad/jobs/{job_id}/execute',
+      });
+    }
+
+    if (path === '/api/cad/freecad/script' && method === 'POST') {
+      const reqCtx = await resolveRequestContext(request, env);
+      if (reqCtx.error) return jsonResponse({ error: 'Unauthorized' }, 401);
+      const authUser = { id: reqCtx.userId, tenant_id: reqCtx.tenantId };
+      if (!env.DB) return jsonResponse({ error: 'Database not configured' }, 503);
+
+      const body = await request.json().catch(() => ({}));
+      const { prompt, input_url, model_key: requestedModelKey } = body;
+      if (!prompt) return jsonResponse({ error: 'prompt required' }, 400);
+
+      const scope = await resolveCadJobScope(env, request, authUser, body);
+      const inputUrl = input_url != null ? String(input_url).trim() : '';
+      const generated = await generateCadScriptJob(env, {
+        authUser,
+        scope,
+        engine: 'freecad',
+        prompt,
+        systemPrompt: FREECAD_SYSTEM_PROMPT,
+        userContent: `Create a FreeCAD Python script for: ${prompt}${
+          inputUrl ? `\nInput file URL (optional load): ${inputUrl.slice(0, 500)}` : ''
+        }`,
+        extraTextureData: inputUrl ? { input_url: inputUrl } : {},
+        requestedModelKey: requestedModelKey ?? null,
+      });
+      if (generated.error) {
+        return jsonResponse({ error: generated.error }, generated.status || 500);
+      }
+
+      return jsonResponse({
+        job_id: generated.jobId,
+        script: generated.script,
+        status: 'script_ready',
+        engine: 'freecad',
+        model_key: generated.model_key,
+        routing_arm_id: generated.routing_arm_id,
         next_step: 'POST /api/cad/jobs/{job_id}/execute',
       });
     }
@@ -385,69 +546,35 @@ Use parametric variables at the top. Make the model well-structured and printabl
       const reqCtx = await resolveRequestContext(request, env);
       if (reqCtx.error) return jsonResponse({ error: 'Unauthorized' }, 401);
       const authUser = { id: reqCtx.userId, tenant_id: reqCtx.tenantId };
-      if (!env.ANTHROPIC_API_KEY) return jsonResponse({ error: 'ANTHROPIC_API_KEY not configured' }, 503);
       if (!env.DB) return jsonResponse({ error: 'Database not configured' }, 503);
 
       const body = await request.json().catch(() => ({}));
-      const { prompt, scene_json } = body;
+      const { prompt, scene_json, model_key: requestedModelKey } = body;
       if (!prompt) return jsonResponse({ error: 'prompt required' }, 400);
 
       const scope = await resolveCadJobScope(env, request, authUser, body);
-      const jobId = 'cadj_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
-
-      const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': env.ANTHROPIC_API_KEY,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 4096,
-          system: `You are a Blender Python API expert. Output ONLY a valid Blender Python script using bpy.
-The script must:
-- Clear the default scene (delete default cube)
-- Create the requested geometry using bpy.ops or bpy.data
-- Set up basic lighting
-- Export to GLB: bpy.ops.export_scene.gltf(filepath=OUTPUT_GLB, export_format='GLB')
-Use OUTPUT_GLB as the filepath variable defined at the top of the script.
-No markdown, no explanation. Pure Python only.`,
-          messages: [
-            {
-              role: 'user',
-              content: `Create a Blender script for: ${prompt}${scene_json ? '\nExisting scene: ' + JSON.stringify(scene_json).slice(0, 500) : ''}`,
-            },
-          ],
-        }),
-      });
-
-      if (!aiRes.ok) return jsonResponse({ error: 'AI service error' }, 502);
-      const aiData = await aiRes.json();
-      const script = aiData.content?.[0]?.text || '';
-      const scriptStored =
-        script.length > 4000 ? 'b64:' + btoa(unescape(encodeURIComponent(script))) : script.slice(0, 8000);
-
-      await insertCadJob(env, {
-        id: jobId,
-        user_id: authUser.id,
-        session_id: scope.sessionId,
+      const generated = await generateCadScriptJob(env, {
+        authUser,
+        scope,
         engine: 'blender',
         prompt,
-        mode: 'text',
-        status: 'script_ready',
-        r2_key: scriptStored,
-        workspace_id: scope.workspaceId,
-        tenant_id: scope.tenantId,
-        project_id: scope.projectId,
-        scene_snapshot_id: scope.sceneSnapshotId,
+        systemPrompt: BLENDER_SYSTEM_PROMPT,
+        userContent: `Create a Blender script for: ${prompt}${
+          scene_json ? '\nExisting scene: ' + JSON.stringify(scene_json).slice(0, 500) : ''
+        }`,
+        requestedModelKey: requestedModelKey ?? null,
       });
+      if (generated.error) {
+        return jsonResponse({ error: generated.error }, generated.status || 500);
+      }
 
       return jsonResponse({
-        job_id: jobId,
-        script,
+        job_id: generated.jobId,
+        script: generated.script,
         status: 'script_ready',
         engine: 'blender',
+        model_key: generated.model_key,
+        routing_arm_id: generated.routing_arm_id,
         next_step: 'POST /api/cad/jobs/{job_id}/execute',
       });
     }
