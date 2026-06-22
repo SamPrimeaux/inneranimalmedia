@@ -11,7 +11,7 @@ type Props = Omit<ChatAssistantProps, 'activeProject'> & {
 
 /** Syncs Design Studio mode into ChatAssistant contextMode when on /dashboard/designstudio. */
 export function ChatAssistantWithStudioContext({
-  fallbackProject = ProjectType.SANDBOX,
+  fallbackProject = ProjectType.CAD,
   ...props
 }: Props) {
   const location = useLocation();

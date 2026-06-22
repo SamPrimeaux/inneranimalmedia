@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
-import { ChevronDown, Download, Layers } from 'lucide-react';
+import { Download, Layers } from 'lucide-react';
 import { ArtStyle, CADPlane, CADTool, type CustomAsset, type GenerationConfig } from '../../types';
-import { BlueprintPanel } from './BlueprintPanel';
-import { CadGeneratePanel } from './CadGeneratePanel';
-import { CadJobPanel } from './CadJobPanel';
-import { AssetLibrary } from './shared/AssetLibrary';
-import { ScenePanel, type SavedSceneRow } from './shared/ScenePanel';
-import type { useDesignStudioCad } from './hooks/useDesignStudioCad';
-import type { CadJobRow } from './api';
+import { BlueprintPanel } from '../BlueprintPanel';
+import { CadGeneratePanel } from '../CadGeneratePanel';
+import { CadJobPanel } from '../CadJobPanel';
+import { AssetLibrary } from '../shared/AssetLibrary';
+import { ScenePanel, type SavedSceneRow } from '../shared/ScenePanel';
+import type { useDesignStudioCad } from '../hooks/useDesignStudioCad';
+import type { CadJobRow } from '../api';
 
 type CadHook = ReturnType<typeof useDesignStudioCad>;
 
@@ -34,7 +34,7 @@ type Props = {
   onUpdateGenConfig: (cfg: Partial<GenerationConfig>) => void;
 };
 
-export function CadToolDock({
+export function CadPipelinePanel({
   cad,
   sceneName,
   onSceneNameChange,
@@ -67,7 +67,7 @@ export function CadToolDock({
       : null;
 
   return (
-    <div className="space-y-6 flex-1 pb-8">
+    <div className="space-y-4">
       <BlueprintPanel
         blueprints={cad.blueprints}
         activeBlueprintId={cad.activeBlueprintId}
@@ -98,9 +98,7 @@ export function CadToolDock({
         onDeploy={onDeployJob}
       />
 
-      {cad.error ? (
-        <p className="text-[10px] text-red-400 px-1">{cad.error}</p>
-      ) : null}
+      {cad.error ? <p className="text-[10px] text-red-400 px-1">{cad.error}</p> : null}
 
       <ScenePanel
         sceneName={sceneName}
@@ -119,34 +117,34 @@ export function CadToolDock({
         onAddCustomAsset={onAddCustomAsset}
         onRemoveCustomAsset={onRemoveCustomAsset}
         onRefreshUserAssets={onRefreshUserAssets}
-        showDirectUrlLoader={false}
+        showDirectUrlLoader
       />
 
-      <section className="bg-[var(--bg-hover)] p-4 rounded-2xl border border-[var(--border-subtle)] space-y-2">
+      <section className="bg-[var(--bg-hover)] p-3 rounded-2xl border border-[var(--border-subtle)] space-y-2">
         <button
           type="button"
           onClick={() => setSketchOpen((v) => !v)}
           className="w-full flex items-center justify-between text-[10px] font-black text-[var(--text-muted)] uppercase tracking-[0.2em]"
         >
           <span className="flex items-center gap-2">
-            <Layers size={14} className="text-cyan-400" />
+            <Layers size={14} style={{ color: 'var(--solar-cyan)' }} />
             Sketch (plane & extrusion)
           </span>
-          <ChevronDown size={14} className={`transition-transform ${sketchOpen ? 'rotate-180' : ''}`} />
         </button>
         {sketchOpen && (
-          <div className="space-y-3 pt-2">
+          <div className="space-y-3 pt-1">
             <div className="flex gap-2">
               {[CADPlane.XZ, CADPlane.XY, CADPlane.YZ].map((p) => (
                 <button
                   key={p}
                   type="button"
                   onClick={() => onUpdateGenConfig({ cadPlane: p })}
-                  className={`flex-1 py-1.5 rounded-lg text-[9px] font-black uppercase border ${
-                    genConfig.cadPlane === p
-                      ? 'bg-cyan-500 text-black border-cyan-500'
-                      : 'bg-[var(--bg-panel)] text-[var(--text-muted)] border-[var(--border-subtle)]'
-                  }`}
+                  className="flex-1 py-1.5 rounded-lg text-[9px] font-black uppercase border"
+                  style={{
+                    background: genConfig.cadPlane === p ? 'var(--solar-cyan)' : 'var(--bg-panel)',
+                    color: genConfig.cadPlane === p ? 'var(--bg-app)' : 'var(--text-muted)',
+                    borderColor: genConfig.cadPlane === p ? 'var(--solar-cyan)' : 'var(--border-subtle)',
+                  }}
                 >
                   {p}
                 </button>
@@ -155,7 +153,9 @@ export function CadToolDock({
             <div>
               <div className="flex justify-between text-[9px] text-[var(--text-muted)] mb-1">
                 <span>Extrusion</span>
-                <span className="font-mono text-cyan-400">{genConfig.extrusion}</span>
+                <span className="font-mono" style={{ color: 'var(--solar-cyan)' }}>
+                  {genConfig.extrusion}
+                </span>
               </div>
               <input
                 type="range"
@@ -163,7 +163,8 @@ export function CadToolDock({
                 max={30}
                 value={genConfig.extrusion}
                 onChange={(e) => onUpdateGenConfig({ extrusion: parseInt(e.target.value, 10) })}
-                className="w-full accent-cyan-500"
+                className="w-full"
+                style={{ accentColor: 'var(--solar-cyan)' }}
               />
             </div>
             <p className="text-[9px] text-[var(--text-muted)]">
@@ -178,7 +179,7 @@ export function CadToolDock({
           <button
             type="button"
             onClick={onDownloadLatestGlb}
-            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-[var(--border-subtle)] text-[10px] font-black uppercase"
+            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-[var(--border-subtle)] text-[10px] font-black uppercase text-[var(--text-main)]"
           >
             <Download size={14} />
             Download Latest GLB

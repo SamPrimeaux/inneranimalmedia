@@ -174,6 +174,28 @@ export function useDesignStudioCad(opts: UseDesignStudioCadOpts = {}) {
     [activeJobId, scopeBody, refreshJobs],
   );
 
+  const saveBlueprintScript = useCallback(
+    async (script: string) => {
+      if (!activeBlueprintId) return null;
+      setBusy(true);
+      setError(null);
+      try {
+        await patchBlueprint(activeBlueprintId, {
+          cad_script: script,
+          cad_engine: 'openscad',
+        });
+        await refreshBlueprints();
+        return true;
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+        throw e;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [activeBlueprintId, refreshBlueprints],
+  );
+
   const runMeshyGenerate = useCallback(
     async (prompt: string, extra?: Record<string, unknown>) => {
       if (!prompt.trim()) {
@@ -294,6 +316,7 @@ export function useDesignStudioCad(opts: UseDesignStudioCadOpts = {}) {
     createNewBlueprint,
     runOpenScadGenerate,
     runExecuteJob,
+    saveBlueprintScript,
     runMeshyGenerate,
     runMeshyPreview,
     runMeshyRefine,

@@ -12,14 +12,17 @@ import {
   type MeshySettings,
 } from './meshyTypes';
 
-export type CreationTool = 'text-to-3d' | 'import' | 'blender' | 'scene';
+import type { MeshyRailTool } from './meshyToolkitTypes';
+import { readStoredMeshyRail } from './meshyToolkitTypes';
+
+export type CreationTool = MeshyRailTool;
 
 export type LogLine = { ts: number; level: 'info' | 'warn' | 'error' | 'ok'; text: string };
 
 type CadHook = ReturnType<typeof useDesignStudioCad>;
 
 export function useCreationStation(cad: CadHook) {
-  const [activeTool, setActiveTool] = useState<CreationTool>('text-to-3d');
+  const [activeTool, setActiveTool] = useState<CreationTool>(readStoredMeshyRail);
   const [panelOpen, setPanelOpen] = useState(true);
   const [apiOpen, setApiOpen] = useState(true);
   const [logOpen, setLogOpen] = useState(false);

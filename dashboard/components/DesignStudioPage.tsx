@@ -6,10 +6,6 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { normalizeGlbUrl } from '../lib/glbAssets';
 import { UIOverlay } from './UIOverlay';
 import { DesignStudioCreationStation } from './designstudio/creation-station/DesignStudioCreationStation';
-import {
-  DesignStudioLeftPanel,
-  readStoredDesignStudioProject,
-} from './designstudio/DesignStudioLeftPanel';
 import { useDesignStudioCad } from './designstudio/hooks/useDesignStudioCad';
 import { spawnGlbInEngine } from './designstudio/spawnGlb';
 import { useDesignStudioContext } from './designstudio/DesignStudioContext';
@@ -29,21 +25,13 @@ import {
   CADTool,
   CADPlane,
   CustomAsset,
-  DEFAULT_CITY_CONFIG,
-  DEFAULT_FLY_CONFIG,
-  type CityConfig,
-  type FlyConfig,
-  type FlyHud,
-  type CityStats,
 } from '../types';
 
-const ENGINEER_MODES = new Set<ProjectType>([ProjectType.CITY, ProjectType.FLY]);
+const ACTIVE_PROJECT = ProjectType.CAD;
 
 type VoxelEngineClass = typeof import('../services/VoxelEngine').VoxelEngine;
 type VoxelEngineInstance = InstanceType<VoxelEngineClass>;
-type EngineerEngineClass = typeof import('../services/AgentSamEngineerEngine').AgentSamEngineerEngine;
-type EngineerEngineInstance = InstanceType<EngineerEngineClass>;
-type StudioEngine = VoxelEngineInstance | EngineerEngineInstance;
+type StudioEngine = VoxelEngineInstance;
 
 type PendingGlbState = { pendingGlb?: { url: string; name: string } };
 
@@ -56,10 +44,6 @@ type StudioStockAsset = {
 
 function isVoxelEngine(engine: StudioEngine | null): engine is VoxelEngineInstance {
   return engine != null && 'setProjectType' in engine;
-}
-
-function isEngineerEngine(engine: StudioEngine | null): engine is EngineerEngineInstance {
-  return engine != null && 'updateCityConfig' in engine;
 }
 
 function parseStudioAssetApiRow(row: {
@@ -83,11 +67,11 @@ export const DesignStudioPage: React.FC = () => {
   const { setStudioContext } = useDesignStudioContext();
   const containerRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<StudioEngine | null>(null);
+  const pageRootRef = useRef<HTMLDivElement>(null);
   const pendingConsumedRef = useRef(false);
   const lastSpawnedJobRef = useRef<string | null>(null);
 
   const [engineReady, setEngineReady] = useState(false);
-  const [activeProject, setActiveProject] = useState<ProjectType>(readStoredDesignStudioProject);
   const [appState, setAppState] = useState<AppState>(AppState.EDITING);
   const [voxelCount, setVoxelCount] = useState(0);
   const [customAssets, setCustomAssets] = useState<CustomAsset[]>([]);
@@ -96,11 +80,6 @@ export const DesignStudioPage: React.FC = () => {
   const [currentSceneId, setCurrentSceneId] = useState<string | null>(null);
   const [linkedCadJobId, setLinkedCadJobId] = useState<string | null>(null);
   const [linkedGlbR2Key, setLinkedGlbR2Key] = useState<string | null>(null);
-
-  const [cityConfig, setCityConfig] = useState<CityConfig>(DEFAULT_CITY_CONFIG);
-  const [flyConfig, setFlyConfig] = useState<FlyConfig>(DEFAULT_FLY_CONFIG);
-  const [cityStats, setCityStats] = useState<CityStats | undefined>();
-  const [flyHud, setFlyHud] = useState<FlyHud | undefined>();
 
   const [genConfig, setGenConfig] = useState<GenerationConfig>({
     style: ArtStyle.CYBERPUNK,
@@ -124,12 +103,6 @@ export const DesignStudioPage: React.FC = () => {
   const [computeHealth, setComputeHealth] = useState<
     'ready' | 'running' | 'degraded' | 'unavailable' | 'unknown'
   >('unknown');
-
-  const isEngineerMode = ENGINEER_MODES.has(activeProject);
-
-  const handleProjectSwitch = useCallback((t: ProjectType) => {
-    setActiveProject(t);
-  }, []);
 
   const deployJobToScene = useCallback(async (job: CadJobRow, opts?: { auto?: boolean }) => {
     const url = job.public_url || job.result_url;
@@ -228,7 +201,7 @@ export const DesignStudioPage: React.FC = () => {
 
   useEffect(() => {
     setStudioContext({
-      activeProject,
+      activeProject: ACTIVE_PROJECT,
       sceneId: currentSceneId,
       blueprintId: cad.activeBlueprintId,
       cadJobId: cad.activeJobId || linkedCadJobId,
@@ -236,7 +209,6 @@ export const DesignStudioPage: React.FC = () => {
       computeStatus: cad.isGenerating ? 'running' : computeHealth,
     });
   }, [
-    activeProject,
     currentSceneId,
     cad.activeBlueprintId,
     cad.activeJobId,
@@ -279,23 +251,6 @@ export const DesignStudioPage: React.FC = () => {
     let cancelled = false;
     let engine: StudioEngine | null = null;
 
-    const mountEngineer = async () => {
-      const { AgentSamEngineerEngine } = await import('../services/AgentSamEngineerEngine');
-      if (cancelled || !containerRef.current) return;
-      const mode = activeProject as ProjectType.CITY | ProjectType.FLY;
-      engine = new AgentSamEngineerEngine(container, mode, {
-        onCityStats: setCityStats,
-        onFlyHud: setFlyHud,
-      });
-      engineRef.current = engine;
-      if (mode === ProjectType.CITY) {
-        setCityConfig(engine.getCityConfig());
-      } else {
-        setFlyConfig(engine.getFlyConfig());
-      }
-      setEngineReady(true);
-    };
-
     const mountVoxel = async () => {
       const { VoxelEngine } = await import('../services/VoxelEngine');
       if (cancelled || !containerRef.current) return;
@@ -308,7 +263,7 @@ export const DesignStudioPage: React.FC = () => {
       engine.updateLighting(sceneConfig);
       engine.setCADPlane(genConfig.cadPlane);
       engine.setExtrusion(genConfig.extrusion);
-      engine.setProjectType(activeProject);
+      engine.setProjectType(ACTIVE_PROJECT);
       const settleViewport = () => {
         if (isVoxelEngine(engine)) engine.handleResize();
       };
@@ -319,11 +274,7 @@ export const DesignStudioPage: React.FC = () => {
       setEngineReady(true);
     };
 
-    if (ENGINEER_MODES.has(activeProject)) {
-      void mountEngineer();
-    } else {
-      void mountVoxel();
-    }
+    void mountVoxel();
 
     const handleResize = () => {
       if (isVoxelEngine(engineRef.current)) {
@@ -340,7 +291,7 @@ export const DesignStudioPage: React.FC = () => {
       engineRef.current = null;
       container.innerHTML = '';
     };
-  }, [activeProject]);
+  }, []);
 
   useEffect(() => {
     if (isVoxelEngine(engineRef.current)) {
@@ -485,7 +436,7 @@ export const DesignStudioPage: React.FC = () => {
         body: JSON.stringify({
           id: currentSceneId || undefined,
           name: sceneName.trim() || `Scene ${new Date().toLocaleString()}`,
-          project_type: activeProject,
+          project_type: ACTIVE_PROJECT,
           entities,
           cad_job_id: linkedCadJobId || activeJob?.id || null,
           glb_r2_key:
@@ -511,7 +462,6 @@ export const DesignStudioPage: React.FC = () => {
       setSceneBusy(false);
     }
   }, [
-    activeProject,
     sceneName,
     refreshSceneList,
     cad,
@@ -553,7 +503,7 @@ export const DesignStudioPage: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (!engineReady || !isVoxelEngine(engineRef.current) || isEngineerMode) return;
+    if (!engineReady || !isVoxelEngine(engineRef.current)) return;
     const tick = window.setInterval(() => {
       const voxel = isVoxelEngine(engineRef.current) ? engineRef.current : null;
       const entities = voxel?.exportEntities();
@@ -567,35 +517,14 @@ export const DesignStudioPage: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          project_type: activeProject,
+          project_type: ACTIVE_PROJECT,
           entities,
           ...(wsId && wsId !== 'global' ? { workspace_id: wsId } : {}),
         }),
       }).catch(() => {});
     }, 60_000);
     return () => window.clearInterval(tick);
-  }, [engineReady, activeProject, isEngineerMode]);
-
-  const handleUpdateCityConfig = useCallback((patch: Partial<CityConfig>) => {
-    setCityConfig((prev) => ({ ...prev, ...patch }));
-    if (isEngineerEngine(engineRef.current)) {
-      engineRef.current.updateCityConfig(patch);
-    }
-  }, []);
-
-  const handleRegenerateCity = useCallback(() => {
-    if (isEngineerEngine(engineRef.current)) {
-      engineRef.current.regenerateCity();
-      setCityConfig(engineRef.current.getCityConfig());
-    }
-  }, []);
-
-  const handleUpdateFlyConfig = useCallback((patch: Partial<FlyConfig>) => {
-    setFlyConfig((prev) => ({ ...prev, ...patch }));
-    if (isEngineerEngine(engineRef.current)) {
-      engineRef.current.updateFlyConfig(patch);
-    }
-  }, []);
+  }, [engineReady]);
 
   const activeJobForBar = cad.polledJob || cad.activeJob;
 
@@ -609,66 +538,61 @@ export const DesignStudioPage: React.FC = () => {
     a.click();
   }, [activeJobForBar]);
 
+  const handleViewportRectChange = useCallback((rect: DOMRect | null) => {
+    const container = containerRef.current;
+    const root = pageRootRef.current;
+    if (!container || !root) return;
+    if (!rect) {
+      container.style.left = '';
+      container.style.top = '';
+      container.style.width = '';
+      container.style.height = '';
+      container.style.right = '';
+      container.style.bottom = '';
+      container.classList.add('inset-0');
+      if (isVoxelEngine(engineRef.current)) engineRef.current.handleResize();
+      return;
+    }
+    container.classList.remove('inset-0');
+    const rootRect = root.getBoundingClientRect();
+    container.style.left = `${rect.left - rootRect.left}px`;
+    container.style.top = `${rect.top - rootRect.top}px`;
+    container.style.width = `${rect.width}px`;
+    container.style.height = `${rect.height}px`;
+    container.style.right = 'auto';
+    container.style.bottom = 'auto';
+    if (isVoxelEngine(engineRef.current)) engineRef.current.handleResize();
+  }, []);
+
   return (
     <div
-      className="flex h-full min-h-0 overflow-hidden"
+      ref={pageRootRef}
+      className="relative flex h-full min-h-0 overflow-hidden"
       style={{ background: 'var(--bg-app)' }}
       onDrop={handleFileDrop}
       onDragOver={(e) => e.preventDefault()}
     >
-      <DesignStudioLeftPanel
-        activeProject={activeProject}
-        onSwitchProject={handleProjectSwitch}
-        onExport={() => {
-          if (isVoxelEngine(engineRef.current)) {
-            engineRef.current.exportForBlender();
-          }
-        }}
+      <div ref={containerRef} className="absolute inset-0 z-0" style={{ background: 'var(--scene-bg)' }} />
+
+      <DesignStudioCreationStation
+        cad={cad}
         genConfig={genConfig}
         onUpdateGenConfig={handleUpdateGenConfig}
         sceneConfig={sceneConfig}
         onUpdateSceneConfig={(c) => setSceneConfig((p) => ({ ...p, ...c }))}
-        onSpawnModel={handleSpawnModel}
-        customAssets={customAssets}
-        onAddCustomAsset={handleAddCustomAsset}
-        onRemoveCustomAsset={handleRemoveCustomAsset}
-        sceneName={sceneName}
-        onSceneNameChange={setSceneName}
-        savedScenes={savedScenes}
-        sceneBusy={sceneBusy}
-        onSaveScene={() => void handleSaveScene()}
-        onLoadScene={(id) => void handleLoadScene(id)}
-        cad={cad}
+        onDeployJob={(job) => void deployJobToScene(job)}
+        onExportSceneJson={() => {
+          if (isVoxelEngine(engineRef.current)) {
+            engineRef.current.exportForBlender();
+          }
+        }}
         cadJobId={linkedCadJobId || cad.activeJobId}
         glbR2Key={linkedGlbR2Key}
-        onRefreshUserAssets={refreshUserAssets}
-        onDeployJob={(job) => void deployJobToScene(job)}
-        onImportGlb={handleImportGlbFile}
-        onDownloadLatestGlb={handleDownloadLatestGlb}
-        cityConfig={cityConfig}
-        onUpdateCityConfig={handleUpdateCityConfig}
-        onRegenerateCity={handleRegenerateCity}
-        cityStats={cityStats}
-        flyConfig={flyConfig}
-        flyHud={flyHud}
-        onUpdateFlyConfig={handleUpdateFlyConfig}
-      />
-
-      <div className="flex-1 min-w-0 h-full relative">
-        <div
-          ref={containerRef}
-          className="absolute inset-0 z-0 overflow-hidden"
-          style={{ background: 'var(--scene-bg)' }}
-        />
-
-        {!isEngineerMode && (
-          <DesignStudioCreationStation
-            cad={cad}
-            viewport={
-              <UIOverlay
-                voxelCount={voxelCount}
-                appState={appState}
-                activeProject={activeProject}
+        viewport={
+            <UIOverlay
+              voxelCount={voxelCount}
+              appState={appState}
+              activeProject={ACTIVE_PROJECT}
                 isGenerating={cad.isGenerating}
                 onTogglePlay={() => {}}
                 onClear={onClear}
@@ -700,9 +624,8 @@ export const DesignStudioPage: React.FC = () => {
             onLoadScene={(id) => void handleLoadScene(id)}
             onDownloadLatestGlb={handleDownloadLatestGlb}
             activeJob={activeJobForBar}
-          />
-        )}
-      </div>
+            onViewportRectChange={handleViewportRectChange}
+      />
     </div>
   );
 };

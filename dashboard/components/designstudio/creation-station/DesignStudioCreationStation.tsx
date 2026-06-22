@@ -1,15 +1,20 @@
-import React, { useState } from 'react';
-import { ChevronLeft, PanelRight } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import React, { useCallback, useEffect, useState } from 'react';
+import { PanelRight } from 'lucide-react';
 import { MeshyBalancePill } from '../MeshyBalancePill';
-import { ToolRail, MobileToolStrip } from './ToolRail';
-import { TweaksPanel } from './TweaksPanel';
+import { MeshyToolRail, MobileMeshyToolStrip } from './MeshyToolRail';
+import { MeshyToolkitTweaks } from './MeshyToolkitTweaks';
 import { ApiInspector } from './ApiInspector';
-import { LogPanel } from './LogPanel';
-import { useCreationStation, type CreationTool } from './useCreationStation';
+import { TerminalLogBar } from './TerminalLogBar';
+import { DEFAULT_SCAD, OpenScadEditorStrip } from './AdvancedOpenScadPanel';
+import { useCreationStation } from './useCreationStation';
 import { CS_GRID } from './layout';
+import {
+  readStoredStudioSegment,
+  persistStudioSegment,
+  type StudioSegment,
+} from './meshyToolkitTypes';
 import type { useDesignStudioCad } from '../hooks/useDesignStudioCad';
-import type { CustomAsset } from '../../../types';
+import type { CustomAsset, GenerationConfig, SceneConfig } from '../../../types';
 import type { SavedSceneRow } from '../shared/ScenePanel';
 import type { CadJobRow } from '../api';
 
@@ -32,7 +37,16 @@ export type DesignStudioCreationStationProps = {
   onSaveScene: () => void;
   onLoadScene: (id: string) => void;
   onDownloadLatestGlb?: () => void;
+  onExportSceneJson?: () => void;
+  onDeployJob: (job: CadJobRow) => void;
+  cadJobId?: string | null;
+  glbR2Key?: string | null;
+  genConfig: GenerationConfig;
+  onUpdateGenConfig: (c: Partial<GenerationConfig>) => void;
+  sceneConfig: SceneConfig;
+  onUpdateSceneConfig: (c: Partial<SceneConfig>) => void;
   activeJob?: CadJobRow | null;
+  onViewportRectChange?: (rect: DOMRect | null) => void;
 };
 
 export function DesignStudioCreationStation({
@@ -52,87 +66,166 @@ export function DesignStudioCreationStation({
   onSaveScene,
   onLoadScene,
   onDownloadLatestGlb,
+  onExportSceneJson,
+  onDeployJob,
+  cadJobId,
+  glbR2Key,
+  genConfig,
+  onUpdateGenConfig,
+  sceneConfig,
+  onUpdateSceneConfig,
   activeJob,
+  onViewportRectChange,
 }: DesignStudioCreationStationProps) {
-  const navigate = useNavigate();
   const cs = useCreationStation(cad);
+  const [studioSegment, setStudioSegment] = useState<StudioSegment>(readStoredStudioSegment);
+  const [advScript, setAdvScript] = useState(DEFAULT_SCAD);
+  const [advDirty, setAdvDirty] = useState(false);
   const [mobilePane, setMobilePane] = useState<'tools' | 'view'>('view');
   const [apiOpen, setApiOpen] = useState(
     () => typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches,
   );
+  const [apiKeySheet, setApiKeySheet] = useState(false);
+  const viewportHostRef = React.useRef<HTMLDivElement>(null);
 
-  const handleToolSelect = (tool: CreationTool) => {
-    cs.setActiveTool(tool);
-    setMobilePane('tools');
-  };
+  const syncViewportRect = useCallback(() => {
+    const el = viewportHostRef.current;
+    if (!el || !onViewportRectChange) return;
+    onViewportRectChange(el.getBoundingClientRect());
+  }, [onViewportRectChange]);
+
+  const onSegmentChange = useCallback(
+    (seg: StudioSegment) => {
+      persistStudioSegment(seg);
+      setStudioSegment(seg);
+      setMobilePane('tools');
+      requestAnimationFrame(syncViewportRect);
+    },
+    [syncViewportRect],
+  );
+
+  useEffect(() => {
+    if (!onViewportRectChange) return;
+    if (studioSegment !== 'advanced') {
+      onViewportRectChange(null);
+      return;
+    }
+    syncViewportRect();
+    const el = viewportHostRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => syncViewportRect());
+    ro.observe(el);
+    window.addEventListener('resize', syncViewportRect);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', syncViewportRect);
+    };
+  }, [studioSegment, onViewportRectChange, syncViewportRect, apiOpen]);
+
+  useEffect(() => {
+    if (studioSegment !== 'advanced') return;
+    const fromBp = cad.activeBlueprint?.cad_script?.trim();
+    if (fromBp) {
+      setAdvScript(fromBp);
+      setAdvDirty(false);
+    }
+  }, [studioSegment, cad.activeBlueprint?.id, cad.activeBlueprint?.cad_script]);
+
+  const onRailSelect = useCallback(
+    (tool: typeof cs.activeTool) => {
+      cs.setActiveTool(tool);
+      persistStudioSegment('meshy');
+      setStudioSegment('meshy');
+      setMobilePane('tools');
+    },
+    [cs],
+  );
+
+  const openTerminalWithLogs = useCallback(() => {
+    cs.setLogOpen(true);
+    window.dispatchEvent(new CustomEvent('iam-terminal-toggle', { detail: { open: true } }));
+    cs.openTerminal();
+  }, [cs]);
 
   const handleCreate = () => {
-    cs.setLogOpen(true);
+    openTerminalWithLogs();
     setMobilePane('view');
     if (cs.meshyPhase === 'preview') void cs.runPreview();
     else void cs.runRefine();
   };
 
-  const handleQuick = () => {
-    cs.setLogOpen(true);
-    setMobilePane('view');
-    void cs.runQuickGenerate();
-  };
-
   const latestGlb = activeJob?.public_url || activeJob?.result_url;
   const progressPct = cad.polledJob?.progress_pct;
+  const meshySegmentActive = studioSegment === 'meshy';
+  const advancedActive = studioSegment === 'advanced';
 
   return (
-    <div className={CS_GRID}>
-      <MobileToolStrip active={cs.activeTool} onSelect={handleToolSelect} />
-
-      <ToolRail
+    <div className={`${CS_GRID} absolute inset-0 z-10`}>
+      <MobileMeshyToolStrip
         active={cs.activeTool}
-        onSelect={handleToolSelect}
-        onOpenLog={() => cs.setLogOpen(true)}
+        meshySegmentActive={meshySegmentActive}
+        onSelect={onRailSelect}
+      />
+
+      <MeshyToolRail
+        active={cs.activeTool}
+        meshySegmentActive={meshySegmentActive}
+        onSelect={onRailSelect}
+        onOpenApiKey={() => setApiKeySheet(true)}
+        onOpenTerminal={openTerminalWithLogs}
         className="md:col-start-1 md:row-start-1"
       />
 
       <div
-        className={`min-h-0 flex flex-col md:col-start-2 md:row-start-1 ${
-          mobilePane === 'tools' ? 'flex max-h-[50vh] md:max-h-none' : 'hidden md:flex'
+        className={`min-h-0 flex flex-col md:col-start-2 md:row-start-1 border-r border-[var(--border-subtle)] ${
+          mobilePane === 'tools' ? 'flex max-h-[52vh] md:max-h-none' : 'hidden md:flex'
         }`}
       >
-        <TweaksPanel
-          tool={cs.activeTool}
-          meshyPhase={cs.meshyPhase}
-          onMeshyPhase={cs.setMeshyPhase}
-          settings={cs.settings}
-          onPatch={cs.patchSettings}
-          meshyStub={cs.meshyStub}
-          ctaCost={cs.ctaCost}
-          isGenerating={cs.isGenerating}
-          progressPct={progressPct}
-          onCreate={handleCreate}
-          onQuickGenerate={handleQuick}
-          apiKeyDraft={cs.apiKeyDraft}
-          onApiKeyDraft={cs.setApiKeyDraft}
-          onSaveApiKey={() => void cs.saveMeshyApiKey()}
-          savingKey={cs.savingKey}
-          onImportGlb={onImportGlb}
-          onBlenderExport={onBlenderExport}
-          onBlenderTerminal={() =>
-            cs.openTerminal('cd ~/inneranimalmedia && ls scripts/designstudio/')
-          }
-          sceneName={sceneName}
-          onSceneNameChange={onSceneNameChange}
-          savedScenes={savedScenes}
-          sceneBusy={sceneBusy}
-          onSaveScene={onSaveScene}
-          onLoadScene={onLoadScene}
-          customAssets={customAssets}
-          onSpawnModel={onSpawnModel}
-          onAddCustomAsset={onAddCustomAsset}
-          onRemoveCustomAsset={onRemoveCustomAsset}
-          onRefreshUserAssets={onRefreshUserAssets}
-          latestGlbUrl={latestGlb}
-          onDownloadGlb={onDownloadLatestGlb}
-          className="flex-1 min-h-0"
+        <MeshyToolkitTweaks
+            studioSegment={studioSegment}
+            onStudioSegment={onSegmentChange}
+            railTool={cs.activeTool}
+            cs={cs}
+            cad={cad}
+            genConfig={genConfig}
+            onUpdateGenConfig={onUpdateGenConfig}
+            sceneConfig={sceneConfig}
+            onUpdateSceneConfig={onUpdateSceneConfig}
+            sceneName={sceneName}
+            onSceneNameChange={onSceneNameChange}
+            savedScenes={savedScenes}
+            sceneBusy={sceneBusy}
+            onSaveScene={onSaveScene}
+            onLoadScene={onLoadScene}
+            cadJobId={cadJobId}
+            glbR2Key={glbR2Key}
+            customAssets={customAssets}
+            onSpawnModel={onSpawnModel}
+            onAddCustomAsset={onAddCustomAsset}
+            onRemoveCustomAsset={onRemoveCustomAsset}
+            onRefreshUserAssets={onRefreshUserAssets}
+            onDeployJob={onDeployJob}
+            onImportGlb={onImportGlb}
+            onExportSceneJson={onBlenderExport ?? onExportSceneJson}
+            onDownloadLatestGlb={onDownloadLatestGlb}
+            latestGlbUrl={latestGlb}
+            onCreate={handleCreate}
+            onQuickGenerate={() => {
+              openTerminalWithLogs();
+              void cs.runQuickGenerate();
+            }}
+            advancedScript={advScript}
+            advancedDirty={advDirty}
+            onAdvancedDirtyChange={setAdvDirty}
+            onAdvancedScriptUpdate={(s) => {
+              setAdvScript(s);
+              setAdvDirty(true);
+            }}
+            onAdvancedScriptChange={(s) => {
+              setAdvScript(s);
+              setAdvDirty(true);
+            }}
+          className="h-full"
         />
       </div>
 
@@ -141,34 +234,28 @@ export function DesignStudioCreationStation({
           mobilePane === 'view' ? 'flex flex-1' : 'hidden md:flex'
         }`}
       >
-        <header className="shrink-0 flex items-center justify-between gap-3 px-3 py-2 border-b border-[var(--border-subtle)] bg-[var(--bg-panel)]/95 backdrop-blur-md">
+        <header className="shrink-0 flex items-center justify-between gap-2 px-3 py-2 border-b border-[var(--border-subtle)] bg-[var(--bg-panel)]/95 backdrop-blur-md">
           <div className="flex items-center gap-2 min-w-0">
-            <button
-              type="button"
-              onClick={() => navigate('/dashboard/agent')}
-              className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-white/[0.04]"
-              title="Back to Agent"
-            >
-              <ChevronLeft size={18} />
-            </button>
             <div className="min-w-0">
-              <h1 className="text-[13px] font-semibold text-[var(--text-main)] truncate">Creation Station</h1>
-              <p className="text-[10px] text-[var(--text-muted)] truncate">3D viewport · Meshy · Blender · Remote CAD</p>
+              <h1 className="text-[13px] font-semibold text-[var(--text-main)] truncate">Design Studio</h1>
+              <p className="text-[10px] text-[var(--text-muted)] truncate">
+                {advancedActive ? 'OpenSCAD · code + preview' : 'Meshy toolkit · viewport'}
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
-              className="md:hidden px-2 py-1 text-[10px] font-semibold text-zinc-500 border border-white/[0.08] rounded-lg"
+              className="md:hidden px-2 py-1 text-[10px] font-semibold text-[var(--text-muted)] border border-[var(--border-subtle)] rounded-lg"
               onClick={() => setMobilePane((p) => (p === 'view' ? 'tools' : 'view'))}
             >
               {mobilePane === 'view' ? 'Tools' : 'View'}
             </button>
             <button
               type="button"
-              className="hidden lg:flex p-2 rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-white/[0.04]"
+              className="hidden lg:flex p-2 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]"
               onClick={() => setApiOpen((o) => !o)}
-              title="Toggle API panel"
+              title="Toggle API inspector"
             >
               <PanelRight size={16} />
             </button>
@@ -176,24 +263,49 @@ export function DesignStudioCreationStation({
           </div>
         </header>
 
-        <div className="flex-1 min-h-0 relative bg-[var(--scene-bg)]">
-          {viewport}
+        <div className="flex-1 min-h-0 relative bg-[var(--scene-bg)] flex">
+          {advancedActive ? (
+            <div className="w-[42%] min-w-[240px] max-w-[50%] shrink-0 hidden md:flex">
+              <OpenScadEditorStrip
+                script={advScript}
+                onChange={(s) => {
+                  setAdvScript(s);
+                  setAdvDirty(true);
+                }}
+              />
+            </div>
+          ) : null}
+          <div ref={viewportHostRef} className="flex-1 min-w-0 relative">
+            {viewport}
+          </div>
           {cad.isGenerating && (progressPct ?? 0) >= 0 ? (
-            <div className="absolute inset-x-0 bottom-0 z-20 px-4 pb-4 pointer-events-none">
-              <div className="mx-auto max-w-md rounded-xl border border-[var(--solar-cyan)]/30 bg-[var(--bg-panel)]/90 backdrop-blur-md px-4 py-3 shadow-lg">
+            <div className="absolute inset-x-0 bottom-0 z-20 px-4 pb-3 pointer-events-none">
+              <div
+                className="mx-auto max-w-md rounded-xl border px-4 py-3 shadow-lg backdrop-blur-md"
+                style={{
+                  borderColor: 'color-mix(in srgb, var(--solar-cyan) 30%, transparent)',
+                  background: 'color-mix(in srgb, var(--bg-panel) 92%, transparent)',
+                }}
+              >
                 <div className="flex items-center justify-between gap-2 mb-2">
-                  <span className="text-[10px] font-black uppercase tracking-[0.15em] text-[var(--solar-cyan)]">
-                    ExecOS GCP
+                  <span
+                    className="text-[10px] font-black uppercase tracking-[0.15em]"
+                    style={{ color: 'var(--solar-cyan)' }}
+                  >
+                    Generating
                   </span>
                   <span className="text-[10px] font-mono text-[var(--text-muted)]">
                     {activeJob?.status || 'running'}
                     {progressPct != null && progressPct > 0 ? ` · ${progressPct}%` : ''}
                   </span>
                 </div>
-                <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--bg-hover)' }}>
                   <div
-                    className="h-full bg-[var(--solar-cyan)] transition-all duration-500"
-                    style={{ width: `${Math.max(8, Math.min(100, progressPct || 12))}%` }}
+                    className="h-full transition-all duration-500"
+                    style={{
+                      width: `${Math.max(8, Math.min(100, progressPct || 12))}%`,
+                      background: 'var(--solar-cyan)',
+                    }}
                   />
                 </div>
               </div>
@@ -201,25 +313,61 @@ export function DesignStudioCreationStation({
           ) : null}
         </div>
 
-        <LogPanel
-          open={cs.logOpen}
-          onToggle={() => cs.setLogOpen((o) => !o)}
-          logs={cs.logs}
-          onOpenTerminal={() => cs.openTerminal()}
-        />
+        <TerminalLogBar logs={cs.logs} onOpenTerminal={openTerminalWithLogs} />
       </div>
 
-      {(apiOpen || cs.apiOpen) && (
-        <div className="hidden lg:flex flex-col min-h-0 md:col-start-4 md:row-start-1 border-l border-white/[0.06]">
+      {apiOpen && (
+        <div className="hidden lg:flex flex-col min-h-0 md:col-start-4 md:row-start-1 border-l border-[var(--border-subtle)] min-w-[240px] max-w-[420px] w-[300px] resize-x overflow-auto">
           <ApiInspector
             request={cs.lastRequest}
             response={cs.lastResponse}
             open
-            onToggle={() => {
-              setApiOpen(false);
-              cs.setApiOpen(false);
-            }}
+            onToggle={() => setApiOpen(false)}
           />
+        </div>
+      )}
+
+      {apiKeySheet && (
+        <div
+          className="fixed inset-0 z-[80] flex items-end md:items-center justify-center p-0 md:p-4"
+          style={{ background: 'color-mix(in srgb, var(--bg-app) 55%, transparent)' }}
+          onClick={() => setApiKeySheet(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-t-2xl md:rounded-2xl p-5 border border-[var(--border-subtle)] bg-[var(--bg-panel)]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-[13px] font-bold text-[var(--text-main)] mb-3">Meshy API key (BYOK)</h3>
+            <input
+              type="password"
+              autoComplete="off"
+              placeholder="Paste Meshy API key"
+              className="w-full mb-3 bg-[var(--bg-hover)] border border-[var(--border-subtle)] rounded-lg px-3 py-2 text-[11px] text-[var(--text-main)]"
+              value={cs.apiKeyDraft}
+              onChange={(e) => cs.setApiKeyDraft(e.target.value)}
+            />
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className="flex-1 py-2 rounded-lg border border-[var(--border-subtle)] text-[var(--text-muted)]"
+                onClick={() => setApiKeySheet(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="flex-1 py-2 rounded-lg font-semibold text-[var(--bg-app)]"
+                style={{ background: 'var(--solar-cyan)' }}
+                disabled={cs.savingKey || !cs.apiKeyDraft.trim()}
+                onClick={() => {
+                  void cs.saveMeshyApiKey();
+                  setApiKeySheet(false);
+                }}
+              >
+                Save to vault
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

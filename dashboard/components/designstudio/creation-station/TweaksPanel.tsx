@@ -1,16 +1,12 @@
-import React, { useRef } from 'react';
+import React from 'react';
 import { Key, Loader2, Sparkles } from 'lucide-react';
 import type { MeshyPhase, MeshySettings } from './meshyTypes';
-import type { CreationTool } from './useCreationStation';
-import { ScenePanel, type SavedSceneRow } from '../shared/ScenePanel';
-import { AssetLibrary } from '../shared/AssetLibrary';
-import type { CustomAsset } from '../../../types';
 
 const SAMPLE_PROMPT =
   'A chess king piece, ornate gothic crown with four arched buttresses, wide weighted base, ultra high detail.';
 
 type Props = {
-  tool: CreationTool;
+  tool: 'text-to-3d';
   meshyPhase: MeshyPhase;
   onMeshyPhase: (p: MeshyPhase) => void;
   settings: MeshySettings;
@@ -25,23 +21,10 @@ type Props = {
   onApiKeyDraft: (v: string) => void;
   onSaveApiKey: () => void;
   savingKey: boolean;
-  onImportGlb?: (file: File) => void;
-  onBlenderExport?: () => void;
-  onBlenderTerminal?: () => void;
-  sceneName: string;
-  onSceneNameChange: (n: string) => void;
-  savedScenes: SavedSceneRow[];
-  sceneBusy: boolean;
-  onSaveScene: () => void;
-  onLoadScene: (id: string) => void;
-  customAssets: CustomAsset[];
-  onSpawnModel: (name: string, url: string, scale: number) => void;
-  onAddCustomAsset: (name: string, url: string) => void | Promise<void>;
-  onRemoveCustomAsset: (id: string) => void | Promise<void>;
-  onRefreshUserAssets?: () => void;
   latestGlbUrl?: string | null;
   onDownloadGlb?: () => void;
   className?: string;
+  embedded?: boolean;
 };
 
 function Toggle({
@@ -87,62 +70,60 @@ export function TweaksPanel({
   onApiKeyDraft,
   onSaveApiKey,
   savingKey,
-  onImportGlb,
-  onBlenderExport,
-  onBlenderTerminal,
-  sceneName,
-  onSceneNameChange,
-  savedScenes,
-  sceneBusy,
-  onSaveScene,
-  onLoadScene,
-  customAssets,
-  onSpawnModel,
-  onAddCustomAsset,
-  onRemoveCustomAsset,
-  onRefreshUserAssets,
   latestGlbUrl,
   onDownloadGlb,
   className = '',
+  embedded = false,
 }: Props) {
-  const fileRef = useRef<HTMLInputElement>(null);
 
-  const title =
-    tool === 'text-to-3d'
-      ? 'Text to 3D'
-      : tool === 'import'
-        ? 'Import GLB'
-        : tool === 'blender'
-          ? 'Blender'
-          : 'Scene';
+  const title = 'Text to 3D';
 
-  return (
-    <aside
-      className={`flex flex-col min-h-0 border-white/[0.06] border-b md:border-b-0 md:border-r bg-[#101218] ${className}`}
-    >
-      <header className="shrink-0 px-4 pt-4 pb-3 border-b border-white/[0.06]">
-        <h2 className="text-[15px] font-semibold text-zinc-100">{title}</h2>
-        {tool === 'text-to-3d' && (
-          <div className="flex gap-1 mt-3 p-0.5 rounded-lg bg-black/40">
-            {(['preview', 'refine'] as MeshyPhase[]).map((p) => (
-              <button
-                key={p}
-                type="button"
-                onClick={() => onMeshyPhase(p)}
-                className={`flex-1 py-1.5 rounded-md text-[11px] font-semibold capitalize ${
-                  meshyPhase === p
-                    ? 'bg-emerald-500 text-[#041018]'
-                    : 'text-zinc-500 hover:text-zinc-300'
-                }`}
-              >
-                {p}
-              </button>
-            ))}
-          </div>
-        )}
-      </header>
+  const inner = (
+    <>
+      {!embedded && (
+        <header className="shrink-0 px-4 pt-4 pb-3 border-b border-[var(--border-subtle)]">
+          <h2 className="text-[15px] font-semibold text-[var(--text-main)]">{title}</h2>
+          {tool === 'text-to-3d' && (
+            <div className="flex gap-1 mt-3 p-0.5 rounded-lg" style={{ background: 'var(--bg-hover)' }}>
+              {(['preview', 'refine'] as MeshyPhase[]).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => onMeshyPhase(p)}
+                  className="flex-1 py-1.5 rounded-md text-[11px] font-semibold capitalize"
+                  style={{
+                    background: meshyPhase === p ? 'var(--solar-cyan)' : 'transparent',
+                    color: meshyPhase === p ? 'var(--bg-app)' : 'var(--text-muted)',
+                  }}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+          )}
+        </header>
+      )}
 
-      <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar px-4 py-3 space-y-3">
+      {embedded && tool === 'text-to-3d' && (
+        <div className="flex gap-1 mb-3 p-0.5 rounded-lg" style={{ background: 'var(--bg-hover)' }}>
+          {(['preview', 'refine'] as MeshyPhase[]).map((p) => (
+            <button
+              key={p}
+              type="button"
+              onClick={() => onMeshyPhase(p)}
+              className="flex-1 py-1.5 rounded-md text-[11px] font-semibold capitalize"
+              style={{
+                background: meshyPhase === p ? 'var(--solar-cyan)' : 'transparent',
+                color: meshyPhase === p ? 'var(--bg-app)' : 'var(--text-muted)',
+              }}
+            >
+              {p}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className={`${embedded ? '' : 'flex-1 min-h-0 overflow-y-auto custom-scrollbar px-4 py-3'} space-y-3`}>
         {tool === 'text-to-3d' && (
           <>
             {meshyStub && (
@@ -267,73 +248,12 @@ export function TweaksPanel({
             ) : null}
           </>
         )}
-
-        {tool === 'import' && onImportGlb && (
-          <>
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".glb"
-              className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) onImportGlb(f);
-                e.target.value = '';
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => fileRef.current?.click()}
-              className="w-full py-3 rounded-xl bg-emerald-500 text-[#041018] text-[11px] font-bold uppercase"
-            >
-              Choose GLB file
-            </button>
-            <AssetLibrary
-              customAssets={customAssets}
-              onSpawnModel={onSpawnModel}
-              onAddCustomAsset={onAddCustomAsset}
-              onRemoveCustomAsset={onRemoveCustomAsset}
-              onRefreshUserAssets={onRefreshUserAssets}
-            />
-          </>
-        )}
-
-        {tool === 'blender' && (
-          <div className="space-y-2 text-[12px] text-zinc-400 leading-relaxed">
-            <p>Export scene JSON for Blender, or open the remote PTY terminal for advanced tooling.</p>
-            <button
-              type="button"
-              onClick={onBlenderExport}
-              className="w-full py-2.5 rounded-xl bg-zinc-100 text-zinc-900 text-[11px] font-bold uppercase"
-            >
-              Export JSON
-            </button>
-            <button
-              type="button"
-              onClick={onBlenderTerminal}
-              className="w-full py-2.5 rounded-xl border border-orange-500/35 text-orange-400 text-[11px] font-bold uppercase"
-            >
-              Open terminal
-            </button>
-          </div>
-        )}
-
-        {tool === 'scene' && (
-          <ScenePanel
-            sceneName={sceneName}
-            onSceneNameChange={onSceneNameChange}
-            savedScenes={savedScenes}
-            sceneBusy={sceneBusy}
-            onSaveScene={onSaveScene}
-            onLoadScene={onLoadScene}
-          />
-        )}
       </div>
 
-      {tool === 'text-to-3d' && (
-        <footer className="shrink-0 p-4 border-t border-white/[0.06] bg-[#0c0d12] space-y-2">
+      {!embedded && tool === 'text-to-3d' && (
+        <footer className="shrink-0 p-4 border-t border-[var(--border-subtle)] bg-[var(--bg-panel)] space-y-2">
           {isGenerating && (
-            <div className="text-[10px] text-emerald-400/80 text-center">
+            <div className="text-[10px] text-center" style={{ color: 'var(--solar-cyan)' }}>
               Generating{progressPct != null ? ` · ${progressPct}%` : '…'}
             </div>
           )}
@@ -341,7 +261,11 @@ export function TweaksPanel({
             type="button"
             disabled={isGenerating}
             onClick={onCreate}
-            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-[13px] text-[#041018] bg-gradient-to-r from-[#a3e635] via-[#4ade80] to-[#2dd4bf] disabled:opacity-50 shadow-[0_4px_24px_rgba(74,222,128,0.25)]"
+            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-[13px] disabled:opacity-50"
+            style={{
+              background: 'linear-gradient(90deg, var(--solar-cyan), var(--solar-violet))',
+              color: 'var(--bg-app)',
+            }}
           >
             {isGenerating ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
             {meshyPhase === 'preview' ? 'Create Preview' : 'Create Refine'}
@@ -351,12 +275,22 @@ export function TweaksPanel({
             type="button"
             disabled={isGenerating}
             onClick={onQuickGenerate}
-            className="w-full py-2 text-[11px] font-medium text-zinc-500 hover:text-zinc-300"
+            className="w-full py-2 text-[11px] font-medium text-[var(--text-muted)] hover:text-[var(--text-main)]"
           >
             Quick: preview + refine chain
           </button>
         </footer>
       )}
+    </>
+  );
+
+  if (embedded) return inner;
+
+  return (
+    <aside
+      className={`flex flex-col min-h-0 border-[var(--border-subtle)] border-b md:border-b-0 md:border-r bg-[var(--bg-panel)] ${className}`}
+    >
+      {inner}
     </aside>
   );
 }
