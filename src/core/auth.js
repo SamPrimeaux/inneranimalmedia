@@ -697,6 +697,16 @@ export async function primeRequestAuth(request, env) {
 }
 
 /**
+ * Prime auth cache for in-process tool calls (agent loop) without HTTP bridge.
+ * @param {Request} request
+ * @param {import('./auth.js').AuthContext | null} authContext
+ */
+export function primeRequestAuthWithContext(request, authContext) {
+  if (!request) return;
+  requestAuthCache.set(request, authContext ?? null);
+}
+
+/**
  * @param {Request} request
  * @returns {AuthContext | null | undefined} undefined if not primed
  */

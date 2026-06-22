@@ -3,6 +3,8 @@
  */
 import { buildCadAssetPublicUrl } from './cad-job-scope.js';
 import { finalizeCadJobComplete, ingestRemoteGlbToR2 } from './cad-job-complete.js';
+import { getMeshyTask, isMeshyStubKey, textTo3dRefine } from './meshy-api.js';
+import { MESHY_CREDIT_COSTS } from './meshy-credits.js';
 
 const STATUS_MAP = {
   PENDING: 'pending',
@@ -28,6 +30,33 @@ export function meshyTaskStatus(payload) {
 }
 
 /**
+ * @param {Record<string, unknown>} payload
+ */
+export function meshyTaskTypeFromPayload(payload) {
+  const raw = String(payload?.type || payload?.task_type || '').toLowerCase();
+  if (raw.includes('image-to-3d')) return 'image-to-3d';
+  if (raw.includes('text-to-3d') || raw.includes('text_to_3d')) return 'text-to-3d';
+  if (raw.includes('refine')) return 'text-to-3d-refine';
+  if (raw.includes('preview')) return 'text-to-3d-preview';
+  return 'text-to-3d';
+}
+
+/**
+ * @param {Record<string, unknown>} job
+ */
+function jobWantsAutoRefine(job) {
+  if (String(job.mode) === 'image') return false;
+  const td = job.texture_data;
+  if (!td) return true;
+  try {
+    const parsed = typeof td === 'string' ? JSON.parse(td) : td;
+    return parsed?.auto_refine !== false;
+  } catch {
+    return true;
+  }
+}
+
+/**
  * @param {any} env
  * @param {string} externalTaskId
  */
@@ -39,6 +68,21 @@ export async function findCadJobByExternalTaskId(env, externalTaskId) {
      ORDER BY created_at DESC LIMIT 1`,
   )
     .bind(externalTaskId)
+    .first();
+}
+
+/**
+ * @param {any} env
+ * @param {string} parentTaskId
+ */
+export async function findCadJobByParentTaskId(env, parentTaskId) {
+  if (!env?.DB || !parentTaskId) return null;
+  return env.DB.prepare(
+    `SELECT * FROM agentsam_cad_jobs
+     WHERE engine = 'meshy' AND parent_task_id = ?
+     ORDER BY created_at DESC LIMIT 1`,
+  )
+    .bind(parentTaskId)
     .first();
 }
 
@@ -84,6 +128,75 @@ async function meshyIngestIfDone(env, ctx, job, scope, glbUrl) {
 }
 
 /**
+ * Chain preview → refine when preview succeeds and auto_refine is enabled.
+ * @param {any} env
+ * @param {any} ctx
+ * @param {Record<string, unknown>} job
+ * @param {string} previewTaskId
+ */
+async function chainMeshyRefineAfterPreview(env, ctx, job, previewTaskId) {
+  if (isMeshyStubKey(env)) return { ok: false, reason: 'stub_key' };
+  if (!jobWantsAutoRefine(job)) return { ok: false, reason: 'auto_refine_disabled' };
+
+  const existingRefine = await findCadJobByParentTaskId(env, previewTaskId);
+  if (existingRefine && existingRefine.external_task_id) {
+    return { ok: true, skipped: 'refine_already_started', refine_task_id: existingRefine.external_task_id };
+  }
+
+  try {
+    const { task_id: refineTaskId } = await textTo3dRefine(env, {
+      preview_task_id: previewTaskId,
+      enable_pbr: true,
+    });
+    if (!refineTaskId) return { ok: false, reason: 'no_refine_task_id' };
+
+    await env.DB.prepare(
+      `UPDATE agentsam_cad_jobs SET
+         external_task_id = ?,
+         parent_task_id = ?,
+         status = 'running',
+         progress_pct = COALESCE(progress_pct, 50),
+         credits_consumed = COALESCE(credits_consumed, 0) + ?,
+         updated_at = unixepoch()
+       WHERE id = ?`,
+    )
+      .bind(refineTaskId, previewTaskId, MESHY_CREDIT_COSTS.TEXT_TO_3D_REFINE, String(job.id))
+      .run();
+
+    ctx?.waitUntil?.(
+      getMeshyTask(env, 'text-to-3d', refineTaskId)
+        .then((task) => applyMeshyTaskToCadJob(env, ctx, task))
+        .catch(() => null),
+    );
+
+    return { ok: true, refine_task_id: refineTaskId, phase: 'refine' };
+  } catch (e) {
+    console.warn('[meshy-cad-sync] refine chain failed:', e?.message ?? e);
+    return { ok: false, reason: 'refine_failed', error: e?.message ?? String(e) };
+  }
+}
+
+/**
+ * @param {Record<string, unknown>} taskPayload
+ */
+function isPreviewStageComplete(taskPayload) {
+  const type = meshyTaskTypeFromPayload(taskPayload);
+  return type.includes('preview') || String(taskPayload?.mode || '').toLowerCase() === 'preview';
+}
+
+/**
+ * @param {Record<string, unknown>} taskPayload
+ */
+function isFinalMeshyStage(taskPayload, job) {
+  const type = meshyTaskTypeFromPayload(taskPayload);
+  if (String(job?.mode) === 'image') return true;
+  if (type.includes('refine')) return true;
+  if (job?.parent_task_id) return true;
+  if (!jobWantsAutoRefine(job)) return isPreviewStageComplete(taskPayload);
+  return type.includes('refine');
+}
+
+/**
  * @param {any} env
  * @param {any} ctx
  * @param {Record<string, unknown>} taskPayload
@@ -105,21 +218,23 @@ export async function applyMeshyTaskToCadJob(env, ctx, taskPayload) {
   }
 
   const meshyStatus = meshyTaskStatus(taskPayload);
-  const newStatus = STATUS_MAP[meshyStatus] || String(job.status);
+  const mappedStatus = STATUS_MAP[meshyStatus] || String(job.status);
   const progress = Number(taskPayload?.progress) || null;
+  const taskType = meshyTaskTypeFromPayload(taskPayload);
 
-  if (newStatus === 'running' || newStatus === 'pending') {
+  if (mappedStatus === 'running' || mappedStatus === 'pending') {
     await env.DB.prepare(
-      `UPDATE agentsam_cad_jobs SET status = ?, progress_pct = COALESCE(?, progress_pct), updated_at = unixepoch() WHERE id = ?`,
+      `UPDATE agentsam_cad_jobs SET status = ?, progress_pct = COALESCE(?, progress_pct),
+         task_type = COALESCE(task_type, ?), updated_at = unixepoch() WHERE id = ?`,
     )
-      .bind(newStatus, progress, jobId)
+      .bind(mappedStatus, progress, String(job.task_type || 'text-to-3d'), jobId)
       .run();
-    return { ok: true, job_id: jobId, status: newStatus, progress };
+    return { ok: true, job_id: jobId, status: mappedStatus, progress, phase: taskType };
   }
 
-  if (newStatus === 'failed') {
+  if (mappedStatus === 'failed') {
     const errMsg =
-      String(taskPayload?.message || taskPayload?.error || taskPayload?.task_error || 'Meshy generation failed').slice(
+      String(taskPayload?.message || taskPayload?.error || taskPayload?.task_error?.message || 'Meshy generation failed').slice(
         0,
         500,
       );
@@ -134,11 +249,32 @@ export async function applyMeshyTaskToCadJob(env, ctx, taskPayload) {
     return { ok: true, job_id: jobId, status: 'failed', error: errMsg };
   }
 
-  if (newStatus !== 'done') {
-    return { ok: true, job_id: jobId, status: newStatus, skipped: 'non_terminal' };
+  if (mappedStatus !== 'done') {
+    return { ok: true, job_id: jobId, status: mappedStatus, skipped: 'non_terminal' };
+  }
+
+  // Preview succeeded — chain refine unless disabled or already refining
+  if (isPreviewStageComplete(taskPayload) && jobWantsAutoRefine(job) && !job.parent_task_id) {
+    const chained = await chainMeshyRefineAfterPreview(env, ctx, job, externalTaskId);
+    if (chained.ok && chained.refine_task_id) {
+      return {
+        ok: true,
+        job_id: jobId,
+        status: 'running',
+        phase: 'refine',
+        refine_task_id: chained.refine_task_id,
+        progress: progress ?? 50,
+      };
+    }
+  }
+
+  if (!isFinalMeshyStage(taskPayload, job)) {
+    return { ok: true, job_id: jobId, status: 'running', phase: taskType, progress };
   }
 
   const glbUrl = taskPayload?.model_urls?.glb || taskPayload?.model_url || null;
+  const modelFormats = taskPayload?.model_urls ? Object.keys(taskPayload.model_urls) : null;
+  const textureData = taskPayload?.texture_urls ?? null;
   const scope = {
     workspaceId: job.workspace_id,
     tenantId: job.tenant_id,
@@ -148,11 +284,39 @@ export async function applyMeshyTaskToCadJob(env, ctx, taskPayload) {
   const ingested = await meshyIngestIfDone(env, ctx, job, scope, glbUrl ? String(glbUrl) : null);
   const publicUrl = ingested?.public_url || buildCadAssetPublicUrl(ingested?.r2_key) || glbUrl;
 
+  const creditsConsumed = Number(taskPayload?.credits_consumed ?? taskPayload?.credits ?? 0) || null;
+
   if (!ingested && glbUrl) {
     await env.DB.prepare(
-      `UPDATE agentsam_cad_jobs SET status='done', result_url=?, progress_pct=100, updated_at=unixepoch() WHERE id=?`,
+      `UPDATE agentsam_cad_jobs SET status='done', result_url=?, progress_pct=100,
+         model_formats = COALESCE(?, model_formats),
+         texture_data = COALESCE(?, texture_data),
+         credits_consumed = COALESCE(?, credits_consumed),
+         updated_at=unixepoch() WHERE id=?`,
     )
-      .bind(String(glbUrl), jobId)
+      .bind(
+        String(glbUrl),
+        modelFormats ? JSON.stringify(modelFormats) : null,
+        textureData ? JSON.stringify(textureData) : null,
+        creditsConsumed,
+        jobId,
+      )
+      .run();
+  } else if (ingested) {
+    await env.DB.prepare(
+      `UPDATE agentsam_cad_jobs SET
+         model_formats = COALESCE(?, model_formats),
+         texture_data = COALESCE(?, texture_data),
+         credits_consumed = COALESCE(?, credits_consumed),
+         updated_at = unixepoch()
+       WHERE id = ?`,
+    )
+      .bind(
+        modelFormats ? JSON.stringify(modelFormats) : null,
+        textureData ? JSON.stringify(textureData) : null,
+        creditsConsumed,
+        jobId,
+      )
       .run();
   }
 
@@ -164,5 +328,6 @@ export async function applyMeshyTaskToCadJob(env, ctx, taskPayload) {
     r2_key: ingested?.r2_key ?? null,
     cms_asset: ingested?.cms_asset ?? null,
     progress_pct: 100,
+    phase: taskType,
   };
 }

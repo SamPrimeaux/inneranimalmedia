@@ -9,6 +9,7 @@ import {
   persistCollabCanvasElements,
   resolveCollabWorkspaceId,
 } from '../../core/collab-broadcast.js';
+import { meshyGenerateInProcess, meshyStatusInProcess } from '../../api/cad-meshy.js';
 
 async function invokeMediaOp(env, endpoint, method = 'POST', body = null) {
     const origin = env.IAM_ORIGIN || 'https://inneranimalmedia.com';
@@ -24,6 +25,37 @@ async function invokeMediaOp(env, endpoint, method = 'POST', body = null) {
     } catch (e) {
         return { error: `Media Error: ${e.message}` };
     }
+}
+
+/**
+ * @param {Record<string, unknown>} params
+ * @param {Record<string, unknown>} runContext
+ */
+function meshyToolAuth(params, runContext = {}) {
+    const session = params?.session && typeof params.session === 'object' ? params.session : {};
+    const userId = String(
+        runContext.userId ??
+            runContext.user_id ??
+            params.user_id ??
+            session.user_id ??
+            '',
+    ).trim();
+    const tenantId = String(
+        runContext.tenantId ??
+            runContext.tenant_id ??
+            params.tenant_id ??
+            session.tenant_id ??
+            '',
+    ).trim();
+    const workspaceId = String(
+        runContext.workspaceId ??
+            runContext.workspace_id ??
+            params.workspace_id ??
+            session.workspace_id ??
+            session.workspaceId ??
+            '',
+    ).trim();
+    return { userId, tenantId: tenantId || undefined, workspaceId: workspaceId || undefined };
 }
 
 export const handlers = {
@@ -98,10 +130,42 @@ export const handlers = {
     async voxel_generate_scene(params, env) { return await invokeMediaOp(env, '/api/voxel/generate', 'POST', params); },
     async voxel_spawn_model(params, env) { return await invokeMediaOp(env, '/api/voxel/spawn', 'POST', params); },
 
-    // ── Meshy AI (Mesh Generation) ────────────────────────────────────────
-    async meshyai_text_to_3d(params, env) { return await invokeMediaOp(env, '/api/cad/meshy/generate', 'POST', params); },
-    async meshyai_image_to_3d(params, env) { return await invokeMediaOp(env, '/api/cad/meshy/generate', 'POST', params); },
-    async meshyai_get_task(params, env) { return await invokeMediaOp(env, `/api/cad/meshy/status/${encodeURIComponent(params.id)}`, 'GET'); },
+    // ── Meshy AI (Mesh Generation) — in-process auth via bridge key ───────
+    async meshyai_text_to_3d(params, env, runContext = {}) {
+        const auth = meshyToolAuth(params, runContext);
+        if (!auth.userId) return { error: 'user_id required for meshyai_text_to_3d' };
+        return meshyGenerateInProcess(env, null, auth, {
+            prompt: params.prompt ?? params.description,
+            mode: 'text',
+            session_id: params.session_id ?? params.conversation_id,
+            scene_snapshot_id: params.scene_snapshot_id ?? params.scene_id,
+            blueprint_id: params.blueprint_id,
+            auto_refine: params.auto_refine,
+            ai_model: params.ai_model,
+            art_style: params.art_style,
+            negative_prompt: params.negative_prompt,
+        });
+    },
+    async meshyai_image_to_3d(params, env, runContext = {}) {
+        const auth = meshyToolAuth(params, runContext);
+        if (!auth.userId) return { error: 'user_id required for meshyai_image_to_3d' };
+        return meshyGenerateInProcess(env, null, auth, {
+            mode: 'image',
+            image_url: params.image_url ?? params.imageUrl,
+            prompt: params.prompt,
+            session_id: params.session_id ?? params.conversation_id,
+            scene_snapshot_id: params.scene_snapshot_id ?? params.scene_id,
+            enable_pbr: params.enable_pbr,
+            should_texture: params.should_texture,
+        });
+    },
+    async meshyai_get_task(params, env, runContext = {}) {
+        const auth = meshyToolAuth(params, runContext);
+        if (!auth.userId) return { error: 'user_id required for meshyai_get_task' };
+        const jobId = String(params.id ?? params.job_id ?? params.cad_job_id ?? '').trim();
+        if (!jobId) return { error: 'id (cad_job_id) required' };
+        return meshyStatusInProcess(env, null, auth, jobId);
+    },
 
     // ── Image Generation (OpenAI / Google) ───────────────────────────────
     async imgx_generate_image(params, env) { return await invokeMediaOp(env, '/api/images/generate', 'POST', params); },

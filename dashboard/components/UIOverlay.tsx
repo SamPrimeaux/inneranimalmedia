@@ -12,6 +12,7 @@ import {
   Minus, Square, Circle, MousePointer2, Paintbrush, Layers, Maximize2,
   Undo2, Redo2, Trash2, Box as CubeIcon, Disc, ChevronUp, Construction
 } from 'lucide-react';
+import { MeshyBalancePill } from './designstudio/MeshyBalancePill';
 
 interface UIOverlayProps {
   voxelCount: number;
@@ -71,7 +72,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
     <div className="absolute inset-0 pointer-events-none p-10 flex flex-col justify-between">
       
       {/* Top HUD */}
-      <div className="flex justify-between items-start">
+      <div className="flex justify-between items-start gap-4">
         <div className="flex flex-col gap-4">
             <div className="flex items-center gap-4 bg-black/40 backdrop-blur-xl border border-white/5 px-6 py-4 rounded-2xl shadow-2xl">
                 <div className="p-2 bg-cyan-500/10 text-cyan-400 rounded-lg animate-pulse">
@@ -181,7 +182,8 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
             )}
         </div>
 
-        <div className="flex gap-4 pointer-events-auto">
+        <div className="flex gap-4 pointer-events-auto items-start">
+            {activeProject === ProjectType.CAD && <MeshyBalancePill />}
             {!activeProject.includes('CAD') && (
               <>
                 <button

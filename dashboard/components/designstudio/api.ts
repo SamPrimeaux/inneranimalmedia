@@ -136,3 +136,31 @@ export async function pollMeshyStatus(jobId: string): Promise<{
 }> {
   return jsonFetch(`/api/cad/meshy/status/${encodeURIComponent(jobId)}`);
 }
+
+export async function fetchMeshyBalance(): Promise<{ balance: number; stub?: boolean }> {
+  return jsonFetch('/api/cad/meshy/balance');
+}
+
+export async function meshyTextTo3dPreview(body: Record<string, unknown>): Promise<{
+  job_id: string;
+  task_id: string;
+  status: string;
+}> {
+  return jsonFetch('/api/cad/meshy/text-to-3d/preview', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function meshyTextTo3dRefine(body: {
+  preview_task_id: string;
+  enable_pbr?: boolean;
+  texture_prompt?: string;
+}): Promise<{ job_id: string; task_id: string; status: string }> {
+  return jsonFetch('/api/cad/meshy/text-to-3d/refine', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}

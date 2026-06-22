@@ -9,14 +9,9 @@ import {
   buildCadAssetPublicUrl,
 } from '../core/cad-job-scope.js';
 import { finalizeCadJobComplete } from '../core/cad-job-complete.js';
-import { applyMeshyTaskToCadJob } from '../core/meshy-cad-sync.js';
+import { handleCadMeshyApi } from './cad-meshy.js';
 
-const MESHY_BASE = 'https://api.meshy.ai/openapi/v2';
 const OPENSCAD_BIN = '/opt/homebrew/bin/openscad';
-
-function isStubKey(key) {
-  return !key || key.startsWith('sk-meshy-stub') || key === 'stub';
-}
 
 /**
  * @param {any} env
@@ -154,163 +149,9 @@ export async function handleCadApi(request, url, env, ctx) {
       });
     }
 
-    if (path === '/api/cad/meshy/generate' && method === 'POST') {
-      const reqCtx = await resolveRequestContext(request, env);
-      if (reqCtx.error) return jsonResponse({ error: 'Unauthorized' }, 401);
-      const authUser = { id: reqCtx.userId, tenant_id: reqCtx.tenantId };
-      if (!env.DB) return jsonResponse({ error: 'Database not configured' }, 503);
-
-      const body = await request.json().catch(() => ({}));
-      const { prompt, mode = 'text', image_url } = body;
-      if (!prompt && mode === 'text') return jsonResponse({ error: 'prompt required' }, 400);
-      if (mode === 'image' && !image_url) return jsonResponse({ error: 'image_url required for image mode' }, 400);
-
-      const scope = await resolveCadJobScope(env, request, authUser, body);
-      const jobId = 'cadj_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
-
-      if (isStubKey(env.MESHYAI_API_KEY)) {
-        await insertCadJob(env, {
-          id: jobId,
-          user_id: authUser.id,
-          session_id: scope.sessionId,
-          engine: 'meshy',
-          prompt: prompt || '',
-          mode,
-          status: 'stub',
-          workspace_id: scope.workspaceId,
-          tenant_id: scope.tenantId,
-          project_id: scope.projectId,
-          scene_snapshot_id: scope.sceneSnapshotId,
-        });
-        return jsonResponse({
-          job_id: jobId,
-          status: 'stub',
-          message: 'Meshy API key not configured. Set MESHYAI_API_KEY via: wrangler versions secret put MESHYAI_API_KEY',
-        });
-      }
-
-      const meshyEndpoint = mode === 'image' ? `${MESHY_BASE}/image-to-3d` : `${MESHY_BASE}/text-to-3d`;
-      const meshyBody =
-        mode === 'image'
-          ? { image_url, enable_pbr: true }
-          : { mode: 'preview', prompt, art_style: 'realistic', negative_prompt: 'low quality, blurry' };
-
-      const meshyRes = await fetch(meshyEndpoint, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${env.MESHYAI_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(meshyBody),
-      });
-
-      if (!meshyRes.ok) {
-        const errText = await meshyRes.text();
-        console.warn('[cad/meshy] API error:', meshyRes.status, errText.slice(0, 200));
-        return jsonResponse({ error: `Meshy API error: ${meshyRes.status}` }, 502);
-      }
-
-      const meshyData = await meshyRes.json();
-      const externalTaskId = meshyData.result || meshyData.id || null;
-
-      await insertCadJob(env, {
-        id: jobId,
-        user_id: authUser.id,
-        session_id: scope.sessionId,
-        engine: 'meshy',
-        prompt: prompt || '',
-        mode,
-        status: 'pending',
-        external_task_id: externalTaskId,
-        workspace_id: scope.workspaceId,
-        tenant_id: scope.tenantId,
-        project_id: scope.projectId,
-        scene_snapshot_id: scope.sceneSnapshotId,
-      });
-
-      return jsonResponse({
-        job_id: jobId,
-        status: 'pending',
-        external_task_id: externalTaskId,
-        workspace_id: scope.workspaceId,
-      });
-    }
-
-    const statusMatch = url.pathname.match(/^\/api\/cad\/meshy\/status\/([^/]+)$/i);
-    if (statusMatch && method === 'GET') {
-      const reqCtx = await resolveRequestContext(request, env);
-      if (reqCtx.error) return jsonResponse({ error: 'Unauthorized' }, 401);
-      const authUser = { id: reqCtx.userId, tenant_id: reqCtx.tenantId };
-      if (!env.DB) return jsonResponse({ error: 'Database not configured' }, 503);
-
-      const jobId = statusMatch[1];
-      const job = await env.DB.prepare(`SELECT * FROM agentsam_cad_jobs WHERE id = ? LIMIT 1`)
-        .bind(jobId)
-        .first();
-      if (!job) return jsonResponse({ error: 'Job not found' }, 404);
-
-      if (['done', 'failed', 'stub'].includes(String(job.status))) {
-        const publicUrl =
-          job.r2_key && !String(job.r2_key).startsWith('b64:')
-            ? buildCadAssetPublicUrl(job.r2_key)
-            : job.result_url;
-        return jsonResponse({
-          job_id: jobId,
-          status: job.status,
-          result_url: job.result_url,
-          public_url: publicUrl,
-          r2_key: job.r2_key,
-          error: job.error,
-          progress_pct: job.progress_pct,
-        });
-      }
-
-      if (isStubKey(env.MESHYAI_API_KEY)) {
-        return jsonResponse({ job_id: jobId, status: 'stub' });
-      }
-
-      if (!job.external_task_id) {
-        return jsonResponse({ job_id: jobId, status: job.status });
-      }
-
-      const endpoint =
-        job.mode === 'image'
-          ? `${MESHY_BASE}/image-to-3d/${job.external_task_id}`
-          : `${MESHY_BASE}/text-to-3d/${job.external_task_id}`;
-
-      const pollRes = await fetch(endpoint, {
-        headers: { Authorization: `Bearer ${env.MESHYAI_API_KEY}` },
-      });
-
-      if (!pollRes.ok) {
-        return jsonResponse({ job_id: jobId, status: 'running', message: 'Poll failed' });
-      }
-
-      const pollData = await pollRes.json();
-      const applied = await applyMeshyTaskToCadJob(env, ctx, pollData);
-      if (applied.ok && applied.status === 'failed') {
-        return jsonResponse({
-          job_id: jobId,
-          status: 'failed',
-          error: applied.error,
-        });
-      }
-      if (applied.ok && applied.status === 'done') {
-        return jsonResponse({
-          job_id: jobId,
-          status: 'done',
-          result_url: applied.public_url,
-          public_url: applied.public_url,
-          r2_key: applied.r2_key,
-          cms_asset: applied.cms_asset,
-          progress_pct: 100,
-        });
-      }
-      return jsonResponse({
-        job_id: jobId,
-        status: applied.status || job.status,
-        progress: applied.progress,
-      });
+    if (path.startsWith('/api/cad/meshy')) {
+      const meshyRes = await handleCadMeshyApi(request, url, env, ctx);
+      if (meshyRes) return meshyRes;
     }
 
     if (path === '/api/cad/openscad/generate' && method === 'POST') {

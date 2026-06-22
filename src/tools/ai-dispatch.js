@@ -138,7 +138,7 @@ export async function runBuiltinTool(env, toolName, params, runContext = {}) {
         case toolName.startsWith('voxel_'):
         case toolName.startsWith('meshyai_'):
         case toolName.startsWith('imgx_'):
-            return await mediaHandlers[toolName]?.(params, env);
+            return await mediaHandlers[toolName]?.(params, env, runContext);
 
         case toolName === 'moviemode_render':
         case toolName === 'moviemode_export':
