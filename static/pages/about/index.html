@@ -24,17 +24,58 @@ p{font-size:clamp(16px,1.65vw,21px);line-height:1.55;color:var(--muted);max-widt
 .badge{display:inline-flex;border:1px solid var(--line);padding:8px 12px;border-radius:999px;color:var(--muted);font-size:13px;margin:4px}
 @media(max-width:860px){.split,.chess-stage{grid-template-columns:1fr}h1{font-size:58px}.section{padding:64px 20px}}
 </style>
-<link rel="stylesheet" href="/assets/scenes/about-earth/about-earth.css?v=20260622a">
+<link rel="stylesheet" href="/assets/scenes/about-earth/about-earth.css?v=20260622b">
 </head>
 <body data-footer-theme="dark">
 <main class="iam-public-page route-about">
 
-<section class="section hero">
-  <div>
-    <div class="eyebrow">Inner Animal Media / about</div>
-    <h1>Make the internet feel more human</h1>
-    <p>Inner Animal Media builds premium digital experiences, creative systems, and interactive products that move with clarity, speed, and taste.</p>
-    <a class="btn" href="/contact">Start a build</a>
+<!-- cms: section about-earth-scene | route: /about | replaces: hero, culture, promise -->
+<section class="stage-wrap" id="earth-section" data-screen-label="about earth" data-cms-section="about-earth-scene">
+  <div class="stage">
+    <div class="stage-bg" id="earth-stage-bg"></div>
+    <canvas id="earth-canvas"></canvas>
+    <div class="earth-fallback"><div class="orb"></div></div>
+    <div class="stage-vignette"></div>
+
+    <div class="overlay">
+      <div class="hero-intro" id="hero-intro">
+        <div class="eyebrow">Inner Animal Media / about</div>
+        <h1>Make the internet feel more human</h1>
+        <p>Inner Animal Media builds premium digital experiences, creative systems, and interactive products that move with clarity, speed, and taste.</p>
+        <a class="cta" href="/contact">Start a build <span class="arrow">→</span></a>
+      </div>
+    </div>
+
+    <div class="overlay">
+      <article class="panel culture" id="culture-panel" data-cms-section="culture">
+        <div class="eyebrow">culture</div>
+        <h2>Curious by default, disciplined by design</h2>
+        <p>We work in the open — sharing context, giving direct feedback, and holding a high bar without the theater. The best outcomes come from a culture that is rigorous, generous, and quietly ambitious.</p>
+        <div class="badges">
+          <span class="badge">Precision over noise</span>
+          <span class="badge">Feedback that helps</span>
+          <span class="badge">High standards, low ego</span>
+        </div>
+      </article>
+
+      <article class="panel promise" id="promise-panel" data-cms-section="promise">
+        <div class="eyebrow">promise</div>
+        <h2>Work worth noticing — built to last</h2>
+        <p>We make digital experiences that feel elevated and unmistakably human. Confident in tone, cohesive in form, and crafted with enough restraint to matter long after the launch moment passes.</p>
+        <div class="badges">
+          <span class="badge">Character that scales</span>
+          <span class="badge">Elegant and usable</span>
+          <span class="badge">Made to endure</span>
+        </div>
+      </article>
+    </div>
+
+    <div class="scroll-hint" id="scroll-hint">Scroll to explore</div>
+
+    <div class="closing" id="earth-closing">
+      <p><strong>Ready when you are.</strong> If this is the standard you want for your next build, we should talk.</p>
+      <a class="cta" href="/contact">Start a build <span class="arrow">→</span></a>
+    </div>
   </div>
 </section>
 
@@ -123,49 +164,8 @@ p{font-size:clamp(16px,1.65vw,21px);line-height:1.55;color:var(--muted);max-widt
   </div>
 </section>
 
-<!-- cms: section about-earth-scene | route: /about | replaces: culture, promise -->
-<section class="stage-wrap" id="earth-section" data-screen-label="about earth" data-cms-section="about-earth-scene">
-  <div class="stage">
-    <div class="stage-bg" id="earth-stage-bg"></div>
-    <canvas id="earth-canvas"></canvas>
-    <div class="earth-fallback"><div class="orb"></div></div>
-    <div class="stage-vignette"></div>
-
-    <div class="overlay">
-      <article class="panel culture" id="culture-panel" data-cms-section="culture">
-        <div class="eyebrow">culture</div>
-        <h2>Curious by default, disciplined by design</h2>
-        <p>We work in the open — sharing context, giving direct feedback, and holding a high bar without the theater. The best outcomes come from a culture that is rigorous, generous, and quietly ambitious.</p>
-        <div class="badges">
-          <span class="badge">Precision over noise</span>
-          <span class="badge">Feedback that helps</span>
-          <span class="badge">High standards, low ego</span>
-        </div>
-      </article>
-
-      <article class="panel promise" id="promise-panel" data-cms-section="promise">
-        <div class="eyebrow">promise</div>
-        <h2>Work worth noticing — built to last</h2>
-        <p>We make digital experiences that feel elevated and unmistakably human. Confident in tone, cohesive in form, and crafted with enough restraint to matter long after the launch moment passes.</p>
-        <div class="badges">
-          <span class="badge">Character that scales</span>
-          <span class="badge">Elegant and usable</span>
-          <span class="badge">Made to endure</span>
-        </div>
-      </article>
-    </div>
-
-    <div class="scroll-hint" id="scroll-hint">Scroll to explore</div>
-
-    <div class="closing" id="earth-closing">
-      <p><strong>Ready when you are.</strong> If this is the standard you want for your next build, we should talk.</p>
-      <a class="cta" href="/contact">Start a build <span class="arrow">→</span></a>
-    </div>
-  </div>
-</section>
-
 </main>
-<script type="module" src="/assets/scenes/about-earth/spline.js?v=20260622a"></script>
-<script src="/assets/scenes/about-earth/scroll.js?v=20260622a"></script>
+<script type="module" src="/assets/scenes/about-earth/spline.js?v=20260622b"></script>
+<script src="/assets/scenes/about-earth/scroll.js?v=20260622b"></script>
 </body>
 </html>

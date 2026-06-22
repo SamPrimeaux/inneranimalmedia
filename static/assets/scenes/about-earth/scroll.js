@@ -1,5 +1,5 @@
-/* scroll.js — scroll choreography for /about culture + promise scene.
-   Drives DOM panels and window.EarthScene.setProgress from one timeline. */
+/* scroll.js — scroll choreography for /about earth scene (hero + culture + promise).
+   Drives hero intro, DOM panels, and window.EarthScene.setProgress from one timeline. */
 (function () {
   "use strict";
 
@@ -7,6 +7,7 @@
   const section = document.getElementById("earth-section");
   if (!section) return;
 
+  const heroIntro = document.getElementById("hero-intro");
   const culture = document.getElementById("culture-panel");
   const promise = document.getElementById("promise-panel");
   const closing = document.getElementById("earth-closing");
@@ -22,13 +23,27 @@
   function isMobile() { return matchMedia("(max-width:860px)").matches; }
   if (isMobile()) section.classList.add("compact");
 
-  // scroll bands
-  const CULTURE_IN = [0.06, 0.22];
-  const CULTURE_OUT = [0.38, 0.52];
-  const PROMISE_IN = [0.44, 0.58];
-  const PROMISE_OUT = [0.74, 0.86];
-  const CLOSE_IN = [0.82, 0.96];
-  const HINT_OUT = [0.04, 0.14];
+  // hero lifts away first; scene timeline starts slightly before hero fully exits
+  const HERO_OUT0 = 0.02, HERO_OUT1 = 0.14, SCENE_START = 0.08;
+  const sceneOf = (raw) => seg(raw, SCENE_START, 1.0);
+
+  const CULTURE_IN = [0.10, 0.26];
+  const CULTURE_OUT = [0.40, 0.54];
+  const PROMISE_IN = [0.46, 0.60];
+  const PROMISE_OUT = [0.76, 0.88];
+  const CLOSE_IN = [0.84, 0.98];
+  const HINT_OUT = [0.06, 0.16];
+
+  function setHero(raw) {
+    if (!heroIntro) return;
+    const out = easeInOut(seg(raw, HERO_OUT0, HERO_OUT1));
+    const y = -out * window.innerHeight * (isMobile() ? 0.12 : 0.16);
+    const s = lerp(1, 0.96, out);
+    heroIntro.style.opacity = (1 - out).toFixed(3);
+    heroIntro.style.filter = out > 0.01 ? `blur(${(out * 8).toFixed(1)}px)` : "none";
+    heroIntro.style.transform = `translate(-50%,-50%) translateY(${y.toFixed(1)}px) scale(${s.toFixed(3)})`;
+    heroIntro.style.pointerEvents = out > 0.55 ? "none" : "auto";
+  }
 
   function setPanel(el, p, winIn, winOut, fromSide) {
     if (!el) return;
@@ -48,7 +63,7 @@
 
   function setBg(p) {
     if (!stageBg) return;
-    const t = easeInOut(seg(p, 0.1, 0.75));
+    const t = easeInOut(seg(p, 0.08, 0.78));
     const blue = Math.round(lerp(28, 42, t));
     const cyan = Math.round(lerp(14, 22, t));
     stageBg.style.background =
@@ -65,21 +80,23 @@
     closing.style.pointerEvents = r > 0.45 ? "auto" : "none";
   }
 
-  function setHint(p) {
+  function setHint(raw) {
     if (!hint) return;
-    const out = easeInOut(seg(p, HINT_OUT[0], HINT_OUT[1]));
+    const out = easeInOut(seg(raw, HINT_OUT[0], HINT_OUT[1]));
     hint.style.opacity = (1 - out).toFixed(3);
   }
 
   let renderedP = 0;
   function apply(raw) {
-    setPanel(culture, raw, CULTURE_IN, CULTURE_OUT, "left");
-    setPanel(promise, raw, PROMISE_IN, PROMISE_OUT, "right");
-    setBg(raw);
-    setClosing(raw);
+    setHero(raw);
+    const p = sceneOf(raw);
+    setPanel(culture, p, CULTURE_IN, CULTURE_OUT, "left");
+    setPanel(promise, p, PROMISE_IN, PROMISE_OUT, "right");
+    setBg(p);
+    setClosing(p);
     setHint(raw);
     if (window.EarthScene && window.EarthScene.ready) {
-      window.EarthScene.setProgress(raw);
+      window.EarthScene.setProgress(p);
     }
     section.setAttribute("data-screen-label", "earth " + Math.round(raw * 100) + "%");
   }
