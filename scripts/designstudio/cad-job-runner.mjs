@@ -20,6 +20,8 @@ import { tmpdir, hostname } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runD1Query, runD1Exec } from '../lib/d1-deploy-record.mjs';
+import { optimizeGlbInPlace } from '../lib/glb-optimize.mjs';
+import { runMeshyGlbOptimizeOnce } from './meshy-glb-optimize-runner.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, '../..');
@@ -85,7 +87,7 @@ async function claimJobById(jobId) {
     REPO_ROOT,
     `SELECT id FROM agentsam_cad_jobs
      WHERE id = '${sqlEscape(id)}' AND status IN ('pending', 'running')
-       AND engine IN ('openscad', 'blender')
+       AND engine IN ('openscad', 'blender', 'freecad')
      LIMIT 1`,
   );
   if (!rows.length) return null;
@@ -126,6 +128,32 @@ async function claimNextJob() {
     `SELECT * FROM agentsam_cad_jobs WHERE id = '${sqlEscape(id)}' AND status = 'running' LIMIT 1`,
   );
   return jobRows[0] || null;
+}
+
+function resolveFreecad() {
+  const bin = process.env.FREECAD_BIN;
+  if (bin) return bin;
+  try {
+    return execFileSync('bash', ['-lc', 'command -v FreeCADCmd || command -v freecadcmd'], {
+      encoding: 'utf8',
+    }).trim();
+  } catch {
+    return '';
+  }
+}
+
+function runFreecadPipeline(tmpDir, scriptPath, logPath) {
+  const freecad = resolveFreecad();
+  if (!freecad) throw new Error('freecad_not_found');
+  const r = spawnSync('bash', [join(SCRIPT_DIR, 'run-freecad.sh'), scriptPath], {
+    encoding: 'utf8',
+    env: { ...process.env, FREECAD_BIN: freecad },
+    timeout: 600_000,
+  });
+  writeFileSync(logPath, `${r.stdout || ''}\n${r.stderr || ''}`, 'utf8');
+  if (r.status !== 0) {
+    throw new Error(r.stderr || r.stdout || 'freecad_failed');
+  }
 }
 
 function runOpenscadPipeline(tmpDir, scadPath, stlPath, glbPath) {
@@ -234,9 +262,33 @@ async function processJob(job) {
       const pyPath = join(tmpDir, 'script.py');
       writeFileSync(pyPath, script, 'utf8');
       runBlenderPipeline(tmpDir, pyPath, glbPath);
+    } else if (engine === 'freecad') {
+      const pyPath = join(tmpDir, 'script.py');
+      const logPath = join(tmpDir, 'freecad.log');
+      writeFileSync(pyPath, script, 'utf8');
+      runFreecadPipeline(tmpDir, pyPath, logPath);
+      const stlPath = join(tmpDir, 'output.stl');
+      const stepPath = join(tmpDir, 'output.step');
+      if (existsSync(stlPath)) {
+        const r = spawnSync('python3', [join(SCRIPT_DIR, 'stl-to-glb.py'), stlPath, glbPath, resolveBlender()], {
+          encoding: 'utf8',
+          env: process.env,
+        });
+        if (r.status !== 0 || !existsSync(glbPath)) {
+          throw new Error(r.stderr || r.stdout || 'freecad_stl_to_glb_failed');
+        }
+      } else if (!existsSync(glbPath)) {
+        throw new Error(
+          existsSync(stepPath)
+            ? 'freecad_output_step_only: export GLB or STL from script for viewport ingest'
+            : 'freecad_no_output: script must write /tmp/output.stl, output.stl in cwd, or export GLB',
+        );
+      }
     } else {
       throw new Error(`unsupported_engine:${engine}`);
     }
+
+    optimizeGlbInPlace(glbPath);
 
     const r2Key = buildR2Key(job);
     uploadGlb(glbPath, r2Key);
@@ -298,10 +350,17 @@ async function processJob(job) {
 async function loopOnce() {
   await resetStuckJobs();
   const job = TARGET_JOB_ID ? await claimJobById(TARGET_JOB_ID) : await claimNextJob();
-  if (!job) return false;
-  log('claimed', job.id, job.engine, TARGET_JOB_ID ? '(targeted)' : '');
-  await processJob(job);
-  return true;
+  if (job) {
+    log('claimed', job.id, job.engine, TARGET_JOB_ID ? '(targeted)' : '');
+    await processJob(job);
+    return true;
+  }
+  try {
+    await runMeshyGlbOptimizeOnce();
+  } catch (e) {
+    log('meshy glb polish pass', e?.message ?? e);
+  }
+  return false;
 }
 
 async function main() {

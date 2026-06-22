@@ -80,7 +80,7 @@ export function useCreationStation(cad: CadHook) {
     const pct = job.progress_pct != null ? ` ${job.progress_pct}%` : '';
     appendLog(`Job ${job.id} → ${job.status}${pct}`, job.status === 'failed' ? 'error' : 'info');
     if (job.status === 'done' && job.public_url) {
-      appendLog(`GLB ready: ${job.public_url}`, 'ok');
+      appendLog('Model ready in viewport', 'ok');
     }
     if (job.error) appendLog(String(job.error), 'error');
   }, [cad.polledJob, appendLog]);

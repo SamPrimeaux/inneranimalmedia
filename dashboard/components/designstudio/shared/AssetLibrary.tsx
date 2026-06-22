@@ -9,7 +9,8 @@ import {
   Shield,
   Trash2,
 } from 'lucide-react';
-import { normalizeGlbUrl } from '../../../lib/glbAssets';
+import { AGENT_SAM_GENERATOR_KEYS } from '../../../utils/agentSamGenerators';
+import type { AgentSamGeneratorKey } from '../../../utils/agentSamGenerators';
 import type { CustomAsset } from '../../../types';
 
 export type StudioStockAsset = {
@@ -57,6 +58,7 @@ function studioAssetIcon(iconKey: string | null): React.ReactNode {
 type Props = {
   customAssets: CustomAsset[];
   onSpawnModel: (name: string, url: string, scale: number) => void;
+  onSpawnProcedural?: (key: AgentSamGeneratorKey) => void;
   onAddCustomAsset: (name: string, url: string) => void | Promise<void>;
   onRemoveCustomAsset: (id: string) => void | Promise<void>;
   onRefreshUserAssets?: () => void;
@@ -66,6 +68,7 @@ type Props = {
 export function AssetLibrary({
   customAssets,
   onSpawnModel,
+  onSpawnProcedural,
   onAddCustomAsset,
   onRemoveCustomAsset,
   onRefreshUserAssets,
@@ -209,6 +212,24 @@ export function AssetLibrary({
             </div>
           </form>
         )}
+
+        <p className="text-[9px] font-bold text-[var(--text-muted)] uppercase mb-1">
+          AgentSam Procedural
+        </p>
+        <div className="grid grid-cols-2 gap-2 mb-3">
+          {AGENT_SAM_GENERATOR_KEYS.map((key) => (
+            <button
+              type="button"
+              key={key}
+              disabled={!onSpawnProcedural}
+              onClick={() => onSpawnProcedural?.(key)}
+              className="flex items-center justify-center gap-2 p-2 rounded-xl bg-[var(--bg-panel)] border border-[var(--border-subtle)] hover:bg-[var(--bg-hover)] text-[10px] font-bold uppercase disabled:opacity-40"
+            >
+              <Box size={14} className="text-[var(--solar-cyan)] shrink-0" />
+              {key}
+            </button>
+          ))}
+        </div>
 
         <p className="text-[9px] font-bold text-[var(--text-muted)] uppercase mb-1">
           Stock Presets

@@ -123,6 +123,10 @@
     "designstudio:smoke": "bash scripts/designstudio/pipeline-smoke.sh",
     "designstudio:runner": "./scripts/with-cloudflare-env.sh node scripts/designstudio/cad-job-runner.mjs",
     "designstudio:runner:once": "./scripts/with-cloudflare-env.sh node scripts/designstudio/cad-job-runner.mjs --once",
+    "container:cad-worker:build": "./scripts/build-iam-cad-worker-container.sh",
+    "glb:optimize": "node scripts/glb-optimize-cli.mjs",
+    "glb:optimize:assets": "node scripts/glb-optimize-cli.mjs --in-place public/assets/glb",
+    "postinstall": "bash scripts/ensure-glb-toolchain.sh || true",
     "build": "npm run build:vite-only && node scripts/bump-cache.js",
     "build:vite-only": "bash scripts/with-node-env-fallback.sh npm --prefix dashboard run build",
     "crawl:plans": "python3 scripts/agentsam_crawl_plans_d1_supabase.py",
@@ -159,6 +163,7 @@
     "zod": "^4.1.13"
   },
   "devDependencies": {
+    "@gltf-transform/cli": "^4.4.0",
     "@playwright/test": "^1.49.0",
     "@remotion/bundler": "^4.0.462",
     "@remotion/player": "^4.0.462",
@@ -177,5 +182,9 @@
     "ws": "^8.21.0"
   },
   "type": "module",
-  "private": true
+  "private": true,
+  "allowScripts": {
+    "sharp": true,
+    "@gltf-transform/cli": true
+  }
 }

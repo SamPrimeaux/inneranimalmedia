@@ -2,7 +2,8 @@
  * Apply Meshy task payloads to agentsam_cad_jobs (poll + webhook).
  */
 import { buildCadAssetPublicUrl } from './cad-job-scope.js';
-import { finalizeCadJobComplete, ingestRemoteGlbToR2 } from './cad-job-complete.js';
+import { finalizeCadJobComplete } from './cad-job-complete.js';
+import { meshyIngestAndQueuePolish } from './meshy-glb-ingest.js';
 import { getMeshyTask, textTo3dRefine } from './meshy-api.js';
 import { isMeshyAuthMissing, meshyKeySourceFromJob, resolveMeshyAuth } from './meshy-api-key.js';
 import { MESHY_CREDIT_COSTS } from './meshy-credits.js';
@@ -100,39 +101,7 @@ export async function findCadJobByParentTaskId(env, parentTaskId) {
  * @param {string | null | undefined} glbUrl
  */
 async function meshyIngestIfDone(env, ctx, job, scope, glbUrl) {
-  const url = String(glbUrl || '').trim();
-  if (!url || !scope.workspaceId || !scope.tenantId) return null;
-  const lower = url.toLowerCase();
-  if (!lower.includes('.glb') && !lower.includes('gltf')) return null;
-  try {
-    if (!job.workspace_id && scope.workspaceId) {
-      await env.DB.prepare(
-        `UPDATE agentsam_cad_jobs SET
-           workspace_id = ?, tenant_id = ?, project_id = COALESCE(?, project_id),
-           scene_snapshot_id = COALESCE(?, scene_snapshot_id), updated_at = unixepoch()
-         WHERE id = ?`,
-      )
-        .bind(scope.workspaceId, scope.tenantId, scope.projectId, scope.sceneSnapshotId, job.id)
-        .run();
-    }
-    const ingested = await ingestRemoteGlbToR2(env, {
-      tenantId: scope.tenantId || job.tenant_id,
-      workspaceId: scope.workspaceId || job.workspace_id,
-      jobId: String(job.id),
-      sourceUrl: url,
-    });
-    return finalizeCadJobComplete(env, ctx, {
-      job_id: job.id,
-      status: 'done',
-      r2_key: ingested.r2_key,
-      r2_bucket: ingested.r2_bucket,
-      public_url: ingested.public_url,
-      size_bytes: ingested.size_bytes,
-    });
-  } catch (e) {
-    console.warn('[meshy-cad-sync] r2 ingest failed:', e?.message ?? e);
-    return null;
-  }
+  return meshyIngestAndQueuePolish(env, ctx, job, scope, glbUrl);
 }
 
 async function meshyAuthForJob(env, job) {
@@ -346,13 +315,14 @@ export async function applyMeshyTaskToCadJob(env, ctx, taskPayload) {
     await env.DB.prepare(
       `UPDATE agentsam_cad_jobs SET
          model_formats = COALESCE(?, model_formats),
-         texture_data = COALESCE(?, texture_data),
+         texture_data = CASE WHEN ? = 1 THEN texture_data ELSE COALESCE(?, texture_data) END,
          credits_consumed = COALESCE(?, credits_consumed),
          updated_at = unixepoch()
        WHERE id = ?`,
     )
       .bind(
         modelFormats ? JSON.stringify(modelFormats) : null,
+        ingested.pending_polish ? 1 : 0,
         textureData ? JSON.stringify(textureData) : null,
         creditsConsumed,
         jobId,
@@ -363,11 +333,12 @@ export async function applyMeshyTaskToCadJob(env, ctx, taskPayload) {
   return {
     ok: true,
     job_id: jobId,
-    status: 'done',
-    public_url: publicUrl,
+    status: ingested?.pending_polish ? 'running' : 'done',
+    public_url: ingested?.pending_polish ? null : publicUrl,
     r2_key: ingested?.r2_key ?? null,
     cms_asset: ingested?.cms_asset ?? null,
-    progress_pct: 100,
+    progress_pct: ingested?.pending_polish ? 92 : 100,
     phase: taskType,
+    pending_polish: !!ingested?.pending_polish,
   };
 }

@@ -37,7 +37,7 @@ const TIER1_GLOBS = ['MonacoEditorView*.js', 'vendor-editor*.js'];
 
 /** Tier 2 — route lazy precache (dist pattern match per route). */
 const TIER2_ROUTE_GLOBS = {
-  '/dashboard/designstudio': ['DesignStudioPage*.js', 'vendor-three*.js', 'VoxelEngine*.js'],
+  '/dashboard/designstudio': ['DesignStudioPage*.js', 'vendor-three*.js', 'AgentSamEngine*.js'],
   '/dashboard/learn': ['LearnPage*.js', 'LearnPage*.css'],
   '/dashboard/workflows': ['WorkflowsPage*.js', 'vendor-charts*.js'],
   '/dashboard/meet': ['MeetPage*.js', 'vendor-realtimekit*.js'],

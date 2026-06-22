@@ -1,5 +1,6 @@
 /**
- * GLTFLoader configured for meshopt-compressed chess piece GLBs on R2.
+ * Platform GLTFLoader — meshopt (skinned/animated) + optional Draco (static props).
+ * AgentSamEngine and Design Studio viewports share this loader.
  */
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
@@ -18,7 +19,8 @@ export function ensureMeshoptDecoderReady(): Promise<void> {
   return meshoptReady;
 }
 
-export function createChessGltfLoader(dracoLoader?: DRACOLoader): GLTFLoader {
+/** Primary loader factory for IAM GLBs (meshopt default; Draco when passed). */
+export function createPlatformGltfLoader(dracoLoader?: DRACOLoader): GLTFLoader {
   const loader = new GLTFLoader();
   loader.setCrossOrigin('anonymous');
 
@@ -33,3 +35,6 @@ export function createChessGltfLoader(dracoLoader?: DRACOLoader): GLTFLoader {
 
   return loader;
 }
+
+/** @deprecated Use createPlatformGltfLoader — alias for chess + legacy imports. */
+export const createChessGltfLoader = createPlatformGltfLoader;

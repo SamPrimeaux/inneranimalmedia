@@ -20,7 +20,8 @@ Set `OPENSCAD_BIN`, `BLENDER_BIN`, `FREECAD_BIN` if binaries are not on `PATH`.
 | `run-openscad.sh` | `input.scad` → `output.stl` |
 | `stl-to-glb.py` | `input.stl` → `output.glb` via Blender `--background` |
 | `run-blender-glb.sh` | Wrapper calling `stl-to-glb.py` |
-| `cad-job-runner.mjs` | Poll D1 `agentsam_cad_jobs` (pending) → OpenSCAD/Blender → R2 → `POST /api/internal/cad/job-complete` |
+| `cad-job-runner.mjs` | Poll D1 `agentsam_cad_jobs` (pending) → OpenSCAD/Blender → **auto GLB polish** → R2 → job-complete |
+| `meshy-glb-optimize-runner.mjs` | Meshy ingest polish (meshopt + webp) — invoked by ExecOS or polled by `designstudio:runner` |
 
 ## CAD runner (off-edge execution)
 
@@ -39,6 +40,9 @@ Worker flow:
 1. `POST /api/cad/openscad/generate` → `script_ready`
 2. `POST /api/cad/jobs/:id/execute` → `pending`
 3. Runner claims job → GLB in R2 → `cms_assets` + `scene_snapshots` link via job-complete
+| `run-freecad.sh` | Headless FreeCADCmd / AppImage → Python script |
+| `install-freecad-appimage.sh` | Install FreeCAD AppImage on Linux GCP VM (`--remote` from Mac) |
+| `containers/iam-cad-worker/` | CF Container image (OpenSCAD/Blender/FreeCAD) — smoke before enabling `CAD_DISPATCH_TARGET` |
 | `freecad-check.sh` | Exit 0 if FreeCAD CLI found |
 | `pipeline-smoke.sh` | Temp dir; minimal cube `.scad` → `.stl` → `.glb` |
 | `upload-asset.sh` | `wrangler r2 object put` to bucket `inneranimalmedia` |

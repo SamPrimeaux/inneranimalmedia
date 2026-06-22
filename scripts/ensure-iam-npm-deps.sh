@@ -10,6 +10,9 @@ iam_npm_deps_missing() {
 
 ensure_iam_npm_deps() {
   if ! iam_npm_deps_missing; then
+    # shellcheck source=scripts/ensure-glb-toolchain.sh
+    source "$REPO_ROOT/scripts/ensure-glb-toolchain.sh"
+    ensure_glb_toolchain || return 1
     return 0
   fi
   echo "[ensure-iam-npm-deps] missing vite and/or aws4fetch — npm install with NODE_ENV=development" >&2
@@ -19,6 +22,9 @@ ensure_iam_npm_deps() {
     echo "[ensure-iam-npm-deps] ✗ deps still missing after install" >&2
     return 1
   fi
+  # shellcheck source=scripts/ensure-glb-toolchain.sh
+  source "$REPO_ROOT/scripts/ensure-glb-toolchain.sh"
+  ensure_glb_toolchain || return 1
   echo "[ensure-iam-npm-deps] ✓ deps OK" >&2
   return 0
 }

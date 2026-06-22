@@ -365,6 +365,20 @@ export async function dispatchProductionDomainRoutes(rc) {
     return handleMyContainerExec(request, env);
   }
 
+  if (pathLower === '/api/internal/cad-container/health' && methodUpper === 'GET') {
+    const { isInternalSecretAuthorized, jsonResponse } = await import('../core/auth.js');
+    if (!isInternalSecretAuthorized(request, env)) {
+      return jsonResponse({ error: 'unauthorized' }, 401);
+    }
+    const { probeIamCadWorkerContainer } = await import('../core/iam-cad-worker-container.js');
+    const { resolveCadDispatchTarget } = await import('../core/cad-dispatch.js');
+    const out = await probeIamCadWorkerContainer(env);
+    return jsonResponse(
+      { ...out, dispatch_target: resolveCadDispatchTarget(env) },
+      out.ok ? 200 : 503,
+    );
+  }
+
   if (pathLower === '/api/internal/exec/context/snapshot') {
     const { handleInternalExecContext } = await import('../api/internal-exec-context.js');
     return handleInternalExecContext(request, env);

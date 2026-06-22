@@ -18,6 +18,7 @@ import type { useDesignStudioCad } from '../hooks/useDesignStudioCad';
 import type { CustomAsset, GenerationConfig, SceneConfig } from '../../../types';
 import type { SavedSceneRow } from '../shared/ScenePanel';
 import type { CadJobRow } from '../api';
+import type { AgentSamGeneratorKey } from '../../../utils/agentSamGenerators';
 import { KEYS_PATH } from './MeshyPlatformNotice';
 
 type CadHook = ReturnType<typeof useDesignStudioCad>;
@@ -27,6 +28,7 @@ export type DesignStudioCreationStationProps = {
   viewport: React.ReactNode;
   customAssets: CustomAsset[];
   onSpawnModel: (name: string, url: string, scale: number) => void;
+  onSpawnProcedural?: (key: AgentSamGeneratorKey) => void;
   onAddCustomAsset: (name: string, url: string) => void | Promise<void>;
   onRemoveCustomAsset: (id: string) => void | Promise<void>;
   onRefreshUserAssets?: () => void;
@@ -56,6 +58,7 @@ export function DesignStudioCreationStation({
   viewport,
   customAssets,
   onSpawnModel,
+  onSpawnProcedural,
   onAddCustomAsset,
   onRemoveCustomAsset,
   onRefreshUserAssets,
@@ -156,6 +159,8 @@ export function DesignStudioCreationStation({
 
   const latestGlb = activeJob?.public_url || activeJob?.result_url;
   const progressPct = cad.polledJob?.progress_pct;
+  const progressLabel =
+    (progressPct ?? 0) >= 92 ? 'Finalizing' : 'Generating';
   const meshySegmentActive = studioSegment === 'meshy';
   const advancedActive = studioSegment === 'advanced';
 
@@ -205,6 +210,7 @@ export function DesignStudioCreationStation({
           glbR2Key={glbR2Key}
           customAssets={customAssets}
           onSpawnModel={onSpawnModel}
+          onSpawnProcedural={onSpawnProcedural}
           onAddCustomAsset={onAddCustomAsset}
           onRemoveCustomAsset={onRemoveCustomAsset}
           onRefreshUserAssets={onRefreshUserAssets}
@@ -296,11 +302,10 @@ export function DesignStudioCreationStation({
                     className="text-[10px] font-black uppercase tracking-[0.15em]"
                     style={{ color: 'var(--solar-cyan)' }}
                   >
-                    Generating
+                    {progressLabel}
                   </span>
                   <span className="text-[10px] font-mono text-[var(--text-muted)]">
-                    {activeJob?.status || 'running'}
-                    {progressPct != null && progressPct > 0 ? ` · ${progressPct}%` : ''}
+                    {progressPct != null && progressPct > 0 ? `${progressPct}%` : ''}
                   </span>
                 </div>
                 <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--bg-hover)' }}>

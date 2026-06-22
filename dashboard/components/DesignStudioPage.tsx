@@ -15,6 +15,7 @@ import {
   IAM_AGENT_CHAT_CONVERSATION_CHANGE,
   LS_AGENT_CHAT_CONVERSATION_ID,
 } from '../agentChatConstants';
+import type { AgentSamGeneratorKey } from '../utils/agentSamGenerators';
 import {
   ProjectType,
   AppState,
@@ -29,9 +30,9 @@ import {
 
 const ACTIVE_PROJECT = ProjectType.CAD;
 
-type VoxelEngineClass = typeof import('../services/VoxelEngine').VoxelEngine;
-type VoxelEngineInstance = InstanceType<VoxelEngineClass>;
-type StudioEngine = VoxelEngineInstance;
+type AgentSamEngineClass = typeof import('../services/AgentSamEngine').AgentSamEngine;
+type AgentSamEngineInstance = InstanceType<AgentSamEngineClass>;
+type StudioEngine = AgentSamEngineInstance;
 
 type PendingGlbState = { pendingGlb?: { url: string; name: string } };
 
@@ -42,7 +43,7 @@ type StudioStockAsset = {
   scale: number;
 };
 
-function isVoxelEngine(engine: StudioEngine | null): engine is VoxelEngineInstance {
+function isAgentSamEngine(engine: StudioEngine | null): engine is AgentSamEngineInstance {
   return engine != null && 'setProjectType' in engine;
 }
 
@@ -73,7 +74,7 @@ export const DesignStudioPage: React.FC = () => {
 
   const [engineReady, setEngineReady] = useState(false);
   const [appState, setAppState] = useState<AppState>(AppState.EDITING);
-  const [voxelCount, setVoxelCount] = useState(0);
+  const [entityCount, setEntityCount] = useState(0);
   const [customAssets, setCustomAssets] = useState<CustomAsset[]>([]);
   const [undoStack, setUndoStack] = useState<GameEntity[]>([]);
   const [redoStack, setRedoStack] = useState<GameEntity[]>([]);
@@ -108,7 +109,7 @@ export const DesignStudioPage: React.FC = () => {
     const url = job.public_url || job.result_url;
     if (!url) return false;
     const name = job.prompt?.slice(0, 40) || `${job.engine} export`;
-    const ok = await spawnGlbInEngine(isVoxelEngine(engineRef.current) ? engineRef.current : null, {
+    const ok = await spawnGlbInEngine(isAgentSamEngine(engineRef.current) ? engineRef.current : null, {
       url,
       name,
     });
@@ -251,10 +252,10 @@ export const DesignStudioPage: React.FC = () => {
     let cancelled = false;
     let engine: StudioEngine | null = null;
 
-    const mountVoxel = async () => {
-      const { VoxelEngine } = await import('../services/VoxelEngine');
+    const mountEngine = async () => {
+      const { AgentSamEngine } = await import('../services/AgentSamEngine');
       if (cancelled || !containerRef.current) return;
-      engine = new VoxelEngine(container, (s) => setAppState(s), (c) => setVoxelCount(c));
+      engine = new AgentSamEngine(container, (s) => setAppState(s), (c) => setEntityCount(c));
       engineRef.current = engine;
       engine.setOnEntityCreated((entity) => {
         setUndoStack((prev) => [...prev, entity]);
@@ -265,7 +266,7 @@ export const DesignStudioPage: React.FC = () => {
       engine.setExtrusion(genConfig.extrusion);
       engine.setProjectType(ACTIVE_PROJECT);
       const settleViewport = () => {
-        if (isVoxelEngine(engine)) engine.handleResize();
+        if (isAgentSamEngine(engine)) engine.handleResize();
       };
       requestAnimationFrame(() => {
         settleViewport();
@@ -274,10 +275,10 @@ export const DesignStudioPage: React.FC = () => {
       setEngineReady(true);
     };
 
-    void mountVoxel();
+    void mountEngine();
 
     const handleResize = () => {
-      if (isVoxelEngine(engineRef.current)) {
+      if (isAgentSamEngine(engineRef.current)) {
         engineRef.current.handleResize();
       }
     };
@@ -294,7 +295,7 @@ export const DesignStudioPage: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (isVoxelEngine(engineRef.current)) {
+    if (isAgentSamEngine(engineRef.current)) {
       engineRef.current.updateLighting(sceneConfig);
     }
   }, [sceneConfig]);
@@ -306,7 +307,7 @@ export const DesignStudioPage: React.FC = () => {
   }, [location.state]);
 
   useEffect(() => {
-    if (!engineReady || !isVoxelEngine(engineRef.current) || pendingConsumedRef.current) return;
+    if (!engineReady || !isAgentSamEngine(engineRef.current) || pendingConsumedRef.current) return;
     const st = (location.state as PendingGlbState | null)?.pendingGlb;
     if (!st?.url) return;
     pendingConsumedRef.current = true;
@@ -315,7 +316,7 @@ export const DesignStudioPage: React.FC = () => {
   }, [engineReady, location.state, location.pathname, navigate]);
 
   const handleUndo = useCallback(() => {
-    if (undoStack.length === 0 || !isVoxelEngine(engineRef.current)) return;
+    if (undoStack.length === 0 || !isAgentSamEngine(engineRef.current)) return;
     const last = undoStack[undoStack.length - 1];
     engineRef.current.removeEntity(last.id);
     setUndoStack((prev) => prev.slice(0, -1));
@@ -323,7 +324,7 @@ export const DesignStudioPage: React.FC = () => {
   }, [undoStack]);
 
   const handleRedo = useCallback(() => {
-    if (redoStack.length === 0 || !isVoxelEngine(engineRef.current)) return;
+    if (redoStack.length === 0 || !isAgentSamEngine(engineRef.current)) return;
     const next = redoStack[redoStack.length - 1];
     engineRef.current.spawnEntity(next);
     setRedoStack((prev) => prev.slice(0, -1));
@@ -333,7 +334,7 @@ export const DesignStudioPage: React.FC = () => {
   const handleUpdateGenConfig = useCallback((cfg: Partial<GenerationConfig>) => {
     setGenConfig((prev) => {
       const next = { ...prev, ...cfg };
-      if (isVoxelEngine(engineRef.current)) {
+      if (isAgentSamEngine(engineRef.current)) {
         if (cfg.cadTool !== undefined) engineRef.current.setCADTool(cfg.cadTool);
         if (cfg.cadPlane !== undefined) engineRef.current.setCADPlane(cfg.cadPlane);
         if (cfg.extrusion !== undefined) engineRef.current.setExtrusion(cfg.extrusion);
@@ -343,7 +344,7 @@ export const DesignStudioPage: React.FC = () => {
   }, []);
 
   const handleSpawnModel = useCallback((name: string, url: string, scale: number) => {
-    if (!isVoxelEngine(engineRef.current)) return;
+    if (!isAgentSamEngine(engineRef.current)) return;
     const normalized = normalizeGlbUrl(url);
     if (!normalized) return;
     void engineRef.current
@@ -357,6 +358,13 @@ export const DesignStudioPage: React.FC = () => {
         behavior: { type: 'static' },
       })
       .catch((err) => console.warn('[DesignStudio] spawn failed', err));
+  }, []);
+
+  const handleSpawnProcedural = useCallback((key: AgentSamGeneratorKey) => {
+    if (!isAgentSamEngine(engineRef.current)) return;
+    void engineRef.current
+      .spawnProceduralModel(key)
+      .catch((err) => console.warn('[DesignStudio] procedural spawn failed', err));
   }, []);
 
   const handleAddCustomAsset = useCallback(
@@ -417,14 +425,14 @@ export const DesignStudioPage: React.FC = () => {
   );
 
   const onClear = useCallback(() => {
-    if (!isVoxelEngine(engineRef.current)) return;
+    if (!isAgentSamEngine(engineRef.current)) return;
     engineRef.current.clearWorld();
     setUndoStack([]);
     setRedoStack([]);
   }, []);
 
   const handleSaveScene = useCallback(async () => {
-    if (!isVoxelEngine(engineRef.current)) return;
+    if (!isAgentSamEngine(engineRef.current)) return;
     setSceneBusy(true);
     try {
       const entities = engineRef.current.exportEntities();
@@ -444,7 +452,7 @@ export const DesignStudioPage: React.FC = () => {
             (activeJob?.r2_key && !String(activeJob.r2_key).startsWith('b64:')
               ? activeJob.r2_key
               : null),
-          voxel_count: voxelCount,
+          voxel_count: entityCount,
           style_preset: genConfig.style,
           project_id: cad.activeBlueprintId,
         }),
@@ -467,13 +475,13 @@ export const DesignStudioPage: React.FC = () => {
     cad,
     linkedCadJobId,
     linkedGlbR2Key,
-    voxelCount,
+    entityCount,
     genConfig.style,
     currentSceneId,
   ]);
 
   const handleLoadScene = useCallback(async (sceneId: string) => {
-    if (!isVoxelEngine(engineRef.current)) return;
+    if (!isAgentSamEngine(engineRef.current)) return;
     setSceneBusy(true);
     try {
       const [entitiesRes, metaRes] = await Promise.all([
@@ -503,10 +511,10 @@ export const DesignStudioPage: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (!engineReady || !isVoxelEngine(engineRef.current)) return;
+    if (!engineReady || !isAgentSamEngine(engineRef.current)) return;
     const tick = window.setInterval(() => {
-      const voxel = isVoxelEngine(engineRef.current) ? engineRef.current : null;
-      const entities = voxel?.exportEntities();
+      const engine = isAgentSamEngine(engineRef.current) ? engineRef.current : null;
+      const entities = engine?.exportEntities();
       if (!entities?.length) return;
       const wsId =
         (typeof window !== 'undefined' &&
@@ -550,7 +558,7 @@ export const DesignStudioPage: React.FC = () => {
       container.style.right = '';
       container.style.bottom = '';
       container.classList.add('inset-0');
-      if (isVoxelEngine(engineRef.current)) engineRef.current.handleResize();
+      if (isAgentSamEngine(engineRef.current)) engineRef.current.handleResize();
       return;
     }
     container.classList.remove('inset-0');
@@ -561,7 +569,7 @@ export const DesignStudioPage: React.FC = () => {
     container.style.height = `${rect.height}px`;
     container.style.right = 'auto';
     container.style.bottom = 'auto';
-    if (isVoxelEngine(engineRef.current)) engineRef.current.handleResize();
+    if (isAgentSamEngine(engineRef.current)) engineRef.current.handleResize();
   }, []);
 
   return (
@@ -582,7 +590,7 @@ export const DesignStudioPage: React.FC = () => {
         onUpdateSceneConfig={(c) => setSceneConfig((p) => ({ ...p, ...c }))}
         onDeployJob={(job) => void deployJobToScene(job)}
         onExportSceneJson={() => {
-          if (isVoxelEngine(engineRef.current)) {
+          if (isAgentSamEngine(engineRef.current)) {
             engineRef.current.exportForBlender();
           }
         }}
@@ -590,7 +598,7 @@ export const DesignStudioPage: React.FC = () => {
         glbR2Key={linkedGlbR2Key}
         viewport={
             <UIOverlay
-              voxelCount={voxelCount}
+              entityCount={entityCount}
               appState={appState}
               activeProject={ACTIVE_PROJECT}
                 isGenerating={cad.isGenerating}
@@ -607,12 +615,13 @@ export const DesignStudioPage: React.FC = () => {
             }
             customAssets={customAssets}
             onSpawnModel={handleSpawnModel}
+            onSpawnProcedural={handleSpawnProcedural}
             onAddCustomAsset={handleAddCustomAsset}
             onRemoveCustomAsset={handleRemoveCustomAsset}
             onRefreshUserAssets={refreshUserAssets}
             onImportGlb={handleImportGlbFile}
             onBlenderExport={() => {
-              if (isVoxelEngine(engineRef.current)) {
+              if (isAgentSamEngine(engineRef.current)) {
                 engineRef.current.exportForBlender();
               }
             }}

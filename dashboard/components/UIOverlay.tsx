@@ -15,7 +15,7 @@ import {
 import { MeshyBalancePill } from './designstudio/MeshyBalancePill';
 
 interface UIOverlayProps {
-  voxelCount: number;
+  entityCount: number;
   appState: AppState;
   activeProject: ProjectType;
   isGenerating: boolean;
@@ -32,7 +32,7 @@ interface UIOverlayProps {
 }
 
 export const UIOverlay: React.FC<UIOverlayProps> = ({
-  voxelCount,
+  entityCount,
   activeProject,
   isGenerating,
   onClear,
@@ -128,7 +128,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                     <div className="flex items-center gap-4 mt-1">
                         <div className="flex items-center gap-1.5">
                             <Box size={10} className="text-cyan-500" />
-                            <span className="text-[10px] font-mono text-cyan-500/80 uppercase">{voxelCount} VOXELS</span>
+                            <span className="text-[10px] font-mono text-cyan-500/80 uppercase">{entityCount} OBJECTS</span>
                         </div>
                         <div className="h-1 w-1 bg-white/10 rounded-full" />
                         <div className="flex items-center gap-1.5">

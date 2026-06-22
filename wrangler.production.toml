@@ -142,9 +142,19 @@ image = "registry.cloudflare.com/ede6590ac0d2fb7daf155b35653457b2/meauxcontainer
 instance_type = "basic"
 max_instances = 10
 
+[[containers]]
+class_name = "IamCadWorkerContainer"
+image = "registry.cloudflare.com/ede6590ac0d2fb7daf155b35653457b2/meauxcontainer-cad-worker:cad-v1"
+instance_type = "standard-2"
+max_instances = 5
+
 [[durable_objects.bindings]]
 name = "MY_CONTAINER"
 class_name = "MyContainer"
+
+[[durable_objects.bindings]]
+name = "IAM_CAD_WORKER"
+class_name = "IamCadWorkerContainer"
 
 # Dashboard label: iam-vpc
 [[vpc_services]]
@@ -185,6 +195,10 @@ new_sqlite_classes = ["AgentBrowserLiveV1"]
 tag = "v8"
 new_sqlite_classes = ["MyContainer"]
 
+[[migrations]]
+tag = "v9"
+new_sqlite_classes = ["IamCadWorkerContainer"]
+
 [[queues.producers]]
 binding = "MY_QUEUE"
 queue = "74b3155b36334b69852411c083d50322"
@@ -219,6 +233,8 @@ ENVIRONMENT = "production"
 # Meet engine: legacy (Cloudflare Calls SFU) | realtimekit (RealtimeKit SDK path)
 MEET_ENGINE = "realtimekit"
 AI_SEARCH_ENDPOINT = "https://2da31515-2005-42e4-9efe-a4e6a425a627.search.ai.cloudflare.com"
+# CAD jobs: gcp (default) | auto (container if healthy, else GCP) | container
+CAD_DISPATCH_TARGET = "gcp"
 
 [observability]
 

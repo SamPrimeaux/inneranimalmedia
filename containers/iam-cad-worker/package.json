@@ -1,0 +1,9 @@
+{
+  "name": "iam-cad-worker",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@gltf-transform/cli": "^4.1.1",
+    "sharp": "^0.33.5"
+  }
+}

@@ -518,7 +518,7 @@
     "dashboard/pages/workflows/WorkflowCanvas.tsx",
     "dashboard/pages/workflows/WorkflowsPage.tsx",
     "dashboard/postcss.config.js",
-    "dashboard/services/VoxelEngine.ts",
+    "dashboard/services/AgentSamEngine.ts",
     "dashboard/src/AgentSamSession.ts",
     "dashboard/src/EditorContext.tsx",
     "dashboard/src/MeetContext.tsx",
@@ -541,8 +541,8 @@
     "dashboard/src/types/moviemode.ts",
     "dashboard/tailwind.config.js",
     "dashboard/types.ts",
-    "dashboard/utils/voxelConstants.ts",
-    "dashboard/utils/voxelGenerators.ts",
+    "dashboard/utils/agentSamConstants.ts",
+    "dashboard/utils/agentSamGenerators.ts",
     "dashboard/vite.config.ts"
   ],
   "doc_files_scanned": [

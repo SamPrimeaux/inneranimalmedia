@@ -82,7 +82,7 @@ export async function dispatchCadJobToPty(env, ctx, jobId, auth) {
   if (!job) return { ok: false, error: 'job_not_found' };
 
   const engine = String(job.engine || '').toLowerCase();
-  if (!['openscad', 'blender'].includes(engine)) {
+  if (!['openscad', 'blender', 'freecad'].includes(engine)) {
     return { ok: false, error: 'exec_engine_not_supported', engine };
   }
 
@@ -171,12 +171,3 @@ export async function dispatchCadJobToPty(env, ctx, jobId, auth) {
 
 /** @deprecated alias */
 export const dispatchCadJobToExecOs = dispatchCadJobToPty;
-
-/**
- * Probe ExecOS GCP + CAD toolchain health for the authenticated user.
- * @param {any} env
- * @param {{ userId?: string|null, tenantId?: string|null, workspaceId?: string|null }} [ctx]
- */
-export async function probeCadComputeHealth(env, ctx = {}) {
-  return probeExecOsCadHealth(env, ctx);
-}

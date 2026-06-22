@@ -23,6 +23,7 @@ type Props = {
   glbR2Key?: string | null;
   customAssets: CustomAsset[];
   onSpawnModel: (name: string, url: string, scale: number) => void;
+  onSpawnProcedural?: (key: import('../../../utils/agentSamGenerators').AgentSamGeneratorKey) => void;
   onAddCustomAsset: (name: string, url: string) => void | Promise<void>;
   onRemoveCustomAsset: (id: string) => void | Promise<void>;
   onRefreshUserAssets?: () => void;
@@ -46,6 +47,7 @@ export function CadPipelinePanel({
   glbR2Key,
   customAssets,
   onSpawnModel,
+  onSpawnProcedural,
   onAddCustomAsset,
   onRemoveCustomAsset,
   onRefreshUserAssets,
@@ -114,6 +116,7 @@ export function CadPipelinePanel({
       <AssetLibrary
         customAssets={customAssets}
         onSpawnModel={onSpawnModel}
+        onSpawnProcedural={onSpawnProcedural}
         onAddCustomAsset={onAddCustomAsset}
         onRemoveCustomAsset={onRemoveCustomAsset}
         onRefreshUserAssets={onRefreshUserAssets}

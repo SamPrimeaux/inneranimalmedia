@@ -223,7 +223,8 @@ export function TweaksPanel({
         <footer className="shrink-0 p-4 border-t border-[var(--border-subtle)] bg-[var(--bg-panel)] space-y-2">
           {isGenerating && (
             <div className="text-[10px] text-center" style={{ color: 'var(--solar-cyan)' }}>
-              Generating{progressPct != null ? ` · ${progressPct}%` : '…'}
+              {(progressPct ?? 0) >= 92 ? 'Finalizing' : 'Generating'}
+              {progressPct != null ? ` · ${progressPct}%` : '…'}
             </div>
           )}
           <button

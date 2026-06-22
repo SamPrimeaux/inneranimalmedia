@@ -14,6 +14,10 @@ fi
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# shellcheck source=scripts/ensure-glb-toolchain.sh
+source "$REPO_ROOT/scripts/ensure-glb-toolchain.sh"
+ensure_glb_toolchain
+
 MESHYAI_API_KEY=$(grep '^MESHYAI_API_KEY=' .env.cloudflare | cut -d= -f2- | tr -d '"')
 DOWNLOAD_DIR=~/Downloads/chess_pieces
 ASSETS_BASE="https://assets.inneranimalmedia.com/chess-pieces"
@@ -175,16 +179,15 @@ wait
 echo "All refines done and downloaded."
 
 echo ""
-echo "=== STEP 5: Compress all 5 with gltf-transform ==="
+echo "=== STEP 5: Compress all 5 (meshopt + webp — static props, no Draco) ==="
 
 for piece in queen bishop knight rook pawn; do
   echo "  Compressing chess_${piece}_white.glb..."
-  gltf-transform optimize \
-    "$DOWNLOAD_DIR/chess_${piece}_white.glb" \
-    "$DOWNLOAD_DIR/chess_${piece}_white_opt.glb" \
-    --texture-compress webp
-  SIZE=$(ls -lh "$DOWNLOAD_DIR/chess_${piece}_white_opt.glb" | awk '{print $5}')
-  echo "  chess_${piece}_white_opt.glb: $SIZE"
+  node --input-type=module -e "
+    import { optimizeGlbFile } from './scripts/lib/glb-optimize.mjs';
+    const r = optimizeGlbFile(process.argv[1], process.argv[2]);
+    console.log('  ' + process.argv[2].split('/').pop() + ': ' + Math.round(r.bytesOut / 1024) + ' KB (meshopt)');
+  " "$DOWNLOAD_DIR/chess_${piece}_white.glb" "$DOWNLOAD_DIR/chess_${piece}_white_opt.glb"
 done
 
 echo ""

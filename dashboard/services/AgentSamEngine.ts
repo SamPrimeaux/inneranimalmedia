@@ -1,16 +1,21 @@
-
 /**
- * @license
- * SPDX-License-Identifier: Apache-2.0
-*/
-
+ * AgentSamEngine — IAM 3D viewport (CAD, GLB spawn, chess, voxels, physics).
+ * @license SPDX-License-Identifier: Apache-2.0
+ */
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
-import { AppState, GameEntity, ProjectType, SceneConfig, CADTool, VoxelData, CADPlane } from '../types';
+import { AppState, GameEntity, ProjectType, SceneConfig, CADTool, VoxelData, CADPlane, ArtStyle } from '../types';
 import { chessPieceGlbPath, normalizeGlbUrl } from '../lib/glbAssets';
-import { createChessGltfLoader, ensureMeshoptDecoderReady } from '../lib/gltfLoader';
+import { createPlatformGltfLoader, ensureMeshoptDecoderReady } from '../lib/gltfLoader';
+import { AgentSamSceneConfig } from '../utils/agentSamConstants';
+import {
+  AgentSamGenerators,
+  AGENT_SAM_GENERATOR_KEYS,
+  AGENT_SAM_STYLE_GENERATORS,
+  type AgentSamGeneratorKey,
+} from '../utils/agentSamGenerators';
 import { parseFenPlacement, positionToSquare, squareToPosition } from '../lib/chessSquares';
 import { createChessBoard } from '../lib/chessBoard';
 import { applyChessPieceMaterials, setupChessEnvironment } from '../lib/chessMaterials';
@@ -28,8 +33,9 @@ function buildChessModels(): Record<'black' | 'white', Record<string, string>> {
 }
 
 const CHESS_MODELS = buildChessModels();
+const VOXEL_UNIT = Math.max(0.1, AgentSamSceneConfig.VOXEL_SIZE * 0.95);
 
-export class VoxelEngine {
+export class AgentSamEngine {
   private container: HTMLElement;
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera | THREE.OrthographicCamera;
@@ -37,7 +43,7 @@ export class VoxelEngine {
   private orthoCamera: THREE.OrthographicCamera;
   private renderer: THREE.WebGLRenderer;
   private controls: OrbitControls;
-  private gltfLoader: ReturnType<typeof createChessGltfLoader>;
+  private gltfLoader: ReturnType<typeof createPlatformGltfLoader>;
   private resizeObserver: ResizeObserver;
   
   private ambientLight: THREE.AmbientLight;
@@ -87,7 +93,7 @@ export class VoxelEngine {
 
     const dracoLoader = new DRACOLoader();
     dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
-    this.gltfLoader = createChessGltfLoader(dracoLoader);
+    this.gltfLoader = createPlatformGltfLoader(dracoLoader);
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x0f111a);
@@ -691,7 +697,13 @@ export class VoxelEngine {
     else {
       this.controls.enableRotate = true;
       this.controls.enablePan = true;
-      this.controls.enableZoom = true; this.camera = this.perspectiveCamera; this.scene.background = new THREE.Color(0x0f111a); this.scene.fog = new THREE.FogExp2(0x0f111a, 0.015); this.world.gravity.set(0, -9.82, 0); }
+      this.controls.enableZoom = true;
+      this.camera = this.perspectiveCamera;
+      const bg = AgentSamSceneConfig.BG_COLOR;
+      this.scene.background = new THREE.Color(bg);
+      this.scene.fog = new THREE.FogExp2(bg, 0.015);
+      this.world.gravity.set(0, -9.82, 0);
+    }
     this.controls.object = this.camera;
   }
 
@@ -785,21 +797,12 @@ export class VoxelEngine {
       }
     } else if (entity.voxels) {
       if (entity.type === 'piece' || entity.behavior.type === 'chess_piece') {
-        console.error('[VoxelEngine] Refusing voxel fallback for chess piece:', entity.name);
+        console.error('[AgentSamEngine] Refusing voxel fallback for chess piece:', entity.name);
         return;
       }
-      const geometry = new THREE.BoxGeometry(0.95, 0.95, 0.95);
-      const material = new THREE.MeshStandardMaterial({ roughness: 0.2, metalness: 0.8 });
-      const mesh = new THREE.InstancedMesh(geometry, material, entity.voxels.length);
-      entity.voxels.forEach((v, i) => {
-        this.dummy.position.set(v.x, v.y, v.z);
-        this.dummy.updateMatrix();
-        mesh.setMatrixAt(i, this.dummy.matrix);
-        mesh.setColorAt(i, new THREE.Color(v.color));
-      });
-      visual = mesh;
+      visual = this.buildVoxelInstancedMesh(entity.voxels);
       this.scene.add(visual);
-      this.entities.set(entity.id, { mesh, data: entity });
+      this.entities.set(entity.id, { mesh: visual, data: entity });
     }
 
     if (visual) {
@@ -818,7 +821,68 @@ export class VoxelEngine {
         if (entRef) entRef.body = body;
       }
     }
-    this.updateVoxelCount();
+    this.updateEntityCount();
+  }
+
+  /** Built-in procedural voxel presets (Eagle, Cat, Rabbit, Twins). */
+  public listProceduralModels(): AgentSamGeneratorKey[] {
+    return [...AGENT_SAM_GENERATOR_KEYS];
+  }
+
+  /** Spawn a built-in AgentSamGenerators preset into the viewport. */
+  public async spawnProceduralModel(
+    key: AgentSamGeneratorKey,
+    opts?: {
+      position?: { x: number; y: number; z: number };
+      name?: string;
+      id?: string;
+    },
+  ): Promise<GameEntity | null> {
+    const generate = AgentSamGenerators[key];
+    if (!generate) return null;
+
+    const voxels = generate();
+    if (!voxels.length) return null;
+
+    const entity: GameEntity = {
+      id: opts?.id ?? `proc_${key}_${Date.now()}`,
+      name: opts?.name ?? key,
+      type: 'prop',
+      voxels,
+      position: opts?.position ?? { x: 0, y: 0, z: 0 },
+      behavior: {
+        type: 'static',
+        metadata: { procedural: key, source: 'AgentSamGenerators' },
+      },
+    };
+
+    await this.spawnEntity(entity);
+    this.onEntityCreated?.(entity);
+    return entity;
+  }
+
+  /** Map viewport art style → default procedural preset. */
+  public async spawnFromArtStyle(style: ArtStyle): Promise<GameEntity | null> {
+    const key = AGENT_SAM_STYLE_GENERATORS[style];
+    if (!key) return null;
+    return this.spawnProceduralModel(key, { name: `${style} · ${key}` });
+  }
+
+  private buildVoxelInstancedMesh(voxels: VoxelData[]): THREE.InstancedMesh {
+    const geometry = new THREE.BoxGeometry(VOXEL_UNIT, VOXEL_UNIT, VOXEL_UNIT);
+    const material = new THREE.MeshStandardMaterial({ roughness: 0.2, metalness: 0.8 });
+    const mesh = new THREE.InstancedMesh(geometry, material, voxels.length);
+    voxels.forEach((v, i) => {
+      this.dummy.position.set(v.x, v.y, v.z);
+      this.dummy.updateMatrix();
+      mesh.setMatrixAt(i, this.dummy.matrix);
+      mesh.setColorAt(i, new THREE.Color(v.color));
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    return mesh;
   }
 
   private isCanonicalChessPieceUrl(url: string): boolean {
@@ -874,11 +938,11 @@ export class VoxelEngine {
       if (ent.model) this.scene.remove(ent.model);
       if (ent.body) this.world.removeBody(ent.body);
       this.entities.delete(id);
-      this.updateVoxelCount();
+      this.updateEntityCount();
     }
   }
 
-  private updateVoxelCount() {
+  private updateEntityCount() {
     let total = 0;
     this.entities.forEach(e => { total += (e.data.voxels ? e.data.voxels.length : 1); });
     this.onCountChange(total);
@@ -963,7 +1027,7 @@ export class VoxelEngine {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `voxel-scene-${Date.now()}.json`;
+    a.download = `agentsam-scene-${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(url);
   }

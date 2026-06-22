@@ -148,7 +148,7 @@
     "dashboard/postcss.config.js",
     "dashboard/src/lib/r2MultipartUpload.ts",
     "dashboard/tailwind.config.js",
-    "dashboard/utils/voxelGenerators.ts",
+    "dashboard/utils/agentSamGenerators.ts",
     "scripts/agentsam-command-approval-designer.py",
     "scripts/agentsam-gemini-deploy-fix-brief.py",
     "scripts/agentsam_cms_d1_table_audit.py",

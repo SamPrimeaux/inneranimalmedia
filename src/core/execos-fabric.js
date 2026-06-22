@@ -257,6 +257,15 @@ export async function probeExecOsCadHealth(env, ctx = {}) {
     timeout_ms: 30_000,
   });
   const out = `${toolProbe.stdout}\n${toolProbe.stderr}`;
+  const freecadProbe = await runExecOsCommand(env, {
+    command: 'command -v FreeCADCmd >/dev/null 2>&1 && echo FREECAD_OK || echo FREECAD_MISSING',
+    cwd,
+    target: 'gcp',
+    timeout_ms: 15_000,
+  });
+  const freecadOut = `${freecadProbe.stdout}\n${freecadProbe.stderr}`;
+  const freecadStatus = freecadOut.includes('FREECAD_OK') ? 'ready' : 'missing';
+
   if (out.includes('CAD_TOOLCHAIN_OK')) {
     return {
       status: 'ready',
@@ -266,6 +275,7 @@ export async function probeExecOsCadHealth(env, ctx = {}) {
       cwd,
       repo_source: resolved.source,
       repo_strategy: resolved.strategy,
+      freecad: freecadStatus,
     };
   }
 
@@ -277,5 +287,6 @@ export async function probeExecOsCadHealth(env, ctx = {}) {
     cwd,
     repo_source: resolved.source,
     repo_strategy: resolved.strategy,
+    freecad: freecadStatus,
   };
 }
