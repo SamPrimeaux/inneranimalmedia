@@ -8,7 +8,7 @@ import { MotionTweaksPanel } from '../MotionTweaksPanel';
 import { AnimationTweaksPanel } from '../AnimationTweaksPanel';
 import { MeshyPlatformNotice } from './MeshyPlatformNotice';
 import { MeshyKeysLink, MeshyPromptField, MeshyTaskIdField } from './MeshyRailFields';
-import { AdvancedOpenScadActions } from './AdvancedOpenScadPanel';
+import { AdvancedEngineerPanel } from './AdvancedEngineerPanel';
 import { TweaksPanel } from './TweaksPanel';
 import type { StudioSegment } from './meshyToolkitTypes';
 import type { useDesignStudioCad } from '../hooks/useDesignStudioCad';
@@ -415,13 +415,14 @@ export function MeshyToolkitTweaks({
           />
         )}
         {studioSegment === 'advanced' && (
-          <AdvancedOpenScadActions
+          <AdvancedEngineerPanel
             cad={cad}
-            script={advancedScript}
-            dirty={advancedDirty}
-            onDirtyChange={onAdvancedDirtyChange ?? (() => {})}
-            onScriptUpdate={onAdvancedScriptUpdate}
-            onScriptChange={onAdvancedScriptChange}
+            customAssets={customAssets}
+            advancedScript={advancedScript}
+            advancedDirty={advancedDirty}
+            onAdvancedDirtyChange={onAdvancedDirtyChange}
+            onAdvancedScriptUpdate={onAdvancedScriptUpdate}
+            onAdvancedScriptChange={onAdvancedScriptChange}
           />
         )}
         {meshyBody}
