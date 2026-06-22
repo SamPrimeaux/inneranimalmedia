@@ -284,10 +284,14 @@ export function useCreationStation(cad: CadHook) {
       appendLog('Enter a texture prompt', 'warn');
       return;
     }
+    if (!sourceTaskId.trim()) {
+      appendLog('Paste a source model task ID', 'warn');
+      return;
+    }
     await submitMeshyTask(
       'text-to-texture',
       {
-        ...(sourceTaskId.trim() ? { input_task_id: sourceTaskId.trim() } : {}),
+        input_task_id: sourceTaskId.trim(),
         texture_prompt: texturePrompt.trim(),
       },
       'text-to-texture',

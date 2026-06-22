@@ -269,8 +269,8 @@ export function MeshyToolkitTweaks({
           <MeshyTaskIdField
             value={cs.sourceTaskId}
             onChange={cs.setSourceTaskId}
-            label="Model task ID (optional)"
-            placeholder="Leave empty to texture from prompt only via model URL later"
+            label="Model task ID"
+            placeholder="Completed Meshy text/image-to-3D task ID"
           />
           <MeshyPromptField
             label="Texture prompt"
@@ -358,16 +358,15 @@ export function MeshyToolkitTweaks({
     (railTool === 'post-process' && !cs.sourceTaskId.trim()) ||
     (railTool === 'print' && !cs.sourceTaskId.trim()) ||
     (railTool === 'text-to-texture' && !cs.texturePrompt.trim()) ||
+    (railTool === 'text-to-texture' && !cs.sourceTaskId.trim()) ||
     (railTool === 'image' && !cs.imageGenPrompt.trim()) ||
     (railTool === 'animate' &&
       cs.rigCompletedTaskId.trim() &&
       cs.animationActionId == null);
 
   return (
-    <aside
-      className={`flex flex-col min-h-0 bg-[var(--bg-panel)] border-[var(--border-subtle)] ${className}`}
-    >
-      <div className="shrink-0 px-3 pt-3 pb-2 space-y-2 border-b border-[var(--border-subtle)]">
+    <div className={`flex flex-col min-h-0 min-w-0 bg-[var(--bg-panel)] ${className}`}>
+      <div className="shrink-0 px-3 pt-2 pb-2 space-y-2 border-b border-[var(--border-subtle)]">
         <StudioSegmentBar active={studioSegment} onChange={onStudioSegment} />
         <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-[0.18em] font-bold">
           {studioSegment === 'meshy' ? railMeta?.label : studioSegment}
@@ -453,6 +452,6 @@ export function MeshyToolkitTweaks({
           </button>
         </div>
       )}
-    </aside>
+    </div>
   );
 }

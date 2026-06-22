@@ -87,10 +87,10 @@ export function resolveMeshyTaskRoute(taskType) {
  * @param {any} env
  * @param {string} path — path starting with /openapi/…
  * @param {RequestInit} [init]
- * @param {{ retries?: number }} [opts]
+ * @param {{ retries?: number; apiKey?: string | null }} [opts]
  */
 export async function meshyFetch(env, path, init = {}, opts = {}) {
-  const key = meshyApiKey(env);
+  const key = opts.apiKey ?? meshyApiKey(env);
   if (!key) throw new MeshyApiError('MESHYAI_API_KEY not configured', 503);
 
   const url = `${MESHY_API_ORIGIN}${path.startsWith('/') ? path : `/${path}`}`;
@@ -153,9 +153,11 @@ export async function meshyFetch(env, path, init = {}, opts = {}) {
 /**
  * GET /openapi/v1/balance
  * @param {any} env
+ * @param {{ apiKey?: string | null } | null} [auth]
  */
-export async function getBalance(env) {
-  const data = await meshyFetch(env, '/openapi/v1/balance', { method: 'GET' });
+export async function getBalance(env, auth = null) {
+  const fetchOpts = auth?.apiKey ? { apiKey: auth.apiKey } : {};
+  const data = await meshyFetch(env, '/openapi/v1/balance', { method: 'GET' }, fetchOpts);
   const balance = Number(data?.balance ?? data?.credits ?? 0);
   return {
     balance: Number.isFinite(balance) ? balance : 0,
@@ -167,10 +169,11 @@ export async function getBalance(env) {
  * Throws MeshyInsufficientCreditsError when balance < estimatedCost.
  * @param {any} env
  * @param {number} estimatedCost
+ * @param {{ apiKey?: string | null } | null} [auth]
  */
-export async function checkBalance(env, estimatedCost) {
+export async function checkBalance(env, estimatedCost, auth = null) {
   const required = Math.max(0, Number(estimatedCost) || 0);
-  const { balance } = await getBalance(env);
+  const { balance } = await getBalance(env, auth);
   if (balance < required) {
     throw new MeshyInsufficientCreditsError(balance, required);
   }
@@ -184,23 +187,29 @@ export const checkMeshyBalance = checkBalance;
  * @param {any} env
  * @param {string} operation
  * @param {Record<string, unknown>} [body]
+ * @param {{ apiKey?: string | null } | null} [auth]
  */
-export async function checkMeshyBalanceForOperation(env, operation, body = {}) {
+export async function checkMeshyBalanceForOperation(env, operation, body = {}, auth = null) {
   const estimated = estimateMeshyOperationCost(operation, body);
-  return checkMeshyBalance(env, estimated);
+  return checkMeshyBalance(env, estimated, auth);
+}
+
+function meshyAuthFetchOpts(auth) {
+  return auth?.apiKey ? { apiKey: auth.apiKey } : {};
 }
 
 /**
  * @param {any} env
  * @param {string} taskType
  * @param {Record<string, unknown>} payload
+ * @param {{ apiKey?: string | null } | null} [auth]
  */
-export async function createMeshyTask(env, taskType, payload) {
+export async function createMeshyTask(env, taskType, payload, auth = null) {
   const route = resolveMeshyTaskRoute(taskType);
   const data = await meshyFetch(env, route.base, {
     method: 'POST',
     body: JSON.stringify(payload),
-  });
+  }, meshyAuthFetchOpts(auth));
   const taskId = data?.result ?? data?.id ?? null;
   return { task_id: taskId != null ? String(taskId) : null, raw: data };
 }
@@ -209,59 +218,64 @@ export async function createMeshyTask(env, taskType, payload) {
  * @param {any} env
  * @param {string} taskType
  * @param {string} taskId
+ * @param {{ apiKey?: string | null } | null} [auth]
  */
-export async function getMeshyTask(env, taskType, taskId) {
+export async function getMeshyTask(env, taskType, taskId, auth = null) {
   const route = resolveMeshyTaskRoute(taskType);
-  return meshyFetch(env, `${route.base}/${encodeURIComponent(taskId)}`, { method: 'GET' });
+  return meshyFetch(env, `${route.base}/${encodeURIComponent(taskId)}`, { method: 'GET' }, meshyAuthFetchOpts(auth));
 }
 
 /**
  * @param {any} env
  * @param {string} taskType
  * @param {string} taskId
+ * @param {{ apiKey?: string | null } | null} [auth]
  */
-export async function deleteMeshyTask(env, taskType, taskId) {
+export async function deleteMeshyTask(env, taskType, taskId, auth = null) {
   const route = resolveMeshyTaskRoute(taskType);
-  return meshyFetch(env, `${route.base}/${encodeURIComponent(taskId)}`, { method: 'DELETE' });
+  return meshyFetch(env, `${route.base}/${encodeURIComponent(taskId)}`, { method: 'DELETE' }, meshyAuthFetchOpts(auth));
 }
 
 /**
  * @param {any} env
  * @param {string} taskType
  * @param {{ page_num?: number; page_size?: number; sort_by?: string }} [query]
+ * @param {{ apiKey?: string | null } | null} [auth]
  */
-export async function listMeshyTasks(env, taskType, query = {}) {
+export async function listMeshyTasks(env, taskType, query = {}, auth = null) {
   const route = resolveMeshyTaskRoute(taskType);
   const qs = new URLSearchParams();
   if (query.page_num != null) qs.set('page_num', String(query.page_num));
   if (query.page_size != null) qs.set('page_size', String(query.page_size));
   if (query.sort_by) qs.set('sort_by', String(query.sort_by));
   const suffix = qs.toString() ? `?${qs.toString()}` : '';
-  return meshyFetch(env, `${route.base}${suffix}`, { method: 'GET' });
+  return meshyFetch(env, `${route.base}${suffix}`, { method: 'GET' }, meshyAuthFetchOpts(auth));
 }
 
 /**
  * Text-to-3D preview — POST /openapi/v2/text-to-3d
  * @param {any} env
  * @param {Record<string, unknown>} body
+ * @param {{ apiKey?: string | null } | null} [auth]
  */
-export async function textTo3dPreview(env, body) {
+export async function textTo3dPreview(env, body, auth = null) {
   const payload = { mode: 'preview', ...body };
   delete payload.mode;
   payload.mode = 'preview';
-  return createMeshyTask(env, 'text-to-3d', payload);
+  return createMeshyTask(env, 'text-to-3d', payload, auth);
 }
 
 /**
  * Text-to-3D refine — POST /openapi/v2/text-to-3d
  * @param {any} env
  * @param {Record<string, unknown>} body — must include preview_task_id
+ * @param {{ apiKey?: string | null } | null} [auth]
  */
-export async function textTo3dRefine(env, body) {
+export async function textTo3dRefine(env, body, auth = null) {
   const payload = { mode: 'refine', enable_pbr: true, ...body };
   delete payload.mode;
   payload.mode = 'refine';
-  return createMeshyTask(env, 'text-to-3d', payload);
+  return createMeshyTask(env, 'text-to-3d', payload, auth);
 }
 
 /**

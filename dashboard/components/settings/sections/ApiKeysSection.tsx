@@ -63,6 +63,7 @@ function providerLabel(p: string | null) {
     resend: 'Resend',
     github: 'GitHub',
     supabase: 'Supabase',
+    meshy: 'Meshy',
     other: 'Other',
   };
   return map[s] || (p ? p : '—');
@@ -77,6 +78,7 @@ const PROVIDER_OPTIONS = [
   'resend',
   'github',
   'supabase',
+  'meshy',
   'other',
 ] as const;
 

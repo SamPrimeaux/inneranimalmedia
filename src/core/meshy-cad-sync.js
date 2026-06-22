@@ -3,7 +3,8 @@
  */
 import { buildCadAssetPublicUrl } from './cad-job-scope.js';
 import { finalizeCadJobComplete, ingestRemoteGlbToR2 } from './cad-job-complete.js';
-import { getMeshyTask, isMeshyStubKey, textTo3dRefine } from './meshy-api.js';
+import { getMeshyTask, textTo3dRefine } from './meshy-api.js';
+import { isMeshyAuthMissing, meshyKeySourceFromJob, resolveMeshyAuth } from './meshy-api-key.js';
 import { MESHY_CREDIT_COSTS } from './meshy-credits.js';
 
 const STATUS_MAP = {
@@ -134,6 +135,14 @@ async function meshyIngestIfDone(env, ctx, job, scope, glbUrl) {
   }
 }
 
+async function meshyAuthForJob(env, job) {
+  return resolveMeshyAuth(
+    env,
+    { userId: job.user_id, tenant_id: job.tenant_id },
+    { keySource: meshyKeySourceFromJob(job) },
+  );
+}
+
 /**
  * Chain preview → refine when preview succeeds and auto_refine is enabled.
  * @param {any} env
@@ -142,7 +151,8 @@ async function meshyIngestIfDone(env, ctx, job, scope, glbUrl) {
  * @param {string} previewTaskId
  */
 async function chainMeshyRefineAfterPreview(env, ctx, job, previewTaskId) {
-  if (isMeshyStubKey(env)) return { ok: false, reason: 'stub_key' };
+  const meshyAuth = await meshyAuthForJob(env, job);
+  if (isMeshyAuthMissing(meshyAuth)) return { ok: false, reason: 'stub_key' };
   if (!jobWantsAutoRefine(job)) return { ok: false, reason: 'auto_refine_disabled' };
 
   const existingRefine = await findCadJobByParentTaskId(env, previewTaskId);
@@ -154,7 +164,7 @@ async function chainMeshyRefineAfterPreview(env, ctx, job, previewTaskId) {
     const { task_id: refineTaskId } = await textTo3dRefine(env, {
       preview_task_id: previewTaskId,
       enable_pbr: true,
-    });
+    }, meshyAuth);
     if (!refineTaskId) return { ok: false, reason: 'no_refine_task_id' };
 
     await env.DB.prepare(
@@ -171,7 +181,7 @@ async function chainMeshyRefineAfterPreview(env, ctx, job, previewTaskId) {
       .run();
 
     ctx?.waitUntil?.(
-      getMeshyTask(env, 'text-to-3d', refineTaskId)
+      getMeshyTask(env, 'text-to-3d', refineTaskId, meshyAuth)
         .then((task) => applyMeshyTaskToCadJob(env, ctx, task))
         .catch(() => null),
     );

@@ -11,6 +11,7 @@ type Props = {
 export const MeshyBalancePill: React.FC<Props> = ({ className = '', refreshKey = 0 }) => {
   const [balance, setBalance] = useState<number | null>(null);
   const [stub, setStub] = useState(false);
+  const [keySource, setKeySource] = useState<'byok' | 'platform' | 'none' | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -22,9 +23,11 @@ export const MeshyBalancePill: React.FC<Props> = ({ className = '', refreshKey =
       if (data.stub) {
         setStub(true);
         setBalance(null);
+        setKeySource(data.key_source ?? 'none');
       } else {
         setStub(false);
         setBalance(typeof data.balance === 'number' ? data.balance : null);
+        setKeySource(data.key_source ?? 'platform');
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Balance unavailable');
@@ -48,10 +51,12 @@ export const MeshyBalancePill: React.FC<Props> = ({ className = '', refreshKey =
       onClick={() => void refresh()}
       title={
         stub
-          ? 'Meshy API key not configured on Worker'
+          ? 'No Meshy key — add in Settings → Keys or configure platform MESHYAI_API_KEY'
           : error
             ? error
-            : 'Meshy credits — click to refresh'
+            : keySource === 'byok'
+              ? 'Meshy credits (your key) — click to refresh'
+              : 'Meshy credits (platform key) — click to refresh'
       }
       className={`pointer-events-auto flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold tabular-nums transition-colors ${
         low
@@ -65,7 +70,13 @@ export const MeshyBalancePill: React.FC<Props> = ({ className = '', refreshKey =
         <Coins size={14} className={low ? 'text-amber-400' : 'text-cyan-400'} />
       )}
       <span className="hidden sm:inline">
-        {stub ? 'No key' : error ? '—' : balance != null ? `${balance.toLocaleString()} cr` : '—'}
+        {stub
+          ? 'No key'
+          : error
+            ? '—'
+            : balance != null
+              ? `${keySource === 'byok' ? 'BYOK · ' : ''}${balance.toLocaleString()} cr`
+              : '—'}
       </span>
     </button>
   );

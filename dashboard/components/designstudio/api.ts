@@ -150,7 +150,11 @@ export async function pollMeshyStatus(jobId: string): Promise<{
   return jsonFetch(`/api/cad/meshy/status/${encodeURIComponent(jobId)}`);
 }
 
-export async function fetchMeshyBalance(): Promise<{ balance: number; stub?: boolean }> {
+export async function fetchMeshyBalance(): Promise<{
+  balance: number;
+  stub?: boolean;
+  key_source?: 'byok' | 'platform' | 'none';
+}> {
   return jsonFetch('/api/cad/meshy/balance');
 }
 

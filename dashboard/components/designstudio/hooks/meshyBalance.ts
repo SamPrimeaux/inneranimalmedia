@@ -3,6 +3,7 @@
 export type MeshyBalanceResponse = {
   balance?: number;
   stub?: boolean;
+  key_source?: 'byok' | 'platform' | 'none';
   message?: string;
 };
 

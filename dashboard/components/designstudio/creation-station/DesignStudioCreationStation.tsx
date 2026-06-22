@@ -170,71 +170,72 @@ export function DesignStudioCreationStation({
         onSelect={onRailSelect}
       />
 
-      <MeshyToolRail
-        active={cs.activeTool}
-        meshySegmentActive={meshySegmentActive}
-        onSelect={onRailSelect}
-        onOpenApiKey={() => navigate(KEYS_PATH)}
-        onOpenTerminal={openTerminalWithLogs}
-        className="md:col-start-1 md:row-start-1"
-      />
-
       <div
-        className={`min-h-0 flex flex-col md:col-start-2 md:row-start-1 border-r border-[var(--border-subtle)] ${
+        className={`min-h-0 flex md:col-start-1 md:row-start-1 border-r border-[var(--border-subtle)] bg-[var(--bg-panel)] ${
           mobilePane === 'tools' ? 'flex max-h-[52vh] md:max-h-none' : 'hidden md:flex'
         }`}
       >
+        {meshySegmentActive && (
+          <MeshyToolRail
+            active={cs.activeTool}
+            meshySegmentActive={meshySegmentActive}
+            onSelect={onRailSelect}
+            onOpenApiKey={() => navigate(KEYS_PATH)}
+            onOpenTerminal={openTerminalWithLogs}
+            className="shrink-0"
+          />
+        )}
         <MeshyToolkitTweaks
-            studioSegment={studioSegment}
-            onStudioSegment={onSegmentChange}
-            railTool={cs.activeTool}
-            cs={cs}
-            cad={cad}
-            genConfig={genConfig}
-            onUpdateGenConfig={onUpdateGenConfig}
-            sceneConfig={sceneConfig}
-            onUpdateSceneConfig={onUpdateSceneConfig}
-            sceneName={sceneName}
-            onSceneNameChange={onSceneNameChange}
-            savedScenes={savedScenes}
-            sceneBusy={sceneBusy}
-            onSaveScene={onSaveScene}
-            onLoadScene={onLoadScene}
-            cadJobId={cadJobId}
-            glbR2Key={glbR2Key}
-            customAssets={customAssets}
-            onSpawnModel={onSpawnModel}
-            onAddCustomAsset={onAddCustomAsset}
-            onRemoveCustomAsset={onRemoveCustomAsset}
-            onRefreshUserAssets={onRefreshUserAssets}
-            onDeployJob={onDeployJob}
-            onImportGlb={onImportGlb}
-            onExportSceneJson={onBlenderExport ?? onExportSceneJson}
-            onDownloadLatestGlb={onDownloadLatestGlb}
-            latestGlbUrl={latestGlb}
-            onCreate={handleCreate}
-            onQuickGenerate={() => {
-              openTerminalWithLogs();
-              void cs.runQuickGenerate();
-            }}
-            advancedScript={advScript}
-            advancedDirty={advDirty}
-            onAdvancedDirtyChange={setAdvDirty}
-            onAdvancedScriptUpdate={(s) => {
-              setAdvScript(s);
-              setAdvDirty(true);
-            }}
-            onAdvancedScriptChange={(s) => {
-              setAdvScript(s);
-              setAdvDirty(true);
-            }}
-          className="h-full"
+          studioSegment={studioSegment}
+          onStudioSegment={onSegmentChange}
+          railTool={cs.activeTool}
+          cs={cs}
+          cad={cad}
+          genConfig={genConfig}
+          onUpdateGenConfig={onUpdateGenConfig}
+          sceneConfig={sceneConfig}
+          onUpdateSceneConfig={onUpdateSceneConfig}
+          sceneName={sceneName}
+          onSceneNameChange={onSceneNameChange}
+          savedScenes={savedScenes}
+          sceneBusy={sceneBusy}
+          onSaveScene={onSaveScene}
+          onLoadScene={onLoadScene}
+          cadJobId={cadJobId}
+          glbR2Key={glbR2Key}
+          customAssets={customAssets}
+          onSpawnModel={onSpawnModel}
+          onAddCustomAsset={onAddCustomAsset}
+          onRemoveCustomAsset={onRemoveCustomAsset}
+          onRefreshUserAssets={onRefreshUserAssets}
+          onDeployJob={onDeployJob}
+          onImportGlb={onImportGlb}
+          onExportSceneJson={onBlenderExport ?? onExportSceneJson}
+          onDownloadLatestGlb={onDownloadLatestGlb}
+          latestGlbUrl={latestGlb}
+          onCreate={handleCreate}
+          onQuickGenerate={() => {
+            openTerminalWithLogs();
+            void cs.runQuickGenerate();
+          }}
+          advancedScript={advScript}
+          advancedDirty={advDirty}
+          onAdvancedDirtyChange={setAdvDirty}
+          onAdvancedScriptUpdate={(s) => {
+            setAdvScript(s);
+            setAdvDirty(true);
+          }}
+          onAdvancedScriptChange={(s) => {
+            setAdvScript(s);
+            setAdvDirty(true);
+          }}
+          className="flex-1 min-w-0 h-full"
         />
       </div>
 
       <div
-        className={`flex flex-col min-h-0 min-w-0 md:col-start-3 md:row-start-1 ${
-          mobilePane === 'view' ? 'flex flex-1' : 'hidden md:flex'
+        className={`flex flex-col min-h-0 min-w-0 md:col-start-2 md:row-start-1 ${
+          mobilePane === 'view' ? 'flex flex-1 row-start-2 md:row-start-1' : 'hidden md:flex'
         }`}
       >
         <header className="shrink-0 flex items-center justify-between gap-2 px-3 py-2 border-b border-[var(--border-subtle)] bg-[var(--bg-panel)]/95 backdrop-blur-md">
@@ -319,7 +320,7 @@ export function DesignStudioCreationStation({
       </div>
 
       {apiOpen && (
-        <div className="hidden lg:flex flex-col min-h-0 md:col-start-4 md:row-start-1 border-l border-[var(--border-subtle)] min-w-[240px] max-w-[420px] w-[300px] resize-x overflow-auto">
+        <div className="hidden lg:flex flex-col min-h-0 lg:col-start-3 lg:row-start-1 border-l border-[var(--border-subtle)] min-w-[240px] max-w-[420px] w-[300px] resize-x overflow-auto">
           <ApiInspector
             request={cs.lastRequest}
             response={cs.lastResponse}
