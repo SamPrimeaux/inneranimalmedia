@@ -2,45 +2,219 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>3D Chess room | Inner Animal Media</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>MeauxChess</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
   <style>
-    :root { --bg: #050508; --panel: #0f111a; --border: #1e2230; --text: #e2e8f0; --muted: #94a3b8; --accent: #2563eb; }
+    :root {
+      --bg: #121218;
+      --bar: rgba(10, 10, 15, 0.92);
+      --border: rgba(255, 255, 255, 0.08);
+      --text: #eef2ff;
+      --muted: #8b95a8;
+      --teal: #00ffcc;
+      --amber: #e8821a;
+      --green: #22ff88;
+    }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: Inter, system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
-    main { max-width: 960px; margin: 0 auto; padding: 2rem 1rem 3rem; }
-    .top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
-    h1 { font-size: 1.35rem; font-weight: 700; }
-    .meta { font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: var(--muted); }
-    .badge { display: inline-block; padding: 0.25rem 0.6rem; border-radius: 999px; background: #172554; color: #93c5fd; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; }
-    #viewport { width: min(92vw, 720px); height: min(92vw, 720px); max-height: 70vh; margin: 0 auto 1rem; border-radius: 0.75rem; overflow: hidden; border: 1px solid var(--border); background: #000; }
-    .turn { text-align: center; margin-bottom: 0.75rem; font-size: 0.85rem; }
-    .status { text-align: center; color: var(--muted); font-size: 0.85rem; min-height: 1.4em; }
-    .actions { display: flex; justify-content: center; gap: 0.75rem; margin-top: 1rem; flex-wrap: wrap; }
-    .btn { border: 1px solid var(--border); background: var(--panel); color: var(--text); border-radius: 0.65rem; padding: 0.55rem 1rem; font-size: 0.8rem; font-weight: 600; cursor: pointer; text-decoration: none; }
-    .btn:hover { border-color: #334155; }
-    .hint { text-align: center; font-size: 0.75rem; color: var(--muted); margin-top: 0.5rem; }
+    html, body { height: 100%; overflow: hidden; }
+    body {
+      font-family: Inter, system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+    }
+    .game-header {
+      flex-shrink: 0;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.65rem 1rem;
+      background: var(--bar);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(12px);
+    }
+    .wordmark {
+      font-size: 0.72rem;
+      font-weight: 800;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--teal);
+    }
+    .player-block {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .player-block.right { justify-content: flex-end; }
+    .avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: rgba(0, 255, 204, 0.15);
+      border: 1px solid rgba(0, 255, 204, 0.35);
+    }
+    .avatar.opponent {
+      background: rgba(232, 130, 26, 0.15);
+      border-color: rgba(232, 130, 26, 0.4);
+    }
+    .player-name { font-size: 0.82rem; font-weight: 600; }
+    .side-badge {
+      font-size: 0.6rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      padding: 0.15rem 0.45rem;
+      border-radius: 999px;
+      margin-left: 0.25rem;
+    }
+    .side-white { background: rgba(204, 255, 238, 0.15); color: #ccffee; }
+    .side-black { background: rgba(232, 130, 26, 0.2); color: var(--amber); }
+    .timers {
+      display: flex;
+      align-items: center;
+      gap: 1.25rem;
+      justify-content: center;
+    }
+    .timer {
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 1.35rem;
+      font-weight: 500;
+      color: var(--muted);
+      min-width: 3.5rem;
+      text-align: center;
+    }
+    .timer.active { color: var(--amber); }
+    #timer-black.active { color: var(--green); }
+    .turn-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.72rem;
+      font-weight: 600;
+      padding: 0.35rem 0.75rem;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--border);
+      margin-top: 0.35rem;
+    }
+    .turn-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+    .dot-white { background: #ccffee; box-shadow: 0 0 8px #ccffee; }
+    .dot-orange { background: var(--amber); box-shadow: 0 0 8px var(--amber); }
+    .header-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 0.5rem;
+    }
+    .room-meta {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.62rem;
+      color: var(--muted);
+    }
+    .btn {
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text);
+      border-radius: 0.5rem;
+      padding: 0.4rem 0.7rem;
+      font-size: 0.72rem;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .btn:hover { border-color: rgba(255, 255, 255, 0.18); }
+    .btn-resign { color: #f87171; border-color: rgba(248, 113, 113, 0.35); }
+    .game-stage {
+      flex: 1;
+      min-height: 0;
+      position: relative;
+    }
+    #viewport {
+      position: absolute;
+      inset: 0;
+    }
+    #loading-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(8, 8, 12, 0.92);
+      z-index: 10;
+      transition: opacity 0.4s;
+    }
+    #loading-overlay.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+    .load-label { font-size: 0.78rem; color: var(--muted); margin-bottom: 0.75rem; }
+    .load-track {
+      width: min(240px, 60vw);
+      height: 4px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    #load-progress {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--teal), var(--amber));
+      transition: width 0.2s;
+    }
+    .status-bar {
+      flex-shrink: 0;
+      text-align: center;
+      font-size: 0.72rem;
+      color: var(--muted);
+      padding: 0.5rem 1rem 0.65rem;
+      background: var(--bar);
+      border-top: 1px solid var(--border);
+    }
+    .center-col { text-align: center; }
   </style>
 </head>
 <body>
-  <main>
-    <div class="top">
+  <header class="game-header">
+    <div class="player-block">
+      <div class="avatar" aria-hidden="true"></div>
       <div>
-        <h1>3D Chess</h1>
-        <p class="meta" id="room-id"></p>
+        <span class="player-name" id="player-you-label">You</span>
+        <span class="side-badge side-white" id="you-side-badge">white</span>
       </div>
-      <span class="badge" id="player-color">connecting…</span>
     </div>
-    <p class="turn" id="turn-label"></p>
+
+    <div class="center-col">
+      <div class="timers">
+        <span class="timer active" id="timer-white">3:00</span>
+        <span class="timer" id="timer-black">3:00</span>
+      </div>
+      <div class="turn-pill" id="turn-pill"><span class="turn-dot dot-white"></span> Turn: white</div>
+    </div>
+
+    <div class="header-actions">
+      <span class="room-meta" id="room-id-short">…</span>
+      <a class="btn" href="/games">Lobby</a>
+      <button type="button" class="btn btn-resign" id="resign-btn">Resign</button>
+    </div>
+  </header>
+
+  <div class="game-stage">
     <div id="viewport" aria-label="3D chess board"></div>
-    <p class="hint">Drag to orbit · Click piece then square to move</p>
-    <p class="status" id="status" aria-live="polite"></p>
-    <div class="actions">
-      <a class="btn" href="/games">← Lobby</a>
-      <button type="button" class="btn" id="resign-btn">Resign</button>
+    <div id="loading-overlay">
+      <p class="load-label">Loading pieces…</p>
+      <div class="load-track"><div id="load-progress"></div></div>
     </div>
-  </main>
+  </div>
+
+  <p class="status-bar" id="status-bar" aria-live="polite">Connecting…</p>
+
   <script type="module" src="/static/dashboard/app/games-room.js"></script>
 </body>
 </html>

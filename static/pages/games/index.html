@@ -3,42 +3,138 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Play the interface. | Inner Animal Media</title>
+  <title>MeauxChess | Inner Animal Media</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
   <style>
-    :root { --bg: #050508; --panel: #0f111a; --border: #1e2230; --text: #e2e8f0; --muted: #94a3b8; --accent: #2563eb; }
+    :root {
+      --bg: #0a0a0f;
+      --glass: rgba(18, 20, 32, 0.72);
+      --border: rgba(255, 255, 255, 0.08);
+      --text: #eef2ff;
+      --muted: #8b95a8;
+      --teal: #00ffcc;
+      --amber: #e8821a;
+    }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: Inter, system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
-    main { max-width: 960px; margin: 0 auto; padding: 4rem 1.5rem 6rem; }
-    h1 { font-size: clamp(2rem, 5vw, 3rem); font-weight: 800; letter-spacing: -0.03em; margin-bottom: 0.75rem; }
-    .lead { color: var(--muted); font-size: 1.05rem; max-width: 42rem; line-height: 1.6; margin-bottom: 2.5rem; }
-    .card { background: var(--panel); border: 1px solid var(--border); border-radius: 1.25rem; padding: 1.75rem; margin-bottom: 1.5rem; }
-    .card h2 { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.2em; color: var(--muted); margin-bottom: 1rem; }
-    .btn { display: inline-flex; align-items: center; gap: 0.5rem; background: var(--accent); color: #fff; border: 0; border-radius: 0.75rem; padding: 0.85rem 1.35rem; font-weight: 700; font-size: 0.85rem; cursor: pointer; }
-    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
-    .btn-secondary { background: transparent; border: 1px solid var(--border); color: var(--text); }
+    body {
+      font-family: Inter, system-ui, sans-serif;
+      min-height: 100vh;
+      color: var(--text);
+      background: radial-gradient(ellipse 120% 80% at 50% -20%, rgba(0, 255, 204, 0.08), transparent 55%), var(--bg);
+    }
+    main {
+      max-width: 480px;
+      margin: 0 auto;
+      padding: 3rem 1.25rem 4rem;
+    }
+    .brand {
+      font-size: 0.65rem;
+      font-weight: 800;
+      letter-spacing: 0.28em;
+      text-transform: uppercase;
+      color: var(--teal);
+      margin-bottom: 0.75rem;
+    }
+    h1 {
+      font-size: clamp(2rem, 8vw, 2.75rem);
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      margin-bottom: 0.5rem;
+    }
+    .lead {
+      color: var(--muted);
+      font-size: 0.95rem;
+      line-height: 1.55;
+      margin-bottom: 2rem;
+    }
+    .card {
+      background: var(--glass);
+      backdrop-filter: blur(16px);
+      border: 1px solid var(--border);
+      border-radius: 1.25rem;
+      padding: 1.5rem;
+      margin-bottom: 1rem;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+    }
+    .card h2 {
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.22em;
+      color: var(--muted);
+      margin-bottom: 1rem;
+    }
+    .btn-create {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      background: linear-gradient(135deg, rgba(0, 255, 204, 0.2), rgba(0, 255, 204, 0.05));
+      border: 1px solid rgba(0, 255, 204, 0.45);
+      color: var(--teal);
+      border-radius: 0.85rem;
+      padding: 1rem 1.25rem;
+      font-weight: 700;
+      font-size: 0.95rem;
+      cursor: pointer;
+      transition: box-shadow 0.2s, border-color 0.2s;
+    }
+    .btn-create:hover:not(:disabled) {
+      box-shadow: 0 0 24px rgba(0, 255, 204, 0.25);
+      border-color: var(--teal);
+    }
+    .btn-create:disabled { opacity: 0.45; cursor: not-allowed; }
     .room-list { list-style: none; display: grid; gap: 0.65rem; }
-    .room-list li { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.85rem 1rem; border-radius: 0.75rem; background: #0a0c14; border: 1px solid var(--border); }
-    .room-list a { color: var(--accent); font-weight: 600; text-decoration: none; font-size: 0.9rem; }
-    .status { font-size: 0.8rem; color: var(--muted); margin-top: 0.75rem; min-height: 1.2em; }
-    .empty { color: var(--muted); font-size: 0.9rem; }
+    .room-card {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 0.9rem 1rem;
+      border-radius: 0.85rem;
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid var(--border);
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .room-card:hover {
+      border-color: rgba(232, 130, 26, 0.35);
+      box-shadow: 0 0 16px rgba(232, 130, 26, 0.12);
+    }
+    .room-host { font-weight: 600; font-size: 0.9rem; }
+    .room-id { color: var(--muted); font-size: 0.72rem; font-family: ui-monospace, monospace; margin-top: 0.15rem; }
+    .btn-join {
+      flex-shrink: 0;
+      background: rgba(232, 130, 26, 0.15);
+      border: 1px solid rgba(232, 130, 26, 0.5);
+      color: var(--amber);
+      border-radius: 0.55rem;
+      padding: 0.45rem 0.85rem;
+      font-weight: 700;
+      font-size: 0.78rem;
+      text-decoration: none;
+      transition: background 0.2s;
+    }
+    .btn-join:hover { background: rgba(232, 130, 26, 0.28); }
+    .status { font-size: 0.78rem; color: var(--muted); margin-top: 0.65rem; min-height: 1.2em; }
+    .empty { color: var(--muted); font-size: 0.88rem; text-align: center; padding: 1rem 0; }
   </style>
 </head>
 <body>
   <main>
-    <h1>3D Chess</h1>
-    <p class="lead">Create a room, invite a friend, and play over WebSockets backed by Cloudflare Durable Objects.</p>
+    <p class="brand">Inner Animal Media</p>
+    <h1>MeauxChess</h1>
+    <p class="lead">Real-time multiplayer. Cloudflare-powered.</p>
 
     <section class="card">
       <h2>New game</h2>
-      <button type="button" class="btn" id="create-room">Create Room</button>
+      <button type="button" class="btn-create" id="create-room">Create Room</button>
       <p class="status" id="create-status" aria-live="polite"></p>
     </section>
 
     <section class="card">
       <h2>Open rooms</h2>
       <ul class="room-list" id="room-list"></ul>
-      <p class="empty" id="room-empty" hidden>No open rooms right now — create one above.</p>
+      <p class="empty" id="room-empty" hidden>No open rooms — create one above.</p>
     </section>
   </main>
   <script>
@@ -46,6 +142,18 @@
     const createStatus = document.getElementById('create-status');
     const roomList = document.getElementById('room-list');
     const roomEmpty = document.getElementById('room-empty');
+    const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
+
+    function truncateId(id) {
+      return id && id.length > 8 ? id.slice(-8) : id;
+    }
+
+    function isRecent(createdAt) {
+      if (!createdAt) return true;
+      const t = Date.parse(createdAt);
+      if (Number.isNaN(t)) return true;
+      return Date.now() - t < TWO_HOURS_MS;
+    }
 
     async function createRoom() {
       createBtn.disabled = true;
@@ -72,7 +180,9 @@
       try {
         const res = await fetch('/api/games/rooms', { credentials: 'include' });
         const data = await res.json().catch(() => ({}));
-        const rows = Array.isArray(data.results) ? data.results : [];
+        const rows = (Array.isArray(data.results) ? data.results : []).filter(function (row) {
+          return isRecent(row.created_at || row.createdAt);
+        });
         roomList.innerHTML = '';
         if (!rows.length) {
           roomEmpty.hidden = false;
@@ -80,11 +190,15 @@
         }
         roomEmpty.hidden = true;
         for (const row of rows) {
-          const li = document.createElement('li');
           const id = row.id || row.room_id || '';
           const host = row.host_display_name || row.host_player_id || 'Guest';
-          li.innerHTML = '<span><strong>' + host + '</strong><br><span style="color:#64748b;font-size:0.8rem;font-family:monospace">' + id + '</span></span>';
+          const li = document.createElement('li');
+          li.className = 'room-card';
+          li.innerHTML =
+            '<div><div class="room-host">' + host + '</div>' +
+            '<div class="room-id">…' + truncateId(id) + '</div></div>';
           const join = document.createElement('a');
+          join.className = 'btn-join';
           join.href = '/games/' + encodeURIComponent(id);
           join.textContent = 'Join';
           li.appendChild(join);
@@ -98,6 +212,7 @@
 
     createBtn.addEventListener('click', createRoom);
     loadRooms();
+    setInterval(loadRooms, 30000);
   </script>
 </body>
 </html>

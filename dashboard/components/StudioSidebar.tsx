@@ -73,7 +73,7 @@ export const StudioSidebar: React.FC<SidebarProps> = ({
   const projects = [
     { id: ProjectType.CHESS, name: 'Meaaux Games', icon: <Gamepad2 size={20} />, desc: '3D Physics Chess' },
     { id: ProjectType.CAD, name: 'Agent Sam', icon: <Layers size={20} />, desc: 'Precision Blueprints' },
-    { id: ProjectType.SANDBOX, name: 'Sandbox Lab', icon: <Box size={20} />, desc: 'Voxel Physics Fun' },
+    { id: ProjectType.SANDBOX, name: 'Sandbox Lab', icon: <Box size={20} />, desc: 'MeauxCAD / 3D Asset Studio' },
   ];
 
   const styles = [

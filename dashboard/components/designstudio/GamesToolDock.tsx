@@ -83,13 +83,13 @@ export function GamesToolDock({ onSpawnModel }: Props) {
           </div>
         </div>
         <div>
-          <p className="text-[9px] font-bold text-[var(--text-muted)] uppercase mb-2">Black Pieces</p>
+          <p className="text-[9px] font-bold text-[var(--text-muted)] uppercase mb-2">Orange Pieces</p>
           <div className="grid grid-cols-3 gap-2">
             {chessPieces.map((piece) => (
               <button
                 type="button"
                 key={`black-${piece.type}`}
-                onClick={() => onSpawnModel(`Black ${piece.name}`, piece.black_url, 0.8)}
+                onClick={() => onSpawnModel(`Orange ${piece.name}`, piece.black_url || piece.white_url, 0.8)}
                 disabled={!piece.black_url}
                 className="flex flex-col items-center gap-1 p-2 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] hover:bg-[var(--bg-hover)] disabled:opacity-30"
               >

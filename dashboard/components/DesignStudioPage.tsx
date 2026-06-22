@@ -3,7 +3,7 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Users } from 'lucide-react';
+import { Copy, ExternalLink, Users, X } from 'lucide-react';
 import { normalizeGlbUrl } from '../lib/glbAssets';
 import { UIOverlay } from './UIOverlay';
 import { ToolLauncherBar } from './ToolLauncherBar';
@@ -101,6 +101,8 @@ export const DesignStudioPage: React.FC = () => {
   const [multiplayerBusy, setMultiplayerBusy] = useState(false);
   const [multiplayerRoomId, setMultiplayerRoomId] = useState<string | null>(null);
   const [multiplayerColor, setMultiplayerColor] = useState<string | null>(null);
+  const [multiplayerModalOpen, setMultiplayerModalOpen] = useState(false);
+  const [roomLinkCopied, setRoomLinkCopied] = useState(false);
   const chessWsRef = useRef<WebSocket | null>(null);
 
   const deployJobToScene = useCallback(async (job: CadJobRow, opts?: { auto?: boolean }) => {
@@ -293,6 +295,8 @@ export const DesignStudioPage: React.FC = () => {
       const ws = new WebSocket(`${proto}//${window.location.host}/api/games/ws/${roomId}`);
       chessWsRef.current = ws;
       setMultiplayerRoomId(roomId);
+      setMultiplayerModalOpen(true);
+      setRoomLinkCopied(false);
 
       ws.onmessage = (ev) => {
         let msg: {
@@ -646,12 +650,65 @@ export const DesignStudioPage: React.FC = () => {
               <Users size={14} />
               {multiplayerBusy ? 'Connecting…' : 'Multiplayer'}
             </button>
-            {multiplayerRoomId && (
-              <div className="px-3 py-1.5 rounded-lg bg-[var(--bg-panel)]/90 border border-[var(--border-subtle)] text-[9px] font-mono text-[var(--text-muted)]">
-                {multiplayerRoomId}
-                {multiplayerColor ? ` · ${multiplayerColor}` : ''}
+          </div>
+        )}
+
+        {activeProject === ProjectType.CHESS && multiplayerModalOpen && multiplayerRoomId && (
+          <div className="absolute inset-0 z-30 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <div
+              className="w-full max-w-md rounded-2xl border border-[var(--border-subtle)] p-5 shadow-2xl"
+              style={{
+                background: 'rgba(18, 20, 32, 0.88)',
+                backdropFilter: 'blur(16px)',
+              }}
+            >
+              <div className="flex items-start justify-between gap-3 mb-4">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#00ffcc]">
+                    MeauxChess Room
+                  </p>
+                  <p className="mt-1 font-mono text-sm text-[var(--text-primary)]">{multiplayerRoomId}</p>
+                  {multiplayerColor && (
+                    <p className="text-[10px] text-[var(--text-muted)] mt-1 capitalize">
+                      You are {multiplayerColor}
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setMultiplayerModalOpen(false)}
+                  className="p-1.5 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-muted)]"
+                  aria-label="Close"
+                >
+                  <X size={16} />
+                </button>
               </div>
-            )}
+              <div className="flex flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const url = `${window.location.origin}/games/${multiplayerRoomId}`;
+                    void navigator.clipboard.writeText(url).then(() => {
+                      setRoomLinkCopied(true);
+                      setTimeout(() => setRoomLinkCopied(false), 2000);
+                    });
+                  }}
+                  className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-[#00ffcc]/40 bg-[#00ffcc]/10 text-[#00ffcc] text-[10px] font-black uppercase tracking-widest"
+                >
+                  <Copy size={14} />
+                  {roomLinkCopied ? 'Copied' : 'Copy invite link'}
+                </button>
+                <a
+                  href={`/games/${multiplayerRoomId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-[#e8821a]/45 bg-[#e8821a]/10 text-[#e8821a] text-[10px] font-black uppercase tracking-widest no-underline"
+                >
+                  <ExternalLink size={14} />
+                  Join in browser
+                </a>
+              </div>
+            </div>
           </div>
         )}
 

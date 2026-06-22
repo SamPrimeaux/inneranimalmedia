@@ -12,6 +12,8 @@ import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { AppState, GameEntity, ProjectType, SceneConfig, CADTool, VoxelData, CADPlane } from '../types';
 import { chessPieceGlbPath, normalizeGlbUrl } from '../lib/glbAssets';
 import { parseFenPlacement, positionToSquare, squareToPosition } from '../lib/chessSquares';
+import { createChessBoard } from '../lib/chessBoard';
+import { applyChessPieceMaterials, setupChessEnvironment } from '../lib/chessMaterials';
 
 const CHESS_PIECES = ['bishop', 'king', 'knight', 'pawn', 'queen', 'rook'] as const;
 
@@ -677,26 +679,53 @@ export class VoxelEngine {
     this.projectType = type;
     this.clearWorld();
     if (type === ProjectType.CAD) { this.camera = this.orthoCamera; this.scene.background = new THREE.Color(0x161824); this.scene.fog = new THREE.FogExp2(0x161824, 0.015); this.world.gravity.set(0, 0, 0); }
-    else if (type === ProjectType.CHESS) { this.camera = this.perspectiveCamera; this.scene.background = new THREE.Color(0x0a0a0f); this.scene.fog = new THREE.FogExp2(0x0a0a0f, 0.015); this.world.gravity.set(0, -20, 0); this.setupChessBoard(); }
+    else if (type === ProjectType.CHESS) {
+      this.camera = this.perspectiveCamera;
+      this.scene.background = new THREE.Color(0x121218);
+      this.scene.fog = null;
+      this.world.gravity.set(0, -20, 0);
+      setupChessEnvironment(this.renderer, this.scene);
+      this.setupChessBoard();
+    }
     else { this.camera = this.perspectiveCamera; this.scene.background = new THREE.Color(0x0f111a); this.scene.fog = new THREE.FogExp2(0x0f111a, 0.015); this.world.gravity.set(0, -9.82, 0); }
     this.controls.object = this.camera;
   }
 
   private setupChessBoard() {
-    void this.spawnChessBoardGlb().catch(() => this.spawnChessBoardVoxels());
+    this.spawnProceduralChessBoard();
+    if (this.projectType === ProjectType.CHESS) {
+      this.controls.minPolarAngle = THREE.MathUtils.degToRad(15);
+      this.controls.maxPolarAngle = THREE.MathUtils.degToRad(75);
+      this.perspectiveCamera.position.set(0, 10, 9);
+      this.controls.target.set(0, 0, 0);
+    }
   }
 
-  private async spawnChessBoardGlb(): Promise<void> {
-    const { chessBoardGlbPath } = await import('../lib/glbAssets');
-    await this.spawnEntity({
-      id: 'chess_board',
-      name: 'Board',
-      type: 'prop',
-      modelUrl: chessBoardGlbPath(),
-      scale: 1,
-      position: { x: 0, y: 0, z: 0 },
-      behavior: { type: 'static' },
+  private spawnProceduralChessBoard() {
+    if (this.entities.has('chess_board')) this.removeEntity('chess_board');
+    const board = createChessBoard();
+    board.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh) {
+        (o as THREE.Mesh).castShadow = true;
+        (o as THREE.Mesh).receiveShadow = true;
+      }
     });
+    this.scene.add(board);
+    this.entities.set('chess_board', {
+      model: board,
+      data: {
+        id: 'chess_board',
+        name: 'Board',
+        type: 'prop',
+        position: { x: 0, y: 0, z: 0 },
+        behavior: { type: 'static' },
+      },
+    });
+  }
+
+  /** @deprecated GLB board fallback removed — procedural board only. */
+  private async spawnChessBoardGlb(): Promise<void> {
+    this.spawnProceduralChessBoard();
   }
 
   private spawnChessBoardVoxels() {
@@ -733,6 +762,21 @@ export class VoxelEngine {
         
         const autoScale = entity.scale || (5 / Math.max(size.x, size.y, size.z));
         pivot.scale.set(autoScale, autoScale, autoScale);
+
+        const pieceColor = (entity.behavior.metadata?.color as 'white' | 'black' | undefined)
+          ?? (entity.name?.toLowerCase().startsWith('white')
+            ? 'white'
+            : entity.name?.toLowerCase().startsWith('black') || entity.name?.toLowerCase().startsWith('orange')
+              ? 'black'
+              : undefined);
+        const isChessPiece =
+          pieceColor &&
+          (entity.type === 'piece' ||
+            entity.behavior.type === 'chess_piece' ||
+            Boolean(entity.modelUrl?.includes('chess_')));
+        if (isChessPiece && pieceColor) {
+          applyChessPieceMaterials(pivot, pieceColor);
+        }
         
         visual = pivot;
         this.scene.add(visual);

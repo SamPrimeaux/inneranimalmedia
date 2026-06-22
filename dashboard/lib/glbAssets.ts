@@ -1,28 +1,32 @@
 /**
- * Canonical GLB URL flattening for Design Studio / VoxelEngine.
- * Always prefer same-origin `/assets/glb/...` so Worker → R2 passthrough works (no CF bot wall).
+ * Canonical GLB URLs for chess pieces (optimized white meshes + runtime materials).
  */
 
-const CANONICAL_CHESS_BASE = '/assets/glb/chess/v1';
+const CHESS_PIECES_CDN = 'https://assets.inneranimalmedia.com/chess-pieces';
+const CHESS_PIECES = ['king', 'queen', 'bishop', 'knight', 'rook', 'pawn'] as const;
 
-/** Relative path for chess board GLB. */
-export function chessBoardGlbPath(): string {
-  return `${CANONICAL_CHESS_BASE}/board/board_main.glb`;
-}
-
-/** Relative path for a chess piece GLB (Worker ASSETS key: glb/chess/v1/pieces/{color}/{piece}.glb). */
-export function chessPieceGlbPath(color: 'white' | 'black', piece: string): string {
-  const c = color === 'white' || color === 'black' ? color : 'white';
+/** Optimized white piece mesh — amber/glass applied at load time for orange/white sides. */
+export function chessOptimizedPieceUrl(piece: string): string {
   const p = String(piece || 'pawn')
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9_-]/g, '');
-  return `${CANONICAL_CHESS_BASE}/pieces/${c}/${p || 'pawn'}.glb`;
+    .replace(/[^a-z]/g, '');
+  const safe = CHESS_PIECES.includes(p as (typeof CHESS_PIECES)[number]) ? p : 'pawn';
+  return `${CHESS_PIECES_CDN}/chess_${safe}_white_opt.glb`;
+}
+
+/** @deprecated Board is procedural — kept for legacy callers that skip import. */
+export function chessBoardGlbPath(): string {
+  return `${CHESS_PIECES_CDN}/chess_board_opt.glb`;
+}
+
+/** Same white GLB for both colors; apply glass or amber material after load. */
+export function chessPieceGlbPath(_color: 'white' | 'black', piece: string): string {
+  return chessOptimizedPieceUrl(piece);
 }
 
 /**
- * Flatten any legacy or absolute GLB URL to a same-origin `/assets/...` path when possible.
- * Leaves external URLs (pub-*.r2.dev, etc.) unchanged.
+ * Flatten legacy or absolute GLB URLs to canonical chess-pieces CDN when possible.
  */
 export function normalizeGlbUrl(input: string | null | undefined): string {
   const s = String(input ?? '').trim();
@@ -39,6 +43,9 @@ export function normalizeGlbUrl(input: string | null | undefined): string {
 
     if (u.hostname === 'assets.inneranimalmedia.com') {
       const p = u.pathname.replace(/^\/+/, '');
+      if (p.startsWith('chess-pieces/')) {
+        return `${CHESS_PIECES_CDN}/${p.replace(/^chess-pieces\//, '')}`;
+      }
       if (p.startsWith('glb/')) return `/assets/${p}`;
       if (p.startsWith('assets/')) return `/${p}`;
     }
@@ -47,12 +54,23 @@ export function normalizeGlbUrl(input: string | null | undefined): string {
       return u.pathname;
     }
 
-    const m = u.pathname.match(/\/glb\/chess\/v1\/(.+)$/i);
-    if (m) return `${CANONICAL_CHESS_BASE}/${m[1]}`;
+    const chessOpt = u.pathname.match(/chess_([a-z]+)_white_opt\.glb$/i);
+    if (chessOpt) return chessOptimizedPieceUrl(chessOpt[1]);
 
-    // Legacy pub R2 bucket — serve via Worker /assets/glb/* (CORS-safe for GLTFLoader).
+    const m = u.pathname.match(/\/glb\/chess\/v1\/(.+)$/i);
+    if (m) {
+      const tail = m[1];
+      const pieceMatch = tail.match(/pieces\/(?:white|black)\/([a-z]+)\.glb$/i);
+      if (pieceMatch) return chessOptimizedPieceUrl(pieceMatch[1]);
+    }
+
     if (u.hostname.includes('pub-e733f82cb31c4f34b6a719e749d0416d.r2.dev')) {
       const tail = decodeURIComponent(u.pathname.replace(/^\/+/, ''));
+      if (tail.includes('chess_') && tail.endsWith('_opt.glb')) {
+        const name = tail.split('/').pop() || tail;
+        const pm = name.match(/chess_([a-z]+)_white_opt\.glb/i);
+        if (pm) return chessOptimizedPieceUrl(pm[1]);
+      }
       if (tail) return `/assets/glb/${tail}`;
     }
   } catch {
