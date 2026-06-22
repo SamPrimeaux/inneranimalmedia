@@ -35,6 +35,7 @@ export function meshyTaskStatus(payload) {
 export function meshyTaskTypeFromPayload(payload) {
   const raw = String(payload?.type || payload?.task_type || '').toLowerCase();
   if (raw.includes('image-to-3d')) return 'image-to-3d';
+  if (raw.includes('rig') || raw === 'rig') return 'rigging';
   if (raw.includes('text-to-3d') || raw.includes('text_to_3d')) return 'text-to-3d';
   if (raw.includes('refine')) return 'text-to-3d-refine';
   if (raw.includes('preview')) return 'text-to-3d-preview';
@@ -189,6 +190,7 @@ function isPreviewStageComplete(taskPayload) {
  */
 function isFinalMeshyStage(taskPayload, job) {
   const type = meshyTaskTypeFromPayload(taskPayload);
+  if (type === 'rigging' || String(job?.task_type) === 'rigging') return true;
   if (String(job?.mode) === 'image') return true;
   if (type.includes('refine')) return true;
   if (job?.parent_task_id) return true;
@@ -272,7 +274,13 @@ export async function applyMeshyTaskToCadJob(env, ctx, taskPayload) {
     return { ok: true, job_id: jobId, status: 'running', phase: taskType, progress };
   }
 
-  const glbUrl = taskPayload?.model_urls?.glb || taskPayload?.model_url || null;
+  const glbUrl =
+    taskPayload?.model_urls?.glb ||
+    taskPayload?.model_url ||
+    taskPayload?.result?.rigged_character_glb_url ||
+    taskPayload?.result?.basic_animations?.walking_glb_url ||
+    taskPayload?.result?.basic_animations?.running_glb_url ||
+    null;
   const modelFormats = taskPayload?.model_urls ? Object.keys(taskPayload.model_urls) : null;
   const textureData = taskPayload?.texture_urls ?? null;
   const scope = {

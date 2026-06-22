@@ -116,8 +116,9 @@ export async function executeCadJob(
 }
 
 export async function generateMeshy(body: {
-  prompt: string;
+  prompt?: string;
   mode?: 'text' | 'image';
+  image_url?: string;
   session_id?: string;
   scene_snapshot_id?: string;
   blueprint_id?: string;
@@ -126,6 +127,7 @@ export async function generateMeshy(body: {
   topology?: string;
   target_polycount?: number;
   should_remesh?: boolean;
+  should_texture?: boolean;
   target_formats?: string[];
   auto_refine?: boolean;
   enable_pbr?: boolean;
@@ -150,6 +152,21 @@ export async function pollMeshyStatus(jobId: string): Promise<{
 
 export async function fetchMeshyBalance(): Promise<{ balance: number; stub?: boolean }> {
   return jsonFetch('/api/cad/meshy/balance');
+}
+
+export async function meshyRigging(body: {
+  input_task_id?: string;
+  model_task_id?: string;
+  model_url?: string;
+  height_meters?: number;
+  session_id?: string;
+  scene_snapshot_id?: string;
+}): Promise<{ job_id: string; task_id: string; status: string }> {
+  return jsonFetch('/api/cad/meshy/rigging', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
 }
 
 export async function meshyTextTo3dPreview(body: Record<string, unknown>): Promise<{

@@ -8,6 +8,7 @@ import { buildCadAssetPublicUrl } from '../core/cad-job-scope.js';
 import {
   checkMeshyBalance,
   checkMeshyBalanceForOperation,
+  createMeshyTask,
   deleteMeshyTask,
   getBalance,
   getMeshyTask,
@@ -254,6 +255,65 @@ export async function handleCadMeshyApi(request, url, env, ctx) {
         sort_by: sortBy,
       });
       return jsonResponse({ tasks, page_num: pageNum, page_size: pageSize, type: taskType });
+    }
+
+    if (path === '/api/cad/meshy/rigging' && method === 'POST') {
+      const body = await request.json().catch(() => ({}));
+      const inputTaskId = String(body.input_task_id || body.model_task_id || '').trim();
+      const modelUrl = String(body.model_url || '').trim();
+      if (!inputTaskId && !modelUrl) {
+        return jsonResponse({ error: 'input_task_id or model_url required' }, 400);
+      }
+
+      if (isMeshyStubKey(env)) {
+        return jsonResponse({ stub: true, message: 'MESHYAI_API_KEY not configured' });
+      }
+
+      try {
+        await checkMeshyBalanceForOperation(env, 'rigging', body);
+      } catch (e) {
+        const mapped = meshyErrorResponseBody(e);
+        return jsonResponse(mapped.body, mapped.status);
+      }
+
+      const scope = await resolveCadJobScope(env, authRequest, authUser, body);
+      const payload = {
+        ...(inputTaskId ? { input_task_id: inputTaskId } : {}),
+        ...(modelUrl ? { model_url: modelUrl } : {}),
+        height_meters: Number(body.height_meters) > 0 ? Number(body.height_meters) : 1.7,
+      };
+      const { task_id: externalTaskId, raw } = await createMeshyTask(env, 'rigging', payload);
+      if (!externalTaskId) {
+        return jsonResponse({ error: 'Meshy did not return rigging task id', meshy: raw }, 502);
+      }
+
+      const jobId = 'cadj_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+      await insertMeshyCadJob(env, {
+        id: jobId,
+        user_id: authUser.id,
+        session_id: scope.sessionId,
+        engine: 'meshy',
+        prompt: inputTaskId ? `rig:${inputTaskId}` : 'rig:model_url',
+        mode: 'rig',
+        status: 'pending',
+        external_task_id: externalTaskId,
+        parent_task_id: inputTaskId || null,
+        workspace_id: scope.workspaceId,
+        tenant_id: scope.tenantId,
+        project_id: scope.projectId,
+        scene_snapshot_id: scope.sceneSnapshotId,
+        task_type: 'rigging',
+        credits_consumed: MESHY_CREDIT_COSTS.RIGGING,
+      });
+
+      return jsonResponse({
+        job_id: jobId,
+        task_id: externalTaskId,
+        external_task_id: externalTaskId,
+        status: 'pending',
+        phase: 'rigging',
+        workspace_id: scope.workspaceId,
+      });
     }
 
     if (path === '/api/cad/meshy/generate' && method === 'POST') {

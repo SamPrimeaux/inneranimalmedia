@@ -111,6 +111,8 @@ const ANIM_CLIPS = [
 ] as const;
 
 function AnimatePanel({ cs }: { cs: MeshyCs }) {
+  const clipKey = (label: string) => label.toLowerCase().replace(/\s+/g, '_');
+
   return (
     <div className="space-y-4">
       <div>
@@ -121,7 +123,7 @@ function AnimatePanel({ cs }: { cs: MeshyCs }) {
           type="text"
           value={cs.rigTaskId}
           onChange={(e) => cs.setRigTaskId(e.target.value)}
-          placeholder="Completed image-to-3D task ID"
+          placeholder="Completed text/image-to-3D Meshy task ID"
           className="w-full rounded-lg px-3 py-2 text-[11px] font-mono text-[var(--text-main)] border border-[var(--border-subtle)] bg-[var(--bg-hover)] outline-none focus:border-[var(--solar-cyan)] transition-colors"
         />
       </div>
@@ -129,23 +131,34 @@ function AnimatePanel({ cs }: { cs: MeshyCs }) {
         <div className="flex items-center gap-2 mb-2">
           <Search size={12} className="text-[var(--text-muted)]" />
           <p className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-[0.14em]">
-            Animation library
+            Basic animations (from rigging)
           </p>
         </div>
         <div className="grid grid-cols-2 gap-1.5">
-          {ANIM_CLIPS.map((clip) => (
-            <button
-              key={clip}
-              type="button"
-              className="flex items-center gap-1.5 px-2 py-2 rounded-lg border border-[var(--border-subtle)] text-[10px] font-medium text-[var(--text-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)] transition-colors text-left"
-              style={{ background: 'var(--bg-hover)' }}
-              onClick={() => cs.setRigTaskId((prev) => prev)}
-            >
-              <Clapperboard size={11} className="shrink-0" />
-              {clip}
-            </button>
-          ))}
+          {ANIM_CLIPS.map((clip) => {
+            const key = clipKey(clip);
+            const active = cs.rigAnimation === key;
+            return (
+              <button
+                key={clip}
+                type="button"
+                className={`flex items-center gap-1.5 px-2 py-2 rounded-lg border text-[10px] font-medium transition-colors text-left ${
+                  active
+                    ? 'border-[var(--solar-cyan)] text-[var(--solar-cyan)]'
+                    : 'border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]'
+                }`}
+                style={{ background: active ? 'color-mix(in srgb, var(--solar-cyan) 10%, transparent)' : 'var(--bg-hover)' }}
+                onClick={() => cs.setRigAnimation(key)}
+              >
+                <Clapperboard size={11} className="shrink-0" />
+                {clip}
+              </button>
+            );
+          })}
         </div>
+        <p className="text-[9px] text-[var(--text-muted)] mt-2 leading-relaxed">
+          Rigging returns walking/running GLBs in the job result. Clip preference is logged for deploy.
+        </p>
       </div>
     </div>
   );
@@ -243,7 +256,10 @@ export function MeshyToolkitTweaks({
     return onCreate;
   })();
 
-  const ctaDisabled = cs.isGenerating || (railTool === 'image-to-3d' && !cs.imageDataUrl);
+  const ctaDisabled =
+    cs.isGenerating ||
+    (railTool === 'image-to-3d' && !cs.imageDataUrl) ||
+    (railTool === 'animate' && !cs.rigTaskId.trim());
 
   return (
     <aside

@@ -41,6 +41,7 @@ export function useCreationStation(cad: CadHook) {
 
   // animate / rigging
   const [rigTaskId, setRigTaskId] = useState('');
+  const [rigAnimation, setRigAnimation] = useState('walking');
 
   const appendLog = useCallback(
     (text: string, level: LogLine['level'] = 'info', opts?: { open?: boolean }) => {
@@ -204,27 +205,20 @@ export function useCreationStation(cad: CadHook) {
       return;
     }
     const path = '/api/cad/meshy/rigging';
-    const body = { model_task_id: taskId, animation: 'walking' };
+    const body = { input_task_id: taskId, height_meters: 1.7 };
     setLastRequest(buildCurl('POST', path, body));
-    appendLog('Submitting rigging job…', 'info', { open: true });
+    appendLog(`Submitting rigging job (clip: ${rigAnimation})…`, 'info', { open: true });
     try {
-      const res = await fetch(path, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error((data as { error?: string }).error || `HTTP ${res.status}`);
-      setLastResponse(JSON.stringify(data, null, 2));
-      appendLog(`Rigging job ${(data as { job_id?: string }).job_id ?? 'queued'}`, 'ok');
+      const result = await cad.runMeshyRigging(body);
+      setLastResponse(JSON.stringify(result, null, 2));
+      appendLog(`Rigging job ${result?.job_id ?? 'queued'}`, 'ok');
       void refreshBalance();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setLastResponse(JSON.stringify({ error: msg }, null, 2));
       appendLog(msg, 'error');
     }
-  }, [rigTaskId, appendLog, refreshBalance]);
+  }, [rigTaskId, rigAnimation, cad, appendLog, refreshBalance]);
 
   // ── api key ────────────────────────────────────────────────────────────────
 
@@ -298,6 +292,8 @@ export function useCreationStation(cad: CadHook) {
     // animate
     rigTaskId,
     setRigTaskId,
+    rigAnimation,
+    setRigAnimation,
     runRig,
     openTerminal,
     refreshBalance,
