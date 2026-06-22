@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { PanelRight } from 'lucide-react';
 import { MeshyBalancePill } from '../MeshyBalancePill';
 import { MeshyToolRail, MobileMeshyToolStrip } from './MeshyToolRail';
@@ -17,6 +18,7 @@ import type { useDesignStudioCad } from '../hooks/useDesignStudioCad';
 import type { CustomAsset, GenerationConfig, SceneConfig } from '../../../types';
 import type { SavedSceneRow } from '../shared/ScenePanel';
 import type { CadJobRow } from '../api';
+import { KEYS_PATH } from './MeshyPlatformNotice';
 
 type CadHook = ReturnType<typeof useDesignStudioCad>;
 
@@ -77,6 +79,7 @@ export function DesignStudioCreationStation({
   activeJob,
   onViewportRectChange,
 }: DesignStudioCreationStationProps) {
+  const navigate = useNavigate();
   const cs = useCreationStation(cad);
   const [studioSegment, setStudioSegment] = useState<StudioSegment>(readStoredStudioSegment);
   const [advScript, setAdvScript] = useState(DEFAULT_SCAD);
@@ -85,7 +88,6 @@ export function DesignStudioCreationStation({
   const [apiOpen, setApiOpen] = useState(
     () => typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches,
   );
-  const [apiKeySheet, setApiKeySheet] = useState(false);
   const viewportHostRef = React.useRef<HTMLDivElement>(null);
 
   const syncViewportRect = useCallback(() => {
@@ -169,7 +171,7 @@ export function DesignStudioCreationStation({
         active={cs.activeTool}
         meshySegmentActive={meshySegmentActive}
         onSelect={onRailSelect}
-        onOpenApiKey={() => setApiKeySheet(true)}
+        onOpenApiKey={() => navigate(KEYS_PATH)}
         onOpenTerminal={openTerminalWithLogs}
         className="md:col-start-1 md:row-start-1"
       />
@@ -324,49 +326,6 @@ export function DesignStudioCreationStation({
         </div>
       )}
 
-      {apiKeySheet && (
-        <div
-          className="fixed inset-0 z-[80] flex items-end md:items-center justify-center p-0 md:p-4"
-          style={{ background: 'color-mix(in srgb, var(--bg-app) 55%, transparent)' }}
-          onClick={() => setApiKeySheet(false)}
-        >
-          <div
-            className="w-full max-w-md rounded-t-2xl md:rounded-2xl p-5 border border-[var(--border-subtle)] bg-[var(--bg-panel)]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-[13px] font-bold text-[var(--text-main)] mb-3">Meshy API key (BYOK)</h3>
-            <input
-              type="password"
-              autoComplete="off"
-              placeholder="Paste Meshy API key"
-              className="w-full mb-3 bg-[var(--bg-hover)] border border-[var(--border-subtle)] rounded-lg px-3 py-2 text-[11px] text-[var(--text-main)]"
-              value={cs.apiKeyDraft}
-              onChange={(e) => cs.setApiKeyDraft(e.target.value)}
-            />
-            <div className="flex gap-2">
-              <button
-                type="button"
-                className="flex-1 py-2 rounded-lg border border-[var(--border-subtle)] text-[var(--text-muted)]"
-                onClick={() => setApiKeySheet(false)}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="flex-1 py-2 rounded-lg font-semibold text-[var(--bg-app)]"
-                style={{ background: 'var(--solar-cyan)' }}
-                disabled={cs.savingKey || !cs.apiKeyDraft.trim()}
-                onClick={() => {
-                  void cs.saveMeshyApiKey();
-                  setApiKeySheet(false);
-                }}
-              >
-                Save to vault
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

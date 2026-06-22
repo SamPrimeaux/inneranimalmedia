@@ -169,6 +169,25 @@ export async function meshyRigging(body: {
   });
 }
 
+export async function meshyCreateTask(body: {
+  task_type: string;
+  session_id?: string;
+  scene_snapshot_id?: string;
+  [key: string]: unknown;
+}): Promise<{ job_id: string; task_id: string; status: string; external_task_id?: string }> {
+  return jsonFetch('/api/cad/meshy/task', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function fetchMeshyAnimationLibrary(): Promise<{
+  animations?: { action_id?: number; name?: string; category?: string }[];
+}> {
+  return jsonFetch('/api/cad/meshy/animations/library');
+}
+
 export async function meshyTextTo3dPreview(body: Record<string, unknown>): Promise<{
   job_id: string;
   task_id: string;

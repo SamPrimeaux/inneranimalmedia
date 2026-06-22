@@ -6,6 +6,7 @@ import {
   fetchCadJobs,
   generateMeshy,
   meshyRigging,
+  meshyCreateTask,
   generateOpenScad,
   meshyTextTo3dPreview,
   meshyTextTo3dRefine,
@@ -262,6 +263,36 @@ export function useDesignStudioCad(opts: UseDesignStudioCadOpts = {}) {
     [scopeBody, refreshJobs],
   );
 
+  const runMeshyTask = useCallback(
+    async (taskType: string, body: Record<string, unknown> = {}) => {
+      if (!taskType.trim()) {
+        setError('task_type required');
+        return null;
+      }
+      setBusy(true);
+      setError(null);
+      try {
+        const result = await meshyCreateTask({
+          task_type: taskType,
+          ...scopeBody(),
+          ...body,
+        });
+        setActiveJobId(result.job_id);
+        if (result.status === 'stub') setMeshyStub(true);
+        await refreshJobs();
+        return result;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (msg.toLowerCase().includes('stub') || msg.includes('MESHY')) setMeshyStub(true);
+        setError(msg);
+        throw e;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [scopeBody, refreshJobs],
+  );
+
   const runMeshyPreview = useCallback(
     async (body: Record<string, unknown>) => {
       setBusy(true);
@@ -359,6 +390,7 @@ export function useDesignStudioCad(opts: UseDesignStudioCadOpts = {}) {
     saveBlueprintScript,
     runMeshyGenerate,
     runMeshyRigging,
+    runMeshyTask,
     runMeshyPreview,
     runMeshyRefine,
     subscribeRunEvents,

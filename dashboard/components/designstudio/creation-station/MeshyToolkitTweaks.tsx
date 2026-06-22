@@ -6,7 +6,8 @@ import { StudioSegmentBar } from './StudioSegmentBar';
 import { CadPipelinePanel } from './CadPipelinePanel';
 import { MotionTweaksPanel } from '../MotionTweaksPanel';
 import { AnimationTweaksPanel } from '../AnimationTweaksPanel';
-import { MeshyUnavailablePanel } from './MeshyUnavailablePanel';
+import { MeshyPlatformNotice } from './MeshyPlatformNotice';
+import { MeshyKeysLink, MeshyPromptField, MeshyTaskIdField } from './MeshyRailFields';
 import { AdvancedOpenScadActions } from './AdvancedOpenScadPanel';
 import { TweaksPanel } from './TweaksPanel';
 import type { StudioSegment } from './meshyToolkitTypes';
@@ -99,67 +100,87 @@ function ImageTo3DPanel({ cs }: { cs: MeshyCs }) {
       {cs.imageFile && (
         <p className="text-[10px] text-[var(--text-muted)] truncate px-1">{cs.imageFile.name}</p>
       )}
+      <MeshyKeysLink />
     </div>
   );
 }
 
 // ── Animate panel ────────────────────────────────────────────────────────────
 
-const ANIM_CLIPS = [
-  'Walking', 'Running', 'Idle', 'Jump', 'Wave',
-  'Agree Gesture', 'Air Squat', 'Alert', 'Back Flip', 'Dance',
-] as const;
+const ANIM_CLIPS_FALLBACK = ['Walking', 'Running', 'Idle', 'Jump', 'Wave'] as const;
 
 function AnimatePanel({ cs }: { cs: MeshyCs }) {
-  const clipKey = (label: string) => label.toLowerCase().replace(/\s+/g, '_');
+  const clips =
+    cs.animationClips.length > 0
+      ? cs.animationClips
+      : ANIM_CLIPS_FALLBACK.map((name, i) => ({ action_id: 92 + i, name }));
 
   return (
     <div className="space-y-4">
-      <div>
-        <label className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-[0.14em] block mb-1.5">
-          Source model task ID
-        </label>
-        <input
-          type="text"
-          value={cs.rigTaskId}
-          onChange={(e) => cs.setRigTaskId(e.target.value)}
-          placeholder="Completed text/image-to-3D Meshy task ID"
-          className="w-full rounded-lg px-3 py-2 text-[11px] font-mono text-[var(--text-main)] border border-[var(--border-subtle)] bg-[var(--bg-hover)] outline-none focus:border-[var(--solar-cyan)] transition-colors"
-        />
-      </div>
+      <MeshyTaskIdField
+        label="Source model task ID (for rigging)"
+        value={cs.rigTaskId}
+        onChange={cs.setRigTaskId}
+      />
+      <MeshyTaskIdField
+        label="Rigging task ID (for animation)"
+        value={cs.rigCompletedTaskId}
+        onChange={cs.setRigCompletedTaskId}
+        placeholder="Filled automatically after rigging, or paste Meshy rig task ID"
+      />
       <div>
         <div className="flex items-center gap-2 mb-2">
           <Search size={12} className="text-[var(--text-muted)]" />
           <p className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-[0.14em]">
-            Basic animations (from rigging)
+            Animation library
           </p>
         </div>
-        <div className="grid grid-cols-2 gap-1.5">
-          {ANIM_CLIPS.map((clip) => {
-            const key = clipKey(clip);
-            const active = cs.rigAnimation === key;
+        <div className="grid grid-cols-2 gap-1.5 max-h-40 overflow-y-auto custom-scrollbar">
+          {clips.map((clip) => {
+            const active = cs.animationActionId === clip.action_id;
             return (
               <button
-                key={clip}
+                key={`${clip.action_id}-${clip.name}`}
                 type="button"
                 className={`flex items-center gap-1.5 px-2 py-2 rounded-lg border text-[10px] font-medium transition-colors text-left ${
                   active
                     ? 'border-[var(--solar-cyan)] text-[var(--solar-cyan)]'
                     : 'border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)]'
                 }`}
-                style={{ background: active ? 'color-mix(in srgb, var(--solar-cyan) 10%, transparent)' : 'var(--bg-hover)' }}
-                onClick={() => cs.setRigAnimation(key)}
+                style={{
+                  background: active
+                    ? 'color-mix(in srgb, var(--solar-cyan) 10%, transparent)'
+                    : 'var(--bg-hover)',
+                }}
+                onClick={() => cs.setAnimationActionId(clip.action_id)}
               >
                 <Clapperboard size={11} className="shrink-0" />
-                {clip}
+                <span className="truncate">{clip.name}</span>
               </button>
             );
           })}
         </div>
-        <p className="text-[9px] text-[var(--text-muted)] mt-2 leading-relaxed">
-          Rigging returns walking/running GLBs in the job result. Clip preference is logged for deploy.
-        </p>
       </div>
+      <p className="text-[9px] text-[var(--text-muted)]">
+        Step 1: Rig & Animate CTA runs rigging. Step 2: pick a clip and run again for full animation GLB.
+      </p>
+      <MeshyKeysLink />
+    </div>
+  );
+}
+
+function SourceTaskPanel({
+  cs,
+  children,
+}: {
+  cs: MeshyCs;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-3">
+      <MeshyTaskIdField value={cs.sourceTaskId} onChange={cs.setSourceTaskId} />
+      {children}
+      <MeshyKeysLink />
     </div>
   );
 }
@@ -206,11 +227,22 @@ export function MeshyToolkitTweaks({
   const railMeta = MESHY_RAIL_TOOLS.find((t) => t.id === railTool);
   const showMeshyCta =
     studioSegment === 'meshy' &&
-    (railTool === 'text-to-3d' || railTool === 'image-to-3d' || railTool === 'animate');
+    [
+      'text-to-3d',
+      'image-to-3d',
+      'text-to-texture',
+      'texture',
+      'animate',
+      'post-process',
+      'image',
+      'print',
+    ].includes(railTool);
 
   const meshyBody =
     studioSegment === 'meshy' ? (
-      railTool === 'text-to-3d' ? (
+      <>
+        <MeshyPlatformNotice stub={cs.meshyStub} className="mb-3" />
+        {railTool === 'text-to-3d' ? (
         <TweaksPanel
           tool="text-to-3d"
           meshyPhase={cs.meshyPhase}
@@ -223,10 +255,6 @@ export function MeshyToolkitTweaks({
           progressPct={cad.polledJob?.progress_pct}
           onCreate={onCreate}
           onQuickGenerate={onQuickGenerate}
-          apiKeyDraft={cs.apiKeyDraft}
-          onApiKeyDraft={cs.setApiKeyDraft}
-          onSaveApiKey={() => void cs.saveMeshyApiKey()}
-          savingKey={cs.savingKey}
           latestGlbUrl={latestGlbUrl}
           onDownloadGlb={onDownloadLatestGlb}
           embedded
@@ -235,31 +263,105 @@ export function MeshyToolkitTweaks({
         <ImageTo3DPanel cs={cs} />
       ) : railTool === 'animate' ? (
         <AnimatePanel cs={cs} />
-      ) : (
-        <MeshyUnavailablePanel
-          title={railMeta?.label || 'Meshy'}
-          body="This Meshy surface is not yet wired to a Worker route. Use Text to 3D, Image to 3D, or CAD OpenSCAD for live pipelines today."
-        />
-      )
+      ) : railTool === 'text-to-texture' ? (
+        <div className="space-y-3">
+          <p className="text-[11px] font-semibold text-[var(--text-main)]">Text to Texture</p>
+          <MeshyTaskIdField
+            value={cs.sourceTaskId}
+            onChange={cs.setSourceTaskId}
+            label="Model task ID (optional)"
+            placeholder="Leave empty to texture from prompt only via model URL later"
+          />
+          <MeshyPromptField
+            label="Texture prompt"
+            value={cs.texturePrompt}
+            onChange={cs.setTexturePrompt}
+            placeholder="Weathered bronze armor with emerald inlays"
+          />
+          <MeshyKeysLink />
+        </div>
+      ) : railTool === 'texture' ? (
+        <div className="space-y-3">
+          <p className="text-[11px] font-semibold text-[var(--text-main)]">Retexture</p>
+          <SourceTaskPanel cs={cs}>
+            <MeshyPromptField
+              label="Texture prompt (optional)"
+              value={cs.texturePrompt}
+              onChange={cs.setTexturePrompt}
+              rows={3}
+            />
+          </SourceTaskPanel>
+        </div>
+      ) : railTool === 'post-process' ? (
+        <div className="space-y-3">
+          <p className="text-[11px] font-semibold text-[var(--text-main)]">Post-Process / Remesh</p>
+          <SourceTaskPanel cs={cs} />
+          <p className="text-[10px] text-[var(--text-muted)]">Exports GLB + FBX with optimized topology.</p>
+        </div>
+      ) : railTool === 'image' ? (
+        <div className="space-y-3">
+          <p className="text-[11px] font-semibold text-[var(--text-main)]">Text to Image</p>
+          <MeshyPromptField
+            label="Prompt"
+            value={cs.imageGenPrompt}
+            onChange={cs.setImageGenPrompt}
+            placeholder="A majestic dragon soaring through clouds at sunset"
+          />
+          <MeshyKeysLink />
+        </div>
+      ) : railTool === 'print' ? (
+        <div className="space-y-3">
+          <p className="text-[11px] font-semibold text-[var(--text-main)]">3D Print Export</p>
+          <SourceTaskPanel cs={cs} />
+          <p className="text-[10px] text-[var(--text-muted)]">Remesh to STL + 3MF for slicer workflows.</p>
+        </div>
+      ) : null}
+      </>
     ) : null;
 
-  // CTA label / action per active tool
   const ctaLabel = (() => {
     if (railTool === 'image-to-3d') return 'Generate from Image';
-    if (railTool === 'animate') return 'Rig & Animate';
+    if (railTool === 'animate') {
+      return cs.rigCompletedTaskId.trim() && cs.animationActionId != null
+        ? 'Apply Animation'
+        : 'Rig Character';
+    }
+    if (railTool === 'text-to-texture') return 'Generate Texture';
+    if (railTool === 'texture') return 'Retexture Model';
+    if (railTool === 'post-process') return 'Remesh & Export';
+    if (railTool === 'image') return 'Generate Image';
+    if (railTool === 'print') return 'Export for Print';
     return cs.meshyPhase === 'preview' ? 'Create Preview' : 'Create Refine';
   })();
 
   const ctaAction = (() => {
     if (railTool === 'image-to-3d') return () => { void cs.runImageTo3D(); };
-    if (railTool === 'animate') return () => { void cs.runRig(); };
+    if (railTool === 'animate') {
+      return () => {
+        if (cs.rigCompletedTaskId.trim() && cs.animationActionId != null) void cs.runAnimateClip();
+        else void cs.runRig();
+      };
+    }
+    if (railTool === 'text-to-texture') return () => { void cs.runTextToTexture(); };
+    if (railTool === 'texture') return () => { void cs.runTexture(); };
+    if (railTool === 'post-process') return () => { void cs.runPostProcess(); };
+    if (railTool === 'image') return () => { void cs.runTextToImage(); };
+    if (railTool === 'print') return () => { void cs.runPrintExport(); };
     return onCreate;
   })();
 
   const ctaDisabled =
     cs.isGenerating ||
     (railTool === 'image-to-3d' && !cs.imageDataUrl) ||
-    (railTool === 'animate' && !cs.rigTaskId.trim());
+    (railTool === 'animate' && !cs.rigTaskId.trim() && !cs.rigCompletedTaskId.trim()) ||
+    (railTool === 'texture' && !cs.sourceTaskId.trim()) ||
+    (railTool === 'post-process' && !cs.sourceTaskId.trim()) ||
+    (railTool === 'print' && !cs.sourceTaskId.trim()) ||
+    (railTool === 'text-to-texture' && !cs.texturePrompt.trim()) ||
+    (railTool === 'image' && !cs.imageGenPrompt.trim()) ||
+    (railTool === 'animate' &&
+      cs.rigCompletedTaskId.trim() &&
+      cs.animationActionId == null);
 
   return (
     <aside

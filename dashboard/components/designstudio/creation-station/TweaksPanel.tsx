@@ -1,6 +1,7 @@
 import React from 'react';
-import { Key, Loader2, Sparkles } from 'lucide-react';
+import { Loader2, Sparkles } from 'lucide-react';
 import type { MeshyPhase, MeshySettings } from './meshyTypes';
+import { MeshyKeysLink } from './MeshyRailFields';
 
 const SAMPLE_PROMPT =
   'A chess king piece, ornate gothic crown with four arched buttresses, wide weighted base, ultra high detail.';
@@ -17,10 +18,6 @@ type Props = {
   progressPct?: number;
   onCreate: () => void;
   onQuickGenerate: () => void;
-  apiKeyDraft: string;
-  onApiKeyDraft: (v: string) => void;
-  onSaveApiKey: () => void;
-  savingKey: boolean;
   latestGlbUrl?: string | null;
   onDownloadGlb?: () => void;
   className?: string;
@@ -66,10 +63,6 @@ export function TweaksPanel({
   progressPct,
   onCreate,
   onQuickGenerate,
-  apiKeyDraft,
-  onApiKeyDraft,
-  onSaveApiKey,
-  savingKey,
   latestGlbUrl,
   onDownloadGlb,
   className = '',
@@ -128,9 +121,10 @@ export function TweaksPanel({
           <>
             {meshyStub && (
               <p className="text-[11px] text-amber-400/90 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
-                Meshy platform key not set — add BYOK below or use org Worker secret.
+                Platform Meshy key not configured on this Worker.
               </p>
             )}
+            <MeshyKeysLink />
 
             {meshyPhase === 'refine' && (
               <div>
@@ -209,31 +203,6 @@ export function TweaksPanel({
                 <Toggle label="Remesh" on={settings.should_remesh} onChange={(v) => onPatch({ should_remesh: v })} />
                 <Toggle label="PBR maps" on={settings.enable_pbr} onChange={(v) => onPatch({ enable_pbr: v })} />
                 <Toggle label="Auto size" on={settings.auto_size} onChange={(v) => onPatch({ auto_size: v })} />
-              </div>
-            </details>
-
-            <details className="rounded-xl border border-white/[0.06]">
-              <summary className="px-3 py-2.5 text-[11px] font-medium text-zinc-400 cursor-pointer flex items-center gap-2">
-                <Key size={12} />
-                API key (BYOK)
-              </summary>
-              <div className="px-3 pb-3 space-y-2">
-                <input
-                  type="password"
-                  autoComplete="off"
-                  placeholder="Paste Meshy API key"
-                  className="w-full bg-[#08090d] border border-white/[0.08] rounded-lg px-3 py-2 text-[11px]"
-                  value={apiKeyDraft}
-                  onChange={(e) => onApiKeyDraft(e.target.value)}
-                />
-                <button
-                  type="button"
-                  disabled={savingKey || !apiKeyDraft.trim()}
-                  onClick={onSaveApiKey}
-                  className="w-full py-2 rounded-lg border border-emerald-500/30 text-[11px] font-semibold text-emerald-400 disabled:opacity-40"
-                >
-                  {savingKey ? 'Saving…' : 'Save to vault'}
-                </button>
               </div>
             </details>
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { fetchMeshyBalance } from '../api';
+import { fetchMeshyAnimationLibrary, fetchMeshyBalance } from '../api';
 import type { useDesignStudioCad } from '../hooks/useDesignStudioCad';
 import {
   DEFAULT_MESHY_SETTINGS,
@@ -32,8 +32,6 @@ export function useCreationStation(cad: CadHook) {
   const [lastResponse, setLastResponse] = useState('');
   const [balance, setBalance] = useState<number | null>(null);
   const [meshyStub, setMeshyStub] = useState(cad.meshyStub);
-  const [apiKeyDraft, setApiKeyDraft] = useState('');
-  const [savingKey, setSavingKey] = useState(false);
 
   // image-to-3d
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -41,7 +39,14 @@ export function useCreationStation(cad: CadHook) {
 
   // animate / rigging
   const [rigTaskId, setRigTaskId] = useState('');
-  const [rigAnimation, setRigAnimation] = useState('walking');
+  const [rigCompletedTaskId, setRigCompletedTaskId] = useState('');
+  const [animationActionId, setAnimationActionId] = useState<number | null>(null);
+  const [animationClips, setAnimationClips] = useState<{ action_id: number; name: string }[]>([]);
+
+  // retexture / remesh / print
+  const [sourceTaskId, setSourceTaskId] = useState('');
+  const [texturePrompt, setTexturePrompt] = useState('');
+  const [imageGenPrompt, setImageGenPrompt] = useState('');
 
   const appendLog = useCallback(
     (text: string, level: LogLine['level'] = 'info', opts?: { open?: boolean }) => {
@@ -83,6 +88,49 @@ export function useCreationStation(cad: CadHook) {
   useEffect(() => {
     if (cad.error) appendLog(cad.error, 'error');
   }, [cad.error, appendLog]);
+
+  useEffect(() => {
+    if (activeTool !== 'animate') return;
+    void fetchMeshyAnimationLibrary()
+      .then((data) => {
+        const raw = (data as { animations?: unknown }).animations ?? data;
+        const rows = Array.isArray(raw) ? raw : [];
+        setAnimationClips(
+          rows
+            .map((row) => {
+              const r = row as { action_id?: number; name?: string };
+              if (r.action_id == null || !r.name) return null;
+              return { action_id: Number(r.action_id), name: String(r.name) };
+            })
+            .filter((r): r is { action_id: number; name: string } => r != null)
+            .slice(0, 24),
+        );
+      })
+      .catch(() => setAnimationClips([]));
+  }, [activeTool]);
+
+  const submitMeshyTask = useCallback(
+    async (taskType: string, body: Record<string, unknown>, label: string) => {
+      const path = '/api/cad/meshy/task';
+      setLastRequest(buildCurl('POST', path, { task_type: taskType, ...body }));
+      appendLog(`Starting ${label}…`, 'info', { open: true });
+      try {
+        const result = await cad.runMeshyTask(taskType, body);
+        setLastResponse(JSON.stringify(result, null, 2));
+        const ext = (result as { external_task_id?: string; task_id?: string })?.external_task_id
+          || (result as { task_id?: string })?.task_id;
+        if (ext) appendLog(`Meshy task ${ext}`, 'ok');
+        void refreshBalance();
+        return result;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setLastResponse(JSON.stringify({ error: msg }, null, 2));
+        appendLog(msg, 'error');
+        return null;
+      }
+    },
+    [cad, appendLog, refreshBalance],
+  );
 
   const patchSettings = useCallback((patch: Partial<MeshySettings>) => {
     setSettings((prev) => ({ ...prev, ...patch }));
@@ -207,10 +255,12 @@ export function useCreationStation(cad: CadHook) {
     const path = '/api/cad/meshy/rigging';
     const body = { input_task_id: taskId, height_meters: 1.7 };
     setLastRequest(buildCurl('POST', path, body));
-    appendLog(`Submitting rigging job (clip: ${rigAnimation})…`, 'info', { open: true });
+    appendLog('Submitting rigging job…', 'info', { open: true });
     try {
       const result = await cad.runMeshyRigging(body);
       setLastResponse(JSON.stringify(result, null, 2));
+      const rigId = result?.task_id || (result as { external_task_id?: string })?.external_task_id;
+      if (rigId) setRigCompletedTaskId(String(rigId));
       appendLog(`Rigging job ${result?.job_id ?? 'queued'}`, 'ok');
       void refreshBalance();
     } catch (e) {
@@ -218,36 +268,80 @@ export function useCreationStation(cad: CadHook) {
       setLastResponse(JSON.stringify({ error: msg }, null, 2));
       appendLog(msg, 'error');
     }
-  }, [rigTaskId, rigAnimation, cad, appendLog, refreshBalance]);
+  }, [rigTaskId, cad, appendLog, refreshBalance]);
 
-  // ── api key ────────────────────────────────────────────────────────────────
-
-  const saveMeshyApiKey = useCallback(async () => {
-    const key = apiKeyDraft.trim();
-    if (!key) return;
-    setSavingKey(true);
-    try {
-      const res = await fetch('/api/settings/keys', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          provider: 'meshy',
-          label: 'Meshy',
-          key_name: 'Meshy',
-          secret: key,
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error((data as { error?: string }).error || 'Save failed');
-      appendLog('Meshy API key saved to vault', 'ok');
-      setApiKeyDraft('');
-    } catch (e) {
-      appendLog(e instanceof Error ? e.message : 'Key save failed', 'error');
-    } finally {
-      setSavingKey(false);
+  const runAnimateClip = useCallback(async () => {
+    const rigId = rigCompletedTaskId.trim();
+    if (!rigId || animationActionId == null) {
+      appendLog('Complete rigging first and pick an animation clip', 'warn');
+      return;
     }
-  }, [apiKeyDraft, appendLog]);
+    await submitMeshyTask('animation', { rig_task_id: rigId, action_id: animationActionId }, 'animation');
+  }, [rigCompletedTaskId, animationActionId, submitMeshyTask]);
+
+  const runTextToTexture = useCallback(async () => {
+    if (!texturePrompt.trim()) {
+      appendLog('Enter a texture prompt', 'warn');
+      return;
+    }
+    await submitMeshyTask(
+      'text-to-texture',
+      {
+        ...(sourceTaskId.trim() ? { input_task_id: sourceTaskId.trim() } : {}),
+        texture_prompt: texturePrompt.trim(),
+      },
+      'text-to-texture',
+    );
+  }, [sourceTaskId, texturePrompt, submitMeshyTask]);
+
+  const runTexture = useCallback(async () => {
+    if (!sourceTaskId.trim()) {
+      appendLog('Paste a source model task ID', 'warn');
+      return;
+    }
+    await submitMeshyTask(
+      'texture',
+      {
+        input_task_id: sourceTaskId.trim(),
+        ...(texturePrompt.trim() ? { texture_prompt: texturePrompt.trim() } : {}),
+      },
+      'retexture',
+    );
+  }, [sourceTaskId, texturePrompt, submitMeshyTask]);
+
+  const runPostProcess = useCallback(async () => {
+    if (!sourceTaskId.trim()) {
+      appendLog('Paste a source model task ID', 'warn');
+      return;
+    }
+    await submitMeshyTask(
+      'post-process',
+      { input_task_id: sourceTaskId.trim(), target_formats: ['glb', 'fbx'] },
+      'remesh',
+    );
+  }, [sourceTaskId, submitMeshyTask]);
+
+  const runPrintExport = useCallback(async () => {
+    if (!sourceTaskId.trim()) {
+      appendLog('Paste a source model task ID', 'warn');
+      return;
+    }
+    await submitMeshyTask(
+      'print',
+      { input_task_id: sourceTaskId.trim(), target_formats: ['stl', '3mf'] },
+      'print export',
+    );
+  }, [sourceTaskId, submitMeshyTask]);
+
+  const runTextToImage = useCallback(async () => {
+    if (!imageGenPrompt.trim()) {
+      appendLog('Enter an image prompt', 'warn');
+      return;
+    }
+    await submitMeshyTask('image', { prompt: imageGenPrompt.trim(), ai_model: 'nano-banana' }, 'text-to-image');
+  }, [imageGenPrompt, submitMeshyTask]);
+
+  // ── terminal ───────────────────────────────────────────────────────────────
 
   const openTerminal = useCallback((cmd?: string) => {
     openStudioTerminal({ tab: cmd ? 'terminal' : 'output' });
@@ -274,10 +368,6 @@ export function useCreationStation(cad: CadHook) {
     lastResponse,
     balance,
     meshyStub,
-    apiKeyDraft,
-    setApiKeyDraft,
-    savingKey,
-    saveMeshyApiKey,
     previewCost,
     refineCost,
     ctaCost,
@@ -289,12 +379,26 @@ export function useCreationStation(cad: CadHook) {
     imageDataUrl,
     setImageFile: setImageFileWithPreview,
     runImageTo3D,
-    // animate
+    sourceTaskId,
+    setSourceTaskId,
+    texturePrompt,
+    setTexturePrompt,
+    runTextToTexture,
+    runTexture,
+    runPostProcess,
+    runPrintExport,
+    imageGenPrompt,
+    setImageGenPrompt,
+    runTextToImage,
     rigTaskId,
     setRigTaskId,
-    rigAnimation,
-    setRigAnimation,
+    rigCompletedTaskId,
+    setRigCompletedTaskId,
+    animationActionId,
+    setAnimationActionId,
+    animationClips,
     runRig,
+    runAnimateClip,
     openTerminal,
     refreshBalance,
     isGenerating: cad.isGenerating,

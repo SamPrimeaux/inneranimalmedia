@@ -23,6 +23,7 @@ import {
   estimateTextTo3dFullCost,
   estimateTextTo3dPreviewCost,
   MESHY_CREDIT_COSTS,
+  estimateMeshyOperationCost,
 } from '../core/meshy-credits.js';
 import { bridgedToolRequest, primeRequestAuthForTool } from '../core/meshy-tool-auth.js';
 
@@ -68,6 +69,127 @@ export async function insertMeshyCadJob(env, fields) {
       fields.texture_data != null ? JSON.stringify(fields.texture_data) : null,
     )
     .run();
+}
+
+/** UI rail / API aliases → Meshy OpenAPI task route key. */
+const MESHY_TASK_TYPE_ALIASES = {
+  'text-to-texture': 'retexture',
+  texture: 'retexture',
+  'post-process': 'remesh',
+  image: 'text-to-image',
+  print: 'remesh',
+};
+
+/**
+ * Start a Meshy task and persist agentsam_cad_jobs row.
+ * @param {any} env
+ * @param {Request} authRequest
+ * @param {{ id: string; tenant_id?: string }} authUser
+ * @param {Record<string, unknown>} body
+ * @param {string} taskType
+ */
+async function startMeshyCadJob(env, authRequest, authUser, body, taskType) {
+  const normalized = MESHY_TASK_TYPE_ALIASES[taskType] || taskType;
+  const op =
+    taskType === 'print'
+      ? 'remesh'
+      : normalized === 'text-to-image'
+        ? 'text-to-image'
+        : normalized;
+
+  if (isMeshyStubKey(env)) {
+    return { stub: true, message: 'MESHYAI_API_KEY not configured' };
+  }
+
+  await checkMeshyBalanceForOperation(env, op, body);
+
+  const scope = await resolveCadJobScope(env, authRequest, authUser, body);
+  const inputTaskId = String(body.input_task_id || body.model_task_id || '').trim();
+  const modelUrl = String(body.model_url || '').trim();
+
+  /** @type {Record<string, unknown>} */
+  let payload = {};
+
+  if (normalized === 'retexture') {
+    if (!inputTaskId && !modelUrl) throw new Error('input_task_id or model_url required');
+    payload = {
+      ...(inputTaskId ? { input_task_id: inputTaskId } : {}),
+      ...(modelUrl ? { model_url: modelUrl } : {}),
+      ...(body.texture_prompt || body.prompt
+        ? { texture_prompt: String(body.texture_prompt || body.prompt) }
+        : {}),
+      ...(body.texture_image_url ? { texture_image_url: body.texture_image_url } : {}),
+      enable_pbr: body.enable_pbr !== false,
+    };
+  } else if (normalized === 'remesh') {
+    if (!inputTaskId && !modelUrl) throw new Error('input_task_id or model_url required');
+    const isPrint = taskType === 'print';
+    payload = {
+      ...(inputTaskId ? { input_task_id: inputTaskId } : {}),
+      ...(modelUrl ? { model_url: modelUrl } : {}),
+      target_formats: body.target_formats || (isPrint ? ['stl', '3mf'] : ['glb']),
+      topology: body.topology || 'triangle',
+      target_polycount: body.target_polycount,
+    };
+  } else if (normalized === 'text-to-image') {
+    const prompt = String(body.prompt || '').trim();
+    if (!prompt) throw new Error('prompt required');
+    payload = {
+      ai_model: body.ai_model || 'nano-banana',
+      prompt,
+      aspect_ratio: body.aspect_ratio || '1:1',
+      generate_multi_view: body.generate_multi_view === true,
+      ...(body.pose_mode ? { pose_mode: body.pose_mode } : {}),
+    };
+  } else if (normalized === 'animation') {
+    const rigTaskId = String(body.rig_task_id || '').trim();
+    const actionId = Number(body.action_id);
+    if (!rigTaskId || !Number.isFinite(actionId)) {
+      throw new Error('rig_task_id and action_id required');
+    }
+    payload = { rig_task_id: rigTaskId, action_id: actionId };
+  } else {
+    throw new Error(`unsupported task_type: ${taskType}`);
+  }
+
+  const { task_id: externalTaskId, raw } = await createMeshyTask(env, normalized, payload);
+  if (!externalTaskId) {
+    throw new Error(`Meshy did not return task id for ${normalized}`);
+  }
+
+  const jobId = 'cadj_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+  const promptLabel =
+    String(body.prompt || body.texture_prompt || '').trim() ||
+    (inputTaskId ? `${normalized}:${inputTaskId.slice(0, 8)}` : normalized);
+
+  await insertMeshyCadJob(env, {
+    id: jobId,
+    user_id: authUser.id,
+    session_id: scope.sessionId,
+    engine: 'meshy',
+    prompt: promptLabel,
+    mode: normalized,
+    status: 'pending',
+    external_task_id: externalTaskId,
+    parent_task_id: inputTaskId || String(body.rig_task_id || '') || null,
+    workspace_id: scope.workspaceId,
+    tenant_id: scope.tenantId,
+    project_id: scope.projectId,
+    scene_snapshot_id: scope.sceneSnapshotId,
+    task_type: normalized,
+    credits_consumed: estimateMeshyOperationCost(op, body),
+    rig_task_id: body.rig_task_id ? String(body.rig_task_id) : null,
+  });
+
+  return {
+    job_id: jobId,
+    task_id: externalTaskId,
+    external_task_id: externalTaskId,
+    status: 'pending',
+    phase: taskType,
+    workspace_id: scope.workspaceId,
+    meshy: raw,
+  };
 }
 
 /**
@@ -314,6 +436,58 @@ export async function handleCadMeshyApi(request, url, env, ctx) {
         phase: 'rigging',
         workspace_id: scope.workspaceId,
       });
+    }
+
+    if (path === '/api/cad/meshy/animations/library' && method === 'GET') {
+      try {
+        const res = await fetch('https://api.meshy.ai/web/public/animations/resources', {
+          headers: { Accept: 'application/json' },
+        });
+        if (!res.ok) return jsonResponse({ error: 'animation_library_unavailable' }, 502);
+        const data = await res.json();
+        return jsonResponse({ animations: data });
+      } catch (e) {
+        return jsonResponse({ error: String(e?.message || e) }, 502);
+      }
+    }
+
+    if (path === '/api/cad/meshy/task' && method === 'POST') {
+      const body = await request.json().catch(() => ({}));
+      const taskType = String(body.task_type || '').trim();
+      if (!taskType) return jsonResponse({ error: 'task_type required' }, 400);
+
+      if (isMeshyStubKey(env)) {
+        const scope = await resolveCadJobScope(env, authRequest, authUser, body);
+        const jobId = 'cadj_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+        await insertMeshyCadJob(env, {
+          id: jobId,
+          user_id: authUser.id,
+          session_id: scope.sessionId,
+          engine: 'meshy',
+          prompt: String(body.prompt || taskType),
+          mode: taskType,
+          status: 'stub',
+          workspace_id: scope.workspaceId,
+          tenant_id: scope.tenantId,
+          project_id: scope.projectId,
+          scene_snapshot_id: scope.sceneSnapshotId,
+          task_type: MESHY_TASK_TYPE_ALIASES[taskType] || taskType,
+        });
+        return jsonResponse({
+          job_id: jobId,
+          status: 'stub',
+          message: 'Meshy API key not configured. Set MESHYAI_API_KEY on the Worker.',
+        });
+      }
+
+      try {
+        const result = await startMeshyCadJob(env, authRequest, authUser, body, taskType);
+        return jsonResponse(result);
+      } catch (e) {
+        const mapped = meshyErrorResponseBody(e);
+        if (mapped.status !== 500) return jsonResponse(mapped.body, mapped.status);
+        return jsonResponse({ error: String(e?.message || e) }, 400);
+      }
     }
 
     if (path === '/api/cad/meshy/generate' && method === 'POST') {

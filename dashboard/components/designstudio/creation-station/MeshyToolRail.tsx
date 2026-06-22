@@ -87,12 +87,12 @@ export function MeshyToolRail({
 
       <button
         type="button"
-        title="API key"
+        title="Settings → Keys"
         onClick={onOpenApiKey}
         className="flex flex-col items-center gap-0.5 py-2 text-[var(--text-muted)] hover:text-[var(--solar-cyan)]"
       >
         <Key size={16} />
-        <span className="text-[9px]">Key</span>
+        <span className="text-[9px]">Keys</span>
       </button>
       <button
         type="button"

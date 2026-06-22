@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Box, Sparkles, Upload } from 'lucide-react';
 import type { BlueprintRow } from './api';
+import { MeshyPlatformNotice } from './creation-station/MeshyPlatformNotice';
 
 type Props = {
   activeBlueprint: BlueprintRow | null;
@@ -40,11 +41,7 @@ export function CadGeneratePanel({
         </p>
       </div>
 
-      {meshyStub && (
-        <div className="text-[9px] font-bold uppercase tracking-wide text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-2 py-1.5">
-          Meshy API key not configured — generation will return stub status
-        </div>
-      )}
+      {meshyStub && <MeshyPlatformNotice stub className="text-[10px]" />}
 
       <textarea
         placeholder={defaultPrompt || 'Describe what to build…'}

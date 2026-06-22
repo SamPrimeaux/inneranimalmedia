@@ -35,6 +35,10 @@ export function meshyTaskStatus(payload) {
 export function meshyTaskTypeFromPayload(payload) {
   const raw = String(payload?.type || payload?.task_type || '').toLowerCase();
   if (raw.includes('image-to-3d')) return 'image-to-3d';
+  if (raw.includes('retexture') || raw.includes('texture')) return 'retexture';
+  if (raw.includes('remesh')) return 'remesh';
+  if (raw.includes('text-to-image') || raw.includes('text_to_image')) return 'text-to-image';
+  if (raw.includes('animate') || raw === 'animation') return 'animation';
   if (raw.includes('rig') || raw === 'rig') return 'rigging';
   if (raw.includes('text-to-3d') || raw.includes('text_to_3d')) return 'text-to-3d';
   if (raw.includes('refine')) return 'text-to-3d-refine';
@@ -97,6 +101,8 @@ export async function findCadJobByParentTaskId(env, parentTaskId) {
 async function meshyIngestIfDone(env, ctx, job, scope, glbUrl) {
   const url = String(glbUrl || '').trim();
   if (!url || !scope.workspaceId || !scope.tenantId) return null;
+  const lower = url.toLowerCase();
+  if (!lower.includes('.glb') && !lower.includes('gltf')) return null;
   try {
     if (!job.workspace_id && scope.workspaceId) {
       await env.DB.prepare(
@@ -190,7 +196,20 @@ function isPreviewStageComplete(taskPayload) {
  */
 function isFinalMeshyStage(taskPayload, job) {
   const type = meshyTaskTypeFromPayload(taskPayload);
-  if (type === 'rigging' || String(job?.task_type) === 'rigging') return true;
+  if (
+    type === 'rigging' ||
+    type === 'retexture' ||
+    type === 'remesh' ||
+    type === 'text-to-image' ||
+    type === 'animation' ||
+    String(job?.task_type) === 'rigging' ||
+    String(job?.task_type) === 'retexture' ||
+    String(job?.task_type) === 'remesh' ||
+    String(job?.task_type) === 'text-to-image' ||
+    String(job?.task_type) === 'animation'
+  ) {
+    return true;
+  }
   if (String(job?.mode) === 'image') return true;
   if (type.includes('refine')) return true;
   if (job?.parent_task_id) return true;
@@ -276,10 +295,13 @@ export async function applyMeshyTaskToCadJob(env, ctx, taskPayload) {
 
   const glbUrl =
     taskPayload?.model_urls?.glb ||
+    taskPayload?.model_urls?.stl ||
     taskPayload?.model_url ||
     taskPayload?.result?.rigged_character_glb_url ||
+    taskPayload?.result?.animation_glb_url ||
     taskPayload?.result?.basic_animations?.walking_glb_url ||
     taskPayload?.result?.basic_animations?.running_glb_url ||
+    (Array.isArray(taskPayload?.image_urls) && taskPayload.image_urls[0]) ||
     null;
   const modelFormats = taskPayload?.model_urls ? Object.keys(taskPayload.model_urls) : null;
   const textureData = taskPayload?.texture_urls ?? null;
