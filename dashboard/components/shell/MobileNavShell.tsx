@@ -15,10 +15,11 @@ type MobileNavShellProps = {
   onNewChat?: () => void;
   onOpenChats?: () => void;
   onOpenMovieMode?: () => void;
-  onSelectChat?: (conversationId: string) => void;
+  onSelectChat?: (conversationId: string, title?: string) => void;
   activeConversationId?: string | null;
-  userLabel?: string | null;
-  planLabel?: string | null;
+  workspaceLabel?: string | null;
+  avatarInitial?: string | null;
+  workspaceSubtitle?: string | null;
 };
 
 /**
@@ -38,8 +39,9 @@ export function MobileNavShell({
   onOpenMovieMode,
   onSelectChat,
   activeConversationId,
-  userLabel,
-  planLabel,
+  workspaceLabel,
+  avatarInitial,
+  workspaceSubtitle,
 }: MobileNavShellProps) {
   return (
     <>
@@ -67,8 +69,9 @@ export function MobileNavShell({
         onOpenMovieMode={onOpenMovieMode}
         onSelectChat={onSelectChat}
         activeConversationId={activeConversationId}
-        userLabel={userLabel}
-        planLabel={planLabel}
+        workspaceLabel={workspaceLabel}
+        avatarInitial={avatarInitial}
+        workspaceSubtitle={workspaceSubtitle}
       />
     </>
   );

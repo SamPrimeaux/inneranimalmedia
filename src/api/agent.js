@@ -3136,7 +3136,8 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
         const lim  = url.searchParams.get('limit') || '100';
         const resp = await stub.fetch(new Request(`https://do/history?limit=${encodeURIComponent(lim)}`));
         const rows = await resp.json().catch(() => []);
-        return jsonResponse(Array.isArray(rows) ? rows : (rows.messages || []));
+        const list = Array.isArray(rows) ? rows : (rows?.messages || []);
+        if (list.length > 0) return jsonResponse(list);
       } catch (_) {}
     }
     // R2 primary storage — fetch messages.jsonl
@@ -3144,7 +3145,17 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
     const messages = await getChatMessages(env, convId);
     if (messages.length > 0) return jsonResponse(messages);
-    // Fallback: Durable Object history if R2 empty
+    if (env.AGENT_SESSION) {
+      try {
+        const doId = env.AGENT_SESSION.idFromName(convId);
+        const stub = env.AGENT_SESSION.get(doId);
+        const lim = url.searchParams.get('limit') || '100';
+        const resp = await stub.fetch(new Request(`https://do/history?limit=${encodeURIComponent(lim)}`));
+        const rows = await resp.json().catch(() => []);
+        const list = Array.isArray(rows) ? rows : (rows?.messages || []);
+        return jsonResponse(list);
+      } catch (_) {}
+    }
     return jsonResponse([]);
   }
 

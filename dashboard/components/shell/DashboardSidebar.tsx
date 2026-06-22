@@ -15,7 +15,7 @@ import {
   PanelLeft,
   PanelLeftClose,
   Plus,
-  SlidersHorizontal,
+  Settings,
 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
@@ -45,10 +45,14 @@ type DashboardSidebarProps = {
   onNewChat?: () => void;
   onOpenChats?: () => void;
   onOpenMovieMode?: () => void;
-  onSelectChat?: (conversationId: string) => void;
+  onSelectChat?: (conversationId: string, title?: string) => void;
   activeConversationId?: string | null;
-  userLabel?: string | null;
-  planLabel?: string | null;
+  /** Repo / folder / slug label (not marketing display_name). */
+  workspaceLabel?: string | null;
+  /** Avatar initial (account). */
+  avatarInitial?: string | null;
+  /** Optional subtitle under workspace label (e.g. branch). */
+  workspaceSubtitle?: string | null;
 };
 
 const CoreIcon: FC<{ id: string; size?: number }> = ({ id, size = 18 }) => {
@@ -57,7 +61,6 @@ const CoreIcon: FC<{ id: string; size?: number }> = ({ id, size = 18 }) => {
   if (id === 'chats') return <MessageSquare {...props} />;
   if (id === 'projects') return <FolderKanban {...props} />;
   if (id === 'artifacts') return <Layers {...props} />;
-  if (id === 'customize') return <SlidersHorizontal {...props} />;
   return <Layers {...props} />;
 };
 
@@ -70,8 +73,9 @@ export function DashboardSidebar({
   onOpenMovieMode,
   onSelectChat,
   activeConversationId,
-  userLabel,
-  planLabel,
+  workspaceLabel,
+  avatarInitial,
+  workspaceSubtitle,
 }: DashboardSidebarProps) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -351,29 +355,44 @@ export function DashboardSidebar({
       ) : null}
 
       <div className="mt-auto pt-2 border-t border-[var(--dashboard-border)] shrink-0">
-        <button
-          type="button"
-          onClick={() => go('/dashboard/settings/general')}
-          className={`w-full flex items-center rounded-lg transition-colors hover:bg-[var(--bg-hover)]/60 ${
-            expanded ? 'gap-2.5 px-2 py-2 justify-start' : 'justify-center py-2'
+        <div
+          className={`w-full flex items-center rounded-lg ${
+            expanded ? 'gap-2 px-2 py-2 justify-between' : 'flex-col gap-1.5 py-2 justify-center'
           }`}
-          title="Account & settings"
         >
           <div
-            className="shrink-0 w-7 h-7 rounded-full bg-[var(--bg-hover)] border border-[var(--dashboard-border)] flex items-center justify-center text-[11px] font-semibold text-[var(--text-main)]"
-            aria-hidden
+            className={`flex items-center min-w-0 ${expanded ? 'gap-2.5 flex-1' : 'justify-center'}`}
+            title={workspaceLabel?.trim() || 'Workspace'}
           >
-            {(userLabel || 'A').charAt(0).toUpperCase()}
-          </div>
-          {expanded ? (
-            <div className="min-w-0 text-left">
-              <div className="text-[12px] font-medium text-[var(--text-main)] truncate">
-                {userLabel?.trim() || 'Account'}
-              </div>
-              <div className="text-[10px] text-[var(--text-muted)] truncate">{planLabel || 'Workspace'}</div>
+            <div
+              className="shrink-0 w-7 h-7 rounded-full bg-[var(--bg-hover)] border border-[var(--dashboard-border)] flex items-center justify-center text-[11px] font-semibold text-[var(--text-main)]"
+              aria-hidden
+            >
+              {(avatarInitial || workspaceLabel || 'A').charAt(0).toUpperCase()}
             </div>
-          ) : null}
-        </button>
+            {expanded ? (
+              <div className="min-w-0 text-left">
+                <div className="text-[12px] font-medium text-[var(--text-main)] truncate font-mono">
+                  {workspaceLabel?.trim() || 'No workspace'}
+                </div>
+                {workspaceSubtitle?.trim() ? (
+                  <div className="text-[10px] text-[var(--text-muted)] truncate">{workspaceSubtitle}</div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            title="Settings"
+            aria-label="Settings"
+            onClick={() => go('/dashboard/settings/general')}
+            className={`shrink-0 p-1.5 rounded-md text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]/60 transition-colors ${
+              location.pathname.startsWith('/dashboard/settings') ? 'text-[var(--solar-cyan)]' : ''
+            }`}
+          >
+            <Settings size={16} strokeWidth={1.75} />
+          </button>
+        </div>
       </div>
     </div>
   );

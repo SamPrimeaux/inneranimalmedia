@@ -14,6 +14,9 @@ export type OpenAgentConversationDetail = {
 
 export const IAM_AGENT_ENSURE_PANEL = 'iam-agent-ensure-panel';
 
+/** App listens — navigate to Agent + open panel, then load the thread. */
+export const IAM_AGENT_RESUME_CHAT = 'iam-agent-resume-chat';
+
 /** Write thread id to localStorage — synchronous, safe before navigation. */
 export function persistAgentConversationId(id: string): void {
   const trimmed = id.trim();
@@ -39,6 +42,17 @@ export function openAgentConversation(detail: OpenAgentConversationDetail): void
   window.dispatchEvent(
     new CustomEvent(IAM_AGENT_CHAT_CONVERSATION_CHANGE, {
       detail: { id, force: detail.force !== false, title: detail.title?.trim() || undefined },
+    }),
+  );
+}
+
+/** Sidebar / Chats list — route to Agent Sam and restore the full thread. */
+export function resumeAgentChatSession(detail: OpenAgentConversationDetail): void {
+  const id = detail.id?.trim();
+  if (!id) return;
+  window.dispatchEvent(
+    new CustomEvent(IAM_AGENT_RESUME_CHAT, {
+      detail: { ...detail, id, force: detail.force !== false },
     }),
   );
 }

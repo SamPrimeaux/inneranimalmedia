@@ -3,7 +3,7 @@ import { Archive, FolderKanban, Layers, Loader2, Star } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { conversationIdFromSession, sessionDisplayTitle } from '../../agentSessionsCatalog';
 import type { AgentSessionRow } from '../../agentSessionsCatalog';
-import { openAgentConversation } from '../../lib/openAgentConversation';
+import { resumeAgentChatSession } from '../../lib/openAgentConversation';
 import { useAgentChatSessions } from '../../hooks/useAgentChatSessions';
 
 const RECENT_TEASER_LIMIT = 8;
@@ -12,7 +12,7 @@ export const AgentChatSessionList: FC<{
   variant?: 'sidebar';
   expanded?: boolean;
   activeConversationId?: string | null;
-  onSelect?: (conversationId: string) => void;
+  onSelect?: (conversationId: string, title?: string) => void;
   refreshKey?: number;
 }> = ({ variant = 'sidebar', expanded = true, activeConversationId, onSelect, refreshKey = 0 }) => {
   const navigate = useNavigate();
@@ -27,12 +27,12 @@ export const AgentChatSessionList: FC<{
   const selectConversation = (s: AgentSessionRow) => {
     const id = conversationIdFromSession(s);
     if (!id) return;
-    openAgentConversation({
-      id,
-      title: sessionDisplayTitle(s),
-      force: true,
-    });
-    onSelect?.(id);
+    const title = sessionDisplayTitle(s);
+    if (onSelect) {
+      onSelect(id, title);
+      return;
+    }
+    resumeAgentChatSession({ id, title, force: true });
   };
 
   const toggleStar = async (s: AgentSessionRow, e: MouseEvent) => {

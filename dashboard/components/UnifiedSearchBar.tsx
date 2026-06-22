@@ -14,7 +14,7 @@ import {
   LayoutGrid,
   FileText,
 } from 'lucide-react';
-import { IAM_AGENT_CHAT_CONVERSATION_CHANGE, LS_AGENT_CHAT_CONVERSATION_ID } from '../agentChatConstants';
+import { resumeAgentChatSession } from '../lib/openAgentConversation';
 import { SetiFileIcon } from '../src/components/SetiFileIcon';
 import {
   WRANGLER_CATEGORY_LABELS,
@@ -897,14 +897,7 @@ export const UnifiedSearchBar: React.FC<{
       }
 
       if (item.category === 'chat' && item.conversationId) {
-        try {
-          localStorage.setItem(LS_AGENT_CHAT_CONVERSATION_ID, item.conversationId);
-        } catch {
-          /* ignore */
-        }
-        window.dispatchEvent(
-          new CustomEvent(IAM_AGENT_CHAT_CONVERSATION_CHANGE, { detail: { id: item.conversationId } }),
-        );
+        resumeAgentChatSession({ id: item.conversationId, force: true });
         onNavigate({ kind: 'conversation', id: item.conversationId }, searchQuery);
         closePalette();
         return;

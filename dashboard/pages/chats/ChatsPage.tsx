@@ -7,7 +7,7 @@ import {
   sessionSortMs,
   type AgentSessionRow,
 } from '../../agentSessionsCatalog';
-import { openAgentConversation } from '../../lib/openAgentConversation';
+import { resumeAgentChatSession } from '../../lib/openAgentConversation';
 import { useAgentChatSessions } from '../../hooks/useAgentChatSessions';
 
 export default function ChatsPage() {
@@ -61,7 +61,7 @@ export default function ChatsPage() {
   const resumeChat = useCallback((s: AgentSessionRow) => {
     const id = conversationIdFromSession(s);
     if (!id) return;
-    openAgentConversation({
+    resumeAgentChatSession({
       id,
       title: sessionDisplayTitle(s),
       force: true,

@@ -37,7 +37,8 @@ import {
   type ArtifactOpenBuilderDetail,
   type QuickstartThreadDetail,
 } from './agentChatConstants';
-import { IAM_AGENT_ENSURE_PANEL, openAgentConversation } from './lib/openAgentConversation';
+import { IAM_AGENT_ENSURE_PANEL, IAM_AGENT_RESUME_CHAT, openAgentConversation, resumeAgentChatSession } from './lib/openAgentConversation';
+import { resolveWorkspaceContextLabel } from './src/workspaceContextLabel';
 import { WorkspaceLauncher } from './components/WorkspaceLauncher';
 import type { XTermShellHandle } from './components/XTermShell';
 import { SecurityShieldBanner } from './components/SecurityShieldBanner';
@@ -588,6 +589,7 @@ const App: React.FC = () => {
   const [recentFiles, setRecentFiles] = useState<RecentFileEntry[]>([]);
   const [recentFilesLsTick, setRecentFilesLsTick] = useState(0);
   const [gitBranch, setGitBranch] = useState(() => '');
+  const [gitRepoFullName, setGitRepoFullName] = useState(() => '');
   const [devServer, setDevServer] = useState<DevServerState | null>(null);
   const [gitHash, setGitHash] = useState<string | null>(null);
   const stableAgentChatTabId = useMemo(
@@ -721,13 +723,30 @@ const App: React.FC = () => {
     const id = authWorkspaceId?.trim();
     if (id && workspaceRows.length > 0) {
       const row = workspaceRows.find((w) => w.id === id);
+      if (row?.slug?.trim()) return row.slug.trim();
       if (row?.name?.trim()) return row.name.trim();
       return id;
     }
     return formatWorkspaceStatusLine(ideWorkspace);
   }, [authWorkspaceId, workspaceRows, ideWorkspace]);
 
-  const workspaceDisplayLine = workspaceDisplayName || workspaceDisplayFallback;
+  const activeWorkspaceRow = useMemo(
+    () => workspaceRows.find((w) => w.id === authWorkspaceId) ?? null,
+    [workspaceRows, authWorkspaceId],
+  );
+
+  const workspaceContextLabel = useMemo(
+    () =>
+      resolveWorkspaceContextLabel({
+        githubRepo: activeWorkspaceRow?.github_repo ?? gitRepoFullName ?? null,
+        workspaceSlug: activeWorkspaceRow?.slug ?? null,
+        workspaceId: authWorkspaceId,
+        ideWorkspace,
+      }),
+    [activeWorkspaceRow, authWorkspaceId, ideWorkspace, gitRepoFullName],
+  );
+
+  const workspaceDisplayLine = workspaceContextLabel || workspaceDisplayFallback;
 
   const activeAgentConversationId = useMemo(
     () => agentChatTabs.find((t) => t.id === activeAgentChatTabId)?.conversationId?.trim() ?? '',
@@ -1110,7 +1129,7 @@ const App: React.FC = () => {
     () =>
       workspaceRows.map((w) => ({
         id: w.id,
-        label: w.name,
+        label: w.github_repo?.trim() || w.slug || w.name,
         slug: w.slug,
         status: w.status,
         github_repo: w.github_repo,
@@ -1227,9 +1246,7 @@ const App: React.FC = () => {
     (conversationId: string, title?: string) => {
       const id = String(conversationId || '').trim();
       if (!id) return;
-      setActiveTab('Workspace');
-      setOpenTabs((prev) => (prev.includes('Workspace') ? prev : [...prev, 'Workspace']));
-      openAgentConversation({ id, title, force: true });
+      resumeAgentChatSession({ id, title, force: true });
     },
     [],
   );
@@ -1605,6 +1622,25 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    const onResumeChat = (e: Event) => {
+      const detail = (e as CustomEvent<{ id?: string; force?: boolean; title?: string }>).detail;
+      const id = detail?.id?.trim();
+      if (!id) return;
+      navigate(AGENT_HOME_PATH);
+      setAgentPosition((p) => (p === 'off' ? 'right' : p));
+      setActiveTab('Workspace');
+      setOpenTabs((prev) => (prev.includes('Workspace') ? prev : [...prev, 'Workspace']));
+      openAgentConversation({
+        id,
+        title: detail.title,
+        force: detail.force !== false,
+      });
+    };
+    window.addEventListener(IAM_AGENT_RESUME_CHAT, onResumeChat);
+    return () => window.removeEventListener(IAM_AGENT_RESUME_CHAT, onResumeChat);
+  }, [navigate]);
+
+  useEffect(() => {
     const onConv = (e: Event) => {
       const detail = (e as CustomEvent<{ id?: string | null; force?: boolean; title?: string }>).detail;
       const raw = detail?.id;
@@ -1701,12 +1737,15 @@ const App: React.FC = () => {
             const role = o.role === 'user' ? 'user' : o.role === 'assistant' ? 'assistant' : null;
             if (!role) continue;
             const rawContent = o.content;
-            const content =
-              typeof rawContent === 'string'
-                ? rawContent
-                : rawContent != null && typeof rawContent === 'object'
-                  ? JSON.stringify(rawContent)
-                  : '';
+            let content = '';
+            if (typeof rawContent === 'string') {
+              content = rawContent;
+            } else if (rawContent != null && typeof rawContent === 'object') {
+              const block = rawContent as { text?: unknown; content?: unknown };
+              if (typeof block.text === 'string') content = block.text;
+              else if (typeof block.content === 'string') content = block.content;
+              else content = JSON.stringify(rawContent);
+            }
             mapped.push({ role, content: content.trim() ? content : '(empty)' });
           }
           if (mapped.length === 0) {
@@ -1747,12 +1786,15 @@ const App: React.FC = () => {
           const role = o.role === 'user' ? 'user' : o.role === 'assistant' ? 'assistant' : null;
           if (!role) continue;
           const rawContent = o.content;
-          const content =
-            typeof rawContent === 'string'
-              ? rawContent
-              : rawContent != null && typeof rawContent === 'object'
-                ? JSON.stringify(rawContent)
-                : '';
+          let content = '';
+          if (typeof rawContent === 'string') {
+            content = rawContent;
+          } else if (rawContent != null && typeof rawContent === 'object') {
+            const block = rawContent as { text?: unknown; content?: unknown };
+            if (typeof block.text === 'string') content = block.text;
+            else if (typeof block.content === 'string') content = block.content;
+            else content = JSON.stringify(rawContent);
+          }
           mapped.push({ role, content: content.trim() ? content : '(empty)' });
         }
         if (mapped.length === 0) return;
@@ -2414,6 +2456,7 @@ const App: React.FC = () => {
           : '';
       const branchName = gitData.branch ? String(gitData.branch) : '';
       if (branchName) setGitBranch(branchName);
+      if (repo) setGitRepoFullName(repo);
     },
     [],
   );
@@ -3287,21 +3330,6 @@ const App: React.FC = () => {
                 title={workspaceDisplayLine}
                 onClick={() => setActiveTab('Workspace')}
               />
-              {isAgentShellPath(location.pathname) && (
-                <button
-                  type="button"
-                  onClick={toggleExplorer}
-                  className={`iam-topbar-desktop-only max-phone:hidden shrink-0 p-1.5 rounded-md transition-colors ml-0.5 ${
-                    activeActivity === 'files'
-                      ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]'
-                      : 'text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]'
-                  }`}
-                  title={activeActivity === 'files' ? 'Close Explorer (⌘B)' : 'Open Explorer (⌘B)'}
-                  aria-pressed={activeActivity === 'files'}
-                >
-                  <Files size={18} strokeWidth={1.75} />
-                </button>
-              )}
           </div>
 
           {/* Unified search (Cmd+K) — desktop center; mobile lives in right cluster */}
@@ -3381,14 +3409,6 @@ const App: React.FC = () => {
               >
                   <TermIcon size={15} strokeWidth={1.75} />
               </button>
-              <button
-                  type="button"
-                  title="Settings"
-                  className={`iam-topbar-desktop-only max-phone:hidden p-1.5 rounded transition-colors ${location.pathname.startsWith('/dashboard/settings') ? 'text-[var(--solar-cyan)] bg-[var(--bg-hover)]' : 'text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]'}`}
-                  onClick={() => navigate('/dashboard/settings/general')}
-              >
-                  <Settings size={15} strokeWidth={1.75} />
-              </button>
               <div className="iam-topbar-desktop-only relative hidden tablet-up:block" ref={topChromeMoreRef}>
                   <button
                       type="button"
@@ -3456,8 +3476,11 @@ const App: React.FC = () => {
         onOpenMovieMode={shellOpenMovieMode}
         onSelectChat={shellSelectChat}
         activeConversationId={activeAgentConversationId}
-        userLabel={workspaceDisplayName}
-        planLabel="Workspace"
+        workspaceLabel={workspaceContextLabel}
+        avatarInitial={
+          activeWorkspaceRow?.github_repo?.split('/')[0]?.charAt(0)?.toUpperCase() || undefined
+        }
+        workspaceSubtitle={gitBranch?.trim() ? gitBranch.trim() : undefined}
       />
 
       {securityShieldAlert && !securityBannerDismissed && (
@@ -3485,8 +3508,11 @@ const App: React.FC = () => {
                 onOpenMovieMode={shellOpenMovieMode}
                 onSelectChat={shellSelectChat}
                 activeConversationId={activeAgentConversationId}
-                userLabel={workspaceDisplayName}
-                planLabel="Workspace"
+                workspaceLabel={workspaceContextLabel}
+                avatarInitial={
+                  activeWorkspaceRow?.github_repo?.split('/')[0]?.charAt(0)?.toUpperCase() || undefined
+                }
+                workspaceSubtitle={gitBranch?.trim() ? gitBranch.trim() : undefined}
               />
           </div>
 
@@ -4176,7 +4202,7 @@ const App: React.FC = () => {
                     <XTermShell
                       ref={terminalRef}
                       iamOrigin={window.location.origin}
-                      workspaceLabel={workspaceDisplayName || ''}
+                      workspaceLabel={workspaceContextLabel || ''}
                       workspaceId={authWorkspaceId || ''}
                       productLabel="IAM"
                       layout="drawer"
@@ -4335,14 +4361,6 @@ const App: React.FC = () => {
           <Github size={24} strokeWidth={1.5} aria-hidden />
           <span>Deploy</span>
         </button>
-        <button
-          type="button"
-          className={`flex flex-1 flex-col items-center justify-center min-h-[44px] gap-0.5 px-0.5 text-[10px] font-medium leading-tight ${location.pathname.startsWith('/dashboard/settings') ? 'text-[var(--solar-cyan)]' : 'text-[var(--text-muted)]'}`}
-          onClick={() => navigate('/dashboard/settings/general')}
-        >
-          <Settings size={24} strokeWidth={1.5} aria-hidden />
-          <span>Settings</span>
-        </button>
       </nav>
 
       {mobileMoreOpen && (
@@ -4390,7 +4408,7 @@ const App: React.FC = () => {
       <StatusBar 
         branch={gitBranch}
         gitHash={gitHash}
-        workspace={(workspaceDisplayName?.trim() || authWorkspaceId?.trim() || '')}
+        workspace={workspaceContextLabel || authWorkspaceId?.trim() || ''}
         workspaceMenuItems={statusBarWorkspaceItems.length > 0 ? statusBarWorkspaceItems : undefined}
         activeWorkspaceId={authWorkspaceId}
         onWorkspaceMenuSelect={handleStatusBarWorkspacePick}

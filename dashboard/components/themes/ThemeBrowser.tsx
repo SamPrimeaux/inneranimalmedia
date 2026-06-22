@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { dedupeThemeCatalog } from '../../src/themeCatalogDedup';
 import { applyCmsThemeToDocument, type CmsActiveThemePayload } from '../../src/applyCmsTheme';
 import { ThemePreviewCard, type CatalogTheme } from './ThemePreviewCard';
 import { ThemeJsonInspector } from './ThemeJsonInspector';
@@ -75,6 +76,42 @@ export function ThemeBrowser({ workspaceId }: ThemeBrowserProps): React.ReactEle
       return blob.includes(q);
     });
   }, [themes, query]);
+
+  const [hideDuplicates, setHideDuplicates] = useState(true);
+  const [archivingDupes, setArchivingDupes] = useState(false);
+
+  const deduped = useMemo(
+    () => dedupeThemeCatalog(filtered, activeSlug),
+    [filtered, activeSlug],
+  );
+
+  const displayThemes = hideDuplicates ? deduped.uniqueThemes : filtered;
+
+  const archiveDuplicateThemes = useCallback(async () => {
+    if (!workspaceId?.trim() || !deduped.duplicateThemes.length) return;
+    if (!window.confirm(`Archive ${deduped.duplicateThemes.length} near-duplicate themes?`)) return;
+    setArchivingDupes(true);
+    setStatusMsg('Archiving duplicates…');
+    try {
+      let archived = 0;
+      for (const theme of deduped.duplicateThemes) {
+        if (!theme.id) continue;
+        const res = await fetch('/api/themes/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ theme_id: theme.id, workspace_id: workspaceId.trim() }),
+        });
+        if (res.ok) archived += 1;
+      }
+      await loadAll();
+      setStatusMsg(archived ? `Archived ${archived} duplicate theme(s).` : 'No duplicates archived.');
+    } catch {
+      setStatusMsg('Archive duplicates failed.');
+    } finally {
+      setArchivingDupes(false);
+    }
+  }, [workspaceId, deduped.duplicateThemes, loadAll]);
 
   const applyTheme = useCallback(
     async (theme: CatalogTheme) => {
@@ -240,10 +277,33 @@ export function ThemeBrowser({ workspaceId }: ThemeBrowserProps): React.ReactEle
           >
             Refresh
           </button>
+          <label className="flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
+            <input
+              type="checkbox"
+              checked={hideDuplicates}
+              onChange={(e) => setHideDuplicates(e.target.checked)}
+            />
+            Hide duplicates
+          </label>
+          {deduped.duplicateCount > 0 ? (
+            <button
+              type="button"
+              disabled={archivingDupes}
+              className="text-xs px-3 py-1.5 rounded-lg border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] disabled:opacity-50"
+              onClick={() => void archiveDuplicateThemes()}
+            >
+              {archivingDupes ? 'Archiving…' : `Archive ${deduped.duplicateCount} duplicates`}
+            </button>
+          ) : null}
         </div>
       </div>
 
       {statusMsg ? <p className="text-xs text-[var(--text-muted)]">{statusMsg}</p> : null}
+      {hideDuplicates && deduped.duplicateCount > 0 ? (
+        <p className="text-[11px] text-[var(--text-muted)]">
+          Showing {displayThemes.length} unique palettes ({deduped.duplicateCount} near-identical themes hidden).
+        </p>
+      ) : null}
 
       {loading ? (
         <p className="text-xs text-[var(--text-muted)]">Loading themes…</p>
@@ -256,7 +316,7 @@ export function ThemeBrowser({ workspaceId }: ThemeBrowserProps): React.ReactEle
                 : 'flex flex-col gap-2'
             }
           >
-            {filtered.map((theme) => (
+            {displayThemes.map((theme) => (
               <ThemePreviewCard
                 key={theme.id}
                 theme={theme}

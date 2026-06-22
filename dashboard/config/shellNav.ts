@@ -41,13 +41,6 @@ export const SHELL_CORE_NAV: ShellCoreItem[] = [
   { id: 'chats', kind: 'action', label: 'Chats', action: 'open-chats' },
   { id: 'projects', kind: 'route', label: 'Projects', path: '/dashboard/projects', match: 'exact' },
   { id: 'artifacts', kind: 'route', label: 'Artifacts', path: '/dashboard/artifacts', match: 'exact' },
-  {
-    id: 'customize',
-    kind: 'route',
-    label: 'Customize',
-    path: '/dashboard/settings/general',
-    match: 'prefix',
-  },
 ];
 
 export const SHELL_PRODUCTS: ShellProduct[] = [
