@@ -141,7 +141,7 @@ export function DesignStudioCreationStation({
           mobilePane === 'view' ? 'flex flex-1' : 'hidden md:flex'
         }`}
       >
-        <header className="shrink-0 flex items-center justify-between gap-3 px-3 py-2 border-b border-white/[0.06] bg-[#0c0d12]/95 backdrop-blur-md">
+        <header className="shrink-0 flex items-center justify-between gap-3 px-3 py-2 border-b border-[var(--border-subtle)] bg-[var(--bg-panel)]/95 backdrop-blur-md">
           <div className="flex items-center gap-2 min-w-0">
             <button
               type="button"
@@ -152,8 +152,8 @@ export function DesignStudioCreationStation({
               <ChevronLeft size={18} />
             </button>
             <div className="min-w-0">
-              <h1 className="text-[13px] font-semibold text-zinc-100 truncate">Creation Station</h1>
-              <p className="text-[10px] text-zinc-500 truncate">3D viewport · Meshy · Blender</p>
+              <h1 className="text-[13px] font-semibold text-[var(--text-main)] truncate">Creation Station</h1>
+              <p className="text-[10px] text-[var(--text-muted)] truncate">3D viewport · Meshy · Blender · Remote CAD</p>
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -176,7 +176,30 @@ export function DesignStudioCreationStation({
           </div>
         </header>
 
-        <div className="flex-1 min-h-0 relative bg-[#0a0b0f]">{viewport}</div>
+        <div className="flex-1 min-h-0 relative bg-[var(--scene-bg)]">
+          {viewport}
+          {cad.isGenerating && (progressPct ?? 0) >= 0 ? (
+            <div className="absolute inset-x-0 bottom-0 z-20 px-4 pb-4 pointer-events-none">
+              <div className="mx-auto max-w-md rounded-xl border border-[var(--solar-cyan)]/30 bg-[var(--bg-panel)]/90 backdrop-blur-md px-4 py-3 shadow-lg">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <span className="text-[10px] font-black uppercase tracking-[0.15em] text-[var(--solar-cyan)]">
+                    ExecOS GCP
+                  </span>
+                  <span className="text-[10px] font-mono text-[var(--text-muted)]">
+                    {activeJob?.status || 'running'}
+                    {progressPct != null && progressPct > 0 ? ` · ${progressPct}%` : ''}
+                  </span>
+                </div>
+                <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-[var(--solar-cyan)] transition-all duration-500"
+                    style={{ width: `${Math.max(8, Math.min(100, progressPct || 12))}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </div>
 
         <LogPanel
           open={cs.logOpen}

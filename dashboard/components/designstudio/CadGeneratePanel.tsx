@@ -70,9 +70,9 @@ export function CadGeneratePanel({
           disabled={busy || !canExecute}
           onClick={() => void onExecuteJob()}
           className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-[var(--solar-cyan)]/40 text-[var(--solar-cyan)] text-[10px] font-black uppercase disabled:opacity-30"
-          title={canExecute ? 'Queue Mac runner' : 'Generate OpenSCAD first'}
+          title={canExecute ? 'Dispatch to ExecOS GCP (iam-tunnel)' : 'Generate OpenSCAD first'}
         >
-          Execute Job
+          Execute on ExecOS GCP
         </button>
         <button
           type="button"

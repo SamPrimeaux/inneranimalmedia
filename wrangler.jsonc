@@ -79,6 +79,12 @@
 			"remote": true
 		}
 	],
+	"services": [
+		{
+			"binding": "EXECOS",
+			"service": "execos"
+		}
+	],
 	"vectorize": [
 		{
 			"binding": "AGENTSAM_VECTORIZE_CODE",

@@ -152,6 +152,11 @@ binding = "PTY_SERVICE"
 service_id = "019db639-7c70-7071-8ef3-32ec0392a9ff"
 remote = true
 
+# ExecOS dispatcher — CAD/MCP terminal fabric (target=gcp → terminal.inneranimalmedia.com)
+[[services]]
+binding = "EXECOS"
+service = "execos"
+
 [[migrations]]
 tag = "v1"
 new_classes = ["IAMCollaborationSession"]

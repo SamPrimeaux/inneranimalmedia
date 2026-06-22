@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { FileText, Plus } from 'lucide-react';
-import type { BlueprintRow } from './api';
+import type { BlueprintRow, CadJobRow } from './api';
 
 type Props = {
   blueprints: BlueprintRow[];
@@ -8,6 +8,7 @@ type Props = {
   onSelect: (id: string) => void;
   onCreate: (title: string, prompt?: string) => Promise<void>;
   busy?: boolean;
+  linkedJob?: CadJobRow | null;
 };
 
 function statusBadge(status?: string) {
@@ -24,7 +25,7 @@ function statusBadge(status?: string) {
   );
 }
 
-export function BlueprintPanel({ blueprints, activeBlueprintId, onSelect, onCreate, busy }: Props) {
+export function BlueprintPanel({ blueprints, activeBlueprintId, onSelect, onCreate, busy, linkedJob }: Props) {
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState('');
   const [prompt, setPrompt] = useState('');
@@ -84,6 +85,26 @@ export function BlueprintPanel({ blueprints, activeBlueprintId, onSelect, onCrea
           </button>
         </form>
       )}
+
+      {linkedJob && activeBlueprintId ? (
+        <div className="flex items-center justify-between gap-2 px-1 py-1 rounded-lg bg-cyan-500/5 border border-cyan-500/15">
+          <span className="text-[9px] text-[var(--text-muted)] uppercase tracking-wide">Pipeline</span>
+          <span
+            className={`text-[9px] font-black uppercase ${
+              linkedJob.status === 'done'
+                ? 'text-emerald-400'
+                : linkedJob.status === 'failed'
+                  ? 'text-red-400'
+                  : 'text-cyan-400'
+            }`}
+          >
+            {linkedJob.status}
+            {(linkedJob.progress_pct ?? 0) > 0 && linkedJob.status !== 'done'
+              ? ` · ${linkedJob.progress_pct}%`
+              : ''}
+          </span>
+        </div>
+      ) : null}
 
       <div className="max-h-40 overflow-y-auto space-y-1">
         {blueprints.length === 0 && (

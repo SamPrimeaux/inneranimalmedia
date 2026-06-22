@@ -58,6 +58,13 @@ export function CadToolDock({
 }: Props) {
   const [sketchOpen, setSketchOpen] = useState(false);
   const activeJob = cad.polledJob || cad.activeJob;
+  const blueprintLinkedJob =
+    cad.activeBlueprintId != null
+      ? cad.jobs.find((j) => String(j.project_id || '') === String(cad.activeBlueprintId)) ??
+        (activeJob?.project_id != null && String(activeJob.project_id) === String(cad.activeBlueprintId)
+          ? activeJob
+          : null)
+      : null;
 
   return (
     <div className="space-y-6 flex-1 pb-8">
@@ -69,6 +76,7 @@ export function CadToolDock({
           await cad.createNewBlueprint(title, prompt);
         }}
         busy={cad.busy}
+        linkedJob={blueprintLinkedJob}
       />
 
       <CadGeneratePanel

@@ -121,6 +121,9 @@ export const DesignStudioPage: React.FC = () => {
   const [savedScenes, setSavedScenes] = useState<SavedSceneRow[]>([]);
   const [sceneName, setSceneName] = useState('');
   const [sceneBusy, setSceneBusy] = useState(false);
+  const [computeHealth, setComputeHealth] = useState<
+    'ready' | 'running' | 'degraded' | 'unavailable' | 'unknown'
+  >('unknown');
 
   const isEngineerMode = ENGINEER_MODES.has(activeProject);
 
@@ -230,16 +233,44 @@ export const DesignStudioPage: React.FC = () => {
       blueprintId: cad.activeBlueprintId,
       cadJobId: cad.activeJobId || linkedCadJobId,
       sessionId: chatSessionId,
+      computeStatus: cad.isGenerating ? 'running' : computeHealth,
     });
   }, [
     activeProject,
     currentSceneId,
     cad.activeBlueprintId,
     cad.activeJobId,
+    cad.isGenerating,
     linkedCadJobId,
     chatSessionId,
+    computeHealth,
     setStudioContext,
   ]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const res = await fetch('/api/cad/compute/health', { credentials: 'include' });
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as { status?: string };
+        const s = String(data.status || 'unknown');
+        if (s === 'ready' || s === 'degraded' || s === 'unavailable') {
+          setComputeHealth(s);
+        } else {
+          setComputeHealth('unknown');
+        }
+      } catch {
+        if (!cancelled) setComputeHealth('unavailable');
+      }
+    };
+    void poll();
+    const id = window.setInterval(poll, 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, []);
 
   useEffect(() => {
     const container = containerRef.current;

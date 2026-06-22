@@ -36,7 +36,10 @@ export function CadJobPanel({ jobs, activeJob, polling, onSelectJob, onDeploy }:
               {displayJob.status}
             </span>
           </div>
-          <div className="text-[9px] text-[var(--text-muted)] uppercase">{displayJob.engine}</div>
+          <div className="text-[9px] text-[var(--text-muted)] uppercase">
+            {displayJob.engine}
+            {displayJob.status === 'pending' || displayJob.status === 'running' ? ' · execos gcp' : ''}
+          </div>
           {(displayJob.progress_pct ?? 0) > 0 && displayJob.status !== 'done' && (
             <div className="h-1 bg-white/10 rounded-full overflow-hidden">
               <div

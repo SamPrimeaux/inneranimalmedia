@@ -9,6 +9,7 @@ import {
   buildCadAssetPublicUrl,
 } from '../core/cad-job-scope.js';
 import { finalizeCadJobComplete } from '../core/cad-job-complete.js';
+import { dispatchCadJobToPty, probeCadComputeHealth } from '../core/cad-pty-executor.js';
 import { handleCadMeshyApi } from './cad-meshy.js';
 
 const OPENSCAD_BIN = '/opt/homebrew/bin/openscad';
@@ -111,13 +112,56 @@ export async function handleCadApi(request, url, env, ctx) {
         )
         .run();
 
+      const engine = String(job.engine || '').toLowerCase();
+      const ptyEngines = new Set(['openscad', 'blender']);
+      if (ptyEngines.has(engine)) {
+        const dispatch = async () => {
+          try {
+            await dispatchCadJobToPty(env, ctx, jobId, {
+              userId: authUser.id,
+              tenantId: scope.tenantId,
+              workspaceId: scope.workspaceId,
+            });
+          } catch (e) {
+            console.warn('[cad execute] PTY dispatch failed:', e?.message ?? e);
+            await finalizeCadJobComplete(env, ctx, {
+              job_id: jobId,
+              status: 'failed',
+              error: String(e?.message || e).slice(0, 2000),
+              error_code: 'pty_dispatch_failed',
+              runner_host: 'pty-vm',
+            }).catch(() => null);
+          }
+        };
+        if (ctx?.waitUntil) {
+          ctx.waitUntil(dispatch());
+        } else {
+          await dispatch();
+        }
+        return jsonResponse({
+          ok: true,
+          job_id: jobId,
+          status: 'running',
+          workspace_id: scope.workspaceId,
+          dispatch: 'pty',
+          message: 'CAD job dispatched to ExecOS GCP (iam-tunnel)',
+        });
+      }
+
       return jsonResponse({
         ok: true,
         job_id: jobId,
         status: 'pending',
         workspace_id: scope.workspaceId,
-        message: 'Job queued for CAD runner',
+        message: 'Job queued',
       });
+    }
+
+    if (path === '/api/cad/compute/health' && method === 'GET') {
+      const reqCtx = await resolveRequestContext(request, env);
+      if (reqCtx.error) return jsonResponse({ error: 'Unauthorized' }, 401);
+      const health = await probeCadComputeHealth(env);
+      return jsonResponse({ ok: true, ...health });
     }
 
     const jobOneMatch = url.pathname.match(/^\/api\/cad\/jobs\/([^/]+)$/i);

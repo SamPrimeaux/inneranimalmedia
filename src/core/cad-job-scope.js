@@ -64,7 +64,9 @@ export async function resolveCadJobScope(env, request, authUser, body = {}) {
     projectId:
       body.project_id != null && String(body.project_id).trim() !== ''
         ? String(body.project_id).trim()
-        : null,
+        : body.blueprint_id != null && String(body.blueprint_id).trim() !== ''
+          ? String(body.blueprint_id).trim()
+          : null,
     sceneSnapshotId:
       body.scene_snapshot_id != null && String(body.scene_snapshot_id).trim() !== ''
         ? String(body.scene_snapshot_id).trim()

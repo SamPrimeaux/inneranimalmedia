@@ -300,7 +300,7 @@ export function TweaksPanel({
 
         {tool === 'blender' && (
           <div className="space-y-2 text-[12px] text-zinc-400 leading-relaxed">
-            <p>Export scene JSON for Blender, or open the PTY terminal on your Mac.</p>
+            <p>Export scene JSON for Blender, or open the remote PTY terminal for advanced tooling.</p>
             <button
               type="button"
               onClick={onBlenderExport}

@@ -5,6 +5,7 @@
  * Usage:
  *   ./scripts/with-cloudflare-env.sh node scripts/designstudio/cad-job-runner.mjs
  *   ./scripts/with-cloudflare-env.sh node scripts/designstudio/cad-job-runner.mjs --once
+ *   ./scripts/with-cloudflare-env.sh node scripts/designstudio/cad-job-runner.mjs --once --job-id=cadj_abc123
  *
  * Env:
  *   OPENSCAD_BIN, BLENDER_BIN — toolchain paths
@@ -24,6 +25,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, '../..');
 const SCRIPT_DIR = __dirname;
 const ONCE = process.argv.includes('--once');
+const JOB_ID_ARG = process.argv.find((a) => a.startsWith('--job-id='));
+const TARGET_JOB_ID = JOB_ID_ARG ? JOB_ID_ARG.slice('--job-id='.length).trim() : null;
 const POLL_MS = Number(process.env.CAD_RUNNER_POLL_MS || 5000);
 const RUNNER_HOST = process.env.CAD_RUNNER_HOST || hostname();
 const WORKER_ORIGIN = (process.env.IAM_WORKER_ORIGIN || 'https://inneranimalmedia.com').replace(/\/$/, '');
@@ -73,6 +76,32 @@ async function resetStuckJobs() {
     `UPDATE agentsam_cad_jobs SET status = 'pending', started_at = NULL, runner_host = NULL, updated_at = unixepoch()
      WHERE status = 'running' AND started_at IS NOT NULL AND started_at < ${cutoff}`,
   );
+}
+
+async function claimJobById(jobId) {
+  const id = String(jobId || '').trim();
+  if (!id) return null;
+  const rows = runD1Query(
+    REPO_ROOT,
+    `SELECT id FROM agentsam_cad_jobs
+     WHERE id = '${sqlEscape(id)}' AND status IN ('pending', 'running')
+       AND engine IN ('openscad', 'blender')
+     LIMIT 1`,
+  );
+  if (!rows.length) return null;
+  const now = Math.floor(Date.now() / 1000);
+  await runD1Exec(
+    REPO_ROOT,
+    `UPDATE agentsam_cad_jobs SET
+       status = 'running', started_at = ${now}, runner_host = '${sqlEscape(RUNNER_HOST)}',
+       progress_pct = 5, updated_at = unixepoch()
+     WHERE id = '${sqlEscape(id)}' AND status IN ('pending', 'running')`,
+  );
+  const jobRows = runD1Query(
+    REPO_ROOT,
+    `SELECT * FROM agentsam_cad_jobs WHERE id = '${sqlEscape(id)}' AND status = 'running' LIMIT 1`,
+  );
+  return jobRows[0] || null;
 }
 
 async function claimNextJob() {
@@ -268,15 +297,15 @@ async function processJob(job) {
 
 async function loopOnce() {
   await resetStuckJobs();
-  const job = await claimNextJob();
+  const job = TARGET_JOB_ID ? await claimJobById(TARGET_JOB_ID) : await claimNextJob();
   if (!job) return false;
-  log('claimed', job.id, job.engine);
+  log('claimed', job.id, job.engine, TARGET_JOB_ID ? '(targeted)' : '');
   await processJob(job);
   return true;
 }
 
 async function main() {
-  log('starting', { host: RUNNER_HOST, once: ONCE, pollMs: POLL_MS });
+  log('starting', { host: RUNNER_HOST, once: ONCE, pollMs: POLL_MS, targetJob: TARGET_JOB_ID });
   if (ONCE) {
     const ran = await loopOnce();
     if (!ran) log('no pending jobs');

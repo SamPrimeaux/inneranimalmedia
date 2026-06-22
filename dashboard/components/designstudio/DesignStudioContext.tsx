@@ -7,6 +7,9 @@ export type DesignStudioChatContext = {
   blueprintId: string | null;
   cadJobId: string | null;
   sessionId: string | null;
+  runId: string | null;
+  /** Remote PTY compute: ready | running | degraded | unavailable */
+  computeStatus: 'ready' | 'running' | 'degraded' | 'unavailable' | 'unknown';
 };
 
 type DesignStudioContextValue = DesignStudioChatContext & {
@@ -19,6 +22,8 @@ const defaultValue: DesignStudioContextValue = {
   blueprintId: null,
   cadJobId: null,
   sessionId: null,
+  runId: null,
+  computeStatus: 'unknown',
   setStudioContext: () => {},
 };
 
@@ -31,6 +36,8 @@ export function DesignStudioProvider({ children }: { children: React.ReactNode }
     blueprintId: null,
     cadJobId: null,
     sessionId: null,
+    runId: null,
+    computeStatus: 'unknown',
   });
 
   const setStudioContext = useCallback((patch: Partial<DesignStudioChatContext>) => {
