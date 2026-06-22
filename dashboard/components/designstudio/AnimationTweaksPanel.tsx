@@ -1,5 +1,5 @@
 import React from 'react';
-import { LayoutGrid, Mountain, Sparkles, Sword, Trees, UserCircle, Zap } from 'lucide-react';
+import { LayoutGrid, Mountain, Sparkles, Sword, Trees, Zap } from 'lucide-react';
 import { ArtStyle, type GenerationConfig } from '../../types';
 import { chessPieceGlbPath } from '../../lib/glbAssets';
 
@@ -17,13 +17,73 @@ const styles = [
 ];
 
 const ARMORY_PIECES = [
-  { type: 'king', name: 'King' },
-  { type: 'queen', name: 'Queen' },
-  { type: 'rook', name: 'Rook' },
+  { type: 'king',   name: 'King' },
+  { type: 'queen',  name: 'Queen' },
+  { type: 'rook',   name: 'Rook' },
   { type: 'bishop', name: 'Bishop' },
   { type: 'knight', name: 'Knight' },
-  { type: 'pawn', name: 'Pawn' },
+  { type: 'pawn',   name: 'Pawn' },
 ] as const;
+
+/** Minimal SVG silhouettes for each piece — differentiated at 20px. */
+function PieceIcon({ type, color }: { type: string; color: string }) {
+  const c = color;
+  switch (type) {
+    case 'king':
+      return (
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <rect x="8.5" y="1" width="3" height="4" rx="0.5" fill={c} />
+          <rect x="6" y="3" width="8" height="2" rx="0.5" fill={c} />
+          <rect x="5" y="6" width="10" height="9" rx="1" fill={c} />
+          <rect x="4" y="15" width="12" height="3" rx="0.5" fill={c} />
+        </svg>
+      );
+    case 'queen':
+      return (
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <circle cx="5" cy="4" r="2" fill={c} />
+          <circle cx="10" cy="2.5" r="2" fill={c} />
+          <circle cx="15" cy="4" r="2" fill={c} />
+          <path d="M4 6 L5 14 L15 14 L16 6 L10 10 Z" fill={c} />
+          <rect x="4" y="14" width="12" height="3" rx="0.5" fill={c} />
+        </svg>
+      );
+    case 'rook':
+      return (
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <rect x="4" y="2" width="3" height="4" rx="0.5" fill={c} />
+          <rect x="8.5" y="2" width="3" height="4" rx="0.5" fill={c} />
+          <rect x="13" y="2" width="3" height="4" rx="0.5" fill={c} />
+          <rect x="5" y="6" width="10" height="9" rx="1" fill={c} />
+          <rect x="4" y="15" width="12" height="3" rx="0.5" fill={c} />
+        </svg>
+      );
+    case 'bishop':
+      return (
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <circle cx="10" cy="3" r="2" fill={c} />
+          <ellipse cx="10" cy="10" rx="4" ry="7" fill={c} />
+          <rect x="4" y="15" width="12" height="3" rx="0.5" fill={c} />
+        </svg>
+      );
+    case 'knight':
+      return (
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <path d="M6 18 L6 12 C6 8 8 5 13 3 C14 5 13 7 11 8 L14 10 L12 14 L6 18 Z" fill={c} />
+          <rect x="4" y="15" width="12" height="3" rx="0.5" fill={c} />
+        </svg>
+      );
+    case 'pawn':
+    default:
+      return (
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <circle cx="10" cy="4" r="3" fill={c} />
+          <rect x="7.5" y="7" width="5" height="8" rx="1" fill={c} />
+          <rect x="5" y="15" width="10" height="3" rx="0.5" fill={c} />
+        </svg>
+      );
+  }
+}
 
 export function AnimationTweaksPanel({ genConfig, onUpdateGenConfig, onSpawnModel }: Props) {
   const chessPieces = ARMORY_PIECES.map((p) => ({
@@ -84,9 +144,9 @@ export function AnimationTweaksPanel({ genConfig, onUpdateGenConfig, onSpawnMode
                 type="button"
                 key={`white-${piece.type}`}
                 onClick={() => onSpawnModel(`White ${piece.name}`, piece.white_url, 0.8)}
-                className="flex flex-col items-center gap-1 p-2 rounded-xl bg-[var(--bg-panel)] border border-[var(--border-subtle)] hover:bg-[var(--bg-hover)]"
+                className="flex flex-col items-center gap-1 p-2 rounded-xl bg-[var(--bg-panel)] border border-[var(--border-subtle)] hover:border-[var(--solar-cyan)] transition-colors"
               >
-                <UserCircle size={16} className="text-[var(--text-muted)]" />
+                <PieceIcon type={piece.type} color="var(--text-muted)" />
                 <span className="text-[8px] font-black uppercase text-[var(--text-muted)]">{piece.name}</span>
               </button>
             ))}
@@ -98,11 +158,11 @@ export function AnimationTweaksPanel({ genConfig, onUpdateGenConfig, onSpawnMode
             {chessPieces.map((piece) => (
               <button
                 type="button"
-                key={`black-${piece.type}`}
+                key={`orange-${piece.type}`}
                 onClick={() => onSpawnModel(`Orange ${piece.name}`, piece.black_url, 0.8)}
-                className="flex flex-col items-center gap-1 p-2 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] hover:bg-[var(--bg-hover)]"
+                className="flex flex-col items-center gap-1 p-2 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] hover:border-[var(--solar-violet)] transition-colors"
               >
-                <UserCircle size={16} className="text-[var(--solar-violet)]" />
+                <PieceIcon type={piece.type} color="var(--solar-violet)" />
                 <span className="text-[8px] font-black uppercase text-[var(--text-muted)]">{piece.name}</span>
               </button>
             ))}
