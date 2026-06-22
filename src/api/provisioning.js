@@ -4,6 +4,7 @@
  */
 
 import { getAESKey, aesGcmDecryptFromB64, aesGcmEncryptToB64 } from '../core/crypto-vault.js';
+import { isSamOperatorLaneUserId } from '../core/platform-operator-policy.js';
 
 const STARTER_COURSE_ID = 'course-modern-tech-foundations';
 
@@ -557,14 +558,25 @@ export async function ensureUserTerminalConnection(env, userId, workspaceId, ten
       .first();
     if (existing?.id) {
       connId = String(existing.id);
+      if (isSamOperatorLaneUserId(uid)) {
+        await env.DB.prepare(
+          `UPDATE terminal_connections
+              SET cwd_strategy = 'host_default', updated_at = unixepoch()
+            WHERE id = ? AND cwd_strategy != 'host_default'`,
+        )
+          .bind(connId)
+          .run()
+          .catch(() => {});
+      }
     } else {
+      const cwdStrategy = isSamOperatorLaneUserId(uid) ? 'host_default' : 'platform_workspace';
       connId = `conn_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
       await env.DB.prepare(
         `INSERT INTO terminal_connections
            (id, workspace_id, tenant_id, name, type, connection_type,
             ws_url, auth_mode, token_verify_endpoint, shell, platform,
-            user_id, is_default, is_active, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, unixepoch(), unixepoch())`,
+            user_id, is_default, is_active, cwd_strategy, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, unixepoch(), unixepoch())`,
       )
         .bind(
           connId,
@@ -579,6 +591,7 @@ export async function ensureUserTerminalConnection(env, userId, workspaceId, ten
           '/bin/zsh',
           'linux',
           uid,
+          cwdStrategy,
         )
         .run();
     }

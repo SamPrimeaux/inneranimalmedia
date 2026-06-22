@@ -6,6 +6,23 @@ import { isPlatformOperator, resolveOperatorAuthUserRow } from './operator-ident
 
 export const PLATFORM_WORKSPACE_ID = 'ws_inneranimalmedia';
 
+/** Sam operator lane — identical working plane regardless of login email. */
+export const SAM_OPERATOR_LANE_USER_IDS = Object.freeze([
+  'au_871d920d1233cbd1', // info@inneranimals.com
+  'au_8a5b76b737a9f14c', // sam@inneranimalmedia.com
+  'au_cccac6ec2360ac75', // meauxbility@gmail.com
+  'au_cd1d8f5ccce9e15a', // ceosamprimeaux@gmail.com
+  'au_32844a43aecdea33', // inneranimalclothing@gmail.com
+]);
+
+const SAM_OPERATOR_LANE_USER_ID_SET = new Set(SAM_OPERATOR_LANE_USER_IDS);
+
+/** @param {string|null|undefined} userId */
+export function isSamOperatorLaneUserId(userId) {
+  const id = trim(userId);
+  return id ? SAM_OPERATOR_LANE_USER_ID_SET.has(id) : false;
+}
+
 const OPERATOR_TERMINAL_TOOL_KEYS = new Set([
   'agentsam_terminal_local',
   'agentsam_terminal_remote',
