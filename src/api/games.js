@@ -1,26 +1,17 @@
 // src/api/games.js
 import { jsonResponse } from '../core/responses.js';
 import { pickAuthUserWorkspaceId } from '../core/platform-workspace-env.js';
-import { normalizeGlbPublicUrl } from '../core/glb-public-url.js';
+import { buildChessPieceRegistry } from '../core/chess-piece-registry.js';
 import { sendChessRoomInvite, isValidInviteEmail } from '../core/games-shared.js';
 
 export async function handleGamesApi(request, url, env, _ctx, authUser) {
   const path = url.pathname.toLowerCase();
   const method = request.method;
 
-  // GET /api/games/pieces — returns all chess pieces from cms_assets
+  // GET /api/games/pieces — Design Studio cms_assets + v1 side-specific GLBs
   if (path === '/api/games/pieces' && method === 'GET') {
-    const { results } = await env.DB.prepare(`
-      SELECT id, filename, public_url, metadata, tags
-      FROM cms_assets
-      WHERE category = 'chess' AND is_live = 1
-      ORDER BY id
-    `).all();
-    const normalized = (results || []).map((row) => ({
-      ...row,
-      public_url: normalizeGlbPublicUrl(row.public_url),
-    }));
-    return jsonResponse({ results: normalized });
+    const registry = await buildChessPieceRegistry(env.DB);
+    return jsonResponse(registry);
   }
 
   // POST /api/games/rooms — create a room (guest-safe)

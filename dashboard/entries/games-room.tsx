@@ -2,7 +2,7 @@
  * Public 3D chess room — SparkChess-style HUD + locked camera viewport.
  */
 import { ChessViewport } from '../lib/ChessViewport';
-import { tryMove } from '../lib/chessEngine';
+import { pickAgentSamMove, tryMove } from '../lib/chessEngine';
 import { capturedPieceSvg } from '../lib/chessPieceIcons';
 
 function getRoomId(): string {
@@ -60,8 +60,9 @@ function boot() {
 
   let fen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
   let turn: 'white' | 'black' = 'white';
-  let myColor: 'white' | 'black' | 'spectator' | null = null;
-  let opponentConnected = false;
+  const vsAgentsamEarly = params.get('vs') === 'agentsam';
+  let myColor: 'white' | 'black' | 'spectator' | null = vsAgentsamEarly ? 'white' : null;
+  let opponentConnected = vsAgentsamEarly;
   let ws: WebSocket | null = null;
   let whiteSeconds = 600;
   let blackSeconds = 600;
@@ -187,11 +188,26 @@ function boot() {
         fen = result.fen;
         turn = result.turn;
         viewport.setFen(fen);
+        viewport.setTurn(turn);
         viewport.movePieceOnBoard(from, to);
         updateTurnPill();
         updateTimers();
         updatePlayerCards();
         updateStatus();
+
+        window.setTimeout(() => {
+          const reply = pickAgentSamMove(fen);
+          if (!reply) return;
+          fen = reply.fen;
+          turn = reply.turn;
+          viewport.setFen(fen);
+          viewport.setTurn(turn);
+          viewport.movePieceOnBoard(reply.from, reply.to);
+          updateTurnPill();
+          updateTimers();
+          updatePlayerCards();
+          updateStatus();
+        }, 450);
         return;
       }
 
@@ -275,8 +291,6 @@ function boot() {
   updatePlayerCards();
 
   if (vsAgentsam) {
-    opponentConnected = true;
-    myColor = 'white';
     startClock();
     updatePlayerCards();
     updateStatus();

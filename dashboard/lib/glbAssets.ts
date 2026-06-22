@@ -32,7 +32,6 @@ export function chessOptimizedPieceUrl(piece: string): string {
 export function normalizeGlbUrl(input: string | null | undefined): string {
   const s = String(input ?? '').trim();
   if (!s) return '';
-  if (s.includes('assets.inneranimalmedia.com/chess-pieces/')) return s;
   if (s.startsWith('/assets/')) return s;
 
   try {
@@ -41,6 +40,18 @@ export function normalizeGlbUrl(input: string | null | undefined): string {
         ? window.location.origin
         : 'https://inneranimalmedia.com';
     const u = new URL(s, base);
+
+    if (u.hostname.includes('inneranimalmedia.com') && u.pathname.startsWith('/assets/')) {
+      return u.pathname;
+    }
+
+    if (u.hostname.includes('assets.inneranimalmedia.com')) {
+      const p = u.pathname.replace(/^\/+/, '');
+      if (p.startsWith('chess-pieces/')) {
+        return `/assets/glb/chess/${p.replace(/^chess-pieces\//, '')}`;
+      }
+      if (p.startsWith('glb/')) return `/assets/${p}`;
+    }
 
     if (u.hostname.includes('pub-e733f82cb31c4f34b6a719e749d0416d.r2.dev')) {
       const tail = decodeURIComponent(u.pathname.replace(/^\/+/, ''));
@@ -56,11 +67,6 @@ export function normalizeGlbUrl(input: string | null | undefined): string {
 export function normalizeChessPieceUrls<T extends { type?: string; white_url?: string; black_url?: string }>(
   row: T,
 ): T {
-  const piece = String(row.type || '').toLowerCase() as ChessPieceType;
-  if (piece in CHESS_PIECE_URLS) {
-    const url = CHESS_PIECE_URLS[piece];
-    return { ...row, white_url: url, black_url: url };
-  }
   return {
     ...row,
     white_url: row.white_url ? normalizeGlbUrl(row.white_url) : row.white_url,

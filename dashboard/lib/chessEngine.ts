@@ -27,3 +27,24 @@ export function tryMove(
     return { ok: false, fen: fen || START, turn: 'white' };
   }
 }
+
+/** Random legal reply for practice vs Agent Sam. */
+export function pickAgentSamMove(
+  fen: string,
+): { from: string; to: string; fen: string; turn: 'white' | 'black' } | null {
+  try {
+    const chess = new Chess(fen || START);
+    const moves = chess.moves({ verbose: true });
+    if (!moves.length) return null;
+    const move = moves[Math.floor(Math.random() * moves.length)];
+    chess.move(move);
+    return {
+      from: move.from,
+      to: move.to,
+      fen: chess.fen(),
+      turn: chess.turn() === 'w' ? 'white' : 'black',
+    };
+  } catch {
+    return null;
+  }
+}
