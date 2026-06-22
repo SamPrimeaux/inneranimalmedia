@@ -121,7 +121,7 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [sort, setSort] = useState<SortKey>('newest');
-  const [perPage, setPerPage] = useState(50);
+  const [perPage, setPerPage] = useState(100);
   const [page, setPage] = useState(1);
   const [sourceTab, setSourceTab] = useState<SourceTab>('all');
   const [mimeFilter, setMimeFilter] = useState('all');
@@ -207,6 +207,7 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
       const d = await r.json();
       if (d.ok) {
         setImages(p => p.filter(i => i.id !== img.id));
+        setTotal(t => Math.max(0, t - 1));
         setDetail(null);
         toast('Image deleted');
       } else {
@@ -422,6 +423,7 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
               <option value={25}>25</option>
               <option value={50}>50</option>
               <option value={100}>100</option>
+              <option value={200}>200</option>
             </select>
           </label>
           <label style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -482,7 +484,9 @@ export function ImagesPage({ workspaceId }: ImagesPageProps) {
               borderTopColor: 'var(--solar-cyan)',
               animation: 'spin 0.8s linear infinite'
             }} />
-            <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>Loading images…</span>
+            <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+              Loading images{sourceTab === 'cf_images' ? ' (syncing full Cloudflare catalog…)' : ''}…
+            </span>
           </div>
         )}
 

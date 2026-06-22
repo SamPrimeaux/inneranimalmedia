@@ -200,6 +200,25 @@ export function ThemeBrowser({ workspaceId }: ThemeBrowserProps): React.ReactEle
     window.open(url, '_blank', 'noopener,noreferrer');
   }, []);
 
+  const closePanel = useCallback(() => {
+    setEditTheme(null);
+    setCreateTheme(false);
+    void loadAll();
+    void fetch(`/api/themes/active${qs}`, { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((p) => {
+        if (p?.data) applyCmsThemeToDocument(p as CmsActiveThemePayload);
+      })
+      .catch(() => {});
+  }, [loadAll, qs]);
+
+  const openTheme = useCallback((theme: CatalogTheme) => {
+    setEditTheme(theme);
+    setCreateTheme(false);
+  }, []);
+
+  const panelOpen = editTheme != null || createTheme;
+
   const regenerate = useCallback(
     async (theme: CatalogTheme) => {
       if (!workspaceId?.trim()) {
@@ -308,11 +327,11 @@ export function ThemeBrowser({ workspaceId }: ThemeBrowserProps): React.ReactEle
       {loading ? (
         <p className="text-xs text-[var(--text-muted)]">Loading themes…</p>
       ) : (
-        <div className={`grid gap-4 ${editTheme || createTheme ? 'xl:grid-cols-[minmax(0,1fr)_380px]' : ''}`}>
+        <div className="relative min-h-0">
           <div
             className={
               view === 'grid'
-                ? 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4'
+                ? `grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 ${panelOpen ? 'xl:grid-cols-2' : 'xl:grid-cols-3'} gap-4`
                 : 'flex flex-col gap-2'
             }
           >
@@ -321,12 +340,11 @@ export function ThemeBrowser({ workspaceId }: ThemeBrowserProps): React.ReactEle
                 key={theme.id}
                 theme={theme}
                 active={activeSlug === theme.slug}
+                selected={editTheme?.id === theme.id}
                 compact={view === 'compact'}
+                onOpen={openTheme}
                 onApply={(t) => void applyTheme(t)}
-                onEdit={(t) => {
-                  setEditTheme(t);
-                  setCreateTheme(false);
-                }}
+                onEdit={openTheme}
                 onPreviewLocal={previewLocal}
                 onInspect={setInspectTheme}
                 onOpenPackage={openPackage}
@@ -335,28 +353,29 @@ export function ThemeBrowser({ workspaceId }: ThemeBrowserProps): React.ReactEle
             ))}
           </div>
 
-          {editTheme || createTheme ? (
-            <ThemeTweaksPanel
-              workspaceId={workspaceId}
-              theme={editTheme}
-              createMode={createTheme}
-              onClose={() => {
-                setEditTheme(null);
-                setCreateTheme(false);
-                void loadAll();
-                void fetch(`/api/themes/active${qs}`, { credentials: 'include' })
-                  .then((r) => (r.ok ? r.json() : null))
-                  .then((p) => {
-                    if (p?.data) applyCmsThemeToDocument(p as CmsActiveThemePayload);
-                  })
-                  .catch(() => {});
-              }}
-              onSaved={() => void loadAll()}
-              onDeleted={() => {
-                setEditTheme(null);
-                void loadAll();
-              }}
-            />
+          {panelOpen ? (
+            <>
+              <button
+                type="button"
+                aria-label="Close theme editor"
+                className="fixed inset-0 z-[130] bg-[var(--text-main)]/40 xl:hidden"
+                onClick={closePanel}
+              />
+              <div className="fixed z-[140] inset-y-0 right-0 w-full max-w-[420px] sm:inset-y-3 sm:right-3 sm:max-h-[calc(100dvh-1.5rem)] sm:rounded-xl overflow-hidden flex flex-col">
+                <ThemeTweaksPanel
+                  workspaceId={workspaceId}
+                  theme={editTheme}
+                  createMode={createTheme}
+                  className="h-full shadow-2xl xl:shadow-none"
+                  onClose={closePanel}
+                  onSaved={() => void loadAll()}
+                  onDeleted={() => {
+                    setEditTheme(null);
+                    void loadAll();
+                  }}
+                />
+              </div>
+            </>
           ) : null}
         </div>
       )}

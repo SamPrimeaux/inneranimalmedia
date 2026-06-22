@@ -2,13 +2,13 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { applyCmsThemeToDocument, type CmsActiveThemePayload } from '../../src/applyCmsTheme';
 import { ThemePreviewCanvas } from './ThemePreviewCanvas';
 import type { CatalogTheme } from './ThemePreviewCard';
+import { CfImagePicker, CoverImageAddButton } from './CfImagePicker';
 import {
   applyFieldsLive,
   activePayloadFromFields,
   cacheThemeDraftForWorkspace,
   clearThemeDraftForWorkspace,
   DEFAULT_TWEAK_FIELDS,
-  fetchCfImageLibrary,
   fieldsFromTheme,
   readThemeDraftForWorkspace,
   type ThemeTweakFields,
@@ -22,6 +22,7 @@ export type ThemeTweaksPanelProps = {
   onClose: () => void;
   onSaved: () => void;
   onDeleted?: () => void;
+  className?: string;
 };
 
 function Field({
@@ -44,14 +45,14 @@ function Field({
             type="color"
             value={value.startsWith('#') && value.length >= 7 ? value.slice(0, 7) : '#2563EB'}
             onChange={(e) => onChange(e.target.value)}
-            className="h-8 w-10 rounded border border-[var(--dashboard-border)] bg-transparent cursor-pointer"
+            className="h-8 w-10 rounded border border-[var(--dashboard-border)] bg-transparent cursor-pointer shrink-0"
           />
         ) : null}
         <input
           type="text"
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="flex-1 min-w-0 rounded-md border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] px-2 py-1.5 text-[12px] text-[var(--text-main)] font-mono"
+          className="flex-1 min-w-0 rounded-md border border-[var(--dashboard-border)] bg-[var(--dashboard-canvas)] px-2 py-1.5 text-[12px] text-[var(--text-main)] font-mono"
         />
       </div>
     </label>
@@ -65,6 +66,7 @@ export function ThemeTweaksPanel({
   onClose,
   onSaved,
   onDeleted,
+  className = '',
 }: ThemeTweaksPanelProps): React.ReactElement {
   const [fields, setFields] = useState<ThemeTweakFields>(() =>
     createMode ? { ...DEFAULT_TWEAK_FIELDS } : fieldsFromTheme(theme),
@@ -72,8 +74,6 @@ export function ThemeTweaksPanel({
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [imagePickerOpen, setImagePickerOpen] = useState(false);
-  const [library, setLibrary] = useState<Array<{ id: string; url: string; name?: string }>>([]);
-  const [loadingImages, setLoadingImages] = useState(false);
 
   useEffect(() => {
     if (createMode) {
@@ -117,15 +117,6 @@ export function ThemeTweaksPanel({
       if (key === 'shell' && next.syncNavShell) next.nav = String(value);
       return next;
     });
-  }, []);
-
-  const loadLibrary = useCallback(async () => {
-    setLoadingImages(true);
-    try {
-      setLibrary(await fetchCfImageLibrary(1));
-    } finally {
-      setLoadingImages(false);
-    }
   }, []);
 
   const save = useCallback(
@@ -208,142 +199,153 @@ export function ThemeTweaksPanel({
   }, [theme, createMode, onDeleted, onClose]);
 
   return (
-    <aside className="rounded-xl border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] flex flex-col min-h-0 overflow-hidden">
-      <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-[var(--dashboard-border)] shrink-0">
-        <div>
-          <h4 className="text-sm font-semibold text-[var(--text-main)]">
-            {createMode ? 'New theme' : 'Theme tweaks'}
-          </h4>
-          <p className="text-[11px] text-[var(--text-muted)]">Live preview — tweaks auto-save locally until you Save</p>
-        </div>
-        <button type="button" className="text-xs text-[var(--text-muted)] hover:text-[var(--text-main)]" onClick={onClose}>
-          Close
-        </button>
-      </div>
-
-      <div className="flex-1 min-h-0 overflow-auto p-4 space-y-4">
-        <div className="rounded-lg overflow-hidden border border-[var(--dashboard-border)]">
-          {fields.preview_image_url ? (
-            <img src={fields.preview_image_url} alt="" className="w-full aspect-[16/9] object-cover max-h-32" />
-          ) : (
-            <ThemePreviewCanvas model={previewModel} height={112} />
-          )}
+    <>
+      <aside
+        className={`rounded-xl border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] flex flex-col min-h-0 overflow-hidden h-full max-h-[inherit] ${className}`}
+      >
+        <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-[var(--dashboard-border)] shrink-0">
+          <div className="min-w-0">
+            <h4 className="text-sm font-semibold text-[var(--text-main)] truncate">
+              {createMode ? 'New theme' : theme?.name || 'Theme tweaks'}
+            </h4>
+            <p className="text-[11px] text-[var(--text-muted)]">Live preview · draft saved locally until Save</p>
+          </div>
+          <button
+            type="button"
+            className="text-xs shrink-0 px-2 py-1 rounded-md text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]"
+            onClick={onClose}
+          >
+            Close
+          </button>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Name" value={fields.name} onChange={(v) => patchField('name', v)} />
-          <Field label="Slug" value={fields.slug} onChange={(v) => patchField('slug', v)} />
-        </div>
-
-        <label className="grid gap-1 text-[11px]">
-          <span className="text-[var(--text-muted)] uppercase tracking-wide">Cover image URL</span>
-          <div className="flex gap-2">
+        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-4 space-y-5 custom-scrollbar">
+          <section className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">
+                Cover
+              </span>
+              <CoverImageAddButton onClick={() => setImagePickerOpen(true)} />
+            </div>
+            <button
+              type="button"
+              className="relative w-full rounded-lg overflow-hidden border border-[var(--dashboard-border)] group"
+              onClick={() => setImagePickerOpen(true)}
+            >
+              {fields.preview_image_url ? (
+                <img src={fields.preview_image_url} alt="" className="w-full aspect-[16/9] object-cover max-h-36" />
+              ) : (
+                <ThemePreviewCanvas model={previewModel} height={120} />
+              )}
+              <div className="absolute inset-0 flex items-center justify-center bg-[var(--text-main)]/0 group-hover:bg-[var(--text-main)]/25 transition-colors">
+                <span className="opacity-0 group-hover:opacity-100 text-[11px] font-medium text-white bg-black/50 px-2 py-1 rounded-md">
+                  Browse images
+                </span>
+              </div>
+            </button>
             <input
               type="url"
               value={fields.preview_image_url}
               onChange={(e) => patchField('preview_image_url', e.target.value)}
               placeholder="https://imagedelivery.net/…"
-              className="flex-1 rounded-md border border-[var(--dashboard-border)] bg-[var(--dashboard-canvas)] px-2 py-1.5 text-[12px] font-mono"
+              className="w-full rounded-md border border-[var(--dashboard-border)] bg-[var(--dashboard-canvas)] px-2 py-1.5 text-[11px] font-mono text-[var(--text-main)]"
             />
-            <button
-              type="button"
-              className="text-[11px] px-2 py-1 rounded-md border border-[var(--dashboard-border)] shrink-0"
-              onClick={() => {
-                setImagePickerOpen((o) => !o);
-                if (!library.length) void loadLibrary();
-              }}
-            >
-              CF Images
-            </button>
-          </div>
-        </label>
+          </section>
 
-        {imagePickerOpen ? (
-          <div className="rounded-lg border border-[var(--dashboard-border)] p-2 max-h-40 overflow-auto grid grid-cols-4 gap-2">
-            {loadingImages ? (
-              <p className="text-[11px] text-[var(--text-muted)] col-span-4">Loading library…</p>
-            ) : null}
-            {library.map((img) => (
-              <button
-                key={img.id || img.url}
-                type="button"
-                title={img.name || img.url}
-                className="rounded overflow-hidden border border-[var(--dashboard-border)] hover:ring-2 ring-[var(--color-primary)]"
-                onClick={() => {
-                  patchField('preview_image_url', img.url);
-                  setImagePickerOpen(false);
-                }}
+          <section className="space-y-3">
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">
+              Identity
+            </span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Field label="Name" value={fields.name} onChange={(v) => patchField('name', v)} />
+              <Field label="Slug" value={fields.slug} onChange={(v) => patchField('slug', v)} />
+            </div>
+            <label className="grid gap-1 text-[11px]">
+              <span className="text-[var(--text-muted)] uppercase tracking-wide">Family</span>
+              <select
+                value={fields.theme_family}
+                onChange={(e) => patchField('theme_family', e.target.value)}
+                className="rounded-md border border-[var(--dashboard-border)] bg-[var(--dashboard-canvas)] px-2 py-1.5 text-[12px]"
               >
-                <img src={img.url} alt="" className="w-full aspect-square object-cover" loading="lazy" />
-              </button>
-            ))}
-            {!loadingImages && !library.length ? (
-              <p className="text-[11px] text-[var(--text-muted)] col-span-4">No Cloudflare Images in library yet.</p>
-            ) : null}
-          </div>
-        ) : null}
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+              </select>
+            </label>
+          </section>
 
-        <label className="flex items-center gap-2 text-[12px] text-[var(--text-main)]">
-          <input
-            type="checkbox"
-            checked={fields.syncNavShell}
-            onChange={(e) => patchField('syncNavShell', e.target.checked)}
-          />
-          Sync top nav + sidebar chrome
-        </label>
+          <section className="space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">
+                Colors
+              </span>
+              <label className="flex items-center gap-2 text-[11px] text-[var(--text-muted)]">
+                <input
+                  type="checkbox"
+                  checked={fields.syncNavShell}
+                  onChange={(e) => patchField('syncNavShell', e.target.checked)}
+                />
+                Sync nav + sidebar
+              </label>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Canvas" value={fields.canvas} onChange={(v) => patchField('canvas', v)} type="color" />
+              <Field label="Panel" value={fields.panel} onChange={(v) => patchField('panel', v)} type="color" />
+              <Field label="Top nav" value={fields.nav} onChange={(v) => patchField('nav', v)} type="color" />
+              {!fields.syncNavShell ? (
+                <Field label="Sidebar" value={fields.shell} onChange={(v) => patchField('shell', v)} type="color" />
+              ) : null}
+              <Field label="Primary" value={fields.primary} onChange={(v) => patchField('primary', v)} type="color" />
+              <Field
+                label="Primary hover"
+                value={fields.primaryHover}
+                onChange={(v) => patchField('primaryHover', v)}
+                type="color"
+              />
+              <Field label="Text" value={fields.text} onChange={(v) => patchField('text', v)} type="color" />
+              <Field label="Muted" value={fields.muted} onChange={(v) => patchField('muted', v)} type="color" />
+              <Field label="Nav text" value={fields.textNav} onChange={(v) => patchField('textNav', v)} type="color" />
+              <Field
+                label="Sidebar text"
+                value={fields.textSidebar}
+                onChange={(v) => patchField('textSidebar', v)}
+                type="color"
+              />
+              <Field label="Border" value={fields.border} onChange={(v) => patchField('border', v)} type="color" />
+              <Field label="Monaco bg" value={fields.monacoBg} onChange={(v) => patchField('monacoBg', v)} type="color" />
+            </div>
+          </section>
 
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Canvas" value={fields.canvas} onChange={(v) => patchField('canvas', v)} type="color" />
-          <Field label="Panel" value={fields.panel} onChange={(v) => patchField('panel', v)} type="color" />
-          <Field label="Top nav" value={fields.nav} onChange={(v) => patchField('nav', v)} type="color" />
-          {!fields.syncNavShell ? (
-            <Field label="Sidebar" value={fields.shell} onChange={(v) => patchField('shell', v)} type="color" />
-          ) : null}
-          <Field label="Primary" value={fields.primary} onChange={(v) => patchField('primary', v)} type="color" />
-          <Field label="Primary hover" value={fields.primaryHover} onChange={(v) => patchField('primaryHover', v)} type="color" />
-          <Field label="Text" value={fields.text} onChange={(v) => patchField('text', v)} type="color" />
-          <Field label="Muted" value={fields.muted} onChange={(v) => patchField('muted', v)} type="color" />
-          <Field label="Nav text" value={fields.textNav} onChange={(v) => patchField('textNav', v)} type="color" />
-          <Field label="Sidebar text" value={fields.textSidebar} onChange={(v) => patchField('textSidebar', v)} type="color" />
-          <Field label="Border" value={fields.border} onChange={(v) => patchField('border', v)} type="color" />
-          <Field label="Monaco bg" value={fields.monacoBg} onChange={(v) => patchField('monacoBg', v)} type="color" />
+          {msg ? <p className="text-[11px] text-[var(--text-muted)]">{msg}</p> : null}
         </div>
 
-        <label className="grid gap-1 text-[11px]">
-          <span className="text-[var(--text-muted)] uppercase tracking-wide">Family</span>
-          <select
-            value={fields.theme_family}
-            onChange={(e) => patchField('theme_family', e.target.value)}
-            className="rounded-md border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] px-2 py-1.5 text-[12px]"
-          >
-            <option value="light">Light</option>
-            <option value="dark">Dark</option>
-          </select>
-        </label>
-
-        {msg ? <p className="text-[11px] text-[var(--text-muted)]">{msg}</p> : null}
-      </div>
-
-      <div className="shrink-0 flex flex-wrap gap-2 p-4 border-t border-[var(--dashboard-border)]">
-        <button
-          type="button"
-          disabled={busy}
-          className="text-[11px] px-3 py-1.5 rounded-md bg-[var(--color-primary)] text-white font-medium disabled:opacity-50"
-          onClick={() => void save(true)}
-        >
-          {busy ? 'Saving…' : 'Save'}
-        </button>
-        {!createMode && theme ? (
+        <div className="shrink-0 flex flex-wrap gap-2 p-4 border-t border-[var(--dashboard-border)] bg-[var(--dashboard-panel)]">
           <button
             type="button"
             disabled={busy}
-            className="text-[11px] px-3 py-1.5 rounded-md border border-red-500/40 text-red-400 ml-auto"
-            onClick={() => void remove()}
+            className="text-[11px] px-3 py-1.5 rounded-md bg-[var(--color-primary)] text-white font-medium disabled:opacity-50"
+            onClick={() => void save(true)}
           >
-            Delete
+            {busy ? 'Saving…' : 'Save & apply'}
           </button>
-        ) : null}
-      </div>
-    </aside>
+          {!createMode && theme ? (
+            <button
+              type="button"
+              disabled={busy}
+              className="text-[11px] px-3 py-1.5 rounded-md border border-red-500/40 text-red-400 ml-auto"
+              onClick={() => void remove()}
+            >
+              Delete
+            </button>
+          ) : null}
+        </div>
+      </aside>
+
+      <CfImagePicker
+        open={imagePickerOpen}
+        onClose={() => setImagePickerOpen(false)}
+        workspaceId={workspaceId}
+        onSelect={(img) => patchField('preview_image_url', img.url)}
+      />
+    </>
   );
 }

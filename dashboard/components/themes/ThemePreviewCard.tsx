@@ -19,7 +19,9 @@ export type CatalogTheme = {
 export type ThemePreviewCardProps = {
   theme: CatalogTheme;
   active: boolean;
+  selected?: boolean;
   compact?: boolean;
+  onOpen: (t: CatalogTheme) => void;
   onApply: (t: CatalogTheme) => void;
   onEdit: (t: CatalogTheme) => void;
   onPreviewLocal: (t: CatalogTheme) => void;
@@ -31,7 +33,9 @@ export type ThemePreviewCardProps = {
 export function ThemePreviewCard({
   theme,
   active,
+  selected = false,
   compact,
+  onOpen,
   onApply,
   onEdit,
   onPreviewLocal,
@@ -53,19 +57,30 @@ export function ThemePreviewCard({
       <ThemePreviewCanvas model={pm} height={compact ? 52 : 112} />
     );
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onOpen(theme);
+    }
+  };
+
   return (
     <article
-      className={`rounded-xl border transition-all flex flex-col overflow-hidden ${
-        active
-          ? 'border-[var(--solar-cyan)] ring-1 ring-[var(--solar-cyan)]/35 bg-[var(--bg-hover)]'
-          : 'border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] hover:bg-[var(--bg-hover)]'
+      role="button"
+      tabIndex={0}
+      aria-pressed={selected}
+      aria-label={`Open theme ${theme.name}`}
+      onClick={() => onOpen(theme)}
+      onKeyDown={handleKeyDown}
+      className={`rounded-xl border transition-all flex flex-col overflow-hidden cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-[var(--solar-cyan)] ${
+        selected
+          ? 'border-[var(--solar-cyan)] ring-2 ring-[var(--solar-cyan)]/40 bg-[var(--bg-hover)] shadow-md'
+          : active
+            ? 'border-[var(--solar-cyan)] ring-1 ring-[var(--solar-cyan)]/35 bg-[var(--bg-hover)]'
+            : 'border-[var(--dashboard-border)] bg-[var(--dashboard-panel)] hover:bg-[var(--bg-hover)] hover:border-[var(--solar-cyan)]/50'
       }`}
     >
-      <div
-        className={
-          compact ? 'p-2 gap-3 flex flex-row items-stretch' : 'p-3 gap-3 flex flex-col'
-        }
-      >
+      <div className={compact ? 'p-2 gap-3 flex flex-row items-stretch' : 'p-3 gap-3 flex flex-col'}>
         <div className={compact ? 'w-[120px] shrink-0' : ''}>{previewVisual}</div>
 
         <div className="flex flex-col gap-1 flex-1 min-w-0">
@@ -76,6 +91,11 @@ export function ThemePreviewCard({
                 {active ? (
                   <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-[var(--solar-cyan)]/15 text-[var(--solar-cyan)]">
                     Active
+                  </span>
+                ) : null}
+                {selected ? (
+                  <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-[var(--color-primary)]/15 text-[var(--color-primary)]">
+                    Editing
                   </span>
                 ) : null}
               </div>
@@ -108,7 +128,7 @@ export function ThemePreviewCard({
             </span>
           </div>
 
-          <div className="flex flex-wrap gap-1.5 mt-2">
+          <div className="flex flex-wrap gap-1.5 mt-2" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
             <button
               type="button"
               className="text-[11px] px-2 py-1 rounded-md bg-[var(--color-primary)] text-white font-medium"

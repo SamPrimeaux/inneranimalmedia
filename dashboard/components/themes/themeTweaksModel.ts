@@ -204,21 +204,74 @@ export type CfImagePick = {
   id: string;
   url: string;
   name?: string;
+  thumbnail_url?: string;
 };
 
-export async function fetchCfImageLibrary(page = 1): Promise<CfImagePick[]> {
-  const res = await fetch(`/api/images?source=cf_images&page=${page}&per_page=48`, {
+export type CfImageLibraryPage = {
+  items: CfImagePick[];
+  total: number;
+  page: number;
+  perPage: number;
+  totalPages: number;
+};
+
+export async function fetchCfImageLibrary(
+  page = 1,
+  perPage = 48,
+  workspaceId?: string | null,
+): Promise<CfImageLibraryPage> {
+  const params = new URLSearchParams({
+    source: 'cf_images',
+    page: String(page),
+    per_page: String(perPage),
+  });
+  const ws = workspaceId?.trim();
+  if (ws) params.set('workspace_id', ws);
+
+  const res = await fetch(`/api/images?${params.toString()}`, {
     credentials: 'include',
   });
-  if (!res.ok) return [];
+  if (!res.ok) {
+    return { items: [], total: 0, page, perPage, totalPages: 0 };
+  }
   const json = (await res.json()) as {
-    images?: Array<{ id?: string; url?: string; public_url?: string; name?: string; filename?: string }>;
+    images?: Array<{
+      id?: string;
+      url?: string;
+      public_url?: string;
+      name?: string;
+      filename?: string;
+      thumbnail_url?: string;
+    }>;
+    items?: Array<{
+      id?: string;
+      url?: string;
+      public_url?: string;
+      name?: string;
+      filename?: string;
+      thumbnail_url?: string;
+    }>;
+    total?: number;
+    page?: number;
+    per_page?: number;
   };
-  return (json.images || [])
+  const rows = json.images || json.items || [];
+  const total = typeof json.total === 'number' ? json.total : rows.length;
+  const resolvedPage = typeof json.page === 'number' ? json.page : page;
+  const resolvedPerPage = typeof json.per_page === 'number' ? json.per_page : perPage;
+  const items = rows
     .map((img) => ({
       id: String(img.id || ''),
       url: String(img.url || img.public_url || ''),
       name: img.name || img.filename,
+      thumbnail_url: img.thumbnail_url,
     }))
     .filter((img) => img.url);
+  return {
+    items,
+    total,
+    page: resolvedPage,
+    perPage: resolvedPerPage,
+    totalPages: Math.max(1, Math.ceil(total / resolvedPerPage)),
+  };
 }

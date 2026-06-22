@@ -212,26 +212,65 @@ async function listD1Images(env, { userId, workspaceId, source, limit, offset })
   return results || [];
 }
 
-async function listCfImagesLive(env, authUserId, knownCfIds) {
+async function listAllCfImagesLive(env, authUserId, knownCfIds) {
   const accountId = String(env.CLOUDFLARE_ACCOUNT_ID || '').trim();
   const token = String(env.CLOUDFLARE_IMAGES_TOKEN || env.CLOUDFLARE_IMAGES_API_TOKEN || '').trim();
   const accountHash = String(env.CLOUDFLARE_IMAGES_ACCOUNT_HASH || '').trim();
   if (!accountId || !token || !accountHash) return { items: [], accountHash: '' };
 
-  const res = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${accountId}/images/v1?per_page=100`,
-    { headers: { Authorization: `Bearer ${token}` } },
-  );
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok || !data?.success) return { items: [], accountHash };
-
   const known = knownCfIds || new Set();
   const items = [];
-  for (const img of data.result?.images || data.result || []) {
-    if (!img?.id || known.has(img.id)) continue;
-    const mapped = mapCfApiImage(img, accountHash, authUserId);
-    if (mapped) items.push(mapped);
+  let continuationToken = null;
+  let pages = 0;
+  const MAX_PAGES = 64;
+
+  const mapBatch = (images) => {
+    for (const img of images || []) {
+      if (!img?.id || known.has(img.id)) continue;
+      const mapped = mapCfApiImage(img, accountHash, authUserId);
+      if (mapped) items.push(mapped);
+    }
+  };
+
+  // Prefer V2 — up to 1000 per page + continuation_token (full account catalog).
+  do {
+    const qs = new URLSearchParams({ per_page: '1000', sort_order: 'desc' });
+    if (continuationToken) qs.set('continuation_token', continuationToken);
+    const res = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/images/v2?${qs}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data?.success) {
+      const result = data.result || {};
+      mapBatch(result.images);
+      continuationToken = result.continuation_token || null;
+      pages += 1;
+      if (!continuationToken) break;
+      continue;
+    }
+    // Fallback to V1 page index when V2 is unavailable.
+    continuationToken = null;
+    break;
+  } while (continuationToken && pages < MAX_PAGES);
+
+  if (items.length === 0 && pages === 0) {
+    let page = 1;
+    while (page <= MAX_PAGES) {
+      const res = await fetch(
+        `https://api.cloudflare.com/client/v4/accounts/${accountId}/images/v1?page=${page}&per_page=100`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.success) break;
+      const batch = data.result?.images || data.result || [];
+      if (!Array.isArray(batch) || batch.length === 0) break;
+      mapBatch(batch);
+      if (batch.length < 100) break;
+      page += 1;
+    }
   }
+
   return { items, accountHash };
 }
 
@@ -345,7 +384,7 @@ async function handleGetImages(request, url, env, authUser, identity) {
 
   const source = (url.searchParams.get('source') || 'all').toLowerCase();
   const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10) || 1);
-  const perPage = Math.min(100, Math.max(1, parseInt(url.searchParams.get('per_page') || '50', 10) || 50));
+  const perPage = Math.min(200, Math.max(1, parseInt(url.searchParams.get('per_page') || '50', 10) || 50));
   const accountHash = String(env.CLOUDFLARE_IMAGES_ACCOUNT_HASH || '').trim();
   const origin = url.origin;
 
@@ -383,7 +422,7 @@ async function handleGetImages(request, url, env, authUser, identity) {
   }
 
   if ((source === 'all' || source === 'cf_images') && env.CLOUDFLARE_IMAGES_TOKEN) {
-    const live = await listCfImagesLive(env, scope.userId, knownCf);
+    const live = await listAllCfImagesLive(env, scope.userId, knownCf);
     merged.push(...live.items);
   }
 
