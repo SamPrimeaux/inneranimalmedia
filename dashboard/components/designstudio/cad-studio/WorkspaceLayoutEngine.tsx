@@ -29,6 +29,9 @@ export function WorkspaceLayoutEngine({
     if (!panelVisibility.outliner) hidden.add('outliner');
     if (!panelVisibility.properties) hidden.add('properties');
     if (!panelVisibility.assets) hidden.add('assets');
+    if (!panelVisibility.outliner && !panelVisibility.properties && !panelVisibility.assets) {
+      hidden.add('rightTabs');
+    }
     if (!panelVisibility.timeline) hidden.add('timeline');
     if (!panelVisibility.timeline) hidden.add('dopesheet');
 

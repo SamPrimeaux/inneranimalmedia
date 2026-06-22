@@ -30,6 +30,7 @@ export type EditorId =
   | 'outliner'
   | 'properties'
   | 'assets'
+  | 'rightTabs'
   | 'toolShelf'
   | 'timeline'
   | 'dopesheet'
@@ -89,7 +90,7 @@ export type GalleryItem = {
   name: string;
   url: string;
   thumbnail?: string | null;
-  source: 'asset' | 'job' | 'meshy';
+  source: 'stock' | 'mine' | 'job' | 'meshy';
   scale?: number;
   createdAt?: number;
 };
@@ -111,9 +112,9 @@ export type CadStudioUiState = {
 export const DEFAULT_PANEL_VISIBILITY: PanelVisibility = {
   outliner: true,
   properties: true,
-  assets: false,
+  assets: true,
   timeline: true,
-  toolShelf: true,
+  toolShelf: false,
   chat: true,
 };
 
@@ -121,7 +122,7 @@ export const DEFAULT_UI_STATE: CadStudioUiState = {
   workspace: 'Layout',
   interactionMode: 'object',
   viewTool: 'select',
-  rightPanelTab: 'outliner',
+  rightPanelTab: 'assets',
   propertiesTab: 'object',
   panelVisibility: DEFAULT_PANEL_VISIBILITY,
   wireframe: false,

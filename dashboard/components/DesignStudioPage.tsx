@@ -606,6 +606,40 @@ export const DesignStudioPage: React.FC = () => {
     }
   }, []);
 
+  const bootstrapDoneRef = useRef(false);
+  useEffect(() => {
+    if (!engineReady || bootstrapDoneRef.current || !isAgentSamEngine(engineRef.current)) return;
+    if (entities.length > 0) {
+      bootstrapDoneRef.current = true;
+      return;
+    }
+    bootstrapDoneRef.current = true;
+    const voxels: GameEntity['voxels'] = [];
+    for (let x = -1; x <= 1; x++) {
+      for (let y = 0; y <= 2; y++) {
+        for (let z = -1; z <= 1; z++) {
+          voxels.push({ x, y, z, color: 0xaeb5bd });
+        }
+      }
+    }
+    const id = `cube_bootstrap`;
+    void engineRef.current
+      .spawnEntity({
+        id,
+        name: 'Cube.001',
+        type: 'prop',
+        voxels,
+        scale: 1,
+        position: { x: 0, y: 1.5, z: 0 },
+        behavior: { type: 'static' },
+      })
+      .then(() => {
+        setSelectedEntityId(id);
+        engineRef.current?.frameCameraOnObject();
+      })
+      .catch((err) => console.warn('[DesignStudio] bootstrap failed', err));
+  }, [engineReady, entities.length]);
+
   const handleEntityRename = useCallback(
     async (id: string, name: string) => {
       if (!isAgentSamEngine(engineRef.current)) return;

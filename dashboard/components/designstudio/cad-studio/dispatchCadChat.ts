@@ -20,7 +20,7 @@ export function dispatchCadChat(opts: CadChatDispatchOpts): void {
     workspace,
     selectedObjectId,
     sceneId,
-    send = true,
+    send = false,
   } = opts;
 
   const opId = operator?.id ?? operatorId ?? 'unknown';

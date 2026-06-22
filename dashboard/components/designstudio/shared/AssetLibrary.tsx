@@ -12,6 +12,7 @@ import {
 import { AGENT_SAM_GENERATOR_KEYS } from '../../../utils/agentSamGenerators';
 import type { AgentSamGeneratorKey } from '../../../utils/agentSamGenerators';
 import type { CustomAsset } from '../../../types';
+import { normalizeGlbUrl } from '@/lib/glbAssets';
 
 export type StudioStockAsset = {
   id: string;

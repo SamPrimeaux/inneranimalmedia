@@ -37,18 +37,18 @@ export function AssetGalleryEditor({ onSpawn, onUpload }: AssetGalleryEditorProp
         />
       </div>
       <div className="cad-assets__filters">
-        {(['all', 'asset', 'job', 'meshy'] as const).map((s) => (
+        {(['all', 'stock', 'mine', 'job', 'meshy'] as const).map((s) => (
           <button
             key={s}
             type="button"
             className={`cad-assets__chip${gallery.sourceFilter === s ? ' active' : ''}`}
             onClick={() => gallery.setSourceFilter(s)}
           >
-            {s === 'all' ? 'All' : s}
+            {s === 'all' ? 'All' : s.charAt(0).toUpperCase() + s.slice(1)}
           </button>
         ))}
-        <button type="button" className="cad-studio__btn" onClick={() => void gallery.refresh()}>
-          ↻
+        <button type="button" className="cad-studio__btn" onClick={() => void gallery.refresh()} title="Refresh">
+          Refresh
         </button>
       </div>
       <div className="cad-assets__grid">

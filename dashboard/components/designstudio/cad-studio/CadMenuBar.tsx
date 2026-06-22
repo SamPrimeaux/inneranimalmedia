@@ -1,12 +1,13 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { SavedSceneRow } from '../shared/ScenePanel';
-import { dispatchCadChat } from './dispatchCadChat';
+import { Circle } from 'lucide-react';
 import { IAM_AGENT_CHAT_COMPOSE } from '../../../agentChatConstants';
+import type { WorkspaceId } from './cadStudioTypes';
+import { WorkspaceSwitcher } from './WorkspaceSwitcher';
 
 export type CadMenuBarProps = {
-  workspaceTabs: readonly string[];
-  activeWorkspace: string;
-  onWorkspaceChange: (ws: string) => void;
+  activeWorkspace: WorkspaceId;
+  onWorkspaceChange: (ws: WorkspaceId) => void;
   onSaveScene: () => void;
   sceneBusy: boolean;
   savedScenes: SavedSceneRow[];
@@ -89,7 +90,6 @@ function MenuItem({
 }
 
 export function CadMenuBar({
-  workspaceTabs,
   activeWorkspace,
   onWorkspaceChange,
   onSaveScene,
@@ -174,15 +174,7 @@ export function CadMenuBar({
 
         <MenuDropdown label="Help">
           <MenuItem label="Runner Diagnostics" onClick={onShowDiagnostics} />
-          <MenuItem
-            label="Check Blender/OpenSCAD/FreeCAD"
-            onClick={() =>
-              dispatchCadChat({
-                operatorId: 'executeScript',
-                prompt: 'Check last successful jobs for Blender, OpenSCAD, and FreeCAD engines.',
-              })
-            }
-          />
+          <MenuItem label="Engine Status (Blender/OpenSCAD/FreeCAD)" onClick={onShowDiagnostics} />
           <MenuItem
             label="Shortcuts"
             onClick={() =>
@@ -201,18 +193,7 @@ export function CadMenuBar({
         </MenuDropdown>
       </div>
 
-      <div className="cad-studio__workspace-tabs">
-        {workspaceTabs.map((ws) => (
-          <button
-            key={ws}
-            type="button"
-            className={`cad-studio__btn cad-studio__tab${activeWorkspace === ws ? ' active' : ''}`}
-            onClick={() => onWorkspaceChange(ws)}
-          >
-            {ws}
-          </button>
-        ))}
-      </div>
+      <WorkspaceSwitcher activeWorkspace={activeWorkspace} onWorkspaceChange={onWorkspaceChange} />
 
       <div className="cad-studio__menu-right">
         <button type="button" className="cad-studio__btn" onClick={onOperatorSearch}>
@@ -224,8 +205,11 @@ export function CadMenuBar({
         <button type="button" className="cad-studio__btn cad-studio__save-btn" onClick={onSaveScene} disabled={sceneBusy}>
           {sceneBusy ? 'Saving…' : 'Save Scene'}
         </button>
-        <span className="cad-menu__health" title="Runner health">
-          {computeHealth === 'ready' ? '●' : computeHealth === 'degraded' ? '◐' : '○'}
+        <span
+          className={`cad-menu__health cad-menu__health--${computeHealth}`}
+          title={`Runner: ${computeHealth}`}
+        >
+          <Circle size={8} fill="currentColor" />
         </span>
       </div>
     </nav>

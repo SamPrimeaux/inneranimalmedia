@@ -17,10 +17,11 @@ import { Viewport3DEditor, SecondaryViewportEditor, ScriptEditor, NodeEditor, Mo
 import { OutlinerEditor } from './editors/OutlinerEditor';
 import { AssetGalleryEditor } from './editors/AssetGalleryEditor';
 import { PropertiesEditor } from './editors/PropertiesEditor';
-import { ToolShelfEditor } from './editors/ToolShelfEditor';
 import { CreationPanelEditor } from './editors/CreationPanelEditor';
+import { CreativeToolDock, openOperatorDraft } from './CreativeToolDock';
+import { RightPanelTabs } from './RightPanelTabs';
+import type { DockDomainId } from './toolDockRegistry';
 import {
-  WORKSPACE_IDS,
   DEFAULT_PANEL_VISIBILITY,
   DEFAULT_UI_STATE,
   type WorkspaceId,
@@ -28,7 +29,6 @@ import {
   type MeshStats,
   type GalleryItem,
 } from './cadStudioTypes';
-import { dispatchCadChat } from './dispatchCadChat';
 import { IAM_AGENT_CHAT_COMPOSE } from '../../../agentChatConstants';
 import { useDesignStudioContext } from '../DesignStudioContext';
 import type { CustomAsset, GenerationConfig, SceneConfig, GameEntity } from '../../../types';
@@ -142,7 +142,8 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
     ...DEFAULT_UI_STATE,
     panelVisibility: { ...DEFAULT_PANEL_VISIBILITY },
   }));
-  const [splashOpen, setSplashOpen] = useState(true);
+  const [splashOpen, setSplashOpen] = useState(false);
+  const [activeDockDomain, setActiveDockDomain] = useState<DockDomainId | null>(null);
   const [operatorOpen, setOperatorOpen] = useState(false);
   const [operatorInitialId, setOperatorInitialId] = useState<string | undefined>();
   const [generateOpen, setGenerateOpen] = useState(false);
@@ -191,8 +192,8 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
     setUi((prev) => ({ ...prev, ...patch }));
   }, []);
 
-  const setWorkspace = useCallback((ws: string) => {
-    patchUi({ workspace: ws as WorkspaceId });
+  const setWorkspace = useCallback((ws: WorkspaceId) => {
+    patchUi({ workspace: ws });
     if (ws === 'Agent') {
       window.dispatchEvent(
         new CustomEvent(IAM_AGENT_CHAT_COMPOSE, {
@@ -301,6 +302,14 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
 
   const handleImportClick = useCallback(() => importRef.current?.click(), []);
 
+  const handleImportGlbWithToast = useCallback(
+    (file: File) => {
+      onImportGlb?.(file);
+      protocol.toast('Import', `Added ${file.name} to viewport`);
+    },
+    [onImportGlb, protocol],
+  );
+
   const handleSpawnGalleryItem = useCallback(
     (item: GalleryItem) => {
       onSpawnModel?.(item.name, item.url, item.scale ?? 1);
@@ -327,6 +336,105 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
       protocol.addEvent('render.viewport', 'Viewport PNG exported');
     }, 'image/png');
   }, [engineContainerRef, protocol]);
+
+  const handleDockLocalAction = useCallback(
+    (actionId: string) => {
+      switch (actionId) {
+        case 'addCube':
+          onAddCube();
+          break;
+        case 'importGlb':
+          handleImportClick();
+          break;
+        case 'generate':
+          openGenerate();
+          break;
+        case 'operatorSearch':
+          openOperator();
+          break;
+        case 'assets':
+          patchUi({
+            rightPanelTab: 'assets',
+            panelVisibility: { ...ui.panelVisibility, assets: true },
+          });
+          break;
+        case 'outliner':
+          patchUi({
+            rightPanelTab: 'outliner',
+            panelVisibility: { ...ui.panelVisibility, outliner: true },
+          });
+          break;
+        case 'delete':
+          onDeleteSelected();
+          break;
+        case 'exportGlb':
+          onDownloadLatestGlb();
+          break;
+        case 'wireframe':
+          patchUi({ wireframe: !ui.wireframe });
+          break;
+        case 'solid':
+          patchUi({ solidShading: !ui.solidShading });
+          break;
+        case 'renderViewport':
+          handleRenderViewport();
+          break;
+        case 'frameAll':
+          onFrameAll?.();
+          break;
+        default:
+          break;
+      }
+    },
+    [
+      onAddCube,
+      handleImportClick,
+      openGenerate,
+      openOperator,
+      patchUi,
+      ui.panelVisibility,
+      ui.wireframe,
+      ui.solidShading,
+      onDeleteSelected,
+      onDownloadLatestGlb,
+      handleRenderViewport,
+      onFrameAll,
+    ],
+  );
+
+  const toolDock = (
+    <CreativeToolDock
+      workspace={ui.workspace}
+      activeTool={ui.viewTool}
+      activeDomain={activeDockDomain}
+      onDomainChange={setActiveDockDomain}
+      onToolChange={(t) => patchUi({ viewTool: t as ViewTool })}
+      onLocalAction={handleDockLocalAction}
+      onOpenOperator={(operatorId, prompt) => {
+        if (operatorId) {
+          openOperatorDraft(operatorId, {
+            prompt,
+            workspace: ui.workspace,
+            selectedObjectId: selectedId,
+            sceneId: currentSceneId,
+          });
+        } else {
+          openOperator();
+        }
+      }}
+      selectedObjectId={selectedId}
+      sceneId={currentSceneId}
+    />
+  );
+
+  useEffect(() => {
+    if (engineContainerRef.current) onEngineContainerMount();
+  }, [engineContainerRef, onEngineContainerMount]);
+
+  useEffect(() => {
+    const id = window.setTimeout(() => window.dispatchEvent(new Event('resize')), 60);
+    return () => window.clearTimeout(id);
+  }, [ui.workspace, layoutOverride]);
 
   const showDiagnostics = useCallback(async () => {
     setDiagnosticsOpen(true);
@@ -449,8 +557,6 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
 
   const viewportPrimary = (
     <Viewport3DEditor
-      engineContainerRef={engineContainerRef}
-      onEngineContainerMount={onEngineContainerMount}
       label={ui.workspace === 'Animation' ? 'Pose View' : 'User Perspective'}
       sublabel={`(1) Collection | ${selectedEntity?.name || 'None'}`}
       entityCount={entities.length}
@@ -466,32 +572,16 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
       progressLabel={progressLabel}
       progressPct={progressPct}
       splash={splash}
+      toolDock={toolDock}
+      onDropGlb={handleImportGlbWithToast}
     />
   );
 
   const editors = {
-    toolShelf: (
-      <ToolShelfEditor
-        workspace={ui.workspace}
-        activeTool={ui.viewTool}
-        onToolChange={(t) => patchUi({ viewTool: t as ViewTool })}
-        onOpenAssets={() => {
-          patchUi({ rightPanelTab: 'assets', panelVisibility: { ...ui.panelVisibility, assets: true } });
-        }}
-        onOpenOperators={() => openGenerate()}
-        onExport={onDownloadLatestGlb}
-        onRepair={() =>
-          dispatchCadChat({
-            operatorId: 'repairGeometry',
-            prompt: 'Run FreeCAD geometry repair on the selected mesh and return a clean GLB.',
-            workspace: ui.workspace,
-            selectedObjectId: selectedId,
-            sceneId: currentSceneId,
-          })
-        }
-        selectedObjectId={selectedId}
-        sceneId={currentSceneId}
-      />
+    rightTabs: (
+      <RightPanelTabs active={ui.rightPanelTab} onChange={(tab) => patchUi({ rightPanelTab: tab })}>
+        {rightPanel}
+      </RightPanelTabs>
     ),
     viewport: viewportPrimary,
     viewportSecondary: (
@@ -551,8 +641,7 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
         script={protocol.currentScript || '# Generated script appears here after runner jobs.'}
         readOnly
         onRunViaChat={() =>
-          dispatchCadChat({
-            operatorId: 'executeScript',
+          openOperatorDraft('executeScript', {
             workspace: ui.workspace,
             selectedObjectId: selectedId,
             sceneId: currentSceneId,
@@ -653,13 +742,12 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
         className="cad-editor__hidden-input"
         onChange={(e) => {
           const f = e.target.files?.[0];
-          if (f) onImportGlb?.(f);
+          if (f) handleImportGlbWithToast(f);
           e.target.value = '';
         }}
       />
 
       <CadMenuBar
-        workspaceTabs={WORKSPACE_IDS}
         activeWorkspace={ui.workspace}
         onWorkspaceChange={setWorkspace}
         onSaveScene={onSaveScene}
@@ -724,8 +812,7 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
         onGenerateCad={openGenerate}
         onRenderViewport={handleRenderViewport}
         onRenderViaChat={(intent) =>
-          dispatchCadChat({
-            operatorId: 'generateBlender',
+          openOperatorDraft('generateBlender', {
             prompt: intent,
             workspace: ui.workspace,
             selectedObjectId: selectedId,
@@ -749,12 +836,19 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
         onSpawnProcedural={onSpawnProcedural}
       />
 
-      <WorkspaceLayoutEngine
-        workspace={ui.workspace}
-        layoutOverride={layoutOverride}
-        panelVisibility={ui.panelVisibility}
-        editors={editors}
-      />
+      <div className="cad-studio__layout-wrap">
+        <div
+          ref={engineContainerRef}
+          className="cad-studio__engine-persistent"
+          aria-hidden="true"
+        />
+        <WorkspaceLayoutEngine
+          workspace={ui.workspace}
+          layoutOverride={layoutOverride}
+          panelVisibility={ui.panelVisibility}
+          editors={editors}
+        />
+      </div>
 
       <StatusBar
         selectedName={selectedEntity?.name ?? null}

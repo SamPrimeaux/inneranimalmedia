@@ -47,12 +47,14 @@ function dedupeGallery(items: GalleryItem[]): GalleryItem[] {
   return out.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
 }
 
+export type GallerySourceFilter = 'all' | 'stock' | 'mine' | 'job' | 'meshy';
+
 export function useStudioGallery() {
   const [items, setItems] = useState<GalleryItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
-  const [sourceFilter, setSourceFilter] = useState<'all' | 'asset' | 'job' | 'meshy'>('all');
+  const [sourceFilter, setSourceFilter] = useState<GallerySourceFilter>('all');
   const [page, setPage] = useState(0);
   const pageSize = 12;
 
@@ -60,7 +62,8 @@ export function useStudioGallery() {
     setLoading(true);
     setError(null);
     try {
-      const [assetsRes, jobsRes, meshyRes] = await Promise.all([
+      const [stockRes, userRes, jobsRes, meshyRes] = await Promise.all([
+        fetch('/api/designstudio/assets?category=3d_studio&is_live=1', { credentials: 'include' }),
         fetch('/api/designstudio/assets?category=3d_studio_user&is_live=1', { credentials: 'include' }),
         fetch('/api/cad/jobs?limit=50', { credentials: 'include' }),
         fetch('/api/cad/meshy/tasks?page_size=20', { credentials: 'include' }),
@@ -68,10 +71,11 @@ export function useStudioGallery() {
 
       const merged: GalleryItem[] = [];
 
-      if (assetsRes.ok) {
-        const data = await assetsRes.json();
-        const rows = Array.isArray(data?.results) ? data.results : [];
-        for (const row of rows as AssetRow[]) {
+      const parseAssets = (data: unknown, source: 'stock' | 'mine') => {
+        const rows = Array.isArray((data as { results?: unknown[] })?.results)
+          ? (data as { results: AssetRow[] }).results
+          : [];
+        for (const row of rows) {
           const url = normalizeUrl(row.public_url);
           if (!url) continue;
           merged.push({
@@ -79,12 +83,15 @@ export function useStudioGallery() {
             name: String(row.label || row.id || 'Asset'),
             url,
             thumbnail: row.thumbnail_url,
-            source: 'asset',
+            source,
             scale: typeof row.scale === 'number' ? row.scale : 1,
             createdAt: row.created_at,
           });
         }
-      }
+      };
+
+      if (stockRes.ok) parseAssets(await stockRes.json(), 'stock');
+      if (userRes.ok) parseAssets(await userRes.json(), 'mine');
 
       if (jobsRes.ok) {
         const data = await jobsRes.json();
@@ -124,7 +131,7 @@ export function useStudioGallery() {
       const deduped = dedupeGallery(merged);
       setItems(deduped);
       if (deduped.length === 0) {
-        console.info('[CAD Studio Assets] No GLBs found in designstudio/assets, cad/jobs, or meshy/tasks');
+        console.info('[CAD Studio Assets] No GLBs in 3d_studio, 3d_studio_user, cad/jobs, or meshy/tasks');
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

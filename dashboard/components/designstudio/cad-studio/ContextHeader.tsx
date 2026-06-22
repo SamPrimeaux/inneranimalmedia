@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { Circle, Square } from 'lucide-react';
 import type { InteractionMode } from './cadStudioTypes';
 import type { AgentSamGeneratorKey } from '../../../utils/agentSamGenerators';
 
@@ -150,7 +151,7 @@ export function ContextHeader({
           title="Solid"
           onClick={onToggleSolid}
         >
-          ●
+          <Circle size={14} fill="currentColor" strokeWidth={0} />
         </button>
         <button
           type="button"
@@ -158,7 +159,7 @@ export function ContextHeader({
           title="Wireframe"
           onClick={onToggleWireframe}
         >
-          ◻
+          <Square size={14} strokeWidth={1.75} />
         </button>
       </div>
       <div className="cad-studio__vh-group cad-studio__vh-spacer" />

@@ -1,9 +1,8 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { Eye, EyeOff, Pause, Play, RotateCcw, RotateCw, Trash2 } from 'lucide-react';
 import type { ViewTool } from '../cadStudioTypes';
 
 export type Viewport3DEditorProps = {
-  engineContainerRef: React.RefObject<HTMLDivElement | null>;
-  onEngineContainerMount: () => void;
   label?: string;
   sublabel?: string;
   entityCount: number;
@@ -21,11 +20,11 @@ export type Viewport3DEditorProps = {
   progressPct?: number;
   splash?: React.ReactNode;
   overlay?: React.ReactNode;
+  toolDock?: React.ReactNode;
+  onDropGlb?: (file: File) => void;
 };
 
 export function Viewport3DEditor({
-  engineContainerRef,
-  onEngineContainerMount,
   label = 'User Perspective',
   sublabel,
   entityCount,
@@ -43,18 +42,30 @@ export function Viewport3DEditor({
   progressPct = 0,
   splash,
   overlay,
+  toolDock,
+  onDropGlb,
 }: Viewport3DEditorProps) {
-  const bindMount = useCallback(
-    (node: HTMLDivElement | null) => {
-      engineContainerRef.current = node;
-      if (node) onEngineContainerMount();
-    },
-    [engineContainerRef, onEngineContainerMount],
-  );
+  const [dragOver, setDragOver] = useState(false);
 
   return (
-    <section className="cad-editor cad-editor--viewport">
-      <div ref={bindMount} className="cad-editor__engine-mount" />
+    <section
+      className={`cad-editor cad-editor--viewport${dragOver ? ' cad-editor--viewport-drop' : ''}`}
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes('Files')) {
+          e.preventDefault();
+          e.stopPropagation();
+          setDragOver(true);
+        }
+      }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setDragOver(false);
+        const glb = Array.from(e.dataTransfer.files).find((f) => f.name.toLowerCase().endsWith('.glb'));
+        if (glb) onDropGlb?.(glb);
+      }}
+    >
       <div className="cad-studio__viewport-overlay">
         <div className="cad-studio__viewport-label">
           <div>{label}</div>
@@ -71,16 +82,17 @@ export function Viewport3DEditor({
           <span className="cad-studio__axis-dot cad-studio__axis-dot--y">Y</span>
           <span className="cad-studio__axis-dot cad-studio__axis-dot--z">Z</span>
         </div>
+        {toolDock}
         {showHud ? (
           <div className="cad-studio__hud-btns">
             <button type="button" className="cad-studio__hud-btn" onClick={onUndo} disabled={!canUndo} title="Undo">
-              ↶
+              <RotateCcw size={14} />
             </button>
             <button type="button" className="cad-studio__hud-btn" onClick={onRedo} disabled={!canRedo} title="Redo">
-              ↷
+              <RotateCw size={14} />
             </button>
-            <button type="button" className="cad-studio__hud-btn cad-studio__hud-btn--purge" onClick={onClear}>
-              Purge
+            <button type="button" className="cad-studio__hud-btn cad-studio__hud-btn--purge" onClick={onClear} title="Purge">
+              <Trash2 size={14} />
             </button>
           </div>
         ) : null}
@@ -97,6 +109,7 @@ export function Viewport3DEditor({
             </div>
           </div>
         ) : null}
+        {dragOver ? <div className="cad-editor__drop-hint">Drop GLB to import</div> : null}
         {splash}
         {overlay}
       </div>
@@ -385,7 +398,7 @@ export function GreaseLayersEditor({
             className={`cad-editor__layer-row${activeLayerId === l.id ? ' active' : ''}`}
             onClick={() => onSelect(l.id)}
           >
-            {l.visible ? '●' : '○'} {l.name}
+            {l.visible ? <Eye size={12} /> : <EyeOff size={12} />} {l.name}
           </button>
         ))}
       </div>
@@ -415,7 +428,7 @@ export function DopeSheetEditor({
             className={`cad-editor__dope-cell${frame === f ? ' active' : ''}${keyframes.includes(f) ? ' key' : ''}`}
             onClick={() => onSelectFrame(f)}
           >
-            {keyframes.includes(f) ? '◆' : ''}
+            {keyframes.includes(f) ? 'K' : ''}
           </button>
         ))}
       </div>
@@ -455,8 +468,8 @@ export function TimelineEditor({
   return (
     <section className="cad-editor cad-editor--timeline">
       <div className="cad-studio__timeline-head">
-        <button type="button" className="cad-studio__btn" onClick={() => { setPlaying((p) => !p); onTogglePlay(); }}>
-          {playing ? '⏸' : '▶'}
+        <button type="button" className="cad-studio__btn" onClick={() => { setPlaying((p) => !p); onTogglePlay(); }} title={playing ? 'Pause' : 'Play'}>
+          {playing ? <Pause size={14} /> : <Play size={14} />}
         </button>
         <span className="cad-studio__divider-v" />
         <span>Frame</span>
