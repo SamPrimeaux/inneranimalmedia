@@ -53,10 +53,10 @@ export const MeshyBalancePill: React.FC<Props> = ({ className = '', refreshKey =
             ? error
             : 'Meshy credits — click to refresh'
       }
-      className={`pointer-events-auto flex items-center gap-2 px-3 py-2 rounded-xl border backdrop-blur-xl shadow-lg transition-colors ${
+      className={`pointer-events-auto flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold tabular-nums transition-colors ${
         low
-          ? 'border-amber-500/40 bg-amber-500/10 text-amber-300'
-          : 'border-white/10 bg-black/40 text-cyan-300/90'
+          ? 'border-amber-500/35 bg-amber-500/10 text-amber-300'
+          : 'border-white/[0.08] bg-white/[0.04] text-emerald-300'
       } ${className}`}
     >
       {loading ? (
@@ -64,8 +64,8 @@ export const MeshyBalancePill: React.FC<Props> = ({ className = '', refreshKey =
       ) : (
         <Coins size={14} className={low ? 'text-amber-400' : 'text-cyan-400'} />
       )}
-      <span className="text-[10px] font-black uppercase tracking-widest">
-        {stub ? 'Meshy stub' : error ? 'Credits —' : balance != null ? `${balance} cr` : 'Credits —'}
+      <span className="hidden sm:inline">
+        {stub ? 'No key' : error ? '—' : balance != null ? `${balance.toLocaleString()} cr` : '—'}
       </span>
     </button>
   );

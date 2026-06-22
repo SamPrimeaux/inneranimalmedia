@@ -1,5 +1,5 @@
 import React from 'react';
-import { Copy } from 'lucide-react';
+import { Copy, X } from 'lucide-react';
 
 type Props = {
   request: string;
@@ -13,53 +13,43 @@ export function ApiInspector({ request, response, open, onToggle }: Props) {
     void navigator.clipboard.writeText(text);
   };
 
-  if (!open) {
-    return (
-      <button
-        type="button"
-        onClick={onToggle}
-        className="hidden lg:flex absolute right-0 top-1/2 -translate-y-1/2 z-30 w-8 h-16 items-center justify-center rounded-l-lg border border-r-0 border-[var(--border-subtle)] bg-[var(--bg-panel)] text-[10px] font-bold text-[var(--text-muted)] hover:text-[var(--solar-cyan)]"
-      >
-        API
-      </button>
-    );
-  }
+  if (!open) return null;
 
   return (
-    <aside className="hidden lg:flex flex-col w-[min(340px,28vw)] border-l border-[var(--border-subtle)] bg-[#0d0f14] shrink-0">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border-subtle)]">
-        <span className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">API</span>
-        <button type="button" onClick={onToggle} className="text-[10px] text-[var(--text-muted)] hover:text-white">
-          Hide
+    <aside className="flex flex-col flex-1 min-h-0 w-full bg-[#0a0b10]">
+      <div className="flex items-center justify-between px-3 py-2.5 border-b border-white/[0.06]">
+        <span className="text-[11px] font-semibold text-zinc-400">API</span>
+        <button type="button" onClick={onToggle} className="p-1 text-zinc-500 hover:text-zinc-200">
+          <X size={14} />
         </button>
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-3 space-y-4">
-        <div>
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-[9px] font-bold uppercase text-[var(--text-muted)]">Request</span>
+        <section>
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[10px] font-semibold uppercase text-zinc-500">Request</span>
             {request ? (
-              <button type="button" onClick={() => copy(request)} className="text-[var(--text-muted)] hover:text-white">
+              <button type="button" onClick={() => copy(request)} className="text-zinc-500 hover:text-zinc-200">
                 <Copy size={12} />
               </button>
             ) : null}
           </div>
-          <pre className="text-[9px] leading-relaxed text-emerald-300/90 whitespace-pre-wrap break-all bg-black/30 rounded-lg p-2 border border-white/5">
+          <pre className="text-[10px] leading-relaxed text-emerald-300/85 whitespace-pre-wrap break-all bg-black/50 rounded-lg p-3 border border-white/[0.04] max-h-[40vh] overflow-y-auto">
             {request || 'Run a generation to see the cURL request.'}
           </pre>
-        </div>
-        <div>
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-[9px] font-bold uppercase text-[var(--text-muted)]">Response</span>
+        </section>
+        <section>
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[10px] font-semibold uppercase text-zinc-500">Response</span>
             {response ? (
-              <button type="button" onClick={() => copy(response)} className="text-[var(--text-muted)] hover:text-white">
+              <button type="button" onClick={() => copy(response)} className="text-zinc-500 hover:text-zinc-200">
                 <Copy size={12} />
               </button>
             ) : null}
           </div>
-          <pre className="text-[9px] leading-relaxed text-sky-300/90 whitespace-pre-wrap break-all bg-black/30 rounded-lg p-2 border border-white/5 max-h-[40vh] overflow-y-auto">
+          <pre className="text-[10px] leading-relaxed text-sky-300/85 whitespace-pre-wrap break-all bg-black/50 rounded-lg p-3 border border-white/[0.04] max-h-[40vh] overflow-y-auto">
             {response || '{}'}
           </pre>
-        </div>
+        </section>
       </div>
     </aside>
   );

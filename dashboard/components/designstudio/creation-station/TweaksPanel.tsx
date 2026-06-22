@@ -1,23 +1,24 @@
 import React, { useRef } from 'react';
-import { Coins, Key, Loader2, Sparkles } from 'lucide-react';
+import { Key, Loader2, Sparkles } from 'lucide-react';
 import type { MeshyPhase, MeshySettings } from './meshyTypes';
 import type { CreationTool } from './useCreationStation';
 import { ScenePanel, type SavedSceneRow } from '../shared/ScenePanel';
 import { AssetLibrary } from '../shared/AssetLibrary';
 import type { CustomAsset } from '../../../types';
 
+const SAMPLE_PROMPT =
+  'A chess king piece, ornate gothic crown with four arched buttresses, wide weighted base, ultra high detail.';
+
 type Props = {
   tool: CreationTool;
-  open: boolean;
-  onClose: () => void;
   meshyPhase: MeshyPhase;
   onMeshyPhase: (p: MeshyPhase) => void;
   settings: MeshySettings;
   onPatch: (p: Partial<MeshySettings>) => void;
-  balance: number | null;
   meshyStub: boolean;
   ctaCost: number;
   isGenerating: boolean;
+  progressPct?: number;
   onCreate: () => void;
   onQuickGenerate: () => void;
   apiKeyDraft: string;
@@ -40,6 +41,7 @@ type Props = {
   onRefreshUserAssets?: () => void;
   latestGlbUrl?: string | null;
   onDownloadGlb?: () => void;
+  className?: string;
 };
 
 function Toggle({
@@ -52,14 +54,14 @@ function Toggle({
   onChange: (v: boolean) => void;
 }) {
   return (
-    <label className="flex items-center justify-between gap-2 py-1.5 text-[10px] text-[var(--text-muted)]">
+    <label className="flex items-center justify-between gap-2 py-1 text-[11px] text-zinc-400">
       <span>{label}</span>
       <button
         type="button"
         role="switch"
         aria-checked={on}
         onClick={() => onChange(!on)}
-        className={`w-9 h-5 rounded-full relative transition-colors ${on ? 'bg-[var(--solar-cyan)]' : 'bg-[var(--bg-hover)]'}`}
+        className={`w-9 h-5 rounded-full relative transition-colors ${on ? 'bg-emerald-500' : 'bg-zinc-700'}`}
       >
         <span
           className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${on ? 'left-[18px]' : 'left-0.5'}`}
@@ -71,16 +73,14 @@ function Toggle({
 
 export function TweaksPanel({
   tool,
-  open,
-  onClose,
   meshyPhase,
   onMeshyPhase,
   settings,
   onPatch,
-  balance,
   meshyStub,
   ctaCost,
   isGenerating,
+  progressPct,
   onCreate,
   onQuickGenerate,
   apiKeyDraft,
@@ -103,83 +103,96 @@ export function TweaksPanel({
   onRefreshUserAssets,
   latestGlbUrl,
   onDownloadGlb,
+  className = '',
 }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
 
-  if (!open) return null;
+  const title =
+    tool === 'text-to-3d'
+      ? 'Text to 3D'
+      : tool === 'import'
+        ? 'Import GLB'
+        : tool === 'blender'
+          ? 'Blender'
+          : 'Scene';
 
   return (
-    <aside className="flex flex-col w-full md:w-[min(360px,92vw)] lg:w-[320px] border-[var(--border-subtle)] border-b md:border-b-0 md:border-r bg-[var(--bg-panel)] shrink-0 max-h-[45vh] md:max-h-none overflow-hidden">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border-subtle)] shrink-0">
-        <span className="text-[11px] font-black uppercase tracking-widest text-[var(--text-heading)]">
-          {tool === 'text-to-3d' ? 'Text to 3D' : tool === 'import' ? 'Import' : tool === 'blender' ? 'Blender' : 'Scene'}
-        </span>
-        <button type="button" onClick={onClose} className="md:hidden text-[10px] text-[var(--text-muted)]">
-          Close
-        </button>
-      </div>
+    <aside
+      className={`flex flex-col min-h-0 border-white/[0.06] border-b md:border-b-0 md:border-r bg-[#101218] ${className}`}
+    >
+      <header className="shrink-0 px-4 pt-4 pb-3 border-b border-white/[0.06]">
+        <h2 className="text-[15px] font-semibold text-zinc-100">{title}</h2>
+        {tool === 'text-to-3d' && (
+          <div className="flex gap-1 mt-3 p-0.5 rounded-lg bg-black/40">
+            {(['preview', 'refine'] as MeshyPhase[]).map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => onMeshyPhase(p)}
+                className={`flex-1 py-1.5 rounded-md text-[11px] font-semibold capitalize ${
+                  meshyPhase === p
+                    ? 'bg-emerald-500 text-[#041018]'
+                    : 'text-zinc-500 hover:text-zinc-300'
+                }`}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+        )}
+      </header>
 
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-3">
+      <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar px-4 py-3 space-y-3">
         {tool === 'text-to-3d' && (
           <>
-            <div className="flex gap-1 p-1 rounded-xl bg-[var(--bg-hover)]">
-              {(['preview', 'refine'] as MeshyPhase[]).map((p) => (
-                <button
-                  key={p}
-                  type="button"
-                  onClick={() => onMeshyPhase(p)}
-                  className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-wide ${
-                    meshyPhase === p
-                      ? 'bg-[var(--solar-cyan)] text-black'
-                      : 'text-[var(--text-muted)] hover:text-[var(--text-main)]'
-                  }`}
-                >
-                  {p}
-                </button>
-              ))}
-            </div>
-
             {meshyStub && (
-              <p className="text-[9px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-2 py-1.5">
-                Platform Meshy key missing — save your BYOK below or contact admin.
+              <p className="text-[11px] text-amber-400/90 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+                Meshy platform key not set — add BYOK below or use org Worker secret.
               </p>
             )}
 
-            <div className="flex items-center gap-2 text-[10px] text-[var(--text-muted)]">
-              <Coins size={12} className="text-[var(--solar-cyan)]" />
-              {balance != null ? `${balance} credits` : meshyStub ? 'Credits unavailable' : '…'}
-            </div>
-
             {meshyPhase === 'refine' && (
-              <input
-                className="w-full bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded-lg px-2 py-1.5 text-[10px] font-mono"
-                placeholder="Preview task ID"
-                value={settings.preview_task_id}
-                onChange={(e) => onPatch({ preview_task_id: e.target.value })}
-              />
+              <div>
+                <label className="text-[10px] font-medium text-zinc-500 uppercase tracking-wide">
+                  Preview task ID
+                </label>
+                <input
+                  className="mt-1 w-full bg-[#08090d] border border-white/[0.08] rounded-lg px-3 py-2 text-[11px] font-mono text-zinc-300"
+                  placeholder="From preview step…"
+                  value={settings.preview_task_id}
+                  onChange={(e) => onPatch({ preview_task_id: e.target.value })}
+                />
+              </div>
             )}
 
-            <textarea
-              rows={4}
-              className="w-full bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded-xl px-3 py-2 text-[11px] resize-none"
-              placeholder="Describe your 3D model…"
-              value={meshyPhase === 'refine' ? settings.texture_prompt || settings.prompt : settings.prompt}
-              onChange={(e) =>
-                meshyPhase === 'refine'
-                  ? onPatch({ texture_prompt: e.target.value })
-                  : onPatch({ prompt: e.target.value })
-              }
-              disabled={isGenerating}
-            />
+            <div>
+              <label className="text-[10px] font-medium text-zinc-500 uppercase tracking-wide">Prompt</label>
+              <textarea
+                rows={5}
+                className="mt-1 w-full bg-[#08090d] border border-white/[0.08] rounded-xl px-3 py-2.5 text-[12px] text-zinc-200 leading-relaxed resize-none focus:border-emerald-500/40 focus:outline-none"
+                placeholder={SAMPLE_PROMPT}
+                value={meshyPhase === 'refine' ? settings.texture_prompt || settings.prompt : settings.prompt}
+                onChange={(e) =>
+                  meshyPhase === 'refine'
+                    ? onPatch({ texture_prompt: e.target.value })
+                    : onPatch({ prompt: e.target.value })
+                }
+                disabled={isGenerating}
+              />
+              <p className="mt-1 text-[10px] text-zinc-600 text-right">
+                {(meshyPhase === 'refine' ? settings.texture_prompt || settings.prompt : settings.prompt).length}/600
+              </p>
+            </div>
 
-            <details className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-hover)]/50">
-              <summary className="px-3 py-2 text-[10px] font-bold uppercase tracking-wide cursor-pointer text-[var(--text-muted)]">
+            <details className="group rounded-xl border border-white/[0.06] bg-[#0c0d12]">
+              <summary className="px-3 py-2.5 text-[11px] font-medium text-zinc-400 cursor-pointer list-none flex justify-between">
                 Optional settings
+                <span className="text-zinc-600 group-open:rotate-180 transition-transform">▾</span>
               </summary>
-              <div className="px-3 pb-3 space-y-2">
-                <label className="block text-[9px] text-[var(--text-muted)] uppercase">AI model</label>
+              <div className="px-3 pb-3 space-y-2 border-t border-white/[0.04]">
+                <label className="text-[10px] text-zinc-500">AI model</label>
                 <select
-                  className="w-full bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded-lg px-2 py-1.5 text-[10px]"
+                  className="w-full bg-[#08090d] border border-white/[0.08] rounded-lg px-2 py-2 text-[11px] text-zinc-300"
                   value={settings.ai_model}
                   onChange={(e) => onPatch({ ai_model: e.target.value })}
                 >
@@ -187,64 +200,39 @@ export function TweaksPanel({
                   <option value="latest">Latest</option>
                   <option value="meshy-5">Meshy 5</option>
                 </select>
-
                 <div className="flex gap-1">
                   {(['standard', 'lowpoly'] as const).map((m) => (
                     <button
                       key={m}
                       type="button"
                       onClick={() => onPatch({ model_type: m })}
-                      className={`flex-1 py-1.5 rounded-lg text-[9px] font-bold uppercase ${
+                      className={`flex-1 py-1.5 rounded-lg text-[10px] font-semibold ${
                         settings.model_type === m
-                          ? 'bg-[var(--solar-cyan)]/20 text-[var(--solar-cyan)] border border-[var(--solar-cyan)]/40'
-                          : 'border border-[var(--border-subtle)] text-[var(--text-muted)]'
+                          ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/35'
+                          : 'border border-white/[0.08] text-zinc-500'
                       }`}
                     >
                       {m === 'lowpoly' ? 'Low poly' : 'Standard'}
                     </button>
                   ))}
                 </div>
-
-                <label className="block text-[9px] text-[var(--text-muted)]">Target polycount</label>
+                <label className="text-[10px] text-zinc-500">Target polycount</label>
                 <input
                   type="number"
                   min={1000}
                   max={300000}
-                  step={500}
-                  className="w-full bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded-lg px-2 py-1.5 text-[10px]"
+                  className="w-full bg-[#08090d] border border-white/[0.08] rounded-lg px-2 py-2 text-[11px]"
                   value={settings.target_polycount}
                   onChange={(e) => onPatch({ target_polycount: Number(e.target.value) || 5000 })}
                 />
-
-                <Toggle label="Should remesh" on={settings.should_remesh} onChange={(v) => onPatch({ should_remesh: v })} />
-                <Toggle label="Generate PBR maps" on={settings.enable_pbr} onChange={(v) => onPatch({ enable_pbr: v })} />
-                <Toggle label="HD texture" on={settings.hd_texture} onChange={(v) => onPatch({ hd_texture: v })} />
-                <Toggle label="Remove lighting" on={settings.remove_lighting} onChange={(v) => onPatch({ remove_lighting: v })} />
+                <Toggle label="Remesh" on={settings.should_remesh} onChange={(v) => onPatch({ should_remesh: v })} />
+                <Toggle label="PBR maps" on={settings.enable_pbr} onChange={(v) => onPatch({ enable_pbr: v })} />
                 <Toggle label="Auto size" on={settings.auto_size} onChange={(v) => onPatch({ auto_size: v })} />
-                <Toggle label="Moderation" on={settings.moderation} onChange={(v) => onPatch({ moderation: v })} />
-
-                <div className="flex flex-wrap gap-2 pt-1">
-                  {['glb', 'fbx', 'obj', 'stl', 'usdz'].map((fmt) => (
-                    <label key={fmt} className="flex items-center gap-1 text-[9px] text-[var(--text-muted)]">
-                      <input
-                        type="checkbox"
-                        checked={settings.target_formats.includes(fmt)}
-                        onChange={(e) => {
-                          const next = e.target.checked
-                            ? [...settings.target_formats, fmt]
-                            : settings.target_formats.filter((f) => f !== fmt);
-                          onPatch({ target_formats: next.length ? next : ['glb'] });
-                        }}
-                      />
-                      {fmt}
-                    </label>
-                  ))}
-                </div>
               </div>
             </details>
 
-            <details className="rounded-xl border border-[var(--border-subtle)]">
-              <summary className="px-3 py-2 text-[10px] font-bold uppercase tracking-wide cursor-pointer text-[var(--text-muted)] flex items-center gap-2">
+            <details className="rounded-xl border border-white/[0.06]">
+              <summary className="px-3 py-2.5 text-[11px] font-medium text-zinc-400 cursor-pointer flex items-center gap-2">
                 <Key size={12} />
                 API key (BYOK)
               </summary>
@@ -252,8 +240,8 @@ export function TweaksPanel({
                 <input
                   type="password"
                   autoComplete="off"
-                  placeholder="msk-… or platform uses Worker secret"
-                  className="w-full bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded-lg px-2 py-1.5 text-[10px]"
+                  placeholder="Paste Meshy API key"
+                  className="w-full bg-[#08090d] border border-white/[0.08] rounded-lg px-3 py-2 text-[11px]"
                   value={apiKeyDraft}
                   onChange={(e) => onApiKeyDraft(e.target.value)}
                 />
@@ -261,38 +249,18 @@ export function TweaksPanel({
                   type="button"
                   disabled={savingKey || !apiKeyDraft.trim()}
                   onClick={onSaveApiKey}
-                  className="w-full py-2 rounded-lg border border-[var(--solar-cyan)]/40 text-[10px] font-bold text-[var(--solar-cyan)] disabled:opacity-40"
+                  className="w-full py-2 rounded-lg border border-emerald-500/30 text-[11px] font-semibold text-emerald-400 disabled:opacity-40"
                 >
                   {savingKey ? 'Saving…' : 'Save to vault'}
                 </button>
               </div>
             </details>
 
-            <button
-              type="button"
-              disabled={isGenerating}
-              onClick={onCreate}
-              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-black text-[11px] uppercase tracking-widest text-black bg-gradient-to-r from-[#b8ff3c] via-[#7dffb0] to-[#ff6bcb] disabled:opacity-50"
-            >
-              {isGenerating ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-              {meshyPhase === 'preview' ? 'Create preview' : 'Create refine'}
-              <span className="opacity-80">· {ctaCost}</span>
-            </button>
-
-            <button
-              type="button"
-              disabled={isGenerating}
-              onClick={onQuickGenerate}
-              className="w-full py-2.5 rounded-xl border border-[var(--border-subtle)] text-[10px] font-bold uppercase text-[var(--text-muted)] hover:border-[var(--solar-cyan)]/30"
-            >
-              Quick: preview + refine
-            </button>
-
             {latestGlbUrl && onDownloadGlb ? (
               <button
                 type="button"
                 onClick={onDownloadGlb}
-                className="w-full py-2 rounded-xl border border-[var(--solar-orange)]/40 text-[10px] font-bold text-[var(--solar-orange)]"
+                className="w-full py-2 rounded-lg border border-orange-500/30 text-[11px] font-semibold text-orange-400"
               >
                 Download latest GLB
               </button>
@@ -316,7 +284,7 @@ export function TweaksPanel({
             <button
               type="button"
               onClick={() => fileRef.current?.click()}
-              className="w-full py-3 rounded-xl bg-[var(--solar-cyan)] text-black text-[10px] font-black uppercase"
+              className="w-full py-3 rounded-xl bg-emerald-500 text-[#041018] text-[11px] font-bold uppercase"
             >
               Choose GLB file
             </button>
@@ -331,23 +299,21 @@ export function TweaksPanel({
         )}
 
         {tool === 'blender' && (
-          <div className="space-y-2">
-            <p className="text-[10px] text-[var(--text-muted)] leading-relaxed">
-              Export scene JSON for Blender, or open the Mac PTY terminal to run blender on your scene assets.
-            </p>
+          <div className="space-y-2 text-[12px] text-zinc-400 leading-relaxed">
+            <p>Export scene JSON for Blender, or open the PTY terminal on your Mac.</p>
             <button
               type="button"
               onClick={onBlenderExport}
-              className="w-full py-2.5 rounded-xl bg-[var(--text-main)] text-[var(--bg-app)] text-[10px] font-black uppercase"
+              className="w-full py-2.5 rounded-xl bg-zinc-100 text-zinc-900 text-[11px] font-bold uppercase"
             >
-              Export Blender JSON
+              Export JSON
             </button>
             <button
               type="button"
               onClick={onBlenderTerminal}
-              className="w-full py-2.5 rounded-xl border border-[var(--solar-orange)]/40 text-[var(--solar-orange)] text-[10px] font-black uppercase"
+              className="w-full py-2.5 rounded-xl border border-orange-500/35 text-orange-400 text-[11px] font-bold uppercase"
             >
-              Open terminal (Blender)
+              Open terminal
             </button>
           </div>
         )}
@@ -363,6 +329,34 @@ export function TweaksPanel({
           />
         )}
       </div>
+
+      {tool === 'text-to-3d' && (
+        <footer className="shrink-0 p-4 border-t border-white/[0.06] bg-[#0c0d12] space-y-2">
+          {isGenerating && (
+            <div className="text-[10px] text-emerald-400/80 text-center">
+              Generating{progressPct != null ? ` · ${progressPct}%` : '…'}
+            </div>
+          )}
+          <button
+            type="button"
+            disabled={isGenerating}
+            onClick={onCreate}
+            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-bold text-[13px] text-[#041018] bg-gradient-to-r from-[#a3e635] via-[#4ade80] to-[#2dd4bf] disabled:opacity-50 shadow-[0_4px_24px_rgba(74,222,128,0.25)]"
+          >
+            {isGenerating ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+            {meshyPhase === 'preview' ? 'Create Preview' : 'Create Refine'}
+            <span className="opacity-70 text-[11px]">· {ctaCost} cr</span>
+          </button>
+          <button
+            type="button"
+            disabled={isGenerating}
+            onClick={onQuickGenerate}
+            className="w-full py-2 text-[11px] font-medium text-zinc-500 hover:text-zinc-300"
+          >
+            Quick: preview + refine chain
+          </button>
+        </footer>
+      )}
     </aside>
   );
 }

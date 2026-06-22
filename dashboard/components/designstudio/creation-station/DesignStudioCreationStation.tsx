@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
-import { ChevronLeft } from 'lucide-react';
+import { ChevronLeft, PanelRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { MeshyBalancePill } from '../MeshyBalancePill';
-import { ToolRail } from './ToolRail';
+import { ToolRail, MobileToolStrip } from './ToolRail';
 import { TweaksPanel } from './TweaksPanel';
 import { ApiInspector } from './ApiInspector';
 import { LogPanel } from './LogPanel';
 import { useCreationStation, type CreationTool } from './useCreationStation';
+import { CS_GRID } from './layout';
 import type { useDesignStudioCad } from '../hooks/useDesignStudioCad';
 import type { CustomAsset } from '../../../types';
 import type { SavedSceneRow } from '../shared/ScenePanel';
@@ -55,124 +56,127 @@ export function DesignStudioCreationStation({
 }: DesignStudioCreationStationProps) {
   const navigate = useNavigate();
   const cs = useCreationStation(cad);
-  const [mobileTab, setMobileTab] = useState<'tools' | 'view' | 'api'>('view');
+  const [mobilePane, setMobilePane] = useState<'tools' | 'view'>('view');
+  const [apiOpen, setApiOpen] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches,
+  );
 
   const handleToolSelect = (tool: CreationTool) => {
     cs.setActiveTool(tool);
-    cs.setPanelOpen(true);
-    if (tool === 'import') setMobileTab('tools');
+    setMobilePane('tools');
   };
 
   const handleCreate = () => {
     cs.setLogOpen(true);
+    setMobilePane('view');
     if (cs.meshyPhase === 'preview') void cs.runPreview();
     else void cs.runRefine();
   };
 
   const handleQuick = () => {
     cs.setLogOpen(true);
+    setMobilePane('view');
     void cs.runQuickGenerate();
   };
 
   const latestGlb = activeJob?.public_url || activeJob?.result_url;
+  const progressPct = cad.polledJob?.progress_pct;
 
   return (
-    <div className="flex flex-col md:flex-row h-full min-h-0 w-full bg-[var(--bg-app)]">
-      {/* Mobile tab bar */}
-      <div className="flex md:hidden border-b border-[var(--border-subtle)] bg-[var(--bg-panel)] shrink-0">
-        {(['tools', 'view', 'api'] as const).map((tab) => (
-          <button
-            key={tab}
-            type="button"
-            onClick={() => setMobileTab(tab)}
-            className={`flex-1 py-2.5 text-[10px] font-black uppercase tracking-widest ${
-              mobileTab === tab ? 'text-[var(--solar-cyan)] border-b-2 border-[var(--solar-cyan)]' : 'text-[var(--text-muted)]'
-            }`}
-          >
-            {tab}
-          </button>
-        ))}
-      </div>
+    <div className={CS_GRID}>
+      <MobileToolStrip active={cs.activeTool} onSelect={handleToolSelect} />
 
-      <div className={`flex flex-col md:flex-row flex-1 min-h-0 ${mobileTab !== 'tools' ? 'hidden md:flex' : 'flex'} md:!flex`}>
-        <ToolRail
-          active={cs.activeTool}
-          panelOpen={cs.panelOpen}
-          onSelect={handleToolSelect}
-          onTogglePanel={() => cs.setPanelOpen((p) => !p)}
-        />
+      <ToolRail
+        active={cs.activeTool}
+        onSelect={handleToolSelect}
+        onOpenLog={() => cs.setLogOpen(true)}
+        className="md:col-start-1 md:row-start-1"
+      />
 
-        {(cs.panelOpen || mobileTab === 'tools') && (
-          <TweaksPanel
-            tool={cs.activeTool}
-            open={cs.panelOpen || mobileTab === 'tools'}
-            onClose={() => {
-              cs.setPanelOpen(false);
-              setMobileTab('view');
-            }}
-            meshyPhase={cs.meshyPhase}
-            onMeshyPhase={cs.setMeshyPhase}
-            settings={cs.settings}
-            onPatch={cs.patchSettings}
-            balance={cs.balance}
-            meshyStub={cs.meshyStub}
-            ctaCost={cs.ctaCost}
-            isGenerating={cs.isGenerating}
-            onCreate={handleCreate}
-            onQuickGenerate={handleQuick}
-            apiKeyDraft={cs.apiKeyDraft}
-            onApiKeyDraft={cs.setApiKeyDraft}
-            onSaveApiKey={() => void cs.saveMeshyApiKey()}
-            savingKey={cs.savingKey}
-            onImportGlb={onImportGlb}
-            onBlenderExport={onBlenderExport}
-            onBlenderTerminal={() =>
-              cs.openTerminal('cd ~/inneranimalmedia && ls scripts/designstudio/')
-            }
-            sceneName={sceneName}
-            onSceneNameChange={onSceneNameChange}
-            savedScenes={savedScenes}
-            sceneBusy={sceneBusy}
-            onSaveScene={onSaveScene}
-            onLoadScene={onLoadScene}
-            customAssets={customAssets}
-            onSpawnModel={onSpawnModel}
-            onAddCustomAsset={onAddCustomAsset}
-            onRemoveCustomAsset={onRemoveCustomAsset}
-            onRefreshUserAssets={onRefreshUserAssets}
-            latestGlbUrl={latestGlb}
-            onDownloadGlb={onDownloadLatestGlb}
-          />
-        )}
-      </div>
-
-      {/* Center lane: viewport + log */}
       <div
-        className={`flex flex-col flex-1 min-w-0 min-h-0 relative ${
-          mobileTab === 'view' ? 'flex' : 'hidden md:flex'
+        className={`min-h-0 flex flex-col md:col-start-2 md:row-start-1 ${
+          mobilePane === 'tools' ? 'flex max-h-[50vh] md:max-h-none' : 'hidden md:flex'
         }`}
       >
-        <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border-subtle)] bg-[var(--bg-panel)]/80 backdrop-blur shrink-0 gap-2">
+        <TweaksPanel
+          tool={cs.activeTool}
+          meshyPhase={cs.meshyPhase}
+          onMeshyPhase={cs.setMeshyPhase}
+          settings={cs.settings}
+          onPatch={cs.patchSettings}
+          meshyStub={cs.meshyStub}
+          ctaCost={cs.ctaCost}
+          isGenerating={cs.isGenerating}
+          progressPct={progressPct}
+          onCreate={handleCreate}
+          onQuickGenerate={handleQuick}
+          apiKeyDraft={cs.apiKeyDraft}
+          onApiKeyDraft={cs.setApiKeyDraft}
+          onSaveApiKey={() => void cs.saveMeshyApiKey()}
+          savingKey={cs.savingKey}
+          onImportGlb={onImportGlb}
+          onBlenderExport={onBlenderExport}
+          onBlenderTerminal={() =>
+            cs.openTerminal('cd ~/inneranimalmedia && ls scripts/designstudio/')
+          }
+          sceneName={sceneName}
+          onSceneNameChange={onSceneNameChange}
+          savedScenes={savedScenes}
+          sceneBusy={sceneBusy}
+          onSaveScene={onSaveScene}
+          onLoadScene={onLoadScene}
+          customAssets={customAssets}
+          onSpawnModel={onSpawnModel}
+          onAddCustomAsset={onAddCustomAsset}
+          onRemoveCustomAsset={onRemoveCustomAsset}
+          onRefreshUserAssets={onRefreshUserAssets}
+          latestGlbUrl={latestGlb}
+          onDownloadGlb={onDownloadLatestGlb}
+          className="flex-1 min-h-0"
+        />
+      </div>
+
+      <div
+        className={`flex flex-col min-h-0 min-w-0 md:col-start-3 md:row-start-1 ${
+          mobilePane === 'view' ? 'flex flex-1' : 'hidden md:flex'
+        }`}
+      >
+        <header className="shrink-0 flex items-center justify-between gap-3 px-3 py-2 border-b border-white/[0.06] bg-[#0c0d12]/95 backdrop-blur-md">
           <div className="flex items-center gap-2 min-w-0">
             <button
               type="button"
               onClick={() => navigate('/dashboard/agent')}
-              className="p-1.5 rounded-lg text-[var(--text-muted)] hover:bg-[var(--bg-hover)] shrink-0"
-              title="Back"
+              className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-white/[0.04]"
+              title="Back to Agent"
             >
               <ChevronLeft size={18} />
             </button>
             <div className="min-w-0">
-              <h1 className="text-[11px] font-black uppercase tracking-widest text-[var(--text-heading)] truncate">
-                Creation Station
-              </h1>
-              <p className="text-[9px] text-[var(--text-muted)] truncate">Meshy · Blender · 3D viewport</p>
+              <h1 className="text-[13px] font-semibold text-zinc-100 truncate">Creation Station</h1>
+              <p className="text-[10px] text-zinc-500 truncate">3D viewport · Meshy · Blender</p>
             </div>
           </div>
-          <MeshyBalancePill refreshKey={cs.balance ?? 0} />
-        </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              className="md:hidden px-2 py-1 text-[10px] font-semibold text-zinc-500 border border-white/[0.08] rounded-lg"
+              onClick={() => setMobilePane((p) => (p === 'view' ? 'tools' : 'view'))}
+            >
+              {mobilePane === 'view' ? 'Tools' : 'View'}
+            </button>
+            <button
+              type="button"
+              className="hidden lg:flex p-2 rounded-lg text-zinc-500 hover:text-zinc-200 hover:bg-white/[0.04]"
+              onClick={() => setApiOpen((o) => !o)}
+              title="Toggle API panel"
+            >
+              <PanelRight size={16} />
+            </button>
+            <MeshyBalancePill refreshKey={cs.balance ?? 0} />
+          </div>
+        </header>
 
-        <div className="flex-1 min-h-0 relative">{viewport}</div>
+        <div className="flex-1 min-h-0 relative bg-[#0a0b0f]">{viewport}</div>
 
         <LogPanel
           open={cs.logOpen}
@@ -182,15 +186,19 @@ export function DesignStudioCreationStation({
         />
       </div>
 
-      {/* Right lane: API */}
-      <div className={`relative ${mobileTab === 'api' ? 'flex flex-1 min-h-0' : 'hidden lg:flex'}`}>
-        <ApiInspector
-          request={cs.lastRequest}
-          response={cs.lastResponse}
-          open={cs.apiOpen || mobileTab === 'api'}
-          onToggle={() => cs.setApiOpen((o) => !o)}
-        />
-      </div>
+      {(apiOpen || cs.apiOpen) && (
+        <div className="hidden lg:flex flex-col min-h-0 md:col-start-4 md:row-start-1 border-l border-white/[0.06]">
+          <ApiInspector
+            request={cs.lastRequest}
+            response={cs.lastResponse}
+            open
+            onToggle={() => {
+              setApiOpen(false);
+              cs.setApiOpen(false);
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 }

@@ -27,6 +27,8 @@ interface UIOverlayProps {
   onRedo: () => void;
   canUndo: boolean;
   canRedo: boolean;
+  /** Minimal chrome for Design Studio creation station viewport */
+  variant?: 'default' | 'studio';
 }
 
 export const UIOverlay: React.FC<UIOverlayProps> = ({
@@ -39,7 +41,8 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
   onUndo,
   onRedo,
   canUndo,
-  canRedo
+  canRedo,
+  variant = 'default',
 }) => {
   const getStyleIcon = () => {
     switch (genConfig.style) {
@@ -67,6 +70,48 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
     { id: CADPlane.XY, label: 'Front (XY)' },
     { id: CADPlane.YZ, label: 'Side (YZ)' },
   ];
+
+  if (variant === 'studio') {
+    return (
+      <div className="absolute inset-0 pointer-events-none p-3 md:p-4">
+        <div className="flex justify-end items-start gap-2 pointer-events-auto">
+          <button
+            type="button"
+            onClick={onUndo}
+            disabled={!canUndo}
+            className="w-9 h-9 rounded-lg bg-black/50 border border-white/10 text-zinc-400 hover:text-white disabled:opacity-25 backdrop-blur-md"
+            title="Undo"
+          >
+            <Undo2 size={16} className="mx-auto" />
+          </button>
+          <button
+            type="button"
+            onClick={onRedo}
+            disabled={!canRedo}
+            className="w-9 h-9 rounded-lg bg-black/50 border border-white/10 text-zinc-400 hover:text-white disabled:opacity-25 backdrop-blur-md"
+            title="Redo"
+          >
+            <Redo2 size={16} className="mx-auto" />
+          </button>
+          <button
+            type="button"
+            onClick={onClear}
+            className="px-3 h-9 rounded-lg bg-red-500/10 border border-red-500/25 text-red-400 text-[10px] font-bold uppercase tracking-wide backdrop-blur-md hover:bg-red-500/20"
+          >
+            Purge
+          </button>
+        </div>
+        {isGenerating && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="flex items-center gap-3 px-5 py-3 rounded-xl bg-black/70 border border-emerald-500/20 backdrop-blur-xl">
+              <Loader2 size={20} className="text-emerald-400 animate-spin" />
+              <span className="text-[11px] font-semibold text-zinc-200">Generating mesh…</span>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="absolute inset-0 pointer-events-none p-10 flex flex-col justify-between">

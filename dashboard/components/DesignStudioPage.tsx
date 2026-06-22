@@ -524,6 +524,7 @@ export const DesignStudioPage: React.FC = () => {
               onRedo={handleRedo}
               canUndo={undoStack.length > 0}
               canRedo={redoStack.length > 0}
+              variant="studio"
             />
           </div>
         }
