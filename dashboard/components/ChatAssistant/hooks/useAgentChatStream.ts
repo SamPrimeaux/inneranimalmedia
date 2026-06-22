@@ -71,6 +71,36 @@ function isCdtBrowserToolName(name: string): boolean {
   return String(name || '').trim().toLowerCase().startsWith('cdt_');
 }
 
+/** Stateless Browser Run REST tools — no shared CDP session / Live View. */
+function isBrowserRunQuickActionToolName(name: string): boolean {
+  return String(name || '').trim().toLowerCase().startsWith('browser_run_');
+}
+
+/** Session-based browser tools that should surface Agent Live on /dashboard/agent. */
+function isAgentLiveBrowserToolName(name: string): boolean {
+  const n = String(name || '').trim().toLowerCase();
+  if (!n) return false;
+  if (isBrowserRunQuickActionToolName(n)) return false;
+  if (isBrowserScreenshotToolName(n)) return false;
+  return n.startsWith('cdt_') || n.startsWith('browser_');
+}
+
+function parseBrowserToolUrlFromInput(inputPreview: string | null | undefined): string | null {
+  try {
+    const inp = JSON.parse(String(inputPreview || '{}')) as Record<string, unknown>;
+    const u =
+      (typeof inp.url === 'string' && inp.url.trim()) ||
+      (typeof inp.href === 'string' && inp.href.trim()) ||
+      (typeof inp.target_url === 'string' && inp.target_url.trim()) ||
+      (typeof inp.page_url === 'string' && inp.page_url.trim()) ||
+      '';
+    if (!u) return null;
+    return sanitizeBrowserNavigateUrl(u) || u;
+  } catch {
+    return null;
+  }
+}
+
 function truncateLines(text: string, maxLines: number): { head: string; truncated: boolean; total: number } {
   const lines = String(text || '').split('\n');
   if (lines.length <= maxLines) return { head: String(text || ''), truncated: false, total: lines.length };
@@ -311,6 +341,7 @@ export type ConsumeAgentChatSseContext = {
     type: 'browser_navigate';
     url: string;
     automation?: boolean;
+    agent_live?: boolean;
     screenshot_url?: string;
     page_text?: string;
     title?: string;
@@ -428,6 +459,8 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
   /** Accumulated `tool_output` for the active tool (terminal receipt parsing). */
   let lastActiveToolOutputChunk: string | null = null;
   let activeBrowserScreenshotTool = false;
+  /** First session-based browser tool in this stream — opens Agent Live once. */
+  let browserAgentLiveSurfaced = false;
   let activeAgentRunId: string | null = null;
   let executionPlan: ExecutionPlanState | null = null;
 
@@ -848,13 +881,21 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
                 load_url: d.load_url,
                 artifact_id: d.artifact_id,
                 artifact_type: d.artifact_type,
+                ...(d.surface === 'browser' && activeAgentRunId
+                  ? { agent_live: true }
+                  : {}),
               },
             }),
           );
           if (d.surface === 'browser' && typeof d.url === 'string' && d.url.trim()) {
             const navUrl = sanitizeBrowserNavigateUrl(d.url);
             if (navUrl && !/\/api\/r2\/file\b/i.test(navUrl)) {
-              onBrowserNavigate?.({ type: 'browser_navigate', url: navUrl });
+              onBrowserNavigate?.({
+                type: 'browser_navigate',
+                url: navUrl,
+                agent_live: Boolean(activeAgentRunId),
+                automation: Boolean(activeAgentRunId),
+              });
             }
           }
           continue;
@@ -1825,8 +1866,12 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             onBrowserNavigate?.({
               type: 'browser_navigate',
               url: navUrl,
+              agent_live: Boolean(activeAgentRunId),
+              automation: Boolean(activeAgentRunId),
               page_text: typeof d.page_text === 'string' ? d.page_text : undefined,
               title: typeof d.title === 'string' ? d.title : undefined,
+            } as Parameters<NonNullable<typeof onBrowserNavigate>>[0] & {
+              agent_live?: boolean;
             });
           }
           continue;
@@ -1882,18 +1927,27 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
                 detail: { tool_name: tn, phase: 'start' },
               }),
             );
-            if (
-              !isBrowserScreenshotToolName(tn) &&
-              (tn.startsWith('cdt_') || tn.startsWith('browser_'))
-            ) {
-              window.dispatchEvent(
-                new CustomEvent('iam:agent-open-surface', {
-                  detail: { surface: 'browser', agent_live: true },
-                }),
-              );
+          }
+          if (typeof window !== 'undefined' && isAgentLiveBrowserToolName(tn)) {
+            const toolUrl =
+              pendingBrowserToolUrl || parseBrowserToolUrlFromInput(d.input_preview) || null;
+            window.dispatchEvent(
+              new CustomEvent('iam:agent-open-surface', {
+                detail: {
+                  surface: 'browser',
+                  agent_live: true,
+                  ...(toolUrl ? { url: toolUrl } : {}),
+                },
+              }),
+            );
+            if (!browserAgentLiveSurfaced) {
+              browserAgentLiveSurfaced = true;
               window.dispatchEvent(
                 new CustomEvent('iam-browser-agent-live', {
-                  detail: { url: 'about:blank', agent_run_id: activeAgentRunId || undefined },
+                  detail: {
+                    url: toolUrl || 'about:blank',
+                    agent_run_id: activeAgentRunId || undefined,
+                  },
                 }),
               );
             }

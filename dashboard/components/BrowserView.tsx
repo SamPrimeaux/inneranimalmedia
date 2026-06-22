@@ -1386,9 +1386,11 @@ const BrowserPane: React.FC<PaneProps> = ({
   }, [registryPickers]);
   const menuRef      = useRef<HTMLDivElement>(null);
   const iframeRef    = useRef<HTMLIFrameElement>(null);
-  const [viewSurface,    setViewSurface]    = useState<ViewSurface>(
-    initialAgentLive ? 'agentLive' : 'preview',
-  );
+  const [viewSurface,    setViewSurface]    = useState<ViewSurface>(() => {
+    if (previewSource === 'editor') return 'preview';
+    if (initialAgentLive || Boolean(agentRunId?.trim())) return 'agentLive';
+    return 'preview';
+  });
   const [humanInputReq,  setHumanInputReq]  = useState<{
     reason: string;
     liveViewUrl?: string | null;
@@ -2287,10 +2289,17 @@ const BrowserPane: React.FC<PaneProps> = ({
         previewSource === 'editor' ||
         /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?/i.test(n) ||
         n.startsWith('blob:');
+      if (opts?.agentLive === false && opts?.automation === false) {
+        setViewSurface('preview');
+        await openPassiveIframeView(raw);
+        return;
+      }
       const useAgentLive =
         !isPassiveEditorUrl &&
         (opts?.agentLive === true ||
-          (opts?.automation === true && Boolean(agentRunId?.trim()) && !opts?.preview?.screenshot_url));
+          (opts?.agentLive !== false &&
+            Boolean(agentRunId?.trim()) &&
+            !opts?.preview?.screenshot_url));
       if (useAgentLive) {
         await openAgentLiveSession(n);
         return;
@@ -2329,9 +2338,11 @@ const BrowserPane: React.FC<PaneProps> = ({
       automation: passiveEditor
         ? false
         : initialAutomation === true || Boolean(initialPreview?.screenshot_url),
-      agentLive: passiveEditor ? false : initialAgentLive === true,
+      agentLive: passiveEditor
+        ? false
+        : initialAgentLive === true || Boolean(agentRunId?.trim()),
     });
-  }, [initialUrl, initialPreview, initialAutomation, initialAgentLive, previewSource]);
+  }, [initialUrl, initialPreview, initialAutomation, initialAgentLive, previewSource, agentRunId]);
 
   // ── Screenshot (Playwright) ─────────────────────────────────────────────────
   const runScreenshot = useCallback(async (clip?: { x: number; y: number; width: number; height: number }) => {
@@ -3027,9 +3038,14 @@ export const BrowserView: React.FC<BrowserViewProps> = ({
 }) => {
   const [primaryUrl,         setPrimaryUrl]         = useState(() => urlFromParent?.trim() || '');
   const [primaryAutomation, setPrimaryAutomation] = useState(false);
-  const [primaryAgentLive,  setPrimaryAgentLive]  = useState(false);
+  const [primaryAgentLive,  setPrimaryAgentLive]  = useState(() => Boolean(agentRunId?.trim()));
   const [primaryPreview,    setPrimaryPreview]    = useState<BrowserPreviewPayload | null>(null);
   const urlFromParentRef = useRef(urlFromParent);
+
+  useEffect(() => {
+    if (previewSource === 'editor' || !agentRunId?.trim()) return;
+    setPrimaryAgentLive(true);
+  }, [agentRunId, previewSource]);
 
   const commitUrlToParent = useCallback(
     (url: string) => {
@@ -3077,22 +3093,26 @@ export const BrowserView: React.FC<BrowserViewProps> = ({
       if (d?.url) {
         setPrimaryUrl(d.url);
         const hasLive = Boolean(d.live_view_url?.trim());
-        setPrimaryAutomation(d.automation === true && !hasLive);
-        setPrimaryAgentLive(
-          hasLive && (d.agent_live === true || d.automation === true),
-        );
+        const agentLivePreferred =
+          hasLive ||
+          d.agent_live === true ||
+          d.automation === true ||
+          Boolean(agentRunId?.trim());
+        setPrimaryAutomation(d.automation === true && !agentLivePreferred);
+        setPrimaryAgentLive(agentLivePreferred && !d.screenshot_url);
         if (d.screenshot_url) {
           setPrimaryPreview({ screenshot_url: d.screenshot_url });
         } else {
           setPrimaryPreview(null);
         }
-        if (d.agent_live && d.live_view_url) {
+        if (agentLivePreferred) {
           window.dispatchEvent(
             new CustomEvent('iam-browser-agent-live', {
               detail: {
                 url: d.url,
                 live_view_url: d.live_view_url,
                 session_id: d.session_id,
+                agent_run_id: agentRunId || undefined,
               },
             }),
           );
@@ -3111,7 +3131,7 @@ export const BrowserView: React.FC<BrowserViewProps> = ({
       window.removeEventListener('iam-browser-navigate',           onPrimary);
       window.removeEventListener('iam-browser-navigate-secondary', onSecondary);
     };
-  }, []);
+  }, [agentRunId]);
 
   return (
     <div className="flex w-full h-full overflow-hidden bg-[var(--bg-app)] flex-col">

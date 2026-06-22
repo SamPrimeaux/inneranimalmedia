@@ -398,6 +398,166 @@ export async function browserRunJson(env, params = {}) {
   }
 }
 
+/** @param {any} env @param {Record<string, unknown>} params */
+export async function browserRunPdf(env, params = {}) {
+  try {
+    const url = normalizeUrlInput(params);
+    const html = params.html != null ? String(params.html) : '';
+    if (!url && !html.trim()) return { ok: false, error: 'url or html required' };
+
+    /** @type {Record<string, unknown>} */
+    const body = url ? { url } : { html: html.trim() };
+    if (params.pdf_options && typeof params.pdf_options === 'object') {
+      body.pdfOptions = params.pdf_options;
+    } else if (params.pdfOptions && typeof params.pdfOptions === 'object') {
+      body.pdfOptions = params.pdfOptions;
+    }
+    const waitForNetwork = params.wait_for_network === true || params.waitForNetwork === true;
+    if (waitForNetwork) {
+      body.gotoOptions = { waitUntil: 'networkidle2' };
+    }
+
+    const out = await browserRenderingFetch(env, '/pdf', {
+      method: 'POST',
+      body,
+      expectJson: false,
+    });
+    if (!out.ok) return { ok: false, error: out.error };
+
+    const res = out.response;
+    const contentType = res.headers.get('content-type') || '';
+    if (contentType.includes('json')) {
+      const json = await res.json().catch(() => null);
+      const b64 =
+        typeof json?.result === 'string'
+          ? json.result
+          : typeof json?.result?.pdf === 'string'
+            ? json.result.pdf
+            : '';
+      if (!b64) return { ok: false, error: 'pdf endpoint returned empty JSON result' };
+      return {
+        ok: true,
+        data: { pdf_base64: b64, content_type: 'application/pdf' },
+        pdf_base64: b64,
+      };
+    }
+
+    const pdf_base64 = await responseToBase64(res);
+    if (!pdf_base64) return { ok: false, error: 'pdf endpoint returned empty body' };
+    return {
+      ok: true,
+      data: { pdf_base64, content_type: contentType || 'application/pdf' },
+      pdf_base64,
+    };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e) };
+  }
+}
+
+/** @param {any} env @param {Record<string, unknown>} params */
+export async function browserRunScrape(env, params = {}) {
+  try {
+    const url = normalizeUrlInput(params);
+    const rawElements = params.elements;
+    const elements = Array.isArray(rawElements)
+      ? rawElements
+          .map((el) => {
+            if (!el || typeof el !== 'object') return null;
+            const selector =
+              typeof el.selector === 'string'
+                ? el.selector.trim()
+                : typeof el === 'string'
+                  ? el.trim()
+                  : '';
+            if (!selector) return null;
+            return { selector };
+          })
+          .filter(Boolean)
+      : [];
+    if (!url) return { ok: false, error: 'url required' };
+    if (!elements.length) return { ok: false, error: 'elements required (array of { selector })' };
+
+    const waitForNetwork = params.wait_for_network === true || params.waitForNetwork === true;
+    const body = {
+      url,
+      elements,
+      ...(waitForNetwork ? { gotoOptions: { waitUntil: 'networkidle2' } } : {}),
+    };
+
+    const out = await browserRenderingFetch(env, '/scrape', { method: 'POST', body });
+    if (!out.ok) return { ok: false, error: out.error };
+
+    const result = Array.isArray(out.data)
+      ? out.data
+      : Array.isArray(out.data?.result)
+        ? out.data.result
+        : [];
+    return { ok: true, data: { result }, result };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e) };
+  }
+}
+
+/** @param {any} env @param {Record<string, unknown>} params */
+export async function browserRunSnapshot(env, params = {}) {
+  try {
+    const url = normalizeUrlInput(params);
+    const html = params.html != null ? String(params.html) : '';
+    if (!url && !html.trim()) return { ok: false, error: 'url or html required' };
+
+    const formats = Array.isArray(params.formats)
+      ? params.formats.map((f) => String(f)).filter(Boolean)
+      : ['content', 'screenshot'];
+
+    /** @type {Record<string, unknown>} */
+    const body = url ? { url, formats } : { html: html.trim(), formats };
+    const fullPage = params.full_page === true || params.fullPage === true;
+    if (fullPage) {
+      body.screenshotOptions = { fullPage: true, type: 'jpeg', quality: 80 };
+    }
+    const waitForNetwork = params.wait_for_network === true || params.waitForNetwork === true;
+    if (waitForNetwork) {
+      body.gotoOptions = { waitUntil: 'networkidle2' };
+    }
+
+    const out = await browserRenderingFetch(env, '/snapshot', { method: 'POST', body });
+    if (!out.ok) return { ok: false, error: out.error };
+
+    const payload =
+      out.data && typeof out.data === 'object' && !Array.isArray(out.data) ? out.data : {};
+    const normalized = {
+      content: typeof payload.content === 'string' ? payload.content : undefined,
+      html: typeof payload.html === 'string' ? payload.html : undefined,
+      markdown: typeof payload.markdown === 'string' ? payload.markdown : undefined,
+      screenshot:
+        typeof payload.screenshot === 'string'
+          ? payload.screenshot
+          : typeof payload.image_base64 === 'string'
+            ? payload.image_base64
+            : undefined,
+      accessibility_tree:
+        payload.accessibilityTree && typeof payload.accessibilityTree === 'object'
+          ? payload.accessibilityTree
+          : payload.accessibility_tree && typeof payload.accessibility_tree === 'object'
+            ? payload.accessibility_tree
+            : undefined,
+      meta: out.raw?.meta && typeof out.raw.meta === 'object' ? out.raw.meta : undefined,
+    };
+    if (
+      !normalized.content &&
+      !normalized.html &&
+      !normalized.markdown &&
+      !normalized.screenshot &&
+      !normalized.accessibility_tree
+    ) {
+      return { ok: false, error: 'snapshot endpoint returned empty result' };
+    }
+    return { ok: true, data: normalized, ...normalized };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e) };
+  }
+}
+
 export const BROWSER_RUN_QUICKACTIONS = {
   markdown: browserRunMarkdown,
   content: browserRunContent,
@@ -405,4 +565,7 @@ export const BROWSER_RUN_QUICKACTIONS = {
   links: browserRunLinks,
   crawl: browserRunCrawl,
   json: browserRunJson,
+  pdf: browserRunPdf,
+  scrape: browserRunScrape,
+  snapshot: browserRunSnapshot,
 };

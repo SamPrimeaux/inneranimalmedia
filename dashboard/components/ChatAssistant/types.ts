@@ -228,11 +228,13 @@ export interface ChatAssistantProps {
   editorCursorColumn?: number;
   /** SSE: agent tool `r2_write` emits `r2_file_updated` for Monaco sync */
   onR2FileUpdated?: (event: { type: 'r2_file_updated'; bucket: string; key: string }) => void;
-  /** SSE: `browser_navigate` / `surface_open` opens the Browser tab (embedded iframe; automation optional) */
+  /** SSE: `browser_navigate` / `surface_open` opens the Browser tab (Agent Live when agent_run_id is active). */
   onBrowserNavigate?: (event: {
     type: 'browser_navigate';
     url: string;
-    /** When true, BrowserView may show MYBROWSER/CDT screenshot preview instead of iframe-only. */
+    /** When true, BrowserView opens Browser Run Live View (shared agent session). */
+    agent_live?: boolean;
+    /** When true without agent_live, BrowserView may show MYBROWSER screenshot preview. */
     automation?: boolean;
     screenshot_url?: string;
     page_text?: string;

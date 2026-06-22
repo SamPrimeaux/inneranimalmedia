@@ -2795,10 +2795,13 @@ const App: React.FC = () => {
       if (/\/api\/r2\/file\b/i.test(url)) {
         return;
       }
-      const hasLiveView = Boolean(event.live_view_url?.trim());
+      const onAgentRoute = browserPreviewSource === 'agent';
       const agentLive =
-        hasLiveView && (event.agent_live === true || event.automation === true);
-      const automation = !agentLive && event.automation === true;
+        onAgentRoute &&
+        (event.agent_live === true ||
+          event.automation === true ||
+          Boolean(activeAgentRunId?.trim()));
+      const automation = onAgentRoute && !agentLive && event.automation === true;
       window.dispatchEvent(
         new CustomEvent('iam:agent-open-surface', {
           detail: { surface: 'browser', url, automation, agent_live: agentLive },
@@ -2818,6 +2821,18 @@ const App: React.FC = () => {
           },
         }),
       );
+      if (agentLive && activeAgentRunId?.trim()) {
+        window.dispatchEvent(
+          new CustomEvent('iam-browser-agent-live', {
+            detail: {
+              url,
+              agent_run_id: activeAgentRunId.trim(),
+              live_view_url: event.live_view_url,
+              session_id: event.session_id,
+            },
+          }),
+        );
+      }
       revealMainWorkspaceIfNarrow();
       setBrowserPreviewSource('agent');
       setBrowserAddressDisplay(null);
@@ -2829,7 +2844,7 @@ const App: React.FC = () => {
         setToastMsg('Browser tab opened. Tap Chat to return to Agent Sam.');
       }
     },
-    [revealMainWorkspaceIfNarrow, isNarrowViewport],
+    [revealMainWorkspaceIfNarrow, isNarrowViewport, browserPreviewSource, activeAgentRunId],
   );
 
 

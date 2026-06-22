@@ -12,6 +12,9 @@ const ACTION_TO_TOOL = {
   links: 'browser_run_links',
   crawl: 'browser_run_crawl',
   json: 'browser_run_json',
+  pdf: 'browser_run_pdf',
+  scrape: 'browser_run_scrape',
+  snapshot: 'browser_run_snapshot',
 };
 
 /**
@@ -132,6 +135,12 @@ export async function handleBrowserRunQuickActionsRoute(request, url, env) {
     ...(result.image_base64 != null ? { image_base64: result.image_base64 } : {}),
     ...(result.links != null ? { links: result.links } : {}),
     ...(result.job_id != null ? { job_id: result.job_id, status: result.status, records: result.records } : {}),
+    ...(result.pdf_base64 != null ? { pdf_base64: result.pdf_base64 } : {}),
+    ...(result.result != null ? { result: result.result } : {}),
+    ...(result.screenshot != null ? { screenshot: result.screenshot } : {}),
+    ...(result.markdown != null ? { markdown: result.markdown } : {}),
+    ...(result.content != null && action === 'snapshot' ? { content: result.content } : {}),
+    ...(result.accessibility_tree != null ? { accessibility_tree: result.accessibility_tree } : {}),
     ...(result.data && action === 'json' ? { data: result.data } : {}),
   });
 }
