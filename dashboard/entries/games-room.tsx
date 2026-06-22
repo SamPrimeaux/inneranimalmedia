@@ -1,5 +1,5 @@
 /**
- * Public 3D chess room — mounts on /games/room_* via static/pages/games/room.html
+ * Public 3D chess room — SparkChess-style HUD + locked camera viewport.
  */
 import { ChessViewport } from '../lib/ChessViewport';
 
@@ -22,6 +22,17 @@ function formatTime(secs: number): string {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function sideLabel(color: 'white' | 'black'): string {
+  return color === 'white' ? 'You are white' : 'You are orange';
+}
+
 function boot() {
   const roomId = getRoomId();
   setText('room-id-short', truncateRoom(roomId));
@@ -35,8 +46,8 @@ function boot() {
   let myColor: 'white' | 'black' | 'spectator' | null = null;
   let opponentConnected = false;
   let ws: WebSocket | null = null;
-  let whiteSeconds = 180;
-  let blackSeconds = 180;
+  let whiteSeconds = 600;
+  let blackSeconds = 600;
   let timerHandle: ReturnType<typeof setInterval> | null = null;
 
   const overlay = document.getElementById('loading-overlay');
@@ -47,17 +58,19 @@ function boot() {
     return;
   }
 
+  const applyTimerClasses = (el: HTMLElement | null, secs: number, active: boolean) => {
+    if (!el) return;
+    el.classList.toggle('running', active);
+    el.classList.toggle('low', active && secs <= 30);
+  };
+
   const updateTimers = () => {
     const whiteEl = document.getElementById('timer-white');
     const blackEl = document.getElementById('timer-black');
-    if (whiteEl) {
-      whiteEl.textContent = formatTime(whiteSeconds);
-      whiteEl.classList.toggle('active', turn === 'white');
-    }
-    if (blackEl) {
-      blackEl.textContent = formatTime(blackSeconds);
-      blackEl.classList.toggle('active', turn === 'black');
-    }
+    if (whiteEl) whiteEl.textContent = formatTime(whiteSeconds);
+    if (blackEl) blackEl.textContent = formatTime(blackSeconds);
+    applyTimerClasses(whiteEl, whiteSeconds, turn === 'white');
+    applyTimerClasses(blackEl, blackSeconds, turn === 'black');
   };
 
   const startClock = () => {
@@ -73,17 +86,30 @@ function boot() {
     const pill = document.getElementById('turn-pill');
     if (!pill) return;
     const dotClass = turn === 'white' ? 'dot-white' : 'dot-orange';
-    pill.innerHTML = `<span class="turn-dot ${dotClass}"></span> Turn: ${turn}`;
+    pill.innerHTML = `<span class="turn-dot ${dotClass}"></span> ${turn === 'white' ? 'White' : 'Orange'} to move`;
   };
 
-  const updatePlayerBar = () => {
-    setText('player-you-label', myColor === 'spectator' ? 'Spectator' : 'You');
-    setText('player-opponent-label', opponentConnected ? 'Opponent' : 'Waiting…');
-    const youSide = document.getElementById('you-side-badge');
-    if (youSide && myColor && myColor !== 'spectator') {
-      youSide.textContent = myColor;
-      youSide.className = `side-badge side-${myColor}`;
-    }
+  const updatePlayerCards = () => {
+    const whiteCard = document.getElementById('card-white');
+    const blackCard = document.getElementById('card-black');
+    whiteCard?.classList.toggle('active-turn', turn === 'white');
+    blackCard?.classList.toggle('active-turn', turn === 'black');
+
+    const youAreWhite = myColor === 'white';
+    const youAreBlack = myColor === 'black';
+
+    setText('name-white', youAreWhite ? 'You' : opponentConnected ? 'Opponent' : 'Waiting');
+    setText('name-black', youAreBlack ? 'You' : opponentConnected ? 'Opponent' : 'Waiting');
+
+    const subWhite = document.getElementById('sub-white');
+    const subBlack = document.getElementById('sub-black');
+    if (subWhite) subWhite.textContent = youAreWhite ? sideLabel('white') : 'White';
+    if (subBlack) subBlack.textContent = youAreBlack ? sideLabel('black') : 'Orange';
+
+    const avWhite = document.getElementById('avatar-white');
+    const avBlack = document.getElementById('avatar-black');
+    if (avWhite) avWhite.textContent = youAreWhite ? initials('You') : 'W';
+    if (avBlack) avBlack.textContent = youAreBlack ? initials('You') : 'O';
   };
 
   const updateStatus = () => {
@@ -124,7 +150,7 @@ function boot() {
     void viewport.syncFromFen(fen);
     updateTurnPill();
     updateTimers();
-    updatePlayerBar();
+    updatePlayerCards();
     updateStatus();
   };
 
@@ -170,6 +196,7 @@ function boot() {
         else applyState();
         updateTurnPill();
         updateTimers();
+        updatePlayerCards();
         updateStatus();
       } else if (msg.type === 'error') {
         setText('status-bar', msg.message || 'Move rejected');
@@ -186,6 +213,7 @@ function boot() {
 
   updateTurnPill();
   updateTimers();
+  updatePlayerCards();
   connect();
 
   window.addEventListener('beforeunload', () => viewport.destroy());

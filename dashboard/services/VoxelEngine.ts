@@ -685,9 +685,15 @@ export class VoxelEngine {
       this.scene.fog = null;
       this.world.gravity.set(0, -20, 0);
       setupChessEnvironment(this.renderer, this.scene);
+      this.controls.enableRotate = false;
+      this.controls.enablePan = false;
+      this.controls.enableZoom = false;
       this.setupChessBoard();
     }
-    else { this.camera = this.perspectiveCamera; this.scene.background = new THREE.Color(0x0f111a); this.scene.fog = new THREE.FogExp2(0x0f111a, 0.015); this.world.gravity.set(0, -9.82, 0); }
+    else {
+      this.controls.enableRotate = true;
+      this.controls.enablePan = true;
+      this.controls.enableZoom = true; this.camera = this.perspectiveCamera; this.scene.background = new THREE.Color(0x0f111a); this.scene.fog = new THREE.FogExp2(0x0f111a, 0.015); this.world.gravity.set(0, -9.82, 0); }
     this.controls.object = this.camera;
   }
 

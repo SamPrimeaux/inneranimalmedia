@@ -1,8 +1,9 @@
 /**
  * Procedural chess board — runtime Three.js (no board GLB).
- * Shared by ChessViewport and Design Studio VoxelEngine.
  */
 import * as THREE from 'three';
+
+export const BOARD_SURFACE_Y = 0.05;
 
 export function createChessBoard(): THREE.Group {
   const board = new THREE.Group();
@@ -41,10 +42,19 @@ export function createChessBoard(): THREE.Group {
     roughness: 0.5,
     clearcoat: 0.5,
   });
-  const frame = new THREE.Mesh(new THREE.BoxGeometry(10, 0.1, 10), frameMat);
-  frame.position.set(0, -0.05, 0);
+  const frame = new THREE.Mesh(new THREE.BoxGeometry(10.2, 0.3, 10.2), frameMat);
+  frame.position.set(0, -0.12, 0);
   frame.receiveShadow = true;
+  frame.castShadow = true;
   board.add(frame);
+
+  const shadow = new THREE.Mesh(
+    new THREE.PlaneGeometry(13, 13),
+    new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.32 }),
+  );
+  shadow.rotation.x = -Math.PI / 2;
+  shadow.position.y = -0.28;
+  board.add(shadow);
 
   addBoardCoordinates(board);
   board.userData.squareMeshes = squares;
@@ -54,10 +64,10 @@ export function createChessBoard(): THREE.Group {
 function addBoardCoordinates(board: THREE.Group): void {
   const files = 'abcdefgh';
   for (let col = 0; col < 8; col++) {
-    board.add(makeCoordLabel(files[col], col - 3.5, -4.35));
+    board.add(makeCoordLabel(files[col], col - 3.5, -4.55));
   }
   for (let row = 0; row < 8; row++) {
-    board.add(makeCoordLabel(String(row + 1), -4.35, row - 3.5));
+    board.add(makeCoordLabel(String(row + 1), -4.55, row - 3.5));
   }
 }
 
@@ -67,8 +77,8 @@ function makeCoordLabel(text: string, x: number, z: number): THREE.Sprite {
   canvas.height = 64;
   const ctx = canvas.getContext('2d')!;
   ctx.clearRect(0, 0, 64, 64);
-  ctx.fillStyle = 'rgba(255,255,255,0.55)';
-  ctx.font = 'bold 36px Inter, system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.font = '500 28px Inter, system-ui, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(text, 32, 32);
@@ -77,16 +87,25 @@ function makeCoordLabel(text: string, x: number, z: number): THREE.Sprite {
   tex.needsUpdate = true;
   const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
   const sprite = new THREE.Sprite(mat);
-  sprite.position.set(x, 0.12, z);
-  sprite.scale.set(0.45, 0.45, 0.45);
+  sprite.position.set(x, 0.18, z);
+  sprite.scale.set(0.38, 0.38, 0.38);
   return sprite;
 }
 
-/** Algebraic square from board-local X/Z (centered 8x8). */
 export function boardPointToSquare(x: number, z: number): string | null {
   const files = 'abcdefgh';
   const col = Math.round(x + 3.5);
   const row = Math.round(z + 3.5);
   if (col < 0 || col > 7 || row < 0 || row > 7) return null;
   return `${files[col]}${row + 1}`;
+}
+
+export function squareToBoardXZ(square: string): { x: number; z: number } | null {
+  const files = 'abcdefgh';
+  const s = String(square || '').trim().toLowerCase();
+  if (s.length !== 2) return null;
+  const col = files.indexOf(s[0]);
+  const row = parseInt(s[1], 10) - 1;
+  if (col < 0 || row < 0 || row > 7) return null;
+  return { x: col - 3.5, z: row - 3.5 };
 }

@@ -1,28 +1,36 @@
 /**
- * Premium Three.js chess viewport for public /games/room_* pages.
+ * SparkChess-quality viewport for public /games/room_* — locked 3/4 camera, overlay feedback.
  */
 import * as THREE from 'three';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { boardPointToSquare, createChessBoard } from './chessBoard';
+import { BOARD_SURFACE_Y, boardPointToSquare, createChessBoard, squareToBoardXZ } from './chessBoard';
 import {
   applyChessPieceMaterials,
-  createMoveHintMaterial,
-  createSelectionGlowMaterial,
+  createHoverOverlayMaterial,
+  createLastMoveOverlayMaterial,
+  createSelectionOverlayMaterial,
+  createSquareOverlay,
+  createValidMoveOverlayMaterial,
   setupChessEnvironment,
 } from './chessMaterials';
 import { chessOptimizedPieceUrl } from './glbAssets';
 import { parseFenPlacement, squareToPosition } from './chessSquares';
 
 const PIECE_TYPES = ['king', 'queen', 'bishop', 'knight', 'rook', 'pawn'] as const;
-const PIECE_Y = 0.1;
+const PIECE_HEIGHT: Record<string, number> = {
+  pawn: 0.55,
+  king: 0.8,
+  queen: 0.8,
+  rook: 0.78,
+  bishop: 0.78,
+  knight: 0.78,
+};
 
 type PieceRecord = {
   mesh: THREE.Group;
   square: string;
   color: 'white' | 'black';
   piece: string;
-  baseY: number;
 };
 
 export type ChessViewportOptions = {
@@ -31,6 +39,7 @@ export type ChessViewportOptions = {
   onStatus?: (msg: string) => void;
   onLoading?: (progress: number) => void;
   onReady?: () => void;
+  onCapture?: (capturedBy: 'white' | 'black', piece: string, color: 'white' | 'black') => void;
 };
 
 export class ChessViewport {
@@ -38,7 +47,6 @@ export class ChessViewport {
   private renderer: THREE.WebGLRenderer;
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
-  private controls: OrbitControls;
   private raycaster = new THREE.Raycaster();
   private pointer = new THREE.Vector2();
   private loader = new GLTFLoader();
@@ -46,31 +54,43 @@ export class ChessViewport {
   private pieces = new Map<string, PieceRecord>();
   private boardGroup: THREE.Group;
   private squareMeshes: THREE.Mesh[] = [];
+  private overlayGroup = new THREE.Group();
+  private captureGroup = new THREE.Group();
   private selectedSquare: string | null = null;
-  private selectionGlow: THREE.Mesh | null = null;
-  private moveHints: THREE.Group = new THREE.Group();
+  private hoverSquare: string | null = null;
+  private hoverMesh: THREE.Mesh | null = null;
+  private lastMoveSquares: string[] = [];
   private myColor: 'white' | 'black' | 'spectator' | null = null;
   private turn: 'white' | 'black' = 'white';
   private animId = 0;
+  private ready = false;
   private onMove?: (from: string, to: string) => void;
   private onStatus?: (msg: string) => void;
-  private ready = false;
+  private onCapture?: ChessViewportOptions['onCapture'];
+  private whiteCaptureCount = 0;
+  private blackCaptureCount = 0;
+
+  private readonly selectMat = createSelectionOverlayMaterial();
+  private readonly validMat = createValidMoveOverlayMaterial();
+  private readonly lastMat = createLastMoveOverlayMaterial();
+  private readonly hoverMat = createHoverOverlayMaterial();
 
   constructor(opts: ChessViewportOptions) {
     this.container = opts.container;
     this.onMove = opts.onMove;
     this.onStatus = opts.onStatus;
+    this.onCapture = opts.onCapture;
 
     const w = Math.max(320, this.container.clientWidth || 640);
     const h = Math.max(320, this.container.clientHeight || 480);
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x121218);
+    this.scene.background = null;
 
-    this.camera = new THREE.PerspectiveCamera(42, w / h, 0.1, 200);
-    this.camera.position.set(0, 10, 9);
+    this.camera = new THREE.PerspectiveCamera(38, w / h, 0.1, 200);
+    this.lockCamera();
 
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(w, h);
     this.renderer.shadowMap.enabled = true;
@@ -81,34 +101,26 @@ export class ChessViewport {
 
     setupChessEnvironment(this.renderer, this.scene);
 
-    this.controls = new OrbitControls(this.camera, this.renderer.domElement);
-    this.controls.enableDamping = true;
-    this.controls.target.set(0, 0, 0);
-    this.controls.minPolarAngle = THREE.MathUtils.degToRad(15);
-    this.controls.maxPolarAngle = THREE.MathUtils.degToRad(75);
-    this.controls.minDistance = 7;
-    this.controls.maxDistance = 20;
-
-    const ambient = new THREE.AmbientLight(0xffffff, 0.35);
+    const ambient = new THREE.AmbientLight(0xffffff, 0.38);
     this.scene.add(ambient);
-    const sun = new THREE.DirectionalLight(0xffffff, 1.2);
-    sun.position.set(6, 14, 8);
+    const sun = new THREE.DirectionalLight(0xffffff, 1.15);
+    sun.position.set(5, 12, 7);
     sun.castShadow = true;
     sun.shadow.mapSize.set(1024, 1024);
     this.scene.add(sun);
-    const fill = new THREE.DirectionalLight(0xaaccff, 0.35);
-    fill.position.set(-8, 6, -4);
+    const fill = new THREE.DirectionalLight(0xaaccff, 0.3);
+    fill.position.set(-6, 5, -5);
     this.scene.add(fill);
 
     this.boardGroup = createChessBoard();
     this.squareMeshes = (this.boardGroup.userData.squareMeshes as THREE.Mesh[]) || [];
-    this.boardGroup.traverse((o) => {
-      if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).receiveShadow = true;
-    });
     this.scene.add(this.boardGroup);
-    this.scene.add(this.moveHints);
+    this.scene.add(this.overlayGroup);
+    this.scene.add(this.captureGroup);
 
-    this.renderer.domElement.addEventListener('pointerdown', this.onPointerDown);
+    const canvas = this.renderer.domElement;
+    canvas.addEventListener('pointerdown', this.onPointerDown);
+    canvas.addEventListener('pointermove', this.onPointerMove);
     window.addEventListener('resize', this.onResize);
 
     void this.preloadPieces(opts.onLoading, opts.onReady);
@@ -123,22 +135,17 @@ export class ChessViewport {
     this.turn = turn;
   }
 
-  public isReady(): boolean {
-    return this.ready;
-  }
-
   public async syncFromFen(fen: string): Promise<void> {
     if (!this.ready) await this.waitReady();
-    for (const rec of this.pieces.values()) {
-      this.scene.remove(rec.mesh);
-    }
+    for (const rec of this.pieces.values()) this.scene.remove(rec.mesh);
     this.pieces.clear();
-    this.clearSelection();
+    this.clearOverlays(true);
+    this.whiteCaptureCount = 0;
+    this.blackCaptureCount = 0;
+    while (this.captureGroup.children.length) this.captureGroup.remove(this.captureGroup.children[0]);
 
     const placements = parseFenPlacement(fen);
-    for (const p of placements) {
-      await this.spawnPiece(p.square, p.color, p.piece);
-    }
+    for (const p of placements) await this.spawnPiece(p.square, p.color, p.piece);
   }
 
   public movePieceOnBoard(from: string, to: string): void {
@@ -148,52 +155,78 @@ export class ChessViewport {
     if (captured) {
       this.scene.remove(captured.mesh);
       this.pieces.delete(to);
+      const capturedBy = rec.color;
+      this.onCapture?.(capturedBy, captured.piece, captured.color);
+      void this.addCaptureToRail(capturedBy, captured.piece, captured.color);
     }
     const pos = squareToPosition(to);
     if (!pos) return;
-    rec.mesh.position.set(pos.x, PIECE_Y, pos.z);
-    rec.mesh.scale.setScalar(1);
+    rec.mesh.position.set(pos.x, pos.y, pos.z);
     rec.mesh.userData.square = to;
     rec.square = to;
     this.pieces.delete(from);
     this.pieces.set(to, rec);
-    this.clearSelection();
+    this.markLastMove(from, to);
+    this.clearSelectionOverlays();
   }
 
   public destroy(): void {
     cancelAnimationFrame(this.animId);
     window.removeEventListener('resize', this.onResize);
-    this.renderer.domElement.removeEventListener('pointerdown', this.onPointerDown);
-    this.controls.dispose();
+    const canvas = this.renderer.domElement;
+    canvas.removeEventListener('pointerdown', this.onPointerDown);
+    canvas.removeEventListener('pointermove', this.onPointerMove);
     this.renderer.dispose();
     this.container.innerHTML = '';
   }
 
-  private async waitReady(): Promise<void> {
-    while (!this.ready) {
-      await new Promise((r) => setTimeout(r, 50));
-    }
+  private lockCamera(): void {
+    this.camera.position.set(0, 8, 10);
+    this.camera.lookAt(0, 0, 0);
   }
 
-  private async preloadPieces(
-    onLoading?: (p: number) => void,
-    onReady?: () => void,
-  ): Promise<void> {
-    const urls = PIECE_TYPES.map((p) => chessOptimizedPieceUrl(p));
+  private fitCameraToViewport(): void {
+    const w = Math.max(320, this.container.clientWidth || 640);
+    const h = Math.max(320, this.container.clientHeight || 480);
+    this.camera.aspect = w / h;
+    this.camera.updateProjectionMatrix();
+    this.lockCamera();
+    const fovRad = (this.camera.fov * Math.PI) / 180;
+    const boardSpan = 10.5;
+    const fill = 0.8;
+    const distForHeight = boardSpan / 2 / Math.tan(fovRad / 2) / fill;
+    const distForWidth = boardSpan / 2 / (Math.tan(fovRad / 2) * this.camera.aspect) / fill;
+    const dist = Math.max(distForHeight, distForWidth) * 0.95;
+    const base = new THREE.Vector3(0, 8, 10).normalize();
+    this.camera.position.copy(base.multiplyScalar(dist));
+    this.camera.lookAt(0, 0, 0);
+  }
+
+  private async waitReady(): Promise<void> {
+    while (!this.ready) await new Promise((r) => setTimeout(r, 50));
+  }
+
+  private async preloadPieces(onLoading?: (p: number) => void, onReady?: () => void): Promise<void> {
     let loaded = 0;
     await Promise.all(
-      urls.map(async (url) => {
-        await this.loadPieceTemplate(url);
+      PIECE_TYPES.map(async (piece) => {
+        await this.loadPieceTemplate(chessOptimizedPieceUrl(piece), piece);
         loaded += 1;
-        onLoading?.(loaded / urls.length);
+        onLoading?.(loaded / PIECE_TYPES.length);
       }),
     );
     this.ready = true;
+    this.fitCameraToViewport();
     onReady?.();
   }
 
-  private async loadPieceTemplate(url: string): Promise<THREE.Group> {
-    const cached = this.modelCache.get(url);
+  private pieceScaleTarget(piece: string): number {
+    return PIECE_HEIGHT[piece] ?? 0.78;
+  }
+
+  private async loadPieceTemplate(url: string, piece: string): Promise<THREE.Group> {
+    const cacheKey = `${url}:${piece}`;
+    const cached = this.modelCache.get(cacheKey);
     if (cached) return cached;
 
     const gltf = await this.loader.loadAsync(url);
@@ -204,92 +237,149 @@ export class ChessViewport {
     box.getSize(size);
     box.getCenter(center);
     const max = Math.max(size.x, size.y, size.z) || 1;
-    const scale = 0.82 / max;
+    const scale = this.pieceScaleTarget(piece) / max;
     const pivot = new THREE.Group();
     model.position.set(-center.x, -box.min.y, -center.z);
     pivot.add(model);
     pivot.scale.setScalar(scale);
-    this.modelCache.set(url, pivot);
+    this.modelCache.set(cacheKey, pivot);
     return pivot;
   }
 
-  private async spawnPiece(
-    square: string,
-    color: 'white' | 'black',
-    piece: string,
-  ): Promise<void> {
+  private async spawnPiece(square: string, color: 'white' | 'black', piece: string): Promise<void> {
     const url = chessOptimizedPieceUrl(piece);
-    const template = await this.loadPieceTemplate(url);
+    const template = await this.loadPieceTemplate(url, piece);
     const mesh = template.clone(true);
     applyChessPieceMaterials(mesh, color);
     const pos = squareToPosition(square);
     if (!pos) return;
-    mesh.position.set(pos.x, PIECE_Y, pos.z);
+    mesh.position.set(pos.x, pos.y, pos.z);
     mesh.userData = { square, color, piece };
     this.scene.add(mesh);
-    this.pieces.set(square, { mesh, square, color, piece, baseY: PIECE_Y });
+    this.pieces.set(square, { mesh, square, color, piece });
+  }
+
+  private async addCaptureToRail(
+    capturedBy: 'white' | 'black',
+    piece: string,
+    color: 'white' | 'black',
+  ): Promise<void> {
+    const url = chessOptimizedPieceUrl(piece);
+    const template = await this.loadPieceTemplate(url, piece);
+    const mesh = template.clone(true);
+    applyChessPieceMaterials(mesh, color);
+    mesh.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh && m.material) {
+        const mat = (m.material as THREE.MeshPhysicalMaterial).clone();
+        mat.transparent = true;
+        mat.opacity = 0.6;
+        m.material = mat;
+      }
+    });
+    mesh.scale.multiplyScalar(0.25);
+
+    const count = capturedBy === 'white' ? this.whiteCaptureCount++ : this.blackCaptureCount++;
+    const x = capturedBy === 'white' ? -5.8 : 5.8;
+    const z = -3 + (count % 6) * 0.55;
+    const y = BOARD_SURFACE_Y + Math.floor(count / 6) * 0.2;
+    mesh.position.set(x, y, z);
+    this.captureGroup.add(mesh);
   }
 
   private tick = () => {
     this.animId = requestAnimationFrame(this.tick);
-    this.controls.update();
     this.renderer.render(this.scene, this.camera);
   };
 
   private onResize = () => {
     const w = Math.max(320, this.container.clientWidth || 640);
     const h = Math.max(320, this.container.clientHeight || 480);
-    this.camera.aspect = w / h;
-    this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h);
+    this.fitCameraToViewport();
   };
 
-  private clearSelection(): void {
+  private clearOverlays(clearLast = false): void {
     this.selectedSquare = null;
-    if (this.selectionGlow) {
-      this.scene.remove(this.selectionGlow);
-      this.selectionGlow = null;
-    }
-    for (const rec of this.pieces.values()) {
-      rec.mesh.position.y = rec.baseY;
-      rec.mesh.scale.setScalar(1);
-    }
-    while (this.moveHints.children.length) {
-      this.moveHints.remove(this.moveHints.children[0]);
-    }
+    while (this.overlayGroup.children.length) this.overlayGroup.remove(this.overlayGroup.children[0]);
+    this.hoverMesh = null;
+    this.hoverSquare = null;
+    if (clearLast) this.lastMoveSquares = [];
+  }
+
+  private clearSelectionOverlays(): void {
+    this.selectedSquare = null;
+    const keep = this.overlayGroup.children.filter((c) => {
+      const tag = c.userData?.overlayType as string | undefined;
+      return tag === 'last' || tag === 'hover';
+    });
+    while (this.overlayGroup.children.length) this.overlayGroup.remove(this.overlayGroup.children[0]);
+    for (const c of keep) this.overlayGroup.add(c);
+  }
+
+  private addOverlay(square: string, type: 'select' | 'valid' | 'last' | 'hover'): void {
+    const xz = squareToBoardXZ(square);
+    if (!xz) return;
+    let mat = this.validMat;
+    if (type === 'select') mat = this.selectMat;
+    if (type === 'last') mat = this.lastMat;
+    if (type === 'hover') mat = this.hoverMat;
+    const mesh = createSquareOverlay(xz.x, xz.z, mat);
+    mesh.userData.overlayType = type;
+    mesh.userData.square = square;
+    this.overlayGroup.add(mesh);
+  }
+
+  private markLastMove(from: string, to: string): void {
+    this.lastMoveSquares = [from, to];
+    const withoutLast = this.overlayGroup.children.filter(
+      (c) => c.userData?.overlayType !== 'last',
+    );
+    while (this.overlayGroup.children.length) this.overlayGroup.remove(this.overlayGroup.children[0]);
+    for (const c of withoutLast) this.overlayGroup.add(c);
+    this.addOverlay(from, 'last');
+    this.addOverlay(to, 'last');
   }
 
   private showSelection(square: string): void {
-    this.clearSelection();
+    this.clearSelectionOverlays();
     this.selectedSquare = square;
-    const rec = this.pieces.get(square);
-    if (!rec) return;
-
-    rec.mesh.position.y = rec.baseY + 0.15;
-    rec.mesh.scale.setScalar(1.05);
-
-    const pos = squareToPosition(square);
-    if (pos) {
-      const glowGeo = new THREE.BoxGeometry(0.92, 0.02, 0.92);
-      this.selectionGlow = new THREE.Mesh(glowGeo, createSelectionGlowMaterial());
-      this.selectionGlow.position.set(pos.x, 0.07, pos.z);
-      this.scene.add(this.selectionGlow);
-    }
-
-    const hintMat = createMoveHintMaterial();
+    this.addOverlay(square, 'select');
     for (let col = 0; col < 8; col++) {
       for (let row = 0; row < 8; row++) {
-        const files = 'abcdefgh';
-        const sq = `${files[col]}${row + 1}`;
+        const sq = `${'abcdefgh'[col]}${row + 1}`;
         if (sq === square || this.pieces.has(sq)) continue;
-        const p = squareToPosition(sq);
-        if (!p) continue;
-        const dot = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.02, 16), hintMat);
-        dot.position.set(p.x, 0.08, p.z);
-        this.moveHints.add(dot);
+        this.addOverlay(sq, 'valid');
       }
     }
   }
+
+  private setHoverSquare(square: string | null): void {
+    if (this.hoverSquare === square) return;
+    const filtered = this.overlayGroup.children.filter(
+      (c) => c.userData?.overlayType !== 'hover',
+    );
+    while (this.overlayGroup.children.length) this.overlayGroup.remove(this.overlayGroup.children[0]);
+    for (const c of filtered) this.overlayGroup.add(c);
+    this.hoverSquare = square;
+    if (square && square !== this.selectedSquare) this.addOverlay(square, 'hover');
+  }
+
+  private pickSquareFromRay(): string | null {
+    const boardHits = this.raycaster.intersectObjects(this.squareMeshes, false);
+    if (boardHits.length === 0) return null;
+    const p = boardHits[0].point;
+    return boardPointToSquare(p.x, p.z);
+  }
+
+  private onPointerMove = (ev: PointerEvent): void => {
+    if (!this.ready) return;
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    this.pointer.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+    this.pointer.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+    this.setHoverSquare(this.pickSquareFromRay());
+  };
 
   private onPointerDown = (ev: PointerEvent): void => {
     if (!this.ready) return;
@@ -314,7 +404,7 @@ export class ChessViewport {
       if (this.myColor === 'white' && color !== 'white') return;
       if (this.myColor === 'black' && color !== 'black') return;
       if (this.selectedSquare === square) {
-        this.clearSelection();
+        this.clearSelectionOverlays();
         return;
       }
       this.showSelection(square);
@@ -322,17 +412,14 @@ export class ChessViewport {
     }
 
     if (!this.selectedSquare) return;
-    const boardHits = this.raycaster.intersectObjects(this.squareMeshes, false);
-    if (boardHits.length === 0) return;
-    const p = boardHits[0].point;
-    const to = boardPointToSquare(p.x, p.z);
+    const to = this.pickSquareFromRay();
     if (!to) return;
     const from = this.selectedSquare;
     if (from === to) {
-      this.clearSelection();
+      this.clearSelectionOverlays();
       return;
     }
     this.onMove?.(from, to);
-    this.clearSelection();
+    this.clearSelectionOverlays();
   };
 }
