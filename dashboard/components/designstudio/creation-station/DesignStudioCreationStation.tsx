@@ -160,7 +160,10 @@ export function DesignStudioCreationStation({
   const advancedActive = studioSegment === 'advanced';
 
   return (
-    <div className={`${CS_GRID} absolute inset-0 z-10`}>
+    <div
+      className={`${CS_GRID} absolute inset-x-0 top-0 z-10`}
+      style={{ bottom: 'var(--terminal-drawer-h, 0px)' }}
+    >
       <MobileMeshyToolStrip
         active={cs.activeTool}
         meshySegmentActive={meshySegmentActive}

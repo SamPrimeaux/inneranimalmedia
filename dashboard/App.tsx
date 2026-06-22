@@ -3218,6 +3218,16 @@ const App: React.FC = () => {
   }, [handleTerminalOutputLine]);
 
   useEffect(() => {
+    document.documentElement.style.setProperty(
+      '--terminal-drawer-h',
+      isTerminalOpen ? `${terminalDrawerH}px` : '0px',
+    );
+    return () => {
+      document.documentElement.style.setProperty('--terminal-drawer-h', '0px');
+    };
+  }, [isTerminalOpen, terminalDrawerH]);
+
+  useEffect(() => {
     const onInvalidateActiveThemeFetch = () => {
       try {
         activeThemeBootstrapAbortRef.current?.abort();
