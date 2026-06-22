@@ -391,6 +391,27 @@ export async function fetchAndApplyActiveCmsTheme(
 ): Promise<CmsActiveThemePayload | null> {
   const raw = await fetchActiveThemePayload(workspaceId, init);
   if (!raw || init?.signal?.aborted) return null;
+
+  const ws = workspaceId?.trim();
+  const hasWorkspaceCache =
+    ws &&
+    (() => {
+      try {
+        const cached = localStorage.getItem(themeCssStorageKey(ws));
+        if (!cached) return false;
+        const vars = JSON.parse(cached) as Record<string, string>;
+        return vars && typeof vars === 'object' && Object.keys(vars).length > 0;
+      } catch {
+        return false;
+      }
+    })();
+
+  // After deploy reload, avoid flashing system default over a user's cached workspace theme.
+  if (raw.resolved_from === 'system_default' && hasWorkspaceCache) {
+    applyCachedCmsThemeFallbackForWorkspace(ws);
+    return raw;
+  }
+
   applyCmsThemeToDocument(raw);
   return raw;
 }

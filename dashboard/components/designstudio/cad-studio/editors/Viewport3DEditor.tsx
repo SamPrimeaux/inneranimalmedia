@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Eye, EyeOff, Pause, Play, RotateCcw, RotateCw, Trash2 } from 'lucide-react';
 import type { ViewTool } from '../cadStudioTypes';
 
@@ -20,7 +20,6 @@ export type Viewport3DEditorProps = {
   progressPct?: number;
   splash?: React.ReactNode;
   overlay?: React.ReactNode;
-  toolDock?: React.ReactNode;
   onDropGlb?: (file: File) => void;
 };
 
@@ -42,7 +41,6 @@ export function Viewport3DEditor({
   progressPct = 0,
   splash,
   overlay,
-  toolDock,
   onDropGlb,
 }: Viewport3DEditorProps) {
   const [dragOver, setDragOver] = useState(false);
@@ -82,7 +80,6 @@ export function Viewport3DEditor({
           <span className="cad-studio__axis-dot cad-studio__axis-dot--y">Y</span>
           <span className="cad-studio__axis-dot cad-studio__axis-dot--z">Z</span>
         </div>
-        {toolDock}
         {showHud ? (
           <div className="cad-studio__hud-btns">
             <button type="button" className="cad-studio__hud-btn" onClick={onUndo} disabled={!canUndo} title="Undo">
@@ -443,6 +440,8 @@ export function TimelineEditor({
   onTogglePlay,
   onFrameChange,
   onEndFrameChange,
+  keyframes = [],
+  onSelectFrame,
 }: {
   frame: number;
   endFrame: number;
@@ -450,8 +449,17 @@ export function TimelineEditor({
   onTogglePlay: () => void;
   onFrameChange: (f: number) => void;
   onEndFrameChange: (f: number) => void;
+  keyframes?: number[];
+  onSelectFrame?: (f: number) => void;
 }) {
   const [playing, setPlaying] = useState(isPlaying);
+  const visibleEnd = Math.min(endFrame, 250);
+  const ticks = useMemo(() => {
+    const out: number[] = [];
+    for (let f = 0; f <= visibleEnd; f += 10) out.push(f);
+    if (!out.includes(visibleEnd)) out.push(visibleEnd);
+    return out;
+  }, [visibleEnd]);
 
   useEffect(() => {
     setPlaying(isPlaying);
@@ -464,6 +472,14 @@ export function TimelineEditor({
     }, 1000 / 24);
     return () => window.clearInterval(id);
   }, [playing, frame, endFrame, onFrameChange]);
+
+  const scrubToClientX = (clientX: number, el: HTMLElement) => {
+    const rect = el.getBoundingClientRect();
+    const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    const f = Math.max(1, Math.round(pct * visibleEnd));
+    onFrameChange(f);
+    onSelectFrame?.(f);
+  };
 
   return (
     <section className="cad-editor cad-editor--timeline">
@@ -490,9 +506,49 @@ export function TimelineEditor({
           value={endFrame}
           onChange={(e) => onEndFrameChange(Number(e.target.value) || 250)}
         />
+        <span className="cad-studio__timeline-meta">{Math.round((frame / Math.max(1, endFrame)) * 100)}%</span>
       </div>
-      <div className="cad-studio__frame-strip">
-        <div className="cad-studio__playhead" style={{ left: `${Math.min(100, (frame / endFrame) * 100)}%` }} />
+      <div className="cad-studio__timeline-tracks">
+        <div className="cad-studio__timeline-ruler">
+          {ticks.map((t) => (
+            <span key={t} className="cad-studio__timeline-tick" style={{ left: `${(t / visibleEnd) * 100}%` }}>
+              {t}
+            </span>
+          ))}
+        </div>
+        <div
+          className="cad-studio__timeline-track"
+          role="slider"
+          aria-valuemin={1}
+          aria-valuemax={visibleEnd}
+          aria-valuenow={frame}
+          onMouseDown={(e) => {
+            scrubToClientX(e.clientX, e.currentTarget);
+            const move = (ev: MouseEvent) => scrubToClientX(ev.clientX, e.currentTarget);
+            const up = () => {
+              window.removeEventListener('mousemove', move);
+              window.removeEventListener('mouseup', up);
+            };
+            window.addEventListener('mousemove', move);
+            window.addEventListener('mouseup', up);
+          }}
+        >
+          {keyframes.map((kf) => (
+            <button
+              key={kf}
+              type="button"
+              className={`cad-studio__keyframe${frame === kf ? ' active' : ''}`}
+              style={{ left: `${(kf / visibleEnd) * 100}%` }}
+              title={`Keyframe ${kf}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onFrameChange(kf);
+                onSelectFrame?.(kf);
+              }}
+            />
+          ))}
+          <div className="cad-studio__playhead" style={{ left: `${Math.min(100, (frame / visibleEnd) * 100)}%` }} />
+        </div>
       </div>
     </section>
   );

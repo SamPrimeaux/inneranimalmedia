@@ -9,11 +9,10 @@ import type { SavedSceneRow } from '../shared/ScenePanel';
 import type { useDesignStudioCad } from '../hooks/useDesignStudioCad';
 import { useCadStudioProtocol } from './useCadStudioProtocol';
 import { CadMenuBar } from './CadMenuBar';
-import { ContextHeader } from './ContextHeader';
 import { WorkspaceLayoutEngine } from './WorkspaceLayoutEngine';
 import { StatusBar } from './StatusBar';
 import { OperatorSearchModal, GenerateCadModal } from './OperatorModals';
-import { Viewport3DEditor, SecondaryViewportEditor, ScriptEditor, NodeEditor, MovieClipEditor, GraphEditor, SequencerEditor, ScopesEditor, ColorBalanceEditor, GreaseLayersEditor, DopeSheetEditor, TimelineEditor } from './editors/Viewport3DEditor';
+import { Viewport3DEditor, SecondaryViewportEditor, ScriptEditor, NodeEditor, MovieClipEditor, GraphEditor, SequencerEditor, ScopesEditor, ColorBalanceEditor, GreaseLayersEditor, TimelineEditor } from './editors/Viewport3DEditor';
 import { OutlinerEditor } from './editors/OutlinerEditor';
 import { AssetGalleryEditor } from './editors/AssetGalleryEditor';
 import { PropertiesEditor } from './editors/PropertiesEditor';
@@ -402,31 +401,6 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
     ],
   );
 
-  const toolDock = (
-    <CreativeToolDock
-      workspace={ui.workspace}
-      activeTool={ui.viewTool}
-      activeDomain={activeDockDomain}
-      onDomainChange={setActiveDockDomain}
-      onToolChange={(t) => patchUi({ viewTool: t as ViewTool })}
-      onLocalAction={handleDockLocalAction}
-      onOpenOperator={(operatorId, prompt) => {
-        if (operatorId) {
-          openOperatorDraft(operatorId, {
-            prompt,
-            workspace: ui.workspace,
-            selectedObjectId: selectedId,
-            sceneId: currentSceneId,
-          });
-        } else {
-          openOperator();
-        }
-      }}
-      selectedObjectId={selectedId}
-      sceneId={currentSceneId}
-    />
-  );
-
   useEffect(() => {
     if (engineContainerRef.current) onEngineContainerMount();
   }, [engineContainerRef, onEngineContainerMount]);
@@ -534,9 +508,6 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
           <button type="button" className="cad-studio__splash-link" onClick={() => { setSplashOpen(false); openGenerate(); }}>
             Generate CAD Object
           </button>
-          <button type="button" className="cad-studio__splash-link" onClick={() => { setSplashOpen(false); openOperator(); }}>
-            Operator Search
-          </button>
           {savedScenes.slice(0, 3).map((s) => (
             <button
               key={s.id}
@@ -572,8 +543,20 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
       progressLabel={progressLabel}
       progressPct={progressPct}
       splash={splash}
-      toolDock={toolDock}
       onDropGlb={handleImportGlbWithToast}
+    />
+  );
+
+  const timelinePanel = (
+    <TimelineEditor
+      frame={ui.frame}
+      endFrame={ui.endFrame}
+      isPlaying={ui.isPlaying}
+      onTogglePlay={() => patchUi({ isPlaying: !ui.isPlaying })}
+      onFrameChange={(f) => patchUi({ frame: f })}
+      onEndFrameChange={(f) => patchUi({ endFrame: f })}
+      keyframes={keyframes}
+      onSelectFrame={(f) => patchUi({ frame: f })}
     />
   );
 
@@ -606,24 +589,7 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
     outliner: ui.panelVisibility.outliner ? outlinerPanel : undefined,
     properties: ui.panelVisibility.properties ? propertiesPanel : undefined,
     assets: ui.panelVisibility.assets ? assetsPanel : rightPanel,
-    timeline: (
-      <TimelineEditor
-        frame={ui.frame}
-        endFrame={ui.endFrame}
-        isPlaying={ui.isPlaying}
-        onTogglePlay={() => patchUi({ isPlaying: !ui.isPlaying })}
-        onFrameChange={(f) => patchUi({ frame: f })}
-        onEndFrameChange={(f) => patchUi({ endFrame: f })}
-      />
-    ),
-    dopesheet: (
-      <DopeSheetEditor
-        frame={ui.frame}
-        endFrame={ui.endFrame}
-        keyframes={keyframes}
-        onSelectFrame={(f) => patchUi({ frame: f })}
-      />
-    ),
+    timeline: timelinePanel,
     nodes: (
       <NodeEditor
         materialColor={materialColor}
@@ -823,30 +789,39 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
         onShowDiagnostics={() => void showDiagnostics()}
       />
 
-      <ContextHeader
-        interactionMode={ui.interactionMode}
-        onInteractionModeChange={(mode) => patchUi({ interactionMode: mode })}
-        wireframe={ui.wireframe}
-        solidShading={ui.solidShading}
-        onToggleWireframe={() => patchUi({ wireframe: !ui.wireframe })}
-        onToggleSolid={() => patchUi({ solidShading: !ui.solidShading })}
-        onFrameAll={() => onFrameAll?.()}
-        onAddCube={onAddCube}
-        onImportFile={handleImportClick}
-        onSpawnProcedural={onSpawnProcedural}
-      />
-
       <div className="cad-studio__layout-wrap">
-        <div
-          ref={engineContainerRef}
-          className="cad-studio__engine-persistent"
-          aria-hidden="true"
-        />
+        <div ref={engineContainerRef} className="cad-studio__engine-persistent" aria-hidden="true" />
         <WorkspaceLayoutEngine
           workspace={ui.workspace}
           layoutOverride={layoutOverride}
           panelVisibility={ui.panelVisibility}
           editors={editors}
+        />
+      </div>
+
+      <div className="cad-studio__bottom-dock">
+        <CreativeToolDock
+          placement="bottom"
+          workspace={ui.workspace}
+          activeTool={ui.viewTool}
+          activeDomain={activeDockDomain}
+          onDomainChange={setActiveDockDomain}
+          onToolChange={(t) => patchUi({ viewTool: t as ViewTool })}
+          onLocalAction={handleDockLocalAction}
+          onOpenOperator={(operatorId, prompt) => {
+            if (operatorId) {
+              openOperatorDraft(operatorId, {
+                prompt,
+                workspace: ui.workspace,
+                selectedObjectId: selectedId,
+                sceneId: currentSceneId,
+              });
+            } else {
+              openOperator();
+            }
+          }}
+          selectedObjectId={selectedId}
+          sceneId={currentSceneId}
         />
       </div>
 

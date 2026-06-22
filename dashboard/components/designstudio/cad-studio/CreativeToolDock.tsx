@@ -13,6 +13,7 @@ export type CreativeToolDockProps = {
   onOpenOperator: (operatorId?: string, prompt?: string) => void;
   selectedObjectId?: string | null;
   sceneId?: string | null;
+  placement?: 'bottom' | 'side';
 };
 
 export function CreativeToolDock({
@@ -23,8 +24,7 @@ export function CreativeToolDock({
   onToolChange,
   onLocalAction,
   onOpenOperator,
-  selectedObjectId,
-  sceneId,
+  placement = 'bottom',
 }: CreativeToolDockProps) {
   const domains = useMemo(() => buildDockDomains(workspace), [workspace]);
   const [pinned, setPinned] = useState(false);
@@ -48,47 +48,30 @@ export function CreativeToolDock({
     }
   };
 
-  return (
-    <div className="cad-dock-wrap" aria-label="Creative tool dock">
-      <div className={`cad-dock${openDomain ? ' cad-dock--open' : ''}`}>
-        <div className="cad-dock__rail" role="toolbar" aria-label="Tool domains">
-          {domains.map((domain) => {
-            const Icon = domain.icon;
-            const active = activeDomain === domain.id;
-            return (
-              <button
-                key={domain.id}
-                type="button"
-                className={`cad-dock__rail-btn${active ? ' active' : ''}`}
-                title={domain.label}
-                aria-pressed={active}
-                onClick={() => {
-                  if (active && !pinned) {
-                    onDomainChange(null);
-                  } else {
-                    onDomainChange(domain.id);
-                    setPinned(true);
-                  }
-                }}
-              >
-                <Icon size={16} strokeWidth={1.75} />
-              </button>
-            );
-          })}
-        </div>
+  const wrapClass = `cad-dock-wrap cad-dock-wrap--${placement}${openDomain ? ' cad-dock-wrap--open' : ''}`;
 
-        {openDomain ? (
-          <div className="cad-dock__panel">
-            <div className="cad-dock__panel-head">
-              <span>{openDomain.label}</span>
-              <button type="button" className="cad-studio__btn" onClick={() => { onDomainChange(null); setPinned(false); }}>
-                Close
-              </button>
-            </div>
+  return (
+    <div className={wrapClass} aria-label="Creative tool dock">
+      {openDomain ? (
+        <div className="cad-dock__sheet" role="region" aria-label={`${openDomain.label} tools`}>
+          <div className="cad-dock__sheet-head">
+            <span>{openDomain.label}</span>
+            <button
+              type="button"
+              className="cad-studio__btn"
+              onClick={() => {
+                onDomainChange(null);
+                setPinned(false);
+              }}
+            >
+              Close
+            </button>
+          </div>
+          <div className="cad-dock__sheet-body">
             {openDomain.sections.map((section) => (
               <div key={section.title} className="cad-dock__section">
                 <div className="cad-dock__section-title">{section.title}</div>
-                <div className="cad-dock__actions">
+                <div className="cad-dock__actions cad-dock__actions--grid">
                   {section.actions.map((action) => {
                     const Icon = action.icon;
                     const isActive = activeTool === action.id;
@@ -99,6 +82,7 @@ export function CreativeToolDock({
                         className={`cad-dock__action${isActive ? ' active' : ''}`}
                         onClick={() => handleAction(action)}
                         disabled={action.id === 'none'}
+                        title={action.label}
                       >
                         <Icon size={14} strokeWidth={1.75} />
                         <span>{action.label}</span>
@@ -109,14 +93,39 @@ export function CreativeToolDock({
                 </div>
               </div>
             ))}
-            <p className="cad-dock__hint">Runner tools open Operator Search as draft — confirm in Agent before send.</p>
           </div>
-        ) : null}
+        </div>
+      ) : null}
 
+      <div className="cad-dock__bar" role="toolbar" aria-label="Tool domains">
+        {domains.map((domain) => {
+          const Icon = domain.icon;
+          const active = activeDomain === domain.id;
+          return (
+            <button
+              key={domain.id}
+              type="button"
+              className={`cad-dock__bar-btn${active ? ' active' : ''}`}
+              title={domain.label}
+              aria-pressed={active}
+              onClick={() => {
+                if (active && !pinned) {
+                  onDomainChange(null);
+                } else {
+                  onDomainChange(domain.id);
+                  setPinned(true);
+                }
+              }}
+            >
+              <Icon size={16} strokeWidth={1.75} />
+              <span className="cad-dock__bar-label">{domain.label}</span>
+            </button>
+          );
+        })}
         {activeTool ? (
-          <div className="cad-dock__context">
-            Active: <strong>{activeTool}</strong>
-          </div>
+          <span className="cad-dock__active-pill">
+            Tool: <strong>{activeTool}</strong>
+          </span>
         ) : null}
       </div>
     </div>

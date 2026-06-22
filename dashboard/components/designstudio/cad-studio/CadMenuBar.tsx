@@ -138,6 +138,8 @@ export function CadMenuBar({
           <MenuItem label="Export GLB" onClick={onExportGlb} />
           <MenuItem label="Export Scene JSON" onClick={onExportSceneJson} />
           <div className="cad-menu__sep" />
+          <MenuItem label="Generate CAD Object" onClick={onGenerateCad} />
+          <div className="cad-menu__sep" />
           <MenuItem label="Save Scene" shortcut="⌘S" onClick={onSaveScene} disabled={sceneBusy} />
           <MenuItem label="Close Scene" onClick={onNewScene} />
         </MenuDropdown>
@@ -196,12 +198,6 @@ export function CadMenuBar({
       <WorkspaceSwitcher activeWorkspace={activeWorkspace} onWorkspaceChange={onWorkspaceChange} />
 
       <div className="cad-studio__menu-right">
-        <button type="button" className="cad-studio__btn" onClick={onOperatorSearch}>
-          Operator Search
-        </button>
-        <button type="button" className="cad-studio__btn" onClick={onGenerateCad}>
-          Generate CAD Object
-        </button>
         <button type="button" className="cad-studio__btn cad-studio__save-btn" onClick={onSaveScene} disabled={sceneBusy}>
           {sceneBusy ? 'Saving…' : 'Save Scene'}
         </button>

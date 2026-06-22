@@ -1,16 +1,16 @@
 import type { WorkspaceId, WorkspaceLayout } from './cadStudioTypes';
 
-/** Blender-style screen layouts — tool dock floats on viewport; no left rail column. */
+/** Production layouts — viewport + right rail; bottom strips only when needed. */
 export const WORKSPACE_LAYOUTS: Record<WorkspaceId, WorkspaceLayout> = {
   Layout: {
     id: 'Layout',
     gridTemplateAreas: `
-      "viewport viewport right"
-      "viewport viewport right"
-      "timeline timeline right"
+      "viewport right"
+      "viewport right"
+      "timeline timeline"
     `,
-    gridTemplateColumns: '1fr 1fr minmax(260px, 320px)',
-    gridTemplateRows: '1fr 1fr 120px',
+    gridTemplateColumns: 'minmax(0, 1fr) minmax(280px, 360px)',
+    gridTemplateRows: 'minmax(0, 1fr) minmax(0, 1fr) minmax(100px, 140px)',
     cells: [
       { editor: 'viewport', area: 'viewport' },
       { editor: 'rightTabs', area: 'right' },
@@ -20,12 +20,12 @@ export const WORKSPACE_LAYOUTS: Record<WorkspaceId, WorkspaceLayout> = {
   Modeling: {
     id: 'Modeling',
     gridTemplateAreas: `
-      "viewport right right"
-      "viewport right right"
-      "creation creation right"
+      "viewport right"
+      "viewport right"
+      "creation creation"
     `,
-    gridTemplateColumns: '1fr minmax(130px, 160px) minmax(200px, 260px)',
-    gridTemplateRows: '1fr 1fr 140px',
+    gridTemplateColumns: 'minmax(0, 1fr) minmax(280px, 360px)',
+    gridTemplateRows: 'minmax(0, 1fr) minmax(0, 1fr) minmax(160px, 240px)',
     cells: [
       { editor: 'viewport', area: 'viewport' },
       { editor: 'rightTabs', area: 'right' },
@@ -34,12 +34,9 @@ export const WORKSPACE_LAYOUTS: Record<WorkspaceId, WorkspaceLayout> = {
   },
   Sculpting: {
     id: 'Sculpting',
-    gridTemplateAreas: `
-      "viewport right"
-      "viewport right"
-    `,
-    gridTemplateColumns: '1fr minmax(260px, 320px)',
-    gridTemplateRows: '1fr 1fr',
+    gridTemplateAreas: '"viewport right" "viewport right"',
+    gridTemplateColumns: 'minmax(0, 1fr) minmax(280px, 360px)',
+    gridTemplateRows: 'minmax(0, 1fr) minmax(0, 1fr)',
     cells: [
       { editor: 'viewport', area: 'viewport' },
       { editor: 'rightTabs', area: 'right' },
@@ -47,12 +44,9 @@ export const WORKSPACE_LAYOUTS: Record<WorkspaceId, WorkspaceLayout> = {
   },
   'UV Editing': {
     id: 'UV Editing',
-    gridTemplateAreas: `
-      "uv viewport right"
-      "uv viewport right"
-    `,
-    gridTemplateColumns: '1fr 1fr minmax(240px, 280px)',
-    gridTemplateRows: '1fr 1fr',
+    gridTemplateAreas: '"uv viewport right" "uv viewport right"',
+    gridTemplateColumns: 'minmax(180px, 260px) minmax(0, 1fr) minmax(240px, 320px)',
+    gridTemplateRows: 'minmax(0, 1fr) minmax(0, 1fr)',
     cells: [
       { editor: 'viewportSecondary', area: 'uv' },
       { editor: 'viewport', area: 'viewport' },
@@ -61,12 +55,9 @@ export const WORKSPACE_LAYOUTS: Record<WorkspaceId, WorkspaceLayout> = {
   },
   'Texture Paint': {
     id: 'Texture Paint',
-    gridTemplateAreas: `
-      "viewport image right"
-      "viewport image right"
-    `,
-    gridTemplateColumns: '1fr minmax(180px, 220px) minmax(240px, 280px)',
-    gridTemplateRows: '1fr 1fr',
+    gridTemplateAreas: '"viewport image right" "viewport image right"',
+    gridTemplateColumns: 'minmax(0, 1fr) minmax(180px, 240px) minmax(240px, 320px)',
+    gridTemplateRows: 'minmax(0, 1fr) minmax(0, 1fr)',
     cells: [
       { editor: 'viewport', area: 'viewport' },
       { editor: 'viewportSecondary', area: 'image' },
@@ -75,12 +66,9 @@ export const WORKSPACE_LAYOUTS: Record<WorkspaceId, WorkspaceLayout> = {
   },
   Shading: {
     id: 'Shading',
-    gridTemplateAreas: `
-      "nodes viewport right"
-      "nodes viewport right"
-    `,
-    gridTemplateColumns: 'minmax(200px, 280px) 1fr minmax(240px, 280px)',
-    gridTemplateRows: '1fr 1fr',
+    gridTemplateAreas: '"nodes viewport right" "nodes viewport right"',
+    gridTemplateColumns: 'minmax(200px, 280px) minmax(0, 1fr) minmax(240px, 320px)',
+    gridTemplateRows: 'minmax(0, 1fr) minmax(0, 1fr)',
     cells: [
       { editor: 'nodes', area: 'nodes' },
       { editor: 'viewport', area: 'viewport' },
@@ -91,25 +79,23 @@ export const WORKSPACE_LAYOUTS: Record<WorkspaceId, WorkspaceLayout> = {
     id: 'Animation',
     gridTemplateAreas: `
       "viewport cam right"
-      "dopesheet dopesheet right"
+      "viewport cam right"
+      "timeline timeline timeline"
     `,
-    gridTemplateColumns: '1fr 1fr minmax(240px, 280px)',
-    gridTemplateRows: '1fr 160px',
+    gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) minmax(240px, 320px)',
+    gridTemplateRows: 'minmax(0, 1fr) minmax(0, 1fr) minmax(120px, 160px)',
     cells: [
       { editor: 'viewport', area: 'viewport' },
       { editor: 'viewportSecondary', area: 'cam' },
-      { editor: 'dopesheet', area: 'dopesheet' },
       { editor: 'rightTabs', area: 'right' },
+      { editor: 'timeline', area: 'timeline' },
     ],
   },
   Rendering: {
     id: 'Rendering',
-    gridTemplateAreas: `
-      "viewport render right right"
-      "viewport render right right"
-    `,
-    gridTemplateColumns: '1fr 1fr minmax(130px, 160px) minmax(200px, 260px)',
-    gridTemplateRows: '1fr 1fr',
+    gridTemplateAreas: '"viewport render right" "viewport render right"',
+    gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) minmax(280px, 360px)',
+    gridTemplateRows: 'minmax(0, 1fr) minmax(0, 1fr)',
     cells: [
       { editor: 'viewport', area: 'viewport' },
       { editor: 'viewportSecondary', area: 'render' },
@@ -118,12 +104,9 @@ export const WORKSPACE_LAYOUTS: Record<WorkspaceId, WorkspaceLayout> = {
   },
   Compositing: {
     id: 'Compositing',
-    gridTemplateAreas: `
-      "viewport comp right"
-      "viewport comp right"
-    `,
-    gridTemplateColumns: '1fr 1fr minmax(260px, 320px)',
-    gridTemplateRows: '1fr 1fr',
+    gridTemplateAreas: '"viewport comp right" "viewport comp right"',
+    gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) minmax(280px, 360px)',
+    gridTemplateRows: 'minmax(0, 1fr) minmax(0, 1fr)',
     cells: [
       { editor: 'viewport', area: 'viewport' },
       { editor: 'viewportSecondary', area: 'comp' },
@@ -132,12 +115,9 @@ export const WORKSPACE_LAYOUTS: Record<WorkspaceId, WorkspaceLayout> = {
   },
   'Geometry Nodes': {
     id: 'Geometry Nodes',
-    gridTemplateAreas: `
-      "viewport script right"
-      "viewport script right"
-    `,
-    gridTemplateColumns: '1fr minmax(220px, 280px) minmax(240px, 280px)',
-    gridTemplateRows: '1fr 1fr',
+    gridTemplateAreas: '"viewport script right" "viewport script right"',
+    gridTemplateColumns: 'minmax(0, 1fr) minmax(220px, 300px) minmax(240px, 320px)',
+    gridTemplateRows: 'minmax(0, 1fr) minmax(0, 1fr)',
     cells: [
       { editor: 'viewport', area: 'viewport' },
       { editor: 'script', area: 'script' },
@@ -146,12 +126,9 @@ export const WORKSPACE_LAYOUTS: Record<WorkspaceId, WorkspaceLayout> = {
   },
   Scripting: {
     id: 'Scripting',
-    gridTemplateAreas: `
-      "script viewport"
-      "script viewport"
-    `,
-    gridTemplateColumns: 'minmax(280px, 360px) 1fr',
-    gridTemplateRows: '1fr 1fr',
+    gridTemplateAreas: '"script viewport" "script viewport"',
+    gridTemplateColumns: 'minmax(280px, 360px) minmax(0, 1fr)',
+    gridTemplateRows: 'minmax(0, 1fr) minmax(0, 1fr)',
     cells: [
       { editor: 'script', area: 'script' },
       { editor: 'viewport', area: 'viewport' },
@@ -161,32 +138,33 @@ export const WORKSPACE_LAYOUTS: Record<WorkspaceId, WorkspaceLayout> = {
     id: 'Motion Tracking',
     gridTemplateAreas: `
       "clip graph right"
-      "viewport dopesheet right"
+      "viewport viewport right"
+      "timeline timeline timeline"
     `,
-    gridTemplateColumns: '1fr 1fr minmax(220px, 260px)',
-    gridTemplateRows: '1fr 160px',
+    gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) minmax(240px, 320px)',
+    gridTemplateRows: 'minmax(120px, 180px) minmax(0, 1fr) minmax(100px, 140px)',
     cells: [
       { editor: 'movieClip', area: 'clip' },
       { editor: 'graph', area: 'graph' },
       { editor: 'viewport', area: 'viewport' },
-      { editor: 'dopesheet', area: 'dopesheet' },
       { editor: 'rightTabs', area: 'right' },
+      { editor: 'timeline', area: 'timeline' },
     ],
   },
   'Video Editing': {
     id: 'Video Editing',
     gridTemplateAreas: `
-      "viewport preview scopes right"
-      "viewport sequencer sequencer right"
+      "viewport preview right"
+      "sequencer scopes right"
     `,
-    gridTemplateColumns: '1fr 1fr minmax(160px, 200px) minmax(220px, 260px)',
-    gridTemplateRows: '1fr 160px',
+    gridTemplateColumns: 'minmax(0, 1fr) minmax(180px, 240px) minmax(240px, 320px)',
+    gridTemplateRows: 'minmax(0, 1fr) minmax(140px, 200px)',
     cells: [
       { editor: 'viewport', area: 'viewport' },
       { editor: 'viewportSecondary', area: 'preview' },
-      { editor: 'scopes', area: 'scopes' },
       { editor: 'sequencer', area: 'sequencer' },
-      { editor: 'colorBalance', area: 'right' },
+      { editor: 'scopes', area: 'scopes' },
+      { editor: 'rightTabs', area: 'right' },
     ],
   },
   '2D Animation': {
@@ -195,8 +173,8 @@ export const WORKSPACE_LAYOUTS: Record<WorkspaceId, WorkspaceLayout> = {
       "viewport layers right"
       "timeline timeline right"
     `,
-    gridTemplateColumns: '1fr minmax(160px, 200px) minmax(220px, 260px)',
-    gridTemplateRows: '1fr 120px',
+    gridTemplateColumns: 'minmax(0, 1fr) minmax(160px, 220px) minmax(240px, 320px)',
+    gridTemplateRows: 'minmax(0, 1fr) minmax(100px, 140px)',
     cells: [
       { editor: 'viewport', area: 'viewport' },
       { editor: 'greaseLayers', area: 'layers' },
@@ -206,12 +184,9 @@ export const WORKSPACE_LAYOUTS: Record<WorkspaceId, WorkspaceLayout> = {
   },
   Agent: {
     id: 'Agent',
-    gridTemplateAreas: `
-      "viewport right"
-      "viewport right"
-    `,
-    gridTemplateColumns: '1fr minmax(260px, 320px)',
-    gridTemplateRows: '1fr 1fr',
+    gridTemplateAreas: '"viewport right" "viewport right"',
+    gridTemplateColumns: 'minmax(0, 1fr) minmax(280px, 360px)',
+    gridTemplateRows: 'minmax(0, 1fr) minmax(0, 1fr)',
     cells: [
       { editor: 'viewport', area: 'viewport' },
       { editor: 'rightTabs', area: 'right' },

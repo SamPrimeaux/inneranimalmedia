@@ -665,8 +665,7 @@ export const DesignStudioPage: React.FC = () => {
   return (
     <div
       ref={pageRootRef}
-      className="relative flex h-full min-h-0 overflow-hidden"
-      style={{ background: '#111214' }}
+      className="relative flex h-full min-h-0 overflow-hidden bg-[var(--dashboard-canvas,var(--bg-app,#111214))]"
       onDrop={handleFileDrop}
       onDragOver={(e) => e.preventDefault()}
     >
