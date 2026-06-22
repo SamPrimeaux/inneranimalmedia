@@ -169,7 +169,7 @@
     "react-syntax-highlighter": "^16.1.1",
     "remotion": "^4.0.462",
     "sharp": "^0.35.2",
-    "wrangler": "^4.100.0",
+    "wrangler": "^4.103.0",
     "ws": "^8.21.0"
   },
   "type": "module",
