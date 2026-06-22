@@ -1,0 +1,38 @@
+<!-- CMS section: london_dream_railway — playable Three.js railway section for /games -->
+<!-- Section 5: London Dream Railway playable demo (dark) -->
+    <section class="london-railway-section" data-cms-section="london_dream_railway" data-cms-type="playable_game" data-section-theme="dark" id="cms-games-sec-railway" aria-labelledby="railway-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow" id="cms-games-railway-kicker">Flagship playable demo</p>
+          <h2 id="railway-title">London Dream Railway</h2>
+        </div>
+        <p id="cms-games-railway-body">A bright voxel train-table world where little red trains and Tube-inspired carriages weave through London landmarks.</p>
+      </div>
+      <article class="demo-card">
+        <div class="demo-topbar">
+          <div class="demo-title-wrap">
+            <h2 id="cms-games-railway-card-title">London Dream Railway</h2>
+            <p id="cms-games-railway-card-body">Three.js toy-table city with rails, switches, camera tours, landmarks, tunnels, and smooth train loops.</p>
+          </div>
+          <div class="demo-badges" aria-label="Demo technology tags">
+            <span class="status-chip">Three.js</span><span class="status-chip">Voxel</span><span class="status-chip">Interactive Camera</span><span class="status-chip">Procedural Rails</span><span class="status-chip">Client-Ready</span>
+          </div>
+        </div>
+        <div class="demo-stage">
+          <div class="canvas-wrap" id="railwayCanvasWrap">
+            <canvas id="londonRailwayCanvas" aria-label="Interactive 3D London toy railway scene" tabindex="0"></canvas>
+            <div class="landmark-tooltip" id="landmarkTooltip">Landmark</div>
+            <div class="canvas-hud" aria-hidden="true"><span class="hud-pill" id="hudStatus">Running at balanced quality</span><span class="hud-pill" id="hudCamera">Camera: Full Table</span></div>
+            <div class="webgl-fallback" id="webglFallback"><div><h3>WebGL is required for the live railway demo.</h3><p>Your browser could not start the 3D renderer. The rest of the MeauxGames page still works.</p></div></div>
+          </div>
+          <aside class="control-panel" aria-label="London Railway controls">
+            <div class="control-section"><h3>Run</h3><div class="control-grid"><button class="game-button is-active" id="playPauseButton" type="button">Pause</button><button class="game-button" id="followTrainButton" type="button">Follow Train</button><button class="game-button" id="resetCameraButton" type="button">Reset Overview</button><button class="game-button" id="fullscreenButton" type="button">Fullscreen Demo</button></div></div>
+            <div class="control-section"><h3>Motion</h3><label class="slider-row" for="speedSlider"><span class="slider-label"><span>Speed</span><span class="slider-value" id="speedValue">1.00×</span></span><input id="speedSlider" type="range" min="0.5" max="2.5" step="0.05" value="1" /></label><label class="slider-row" for="trainCountSlider"><span class="slider-label"><span>Train count</span><span class="slider-value" id="trainCountValue">5</span></span><input id="trainCountSlider" type="range" min="1" max="5" step="1" value="5" /></label></div>
+            <div class="control-section"><h3>Switches</h3><div class="control-grid single"><button class="game-button" id="switchAButton" type="button">Switch A: Main Loop</button><button class="game-button" id="switchBButton" type="button">Switch B: Shard Side</button><button class="game-button" id="tunnelCutawayButton" type="button">Tunnel: Closed</button></div></div>
+            <div class="control-section"><h3>Camera presets</h3><div class="control-grid"><button class="preset-button is-active" type="button" data-preset="fullTable">Full Table</button><button class="preset-button" type="button" data-preset="bridgeCrossing">Bridge Crossing</button><button class="preset-button" type="button" data-preset="stationCloseup">Station Close-up</button><button class="preset-button" type="button" data-preset="tunnelSlice">Tunnel Slice</button><button class="preset-button" type="button" data-preset="londonEye">London Eye</button><button class="preset-button" type="button" data-preset="shardView">Shard View</button></div></div>
+            <div class="control-section"><h3>Quality</h3><div class="control-grid"><button class="quality-button" type="button" data-quality="performance">Performance</button><button class="quality-button is-active" type="button" data-quality="balanced">Balanced</button><button class="quality-button" type="button" data-quality="cinematic">Cinematic</button></div></div>
+          </aside>
+        </div>
+        <div class="demo-footer"><p id="cms-games-railway-footer">Playable flagship demo: city table, landmarks, train paths, branch switches, camera tours, instanced props, and optimized WebGL rendering.</p><div class="cta-row"><a class="button-secondary" href="/dashboard/studio">Open Studio</a><a class="button-ghost" href="/create">Build Variation</a></div></div>
+      </article>
+    </section>

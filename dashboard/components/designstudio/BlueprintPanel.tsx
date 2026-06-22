@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { FileText, Plus } from 'lucide-react';
-import type { BlueprintRow } from '../api';
+import type { BlueprintRow } from './api';
 
 type Props = {
   blueprints: BlueprintRow[];

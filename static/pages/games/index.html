@@ -80,9 +80,38 @@
     .badge-blue-light { color: #1d4ed8; background: #dbeafe; }
     .badge-teal-dark { color: #5eead4; background: rgba(20, 184, 166, 0.15); }
     .badge-blue-dark { color: #93c5fd; background: rgba(37, 99, 235, 0.15); }
+
+    /* London Dream Railway playable section */
+    .london-railway-section {
+      --mg-gold:#d8ae55; --mg-gold-bright:#ffd77b; --mg-cream:#f6edd1; --mg-muted:rgba(246,237,209,.70); --mg-green:#74d878;
+      color: var(--mg-cream);
+      background: radial-gradient(circle at 20% 0%, rgba(216,174,85,.16), transparent 32rem), radial-gradient(circle at 84% 10%, rgba(37,99,235,.16), transparent 34rem), linear-gradient(180deg,#080808 0%,#111216 42%,#070707 100%);
+      padding: clamp(4rem,8vw,7rem) clamp(1rem,4vw,4rem); overflow:hidden; border-top:1px solid rgba(255,255,255,.08); border-bottom:1px solid rgba(255,255,255,.08);
+    }
+    .london-railway-section *{box-sizing:border-box}.london-railway-section button,.london-railway-section input{font:inherit}.london-railway-section button{cursor:pointer}
+    .london-railway-section h2,.london-railway-section h3,.london-railway-section p{margin-top:0}.london-railway-section a{text-decoration:none;color:inherit}
+    .london-railway-section .section-heading{display:flex;align-items:end;justify-content:space-between;gap:1rem;margin:0 auto 1.4rem;width:min(1380px,100%)}
+    .london-railway-section .section-heading h2{color:#fff7db;font-size:clamp(2rem,4vw,4.8rem);line-height:.95;letter-spacing:-.05em;margin-bottom:0;font-weight:800}
+    .london-railway-section .section-heading p{width:min(560px,100%);color:var(--mg-muted);line-height:1.55;margin-bottom:0}
+    .london-railway-section .eyebrow{display:inline-flex;gap:.5rem;align-items:center;color:var(--mg-gold-bright);font-size:.78rem;letter-spacing:.18em;text-transform:uppercase;margin:0 0 1rem;font-weight:800}.london-railway-section .eyebrow:before{content:"";width:32px;height:1px;background:var(--mg-gold)}
+    .london-railway-section .demo-card{width:min(1380px,100%);margin:0 auto;border:1px solid rgba(255,255,255,.11);border-radius:34px;overflow:hidden;background:radial-gradient(circle at 74% 12%,rgba(57,170,247,.16),transparent 26rem),linear-gradient(180deg,rgba(255,255,255,.055),rgba(255,255,255,.02));box-shadow:0 24px 90px rgba(0,0,0,.48)}
+    .london-railway-section .demo-topbar{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:1.1rem 1.2rem;border-bottom:1px solid rgba(255,255,255,.09);background:rgba(0,0,0,.20)}
+    .london-railway-section .demo-title-wrap h2{color:#fff8dc;font-size:clamp(1.4rem,2vw,2.3rem);letter-spacing:-.035em;margin-bottom:.2rem;font-weight:800}.london-railway-section .demo-title-wrap p{color:var(--mg-muted);margin-bottom:0;line-height:1.45}
+    .london-railway-section .demo-badges{display:flex;flex-wrap:wrap;gap:.45rem;justify-content:flex-end}.london-railway-section .status-chip{border:1px solid rgba(255,255,255,.11);background:rgba(255,255,255,.045);color:rgba(246,237,209,.78);border-radius:999px;padding:.52rem .7rem;font-size:.75rem;line-height:1;white-space:nowrap}
+    .london-railway-section .demo-stage{display:grid;grid-template-columns:minmax(0,1fr) 340px;min-height:min(780px,74vh);background:#0b1115}.london-railway-section .canvas-wrap{position:relative;min-height:640px;overflow:hidden;background:radial-gradient(circle at 45% 16%,rgba(95,181,255,.22),transparent 44rem),linear-gradient(180deg,#d7f2ff 0%,#eafbff 35%,#90d7ff 36%,#72c8ff 100%)}
+    .london-railway-section #londonRailwayCanvas{display:block;width:100%;height:100%;min-height:inherit;outline:none;touch-action:none}.london-railway-section .canvas-hud{position:absolute;left:1rem;bottom:1rem;display:flex;flex-wrap:wrap;gap:.55rem;pointer-events:none}.london-railway-section .hud-pill{display:inline-flex;align-items:center;gap:.45rem;padding:.62rem .8rem;border-radius:999px;background:rgba(9,12,15,.68);color:rgba(255,255,255,.86);border:1px solid rgba(255,255,255,.11);backdrop-filter:blur(14px);font-size:.78rem;box-shadow:0 10px 40px rgba(0,0,0,.20)}.london-railway-section .hud-pill:before{content:"";width:.48rem;height:.48rem;border-radius:50%;background:var(--mg-green);box-shadow:0 0 18px var(--mg-green)}
+    .london-railway-section .landmark-tooltip{position:absolute;top:1rem;left:1rem;transform:translateY(-12px);opacity:0;pointer-events:none;border:1px solid rgba(255,255,255,.12);background:rgba(7,8,10,.78);color:var(--mg-cream);border-radius:999px;padding:.62rem .82rem;backdrop-filter:blur(16px);transition:opacity .16s ease,transform .16s ease;box-shadow:0 16px 50px rgba(0,0,0,.30)}.london-railway-section .landmark-tooltip.is-visible{opacity:1;transform:translateY(0)}
+    .london-railway-section .control-panel{display:flex;flex-direction:column;gap:1rem;padding:1rem;border-left:1px solid rgba(255,255,255,.09);background:radial-gradient(circle at 50% 0%,rgba(216,174,85,.12),transparent 18rem),rgba(10,10,13,.82);backdrop-filter:blur(18px);overflow-y:auto;max-height:780px}.london-railway-section .control-section{border:1px solid rgba(255,255,255,.10);border-radius:18px;background:rgba(255,255,255,.035);padding:.88rem}.london-railway-section .control-section h3{color:var(--mg-gold-bright);font-size:.78rem;letter-spacing:.16em;text-transform:uppercase;margin-bottom:.72rem;font-weight:800}
+    .london-railway-section .control-grid{display:grid;gap:.55rem;grid-template-columns:repeat(2,minmax(0,1fr))}.london-railway-section .control-grid.single{grid-template-columns:1fr}.london-railway-section .game-button,.london-railway-section .preset-button,.london-railway-section .quality-button{min-height:38px;border:1px solid rgba(255,255,255,.10);border-radius:12px;background:rgba(255,255,255,.055);color:rgba(246,237,209,.86);padding:.6rem .68rem;font-size:.78rem;font-weight:700;transition:transform .16s ease,background .16s ease,border-color .16s ease,color .16s ease}.london-railway-section .game-button:hover,.london-railway-section .preset-button:hover,.london-railway-section .quality-button:hover{transform:translateY(-1px);border-color:rgba(255,216,123,.30);color:#fff6d7}.london-railway-section .game-button.is-active,.london-railway-section .preset-button.is-active,.london-railway-section .quality-button.is-active{background:linear-gradient(180deg,rgba(255,216,123,.25),rgba(216,174,85,.10));border-color:rgba(255,216,123,.48);color:var(--mg-gold-bright)}
+    .london-railway-section .slider-row{display:grid;gap:.45rem;margin-bottom:.8rem}.london-railway-section .slider-row:last-child{margin-bottom:0}.london-railway-section .slider-label{display:flex;justify-content:space-between;gap:1rem;color:rgba(246,237,209,.76);font-size:.82rem}.london-railway-section .slider-value{color:var(--mg-gold-bright);font-weight:800}.london-railway-section input[type="range"]{width:100%;accent-color:var(--mg-gold)}
+    .london-railway-section .demo-footer{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:1rem 1.2rem;border-top:1px solid rgba(255,255,255,.09);background:rgba(0,0,0,.20)}.london-railway-section .demo-footer p{margin:0;color:var(--mg-muted);line-height:1.5}.london-railway-section .cta-row{display:flex;flex-wrap:wrap;gap:.8rem}.london-railway-section .button-secondary,.london-railway-section .button-ghost{display:inline-flex;align-items:center;justify-content:center;gap:.5rem;min-height:46px;border-radius:999px;padding:.9rem 1.16rem;font-weight:700}.london-railway-section .button-secondary{color:var(--mg-cream);background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.13)}.london-railway-section .button-ghost{color:rgba(246,237,209,.78);background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.08)}
+    .london-railway-section .webgl-fallback{position:absolute;inset:0;display:none;place-items:center;text-align:center;padding:2rem;color:#123;background:linear-gradient(180deg,#d7f2ff,#8ad8ff);z-index:3}.london-railway-section .webgl-fallback.is-visible{display:grid}
+    @media(max-width:1100px){.london-railway-section .demo-stage{grid-template-columns:1fr}.london-railway-section .canvas-wrap{min-height:560px}.london-railway-section .control-panel{max-height:none;border-left:none;border-top:1px solid rgba(255,255,255,.09);display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}}
+    @media(max-width:720px){.london-railway-section{padding:3.5rem .85rem 4rem}.london-railway-section .section-heading{display:grid;align-items:start}.london-railway-section .demo-card{border-radius:26px}.london-railway-section .demo-topbar,.london-railway-section .demo-footer{display:grid}.london-railway-section .demo-badges{justify-content:flex-start}.london-railway-section .canvas-wrap{min-height:520px}.london-railway-section .control-panel{grid-template-columns:1fr;padding:.85rem}.london-railway-section .control-grid{grid-template-columns:1fr 1fr}}
+
   </style>
 </head>
-<body>
+<body class="iam-public-page route-games" data-footer-theme="dark">
   <main>
     <!-- Section 1: Interactive systems hero (light) -->
     <section
@@ -223,6 +252,44 @@
         </div>
       </div>
     </section>
+
+    <!-- Section 5: London Dream Railway playable demo (dark) -->
+    <section class="london-railway-section" data-cms-section="london_dream_railway" data-cms-type="playable_game" data-section-theme="dark" id="cms-games-sec-railway" aria-labelledby="railway-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow" id="cms-games-railway-kicker">Flagship playable demo</p>
+          <h2 id="railway-title">London Dream Railway</h2>
+        </div>
+        <p id="cms-games-railway-body">A bright voxel train-table world where little red trains and Tube-inspired carriages weave through London landmarks.</p>
+      </div>
+      <article class="demo-card">
+        <div class="demo-topbar">
+          <div class="demo-title-wrap">
+            <h2 id="cms-games-railway-card-title">London Dream Railway</h2>
+            <p id="cms-games-railway-card-body">Three.js toy-table city with rails, switches, camera tours, landmarks, tunnels, and smooth train loops.</p>
+          </div>
+          <div class="demo-badges" aria-label="Demo technology tags">
+            <span class="status-chip">Three.js</span><span class="status-chip">Voxel</span><span class="status-chip">Interactive Camera</span><span class="status-chip">Procedural Rails</span><span class="status-chip">Client-Ready</span>
+          </div>
+        </div>
+        <div class="demo-stage">
+          <div class="canvas-wrap" id="railwayCanvasWrap">
+            <canvas id="londonRailwayCanvas" aria-label="Interactive 3D London toy railway scene" tabindex="0"></canvas>
+            <div class="landmark-tooltip" id="landmarkTooltip">Landmark</div>
+            <div class="canvas-hud" aria-hidden="true"><span class="hud-pill" id="hudStatus">Running at balanced quality</span><span class="hud-pill" id="hudCamera">Camera: Full Table</span></div>
+            <div class="webgl-fallback" id="webglFallback"><div><h3>WebGL is required for the live railway demo.</h3><p>Your browser could not start the 3D renderer. The rest of the MeauxGames page still works.</p></div></div>
+          </div>
+          <aside class="control-panel" aria-label="London Railway controls">
+            <div class="control-section"><h3>Run</h3><div class="control-grid"><button class="game-button is-active" id="playPauseButton" type="button">Pause</button><button class="game-button" id="followTrainButton" type="button">Follow Train</button><button class="game-button" id="resetCameraButton" type="button">Reset Overview</button><button class="game-button" id="fullscreenButton" type="button">Fullscreen Demo</button></div></div>
+            <div class="control-section"><h3>Motion</h3><label class="slider-row" for="speedSlider"><span class="slider-label"><span>Speed</span><span class="slider-value" id="speedValue">1.00×</span></span><input id="speedSlider" type="range" min="0.5" max="2.5" step="0.05" value="1" /></label><label class="slider-row" for="trainCountSlider"><span class="slider-label"><span>Train count</span><span class="slider-value" id="trainCountValue">5</span></span><input id="trainCountSlider" type="range" min="1" max="5" step="1" value="5" /></label></div>
+            <div class="control-section"><h3>Switches</h3><div class="control-grid single"><button class="game-button" id="switchAButton" type="button">Switch A: Main Loop</button><button class="game-button" id="switchBButton" type="button">Switch B: Shard Side</button><button class="game-button" id="tunnelCutawayButton" type="button">Tunnel: Closed</button></div></div>
+            <div class="control-section"><h3>Camera presets</h3><div class="control-grid"><button class="preset-button is-active" type="button" data-preset="fullTable">Full Table</button><button class="preset-button" type="button" data-preset="bridgeCrossing">Bridge Crossing</button><button class="preset-button" type="button" data-preset="stationCloseup">Station Close-up</button><button class="preset-button" type="button" data-preset="tunnelSlice">Tunnel Slice</button><button class="preset-button" type="button" data-preset="londonEye">London Eye</button><button class="preset-button" type="button" data-preset="shardView">Shard View</button></div></div>
+            <div class="control-section"><h3>Quality</h3><div class="control-grid"><button class="quality-button" type="button" data-quality="performance">Performance</button><button class="quality-button is-active" type="button" data-quality="balanced">Balanced</button><button class="quality-button" type="button" data-quality="cinematic">Cinematic</button></div></div>
+          </aside>
+        </div>
+        <div class="demo-footer"><p id="cms-games-railway-footer">Playable flagship demo: city table, landmarks, train paths, branch switches, camera tours, instanced props, and optimized WebGL rendering.</p><div class="cta-row"><a class="button-secondary" href="/dashboard/studio">Open Studio</a><a class="button-ghost" href="/create">Build Variation</a></div></div>
+      </article>
+    </section>
   </main>
 
   <div id="play-modal" class="fixed inset-0 z-[100] items-center justify-center p-6 bg-brand-dark/75 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="play-modal-title">
@@ -337,17 +404,105 @@
       var header = document.getElementById('iam-header');
       if (header && 'IntersectionObserver' in window) {
         var themed = document.querySelectorAll('[data-section-theme]');
+        function applyHeaderTheme(el) {
+          var light = el.getAttribute('data-section-theme') === 'light';
+          header.classList.toggle('iam-header--light-bg', light);
+          header.classList.add('scrolled');
+        }
         var observer = new IntersectionObserver(function (entries) {
           entries.forEach(function (entry) {
             if (!entry.isIntersecting) return;
-            var light = entry.target.getAttribute('data-section-theme') === 'light';
-            header.classList.toggle('iam-header--light-bg', light);
-            header.classList.toggle('scrolled', true);
+            applyHeaderTheme(entry.target);
           });
         }, { rootMargin: '-40% 0px -40% 0px', threshold: 0 });
         themed.forEach(function (el) { observer.observe(el); });
+        if (themed.length) applyHeaderTheme(themed[0]);
       }
     })();
   </script>
+
+  <script type="importmap" data-games-railway-importmap>
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.1/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.1/examples/jsm/"
+      }
+    }
+  </script>
+
+  <script type="module" data-games-railway-module>
+
+    import * as THREE from 'three';
+
+    const canvasElement = document.getElementById('londonRailwayCanvas');
+    const canvasWrapElement = document.getElementById('railwayCanvasWrap');
+    const fallbackElement = document.getElementById('webglFallback');
+    const tooltipElement = document.getElementById('landmarkTooltip');
+    const hudStatusElement = document.getElementById('hudStatus');
+    const hudCameraElement = document.getElementById('hudCamera');
+    if (canvasElement && canvasWrapElement) {
+      const sceneState = { paused:false, follow:false, speed:1, trainCount:5, routeA:false, routeB:false, tunnelOpen:false, preset:'Full Table', orbitX:-0.82, orbitY:0.78, radius:20, dragging:false, previousX:0, previousY:0, target:new THREE.Vector3(0,0.4,0), desiredPosition:new THREE.Vector3(11,12,15), desiredTarget:new THREE.Vector3(0,0.4,0), lastTime:performance.now(), elapsed:0 };
+      function webglWorks(){ try { const testCanvas=document.createElement('canvas'); return Boolean(window.WebGLRenderingContext && (testCanvas.getContext('webgl') || testCanvas.getContext('experimental-webgl'))); } catch(webglError){ return false; } }
+      if (!webglWorks()) { fallbackElement?.classList.add('is-visible'); }
+      const renderer = new THREE.WebGLRenderer({ canvas:canvasElement, antialias:true, powerPreference:'high-performance' });
+      renderer.setClearColor(0xd9f4ff, 1); renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05; renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      const scene = new THREE.Scene(); scene.background = new THREE.Color(0xd9f4ff); scene.fog = new THREE.Fog(0xd9f4ff, 34, 58);
+      const camera = new THREE.PerspectiveCamera(43, 1, 0.1, 120); camera.position.copy(sceneState.desiredPosition); camera.lookAt(sceneState.desiredTarget);
+      scene.add(new THREE.HemisphereLight(0xf8fbff, 0x51624c, 1.5));
+      const sunLight = new THREE.DirectionalLight(0xffffff, 2.4); sunLight.position.set(-8,14,10); sunLight.castShadow = true; sunLight.shadow.mapSize.set(1024,1024); sunLight.shadow.camera.left=-18; sunLight.shadow.camera.right=18; sunLight.shadow.camera.top=18; sunLight.shadow.camera.bottom=-18; scene.add(sunLight);
+      const fillLight = new THREE.DirectionalLight(0x8bcaff, .75); fillLight.position.set(10,8,-12); scene.add(fillLight);
+      const materials = {
+        wood:new THREE.MeshStandardMaterial({color:0x7b4a25,roughness:.62}), darkWood:new THREE.MeshStandardMaterial({color:0x3a2116,roughness:.72}), grass:new THREE.MeshStandardMaterial({color:0x37b55a,roughness:.88}), river:new THREE.MeshStandardMaterial({color:0x37a7e6,roughness:.48,transparent:true,opacity:.88}), cream:new THREE.MeshStandardMaterial({color:0xfff1c6,roughness:.58}), tan:new THREE.MeshStandardMaterial({color:0xe1bd79,roughness:.64}), brick:new THREE.MeshStandardMaterial({color:0xb95d3d,roughness:.68}), red:new THREE.MeshStandardMaterial({color:0xd33a31,roughness:.38}), blue:new THREE.MeshStandardMaterial({color:0x218ce8,roughness:.46}), yellow:new THREE.MeshStandardMaterial({color:0xffc84a,roughness:.45}), white:new THREE.MeshStandardMaterial({color:0xf8f6e8,roughness:.52}), black:new THREE.MeshStandardMaterial({color:0x151719,roughness:.72}), rail:new THREE.MeshStandardMaterial({color:0xd7ebff,roughness:.3,metalness:.52}), glass:new THREE.MeshStandardMaterial({color:0x9be8ff,roughness:.18,transparent:true,opacity:.64}), gold:new THREE.MeshStandardMaterial({color:0xd8ae55,roughness:.33,metalness:.38})
+      };
+      const landmarkMeshes = [];
+      function addBox(parentGroup, materialItem, widthValue, heightValue, depthValue, xValue, yValue, zValue, landmarkName){ const geometryItem=new THREE.BoxGeometry(widthValue,heightValue,depthValue); const meshItem=new THREE.Mesh(geometryItem, materialItem); meshItem.position.set(xValue,yValue,zValue); meshItem.castShadow=true; meshItem.receiveShadow=true; if(landmarkName){ meshItem.userData.landmarkName=landmarkName; landmarkMeshes.push(meshItem); } parentGroup.add(meshItem); return meshItem; }
+      function addCylinder(parentGroup, materialItem, radiusTop, radiusBottom, heightValue, xValue, yValue, zValue, landmarkName){ const geometryItem=new THREE.CylinderGeometry(radiusTop,radiusBottom,heightValue,32); const meshItem=new THREE.Mesh(geometryItem, materialItem); meshItem.position.set(xValue,yValue,zValue); meshItem.castShadow=true; meshItem.receiveShadow=true; if(landmarkName){ meshItem.userData.landmarkName=landmarkName; landmarkMeshes.push(meshItem); } parentGroup.add(meshItem); return meshItem; }
+      const tableGroup = new THREE.Group(); scene.add(tableGroup); addBox(tableGroup, materials.wood,25,.7,14.5,0,-.45,0); addBox(tableGroup, materials.darkWood,25.8,.54,.42,0,-.07,7.43); addBox(tableGroup, materials.darkWood,25.8,.54,.42,0,-.07,-7.43); addBox(tableGroup, materials.darkWood,.42,.54,14.8,-12.72,-.07,0); addBox(tableGroup, materials.darkWood,.42,.54,14.8,12.72,-.07,0); addBox(tableGroup, materials.grass,24,.12,13.2,0,0,0); [-7.6,-.8,5.9].forEach((riverX)=>{ const riverMesh=addBox(tableGroup, materials.river,7.7,.05,1.42,riverX,.09,-1.42); riverMesh.rotation.y = riverX < 0 ? -.14 : .1; });
+      function makeLandmarks(){ const allLandmarks=new THREE.Group(); scene.add(allLandmarks); const westminster=new THREE.Group(); westminster.position.set(-5.2,.16,4.35); addBox(westminster,materials.tan,3.4,.72,.88,.85,.38,0,'Westminster Palace'); addBox(westminster,materials.tan,.72,2.45,.72,-1.35,1.25,0,'Elizabeth Tower'); const towerRoof=new THREE.Mesh(new THREE.ConeGeometry(.52,.64,4),materials.black); towerRoof.position.set(-1.35,2.8,0); towerRoof.rotation.y=Math.PI/4; westminster.add(towerRoof); [-.36,.36].forEach((clockZ)=>{ const clockFace=addCylinder(westminster,materials.white,.19,.19,.035,-1.35,2.05,clockZ); clockFace.rotation.x=Math.PI/2; }); allLandmarks.add(westminster);
+        const bridge=new THREE.Group(); bridge.position.set(-7.6,.17,-1.72); [-1.2,1.2].forEach((towerX)=>{ addBox(bridge,materials.cream,.78,2.1,.72,towerX,1.1,0,'Tower Bridge'); const bridgeRoof=new THREE.Mesh(new THREE.ConeGeometry(.52,.48,4),materials.blue); bridgeRoof.position.set(towerX,2.38,0); bridgeRoof.rotation.y=Math.PI/4; bridge.add(bridgeRoof); }); addBox(bridge,materials.blue,3.3,.16,.2,0,2.05,0); addBox(bridge,materials.darkWood,3.4,.16,.7,0,.62,0); allLandmarks.add(bridge);
+        const eye=new THREE.Group(); eye.position.set(1.6,.2,4.72); const wheel=new THREE.Mesh(new THREE.TorusGeometry(1.05,.035,8,72),materials.white); wheel.position.set(0,1.2,0); wheel.rotation.y=Math.PI/2; wheel.userData.landmarkName='London Eye'; landmarkMeshes.push(wheel); eye.add(wheel); eye.userData.wheel=wheel; for(let capsuleIndex=0; capsuleIndex<12; capsuleIndex+=1){ const capsuleAngle=capsuleIndex/12*Math.PI*2; addBox(eye,materials.blue,.12,.08,.22,0,1.2+Math.sin(capsuleAngle)*1.05,Math.cos(capsuleAngle)*1.05); } addBox(eye,materials.white,.09,1.28,.09,0,.55,-.42).rotation.x=-.3; addBox(eye,materials.white,.09,1.28,.09,0,.55,.42).rotation.x=.3; allLandmarks.add(eye);
+        const stPauls=new THREE.Group(); stPauls.position.set(4.35,.18,-3.72); addBox(stPauls,materials.cream,1.9,.54,1.25,0,.33,0,'St Paul’s Cathedral'); addCylinder(stPauls,materials.cream,.58,.66,.42,0,.88,0); const dome=new THREE.Mesh(new THREE.SphereGeometry(.62,28,14,0,Math.PI*2,0,Math.PI/2),materials.blue); dome.position.set(0,1.07,0); stPauls.add(dome); const spire=new THREE.Mesh(new THREE.ConeGeometry(.12,.56,16),materials.gold); spire.position.set(0,1.78,0); stPauls.add(spire); allLandmarks.add(stPauls);
+        const shard=new THREE.Group(); shard.position.set(8.2,.2,2.75); const shardMesh=new THREE.Mesh(new THREE.ConeGeometry(.82,4.3,4),materials.glass); shardMesh.position.set(0,2.2,0); shardMesh.rotation.y=Math.PI/4; shardMesh.userData.landmarkName='The Shard'; landmarkMeshes.push(shardMesh); shard.add(shardMesh); addBox(shard,materials.blue,1.1,.32,1.1,0,.25,0); allLandmarks.add(shard);
+        const battersea=new THREE.Group(); battersea.position.set(-9.15,.2,3.25); addBox(battersea,materials.brick,2.35,.82,1.22,0,.48,0,'Battersea Power Station'); [-.85,-.28,.28,.85].forEach((chimneyX)=>addCylinder(battersea,materials.cream,.12,.15,1.55,chimneyX,1.48,0)); allLandmarks.add(battersea);
+        const station=new THREE.Group(); station.position.set(-.8,.18,-4.72); addBox(station,materials.tan,3.4,.22,1.3,0,.18,0,'Toy Waterloo Station'); addBox(station,materials.red,2.2,.45,.26,0,.54,-.42); addBox(station,materials.white,3.8,.12,1.58,0,.76,0); allLandmarks.add(station); return allLandmarks; }
+      const landmarkGroup = makeLandmarks();
+      const mainCurve = new THREE.CatmullRomCurve3([new THREE.Vector3(-9,.32,-4.7),new THREE.Vector3(-4,.32,-5.7),new THREE.Vector3(1,.32,-5.2),new THREE.Vector3(7.7,.32,-3.6),new THREE.Vector3(9.4,.32,1.1),new THREE.Vector3(6.4,.32,5.4),new THREE.Vector3(.8,.32,5.8),new THREE.Vector3(-5.8,.32,5.3),new THREE.Vector3(-10.1,.32,1.8),new THREE.Vector3(-9,.32,-4.7)], true, 'catmullrom', .35);
+      const branchCurve = new THREE.CatmullRomCurve3([new THREE.Vector3(-.4,.35,-4.9),new THREE.Vector3(2.3,.35,-2.2),new THREE.Vector3(5.8,.35,.2),new THREE.Vector3(8.7,.35,2.6),new THREE.Vector3(6.2,.35,4.9),new THREE.Vector3(2.1,.35,4.8),new THREE.Vector3(-.4,.35,-4.9)], true, 'catmullrom', .35);
+      function addTrackForCurve(trackCurve, activeMaterial){ const trackGroup=new THREE.Group(); const tubeGeometry=new THREE.TubeGeometry(trackCurve,220,.045,8,true); const trackMesh=new THREE.Mesh(tubeGeometry,activeMaterial); trackMesh.castShadow=true; trackGroup.add(trackMesh); for(let sleeperIndex=0;sleeperIndex<72;sleeperIndex+=1){ const sleeperPoint=trackCurve.getPointAt(sleeperIndex/72); const sleeperTangent=trackCurve.getTangentAt(sleeperIndex/72); const sleeperMesh=addBox(trackGroup,materials.darkWood,.58,.06,.12,sleeperPoint.x,.28,sleeperPoint.z); sleeperMesh.rotation.y=Math.atan2(sleeperTangent.x,sleeperTangent.z); } scene.add(trackGroup); return trackGroup; }
+      const mainTrackGroup=addTrackForCurve(mainCurve,materials.rail); const branchTrackGroup=addTrackForCurve(branchCurve,materials.gold);
+      const tunnelGroup=new THREE.Group(); scene.add(tunnelGroup); addBox(tunnelGroup,materials.darkWood,2.8,1.2,1.4,-10,.72,-1.05,'Toy tunnel'); addBox(tunnelGroup,materials.grass,3.2,.14,1.8,-10,1.38,-1.05);
+      const trains=[]; function createTrain(trainColor, offsetValue){ const trainGroup=new THREE.Group(); const engineMaterial=new THREE.MeshStandardMaterial({color:trainColor,roughness:.36,metalness:.12}); addBox(trainGroup,engineMaterial,.72,.42,.44,0,.18,0); addBox(trainGroup,materials.black,.28,.18,.46,.32,.5,0); for(let carIndex=1;carIndex<=2;carIndex+=1){ addBox(trainGroup,engineMaterial,.62,.34,.42,-carIndex*.76,.15,0); addBox(trainGroup,materials.white,.18,.1,.44,-carIndex*.76,.36,0); } scene.add(trainGroup); trains.push({group:trainGroup,offset:offsetValue,route:mainCurve}); }
+      [0xd33a31,0x1857b8,0xd33a31,0xffc84a,0xd33a31].forEach((trainColor,colorIndex)=>createTrain(trainColor,colorIndex*.18));
+      const presets = { fullTable:{name:'Full Table',position:new THREE.Vector3(11,12,15),target:new THREE.Vector3(0,.4,0)}, bridgeCrossing:{name:'Bridge Crossing',position:new THREE.Vector3(-11,5,2),target:new THREE.Vector3(-7.4,1.2,-1.5)}, stationCloseup:{name:'Station Close-up',position:new THREE.Vector3(1.5,3.5,-8),target:new THREE.Vector3(-.8,.7,-4.7)}, tunnelSlice:{name:'Tunnel Slice',position:new THREE.Vector3(-12,3.4,-3),target:new THREE.Vector3(-9.7,.7,-1)}, londonEye:{name:'London Eye',position:new THREE.Vector3(3.6,3.8,7.4),target:new THREE.Vector3(1.6,1.3,4.7)}, shardView:{name:'Shard View',position:new THREE.Vector3(11,5.8,5.4),target:new THREE.Vector3(8.2,2.1,2.7)} };
+      function applyPreset(presetKey){ const presetItem=presets[presetKey] || presets.fullTable; sceneState.follow=false; sceneState.desiredPosition.copy(presetItem.position); sceneState.desiredTarget.copy(presetItem.target); sceneState.preset=presetItem.name; hudCameraElement.textContent='Camera: '+presetItem.name; document.querySelectorAll('.preset-button').forEach((presetButton)=>presetButton.classList.toggle('is-active', presetButton.dataset.preset===presetKey)); }
+      applyPreset('fullTable');
+      function resizeRenderer(){ const wrapRect=canvasWrapElement.getBoundingClientRect(); const widthValue=Math.max(1,Math.floor(wrapRect.width)); const heightValue=Math.max(1,Math.floor(wrapRect.height)); if(canvasElement.width!==widthValue || canvasElement.height!==heightValue){ renderer.setSize(widthValue,heightValue,false); camera.aspect=widthValue/heightValue; camera.updateProjectionMatrix(); } }
+      function updateTrainVisibility(){ trains.forEach((trainItem,trainIndex)=>{ trainItem.group.visible = trainIndex < sceneState.trainCount; }); }
+      function updateRoutes(){ trains.forEach((trainItem,trainIndex)=>{ trainItem.route = (sceneState.routeA && trainIndex % 2 === 1) || (sceneState.routeB && trainIndex === 0) ? branchCurve : mainCurve; }); branchTrackGroup.visible = sceneState.routeA || sceneState.routeB; }
+      function animateFrame(frameTime){ resizeRenderer(); const deltaSeconds=Math.min(.05,(frameTime-sceneState.lastTime)/1000 || .016); sceneState.lastTime=frameTime; if(!sceneState.paused){ sceneState.elapsed += deltaSeconds * sceneState.speed; }
+        trains.forEach((trainItem)=>{ const routeProgress=(sceneState.elapsed*.075+trainItem.offset)%1; const routePoint=trainItem.route.getPointAt(routeProgress); const routeTangent=trainItem.route.getTangentAt(routeProgress); trainItem.group.position.copy(routePoint); trainItem.group.rotation.y=Math.atan2(routeTangent.x, routeTangent.z); });
+        if(landmarkGroup.children[2]?.userData?.wheel){ landmarkGroup.children[2].userData.wheel.rotation.x += deltaSeconds*.35; }
+        if(sceneState.follow && trains[0]){ const followPoint=trains[0].group.position; sceneState.desiredPosition.lerp(new THREE.Vector3(followPoint.x+4, followPoint.y+3.1, followPoint.z+4.4), .08); sceneState.desiredTarget.lerp(followPoint, .12); }
+        camera.position.lerp(sceneState.desiredPosition,.08); sceneState.target.lerp(sceneState.desiredTarget,.08); camera.lookAt(sceneState.target); renderer.render(scene,camera); requestAnimationFrame(animateFrame); }
+      const playButton=document.getElementById('playPauseButton'); playButton?.addEventListener('click',()=>{ sceneState.paused=!sceneState.paused; playButton.textContent=sceneState.paused?'Play':'Pause'; playButton.classList.toggle('is-active',!sceneState.paused); hudStatusElement.textContent=sceneState.paused?'Paused':'Running at '+sceneState.speed.toFixed(2)+'× speed'; });
+      document.getElementById('followTrainButton')?.addEventListener('click',(event)=>{ sceneState.follow=!sceneState.follow; event.currentTarget.classList.toggle('is-active',sceneState.follow); hudCameraElement.textContent=sceneState.follow?'Camera: Following Train':'Camera: '+sceneState.preset; });
+      document.getElementById('resetCameraButton')?.addEventListener('click',()=>applyPreset('fullTable'));
+      document.getElementById('fullscreenButton')?.addEventListener('click',()=>{ if(canvasWrapElement.requestFullscreen) canvasWrapElement.requestFullscreen(); });
+      const speedSlider=document.getElementById('speedSlider'); const speedValue=document.getElementById('speedValue'); speedSlider?.addEventListener('input',()=>{ sceneState.speed=Number(speedSlider.value); speedValue.textContent=sceneState.speed.toFixed(2)+'×'; hudStatusElement.textContent='Running at '+sceneState.speed.toFixed(2)+'× speed'; });
+      const countSlider=document.getElementById('trainCountSlider'); const countValue=document.getElementById('trainCountValue'); countSlider?.addEventListener('input',()=>{ sceneState.trainCount=Number(countSlider.value); countValue.textContent=String(sceneState.trainCount); updateTrainVisibility(); });
+      const switchAButton=document.getElementById('switchAButton'); switchAButton?.addEventListener('click',()=>{ sceneState.routeA=!sceneState.routeA; switchAButton.textContent=sceneState.routeA?'Switch A: Branch Loop':'Switch A: Main Loop'; switchAButton.classList.toggle('is-active',sceneState.routeA); updateRoutes(); });
+      const switchBButton=document.getElementById('switchBButton'); switchBButton?.addEventListener('click',()=>{ sceneState.routeB=!sceneState.routeB; switchBButton.textContent=sceneState.routeB?'Switch B: Bridge Return':'Switch B: Shard Side'; switchBButton.classList.toggle('is-active',sceneState.routeB); updateRoutes(); });
+      const tunnelButton=document.getElementById('tunnelCutawayButton'); tunnelButton?.addEventListener('click',()=>{ sceneState.tunnelOpen=!sceneState.tunnelOpen; tunnelButton.textContent=sceneState.tunnelOpen?'Tunnel: Cutaway':'Tunnel: Closed'; tunnelButton.classList.toggle('is-active',sceneState.tunnelOpen); tunnelGroup.children.forEach((childMesh)=>{ childMesh.material.transparent=sceneState.tunnelOpen; childMesh.material.opacity = sceneState.tunnelOpen ? 0.35 : 1; }); });
+      document.querySelectorAll('.preset-button').forEach((presetButton)=>presetButton.addEventListener('click',()=>applyPreset(presetButton.dataset.preset)));
+      document.querySelectorAll('.quality-button').forEach((qualityButton)=>qualityButton.addEventListener('click',()=>{ document.querySelectorAll('.quality-button').forEach((buttonItem)=>buttonItem.classList.remove('is-active')); qualityButton.classList.add('is-active'); const qualityValue=qualityButton.dataset.quality; const pixelRatio = qualityValue === 'cinematic' ? 2 : qualityValue === 'performance' ? 1 : Math.min(window.devicePixelRatio || 1, 1.5); renderer.setPixelRatio(pixelRatio); hudStatusElement.textContent='Running at '+qualityValue+' quality'; }));
+      canvasElement.addEventListener('pointerdown',(pointerEvent)=>{ sceneState.dragging=true; sceneState.previousX=pointerEvent.clientX; sceneState.previousY=pointerEvent.clientY; canvasElement.setPointerCapture(pointerEvent.pointerId); });
+      canvasElement.addEventListener('pointerup',()=>{ sceneState.dragging=false; }); canvasElement.addEventListener('pointerleave',()=>{ sceneState.dragging=false; tooltipElement?.classList.remove('is-visible'); });
+      canvasElement.addEventListener('pointermove',(pointerEvent)=>{ const canvasRect=canvasElement.getBoundingClientRect(); if(sceneState.dragging && !sceneState.follow){ const deltaX=pointerEvent.clientX-sceneState.previousX; const deltaY=pointerEvent.clientY-sceneState.previousY; sceneState.previousX=pointerEvent.clientX; sceneState.previousY=pointerEvent.clientY; sceneState.orbitX-=deltaX*.006; sceneState.orbitY=Math.max(.32,Math.min(1.25,sceneState.orbitY+deltaY*.004)); sceneState.desiredPosition.set(Math.cos(sceneState.orbitX)*Math.sin(sceneState.orbitY)*sceneState.radius, Math.cos(sceneState.orbitY)*sceneState.radius, Math.sin(sceneState.orbitX)*Math.sin(sceneState.orbitY)*sceneState.radius); sceneState.desiredTarget.set(0,.4,0); }
+        const pointerNdc=new THREE.Vector2(((pointerEvent.clientX-canvasRect.left)/canvasRect.width)*2-1,-((pointerEvent.clientY-canvasRect.top)/canvasRect.height)*2+1); const raycaster=new THREE.Raycaster(); raycaster.setFromCamera(pointerNdc,camera); const intersections=raycaster.intersectObjects(landmarkMeshes,false); if(intersections.length && tooltipElement){ tooltipElement.textContent=intersections[0].object.userData.landmarkName || 'London landmark'; tooltipElement.style.left=Math.min(canvasRect.width-180, Math.max(12, pointerEvent.clientX-canvasRect.left+12))+'px'; tooltipElement.style.top=Math.max(12, pointerEvent.clientY-canvasRect.top+12)+'px'; tooltipElement.classList.add('is-visible'); } else { tooltipElement?.classList.remove('is-visible'); } });
+      const resizeObserver=new ResizeObserver(resizeRenderer); resizeObserver.observe(canvasWrapElement); updateTrainVisibility(); updateRoutes(); resizeRenderer(); requestAnimationFrame(animateFrame);
+    }
+
+  </script>
+
 </body>
 </html>
