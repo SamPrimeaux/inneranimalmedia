@@ -11,4 +11,4 @@ export { AgentBrowserLiveV1 };
 export { IAMCollaborationSession } from '../do/Collaboration.js';
 export { ChessRoom } from '../do/Legacy.js';
 export { MyContainer } from '../do/MyContainer.js';
-// IamCadWorkerContainer — uncomment when wrangler IAM_CAD_WORKER binding is enabled
+export { IamCadWorkerContainer } from '../do/IamCadWorkerContainer.js';

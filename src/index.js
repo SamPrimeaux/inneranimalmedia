@@ -89,7 +89,7 @@ export { AgentChatSqlV1 } from './do/AgentChat.js';
 export { AgentBrowserLiveV1 } from './do/AgentBrowserLive.js';
 export { ChessRoom } from './do/Legacy.js';
 export { MyContainer } from './do/MyContainer.js';
-// IamCadWorkerContainer export deferred until wrangler binding + registry image (see containers/iam-cad-worker/README.md)
+export { IamCadWorkerContainer } from './do/IamCadWorkerContainer.js';
 
 export default {
 

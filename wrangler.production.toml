@@ -196,10 +196,10 @@ new_sqlite_classes = ["AgentBrowserLiveV1"]
 tag = "v8"
 new_sqlite_classes = ["MyContainer"]
 
-# v9 IamCadWorkerContainer — apply when container image is in registry (container:cad-worker:build)
-# [[migrations]]
-# tag = "v9"
-# new_sqlite_classes = ["IamCadWorkerContainer"]
+# v9 IamCadWorkerContainer — DO class only; container image binding enabled after container:cad-worker:build
+[[migrations]]
+tag = "v9"
+new_sqlite_classes = ["IamCadWorkerContainer"]
 
 [[queues.producers]]
 binding = "MY_QUEUE"

@@ -163,6 +163,12 @@
 			"new_sqlite_classes": [
 				"MyContainer"
 			]
+		},
+		{
+			"tag": "v9",
+			"new_sqlite_classes": [
+				"IamCadWorkerContainer"
+			]
 		}
 	],
 	"containers": [
