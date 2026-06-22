@@ -1,0 +1,79 @@
+{
+  "workspace_key": "ws_inneranimalmedia",
+  "topic": "platform_milestone_2026_06",
+  "d1_context_id": "ctx_inneranimalmedia",
+  "memory_router_keys": [
+    "iam_platform_context_router_v1",
+    "designstudio_sprint_router_v1",
+    "agentic_edge_sprint_router_v1",
+    "byok_sprint_router_v1"
+  ],
+  "entries": [
+    {
+      "file": "docs/platform/iam-identity-spine-2026-06.md",
+      "topic": "iam_identity_spine",
+      "lane_key": "docs_knowledge_search",
+      "priority": 100
+    },
+    {
+      "file": "docs/platform/context-embedding-compaction-map-2026-06.md",
+      "topic": "context_embedding_compaction",
+      "lane_key": "docs_knowledge_search",
+      "priority": 99
+    },
+    {
+      "file": "docs/platform/memory-system-guide.md",
+      "topic": "memory_system",
+      "lane_key": "docs_knowledge_search",
+      "priority": 98
+    },
+    {
+      "file": "docs/platform/iam-runtime-architecture-2026-06.md",
+      "topic": "iam_runtime_architecture",
+      "lane_key": "docs_knowledge_search",
+      "priority": 97
+    },
+    {
+      "file": "docs/platform/agentic-edge-sprint-1c-exec-fabric.md",
+      "topic": "execos_fabric",
+      "lane_key": "docs_knowledge_search",
+      "priority": 96
+    },
+    {
+      "file": "docs/platform/designstudio-sprint-plan.md",
+      "topic": "designstudio_sprint",
+      "lane_key": "docs_knowledge_search",
+      "priority": 95
+    },
+    {
+      "file": "docs/inneranimalmedia/product/designstudio/E2E-COMPLETE-PLAN-2026-06.md",
+      "topic": "designstudio_e2e",
+      "lane_key": "docs_knowledge_search",
+      "priority": 94
+    },
+    {
+      "file": "docs/inneranimalmedia/product/designstudio/PIPELINE.md",
+      "topic": "designstudio_pipeline",
+      "lane_key": "docs_knowledge_search",
+      "priority": 93
+    },
+    {
+      "file": "docs/inneranimalmedia/product/designstudio/README.md",
+      "topic": "designstudio_overview",
+      "lane_key": "docs_knowledge_search",
+      "priority": 92
+    },
+    {
+      "file": "docs/platform/tenant-credential-lanes-2026-06.md",
+      "topic": "tenant_credential_lanes",
+      "lane_key": "docs_knowledge_search",
+      "priority": 91
+    },
+    {
+      "file": "docs/platform/worker-env-production-2026-06.md",
+      "topic": "worker_env_production",
+      "lane_key": "docs_knowledge_search",
+      "priority": 90
+    }
+  ]
+}

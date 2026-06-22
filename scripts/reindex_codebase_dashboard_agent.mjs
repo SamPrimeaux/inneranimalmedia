@@ -45,6 +45,7 @@ import {
   summarizeManifestDrift,
 } from './lib/dashboard-index-manifest.mjs';
 import { buildCreateSurfacesManifest } from './lib/create-surfaces-manifest.mjs';
+import { MILESTONE_WORKER_CODE_PATHS } from './lib/milestone-worker-code-paths.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
@@ -80,12 +81,17 @@ const VECTORIZE_BATCH = 100;
 
 const DRY_RUN = process.argv.includes('--dry-run');
 const CREATE_SURFACES_ONLY = process.argv.includes('--create-surfaces-only');
-const NO_PRUNE = process.argv.includes('--no-prune') || CREATE_SURFACES_ONLY;
+const MILESTONE_WORKER_ONLY = process.argv.includes('--milestone-worker-only');
+const NO_PRUNE = process.argv.includes('--no-prune') || CREATE_SURFACES_ONLY || MILESTONE_WORKER_ONLY;
 const VERBOSE = process.argv.includes('--verbose');
 const LANE = LANE_CONTRACTS.code;
 const RUN_ID = createRunId();
 const GIT_COMMIT_SHA = resolveGitCommitSha(ROOT);
-const SCRIPT_KEY = CREATE_SURFACES_ONLY ? 'ingest_create_surfaces_rag' : 'reindex_codebase_dashboard_agent';
+const SCRIPT_KEY = MILESTONE_WORKER_ONLY
+  ? 'reindex_milestone_worker_code'
+  : CREATE_SURFACES_ONLY
+    ? 'ingest_create_surfaces_rag'
+    : 'reindex_codebase_dashboard_agent';
 const RUN_SYNC_CHUNK_ID = `run:${SCRIPT_KEY}`;
 
 const OPENAI_KEY = (process.env.OPENAI_API_KEY || '').trim();
@@ -533,9 +539,11 @@ async function main() {
     throw new Error('Script constants diverge from LANE_CONTRACTS.code — fix before run');
   }
 
-  const manifest = CREATE_SURFACES_ONLY
-    ? buildCreateSurfacesManifest(ROOT)
-    : buildEligibleManifest(ROOT);
+  const manifest = MILESTONE_WORKER_ONLY
+    ? { paths: MILESTONE_WORKER_CODE_PATHS.filter((p) => existsSync(join(ROOT, p))), deniedSkipped: 0 }
+    : CREATE_SURFACES_ONLY
+      ? buildCreateSurfacesManifest(ROOT)
+      : buildEligibleManifest(ROOT);
   const { paths: eligiblePaths, deniedSkipped } = manifest;
 
   console.log(`\n${SCRIPT_KEY}.mjs`);
@@ -543,7 +551,13 @@ async function main() {
   console.log(`run_id: ${RUN_ID}`);
   console.log(`git_commit_sha: ${GIT_COMMIT_SHA}`);
   console.log(
-    `manifest: ${CREATE_SURFACES_ONLY ? 'create-surfaces focused' : 'git ls-files + policy'} (${eligiblePaths.length} eligible)`,
+    `manifest: ${
+      MILESTONE_WORKER_ONLY
+        ? 'milestone worker/execos/cad paths'
+        : CREATE_SURFACES_ONLY
+          ? 'create-surfaces focused'
+          : 'git ls-files + policy'
+    } (${eligiblePaths.length} eligible)`,
   );
   console.log(`workspace: ${WORKSPACE_UUID} (${WORKSPACE_KEY})`);
   console.log(`vectorize_index: ${VECTORIZE_INDEX}`);
