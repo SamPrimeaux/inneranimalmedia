@@ -6,6 +6,8 @@ import {
   fetchCadJobs,
   generateMeshy,
   generateOpenScad,
+  meshyTextTo3dPreview,
+  meshyTextTo3dRefine,
   patchBlueprint,
   type BlueprintRow,
   type CadJobRow,
@@ -173,7 +175,7 @@ export function useDesignStudioCad(opts: UseDesignStudioCadOpts = {}) {
   );
 
   const runMeshyGenerate = useCallback(
-    async (prompt: string) => {
+    async (prompt: string, extra?: Record<string, unknown>) => {
       if (!prompt.trim()) {
         setError('Meshy prompt required');
         return null;
@@ -181,7 +183,7 @@ export function useDesignStudioCad(opts: UseDesignStudioCadOpts = {}) {
       setBusy(true);
       setError(null);
       try {
-        const result = await generateMeshy({ prompt: prompt.trim(), ...scopeBody() });
+        const result = await generateMeshy({ prompt: prompt.trim(), ...scopeBody(), ...extra });
         setActiveJobId(result.job_id);
         if (result.status === 'stub') setMeshyStub(true);
         await refreshJobs();
@@ -189,6 +191,46 @@ export function useDesignStudioCad(opts: UseDesignStudioCadOpts = {}) {
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         if (msg.toLowerCase().includes('stub') || msg.includes('MESHY')) setMeshyStub(true);
+        setError(msg);
+        throw e;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [scopeBody, refreshJobs],
+  );
+
+  const runMeshyPreview = useCallback(
+    async (body: Record<string, unknown>) => {
+      setBusy(true);
+      setError(null);
+      try {
+        const result = await meshyTextTo3dPreview({ ...scopeBody(), ...body });
+        setActiveJobId(result.job_id);
+        await refreshJobs();
+        return result;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setError(msg);
+        throw e;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [scopeBody, refreshJobs],
+  );
+
+  const runMeshyRefine = useCallback(
+    async (body: Record<string, unknown>) => {
+      setBusy(true);
+      setError(null);
+      try {
+        const result = await meshyTextTo3dRefine({ ...scopeBody(), ...body });
+        setActiveJobId(result.job_id);
+        await refreshJobs();
+        return result;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
         setError(msg);
         throw e;
       } finally {
@@ -253,6 +295,8 @@ export function useDesignStudioCad(opts: UseDesignStudioCadOpts = {}) {
     runOpenScadGenerate,
     runExecuteJob,
     runMeshyGenerate,
+    runMeshyPreview,
+    runMeshyRefine,
     subscribeRunEvents,
   };
 }

@@ -7,10 +7,10 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { AppState, GameEntity, ProjectType, SceneConfig, CADTool, VoxelData, CADPlane } from '../types';
 import { chessPieceGlbPath, normalizeGlbUrl } from '../lib/glbAssets';
+import { createChessGltfLoader, ensureMeshoptDecoderReady } from '../lib/gltfLoader';
 import { parseFenPlacement, positionToSquare, squareToPosition } from '../lib/chessSquares';
 import { createChessBoard } from '../lib/chessBoard';
 import { applyChessPieceMaterials, setupChessEnvironment } from '../lib/chessMaterials';
@@ -37,7 +37,7 @@ export class VoxelEngine {
   private orthoCamera: THREE.OrthographicCamera;
   private renderer: THREE.WebGLRenderer;
   private controls: OrbitControls;
-  private gltfLoader: GLTFLoader;
+  private gltfLoader: ReturnType<typeof createChessGltfLoader>;
   private resizeObserver: ResizeObserver;
   
   private ambientLight: THREE.AmbientLight;
@@ -85,11 +85,9 @@ export class VoxelEngine {
     this.container = container;
     this.onCountChange = onCountChange;
 
-    this.gltfLoader = new GLTFLoader();
-    this.gltfLoader.setCrossOrigin('anonymous');
     const dracoLoader = new DRACOLoader();
     dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
-    this.gltfLoader.setDRACOLoader(dracoLoader);
+    this.gltfLoader = createChessGltfLoader(dracoLoader);
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x0f111a);
@@ -828,6 +826,7 @@ export class VoxelEngine {
   }
 
   private async loadModel(url: string): Promise<any> {
+    await ensureMeshoptDecoderReady();
     const src = this.isCanonicalChessPieceUrl(url) ? url : normalizeGlbUrl(url);
     return new Promise((resolve, reject) => {
       this.gltfLoader.load(

@@ -2,6 +2,7 @@
 import { jsonResponse } from '../core/responses.js';
 import { pickAuthUserWorkspaceId } from '../core/platform-workspace-env.js';
 import { normalizeGlbPublicUrl } from '../core/glb-public-url.js';
+import { sendChessRoomInvite, isValidInviteEmail } from '../core/games-shared.js';
 
 export async function handleGamesApi(request, url, env, _ctx, authUser) {
   const path = url.pathname.toLowerCase();
@@ -22,28 +23,46 @@ export async function handleGamesApi(request, url, env, _ctx, authUser) {
     return jsonResponse({ results: normalized });
   }
 
-  // POST /api/games/rooms — create a room
+  // POST /api/games/rooms — create a room (guest-safe)
   if (path === '/api/games/rooms' && method === 'POST') {
-    const roomId = `room_${crypto.randomUUID().replace(/-/g,'').slice(0,12)}`;
-    const wsId = pickAuthUserWorkspaceId(authUser);
-    if (!wsId) return jsonResponse({ error: 'workspace required — sign in and select a workspace' }, 400);
+    const roomId = `room_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
+    const wsId = pickAuthUserWorkspaceId(authUser) ?? 'ws_public_games';
+    const hostId = authUser?.id ?? `guest_${crypto.randomUUID().slice(0, 8)}`;
+    const hostName = authUser?.name ?? 'Guest';
     await env.DB.prepare(`
       INSERT INTO game_rooms (id, game_type, status, host_player_id, host_display_name, workspace_id)
       VALUES (?, 'chess', 'open', ?, ?, ?)
-    `).bind(roomId, authUser?.id ?? 'guest', authUser?.name ?? 'Guest', wsId).run();
+    `).bind(roomId, hostId, hostName, wsId).run();
     return jsonResponse({ roomId });
   }
 
-  // GET /api/games/rooms — list open rooms
-  if (path === '/api/games/rooms' && method === 'GET') {
-    const { results } = await env.DB.prepare(`
-      SELECT * FROM game_rooms WHERE status = 'open' ORDER BY created_at DESC LIMIT 20
-    `).all();
-    return jsonResponse({ results });
+  // POST /api/games/rooms/:roomId/invite — email join link via Resend
+  if (path.match(/^\/api\/games\/rooms\/room_[a-z0-9]+\/invite$/) && method === 'POST') {
+    const roomId = path.split('/')[4];
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {
+      body = {};
+    }
+    const email = String(body.email || '').trim();
+    if (!isValidInviteEmail(email)) return jsonResponse({ error: 'Valid email required' }, 400);
+    const room = await env.DB.prepare(`SELECT id FROM game_rooms WHERE id = ?`).bind(roomId).first();
+    if (!room) return jsonResponse({ error: 'Room not found' }, 404);
+    const inviterName = String(body.inviterName || authUser?.name || 'A friend').trim() || 'A friend';
+    const result = await sendChessRoomInvite(env, {
+      email,
+      roomId,
+      inviterName,
+      invitedBy: authUser?.id ?? 'guest',
+      request,
+    });
+    if (result.error) return jsonResponse({ error: result.error }, 502);
+    return jsonResponse({ ok: true, link: result.link, resendId: result.resendId });
   }
 
   // GET /api/games/rooms/:roomId
-  if (path.startsWith('/api/games/rooms/') && method === 'GET') {
+  if (path.match(/^\/api\/games\/rooms\/room_[a-z0-9]+$/) && method === 'GET') {
     const roomId = path.split('/').pop();
     const room = await env.DB.prepare(`SELECT * FROM game_rooms WHERE id = ?`).bind(roomId).first();
     if (!room) return jsonResponse({ error: 'Room not found' }, 404);

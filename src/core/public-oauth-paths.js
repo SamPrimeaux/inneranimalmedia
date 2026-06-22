@@ -70,8 +70,9 @@ export const PUBLIC_OAUTH_PATHS = [
   // Public CMS section reads (marketing page hydration)
   '/api/public/cms',
 
-  // Public contact proposal (Resend)
-  '/api/contact',
+  // MeauxChess — public lobby, rooms, invites, WebSocket (guest-safe)
+  '/api/games',
+
 
   // Cloudflare Stream VOD + Live Input webhooks (unsigned gate bypass)
   '/api/webhooks/stream/vod',

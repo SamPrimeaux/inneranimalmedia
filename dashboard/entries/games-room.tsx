@@ -2,6 +2,8 @@
  * Public 3D chess room — SparkChess-style HUD + locked camera viewport.
  */
 import { ChessViewport } from '../lib/ChessViewport';
+import { tryMove } from '../lib/chessEngine';
+import { capturedPieceSvg } from '../lib/chessPieceIcons';
 
 function getRoomId(): string {
   return (location.pathname.match(/\/games\/(room_[^/]+)/i) || [])[1] || '';
@@ -33,8 +35,23 @@ function sideLabel(color: 'white' | 'black'): string {
   return color === 'white' ? 'You are white' : 'You are orange';
 }
 
+function appendCaptureIcon(capturedBy: 'white' | 'black', piece: string, pieceColor: 'white' | 'black') {
+  const rail = document.getElementById(capturedBy === 'white' ? 'captures-white' : 'captures-black');
+  if (!rail) return;
+  const span = document.createElement('span');
+  span.innerHTML = capturedPieceSvg(piece, pieceColor);
+  span.title = piece;
+  rail.appendChild(span);
+}
+
 function boot() {
   const roomId = getRoomId();
+  const params = new URLSearchParams(location.search);
+  const vsAgentsam = params.get('vs') === 'agentsam';
+  const opponentLabel = vsAgentsam
+    ? 'Agent Sam'
+    : decodeURIComponent(params.get('opponent') || '').trim() || 'Opponent';
+
   setText('room-id-short', truncateRoom(roomId));
   if (!roomId) {
     setText('status-bar', 'Invalid room URL.');
@@ -99,20 +116,35 @@ function boot() {
     const youAreBlack = myColor === 'black';
 
     setText('name-white', youAreWhite ? 'You' : opponentConnected ? 'Opponent' : 'Waiting');
-    setText('name-black', youAreBlack ? 'You' : opponentConnected ? 'Opponent' : 'Waiting');
+    setText(
+      'name-black',
+      youAreBlack ? 'You' : vsAgentsam ? 'Agent Sam' : opponentConnected ? opponentLabel : 'Waiting',
+    );
 
     const subWhite = document.getElementById('sub-white');
     const subBlack = document.getElementById('sub-black');
     if (subWhite) subWhite.textContent = youAreWhite ? sideLabel('white') : 'White';
-    if (subBlack) subBlack.textContent = youAreBlack ? sideLabel('black') : 'Orange';
+    if (subBlack) {
+      subBlack.textContent = youAreBlack
+        ? sideLabel('black')
+        : vsAgentsam
+          ? 'Orange · Computer'
+          : 'Orange';
+    }
 
     const avWhite = document.getElementById('avatar-white');
     const avBlack = document.getElementById('avatar-black');
     if (avWhite) avWhite.textContent = youAreWhite ? initials('You') : 'W';
-    if (avBlack) avBlack.textContent = youAreBlack ? initials('You') : 'O';
+    if (avBlack) {
+      avBlack.textContent = youAreBlack ? initials('You') : vsAgentsam ? 'AS' : initials(opponentLabel);
+    }
   };
 
   const updateStatus = () => {
+    if (vsAgentsam) {
+      setText('status-bar', 'Practice vs Agent Sam — select a piece to see legal moves');
+      return;
+    }
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       setText('status-bar', 'Connecting…');
       return;
@@ -122,7 +154,7 @@ function boot() {
       return;
     }
     if (myColor && myColor !== 'spectator') {
-      setText('status-bar', myColor === turn ? 'Your turn' : "Opponent's turn");
+      setText('status-bar', myColor === turn ? 'Your turn' : `${opponentLabel}'s turn`);
     } else {
       setText('status-bar', `Turn: ${turn}`);
     }
@@ -135,16 +167,41 @@ function boot() {
     },
     onReady: () => {
       overlay?.classList.add('hidden');
+      viewport.setFen(fen);
+      viewport.setTurn(turn);
+      viewport.setPlayerColor(myColor);
       void viewport.syncFromFen(fen);
     },
     onStatus: (msg) => setText('status-bar', msg),
+    onCapture: (capturedBy, piece, pieceColor) => {
+      appendCaptureIcon(capturedBy, piece, pieceColor);
+    },
     onMove: (from, to) => {
+      const result = tryMove(fen, from, to);
+      if (!result.ok) {
+        setText('status-bar', 'Illegal move');
+        return;
+      }
+
+      if (vsAgentsam) {
+        fen = result.fen;
+        turn = result.turn;
+        viewport.setFen(fen);
+        viewport.movePieceOnBoard(from, to);
+        updateTurnPill();
+        updateTimers();
+        updatePlayerCards();
+        updateStatus();
+        return;
+      }
+
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
-      ws.send(JSON.stringify({ type: 'move', from, to }));
+      ws.send(JSON.stringify({ type: 'move', from, to, fen: result.fen }));
     },
   });
 
   const applyState = () => {
+    viewport.setFen(fen);
     viewport.setTurn(turn);
     viewport.setPlayerColor(myColor);
     void viewport.syncFromFen(fen);
@@ -176,6 +233,7 @@ function boot() {
         message?: string;
         winner?: string;
         players?: number;
+        displayName?: string;
       };
       try {
         msg = JSON.parse(String(ev.data));
@@ -192,6 +250,7 @@ function boot() {
       } else if (msg.type === 'move') {
         if (msg.fen) fen = msg.fen;
         if (msg.turn) turn = msg.turn;
+        viewport.setFen(fen);
         if (msg.from && msg.to) viewport.movePieceOnBoard(msg.from, msg.to);
         else applyState();
         updateTurnPill();
@@ -214,7 +273,16 @@ function boot() {
   updateTurnPill();
   updateTimers();
   updatePlayerCards();
-  connect();
+
+  if (vsAgentsam) {
+    opponentConnected = true;
+    myColor = 'white';
+    startClock();
+    updatePlayerCards();
+    updateStatus();
+  } else {
+    connect();
+  }
 
   window.addEventListener('beforeunload', () => viewport.destroy());
 }

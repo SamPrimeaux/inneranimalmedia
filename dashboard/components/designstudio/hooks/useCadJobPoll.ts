@@ -33,7 +33,17 @@ export function useCadJobPoll(
     setPolling(true);
     try {
       let row: CadJobRow;
-      if (options?.engine === 'meshy') {
+      let engine = options?.engine;
+      if (!engine) {
+        try {
+          const meta = await fetchCadJob(jobId);
+          engine = meta.engine;
+          setJob(meta);
+        } catch {
+          engine = undefined;
+        }
+      }
+      if (engine === 'meshy') {
         const meshy = await pollMeshyStatus(jobId);
         row = {
           id: meshy.job_id,
@@ -42,8 +52,20 @@ export function useCadJobPoll(
           progress_pct: meshy.progress_pct,
           public_url: meshy.public_url,
         };
-      } else {
+      } else if (engine) {
         row = await fetchCadJob(jobId);
+      } else {
+        try {
+          row = await pollMeshyStatus(jobId).then((meshy) => ({
+            id: meshy.job_id,
+            engine: 'meshy',
+            status: meshy.status,
+            progress_pct: meshy.progress_pct,
+            public_url: meshy.public_url,
+          }));
+        } catch {
+          row = await fetchCadJob(jobId);
+        }
       }
       setJob(row);
       const status = String(row.status || '').toLowerCase();

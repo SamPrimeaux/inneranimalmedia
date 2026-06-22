@@ -50,6 +50,8 @@ TIER1_MANIFEST=(
   "scripts/mcp-smoke.mjs|test/mcp-smoke.mjs|smoke_mcp|test|low|MCP OAuth + tools smoke"
   "scripts/reindex_codebase_dashboard_agent.mjs|ingest/reindex_codebase_dashboard_agent.mjs|reindex_codebase_dashboard_agent|ingest|medium|Reindex dashboard/agent source into Supabase + Vectorize codebase index"
   "scripts/ingest_r2_to_rag.mjs|ingest/ingest_r2_to_rag.mjs|ingest_r2_to_rag|ingest|medium|Ingest autorag R2 knowledge/recipes/skills into documents Vectorize index"
+  "scripts/chess_pipeline.sh|ingest/chess_pipeline.sh|chess_pipeline|ingest|high|Procedural Three.js board + Meshy preview→refine for 5 white chess pieces; gltf-transform optimize; upload to R2 chess-pieces/"
+  "scripts/chess/createChessBoard.mjs|ingest/createChessBoard.mjs|create_chess_board|ingest|low|Procedural 8x8 chess board GLB via Three.js (no Meshy credits)"
   "scripts/lib/pwa-sw-manifest-tiers.mjs|deploy/pwa-sw-manifest-tiers.mjs|pwa_sw_manifest_tiers|deploy|low|Build tiered PWA precache manifest from dashboard/dist at deploy time"
   "scripts/test/smoke-execos-chain.sh|test/smoke-execos-chain.sh|smoke_execos_chain|test|low|Smoke execos health, /run gcp chain, demo models gate"
   "scripts/test/smoke-workers-ai-catalog.mjs|test/smoke-workers-ai-catalog.mjs|smoke_workers_ai_catalog|test|low|Smoke execos WAI probe + D1 active picker count"

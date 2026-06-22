@@ -82,7 +82,7 @@ function overlayCanvas(
 
 export function createSelectionOverlayMaterial(): THREE.MeshBasicMaterial {
   return new THREE.MeshBasicMaterial({
-    map: overlayCanvas('rgba(0, 255, 204, 0.4)', { border: 'rgba(255,255,255,0.85)', borderWidth: 5 }),
+    map: overlayCanvas('rgba(68, 136, 255, 0.45)', { border: 'rgba(120, 180, 255, 0.9)', borderWidth: 4 }),
     transparent: true,
     depthWrite: false,
   });
@@ -90,7 +90,7 @@ export function createSelectionOverlayMaterial(): THREE.MeshBasicMaterial {
 
 export function createValidMoveOverlayMaterial(): THREE.MeshBasicMaterial {
   return new THREE.MeshBasicMaterial({
-    map: overlayCanvas('rgba(34, 255, 136, 0.4)'),
+    map: overlayCanvas('rgba(34, 255, 136, 0.55)'),
     transparent: true,
     depthWrite: false,
   });

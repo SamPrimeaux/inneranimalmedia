@@ -2,7 +2,7 @@
  * SparkChess-quality viewport for public /games/room_* — locked 3/4 camera, overlay feedback.
  */
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { createChessGltfLoader, ensureMeshoptDecoderReady } from './gltfLoader';
 import { BOARD_SURFACE_Y, boardPointToSquare, createChessBoard, squareToBoardXZ } from './chessBoard';
 import {
   applyChessPieceMaterials,
@@ -14,6 +14,7 @@ import {
   setupChessEnvironment,
 } from './chessMaterials';
 import { chessPieceGlbPath } from './glbAssets';
+import { legalMoveTargets } from './chessEngine';
 import { parseFenPlacement, squareToPosition } from './chessSquares';
 
 const PIECE_TYPES = ['king', 'queen', 'bishop', 'knight', 'rook', 'pawn'] as const;
@@ -49,7 +50,7 @@ export class ChessViewport {
   private camera: THREE.PerspectiveCamera;
   private raycaster = new THREE.Raycaster();
   private pointer = new THREE.Vector2();
-  private loader = new GLTFLoader();
+  private loader = createChessGltfLoader();
   private modelCache = new Map<string, THREE.Group>();
   private pieces = new Map<string, PieceRecord>();
   private boardGroup: THREE.Group;
@@ -62,6 +63,8 @@ export class ChessViewport {
   private lastMoveSquares: string[] = [];
   private myColor: 'white' | 'black' | 'spectator' | null = null;
   private turn: 'white' | 'black' = 'white';
+  private fen =
+    'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
   private animId = 0;
   private ready = false;
   private onMove?: (from: string, to: string) => void;
@@ -80,8 +83,6 @@ export class ChessViewport {
     this.onMove = opts.onMove;
     this.onStatus = opts.onStatus;
     this.onCapture = opts.onCapture;
-
-    this.loader.setCrossOrigin('anonymous');
 
     const w = Math.max(320, this.container.clientWidth || 640);
     const h = Math.max(320, this.container.clientHeight || 480);
@@ -137,7 +138,12 @@ export class ChessViewport {
     this.turn = turn;
   }
 
+  public setFen(fen: string) {
+    this.fen = fen || this.fen;
+  }
+
   public async syncFromFen(fen: string): Promise<void> {
+    this.fen = fen || this.fen;
     if (!this.ready) await this.waitReady();
     for (const rec of this.pieces.values()) this.scene.remove(rec.mesh);
     this.pieces.clear();
@@ -215,6 +221,7 @@ export class ChessViewport {
   }
 
   private async preloadPieces(onLoading?: (p: number) => void, onReady?: () => void): Promise<void> {
+    await ensureMeshoptDecoderReady();
     let loaded = 0;
     await Promise.all(
       PIECE_TYPES.map(async (piece) => {
@@ -368,12 +375,8 @@ export class ChessViewport {
     this.clearSelectionOverlays();
     this.selectedSquare = square;
     this.addOverlay(square, 'select');
-    for (let col = 0; col < 8; col++) {
-      for (let row = 0; row < 8; row++) {
-        const sq = `${'abcdefgh'[col]}${row + 1}`;
-        if (sq === square || this.pieces.has(sq)) continue;
-        this.addOverlay(sq, 'valid');
-      }
+    for (const sq of legalMoveTargets(this.fen, square)) {
+      this.addOverlay(sq, 'valid');
     }
   }
 

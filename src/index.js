@@ -23,6 +23,7 @@ import {
 } from './core/public-oauth-paths.js';
 import { loadPublishedCmsSectionsByRoute } from './core/cms-public-page.js';
 import { hydrateContactPageHtml } from './core/cms-contact-hydrate.js';
+import { hydrateGamesPageHtml } from './core/cms-games-hydrate.js';
 import { resolveIdentity } from './core/identity.js';
 import { generateMcpToken } from './core/mcp-auth.js';
 import {
@@ -434,6 +435,18 @@ export default {
               htmlText = hydrateContactPageHtml(htmlText, cmsBundle.sections);
             } catch (e) {
               console.warn('[contact] cms hydrate failed (serving static shell):', e?.message);
+            }
+          }
+          pageBody = htmlText;
+        }
+        if (assetHtmlKey === 'pages/games/index.html') {
+          let htmlText = await obj.text();
+          if (env.DB) {
+            try {
+              const cmsBundle = await loadPublishedCmsSectionsByRoute(env.DB, '/games');
+              htmlText = hydrateGamesPageHtml(htmlText, cmsBundle.sections);
+            } catch (e) {
+              console.warn('[games] cms hydrate failed (serving static shell):', e?.message);
             }
           }
           pageBody = htmlText;

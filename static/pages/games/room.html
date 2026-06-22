@@ -4,7 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>MeauxChess</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+  <meta name="description" content="Live 3D chess room — real-time multiplayer on Cloudflare Durable Objects.">
+  <meta property="og:title" content="MeauxChess">
+  <meta property="og:description" content="Join a live 3D chess room on Inner Animal Media.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/1b7ecfe9-550c-4ef7-966c-9e1972e29800/hero">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image" content="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/1b7ecfe9-550c-4ef7-966c-9e1972e29800/hero">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
   <style>
     :root {
       --bar: rgba(10, 10, 15, 0.94);
@@ -78,6 +85,21 @@
     .player-info { min-width: 0; }
     .player-name { font-size: 0.82rem; font-weight: 600; line-height: 1.2; }
     .player-sub { font-size: 0.62rem; color: var(--muted); margin-top: 0.1rem; }
+    .captures {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.2rem;
+      margin-top: 0.25rem;
+      min-height: 18px;
+    }
+    .captures svg { display: block; opacity: 0.92; }
+    .brand-mark {
+      font-size: 0.58rem;
+      font-weight: 800;
+      letter-spacing: 0.28em;
+      color: var(--teal);
+      margin-bottom: 0.2rem;
+    }
     .timer {
       font-family: 'JetBrains Mono', ui-monospace, monospace;
       font-size: 1.05rem;
@@ -141,7 +163,9 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      background: rgba(8, 8, 12, 0.92);
+      background:
+        linear-gradient(rgba(8, 8, 12, 0.88), rgba(8, 8, 12, 0.92)),
+        url('https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/1b7ecfe9-550c-4ef7-966c-9e1972e29800/hero') center / contain no-repeat;
       z-index: 10;
       transition: opacity 0.4s;
     }
@@ -188,19 +212,22 @@
       <div class="player-info">
         <div class="player-name" id="name-white">You</div>
         <div class="player-sub" id="sub-white">You are white</div>
+        <div class="captures" id="captures-white" aria-label="Pieces you captured"></div>
       </div>
       <span class="timer running" id="timer-white">10:00</span>
     </div>
 
     <div class="center-col">
+      <div class="brand-mark">MEAUXCHESS</div>
       <div class="turn-pill" id="turn-pill"><span class="turn-dot dot-white"></span> White to move</div>
     </div>
 
     <div class="player-card right" id="card-black">
       <span class="timer" id="timer-black">10:00</span>
       <div class="player-info">
-        <div class="player-name" id="name-black">Waiting</div>
+        <div class="player-name" id="name-black">Agent Sam</div>
         <div class="player-sub" id="sub-black">Orange</div>
+        <div class="captures" id="captures-black" aria-label="Pieces opponent captured"></div>
       </div>
       <div class="avatar black" id="avatar-black">O</div>
     </div>

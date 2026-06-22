@@ -120,7 +120,18 @@ export async function generateMeshy(body: {
   mode?: 'text' | 'image';
   session_id?: string;
   scene_snapshot_id?: string;
-}): Promise<{ job_id: string; status: string }> {
+  blueprint_id?: string;
+  ai_model?: string;
+  model_type?: string;
+  topology?: string;
+  target_polycount?: number;
+  should_remesh?: boolean;
+  target_formats?: string[];
+  auto_refine?: boolean;
+  enable_pbr?: boolean;
+  moderation?: boolean;
+  auto_size?: boolean;
+}): Promise<{ job_id: string; status: string; task_id?: string }> {
   return jsonFetch('/api/cad/meshy/generate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

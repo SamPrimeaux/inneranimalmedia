@@ -1,16 +1,11 @@
 /**
- * Design Studio — full 3D workspace (/dashboard/designstudio).
+ * Design Studio — 3-lane creation station (/dashboard/designstudio).
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Copy, ExternalLink, Users, X } from 'lucide-react';
 import { normalizeGlbUrl } from '../lib/glbAssets';
 import { UIOverlay } from './UIOverlay';
-import { ToolLauncherBar } from './ToolLauncherBar';
-import {
-  DesignStudioLeftPanel,
-  readStoredDesignStudioProject,
-} from './designstudio/DesignStudioLeftPanel';
+import { DesignStudioCreationStation } from './designstudio/creation-station/DesignStudioCreationStation';
 import { useDesignStudioCad } from './designstudio/hooks/useDesignStudioCad';
 import { spawnGlbInEngine } from './designstudio/spawnGlb';
 import { useDesignStudioContext } from './designstudio/DesignStudioContext';
@@ -28,8 +23,8 @@ import {
   ArtStyle,
   SceneConfig,
   CADTool,
-  CustomAsset,
   CADPlane,
+  CustomAsset,
 } from '../types';
 
 type VoxelEngineClass = typeof import('../services/VoxelEngine').VoxelEngine;
@@ -69,7 +64,7 @@ export const DesignStudioPage: React.FC = () => {
   const lastSpawnedJobRef = useRef<string | null>(null);
 
   const [engineReady, setEngineReady] = useState(false);
-  const [activeProject, setActiveProject] = useState<ProjectType>(readStoredDesignStudioProject);
+  const activeProject = ProjectType.SANDBOX;
   const [appState, setAppState] = useState<AppState>(AppState.EDITING);
   const [voxelCount, setVoxelCount] = useState(0);
   const [customAssets, setCustomAssets] = useState<CustomAsset[]>([]);
@@ -98,19 +93,11 @@ export const DesignStudioPage: React.FC = () => {
   const [savedScenes, setSavedScenes] = useState<SavedSceneRow[]>([]);
   const [sceneName, setSceneName] = useState('');
   const [sceneBusy, setSceneBusy] = useState(false);
-  const [multiplayerBusy, setMultiplayerBusy] = useState(false);
-  const [multiplayerRoomId, setMultiplayerRoomId] = useState<string | null>(null);
-  const [multiplayerColor, setMultiplayerColor] = useState<string | null>(null);
-  const [multiplayerModalOpen, setMultiplayerModalOpen] = useState(false);
-  const [roomLinkCopied, setRoomLinkCopied] = useState(false);
-  const chessWsRef = useRef<WebSocket | null>(null);
 
   const deployJobToScene = useCallback(async (job: CadJobRow, opts?: { auto?: boolean }) => {
     const url = job.public_url || job.result_url;
     if (!url) return false;
-    const name =
-      job.prompt?.slice(0, 40) ||
-      `${job.engine} export`;
+    const name = job.prompt?.slice(0, 40) || `${job.engine} export`;
     const ok = await spawnGlbInEngine(engineRef.current, { url, name });
     if (ok) {
       setLinkedCadJobId(job.id);
@@ -118,9 +105,7 @@ export const DesignStudioPage: React.FC = () => {
         setLinkedGlbR2Key(job.r2_key);
       }
       lastSpawnedJobRef.current = job.id;
-      if (opts?.auto) {
-        console.info('[DesignStudio] auto-spawned GLB from job', job.id);
-      }
+      if (opts?.auto) console.info('[DesignStudio] auto-spawned GLB', job.id);
     }
     return ok;
   }, []);
@@ -193,7 +178,7 @@ export const DesignStudioPage: React.FC = () => {
             .map((a) => ({ id: a.id, name: a.name, url: a.url, scale: a.scale })),
         );
       })
-      .catch((e) => console.warn('[Asset Library] user assets fetch failed', e));
+      .catch((e) => console.warn('[Asset Library]', e));
   }, []);
 
   useEffect(() => {
@@ -225,7 +210,6 @@ export const DesignStudioPage: React.FC = () => {
 
     let cancelled = false;
     let engine: VoxelEngineInstance | null = null;
-    const initialProject = readStoredDesignStudioProject();
 
     void import('../services/VoxelEngine').then(({ VoxelEngine }) => {
       if (cancelled || !containerRef.current || engineRef.current) return;
@@ -238,19 +222,12 @@ export const DesignStudioPage: React.FC = () => {
       engine.updateLighting(sceneConfig);
       engine.setCADPlane(genConfig.cadPlane);
       engine.setExtrusion(genConfig.extrusion);
-      engine.setProjectType(initialProject);
-      engine.setOnChessMove((from, to) => {
-        const ws = chessWsRef.current;
-        if (!ws || ws.readyState !== WebSocket.OPEN) return;
-        ws.send(JSON.stringify({ type: 'move', from, to }));
-      });
-
+      engine.setProjectType(ProjectType.SANDBOX);
       const settleViewport = () => engine?.handleResize();
       requestAnimationFrame(() => {
         settleViewport();
         requestAnimationFrame(settleViewport);
       });
-
       setEngineReady(true);
     });
 
@@ -259,82 +236,11 @@ export const DesignStudioPage: React.FC = () => {
     return () => {
       cancelled = true;
       window.removeEventListener('resize', handleResize);
-      chessWsRef.current?.close();
-      chessWsRef.current = null;
       setEngineReady(false);
       engine?.cleanup();
       engineRef.current = null;
     };
   }, []);
-
-  const handleStartMultiplayer = useCallback(async () => {
-    if (!engineRef.current || multiplayerBusy) return;
-    setMultiplayerBusy(true);
-    try {
-      chessWsRef.current?.close();
-      chessWsRef.current = null;
-
-      const res = await fetch('/api/games/rooms', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: '{}',
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(
-          typeof (data as { error?: string }).error === 'string'
-            ? (data as { error: string }).error
-            : 'Failed to create room',
-        );
-      }
-      const roomId = String((data as { roomId?: string }).roomId || '').trim();
-      if (!roomId) throw new Error('Room id missing');
-
-      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const ws = new WebSocket(`${proto}//${window.location.host}/api/games/ws/${roomId}`);
-      chessWsRef.current = ws;
-      setMultiplayerRoomId(roomId);
-      setMultiplayerModalOpen(true);
-      setRoomLinkCopied(false);
-
-      ws.onmessage = (ev) => {
-        let msg: {
-          type?: string;
-          fen?: string;
-          from?: string;
-          to?: string;
-          color?: string;
-          message?: string;
-        };
-        try {
-          msg = JSON.parse(String(ev.data));
-        } catch {
-          return;
-        }
-        const eng = engineRef.current;
-        if (!eng) return;
-        if (msg.type === 'state' || msg.type === 'joined') {
-          if (msg.color) setMultiplayerColor(msg.color);
-          if (msg.fen) void eng.syncBoardFromFen(msg.fen);
-        } else if (msg.type === 'move' && msg.from && msg.to) {
-          eng.movePiece(msg.from, msg.to);
-        } else if (msg.type === 'error' && msg.message) {
-          console.warn('[Chess multiplayer]', msg.message);
-        }
-      };
-
-      ws.onclose = () => {
-        if (chessWsRef.current === ws) chessWsRef.current = null;
-      };
-    } catch (e) {
-      console.warn('[Chess multiplayer] start failed', e);
-      setMultiplayerRoomId(null);
-      setMultiplayerColor(null);
-    } finally {
-      setMultiplayerBusy(false);
-    }
-  }, [multiplayerBusy]);
 
   useEffect(() => {
     engineRef.current?.updateLighting(sceneConfig);
@@ -381,20 +287,9 @@ export const DesignStudioPage: React.FC = () => {
     });
   }, []);
 
-  const handleProjectSwitch = useCallback((type: ProjectType) => {
-    setActiveProject(type);
-    engineRef.current?.setProjectType(type);
-    setGenConfig((prev) => ({ ...prev, cadTool: CADTool.NONE }));
-    setUndoStack([]);
-    setRedoStack([]);
-  }, []);
-
   const handleSpawnModel = useCallback((name: string, url: string, scale: number) => {
     const normalized = normalizeGlbUrl(url);
-    if (!normalized) {
-      console.warn('[DesignStudio] spawn skipped: empty GLB url', name);
-      return;
-    }
+    if (!normalized) return;
     void engineRef.current
       ?.spawnEntity({
         id: `asset_${Date.now()}`,
@@ -405,7 +300,7 @@ export const DesignStudioPage: React.FC = () => {
         position: { x: 0, y: 0, z: 0 },
         behavior: { type: 'static' },
       })
-      .catch((err) => console.warn('[DesignStudio] spawn failed', name, normalized, err));
+      .catch((err) => console.warn('[DesignStudio] spawn failed', err));
   }, []);
 
   const handleAddCustomAsset = useCallback(
@@ -435,8 +330,8 @@ export const DesignStudioPage: React.FC = () => {
         method: 'DELETE',
         credentials: 'include',
       });
-      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
         throw new Error(
           typeof (data as { error?: string }).error === 'string'
             ? (data as { error: string }).error
@@ -459,24 +354,17 @@ export const DesignStudioPage: React.FC = () => {
   const handleFileDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
-      const files = Array.from(e.dataTransfer.files);
-      const glb = files.find((f) => f.name.toLowerCase().endsWith('.glb'));
-      if (glb) {
-        const url = URL.createObjectURL(glb);
-        handleSpawnModel(glb.name, url, 1);
-      }
+      const glb = Array.from(e.dataTransfer.files).find((f) => f.name.toLowerCase().endsWith('.glb'));
+      if (glb) handleImportGlbFile(glb);
     },
-    [handleSpawnModel],
+    [handleImportGlbFile],
   );
 
   const onClear = useCallback(() => {
     engineRef.current?.clearWorld();
-    if (activeProject === ProjectType.CHESS) {
-      engineRef.current?.setProjectType(ProjectType.CHESS);
-    }
     setUndoStack([]);
     setRedoStack([]);
-  }, [activeProject]);
+  }, []);
 
   const handleSaveScene = useCallback(async () => {
     if (!engineRef.current) return;
@@ -528,41 +416,35 @@ export const DesignStudioPage: React.FC = () => {
     currentSceneId,
   ]);
 
-  const handleLoadScene = useCallback(
-    async (sceneId: string) => {
-      if (!engineRef.current) return;
-      setSceneBusy(true);
-      try {
-        const [entitiesRes, metaRes] = await Promise.all([
-          fetch(`/api/designstudio/scenes/${encodeURIComponent(sceneId)}/entities`, {
-            credentials: 'include',
-          }),
-          fetch(`/api/designstudio/scenes/${encodeURIComponent(sceneId)}`, { credentials: 'include' }),
-        ]);
-        if (!entitiesRes.ok) throw new Error(await entitiesRes.text());
-        const data = await entitiesRes.json();
-        await engineRef.current.loadEntities(data.entities || [], { keepBoard: true });
-        setCurrentSceneId(sceneId);
-        if (metaRes.ok) {
-          const meta = await metaRes.json();
-          const scene = (meta as { scene?: SavedSceneRow & { project_type?: string } }).scene;
-          if (scene?.cad_job_id) setLinkedCadJobId(String(scene.cad_job_id));
-          if (scene?.glb_r2_key) setLinkedGlbR2Key(String(scene.glb_r2_key));
-          if (scene?.name) setSceneName(scene.name);
-          if (scene?.project_type && Object.values(ProjectType).includes(scene.project_type as ProjectType)) {
-            handleProjectSwitch(scene.project_type as ProjectType);
-          }
-        }
-        setUndoStack([]);
-        setRedoStack([]);
-      } catch (e) {
-        console.warn('[DesignStudio] load scene failed', e);
-      } finally {
-        setSceneBusy(false);
+  const handleLoadScene = useCallback(async (sceneId: string) => {
+    if (!engineRef.current) return;
+    setSceneBusy(true);
+    try {
+      const [entitiesRes, metaRes] = await Promise.all([
+        fetch(`/api/designstudio/scenes/${encodeURIComponent(sceneId)}/entities`, {
+          credentials: 'include',
+        }),
+        fetch(`/api/designstudio/scenes/${encodeURIComponent(sceneId)}`, { credentials: 'include' }),
+      ]);
+      if (!entitiesRes.ok) throw new Error(await entitiesRes.text());
+      const data = await entitiesRes.json();
+      await engineRef.current.loadEntities(data.entities || [], { keepBoard: true });
+      setCurrentSceneId(sceneId);
+      if (metaRes.ok) {
+        const meta = await metaRes.json();
+        const scene = (meta as { scene?: SavedSceneRow }).scene;
+        if (scene?.cad_job_id) setLinkedCadJobId(String(scene.cad_job_id));
+        if (scene?.glb_r2_key) setLinkedGlbR2Key(String(scene.glb_r2_key));
+        if (scene?.name) setSceneName(scene.name);
       }
-    },
-    [handleProjectSwitch],
-  );
+      setUndoStack([]);
+      setRedoStack([]);
+    } catch (e) {
+      console.warn('[DesignStudio] load scene failed', e);
+    } finally {
+      setSceneBusy(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (!engineReady || !engineRef.current) return;
@@ -605,144 +487,47 @@ export const DesignStudioPage: React.FC = () => {
       onDrop={handleFileDrop}
       onDragOver={(e) => e.preventDefault()}
     >
-      <DesignStudioLeftPanel
-        activeProject={activeProject}
-        onSwitchProject={handleProjectSwitch}
-        onExport={() => engineRef.current?.exportForBlender()}
-        genConfig={genConfig}
-        onUpdateGenConfig={handleUpdateGenConfig}
-        sceneConfig={sceneConfig}
-        onUpdateSceneConfig={(cfg) => setSceneConfig((prev) => ({ ...prev, ...cfg }))}
-        onSpawnModel={handleSpawnModel}
+      <DesignStudioCreationStation
+        cad={cad}
         customAssets={customAssets}
+        onSpawnModel={handleSpawnModel}
         onAddCustomAsset={handleAddCustomAsset}
         onRemoveCustomAsset={handleRemoveCustomAsset}
+        onRefreshUserAssets={refreshUserAssets}
+        onImportGlb={handleImportGlbFile}
+        onBlenderExport={() => engineRef.current?.exportForBlender()}
         sceneName={sceneName}
         onSceneNameChange={setSceneName}
         savedScenes={savedScenes}
         sceneBusy={sceneBusy}
         onSaveScene={() => void handleSaveScene()}
         onLoadScene={(id) => void handleLoadScene(id)}
-        cad={cad}
-        cadJobId={linkedCadJobId}
-        glbR2Key={linkedGlbR2Key}
-        onRefreshUserAssets={refreshUserAssets}
-        onDeployJob={(job) => void deployJobToScene(job)}
-        onImportGlb={handleImportGlbFile}
         onDownloadLatestGlb={handleDownloadLatestGlb}
-      />
-
-      <div className="flex-1 min-w-0 min-h-0 relative">
-        <div
-          ref={containerRef}
-          className="absolute inset-0 z-0 overflow-hidden"
-          style={{ background: 'var(--scene-bg)' }}
-        />
-
-        {activeProject === ProjectType.CHESS && (
-          <div className="absolute top-4 right-4 z-20 flex flex-col items-end gap-2">
-            <button
-              type="button"
-              onClick={() => void handleStartMultiplayer()}
-              disabled={multiplayerBusy}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[var(--solar-violet)]/90 hover:opacity-90 disabled:opacity-40 text-white text-[10px] font-black uppercase tracking-widest shadow-lg"
-            >
-              <Users size={14} />
-              {multiplayerBusy ? 'Connecting…' : 'Multiplayer'}
-            </button>
-          </div>
-        )}
-
-        {activeProject === ProjectType.CHESS && multiplayerModalOpen && multiplayerRoomId && (
-          <div className="absolute inset-0 z-30 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+        activeJob={activeJobForBar}
+        viewport={
+          <div className="absolute inset-0">
             <div
-              className="w-full max-w-md rounded-2xl border border-[var(--border-subtle)] p-5 shadow-2xl"
-              style={{
-                background: 'rgba(18, 20, 32, 0.88)',
-                backdropFilter: 'blur(16px)',
-              }}
-            >
-              <div className="flex items-start justify-between gap-3 mb-4">
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#00ffcc]">
-                    MeauxChess Room
-                  </p>
-                  <p className="mt-1 font-mono text-sm text-[var(--text-primary)]">{multiplayerRoomId}</p>
-                  {multiplayerColor && (
-                    <p className="text-[10px] text-[var(--text-muted)] mt-1 capitalize">
-                      You are {multiplayerColor}
-                    </p>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setMultiplayerModalOpen(false)}
-                  className="p-1.5 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-muted)]"
-                  aria-label="Close"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-              <div className="flex flex-col gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const url = `${window.location.origin}/games/${multiplayerRoomId}`;
-                    void navigator.clipboard.writeText(url).then(() => {
-                      setRoomLinkCopied(true);
-                      setTimeout(() => setRoomLinkCopied(false), 2000);
-                    });
-                  }}
-                  className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-[#00ffcc]/40 bg-[#00ffcc]/10 text-[#00ffcc] text-[10px] font-black uppercase tracking-widest"
-                >
-                  <Copy size={14} />
-                  {roomLinkCopied ? 'Copied' : 'Copy invite link'}
-                </button>
-                <a
-                  href={`/games/${multiplayerRoomId}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-[#e8821a]/45 bg-[#e8821a]/10 text-[#e8821a] text-[10px] font-black uppercase tracking-widest no-underline"
-                >
-                  <ExternalLink size={14} />
-                  Join in browser
-                </a>
-              </div>
-            </div>
-          </div>
-        )}
-
-        <UIOverlay
-          voxelCount={voxelCount}
-          appState={appState}
-          activeProject={activeProject}
-          isGenerating={cad.isGenerating}
-          onTogglePlay={() => {}}
-          onClear={onClear}
-          genConfig={genConfig}
-          onUpdateGenConfig={handleUpdateGenConfig}
-          onUndo={handleUndo}
-          onRedo={handleRedo}
-          canUndo={undoStack.length > 0}
-          canRedo={redoStack.length > 0}
-        />
-
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 pointer-events-none flex justify-center w-full max-w-[90vw]">
-          <div className="pointer-events-auto">
-            <ToolLauncherBar
+              ref={containerRef}
+              className="absolute inset-0 z-0 overflow-hidden"
+              style={{ background: 'var(--scene-bg)' }}
+            />
+            <UIOverlay
+              voxelCount={voxelCount}
+              appState={appState}
               activeProject={activeProject}
-              onImportGlb={handleImportGlbFile}
-              onMeshyGenerate={
-                activeProject === ProjectType.CAD
-                  ? (prompt) => cad.runMeshyGenerate(prompt)
-                  : undefined
-              }
-              latestGlbUrl={activeProject === ProjectType.CAD ? activeJobForBar?.public_url : undefined}
-              onDownloadGlb={activeProject === ProjectType.CAD ? handleDownloadLatestGlb : undefined}
+              isGenerating={cad.isGenerating}
+              onTogglePlay={() => {}}
+              onClear={onClear}
+              genConfig={genConfig}
+              onUpdateGenConfig={handleUpdateGenConfig}
+              onUndo={handleUndo}
+              onRedo={handleRedo}
+              canUndo={undoStack.length > 0}
+              canRedo={redoStack.length > 0}
             />
           </div>
-        </div>
-      </div>
+        }
+      />
     </div>
   );
 };

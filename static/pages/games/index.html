@@ -1,303 +1,353 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="scroll-smooth">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MeauxChess | Inner Animal Media</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <title>MeauxGames | Inner Animal Media</title>
+  <meta name="description" content="Interactive systems — MeauxChess, MeauxGame engine, and Agent Sam practice on Cloudflare.">
+  <link rel="canonical" href="https://inneranimalmedia.com/games">
+  <meta property="og:title" content="MeauxGames | Inner Animal Media">
+  <meta property="og:description" content="Premium 3D interactive games on Cloudflare.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://inneranimalmedia.com/games">
+  <meta property="og:image" content="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/1b7ecfe9-550c-4ef7-966c-9e1972e29800/hero">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image" content="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/1b7ecfe9-550c-4ef7-966c-9e1972e29800/hero">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'sans-serif'] },
+          colors: {
+            brand: {
+              blue: '#2563EB',
+              teal: '#1FAAAD',
+              navy: '#1E293B',
+              dark: '#020617',
+              slate: '#334155',
+              muted: '#94A3B8',
+              grey: '#F8FAFC',
+              surface: '#FFFFFF',
+            }
+          },
+          maxWidth: { 'screen-xl-tight': '1280px' }
+        }
+      }
+    };
+  </script>
   <style>
-    :root {
-      --bg: #0a0a0f;
-      --glass: rgba(18, 20, 32, 0.72);
-      --border: rgba(255, 255, 255, 0.08);
-      --text: #eef2ff;
-      --muted: #8b95a8;
-      --teal: #00ffcc;
-      --amber: #e8821a;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root { --header-h: 76px; }
     body {
-      font-family: Inter, system-ui, sans-serif;
-      min-height: 100vh;
-      color: var(--text);
-      background: radial-gradient(ellipse 120% 80% at 50% -20%, rgba(0, 255, 204, 0.08), transparent 55%), var(--bg);
+      background: #020617;
+      color: #E2E8F0;
+      padding-top: var(--header-h);
     }
-    main {
-      max-width: 480px;
-      margin: 0 auto;
-      padding: 2.5rem 1rem 4rem;
-    }
-    .brand {
-      font-size: 0.65rem;
-      font-weight: 800;
-      letter-spacing: 0.28em;
-      text-transform: uppercase;
-      color: var(--teal);
-      margin-bottom: 0.75rem;
-    }
-    h1 {
-      font-size: clamp(2rem, 8vw, 2.75rem);
-      font-weight: 800;
-      letter-spacing: -0.04em;
-      margin-bottom: 0.5rem;
-    }
-    .lead {
-      color: var(--muted);
-      font-size: 0.95rem;
-      line-height: 1.55;
-      margin-bottom: 2rem;
-    }
-    .card {
-      background: var(--glass);
-      backdrop-filter: blur(16px);
-      border: 1px solid var(--border);
-      border-radius: 1.25rem;
-      padding: 1.25rem;
-      margin-bottom: 1rem;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
-    }
-    .card h2 {
-      font-size: 0.65rem;
-      text-transform: uppercase;
-      letter-spacing: 0.22em;
-      color: var(--muted);
-      margin-bottom: 1rem;
-    }
-    .btn-create {
-      width: 100%;
-      background: linear-gradient(135deg, rgba(0, 255, 204, 0.2), rgba(0, 255, 204, 0.05));
-      border: 1px solid rgba(0, 255, 204, 0.45);
-      color: var(--teal);
-      border-radius: 0.85rem;
-      padding: 1rem 1.25rem;
-      font-weight: 700;
-      font-size: 0.95rem;
-      cursor: pointer;
-    }
-    .btn-create:disabled { opacity: 0.45; cursor: not-allowed; }
-    .share-box {
-      margin-top: 0.85rem;
-      padding: 0.85rem;
-      border-radius: 0.75rem;
-      background: rgba(0, 0, 0, 0.35);
-      border: 1px solid var(--border);
-      display: none;
-    }
-    .share-box.visible { display: block; }
-    .share-link {
-      font-family: ui-monospace, monospace;
-      font-size: 0.72rem;
-      color: var(--muted);
-      word-break: break-all;
-      margin-bottom: 0.65rem;
-    }
-    .share-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
-    .btn-copy, .btn-enter {
-      flex: 1;
-      min-width: 120px;
-      padding: 0.55rem 0.75rem;
-      border-radius: 0.55rem;
-      font-size: 0.78rem;
-      font-weight: 700;
-      cursor: pointer;
-      border: 1px solid var(--border);
-    }
-    .btn-copy {
-      background: rgba(0, 255, 204, 0.1);
-      color: var(--teal);
-      border-color: rgba(0, 255, 204, 0.35);
-    }
-    .btn-enter {
-      background: rgba(232, 130, 26, 0.12);
-      color: var(--amber);
-      border-color: rgba(232, 130, 26, 0.4);
-    }
-    .room-list { list-style: none; display: grid; gap: 0.55rem; }
-    .room-card {
+    .chess-hero-cover-wrap {
+      aspect-ratio: 16 / 9;
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      gap: 0.65rem;
-      padding: 0.85rem 0.9rem;
-      border-radius: 0.85rem;
-      background: rgba(0, 0, 0, 0.35);
-      border: 1px solid var(--border);
+      justify-content: center;
+      background: #0c0d12;
     }
-    .room-host { font-weight: 600; font-size: 0.88rem; }
-    .room-meta-line {
-      color: var(--muted);
-      font-size: 0.72rem;
-      margin-top: 0.2rem;
+    .chess-hero-cover-wrap picture {
+      display: flex;
+      width: 100%;
+      height: 100%;
+      align-items: center;
+      justify-content: center;
     }
-    .btn-join {
-      flex-shrink: 0;
-      background: rgba(232, 130, 26, 0.15);
-      border: 1px solid rgba(232, 130, 26, 0.5);
-      color: var(--amber);
-      border-radius: 0.55rem;
-      padding: 0.45rem 0.8rem;
-      font-weight: 700;
-      font-size: 0.76rem;
-      text-decoration: none;
+    .chess-hero-cover {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      object-position: center;
     }
-    .status { font-size: 0.78rem; color: var(--muted); margin-top: 0.65rem; min-height: 1.2em; }
-    .empty {
-      color: var(--muted);
-      font-size: 0.88rem;
-      text-align: center;
-      padding: 1.25rem 0.5rem;
-      line-height: 1.5;
+    #play-modal { display: none; }
+    #play-modal.open { display: flex; }
+    .feature-card-dark {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
     }
+    .feature-card-light {
+      background: #fff;
+      border: 1px solid #F1F5F9;
+    }
+    .badge-teal-light { color: #0f766e; background: #ccfbf1; }
+    .badge-blue-light { color: #1d4ed8; background: #dbeafe; }
+    .badge-teal-dark { color: #5eead4; background: rgba(20, 184, 166, 0.15); }
+    .badge-blue-dark { color: #93c5fd; background: rgba(37, 99, 235, 0.15); }
   </style>
 </head>
 <body>
   <main>
-    <p class="brand">Inner Animal Media</p>
-    <h1>MeauxChess</h1>
-    <p class="lead">Real-time multiplayer. Cloudflare-powered.</p>
+    <!-- Section 1: Interactive systems hero (light) -->
+    <section
+      class="py-24 md:py-32 bg-white"
+      data-cms-section="interactive_systems"
+      data-cms-type="hero"
+      data-section-theme="light"
+      id="cms-games-sec-hero"
+    >
+      <div class="w-full max-w-screen-xl-tight px-6 mx-auto">
+        <div class="text-center mb-16 md:mb-24">
+          <h1 class="text-4xl md:text-5xl font-bold text-brand-navy mb-4" id="cms-games-hero-headline">Interactive systems</h1>
+          <p class="text-brand-muted text-lg md:text-xl" id="cms-games-hero-subheadline">MeauxGame engine preview.</p>
+        </div>
 
-    <section class="card">
-      <h2>New game</h2>
-      <button type="button" class="btn-create" id="create-room">Create Room</button>
-      <div class="share-box" id="share-box">
-        <p class="share-link" id="share-link"></p>
-        <div class="share-actions">
-          <button type="button" class="btn-copy" id="copy-link">Copy link</button>
-          <button type="button" class="btn-enter" id="enter-room">Enter room</button>
+        <div class="relative w-full bg-brand-dark rounded-[32px] overflow-hidden shadow-2xl chess-hero-cover-wrap">
+          <picture class="absolute inset-0 w-full h-full flex items-center justify-center">
+            <source id="cms-games-hero-mobile-src" media="(max-width: 768px)" srcset="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/1b7ecfe9-550c-4ef7-966c-9e1972e29800/public">
+            <source id="cms-games-hero-desktop-src" srcset="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/1b7ecfe9-550c-4ef7-966c-9e1972e29800/hero">
+            <img
+              id="cms-games-hero-img"
+              class="chess-hero-cover"
+              src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/1b7ecfe9-550c-4ef7-966c-9e1972e29800/hero"
+              alt="MeauxChess — 3D multiplayer chess"
+              width="1920"
+              height="1080"
+              loading="eager"
+              decoding="async"
+            >
+          </picture>
+          <div class="absolute inset-0 bg-gradient-to-t from-brand-dark/85 via-brand-dark/15 to-transparent pointer-events-none"></div>
+          <div class="absolute bottom-8 md:bottom-10 left-8 md:left-10 text-white z-10">
+            <h2 class="text-xl md:text-2xl font-bold mb-2" id="cms-games-overlay-title">3D Multiplayer Chess</h2>
+            <p class="text-gray-400 text-sm" id="cms-games-overlay-subtitle">Powered by WebSockets &amp; Durable Objects</p>
+            <button type="button" class="mt-4 inline-flex items-center gap-2 text-brand-blue font-bold hover:text-white transition-colors" id="cms-games-cta" data-open-play-modal>
+              Play Full Game
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+            </button>
+          </div>
         </div>
       </div>
-      <p class="status" id="create-status" aria-live="polite"></p>
     </section>
 
-    <section class="card">
-      <h2>Open rooms</h2>
-      <ul class="room-list" id="room-list"></ul>
-      <p class="empty" id="room-empty" hidden>No open rooms. Create one to start playing.</p>
+    <!-- Section 2: MeauxChess live (dark) -->
+    <section
+      class="py-24 md:py-32 bg-brand-dark text-white"
+      data-cms-section="meauxchess_live"
+      data-cms-type="feature_row"
+      data-section-theme="dark"
+      id="cms-games-sec-live"
+    >
+      <div class="w-full max-w-screen-xl-tight px-6 mx-auto">
+        <div class="flex flex-col md:flex-row items-center gap-12 md:gap-16 group">
+          <div class="md:w-1/2 order-2 md:order-1">
+            <h2 class="text-3xl md:text-4xl font-bold mb-4 text-white" id="cms-games-feat-live-title">MeauxChess</h2>
+            <p class="text-brand-muted text-lg leading-relaxed mb-6" id="cms-games-feat-live-body">
+              Real-time 3D multiplayer with private rooms, Resend email invites, and live board sync on Cloudflare Durable Objects.
+            </p>
+            <span class="badge-teal-dark text-xs font-bold px-3 py-1.5 rounded-lg tracking-wide uppercase" id="cms-games-feat-live-badge">Live multiplayer</span>
+          </div>
+          <div class="md:w-1/2 order-1 md:order-2">
+            <div class="feature-card-dark p-10 md:p-12 rounded-[40px] shadow-2xl flex items-center justify-center aspect-square transition-transform duration-500 group-hover:-translate-y-2">
+              <img
+                id="cms-games-feat-live-img"
+                src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/17381bd3-ef22-4668-dd97-78fa7211b700/avatar"
+                alt="MeauxGame"
+                class="w-32 h-32 object-contain drop-shadow-2xl rounded-[32px]"
+              >
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Section 3: MeauxGame engine (light, reversed) -->
+    <section
+      class="py-24 md:py-32 bg-brand-grey"
+      data-cms-section="meauxgame_engine"
+      data-cms-type="feature_row"
+      data-section-theme="light"
+      id="cms-games-sec-engine"
+    >
+      <div class="w-full max-w-screen-xl-tight px-6 mx-auto">
+        <div class="flex flex-col md:flex-row items-center gap-12 md:gap-16 group">
+          <div class="md:w-1/2 order-1">
+            <div class="feature-card-light p-10 md:p-12 rounded-[40px] shadow-xl flex items-center justify-center aspect-square transition-transform duration-500 group-hover:-translate-y-2">
+              <img
+                id="cms-games-feat-engine-img"
+                src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/1b7ecfe9-550c-4ef7-966c-9e1972e29800/thumbnail"
+                alt="MeauxChess board preview"
+                class="w-full max-w-[280px] object-contain drop-shadow-2xl rounded-2xl"
+              >
+            </div>
+          </div>
+          <div class="md:w-1/2 order-2">
+            <h2 class="text-3xl md:text-4xl font-bold text-brand-navy mb-4" id="cms-games-feat-engine-title">MeauxGame Engine</h2>
+            <p class="text-brand-slate text-lg leading-relaxed mb-6" id="cms-games-feat-engine-body">
+              Premium glass-and-amber pieces, SparkChess-style legal-move illumination, and a locked cinematic camera — built for the browser.
+            </p>
+            <span class="badge-blue-light text-xs font-bold px-3 py-1.5 rounded-lg tracking-wide uppercase" id="cms-games-feat-engine-badge">3D interactive</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Section 4: Agent Sam (dark) -->
+    <section
+      class="py-24 md:py-32 bg-brand-dark text-white pb-32"
+      data-cms-section="agent_sam_practice"
+      data-cms-type="feature_row"
+      data-section-theme="dark"
+      id="cms-games-sec-agent"
+    >
+      <div class="w-full max-w-screen-xl-tight px-6 mx-auto">
+        <div class="flex flex-col md:flex-row items-center gap-12 md:gap-16 group">
+          <div class="md:w-1/2 order-2 md:order-1">
+            <h2 class="text-3xl md:text-4xl font-bold mb-4 text-white" id="cms-games-feat-agent-title">Agent Sam</h2>
+            <p class="text-brand-muted text-lg leading-relaxed mb-6" id="cms-games-feat-agent-body">
+              Practice anytime on the full board. Agent Sam is your orange opponent — capture rails, timers, and a clean SparkChess-style HUD.
+            </p>
+            <span class="badge-teal-dark text-xs font-bold px-3 py-1.5 rounded-lg tracking-wide uppercase" id="cms-games-feat-agent-badge">AI practice</span>
+            <div class="mt-8">
+              <button type="button" class="inline-flex items-center gap-2 rounded-full border border-brand-teal/40 bg-brand-teal/10 px-5 py-3 text-sm font-bold text-teal-200 hover:bg-brand-teal/20 transition-colors" data-open-play-modal>
+                Play vs Agent Sam
+              </button>
+            </div>
+          </div>
+          <div class="md:w-1/2 order-1 md:order-2">
+            <div class="feature-card-dark p-10 md:p-12 rounded-[40px] shadow-2xl flex items-center justify-center aspect-square transition-transform duration-500 group-hover:-translate-y-2">
+              <img
+                id="cms-games-feat-agent-img"
+                src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/f8bfc7dd-7234-4336-1029-6f31a5bd7d00/avatar"
+                alt="Agent Sam"
+                class="w-32 h-32 rounded-full border-4 border-brand-teal/20 drop-shadow-2xl object-cover"
+              >
+            </div>
+          </div>
+        </div>
+      </div>
     </section>
   </main>
+
+  <div id="play-modal" class="fixed inset-0 z-[100] items-center justify-center p-6 bg-brand-dark/75 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="play-modal-title">
+    <div class="w-full max-w-md rounded-[28px] border border-white/10 bg-brand-navy/95 p-8 shadow-2xl">
+      <h2 id="play-modal-title" class="text-2xl font-bold text-white mb-2">Start a game</h2>
+      <p class="text-brand-muted text-sm mb-6">Invite someone by email, or jump straight into a board.</p>
+
+      <button type="button" class="modal-option w-full rounded-2xl border border-brand-blue/40 bg-brand-blue/10 px-5 py-4 text-left mb-3 hover:bg-brand-blue/20 transition" id="opt-invite">
+        <strong class="block text-white mb-1">Invite a friend</strong>
+        <span class="block text-sm text-brand-muted">We'll email them a join link to your private room.</span>
+      </button>
+      <div class="invite-form hidden grid gap-2 mb-3" id="invite-form">
+        <input type="text" id="inviter-name" placeholder="Your name (optional)" autocomplete="name" class="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-white text-sm">
+        <input type="email" id="invite-email" placeholder="Friend's email" autocomplete="email" required class="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-white text-sm">
+        <button type="button" id="send-invite" class="rounded-xl border border-brand-teal/40 bg-brand-teal/10 px-4 py-3 text-sm font-bold text-teal-200">Send invite &amp; enter room</button>
+      </div>
+
+      <button type="button" class="modal-option w-full rounded-2xl border border-brand-teal/40 bg-brand-teal/10 px-5 py-4 text-left hover:bg-brand-teal/20 transition" id="opt-agentsam">
+        <strong class="block text-white mb-1">Play vs Agent Sam</strong>
+        <span class="block text-sm text-brand-muted">Practice on the full board — Agent Sam is your orange opponent.</span>
+      </button>
+
+      <p class="modal-status min-h-[1.2em] text-xs text-brand-muted mt-4" id="modal-status" aria-live="polite"></p>
+      <button type="button" class="modal-cancel mt-3 w-full text-sm font-semibold text-brand-muted hover:text-white transition" id="modal-close">Cancel</button>
+    </div>
+  </div>
+
   <script>
-    const createBtn = document.getElementById('create-room');
-    const createStatus = document.getElementById('create-status');
-    const roomList = document.getElementById('room-list');
-    const roomEmpty = document.getElementById('room-empty');
-    const shareBox = document.getElementById('share-box');
-    const shareLink = document.getElementById('share-link');
-    const copyBtn = document.getElementById('copy-link');
-    const enterBtn = document.getElementById('enter-room');
-    const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
-    let pendingRoomUrl = '';
+    (function () {
+      var modal = document.getElementById('play-modal');
+      var statusEl = document.getElementById('modal-status');
+      var inviteForm = document.getElementById('invite-form');
 
-    function timeAgo(createdAt) {
-      if (!createdAt) return 'just now';
-      const t = Date.parse(createdAt);
-      if (Number.isNaN(t)) return 'just now';
-      const mins = Math.floor((Date.now() - t) / 60000);
-      if (mins < 1) return 'just now';
-      if (mins === 1) return '1 min ago';
-      if (mins < 60) return mins + ' min ago';
-      const hrs = Math.floor(mins / 60);
-      return hrs === 1 ? '1 hr ago' : hrs + ' hr ago';
-    }
-
-    function isRecent(createdAt) {
-      if (!createdAt) return true;
-      const t = Date.parse(createdAt);
-      if (Number.isNaN(t)) return true;
-      return Date.now() - t < TWO_HOURS_MS;
-    }
-
-    function dedupeByCreator(rows) {
-      const map = new Map();
-      for (const row of rows) {
-        const key = String(row.host_player_id || row.host_display_name || row.id || '').toLowerCase();
-        const existing = map.get(key);
-        if (!existing) {
-          map.set(key, row);
-          continue;
-        }
-        const a = Date.parse(existing.created_at || existing.createdAt || 0) || 0;
-        const b = Date.parse(row.created_at || row.createdAt || 0) || 0;
-        if (b > a) map.set(key, row);
+      function openModal() {
+        modal.classList.add('open');
+        document.body.style.overflow = 'hidden';
+        statusEl.textContent = '';
       }
-      return Array.from(map.values());
-    }
+      function closeModal() {
+        modal.classList.remove('open');
+        inviteForm.classList.add('hidden');
+        inviteForm.classList.remove('grid');
+        document.body.style.overflow = '';
+      }
 
-    async function createRoom() {
-      createBtn.disabled = true;
-      createStatus.textContent = 'Creating room…';
-      shareBox.classList.remove('visible');
-      try {
-        const res = await fetch('/api/games/rooms', {
+      document.querySelectorAll('[data-open-play-modal]').forEach(function (el) {
+        el.addEventListener('click', openModal);
+      });
+      document.getElementById('modal-close').addEventListener('click', closeModal);
+      modal.addEventListener('click', function (e) {
+        if (e.target === modal) closeModal();
+      });
+
+      async function createRoom() {
+        var res = await fetch('/api/games/rooms', {
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
           body: '{}',
         });
-        const data = await res.json().catch(function () { return {}; });
-        if (!res.ok) throw new Error(data.error || 'Failed to create room');
-        const roomId = data.roomId;
-        if (!roomId) throw new Error('Missing room id');
-        pendingRoomUrl = location.origin + '/games/' + encodeURIComponent(roomId);
-        shareLink.textContent = pendingRoomUrl;
-        shareBox.classList.add('visible');
-        createStatus.textContent = 'Room ready — share the link or enter to play.';
-        createBtn.disabled = false;
-      } catch (err) {
-        createStatus.textContent = err.message || 'Could not create room';
-        createBtn.disabled = false;
+        var data = await res.json().catch(function () { return {}; });
+        if (!res.ok) throw new Error(data.error || 'Could not create room');
+        if (!data.roomId) throw new Error('Missing room id');
+        return data.roomId;
       }
-    }
 
-    copyBtn.addEventListener('click', function () {
-      if (!pendingRoomUrl) return;
-      navigator.clipboard.writeText(pendingRoomUrl).then(function () {
-        createStatus.textContent = 'Link copied.';
+      document.getElementById('opt-invite').addEventListener('click', function () {
+        inviteForm.classList.toggle('hidden');
+        inviteForm.classList.toggle('grid');
       });
-    });
 
-    enterBtn.addEventListener('click', function () {
-      if (pendingRoomUrl) window.location.href = pendingRoomUrl;
-    });
+      document.getElementById('opt-agentsam').addEventListener('click', async function () {
+        statusEl.textContent = 'Opening practice board…';
+        try {
+          var roomId = await createRoom();
+          window.location.href = '/games/' + encodeURIComponent(roomId) + '?vs=agentsam';
+        } catch (err) {
+          statusEl.textContent = err.message || 'Something went wrong';
+        }
+      });
 
-    async function loadRooms() {
-      try {
-        const res = await fetch('/api/games/rooms', { credentials: 'include' });
-        const data = await res.json().catch(function () { return {}; });
-        const rows = dedupeByCreator(
-          (Array.isArray(data.results) ? data.results : []).filter(function (row) {
-            return isRecent(row.created_at || row.createdAt);
-          }),
-        );
-        roomList.innerHTML = '';
-        if (!rows.length) {
-          roomEmpty.hidden = false;
+      document.getElementById('send-invite').addEventListener('click', async function () {
+        var email = document.getElementById('invite-email').value.trim();
+        var inviterName = document.getElementById('inviter-name').value.trim();
+        if (!email) {
+          statusEl.textContent = 'Enter your friend\'s email.';
           return;
         }
-        roomEmpty.hidden = true;
-        for (const row of rows) {
-          const id = row.id || row.room_id || '';
-          const host = row.host_display_name || row.host_player_id || 'Guest';
-          const li = document.createElement('li');
-          li.className = 'room-card';
-          li.innerHTML =
-            '<div><div class="room-host">' + host + '</div>' +
-            '<div class="room-meta-line">' + timeAgo(row.created_at || row.createdAt) + ' · 1/2</div></div>';
-          const join = document.createElement('a');
-          join.className = 'btn-join';
-          join.href = '/games/' + encodeURIComponent(id);
-          join.textContent = 'Join';
-          li.appendChild(join);
-          roomList.appendChild(li);
+        statusEl.textContent = 'Creating room & sending invite…';
+        try {
+          var roomId = await createRoom();
+          var inviteRes = await fetch('/api/games/rooms/' + encodeURIComponent(roomId) + '/invite', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: email, inviterName: inviterName || undefined }),
+          });
+          var inviteData = await inviteRes.json().catch(function () { return {}; });
+          if (!inviteRes.ok) throw new Error(inviteData.error || 'Invite failed');
+          statusEl.textContent = 'Invite sent — entering your room…';
+          window.location.href = '/games/' + encodeURIComponent(roomId);
+        } catch (err) {
+          statusEl.textContent = err.message || 'Could not send invite';
         }
-      } catch {
-        roomEmpty.hidden = false;
-        roomEmpty.textContent = 'Could not load rooms.';
-      }
-    }
+      });
 
-    createBtn.addEventListener('click', createRoom);
-    loadRooms();
-    setInterval(loadRooms, 30000);
+      if (new URLSearchParams(location.search).get('play') === '1') openModal();
+      if (new URLSearchParams(location.search).get('vs') === 'agentsam') {
+        document.getElementById('opt-agentsam').click();
+      }
+
+      var header = document.getElementById('iam-header');
+      if (header && 'IntersectionObserver' in window) {
+        var themed = document.querySelectorAll('[data-section-theme]');
+        var observer = new IntersectionObserver(function (entries) {
+          entries.forEach(function (entry) {
+            if (!entry.isIntersecting) return;
+            var light = entry.target.getAttribute('data-section-theme') === 'light';
+            header.classList.toggle('iam-header--light-bg', light);
+            header.classList.toggle('scrolled', true);
+          });
+        }, { rootMargin: '-40% 0px -40% 0px', threshold: 0 });
+        themed.forEach(function (el) { observer.observe(el); });
+      }
+    })();
   </script>
 </body>
 </html>
