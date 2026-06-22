@@ -2,9 +2,12 @@
  * Dispatch Design Studio CAD jobs to ExecOS GCP (iam-tunnel VM).
  * OpenSCAD + Blender run on terminal.inneranimalmedia.com — not in Worker isolate.
  */
-import { resolveMoviemodeRepoRootForSession, resolvePtyTenantIdForUser } from './pty-workspace-paths.js';
 import { finalizeCadJobComplete } from './cad-job-complete.js';
-import { runExecOsCommand, probeExecOsCadHealth, resolveCadExecCwd } from './execos-fabric.js';
+import {
+  runExecOsCommand,
+  probeExecOsCadHealth,
+  resolveCadExecRepoRoot,
+} from './execos-fabric.js';
 
 const CAD_EXEC_TIMEOUT_MS = 600_000;
 const RUNNER_HOST = 'execos-gcp';
@@ -49,28 +52,19 @@ async function patchCadJob(env, jobId, patch) {
 }
 
 /**
- * Resolve inneranimalmedia repo on ExecOS GCP for CAD toolchain scripts.
+ * Resolve inneranimalmedia repo on ExecOS for CAD toolchain scripts.
+ * Operators: host_default repo from workspace_settings (Mac→Linux on GCP).
+ * Tenants: /workspace/{tenant}/{user}/inneranimalmedia isolation.
  * @param {any} env
  * @param {{ userId: string, tenantId?: string|null, workspaceId: string }} ctx
  */
 export async function resolveCadRepoOnPty(env, ctx) {
-  const uid = String(ctx.userId || '').trim();
-  const wid = String(ctx.workspaceId || '').trim();
-  if (!uid || !wid) return null;
-
-  let tid = String(ctx.tenantId || '').trim();
-  if (!tid) {
-    tid = String((await resolvePtyTenantIdForUser(env, null, uid)) || '').trim();
-  }
-  if (!tid) return null;
-
-  const fromSession = await resolveMoviemodeRepoRootForSession(env, {
-    tenantId: tid,
-    userId: uid,
-    workspaceId: wid,
+  return resolveCadExecRepoRoot(env, {
+    userId: ctx.userId,
+    tenantId: ctx.tenantId,
+    workspaceId: ctx.workspaceId,
+    target: 'gcp',
   });
-  const repoRoot = fromSession?.repoRoot || resolveCadExecCwd(env);
-  return { repoRoot, workspaceRoot: fromSession?.workspaceRoot, source: fromSession?.source || 'execos_default' };
 }
 
 /**
@@ -93,12 +87,12 @@ export async function dispatchCadJobToPty(env, ctx, jobId, auth) {
   }
 
   const resolved = await resolveCadRepoOnPty(env, auth);
-  const repoRoot = resolved?.repoRoot || resolveCadExecCwd(env);
+  const repoRoot = resolved?.repoRoot;
   if (!repoRoot) {
     await finalizeCadJobComplete(env, ctx, {
       job_id: id,
       status: 'failed',
-      error: 'ExecOS workspace not resolved — clone inneranimalmedia on iam-tunnel GCP VM.',
+      error: 'ExecOS repo not resolved — operator: clone inneranimalmedia to host path; tenants: provision /workspace clone.',
       error_code: 'execos_workspace_unresolved',
       runner_host: RUNNER_HOST,
     });
@@ -137,6 +131,8 @@ export async function dispatchCadJobToPty(env, ctx, jobId, auth) {
       dispatch: 'execos',
       resolution: res.resolution,
       runner_host: RUNNER_HOST,
+      repo_root: repoRoot,
+      repo_strategy: resolved.strategy,
     };
   }
 
@@ -157,6 +153,7 @@ export async function dispatchCadJobToPty(env, ctx, jobId, auth) {
       error: res.stderr || res.error || 'execos_exec_failed',
       exit_code: res.exit_code,
       resolution: res.resolution,
+      repo_root: repoRoot,
     };
   }
 
@@ -167,6 +164,8 @@ export async function dispatchCadJobToPty(env, ctx, jobId, auth) {
     dispatch: 'execos',
     resolution: res.resolution,
     runner_host: RUNNER_HOST,
+    repo_root: repoRoot,
+    repo_strategy: resolved.strategy,
   };
 }
 
@@ -174,9 +173,10 @@ export async function dispatchCadJobToPty(env, ctx, jobId, auth) {
 export const dispatchCadJobToExecOs = dispatchCadJobToPty;
 
 /**
- * Probe ExecOS GCP + CAD toolchain health.
+ * Probe ExecOS GCP + CAD toolchain health for the authenticated user.
  * @param {any} env
+ * @param {{ userId?: string|null, tenantId?: string|null, workspaceId?: string|null }} [ctx]
  */
-export async function probeCadComputeHealth(env) {
-  return probeExecOsCadHealth(env);
+export async function probeCadComputeHealth(env, ctx = {}) {
+  return probeExecOsCadHealth(env, ctx);
 }

@@ -160,7 +160,11 @@ export async function handleCadApi(request, url, env, ctx) {
     if (path === '/api/cad/compute/health' && method === 'GET') {
       const reqCtx = await resolveRequestContext(request, env);
       if (reqCtx.error) return jsonResponse({ error: 'Unauthorized' }, 401);
-      const health = await probeCadComputeHealth(env);
+      const health = await probeCadComputeHealth(env, {
+        userId: reqCtx.userId,
+        tenantId: reqCtx.tenantId,
+        workspaceId: reqCtx.workspaceId,
+      });
       return jsonResponse({ ok: true, ...health });
     }
 

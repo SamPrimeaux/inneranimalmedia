@@ -8,10 +8,80 @@
  * Fallbacks: public ExecOS URL, direct GCP /run, legacy PTY_SERVICE /exec.
  */
 
-import { execOnPtyHost } from './pty-workspace-paths.js';
+import { execOnPtyHost, loadWorkspaceRootFromSettings, buildPtyUserWorkspaceRoot, PTY_REPO_DIRNAME } from './pty-workspace-paths.js';
+import { userIsPlatformOperator, PLATFORM_WORKSPACE_ID } from './platform-operator-policy.js';
 
 function trim(v) {
   return v == null ? '' : String(v).trim();
+}
+
+/**
+ * Map D1 workspace_root (often Mac) to Linux GCP home layout.
+ * @param {string} root
+ */
+export function translateHostRootForGcp(root) {
+  const p = trim(root).replace(/\/+$/, '');
+  if (!p) return '';
+  if (p.startsWith('/Users/')) {
+    return `/home/${p.slice('/Users/'.length)}`;
+  }
+  return p;
+}
+
+/**
+ * Resolve CAD repo cwd: operator host repo vs tenant /workspace isolation.
+ * @param {any} env
+ * @param {{ userId?: string|null, tenantId?: string|null, workspaceId?: string|null, target?: string }} ctx
+ */
+export async function resolveCadExecRepoRoot(env, ctx = {}) {
+  const target = trim(ctx.target) || 'gcp';
+  const userId = trim(ctx.userId);
+  const workspaceId = trim(ctx.workspaceId) || PLATFORM_WORKSPACE_ID;
+  const tenantId = trim(ctx.tenantId);
+
+  const explicit = trim(env?.EXECOS_CAD_CWD) || trim(env?.OPERATOR_TERMINAL_CWD);
+  if (explicit) {
+    const repoRoot = target === 'gcp' ? translateHostRootForGcp(explicit) : explicit;
+    return { repoRoot, source: 'env', strategy: 'explicit' };
+  }
+
+  const isOperator = userId
+    ? await userIsPlatformOperator(env, { id: userId }, workspaceId)
+    : false;
+
+  if (isOperator) {
+    const hostRoot = await loadWorkspaceRootFromSettings(env, workspaceId);
+    if (hostRoot) {
+      const repoRoot = target === 'gcp' ? translateHostRootForGcp(hostRoot) : hostRoot;
+      return { repoRoot, source: 'workspace_settings', strategy: 'host_default' };
+    }
+    if (target === 'gcp') {
+      return { repoRoot: '/home/samprimeaux/inneranimalmedia', source: 'operator_fallback', strategy: 'host_default' };
+    }
+    return { repoRoot: '/Users/samprimeaux/inneranimalmedia', source: 'operator_fallback', strategy: 'host_default' };
+  }
+
+  if (tenantId && userId) {
+    const workspaceRoot = buildPtyUserWorkspaceRoot(env, { tenantId, userId });
+    if (workspaceRoot) {
+      return {
+        repoRoot: `${workspaceRoot}/${PTY_REPO_DIRNAME}`,
+        source: 'platform_workspace',
+        strategy: 'tenant_isolated',
+      };
+    }
+  }
+
+  return { repoRoot: '', source: 'unresolved', strategy: 'none' };
+}
+
+/** @deprecated use resolveCadExecRepoRoot */
+export function resolveCadExecCwd(env, hints = {}) {
+  const fromHint = trim(hints.repoRoot);
+  if (fromHint) return fromHint;
+  const explicit = trim(env?.EXECOS_CAD_CWD) || trim(env?.OPERATOR_TERMINAL_CWD);
+  if (explicit) return translateHostRootForGcp(explicit);
+  return '/home/samprimeaux/inneranimalmedia';
 }
 
 /**
@@ -145,29 +215,11 @@ export async function runExecOsCommand(env, opts) {
 }
 
 /**
- * Resolve inneranimalmedia repo cwd on GCP ExecOS VM.
- * @param {any} env
- * @param {{ repoRoot?: string|null }} [hints]
- */
-export function resolveCadExecCwd(env, hints = {}) {
-  const fromHint = trim(hints.repoRoot);
-  if (fromHint) return fromHint;
-
-  const explicit =
-    trim(env?.EXECOS_CAD_CWD) ||
-    trim(env?.OPERATOR_TERMINAL_CWD) ||
-  '';
-  if (explicit) return explicit;
-
-  // GCP iam-tunnel default (verified via execos → gcp /run pwd)
-  return '/workspace/tenant_sam_primeaux/au_871d920d1233cbd1/inneranimalmedia';
-}
-
-/**
  * Probe ExecOS GCP chain + OpenSCAD/Blender toolchain.
  * @param {any} env
+ * @param {{ userId?: string|null, tenantId?: string|null, workspaceId?: string|null }} [ctx]
  */
-export async function probeExecOsCadHealth(env) {
+export async function probeExecOsCadHealth(env, ctx = {}) {
   const hasPath =
     !!(env?.EXECOS && trim(env?.EXECOS_KEY)) ||
     !!trim(env?.EXECOS_KEY) ||
@@ -191,7 +243,12 @@ export async function probeExecOsCadHealth(env) {
     };
   }
 
-  const cwd = resolveCadExecCwd(env);
+  const resolved = await resolveCadExecRepoRoot(env, { ...ctx, target: 'gcp' });
+  const cwd = resolved.repoRoot;
+  if (!cwd) {
+    return { status: 'unavailable', reason: 'repo_root_unresolved', dispatch: 'execos' };
+  }
+
   const toolProbe = await runExecOsCommand(env, {
     command:
       'command -v openscad >/dev/null && command -v blender >/dev/null && echo CAD_TOOLCHAIN_OK || echo CAD_TOOLCHAIN_MISSING',
@@ -207,6 +264,8 @@ export async function probeExecOsCadHealth(env) {
       target: 'gcp',
       resolution: toolProbe.resolution || chainProbe.resolution,
       cwd,
+      repo_source: resolved.source,
+      repo_strategy: resolved.strategy,
     };
   }
 
@@ -216,5 +275,7 @@ export async function probeExecOsCadHealth(env) {
     dispatch: 'execos',
     detail: out.slice(0, 300),
     cwd,
+    repo_source: resolved.source,
+    repo_strategy: resolved.strategy,
   };
 }
