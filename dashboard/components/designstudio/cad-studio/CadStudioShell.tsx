@@ -216,10 +216,10 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
     setStudioContext({
       workspaceMode: ui.workspace,
       selectedObjectId: selectedId,
-      panelLayout: layoutOverride,
+      panelLayout: null,
       pendingOperator: operatorOpen ? 'operator_search' : generateOpen ? 'generate_cad' : null,
     });
-  }, [ui.workspace, selectedId, layoutOverride, operatorOpen, generateOpen, setStudioContext]);
+  }, [ui.workspace, selectedId, operatorOpen, generateOpen, setStudioContext]);
 
   useEffect(() => {
     if (!activeJob) return;
