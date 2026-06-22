@@ -734,17 +734,6 @@ export class VoxelEngine {
     this.spawnProceduralChessBoard();
   }
 
-  private spawnChessBoardVoxels() {
-    const boardVoxels: VoxelData[] = [];
-    for (let x = -5; x < 5; x++) {
-      for (let z = -5; z < 5; z++) {
-        const isWhite = (x + z) % 2 !== 0;
-        boardVoxels.push({ x, y: -0.5, z, color: isWhite ? 0xFAF9F6 : 0x1A1210 });
-      }
-    }
-    this.spawnEntity({ id: 'chess_board', name: 'Board', type: 'prop', voxels: boardVoxels, position: { x: 0, y: 0, z: 0 }, behavior: { type: 'static' } });
-  }
-
   public async spawnEntity(entity: GameEntity) {
     if (this.entities.has(entity.id)) this.removeEntity(entity.id);
 
@@ -792,8 +781,15 @@ export class VoxelEngine {
         this.frameCameraOnObject(visual);
       } catch (err) {
         console.error(`Failed to load model: ${entity.modelUrl}`, err);
+        if (entity.type === 'piece' || entity.behavior.type === 'chess_piece') {
+          return;
+        }
       }
     } else if (entity.voxels) {
+      if (entity.type === 'piece' || entity.behavior.type === 'chess_piece') {
+        console.error('[VoxelEngine] Refusing voxel fallback for chess piece:', entity.name);
+        return;
+      }
       const geometry = new THREE.BoxGeometry(0.95, 0.95, 0.95);
       const material = new THREE.MeshStandardMaterial({ roughness: 0.2, metalness: 0.8 });
       const mesh = new THREE.InstancedMesh(geometry, material, entity.voxels.length);
@@ -827,13 +823,22 @@ export class VoxelEngine {
     this.updateVoxelCount();
   }
 
+  private isCanonicalChessPieceUrl(url: string): boolean {
+    return url.includes('assets.inneranimalmedia.com/chess-pieces/');
+  }
+
   private async loadModel(url: string): Promise<any> {
-    const src = normalizeGlbUrl(url);
+    const src = this.isCanonicalChessPieceUrl(url) ? url : normalizeGlbUrl(url);
     return new Promise((resolve, reject) => {
-      this.gltfLoader.load(src, resolve, undefined, (err) => {
-        console.error('[VoxelEngine] GLB load failed:', src, err);
-        reject(err);
-      });
+      this.gltfLoader.load(
+        src,
+        resolve,
+        undefined,
+        (err) => {
+          console.error(`Failed to load chess piece GLB: ${src}`, err);
+          reject(err);
+        },
+      );
     });
   }
 

@@ -18,6 +18,7 @@ import {
   problemTotal,
   type StudioIamBundle,
 } from '../src/iamDashboardFeeds';
+import { chessPieceGlbPath } from '../lib/glbAssets';
 
 interface SidebarProps {
   activeProject: ProjectType;
@@ -104,7 +105,7 @@ export const StudioSidebar: React.FC<SidebarProps> = ({
   ];
 
   const getChessUrl = (color: 'white' | 'black', piece: string) =>
-    `/assets/chess/v1/pieces/${color}/${piece}.glb`;
+    chessPieceGlbPath(color, piece);
 
   const assetGallery = [
     { 

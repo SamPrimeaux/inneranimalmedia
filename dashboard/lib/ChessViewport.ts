@@ -13,7 +13,7 @@ import {
   createValidMoveOverlayMaterial,
   setupChessEnvironment,
 } from './chessMaterials';
-import { chessOptimizedPieceUrl } from './glbAssets';
+import { chessPieceGlbPath } from './glbAssets';
 import { parseFenPlacement, squareToPosition } from './chessSquares';
 
 const PIECE_TYPES = ['king', 'queen', 'bishop', 'knight', 'rook', 'pawn'] as const;
@@ -81,6 +81,8 @@ export class ChessViewport {
     this.onStatus = opts.onStatus;
     this.onCapture = opts.onCapture;
 
+    this.loader.setCrossOrigin('anonymous');
+
     const w = Math.max(320, this.container.clientWidth || 640);
     const h = Math.max(320, this.container.clientHeight || 480);
 
@@ -145,7 +147,13 @@ export class ChessViewport {
     while (this.captureGroup.children.length) this.captureGroup.remove(this.captureGroup.children[0]);
 
     const placements = parseFenPlacement(fen);
-    for (const p of placements) await this.spawnPiece(p.square, p.color, p.piece);
+    for (const p of placements) {
+      try {
+        await this.spawnPiece(p.square, p.color, p.piece);
+      } catch (err) {
+        console.error(`[ChessViewport] skip piece ${p.color} ${p.piece} @ ${p.square}`, err);
+      }
+    }
   }
 
   public movePieceOnBoard(from: string, to: string): void {
@@ -210,7 +218,7 @@ export class ChessViewport {
     let loaded = 0;
     await Promise.all(
       PIECE_TYPES.map(async (piece) => {
-        await this.loadPieceTemplate(chessOptimizedPieceUrl(piece), piece);
+        await this.loadPieceTemplate(chessPieceGlbPath('white', piece), piece);
         loaded += 1;
         onLoading?.(loaded / PIECE_TYPES.length);
       }),
@@ -224,30 +232,45 @@ export class ChessViewport {
     return PIECE_HEIGHT[piece] ?? 0.78;
   }
 
-  private async loadPieceTemplate(url: string, piece: string): Promise<THREE.Group> {
+  private loadPieceTemplate(url: string, piece: string): Promise<THREE.Group> {
     const cacheKey = `${url}:${piece}`;
     const cached = this.modelCache.get(cacheKey);
-    if (cached) return cached;
+    if (cached) return Promise.resolve(cached.clone());
 
-    const gltf = await this.loader.loadAsync(url);
-    const model = gltf.scene;
-    const box = new THREE.Box3().setFromObject(model);
-    const size = new THREE.Vector3();
-    const center = new THREE.Vector3();
-    box.getSize(size);
-    box.getCenter(center);
-    const max = Math.max(size.x, size.y, size.z) || 1;
-    const scale = this.pieceScaleTarget(piece) / max;
-    const pivot = new THREE.Group();
-    model.position.set(-center.x, -box.min.y, -center.z);
-    pivot.add(model);
-    pivot.scale.setScalar(scale);
-    this.modelCache.set(cacheKey, pivot);
-    return pivot;
+    return new Promise((resolve, reject) => {
+      this.loader.load(
+        url,
+        (gltf) => {
+          try {
+            const model = gltf.scene;
+            const box = new THREE.Box3().setFromObject(model);
+            const size = new THREE.Vector3();
+            const center = new THREE.Vector3();
+            box.getSize(size);
+            box.getCenter(center);
+            const max = Math.max(size.x, size.y, size.z) || 1;
+            const scale = this.pieceScaleTarget(piece) / max;
+            const pivot = new THREE.Group();
+            model.position.set(-center.x, -box.min.y, -center.z);
+            pivot.add(model);
+            pivot.scale.setScalar(scale);
+            this.modelCache.set(cacheKey, pivot);
+            resolve(pivot.clone());
+          } catch (e) {
+            reject(e);
+          }
+        },
+        undefined,
+        (err) => {
+          console.error(`Failed to load chess piece GLB: ${url}`, err);
+          reject(err);
+        },
+      );
+    });
   }
 
   private async spawnPiece(square: string, color: 'white' | 'black', piece: string): Promise<void> {
-    const url = chessOptimizedPieceUrl(piece);
+    const url = chessPieceGlbPath(color, piece);
     const template = await this.loadPieceTemplate(url, piece);
     const mesh = template.clone(true);
     applyChessPieceMaterials(mesh, color);
@@ -264,7 +287,7 @@ export class ChessViewport {
     piece: string,
     color: 'white' | 'black',
   ): Promise<void> {
-    const url = chessOptimizedPieceUrl(piece);
+    const url = chessPieceGlbPath(color, piece);
     const template = await this.loadPieceTemplate(url, piece);
     const mesh = template.clone(true);
     applyChessPieceMaterials(mesh, color);

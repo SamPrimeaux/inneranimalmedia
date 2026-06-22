@@ -1,62 +1,27 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Sword, UserCircle } from 'lucide-react';
-import { normalizeChessPieceUrls } from '../../lib/glbAssets';
+import { chessPieceGlbPath } from '../../lib/glbAssets';
+
+const ARMORY_PIECES = [
+  { type: 'king', name: 'King' },
+  { type: 'queen', name: 'Queen' },
+  { type: 'rook', name: 'Rook' },
+  { type: 'bishop', name: 'Bishop' },
+  { type: 'knight', name: 'Knight' },
+  { type: 'pawn', name: 'Pawn' },
+] as const;
 
 type Props = {
   onSpawnModel: (name: string, url: string, scale: number) => void;
 };
 
 export function GamesToolDock({ onSpawnModel }: Props) {
-  const [chessPieces, setChessPieces] = useState<
-    { type: string; name: string; white_url: string; black_url: string }[]
-  >([]);
-
-  useEffect(() => {
-    fetch('/api/games/pieces')
-      .then((r) => r.json())
-      .then(({ results }) => {
-        const map: Record<
-          string,
-          { type: string; name: string; white_url?: string; black_url?: string }
-        > = {};
-        for (const row of results || []) {
-          let meta: Record<string, unknown> = {};
-          try {
-            meta =
-              typeof (row as { metadata?: unknown }).metadata === 'string'
-                ? JSON.parse((row as { metadata: string }).metadata || '{}')
-                : ((row as { metadata?: Record<string, unknown> }).metadata ?? {});
-          } catch {
-            meta = {};
-          }
-          const piece = meta.piece;
-          const color = meta.color;
-          if (typeof piece !== 'string' || typeof color !== 'string') continue;
-          if (!map[piece]) {
-            const label = meta.piece_armory_label;
-            map[piece] = {
-              type: piece,
-              name: typeof label === 'string' ? label : piece,
-            };
-          }
-          if (color === 'white' || color === 'black') {
-            map[piece][`${color}_url` as 'white_url' | 'black_url'] = (row as { public_url: string })
-              .public_url;
-          }
-        }
-        setChessPieces(
-          Object.values(map).map((p) =>
-            normalizeChessPieceUrls({
-              type: p.type,
-              name: p.name,
-              white_url: p.white_url || '',
-              black_url: p.black_url || '',
-            }),
-          ),
-        );
-      })
-      .catch((e) => console.warn('[Piece Armory] fetch failed', e));
-  }, []);
+  const chessPieces = ARMORY_PIECES.map((p) => ({
+    type: p.type,
+    name: p.name,
+    white_url: chessPieceGlbPath('white', p.type),
+    black_url: chessPieceGlbPath('black', p.type),
+  }));
 
   return (
     <section className="bg-[var(--bg-hover)] p-4 rounded-2xl border border-[var(--border-subtle)] space-y-3">
@@ -73,8 +38,7 @@ export function GamesToolDock({ onSpawnModel }: Props) {
                 type="button"
                 key={`white-${piece.type}`}
                 onClick={() => onSpawnModel(`White ${piece.name}`, piece.white_url, 0.8)}
-                disabled={!piece.white_url}
-                className="flex flex-col items-center gap-1 p-2 rounded-xl bg-[var(--bg-panel)] border border-[var(--border-subtle)] hover:bg-[var(--bg-hover)] disabled:opacity-30"
+                className="flex flex-col items-center gap-1 p-2 rounded-xl bg-[var(--bg-panel)] border border-[var(--border-subtle)] hover:bg-[var(--bg-hover)]"
               >
                 <UserCircle size={16} className="text-[var(--text-muted)]" />
                 <span className="text-[8px] font-black uppercase text-[var(--text-muted)]">{piece.name}</span>
@@ -89,9 +53,8 @@ export function GamesToolDock({ onSpawnModel }: Props) {
               <button
                 type="button"
                 key={`black-${piece.type}`}
-                onClick={() => onSpawnModel(`Orange ${piece.name}`, piece.black_url || piece.white_url, 0.8)}
-                disabled={!piece.black_url}
-                className="flex flex-col items-center gap-1 p-2 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] hover:bg-[var(--bg-hover)] disabled:opacity-30"
+                onClick={() => onSpawnModel(`Orange ${piece.name}`, piece.black_url, 0.8)}
+                className="flex flex-col items-center gap-1 p-2 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] hover:bg-[var(--bg-hover)]"
               >
                 <UserCircle size={16} className="text-[var(--solar-violet)]" />
                 <span className="text-[8px] font-black uppercase text-[var(--text-muted)]">{piece.name}</span>
