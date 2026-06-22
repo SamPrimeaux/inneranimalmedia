@@ -1,0 +1,155 @@
+
+  /* #earth-section and .stage-wrap are the same element */
+  #earth-section{
+    position:relative;
+    height:360svh;
+    background:var(--bg-deep);
+    --bg-deep: #050713;
+    --bg-soft: #0a1022;
+    --ink: #f8fbff;
+    --ink-dim: #9daac2;
+    --ink-faint: #5e6a82;
+    --cyan: #67e8ff;
+    --hair: rgba(255,255,255,0.10);
+    --display: Nunito, Inter, system-ui, sans-serif;
+    --body: Nunito, Inter, system-ui, sans-serif;
+    --ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+    --panel-bg: rgba(5,7,19,0.72);
+    --panel-border: rgba(103,232,255,0.18);
+  }
+  #earth-section.compact{ height:260svh; }
+  #earth-section a{ color:inherit; text-decoration:none; }
+
+  #earth-section .stage{
+    position:sticky; top:0; height:100svh; width:100%;
+    overflow:hidden;
+  }
+  #earth-section .stage-bg{
+    position:absolute; inset:0; z-index:0;
+    background:
+      radial-gradient(circle at 12% 18%, rgba(47,123,255,.28), transparent 38%),
+      radial-gradient(circle at 88% 72%, rgba(103,232,255,.14), transparent 42%),
+      linear-gradient(180deg, #050713 0%, #0a1022 100%);
+  }
+  #earth-section .stage-vignette{
+    position:absolute; inset:0; z-index:4; pointer-events:none;
+    background:radial-gradient(ellipse 80% 70% at 50% 50%, transparent 40%, rgba(5,7,19,.55) 100%);
+  }
+  #earth-section #earth-canvas{
+    position:absolute; inset:0; z-index:1;
+    display:block; width:100%; height:100%;
+  }
+  #earth-section .earth-fallback{
+    position:absolute; inset:0; z-index:1; display:none;
+    place-items:center;
+  }
+  #earth-section .earth-fallback .orb{
+    width:min(52vmin,480px); aspect-ratio:1; border-radius:50%;
+    background:
+      radial-gradient(60% 45% at 50% 8%, rgba(103,232,255,.45), transparent 60%),
+      radial-gradient(120% 120% at 32% 28%, #1a3a5c 0%, #0d1f33 40%, #050713 100%);
+    box-shadow:0 0 140px rgba(103,232,255,.22), inset 0 0 60px rgba(103,232,255,.08);
+    animation:earthPulse 6s ease-in-out infinite;
+  }
+  @keyframes earthPulse{
+    0%,100%{ transform:scale(1); opacity:.9; }
+    50%{ transform:scale(1.03); opacity:1; }
+  }
+  body.no-spline #earth-section .earth-fallback{ display:grid; }
+  body.no-spline #earth-section #earth-canvas{ display:none; }
+
+  #earth-section .overlay{
+    position:absolute; inset:0; z-index:3; pointer-events:none;
+  }
+
+  /* culture + promise copy panels */
+  #earth-section .panel{
+    position:absolute; top:50%; transform:translateY(-50%);
+    width:min(44vw,520px);
+    will-change:transform,opacity,filter;
+    pointer-events:none;
+    opacity:0;
+  }
+  #earth-section .panel.culture{ left:clamp(20px,6vw,92px); }
+  #earth-section .panel.promise{ right:clamp(20px,6vw,92px); text-align:right; }
+  #earth-section .panel .eyebrow{
+    font-family:var(--ui); font-size:12px; letter-spacing:.18em;
+    text-transform:uppercase; color:var(--cyan); font-weight:800;
+    margin-bottom:18px;
+  }
+  #earth-section .panel.promise .eyebrow{ margin-left:auto; }
+  #earth-section .panel h2{
+    font-family:var(--display); font-weight:700;
+    font-size:clamp(32px,5.5vw,72px); line-height:.92;
+    letter-spacing:-.06em; margin:0 0 20px; color:var(--ink);
+  }
+  #earth-section .panel p{
+    font-family:var(--body); font-size:clamp(15px,1.5vw,19px);
+    line-height:1.55; color:var(--ink-dim); margin:0 0 22px;
+    max-width:42ch;
+  }
+  #earth-section .panel.promise p{ margin-left:auto; }
+  #earth-section .badges{
+    display:flex; flex-wrap:wrap; gap:8px;
+  }
+  #earth-section .panel.promise .badges{ justify-content:flex-end; }
+  #earth-section .badge{
+    display:inline-flex; border:1px solid var(--hair);
+    padding:8px 14px; border-radius:999px;
+    font-family:var(--ui); font-size:13px; color:var(--ink-dim);
+    background:rgba(255,255,255,.04); backdrop-filter:blur(8px);
+  }
+
+  /* closing CTA */
+  #earth-section .closing{
+    position:absolute; left:50%; bottom:clamp(36px,8vh,80px);
+    transform:translateX(-50%);
+    text-align:center; width:min(90vw,640px);
+    will-change:transform,opacity; pointer-events:auto;
+    opacity:0;
+  }
+  #earth-section .closing p{
+    font-size:clamp(15px,1.5vw,18px); line-height:1.55;
+    color:var(--ink-dim); margin:0 0 24px;
+  }
+  #earth-section .closing p strong{ color:var(--ink); font-weight:600; }
+  #earth-section .cta{
+    display:inline-flex; align-items:center; gap:12px;
+    font-family:var(--ui); font-size:14px; color:var(--ink);
+    border:1px solid var(--hair); border-radius:999px;
+    padding:14px 22px; background:rgba(47,123,255,.16);
+    transition:background .25s, border-color .25s, transform .25s;
+  }
+  #earth-section .cta:hover{
+    background:rgba(47,123,255,.28);
+    border-color:rgba(103,232,255,.35);
+    transform:translateY(-1px);
+  }
+  #earth-section .cta .arrow{ transition:transform .25s; }
+  #earth-section .cta:hover .arrow{ transform:translateX(4px); }
+
+  /* scroll hint */
+  #earth-section .scroll-hint{
+    position:absolute; left:50%; bottom:clamp(20px,4vh,40px);
+    transform:translateX(-50%);
+    font-family:var(--ui); font-size:11px; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--ink-faint);
+    will-change:opacity;
+  }
+
+  @media(max-width:860px){
+    #earth-section .panel{
+      width:min(88vw,520px); left:50% !important; right:auto !important;
+      transform:translate(-50%,-50%); text-align:center !important;
+    }
+    #earth-section .panel.promise .eyebrow,
+    #earth-section .panel.promise p,
+    #earth-section .panel.promise .badges{ margin-left:0; justify-content:center; }
+    #earth-section .panel h2{ font-size:clamp(28px,8vw,48px); }
+    #earth-section .panel p{ max-width:none; }
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    #earth-section .panel, #earth-section .closing, #earth-section .scroll-hint{ transition:none; }
+    #earth-section .earth-fallback .orb{ animation:none; }
+  }

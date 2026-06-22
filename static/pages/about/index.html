@@ -9,7 +9,7 @@
 <style>
 :root{--bg:#050713;--ink:#f8fbff;--muted:#9daac2;--blue:#2f7bff;--cyan:#67e8ff;--panel:rgba(255,255,255,.075);--line:rgba(255,255,255,.15);--paper:#f4f7fb;--dark:#060914}
 *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;font-family:Nuinto,Inter,system-ui,sans-serif;background:var(--bg);color:var(--ink)}a{color:inherit}
-.iam-public-page{overflow:hidden}.section{padding:clamp(72px,9vw,140px) clamp(20px,6vw,92px);border-bottom:1px solid var(--line);position:relative}
+.iam-public-page.route-about{overflow:visible}.section{padding:clamp(72px,9vw,140px) clamp(20px,6vw,92px);border-bottom:1px solid var(--line);position:relative}
 .hero{min-height:92vh;display:grid;align-items:center;background:radial-gradient(circle at 10% 10%,rgba(47,123,255,.36),transparent 34%),radial-gradient(circle at 88% 30%,rgba(103,232,255,.18),transparent 36%)}
 .light{background:linear-gradient(180deg,#f8faff,#dfe9fa);color:#07111f}.dark{background:linear-gradient(180deg,#050713,#0a1022)}
 .eyebrow{text-transform:uppercase;letter-spacing:.18em;color:var(--cyan);font-size:12px;font-weight:800}
@@ -24,6 +24,7 @@ p{font-size:clamp(16px,1.65vw,21px);line-height:1.55;color:var(--muted);max-widt
 .badge{display:inline-flex;border:1px solid var(--line);padding:8px 12px;border-radius:999px;color:var(--muted);font-size:13px;margin:4px}
 @media(max-width:860px){.split,.chess-stage{grid-template-columns:1fr}h1{font-size:58px}.section{padding:64px 20px}}
 </style>
+<link rel="stylesheet" href="/assets/scenes/about-earth/about-earth.css?v=20260622a">
 </head>
 <body data-footer-theme="dark">
 <main class="iam-public-page route-about">
@@ -122,40 +123,49 @@ p{font-size:clamp(16px,1.65vw,21px);line-height:1.55;color:var(--muted);max-widt
   </div>
 </section>
 
-<section class="section dark">
-  <div class="split">
-    <div>
-      <div class="eyebrow">culture</div>
-      <h2>Curious, disciplined, and quietly ambitious</h2>
-      <p>We value thoughtful collaboration, sharp feedback, and a high standard of finish. The best results come from a culture that is open, rigorous, and oriented toward meaningful outcomes.</p>
-      <div><span class='badge'>Care in every detail</span><span class='badge'>Respect for time</span><span class='badge'>High standards, low ego</span></div>
-    </div>
-    <div class="code-window">
-      <div>route: /about</div>
-      <div>section: culture</div>
-      <div>cms: editable</div>
-      <div>r2: pages/about/index.html</div>
-    </div>
-  </div>
-</section>
+<!-- cms: section about-earth-scene | route: /about | replaces: culture, promise -->
+<section class="stage-wrap" id="earth-section" data-screen-label="about earth" data-cms-section="about-earth-scene">
+  <div class="stage">
+    <div class="stage-bg" id="earth-stage-bg"></div>
+    <canvas id="earth-canvas"></canvas>
+    <div class="earth-fallback"><div class="orb"></div></div>
+    <div class="stage-vignette"></div>
 
-<section class="section light">
-  <div class="split">
-    <div>
-      <div class="eyebrow">promise</div>
-      <h2>Make something that earns attention</h2>
-      <p>We create digital work that feels elevated without feeling distant. The result is a brand presence with confidence, cohesion, and enough character to stand apart in a crowded landscape.</p>
-      <div><span class='badge'>Distinct but durable</span><span class='badge'>Elegant and usable</span><span class='badge'>Designed to endure</span></div>
+    <div class="overlay">
+      <article class="panel culture" id="culture-panel" data-cms-section="culture">
+        <div class="eyebrow">culture</div>
+        <h2>Curious by default, disciplined by design</h2>
+        <p>We work in the open — sharing context, giving direct feedback, and holding a high bar without the theater. The best outcomes come from a culture that is rigorous, generous, and quietly ambitious.</p>
+        <div class="badges">
+          <span class="badge">Precision over noise</span>
+          <span class="badge">Feedback that helps</span>
+          <span class="badge">High standards, low ego</span>
+        </div>
+      </article>
+
+      <article class="panel promise" id="promise-panel" data-cms-section="promise">
+        <div class="eyebrow">promise</div>
+        <h2>Work worth noticing — built to last</h2>
+        <p>We make digital experiences that feel elevated and unmistakably human. Confident in tone, cohesive in form, and crafted with enough restraint to matter long after the launch moment passes.</p>
+        <div class="badges">
+          <span class="badge">Character that scales</span>
+          <span class="badge">Elegant and usable</span>
+          <span class="badge">Made to endure</span>
+        </div>
+      </article>
     </div>
-    <div class="code-window">
-      <div>route: /about</div>
-      <div>section: promise</div>
-      <div>cms: editable</div>
-      <div>r2: pages/about/index.html</div>
+
+    <div class="scroll-hint" id="scroll-hint">Scroll to explore</div>
+
+    <div class="closing" id="earth-closing">
+      <p><strong>Ready when you are.</strong> If this is the standard you want for your next build, we should talk.</p>
+      <a class="cta" href="/contact">Start a build <span class="arrow">→</span></a>
     </div>
   </div>
 </section>
 
 </main>
+<script type="module" src="/assets/scenes/about-earth/spline.js?v=20260622a"></script>
+<script src="/assets/scenes/about-earth/scroll.js?v=20260622a"></script>
 </body>
 </html>
