@@ -17,6 +17,7 @@ run="$(curl -sS -X POST https://execos.inneranimalmedia.com/run \
   -H "X-ExecOS-Key: ${EXECOS_KEY}" \
   -d "{\"command\":\"hostname && pwd\",\"target\":\"gcp\"}")"
 echo "$run" | jq .
+echo "$run" | jq -e '.ok == true' >/dev/null
 
 echo "== execos demo models (gate 1937) =="
 demo="$(curl -sS https://execos.inneranimalmedia.com/api/demo/models \

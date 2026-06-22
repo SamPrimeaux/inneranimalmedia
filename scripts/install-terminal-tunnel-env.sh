@@ -195,7 +195,9 @@ EOF
 chmod 600 "$PTY_DIR/.env" "$PTY_DIR/.env.cloudflare" 2>/dev/null || chmod 600 "$PTY_DIR/.env"
 if command -v pm2 >/dev/null 2>&1; then
   cd "$PTY_DIR"
-  pm2 restart execos --update-env 2>/dev/null || pm2 restart iam-pty --update-env 2>/dev/null || pm2 start ecosystem.config.cjs
+  # pm2 restart keeps stale EXECOS_KEY in process env — delete + start re-reads ecosystem.config.cjs
+  pm2 delete execos 2>/dev/null || pm2 delete iam-pty 2>/dev/null || true
+  pm2 start ecosystem.config.cjs --update-env
   pm2 save 2>/dev/null || true
 fi
 REMOTE
