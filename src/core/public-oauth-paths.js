@@ -113,7 +113,11 @@ export const PUBLIC_OAUTH_PATHS = [
  */
 export function isPublicOAuthPath(pathname) {
   const p = String(pathname || '/').replace(/\/$/, '') || '/';
-  return PUBLIC_OAUTH_PATHS.some((pub) => p === pub || p.startsWith(`${pub}/`));
+  const pl = p.toLowerCase();
+  return PUBLIC_OAUTH_PATHS.some((pub) => {
+    const pubL = pub.toLowerCase();
+    return pl === pubL || pl.startsWith(`${pubL}/`);
+  });
 }
 
 /** Synthetic request context for public/unauthenticated routes. */
