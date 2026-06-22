@@ -163,12 +163,6 @@
 			"new_sqlite_classes": [
 				"MyContainer"
 			]
-		},
-		{
-			"tag": "v9",
-			"new_sqlite_classes": [
-				"IamCadWorkerContainer"
-			]
 		}
 	],
 	"containers": [
@@ -177,12 +171,6 @@
 			"image": "registry.cloudflare.com/ede6590ac0d2fb7daf155b35653457b2/meauxcontainer-mycontainer:sandbox-v2",
 			"instance_type": "basic",
 			"max_instances": 10
-		},
-		{
-			"class_name": "IamCadWorkerContainer",
-			"image": "registry.cloudflare.com/ede6590ac0d2fb7daf155b35653457b2/meauxcontainer-cad-worker:cad-v1",
-			"instance_type": "standard-2",
-			"max_instances": 5
 		}
 	],
 	// Match wrangler.production.toml so CF Builds (`wrangler deploy -c wrangler.production.toml`) exposes DO stubs.
@@ -208,10 +196,6 @@
 			{
 				"name": "MY_CONTAINER",
 				"class_name": "MyContainer"
-			},
-			{
-				"name": "IAM_CAD_WORKER",
-				"class_name": "IamCadWorkerContainer"
 			}
 		]
 	},

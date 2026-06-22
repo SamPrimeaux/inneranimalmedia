@@ -142,19 +142,20 @@ image = "registry.cloudflare.com/ede6590ac0d2fb7daf155b35653457b2/meauxcontainer
 instance_type = "basic"
 max_instances = 10
 
-[[containers]]
-class_name = "IamCadWorkerContainer"
-image = "registry.cloudflare.com/ede6590ac0d2fb7daf155b35653457b2/meauxcontainer-cad-worker:cad-v1"
-instance_type = "standard-2"
-max_instances = 5
-
 [[durable_objects.bindings]]
 name = "MY_CONTAINER"
 class_name = "MyContainer"
 
-[[durable_objects.bindings]]
-name = "IAM_CAD_WORKER"
-class_name = "IamCadWorkerContainer"
+# IAM_CAD_WORKER — enable after: npm run container:cad-worker:build (Docker required)
+# [[containers]]
+# class_name = "IamCadWorkerContainer"
+# image = "registry.cloudflare.com/ede6590ac0d2fb7daf155b35653457b2/meauxcontainer-cad-worker:cad-v1"
+# instance_type = "standard-2"
+# max_instances = 5
+#
+# [[durable_objects.bindings]]
+# name = "IAM_CAD_WORKER"
+# class_name = "IamCadWorkerContainer"
 
 # Dashboard label: iam-vpc
 [[vpc_services]]
@@ -195,9 +196,10 @@ new_sqlite_classes = ["AgentBrowserLiveV1"]
 tag = "v8"
 new_sqlite_classes = ["MyContainer"]
 
-[[migrations]]
-tag = "v9"
-new_sqlite_classes = ["IamCadWorkerContainer"]
+# v9 IamCadWorkerContainer — apply when container image is in registry (container:cad-worker:build)
+# [[migrations]]
+# tag = "v9"
+# new_sqlite_classes = ["IamCadWorkerContainer"]
 
 [[queues.producers]]
 binding = "MY_QUEUE"
