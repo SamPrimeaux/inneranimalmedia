@@ -1,6 +1,5 @@
 import React, { useRef } from 'react';
-import { Loader2, Sparkles, Upload } from 'lucide-react';
-import type { MeshyPhase, MeshySettings } from './meshyTypes';
+import { Clapperboard, Loader2, Search, Sparkles, Upload } from 'lucide-react';
 import type { MeshyRailTool } from './meshyToolkitTypes';
 import { MESHY_RAIL_TOOLS } from './meshyToolkitTypes';
 import { StudioSegmentBar } from './StudioSegmentBar';
@@ -58,8 +57,11 @@ type Props = {
   className?: string;
 };
 
-function ImageTo3DPanel({ onImportImage }: { onImportImage?: (file: File) => void }) {
+// ── Image-to-3D panel ────────────────────────────────────────────────────────
+
+function ImageTo3DPanel({ cs }: { cs: MeshyCs }) {
   const ref = useRef<HTMLInputElement>(null);
+
   return (
     <div className="space-y-3">
       <p className="text-[11px] font-semibold text-[var(--text-main)]">Image to 3D</p>
@@ -70,27 +72,86 @@ function ImageTo3DPanel({ onImportImage }: { onImportImage?: (file: File) => voi
         className="hidden"
         onChange={(e) => {
           const f = e.target.files?.[0];
-          if (f && onImportImage) onImportImage(f);
+          if (f) cs.setImageFile(f);
           e.target.value = '';
         }}
       />
       <button
         type="button"
         onClick={() => ref.current?.click()}
-        className="w-full py-8 rounded-xl border border-dashed border-[var(--border-subtle)] text-center hover:border-[var(--solar-cyan)] transition-colors"
+        className="w-full rounded-xl border border-dashed border-[var(--border-subtle)] text-center hover:border-[var(--solar-cyan)] transition-colors overflow-hidden"
         style={{ background: 'var(--bg-hover)' }}
       >
-        <Upload size={22} className="mx-auto mb-2 text-[var(--text-muted)]" />
-        <p className="text-[12px] font-medium text-[var(--text-main)]">Click or drop image</p>
-        <p className="text-[10px] text-[var(--text-muted)] mt-1">PNG, JPG, WEBP — max 20 MB</p>
+        {cs.imageDataUrl ? (
+          <img
+            src={cs.imageDataUrl}
+            alt="Upload preview"
+            className="w-full max-h-40 object-contain"
+          />
+        ) : (
+          <div className="py-8">
+            <Upload size={22} className="mx-auto mb-2 text-[var(--text-muted)]" />
+            <p className="text-[12px] font-medium text-[var(--text-main)]">Click or drop image</p>
+            <p className="text-[10px] text-[var(--text-muted)] mt-1">PNG, JPG, WEBP — max 20 MB</p>
+          </div>
+        )}
       </button>
-      <MeshyUnavailablePanel
-        title="Pipeline"
-        body="Image-to-3D posts to /api/cad/meshy/image-to-3d when Worker Meshy key or BYOK is configured. Use Generate after upload."
-      />
+      {cs.imageFile && (
+        <p className="text-[10px] text-[var(--text-muted)] truncate px-1">{cs.imageFile.name}</p>
+      )}
     </div>
   );
 }
+
+// ── Animate panel ────────────────────────────────────────────────────────────
+
+const ANIM_CLIPS = [
+  'Walking', 'Running', 'Idle', 'Jump', 'Wave',
+  'Agree Gesture', 'Air Squat', 'Alert', 'Back Flip', 'Dance',
+] as const;
+
+function AnimatePanel({ cs }: { cs: MeshyCs }) {
+  return (
+    <div className="space-y-4">
+      <div>
+        <label className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-[0.14em] block mb-1.5">
+          Source model task ID
+        </label>
+        <input
+          type="text"
+          value={cs.rigTaskId}
+          onChange={(e) => cs.setRigTaskId(e.target.value)}
+          placeholder="Completed image-to-3D task ID"
+          className="w-full rounded-lg px-3 py-2 text-[11px] font-mono text-[var(--text-main)] border border-[var(--border-subtle)] bg-[var(--bg-hover)] outline-none focus:border-[var(--solar-cyan)] transition-colors"
+        />
+      </div>
+      <div>
+        <div className="flex items-center gap-2 mb-2">
+          <Search size={12} className="text-[var(--text-muted)]" />
+          <p className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-[0.14em]">
+            Animation library
+          </p>
+        </div>
+        <div className="grid grid-cols-2 gap-1.5">
+          {ANIM_CLIPS.map((clip) => (
+            <button
+              key={clip}
+              type="button"
+              className="flex items-center gap-1.5 px-2 py-2 rounded-lg border border-[var(--border-subtle)] text-[10px] font-medium text-[var(--text-muted)] hover:text-[var(--solar-cyan)] hover:border-[var(--solar-cyan)] transition-colors text-left"
+              style={{ background: 'var(--bg-hover)' }}
+              onClick={() => cs.setRigTaskId((prev) => prev)}
+            >
+              <Clapperboard size={11} className="shrink-0" />
+              {clip}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Main export ──────────────────────────────────────────────────────────────
 
 export function MeshyToolkitTweaks({
   studioSegment,
@@ -130,7 +191,9 @@ export function MeshyToolkitTweaks({
   className = '',
 }: Props) {
   const railMeta = MESHY_RAIL_TOOLS.find((t) => t.id === railTool);
-  const showMeshyCta = studioSegment === 'meshy' && (railTool === 'text-to-3d' || railTool === 'image-to-3d');
+  const showMeshyCta =
+    studioSegment === 'meshy' &&
+    (railTool === 'text-to-3d' || railTool === 'image-to-3d' || railTool === 'animate');
 
   const meshyBody =
     studioSegment === 'meshy' ? (
@@ -156,19 +219,31 @@ export function MeshyToolkitTweaks({
           embedded
         />
       ) : railTool === 'image-to-3d' ? (
-        <ImageTo3DPanel />
+        <ImageTo3DPanel cs={cs} />
       ) : railTool === 'animate' ? (
-        <MeshyUnavailablePanel
-          title="Animate"
-          body="Rigging and animation library routes to /api/cad/meshy/rigging. Paste a completed model task ID and pick a clip — wiring in progress."
-        />
+        <AnimatePanel cs={cs} />
       ) : (
         <MeshyUnavailablePanel
           title={railMeta?.label || 'Meshy'}
-          body="This Meshy surface is not yet wired to a public Worker route. Use Text to 3D or CAD OpenSCAD for production paths today."
+          body="This Meshy surface is not yet wired to a Worker route. Use Text to 3D, Image to 3D, or CAD OpenSCAD for live pipelines today."
         />
       )
     ) : null;
+
+  // CTA label / action per active tool
+  const ctaLabel = (() => {
+    if (railTool === 'image-to-3d') return 'Generate from Image';
+    if (railTool === 'animate') return 'Rig & Animate';
+    return cs.meshyPhase === 'preview' ? 'Create Preview' : 'Create Refine';
+  })();
+
+  const ctaAction = (() => {
+    if (railTool === 'image-to-3d') return () => { void cs.runImageTo3D(); };
+    if (railTool === 'animate') return () => { void cs.runRig(); };
+    return onCreate;
+  })();
+
+  const ctaDisabled = cs.isGenerating || (railTool === 'image-to-3d' && !cs.imageDataUrl);
 
   return (
     <aside
@@ -239,13 +314,15 @@ export function MeshyToolkitTweaks({
           className="shrink-0 px-3 py-3 border-t border-[var(--border-subtle)]"
           style={{ background: 'linear-gradient(0deg, var(--bg-panel) 70%, transparent)' }}
         >
-          <p className="text-[10px] text-center text-[var(--text-muted)] mb-2">
-            ~{cs.ctaCost} credits · opens terminal output
-          </p>
+          {railTool === 'text-to-3d' && (
+            <p className="text-[10px] text-center text-[var(--text-muted)] mb-2">
+              ~{cs.ctaCost} credits · opens terminal output
+            </p>
+          )}
           <button
             type="button"
-            disabled={cs.isGenerating}
-            onClick={onCreate}
+            disabled={ctaDisabled}
+            onClick={ctaAction}
             className="w-full py-3 rounded-full font-bold text-[13px] flex items-center justify-center gap-2 disabled:opacity-40"
             style={{
               background: 'linear-gradient(90deg, var(--solar-cyan), var(--solar-violet))',
@@ -253,7 +330,7 @@ export function MeshyToolkitTweaks({
             }}
           >
             {cs.isGenerating ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
-            {cs.meshyPhase === 'preview' ? 'Create Preview' : 'Create Refine'}
+            {ctaLabel}
           </button>
         </div>
       )}
