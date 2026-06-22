@@ -127,6 +127,7 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
   /** Codemode hybrid manifest (multitask / tool-chain planning) — non-fatal if build fails. */
   let codemodeRuntime = null;
   const rawBodyTaskType = body.task_type ?? body.taskType ?? null;
+  const routeKeyPin = body.route_key ?? body.routeKey ?? profile.refined_route_key ?? null;
   const useCodemode =
     !createSubagentFlow.active &&
     shouldUseCodemodeForRequest(env, {
@@ -134,6 +135,8 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
       profile.mode === 'agent' || profile.mode === 'debug' || profile.mode === 'multitask',
     resolvedRoutingTaskType: profile.routing_task_type,
     rawBodyTaskType: rawBodyTaskType != null ? String(rawBodyTaskType) : '',
+    routeKey: routeKeyPin != null ? String(routeKeyPin) : null,
+    routeKeyPin: routeKeyPin != null ? String(routeKeyPin) : null,
   });
   if (useCodemode) {
     try {
@@ -476,11 +479,20 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
               // re-resolve the same route_key/task_type/model_key for the real agent turn.
               roadblock_context_json: JSON.stringify({
                 source: 'quickstart_intake',
-                route_key: profile.refined_route_key || profile.mode,
-                task_type: profile.routing_task_type || null,
+                route_key:
+                  body.route_key ??
+                  body.routeKey ??
+                  profile.refined_route_key ??
+                  profile.mode,
+                task_type:
+                  body.task_type ??
+                  body.taskType ??
+                  profile.routing_task_type ??
+                  null,
+                quickstart_card: body.quickstart_card ?? body.quickstartCard ?? null,
                 model_key: profile.model_key || null,
                 subagent_slug: subagentProfileRow?.slug ?? null,
-                requested_mode: profile.mode,
+                requested_mode: 'agent',
               }),
             });
 

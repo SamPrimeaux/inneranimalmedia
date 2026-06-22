@@ -3970,6 +3970,7 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     const uid = String(authUser.id || '').trim();
     const { startPlanIntakeSubmitSseResponse } = await import('../core/plan-intake-stream.js');
     return startPlanIntakeSubmitSseResponse(env, ctx, {
+      request,
       batchId,
       selections: body.selections && typeof body.selections === 'object' ? body.selections : {},
       optionalDetails: body.optional_details ?? body.optionalDetails ?? '',

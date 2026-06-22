@@ -263,7 +263,10 @@ export async function emitPlanRoadblockQuestions(env, ctx, emit, opts) {
 async function resumeQuickstartIntakeTurn(env, ctx, { batch, input }) {
   const { resolveRuntimeProfile } = await import('./runtime-profile.js');
   const { loadProjectContextSystemBlock } = await import('./project-context-budget.js');
-  const { runSharedProfileToolLoop } = await import('./mode-controllers/agent-controller.js');
+  const { runSharedProfileToolLoop, executeAgentTurn } = await import(
+    './mode-controllers/agent-controller.js',
+  );
+  const { resolveSkillSpawnRouting } = await import('./agent-lane-router.js');
 
   const goal = buildEnrichedGoalFromIntakeBatch(batch);
 
@@ -280,14 +283,23 @@ async function resumeQuickstartIntakeTurn(env, ctx, { batch, input }) {
   const userId = input.userId != null ? String(input.userId) : String(batch.user_id || '');
   const sessionId = input.sessionId != null ? String(input.sessionId) : String(batch.session_id || '');
 
-  const requestedMode = String(resumeCtx.requested_mode || 'agent');
   const modelOverride =
     resumeCtx.model_key != null && String(resumeCtx.model_key).trim().toLowerCase() !== 'auto'
       ? String(resumeCtx.model_key).trim()
       : null;
 
+  const resumeBody = {
+    messages: [{ role: 'user', content: goal }],
+    route_key: resumeCtx.route_key ?? null,
+    task_type: resumeCtx.task_type ?? null,
+    quickstart_card: resumeCtx.quickstart_card ?? null,
+    ...(resumeCtx.quickstart_card === 'card-slides'
+      ? { skill_id: 'skill_brand_aligned_presentations' }
+      : {}),
+  };
+
   const profile = await resolveRuntimeProfile(env, {
-    mode: requestedMode,
+    mode: 'agent',
     message: goal,
     session: { userId, workspaceId, tenantId, conversationId: sessionId },
     overrides: {
@@ -302,8 +314,9 @@ async function resumeQuickstartIntakeTurn(env, ctx, { batch, input }) {
 
   const projectContextBlock = await loadProjectContextSystemBlock(env, workspaceId);
 
-  return runSharedProfileToolLoop(env, ctx, {
-    body: { messages: [{ role: 'user', content: goal }] },
+  const loopInput = {
+    request: input.request,
+    body: resumeBody,
     message: goal,
     profile,
     session: {
@@ -321,5 +334,15 @@ async function resumeQuickstartIntakeTurn(env, ctx, { batch, input }) {
     handoffResume: null,
     agentChatResolvedContext: null,
     projectContextBlock,
+  };
+
+  const skillRoute = await resolveSkillSpawnRouting(env, goal, resumeBody, {
+    sessionId,
+    workspaceId,
   });
+  if (skillRoute) {
+    return executeAgentTurn(env, ctx, { ...loopInput, skillRoute });
+  }
+
+  return runSharedProfileToolLoop(env, ctx, loopInput);
 }

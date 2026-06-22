@@ -108,6 +108,66 @@ export function applyFieldsLive(fields: ThemeTweakFields): void {
   }
 }
 
+const THEME_DRAFT_LS_PREFIX = 'inneranimalmedia_theme_draft:';
+
+/** Debounced live tweaks — survives hard refresh while editing (cleared on Save & apply). */
+export function cacheThemeDraftForWorkspace(
+  workspaceId: string | null | undefined,
+  fields: ThemeTweakFields,
+): void {
+  const ws = workspaceId?.trim();
+  if (!ws || typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(
+      `${THEME_DRAFT_LS_PREFIX}${ws}`,
+      JSON.stringify({ ...fields, updated_at: Date.now() }),
+    );
+  } catch {
+    /* ignore quota */
+  }
+}
+
+export function readThemeDraftForWorkspace(
+  workspaceId: string | null | undefined,
+): ThemeTweakFields | null {
+  const ws = workspaceId?.trim();
+  if (!ws || typeof localStorage === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(`${THEME_DRAFT_LS_PREFIX}${ws}`);
+    if (!raw?.trim()) return null;
+    const parsed = JSON.parse(raw) as ThemeTweakFields & { updated_at?: number };
+    if (!parsed || typeof parsed !== 'object') return null;
+    const { updated_at: _u, ...fields } = parsed;
+    return { ...DEFAULT_TWEAK_FIELDS, ...fields };
+  } catch {
+    return null;
+  }
+}
+
+export function clearThemeDraftForWorkspace(workspaceId: string | null | undefined): void {
+  const ws = workspaceId?.trim();
+  if (!ws || typeof localStorage === 'undefined') return;
+  try {
+    localStorage.removeItem(`${THEME_DRAFT_LS_PREFIX}${ws}`);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function activePayloadFromFields(
+  fields: ThemeTweakFields,
+  workspaceId: string,
+): import('../../src/applyCmsTheme').CmsActiveThemePayload {
+  return {
+    slug: fields.slug,
+    name: fields.name,
+    is_dark: fields.theme_family === 'dark',
+    workspace_id: workspaceId,
+    data: cssVarsFromFields(fields),
+    theme_channel: 'live',
+  };
+}
+
 export function updatePayloadFromFields(
   fields: ThemeTweakFields,
   opts: { theme_id?: string; create?: boolean } = {},

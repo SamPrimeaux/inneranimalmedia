@@ -26,6 +26,20 @@ import { messageHasBrowserUrlNavigation } from '../api/agent/classify-intent.js'
 
 const TERMINAL_TOOL_NAMES = ['terminal_run', 'terminal_execute', 'run_command', 'bash'];
 
+const AUGMENTATION_EXEMPT_ROUTES = new Set([
+  'design_intake',
+  'cad_generation',
+  'design_studio',
+  'cms_code_pass',
+  'mcp_panel',
+]);
+
+const EXEMPT_ROUTE_TOOL_ALLOWLIST_FALLBACK = {
+  design_intake: ['agentsam_d1_write', 'fs_read_file', 'fs_search_files', 'agentsam_memory_manager'],
+  cad_generation: ['agentsam_d1_write', 'fs_read_file', 'fs_search_files', 'agentsam_memory_manager', 'agentsam_r2_put'],
+  design_studio: ['agentsam_d1_write', 'fs_read_file', 'fs_search_files', 'agentsam_memory_manager', 'agentsam_r2_put'],
+};
+
 /**
  * @param {{ promptRouteMax?: number|null, routeReqMax?: number|null, modelCap?: number|null, requestLimit?: number|null }} p
  */
@@ -378,6 +392,20 @@ async function resolvePromptRouteForCompile(env, q) {
   const message = String(q.message || '');
   const taskType = String(q.taskType || '').trim().toLowerCase();
   let refinedRouteKey = null;
+  const routePin = q.routeKeyPin != null ? String(q.routeKeyPin).trim() : '';
+
+  // Quickstart cards and API route_key pins must win over mode-locked agent/multitask routes.
+  if (routePin) {
+    const exemptPin = AUGMENTATION_EXEMPT_ROUTES.has(routePin) || AUGMENTATION_EXEMPT_ROUTES.has(taskType);
+    if (exemptPin) {
+      const pinnedRow = env?.DB ? await loadPromptRouteRowByKey(env, q.tenantId, routePin) : null;
+      return { row: pinnedRow, refinedRouteKey: routePin };
+    }
+    const pinnedRow = env?.DB ? await loadPromptRouteRowByKey(env, q.tenantId, routePin) : null;
+    if (pinnedRow) {
+      return { row: pinnedRow, refinedRouteKey: String(pinnedRow.route_key || routePin) };
+    }
+  }
 
   if (executionModeLocksRouteKey(mode)) {
     if (taskType && taskType !== mode) {
@@ -577,7 +605,6 @@ export async function compileModeProfile(env, input) {
     : null;
 
   // Routes that own their own tool set — skip evidence augmentation entirely
-  const AUGMENTATION_EXEMPT_ROUTES = new Set(['design_intake', 'cad_generation', 'design_studio', 'cms_code_pass', 'mcp_panel']);
   // Hard tool_key allowlist for exempt routes — bypasses lane/category catalog selection entirely.
   // routeKeyRaw collapses to modeSlug ('agent') inside resolveAgentChatRouteToolRequirements,
   // so agentsam_prompt_routes.tool_keys for the real route_key is never consulted there — the
@@ -586,11 +613,6 @@ export async function compileModeProfile(env, input) {
   // not modeSlug) IS the correct row, so its tool_keys column is read live below as the
   // allowlistKeys source — edit that D1 row to change the allowlist, no deploy needed.
   // This fallback only fires if that row is missing/empty for an exempt route.
-  const EXEMPT_ROUTE_TOOL_ALLOWLIST_FALLBACK = {
-    design_intake: ['agentsam_d1_write', 'fs_read_file', 'agentsam_memory_manager'],
-    cad_generation: ['agentsam_d1_write', 'fs_read_file', 'agentsam_memory_manager', 'agentsam_r2_put'],
-    design_studio: ['agentsam_d1_write', 'fs_read_file', 'agentsam_memory_manager', 'agentsam_r2_put'],
-  };
 
   const effectiveRouteReq = (() => {
     let req = routeToolRequirements;

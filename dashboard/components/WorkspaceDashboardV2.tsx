@@ -509,6 +509,7 @@ export const WorkspaceDashboardV2: React.FC<WorkspaceDashboardProps> = ({
                             ?? `Quickstart: ${card.label}. Ask the user what they need before doing anything. Wait for answers before generating.`,
                           task_type: templateMap[card.slug]?.task_type ?? 'design_intake',
                           route_key: templateMap[card.slug]?.route_key ?? 'design_intake',
+                          quickstart_card: card.slug,
                           subagentSlug: templateMap[card.slug]?.subagentSlug,
                           subagentProfileId: templateMap[card.slug]?.subagentProfileId ?? null,
                         });

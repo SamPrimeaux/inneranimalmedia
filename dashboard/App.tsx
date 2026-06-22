@@ -70,6 +70,10 @@ import {
   type CmsActiveThemePayload,
 } from './src/applyCmsTheme';
 import {
+  activePayloadFromFields,
+  readThemeDraftForWorkspace,
+} from './components/themes/themeTweaksModel';
+import {
   hydrateIdeFromApi,
   persistIdeToApi,
   formatWorkspaceStatusLine,
@@ -1917,6 +1921,7 @@ const App: React.FC = () => {
         task_type: template.task_type,
         route_key: template.route_key,
         quickstart_batch: QUICKSTART_BATCH_LABEL,
+        quickstart_card: template.slug,
         apply_eto_after_run: true,
         workspace_id: QUICKSTART_WORKSPACE_ID,
         modelKey: 'auto',
@@ -3165,11 +3170,16 @@ const App: React.FC = () => {
   // Themes: D1 cms_theme_preferences + fallbacks via GET /api/themes/active (?workspace_id)
   useEffect(() => {
     migrateLegacyThemeLocalStorage();
-    if (authWorkspaceId?.trim()) {
-      applyCachedCmsThemeFallbackForWorkspace(authWorkspaceId);
+    const ws = authWorkspaceId?.trim() || '';
+    const draft = ws ? readThemeDraftForWorkspace(ws) : null;
+    if (draft && ws) {
+      applyCmsThemeToDocument(activePayloadFromFields(draft, ws));
+    } else if (ws) {
+      applyCachedCmsThemeFallbackForWorkspace(ws);
     } else {
       applyCachedCmsThemeFallback();
     }
+    if (draft) return;
     activeThemeBootstrapAbortRef.current?.abort();
     const ac = new AbortController();
     activeThemeBootstrapAbortRef.current = ac;

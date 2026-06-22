@@ -145,6 +145,7 @@ type ChatRoutingSendOpts = {
   task_type?: string;
   route_key?: string;
   quickstart_batch?: string;
+  quickstart_card?: string;
   apply_eto_after_run?: boolean;
   workspace_id?: string;
   force_plan_mode?: boolean;
@@ -165,6 +166,7 @@ function routingSendOptsFromDetail(detail?: QuickstartThreadDetail | null): Chat
   if (detail.task_type?.trim()) opts.task_type = detail.task_type.trim();
   if (detail.route_key?.trim()) opts.route_key = detail.route_key.trim();
   if (detail.quickstart_batch?.trim()) opts.quickstart_batch = detail.quickstart_batch.trim();
+  if (detail.quickstart_card?.trim()) opts.quickstart_card = detail.quickstart_card.trim();
   if (detail.apply_eto_after_run) opts.apply_eto_after_run = true;
   if (detail.workspace_id?.trim()) opts.workspace_id = detail.workspace_id.trim();
   if (detail.force_plan_mode) opts.force_plan_mode = true;
@@ -2316,6 +2318,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     if (effectiveSubagentSlug) form.append('subagent_slug', effectiveSubagentSlug);
     if (sendOpts?.quickstart_batch?.trim()) {
       form.append('quickstart_batch', sendOpts.quickstart_batch.trim());
+    }
+    if (sendOpts?.quickstart_card?.trim()) {
+      form.append('quickstart_card', sendOpts.quickstart_card.trim());
     }
     if (sendOpts?.apply_eto_after_run) {
       form.append('apply_eto_after_run', 'true');

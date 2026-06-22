@@ -12,6 +12,8 @@ export type QuickstartTemplate = {
   task_type: string;
   /** Pins agentsam_prompt_routes.route_key when present. */
   route_key: string;
+  /** Quickstart workspace card slug (e.g. card-slides) for post-intake routing. */
+  quickstart_card?: string;
   subagentSlug?: string;
   subagentProfileId?: string | null;
 };

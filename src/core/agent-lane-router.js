@@ -563,11 +563,16 @@ export async function resolveSkillSpawnRouting(env, message, body = {}, scope = 
         ? String(b.slashTrigger).trim()
         : '';
 
+  if (!skillId && (b.quickstart_card === 'card-slides' || b.quickstartCard === 'card-slides')) {
+    skillId = 'skill_brand_aligned_presentations';
+  }
+
   if (!skillId) {
     if (slashFromBody && SKILL_SLASH_MAP[slashFromBody]) skillId = SKILL_SLASH_MAP[slashFromBody];
     else if (GENMEDIA_SLASH_RE.test(msg)) skillId = 'skill_on_brand_genmedia';
     else if (LAUNCH_SLASH_RE.test(msg)) skillId = 'skill_marketing_agency';
     else if (DECK_SLASH_RE.test(msg)) skillId = 'skill_brand_aligned_presentations';
+    else if (/^quickstart:\s*slides\b/i.test(msg)) skillId = 'skill_brand_aligned_presentations';
     else if (BLOG_SLASH_RE.test(msg)) skillId = 'skill_blogger_agent';
     else if (RESEARCH_SLASH_RE.test(msg)) skillId = 'skill_deep_search';
     else if (VTO_SLASH_RE.test(msg)) skillId = 'skill_genmedia_commerce';

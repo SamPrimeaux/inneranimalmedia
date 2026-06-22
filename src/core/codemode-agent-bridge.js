@@ -5,17 +5,42 @@ import { CODEMODE_TOOL_NAME, shouldUseCodemodeForRequest, shouldUseCodemodeTooli
 
 export { CODEMODE_TOOL_NAME, shouldUseCodemodeForRequest, shouldUseCodemodeTooling };
 
+const CODEMODE_CODE_HINT =
+  'ES module sandbox only — no require(), import, or Node builtins. ' +
+  'Write an async arrow function and call catalog tools as await codemode.<tool_key>({...}). ' +
+  'Example: async () => { const r = await codemode.fs_search_files({ query: "agent-controller", mode: "grep" }); return r; }';
+
 const CODEMODE_INPUT_SCHEMA = {
   type: 'object',
   properties: {
     code: {
       type: 'string',
-      description:
-        'JavaScript async arrow function body. Example: async () => { const r = await codemode.d1_query({ sql: "SELECT 1" }); return r; }',
+      description: CODEMODE_CODE_HINT,
     },
   },
   required: ['code'],
 };
+
+/**
+ * @param {string} code
+ * @returns {string|null}
+ */
+export function validateCodemodeSource(code) {
+  const s = String(code || '');
+  if (/\brequire\s*\(/.test(s)) {
+    return (
+      'CommonJS require() is not available in the codemode sandbox. ' +
+      'Call IAM catalog tools via await codemode.<tool_key>({...}) instead (e.g. fs_search_files, fs_read_file).'
+    );
+  }
+  if (/\bmodule\.exports\b/.test(s) || /\bexports\.\w+/.test(s)) {
+    return 'CommonJS exports are not available in codemode. Return a value from async () => { ... }.';
+  }
+  if (/\bimport\s+[\w*{]/.test(s) || /\bimport\s*\(/.test(s)) {
+    return 'Dynamic/static import is not available in codemode. Use await codemode.<tool_key>({...}) for tools.';
+  }
+  return null;
+}
 
 /**
  * @param {import('ai').Tool} codemodeTool
@@ -57,6 +82,10 @@ export async function executeCodemodeAgentTool(codemodeTool, input) {
   const code = input?.code != null ? String(input.code) : '';
   if (!code.trim()) {
     return { error: 'codemode_code_required', ok: false };
+  }
+  const sourceErr = validateCodemodeSource(code);
+  if (sourceErr) {
+    return { ok: false, error: sourceErr };
   }
   if (!codemodeTool || typeof codemodeTool.execute !== 'function') {
     return { error: 'codemode_tool_unavailable', ok: false };

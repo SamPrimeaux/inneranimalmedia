@@ -4,9 +4,13 @@ import { ThemePreviewCanvas } from './ThemePreviewCanvas';
 import type { CatalogTheme } from './ThemePreviewCard';
 import {
   applyFieldsLive,
+  activePayloadFromFields,
+  cacheThemeDraftForWorkspace,
+  clearThemeDraftForWorkspace,
   DEFAULT_TWEAK_FIELDS,
   fetchCfImageLibrary,
   fieldsFromTheme,
+  readThemeDraftForWorkspace,
   type ThemeTweakFields,
   updatePayloadFromFields,
 } from './themeTweaksModel';
@@ -72,17 +76,25 @@ export function ThemeTweaksPanel({
   const [loadingImages, setLoadingImages] = useState(false);
 
   useEffect(() => {
-    setFields(
-      createMode
-        ? { ...DEFAULT_TWEAK_FIELDS, slug: `theme-${Date.now().toString(36).slice(-6)}` }
-        : fieldsFromTheme(theme),
-    );
+    if (createMode) {
+      setFields({ ...DEFAULT_TWEAK_FIELDS, slug: `theme-${Date.now().toString(36).slice(-6)}` });
+    } else if (workspaceId?.trim()) {
+      const draft = readThemeDraftForWorkspace(workspaceId);
+      setFields(draft ?? fieldsFromTheme(theme));
+    } else {
+      setFields(fieldsFromTheme(theme));
+    }
     setMsg(null);
-  }, [theme, createMode]);
+  }, [theme, createMode, workspaceId]);
 
   useEffect(() => {
     applyFieldsLive(fields);
-  }, [fields]);
+    if (!workspaceId?.trim()) return;
+    const timer = window.setTimeout(() => {
+      cacheThemeDraftForWorkspace(workspaceId, fields);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [fields, workspaceId]);
 
   const previewModel = useMemo(
     () => ({
@@ -136,7 +148,7 @@ export function ThemeTweaksPanel({
               workspace_id: workspaceId.trim(),
               theme_id: theme?.id,
               ...updatePayloadFromFields(fields, { theme_id: theme?.id }),
-              apply_to_workspace: applyAfter,
+              apply_to_workspace: true,
               preview_live: applyAfter,
             };
 
@@ -157,8 +169,11 @@ export function ThemeTweaksPanel({
         if (json?.active_theme) {
           applyCmsThemeToDocument(json.active_theme);
           window.dispatchEvent(new CustomEvent('iam:invalidate-active-theme-fetch'));
+        } else if (workspaceId?.trim()) {
+          applyCmsThemeToDocument(activePayloadFromFields(fields, workspaceId.trim()));
         }
-        setMsg(createMode ? 'Theme created.' : 'Saved.');
+        clearThemeDraftForWorkspace(workspaceId);
+        setMsg(createMode ? 'Theme created.' : applyAfter ? 'Saved and applied.' : 'Saved.');
         onSaved();
       } catch {
         setMsg('Save failed');
@@ -199,7 +214,7 @@ export function ThemeTweaksPanel({
           <h4 className="text-sm font-semibold text-[var(--text-main)]">
             {createMode ? 'New theme' : 'Theme tweaks'}
           </h4>
-          <p className="text-[11px] text-[var(--text-muted)]">Live preview on this dashboard session</p>
+          <p className="text-[11px] text-[var(--text-muted)]">Live preview — tweaks auto-save locally until you Save</p>
         </div>
         <button type="button" className="text-xs text-[var(--text-muted)] hover:text-[var(--text-main)]" onClick={onClose}>
           Close
@@ -314,17 +329,9 @@ export function ThemeTweaksPanel({
           type="button"
           disabled={busy}
           className="text-[11px] px-3 py-1.5 rounded-md bg-[var(--color-primary)] text-white font-medium disabled:opacity-50"
-          onClick={() => void save(false)}
-        >
-          {busy ? 'Saving…' : 'Save'}
-        </button>
-        <button
-          type="button"
-          disabled={busy}
-          className="text-[11px] px-3 py-1.5 rounded-md border border-[var(--dashboard-border)]"
           onClick={() => void save(true)}
         >
-          Save & apply
+          {busy ? 'Saving…' : 'Save'}
         </button>
         {!createMode && theme ? (
           <button

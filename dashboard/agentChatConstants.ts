@@ -15,6 +15,7 @@ export type QuickstartThreadDetail = {
   task_type?: string;
   route_key?: string;
   quickstart_batch?: string;
+  quickstart_card?: string;
   apply_eto_after_run?: boolean;
   workspace_id?: string;
   /** Force Auto routing (Thompson); do not pin a model. */
