@@ -10,6 +10,11 @@ export type DesignStudioChatContext = {
   runId: string | null;
   /** Remote PTY compute: ready | running | degraded | unavailable */
   computeStatus: 'ready' | 'running' | 'degraded' | 'unavailable' | 'unknown';
+  /** CAD Studio UI context for ChatAssistant orchestration */
+  workspaceMode?: string | null;
+  selectedObjectId?: string | null;
+  panelLayout?: string | null;
+  pendingOperator?: string | null;
 };
 
 type DesignStudioContextValue = DesignStudioChatContext & {
@@ -24,6 +29,10 @@ const defaultValue: DesignStudioContextValue = {
   sessionId: null,
   runId: null,
   computeStatus: 'unknown',
+  workspaceMode: null,
+  selectedObjectId: null,
+  panelLayout: null,
+  pendingOperator: null,
   setStudioContext: () => {},
 };
 
@@ -38,6 +47,10 @@ export function DesignStudioProvider({ children }: { children: React.ReactNode }
     sessionId: null,
     runId: null,
     computeStatus: 'unknown',
+    workspaceMode: null,
+    selectedObjectId: null,
+    panelLayout: null,
+    pendingOperator: null,
   });
 
   const setStudioContext = useCallback((patch: Partial<DesignStudioChatContext>) => {

@@ -8,6 +8,8 @@ import {
   meshyRigging,
   meshyCreateTask,
   generateOpenScad,
+  generateBlenderScript,
+  generateFreecadScript,
   meshyTextTo3dPreview,
   meshyTextTo3dRefine,
   patchBlueprint,
@@ -121,6 +123,54 @@ export function useDesignStudioCad(opts: UseDesignStudioCadOpts = {}) {
       }
     },
     [refreshBlueprints, opts],
+  );
+
+  const runBlenderScriptGenerate = useCallback(
+    async (promptOverride?: string) => {
+      const prompt = promptOverride?.trim() || '';
+      if (!prompt) {
+        setError('Enter a prompt for Blender script generation');
+        return null;
+      }
+      setBusy(true);
+      setError(null);
+      try {
+        const result = await generateBlenderScript({ prompt, ...scopeBody() });
+        setActiveJobId(result.job_id);
+        await refreshJobs();
+        return result;
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+        throw e;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [scopeBody, refreshJobs],
+  );
+
+  const runFreecadScriptGenerate = useCallback(
+    async (promptOverride?: string) => {
+      const prompt = promptOverride?.trim() || '';
+      if (!prompt) {
+        setError('Enter a prompt for FreeCAD script generation');
+        return null;
+      }
+      setBusy(true);
+      setError(null);
+      try {
+        const result = await generateFreecadScript({ prompt, ...scopeBody() });
+        setActiveJobId(result.job_id);
+        await refreshJobs();
+        return result;
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+        throw e;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [scopeBody, refreshJobs],
   );
 
   const runOpenScadGenerate = useCallback(
@@ -410,6 +460,8 @@ export function useDesignStudioCad(opts: UseDesignStudioCadOpts = {}) {
     refreshJobs,
     createNewBlueprint,
     runOpenScadGenerate,
+    runBlenderScriptGenerate,
+    runFreecadScriptGenerate,
     runExecuteJob,
     saveBlueprintScript,
     runMeshyGenerate,

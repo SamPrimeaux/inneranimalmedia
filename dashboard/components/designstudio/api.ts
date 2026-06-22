@@ -219,3 +219,33 @@ export async function meshyTextTo3dRefine(body: {
     body: JSON.stringify(body),
   });
 }
+
+export async function generateBlenderScript(body: {
+  prompt: string;
+  session_id?: string;
+  scene_snapshot_id?: string;
+  blueprint_id?: string;
+  scene_json?: unknown;
+  model_key?: string;
+}): Promise<{ job_id: string; status: string; script?: string }> {
+  return jsonFetch('/api/cad/blender/script', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function generateFreecadScript(body: {
+  prompt: string;
+  session_id?: string;
+  scene_snapshot_id?: string;
+  blueprint_id?: string;
+  input_url?: string;
+  model_key?: string;
+}): Promise<{ job_id: string; status: string; script?: string }> {
+  return jsonFetch('/api/cad/freecad/script', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}

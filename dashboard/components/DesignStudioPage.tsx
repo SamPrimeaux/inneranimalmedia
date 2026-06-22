@@ -4,8 +4,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { normalizeGlbUrl } from '../lib/glbAssets';
-import { UIOverlay } from './UIOverlay';
-import { DesignStudioCreationStation } from './designstudio/creation-station/DesignStudioCreationStation';
+import { CadStudioShell } from './designstudio/cad-studio/CadStudioShell';
 import { useDesignStudioCad } from './designstudio/hooks/useDesignStudioCad';
 import { spawnGlbInEngine } from './designstudio/spawnGlb';
 import { useDesignStudioContext } from './designstudio/DesignStudioContext';
@@ -82,6 +81,9 @@ export const DesignStudioPage: React.FC = () => {
   const [currentSceneId, setCurrentSceneId] = useState<string | null>(null);
   const [linkedCadJobId, setLinkedCadJobId] = useState<string | null>(null);
   const [linkedGlbR2Key, setLinkedGlbR2Key] = useState<string | null>(null);
+
+  const [entities, setEntities] = useState<GameEntity[]>([]);
+  const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
 
   const [genConfig, setGenConfig] = useState<GenerationConfig>({
     style: ArtStyle.CYBERPUNK,
@@ -537,6 +539,51 @@ export const DesignStudioPage: React.FC = () => {
 
   const activeJobForBar = cad.polledJob || cad.activeJob;
 
+  useEffect(() => {
+    if (!engineReady || !isAgentSamEngine(engineRef.current)) return;
+    const sync = () => {
+      const list = engineRef.current?.exportEntities() ?? [];
+      setEntities(list);
+      if (selectedEntityId && !list.some((e) => e.id === selectedEntityId)) {
+        setSelectedEntityId(list[0]?.id ?? null);
+      }
+    };
+    sync();
+    const id = window.setInterval(sync, 500);
+    return () => window.clearInterval(id);
+  }, [engineReady, selectedEntityId]);
+
+  const handleAddCube = useCallback(() => {
+    if (!isAgentSamEngine(engineRef.current)) return;
+    const voxels: GameEntity['voxels'] = [];
+    for (let x = -1; x <= 1; x++) {
+      for (let y = 0; y <= 2; y++) {
+        for (let z = -1; z <= 1; z++) {
+          voxels.push({ x, y, z, color: 0xaeb5bd });
+        }
+      }
+    }
+    const id = `cube_${Date.now()}`;
+    void engineRef.current
+      .spawnEntity({
+        id,
+        name: `Cube.${String(entities.length + 1).padStart(3, '0')}`,
+        type: 'prop',
+        voxels,
+        scale: 1,
+        position: { x: 0, y: 1.5, z: 0 },
+        behavior: { type: 'static' },
+      })
+      .then(() => setSelectedEntityId(id))
+      .catch((err) => console.warn('[DesignStudio] add cube failed', err));
+  }, [entities.length]);
+
+  const handleDeleteSelected = useCallback(() => {
+    if (!selectedEntityId || !isAgentSamEngine(engineRef.current)) return;
+    engineRef.current.removeEntity(selectedEntityId);
+    setSelectedEntityId(null);
+  }, [selectedEntityId]);
+
   const handleDownloadLatestGlb = useCallback(() => {
     const url = activeJobForBar?.public_url;
     if (!url) return;
@@ -547,67 +594,90 @@ export const DesignStudioPage: React.FC = () => {
     a.click();
   }, [activeJobForBar]);
 
+  const handleExportSceneJson = useCallback(() => {
+    if (isAgentSamEngine(engineRef.current)) {
+      engineRef.current.exportForBlender();
+    }
+  }, []);
+
+  const handleFrameAll = useCallback(() => {
+    if (isAgentSamEngine(engineRef.current)) {
+      engineRef.current.frameCameraOnObject();
+    }
+  }, []);
+
+  const handleEntityRename = useCallback(
+    async (id: string, name: string) => {
+      if (!isAgentSamEngine(engineRef.current)) return;
+      const list = engineRef.current.exportEntities();
+      const ent = list.find((e) => e.id === id);
+      if (!ent) return;
+      await engineRef.current.spawnEntity({ ...ent, name });
+    },
+    [],
+  );
+
+  const handleEntityTransform = useCallback(
+    async (id: string, patch: Partial<GameEntity>) => {
+      if (!isAgentSamEngine(engineRef.current)) return;
+      const list = engineRef.current.exportEntities();
+      const ent = list.find((e) => e.id === id);
+      if (!ent) return;
+      await engineRef.current.spawnEntity({ ...ent, ...patch });
+    },
+    [],
+  );
+
   return (
     <div
       ref={pageRootRef}
       className="relative flex h-full min-h-0 overflow-hidden"
-      style={{ background: 'var(--bg-app)' }}
+      style={{ background: '#111214' }}
       onDrop={handleFileDrop}
       onDragOver={(e) => e.preventDefault()}
     >
-      <DesignStudioCreationStation
+      <CadStudioShell
         engineContainerRef={containerRef}
         onEngineContainerMount={() => setEngineHostReady(true)}
         cad={cad}
+        entities={entities}
+        entityCount={entityCount}
+        selectedId={selectedEntityId}
+        onSelectEntity={setSelectedEntityId}
+        onClear={onClear}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        canUndo={undoStack.length > 0}
+        canRedo={redoStack.length > 0}
+        onAddCube={handleAddCube}
+        onDeleteSelected={handleDeleteSelected}
+        onDeployJob={(job) => void deployJobToScene(job)}
+        onDownloadLatestGlb={handleDownloadLatestGlb}
+        sceneName={sceneName}
+        onSceneNameChange={setSceneName}
+        onSaveScene={() => void handleSaveScene()}
+        onLoadScene={(id) => void handleLoadScene(id)}
+        savedScenes={savedScenes}
+        sceneBusy={sceneBusy}
+        computeHealth={computeHealth}
+        currentSceneId={currentSceneId}
+        customAssets={customAssets}
         genConfig={genConfig}
         onUpdateGenConfig={handleUpdateGenConfig}
         sceneConfig={sceneConfig}
-        onUpdateSceneConfig={(c) => setSceneConfig((p) => ({ ...p, ...c }))}
-        onDeployJob={(job) => void deployJobToScene(job)}
-        onExportSceneJson={() => {
-          if (isAgentSamEngine(engineRef.current)) {
-            engineRef.current.exportForBlender();
-          }
-        }}
-        cadJobId={linkedCadJobId || cad.activeJobId}
-        glbR2Key={linkedGlbR2Key}
-        viewport={
-            <UIOverlay
-              entityCount={entityCount}
-              appState={appState}
-              activeProject={ACTIVE_PROJECT}
-                isGenerating={cad.isGenerating}
-                onTogglePlay={() => {}}
-                onClear={onClear}
-                genConfig={genConfig}
-                onUpdateGenConfig={handleUpdateGenConfig}
-                onUndo={handleUndo}
-                onRedo={handleRedo}
-                canUndo={undoStack.length > 0}
-                canRedo={redoStack.length > 0}
-                variant="studio"
-              />
-            }
-            customAssets={customAssets}
-            onSpawnModel={handleSpawnModel}
-            onSpawnProcedural={handleSpawnProcedural}
-            onAddCustomAsset={handleAddCustomAsset}
-            onRemoveCustomAsset={handleRemoveCustomAsset}
-            onRefreshUserAssets={refreshUserAssets}
-            onImportGlb={handleImportGlbFile}
-            onBlenderExport={() => {
-              if (isAgentSamEngine(engineRef.current)) {
-                engineRef.current.exportForBlender();
-              }
-            }}
-            sceneName={sceneName}
-            onSceneNameChange={setSceneName}
-            savedScenes={savedScenes}
-            sceneBusy={sceneBusy}
-            onSaveScene={() => void handleSaveScene()}
-            onLoadScene={(id) => void handleLoadScene(id)}
-            onDownloadLatestGlb={handleDownloadLatestGlb}
-            activeJob={activeJobForBar}
+        onUpdateSceneConfig={(c) => setSceneConfig((prev) => ({ ...prev, ...c }))}
+        onSpawnModel={handleSpawnModel}
+        onSpawnProcedural={handleSpawnProcedural}
+        onAddCustomAsset={handleAddCustomAsset}
+        onRemoveCustomAsset={handleRemoveCustomAsset}
+        onRefreshUserAssets={refreshUserAssets}
+        onImportGlb={handleImportGlbFile}
+        onExportSceneJson={handleExportSceneJson}
+        onEntityRename={(id, name) => void handleEntityRename(id, name)}
+        onEntityTransform={(id, patch) => void handleEntityTransform(id, patch)}
+        onFrameAll={handleFrameAll}
+        linkedCadJobId={linkedCadJobId}
+        linkedGlbR2Key={linkedGlbR2Key}
       />
     </div>
   );
