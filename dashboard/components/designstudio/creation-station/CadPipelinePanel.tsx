@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Download, Layers } from 'lucide-react';
-import { ArtStyle, CADPlane, CADTool, type CustomAsset, type GenerationConfig } from '../../types';
+import { ArtStyle, CADPlane, CADTool, type CustomAsset, type GenerationConfig } from '../../../types';
 import { BlueprintPanel } from '../BlueprintPanel';
 import { CadGeneratePanel } from '../CadGeneratePanel';
 import { CadJobPanel } from '../CadJobPanel';
