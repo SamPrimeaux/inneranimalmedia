@@ -78,6 +78,13 @@ function cmsPageKey(workspaceId, projectId, slug, variant) {
   return `cms/${workspaceId}/${projectId}/${slug}/${variant}.html`;
 }
 
+function cmsMarketingSlugSuffix(len = 6) {
+  const alphabet = '0123456789abcdefghijklmnopqrstuvwxyz';
+  const bytes = new Uint8Array(len);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join('');
+}
+
 function cmsSnapshotKey(workspaceId, projectId, slug, ts) {
   return `cms/${workspaceId}/${projectId}/${slug}/snapshots/${ts}.html`;
 }
@@ -1871,7 +1878,7 @@ export async function handleCmsApi(request, url, env, ctx) {
     const category = url.searchParams.get('category') || null;
     try {
       let q = `SELECT id, template_name, template_type, category, preview_image_url,
-                      template_data, is_system, r2_key, source_liquid_file
+                      template_data, is_system, slug, r2_key, source_html_r2_key, source_liquid_file
                FROM cms_component_templates`;
       const binds = [];
       if (category) {
@@ -1881,6 +1888,221 @@ export async function handleCmsApi(request, url, env, ctx) {
       q += ` ORDER BY category, template_name`;
       const { results } = await env.DB.prepare(q).bind(...binds).all();
       return jsonResponse({ templates: results || [] });
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
+  if (path === '/api/cms/templates' && method === 'POST') {
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: 'invalid JSON' }, 400);
+    }
+    const templateName = String(body.template_name || '').trim();
+    const templateType = String(body.template_type || 'section').trim();
+    const category = String(body.category || 'General').trim();
+    if (!templateName) return jsonResponse({ error: 'template_name required' }, 400);
+
+    const templateData = body.template_data ?? body.templateData ?? {};
+    const payload =
+      typeof templateData === 'string' ? templateData : JSON.stringify(templateData || {});
+    const templateId =
+      String(body.id || '').trim() ||
+      `tpl_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+    const slug = body.slug != null ? String(body.slug).trim() || null : null;
+    const sourceHtmlR2Key =
+      body.source_html_r2_key != null ? String(body.source_html_r2_key).trim() || null : null;
+    const r2Key = body.r2_key != null ? String(body.r2_key).trim() || null : null;
+    const previewImageUrl =
+      body.preview_image_url != null ? String(body.preview_image_url).trim() || null : null;
+    const sourceLiquidFile =
+      body.source_liquid_file != null ? String(body.source_liquid_file).trim() || null : null;
+    const isSystem = body.is_system === true || body.is_system === 1 ? 1 : 0;
+
+    try {
+      await env.DB.prepare(
+        `INSERT INTO cms_component_templates
+         (id, template_name, template_type, category, is_system, slug, r2_key, source_html_r2_key,
+          template_data, preview_image_url, source_liquid_file)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           template_name = excluded.template_name,
+           template_type = excluded.template_type,
+           category = excluded.category,
+           is_system = excluded.is_system,
+           slug = excluded.slug,
+           r2_key = excluded.r2_key,
+           source_html_r2_key = excluded.source_html_r2_key,
+           template_data = excluded.template_data,
+           preview_image_url = excluded.preview_image_url,
+           source_liquid_file = excluded.source_liquid_file,
+           updated_at = datetime('now')`,
+      )
+        .bind(
+          templateId,
+          templateName,
+          templateType,
+          category,
+          isSystem,
+          slug,
+          r2Key,
+          sourceHtmlR2Key,
+          payload,
+          previewImageUrl,
+          sourceLiquidFile,
+        )
+        .run();
+      return jsonResponse({ success: true, id: templateId, slug });
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
+  const templateInstantiateMatch = path.match(/^\/api\/cms\/templates\/([^/]+)\/instantiate$/);
+  if (templateInstantiateMatch && method === 'POST') {
+    const templateId = templateInstantiateMatch[1];
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {
+      body = {};
+    }
+
+    let projectSlug = String(
+      body.project_slug || body.project_id || url.searchParams.get('project_slug') || '',
+    ).trim();
+    if (!projectSlug) {
+      const resolved = await resolveCmsBootstrapProjectSlug(
+        env,
+        request,
+        authUser,
+        workspaceId,
+        null,
+        requestCache,
+      );
+      if (resolved.error) {
+        return jsonResponse({ error: resolved.error, message: resolved.message }, 400);
+      }
+      projectSlug = resolved.project_slug;
+    }
+    if (!cmsScope.allowedSlugs.has(projectSlug)) {
+      return jsonResponse({ error: 'CMS_SITE_NOT_ALLOWED', project_slug: projectSlug }, 403);
+    }
+
+    try {
+      const template = await env.DB.prepare(
+        `SELECT id, template_name, template_type, slug, source_html_r2_key, template_data
+         FROM cms_component_templates WHERE id = ? LIMIT 1`,
+      )
+        .bind(templateId)
+        .first();
+      if (!template) return jsonResponse({ error: 'Template not found' }, 404);
+      if (!template.source_html_r2_key) {
+        return jsonResponse({ error: 'Template has no source_html_r2_key' }, 422);
+      }
+
+      let meta = {};
+      try {
+        meta =
+          typeof template.template_data === 'string'
+            ? JSON.parse(template.template_data)
+            : template.template_data || {};
+      } catch {
+        meta = {};
+      }
+
+      const suffix = cmsMarketingSlugSuffix(6);
+      const base = String(template.slug || template.template_name || 'page')
+        .toLowerCase()
+        .replace(/^marketing-/, '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '');
+      const pageSlug = `marketing-${base || 'page'}-${suffix}`;
+      const routePath = `/marketing/${pageSlug}`;
+      const title = String(meta.title || template.template_name || pageSlug).trim();
+
+      const r2Bucket = CMS_DEFAULT_R2_BUCKET;
+      const draftKey = cmsPageKey(workspaceId, projectSlug, pageSlug, 'draft');
+      const r2Binding = getCmsR2Binding(env, r2Bucket);
+      if (!r2Binding) return jsonResponse({ error: 'R2 storage unavailable' }, 503);
+
+      const srcObj = await r2Binding.get(String(template.source_html_r2_key));
+      if (!srcObj) {
+        return jsonResponse(
+          { error: 'Template source HTML not found in R2', source_html_r2_key: template.source_html_r2_key },
+          404,
+        );
+      }
+      const contentBuffer = await srcObj.arrayBuffer();
+      await r2Binding.put(draftKey, contentBuffer, {
+        httpMetadata: { contentType: 'text/html; charset=utf-8' },
+      });
+
+      const pageId = crypto.randomUUID();
+      const now = Math.floor(Date.now() / 1000);
+      await env.DB.prepare(
+        `INSERT INTO cms_pages (
+          id, project_id, project_slug, slug, title, status, route_path, path, page_type,
+          tenant_id, workspace_id, person_uuid, created_by, updated_by,
+          r2_key, r2_bucket, content_type, content_size_bytes,
+          created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+        .bind(
+          pageId,
+          projectSlug,
+          projectSlug,
+          pageSlug,
+          title,
+          'draft',
+          routePath,
+          routePath,
+          'landing',
+          tenantId,
+          workspaceId,
+          personUuid,
+          authUser.id,
+          authUser.id,
+          draftKey,
+          r2Bucket,
+          'text/html',
+          contentBuffer.byteLength,
+          now,
+          now,
+        )
+        .run();
+
+      await env.DB.prepare(
+        `UPDATE cms_pages SET metadata_json = ? WHERE id = ?`,
+      )
+        .bind(
+          JSON.stringify({
+            marketing_page: true,
+            template_id: templateId,
+            template_type: template.template_type || 'marketing_page',
+          }),
+          pageId,
+        )
+        .run();
+
+      ctx.waitUntil(
+        logCmsActivity(env, {
+          tenantId,
+          userId: authUser.id,
+          action: 'template_instantiate',
+          resourceType: 'page',
+          resourceId: pageId,
+          details: { template_id: templateId, route_path: routePath },
+        }),
+      );
+      invalidateCmsBootstrap(env, ctx, workspaceId, projectSlug);
+
+      return jsonResponse({
+        page: { id: pageId, slug: pageSlug, route_path: routePath },
+        r2_draft_key: draftKey,
+      });
     } catch (e) {
       return jsonResponse({ error: e.message }, 500);
     }

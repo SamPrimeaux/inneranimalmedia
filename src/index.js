@@ -391,6 +391,36 @@ export default {
       if (!assetHtmlKey && /^\/games\/room_[a-z0-9]+$/i.test(pathLower)) {
         assetHtmlKey = 'pages/games/room.html';
       }
+      // CMS marketing pages: /marketing/{slug} → published R2 HTML (fullscreen, no shell inject)
+      if (!assetHtmlKey && pathLower.startsWith('/marketing/') && env.DB && env.ASSETS) {
+        const marketingSlug = pathLower.slice('/marketing/'.length).replace(/\/$/, '');
+        if (marketingSlug && !marketingSlug.includes('..')) {
+          const routePath = `/marketing/${marketingSlug}`;
+          const cmsPage = await env.DB.prepare(
+            `SELECT r2_key, r2_bucket, content_type, page_type, status
+             FROM cms_pages
+             WHERE route_path = ? AND status = 'published' AND COALESCE(is_active, 1) = 1
+             LIMIT 1`,
+          )
+            .bind(routePath)
+            .first()
+            .catch(() => null);
+          if (cmsPage?.r2_key) {
+            const publishedKey = String(cmsPage.r2_key).trim();
+            const obj = await env.ASSETS.get(publishedKey);
+            if (obj) {
+              const fromMeta = obj.httpMetadata?.contentType;
+              const contentType =
+                fromMeta && !fromMeta.startsWith('text/plain')
+                  ? fromMeta
+                  : cmsPage.content_type || 'text/html; charset=utf-8';
+              return new Response(obj.body, {
+                headers: { 'Content-Type': contentType, 'Cache-Control': 'public, max-age=300' },
+              });
+            }
+          }
+        }
+      }
       if (assetHtmlKey) {
         let obj = null;
         if (env.ASSETS) obj = await env.ASSETS.get(assetHtmlKey);

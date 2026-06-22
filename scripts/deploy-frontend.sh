@@ -242,6 +242,9 @@ else
   echo "→ SKIP_D1_MIGRATIONS=1 — skipping D1 migration apply"
 fi
 
+echo "→ Uploading marketing CMS template shells to R2..."
+bash "$REPO_ROOT/scripts/upload-marketing-templates.sh"
+
 echo "→ Deploying worker..."
 DEPLOY_STARTED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 DEPLOY_START_EPOCH=$(date +%s)

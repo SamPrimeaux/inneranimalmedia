@@ -63,6 +63,7 @@ export const PUBLIC_OAUTH_PATHS = [
   '/terms',
   '/privacy',
   '/games',
+  '/marketing',
   '/learn',
   '/start',
   '/auth/reset',
@@ -87,6 +88,7 @@ export const PUBLIC_OAUTH_PATHS = [
   // Public marketing 3D assets (contact hero, work globe scene, etc.)
   '/assets/glb',
   '/assets/scenes',
+  '/assets/marketing',
 
   // MeauxChess public room client (ES module + Three.js chunks; no session required)
   '/static/dashboard/app/games-room.js',

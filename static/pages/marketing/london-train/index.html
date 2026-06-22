@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0"
+    />
+    <title>London Dream Railway</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/assets/marketing/london-train/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <canvas class="scene-canvas" aria-label="Dream toy railway London scene"></canvas>
+
+      <section class="hud-panel">
+        <button
+          id="hud-toggle"
+          class="hud-toggle"
+          type="button"
+          aria-expanded="true"
+          aria-controls="railway-controls"
+        >
+          Controls
+        </button>
+        <div id="railway-controls" class="control-card control-card--primary">
+          <div class="heading-row">
+            <h1>London Dream Railway</h1>
+            <div class="status-strip">
+              <div class="status-pill route-pill">
+                <span class="status-label">Show</span>
+                <strong id="route-readout">Spring</strong>
+              </div>
+            </div>
+          </div>
+
+          <div class="control-group">
+            <h2>Show</h2>
+            <div class="mode-grid" aria-label="Scene show modes">
+              <button class="mode-button is-active" data-scene-mode="spring" type="button">Spring</button>
+              <button class="mode-button" data-scene-mode="summer" type="button">Summer</button>
+              <button class="mode-button" data-scene-mode="autumn" type="button">Autumn</button>
+              <button class="mode-button" data-scene-mode="winter" type="button">Winter</button>
+              <button class="mode-button" data-scene-mode="golden" type="button">Golden hour</button>
+              <button class="mode-button" data-scene-mode="night" type="button">Night run</button>
+              <button id="auto-show" class="mode-button mode-button--wide accent-yellow" type="button">Auto tour</button>
+            </div>
+          </div>
+
+          <div class="control-group">
+            <h2>Speed</h2>
+            <label class="slider-row" for="train-speed">
+              <span>Speed</span>
+              <strong id="train-speed-value">1.00x</strong>
+            </label>
+            <input id="train-speed" type="range" min="0.55" max="1.85" step="0.01" value="1" />
+          </div>
+
+          <div class="control-group">
+            <h2>Camera</h2>
+            <div class="button-grid">
+              <button data-preset="westminster" type="button">Big Ben</button>
+              <button data-preset="londonEye" type="button">Eye</button>
+              <button data-preset="shardView" type="button">Shard</button>
+              <button data-preset="towerBridge" type="button">Tower</button>
+            </div>
+            <div class="button-grid button-grid--actions">
+              <button id="follow-train" class="accent-red" type="button">Follow</button>
+              <button id="pov-train" class="accent-blue" type="button">Train POV</button>
+              <button id="reset-overview" class="accent-yellow button-wide" type="button">Overview</button>
+            </div>
+            <div id="pov-controls" class="pov-controls" aria-label="Train POV controls">
+              <button id="pov-brake" type="button">Slower</button>
+              <button id="pov-throttle" type="button">Faster</button>
+              <button id="pov-horn" type="button">Horn</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module" src="/assets/marketing/london-train/main.js"></script>
+  </body>
+</html>

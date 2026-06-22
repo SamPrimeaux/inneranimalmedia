@@ -315,21 +315,173 @@ function PagesList({ projectSlug, onNavigatePath, workspaceLabel }) {
   return <div className="pt-page"><div className="pt-page-inner"><PrimeTechHeader kicker={CMS_KICKER} title="Pages" copy={`${workspaceLabel || projectSlug || 'This site'} pages are backed by cms_pages, cms_page_sections, R2 drafts, and the publish workflow.`} actions={<><button className="pt-btn" onClick={() => onNavigatePath(buildPath('templates', projectSlug))}>Templates</button><button className="pt-btn primary" disabled={creating} onClick={createPage}>{creating ? 'Creating...' : 'Add page'}</button></>} />{error && <ErrorBox error={error} onRetry={reload} />}<CmsMetrics pages={pages} themes={data?.themes || []} assets={data?.assets_3d || data?.assets || []} imports={data?.imports || []} /><div className="pt-toolbar"><input className="pt-input" placeholder="Search pages, slugs, routes..." value={query} onChange={(e) => setQuery(e.target.value)} /><select className="pt-select"><option>All statuses</option><option>Published</option><option>Draft</option></select><button className="pt-btn" onClick={reload}>Refresh</button></div><section className="pt-card pt-table-wrap"><table className="pt-table"><thead><tr><th>Title</th><th>Visibility</th><th>Route</th><th>Content</th><th>Updated</th></tr></thead><tbody>{filtered.map((p) => <tr key={p.id} onClick={() => onNavigatePath(buildPath('pages', projectSlug, p.id))}><td><strong>{p.title || p.slug}</strong>{p.is_homepage ? <div className="pt-row-meta">Homepage</div> : null}</td><td><span className={`pt-badge ${String(p.status).toLowerCase() === 'published' ? '' : 'neutral'}`}>{statusLabel(p.status)}</span></td><td>{p.route_path || `/${p.slug || ''}`}</td><td className="pt-row-sub">{p.meta_description || p.seo_title || 'Open page to edit content and sections.'}</td><td>{formatDate(p.updated_at)}</td></tr>)}</tbody></table>{!filtered.length && <div style={{ padding: 24, color: 'var(--muted)', textAlign: 'center' }}>No pages match this search.</div>}</section></div></div>;
 }
 
+const MARKETING_TEMPLATES = [
+  {
+    id: 'tpl_london_train_ref',
+    template_name: 'London Dream Railway',
+    template_type: 'marketing_page',
+    category: 'Marketing',
+    is_system: 1,
+    slug: 'marketing-london-dream-railway',
+    source_html_r2_key: 'static/pages/marketing/london-train/index.html',
+    template_data: JSON.stringify({
+      title: 'London Dream Railway',
+      description: 'Immersive Three.js animated railway marketing page.',
+      stack: ['Three.js', 'Procedural animation', 'GLSL shaders'],
+      source_branch: 'marketing/london-train-ref',
+      source_url: 'https://petergpt.github.io/london-train/',
+    }),
+  },
+  {
+    id: 'tpl_bridge_fly_ref',
+    template_name: 'Golden Gate Fly Scene',
+    template_type: 'marketing_page',
+    category: 'Marketing',
+    is_system: 1,
+    slug: 'marketing-golden-gate-fly',
+    source_html_r2_key: 'static/pages/marketing/bridge-fly/index.html',
+    template_data: JSON.stringify({
+      title: 'Golden Gate Fly Scene',
+      description: 'Autopilot + manual WASD flight over a procedural bay scene with GLSL water shader.',
+      stack: ['Three.js', 'GLSL water', 'Pointer Lock API'],
+      source_branch: 'marketing/bridge-fly-ref',
+      source_url: 'https://openai-miniapps-examples.vercel.app/bridge-5p5/',
+    }),
+  },
+];
+
 function TemplatesView({ projectSlug, addToPageId, onNavigatePath }) {
   const [templates, setTemplates] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState('');
-  const load = useCallback(() => { setError(''); api('/api/cms/templates').then((d) => setTemplates(d.templates || [])).catch((e) => setError(e.message)); }, []);
+
+  const seedMarketingTemplates = useCallback(async (existing) => {
+    const slugs = new Set((existing || []).map((t) => t.slug).filter(Boolean));
+    for (const tpl of MARKETING_TEMPLATES) {
+      if (!slugs.has(tpl.slug)) {
+        await api('/api/cms/templates', { method: 'POST', body: tpl });
+      }
+    }
+  }, []);
+
+  const load = useCallback(async () => {
+    setError('');
+    try {
+      const initial = await api('/api/cms/templates');
+      await seedMarketingTemplates(initial.templates || []);
+      const refreshed = await api('/api/cms/templates');
+      setTemplates(refreshed.templates || []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [seedMarketingTemplates]);
+
   useEffect(() => { load(); }, [load]);
+
   const addTemplate = async (t) => {
     if (!addToPageId) { alert('Open a page first, then add a template section.'); return; }
     setBusy(t.id);
     const data = parseJson(t.template_data, { title: t.template_name, copy: 'New template section.' });
-    try { await api('/api/cms/sections', { method: 'POST', body: { page_id: addToPageId, section_type: t.template_type || t.category || 'template', section_name: t.template_name, section_data: data, sort_order: 100 } }); onNavigatePath(buildPath('pages', projectSlug, addToPageId)); }
-    catch (e) { alert(e.message); }
+    try {
+      await api('/api/cms/sections', {
+        method: 'POST',
+        body: {
+          page_id: addToPageId,
+          section_type: t.template_type || t.category || 'template',
+          section_name: t.template_name,
+          section_data: data,
+          sort_order: 100,
+        },
+      });
+      onNavigatePath(buildPath('pages', projectSlug, addToPageId));
+    } catch (e) { alert(e.message); }
     finally { setBusy(''); }
   };
-  return <div className="pt-page"><div className="pt-page-inner"><PrimeTechHeader kicker={CMS_KICKER} title="Templates" copy="Reusable component templates backed by cms_component_templates. Add one to a page or use them as launch-ready section starters." actions={<><button className="pt-btn" onClick={() => onNavigatePath(buildPath('pages', projectSlug))}>Pages</button><button className="pt-btn primary">Create template</button></>} />{error && <ErrorBox error={error} onRetry={load} />}{!templates ? <Loading label="Loading templates..." /> : <section className="pt-template-grid">{templates.map((t) => <article className="pt-card pt-template" key={t.id}><div><div className="pt-template-preview" style={t.preview_image_url ? { backgroundImage: `url(${t.preview_image_url})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined} /><div className="pt-row-title">{t.template_name}</div><div className="pt-row-sub">{t.category || 'General'} · {t.template_type || 'section'}</div><div className="pt-badges"><span className="pt-badge neutral">{t.is_system ? 'System' : 'Workspace'}</span>{t.source_liquid_file && <span className="pt-badge neutral">Liquid</span>}</div></div><div className="pt-actions" style={{ justifyContent: 'flex-start', marginTop: 18 }}><button className="pt-btn primary" disabled={busy === t.id} onClick={() => addTemplate(t)}>{busy === t.id ? 'Adding...' : addToPageId ? 'Add to page' : 'Preview'}</button><button className="pt-btn">Duplicate</button></div></article>)}</section>}</div></div>;
+
+  const instantiateMarketingTemplate = async (t) => {
+    setBusy(t.id);
+    try {
+      const res = await api(`/api/cms/templates/${encodeURIComponent(t.id)}/instantiate`, {
+        method: 'POST',
+        body: { project_slug: projectSlug },
+      });
+      const pageId = res?.page?.id;
+      if (!pageId) throw new Error('Instantiate did not return a page id');
+      onNavigatePath(buildPath('pages', projectSlug, pageId));
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Could not create page from template');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  return (
+    <div className="pt-page">
+      <div className="pt-page-inner">
+        <PrimeTechHeader
+          kicker={CMS_KICKER}
+          title="Templates"
+          copy="Reusable component templates backed by cms_component_templates. Marketing pages instantiate as full-screen routes at /marketing/{slug}."
+          actions={
+            <>
+              <button type="button" className="pt-btn" onClick={() => onNavigatePath(buildPath('pages', projectSlug))}>Pages</button>
+              <button type="button" className="pt-btn primary">Create template</button>
+            </>
+          }
+        />
+        {error && <ErrorBox error={error} onRetry={load} />}
+        {!templates ? <Loading label="Loading templates..." /> : (
+          <section className="pt-template-grid">
+            {templates.map((t) => {
+              const isMarketing = String(t.category || '').toLowerCase() === 'marketing';
+              const isMarketingPage = t.template_type === 'marketing_page';
+              const meta = parseJson(t.template_data, {});
+              return (
+                <article className="pt-card pt-template" key={t.id}>
+                  <div>
+                    <div
+                      className="pt-template-preview"
+                      style={t.preview_image_url ? { backgroundImage: `url(${t.preview_image_url})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
+                    />
+                    <div className="pt-row-title">{t.template_name}</div>
+                    <div className="pt-row-sub">{t.category || 'General'} · {t.template_type || 'section'}</div>
+                    {meta.description ? <div className="pt-row-sub" style={{ marginTop: 8 }}>{meta.description}</div> : null}
+                    <div className="pt-badges">
+                      {isMarketing ? <span className="pt-badge">Marketing</span> : null}
+                      <span className="pt-badge neutral">{t.is_system ? 'System' : 'Workspace'}</span>
+                      {t.source_liquid_file && <span className="pt-badge neutral">Liquid</span>}
+                    </div>
+                  </div>
+                  <div className="pt-actions" style={{ justifyContent: 'flex-start', marginTop: 18 }}>
+                    {isMarketingPage ? (
+                      <button
+                        type="button"
+                        className="pt-btn primary"
+                        disabled={busy === t.id}
+                        onClick={() => instantiateMarketingTemplate(t)}
+                      >
+                        {busy === t.id ? 'Creating…' : 'Use template'}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="pt-btn primary"
+                        disabled={busy === t.id}
+                        onClick={() => addTemplate(t)}
+                      >
+                        {busy === t.id ? 'Adding...' : addToPageId ? 'Add to page' : 'Preview'}
+                      </button>
+                    )}
+                    <button type="button" className="pt-btn">Duplicate</button>
+                  </div>
+                </article>
+              );
+            })}
+          </section>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function ImportsView({ projectSlug, onNavigatePath }) {
