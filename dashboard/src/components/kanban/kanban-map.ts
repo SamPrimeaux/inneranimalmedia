@@ -2,6 +2,22 @@ import type { KanbanColumn, KanbanTask } from "../../../api/kanban";
 import type { BoardTask, ColumnDef, TaskStatus } from "./types";
 import { columnNameToStatus, kanbanPriorityToP } from "./types";
 
+function assigneeDisplay(assigneeId: string | null | undefined): string | undefined {
+  const raw = assigneeId?.trim();
+  if (!raw) return undefined;
+  const lower = raw.toLowerCase();
+  if (lower.includes("connor")) return "Connor";
+  if (lower.includes("sam@") || lower.includes("sam_primeaux") || lower.includes("usr_sam")) return "Sam";
+  if (raw.includes("@")) {
+    const local = raw.split("@")[0] || raw;
+    return local
+      .replace(/[._-]+/g, " ")
+      .replace(/\b\w/g, (c) => c.toUpperCase())
+      .trim();
+  }
+  return raw;
+}
+
 export function parseColumnStatus(column: KanbanColumn): TaskStatus {
   try {
     const cfg = column.config_json ? JSON.parse(String(column.config_json)) : {};
@@ -62,6 +78,8 @@ export function mapKanbanTaskToBoardTask(
     priority: kanbanPriorityToP(task.priority),
     tags,
     source: "kanban",
+    assignee_name: assigneeDisplay(task.assignee_id),
+    project_name: task.client_name || undefined,
     column_id: task.column_id,
     due_date: dueLabel,
     agentsam_todo_id: task.todo_id || undefined,
