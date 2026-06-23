@@ -15,6 +15,7 @@ const DEFAULT_WORKER_BASE = {
   companionscpas: 'https://companionscpas.meauxbility.workers.dev',
   fuelnfreetime: 'https://fuelnfreetime.meauxbility.workers.dev',
   inneranimalmedia: 'https://inneranimalmedia.meauxbility.workers.dev',
+  meauxbility: 'https://meauxbility.meauxbility.workers.dev',
 };
 
 const DEFAULT_STUDIO_PATH = {

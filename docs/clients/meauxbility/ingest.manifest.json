@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "description": "Meauxbility Foundation nonprofit docs for client_project_semantic_search",
+  "workspace_key": "ws_inneranimalmedia",
+  "project_key": "meauxbility",
+  "d1_context_id": "ctx_meauxbility",
+  "note": "Use project_key meauxbility at retrieval time; ctx row TBD — compass via brief until ctx_meauxbility migration",
+  "entries": [
+    {
+      "file": "docs/clients/meauxbility/project-brief.md",
+      "topic": "meauxbility",
+      "lane_key": "client_project_semantic_search",
+      "priority": 100
+    },
+    {
+      "file": "docs/clients/meauxbility/runbook.md",
+      "topic": "meauxbility_runbook",
+      "lane_key": "client_project_semantic_search",
+      "priority": 95
+    }
+  ]
+}

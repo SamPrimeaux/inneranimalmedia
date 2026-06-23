@@ -42,6 +42,8 @@
     "run:ingest_client_project_doc:dry-run": "./scripts/with-cloudflare-env.sh node scripts/ingest_client_project_doc.mjs --dry-run",
     "run:ingest_client_companionscpas": "./scripts/with-cloudflare-env.sh node scripts/ingest_client_project_doc.mjs --manifest docs/clients/companionscpas/ingest.manifest.json",
     "run:ingest_client_companionscpas:dry-run": "./scripts/with-cloudflare-env.sh node scripts/ingest_client_project_doc.mjs --dry-run --manifest docs/clients/companionscpas/ingest.manifest.json",
+    "run:ingest_client_meauxbility": "./scripts/with-cloudflare-env.sh node scripts/ingest_client_project_doc.mjs --manifest docs/clients/meauxbility/ingest.manifest.json",
+    "run:ingest_client_meauxbility:dry-run": "./scripts/with-cloudflare-env.sh node scripts/ingest_client_project_doc.mjs --dry-run --manifest docs/clients/meauxbility/ingest.manifest.json",
     "run:ingest_team_milestones": "./scripts/with-cloudflare-env.sh node scripts/ingest_team_milestones.mjs",
     "run:ingest_team_milestones:dry-run": "./scripts/with-cloudflare-env.sh node scripts/ingest_team_milestones.mjs --dry-run",
     "run:ingest_platform_snapshot": "./scripts/with-cloudflare-env.sh node scripts/ingest_platform_snapshot.mjs",
