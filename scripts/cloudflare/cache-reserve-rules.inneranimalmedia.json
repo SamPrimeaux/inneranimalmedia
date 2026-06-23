@@ -1,0 +1,95 @@
+{
+  "description": "Inner Animal Media — Cache Reserve + static asset caching (managed by scripts/cloudflare/install-cache-reserve.sh)",
+  "rules": [
+    {
+      "description": "IAM Cache Reserve: bypass dynamic API, dashboard shell, MCP, SW",
+      "expression": "(starts_with(http.request.uri.path, \"/api/\")) or (starts_with(http.request.uri.path, \"/dashboard\")) or (http.request.uri.path eq \"/sw.js\") or (http.request.uri.path eq \"/push-handler.js\") or (starts_with(http.request.uri.path, \"/mcp\")) or (http.host eq \"mcp.inneranimalmedia.com\") or (http.host eq \"autorag.inneranimalmedia.com\")",
+      "action": "set_cache_settings",
+      "action_parameters": {
+        "cache": false
+      },
+      "enabled": true
+    },
+    {
+      "description": "IAM Cache Reserve: dashboard hashed static (R2)",
+      "expression": "starts_with(http.request.uri.path, \"/static/dashboard/app/\")",
+      "action": "set_cache_settings",
+      "action_parameters": {
+        "cache": true,
+        "edge_ttl": {
+          "mode": "override_origin",
+          "default": 2592000
+        },
+        "cache_reserve": {
+          "eligible": true
+        }
+      },
+      "enabled": true
+    },
+    {
+      "description": "IAM Cache Reserve: public CMS + marketing pages",
+      "expression": "(starts_with(http.request.uri.path, \"/pages/\")) or (starts_with(http.request.uri.path, \"/cms/themes/\")) or (http.request.uri.path in {\"/about\" \"/contact\" \"/games\" \"/about/\" \"/contact/\" \"/games/\"})",
+      "action": "set_cache_settings",
+      "action_parameters": {
+        "cache": true,
+        "edge_ttl": {
+          "mode": "respect_origin"
+        },
+        "cache_reserve": {
+          "eligible": true
+        }
+      },
+      "enabled": true
+    },
+    {
+      "description": "IAM Cache Reserve: assets host (themes, GLBs, learn)",
+      "expression": "(http.host eq \"assets.inneranimalmedia.com\") and not starts_with(http.request.uri.path, \"/api/\")",
+      "action": "set_cache_settings",
+      "action_parameters": {
+        "cache": true,
+        "edge_ttl": {
+          "mode": "override_origin",
+          "default": 31536000
+        },
+        "cache_reserve": {
+          "eligible": true
+        }
+      },
+      "enabled": true
+    },
+    {
+      "description": "IAM Cache Reserve: default static extensions (baseline)",
+      "expression": "(http.request.uri.path.extension in {\"7z\" \"avi\" \"avif\" \"apk\" \"bin\" \"bmp\" \"bz2\" \"class\" \"css\" \"csv\" \"doc\" \"docx\" \"dmg\" \"ejs\" \"eot\" \"eps\" \"exe\" \"flac\" \"gif\" \"gz\" \"ico\" \"iso\" \"jpeg\" \"jpg\" \"js\" \"mid\" \"midi\" \"mkv\" \"mp3\" \"ogg\" \"otf\" \"pdf\" \"pict\" \"pls\" \"png\" \"ppt\" \"pptx\" \"ps\" \"rar\" \"svg\" \"svgz\" \"swf\" \"tar\" \"tif\" \"tiff\" \"ttf\" \"webm\" \"webp\" \"woff\" \"woff2\" \"xls\" \"xlsx\" \"zip\" \"glb\" \"gltf\" \"wasm\" \"map\" \"webmanifest\"}) and not starts_with(http.request.uri.path, \"/api/\") and not starts_with(http.request.uri.path, \"/dashboard\")",
+      "action": "set_cache_settings",
+      "action_parameters": {
+        "cache": true,
+        "edge_ttl": {
+          "mode": "respect_origin"
+        },
+        "cache_reserve": {
+          "eligible": true
+        }
+      },
+      "enabled": true
+    },
+    {
+      "description": "IAM MP4 Safari: respect strong ETags (must run before MP4 bypass)",
+      "expression": "(http.request.uri.path.extension eq \"mp4\") or (http.request.full_uri wildcard \"*.mp4\")",
+      "action": "set_cache_settings",
+      "action_parameters": {
+        "cache": true,
+        "respect_strong_etags": true
+      },
+      "enabled": true
+    },
+    {
+      "description": "IAM MP4 Safari: bypass cache for range requests",
+      "expression": "(http.request.uri.path.extension eq \"mp4\") or (http.request.full_uri wildcard \"*.mp4\")",
+      "action": "set_cache_settings",
+      "action_parameters": {
+        "cache": false
+      },
+      "enabled": true
+    }
+  ]
+}

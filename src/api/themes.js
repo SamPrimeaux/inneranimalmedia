@@ -91,7 +91,15 @@ async function fetchWorkspaceRow(env, workspaceId) {
 async function fetchThemeRowBySlug(env, slug) {
   const s = String(slug || "").trim();
   if (!s) return null;
-  return await env.DB.prepare(`SELECT * FROM cms_themes WHERE slug = ? LIMIT 1`).bind(s).first();
+  return await env.DB.prepare(
+    `SELECT * FROM cms_themes
+     WHERE slug = ?
+       AND COALESCE(status, 'active') != 'archived'
+     ORDER BY sort_order ASC, is_system DESC, updated_at DESC, id ASC
+     LIMIT 1`,
+  )
+    .bind(s)
+    .first();
 }
 
 /**
@@ -171,25 +179,40 @@ async function updateThemeR2Meta(env, themeId, meta) {
   const id = String(themeId || "").trim();
   if (!id) return;
   try {
-    await env.DB.prepare(
-      `UPDATE cms_themes SET
-         css_r2_key = ?,
-         css_url = ?,
-         css_r2_bucket = ?,
-         compiled_css_hash = ?,
-         preview_image_url = COALESCE(?, preview_image_url),
-         updated_at = unixepoch()
-       WHERE id = ?`,
-    )
-      .bind(
-        meta.css_r2_key,
-        meta.css_url,
-        meta.css_r2_bucket,
-        meta.compiled_css_hash,
-        meta.preview_image_url ?? null,
-        id,
+    const hasPreview = Object.prototype.hasOwnProperty.call(meta, "preview_image_url");
+    if (hasPreview) {
+      await env.DB.prepare(
+        `UPDATE cms_themes SET
+           css_r2_key = ?,
+           css_url = ?,
+           css_r2_bucket = ?,
+           compiled_css_hash = ?,
+           preview_image_url = ?,
+           updated_at = unixepoch()
+         WHERE id = ?`,
       )
-      .run();
+        .bind(
+          meta.css_r2_key,
+          meta.css_url,
+          meta.css_r2_bucket,
+          meta.compiled_css_hash,
+          meta.preview_image_url ?? null,
+          id,
+        )
+        .run();
+    } else {
+      await env.DB.prepare(
+        `UPDATE cms_themes SET
+           css_r2_key = ?,
+           css_url = ?,
+           css_r2_bucket = ?,
+           compiled_css_hash = ?,
+           updated_at = unixepoch()
+         WHERE id = ?`,
+      )
+        .bind(meta.css_r2_key, meta.css_url, meta.css_r2_bucket, meta.compiled_css_hash, id)
+        .run();
+    }
   } catch (e) {
     console.warn("[themes] updateThemeR2Meta", e?.message ?? e);
   }
@@ -572,7 +595,11 @@ export async function handleThemesApi(request, url, env, ctx) {
            typography_json = excluded.typography_json,
            components_json = excluded.components_json,
            motion_json = excluded.motion_json,
-           preview_image_url = COALESCE(excluded.preview_image_url, preview_image_url),
+           preview_image_url = CASE
+             WHEN excluded.preview_image_url IS NOT NULL AND TRIM(excluded.preview_image_url) != ''
+               THEN excluded.preview_image_url
+             ELSE preview_image_url
+           END,
            workspace_id = excluded.workspace_id,
            updated_at = unixepoch()`,
       )
@@ -1041,6 +1068,20 @@ export async function handleThemesApi(request, url, env, ctx) {
       const patch = buildThemeRowUpdateFromBody(/** @type {Record<string, unknown>} */ (row), body);
       const rowId = String(row.id);
 
+      if (patch.slug && patch.slug !== String(row.slug || "").trim()) {
+        const conflict = await env.DB.prepare(
+          `SELECT id FROM cms_themes
+           WHERE slug = ? AND id != ?
+             AND COALESCE(status, 'active') != 'archived'
+           LIMIT 1`,
+        )
+          .bind(patch.slug, rowId)
+          .first();
+        if (conflict?.id) {
+          return jsonResponse({ error: `Theme slug "${patch.slug}" is already in use` }, 409);
+        }
+      }
+
       await env.DB.prepare(
         `UPDATE cms_themes SET
            name = ?,
@@ -1058,7 +1099,7 @@ export async function handleThemesApi(request, url, env, ctx) {
            typography_json = ?,
            components_json = ?,
            motion_json = ?,
-           preview_image_url = COALESCE(?, preview_image_url),
+           preview_image_url = CASE WHEN ? = 1 THEN ? ELSE preview_image_url END,
            updated_at = unixepoch()
          WHERE id = ?`,
       )
@@ -1078,6 +1119,7 @@ export async function handleThemesApi(request, url, env, ctx) {
           patch.sidecars.typography_json,
           patch.sidecars.components_json,
           patch.sidecars.motion_json,
+          patch.previewImageUrlExplicit ? 1 : 0,
           patch.previewImageUrl,
           rowId,
         )

@@ -110,17 +110,25 @@ export function applyFieldsLive(fields: ThemeTweakFields): void {
 
 const THEME_DRAFT_LS_PREFIX = 'inneranimalmedia_theme_draft:';
 
-/** Debounced live tweaks — survives hard refresh while editing (cleared on Save & apply). */
+function draftStorageKey(workspaceId: string, themeKey: string): string {
+  const ws = workspaceId.trim();
+  const tk = themeKey.trim() || '__new__';
+  return `${THEME_DRAFT_LS_PREFIX}${ws}:${tk}`;
+}
+
+/** Debounced live tweaks — survives hard refresh while editing (cleared on Save). */
 export function cacheThemeDraftForWorkspace(
   workspaceId: string | null | undefined,
   fields: ThemeTweakFields,
+  themeKey?: string | null,
 ): void {
   const ws = workspaceId?.trim();
+  const tk = themeKey?.trim() || fields.slug?.trim() || fields.name?.trim() || '__new__';
   if (!ws || typeof localStorage === 'undefined') return;
   try {
     localStorage.setItem(
-      `${THEME_DRAFT_LS_PREFIX}${ws}`,
-      JSON.stringify({ ...fields, updated_at: Date.now() }),
+      draftStorageKey(ws, tk),
+      JSON.stringify({ ...fields, theme_key: tk, updated_at: Date.now() }),
     );
   } catch {
     /* ignore quota */
@@ -129,29 +137,53 @@ export function cacheThemeDraftForWorkspace(
 
 export function readThemeDraftForWorkspace(
   workspaceId: string | null | undefined,
+  themeKey?: string | null,
 ): ThemeTweakFields | null {
   const ws = workspaceId?.trim();
-  if (!ws || typeof localStorage === 'undefined') return null;
+  const tk = themeKey?.trim();
+  if (!ws || !tk || typeof localStorage === 'undefined') return null;
   try {
-    const raw = localStorage.getItem(`${THEME_DRAFT_LS_PREFIX}${ws}`);
+    const raw = localStorage.getItem(draftStorageKey(ws, tk));
     if (!raw?.trim()) return null;
-    const parsed = JSON.parse(raw) as ThemeTweakFields & { updated_at?: number };
+    const parsed = JSON.parse(raw) as ThemeTweakFields & { updated_at?: number; theme_key?: string };
     if (!parsed || typeof parsed !== 'object') return null;
-    const { updated_at: _u, ...fields } = parsed;
+    const { updated_at: _u, theme_key: _k, ...fields } = parsed;
     return { ...DEFAULT_TWEAK_FIELDS, ...fields };
   } catch {
     return null;
   }
 }
 
-export function clearThemeDraftForWorkspace(workspaceId: string | null | undefined): void {
+export function clearThemeDraftForWorkspace(
+  workspaceId: string | null | undefined,
+  themeKey?: string | null,
+): void {
   const ws = workspaceId?.trim();
+  const tk = themeKey?.trim();
   if (!ws || typeof localStorage === 'undefined') return;
   try {
-    localStorage.removeItem(`${THEME_DRAFT_LS_PREFIX}${ws}`);
+    if (tk) {
+      localStorage.removeItem(draftStorageKey(ws, tk));
+      return;
+    }
+    const prefix = `${THEME_DRAFT_LS_PREFIX}${ws}:`;
+    for (let i = localStorage.length - 1; i >= 0; i -= 1) {
+      const key = localStorage.key(i);
+      if (key?.startsWith(prefix)) localStorage.removeItem(key);
+    }
   } catch {
     /* ignore */
   }
+}
+
+/** Active-theme overlay: only restore a draft when it matches the resolved slug/id. */
+export function readThemeDraftMatchingActive(
+  workspaceId: string | null | undefined,
+  activeThemeRef?: string | null,
+): ThemeTweakFields | null {
+  const ref = activeThemeRef?.trim();
+  if (!ref) return null;
+  return readThemeDraftForWorkspace(workspaceId, ref);
 }
 
 export function activePayloadFromFields(
@@ -173,6 +205,7 @@ export function updatePayloadFromFields(
   opts: { theme_id?: string; create?: boolean } = {},
 ): Record<string, unknown> {
   const shell = fields.syncNavShell ? fields.nav : fields.shell;
+  const previewUrl = fields.preview_image_url?.trim() || '';
   return {
     ...(opts.theme_id ? { theme_id: opts.theme_id } : {}),
     ...(opts.create
@@ -181,7 +214,7 @@ export function updatePayloadFromFields(
     name: fields.name,
     slug: fields.slug,
     theme_family: fields.theme_family,
-    preview_image_url: fields.preview_image_url || null,
+    preview_image_url: previewUrl || null,
     sync_nav_shell: fields.syncNavShell,
     palette: {
       canvas: fields.canvas,

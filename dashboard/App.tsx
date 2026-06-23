@@ -52,6 +52,7 @@ import {
   probeDevServerUrl,
 } from './lib/resolvePreviewMode';
 import { buildPreviewSrcDoc } from './lib/buildPreviewSrcDoc';
+import { buildR2ObjectUrl } from './src/lib/r2Urls';
 import { StatusBar, type AgentNotificationRow } from './components/StatusBar';
 import { UnifiedSearchBar, type UnifiedSearchNavigate } from './components/UnifiedSearchBar';
 import { ProjectType, type ActiveFile } from './types';
@@ -72,7 +73,7 @@ import {
 } from './src/applyCmsTheme';
 import {
   activePayloadFromFields,
-  readThemeDraftForWorkspace,
+  readThemeDraftMatchingActive,
 } from './components/themes/themeTweaksModel';
 import {
   hydrateIdeFromApi,
@@ -2178,9 +2179,9 @@ const App: React.FC = () => {
         navigate(AGENT_HOME_PATH);
       }
       setActiveActivity('files');
-      if (r2BucketName) {
-        window.dispatchEvent(new CustomEvent('iam-palette-open-r2', { detail: { bucket: r2BucketName } }));
-      }
+      window.dispatchEvent(
+        new CustomEvent('iam-palette-open-r2', { detail: { bucket: r2BucketName || undefined } }),
+      );
     };
     window.addEventListener('iam:palette-open-r2', handleOpenR2Palette as EventListener);
     return () => window.removeEventListener('iam:palette-open-r2', handleOpenR2Palette as EventListener);
@@ -3107,6 +3108,7 @@ const App: React.FC = () => {
       openBrowserTab(u, {
         addressDisplay: previewAddressBarLabel(file),
         tabTitle: file.name?.trim() ? `Preview · ${file.name.trim()}` : 'Preview',
+        previewSource: 'editor',
       });
     },
     [openBrowserTab],
@@ -3124,7 +3126,7 @@ const App: React.FC = () => {
     }, 50);
   }, []);
 
-  /** Open inline preview pane — srcDoc or PTY dev server. Never MYBROWSER. */
+  /** Preview: HTML opens full Browser tab (toolbar + DevTools); SVG/MD inline; JSX/TSX via dev server. */
   const openEditorPreview = useCallback(() => {
     if (!activeFile?.content) return;
     const name = activeFile.name || '';
@@ -3132,6 +3134,28 @@ const App: React.FC = () => {
 
     const bytes = new TextEncoder().encode(activeFile.content).length;
     const ext = name.split('.').pop()?.toLowerCase() ?? '';
+
+    if (ext === 'html' || ext === 'htm') {
+      closeEditorPreview();
+      if (bytes >= PREVIEW_WARN_BYTES) {
+        setToastMsg(`Large file (${(bytes / 1e6).toFixed(1)} MB) — preview may be slow.`);
+      }
+      const file = activeFile;
+      const r2Bucket = file.r2Bucket?.trim();
+      const r2Key = file.r2Key?.trim();
+      if (r2Bucket && r2Key) {
+        openBrowserTab(buildR2ObjectUrl(r2Bucket, r2Key), {
+          addressDisplay: previewAddressBarLabel(file),
+          tabTitle: file.name?.trim() ? `Preview · ${file.name.trim()}` : 'Preview',
+          previewSource: 'editor',
+        });
+      } else {
+        const blob = new Blob([file.content], { type: 'text/html;charset=utf-8' });
+        openPreviewBlob(blob, file);
+      }
+      return;
+    }
+
     const mode = resolvePreviewMode({ fileName: name, workspace: ideWorkspace, bytes });
 
     setEditorPreviewOpen(true);
@@ -3188,7 +3212,7 @@ const App: React.FC = () => {
           : 'npx --yes serve . -l 3000';
       runInTerminal(cmd);
     })();
-  }, [activeFile, ideWorkspace, devServer, runInTerminal]);
+  }, [activeFile, ideWorkspace, devServer, runInTerminal, closeEditorPreview, openBrowserTab, openPreviewBlob]);
 
   const handleTerminalOutputLine = useCallback((line: string) => {
     setShellOutputLines((prev) => [...prev.slice(-250), line]);
@@ -3243,15 +3267,11 @@ const App: React.FC = () => {
   useEffect(() => {
     migrateLegacyThemeLocalStorage();
     const ws = authWorkspaceId?.trim() || '';
-    const draft = ws ? readThemeDraftForWorkspace(ws) : null;
-    if (draft && ws) {
-      applyCmsThemeToDocument(activePayloadFromFields(draft, ws));
-    } else if (ws) {
+    if (ws) {
       applyCachedCmsThemeFallbackForWorkspace(ws);
     } else {
       applyCachedCmsThemeFallback();
     }
-    if (draft) return;
     activeThemeBootstrapAbortRef.current?.abort();
     const ac = new AbortController();
     activeThemeBootstrapAbortRef.current = ac;
@@ -3259,6 +3279,12 @@ const App: React.FC = () => {
     void fetchAndApplyActiveCmsTheme(authWorkspaceId, { signal })
       .then((payload) => {
         if (signal.aborted) return;
+        const activeRef = payload?.slug?.trim() || '';
+        const draft = ws && activeRef ? readThemeDraftMatchingActive(ws, activeRef) : null;
+        if (draft && ws) {
+          applyCmsThemeToDocument(activePayloadFromFields(draft, ws));
+          return;
+        }
         const hasVars =
           payload?.data &&
           typeof payload.data === 'object' &&

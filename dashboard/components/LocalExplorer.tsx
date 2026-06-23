@@ -284,6 +284,8 @@ export const LocalExplorer: React.FC<{
     const [r2PrefixByBucket, setR2PrefixByBucket] = useState<Record<string, string>>({});
     const [r2PrefixesByBucket, setR2PrefixesByBucket] = useState<Record<string, string[]>>({});
     const [r2ObjectsByBucket, setR2ObjectsByBucket] = useState<Record<string, { key: string; size?: number }[]>>({});
+    const [r2ListCursorByBucket, setR2ListCursorByBucket] = useState<Record<string, string | null>>({});
+    const [r2ListTruncatedByBucket, setR2ListTruncatedByBucket] = useState<Record<string, boolean>>({});
     const [r2Loading, setR2Loading] = useState(false);
     const [r2Err, setR2Err] = useState<string | null>(null);
     const [r2SearchQ, setR2SearchQ] = useState<Record<string, string>>({});
@@ -422,34 +424,75 @@ export const LocalExplorer: React.FC<{
         setSelectedR2Bucket((prev) => (prev && displayR2Buckets.includes(prev) ? prev : displayR2Buckets[0]));
     }, [displayR2Buckets]);
 
-    const loadR2List = useCallback(async (bucket: string, prefixOverride?: string) => {
-        setR2Loading(true);
+    const loadR2List = useCallback(async (
+        bucket: string,
+        prefixOverride?: string,
+        opts?: { append?: boolean; cursor?: string },
+    ) => {
+        const append = opts?.append === true;
+        if (!append) {
+            setR2Loading(true);
+        }
         setR2Err(null);
         const prefix = prefixOverride !== undefined ? prefixOverride : (r2PrefixByBucket[bucket] ?? '');
         try {
             const qs = new URLSearchParams({ bucket, prefix });
+            if (opts?.cursor) qs.set('cursor', opts.cursor);
             const res = await fetch(`/api/r2/list?${qs}`, { credentials: 'same-origin' });
             const data = await res.json();
             if (!res.ok) {
                 setR2Err(typeof data.error === 'string' ? data.error : `R2 list failed (${res.status})`);
-                setR2ObjectsByBucket((prev) => ({ ...prev, [bucket]: [] }));
-                setR2PrefixesByBucket((prev) => ({ ...prev, [bucket]: [] }));
+                if (!append) {
+                    setR2ObjectsByBucket((prev) => ({ ...prev, [bucket]: [] }));
+                    setR2PrefixesByBucket((prev) => ({ ...prev, [bucket]: [] }));
+                    setR2ListCursorByBucket((prev) => ({ ...prev, [bucket]: null }));
+                    setR2ListTruncatedByBucket((prev) => ({ ...prev, [bucket]: false }));
+                }
                 return;
             }
             const rows = (Array.isArray(data.objects) ? data.objects : []) as R2ObjectRow[];
             const prefs = Array.isArray(data.prefixes) ? data.prefixes : [];
             const { folders, files } = partitionR2Listing(rows, prefs, prefix);
-            setR2ObjectsByBucket((prev) => ({ ...prev, [bucket]: files }));
-            setR2PrefixesByBucket((prev) => ({ ...prev, [bucket]: folders }));
+            if (append) {
+                setR2ObjectsByBucket((prev) => {
+                    const existing = prev[bucket] || [];
+                    const seen = new Set(existing.map((o) => o.key));
+                    const merged = [...existing];
+                    for (const f of files) {
+                        if (!seen.has(f.key)) merged.push(f);
+                    }
+                    return { ...prev, [bucket]: merged };
+                });
+            } else {
+                setR2ObjectsByBucket((prev) => ({ ...prev, [bucket]: files }));
+                setR2PrefixesByBucket((prev) => ({ ...prev, [bucket]: folders }));
+            }
+            const nextCursor =
+                typeof data.cursor === 'string' && data.cursor.trim() ? data.cursor.trim() : null;
+            setR2ListCursorByBucket((prev) => ({ ...prev, [bucket]: nextCursor }));
+            setR2ListTruncatedByBucket((prev) => ({
+                ...prev,
+                [bucket]: !!(data.truncated && nextCursor),
+            }));
         } catch (e) {
             console.error('[LocalExplorer] R2 list fetch failed:', e);
             setR2Err(e instanceof Error ? e.message : 'R2 list failed');
-            setR2ObjectsByBucket((prev) => ({ ...prev, [bucket]: [] }));
-            setR2PrefixesByBucket((prev) => ({ ...prev, [bucket]: [] }));
+            if (!append) {
+                setR2ObjectsByBucket((prev) => ({ ...prev, [bucket]: [] }));
+                setR2PrefixesByBucket((prev) => ({ ...prev, [bucket]: [] }));
+                setR2ListCursorByBucket((prev) => ({ ...prev, [bucket]: null }));
+                setR2ListTruncatedByBucket((prev) => ({ ...prev, [bucket]: false }));
+            }
         } finally {
-            setR2Loading(false);
+            if (!append) setR2Loading(false);
         }
     }, [r2PrefixByBucket]);
+
+    const loadMoreR2List = useCallback((bucket: string) => {
+        const cursor = r2ListCursorByBucket[bucket];
+        if (!cursor || r2Loading) return;
+        void loadR2List(bucket, undefined, { append: true, cursor });
+    }, [loadR2List, r2ListCursorByBucket, r2Loading]);
 
     useEffect(() => {
         if (!selectedR2Bucket || !expandedSections.r2) return;
@@ -1342,6 +1385,16 @@ export const LocalExplorer: React.FC<{
                                                       </button>
                                                   </div>
                                               ))}
+                                              {!searchOn && r2ListTruncatedByBucket[b] && r2ListCursorByBucket[b] ? (
+                                                  <button
+                                                      type="button"
+                                                      className="mt-1 w-full text-[10px] py-1 rounded bg-[var(--bg-hover)] text-[var(--solar-cyan)] hover:underline"
+                                                      onClick={() => loadMoreR2List(b)}
+                                                      disabled={r2Loading}
+                                                  >
+                                                      Load more objects…
+                                                  </button>
+                                              ) : null}
                                           </div>
                                       </div>
                                   );

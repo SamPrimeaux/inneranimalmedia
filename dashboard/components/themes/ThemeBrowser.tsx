@@ -217,6 +217,21 @@ export function ThemeBrowser({ workspaceId }: ThemeBrowserProps): React.ReactEle
     setCreateTheme(false);
   }, []);
 
+  const handleThemeSaved = useCallback(
+    async (savedTheme?: CatalogTheme) => {
+      await loadAll();
+      if (savedTheme?.id) {
+        setEditTheme(savedTheme);
+        return;
+      }
+      setEditTheme((prev) => {
+        if (!prev?.id) return prev;
+        return themes.find((t) => t.id === prev.id) ?? prev;
+      });
+    },
+    [loadAll, themes],
+  );
+
   const panelOpen = editTheme != null || createTheme;
 
   const regenerate = useCallback(
@@ -368,7 +383,7 @@ export function ThemeBrowser({ workspaceId }: ThemeBrowserProps): React.ReactEle
                   createMode={createTheme}
                   className="h-full shadow-2xl xl:shadow-none"
                   onClose={closePanel}
-                  onSaved={() => void loadAll()}
+                  onSaved={(saved) => void handleThemeSaved(saved)}
                   onDeleted={() => {
                     setEditTheme(null);
                     void loadAll();

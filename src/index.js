@@ -1039,7 +1039,7 @@ export default {
 
           if (env.ASSETS) {
             const obj = await getDashboardR2Object(env.ASSETS, assetKey);
-            if (obj) return new Response(obj.body, { headers: { 'Content-Type': obj.httpMetadata?.contentType || getMimeType(assetKey), 'Cache-Control': 'public, max-age=31536000' } });
+            if (obj) return new Response(obj.body, { headers: { 'Content-Type': obj.httpMetadata?.contentType || getMimeType(assetKey), 'Cache-Control': 'public, max-age=31536000, immutable' } });
 
             if (isDashboardSpaShellPath(pathLower) || pathLower === '/oauth/mcp/consent') {
               const index = await getDashboardSpaHtmlShell(env.ASSETS);

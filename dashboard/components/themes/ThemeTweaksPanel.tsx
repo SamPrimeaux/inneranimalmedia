@@ -20,7 +20,7 @@ export type ThemeTweaksPanelProps = {
   theme: CatalogTheme | null;
   createMode?: boolean;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (savedTheme?: CatalogTheme) => void;
   onDeleted?: () => void;
   className?: string;
 };
@@ -75,26 +75,28 @@ export function ThemeTweaksPanel({
   const [msg, setMsg] = useState<string | null>(null);
   const [imagePickerOpen, setImagePickerOpen] = useState(false);
 
+  const themeDraftKey = createMode ? '__new__' : theme?.id || theme?.slug || '';
+
   useEffect(() => {
     if (createMode) {
       setFields({ ...DEFAULT_TWEAK_FIELDS, slug: `theme-${Date.now().toString(36).slice(-6)}` });
-    } else if (workspaceId?.trim()) {
-      const draft = readThemeDraftForWorkspace(workspaceId);
+    } else if (workspaceId?.trim() && themeDraftKey) {
+      const draft = readThemeDraftForWorkspace(workspaceId, themeDraftKey);
       setFields(draft ?? fieldsFromTheme(theme));
     } else {
       setFields(fieldsFromTheme(theme));
     }
     setMsg(null);
-  }, [theme, createMode, workspaceId]);
+  }, [theme, createMode, workspaceId, themeDraftKey]);
 
   useEffect(() => {
     applyFieldsLive(fields);
-    if (!workspaceId?.trim()) return;
+    if (!workspaceId?.trim() || !themeDraftKey) return;
     const timer = window.setTimeout(() => {
-      cacheThemeDraftForWorkspace(workspaceId, fields);
+      cacheThemeDraftForWorkspace(workspaceId, fields, themeDraftKey);
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [fields, workspaceId]);
+  }, [fields, workspaceId, themeDraftKey]);
 
   const previewModel = useMemo(
     () => ({
@@ -139,7 +141,7 @@ export function ThemeTweaksPanel({
               workspace_id: workspaceId.trim(),
               theme_id: theme?.id,
               ...updatePayloadFromFields(fields, { theme_id: theme?.id }),
-              apply_to_workspace: true,
+              apply_to_workspace: applyAfter,
               preview_live: applyAfter,
             };
 
@@ -152,6 +154,7 @@ export function ThemeTweaksPanel({
         const json = (await res.json().catch(() => null)) as {
           error?: string;
           active_theme?: CmsActiveThemePayload;
+          theme?: CatalogTheme;
         };
         if (!res.ok) {
           setMsg(json?.error || 'Save failed');
@@ -160,19 +163,19 @@ export function ThemeTweaksPanel({
         if (json?.active_theme) {
           applyCmsThemeToDocument(json.active_theme);
           window.dispatchEvent(new CustomEvent('iam:invalidate-active-theme-fetch'));
-        } else if (workspaceId?.trim()) {
+        } else if (applyAfter && workspaceId?.trim()) {
           applyCmsThemeToDocument(activePayloadFromFields(fields, workspaceId.trim()));
         }
-        clearThemeDraftForWorkspace(workspaceId);
+        clearThemeDraftForWorkspace(workspaceId, themeDraftKey);
         setMsg(createMode ? 'Theme created.' : applyAfter ? 'Saved and applied.' : 'Saved.');
-        onSaved();
+        onSaved(json?.theme ?? undefined);
       } catch {
         setMsg('Save failed');
       } finally {
         setBusy(false);
       }
     },
-    [workspaceId, fields, createMode, theme?.id, onSaved],
+    [workspaceId, fields, createMode, theme?.id, themeDraftKey, onSaved],
   );
 
   const remove = useCallback(async () => {
@@ -319,6 +322,14 @@ export function ThemeTweaksPanel({
         </div>
 
         <div className="shrink-0 flex flex-wrap gap-2 p-4 border-t border-[var(--dashboard-border)] bg-[var(--dashboard-panel)]">
+          <button
+            type="button"
+            disabled={busy}
+            className="text-[11px] px-3 py-1.5 rounded-md border border-[var(--dashboard-border)] text-[var(--text-main)] font-medium disabled:opacity-50"
+            onClick={() => void save(false)}
+          >
+            {busy ? 'Saving…' : 'Save'}
+          </button>
           <button
             type="button"
             disabled={busy}

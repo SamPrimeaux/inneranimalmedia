@@ -99,7 +99,16 @@ export async function resolveTenantIdForCmsThemeOps(env, authUser, workspaceId) 
 async function fetchCmsThemeRowByRef(db, ref) {
   const s = String(ref ?? "").trim();
   if (!s) return null;
-  let row = await db.prepare(`SELECT * FROM cms_themes WHERE slug = ? LIMIT 1`).bind(s).first();
+  let row = await db
+    .prepare(
+      `SELECT * FROM cms_themes
+       WHERE slug = ?
+         AND COALESCE(status, 'active') != 'archived'
+       ORDER BY sort_order ASC, is_system DESC, updated_at DESC, id ASC
+       LIMIT 1`,
+    )
+    .bind(s)
+    .first();
   if (row) return row;
   row = await db.prepare(`SELECT * FROM cms_themes WHERE id = ? LIMIT 1`).bind(s).first();
   return row || null;

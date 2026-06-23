@@ -555,6 +555,8 @@ export async function handleR2Api(request, url, env) {
     const prefix = url.searchParams.get('prefix') || '';
     const recursive = url.searchParams.get('recursive') === '1' || url.searchParams.get('recursive') === 'true';
     const limitParam = Math.min(5000, Math.max(1, parseInt(url.searchParams.get('limit') || '1000', 10) || 1000));
+    const listCursor = (url.searchParams.get('cursor') || '').trim() || undefined;
+    const listContinuationToken = (url.searchParams.get('continuation_token') || '').trim() || undefined;
     
     if (!bucket) return jsonResponse({ error: 'bucket required' }, 400);
     const denied = await denyUnlessBucketAllowed(bucket);
@@ -583,14 +585,15 @@ export async function handleR2Api(request, url, env) {
         } while (cursor && allObjects.length < limitParam);
         return { objects: allObjects, prefixes: [] };
       }
-      const list = await binding.list({ prefix, delimiter: '/', limit: limitParam });
-      let objects = (list.objects || []).filter((o) => !o.key.endsWith('/')).map((o) => ({
-        key: o.key,
-        size: o.size ?? 0,
-        last_modified: o.uploaded ? new Date(o.uploaded).toISOString() : null,
-      }));
-      let prefixes = list.rolledUpPrefixes || [];
-      if (prefixes.length === 0 && objects.length === 0) {
+      const page = await listR2ObjectPage(env, bucketName, binding, prefix, {
+        limit: limitParam,
+        cursor: listCursor,
+        continuationToken: listContinuationToken,
+        recursive: false,
+      });
+      let objects = page.objects || [];
+      let prefixes = page.prefixes || [];
+      if (!listCursor && !listContinuationToken && prefixes.length === 0 && objects.length === 0) {
         const flat = await binding.list({ prefix, limit: limitParam });
         const derived = deriveShallowR2ListingFromObjects(
           (flat.objects || []).filter((o) => !o.key.endsWith('/')),
@@ -599,7 +602,13 @@ export async function handleR2Api(request, url, env) {
         objects = derived.objects;
         prefixes = derived.prefixes;
       }
-      return { objects, prefixes };
+      return {
+        objects,
+        prefixes,
+        truncated: !!(page.cursor || page.continuationToken),
+        cursor: page.cursor,
+        continuation_token: page.continuationToken,
+      };
     };
 
     const bindingList = await listViaBinding();
@@ -608,24 +617,21 @@ export async function handleR2Api(request, url, env) {
     const s3Denied = await assertR2UnboundS3Auth(request, env, binding);
     if (s3Denied) return s3Denied;
 
-    const signed = await signR2Request(
-      'GET',
-      bucketName,
-      '',
-      recursive
-        ? buildR2Query({ 'list-type': '2', prefix, 'max-keys': String(Math.min(1000, limitParam)) })
-        : buildR2Query({ 'list-type': '2', prefix, delimiter: '/', 'max-keys': String(Math.min(1000, limitParam)) }),
-      env,
-    );
-    if (!signed) return jsonResponse({ error: 'Bucket not bound and credentials missing' }, 400);
-
-    const listResp = await fetch(signed.endpoint, { method: 'GET', headers: signed.headers });
-    if (!listResp.ok) return jsonResponse({ error: 'R2 list failed', status: listResp.status }, 400);
-
-    const parsed = parseListObjectsV2Xml(await listResp.text());
+    const page = await listR2ObjectPage(env, bucketName, binding, prefix, {
+      limit: limitParam,
+      cursor: listCursor,
+      continuationToken: listContinuationToken,
+      recursive,
+    });
+    if (page.error && !(page.objects?.length)) {
+      return jsonResponse({ error: page.error }, 400);
+    }
     return jsonResponse({
-      objects: parsed.objects.map(o => ({ key: o.key, size: o.size, last_modified: o.lastModified })),
-      prefixes: parsed.prefixes || [],
+      objects: page.objects || [],
+      prefixes: page.prefixes || [],
+      truncated: !!(page.cursor || page.continuationToken),
+      cursor: page.cursor,
+      continuation_token: page.continuationToken,
     });
   }
 

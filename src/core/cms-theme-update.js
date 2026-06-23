@@ -108,6 +108,20 @@ export function buildThemeRowUpdateFromBody(row, body) {
       ? Math.floor(body.sort_order)
       : Number(row?.sort_order) || 500;
 
+  /** Explicit body key allows clearing cover (empty string → null). Omitted key preserves row. */
+  let previewImageUrl;
+  if (Object.prototype.hasOwnProperty.call(body, 'preview_image_url')) {
+    previewImageUrl =
+      body.preview_image_url != null && String(body.preview_image_url).trim() !== ''
+        ? String(body.preview_image_url).trim()
+        : null;
+  } else {
+    previewImageUrl =
+      row?.preview_image_url != null && String(row.preview_image_url).trim() !== ''
+        ? String(row.preview_image_url).trim()
+        : null;
+  }
+
   return {
     name,
     slug,
@@ -118,12 +132,8 @@ export function buildThemeRowUpdateFromBody(row, body) {
     monacoThemeDataJson,
     sidecars,
     sortOrder,
-    previewImageUrl:
-      body.preview_image_url != null && String(body.preview_image_url).trim() !== ''
-        ? String(body.preview_image_url).trim()
-        : row?.preview_image_url != null
-          ? String(row.preview_image_url).trim()
-          : null,
+    previewImageUrl,
+    previewImageUrlExplicit: Object.prototype.hasOwnProperty.call(body, 'preview_image_url'),
   };
 }
 
