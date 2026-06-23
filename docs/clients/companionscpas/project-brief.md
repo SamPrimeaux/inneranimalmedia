@@ -60,7 +60,25 @@ updated_at: 2026-06-19
 
 Public assets CDN: **`https://assets.companionsofcaddo.org`**.
 
-## Handoff status (2026-06-19)
+**Operations runbook (maintain from IAM):** `docs/clients/companionscpas/runbook.md`
+
+## Dashboard inventory (Cloudflare — 2026-06-22)
+
+Verified against Workers & Pages → **companionscpas** settings. IAM registry row `ws_companionscpas` is **active** and matches.
+
+| Area | Live value |
+|---|---|
+| D1 binding | `companionscpas` (`fd6dd6fb-…`) |
+| R2 binding | `companionscpas` |
+| KV binding | `companionscpas-cache` |
+| Cron | `0 6 * * *` → `scheduled()` |
+| Git | SamPrimeaux/companionscpas → `npx wrangler deploy` on `main` |
+| Deploy hook | `73b9a4da-28a1-4f6c-9f82-ffca946f9b6f` (never triggered as of audit) |
+| Observability | **Logs disabled** — enable before incident debug |
+| Bridge secret | `AGENTSAM_BRIDGE_KEY` (set on both workers) |
+| Telemetry secret | `IAM_TELEMETRY_URL` on client → IAM `/api/agentsam/telemetry/ingest` |
+
+**IAM does not duplicate client bindings in wrangler.** CMS, deploy, and R2 scope are driven by `agentsam_workspace` + bridge HTTP.
 
 | Area | Status |
 |---|---|
@@ -157,6 +175,7 @@ Manifest: `docs/clients/companionscpas/ingest.manifest.json`.
 | P | Item |
 |---|---|
 | P1 | Reports / Overview wire-up or explicit demo labels |
+| P1 | Ship `/_internal/cms-embed-session` on client worker (IAM iframe CMS) |
 | P1 | Agent Sam refresh — real AI usage in Reports |
 | P2 | Lane B Meta — client approval + real OAuth |
 | P2 | Live Stripe keys after client sign-off |

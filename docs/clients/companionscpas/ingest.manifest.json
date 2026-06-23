@@ -19,6 +19,12 @@
       "priority": 90
     },
     {
+      "file": "docs/clients/companionscpas/runbook.md",
+      "topic": "companionscpas_runbook",
+      "lane_key": "client_project_semantic_search",
+      "priority": 95
+    },
+    {
       "file": "docs/milestones/2026-06-19-companionscpas-handoff.md",
       "topic": "companionscpas_handoff",
       "lane_key": "client_project_semantic_search",
