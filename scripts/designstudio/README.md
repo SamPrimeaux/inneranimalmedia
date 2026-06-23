@@ -40,11 +40,11 @@ Worker flow:
 1. `POST /api/cad/openscad/generate` → `script_ready`
 2. `POST /api/cad/jobs/:id/execute` → `pending`
 3. Runner claims job → GLB in R2 → `cms_assets` + `scene_snapshots` link via job-complete
-| `run-freecad.sh` | Headless FreeCADCmd / AppImage → Python script |
-| `install-freecad-appimage.sh` | Install AppImage on Linux VM (`--remote-download` skips Mac SCP) |
-| `install-freecad-appimage.sh --remote-apt` | apt install freecad (older, no upload) |
-| `containers/iam-cad-worker/` | CF Container image (OpenSCAD/Blender/FreeCAD) — smoke before enabling `CAD_DISPATCH_TARGET` |
-| `freecad-check.sh` | Exit 0 if FreeCAD CLI found |
+| `run-freecad.sh` | Headless FreeCADCmd (apt wrapper + xvfb) → Python script |
+| `install-freecad-appimage.sh --remote-apt` | **Recommended** headless FreeCAD on iam-tunnel (apt 0.20.x) |
+| `install-freecad-appimage.sh --remote-download` | FreeCAD 1.1.1 AppImage (heavy; can hang headless) |
+| `freecad-smoke.sh` | Headless STL export smoke (not `--version`) |
+| `freecad-check.sh` | Exit 0 if FreeCAD Python smoke passes |
 | `pipeline-smoke.sh` | Temp dir; minimal cube `.scad` → `.stl` → `.glb` |
 | `upload-asset.sh` | `wrangler r2 object put` to bucket `inneranimalmedia` |
 

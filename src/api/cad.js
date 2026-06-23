@@ -31,7 +31,8 @@ const FREECAD_SYSTEM_PROMPT = `You are a FreeCAD Python API expert. Output ONLY 
 The script must:
 - Use import FreeCAD, Part, Mesh, Import as needed
 - Create or modify the requested geometry
-- Export mesh to STL as "output.stl" in the current working directory (Mesh.export or Part.export)
+- Export mesh to STL as "output.stl" in the current working directory using shape.exportStl("output.stl")
+  (preferred for headless FreeCADCmd) or Mesh.export / document objects
   OR write /tmp/output.stl — required for viewport GLB ingest
 - Use print() for progress messages
 No markdown fences, no explanation. Pure Python only.`;

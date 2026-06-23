@@ -20,9 +20,25 @@ fi
 
 export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-offscreen}"
 export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}"
+XVFB_SCREEN='-screen 0 1280x720x24 +extension GLX'
 
-if [[ "$FC" == *.AppImage ]]; then
-  exec "$FC" FreeCADCmd "$INPUT"
+run_freecad() {
+  if [[ "$FC" == *.AppImage ]]; then
+    exec "$FC" FreeCADCmd "$INPUT"
+  fi
+  exec "$FC" "$INPUT"
+}
+
+# Wrapper at /usr/local/bin/FreeCADCmd already uses xvfb-run when installed via install script.
+if [[ "$FC" == /usr/local/bin/FreeCADCmd || "$FC" == /usr/local/bin/freecadcmd ]]; then
+  run_freecad
 fi
 
-exec "$FC" "$INPUT"
+if command -v xvfb-run >/dev/null 2>&1; then
+  if [[ "$FC" == *.AppImage ]]; then
+    exec xvfb-run -a -s "$XVFB_SCREEN" env QT_QPA_PLATFORM="$QT_QPA_PLATFORM" "$FC" FreeCADCmd "$INPUT"
+  fi
+  exec xvfb-run -a -s "$XVFB_SCREEN" env QT_QPA_PLATFORM="$QT_QPA_PLATFORM" "$FC" "$INPUT"
+fi
+
+run_freecad

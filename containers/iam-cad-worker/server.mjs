@@ -36,10 +36,10 @@ function toolchainProbe() {
   const openscad = commandVersion('command -v openscad >/dev/null && openscad --version 2>&1 | head -1');
   const blender = commandVersion('command -v blender >/dev/null && blender --version 2>&1 | head -1');
   const freecad = commandVersion(
-    'command -v FreeCADCmd >/dev/null && FreeCADCmd --version 2>&1 | head -1 || command -v freecadcmd >/dev/null && freecadcmd --version 2>&1 | head -1',
+    'command -v FreeCADCmd >/dev/null && printf "print(1)" > /tmp/fc_health.py && timeout 90 xvfb-run -a FreeCADCmd /tmp/fc_health.py >/dev/null 2>&1 && dpkg-query -W -f="${Version}" freecad 2>/dev/null | head -1',
   );
   const toolchain_ok = Boolean(openscad && blender && freecad);
-  return { openscad, blender, freecad, toolchain_ok };
+  return { openscad, blender, freecad: freecad ? `FreeCAD ${freecad} (headless ok)` : '', toolchain_ok };
 }
 
 const server = http.createServer(async (req, res) => {

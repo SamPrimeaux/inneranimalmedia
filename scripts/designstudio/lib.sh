@@ -23,6 +23,9 @@ resolve_blender() {
 resolve_freecad() {
   if [[ -n "${FREECAD_BIN}" && -x "${FREECAD_BIN}" ]]; then echo "${FREECAD_BIN}"; return; fi
   if [[ -x /usr/local/bin/FreeCADCmd ]]; then echo /usr/local/bin/FreeCADCmd; return; fi
+  if [[ -x /usr/lib/freecad/bin/freecadcmd-python3 ]]; then echo /usr/lib/freecad/bin/freecadcmd-python3; return; fi
+  local bin=""
+  bin="$(command -v FreeCADCmd 2>/dev/null || command -v freecadcmd 2>/dev/null || command -v freecadcmd-python3 2>/dev/null || true)"
+  if [[ -n "$bin" ]]; then echo "$bin"; return; fi
   if [[ -x /opt/freecad/FreeCAD.AppImage ]]; then echo /opt/freecad/FreeCAD.AppImage; return; fi
-  command -v FreeCADCmd 2>/dev/null || command -v freecadcmd 2>/dev/null || true
 }

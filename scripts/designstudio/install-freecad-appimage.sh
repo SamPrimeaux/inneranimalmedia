@@ -14,8 +14,11 @@
 # Install only (AppImage already on VM at /tmp/FreeCAD.AppImage.upload):
 #   ./scripts/designstudio/install-freecad-appimage.sh --remote-install-only
 #
-# Quick apt fallback (older FreeCAD, no AppImage):
+# Recommended headless install on iam-tunnel (apt 0.20.x, replaces broken AppImage wrapper):
 #   ./scripts/designstudio/install-freecad-appimage.sh --remote-apt
+#
+# On-VM only (Console SSH):
+#   INSTALL_APT_ON_HOST=1 bash scripts/designstudio/install-freecad-appimage.sh
 set -euo pipefail
 
 SCRIPT_SELF="${BASH_SOURCE[0]:-}"  # safe: :-"" prevents -u from firing on stdin pipe
@@ -69,8 +72,83 @@ ensure_linux_deps() {
   sudo apt-get update -qq
   sudo apt-get install -y -qq \
     fuse libfuse2 xvfb curl ca-certificates \
-    libxcb-cursor0 libxcb-cursor-dev \
+    libxcb-cursor0 libxcb-xinerama0 libx11-xcb1 libdbus-1-3 \
+    libegl1 libgl1 libglib2.0-0 \
     >/dev/null 2>&1 || true
+}
+
+kill_freecad_zombies() {
+  sudo pkill -9 -f 'FreeCAD.AppImage' 2>/dev/null || true
+  sudo pkill -9 -f 'mount_FreeCA' 2>/dev/null || true
+  sudo pkill -9 -f '/tmp/.mount_FreeCA' 2>/dev/null || true
+  sudo pkill -9 -f 'Xvfb :' 2>/dev/null || true
+}
+
+resolve_apt_freecad_bin() {
+  local c
+  for c in /usr/lib/freecad/bin/freecadcmd-python3 /usr/bin/freecadcmd /usr/bin/FreeCADCmd; do
+    if [[ -x "$c" ]]; then
+      echo "$c"
+      return 0
+    fi
+  done
+  return 1
+}
+
+write_freecad_wrapper() {
+  local fc_bin="$1"
+  sudo tee /usr/local/bin/FreeCADCmd >/dev/null <<WRAP
+#!/usr/bin/env bash
+export QT_QPA_PLATFORM="\${QT_QPA_PLATFORM:-offscreen}"
+export QT_LOGGING_RULES="\${QT_LOGGING_RULES:-*=false}"
+FC_BIN="$fc_bin"
+if command -v xvfb-run >/dev/null 2>&1; then
+  exec xvfb-run -a -s "-screen 0 1280x720x24 +extension GLX" env QT_QPA_PLATFORM="\$QT_QPA_PLATFORM" "\$FC_BIN" "\$@"
+fi
+exec env QT_QPA_PLATFORM="\$QT_QPA_PLATFORM" "\$FC_BIN" "\$@"
+WRAP
+  sudo chmod 755 /usr/local/bin/FreeCADCmd
+  sudo ln -sf /usr/local/bin/FreeCADCmd /usr/local/bin/freecadcmd
+}
+
+remove_appimage_install() {
+  kill_freecad_zombies
+  if [[ -f /opt/freecad/FreeCAD.AppImage ]]; then
+    sudo mv /opt/freecad/FreeCAD.AppImage "/opt/freecad/FreeCAD.AppImage.bak.$(date +%s)" 2>/dev/null || \
+      sudo rm -f /opt/freecad/FreeCAD.AppImage
+    echo "Archived /opt/freecad/FreeCAD.AppImage (apt is now primary)."
+  fi
+}
+
+install_apt_on_host() {
+  if [[ "$(uname -s)" != "Linux" ]]; then
+    echo "install_apt_on_host must run on Linux" >&2
+    exit 1
+  fi
+
+  ensure_linux_deps
+  sudo apt-get install -y -qq freecad freecad-python3
+
+  local fc_bin
+  fc_bin="$(resolve_apt_freecad_bin)" || {
+    echo "freecadcmd not found after apt install" >&2
+    exit 1
+  }
+
+  if [[ "${REMOVE_APPIMAGE:-1}" == "1" ]]; then
+    remove_appimage_install
+  fi
+
+  write_freecad_wrapper "$fc_bin"
+
+  sudo tee /etc/profile.d/freecad.sh >/dev/null <<'ENV'
+export FREECAD_BIN=/usr/local/bin/FreeCADCmd
+export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-offscreen}"
+ENV
+
+  verify_freecad_cmd /usr/local/bin/FreeCADCmd
+  echo "OK: FreeCAD apt at ${fc_bin} (wrapper /usr/local/bin/FreeCADCmd)"
+  echo "FREECAD_BIN=/usr/local/bin/FreeCADCmd"
 }
 
 verify_freecad_cmd() {
@@ -80,7 +158,7 @@ verify_freecad_cmd() {
     return 0
   fi
 
-  echo "Verifying ${bin} (first AppImage launch can take 2–3 min on a cold VM)…"
+  echo "Verifying ${bin} (Python smoke; do not use --version — it can SIGSEGV headless)…"
   local smoke="/tmp/freecad_install_smoke.py"
   printf '%s\n' 'print("freecad_smoke_ok")' > "$smoke"
 
@@ -142,6 +220,9 @@ install_on_host() {
 #!/usr/bin/env bash
 export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-offscreen}"
 export QT_LOGGING_RULES="${QT_LOGGING_RULES:-*=false}"
+if command -v xvfb-run >/dev/null 2>&1; then
+  exec xvfb-run -a -s "-screen 0 1280x720x24 +extension GLX" /opt/freecad/FreeCAD.AppImage FreeCADCmd "$@"
+fi
 exec /opt/freecad/FreeCAD.AppImage FreeCADCmd "$@"
 WRAP
   sudo chmod 755 /usr/local/bin/FreeCADCmd
@@ -232,23 +313,29 @@ remote_install_only() {
   echo "Done. ExecOS CAD jobs can use engine=freecad on ${GCP_VM_NAME}."
 }
 
+remote_run_apt_on_vm() {
+  if [[ ! -f "$INSTALL_SCRIPT" ]]; then
+    echo "Install script not found: $INSTALL_SCRIPT" >&2
+    exit 1
+  fi
+  gcloud compute ssh "$GCP_VM_NAME" \
+    --project="$GCP_PROJECT_ID" \
+    --zone="$GCP_ZONE" \
+    -- "INSTALL_APT_ON_HOST=1 REMOVE_APPIMAGE=1 bash -s" \
+    < "$INSTALL_SCRIPT"
+}
+
 remote_install_apt() {
   resolve_gcp
-  echo "→ Installing FreeCAD via apt on ${GCP_VM_NAME}…"
-  gcloud compute ssh "$GCP_VM_NAME" --project="$GCP_PROJECT_ID" --zone="$GCP_ZONE" -- bash -s <<'REMOTE'
-set -euo pipefail
-sudo apt-get update -qq
-sudo apt-get install -y -qq freecad freecad-python3 fuse libfuse2 xvfb libxcb-cursor0
-sudo tee /etc/profile.d/freecad.sh >/dev/null <<'ENV'
-export FREECAD_BIN=/usr/bin/FreeCADCmd
-export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-offscreen}"
-ENV
-export QT_QPA_PLATFORM=offscreen
-xvfb-run -a /usr/bin/FreeCADCmd --version 2>&1 | head -3 || FreeCADCmd --version 2>&1 | head -3
-echo "FREECAD_BIN=/usr/bin/FreeCADCmd"
-REMOTE
+  echo "→ Installing FreeCAD via apt on ${GCP_VM_NAME} (replaces AppImage wrapper)…"
+  remote_run_apt_on_vm
   echo "Done (apt). For 1.1.1 AppImage use --remote-download instead."
 }
+
+if [[ "${INSTALL_APT_ON_HOST:-}" == "1" ]]; then
+  install_apt_on_host
+  exit 0
+fi
 
 if [[ "$REMOTE_INSTALL_ONLY" -eq 1 ]]; then
   remote_install_only

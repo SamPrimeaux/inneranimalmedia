@@ -16,7 +16,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     blender \
     freecad \
     freecad-python3 \
+    xvfb \
+    libxcb-cursor0 \
   && rm -rf /var/lib/apt/lists/*
+
+# Headless wrapper — Ubuntu apt puts freecadcmd at /usr/lib/freecad/bin/freecadcmd-python3
+RUN FC_BIN="$(command -v freecadcmd-python3 || echo /usr/lib/freecad/bin/freecadcmd-python3)" \
+  && tee /usr/local/bin/FreeCADCmd >/dev/null <<WRAP
+#!/usr/bin/env bash
+export QT_QPA_PLATFORM="\${QT_QPA_PLATFORM:-offscreen}"
+export QT_LOGGING_RULES="\${QT_LOGGING_RULES:-*=false}"
+FC_BIN="$FC_BIN"
+if command -v xvfb-run >/dev/null 2>&1; then
+  exec xvfb-run -a -s "-screen 0 1280x720x24 +extension GLX" env QT_QPA_PLATFORM="\$QT_QPA_PLATFORM" "\$FC_BIN" "\$@"
+fi
+exec env QT_QPA_PLATFORM="\$QT_QPA_PLATFORM" "\$FC_BIN" "\$@"
+WRAP
+RUN chmod 755 /usr/local/bin/FreeCADCmd \
+  && ln -sf /usr/local/bin/FreeCADCmd /usr/local/bin/freecadcmd
 
 # Node 22 for pipeline runner + optional GLB polish
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
