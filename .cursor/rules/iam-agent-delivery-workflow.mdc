@@ -1,0 +1,22 @@
+---
+description: Mandatory delivery order for IAM in-app Agent Sam and Cursor — implement, validate, commit/push, deploy, follow up
+alwaysApply: true
+---
+
+# Agent delivery workflow (IAM — always on)
+
+Same contract as in-app Agent Sam (`agentsam_rules_document:rule_agent_delivery_workflow` + `src/core/agent-delivery-workflow.js`).
+
+**Applies when:** active workspace is an IAM build lane (`inneranimalmedia`, `fuelnfreetime`, `companionscpas`, `inneranimalmedia-mcp`, or `SamPrimeaux/inneranimalmedia*` repo). **Does not apply** to unrelated workspaces without a ship profile.
+
+## Order (unless user opts out)
+
+1. Complete the work end-to-end.
+2. Validate locally (build/lint/check touched files).
+3. Commit + push (why-focused message; no secrets).
+4. Deploy — `npm run deploy:full` from inneranimalmedia root; MCP: `cd inneranimalmedia-mcp-server && npm run deploy:full`; migrations via wrangler remote when SQL changed.
+5. Follow up — shipped, verified, git ref, 1–3 next steps.
+
+Opt-outs: `local only`, `no commit`, `no push`, `no deploy`, `plan only`, `review only`.
+
+Do not ask permission to commit/deploy when no opt-out was given.

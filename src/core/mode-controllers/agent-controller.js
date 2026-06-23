@@ -297,6 +297,18 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
       'If the user asks you to fix or implement something, explain the likely approach and suggest switching to Agent or Debug.';
   }
 
+  if (profile.mode !== 'ask' && workspaceId) {
+    try {
+      const { appendDeliveryWorkflowToPrompt } = await import('../agent-delivery-workflow.js');
+      systemPrompt = await appendDeliveryWorkflowToPrompt(env, systemPrompt, {
+        workspaceId,
+        mode: profile.mode,
+      });
+    } catch (e) {
+      console.warn('[agent-controller] delivery_workflow', e?.message ?? e);
+    }
+  }
+
   /** @type {Record<string, unknown>|null} */
   let capabilityDecision = null;
   if (message && (browserContextPayload || workspaceId)) {
