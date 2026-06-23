@@ -1730,3 +1730,210 @@
   .cad-dock__bar-label { display: none; }
   .cad-studio__statusbar-center { display: none; }
 }
+
+.cad-studio__panel-reopen--left {
+  left: 0;
+  right: auto;
+  border-left: none;
+  border-right: 1px solid #3a414a;
+  border-radius: 0 6px 6px 0;
+  box-shadow: 4px 0 12px rgba(0, 0, 0, 0.25);
+}
+
+.cad-editor--animation-library {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  background: var(--cs-bg-2);
+  border-right: 1px solid var(--cs-line-0);
+}
+
+.cad-anim-lib__head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-bottom: 1px solid var(--cs-line-0);
+  background: #1a1d21;
+  flex-shrink: 0;
+}
+
+.cad-anim-lib__tabs {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+
+.cad-anim-lib__tab {
+  flex: 1;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--cs-text-2);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.cad-anim-lib__tab.active {
+  color: #fff;
+  background: #252a31;
+  box-shadow: inset 0 -2px 0 var(--cs-green);
+}
+
+.cad-anim-lib__close {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  margin-right: 2px;
+  border: none;
+  background: transparent;
+  color: var(--cs-text-2);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.cad-anim-lib__close:hover {
+  color: #fff;
+  background: #2a3038;
+}
+
+.cad-anim-lib__search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 8px 6px;
+  flex-shrink: 0;
+}
+
+.cad-anim-lib__search-icon {
+  color: var(--cs-text-2);
+  flex-shrink: 0;
+}
+
+.cad-anim-lib__search {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  border-radius: 4px;
+  border: 1px solid var(--cs-line-1);
+  background: #14171b;
+  color: var(--cs-text-0);
+  font-size: 11px;
+  padding: 0 8px;
+}
+
+.cad-anim-lib__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 8px 8px;
+}
+
+.cad-anim-lib__empty {
+  font-size: 11px;
+  color: var(--cs-text-2);
+  padding: 12px 4px;
+}
+
+.cad-anim-lib__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.cad-anim-lib__card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  min-height: 88px;
+  padding: 0;
+  border: 1px solid #2f353d;
+  border-radius: 8px;
+  background: #1a1d21;
+  cursor: pointer;
+  text-align: left;
+}
+
+.cad-anim-lib__card:hover {
+  border-color: #4a5562;
+}
+
+.cad-anim-lib__card.active {
+  border-color: var(--cs-green);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cs-green) 35%, transparent);
+}
+
+.cad-anim-lib__silhouette {
+  flex: 1;
+  min-height: 52px;
+  margin: 6px 6px 0;
+  border-radius: 6px;
+  background-color: #2a3038;
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='14' r='8' fill='white'/%3E%3Cpath d='M18 58c2-14 10-22 14-22s12 8 14 22' fill='white'/%3E%3Cpath d='M12 34l8-6 4 8 6-10 6 10 4-8 8 6' fill='white'/%3E%3C/svg%3E");
+  mask-size: 42px 42px;
+  mask-repeat: no-repeat;
+  mask-position: center;
+  background: linear-gradient(180deg, #2a3038 0%, #1f242b 100%);
+}
+
+.cad-anim-lib__label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px 8px;
+  font-size: 10px;
+  color: var(--cs-text-1);
+}
+
+.cad-anim-lib__label-icon {
+  flex-shrink: 0;
+  color: var(--cs-text-2);
+}
+
+.cad-anim-lib__label-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cad-anim-lib__badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--cs-green);
+  color: #0d1a10;
+  font-size: 10px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+
+.cad-outliner__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--cs-line-0);
+  background: #1a1d21;
+}
+
+.cad-outliner__count {
+  font-size: 10px;
+  color: var(--cs-text-2);
+  font-family: var(--cs-mono);
+}
+
+.cad-editor--outliner-embedded .cad-studio__panel-head {
+  display: none;
+}
+
+.cad-studio__timeline-tracks {
+  max-height: 48px;
+}

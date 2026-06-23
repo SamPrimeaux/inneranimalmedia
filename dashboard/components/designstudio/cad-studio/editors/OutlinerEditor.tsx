@@ -10,6 +10,8 @@ export type OutlinerEditorProps = {
   onToggleVisibility?: (id: string) => void;
   onToggleSelectable?: (id: string) => void;
   onToggleRender?: (id: string) => void;
+  /** Hide duplicate header when nested inside RightPanelTabs. */
+  embedded?: boolean;
 };
 
 type CollectionFlags = Record<string, { visible: boolean; selectable: boolean; render: boolean }>;
@@ -22,6 +24,7 @@ export function OutlinerEditor({
   onToggleVisibility,
   onToggleSelectable,
   onToggleRender,
+  embedded = false,
 }: OutlinerEditorProps) {
   const [filter, setFilter] = useState('');
   const [flags, setFlags] = useState<CollectionFlags>({});
@@ -47,17 +50,29 @@ export function OutlinerEditor({
   };
 
   return (
-    <section className="cad-editor cad-editor--outliner">
-      <div className="cad-studio__panel-head cad-outliner__head">
-        <span>Scene Collection</span>
-        <input
-          className="cad-studio__search"
-          placeholder="Search"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-        />
-        <span>{entities.length}</span>
-      </div>
+    <section className={`cad-editor cad-editor--outliner${embedded ? ' cad-editor--outliner-embedded' : ''}`}>
+      {embedded ? (
+        <div className="cad-outliner__toolbar">
+          <input
+            className="cad-studio__search"
+            placeholder="Search collection"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+          />
+          <span className="cad-outliner__count">{entities.length}</span>
+        </div>
+      ) : (
+        <div className="cad-studio__panel-head cad-outliner__head">
+          <span>Scene Collection</span>
+          <input
+            className="cad-studio__search"
+            placeholder="Search"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+          />
+          <span>{entities.length}</span>
+        </div>
+      )}
       <div className="cad-outliner__body">
         <div className="cad-studio__tree">
         <div className="cad-studio__tree-row indent-0">

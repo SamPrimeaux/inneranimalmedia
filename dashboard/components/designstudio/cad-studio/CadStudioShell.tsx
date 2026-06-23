@@ -3,9 +3,9 @@
  * Phases 0–9: layout engine, editor primitives, full workspace parity, Chat-only agentic ops.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { PanelRightOpen } from 'lucide-react';
+import { PanelLeftOpen, PanelRightOpen } from 'lucide-react';
 import type { CadJobRow } from '../api';
-import { fetchCadJob } from '../api';
+import { fetchCadJob, fetchMeshyAnimationLibrary } from '../api';
 import type { SavedSceneRow } from '../shared/ScenePanel';
 import type { useDesignStudioCad } from '../hooks/useDesignStudioCad';
 import { useCadStudioProtocol } from './useCadStudioProtocol';
@@ -21,6 +21,7 @@ import { CreationPanelEditor } from './editors/CreationPanelEditor';
 import { CreativeToolDock, openOperatorDraft } from './CreativeToolDock';
 import { RightPanelTabs } from './RightPanelTabs';
 import { AssetLibraryFlyout } from './AssetLibraryFlyout';
+import { AnimationLibraryPanel, type AnimationClip } from './AnimationLibraryPanel';
 import { useVerticalResize } from './useVerticalResize';
 import type { DockDomainId } from './toolDockRegistry';
 import {
@@ -182,9 +183,9 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
   const [diagnosticsText, setDiagnosticsText] = useState('');
 
   const timelineResize = useVerticalResize({
-    initial: 140,
+    initial: 100,
     min: 72,
-    max: Math.min(520, Math.round(window.innerHeight * 0.55)),
+    max: Math.min(200, Math.round(window.innerHeight * 0.35)),
     invert: true,
   });
   const dockResize = useVerticalResize({
@@ -219,19 +220,38 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
     setUi((prev) => ({ ...prev, ...patch }));
   }, []);
 
+  const [animationClips, setAnimationClips] = useState<AnimationClip[]>([]);
+  const [animationClipsLoading, setAnimationClipsLoading] = useState(false);
+  const [selectedAnimationActionId, setSelectedAnimationActionId] = useState<number | null>(null);
+  const [addedAnimationIds, setAddedAnimationIds] = useState<number[]>([]);
+
   const rightPanelVisible =
     ui.panelVisibility.outliner || ui.panelVisibility.properties || ui.panelVisibility.assets;
+
+  const animLibVisible = ui.panelVisibility.animationLibrary;
 
   const layoutPanelVisibility = useMemo(
     () => ({
       ...ui.panelVisibility,
-      // Library flyout replaces the right rail — keep grid column collapsed while open.
+      // Asset flyout overlays the workspace — collapse right rail while open.
       outliner: libraryOpen ? false : ui.panelVisibility.outliner,
       properties: libraryOpen ? false : ui.panelVisibility.properties,
       assets: false,
     }),
     [ui.panelVisibility, libraryOpen],
   );
+
+  const closeAnimLib = useCallback(() => {
+    patchUi({
+      panelVisibility: { ...ui.panelVisibility, animationLibrary: false },
+    });
+  }, [patchUi, ui.panelVisibility]);
+
+  const openAnimLib = useCallback(() => {
+    patchUi({
+      panelVisibility: { ...ui.panelVisibility, animationLibrary: true },
+    });
+  }, [patchUi, ui.panelVisibility]);
 
   const closeRightPanel = useCallback(() => {
     patchUi({
@@ -250,8 +270,8 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
         rightPanelTab: tab,
         panelVisibility: {
           ...ui.panelVisibility,
-          outliner: true,
-          properties: true,
+          outliner: tab === 'outliner',
+          properties: tab === 'properties',
         },
       });
     },
@@ -267,11 +287,39 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
       if (e.key !== 'Escape') return;
       setLibraryOpen(false);
       closeRightPanel();
+      closeAnimLib();
       setActiveDockDomain(null);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [closeRightPanel]);
+  }, [closeRightPanel, closeAnimLib]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setAnimationClipsLoading(true);
+    void fetchMeshyAnimationLibrary()
+      .then((res) => {
+        if (cancelled) return;
+        const rows = Array.isArray(res.animations) ? res.animations : [];
+        const clips = rows
+          .map((row) => ({
+            action_id: Number(row.action_id),
+            name: String(row.name || 'Animation'),
+            category: row.category != null ? String(row.category) : undefined,
+          }))
+          .filter((row) => Number.isFinite(row.action_id));
+        setAnimationClips(clips);
+      })
+      .catch(() => {
+        if (!cancelled) setAnimationClips([]);
+      })
+      .finally(() => {
+        if (!cancelled) setAnimationClipsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const setWorkspace = useCallback((ws: WorkspaceId) => {
     patchUi({ workspace: ws });
@@ -555,6 +603,7 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
 
   const outlinerPanel = (
     <OutlinerEditor
+      embedded
       entities={entities}
       selectedId={selectedId}
       onSelect={onSelectEntity}
@@ -684,10 +733,37 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
   );
 
   const editors = {
+    animationLibrary: (
+      <AnimationLibraryPanel
+        clips={animationClips}
+        loading={animationClipsLoading}
+        selectedActionId={selectedAnimationActionId}
+        addedActionIds={addedAnimationIds}
+        onSelect={(clip) => {
+          setSelectedAnimationActionId(clip.action_id);
+          protocol.toast('Animation', clip.name);
+        }}
+        onToggleAdded={(actionId) => {
+          setAddedAnimationIds((prev) =>
+            prev.includes(actionId) ? prev.filter((id) => id !== actionId) : [...prev, actionId],
+          );
+        }}
+        onClose={closeAnimLib}
+      />
+    ),
     rightTabs: (
       <RightPanelTabs
         active={ui.rightPanelTab}
-        onChange={(tab) => patchUi({ rightPanelTab: tab })}
+        onChange={(tab) =>
+          patchUi({
+            rightPanelTab: tab,
+            panelVisibility: {
+              ...ui.panelVisibility,
+              outliner: tab === 'outliner',
+              properties: tab === 'properties',
+            },
+          })
+        }
         onClose={closeRightPanel}
       >
         {rightPanel}
@@ -866,7 +942,7 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
         onToggleOutliner={() => {
           if (rightPanelVisible && ui.panelVisibility.outliner) {
             patchUi({
-              panelVisibility: { ...ui.panelVisibility, outliner: false },
+              panelVisibility: { ...ui.panelVisibility, outliner: false, properties: false },
             });
           } else {
             openRightPanel('outliner');
@@ -875,12 +951,17 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
         onToggleProperties={() => {
           if (rightPanelVisible && ui.panelVisibility.properties) {
             patchUi({
-              panelVisibility: { ...ui.panelVisibility, properties: false },
+              panelVisibility: { ...ui.panelVisibility, outliner: false, properties: false },
             });
           } else {
             openRightPanel('properties');
           }
         }}
+        onToggleAnimationLibrary={() => {
+          if (animLibVisible) closeAnimLib();
+          else openAnimLib();
+        }}
+        animationLibraryOpen={animLibVisible}
         onToggleLibrary={() => {
           setLibraryOpen((open) => {
             const next = !open;
@@ -951,6 +1032,17 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
             onUpload={onImportGlb}
           />
         </AssetLibraryFlyout>
+        {!animLibVisible ? (
+          <button
+            type="button"
+            className="cad-studio__panel-reopen cad-studio__panel-reopen--left"
+            onClick={openAnimLib}
+            title="Show Animation Library"
+          >
+            <PanelLeftOpen size={14} strokeWidth={1.75} />
+            <span>Animations</span>
+          </button>
+        ) : null}
         {!rightPanelVisible ? (
           <button
             type="button"

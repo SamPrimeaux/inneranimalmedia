@@ -5,6 +5,7 @@ import { adjustLayoutForVisibility, getLayoutForWorkspace } from './layoutPreset
 export type WorkspaceLayoutEngineProps = {
   workspace: WorkspaceId;
   panelVisibility: {
+    animationLibrary: boolean;
     outliner: boolean;
     properties: boolean;
     assets: boolean;
@@ -62,6 +63,7 @@ export function WorkspaceLayoutEngine({
   const areaGroups = useMemo(() => {
     const hidden = new Set<EditorId>();
     if (!panelVisibility.toolShelf) hidden.add('toolShelf');
+    if (!panelVisibility.animationLibrary) hidden.add('animationLibrary');
     if (!panelVisibility.outliner) hidden.add('outliner');
     if (!panelVisibility.properties) hidden.add('properties');
     if (!panelVisibility.assets) hidden.add('assets');

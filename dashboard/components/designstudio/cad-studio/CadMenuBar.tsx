@@ -26,6 +26,8 @@ export type CadMenuBarProps = {
   onRenameSelected?: () => void;
   onToggleOutliner: () => void;
   onToggleProperties: () => void;
+  onToggleAnimationLibrary: () => void;
+  animationLibraryOpen?: boolean;
   onToggleLibrary: () => void;
   libraryOpen?: boolean;
   onToggleAssets: () => void;
@@ -112,6 +114,8 @@ export function CadMenuBar({
   onRenameSelected,
   onToggleOutliner,
   onToggleProperties,
+  onToggleAnimationLibrary,
+  animationLibraryOpen = false,
   onToggleLibrary,
   libraryOpen = false,
   onToggleAssets,
@@ -168,6 +172,7 @@ export function CadMenuBar({
         </MenuDropdown>
 
         <MenuDropdown label="Window">
+          <MenuItem label="Toggle Animation Library" onClick={onToggleAnimationLibrary} />
           <MenuItem label="Toggle Outliner" onClick={onToggleOutliner} />
           <MenuItem label="Toggle Properties" onClick={onToggleProperties} />
           <MenuItem label="Toggle Library" onClick={onToggleLibrary} />

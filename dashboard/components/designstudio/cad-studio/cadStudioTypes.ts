@@ -27,6 +27,7 @@ export type ViewTool = 'select' | 'move' | 'rotate' | 'scale';
 export type EditorId =
   | 'viewport'
   | 'viewportSecondary'
+  | 'animationLibrary'
   | 'outliner'
   | 'properties'
   | 'assets'
@@ -58,6 +59,7 @@ export type WorkspaceLayout = {
 };
 
 export type PanelVisibility = {
+  animationLibrary: boolean;
   outliner: boolean;
   properties: boolean;
   assets: boolean;
@@ -110,8 +112,9 @@ export type CadStudioUiState = {
 };
 
 export const DEFAULT_PANEL_VISIBILITY: PanelVisibility = {
-  outliner: true,
-  properties: true,
+  animationLibrary: true,
+  outliner: false,
+  properties: false,
   assets: true,
   timeline: true,
   toolShelf: false,
