@@ -1,21 +1,19 @@
 /**
- * DatabasePage — /dashboard/database
+ * DatabasePage — /dashboard/database and /dashboard/database/:databaseName
  *
  * Overview (default): database observability metrics via DatabasesTab.
- * Studio (on demand): lazy-mounted SQL explorer (DatabaseStudio).
+ * Studio: lazy-mounted SQL explorer (DatabaseStudio).
  */
 
-import React, { Suspense, lazy, useCallback, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import DatabasesTab from './analytics/tabs/DatabasesTab';
 
 const DatabaseStudio = lazy(() =>
   import('./DatabaseStudio').then((m) => ({ default: m.DatabaseStudio })),
 );
-
-type PageMode = 'overview' | 'studio';
 
 function studioDeepLinkParams(params: URLSearchParams): boolean {
   return (
@@ -37,15 +35,42 @@ function DatabaseStudioFallback() {
 }
 
 export const DatabasePage: React.FC = () => {
+  const { databaseName: routeDatabaseName } = useParams<{ databaseName?: string }>();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [mode, setMode] = useState<PageMode>(() =>
-    studioDeepLinkParams(searchParams) ? 'studio' : 'overview',
-  );
+  const databaseName = routeDatabaseName?.trim() || undefined;
+  const legacyStudio = !databaseName && studioDeepLinkParams(searchParams);
+
+  useEffect(() => {
+    if (databaseName || !legacyStudio) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/d1/context', { credentials: 'same-origin' });
+        const ctx = await res.json().catch(() => ({}));
+        if (cancelled || !res.ok) return;
+        const name =
+          typeof ctx.active_database_name === 'string' && ctx.active_database_name.trim()
+            ? ctx.active_database_name.trim()
+            : Array.isArray(ctx.databases) && ctx.databases[0]?.database_name
+              ? String(ctx.databases[0].database_name).trim()
+              : '';
+        if (name) {
+          navigate(`/dashboard/database/${encodeURIComponent(name)}`, { replace: true });
+        }
+      } catch {
+        /* keep legacy ?studio=1 */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [databaseName, legacyStudio, navigate]);
 
   const backToOverview = useCallback(() => {
-    setMode('overview');
+    navigate('/dashboard/database', { replace: true });
     setSearchParams({}, { replace: true });
-  }, [setSearchParams]);
+  }, [navigate, setSearchParams]);
 
   const onOverviewClickCapture = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
@@ -55,18 +80,25 @@ export const DatabasePage: React.FC = () => {
       const url = new URL(href, window.location.origin);
       if (!url.pathname.startsWith('/dashboard/database')) return;
       event.preventDefault();
+      const named = url.pathname.match(/^\/dashboard\/database\/([^/]+)/);
+      if (named?.[1]) {
+        navigate(`/dashboard/database/${decodeURIComponent(named[1])}`, { replace: false });
+        return;
+      }
       if (studioDeepLinkParams(url.searchParams)) {
         setSearchParams(Object.fromEntries(url.searchParams.entries()), { replace: true });
+        navigate('/dashboard/database?studio=1', { replace: true });
+        return;
       }
-      setMode('studio');
+      navigate('/dashboard/database?studio=1', { replace: true });
     },
-    [setSearchParams],
+    [navigate, setSearchParams],
   );
 
-  if (mode === 'studio') {
+  if (databaseName || legacyStudio) {
     return (
       <Suspense fallback={<DatabaseStudioFallback />}>
-        <DatabaseStudio onBackToOverview={backToOverview} />
+        <DatabaseStudio databaseName={databaseName} onBackToOverview={backToOverview} />
       </Suspense>
     );
   }

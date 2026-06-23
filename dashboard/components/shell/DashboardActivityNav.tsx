@@ -156,7 +156,7 @@ export function DashboardActivityNav({
         icon={Database}
         label="D1 Explorer"
         expanded={expanded}
-        active={location.pathname === '/dashboard/database'}
+        active={location.pathname.startsWith('/dashboard/database')}
         onClick={() => go('/dashboard/database')}
       />
       <ActivityRailItem

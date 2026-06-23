@@ -5,8 +5,16 @@ import { resolveCanonicalUserId } from '../api/auth.js';
 import { authUserIsSuperadmin, fetchAuthUserTenantId } from './auth.js';
 import { resolveEffectiveWorkspaceId } from './bootstrap.js';
 import { canUsePlatformDataPlane } from './workspace-spend-guard.js';
-import { resolveWorkspaceMemberD1Grant } from './workspace-d1-access.js';
+import {
+  listAccessibleD1Databases,
+  resolveD1GrantByDatabaseName,
+  resolveWorkspaceMemberD1Grant,
+} from './workspace-d1-access.js';
 import { createRemoteD1Adapter } from './remote-d1-adapter.js';
+
+function trimHeader(v) {
+  return v == null ? '' : String(v).trim();
+}
 
 /**
  * Canonical user + workspace + tenant for scoped D1 reads/writes.
@@ -47,10 +55,18 @@ export async function resolveUserWorkspaceBinding(env, userId, authUser, request
   void userId;
   const isSuper = authUserIsSuperadmin(authUser);
   let workspaceId = '';
+  let databaseName = '';
 
   if (request) {
+    databaseName = trimHeader(request?.headers?.get?.('x-iam-database-name'));
     const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {});
     workspaceId = String(wsRes?.workspaceId || '').trim();
+  }
+
+  if (databaseName) {
+    const grant = await resolveD1GrantByDatabaseName(env, authUser, databaseName);
+    if (grant) return createRemoteD1Adapter(grant);
+    return null;
   }
 
   if (workspaceId) {
@@ -64,6 +80,32 @@ export async function resolveUserWorkspaceBinding(env, userId, authUser, request
 
   if (isSuper && env?.DB) return env.DB;
   return null;
+}
+
+/**
+ * Database Studio context — accessible catalogs + active database from headers.
+ * @param {unknown} env
+ * @param {unknown} authUser
+ * @param {unknown} [request]
+ */
+export async function resolveD1DashboardContext(env, authUser, request = null) {
+  const databases = await listAccessibleD1Databases(env, authUser);
+  let activeDatabaseName = request ? trimHeader(request?.headers?.get?.('x-iam-database-name')) : '';
+
+  if (!activeDatabaseName && request) {
+    const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {});
+    const workspaceId = trimHeader(wsRes?.workspaceId);
+    if (workspaceId) {
+      const match = databases.find((d) => d.workspace_id === workspaceId);
+      if (match) activeDatabaseName = match.database_name;
+    }
+  }
+
+  return {
+    databases,
+    active_database_name: activeDatabaseName || null,
+    platform_available: authUserIsSuperadmin(authUser),
+  };
 }
 
 /**

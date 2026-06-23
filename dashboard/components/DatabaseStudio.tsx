@@ -6,7 +6,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   AlertTriangle,
   ChevronLeft,
@@ -244,16 +244,19 @@ function SetupCard({ title, body, to }: { title: string; body: string; to: strin
 }
 
 export type DatabaseStudioProps = {
+  databaseName?: string;
   onBackToOverview?: () => void;
 };
 
-export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ onBackToOverview }) => {
+export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, onBackToOverview }) => {
   const { workspaceId } = useWorkspace();
+  const navigate = useNavigate();
   const [sidebarSource, setSidebarSource] = useState<Datasource>(readStoredDatasource);
   const datasource: Datasource = sidebarSource;
   const [tables, setTables] = useState<Record<Datasource, TableMeta[]>>({ d1: [], hyperdrive: [] });
   const [d1Status, setD1Status] = useState<LoadStatus>('idle');
   const [d1OnboardingRequired, setD1OnboardingRequired] = useState(false);
+  const [d1LoadError, setD1LoadError] = useState<string | null>(null);
   const [hyperStatus, setHyperStatus] = useState<LoadStatus>('idle');
   const [tableSearch, setTableSearch] = useState('');
   const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
@@ -308,7 +311,9 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ onBackToOverview
   const [editingCell, setEditingCell] = useState<{ rowKey: string; col: string; value: string } | null>(null);
 
   const [isSuperadmin, setIsSuperadmin] = useState(false);
-  const [studioSection, setStudioSection] = useState<StudioSection>('public_learning');
+  const [studioSection, setStudioSection] = useState<StudioSection>(() =>
+    databaseName?.trim() ? 'workspace_d1' : 'public_learning',
+  );
   const [learningTables, setLearningTables] = useState<TableMeta[]>([]);
   const [learningStatus, setLearningStatus] = useState<LoadStatus>('idle');
   const [supabaseConnected, setSupabaseConnected] = useState(false);
@@ -319,17 +324,17 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ onBackToOverview
 
   const d1FetchInit = useCallback(
     (init?: RequestInit): RequestInit => {
-      const ws = workspaceId?.trim();
-      if (!ws) return init || {};
-      return {
-        ...init,
-        headers: {
-          ...((init?.headers as Record<string, string> | undefined) || {}),
-          'X-IAM-Workspace-Id': ws,
-        },
+      const headers: Record<string, string> = {
+        ...((init?.headers as Record<string, string> | undefined) || {}),
       };
+      const ws = workspaceId?.trim();
+      if (ws) headers['X-IAM-Workspace-Id'] = ws;
+      const dbName = databaseName?.trim();
+      if (dbName) headers['X-IAM-Database-Name'] = dbName;
+      if (!ws && !dbName) return init || {};
+      return { ...init, headers };
     },
-    [workspaceId],
+    [workspaceId, databaseName],
   );
 
   const fetchD1Json = useCallback(
@@ -349,7 +354,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ onBackToOverview
   const sqlRunning = sqlRunState === 'running';
 
   const effectiveDatasource: Datasource =
-    !isSuperadmin && studioSection === 'workspace_d1' ? 'd1' : datasource;
+    databaseName?.trim() || (!isSuperadmin && studioSection === 'workspace_d1') ? 'd1' : datasource;
 
   const activeTables =
     !isSuperadmin && studioSection === 'public_learning'
@@ -358,7 +363,9 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ onBackToOverview
         ? tables.d1
         : tables[datasource];
   const datasourceLabel =
-    !isSuperadmin && studioSection === 'public_learning'
+    databaseName?.trim()
+      ? `${databaseName.trim()} · Cloudflare D1`
+      : !isSuperadmin && studioSection === 'public_learning'
       ? 'Public learning (public.iam_*)'
       : !isSuperadmin && studioSection === 'workspace_d1'
         ? 'Workspace D1 (Cloudflare SQLite)'
@@ -463,18 +470,18 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ onBackToOverview
       const payload = await fetchJson<{ capabilities?: { is_superadmin?: boolean } }>('/api/integrations/summary');
       const superadmin = payload.capabilities?.is_superadmin === true;
       setIsSuperadmin(superadmin);
-      if (!superadmin) {
+      if (!superadmin && !databaseName?.trim()) {
         setStudioSection('public_learning');
       }
       return superadmin;
     } catch {
       setIsSuperadmin(false);
-      setStudioSection('public_learning');
+      if (!databaseName?.trim()) setStudioSection('public_learning');
       return false;
     } finally {
       setCapLoaded(true);
     }
-  }, []);
+  }, [databaseName]);
 
   const loadDataPlaneContext = useCallback(async (superadmin: boolean) => {
     try {
@@ -484,13 +491,13 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ onBackToOverview
         connections?: { supabase?: boolean };
       }>('/api/data-plane/context');
       setSupabaseConnected(ctx.connections?.supabase === true);
-      if (!superadmin && ctx.active_data_plane === 'customer_supabase' && ctx.connections?.supabase) {
+      if (!superadmin && !databaseName?.trim() && ctx.active_data_plane === 'customer_supabase' && ctx.connections?.supabase) {
         setStudioSection('customer_supabase');
       }
     } catch {
       /* ignore */
     }
-  }, []);
+  }, [databaseName]);
 
   const loadPublicLearningTables = useCallback(async () => {
     setLearningStatus('loading');
@@ -511,8 +518,10 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ onBackToOverview
   }, []);
 
   const loadTables = useCallback(async (target: Datasource) => {
-    if (target === 'd1') setD1Status('loading');
-    else setHyperStatus('loading');
+    if (target === 'd1') {
+      setD1Status('loading');
+      setD1LoadError(null);
+    } else setHyperStatus('loading');
     setLoadingTables(true);
     const endpoint = target === 'd1' ? '/api/d1/tables' : '/api/hyperdrive/tables';
 
@@ -533,6 +542,12 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ onBackToOverview
       if (target === 'd1') {
         const onboarding = (payload as { onboarding_required?: boolean }).onboarding_required === true;
         setD1OnboardingRequired(onboarding);
+        if (onboarding) {
+          const msg =
+            (payload as { message?: string }).message ||
+            'Connect your Cloudflare D1 to use Database Studio';
+          setD1LoadError(msg);
+        }
         if (!isSuperadmin) {
           setWorkspaceD1Available(!onboarding && normalizeTables(payload).length > 0);
         }
@@ -550,16 +565,48 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ onBackToOverview
         await new Promise((r) => setTimeout(r, 1000));
         await loadOnce();
       }
-    } catch {
+    } catch (e) {
       setTables((prev) => ({ ...prev, [target]: [] }));
       if (target === 'd1') {
         setD1Status('error');
+        setD1LoadError(e instanceof Error ? e.message : String(e));
         if (!isSuperadmin) setWorkspaceD1Available(false);
       } else setHyperStatus('error');
     } finally {
       setLoadingTables(false);
     }
-  }, [d1FetchInit, isSuperadmin]);
+  }, [d1FetchInit, isSuperadmin, databaseName]);
+
+  useEffect(() => {
+    if (databaseName?.trim()) {
+      setStudioSection('workspace_d1');
+      setSidebarSource('d1');
+    }
+  }, [databaseName]);
+
+  useEffect(() => {
+    if (databaseName?.trim() || !workspaceId?.trim() || !pageReady) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const ctx = await fetchD1Json<{
+          databases?: Array<{ database_name: string; workspace_id: string }>;
+          active_database_name?: string | null;
+        }>('/api/d1/context');
+        if (cancelled) return;
+        const match = ctx.databases?.find((d) => d.workspace_id === workspaceId);
+        const name = match?.database_name || ctx.active_database_name || '';
+        if (name.trim()) {
+          navigate(`/dashboard/database/${encodeURIComponent(name.trim())}`, { replace: true });
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [databaseName, workspaceId, pageReady, fetchD1Json, navigate]);
 
   const loadSchema = useCallback(
     async (table: string) => {
@@ -580,14 +627,20 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ onBackToOverview
     [activeTables, effectiveDatasource, fetchD1Json],
   );
 
+  }, [databaseName]);
+
   useEffect(() => {
     let cancelled = false;
-    const initialDs = readStoredDatasource();
+    const initialDs = databaseName?.trim() ? 'd1' : readStoredDatasource();
     (async () => {
       const [, superadmin] = await Promise.all([loadThemeAccent(), loadCapabilities()]);
       if (cancelled) return;
       setPageReady(true);
       void loadDataPlaneContext(superadmin);
+      if (databaseName?.trim()) {
+        void loadTables('d1');
+        return;
+      }
       if (superadmin) {
         void loadTables(initialDs);
         if (initialDs === 'd1') {
@@ -601,18 +654,28 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ onBackToOverview
     return () => {
       cancelled = true;
     };
-  }, [loadCapabilities, loadDataPlaneContext, loadPublicLearningTables, loadTables, loadThemeAccent, workspaceId]);
+  }, [databaseName, loadCapabilities, loadDataPlaneContext, loadPublicLearningTables, loadTables, loadThemeAccent, workspaceId]);
 
   useEffect(() => {
-    if (!capLoaded || isSuperadmin || !workspaceD1Available) return;
+    if (!pageReady) return;
+    if (databaseName?.trim()) {
+      void loadTables('d1');
+      return;
+    }
+    if (isSuperadmin && sidebarSource === 'd1') {
+      void loadTables('d1');
+      return;
+    }
+    if (!isSuperadmin && workspaceId?.trim()) {
+      void loadTables('d1');
+    }
+  }, [pageReady, workspaceId, databaseName, isSuperadmin, sidebarSource, loadTables]);
+
+  useEffect(() => {
+    if (!capLoaded || isSuperadmin || databaseName?.trim() || !workspaceD1Available) return;
     setStudioSection((prev) => (prev === 'public_learning' ? 'workspace_d1' : prev));
     setSidebarSource('d1');
-  }, [capLoaded, isSuperadmin, workspaceD1Available]);
-
-  useEffect(() => {
-    if (!pageReady || isSuperadmin || !workspaceId?.trim()) return;
-    void loadTables('d1');
-  }, [pageReady, isSuperadmin, workspaceId, loadTables]);
+  }, [capLoaded, isSuperadmin, workspaceD1Available, databaseName]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1002,7 +1065,9 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ onBackToOverview
         : selectedCell?.row ?? null;
     const cellRow = selectedCell?.row ?? null;
     const payload: DatabaseSurfaceContext = {
-      route: '/dashboard/database',
+      route: databaseName?.trim()
+        ? `/dashboard/database/${encodeURIComponent(databaseName.trim())}`
+        : '/dashboard/database',
       surface: 'database',
       datasource,
       dialect,
@@ -1568,7 +1633,15 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ onBackToOverview
           })}
           {!filteredTables.length && (
             <p className="p-4 text-center font-mono text-[11px] text-[var(--text-muted)]">
-              {!pageReady ? 'Loading tables…' : loadingTables ? 'Loading tables…' : sidebarEmptyMuted ? '—' : 'No tables match'}
+              {!pageReady
+                ? 'Loading tables…'
+                : d1LoadError
+                  ? d1LoadError
+                  : loadingTables
+                    ? 'Loading tables…'
+                    : sidebarEmptyMuted
+                      ? '—'
+                      : 'No tables match'}
             </p>
           )}
         </div>

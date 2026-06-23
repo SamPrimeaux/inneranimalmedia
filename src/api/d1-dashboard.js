@@ -17,7 +17,7 @@ import {
   parseDatabaseFiltersJson,
 } from '../core/database-table-filters.js';
 import { resolveCanonicalUserId } from './auth.js';
-import { resolveUserWorkspaceBinding } from '../core/data-isolation-scope.js';
+import { resolveUserWorkspaceBinding, resolveD1DashboardContext } from '../core/data-isolation-scope.js';
 
 export { resolveUserWorkspaceBinding };
 
@@ -64,6 +64,11 @@ export async function handleD1DashboardRoutes(request, url, env) {
   if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
 
   const { db: userDb } = await requireScopedD1(env, authUser, request);
+
+  if (pathLower === '/api/d1/context' && method === 'GET') {
+    const ctx = await resolveD1DashboardContext(env, authUser, request);
+    return jsonResponse(ctx);
+  }
 
   if (pathLower === '/api/d1/tables' && method === 'GET') {
     if (!userDb) return d1OnboardingResponse();

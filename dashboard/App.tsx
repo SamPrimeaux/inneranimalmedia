@@ -3971,6 +3971,14 @@ const App: React.FC = () => {
                       <Route path="/dashboard/learn" element={<LearnPage />} />
                       <Route path="/dashboard/workflows" element={<WorkflowsPage />} />
                       <Route
+                        path="/dashboard/database/:databaseName"
+                        element={
+                          <div className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
+                            <DatabasePage />
+                          </div>
+                        }
+                      />
+                      <Route
                         path="/dashboard/database"
                         element={
                           <div className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden">
@@ -4575,7 +4583,7 @@ const App: React.FC = () => {
         </button>
         <button
           type="button"
-          className={`flex flex-1 flex-col items-center justify-center min-h-[44px] gap-0.5 px-0.5 text-[10px] font-medium leading-tight ${location.pathname === '/dashboard/database' ? 'text-[var(--solar-cyan)]' : 'text-[var(--text-muted)]'}`}
+          className={`flex flex-1 flex-col items-center justify-center min-h-[44px] gap-0.5 px-0.5 text-[10px] font-medium leading-tight ${location.pathname.startsWith('/dashboard/database') ? 'text-[var(--solar-cyan)]' : 'text-[var(--text-muted)]'}`}
           onClick={() => navigate('/dashboard/database')}
         >
           <Database size={24} strokeWidth={1.5} aria-hidden />
