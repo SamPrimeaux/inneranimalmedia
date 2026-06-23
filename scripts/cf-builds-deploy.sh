@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Local / bash environments — CF Builds uses: npm run deploy:cf-builds (node scripts/cf-builds-deploy.mjs).
 # Workers Builds deploy step — use pinned wrangler from package-lock and retry transient 100146.
 set -euo pipefail
 

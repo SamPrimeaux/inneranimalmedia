@@ -24,6 +24,7 @@
     "start": "echo 'Use: npm run deploy:full (prod) or npx wrangler dev -c wrangler.production.toml' && exit 1",
     "deploy": "./scripts/with-cloudflare-env.sh npm exec -- wrangler deploy -c wrangler.production.toml",
     "deploy:worker": "./scripts/with-cloudflare-env.sh npm exec -- wrangler deploy -c wrangler.production.toml",
+    "deploy:cf-builds": "node scripts/cf-builds-deploy.mjs",
     "deploy:frontend": "bash scripts/deploy-frontend.sh",
     "pwa:sync-icons": "node scripts/pwa/sync-pwa-icons-from-cf-images.mjs",
     "generate:route-map": "node scripts/generate-route-map.js",
