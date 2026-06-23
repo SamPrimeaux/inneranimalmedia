@@ -29,7 +29,7 @@ SET
   slug = 'inneranimalmedia',
   status = 'active',
   brand = NULL,
-  category = 'platform',
+  category = 'entity',
   updated_at = unixepoch()
 WHERE id = 'ws_inneranimalmedia';
 
