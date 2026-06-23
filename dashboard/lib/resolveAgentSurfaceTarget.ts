@@ -51,6 +51,10 @@ export type ResolvedAgentSurfaceAction = {
   reason?: string;
 };
 
+function isHtmlArtifactKey(key: string): boolean {
+  return /\.(?:html?|dc\.html)$/i.test(key.trim());
+}
+
 function normalizeTarget(raw: unknown): AgentSurfaceTarget | null {
   if (!raw || typeof raw !== 'object') return null;
   const o = raw as Record<string, unknown>;
@@ -232,7 +236,7 @@ export function resolveAgentSurfaceTarget(detail: AgentSurfaceOpenDetail): Resol
     case 'r2':
       return {
         ...base,
-        surface: target.preview ? 'browser' : 'r2',
+        surface: target.preview && isHtmlArtifactKey(target.key) ? 'code' : target.preview ? 'browser' : 'r2',
         r2: { bucket: target.bucket, key: target.key, preview: target.preview },
       };
     case 'github':

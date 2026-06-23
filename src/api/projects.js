@@ -243,6 +243,62 @@ async function handleOverview(request, url, env, authUser) {
     return jsonResponse({ ok: false, error: String(e.message || e) }, 500);
   }
 
+  if (workspaceId) {
+    try {
+      const { results: wpRows } = await env.DB.prepare(
+        `SELECT id, name, slug, description, client_company, project_type, status, metadata_json, workspace_id, tenant_id
+         FROM workspace_projects
+         WHERE workspace_id = ?
+         ORDER BY name ASC`,
+      )
+        .bind(workspaceId)
+        .all();
+      const existingIds = new Set(projectRows.map((r) => String(r.id)));
+      for (const wp of wpRows || []) {
+        let linkedId = null;
+        try {
+          const meta =
+            typeof wp.metadata_json === 'string'
+              ? JSON.parse(wp.metadata_json || '{}')
+              : wp.metadata_json || {};
+          linkedId = meta.projects_table_id ? String(meta.projects_table_id) : null;
+        } catch {
+          linkedId = null;
+        }
+        if (linkedId && existingIds.has(linkedId)) continue;
+        if (linkedId) {
+          const linked = await env.DB.prepare(`SELECT * FROM projects WHERE id = ?`).bind(linkedId).first();
+          if (linked) {
+            projectRows.push(linked);
+            existingIds.add(linkedId);
+            continue;
+          }
+        }
+        const presetId = linkedId || String(wp.id);
+        if (existingIds.has(presetId)) continue;
+        projectRows.push({
+          id: presetId,
+          name: wp.name,
+          client_name: wp.client_company || wp.name,
+          description: wp.description || '',
+          status: wp.status || 'active',
+          priority: 2,
+          project_type: wp.project_type || '',
+          workspace_id: wp.workspace_id,
+          tenant_id: wp.tenant_id,
+          tags_json: '[]',
+          owner_user_id: null,
+          budget_tokens: 0,
+          tokens_used: 0,
+          estimated_completion_date: null,
+        });
+        existingIds.add(presetId);
+      }
+    } catch {
+      /* workspace_projects optional */
+    }
+  }
+
   const projectIds = projectRows.map((r) => String(r.id));
 
   const [planTasks, qualityMap, issuesMap, goalsRows] = await Promise.all([

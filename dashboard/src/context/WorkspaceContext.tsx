@@ -137,6 +137,19 @@ async function fetchSettingsWorkspaces(): Promise<IamWorkspaceSessionPayload | n
   };
 }
 
+function preserveLocalWorkspaceCurrent(
+  payload: IamWorkspaceSessionPayload,
+  preferredId: string | null | undefined,
+  userId: string | null,
+): IamWorkspaceSessionPayload {
+  const cached = readIamWorkspaceSession(userId);
+  const local =
+    (typeof preferredId === "string" ? preferredId.trim() : "") ||
+    (typeof cached?.current === "string" ? cached.current.trim() : "");
+  if (!local || !payload.data.some((w) => w.id === local)) return payload;
+  return { ...payload, current: local };
+}
+
 export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const [sessionUserId, setSessionUserId] = useState<string | null>(null);
   const [workspaceId, setWorkspaceIdState] = useState<string | null>(null);
@@ -144,13 +157,31 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const sessionUserIdRef = useRef<string | null>(null);
+  const workspaceIdRef = useRef<string | null>(null);
+  /** Holds user-selected workspace until server refresh confirms the same id. */
+  const userPickedWorkspaceRef = useRef<string | null>(null);
   const bootstrapDoneRef = useRef(false);
+
+  useEffect(() => {
+    workspaceIdRef.current = workspaceId;
+  }, [workspaceId]);
 
   const hydrateFromPayload = useCallback((payload: IamWorkspaceSessionPayload, userId: string | null) => {
     const applied = applySessionPayload(payload, userId);
     setWorkspaces(applied.workspaceRows);
-    if (applied.workspaceId) setWorkspaceIdState(applied.workspaceId);
-    if (applied.displayName) setDisplayName(applied.displayName);
+    const preferred = userPickedWorkspaceRef.current || workspaceIdRef.current;
+    const nextId =
+      preferred && applied.workspaceRows.some((w) => w.id === preferred)
+        ? preferred
+        : applied.workspaceId;
+    if (nextId) setWorkspaceIdState(nextId);
+    const row = nextId ? applied.workspaceRows.find((w) => w.id === nextId) : null;
+    if (row?.name?.trim()) setDisplayName(row.name.trim());
+    else if (applied.displayName) setDisplayName(applied.displayName);
+    const serverCurrent = typeof payload.current === "string" ? payload.current.trim() : "";
+    if (userPickedWorkspaceRef.current && serverCurrent === userPickedWorkspaceRef.current) {
+      userPickedWorkspaceRef.current = null;
+    }
   }, []);
 
   const refreshWorkspaces = useCallback(async (opts?: { force?: boolean }) => {
@@ -169,8 +200,13 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       const payload = await fetchSettingsWorkspaces();
       if (!payload) return;
       payload.sessionUserId = userId;
-      writeIamWorkspaceSession(payload);
-      hydrateFromPayload(payload, userId);
+      const merged = preserveLocalWorkspaceCurrent(
+        payload,
+        userPickedWorkspaceRef.current || workspaceIdRef.current,
+        userId,
+      );
+      writeIamWorkspaceSession(merged);
+      hydrateFromPayload(merged, userId);
     } finally {
       setLoading(false);
     }
@@ -189,6 +225,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       const userId = sessionUserIdRef.current;
+      userPickedWorkspaceRef.current = trimmed;
+      workspaceIdRef.current = trimmed;
       setWorkspaceIdState(trimmed);
       if (meta?.displayName?.trim()) setDisplayName(meta.displayName.trim());
       else {
@@ -334,8 +372,13 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
           const fresh = await fetchSettingsWorkspaces();
           if (!cancelled && fresh) {
             fresh.sessionUserId = userId;
-            writeIamWorkspaceSession(fresh);
-            hydrateFromPayload(fresh, userId);
+            const merged = preserveLocalWorkspaceCurrent(
+              fresh,
+              userPickedWorkspaceRef.current || workspaceIdRef.current,
+              userId,
+            );
+            writeIamWorkspaceSession(merged);
+            hydrateFromPayload(merged, userId);
           }
         } catch {
           /* cache hydrate already applied */
@@ -351,8 +394,13 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         const payload = await fetchSettingsWorkspaces();
         if (cancelled || !payload) return;
         payload.sessionUserId = userId;
-        writeIamWorkspaceSession(payload);
-        hydrateFromPayload(payload, userId);
+        const merged = preserveLocalWorkspaceCurrent(
+          payload,
+          userPickedWorkspaceRef.current || workspaceIdRef.current,
+          userId,
+        );
+        writeIamWorkspaceSession(merged);
+        hydrateFromPayload(merged, userId);
       } catch {
         /* ignore */
       }

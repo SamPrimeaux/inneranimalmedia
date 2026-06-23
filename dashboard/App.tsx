@@ -211,7 +211,7 @@ function escapeHtmlForPreview(s: string): string {
     .replace(/"/g, '&quot;');
 }
 
-/** Tab-bar Preview is shown for these extensions (blob / wrapped HTML in Browser tab). */
+/** Tab-bar Preview is shown for these extensions (inline EditorPreviewPane, not BrowserView). */
 function isRenderablePreviewFilename(name: string): boolean {
   return /\.(html?|svg|md|jsx|tsx)$/i.test(name.trim());
 }
@@ -2211,7 +2211,29 @@ const App: React.FC = () => {
 
       if (resolved.surface === 'r2') {
         if (resolved.r2?.bucket && resolved.r2?.key && resolved.r2.preview) {
-          const previewUrl = buildR2ObjectUrl(resolved.r2.bucket, resolved.r2.key);
+          const bucket = resolved.r2.bucket;
+          const key = resolved.r2.key;
+          if (/\.(?:html?|dc\.html)$/i.test(key)) {
+            void (async () => {
+              const { openR2KeyInEditor } = await import('./src/lib/mediaPreview');
+              const opened = await openR2KeyInEditor(bucket, key, (f) => {
+                const prepared = prepareActiveFileForEditor(f);
+                openFile(prepared);
+                openTab('code');
+                window.setTimeout(() => {
+                  window.dispatchEvent(
+                    new CustomEvent('iam:open-editor-preview', { detail: { file: prepared } }),
+                  );
+                }, 0);
+              });
+              if (!opened) {
+                setToastMsg('Could not open HTML artifact for preview.');
+              }
+              return;
+            })();
+            return;
+          }
+          const previewUrl = buildR2ObjectUrl(bucket, key);
           setBrowserPreviewSource('agent');
           setBrowserUrl(previewUrl);
           openTab('browser');
@@ -3216,93 +3238,120 @@ const App: React.FC = () => {
     }, 50);
   }, []);
 
-  /** Preview: HTML opens full Browser tab (toolbar + DevTools); SVG/MD inline; JSX/TSX via dev server. */
-  const openEditorPreview = useCallback(() => {
-    if (!activeFile?.content) return;
-    const name = activeFile.name || '';
-    if (!isRenderablePreviewFilename(name)) return;
+  /** Preview: HTML/SVG/MD use EditorPreviewPane; JSX/TSX via dev server; BrowserView is for live URLs only. */
+  const openEditorPreviewForFile = useCallback(
+    (file: ActiveFile) => {
+      const name = file.name || '';
+      if (!isRenderablePreviewFilename(name)) return;
+      if (!file.content?.trim() && !(file.r2Bucket?.trim() && file.r2Key?.trim())) return;
 
-    const bytes = new TextEncoder().encode(activeFile.content).length;
-    const ext = name.split('.').pop()?.toLowerCase() ?? '';
-
-    if (ext === 'html' || ext === 'htm') {
-      closeEditorPreview();
-      if (bytes >= PREVIEW_WARN_BYTES) {
-        setToastMsg(`Large file (${(bytes / 1e6).toFixed(1)} MB) — preview may be slow.`);
-      }
-      const file = activeFile;
+      const content = file.content ?? '';
+      const bytes = new TextEncoder().encode(content).length;
+      const ext = name.split('.').pop()?.toLowerCase() ?? '';
+      const mode = resolvePreviewMode({ fileName: name, workspace: ideWorkspace, bytes });
       const r2Bucket = file.r2Bucket?.trim();
       const r2Key = file.r2Key?.trim();
-      if (r2Bucket && r2Key) {
-        openBrowserTab(buildR2ObjectUrl(r2Bucket, r2Key), {
-          addressDisplay: previewAddressBarLabel(file),
-          tabTitle: file.name?.trim() ? `Preview · ${file.name.trim()}` : 'Preview',
-          previewSource: 'editor',
-        });
-      } else {
-        const blob = new Blob([file.content], { type: 'text/html;charset=utf-8' });
-        openPreviewBlob(blob, file);
-      }
-      return;
-    }
+      const isHtml = ext === 'html' || ext === 'htm';
 
-    const mode = resolvePreviewMode({ fileName: name, workspace: ideWorkspace, bytes });
+      setEditorPreviewOpen(true);
+      setOpenTabs((prev) => (prev.includes('code') ? prev : [...prev, 'code']));
+      setActiveTab('code');
 
-    setEditorPreviewOpen(true);
-    setOpenTabs((prev) => (prev.includes('code') ? prev : [...prev, 'code']));
-    setActiveTab('code');
-
-    if (mode === 'srcdoc') {
-      if (ext === 'svg' && !activeFile.content.trim()) {
-        setToastMsg('SVG is empty — nothing to preview.');
-        return;
-      }
-      if (bytes >= PREVIEW_WARN_BYTES && (ext === 'html' || ext === 'htm' || ext === 'md')) {
-        setToastMsg(`Large file (${(bytes / 1e6).toFixed(1)} MB) — preview may be slow.`);
-      }
-      const hasRelativeAssets =
-        (ext === 'html' || ext === 'htm') &&
-        (/<script[^>]+src=["'](?!https?:\/\/|\/\/|data:|blob:)[^"']+["']/i.test(activeFile.content) ||
-          /<link[^>]+href=["'](?!https?:\/\/|\/\/|data:|blob:)[^"']*\.(?:css|js)["']/i.test(
-            activeFile.content,
-          ));
-      setEditorPreviewMode('srcdoc');
-      setEditorPreviewSrcDoc(buildPreviewSrcDoc(name, activeFile.content));
-      setEditorPreviewUrl(null);
-      setEditorPreviewLoading(false);
-      setEditorPreviewStatus(
-        hasRelativeAssets
-          ? 'Relative assets may not resolve in inline preview — use a dev server for full fidelity.'
-          : null,
-      );
-      setTimeout(() => {
-        window.dispatchEvent(new Event('resize'));
-        window.dispatchEvent(new CustomEvent('iam:monaco-layout'));
-      }, 50);
-      return;
-    }
-
-    setEditorPreviewMode('devserver');
-    setEditorPreviewSrcDoc(null);
-    void (async () => {
-      if (devServer?.url) {
-        const ok = await probeDevServerUrl(devServer.url);
-        if (ok) {
-          setEditorPreviewUrl(devServer.url);
+      if (isHtml && r2Bucket && r2Key) {
+        const hasRelativeAssets =
+          Boolean(content.trim()) &&
+          (/<script[^>]+src=["'](?!https?:\/\/|\/\/|data:|blob:)[^"']+["']/i.test(content) ||
+            /<link[^>]+href=["'](?!https?:\/\/|\/\/|data:|blob:)[^"']*\.(?:css|js)["']/i.test(content));
+        if (!content.trim() || hasRelativeAssets) {
+          if (bytes >= PREVIEW_WARN_BYTES) {
+            setToastMsg(`Large file (${(bytes / 1e6).toFixed(1)} MB) — preview may be slow.`);
+          }
+          setEditorPreviewMode('devserver');
+          setEditorPreviewSrcDoc(null);
+          setEditorPreviewUrl(buildR2ObjectUrl(r2Bucket, r2Key));
           setEditorPreviewLoading(false);
-          setEditorPreviewStatus('Using running dev server');
+          setEditorPreviewStatus(
+            hasRelativeAssets
+              ? 'Serving from R2 so linked assets resolve — use a dev server for full fidelity.'
+              : null,
+          );
+          setTimeout(() => {
+            window.dispatchEvent(new Event('resize'));
+            window.dispatchEvent(new CustomEvent('iam:monaco-layout'));
+          }, 50);
           return;
         }
       }
-      setEditorPreviewLoading(true);
-      setEditorPreviewStatus('Starting dev server in terminal…');
-      const cmd =
-        ext === 'jsx' || ext === 'tsx' || ext === 'vue' || ext === 'js'
-          ? 'npm run dev'
-          : 'npx --yes serve . -l 3000';
-      runInTerminal(cmd);
-    })();
-  }, [activeFile, ideWorkspace, devServer, runInTerminal, closeEditorPreview, openBrowserTab, openPreviewBlob]);
+
+      if (mode === 'srcdoc') {
+        if (ext === 'svg' && !content.trim()) {
+          setToastMsg('SVG is empty — nothing to preview.');
+          return;
+        }
+        if (bytes >= PREVIEW_WARN_BYTES && (isHtml || ext === 'md')) {
+          setToastMsg(`Large file (${(bytes / 1e6).toFixed(1)} MB) — preview may be slow.`);
+        }
+        const hasRelativeAssets =
+          isHtml &&
+          (/<script[^>]+src=["'](?!https?:\/\/|\/\/|data:|blob:)[^"']+["']/i.test(content) ||
+            /<link[^>]+href=["'](?!https?:\/\/|\/\/|data:|blob:)[^"']*\.(?:css|js)["']/i.test(content));
+        setEditorPreviewMode('srcdoc');
+        setEditorPreviewSrcDoc(buildPreviewSrcDoc(name, content));
+        setEditorPreviewUrl(null);
+        setEditorPreviewLoading(false);
+        setEditorPreviewStatus(
+          hasRelativeAssets
+            ? 'Relative assets may not resolve in inline preview — use a dev server for full fidelity.'
+            : null,
+        );
+        setTimeout(() => {
+          window.dispatchEvent(new Event('resize'));
+          window.dispatchEvent(new CustomEvent('iam:monaco-layout'));
+        }, 50);
+        return;
+      }
+
+      setEditorPreviewMode('devserver');
+      setEditorPreviewSrcDoc(null);
+      void (async () => {
+        if (devServer?.url) {
+          const ok = await probeDevServerUrl(devServer.url);
+          if (ok) {
+            setEditorPreviewUrl(devServer.url);
+            setEditorPreviewLoading(false);
+            setEditorPreviewStatus('Using running dev server');
+            return;
+          }
+        }
+        setEditorPreviewLoading(true);
+        setEditorPreviewStatus('Starting dev server in terminal…');
+        const cmd =
+          ext === 'jsx' || ext === 'tsx' || ext === 'vue' || ext === 'js'
+            ? 'npm run dev'
+            : 'npx --yes serve . -l 3000';
+        runInTerminal(cmd);
+      })();
+    },
+    [ideWorkspace, devServer, runInTerminal],
+  );
+
+  const openEditorPreview = useCallback(() => {
+    if (!activeFile) return;
+    openEditorPreviewForFile(activeFile);
+  }, [activeFile, openEditorPreviewForFile]);
+
+  useEffect(() => {
+    const onOpenPreview = (e: Event) => {
+      const file = (e as CustomEvent<{ file?: ActiveFile }>).detail?.file;
+      if (file) {
+        openEditorPreviewForFile(file);
+        return;
+      }
+      if (activeFile) openEditorPreviewForFile(activeFile);
+    };
+    window.addEventListener('iam:open-editor-preview', onOpenPreview);
+    return () => window.removeEventListener('iam:open-editor-preview', onOpenPreview);
+  }, [activeFile, openEditorPreviewForFile]);
 
   const handleTerminalOutputLine = useCallback((line: string) => {
     setShellOutputLines((prev) => [...prev.slice(-250), line]);

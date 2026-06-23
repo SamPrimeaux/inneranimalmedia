@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Filter, MoreHorizontal, Plus, Search } from "lucide-react";
 import type { OverviewProject, ProjectsOverviewResponse } from "../../api/projects";
 import { fetchProjectsOverview } from "../../api/projects";
@@ -231,7 +231,12 @@ function ProjectCard({
 }
 
 export default function ProjectManagement() {
-  const { workspaceId, loading: workspaceLoading } = useWorkspace();
+  const { workspaceId, workspaces, loading: workspaceLoading } = useWorkspace();
+  const activeWorkspaceLabel = useMemo(() => {
+    if (!workspaceId?.trim()) return null;
+    const row = workspaces.find((w) => w.id === workspaceId);
+    return row?.name?.trim() || workspaceId;
+  }, [workspaceId, workspaces]);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<ProjectStatusUi | "all">("all");
   const [overview, setOverview] = useState<ProjectsOverviewResponse | null>(null);
@@ -258,10 +263,21 @@ export default function ProjectManagement() {
     }
   }, []);
 
+  const workspaceIdRef = useRef(workspaceId);
+  workspaceIdRef.current = workspaceId;
+
   useEffect(() => {
     if (workspaceLoading) return;
     void refreshOverview(workspaceId);
   }, [workspaceId, workspaceLoading, refreshOverview]);
+
+  useEffect(() => {
+    const onWorkspaceChange = () => {
+      void refreshOverview(workspaceIdRef.current);
+    };
+    window.addEventListener("iam_workspace_id", onWorkspaceChange);
+    return () => window.removeEventListener("iam_workspace_id", onWorkspaceChange);
+  }, [refreshOverview]);
 
   const projects = overview?.projects || [];
 
@@ -296,7 +312,16 @@ export default function ProjectManagement() {
                 <div>
                   <h2 className="text-sm font-semibold text-[var(--dashboard-text)]">Portfolio Overview</h2>
                   <p className="mt-1 text-xs text-[var(--dashboard-muted)]">
-                    {overview?.updated_at ? `Updated ${new Date(overview.updated_at).toLocaleString()}` : ""}
+                    {activeWorkspaceLabel ? (
+                      <span>
+                        Workspace: <span className="text-[var(--dashboard-text)]">{activeWorkspaceLabel}</span>
+                        {overview?.updated_at ? ` · Updated ${new Date(overview.updated_at).toLocaleString()}` : ""}
+                      </span>
+                    ) : overview?.updated_at ? (
+                      `Updated ${new Date(overview.updated_at).toLocaleString()}`
+                    ) : (
+                      ""
+                    )}
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
