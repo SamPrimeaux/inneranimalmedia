@@ -29,7 +29,7 @@ API_TOKEN="${CLOUDFLARE_API_TOKEN}"
 WORKER_NAME="${WORKER_SERVICE_NAME:-inneranimalmedia}"
 
 BUILD_COMMAND="${CF_BUILDS_BUILD_COMMAND:-node scripts/smart-build.mjs}"
-DEPLOY_COMMAND="${CF_BUILDS_DEPLOY_COMMAND:-npx wrangler deploy -c wrangler.production.toml}"
+DEPLOY_COMMAND="${CF_BUILDS_DEPLOY_COMMAND:-bash scripts/cf-builds-deploy.sh}"
 
 if [[ -z "$ACCOUNT_ID" || -z "$API_TOKEN" ]]; then
   echo "ERROR: CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN must be set in .env.cloudflare" >&2
