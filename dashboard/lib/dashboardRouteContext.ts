@@ -149,12 +149,54 @@ export function resolveDashboardRouteAgentContext(opts: {
 
   if (path.startsWith('/dashboard/agent')) {
     const tab = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search).get('tab');
+    const cms = opts.cmsContext;
+    const slug = cms?.project_slug || null;
+    const ws = (opts.workspaceId || '').trim();
+    const cmsPacket: Partial<AgentWorkspaceContextPacket> = slug
+      ? {
+          project_slug: slug,
+          bootstrap_cache_key: ws ? `cms:bootstrap:${ws}:${slug}` : null,
+          preview_url: cms?.public_domain
+            ? `https://${cms.public_domain}`
+            : cms?.worker_base_url || null,
+          public_domain: cms?.public_domain || null,
+          cms_hosting: cms?.cms_hosting || null,
+          api_profile: cms?.api_profile || null,
+          capabilities: ['cms'],
+        }
+      : {};
     return {
       route_key: tab === 'examples' ? 'agent_examples' : 'agent_sam',
-      context_label: tab === 'examples' ? 'Agent · Examples' : 'Agent · Workbench',
+      context_label: slug
+        ? tab === 'examples'
+          ? 'Agent · Examples'
+          : `Agent · Workbench · CMS ${cms?.project_name || slug}`
+        : tab === 'examples'
+          ? 'Agent · Examples'
+          : 'Agent · Workbench',
       contextMode: 'agent',
-      workspaceContext: basePacket,
-      quickActions: [],
+      workspaceContext: { ...basePacket, ...cmsPacket },
+      quickActions: slug
+        ? cms?.cms_hosting === 'client_worker'
+          ? [
+              {
+                id: 'agent-fuel-list-pages',
+                label: 'List CMS pages',
+                message: 'List all CMS pages for this client worker site using the bridge admin API.',
+                route_key: 'fuel_cms_admin',
+                task_type: 'cms_schema',
+              },
+            ]
+          : [
+              {
+                id: 'agent-cms-list-pages',
+                label: 'List CMS pages',
+                message: 'List CMS pages for the active PrimeTech site in this workspace.',
+                route_key: 'cms_edit',
+                task_type: 'cms_schema',
+              },
+            ]
+        : [],
     };
   }
 

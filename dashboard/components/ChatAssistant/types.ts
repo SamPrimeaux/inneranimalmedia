@@ -282,7 +282,8 @@ export interface ChatAssistantProps {
   activePlanId?: string | null;
   /** Notify host when chat creates or selects a plan. */
   onActivePlanChange?: (planId: string | null) => void;
-  /** CMS route context (project_slug, page_id, KV/DO keys) when on /dashboard/cms. */
+  hostWorkspaceContext?: Partial<import('../../src/ideWorkspace').AgentWorkspaceContextPacket> | null;
+  /** CMS route context (project_slug, page_id, KV/DO keys) — available on agent + CMS routes. */
   cmsContext?: AgentWorkspaceContextPacket | null;
   /** Route-aware default route_key from dashboard surface. */
   dashboardRouteKey?: string | null;

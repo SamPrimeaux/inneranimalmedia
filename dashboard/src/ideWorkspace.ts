@@ -60,12 +60,30 @@ export type AgentWorkspaceContextPacket = {
   openFiles: string[];
   plan_id: string | null;
   workflow_run_id: string | null;
+  /** Current dashboard pathname (ambient, no composer UI). */
+  dashboard_path?: string | null;
+  dashboard_route_key?: string | null;
+  /** Serialized IDE workspace snapshot label/source. */
+  ide_workspace?: IdeWorkspaceSnapshot | null;
+  dev_server_url?: string | null;
+  active_file?: string | null;
+  /** Last N terminal output lines from the workbench shell. */
+  terminal_tail?: string[] | null;
+  /** Latest BrowserView surface metadata (URL, route, viewport). */
+  browser_surface?: Record<string, unknown> | null;
+  /** DOM pick from BrowserView — silent attach only (no composer tokens). */
+  picked_element?: Record<string, unknown> | null;
   project_slug?: string | null;
   page_id?: string | null;
   studio_panel?: string | null;
   live_session_id?: string | null;
   collab_room?: string | null;
   bootstrap_cache_key?: string | null;
+  preview_url?: string | null;
+  public_domain?: string | null;
+  cms_hosting?: string | null;
+  api_profile?: string | null;
+  capabilities?: string[] | null;
   r2_bucket?: string | null;
   r2_key?: string | null;
 };

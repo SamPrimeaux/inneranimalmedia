@@ -23,6 +23,7 @@ import {
   type AgentHomeTab,
 } from './lib/agentRoutes';
 import { resolveDashboardRouteAgentContext } from './lib/dashboardRouteContext';
+import { resolveAgentSurfaceTarget } from './lib/resolveAgentSurfaceTarget';
 import { BREAKPOINTS, PHONE_MQ } from './lib/breakpoints';
 import { sanitizeBrowserNavigateUrl } from './lib/sanitizeBrowserUrl';
 import {
@@ -176,6 +177,10 @@ const ChatsPage = lazy(() => import('./pages/chats/ChatsPage'));
 const XTermShell = lazy(() =>
   import('./components/XTermShell').then((m) => ({ default: m.XTermShell })),
 );
+const CmsStudioEditor = lazy(() =>
+  import('../src/dashboard/cms/CmsStudioEditor').then((m) => ({ default: m.CmsStudioEditor })),
+);
+const ClientWorkerCmsStudio = lazy(() => import('./pages/cms/ClientWorkerCmsStudio'));
 
 function ActivityPanelFallback() {
   return (
@@ -438,44 +443,8 @@ const App: React.FC = () => {
   const { context: cmsWorkspaceContext } = useCmsWorkspaceContext({
     workspaceId: authWorkspaceId,
     siteSlug: cmsRouteParsed?.siteSlug || null,
-    enabled: isCmsRoute && cmsRouteParsed?.view !== 'sites',
+    enabled: Boolean(authWorkspaceId?.trim()),
   });
-
-  const cmsRouteContext = useMemo<AgentWorkspaceContextPacket | null>(() => {
-    if (!isCmsRoute || !cmsRouteParsed) return null;
-    const slug = cmsWorkspaceContext?.project_slug || cmsRouteParsed.siteSlug || null;
-    const ws = (authWorkspaceId || '').trim();
-    if (!slug) {
-      return {
-        activeTab: 'cms',
-        browserUrl: null,
-        openFiles: [],
-        plan_id: null,
-        workflow_run_id: null,
-        project_slug: null,
-        page_id: cmsRouteParsed.pageId,
-        studio_panel: cmsRouteParsed.panel,
-        bootstrap_cache_key: null,
-        collab_room: cmsRouteParsed.pageId ? `cms:${cmsRouteParsed.pageId}` : null,
-        r2_bucket: null,
-        r2_key: null,
-      };
-    }
-    return {
-      activeTab: 'cms',
-      browserUrl: null,
-      openFiles: [],
-      plan_id: null,
-      workflow_run_id: null,
-      project_slug: slug,
-      page_id: cmsRouteParsed.pageId,
-      studio_panel: cmsRouteParsed.panel,
-      bootstrap_cache_key: ws ? `cms:bootstrap:${ws}:${slug}` : null,
-      collab_room: cmsRouteParsed.pageId ? `cms:${cmsRouteParsed.pageId}` : null,
-      r2_bucket: null,
-      r2_key: null,
-    };
-  }, [isCmsRoute, cmsRouteParsed, cmsWorkspaceContext?.project_slug, authWorkspaceId]);
   const movieModeProjectId = useMemo(() => {
     const m = location.pathname.match(/^\/dashboard\/moviemode\/([^/?#]+)/);
     if (m?.[1]) return decodeURIComponent(m[1]);
@@ -554,7 +523,7 @@ const App: React.FC = () => {
   const [activeProject] = useState<ProjectType>(ProjectType.SANDBOX);
 
   // IDE State
-  type TabId = 'Workspace' | 'welcome' | 'code' | 'browser' | 'glb';
+  type TabId = 'Workspace' | 'welcome' | 'code' | 'browser' | 'glb' | 'cms';
   const [activeActivity, setActiveActivity] = useState<'files' | 'mcps' | 'git' | 'debug' | 'actions' | 'drive' | 'database' | null>(null);
   const LS_SIDEBAR_RAIL = 'iam_sidebar_expanded';
   /** User-chosen agent column side; survives reloads (not overwritten by workspace policy fetch). */
@@ -984,6 +953,76 @@ const App: React.FC = () => {
 
   const [browserUrl, setBrowserUrl] = useState<string>('https://inneranimalmedia.com');
 
+  const [cmsAgentPageId, setCmsAgentPageId] = useState<string | null>(null);
+  const [cmsAgentPanel, setCmsAgentPanel] = useState<string>('pages');
+  const [cmsLiveSessionId, setCmsLiveSessionId] = useState<string | null>(null);
+
+  const cmsWorkbenchContext = useMemo<AgentWorkspaceContextPacket | null>(() => {
+    const slug = cmsWorkspaceContext?.project_slug || cmsRouteParsed?.siteSlug || null;
+    const ws = (authWorkspaceId || '').trim();
+    if (!slug && !isCmsRoute) return null;
+    const pageId = isCmsRoute ? cmsRouteParsed?.pageId ?? null : cmsAgentPageId;
+    const panel = isCmsRoute ? cmsRouteParsed?.panel ?? 'pages' : cmsAgentPanel;
+    const publicDomain = cmsWorkspaceContext?.public_domain || null;
+    const workerBase = cmsWorkspaceContext?.worker_base_url || null;
+    const previewUrl = publicDomain
+      ? `https://${publicDomain.replace(/^https?:\/\//, '')}`
+      : workerBase || null;
+    return {
+      activeTab: activeTab === 'cms' || isCmsRoute ? 'cms' : String(activeTab),
+      browserUrl: browserUrl?.trim() || null,
+      openFiles: agentWorkbenchOpenFiles,
+      plan_id: activePlanIdForChat,
+      workflow_run_id: null,
+      project_slug: slug,
+      page_id: pageId,
+      studio_panel: panel,
+      live_session_id: cmsLiveSessionId,
+      collab_room: pageId ? `cms:${pageId}` : null,
+      bootstrap_cache_key: slug && ws ? `cms:bootstrap:${ws}:${slug}` : null,
+      preview_url: previewUrl,
+      public_domain: publicDomain,
+      cms_hosting: cmsWorkspaceContext?.cms_hosting || null,
+      api_profile: cmsWorkspaceContext?.api_profile || null,
+      capabilities: slug ? ['cms'] : null,
+      r2_bucket: null,
+      r2_key: null,
+    };
+  }, [
+    cmsWorkspaceContext,
+    cmsRouteParsed,
+    isCmsRoute,
+    authWorkspaceId,
+    cmsAgentPageId,
+    cmsAgentPanel,
+    cmsLiveSessionId,
+    activeTab,
+    browserUrl,
+    agentWorkbenchOpenFiles,
+    activePlanIdForChat,
+  ]);
+
+  useEffect(() => {
+    const pageId = cmsWorkbenchContext?.page_id?.trim();
+    if (!pageId || isCmsRoute) return;
+    let cancelled = false;
+    void fetch('/api/cms/live-session/join', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ page_id: pageId }),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { session_id?: string } | null) => {
+        if (cancelled || !data?.session_id?.trim()) return;
+        setCmsLiveSessionId(data.session_id.trim());
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [cmsWorkbenchContext?.page_id, isCmsRoute]);
+
   const isDesignStudioRoute = location.pathname.startsWith('/dashboard/designstudio');
 
   const agentWorkspaceContext = useMemo<AgentWorkspaceContextPacket>(() => {
@@ -997,14 +1036,26 @@ const App: React.FC = () => {
       openFiles: agentWorkbenchOpenFiles,
       planId: activePlanIdForChat,
     });
+    const activePath =
+      activeFile?.workspacePath ||
+      activeFile?.githubPath ||
+      activeFile?.r2Key ||
+      activeFile?.name ||
+      null;
     return {
       activeTab: String(activeTab),
       browserUrl: browserUrl?.trim() || null,
       openFiles: agentWorkbenchOpenFiles,
       plan_id: activePlanIdForChat,
       workflow_run_id: null,
+      dashboard_path: location.pathname,
+      dashboard_route_key: routeCtx.route_key,
+      ide_workspace: ideWorkspace,
+      dev_server_url: devServer?.url ?? null,
+      active_file: activePath,
+      terminal_tail: shellOutputLines.slice(-8),
       ...routeCtx.workspaceContext,
-      ...(cmsRouteContext || {}),
+      ...(cmsWorkbenchContext || {}),
     };
   }, [
     location.pathname,
@@ -1015,7 +1066,11 @@ const App: React.FC = () => {
     browserUrl,
     agentWorkbenchOpenFiles,
     activePlanIdForChat,
-    cmsRouteContext,
+    cmsWorkbenchContext,
+    activeFile,
+    ideWorkspace,
+    devServer,
+    shellOutputLines,
   ]);
 
   const routeAgentMeta = useMemo(
@@ -2094,12 +2149,42 @@ const App: React.FC = () => {
   /** Agent Sam SSE `surface_open` / orchestration — open the right workspace tab without new buttons. */
   useEffect(() => {
     const h = (e: Event) => {
-      const d = (e as CustomEvent<{ surface?: string; url?: string; load_url?: string; artifact_id?: string }>).detail;
-      const s = String(d?.surface || '').toLowerCase();
-      if (!s) return;
+      const d = (e as CustomEvent<Record<string, unknown>>).detail;
+      if (!d || typeof d !== 'object') return;
+      const resolved = resolveAgentSurfaceTarget(d as Parameters<typeof resolveAgentSurfaceTarget>[0]);
+      if (!resolved.surface) return;
       revealMainWorkspaceIfNarrow();
-      if (s === 'browser') {
-        const safeUrl = sanitizeBrowserNavigateUrl(d?.url);
+
+      if (resolved.cms) {
+        if (resolved.cms.page_id) setCmsAgentPageId(resolved.cms.page_id);
+        if (resolved.cms.panel) setCmsAgentPanel(resolved.cms.panel);
+        openTab('cms');
+        if (isNarrowViewport) setToastMsg('CMS panel opened in Agent workbench.');
+        return;
+      }
+
+      if (resolved.surface === 'excalidraw') {
+        shellOpenDraw({
+          load_url: resolved.excalidraw?.load_url ?? null,
+          artifact_id: resolved.excalidraw?.artifact_id ?? null,
+        });
+        if (isNarrowViewport) setToastMsg('Draw opened. Tap Chat to return to Agent Sam.');
+        return;
+      }
+
+      if (resolved.surface === 'moviemode') {
+        navigate('/dashboard/moviemode');
+        if (isNarrowViewport) setToastMsg('MovieMode opened. Tap Chat to return to Agent Sam.');
+        return;
+      }
+
+      if (resolved.surface === 'browser') {
+        const devUrl = devServer?.url?.trim();
+        const safeUrl = sanitizeBrowserNavigateUrl(
+          resolved.browserUrl ||
+            (resolved.reason === 'devserver' && devUrl ? devUrl : null) ||
+            (typeof d.url === 'string' ? d.url : ''),
+        );
         setBrowserPreviewSource('agent');
         if (safeUrl) {
           setBrowserAddressDisplay(null);
@@ -2108,28 +2193,45 @@ const App: React.FC = () => {
         }
         openTab('browser');
         if (isNarrowViewport) setToastMsg('Browser tab opened. Tap Chat to return to Agent Sam.');
-      } else if (s === 'excalidraw' || s === 'draw') {
-        shellOpenDraw({
-          load_url: typeof d?.load_url === 'string' ? d.load_url : null,
-          artifact_id: typeof d?.artifact_id === 'string' ? d.artifact_id : null,
-        });
-        if (isNarrowViewport) setToastMsg('Draw opened. Tap Chat to return to Agent Sam.');
-      } else if (s === 'cms') {
-        navigate('/dashboard/cms');
-        if (isNarrowViewport) setToastMsg('CMS Suite opened. Tap Chat to return to Agent Sam.');
-      } else if (s === 'monaco' || s === 'code') {
+        return;
+      }
+
+      if (resolved.surface === 'code') {
+        if (resolved.localFile?.workspace_path) {
+          openFile({
+            name: resolved.localFile.workspace_path.split('/').pop() || 'untitled',
+            workspacePath: resolved.localFile.workspace_path,
+            content: '',
+          });
+        }
         openTab('code');
         if (isNarrowViewport) setToastMsg('Code editor opened. Tap Chat to return to Agent Sam.');
-      } else if (s === 'r2') {
-        window.dispatchEvent(new CustomEvent('iam:palette-open-r2'));
-      } else if (s === 'moviemode' || s === 'movie') {
-        navigate('/dashboard/moviemode');
-        if (isNarrowViewport) setToastMsg('MovieMode opened. Tap Chat to return to Agent Sam.');
+        return;
+      }
+
+      if (resolved.surface === 'r2') {
+        if (resolved.r2?.bucket && resolved.r2?.key && resolved.r2.preview) {
+          const previewUrl = buildR2ObjectUrl(resolved.r2.bucket, resolved.r2.key);
+          setBrowserPreviewSource('agent');
+          setBrowserUrl(previewUrl);
+          openTab('browser');
+          return;
+        }
+        window.dispatchEvent(
+          new CustomEvent('iam:palette-open-r2', {
+            detail: { bucket: resolved.r2?.bucket || undefined },
+          }),
+        );
+        return;
+      }
+
+      if (resolved.surface === 'terminal') {
+        setIsTerminalOpen(true);
       }
     };
     window.addEventListener('iam:agent-open-surface', h as EventListener);
     return () => window.removeEventListener('iam:agent-open-surface', h as EventListener);
-  }, [openTab, revealMainWorkspaceIfNarrow, isNarrowViewport, shellOpenDraw, navigate]);
+  }, [openTab, revealMainWorkspaceIfNarrow, isNarrowViewport, shellOpenDraw, navigate, devServer, openFile]);
 
   /** Artifacts → category/builder: open Agent workbench tab without leaving chat-first flow on phone. */
   useEffect(() => {
@@ -2155,19 +2257,7 @@ const App: React.FC = () => {
     return () => window.removeEventListener(IAM_ARTIFACT_OPEN_BUILDER, onOpenBuilder);
   }, [location.pathname, navigate, openTab, revealMainWorkspaceIfNarrow, isNarrowViewport, shellOpenDraw]);
 
-  /** Browser / cdt_* tool activity from Agent SSE — surface the Browser tab so the workbench matches agent actions. */
-  useEffect(() => {
-    const h = (e: Event) => {
-      const d = (e as CustomEvent<{ tool_name?: string; phase?: string }>).detail;
-      const tn = String(d?.tool_name || '');
-      if (!tn) return;
-      revealMainWorkspaceIfNarrow();
-      openTab('browser');
-      setToastMsg(`Agent Sam · browser tool: ${tn}`);
-    };
-    window.addEventListener('iam:agent-browser-tool-active', h as EventListener);
-    return () => window.removeEventListener('iam:agent-browser-tool-active', h as EventListener);
-  }, [openTab, revealMainWorkspaceIfNarrow]);
+  /** Browser / cdt_* tool activity — do not auto-open Browser tab; surfaces open only on explicit SSE `surface_open`. */
 
   const consumeGithubExpandRepo = useCallback(() => setGithubExpandRepo(null), []);
 
@@ -3631,13 +3721,14 @@ const App: React.FC = () => {
                         onAgentChatShellTabSelect={selectAgentChatTab}
                         onAgentChatShellNewTab={createNewAgentChatTab}
                         activeWorkbenchTab={
-                          isMovieModeRoute ? 'moviemode' : isCmsRoute ? 'cms' : isDrawRoute ? 'draw' : activeTab
+                          isMovieModeRoute ? 'moviemode' : isCmsRoute ? 'cms' : activeTab === 'cms' ? 'cms' : isDrawRoute ? 'draw' : activeTab
                         }
                         browserUrl={browserUrl}
                         openFilePaths={agentWorkbenchOpenFiles}
                         activePlanId={activePlanIdForChat}
                         onActivePlanChange={handleActivePlanChange}
-                        cmsContext={cmsRouteContext}
+                        cmsContext={cmsWorkbenchContext}
+                        hostWorkspaceContext={agentWorkspaceContext}
                         dashboardRouteKey={routeAgentMeta.route_key}
                         dashboardRouteLabel={routeAgentMeta.context_label}
                         routeQuickActions={routeAgentMeta.quickActions}
@@ -3992,6 +4083,15 @@ const App: React.FC = () => {
                           onClose={(e) => closeTab('browser', e)}
                       />
                   )}
+                  {openTabs.includes('cms') && (
+                      <Tab
+                          title="CMS"
+                          icon={<PenTool size={13} className="text-[var(--solar-orange)]"/>}
+                          active={activeTab === 'cms'}
+                          onClick={() => setActiveTab('cms')}
+                          onClose={(e) => closeTab('cms', e)}
+                      />
+                  )}
                   {/* Tab row tools — mobile: globe + terminal; desktop: + Browser text */}
                   <div className="ml-auto flex items-center gap-0.5 pr-2 shrink-0">
                       {!openTabs.includes('browser') && (
@@ -4188,6 +4288,37 @@ const App: React.FC = () => {
                           </Suspense>
                       </div>
                   )}
+                  {activeTab === 'cms' && (
+                      <div className="absolute inset-0 z-10 overflow-hidden">
+                          <Suspense
+                            fallback={
+                              <div className="flex items-center justify-center h-full text-[var(--text-muted)] text-sm">
+                                Loading CMS studio…
+                              </div>
+                            }
+                          >
+                            {cmsWorkspaceContext?.cms_hosting === 'client_worker' ? (
+                              <ClientWorkerCmsStudio
+                                workspaceId={authWorkspaceId || undefined}
+                                projectSlug={cmsWorkbenchContext?.project_slug ?? null}
+                                projectName={cmsWorkspaceContext?.project_name ?? null}
+                                studioUrl={cmsWorkspaceContext?.studio_url ?? null}
+                                publicDomain={cmsWorkspaceContext?.public_domain ?? null}
+                                bridgeSupported={cmsWorkspaceContext?.bridge_supported}
+                                apiProfile={cmsWorkspaceContext?.api_profile ?? null}
+                              />
+                            ) : (
+                              <CmsStudioEditor
+                                projectSlug={cmsWorkbenchContext?.project_slug ?? null}
+                                pageId={cmsWorkbenchContext?.page_id ?? null}
+                                panel={cmsWorkbenchContext?.studio_panel ?? 'pages'}
+                                workspaceId={authWorkspaceId || ''}
+                                workspaceLabel={workspaceDisplayLine}
+                              />
+                            )}
+                          </Suspense>
+                      </div>
+                  )}
 
                   </div>
 
@@ -4348,13 +4479,14 @@ const App: React.FC = () => {
                             onAgentChatShellNewTab={createNewAgentChatTab}
                             onAgentRunContext={setActiveAgentRunId}
                             activeWorkbenchTab={
-                          isMovieModeRoute ? 'moviemode' : isCmsRoute ? 'cms' : isDrawRoute ? 'draw' : activeTab
+                          isMovieModeRoute ? 'moviemode' : isCmsRoute ? 'cms' : activeTab === 'cms' ? 'cms' : isDrawRoute ? 'draw' : activeTab
                         }
                             browserUrl={browserUrl}
                             openFilePaths={agentWorkbenchOpenFiles}
                             activePlanId={activePlanIdForChat}
                             onActivePlanChange={handleActivePlanChange}
-                            cmsContext={cmsRouteContext}
+                            cmsContext={cmsWorkbenchContext}
+                        hostWorkspaceContext={agentWorkspaceContext}
                         dashboardRouteKey={routeAgentMeta.route_key}
                         dashboardRouteLabel={routeAgentMeta.context_label}
                         routeQuickActions={routeAgentMeta.quickActions}

@@ -1229,14 +1229,89 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
         }
         if (!execErr) {
           const surfaceFromTool = (() => {
-            if (call.name === 'browser_navigate') {
-              return { surface: 'browser', reason: 'browser_navigate', tool_name: call.name };
+            const input =
+              call.input && typeof call.input === 'object'
+                ? /** @type {Record<string, unknown>} */ (call.input)
+                : {};
+            const result =
+              execResult && typeof execResult === 'object'
+                ? /** @type {Record<string, unknown>} */ (execResult)
+                : {};
+            if (call.name === 'browser_navigate' || call.name === 'cdt_navigate_page') {
+              const navUrl =
+                (typeof input.url === 'string' && input.url.trim()) ||
+                (typeof result.url === 'string' && result.url.trim()) ||
+                '';
+              const target = navUrl.startsWith('http://localhost')
+                ? { kind: 'localhost', port: Number(navUrl.match(/:(\d+)/)?.[1]) || undefined }
+                : navUrl
+                  ? { kind: 'url', url: navUrl }
+                  : null;
+              return {
+                surface: 'browser',
+                reason: call.name,
+                tool_name: call.name,
+                url: navUrl || undefined,
+                target,
+              };
             }
             if (call.name === 'monaco_open' || call.name === 'monaco_open_file') {
-              return { surface: 'monaco', reason: call.name, tool_name: call.name };
+              const path =
+                (typeof input.path === 'string' && input.path.trim()) ||
+                (typeof input.file_path === 'string' && input.file_path.trim()) ||
+                '';
+              return {
+                surface: 'monaco',
+                reason: call.name,
+                tool_name: call.name,
+                workspace_path: path || undefined,
+                target: path ? { kind: 'local_file', workspace_path: path } : { kind: 'surface_only', surface: 'code' },
+              };
             }
             if (call.name === 'excalidraw_open') {
               return { surface: 'excalidraw', reason: 'excalidraw_open', tool_name: call.name };
+            }
+            if (
+              call.name === 'cms_read' ||
+              call.name === 'cms_write' ||
+              call.name === 'cms_publish' ||
+              call.name === 'agentsam_cms_read' ||
+              call.name === 'agentsam_cms_write' ||
+              call.name === 'agentsam_cms_publish'
+            ) {
+              const slug =
+                (typeof input.project_slug === 'string' && input.project_slug.trim()) ||
+                (typeof result.project_slug === 'string' && result.project_slug.trim()) ||
+                '';
+              const pageId =
+                (typeof input.page_id === 'string' && input.page_id.trim()) ||
+                (typeof result.page_id === 'string' && result.page_id.trim()) ||
+                '';
+              const previewUrl =
+                (typeof result.preview_url === 'string' && result.preview_url.trim()) ||
+                (typeof result.public_url === 'string' && result.public_url.trim()) ||
+                '';
+              if (previewUrl) {
+                return {
+                  surface: 'browser',
+                  reason: call.name,
+                  tool_name: call.name,
+                  url: previewUrl,
+                  page_id: pageId || undefined,
+                  project_slug: slug || undefined,
+                  target: { kind: 'cms_preview_url', url: previewUrl, page_id: pageId || undefined },
+                };
+              }
+              if (slug) {
+                return {
+                  surface: 'cms',
+                  reason: call.name,
+                  tool_name: call.name,
+                  project_slug: slug,
+                  page_id: pageId || undefined,
+                  target: { kind: 'cms_panel', project_slug: slug, page_id: pageId || undefined },
+                };
+              }
             }
             if (call.name === 'image_generate' || isImageGenerationTool(call.name)) {
               return { surface: 'image', reason: call.name, tool_name: call.name };

@@ -871,6 +871,18 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             load_url?: string;
             artifact_id?: string;
             artifact_type?: string;
+            project_slug?: string;
+            page_id?: string;
+            panel?: string;
+            bucket?: string;
+            key?: string;
+            workspace_path?: string;
+            github_repo?: string;
+            github_path?: string;
+            github_branch?: string;
+            port?: number;
+            domain?: string;
+            target?: Record<string, unknown>;
           };
           window.dispatchEvent(
             new CustomEvent('iam:agent-open-surface', {
@@ -881,6 +893,18 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
                 load_url: d.load_url,
                 artifact_id: d.artifact_id,
                 artifact_type: d.artifact_type,
+                project_slug: d.project_slug,
+                page_id: d.page_id,
+                panel: d.panel,
+                bucket: d.bucket,
+                key: d.key,
+                workspace_path: d.workspace_path,
+                github_repo: d.github_repo,
+                github_path: d.github_path,
+                github_branch: d.github_branch,
+                port: d.port,
+                domain: d.domain,
+                target: d.target,
                 ...(d.surface === 'browser' && activeAgentRunId
                   ? { agent_live: true }
                   : {}),

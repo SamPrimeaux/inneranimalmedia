@@ -3,6 +3,16 @@
 Date: 2026-05-10  
 Purpose: file/event/route map for **ChatAssistant → capability router → existing tools → UI shells**. No new tool registries; adapters call `dispatchToolCall` / existing APIs.
 
+### Chat orchestration (Agent Sam integration sprint — 2026-06)
+
+| File | Notes |
+|------|------|
+| `dashboard/App.tsx` | CMS context always-on when workspace selected; `cms` workbench tab; `resolveAgentSurfaceTarget` router; live-session join from agent shell |
+| `dashboard/lib/resolveAgentSurfaceTarget.ts` | Target kinds: `cms_panel`, `cms_preview_url`, `localhost`, `local_file`, `r2`, … |
+| `dashboard/components/ChatAssistant/ChatAssistant.tsx` | Silent `iam:agent-context-attach` + enriched `workspaceContext` on every send |
+| `src/core/workspace-studio-context.js` | Ambient IDE/CMS fields in system prompt via `appendAmbientWorkspaceContextToPrompt` |
+| `src/core/agent-tool-loop.js` | Rich `target` on `surface_open` for CMS/browser/monaco tools |
+
 ## Mental model
 
 | Layer | Role |

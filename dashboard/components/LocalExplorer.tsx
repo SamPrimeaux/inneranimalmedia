@@ -295,6 +295,22 @@ export const LocalExplorer: React.FC<{
     const lastNativeFolderSignal = useRef(0);
     const directoryPickerActiveRef = useRef(false);
     const [googleDriveOAuthRefresh, setGoogleDriveOAuthRefresh] = useState(0);
+    const [isSuperadmin, setIsSuperadmin] = useState(false);
+
+    useEffect(() => {
+        let cancelled = false;
+        void fetch('/api/integrations/summary', { credentials: 'same-origin' })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d: { capabilities?: { is_superadmin?: boolean } } | null) => {
+                if (!cancelled) setIsSuperadmin(d?.capabilities?.is_superadmin === true);
+            })
+            .catch(() => {
+                if (!cancelled) setIsSuperadmin(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
 
     const mountNativeRoot = useCallback(
         (dirHandle: FileSystemDirectoryHandle) => {
@@ -339,13 +355,14 @@ export const LocalExplorer: React.FC<{
 
     const loadR2Buckets = useCallback(async () => {
         try {
-            const res = await fetch('/api/r2/buckets', { credentials: 'same-origin' });
+            const qs = isSuperadmin ? '?all=true' : '';
+            const res = await fetch(`/api/r2/buckets${qs}`, { credentials: 'same-origin' });
             const data = (await res.json()) as R2BucketsApiResponse;
             setR2Buckets(pickR2DisplayBuckets(data));
         } catch {
             setR2Buckets([]);
         }
-    }, []);
+    }, [isSuperadmin]);
 
     const displayR2Buckets = useMemo(() => {
         const merged: string[] = [];

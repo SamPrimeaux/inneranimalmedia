@@ -224,6 +224,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   activePlanId,
   onActivePlanChange,
   cmsContext = null,
+  hostWorkspaceContext = null,
   dashboardRouteKey = null,
   dashboardRouteLabel = null,
   routeQuickActions = [],
@@ -338,6 +339,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const [attachments, setAttachments] = useState<StagedAttachment[]>([]);
   /** Structured BrowserView selection — appended to next Agent Sam message as JSON context. */
   const [browserElementContext, setBrowserElementContext] = useState<Record<string, unknown> | null>(null);
+  /** Latest DOM pick — silent attach for Agent Sam (no composer tokens). */
+  const pickedElementRef = useRef<Record<string, unknown> | null>(null);
   /** Latest `iam-browser-surface-context` from BrowserView (URL, route, viewport). */
   const browserSurfaceRef = useRef<Record<string, unknown> | null>(null);
   /** Latest `iam-database-surface-context` from DatabasePage. */
@@ -429,26 +432,38 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     });
   }, [isNarrow]);
 
+  const attachBrowserSelectionSilently = useCallback((detail: Record<string, unknown>) => {
+    pickedElementRef.current = { ...detail, type: 'browser_element_selected' };
+  }, []);
+
   useEffect(() => {
     const onLegacy = (ev: Event) => {
       const d = (ev as CustomEvent<Record<string, unknown>>).detail;
       if (d && typeof d === 'object' && d.type === 'browser_element_selected') {
-        attachBrowserSelectionToComposer(d);
+        attachBrowserSelectionSilently(d);
       }
     };
     const onSelectedBridge = (ev: Event) => {
       const d = (ev as CustomEvent<Record<string, unknown>>).detail;
       if (d && typeof d === 'object') {
-        attachBrowserSelectionToComposer(d);
+        attachBrowserSelectionSilently(d);
+      }
+    };
+    const onContextAttach = (ev: Event) => {
+      const d = (ev as CustomEvent<{ browser_element?: Record<string, unknown> }>).detail;
+      if (d?.browser_element && typeof d.browser_element === 'object') {
+        pickedElementRef.current = d.browser_element;
       }
     };
     window.addEventListener('iam:browser-element-selected', onLegacy as EventListener);
     window.addEventListener('iam:browser-selected-element', onSelectedBridge as EventListener);
+    window.addEventListener('iam:agent-context-attach', onContextAttach as EventListener);
     return () => {
       window.removeEventListener('iam:browser-element-selected', onLegacy as EventListener);
       window.removeEventListener('iam:browser-selected-element', onSelectedBridge as EventListener);
+      window.removeEventListener('iam:agent-context-attach', onContextAttach as EventListener);
     };
-  }, [attachBrowserSelectionToComposer]);
+  }, [attachBrowserSelectionSilently]);
 
   useEffect(() => {
     const onSurface = (ev: Event) => {
@@ -2360,18 +2375,36 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       ]
         .map((p) => String(p || '').trim())
         .filter(Boolean);
+      const picked = pickedElementRef.current;
+      if (picked && typeof picked === 'object') {
+        browserCtxPayload.selected_element = picked;
+        browserCtxPayload.picked_element = picked;
+      }
       const workspaceContextPacket = {
+        ...(hostWorkspaceContext && typeof hostWorkspaceContext === 'object' ? hostWorkspaceContext : {}),
         activeTab: String(activeWorkbenchTab || 'Workspace'),
         browserUrl: browserUrlProp?.trim() || browserUrlFromSurface || null,
         openFiles: [...new Set(openFilesList)].slice(0, 32),
         plan_id: activePlanIdRef.current || null,
         workflow_run_id: workflowLedger.runId || null,
+        dashboard_path: typeof window !== 'undefined' ? window.location.pathname : null,
+        dashboard_route_key: dashboardRouteKey || null,
+        browser_surface:
+          browserSurfaceRef.current && typeof browserSurfaceRef.current === 'object'
+            ? browserSurfaceRef.current
+            : null,
+        picked_element: picked && typeof picked === 'object' ? picked : null,
         project_slug: cmsContext?.project_slug ?? null,
         page_id: cmsContext?.page_id ?? null,
         studio_panel: cmsContext?.studio_panel ?? null,
         live_session_id: cmsContext?.live_session_id ?? null,
         collab_room: cmsContext?.collab_room ?? null,
         bootstrap_cache_key: cmsContext?.bootstrap_cache_key ?? null,
+        preview_url: cmsContext?.preview_url ?? null,
+        public_domain: cmsContext?.public_domain ?? null,
+        cms_hosting: cmsContext?.cms_hosting ?? null,
+        api_profile: cmsContext?.api_profile ?? null,
+        capabilities: cmsContext?.capabilities ?? null,
         r2_bucket: cmsContext?.r2_bucket ?? null,
         r2_key: cmsContext?.r2_key ?? null,
         composer_sources: composerSources.map((s) => ({
@@ -2386,6 +2419,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       browserCtxPayload.workspaceContext = workspaceContextPacket;
       form.append('workspaceContext', JSON.stringify(workspaceContextPacket));
       form.append('browserContext', JSON.stringify(browserCtxPayload));
+      pickedElementRef.current = null;
     } catch {
       /* ignore */
     }

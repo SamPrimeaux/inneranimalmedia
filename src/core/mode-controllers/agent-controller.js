@@ -247,6 +247,12 @@ export async function runSharedProfileToolLoop(env, ctx, input) {
 
   try {
     const { extractCmsAgentContext, formatCmsContextForAgent } = await import('../cms-agent-context.js');
+    const { appendAmbientWorkspaceContextToPrompt } = await import('../workspace-studio-context.js');
+    systemPrompt = appendAmbientWorkspaceContextToPrompt(
+      systemPrompt,
+      browserContextPayload,
+      body,
+    );
     const cmsBlock = formatCmsContextForAgent(extractCmsAgentContext(body, browserContextPayload));
     if (cmsBlock && !systemPrompt.includes('## CMS context')) {
       systemPrompt = `${systemPrompt}\n\n${cmsBlock}`;
