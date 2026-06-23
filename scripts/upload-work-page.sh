@@ -40,6 +40,7 @@ upload_asset() {
 }
 
 upload_html "pages/work/index.html" "static/pages/work/index.html"
+upload_html "pages/work/detail.html" "static/pages/work/detail.html"
 
 # Worker /assets/* passthrough strips the prefix: URL /assets/scenes/... → R2 key scenes/...
 SCENE_DIR="static/assets/scenes/work-globe"

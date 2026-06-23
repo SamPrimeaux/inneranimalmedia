@@ -24,6 +24,8 @@ import {
 import { loadPublishedCmsSectionsByRoute } from './core/cms-public-page.js';
 import { hydrateContactPageHtml } from './core/cms-contact-hydrate.js';
 import { hydrateGamesPageHtml } from './core/cms-games-hydrate.js';
+import { hydrateWorkPageHtml } from './core/cms-work-hydrate.js';
+import { hydrateWorkDetailPageHtml } from './core/cms-work-detail-hydrate.js';
 import { resolveIdentity } from './core/identity.js';
 import { generateMcpToken } from './core/mcp-auth.js';
 import {
@@ -392,6 +394,42 @@ export default {
       if (!assetHtmlKey && /^\/games\/room_[a-z0-9]+$/i.test(pathLower)) {
         assetHtmlKey = 'pages/games/room.html';
       }
+      if (!assetHtmlKey && /^\/work\/[a-z0-9-]+$/i.test(pathLower) && env.DB && env.ASSETS) {
+        const detailRoute = pathLower;
+        const cmsBundle = await loadPublishedCmsSectionsByRoute(env.DB, detailRoute);
+        if (cmsBundle.page?.page_type === 'case_study') {
+          const shellKey = cmsBundle.page.r2_key || 'pages/work/detail.html';
+          const obj = await env.ASSETS.get(shellKey);
+          if (obj) {
+            let htmlText = await obj.text();
+            try {
+              htmlText = hydrateWorkDetailPageHtml(htmlText, cmsBundle.sections);
+            } catch (e) {
+              console.warn('[work-detail] cms hydrate failed:', e?.message);
+            }
+            const [headerObj, footerObj] = await Promise.all([
+              env.ASSETS.get('src/components/iam-header.html'),
+              env.ASSETS.get('src/components/iam-footer.html'),
+            ]);
+            const headerHtml = headerObj ? await headerObj.text() : '';
+            const footerHtml = footerObj ? await footerObj.text() : '';
+            const pageTitle = cmsBundle.page.title || 'Portfolio Details';
+            htmlText = htmlText.replace(/<title>[^<]*<\/title>/i, `<title>${pageTitle} | Inner Animal Media</title>`);
+            return new HTMLRewriter()
+              .on('body', {
+                element(el) {
+                  if (headerHtml) el.prepend(headerHtml, { html: true });
+                  if (footerHtml) el.append(footerHtml, { html: true });
+                },
+              })
+              .transform(
+                new Response(htmlText, {
+                  headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' },
+                }),
+              );
+          }
+        }
+      }
       // CMS marketing pages: /marketing/{slug} → published R2 HTML (fullscreen, no shell inject)
       if (!assetHtmlKey && pathLower.startsWith('/marketing/') && env.DB && env.ASSETS) {
         const marketingSlug = pathLower.slice('/marketing/'.length).replace(/\/$/, '');
@@ -477,6 +515,18 @@ export default {
               htmlText = hydrateGamesPageHtml(htmlText, cmsBundle.sections);
             } catch (e) {
               console.warn('[games] cms hydrate failed (serving static shell):', e?.message);
+            }
+          }
+          pageBody = htmlText;
+        }
+        if (assetHtmlKey === 'pages/work/index.html') {
+          let htmlText = await obj.text();
+          if (env.DB) {
+            try {
+              const cmsBundle = await loadPublishedCmsSectionsByRoute(env.DB, '/work');
+              htmlText = hydrateWorkPageHtml(htmlText, cmsBundle.sections);
+            } catch (e) {
+              console.warn('[work] cms hydrate failed (serving static shell):', e?.message);
             }
           }
           pageBody = htmlText;

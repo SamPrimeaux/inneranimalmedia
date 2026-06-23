@@ -21,6 +21,29 @@
 .section p{font-size:clamp(16px,1.65vw,21px);line-height:1.55;color:var(--muted);max-width:900px}.light p{color:#42506a}
 .split{display:grid;grid-template-columns:1.05fr .95fr;gap:24px;align-items:center}.code-window{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:#06101e;border:1px solid var(--line);border-radius:28px;padding:22px;color:#9ee7ff;min-height:320px;box-shadow:0 30px 120px rgba(0,0,0,.38)}
 .badge{display:inline-flex;border:1px solid var(--line);padding:8px 12px;border-radius:999px;color:var(--muted);font-size:13px;margin:4px}
+.portfolio-gallery-section{background:linear-gradient(180deg,#050713,#0a1022);padding:clamp(72px,9vw,120px) clamp(20px,6vw,92px)}
+.portfolio-gallery-inner{max-width:1280px;margin:0 auto}
+.portfolio-gallery-header{margin-bottom:40px}
+.portfolio-gallery-header h2{font-family:"Space Grotesk",sans-serif;font-size:clamp(32px,5vw,52px);line-height:1.05;letter-spacing:-.04em;margin:12px 0 28px;font-weight:700}
+.portfolio-filters{display:flex;gap:10px;flex-wrap:wrap}
+.filter-pill{border:1px solid var(--line);background:transparent;color:var(--muted);padding:10px 20px;border-radius:999px;font-size:14px;font-weight:600;cursor:pointer;transition:background .2s,border-color .2s,color .2s}
+.filter-pill:hover,.filter-pill.active{background:rgba(47,123,255,.15);border-color:var(--blue);color:var(--ink)}
+.portfolio-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px}
+.portfolio-card{position:relative;display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:24px;overflow:hidden;text-decoration:none;color:inherit;transition:transform .2s,border-color .2s,box-shadow .2s}
+.portfolio-card:hover{transform:translateY(-4px);border-color:rgba(47,123,255,.4);box-shadow:0 20px 60px rgba(0,0,0,.35)}
+.portfolio-card-accent{position:absolute;top:0;right:0;width:120px;height:120px;background:var(--card-accent,var(--blue));opacity:.12;border-radius:0 0 0 100%;pointer-events:none}
+.portfolio-card-category{font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--blue);margin-bottom:8px}
+.portfolio-card-title{font-family:"Space Grotesk",sans-serif;font-size:20px;font-weight:600;margin:0 0 16px;line-height:1.2}
+.portfolio-card-mockup{border-radius:12px;overflow:hidden;border:1px solid var(--line);background:#060914;margin-bottom:16px;aspect-ratio:4/3}
+.portfolio-card-mockup img{width:100%;height:100%;object-fit:cover;display:block}
+.portfolio-card-foot{display:flex;align-items:center;gap:12px;min-height:40px}
+.portfolio-card-logo{width:36px;height:36px;border-radius:8px;object-fit:contain;background:rgba(255,255,255,.08)}
+.portfolio-card-logo-fallback{width:36px;height:36px;border-radius:8px;background:rgba(47,123,255,.2);color:var(--blue);display:grid;place-items:center;font-size:12px;font-weight:700}
+.portfolio-card-excerpt{font-size:13px;color:var(--muted);margin:0;line-height:1.4;flex:1}
+.portfolio-card-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.portfolio-tag{font-size:11px;padding:4px 10px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+@media(max-width:1024px){.portfolio-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:640px){.portfolio-grid{grid-template-columns:1fr}}
 @media(max-width:860px){.split{grid-template-columns:1fr}h1{font-size:58px}.section{padding:64px 20px}}
 </style>
 <script type="importmap">
@@ -121,6 +144,21 @@
   </div>
 </section>
 
+<section class="portfolio-gallery-section section dark" id="portfolio-gallery" data-cms-section="portfolio-gallery">
+  <div class="portfolio-gallery-inner">
+    <div class="portfolio-gallery-header">
+      <div class="eyebrow" id="cms-work-gallery-eyebrow">Portfolio</div>
+      <h2 id="cms-work-gallery-heading">Selected projects</h2>
+      <div class="portfolio-filters" id="cms-work-gallery-filters">
+        <button type="button" class="filter-pill active" data-filter="all">All</button>
+        <button type="button" class="filter-pill" data-filter="Sites">Sites</button>
+        <button type="button" class="filter-pill" data-filter="Apps">Apps</button>
+      </div>
+    </div>
+    <div class="portfolio-grid" id="cms-work-gallery-grid"></div>
+  </div>
+</section>
+
 <section class="section light" id="case-study-four" data-cms-section="case-study-four">
   <div class="split">
     <div>
@@ -210,6 +248,23 @@
     });
   }, { rootMargin: '-40% 0px -55% 0px', threshold: 0 });
   obs.observe(lightAnchor);
+})();
+(function () {
+  var filters = document.getElementById('cms-work-gallery-filters');
+  var grid = document.getElementById('cms-work-gallery-grid');
+  if (!filters || !grid) return;
+  filters.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-filter]');
+    if (!btn) return;
+    var filter = btn.getAttribute('data-filter');
+    filters.querySelectorAll('.filter-pill').forEach(function (p) { p.classList.remove('active'); });
+    btn.classList.add('active');
+    grid.querySelectorAll('.portfolio-card').forEach(function (card) {
+      var cat = card.getAttribute('data-category') || '';
+      var show = filter === 'all' || cat === filter;
+      card.style.display = show ? '' : 'none';
+    });
+  });
 })();
 </script>
 </body>
