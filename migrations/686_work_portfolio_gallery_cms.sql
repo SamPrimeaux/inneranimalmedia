@@ -1,48 +1,6 @@
 -- Portfolio gallery CMS for /work + case study detail pages at /work/{slug}
 -- Worker hydrates pages/work/index.html and pages/work/detail.html at request time.
-
-INSERT OR IGNORE INTO cms_pages (
-  id,
-  project_id,
-  project_slug,
-  tenant_id,
-  workspace_id,
-  slug,
-  path,
-  route_path,
-  page_type,
-  title,
-  meta_description,
-  status,
-  r2_bucket,
-  r2_key,
-  is_active,
-  created_at,
-  updated_at,
-  published_at
-)
-SELECT
-  'page_work',
-  project_id,
-  project_slug,
-  tenant_id,
-  workspace_id,
-  'work',
-  '/work',
-  '/work',
-  'work',
-  'Work',
-  'Selected work with a point of view — Inner Animal Media portfolio.',
-  'published',
-  'inneranimalmedia',
-  'pages/work/index.html',
-  1,
-  unixepoch(),
-  unixepoch(),
-  unixepoch()
-FROM cms_pages
-WHERE id = 'page_home'
-LIMIT 1;
+-- Uses existing page_inneranimalmedia_work (route /work already registered).
 
 UPDATE cms_pages
 SET
@@ -55,13 +13,13 @@ SET
   is_active = 1,
   updated_at = unixepoch(),
   published_at = COALESCE(published_at, unixepoch())
-WHERE id = 'page_work';
+WHERE id = 'page_inneranimalmedia_work';
 
 INSERT OR IGNORE INTO cms_page_sections (
   id, page_id, section_type, section_name, section_data, sort_order, is_visible
 ) VALUES (
   'sec_work_portfolio_gallery',
-  'page_work',
+  'page_inneranimalmedia_work',
   'portfolio_gallery',
   'work_portfolio',
   '{"eyebrow":"Portfolio","heading":"Sites & apps we have shipped","cards":[{"slug":"workslayr","title":"Workslayr","category":"Apps","tags":["Platform","Workforce","Dashboard"],"image_url":"https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/1b7ecfe9-550c-4ef7-966c-9e1972e29800/thumbnail","logo_url":"","accent_color":"#2f7bff","excerpt":"Workforce ops platform with scheduling, payroll hooks, and team dashboards.","detail_route":"/work/workslayr"},{"slug":"sitesnapps","title":"SitesNApps","category":"Sites","tags":["Portfolio","CMS","Marketing"],"image_url":"https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/17381bd3-ef22-4668-dd97-78fa7211b700/avatar","logo_url":"","accent_color":"#67e8ff","excerpt":"Agency-style portfolio gallery with filter tabs and CMS-driven case studies.","detail_route":"/work/sitesnapps"},{"slug":"trickcel","title":"Trickcel","category":"Apps","tags":["Mobile","Automation","Integrations"],"image_url":"https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/f8bfc7dd-7234-4336-1029-6f31a5bd7d00/avatar","logo_url":"","accent_color":"#8b5cf6","excerpt":"Automation-first app shell with webhook routing and operator dashboards.","detail_route":"/work/trickcel"},{"slug":"meauxchess","title":"MeauxChess","category":"Apps","tags":["3D","Multiplayer","Games"],"image_url":"https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/1b7ecfe9-550c-4ef7-966c-9e1972e29800/hero","logo_url":"","accent_color":"#25c878","excerpt":"Real-time 3D chess on Cloudflare Durable Objects with private rooms.","detail_route":"/work/meauxchess"},{"slug":"companionscpas","title":"Companions CPAs","category":"Sites","tags":["Professional","CMS","Donations"],"image_url":"https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/17381bd3-ef22-4668-dd97-78fa7211b700/avatar","logo_url":"","accent_color":"#2f7bff","excerpt":"Professional services site with CMS workspace and donation flows.","detail_route":"/work/companionscpas"},{"slug":"meauxcloud","title":"MeauxCLOUD","category":"Apps","tags":["SaaS","Infrastructure","Dashboard"],"image_url":"https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/f8bfc7dd-7234-4336-1029-6f31a5bd7d00/avatar","logo_url":"","accent_color":"#ff8a3d","excerpt":"Unified cloud ops dashboard for IAM client workspaces and deploy hooks.","detail_route":"/work/meauxcloud"},{"slug":"fuelnfreetime","title":"Fuel N Free Time","category":"Apps","tags":["Kanban","Projects","Ops"],"image_url":"https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/1b7ecfe9-550c-4ef7-966c-9e1972e29800/thumbnail","logo_url":"","accent_color":"#ef4444","excerpt":"Project ops board with build lanes, identity fixes, and agent tooling.","detail_route":"/work/fuelnfreetime"},{"slug":"designstudio","title":"Design Studio","category":"Sites","tags":["CAD","3D","Blueprint"],"image_url":"https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/1b7ecfe9-550c-4ef7-966c-9e1972e29800/public","logo_url":"","accent_color":"#67e8ff","excerpt":"Blueprint-to-GLB pipeline with OpenSCAD generation and voxel viewport.","detail_route":"/work/designstudio"},{"slug":"inneranimalmedia","title":"Inner Animal Media","category":"Sites","tags":["Brand","Platform","CMS"],"image_url":"https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/1b7ecfe9-550c-4ef7-966c-9e1972e29800/hero","logo_url":"","accent_color":"#2f7bff","excerpt":"Production platform site with edge CMS hydration and agent runtime.","detail_route":"/work/inneranimalmedia"}]}',
