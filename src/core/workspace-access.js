@@ -183,7 +183,9 @@ export async function listAccessibleWorkspaces(db, env, authUser, opts = {}) {
     const sql = `
       SELECT DISTINCT aw.id, aw.display_name, aw.workspace_slug AS slug,
         COALESCE(w.workspace_type, w.category) AS workspace_type,
-        aw.status, aw.r2_prefix, aw.github_repo, w.settings_json,
+        aw.status, aw.r2_prefix,
+        COALESCE(NULLIF(TRIM(w.github_repo), ''), aw.github_repo) AS github_repo,
+        w.settings_json,
         aw.description, aw.tenant_id, w.user_id, aw.created_at, aw.updated_at,
         aw.name, aw.workspace_slug AS handle, w.category, w.brand,
         COALESCE(wm.role, 'owner') AS member_role
@@ -234,7 +236,9 @@ export async function listAccessibleWorkspaces(db, env, authUser, opts = {}) {
   const sql = `
     SELECT DISTINCT aw.id, aw.display_name, aw.workspace_slug AS slug,
       COALESCE(w.workspace_type, w.category) AS workspace_type,
-      aw.status, aw.r2_prefix, aw.github_repo, w.settings_json,
+      aw.status, aw.r2_prefix,
+      COALESCE(NULLIF(TRIM(w.github_repo), ''), aw.github_repo) AS github_repo,
+      w.settings_json,
       aw.description, aw.tenant_id, w.user_id, aw.created_at, aw.updated_at,
       aw.name, aw.workspace_slug AS handle, w.category, w.brand,
       COALESCE(wm.role, 'owner') AS member_role

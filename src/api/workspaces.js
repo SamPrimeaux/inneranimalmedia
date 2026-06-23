@@ -878,6 +878,10 @@ export async function handleAgentsamWorkspacesApi(request, url, env, ctx, authUs
         if (AGENTSAM_WORKSPACE_BINDING_PATCH_KEYS.has(k)) agentsamCol[k] = v;
         else workspacesCol[k] = v;
       }
+      // github_repo lives on agentsam_workspace but must mirror workspaces compat row.
+      if (col.github_repo !== undefined) {
+        workspacesCol.github_repo = col.github_repo;
+      }
 
       if (Object.keys(agentsamCol).length) {
         await patchAgentsamWorkspaceFromApiCol(env, workspaceId, agentsamCol);

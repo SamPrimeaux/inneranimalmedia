@@ -52,8 +52,8 @@ export default function WorkspaceKanban({ workspaceId }: Props) {
       }
       setBoardName(board.name);
       const [colsRes, tasksRes] = await Promise.all([
-        fetchKanbanColumns(board.id),
-        fetchKanbanTasks({ boardId: board.id }),
+        fetchKanbanColumns(board.id, workspaceId),
+        fetchKanbanTasks({ boardId: board.id, workspaceId }),
       ]);
       if (!colsRes.ok) throw new Error(colsRes.error || "Failed to load columns");
       if (!tasksRes.ok) throw new Error(tasksRes.error || "Failed to load tasks");

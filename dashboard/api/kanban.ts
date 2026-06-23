@@ -47,8 +47,14 @@ export async function fetchKanbanBoards(workspaceId: string | null): Promise<{ o
   return j;
 }
 
-export async function fetchKanbanColumns(boardId: string): Promise<{ ok: boolean; columns?: KanbanColumn[]; error?: string }> {
-  const r = await fetch(`/api/kanban/columns${qs({ board_id: boardId })}`, { credentials: "same-origin" });
+export async function fetchKanbanColumns(
+  boardId: string,
+  workspaceId?: string | null,
+): Promise<{ ok: boolean; columns?: KanbanColumn[]; error?: string }> {
+  const r = await fetch(
+    `/api/kanban/columns${qs({ board_id: boardId, workspace_id: workspaceId })}`,
+    { credentials: "same-origin" },
+  );
   const j = (await r.json()) as { ok: boolean; columns?: KanbanColumn[]; error?: string };
   if (!r.ok) return { ok: false, error: j.error || `HTTP ${r.status}` };
   return j;
@@ -57,9 +63,14 @@ export async function fetchKanbanColumns(boardId: string): Promise<{ ok: boolean
 export async function fetchKanbanTasks(opts: {
   boardId?: string | null;
   projectId?: string | null;
+  workspaceId?: string | null;
 }): Promise<{ ok: boolean; tasks?: KanbanTask[]; error?: string }> {
   const r = await fetch(
-    `/api/kanban/tasks${qs({ board_id: opts.boardId, project_id: opts.projectId })}`,
+    `/api/kanban/tasks${qs({
+      board_id: opts.boardId,
+      project_id: opts.projectId,
+      workspace_id: opts.workspaceId,
+    })}`,
     { credentials: "same-origin" },
   );
   const j = (await r.json()) as { ok: boolean; tasks?: KanbanTask[]; error?: string };

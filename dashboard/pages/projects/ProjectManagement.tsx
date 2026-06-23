@@ -79,6 +79,7 @@ function taskStatusBadge(status: string | null | undefined, completedAt?: number
 }
 
 function ProjectTasksPanel({ projectId }: { projectId: string }) {
+  const { workspaceId } = useWorkspace();
   const [tasks, setTasks] = useState<KanbanTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -88,7 +89,7 @@ function ProjectTasksPanel({ projectId }: { projectId: string }) {
     void (async () => {
       setLoading(true);
       setError(null);
-      const res = await fetchKanbanTasks({ projectId });
+      const res = await fetchKanbanTasks({ projectId, workspaceId });
       if (cancelled) return;
       if (!res.ok) {
         setError(res.error || "Failed to load tasks");
@@ -101,7 +102,7 @@ function ProjectTasksPanel({ projectId }: { projectId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [projectId]);
+  }, [projectId, workspaceId]);
 
   return (
     <div className="mt-3 rounded-xl border border-[var(--dashboard-border)] bg-[var(--dashboard-panel)]/50 p-3">

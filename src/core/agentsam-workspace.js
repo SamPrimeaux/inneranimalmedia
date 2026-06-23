@@ -181,9 +181,29 @@ export async function workspaceRowExists(env, workspaceId) {
  * @param {string} workspaceId
  */
 export async function getWorkspaceGithubRepo(env, workspaceId) {
-  const row = await getAgentsamWorkspace(env, workspaceId);
-  const gh = row?.github_repo;
-  return gh != null && trim(gh) ? trim(gh) : null;
+  const wid = trim(workspaceId);
+  if (!env?.DB || !wid) return null;
+  const row = await env.DB.prepare(
+    `SELECT aw.github_repo AS aw_gh, w.github_repo AS w_gh
+       FROM agentsam_workspace aw
+       LEFT JOIN workspaces w ON w.id = aw.id
+      WHERE aw.id = ?
+      LIMIT 1`,
+  )
+    .bind(wid)
+    .first()
+    .catch(() => null);
+  if (!row) {
+    const wsOnly = await env.DB.prepare(`SELECT github_repo FROM workspaces WHERE id = ? LIMIT 1`)
+      .bind(wid)
+      .first()
+      .catch(() => null);
+    const gh = trim(wsOnly?.github_repo);
+    return gh || null;
+  }
+  const wsGh = trim(row.w_gh);
+  const awGh = trim(row.aw_gh);
+  return wsGh || awGh || null;
 }
 
 /** Operational binding fields — write agentsam_workspace only (not workspaces compat table). */
