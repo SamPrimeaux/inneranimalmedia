@@ -383,13 +383,13 @@ async function handleR2FileRoute(request, url, platformEnv, userEnv, method, aut
 /**
  * Primary router for all R2-related API requests.
  */
-export async function handleR2Api(request, url, env) {
+export async function handleR2Api(request, url, workerEnv) {
   const path = url.pathname.replace(/\/$/, '') || '/';
   const pathLower = path.toLowerCase();
   const method = (request.method || 'GET').toUpperCase();
 
-  const authUser = await getAuthUser(request, env).catch(() => null);
-  const platformEnv = env;
+  const authUser = await getAuthUser(request, workerEnv).catch(() => null);
+  const platformEnv = workerEnv;
   const userEnv = await mergeR2S3EnvFromUserStorage(platformEnv, authUser);
   let env = userEnv;
 
