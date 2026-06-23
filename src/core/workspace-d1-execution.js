@@ -9,6 +9,7 @@ import { getDefaultWorkspaceDataBinding } from './workspace-data-bindings.js';
 import { resolveWorkspaceCloudflareCredentials } from './workspace-cloudflare-credentials.js';
 import { logDataPlaneSecurityEvent } from './data-plane-access-guard.js';
 import { workspaceAllowsPlatformFallback } from './workspace-spend-guard.js';
+import { resolveWorkspaceMemberD1Grant } from './workspace-d1-access.js';
 
 export const CUSTOMER_D1_NOT_CONFIGURED =
   'No Cloudflare D1 database is configured for this workspace. Add Cloudflare credentials and select a default D1 in Settings.';
@@ -101,6 +102,26 @@ export async function resolveWorkspaceD1Execution(env, ctx) {
   const hasCustomerD1 = Boolean(boundD1Id);
 
   if (hasCustomerD1) {
+    const memberGrant = await resolveWorkspaceMemberD1Grant(env, ctx?.authUser, workspaceId);
+    if (memberGrant) {
+      logDataPlaneSecurityEvent('workspace_d1_remote', {
+        ...meta,
+        binding_id: d1Binding?.id ?? null,
+        database_id: memberGrant.database_id,
+        via: memberGrant.via,
+      });
+      return {
+        ok: true,
+        mode: 'remote',
+        token: memberGrant.token,
+        account_id: memberGrant.account_id,
+        database_id: memberGrant.database_id,
+        binding_id: d1Binding?.id != null ? String(d1Binding.id) : null,
+        via: memberGrant.via,
+        ...meta,
+      };
+    }
+
     const creds = await resolveWorkspaceCloudflareCredentials(env, userId, tenantId, workspaceId);
     if (!creds.ok) {
       logDataPlaneSecurityEvent('customer_d1_credentials_missing', {

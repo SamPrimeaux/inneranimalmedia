@@ -50,10 +50,11 @@ import { DatabaseSqlConfirmModal, type SqlConfirmPayload } from './database/Data
 import { DatabaseCellDetailDrawer, type CellDetailPayload } from './database/DatabaseCellDetailDrawer';
 import { DatabaseResultsGrid } from './database/DatabaseResultsGrid';
 import { rowKeyForRow, type SelectedGridCell } from './database/databaseGridTypes';
+import { useWorkspace } from '../src/context/WorkspaceContext';
 import '../components/database/database-page.css';
 
 type Datasource = 'd1' | 'hyperdrive';
-type StudioSection = 'platform_d1' | 'platform_hyperdrive' | 'public_learning' | 'customer_supabase';
+type StudioSection = 'platform_d1' | 'platform_hyperdrive' | 'public_learning' | 'customer_supabase' | 'workspace_d1';
 type MetaPanel = 'schema' | 'indexes' | 'relations';
 type SortDir = 'asc' | 'desc';
 type LoadStatus = 'idle' | 'loading' | 'ok' | 'error';
@@ -247,6 +248,7 @@ export type DatabaseStudioProps = {
 };
 
 export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ onBackToOverview }) => {
+  const { workspaceId } = useWorkspace();
   const [sidebarSource, setSidebarSource] = useState<Datasource>(readStoredDatasource);
   const datasource: Datasource = sidebarSource;
   const [tables, setTables] = useState<Record<Datasource, TableMeta[]>>({ d1: [], hyperdrive: [] });
@@ -313,7 +315,29 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ onBackToOverview
   const [capLoaded, setCapLoaded] = useState(false);
   const [pageReady, setPageReady] = useState(false);
   const [hyperHealthBad, setHyperHealthBad] = useState(false);
+  const [workspaceD1Available, setWorkspaceD1Available] = useState(false);
 
+  const d1FetchInit = useCallback(
+    (init?: RequestInit): RequestInit => {
+      const ws = workspaceId?.trim();
+      if (!ws) return init || {};
+      return {
+        ...init,
+        headers: {
+          ...((init?.headers as Record<string, string> | undefined) || {}),
+          'X-IAM-Workspace-Id': ws,
+        },
+      };
+    },
+    [workspaceId],
+  );
+
+  const fetchD1Json = useCallback(
+    async <T,>(url: string, init?: RequestInit): Promise<T> => {
+      return fetchJson<T>(url, d1FetchInit(init));
+    },
+    [d1FetchInit],
+  );
   const sqlEditorRef = useRef<import('monaco-editor').editor.IStandaloneCodeEditor | null>(null);
   const sqlStackRef = useRef<HTMLDivElement | null>(null);
   const resultsPaneHeightRef = useRef(resultsPaneHeight);
@@ -324,33 +348,40 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ onBackToOverview
 
   const sqlRunning = sqlRunState === 'running';
 
+  const effectiveDatasource: Datasource =
+    !isSuperadmin && studioSection === 'workspace_d1' ? 'd1' : datasource;
+
   const activeTables =
     !isSuperadmin && studioSection === 'public_learning'
       ? learningTables
-      : tables[datasource];
+      : !isSuperadmin && studioSection === 'workspace_d1'
+        ? tables.d1
+        : tables[datasource];
   const datasourceLabel =
     !isSuperadmin && studioSection === 'public_learning'
       ? 'Public learning (public.iam_*)'
-      : !isSuperadmin && studioSection === 'customer_supabase'
-        ? 'My Supabase project'
-        : datasource === 'd1'
-          ? 'Cloudflare D1 (SQLite)'
-          : 'Supabase via Hyperdrive (Postgres)';
+      : !isSuperadmin && studioSection === 'workspace_d1'
+        ? 'Workspace D1 (Cloudflare SQLite)'
+        : !isSuperadmin && studioSection === 'customer_supabase'
+          ? 'My Supabase project'
+          : datasource === 'd1'
+            ? 'Cloudflare D1 (SQLite)'
+            : 'Supabase via Hyperdrive (Postgres)';
   const selectedTableMeta = useMemo(
     () => (selectedTable ? activeTables.find((t) => t.name === selectedTable) : undefined),
     [activeTables, selectedTable],
   );
   const selectedTableSqlName = selectedTableMeta
-    ? qualifiedTableRef(selectedTableMeta, datasource)
+    ? qualifiedTableRef(selectedTableMeta, effectiveDatasource)
     : selectedTable
-      ? qualifiedTableRef({ name: selectedTable, table_schema: 'agentsam' }, datasource)
+      ? qualifiedTableRef({ name: selectedTable, table_schema: 'agentsam' }, effectiveDatasource)
       : '';
   const pk = useMemo(() => schema.find(isPrimaryKey)?.name || '', [schema]);
   const canWriteRows = isSuperadmin && capLoaded;
-  const canEditDataCell = canWriteRows && datasource === 'd1' && Boolean(pk) && Boolean(selectedTable);
-  const canInsertRow = canWriteRows && Boolean(selectedTable) && datasource === 'd1';
+  const canEditDataCell = canWriteRows && effectiveDatasource === 'd1' && Boolean(pk) && Boolean(selectedTable);
+  const canInsertRow = canWriteRows && Boolean(selectedTable) && effectiveDatasource === 'd1';
   const canDeleteRows =
-    canWriteRows && datasource === 'd1' && Boolean(selectedTable) && Boolean(pk) && selectedRows.size > 0;
+    canWriteRows && effectiveDatasource === 'd1' && Boolean(selectedTable) && Boolean(pk) && selectedRows.size > 0;
   const insertDisabledReason =
     !canWriteRows
       ? 'Insert requires write access (superadmin).'
@@ -486,7 +517,9 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ onBackToOverview
     const endpoint = target === 'd1' ? '/api/d1/tables' : '/api/hyperdrive/tables';
 
     const loadOnce = async () => {
-      const res = await fetch(endpoint, { credentials: 'same-origin' });
+      const fetchInit =
+        target === 'd1' ? d1FetchInit({ credentials: 'same-origin' }) : { credentials: 'same-origin' as const };
+      const res = await fetch(endpoint, fetchInit);
       const payload = await res.json().catch(() => ({}));
       if (res.status === 401) {
         setTables((prev) => ({ ...prev, [target]: [] }));
@@ -498,7 +531,11 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ onBackToOverview
         throw new Error((payload as { error?: string }).error || res.statusText);
       }
       if (target === 'd1') {
-        setD1OnboardingRequired((payload as { onboarding_required?: boolean }).onboarding_required === true);
+        const onboarding = (payload as { onboarding_required?: boolean }).onboarding_required === true;
+        setD1OnboardingRequired(onboarding);
+        if (!isSuperadmin) {
+          setWorkspaceD1Available(!onboarding && normalizeTables(payload).length > 0);
+        }
       }
       setTables((prev) => ({ ...prev, [target]: normalizeTables(payload) }));
       if (target === 'd1') setD1Status('ok');
@@ -515,21 +552,24 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ onBackToOverview
       }
     } catch {
       setTables((prev) => ({ ...prev, [target]: [] }));
-      if (target === 'd1') setD1Status('error');
-      else setHyperStatus('error');
+      if (target === 'd1') {
+        setD1Status('error');
+        if (!isSuperadmin) setWorkspaceD1Available(false);
+      } else setHyperStatus('error');
     } finally {
       setLoadingTables(false);
     }
-  }, []);
+  }, [d1FetchInit, isSuperadmin]);
 
   const loadSchema = useCallback(
     async (table: string) => {
       setLoadingMain(true);
       try {
         const meta = activeTables.find((t) => t.name === table) ?? { name: table, table_schema: 'agentsam' };
-        const payload = await fetchJson<{ columns?: SchemaColumn[]; schema?: SchemaColumn[]; indexes?: IndexMeta[]; foreign_keys?: RelationMeta[] }>(
-          tableApiPath(meta, datasource, 'schema'),
-        );
+        const path = tableApiPath(meta, effectiveDatasource, 'schema');
+        const payload = effectiveDatasource === 'd1'
+          ? await fetchD1Json<{ columns?: SchemaColumn[]; schema?: SchemaColumn[]; indexes?: IndexMeta[]; foreign_keys?: RelationMeta[] }>(path)
+          : await fetchJson<{ columns?: SchemaColumn[]; schema?: SchemaColumn[]; indexes?: IndexMeta[]; foreign_keys?: RelationMeta[] }>(path);
         setSchema(payload.columns || payload.schema || []);
         setIndexes(payload.indexes || []);
         setRelations(payload.foreign_keys || []);
@@ -537,7 +577,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ onBackToOverview
         setLoadingMain(false);
       }
     },
-    [activeTables, datasource],
+    [activeTables, effectiveDatasource, fetchD1Json],
   );
 
   useEffect(() => {
@@ -555,12 +595,24 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ onBackToOverview
         }
       } else {
         void loadPublicLearningTables();
+        if (workspaceId?.trim()) void loadTables('d1');
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [loadCapabilities, loadDataPlaneContext, loadPublicLearningTables, loadTables, loadThemeAccent]);
+  }, [loadCapabilities, loadDataPlaneContext, loadPublicLearningTables, loadTables, loadThemeAccent, workspaceId]);
+
+  useEffect(() => {
+    if (!capLoaded || isSuperadmin || !workspaceD1Available) return;
+    setStudioSection((prev) => (prev === 'public_learning' ? 'workspace_d1' : prev));
+    setSidebarSource('d1');
+  }, [capLoaded, isSuperadmin, workspaceD1Available]);
+
+  useEffect(() => {
+    if (!pageReady || isSuperadmin || !workspaceId?.trim()) return;
+    void loadTables('d1');
+  }, [pageReady, isSuperadmin, workspaceId, loadTables]);
 
   useEffect(() => {
     let cancelled = false;
@@ -659,10 +711,11 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ onBackToOverview
             ? '/api/data-plane/public-learning/query'
             : !isSuperadmin && studioSection === 'customer_supabase'
               ? '/api/data-plane/customer-supabase/query'
-              : datasource === 'd1'
+              : effectiveDatasource === 'd1'
                 ? '/api/d1/query'
                 : '/api/hyperdrive/query';
-        const payload = await fetchJson<{ rows?: Record<string, unknown>[]; results?: Record<string, unknown>[]; error?: string }>(endpoint, {
+        const fetchQuery = effectiveDatasource === 'd1' ? fetchD1Json : fetchJson;
+        const payload = await fetchQuery<{ rows?: Record<string, unknown>[]; results?: Record<string, unknown>[]; error?: string }>(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -697,7 +750,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ onBackToOverview
         setLastRowsRead(0);
       }
     },
-    [datasource, isSuperadmin, studioSection],
+    [effectiveDatasource, fetchD1Json, isSuperadmin, studioSection],
   );
 
   const requestRunSql = useCallback(
@@ -1040,9 +1093,12 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ onBackToOverview
           if (sortCol) qs.set('sort', sortCol);
           if (sortCol) qs.set('dir', sortDir);
           qs.set('filter', serializeDatabaseFilters(filters));
-          const dataPath = tableApiPath(meta, datasource, 'data');
+          const dataPath = tableApiPath(meta, effectiveDatasource, 'data');
           const dataUrl = `${dataPath}${dataPath.includes('?') ? '&' : '?'}${qs.toString()}`;
-          const payload = await fetchJson<DataResponse>(dataUrl);
+          const payload =
+            effectiveDatasource === 'd1'
+              ? await fetchD1Json<DataResponse>(dataUrl)
+              : await fetchJson<DataResponse>(dataUrl);
           setData(payload);
           syncDataResponseToGrid(payload);
           setSelectedRows(new Set());
@@ -1058,7 +1114,8 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ onBackToOverview
       await requestRunSql(statement);
     },
     [
-      datasource,
+      effectiveDatasource,
+      fetchD1Json,
       filters,
       page,
       requestRunSql,
@@ -1102,9 +1159,10 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ onBackToOverview
     setColumnLoading((c) => ({ ...c, [table]: true }));
     try {
       const meta = activeTables.find((t) => t.name === table) ?? { name: table, table_schema: 'agentsam' };
-      const payload = await fetchJson<{ columns?: SchemaColumn[]; schema?: SchemaColumn[] }>(
-        tableApiPath(meta, datasource, 'schema'),
-      );
+      const payload =
+        effectiveDatasource === 'd1'
+          ? await fetchD1Json<{ columns?: SchemaColumn[]; schema?: SchemaColumn[] }>(tableApiPath(meta, effectiveDatasource, 'schema'))
+          : await fetchJson<{ columns?: SchemaColumn[]; schema?: SchemaColumn[] }>(tableApiPath(meta, effectiveDatasource, 'schema'));
       const cols = payload.columns || payload.schema || [];
       setColumnCache((c) => ({ ...c, [table]: cols }));
     } catch {
@@ -1122,7 +1180,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ onBackToOverview
       return;
     }
     try {
-      await fetchJson(`/api/d1/table/${encodeURIComponent(selectedTable)}/row`, {
+      await fetchD1Json(`/api/d1/table/${encodeURIComponent(selectedTable)}/row`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ columns: insertValues }),
@@ -1140,7 +1198,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ onBackToOverview
     const gridRows = sqlResults.length ? sqlResults : data.rows;
     const pkVals = gridRows.filter((r, i) => selectedRows.has(rowKeyForRow(r, pk, i))).map((r) => r[pk]);
     try {
-      await fetchJson(`/api/d1/table/${encodeURIComponent(selectedTable)}/rows`, {
+      await fetchD1Json(`/api/d1/table/${encodeURIComponent(selectedTable)}/rows`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pk_col: pk, pk_vals: pkVals, confirm: true }),
@@ -1185,7 +1243,7 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ onBackToOverview
       const pkVal = cell.row[pk];
       if (pkVal == null) return;
       try {
-        await fetchJson(`/api/d1/table/${encodeURIComponent(selectedTable)}/row`, {
+        await fetchD1Json(`/api/d1/table/${encodeURIComponent(selectedTable)}/row`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ pk_col: pk, pk_val: pkVal, updates: { [cell.columnKey]: nextValue } }),
@@ -1346,6 +1404,24 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ onBackToOverview
               </>
             ) : (
               <>
+                {workspaceD1Available ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStudioSection('workspace_d1');
+                      setSidebarSource('d1');
+                      setSelectedTable(null);
+                      void loadTables('d1');
+                    }}
+                    className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-black tracking-widest ${
+                      studioSection === 'workspace_d1'
+                        ? 'bg-[var(--color-accent,var(--solar-cyan))]/15 text-[var(--color-accent,var(--solar-cyan))]'
+                        : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)]'
+                    }`}
+                  >
+                    D1
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => {
@@ -1378,7 +1454,10 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ onBackToOverview
             <button
               type="button"
               title="Refresh tables"
-              onClick={() => void loadTables(datasource)}
+              onClick={() => {
+                if (studioSection === 'workspace_d1' || effectiveDatasource === 'd1') void loadTables('d1');
+                else void loadTables(datasource);
+              }}
               className="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border-subtle)] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
             >
               <RefreshCw size={14} className={loadingTables ? 'animate-spin' : ''} />
@@ -1532,8 +1611,8 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ onBackToOverview
             <div className="min-w-0">
               <p className="truncate font-mono text-sm font-semibold">{selectedTable || 'Query'}</p>
               <p className="text-[11px] text-[var(--text-muted)]">
-                {datasource === 'd1' ? 'Cloudflare D1 (SQLite)' : 'Supabase via Hyperdrive (Postgres)'}
-                {!isSuperadmin ? ' · read-only SQL' : ''}
+                {datasourceLabel}
+                {!isSuperadmin && studioSection !== 'workspace_d1' ? ' · read-only SQL' : !isSuperadmin ? ' · read-only SQL' : ''}
               </p>
             </div>
           </div>

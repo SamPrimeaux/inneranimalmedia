@@ -4,6 +4,9 @@
 import { resolveCanonicalUserId } from '../api/auth.js';
 import { authUserIsSuperadmin, fetchAuthUserTenantId } from './auth.js';
 import { resolveEffectiveWorkspaceId } from './bootstrap.js';
+import { canUsePlatformDataPlane } from './workspace-spend-guard.js';
+import { resolveWorkspaceMemberD1Grant } from './workspace-d1-access.js';
+import { createRemoteD1Adapter } from './remote-d1-adapter.js';
 
 /**
  * Canonical user + workspace + tenant for scoped D1 reads/writes.
@@ -30,7 +33,10 @@ export async function resolveAgentDataScope(env, authUser, request, identity = {
 }
 
 /**
- * D1 binding for Database Studio — platform DB only for superadmin when workspace policy allows.
+ * D1 binding for Database Studio.
+ * - Workspace members on collab D1 (e.g. fuel) → remote HTTP adapter (never env.DB).
+ * - Superadmin on collab workspace D1 → same remote adapter (not platform env.DB).
+ * - Superadmin default / platform workspace → env.DB when policy allows.
  * @param {unknown} env
  * @param {string} userId
  * @param {unknown} authUser
@@ -39,17 +45,25 @@ export async function resolveAgentDataScope(env, authUser, request, identity = {
  */
 export async function resolveUserWorkspaceBinding(env, userId, authUser, request = null) {
   void userId;
-  if (!env?.DB) return null;
-  if (!authUserIsSuperadmin(authUser)) return null;
-  const wsId =
-    request?.headers?.get('x-iam-workspace-id') != null
-      ? String(request.headers.get('x-iam-workspace-id')).trim()
-      : '';
-  if (wsId) {
-    const { canUsePlatformDataPlane } = await import('./workspace-spend-guard.js');
-    if (!(await canUsePlatformDataPlane(env, authUser, wsId))) return null;
+  const isSuper = authUserIsSuperadmin(authUser);
+  let workspaceId = '';
+
+  if (request) {
+    const wsRes = await resolveEffectiveWorkspaceId(env, request, authUser, {});
+    workspaceId = String(wsRes?.workspaceId || '').trim();
   }
-  return env.DB;
+
+  if (workspaceId) {
+    const grant = await resolveWorkspaceMemberD1Grant(env, authUser, workspaceId);
+    if (grant) return createRemoteD1Adapter(grant);
+    if (isSuper && env?.DB && (await canUsePlatformDataPlane(env, authUser, workspaceId))) {
+      return env.DB;
+    }
+    return null;
+  }
+
+  if (isSuper && env?.DB) return env.DB;
+  return null;
 }
 
 /**
