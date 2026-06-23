@@ -3,6 +3,7 @@
  * Phases 0–9: layout engine, editor primitives, full workspace parity, Chat-only agentic ops.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { PanelRightOpen } from 'lucide-react';
 import type { CadJobRow } from '../api';
 import { fetchCadJob } from '../api';
 import type { SavedSceneRow } from '../shared/ScenePanel';
@@ -218,6 +219,34 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
     setUi((prev) => ({ ...prev, ...patch }));
   }, []);
 
+  const rightPanelVisible =
+    ui.panelVisibility.outliner || ui.panelVisibility.properties || ui.panelVisibility.assets;
+
+  const closeRightPanel = useCallback(() => {
+    patchUi({
+      panelVisibility: {
+        ...ui.panelVisibility,
+        outliner: false,
+        properties: false,
+        assets: false,
+      },
+    });
+  }, [patchUi, ui.panelVisibility]);
+
+  const openRightPanel = useCallback(
+    (tab: 'outliner' | 'properties' = 'outliner') => {
+      patchUi({
+        rightPanelTab: tab,
+        panelVisibility: {
+          ...ui.panelVisibility,
+          outliner: true,
+          properties: true,
+        },
+      });
+    },
+    [patchUi, ui.panelVisibility],
+  );
+
   useEffect(() => {
     try {
       localStorage.removeItem('iam-cad-studio-layout-v1');
@@ -392,10 +421,7 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
           setLibraryOpen(true);
           break;
         case 'outliner':
-          patchUi({
-            rightPanelTab: 'outliner',
-            panelVisibility: { ...ui.panelVisibility, outliner: true },
-          });
+          openRightPanel('outliner');
           break;
         case 'delete':
           onDeleteSelected();
@@ -641,7 +667,11 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
 
   const editors = {
     rightTabs: (
-      <RightPanelTabs active={ui.rightPanelTab} onChange={(tab) => patchUi({ rightPanelTab: tab })}>
+      <RightPanelTabs
+        active={ui.rightPanelTab}
+        onChange={(tab) => patchUi({ rightPanelTab: tab })}
+        onClose={closeRightPanel}
+      >
         {rightPanel}
       </RightPanelTabs>
     ),
@@ -816,16 +846,22 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
           if (name?.trim()) onEntityRename?.(selectedId, name.trim());
         }}
         onToggleOutliner={() => {
-          patchUi({
-            rightPanelTab: 'outliner',
-            panelVisibility: { ...ui.panelVisibility, outliner: !ui.panelVisibility.outliner },
-          });
+          if (rightPanelVisible && ui.panelVisibility.outliner) {
+            patchUi({
+              panelVisibility: { ...ui.panelVisibility, outliner: false },
+            });
+          } else {
+            openRightPanel('outliner');
+          }
         }}
         onToggleProperties={() => {
-          patchUi({
-            rightPanelTab: 'properties',
-            panelVisibility: { ...ui.panelVisibility, properties: !ui.panelVisibility.properties },
-          });
+          if (rightPanelVisible && ui.panelVisibility.properties) {
+            patchUi({
+              panelVisibility: { ...ui.panelVisibility, properties: false },
+            });
+          } else {
+            openRightPanel('properties');
+          }
         }}
         onToggleLibrary={() => setLibraryOpen((open) => !open)}
         libraryOpen={libraryOpen}
@@ -882,6 +918,17 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
             onUpload={onImportGlb}
           />
         </AssetLibraryFlyout>
+        {!rightPanelVisible ? (
+          <button
+            type="button"
+            className="cad-studio__panel-reopen"
+            onClick={() => openRightPanel('outliner')}
+            title="Show Outliner & Properties"
+          >
+            <PanelRightOpen size={14} strokeWidth={1.75} />
+            <span>Panel</span>
+          </button>
+        ) : null}
       </div>
 
       <div className="cad-studio__bottom-dock">

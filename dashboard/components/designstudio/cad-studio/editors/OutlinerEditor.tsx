@@ -48,7 +48,7 @@ export function OutlinerEditor({
 
   return (
     <section className="cad-editor cad-editor--outliner">
-      <div className="cad-studio__panel-head">
+      <div className="cad-studio__panel-head cad-outliner__head">
         <span>Scene Collection</span>
         <input
           className="cad-studio__search"
@@ -58,7 +58,8 @@ export function OutlinerEditor({
         />
         <span>{entities.length}</span>
       </div>
-      <div className="cad-studio__tree">
+      <div className="cad-outliner__body">
+        <div className="cad-studio__tree">
         <div className="cad-studio__tree-row indent-0">
           <span>▾</span>
           <span className="cad-studio__obj-icon" style={{ borderColor: '#a7b2c0' }} />
@@ -112,6 +113,7 @@ export function OutlinerEditor({
             ))}
           </>
         ) : null}
+        </div>
       </div>
     </section>
   );

@@ -651,6 +651,8 @@
   border-left: 1px solid #090a0b;
   min-height: 0;
   flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
 .cad-studio__top-menu {
@@ -1356,8 +1358,63 @@
 
 .cad-right-tabs__head {
   display: flex;
+  align-items: center;
   border-bottom: 1px solid var(--cs-line-0);
   background: #1a1d21;
+}
+
+.cad-right-tabs__close {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  margin-right: 2px;
+  border: none;
+  background: transparent;
+  color: var(--cs-text-2);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.cad-right-tabs__close:hover {
+  color: #fff;
+  background: #2a3038;
+}
+
+.cad-outliner__head {
+  flex-shrink: 0;
+}
+
+.cad-outliner__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.cad-studio__panel-reopen {
+  position: absolute;
+  top: 8px;
+  right: 0;
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px 0 8px;
+  border: 1px solid #3a414a;
+  border-right: none;
+  border-radius: 6px 0 0 6px;
+  background: #202327;
+  color: var(--cs-text-1);
+  font-size: 11px;
+  cursor: pointer;
+  box-shadow: -4px 0 12px rgba(0, 0, 0, 0.25);
+}
+
+.cad-studio__panel-reopen:hover {
+  color: #fff;
+  background: #2e5b96;
+  border-color: #4879b8;
 }
 
 .cad-right-tabs__tab {
@@ -1382,6 +1439,12 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+.cad-right-tabs__body > * {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
 }
 
 .cad-editor--right-tabs {
