@@ -638,7 +638,10 @@ async function runProviderHealthCheck(env, authUser, provider) {
         return { ok: true, status: 'ok', account_info: { object_count_sample: list.objects?.length || 0 }, response_preview: JSON.stringify({ truncated: list.truncated, object_count_sample: list.objects?.length || 0 }) };
     }
     if (provider === 'mcp_servers') return testJsonFetch('https://mcp.inneranimalmedia.com/health', true, {});
-    if (provider === 'vectorize') return { ok: !!env.VECTORIZE, status: env.VECTORIZE ? 'ok' : 'error', error: env.VECTORIZE ? null : 'VECTORIZE binding not configured', account_info: { binding: 'VECTORIZE' } };
+    if (provider === 'vectorize') {
+        const binding = env.AGENTSAM_VECTORIZE_DOCUMENTS;
+        return { ok: !!binding, status: binding ? 'ok' : 'error', error: binding ? null : 'AGENTSAM_VECTORIZE_DOCUMENTS binding not configured', account_info: { binding: 'AGENTSAM_VECTORIZE_DOCUMENTS' } };
+    }
     if (provider === 'hyperdrive') return { ok: !!env.HYPERDRIVE, status: env.HYPERDRIVE ? 'ok' : 'error', error: env.HYPERDRIVE ? null : 'HYPERDRIVE binding not configured', account_info: { binding: 'HYPERDRIVE' } };
     if (provider === 'browser_rendering') return { ok: !!env.MYBROWSER, status: env.MYBROWSER ? 'ok' : 'error', error: env.MYBROWSER ? null : 'MYBROWSER binding not configured' };
     return { ok: true, status: 'ok', account_info: { configured: true } };

@@ -5,7 +5,10 @@
 # Usage (from repo root):
 #   ./scripts/cf-builds-sync.sh
 #
-# Optional overrides: WORKER_SERVICE_NAME
+# Optional overrides: WORKER_SERVICE_NAME, CF_BUILDS_BUILD_COMMAND, CF_BUILDS_DEPLOY_COMMAND
+#
+# Trigger discovery: the Builds API keys triggers by external_script_id (Workers script tag),
+# not by worker name. This script resolves the tag from workers/services first.
 
 set -euo pipefail
 
@@ -23,7 +26,7 @@ fi
 
 ACCOUNT_ID="${CLOUDFLARE_ACCOUNT_ID}"
 API_TOKEN="${CLOUDFLARE_API_TOKEN}"
-WORKER_TAG="${WORKER_SERVICE_NAME:-inneranimalmedia}"
+WORKER_NAME="${WORKER_SERVICE_NAME:-inneranimalmedia}"
 
 BUILD_COMMAND="${CF_BUILDS_BUILD_COMMAND:-node scripts/smart-build.mjs}"
 DEPLOY_COMMAND="${CF_BUILDS_DEPLOY_COMMAND:-npx wrangler deploy -c wrangler.production.toml}"
@@ -35,26 +38,52 @@ fi
 
 auth_header=(-H "Authorization: Bearer ${API_TOKEN}" -H "Content-Type: application/json")
 
-echo "[cf-builds-sync] Listing triggers for worker tag ${WORKER_TAG}..."
-TRIGGERS_JSON="$(curl -sS \
-  "https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/builds/workers/${WORKER_TAG}/triggers" \
+echo "[cf-builds-sync] Resolving script tag for worker ${WORKER_NAME}..."
+SERVICE_JSON="$(curl -sS \
+  "https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/workers/services/${WORKER_NAME}" \
   "${auth_header[@]}")"
 
 if command -v jq >/dev/null 2>&1; then
-  TRIGGER_UUID="$(echo "$TRIGGERS_JSON" | jq -r '.result[0].trigger_uuid // empty')"
+  SCRIPT_TAG="$(echo "$SERVICE_JSON" | jq -r '.result.default_environment.script_tag // empty')"
 else
-  TRIGGER_UUID="$(python3 - <<PY
+  SCRIPT_TAG="$(python3 - <<PY
 import json, sys
 data = json.loads(sys.argv[1])
-rows = data.get("result") or []
-print(rows[0].get("trigger_uuid", "") if rows else "")
+result = data.get("result") or {}
+env = result.get("default_environment") or {}
+print(env.get("script_tag", ""))
+PY
+"$SERVICE_JSON")"
+fi
+
+if [[ -z "$SCRIPT_TAG" ]]; then
+  echo "[cf-builds-sync] Could not resolve script tag for ${WORKER_NAME}." >&2
+  echo "$SERVICE_JSON" | head -c 2000 >&2 || true
+  exit 1
+fi
+
+echo "[cf-builds-sync] Listing triggers for external_script_id ${SCRIPT_TAG}..."
+TRIGGERS_JSON="$(curl -sS \
+  "https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/builds/workers/${SCRIPT_TAG}/triggers" \
+  "${auth_header[@]}")"
+
+if command -v jq >/dev/null 2>&1; then
+  TRIGGER_UUIDS="$(echo "$TRIGGERS_JSON" | jq -r '.result[].trigger_uuid // empty')"
+else
+  TRIGGER_UUIDS="$(python3 - <<PY
+import json, sys
+data = json.loads(sys.argv[1])
+for row in data.get("result") or []:
+    uid = row.get("trigger_uuid")
+    if uid:
+        print(uid)
 PY
 "$TRIGGERS_JSON")"
 fi
 
-if [[ -z "$TRIGGER_UUID" ]]; then
-  echo "[cf-builds-sync] No Builds triggers returned for ${WORKER_TAG}." >&2
-  echo "[cf-builds-sync] Update manually in Cloudflare dashboard → Workers → ${WORKER_TAG} → Settings → Builds:" >&2
+if [[ -z "$TRIGGER_UUIDS" ]]; then
+  echo "[cf-builds-sync] No Builds triggers returned for ${WORKER_NAME} (script tag ${SCRIPT_TAG})." >&2
+  echo "[cf-builds-sync] Update manually in Cloudflare dashboard → Workers → ${WORKER_NAME} → Settings → Builds:" >&2
   echo "  Build command:  ${BUILD_COMMAND}" >&2
   echo "  Deploy command: ${DEPLOY_COMMAND}" >&2
   echo "[cf-builds-sync] Never use 'npx wrangler versions upload' — it inherits deleted legacy VECTORIZE bindings." >&2
@@ -70,17 +99,23 @@ PATCH_BODY="$(cat <<JSON
 JSON
 )"
 
-echo "[cf-builds-sync] Patching trigger ${TRIGGER_UUID}..."
-RESP="$(curl -sS -X PATCH \
-  "https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/builds/triggers/${TRIGGER_UUID}" \
-  "${auth_header[@]}" \
-  -d "$PATCH_BODY")"
+patched=0
+while IFS= read -r TRIGGER_UUID; do
+  [[ -z "$TRIGGER_UUID" ]] && continue
+  echo "[cf-builds-sync] Patching trigger ${TRIGGER_UUID}..."
+  RESP="$(curl -sS -X PATCH \
+    "https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/builds/triggers/${TRIGGER_UUID}" \
+    "${auth_header[@]}" \
+    -d "$PATCH_BODY")"
 
-if command -v jq >/dev/null 2>&1; then
-  echo "$RESP" | jq .
-else
-  echo "$RESP"
-fi
+  if command -v jq >/dev/null 2>&1; then
+    echo "$RESP" | jq .
+  else
+    echo "$RESP"
+  fi
 
-echo "$RESP" | grep -q '"success":true' || exit 1
-echo "[cf-builds-sync] OK — deploy_command=${DEPLOY_COMMAND}"
+  echo "$RESP" | grep -q '"success":true' || exit 1
+  patched=$((patched + 1))
+done <<< "$TRIGGER_UUIDS"
+
+echo "[cf-builds-sync] OK — patched ${patched} trigger(s); deploy_command=${DEPLOY_COMMAND}"
