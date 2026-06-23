@@ -733,9 +733,10 @@ export const WorkspaceLauncher: React.FC<WorkspaceLauncherProps> = ({
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 min-w-0">
                             <span className="font-bold text-[var(--text-heading)] truncate text-[13px] sm:text-sm min-w-0">
-                              {w.display_name || w.slug}
+                              {w.slug || w.display_name || w.id}
                             </span>
-                            {w.workspace_type ? (
+                            {w.workspace_type &&
+                            !['main', 'entry', 'empty'].includes(String(w.workspace_type).toLowerCase()) ? (
                               <span className="text-[9px] sm:text-[10px] uppercase font-bold px-1.5 sm:px-2 py-0.5 rounded-full bg-[var(--solar-cyan)]/15 text-[var(--solar-cyan)] shrink-0">
                                 {w.workspace_type}
                               </span>

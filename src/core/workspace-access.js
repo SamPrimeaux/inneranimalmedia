@@ -156,6 +156,30 @@ export async function userCanAccessWorkspace(env, authUser, workspaceId) {
   }
 }
 
+import { resolveWorkspaceD1Catalog } from './workspace-d1-access.js';
+
+function trim(v) {
+  return v == null ? '' : String(v).trim();
+}
+
+/** Repo/worker-aligned label — never marketing display_name like "IAM Main SaaS". */
+export function repoAlignedWorkspaceName(row) {
+  if (!row) return '';
+  const gh = trim(row.github_repo);
+  if (gh) {
+    const parts = gh.split('/');
+    const repo = trim(parts[parts.length - 1]);
+    if (repo) return repo;
+  }
+  const worker = trim(row.worker_name);
+  if (worker) return worker;
+  const slug = trim(row.slug) || trim(row.handle) || trim(row.workspace_slug);
+  if (slug) return slug;
+  const id = trim(row.id);
+  if (id) return id.replace(/^ws_/, '') || id;
+  return trim(row.display_name) || trim(row.name) || 'workspace';
+}
+
 /**
  * List workspaces visible in switchers / settings (member-scoped unless superadmin).
  * Blocklisted workspaces are excluded from non-owner results via LEFT JOIN filter.
@@ -182,6 +206,7 @@ export async function listAccessibleWorkspaces(db, env, authUser, opts = {}) {
     // for non-owner superadmin sessions (prevents cross-account admin bleed).
     const sql = `
       SELECT DISTINCT aw.id, aw.display_name, aw.workspace_slug AS slug,
+        aw.worker_name, aw.d1_database_id, aw.d1_binding, aw.metadata_json,
         COALESCE(w.workspace_type, w.category) AS workspace_type,
         aw.status, aw.r2_prefix,
         COALESCE(NULLIF(TRIM(w.github_repo), ''), aw.github_repo) AS github_repo,
@@ -235,6 +260,7 @@ export async function listAccessibleWorkspaces(db, env, authUser, opts = {}) {
       )`;
   const sql = `
     SELECT DISTINCT aw.id, aw.display_name, aw.workspace_slug AS slug,
+      aw.worker_name, aw.d1_database_id, aw.d1_binding, aw.metadata_json,
       COALESCE(w.workspace_type, w.category) AS workspace_type,
       aw.status, aw.r2_prefix,
       COALESCE(NULLIF(TRIM(w.github_repo), ''), aw.github_repo) AS github_repo,
@@ -277,17 +303,21 @@ export async function listAccessibleWorkspaces(db, env, authUser, opts = {}) {
  */
 export async function fetchWorkspaceRowsForSettingsApi(db, env, authUser) {
   const rows = await listAccessibleWorkspaces(db, env, authUser, { orderBy: 'COALESCE(aw.display_name, aw.name, aw.id) ASC' });
-  return rows.map((w) => ({
-    id: w.id,
-    name:
-      (w.display_name != null && String(w.display_name).trim()) ||
-      (w.name != null && String(w.name).trim()) ||
-      String(w.id),
-    display_name: w.display_name ?? w.name ?? w.id,
-    slug: w.slug ?? w.handle ?? null,
-    github_repo: w.github_repo ?? null,
-    status: w.status ?? null,
-    category: w.category ?? w.workspace_type ?? null,
-    brand: w.brand ?? null,
-  }));
+  return rows.map((w) => {
+    const aligned = repoAlignedWorkspaceName(w);
+    const catalog = resolveWorkspaceD1Catalog(w);
+    const databaseStudioName = catalog[0]?.database_name ?? null;
+    return {
+      id: w.id,
+      name: aligned,
+      display_name: aligned,
+      slug: w.slug ?? w.handle ?? null,
+      github_repo: w.github_repo ?? null,
+      status: w.status ?? null,
+      category: w.category ?? w.workspace_type ?? null,
+      brand: w.brand ?? null,
+      database_studio_name: databaseStudioName,
+      worker_name: w.worker_name ?? null,
+    };
+  });
 }

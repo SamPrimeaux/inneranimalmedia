@@ -20,6 +20,26 @@ import {
   IAM_D1_DATABASE_NAME,
   resolveCloudflareAnalyticsCreds,
 } from '../../core/d1-graphql-analytics.js';
+import { getAgentsamWorkspace } from '../../core/agentsam-workspace.js';
+import { resolveWorkspaceD1Catalog } from '../../core/workspace-d1-access.js';
+
+function trim(v) {
+  return v == null ? '' : String(v).trim();
+}
+
+/** Workspace collab D1 for analytics, else platform inneranimalmedia-business. */
+async function resolveAnalyticsDatabaseTarget(env, workspaceId) {
+  const ws = trim(workspaceId);
+  if (ws && env?.DB) {
+    const row = await getAgentsamWorkspace(env, ws);
+    const catalog = resolveWorkspaceD1Catalog(row);
+    if (catalog.length > 0) {
+      const entry = catalog[0];
+      return { id: entry.database_id, name: entry.database_name };
+    }
+  }
+  return { id: IAM_D1_DATABASE_ID, name: IAM_D1_DATABASE_NAME };
+}
 
 /** @param {import('@cloudflare/workers-types').D1Database} db */
 async function d1All(db, label, sql, binds, warnings) {
@@ -2176,7 +2196,10 @@ export async function handleDatabasesOverview(request, url, env, { tenantId, wor
   void request;
   const range = parseDatabasesRange(url);
   const surface = parseDatabasesSurface(url);
-  const databaseId = String(url.searchParams.get('database_id') || IAM_D1_DATABASE_ID).trim();
+  const dbTarget = await resolveAnalyticsDatabaseTarget(env, workspaceId);
+  const databaseId = String(url.searchParams.get('database_id') || dbTarget.id).trim();
+  const databaseName = dbTarget.name;
+  const isPlatformDb = databaseId === IAM_D1_DATABASE_ID;
   const warnings = [];
   const scope = {
     tenantId: tenantId && String(tenantId).trim() ? String(tenantId).trim() : null,
@@ -2229,7 +2252,7 @@ export async function handleDatabasesOverview(request, url, env, { tenantId, wor
 
     const [gql, tableCountRow, retention, d1Schema] = await Promise.all([
       gqlPromise,
-      env?.DB
+      isPlatformDb && env?.DB
         ? d1First(
             env.DB,
             'd1_table_count_overview',
@@ -2238,8 +2261,8 @@ export async function handleDatabasesOverview(request, url, env, { tenantId, wor
             warnings,
           )
         : Promise.resolve(null),
-      env?.DB ? loadLastRetentionRun(env.DB, warnings) : Promise.resolve(null),
-      env?.DB && includeSchema
+      isPlatformDb && env?.DB ? loadLastRetentionRun(env.DB, warnings) : Promise.resolve(null),
+      isPlatformDb && env?.DB && includeSchema
         ? loadD1SchemaHealth(env.DB, warnings, 8, 24)
         : Promise.resolve({ noPrimaryKey: [], missingIndexes: [], fkIssues: [], wired: false }),
     ]);
@@ -2260,7 +2283,7 @@ export async function handleDatabasesOverview(request, url, env, { tenantId, wor
       backend: gql?.source ?? 'mixed',
       surface,
       range,
-      database: { id: databaseId, name: IAM_D1_DATABASE_NAME },
+      database: { id: databaseId, name: databaseName },
       wired,
       summary: { state: wired ? 'live' : 'empty', surface },
       kpis: {

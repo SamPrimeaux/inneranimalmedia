@@ -9,6 +9,8 @@ import React, { Suspense, lazy, useCallback, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
+import { useWorkspace } from '../src/context/WorkspaceContext';
+import { databaseStudioPathForWorkspace } from '../src/lib/databaseStudioRoute';
 import DatabasesTab from './analytics/tabs/DatabasesTab';
 
 const DatabaseStudio = lazy(() =>
@@ -38,8 +40,20 @@ export const DatabasePage: React.FC = () => {
   const { databaseName: routeDatabaseName } = useParams<{ databaseName?: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const { workspaceId, workspaces } = useWorkspace();
+  const activeWorkspace = workspaces.find((w) => w.id === workspaceId) ?? null;
+  const expectedStudioPath = databaseStudioPathForWorkspace(activeWorkspace);
+  const expectedStudioName = expectedStudioPath.match(/^\/dashboard\/database\/([^/]+)/)?.[1]
+    ? decodeURIComponent(expectedStudioPath.match(/^\/dashboard\/database\/([^/]+)/)![1])
+    : null;
   const databaseName = routeDatabaseName?.trim() || undefined;
   const legacyStudio = !databaseName && studioDeepLinkParams(searchParams);
+
+  useEffect(() => {
+    if (!databaseName || !expectedStudioName) return;
+    if (databaseName.toLowerCase() === expectedStudioName.toLowerCase()) return;
+    navigate(`/dashboard/database/${encodeURIComponent(expectedStudioName)}`, { replace: true });
+  }, [databaseName, expectedStudioName, navigate]);
 
   useEffect(() => {
     if (databaseName || !legacyStudio) return;

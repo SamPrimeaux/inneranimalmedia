@@ -24,6 +24,7 @@ export type WorkspaceRow = {
   slug: string;
   status: string;
   github_repo: string | null;
+  database_studio_name?: string | null;
 };
 
 type WorkspaceContextValue = {
@@ -48,12 +49,13 @@ type WorkspaceContextValue = {
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
 
 function rowDisplayName(row: IamWorkspaceSettingsRow): string | null {
+  const aligned = typeof row.name === "string" ? row.name.trim() : "";
+  if (aligned) return aligned;
+  const slug = typeof row.slug === "string" ? row.slug.trim() : "";
+  if (slug) return slug;
   const dn = typeof row.display_name === "string" ? row.display_name.trim() : "";
   if (dn) return dn;
-  const n = typeof row.name === "string" ? row.name.trim() : "";
-  if (n) return n;
-  const slug = typeof row.slug === "string" ? row.slug.trim() : "";
-  return slug || null;
+  return row.id || null;
 }
 
 function mapSettingsRow(row: IamWorkspaceSettingsRow): WorkspaceRow {
@@ -68,6 +70,10 @@ function mapSettingsRow(row: IamWorkspaceSettingsRow): WorkspaceRow {
     slug,
     status: typeof row.status === "string" && row.status.trim() ? row.status.trim() : "active",
     github_repo: row.github_repo ?? null,
+    database_studio_name:
+      typeof (row as { database_studio_name?: string }).database_studio_name === "string"
+        ? (row as { database_studio_name?: string }).database_studio_name!.trim() || null
+        : null,
   };
 }
 

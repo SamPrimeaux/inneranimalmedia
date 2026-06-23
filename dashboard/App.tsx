@@ -61,6 +61,7 @@ import { DesignStudioProvider } from './components/designstudio/DesignStudioCont
 import { ChatAssistantWithStudioContext } from './components/designstudio/ChatAssistantWithStudioContext';
 import type { DatabaseExplorerJump } from './types/databaseExplorer';
 import { prepareActiveFileForEditor } from './src/lib/prepareActiveFileForEditor';
+import { databaseStudioPathForWorkspace } from './src/lib/databaseStudioRoute';
 import { SHELL_VERSION } from './src/shellVersion';
 import { mobileTabBarBottomOffset, showDashboardStatusBar } from './config/shellChrome';
 import {
@@ -703,6 +704,11 @@ const App: React.FC = () => {
   const activeWorkspaceRow = useMemo(
     () => workspaceRows.find((w) => w.id === authWorkspaceId) ?? null,
     [workspaceRows, authWorkspaceId],
+  );
+
+  const databaseStudioPath = useMemo(
+    () => databaseStudioPathForWorkspace(activeWorkspaceRow),
+    [activeWorkspaceRow],
   );
 
   const workspaceContextLabel = useMemo(
@@ -4584,7 +4590,7 @@ const App: React.FC = () => {
         <button
           type="button"
           className={`flex flex-1 flex-col items-center justify-center min-h-[44px] gap-0.5 px-0.5 text-[10px] font-medium leading-tight ${location.pathname.startsWith('/dashboard/database') ? 'text-[var(--solar-cyan)]' : 'text-[var(--text-muted)]'}`}
-          onClick={() => navigate('/dashboard/database')}
+          onClick={() => navigate(databaseStudioPath)}
         >
           <Database size={24} strokeWidth={1.5} aria-hidden />
           <span>Database</span>

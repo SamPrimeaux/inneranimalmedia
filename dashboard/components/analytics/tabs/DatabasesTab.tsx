@@ -8,6 +8,10 @@ import {
   Database, RefreshCw, ExternalLink, Search, ChevronRight, TrendingUp, TrendingDown,
   AlertCircle, AlertTriangle, BarChart2, ListFilter, Table2, Activity, ShieldAlert, Layers,
 } from 'lucide-react';
+import { Link } from 'react-router-dom';
+
+import { useWorkspace } from '../../../src/context/WorkspaceContext';
+import { databaseStudioPathForWorkspace } from '../../../src/lib/databaseStudioRoute';
 
 import styles from './DatabasesTab.module.css';
 import {
@@ -477,6 +481,15 @@ function LargeObjectsPanel({ objects }: { objects: Array<{ name: string; size: s
 }
 
 export default function DatabasesTab() {
+  const { workspaceId, workspaces } = useWorkspace();
+  const activeWorkspace = useMemo(
+    () => workspaces.find((w) => w.id === workspaceId) ?? null,
+    [workspaces, workspaceId],
+  );
+  const studioPath = useMemo(
+    () => databaseStudioPathForWorkspace(activeWorkspace),
+    [activeWorkspace],
+  );
   const [surface, setSurface] = useState<DatabasesSurface>('cloudflare');
   const [range, setRange] = useState<DatabasesRange>('24h');
   const [spinning, setSpinning] = useState(false);
@@ -556,16 +569,16 @@ export default function DatabasesTab() {
             }}
           />
         </IconBtn>
-        <a href="/dashboard/database?studio=1" className={styles.ctaBtn}>
+        <Link to={studioPath} className={styles.ctaBtn}>
           <Table2 size={13} /> Explore Data
-        </a>
+        </Link>
       </div>
 
       {obs.database?.name && surface === 'cloudflare' ? (
         <div className={styles.surfaceMeta}>
           {obs.database.name}
           <span className={styles.dbIdChip}>{obs.database.id.slice(0, 8)}…</span>
-          <span className={styles.monoMuted}> · Cloudflare GraphQL (account-wide)</span>
+          <span className={styles.monoMuted}> · Cloudflare GraphQL</span>
         </div>
       ) : null}
 

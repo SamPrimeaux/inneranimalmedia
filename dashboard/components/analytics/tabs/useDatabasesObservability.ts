@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { useWorkspace } from '../../../src/context/WorkspaceContext';
+
 export type DatabasesSurface = 'cloudflare' | 'supabase';
 export type DatabasesRange = '1h' | '24h' | '7d' | '30d';
 
@@ -125,9 +127,13 @@ function isAbortError(err: unknown): boolean {
   return err instanceof DOMException && err.name === 'AbortError';
 }
 
-async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T | null> {
+async function fetchJson<T>(url: string, signal?: AbortSignal, headers?: Record<string, string>): Promise<T | null> {
   try {
-    const res = await fetch(url, { credentials: 'include', signal });
+    const res = await fetch(url, {
+      credentials: 'include',
+      signal,
+      headers: headers ? { ...headers } : undefined,
+    });
     if (!res.ok) return null;
     return (await res.json()) as T;
   } catch (err) {
@@ -213,6 +219,20 @@ export function formatRelativeSeen(epochSec: number | null): string {
 }
 
 export function useDatabasesObservability(surface: DatabasesSurface, range: DatabasesRange) {
+  const { workspaceId, workspaces } = useWorkspace();
+  const activeWorkspace = useMemo(
+    () => workspaces.find((w) => w.id === workspaceId) ?? null,
+    [workspaces, workspaceId],
+  );
+  const wsHeaders = useMemo(() => {
+    const h: Record<string, string> = {};
+    const ws = workspaceId?.trim();
+    if (ws) h['X-IAM-Workspace-Id'] = ws;
+    const dbName = activeWorkspace?.database_studio_name?.trim();
+    if (dbName) h['X-IAM-Database-Name'] = dbName;
+    return h;
+  }, [workspaceId, activeWorkspace?.database_studio_name]);
+
   const [overview, setOverview] = useState<DatabasesOverviewPayload | null>(() =>
     readOverviewCache(surface, range),
   );
@@ -233,6 +253,7 @@ export function useDatabasesObservability(surface: DatabasesSurface, range: Data
       const data = await fetchJson<{ ok?: boolean; queries?: DatabasesQueryRow[] }>(
         `/api/analytics/databases/queries?${q}`,
         opts?.signal,
+        wsHeaders,
       );
       if (opts?.signal?.aborted) return;
       if (data?.ok && Array.isArray(data.queries)) {
@@ -241,7 +262,7 @@ export function useDatabasesObservability(surface: DatabasesSurface, range: Data
     } finally {
       if (!opts?.signal?.aborted) setQueriesLoading(false);
     }
-  }, [surface, range]);
+  }, [surface, range, wsHeaders]);
 
   const load = useCallback(async (opts?: { background?: boolean; signal?: AbortSignal }) => {
     const background = opts?.background === true;
@@ -257,6 +278,7 @@ export function useDatabasesObservability(surface: DatabasesSurface, range: Data
       const data = await fetchJson<DatabasesOverviewPayload>(
         `/api/analytics/databases/overview?${q}`,
         opts?.signal,
+        wsHeaders,
       );
       if (opts?.signal?.aborted) return;
       if (data?.ok && matchesScope(data, surface, range)) {
@@ -273,7 +295,7 @@ export function useDatabasesObservability(surface: DatabasesSurface, range: Data
       if (!background) setLoading(false);
       if (!opts?.signal?.aborted) setRefreshing(false);
     }
-  }, [surface, range]);
+  }, [surface, range, wsHeaders]);
 
   useEffect(() => {
     const cached = readOverviewCache(surface, range);
