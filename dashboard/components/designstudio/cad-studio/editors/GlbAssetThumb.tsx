@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import '@google/model-viewer';
-import { normalizeGlbUrl } from '../../../lib/glbAssets';
+import { normalizeGlbUrl } from '../../../../lib/glbAssets';
 
 type GlbAssetThumbProps = {
   url: string;
