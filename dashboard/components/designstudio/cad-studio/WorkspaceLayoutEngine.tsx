@@ -18,6 +18,27 @@ export type WorkspaceLayoutEngineProps = {
   timelineRowHeight?: number | null;
 };
 
+/**
+ * Split a CSS grid-template-rows/columns string into individual track tokens,
+ * respecting nested parentheses (e.g. minmax(0, 1fr) is one token, not two).
+ */
+function splitCssTracklist(s: string): string[] {
+  const tokens: string[] = [];
+  let depth = 0;
+  let cur = '';
+  for (const ch of s.trim()) {
+    if (ch === '(') { depth++; cur += ch; }
+    else if (ch === ')') { depth--; cur += ch; }
+    else if (ch === ' ' && depth === 0) {
+      if (cur) { tokens.push(cur); cur = ''; }
+    } else {
+      cur += ch;
+    }
+  }
+  if (cur) tokens.push(cur);
+  return tokens;
+}
+
 export function WorkspaceLayoutEngine({
   workspace,
   panelVisibility,
@@ -29,7 +50,7 @@ export function WorkspaceLayoutEngine({
     const base = getLayoutForWorkspace(workspace);
     const adjusted = adjustLayoutForVisibility(base, panelVisibility);
     if (timelineRowHeight != null && adjusted.cells.some((c) => c.editor === 'timeline')) {
-      const rows = adjusted.gridTemplateRows.trim().split(/\s+/);
+      const rows = splitCssTracklist(adjusted.gridTemplateRows);
       if (rows.length > 0) {
         rows[rows.length - 1] = `${timelineRowHeight}px`;
         return { ...adjusted, gridTemplateRows: rows.join(' ') };
