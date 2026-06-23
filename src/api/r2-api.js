@@ -8,6 +8,7 @@ import { getAuthUser, jsonResponse, authUserIsSuperadmin } from '../core/auth';
 import { mergeR2S3EnvFromUserStorage } from '../core/user-storage-r2-credentials.js';
 import {
   assertDashboardR2BucketAccess,
+  applyWorkspaceR2Transport,
   getPlatformWorkerR2Binding,
   listDashboardVisibleR2Buckets,
   listWorkerR2BindingCatalog,
@@ -261,7 +262,7 @@ async function listR2ObjectPage(env, bucketName, binding, prefix, opts = {}) {
   };
 }
 
-async function handleR2FileRoute(request, url, env, method, authUser) {
+async function handleR2FileRoute(request, url, platformEnv, userEnv, method, authUser) {
   let body = {};
   if (method !== 'GET' && method !== 'HEAD') {
     try {
@@ -276,7 +277,7 @@ async function handleR2FileRoute(request, url, env, method, authUser) {
   const key = (url.searchParams.get('key') || body.key || '').trim();
   if (!bucketParam || !key) return jsonResponse({ error: 'bucket and key required' }, 400);
 
-  const access = await assertDashboardR2BucketAccess(env, authUser, bucketParam);
+  const access = await assertDashboardR2BucketAccess(platformEnv, authUser, bucketParam);
   if (!access.ok) {
     return jsonResponse(
       { error: access.error, user_message: access.user_message, bucket: access.bucket },
@@ -284,6 +285,7 @@ async function handleR2FileRoute(request, url, env, method, authUser) {
     );
   }
 
+  const env = applyWorkspaceR2Transport(userEnv, platformEnv, access);
   const { bucketName, binding } = resolveR2Access(env, bucketParam);
 
   if (method === 'DELETE') {
@@ -387,10 +389,12 @@ export async function handleR2Api(request, url, env) {
   const method = (request.method || 'GET').toUpperCase();
 
   const authUser = await getAuthUser(request, env).catch(() => null);
-  env = await mergeR2S3EnvFromUserStorage(env, authUser);
+  const platformEnv = env;
+  const userEnv = await mergeR2S3EnvFromUserStorage(platformEnv, authUser);
+  let env = userEnv;
 
   async function denyUnlessBucketAllowed(bucketOrBinding) {
-    const access = await assertDashboardR2BucketAccess(env, authUser, bucketOrBinding);
+    const access = await assertDashboardR2BucketAccess(platformEnv, authUser, bucketOrBinding);
     if (!access.ok) {
       return jsonResponse(
         {
@@ -401,6 +405,7 @@ export async function handleR2Api(request, url, env) {
         access.status || 403,
       );
     }
+    env = applyWorkspaceR2Transport(userEnv, platformEnv, access);
     return null;
   }
 
@@ -416,7 +421,7 @@ export async function handleR2Api(request, url, env) {
         403,
       );
     }
-    const payload = await listR2BucketsForCatalog(env, { all: wantAll, authUser });
+    const payload = await listR2BucketsForCatalog(platformEnv, { all: wantAll, authUser });
     return jsonResponse(payload);
   }
 
@@ -876,7 +881,7 @@ export async function handleR2Api(request, url, env) {
   }
 
   if (pathLower === '/api/r2/file') {
-    return handleR2FileRoute(request, url, env, method, authUser);
+    return handleR2FileRoute(request, url, platformEnv, userEnv, method, authUser);
   }
 
   if (pathLower === '/api/r2/multipart/create' && method === 'POST') {

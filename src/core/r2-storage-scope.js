@@ -19,10 +19,12 @@
 
 import { ApiError } from './api-error.js';
 import { authUserIsSuperadmin } from './auth.js';
+import { resolveWorkspaceR2Bucket } from './agentsam-workspace.js';
 import {
   loadUserCloudflareR2Credentials,
   mergeR2S3EnvFromUserStorage,
 } from './user-storage-r2-credentials.js';
+import { userCanAccessWorkspace } from './workspace-access.js';
 
 /**
  * Block authenticated tenants from writing to platform Worker R2 bindings (ASSETS, AUTORAG, …).
@@ -136,10 +138,91 @@ export function isPlatformWorkerBoundBucket(env, bucketOrLabel) {
 }
 
 /**
- * Resolve R2Bucket handle for a bucket name (platform bindings only).
+ * Workspace buckets granted via active membership (collab lane — e.g. fuelnfreetime).
+ * Never includes platform Worker bindings (inneranimalmedia, artifacts, autorag).
  * @param {any} env
- * @param {string} bucketName
+ * @param {Record<string, unknown>|null|undefined} authUser
+ * @returns {Promise<Array<{ bucket: string, workspace_id: string, workspace_name?: string|null }>>}
  */
+export async function listWorkspaceMemberR2Buckets(env, authUser) {
+  const userId = authUser?.id != null ? String(authUser.id).trim() : '';
+  if (!userId || !env?.DB) return [];
+
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT DISTINCT
+         aw.id AS workspace_id,
+         aw.display_name AS workspace_name,
+         aw.r2_bucket,
+         aw.metadata_json
+       FROM workspace_members wm
+       INNER JOIN agentsam_workspace aw ON aw.id = wm.workspace_id
+       WHERE wm.user_id = ?
+         AND COALESCE(wm.is_active, 1) = 1
+         AND COALESCE(aw.status, 'active') != 'archived'`,
+    )
+      .bind(userId)
+      .all();
+
+    /** @type {Array<{ bucket: string, workspace_id: string, workspace_name?: string|null }>} */
+    const grants = [];
+    const seen = new Set();
+
+    for (const row of results || []) {
+      const workspaceId = String(row.workspace_id || '').trim();
+      if (!workspaceId) continue;
+      if (!(await userCanAccessWorkspace(env, authUser, workspaceId))) continue;
+
+      const bucketName = resolveWorkspaceR2Bucket(row);
+      if (!bucketName) continue;
+      if (isPlatformWorkerBoundBucket(env, bucketName)) continue;
+
+      const key = bucketName.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      grants.push({
+        bucket: bucketName,
+        workspace_id: workspaceId,
+        workspace_name: row.workspace_name != null ? String(row.workspace_name) : null,
+      });
+    }
+
+    return grants.sort((a, b) => a.bucket.localeCompare(b.bucket));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * @param {any} env
+ * @param {Record<string, unknown>|null|undefined} authUser
+ * @param {string} bucketOrLabel
+ */
+export async function findWorkspaceMemberR2Grant(env, authUser, bucketOrLabel) {
+  const bucket = normalizeR2BucketParam(env, bucketOrLabel);
+  if (!bucket) return null;
+  const normalized = bucket.toLowerCase();
+  const grants = await listWorkspaceMemberR2Buckets(env, authUser);
+  return grants.find((g) => g.bucket.toLowerCase() === normalized) || null;
+}
+
+/**
+ * Use platform Worker R2 S3 secrets for a workspace-granted bucket (members only).
+ * @param {any} userEnv
+ * @param {any} platformEnv
+ * @param {{ via?: string }|null|undefined} access
+ */
+export function applyWorkspaceR2Transport(userEnv, platformEnv, access) {
+  if (access?.via !== 'workspace_membership') return userEnv;
+  if (!platformEnv?.R2_ACCESS_KEY_ID || !platformEnv?.R2_SECRET_ACCESS_KEY) return userEnv;
+  return {
+    ...userEnv,
+    R2_ACCESS_KEY_ID: platformEnv.R2_ACCESS_KEY_ID,
+    R2_SECRET_ACCESS_KEY: platformEnv.R2_SECRET_ACCESS_KEY,
+    CLOUDFLARE_ACCOUNT_ID: platformEnv.CLOUDFLARE_ACCOUNT_ID || userEnv.CLOUDFLARE_ACCOUNT_ID,
+  };
+}
+
 export function getPlatformWorkerR2Binding(env, bucketName) {
   const normalized = String(bucketName || '').trim().toLowerCase();
   if (!normalized) return null;
@@ -184,6 +267,16 @@ export async function assertDashboardR2BucketAccess(env, authUser, bucketOrLabel
       };
     }
     return { ok: true, bucket, via: 'platform_binding' };
+  }
+
+  const workspaceGrant = await findWorkspaceMemberR2Grant(env, authUser, bucket);
+  if (workspaceGrant) {
+    return {
+      ok: true,
+      bucket,
+      via: 'workspace_membership',
+      workspace_id: workspaceGrant.workspace_id,
+    };
   }
 
   const userCreds = authUser?.id ? await loadUserCloudflareR2Credentials(env, authUser.id) : null;
@@ -244,32 +337,52 @@ export async function listDashboardVisibleR2Buckets(env, authUser, opts = {}) {
     };
   }
 
+  const workspaceGrants = await listWorkspaceMemberR2Buckets(env, authUser);
+  const workspaceBucketNames = workspaceGrants.map((g) => g.bucket);
+
   const userEnv = await mergeR2S3EnvFromUserStorage(env, authUser);
-  if (
-    userEnv.R2_ACCESS_KEY_ID &&
-    userEnv.R2_SECRET_ACCESS_KEY &&
-    typeof opts.listAccountViaS3 === 'function'
-  ) {
+  let byokNames = [];
+  const byokConnected = !!(userEnv.R2_ACCESS_KEY_ID && userEnv.R2_SECRET_ACCESS_KEY);
+  if (byokConnected && typeof opts.listAccountViaS3 === 'function') {
     const account = await opts.listAccountViaS3(userEnv);
-    const names = account || [];
+    byokNames = account || [];
+  }
+
+  const merged = [];
+  const seen = new Set();
+  for (const name of [...workspaceBucketNames, ...byokNames]) {
+    const n = String(name || '').trim();
+    if (!n || seen.has(n.toLowerCase())) continue;
+    seen.add(n.toLowerCase());
+    merged.push(n);
+  }
+
+  if (merged.length) {
     return {
-      buckets: names,
-      bound: names,
-      source: 'customer_s3',
-      count: names.length,
+      buckets: merged,
+      bound: merged,
+      workspace_buckets: workspaceBucketNames,
+      source: workspaceBucketNames.length && byokNames.length
+        ? 'workspace_membership+customer_s3'
+        : workspaceBucketNames.length
+          ? 'workspace_membership'
+          : 'customer_s3',
+      count: merged.length,
       platform_r2_visible: false,
-      r2_byok_connected: true,
+      r2_byok_connected: byokConnected,
     };
   }
 
   return {
     buckets: [],
     bound: [],
-    source: 'customer_disconnected',
+    workspace_buckets: [],
+    source: byokConnected ? 'customer_s3_empty' : 'customer_disconnected',
     count: 0,
     platform_r2_visible: false,
-    r2_byok_connected: false,
-    user_message:
-      'Connect your Cloudflare R2 access key + secret in Settings → Storage to browse your buckets.',
+    r2_byok_connected: byokConnected,
+    user_message: byokConnected
+      ? 'No R2 buckets in your account yet. Workspace-shared buckets appear when you join a collab workspace.'
+      : 'Connect your Cloudflare R2 access key + secret in Settings → Storage to browse your buckets.',
   };
 }

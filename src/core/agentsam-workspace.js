@@ -45,6 +45,18 @@ export function resolveWorkspaceByokR2Bucket(row) {
 }
 
 /**
+ * Shared workspace R2 bucket (collab lane) — not a platform Worker binding.
+ * @param {Record<string, unknown>|null|undefined} row
+ */
+export function resolveWorkspaceR2Bucket(row) {
+  if (!row) return null;
+  const fromCol = trim(row.r2_bucket);
+  if (fromCol) return fromCol;
+  const meta = parseWorkspaceMetadata(row.metadata_json);
+  return trim(meta.r2_bucket) || null;
+}
+
+/**
  * @param {Record<string, unknown>|null|undefined} row
  */
 export function resolveWorkspaceDeployUrl(row) {
@@ -71,6 +83,15 @@ export async function getWorkspaceCloudflareAccountId(env, workspaceId) {
 export async function getWorkspaceByokR2Bucket(env, workspaceId) {
   const row = await getAgentsamWorkspace(env, workspaceId);
   return resolveWorkspaceByokR2Bucket(row);
+}
+
+/**
+ * @param {any} env
+ * @param {string} workspaceId
+ */
+export async function getWorkspaceR2Bucket(env, workspaceId) {
+  const row = await getAgentsamWorkspace(env, workspaceId);
+  return resolveWorkspaceR2Bucket(row);
 }
 
 /**

@@ -14,6 +14,7 @@ import {
 } from './bootstrap.js';
 import { fetchUserGithubLogin, fetchWorkspaceGithubRepo } from './github-repo-scope.js';
 import { loadUserCloudflareR2Credentials } from './user-storage-r2-credentials.js';
+import { listWorkspaceMemberR2Buckets } from './r2-storage-scope.js';
 import { userCanAccessWorkspace } from './workspace-access.js';
 
 function trim(v) {
@@ -291,11 +292,12 @@ export async function buildScopedBootstrapContext(env, opts) {
   const isSuper = authUserIsSuperadmin(authUser);
   const account = opts.account || {};
 
-  const [githubLogin, workspaceRepo, tenantBuckets, r2Creds] = await Promise.all([
+  const [githubLogin, workspaceRepo, tenantBuckets, r2Creds, workspaceMemberBuckets] = await Promise.all([
     userId ? fetchUserGithubLogin(env, userId) : Promise.resolve(null),
     workspaceId ? fetchWorkspaceGithubRepo(env, tenantId, workspaceId) : Promise.resolve(null),
     tenantId ? loadTenantScopedStorageNames(env, tenantId) : Promise.resolve([]),
     userId ? loadUserCloudflareR2Credentials(env, userId) : Promise.resolve(null),
+    userId ? listWorkspaceMemberR2Buckets(env, authUser) : Promise.resolve([]),
   ]);
 
   const capabilities = parseJsonSafe(opts.bootstrapRow?.capabilities_json, {});
@@ -324,6 +326,7 @@ export async function buildScopedBootstrapContext(env, opts) {
     },
     storage: {
       tenant_buckets: tenantBuckets,
+      workspace_member_buckets: workspaceMemberBuckets,
       r2_byok_connected: !!(r2Creds?.accessKeyId && r2Creds?.secretAccessKey),
       platform_r2_visible: isSuper,
       media_upload_bucket: isSuper ? 'inneranimalmedia' : null,
