@@ -188,9 +188,9 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
     invert: true,
   });
   const dockResize = useVerticalResize({
-    initial: 220,
+    initial: 168,
     min: 120,
-    max: Math.min(380, Math.round(window.innerHeight * 0.45)),
+    max: Math.min(280, Math.round(window.innerHeight * 0.32)),
     invert: true,
   });
 
@@ -222,6 +222,17 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
   const rightPanelVisible =
     ui.panelVisibility.outliner || ui.panelVisibility.properties || ui.panelVisibility.assets;
 
+  const layoutPanelVisibility = useMemo(
+    () => ({
+      ...ui.panelVisibility,
+      // Library flyout replaces the right rail — keep grid column collapsed while open.
+      outliner: libraryOpen ? false : ui.panelVisibility.outliner,
+      properties: libraryOpen ? false : ui.panelVisibility.properties,
+      assets: false,
+    }),
+    [ui.panelVisibility, libraryOpen],
+  );
+
   const closeRightPanel = useCallback(() => {
     patchUi({
       panelVisibility: {
@@ -248,12 +259,19 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
   );
 
   useEffect(() => {
-    try {
-      localStorage.removeItem('iam-cad-studio-layout-v1');
-    } catch {
-      /* ignore */
-    }
-  }, []);
+    setActiveDockDomain(null);
+  }, [ui.workspace]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      setLibraryOpen(false);
+      closeRightPanel();
+      setActiveDockDomain(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [closeRightPanel]);
 
   const setWorkspace = useCallback((ws: WorkspaceId) => {
     patchUi({ workspace: ws });
@@ -863,7 +881,22 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
             openRightPanel('properties');
           }
         }}
-        onToggleLibrary={() => setLibraryOpen((open) => !open)}
+        onToggleLibrary={() => {
+          setLibraryOpen((open) => {
+            const next = !open;
+            if (next) {
+              patchUi({
+                panelVisibility: {
+                  ...ui.panelVisibility,
+                  outliner: false,
+                  properties: false,
+                  assets: false,
+                },
+              });
+            }
+            return next;
+          });
+        }}
         libraryOpen={libraryOpen}
         onToggleAssets={() => setLibraryOpen((open) => !open)}
         onToggleTimeline={() =>
@@ -905,10 +938,10 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
           <div ref={engineContainerRef} className="cad-studio__engine-persistent" aria-hidden="true" />
           <WorkspaceLayoutEngine
             workspace={ui.workspace}
-            panelVisibility={ui.panelVisibility}
+            panelVisibility={layoutPanelVisibility}
             editors={editors}
             onViewportCellMount={onViewportCellMount}
-            timelineRowHeight={ui.panelVisibility.timeline ? timelineResize.height : null}
+            timelineRowHeight={layoutPanelVisibility.timeline ? timelineResize.height : null}
           />
         </div>
         <AssetLibraryFlyout open={libraryOpen} onClose={() => setLibraryOpen(false)}>
