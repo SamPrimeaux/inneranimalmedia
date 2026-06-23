@@ -98,7 +98,7 @@ export function useDesignStudioCad(opts: UseDesignStudioCadOpts = {}) {
     busy ||
     polling ||
     (polledJob != null &&
-      !['done', 'failed', 'script_ready', 'cancelled'].includes(
+      !['done', 'complete', 'failed', 'script_ready', 'cancelled'].includes(
         String(polledJob.status || '').toLowerCase(),
       ));
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchCadJob, pollMeshyStatus, type CadJobRow } from '../api';
 
-const TERMINAL = new Set(['done', 'failed', 'cancelled']);
+const TERMINAL = new Set(['done', 'complete', 'failed', 'cancelled']);
 
 function backoffMs(attempt: number): number {
   return Math.min(1000 * 2 ** attempt, 15_000);
@@ -72,7 +72,7 @@ export function useCadJobPoll(
       if (TERMINAL.has(status)) {
         clearTimer();
         setPolling(false);
-        if (row.status === 'done') {
+        if (status === 'done' || status === 'complete') {
           options?.onDone?.(row);
         } else if (row.status === 'failed') {
           options?.onFailed?.(row);

@@ -111,7 +111,8 @@ export class AgentSamEngine {
 
     this.camera = this.perspectiveCamera;
 
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    this.renderer.setClearColor(0x373a3f, 1);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     container.appendChild(this.renderer.domElement);
@@ -682,7 +683,16 @@ export class AgentSamEngine {
   public setProjectType(type: ProjectType) {
     this.projectType = type;
     this.clearWorld();
-    if (type === ProjectType.CAD) { this.camera = this.orthoCamera; this.scene.background = new THREE.Color(0x161824); this.scene.fog = new THREE.FogExp2(0x161824, 0.015); this.world.gravity.set(0, 0, 0); }
+    if (type === ProjectType.CAD) {
+      this.camera = this.perspectiveCamera;
+      this.controls.enableRotate = true;
+      this.controls.enablePan = true;
+      this.controls.enableZoom = true;
+      const bg = 0x373a3f;
+      this.scene.background = new THREE.Color(bg);
+      this.scene.fog = null;
+      this.world.gravity.set(0, 0, 0);
+    }
     else if (type === ProjectType.CHESS) {
       this.camera = this.perspectiveCamera;
       this.scene.background = new THREE.Color(0x121218);

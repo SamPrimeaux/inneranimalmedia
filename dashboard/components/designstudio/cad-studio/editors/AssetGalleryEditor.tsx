@@ -1,6 +1,7 @@
 import React, { useRef } from 'react';
 import { useStudioGallery } from '../useStudioGallery';
 import type { GalleryItem } from '../cadStudioTypes';
+import { GlbAssetThumb } from './GlbAssetThumb';
 
 export type AssetGalleryEditorProps = {
   onSpawn: (item: GalleryItem) => void;
@@ -13,7 +14,7 @@ export function AssetGalleryEditor({ onSpawn, onUpload }: AssetGalleryEditorProp
 
   return (
     <section className="cad-editor cad-editor--assets">
-      <div className="cad-studio__panel-head">
+      <div className="cad-studio__panel-head cad-assets__head">
         <span>Assets</span>
         <input
           className="cad-studio__search"
@@ -50,53 +51,34 @@ export function AssetGalleryEditor({ onSpawn, onUpload }: AssetGalleryEditorProp
         <button type="button" className="cad-studio__btn" onClick={() => void gallery.refresh()} title="Refresh">
           Refresh
         </button>
+        {gallery.total > 0 ? <span className="cad-assets__count">{gallery.total}</span> : null}
       </div>
-      <div className="cad-assets__grid">
-        {gallery.loading ? <p className="cad-editor__hint">Loading assets…</p> : null}
-        {gallery.error ? <p className="cad-editor__hint cad-editor__hint--error">{gallery.error}</p> : null}
+      <div className="cad-assets__scroll">
+        {gallery.loading ? <p className="cad-editor__hint cad-assets__status">Loading assets…</p> : null}
+        {gallery.error ? <p className="cad-editor__hint cad-editor__hint--error cad-assets__status">{gallery.error}</p> : null}
         {!gallery.loading && gallery.items.length === 0 ? (
-          <p className="cad-editor__hint">No GLBs yet — upload or generate via Agent.</p>
+          <p className="cad-editor__hint cad-assets__status">No GLBs yet — upload or generate via Agent.</p>
         ) : null}
-        {gallery.items.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            className="cad-assets__card"
-            onClick={() => onSpawn(item)}
-            title={item.url}
-          >
-            <div className="cad-assets__thumb">
-              {item.thumbnail ? (
-                <img src={item.thumbnail} alt="" />
-              ) : (
-                <span className="cad-assets__thumb-placeholder">GLB</span>
-              )}
-            </div>
-            <div className="cad-assets__meta">
-              <span className="cad-assets__name">{item.name}</span>
-              <span className="cad-assets__source">{item.source}</span>
-            </div>
-          </button>
-        ))}
-      </div>
-      {gallery.pageCount > 1 ? (
-        <div className="cad-assets__pager">
-          <button type="button" className="cad-studio__btn" disabled={gallery.page <= 0} onClick={() => gallery.setPage(gallery.page - 1)}>
-            ‹
-          </button>
-          <span>
-            {gallery.page + 1} / {gallery.pageCount} ({gallery.total})
-          </span>
-          <button
-            type="button"
-            className="cad-studio__btn"
-            disabled={gallery.page >= gallery.pageCount - 1}
-            onClick={() => gallery.setPage(gallery.page + 1)}
-          >
-            ›
-          </button>
+        <div className="cad-assets__grid">
+          {gallery.items.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className="cad-assets__card"
+              onClick={() => onSpawn(item)}
+              title={item.url}
+            >
+              <div className="cad-assets__thumb">
+                <GlbAssetThumb url={item.url} thumbnail={item.thumbnail} alt={item.name} />
+              </div>
+              <div className="cad-assets__meta">
+                <span className="cad-assets__name">{item.name}</span>
+                <span className="cad-assets__source">{item.source}</span>
+              </div>
+            </button>
+          ))}
         </div>
-      ) : null}
+      </div>
     </section>
   );
 }

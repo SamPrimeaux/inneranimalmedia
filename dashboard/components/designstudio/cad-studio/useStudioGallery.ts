@@ -16,6 +16,7 @@ type JobRow = {
   prompt?: string;
   public_url?: string | null;
   result_url?: string | null;
+  thumbnail_url?: string | null;
   status?: string;
   created_at?: number;
 };
@@ -26,9 +27,18 @@ type MeshyTaskRow = {
   prompt?: string;
   public_url?: string;
   thumbnail_url?: string;
+  thumbnail?: string;
+  model_urls?: { thumbnail?: string; glb?: string };
   status?: string;
   created_at?: number;
 };
+
+function meshyThumbnail(row: MeshyTaskRow): string | undefined {
+  const direct = normalizeUrl(row.thumbnail_url || row.thumbnail);
+  if (direct) return direct;
+  const nested = normalizeUrl(row.model_urls?.thumbnail);
+  return nested || undefined;
+}
 
 function normalizeUrl(url?: string | null): string {
   if (!url) return '';
@@ -55,8 +65,6 @@ export function useStudioGallery() {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState<GallerySourceFilter>('all');
-  const [page, setPage] = useState(0);
-  const pageSize = 12;
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -105,6 +113,7 @@ export function useStudioGallery() {
             id: `job_${row.id}`,
             name: row.prompt?.slice(0, 48) || `${row.engine || 'CAD'} export`,
             url,
+            thumbnail: row.thumbnail_url,
             source: 'job',
             createdAt: row.created_at,
           });
@@ -115,13 +124,13 @@ export function useStudioGallery() {
         const data = await meshyRes.json();
         const rows = Array.isArray(data?.tasks) ? data.tasks : Array.isArray(data?.results) ? data.results : [];
         for (const row of rows as MeshyTaskRow[]) {
-          const url = normalizeUrl(row.public_url);
+          const url = normalizeUrl(row.public_url || row.model_urls?.glb);
           if (!url) continue;
           merged.push({
             id: `meshy_${row.task_id || row.id || url}`,
             name: row.prompt?.slice(0, 48) || 'Meshy task',
             url,
-            thumbnail: row.thumbnail_url,
+            thumbnail: meshyThumbnail(row),
             source: 'meshy',
             createdAt: row.created_at,
           });
@@ -153,15 +162,8 @@ export function useStudioGallery() {
     });
   }, [items, filter, sourceFilter]);
 
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const pageItems = filtered.slice(page * pageSize, (page + 1) * pageSize);
-
-  useEffect(() => {
-    if (page >= pageCount) setPage(Math.max(0, pageCount - 1));
-  }, [page, pageCount]);
-
   return {
-    items: pageItems,
+    items: filtered,
     total: filtered.length,
     loading,
     error,
@@ -169,9 +171,6 @@ export function useStudioGallery() {
     setFilter,
     sourceFilter,
     setSourceFilter,
-    page,
-    setPage,
-    pageCount,
     refresh,
   };
 }

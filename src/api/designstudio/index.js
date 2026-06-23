@@ -45,6 +45,14 @@ function mapDesignStudioAssetRow(row) {
     typeof scaleRaw === 'number' && Number.isFinite(scaleRaw)
       ? scaleRaw
       : Number(scaleRaw);
+  const thumbnailUrl =
+    row.thumbnail_url != null && String(row.thumbnail_url).trim() !== ''
+      ? String(row.thumbnail_url).trim()
+      : meta.thumbnail_url != null && String(meta.thumbnail_url).trim() !== ''
+        ? String(meta.thumbnail_url).trim()
+        : meta.preview_url != null && String(meta.preview_url).trim() !== ''
+          ? String(meta.preview_url).trim()
+          : null;
   return {
     id: String(row.id),
     label:
@@ -52,9 +60,11 @@ function mapDesignStudioAssetRow(row) {
         ? String(meta.label).trim()
         : String(row.filename || row.id),
     public_url: normalizeGlbPublicUrl(row.public_url),
+    thumbnail_url: thumbnailUrl,
     icon: meta.icon != null ? String(meta.icon) : null,
     scale: Number.isFinite(scale) && scale > 0 ? scale : 1,
     tags: row.tags ?? null,
+    created_at: row.created_at ?? null,
   };
 }
 
@@ -204,7 +214,7 @@ export async function handleDesignStudioApi(request, url, env, _ctx) {
       if (!category) return jsonResponse({ error: 'category required' }, 400);
 
       const isLiveParam = url.searchParams.get('is_live');
-      let sql = `SELECT id, filename, tags, public_url, metadata, category, created_by
+      let sql = `SELECT id, filename, tags, public_url, thumbnail_url, metadata, category, created_by, created_at
         FROM ${CMS_ASSETS}
         WHERE category = ?`;
       const binds = [category];
