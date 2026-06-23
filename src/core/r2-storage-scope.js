@@ -19,7 +19,8 @@
 
 import { ApiError } from './api-error.js';
 import { authUserIsSuperadmin } from './auth.js';
-import { resolveWorkspaceR2Bucket } from './agentsam-workspace.js';
+import { getAgentsamWorkspace, resolveWorkspaceR2Bucket } from './agentsam-workspace.js';
+import { resolveWorkspaceD1Catalog } from './workspace-d1-access.js';
 import {
   loadUserCloudflareR2Credentials,
   mergeR2S3EnvFromUserStorage,
@@ -294,13 +295,56 @@ export async function assertDashboardR2BucketAccess(env, authUser, bucketOrLabel
   return { ok: true, bucket, via: 'customer_s3' };
 }
 
+function trimScope(v) {
+  return v == null ? '' : String(v).trim();
+}
+
+function isPlatformWorkspaceSlug(slug) {
+  const s = trimScope(slug).toLowerCase();
+  return s === 'inneranimalmedia' || s === 'inneranimalmedia-mcp';
+}
+
+/**
+ * Collab-lane bucket for an active workspace (fuelnfreetime, companionscpas, …).
+ * @param {any} env
+ * @param {string} workspaceId
+ */
+export async function resolveCollabWorkspaceR2Bucket(env, workspaceId) {
+  const ws = trimScope(workspaceId);
+  if (!ws || !env?.DB) return null;
+  const row = await getAgentsamWorkspace(env, ws);
+  if (!row) return null;
+  const slug = trimScope(row.workspace_slug || row.slug || ws.replace(/^ws_/, ''));
+  const catalog = resolveWorkspaceD1Catalog(row);
+  const wsBucket = resolveWorkspaceR2Bucket(row);
+  if (isPlatformWorkspaceSlug(slug) && !catalog.length && !wsBucket) return null;
+  if (wsBucket && !isPlatformWorkerBoundBucket(env, wsBucket)) return wsBucket;
+  if (catalog.length > 0 && slug && !isPlatformWorkspaceSlug(slug)) return slug;
+  return null;
+}
+
 /**
  * Buckets visible in dashboard R2 picker / catalog.
  * @param {any} env
  * @param {Record<string, unknown>|null|undefined} authUser
- * @param {{ all?: boolean, listAccountViaS3?: (e: any) => Promise<string[]|null> }} [opts]
+ * @param {{ all?: boolean, listAccountViaS3?: (e: any) => Promise<string[]|null>, workspaceId?: string|null }} [opts]
  */
 export async function listDashboardVisibleR2Buckets(env, authUser, opts = {}) {
+  const workspaceId = trimScope(opts.workspaceId);
+  if (workspaceId && authUser) {
+    const collabBucket = await resolveCollabWorkspaceR2Bucket(env, workspaceId);
+    if (collabBucket) {
+      return {
+        buckets: [collabBucket],
+        bound: [collabBucket],
+        source: 'workspace_collab',
+        count: 1,
+        platform_r2_visible: false,
+        workspace_id: workspaceId,
+      };
+    }
+  }
+
   const isOwner = authUser && authUserIsSuperadmin(authUser);
   const platformRows = listWorkerR2BindingCatalog(env);
   const platformNames = platformRows.map((r) => r.bucket_name);

@@ -10,7 +10,10 @@ import { Loader2 } from 'lucide-react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { useWorkspace } from '../src/context/WorkspaceContext';
-import { databaseStudioPathForWorkspace } from '../src/lib/databaseStudioRoute';
+import {
+  databaseStudioPathFromName,
+  expectedDatabaseNameForWorkspace,
+} from '../src/lib/databaseStudioRoute';
 import DatabasesTab from './analytics/tabs/DatabasesTab';
 
 const DatabaseStudio = lazy(() =>
@@ -42,25 +45,34 @@ export const DatabasePage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const { workspaceId, workspaces } = useWorkspace();
   const activeWorkspace = workspaces.find((w) => w.id === workspaceId) ?? null;
-  const expectedStudioPath = databaseStudioPathForWorkspace(activeWorkspace);
-  const expectedStudioName = expectedStudioPath.match(/^\/dashboard\/database\/([^/]+)/)?.[1]
-    ? decodeURIComponent(expectedStudioPath.match(/^\/dashboard\/database\/([^/]+)/)![1])
-    : null;
+  const expectedStudioName = expectedDatabaseNameForWorkspace(activeWorkspace);
   const databaseName = routeDatabaseName?.trim() || undefined;
   const legacyStudio = !databaseName && studioDeepLinkParams(searchParams);
 
+  const effectiveDatabaseName = React.useMemo(() => {
+    if (expectedStudioName) {
+      if (!databaseName || databaseName.toLowerCase() !== expectedStudioName.toLowerCase()) {
+        return expectedStudioName;
+      }
+    }
+    return databaseName;
+  }, [activeWorkspace, databaseName, expectedStudioName]);
+
   useEffect(() => {
-    if (!databaseName || !expectedStudioName) return;
-    if (databaseName.toLowerCase() === expectedStudioName.toLowerCase()) return;
-    navigate(`/dashboard/database/${encodeURIComponent(expectedStudioName)}`, { replace: true });
-  }, [databaseName, expectedStudioName, navigate]);
+    if (!expectedStudioName) return;
+    if (databaseName?.toLowerCase() === expectedStudioName.toLowerCase()) return;
+    navigate(databaseStudioPathFromName(expectedStudioName), { replace: true });
+  }, [workspaceId, activeWorkspace, databaseName, expectedStudioName, navigate]);
 
   useEffect(() => {
     if (databaseName || !legacyStudio) return;
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch('/api/d1/context', { credentials: 'same-origin' });
+        const headers: Record<string, string> = {};
+        const ws = workspaceId?.trim();
+        if (ws) headers['X-IAM-Workspace-Id'] = ws;
+        const res = await fetch('/api/d1/context', { credentials: 'same-origin', headers });
         const ctx = await res.json().catch(() => ({}));
         if (cancelled || !res.ok) return;
         const name =
@@ -79,7 +91,7 @@ export const DatabasePage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [databaseName, legacyStudio, navigate]);
+  }, [databaseName, legacyStudio, navigate, workspaceId]);
 
   const backToOverview = useCallback(() => {
     navigate('/dashboard/database', { replace: true });
@@ -112,7 +124,7 @@ export const DatabasePage: React.FC = () => {
   if (databaseName || legacyStudio) {
     return (
       <Suspense fallback={<DatabaseStudioFallback />}>
-        <DatabaseStudio databaseName={databaseName} onBackToOverview={backToOverview} />
+        <DatabaseStudio databaseName={effectiveDatabaseName} onBackToOverview={backToOverview} />
       </Suspense>
     );
   }

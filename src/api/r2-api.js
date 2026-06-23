@@ -5,6 +5,7 @@
  */
 
 import { getAuthUser, jsonResponse, authUserIsSuperadmin } from '../core/auth';
+import { resolveEffectiveWorkspaceId } from '../core/bootstrap.js';
 import { mergeR2S3EnvFromUserStorage } from '../core/user-storage-r2-credentials.js';
 import {
   assertDashboardR2BucketAccess,
@@ -393,6 +394,13 @@ export async function handleR2Api(request, url, workerEnv) {
   const userEnv = await mergeR2S3EnvFromUserStorage(platformEnv, authUser);
   let env = userEnv;
 
+  async function resolveRequestWorkspaceId() {
+    if (!authUser) return null;
+    const wsRes = await resolveEffectiveWorkspaceId(platformEnv, request, authUser, {});
+    const ws = wsRes?.workspaceId != null ? String(wsRes.workspaceId).trim() : '';
+    return ws || null;
+  }
+
   async function denyUnlessBucketAllowed(bucketOrBinding) {
     const access = await assertDashboardR2BucketAccess(platformEnv, authUser, bucketOrBinding);
     if (!access.ok) {
@@ -421,7 +429,11 @@ export async function handleR2Api(request, url, workerEnv) {
         403,
       );
     }
-    const payload = await listR2BucketsForCatalog(platformEnv, { all: wantAll, authUser });
+    const payload = await listR2BucketsForCatalog(platformEnv, {
+      all: wantAll,
+      authUser,
+      workspaceId: await resolveRequestWorkspaceId(),
+    });
     return jsonResponse(payload);
   }
 
@@ -552,7 +564,11 @@ export async function handleR2Api(request, url, workerEnv) {
           403,
         );
       }
-      const payload = await listR2BucketsForCatalog(env, { all: wantAll, authUser });
+      const payload = await listR2BucketsForCatalog(env, {
+        all: wantAll,
+        authUser,
+        workspaceId: await resolveRequestWorkspaceId(),
+      });
       return jsonResponse(payload);
     }
 
@@ -1126,6 +1142,7 @@ export async function listR2BucketsForCatalog(env, opts = {}) {
   const visible = await listDashboardVisibleR2Buckets(env, opts.authUser ?? null, {
     all: opts.all === true,
     listAccountViaS3: listAllR2BucketsViaS3,
+    workspaceId: opts.workspaceId ?? null,
   });
   const resolve = buildR2BucketResolveMap(env);
   return { ...visible, resolve };

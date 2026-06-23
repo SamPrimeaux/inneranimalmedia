@@ -1180,11 +1180,17 @@ const App: React.FC = () => {
           sync: true,
         });
         void refreshWorkspaces({ force: true });
+        if (location.pathname.startsWith('/dashboard/database')) {
+          const nextPath = databaseStudioPathForWorkspace(row ?? null);
+          if (nextPath !== location.pathname) {
+            navigate(nextPath, { replace: true });
+          }
+        }
       } catch {
         setToastMsg('Workspace saved locally — sync failed.');
       }
     },
-    [switchWorkspace, refreshWorkspaces, workspaceRows],
+    [switchWorkspace, refreshWorkspaces, workspaceRows, location.pathname, navigate],
   );
 
   const statusBarWorkspaceItems = useMemo(
@@ -4717,6 +4723,15 @@ const App: React.FC = () => {
               sync: false,
             });
             void refreshWorkspaces({ force: true });
+            if (location.pathname.startsWith('/dashboard/database')) {
+              const nextPath = databaseStudioPathForWorkspace({
+                slug: ws.slug,
+                github_repo: ws.github_repo ?? null,
+              });
+              if (nextPath !== location.pathname) {
+                navigate(nextPath, { replace: true });
+              }
+            }
           }}
           setToastMsg={setToastMsg}
           onOpenLocalFolder={() => {

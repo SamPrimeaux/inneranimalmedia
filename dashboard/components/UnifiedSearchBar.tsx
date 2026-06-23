@@ -24,6 +24,13 @@ import {
   type WranglerCatalogEntry,
   type WranglerCommandCategory,
 } from '../lib/wranglerCommandCatalog';
+import { useWorkspace } from '../src/context/WorkspaceContext';
+import {
+  databaseStudioPathFromName,
+  expectedDatabaseNameForWorkspace,
+  expectedR2BucketForWorkspace,
+  isPlatformWorkspace,
+} from '../src/lib/databaseStudioRoute';
 
 export type UnifiedSearchNavigate =
   | { kind: 'table'; name: string }
@@ -234,7 +241,7 @@ function buildDefaultDataStores(): PaletteItem[] {
       id: 'db-d1',
       category: 'd1',
       title: 'inneranimalmedia-business',
-      subtitle: 'Cloudflare D1 · bound Worker database',
+      subtitle: 'Cloudflare D1 · platform database',
       dbTarget: 'd1',
     },
     {
@@ -257,6 +264,30 @@ function buildDefaultDataStores(): PaletteItem[] {
       subtitle: 'RAG pipeline · autorag bucket',
     },
   ];
+}
+
+function buildDataStoresForWorkspace(activeWorkspace: {
+  id?: string;
+  database_studio_name?: string | null;
+  slug?: string | null;
+  github_repo?: string | null;
+} | null): PaletteItem[] {
+  const collabDb = expectedDatabaseNameForWorkspace(activeWorkspace);
+  if (collabDb) {
+    return [
+      {
+        id: `db-collab-${collabDb}`,
+        category: 'd1',
+        title: collabDb,
+        subtitle: 'Cloudflare D1 · workspace database',
+        dbTarget: 'd1',
+      },
+    ];
+  }
+  if (isPlatformWorkspace(activeWorkspace)) {
+    return buildDefaultDataStores();
+  }
+  return buildDefaultDataStores();
 }
 
 function normalizeLegacySearchRows(data: Record<string, unknown>): LegacyUnifiedRow[] {
@@ -403,6 +434,40 @@ export const UnifiedSearchBar: React.FC<{
   onInitialQueryConsumed,
 }) => {
   const navigate = useNavigate();
+  const { workspaceId, workspaces } = useWorkspace();
+  const activeWorkspace = useMemo(
+    () => workspaces.find((w) => w.id === workspaceId) ?? null,
+    [workspaces, workspaceId],
+  );
+  const collabDbName = expectedDatabaseNameForWorkspace(activeWorkspace);
+  const collabR2Bucket = expectedR2BucketForWorkspace(activeWorkspace);
+
+  const workspaceFetchInit = useCallback(
+    (init?: RequestInit): RequestInit => {
+      const headers: Record<string, string> = {
+        ...((init?.headers as Record<string, string> | undefined) || {}),
+      };
+      const ws = workspaceId?.trim();
+      if (ws) headers['X-IAM-Workspace-Id'] = ws;
+      if (collabDbName) headers['X-IAM-Database-Name'] = collabDbName;
+      return { ...init, headers };
+    },
+    [workspaceId, collabDbName],
+  );
+
+  const workspaceFetchJson = useCallback(
+    async <T,>(url: string, init?: RequestInit): Promise<T | null> => {
+      try {
+        const res = await fetch(url, { credentials: 'same-origin', ...workspaceFetchInit(init) });
+        if (!res.ok) return null;
+        return (await res.json()) as T;
+      } catch {
+        return null;
+      }
+    },
+    [workspaceFetchInit],
+  );
+
   const isControlled = controlledOpen !== undefined;
   const [localOpen, setLocalOpen] = useState(false);
   const open = isControlled ? controlledOpen : localOpen;
@@ -459,19 +524,27 @@ export const UnifiedSearchBar: React.FC<{
   const loadDefault = useCallback(async () => {
     setLoading(true);
     try {
-      const [buckets, sessions, deploys, vectors, recentRes] = await Promise.all([
-        fetchBoundR2Buckets(),
-        fetchJson<
+      const [bucketsPayload, sessions, deploys, vectors, recentRes] = await Promise.all([
+        workspaceFetchJson<{ buckets?: string[]; bound?: string[] }>('/api/r2/buckets'),
+        workspaceFetchJson<
           { id?: string; name?: string; message_count?: number; started_at?: number }[]
         >('/api/agent/sessions?limit=5').then((d) => (Array.isArray(d) ? d : [])),
-        fetchJson<{ deployments?: { worker_name?: string; environment?: string; status?: string; deployed_at?: string; deployment_notes?: string }[] }>(
+        workspaceFetchJson<{ deployments?: { worker_name?: string; environment?: string; status?: string; deployed_at?: string; deployment_notes?: string }[] }>(
           '/api/overview/deployments?limit=5',
         ).then((d) => (d?.deployments || []).slice(0, 5)),
-        fetchJson<{ indexes?: { display_name?: string; binding_name?: string; index_name?: string }[] }>(
-          '/api/storage/vectors',
-        ),
-        fetch('/api/unified-search/recent', { credentials: 'same-origin' }),
+        isPlatformWorkspace(activeWorkspace)
+          ? workspaceFetchJson<{ indexes?: { display_name?: string; binding_name?: string; index_name?: string }[] }>(
+              '/api/storage/vectors',
+            )
+          : Promise.resolve(null),
+        fetch('/api/unified-search/recent', { credentials: 'same-origin', ...workspaceFetchInit() }),
       ]);
+
+      const buckets = bucketsPayload?.buckets?.length
+        ? bucketsPayload.buckets.map(String)
+        : collabR2Bucket
+          ? [collabR2Bucket]
+          : [];
 
       const recentItems: PaletteItem[] = [];
       if (recentRes.ok) {
@@ -495,12 +568,14 @@ export const UnifiedSearchBar: React.FC<{
         id: `res-r2-${name}`,
         category: 'resource',
         title: name,
-        subtitle: 'R2 bucket · Worker binding',
+        subtitle: collabR2Bucket && name === collabR2Bucket
+          ? 'R2 bucket · workspace storage'
+          : 'R2 bucket · Worker binding',
         r2Bucket: name,
         bound: true,
       }));
 
-      const stores = buildDefaultDataStores();
+      const stores = buildDataStoresForWorkspace(activeWorkspace);
       if (vectors?.indexes?.[0]) {
         const vx = vectors.indexes[0];
         stores[2] = {
@@ -510,6 +585,7 @@ export const UnifiedSearchBar: React.FC<{
         };
       }
 
+      const workspaceSlug = activeWorkspace?.slug?.trim().toLowerCase();
       const chatRows: PaletteItem[] = sessions.slice(0, 5).map((s) => ({
         id: `chat-${s.id}`,
         category: 'chat',
@@ -523,7 +599,13 @@ export const UnifiedSearchBar: React.FC<{
         conversationId: String(s.id || ''),
       }));
 
-      const deployRows: PaletteItem[] = deploys.map((d, i) => {
+      const deployRows: PaletteItem[] = deploys
+        .filter((d) => {
+          if (!workspaceSlug || isPlatformWorkspace(activeWorkspace)) return true;
+          const worker = String(d.worker_name || '').trim().toLowerCase();
+          return !worker || worker === workspaceSlug || worker.includes(workspaceSlug);
+        })
+        .map((d, i) => {
         const title = [d.worker_name, d.environment].filter(Boolean).join(' · ') || 'Deployment';
         const summary = [d.status, d.deployed_at, d.deployment_notes].filter(Boolean).join(' — ');
         return {
@@ -539,12 +621,51 @@ export const UnifiedSearchBar: React.FC<{
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [activeWorkspace, collabR2Bucket, workspaceFetchInit, workspaceFetchJson]);
 
   const loadR2 = useCallback(async (searchTerm: string) => {
     setLoading(true);
     try {
-      const rows = await fetchAllR2BucketNames();
+      if (collabR2Bucket && !isPlatformWorkspace(activeWorkspace)) {
+        const name = collabR2Bucket;
+        if (!searchTerm || name.toLowerCase().includes(searchTerm.toLowerCase())) {
+          setItems([
+            {
+              id: `r2-${name}`,
+              category: 'r2',
+              title: name,
+              subtitle: 'Workspace R2 bucket',
+              bound: true,
+              r2Bucket: name,
+            },
+          ]);
+        } else {
+          setItems([]);
+        }
+        return;
+      }
+      const fromBuckets = await workspaceFetchJson<{ buckets?: string[]; bound?: string[] }>(
+        '/api/r2/buckets',
+      );
+      const bound = (fromBuckets?.bound || fromBuckets?.buckets || []).map(String);
+      const boundSet = new Set(bound);
+      let account: string[] = bound;
+      if (isPlatformWorkspace(activeWorkspace)) {
+        const fromAll = await workspaceFetchJson<{ buckets?: string[]; bucket_names?: string[] }>(
+          '/api/r2/list?buckets=true&all=true',
+        );
+        if (fromAll) {
+          account = (fromAll.buckets || fromAll.bucket_names || []).map(String);
+        }
+      }
+      const merged: string[] = [...bound];
+      for (const n of account) {
+        if (!boundSet.has(n)) merged.push(n);
+      }
+      const rows = merged.slice(0, 80).map((name) => ({
+        name,
+        bound: boundSet.has(name),
+      }));
       const sorted = sortBuckets(rows, searchTerm);
       setItems(
         sorted.map((b) => ({
@@ -553,21 +674,21 @@ export const UnifiedSearchBar: React.FC<{
           title: b.name,
           subtitle: b.bound ? 'Bound to this Worker' : 'Account bucket',
           bound: b.bound,
-          objectCount: b.object_count ?? null,
           r2Bucket: b.name,
         })),
       );
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [activeWorkspace, collabR2Bucket, workspaceFetchJson]);
 
   const loadD1 = useCallback(async (searchTerm: string) => {
     setLoading(true);
     try {
-      const stores = buildDefaultDataStores().filter((s) => matchesTerm(s, searchTerm));
+      const stores = buildDataStoresForWorkspace(activeWorkspace).filter((s) => matchesTerm(s, searchTerm));
       const tableRows: PaletteItem[] = [];
-      const tables = await fetchJson<{ tables?: { name: string }[] }>('/api/d1/tables');
+      const dbLabel = collabDbName || 'inneranimalmedia-business';
+      const tables = await workspaceFetchJson<{ tables?: { name: string }[] }>('/api/d1/tables');
       if (tables?.tables?.length) {
         for (const t of tables.tables.slice(0, 12)) {
           const name = String(t.name || '');
@@ -576,7 +697,7 @@ export const UnifiedSearchBar: React.FC<{
             id: `d1-table-${name}`,
             category: 'd1',
             title: name,
-            subtitle: 'D1 table · inneranimalmedia-business',
+            subtitle: `D1 table · ${dbLabel}`,
             dbTarget: 'd1',
           });
         }
@@ -585,7 +706,7 @@ export const UnifiedSearchBar: React.FC<{
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [activeWorkspace, collabDbName, workspaceFetchJson]);
 
   const loadCommands = useCallback(async (searchTerm: string) => {
     setLoading(true);
@@ -802,7 +923,7 @@ export const UnifiedSearchBar: React.FC<{
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [open, q, mode, sourceChip, runQuery]);
+  }, [open, q, mode, sourceChip, runQuery, workspaceId]);
 
   const closePalette = useCallback(() => {
     setOpen(false);
@@ -826,19 +947,26 @@ export const UnifiedSearchBar: React.FC<{
   const loadBucketMenu = useCallback(async () => {
     setBucketMenuLoading(true);
     try {
-      const rows = await fetchAllR2BucketNames();
-      setBucketMenuRows(rows);
+      if (collabR2Bucket && !isPlatformWorkspace(activeWorkspace)) {
+        setBucketMenuRows([{ name: collabR2Bucket, bound: true }]);
+        return;
+      }
+      const payload = await workspaceFetchJson<{ buckets?: string[]; bound?: string[] }>(
+        '/api/r2/buckets',
+      );
+      const names = (payload?.buckets || payload?.bound || []).map(String);
+      setBucketMenuRows(names.map((name) => ({ name, bound: true })));
     } catch (e) {
       console.error('Failed to load R2 bucket menu:', e);
-    } finally { // Preserve existing rows on transient failure
+    } finally {
       setBucketMenuLoading(false);
     }
-  }, []);
+  }, [activeWorkspace, collabR2Bucket, workspaceFetchJson]);
 
   useEffect(() => {
     if (!bucketMenuOpen) return;
     void loadBucketMenu();
-  }, [bucketMenuOpen, loadBucketMenu]);
+  }, [bucketMenuOpen, loadBucketMenu, workspaceId]);
 
   useEffect(() => {
     if (!bucketMenuOpen) return;
@@ -850,14 +978,21 @@ export const UnifiedSearchBar: React.FC<{
     return () => document.removeEventListener('mousedown', onDoc);
   }, [bucketMenuOpen]);
 
-  const openDatabase = useCallback((target?: 'd1' | 'hyperdrive') => {
-    try {
-      if (target) sessionStorage.setItem('iam-palette-db-target', target);
-    } catch {
-      /* ignore */
-    }
-    window.dispatchEvent(new CustomEvent('iam-sidebar-toggle', { detail: { activity: 'database', dbTarget: target } }));
-  }, []);
+  const openDatabase = useCallback(
+    (target?: 'd1' | 'hyperdrive') => {
+      if (target === 'd1' && collabDbName) {
+        navigate(databaseStudioPathFromName(collabDbName));
+        return;
+      }
+      try {
+        if (target) sessionStorage.setItem('iam-palette-db-target', target);
+      } catch {
+        /* ignore */
+      }
+      window.dispatchEvent(new CustomEvent('iam-sidebar-toggle', { detail: { activity: 'database', dbTarget: target } }));
+    },
+    [collabDbName, navigate],
+  );
 
   const applyItem = useCallback(
     (item: PaletteItem, searchQuery: string) => {
