@@ -10,7 +10,6 @@ export type RightPanelTabsProps = {
 export function RightPanelTabs({ active, onChange, children }: RightPanelTabsProps) {
   const tabs: { id: RightPanelTab; label: string }[] = [
     { id: 'outliner', label: 'Outliner' },
-    { id: 'assets', label: 'Assets' },
     { id: 'properties', label: 'Properties' },
   ];
 

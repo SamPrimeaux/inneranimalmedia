@@ -6,16 +6,17 @@ import { GlbAssetThumb } from './GlbAssetThumb';
 export type AssetGalleryEditorProps = {
   onSpawn: (item: GalleryItem) => void;
   onUpload?: (file: File) => void;
+  variant?: 'panel' | 'library';
 };
 
-export function AssetGalleryEditor({ onSpawn, onUpload }: AssetGalleryEditorProps) {
+export function AssetGalleryEditor({ onSpawn, onUpload, variant = 'panel' }: AssetGalleryEditorProps) {
   const gallery = useStudioGallery();
   const fileRef = useRef<HTMLInputElement>(null);
 
   return (
     <section className="cad-editor cad-editor--assets">
       <div className="cad-studio__panel-head cad-assets__head">
-        <span>Assets</span>
+        {variant === 'panel' ? <span>Assets</span> : null}
         <input
           className="cad-studio__search"
           placeholder="Search GLBs…"

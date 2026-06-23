@@ -122,7 +122,7 @@ export const DEFAULT_UI_STATE: CadStudioUiState = {
   workspace: 'Layout',
   interactionMode: 'object',
   viewTool: 'select',
-  rightPanelTab: 'assets',
+  rightPanelTab: 'outliner',
   propertiesTab: 'object',
   panelVisibility: DEFAULT_PANEL_VISIBILITY,
   wireframe: false,

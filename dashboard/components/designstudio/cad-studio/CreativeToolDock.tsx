@@ -14,6 +14,8 @@ export type CreativeToolDockProps = {
   selectedObjectId?: string | null;
   sceneId?: string | null;
   placement?: 'bottom' | 'side';
+  sheetHeight?: number;
+  onSheetResizePointerDown?: (e: React.PointerEvent) => void;
 };
 
 export function CreativeToolDock({
@@ -25,6 +27,8 @@ export function CreativeToolDock({
   onLocalAction,
   onOpenOperator,
   placement = 'bottom',
+  sheetHeight,
+  onSheetResizePointerDown,
 }: CreativeToolDockProps) {
   const domains = useMemo(() => buildDockDomains(workspace), [workspace]);
   const [pinned, setPinned] = useState(false);
@@ -53,7 +57,19 @@ export function CreativeToolDock({
   return (
     <div className={wrapClass} aria-label="Creative tool dock">
       {openDomain ? (
-        <div className="cad-dock__sheet" role="region" aria-label={`${openDomain.label} tools`}>
+        <div
+          className="cad-dock__sheet"
+          role="region"
+          aria-label={`${openDomain.label} tools`}
+          style={sheetHeight != null ? { height: sheetHeight, maxHeight: sheetHeight } : undefined}
+        >
+          {onSheetResizePointerDown ? (
+            <div
+              className="cad-resize-handle cad-resize-handle--horizontal"
+              onPointerDown={onSheetResizePointerDown}
+              title="Drag to resize tool drawer"
+            />
+          ) : null}
           <div className="cad-dock__sheet-head">
             <span>{openDomain.label}</span>
             <button

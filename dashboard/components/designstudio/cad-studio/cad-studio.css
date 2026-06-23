@@ -1250,7 +1250,7 @@
 .cad-studio__hud-btns {
   position: absolute;
   top: 12px;
-  right: 12px;
+  right: 96px;
   display: flex;
   gap: 6px;
   pointer-events: auto;
@@ -1404,9 +1404,146 @@
   width: 100%;
 }
 
+.cad-studio__hud-btn.active {
+  background: rgba(78, 140, 255, 0.35);
+  border-color: rgba(78, 140, 255, 0.55);
+  color: #fff;
+}
+
+.cad-studio__view-nav {
+  position: absolute;
+  top: 100px;
+  right: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: auto;
+  z-index: 12;
+}
+
+.cad-studio__main {
+  min-height: 0;
+  min-width: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.cad-studio__library-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid #3a414a;
+  border-radius: 4px;
+}
+
+.cad-studio__library-btn.active {
+  background: #2e5b96;
+  border-color: #4879b8;
+  color: #fff;
+}
+
+.cad-asset-library__backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  background: rgba(0, 0, 0, 0.22);
+  border: 0;
+  cursor: default;
+}
+
+.cad-asset-library {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(380px, 42vw);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  background: #17191c;
+  border-left: 1px solid #090a0b;
+  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.35);
+}
+
+.cad-asset-library__head {
+  height: 32px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  border-bottom: 1px solid #0d0e10;
+  background: #202327;
+}
+
+.cad-asset-library__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--cs-text-0);
+}
+
+.cad-asset-library__body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.cad-asset-library__body .cad-editor--assets {
+  height: 100%;
+  min-height: 0;
+  border-left: none;
+}
+
+.cad-studio__layout-cell--viewport .cad-studio__layout-stack-item {
+  pointer-events: none;
+}
+
+.cad-studio__layout-cell:not(.cad-studio__layout-cell--viewport) {
+  pointer-events: auto;
+}
+
+.cad-timeline-wrap {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.cad-timeline-wrap .cad-editor--timeline {
+  flex: 1;
+  min-height: 0;
+}
+
+.cad-resize-handle {
+  flex-shrink: 0;
+  touch-action: none;
+}
+
+.cad-resize-handle--horizontal {
+  height: 8px;
+  cursor: row-resize;
+  background: linear-gradient(to bottom, transparent, rgba(255, 255, 255, 0.06));
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.cad-resize-handle--horizontal:hover {
+  background: linear-gradient(to bottom, transparent, rgba(78, 140, 255, 0.22));
+}
+
 .cad-dock__sheet {
-  max-height: min(240px, 38vh);
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
   padding: 8px 12px;
   background: var(--cs-glass);
   border-bottom: 1px solid var(--cs-glass-border);
@@ -1423,6 +1560,9 @@
 }
 
 .cad-dock__sheet-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 10px;

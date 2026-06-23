@@ -14,6 +14,8 @@ export type WorkspaceLayoutEngineProps = {
   editors: Partial<Record<EditorId, React.ReactNode>>;
   /** Primary viewport grid cell — used to position the persistent 3D engine canvas. */
   onViewportCellMount?: (el: HTMLDivElement | null) => void;
+  /** Override height of the bottom timeline row (px). */
+  timelineRowHeight?: number | null;
 };
 
 export function WorkspaceLayoutEngine({
@@ -21,11 +23,20 @@ export function WorkspaceLayoutEngine({
   panelVisibility,
   editors,
   onViewportCellMount,
+  timelineRowHeight = null,
 }: WorkspaceLayoutEngineProps) {
   const layout = useMemo(() => {
     const base = getLayoutForWorkspace(workspace);
-    return adjustLayoutForVisibility(base, panelVisibility);
-  }, [workspace, panelVisibility]);
+    const adjusted = adjustLayoutForVisibility(base, panelVisibility);
+    if (timelineRowHeight != null && adjusted.cells.some((c) => c.editor === 'timeline')) {
+      const rows = adjusted.gridTemplateRows.trim().split(/\s+/);
+      if (rows.length > 0) {
+        rows[rows.length - 1] = `${timelineRowHeight}px`;
+        return { ...adjusted, gridTemplateRows: rows.join(' ') };
+      }
+    }
+    return adjusted;
+  }, [workspace, panelVisibility, timelineRowHeight]);
 
   const areaGroups = useMemo(() => {
     const hidden = new Set<EditorId>();

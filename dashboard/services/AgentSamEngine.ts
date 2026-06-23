@@ -3,6 +3,7 @@
  * @license SPDX-License-Identifier: Apache-2.0
  */
 import * as THREE from 'three';
+import { MOUSE } from 'three';
 import * as CANNON from 'cannon-es';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
@@ -1026,9 +1027,48 @@ export class AgentSamEngine {
   }
 
   public handleResize() {
-    // Only used for global window resizes if needed, but resizeObserver handles it better
     const rect = this.container.getBoundingClientRect();
     this.handleResizeDimensions(rect.width, rect.height);
+  }
+
+  public ensureViewportNavigation() {
+    this.cadTool = CADTool.NONE;
+    this.controls.enabled = true;
+    this.controls.enableRotate = true;
+    this.controls.enablePan = true;
+    this.controls.enableZoom = true;
+    this.setPanNavigation(false);
+  }
+
+  public zoomViewport(factor: number) {
+    const offset = new THREE.Vector3().subVectors(this.camera.position, this.controls.target);
+    const dist = offset.length();
+    if (dist <= 0) return;
+    const next = Math.max(0.35, Math.min(800, dist * factor));
+    offset.normalize().multiplyScalar(next);
+    this.camera.position.copy(this.controls.target).add(offset);
+    if (this.camera === this.orthoCamera) {
+      this.orthoCamera.zoom = Math.max(0.05, Math.min(40, this.orthoCamera.zoom * factor));
+      this.orthoCamera.updateProjectionMatrix();
+    }
+    this.controls.update();
+  }
+
+  public setPanNavigation(active: boolean) {
+    this.controls.mouseButtons = active
+      ? { LEFT: MOUSE.PAN, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.ROTATE }
+      : { LEFT: MOUSE.ROTATE, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.PAN };
+  }
+
+  public resetViewportCamera() {
+    this.controls.target.set(0, 0, 0);
+    if (this.camera === this.perspectiveCamera) {
+      this.perspectiveCamera.position.set(15, 15, 15);
+    } else {
+      this.orthoCamera.position.set(0, 100, 0);
+      this.orthoCamera.lookAt(0, 0, 0);
+    }
+    this.controls.update();
   }
 
   public exportForBlender(): void {

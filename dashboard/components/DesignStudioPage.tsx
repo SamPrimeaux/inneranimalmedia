@@ -271,6 +271,7 @@ export const DesignStudioPage: React.FC = () => {
       engine.setCADPlane(genConfig.cadPlane);
       engine.setExtrusion(genConfig.extrusion);
       engine.setProjectType(ACTIVE_PROJECT);
+      engine.ensureViewportNavigation();
       const settleViewport = () => {
         if (isAgentSamEngine(engine)) engine.handleResize();
       };
@@ -612,6 +613,24 @@ export const DesignStudioPage: React.FC = () => {
     }
   }, []);
 
+  const handleViewportZoom = useCallback((factor: number) => {
+    if (isAgentSamEngine(engineRef.current)) {
+      engineRef.current.zoomViewport(factor);
+    }
+  }, []);
+
+  const handleViewportPanMode = useCallback((active: boolean) => {
+    if (isAgentSamEngine(engineRef.current)) {
+      engineRef.current.setPanNavigation(active);
+    }
+  }, []);
+
+  const handleViewportReset = useCallback(() => {
+    if (isAgentSamEngine(engineRef.current)) {
+      engineRef.current.resetViewportCamera();
+    }
+  }, []);
+
   const bootstrapDoneRef = useRef(false);
   useEffect(() => {
     if (!engineReady || !isAgentSamEngine(engineRef.current)) return;
@@ -727,6 +746,9 @@ export const DesignStudioPage: React.FC = () => {
         onEntityRename={(id, name) => void handleEntityRename(id, name)}
         onEntityTransform={(id, patch) => void handleEntityTransform(id, patch)}
         onFrameAll={handleFrameAll}
+        onViewportZoom={handleViewportZoom}
+        onViewportPanMode={handleViewportPanMode}
+        onViewportReset={handleViewportReset}
         linkedCadJobId={linkedCadJobId}
         linkedGlbR2Key={linkedGlbR2Key}
       />

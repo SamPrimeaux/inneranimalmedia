@@ -19,6 +19,8 @@ import { PropertiesEditor } from './editors/PropertiesEditor';
 import { CreationPanelEditor } from './editors/CreationPanelEditor';
 import { CreativeToolDock, openOperatorDraft } from './CreativeToolDock';
 import { RightPanelTabs } from './RightPanelTabs';
+import { AssetLibraryFlyout } from './AssetLibraryFlyout';
+import { useVerticalResize } from './useVerticalResize';
 import type { DockDomainId } from './toolDockRegistry';
 import {
   DEFAULT_PANEL_VISIBILITY,
@@ -74,6 +76,9 @@ export type CadStudioShellProps = {
   onEntityRename?: (id: string, name: string) => void;
   onEntityTransform?: (id: string, patch: Partial<GameEntity>) => void;
   onFrameAll?: () => void;
+  onViewportZoom?: (factor: number) => void;
+  onViewportPanMode?: (active: boolean) => void;
+  onViewportReset?: () => void;
   linkedCadJobId?: string | null;
   linkedGlbR2Key?: string | null;
 };
@@ -128,6 +133,9 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
   onEntityRename,
   onEntityTransform,
   onFrameAll,
+  onViewportZoom,
+  onViewportPanMode,
+  onViewportReset,
   linkedCadJobId,
   linkedGlbR2Key,
 }) => {
@@ -140,6 +148,8 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
     panelVisibility: { ...DEFAULT_PANEL_VISIBILITY },
   }));
   const [splashOpen, setSplashOpen] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [panMode, setPanMode] = useState(false);
   const [activeDockDomain, setActiveDockDomain] = useState<DockDomainId | null>(null);
   const [operatorOpen, setOperatorOpen] = useState(false);
   const [operatorInitialId, setOperatorInitialId] = useState<string | undefined>();
@@ -169,6 +179,27 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
   const [colorGamma, setColorGamma] = useState(0);
   const [colorGain, setColorGain] = useState(0);
   const [diagnosticsText, setDiagnosticsText] = useState('');
+
+  const timelineResize = useVerticalResize({
+    initial: 140,
+    min: 72,
+    max: Math.min(520, Math.round(window.innerHeight * 0.55)),
+    invert: true,
+  });
+  const dockResize = useVerticalResize({
+    initial: 220,
+    min: 120,
+    max: Math.min(380, Math.round(window.innerHeight * 0.45)),
+    invert: true,
+  });
+
+  const togglePanMode = useCallback(() => {
+    setPanMode((prev) => {
+      const next = !prev;
+      onViewportPanMode?.(next);
+      return next;
+    });
+  }, [onViewportPanMode]);
 
   const activeJob = cad.polledJob || cad.activeJob;
   const selectedEntity = entities.find((e) => e.id === selectedId) ?? null;
@@ -358,10 +389,7 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
           openOperator();
           break;
         case 'assets':
-          patchUi({
-            rightPanelTab: 'assets',
-            panelVisibility: { ...ui.panelVisibility, assets: true },
-          });
+          setLibraryOpen(true);
           break;
         case 'outliner':
           patchUi({
@@ -519,7 +547,7 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
   );
 
   const rightPanel =
-    ui.rightPanelTab === 'assets' ? assetsPanel : ui.rightPanelTab === 'properties' ? propertiesPanel : outlinerPanel;
+    ui.rightPanelTab === 'properties' ? propertiesPanel : outlinerPanel;
 
   const splash = splashOpen ? (
     <div className="cad-studio__splash">
@@ -582,11 +610,23 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
       progressPct={progressPct}
       splash={splash}
       onDropGlb={handleImportGlbWithToast}
+      panMode={panMode}
+      onTogglePanMode={togglePanMode}
+      onZoomIn={() => onViewportZoom?.(0.85)}
+      onZoomOut={() => onViewportZoom?.(1.15)}
+      onFrameAll={onFrameAll}
+      onResetView={onViewportReset}
     />
   );
 
   const timelinePanel = (
-    <TimelineEditor
+    <div className="cad-timeline-wrap">
+      <div
+        className="cad-resize-handle cad-resize-handle--horizontal"
+        onPointerDown={timelineResize.onPointerDown}
+        title="Drag to resize timeline"
+      />
+      <TimelineEditor
       frame={ui.frame}
       endFrame={ui.endFrame}
       isPlaying={ui.isPlaying}
@@ -595,7 +635,8 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
       onEndFrameChange={(f) => patchUi({ endFrame: f })}
       keyframes={keyframes}
       onSelectFrame={(f) => patchUi({ frame: f })}
-    />
+      />
+    </div>
   );
 
   const editors = {
@@ -626,7 +667,7 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
     ),
     outliner: ui.panelVisibility.outliner ? outlinerPanel : undefined,
     properties: ui.panelVisibility.properties ? propertiesPanel : undefined,
-    assets: ui.panelVisibility.assets ? assetsPanel : rightPanel,
+    assets: undefined,
     timeline: timelinePanel,
     nodes: (
       <NodeEditor
@@ -786,12 +827,9 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
             panelVisibility: { ...ui.panelVisibility, properties: !ui.panelVisibility.properties },
           });
         }}
-        onToggleAssets={() => {
-          patchUi({
-            rightPanelTab: 'assets',
-            panelVisibility: { ...ui.panelVisibility, assets: !ui.panelVisibility.assets },
-          });
-        }}
+        onToggleLibrary={() => setLibraryOpen((open) => !open)}
+        libraryOpen={libraryOpen}
+        onToggleAssets={() => setLibraryOpen((open) => !open)}
         onToggleTimeline={() =>
           patchUi({ panelVisibility: { ...ui.panelVisibility, timeline: !ui.panelVisibility.timeline } })
         }
@@ -826,14 +864,24 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
         onShowDiagnostics={() => void showDiagnostics()}
       />
 
-      <div className="cad-studio__layout-wrap" ref={layoutWrapRef}>
-        <div ref={engineContainerRef} className="cad-studio__engine-persistent" aria-hidden="true" />
-        <WorkspaceLayoutEngine
-          workspace={ui.workspace}
-          panelVisibility={ui.panelVisibility}
-          editors={editors}
-          onViewportCellMount={onViewportCellMount}
-        />
+      <div className="cad-studio__main">
+        <div className="cad-studio__layout-wrap" ref={layoutWrapRef}>
+          <div ref={engineContainerRef} className="cad-studio__engine-persistent" aria-hidden="true" />
+          <WorkspaceLayoutEngine
+            workspace={ui.workspace}
+            panelVisibility={ui.panelVisibility}
+            editors={editors}
+            onViewportCellMount={onViewportCellMount}
+            timelineRowHeight={ui.panelVisibility.timeline ? timelineResize.height : null}
+          />
+        </div>
+        <AssetLibraryFlyout open={libraryOpen} onClose={() => setLibraryOpen(false)}>
+          <AssetGalleryEditor
+            variant="library"
+            onSpawn={handleSpawnGalleryItem}
+            onUpload={onImportGlb}
+          />
+        </AssetLibraryFlyout>
       </div>
 
       <div className="cad-studio__bottom-dock">
@@ -845,6 +893,8 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
           onDomainChange={setActiveDockDomain}
           onToolChange={(t) => patchUi({ viewTool: t as ViewTool })}
           onLocalAction={handleDockLocalAction}
+          sheetHeight={activeDockDomain ? dockResize.height : undefined}
+          onSheetResizePointerDown={activeDockDomain ? dockResize.onPointerDown : undefined}
           onOpenOperator={(operatorId, prompt) => {
             if (operatorId) {
               openOperatorDraft(operatorId, {

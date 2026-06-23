@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { SavedSceneRow } from '../shared/ScenePanel';
-import { Circle } from 'lucide-react';
+import { BookOpen, Circle } from 'lucide-react';
 import { IAM_AGENT_CHAT_COMPOSE } from '../../../agentChatConstants';
 import type { WorkspaceId } from './cadStudioTypes';
 import { WorkspaceSwitcher } from './WorkspaceSwitcher';
@@ -26,6 +26,8 @@ export type CadMenuBarProps = {
   onRenameSelected?: () => void;
   onToggleOutliner: () => void;
   onToggleProperties: () => void;
+  onToggleLibrary: () => void;
+  libraryOpen?: boolean;
   onToggleAssets: () => void;
   onToggleTimeline: () => void;
   onToggleConsole: () => void;
@@ -110,6 +112,8 @@ export function CadMenuBar({
   onRenameSelected,
   onToggleOutliner,
   onToggleProperties,
+  onToggleLibrary,
+  libraryOpen = false,
   onToggleAssets,
   onToggleTimeline,
   onToggleConsole,
@@ -166,7 +170,8 @@ export function CadMenuBar({
         <MenuDropdown label="Window">
           <MenuItem label="Toggle Outliner" onClick={onToggleOutliner} />
           <MenuItem label="Toggle Properties" onClick={onToggleProperties} />
-          <MenuItem label="Toggle Assets" onClick={onToggleAssets} />
+          <MenuItem label="Toggle Library" onClick={onToggleLibrary} />
+          <MenuItem label="Toggle Assets Panel" onClick={onToggleAssets} />
           <MenuItem label="Toggle Timeline" onClick={onToggleTimeline} />
           <MenuItem label="Toggle Console" onClick={onToggleConsole} />
           <div className="cad-menu__sep" />
@@ -198,6 +203,16 @@ export function CadMenuBar({
       <WorkspaceSwitcher activeWorkspace={activeWorkspace} onWorkspaceChange={onWorkspaceChange} />
 
       <div className="cad-studio__menu-right">
+        <button
+          type="button"
+          className={`cad-studio__btn cad-studio__library-btn${libraryOpen ? ' active' : ''}`}
+          onClick={onToggleLibrary}
+          title="Asset library"
+          aria-pressed={libraryOpen}
+        >
+          <BookOpen size={14} strokeWidth={1.75} />
+          <span>Library</span>
+        </button>
         <button type="button" className="cad-studio__btn cad-studio__save-btn" onClick={onSaveScene} disabled={sceneBusy}>
           {sceneBusy ? 'Saving…' : 'Save Scene'}
         </button>

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Eye, EyeOff, Pause, Play, RotateCcw, RotateCw, Trash2 } from 'lucide-react';
+import { Eye, EyeOff, Hand, Maximize2, Pause, Play, RotateCcw, RotateCw, Trash2, ZoomIn, ZoomOut } from 'lucide-react';
 import type { ViewTool } from '../cadStudioTypes';
 
 export type Viewport3DEditorProps = {
@@ -21,6 +21,12 @@ export type Viewport3DEditorProps = {
   splash?: React.ReactNode;
   overlay?: React.ReactNode;
   onDropGlb?: (file: File) => void;
+  panMode?: boolean;
+  onTogglePanMode?: () => void;
+  onZoomIn?: () => void;
+  onZoomOut?: () => void;
+  onFrameAll?: () => void;
+  onResetView?: () => void;
 };
 
 export function Viewport3DEditor({
@@ -42,6 +48,12 @@ export function Viewport3DEditor({
   splash,
   overlay,
   onDropGlb,
+  panMode = false,
+  onTogglePanMode,
+  onZoomIn,
+  onZoomOut,
+  onFrameAll,
+  onResetView,
 }: Viewport3DEditorProps) {
   const [dragOver, setDragOver] = useState(false);
 
@@ -79,6 +91,28 @@ export function Viewport3DEditor({
           <span className="cad-studio__axis-dot cad-studio__axis-dot--x">X</span>
           <span className="cad-studio__axis-dot cad-studio__axis-dot--y">Y</span>
           <span className="cad-studio__axis-dot cad-studio__axis-dot--z">Z</span>
+        </div>
+        <div className="cad-studio__view-nav" aria-label="Viewport navigation">
+          <button type="button" className="cad-studio__hud-btn" onClick={onZoomIn} title="Zoom in">
+            <ZoomIn size={14} />
+          </button>
+          <button type="button" className="cad-studio__hud-btn" onClick={onZoomOut} title="Zoom out">
+            <ZoomOut size={14} />
+          </button>
+          <button
+            type="button"
+            className={`cad-studio__hud-btn${panMode ? ' active' : ''}`}
+            onClick={onTogglePanMode}
+            title="Pan (hand tool)"
+          >
+            <Hand size={14} />
+          </button>
+          <button type="button" className="cad-studio__hud-btn" onClick={onFrameAll} title="Frame all">
+            <Maximize2 size={14} />
+          </button>
+          <button type="button" className="cad-studio__hud-btn" onClick={onResetView} title="Reset view">
+            <RotateCcw size={14} />
+          </button>
         </div>
         {showHud ? (
           <div className="cad-studio__hud-btns">
