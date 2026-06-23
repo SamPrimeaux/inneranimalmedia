@@ -2,6 +2,7 @@
  * Kanban API — /api/kanban/* (D1 kanban_boards, kanban_columns, kanban_tasks).
  */
 import { getAuthUser, jsonResponse } from '../core/auth.js';
+import { userCanAccessWorkspace } from '../core/workspace-access.js';
 
 function resolveWorkspaceId(authUser, env, url) {
   const fromQuery = url?.searchParams?.get('workspace_id') ?? null;
@@ -19,16 +20,51 @@ function resolveTenantId(authUser, env) {
   return env?.TENANT_ID ? String(env.TENANT_ID).trim() : null;
 }
 
-async function assertBoardAccess(db, boardId, tenantId, workspaceId) {
+function inClausePlaceholders(count) {
+  const n = Number(count) || 0;
+  return n > 0 ? Array(n).fill('?').join(', ') : "''";
+}
+
+async function listCollabTenantIds(db, workspaceId) {
+  try {
+    const { results } = await db
+      .prepare(
+        `SELECT DISTINCT tenant_id
+         FROM workspace_members
+         WHERE workspace_id = ?
+           AND COALESCE(is_active, 1) = 1
+           AND tenant_id IS NOT NULL
+           AND TRIM(tenant_id) != ''`,
+      )
+      .bind(workspaceId)
+      .all();
+    return [...new Set((results || []).map((r) => String(r.tenant_id).trim()).filter(Boolean))];
+  } catch {
+    return [];
+  }
+}
+
+async function resolveKanbanTenantScope(db, authUser, env, workspaceId) {
+  const tenantId = resolveTenantId(authUser, env);
+  if (!tenantId) return [];
+  if (!workspaceId) return [tenantId];
+  const collabTenantIds = await listCollabTenantIds(db, workspaceId);
+  if (collabTenantIds.length < 2) return [tenantId];
+  if (!(await userCanAccessWorkspace(env, authUser, workspaceId))) return [tenantId];
+  return collabTenantIds;
+}
+
+async function assertBoardAccess(db, boardId, tenantIds, workspaceId) {
+  if (!tenantIds?.length) return false;
   const row = await db
     .prepare(
       `SELECT id FROM kanban_boards
        WHERE id = ?
-         AND tenant_id = ?
+         AND tenant_id IN (${inClausePlaceholders(tenantIds.length)})
          AND (workspace_id = ? OR workspace_id IS NULL OR workspace_id = '')
        LIMIT 1`,
     )
-    .bind(boardId, tenantId, workspaceId)
+    .bind(boardId, ...tenantIds, workspaceId)
     .first();
   return !!row;
 }
@@ -95,34 +131,35 @@ async function ensureDefaultWorkspaceBoard(db, tenantId, workspaceId, ownerId) {
 }
 
 async function handleBoards(url, env, authUser) {
-  const tenantId = resolveTenantId(authUser, env);
   const workspaceId = resolveWorkspaceId(authUser, env, url);
-  if (!tenantId) return jsonResponse({ ok: false, error: 'tenant_required' }, 403);
+  const tenantIds = await resolveKanbanTenantScope(env.DB, authUser, env, workspaceId);
+  if (!tenantIds.length) return jsonResponse({ ok: false, error: 'tenant_required' }, 403);
   if (!workspaceId) return jsonResponse({ ok: false, error: 'workspace_required' }, 403);
 
   let { results } = await env.DB.prepare(
     `SELECT id, tenant_id, workspace_id, project_id, owner_id, name, description, board_type, is_active, created_at, updated_at
      FROM kanban_boards
-     WHERE tenant_id = ?
+     WHERE tenant_id IN (${inClausePlaceholders(tenantIds.length)})
        AND is_active = 1
        AND (workspace_id = ? OR workspace_id IS NULL OR workspace_id = '')
      ORDER BY COALESCE(updated_at, created_at) DESC, name ASC`,
   )
-    .bind(tenantId, workspaceId)
+    .bind(...tenantIds, workspaceId)
     .all();
 
   if (!(results || []).length) {
     const ownerId = authUser?.id ?? authUser?.user_id ?? null;
-    await ensureDefaultWorkspaceBoard(env.DB, tenantId, workspaceId, ownerId);
+    const primaryTenantId = resolveTenantId(authUser, env);
+    await ensureDefaultWorkspaceBoard(env.DB, primaryTenantId, workspaceId, ownerId);
     ({ results } = await env.DB.prepare(
       `SELECT id, tenant_id, workspace_id, project_id, owner_id, name, description, board_type, is_active, created_at, updated_at
        FROM kanban_boards
-       WHERE tenant_id = ?
+       WHERE tenant_id IN (${inClausePlaceholders(tenantIds.length)})
          AND is_active = 1
          AND (workspace_id = ? OR workspace_id IS NULL OR workspace_id = '')
        ORDER BY COALESCE(updated_at, created_at) DESC, name ASC`,
     )
-      .bind(tenantId, workspaceId)
+      .bind(...tenantIds, workspaceId)
       .all());
   }
 
@@ -130,50 +167,62 @@ async function handleBoards(url, env, authUser) {
 }
 
 async function handleColumns(url, env, authUser) {
-  const tenantId = resolveTenantId(authUser, env);
   const workspaceId = resolveWorkspaceId(authUser, env, url);
+  const tenantIds = await resolveKanbanTenantScope(env.DB, authUser, env, workspaceId);
   const boardId = url.searchParams.get('board_id')?.trim();
-  if (!tenantId) return jsonResponse({ ok: false, error: 'tenant_required' }, 403);
+  if (!tenantIds.length) return jsonResponse({ ok: false, error: 'tenant_required' }, 403);
   if (!workspaceId) return jsonResponse({ ok: false, error: 'workspace_required' }, 403);
   if (!boardId) return jsonResponse({ ok: false, error: 'board_id_required' }, 400);
 
-  if (!(await assertBoardAccess(env.DB, boardId, tenantId, workspaceId))) {
+  if (!(await assertBoardAccess(env.DB, boardId, tenantIds, workspaceId))) {
     return jsonResponse({ ok: false, error: 'board_not_found' }, 404);
   }
 
-  const { results } = await env.DB.prepare(
-    `SELECT id, board_id, name, position, color, config_json, created_at, updated_at
-     FROM kanban_columns
-     WHERE tenant_id = ? AND board_id = ?
-     ORDER BY position ASC, name ASC`,
-  )
-    .bind(tenantId, boardId)
-    .all();
+  const isCollab = tenantIds.length > 1;
+  const { results } = isCollab
+    ? await env.DB.prepare(
+        `SELECT id, board_id, name, position, color, config_json, created_at, updated_at
+         FROM kanban_columns
+         WHERE board_id = ?
+         ORDER BY position ASC, name ASC`,
+      )
+        .bind(boardId)
+        .all()
+    : await env.DB.prepare(
+        `SELECT id, board_id, name, position, color, config_json, created_at, updated_at
+         FROM kanban_columns
+         WHERE tenant_id = ? AND board_id = ?
+         ORDER BY position ASC, name ASC`,
+      )
+        .bind(tenantIds[0], boardId)
+        .all();
 
   return jsonResponse({ ok: true, columns: results || [] });
 }
 
 async function handleTasksList(url, env, authUser) {
-  const tenantId = resolveTenantId(authUser, env);
   const workspaceId = resolveWorkspaceId(authUser, env, url);
+  const tenantIds = await resolveKanbanTenantScope(env.DB, authUser, env, workspaceId);
   const boardId = url.searchParams.get('board_id')?.trim();
   const projectId = url.searchParams.get('project_id')?.trim();
-  if (!tenantId) return jsonResponse({ ok: false, error: 'tenant_required' }, 403);
+  if (!tenantIds.length) return jsonResponse({ ok: false, error: 'tenant_required' }, 403);
   if (!workspaceId) return jsonResponse({ ok: false, error: 'workspace_required' }, 403);
   if (!boardId && !projectId) return jsonResponse({ ok: false, error: 'board_id_or_project_id_required' }, 400);
 
   if (boardId) {
-    if (!(await assertBoardAccess(env.DB, boardId, tenantId, workspaceId))) {
+    if (!(await assertBoardAccess(env.DB, boardId, tenantIds, workspaceId))) {
       return jsonResponse({ ok: false, error: 'board_not_found' }, 404);
     }
     const { results } = await env.DB.prepare(
       `SELECT kt.*, kb.project_id
        FROM kanban_tasks kt
        INNER JOIN kanban_boards kb ON kb.id = kt.board_id
-       WHERE kt.tenant_id = ? AND kt.board_id = ?
+       WHERE kt.board_id = ?
+         AND kt.tenant_id IN (${inClausePlaceholders(tenantIds.length)})
+         AND (kb.workspace_id = ? OR kb.workspace_id IS NULL OR kb.workspace_id = '')
        ORDER BY kt.column_id ASC, kt.position ASC, kt.created_at ASC`,
     )
-      .bind(tenantId, boardId)
+      .bind(boardId, ...tenantIds, workspaceId)
       .all();
     return jsonResponse({ ok: true, tasks: (results || []).map(mapTaskRow) });
   }
@@ -182,21 +231,21 @@ async function handleTasksList(url, env, authUser) {
     `SELECT kt.*, kb.project_id
      FROM kanban_tasks kt
      INNER JOIN kanban_boards kb ON kb.id = kt.board_id
-     WHERE kt.tenant_id = ?
+     WHERE kt.tenant_id IN (${inClausePlaceholders(tenantIds.length)})
        AND kb.project_id = ?
        AND (kb.workspace_id = ? OR kb.workspace_id IS NULL OR kb.workspace_id = '')
      ORDER BY kt.position ASC, kt.created_at ASC`,
   )
-    .bind(tenantId, projectId, workspaceId)
+    .bind(...tenantIds, projectId, workspaceId)
     .all();
 
   return jsonResponse({ ok: true, tasks: (results || []).map(mapTaskRow) });
 }
 
 async function handleTaskPatch(request, env, authUser, taskId) {
-  const tenantId = resolveTenantId(authUser, env);
   const workspaceId = resolveWorkspaceId(authUser, env, new URL(request.url));
-  if (!tenantId) return jsonResponse({ ok: false, error: 'tenant_required' }, 403);
+  const tenantIds = await resolveKanbanTenantScope(env.DB, authUser, env, workspaceId);
+  if (!tenantIds.length) return jsonResponse({ ok: false, error: 'tenant_required' }, 403);
   if (!workspaceId) return jsonResponse({ ok: false, error: 'workspace_required' }, 403);
 
   const row = await env.DB.prepare(
@@ -204,11 +253,11 @@ async function handleTaskPatch(request, env, authUser, taskId) {
      FROM kanban_tasks kt
      INNER JOIN kanban_boards kb ON kb.id = kt.board_id
      WHERE kt.id = ?
-       AND kt.tenant_id = ?
+       AND kt.tenant_id IN (${inClausePlaceholders(tenantIds.length)})
        AND (kb.workspace_id = ? OR kb.workspace_id IS NULL OR kb.workspace_id = '')
      LIMIT 1`,
   )
-    .bind(taskId, tenantId, workspaceId)
+    .bind(taskId, ...tenantIds, workspaceId)
     .first();
 
   if (!row) return jsonResponse({ ok: false, error: 'not_found' }, 404);
@@ -216,14 +265,19 @@ async function handleTaskPatch(request, env, authUser, taskId) {
   const body = await request.json().catch(() => ({}));
   const updates = [];
   const binds = [];
+  const isCollab = tenantIds.length > 1;
 
   if (body.column_id != null) {
     const columnId = String(body.column_id).trim();
-    const col = await env.DB.prepare(
-      `SELECT id FROM kanban_columns WHERE id = ? AND board_id = ? AND tenant_id = ? LIMIT 1`,
-    )
-      .bind(columnId, row.board_id, tenantId)
-      .first();
+    const col = isCollab
+      ? await env.DB.prepare(`SELECT id FROM kanban_columns WHERE id = ? AND board_id = ? LIMIT 1`)
+          .bind(columnId, row.board_id)
+          .first()
+      : await env.DB.prepare(
+          `SELECT id FROM kanban_columns WHERE id = ? AND board_id = ? AND tenant_id = ? LIMIT 1`,
+        )
+          .bind(columnId, row.board_id, tenantIds[0])
+          .first();
     if (!col) return jsonResponse({ ok: false, error: 'invalid_column' }, 400);
     updates.push('column_id = ?');
     binds.push(columnId);
