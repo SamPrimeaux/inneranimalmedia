@@ -627,8 +627,6 @@ export const DatabaseStudio: React.FC<DatabaseStudioProps> = ({ databaseName, on
     [activeTables, effectiveDatasource, fetchD1Json],
   );
 
-  }, [databaseName]);
-
   useEffect(() => {
     let cancelled = false;
     const initialDs = databaseName?.trim() ? 'd1' : readStoredDatasource();
