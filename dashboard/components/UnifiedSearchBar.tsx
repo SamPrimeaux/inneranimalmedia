@@ -753,8 +753,13 @@ export const UnifiedSearchBar: React.FC<{
         description?: string;
       }[] = [];
 
-      const primary = await fetchJson<typeof rows | { workflows?: typeof rows }>(
-        `/api/workflows?limit=10${searchTerm ? `&q=${encodeURIComponent(searchTerm)}` : ''}`,
+      const qs = new URLSearchParams({ limit: '10' });
+      if (searchTerm) qs.set('q', searchTerm);
+      const ws = workspaceId?.trim();
+      if (ws) qs.set('workspace_id', ws);
+
+      const primary = await workspaceFetchJson<typeof rows | { workflows?: typeof rows }>(
+        `/api/workflows?${qs}`,
       );
       if (Array.isArray(primary)) rows = primary;
       else if (primary && typeof primary === 'object' && Array.isArray((primary as { workflows?: typeof rows }).workflows)) {
@@ -762,7 +767,7 @@ export const UnifiedSearchBar: React.FC<{
       }
 
       if (!rows.length) {
-        const fallback = await fetchJson<typeof rows>('/api/agentsam/workflows');
+        const fallback = await workspaceFetchJson<typeof rows>('/api/agentsam/workflows');
         if (Array.isArray(fallback)) rows = fallback;
       }
 
@@ -790,7 +795,7 @@ export const UnifiedSearchBar: React.FC<{
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [workspaceId, workspaceFetchJson]);
 
   const loadFiles = useCallback(
     async (searchTerm: string) => {
