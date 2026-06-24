@@ -3541,7 +3541,7 @@ const App: React.FC = () => {
               <img
                 src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/ac515729-af6b-4ea5-8b10-e581a4d02100/thumbnail"
                 alt=""
-                className="w-7 h-7 object-contain drop-shadow shrink-0 cursor-pointer opacity-80 max-phone:hidden"
+                className="w-7 h-7 object-contain drop-shadow shrink-0 cursor-pointer opacity-80"
                 title={workspaceDisplayLine}
                 onClick={() => setActiveTab('Workspace')}
               />
