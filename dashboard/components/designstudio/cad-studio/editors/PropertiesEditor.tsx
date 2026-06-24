@@ -1,5 +1,6 @@
 import React from 'react';
 import type { CadJobRow } from '../../api';
+import { cadExportLinks, downloadCadAsset } from '../../cadExportFormats';
 import type { GameEntity } from '../../../../types';
 import type { PropertiesTabId } from '../cadStudioTypes';
 import type { useCadStudioProtocol } from '../useCadStudioProtocol';
@@ -237,6 +238,10 @@ export function PropertiesEditor({
     }
   };
 
+  const exportLinks = activeJob
+    ? cadExportLinks(activeJob.model_formats, activeJob.public_url)
+    : [];
+
   return (
     <section className="cad-editor cad-editor--properties">
       <div className="cad-studio__panel-head">
@@ -260,7 +265,45 @@ export function PropertiesEditor({
         </div>
         <div className="cad-studio__props-scroll">
           {renderTab()}
-          {activeJob?.public_url ? (
+          {exportLinks.length > 0 ? (
+            <Accordion title="Export">
+              <p className="text-[10px] text-[var(--text-muted)] leading-snug mb-2">
+                STL for 3D printing; OBJ/PLY when you need materials or vertex colors. Verify size in
+                your slicer before printing.
+              </p>
+              {exportLinks.map((link) => (
+                <div key={link.format} className="cad-studio__artifact-row">
+                  <span>
+                    {activeJob?.engine || 'cad'} <span style={{ color: '#8994a2' }}>{link.label}</span>
+                  </span>
+                  <button
+                    type="button"
+                    className="cad-studio__download-btn"
+                    onClick={() =>
+                      downloadCadAsset(
+                        link.url,
+                        `${activeJob?.engine || 'cad'}-${link.format}.${link.format === '3mf' ? '3mf' : link.format}`,
+                      )
+                    }
+                  >
+                    Download
+                  </button>
+                </div>
+              ))}
+              {onDeployJob && activeJob ? (
+                <div className="cad-studio__artifact-row" style={{ marginTop: 8 }}>
+                  <span>Viewport</span>
+                  <button
+                    type="button"
+                    className="cad-studio__download-btn"
+                    onClick={() => onDeployJob(activeJob)}
+                  >
+                    Spawn
+                  </button>
+                </div>
+              ) : null}
+            </Accordion>
+          ) : activeJob?.public_url ? (
             <Accordion title="Artifacts">
               <div className="cad-studio__artifact-row">
                 <span>

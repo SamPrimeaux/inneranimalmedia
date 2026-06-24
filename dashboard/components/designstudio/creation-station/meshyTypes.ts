@@ -49,13 +49,58 @@ export const DEFAULT_MESHY_SETTINGS: MeshySettings = {
   texture_prompt: '',
 };
 
+/** Meshy credit costs — keep aligned with src/core/meshy-credits.js */
+export const MESHY_UI_CREDIT_COSTS = {
+  TEXT_TO_3D_PREVIEW_MESHY6: 20,
+  TEXT_TO_3D_PREVIEW_DEFAULT: 10,
+  TEXT_TO_3D_REFINE: 10,
+  IMAGE_TO_3D_MESHY6_MESH: 20,
+  IMAGE_TO_3D_MESHY6_TEXTURED: 30,
+  IMAGE_TO_3D_DEFAULT_MESH: 5,
+  IMAGE_TO_3D_DEFAULT_TEXTURED: 15,
+  RETEXTURE: 10,
+  REMESH: 5,
+  RIGGING: 5,
+  ANIMATION: 3,
+  PRINT_MULTI_COLOR: 10,
+} as const;
+
+export function isMeshy6UiModel(settings: Pick<MeshySettings, 'ai_model' | 'model_type'>): boolean {
+  const ai = settings.ai_model.toLowerCase();
+  return settings.model_type === 'lowpoly' || ai.includes('meshy-6') || ai === 'latest';
+}
+
 export function estimatePreviewCost(settings: MeshySettings): number {
-  if (settings.model_type === 'lowpoly' || settings.ai_model.includes('meshy-6')) return 20;
-  return 5;
+  return isMeshy6UiModel(settings)
+    ? MESHY_UI_CREDIT_COSTS.TEXT_TO_3D_PREVIEW_MESHY6
+    : MESHY_UI_CREDIT_COSTS.TEXT_TO_3D_PREVIEW_DEFAULT;
 }
 
 export function estimateRefineCost(): number {
-  return 10;
+  return MESHY_UI_CREDIT_COSTS.TEXT_TO_3D_REFINE;
+}
+
+export function estimateFullTextCost(settings: MeshySettings): number {
+  return estimatePreviewCost(settings) + estimateRefineCost();
+}
+
+export function estimateImageTo3dUiCost(
+  aiModel: string,
+  modelType: MeshySettings['model_type'],
+  shouldTexture = true,
+): number {
+  const meshy6 =
+    modelType === 'lowpoly' ||
+    aiModel.toLowerCase().includes('meshy-6') ||
+    aiModel.toLowerCase() === 'latest';
+  if (meshy6) {
+    return shouldTexture
+      ? MESHY_UI_CREDIT_COSTS.IMAGE_TO_3D_MESHY6_TEXTURED
+      : MESHY_UI_CREDIT_COSTS.IMAGE_TO_3D_MESHY6_MESH;
+  }
+  return shouldTexture
+    ? MESHY_UI_CREDIT_COSTS.IMAGE_TO_3D_DEFAULT_TEXTURED
+    : MESHY_UI_CREDIT_COSTS.IMAGE_TO_3D_DEFAULT_MESH;
 }
 
 /** Map UI polycount intent to Meshy adaptive decimation_mode (1=ultra … 4=low). */

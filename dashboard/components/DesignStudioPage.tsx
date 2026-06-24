@@ -8,6 +8,7 @@ import { useDesignStudioCad } from './designstudio/hooks/useDesignStudioCad';
 import { spawnGlbInEngine } from './designstudio/spawnGlb';
 import { useDesignStudioContext } from './designstudio/DesignStudioContext';
 import type { CadJobRow } from './designstudio/api';
+import { downloadCadAsset } from './designstudio/cadExportFormats';
 import type { SavedSceneRow } from './designstudio/shared/ScenePanel';
 import { StudioEntryScreen } from './designstudio/cad-studio/StudioEntryScreen';
 import {
@@ -613,13 +614,10 @@ export const DesignStudioPage: React.FC = () => {
   }, [selectedEntityId]);
 
   const handleDownloadLatestGlb = useCallback(() => {
-    const url = activeJobForBar?.public_url;
+    const job = activeJobForBar;
+    const url = job?.public_url;
     if (!url) return;
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${activeJobForBar?.engine || 'cad'}-export.glb`;
-    a.rel = 'noopener';
-    a.click();
+    downloadCadAsset(url, `${job?.engine || 'cad'}-export.glb`);
   }, [activeJobForBar]);
 
   const handleExportSceneJson = useCallback(() => {

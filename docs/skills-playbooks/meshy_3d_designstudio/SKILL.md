@@ -31,7 +31,7 @@ Upstream reference skills (`~/.agents/skills/meshy-3d-*` from [meshy-dev/meshy-3
 
 2. **meshy_balance_preflight** — Credit guard:
    - Call Worker balance proxy (or `meshyai_*` in-process once auth fixed)
-   - Meshy [Balance API](https://docs.meshy.ai/en/api/balance): need ≥ **15 credits** for preview+refine text path ([pricing](https://docs.meshy.ai/en/api/pricing))
+   - Meshy [Balance API](https://docs.meshy.ai/en/api/balance): need ≥ **30 credits** for Meshy 6 preview+refine text path (20 preview + 10 refine); other models need ≥ **20** (10 + 10) ([pricing](https://docs.meshy.ai/en/api/pricing))
    - Patch `merged_output.credits_available`, `merged_output.preflight_ok`
    - On 402 / low balance → `status=failed`, user message with billing link
 
@@ -162,8 +162,8 @@ Aligned with [Meshy MCP tools](https://docs.meshy.ai/en/api/ai):
 |-------|---------|---------|
 | `master_agent_slug` | `meshy_3d_designstudio` | Spawn router |
 | `pipeline` | see migration 665 | Ordered sub-agent slugs |
-| `min_credits_text_full` | `15` | Preview + refine |
-| `min_credits_image_textured` | `30` | Image-to-3D with texture |
+| `min_credits_text_full` | `30` | Preview + refine (Meshy 6 worst case: 20 + 10) |
+| `min_credits_image_textured` | `30` | Image-to-3D with texture (Meshy 6) |
 | `poll_interval_sec` | `8` | Status poll backoff base |
 | `auto_refine` | `true` | Chain refine after preview |
 | `auto_scene_deploy` | `true` | Link GLB when scene context present |

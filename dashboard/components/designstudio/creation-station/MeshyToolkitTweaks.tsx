@@ -123,6 +123,10 @@ function AnimatePanel({ cs }: { cs: MeshyCs }) {
         value={cs.rigTaskId}
         onChange={cs.setRigTaskId}
       />
+      <p className="text-[10px] text-[var(--text-muted)] leading-snug">
+        Textured humanoid GLB only. Face must point +Z for model URLs. Max 300,000 faces via
+        input_task_id — remesh first if needed.
+      </p>
       <MeshyTaskIdField
         label="Rigging task ID (for animation)"
         value={cs.rigCompletedTaskId}
@@ -279,7 +283,11 @@ export function MeshyToolkitTweaks({
             value={cs.texturePrompt}
             onChange={cs.setTexturePrompt}
             placeholder="Weathered bronze armor with emerald inlays"
+            maxLength={600}
           />
+          <p className="text-[10px] text-[var(--text-muted)] leading-snug">
+            Source must be a SUCCEEDED Text-to-3D, Image-to-3D, or Remesh task. Max 600 characters.
+          </p>
           <MeshyKeysLink />
         </div>
       ) : railTool === 'texture' ? (
@@ -287,12 +295,17 @@ export function MeshyToolkitTweaks({
           <p className="text-[11px] font-semibold text-[var(--text-main)]">Retexture</p>
           <SourceTaskPanel cs={cs}>
             <MeshyPromptField
-              label="Texture prompt (optional)"
+              label="Texture prompt"
               value={cs.texturePrompt}
               onChange={cs.setTexturePrompt}
               rows={3}
+              maxLength={600}
             />
           </SourceTaskPanel>
+          <p className="text-[10px] text-[var(--text-muted)] leading-snug">
+            Provide text_style_prompt or image_style_url (image takes priority). model_url supports
+            glb, gltf, obj, fbx, stl.
+          </p>
         </div>
       ) : railTool === 'post-process' ? (
         <div className="space-y-3">
@@ -315,7 +328,14 @@ export function MeshyToolkitTweaks({
         <div className="space-y-3">
           <p className="text-[11px] font-semibold text-[var(--text-main)]">3D Print Export</p>
           <SourceTaskPanel cs={cs} />
-          <p className="text-[10px] text-[var(--text-muted)]">Remesh to STL + 3MF for slicer workflows.</p>
+          <p className="text-[10px] text-[var(--text-muted)] leading-snug">
+            Converts textured models to multi-color 3MF (10 credits). Download from Properties →
+            Export after the job completes.
+          </p>
+          <p className="text-[10px] text-[var(--text-muted)] leading-snug">
+            Workflow: analyze geometry → remesh/cleanup → orient on bed → export STL → verify in
+            slicer.
+          </p>
         </div>
       ) : null}
       </>
@@ -357,6 +377,7 @@ export function MeshyToolkitTweaks({
     (railTool === 'image-to-3d' && !cs.imageDataUrl) ||
     (railTool === 'animate' && !cs.rigTaskId.trim() && !cs.rigCompletedTaskId.trim()) ||
     (railTool === 'texture' && !cs.sourceTaskId.trim()) ||
+    (railTool === 'texture' && !cs.texturePrompt.trim()) ||
     (railTool === 'post-process' && !cs.sourceTaskId.trim()) ||
     (railTool === 'print' && !cs.sourceTaskId.trim()) ||
     (railTool === 'text-to-texture' && !cs.texturePrompt.trim()) ||

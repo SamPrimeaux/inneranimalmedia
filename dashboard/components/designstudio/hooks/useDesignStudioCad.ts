@@ -6,6 +6,8 @@ import {
   fetchCadJobs,
   generateMeshy,
   meshyRigging,
+  meshyRetexture,
+  meshyPrintMultiColor,
   meshyCreateTask,
   meshyCreateAnimation,
   meshyCreateImageTo3d,
@@ -18,7 +20,7 @@ import {
   type BlueprintRow,
   type CadJobRow,
 } from '../api';
-import type { MeshyImageTo3dBody } from '../api';
+import type { MeshyImageTo3dBody, MeshyRetextureBody, MeshyPrintMultiColorBody } from '../api';
 import { useCadJobPoll } from './useCadJobPoll';
 
 export type UseDesignStudioCadOpts = {
@@ -298,6 +300,7 @@ export function useDesignStudioCad(opts: UseDesignStudioCadOpts = {}) {
       model_task_id?: string;
       model_url?: string;
       height_meters?: number;
+      texture_image_url?: string;
     }) => {
       const inputTaskId = String(body.input_task_id || body.model_task_id || '').trim();
       if (!inputTaskId && !String(body.model_url || '').trim()) {
@@ -308,6 +311,64 @@ export function useDesignStudioCad(opts: UseDesignStudioCadOpts = {}) {
       setError(null);
       try {
         const result = await meshyRigging({ ...body, ...scopeBody() });
+        setActiveJobId(result.job_id);
+        await refreshJobs();
+        return result;
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+        throw e;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [scopeBody, refreshJobs],
+  );
+
+  const runMeshyRetexture = useCallback(
+    async (body: MeshyRetextureBody) => {
+      const inputTaskId = String(body.input_task_id || body.model_task_id || '').trim();
+      const modelUrl = String(body.model_url || '').trim();
+      const textStyle = String(
+        body.text_style_prompt || body.texture_prompt || body.prompt || '',
+      ).trim();
+      const imageStyle = String(body.image_style_url || '').trim();
+      if (!inputTaskId && !modelUrl) {
+        setError('input_task_id or model_url required');
+        return null;
+      }
+      if (!textStyle && !imageStyle) {
+        setError('text_style_prompt or image_style_url required');
+        return null;
+      }
+      setBusy(true);
+      setError(null);
+      try {
+        const result = await meshyRetexture({ ...body, ...scopeBody() });
+        setActiveJobId(result.job_id);
+        await refreshJobs();
+        return result;
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+        throw e;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [scopeBody, refreshJobs],
+  );
+
+  const runMeshyPrintMultiColor = useCallback(
+    async (body: MeshyPrintMultiColorBody) => {
+      const inputTaskId = String(body.input_task_id || body.model_task_id || '').trim();
+      const modelUrl = String(body.model_url || '').trim();
+      if (!inputTaskId && !modelUrl) {
+        setError('input_task_id or model_url required');
+        return null;
+      }
+      setBusy(true);
+      setError(null);
+      try {
+        const result = await meshyPrintMultiColor({ ...body, ...scopeBody() });
         setActiveJobId(result.job_id);
         await refreshJobs();
         return result;
@@ -533,6 +594,8 @@ export function useDesignStudioCad(opts: UseDesignStudioCadOpts = {}) {
     saveBlueprintScript,
     runMeshyGenerate,
     runMeshyRigging,
+    runMeshyRetexture,
+    runMeshyPrintMultiColor,
     runMeshyImageTo3d,
     runMeshyAnimation,
     runMeshyTask,

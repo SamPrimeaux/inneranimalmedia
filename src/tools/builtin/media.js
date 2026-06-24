@@ -9,7 +9,7 @@ import {
   persistCollabCanvasElements,
   resolveCollabWorkspaceId,
 } from '../../core/collab-broadcast.js';
-import { meshyGenerateInProcess, meshyStatusInProcess, meshyAnimationInProcess, meshyImageTo3dInProcess } from '../../api/cad-meshy.js';
+import { meshyGenerateInProcess, meshyStatusInProcess, meshyAnimationInProcess, meshyImageTo3dInProcess, meshyRiggingInProcess, meshyRetextureInProcess, meshyPrintMultiColorInProcess } from '../../api/cad-meshy.js';
 
 async function invokeMediaOp(env, endpoint, method = 'POST', body = null) {
     const origin = env.IAM_ORIGIN || 'https://inneranimalmedia.com';
@@ -192,6 +192,74 @@ export const handlers = {
         const jobId = String(params.id ?? params.job_id ?? params.cad_job_id ?? '').trim();
         if (!jobId) return { error: 'id (cad_job_id) required' };
         return meshyStatusInProcess(env, null, auth, jobId);
+    },
+    async meshyai_rigging(params, env, runContext = {}) {
+        const auth = meshyToolAuth(params, runContext);
+        if (!auth.userId) return { error: 'user_id required for meshyai_rigging' };
+        const inputTaskId = String(params.input_task_id ?? params.model_task_id ?? '').trim();
+        const modelUrl = String(params.model_url ?? params.modelUrl ?? '').trim();
+        if (!inputTaskId && !modelUrl) {
+            return { error: 'input_task_id or model_url required' };
+        }
+        return meshyRiggingInProcess(env, null, auth, {
+            input_task_id: inputTaskId || undefined,
+            model_url: modelUrl || undefined,
+            height_meters: params.height_meters,
+            texture_image_url: params.texture_image_url ?? params.textureImageUrl,
+            session_id: params.session_id ?? params.conversation_id,
+            scene_snapshot_id: params.scene_snapshot_id ?? params.scene_id,
+            blueprint_id: params.blueprint_id,
+        });
+    },
+    async meshyai_retexture(params, env, runContext = {}) {
+        const auth = meshyToolAuth(params, runContext);
+        if (!auth.userId) return { error: 'user_id required for meshyai_retexture' };
+        const inputTaskId = String(params.input_task_id ?? params.model_task_id ?? '').trim();
+        const modelUrl = String(params.model_url ?? params.modelUrl ?? '').trim();
+        if (!inputTaskId && !modelUrl) {
+            return { error: 'input_task_id or model_url required' };
+        }
+        const textStyle = String(
+            params.text_style_prompt ?? params.texture_prompt ?? params.prompt ?? '',
+        ).trim();
+        const imageStyle = String(params.image_style_url ?? params.imageStyleUrl ?? '').trim();
+        if (!textStyle && !imageStyle) {
+            return { error: 'text_style_prompt or image_style_url required' };
+        }
+        return meshyRetextureInProcess(env, null, auth, {
+            input_task_id: inputTaskId || undefined,
+            model_url: modelUrl || undefined,
+            text_style_prompt: textStyle || undefined,
+            image_style_url: imageStyle || undefined,
+            ai_model: params.ai_model,
+            enable_original_uv: params.enable_original_uv,
+            enable_pbr: params.enable_pbr,
+            hd_texture: params.hd_texture,
+            remove_lighting: params.remove_lighting,
+            target_formats: params.target_formats,
+            alpha_thumbnail: params.alpha_thumbnail,
+            session_id: params.session_id ?? params.conversation_id,
+            scene_snapshot_id: params.scene_snapshot_id ?? params.scene_id,
+            blueprint_id: params.blueprint_id,
+        });
+    },
+    async meshyai_print_multi_color(params, env, runContext = {}) {
+        const auth = meshyToolAuth(params, runContext);
+        if (!auth.userId) return { error: 'user_id required for meshyai_print_multi_color' };
+        const inputTaskId = String(params.input_task_id ?? params.model_task_id ?? '').trim();
+        const modelUrl = String(params.model_url ?? params.modelUrl ?? '').trim();
+        if (!inputTaskId && !modelUrl) {
+            return { error: 'input_task_id or model_url required' };
+        }
+        return meshyPrintMultiColorInProcess(env, null, auth, {
+            input_task_id: inputTaskId || undefined,
+            model_url: modelUrl || undefined,
+            max_colors: params.max_colors ?? params.maxColors,
+            max_depth: params.max_depth ?? params.maxDepth,
+            session_id: params.session_id ?? params.conversation_id,
+            scene_snapshot_id: params.scene_snapshot_id ?? params.scene_id,
+            blueprint_id: params.blueprint_id,
+        });
     },
     async meshyai_animation(params, env, runContext = {}) {
         const auth = meshyToolAuth(params, runContext);

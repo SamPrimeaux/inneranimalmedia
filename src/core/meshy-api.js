@@ -18,6 +18,9 @@ export const MESHY_TASK_ROUTES = {
   'text-to-image': { base: '/openapi/v1/text-to-image', version: 'v1' },
   'image-to-image': { base: '/openapi/v1/image-to-image', version: 'v1' },
   'uv-unwrap': { base: '/openapi/v1/uv-unwrap', version: 'v1' },
+  'print-multi-color': { base: '/openapi/v1/print/multi-color', version: 'v1' },
+  'print-repair': { base: '/openapi/v1/print/repair', version: 'v1' },
+  'print-analyze': { base: '/openapi/v1/print/analyze', version: 'v1' },
 };
 
 export class MeshyApiError extends Error {
@@ -314,6 +317,115 @@ export function buildMeshyAnimationPayload(body) {
   }
 
   return { payload, rigTaskId, actionId };
+}
+
+/**
+ * Build Meshy rigging task payload (POST /openapi/v1/rigging).
+ * @param {Record<string, unknown>} body
+ */
+export function buildMeshyRiggingPayload(body) {
+  const inputTaskId = String(body.input_task_id || body.model_task_id || '').trim();
+  const modelUrl = String(body.model_url || body.modelUrl || '').trim();
+  if (!inputTaskId && !modelUrl) {
+    throw new Error('input_task_id or model_url required');
+  }
+
+  /** @type {Record<string, unknown>} */
+  const payload = {};
+  if (inputTaskId) payload.input_task_id = inputTaskId;
+  if (modelUrl) payload.model_url = modelUrl;
+
+  const height = Number(body.height_meters);
+  payload.height_meters = height > 0 ? height : 1.7;
+
+  const textureImageUrl = String(body.texture_image_url || '').trim();
+  if (textureImageUrl) payload.texture_image_url = textureImageUrl;
+
+  return { payload, inputTaskId, modelUrl: modelUrl || null };
+}
+
+const MESHY_RETEXTURE_OPTIONAL_FIELDS = [
+  'ai_model',
+  'enable_original_uv',
+  'enable_pbr',
+  'hd_texture',
+  'remove_lighting',
+  'target_formats',
+  'alpha_thumbnail',
+];
+
+/**
+ * Build Meshy retexture task payload (POST /openapi/v1/retexture).
+ * @param {Record<string, unknown>} body
+ */
+export function buildMeshyRetexturePayload(body) {
+  const inputTaskId = String(body.input_task_id || body.model_task_id || '').trim();
+  const modelUrl = String(body.model_url || body.modelUrl || '').trim();
+  if (!inputTaskId && !modelUrl) {
+    throw new Error('input_task_id or model_url required');
+  }
+
+  const textStyle = String(
+    body.text_style_prompt || body.texture_prompt || body.prompt || '',
+  ).trim();
+  const imageStyle = String(body.image_style_url || body.imageStyleUrl || '').trim();
+  if (!textStyle && !imageStyle) {
+    throw new Error('text_style_prompt or image_style_url required');
+  }
+
+  /** @type {Record<string, unknown>} */
+  const payload = {};
+  if (inputTaskId) payload.input_task_id = inputTaskId;
+  if (modelUrl) payload.model_url = modelUrl;
+  if (textStyle) payload.text_style_prompt = textStyle.slice(0, 600);
+  if (imageStyle) payload.image_style_url = imageStyle;
+
+  for (const key of MESHY_RETEXTURE_OPTIONAL_FIELDS) {
+    if (body[key] !== undefined && body[key] !== null) {
+      payload[key] = body[key];
+    }
+  }
+
+  return {
+    payload,
+    inputTaskId,
+    modelUrl: modelUrl || null,
+    textStyle: textStyle || null,
+    imageStyle: imageStyle || null,
+  };
+}
+
+/**
+ * Build Meshy multi-color print payload (POST /openapi/v1/print/multi-color).
+ * @param {Record<string, unknown>} body
+ */
+export function buildMeshyPrintMultiColorPayload(body) {
+  const inputTaskId = String(body.input_task_id || body.model_task_id || '').trim();
+  const modelUrl = String(body.model_url || body.modelUrl || '').trim();
+  if (!inputTaskId && !modelUrl) {
+    throw new Error('input_task_id or model_url required');
+  }
+
+  /** @type {Record<string, unknown>} */
+  const payload = {};
+  if (inputTaskId) payload.input_task_id = inputTaskId;
+  if (modelUrl) payload.model_url = modelUrl;
+
+  const maxColors = Number(body.max_colors ?? body.maxColors);
+  if (Number.isFinite(maxColors)) {
+    const n = Math.round(maxColors);
+    if (n < 1 || n > 16) throw new Error('max_colors must be between 1 and 16');
+    payload.max_colors = n;
+  }
+
+  const maxDepth = Number(body.max_depth ?? body.maxDepth);
+  if (Number.isFinite(maxDepth)) {
+    const n = Math.round(maxDepth);
+    if (n < 3 || n > 6) throw new Error('max_depth must be between 3 and 6');
+    payload.max_depth = n;
+  }
+
+  return { payload, inputTaskId, modelUrl: modelUrl || null };
 }
 
 const MESHY_IMAGE_TO_3D_OPTIONAL_FIELDS = [

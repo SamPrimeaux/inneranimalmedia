@@ -42,6 +42,9 @@ export function meshyTaskTypeFromPayload(payload) {
   if (raw.includes('text-to-image') || raw.includes('text_to_image')) return 'text-to-image';
   if (raw.includes('animate') || raw === 'animation') return 'animation';
   if (raw.includes('uv-unwrap') || raw.includes('uv_unwrap')) return 'uv-unwrap';
+  if (raw.includes('print-multi-color') || raw.includes('multi-color')) return 'print-multi-color';
+  if (raw.includes('print-repair') || raw.includes('repair-print')) return 'print-repair';
+  if (raw.includes('print-analyze') || raw.includes('analyze-print')) return 'print-analyze';
   if (raw.includes('rig') || raw === 'rig') return 'rigging';
   if (raw.includes('text-to-3d') || raw.includes('text_to_3d')) return 'text-to-3d';
   if (raw.includes('refine')) return 'text-to-3d-refine';
@@ -183,12 +186,16 @@ function isFinalMeshyStage(taskPayload, job) {
     type === 'text-to-image' ||
     type === 'animation' ||
     type === 'uv-unwrap' ||
+    type === 'print-multi-color' ||
+    type === 'print-repair' ||
     String(job?.task_type) === 'rigging' ||
     String(job?.task_type) === 'retexture' ||
     String(job?.task_type) === 'remesh' ||
     String(job?.task_type) === 'text-to-image' ||
     String(job?.task_type) === 'animation' ||
-    String(job?.task_type) === 'uv-unwrap'
+    String(job?.task_type) === 'uv-unwrap' ||
+    String(job?.task_type) === 'print-multi-color' ||
+    String(job?.task_type) === 'print-repair'
   ) {
     return true;
   }
@@ -279,8 +286,12 @@ export async function applyMeshyTaskToCadJob(env, ctx, taskPayload) {
     (taskType === 'animation' && taskPayload?.result?.animation_glb_url
       ? taskPayload.result.animation_glb_url
       : null) ||
+    (taskType === 'rigging' && taskPayload?.result?.rigged_character_glb_url
+      ? taskPayload.result.rigged_character_glb_url
+      : null) ||
     taskPayload?.model_urls?.glb ||
     taskPayload?.model_urls?.stl ||
+    taskPayload?.model_urls?.['3mf'] ||
     taskPayload?.model_url ||
     taskPayload?.result?.rigged_character_glb_url ||
     taskPayload?.result?.animation_glb_url ||
@@ -288,7 +299,7 @@ export async function applyMeshyTaskToCadJob(env, ctx, taskPayload) {
     taskPayload?.result?.basic_animations?.running_glb_url ||
     (Array.isArray(taskPayload?.image_urls) && taskPayload.image_urls[0]) ||
     null;
-  let modelFormats = taskPayload?.model_urls ? Object.keys(taskPayload.model_urls) : null;
+  let modelFormats = null;
   if (taskType === 'animation' && taskPayload?.result && typeof taskPayload.result === 'object') {
     const ar = taskPayload.result;
     modelFormats = {
@@ -297,6 +308,35 @@ export async function applyMeshyTaskToCadJob(env, ctx, taskPayload) {
       processed_usdz_url: ar.processed_usdz_url ?? null,
       processed_armature_fbx_url: ar.processed_armature_fbx_url ?? null,
       processed_animation_fps_fbx_url: ar.processed_animation_fps_fbx_url ?? null,
+    };
+  } else if (
+    (taskType === 'rigging' || String(job?.task_type) === 'rigging') &&
+    taskPayload?.result &&
+    typeof taskPayload.result === 'object'
+  ) {
+    const rr = taskPayload.result;
+    const basic = rr.basic_animations && typeof rr.basic_animations === 'object' ? rr.basic_animations : {};
+    modelFormats = {
+      rigged_character_glb_url: rr.rigged_character_glb_url ?? null,
+      rigged_character_fbx_url: rr.rigged_character_fbx_url ?? null,
+      walking_glb_url: basic.walking_glb_url ?? null,
+      walking_fbx_url: basic.walking_fbx_url ?? null,
+      walking_armature_glb_url: basic.walking_armature_glb_url ?? null,
+      running_glb_url: basic.running_glb_url ?? null,
+      running_fbx_url: basic.running_fbx_url ?? null,
+      running_armature_glb_url: basic.running_armature_glb_url ?? null,
+    };
+  } else if (
+    (taskType === 'retexture' || String(job?.task_type) === 'retexture') &&
+    taskPayload?.model_urls &&
+    typeof taskPayload.model_urls === 'object'
+  ) {
+    modelFormats = {
+      ...taskPayload.model_urls,
+      thumbnail_url: taskPayload.thumbnail_url ?? null,
+      alpha_thumbnail_url: taskPayload.alpha_thumbnail_url ?? null,
+      text_style_prompt: taskPayload.text_style_prompt ?? null,
+      image_style_url: taskPayload.image_style_url ?? null,
     };
   } else if (
     (taskType === 'image-to-3d' || String(job?.task_type) === 'image-to-3d') &&
@@ -308,6 +348,12 @@ export async function applyMeshyTaskToCadJob(env, ctx, taskPayload) {
       thumbnail_url: taskPayload.thumbnail_url ?? null,
       alpha_thumbnail_url: taskPayload.alpha_thumbnail_url ?? null,
       thumbnail_urls: taskPayload.thumbnail_urls ?? null,
+    };
+  } else if (taskPayload?.model_urls && typeof taskPayload.model_urls === 'object') {
+    modelFormats = {
+      ...taskPayload.model_urls,
+      thumbnail_url: taskPayload.thumbnail_url ?? null,
+      alpha_thumbnail_url: taskPayload.alpha_thumbnail_url ?? null,
     };
   }
   const textureData = taskPayload?.texture_urls ?? null;

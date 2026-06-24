@@ -18,6 +18,7 @@ export type CadJobRow = {
   id: string;
   engine: string;
   prompt?: string;
+  mode?: string;
   status: string;
   progress_pct?: number;
   error?: string | null;
@@ -27,6 +28,9 @@ export type CadJobRow = {
   workspace_id?: string | null;
   scene_snapshot_id?: string | null;
   project_id?: string | null;
+  task_type?: string | null;
+  model_formats?: Record<string, string> | null;
+  texture_data?: unknown;
   created_at?: number;
   updated_at?: number;
 };
@@ -147,6 +151,9 @@ export async function pollMeshyStatus(jobId: string): Promise<{
   public_url?: string;
   progress_pct?: number;
   progress?: number;
+  task_type?: string;
+  model_formats?: Record<string, string> | null;
+  texture_data?: unknown;
 }> {
   return jsonFetch(`/api/cad/meshy/status/${encodeURIComponent(jobId)}`);
 }
@@ -164,14 +171,166 @@ export async function meshyRigging(body: {
   model_task_id?: string;
   model_url?: string;
   height_meters?: number;
+  texture_image_url?: string;
   session_id?: string;
   scene_snapshot_id?: string;
-}): Promise<{ job_id: string; task_id: string; status: string }> {
+  blueprint_id?: string;
+}): Promise<{
+  job_id: string;
+  task_id: string;
+  external_task_id?: string;
+  result?: string;
+  status: string;
+  humanoid_warning?: string;
+  face_count_warning?: string;
+}> {
   return jsonFetch('/api/cad/meshy/rigging', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
+}
+
+export async function meshyGetRigging(taskId: string): Promise<{
+  task: Record<string, unknown>;
+  cad?: Record<string, unknown>;
+}> {
+  return jsonFetch(`/api/cad/meshy/rigging/${encodeURIComponent(taskId)}`);
+}
+
+export async function meshyDeleteRigging(taskId: string): Promise<{ ok: boolean; task_id: string }> {
+  return jsonFetch(`/api/cad/meshy/rigging/${encodeURIComponent(taskId)}`, { method: 'DELETE' });
+}
+
+export function meshyRiggingStreamUrl(taskId: string): string {
+  return `/api/cad/meshy/rigging/${encodeURIComponent(taskId)}/stream`;
+}
+
+export type MeshyRetextureBody = {
+  input_task_id?: string;
+  model_task_id?: string;
+  model_url?: string;
+  text_style_prompt?: string;
+  texture_prompt?: string;
+  prompt?: string;
+  image_style_url?: string;
+  ai_model?: string;
+  enable_original_uv?: boolean;
+  enable_pbr?: boolean;
+  hd_texture?: boolean;
+  remove_lighting?: boolean;
+  target_formats?: string[];
+  alpha_thumbnail?: boolean;
+  session_id?: string;
+  scene_snapshot_id?: string;
+  blueprint_id?: string;
+};
+
+export async function meshyRetexture(body: MeshyRetextureBody): Promise<{
+  job_id: string;
+  task_id: string;
+  external_task_id?: string;
+  result?: string;
+  status: string;
+  input_task_warning?: string;
+}> {
+  return jsonFetch('/api/cad/meshy/retexture', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function meshyListRetexture(params?: {
+  page_num?: number;
+  page_size?: number;
+  sort_by?: string;
+}): Promise<{
+  tasks: Record<string, unknown>[];
+  page_num: number;
+  page_size: number;
+  type: string;
+}> {
+  const q = new URLSearchParams();
+  if (params?.page_num != null) q.set('page_num', String(params.page_num));
+  if (params?.page_size != null) q.set('page_size', String(params.page_size));
+  if (params?.sort_by) q.set('sort_by', params.sort_by);
+  const suffix = q.toString() ? `?${q.toString()}` : '';
+  return jsonFetch(`/api/cad/meshy/retexture${suffix}`);
+}
+
+export async function meshyGetRetexture(taskId: string): Promise<{
+  task: Record<string, unknown>;
+  cad?: Record<string, unknown>;
+}> {
+  return jsonFetch(`/api/cad/meshy/retexture/${encodeURIComponent(taskId)}`);
+}
+
+export async function meshyDeleteRetexture(taskId: string): Promise<{ ok: boolean; task_id: string }> {
+  return jsonFetch(`/api/cad/meshy/retexture/${encodeURIComponent(taskId)}`, { method: 'DELETE' });
+}
+
+export function meshyRetextureStreamUrl(taskId: string): string {
+  return `/api/cad/meshy/retexture/${encodeURIComponent(taskId)}/stream`;
+}
+
+export type MeshyPrintMultiColorBody = {
+  input_task_id?: string;
+  model_task_id?: string;
+  model_url?: string;
+  max_colors?: number;
+  max_depth?: number;
+  session_id?: string;
+  scene_snapshot_id?: string;
+  blueprint_id?: string;
+};
+
+export async function meshyPrintMultiColor(body: MeshyPrintMultiColorBody): Promise<{
+  job_id: string;
+  task_id: string;
+  external_task_id?: string;
+  result?: string;
+  status: string;
+  input_task_warning?: string;
+}> {
+  return jsonFetch('/api/cad/meshy/print-multi-color', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function meshyListPrintMultiColor(params?: {
+  page_num?: number;
+  page_size?: number;
+  sort_by?: string;
+}): Promise<{
+  tasks: Record<string, unknown>[];
+  page_num: number;
+  page_size: number;
+  type: string;
+}> {
+  const q = new URLSearchParams();
+  if (params?.page_num != null) q.set('page_num', String(params.page_num));
+  if (params?.page_size != null) q.set('page_size', String(params.page_size));
+  if (params?.sort_by) q.set('sort_by', params.sort_by);
+  const suffix = q.toString() ? `?${q.toString()}` : '';
+  return jsonFetch(`/api/cad/meshy/print-multi-color${suffix}`);
+}
+
+export async function meshyGetPrintMultiColor(taskId: string): Promise<{
+  task: Record<string, unknown>;
+  cad?: Record<string, unknown>;
+}> {
+  return jsonFetch(`/api/cad/meshy/print-multi-color/${encodeURIComponent(taskId)}`);
+}
+
+export async function meshyDeletePrintMultiColor(taskId: string): Promise<{ ok: boolean; task_id: string }> {
+  return jsonFetch(`/api/cad/meshy/print-multi-color/${encodeURIComponent(taskId)}`, { method: 'DELETE' });
+}
+
+export function meshyPrintMultiColorStreamUrl(taskId: string): string {
+  return `/api/cad/meshy/print-multi-color/${encodeURIComponent(taskId)}/stream`;
 }
 
 export type MeshyImageTo3dBody = {

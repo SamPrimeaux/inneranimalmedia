@@ -22,6 +22,29 @@ import { dispatchComplete } from '../core/provider.js';
 const OPENSCAD_BIN = '/opt/homebrew/bin/openscad';
 const CAD_SCRIPT_TASK_TYPE = 'designstudio_cad_script';
 
+function parseJsonColumn(val) {
+  if (val == null) return null;
+  if (typeof val === 'object') return val;
+  try {
+    return JSON.parse(String(val));
+  } catch {
+    return null;
+  }
+}
+
+function cadJobRowResponse(row) {
+  if (!row) return row;
+  return {
+    ...row,
+    model_formats: parseJsonColumn(row.model_formats),
+    texture_data: parseJsonColumn(row.texture_data),
+    public_url:
+      row.r2_key && !String(row.r2_key).startsWith('b64:')
+        ? buildCadAssetPublicUrl(row.r2_key)
+        : row.result_url,
+  };
+}
+
 const OPENSCAD_SYSTEM_PROMPT = `You are an OpenSCAD expert. Output ONLY valid OpenSCAD code.
 No markdown fences, no explanation, no comments unless they are OpenSCAD inline comments.
 The code must be immediately runnable with: openscad -o output.stl input.scad
@@ -580,6 +603,23 @@ export async function handleCadApi(request, url, env, ctx) {
       });
     }
 
+    const jobOneMatch = url.pathname.match(/^\/api\/cad\/jobs\/([^/]+)$/i);
+    if (jobOneMatch && method === 'GET') {
+      const reqCtx = await resolveRequestContext(request, env);
+      if (reqCtx.error) return jsonResponse({ error: 'Unauthorized' }, 401);
+      const authUser = { id: reqCtx.userId, tenant_id: reqCtx.tenantId };
+      if (!env.DB) return jsonResponse({ error: 'Database not configured' }, 503);
+
+      const jobId = jobOneMatch[1];
+      const job = await env.DB.prepare(
+        `SELECT * FROM agentsam_cad_jobs WHERE id = ? AND user_id = ? LIMIT 1`,
+      )
+        .bind(jobId, authUser.id)
+        .first();
+      if (!job) return jsonResponse({ error: 'Job not found' }, 404);
+      return jsonResponse({ job: cadJobRowResponse(job) });
+    }
+
     if (path === '/api/cad/jobs' && method === 'GET') {
       const reqCtx = await resolveRequestContext(request, env);
       if (reqCtx.error) return jsonResponse({ error: 'Unauthorized' }, 401);
@@ -590,19 +630,14 @@ export async function handleCadApi(request, url, env, ctx) {
       const { results } = await env.DB.prepare(
         `SELECT id, engine, prompt, mode, status, result_url, r2_key, r2_bucket, error,
                 workspace_id, tenant_id, project_id, scene_snapshot_id, progress_pct,
+                task_type, model_formats, texture_data,
                 created_at, updated_at
          FROM agentsam_cad_jobs WHERE user_id = ? ORDER BY created_at DESC LIMIT ?`,
       )
         .bind(authUser.id, limit)
         .all();
 
-      const jobs = (results || []).map((row) => ({
-        ...row,
-        public_url:
-          row.r2_key && !String(row.r2_key).startsWith('b64:')
-            ? buildCadAssetPublicUrl(row.r2_key)
-            : row.result_url,
-      }));
+      const jobs = (results || []).map((row) => cadJobRowResponse(row));
 
       return jsonResponse({ jobs });
     }

@@ -37,12 +37,14 @@ export function MeshyPromptField({
   onChange,
   rows = 4,
   placeholder,
+  maxLength,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   rows?: number;
   placeholder?: string;
+  maxLength?: number;
 }) {
   return (
     <div>
@@ -52,6 +54,7 @@ export function MeshyPromptField({
       <textarea
         rows={rows}
         value={value}
+        maxLength={maxLength}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         className="w-full rounded-lg px-3 py-2 text-[12px] text-[var(--text-main)] border border-[var(--border-subtle)] bg-[var(--bg-hover)] outline-none focus:border-[var(--solar-cyan)] resize-none"

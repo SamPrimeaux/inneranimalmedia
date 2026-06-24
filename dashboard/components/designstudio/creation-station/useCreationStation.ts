@@ -313,30 +313,56 @@ export function useCreationStation(cad: CadHook) {
       appendLog('Paste a source model task ID', 'warn');
       return;
     }
-    await submitMeshyTask(
-      'text-to-texture',
-      {
-        input_task_id: sourceTaskId.trim(),
-        texture_prompt: texturePrompt.trim(),
-      },
-      'text-to-texture',
-    );
-  }, [sourceTaskId, texturePrompt, submitMeshyTask]);
+    const path = '/api/cad/meshy/retexture';
+    const body = {
+      input_task_id: sourceTaskId.trim(),
+      text_style_prompt: texturePrompt.trim(),
+    };
+    setLastRequest(buildCurl('POST', path, body));
+    appendLog('Starting retexture…', 'info', { open: true });
+    try {
+      const result = await cad.runMeshyRetexture(body);
+      setLastResponse(JSON.stringify(result, null, 2));
+      const ext = (result as { external_task_id?: string; task_id?: string })?.external_task_id
+        ?? (result as { task_id?: string })?.task_id;
+      if (ext) appendLog(`Meshy task ${ext}`, 'ok');
+      await refreshBalance();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setLastResponse(JSON.stringify({ error: msg }, null, 2));
+      appendLog(msg, 'error');
+    }
+  }, [sourceTaskId, texturePrompt, cad, appendLog, refreshBalance]);
 
   const runTexture = useCallback(async () => {
     if (!sourceTaskId.trim()) {
       appendLog('Paste a source model task ID', 'warn');
       return;
     }
-    await submitMeshyTask(
-      'texture',
-      {
-        input_task_id: sourceTaskId.trim(),
-        ...(texturePrompt.trim() ? { texture_prompt: texturePrompt.trim() } : {}),
-      },
-      'retexture',
-    );
-  }, [sourceTaskId, texturePrompt, submitMeshyTask]);
+    if (!texturePrompt.trim()) {
+      appendLog('Enter a texture prompt or provide image_style_url', 'warn');
+      return;
+    }
+    const path = '/api/cad/meshy/retexture';
+    const body = {
+      input_task_id: sourceTaskId.trim(),
+      text_style_prompt: texturePrompt.trim(),
+    };
+    setLastRequest(buildCurl('POST', path, body));
+    appendLog('Starting retexture…', 'info', { open: true });
+    try {
+      const result = await cad.runMeshyRetexture(body);
+      setLastResponse(JSON.stringify(result, null, 2));
+      const ext = (result as { external_task_id?: string; task_id?: string })?.external_task_id
+        ?? (result as { task_id?: string })?.task_id;
+      if (ext) appendLog(`Meshy task ${ext}`, 'ok');
+      await refreshBalance();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setLastResponse(JSON.stringify({ error: msg }, null, 2));
+      appendLog(msg, 'error');
+    }
+  }, [sourceTaskId, texturePrompt, cad, appendLog, refreshBalance]);
 
   const runPostProcess = useCallback(async () => {
     if (!sourceTaskId.trim()) {
@@ -355,12 +381,23 @@ export function useCreationStation(cad: CadHook) {
       appendLog('Paste a source model task ID', 'warn');
       return;
     }
-    await submitMeshyTask(
-      'print',
-      { input_task_id: sourceTaskId.trim(), target_formats: ['stl', '3mf'] },
-      'print export',
-    );
-  }, [sourceTaskId, submitMeshyTask]);
+    const path = '/api/cad/meshy/print-multi-color';
+    const body = { input_task_id: sourceTaskId.trim() };
+    setLastRequest(buildCurl('POST', path, body));
+    appendLog('Starting multi-color 3MF export (10 credits)…', 'info', { open: true });
+    try {
+      const result = await cad.runMeshyPrintMultiColor(body);
+      setLastResponse(JSON.stringify(result, null, 2));
+      const ext = (result as { external_task_id?: string; task_id?: string })?.external_task_id
+        ?? (result as { task_id?: string })?.task_id;
+      if (ext) appendLog(`Meshy task ${ext}`, 'ok');
+      await refreshBalance();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setLastResponse(JSON.stringify({ error: msg }, null, 2));
+      appendLog(msg, 'error');
+    }
+  }, [sourceTaskId, cad, appendLog, refreshBalance]);
 
   const runTextToImage = useCallback(async () => {
     if (!imageGenPrompt.trim()) {

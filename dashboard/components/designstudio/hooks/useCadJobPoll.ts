@@ -51,6 +51,9 @@ export function useCadJobPoll(
           status: meshy.status,
           progress_pct: meshy.progress_pct ?? meshy.progress,
           public_url: meshy.public_url,
+          task_type: meshy.task_type,
+          model_formats: meshy.model_formats,
+          texture_data: meshy.texture_data,
         };
       } else if (engine) {
         row = await fetchCadJob(jobId);
@@ -62,6 +65,9 @@ export function useCadJobPoll(
             status: meshy.status,
             progress_pct: meshy.progress_pct ?? meshy.progress,
             public_url: meshy.public_url,
+            task_type: meshy.task_type,
+            model_formats: meshy.model_formats,
+            texture_data: meshy.texture_data,
           }));
         } catch {
           row = await fetchCadJob(jobId);

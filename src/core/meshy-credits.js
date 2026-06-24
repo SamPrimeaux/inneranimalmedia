@@ -1,27 +1,39 @@
 /**
  * Meshy API credit cost estimates (https://docs.meshy.ai/en/api/pricing).
- * Used for preflight balance checks before generation.
+ * Used for preflight balance checks and agentsam_cad_jobs.credits_consumed estimates.
+ *
+ * Generation type                          | Cost
+ * -----------------------------------------|------------------------------------------
+ * Text to 3D Preview (Meshy 6)             | 20 credits
+ * Text to 3D Preview (other models)      | 10 credits
+ * Text to 3D Refine                      | 10 credits
+ * Image to 3D (Meshy 6, no texture)      | 20 credits
+ * Image to 3D (Meshy 6, with texture)    | 30 credits
+ * Image to 3D (other, no texture)        | 5 credits
+ * Image to 3D (other, with texture)      | 15 credits
+ * Multi Image to 3D                      | same as Image to 3D
+ * Retexture                              | 10 credits
+ * Remesh                                 | 5 credits
+ * Auto-Rigging                           | 5 credits
+ * Animation                              | 3 credits
  */
 
-/** @typedef {'text-to-3d-preview' | 'text-to-3d-refine' | 'text-to-3d-full' | 'image-to-3d' | 'multi-image-to-3d' | 'retexture' | 'remesh' | 'rigging' | 'animation' | 'text-to-image' | 'image-to-image' | 'print-repair' | 'print-multi-color'} MeshyOperation */
+/** @typedef {'text-to-3d-preview' | 'text-to-3d-refine' | 'text-to-3d-full' | 'image-to-3d' | 'multi-image-to-3d' | 'retexture' | 'remesh' | 'rigging' | 'animation' | 'text-to-image' | 'image-to-image' | 'print-repair' | 'print-multi-color' | 'uv-unwrap'} MeshyOperation */
 
 export const MESHY_CREDIT_COSTS = {
-  /** Text-to-3D preview — meshy-6 / lowpoly */
   TEXT_TO_3D_PREVIEW_MESHY6: 20,
-  /** Text-to-3D preview — meshy-5 / other models */
-  TEXT_TO_3D_PREVIEW_DEFAULT: 5,
-  /** Text-to-3D refine (texturing + PBR) */
+  TEXT_TO_3D_PREVIEW_DEFAULT: 10,
   TEXT_TO_3D_REFINE: 10,
-  /** Full text path: preview (worst-case meshy-6) + refine */
-  TEXT_TO_3D_FULL: 15,
-  /** Conservative preflight for preview+refine auto chain */
+  /** Meshy 6 preview + refine (worst-case text path preflight) */
+  TEXT_TO_3D_FULL_MESHY6: 30,
+  /** Other models preview + refine */
+  TEXT_TO_3D_FULL_DEFAULT: 20,
+  /** Conservative preflight when model tier is unknown */
   TEXT_TO_3D_FULL_CONSERVATIVE: 30,
-  /** Image-to-3D with texture (typical) */
-  IMAGE_TO_3D_TEXTURED: 30,
-  /** Image-to-3D mesh-only minimum */
-  IMAGE_TO_3D_MESH: 5,
-  MULTI_IMAGE_TO_3D_TEXTURED: 30,
-  MULTI_IMAGE_TO_3D_MESH: 5,
+  IMAGE_TO_3D_MESHY6_MESH: 20,
+  IMAGE_TO_3D_MESHY6_TEXTURED: 30,
+  IMAGE_TO_3D_DEFAULT_MESH: 5,
+  IMAGE_TO_3D_DEFAULT_TEXTURED: 15,
   RETEXTURE: 10,
   REMESH: 5,
   RIGGING: 5,
@@ -34,16 +46,29 @@ export const MESHY_CREDIT_COSTS = {
 };
 
 /**
+ * @param {Record<string, unknown>} [body]
+ */
+export function isMeshy6AiModel(body = {}) {
+  const aiModel = String(body.ai_model || body.aiModel || 'latest').toLowerCase();
+  const modelType = String(body.model_type || body.modelType || 'standard').toLowerCase();
+  return modelType === 'lowpoly' || aiModel.includes('meshy-6') || aiModel === 'latest';
+}
+
+/**
+ * @param {Record<string, unknown>} [body]
+ */
+export function imageTo3dIncludesTexture(body = {}) {
+  return body.should_texture !== false;
+}
+
+/**
  * Estimate credits for a text-to-3D preview request.
  * @param {Record<string, unknown>} [body]
  */
 export function estimateTextTo3dPreviewCost(body = {}) {
-  const aiModel = String(body.ai_model || body.aiModel || 'latest').toLowerCase();
-  const modelType = String(body.model_type || body.modelType || 'standard').toLowerCase();
-  if (modelType === 'lowpoly' || aiModel.includes('meshy-6') || aiModel === 'latest') {
-    return MESHY_CREDIT_COSTS.TEXT_TO_3D_PREVIEW_MESHY6;
-  }
-  return MESHY_CREDIT_COSTS.TEXT_TO_3D_PREVIEW_DEFAULT;
+  return isMeshy6AiModel(body)
+    ? MESHY_CREDIT_COSTS.TEXT_TO_3D_PREVIEW_MESHY6
+    : MESHY_CREDIT_COSTS.TEXT_TO_3D_PREVIEW_DEFAULT;
 }
 
 /**
@@ -58,14 +83,20 @@ export function estimateTextTo3dFullCost(body = {}, opts = {}) {
 }
 
 /**
- * Estimate credits for image-to-3D.
+ * Estimate credits for image-to-3D or multi-image-to-3D.
  * @param {Record<string, unknown>} [body]
  */
 export function estimateImageTo3dCost(body = {}) {
-  const shouldTexture = body.should_texture !== false && body.enable_pbr !== false;
-  return shouldTexture
-    ? MESHY_CREDIT_COSTS.IMAGE_TO_3D_TEXTURED
-    : MESHY_CREDIT_COSTS.IMAGE_TO_3D_MESH;
+  const meshy6 = isMeshy6AiModel(body);
+  const textured = imageTo3dIncludesTexture(body);
+  if (meshy6) {
+    return textured
+      ? MESHY_CREDIT_COSTS.IMAGE_TO_3D_MESHY6_TEXTURED
+      : MESHY_CREDIT_COSTS.IMAGE_TO_3D_MESHY6_MESH;
+  }
+  return textured
+    ? MESHY_CREDIT_COSTS.IMAGE_TO_3D_DEFAULT_TEXTURED
+    : MESHY_CREDIT_COSTS.IMAGE_TO_3D_DEFAULT_MESH;
 }
 
 /**
@@ -82,15 +113,16 @@ export function estimateMeshyOperationCost(operation, body = {}) {
     case 'text-to-3d':
       return estimateTextTo3dFullCost(body);
     case 'image-to-3d':
-      return estimateImageTo3dCost(body);
     case 'multi-image-to-3d':
-      return body.should_texture === false
-        ? MESHY_CREDIT_COSTS.MULTI_IMAGE_TO_3D_MESH
-        : MESHY_CREDIT_COSTS.MULTI_IMAGE_TO_3D_TEXTURED;
+      return estimateImageTo3dCost(body);
     case 'retexture':
       return MESHY_CREDIT_COSTS.RETEXTURE;
     case 'remesh':
       return MESHY_CREDIT_COSTS.REMESH;
+    case 'print-multi-color':
+      return MESHY_CREDIT_COSTS.PRINT_MULTI_COLOR;
+    case 'print-repair':
+      return MESHY_CREDIT_COSTS.PRINT_REPAIR;
     case 'rigging':
       return MESHY_CREDIT_COSTS.RIGGING;
     case 'animation':
