@@ -1,7 +1,10 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { useStudioGallery } from '../useStudioGallery';
 import type { GalleryItem } from '../cadStudioTypes';
 import { GlbAssetThumb } from './GlbAssetThumb';
+import {
+  LayoutGrid, Box, FileStack, Zap, Funnel, SquareMousePointer, Upload, RefreshCw,
+} from 'lucide-react';
 
 export type AssetGalleryEditorProps = {
   onSpawn: (item: GalleryItem) => void;
@@ -9,22 +12,47 @@ export type AssetGalleryEditorProps = {
   variant?: 'panel' | 'library';
 };
 
+type SourceFilter = 'all' | 'stock' | 'mine' | 'job' | 'meshy';
+
+const FILTER_ICONS: { key: SourceFilter; Icon: React.ElementType; label: string }[] = [
+  { key: 'all',   Icon: LayoutGrid,         label: 'All assets' },
+  { key: 'stock', Icon: Box,                label: 'Stock models' },
+  { key: 'mine',  Icon: FileStack,          label: 'My generations' },
+  { key: 'job',   Icon: Zap,               label: 'Job outputs' },
+  { key: 'meshy', Icon: Funnel,            label: 'Meshy' },
+];
+
 export function AssetGalleryEditor({ onSpawn, onUpload, variant = 'panel' }: AssetGalleryEditorProps) {
   const gallery = useStudioGallery();
   const fileRef = useRef<HTMLInputElement>(null);
+  const [multiSelect, setMultiSelect] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  const toggleItem = (id: string) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
 
   return (
     <section className="cad-editor cad-editor--assets">
+      {/* ── Head: search + upload ── */}
       <div className="cad-studio__panel-head cad-assets__head">
-        {variant === 'panel' ? <span>Assets</span> : null}
         <input
           className="cad-studio__search"
           placeholder="Search GLBs…"
           value={gallery.filter}
           onChange={(e) => gallery.setFilter(e.target.value)}
         />
-        <button type="button" className="cad-studio__upload-btn" onClick={() => fileRef.current?.click()}>
-          Upload
+        <button
+          type="button"
+          className="cad-studio__icon-btn"
+          onClick={() => fileRef.current?.click()}
+          title="Upload GLB"
+        >
+          <Upload size={14} strokeWidth={1.75} />
         </button>
         <input
           ref={fileRef}
@@ -38,46 +66,101 @@ export function AssetGalleryEditor({ onSpawn, onUpload, variant = 'panel' }: Ass
           }}
         />
       </div>
-      <div className="cad-assets__filters">
-        {(['all', 'stock', 'mine', 'job', 'meshy'] as const).map((s) => (
+
+      {/* ── Icon filter bar ── */}
+      <div className="cad-assets__icon-filters">
+        {FILTER_ICONS.map(({ key, Icon, label }) => (
           <button
-            key={s}
+            key={key}
             type="button"
-            className={`cad-assets__chip${gallery.sourceFilter === s ? ' active' : ''}`}
-            onClick={() => gallery.setSourceFilter(s)}
+            className={`cad-assets__icon-filter${gallery.sourceFilter === key ? ' active' : ''}`}
+            onClick={() => gallery.setSourceFilter(key)}
+            title={label}
+            aria-pressed={gallery.sourceFilter === key}
           >
-            {s === 'all' ? 'All' : s.charAt(0).toUpperCase() + s.slice(1)}
+            <Icon size={15} strokeWidth={1.75} />
           </button>
         ))}
-        <button type="button" className="cad-studio__btn" onClick={() => void gallery.refresh()} title="Refresh">
-          Refresh
+
+        {/* divider */}
+        <span className="cad-assets__filter-sep" />
+
+        {/* multi-select */}
+        <button
+          type="button"
+          className={`cad-assets__icon-filter${multiSelect ? ' active' : ''}`}
+          onClick={() => { setMultiSelect(v => !v); setSelected(new Set()); }}
+          title="Multi-select"
+          aria-pressed={multiSelect}
+        >
+          <SquareMousePointer size={15} strokeWidth={1.75} />
         </button>
-        {gallery.total > 0 ? <span className="cad-assets__count">{gallery.total}</span> : null}
+
+        {/* refresh */}
+        <button
+          type="button"
+          className="cad-assets__icon-filter"
+          onClick={() => void gallery.refresh()}
+          title="Refresh"
+        >
+          <RefreshCw size={14} strokeWidth={1.75} />
+        </button>
+
+        {gallery.total > 0 && (
+          <span className="cad-assets__count">{gallery.total}</span>
+        )}
       </div>
+
+      {/* multi-select action bar */}
+      {multiSelect && selected.size > 0 && (
+        <div className="cad-assets__multibar">
+          <span>{selected.size} selected</span>
+          <button
+            type="button"
+            className="cad-studio__icon-btn"
+            onClick={() => {
+              gallery.items
+                .filter(i => selected.has(i.id))
+                .forEach(i => onSpawn(i));
+              setSelected(new Set());
+            }}
+          >
+            Spawn All
+          </button>
+        </div>
+      )}
+
+      {/* ── Grid ── */}
       <div className="cad-assets__scroll">
-        {gallery.loading ? <p className="cad-editor__hint cad-assets__status">Loading assets…</p> : null}
-        {gallery.error ? <p className="cad-editor__hint cad-editor__hint--error cad-assets__status">{gallery.error}</p> : null}
-        {!gallery.loading && gallery.items.length === 0 ? (
-          <p className="cad-editor__hint cad-assets__status">No GLBs yet — upload or generate via Agent.</p>
-        ) : null}
+        {gallery.loading && <p className="cad-editor__hint cad-assets__status">Loading assets…</p>}
+        {gallery.error && <p className="cad-editor__hint cad-editor__hint--error cad-assets__status">{gallery.error}</p>}
+        {!gallery.loading && gallery.items.length === 0 && (
+          <p className="cad-editor__hint cad-assets__status">No GLBs yet — upload or generate.</p>
+        )}
         <div className="cad-assets__grid">
-          {gallery.items.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className="cad-assets__card"
-              onClick={() => onSpawn(item)}
-              title={item.url}
-            >
-              <div className="cad-assets__thumb">
-                <GlbAssetThumb url={item.url} thumbnail={item.thumbnail} alt={item.name} />
-              </div>
-              <div className="cad-assets__meta">
-                <span className="cad-assets__name">{item.name}</span>
-                <span className="cad-assets__source">{item.source}</span>
-              </div>
-            </button>
-          ))}
+          {gallery.items.map((item) => {
+            const isSelected = selected.has(item.id);
+            return (
+              <button
+                key={item.id}
+                type="button"
+                className={`cad-assets__card${isSelected ? ' selected' : ''}`}
+                onClick={() => multiSelect ? toggleItem(item.id) : onSpawn(item)}
+                title={item.name}
+              >
+                {multiSelect && (
+                  <span className={`cad-assets__check${isSelected ? ' checked' : ''}`} aria-hidden />
+                )}
+                <div className="cad-assets__thumb">
+                  <GlbAssetThumb url={item.url} thumbnail={item.thumbnail} alt={item.name} />
+                </div>
+                <div className="cad-assets__meta">
+                  <span className="cad-assets__name">{item.name}</span>
+                  <span className="cad-assets__source">{item.source}</span>
+                </div>
+              </button>
+            );
+          })}
         </div>
       </div>
     </section>

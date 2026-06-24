@@ -16,6 +16,7 @@ import { OperatorSearchModal, GenerateCadModal } from './OperatorModals';
 import { Viewport3DEditor, SecondaryViewportEditor, ScriptEditor, NodeEditor, MovieClipEditor, GraphEditor, SequencerEditor, ScopesEditor, ColorBalanceEditor, GreaseLayersEditor, TimelineEditor } from './editors/Viewport3DEditor';
 import { OutlinerEditor } from './editors/OutlinerEditor';
 import { AssetGalleryEditor } from './editors/AssetGalleryEditor';
+import { ViewportActionBar } from './ViewportActionBar';
 import { PropertiesEditor } from './editors/PropertiesEditor';
 import { CreationPanelEditor } from './editors/CreationPanelEditor';
 import { CreativeToolDock, openOperatorDraft } from './CreativeToolDock';
@@ -1012,6 +1013,11 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
         }
         computeHealth={computeHealth}
         onShowDiagnostics={() => void showDiagnostics()}
+        activeTool={ui.viewTool as ViewTool}
+        onToolChange={(t) => {
+          patchUi({ viewTool: t as ViewTool });
+          if (isAgentSamEngine(engineRef.current)) engineRef.current.setCADTool(t as never);
+        }}
       />
 
       <div className="cad-studio__main">
@@ -1025,6 +1031,16 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
             timelineRowHeight={layoutPanelVisibility.timeline ? timelineResize.height : null}
           />
         </div>
+        <ViewportActionBar
+          onTexture={() => openOperatorDraft('generateObject', { prompt: 'Apply texture to selected object', workspace: ui.workspace, selectedObjectId: selectedId, sceneId: currentSceneId })}
+          onRemesh={() => openOperatorDraft('generateBlender', { prompt: 'Remesh selected object with voxel remesh, resolution 0.02', workspace: ui.workspace, selectedObjectId: selectedId, sceneId: currentSceneId })}
+          onUnwrapUV={() => openOperatorDraft('generateBlender', { prompt: 'Smart UV unwrap selected object', workspace: ui.workspace, selectedObjectId: selectedId, sceneId: currentSceneId })}
+          onRig={() => { if (animLibVisible) closeAnimLib(); else openAnimLib(); }}
+          rigActive={animLibVisible}
+          onDownload={onDownloadLatestGlb}
+          onAdvanced={() => openOperator()}
+          hasSelection={!!selectedId}
+        />
         <AssetLibraryFlyout open={libraryOpen} onClose={() => setLibraryOpen(false)}>
           <AssetGalleryEditor
             variant="library"
@@ -1032,17 +1048,7 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
             onUpload={onImportGlb}
           />
         </AssetLibraryFlyout>
-        {!animLibVisible ? (
-          <button
-            type="button"
-            className="cad-studio__panel-reopen cad-studio__panel-reopen--left"
-            onClick={openAnimLib}
-            title="Show Animation Library"
-          >
-            <PanelLeftOpen size={14} strokeWidth={1.75} />
-            <span>Animations</span>
-          </button>
-        ) : null}
+{/* anim lib reopen removed — use Animate button in toolbar */}
         {!rightPanelVisible ? (
           <button
             type="button"
@@ -1056,33 +1062,7 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
         ) : null}
       </div>
 
-      <div className="cad-studio__bottom-dock">
-        <CreativeToolDock
-          placement="bottom"
-          workspace={ui.workspace}
-          activeTool={ui.viewTool}
-          activeDomain={activeDockDomain}
-          onDomainChange={setActiveDockDomain}
-          onToolChange={(t) => patchUi({ viewTool: t as ViewTool })}
-          onLocalAction={handleDockLocalAction}
-          sheetHeight={activeDockDomain ? dockResize.height : undefined}
-          onSheetResizePointerDown={activeDockDomain ? dockResize.onPointerDown : undefined}
-          onOpenOperator={(operatorId, prompt) => {
-            if (operatorId) {
-              openOperatorDraft(operatorId, {
-                prompt,
-                workspace: ui.workspace,
-                selectedObjectId: selectedId,
-                sceneId: currentSceneId,
-              });
-            } else {
-              openOperator();
-            }
-          }}
-          selectedObjectId={selectedId}
-          sceneId={currentSceneId}
-        />
-      </div>
+{/* bottom dock removed — tools moved to top toolbar */}
 
       <StatusBar
         selectedName={selectedEntity?.name ?? null}

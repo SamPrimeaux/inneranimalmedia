@@ -34,6 +34,7 @@
 .cad-studio * { box-sizing: border-box; }
 
 .cad-studio__layout-engine {
+  height: 100%;
   min-height: 0;
   overflow: hidden;
   background: transparent;
@@ -47,6 +48,8 @@
   min-width: 0;
   width: 100%;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .cad-studio__engine-persistent {
@@ -73,6 +76,8 @@
 .cad-studio__layout-wrap > .cad-studio__layout-engine {
   position: relative;
   z-index: 1;
+  flex: 1;
+  min-height: 0;
 }
 
 .cad-studio__layout-engine .cad-editor--viewport,
@@ -1936,4 +1941,175 @@
 
 .cad-studio__timeline-tracks {
   max-height: 48px;
+}
+
+
+/* ── Asset gallery icon filter bar ─────────────────────────────────────────── */
+.cad-assets__icon-filters {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--cs-line-0);
+  flex-shrink: 0;
+}
+
+.cad-assets__icon-filter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  border: none;
+  background: transparent;
+  color: var(--cs-text-2);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  flex-shrink: 0;
+}
+.cad-assets__icon-filter:hover {
+  background: var(--cs-bg-3);
+  color: var(--cs-text-0);
+}
+.cad-assets__icon-filter.active {
+  background: var(--dashboard-accent, var(--cs-accent, #6366f1));
+  color: #fff;
+}
+
+.cad-assets__filter-sep {
+  width: 1px;
+  height: 16px;
+  background: var(--cs-line-1);
+  margin: 0 3px;
+  flex-shrink: 0;
+}
+
+.cad-assets__multibar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--cs-text-1);
+  background: var(--cs-bg-2);
+  border-bottom: 1px solid var(--cs-line-0);
+  flex-shrink: 0;
+}
+
+.cad-assets__card.selected {
+  outline: 2px solid var(--dashboard-accent, var(--cs-accent, #6366f1));
+  outline-offset: -2px;
+}
+
+.cad-assets__check {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1.5px solid var(--cs-line-2);
+  background: var(--cs-bg-2);
+  pointer-events: none;
+}
+.cad-assets__check.checked {
+  background: var(--dashboard-accent, var(--cs-accent, #6366f1));
+  border-color: transparent;
+}
+.cad-assets__check.checked::after {
+  content: '';
+  display: block;
+  width: 4px;
+  height: 7px;
+  border: 2px solid #fff;
+  border-top: none;
+  border-left: none;
+  transform: rotate(45deg) translate(1px, -1px);
+}
+.cad-assets__card { position: relative; }
+
+
+/* ── ViewportActionBar — claymorphic floating dock ──────────────────────────── */
+.vab__wrap {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  pointer-events: none;
+}
+
+.vab__dock {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 5px 8px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--cs-bg-2) 82%, transparent);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  border: 1px solid color-mix(in srgb, var(--cs-line-1) 60%, transparent);
+  box-shadow:
+    0 4px 24px color-mix(in srgb, #000 40%, transparent),
+    0 1px 0 color-mix(in srgb, #fff 6%, transparent) inset;
+  pointer-events: all;
+}
+
+.vab__btn {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--cs-text-1);
+  cursor: pointer;
+  font-size: 9px;
+  font-family: var(--cs-mono, monospace);
+  letter-spacing: 0.02em;
+  line-height: 1;
+  white-space: nowrap;
+  transition: background 0.1s, color 0.1s, transform 0.1s;
+  user-select: none;
+}
+.vab__btn:hover:not(:disabled) {
+  background: var(--cs-bg-3);
+  color: var(--cs-text-0);
+  transform: translateY(-1px);
+}
+.vab__btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+.vab__btn--active {
+  background: color-mix(in srgb, var(--dashboard-accent, var(--cs-accent, #6366f1)) 18%, transparent);
+  color: var(--dashboard-accent, var(--cs-accent, #6366f1));
+}
+.vab__btn--accent {
+  color: var(--dashboard-accent, var(--cs-accent, #6366f1));
+}
+.vab__btn--accent.vab__btn--active,
+.vab__btn--accent:hover:not(:disabled) {
+  background: var(--dashboard-accent, var(--cs-accent, #6366f1));
+  color: #fff;
+}
+.vab__btn--disabled,
+.vab__btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+.vab__label {
+  font-size: 9px;
+  opacity: 0.75;
+  letter-spacing: 0.03em;
+}
+.vab__sep {
+  width: 1px;
+  height: 28px;
+  background: var(--cs-line-1);
+  margin: 0 2px;
+  flex-shrink: 0;
 }

@@ -112,11 +112,11 @@ export type CadStudioUiState = {
 };
 
 export const DEFAULT_PANEL_VISIBILITY: PanelVisibility = {
-  animationLibrary: true,
+  animationLibrary: false,
   outliner: false,
   properties: false,
-  assets: true,
-  timeline: true,
+  assets: false,
+  timeline: false,
   toolShelf: false,
   chat: true,
 };
