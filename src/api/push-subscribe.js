@@ -10,6 +10,10 @@ function newHookId() {
   return `hook_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
 }
 
+/** agentsam_hook.trigger CHECK — route web push via event_type instead. */
+const PUSH_HOOK_TRIGGER = 'start';
+const PUSH_HOOK_EVENT_TYPE = 'notification.push';
+
 async function endpointFingerprint(endpoint) {
   const hash = await sha256Hex(endpoint);
   return hash.slice(-16);
@@ -70,11 +74,12 @@ export async function handlePushSubscribe(request, env) {
         workspace_id = ?,
         user_id = ?,
         target_id = ?,
+        event_type = ?,
         is_active = 1,
         updated_at = datetime('now')
       WHERE id = ?
     `)
-      .bind(handlerConfig, workspaceId, userId, userId, existing.id)
+      .bind(handlerConfig, workspaceId, userId, userId, PUSH_HOOK_EVENT_TYPE, existing.id)
       .run();
   } else {
     const id = newHookId();
@@ -84,12 +89,22 @@ export async function handlePushSubscribe(request, env) {
         target_id, handler_type, handler_config, hook_key, event_type, is_active,
         created_at, updated_at
       ) VALUES (
-        ?, ?, ?, ?, 'browser', 'notification.push', '',
-        ?, 'web_push', ?, ?, '*', 1,
+        ?, ?, ?, ?, 'browser', ?, '',
+        ?, 'web_push', ?, ?, ?, 1,
         datetime('now'), datetime('now')
       )
     `)
-      .bind(id, tenantId, workspaceId, userId, userId, handlerConfig, hookKey)
+      .bind(
+        id,
+        tenantId,
+        workspaceId,
+        userId,
+        PUSH_HOOK_TRIGGER,
+        userId,
+        handlerConfig,
+        hookKey,
+        PUSH_HOOK_EVENT_TYPE,
+      )
       .run();
   }
 
