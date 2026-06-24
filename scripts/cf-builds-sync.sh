@@ -5,7 +5,9 @@
 # Usage (from repo root):
 #   ./scripts/cf-builds-sync.sh
 #
-# Optional overrides: WORKER_SERVICE_NAME, CF_BUILDS_BUILD_COMMAND, CF_BUILDS_DEPLOY_COMMAND
+# Optional overrides: WORKER_SERVICE_NAME, CF_BUILDS_BUILD_COMMAND,
+# CF_BUILDS_MAIN_DEPLOY_COMMAND, CF_BUILDS_NON_MAIN_DEPLOY_COMMAND,
+# CF_BUILDS_NON_MAIN_BRANCH_EXCLUDES
 #
 # Trigger discovery: the Builds API keys triggers by external_script_id (Workers script tag),
 # not by worker name. This script resolves the tag from workers/services first.
@@ -29,7 +31,9 @@ API_TOKEN="${CLOUDFLARE_API_TOKEN}"
 WORKER_NAME="${WORKER_SERVICE_NAME:-inneranimalmedia}"
 
 BUILD_COMMAND="${CF_BUILDS_BUILD_COMMAND:-node scripts/smart-build.mjs}"
-DEPLOY_COMMAND="${CF_BUILDS_DEPLOY_COMMAND:-npm run deploy:cf-builds}"
+MAIN_DEPLOY_COMMAND="${CF_BUILDS_MAIN_DEPLOY_COMMAND:-npm run deploy:cf-builds}"
+NON_MAIN_DEPLOY_COMMAND="${CF_BUILDS_NON_MAIN_DEPLOY_COMMAND:-npm exec -- wrangler deploy -c wrangler.production.toml}"
+NON_MAIN_BRANCH_EXCLUDES="${CF_BUILDS_NON_MAIN_BRANCH_EXCLUDES:-main,production}"
 
 if [[ -z "$ACCOUNT_ID" || -z "$API_TOKEN" ]]; then
   echo "ERROR: CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN must be set in .env.cloudflare" >&2
@@ -85,37 +89,60 @@ if [[ -z "$TRIGGER_UUIDS" ]]; then
   echo "[cf-builds-sync] No Builds triggers returned for ${WORKER_NAME} (script tag ${SCRIPT_TAG})." >&2
   echo "[cf-builds-sync] Update manually in Cloudflare dashboard → Workers → ${WORKER_NAME} → Settings → Builds:" >&2
   echo "  Build command:  ${BUILD_COMMAND}" >&2
-  echo "  Deploy command: ${DEPLOY_COMMAND}" >&2
+  echo "  Main deploy:    ${MAIN_DEPLOY_COMMAND}" >&2
+  echo "  Non-main deploy: ${NON_MAIN_DEPLOY_COMMAND}" >&2
   echo "[cf-builds-sync] Never use 'npx wrangler versions upload' — it inherits deleted legacy VECTORIZE bindings." >&2
   exit 1
 fi
 
-PATCH_BODY="$(cat <<JSON
+patch_trigger() {
+  local trigger_uuid="$1"
+  local deploy_command="$2"
+  local branch_excludes_json="$3"
+  local patch_body
+  patch_body="$(cat <<JSON
 {
   "build_command": "${BUILD_COMMAND}",
-  "deploy_command": "${DEPLOY_COMMAND}",
-  "root_directory": "/"
+  "deploy_command": "${deploy_command}",
+  "root_directory": "/",
+  "branch_excludes": ${branch_excludes_json}
 }
 JSON
 )"
+  echo "[cf-builds-sync] Patching trigger ${trigger_uuid} (deploy=${deploy_command})..."
+  curl -sS -X PATCH \
+    "https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/builds/triggers/${trigger_uuid}" \
+    "${auth_header[@]}" \
+    -d "$patch_body"
+}
 
 patched=0
-while IFS= read -r TRIGGER_UUID; do
-  [[ -z "$TRIGGER_UUID" ]] && continue
-  echo "[cf-builds-sync] Patching trigger ${TRIGGER_UUID}..."
-  RESP="$(curl -sS -X PATCH \
-    "https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/builds/triggers/${TRIGGER_UUID}" \
-    "${auth_header[@]}" \
-    -d "$PATCH_BODY")"
-
-  if command -v jq >/dev/null 2>&1; then
+if command -v jq >/dev/null 2>&1; then
+  while IFS=$'\t' read -r TRIGGER_UUID BRANCH_INCLUDES_JSON; do
+    [[ -z "$TRIGGER_UUID" ]] && continue
+    if echo "$BRANCH_INCLUDES_JSON" | jq -e '.[] | select(. == "main")' >/dev/null 2>&1; then
+      DEPLOY_COMMAND="$MAIN_DEPLOY_COMMAND"
+      BRANCH_EXCLUDES_JSON='["main"]'
+    else
+      DEPLOY_COMMAND="$NON_MAIN_DEPLOY_COMMAND"
+      BRANCH_EXCLUDES_JSON="$(printf '%s' "$NON_MAIN_BRANCH_EXCLUDES" | jq -Rc 'split(",") | map(gsub("^\\s+|\\s+$";""))')"
+    fi
+    RESP="$(patch_trigger "$TRIGGER_UUID" "$DEPLOY_COMMAND" "$BRANCH_EXCLUDES_JSON")"
     echo "$RESP" | jq .
-  else
+    echo "$RESP" | grep -q '"success":true' || exit 1
+    patched=$((patched + 1))
+  done < <(echo "$TRIGGERS_JSON" | jq -r '.result[] | [.trigger_uuid, (.branch_includes | tojson)] | @tsv')
+else
+  while IFS= read -r TRIGGER_UUID; do
+    [[ -z "$TRIGGER_UUID" ]] && continue
+    DEPLOY_COMMAND="$MAIN_DEPLOY_COMMAND"
+    BRANCH_EXCLUDES_JSON='["main"]'
+    RESP="$(patch_trigger "$TRIGGER_UUID" "$DEPLOY_COMMAND" "$BRANCH_EXCLUDES_JSON")"
+
     echo "$RESP"
-  fi
+    echo "$RESP" | grep -q '"success":true' || exit 1
+    patched=$((patched + 1))
+  done <<< "$TRIGGER_UUIDS"
+fi
 
-  echo "$RESP" | grep -q '"success":true' || exit 1
-  patched=$((patched + 1))
-done <<< "$TRIGGER_UUIDS"
-
-echo "[cf-builds-sync] OK — patched ${patched} trigger(s); deploy_command=${DEPLOY_COMMAND}"
+echo "[cf-builds-sync] OK — patched ${patched} trigger(s); main_deploy=${MAIN_DEPLOY_COMMAND}; non_main_deploy=${NON_MAIN_DEPLOY_COMMAND}"
