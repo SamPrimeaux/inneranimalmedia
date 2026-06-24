@@ -927,6 +927,9 @@ export async function resolveAuth(request, env, opts = {}) {
     tenantId =
       trimSessionField(row.active_tenant_id) || trimSessionField(row.tenant_id) || null;
   }
+  if (!tenantId && userId) {
+    tenantId = trimSessionField(await fetchAuthUserTenantId(env, userId)) || null;
+  }
 
   const headerWs = trimSessionField(request?.headers?.get?.('x-iam-workspace-id'));
   const overrideWs = trimSessionField(opts.workspaceIdOverride);

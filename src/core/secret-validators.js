@@ -225,6 +225,23 @@ export async function validateProviderKey(provider, apiKey, env = {}, opts = {})
       return { ok: true, provider: prov, checks, warnings };
     }
 
+    if (prov === 'meshy') {
+      const res = await fetchWithTimeout('https://api.meshy.ai/openapi/v1/balance', {
+        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      });
+      const ms = Date.now() - t0;
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        checks.push(check('balance', 'fail', ms, body?.message || `HTTP ${res.status}`));
+        return { ok: false, provider: prov, checks, warnings };
+      }
+      const balance = body?.balance ?? body?.credits;
+      checks.push(
+        check('balance', 'pass', ms, balance != null ? `Meshy balance: ${balance}` : 'Meshy API accepted key'),
+      );
+      return { ok: true, provider: prov, checks, warnings };
+    }
+
     if (prov === 'other') {
       checks.push(check('format', 'pass', 0, 'No remote validator for provider "other"'));
       warnings.push('Save only if you trust this secret; no automated validation.');

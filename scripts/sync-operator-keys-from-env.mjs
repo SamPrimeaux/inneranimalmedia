@@ -9,10 +9,15 @@
  *
  * Requires in .env.cloudflare:
  *   AGENT_SESSION_MINT_SECRET, CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID
+ * Provider keys (synced when present):
+ *   OPENAI_API_KEY, ANTHROPIC_API_KEY, GOOGLE_API_KEY|GEMINI_API_KEY, MESHYAI_API_KEY,
+ *   GITHUB_TOKEN, RESEND_API_KEY, SUPABASE_SERVICE_ROLE_KEY
+ * R2 BYOK (optional): R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY — S3 API for all account buckets
  * Optional: AGENT_SESSION_USER_ID | AGENT_SESSION_DEFAULT_USER_ID | AGENT_SESSION_USER_EMAIL
  *           WORKSPACE_ID (default ws_inneranimalmedia)
  */
 import { loadEnvCloudflare, REPO_ROOT } from './lib/load-env-cloudflare.mjs';
+import { mintAgentSessionCookie } from './lib/mint-agent-session.mjs';
 
 loadEnvCloudflare();
 
@@ -36,15 +41,30 @@ const dryRun = process.argv.includes('--dry-run');
 
 const PROVIDER_ROWS = [
   {
-    provider: 'cloudflare',
-    keys: ['CLOUDFLARE_API_TOKEN'],
-    accountIdEnv: 'CLOUDFLARE_ACCOUNT_ID',
-    label: 'Cloudflare (synced from .env.cloudflare)',
+    provider: 'openai',
+    keys: ['OPENAI_API_KEY'],
+    label: 'OpenAI (synced from .env.cloudflare)',
   },
   {
     provider: 'anthropic',
     keys: ['ANTHROPIC_API_KEY'],
     label: 'Anthropic (synced from .env.cloudflare)',
+  },
+  {
+    provider: 'google',
+    keys: ['GOOGLE_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY'],
+    label: 'Google AI (synced from .env.cloudflare)',
+  },
+  {
+    provider: 'meshy',
+    keys: ['MESHYAI_API_KEY', 'MESHY_API_KEY'],
+    label: 'Meshy (synced from .env.cloudflare)',
+  },
+  {
+    provider: 'cloudflare',
+    keys: ['CLOUDFLARE_API_TOKEN'],
+    accountIdEnv: 'CLOUDFLARE_ACCOUNT_ID',
+    label: 'Cloudflare (synced from .env.cloudflare)',
   },
   {
     provider: 'github',
@@ -63,6 +83,14 @@ const PROVIDER_ROWS = [
   },
 ];
 
+const R2_ROW = {
+  provider: 'cloudflare_r2',
+  accessKeyEnv: ['R2_ACCESS_KEY_ID', 'AWS_ACCESS_KEY_ID'],
+  secretKeyEnv: ['R2_SECRET_ACCESS_KEY', 'AWS_SECRET_ACCESS_KEY'],
+  accountIdEnv: 'CLOUDFLARE_ACCOUNT_ID',
+  label: 'Cloudflare R2 S3 (account-wide BYOK)',
+};
+
 const PERSONAL_ROWS = [
   { secret_name: 'tavily_api_key', keys: ['TAVILY_API_KEY'], label: 'Tavily API key' },
   { secret_name: 'realtimekit_api_token', keys: ['REALTIMEKIT_API_TOKEN'], label: 'RealtimeKit API token' },
@@ -77,24 +105,12 @@ function firstEnv(keys) {
 }
 
 async function mintSession() {
-  const secret = process.env.AGENT_SESSION_MINT_SECRET?.trim();
-  if (!secret) throw new Error('AGENT_SESSION_MINT_SECRET missing in .env.cloudflare');
-  const body = { ttl_seconds: Number(process.env.AGENT_SESSION_TTL_SECONDS || 900) };
-  if (USER_ID) body.user_id = USER_ID;
-  else if (USER_EMAIL) body.user_email = USER_EMAIL;
-  else throw new Error('Set AGENT_SESSION_USER_ID (au_*) or AGENT_SESSION_USER_EMAIL in .env.cloudflare');
-  const r = await fetch(`${BASE_URL}/api/auth/agent-session/mint`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${secret}`,
-    },
-    body: JSON.stringify(body),
+  const { cookie } = await mintAgentSessionCookie({
+    userId: USER_ID,
+    workspaceId: WORKSPACE_ID,
+    ttlSeconds: Number(process.env.AGENT_SESSION_TTL_SECONDS || 900),
+    baseUrl: BASE_URL,
   });
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok || !j.ok) throw new Error(j.error || `mint HTTP ${r.status}`);
-  const cookie = j.cookie_header || (j.session_id ? `session=${j.session_id}` : '');
-  if (!cookie) throw new Error('mint missing session cookie');
   return cookie;
 }
 
@@ -312,6 +328,58 @@ async function savePtyDefaults(cookie) {
   console.warn(`[warn] pty-defaults API ${r.status} — deploy latest worker, then re-run sync`);
 }
 
+async function upsertR2(cookie, existing) {
+  const accessKeyId = firstEnv(R2_ROW.accessKeyEnv);
+  const secretAccessKey = firstEnv(R2_ROW.secretKeyEnv);
+  const accountId = firstEnv([R2_ROW.accountIdEnv]);
+  if (!accessKeyId || !secretAccessKey) {
+    console.log('[skip] cloudflare_r2 (R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY missing)');
+    return;
+  }
+  if (!accountId) {
+    console.warn('[skip] cloudflare_r2 (CLOUDFLARE_ACCOUNT_ID missing)');
+    return;
+  }
+  const payload = {
+    category: 'provider',
+    provider: 'cloudflare_r2',
+    label: R2_ROW.label,
+    cloudflare_account_id: accountId,
+    r2_access_key_id: accessKeyId,
+    r2_secret_access_key: secretAccessKey,
+    scope: 'workspace',
+    validate: true,
+  };
+  const match = existing.find(
+    (i) =>
+      String(i.provider || '').toLowerCase() === 'cloudflare_r2' &&
+      String(i.status || '').toLowerCase() === 'active',
+  );
+  if (dryRun) {
+    console.log(`[dry-run] ${match ? 'rotate' : 'create'} cloudflare_r2 (S3 credentials only)`);
+    return;
+  }
+  if (match?.id) {
+    const r = await fetch(`${BASE_URL}/api/settings/keys/${encodeURIComponent(match.id)}/rotate`, {
+      method: 'POST',
+      headers: apiHeaders(cookie),
+      body: JSON.stringify(payload),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.message || j.error || `rotate cloudflare_r2 ${r.status}`);
+    console.log(`[ok] rotated cloudflare_r2 (${match.id})`);
+    return;
+  }
+  const r = await fetch(`${BASE_URL}/api/settings/keys`, {
+    method: 'POST',
+    headers: apiHeaders(cookie),
+    body: JSON.stringify(payload),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.message || j.error || `create cloudflare_r2 ${r.status}`);
+  console.log('[ok] created cloudflare_r2');
+}
+
 async function main() {
   console.log(`→ sync operator keys → ${BASE_URL} workspace=${WORKSPACE_ID} user=${USER_ID}`);
   const cookie = await mintSession();
@@ -346,6 +414,12 @@ async function main() {
     } catch (e) {
       console.warn(`[warn] personal:${row.secret_name}: ${e instanceof Error ? e.message : e}`);
     }
+  }
+
+  try {
+    await upsertR2(cookie, providerItems);
+  } catch (e) {
+    console.warn(`[warn] cloudflare_r2: ${e instanceof Error ? e.message : e}`);
   }
 
   await selectD1IfConfigured(cookie);

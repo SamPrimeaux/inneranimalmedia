@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 
 export type ProtocolEvent = {
   time: string;
@@ -72,19 +72,34 @@ export function useCadStudioProtocol() {
     if (status) setJobStatus(status);
   }, []);
 
-  return {
-    events,
-    artifacts,
-    jobStatus,
-    statusMessage,
-    currentScript,
-    setCurrentScript,
-    activeEngine,
-    setActiveEngine,
-    toasts,
-    addEvent,
-    registerArtifact,
-    toast,
-    setStatus,
-  };
+  return useMemo(
+    () => ({
+      events,
+      artifacts,
+      jobStatus,
+      statusMessage,
+      currentScript,
+      setCurrentScript,
+      activeEngine,
+      setActiveEngine,
+      toasts,
+      addEvent,
+      registerArtifact,
+      toast,
+      setStatus,
+    }),
+    [
+      events,
+      artifacts,
+      jobStatus,
+      statusMessage,
+      currentScript,
+      activeEngine,
+      toasts,
+      addEvent,
+      registerArtifact,
+      toast,
+      setStatus,
+    ],
+  );
 }

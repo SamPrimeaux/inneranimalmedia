@@ -33,9 +33,14 @@ async function invokeMediaOp(env, endpoint, method = 'POST', body = null) {
  */
 function meshyToolAuth(params, runContext = {}) {
     const session = params?.session && typeof params.session === 'object' ? params.session : {};
+    const resolved =
+        runContext.resolvedContext && typeof runContext.resolvedContext === 'object'
+            ? runContext.resolvedContext
+            : {};
     const userId = String(
         runContext.userId ??
             runContext.user_id ??
+            resolved.user_id ??
             params.user_id ??
             session.user_id ??
             '',
@@ -43,6 +48,7 @@ function meshyToolAuth(params, runContext = {}) {
     const tenantId = String(
         runContext.tenantId ??
             runContext.tenant_id ??
+            resolved.tenant_id ??
             params.tenant_id ??
             session.tenant_id ??
             '',
@@ -50,6 +56,7 @@ function meshyToolAuth(params, runContext = {}) {
     const workspaceId = String(
         runContext.workspaceId ??
             runContext.workspace_id ??
+            resolved.workspace_id ??
             params.workspace_id ??
             session.workspace_id ??
             session.workspaceId ??

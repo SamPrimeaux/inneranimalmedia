@@ -886,8 +886,15 @@ export async function handleStorageApi(request, url, env) {
     let byok_r2_bucket = null;
     if (workspaceId) {
       const binding = await getDefaultWorkspaceDataBinding(env, workspaceId, 'cloudflare_r2');
-      byok_r2_bucket = binding?.byok_r2_bucket ?? null;
+      byok_r2_bucket = binding?.byok_r2_bucket ?? binding?.r2_bucket ?? null;
     }
+    const worker_bindings = listWorkerR2BindingCatalog(env).map((row) => ({
+      binding: row.binding,
+      bucket_name: row.bucket_name,
+      storage_id: row.storage_id,
+      public: row.public,
+      url: row.url ?? null,
+    }));
     return jsonResponse({
       ok: true,
       ...baseMeta,
@@ -895,6 +902,13 @@ export async function handleStorageApi(request, url, env) {
       summary,
       byok_r2_bucket,
       workspace_id: workspaceId || null,
+      worker_bindings,
+      s3_byok: summary?.configured
+        ? {
+            mode: 'account_s3_api',
+            note: 'R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY — all buckets your token can ListBuckets',
+          }
+        : null,
     });
   }
 
@@ -947,7 +961,7 @@ export async function handleStorageApi(request, url, env) {
       });
     }
 
-    return jsonResponse({ ...result, ...baseMeta });
+    return jsonResponse({ ...result, ...baseMeta, s3_bucket_count: result.buckets?.length ?? null });
   }
 
   return jsonResponse({ error: 'Storage route not found', path: pathLower }, 404);

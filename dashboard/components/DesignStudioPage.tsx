@@ -308,7 +308,12 @@ export const DesignStudioPage: React.FC = () => {
     if (isAgentSamEngine(engineRef.current)) {
       engineRef.current.updateLighting(sceneConfig);
     }
-  }, [sceneConfig]);
+  }, [
+    sceneConfig.ambientIntensity,
+    sceneConfig.sunColor,
+    sceneConfig.castShadows,
+    sceneConfig.showPhysicsDebug,
+  ]);
 
   useEffect(() => {
     if ((location.state as PendingGlbState | null)?.pendingGlb) {

@@ -32,33 +32,41 @@ export type Viewport3DEditorProps = {
   onToggleOrtho?: () => void;
 };
 
-/** SVG ViewCube — isometric-ish cube with clickable faces */
+/**
+ * ViewCube — proper isometric 3-face cube with clickable face snap.
+ * True isometric projection: top face = horizontal rhombus,
+ * left/right faces use correct isometric shear angles.
+ * Each face labeled, stroke edges for depth.
+ */
 function ViewCube({ onSnapView }: { onSnapView?: Viewport3DEditorProps['onSnapView'] }) {
-  const size = 52;
-  // Isometric cube face definitions
-  const top    = 'M26,4 L48,16 L26,28 L4,16 Z';
-  const left   = 'M4,16 L26,28 L26,48 L4,36 Z';
-  const right  = 'M26,28 L48,16 L48,36 L26,48 Z';
+  // Isometric cube: 56px canvas
+  // Top face (flat top diamond)
+  const top   = 'M28,6  L50,18 L28,30 L6,18 Z';
+  // Left face (front-left)
+  const left  = 'M6,18  L28,30 L28,50 L6,38  Z';
+  // Right face (front-right)
+  const right = 'M28,30 L50,18 L50,38 L28,50 Z';
+  const stroke = 'rgba(255,255,255,0.20)';
 
   return (
     <div className="vpc__cube" title="Click a face to snap view">
-      <svg width={size} height={size} viewBox="0 0 52 52" className="vpc__svg">
-        {/* Top face */}
-        <path d={top} className="vpc__face vpc__face--top" onClick={() => onSnapView?.('top')} />
-        {/* Left face */}
-        <path d={left} className="vpc__face vpc__face--left" onClick={() => onSnapView?.('front')} />
-        {/* Right face */}
+      <svg width={56} height={56} viewBox="0 0 56 56" className="vpc__svg" aria-label="View cube — click a face to snap">
+        {/* Fill faces */}
+        <path d={top}   className="vpc__face vpc__face--top"   onClick={() => onSnapView?.('top')} />
+        <path d={left}  className="vpc__face vpc__face--left"  onClick={() => onSnapView?.('front')} />
         <path d={right} className="vpc__face vpc__face--right" onClick={() => onSnapView?.('right')} />
-        {/* Edges */}
-        <path d={top}   fill="none" stroke="var(--vpc-stroke)" strokeWidth="0.75" />
-        <path d={left}  fill="none" stroke="var(--vpc-stroke)" strokeWidth="0.75" />
-        <path d={right} fill="none" stroke="var(--vpc-stroke)" strokeWidth="0.75" />
-        {/* Labels */}
-        <text x="26" y="20" className="vpc__label">Top</text>
-        <text x="14" y="36" className="vpc__label">Front</text>
-        <text x="38" y="36" className="vpc__label">Right</text>
+        {/* Stroke edges over fills for crisp depth cues */}
+        <path d={top}   fill="none" stroke={stroke} strokeWidth="0.8" />
+        <path d={left}  fill="none" stroke={stroke} strokeWidth="0.8" />
+        <path d={right} fill="none" stroke={stroke} strokeWidth="0.8" />
+        {/* Center spine — vertical edge */}
+        <line x1="28" y1="30" x2="28" y2="50" stroke={stroke} strokeWidth="0.8" />
+        {/* Face labels: centered in each face */}
+        <text x="28" y="21" className="vpc__label">TOP</text>
+        <text x="15" y="39" className="vpc__label">FRONT</text>
+        <text x="41" y="39" className="vpc__label">RIGHT</text>
       </svg>
-      {/* Axis lines below cube */}
+      {/* XYZ axis pills */}
       <div className="vpc__axes">
         <span className="vpc__axis vpc__axis--x">X</span>
         <span className="vpc__axis vpc__axis--y">Y</span>

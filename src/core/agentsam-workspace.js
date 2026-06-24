@@ -41,7 +41,9 @@ export function resolveWorkspaceByokR2Bucket(row) {
   const fromCol = trim(row.byok_r2_bucket);
   if (fromCol) return fromCol;
   const meta = parseWorkspaceMetadata(row.metadata_json);
-  return trim(meta.byok_r2_bucket) || trim(meta.r2_bucket_override) || null;
+  const fromMeta = trim(meta.byok_r2_bucket) || trim(meta.r2_bucket_override) || null;
+  if (fromMeta) return fromMeta;
+  return resolveWorkspaceR2Bucket(row);
 }
 
 /**

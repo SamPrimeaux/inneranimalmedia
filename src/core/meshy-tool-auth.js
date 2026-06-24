@@ -2,7 +2,7 @@
  * Prime request auth cache for in-process agent tool → CAD Meshy calls.
  * Avoids bare HTTP to IAM_ORIGIN (401 without session cookies).
  */
-import { primeRequestAuth, primeRequestAuthWithContext } from './auth.js';
+import { fetchAuthUserTenantId, primeRequestAuth, primeRequestAuthWithContext } from './auth.js';
 
 /** @type {WeakMap<Request, object>} */
 const toolAuthPrimed = new WeakMap();
@@ -18,6 +18,15 @@ export async function primeRequestAuthForTool(request, env, auth) {
   const userId = String(auth.userId || '').trim();
   if (!userId) return;
 
+  let tenantId = auth.tenantId != null ? String(auth.tenantId).trim() : '';
+  if (!tenantId && env?.DB) {
+    try {
+      tenantId = String(await fetchAuthUserTenantId(env, userId) || '').trim();
+    } catch {
+      /* platform Meshy key may still work */
+    }
+  }
+
   const bridgeKey = env?.AGENTSAM_BRIDGE_KEY != null ? String(env.AGENTSAM_BRIDGE_KEY).trim() : '';
   const mcpToken = env?.MCP_AUTH_TOKEN != null ? String(env.MCP_AUTH_TOKEN).trim() : '';
   const bearer = bridgeKey || mcpToken;
@@ -26,7 +35,7 @@ export async function primeRequestAuthForTool(request, env, auth) {
     const headers = new Headers(request.headers);
     headers.set('Authorization', `Bearer ${bearer}`);
     headers.set('X-User-Id', userId);
-    if (auth.tenantId) headers.set('X-Tenant-Id', String(auth.tenantId));
+    if (tenantId) headers.set('X-Tenant-Id', tenantId);
     if (auth.workspaceId) headers.set('X-Workspace-Id', String(auth.workspaceId));
 
     const bridged = new Request(request.url, {
@@ -47,7 +56,7 @@ export async function primeRequestAuthForTool(request, env, auth) {
     name: null,
     displayName: null,
     personUuid: null,
-    tenantId: auth.tenantId ? String(auth.tenantId) : null,
+    tenantId: tenantId || null,
     workspaceId: auth.workspaceId ? String(auth.workspaceId) : null,
     sessionId: null,
     isSuperadmin: false,

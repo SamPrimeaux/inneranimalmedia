@@ -25,6 +25,7 @@ import {
   createAgentSamEmbedding,
   upsertAgentsamVectorizeMemory,
 } from '../core/agentsam-vectorize.js';
+import { resolveAutoragBucketName } from '../core/r2-storage-scope.js';
 
 export { AGENTSAM_VECTOR_DIM, agentsamEmbeddingDims, agentsamEmbeddingModel, createAgentSamEmbedding };
 
@@ -125,10 +126,6 @@ export function ragEmbeddingDims(env) {
   // Must match RAG_SUPABASE_VECTOR_DIM / Supabase vector(N) for Hyperdrive RAG; changing N requires a DB migration.
   const n = Number(env.RAG_EMBEDDING_DIMENSIONS || RAG_SUPABASE_VECTOR_DIM);
   return Number.isFinite(n) && n > 0 ? n : NaN;
-}
-
-function r2AutoragBucketName(env) {
-  return String(env.R2_AUTORAG_BUCKET_NAME || '').trim();
 }
 
 /** @typedef {'text_default' | 'edge_bulk' | 'multimodal'} RagEmbedLane */
@@ -323,7 +320,7 @@ function parseNextContinuationToken(xml) {
 
 async function r2ListAllObjectKeys(env) {
   const accountId = String(env.CLOUDFLARE_ACCOUNT_ID || '').trim();
-  const bucket = r2AutoragBucketName(env);
+  const bucket = resolveAutoragBucketName(env);
   const client = r2AwsClient(env);
   if (!accountId || !bucket || !client) throw new Error('R2 list: missing account, bucket name, or credentials');
   const keys = [];
@@ -352,7 +349,7 @@ function encodeS3ObjectKey(key) {
 
 async function r2GetObjectText(env, key) {
   const accountId = String(env.CLOUDFLARE_ACCOUNT_ID || '').trim();
-  const bucket = r2AutoragBucketName(env);
+  const bucket = resolveAutoragBucketName(env);
   const client = r2AwsClient(env);
   if (!accountId || !bucket || !client) throw new Error('R2 get: missing account, bucket name, or credentials');
   const url = `https://${accountId}.r2.cloudflarestorage.com/${bucket}/${encodeS3ObjectKey(key)}`;
@@ -363,7 +360,7 @@ async function r2GetObjectText(env, key) {
 
 async function r2PutObjectText(env, key, bodyText) {
   const accountId = String(env.CLOUDFLARE_ACCOUNT_ID || '').trim();
-  const bucket = r2AutoragBucketName(env);
+  const bucket = resolveAutoragBucketName(env);
   const client = r2AwsClient(env);
   if (!accountId || !bucket || !client) throw new Error('R2 put: missing account, bucket name, or credentials');
   const url = `https://${accountId}.r2.cloudflarestorage.com/${bucket}/${encodeS3ObjectKey(key)}`;

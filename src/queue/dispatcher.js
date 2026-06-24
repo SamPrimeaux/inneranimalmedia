@@ -3,6 +3,7 @@
  */
 import { deleteVectorsForDocKey, performDocsBucketVectorizeIndex } from './docs-vectorize.js';
 import { handlePlaywrightQueueJob } from './playwright-queue-job.js';
+import { resolveAutoragBucketName } from '../core/r2-storage-scope.js';
 
 function normalizeQueueBody(msg) {
   if (!msg?.body) return {};
@@ -61,11 +62,8 @@ async function handleAutoragMdEvent(env, body) {
   const objectKey = body.object && typeof body.object.key === 'string' ? body.object.key : null;
   const bucketName = body.bucket;
   const action = body.action;
-  const autoragBucket =
-    typeof env?.R2_AUTORAG_BUCKET_NAME === 'string' && env.R2_AUTORAG_BUCKET_NAME.trim()
-      ? env.R2_AUTORAG_BUCKET_NAME.trim()
-      : 'inneranimalmedia-autorag';
-  if (!r2SourceOk || bucketName !== autoragBucket || !objectKey) return false;
+  const autoragBucket = resolveAutoragBucketName(env);
+  if (!r2SourceOk || !autoragBucket || bucketName !== autoragBucket || !objectKey) return false;
   if (!objectKey.endsWith('.md')) return true;
 
   const putActions = new Set(['PutObject', 'CopyObject', 'CompleteMultipartUpload']);
@@ -125,11 +123,8 @@ export async function dispatchQueueMessage(env, ctx, queueMsg) {
   const r2SourceOk = body.source === 'r2' || body.source == null || body.source === undefined;
   const bucketName = body.bucket;
   const objectKey = body.object && typeof body.object.key === 'string' ? body.object.key : null;
-  const autoragBucket =
-    typeof env?.R2_AUTORAG_BUCKET_NAME === 'string' && env.R2_AUTORAG_BUCKET_NAME.trim()
-      ? env.R2_AUTORAG_BUCKET_NAME.trim()
-      : 'inneranimalmedia-autorag';
-  if (r2SourceOk && bucketName === autoragBucket && objectKey) {
+  const autoragBucket = resolveAutoragBucketName(env);
+  if (r2SourceOk && autoragBucket && bucketName === autoragBucket && objectKey) {
     await handleAutoragMdEvent(env, body);
     return { handled: true, kind: 'r2_autorag_md' };
   }

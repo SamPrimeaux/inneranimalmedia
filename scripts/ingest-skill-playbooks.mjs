@@ -25,6 +25,7 @@ import {
   vectorizeUpsertNdjson,
   writeVectorizeSyncReceipt,
 } from './lib/rag-ingest-protocol.mjs';
+import { WORKER_R2_BINDING_SPECS } from '../src/core/r2-storage-scope.js';
 
 const EMBED_MODEL = 'text-embedding-3-large';
 const EMBED_DIMS = 1536;
@@ -35,7 +36,8 @@ const VECTORIZE_BINDING = 'AGENTSAM_VECTORIZE_DOCUMENTS';
 const SOURCE_TYPE = 'skill_playbook';
 const SCRIPT_KEY = 'ingest_skill_playbooks';
 const LANE = LANE_CONTRACTS.documents;
-const R2_BUCKET = process.env.R2_AUTORAG_BUCKET_NAME || 'inneranimalmedia-autorag';
+const autoragSpec = WORKER_R2_BINDING_SPECS.find((s) => s.bindingKey === 'AUTORAG_BUCKET');
+const R2_BUCKET = autoragSpec?.bucketName || 'inneranimalmedia-autorag';
 const WRANGLER_CONFIG = process.env.WRANGLER_CONFIG || 'wrangler.production.toml';
 const D1_DB = 'inneranimalmedia-business';
 const MIN_CHUNK_TOKENS = 400;

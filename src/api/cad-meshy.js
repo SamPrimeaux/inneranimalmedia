@@ -13,6 +13,7 @@ import {
   getBalance,
   getMeshyTask,
   listMeshyTasks,
+  meshyApiKey,
   meshyErrorResponseBody,
   textTo3dPreview,
   textTo3dRefine,
@@ -27,6 +28,7 @@ import {
 import { bridgedToolRequest, primeRequestAuthForTool } from '../core/meshy-tool-auth.js';
 import {
   isMeshyAuthMissing,
+  isMeshyKeyStub,
   meshyKeySourceFromJob,
   resolveMeshyAuth,
   textureDataWithMeshySource,
@@ -102,6 +104,17 @@ async function resolveRequestMeshyAuth(env, reqCtx, job = null) {
 
 function meshyStubMessage() {
   return 'No Meshy API key configured. Add your key in Settings → Keys or set MESHYAI_API_KEY on the Worker.';
+}
+
+function logMeshyAuthResolution(reqCtx, meshyAuth, env) {
+  const platformKey = meshyApiKey(env);
+  console.info('[meshy] auth resolve', {
+    userId: reqCtx?.userId ?? null,
+    tenantId: reqCtx?.tenantId ?? null,
+    source: meshyAuth?.source ?? 'none',
+    hasResolvedKey: Boolean(meshyAuth?.apiKey && !isMeshyKeyStub(meshyAuth.apiKey)),
+    platformKeyConfigured: Boolean(platformKey && !isMeshyKeyStub(platformKey)),
+  });
 }
 
 /**
@@ -545,6 +558,7 @@ export async function handleCadMeshyApi(request, url, env, ctx) {
       const scope = await resolveCadJobScope(env, authRequest, authUser, body);
       const jobId = 'cadj_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
       const meshyAuth = await resolveRequestMeshyAuth(env, reqCtx);
+      logMeshyAuthResolution(reqCtx, meshyAuth, env);
 
       if (isMeshyAuthMissing(meshyAuth)) {
         await insertMeshyCadJob(env, {

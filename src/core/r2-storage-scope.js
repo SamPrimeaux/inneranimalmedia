@@ -56,7 +56,7 @@ export function platformR2WriteGateResponse(authUser) {
   }
 }
 
-/** Live Worker bindings only — bucket_name is the wrangler bucket_name for each binding key. */
+/** Live Worker bindings only — bucket_name must match wrangler [[r2_buckets]] for each bindingKey. */
 export const WORKER_R2_BINDING_SPECS = [
   {
     bindingKey: 'ASSETS',
@@ -69,14 +69,51 @@ export const WORKER_R2_BINDING_SPECS = [
     bucketName: 'inneranimalmedia-autorag',
     labels: ['AUTORAG_BUCKET'],
     aliases: ['autorag'],
+    /** R2 custom domain — not a wrangler [vars] entry */
+    publicUrl: 'https://autorag.inneranimalmedia.com',
   },
   {
     bindingKey: 'ARTIFACTS',
     bucketName: 'artifacts',
     labels: ['ARTIFACTS'],
     aliases: ['artifacts'],
+    publicUrl: 'https://artifacts.inneranimalmedia.com',
   },
 ];
+
+/**
+ * Physical bucket name for a live Worker R2 binding (wrangler [[r2_buckets]] bucket_name).
+ * @param {any} env
+ * @param {string} bindingKey e.g. AUTORAG_BUCKET, ASSETS, ARTIFACTS
+ * @returns {string}
+ */
+export function resolveWorkerR2BucketName(env, bindingKey) {
+  const key = String(bindingKey || '').trim();
+  if (!key || !env?.[key]) return '';
+  for (const spec of WORKER_R2_BINDING_SPECS) {
+    if (spec.bindingKey === key) return spec.bucketName;
+  }
+  return '';
+}
+
+/** @param {any} env */
+export function resolveAutoragBucketName(env) {
+  return resolveWorkerR2BucketName(env, 'AUTORAG_BUCKET');
+}
+
+/**
+ * Public URL for a bound bucket (R2 custom domain), when configured on the spec.
+ * @param {any} env
+ * @param {string} bindingKey
+ */
+export function resolveWorkerR2PublicUrl(env, bindingKey) {
+  const key = String(bindingKey || '').trim();
+  if (!key || !env?.[key]) return null;
+  for (const spec of WORKER_R2_BINDING_SPECS) {
+    if (spec.bindingKey === key && spec.publicUrl) return String(spec.publicUrl);
+  }
+  return null;
+}
 
 /**
  * Rows for storage dashboard / superadmin sync — only bindings present on this Worker.
@@ -93,12 +130,8 @@ export function listWorkerR2BindingCatalog(env) {
       storage_name: spec.bucketName,
       storage_id: spec.bucketName,
       storage_type: 'r2_bucket',
-      public: spec.bindingKey === 'AUTORAG_BUCKET' || spec.bindingKey === 'ARTIFACTS',
-      ...(spec.bindingKey === 'AUTORAG_BUCKET'
-        ? { url: 'https://autorag.inneranimalmedia.com' }
-        : spec.bindingKey === 'ARTIFACTS'
-          ? { url: 'https://artifacts.inneranimalmedia.com' }
-          : {}),
+      public: !!(spec.publicUrl),
+      ...(spec.publicUrl ? { url: spec.publicUrl } : {}),
     });
   }
   return rows;

@@ -2,6 +2,7 @@
  * Resolve Meshy API key: user BYOK (Settings → Keys) then platform MESHYAI_API_KEY.
  */
 import { getUserBYOKey } from '../api/provisioning.js';
+import { fetchAuthUserTenantId } from './auth.js';
 import { meshyApiKey } from './meshy-api.js';
 
 /** @param {string | null | undefined} key */
@@ -23,8 +24,16 @@ export function isMeshyAuthMissing(auth) {
  */
 export async function resolveMeshyAuth(env, ctx, opts = {}) {
   const userId = String(ctx?.userId || ctx?.user_id || '').trim();
-  const tenantId = String(ctx?.tenant_id || ctx?.tenantId || '').trim();
+  let tenantId = String(ctx?.tenant_id || ctx?.tenantId || '').trim();
   const keySource = opts.keySource || null;
+
+  if (userId && !tenantId && env?.DB) {
+    try {
+      tenantId = String(await fetchAuthUserTenantId(env, userId) || '').trim();
+    } catch {
+      /* BYOK lookup may still fall through to platform key */
+    }
+  }
 
   if (keySource === 'platform') {
     const apiKey = meshyApiKey(env);

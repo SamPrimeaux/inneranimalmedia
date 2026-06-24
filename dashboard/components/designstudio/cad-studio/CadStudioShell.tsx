@@ -44,6 +44,15 @@ import './cad-studio.css';
 import { InspectorPanel } from './InspectorPanel';
 import { StudioLoadingScreen } from './StudioLoadingScreen';
 
+const DEFAULT_SCENE_ENV_CONFIG = {
+  ambientIntensity: 1.5,
+  castShadows: true,
+  fogDensity: 0,
+  sunHeight: 45,
+  sunPower: 3,
+  exposure: 1.5,
+} as const;
+
 export type CadStudioShellProps = {
   engineContainerRef: React.RefObject<HTMLDivElement | null>;
   onEngineContainerMount: () => void;
@@ -184,10 +193,7 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
   const [creationOpen, setCreationOpen] = useState(false);
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [orthoMode, setOrthoMode] = useState(false);
-  const [sceneEnvConfig, setSceneEnvConfig] = useState({
-    ambientIntensity: 1.5, castShadows: true, fogDensity: 0,
-    sunHeight: 45, sunPower: 3, exposure: 1.5,
-  });
+  const [sceneEnvConfig, setSceneEnvConfig] = useState(() => ({ ...DEFAULT_SCENE_ENV_CONFIG }));
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const layoutWrapRef = useRef<HTMLDivElement>(null);
   const [viewportCellEl, setViewportCellEl] = useState<HTMLDivElement | null>(null);
@@ -379,11 +385,13 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
     });
   }, [ui.workspace, selectedId, operatorOpen, generateOpen, setStudioContext]);
 
+  const { setStatus: protocolSetStatus, registerArtifact: protocolRegisterArtifact, toast: protocolToast } = protocol;
+
   useEffect(() => {
     if (!activeJob) return;
     const st = String(activeJob.status || '').toLowerCase();
     if (st === 'script_ready') {
-      protocol.setStatus('Script ready — dispatch via ChatAssistant or Execute operator.', 'script_ready');
+      protocolSetStatus('Script ready — dispatch via ChatAssistant or Execute operator.', 'script_ready');
       void fetchCadJob(activeJob.id)
         .then((job) => {
           const script =
@@ -396,23 +404,23 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
         })
         .catch(() => {});
     } else if (st === 'running' || st === 'pending') {
-      protocol.setStatus(`Job ${activeJob.id} running…`, 'executing');
+      protocolSetStatus(`Job ${activeJob.id} running…`, 'executing');
     } else if (st === 'done' || st === 'complete') {
-      protocol.setStatus('Job complete. GLB available.', 'complete');
+      protocolSetStatus('Job complete. GLB available.', 'complete');
       if (activeJob.public_url) {
-        protocol.registerArtifact(`${activeJob.engine}-export.glb`, 'GLB', activeJob.public_url);
+        protocolRegisterArtifact(`${activeJob.engine}-export.glb`, 'GLB', activeJob.public_url);
       }
     } else if (st === 'failed') {
-      protocol.setStatus(activeJob.error || 'Job failed.', 'failed');
+      protocolSetStatus(activeJob.error || 'Job failed.', 'failed');
     }
-  }, [activeJob, protocol]);
+  }, [activeJob, protocolSetStatus, protocolRegisterArtifact, protocol.setCurrentScript]);
 
   useEffect(() => {
     if (cad.error) {
-      protocol.setStatus(cad.error, 'failed');
-      protocol.toast('CAD error', cad.error);
+      protocolSetStatus(cad.error, 'failed');
+      protocolToast('CAD error', cad.error);
     }
-  }, [cad.error, protocol]);
+  }, [cad.error, protocolSetStatus, protocolToast]);
 
   const openOperator = useCallback((commandId?: string) => {
     setOperatorInitialId(commandId);

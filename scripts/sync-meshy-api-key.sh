@@ -121,6 +121,23 @@ fi
 
 reject_bad_key "$KEY"
 
+echo "VALIDATE: Meshy API balance check..."
+BALANCE_HTTP="$(curl -sS -o /tmp/meshy_balance.json -w '%{http_code}' \
+  -H "Authorization: Bearer ${KEY}" \
+  -H "Content-Type: application/json" \
+  "https://api.meshy.ai/openapi/v1/balance" || echo "000")"
+if [[ "$BALANCE_HTTP" != "200" ]]; then
+  echo "ERROR: Meshy rejected this key (HTTP ${BALANCE_HTTP})." >&2
+  if [[ -f /tmp/meshy_balance.json ]]; then
+    head -c 300 /tmp/meshy_balance.json >&2
+    echo >&2
+  fi
+  echo "  Get a fresh key at https://www.meshy.ai/settings/api" >&2
+  exit 1
+fi
+BALANCE_VAL="$(python3 -c "import json; d=json.load(open('/tmp/meshy_balance.json')); print(d.get('balance', d.get('credits', '?')))" 2>/dev/null || echo "?")"
+echo "  Meshy balance: ${BALANCE_VAL}"
+
 if [[ ! -f "$CLOUD_ENV" ]]; then
   echo "ERROR: $CLOUD_ENV not found — copy from .env.cloudflare.example" >&2
   exit 1
@@ -135,4 +152,21 @@ echo ""
 echo "VERIFY:"
 line_status "$CLOUD_ENV" "MESHYAI_API_KEY"
 echo "Worker secret: MESHYAI_API_KEY updated (production inneranimalmedia)"
-echo "OK: MESHYAI_API_KEY → .env.cloudflare + Worker secret"
+
+echo ""
+echo "BYOK: upserting meshy row in dashboard (user_api_keys)..."
+if "$REPO_ROOT/scripts/with-cloudflare-env.sh" node "$REPO_ROOT/scripts/sync-meshy-byok-only.mjs"; then
+  echo "BYOK: meshy row aligned"
+else
+  echo "WARN: BYOK upsert failed — platform wrangler secret is still updated." >&2
+  echo "WARN: BYOK upsert failed — align automation mint secret first:" >&2
+  echo "  npm run sync:agent-session-mint -- --generate" >&2
+  echo "  ./scripts/with-cloudflare-env.sh node scripts/sync-meshy-byok-only.mjs" >&2
+fi
+
+echo ""
+echo "SMOKE (optional — needs logged-in session or mint):"
+echo "  curl -s -b \"session=...\" -H \"X-IAM-Workspace-Id: ws_inneranimalmedia\" \\"
+echo "    https://inneranimalmedia.com/api/cad/meshy/balance | jq"
+echo ""
+echo "OK: MESHYAI_API_KEY → .env.cloudflare + Worker secret + BYOK (when mint secret present)"
