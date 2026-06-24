@@ -6,6 +6,7 @@
 import { getAuthUser, isSamOnlyUser, jsonResponse, fallbackSystemTenantId } from '../core/auth.js';
 import { ensureOauthTokenColumns, resolveOAuthAccessToken } from './oauth.js';
 import { getIntegrationToken } from '../integrations/tokens.js';
+import { getUserBYOKey } from './provisioning.js';
 import { handleGithubReposList } from '../integrations/github.js';
 import { resolveIntegrationUserId } from '../core/integration-user-id.js';
 import { recordWorkerAnalyticsError } from './telemetry.js';
@@ -567,24 +568,12 @@ async function handleApiKeys(env, authUser) {
 }
 
 async function handleCreateApiKey(env, authUser, request) {
-    const tenantId = resolveTenantId(authUser, env);
-    const userId = integrationUserId(authUser);
-    const body = await request.json().catch(() => ({}));
-    const provider = normalizeProviderKey(body.provider);
-    const keyName = String(body.key_name || body.secret_name || '').trim();
-    const keyPreview = String(body.key_preview || '').trim().slice(0, 12);
-    if (!provider || !keyName) return jsonResponse({ error: 'provider and key_name required' }, 400);
-    const id = `uak_${crypto.randomUUID()}`;
-    await env.DB.prepare(
-        `INSERT INTO user_api_keys (id, tenant_id, user_id, provider, key_name, key_preview, key_hash, is_active)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 1)`
-    ).bind(id, tenantId, userId, provider, keyName, keyPreview, null).run();
-    await recordIntegrationEvent(env, tenantId, provider, 'settings_updated', authUser.email || authUser.id, `Registered API key reference ${keyName}`, {});
-    return jsonResponse({
-        created: true,
-        id,
-        instructions: `Set via: npx wrangler secret put ${keyName} --name inneranimalmedia`,
-    });
+    return jsonResponse(
+        {
+            error: 'Use POST /api/integrations/:slug/connect with api_key, or POST /api/settings/keys for BYOK.',
+        },
+        400,
+    );
 }
 
 async function handleProviderTest(env, authUser, provider) {
@@ -610,6 +599,7 @@ async function handleProviderTest(env, authUser, provider) {
 
 async function runProviderHealthCheck(env, authUser, provider) {
     const userId = integrationUserId(authUser);
+    const tenantId = resolveTenantId(authUser, env);
     if (provider === 'github') {
         const token = await getIntegrationToken(env, userId, 'github', '');
         if (!token) return { ok: false, status: 'error', error: 'GitHub OAuth token not found' };
@@ -628,10 +618,34 @@ async function runProviderHealthCheck(env, authUser, provider) {
         const data = await res.json().catch(() => ({}));
         return { ok: res.ok, status: res.ok ? 'ok' : 'error', error: res.ok ? null : data.error?.message || res.statusText, account_info: data.user || null, response_preview: JSON.stringify(data.user || data.error || {}).slice(0, 500) };
     }
-    if (provider === 'anthropic') return testJsonFetch('https://api.anthropic.com/v1/messages', env.ANTHROPIC_API_KEY, { method: 'POST', headers: { 'anthropic-version': '2023-06-01', 'content-type': 'application/json', 'x-api-key': env.ANTHROPIC_API_KEY || '' }, body: JSON.stringify({ model: 'claude-3-5-haiku-latest', max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] }) });
-    if (provider === 'openai') return testJsonFetch('https://api.openai.com/v1/models', env.OPENAI_API_KEY, { headers: { Authorization: `Bearer ${env.OPENAI_API_KEY || ''}` } });
-    if (provider === 'google_ai') return testJsonFetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(env.GOOGLE_AI_API_KEY || '')}`, env.GOOGLE_AI_API_KEY, {});
-    if (provider === 'resend') return testJsonFetch('https://api.resend.com/emails?limit=1', env.RESEND_API_KEY, { headers: { Authorization: `Bearer ${env.RESEND_API_KEY || ''}` } });
+    if (provider === 'anthropic') {
+        const byok = await getUserBYOKey(env, userId, tenantId, 'anthropic');
+        const key = byok?.key || env.ANTHROPIC_API_KEY;
+        return testJsonFetch('https://api.anthropic.com/v1/messages', key, {
+            method: 'POST',
+            headers: { 'anthropic-version': '2023-06-01', 'content-type': 'application/json', 'x-api-key': key || '' },
+            body: JSON.stringify({ model: 'claude-3-5-haiku-latest', max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] }),
+        });
+    }
+    if (provider === 'openai') {
+        const byok = await getUserBYOKey(env, userId, tenantId, 'openai');
+        const key = byok?.key || env.OPENAI_API_KEY;
+        return testJsonFetch('https://api.openai.com/v1/models', key, { headers: { Authorization: `Bearer ${key || ''}` } });
+    }
+    if (provider === 'google_ai') {
+        const byok = await getUserBYOKey(env, userId, tenantId, 'google');
+        const key = byok?.key || env.GOOGLE_AI_API_KEY;
+        return testJsonFetch(
+            `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key || '')}`,
+            key,
+            {},
+        );
+    }
+    if (provider === 'resend') {
+        const byok = await getUserBYOKey(env, userId, tenantId, 'resend');
+        const key = byok?.key || env.RESEND_API_KEY;
+        return testJsonFetch('https://api.resend.com/emails?limit=1', key, { headers: { Authorization: `Bearer ${key || ''}` } });
+    }
     if (provider === 'cloudflare_r2') {
         if (!env.R2?.list) return { ok: false, status: 'error', error: 'R2 binding not configured' };
         const list = await env.R2.list({ prefix: '_probe/', limit: 1 });

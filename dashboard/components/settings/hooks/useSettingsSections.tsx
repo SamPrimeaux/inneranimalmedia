@@ -23,18 +23,30 @@ import { BREAKPOINTS } from '../../../lib/breakpoints';
 export type RulesSkillsTabId = 'skills' | 'subagents' | 'commands' | 'rules';
 export type ModelsTabId = 'models' | 'routing';
 
+const NAV_COLLAPSED_WIDTH = 52;
+const NAV_EXPANDED_MIN = 168;
+const NAV_EXPANDED_MAX = 208;
+
 export function useSettingsSections(activeSection: string) {
-  const [search, setSearch] = useState('');
   const navRef = useRef<HTMLDivElement>(null);
-  const [navWidth, setNavWidth] = useState(() => {
+  const [navCollapsed, setNavCollapsed] = useState(() => {
     try {
-      const v = localStorage.getItem('settings_nav_width');
-      const n = v ? Number.parseInt(v, 10) : 220;
-      return Number.isFinite(n) ? n : 220;
+      return localStorage.getItem('settings_nav_collapsed') === '1';
     } catch {
-      return 220;
+      return false;
     }
   });
+  const [navWidthExpanded, setNavWidthExpanded] = useState(() => {
+    try {
+      const v = localStorage.getItem('settings_nav_width');
+      const n = v ? Number.parseInt(v, 10) : 200;
+      const parsed = Number.isFinite(n) ? n : 200;
+      return Math.min(NAV_EXPANDED_MAX, Math.max(NAV_EXPANDED_MIN, parsed));
+    } catch {
+      return 200;
+    }
+  });
+  const navWidth = navCollapsed ? NAV_COLLAPSED_WIDTH : navWidthExpanded;
   const [isMobile, setIsMobile] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth <= BREAKPOINTS.PHONE_MAX : false,
   );
@@ -47,13 +59,33 @@ export function useSettingsSections(activeSection: string) {
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
+  const toggleNavCollapsed = () => {
+    setNavCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('settings_nav_collapsed', next ? '1' : '0');
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
+
   const onNavDragStart = (e: React.MouseEvent) => {
+    if (navCollapsed) return;
     const startX = e.clientX;
-    const startW = navWidth;
+    const startW = navWidthExpanded;
     const onMove = (ev: MouseEvent) => {
-      const w = Math.max(60, Math.min(360, startW + ev.clientX - startX));
-      setNavWidth(w);
-      if (w > 80) localStorage.setItem('settings_nav_width', String(w));
+      const w = Math.max(
+        NAV_EXPANDED_MIN,
+        Math.min(NAV_EXPANDED_MAX, startW + ev.clientX - startX),
+      );
+      setNavWidthExpanded(w);
+      try {
+        localStorage.setItem('settings_nav_width', String(w));
+      } catch {
+        /* ignore */
+      }
     };
     const onUp = () => {
       document.removeEventListener('mousemove', onMove);
@@ -86,17 +118,12 @@ export function useSettingsSections(activeSection: string) {
     [],
   );
 
-  const filteredMenu = menu.filter(
-    (m) => !search || m.id.toLowerCase().includes(search.toLowerCase()),
-  );
-
   return {
     activeSection,
-    search,
-    setSearch,
     navRef,
     navWidth,
-    setNavWidth,
+    navCollapsed,
+    toggleNavCollapsed,
     onNavDragStart,
     isMobile,
     rulesSkillsTab,
@@ -104,6 +131,5 @@ export function useSettingsSections(activeSection: string) {
     modelsTab,
     setModelsTab,
     menu,
-    filteredMenu,
   };
 }

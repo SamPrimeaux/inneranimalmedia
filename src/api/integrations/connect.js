@@ -2,7 +2,12 @@
  * Integration connect / disconnect routes under /api/integrations/:slug/*
  */
 import { jsonResponse, fallbackSystemTenantId } from '../../core/auth.js';
-import { handleOAuthApi } from '../oauth.js';
+import {
+  upsertIntegrationByokKey,
+  revokeIntegrationByokKey,
+  normalizeIntegrationSlug,
+} from '../../core/integration-byok-sync.js';
+import { resolveIntegrationUserId } from '../../core/integration-user-id.js';
 
 function tenantIdFromAuth(authUser, env) {
   return (
@@ -330,12 +335,36 @@ export async function handleIntegrationsConnectRoutes(request, env, ctx, authUse
       if (!prov) {
         return jsonResponse({ error: 'API key connect is not supported for this integration.' }, 400);
       }
-      const inner = new Request(`${origin}/api/oauth/apikey/${encodeURIComponent(prov)}`, {
-        method: 'POST',
-        headers: request.headers,
-        body: JSON.stringify({ api_key: body.api_key }),
-      });
-      return handleOAuthApi(inner, env, ctx);
+      try {
+        const result = await upsertIntegrationByokKey(env, authUser, slugRaw, body.api_key, {
+          validate: true,
+          triggeredBy: 'integrations_connect',
+          source: 'integrations',
+        });
+        try {
+          const { syncProviderModels } = await import('../integrations/model-sync.js');
+          ctx?.waitUntil?.(
+            syncProviderModels(env, prov, body.api_key, {
+              tenantId: tenantIdFromAuth(authUser, env),
+              createdBy: authUser.id || authUser.email || 'integrations_connect',
+            }),
+          );
+        } catch {
+          /* non-fatal */
+        }
+        return jsonResponse({
+          success: true,
+          provider: prov,
+          account_display: result.account_display,
+          api_key_id: result.api_key_id,
+        });
+      } catch (e) {
+        const msg = e?.message || String(e);
+        if (msg.includes('Invalid') || msg.includes('validation')) {
+          return jsonResponse({ success: false, provider: prov, error: msg }, 400);
+        }
+        return jsonResponse({ error: msg }, 500);
+      }
     }
 
     return jsonResponse({ error: 'Method not allowed' }, 405);
@@ -345,25 +374,14 @@ export async function handleIntegrationsConnectRoutes(request, env, ctx, authUse
   if (disconnectMatch && (method === 'DELETE' || method === 'POST')) {
     if (!env?.DB) return jsonResponse({ error: 'DB not configured' }, 503);
     const slugRaw = decodeURIComponent(disconnectMatch[1] || '');
-    const userId =
-      authUser.id != null && String(authUser.id).trim() !== ''
-        ? String(authUser.id).trim()
-        : String(authUser.email || '').trim();
+    const userId = await resolveIntegrationUserId(env, authUser);
+    if (!userId) return jsonResponse({ error: 'User id required' }, 400);
     const tenantId = tenantIdFromAuth(authUser, env);
 
     await deleteOauthTokensForSlug(env.DB, userId, slugRaw);
+    await revokeIntegrationByokKey(env, authUser, slugRaw);
 
-    try {
-      await env.DB.prepare(
-        `DELETE FROM user_api_keys WHERE tenant_id = ? AND user_id = ? AND LOWER(provider) = LOWER(?)`,
-      )
-        .bind(tenantId, userId, slugRaw)
-        .run();
-    } catch (e) {
-      console.warn('[integrations/connect] user_api_keys delete', e?.message || e);
-    }
-
-    const slugNormDisconnect = normalizeSlug(slugRaw).replace(/-/g, '_');
+    const slugNormDisconnect = normalizeIntegrationSlug(slugRaw);
     const registrySql =
       slugNormDisconnect === 'local_tunnel'
         ? `UPDATE integration_registry SET status = 'disconnected', config_json = '{}', account_display = NULL, updated_at = datetime('now')

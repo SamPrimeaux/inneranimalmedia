@@ -702,60 +702,13 @@ async function validateApiKey(provider, apiKey) {
 }
 
 async function storeApiKeyAsOauth(env, authUser, provider, apiKey) {
-  if (!env?.DB) throw new Error('DB not configured');
-  if (!isVaultConfigured(env)) throw new Error('VAULT_MASTER_KEY not configured');
-  const userId = integrationUserId(authUser);
-  let tenantId =
-    authUser?.tenant_id != null && String(authUser.tenant_id).trim() !== ''
-      ? String(authUser.tenant_id).trim()
-      : '';
-  if (!tenantId && authUser?.id) {
-    tenantId = String((await fetchAuthUserTenantId(env, authUser.id)) || '').trim();
-  }
-  if (!tenantId) throw new Error('Tenant not configured for this account');
-  await ensureOauthTokenColumns(env.DB); // PRAGMA before write
-  const encrypted = await encryptWithVault(env, apiKey);
-  const createdAt = nowSeconds();
-
-  // Store under provider key; keep account_identifier empty.
-  const cols = await pragmaColumns(env.DB, 'user_oauth_tokens');
-  const hasEncrypted = cols.has('access_token_encrypted');
-  const hasPlain = cols.has('access_token');
-
-  const sql = `
-    INSERT OR REPLACE INTO user_oauth_tokens
-      (user_id, tenant_id, provider, account_identifier,
-       ${hasPlain ? 'access_token,' : ''}
-       ${hasEncrypted ? 'access_token_encrypted,' : ''}
-       ${cols.has('created_at') ? 'created_at,' : ''} ${cols.has('updated_at') ? 'updated_at,' : ''}
-       created_at
-      )
-    VALUES (?, ?, ?, ?,
-            ${hasPlain ? '?,' : ''}
-            ${hasEncrypted ? '?,' : ''}
-            ${cols.has('created_at') ? '?,' : ''} ${cols.has('updated_at') ? '?,' : ''}
-            ?
-    )
-  `.replace(/\s+/g, ' ').trim();
-
-  const binds = [String(userId), String(tenantId), provider, ''];
-  if (hasPlain) binds.push(String(apiKey));
-  if (hasEncrypted) binds.push(encrypted);
-  if (cols.has('created_at')) binds.push(createdAt);
-  if (cols.has('updated_at')) binds.push(createdAt);
-  binds.push(createdAt);
-
-  await env.DB.prepare(sql).bind(...binds).run();
-
-  try {
-    await env.DB.prepare(
-      `UPDATE integration_registry
-       SET status = 'connected', account_display = 'API key validated', updated_at = datetime('now')
-       WHERE tenant_id = ? AND provider_key = ?`,
-    )
-      .bind(String(tenantId), provider)
-      .run();
-  } catch { /* ignore */ }
+  const { upsertIntegrationByokKey } = await import('../core/integration-byok-sync.js');
+  const registrySlug = String(provider || '').trim().toLowerCase().replace(/-/g, '_');
+  await upsertIntegrationByokKey(env, authUser, registrySlug, apiKey, {
+    validate: false,
+    triggeredBy: 'oauth_apikey',
+    source: 'oauth_apikey',
+  });
 }
 
 

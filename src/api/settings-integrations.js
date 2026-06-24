@@ -3,6 +3,11 @@
  */
 import { jsonResponse, fetchAuthUserTenantId, fallbackSystemTenantId } from '../core/auth.js';
 import { handleIntegrationsRequest } from './integrations.js';
+import {
+  upsertIntegrationByokKey,
+  integrationSlugToByokProvider,
+} from '../core/integration-byok-sync.js';
+import { resolveIntegrationUserId } from '../core/integration-user-id.js';
 
 function resolveTenantId(env, authUser) {
   if (authUser?.tenant_id && String(authUser.tenant_id).trim()) {
@@ -92,8 +97,9 @@ async function getConnectedIntegrations(env, authUser) {
   }
 
   const legacy = await legacyMapForUser(env.DB, email);
-  const userId = String(authUser.id || '').trim();
+  const userId = await resolveIntegrationUserId(env, authUser);
   const tokProviders = new Set();
+  const byokProviders = new Set();
   if (userId && env.DB) {
     try {
       const tr = await env.DB.prepare(
@@ -103,6 +109,23 @@ async function getConnectedIntegrations(env, authUser) {
         .all();
       for (const r of tr.results || []) {
         if (r?.p) tokProviders.add(String(r.p).toLowerCase());
+      }
+    } catch {
+      /* ignore */
+    }
+    try {
+      const tenantIdForKeys = await resolveTenantIdOrFetch(env, authUser);
+      const kr = await env.DB.prepare(
+        `SELECT DISTINCT lower(provider) AS p FROM user_api_keys
+         WHERE tenant_id = ? AND user_id = ? AND COALESCE(is_active, 1) = 1`,
+      )
+        .bind(tenantIdForKeys, userId)
+        .all();
+      for (const r of kr.results || []) {
+        if (r?.p) {
+          byokProviders.add(String(r.p).toLowerCase());
+          if (String(r.p).toLowerCase() === 'google') byokProviders.add('google_ai');
+        }
       }
     } catch {
       /* ignore */
@@ -164,8 +187,15 @@ async function getConnectedIntegrations(env, authUser) {
       derived_status = 'connected';
     } else if (pk === 'cloudflare_oauth' && tokProviders.has('cloudflare')) {
       derived_status = 'connected';
-    } else if (['anthropic', 'openai', 'resend', 'google_ai', 'cursor'].includes(pk) && tokProviders.has(pk)) {
-      derived_status = 'connected';
+    } else if (['anthropic', 'openai', 'resend', 'google_ai', 'cursor'].includes(pk)) {
+      const byokSlug = integrationSlugToByokProvider(pk);
+      if (
+        tokProviders.has(pk) ||
+        byokProviders.has(pk) ||
+        (byokSlug && byokProviders.has(byokSlug))
+      ) {
+        derived_status = 'connected';
+      }
     } else if (pk === 'cloudflare_r2' && env.R2) {
       derived_status = 'available';
     } else if (pk === 'mcp_servers') {
@@ -216,12 +246,6 @@ async function getConnectedIntegrations(env, authUser) {
   });
 }
 
-async function sha256Hex(text) {
-  const buf = new TextEncoder().encode(text);
-  const hash = await crypto.subtle.digest('SHA-256', buf);
-  return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, '0')).join('');
-}
-
 async function pingCustomEndpoint(endpointUrl, bearerToken) {
   const base = endpointUrl.replace(/\/$/, '');
   const candidates = [`${base}/health`, `${base}/`, base];
@@ -266,7 +290,6 @@ async function saveCustomMcp(env, authUser, request) {
   }
 
   const tenantId = await resolveTenantIdOrFetch(env, authUser);
-  const userId = String(authUser.email || authUser.id || '').trim();
   const slug = `custom_mcp_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
   const mcpId = `mcp_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
 
@@ -283,18 +306,19 @@ async function saveCustomMcp(env, authUser, request) {
   }
 
   if (auth_type === 'bearer' && bearer_token) {
-    const preview = bearer_token.length <= 4 ? '****' : `••••${bearer_token.slice(-4)}`;
-    const hash = await sha256Hex(bearer_token);
-    const uakId = `uak_${crypto.randomUUID()}`;
+    const userId = await resolveIntegrationUserId(env, authUser);
+    if (!userId) return jsonResponse({ error: 'User id required' }, 400);
     try {
-      await env.DB.prepare(
-        `INSERT INTO user_api_keys (id, tenant_id, user_id, provider, key_name, key_preview, key_hash, is_active)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
-      )
-        .bind(uakId, tenantId, userId, slug, 'bearer', preview, hash)
-        .run();
+      await upsertIntegrationByokKey(env, authUser, slug, bearer_token, {
+        validate: false,
+        allowUnknownSlug: true,
+        label: `${display_name} bearer`,
+        triggeredBy: 'custom_mcp',
+        source: 'custom_mcp',
+      });
     } catch (e) {
-      console.warn('[settings-integrations] user_api_keys insert', e?.message || e);
+      console.warn('[settings-integrations] BYOK bearer save', e?.message || e);
+      return jsonResponse({ error: 'Could not save bearer token' }, 500);
     }
   }
 

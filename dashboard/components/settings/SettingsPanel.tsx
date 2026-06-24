@@ -1,7 +1,7 @@
 import React, { lazy, Suspense, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { SLUG_TO_LABEL, LABEL_TO_SLUG, DEFAULT_SLUG, DEFAULT_LABEL } from './settingsConstants';
-import { Package } from 'lucide-react';
+import { Package, PanelLeft, PanelLeftClose } from 'lucide-react';
 import { useSettingsData } from './hooks/useSettingsData';
 import { useSettingsSections } from './hooks/useSettingsSections';
 import { SectionNav } from './components/SectionNav';
@@ -209,32 +209,60 @@ export default function SettingsPanel({
             className="shrink-0 border-r border-[var(--dashboard-border)] flex flex-col overflow-hidden relative"
             style={{ width: nav.navWidth }}
           >
-            <div className="flex items-center gap-2.5 px-3 py-3 border-b border-[var(--dashboard-border)]">
+            <div
+              className={`flex items-center border-b border-[var(--dashboard-border)] ${
+                nav.navCollapsed ? 'justify-center px-2 py-3' : 'gap-2.5 px-3 py-3'
+              }`}
+            >
               <div className="w-7 h-7 rounded-full bg-[var(--solar-blue)] flex items-center justify-center text-[var(--toggle-knob)] font-bold text-[11px] shrink-0">
                 {initialsFromDisplayName(data.profileDisplayName)}
               </div>
-              <div className="flex flex-col min-w-0">
-                <span className="text-[11px] font-semibold text-[var(--text-heading)] truncate">
-                  {data.profileDisplayName || data.profileEmail || '—'}
-                </span>
-                <span className="text-[10px] text-[var(--solar-cyan)]">
-                  {formatPlanLabel(data.profilePlan)}
-                </span>
-              </div>
+              {!nav.navCollapsed ? (
+                <div className="flex flex-col min-w-0">
+                  <span className="text-[11px] font-semibold text-[var(--text-heading)] truncate">
+                    {data.profileDisplayName || data.profileEmail || '—'}
+                  </span>
+                  <span className="text-[10px] text-[var(--solar-cyan)] truncate">
+                    {formatPlanLabel(data.profilePlan)}
+                  </span>
+                </div>
+              ) : null}
             </div>
 
             <SectionNav
-              sections={nav.filteredMenu}
+              sections={nav.menu}
               activeSection={resolvedLabel}
               onSelect={handleSectionSelect}
-              filter={nav.search}
-              onFilterChange={nav.setSearch}
+              collapsed={nav.navCollapsed}
             />
 
-            <div
-              onMouseDown={nav.onNavDragStart}
-              className="absolute top-0 right-0 h-full w-1 cursor-col-resize bg-transparent hover:bg-[var(--border-subtle)]"
-            />
+            <div className="shrink-0 border-t border-[var(--dashboard-border)] p-2">
+              <button
+                type="button"
+                title={nav.navCollapsed ? 'Expand navigation' : 'Collapse navigation'}
+                aria-expanded={!nav.navCollapsed}
+                onClick={nav.toggleNavCollapsed}
+                className={`flex w-full min-h-[36px] items-center rounded-lg text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)] transition-colors ${
+                  nav.navCollapsed ? 'justify-center px-0' : 'gap-2 px-2'
+                }`}
+              >
+                {nav.navCollapsed ? (
+                  <PanelLeft size={16} strokeWidth={1.5} />
+                ) : (
+                  <>
+                    <PanelLeftClose size={16} strokeWidth={1.5} />
+                    <span className="text-[11px]">Collapse</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {!nav.navCollapsed ? (
+              <div
+                onMouseDown={nav.onNavDragStart}
+                className="absolute top-0 right-0 h-full w-1 cursor-col-resize bg-transparent hover:bg-[var(--border-subtle)]"
+              />
+            ) : null}
           </div>
         )}
 
@@ -249,7 +277,7 @@ export default function SettingsPanel({
                 onChange={(e) => handleSectionSelect(e.target.value)}
                 className="flex-1 px-3 py-2 rounded-xl bg-[var(--dashboard-card)] border border-[var(--dashboard-border)] text-[12px] text-[var(--dashboard-text)]"
               >
-                {nav.filteredMenu.map((m) => (
+                {nav.menu.map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.id}
                   </option>

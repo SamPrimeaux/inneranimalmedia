@@ -418,16 +418,22 @@ async function legacyLlmVaultByok(env, userId, tenantId, prov) {
 export async function getUserBYOKey(env, userId, tenantId, provider, opts = {}) {
   if (!env?.DB || !userId || !tenantId || !provider) return null;
   const prov = String(provider || '').trim().toLowerCase();
+  const lookupProviders =
+    prov === 'google_ai' ? ['google', 'google_ai'] : prov === 'google' ? ['google', 'google_ai'] : [prov];
 
   try {
-    const row = await env.DB.prepare(
-      `SELECT id, vault_secret_id, key_hash, key_preview, provider, workspace_id, metadata_json, expires_at, created_at, last_tested_at
-       FROM user_api_keys
-       WHERE tenant_id = ? AND user_id = ? AND provider = ? AND COALESCE(is_active, 1) = 1
-       LIMIT 1`,
-    )
-      .bind(tenantId, userId, provider)
-      .first();
+    let row = null;
+    for (const lookup of lookupProviders) {
+      row = await env.DB.prepare(
+        `SELECT id, vault_secret_id, key_hash, key_preview, provider, workspace_id, metadata_json, expires_at, created_at, last_tested_at
+         FROM user_api_keys
+         WHERE tenant_id = ? AND user_id = ? AND provider = ? AND COALESCE(is_active, 1) = 1
+         LIMIT 1`,
+      )
+        .bind(tenantId, userId, lookup)
+        .first();
+      if (row) break;
+    }
 
     if (!row) {
       const legacy = await legacyLlmVaultByok(env, userId, tenantId, prov);
@@ -654,7 +660,7 @@ export function byokProviderSlugFromApiPlatform(apiPlatform) {
   const p = String(apiPlatform || '').trim();
   if (p === 'anthropic_api') return 'anthropic';
   if (p === 'openai' || p === 'cursor') return 'openai';
-  if (p === 'gemini_api' || p === 'vertex_ai' || p === 'google_ai') return 'google_ai';
+  if (p === 'gemini_api' || p === 'vertex_ai' || p === 'google_ai') return 'google';
   return null;
 }
 

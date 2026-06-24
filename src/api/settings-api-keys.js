@@ -52,6 +52,7 @@ const PROVIDERS = new Set([
   'cloudflare',
   'cloudflare_r2',
   'resend',
+  'cursor',
   'github',
   'supabase',
   'meshy',

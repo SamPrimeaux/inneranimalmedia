@@ -82,6 +82,8 @@ export function PlanUsageSection({ data }: PlanUsageSectionProps) {
   const [showActivity, setShowActivity] = useState(false);
   const [showPlans, setShowPlans] = useState(!paidActive);
   const [showInvoices, setShowInvoices] = useState(false);
+  const [budgetSaving, setBudgetSaving] = useState(false);
+  const [budgetSaveMsg, setBudgetSaveMsg] = useState<string | null>(null);
 
   const usageTotals = useMemo(() => {
     const summary = Array.isArray(u?.summary) ? u.summary : [];
@@ -107,6 +109,24 @@ export function PlanUsageSection({ data }: PlanUsageSectionProps) {
     currentPlan?.monthly_token_limit != null ? Number(currentPlan.monthly_token_limit) : null;
   const budgetLimit = Number.parseFloat(String(data.budgetMonthlyLimit || '').trim());
   const budgetMax = Number.isFinite(budgetLimit) && budgetLimit > 0 ? budgetLimit : null;
+
+  const saveBudgetLimit = async () => {
+    setBudgetSaving(true);
+    setBudgetSaveMsg(null);
+    try {
+      await data.patchProfile([
+        {
+          setting_key: 'budget.monthly_limit_usd',
+          setting_value: String(data.budgetMonthlyLimit || '').trim(),
+        },
+      ]);
+      setBudgetSaveMsg('Saved');
+    } catch (e) {
+      setBudgetSaveMsg(e instanceof Error ? e.message : 'Save failed');
+    } finally {
+      setBudgetSaving(false);
+    }
+  };
 
   const periodLabel = new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' });
   const planDisplayName =
@@ -268,20 +288,23 @@ export function PlanUsageSection({ data }: PlanUsageSectionProps) {
                 <span className="text-[var(--text-muted)]">Limit (USD)</span>
                 <input
                   value={data.budgetMonthlyLimit}
-                  onChange={(e) => data.setBudgetMonthlyLimit(e.target.value)}
-                  onBlur={() => {
-                    void data.patchProfile([
-                      {
-                        setting_key: 'budget.monthly_limit_usd',
-                        setting_value: String(data.budgetMonthlyLimit || ''),
-                      },
-                    ]);
+                  onChange={(e) => {
+                    data.setBudgetMonthlyLimit(e.target.value);
+                    setBudgetSaveMsg(null);
                   }}
                   className="px-3 py-2 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[12px] font-mono w-28"
                   inputMode="decimal"
                   placeholder="300"
                 />
               </label>
+              <button
+                type="button"
+                disabled={budgetSaving}
+                onClick={() => void saveBudgetLimit()}
+                className="px-3 py-2 rounded-lg bg-[var(--solar-cyan)]/20 text-[var(--solar-cyan)] border border-[var(--solar-cyan)]/40 text-[11px] font-semibold hover:bg-[var(--solar-cyan)]/30 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {budgetSaving ? 'Saving…' : 'Save'}
+              </button>
               <div className="flex items-center gap-2 pb-1">
                 <span className="text-[11px] text-[var(--text-muted)]">Hard stop</span>
                 <Toggle
@@ -297,6 +320,17 @@ export function PlanUsageSection({ data }: PlanUsageSectionProps) {
                 />
               </div>
             </div>
+            {budgetSaveMsg ? (
+              <p
+                className={`text-[10px] ${
+                  budgetSaveMsg === 'Saved'
+                    ? 'text-[var(--solar-cyan)]'
+                    : 'text-[var(--color-danger)]'
+                }`}
+              >
+                {budgetSaveMsg}
+              </p>
+            ) : null}
             {budgetMax != null ? (
               <UsageProgressBar
                 label="On-demand spend"

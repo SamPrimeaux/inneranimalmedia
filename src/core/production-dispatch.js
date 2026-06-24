@@ -23,6 +23,7 @@ import { handlePostDeploy } from '../api/post-deploy.js';
 import { handleCidiApi } from '../api/cicd.js';
 import { handleDeploymentsApi } from '../api/deployments.js';
 import { handleFinanceApi } from '../api/finance.js';
+import { handleBillingApi } from '../api/billing.js';
 import { handleMcpApi } from '../api/mcp.js';
 import { handleNotifyDeployComplete } from '../api/notify-deploy.js';
 import { handleTriggerWorkersBuild } from '../api/trigger-workers-build.js';
@@ -418,10 +419,16 @@ export async function dispatchProductionDomainRoutes(rc) {
   }
 
   if (
+    pathLower.startsWith('/api/billing') ||
+    pathLower === '/api/webhooks/stripe'
+  ) {
+    return handleBillingApi(request, url, env, ctx);
+  }
+
+  if (
     pathLower.startsWith('/api/finance') ||
     pathLower.startsWith('/api/clients') ||
-    pathLower.startsWith('/api/projects') ||
-    pathLower.startsWith('/api/billing')
+    pathLower.startsWith('/api/projects')
   ) {
     return handleFinanceApi(request, url, env, ctx);
   }
