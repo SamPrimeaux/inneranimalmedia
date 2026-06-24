@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Eye, EyeOff, Hand, Maximize2, Pause, Play, RotateCcw, RotateCw, Trash2, ZoomIn, ZoomOut } from 'lucide-react';
 import type { ViewTool } from '../cadStudioTypes';
+import { InlineJobProgress } from '../../shared/InlineJobProgress';
+import { resolveCadJobPhase } from '../../shared/cadJobPhase';
 
 export type Viewport3DEditorProps = {
   label?: string;
@@ -31,6 +33,7 @@ export type Viewport3DEditorProps = {
   orthoMode?: boolean;
   onToggleOrtho?: () => void;
   viewCubeOrientation?: { x: number; y: number; z: number };
+  activeJob?: import('../../api').CadJobRow | null;
 };
 
 type ViewFace = NonNullable<Viewport3DEditorProps['onSnapView']> extends (f: infer F) => void ? F : never;
@@ -108,8 +111,10 @@ export function Viewport3DEditor({
   orthoMode = false,
   onToggleOrtho,
   viewCubeOrientation,
+  activeJob,
 }: Viewport3DEditorProps) {
   const [dragOver, setDragOver] = useState(false);
+  const jobPhase = showProgress ? resolveCadJobPhase(activeJob) : null;
 
   return (
     <section
@@ -179,15 +184,10 @@ export function Viewport3DEditor({
           </button>
         </div>
 
-        {/* Progress */}
-        {showProgress ? (
-          <div className="cad-studio__progress">
-            <div className="cad-studio__progress-inner">
-              <div style={{ fontSize: 11, color: '#c9d0d8' }}>{progressLabel}</div>
-              <div className="cad-studio__progress-bar">
-                <div className="cad-studio__progress-fill" style={{ width: `${Math.max(8, progressPct || 12)}%` }} />
-              </div>
-            </div>
+        {/* Inline job progress — Meshy-style center stage (workspace stays usable) */}
+        {jobPhase && jobPhase.status !== 'idle' ? (
+          <div className="inline-job-progress-host" aria-hidden={jobPhase.status === 'complete'}>
+            <InlineJobProgress phase={jobPhase} />
           </div>
         ) : null}
 

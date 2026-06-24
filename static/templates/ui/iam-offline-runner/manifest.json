@@ -1,0 +1,10 @@
+{
+  "id": "iam-offline-runner",
+  "version": "1.0.0",
+  "title": "IAM Offline Runner",
+  "description": "Brandable offline empty-state mini game — dodge signal towers while the network reconnects.",
+  "category": "Loading Screens",
+  "r2_bucket": "inneranimalmedia",
+  "source_html_r2_key": "static/templates/ui/iam-offline-runner/index.html",
+  "repo_path": "static/templates/ui/iam-offline-runner/"
+}

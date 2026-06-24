@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "title": "Agent Sam Loading States UI/UX Template Library",
   "description": "Animated presence icons (spark, scan, terminal, diff, pixel, path, files, browser), skeleton shimmer, and lab shell. Part of iam-motion-system-v1.",
+  "category": "Loading Screens",
   "motion_system_slug": "iam-motion-system-v1",
   "r2_bucket": "inneranimalmedia",
   "r2_key": "cms/motion/iam-motion-system-v1/agent_sam_loading_states_lab.html",

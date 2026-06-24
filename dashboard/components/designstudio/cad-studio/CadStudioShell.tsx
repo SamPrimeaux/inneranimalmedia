@@ -251,6 +251,14 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
   const selectedEntity = entities.find((e) => e.id === selectedId) ?? null;
   const meshStats = useMemo(() => computeMeshStats(selectedEntity), [selectedEntity]);
 
+  const lastSubmittedJobRef = useRef<string | null>(null);
+  useEffect(() => {
+    const id = cad.activeJobId;
+    if (!id || id === lastSubmittedJobRef.current) return;
+    lastSubmittedJobRef.current = id;
+    protocol.toast('Task created successfully');
+  }, [cad.activeJobId, protocol]);
+
   const runnerLabel =
     computeHealth === 'ready'
       ? 'Runner: Ready'
@@ -763,6 +771,7 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
         onToggleOrtho?.(ortho);
       }}
       viewCubeOrientation={viewCubeOrientation}
+      activeJob={activeJob}
     />
   );
 

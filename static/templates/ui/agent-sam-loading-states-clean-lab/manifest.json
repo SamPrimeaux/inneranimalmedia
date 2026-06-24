@@ -1,0 +1,16 @@
+{
+  "id": "agent-sam-loading-states-clean-lab",
+  "version": "2.0.0",
+  "title": "AgentSam Loading States — Clean Lab",
+  "description": "Interactive loading state catalog with Meshy-style progress bar, themed loaders, and compact presence rows.",
+  "category": "Loading Screens",
+  "motion_system_slug": "iam-motion-system-v1",
+  "r2_bucket": "inneranimalmedia",
+  "r2_key": "cms/motion/iam-motion-system-v1/agent_sam_loading_states_clean_lab.html",
+  "source_html_r2_key": "static/templates/ui/agent-sam-loading-states-clean-lab/index.html",
+  "repo_path": "static/templates/ui/agent-sam-loading-states-clean-lab/",
+  "dashboard_source": {
+    "icons_ts": "dashboard/features/agent-presence/presenceIcons.ts",
+    "inline_progress": "dashboard/components/designstudio/shared/InlineJobProgress.tsx"
+  }
+}
