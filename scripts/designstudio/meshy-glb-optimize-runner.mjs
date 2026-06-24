@@ -74,51 +74,30 @@ async function fetchPendingJobs() {
   );
 }
 
-function downloadR2(r2Key, localPath) {
+function wranglerR2(args) {
   const r = spawnSync(
-    'bash',
-    [
-      join(REPO_ROOT, 'scripts/with-cloudflare-env.sh'),
-      'npx',
-      'wrangler',
-      'r2',
-      'object',
-      'get',
-      `${BUCKET}/${r2Key}`,
-      `--file=${localPath}`,
-      '--remote',
-      '-c',
-      'wrangler.production.toml',
-    ],
-    { cwd: REPO_ROOT, encoding: 'utf8', stdio: 'pipe' },
+    'npx',
+    ['wrangler', ...args, '--remote', '-c', 'wrangler.production.toml'],
+    { cwd: REPO_ROOT, encoding: 'utf8', env: process.env, stdio: 'pipe' },
   );
   if (r.status !== 0) {
-    throw new Error(r.stderr || r.stdout || `r2_get_failed:${r2Key}`);
+    throw new Error(r.stderr || r.stdout || `wrangler_r2_failed:${args.join(' ')}`);
   }
 }
 
+function downloadR2(r2Key, localPath) {
+  wranglerR2(['r2', 'object', 'get', `${BUCKET}/${r2Key}`, `--file=${localPath}`]);
+}
+
 function uploadR2(r2Key, localPath) {
-  const r = spawnSync(
-    'bash',
-    [
-      join(REPO_ROOT, 'scripts/with-cloudflare-env.sh'),
-      'npx',
-      'wrangler',
-      'r2',
-      'object',
-      'put',
-      `${BUCKET}/${r2Key}`,
-      `--file=${localPath}`,
-      '--content-type=model/gltf-binary',
-      '--remote',
-      '-c',
-      'wrangler.production.toml',
-    ],
-    { cwd: REPO_ROOT, encoding: 'utf8', stdio: 'pipe' },
-  );
-  if (r.status !== 0) {
-    throw new Error(r.stderr || r.stdout || `r2_put_failed:${r2Key}`);
-  }
+  wranglerR2([
+    'r2',
+    'object',
+    'put',
+    `${BUCKET}/${r2Key}`,
+    `--file=${localPath}`,
+    '--content-type=model/gltf-binary',
+  ]);
 }
 
 async function callJobComplete(payload) {
