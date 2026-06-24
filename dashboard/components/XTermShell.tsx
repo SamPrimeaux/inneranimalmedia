@@ -16,6 +16,8 @@ import {
 import type { AgentWorkspaceContextPacket } from '../src/ideWorkspace';
 import { PHONE_MQ } from '../lib/breakpoints';
 import { fetchLocalTerminalConnection, fetchTerminalTargets, type TerminalTarget } from './LocalTerminalSetup';
+import { useWorkspace } from '../src/context/WorkspaceContext';
+import { runPtyTerminalSetupWizard, type PtyWizardIO } from '../src/lib/ptyTerminalSetupWizard';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 const DEFAULT_PRODUCT = 'Agent Sam';
@@ -139,7 +141,7 @@ function WelcomeSplash({ cdCommand, localReady, cloudReady, sandboxReady, onActi
   const menuItems = SPLASH_MENU.map((item, index) => {
     let desc = item.desc;
     if (item.action === 'local' && !localReady) {
-      desc = 'Not configured — Settings → Network';
+      desc = 'Not configured — + → Configure Terminal Settings';
     } else if (item.action === 'cloud' && !cloudReady) {
       desc = 'Provisioning — retry shortly or contact support';
     } else if (item.action === 'sandbox' && !sandboxReady) {
@@ -388,7 +390,9 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
     });
     const [plusMenuOpen, setPlusMenuOpen] = useState(false);
     const [splitSubOpen, setSplitSubOpen] = useState(false);
+    const [setupWizardActive, setSetupWizardActive] = useState(false);
     const [terminalTarget, setTerminalTarget] = useState<TerminalTarget>('platform_vm');
+    const { sessionUserId } = useWorkspace();
 
     useEffect(() => {
       if (!showSplash || !workspaceId?.trim()) {
@@ -409,6 +413,14 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
       };
     }, [showSplash, workspaceId]);
 
+    const refreshTerminalTargets = useCallback(async () => {
+      if (!workspaceId?.trim()) return;
+      const targets = await fetchTerminalTargets(workspaceId);
+      setLocalTargetReady(targets?.local?.ready === true);
+      setCloudTargetReady(targets?.cloud?.ready !== false);
+      setSandboxTargetReady(targets?.sandbox?.ready === true);
+    }, [workspaceId]);
+
     const handleTerminalHardFailure = useCallback(() => {
       setShowSplash(true);
       primaryPaneRef.current?.disconnectQuiet();
@@ -427,6 +439,64 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
       },
       [splitEnabled, workspaceId],
     );
+
+    const handleConfigureTerminalSettings = useCallback(async () => {
+      setPlusMenuOpen(false);
+      setIsCollapsed(false);
+      setActiveTab('terminal');
+      setShowSplash(false);
+      setSetupWizardActive(true);
+      primaryPaneRef.current?.disconnectQuiet();
+
+      const pane = primaryPaneRef.current;
+      if (!pane || !workspaceId?.trim()) {
+        setSetupWizardActive(false);
+        pane?.writeAnsi('\r\n\x1b[1;31m  Workspace required for terminal setup.\x1b[0m');
+        return;
+      }
+
+      const io: PtyWizardIO = {
+        writeln: (text) => pane.writeAnsi(`\r\n${text}`),
+        write: (text) => pane.writeAnsi(text),
+        prompt: (label, opts) => pane.promptLine(label, opts),
+        choose: async (title, options) => {
+          pane.writeAnsi(`\r\n\x1b[1m  ${title}\x1b[0m\r\n`);
+          for (const o of options) {
+            pane.writeAnsi(`  ${o.key}) ${o.label}\r\n`);
+          }
+          const raw = await pane.promptLine('Pick a number');
+          if (!raw) return null;
+          const pick = options.find((o) => o.key === raw.trim());
+          return pick?.key ?? null;
+        },
+      };
+
+      try {
+        await runPtyTerminalSetupWizard(io, {
+          workspaceId,
+          sessionUserId,
+          workerOrigin: resolvedOrigin,
+          openKeysSettings: () => {
+            window.location.assign('/dashboard/settings/keys');
+          },
+          onConnectLocal: async () => {
+            const targets = await fetchTerminalTargets(workspaceId);
+            if (targets?.local?.ready !== true) {
+              pane.writeAnsi(
+                '\r\n\x1b[38;5;208m  Local tunnel not ready yet — finish cloudflared + iam-pty, then pick 1 on welcome.\x1b[0m',
+              );
+              return;
+            }
+            const connShell = targets.local.shell?.trim();
+            if (connShell) setShellPref(connShell);
+            await startTerminalConnection('user_hosted_tunnel');
+          },
+        });
+      } finally {
+        setSetupWizardActive(false);
+        await refreshTerminalTargets();
+      }
+    }, [workspaceId, sessionUserId, resolvedOrigin, startTerminalConnection, refreshTerminalTargets]);
 
     useEffect(() => {
       if (isDrawer) setIsCollapsed(false);
@@ -575,7 +645,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
     );
 
     const terminalAreaVisible = activeTab === 'terminal' && !isCollapsed;
-    const terminalConnectEnabled = terminalAreaVisible && !showSplash;
+    const terminalConnectEnabled = terminalAreaVisible && !showSplash && !setupWizardActive;
     const connectionTargetLabel =
       terminalTarget === 'user_hosted_tunnel'
         ? 'Local'
@@ -903,10 +973,7 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
                           type="button"
                           role="menuitem"
                           className="w-full text-left px-3 py-1.5 text-[11px] hover:bg-[var(--bg-hover)] text-[var(--text-main)]"
-                          onClick={() => {
-                            setPlusMenuOpen(false);
-                            window.location.assign('/dashboard/settings');
-                          }}
+                          onClick={() => void handleConfigureTerminalSettings()}
                         >
                           Configure Terminal Settings
                         </button>

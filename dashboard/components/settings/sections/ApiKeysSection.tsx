@@ -10,7 +10,6 @@ import {
   SummaryGrid,
   WarningStrip,
 } from '../components/SectionPrimitives';
-import { PtyTerminalSetupSection } from './PtyTerminalSetupSection';
 import { KeysSecurityExtras } from './KeysSecurityExtras';
 
 type ApiKeyItem = {
@@ -724,17 +723,11 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
         ]}
       />
 
-      <PtyTerminalSetupSection
-        workspaceId={ws}
-        hasCloudflareKey={hasCloudflareKey}
-        onNeedCloudflareKey={() => {
-          setProvider('cloudflare');
-          const acct = formHints?.cloudflare_account_id;
-          if (acct) setCloudflareAccountId(String(acct));
-          setCreateOpen(true);
-        }}
-        onError={setError}
-      />
+      <p className="text-[11px] text-[var(--text-muted)] rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-3 py-2">
+        Personal PTY / Cloudflare tunnel setup lives in the bottom terminal: open{' '}
+        <span className="text-[var(--text-main)]">+ → Configure Terminal Settings</span> for a
+        step-by-step wizard (PowerShell, cloudflared, iam-pty).
+      </p>
 
       <h3 className="text-[11px] font-black uppercase tracking-widest text-[var(--text-muted)]">
         Provider keys

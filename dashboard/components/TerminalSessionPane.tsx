@@ -197,6 +197,11 @@ export interface TerminalSessionPaneHandle {
   /** Stop PTY without reconnecting (e.g. return to welcome splash). */
   disconnectQuiet: () => void;
   getSessionId: () => string | null;
+  /** Local line prompt (setup wizard) — does not send to remote PTY. */
+  promptLine: (
+    label: string,
+    opts?: { mask?: boolean; defaultValue?: string },
+  ) => Promise<string | null>;
 }
 
 export interface TerminalSessionPaneProps {
@@ -284,6 +289,43 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
     const appendBufferRef = useRef<(text: string) => void>(() => {});
     const inactivityTimerRef = useRef<number | null>(null);
     const lastActivityRef = useRef<number>(Date.now());
+    const promptSessionRef = useRef<{
+      buffer: string;
+      resolve: (value: string | null) => void;
+      mask?: boolean;
+      defaultValue?: string;
+    } | null>(null);
+
+    const handlePromptData = useCallback((term: Terminal, data: string) => {
+      const session = promptSessionRef.current;
+      if (!session) return false;
+      if (data === '\x03') {
+        term.writeln('^C');
+        session.resolve(null);
+        promptSessionRef.current = null;
+        return true;
+      }
+      if (data === '\r' || data === '\n') {
+        term.writeln('');
+        const out = session.buffer.trim() || session.defaultValue || '';
+        session.resolve(out);
+        promptSessionRef.current = null;
+        return true;
+      }
+      if (data === '\x7f' || data === '\b') {
+        if (session.buffer.length > 0) {
+          session.buffer = session.buffer.slice(0, -1);
+          term.write('\b \b');
+        }
+        return true;
+      }
+      if (data.length === 1 && data >= ' ') {
+        session.buffer += data;
+        term.write(session.mask ? '*' : data);
+        return true;
+      }
+      return false;
+    }, []);
 
     const clearInactivityTimer = useCallback(() => {
       if (inactivityTimerRef.current) {
@@ -805,6 +847,24 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
         setStatus('disconnected');
       },
       getSessionId: () => ptySessionIdRef.current,
+      promptLine: (label, opts) => {
+        const term = xtermRef.current;
+        if (!term) return Promise.resolve(null);
+        if (promptSessionRef.current) {
+          promptSessionRef.current.resolve(null);
+          promptSessionRef.current = null;
+        }
+        return new Promise((resolve) => {
+          promptSessionRef.current = {
+            buffer: '',
+            resolve,
+            mask: opts?.mask,
+            defaultValue: opts?.defaultValue,
+          };
+          term.write(`\r\n${label} `);
+          focusXtermSurface(term, terminalRef.current);
+        });
+      },
     }));
 
     useEffect(() => {
@@ -869,6 +929,7 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
       ro.observe(hostEl);
 
       const slashModelsSub = term.onData((data) => {
+        if (handlePromptData(term, data)) return;
         if (!data.endsWith('\r') && !data.endsWith('\n')) return;
         const cmd = data.replace(/[\r\n]+$/, '').trim();
         if (isAgentsamModelsSlashLine(cmd)) {
@@ -884,7 +945,7 @@ export const TerminalSessionPane = forwardRef<TerminalSessionPaneHandle, Termina
         xtermRef.current = null;
         fitAddonRef.current = null;
       };
-    }, [visible]);
+    }, [visible, handlePromptData]);
 
     return (
       <>
