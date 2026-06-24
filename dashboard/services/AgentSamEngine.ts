@@ -1113,19 +1113,50 @@ export class AgentSamEngine {
   }
 
   public snapViewTo(face: 'top' | 'front' | 'right' | 'left' | 'back' | 'bottom') {
-    const dist = 20;
-    const positions: Record<string, [number, number, number]> = {
-      top:    [0,  dist, 0.001],
-      bottom: [0, -dist, 0.001],
-      front:  [0, 0,  dist],
-      back:   [0, 0, -dist],
-      right:  [ dist, 0, 0],
-      left:   [-dist, 0, 0],
+    const box = new THREE.Box3();
+    this.scene.traverse((obj) => {
+      if (obj === this.debugGroup) return;
+      if ((obj as THREE.Mesh).isMesh || (obj as THREE.Group).isGroup) {
+        if ((obj as THREE.Mesh).isMesh) box.expandByObject(obj);
+      }
+    });
+
+    const center = box.isEmpty() ? new THREE.Vector3(0, 0, 0) : box.getCenter(new THREE.Vector3());
+    const size = box.isEmpty() ? new THREE.Vector3(2, 2, 2) : box.getSize(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z, 0.5);
+
+    let distance = maxDim * 2.2;
+    if (this.camera === this.perspectiveCamera) {
+      const fovRad = (this.perspectiveCamera.fov * Math.PI) / 180;
+      distance = (maxDim / (2 * Math.tan(fovRad / 2))) * 1.55;
+    }
+
+    const directions: Record<string, THREE.Vector3> = {
+      top: new THREE.Vector3(0, 1, 0.001),
+      bottom: new THREE.Vector3(0, -1, 0.001),
+      front: new THREE.Vector3(0, 0, 1),
+      back: new THREE.Vector3(0, 0, -1),
+      right: new THREE.Vector3(1, 0, 0),
+      left: new THREE.Vector3(-1, 0, 0),
     };
-    const [x, y, z] = positions[face] ?? [dist, dist, dist];
-    this.camera.position.set(x, y, z);
-    this.camera.lookAt(0, 0, 0);
-    this.controls.target.set(0, 0, 0);
+    const dir = directions[face] ?? directions.front;
+    const position = center.clone().add(dir.clone().normalize().multiplyScalar(distance));
+
+    this.controls.target.copy(center);
+    this.camera.position.copy(position);
+    this.camera.lookAt(center);
+
+    if (this.camera === this.orthoCamera) {
+      const rect = this.container.getBoundingClientRect();
+      const aspect = rect.width > 0 && rect.height > 0 ? rect.width / rect.height : 1;
+      const d = distance * 0.55;
+      this.orthoCamera.left = -d * aspect;
+      this.orthoCamera.right = d * aspect;
+      this.orthoCamera.top = d;
+      this.orthoCamera.bottom = -d;
+      this.orthoCamera.updateProjectionMatrix();
+    }
+
     this.controls.update();
   }
 

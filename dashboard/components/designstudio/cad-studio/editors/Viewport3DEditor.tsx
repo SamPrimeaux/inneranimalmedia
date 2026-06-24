@@ -33,40 +33,47 @@ export type Viewport3DEditorProps = {
 };
 
 /**
- * ViewCube — proper isometric 3-face cube with clickable face snap.
- * True isometric projection: top face = horizontal rhombus,
- * left/right faces use correct isometric shear angles.
- * Each face labeled, stroke edges for depth.
+ * ViewCube — isometric cube with all six orthographic snap targets.
+ * Visible faces: top, front, right. Edge wedges: left, back, bottom.
  */
-function ViewCube({ onSnapView }: { onSnapView?: Viewport3DEditorProps['onSnapView'] }) {
-  // Isometric cube: 56px canvas
-  // Top face (flat top diamond)
-  const top   = 'M28,6  L50,18 L28,30 L6,18 Z';
-  // Left face (front-left)
-  const left  = 'M6,18  L28,30 L28,50 L6,38  Z';
-  // Right face (front-right)
+function ViewCube({
+  onSnapView,
+  activeFace,
+}: {
+  onSnapView?: Viewport3DEditorProps['onSnapView'];
+  activeFace?: Viewport3DEditorProps['onSnapView'] extends (f: infer F) => void ? F : never;
+}) {
+  const top = 'M28,6  L50,18 L28,30 L6,18 Z';
+  const front = 'M6,18  L28,30 L28,50 L6,38  Z';
   const right = 'M28,30 L50,18 L50,38 L28,50 Z';
+  const leftWedge = 'M2,20 L6,18 L6,38 L2,36 Z';
+  const backWedge = 'M6,18 L28,6 L22,12 L6,22 Z';
+  const bottomWedge = 'M12,42 L28,50 L44,42 L28,34 Z';
   const stroke = 'rgba(255,255,255,0.20)';
 
+  const faceClass = (face: string, base: string) =>
+    `vpc__face ${base}${activeFace === face ? ' vpc__face--active' : ''}`;
+
   return (
-    <div className="vpc__cube" title="Click a face to snap view">
+    <div className="vpc__cube" title="Click a face to snap the camera to that view">
       <svg width={56} height={56} viewBox="0 0 56 56" className="vpc__svg" aria-label="View cube — click a face to snap">
-        {/* Fill faces */}
-        <path d={top}   className="vpc__face vpc__face--top"   onClick={() => onSnapView?.('top')} />
-        <path d={left}  className="vpc__face vpc__face--left"  onClick={() => onSnapView?.('front')} />
-        <path d={right} className="vpc__face vpc__face--right" onClick={() => onSnapView?.('right')} />
-        {/* Stroke edges over fills for crisp depth cues */}
-        <path d={top}   fill="none" stroke={stroke} strokeWidth="0.8" />
-        <path d={left}  fill="none" stroke={stroke} strokeWidth="0.8" />
+        <path d={top} className={faceClass('top', 'vpc__face--top')} onClick={() => onSnapView?.('top')} />
+        <path d={front} className={faceClass('front', 'vpc__face--left')} onClick={() => onSnapView?.('front')} />
+        <path d={right} className={faceClass('right', 'vpc__face--right')} onClick={() => onSnapView?.('right')} />
+        <path d={leftWedge} className={faceClass('left', 'vpc__face--wedge vpc__face--wedge-left')} onClick={() => onSnapView?.('left')} />
+        <path d={backWedge} className={faceClass('back', 'vpc__face--wedge vpc__face--wedge-back')} onClick={() => onSnapView?.('back')} />
+        <path d={bottomWedge} className={faceClass('bottom', 'vpc__face--wedge vpc__face--wedge-bottom')} onClick={() => onSnapView?.('bottom')} />
+        <path d={top} fill="none" stroke={stroke} strokeWidth="0.8" />
+        <path d={front} fill="none" stroke={stroke} strokeWidth="0.8" />
         <path d={right} fill="none" stroke={stroke} strokeWidth="0.8" />
-        {/* Center spine — vertical edge */}
         <line x1="28" y1="30" x2="28" y2="50" stroke={stroke} strokeWidth="0.8" />
-        {/* Face labels: centered in each face */}
         <text x="28" y="21" className="vpc__label">TOP</text>
         <text x="15" y="39" className="vpc__label">FRONT</text>
         <text x="41" y="39" className="vpc__label">RIGHT</text>
+        <text x="4" y="30" className="vpc__label vpc__label--edge">L</text>
+        <text x="14" y="14" className="vpc__label vpc__label--edge">B</text>
+        <text x="28" y="47" className="vpc__label vpc__label--edge">BOT</text>
       </svg>
-      {/* XYZ axis pills */}
       <div className="vpc__axes">
         <span className="vpc__axis vpc__axis--x">X</span>
         <span className="vpc__axis vpc__axis--y">Y</span>
@@ -160,14 +167,14 @@ export function Viewport3DEditor({
           <button
             type="button"
             className={`vpc__view-btn${orthoMode ? ' active' : ''}`}
-            onClick={() => !orthoMode && onToggleOrtho?.()}
+            onClick={() => onToggleOrtho?.(true)}
           >
             Orthographic
           </button>
           <button
             type="button"
             className={`vpc__view-btn${!orthoMode ? ' active' : ''}`}
-            onClick={() => orthoMode && onToggleOrtho?.()}
+            onClick={() => onToggleOrtho?.(false)}
           >
             Perspective
           </button>

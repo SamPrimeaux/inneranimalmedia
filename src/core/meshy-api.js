@@ -17,6 +17,7 @@ export const MESHY_TASK_ROUTES = {
   animation: { base: '/openapi/v1/animations', version: 'v1' },
   'text-to-image': { base: '/openapi/v1/text-to-image', version: 'v1' },
   'image-to-image': { base: '/openapi/v1/image-to-image', version: 'v1' },
+  'uv-unwrap': { base: '/openapi/v1/uv-unwrap', version: 'v1' },
 };
 
 export class MeshyApiError extends Error {
@@ -237,6 +238,141 @@ export async function deleteMeshyTask(env, taskType, taskId, auth = null) {
 }
 
 /**
+ * GET /openapi/v1/animations/:id/stream (and other task types with SSE stream endpoints).
+ * @param {any} env
+ * @param {string} taskType
+ * @param {string} taskId
+ * @param {{ apiKey?: string | null } | null} [auth]
+ */
+export async function streamMeshyTask(env, taskType, taskId, auth = null) {
+  const route = resolveMeshyTaskRoute(taskType);
+  const key = auth?.apiKey ?? meshyApiKey(env);
+  if (!key) throw new MeshyApiError('MESHYAI_API_KEY not configured', 503);
+
+  const url = `${MESHY_API_ORIGIN}${route.base}/${encodeURIComponent(taskId)}/stream`;
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${key}`,
+      Accept: 'text/event-stream',
+    },
+  });
+
+  if (res.status === 429) {
+    throw new MeshyRateLimitError(Number(res.headers.get('Retry-After') || '5') * 1000);
+  }
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    /** @type {Record<string, unknown>} */
+    let data = {};
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = { raw: text.slice(0, 500) };
+      }
+    }
+    const msg = String(data?.message || data?.error || res.statusText || 'Meshy stream error').slice(0, 300);
+    throw new MeshyApiError(msg, res.status, data);
+  }
+
+  return res;
+}
+
+/**
+ * Build Meshy animation task payload (POST /openapi/v1/animations).
+ * @param {Record<string, unknown>} body
+ */
+export function buildMeshyAnimationPayload(body) {
+  const rigTaskId = String(body.rig_task_id || '').trim();
+  const actionId = Number(body.action_id);
+  if (!rigTaskId || !Number.isFinite(actionId)) {
+    throw new Error('rig_task_id and action_id required');
+  }
+
+  /** @type {Record<string, unknown>} */
+  const payload = { rig_task_id: rigTaskId, action_id: actionId };
+
+  if (body.post_process != null && typeof body.post_process === 'object') {
+    const pp = body.post_process;
+    const op = String(pp.operation_type || '').trim();
+    if (!op) throw new Error('post_process.operation_type required when post_process is set');
+    const allowed = ['change_fps', 'fbx2usdz', 'extract_armature'];
+    if (!allowed.includes(op)) {
+      throw new Error(`invalid post_process.operation_type: ${op}`);
+    }
+    if (op === 'change_fps') {
+      const fps = Number(pp.fps ?? 30);
+      if (![24, 25, 30, 60].includes(fps)) {
+        throw new Error('post_process.fps must be 24, 25, 30, or 60');
+      }
+      payload.post_process = { operation_type: 'change_fps', fps };
+    } else {
+      payload.post_process = { operation_type: op };
+    }
+  }
+
+  return { payload, rigTaskId, actionId };
+}
+
+const MESHY_IMAGE_TO_3D_OPTIONAL_FIELDS = [
+  'model_type',
+  'ai_model',
+  'should_texture',
+  'enable_pbr',
+  'hd_texture',
+  'texture_prompt',
+  'texture_image_url',
+  'should_remesh',
+  'topology',
+  'target_polycount',
+  'decimation_mode',
+  'save_pre_remeshed_model',
+  'symmetry_mode',
+  'pose_mode',
+  'is_a_t_pose',
+  'image_enhancement',
+  'remove_lighting',
+  'moderation',
+  'target_formats',
+  'auto_size',
+  'alpha_thumbnail',
+  'multi_view_thumbnails',
+  'origin_at',
+];
+
+/**
+ * Build Meshy image-to-3D task payload (POST /openapi/v1/image-to-3d).
+ * @param {Record<string, unknown>} body
+ */
+export function buildMeshyImageTo3dPayload(body) {
+  const inputTaskId = String(body.input_task_id || '').trim();
+  const imageUrl = String(body.image_url || body.imageUrl || '').trim();
+  if (!inputTaskId && !imageUrl) {
+    throw new Error('image_url or input_task_id required');
+  }
+
+  /** @type {Record<string, unknown>} */
+  const payload = {};
+  if (inputTaskId) payload.input_task_id = inputTaskId;
+  if (imageUrl) payload.image_url = imageUrl;
+
+  for (const key of MESHY_IMAGE_TO_3D_OPTIONAL_FIELDS) {
+    if (body[key] !== undefined && body[key] !== null) {
+      payload[key] = body[key];
+    }
+  }
+
+  const shouldTexture = payload.should_texture !== false;
+  if (payload.enable_pbr === true && !shouldTexture) {
+    throw new Error('enable_pbr requires should_texture to be true');
+  }
+
+  return { payload, inputTaskId, imageUrl: imageUrl || null };
+}
+
+/**
  * @param {any} env
  * @param {string} taskType
  * @param {{ page_num?: number; page_size?: number; sort_by?: string }} [query]
@@ -259,10 +395,7 @@ export async function listMeshyTasks(env, taskType, query = {}, auth = null) {
  * @param {{ apiKey?: string | null } | null} [auth]
  */
 export async function textTo3dPreview(env, body, auth = null) {
-  const payload = { mode: 'preview', ...body };
-  delete payload.mode;
-  payload.mode = 'preview';
-  return createMeshyTask(env, 'text-to-3d', payload, auth);
+  return createMeshyTask(env, 'text-to-3d', { ...body, mode: 'preview' }, auth);
 }
 
 /**
@@ -272,10 +405,7 @@ export async function textTo3dPreview(env, body, auth = null) {
  * @param {{ apiKey?: string | null } | null} [auth]
  */
 export async function textTo3dRefine(env, body, auth = null) {
-  const payload = { mode: 'refine', enable_pbr: true, ...body };
-  delete payload.mode;
-  payload.mode = 'refine';
-  return createMeshyTask(env, 'text-to-3d', payload, auth);
+  return createMeshyTask(env, 'text-to-3d', { ...body, mode: 'refine' }, auth);
 }
 
 /**

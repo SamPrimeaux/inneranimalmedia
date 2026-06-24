@@ -9,7 +9,7 @@ import {
   persistCollabCanvasElements,
   resolveCollabWorkspaceId,
 } from '../../core/collab-broadcast.js';
-import { meshyGenerateInProcess, meshyStatusInProcess } from '../../api/cad-meshy.js';
+import { meshyGenerateInProcess, meshyStatusInProcess, meshyAnimationInProcess, meshyImageTo3dInProcess } from '../../api/cad-meshy.js';
 
 async function invokeMediaOp(env, endpoint, method = 'POST', body = null) {
     const origin = env.IAM_ORIGIN || 'https://inneranimalmedia.com';
@@ -156,14 +156,34 @@ export const handlers = {
     async meshyai_image_to_3d(params, env, runContext = {}) {
         const auth = meshyToolAuth(params, runContext);
         if (!auth.userId) return { error: 'user_id required for meshyai_image_to_3d' };
-        return meshyGenerateInProcess(env, null, auth, {
-            mode: 'image',
+        return meshyImageTo3dInProcess(env, null, auth, {
             image_url: params.image_url ?? params.imageUrl,
+            input_task_id: params.input_task_id ?? params.inputTaskId,
             prompt: params.prompt,
+            texture_prompt: params.texture_prompt ?? params.texturePrompt,
+            texture_image_url: params.texture_image_url ?? params.textureImageUrl,
             session_id: params.session_id ?? params.conversation_id,
             scene_snapshot_id: params.scene_snapshot_id ?? params.scene_id,
-            enable_pbr: params.enable_pbr,
+            blueprint_id: params.blueprint_id,
+            model_type: params.model_type,
+            ai_model: params.ai_model,
             should_texture: params.should_texture,
+            enable_pbr: params.enable_pbr,
+            hd_texture: params.hd_texture,
+            should_remesh: params.should_remesh,
+            topology: params.topology,
+            target_polycount: params.target_polycount,
+            decimation_mode: params.decimation_mode,
+            save_pre_remeshed_model: params.save_pre_remeshed_model,
+            pose_mode: params.pose_mode,
+            image_enhancement: params.image_enhancement,
+            remove_lighting: params.remove_lighting,
+            moderation: params.moderation,
+            target_formats: params.target_formats,
+            auto_size: params.auto_size,
+            alpha_thumbnail: params.alpha_thumbnail,
+            multi_view_thumbnails: params.multi_view_thumbnails,
+            origin_at: params.origin_at,
         });
     },
     async meshyai_get_task(params, env, runContext = {}) {
@@ -172,6 +192,23 @@ export const handlers = {
         const jobId = String(params.id ?? params.job_id ?? params.cad_job_id ?? '').trim();
         if (!jobId) return { error: 'id (cad_job_id) required' };
         return meshyStatusInProcess(env, null, auth, jobId);
+    },
+    async meshyai_animation(params, env, runContext = {}) {
+        const auth = meshyToolAuth(params, runContext);
+        if (!auth.userId) return { error: 'user_id required for meshyai_animation' };
+        const rigTaskId = String(params.rig_task_id ?? params.rigTaskId ?? '').trim();
+        const actionId = Number(params.action_id ?? params.actionId);
+        if (!rigTaskId || !Number.isFinite(actionId)) {
+            return { error: 'rig_task_id and action_id required' };
+        }
+        return meshyAnimationInProcess(env, null, auth, {
+            rig_task_id: rigTaskId,
+            action_id: actionId,
+            post_process: params.post_process ?? undefined,
+            session_id: params.session_id ?? params.conversation_id,
+            scene_snapshot_id: params.scene_snapshot_id ?? params.scene_id,
+            blueprint_id: params.blueprint_id,
+        });
     },
 
     // ── Image Generation (OpenAI / Google) ───────────────────────────────

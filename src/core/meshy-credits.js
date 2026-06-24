@@ -30,6 +30,7 @@ export const MESHY_CREDIT_COSTS = {
   TEXT_TO_IMAGE_PRO: 9,
   PRINT_REPAIR: 10,
   PRINT_MULTI_COLOR: 10,
+  UV_UNWRAP: 5,
 };
 
 /**
@@ -94,6 +95,8 @@ export function estimateMeshyOperationCost(operation, body = {}) {
       return MESHY_CREDIT_COSTS.RIGGING;
     case 'animation':
       return MESHY_CREDIT_COSTS.ANIMATION;
+    case 'uv-unwrap':
+      return MESHY_CREDIT_COSTS.UV_UNWRAP;
     default:
       return MESHY_CREDIT_COSTS.TEXT_TO_3D_FULL_CONSERVATIVE;
   }

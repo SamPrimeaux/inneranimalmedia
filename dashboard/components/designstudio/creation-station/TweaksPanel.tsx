@@ -3,8 +3,7 @@ import { Loader2, Sparkles } from 'lucide-react';
 import type { MeshyPhase, MeshySettings } from './meshyTypes';
 import { MeshyKeysLink } from './MeshyRailFields';
 
-const SAMPLE_PROMPT =
-  'A chess king piece, ornate gothic crown with four arched buttresses, wide weighted base, ultra high detail.';
+const SAMPLE_PROMPT = 'Describe the 3D model you want to generate…';
 
 type Props = {
   tool: 'text-to-3d';
@@ -200,9 +199,44 @@ export function TweaksPanel({
                   value={settings.target_polycount}
                   onChange={(e) => onPatch({ target_polycount: Number(e.target.value) || 5000 })}
                 />
+                <label className="text-[10px] text-zinc-500">Polycount mode</label>
+                <div className="flex gap-1">
+                  {(['fixed', 'adaptive'] as const).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => onPatch({ polycount_mode: m })}
+                      className={`flex-1 py-1.5 rounded-lg text-[10px] font-semibold ${
+                        settings.polycount_mode === m
+                          ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/35'
+                          : 'border border-white/[0.08] text-zinc-500'
+                      }`}
+                    >
+                      {m === 'adaptive' ? 'Adaptive' : 'Fixed'}
+                    </button>
+                  ))}
+                </div>
+                <label className="text-[10px] text-zinc-500">Pose</label>
+                <select
+                  className="w-full bg-[#08090d] border border-white/[0.08] rounded-lg px-2 py-2 text-[11px] text-zinc-300"
+                  value={settings.pose_mode}
+                  onChange={(e) =>
+                    onPatch({ pose_mode: e.target.value as MeshySettings['pose_mode'] })
+                  }
+                >
+                  <option value="">None</option>
+                  <option value="a-pose">A-Pose</option>
+                  <option value="t-pose">T-Pose</option>
+                </select>
                 <Toggle label="Remesh" on={settings.should_remesh} onChange={(v) => onPatch({ should_remesh: v })} />
-                <Toggle label="PBR maps" on={settings.enable_pbr} onChange={(v) => onPatch({ enable_pbr: v })} />
                 <Toggle label="Auto size" on={settings.auto_size} onChange={(v) => onPatch({ auto_size: v })} />
+                {meshyPhase === 'refine' ? (
+                  <>
+                    <Toggle label="PBR maps" on={settings.enable_pbr} onChange={(v) => onPatch({ enable_pbr: v })} />
+                    <Toggle label="HD texture (4K)" on={settings.hd_texture} onChange={(v) => onPatch({ hd_texture: v })} />
+                    <Toggle label="Remove lighting" on={settings.remove_lighting} onChange={(v) => onPatch({ remove_lighting: v })} />
+                  </>
+                ) : null}
               </div>
             </details>
 

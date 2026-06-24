@@ -12,6 +12,10 @@ import { useCadStudioProtocol } from './useCadStudioProtocol';
 import { CadMenuBar } from './CadMenuBar';
 import { StudioMenuBar } from './StudioMenuBar';
 import { CreationLane } from './CreationLane';
+import {
+  DEFAULT_MESHY_SETTINGS,
+  buildMeshyPreviewBody,
+} from '../creation-station/meshyTypes';
 import { AdjustPanel } from './AdjustPanel';
 import { WorkspaceLayoutEngine } from './WorkspaceLayoutEngine';
 import { StatusBar } from './StatusBar';
@@ -750,6 +754,12 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
       onZoomOut={() => onViewportZoom?.(1.15)}
       onFrameAll={onFrameAll}
       onResetView={onViewportReset}
+      onSnapView={onSnapView}
+      orthoMode={orthoMode}
+      onToggleOrtho={(ortho) => {
+        setOrthoMode(ortho);
+        onToggleOrtho?.(ortho);
+      }}
     />
   );
 
@@ -1056,6 +1066,16 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
           onToggleOrtho={(ortho) => {
             setOrthoMode(ortho);
             onToggleOrtho?.(ortho);
+          }}
+          onMeshyTextTo3d={async (opts) => {
+            const settings = {
+              ...DEFAULT_MESHY_SETTINGS,
+              prompt: opts.prompt,
+              pose_mode: opts.pose_mode,
+              model_type: opts.model_type,
+              ai_model: opts.ai_model,
+            };
+            await cad.runMeshyPreview(buildMeshyPreviewBody(settings));
           }}
         />
         <div className="cad-studio__layout-wrap" ref={layoutWrapRef}>

@@ -41,6 +41,7 @@ export function meshyTaskTypeFromPayload(payload) {
   if (raw.includes('remesh')) return 'remesh';
   if (raw.includes('text-to-image') || raw.includes('text_to_image')) return 'text-to-image';
   if (raw.includes('animate') || raw === 'animation') return 'animation';
+  if (raw.includes('uv-unwrap') || raw.includes('uv_unwrap')) return 'uv-unwrap';
   if (raw.includes('rig') || raw === 'rig') return 'rigging';
   if (raw.includes('text-to-3d') || raw.includes('text_to_3d')) return 'text-to-3d';
   if (raw.includes('refine')) return 'text-to-3d-refine';
@@ -181,11 +182,13 @@ function isFinalMeshyStage(taskPayload, job) {
     type === 'remesh' ||
     type === 'text-to-image' ||
     type === 'animation' ||
+    type === 'uv-unwrap' ||
     String(job?.task_type) === 'rigging' ||
     String(job?.task_type) === 'retexture' ||
     String(job?.task_type) === 'remesh' ||
     String(job?.task_type) === 'text-to-image' ||
-    String(job?.task_type) === 'animation'
+    String(job?.task_type) === 'animation' ||
+    String(job?.task_type) === 'uv-unwrap'
   ) {
     return true;
   }
@@ -273,6 +276,9 @@ export async function applyMeshyTaskToCadJob(env, ctx, taskPayload) {
   }
 
   const glbUrl =
+    (taskType === 'animation' && taskPayload?.result?.animation_glb_url
+      ? taskPayload.result.animation_glb_url
+      : null) ||
     taskPayload?.model_urls?.glb ||
     taskPayload?.model_urls?.stl ||
     taskPayload?.model_url ||
@@ -282,7 +288,28 @@ export async function applyMeshyTaskToCadJob(env, ctx, taskPayload) {
     taskPayload?.result?.basic_animations?.running_glb_url ||
     (Array.isArray(taskPayload?.image_urls) && taskPayload.image_urls[0]) ||
     null;
-  const modelFormats = taskPayload?.model_urls ? Object.keys(taskPayload.model_urls) : null;
+  let modelFormats = taskPayload?.model_urls ? Object.keys(taskPayload.model_urls) : null;
+  if (taskType === 'animation' && taskPayload?.result && typeof taskPayload.result === 'object') {
+    const ar = taskPayload.result;
+    modelFormats = {
+      animation_glb_url: ar.animation_glb_url ?? null,
+      animation_fbx_url: ar.animation_fbx_url ?? null,
+      processed_usdz_url: ar.processed_usdz_url ?? null,
+      processed_armature_fbx_url: ar.processed_armature_fbx_url ?? null,
+      processed_animation_fps_fbx_url: ar.processed_animation_fps_fbx_url ?? null,
+    };
+  } else if (
+    (taskType === 'image-to-3d' || String(job?.task_type) === 'image-to-3d') &&
+    taskPayload?.model_urls &&
+    typeof taskPayload.model_urls === 'object'
+  ) {
+    modelFormats = {
+      ...taskPayload.model_urls,
+      thumbnail_url: taskPayload.thumbnail_url ?? null,
+      alpha_thumbnail_url: taskPayload.alpha_thumbnail_url ?? null,
+      thumbnail_urls: taskPayload.thumbnail_urls ?? null,
+    };
+  }
   const textureData = taskPayload?.texture_urls ?? null;
   const scope = {
     workspaceId: job.workspace_id,

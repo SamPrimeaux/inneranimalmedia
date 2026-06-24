@@ -1,19 +1,20 @@
 /**
  * Design Studio — 3-lane creation station (/dashboard/designstudio).
  */
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState, lazy, Suspense } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { normalizeGlbUrl } from '../lib/glbAssets';
-import { CadStudioShell } from './designstudio/cad-studio/CadStudioShell';
 import { useDesignStudioCad } from './designstudio/hooks/useDesignStudioCad';
 import { spawnGlbInEngine } from './designstudio/spawnGlb';
 import { useDesignStudioContext } from './designstudio/DesignStudioContext';
 import type { CadJobRow } from './designstudio/api';
 import type { SavedSceneRow } from './designstudio/shared/ScenePanel';
+import { StudioEntryScreen } from './designstudio/cad-studio/StudioEntryScreen';
 import {
-  IAM_AGENT_CHAT_CONVERSATION_CHANGE,
-  LS_AGENT_CHAT_CONVERSATION_ID,
-} from '../agentChatConstants';
+  DEFAULT_MESHY_SETTINGS,
+  buildMeshyPreviewBody,
+  MESHY_PROMPT_MAX,
+} from './designstudio/creation-station/meshyTypes';
 import type { AgentSamGeneratorKey } from '../utils/agentSamGenerators';
 import {
   ProjectType,
@@ -26,6 +27,10 @@ import {
   CADPlane,
   CustomAsset,
 } from '../types';
+
+const CadStudioShell = lazy(() =>
+  import('./designstudio/cad-studio/CadStudioShell').then((m) => ({ default: m.CadStudioShell })),
+);
 
 const ACTIVE_PROJECT = ProjectType.CAD;
 
@@ -70,6 +75,9 @@ export const DesignStudioPage: React.FC = () => {
   const pageRootRef = useRef<HTMLDivElement>(null);
   const pendingConsumedRef = useRef(false);
   const lastSpawnedJobRef = useRef<string | null>(null);
+
+  const [studioPhase, setStudioPhase] = useState<'entry' | 'studio'>('entry');
+  const [meshyPrompt, setMeshyPrompt] = useState('');
 
   const [engineHostReady, setEngineHostReady] = useState(false);
   const [engineReady, setEngineReady] = useState(false);
@@ -131,26 +139,10 @@ export const DesignStudioPage: React.FC = () => {
     return ok;
   }, []);
 
-  const [chatSessionId, setChatSessionId] = useState<string | null>(() => {
-    try {
-      return localStorage.getItem(LS_AGENT_CHAT_CONVERSATION_ID)?.trim() || null;
-    } catch {
-      return null;
-    }
-  });
-
-  useEffect(() => {
-    const onConv = (ev: Event) => {
-      const id = (ev as CustomEvent<{ conversationId?: string }>).detail?.conversationId?.trim();
-      if (id) setChatSessionId(id);
-    };
-    window.addEventListener(IAM_AGENT_CHAT_CONVERSATION_CHANGE, onConv);
-    return () => window.removeEventListener(IAM_AGENT_CHAT_CONVERSATION_CHANGE, onConv);
-  }, []);
-
   const cad = useDesignStudioCad({
-    sessionId: chatSessionId,
+    sessionId: null,
     sceneId: currentSceneId,
+    onPromptUsed: setMeshyPrompt,
     onJobDone: (job) => {
       void refreshUserAssets();
       if (job.status === 'done' && job.public_url && lastSpawnedJobRef.current !== job.id) {
@@ -208,12 +200,17 @@ export const DesignStudioPage: React.FC = () => {
   }, [refreshSceneList, refreshUserAssets]);
 
   useEffect(() => {
+    const st = (location.state as PendingGlbState | null)?.pendingGlb;
+    if (st?.url) setStudioPhase('studio');
+  }, [location.state]);
+
+  useEffect(() => {
     setStudioContext({
       activeProject: ACTIVE_PROJECT,
       sceneId: currentSceneId,
       blueprintId: cad.activeBlueprintId,
       cadJobId: cad.activeJobId || linkedCadJobId,
-      sessionId: chatSessionId,
+      sessionId: null,
       computeStatus: cad.isGenerating ? 'running' : computeHealth,
     });
   }, [
@@ -222,7 +219,6 @@ export const DesignStudioPage: React.FC = () => {
     cad.activeJobId,
     cad.isGenerating,
     linkedCadJobId,
-    chatSessionId,
     computeHealth,
     setStudioContext,
   ]);
@@ -253,6 +249,7 @@ export const DesignStudioPage: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    if (studioPhase !== 'studio') return;
     const container = containerRef.current;
     if (!container || !engineHostReady) return;
 
@@ -302,7 +299,7 @@ export const DesignStudioPage: React.FC = () => {
       engineRef.current = null;
       container.innerHTML = '';
     };
-  }, [engineHostReady]);
+  }, [engineHostReady, studioPhase]);
 
   useEffect(() => {
     if (isAgentSamEngine(engineRef.current)) {
@@ -723,6 +720,41 @@ export const DesignStudioPage: React.FC = () => {
     [],
   );
 
+  const openFullStudio = useCallback(() => setStudioPhase('studio'), []);
+
+  const handleEntryGenerate = useCallback(async () => {
+    const prompt = meshyPrompt.trim();
+    if (!prompt) return;
+    if (prompt.length > 600) return;
+    setStudioPhase('studio');
+    const settings = { ...DEFAULT_MESHY_SETTINGS, prompt };
+    const body = buildMeshyPreviewBody(settings);
+    try {
+      await cad.runMeshyPreview(body);
+    } catch {
+      /* surfaced via cad.error */
+    }
+  }, [meshyPrompt, cad]);
+
+  const handleEntryImportGlb = useCallback(
+    (file: File) => {
+      setStudioPhase('studio');
+      void handleImportGlbFile(file);
+    },
+    [handleImportGlbFile],
+  );
+
+  const entryMode: 'idle' | 'generating' | 'loading-studio' =
+    studioPhase === 'studio' && !engineReady ? 'loading-studio' : cad.isGenerating ? 'generating' : 'idle';
+
+  const meshyPromptTooLong = meshyPrompt.trim().length > MESHY_PROMPT_MAX;
+
+  const entryStatusLabel = cad.isGenerating
+    ? `Meshy ${cad.polledJob?.status ?? 'running'}${cad.polledJob?.progress_pct != null ? ` · ${cad.polledJob.progress_pct}%` : ''}`
+    : studioPhase === 'studio' && (engineLoading || !engineReady)
+      ? 'Initializing 3D viewport…'
+      : undefined;
+
   return (
     <div
       ref={pageRootRef}
@@ -730,7 +762,37 @@ export const DesignStudioPage: React.FC = () => {
       onDrop={handleFileDrop}
       onDragOver={(e) => e.preventDefault()}
     >
-      <CadStudioShell
+      {studioPhase === 'entry' ? (
+        <StudioEntryScreen
+          prompt={meshyPrompt}
+          onPromptChange={setMeshyPrompt}
+          onGenerate={() => void handleEntryGenerate()}
+          onOpenStudio={openFullStudio}
+          onImportGlb={handleEntryImportGlb}
+          generating={cad.isGenerating}
+          progressPct={cad.polledJob?.progress_pct ?? cad.polledJob?.progress ?? 0}
+          statusLabel={entryStatusLabel}
+          error={
+            meshyPromptTooLong
+              ? `Prompt must be ${MESHY_PROMPT_MAX} characters or fewer`
+              : cad.error
+          }
+          mode={entryMode}
+        />
+      ) : (
+        <Suspense
+          fallback={
+            <StudioEntryScreen
+              prompt={meshyPrompt}
+              onPromptChange={setMeshyPrompt}
+              onGenerate={() => void handleEntryGenerate()}
+              onOpenStudio={openFullStudio}
+              mode="loading-studio"
+              statusLabel="Loading Design Studio…"
+            />
+          }
+        >
+          <CadStudioShell
         engineContainerRef={containerRef}
         onEngineContainerMount={() => setEngineHostReady(true)}
         cad={cad}
@@ -784,7 +846,9 @@ export const DesignStudioPage: React.FC = () => {
         engineLoading={engineLoading}
         linkedCadJobId={linkedCadJobId}
         linkedGlbR2Key={linkedGlbR2Key}
-      />
+          />
+        </Suspense>
+      )}
     </div>
   );
 };

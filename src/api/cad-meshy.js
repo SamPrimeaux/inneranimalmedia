@@ -88,6 +88,8 @@ const MESHY_TASK_TYPE_ALIASES = {
   'post-process': 'remesh',
   image: 'text-to-image',
   print: 'remesh',
+  unwrap: 'uv-unwrap',
+  'uvunwrap': 'uv-unwrap',
 };
 
 function meshyAuthCtx(reqCtx) {
@@ -136,7 +138,9 @@ async function startMeshyCadJob(env, authRequest, authUser, body, taskType, mesh
       ? 'remesh'
       : normalized === 'text-to-image'
         ? 'text-to-image'
-        : normalized;
+        : normalized === 'uv-unwrap'
+          ? 'uv-unwrap'
+          : normalized;
 
   if (isMeshyAuthMissing(meshyAuth)) {
     return { stub: true, message: meshyStubMessage() };
@@ -192,6 +196,12 @@ async function startMeshyCadJob(env, authRequest, authUser, body, taskType, mesh
   } else if (normalized === 'animation') {
     const built = buildMeshyAnimationPayload(body);
     payload = built.payload;
+  } else if (normalized === 'uv-unwrap') {
+    if (!inputTaskId && !modelUrl) throw new Error('input_task_id or model_url required');
+    payload = {
+      ...(inputTaskId ? { input_task_id: inputTaskId } : {}),
+      ...(modelUrl ? { model_url: modelUrl } : {}),
+    };
   } else {
     throw new Error(`unsupported task_type: ${taskType}`);
   }
@@ -498,6 +508,40 @@ export async function handleCadMeshyApi(request, url, env, ctx) {
         phase: 'rigging',
         workspace_id: scope.workspaceId,
       });
+    }
+
+    if (path === '/api/cad/meshy/uv-unwrap' && method === 'POST') {
+      const body = await request.json().catch(() => ({}));
+      const inputTaskId = String(body.input_task_id || body.model_task_id || '').trim();
+      const modelUrl = String(body.model_url || '').trim();
+      if (!inputTaskId && !modelUrl) {
+        return jsonResponse({ error: 'input_task_id or model_url required' }, 400);
+      }
+
+      const meshyAuth = await resolveRequestMeshyAuth(env, reqCtx);
+      if (isMeshyAuthMissing(meshyAuth)) {
+        return jsonResponse({ stub: true, key_source: 'none', message: meshyStubMessage() });
+      }
+
+      try {
+        await checkMeshyBalanceForOperation(env, 'uv-unwrap', body, meshyAuth);
+      } catch (e) {
+        const mapped = meshyErrorResponseBody(e);
+        return jsonResponse(mapped.body, mapped.status);
+      }
+
+      try {
+        const result = await startMeshyCadJob(env, authRequest, authUser, body, 'uv-unwrap', meshyAuth);
+        return jsonResponse({
+          ...result,
+          key_source: meshyAuth.source,
+          face_count_warning: 'Meshy UV unwrap supports models up to 40,000 faces (5 credits).',
+        });
+      } catch (e) {
+        const mapped = meshyErrorResponseBody(e);
+        if (mapped.status !== 500) return jsonResponse(mapped.body, mapped.status);
+        return jsonResponse({ error: String(e?.message || e) }, 400);
+      }
     }
 
     const img3dStreamMatch = url.pathname.match(/^\/api\/cad\/meshy\/image-to-3d\/([^/]+)\/stream$/i);
@@ -872,22 +916,28 @@ export async function handleCadMeshyApi(request, url, env, ctx) {
         externalTaskId = created.task_id;
         creditsConsumed = estimateImageTo3dCost(body);
       } else {
-        const previewBody = {
-          prompt,
-          art_style: body.art_style || 'realistic',
-          negative_prompt: body.negative_prompt || 'low quality, blurry',
-          ai_model: body.ai_model,
-          model_type: body.model_type,
-          topology: body.topology,
-          target_polycount: body.target_polycount,
-          should_remesh: body.should_remesh,
-          symmetry_mode: body.symmetry_mode,
-          pose_mode: body.pose_mode,
-          target_formats: body.target_formats,
-          moderation: body.moderation,
-          auto_size: body.auto_size,
-          origin_at: body.origin_at,
-        };
+        const trimmedPrompt = String(prompt || body.prompt || '').trim();
+        /** @type {Record<string, unknown>} */
+        const previewBody =
+          body.mode === 'preview'
+            ? { ...body, prompt: trimmedPrompt, mode: 'preview' }
+            : {
+                mode: 'preview',
+                prompt: trimmedPrompt,
+                ai_model: body.ai_model,
+                model_type: body.model_type,
+                topology: body.topology,
+                target_polycount: body.target_polycount,
+                decimation_mode: body.decimation_mode,
+                should_remesh: body.should_remesh,
+                pose_mode: body.pose_mode,
+                target_formats: body.target_formats ?? ['glb'],
+                moderation: body.moderation,
+                auto_size: body.auto_size,
+                origin_at: body.origin_at,
+                alpha_thumbnail: body.alpha_thumbnail,
+              };
+        delete previewBody.auto_refine;
         const created = await textTo3dPreview(env, previewBody, meshyAuth);
         externalTaskId = created.task_id;
         creditsConsumed = estimateTextTo3dPreviewCost(previewBody);

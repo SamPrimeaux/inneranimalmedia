@@ -13,6 +13,12 @@ import {
   Layers, Sun, Globe, Camera, Plus,
 } from 'lucide-react';
 import { dispatchGenerateCadObject } from './dispatchCadChat';
+import {
+  DEFAULT_MESHY_SETTINGS,
+  buildMeshyPreviewBody,
+  type MeshyPoseMode,
+  MESHY_PROMPT_MAX,
+} from '../creation-station/meshyTypes';
 
 type CreationTab = 'model' | 'build' | 'scene';
 type BuildEngine = 'blender' | 'openscad' | 'freecad';
@@ -32,6 +38,12 @@ export type CreationLaneProps = {
   onRunFreeCAD: (code: string) => void;
   onSnapView?: (face: string) => void;
   onToggleOrtho?: (ortho: boolean) => void;
+  onMeshyTextTo3d?: (opts: {
+    prompt: string;
+    pose_mode: MeshyPoseMode;
+    model_type: 'standard' | 'lowpoly';
+    ai_model: string;
+  }) => void | Promise<void>;
 };
 
 function SectionHead({ label, icon: Icon }: { label: string; icon: React.ElementType }) {
@@ -80,7 +92,15 @@ function ActionBtn({ label, icon: Icon, onClick, accent, disabled }: {
 }
 
 // ── MODEL TAB ────────────────────────────────────────────────────────────────
-function ModelTab({ workspace, sceneId }: { workspace: string; sceneId: string | null }) {
+function ModelTab({
+  workspace,
+  sceneId,
+  onMeshyTextTo3d,
+}: {
+  workspace: string;
+  sceneId: string | null;
+  onMeshyTextTo3d?: CreationLaneProps['onMeshyTextTo3d'];
+}) {
   const [prompt, setPrompt] = useState(DEFAULT_PROMPT);
   const [modelType, setModelType] = useState('standard');
   const [aiModel, setAiModel] = useState('meshy-6');
@@ -92,8 +112,25 @@ function ModelTab({ workspace, sceneId }: { workspace: string; sceneId: string |
   const [source, setSource] = useState<'text' | 'image' | 'spline'>('text');
   const fileRef = useRef<HTMLInputElement>(null);
 
+  const poseModeMap: Record<string, MeshyPoseMode> = {
+    none: '',
+    a_pose: 'a-pose',
+    t_pose: 't-pose',
+  };
+
   const handleGenerate = () => {
-    if (!prompt.trim() && source === 'text') return;
+    const trimmed = prompt.trim();
+    if (!trimmed && source === 'text') return;
+    if (trimmed.length > MESHY_PROMPT_MAX) return;
+    if (onMeshyTextTo3d) {
+      void onMeshyTextTo3d({
+        prompt: trimmed,
+        pose_mode: poseModeMap[pose] ?? '',
+        model_type: modelType === 'low_poly' ? 'lowpoly' : 'standard',
+        ai_model: aiModel,
+      });
+      return;
+    }
     dispatchGenerateCadObject({
       prompt,
       engine: 'Meshy',
@@ -128,7 +165,7 @@ function ModelTab({ workspace, sceneId }: { workspace: string; sceneId: string |
             className="cl__prompt"
             value={prompt}
             onChange={e => setPrompt(e.target.value)}
-            placeholder="Describe the 3D model… e.g. a chess king, ornate gothic crown with buttresses"
+            placeholder="Describe the 3D model you want to generate…"
             rows={4}
           />
           <Field label="Model type">
@@ -170,7 +207,12 @@ function ModelTab({ workspace, sceneId }: { workspace: string; sceneId: string |
               Multi-view (Beta)
             </label>
           </div>
-          <ActionBtn label="✦ Generate" onClick={handleGenerate} accent disabled={!prompt.trim()} />
+          <ActionBtn
+            label="✦ Generate"
+            onClick={handleGenerate}
+            accent
+            disabled={!prompt.trim() || prompt.trim().length > MESHY_PROMPT_MAX}
+          />
         </>
       )}
 
@@ -458,7 +500,7 @@ function SceneTab({ onSpawnPrimitive, onImportGlb }: {
 export function CreationLane({
   open, onClose, workspace, sceneId, selectedObjectId,
   onSpawnPrimitive, onImportGlb, onRunBlenderScript, onRunOpenSCAD, onRunFreeCAD,
-  onSnapView, onToggleOrtho,
+  onSnapView, onToggleOrtho, onMeshyTextTo3d,
 }: CreationLaneProps) {
   const [tab, setTab] = useState<CreationTab>('model');
 
@@ -481,7 +523,9 @@ export function CreationLane({
       </div>
 
       <div className="cl__body">
-        {tab === 'model' && <ModelTab workspace={workspace} sceneId={sceneId} />}
+        {tab === 'model' && (
+          <ModelTab workspace={workspace} sceneId={sceneId} onMeshyTextTo3d={onMeshyTextTo3d} />
+        )}
         {tab === 'build' && (
           <BuildTab
             workspace={workspace} sceneId={sceneId} selectedObjectId={selectedObjectId}

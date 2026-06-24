@@ -202,7 +202,6 @@ export function useCreationStation(cad: CadHook) {
     const body = {
       prompt,
       ...buildMeshyPreviewBody(settings),
-      auto_refine: true,
     };
     const path = '/api/cad/meshy/generate';
     setLastRequest(buildCurl('POST', path, body));
@@ -233,12 +232,17 @@ export function useCreationStation(cad: CadHook) {
       appendLog('Upload an image first', 'warn');
       return;
     }
-    const path = '/api/cad/meshy/generate';
-    const body = { mode: 'image', image_url: imageDataUrl, topology: 'triangle', should_texture: true };
+    const path = '/api/cad/meshy/image-to-3d';
+    const body = {
+      image_url: imageDataUrl,
+      topology: 'triangle' as const,
+      should_texture: true,
+      enable_pbr: true,
+    };
     setLastRequest(buildCurl('POST', path, body));
     appendLog('Submitting image-to-3D…', 'info', { open: true });
     try {
-      const result = await cad.runMeshyGenerate('image-to-3d', body);
+      const result = await cad.runMeshyImageTo3d(body);
       setLastResponse(JSON.stringify(result, null, 2));
       appendLog(`Image-to-3D job ${result?.job_id ?? 'queued'}`, 'ok');
       void refreshBalance();
@@ -281,8 +285,24 @@ export function useCreationStation(cad: CadHook) {
       appendLog('Complete rigging first and pick an animation clip', 'warn');
       return;
     }
-    await submitMeshyTask('animation', { rig_task_id: rigId, action_id: animationActionId }, 'animation');
-  }, [rigCompletedTaskId, animationActionId, submitMeshyTask]);
+    const path = '/api/cad/meshy/animations';
+    const body = { rig_task_id: rigId, action_id: animationActionId };
+    setLastRequest(buildCurl(path, body));
+    appendLog('Submitting animation job…', 'info', { open: true });
+    try {
+      const result = await cad.runMeshyAnimation({
+        rig_task_id: rigId,
+        action_id: animationActionId,
+      });
+      setLastResponse(JSON.stringify(result, null, 2));
+      appendLog(`Animation job ${result?.job_id ?? 'queued'}`, 'ok');
+      void refreshBalance();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setLastResponse(JSON.stringify({ error: msg }, null, 2));
+      appendLog(msg, 'error');
+    }
+  }, [rigCompletedTaskId, animationActionId, cad, appendLog, refreshBalance]);
 
   const runTextToTexture = useCallback(async () => {
     if (!texturePrompt.trim()) {

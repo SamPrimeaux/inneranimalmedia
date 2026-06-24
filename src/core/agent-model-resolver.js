@@ -98,6 +98,7 @@ const TOOL_SMOKE_DEFAULT_SAFE_DENYLIST = new Set([
   'resend_create_api_key',
   'meshyai_image_to_3d',
   'meshyai_text_to_3d',
+  'meshyai_animation',
   'agentsam_run_agent',
   'python_execute',
   'terminal_run',

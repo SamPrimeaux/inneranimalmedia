@@ -174,6 +174,140 @@ export async function meshyRigging(body: {
   });
 }
 
+export type MeshyImageTo3dBody = {
+  image_url?: string;
+  input_task_id?: string;
+  model_type?: 'standard' | 'lowpoly';
+  ai_model?: string;
+  should_texture?: boolean;
+  enable_pbr?: boolean;
+  hd_texture?: boolean;
+  texture_prompt?: string;
+  texture_image_url?: string;
+  should_remesh?: boolean;
+  topology?: 'quad' | 'triangle';
+  target_polycount?: number;
+  decimation_mode?: number;
+  save_pre_remeshed_model?: boolean;
+  pose_mode?: '' | 'a-pose' | 't-pose';
+  image_enhancement?: boolean;
+  remove_lighting?: boolean;
+  moderation?: boolean;
+  target_formats?: string[];
+  auto_size?: boolean;
+  alpha_thumbnail?: boolean;
+  multi_view_thumbnails?: boolean;
+  origin_at?: 'bottom' | 'center';
+  session_id?: string;
+  scene_snapshot_id?: string;
+  blueprint_id?: string;
+};
+
+export async function meshyCreateImageTo3d(body: MeshyImageTo3dBody): Promise<{
+  job_id: string;
+  task_id: string;
+  external_task_id?: string;
+  result?: string;
+  status: string;
+}> {
+  return jsonFetch('/api/cad/meshy/image-to-3d', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function meshyUvUnwrap(body: {
+  input_task_id?: string;
+  model_task_id?: string;
+  model_url?: string;
+  session_id?: string;
+  scene_snapshot_id?: string;
+}): Promise<{
+  job_id: string;
+  task_id: string;
+  status: string;
+  face_count_warning?: string;
+}> {
+  return jsonFetch('/api/cad/meshy/uv-unwrap', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function meshyListImageTo3d(query?: {
+  page_num?: number;
+  page_size?: number;
+  sort_by?: string;
+}): Promise<{ tasks: unknown; page_num: number; page_size: number; type: string }> {
+  const qs = new URLSearchParams();
+  if (query?.page_num != null) qs.set('page_num', String(query.page_num));
+  if (query?.page_size != null) qs.set('page_size', String(query.page_size));
+  if (query?.sort_by) qs.set('sort_by', query.sort_by);
+  const suffix = qs.toString() ? `?${qs.toString()}` : '';
+  return jsonFetch(`/api/cad/meshy/image-to-3d${suffix}`);
+}
+
+export async function meshyGetImageTo3d(taskId: string): Promise<{
+  task: Record<string, unknown>;
+  cad?: Record<string, unknown>;
+}> {
+  return jsonFetch(`/api/cad/meshy/image-to-3d/${encodeURIComponent(taskId)}`);
+}
+
+export async function meshyDeleteImageTo3d(taskId: string): Promise<{ ok: boolean; task_id: string }> {
+  return jsonFetch(`/api/cad/meshy/image-to-3d/${encodeURIComponent(taskId)}`, { method: 'DELETE' });
+}
+
+export function meshyImageTo3dStreamUrl(taskId: string): string {
+  return `/api/cad/meshy/image-to-3d/${encodeURIComponent(taskId)}/stream`;
+}
+
+export type MeshyAnimationPostProcess = {
+  operation_type: 'change_fps' | 'fbx2usdz' | 'extract_armature';
+  fps?: 24 | 25 | 30 | 60;
+};
+
+export async function meshyCreateAnimation(body: {
+  rig_task_id: string;
+  action_id: number;
+  post_process?: MeshyAnimationPostProcess;
+  session_id?: string;
+  scene_snapshot_id?: string;
+  blueprint_id?: string;
+}): Promise<{
+  job_id: string;
+  task_id: string;
+  external_task_id?: string;
+  result?: string;
+  status: string;
+  action_id?: number;
+  rig_task_id?: string;
+}> {
+  return jsonFetch('/api/cad/meshy/animations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function meshyGetAnimation(taskId: string): Promise<{
+  task: Record<string, unknown>;
+  cad?: Record<string, unknown>;
+}> {
+  return jsonFetch(`/api/cad/meshy/animations/${encodeURIComponent(taskId)}`);
+}
+
+export async function meshyDeleteAnimation(taskId: string): Promise<{ ok: boolean; task_id: string }> {
+  return jsonFetch(`/api/cad/meshy/animations/${encodeURIComponent(taskId)}`, { method: 'DELETE' });
+}
+
+/** Opens Meshy SSE stream for an animation task (GET /openapi/v1/animations/:id/stream). */
+export function meshyAnimationStreamUrl(taskId: string): string {
+  return `/api/cad/meshy/animations/${encodeURIComponent(taskId)}/stream`;
+}
+
 export async function meshyCreateTask(body: {
   task_type: string;
   session_id?: string;

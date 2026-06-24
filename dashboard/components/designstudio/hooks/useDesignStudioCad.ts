@@ -7,6 +7,8 @@ import {
   generateMeshy,
   meshyRigging,
   meshyCreateTask,
+  meshyCreateAnimation,
+  meshyCreateImageTo3d,
   generateOpenScad,
   generateBlenderScript,
   generateFreecadScript,
@@ -16,6 +18,7 @@ import {
   type BlueprintRow,
   type CadJobRow,
 } from '../api';
+import type { MeshyImageTo3dBody } from '../api';
 import { useCadJobPoll } from './useCadJobPoll';
 
 export type UseDesignStudioCadOpts = {
@@ -23,6 +26,8 @@ export type UseDesignStudioCadOpts = {
   sceneId?: string | null;
   onJobDone?: (job: CadJobRow) => void;
   onBlueprintsChange?: () => void;
+  /** Sync visible Meshy prompt fields when a generation starts (text mode). */
+  onPromptUsed?: (prompt: string) => void;
 };
 
 export function useDesignStudioCad(opts: UseDesignStudioCadOpts = {}) {
@@ -262,14 +267,17 @@ export function useDesignStudioCad(opts: UseDesignStudioCadOpts = {}) {
       setBusy(true);
       setError(null);
       try {
+        const usedPrompt =
+          mode === 'text' ? prompt.trim() : prompt.trim() || 'image-to-3d';
         const result = await generateMeshy({
-          ...(mode === 'text' ? { prompt: prompt.trim() } : { prompt: prompt.trim() || 'image-to-3d' }),
+          prompt: usedPrompt,
           mode,
           ...scopeBody(),
           ...extra,
         });
         setActiveJobId(result.job_id);
         if (result.status === 'stub') setMeshyStub(true);
+        if (mode === 'text' && usedPrompt) opts.onPromptUsed?.(usedPrompt);
         await refreshJobs();
         return result;
       } catch (e) {
@@ -281,7 +289,7 @@ export function useDesignStudioCad(opts: UseDesignStudioCadOpts = {}) {
         setBusy(false);
       }
     },
-    [scopeBody, refreshJobs],
+    [scopeBody, refreshJobs, opts],
   );
 
   const runMeshyRigging = useCallback(
@@ -300,6 +308,63 @@ export function useDesignStudioCad(opts: UseDesignStudioCadOpts = {}) {
       setError(null);
       try {
         const result = await meshyRigging({ ...body, ...scopeBody() });
+        setActiveJobId(result.job_id);
+        await refreshJobs();
+        return result;
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+        throw e;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [scopeBody, refreshJobs],
+  );
+
+  const runMeshyImageTo3d = useCallback(
+    async (body: MeshyImageTo3dBody) => {
+      const imageUrl = String(body.image_url || '').trim();
+      const inputTaskId = String(body.input_task_id || '').trim();
+      if (!imageUrl && !inputTaskId) {
+        setError('image_url or input_task_id required');
+        return null;
+      }
+      setBusy(true);
+      setError(null);
+      try {
+        const result = await meshyCreateImageTo3d({ ...body, ...scopeBody() });
+        setActiveJobId(result.job_id);
+        await refreshJobs();
+        return result;
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+        throw e;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [scopeBody, refreshJobs],
+  );
+
+  const runMeshyAnimation = useCallback(
+    async (body: {
+      rig_task_id: string;
+      action_id: number;
+      post_process?: {
+        operation_type: 'change_fps' | 'fbx2usdz' | 'extract_armature';
+        fps?: number;
+      };
+    }) => {
+      const rigTaskId = String(body.rig_task_id || '').trim();
+      const actionId = Number(body.action_id);
+      if (!rigTaskId || !Number.isFinite(actionId)) {
+        setError('rig_task_id and action_id required');
+        return null;
+      }
+      setBusy(true);
+      setError(null);
+      try {
+        const result = await meshyCreateAnimation({ ...body, ...scopeBody() });
         setActiveJobId(result.job_id);
         await refreshJobs();
         return result;
@@ -359,6 +424,8 @@ export function useDesignStudioCad(opts: UseDesignStudioCadOpts = {}) {
           return result;
         }
         setActiveJobId(result.job_id);
+        const usedPrompt = String(body.prompt || '').trim();
+        if (usedPrompt) opts.onPromptUsed?.(usedPrompt);
         await refreshJobs();
         return result;
       } catch (e) {
@@ -370,7 +437,7 @@ export function useDesignStudioCad(opts: UseDesignStudioCadOpts = {}) {
         setBusy(false);
       }
     },
-    [scopeBody, refreshJobs],
+    [scopeBody, refreshJobs, opts],
   );
 
   const runMeshyRefine = useCallback(
@@ -466,6 +533,8 @@ export function useDesignStudioCad(opts: UseDesignStudioCadOpts = {}) {
     saveBlueprintScript,
     runMeshyGenerate,
     runMeshyRigging,
+    runMeshyImageTo3d,
+    runMeshyAnimation,
     runMeshyTask,
     runMeshyPreview,
     runMeshyRefine,
