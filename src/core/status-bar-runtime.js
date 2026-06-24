@@ -94,6 +94,34 @@ async function githubBranchExists(repoSlug, branch, token) {
 }
 
 /**
+ * Compare tracking branch (default) vs active branch for status-bar sync arrows.
+ * @param {string} repoSlug
+ * @param {string} token
+ * @param {string} base
+ * @param {string} head
+ */
+async function fetchGithubBranchCompare(repoSlug, token, base, head) {
+  const b = String(base || '').trim();
+  const h = String(head || '').trim();
+  if (!repoSlug || !token || !b || !h) return { ahead_by: null, behind_by: null };
+  if (b === h) return { ahead_by: 0, behind_by: 0 };
+  try {
+    const res = await fetch(
+      `https://api.github.com/repos/${repoSlug}/compare/${encodeURIComponent(b)}...${encodeURIComponent(h)}`,
+      { headers: { ...GH_HEADERS_BASE, Authorization: `Bearer ${token}` } },
+    );
+    if (!res.ok) return { ahead_by: null, behind_by: null };
+    const j = await res.json().catch(() => ({}));
+    return {
+      ahead_by: typeof j.ahead_by === 'number' ? j.ahead_by : null,
+      behind_by: typeof j.behind_by === 'number' ? j.behind_by : null,
+    };
+  } catch {
+    return { ahead_by: null, behind_by: null };
+  }
+}
+
+/**
  * Resolve display branch: user preference (D1) when valid on GitHub, else repo default_branch.
  * @param {any} env
  * @param {{ id?: string }} authUser
@@ -297,6 +325,9 @@ export async function fetchAgentGitStatus(env, authUser, request, url) {
     dirty: false,
     last_updated: lastUpdated,
     checkpoint_sha: cached?.checkpoint_sha ?? null,
+    ahead_by: live.ahead_by ?? null,
+    behind_by: live.behind_by ?? null,
+    tracking_branch: live.tracking_branch ?? live.default_branch ?? live.branch,
   };
 }
 
@@ -333,6 +364,7 @@ export async function fetchGitStatusFromGitHub(env, authUser, request, url) {
       : repoCtx.repo;
   const defaultBranch = gh?.default_branch != null ? String(gh.default_branch) : 'main';
   const resolved = await resolveWorkspaceGitBranch(env, authUser, repoCtx, token, defaultBranch);
+  const compare = await fetchGithubBranchCompare(repoSlug, token, defaultBranch, resolved.branch);
 
   return {
     branch: resolved.branch,
@@ -342,6 +374,9 @@ export async function fetchGitStatusFromGitHub(env, authUser, request, url) {
     repo: fullName,
     repo_full_name: fullName,
     workspace_id: repoCtx.workspace_id,
+    ahead_by: compare.ahead_by,
+    behind_by: compare.behind_by,
+    tracking_branch: defaultBranch,
   };
 }
 

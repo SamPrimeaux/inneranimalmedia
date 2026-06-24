@@ -505,11 +505,15 @@ export const UnifiedSearchBar: React.FC<{
       const map: Record<string, SourceChipId> = {
         d1: 'd1',
         commands: 'commands',
+        deploy: 'commands',
         codebase: 'all',
         scripts: 'commands',
       };
       const first = initialFacets.map((f) => map[f]).find(Boolean);
       if (first) setSourceChip(first);
+      if (initialFacets.includes('deploy') && !initialQuery) {
+        setQ('deploy');
+      }
     }
     setActive(0);
     requestAnimationFrame(() => inputRef.current?.focus());

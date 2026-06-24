@@ -10,9 +10,14 @@ import {
   Bell,
   Check,
   ChevronDown,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react';
 import { SHELL_VERSION } from '../src/shellVersion';
+import type { OpenCommandPaletteDetail } from '../src/lib/openCommandPalette';
 import './StatusBar.css';
+
+const SYNC_CONFIRM_SKIP_KEY = 'iam-git-sync-skip-confirm';
 
 /** Cloudflare Worker name for this dashboard host (sandbox vs prod). */
 export function resolveWorkerDisplayName(): string {
@@ -97,6 +102,14 @@ interface StatusBarProps {
   onGitBranchClick?: () => void;
   onBranchSelect?: (branch: string) => void;
   onRefreshGitStatus?: () => void;
+  /** Cursor-style sync — triggers Workers Builds deploy hook for active workspace. */
+  onSyncPublish?: () => void | Promise<void>;
+  syncBusy?: boolean;
+  aheadCount?: number | null;
+  behindCount?: number | null;
+  trackingBranch?: string | null;
+  /** Open global Cmd+K palette (deploy / wrangler commands). */
+  onOpenCommandPalette?: (detail?: OpenCommandPaletteDetail) => void;
   onWorkspaceClick?: () => void;
   onErrorsClick?: () => void;
   onWarningsClick?: () => void;
@@ -133,6 +146,12 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   onGitBranchClick,
   onBranchSelect,
   onRefreshGitStatus,
+  onSyncPublish,
+  syncBusy = false,
+  aheadCount = null,
+  behindCount = null,
+  trackingBranch = null,
+  onOpenCommandPalette,
   onWorkspaceClick,
   onErrorsClick,
   onWarningsClick,
@@ -152,13 +171,21 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   const [branchData, setBranchData] = useState<{
     current: string;
     repo: string;
-    branches: { ref: string; sha: string; protected: boolean }[];
+    branches: GitBranchRow[];
   } | null>(null);
   const [branchLoading, setBranchLoading] = useState(false);
   const [branchError, setBranchError] = useState<string | null>(null);
   const [branchMenuFilter, setBranchMenuFilter] = useState('');
   const [showWorkspaceMenu, setWorkspaceMenu] = useState(false);
   const workspaceMenuRef = useRef<HTMLDivElement>(null);
+  const [syncConfirmOpen, setSyncConfirmOpen] = useState(false);
+  const [syncSkipConfirm, setSyncSkipConfirm] = useState(() => {
+    try {
+      return localStorage.getItem(SYNC_CONFIRM_SKIP_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
 
   useEffect(() => {
     const onMode = (ev: Event) => {
@@ -209,7 +236,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
       const json = (await res.json()) as {
         current?: string;
         repo?: string;
-        branches?: { ref: string; sha: string; protected: boolean }[];
+        branches?: GitBranchRow[];
         error?: string;
       };
       if (!res.ok) setBranchError(json.error || 'Failed to load branches');
@@ -217,7 +244,15 @@ export const StatusBar: React.FC<StatusBarProps> = ({
         setBranchData({
           current: json.current || 'main',
           repo: json.repo || '',
-          branches: Array.isArray(json.branches) ? json.branches : [],
+          branches: Array.isArray(json.branches)
+            ? json.branches.map((b) => ({
+                ref: b.ref,
+                sha: b.sha,
+                protected: b.protected ?? false,
+                subject: b.subject,
+                date_relative: b.date_relative,
+              }))
+            : [],
         });
     } catch {
       setBranchError('Network error');
@@ -294,6 +329,31 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   const pickWorkspaceEnabled = Array.isArray(workspaceMenuItems) && workspaceMenuItems.length > 0;
   const workspaceRepoHint =
     workspaceMenuItems?.find((w) => w.id === activeWorkspaceId)?.github_repo?.trim() || null;
+
+  const runSyncPublish = useCallback(() => {
+    setSyncConfirmOpen(false);
+    void onSyncPublish?.();
+  }, [onSyncPublish]);
+
+  const handleSyncClick = useCallback(() => {
+    if (!onSyncPublish) {
+      onRefreshGitStatus?.();
+      onGitBranchClick?.();
+      return;
+    }
+    if (syncSkipConfirm) {
+      runSyncPublish();
+      return;
+    }
+    setSyncConfirmOpen(true);
+  }, [onSyncPublish, onRefreshGitStatus, onGitBranchClick, syncSkipConfirm, runSyncPublish]);
+
+  const openPalette = useCallback(
+    (detail?: OpenCommandPaletteDetail) => {
+      onOpenCommandPalette?.(detail);
+    },
+    [onOpenCommandPalette],
+  );
 
   const stop = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -425,14 +485,32 @@ export const StatusBar: React.FC<StatusBarProps> = ({
           </button>
           <button
             type="button"
-            onClick={() => {
-              onRefreshGitStatus?.();
-              onGitBranchClick?.();
-            }}
-            className="flex items-center px-1.5 h-full hover:bg-[var(--bg-hover)] transition-colors"
-            title="Refresh git status and open source control"
+            onClick={handleSyncClick}
+            disabled={syncBusy}
+            className="flex items-center gap-0.5 px-1.5 h-full hover:bg-[var(--bg-hover)] transition-colors disabled:opacity-50"
+            title={
+              trackingBranch && branch
+                ? `Synchronize — deploy ${branch} via Workers Builds (tracks origin/${trackingBranch})`
+                : 'Synchronize changes — trigger Workers Builds deploy for this workspace'
+            }
           >
-            <RefreshCw size={10} />
+            <RefreshCw size={10} className={syncBusy ? 'animate-spin' : ''} />
+            {(aheadCount != null && aheadCount > 0) || (behindCount != null && behindCount > 0) ? (
+              <span className="flex items-center gap-0.5 text-[9px] font-semibold font-[var(--font-sans)] text-[var(--text-muted)]">
+                {behindCount != null && behindCount > 0 ? (
+                  <span className="flex items-center gap-px text-[var(--solar-cyan)]">
+                    <ArrowDown size={8} aria-hidden />
+                    {behindCount}
+                  </span>
+                ) : null}
+                {aheadCount != null && aheadCount > 0 ? (
+                  <span className="flex items-center gap-px text-[var(--solar-yellow)]">
+                    <ArrowUp size={8} aria-hidden />
+                    {aheadCount}
+                  </span>
+                ) : null}
+              </span>
+            ) : null}
           </button>
           {typeof document !== 'undefined' &&
             branchMenuOpen &&
@@ -445,6 +523,28 @@ export const StatusBar: React.FC<StatusBarProps> = ({
               >
                 <div className="iam-branch-panel-header border-b border-[var(--border-subtle)] px-3 py-2 text-[0.6875rem] font-semibold text-[var(--text-main)] truncate font-[var(--font-sans)]">
                   {branchLoading ? 'Loading…' : branchData?.repo || workspaceRepoHint || 'Repository'}
+                </div>
+                <div className="px-3 py-2 border-b border-[var(--border-subtle)] shrink-0 space-y-1">
+                  <button
+                    type="button"
+                    className="w-full text-left text-[0.6875rem] text-[var(--text-main)] hover:text-[var(--solar-cyan)] font-[var(--font-sans)]"
+                    onClick={() => {
+                      setBranchMenuOpen(false);
+                      openPalette({ chip: 'commands', query: 'branch', facets: ['commands'] });
+                    }}
+                  >
+                    Create new branch…
+                  </button>
+                  <button
+                    type="button"
+                    className="w-full text-left text-[0.6875rem] text-[var(--text-main)] hover:text-[var(--solar-cyan)] font-[var(--font-sans)]"
+                    onClick={() => {
+                      setBranchMenuOpen(false);
+                      openPalette({ chip: 'commands', query: 'deploy', facets: ['deploy'] });
+                    }}
+                  >
+                    Deploy from command palette…
+                  </button>
                 </div>
                 <div className="px-3 py-2 border-b border-[var(--border-subtle)] shrink-0">
                   <input
@@ -494,6 +594,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
                     !branchError &&
                     filteredBranchRows.map((b) => {
                       const isCurrent = branchData != null && b.ref === branchData.current;
+                      const shortSha = b.sha ? String(b.sha).slice(0, 7) : '';
                       return (
                         <button
                           key={b.ref}
@@ -502,7 +603,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
                             onBranchSelect?.(b.ref);
                             setBranchMenuOpen(false);
                           }}
-                          className={`w-full text-left px-3 py-1.5 text-[0.6875rem] hover:bg-[var(--bg-hover)] flex items-center gap-2 font-[var(--font-sans)] border-b border-[var(--border-subtle)]/30 last:border-b-0 ${
+                          className={`w-full text-left px-3 py-1.5 text-[0.6875rem] hover:bg-[var(--bg-hover)] flex items-start gap-2 font-[var(--font-sans)] border-b border-[var(--border-subtle)]/30 last:border-b-0 ${
                             isCurrent ? 'bg-[var(--bg-hover)]/60' : ''
                           }`}
                         >
@@ -512,18 +613,32 @@ export const StatusBar: React.FC<StatusBarProps> = ({
                               height="11"
                               viewBox="0 0 11 11"
                               aria-hidden
-                              className="shrink-0 text-[var(--solar-cyan)]"
+                              className="shrink-0 text-[var(--solar-cyan)] mt-0.5"
                             >
                               <circle cx="5.5" cy="5.5" r="4" fill="currentColor" />
                             </svg>
                           ) : (
-                            <span className="w-[11px] shrink-0 inline-block" />
+                            <span className="w-[11px] shrink-0 inline-block mt-0.5" />
                           )}
-                          <span className="font-medium truncate text-[var(--text-main)] flex-1 min-w-0">{b.ref}</span>
-                          <span className="font-[var(--font-sans)] text-[10px] text-[var(--text-muted)] shrink-0">{b.sha}</span>
-                          {b.protected ? (
-                            <span className="iam-branch-protected text-[9px] shrink-0">protected</span>
-                          ) : null}
+                          <span className="min-w-0 flex-1">
+                            <span className="flex items-center gap-2">
+                              <span className="font-medium truncate text-[var(--text-main)]">{b.ref}</span>
+                              {shortSha ? (
+                                <span className="font-[var(--font-sans)] text-[10px] text-[var(--text-muted)] shrink-0">
+                                  {shortSha}
+                                </span>
+                              ) : null}
+                              {b.protected ? (
+                                <span className="iam-branch-protected text-[9px] shrink-0">protected</span>
+                              ) : null}
+                            </span>
+                            {b.subject ? (
+                              <span className="block text-[10px] text-[var(--text-muted)] truncate mt-0.5">
+                                {b.subject}
+                                {b.date_relative ? ` · ${b.date_relative}` : ''}
+                              </span>
+                            ) : null}
+                          </span>
                         </button>
                       );
                     })}
@@ -550,10 +665,20 @@ export const StatusBar: React.FC<StatusBarProps> = ({
             <button
               type="button"
               onClick={() => {
+                if (onOpenCommandPalette && workspace.includes('/')) {
+                  openPalette({ chip: 'commands', query: 'deploy', facets: ['deploy'] });
+                  return;
+                }
                 if (pickWorkspaceEnabled) setWorkspaceMenu((v) => !v);
                 else onWorkspaceClick?.();
               }}
-              title={pickWorkspaceEnabled ? 'Switch workspace' : 'Workspace hub'}
+              title={
+                onOpenCommandPalette && workspace.includes('/')
+                  ? 'Repository — open deploy commands (Cmd+K)'
+                  : pickWorkspaceEnabled
+                    ? 'Switch workspace'
+                    : 'Workspace hub'
+              }
               className="px-2.5 h-full hover:bg-[var(--bg-hover)] transition-colors flex items-center gap-1 max-w-[180px]"
             >
               <span className="text-[0.5625rem] font-semibold text-[var(--text-muted)] truncate font-[var(--font-sans)]">
@@ -764,6 +889,72 @@ export const StatusBar: React.FC<StatusBarProps> = ({
           )}
         </button>
       </div>
+
+      {syncConfirmOpen && (
+        <div
+          className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/40"
+          onMouseDown={stop}
+        >
+          <div
+            className="w-full max-w-md rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-elevated)] shadow-2xl p-4 space-y-3"
+            role="dialog"
+            aria-labelledby="iam-sync-confirm-title"
+          >
+            <p id="iam-sync-confirm-title" className="text-[13px] text-[var(--text-main)] leading-snug">
+              This triggers a Workers Builds deploy for{' '}
+              <span className="font-semibold">{workspace || 'this workspace'}</span>
+              {branch ? (
+                <>
+                  {' '}
+                  on branch <span className="font-mono text-[12px]">{branch}</span>
+                </>
+              ) : null}
+              {trackingBranch ? (
+                <span className="text-[var(--text-muted)]">
+                  {' '}
+                  (tracks origin/{trackingBranch})
+                </span>
+              ) : null}
+              .
+            </p>
+            <p className="text-[11px] text-[var(--text-muted)]">
+              Push commits to GitHub first, then sync to deploy the latest remote ref — same flow as Cursor&apos;s
+              synchronize after push.
+            </p>
+            <div className="flex flex-wrap gap-2 justify-end">
+              <button
+                type="button"
+                className="px-3 py-1.5 text-[12px] rounded-md border border-[var(--border-subtle)] hover:bg-[var(--bg-hover)]"
+                onClick={() => setSyncConfirmOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="px-3 py-1.5 text-[12px] rounded-md border border-[var(--border-subtle)] hover:bg-[var(--bg-hover)]"
+                onClick={() => {
+                  try {
+                    localStorage.setItem(SYNC_CONFIRM_SKIP_KEY, '1');
+                  } catch {
+                    /* ignore */
+                  }
+                  setSyncSkipConfirm(true);
+                  runSyncPublish();
+                }}
+              >
+                OK, don&apos;t show again
+              </button>
+              <button
+                type="button"
+                className="px-3 py-1.5 text-[12px] rounded-md bg-[var(--solar-cyan)]/20 text-[var(--solar-cyan)] border border-[var(--solar-cyan)]/40 hover:bg-[var(--solar-cyan)]/30 font-semibold"
+                onClick={runSyncPublish}
+              >
+                Deploy now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </nav>
   );
 };

@@ -3068,8 +3068,8 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
   if (path === '/api/agent/git/sync' && method === 'POST') {
     const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
     if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
-    if (!env.DB)   return jsonResponse({ error: 'DB not configured' }, 503);
-    const body       = await request.json().catch(() => ({}));
+    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    const body = await request.json().catch(() => ({}));
     let tenantId =
       authUser.tenant_id != null && String(authUser.tenant_id).trim() !== ''
         ? String(authUser.tenant_id).trim()
@@ -3077,16 +3077,16 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     if (!tenantId) tenantId = await fetchAuthUserTenantId(env, authUser.id);
     if (!tenantId && authUser.email) tenantId = await fetchAuthUserTenantId(env, authUser.email);
     if (!tenantId) return jsonResponse({ error: 'Tenant not configured for this account' }, 403);
-    const proposalId = 'prop_' + crypto.randomUUID().replace(/-/g,'').slice(0,16);
-    const now        = Math.floor(Date.now() / 1000);
-    const proposedBy = String(authUser.email || authUser.id || 'user').slice(0,200);
-    const iamOrigin  = (env.IAM_ORIGIN || '').replace(/\/$/,'');
+    const proposalId = 'prop_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
+    const now = Math.floor(Date.now() / 1000);
+    const proposedBy = String(authUser.email || authUser.id || 'user').slice(0, 200);
+    const iamOrigin = (env.IAM_ORIGIN || '').replace(/\/$/, '');
     const expGit = now + 86400;
     await env.DB.prepare(
       `INSERT INTO agentsam_approval_queue
        (id, tenant_id, workspace_id, user_id, session_id, tool_name, action_summary,
         risk_level, input_json, expires_at, status, approval_type, created_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     ).bind(
       proposalId,
       tenantId,
@@ -3106,8 +3106,65 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
       'tool',
       now,
     ).run();
-    notifySam(env, { subject: 'Git sync proposal pending', body: `Proposal: ${proposalId}\nApprove: ${iamOrigin}/dashboard/overview?proposal=${proposalId}`, category: 'proposal' }, ctx);
+    notifySam(
+      env,
+      {
+        subject: 'Git sync proposal pending',
+        body: `Proposal: ${proposalId}\nApprove: ${iamOrigin}/dashboard/overview?proposal=${proposalId}`,
+        category: 'proposal',
+      },
+      ctx,
+    );
     return jsonResponse({ ok: true, proposal_id: proposalId, risk_level: 'medium' });
+  }
+
+  // ── POST /api/agent/git/publish — Workers Builds deploy hook (status-bar sync) ─
+  if (path === '/api/agent/git/publish' && method === 'POST') {
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    const body = await request.json().catch(() => ({}));
+    const { resolveTerminalWorkspaceId } = await import('../core/bootstrap.js');
+    const tw = await resolveTerminalWorkspaceId(
+      env,
+      request,
+      authUser,
+      body.workspace_id != null ? String(body.workspace_id).trim() : null,
+    );
+    if (!tw.workspaceId) {
+      return jsonResponse({ error: tw.error || 'workspace_missing' }, tw.error === 'Forbidden' ? 403 : 400);
+    }
+    const { postWorkersDeployHook, redactDeployHookUrl } = await import('../core/workers-deploy-hook.js');
+    const workerName =
+      body.worker_name != null ? String(body.worker_name).trim() : body.workerName != null
+        ? String(body.workerName).trim()
+        : null;
+    const result = await postWorkersDeployHook(env, {
+      workspaceId: tw.workspaceId,
+      workerName: workerName || undefined,
+    });
+    if (result.error === 'deploy_hook_url not configured') {
+      return jsonResponse({ error: result.error, workspace_id: tw.workspaceId }, 503);
+    }
+    if (result.error && result.status === 0) {
+      return jsonResponse({ error: result.error, workspace_id: tw.workspaceId }, 400);
+    }
+    const buildUuid = result.json?.result?.build_uuid ?? result.json?.build_uuid ?? null;
+    const httpOk = result.ok ? 200 : 502;
+    return jsonResponse(
+      {
+        ok: result.ok,
+        workspace_id: tw.workspaceId,
+        worker_name: workerName,
+        build_uuid: buildUuid,
+        deploy_hook_url_redacted: redactDeployHookUrl(result.deploy_hook_url),
+        deploy_hook_source: result.source ?? null,
+        http_status: result.status,
+        cloudflare: result.json ?? null,
+        detail: result.raw ?? null,
+        error: result.error ?? null,
+      },
+      httpOk,
+    );
   }
 
   // ── /api/agent/boot ───────────────────────────────────────────────────────

@@ -40,6 +40,11 @@ import {
 } from './agentChatConstants';
 import { IAM_AGENT_ENSURE_PANEL, IAM_AGENT_RESUME_CHAT, openAgentConversation, resumeAgentChatSession } from './lib/openAgentConversation';
 import { resolveWorkspaceContextLabel } from './src/workspaceContextLabel';
+import {
+  IAM_OPEN_COMMAND_PALETTE,
+  openCommandPalette,
+  type OpenCommandPaletteDetail,
+} from './src/lib/openCommandPalette';
 import { WorkspaceLauncher } from './components/WorkspaceLauncher';
 import type { XTermShellHandle, ShellTab } from './components/XTermShell';
 import { SecurityShieldBanner } from './components/SecurityShieldBanner';
@@ -562,6 +567,10 @@ const App: React.FC = () => {
   const [recentFilesLsTick, setRecentFilesLsTick] = useState(0);
   const [gitBranch, setGitBranch] = useState(() => '');
   const [gitRepoFullName, setGitRepoFullName] = useState(() => '');
+  const [gitAhead, setGitAhead] = useState<number | null>(null);
+  const [gitBehind, setGitBehind] = useState<number | null>(null);
+  const [gitTrackingBranch, setGitTrackingBranch] = useState<string | null>(null);
+  const [gitSyncBusy, setGitSyncBusy] = useState(false);
   const [devServer, setDevServer] = useState<DevServerState | null>(null);
   const [gitHash, setGitHash] = useState<string | null>(null);
   const stableAgentChatTabId = useMemo(
@@ -641,6 +650,19 @@ const App: React.FC = () => {
       setSearchInitialFacets([]);
       setSearchInitialQuery('');
     }
+  }, []);
+
+  useEffect(() => {
+    const onPalette = (e: Event) => {
+      const detail = (e as CustomEvent<OpenCommandPaletteDetail>).detail ?? {};
+      if (detail.query) setSearchInitialQuery(detail.query);
+      if (detail.facets?.length) setSearchInitialFacets(detail.facets);
+      else if (detail.chip === 'commands') setSearchInitialFacets(['commands']);
+      else if (detail.chip === 'd1') setSearchInitialFacets(['d1']);
+      setSearchOpen(true);
+    };
+    window.addEventListener(IAM_OPEN_COMMAND_PALETTE, onPalette as EventListener);
+    return () => window.removeEventListener(IAM_OPEN_COMMAND_PALETTE, onPalette as EventListener);
   }, []);
   /** Desktop: Draw / Search / History (Addendum A). */
   const [topChromeMoreOpen, setTopChromeMoreOpen] = useState(false);
@@ -2579,7 +2601,15 @@ const App: React.FC = () => {
   }, []);
 
   const applyGitStatusPayload = useCallback(
-    (gitData: { branch?: string; repo?: string; repo_full_name?: string }) => {
+    (gitData: {
+      branch?: string;
+      repo?: string;
+      repo_full_name?: string;
+      ahead_by?: number | null;
+      behind_by?: number | null;
+      tracking_branch?: string;
+      default_branch?: string;
+    }) => {
       const repo = gitData.repo_full_name
         ? String(gitData.repo_full_name)
         : gitData.repo
@@ -2588,6 +2618,23 @@ const App: React.FC = () => {
       const branchName = gitData.branch ? String(gitData.branch) : '';
       if (branchName) setGitBranch(branchName);
       if (repo) setGitRepoFullName(repo);
+      if (gitData.ahead_by != null && Number.isFinite(Number(gitData.ahead_by))) {
+        setGitAhead(Number(gitData.ahead_by));
+      } else {
+        setGitAhead(null);
+      }
+      if (gitData.behind_by != null && Number.isFinite(Number(gitData.behind_by))) {
+        setGitBehind(Number(gitData.behind_by));
+      } else {
+        setGitBehind(null);
+      }
+      const track =
+        gitData.tracking_branch != null && String(gitData.tracking_branch).trim()
+          ? String(gitData.tracking_branch).trim()
+          : gitData.default_branch != null && String(gitData.default_branch).trim()
+            ? String(gitData.default_branch).trim()
+            : null;
+      setGitTrackingBranch(track);
     },
     [],
   );
@@ -2766,6 +2813,36 @@ const App: React.FC = () => {
 
     void fetchTelemetryPoll();
   }, [fetchHealth, fetchTunnelStatusOnly, fetchTerminalConfigOnly, fetchTelemetryPoll, applyGitStatusPayload, applyProblemsPayload, authWorkspaceId]);
+
+  const handleGitSyncPublish = useCallback(async () => {
+    const ws = authWorkspaceId?.trim();
+    setGitSyncBusy(true);
+    try {
+      const res = await fetch('/api/agent/git/publish', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspace_id: ws || undefined }),
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        build_uuid?: string;
+      };
+      if (!res.ok || !j.ok) {
+        setToastMsg(j.error || `Deploy trigger failed (${res.status})`);
+        return;
+      }
+      const buildHint = j.build_uuid ? ` Build ${String(j.build_uuid).slice(0, 8)}…` : '';
+      setToastMsg(`Workers Builds deploy triggered.${buildHint}`);
+      void fetchGitAndProblems();
+      void fetchLiveStatus();
+    } catch (e) {
+      setToastMsg(e instanceof Error ? e.message : 'Deploy trigger failed');
+    } finally {
+      setGitSyncBusy(false);
+    }
+  }, [authWorkspaceId, fetchGitAndProblems, fetchLiveStatus]);
 
   useEffect(() => {
     // Polling (ms): health 5m, notifications 2m, git+problems 3m, tunnel 5m, terminal config 10m,
@@ -4635,6 +4712,12 @@ const App: React.FC = () => {
         activeWorkspaceId={authWorkspaceId}
         onWorkspaceMenuSelect={handleStatusBarWorkspacePick}
         onBranchSelect={handleStatusBarBranchSelect}
+        aheadCount={gitAhead}
+        behindCount={gitBehind}
+        trackingBranch={gitTrackingBranch}
+        syncBusy={gitSyncBusy}
+        onSyncPublish={handleGitSyncPublish}
+        onOpenCommandPalette={openCommandPalette}
         errorCount={errorCount}
         warningCount={warningCount}
         showCursor={activeTab === 'code'}
