@@ -2299,3 +2299,113 @@
 .adj__dim-field .adj__number { width: 100%; }
 .adj__poly-stats { display: flex; gap: 8px; font-size: 10px; color: var(--cs-text-2); padding: 4px 0; }
 .adj__poly-stats b { color: var(--cs-text-0); }
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   VIEWPORT OVERHAUL — kill HUD text, add ViewCube + Ortho/Perspective pill
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* Kill the old label/stats overlay text */
+.cad-studio__viewport-label,
+.cad-studio__stats { display: none !important; }
+
+/* Kill the old axis dots */
+.cad-studio__axis-gizmo { display: none !important; }
+
+/* Old hud-btns were top-right absolute — now controlled by vpc__top-right */
+.cad-studio__hud-btns {
+  display: flex; flex-direction: row; gap: 3px; align-items: center;
+}
+
+/* ── ViewCube top-right group ── */
+.vpc__top-right {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  pointer-events: all;
+  z-index: 10;
+}
+
+.vpc__cube {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  user-select: none;
+}
+
+.vpc__svg { cursor: default; display: block; }
+
+--vpc-stroke: rgba(255,255,255,0.18);
+
+.vpc__face {
+  cursor: pointer;
+  transition: filter 0.1s;
+}
+.vpc__face--top  { fill: rgba(255,255,255,0.12); }
+.vpc__face--left { fill: rgba(255,255,255,0.07); }
+.vpc__face--right{ fill: rgba(255,255,255,0.04); }
+.vpc__face:hover { filter: brightness(2.2); }
+
+.vpc__label {
+  font-size: 7px;
+  fill: rgba(255,255,255,0.45);
+  text-anchor: middle;
+  dominant-baseline: middle;
+  pointer-events: none;
+  font-family: var(--cs-mono, monospace);
+  letter-spacing: 0.04em;
+}
+
+.vpc__axes {
+  display: flex; gap: 5px; align-items: center;
+}
+.vpc__axis {
+  font-size: 9px; font-weight: 700; font-family: var(--cs-mono, monospace);
+  padding: 1px 3px; border-radius: 2px;
+}
+.vpc__axis--x { color: #ef4444; }
+.vpc__axis--y { color: #22c55e; }
+.vpc__axis--z { color: #3b82f6; }
+
+/* ── Ortho / Perspective pill ── */
+.vpc__view-toggle {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  background: color-mix(in srgb, var(--cs-bg-2) 80%, transparent);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--cs-line-1);
+  border-radius: 999px;
+  padding: 2px;
+  gap: 0;
+  z-index: 10;
+  pointer-events: all;
+}
+.vpc__view-btn {
+  padding: 4px 14px; border-radius: 999px; border: none;
+  background: transparent; color: var(--cs-text-2);
+  font-size: 11px; cursor: pointer; transition: all 0.1s;
+  white-space: nowrap;
+}
+.vpc__view-btn:hover { color: var(--cs-text-0); }
+.vpc__view-btn.active {
+  background: var(--cs-bg-3);
+  color: var(--cs-text-0);
+}
+
+/* Keep view-nav on right-center */
+.cad-studio__view-nav {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  pointer-events: all;
+  z-index: 10;
+}
