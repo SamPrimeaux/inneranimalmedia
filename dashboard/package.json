@@ -8,7 +8,8 @@
     "build": "vite build",
     "build:analyze": "ANALYZE=1 vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "deploy": "node scripts/bump-cache.js && npm run build && npx wrangler deploy"
+    "deploy": "node scripts/bump-cache.js && npm run build && npx wrangler deploy",
+    "deploy:cf-builds": "echo \"[cf-builds] dashboard deployed via R2 — worker-only path, skipping\" && exit 0"
   },
   "dependencies": {
     "@cloudflare/realtimekit-react": "^1.5.1",
