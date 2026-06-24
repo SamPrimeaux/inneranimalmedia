@@ -1082,6 +1082,78 @@ export class AgentSamEngine {
     URL.revokeObjectURL(url);
   }
 
+
+  // ── Inspector Panel engine methods ─────────────────────────────────────
+
+  public setBackground(hexColor: string) {
+    this.scene.background = new THREE.Color(hexColor);
+    // Keep fog color in sync if fog is active
+    if (this.scene.fog instanceof THREE.FogExp2) {
+      this.scene.fog.color = new THREE.Color(hexColor);
+    }
+  }
+
+  public setFog(enabled: boolean) {
+    const bg = this.scene.background instanceof THREE.Color
+      ? '#' + this.scene.background.getHexString()
+      : '#0f111a';
+    this.scene.fog = enabled ? new THREE.FogExp2(new THREE.Color(bg).getHex(), 0.015) : null;
+  }
+
+  public setGridVisible(visible: boolean) {
+    this.scene.children.forEach((c) => {
+      if (c instanceof THREE.GridHelper) c.visible = visible;
+    });
+  }
+
+  public toggleOrtho(ortho: boolean) {
+    this.camera = ortho ? this.orthoCamera : this.perspectiveCamera;
+    this.controls.object = this.camera;
+    this.controls.update();
+  }
+
+  public snapViewTo(face: 'top' | 'front' | 'right' | 'left' | 'back' | 'bottom') {
+    const dist = 20;
+    const positions: Record<string, [number, number, number]> = {
+      top:    [0,  dist, 0.001],
+      bottom: [0, -dist, 0.001],
+      front:  [0, 0,  dist],
+      back:   [0, 0, -dist],
+      right:  [ dist, 0, 0],
+      left:   [-dist, 0, 0],
+    };
+    const [x, y, z] = positions[face] ?? [dist, dist, dist];
+    this.camera.position.set(x, y, z);
+    this.camera.lookAt(0, 0, 0);
+    this.controls.target.set(0, 0, 0);
+    this.controls.update();
+  }
+
+  public patchEntityPosition(id: string, pos: { x?: number; y?: number; z?: number }) {
+    const ent = this.entities.get(id);
+    if (!ent) return;
+    const visual = ent.model || ent.mesh;
+    if (!visual) return;
+    if (pos.x !== undefined) visual.position.x = pos.x;
+    if (pos.y !== undefined) visual.position.y = pos.y;
+    if (pos.z !== undefined) visual.position.z = pos.z;
+    // Keep data in sync
+    ent.data.position = {
+      x: visual.position.x,
+      y: visual.position.y,
+      z: visual.position.z,
+    };
+  }
+
+  public patchEntityScale(id: string, scale: number) {
+    const ent = this.entities.get(id);
+    if (!ent) return;
+    const visual = ent.model || ent.mesh;
+    if (!visual) return;
+    visual.scale.setScalar(scale);
+    ent.data.scale = scale;
+  }
+
   public cleanup() {
     cancelAnimationFrame(this.animationId);
     this.resizeObserver.disconnect();

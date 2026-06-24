@@ -41,6 +41,7 @@ import { useDesignStudioContext } from '../DesignStudioContext';
 import type { CustomAsset, GenerationConfig, SceneConfig, GameEntity } from '../../../types';
 import type { AgentSamGeneratorKey } from '../../../utils/agentSamGenerators';
 import './cad-studio.css';
+import { InspectorPanel } from './InspectorPanel';
 
 export type CadStudioShellProps = {
   engineContainerRef: React.RefObject<HTMLDivElement | null>;
@@ -81,6 +82,14 @@ export type CadStudioShellProps = {
   onExportSceneJson?: () => void;
   onEntityRename?: (id: string, name: string) => void;
   onEntityTransform?: (id: string, patch: Partial<GameEntity>) => void;
+  // Inspector Panel engine callbacks (live mutations, no re-spawn)
+  onSetBackground?: (hex: string) => void;
+  onSetFog?: (v: boolean) => void;
+  onSetGridVisible?: (v: boolean) => void;
+  onSnapView?: (face: string) => void;
+  onToggleOrtho?: (ortho: boolean) => void;
+  onEntityPositionChange?: (id: string, pos: { x?: number; y?: number; z?: number }) => void;
+  onEntityScaleChange?: (id: string, scale: number) => void;
   onFrameAll?: () => void;
   onViewportZoom?: (factor: number) => void;
   onViewportPanMode?: (active: boolean) => void;
@@ -138,6 +147,13 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
   onExportSceneJson,
   onEntityRename,
   onEntityTransform,
+  onSetBackground,
+  onSetFog,
+  onSetGridVisible,
+  onSnapView,
+  onToggleOrtho,
+  onEntityPositionChange,
+  onEntityScaleChange,
   onFrameAll,
   onViewportZoom,
   onViewportPanMode,
@@ -162,6 +178,7 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
   const [generateOpen, setGenerateOpen] = useState(false);
   const [creationOpen, setCreationOpen] = useState(false);
   const [adjustOpen, setAdjustOpen] = useState(false);
+  const [orthoMode, setOrthoMode] = useState(false);
   const [sceneEnvConfig, setSceneEnvConfig] = useState({
     ambientIntensity: 1.5, castShadows: true, fogDensity: 0,
     sunHeight: 45, sunPower: 3, exposure: 1.5,
@@ -1063,17 +1080,33 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
           />
         </AssetLibraryFlyout>
 {/* anim lib reopen removed — use Animate button in toolbar */}
-        {!rightPanelVisible ? (
-          <button
-            type="button"
-            className="cad-studio__panel-reopen"
-            onClick={() => openRightPanel('outliner')}
-            title="Show Outliner & Properties"
-          >
-            <PanelRightOpen size={14} strokeWidth={1.75} />
-            <span>Panel</span>
-          </button>
-        ) : null}
+        <InspectorPanel
+          open={rightPanelVisible}
+          onClose={closeRightPanel}
+          sceneConfig={sceneConfig}
+          onSceneConfigChange={onUpdateSceneConfig}
+          onSetBackground={onSetBackground}
+          onSetFog={onSetFog}
+          onSetGridVisible={onSetGridVisible}
+          onSnapView={onSnapView}
+          onToggleOrtho={(ortho) => {
+            setOrthoMode(ortho);
+            onToggleOrtho?.(ortho);
+          }}
+          orthoMode={orthoMode}
+          selectedEntity={selectedEntity ?? null}
+          onEntityNameChange={onEntityRename}
+          onEntityPositionChange={onEntityPositionChange}
+          onEntityScaleChange={onEntityScaleChange}
+          onRunBlenderOp={(prompt) =>
+            openOperatorDraft('generateBlender', {
+              prompt,
+              workspace: ui.workspace,
+              selectedObjectId: selectedId,
+              sceneId: currentSceneId,
+            })
+          }
+        />
       </div>
 
 {/* bottom dock removed — tools moved to top toolbar */}

@@ -352,8 +352,11 @@ export const DesignStudioPage: React.FC = () => {
 
   const handleSpawnModel = useCallback((name: string, url: string, scale: number) => {
     if (!isAgentSamEngine(engineRef.current)) return;
-    const normalized = normalizeGlbUrl(url);
-    if (!normalized) return;
+    const normalized = normalizeGlbUrl(url) ?? url;
+    if (!normalized) {
+      console.warn('[DesignStudio] spawn: could not resolve URL for', name, url);
+      return;
+    }
     void engineRef.current
       .spawnEntity({
         id: `asset_${Date.now()}`,
@@ -745,6 +748,13 @@ export const DesignStudioPage: React.FC = () => {
         onExportSceneJson={handleExportSceneJson}
         onEntityRename={(id, name) => void handleEntityRename(id, name)}
         onEntityTransform={(id, patch) => void handleEntityTransform(id, patch)}
+        onSetBackground={(hex) => { if (isAgentSamEngine(engineRef.current)) engineRef.current.setBackground(hex); }}
+        onSetFog={(v) => { if (isAgentSamEngine(engineRef.current)) engineRef.current.setFog(v); }}
+        onSetGridVisible={(v) => { if (isAgentSamEngine(engineRef.current)) engineRef.current.setGridVisible(v); }}
+        onSnapView={(face) => { if (isAgentSamEngine(engineRef.current)) engineRef.current.snapViewTo(face as 'top' | 'front' | 'right' | 'left' | 'back' | 'bottom'); }}
+        onToggleOrtho={(ortho) => { if (isAgentSamEngine(engineRef.current)) engineRef.current.toggleOrtho(ortho); }}
+        onEntityPositionChange={(id, pos) => { if (isAgentSamEngine(engineRef.current)) engineRef.current.patchEntityPosition(id, pos); }}
+        onEntityScaleChange={(id, scale) => { if (isAgentSamEngine(engineRef.current)) engineRef.current.patchEntityScale(id, scale); }}
         onFrameAll={handleFrameAll}
         onViewportZoom={handleViewportZoom}
         onViewportPanMode={handleViewportPanMode}
