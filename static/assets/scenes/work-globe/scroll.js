@@ -25,14 +25,12 @@
   function isMobile() { return matchMedia("(max-width:760px)").matches; }
   if (isMobile()) section.classList.add("compact");
 
-  // ----- scroll bands -----
-  // The intro hero overlays the quiet globe, then lifts away while the scene
-  // proper begins — so the globe is present from frame one and "comes in" as
-  // the title/blurb leave. The scene's internal 0..1 timeline is preserved.
+  // Intro overlay hero removed — white hero sits above scene; skip overlay animation.
   const HERO_OUT0 = 0.04, HERO_OUT1 = 0.16, SCENE_START = 0.10;
   const sceneOf = (raw) => seg(raw, SCENE_START, 1.0);
 
   function setHero(raw) {
+    if (!heroIntro) return;
     const out = easeInOut(seg(raw, HERO_OUT0, HERO_OUT1));
     const y = -out * window.innerHeight * (isMobile() ? 0.14 : 0.18);
     const s = lerp(1, 0.955, out);
