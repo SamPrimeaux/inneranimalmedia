@@ -148,12 +148,6 @@ export async function handleFinanceApi(request, url, env, ctx) {
             return handleProjectsApi(request, url, env, authUser);
         }
 
-        // ── /api/billing — superadmin only ──
-        if (pathLower === '/api/billing/summary') {
-            if (!isSuperadmin) return jsonResponse({ success: true, invoices: [], total_collected: 0, _scoped: true }, 200);
-            return handleBillingSummary(env);
-        }
-
         return jsonResponse({ error: 'Finance route not found' }, 404);
     } catch (e) {
         return jsonResponse({ error: String(e.message || e) }, 500);

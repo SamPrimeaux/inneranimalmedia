@@ -1,12 +1,15 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import type { SettingsPanelModel } from '../hooks/useSettingsData';
-import { Toggle, formatPlanLabel } from '../settingsUi';
+import { Toggle, formatPlanLabel, formatCompactNumber, relativeTime } from '../settingsUi';
 
 export type PlanUsageSectionProps = { data: SettingsPanelModel };
 
 function formatInvoiceWhen(ts: number | null | undefined) {
   if (ts == null || !Number.isFinite(Number(ts))) return '—';
-  return new Date(Number(ts) * 1000).toLocaleDateString();
+  const n = Number(ts);
+  const ms = n > 1e12 ? n : n * 1000;
+  return new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 function parseEligiblePlanIds(raw: unknown): string[] {
@@ -33,6 +36,37 @@ function couponsForPlan(planId: string, coupons: any[] | undefined): any[] {
   return out;
 }
 
+function UsageProgressBar({
+  label,
+  value,
+  max,
+  rightLabel,
+}: {
+  label: string;
+  value: number;
+  max: number | null;
+  rightLabel?: string;
+}) {
+  const pct =
+    max != null && max > 0 ? Math.min(100, Math.round((value / max) * 100)) : value > 0 ? 8 : 0;
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between gap-2 text-[11px]">
+        <span className="text-[var(--text-muted)]">{label}</span>
+        <span className="text-[var(--text-main)] font-mono tabular-nums">
+          {rightLabel ?? (max != null && max > 0 ? `${pct}%` : formatCompactNumber(value))}
+        </span>
+      </div>
+      <div className="h-1.5 rounded-full bg-[var(--bg-app)] border border-[var(--border-subtle)] overflow-hidden">
+        <div
+          className="h-full rounded-full bg-[var(--solar-cyan)] transition-all duration-300"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 export function PlanUsageSection({ data }: PlanUsageSectionProps) {
   const u = data.usageData;
   const sub = data.activeSubscription;
@@ -44,411 +78,474 @@ export function PlanUsageSection({ data }: PlanUsageSectionProps) {
     ['active', 'trialing', 'past_due'].includes(subStatus);
   const highlightPlanId = paidActive ? String(sub.plan_id) : 'free';
 
+  const [showBreakdown, setShowBreakdown] = useState(true);
+  const [showActivity, setShowActivity] = useState(false);
+  const [showPlans, setShowPlans] = useState(!paidActive);
+  const [showInvoices, setShowInvoices] = useState(false);
+
+  const usageTotals = useMemo(() => {
+    const summary = Array.isArray(u?.summary) ? u.summary : [];
+    let costUsd = 0;
+    let input = 0;
+    let output = 0;
+    let calls = 0;
+    for (const r of summary) {
+      costUsd += Number(r.cost_usd || 0);
+      input += Number(r.input_tokens || 0);
+      output += Number(r.output_tokens || 0);
+      calls += Number(r.call_count || 0);
+    }
+    return { summary, costUsd, input, output, calls, tokens: input + output };
+  }, [u]);
+
+  const currentPlan = useMemo(() => {
+    const plans = Array.isArray(data.billingPlans) ? data.billingPlans : [];
+    return plans.find((p: any) => String(p.id) === highlightPlanId) ?? null;
+  }, [data.billingPlans, highlightPlanId]);
+
+  const monthlyTokenLimit =
+    currentPlan?.monthly_token_limit != null ? Number(currentPlan.monthly_token_limit) : null;
+  const budgetLimit = Number.parseFloat(String(data.budgetMonthlyLimit || '').trim());
+  const budgetMax = Number.isFinite(budgetLimit) && budgetLimit > 0 ? budgetLimit : null;
+
+  const periodLabel = new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' });
+  const planDisplayName =
+    currentPlan?.display_name != null
+      ? String(currentPlan.display_name)
+      : sub?.display_name != null
+        ? String(sub.display_name)
+        : formatPlanLabel(data.profilePlan);
+
   return (
-    <div className="flex flex-col gap-4 max-w-6xl">
-      <h2 className="text-[13px] font-bold text-[var(--text-heading)] uppercase tracking-widest">
+    <div className="flex flex-col gap-5 max-w-2xl">
+      <h2 className="text-[15px] font-semibold text-[var(--text-heading)] tracking-tight">
         Plan &amp; Usage
       </h2>
 
       {data.billingPlansError ? (
-        <div className="text-[11px] text-[var(--color-danger)]">{data.billingPlansError}</div>
+        <div className="text-[11px] text-[var(--color-danger)] rounded-lg border border-[var(--color-danger)]/30 bg-[var(--color-danger)]/5 px-3 py-2">
+          {data.billingPlansError}
+        </div>
       ) : null}
-      {(data.billingPlansLoading || data.subscriptionLoading) && !data.billingPlans?.length ? (
-        <div className="text-[12px] text-[var(--text-muted)]">Loading plans…</div>
+      {data.usageError ? (
+        <div className="text-[11px] text-[var(--color-danger)] rounded-lg border border-[var(--color-danger)]/30 bg-[var(--color-danger)]/5 px-3 py-2">
+          {data.usageError}
+        </div>
       ) : null}
-      {Array.isArray(data.billingPlans) && data.billingPlans.length > 0 ? (
-        <div className="flex flex-col gap-3">
-          <div className="text-[11px] font-semibold text-[var(--text-main)]">Plans</div>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-            {data.billingPlans.map((plan: any) => {
-              const id = String(plan.id ?? '');
-              const isHighlight = id === highlightPlanId;
-              const isFree = id === 'free';
-              const showUpgrade = !isFree && (highlightPlanId === 'free' || id !== highlightPlanId);
-              return (
-                <div
-                  key={id || plan.display_name}
-                  className={`rounded-2xl border bg-[var(--bg-panel)] p-4 flex flex-col gap-2 ${
-                    isHighlight
-                      ? 'border-2 border-[var(--solar-cyan)]'
-                      : 'border border-[var(--border-subtle)]'
-                  }`}
-                >
-                  <div className="text-[14px] font-semibold text-[var(--text-main)]">
-                    {String(plan.display_name ?? plan.name ?? id)}
-                  </div>
-                  {plan.tagline ? (
-                    <div className="text-[11px] text-[var(--text-muted)]">{String(plan.tagline)}</div>
-                  ) : null}
-                  <div className="text-[10px] text-[var(--text-muted)] font-mono space-y-0.5">
-                    {plan.monthly_token_limit != null ? (
-                      <div>Tokens / mo: {Number(plan.monthly_token_limit).toLocaleString()}</div>
-                    ) : null}
-                    {plan.daily_request_limit != null ? (
-                      <div>Requests / day: {Number(plan.daily_request_limit).toLocaleString()}</div>
-                    ) : null}
-                  </div>
-                  {(() => {
-                    const cc = couponsForPlan(id, data.billingCoupons);
-                    if (!cc.length) return null;
-                    return (
-                      <div className="mt-2 flex flex-col gap-1.5 border-t border-[var(--border-subtle)] pt-2">
-                        <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">
-                          Offers
-                        </div>
-                        {cc.map((c: any) => (
-                          <div key={String(c.id ?? c.stripe_coupon_id)} className="text-[10px] text-[var(--text-main)]">
-                            {Number(c.requires_verification) === 1 ? (
-                              <span className="text-[var(--text-muted)]">
-                                Contact us for nonprofit pricing{c?.name ? ` (${String(c.name)})` : ''}
-                              </span>
-                            ) : (
-                              <span>
-                                <span className="font-semibold">{String(c.name ?? 'Discount')}</span>
-                                {c.percent_off != null ? (
-                                  <span className="text-[var(--text-muted)]">
-                                    {' '}
-                                    — {Number(c.percent_off)}% off
-                                    {c.duration === 'repeating' && c.duration_in_months
-                                      ? ` for ${Number(c.duration_in_months)} mo`
-                                      : c.duration === 'forever'
-                                        ? ' ongoing'
-                                        : ''}
-                                  </span>
-                                ) : null}
-                              </span>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    );
-                  })()}
-                  <div className="mt-auto pt-2 flex flex-wrap gap-2">
-                    {isHighlight ? (
-                      <span className="text-[10px] uppercase tracking-widest text-[var(--solar-cyan)] font-bold">
-                        Current
-                      </span>
-                    ) : null}
-                    {showUpgrade ? (
-                      <button
-                        type="button"
-                        className="px-3 py-1.5 rounded-lg bg-[var(--solar-cyan)] text-[var(--bg-app)] text-[11px] font-semibold"
-                        onClick={() => void data.startCheckout(id, plan.billing_period || 'monthly')}
-                      >
-                        Upgrade
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-              );
-            })}
+
+      {/* Current plan — Cursor-style hero card */}
+      <section className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4 space-y-3">
+        <div className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">
+          Current plan
+        </div>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-[18px] font-semibold text-[var(--text-main)] leading-tight">
+              {planDisplayName}
+            </div>
+            {currentPlan?.tagline ? (
+              <p className="mt-1 text-[12px] text-[var(--text-muted)] max-w-md">
+                {String(currentPlan.tagline)}
+              </p>
+            ) : null}
+            <p className="mt-1 text-[11px] text-[var(--text-muted)]">
+              Billing period: {periodLabel}
+              {sub?.current_period_end
+                ? ` · renews ${formatInvoiceWhen(Number(sub.current_period_end))}`
+                : ''}
+            </p>
           </div>
-          <div className="flex flex-wrap gap-2 items-center">
+          <div className="flex flex-wrap gap-2 shrink-0">
             {paidActive ? (
               <button
                 type="button"
-                className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-[var(--text-main)]"
+                className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-[var(--text-main)] hover:border-[var(--solar-cyan)]/40"
                 onClick={() => void data.openBillingPortal()}
               >
-                Manage billing
+                Manage
               </button>
             ) : null}
             <button
               type="button"
-              className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-[var(--text-main)]"
-              onClick={() => void data.loadBillingInvoices()}
+              className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-[var(--text-muted)] hover:text-[var(--text-main)]"
+              onClick={() => {
+                setShowInvoices(true);
+                void data.loadBillingInvoices();
+              }}
             >
-              View invoices
+              Invoices
             </button>
           </div>
+        </div>
+      </section>
+
+      {data.usageLoading && !u ? (
+        <div className="text-[12px] text-[var(--text-muted)]">Loading usage…</div>
+      ) : null}
+
+      {u ? (
+        <>
+          <section className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4 space-y-4">
+            <div className="text-[12px] font-medium text-[var(--text-main)]">
+              Included in {planDisplayName}
+            </div>
+            <UsageProgressBar
+              label="Spend this month"
+              value={usageTotals.costUsd}
+              max={budgetMax}
+              rightLabel={
+                budgetMax != null
+                  ? `$${usageTotals.costUsd.toFixed(2)} / $${budgetMax.toFixed(0)}`
+                  : `$${usageTotals.costUsd.toFixed(2)}`
+              }
+            />
+            {monthlyTokenLimit != null && monthlyTokenLimit > 0 ? (
+              <UsageProgressBar
+                label="Tokens this month"
+                value={usageTotals.tokens}
+                max={monthlyTokenLimit}
+                rightLabel={`${formatCompactNumber(usageTotals.tokens)} / ${formatCompactNumber(monthlyTokenLimit)}`}
+              />
+            ) : null}
+            <div className="flex flex-wrap gap-2 text-[10px] text-[var(--text-muted)] font-mono">
+              <span>{formatCompactNumber(usageTotals.input)} input</span>
+              <span>·</span>
+              <span>{formatCompactNumber(usageTotals.output)} output</span>
+              <span>·</span>
+              <span>{usageTotals.calls.toLocaleString()} calls</span>
+            </div>
+
+            <button
+              type="button"
+              className="flex items-center gap-1.5 text-[11px] text-[var(--text-muted)] hover:text-[var(--text-main)]"
+              onClick={() => setShowBreakdown((v) => !v)}
+            >
+              {showBreakdown ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              Model breakdown ({usageTotals.summary.length})
+            </button>
+
+            {showBreakdown && usageTotals.summary.length > 0 ? (
+              <div className="space-y-3 pt-1 border-t border-[var(--border-subtle)]">
+                {usageTotals.summary.map((r: any, i: number) => {
+                  const cost = Number(r.cost_usd || 0);
+                  const share =
+                    usageTotals.costUsd > 0 ? Math.round((cost / usageTotals.costUsd) * 100) : 0;
+                  return (
+                    <div key={`${r.model_used || i}`} className="space-y-1">
+                      <div className="flex items-center justify-between gap-2 text-[11px]">
+                        <span className="text-[var(--text-main)] truncate font-medium">
+                          {String(r.model_used || '—')}
+                        </span>
+                        <span className="text-[var(--text-muted)] font-mono shrink-0">
+                          ${cost.toFixed(2)}
+                        </span>
+                      </div>
+                      <div className="h-1 rounded-full bg-[var(--bg-app)] overflow-hidden">
+                        <div
+                          className="h-full bg-[var(--solar-cyan)]/70 rounded-full"
+                          style={{ width: `${Math.max(share, cost > 0 ? 4 : 0)}%` }}
+                        />
+                      </div>
+                      <div className="text-[10px] text-[var(--text-muted)]">
+                        {String(r.provider || '—')} · {formatCompactNumber(Number(r.input_tokens || 0))} in ·{' '}
+                        {formatCompactNumber(Number(r.output_tokens || 0))} out
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+          </section>
+
+          <section className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4 space-y-3">
+            <div className="text-[12px] font-medium text-[var(--text-main)]">Monthly limit</div>
+            <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
+              Set a fixed USD cap for platform-metered usage. When hard stop is on, agent runs block after the
+              limit.
+            </p>
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="flex flex-col gap-1 text-[11px] min-w-[120px]">
+                <span className="text-[var(--text-muted)]">Limit (USD)</span>
+                <input
+                  value={data.budgetMonthlyLimit}
+                  onChange={(e) => data.setBudgetMonthlyLimit(e.target.value)}
+                  onBlur={() => {
+                    void data.patchProfile([
+                      {
+                        setting_key: 'budget.monthly_limit_usd',
+                        setting_value: String(data.budgetMonthlyLimit || ''),
+                      },
+                    ]);
+                  }}
+                  className="px-3 py-2 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[12px] font-mono w-28"
+                  inputMode="decimal"
+                  placeholder="300"
+                />
+              </label>
+              <div className="flex items-center gap-2 pb-1">
+                <span className="text-[11px] text-[var(--text-muted)]">Hard stop</span>
+                <Toggle
+                  on={data.budgetHardStop}
+                  onChange={(v) => {
+                    data.setBudgetHardStop(v);
+                    void data
+                      .patchProfile([
+                        { setting_key: 'budget.hard_stop', setting_value: v ? 'true' : 'false' },
+                      ])
+                      .catch(() => data.setBudgetHardStop(!v));
+                  }}
+                />
+              </div>
+            </div>
+            {budgetMax != null ? (
+              <UsageProgressBar
+                label="On-demand spend"
+                value={usageTotals.costUsd}
+                max={budgetMax}
+                rightLabel={`$${usageTotals.costUsd.toFixed(2)} / $${budgetMax.toFixed(0)}`}
+              />
+            ) : null}
+          </section>
+
+          <section className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] overflow-hidden">
+            <button
+              type="button"
+              className="w-full flex items-center justify-between gap-2 px-4 py-3 text-left hover:bg-[var(--bg-hover)]"
+              onClick={() => setShowActivity((v) => !v)}
+            >
+              <span className="text-[12px] font-medium text-[var(--text-main)]">Recent activity</span>
+              <span className="flex items-center gap-1 text-[11px] text-[var(--text-muted)]">
+                Page {data.usagePage}
+                {showActivity ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              </span>
+            </button>
+            {showActivity ? (
+              <div className="border-t border-[var(--border-subtle)]">
+                {(Array.isArray(u.ledger) ? u.ledger : []).slice(0, 25).map((r: any, i: number) => (
+                  <div
+                    key={String(r.id || i)}
+                    className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-[var(--border-subtle)] last:border-0 text-[11px]"
+                  >
+                    <div className="min-w-0">
+                      <div className="text-[var(--text-main)] truncate">{String(r.model_used || '—')}</div>
+                      <div className="text-[10px] text-[var(--text-muted)]">
+                        {String(r.provider || '—')} · {relativeTime(r.created_at)}
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0 font-mono text-[10px] text-[var(--text-muted)]">
+                      <div>
+                        {formatCompactNumber(
+                          Number(r.input_tokens || 0) + Number(r.output_tokens || 0),
+                        )}{' '}
+                        tok
+                      </div>
+                      <div>${Number(r.cost_usd || 0).toFixed(4)}</div>
+                    </div>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between px-4 py-2 bg-[var(--bg-app)]">
+                  <button
+                    type="button"
+                    className="text-[11px] text-[var(--text-muted)] hover:text-[var(--text-main)] disabled:opacity-40"
+                    disabled={data.usagePage <= 1}
+                    onClick={() => {
+                      const p = Math.max(1, data.usagePage - 1);
+                      data.setUsagePage(p);
+                      void data.loadUsage(p, data.usageProvider, data.usageModel);
+                    }}
+                  >
+                    Previous
+                  </button>
+                  <div className="flex gap-2">
+                    <select
+                      value={data.usageProvider}
+                      onChange={(e) => {
+                        data.setUsageProvider(e.target.value);
+                        data.setUsagePage(1);
+                        void data.loadUsage(1, e.target.value, data.usageModel);
+                      }}
+                      className="px-2 py-1 rounded-lg bg-[var(--bg-panel)] border border-[var(--border-subtle)] text-[10px]"
+                    >
+                      <option value="">All providers</option>
+                      {Array.from(
+                        new Set(
+                          usageTotals.summary
+                            .map((x: any) => String(x.provider || ''))
+                            .filter(Boolean),
+                        ),
+                      ).map((p) => (
+                        <option key={p} value={p}>{p}</option>
+                      ))}
+                    </select>
+                    <select
+                      value={data.usageModel}
+                      onChange={(e) => {
+                        data.setUsageModel(e.target.value);
+                        data.setUsagePage(1);
+                        void data.loadUsage(1, data.usageProvider, e.target.value);
+                      }}
+                      className="px-2 py-1 rounded-lg bg-[var(--bg-panel)] border border-[var(--border-subtle)] text-[10px]"
+                    >
+                      <option value="">All models</option>
+                      {Array.from(
+                        new Set(
+                          usageTotals.summary
+                            .map((x: any) => String(x.model_used || ''))
+                            .filter(Boolean),
+                        ),
+                      ).map((m) => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <button
+                    type="button"
+                    className="text-[11px] text-[var(--text-muted)] hover:text-[var(--text-main)]"
+                    onClick={() => {
+                      const p = data.usagePage + 1;
+                      data.setUsagePage(p);
+                      void data.loadUsage(p, data.usageProvider, data.usageModel);
+                    }}
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </section>
+        </>
+      ) : null}
+
+      {/* Plans — collapsed when already on a paid plan */}
+      {(data.billingPlansLoading || data.subscriptionLoading) && !data.billingPlans?.length ? (
+        <div className="text-[12px] text-[var(--text-muted)]">Loading plans…</div>
+      ) : null}
+
+      {Array.isArray(data.billingPlans) && data.billingPlans.length > 0 ? (
+        <section className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] overflow-hidden">
+          <button
+            type="button"
+            className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-[var(--bg-hover)]"
+            onClick={() => setShowPlans((v) => !v)}
+          >
+            <span className="text-[12px] font-medium text-[var(--text-main)]">Change plan</span>
+            {showPlans ? <ChevronDown size={14} className="text-[var(--text-muted)]" /> : <ChevronRight size={14} className="text-[var(--text-muted)]" />}
+          </button>
+          {showPlans ? (
+            <div className="p-4 pt-0 space-y-3 border-t border-[var(--border-subtle)]">
+              <div className="grid grid-cols-1 gap-2">
+                {data.billingPlans.map((plan: any) => {
+                  const id = String(plan.id ?? '');
+                  const isCurrent = id === highlightPlanId;
+                  const isFree = id === 'free';
+                  return (
+                    <div
+                      key={id || plan.display_name}
+                      className={`rounded-lg border p-3 flex flex-wrap items-center justify-between gap-2 ${
+                        isCurrent
+                          ? 'border-[var(--solar-cyan)]/50 bg-[var(--solar-cyan)]/5'
+                          : 'border-[var(--border-subtle)] bg-[var(--bg-app)]'
+                      }`}
+                    >
+                      <div>
+                        <div className="text-[13px] font-medium text-[var(--text-main)]">
+                          {String(plan.display_name ?? plan.name ?? id)}
+                        </div>
+                        {plan.monthly_token_limit != null ? (
+                          <div className="text-[10px] text-[var(--text-muted)] font-mono mt-0.5">
+                            {formatCompactNumber(Number(plan.monthly_token_limit))} tokens / mo
+                          </div>
+                        ) : null}
+                      </div>
+                      {isCurrent ? (
+                        <span className="text-[10px] uppercase tracking-wider text-[var(--solar-cyan)] font-semibold">
+                          Current
+                        </span>
+                      ) : !isFree ? (
+                        <button
+                          type="button"
+                          className="px-3 py-1.5 rounded-lg bg-[var(--solar-cyan)]/20 text-[var(--solar-cyan)] border border-[var(--solar-cyan)]/40 text-[11px] font-semibold"
+                          onClick={() => void data.startCheckout(id, plan.billing_period || 'monthly')}
+                        >
+                          Upgrade
+                        </button>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+              {(() => {
+                const cc = couponsForPlan(highlightPlanId, data.billingCoupons);
+                if (!cc.length) return null;
+                return (
+                  <div className="text-[10px] text-[var(--text-muted)] space-y-1">
+                    {cc.map((c: any) => (
+                      <div key={String(c.id ?? c.stripe_coupon_id)}>
+                        {String(c.name ?? 'Offer')}
+                        {c.percent_off != null ? ` — ${Number(c.percent_off)}% off` : ''}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
+      {showInvoices ? (
+        <section className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4 space-y-3">
+          <div className="text-[12px] font-medium text-[var(--text-main)]">Invoices</div>
           {data.billingInvoicesLoading ? (
-            <div className="text-[11px] text-[var(--text-muted)]">Loading invoices…</div>
+            <div className="text-[11px] text-[var(--text-muted)]">Loading…</div>
           ) : null}
           {data.billingInvoicesError ? (
             <div className="text-[11px] text-[var(--color-danger)]">{data.billingInvoicesError}</div>
           ) : null}
           {Array.isArray(data.billingInvoices) && data.billingInvoices.length > 0 ? (
-            <div className="rounded-xl border border-[var(--border-subtle)] overflow-hidden">
-              <div className="grid grid-cols-12 gap-0 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] border-b border-[var(--border-subtle)] bg-[var(--bg-app)]">
-                <div className="col-span-3">Date</div>
-                <div className="col-span-2">Amount</div>
-                <div className="col-span-3">Status</div>
-                <div className="col-span-4 text-right">PDF</div>
-              </div>
+            <div className="space-y-2">
               {data.billingInvoices.map((inv: any) => (
                 <div
                   key={String(inv.id)}
-                  className="grid grid-cols-12 gap-0 px-3 py-2 border-b border-[var(--border-subtle)] text-[11px] items-center"
+                  className="flex items-center justify-between gap-3 text-[11px] py-2 border-b border-[var(--border-subtle)] last:border-0"
                 >
-                  <div className="col-span-3 text-[var(--text-muted)]">
+                  <div className="text-[var(--text-muted)]">
                     {formatInvoiceWhen(inv.period_end ?? inv.period_start)}
                   </div>
-                  <div className="col-span-2 font-mono text-[var(--text-main)]">
+                  <div className="font-mono text-[var(--text-main)]">
                     ${(Number(inv.amount_paid || 0) / 100).toFixed(2)}
                   </div>
-                  <div className="col-span-3">
-                    <span className="px-2 py-0.5 rounded text-[10px] border border-[var(--border-subtle)] text-[var(--text-muted)]">
-                      {String(inv.status || '—')}
-                    </span>
-                  </div>
-                  <div className="col-span-4 text-right">
+                  <div>
                     {inv.invoice_pdf ? (
                       <a
                         href={inv.invoice_pdf}
                         target="_blank"
                         rel="noreferrer"
-                        className="text-[11px] text-[var(--solar-cyan)] hover:underline"
+                        className="text-[var(--solar-cyan)] hover:underline"
                       >
-                        Download PDF
+                        PDF
                       </a>
                     ) : inv.hosted_invoice_url ? (
                       <a
                         href={inv.hosted_invoice_url}
                         target="_blank"
                         rel="noreferrer"
-                        className="text-[11px] text-[var(--solar-cyan)] hover:underline"
+                        className="text-[var(--solar-cyan)] hover:underline"
                       >
-                        View invoice
+                        View
                       </a>
                     ) : (
-                      <span className="text-[var(--text-muted)]">—</span>
+                      <span className="text-[var(--text-muted)]">{String(inv.status || '—')}</span>
                     )}
                   </div>
                 </div>
               ))}
             </div>
-          ) : null}
-        </div>
+          ) : (
+            <p className="text-[11px] text-[var(--text-muted)]">No invoices yet.</p>
+          )}
+        </section>
       ) : null}
-
-      {data.usageError ? (
-        <div className="text-[11px] text-[var(--color-danger)]">{data.usageError}</div>
-      ) : null}
-      {data.usageLoading && !u ? (
-        <div className="text-[12px] text-[var(--text-muted)]">Loading usage…</div>
-      ) : null}
-      {u && (
-        <>
-          <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4">
-            <div className="text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)]">
-              Period: {new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' })}
-            </div>
-            {(() => {
-              const summary = Array.isArray(u.summary) ? u.summary : [];
-              const total = summary.reduce((acc: number, r: any) => acc + Number(r.cost_usd || 0), 0);
-              const input = summary.reduce((acc: number, r: any) => acc + Number(r.input_tokens || 0), 0);
-              const output = summary.reduce((acc: number, r: any) => acc + Number(r.output_tokens || 0), 0);
-              const calls = summary.reduce((acc: number, r: any) => acc + Number(r.call_count || 0), 0);
-              return (
-                <>
-                  <div className="mt-2 text-[26px] font-semibold text-[var(--solar-cyan)]">
-                    ${total.toFixed(2)}
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <span className="text-[10px] px-2 py-1 rounded bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-muted)] font-mono">
-                      {input.toLocaleString()} input
-                    </span>
-                    <span className="text-[10px] px-2 py-1 rounded bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-muted)] font-mono">
-                      {output.toLocaleString()} output
-                    </span>
-                    <span className="text-[10px] px-2 py-1 rounded bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-muted)] font-mono">
-                      {calls.toLocaleString()} calls
-                    </span>
-                  </div>
-                </>
-              );
-            })()}
-            <div className="mt-4 rounded-xl border border-[var(--border-subtle)] overflow-hidden bg-[var(--bg-panel)]">
-              <div className="grid grid-cols-6 gap-0 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] border-b border-[var(--border-subtle)] bg-[var(--bg-app)]">
-                <div className="col-span-2">Model</div>
-                <div className="col-span-1">Provider</div>
-                <div className="col-span-1">Input</div>
-                <div className="col-span-1">Output</div>
-                <div className="col-span-1 text-right">Cost</div>
-              </div>
-              {(Array.isArray(u.summary) ? u.summary : []).map((r: any, i: number) => (
-                <div
-                  key={`${r.model_used || i}`}
-                  className="grid grid-cols-6 gap-0 px-4 py-3 border-b border-[var(--border-subtle)] text-[11px] items-center"
-                >
-                  <div className="col-span-2 text-[var(--text-main)] truncate">
-                    {String(r.model_used || '—')}
-                  </div>
-                  <div className="col-span-1 text-[var(--text-muted)]">{String(r.provider || '—')}</div>
-                  <div className="col-span-1 text-[10px] text-[var(--text-muted)] font-mono">
-                    {Number(r.input_tokens || 0).toLocaleString()}
-                  </div>
-                  <div className="col-span-1 text-[10px] text-[var(--text-muted)] font-mono">
-                    {Number(r.output_tokens || 0).toLocaleString()}
-                  </div>
-                  <div className="col-span-1 text-right text-[10px] text-[var(--text-muted)] font-mono">
-                    ${Number(r.cost_usd || 0).toFixed(2)}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4">
-            <div className="flex items-center justify-between">
-              <div className="text-[12px] font-semibold text-[var(--text-main)]">Spend Ledger</div>
-              <div className="flex items-center gap-2">
-                <select
-                  value={data.usageProvider}
-                  onChange={(e) => {
-                    data.setUsageProvider(e.target.value);
-                    data.setUsagePage(1);
-                    void data.loadUsage(1, e.target.value, data.usageModel);
-                  }}
-                  className="px-3 py-2 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[11px]"
-                >
-                  <option value="">All providers</option>
-                  {Array.from(
-                    new Set(
-                      (Array.isArray(u.summary) ? u.summary : [])
-                        .map((x: any) => String(x.provider || ''))
-                        .filter(Boolean),
-                    ),
-                  ).map((p: string) => (
-                    <option key={p} value={p}>
-                      {p}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={data.usageModel}
-                  onChange={(e) => {
-                    data.setUsageModel(e.target.value);
-                    data.setUsagePage(1);
-                    void data.loadUsage(1, data.usageProvider, e.target.value);
-                  }}
-                  className="px-3 py-2 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[11px]"
-                >
-                  <option value="">All models</option>
-                  {Array.from(
-                    new Set(
-                      (Array.isArray(u.summary) ? u.summary : [])
-                        .map((x: any) => String(x.model_used || ''))
-                        .filter(Boolean),
-                    ),
-                  ).map((m: string) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <div className="mt-3 rounded-xl border border-[var(--border-subtle)] overflow-hidden bg-[var(--bg-panel)]">
-              <div className="grid grid-cols-6 gap-0 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] border-b border-[var(--border-subtle)] bg-[var(--bg-app)]">
-                <div className="col-span-1">Date</div>
-                <div className="col-span-2">Model</div>
-                <div className="col-span-1">Provider</div>
-                <div className="col-span-1">Tokens</div>
-                <div className="col-span-1 text-right">Cost</div>
-              </div>
-              {(Array.isArray(u.ledger) ? u.ledger : []).map((r: any, i: number) => (
-                <div
-                  key={String(r.id || i)}
-                  className="grid grid-cols-6 gap-0 px-4 py-3 border-b border-[var(--border-subtle)] text-[11px] items-center"
-                >
-                  <div className="col-span-1 text-[10px] text-[var(--text-muted)]">
-                    {r.created_at ? new Date(String(r.created_at)).toLocaleDateString() : '—'}
-                  </div>
-                  <div className="col-span-2 text-[var(--text-main)] truncate">{String(r.model_used || '—')}</div>
-                  <div className="col-span-1 text-[var(--text-muted)]">{String(r.provider || '—')}</div>
-                  <div className="col-span-1 text-[10px] text-[var(--text-muted)] font-mono">
-                    {Number(r.input_tokens || 0) + Number(r.output_tokens || 0)}
-                  </div>
-                  <div className="col-span-1 text-right text-[10px] text-[var(--text-muted)] font-mono">
-                    ${Number(r.cost_usd || 0).toFixed(4)}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="mt-3 flex items-center justify-between">
-              <button
-                type="button"
-                className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-[var(--text-muted)]"
-                onClick={() => {
-                  const p = Math.max(1, data.usagePage - 1);
-                  data.setUsagePage(p);
-                  void data.loadUsage(p, data.usageProvider, data.usageModel);
-                }}
-              >
-                Prev
-              </button>
-              <div className="text-[11px] text-[var(--text-muted)]">Page {data.usagePage}</div>
-              <button
-                type="button"
-                className="px-3 py-1.5 rounded-lg border border-[var(--border-subtle)] text-[11px] text-[var(--text-muted)]"
-                onClick={() => {
-                  const p = data.usagePage + 1;
-                  data.setUsagePage(p);
-                  void data.loadUsage(p, data.usageProvider, data.usageModel);
-                }}
-              >
-                Next
-              </button>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4">
-              <div className="text-[12px] font-semibold text-[var(--text-main)]">Budget</div>
-              <div className="mt-3 flex flex-col gap-3">
-                <label className="flex flex-col gap-1 text-[11px]">
-                  <span className="text-[var(--text-muted)]">Monthly Limit (USD)</span>
-                  <input
-                    value={data.budgetMonthlyLimit}
-                    onChange={(e) => data.setBudgetMonthlyLimit(e.target.value)}
-                    onBlur={() => {
-                      void (async () => {
-                        try {
-                          await data.patchProfile([
-                            {
-                              setting_key: 'budget.monthly_limit_usd',
-                              setting_value: String(data.budgetMonthlyLimit || ''),
-                            },
-                          ]);
-                        } catch (e) {
-                          data.setUsageError(e instanceof Error ? e.message : 'Save failed');
-                        }
-                      })();
-                    }}
-                    className="px-3 py-2 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[12px] font-mono"
-                    inputMode="decimal"
-                  />
-                </label>
-                <div className="flex items-center justify-between">
-                  <div className="text-[11px] text-[var(--text-muted)]">Hard stop when limit reached</div>
-                  <Toggle
-                    on={data.budgetHardStop}
-                    onChange={(v) => {
-                      data.setBudgetHardStop(v);
-                      void data
-                        .patchProfile([
-                          { setting_key: 'budget.hard_stop', setting_value: v ? 'true' : 'false' },
-                        ])
-                        .catch(() => data.setBudgetHardStop(!v));
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
-            <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4">
-              <div className="text-[12px] font-semibold text-[var(--text-main)]">Billing</div>
-              <div className="mt-3 text-[11px] text-[var(--text-muted)]">
-                Plan:{' '}
-                <span className="text-[var(--text-main)] font-mono">{formatPlanLabel(data.profilePlan)}</span>
-              </div>
-              <div className="mt-2 text-[10px] text-[var(--text-muted)]">
-                Use Manage billing or Upgrade above for Stripe checkout and the customer portal.
-              </div>
-            </div>
-          </div>
-        </>
-      )}
     </div>
   );
 }

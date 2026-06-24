@@ -7,11 +7,10 @@ import { jsonResponse } from '../core/responses.js';
 import { stripeRequest, verifyStripeSignature } from '../integrations/stripe.js';
 
 const CHECKOUT_SUCCESS_URL =
-  'https://inneranimalmedia.com/dashboard/settings?section=Plan+%26+Usage&checkout=success';
+  'https://inneranimalmedia.com/dashboard/settings/billing?checkout=success';
 const CHECKOUT_CANCEL_URL =
-  'https://inneranimalmedia.com/dashboard/settings?section=Plan+%26+Usage&checkout=cancelled';
-const PORTAL_RETURN_URL =
-  'https://inneranimalmedia.com/dashboard/settings?section=Plan+%26+Usage';
+  'https://inneranimalmedia.com/dashboard/settings/billing?checkout=cancelled';
+const PORTAL_RETURN_URL = 'https://inneranimalmedia.com/dashboard/settings/billing';
 
 /** @param {any} env @param {any} authUser */
 async function resolveTenantId(env, authUser) {
