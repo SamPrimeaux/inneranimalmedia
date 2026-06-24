@@ -3699,7 +3699,7 @@ const App: React.FC = () => {
         />
       )}
 
-      <div className="flex flex-1 overflow-hidden max-phone:pb-[52px]">
+      <div className="flex flex-1 overflow-hidden">
           {/* 2. ACTIVITY BAR (Extreme Left) — hidden ≤430px; use bottom tab bar + More */}
           {/* Activity bar: icon rail (width toggled via ☰ — localStorage iam_sidebar_expanded) */}
           <div
@@ -4579,45 +4579,7 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* Mobile (≤430px): bottom tab bar above StatusBar — Movie Mode uses its own nav */}
-      <nav
-        className={`hidden max-phone:flex fixed inset-x-0 z-[90] items-stretch justify-around gap-0 border-t border-[var(--dashboard-border)] bg-[var(--dashboard-panel)]/95 backdrop-blur-sm ${isMovieModeRoute ? '!hidden' : ''}`}
-        style={{ bottom: mobileTabBarBottom }}
-        aria-label="Primary"
-      >
-        <button
-          type="button"
-          className={`flex flex-1 flex-col items-center justify-center min-h-[44px] gap-0.5 px-0.5 text-[10px] font-medium leading-tight ${agentPosition !== 'off' && !activeActivity ? 'text-[var(--solar-cyan)]' : 'text-[var(--text-muted)]'}`}
-          onClick={onMobileBottomChatTab}
-        >
-          <MessageSquare size={24} strokeWidth={1.5} aria-hidden />
-          <span>Chat</span>
-        </button>
-        <button
-          type="button"
-          className={`flex flex-1 flex-col items-center justify-center min-h-[44px] gap-0.5 px-0.5 text-[10px] font-medium leading-tight ${location.pathname.startsWith('/dashboard/database') ? 'text-[var(--solar-cyan)]' : 'text-[var(--text-muted)]'}`}
-          onClick={() => navigate(databaseStudioPath)}
-        >
-          <Database size={24} strokeWidth={1.5} aria-hidden />
-          <span>Database</span>
-        </button>
-        <button
-          type="button"
-          className={`flex flex-1 flex-col items-center justify-center min-h-[44px] gap-0.5 px-0.5 text-[10px] font-medium leading-tight ${activeActivity === 'files' ? 'text-[var(--solar-cyan)]' : 'text-[var(--text-muted)]'}`}
-          onClick={() => toggleActivity('files')}
-        >
-          <FolderOpen size={24} strokeWidth={1.5} aria-hidden />
-          <span>Explorer</span>
-        </button>
-        <button
-          type="button"
-          className={`flex flex-1 flex-col items-center justify-center min-h-[44px] gap-0.5 px-0.5 text-[10px] font-medium leading-tight ${activeActivity === 'actions' ? 'text-[var(--solar-cyan)]' : 'text-[var(--text-muted)]'}`}
-          onClick={() => toggleActivity('actions')}
-        >
-          <Github size={24} strokeWidth={1.5} aria-hidden />
-          <span>Deploy</span>
-        </button>
-      </nav>
+
 
       {mobileMoreOpen && (
         <>

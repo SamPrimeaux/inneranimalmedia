@@ -8,12 +8,16 @@ export type AssetLibraryFlyoutProps = {
 };
 
 export function AssetLibraryFlyout({ open, onClose, children }: AssetLibraryFlyoutProps) {
-  if (!open) return null;
-
+  // Keep mounted so useStudioGallery state (fetched GLBs) persists across open/close.
+  // Visibility toggled via CSS so the gallery hook doesn't re-fetch every open.
   return (
     <>
-      <button type="button" className="cad-asset-library__backdrop" aria-label="Close library" onClick={onClose} />
-      <aside className="cad-asset-library" aria-label="Asset library">
+      {open && <button type="button" className="cad-asset-library__backdrop" aria-label="Close library" onClick={onClose} />}
+      <aside
+        className="cad-asset-library"
+        aria-label="Asset library"
+        style={{ display: open ? undefined : 'none' }}
+      >
         <div className="cad-asset-library__head">
           <span className="cad-asset-library__title">
             <BookOpen size={14} strokeWidth={1.75} />

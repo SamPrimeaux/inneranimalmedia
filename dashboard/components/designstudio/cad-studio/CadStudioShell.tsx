@@ -477,6 +477,7 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
       protocol.addEvent('asset.spawn', `Spawned ${item.name}`, { url: item.url });
       onFrameAll?.();
       protocol.toast('Asset added', `${item.name} placed in viewport`);
+      setLibraryOpen(false);
     },
     [onSpawnModel, protocol, onFrameAll],
   );

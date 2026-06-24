@@ -51,6 +51,8 @@ export function normalizeGlbUrl(input: string | null | undefined): string {
         return `/assets/glb/chess/${p.replace(/^chess-pieces\//, '')}`;
       }
       if (p.startsWith('glb/')) return `/assets/${p}`;
+      // Catch-all: any other R2 asset path routed through Worker proxy (avoids bot-fight-mode 403)
+      if (p) return `/assets/glb/${p}`;
     }
 
     if (u.hostname.includes('pub-e733f82cb31c4f34b6a719e749d0416d.r2.dev')) {
