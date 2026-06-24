@@ -16,7 +16,7 @@ export function browserLiveDoRequired(env) {
  */
 export function assertBrowserLiveDoAvailable(env) {
   if (env?.BROWSER_SESSION) return { ok: true };
-  const deployEnv = String(env?.ENVIRONMENT || env?.DEPLOY_ENV || '').toLowerCase();
+  const deployEnv = String(env?.ENVIRONMENT || 'production').toLowerCase();
   if (deployEnv === 'production') {
     return {
       ok: false,

@@ -6,7 +6,7 @@
  *
  * Env vars consumed (all optional with fallbacks):
  *   WORKER_VERSION_ID, GIT_FULL_SHA, GIT_SHORT_HASH, GIT_MSG_LINE,
- *   BRANCH_NAME, DEPLOY_ENV, DEPLOYED_BY, DEPLOY_STARTED_AT,
+ *   BRANCH_NAME, ENVIRONMENT (legacy: DEPLOY_ENV), DEPLOYED_BY, DEPLOY_STARTED_AT,
  *   DEPLOY_DURATION_MS, R2_SYNC_STATUS, NOTIFY_TO, FILE_COUNT, TOTAL_KB
  */
 
@@ -14,6 +14,7 @@ import { execSync } from 'child_process';
 import { existsSync, readFileSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { deployEnvironmentLabel } from './lib/deploy-environment.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..');
@@ -71,7 +72,7 @@ const fullSha        = e('GIT_FULL_SHA')       || sh('git rev-parse HEAD', '—'
 const shortSha       = e('GIT_SHORT_HASH')      || sh('git rev-parse --short HEAD', '—');
 const gitMsg         = e('GIT_MSG_LINE')        || commits[0]?.message || '—';
 const branch         = e('BRANCH_NAME')         || sh('git rev-parse --abbrev-ref HEAD', 'main');
-const deployEnv      = e('DEPLOY_ENV')          || 'production';
+const deployEnv      = deployEnvironmentLabel();
 const deployedBy     = e('DEPLOYED_BY')         || 'sam_primeaux';
 const startedAt      = e('DEPLOY_STARTED_AT')   || new Date().toISOString();
 const durationMs     = parseInt(e('DEPLOY_DURATION_MS') || '0', 10);

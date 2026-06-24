@@ -196,11 +196,13 @@ async function upsertPersonal(cookie, row, secretValue, existing) {
     api_key: secretValue,
     scope: 'workspace',
   };
-  const match = existing.find(
-    (i) =>
-      String(i.secret_name || '').toLowerCase() === row.secret_name &&
-      String(i.status || '').toLowerCase() === 'active',
-  );
+  const wantSn = row.secret_name.toLowerCase();
+  const wantLabel = row.label.toLowerCase();
+  const match = existing.find((i) => {
+    const sn = String(i.secret_name || '').toLowerCase();
+    const label = String(i.label || '').toLowerCase();
+    return sn === wantSn || label === wantLabel;
+  });
 
   if (dryRun) {
     console.log(`[dry-run] ${match ? 'rotate' : 'create'} personal:${row.secret_name}`);
@@ -331,54 +333,12 @@ async function savePtyDefaults(cookie) {
 async function upsertR2(cookie, existing) {
   const accessKeyId = firstEnv(R2_ROW.accessKeyEnv);
   const secretAccessKey = firstEnv(R2_ROW.secretKeyEnv);
-  const accountId = firstEnv([R2_ROW.accountIdEnv]);
   if (!accessKeyId || !secretAccessKey) {
-    console.log('[skip] cloudflare_r2 (R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY missing)');
+    console.log('[skip] R2 BYOK (use npm run sync:r2-byok when R2_ACCESS_KEY_ID is set)');
     return;
   }
-  if (!accountId) {
-    console.warn('[skip] cloudflare_r2 (CLOUDFLARE_ACCOUNT_ID missing)');
-    return;
-  }
-  const payload = {
-    category: 'provider',
-    provider: 'cloudflare_r2',
-    label: R2_ROW.label,
-    cloudflare_account_id: accountId,
-    r2_access_key_id: accessKeyId,
-    r2_secret_access_key: secretAccessKey,
-    scope: 'workspace',
-    validate: true,
-  };
-  const match = existing.find(
-    (i) =>
-      String(i.provider || '').toLowerCase() === 'cloudflare_r2' &&
-      String(i.status || '').toLowerCase() === 'active',
-  );
-  if (dryRun) {
-    console.log(`[dry-run] ${match ? 'rotate' : 'create'} cloudflare_r2 (S3 credentials only)`);
-    return;
-  }
-  if (match?.id) {
-    const r = await fetch(`${BASE_URL}/api/settings/keys/${encodeURIComponent(match.id)}/rotate`, {
-      method: 'POST',
-      headers: apiHeaders(cookie),
-      body: JSON.stringify(payload),
-    });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(j.message || j.error || `rotate cloudflare_r2 ${r.status}`);
-    console.log(`[ok] rotated cloudflare_r2 (${match.id})`);
-    return;
-  }
-  const r = await fetch(`${BASE_URL}/api/settings/keys`, {
-    method: 'POST',
-    headers: apiHeaders(cookie),
-    body: JSON.stringify(payload),
-  });
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(j.message || j.error || `create cloudflare_r2 ${r.status}`);
-  console.log('[ok] created cloudflare_r2');
-}
+  console.log('[hint] R2 S3 BYOK: run npm run sync:r2-byok (user_storage_access_keys, not cloudflare_r2 provider row)');
+  return;
 
 async function main() {
   console.log(`→ sync operator keys → ${BASE_URL} workspace=${WORKSPACE_ID} user=${USER_ID}`);

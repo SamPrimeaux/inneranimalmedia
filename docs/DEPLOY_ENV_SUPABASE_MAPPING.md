@@ -147,7 +147,7 @@ These are **different**:
 
 | Variable | Typical use |
 |----------|-------------|
-| `DEPLOY_ENV` | `build_deploy_events.environment`, workflow `environment` |
+| `ENVIRONMENT` | `build_deploy_events.environment`, workflow `environment` (legacy shell alias: `DEPLOY_ENV`) |
 | `DEPLOYED_BY` / `DEPLOY_DEPLOYED_BY` | `build_deploy_events.deployed_by` |
 | `TRIGGERED_BY` / `DEPLOY_TRIGGERED_BY` | `build_deploy_events.triggered_by` |
 

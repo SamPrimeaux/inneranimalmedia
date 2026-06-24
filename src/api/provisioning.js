@@ -387,36 +387,37 @@ const BYOK_PROVIDER_SECRET = {
   google: 'GEMINI_API_KEY',
 };
 
+async function legacyLlmVaultByok(env, userId, tenantId, prov) {
+  const secretName = BYOK_PROVIDER_SECRET[prov];
+  if (!secretName) return null;
+  try {
+    const vaultRow = await env.DB.prepare(
+      `SELECT secret_value_encrypted, metadata_json FROM user_secrets
+       WHERE tenant_id = ? AND user_id = ? AND secret_name = ? AND project_label = ? AND is_active = 1
+       LIMIT 1`,
+    )
+      .bind(tenantId, userId, secretName, LLM_VAULT_PROJECT)
+      .first();
+    if (!vaultRow?.secret_value_encrypted) return null;
+    const { vaultDecrypt } = await import('../api/vault.js');
+    const decrypted = await vaultDecrypt(env, vaultRow.secret_value_encrypted);
+    let preview = null;
+    try {
+      const m = JSON.parse(String(vaultRow.metadata_json || '{}'));
+      preview = m.last4 ? `••••${m.last4}` : null;
+    } catch {
+      /* ignore */
+    }
+    return { key: decrypted, preview, source: 'iam_user_llm_keys_legacy' };
+  } catch (e) {
+    console.warn('[getUserBYOKey] legacy iam slot', e?.message ?? e);
+    return null;
+  }
+}
+
 export async function getUserBYOKey(env, userId, tenantId, provider, opts = {}) {
   if (!env?.DB || !userId || !tenantId || !provider) return null;
   const prov = String(provider || '').trim().toLowerCase();
-  const secretName = BYOK_PROVIDER_SECRET[prov] || null;
-
-  if (secretName) {
-    try {
-      const vaultRow = await env.DB.prepare(
-        `SELECT secret_value_encrypted, metadata_json FROM user_secrets
-         WHERE tenant_id = ? AND user_id = ? AND secret_name = ? AND project_label = ? AND is_active = 1
-         LIMIT 1`,
-      )
-        .bind(tenantId, userId, secretName, LLM_VAULT_PROJECT)
-        .first();
-      if (vaultRow?.secret_value_encrypted) {
-        const { vaultDecrypt } = await import('../api/vault.js');
-        const decrypted = await vaultDecrypt(env, vaultRow.secret_value_encrypted);
-        let preview = null;
-        try {
-          const m = JSON.parse(String(vaultRow.metadata_json || '{}'));
-          preview = m.last4 ? `••••${m.last4}` : null;
-        } catch {
-          /* ignore */
-        }
-        return { key: decrypted, preview, source: 'user_secrets' };
-      }
-    } catch (e) {
-      console.warn('[getUserBYOKey] user_secrets', e?.message ?? e);
-    }
-  }
 
   try {
     const row = await env.DB.prepare(
@@ -428,10 +429,34 @@ export async function getUserBYOKey(env, userId, tenantId, provider, opts = {}) 
       .bind(tenantId, userId, provider)
       .first();
 
-    if (!row?.key_hash) return null;
+    if (!row) {
+      const legacy = await legacyLlmVaultByok(env, userId, tenantId, prov);
+      return legacy;
+    }
 
-    const aesKey = await getAESKey(env, ['decrypt']);
-    const decrypted = await aesGcmDecryptFromB64(row.key_hash, aesKey);
+    let decrypted = null;
+    const vaultSecretId =
+      row.vault_secret_id != null ? String(row.vault_secret_id).trim() : '';
+    if (vaultSecretId) {
+      const secretRow = await env.DB.prepare(
+        `SELECT secret_value_encrypted FROM user_secrets
+         WHERE id = ? AND user_id = ? AND tenant_id = ? AND COALESCE(is_active, 1) = 1
+         LIMIT 1`,
+      )
+        .bind(vaultSecretId, userId, tenantId)
+        .first()
+        .catch(() => null);
+      if (secretRow?.secret_value_encrypted) {
+        const { vaultDecrypt } = await import('../api/vault.js');
+        decrypted = await vaultDecrypt(env, secretRow.secret_value_encrypted);
+      }
+    }
+    if (!decrypted && row.key_hash) {
+      const aesKey = await getAESKey(env, ['decrypt']);
+      decrypted = await aesGcmDecryptFromB64(row.key_hash, aesKey);
+    }
+    if (!decrypted) return null;
+
     const out = { key: decrypted, preview: row.key_preview ?? null, source: 'user_api_keys' };
     try {
       const { handleKeySecurityAfterOp, canonicalUserSecretId } = await import('../core/keys-security.js');

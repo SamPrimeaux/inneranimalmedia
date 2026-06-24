@@ -2,26 +2,61 @@
 # Upsert one KEY= value in .env.cloudflare (gitignored).
 #
 # Usage:
-#   pbpaste | ./scripts/upsert-env-cloudflare-var.sh CLOUDCONVERT_API_KEY
-#   printf '%s' 'your-key' | ./scripts/upsert-env-cloudflare-var.sh CLOUDCONVERT_API_KEY
-#   ./scripts/upsert-env-cloudflare-var.sh CLOUDCONVERT_API_KEY   # hidden prompt
+#   ./scripts/upsert-env-cloudflare-var.sh ANTHROPIC_API_KEY
+#     → visible paste prompt (recommended)
+#   ./scripts/upsert-env-cloudflare-var.sh ANTHROPIC_API_KEY --paste
+#   printf '%s' 'sk-...' | ./scripts/upsert-env-cloudflare-var.sh ANTHROPIC_API_KEY --stdin
 set -euo pipefail
 
-KEY="${1:?usage: upsert-env-cloudflare-var.sh VAR_NAME}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ENV_FILE="$REPO_ROOT/.env.cloudflare"
+KEY=""
+MODE="visible"
 
-if [[ -t 0 ]]; then
-  read -rs VAL
-  echo
-else
-  VAL="$(cat)"
-fi
-VAL="$(printf '%s' "$VAL" | tr -d '\n\r')"
-if [[ -z "$VAL" ]]; then
-  echo "ERROR: empty value for $KEY" >&2
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --paste) MODE="paste"; shift ;;
+    --stdin) MODE="stdin"; shift ;;
+    --hidden) MODE="hidden"; shift ;;
+    --visible) MODE="visible"; shift ;;
+    -h|--help)
+      sed -n '2,9p' "$0" | sed 's/^# \?//'
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      echo "Unknown option: $1 (try --visible, --paste, --stdin)" >&2
+      exit 1
+      ;;
+    *)
+      if [[ -z "$KEY" ]]; then
+        KEY="$1"
+        shift
+      else
+        echo "Unexpected argument: $1" >&2
+        exit 1
+      fi
+      ;;
+  esac
+done
+
+if [[ -z "$KEY" ]]; then
+  echo "usage: upsert-env-cloudflare-var.sh VAR_NAME [--visible|--paste|--stdin|--hidden]" >&2
   exit 1
 fi
+
+# shellcheck source=scripts/lib/read-secret-prompt.sh
+source "$REPO_ROOT/scripts/lib/read-secret-prompt.sh"
+
+if [[ -p /dev/stdin ]] && [[ ! -t 0 ]] && [[ "$MODE" == "visible" ]]; then
+  MODE="stdin"
+fi
+
+READ_SECRET_MODE="$MODE"
+VAL="$(read_secret_interactive "$KEY")"
 
 python3 - "$ENV_FILE" "$KEY" "$VAL" <<'PY'
 from pathlib import Path

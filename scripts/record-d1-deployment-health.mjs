@@ -26,6 +26,7 @@ import {
   sqlString,
   hasCloudflareToken,
 } from './lib/d1-deploy-record.mjs';
+import { deployEnvironmentLabel } from './lib/deploy-environment.mjs';
 
 function arg(name, def = '') {
   const i = process.argv.indexOf(name);
@@ -265,7 +266,7 @@ async function phaseEval() {
   const tenantId = String(process.env.TENANT_ID ?? ctx.tenant_id ?? '').trim();
   const workspaceId = String(process.env.WORKSPACE_ID ?? ctx.workspace_id ?? '').trim();
   const workerName = deriveWorkerName(root);
-  const envLabel = String(process.env.DEPLOY_ENV ?? ctx.environment ?? 'production').trim() || 'production';
+  const envLabel = deployEnvironmentLabel(ctx.environment ?? 'production');
   const baseUrl = (
     process.env.DEPLOY_SMOKE_BASE_URL || 'https://inneranimalmedia.com'
   ).replace(/\/$/, '');
@@ -304,7 +305,7 @@ async function phaseR2Skip() {
     tenantId,
     workspaceId,
     workerName: deriveWorkerName(root),
-    environment: String(process.env.DEPLOY_ENV ?? ctx.environment ?? 'production').trim() || 'production',
+    environment: deployEnvironmentLabel(ctx.environment ?? 'production'),
   });
   console.log('[d1-health] Recorded R2 reconcile skipped', runGroupId);
 }

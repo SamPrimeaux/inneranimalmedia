@@ -32,7 +32,8 @@ BUCKET="inneranimalmedia"
 PREFIX="static/dashboard/app"
 MANIFEST_PREVIOUS_KEY="analytics/deploys/previous-manifest.json"
 TOML="wrangler.production.toml"
-DEPLOY_ENV="${DEPLOY_ENV:-production}"
+ENVIRONMENT="${ENVIRONMENT:-${DEPLOY_ENV:-production}}"
+DEPLOY_ENV="${ENVIRONMENT}"
 DEPLOYED_BY="${DEPLOYED_BY:-sam_primeaux}"
 
 # Wrangler wall-clock guard (GNU coreutils `timeout`, or `gtimeout` on macOS Homebrew).
@@ -379,7 +380,7 @@ fi
 _WV_DISP="${WORKER_VERSION_ID:-—}"
 _SHA_DISP="${GIT_FULL_SHA:-—}"
 _MSG_DISP="${GIT_MSG_LINE:-—}"
-_ENV_DISP="${DEPLOY_ENV:-—}"
+_ENV_DISP="${ENVIRONMENT:-—}"
 _BY_DISP="${DEPLOYED_BY:-—}"
 # Notification recipient (Resend delivery) — not the deploy audit actor; see DEPLOY_USER_EMAIL.
 _NOTIFY_TO="${DEPLOY_NOTIFY_EMAIL:-${RESEND_TO:-${RESEND_NOTIFY_EMAIL:-sam@inneranimalmedia.com}}}"
@@ -392,7 +393,7 @@ NOTIFY_HTML="$(
   GIT_SHORT_HASH="${GIT_HASH:-}" \
   GIT_MSG_LINE="${GIT_MSG_LINE:-}" \
   BRANCH_NAME="${BRANCH_NAME:-}" \
-  DEPLOY_ENV="${DEPLOY_ENV:-production}" \
+  ENVIRONMENT="${ENVIRONMENT:-production}" \
   DEPLOYED_BY="${DEPLOYED_BY:-sam_primeaux}" \
   DEPLOY_STARTED_AT="${DEPLOY_STARTED_AT:-}" \
   DEPLOY_DURATION_MS="${DEPLOY_DURATION_MS:-0}" \
@@ -404,7 +405,7 @@ NOTIFY_HTML="$(
 )"
 NOTIFY_JSON="$(jq -n \
   --arg to "${_NOTIFY_TO}" \
-  --arg subj "Agent Sam Deployed — ${DEPLOY_ENV:-production} [${BRANCH_NAME:-main}] ${GIT_HASH:-}" \
+  --arg subj "Agent Sam Deployed — ${ENVIRONMENT:-production} [${BRANCH_NAME:-main}] ${GIT_HASH:-}" \
   --arg html "$NOTIFY_HTML" \
   '{to: $to, subject: $subj, html: $html}')"
 # Notification should never block deploy success; treat failures as warnings.

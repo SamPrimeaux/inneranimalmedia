@@ -56,7 +56,7 @@ looks_like_mint_secret() {
 }
 
 mint_verify() {
-  echo "VERIFY: POST /api/auth/agent-session/mint ..."
+  echo "VERIFY: POST /api/auth/agent-session/mint (retries while Worker secret propagates) ..."
   if "$REPO_ROOT/scripts/with-cloudflare-env.sh" node "$REPO_ROOT/scripts/verify-agent-session-mint.mjs"; then
     echo "  Session mint: OK"
     return 0
@@ -132,7 +132,7 @@ echo "Worker secret: AGENT_SESSION_MINT_SECRET updated (inneranimalmedia)"
 
 echo ""
 mint_verify || {
-  echo "WARN: mint still failed — wait ~30s for Worker secret propagation and run: npm run sync:agent-session-mint:verify" >&2
+  echo "WARN: mint still failed after retries — run: npm run sync:agent-session-mint:verify" >&2
   exit 1
 }
 

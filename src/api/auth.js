@@ -176,7 +176,7 @@ async function handleAgentSessionMint(request, env) {
       status: 'fail',
       metadata: { reason: 'bad_mint_secret' },
     });
-    return jsonResponse({ error: 'Unauthorized' }, 401);
+    return jsonResponse({ error: 'Unauthorized', code: 'MINT_SECRET_INVALID' }, 401);
   }
 
   let body = {};
@@ -241,7 +241,12 @@ async function handleAgentSessionMint(request, env) {
       userId,
       metadata: { reason: 'not_workspace_owner', workspace_id: workspaceId, user_id: userId },
     });
-    return jsonResponse({ error: 'Unauthorized' }, 401);
+    return jsonResponse({
+      error: 'Unauthorized',
+      code: 'NOT_WORKSPACE_OWNER',
+      workspace_id: workspaceId,
+      user_id: userId,
+    }, 401);
   }
 
   try {

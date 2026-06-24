@@ -9,6 +9,7 @@ import {
   DEPLOY_ROUTE_STATS_FILE,
   DEPLOY_CODEBASE_INDEX_STATS_FILE,
 } from './supabase-deploy-paths.mjs';
+import { deployEnvironmentLabel } from './deploy-environment.mjs';
 
 export function readJsonFile(path, fallback = {}) {
   try {
@@ -65,7 +66,7 @@ export function buildOutputSummaryLine(opts) {
 
   const commit = shortSha(worker.git_commit_sha || deployCtx.git_commit_sha);
   const branch = pickStr(worker.git_branch || deployCtx.git_branch, 'unknown');
-  const env = pickStr(deployCtx.environment || process.env.DEPLOY_ENV, 'unknown');
+  const env = pickStr(deployCtx.environment || deployEnvironmentLabel('unknown'), 'unknown');
 
   const total_ms = Number.isFinite(durationMs) ? Math.max(0, Math.floor(durationMs)) : 'unknown';
   const build_ms =

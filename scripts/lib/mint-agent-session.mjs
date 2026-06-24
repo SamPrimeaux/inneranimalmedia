@@ -56,9 +56,19 @@ export async function mintAgentSessionCookie(opts = {}) {
         `${err} — Worker front door blocked mint before handler (deploy fix: isAutomationApiPath for /api/auth/agent-session/mint)`,
       );
     }
+    if (r.status === 401 && code === 'MINT_SECRET_INVALID') {
+      throw new Error(
+        `${err} — AGENT_SESSION_MINT_SECRET mismatch (Worker secret vs .env.cloudflare). Run: npm run sync:agent-session-mint -- --generate`,
+      );
+    }
+    if (r.status === 401 && code === 'NOT_WORKSPACE_OWNER') {
+      throw new Error(
+        `${err} — user ${j.user_id || userId} is not owner of workspace ${j.workspace_id || workspaceId}. Fix workspace_members.role='owner' in D1.`,
+      );
+    }
     if (r.status === 401) {
       throw new Error(
-        `${err} — AGENT_SESSION_MINT_SECRET mismatch or not workspace owner. Run: npm run sync:agent-session-mint -- --generate`,
+        `${err} — AGENT_SESSION_MINT_SECRET mismatch or not workspace owner (deploy auth.js for distinct codes). Run: npm run sync:agent-session-mint -- --generate`,
       );
     }
     throw new Error(err);

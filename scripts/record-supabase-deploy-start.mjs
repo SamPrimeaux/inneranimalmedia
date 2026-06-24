@@ -6,7 +6,7 @@
  * Env vars → DB columns: docs/DEPLOY_ENV_SUPABASE_MAPPING.md
  *
  * Env used here: RUN_GROUP_ID, TRIGGER_SOURCE, DEPLOY_SCRIPT_NAME, TENANT_ID, WORKSPACE_ID,
- * DOCUMENTS_PROJECT_ID, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, DEPLOY_ENV,
+ * DOCUMENTS_PROJECT_ID, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, ENVIRONMENT (legacy shell: DEPLOY_ENV),
  * DEPLOYED_BY / DEPLOY_DEPLOYED_BY, TRIGGERED_BY / DEPLOY_TRIGGERED_BY,
  * D1_AUTH_USER_ID, DEPLOY_USER_EMAIL / USER_EMAIL.
  *
@@ -15,6 +15,7 @@
 import { writeFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 import { resolveDeployScope, requireSupabaseRest } from './lib/supabase-deploy-context.mjs';
+import { deployEnvironmentLabel } from './lib/deploy-environment.mjs';
 import { sbRequest } from './lib/supabase-rest.mjs';
 import {
   repoRoot,
@@ -69,7 +70,7 @@ async function main() {
     process.env.TRIGGER_SOURCE || (process.env.CI ? 'github' : 'manual'),
   ).trim();
   const scriptName = String(process.env.DEPLOY_SCRIPT_NAME || 'deploy:full').trim();
-  const environment = String(process.env.DEPLOY_ENV || 'production').trim();
+  const environment = deployEnvironmentLabel();
   const deployedBy = ctx.deployedBy || ctx.d1AuthUserId || ctx.userEmail || 'deploy_script';
   const triggeredBy = ctx.triggeredBy || deployedBy;
   const startedAt = new Date().toISOString();

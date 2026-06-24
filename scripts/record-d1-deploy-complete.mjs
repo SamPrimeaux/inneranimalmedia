@@ -31,6 +31,7 @@ import {
   sqlInt,
   trackingRowId,
 } from './lib/d1-deploy-record.mjs';
+import { deployEnvironmentLabel } from './lib/deploy-environment.mjs';
 import { recordDeployEvalHealth } from './record-d1-deployment-health.mjs';
 
 function readJson(path, fb = null) {
@@ -272,7 +273,7 @@ async function main() {
     durationMs,
   });
 
-  const envLabel = String(process.env.DEPLOY_ENV ?? deployCtx.environment ?? 'production').trim() || 'production';
+  const envLabel = deployEnvironmentLabel(deployCtx.environment ?? 'production');
 
   const depCols = pragmaTableInfo(root, 'deployments');
   if (depCols.size) {

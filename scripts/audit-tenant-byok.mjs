@@ -41,7 +41,7 @@ const EXPECTED_PROVIDERS = [
   'supabase',
 ];
 
-const EXPECTED_LLM_VAULT = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY'];
+const EXPECTED_LLM_PROVIDERS = ['openai', 'anthropic', 'google'];
 
 function d1Query(sql) {
   const args = [
@@ -167,19 +167,31 @@ function main() {
     }
   }
 
-  section('LLM vault slots (user_secrets / iam_user_llm_keys)');
+  section('Model picker BYOK (user_api_keys — canonical)');
+  const llmKeys = keys.filter((k) =>
+    EXPECTED_LLM_PROVIDERS.includes(String(k.provider).toLowerCase()),
+  );
+  if (!llmKeys.length) console.log('  No LLM BYOK rows in user_api_keys.');
+  for (const k of llmKeys) {
+    console.log(
+      `  ${k.provider}: preview=${k.key_preview || '—'} tested=${k.last_tested_at ?? 'never'} status=${k.test_status ?? '—'}`,
+    );
+  }
+  for (const p of EXPECTED_LLM_PROVIDERS) {
+    if (!llmKeys.some((k) => String(k.provider).toLowerCase() === p)) {
+      console.log(`  GAP: no user_api_keys row for "${p}" — model picker may show BYOK false`);
+    }
+  }
+
+  section('Legacy LLM vault slots (iam_user_llm_keys — optional fallback)');
   const vault = d1Query(
     `SELECT secret_name, json_extract(metadata_json,'$.last4') AS last4
      FROM user_secrets
      WHERE tenant_id = '${TENANT_ID}' AND user_id = '${USER_ID}'
        AND project_label = 'iam_user_llm_keys' AND COALESCE(is_active,1)=1`,
   );
+  if (!vault.length) console.log('  None (OK if user_api_keys has LLM providers).');
   for (const v of vault) console.log(`  ${v.secret_name}: ••••${v.last4 ?? '????'}`);
-  for (const name of EXPECTED_LLM_VAULT) {
-    if (!vault.some((v) => v.secret_name === name)) {
-      console.log(`  GAP: vault slot ${name} not configured (model picker BYOK may show false)`);
-    }
-  }
 
   section('R2 BYOK (user_storage_access_keys)');
   const r2 = d1Query(

@@ -29,6 +29,17 @@ async function fetchWithTimeout(url, init, timeoutMs = VALIDATE_TIMEOUT_MS) {
   }
 }
 
+function summarizeModelIds(ids, label = 'models') {
+  const list = ids.filter(Boolean).map(String);
+  if (!list.length) return null;
+  const sample = list.slice(0, 6).join(', ');
+  return `${list.length} ${label} (e.g. ${sample}${list.length > 6 ? '…' : ''})`;
+}
+
+async function parseJsonBody(res) {
+  return res.json().catch(() => ({}));
+}
+
 function check(id, status, latencyMs, detail = null, extra = {}) {
   return {
     id,
@@ -132,11 +143,15 @@ export async function validateProviderKey(provider, apiKey, env = {}, opts = {})
         headers: { Authorization: `Bearer ${key}` },
       });
       const ms = Date.now() - t0;
+      const body = await parseJsonBody(res);
       if (!res.ok) {
-        checks.push(check('models_list', 'fail', ms, `HTTP ${res.status}`));
+        const err = body?.error?.message || `HTTP ${res.status}`;
+        checks.push(check('models_list', 'fail', ms, err));
         return { ok: false, provider: prov, checks, warnings };
       }
-      checks.push(check('models_list', 'pass', ms, 'OpenAI API accepted key'));
+      const ids = Array.isArray(body?.data) ? body.data.map((m) => m?.id) : [];
+      const detail = summarizeModelIds(ids) || 'OpenAI API accepted key';
+      checks.push(check('models_list', 'pass', ms, detail, { model_count: ids.length, models_sample: ids.slice(0, 12) }));
       return { ok: true, provider: prov, checks, warnings };
     }
 
@@ -148,11 +163,15 @@ export async function validateProviderKey(provider, apiKey, env = {}, opts = {})
         },
       });
       const ms = Date.now() - t0;
+      const body = await parseJsonBody(res);
       if (!res.ok) {
-        checks.push(check('models_list', 'fail', ms, `HTTP ${res.status}`));
+        const err = body?.error?.message || body?.error?.type || `HTTP ${res.status}`;
+        checks.push(check('models_list', 'fail', ms, err));
         return { ok: false, provider: prov, checks, warnings };
       }
-      checks.push(check('models_list', 'pass', ms, 'Anthropic API accepted key'));
+      const ids = Array.isArray(body?.data) ? body.data.map((m) => m?.id || m?.name) : [];
+      const detail = summarizeModelIds(ids) || 'Anthropic API accepted key';
+      checks.push(check('models_list', 'pass', ms, detail, { model_count: ids.length, models_sample: ids.slice(0, 12) }));
       return { ok: true, provider: prov, checks, warnings };
     }
 
@@ -161,11 +180,17 @@ export async function validateProviderKey(provider, apiKey, env = {}, opts = {})
         `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`,
       );
       const ms = Date.now() - t0;
+      const body = await parseJsonBody(res);
       if (!res.ok) {
-        checks.push(check('models_list', 'fail', ms, `HTTP ${res.status}`));
+        const err = body?.error?.message || `HTTP ${res.status}`;
+        checks.push(check('models_list', 'fail', ms, err));
         return { ok: false, provider: prov, checks, warnings };
       }
-      checks.push(check('models_list', 'pass', ms, 'Google AI API accepted key'));
+      const ids = Array.isArray(body?.models)
+        ? body.models.map((m) => String(m?.name || '').replace(/^models\//, ''))
+        : [];
+      const detail = summarizeModelIds(ids, 'Gemini models') || 'Google AI API accepted key';
+      checks.push(check('models_list', 'pass', ms, detail, { model_count: ids.length, models_sample: ids.slice(0, 12) }));
       return { ok: true, provider: prov, checks, warnings };
     }
 
@@ -182,7 +207,7 @@ export async function validateProviderKey(provider, apiKey, env = {}, opts = {})
         checks.push(check('user', 'fail', ms, `HTTP ${res.status}`));
         return { ok: false, provider: prov, checks, warnings };
       }
-      const body = await res.json().catch(() => ({}));
+      const body = await parseJsonBody(res);
       checks.push(check('user', 'pass', ms, body?.login ? `GitHub user: ${body.login}` : 'OK'));
       return { ok: true, provider: prov, checks, warnings };
     }
@@ -192,11 +217,21 @@ export async function validateProviderKey(provider, apiKey, env = {}, opts = {})
         headers: { Authorization: `Bearer ${key}` },
       });
       const ms = Date.now() - t0;
+      const body = await parseJsonBody(res);
       if (!res.ok) {
         checks.push(check('domains', 'fail', ms, `HTTP ${res.status}`));
         return { ok: false, provider: prov, checks, warnings };
       }
-      checks.push(check('domains', 'pass', ms, 'Resend API accepted key'));
+      const domainCount = Array.isArray(body?.data) ? body.data.length : 0;
+      checks.push(
+        check(
+          'domains',
+          'pass',
+          ms,
+          domainCount ? `Resend: ${domainCount} domain(s)` : 'Resend API accepted key',
+          { domain_count: domainCount },
+        ),
+      );
       return { ok: true, provider: prov, checks, warnings };
     }
 
@@ -230,14 +265,20 @@ export async function validateProviderKey(provider, apiKey, env = {}, opts = {})
         headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
       });
       const ms = Date.now() - t0;
-      const body = await res.json().catch(() => ({}));
+      const body = await parseJsonBody(res);
       if (!res.ok) {
         checks.push(check('balance', 'fail', ms, body?.message || `HTTP ${res.status}`));
         return { ok: false, provider: prov, checks, warnings };
       }
       const balance = body?.balance ?? body?.credits;
       checks.push(
-        check('balance', 'pass', ms, balance != null ? `Meshy balance: ${balance}` : 'Meshy API accepted key'),
+        check(
+          'balance',
+          'pass',
+          ms,
+          balance != null ? `Meshy balance: ${balance} credits` : 'Meshy API accepted key',
+          { balance },
+        ),
       );
       return { ok: true, provider: prov, checks, warnings };
     }

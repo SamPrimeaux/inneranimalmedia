@@ -24,6 +24,7 @@ import {
   sqlInt,
   trackingRowId,
 } from './lib/d1-deploy-record.mjs';
+import { deployEnvironmentLabel } from './lib/deploy-environment.mjs';
 import { recordPipelineFailureHealth } from './record-d1-deployment-health.mjs';
 
 function readJson(path, fb = null) {
@@ -122,7 +123,7 @@ async function main() {
   const workerName = deriveWorkerName(root);
   const gitSha = deployCtx.git_commit_sha || gitFull(root);
   const branch = deployCtx.git_branch || '';
-  const envLabel = String(process.env.DEPLOY_ENV ?? deployCtx.environment ?? 'production').trim() || 'production';
+  const envLabel = deployEnvironmentLabel(deployCtx.environment ?? 'production');
 
   const summary = [
     `status=failed`,

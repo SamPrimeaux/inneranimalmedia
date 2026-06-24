@@ -154,14 +154,14 @@ line_status "$CLOUD_ENV" "MESHYAI_API_KEY"
 echo "Worker secret: MESHYAI_API_KEY updated (production inneranimalmedia)"
 
 echo ""
-echo "BYOK: upserting meshy row in dashboard (user_api_keys)..."
-if "$REPO_ROOT/scripts/with-cloudflare-env.sh" node "$REPO_ROOT/scripts/sync-meshy-byok-only.mjs"; then
-  echo "BYOK: meshy row aligned"
+echo "BYOK + vault: Settings → Keys alignment..."
+if "$REPO_ROOT/scripts/with-cloudflare-env.sh" node "$REPO_ROOT/scripts/sync-provider-byok.mjs" meshy; then
+  echo "BYOK: meshy + vault aligned"
 else
   echo "WARN: BYOK upsert failed — platform wrangler secret is still updated." >&2
   echo "WARN: BYOK upsert failed — align automation mint secret first:" >&2
   echo "  npm run sync:agent-session-mint -- --generate" >&2
-  echo "  ./scripts/with-cloudflare-env.sh node scripts/sync-meshy-byok-only.mjs" >&2
+  echo "  ./scripts/with-cloudflare-env.sh node scripts/sync-provider-byok.mjs meshy" >&2
 fi
 
 echo ""

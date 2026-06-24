@@ -4,6 +4,14 @@ import { resolveEffectiveWorkspaceId } from '../core/bootstrap.js';
 import { logSecretAudit } from '../core/security-scan.js';
 import { encryptWithVault, decryptWithVault } from '../core/oauth-token-store.js';
 import { isVaultConfigured, VAULT_SETUP_HINT } from '../core/vault-key-material.js';
+import {
+  getTenantLlmByokStatus,
+  llmSecretNameForApiPlatform,
+  listLlmKeysFromUserApiKeys,
+  SECRET_NAME_TO_PROVIDER,
+} from '../core/llm-byok-registry.js';
+
+export { getTenantLlmByokStatus, llmSecretNameForApiPlatform };
 
 const LLM_VAULT_PROJECT = 'iam_user_llm_keys';
 const LLM_ALLOWED_NAMES = new Set(['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY']);
@@ -75,51 +83,8 @@ async function fetchScopedUserSecret(env, ctx, secretId, extra = '') {
 }
 
 /**
- * BYOK slot status for model picker (masked metadata only).
- * @returns {Promise<Record<string, { configured: boolean, masked: string | null, secret_id: string | null }>>}
+ * BYOK slot status for model picker — canonical source: user_api_keys (see llm-byok-registry.js).
  */
-export async function getTenantLlmByokStatus(env, { tenantId, userId }) {
-  const out = {};
-  if (!env?.DB || !tenantId || !userId) {
-    for (const n of LLM_ALLOWED_NAMES) out[n] = { configured: false, masked: null, secret_id: null };
-    return out;
-  }
-  for (const secretName of LLM_ALLOWED_NAMES) {
-    const row = await env.DB.prepare(
-      `SELECT id, metadata_json FROM user_secrets
-       WHERE tenant_id = ? AND user_id = ? AND secret_name = ? AND project_label = ? AND is_active = 1
-       LIMIT 1`,
-    )
-      .bind(tenantId, userId, secretName, LLM_VAULT_PROJECT)
-      .first();
-    let last4 = '????';
-    if (row?.metadata_json) {
-      try {
-        const m = JSON.parse(String(row.metadata_json));
-        if (m.last4) last4 = String(m.last4);
-      } catch {
-        /* ignore */
-      }
-    }
-    out[secretName] = {
-      configured: !!row?.id,
-      masked: row?.id ? maskApiKeyPreview('', last4) : null,
-      secret_id: row?.id ? String(row.id) : null,
-    };
-  }
-  return out;
-}
-
-/** Map agentsam_ai.api_platform → vault secret_name for BYOK. */
-export function llmSecretNameForApiPlatform(apiPlatform) {
-  const p = String(apiPlatform || '').trim().toLowerCase();
-  if (p === 'openai' || p === 'cursor') return 'OPENAI_API_KEY';
-  if (p === 'anthropic_api' || p === 'anthropic') return 'ANTHROPIC_API_KEY';
-  if (p === 'gemini_api' || p === 'google_ai' || p === 'google_ai_studio' || p === 'vertex_ai') {
-    return 'GEMINI_API_KEY';
-  }
-  return null;
-}
 
 function vaultJson(data, status = 200) {
   return jsonResponse(data, status);
@@ -634,93 +599,57 @@ async function vaultStoreUserKey(request, env) {
   const keyName = String(body.key_name || body.secret_name || '').trim();
   const value = String(body.value ?? body.secret_value ?? '');
   if (!keyName || !value) return vaultErr('key_name and value are required', 400);
-  if (!LLM_ALLOWED_NAMES.has(keyName)) return vaultErr('key_name must be one of OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY', 400);
-  const encrypted = await encryptWithVault(env, value);
-  const last4val = vaultLast4(value);
-  const metadata = JSON.stringify({ last4: last4val });
-  const cols = await userSecretsColumns(env.DB);
+  if (!LLM_ALLOWED_NAMES.has(keyName)) {
+    return vaultErr('key_name must be one of OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY', 400);
+  }
+  const provider = SECRET_NAME_TO_PROVIDER[keyName];
+  if (!provider) return vaultErr('Unsupported key_name', 400);
 
   const existing = await env.DB.prepare(
-    `SELECT id FROM user_secrets
-     WHERE tenant_id = ? AND user_id = ? AND secret_name = ? AND project_label = ? AND is_active = 1
+    `SELECT id FROM user_api_keys
+     WHERE tenant_id = ? AND user_id = ? AND provider = ? AND COALESCE(is_active, 1) = 1
      LIMIT 1`,
   )
-    .bind(ctx.tenantId, ctx.uid, keyName, LLM_VAULT_PROJECT)
-    .first();
+    .bind(ctx.tenantId, ctx.uid, provider)
+    .first()
+    .catch(() => null);
 
-  if (existing?.id) {
-    const wsSet = ctx.workspaceId && cols.has('workspace_id') ? ', workspace_id = ?' : '';
-    await env.DB.prepare(
-      `UPDATE user_secrets SET secret_value_encrypted = ?, metadata_json = ?, service_name = 'llm', tenant_id = ?, updated_at = unixepoch()${wsSet}
-       WHERE id = ? AND user_id = ? AND tenant_id = ?`,
-    )
-      .bind(
-        encrypted,
-        metadata,
-        ctx.tenantId,
-        ...(ctx.workspaceId && cols.has('workspace_id') ? [ctx.workspaceId] : []),
-        existing.id,
-        ctx.uid,
-        ctx.tenantId,
-      )
-      .run();
-    const llmRotateNotes = `User LLM key updated: ${keyName}`;
-    await vaultWriteAudit(env.DB, {
-      secret_id: existing.id,
-      tenant_id: ctx.tenantId,
-      user_id: ctx.uid,
-      event_type: 'rotated',
-      triggered_by: ctx.uid,
-      new_last4: last4val,
-      notes: llmRotateNotes,
-      request,
-      resolved_notes: llmRotateNotes,
-    });
-    await logSecretAudit(env, {
-      secretId: existing.id,
-      tenantId: ctx.tenantId,
-      userId: ctx.uid,
-      eventType: 'rotated',
-      triggeredBy: 'dashboard_ui',
-      newLast4: last4val,
-      notes: llmRotateNotes,
-      closeAuditTrail: true,
-      resolvedNotes: llmRotateNotes,
-    });
-    return vaultJson({
-      success: true,
-      id: existing.id,
-      key_name: keyName,
-      masked: maskApiKeyPreview(value, last4val),
-    });
+  const origin = new URL(request.url).origin;
+  const headers = {
+    'Content-Type': 'application/json',
+    Cookie: request.headers.get('Cookie') || '',
+  };
+  if (ctx.workspaceId) headers['X-IAM-Workspace-Id'] = ctx.workspaceId;
+
+  const settingsBody = {
+    category: 'provider',
+    provider,
+    api_key: value,
+    label: `${provider} (dashboard vault)`,
+    scope: 'workspace',
+    validate: false,
+  };
+
+  const settingsPath = existing?.id
+    ? `/api/settings/keys/${encodeURIComponent(String(existing.id))}/rotate`
+    : '/api/settings/keys';
+  const res = await fetch(`${origin}${settingsPath}`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(settingsBody),
+  });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    return vaultErr(j.message || j.error || 'Could not save key to Settings → Keys', res.status || 500);
   }
 
-  const id = vaultNewId('sec');
-  const wsCol = ctx.workspaceId && cols.has('workspace_id') ? ', workspace_id' : '';
-  const wsVal = ctx.workspaceId && cols.has('workspace_id') ? ', ?' : '';
-  const insBinds = [id, ctx.uid, ctx.tenantId, keyName, encrypted, LLM_VAULT_PROJECT, metadata];
-  if (ctx.workspaceId && cols.has('workspace_id')) insBinds.push(ctx.workspaceId);
-  await env.DB.prepare(
-    `INSERT INTO user_secrets (id, user_id, tenant_id, secret_name, secret_value_encrypted, service_name, description, project_label, project_id, tags, scopes_json, metadata_json, expires_at, is_active${wsCol})
-     VALUES (?, ?, ?, ?, ?, 'llm', NULL, ?, NULL, NULL, '[]', ?, NULL, 1${wsVal})`,
-  )
-    .bind(...insBinds)
-    .run();
-  await vaultWriteAudit(env.DB, {
-    secret_id: id,
-    tenant_id: ctx.tenantId,
-    user_id: ctx.uid,
-    event_type: 'created',
-    triggered_by: ctx.uid,
-    new_last4: last4val,
-    notes: `User LLM key stored: ${keyName}`,
-    request,
-  });
+  const last4val = vaultLast4(value);
   return vaultJson({
     success: true,
-    id,
+    id: existing?.id ? String(existing.id) : j.id ? String(j.id) : null,
     key_name: keyName,
     masked: maskApiKeyPreview(value, last4val),
+    source: 'user_api_keys',
   });
 }
 
@@ -739,47 +668,7 @@ async function vaultListUserLlmKeys(request, env) {
   if (!authUser) return vaultErr('Unauthorized', 401);
   const ctx = await vaultAuthContext(env, authUser, request);
   if ('error' in ctx) return vaultErr(ctx.error, ctx.status);
-  const { results } = await env.DB.prepare(
-    `SELECT id, secret_name, metadata_json, is_active, created_at, updated_at
-     FROM user_secrets WHERE tenant_id = ? AND user_id = ? AND project_label = ? AND is_active = 1
-     ORDER BY secret_name ASC`,
-  )
-    .bind(ctx.tenantId, ctx.uid, LLM_VAULT_PROJECT)
-    .all();
-  const rows = (results || []).map((r) => {
-    let last4 = '????';
-    try {
-      const m = JSON.parse(r.metadata_json || '{}');
-      if (m.last4) last4 = String(m.last4);
-    } catch {
-      /* ignore */
-    }
-    const kn = String(r.secret_name || '');
-    const masked =
-      kn === 'OPENAI_API_KEY'
-        ? `sk-...${last4}`
-        : kn === 'ANTHROPIC_API_KEY'
-          ? `sk-ant-...${last4}`
-          : kn === 'GEMINI_API_KEY'
-            ? `AIza...${last4}`
-            : `••••${last4}`;
-    const provider =
-      kn === 'OPENAI_API_KEY'
-        ? 'OpenAI'
-        : kn === 'ANTHROPIC_API_KEY'
-          ? 'Anthropic'
-          : kn === 'GEMINI_API_KEY'
-            ? 'Gemini'
-            : 'Other';
-    return {
-      id: r.id,
-      key_name: kn,
-      provider,
-      masked,
-      last4,
-      created_at: r.created_at ?? null,
-    };
-  });
+  const rows = await listLlmKeysFromUserApiKeys(env, ctx.tenantId, ctx.uid);
   return vaultJson({ keys: rows });
 }
 
@@ -788,21 +677,36 @@ async function vaultDeleteUserLlmKey(request, env, id) {
   if (!authUser) return vaultErr('Unauthorized', 401);
   const ctx = await vaultAuthContext(env, authUser, request);
   if ('error' in ctx) return vaultErr(ctx.error, ctx.status);
+
+  const keyId = String(id || '').trim();
+  if (keyId.startsWith('uak_')) {
+    const origin = new URL(request.url).origin;
+    const headers = { Cookie: request.headers.get('Cookie') || '' };
+    if (ctx.workspaceId) headers['X-IAM-Workspace-Id'] = ctx.workspaceId;
+    const res = await fetch(`${origin}/api/settings/keys/${encodeURIComponent(keyId)}`, {
+      method: 'DELETE',
+      headers,
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) return vaultErr(j.message || j.error || 'Revoke failed', res.status || 500);
+    return vaultJson({ ok: true, revoked: true, source: 'user_api_keys' });
+  }
+
   const row = await env.DB.prepare(
     `SELECT id FROM user_secrets
      WHERE id = ? AND tenant_id = ? AND user_id = ? AND project_label = ? AND is_active = 1 LIMIT 1`,
   )
-    .bind(id, ctx.tenantId, ctx.uid, LLM_VAULT_PROJECT)
+    .bind(keyId, ctx.tenantId, ctx.uid, LLM_VAULT_PROJECT)
     .first();
   if (!row) return vaultErr('Not found', 404);
   await env.DB.prepare(
     `UPDATE user_secrets SET is_active = 0, updated_at = unixepoch() WHERE id = ? AND tenant_id = ? AND user_id = ?`,
   )
-    .bind(id, ctx.tenantId, ctx.uid)
+    .bind(keyId, ctx.tenantId, ctx.uid)
     .run();
-  const llmRevokeNotes = 'User removed LLM API key';
+  const llmRevokeNotes = 'User removed legacy LLM API key';
   await vaultWriteAudit(env.DB, {
-    secret_id: id,
+    secret_id: keyId,
     tenant_id: ctx.tenantId,
     user_id: ctx.uid,
     event_type: 'revoked',
@@ -812,7 +716,7 @@ async function vaultDeleteUserLlmKey(request, env, id) {
     resolved_notes: llmRevokeNotes,
   });
   await logSecretAudit(env, {
-    secretId: id,
+    secretId: keyId,
     tenantId: ctx.tenantId,
     userId: ctx.uid,
     eventType: 'revoked',
@@ -821,7 +725,7 @@ async function vaultDeleteUserLlmKey(request, env, id) {
     closeAuditTrail: true,
     resolvedNotes: llmRevokeNotes,
   });
-  return vaultJson({ success: true });
+  return vaultJson({ ok: true, revoked: true, source: 'iam_user_llm_keys_legacy' });
 }
 
 export async function handleVaultApi(request, urlIn, env, _ctx) {

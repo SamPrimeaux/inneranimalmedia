@@ -52,7 +52,6 @@
 | `AI_SEARCH_ENDPOINT` | `https://2da31515-2005-42e4-9efe-a4e6a425a627.search.ai.cloudflare.com` | Yes |
 | `CLOUDFLARE_ACCOUNT_ID` | `ede6590ac0d2fb7daf155b35653457b2` | Yes |
 | `CLOUDFLARE_IMAGES_ACCOUNT_HASH` | `g7wf09fCONpnidkRnR_5vw` | Yes |
-| `DEPLOY_ENV` | `production` | Yes |
 | `ENVIRONMENT` | `production` | Yes |
 | `GITHUB_CLIENT_ID` | `Ov23li6BZYxjVtGUWibX` | Yes |
 | `GOOGLE_CLIENT_ID` | `427617292678-…apps.googleusercontent.com` | Yes |

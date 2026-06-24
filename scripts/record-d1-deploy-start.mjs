@@ -2,10 +2,11 @@
 /**
  * Upsert D1 deployments (pending) + deployment_tracking (running) at deploy start.
  * Env: RUN_GROUP_ID, TENANT_ID, WORKSPACE_ID, DOCUMENTS_PROJECT_ID or DEPLOY_PROJECT_ID,
- * TRIGGER_SOURCE, DEPLOY_SCRIPT_NAME, DEPLOY_ENV, D1_AUTH_USER_ID / DEPLOY_USER_EMAIL,
+ * TRIGGER_SOURCE, DEPLOY_SCRIPT_NAME, ENVIRONMENT (legacy shell: DEPLOY_ENV), D1_AUTH_USER_ID / DEPLOY_USER_EMAIL,
  * CLOUDFLARE_API_TOKEN (via with-cloudflare-env / .env.cloudflare).
  */
 import { repoRoot } from './lib/supabase-deploy-paths.mjs';
+import { deployEnvironmentLabel } from './lib/deploy-environment.mjs';
 import { resolveDeployScope } from './lib/supabase-deploy-context.mjs';
 import {
   deriveWorkerName,
@@ -71,7 +72,7 @@ async function main() {
   const shortSha = gitShort(root);
   const pkgV = pkgVersion(root);
   const version = shortSha !== 'unknown' ? shortSha : pkgV || 'unknown';
-  const envLabel = String(process.env.DEPLOY_ENV ?? 'production').trim() || 'production';
+  const envLabel = deployEnvironmentLabel();
   const triggeredBy = String(process.env.TRIGGER_SOURCE ?? 'manual').trim();
   const deployedBy = deployedByActor();
   const meta = metadataPayload(scope, root, workerName, version, gitHash);
