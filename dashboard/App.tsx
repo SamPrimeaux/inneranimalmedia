@@ -3492,7 +3492,8 @@ const App: React.FC = () => {
   };
 
   /** Mobile: only fullscreen agent chat hides the editor; activity drawer is a side panel. */
-  const narrowBlocksCenter = isNarrowViewport && agentPosition !== 'off';
+  // Studio needs full canvas on mobile — never let agent panel hide it
+  const narrowBlocksCenter = isNarrowViewport && agentPosition !== 'off' && !isDesignStudioRoute;
   /** Explorer drawer has its own close control — no floating back pill while files panel is open. */
   const narrowNeedsBack =
     isNarrowViewport &&
