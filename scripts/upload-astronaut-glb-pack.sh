@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Upload astronaut GLB pack to production R2 (Worker: /assets/glb/astronaut/*).
+# Upload astronaut pack: repo runtime rig (canonical) + optional R2-only archive variants.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -7,42 +7,42 @@ CONFIG="$REPO_ROOT/wrangler.production.toml"
 BUCKET="${IAM_R2_BUCKET:-inneranimalmedia}"
 PREFIX="glb/astronaut"
 SRC="$REPO_ROOT/public/assets/glb/astronaut"
+RUNTIME_GLB="astronaut_rig_animations_opt.glb"
+# Optional: Expansion archive optimized folder for R2-only singles (not committed to repo)
+ARCHIVE_OPTIMIZED="${ASTRONAUT_ARCHIVE_OPTIMIZED:-/Volumes/Expansion/astronaut!-glb-scenes/Archive/optimized}"
 
 WRANGLER=(./scripts/with-cloudflare-env.sh npx wrangler)
 
-if [ ! -d "$SRC" ]; then
-  echo "✗ Missing $SRC — run: node scripts/astronaut-glb-merge-and-stage.mjs"
+if [ ! -f "$SRC/$RUNTIME_GLB" ]; then
+  echo "✗ Missing $SRC/$RUNTIME_GLB — run: node scripts/astronaut-glb-merge-and-stage.mjs"
   exit 1
 fi
 
 put_file() {
   local key="$1"
   local file="$2"
+  local ct="${3:-model/gltf-binary}"
   echo "→ put ${BUCKET}/${key}"
   "${WRANGLER[@]}" r2 object put "${BUCKET}/${key}" \
-    --file "$file" \
-    --content-type "model/gltf-binary" \
-    --config "$CONFIG" \
-    --remote
+    --file "$file" --content-type "$ct" --config "$CONFIG" --remote
 }
 
-echo "Uploading astronaut GLB pack to R2…"
-
-for glb in "$SRC"/*_opt.glb; do
-  [ -f "$glb" ] || continue
-  base="$(basename "$glb")"
-  put_file "${PREFIX}/${base}" "$glb"
-done
+echo "Uploading astronaut runtime rig (repo canonical)…"
+put_file "${PREFIX}/${RUNTIME_GLB}" "$SRC/$RUNTIME_GLB"
 
 if [ -f "$SRC/manifest.json" ]; then
-  echo "→ put ${BUCKET}/${PREFIX}/manifest.json"
-  "${WRANGLER[@]}" r2 object put "${BUCKET}/${PREFIX}/manifest.json" \
-    --file "$SRC/manifest.json" \
-    --content-type "application/json; charset=utf-8" \
-    --config "$CONFIG" \
-    --remote
+  put_file "${PREFIX}/manifest.json" "$SRC/manifest.json" "application/json; charset=utf-8"
 fi
 
-echo "✓ Live at https://inneranimalmedia.com/assets/${PREFIX}/"
-echo "  Rig + clips: https://inneranimalmedia.com/assets/${PREFIX}/astronaut_rig_animations_opt.glb"
-echo "  Texture body: https://inneranimalmedia.com/assets/${PREFIX}/astronaut_texture_opt.glb"
+if [ -d "$ARCHIVE_OPTIMIZED" ]; then
+  echo "Uploading R2-only optimized variants from archive (not in repo)…"
+  for glb in "$ARCHIVE_OPTIMIZED"/*_opt.glb; do
+    [ -f "$glb" ] || continue
+    base="$(basename "$glb")"
+    if [ "$base" = "$RUNTIME_GLB" ]; then continue
+    put_file "${PREFIX}/${base}" "$glb"
+  done
+fi
+
+echo "✓ Runtime: https://inneranimalmedia.com/assets/${PREFIX}/${RUNTIME_GLB}"
+echo "  Manifest: https://inneranimalmedia.com/assets/${PREFIX}/manifest.json"

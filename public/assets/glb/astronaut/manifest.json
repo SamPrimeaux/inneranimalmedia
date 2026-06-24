@@ -1,61 +1,91 @@
 {
   "id": "astronaut_glb_pack_v1",
   "title": "Astronaut GLB pack",
-  "r2_prefix": "glb/astronaut",
-  "public_origin": "https://assets.inneranimalmedia.com",
-  "clips": [
-    "walking",
-    "running",
-    "boxing",
-    "climb_fall",
-    "fall"
-  ],
-  "merge": {
-    "bytesIn": 4954700,
-    "bytesOut": 4913960
+  "policy": {
+    "repo_runtime_only": [
+      "astronaut_rig_animations_opt.glb",
+      "manifest.json"
+    ],
+    "r2_canonical": true,
+    "r2_prefix": "glb/astronaut",
+    "note": "Repo holds curated runtime rig; R2 holds sources, optimized singles, archives."
   },
-  "assets": [
-    {
-      "name": "astronaut_rig_animations_opt.glb",
-      "r2_key": "glb/astronaut/astronaut_rig_animations_opt.glb",
-      "public_url": "https://assets.inneranimalmedia.com/glb/astronaut/astronaut_rig_animations_opt.glb",
-      "bytes": 4913960
-    },
-    {
-      "name": "astronaut_texture_opt.glb",
-      "r2_key": "glb/astronaut/astronaut_texture_opt.glb",
-      "public_url": "https://assets.inneranimalmedia.com/glb/astronaut/astronaut_texture_opt.glb",
-      "bytes": 3209496
-    },
-    {
-      "name": "Animation_Walking_withSkin_opt.glb",
-      "r2_key": "glb/astronaut/Animation_Walking_withSkin_opt.glb",
-      "public_url": "https://assets.inneranimalmedia.com/glb/astronaut/Animation_Walking_withSkin_opt.glb",
-      "bytes": 4729280
-    },
-    {
-      "name": "Animation_Running_withSkin_opt.glb",
-      "r2_key": "glb/astronaut/Animation_Running_withSkin_opt.glb",
-      "public_url": "https://assets.inneranimalmedia.com/glb/astronaut/Animation_Running_withSkin_opt.glb",
-      "bytes": 4726136
-    },
+  "runtime": {
+    "cms_asset_id": "ds_stock_astronaut_rig",
+    "file": "astronaut_rig_animations_opt.glb",
+    "bytes": 4913960,
+    "clips": [
+      "walking",
+      "running",
+      "boxing",
+      "climb_fall",
+      "fall"
+    ],
+    "r2_key": "glb/astronaut/astronaut_rig_animations_opt.glb",
+    "public_url": "https://inneranimalmedia.com/assets/glb/astronaut/astronaut_rig_animations_opt.glb",
+    "source_provider": "archive_expansion",
+    "source_archive": "astronaut!-glb-scenes/Archive",
+    "compress": "meshopt",
+    "skinned": true,
+    "bytes_in": 4954700,
+    "bytes_out": 4913960
+  },
+  "r2_variants": [
     {
       "name": "Animation_Boxing_Practice_withSkin_opt.glb",
       "r2_key": "glb/astronaut/Animation_Boxing_Practice_withSkin_opt.glb",
-      "public_url": "https://assets.inneranimalmedia.com/glb/astronaut/Animation_Boxing_Practice_withSkin_opt.glb",
-      "bytes": 4778044
+      "public_url": "https://inneranimalmedia.com/assets/glb/astronaut/Animation_Boxing_Practice_withSkin_opt.glb",
+      "bytes": 4778044,
+      "repo": false
     },
     {
       "name": "Animation_Climb_Attempt_and_Fall_3_withSkin_opt.glb",
       "r2_key": "glb/astronaut/Animation_Climb_Attempt_and_Fall_3_withSkin_opt.glb",
-      "public_url": "https://assets.inneranimalmedia.com/glb/astronaut/Animation_Climb_Attempt_and_Fall_3_withSkin_opt.glb",
-      "bytes": 4757744
+      "public_url": "https://inneranimalmedia.com/assets/glb/astronaut/Animation_Climb_Attempt_and_Fall_3_withSkin_opt.glb",
+      "bytes": 4757744,
+      "repo": false
     },
     {
       "name": "Animation_Fall4_withSkin_opt.glb",
       "r2_key": "glb/astronaut/Animation_Fall4_withSkin_opt.glb",
-      "public_url": "https://assets.inneranimalmedia.com/glb/astronaut/Animation_Fall4_withSkin_opt.glb",
-      "bytes": 4760168
+      "public_url": "https://inneranimalmedia.com/assets/glb/astronaut/Animation_Fall4_withSkin_opt.glb",
+      "bytes": 4760168,
+      "repo": false
+    },
+    {
+      "name": "Animation_Running_withSkin_opt.glb",
+      "r2_key": "glb/astronaut/Animation_Running_withSkin_opt.glb",
+      "public_url": "https://inneranimalmedia.com/assets/glb/astronaut/Animation_Running_withSkin_opt.glb",
+      "bytes": 4726136,
+      "repo": false
+    },
+    {
+      "name": "Animation_Walking_withSkin_opt.glb",
+      "r2_key": "glb/astronaut/Animation_Walking_withSkin_opt.glb",
+      "public_url": "https://inneranimalmedia.com/assets/glb/astronaut/Animation_Walking_withSkin_opt.glb",
+      "bytes": 4729280,
+      "repo": false
+    },
+    {
+      "name": "Astronaut_0815114721_texture_opt.glb",
+      "r2_key": "glb/astronaut/Astronaut_0815114721_texture_opt.glb",
+      "public_url": "https://inneranimalmedia.com/assets/glb/astronaut/Astronaut_0815114721_texture_opt.glb",
+      "bytes": 3209496,
+      "repo": false
+    },
+    {
+      "name": "astronaut_plane_opt.glb",
+      "r2_key": "glb/astronaut/astronaut_plane_opt.glb",
+      "public_url": "https://inneranimalmedia.com/assets/glb/astronaut/astronaut_plane_opt.glb",
+      "bytes": 1448,
+      "repo": false
+    },
+    {
+      "name": "astronaut_rebuild_plane_opt.glb",
+      "r2_key": "glb/astronaut/astronaut_rebuild_plane_opt.glb",
+      "public_url": "https://inneranimalmedia.com/assets/glb/astronaut/astronaut_rebuild_plane_opt.glb",
+      "bytes": 1444,
+      "repo": false
     }
   ]
 }
