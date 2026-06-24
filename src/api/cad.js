@@ -375,35 +375,6 @@ export async function handleCadApi(request, url, env, ctx) {
       return jsonResponse({ ok: true, ...health });
     }
 
-    const jobOneMatch = url.pathname.match(/^\/api\/cad\/jobs\/([^/]+)$/i);
-    if (jobOneMatch && method === 'GET') {
-      const reqCtx = await resolveRequestContext(request, env);
-      if (reqCtx.error) return jsonResponse({ error: 'Unauthorized' }, 401);
-      const authUser = { id: reqCtx.userId, tenant_id: reqCtx.tenantId };
-      if (!env.DB) return jsonResponse({ error: 'Database not configured' }, 503);
-
-      const jobId = jobOneMatch[1];
-      const job = await env.DB.prepare(`SELECT * FROM agentsam_cad_jobs WHERE id = ? LIMIT 1`)
-        .bind(jobId)
-        .first();
-      if (!job) return jsonResponse({ error: 'Job not found' }, 404);
-      if (String(job.user_id) !== String(authUser.id)) {
-        return jsonResponse({ error: 'Forbidden' }, 403);
-      }
-
-      const publicUrl =
-        job.r2_key && !String(job.r2_key).includes('\n') && !String(job.r2_key).startsWith('b64:')
-          ? buildCadAssetPublicUrl(job.r2_key)
-          : job.result_url;
-
-      return jsonResponse({
-        job: {
-          ...job,
-          public_url: publicUrl,
-        },
-      });
-    }
-
     if (path.startsWith('/api/cad/meshy')) {
       const meshyRes = await handleCadMeshyApi(request, url, env, ctx);
       if (meshyRes) return meshyRes;
