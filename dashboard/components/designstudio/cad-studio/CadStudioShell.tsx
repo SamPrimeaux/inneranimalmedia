@@ -10,6 +10,9 @@ import type { SavedSceneRow } from '../shared/ScenePanel';
 import type { useDesignStudioCad } from '../hooks/useDesignStudioCad';
 import { useCadStudioProtocol } from './useCadStudioProtocol';
 import { CadMenuBar } from './CadMenuBar';
+import { StudioMenuBar } from './StudioMenuBar';
+import { CreationLane } from './CreationLane';
+import { AdjustPanel } from './AdjustPanel';
 import { WorkspaceLayoutEngine } from './WorkspaceLayoutEngine';
 import { StatusBar } from './StatusBar';
 import { OperatorSearchModal, GenerateCadModal } from './OperatorModals';
@@ -157,6 +160,12 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
   const [operatorOpen, setOperatorOpen] = useState(false);
   const [operatorInitialId, setOperatorInitialId] = useState<string | undefined>();
   const [generateOpen, setGenerateOpen] = useState(false);
+  const [creationOpen, setCreationOpen] = useState(false);
+  const [adjustOpen, setAdjustOpen] = useState(false);
+  const [sceneEnvConfig, setSceneEnvConfig] = useState({
+    ambientIntensity: 1.5, castShadows: true, fogDensity: 0,
+    sunHeight: 45, sunPower: 3, exposure: 1.5,
+  });
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const layoutWrapRef = useRef<HTMLDivElement>(null);
   const [viewportCellEl, setViewportCellEl] = useState<HTMLDivElement | null>(null);
@@ -917,11 +926,9 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
         }}
       />
 
-      <CadMenuBar
+      <StudioMenuBar
         activeWorkspace={ui.workspace}
         onWorkspaceChange={setWorkspace}
-        onSaveScene={onSaveScene}
-        sceneBusy={sceneBusy}
         savedScenes={savedScenes}
         onNewScene={handleNewScene}
         onOpenScene={onLoadScene}
@@ -940,87 +947,81 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
           const name = window.prompt('Rename object', selectedEntity?.name ?? '');
           if (name?.trim()) onEntityRename?.(selectedId, name.trim());
         }}
-        onToggleOutliner={() => {
-          if (rightPanelVisible && ui.panelVisibility.outliner) {
-            patchUi({
-              panelVisibility: { ...ui.panelVisibility, outliner: false, properties: false },
-            });
-          } else {
-            openRightPanel('outliner');
-          }
-        }}
-        onToggleProperties={() => {
-          if (rightPanelVisible && ui.panelVisibility.properties) {
-            patchUi({
-              panelVisibility: { ...ui.panelVisibility, outliner: false, properties: false },
-            });
-          } else {
-            openRightPanel('properties');
-          }
-        }}
-        onToggleAnimationLibrary={() => {
-          if (animLibVisible) closeAnimLib();
-          else openAnimLib();
-        }}
-        animationLibraryOpen={animLibVisible}
-        onToggleLibrary={() => {
-          setLibraryOpen((open) => {
-            const next = !open;
-            if (next) {
-              patchUi({
-                panelVisibility: {
-                  ...ui.panelVisibility,
-                  outliner: false,
-                  properties: false,
-                  assets: false,
-                },
-              });
-            }
-            return next;
-          });
-        }}
+        onToggleLibrary={() => setLibraryOpen(open => !open)}
         libraryOpen={libraryOpen}
-        onToggleAssets={() => setLibraryOpen((open) => !open)}
         onToggleTimeline={() =>
           patchUi({ panelVisibility: { ...ui.panelVisibility, timeline: !ui.panelVisibility.timeline } })
         }
-        onToggleConsole={() =>
-          window.dispatchEvent(
-            new CustomEvent(IAM_AGENT_CHAT_COMPOSE, {
-              detail: { message: '', send: false, ensureAgentPanel: true },
-            }),
-          )
-        }
         onResetLayout={() => {
-          try {
-            localStorage.removeItem('iam-cad-studio-layout-v1');
-          } catch {
-            /* ignore */
-          }
+          try { localStorage.removeItem('iam-cad-studio-layout-v1'); } catch {}
           patchUi({ panelVisibility: { ...DEFAULT_PANEL_VISIBILITY } });
           protocol.toast('Layout reset', 'Default workspace layout restored.');
         }}
         onOperatorSearch={() => openOperator()}
-        onGenerateCad={openGenerate}
         onRenderViewport={handleRenderViewport}
         onRenderViaChat={(intent) =>
           openOperatorDraft('generateBlender', {
-            prompt: intent,
-            workspace: ui.workspace,
-            selectedObjectId: selectedId,
-            sceneId: currentSceneId,
+            prompt: intent, workspace: ui.workspace,
+            selectedObjectId: selectedId, sceneId: currentSceneId,
           })
         }
-        computeHealth={computeHealth}
         onShowDiagnostics={() => void showDiagnostics()}
         activeTool={ui.viewTool as ViewTool}
         onToolChange={(t) => {
           patchUi({ viewTool: t as ViewTool });
           if (isAgentSamEngine(engineRef.current)) engineRef.current.setCADTool(t as never);
         }}
+        animateOpen={animLibVisible}
+        onToggleAnimate={() => { if (animLibVisible) closeAnimLib(); else openAnimLib(); }}
+        planOpen={false}
+        onTogglePlan={() => protocol.toast('Plan', '2D floor plan mode coming — routes to Excalidraw canvas.')}
+        adjustOpen={adjustOpen}
+        onToggleAdjust={() => setAdjustOpen(v => !v)}
+        propertiesOpen={rightPanelVisible}
+        onToggleProperties={() => {
+          if (rightPanelVisible) {
+            patchUi({ panelVisibility: { ...ui.panelVisibility, outliner: false, properties: false } });
+          } else {
+            openRightPanel('properties');
+          }
+        }}
+        creationOpen={creationOpen}
+        onToggleCreation={() => setCreationOpen(v => !v)}
       />
 
       <div className="cad-studio__main">
+        <CreationLane
+          open={creationOpen}
+          onClose={() => setCreationOpen(false)}
+          workspace={ui.workspace}
+          sceneId={currentSceneId}
+          selectedObjectId={selectedId}
+          onSpawnPrimitive={(type) => {
+            openOperatorDraft('generateBlender', {
+              prompt: `Add a ${type} primitive to the scene`,
+              workspace: ui.workspace, selectedObjectId: null, sceneId: currentSceneId,
+            });
+          }}
+          onImportGlb={handleImportClick}
+          onRunBlenderScript={(script) => {
+            openOperatorDraft('executeScript', {
+              prompt: script, workspace: ui.workspace,
+              selectedObjectId: selectedId, sceneId: currentSceneId,
+            });
+          }}
+          onRunOpenSCAD={(code) => {
+            openOperatorDraft('generateOpenSCAD', {
+              prompt: code, workspace: ui.workspace,
+              selectedObjectId: null, sceneId: currentSceneId,
+            });
+          }}
+          onRunFreeCAD={(code) => {
+            openOperatorDraft('generateFreeCAD', {
+              prompt: code, workspace: ui.workspace,
+              selectedObjectId: null, sceneId: currentSceneId,
+            });
+          }}
+        />
         <div className="cad-studio__layout-wrap" ref={layoutWrapRef}>
           <div ref={engineContainerRef} className="cad-studio__engine-persistent" aria-hidden="true" />
           <WorkspaceLayoutEngine
@@ -1040,6 +1041,19 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
           onDownload={onDownloadLatestGlb}
           onAdvanced={() => openOperator()}
           hasSelection={!!selectedId}
+        />
+        <AdjustPanel
+          open={adjustOpen}
+          onClose={() => setAdjustOpen(false)}
+          selectedEntity={selectedEntity ?? null}
+          sceneConfig={sceneEnvConfig}
+          onSceneConfigChange={(patch) => setSceneEnvConfig(prev => ({ ...prev, ...patch }))}
+          onRunBlenderOp={(prompt) => {
+            openOperatorDraft('generateBlender', {
+              prompt, workspace: ui.workspace,
+              selectedObjectId: selectedId, sceneId: currentSceneId,
+            });
+          }}
         />
         <AssetLibraryFlyout open={libraryOpen} onClose={() => setLibraryOpen(false)}>
           <AssetGalleryEditor
