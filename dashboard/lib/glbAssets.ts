@@ -3,6 +3,21 @@
  */
 export const CHESS_PIECES_BASE = 'https://assets.inneranimalmedia.com/chess-pieces';
 
+/** Optimized astronaut pack — same-origin via Worker /assets/glb/astronaut/* */
+export const ASTRONAUT_GLB_BASE = '/assets/glb/astronaut';
+
+export const ASTRONAUT_GLB_URLS = {
+  rig: `${ASTRONAUT_GLB_BASE}/astronaut_rig_animations_opt.glb`,
+  texture: `${ASTRONAUT_GLB_BASE}/astronaut_texture_opt.glb`,
+  walk: `${ASTRONAUT_GLB_BASE}/Animation_Walking_withSkin_opt.glb`,
+  run: `${ASTRONAUT_GLB_BASE}/Animation_Running_withSkin_opt.glb`,
+  boxing: `${ASTRONAUT_GLB_BASE}/Animation_Boxing_Practice_withSkin_opt.glb`,
+  climbFall: `${ASTRONAUT_GLB_BASE}/Animation_Climb_Attempt_and_Fall_3_withSkin_opt.glb`,
+  fall: `${ASTRONAUT_GLB_BASE}/Animation_Fall4_withSkin_opt.glb`,
+} as const;
+
+export const ASTRONAUT_ANIMATION_CLIPS = ['walking', 'running', 'boxing', 'climb_fall', 'fall'] as const;
+
 export const CHESS_PIECE_URLS = {
   king: `${CHESS_PIECES_BASE}/chess_king_white_opt.glb`,
   queen: `${CHESS_PIECES_BASE}/chess_queen_white_opt.glb`,
@@ -51,7 +66,7 @@ export function normalizeGlbUrl(input: string | null | undefined): string {
         return `/assets/glb/chess/${p.replace(/^chess-pieces\//, '')}`;
       }
       if (p.startsWith('glb/')) return `/assets/${p}`;
-      // Catch-all: any other R2 asset path routed through Worker proxy (avoids bot-fight-mode 403)
+      if (p.startsWith('assets/')) return `/assets/${p}`;
       if (p) return `/assets/glb/${p}`;
     }
 

@@ -20,6 +20,7 @@ export type StudioStockAsset = {
   url: string;
   scale: number;
   iconKey: string | null;
+  tags: string | null;
 };
 
 function parseStudioAssetApiRow(row: {
@@ -28,6 +29,7 @@ function parseStudioAssetApiRow(row: {
   public_url?: string;
   icon?: string | null;
   scale?: number;
+  tags?: string | null;
 }): StudioStockAsset | null {
   const id = String(row.id || '').trim();
   const url = normalizeGlbUrl(row.public_url);
@@ -36,7 +38,8 @@ function parseStudioAssetApiRow(row: {
   const scale =
     typeof row.scale === 'number' && Number.isFinite(row.scale) && row.scale > 0 ? row.scale : 1;
   const iconKey = row.icon != null && String(row.icon).trim() ? String(row.icon).trim() : null;
-  return { id, name, url, scale, iconKey };
+  const tags = row.tags != null && String(row.tags).trim() ? String(row.tags).trim() : null;
+  return { id, name, url, scale, iconKey, tags };
 }
 
 function studioAssetIcon(iconKey: string | null): React.ReactNode {
@@ -131,6 +134,25 @@ export function AssetLibrary({
       }
     }
   };
+
+  const astronautAssets = stockAssets.filter((a) =>
+    String(a.tags || '').toLowerCase().includes('astronaut'),
+  );
+  const otherStockAssets = stockAssets.filter(
+    (a) => !String(a.tags || '').toLowerCase().includes('astronaut'),
+  );
+
+  const renderStockButton = (asset: StudioStockAsset) => (
+    <button
+      type="button"
+      key={asset.id}
+      onClick={() => onSpawnModel(asset.name, asset.url, asset.scale)}
+      className="flex items-center gap-3 p-2 rounded-xl bg-[var(--bg-panel)] border border-[var(--border-subtle)] hover:bg-[var(--bg-hover)] text-[10px] font-bold uppercase text-left"
+    >
+      <span className="text-emerald-400">{studioAssetIcon(asset.iconKey)}</span>
+      {asset.name}
+    </button>
+  );
 
   return (
     <>
@@ -240,7 +262,7 @@ export function AssetLibrary({
             </span>
           ) : null}
         </p>
-        <div className="grid grid-cols-1 gap-2 max-h-[220px] overflow-y-auto pr-1">
+        <div className="grid grid-cols-1 gap-2 max-h-[280px] overflow-y-auto pr-1">
           {stockAssetsLoading && (
             <p className="text-[10px] text-[var(--text-muted)] px-2 py-1">Loading presets…</p>
           )}
@@ -249,17 +271,22 @@ export function AssetLibrary({
               No live stock assets in D1 (<code className="font-mono">3d_studio</code>).
             </p>
           )}
-          {stockAssets.map((asset) => (
-            <button
-              type="button"
-              key={asset.id}
-              onClick={() => onSpawnModel(asset.name, asset.url, asset.scale)}
-              className="flex items-center gap-3 p-2 rounded-xl bg-[var(--bg-panel)] border border-[var(--border-subtle)] hover:bg-[var(--bg-hover)] text-[10px] font-bold uppercase text-left"
-            >
-              <span className="text-emerald-400">{studioAssetIcon(asset.iconKey)}</span>
-              {asset.name}
-            </button>
-          ))}
+          {!stockAssetsLoading && astronautAssets.length > 0 && (
+            <>
+              <p className="text-[9px] font-bold text-[var(--text-muted)] uppercase px-1">
+                Astronaut Pack ({astronautAssets.length})
+              </p>
+              {astronautAssets.map((asset) => renderStockButton(asset))}
+            </>
+          )}
+          {!stockAssetsLoading && otherStockAssets.length > 0 && (
+            <>
+              <p className="text-[9px] font-bold text-[var(--text-muted)] uppercase px-1 mt-2">
+                Other Stock ({otherStockAssets.length})
+              </p>
+              {otherStockAssets.map((asset) => renderStockButton(asset))}
+            </>
+          )}
           {customAssets.length > 0 && (
             <p className="text-[9px] font-bold text-[var(--text-muted)] uppercase mb-1 mt-2">Your Assets</p>
           )}

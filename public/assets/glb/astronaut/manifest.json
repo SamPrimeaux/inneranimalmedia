@@ -1,0 +1,61 @@
+{
+  "id": "astronaut_glb_pack_v1",
+  "title": "Astronaut GLB pack",
+  "r2_prefix": "glb/astronaut",
+  "public_origin": "https://assets.inneranimalmedia.com",
+  "clips": [
+    "walking",
+    "running",
+    "boxing",
+    "climb_fall",
+    "fall"
+  ],
+  "merge": {
+    "bytesIn": 4954700,
+    "bytesOut": 4913960
+  },
+  "assets": [
+    {
+      "name": "astronaut_rig_animations_opt.glb",
+      "r2_key": "glb/astronaut/astronaut_rig_animations_opt.glb",
+      "public_url": "https://assets.inneranimalmedia.com/glb/astronaut/astronaut_rig_animations_opt.glb",
+      "bytes": 4913960
+    },
+    {
+      "name": "astronaut_texture_opt.glb",
+      "r2_key": "glb/astronaut/astronaut_texture_opt.glb",
+      "public_url": "https://assets.inneranimalmedia.com/glb/astronaut/astronaut_texture_opt.glb",
+      "bytes": 3209496
+    },
+    {
+      "name": "Animation_Walking_withSkin_opt.glb",
+      "r2_key": "glb/astronaut/Animation_Walking_withSkin_opt.glb",
+      "public_url": "https://assets.inneranimalmedia.com/glb/astronaut/Animation_Walking_withSkin_opt.glb",
+      "bytes": 4729280
+    },
+    {
+      "name": "Animation_Running_withSkin_opt.glb",
+      "r2_key": "glb/astronaut/Animation_Running_withSkin_opt.glb",
+      "public_url": "https://assets.inneranimalmedia.com/glb/astronaut/Animation_Running_withSkin_opt.glb",
+      "bytes": 4726136
+    },
+    {
+      "name": "Animation_Boxing_Practice_withSkin_opt.glb",
+      "r2_key": "glb/astronaut/Animation_Boxing_Practice_withSkin_opt.glb",
+      "public_url": "https://assets.inneranimalmedia.com/glb/astronaut/Animation_Boxing_Practice_withSkin_opt.glb",
+      "bytes": 4778044
+    },
+    {
+      "name": "Animation_Climb_Attempt_and_Fall_3_withSkin_opt.glb",
+      "r2_key": "glb/astronaut/Animation_Climb_Attempt_and_Fall_3_withSkin_opt.glb",
+      "public_url": "https://assets.inneranimalmedia.com/glb/astronaut/Animation_Climb_Attempt_and_Fall_3_withSkin_opt.glb",
+      "bytes": 4757744
+    },
+    {
+      "name": "Animation_Fall4_withSkin_opt.glb",
+      "r2_key": "glb/astronaut/Animation_Fall4_withSkin_opt.glb",
+      "public_url": "https://assets.inneranimalmedia.com/glb/astronaut/Animation_Fall4_withSkin_opt.glb",
+      "bytes": 4760168
+    }
+  ]
+}

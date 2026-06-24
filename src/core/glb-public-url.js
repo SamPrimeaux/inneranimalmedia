@@ -17,6 +17,7 @@ export function normalizeGlbPublicUrl(input) {
         return `/assets/glb/chess/${p.replace(/^chess-pieces\//, '')}`;
       }
       if (p.startsWith('glb/')) return `/assets/${p}`;
+      if (p.startsWith('assets/')) return `/assets/${p}`;
     }
     if (u.hostname.includes('inneranimalmedia.com') && u.pathname.startsWith('/assets/')) {
       return u.pathname;
