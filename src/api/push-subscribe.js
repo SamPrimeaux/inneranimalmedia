@@ -55,27 +55,43 @@ export async function handlePushSubscribe(request, env) {
     user_agent: userAgent,
   });
 
-  const id = newHookId();
-  await env.DB.prepare(`
-    INSERT INTO agentsam_hook (
-      id, tenant_id, workspace_id, user_id, provider, trigger, command,
-      target_id, handler_type, handler_config, hook_key, event_type, is_active,
-      created_at, updated_at
-    ) VALUES (
-      ?, ?, ?, ?, 'browser', 'notification.push', '',
-      ?, 'web_push', ?, ?, '*', 1,
-      datetime('now'), datetime('now')
-    )
-    ON CONFLICT(tenant_id, hook_key) DO UPDATE SET
-      handler_config = excluded.handler_config,
-      workspace_id = excluded.workspace_id,
-      user_id = excluded.user_id,
-      target_id = excluded.target_id,
-      is_active = 1,
-      updated_at = datetime('now')
-  `)
-    .bind(id, tenantId, workspaceId, userId, userId, handlerConfig, hookKey)
-    .run();
+  const existing = await env.DB.prepare(
+    `SELECT id FROM agentsam_hook
+     WHERE tenant_id = ? AND hook_key = ? AND handler_type = 'web_push'
+     LIMIT 1`,
+  )
+    .bind(tenantId, hookKey)
+    .first();
+
+  if (existing?.id) {
+    await env.DB.prepare(`
+      UPDATE agentsam_hook SET
+        handler_config = ?,
+        workspace_id = ?,
+        user_id = ?,
+        target_id = ?,
+        is_active = 1,
+        updated_at = datetime('now')
+      WHERE id = ?
+    `)
+      .bind(handlerConfig, workspaceId, userId, userId, existing.id)
+      .run();
+  } else {
+    const id = newHookId();
+    await env.DB.prepare(`
+      INSERT INTO agentsam_hook (
+        id, tenant_id, workspace_id, user_id, provider, trigger, command,
+        target_id, handler_type, handler_config, hook_key, event_type, is_active,
+        created_at, updated_at
+      ) VALUES (
+        ?, ?, ?, ?, 'browser', 'notification.push', '',
+        ?, 'web_push', ?, ?, '*', 1,
+        datetime('now'), datetime('now')
+      )
+    `)
+      .bind(id, tenantId, workspaceId, userId, userId, handlerConfig, hookKey)
+      .run();
+  }
 
   return jsonResponse({ ok: true, hook_key: hookKey });
 }
