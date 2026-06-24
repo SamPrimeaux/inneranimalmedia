@@ -2709,3 +2709,144 @@
 .ip__ios-toggle input:checked + .ip__ios-slider::before {
   transform: translateX(16px);
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   STUDIO LOADING SCREEN  (sls__)
+   Lightweight skeleton that renders before Three.js canvas is ready
+   ═══════════════════════════════════════════════════════════════════════════ */
+.sls__backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  background: var(--cs-bg-0);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+/* Skeleton scene — fake grid + object */
+.sls__scene {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.sls__grid {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  grid-template-rows: repeat(8, 1fr);
+  opacity: 0.18;
+}
+
+.sls__grid-cell {
+  border-right: 1px solid var(--cs-line-1);
+  border-bottom: 1px solid var(--cs-line-1);
+}
+
+/* Fake object — a rounded rect "floating" in the viewport */
+.sls__object {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  transform: translate(-50%, -50%);
+  width: 120px;
+  height: 120px;
+  border-radius: 16px;
+  background: var(--cs-bg-2);
+  border: 1px solid var(--cs-line-1);
+  opacity: 0.35;
+  animation: sls-pulse 2s ease-in-out infinite;
+}
+
+/* Fake axis gizmo — top-right corner */
+.sls__gizmo {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  display: flex;
+  gap: 5px;
+  opacity: 0.3;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--cs-mono);
+}
+
+.sls__gizmo-x { color: #ef4444; }
+.sls__gizmo-y { color: #22c55e; }
+.sls__gizmo-z { color: #3b82f6; }
+
+/* Centre overlay */
+.sls__overlay {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 28px 36px;
+  background: color-mix(in srgb, var(--cs-bg-1) 88%, transparent);
+  border: 1px solid var(--cs-line-1);
+  border-radius: 12px;
+  backdrop-filter: blur(12px);
+  min-width: 260px;
+}
+
+.sls__wordmark {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  color: var(--cs-text-0);
+}
+
+.sls__wordmark span {
+  color: var(--cs-text-2);
+  font-weight: 400;
+}
+
+/* Animated progress bar */
+.sls__bar-wrap {
+  width: 180px;
+  height: 3px;
+  background: var(--cs-bg-3);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.sls__bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--dashboard-accent, #6366f1);
+  animation: sls-bar 1.8s ease-in-out infinite;
+  transform-origin: left;
+}
+
+.sls__label {
+  font-size: 11px;
+  color: var(--cs-text-2);
+  font-family: var(--cs-mono);
+  letter-spacing: 0.02em;
+}
+
+.sls__tip {
+  font-size: 10px;
+  color: var(--cs-text-2);
+  opacity: 0.6;
+  text-align: center;
+  max-width: 220px;
+  line-height: 1.5;
+}
+
+@keyframes sls-pulse {
+  0%, 100% { opacity: 0.25; transform: translate(-50%, -50%) scale(1); }
+  50%       { opacity: 0.45; transform: translate(-50%, -50%) scale(1.03); }
+}
+
+@keyframes sls-bar {
+  0%   { transform: scaleX(0) translateX(0%); }
+  50%  { transform: scaleX(0.7) translateX(30%); }
+  100% { transform: scaleX(0) translateX(200%); }
+}

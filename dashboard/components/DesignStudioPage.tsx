@@ -73,6 +73,7 @@ export const DesignStudioPage: React.FC = () => {
 
   const [engineHostReady, setEngineHostReady] = useState(false);
   const [engineReady, setEngineReady] = useState(false);
+  const [engineLoading, setEngineLoading] = useState(false);
   const [appState, setAppState] = useState<AppState>(AppState.EDITING);
   const [entityCount, setEntityCount] = useState(0);
   const [customAssets, setCustomAssets] = useState<CustomAsset[]>([]);
@@ -258,6 +259,7 @@ export const DesignStudioPage: React.FC = () => {
     let cancelled = false;
     let engine: StudioEngine | null = null;
 
+    setEngineLoading(true);
     const mountEngine = async () => {
       const { AgentSamEngine } = await import('../services/AgentSamEngine');
       if (cancelled || !containerRef.current) return;
@@ -280,6 +282,7 @@ export const DesignStudioPage: React.FC = () => {
         requestAnimationFrame(settleViewport);
       });
       setEngineReady(true);
+      setEngineLoading(false);
     };
 
     void mountEngine();
@@ -553,15 +556,28 @@ export const DesignStudioPage: React.FC = () => {
     if (!engineReady || !isAgentSamEngine(engineRef.current)) return;
     const sync = () => {
       const list = engineRef.current?.exportEntities() ?? [];
-      setEntities(list);
-      if (selectedEntityId && !list.some((e) => e.id === selectedEntityId)) {
-        setSelectedEntityId(list[0]?.id ?? null);
-      }
+      setEntities((prev) => {
+        if (
+          prev.length === list.length &&
+          list.every((e, i) => {
+            const p = prev[i];
+            return p && e.id === p.id && e.name === p.name &&
+              e.position?.x === p.position?.x &&
+              e.position?.y === p.position?.y &&
+              e.position?.z === p.position?.z &&
+              e.scale === p.scale;
+          })
+        ) return prev;
+        return list;
+      });
+      setSelectedEntityId((sel) =>
+        sel && !list.some((e) => e.id === sel) ? (list[0]?.id ?? null) : sel
+      );
     };
     sync();
     const id = window.setInterval(sync, 500);
     return () => window.clearInterval(id);
-  }, [engineReady, selectedEntityId]);
+  }, [engineReady]);
 
   const handleAddCube = useCallback(() => {
     if (!isAgentSamEngine(engineRef.current)) return;
@@ -759,6 +775,8 @@ export const DesignStudioPage: React.FC = () => {
         onViewportZoom={handleViewportZoom}
         onViewportPanMode={handleViewportPanMode}
         onViewportReset={handleViewportReset}
+        engineReady={engineReady}
+        engineLoading={engineLoading}
         linkedCadJobId={linkedCadJobId}
         linkedGlbR2Key={linkedGlbR2Key}
       />

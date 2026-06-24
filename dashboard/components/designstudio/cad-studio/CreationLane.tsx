@@ -30,6 +30,8 @@ export type CreationLaneProps = {
   onRunBlenderScript: (script: string) => void;
   onRunOpenSCAD: (code: string) => void;
   onRunFreeCAD: (code: string) => void;
+  onSnapView?: (face: string) => void;
+  onToggleOrtho?: (ortho: boolean) => void;
 };
 
 function SectionHead({ label, icon: Icon }: { label: string; icon: React.ElementType }) {
@@ -433,8 +435,12 @@ function SceneTab({ onSpawnPrimitive, onImportGlb }: {
 
       <SectionHead label="CAMERA PRESETS" icon={Camera} />
       <div className="cl__chip-grid">
-        {['Perspective','Orthographic','Isometric','Top','Front','Side'].map(v => (
-          <button key={v} type="button" className="cl__chip">{v}</button>
+        {(['Perspective','Orthographic','Top','Front','Right','Left'] as const).map(v => (
+          <button key={v} type="button" className="cl__chip" onClick={() => {
+            if (v === 'Perspective') { onToggleOrtho?.(false); }
+            else if (v === 'Orthographic') { onToggleOrtho?.(true); }
+            else { onSnapView?.(v.toLowerCase()); }
+          }}>{v}</button>
         ))}
       </div>
 
@@ -452,6 +458,7 @@ function SceneTab({ onSpawnPrimitive, onImportGlb }: {
 export function CreationLane({
   open, onClose, workspace, sceneId, selectedObjectId,
   onSpawnPrimitive, onImportGlb, onRunBlenderScript, onRunOpenSCAD, onRunFreeCAD,
+  onSnapView, onToggleOrtho,
 }: CreationLaneProps) {
   const [tab, setTab] = useState<CreationTab>('model');
 

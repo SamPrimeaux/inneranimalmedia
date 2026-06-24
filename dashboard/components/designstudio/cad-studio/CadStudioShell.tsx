@@ -42,6 +42,7 @@ import type { CustomAsset, GenerationConfig, SceneConfig, GameEntity } from '../
 import type { AgentSamGeneratorKey } from '../../../utils/agentSamGenerators';
 import './cad-studio.css';
 import { InspectorPanel } from './InspectorPanel';
+import { StudioLoadingScreen } from './StudioLoadingScreen';
 
 export type CadStudioShellProps = {
   engineContainerRef: React.RefObject<HTMLDivElement | null>;
@@ -96,6 +97,8 @@ export type CadStudioShellProps = {
   onViewportReset?: () => void;
   linkedCadJobId?: string | null;
   linkedGlbR2Key?: string | null;
+  engineReady?: boolean;
+  engineLoading?: boolean;
 };
 
 function computeMeshStats(entity: GameEntity | null): MeshStats {
@@ -160,6 +163,8 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
   onViewportReset,
   linkedCadJobId,
   linkedGlbR2Key,
+  engineReady = false,
+  engineLoading = false,
 }) => {
   const protocol = useCadStudioProtocol();
   const { setStudioContext } = useDesignStudioContext();
@@ -1038,9 +1043,15 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
               selectedObjectId: null, sceneId: currentSceneId,
             });
           }}
+          onSnapView={onSnapView}
+          onToggleOrtho={(ortho) => {
+            setOrthoMode(ortho);
+            onToggleOrtho?.(ortho);
+          }}
         />
         <div className="cad-studio__layout-wrap" ref={layoutWrapRef}>
           <div ref={engineContainerRef} className="cad-studio__engine-persistent" aria-hidden="true" />
+          <StudioLoadingScreen visible={engineLoading || !engineReady} />
           <WorkspaceLayoutEngine
             workspace={ui.workspace}
             panelVisibility={layoutPanelVisibility}
