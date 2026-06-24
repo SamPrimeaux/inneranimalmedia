@@ -1,7 +1,6 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  MonitorDot,
+  Router,
   GitBranch,
   RefreshCw,
   XCircle,
@@ -15,6 +14,7 @@ import {
 } from 'lucide-react';
 import { SHELL_VERSION } from '../src/shellVersion';
 import type { OpenCommandPaletteDetail } from '../src/lib/openCommandPalette';
+import { openConnectionMenu, openGitRepoMenu } from '../src/lib/openCommandPalette';
 import './StatusBar.css';
 
 const SYNC_CONFIRM_SKIP_KEY = 'iam-git-sync-skip-confirm';
@@ -162,20 +162,6 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   const [chatModeLabel, setChatModeLabel] = useState<string>('');
   const [notifOpen, setNotifOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
-  const [showRemoteMenu, setRemoteMenu] = useState(false);
-  const remoteRef = useRef<HTMLDivElement>(null);
-  const [branchMenuOpen, setBranchMenuOpen] = useState(false);
-  const branchChipRef = useRef<HTMLButtonElement>(null);
-  const branchPanelRef = useRef<HTMLDivElement>(null);
-  const [branchPanelStyle, setBranchPanelStyle] = useState<React.CSSProperties>({});
-  const [branchData, setBranchData] = useState<{
-    current: string;
-    repo: string;
-    branches: GitBranchRow[];
-  } | null>(null);
-  const [branchLoading, setBranchLoading] = useState(false);
-  const [branchError, setBranchError] = useState<string | null>(null);
-  const [branchMenuFilter, setBranchMenuFilter] = useState('');
   const [showWorkspaceMenu, setWorkspaceMenu] = useState(false);
   const workspaceMenuRef = useRef<HTMLDivElement>(null);
   const [syncConfirmOpen, setSyncConfirmOpen] = useState(false);
@@ -214,101 +200,6 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   }, [notifOpen]);
 
   useEffect(() => {
-    if (!showRemoteMenu) return;
-    const handler = (e: MouseEvent) => {
-      if (remoteRef.current && !remoteRef.current.contains(e.target as Node)) {
-        setRemoteMenu(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [showRemoteMenu]);
-
-  const loadBranches = useCallback(async () => {
-    setBranchLoading(true);
-    setBranchError(null);
-    try {
-      const ws = activeWorkspaceId?.trim();
-      const url = ws
-        ? `/api/agent/git/branches?workspace_id=${encodeURIComponent(ws)}`
-        : '/api/agent/git/branches';
-      const res = await fetch(url, { credentials: 'same-origin' });
-      const json = (await res.json()) as {
-        current?: string;
-        repo?: string;
-        branches?: GitBranchRow[];
-        error?: string;
-      };
-      if (!res.ok) setBranchError(json.error || 'Failed to load branches');
-      else
-        setBranchData({
-          current: json.current || 'main',
-          repo: json.repo || '',
-          branches: Array.isArray(json.branches)
-            ? json.branches.map((b) => ({
-                ref: b.ref,
-                sha: b.sha,
-                protected: b.protected ?? false,
-                subject: b.subject,
-                date_relative: b.date_relative,
-              }))
-            : [],
-        });
-    } catch {
-      setBranchError('Network error');
-    } finally {
-      setBranchLoading(false);
-    }
-  }, [activeWorkspaceId]);
-
-  useEffect(() => {
-    setBranchData(null);
-    setBranchError(null);
-  }, [activeWorkspaceId]);
-
-  useLayoutEffect(() => {
-    if (!branchMenuOpen) return;
-    const el = branchChipRef.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    const gap = 8;
-    const w = Math.min(320, window.innerWidth - 16);
-    setBranchPanelStyle({
-      position: 'fixed',
-      left: Math.max(8, Math.min(r.left, window.innerWidth - w - 8)),
-      bottom: window.innerHeight - r.top + gap,
-      width: w,
-      maxHeight: 'min(340px, 55vh)',
-      zIndex: 110,
-    });
-  }, [branchMenuOpen, branchData]);
-
-  useEffect(() => {
-    if (!branchMenuOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setBranchMenuOpen(false);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [branchMenuOpen]);
-
-  useEffect(() => {
-    if (!branchMenuOpen) setBranchMenuFilter('');
-  }, [branchMenuOpen]);
-
-  useEffect(() => {
-    if (!branchMenuOpen) return;
-    const onDown = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (branchChipRef.current?.contains(t)) return;
-      if (branchPanelRef.current?.contains(t)) return;
-      setBranchMenuOpen(false);
-    };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
-  }, [branchMenuOpen]);
-
-  useEffect(() => {
     if (!showWorkspaceMenu) return;
     const handler = (e: MouseEvent) => {
       if (workspaceMenuRef.current && !workspaceMenuRef.current.contains(e.target as Node)) {
@@ -319,16 +210,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
     return () => document.removeEventListener('mousedown', handler);
   }, [showWorkspaceMenu]);
 
-  const filteredBranchRows = useMemo(() => {
-    const rows = branchData?.branches ?? [];
-    const q = branchMenuFilter.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((b) => b.ref.toLowerCase().includes(q));
-  }, [branchData, branchMenuFilter]);
-
   const pickWorkspaceEnabled = Array.isArray(workspaceMenuItems) && workspaceMenuItems.length > 0;
-  const workspaceRepoHint =
-    workspaceMenuItems?.find((w) => w.id === activeWorkspaceId)?.github_repo?.trim() || null;
 
   const runSyncPublish = useCallback(() => {
     setSyncConfirmOpen(false);
@@ -421,61 +303,24 @@ export const StatusBar: React.FC<StatusBarProps> = ({
 
       <div className="flex items-stretch shrink-0">
         {/* SSH corner, branch, sync, workspace */}
-        <div ref={remoteRef} className="relative flex items-stretch">
+        <div className="relative flex items-stretch">
           <button
             type="button"
-            onClick={() => setRemoteMenu((v) => !v)}
-            className="flex items-center gap-1.5 h-full px-2.5 bg-[var(--bg-elevated)] hover:bg-[var(--bg-hover)] border-r border-[var(--border-subtle)] transition-colors"
-            title="Remote Connection — connect to a host or configure your PTY terminal tunnel"
+            onClick={() => openConnectionMenu()}
+            className="flex items-center justify-center gap-1.5 h-full px-2.5 bg-[var(--bg-elevated)] hover:bg-[var(--bg-hover)] border-r border-[var(--border-subtle)] transition-colors"
+            title="Remote connection — Local PTY, Cloud Terminal, GCP VM"
+            aria-label="Connection options"
           >
-            <MonitorDot size={11} className="text-[var(--text-muted)]" />
+            <Router size={12} className="text-[var(--solar-cyan)]" strokeWidth={1.25} />
           </button>
-          {showRemoteMenu && (
-            <div className="absolute bottom-full left-0 mb-1 z-50 w-56 bg-[var(--bg-elevated)] border border-[var(--border-subtle)] rounded-lg shadow-xl overflow-hidden py-1">
-              {[
-                { label: 'Connect to Host...', badge: 'Remote-SSH' },
-                { label: 'Connect Current Window to Host...' },
-                { label: 'Open SSH Configuration File...' },
-              ].map((item) => (
-                <button
-                  key={item.label}
-                  type="button"
-                  className="w-full flex items-center justify-between px-3 py-1.5 text-[0.6875rem] text-[var(--text-main)] hover:bg-[var(--bg-hover)] transition-colors text-left font-[var(--font-sans)]"
-                  onClick={() => setRemoteMenu(false)}
-                >
-                  <span>{item.label}</span>
-                  {item.badge && (
-                    <span className="text-[0.5rem] text-[var(--text-muted)] font-semibold ml-2 shrink-0">
-                      {item.badge}
-                    </span>
-                  )}
-                </button>
-              ))}
-              <div className="border-t border-[var(--border-subtle)] my-1" />
-              <button
-                type="button"
-                className="w-full flex items-center justify-between px-3 py-1.5 text-[0.6875rem] text-[var(--text-muted)] cursor-not-allowed text-left font-[var(--font-sans)]"
-              >
-                <span>Dev Container</span>
-                <span className="text-[0.5rem] ml-2 shrink-0">Install</span>
-              </button>
-            </div>
-          )}
         </div>
 
         <div className="relative flex items-stretch">
           <button
-            ref={branchChipRef}
             type="button"
-            onClick={() => {
-              setBranchMenuOpen((open) => {
-                const next = !open;
-                if (next) void loadBranches();
-                return next;
-              });
-            }}
+            onClick={() => openGitRepoMenu()}
             className="flex items-center gap-1 px-2.5 h-full hover:bg-[var(--bg-hover)] transition-colors"
-            title="Branches — deployment repo; select to track branch in platform context"
+            title="Repository and branches — opens top bar menu"
           >
             <GitBranch size={11} />
             <span className="text-[0.5625rem] font-semibold text-[var(--text-muted)] font-[var(--font-sans)] max-w-[120px] truncate">
@@ -512,152 +357,6 @@ export const StatusBar: React.FC<StatusBarProps> = ({
               </span>
             ) : null}
           </button>
-          {typeof document !== 'undefined' &&
-            branchMenuOpen &&
-            createPortal(
-              <div
-                ref={branchPanelRef}
-                className="iam-branch-panel flex flex-col overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-elevated)] shadow-xl"
-                style={branchPanelStyle}
-                onMouseDown={stop}
-              >
-                <div className="iam-branch-panel-header border-b border-[var(--border-subtle)] px-3 py-2 text-[0.6875rem] font-semibold text-[var(--text-main)] truncate font-[var(--font-sans)]">
-                  {branchLoading ? 'Loading…' : branchData?.repo || workspaceRepoHint || 'Repository'}
-                </div>
-                <div className="px-3 py-2 border-b border-[var(--border-subtle)] shrink-0 space-y-1">
-                  <button
-                    type="button"
-                    className="w-full text-left text-[0.6875rem] text-[var(--text-main)] hover:text-[var(--solar-cyan)] font-[var(--font-sans)]"
-                    onClick={() => {
-                      setBranchMenuOpen(false);
-                      openPalette({ chip: 'commands', query: 'branch', facets: ['commands'] });
-                    }}
-                  >
-                    Create new branch…
-                  </button>
-                  <button
-                    type="button"
-                    className="w-full text-left text-[0.6875rem] text-[var(--text-main)] hover:text-[var(--solar-cyan)] font-[var(--font-sans)]"
-                    onClick={() => {
-                      setBranchMenuOpen(false);
-                      openPalette({ chip: 'commands', query: 'deploy', facets: ['deploy'] });
-                    }}
-                  >
-                    Deploy from command palette…
-                  </button>
-                </div>
-                <div className="px-3 py-2 border-b border-[var(--border-subtle)] shrink-0">
-                  <input
-                    type="text"
-                    value={branchMenuFilter}
-                    onChange={(e) => setBranchMenuFilter(e.target.value)}
-                    placeholder="Filter branches…"
-                    className="w-full bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded px-2 py-1 text-[0.6875rem] text-[var(--text-main)] outline-none focus:border-[var(--solar-cyan)]/50 font-[var(--font-sans)]"
-                    autoFocus
-                  />
-                </div>
-                <div className="py-1 overflow-y-auto flex-1 min-h-0">
-                  {branchLoading && (
-                    <div className="flex items-center justify-center px-3 py-6 text-[var(--text-muted)]">
-                      <svg
-                        className="iam-branch-spinner h-5 w-5"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        aria-hidden
-                      >
-                        <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
-                        <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" />
-                      </svg>
-                    </div>
-                  )}
-                  {branchError && !branchLoading && (
-                    <div className="px-3 py-3 iam-branch-error-text">
-                      <p className="text-[11px] mb-2">{branchError}</p>
-                      <button
-                        type="button"
-                        className="text-[11px] font-semibold text-[var(--solar-cyan)] hover:underline font-[var(--font-sans)]"
-                        onClick={() => {
-                          setBranchData(null);
-                          void loadBranches();
-                        }}
-                      >
-                        Retry
-                      </button>
-                    </div>
-                  )}
-                  {!branchLoading && !branchError && filteredBranchRows.length === 0 && (
-                    <p className="px-3 py-3 text-[11px] text-[var(--text-muted)]">No branches match.</p>
-                  )}
-                  {!branchLoading &&
-                    !branchError &&
-                    filteredBranchRows.map((b) => {
-                      const isCurrent = branchData != null && b.ref === branchData.current;
-                      const shortSha = b.sha ? String(b.sha).slice(0, 7) : '';
-                      return (
-                        <button
-                          key={b.ref}
-                          type="button"
-                          onClick={() => {
-                            onBranchSelect?.(b.ref);
-                            setBranchMenuOpen(false);
-                          }}
-                          className={`w-full text-left px-3 py-1.5 text-[0.6875rem] hover:bg-[var(--bg-hover)] flex items-start gap-2 font-[var(--font-sans)] border-b border-[var(--border-subtle)]/30 last:border-b-0 ${
-                            isCurrent ? 'bg-[var(--bg-hover)]/60' : ''
-                          }`}
-                        >
-                          {isCurrent ? (
-                            <svg
-                              width="11"
-                              height="11"
-                              viewBox="0 0 11 11"
-                              aria-hidden
-                              className="shrink-0 text-[var(--solar-cyan)] mt-0.5"
-                            >
-                              <circle cx="5.5" cy="5.5" r="4" fill="currentColor" />
-                            </svg>
-                          ) : (
-                            <span className="w-[11px] shrink-0 inline-block mt-0.5" />
-                          )}
-                          <span className="min-w-0 flex-1">
-                            <span className="flex items-center gap-2">
-                              <span className="font-medium truncate text-[var(--text-main)]">{b.ref}</span>
-                              {shortSha ? (
-                                <span className="font-[var(--font-sans)] text-[10px] text-[var(--text-muted)] shrink-0">
-                                  {shortSha}
-                                </span>
-                              ) : null}
-                              {b.protected ? (
-                                <span className="iam-branch-protected text-[9px] shrink-0">protected</span>
-                              ) : null}
-                            </span>
-                            {b.subject ? (
-                              <span className="block text-[10px] text-[var(--text-muted)] truncate mt-0.5">
-                                {b.subject}
-                                {b.date_relative ? ` · ${b.date_relative}` : ''}
-                              </span>
-                            ) : null}
-                          </span>
-                        </button>
-                      );
-                    })}
-                </div>
-                <div className="border-t border-[var(--border-subtle)] px-3 py-1.5 shrink-0 bg-[var(--bg-app)]/40">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setBranchMenuOpen(false);
-                      onGitBranchClick?.();
-                    }}
-                    className="w-full text-left text-[0.6875rem] text-[var(--solar-cyan)] hover:underline font-[var(--font-sans)]"
-                  >
-                    Open Source Control…
-                  </button>
-                </div>
-              </div>,
-              document.body,
-            )}
         </div>
 
         {workspace && (
@@ -665,16 +364,16 @@ export const StatusBar: React.FC<StatusBarProps> = ({
             <button
               type="button"
               onClick={() => {
-                if (onOpenCommandPalette && workspace.includes('/')) {
-                  openPalette({ chip: 'commands', query: 'deploy', facets: ['deploy'] });
+                if (workspace.includes('/')) {
+                  openGitRepoMenu();
                   return;
                 }
                 if (pickWorkspaceEnabled) setWorkspaceMenu((v) => !v);
                 else onWorkspaceClick?.();
               }}
               title={
-                onOpenCommandPalette && workspace.includes('/')
-                  ? 'Repository — open deploy commands (Cmd+K)'
+                workspace.includes('/')
+                  ? 'Repository — branches and deploy'
                   : pickWorkspaceEnabled
                     ? 'Switch workspace'
                     : 'Workspace hub'

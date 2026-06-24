@@ -211,14 +211,24 @@ async function getConnectedIntegrations(env, authUser) {
 
     const lastVerified =
       typeof cfg.last_verified_at === 'number' && Number.isFinite(cfg.last_verified_at)
-        ? cfg.last_verified_at
+        ? cfg.last_verified_at < 1e12
+          ? cfg.last_verified_at * 1000
+          : cfg.last_verified_at
         : undefined;
+
+    let lastVerifiedMs = lastVerified;
+    if (pk === 'local_tunnel' && row.last_health_check_at) {
+      const healthMs = Date.parse(String(row.last_health_check_at));
+      if (Number.isFinite(healthMs)) {
+        lastVerifiedMs = Math.max(lastVerifiedMs ?? 0, healthMs) || undefined;
+      }
+    }
 
     const integration_status = {
       connected: derived_status === 'connected',
       slug: pk,
       account_display: row.account_display ? String(row.account_display) : undefined,
-      last_verified_at: lastVerified,
+      last_verified_at: lastVerifiedMs,
       error: integrationError,
     };
 

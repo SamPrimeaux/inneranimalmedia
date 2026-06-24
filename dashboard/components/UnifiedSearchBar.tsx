@@ -2,6 +2,7 @@ import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowRight,
+  ChevronDown,
   ChevronRight,
   Database,
   HardDrive,
@@ -31,6 +32,10 @@ import {
   expectedR2BucketForWorkspace,
   isPlatformWorkspace,
 } from '../src/lib/databaseStudioRoute';
+import { GitRepoBranchMenuPanel, GitRepoBranchNavTrigger } from './GitRepoBranchDropdown';
+import { filterDeployPaletteRows } from '../src/lib/deployPaletteItems';
+import { IAM_GIT_SYNC_PUBLISH, IAM_OPEN_CONNECTION_MENU, IAM_OPEN_GIT_REPO_MENU } from '../src/lib/openCommandPalette';
+import type { OpenCommandPaletteDetail } from '../src/lib/openCommandPalette';
 
 export type UnifiedSearchNavigate =
   | { kind: 'table'; name: string }
@@ -69,6 +74,7 @@ type PaletteItem = {
   dbTarget?: 'd1' | 'hyperdrive';
   filePath?: string;
   deploySummary?: string;
+  deployAction?: 'workers_builds' | 'open_deploys';
   commandCategory?: WranglerCommandCategory;
   /** Unified-search row passthrough */
   legacyRow?: LegacyUnifiedRow;
@@ -104,6 +110,17 @@ const SEARCH_TIPS: PaletteItem[] = [
   { id: 'tip-wf', category: 'tip', title: 'wf', subtitle: 'D1 agentsam_workflows' },
   { id: 'tip-at', category: 'tip', title: '@', subtitle: 'Recent files' },
 ];
+
+function deployRowToPalette(row: ReturnType<typeof filterDeployPaletteRows>[number]): PaletteItem {
+  return {
+    id: row.id,
+    category: row.category,
+    title: row.title,
+    subtitle: row.subtitle,
+    commandText: row.commandText,
+    deployAction: row.deployAction,
+  };
+}
 
 function catalogEntryToPalette(c: WranglerCatalogEntry): PaletteItem {
   return {
@@ -152,7 +169,7 @@ function chipMatchesCategory(chip: SourceChipId, category: PaletteCategory): boo
   if (chip === 'all') return category !== 'tip';
   if (chip === 'r2') return category === 'r2' || category === 'resource';
   if (chip === 'd1') return category === 'd1';
-  if (chip === 'commands') return category === 'command';
+  if (chip === 'commands') return category === 'command' || category === 'deploy';
   if (chip === 'workflows') return category === 'workflow';
   if (chip === 'chats') return category === 'chat';
   return true;
@@ -411,6 +428,14 @@ export const UnifiedSearchBar: React.FC<{
   /** Mobile top-bar right cluster: anchor palette to the right edge. */
   mobileToolbar?: boolean;
   onWorkspacePickerClick?: () => void;
+  /** Opens global repo/branch menu (rendered by App shell). */
+  onGitRepoMenuOpen?: () => void;
+  gitBranch?: string;
+  activeWorkspaceId?: string | null;
+  workspaceRepoHint?: string | null;
+  onGitBranchSelect?: (branch: string) => void;
+  onGitBranchPanelClick?: () => void;
+  onOpenCommandPalette?: (detail?: OpenCommandPaletteDetail) => void;
   recentFiles?: { name: string; path: string; label?: string }[];
   onNavigate: (nav: UnifiedSearchNavigate, searchQuery: string) => void;
   onRunCommand?: (cmd: string) => void;
@@ -424,6 +449,13 @@ export const UnifiedSearchBar: React.FC<{
   hideWorkspaceSegment = false,
   mobileToolbar = false,
   onWorkspacePickerClick,
+  onGitRepoMenuOpen,
+  gitBranch,
+  activeWorkspaceId,
+  workspaceRepoHint,
+  onGitBranchSelect,
+  onGitBranchPanelClick,
+  onOpenCommandPalette,
   recentFiles = [],
   onNavigate,
   onRunCommand: _onRunCommand,
@@ -492,6 +524,7 @@ export const UnifiedSearchBar: React.FC<{
   const bucketMenuRef = useRef<HTMLDivElement>(null);
   const paletteRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [gitMenuOpen, setGitMenuOpen] = useState(false);
 
   const { mode, term } = useMemo(() => parseQueryMode(q), [q]);
 
@@ -731,12 +764,19 @@ export const UnifiedSearchBar: React.FC<{
       const apiRows = Array.isArray(primary?.commands) ? primary.commands : [];
 
       const merged = mergeCommandCatalog(apiRows, searchTerm, 80);
+      const deployRows = filterDeployPaletteRows(searchTerm).map(deployRowToPalette);
       const grouped = groupWranglerCatalog(merged);
-      const sections: CommandSection[] = grouped.map((g) => ({
-        key: g.category,
-        label: g.label,
-        rows: g.rows.map(catalogEntryToPalette),
-      }));
+      const sections: CommandSection[] = [];
+      if (deployRows.length > 0) {
+        sections.push({ key: 'deploy', label: 'Deploy', rows: deployRows });
+      }
+      for (const g of grouped) {
+        sections.push({
+          key: g.category,
+          label: g.label,
+          rows: g.rows.map(catalogEntryToPalette),
+        });
+      }
 
       setCommandSections(sections);
       setItems(sections.flatMap((s) => s.rows));
@@ -944,6 +984,32 @@ export const UnifiedSearchBar: React.FC<{
     setActive(0);
   }, []);
 
+  useEffect(() => {
+    if (hideWorkspaceSegment) return;
+    const onGitMenu = () => {
+      setGitMenuOpen(true);
+      closePalette();
+    };
+    const onConnectionMenu = () => setGitMenuOpen(false);
+    window.addEventListener(IAM_OPEN_GIT_REPO_MENU, onGitMenu);
+    window.addEventListener(IAM_OPEN_CONNECTION_MENU, onConnectionMenu);
+    return () => {
+      window.removeEventListener(IAM_OPEN_GIT_REPO_MENU, onGitMenu);
+      window.removeEventListener(IAM_OPEN_CONNECTION_MENU, onConnectionMenu);
+    };
+  }, [hideWorkspaceSegment, closePalette]);
+
+  useEffect(() => {
+    if (!gitMenuOpen) return;
+    const onDocDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (paletteRef.current?.contains(t)) return;
+      setGitMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDocDown);
+    return () => document.removeEventListener('mousedown', onDocDown);
+  }, [gitMenuOpen]);
+
   const openR2Bucket = useCallback((bucket: string) => {
     try {
       sessionStorage.setItem('iam-palette-r2-bucket', bucket);
@@ -1048,6 +1114,11 @@ export const UnifiedSearchBar: React.FC<{
       }
 
       if (item.category === 'deploy') {
+        if (item.deployAction === 'workers_builds') {
+          window.dispatchEvent(new CustomEvent(IAM_GIT_SYNC_PUBLISH));
+          closePalette();
+          return;
+        }
         navigate('/dashboard/analytics/deploys');
         closePalette();
         return;
@@ -1209,61 +1280,35 @@ export const UnifiedSearchBar: React.FC<{
       ) : (
       <div className="flex items-stretch w-full rounded-md border border-[var(--border-subtle)] bg-[var(--bg-app)] hover:border-[var(--solar-cyan)]/40 transition-colors overflow-hidden">
         {!hideWorkspaceSegment ? (
-        <div ref={bucketMenuRef} className="relative shrink-0 max-w-[45%] border-r border-[var(--border-subtle)]">
-          <button
-            type="button"
-            onClick={() => {
-              if (onWorkspacePickerClick) {
-                onWorkspacePickerClick();
-                return;
-              }
-              setBucketMenuOpen((o) => !o);
+        <div className="relative shrink-0 max-w-[45%] border-r border-[var(--border-subtle)]">
+          <GitRepoBranchNavTrigger
+            workspaceLabel={workspaceLabel}
+            gitBranch={gitBranch}
+            open={gitMenuOpen}
+            onToggle={() => {
+              setGitMenuOpen((v) => !v);
+              closePalette();
             }}
-            className="flex items-center gap-1 px-2 py-1.5 text-left w-full min-w-0 hover:bg-[var(--bg-hover)] transition-colors"
-            aria-expanded={bucketMenuOpen}
-            aria-haspopup="listbox"
-            title={onWorkspacePickerClick ? 'Switch workspace' : 'R2 buckets'}
-          >
-            <HardDrive size={13} className="shrink-0 opacity-70 text-[var(--text-muted)]" />
-            <span className="text-[11px] text-[var(--text-muted)] truncate">
-              <span className="text-[var(--text-main)] font-medium">{workspaceLabel?.trim() || 'dashboard'}</span>
-            </span>
-            <ChevronRight
-              size={12}
-              className={`shrink-0 text-[var(--text-muted)] transition-transform ${bucketMenuOpen ? 'rotate-90' : ''}`}
+          />
+          {gitMenuOpen ? (
+            <GitRepoBranchMenuPanel
+              open={gitMenuOpen}
+              onClose={() => setGitMenuOpen(false)}
+              variant="dropdown"
+              activeWorkspaceId={activeWorkspaceId}
+              currentBranch={gitBranch}
+              workspaceRepoHint={workspaceRepoHint}
+              onBranchSelect={onGitBranchSelect}
+              onOpenCommandPalette={onOpenCommandPalette}
+              onGitBranchClick={() => {
+                setGitMenuOpen(false);
+                onGitBranchPanelClick?.();
+              }}
+              onWorkspacePickerClick={() => {
+                setGitMenuOpen(false);
+                onWorkspacePickerClick?.();
+              }}
             />
-          </button>
-          {bucketMenuOpen ? (
-            <div
-              role="listbox"
-              className="absolute top-full left-0 mt-1 z-[60] min-w-[220px] max-w-[min(320px,90vw)] max-h-[min(280px,50vh)] overflow-y-auto rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-panel)] shadow-xl py-1"
-            >
-              {bucketMenuLoading ? (
-                <div className="px-3 py-2 text-[11px] text-[var(--text-muted)] flex items-center gap-2">
-                  <Loader2 size={14} className="animate-spin" /> Loading buckets…
-                </div>
-              ) : bucketMenuRows.length === 0 ? (
-                <div className="px-3 py-2 text-[11px] text-[var(--text-muted)]">No buckets</div>
-              ) : (
-                bucketMenuRows.map((b) => (
-                  <button
-                    key={b.name}
-                    type="button"
-                    role="option"
-                    className="w-full text-left px-3 py-1.5 text-[12px] hover:bg-[var(--bg-hover)] flex items-center justify-between gap-2"
-                    onClick={() => {
-                      openR2Bucket(b.name);
-                      setBucketMenuOpen(false);
-                    }}
-                  >
-                    <span className="truncate text-[var(--text-main)]">{b.name}</span>
-                    {b.bound ? (
-                      <span className="shrink-0 text-[9px] uppercase tracking-wide text-[var(--solar-cyan)]">bound</span>
-                    ) : null}
-                  </button>
-                ))
-              )}
-            </div>
           ) : null}
         </div>
         ) : null}

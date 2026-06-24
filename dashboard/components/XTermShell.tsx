@@ -18,6 +18,11 @@ import { PHONE_MQ } from '../lib/breakpoints';
 import { fetchLocalTerminalConnection, fetchTerminalTargets, type TerminalTarget } from './LocalTerminalSetup';
 import { useWorkspace } from '../src/context/WorkspaceContext';
 import { runPtyTerminalSetupWizard, type PtyWizardIO } from '../src/lib/ptyTerminalSetupWizard';
+import {
+  IAM_TERMINAL_CONNECT,
+  IAM_TERMINAL_CONFIGURE,
+  IAM_TERMINAL_SETUP_WIZARD,
+} from '../src/lib/openCommandPalette';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 const DEFAULT_PRODUCT = 'Agent Sam';
@@ -643,6 +648,25 @@ export const XTermShell = forwardRef<XTermShellHandle, XTermShellProps>(
       },
       [startTerminalConnection, workspaceId, cloudTargetReady],
     );
+
+    useEffect(() => {
+      const onConnect = (e: Event) => {
+        const target = (e as CustomEvent<{ target?: string }>).detail?.target;
+        if (target === 'local' || target === 'cloud' || target === 'sandbox') {
+          void handleSplashAction(target);
+        }
+      };
+      const onWizard = () => void handleConfigureTerminalSettings();
+      const onConfigure = () => void handleConfigureTerminalSettings();
+      window.addEventListener(IAM_TERMINAL_CONNECT, onConnect as EventListener);
+      window.addEventListener(IAM_TERMINAL_SETUP_WIZARD, onWizard);
+      window.addEventListener(IAM_TERMINAL_CONFIGURE, onConfigure);
+      return () => {
+        window.removeEventListener(IAM_TERMINAL_CONNECT, onConnect as EventListener);
+        window.removeEventListener(IAM_TERMINAL_SETUP_WIZARD, onWizard);
+        window.removeEventListener(IAM_TERMINAL_CONFIGURE, onConfigure);
+      };
+    }, [handleSplashAction, handleConfigureTerminalSettings]);
 
     const terminalAreaVisible = activeTab === 'terminal' && !isCollapsed;
     const terminalConnectEnabled = terminalAreaVisible && !showSplash && !setupWizardActive;

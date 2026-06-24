@@ -42,9 +42,18 @@ import { IAM_AGENT_ENSURE_PANEL, IAM_AGENT_RESUME_CHAT, openAgentConversation, r
 import { resolveWorkspaceContextLabel } from './src/workspaceContextLabel';
 import {
   IAM_OPEN_COMMAND_PALETTE,
+  IAM_GIT_SYNC_PUBLISH,
+  IAM_OPEN_GIT_REPO_MENU,
+  IAM_OPEN_CONNECTION_MENU,
+  IAM_TERMINAL_CONNECT,
+  IAM_TERMINAL_SETUP_WIZARD,
+  IAM_TERMINAL_CONFIGURE,
   openCommandPalette,
   type OpenCommandPaletteDetail,
 } from './src/lib/openCommandPalette';
+import { GitRepoBranchMenuPanel } from './components/GitRepoBranchDropdown';
+import { ConnectionMenuPanel, type ConnectionMenuAction } from './components/ConnectionMenuPanel';
+import { createPortal } from 'react-dom';
 import { WorkspaceLauncher } from './components/WorkspaceLauncher';
 import type { XTermShellHandle, ShellTab } from './components/XTermShell';
 import { SecurityShieldBanner } from './components/SecurityShieldBanner';
@@ -644,6 +653,8 @@ const App: React.FC = () => {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchInitialFacets, setSearchInitialFacets] = useState<string[]>([]);
   const [searchInitialQuery, setSearchInitialQuery] = useState('');
+  const [gitRepoMenuOpen, setGitRepoMenuOpen] = useState(false);
+  const [connectionMenuOpen, setConnectionMenuOpen] = useState(false);
   const onUnifiedSearchOpenChange = useCallback((next: boolean) => {
     setSearchOpen(next);
     if (!next) {
@@ -664,6 +675,56 @@ const App: React.FC = () => {
     window.addEventListener(IAM_OPEN_COMMAND_PALETTE, onPalette as EventListener);
     return () => window.removeEventListener(IAM_OPEN_COMMAND_PALETTE, onPalette as EventListener);
   }, []);
+
+  useEffect(() => {
+    const onConnectionMenu = () => {
+      setGitRepoMenuOpen(false);
+      setConnectionMenuOpen(true);
+    };
+    window.addEventListener(IAM_OPEN_CONNECTION_MENU, onConnectionMenu);
+    return () => window.removeEventListener(IAM_OPEN_CONNECTION_MENU, onConnectionMenu);
+  }, []);
+
+  const handleConnectionMenuAction = useCallback(
+    (action: ConnectionMenuAction) => {
+      if (action === 'ssh_config') {
+        navigate('/dashboard/settings/network');
+        return;
+      }
+
+      const openTerminalThen = (eventName: string, detail?: Record<string, string>) => {
+        setIsTerminalOpen(true);
+        setTimeout(() => {
+          window.dispatchEvent(
+            detail
+              ? new CustomEvent(eventName, { detail })
+              : new CustomEvent(eventName),
+          );
+        }, 100);
+      };
+
+      if (action === 'local_pty') {
+        openTerminalThen(IAM_TERMINAL_CONNECT, { target: 'local' });
+        return;
+      }
+      if (action === 'cloud_terminal') {
+        openTerminalThen(IAM_TERMINAL_CONNECT, { target: 'cloud' });
+        return;
+      }
+      if (action === 'gcp_vm') {
+        openTerminalThen(IAM_TERMINAL_CONNECT, { target: 'sandbox' });
+        return;
+      }
+      if (action === 'pty_setup_wizard') {
+        openTerminalThen(IAM_TERMINAL_SETUP_WIZARD);
+        return;
+      }
+      if (action === 'configure_terminal') {
+        openTerminalThen(IAM_TERMINAL_CONFIGURE);
+      }
+    },
+    [navigate],
+  );
   /** Desktop: Draw / Search / History (Addendum A). */
   const [topChromeMoreOpen, setTopChromeMoreOpen] = useState(false);
   const topChromeMoreRef = useRef<HTMLDivElement>(null);
@@ -677,6 +738,15 @@ const App: React.FC = () => {
   const mobileSwipeStartRef = useRef<{ x: number; y: number } | null>(null);
   /** Mobile chat repo drawer: expand this repo when opening the GitHub / Deploy panel. */
   const [githubExpandRepo, setGithubExpandRepo] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onGitRepoMenu = () => {
+      setConnectionMenuOpen(false);
+      if (isNarrowViewport) setGitRepoMenuOpen(true);
+    };
+    window.addEventListener(IAM_OPEN_GIT_REPO_MENU, onGitRepoMenu);
+    return () => window.removeEventListener(IAM_OPEN_GIT_REPO_MENU, onGitRepoMenu);
+  }, [isNarrowViewport]);
 
   useEffect(() => {
     const onBrowserPresence = (e: Event) => {
@@ -2845,6 +2915,12 @@ const App: React.FC = () => {
   }, [authWorkspaceId, fetchGitAndProblems, fetchLiveStatus]);
 
   useEffect(() => {
+    const onGitSync = () => void handleGitSyncPublish();
+    window.addEventListener(IAM_GIT_SYNC_PUBLISH, onGitSync);
+    return () => window.removeEventListener(IAM_GIT_SYNC_PUBLISH, onGitSync);
+  }, [handleGitSyncPublish]);
+
+  useEffect(() => {
     // Polling (ms): health 5m, notifications 2m, git+problems 3m, tunnel 5m, terminal config 10m,
     // telemetry 5m. Paused while tab hidden (visibilitychange).
     const ids: number[] = [];
@@ -3629,6 +3705,15 @@ const App: React.FC = () => {
           <div className="iam-topbar-desktop-only flex-1 flex justify-center items-center min-w-0 px-2 gap-2 overflow-visible max-phone:hidden">
               <UnifiedSearchBar
                 workspaceLabel={workspaceDisplayLine}
+                gitBranch={gitBranch}
+                activeWorkspaceId={authWorkspaceId}
+                workspaceRepoHint={activeWorkspaceRow?.github_repo ?? null}
+                onGitBranchSelect={handleStatusBarBranchSelect}
+                onOpenCommandPalette={openCommandPalette}
+                onGitBranchPanelClick={() => {
+                  setActiveActivity('git');
+                  if (!isAgentShellPath(location.pathname)) navigate(AGENT_HOME_PATH);
+                }}
                 onWorkspacePickerClick={() => setWorkspaceLauncherOpen(true)}
                 recentFiles={mappedRecentFiles}
                 onNavigate={(nav, _q) => handleUnifiedNavigate(nav)}
@@ -3646,9 +3731,18 @@ const App: React.FC = () => {
               <div className="iam-topbar-mobile-only hidden max-phone:block shrink-0">
                 <UnifiedSearchBar
                   workspaceLabel={workspaceDisplayLine}
+                  gitBranch={gitBranch}
+                  activeWorkspaceId={authWorkspaceId}
+                  workspaceRepoHint={activeWorkspaceRow?.github_repo ?? null}
+                  onGitBranchSelect={handleStatusBarBranchSelect}
+                  onOpenCommandPalette={openCommandPalette}
+                  onGitBranchPanelClick={() => {
+                    setActiveActivity('git');
+                    if (!isAgentShellPath(location.pathname)) navigate(AGENT_HOME_PATH);
+                  }}
+                  onWorkspacePickerClick={() => setWorkspaceLauncherOpen(true)}
                   hideWorkspaceSegment
                   mobileToolbar
-                  onWorkspacePickerClick={() => setWorkspaceLauncherOpen(true)}
                   recentFiles={mappedRecentFiles}
                   onNavigate={(nav, _q) => handleUnifiedNavigate(nav)}
                   onRunCommand={(cmd) => terminalRef.current?.runCommand(cmd)}
@@ -4756,6 +4850,51 @@ const App: React.FC = () => {
         }}
       />
       ) : null}
+
+      {typeof document !== 'undefined' &&
+        ((gitRepoMenuOpen && isNarrowViewport) || connectionMenuOpen) &&
+        createPortal(
+          <>
+            <div
+              className="fixed inset-0 z-[198]"
+              aria-hidden
+              onMouseDown={() => {
+                setGitRepoMenuOpen(false);
+                setConnectionMenuOpen(false);
+              }}
+            />
+            <div className="fixed z-[199] left-1/2 -translate-x-1/2 top-12 w-[min(320px,calc(100vw-24px))]">
+              {gitRepoMenuOpen && isNarrowViewport ? (
+                <GitRepoBranchMenuPanel
+                  open={gitRepoMenuOpen}
+                  onClose={() => setGitRepoMenuOpen(false)}
+                  variant="floating"
+                  activeWorkspaceId={authWorkspaceId}
+                  currentBranch={gitBranch}
+                  workspaceRepoHint={activeWorkspaceRow?.github_repo ?? null}
+                  onBranchSelect={handleStatusBarBranchSelect}
+                  onOpenCommandPalette={openCommandPalette}
+                  onGitBranchClick={() => {
+                    setActiveActivity('git');
+                    if (!isAgentShellPath(location.pathname)) navigate(AGENT_HOME_PATH);
+                  }}
+                  onWorkspacePickerClick={() => {
+                    setGitRepoMenuOpen(false);
+                    setWorkspaceLauncherOpen(true);
+                  }}
+                />
+              ) : (
+                <ConnectionMenuPanel
+                  open={connectionMenuOpen}
+                  onClose={() => setConnectionMenuOpen(false)}
+                  variant="floating"
+                  onAction={handleConnectionMenuAction}
+                />
+              )}
+            </div>
+          </>,
+          document.body,
+        )}
 
       {isWorkspaceLauncherOpen && (
         <WorkspaceLauncher

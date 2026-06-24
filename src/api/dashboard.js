@@ -245,64 +245,17 @@ export async function handleDashboardApi(request, url, env, ctx) {
                 if (chunk.length < 100) break;
             }
 
-            const maxDetail = 36;
-
-            async function commitMeta(sha) {
-                try {
-                    const res = await fetch(`https://api.github.com/repos/${repoFull}/commits/${sha}`, {
-                        headers: ghHeaders,
-                    });
-                    if (!res.ok) return { subject: '', date_iso: null };
-                    const j = await res.json();
-                    const msg = typeof j.commit?.message === 'string' ? j.commit.message.split('\n')[0].trim() : '';
-                    const date_iso = j.commit?.committer?.date || j.commit?.author?.date || null;
-                    return { subject: msg, date_iso };
-                } catch {
-                    return { subject: '', date_iso: null };
-                }
-            }
-
-            function relativeFromIso(iso) {
-                if (!iso) return '';
-                const t = Date.parse(iso);
-                if (Number.isNaN(t)) return '';
-                const sec = Math.floor((Date.now() - t) / 1000);
-                if (sec < 45) return 'just now';
-                if (sec < 3600) return `${Math.floor(sec / 60)} minutes ago`;
-                if (sec < 86400) return `${Math.floor(sec / 3600)} hours ago`;
-                const d = Math.floor(sec / 86400);
-                if (d < 60) return `${d} days ago`;
-                return `${Math.floor(d / 30)} months ago`;
-            }
-
-            const detailRows = all.slice(0, maxDetail);
-            const BATCH = 8;
-            /** @type {{ subject: string; date_relative: string }[]} */
-            const detailMeta = [];
-            for (let i = 0; i < detailRows.length; i += BATCH) {
-                const chunk = detailRows.slice(i, i + BATCH);
-                const metas = await Promise.all(chunk.map((br) => commitMeta(br.commit?.sha || '')));
-                for (let j = 0; j < chunk.length; j++) {
-                    const m = metas[j];
-                    detailMeta.push({
-                        subject: m.subject,
-                        date_relative: relativeFromIso(m.date_iso),
-                    });
-                }
-            }
-
+            // Fast path: branch list only (Cursor-style). Per-commit metadata was 36+ GitHub
+            // subrequests and routinely hit Worker limits / left the UI stuck on "Loading…".
             const branchesOut = [];
-            for (let i = 0; i < all.length; i++) {
-                const b = all[i];
+            for (const b of all) {
                 const name = typeof b.name === 'string' ? b.name : '';
                 const sha = b.commit?.sha || '';
                 if (!name || !sha) continue;
-                const dm = i < detailMeta.length ? detailMeta[i] : { subject: '', date_relative: '' };
                 branchesOut.push({
                     ref: name,
                     sha,
-                    subject: dm.subject,
-                    date_relative: dm.date_relative,
+                    protected: Boolean(b.protected),
                 });
             }
 

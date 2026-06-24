@@ -23,6 +23,8 @@ import {
 } from 'lucide-react';
 import type { ActiveFile } from '../types';
 import { GitHubExplorer } from './GitHubExplorer';
+import { fetchTerminalTargets } from './LocalTerminalSetup';
+import { isEpochStale, normalizeEpochMs, parseHealthCheckEpochMs } from '../src/lib/normalizeEpochMs';
 import { GoogleDriveExplorer } from './GoogleDriveExplorer';
 import { pickR2DisplayBuckets, type R2BucketsApiResponse } from '../src/lib/r2Buckets';
 import {
@@ -396,12 +398,26 @@ export const LocalExplorer: React.FC<{
         let cancelled = false;
         void (async () => {
             try {
+                if (workspace_id?.trim()) {
+                    const targets = await fetchTerminalTargets(workspace_id.trim());
+                    if (!cancelled && targets?.local?.ready === true) {
+                        setLocalTunnelVerifyWarning(false);
+                        return;
+                    }
+                }
+
                 const res = await fetch('/api/settings/integrations/connected', { credentials: 'same-origin' });
                 if (!res.ok || cancelled) return;
                 const data = (await res.json()) as {
                     items?: Array<{
                         derived_status?: string;
-                        connection?: { provider_key?: string; status?: string; config_json?: Record<string, unknown> };
+                        connection?: {
+                            provider_key?: string;
+                            status?: string;
+                            config_json?: Record<string, unknown>;
+                            last_health_check_at?: string | null;
+                            last_health_status?: string | null;
+                        };
                         integration_status?: { connected?: boolean; last_verified_at?: number };
                     }>;
                 };
@@ -416,13 +432,25 @@ export const LocalExplorer: React.FC<{
                     if (!cancelled) setLocalTunnelVerifyWarning(false);
                     return;
                 }
-                const ts =
+
+                const cfgTs =
                     typeof lt?.integration_status?.last_verified_at === 'number'
-                        ? lt.integration_status.last_verified_at
+                        ? normalizeEpochMs(lt.integration_status.last_verified_at)
                         : typeof lt?.connection?.config_json?.last_verified_at === 'number'
-                          ? (lt.connection.config_json.last_verified_at as number)
+                          ? normalizeEpochMs(lt.connection.config_json.last_verified_at as number)
                           : null;
-                const stale = ts == null || !Number.isFinite(ts) || Date.now() - ts > 5 * 60 * 1000;
+                const healthTs = parseHealthCheckEpochMs(lt?.connection?.last_health_check_at);
+                const verifiedMs =
+                    cfgTs != null && healthTs != null
+                        ? Math.max(cfgTs, healthTs)
+                        : cfgTs ?? healthTs;
+
+                const healthOk =
+                    String(lt?.connection?.last_health_status || '').toLowerCase() === 'ok' &&
+                    healthTs != null &&
+                    !isEpochStale(healthTs);
+
+                const stale = !healthOk && isEpochStale(verifiedMs);
                 if (!cancelled) setLocalTunnelVerifyWarning(stale);
             } catch {
                 if (!cancelled) setLocalTunnelVerifyWarning(false);
@@ -431,7 +459,7 @@ export const LocalExplorer: React.FC<{
         return () => {
             cancelled = true;
         };
-    }, []);
+    }, [workspace_id]);
 
     useEffect(() => {
         if (displayR2Buckets.length === 0) {
