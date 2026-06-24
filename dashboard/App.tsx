@@ -112,6 +112,7 @@ import MountIamMcpConsent from './components/auth/MountIamMcpConsent';
 import { OnboardingPage } from './components/onboarding/OnboardingPage';
 import { DashboardSidebar } from './components/shell/DashboardSidebar';
 import { MobileNavShell } from './components/shell/MobileNavShell';
+import { MobileNavHamburger } from './components/shell/MobileNavHamburger';
 import { mobileNavBackLabel } from './components/shell/mobileNavBackLabel';
 import { Files, Search, GitBranch, Settings, PanelLeftClose, PanelRightClose, Terminal as TermIcon, Layers, Monitor, Bug, Github, Database, FolderOpen, FolderCode, Globe, PenTool, Cloud, X as XIcon, Eye, MessageSquare, MoreHorizontal, ChevronLeft, Link2, HardDrive, Package, History, FileCode2, Rocket } from 'lucide-react';
 import { SetiFileIcon } from './src/components/SetiFileIcon';
@@ -3529,22 +3530,21 @@ const App: React.FC = () => {
       <header className="shrink-0 z-[110] max-phone:sticky max-phone:top-0 bg-[var(--dashboard-topbar)] text-[var(--dashboard-topbar-text)] [&_.text-\\[var\\(--text-muted\\)\\]]:text-[var(--text-nav-muted,var(--dashboard-muted))] [&_.text-\\[var\\(--text-main\\)\\]]:text-[var(--dashboard-topbar-text)]">
       <div className="h-10 border-b border-[var(--dashboard-border)] flex items-center justify-between px-3 overflow-visible relative">
           <div className="flex items-center gap-1 pl-1 shrink-0 min-w-0">
+              {/* Mobile: hamburger (MobileNavShell inline) then logo */}
+              <div className="hidden max-phone:flex items-center shrink-0">
+                <MobileNavHamburger
+                  open={mobileNavOpen}
+                  backMode={mobileHamburgerConversationBack}
+                  onClick={mobileHamburgerConversationBack && narrowBackToAgentHome ? narrowBackToAgentHome : () => setMobileNavOpen(v => !v)}
+                />
+              </div>
               <img
                 src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/ac515729-af6b-4ea5-8b10-e581a4d02100/thumbnail"
                 alt=""
-                className="w-7 h-7 object-contain drop-shadow shrink-0 cursor-pointer opacity-80"
+                className="w-7 h-7 object-contain drop-shadow shrink-0 cursor-pointer opacity-80 max-phone:hidden"
                 title={workspaceDisplayLine}
                 onClick={() => setActiveTab('Workspace')}
               />
-              {/* Mobile hamburger — next to logo so it doesn't crowd the viewport */}
-              <button
-                type="button"
-                title="More tools"
-                className="hidden max-phone:flex items-center justify-center w-7 h-7 rounded transition-colors text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]"
-                onClick={() => setMobileMoreOpen(true)}
-              >
-                <MoreHorizontal size={16} strokeWidth={1.75} />
-              </button>
           </div>
 
           {/* Unified search (Cmd+K) — desktop center; mobile lives in right cluster */}
@@ -3670,6 +3670,7 @@ const App: React.FC = () => {
       </div>
       </header>
 
+      {/* MobileNavDrawer — hamburger button moved into topbar left cluster */}
       <MobileNavShell
         open={mobileNavOpen}
         onToggle={() => setMobileNavOpen((v) => !v)}

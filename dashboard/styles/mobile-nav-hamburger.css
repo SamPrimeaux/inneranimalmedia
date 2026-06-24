@@ -2,8 +2,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   border-radius: 50%;
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -90,15 +90,13 @@
 
 @media (max-width: 430px) {
   .iam-mobile-nav-controls {
-    position: fixed;
-    z-index: 112;
-    top: calc(2.5rem + 8px);
-    left: 12px;
+    /* Inline inside topbar — no longer floating over content */
+    position: static;
     display: flex;
     align-items: center;
-    gap: 8px;
-    max-width: calc(100vw - 24px);
+    gap: 4px;
     pointer-events: none;
+    flex-shrink: 0;
   }
 }
 
@@ -112,14 +110,7 @@
   transition: margin-left 220ms ease, transform 220ms ease;
 }
 
-.iam-mobile-nav-controls[data-drawer-open='true'] .iam-mobile-nav-hamburger-anchor {
-  margin-left: calc(50vw - 32px);
-  transform: none;
-}
-
-.iam-mobile-nav-controls[data-drawer-open='true'][data-has-back='true'] .iam-mobile-nav-hamburger-anchor {
-  margin-left: calc(50vw - 80px);
-}
+/* drawer-open shift disabled — hamburger is now inline in topbar */
 
 .iam-mobile-nav-back {
   display: inline-flex;

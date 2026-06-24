@@ -2046,6 +2046,36 @@
   pointer-events: none;
 }
 
+@media (max-width: 480px) {
+  .vab__wrap {
+    left: 0;
+    right: 0;
+    transform: none;
+    bottom: 8px;
+    padding: 0 8px;
+  }
+  .vab__dock {
+    width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 12px;
+    gap: 0;
+    padding: 4px 6px;
+    justify-content: space-between;
+  }
+  .vab__dock::-webkit-scrollbar { display: none; }
+  .vab__btn {
+    flex-direction: row;
+    gap: 4px;
+    padding: 8px 10px;
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+  .vab__label { display: none; }
+  .vab__sep { height: 20px; margin: 0 1px; }
+}
+
 .vab__dock {
   display: inline-flex;
   align-items: center;
@@ -2895,4 +2925,13 @@
 /* Nuke stale bottom tab nav — deployed d7f46134 */
 @media (max-width: 430px) {
   nav[aria-label="Primary"] { display: none !important; }
+}
+
+/* On mobile, right-rail editor columns are suppressed — InspectorPanel is the bottom sheet */
+@media (max-width: 480px) {
+  .cad-studio__layout-cell--outliner,
+  .cad-studio__layout-cell--properties,
+  .cad-studio__layout-cell--rightTabs {
+    display: none !important;
+  }
 }
