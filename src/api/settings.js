@@ -31,6 +31,7 @@ import { handleSettingsSectionStatusApi } from './settings-sections.js';
 import { handleSettingsKeysApi } from './settings-api-keys.js';
 import { handleSettingsWorkspaceApi } from './settings-workspace.js';
 import { encryptApiKeyForStorage } from './provisioning.js';
+import { isSamOperatorLaneUserId } from '../core/platform-operator-policy.js';
 import { canUsePlatformAssetsR2Upload } from '../core/cms-theme-resolve.js';
 import { fetchWorkspaceRowsForSettingsApi, userCanAccessWorkspace } from '../core/workspace-access.js';
 import { loadWorkspaceThemeMap, persistWorkspaceThemeSlug } from '../core/workspace-user-prefs.js';
@@ -2040,6 +2041,16 @@ export async function handleSettingsRequest(request, env, ctx) {
     return s;
   };
 
+  const providerSlugForKeysApi = (slug) => {
+    const s = normalizeAiProviderSlug(slug);
+    if (s === 'google_ai') return 'google';
+    if (s === 'cursor') return 'openai';
+    return s;
+  };
+
+  const canManageAiModelCatalog = (user) =>
+    authUserIsSuperadmin(user) || isSamOperatorLaneUserId(user?.id);
+
   const providerUiOrder = (slug) => {
     const k = normalizeAiProviderSlug(slug);
     const order = { openai: 0, anthropic: 1, google_ai: 2, google: 2, cloudflare: 3, ollama: 4 };
@@ -2113,15 +2124,12 @@ export async function handleSettingsRequest(request, env, ctx) {
     if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
     const tenantId = await resolveAuthTenantId(env, authUser);
     if (!tenantId) return jsonResponse({ error: 'tenant required' }, 400);
-    const { userId: canonicalUserId } = await resolveCanonicalUserId(env, sessionUserId, authUser.email);
-    const storeUserId = canonicalUserId != null && String(canonicalUserId).trim() !== ''
-      ? String(canonicalUserId).trim()
-      : String(authUser.id || '').trim();
+    const storeUserId = String(authUser.id || '').trim();
     try {
       const { results: modelRows } = await env.DB.prepare(
         `SELECT *
          FROM agentsam_ai
-         WHERE model_key IS NOT NULL
+         WHERE model_key IS NOT NULL AND COALESCE(status, '') != 'removed'
          ORDER BY provider, sort_order, model_key`,
       ).all();
 
@@ -2142,9 +2150,9 @@ export async function handleSettingsRequest(request, env, ctx) {
         const q = await env.DB.prepare(
           `SELECT provider, key_name, key_preview, is_active, last_used_at
            FROM user_api_keys
-           WHERE user_id = ? AND COALESCE(is_active, 1) = 1`,
+           WHERE tenant_id = ? AND user_id = ? AND COALESCE(is_active, 1) = 1`,
         )
-          .bind(storeUserId)
+          .bind(tenantId, storeUserId)
           .all();
         keyRows = q?.results || [];
       } catch (_) {
@@ -2228,76 +2236,48 @@ export async function handleSettingsRequest(request, env, ctx) {
         p.key_preview = kr?.key_preview != null ? String(kr.key_preview) : null;
       }
 
-      return jsonResponse({ providers });
+      return jsonResponse({
+        providers,
+        can_manage_catalog: canManageAiModelCatalog(authUser),
+      });
     } catch (e) {
       return jsonResponse({ error: e?.message ?? String(e) }, 500);
     }
   }
 
   if (pathLower === '/api/settings/ai-models/keys' && method === 'POST') {
-    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
-    if (!isVaultConfigured(env)) {
-      return jsonResponse({ error: 'Vault not configured' }, 503);
-    }
-    const tenantId = await resolveAuthTenantId(env, authUser);
-    if (!tenantId) return jsonResponse({ error: 'tenant required' }, 400);
-    const { userId: canonicalUserId } = await resolveCanonicalUserId(env, sessionUserId, authUser.email);
-    const storeUserId = canonicalUserId != null && String(canonicalUserId).trim() !== ''
-      ? String(canonicalUserId).trim()
-      : String(authUser.id || '').trim();
     const body = await request.json().catch(() => ({}));
     const providerRaw = String(body.provider || '').trim();
-    const keyName = String(body.keyName || body.key_name || 'default').trim() || 'default';
-    const rawKey = String(body.rawKey || body.raw_key || '').trim();
     const provNorm = normalizeAiProviderSlug(providerRaw);
     if (!provNorm) return jsonResponse({ error: 'provider required' }, 400);
-
-    const probe = await validateAiKeyProbe(provNorm, rawKey);
-    if (!probe.ok) return jsonResponse({ error: probe.error || 'Validation failed' }, 400);
-
-    let encrypted;
-    try {
-      encrypted = await encryptApiKeyForStorage(env, rawKey);
-    } catch (e) {
-      return jsonResponse({ error: e?.message ?? 'Encrypt failed' }, 500);
-    }
-
-    const preview =
-      rawKey.length <= 12 ? '************' : `${rawKey.slice(0, 12)}****`;
-
-    const uakId = `uak_${crypto.randomUUID().replace(/-/g, '')}`;
-    try {
-      await env.DB.prepare(
-        `UPDATE user_api_keys SET is_active = 0, updated_at = datetime('now')
-         WHERE user_id = ? AND tenant_id = ? AND LOWER(provider) = LOWER(?)`,
-      )
-        .bind(storeUserId, tenantId, provNorm)
-        .run();
-    } catch (_) {
-      try {
-        await env.DB.prepare(
-          `UPDATE user_api_keys SET is_active = 0
-           WHERE user_id = ? AND tenant_id = ? AND LOWER(provider) = LOWER(?)`,
-        )
-          .bind(storeUserId, tenantId, provNorm)
-          .run();
-      } catch (__) {
-        /* schema without updated_at */
-      }
-    }
-
-    try {
-      await env.DB.prepare(
-        `INSERT INTO user_api_keys (id, tenant_id, user_id, provider, key_name, key_preview, key_hash, is_active)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
-      )
-        .bind(uakId, tenantId, storeUserId, provNorm, keyName, preview, encrypted)
-        .run();
-    } catch (e) {
-      return jsonResponse({ error: e?.message ?? 'Failed to store key' }, 500);
-    }
-
-    return jsonResponse({ ok: true, key_preview: preview, provider: provNorm });
+    const keysProvider = providerSlugForKeysApi(provNorm);
+    const rawKey = String(body.rawKey || body.raw_key || body.api_key || '').trim();
+    if (!rawKey) return jsonResponse({ error: 'API key required' }, 400);
+    const label =
+      String(body.keyName || body.key_name || '').trim() ||
+      `${keysProvider} API key (AI Models)`;
+    const fwdUrl = new URL(request.url);
+    fwdUrl.pathname = '/api/settings/keys';
+    const fwdReq = new Request(fwdUrl.toString(), {
+      method: 'POST',
+      headers: request.headers,
+      body: JSON.stringify({
+        category: 'provider',
+        provider: keysProvider,
+        label,
+        api_key: rawKey,
+        validate: true,
+      }),
+    });
+    return handleSettingsKeysApi(
+      fwdReq,
+      env,
+      ctx,
+      authUser,
+      fwdUrl,
+      '/api/settings/keys',
+      'POST',
+    );
   }
 
   {
@@ -2306,65 +2286,101 @@ export async function handleSettingsRequest(request, env, ctx) {
       if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
       const tenantId = await resolveAuthTenantId(env, authUser);
       if (!tenantId) return jsonResponse({ error: 'tenant required' }, 400);
-      const { userId: canonicalUserId } = await resolveCanonicalUserId(env, sessionUserId, authUser.email);
-      const storeUserId = canonicalUserId != null && String(canonicalUserId).trim() !== ''
-        ? String(canonicalUserId).trim()
-        : String(authUser.id || '').trim();
+      const storeUserId = String(authUser.id || '').trim();
       const providerSeg = decodeURIComponent(m[1] || '').trim();
-      const provNorm = normalizeAiProviderSlug(providerSeg);
+      const keysProvider = providerSlugForKeysApi(providerSeg);
       try {
-        await env.DB.prepare(
-          `UPDATE user_api_keys SET is_active = 0 WHERE user_id = ? AND tenant_id = ? AND LOWER(provider) = LOWER(?)`,
+        const row = await env.DB.prepare(
+          `SELECT id FROM user_api_keys
+           WHERE tenant_id = ? AND user_id = ? AND provider = ? AND COALESCE(is_active, 1) = 1
+           LIMIT 1`,
         )
-          .bind(storeUserId, tenantId, provNorm)
-          .run();
+          .bind(tenantId, storeUserId, keysProvider)
+          .first();
+        if (!row?.id) return jsonResponse({ ok: true, removed: false });
+        const fwdUrl = new URL(request.url);
+        fwdUrl.pathname = `/api/settings/keys/${encodeURIComponent(String(row.id))}`;
+        const fwdReq = new Request(fwdUrl.toString(), {
+          method: 'DELETE',
+          headers: request.headers,
+        });
+        return handleSettingsKeysApi(
+          fwdReq,
+          env,
+          ctx,
+          authUser,
+          fwdUrl,
+          fwdUrl.pathname.toLowerCase(),
+          'DELETE',
+        );
       } catch (e) {
         return jsonResponse({ error: e?.message ?? 'Failed to remove key' }, 500);
       }
-      return jsonResponse({ ok: true });
     }
   }
 
   {
     const m = pathLower.match(/^\/api\/settings\/ai-models\/([^/]+)$/);
-    if (m && method === 'PATCH') {
+    if (m) {
       const seg = decodeURIComponent(m[1] || '').trim();
-      if (seg === 'keys' || seg === 'usage') {
-        /* handled above */
-      } else if (seg) {
-        if (!authUserIsSuperadmin(authUser)) {
+      if (seg && seg !== 'keys' && seg !== 'usage') {
+        if (!canManageAiModelCatalog(authUser)) {
           return jsonResponse({ error: 'Forbidden' }, 403);
         }
         if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
         const modelKey = seg;
-        const body = await request.json().catch(() => ({}));
-        const hasPicker = body && Object.prototype.hasOwnProperty.call(body, 'show_in_picker');
-        const hasStatus = body && Object.prototype.hasOwnProperty.call(body, 'status');
-        if (!hasPicker && !hasStatus) return jsonResponse({ error: 'No fields to update' }, 400);
-        const sets = [];
-        const vals = [];
-        if (hasPicker) {
-          const v = !!body.show_in_picker;
-          sets.push('show_in_picker = ?');
-          vals.push(v ? 1 : 0);
-        }
-        if (hasStatus) {
-          const st = String(body.status || '').toLowerCase();
-          if (st !== 'active' && st !== 'inactive') {
-            return jsonResponse({ error: 'status must be active or inactive' }, 400);
+
+        if (method === 'DELETE') {
+          try {
+            const existing = await env.DB.prepare(
+              `SELECT model_key FROM agentsam_ai WHERE model_key = ? LIMIT 1`,
+            )
+              .bind(modelKey)
+              .first();
+            if (!existing) return jsonResponse({ error: 'Model not found' }, 404);
+            await env.DB.prepare(
+              `UPDATE agentsam_ai
+               SET status = 'removed', show_in_picker = 0, picker_eligible = 0, updated_at = datetime('now')
+               WHERE model_key = ?`,
+            )
+              .bind(modelKey)
+              .run();
+            return jsonResponse({ ok: true, model_key: modelKey, removed: true });
+          } catch (e) {
+            return jsonResponse({ error: e?.message ?? 'Remove failed' }, 500);
           }
-          sets.push('status = ?');
-          vals.push(st);
         }
-        sets.push("updated_at = datetime('now')");
-        try {
-          await env.DB.prepare(`UPDATE agentsam_ai SET ${sets.join(', ')} WHERE model_key = ?`)
-            .bind(...vals, modelKey)
-            .run();
-        } catch (e) {
-          return jsonResponse({ error: e?.message ?? 'Update failed' }, 500);
+
+        if (method === 'PATCH') {
+          const body = await request.json().catch(() => ({}));
+          const hasPicker = body && Object.prototype.hasOwnProperty.call(body, 'show_in_picker');
+          const hasStatus = body && Object.prototype.hasOwnProperty.call(body, 'status');
+          if (!hasPicker && !hasStatus) return jsonResponse({ error: 'No fields to update' }, 400);
+          const sets = [];
+          const vals = [];
+          if (hasPicker) {
+            const v = !!body.show_in_picker;
+            sets.push('show_in_picker = ?');
+            vals.push(v ? 1 : 0);
+          }
+          if (hasStatus) {
+            const st = String(body.status || '').toLowerCase();
+            if (st !== 'active' && st !== 'inactive') {
+              return jsonResponse({ error: 'status must be active or inactive' }, 400);
+            }
+            sets.push('status = ?');
+            vals.push(st);
+          }
+          sets.push("updated_at = datetime('now')");
+          try {
+            await env.DB.prepare(`UPDATE agentsam_ai SET ${sets.join(', ')} WHERE model_key = ?`)
+              .bind(...vals, modelKey)
+              .run();
+          } catch (e) {
+            return jsonResponse({ error: e?.message ?? 'Update failed' }, 500);
+          }
+          return jsonResponse({ ok: true, model_key: modelKey });
         }
-        return jsonResponse({ ok: true, model_key: modelKey });
       }
     }
   }

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Trash2 } from 'lucide-react';
 import type { ModelsTabId } from '../hooks/useSettingsSections';
 import type { SettingsPanelModel } from '../hooks/useSettingsData';
 import { Toggle } from '../settingsUi';
@@ -39,7 +40,7 @@ type CatalogProvider = {
   models: CatalogModel[];
 };
 
-type CatalogResponse = { providers: CatalogProvider[] };
+type CatalogResponse = { providers: CatalogProvider[]; can_manage_catalog?: boolean };
 
 const SIZE_ORDER: Record<string, number> = {
   large: 0,
@@ -77,6 +78,7 @@ function formatUsdPerMtok(v: number | null): string {
 
 export function AIModelsSection({ data, modelsTab, setModelsTab }: AIModelsSectionProps) {
   const [catalog, setCatalog] = useState<CatalogResponse | null>(null);
+  const [canManageCatalog, setCanManageCatalog] = useState(false);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -93,6 +95,7 @@ export function AIModelsSection({ data, modelsTab, setModelsTab }: AIModelsSecti
       const j = (await r.json().catch(() => ({}))) as CatalogResponse & { error?: string };
       if (!r.ok) throw new Error(typeof j.error === 'string' ? j.error : `Load failed (${r.status})`);
       setCatalog({ providers: Array.isArray(j.providers) ? j.providers : [] });
+      setCanManageCatalog(Boolean(j.can_manage_catalog));
     } catch (e) {
       setCatalog(null);
       setCatalogError(e instanceof Error ? e.message : 'Failed to load AI models');
@@ -158,6 +161,44 @@ export function AIModelsSection({ data, modelsTab, setModelsTab }: AIModelsSecti
       } catch (e) {
         void loadCatalog();
         setToast(e instanceof Error ? e.message : 'Save failed');
+        window.setTimeout(() => setToast(null), 5000);
+      }
+    },
+    [loadCatalog],
+  );
+
+  const removeModel = useCallback(
+    async (modelKey: string, displayName: string) => {
+      const label = displayName || modelKey;
+      if (
+        !window.confirm(
+          `Remove "${label}" from your AI Models catalog? It will disappear from this list and the model picker.`,
+        )
+      ) {
+        return;
+      }
+      setCatalog((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          providers: prev.providers.map((p) => ({
+            ...p,
+            models: p.models.filter((m) => m.model_key !== modelKey),
+          })),
+        };
+      });
+      try {
+        const r = await fetch(`/api/settings/ai-models/${encodeURIComponent(modelKey)}`, {
+          method: 'DELETE',
+          credentials: 'same-origin',
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          throw new Error(typeof (j as { error?: string }).error === 'string' ? (j as { error: string }).error : `Remove failed (${r.status})`);
+        }
+      } catch (e) {
+        void loadCatalog();
+        setToast(e instanceof Error ? e.message : 'Remove failed');
         window.setTimeout(() => setToast(null), 5000);
       }
     },
@@ -294,6 +335,9 @@ export function AIModelsSection({ data, modelsTab, setModelsTab }: AIModelsSecti
               groups.get(g)!.push(m);
             }
             const groupKeys = Array.from(groups.keys()).sort((a, b) => sizeRank(a) - sizeRank(b));
+            const modelRowGrid = canManageCatalog
+              ? 'grid-cols-[minmax(0,1.4fr)_minmax(0,0.5fr)_minmax(0,0.7fr)_minmax(0,0.45fr)_minmax(0,0.6fr)_minmax(0,0.35fr)]'
+              : 'grid-cols-[minmax(0,1.4fr)_minmax(0,0.5fr)_minmax(0,0.7fr)_minmax(0,0.45fr)_minmax(0,0.6fr)]';
 
             return (
               <div
@@ -371,19 +415,20 @@ export function AIModelsSection({ data, modelsTab, setModelsTab }: AIModelsSecti
                       <div className="px-4 py-1.5 text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] bg-[var(--bg-app)] border-b border-[var(--border-subtle)]">
                         {gk === 'other' ? 'Other sizes' : `${gk.charAt(0).toUpperCase()}${gk.slice(1)}`}
                       </div>
-                      <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,0.5fr)_minmax(0,0.7fr)_minmax(0,0.45fr)_minmax(0,0.6fr)] gap-0 px-2 py-1.5 text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] border-b border-[var(--border-subtle)]">
+                      <div className={`grid ${modelRowGrid} gap-0 px-2 py-1.5 text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] border-b border-[var(--border-subtle)]`}>
                         <div className="px-2">Model</div>
                         <div className="px-2">Context</div>
                         <div className="px-2">Input / Output</div>
                         <div className="px-2 text-center">Picker</div>
                         <div className="px-2 text-center">Status</div>
+                        {canManageCatalog ? <div className="px-2 text-center">Remove</div> : null}
                       </div>
                       {(groups.get(gk) || []).map((m) => {
                         const inactive = String(m.status || '').toLowerCase() !== 'active';
                         return (
                           <div
                             key={m.model_key}
-                            className={`grid grid-cols-[minmax(0,1.4fr)_minmax(0,0.5fr)_minmax(0,0.7fr)_minmax(0,0.45fr)_minmax(0,0.6fr)] gap-0 px-2 py-2 border-b border-[var(--border-subtle)] items-center text-[11px] ${
+                            className={`grid ${modelRowGrid} gap-0 px-2 py-2 border-b border-[var(--border-subtle)] items-center text-[11px] ${
                               inactive ? 'opacity-50' : ''
                             }`}
                           >
@@ -454,6 +499,19 @@ export function AIModelsSection({ data, modelsTab, setModelsTab }: AIModelsSecti
                                 }
                               />
                             </div>
+                            {canManageCatalog ? (
+                              <div className="px-2 flex justify-center">
+                                <button
+                                  type="button"
+                                  title={`Remove ${m.display_name || m.model_key}`}
+                                  aria-label={`Remove ${m.display_name || m.model_key}`}
+                                  onClick={() => void removeModel(m.model_key, m.display_name || m.model_key)}
+                                  className="p-1.5 rounded-lg border border-transparent text-[var(--text-muted)] hover:text-[var(--color-danger)] hover:border-[var(--color-danger)]/30 hover:bg-[var(--color-danger)]/10 transition-colors"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+                            ) : null}
                           </div>
                         );
                       })}
