@@ -1,10 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, Shield, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { formatVaultCreated, relativeTime } from '../settingsUi';
 
 type IdentityRow = { provider: string; email: string; created_at: string };
 
 type FindingRow = Record<string, unknown>;
+
+type SessionRow = {
+  id: string;
+  provider?: string;
+  ip_address?: string;
+  user_agent?: string;
+  last_active_at?: string | number | null;
+};
 
 function capitalizeProvider(p: string) {
   const s = String(p || '').trim();
@@ -12,9 +20,17 @@ function capitalizeProvider(p: string) {
   return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
 }
 
+function suspiciousUa(ua: string) {
+  const u = ua.toLowerCase();
+  return u.includes('python-requests') || u.includes('curl/');
+}
+
 export function KeysSecurityExtras() {
   const [identities, setIdentities] = useState<IdentityRow[]>([]);
   const [identitiesLoaded, setIdentitiesLoaded] = useState(false);
+  const [sessions, setSessions] = useState<SessionRow[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [sessionsError, setSessionsError] = useState<string | null>(null);
   const [findings, setFindings] = useState<FindingRow[]>([]);
   const [findingsLoading, setFindingsLoading] = useState(true);
   const [findingsBusy, setFindingsBusy] = useState<string | null>(null);
@@ -33,6 +49,54 @@ export function KeysSecurityExtras() {
     }
   }, []);
 
+  const loadSessions = useCallback(async () => {
+    setSessionsLoading(true);
+    setSessionsError(null);
+    try {
+      const r = await fetch('/api/settings/security/sessions', { credentials: 'same-origin' });
+      const j = (await r.json().catch(() => ({}))) as { sessions?: SessionRow[]; error?: string };
+      if (!r.ok) {
+        throw new Error(typeof j.error === 'string' ? j.error : `Sessions load failed (${r.status})`);
+      }
+      setSessions(Array.isArray(j.sessions) ? j.sessions : []);
+    } catch (e) {
+      setSessions([]);
+      setSessionsError(e instanceof Error ? e.message : 'Failed to load sessions');
+    } finally {
+      setSessionsLoading(false);
+    }
+  }, []);
+
+  const revokeSession = async (sessionId: string, snapshot: SessionRow[]) => {
+    setSessions((prev) => prev.filter((x) => String(x.id) !== String(sessionId)));
+    try {
+      await fetch(`/api/settings/security/sessions/${encodeURIComponent(String(sessionId))}`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+      });
+    } catch {
+      setSessions(snapshot);
+    }
+  };
+
+  const revokeOtherSessions = async () => {
+    if (
+      !window.confirm(
+        'Revoke all sessions except the most recently active row shown? Confirm you are not locking yourself out.',
+      )
+    ) {
+      return;
+    }
+    const toRevoke = sessions.slice(1);
+    for (const s of toRevoke) {
+      await fetch(`/api/settings/security/sessions/${encodeURIComponent(String(s.id))}`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+      }).catch(() => null);
+    }
+    await loadSessions();
+  };
+
   useEffect(() => {
     fetch('/api/auth/identities', { credentials: 'include' })
       .then((r) => r.json())
@@ -42,7 +106,8 @@ export function KeysSecurityExtras() {
       })
       .catch(() => setIdentitiesLoaded(true));
     void loadFindings();
-  }, [loadFindings]);
+    void loadSessions();
+  }, [loadFindings, loadSessions]);
 
   const openFindings = useMemo(
     () => findings.filter((f) => (f.status ?? 'open') === 'open'),
@@ -97,6 +162,103 @@ export function KeysSecurityExtras() {
                 </span>
               </div>
             ))}
+          </div>
+        )}
+      </section>
+
+      <section
+        id="active-sessions"
+        className="space-y-2 p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] scroll-mt-24"
+      >
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2">
+            <Shield className="h-4 w-4 text-[var(--solar-cyan)]" />
+            <h3 className="text-[11px] font-black uppercase tracking-widest text-[var(--text-muted)]">
+              Active sessions
+            </h3>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={sessionsLoading}
+              onClick={() => void loadSessions()}
+              className="text-[10px] px-2 py-1 rounded border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-main)] disabled:opacity-40"
+            >
+              Refresh
+            </button>
+            <button
+              type="button"
+              onClick={() => void revokeOtherSessions()}
+              className="text-[10px] px-2 py-1 rounded border border-[var(--color-warning)]/40 text-[var(--color-warning)] hover:bg-[var(--color-warning)]/10"
+            >
+              Revoke all others
+            </button>
+          </div>
+        </div>
+        {sessionsError ? (
+          <p className="text-[11px] text-[var(--color-danger)]">{sessionsError}</p>
+        ) : null}
+        {sessionsLoading ? (
+          <p className="text-[11px] text-[var(--text-muted)]">Loading sessions…</p>
+        ) : sessions.length === 0 ? (
+          <p className="text-[11px] text-[var(--text-muted)]">No active sessions.</p>
+        ) : (
+          <div className="rounded-xl border border-[var(--border-subtle)] overflow-hidden bg-[var(--bg-panel)]">
+            <div className="grid grid-cols-6 gap-0 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-[var(--text-muted)] border-b border-[var(--border-subtle)] bg-[var(--bg-app)]">
+              <div className="col-span-1">Provider</div>
+              <div className="col-span-1">IP</div>
+              <div className="col-span-2">Agent</div>
+              <div className="col-span-1">Active</div>
+              <div className="col-span-1 text-right">Actions</div>
+            </div>
+            {sessions.map((s) => {
+              const ua = String(s.user_agent || '');
+              const browser = ua.includes('Chrome')
+                ? 'Chrome'
+                : ua.includes('Firefox')
+                  ? 'Firefox'
+                  : ua.slice(0, 30);
+              const flag = suspiciousUa(ua);
+              return (
+                <div
+                  key={String(s.id)}
+                  className="grid grid-cols-6 gap-0 px-4 py-3 border-b border-[var(--border-subtle)] items-center text-[11px]"
+                >
+                  <div className="col-span-1 flex flex-wrap items-center gap-1">
+                    <span className="text-[9px] px-2 py-0.5 rounded bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-muted)] font-black uppercase tracking-widest">
+                      {String(s.provider || 'email')}
+                    </span>
+                    {flag ? (
+                      <span className="inline-flex items-center gap-1 text-[8px] px-1.5 py-0.5 rounded bg-[var(--color-warning)]/15 text-[var(--color-warning)] border border-[var(--color-warning)]/40">
+                        <ShieldAlert className="h-3 w-3" />
+                        CLI
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="col-span-1 text-[10px] text-[var(--text-muted)] font-mono truncate">
+                    {String(s.ip_address || '—')}
+                  </div>
+                  <div className="col-span-2 text-[10px] text-[var(--text-muted)] truncate">
+                    {browser || '—'}
+                  </div>
+                  <div className="col-span-1 text-[10px] text-[var(--text-muted)]">
+                    {s.last_active_at ? relativeTime(String(s.last_active_at)) : '—'}
+                  </div>
+                  <div className="col-span-1 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const snapshot = sessions;
+                        void revokeSession(String(s.id), snapshot);
+                      }}
+                      className="text-[10px] px-2 py-1 rounded border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--color-danger)] hover:border-[var(--color-danger)]/40"
+                    >
+                      Revoke
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </section>

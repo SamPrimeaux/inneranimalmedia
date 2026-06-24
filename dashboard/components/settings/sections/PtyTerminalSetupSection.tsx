@@ -405,11 +405,15 @@ export function PtyTerminalSetupSection({
     const token = ptyTokenOnce || 'YOUR_PTY_AUTH_TOKEN';
     const tunnel = provisionResult?.hostname || hostname || 'pty.yourdomain.com';
     const run = runTokenOnce || tunnelStatus?.run_token || 'YOUR_CLOUDFLARED_RUN_TOKEN';
+    const workerOrigin =
+      typeof window !== 'undefined' && window.location?.origin
+        ? window.location.origin
+        : 'https://inneranimalmedia.com';
     return `# iam-pty .env
 PTY_AUTH_TOKEN=${token}
 PTY_PORT=3099
 IAM_WORKSPACES_ROOT=C:\\Users\\you\\iam-workspaces
-WORKER_URL=https://inneranimalmedia.com
+WORKER_URL=${workerOrigin}
 TUNNEL_URL=https://${tunnel.replace(/^https?:\/\//, '')}
 IAM_PTY_USER_ID=${uid}
 IAM_PTY_WORKSPACE_ID=${wid}

@@ -2601,7 +2601,7 @@ const App: React.FC = () => {
       if (res.ok && data?.alert === true) {
         setSecurityShieldAlert({
           message: String(data.message || 'Security finding detected — view details'),
-          details_url: String(data.details_url || '/dashboard/settings/security'),
+          details_url: String(data.details_url || '/dashboard/settings/keys#security-findings'),
           open_findings_count: Number(data.open_findings_count) || 0,
           audit_events_24h: Number(data.audit_events_24h) || 0,
         });

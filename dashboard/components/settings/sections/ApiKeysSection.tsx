@@ -326,6 +326,16 @@ export function KeysSection({ workspaceId }: ApiKeysSectionProps) {
     void loadCloudflareD1();
   }, [load, loadPersonal, loadAudit, loadCloudflareD1]);
 
+  useEffect(() => {
+    if (loading) return;
+    const hash = window.location.hash?.replace(/^#/, '').trim();
+    if (!hash) return;
+    window.setTimeout(() => {
+      const el = document.getElementById(hash);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 200);
+  }, [loading]);
+
   const summary = useMemo(() => {
     const active = items.filter((i) => String(i.status || '').toLowerCase() === 'active').length;
     const revoked = items.filter((i) => String(i.status || '').toLowerCase() === 'revoked').length;

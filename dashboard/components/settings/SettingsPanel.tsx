@@ -25,7 +25,6 @@ const SECTION_LOADERS: Record<string, React.LazyExoticComponent<React.ComponentT
   Network: lazy(() => import('./sections/NetworkSection').then((m) => ({ default: m.NetworkSection }))),
   Themes: lazy(() => import('./sections/ThemesSection').then((m) => ({ default: m.ThemesSection }))),
   Storage: lazy(() => import('./sections/StorageSection').then((m) => ({ default: m.StorageSection }))),
-  Security: lazy(() => import('./sections/SecuritySection').then((m) => ({ default: m.SecuritySection }))),
   'Keys & Secrets': lazy(() => import('./sections/ApiKeysSection').then((m) => ({ default: m.KeysSection }))),
   'Plan & Usage': lazy(() => import('./sections/PlanUsageSection').then((m) => ({ default: m.PlanUsageSection }))),
   Notifications: lazy(() =>
@@ -77,6 +76,12 @@ export default function SettingsPanel({
   useEffect(() => {
     if (sectionSlug === 'api-keys') {
       navigateTo('/dashboard/settings/keys', { replace: true });
+    }
+  }, [sectionSlug, navigateTo]);
+
+  useEffect(() => {
+    if (sectionSlug === 'security') {
+      navigateTo('/dashboard/settings/keys#security-findings', { replace: true });
     }
   }, [sectionSlug, navigateTo]);
 
@@ -155,10 +160,6 @@ export default function SettingsPanel({
       case 'Storage': {
         const C = SECTION_LOADERS.Storage;
         return <C />;
-      }
-      case 'Security': {
-        const C = SECTION_LOADERS.Security;
-        return <C data={data} />;
       }
       case 'Keys & Secrets': {
         const C = SECTION_LOADERS['Keys & Secrets'];

@@ -4,7 +4,7 @@
  */
 import { getVaultSecrets, secretFromVault } from './vault.js';
 
-const SECURITY_REVIEW_URL = 'https://inneranimalmedia.com/dashboard/settings/security';
+const SECURITY_REVIEW_URL = 'https://inneranimalmedia.com/dashboard/settings/keys#security-findings';
 const SECURITY_FROM = 'notifications@inneranimalmedia.com';
 const AVATAR_URL =
   'https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/dbb316af-9c97-4959-f09f-bf58b2783d00/avatar';

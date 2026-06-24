@@ -207,7 +207,7 @@ export async function runSecurityScan(env, opts = {}) {
 
     await sendPlatformEmail(env, {
       subject: `IAM Security Alert — ${criticalNew.length} critical finding(s) detected`,
-      text: `IAM Security Scanner detected the following:\n\n${lines}\n\nReview at: https://inneranimalmedia.com/dashboard/settings/security\n\nTimestamp: ${new Date().toISOString()}`,
+      text: `IAM Security Scanner detected the following:\n\n${lines}\n\nReview at: https://inneranimalmedia.com/dashboard/settings/keys#security-findings\n\nTimestamp: ${new Date().toISOString()}`,
       category: 'security_scan',
       noAgentSamPrefix: true,
     });
