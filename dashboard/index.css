@@ -169,3 +169,8 @@ samp.font-mono {
   font-size: 1.0625rem;
 }
 
+
+/* Kill stale mobile bottom tab nav — removed in commit d7f46134 */
+@media (max-width: 430px) {
+  nav[aria-label="Primary"] { display: none !important; }
+}

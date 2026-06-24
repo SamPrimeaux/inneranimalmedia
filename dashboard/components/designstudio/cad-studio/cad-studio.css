@@ -471,6 +471,11 @@
   min-height: min-content;
 }
 
+@media (max-width: 480px) {
+  .cad-assets__grid { grid-template-columns: 1fr; }
+  .cad-assets__thumb { aspect-ratio: 16/7; }
+}
+
 .cad-assets__card {
   border: 1px solid #3a414a;
   border-radius: 6px;
@@ -2427,6 +2432,41 @@
   overflow: hidden;
 }
 
+/* Mobile: bottom sheet drawer */
+@media (max-width: 480px) {
+  .ip__panel {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    height: var(--ip-mobile-height, 42vh);
+    border-left: none;
+    border-top: 1px solid var(--cs-line-0);
+    border-radius: 14px 14px 0 0;
+    z-index: 60;
+    box-shadow: 0 -8px 32px rgba(0,0,0,0.45);
+    transition: height 0.05s linear;
+    touch-action: none;
+  }
+  .ip__drag-handle {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 20px;
+    flex-shrink: 0;
+    cursor: ns-resize;
+    touch-action: none;
+  }
+  .ip__drag-handle::after {
+    content: "";
+    width: 36px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--cs-line-1);
+  }
+}
+
 .ip__head {
   display: flex;
   align-items: center;
@@ -2850,4 +2890,9 @@
   0%   { transform: scaleX(0) translateX(0%); }
   50%  { transform: scaleX(0.7) translateX(30%); }
   100% { transform: scaleX(0) translateX(200%); }
+}
+
+/* Nuke stale bottom tab nav — deployed d7f46134 */
+@media (max-width: 430px) {
+  nav[aria-label="Primary"] { display: none !important; }
 }

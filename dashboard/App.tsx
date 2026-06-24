@@ -3528,14 +3528,23 @@ const App: React.FC = () => {
       {/* 1. TOP WINDOW BAR + mobile hamburger (sticky ≤430px) */}
       <header className="shrink-0 z-[110] max-phone:sticky max-phone:top-0 bg-[var(--dashboard-topbar)] text-[var(--dashboard-topbar-text)] [&_.text-\\[var\\(--text-muted\\)\\]]:text-[var(--text-nav-muted,var(--dashboard-muted))] [&_.text-\\[var\\(--text-main\\)\\]]:text-[var(--dashboard-topbar-text)]">
       <div className="h-10 border-b border-[var(--dashboard-border)] flex items-center justify-between px-3 overflow-visible relative">
-          <div className="flex items-center gap-1 opacity-80 pl-1 shrink-0 min-w-0">
+          <div className="flex items-center gap-1 pl-1 shrink-0 min-w-0">
               <img
                 src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/ac515729-af6b-4ea5-8b10-e581a4d02100/thumbnail"
                 alt=""
-                className="w-7 h-7 object-contain drop-shadow shrink-0 cursor-pointer"
+                className="w-7 h-7 object-contain drop-shadow shrink-0 cursor-pointer opacity-80"
                 title={workspaceDisplayLine}
                 onClick={() => setActiveTab('Workspace')}
               />
+              {/* Mobile hamburger — next to logo so it doesn't crowd the viewport */}
+              <button
+                type="button"
+                title="More tools"
+                className="hidden max-phone:flex items-center justify-center w-7 h-7 rounded transition-colors text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]"
+                onClick={() => setMobileMoreOpen(true)}
+              >
+                <MoreHorizontal size={16} strokeWidth={1.75} />
+              </button>
           </div>
 
           {/* Unified search (Cmd+K) — desktop center; mobile lives in right cluster */}
@@ -3572,14 +3581,7 @@ const App: React.FC = () => {
                   onInitialQueryConsumed={() => setSearchInitialQuery('')}
                 />
               </div>
-              <button
-                  type="button"
-                  title="More tools (mobile)"
-                  className="iam-topbar-mobile-block hidden max-phone:block p-1.5 rounded transition-colors text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-hover)]"
-                  onClick={() => setMobileMoreOpen(true)}
-              >
-                  <MoreHorizontal size={15} strokeWidth={1.75} />
-              </button>
+
               <button
                   type="button"
                   title="Open Browser"

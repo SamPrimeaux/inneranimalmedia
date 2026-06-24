@@ -271,8 +271,39 @@ export function InspectorPanel({ open, onClose, sceneConfig, onSceneConfigChange
   if (!open) return null;
   const hasSelection = selectedEntity != null;
 
+  // Drag-to-resize on mobile (sets --ip-mobile-height CSS var on the panel el)
+  const panelRef = React.useRef<HTMLDivElement>(null);
+  const dragStart = React.useRef<{ y: number; h: number } | null>(null);
+
+  const onDragPointerDown = React.useCallback((e: React.PointerEvent) => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragStart.current = { y: e.clientY, h: panel.getBoundingClientRect().height };
+  }, []);
+
+  const onDragPointerMove = React.useCallback((e: React.PointerEvent) => {
+    if (!dragStart.current || !panelRef.current) return;
+    const delta = dragStart.current.y - e.clientY; // drag up = taller
+    const newH = Math.max(120, Math.min(window.innerHeight * 0.85, dragStart.current.h + delta));
+    panelRef.current.style.setProperty('--ip-mobile-height', `${newH}px`);
+    panelRef.current.style.height = `${newH}px`;
+  }, []);
+
+  const onDragPointerUp = React.useCallback(() => {
+    dragStart.current = null;
+  }, []);
+
   return (
-    <div className="ip__panel">
+    <div className="ip__panel" ref={panelRef}>
+      {/* Drag handle — mobile only, touch to resize */}
+      <div
+        className="ip__drag-handle"
+        onPointerDown={onDragPointerDown}
+        onPointerMove={onDragPointerMove}
+        onPointerUp={onDragPointerUp}
+        aria-hidden
+      />
       <div className="ip__head">
         {hasSelection ? (
           <input
