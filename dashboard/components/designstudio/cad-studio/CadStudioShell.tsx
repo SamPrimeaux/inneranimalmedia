@@ -112,6 +112,7 @@ export type CadStudioShellProps = {
   linkedGlbR2Key?: string | null;
   engineReady?: boolean;
   engineLoading?: boolean;
+  viewCubeOrientation?: { x: number; y: number; z: number };
 };
 
 function computeMeshStats(entity: GameEntity | null): MeshStats {
@@ -178,6 +179,7 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
   linkedGlbR2Key,
   engineReady = false,
   engineLoading = false,
+  viewCubeOrientation,
 }) => {
   const protocol = useCadStudioProtocol();
   const { setStudioContext } = useDesignStudioContext();
@@ -760,6 +762,7 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
         setOrthoMode(ortho);
         onToggleOrtho?.(ortho);
       }}
+      viewCubeOrientation={viewCubeOrientation}
     />
   );
 

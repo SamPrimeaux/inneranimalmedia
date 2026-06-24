@@ -2489,39 +2489,73 @@
   }
 }
 
-.vpc__svg { cursor: default; display: block; }
-
-.vpc__face {
-  cursor: pointer;
-  transition: filter 0.1s;
+.vpc__cube-scene {
+  width: 52px;
+  height: 52px;
+  perspective: 140px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
-/* Isometric face fills — distinct luminance for clear depth reading */
-.vpc__face--top  { fill: rgba(200,210,230,0.18); }
-.vpc__face--left { fill: rgba(120,140,180,0.12); }
-.vpc__face--right{ fill: rgba(80,100,140,0.08); }
-.vpc__face--wedge { fill: rgba(90,100,130,0.10); }
-.vpc__face--wedge-left { fill: rgba(100,120,160,0.14); }
-.vpc__face--wedge-back { fill: rgba(70,85,120,0.12); }
-.vpc__face--wedge-bottom { fill: rgba(60,75,105,0.14); }
-.vpc__face--active { fill: rgba(99,102,241,0.55) !important; }
-.vpc__face:hover { fill: rgba(99,102,241,0.45); filter: none; cursor: pointer; }
-.vpc__face:active { fill: rgba(99,102,241,0.70); }
 
-/* Face text labels — readable against dark viewport */
-.vpc__label {
-  font-size: 6.5px;
-  fill: rgba(255,255,255,0.65);
-  text-anchor: middle;
-  dominant-baseline: middle;
-  pointer-events: none;
-  font-family: var(--cs-mono, monospace);
-  letter-spacing: 0.05em;
+.vpc__cube-3d {
+  width: 40px;
+  height: 40px;
+  position: relative;
+  transform-style: preserve-3d;
+  transition: transform 0.12s ease-out;
+  will-change: transform;
+}
+
+.vpc__cube-face {
+  position: absolute;
+  width: 40px;
+  height: 40px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(100, 120, 160, 0.14);
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 6px;
   font-weight: 600;
+  font-family: var(--cs-mono, monospace);
+  letter-spacing: 0.04em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  box-sizing: border-box;
+  appearance: none;
+  -webkit-appearance: none;
 }
-.vpc__label--edge {
-  font-size: 5.5px;
-  fill: rgba(255,255,255,0.45);
+
+.vpc__cube-face-label {
+  pointer-events: none;
+  text-align: center;
+  line-height: 1;
 }
+
+.vpc__cube-face--front { transform: rotateY(0deg) translateZ(20px); background: rgba(96, 165, 250, 0.16); }
+.vpc__cube-face--back { transform: rotateY(180deg) translateZ(20px); background: rgba(59, 130, 246, 0.1); }
+.vpc__cube-face--right { transform: rotateY(90deg) translateZ(20px); background: rgba(248, 113, 113, 0.14); }
+.vpc__cube-face--left { transform: rotateY(-90deg) translateZ(20px); background: rgba(239, 68, 68, 0.1); }
+.vpc__cube-face--top { transform: rotateX(90deg) translateZ(20px); background: rgba(74, 222, 128, 0.14); }
+.vpc__cube-face--bottom { transform: rotateX(-90deg) translateZ(20px); background: rgba(34, 197, 94, 0.1); }
+
+.vpc__cube-face:hover {
+  background: rgba(99, 102, 241, 0.42);
+  border-color: rgba(129, 140, 248, 0.65);
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.vpc__cube-face:active {
+  background: rgba(99, 102, 241, 0.62);
+}
+
+/* Legacy SVG view cube (removed) — keep class hooks for any stale markup */
+.vpc__svg { cursor: default; display: block; }
 
 /* Axis strip below the cube */
 .vpc__axes {

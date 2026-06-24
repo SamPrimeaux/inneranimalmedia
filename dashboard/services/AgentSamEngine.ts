@@ -1106,6 +1106,20 @@ export class AgentSamEngine {
     });
   }
 
+  /** Euler degrees for CSS view-cube — inverse camera rotation (world axes from camera POV). */
+  public getViewCubeOrientation(): { x: number; y: number; z: number } {
+    this.camera.updateMatrixWorld();
+    const q = new THREE.Quaternion();
+    this.camera.getWorldQuaternion(q);
+    q.invert();
+    const e = new THREE.Euler().setFromQuaternion(q, 'XYZ');
+    return {
+      x: THREE.MathUtils.radToDeg(e.x),
+      y: THREE.MathUtils.radToDeg(e.y),
+      z: THREE.MathUtils.radToDeg(e.z),
+    };
+  }
+
   public toggleOrtho(ortho: boolean) {
     this.camera = ortho ? this.orthoCamera : this.perspectiveCamera;
     this.controls.object = this.camera;

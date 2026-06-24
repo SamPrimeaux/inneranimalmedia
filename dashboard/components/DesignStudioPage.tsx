@@ -83,6 +83,7 @@ export const DesignStudioPage: React.FC = () => {
   const [engineHostReady, setEngineHostReady] = useState(false);
   const [engineReady, setEngineReady] = useState(false);
   const [engineLoading, setEngineLoading] = useState(false);
+  const [viewCubeOrientation, setViewCubeOrientation] = useState({ x: -22, y: 32, z: 0 });
   const [appState, setAppState] = useState<AppState>(AppState.EDITING);
   const [entityCount, setEntityCount] = useState(0);
   const [customAssets, setCustomAssets] = useState<CustomAsset[]>([]);
@@ -553,6 +554,31 @@ export const DesignStudioPage: React.FC = () => {
     return () => window.clearInterval(tick);
   }, [engineReady]);
 
+  useEffect(() => {
+    if (!engineReady) return;
+    let raf = 0;
+    const last = { x: 0, y: 0, z: 0 };
+    const tick = () => {
+      const eng = engineRef.current;
+      if (isAgentSamEngine(eng)) {
+        const o = eng.getViewCubeOrientation();
+        if (
+          Math.abs(o.x - last.x) > 0.35 ||
+          Math.abs(o.y - last.y) > 0.35 ||
+          Math.abs(o.z - last.z) > 0.35
+        ) {
+          last.x = o.x;
+          last.y = o.y;
+          last.z = o.z;
+          setViewCubeOrientation(o);
+        }
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [engineReady]);
+
   const activeJobForBar = cad.polledJob || cad.activeJob;
 
   useEffect(() => {
@@ -842,6 +868,7 @@ export const DesignStudioPage: React.FC = () => {
         onViewportReset={handleViewportReset}
         engineReady={engineReady}
         engineLoading={engineLoading}
+        viewCubeOrientation={viewCubeOrientation}
         linkedCadJobId={linkedCadJobId}
         linkedGlbR2Key={linkedGlbR2Key}
           />

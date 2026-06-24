@@ -30,50 +30,48 @@ export type Viewport3DEditorProps = {
   onSnapView?: (face: 'top' | 'front' | 'right' | 'left' | 'back' | 'bottom') => void;
   orthoMode?: boolean;
   onToggleOrtho?: () => void;
+  viewCubeOrientation?: { x: number; y: number; z: number };
 };
 
-/**
- * ViewCube — isometric cube with all six orthographic snap targets.
- * Visible faces: top, front, right. Edge wedges: left, back, bottom.
- */
+type ViewFace = NonNullable<Viewport3DEditorProps['onSnapView']> extends (f: infer F) => void ? F : never;
+
+const VIEW_CUBE_FACES: { face: ViewFace; label: string; cls: string }[] = [
+  { face: 'front', label: 'FRONT', cls: 'vpc__cube-face--front' },
+  { face: 'back', label: 'BACK', cls: 'vpc__cube-face--back' },
+  { face: 'right', label: 'RIGHT', cls: 'vpc__cube-face--right' },
+  { face: 'left', label: 'LEFT', cls: 'vpc__cube-face--left' },
+  { face: 'top', label: 'TOP', cls: 'vpc__cube-face--top' },
+  { face: 'bottom', label: 'BOT', cls: 'vpc__cube-face--bottom' },
+];
+
+/** Camera-synced CSS 3D view cube — each face snaps the viewport to that orthographic view. */
 function ViewCube({
   onSnapView,
-  activeFace,
+  orientation,
 }: {
   onSnapView?: Viewport3DEditorProps['onSnapView'];
-  activeFace?: Viewport3DEditorProps['onSnapView'] extends (f: infer F) => void ? F : never;
+  orientation?: Viewport3DEditorProps['viewCubeOrientation'];
 }) {
-  const top = 'M28,6  L50,18 L28,30 L6,18 Z';
-  const front = 'M6,18  L28,30 L28,50 L6,38  Z';
-  const right = 'M28,30 L50,18 L50,38 L28,50 Z';
-  const leftWedge = 'M2,20 L6,18 L6,38 L2,36 Z';
-  const backWedge = 'M6,18 L28,6 L22,12 L6,22 Z';
-  const bottomWedge = 'M12,42 L28,50 L44,42 L28,34 Z';
-  const stroke = 'rgba(255,255,255,0.20)';
-
-  const faceClass = (face: string, base: string) =>
-    `vpc__face ${base}${activeFace === face ? ' vpc__face--active' : ''}`;
+  const rot = orientation ?? { x: -22, y: 32, z: 0 };
+  const transform = `rotateX(${rot.x}deg) rotateY(${rot.y}deg) rotateZ(${rot.z}deg)`;
 
   return (
     <div className="vpc__cube" title="Click a face to snap the camera to that view">
-      <svg width={56} height={56} viewBox="0 0 56 56" className="vpc__svg" aria-label="View cube — click a face to snap">
-        <path d={top} className={faceClass('top', 'vpc__face--top')} onClick={() => onSnapView?.('top')} />
-        <path d={front} className={faceClass('front', 'vpc__face--left')} onClick={() => onSnapView?.('front')} />
-        <path d={right} className={faceClass('right', 'vpc__face--right')} onClick={() => onSnapView?.('right')} />
-        <path d={leftWedge} className={faceClass('left', 'vpc__face--wedge vpc__face--wedge-left')} onClick={() => onSnapView?.('left')} />
-        <path d={backWedge} className={faceClass('back', 'vpc__face--wedge vpc__face--wedge-back')} onClick={() => onSnapView?.('back')} />
-        <path d={bottomWedge} className={faceClass('bottom', 'vpc__face--wedge vpc__face--wedge-bottom')} onClick={() => onSnapView?.('bottom')} />
-        <path d={top} fill="none" stroke={stroke} strokeWidth="0.8" />
-        <path d={front} fill="none" stroke={stroke} strokeWidth="0.8" />
-        <path d={right} fill="none" stroke={stroke} strokeWidth="0.8" />
-        <line x1="28" y1="30" x2="28" y2="50" stroke={stroke} strokeWidth="0.8" />
-        <text x="28" y="21" className="vpc__label">TOP</text>
-        <text x="15" y="39" className="vpc__label">FRONT</text>
-        <text x="41" y="39" className="vpc__label">RIGHT</text>
-        <text x="4" y="30" className="vpc__label vpc__label--edge">L</text>
-        <text x="14" y="14" className="vpc__label vpc__label--edge">B</text>
-        <text x="28" y="47" className="vpc__label vpc__label--edge">BOT</text>
-      </svg>
+      <div className="vpc__cube-scene" aria-hidden="true">
+        <div className="vpc__cube-3d" style={{ transform }}>
+          {VIEW_CUBE_FACES.map(({ face, label, cls }) => (
+            <button
+              key={face}
+              type="button"
+              className={`vpc__cube-face ${cls}`}
+              onClick={() => onSnapView?.(face)}
+              aria-label={`Snap to ${face} view`}
+            >
+              <span className="vpc__cube-face-label">{label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
       <div className="vpc__axes">
         <span className="vpc__axis vpc__axis--x">X</span>
         <span className="vpc__axis vpc__axis--y">Y</span>
@@ -109,6 +107,7 @@ export function Viewport3DEditor({
   onSnapView,
   orthoMode = false,
   onToggleOrtho,
+  viewCubeOrientation,
 }: Viewport3DEditorProps) {
   const [dragOver, setDragOver] = useState(false);
 
@@ -150,7 +149,7 @@ export function Viewport3DEditor({
               </>
             ) : null}
           </div>
-          <ViewCube onSnapView={onSnapView} />
+          <ViewCube onSnapView={onSnapView} orientation={viewCubeOrientation} />
         </div>
 
         {/* ── Right-center: zoom/pan/frame nav ── */}
