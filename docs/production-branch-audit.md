@@ -1,22 +1,23 @@
-# Backlog: `origin/production` git branch
+# `origin/production` git branch — archived
 
-## Context
+## Status (2026-06-24)
 
-- **`origin/main`** is the integration branch and, per `.cursorrules`, **Cloudflare Builds auto-deploys the Worker on push to `main`**.
-- **`origin/production`** (tip **`52ccd87`**) is a **separate older lineage** with a **different tree** than `main` (e.g. legacy `dashboard/app/` layout vs current `dashboard/`). Force-updating `production` to match `main` would **remove many paths that exist only on that branch**.
-- **Do not** `git push --force` / `--force-with-lease` to **`production`** until this audit is done.
+**Completed.** The obsolete `production` git branch was archived and deleted from GitHub.
 
-## Tasks (later)
-
-1. **Audit** whether **`origin/production`** is still referenced anywhere meaningful:
-   - GitHub branch protections / required checks
-   - Cloudflare Workers Builds / Pages branch filters
-   - Any CI, docs, or runbooks that mention `production`
-2. **If obsolete**: **archive** before changing remote state:
-   - Create an annotated tag from the current tip, e.g. `archive/production-pre-main-sync-52ccd87`
-   - Optionally push that tag to `origin`
-3. **Only after archive + confirmation**: delete remote branch `production`, or repoint it with an explicit non-force workflow (e.g. merge strategy agreed by maintainers)—never blind force-overwrites.
+| Item | Value |
+|------|--------|
+| Archive tag | `archive/production-pre-main-sync-f2b12bbb` |
+| Tip SHA | `f2b12bbb` (`fix: meet lobby UX, Calls errors…`) |
+| Deploy branch | **`main`** only |
+| CF Builds | Main trigger → `main`; non-main trigger excludes `main` and `production` |
+| D1 SSOT | `migrations/698_archive_production_git_branch.sql` |
 
 ## Policy
 
-Until the audit completes: **`production` stays untouched**; all deploy work proceeds from **`main`**.
+- All Worker deploys, CF Builds hooks, and `agentsam_hook` deploy triggers use **`main`**.
+- Do not recreate a `production` git branch unless a deliberate release-line workflow is designed.
+- `ENVIRONMENT=production` in runtime config is **not** the same as the deleted git branch.
+
+## Historical context
+
+`origin/production` was an older lineage (fully contained in `main` as of 2026-06-24). CF Builds non-main triggers were cloning it when deploy hooks fired, causing `deploy:cf-builds` failures because that npm script exists only on `main`.

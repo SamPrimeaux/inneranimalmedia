@@ -2,7 +2,7 @@
 # CF Builds PROD — Cloudflare build "Deploy command" should be:
 #   bash scripts/deploy-cf-builds-prod.sh
 #
-# Trigger: push to branch `production` (configure in CF Workers Builds).
+# Trigger: push to branch `main` (CF Workers Builds production trigger).
 # Flow: wrangler deploy -c wrangler.jsonc → D1 health/deploy rows → Vite build in agent-dashboard/
 #       → sync dist/* to R2 bucket inneranimalmedia with keys dashboard/app/<basename>
 #       → upload dist/index.html as dashboard/app/agent.html → post-upload prune under dashboard/app/assets/

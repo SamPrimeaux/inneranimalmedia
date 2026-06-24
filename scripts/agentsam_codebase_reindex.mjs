@@ -560,7 +560,7 @@ async function main() {
   const workspaceKey = String(args['workspace-key'] || '').trim();
   const workspaceId = String(args['workspace-id'] || '').trim();
   const scope = String(args.scope || '').trim() || 'dashboard_agent';
-  const branch = String(args.branch || '').trim() || 'production';
+  const branch = String(args.branch || '').trim() || 'main';
   const sha = String(args.sha || '').trim();
   const baseSha = String(args['base-sha'] || '').trim();
   const dryRun = Boolean(args['dry-run'] || !args['write-supabase']);
@@ -879,7 +879,7 @@ async function main() {
   if (workspaceId !== 'fa1f12a8-c841-4b79-a26c-d53a78b17dac') die('Safety gate: unexpected workspace_id');
   if (workspaceKey !== 'ws_inneranimalmedia') die('Safety gate: unexpected workspace_key');
   if (scope !== 'dashboard_agent') die('Safety gate: unexpected scope');
-  if (branch !== 'production') die('Safety gate: unexpected branch');
+  if (branch !== 'main') die('Safety gate: unexpected branch (expected main)');
   if (!allowLargeRun) {
     if (cappedFiles.length > maxFiles) die(`Safety gate: selected files > ${maxFiles} (pass --allow-large-run)`);
     if (estimatedChunks > maxChunks) die(`Safety gate: estimated chunks > ${maxChunks} (pass --allow-large-run)`);
