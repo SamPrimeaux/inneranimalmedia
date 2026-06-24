@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChatPresenceIcon } from '../../features/mode-presence/ChatPresenceIcon';
+import { ChatPresenceIcon } from '../../../features/mode-presence/ChatPresenceIcon';
 import type { CadJobPhase } from './cadJobPhase';
 
 export type InlineJobProgressProps = {
