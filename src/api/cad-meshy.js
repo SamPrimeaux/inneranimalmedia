@@ -15,6 +15,9 @@ import {
   listMeshyTasks,
   meshyApiKey,
   meshyErrorResponseBody,
+  streamMeshyTask,
+  buildMeshyAnimationPayload,
+  buildMeshyImageTo3dPayload,
   textTo3dPreview,
   textTo3dRefine,
 } from '../core/meshy-api.js';
@@ -150,14 +153,21 @@ async function startMeshyCadJob(env, authRequest, authUser, body, taskType, mesh
 
   if (normalized === 'retexture') {
     if (!inputTaskId && !modelUrl) throw new Error('input_task_id or model_url required');
+    const textStyle = String(body.text_style_prompt || body.texture_prompt || body.prompt || '').trim();
+    const imageStyle = String(body.image_style_url || '').trim();
+    if (!textStyle && !imageStyle) throw new Error('text_style_prompt or image_style_url required');
     payload = {
       ...(inputTaskId ? { input_task_id: inputTaskId } : {}),
       ...(modelUrl ? { model_url: modelUrl } : {}),
-      ...(body.texture_prompt || body.prompt
-        ? { texture_prompt: String(body.texture_prompt || body.prompt) }
-        : {}),
-      ...(body.texture_image_url ? { texture_image_url: body.texture_image_url } : {}),
-      enable_pbr: body.enable_pbr !== false,
+      ...(textStyle ? { text_style_prompt: textStyle } : {}),
+      ...(imageStyle ? { image_style_url: imageStyle } : {}),
+      ai_model: String(body.ai_model || 'latest'),
+      enable_original_uv: body.enable_original_uv ?? false,
+      enable_pbr: body.enable_pbr ?? false,
+      hd_texture: body.hd_texture ?? false,
+      remove_lighting: body.remove_lighting ?? true,
+      target_formats: body.target_formats || ['glb'],
+      alpha_thumbnail: body.alpha_thumbnail ?? false,
     };
   } else if (normalized === 'remesh') {
     if (!inputTaskId && !modelUrl) throw new Error('input_task_id or model_url required');
@@ -180,12 +190,8 @@ async function startMeshyCadJob(env, authRequest, authUser, body, taskType, mesh
       ...(body.pose_mode ? { pose_mode: body.pose_mode } : {}),
     };
   } else if (normalized === 'animation') {
-    const rigTaskId = String(body.rig_task_id || '').trim();
-    const actionId = Number(body.action_id);
-    if (!rigTaskId || !Number.isFinite(actionId)) {
-      throw new Error('rig_task_id and action_id required');
-    }
-    payload = { rig_task_id: rigTaskId, action_id: actionId };
+    const built = buildMeshyAnimationPayload(body);
+    payload = built.payload;
   } else {
     throw new Error(`unsupported task_type: ${taskType}`);
   }
@@ -457,6 +463,7 @@ export async function handleCadMeshyApi(request, url, env, ctx) {
         ...(inputTaskId ? { input_task_id: inputTaskId } : {}),
         ...(modelUrl ? { model_url: modelUrl } : {}),
         height_meters: Number(body.height_meters) > 0 ? Number(body.height_meters) : 1.7,
+        ...(body.texture_image_url ? { texture_image_url: body.texture_image_url } : {}),
       };
       const { task_id: externalTaskId, raw } = await createMeshyTask(env, 'rigging', payload, meshyAuth);
       if (!externalTaskId) {
@@ -490,6 +497,262 @@ export async function handleCadMeshyApi(request, url, env, ctx) {
         status: 'pending',
         phase: 'rigging',
         workspace_id: scope.workspaceId,
+      });
+    }
+
+    const img3dStreamMatch = url.pathname.match(/^\/api\/cad\/meshy\/image-to-3d\/([^/]+)\/stream$/i);
+    if (img3dStreamMatch && method === 'GET') {
+      const taskId = img3dStreamMatch[1];
+      const meshyAuth = await resolveRequestMeshyAuth(env, reqCtx);
+      if (isMeshyAuthMissing(meshyAuth)) {
+        return jsonResponse({ stub: true, task_id: taskId, message: meshyStubMessage() });
+      }
+      try {
+        const upstream = await streamMeshyTask(env, 'image-to-3d', taskId, meshyAuth);
+        return new Response(upstream.body, {
+          status: upstream.status,
+          headers: {
+            'Content-Type': upstream.headers.get('Content-Type') || 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            Connection: 'keep-alive',
+            'Access-Control-Allow-Origin': '*',
+          },
+        });
+      } catch (e) {
+        const mapped = meshyErrorResponseBody(e);
+        return jsonResponse(mapped.body, mapped.status);
+      }
+    }
+
+    const img3dOneMatch = url.pathname.match(/^\/api\/cad\/meshy\/image-to-3d\/([^/]+)$/i);
+    if (img3dOneMatch) {
+      const taskId = img3dOneMatch[1];
+      if (method === 'GET') {
+        const meshyAuth = await resolveRequestMeshyAuth(env, reqCtx);
+        if (isMeshyAuthMissing(meshyAuth)) {
+          return jsonResponse({ stub: true, task_id: taskId });
+        }
+        const task = await getMeshyTask(env, 'image-to-3d', taskId, meshyAuth);
+        const applied = await applyMeshyTaskToCadJob(env, ctx, task);
+        return jsonResponse({ task, cad: applied });
+      }
+
+      if (method === 'DELETE') {
+        const meshyAuth = await resolveRequestMeshyAuth(env, reqCtx);
+        if (isMeshyAuthMissing(meshyAuth)) {
+          return jsonResponse({ ok: true, stub: true, task_id: taskId });
+        }
+        const deleted = await deleteMeshyTask(env, 'image-to-3d', taskId, meshyAuth);
+        return jsonResponse({ ok: true, task_id: taskId, meshy: deleted });
+      }
+    }
+
+    if (path === '/api/cad/meshy/image-to-3d' && method === 'GET') {
+      const pageNum = parseInt(url.searchParams.get('page_num') || '1', 10);
+      const pageSize = Math.min(parseInt(url.searchParams.get('page_size') || '10', 10), 50);
+      const sortBy = url.searchParams.get('sort_by') || '-created_at';
+
+      const meshyAuth = await resolveRequestMeshyAuth(env, reqCtx);
+      if (isMeshyAuthMissing(meshyAuth)) {
+        return jsonResponse({ stub: true, tasks: [], page_num: pageNum, page_size: pageSize });
+      }
+
+      const tasks = await listMeshyTasks(
+        env,
+        'image-to-3d',
+        { page_num: pageNum, page_size: pageSize, sort_by: sortBy },
+        meshyAuth,
+      );
+      return jsonResponse({ tasks, page_num: pageNum, page_size: pageSize, type: 'image-to-3d' });
+    }
+
+    if (path === '/api/cad/meshy/image-to-3d' && method === 'POST') {
+      const body = await request.json().catch(() => ({}));
+      let built;
+      try {
+        built = buildMeshyImageTo3dPayload(body);
+      } catch (e) {
+        return jsonResponse({ error: String(e?.message || e) }, 400);
+      }
+
+      const meshyAuth = await resolveRequestMeshyAuth(env, reqCtx);
+      if (isMeshyAuthMissing(meshyAuth)) {
+        return jsonResponse({ stub: true, key_source: 'none', message: meshyStubMessage() });
+      }
+
+      try {
+        await checkMeshyBalanceForOperation(env, 'image-to-3d', body, meshyAuth);
+      } catch (e) {
+        const mapped = meshyErrorResponseBody(e);
+        return jsonResponse(mapped.body, mapped.status);
+      }
+
+      const scope = await resolveCadJobScope(env, authRequest, authUser, body);
+      const { task_id: externalTaskId, raw } = await createMeshyTask(
+        env,
+        'image-to-3d',
+        built.payload,
+        meshyAuth,
+      );
+      if (!externalTaskId) {
+        return jsonResponse({ error: 'Meshy did not return image-to-3d task id', meshy: raw }, 502);
+      }
+
+      const jobId = 'cadj_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+      const promptLabel =
+        String(body.texture_prompt || body.prompt || '').trim() ||
+        (built.inputTaskId ? `image-to-3d:${built.inputTaskId.slice(0, 8)}` : 'image-to-3d');
+
+      await insertMeshyCadJob(env, {
+        id: jobId,
+        user_id: authUser.id,
+        session_id: scope.sessionId,
+        engine: 'meshy',
+        prompt: promptLabel,
+        mode: 'image',
+        status: 'pending',
+        external_task_id: externalTaskId,
+        parent_task_id: built.inputTaskId || null,
+        workspace_id: scope.workspaceId,
+        tenant_id: scope.tenantId,
+        project_id: scope.projectId,
+        scene_snapshot_id: scope.sceneSnapshotId,
+        task_type: 'image-to-3d',
+        credits_consumed: estimateImageTo3dCost(body),
+        texture_data: textureDataWithMeshySource(
+          built.payload.texture_prompt ? { texture_prompt: built.payload.texture_prompt } : null,
+          meshyAuth.source === 'byok' ? 'byok' : 'platform',
+        ),
+      });
+
+      return jsonResponse({
+        job_id: jobId,
+        task_id: externalTaskId,
+        external_task_id: externalTaskId,
+        result: externalTaskId,
+        status: 'pending',
+        phase: 'image-to-3d',
+        workspace_id: scope.workspaceId,
+        key_source: meshyAuth.source,
+      });
+    }
+
+    const animStreamMatch = url.pathname.match(/^\/api\/cad\/meshy\/animations\/([^/]+)\/stream$/i);
+    if (animStreamMatch && method === 'GET') {
+      const taskId = animStreamMatch[1];
+      const meshyAuth = await resolveRequestMeshyAuth(env, reqCtx);
+      if (isMeshyAuthMissing(meshyAuth)) {
+        return jsonResponse({ stub: true, task_id: taskId, message: meshyStubMessage() });
+      }
+      try {
+        const upstream = await streamMeshyTask(env, 'animation', taskId, meshyAuth);
+        return new Response(upstream.body, {
+          status: upstream.status,
+          headers: {
+            'Content-Type': upstream.headers.get('Content-Type') || 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            Connection: 'keep-alive',
+            'Access-Control-Allow-Origin': '*',
+          },
+        });
+      } catch (e) {
+        const mapped = meshyErrorResponseBody(e);
+        return jsonResponse(mapped.body, mapped.status);
+      }
+    }
+
+    const animOneMatch = url.pathname.match(/^\/api\/cad\/meshy\/animations\/([^/]+)$/i);
+    if (animOneMatch) {
+      const taskId = animOneMatch[1];
+      if (taskId.toLowerCase() !== 'library') {
+        if (method === 'GET') {
+          const meshyAuth = await resolveRequestMeshyAuth(env, reqCtx);
+          if (isMeshyAuthMissing(meshyAuth)) {
+            return jsonResponse({ stub: true, task_id: taskId });
+          }
+          const task = await getMeshyTask(env, 'animation', taskId, meshyAuth);
+          const applied = await applyMeshyTaskToCadJob(env, ctx, task);
+          return jsonResponse({ task, cad: applied });
+        }
+
+        if (method === 'DELETE') {
+          const meshyAuth = await resolveRequestMeshyAuth(env, reqCtx);
+          if (isMeshyAuthMissing(meshyAuth)) {
+            return jsonResponse({ ok: true, stub: true, task_id: taskId });
+          }
+          const deleted = await deleteMeshyTask(env, 'animation', taskId, meshyAuth);
+          return jsonResponse({ ok: true, task_id: taskId, meshy: deleted });
+        }
+      }
+    }
+
+    if (path === '/api/cad/meshy/animations' && method === 'POST') {
+      const body = await request.json().catch(() => ({}));
+      let built;
+      try {
+        built = buildMeshyAnimationPayload(body);
+      } catch (e) {
+        return jsonResponse({ error: String(e?.message || e) }, 400);
+      }
+
+      const meshyAuth = await resolveRequestMeshyAuth(env, reqCtx);
+      if (isMeshyAuthMissing(meshyAuth)) {
+        return jsonResponse({ stub: true, key_source: 'none', message: meshyStubMessage() });
+      }
+
+      try {
+        await checkMeshyBalanceForOperation(env, 'animation', body, meshyAuth);
+      } catch (e) {
+        const mapped = meshyErrorResponseBody(e);
+        return jsonResponse(mapped.body, mapped.status);
+      }
+
+      const scope = await resolveCadJobScope(env, authRequest, authUser, body);
+      const { task_id: externalTaskId, raw } = await createMeshyTask(
+        env,
+        'animation',
+        built.payload,
+        meshyAuth,
+      );
+      if (!externalTaskId) {
+        return jsonResponse({ error: 'Meshy did not return animation task id', meshy: raw }, 502);
+      }
+
+      const jobId = 'cadj_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+      await insertMeshyCadJob(env, {
+        id: jobId,
+        user_id: authUser.id,
+        session_id: scope.sessionId,
+        engine: 'meshy',
+        prompt: `animate:${built.actionId}`,
+        mode: 'animation',
+        status: 'pending',
+        external_task_id: externalTaskId,
+        parent_task_id: built.rigTaskId,
+        workspace_id: scope.workspaceId,
+        tenant_id: scope.tenantId,
+        project_id: scope.projectId,
+        scene_snapshot_id: scope.sceneSnapshotId,
+        task_type: 'animation',
+        rig_task_id: built.rigTaskId,
+        credits_consumed: MESHY_CREDIT_COSTS.ANIMATION,
+        texture_data: textureDataWithMeshySource(
+          body.post_process ? { post_process: built.payload.post_process } : null,
+          meshyAuth.source === 'byok' ? 'byok' : 'platform',
+        ),
+      });
+
+      return jsonResponse({
+        job_id: jobId,
+        task_id: externalTaskId,
+        external_task_id: externalTaskId,
+        result: externalTaskId,
+        status: 'pending',
+        phase: 'animation',
+        action_id: built.actionId,
+        rig_task_id: built.rigTaskId,
+        workspace_id: scope.workspaceId,
+        key_source: meshyAuth.source,
       });
     }
 
@@ -599,16 +862,13 @@ export async function handleCadMeshyApi(request, url, env, ctx) {
       if (mode === 'image') {
         taskType = 'image-to-3d';
         phase = 'image-to-3d';
-        const created = await createMeshyTask(env, 'image-to-3d', {
-          image_url,
-          enable_pbr: body.enable_pbr !== false,
-          should_texture: body.should_texture !== false,
-          ai_model: body.ai_model,
-          topology: body.topology,
-          target_polycount: body.target_polycount,
-          target_formats: body.target_formats,
-          moderation: body.moderation,
-        }, meshyAuth);
+        let imgBuilt;
+        try {
+          imgBuilt = buildMeshyImageTo3dPayload({ ...body, image_url: image_url || body.image_url });
+        } catch (e) {
+          return jsonResponse({ error: String(e?.message || e) }, 400);
+        }
+        const created = await createMeshyTask(env, 'image-to-3d', imgBuilt.payload, meshyAuth);
         externalTaskId = created.task_id;
         creditsConsumed = estimateImageTo3dCost(body);
       } else {
@@ -800,5 +1060,55 @@ export async function meshyStatusInProcess(env, ctx, auth, jobId) {
   await primeRequestAuthForTool(req, env, auth);
   const res = await handleCadMeshyApi(req, fakeUrl, env, ctx);
   if (!res) return { error: 'meshy status handler missing' };
+  return res.json();
+}
+
+/**
+ * In-process bridge for Meshy animation tasks (POST /openapi/v1/animations).
+ * @param {any} env
+ * @param {any} ctx
+ * @param {{ userId: string; tenantId?: string; workspaceId?: string }} auth
+ * @param {Record<string, unknown>} body
+ */
+export async function meshyAnimationInProcess(env, ctx, auth, body = {}) {
+  const fakeUrl = new URL('https://inneranimalmedia.com/api/cad/meshy/animations');
+  const req = new Request(fakeUrl.toString(), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-User-Id': String(auth.userId),
+      ...(auth.tenantId ? { 'X-Tenant-Id': String(auth.tenantId) } : {}),
+      ...(auth.workspaceId ? { 'X-Workspace-Id': String(auth.workspaceId) } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+  await primeRequestAuthForTool(req, env, auth);
+  const res = await handleCadMeshyApi(req, fakeUrl, env, ctx);
+  if (!res) return { error: 'meshy animation handler missing' };
+  return res.json();
+}
+
+/**
+ * In-process bridge for Meshy image-to-3D tasks (POST /openapi/v1/image-to-3d).
+ * @param {any} env
+ * @param {any} ctx
+ * @param {{ userId: string; tenantId?: string; workspaceId?: string }} auth
+ * @param {Record<string, unknown>} body
+ */
+export async function meshyImageTo3dInProcess(env, ctx, auth, body = {}) {
+  const fakeUrl = new URL('https://inneranimalmedia.com/api/cad/meshy/image-to-3d');
+  const req = new Request(fakeUrl.toString(), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-User-Id': String(auth.userId),
+      ...(auth.tenantId ? { 'X-Tenant-Id': String(auth.tenantId) } : {}),
+      ...(auth.workspaceId ? { 'X-Workspace-Id': String(auth.workspaceId) } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+  await primeRequestAuthForTool(req, env, auth);
+  const res = await handleCadMeshyApi(req, fakeUrl, env, ctx);
+  if (!res) return { error: 'meshy image-to-3d handler missing' };
   return res.json();
 }
