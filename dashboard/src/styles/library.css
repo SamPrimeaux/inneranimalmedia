@@ -944,14 +944,6 @@
   flex-shrink: 0;
 }
 
-.artifacts-drive-shell .list-view .file-card::after {
-  content: attr(data-modified);
-  color: #5f6368;
-  font-size: 13px;
-  margin-right: 52px;
-  white-space: nowrap;
-}
-
 .artifacts-drive-shell .title-back {
   margin-right: 6px;
   color: #0b57d0;
@@ -1071,5 +1063,452 @@
   .artifacts-drive-shell .drawer {
     top: 64px;
     width: min(360px, 100vw);
+  }
+
+  .artifacts-drive-shell .lib-rail-panel {
+    width: min(360px, calc(100vw - 58px));
+  }
+}
+
+/* Right rail — Lucide icons + Google-style calendar badge */
+.artifacts-drive-shell .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.artifacts-drive-shell .drive-rail .rbtn.active {
+  background: #c2e7ff;
+  color: #001d35;
+}
+
+.artifacts-drive-shell .rail-cal-badge {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid #dadce0;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.12);
+}
+
+.artifacts-drive-shell .rail-cal-month {
+  width: 100%;
+  background: #1a73e8;
+  color: #fff;
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: center;
+  padding: 1px 0;
+}
+
+.artifacts-drive-shell .rail-cal-day {
+  font-size: 13px;
+  font-weight: 600;
+  color: #3c4043;
+  padding-top: 1px;
+}
+
+.artifacts-drive-shell .rail-icon--keep {
+  color: #f9ab00;
+}
+
+.artifacts-drive-shell .rail-icon--notes {
+  color: #1a73e8;
+}
+
+.artifacts-drive-shell .rail-icon--contacts {
+  color: #5f6368;
+}
+
+/* Rail slide-out panel (Calendar / Keep / Notes / Contacts) */
+.artifacts-drive-shell .lib-rail-panel {
+  position: absolute;
+  right: 58px;
+  top: 72px;
+  bottom: 0;
+  width: 360px;
+  background: #fff;
+  border-left: 1px solid #dfe5ef;
+  box-shadow: -8px 0 24px rgba(60, 64, 67, 0.08);
+  display: flex;
+  flex-direction: column;
+  z-index: 18;
+  transform: translateX(110%);
+  transition: transform 0.2s ease;
+}
+
+.artifacts-drive-shell .lib-rail-panel.open {
+  transform: translateX(0);
+}
+
+.artifacts-drive-shell.has-rail-panel .drawer.open {
+  right: 418px;
+}
+
+.artifacts-drive-shell .lib-rail-panel-head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 14px 12px;
+  border-bottom: 1px solid #edf2fa;
+}
+
+.artifacts-drive-shell .lib-rail-panel-kicker {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: #5f6368;
+  margin-bottom: 2px;
+}
+
+.artifacts-drive-shell .lib-rail-panel-head strong {
+  font-size: 16px;
+  font-weight: 500;
+  color: #202124;
+}
+
+.artifacts-drive-shell .lib-rail-panel-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.artifacts-drive-shell .lib-rail-panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px;
+}
+
+.artifacts-drive-shell .lib-rail-note-input {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+  border: 1px solid #c7cdd8;
+  border-radius: 8px;
+  padding: 0 12px;
+  color: #5f6368;
+  margin-bottom: 16px;
+}
+
+.artifacts-drive-shell .lib-rail-note-input input {
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-size: 14px;
+  color: #202124;
+}
+
+.artifacts-drive-shell .lib-rail-empty {
+  text-align: center;
+  padding: 32px 16px;
+  color: #5f6368;
+}
+
+.artifacts-drive-shell .lib-rail-empty p {
+  margin: 12px 0 4px;
+  font-size: 15px;
+  color: #3c4043;
+}
+
+.artifacts-drive-shell .lib-rail-empty span {
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.artifacts-drive-shell .lib-rail-empty-icon--keep {
+  color: #f9ab00;
+  opacity: 0.85;
+}
+
+.artifacts-drive-shell .lib-rail-empty-icon--notes {
+  color: #1a73e8;
+  opacity: 0.85;
+}
+
+.artifacts-drive-shell .lib-rail-empty-icon--contacts {
+  color: #5f6368;
+  opacity: 0.7;
+}
+
+.artifacts-drive-shell .lib-rail-panel-hint {
+  margin-top: 16px;
+  font-size: 12px;
+  color: #5f6368;
+  text-align: center;
+}
+
+.artifacts-drive-shell .lib-rail-cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.artifacts-drive-shell .lib-rail-cal-today {
+  font-size: 12px;
+  color: #1a73e8;
+  font-weight: 600;
+}
+
+.artifacts-drive-shell .lib-rail-cal-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.artifacts-drive-shell .lib-rail-cal-row {
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  gap: 8px;
+  align-items: stretch;
+  min-height: 36px;
+  border-top: 1px solid #edf2fa;
+  padding-top: 6px;
+  font-size: 11px;
+  color: #5f6368;
+}
+
+.artifacts-drive-shell .lib-rail-cal-slot {
+  min-height: 28px;
+}
+
+.artifacts-drive-shell .lib-rail-panel-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: #5f6368;
+  font-size: 13px;
+  min-height: 120px;
+}
+
+.artifacts-drive-shell .lib-rail-spin {
+  animation: lib-rail-spin 0.9s linear infinite;
+}
+
+@keyframes lib-rail-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.artifacts-drive-shell .lib-rail-panel-error {
+  color: #c5221f;
+  font-size: 13px;
+  margin: 0 0 12px;
+}
+
+.artifacts-drive-shell .lib-rail-open-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 12px;
+  padding: 8px 14px;
+  border: 1px solid #c7cdd8;
+  border-radius: 8px;
+  background: #fff;
+  color: #1a73e8;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.artifacts-drive-shell .lib-rail-open-btn:hover {
+  background: #edf2fa;
+}
+
+.artifacts-drive-shell .lib-rail-open-btn--inline {
+  margin-top: 0;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.artifacts-drive-shell .lib-rail-panel-subhead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #3c4043;
+  margin-bottom: 12px;
+}
+
+.artifacts-drive-shell .lib-rail-event-list,
+.artifacts-drive-shell .lib-rail-note-list,
+.artifacts-drive-shell .lib-rail-people-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.artifacts-drive-shell .lib-rail-event-list li,
+.artifacts-drive-shell .lib-rail-people-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid #edf2fa;
+  border-radius: 8px;
+  background: #f8fafd;
+}
+
+.artifacts-drive-shell .lib-rail-event-list li strong,
+.artifacts-drive-shell .lib-rail-people-list li strong {
+  font-size: 13px;
+  color: #202124;
+}
+
+.artifacts-drive-shell .lib-rail-event-list li span,
+.artifacts-drive-shell .lib-rail-people-list li span {
+  font-size: 12px;
+  color: #5f6368;
+}
+
+.artifacts-drive-shell .lib-rail-note-list li {
+  list-style: none;
+}
+
+.artifacts-drive-shell .lib-rail-note-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid #edf2fa;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.artifacts-drive-shell .lib-rail-note-card:hover {
+  background: #edf2fa;
+}
+
+.artifacts-drive-shell .lib-rail-note-card.static {
+  cursor: default;
+}
+
+.artifacts-drive-shell .lib-rail-note-card strong {
+  font-size: 13px;
+  color: #202124;
+}
+
+.artifacts-drive-shell .lib-rail-note-card span {
+  font-size: 12px;
+  color: #5f6368;
+  line-height: 1.4;
+}
+
+.artifacts-drive-shell .lib-rail-note-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: #80868b;
+}
+
+.artifacts-drive-shell .lib-rail-empty.compact {
+  padding: 24px 12px;
+}
+
+.artifacts-drive-shell .lib-rail-panel-body--calendar {
+  display: flex;
+  flex-direction: column;
+}
+
+/* List view — Drive-style table */
+.artifacts-drive-shell .lib-list-table {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.artifacts-drive-shell .lib-list-head-row,
+.artifacts-drive-shell .lib-list-row {
+  display: grid;
+  grid-template-columns: minmax(200px, 2.2fr) minmax(100px, 1fr) minmax(110px, 1fr) minmax(80px, 0.7fr) minmax(72px, 0.6fr);
+  align-items: center;
+  gap: 12px;
+  padding: 0 8px;
+  min-height: 44px;
+  border-radius: 8px;
+  text-align: left;
+  width: 100%;
+}
+
+.artifacts-drive-shell .lib-list-head-row {
+  color: #5f6368;
+  font-size: 12px;
+  font-weight: 500;
+  border-bottom: 1px solid #edf2fa;
+  margin-bottom: 4px;
+  min-height: 36px;
+}
+
+.artifacts-drive-shell .lib-list-row {
+  color: #202124;
+  font-size: 13px;
+}
+
+.artifacts-drive-shell .lib-list-row:hover {
+  background: #edf2fa;
+}
+
+.artifacts-drive-shell .lib-list-row.selected {
+  background: #d3e3fd;
+  box-shadow: inset 0 0 0 1px #1a73e8;
+}
+
+.artifacts-drive-shell .lib-list-col--name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.artifacts-drive-shell .lib-list-col--owner,
+.artifacts-drive-shell .lib-list-col--modified,
+.artifacts-drive-shell .lib-list-col--size,
+.artifacts-drive-shell .lib-list-col--source {
+  color: #5f6368;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.artifacts-drive-shell .list-view .list-head {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .artifacts-drive-shell .lib-list-head-row,
+  .artifacts-drive-shell .lib-list-row {
+    grid-template-columns: minmax(160px, 1fr) minmax(90px, 0.8fr) minmax(72px, 0.5fr);
+  }
+
+  .artifacts-drive-shell .lib-list-col--owner,
+  .artifacts-drive-shell .lib-list-col--size {
+    display: none;
   }
 }

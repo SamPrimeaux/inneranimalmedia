@@ -1,5 +1,15 @@
 import React, { useMemo, useState } from 'react';
 import {
+  CheckSquare,
+  ChevronDown,
+  Clock,
+  ExternalLink,
+  List,
+  MoreVertical,
+  PlusCircle,
+  Star,
+} from 'lucide-react';
+import {
   AgentTodo,
   createTodo,
   formatTodoDue,
@@ -85,7 +95,9 @@ export function CollaborateTasksSidebar({
         className={`colab-tasks-nav-item${navView === 'all' ? ' active' : ''}`}
         onClick={() => onNavViewChange('all')}
       >
-        <span className="colab-tasks-nav-icon">☑</span>
+        <span className="colab-tasks-nav-icon" aria-hidden>
+          <CheckSquare size={16} strokeWidth={1.75} />
+        </span>
         <span>All tasks</span>
       </button>
       <button
@@ -93,13 +105,15 @@ export function CollaborateTasksSidebar({
         className={`colab-tasks-nav-item${navView === 'starred' ? ' active' : ''}`}
         onClick={() => onNavViewChange('starred')}
       >
-        <span className="colab-tasks-nav-icon">★</span>
+        <span className="colab-tasks-nav-icon" aria-hidden>
+          <Star size={16} strokeWidth={1.75} />
+        </span>
         <span>Starred</span>
         {starredCount > 0 && <span className="colab-tasks-nav-count">{starredCount}</span>}
       </button>
 
       <div className="colab-tasks-lists-head">
-        <span>▾</span>
+        <ChevronDown size={14} strokeWidth={1.75} aria-hidden />
         <span>Lists</span>
       </div>
       {lists.map(([name, count]) => (
@@ -112,7 +126,9 @@ export function CollaborateTasksSidebar({
             onNavViewChange('list');
           }}
         >
-          <span className="colab-tasks-nav-icon">☰</span>
+          <span className="colab-tasks-nav-icon" aria-hidden>
+            <List size={16} strokeWidth={1.75} />
+          </span>
           <span>{name}</span>
           <span className="colab-tasks-nav-count">{count}</span>
         </button>
@@ -229,14 +245,16 @@ export function CollaborateTasksMain({
         <div className="colab-tasks-list-head">
           <h2 className="colab-tasks-list-title">{listTitle}</h2>
           <button type="button" className="colab-cal-icon-btn" aria-label="List options">
-            ⋮
+            <MoreVertical size={18} strokeWidth={1.75} />
           </button>
         </div>
 
         <div className="colab-tasks-add-row">
           {!composing ? (
             <button type="button" className="colab-tasks-add-btn" onClick={() => onComposingChange?.(true)}>
-              <span className="colab-tasks-add-icon">⊕</span>
+              <span className="colab-tasks-add-icon" aria-hidden>
+                <PlusCircle size={18} strokeWidth={1.75} />
+              </span>
               <span>Add a task</span>
             </button>
           ) : (
@@ -314,11 +332,11 @@ export function CollaborateTasksMain({
                     </div>
                   ) : due ? (
                     <div className="colab-tasks-meta-pill">
-                      <span>🕒</span>
+                      <Clock size={14} strokeWidth={1.75} aria-hidden />
                       <span>{due}</span>
                       {onSchedule ? (
                         <button type="button" className="colab-cal-text-btn" style={{ padding: 0, marginLeft: 4 }} onClick={() => void onSchedule(todo)}>
-                          ↗
+                          <ExternalLink size={14} strokeWidth={1.75} aria-hidden />
                         </button>
                       ) : null}
                     </div>
@@ -343,7 +361,7 @@ export function CollaborateTasksMain({
                   disabled={saving}
                   onClick={() => void toggleStar(todo)}
                 >
-                  ★
+                  <Star size={18} strokeWidth={1.75} fill={isTodoStarred(todo) ? 'currentColor' : 'none'} />
                 </button>
               </div>
             );

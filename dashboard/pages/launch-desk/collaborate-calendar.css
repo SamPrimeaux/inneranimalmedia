@@ -75,7 +75,9 @@
 .colab-cal-seg button {
   width: 48px; border: 0; background: transparent; color: var(--muted);
   display: grid; place-items: center; border-right: 1px solid var(--line);
+  cursor: pointer;
 }
+.colab-cal-seg button svg { display: block; }
 .colab-cal-seg button:last-child { border-right: 0; }
 .colab-cal-seg button.active { background: #d7eaff; color: #174ea6; }
 
@@ -258,7 +260,9 @@
 .colab-cal-rail-icon {
   width: 36px; height: 36px; border: 0; border-radius: 50%; background: transparent;
   display: grid; place-items: center; color: #5f6368; font-size: 18px;
+  cursor: pointer;
 }
+.colab-cal-rail-icon svg { display: block; }
 .colab-cal-rail-icon:hover { background: var(--panel-soft); }
 .colab-cal-rail-icon.yellow { color: #fbbc04; }
 .colab-cal-rail-icon.blue { color: #4285f4; }
@@ -286,7 +290,8 @@
 }
 .colab-tasks-nav-item:hover { background: #f1f3f4; }
 .colab-tasks-nav-item.active { background: #d3e3fd; color: #174ea6; }
-.colab-tasks-nav-icon { width: 20px; text-align: center; color: #5f6368; font-size: 16px; }
+.colab-tasks-nav-icon { width: 20px; text-align: center; color: #5f6368; font-size: 16px; display: inline-flex; align-items: center; justify-content: center; }
+.colab-tasks-nav-icon svg { display: block; }
 .colab-tasks-nav-item.active .colab-tasks-nav-icon { color: #174ea6; }
 .colab-tasks-nav-count { margin-left: auto; font-size: 13px; color: #5f6368; }
 
@@ -345,7 +350,9 @@
 .colab-tasks-star {
   width: 36px; height: 36px; border: 0; border-radius: 50%; background: transparent;
   color: #dadce0; font-size: 20px; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
 }
+.colab-tasks-star svg { display: block; }
 .colab-tasks-star.on { color: #1a73e8; }
 .colab-tasks-star:hover { background: #f1f3f4; }
 
@@ -382,7 +389,8 @@
 }
 .colab-cal-quick-tabs button.active { background: #d7eefb; color: #174ea6; }
 .colab-cal-quick-field { display: flex; gap: 16px; align-items: flex-start; margin: 14px 0; color: #3c4043; font-size: 14px; }
-.colab-cal-quick-icon { width: 20px; color: #5f6368; text-align: center; flex-shrink: 0; }
+.colab-cal-quick-icon { width: 20px; color: #5f6368; text-align: center; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; }
+.colab-cal-quick-icon svg { display: block; }
 .colab-cal-quick-actions { display: flex; justify-content: flex-end; gap: 10px; padding-top: 16px; }
 .colab-cal-text-btn { border: 0; background: transparent; color: #1967d2; font-weight: 600; }
 .colab-cal-save-btn {

@@ -1,5 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Calendar, CheckSquare, ChevronDown, Clock, MapPin, RefreshCw, Users, Video } from 'lucide-react';
+import { CollaboratePageRail } from '../src/components/collaborate/CollaboratePageRail';
+import { parseCollaborateSearchParams } from '../src/lib/collaborate/collaborateRailNav';
 import {
   addDays,
   anchorIso,
@@ -139,7 +142,9 @@ function donutGradient(breakdown: Record<string, number>) {
 
 export function LaunchDeskPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const weekScrollRef = useRef<HTMLDivElement>(null);
+  const peopleSearchRef = useRef<HTMLInputElement>(null);
 
   const [anchor, setAnchor] = useState(() => new Date());
   const [mainSeg, setMainSeg] = useState<MainSeg>('calendar');
@@ -210,6 +215,21 @@ export function LaunchDeskPage() {
   useEffect(() => {
     reload();
   }, [reload]);
+
+  useEffect(() => {
+    const { mainSeg: seg, tasksList, focusPeople } = parseCollaborateSearchParams(searchParams);
+    if (seg === 'tasks') {
+      setMainSeg('tasks');
+      if (tasksList) {
+        setTasksActiveList(tasksList);
+        setTasksNavView('list');
+      }
+    }
+    if (focusPeople) {
+      setMainSeg('calendar');
+      window.setTimeout(() => peopleSearchRef.current?.focus(), 120);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     const t = window.setTimeout(async () => {
@@ -490,17 +510,37 @@ export function LaunchDeskPage() {
           )}
         </div>
         <div className="colab-cal-top-right">
-          {mainSeg === 'calendar' && <div className="colab-cal-view-select">Week ▾</div>}
+          {mainSeg === 'calendar' && (
+            <div className="colab-cal-view-select">
+              Week <ChevronDown size={14} strokeWidth={1.75} aria-hidden />
+            </div>
+          )}
           <div className="colab-cal-seg">
-            <button type="button" className={mainSeg === 'calendar' ? 'active' : ''} onClick={() => setMainSeg('calendar')} title="Calendar">
-              📅
+            <button
+              type="button"
+              className={mainSeg === 'calendar' ? 'active' : ''}
+              onClick={() => setMainSeg('calendar')}
+              title="Calendar"
+              aria-label="Calendar"
+            >
+              <Calendar size={18} strokeWidth={1.75} />
             </button>
-            <button type="button" className={mainSeg === 'tasks' ? 'active' : ''} onClick={() => { setMainSeg('tasks'); setTasksNavView('list'); setTasksActiveList('My Tasks'); }} title="Tasks">
-              ☑
+            <button
+              type="button"
+              className={mainSeg === 'tasks' ? 'active' : ''}
+              onClick={() => {
+                setMainSeg('tasks');
+                setTasksNavView('list');
+                setTasksActiveList('My Tasks');
+              }}
+              title="Tasks"
+              aria-label="Tasks"
+            >
+              <CheckSquare size={18} strokeWidth={1.75} />
             </button>
           </div>
           <button type="button" className="colab-cal-icon-btn" aria-label="Refresh" onClick={() => reload()} disabled={loading}>
-            ↻
+            <RefreshCw size={18} strokeWidth={1.75} />
           </button>
         </div>
       </header>
@@ -561,6 +601,7 @@ export function LaunchDeskPage() {
             </div>
             <div className="colab-cal-search-wrap">
               <input
+                ref={peopleSearchRef}
                 className="colab-cal-people-search"
                 placeholder="Search people"
                 value={peopleQ}
@@ -825,23 +866,13 @@ export function LaunchDeskPage() {
         </aside>
         )}
 
-        <aside className="colab-cal-rail">
-          <button type="button" className="colab-cal-rail-icon yellow" title="Keep" onClick={() => navigate('/dashboard/artifacts')}>
-            📌
-          </button>
-          <button type="button" className="colab-cal-rail-icon blue" title="Tasks" onClick={() => { setMainSeg('tasks'); setTasksNavView('list'); setTasksActiveList('My Tasks'); }}>
-            ☑
-          </button>
-          <button type="button" className="colab-cal-rail-icon green" title="Meet" onClick={() => navigate('/dashboard/meet')}>
-            📹
-          </button>
-          <button type="button" className="colab-cal-rail-icon orange" title="Mail" onClick={() => navigate('/dashboard/mail')}>
-            ✉
-          </button>
-          <button type="button" className="colab-cal-rail-icon" title="Learn" onClick={() => navigate('/dashboard/learn')}>
-            📚
-          </button>
-        </aside>
+        <CollaboratePageRail
+          onTasksClick={() => {
+            setMainSeg('tasks');
+            setTasksNavView('list');
+            setTasksActiveList('My Tasks');
+          }}
+        />
       </div>
 
       {error && <div className="colab-cal-toast colab-cal-error">{error}</div>}
@@ -881,7 +912,9 @@ export function LaunchDeskPage() {
               ))}
             </div>
             <div className="colab-cal-quick-field">
-              <span className="colab-cal-quick-icon">🕒</span>
+              <span className="colab-cal-quick-icon" aria-hidden>
+                <Clock size={16} strokeWidth={1.75} />
+              </span>
               <div>
                 <input
                   type="datetime-local"
@@ -898,7 +931,9 @@ export function LaunchDeskPage() {
               </div>
             </div>
             <div className="colab-cal-quick-field">
-              <span className="colab-cal-quick-icon">👥</span>
+              <span className="colab-cal-quick-icon" aria-hidden>
+                <Users size={16} strokeWidth={1.75} />
+              </span>
               <input
                 placeholder="Add guests (emails)"
                 value={popoverDraft.attendeesRaw}
@@ -907,7 +942,9 @@ export function LaunchDeskPage() {
               />
             </div>
             <label className="colab-cal-quick-field">
-              <span className="colab-cal-quick-icon">📹</span>
+              <span className="colab-cal-quick-icon" aria-hidden>
+                <Video size={16} strokeWidth={1.75} />
+              </span>
               <input
                 type="checkbox"
                 checked={popoverDraft.withMeet}
@@ -1008,7 +1045,9 @@ export function LaunchDeskPage() {
                 ))}
               </div>
               <div className="colab-cal-quick-field">
-                <span className="colab-cal-quick-icon">🕒</span>
+                <span className="colab-cal-quick-icon" aria-hidden>
+                  <Clock size={16} strokeWidth={1.75} />
+                </span>
                 <div style={{ flex: 1 }}>
                   <label style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
                     <input
@@ -1033,7 +1072,9 @@ export function LaunchDeskPage() {
                 </div>
               </div>
               <div className="colab-cal-quick-field">
-                <span className="colab-cal-quick-icon">📍</span>
+                <span className="colab-cal-quick-icon" aria-hidden>
+                  <MapPin size={16} strokeWidth={1.75} />
+                </span>
                 <input
                   placeholder="Add location"
                   value={editor.location}

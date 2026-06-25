@@ -3,6 +3,8 @@ import { useSearchParams } from 'react-router-dom';
 import { useLibraryWorkspace } from '../../lib/library/useLibraryWorkspace';
 import type { LibraryItem, SourceFilter } from '../../lib/library/types';
 import { NAV_RAIL_MAP } from '../../lib/library/types';
+import { LibraryListView } from './LibraryListView';
+import { LibrarySideRail } from './LibrarySideRail';
 import { LibraryFileIcon, LibraryThumb, sourceLabel } from './LibraryThumb';
 import '../../styles/library.css';
 
@@ -105,6 +107,7 @@ export function ArtifactsDriveShell() {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: LibraryItem } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [sourceFilterOpen, setSourceFilterOpen] = useState(false);
+  const [railPanelOpen, setRailPanelOpen] = useState(false);
   const toastTimer = useRef<number | null>(null);
 
   const showToast = useCallback((msg: string) => {
@@ -183,7 +186,7 @@ export function ArtifactsDriveShell() {
   const primaryError = ws.errors[0];
 
   return (
-    <div className="artifacts-drive-shell flex-1 min-h-0 min-w-0">
+    <div className={`artifacts-drive-shell flex-1 min-h-0 min-w-0${railPanelOpen ? ' has-rail-panel' : ''}`}>
       <div className="drive-app">
         <header className="topbar">
           <div className="brand">
@@ -424,6 +427,14 @@ export function ArtifactsDriveShell() {
                   </>
                 ) : null}
               </div>
+            ) : viewMode === 'list' ? (
+              <LibraryListView
+                folders={ws.folders}
+                files={ws.files}
+                selectedId={selected?.id ?? null}
+                onItemClick={handleItemClick}
+                onContextMenu={handleContextMenu}
+              />
             ) : (
               <>
                 <div className="list-head">
@@ -457,7 +468,6 @@ export function ArtifactsDriveShell() {
                         key={item.id}
                         type="button"
                         className={`file-card${selected?.id === item.id ? ' selected' : ''}`}
-                        data-modified={`${item.modifiedLabel ?? 'Recently'} · ${sourceLabel(item.source)}`}
                         onClick={() => handleItemClick(item)}
                         onContextMenu={(e) => handleContextMenu(e, item)}
                       >
@@ -476,25 +486,7 @@ export function ArtifactsDriveShell() {
           </section>
         </main>
 
-        <aside className="drive-rail">
-          <button type="button" className="rbtn" title="Calendar">
-            31
-          </button>
-          <button type="button" className="rbtn" title="Keep">
-            💡
-          </button>
-          <button type="button" className="rbtn" title="Tasks">
-            ✓
-          </button>
-          <button type="button" className="rbtn" title="Contacts">
-            👤
-          </button>
-          <div className="plus">
-            <button type="button" className="rbtn">
-              +
-            </button>
-          </div>
-        </aside>
+        <LibrarySideRail onPanelChange={setRailPanelOpen} />
       </div>
 
       <aside className={`drawer${drawerOpen ? ' open' : ''}`}>
