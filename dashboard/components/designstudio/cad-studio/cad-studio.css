@@ -3283,6 +3283,11 @@
   opacity: 0.55;
   cursor: not-allowed;
 }
+.studio-entry__cta--ready {
+  margin-top: -6px;
+  background: linear-gradient(135deg, #10b981, #059669);
+  box-shadow: 0 4px 24px color-mix(in srgb, #10b981 28%, transparent);
+}
 
 .studio-entry__secondary {
   display: flex;

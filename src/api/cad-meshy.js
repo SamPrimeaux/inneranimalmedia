@@ -314,7 +314,12 @@ export async function handleCadMeshyApi(request, url, env, ctx) {
         task_type: 'text-to-3d',
         credits_consumed: estimateTextTo3dPreviewCost(body),
         texture_data: textureDataWithMeshySource(
-          { auto_refine: false, phase: 'preview' },
+          {
+            auto_refine: false,
+            phase: 'preview',
+            ...(body.register_cms_asset === false ? { register_cms_asset: false } : {}),
+            ...(body.skip_glb_polish === true ? { skip_glb_polish: true } : {}),
+          },
           meshyAuth.source === 'byok' ? 'byok' : 'platform',
         ),
       });

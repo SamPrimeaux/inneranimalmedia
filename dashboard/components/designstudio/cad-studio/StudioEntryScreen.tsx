@@ -19,6 +19,8 @@ export type StudioEntryScreenProps = {
   error?: string | null;
   /** Full studio bundle is loading after user chose to enter. */
   mode?: 'idle' | 'generating' | 'loading-studio';
+  /** Latest generation finished on the entry screen. */
+  jobReady?: boolean;
   onSpawnStock?: (name: string, url: string, scale: number) => void;
   onCancelJob?: (cadJobId: string) => void;
   activeProgressPct?: number;
@@ -36,6 +38,7 @@ export function StudioEntryScreen({
   statusLabel,
   error,
   mode = 'idle',
+  jobReady = false,
   onSpawnStock,
   onCancelJob,
   activeProgressPct,
@@ -95,6 +98,13 @@ export function StudioEntryScreen({
           <span>{mode === 'loading-studio' ? 'Opening studio…' : generating ? 'Generating…' : 'Generate model'}</span>
         </button>
 
+        {jobReady ? (
+          <button type="button" className="studio-entry__cta studio-entry__cta--ready" onClick={onOpenStudio}>
+            <LayoutGrid size={16} aria-hidden />
+            <span>View in full studio</span>
+          </button>
+        ) : null}
+
         <div className="studio-entry__secondary">
           <button type="button" className="studio-entry__link" onClick={onOpenStudio} disabled={busy}>
             <LayoutGrid size={14} aria-hidden />
@@ -123,7 +133,7 @@ export function StudioEntryScreen({
         </div>
 
         <p className="studio-entry__hint">
-          Meshy runs on our API — no Agent chat required. Full studio loads when you generate or open the editor.
+          Generation runs in the background on this page. Open full studio when you want to edit, rig, or save a scene.
         </p>
 
         <StudioEntryGallery

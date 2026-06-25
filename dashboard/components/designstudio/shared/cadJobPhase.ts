@@ -63,7 +63,7 @@ export function resolveCadJobPhase(job: CadJobRow | null | undefined): CadJobPha
     return {
       iconKey: 'done-bloom',
       label: 'Model ready',
-      detail: 'Asset is in your library',
+      detail: 'Open full studio to view or edit',
       progress: 100,
       status: 'complete',
     };
@@ -86,8 +86,8 @@ export function resolveCadJobPhase(job: CadJobRow | null | undefined): CadJobPha
     if (pct >= 88 || (job.r2_key && !String(job.r2_key).startsWith('b64:'))) {
       return {
         iconKey: 'files',
-        label: 'Saving to library',
-        detail: 'Uploading asset to storage',
+        label: 'Finalizing model',
+        detail: 'Preparing GLB for the viewport',
         progress: pct,
         status: 'uploading',
       };

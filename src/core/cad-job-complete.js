@@ -12,6 +12,29 @@ import {
 
 const CMS_ASSETS = 'cms_assets';
 
+/** @param {unknown} raw */
+export function parseCadJobTextureData(raw) {
+  if (!raw) return {};
+  try {
+    return typeof raw === 'string' ? JSON.parse(raw) : (raw && typeof raw === 'object' ? raw : {});
+  } catch {
+    return {};
+  }
+}
+
+/** @param {Record<string, unknown> | null | undefined} job @param {Record<string, unknown>} [body] */
+export function cadJobShouldRegisterCmsAsset(job, body = {}) {
+  if (body.register_cms_asset === false) return false;
+  const td = parseCadJobTextureData(job?.texture_data);
+  return td.register_cms_asset !== false;
+}
+
+/** @param {Record<string, unknown> | null | undefined} job */
+export function cadJobSkipGlbPolish(job) {
+  const td = parseCadJobTextureData(job?.texture_data);
+  return td.skip_glb_polish === true;
+}
+
 /**
  * Download remote GLB and store on R2 ASSETS binding.
  * @param {any} env
@@ -293,11 +316,13 @@ export async function finalizeCadJobComplete(env, ctx, body) {
 
   let cmsAsset = null;
   if (r2Key && publicUrl) {
-    cmsAsset = await registerCadGlbCmsAsset(env, job, {
-      r2_key: r2Key,
-      public_url: publicUrl,
-      size_bytes: body.size_bytes,
-    });
+    if (cadJobShouldRegisterCmsAsset(job, body)) {
+      cmsAsset = await registerCadGlbCmsAsset(env, job, {
+        r2_key: r2Key,
+        public_url: publicUrl,
+        size_bytes: body.size_bytes,
+      });
+    }
     await linkCadJobToScene(env, job, { r2_key: r2Key, public_url: publicUrl });
   }
 

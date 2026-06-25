@@ -1,7 +1,11 @@
 /**
  * Meshy GLB ingest + automatic polish queue (meshopt on ExecOS / runner).
  */
-import { ingestRemoteGlbToR2 } from './cad-job-complete.js';
+import {
+  cadJobSkipGlbPolish,
+  finalizeCadJobComplete,
+  ingestRemoteGlbToR2,
+} from './cad-job-complete.js';
 import { dispatchMeshyGlbOptimize, mergeCadJobTextureData } from './glb-optimize-dispatch.js';
 
 /**
@@ -37,16 +41,17 @@ export async function meshyIngestAndQueuePolish(env, ctx, job, scope, glbUrl) {
       sourceUrl: url,
     });
 
+    const skipPolish = cadJobSkipGlbPolish(job);
     const textureData = mergeCadJobTextureData(job.texture_data, {
-      glb_optimize_pending: true,
+      glb_optimize_pending: !skipPolish,
       glb_optimized: false,
       glb_raw_bytes: ingested.size_bytes,
     });
 
     await env.DB.prepare(
       `UPDATE agentsam_cad_jobs SET
-         status = 'running',
-         progress_pct = 92,
+         status = ?,
+         progress_pct = ?,
          r2_key = ?,
          r2_bucket = ?,
          result_url = ?,
@@ -55,6 +60,8 @@ export async function meshyIngestAndQueuePolish(env, ctx, job, scope, glbUrl) {
        WHERE id = ?`,
     )
       .bind(
+        skipPolish ? 'running' : 'running',
+        skipPolish ? 95 : 92,
         ingested.r2_key,
         ingested.r2_bucket,
         ingested.public_url,
@@ -62,6 +69,23 @@ export async function meshyIngestAndQueuePolish(env, ctx, job, scope, glbUrl) {
         String(job.id),
       )
       .run();
+
+    if (skipPolish) {
+      await finalizeCadJobComplete(env, ctx, {
+        job_id: String(job.id),
+        r2_key: ingested.r2_key,
+        r2_bucket: ingested.r2_bucket,
+        public_url: ingested.public_url,
+        size_bytes: ingested.size_bytes,
+        register_cms_asset: false,
+      });
+      return {
+        ...ingested,
+        pending_polish: false,
+        progress_pct: 100,
+        status: 'done',
+      };
+    }
 
     ctx?.waitUntil?.(
       dispatchMeshyGlbOptimize(env, ctx, { ...job, r2_key: ingested.r2_key, texture_data: textureData }).catch(

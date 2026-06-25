@@ -83,10 +83,15 @@ export const DesignStudioPage: React.FC = () => {
   const pendingConsumedRef = useRef(false);
   const pendingSpawnRef = useRef<{ name: string; url: string; scale: number } | null>(null);
   const lastSpawnedJobRef = useRef<string | null>(null);
+  const pendingCompletedJobRef = useRef<CadJobRow | null>(null);
+  const studioPhaseRef = useRef<'entry' | 'studio'>('entry');
   // Phase 1A: bootstrapDoneRef moved to top-level so engine cleanup can reset it
   const bootstrapDoneRef = useRef(false);
 
   const [studioPhase, setStudioPhase] = useState<'entry' | 'studio'>('entry');
+  useEffect(() => {
+    studioPhaseRef.current = studioPhase;
+  }, [studioPhase]);
   const [meshyPrompt, setMeshyPrompt] = useState('');
 
   const [engineHostReady, setEngineHostReady] = useState(false);
@@ -173,7 +178,7 @@ export const DesignStudioPage: React.FC = () => {
     [linkedCadJobId, linkedGlbR2Key, currentSceneId],
   );
 
-  const deployJobToScene = useCallback(async (job: CadJobRow, opts?: { auto?: boolean }) => {
+  const deployJobToScene = useCallback(async (job: CadJobRow, opts?: { auto?: boolean; save?: boolean }) => {
     const url = job.public_url || job.result_url;
     if (!url) return false;
     const name = job.prompt?.slice(0, 40) || `${job.engine} export`;
@@ -198,7 +203,7 @@ export const DesignStudioPage: React.FC = () => {
         requestAnimationFrame(() => engineRef.current?.frameCameraOnObject());
       }
       if (opts?.auto) console.info('[DesignStudio] auto-spawned GLB', job.id);
-      if (opts?.auto) {
+      if (opts?.auto && opts?.save) {
         void persistSceneAutosave({
           cadJobId: job.id,
           glbR2Key:
@@ -214,16 +219,20 @@ export const DesignStudioPage: React.FC = () => {
     sceneId: currentSceneId,
     onPromptUsed: setMeshyPrompt,
     onJobDone: (job) => {
-      void refreshUserAssets();
       const status = String(job.status || '').toLowerCase();
       const hasUrl = Boolean(job.public_url || job.result_url);
-      if (
-        (status === 'done' || status === 'complete') &&
-        hasUrl &&
-        lastSpawnedJobRef.current !== job.id
-      ) {
-        void deployJobToScene(job, { auto: true });
+      const isComplete = (status === 'done' || status === 'complete') && hasUrl;
+      if (!isComplete) return;
+
+      if (studioPhaseRef.current === 'studio') {
+        void refreshUserAssets();
+        if (lastSpawnedJobRef.current !== job.id) {
+          void deployJobToScene(job, { auto: true });
+        }
+        return;
       }
+
+      pendingCompletedJobRef.current = job;
     },
   });
 
@@ -255,7 +264,6 @@ export const DesignStudioPage: React.FC = () => {
     const onCadJob = (e: Event) => {
       const jobId = (e as CustomEvent<{ job_id?: string }>).detail?.job_id?.trim();
       if (jobId) {
-        setStudioPhase('studio');
         cad.setActiveJobId(jobId);
       }
     };
@@ -264,12 +272,11 @@ export const DesignStudioPage: React.FC = () => {
   }, [cad.setActiveJobId]);
 
   useEffect(() => {
-    if (studioPhase !== 'studio') return;
     const sessionId = agentSessionId?.trim();
     const runId = agentRunId?.trim();
     if (!sessionId || !runId) return;
     cad.subscribeRunEvents(runId, sessionId);
-  }, [studioPhase, agentSessionId, agentRunId, cad.subscribeRunEvents]);
+  }, [agentSessionId, agentRunId, cad.subscribeRunEvents]);
 
   const refreshSceneList = useCallback(() => {
     fetch('/api/designstudio/scenes', { credentials: 'include' })
@@ -712,12 +719,12 @@ export const DesignStudioPage: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (!engineReady || !isAgentSamEngine(engineRef.current)) return;
+    if (!engineReady || !isAgentSamEngine(engineRef.current) || !currentSceneId) return;
     const tick = window.setInterval(() => {
       void persistSceneAutosave();
     }, 60_000);
     return () => window.clearInterval(tick);
-  }, [engineReady, persistSceneAutosave]);
+  }, [engineReady, currentSceneId, persistSceneAutosave]);
 
   useEffect(() => {
     if (!engineReady) return;
@@ -863,15 +870,30 @@ export const DesignStudioPage: React.FC = () => {
     [],
   );
 
-  const openFullStudio = useCallback(() => setStudioPhase('studio'), []);
+  const openFullStudio = useCallback(() => {
+    const pending = pendingCompletedJobRef.current;
+    if (pending) {
+      const url = pending.public_url || pending.result_url;
+      if (url) {
+        const name = pending.prompt?.slice(0, 40) || `${pending.engine} export`;
+        pendingSpawnRef.current = { name, url: normalizeGlbUrl(url) ?? url, scale: 1 };
+        pendingCompletedJobRef.current = null;
+      }
+    }
+    setStudioPhase('studio');
+  }, []);
 
   const handleEntryGenerate = useCallback(async () => {
     const prompt = meshyPrompt.trim();
     if (!prompt) return;
     if (prompt.length > 600) return;
-    setStudioPhase('studio');
+    pendingCompletedJobRef.current = null;
     const settings = { ...DEFAULT_MESHY_SETTINGS, prompt };
-    const body = buildMeshyPreviewBody(settings);
+    const body = {
+      ...buildMeshyPreviewBody(settings),
+      register_cms_asset: false,
+      skip_glb_polish: true,
+    };
     try {
       await cad.runMeshyPreview(body);
     } catch {
@@ -905,11 +927,20 @@ export const DesignStudioPage: React.FC = () => {
 
   const meshyPromptTooLong = meshyPrompt.trim().length > MESHY_PROMPT_MAX;
 
+  const polledStatus = String(cad.polledJob?.status || '').toLowerCase();
+  const entryJobReady =
+    studioPhase === 'entry' &&
+    !cad.isGenerating &&
+    Boolean(cad.polledJob?.public_url || cad.polledJob?.result_url) &&
+    (polledStatus === 'done' || polledStatus === 'complete');
+
   const entryStatusLabel = cad.isGenerating
-    ? `Meshy ${cad.polledJob?.status ?? 'running'}${cad.polledJob?.progress_pct != null ? ` · ${cad.polledJob.progress_pct}%` : ''}`
-    : studioPhase === 'studio' && (engineLoading || !engineReady)
-      ? 'Initializing 3D viewport…'
-      : undefined;
+    ? `Creating model${cad.polledJob?.progress_pct != null ? ` · ${cad.polledJob.progress_pct}%` : ''}`
+    : entryJobReady
+      ? 'Model ready — open full studio to view or edit'
+      : studioPhase === 'studio' && (engineLoading || !engineReady)
+        ? 'Initializing 3D viewport…'
+        : undefined;
 
   return (
     <div
@@ -928,6 +959,7 @@ export const DesignStudioPage: React.FC = () => {
           onSpawnStock={handleEntrySpawnStock}
           onCancelJob={handleCancelCadJob}
           generating={cad.isGenerating}
+          jobReady={entryJobReady}
           progressPct={cad.polledJob?.progress_pct ?? cad.polledJob?.progress ?? 0}
           activeProgressPct={cad.polledJob?.progress_pct ?? cad.polledJob?.progress ?? 0}
           activeJobId={cad.activeJobId}
