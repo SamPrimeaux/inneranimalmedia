@@ -3,6 +3,7 @@
  */
 
 const SW_URL = '/sw.js';
+const SW_RECOVERY_KEY = 'iam_sw_recovery_attempted';
 const SERVICES_MANIFEST_URL = 'https://services.inneranimalmedia.com/sw/manifest.json';
 const CACHE_BUST_STORAGE_KEY = 'iam_sw_cache_bust';
 const TIER2_TABS_SESSION_KEY = 'iam_sw_tier2_tabs';
@@ -80,28 +81,71 @@ function triggerTier1Warm(): void {
   }
 }
 
+async function clearBrokenServiceWorker(): Promise<boolean> {
+  if (!('serviceWorker' in navigator)) return false;
+  const regs = await navigator.serviceWorker.getRegistrations();
+  if (!regs.length) return false;
+
+  await Promise.all(regs.map((reg) => reg.unregister()));
+  if ('caches' in window) {
+    const keys = await caches.keys();
+    await Promise.all(
+      keys
+        .filter((key) => key.startsWith('workbox-') || key.startsWith('iam-'))
+        .map((key) => caches.delete(key)),
+    );
+  }
+  return true;
+}
+
+async function registerServiceWorkerOnce(): Promise<ServiceWorkerRegistration> {
+  const registration = await navigator.serviceWorker.register(SW_URL, { scope: '/' });
+
+  registration.addEventListener('updatefound', () => {
+    const installing = registration.installing;
+    if (!installing) return;
+    installing.addEventListener('statechange', () => {
+      if (installing.state === 'installed' && navigator.serviceWorker.controller) {
+        window.dispatchEvent(new CustomEvent('iam-pwa-update-available'));
+      }
+    });
+    installing.addEventListener('error', () => {
+      if (sessionStorage.getItem(SW_RECOVERY_KEY) === '1') return;
+      sessionStorage.setItem(SW_RECOVERY_KEY, '1');
+      void clearBrokenServiceWorker().then(() => {
+        window.location.reload();
+      });
+    });
+  });
+
+  return registration;
+}
+
 export async function registerIamServiceWorker(): Promise<void> {
   if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
   if (onAuthSurface()) return;
 
   try {
-    const registration = await navigator.serviceWorker.register(SW_URL, { scope: '/' });
-
-    registration.addEventListener('updatefound', () => {
-      const installing = registration.installing;
-      if (!installing) return;
-      installing.addEventListener('statechange', () => {
-        if (installing.state === 'installed' && navigator.serviceWorker.controller) {
-          window.dispatchEvent(new CustomEvent('iam-pwa-update-available'));
-        }
-      });
-    });
+    await registerServiceWorkerOnce();
+    sessionStorage.removeItem(SW_RECOVERY_KEY);
 
     void pollServicesManifest();
     triggerTier1Warm();
     startManifestPoll();
   } catch (err) {
     console.warn('[pwa] service worker registration failed', err);
+    if (sessionStorage.getItem(SW_RECOVERY_KEY) === '1') return;
+    sessionStorage.setItem(SW_RECOVERY_KEY, '1');
+    try {
+      await clearBrokenServiceWorker();
+      await registerServiceWorkerOnce();
+      sessionStorage.removeItem(SW_RECOVERY_KEY);
+      void pollServicesManifest();
+      triggerTier1Warm();
+      startManifestPoll();
+    } catch (retryErr) {
+      console.warn('[pwa] service worker recovery failed', retryErr);
+    }
   }
 }
 

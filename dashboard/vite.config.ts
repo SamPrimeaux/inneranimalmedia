@@ -136,6 +136,7 @@ export default defineConfig(({ mode }) => {
           ],
         },
         workbox: {
+          inlineWorkboxRuntime: true,
           importScripts: ['push-handler.js', 'sw-agent-cache.js'],
           globDirectory: 'dist',
           globPatterns: [

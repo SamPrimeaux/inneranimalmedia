@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom';
+import { IAM_AGENT_CHAT_NEW_THREAD } from '../agentChatConstants';
 import './DashboardHome.css';
 
 type HomeAction = {
@@ -85,14 +86,6 @@ const RECENT_PROJECTS: ProjectCard[] = [
   { id: 'meaux', title: 'Meauxbility Rebrand', updated: 'Updated 1d ago', tone: 'green', path: '/dashboard/artifacts?view=projects' },
 ];
 
-function SparkIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path d="m12 3 1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2L12 3Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
 function PlusIcon() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -114,8 +107,11 @@ export function DashboardHome() {
 
   const sendPrompt = () => {
     window.dispatchEvent(
-      new CustomEvent('iam-agent-external-send', {
-        detail: { message: 'Help me decide what to work on next in this workspace.' },
+      new CustomEvent(IAM_AGENT_CHAT_NEW_THREAD, {
+        detail: {
+          message: 'Help me decide what to work on next in this workspace.',
+          route_key: 'dashboard_home',
+        },
       }),
     );
   };
@@ -229,7 +225,7 @@ export function DashboardHome() {
           <section className="iam-activity-card">
             <div className="iam-side-head">
               <h2>Activity</h2>
-              <button type="button">View</button>
+              <button type="button" onClick={() => navigate('/dashboard/agent')}>View</button>
             </div>
             <div className="iam-activity-list">
               <div><span className="ok" /><strong>Render complete</strong><small>Companions scene</small></div>

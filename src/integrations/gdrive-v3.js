@@ -21,6 +21,8 @@ export const DRIVE_FILE_FIELDS =
 
 export const DRIVE_LIST_PAGE_SIZE = 100;
 
+export const DRIVE_LIST_FIELDS = 'id,name,createdTime,hidden';
+
 export const DRIVE_RESOURCE_FIELDS =
   'id,name,createdTime,hidden,capabilities(canAddChildren,canDeleteDrive,canRenameDrive,canShare,canChangeDriveMembersOnlyRestriction,canChangeDownloadRestriction,canComment,canCopy,canDownload),restrictions(copyRequiresWriterPermission,downloadRestriction(restrictedForReaders,restrictedForWriters))';
 
@@ -94,7 +96,7 @@ export async function listSharedDrivesV3(token, opts = {}) {
   const pageSize = Number(opts.pageSize) > 0 ? Number(opts.pageSize) : DRIVE_LIST_PAGE_SIZE;
   const url = new URL('https://www.googleapis.com/drive/v3/drives');
   url.searchParams.set('pageSize', String(pageSize));
-  url.searchParams.set('fields', `nextPageToken,drives(${DRIVE_RESOURCE_FIELDS})`);
+  url.searchParams.set('fields', `nextPageToken,drives(${DRIVE_LIST_FIELDS})`);
   if (opts.q) url.searchParams.set('q', String(opts.q));
   if (opts.pageToken) url.searchParams.set('pageToken', String(opts.pageToken));
 
@@ -103,6 +105,7 @@ export async function listSharedDrivesV3(token, opts = {}) {
   if (!res.ok) {
     return {
       ok: false,
+      status: res.status,
       drives: [],
       error: data?.error?.message || res.statusText || 'Shared drives list failed',
     };
