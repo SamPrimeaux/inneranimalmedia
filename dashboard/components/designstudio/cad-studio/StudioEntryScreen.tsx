@@ -4,6 +4,7 @@
  */
 import React, { useRef } from 'react';
 import { Loader2, Sparkles, Upload, LayoutGrid } from 'lucide-react';
+import { StudioEntryGallery } from './StudioEntryGallery';
 import './cad-studio.css';
 
 export type StudioEntryScreenProps = {
@@ -18,6 +19,8 @@ export type StudioEntryScreenProps = {
   error?: string | null;
   /** Full studio bundle is loading after user chose to enter. */
   mode?: 'idle' | 'generating' | 'loading-studio';
+  onSpawnStock?: (name: string, url: string, scale: number) => void;
+  activeProgressPct?: number;
 };
 
 export function StudioEntryScreen({
@@ -31,6 +34,8 @@ export function StudioEntryScreen({
   statusLabel,
   error,
   mode = 'idle',
+  onSpawnStock,
+  activeProgressPct,
 }: StudioEntryScreenProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const busy = generating || mode === 'loading-studio';
@@ -116,6 +121,13 @@ export function StudioEntryScreen({
         <p className="studio-entry__hint">
           Meshy runs on our API — no Agent chat required. Full studio loads when you generate or open the editor.
         </p>
+
+        <StudioEntryGallery
+          onSpawnStock={onSpawnStock}
+          generating={generating}
+          activeJobLabel={statusLabel}
+          activeProgressPct={activeProgressPct ?? progressPct}
+        />
       </div>
     </div>
   );

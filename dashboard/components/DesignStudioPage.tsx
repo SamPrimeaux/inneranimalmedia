@@ -75,6 +75,7 @@ export const DesignStudioPage: React.FC = () => {
   const engineRef = useRef<StudioEngine | null>(null);
   const pageRootRef = useRef<HTMLDivElement>(null);
   const pendingConsumedRef = useRef(false);
+  const pendingEntrySpawnRef = useRef<{ name: string; url: string; scale: number } | null>(null);
   const lastSpawnedJobRef = useRef<string | null>(null);
 
   const [studioPhase, setStudioPhase] = useState<'entry' | 'studio'>('entry');
@@ -379,6 +380,13 @@ export const DesignStudioPage: React.FC = () => {
       })
       .catch((err) => console.warn('[DesignStudio] spawn failed', err));
   }, []);
+
+  useEffect(() => {
+    if (!engineReady || !isAgentSamEngine(engineRef.current) || !pendingEntrySpawnRef.current) return;
+    const pending = pendingEntrySpawnRef.current;
+    pendingEntrySpawnRef.current = null;
+    handleSpawnModel(pending.name, pending.url, pending.scale);
+  }, [engineReady, handleSpawnModel]);
 
   const handleSpawnProcedural = useCallback((key: AgentSamGeneratorKey) => {
     if (!isAgentSamEngine(engineRef.current)) return;
@@ -760,6 +768,11 @@ export const DesignStudioPage: React.FC = () => {
     }
   }, [meshyPrompt, cad]);
 
+  const handleEntrySpawnStock = useCallback((name: string, url: string, scale: number) => {
+    pendingEntrySpawnRef.current = { name, url, scale };
+    setStudioPhase('studio');
+  }, []);
+
   const handleEntryImportGlb = useCallback(
     (file: File) => {
       setStudioPhase('studio');
@@ -793,8 +806,10 @@ export const DesignStudioPage: React.FC = () => {
           onGenerate={() => void handleEntryGenerate()}
           onOpenStudio={openFullStudio}
           onImportGlb={handleEntryImportGlb}
+          onSpawnStock={handleEntrySpawnStock}
           generating={cad.isGenerating}
           progressPct={cad.polledJob?.progress_pct ?? cad.polledJob?.progress ?? 0}
+          activeProgressPct={cad.polledJob?.progress_pct ?? cad.polledJob?.progress ?? 0}
           statusLabel={entryStatusLabel}
           error={
             meshyPromptTooLong

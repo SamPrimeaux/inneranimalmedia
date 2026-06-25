@@ -45,6 +45,16 @@ function normalizeUrl(url?: string | null): string {
   return String(url).trim();
 }
 
+function isTerminalJobStatus(status?: string | null): boolean {
+  const st = String(status || '').toLowerCase();
+  return st === 'done' || st === 'complete' || st === 'completed' || st === 'succeeded' || st === 'success';
+}
+
+function isActiveJobStatus(status?: string | null): boolean {
+  const st = String(status || '').toLowerCase();
+  return st === 'pending' || st === 'queued' || st === 'running' || st === 'processing' || st === 'in_progress';
+}
+
 function dedupeGallery(items: GalleryItem[]): GalleryItem[] {
   const seen = new Set<string>();
   const out: GalleryItem[] = [];
@@ -106,16 +116,22 @@ export function useStudioGallery() {
         const rows = Array.isArray(data?.jobs) ? data.jobs : [];
         for (const row of rows as JobRow[]) {
           const url = normalizeUrl(row.public_url || row.result_url);
-          if (!url) continue;
           const st = String(row.status || '').toLowerCase();
-          if (st !== 'done' && st !== 'complete') continue;
+          const terminal = isTerminalJobStatus(st);
+          if (!url && !isActiveJobStatus(st)) continue;
           merged.push({
             id: `job_${row.id}`,
             name: row.prompt?.slice(0, 48) || `${row.engine || 'CAD'} export`,
-            url,
+            url: url || '',
             thumbnail: row.thumbnail_url,
             source: 'job',
             createdAt: row.created_at,
+            pending: !terminal,
+            status: row.status,
+            progressPct:
+              typeof (row as { progress_pct?: number }).progress_pct === 'number'
+                ? (row as { progress_pct?: number }).progress_pct
+                : undefined,
           });
         }
       }
@@ -125,14 +141,22 @@ export function useStudioGallery() {
         const rows = Array.isArray(data?.tasks) ? data.tasks : Array.isArray(data?.results) ? data.results : [];
         for (const row of rows as MeshyTaskRow[]) {
           const url = normalizeUrl(row.public_url || row.model_urls?.glb);
-          if (!url) continue;
+          const st = String(row.status || '').toLowerCase();
+          const terminal = isTerminalJobStatus(st);
+          if (!url && !isActiveJobStatus(st)) continue;
           merged.push({
-            id: `meshy_${row.task_id || row.id || url}`,
+            id: `meshy_${row.task_id || row.id || url || st}`,
             name: row.prompt?.slice(0, 48) || 'Meshy task',
-            url,
+            url: url || '',
             thumbnail: meshyThumbnail(row),
             source: 'meshy',
             createdAt: row.created_at,
+            pending: !terminal,
+            status: row.status,
+            progressPct:
+              typeof (row as { progress_pct?: number }).progress_pct === 'number'
+                ? (row as { progress_pct?: number }).progress_pct
+                : undefined,
           });
         }
       }

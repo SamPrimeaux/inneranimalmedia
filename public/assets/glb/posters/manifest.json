@@ -1,0 +1,135 @@
+{
+  "generated_at": "2026-06-25T00:11:12.229Z",
+  "posters": [
+    {
+      "id": "ds_stock_astronaut_rig",
+      "label": "Astronaut",
+      "ok": true,
+      "bytes": 0,
+      "local_path": "public/assets/glb/posters/ds_stock_astronaut_rig.webp",
+      "r2_key": "glb/posters/ds_stock_astronaut_rig.webp",
+      "public_url": "https://inneranimalmedia.com/assets/glb/posters/ds_stock_astronaut_rig.webp",
+      "thumbnail_url": "/assets/glb/posters/ds_stock_astronaut_rig.webp"
+    },
+    {
+      "id": "ds_stock_game_robot",
+      "label": "Game Robot",
+      "ok": true,
+      "bytes": 0,
+      "local_path": "public/assets/glb/posters/ds_stock_game_robot.webp",
+      "r2_key": "glb/posters/ds_stock_game_robot.webp",
+      "public_url": "https://inneranimalmedia.com/assets/glb/posters/ds_stock_game_robot.webp",
+      "thumbnail_url": "/assets/glb/posters/ds_stock_game_robot.webp"
+    },
+    {
+      "id": "ds_stock_game_collectible",
+      "label": "Game Collectible",
+      "ok": true,
+      "bytes": 0,
+      "local_path": "public/assets/glb/posters/ds_stock_game_collectible.webp",
+      "r2_key": "glb/posters/ds_stock_game_collectible.webp",
+      "public_url": "https://inneranimalmedia.com/assets/glb/posters/ds_stock_game_collectible.webp",
+      "thumbnail_url": "/assets/glb/posters/ds_stock_game_collectible.webp"
+    },
+    {
+      "id": "ds_stock_game_platform",
+      "label": "Game Platform",
+      "ok": true,
+      "bytes": 0,
+      "local_path": "public/assets/glb/posters/ds_stock_game_platform.webp",
+      "r2_key": "glb/posters/ds_stock_game_platform.webp",
+      "public_url": "https://inneranimalmedia.com/assets/glb/posters/ds_stock_game_platform.webp",
+      "thumbnail_url": "/assets/glb/posters/ds_stock_game_platform.webp"
+    },
+    {
+      "id": "ds_stock_game_powerup",
+      "label": "Game Power-Up",
+      "ok": true,
+      "bytes": 0,
+      "local_path": "public/assets/glb/posters/ds_stock_game_powerup.webp",
+      "r2_key": "glb/posters/ds_stock_game_powerup.webp",
+      "public_url": "https://inneranimalmedia.com/assets/glb/posters/ds_stock_game_powerup.webp",
+      "thumbnail_url": "/assets/glb/posters/ds_stock_game_powerup.webp"
+    },
+    {
+      "id": "ds_stock_chess_king",
+      "label": "Chess King",
+      "ok": true,
+      "bytes": 0,
+      "local_path": "public/assets/glb/posters/ds_stock_chess_king.webp",
+      "r2_key": "glb/posters/ds_stock_chess_king.webp",
+      "public_url": "https://inneranimalmedia.com/assets/glb/posters/ds_stock_chess_king.webp",
+      "thumbnail_url": "/assets/glb/posters/ds_stock_chess_king.webp"
+    },
+    {
+      "id": "ds_stock_chess_queen",
+      "label": "Chess Queen",
+      "ok": true,
+      "bytes": 0,
+      "local_path": "public/assets/glb/posters/ds_stock_chess_queen.webp",
+      "r2_key": "glb/posters/ds_stock_chess_queen.webp",
+      "public_url": "https://inneranimalmedia.com/assets/glb/posters/ds_stock_chess_queen.webp",
+      "thumbnail_url": "/assets/glb/posters/ds_stock_chess_queen.webp"
+    },
+    {
+      "id": "ds_stock_chess_bishop",
+      "label": "Chess Bishop",
+      "ok": true,
+      "bytes": 0,
+      "local_path": "public/assets/glb/posters/ds_stock_chess_bishop.webp",
+      "r2_key": "glb/posters/ds_stock_chess_bishop.webp",
+      "public_url": "https://inneranimalmedia.com/assets/glb/posters/ds_stock_chess_bishop.webp",
+      "thumbnail_url": "/assets/glb/posters/ds_stock_chess_bishop.webp"
+    },
+    {
+      "id": "ds_stock_chess_knight",
+      "label": "Chess Knight",
+      "ok": true,
+      "bytes": 0,
+      "local_path": "public/assets/glb/posters/ds_stock_chess_knight.webp",
+      "r2_key": "glb/posters/ds_stock_chess_knight.webp",
+      "public_url": "https://inneranimalmedia.com/assets/glb/posters/ds_stock_chess_knight.webp",
+      "thumbnail_url": "/assets/glb/posters/ds_stock_chess_knight.webp"
+    },
+    {
+      "id": "ds_stock_chess_rook",
+      "label": "Chess Rook",
+      "ok": true,
+      "bytes": 0,
+      "local_path": "public/assets/glb/posters/ds_stock_chess_rook.webp",
+      "r2_key": "glb/posters/ds_stock_chess_rook.webp",
+      "public_url": "https://inneranimalmedia.com/assets/glb/posters/ds_stock_chess_rook.webp",
+      "thumbnail_url": "/assets/glb/posters/ds_stock_chess_rook.webp"
+    },
+    {
+      "id": "ds_stock_chess_pawn",
+      "label": "Chess Pawn",
+      "ok": true,
+      "bytes": 0,
+      "local_path": "public/assets/glb/posters/ds_stock_chess_pawn.webp",
+      "r2_key": "glb/posters/ds_stock_chess_pawn.webp",
+      "public_url": "https://inneranimalmedia.com/assets/glb/posters/ds_stock_chess_pawn.webp",
+      "thumbnail_url": "/assets/glb/posters/ds_stock_chess_pawn.webp"
+    },
+    {
+      "id": "ds_stock_meshy_rook",
+      "label": "Meshy Rook",
+      "ok": true,
+      "bytes": 0,
+      "local_path": "public/assets/glb/posters/ds_stock_meshy_rook.webp",
+      "r2_key": "glb/posters/ds_stock_meshy_rook.webp",
+      "public_url": "https://inneranimalmedia.com/assets/glb/posters/ds_stock_meshy_rook.webp",
+      "thumbnail_url": "/assets/glb/posters/ds_stock_meshy_rook.webp"
+    },
+    {
+      "id": "ds_stock_rocket_chart",
+      "label": "Rocket Chart",
+      "ok": true,
+      "bytes": 0,
+      "local_path": "public/assets/glb/posters/ds_stock_rocket_chart.webp",
+      "r2_key": "glb/posters/ds_stock_rocket_chart.webp",
+      "public_url": "https://inneranimalmedia.com/assets/glb/posters/ds_stock_rocket_chart.webp",
+      "thumbnail_url": "/assets/glb/posters/ds_stock_rocket_chart.webp"
+    }
+  ]
+}

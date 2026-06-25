@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>GLB poster capture (Three.js)</title>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.170.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.170.0/examples/jsm/"
+        }
+      }
+    </script>
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: 512px;
+        height: 512px;
+        background: #14161a;
+      }
+      canvas {
+        display: block;
+        width: 512px;
+        height: 512px;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="c" width="512" height="512"></canvas>
+    <script type="module">
+      import * as THREE from 'three';
+      import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+      import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+      import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+
+      function frameModel(camera, object, pad = 1.35) {
+        const box = new THREE.Box3().setFromObject(object);
+        const size = box.getSize(new THREE.Vector3());
+        const center = box.getCenter(new THREE.Vector3());
+        object.position.sub(center);
+        const maxDim = Math.max(size.x, size.y, size.z, 0.001);
+        const fov = (camera.fov * Math.PI) / 180;
+        const dist = (maxDim / 2 / Math.tan(fov / 2)) * pad;
+        camera.position.set(dist * 0.62, dist * 0.38, dist * 0.92);
+        camera.near = dist / 100;
+        camera.far = dist * 100;
+        camera.updateProjectionMatrix();
+        camera.lookAt(0, 0, 0);
+      }
+
+      window.__captureGlb = async (url) => {
+        await MeshoptDecoder.ready;
+
+        const canvas = document.getElementById('c');
+        const renderer = new THREE.WebGLRenderer({
+          canvas,
+          antialias: true,
+          preserveDrawingBuffer: true,
+          alpha: false,
+        });
+        renderer.setSize(512, 512, false);
+        renderer.setPixelRatio(1);
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x14161a);
+
+        const camera = new THREE.PerspectiveCamera(42, 1, 0.01, 2000);
+        scene.add(new THREE.HemisphereLight(0xffffff, 0x3a3f48, 1.15));
+        const key = new THREE.DirectionalLight(0xffffff, 1.45);
+        key.position.set(4, 6, 5);
+        scene.add(key);
+        const fill = new THREE.DirectionalLight(0xb8c4ff, 0.55);
+        fill.position.set(-5, 2, -3);
+        scene.add(fill);
+
+        const loader = new GLTFLoader();
+        const draco = new DRACOLoader();
+        draco.setDecoderPath('https://unpkg.com/three@0.170.0/examples/jsm/libs/draco/');
+        loader.setDRACOLoader(draco);
+        if (MeshoptDecoder.supported) {
+          loader.setMeshoptDecoder(MeshoptDecoder);
+        }
+
+        const gltf = await loader.loadAsync(url);
+        const model = gltf.scene;
+        scene.add(model);
+        frameModel(camera, model);
+        renderer.render(scene, camera);
+      };
+    </script>
+  </body>
+</html>

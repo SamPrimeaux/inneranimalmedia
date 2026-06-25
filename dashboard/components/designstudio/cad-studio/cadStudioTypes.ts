@@ -95,6 +95,10 @@ export type GalleryItem = {
   source: 'stock' | 'mine' | 'job' | 'meshy';
   scale?: number;
   createdAt?: number;
+  /** Non-terminal CAD/Meshy job — card shows progress, no GLB spawn until ready */
+  pending?: boolean;
+  status?: string;
+  progressPct?: number;
 };
 
 export type CadStudioUiState = {

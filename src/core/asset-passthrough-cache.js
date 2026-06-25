@@ -10,6 +10,10 @@
 export function assetPassthroughCacheControl(key) {
   const lower = String(key || '').toLowerCase();
 
+  if (lower.endsWith('.webp') && lower.startsWith('glb/posters/')) {
+    return 'public, max-age=31536000, immutable';
+  }
+
   if (!lower.endsWith('.glb') && !lower.endsWith('.gltf')) {
     return 'public, max-age=3600';
   }

@@ -9,6 +9,7 @@ import {
   Shield,
   Trash2,
 } from 'lucide-react';
+import { GlbAssetThumb } from '../cad-studio/editors/GlbAssetThumb';
 import { AGENT_SAM_GENERATOR_KEYS } from '../../../utils/agentSamGenerators';
 import type { AgentSamGeneratorKey } from '../../../utils/agentSamGenerators';
 import type { CustomAsset } from '../../../types';
@@ -165,27 +166,20 @@ export function AssetLibrary({
     (a) => !String(a.tags || '').toLowerCase().includes('astronaut'),
   );
 
-  const renderStockButton = (asset: StudioStockAsset) => (
+  const renderStockCard = (asset: StudioStockAsset) => (
     <button
       type="button"
       key={asset.id}
       onClick={() => onSpawnModel(asset.name, asset.url, asset.scale)}
-      className="flex items-center gap-3 p-2 rounded-xl bg-[var(--bg-panel)] border border-[var(--border-subtle)] hover:bg-[var(--bg-hover)] text-[10px] font-bold uppercase text-left"
+      className="cad-assets__card asset-library__stock-card"
+      title={asset.name}
     >
-      {asset.thumbnailUrl ? (
-        <img
-          src={asset.thumbnailUrl}
-          alt=""
-          width={28}
-          height={28}
-          loading="lazy"
-          decoding="async"
-          className="w-7 h-7 rounded-md object-cover shrink-0 bg-[var(--bg-hover)]"
-        />
-      ) : (
-        <span className="text-emerald-400 shrink-0">{studioAssetIcon(asset.iconKey)}</span>
-      )}
-      <span className="truncate">{asset.name}</span>
+      <div className="cad-assets__thumb asset-library__thumb">
+        <GlbAssetThumb url={asset.url} thumbnail={asset.thumbnailUrl} alt={asset.name} />
+      </div>
+      <div className="cad-assets__meta asset-library__meta">
+        <span className="cad-assets__name">{asset.name}</span>
+      </div>
     </button>
   );
 
@@ -297,7 +291,7 @@ export function AssetLibrary({
             </span>
           ) : null}
         </p>
-        <div className="grid grid-cols-1 gap-2 max-h-[280px] overflow-y-auto pr-1">
+        <div className="asset-library__stock-grid max-h-[320px] overflow-y-auto pr-1">
           {stockAssetsLoading && (
             <p className="text-[10px] text-[var(--text-muted)] px-2 py-1">Loading presets…</p>
           )}
@@ -311,7 +305,9 @@ export function AssetLibrary({
               <p className="text-[9px] font-bold text-[var(--text-muted)] uppercase px-1">
                 Astronaut Pack ({astronautAssets.length})
               </p>
-              {astronautAssets.map((asset) => renderStockButton(asset))}
+              <div className="asset-library__stock-row">
+                {astronautAssets.map((asset) => renderStockCard(asset))}
+              </div>
             </>
           )}
           {!stockAssetsLoading && otherStockAssets.length > 0 && (
@@ -319,7 +315,9 @@ export function AssetLibrary({
               <p className="text-[9px] font-bold text-[var(--text-muted)] uppercase px-1 mt-2">
                 Other Stock ({otherStockAssets.length})
               </p>
-              {otherStockAssets.map((asset) => renderStockButton(asset))}
+              <div className="asset-library__stock-row">
+                {otherStockAssets.map((asset) => renderStockCard(asset))}
+              </div>
             </>
           )}
           {customAssets.length > 0 && (

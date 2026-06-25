@@ -494,6 +494,7 @@
   display: grid;
   place-items: center;
   overflow: hidden;
+  position: relative;
 }
 
 .cad-assets__thumb-inner {
@@ -503,10 +504,28 @@
   place-items: center;
 }
 
-.cad-assets__thumb img {
+.cad-assets__thumb img,
+.cad-assets__thumb-img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.cad-assets__card--pending {
+  opacity: 0.92;
+  cursor: default;
+}
+
+.cad-assets__pending-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(10, 12, 16, 0.62);
+  font-size: 11px;
+  font-weight: 800;
+  color: #e8edf5;
+  text-transform: uppercase;
 }
 
 .cad-assets__thumb-placeholder {
@@ -3281,6 +3300,126 @@
 }
 @keyframes studio-entry-spin {
   to { transform: rotate(360deg); }
+}
+
+.studio-entry__gallery {
+  margin-top: 1.75rem;
+  width: 100%;
+  max-width: 42rem;
+  text-align: left;
+}
+
+.studio-entry__gallery-section + .studio-entry__gallery-section {
+  margin-top: 1rem;
+}
+
+.studio-entry__gallery-label {
+  font-size: 0.625rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 0 0 0.5rem;
+}
+
+.studio-entry__gallery-hint {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.studio-entry__gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 0.5rem;
+}
+
+.studio-entry__gallery-card {
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 0;
+  overflow: hidden;
+  cursor: pointer;
+  text-align: left;
+}
+
+.studio-entry__gallery-card:hover:not(:disabled) {
+  border-color: var(--solar-cyan, #5eead4);
+}
+
+.studio-entry__gallery-card--pending {
+  cursor: default;
+  opacity: 0.9;
+}
+
+.studio-entry__gallery-card--static {
+  pointer-events: none;
+}
+
+.studio-entry__gallery-thumb {
+  aspect-ratio: 1;
+  background: #111;
+  position: relative;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.studio-entry__gallery-thumb img,
+.studio-entry__gallery-thumb .cad-assets__thumb-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.studio-entry__gallery-pending {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(10, 12, 16, 0.55);
+  color: #e8edf5;
+}
+
+.studio-entry__gallery-pct {
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.studio-entry__gallery-name {
+  display: block;
+  padding: 0.35rem 0.45rem;
+  font-size: 0.625rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--text-main, #e8edf5);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.asset-library__stock-grid {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.asset-library__stock-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.asset-library__stock-card {
+  min-width: 0;
+}
+
+.asset-library__thumb {
+  aspect-ratio: 1;
+}
+
+.asset-library__meta {
+  padding: 4px 6px;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════

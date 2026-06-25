@@ -140,19 +140,32 @@ export function AssetGalleryEditor({ onSpawn, onUpload, variant = 'panel' }: Ass
         <div className="cad-assets__grid">
           {gallery.items.map((item) => {
             const isSelected = selected.has(item.id);
+            const spawnable = !item.pending && item.url;
             return (
               <button
                 key={item.id}
                 type="button"
-                className={`cad-assets__card${isSelected ? ' selected' : ''}`}
-                onClick={() => multiSelect ? toggleItem(item.id) : onSpawn(item)}
+                className={`cad-assets__card${isSelected ? ' selected' : ''}${item.pending ? ' cad-assets__card--pending' : ''}`}
+                onClick={() => {
+                  if (!spawnable) return;
+                  if (multiSelect) toggleItem(item.id);
+                  else onSpawn(item);
+                }}
+                disabled={!spawnable && !multiSelect}
                 title={item.name}
               >
-                {multiSelect && (
+                {multiSelect && spawnable && (
                   <span className={`cad-assets__check${isSelected ? ' checked' : ''}`} aria-hidden />
                 )}
                 <div className="cad-assets__thumb">
                   <GlbAssetThumb url={item.url} thumbnail={item.thumbnail} alt={item.name} />
+                  {item.pending ? (
+                    <span className="cad-assets__pending-overlay" aria-hidden>
+                      {item.progressPct != null && item.progressPct > 0
+                        ? `${Math.min(100, item.progressPct)}%`
+                        : item.status || '…'}
+                    </span>
+                  ) : null}
                 </div>
                 <div className="cad-assets__meta">
                   <span className="cad-assets__name">{item.name}</span>
