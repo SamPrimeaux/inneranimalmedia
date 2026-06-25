@@ -20,17 +20,29 @@ export function createChessPickLayer(): THREE.Group {
   const board = new THREE.Group();
   board.name = 'chess_pick_layer';
   const squares: THREE.Mesh[] = [];
-  const mat = new THREE.MeshBasicMaterial({ visible: false, depthWrite: false });
+  const mat = new THREE.MeshBasicMaterial({
+    visible: false,
+    depthWrite: false,
+    depthTest: false,
+    side: THREE.DoubleSide,
+  });
   for (let row = 0; row < 8; row++) {
     for (let col = 0; col < 8; col++) {
       const square = new THREE.Mesh(new THREE.BoxGeometry(1, 0.04, 1), mat);
-      square.position.set(col - 3.5, boardSurfaceY, row - 3.5);
+      square.position.set(col - 3.5, 0, row - 3.5);
       board.add(square);
       squares.push(square);
     }
   }
   board.userData.squareMeshes = squares;
   return board;
+}
+
+export function repositionPickLayer(pickLayer: THREE.Group, surfaceY: number): void {
+  pickLayer.position.y = surfaceY;
+  pickLayer.children.forEach((c) => {
+    (c as THREE.Mesh).position.y = 0.05;
+  });
 }
 
 export function createChessBoard(): THREE.Group {

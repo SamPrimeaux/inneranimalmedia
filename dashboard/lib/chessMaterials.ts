@@ -1,8 +1,9 @@
 /**
- * Glass (white) and amber (orange) piece materials + square overlay helpers.
+ * MeauxChess piece materials and square overlay helpers.
  */
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { getBoardSurfaceY } from './chessBoard';
 
 let glassMaterial: THREE.MeshPhysicalMaterial | null = null;
 let amberMaterial: THREE.MeshPhysicalMaterial | null = null;
@@ -85,69 +86,65 @@ export function applyAuthoredChessPieceMaterials(root: THREE.Object3D, color: 'w
   });
 }
 
-function overlayCanvas(
-  fill: string,
-  opts?: { border?: string; borderWidth?: number },
-): THREE.CanvasTexture {
-  const canvas = document.createElement('canvas');
-  canvas.width = 128;
-  canvas.height = 128;
-  const ctx = canvas.getContext('2d')!;
-  ctx.clearRect(0, 0, 128, 128);
-  ctx.fillStyle = fill;
-  ctx.fillRect(0, 0, 128, 128);
-  if (opts?.border) {
-    ctx.strokeStyle = opts.border;
-    ctx.lineWidth = opts.borderWidth ?? 6;
-    ctx.strokeRect(3, 3, 122, 122);
-  }
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.needsUpdate = true;
-  return tex;
-}
-
 export function createSelectionOverlayMaterial(): THREE.MeshBasicMaterial {
   return new THREE.MeshBasicMaterial({
-    map: overlayCanvas('rgba(68, 136, 255, 0.45)', { border: 'rgba(120, 180, 255, 0.9)', borderWidth: 4 }),
+    color: 0x4a9eff,
     transparent: true,
+    opacity: 0.58,
     depthWrite: false,
+    side: THREE.DoubleSide,
   });
 }
 
 export function createValidMoveOverlayMaterial(): THREE.MeshBasicMaterial {
   return new THREE.MeshBasicMaterial({
-    map: overlayCanvas('rgba(34, 255, 136, 0.55)'),
+    color: 0xc9a84c,
     transparent: true,
+    opacity: 0.45,
     depthWrite: false,
+    side: THREE.DoubleSide,
   });
 }
 
 export function createLastMoveOverlayMaterial(): THREE.MeshBasicMaterial {
   return new THREE.MeshBasicMaterial({
-    map: overlayCanvas('rgba(68, 136, 255, 0.4)'),
+    color: 0xc9a84c,
     transparent: true,
+    opacity: 0.22,
     depthWrite: false,
+    side: THREE.DoubleSide,
   });
 }
 
 export function createHoverOverlayMaterial(): THREE.MeshBasicMaterial {
   return new THREE.MeshBasicMaterial({
-    map: overlayCanvas('rgba(255, 255, 255, 0.12)'),
+    color: 0xf0e6d0,
     transparent: true,
+    opacity: 0.12,
     depthWrite: false,
+    side: THREE.DoubleSide,
   });
 }
 
-/** Flat square highlight plane slightly above the board surface. */
+export function createCheckOverlayMaterial(): THREE.MeshBasicMaterial {
+  return new THREE.MeshBasicMaterial({
+    color: 0xc0392b,
+    transparent: true,
+    opacity: 0.55,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+}
+
+/** Full-square highlight plane slightly above the board surface. */
 export function createSquareOverlay(
   x: number,
   z: number,
   material: THREE.Material,
-  y = 0.112,
 ): THREE.Mesh {
   const plane = new THREE.Mesh(new THREE.PlaneGeometry(0.94, 0.94), material);
   plane.rotation.x = -Math.PI / 2;
-  plane.position.set(x, y, z);
+  plane.position.set(x, getBoardSurfaceY() + 0.02, z);
   plane.renderOrder = 2;
   return plane;
 }

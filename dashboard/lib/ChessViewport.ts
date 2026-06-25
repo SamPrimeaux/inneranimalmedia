@@ -1,5 +1,5 @@
 /**
- * SparkChess-quality viewport for public /games/room_* — locked 3/4 camera, overlay feedback.
+ * MeauxChess viewport for public /games/room_* — locked 3/4 camera, overlay feedback.
  */
 import * as THREE from 'three';
 import { createChessGltfLoader, ensureMeshoptDecoderReady } from './gltfLoader';
@@ -7,6 +7,7 @@ import {
   createChessBoard,
   createChessPickLayer,
   getBoardSurfaceY,
+  repositionPickLayer,
   setBoardSurfaceY,
   squareToBoardXZ,
   boardPointToSquare,
@@ -25,6 +26,7 @@ import {
 import {
   applyAuthoredChessPieceMaterials,
   applyChessPieceMaterials,
+  createCheckOverlayMaterial,
   createHoverOverlayMaterial,
   createLastMoveOverlayMaterial,
   createSelectionOverlayMaterial,
@@ -80,7 +82,7 @@ export class ChessViewport {
   private pickGroup: THREE.Group;
   private squareMeshes: THREE.Mesh[] = [];
   private roomEnv: ChessRoomEnvironment | null = null;
-  private boardPlaySpan = 8.4;
+  private boardPlaySpan = 8.0;
   private currentPreset: ChessCameraPreset = 'classic';
   private overlayGroup = new THREE.Group();
   private captureGroup = new THREE.Group();
@@ -104,6 +106,7 @@ export class ChessViewport {
   private readonly validMat = createValidMoveOverlayMaterial();
   private readonly lastMat = createLastMoveOverlayMaterial();
   private readonly hoverMat = createHoverOverlayMaterial();
+  private readonly checkMat = createCheckOverlayMaterial();
 
   constructor(opts: ChessViewportOptions) {
     this.container = opts.container;
@@ -280,7 +283,25 @@ export class ChessViewport {
 
     this.ready = true;
     this.setCameraPreset('classic');
+    this.debugVerifyCoords();
     onReady?.();
+  }
+
+  private debugVerifyCoords(): void {
+    const testSquares = ['a1', 'h1', 'a8', 'h8', 'e4', 'd5'];
+    for (const sq of testSquares) {
+      const pos = squareToPosition(sq);
+      if (!pos) {
+        console.warn('squareToPosition failed for', sq);
+        continue;
+      }
+      const back = boardPointToSquare(pos.x, pos.z);
+      if (back !== sq) {
+        console.error(`COORD MISMATCH: ${sq} → pos(${pos.x},${pos.z}) → ${back}`);
+      } else {
+        console.log(`COORD OK: ${sq} → (${pos.x}, ${pos.z}) → ${back}`);
+      }
+    }
   }
 
   private async loadBoardWithRetry(url: string, attempts: number): Promise<void> {
@@ -316,7 +337,7 @@ export class ChessViewport {
   private fallbackProceduralBoard(): void {
     while (this.boardGroup.children.length) this.boardGroup.remove(this.boardGroup.children[0]);
     const procedural = createChessBoard();
-    this.boardPlaySpan = 8.4;
+    this.boardPlaySpan = 8.0;
     setBoardSurfaceY(0.05);
     this.boardGroup.add(procedural);
     this.refreshPickLayer();
@@ -326,6 +347,7 @@ export class ChessViewport {
     while (this.pickGroup.children.length) this.pickGroup.remove(this.pickGroup.children[0]);
     const pick = createChessPickLayer();
     this.squareMeshes = (pick.userData.squareMeshes as THREE.Mesh[]) || [];
+    repositionPickLayer(pick, getBoardSurfaceY());
     this.pickGroup.add(pick);
   }
 
@@ -334,20 +356,18 @@ export class ChessViewport {
     const model = gltf.scene.clone(true);
     const box = new THREE.Box3().setFromObject(model);
     const size = box.getSize(new THREE.Vector3());
-    const center = new THREE.Vector3();
-    box.getCenter(center);
-    model.position.sub(center);
-
-    const span = Math.max(size.x, size.z, 0.001);
-    this.boardPlaySpan = 8.4;
-    const scale = this.boardPlaySpan / span;
+    const scale = 8.0 / Math.max(size.x, size.z, 0.001);
     model.scale.setScalar(scale);
 
-    const fitted = new THREE.Box3().setFromObject(model);
-    fitted.getCenter(center);
-    model.position.sub(center);
-    fitted.setFromObject(model);
-    setBoardSurfaceY(fitted.max.y + 0.015);
+    const box2 = new THREE.Box3().setFromObject(model);
+    const center2 = box2.getCenter(new THREE.Vector3());
+    model.position.set(-center2.x, -box2.min.y, -center2.z);
+
+    const box3 = new THREE.Box3().setFromObject(model);
+    const surfaceY = box3.max.y * 0.72;
+    this.boardPlaySpan = 8.0;
+    setBoardSurfaceY(surfaceY);
+    console.log('[ChessBoard] GLB size:', size, 'scale:', scale, 'surfaceY:', surfaceY);
 
     model.traverse((o) => {
       const mesh = o as THREE.Mesh;
@@ -461,6 +481,9 @@ export class ChessViewport {
     this.applyPieceMaterials(mesh, color, piece);
     const pos = squareToPosition(square);
     if (!pos) return;
+    if (piece === 'king') {
+      console.log('[spawn king] y=', pos.y, 'surfaceY=', getBoardSurfaceY());
+    }
     mesh.position.set(pos.x, pos.y, pos.z);
     mesh.userData = { square, color, piece };
     mesh.traverse((o) => {
@@ -494,6 +517,8 @@ export class ChessViewport {
 
   private tick = () => {
     this.animId = requestAnimationFrame(this.tick);
+    this.selectMat.opacity = Math.sin(Date.now() * 0.004) * 0.1 + 0.52;
+    this.checkMat.opacity = Math.sin(Date.now() * 0.006) * 0.15 + 0.5;
     this.renderer.render(this.scene, this.camera);
   };
 
@@ -522,13 +547,14 @@ export class ChessViewport {
     for (const c of keep) this.overlayGroup.add(c);
   }
 
-  private addOverlay(square: string, type: 'select' | 'valid' | 'last' | 'hover'): void {
+  private addOverlay(square: string, type: 'select' | 'valid' | 'last' | 'hover' | 'check'): void {
     const xz = squareToBoardXZ(square);
     if (!xz) return;
     let mat = this.validMat;
     if (type === 'select') mat = this.selectMat;
     if (type === 'last') mat = this.lastMat;
     if (type === 'hover') mat = this.hoverMat;
+    if (type === 'check') mat = this.checkMat;
     const mesh = createSquareOverlay(xz.x, xz.z, mat);
     mesh.userData.overlayType = type;
     mesh.userData.square = square;

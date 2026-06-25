@@ -66,13 +66,11 @@ export function createChessRoomEnvironment(boardSurfaceY = 0.05): ChessRoomEnvir
   const root = new THREE.Group();
   root.name = 'chess_room';
 
-  const woodTex = woodCanvasTexture();
-  const tableMat = new THREE.MeshPhysicalMaterial({
-    map: woodTex,
-    color: 0x8b6914,
-    roughness: 0.55,
-    metalness: 0.02,
-    clearcoat: 0.35,
+  const tableMat = new THREE.MeshStandardMaterial({
+    color: 0x1a0804,
+    roughness: 0.88,
+    metalness: 0.04,
+    envMapIntensity: 0.3,
   });
 
   const table = new THREE.Mesh(new THREE.BoxGeometry(22, 0.55, 16), tableMat);
@@ -80,6 +78,15 @@ export function createChessRoomEnvironment(boardSurfaceY = 0.05): ChessRoomEnvir
   table.receiveShadow = true;
   table.castShadow = true;
   root.add(table);
+
+  const felt = new THREE.Mesh(
+    new THREE.PlaneGeometry(12, 12),
+    new THREE.MeshStandardMaterial({ color: 0x0d1f0d, roughness: 0.98 }),
+  );
+  felt.rotation.x = -Math.PI / 2;
+  felt.position.y = boardSurfaceY - 0.01;
+  felt.receiveShadow = true;
+  root.add(felt);
 
   const apron = new THREE.Mesh(
     new THREE.BoxGeometry(22.4, 0.18, 16.4),
@@ -97,38 +104,46 @@ export function createChessRoomEnvironment(boardSurfaceY = 0.05): ChessRoomEnvir
   floor.receiveShadow = true;
   root.add(floor);
 
-  const marbleLight = marbleCanvasTexture('#f3ebe0', 'rgba(120,100,80,0.25)');
-  const marbleDark = marbleCanvasTexture('#1a1410', 'rgba(80,60,40,0.35)');
+  const trayMat = new THREE.MeshStandardMaterial({
+    color: 0x2a1208,
+    roughness: 0.75,
+    metalness: 0.08,
+  });
+  const goldMat = new THREE.MeshStandardMaterial({
+    color: 0xc9a84c,
+    roughness: 0.3,
+    metalness: 0.6,
+  });
 
   const makeTray = (x: number) => {
     const tray = new THREE.Group();
     tray.name = x < 0 ? 'capture_tray_left' : 'capture_tray_right';
-    const rimMat = new THREE.MeshPhysicalMaterial({
-      map: marbleLight,
-      color: 0xf5efe6,
-      roughness: 0.35,
-      metalness: 0.05,
-      clearcoat: 0.6,
-    });
-    const wellMat = new THREE.MeshPhysicalMaterial({
-      map: marbleDark,
-      color: 0x14100c,
-      roughness: 0.45,
-      metalness: 0.08,
-    });
-    const rim = new THREE.Mesh(new THREE.BoxGeometry(1.35, 0.22, 9.2), rimMat);
-    rim.position.set(x, boardSurfaceY + 0.08, 0);
-    rim.castShadow = true;
-    rim.receiveShadow = true;
-    const well = new THREE.Mesh(new THREE.BoxGeometry(1.05, 0.08, 8.6), wellMat);
-    well.position.set(x, boardSurfaceY + 0.2, 0);
-    well.receiveShadow = true;
-    tray.add(rim, well);
+    const slab = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.08, 7.0), trayMat);
+    slab.position.set(x, boardSurfaceY - 0.02, 0);
+    slab.castShadow = true;
+    slab.receiveShadow = true;
+    tray.add(slab);
+
+    const borderW = 1.8;
+    const borderL = 7.0;
+    const borderH = 0.04;
+    const borderY = boardSurfaceY + 0.01;
+    const addBorder = (bw: number, bl: number, bx: number, bz: number) => {
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(bw, borderH, bl), goldMat);
+      strip.position.set(bx, borderY, bz);
+      strip.castShadow = true;
+      tray.add(strip);
+    };
+    addBorder(borderW + 0.08, 0.06, x, -borderL / 2 - 0.03);
+    addBorder(borderW + 0.08, 0.06, x, borderL / 2 + 0.03);
+    addBorder(0.06, borderL + 0.12, x - borderW / 2 - 0.03, 0);
+    addBorder(0.06, borderL + 0.12, x + borderW / 2 + 0.03, 0);
+
     return tray;
   };
 
-  const captureTrayLeft = makeTray(-6.35);
-  const captureTrayRight = makeTray(6.35);
+  const captureTrayLeft = makeTray(-5.8);
+  const captureTrayRight = makeTray(5.8);
   root.add(captureTrayLeft, captureTrayRight);
 
   return { root, captureTrayLeft, captureTrayRight };
@@ -140,10 +155,10 @@ export function captureTraySlot(
   index: number,
   boardSurfaceY: number,
 ): THREE.Vector3 {
-  const x = capturedBy === 'white' ? -6.35 : 6.35;
+  const x = capturedBy === 'white' ? -5.8 : 5.8;
   const col = index % 4;
   const row = Math.floor(index / 4);
-  const z = -3.2 + col * 2.15;
-  const y = boardSurfaceY + 0.28 + row * 0.42;
+  const z = -2.8 + col * 1.85;
+  const y = boardSurfaceY + 0.12 + row * 0.38;
   return new THREE.Vector3(x, y, z);
 }
