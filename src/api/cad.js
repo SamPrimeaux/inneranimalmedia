@@ -100,14 +100,7 @@ function encodeCadScriptPayload(script) {
   return raw.length > 4000 ? 'b64:' + btoa(unescape(encodeURIComponent(raw))) : raw;
 }
 
-const TERMINAL_CAD_JOB_STATUSES = new Set([
-  'done',
-  'complete',
-  'completed',
-  'failed',
-  'cancelled',
-  'script_ready',
-]);
+const NON_CANCELLABLE_CAD_JOB_STATUSES = new Set(['done', 'complete', 'completed', 'cancelled']);
 
 /**
  * Cancel an in-flight CAD job (Meshy task delete when applicable).
@@ -128,7 +121,7 @@ async function cancelCadJobForUser(env, authUser, jobId) {
   if (!job) return { error: 'Job not found', status: 404 };
 
   const st = String(job.status || '').toLowerCase();
-  if (TERMINAL_CAD_JOB_STATUSES.has(st)) {
+  if (NON_CANCELLABLE_CAD_JOB_STATUSES.has(st)) {
     return { ok: true, job_id: id, status: st, already_terminal: true };
   }
 

@@ -1,1869 +1,723 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+/**
+ * MailPage.tsx — IAM Dashboard Mail
+ * Multi-account (Gmail + Resend), full CRUD, Agent Sam AI panel (Gemini-driven via D1 subagent profiles).
+ */
+import React, {
+  useCallback, useEffect, useMemo, useRef, useState,
+} from 'react';
 import {
-  Mail,
-  Star,
-  Archive,
-  Trash2,
-  Reply,
-  Forward,
-  Send,
-  RefreshCw,
-  ChevronLeft,
-  Search,
-  Plus,
-  X,
-  Paperclip,
-  Circle,
-  CheckCircle,
-  Tag,
-  Filter,
-  Inbox,
-  Clock,
+  Archive, Bot, ChevronLeft, ChevronRight, Circle, Clock,
+  Forward, Inbox, Mail, Paperclip, Plus, RefreshCw, Reply,
+  Search, Send, Settings, Star, Tag, Trash2, X, Zap,
+  CheckCircle, AlertTriangle, Filter, MoreHorizontal, Sparkles,
 } from 'lucide-react';
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface Account {
+  id: string;           // 'gmail' | 'resend' | 'platform'
+  label: string;
+  address: string;
+  provider: 'gmail' | 'resend' | 'platform';
+  connected: boolean;
+}
+
 interface Email {
-  id: string; from_address: string; to_address: string;
-  subject: string; date_received: string; is_read: number;
-  is_starred: number; is_archived: number; category?: string;
+  id: string;
+  from_address: string;
+  to_address: string;
+  subject: string;
+  date_received: string;
+  is_read: number;
+  is_starred: number;
+  is_archived: number;
+  category?: string;
   has_attachments: number;
 }
 
 interface EmailDetail {
-  email: Email & { metadata?: any };
+  email: Email & { metadata?: Record<string, unknown> };
   body: string | null;
   attachments: { id: string; filename: string; content_type: string; size: number }[];
   thread: Email[];
 }
 
 interface ComposeState {
-  from: string; to: string; subject: string;
-  body: string; template_id: string; reply_to: string;
+  from: string;
+  to: string;
+  subject: string;
+  body: string;
+  template_id: string;
+  reply_to: string;
+  in_reply_to: string;
+  thread_id: string;
+}
+
+interface AgentResult {
+  loading: boolean;
+  action: string;
+  result: Record<string, unknown> | null;
+  error: string | null;
+  model: string;
+  agent_name: string;
 }
 
 type Folder = 'inbox' | 'starred' | 'archived' | 'sent' | 'templates';
 
-type Sender = {
-  id: string;
-  address: string;
-  display_name?: string;
-  label?: string;
-  purpose?: string;
-};
-
-type Template = {
-  id: string;
-  name: string;
-  category?: string;
-  subject?: string;
-  variables?: string;
-  is_active?: number;
-};
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function initials(addr: string) {
   const s = String(addr || '').trim();
   if (!s) return '??';
   const base = s.includes('<') ? s.split('<')[0].trim() : s;
-  const parts = base.replace(/["']/g, '').split(/\s+/).filter(Boolean);
+  const parts = base.replace(/['"]/g, '').split(/\s+/).filter(Boolean);
   if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
-  if (base.includes('@')) return base.slice(0, 2).toUpperCase();
   return base.slice(0, 2).toUpperCase();
 }
 
-function avatarColor(addr: string) {
-  const c = String(addr || '').trim().toLowerCase().charCodeAt(0) || 0;
-  const palette = [
-    'var(--solar-cyan)',
-    'var(--solar-yellow)',
-    'var(--solar-orange)',
-    '#8b5cf6',
-    '#06b6d4',
-  ];
-  return palette[c % palette.length];
+function avatarColor(addr: string): string {
+  const palette = ['var(--solar-cyan)', 'var(--solar-yellow)', 'var(--solar-orange)', '#8b5cf6', '#06b6d4'];
+  return palette[(String(addr || '').trim().toLowerCase().charCodeAt(0) || 0) % palette.length];
+}
+
+function fmtDate(iso: string) {
+  if (!iso) return '';
+  const d = new Date(iso.includes('T') ? iso : iso + 'Z');
+  if (isNaN(d.getTime())) return iso;
+  const now = new Date();
+  if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const yest = new Date(now); yest.setDate(now.getDate() - 1);
+  if (d.toDateString() === yest.toDateString()) return 'Yesterday';
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
 function fmtSize(bytes: number) {
   const n = Number(bytes || 0);
-  if (!Number.isFinite(n) || n <= 0) return '—';
+  if (!isFinite(n) || n <= 0) return '—';
   const kb = n / 1024;
   if (kb < 1024) return `${Math.round(kb)} KB`;
-  const mb = kb / 1024;
-  if (mb < 1024) return `${Math.round(mb * 10) / 10} MB`;
-  const gb = mb / 1024;
-  return `${Math.round(gb * 10) / 10} GB`;
+  return `${(kb / 1024).toFixed(1)} MB`;
 }
 
-function isLikelyHtml(body: string) {
+function isHtml(body: string) {
   const s = body.trim();
-  if (!s) return false;
-  if (s.startsWith('<')) return true;
-  return /<html[\s>]|<body[\s>]|<div[\s>]|<p[\s>]/i.test(s);
+  return s.startsWith('<') || /<html[\s>]|<body[\s>]|<div[\s>]/i.test(s);
 }
 
-function fmtListDate(iso: string) {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '—';
-  const now = new Date();
-  const sameDay = d.toDateString() === now.toDateString();
-  if (sameDay) {
-    return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-  }
-  const diffDays = Math.floor((now.getTime() - d.getTime()) / (24 * 3600 * 1000));
-  if (diffDays >= 0 && diffDays < 7) {
-    return d.toLocaleDateString(undefined, { weekday: 'short' });
-  }
-  if (d.getFullYear() === now.getFullYear()) {
-    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-  }
-  return d.toLocaleDateString(undefined, { month: '2-digit', day: '2-digit', year: '2-digit' });
+const SIDEBAR_MIN = 160; const SIDEBAR_MAX = 340;
+const DETAIL_MIN = 300;  const DETAIL_MAX = 740;
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function Btn({ onClick, title, children, active = false, danger = false, small = false }:
+  { onClick: () => void; title?: string; children: React.ReactNode; active?: boolean; danger?: boolean; small?: boolean }) {
+  return (
+    <button type="button" title={title} onClick={onClick} style={{
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      gap: 6, height: small ? 28 : 32, padding: small ? '0 8px' : '0 12px',
+      borderRadius: 8, border: '1px solid var(--border-subtle)',
+      background: active ? 'var(--bg-hover)' : 'transparent',
+      color: danger ? 'var(--solar-orange)' : active ? 'var(--text-main)' : 'var(--text-muted)',
+      fontSize: small ? 11 : 12, fontWeight: 700, cursor: 'pointer',
+      transition: 'background 0.12s, color 0.12s',
+    }}
+      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--bg-hover)'; (e.currentTarget as HTMLElement).style.color = danger ? '#ef4444' : 'var(--text-main)'; }}
+      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = active ? 'var(--bg-hover)' : 'transparent'; (e.currentTarget as HTMLElement).style.color = danger ? 'var(--solar-orange)' : active ? 'var(--text-main)' : 'var(--text-muted)'; }}
+    >{children}</button>
+  );
 }
 
-function categoryBadgeStyle(category?: string) {
-  const c = String(category || '').toLowerCase();
-  if (c === 'inquiry') return { background: 'rgba(59,130,246,0.15)', color: '#60a5fa' };
-  if (c === 'support') return { background: 'rgba(234,179,8,0.15)', color: 'var(--solar-yellow)' };
-  if (c === 'spam') return { background: 'rgba(239,68,68,0.15)', color: 'var(--solar-red)' };
-  if (c === 'newsletter') return { background: 'rgba(139,92,246,0.15)', color: '#a78bfa' };
-  return { background: 'var(--bg-elevated)', color: 'var(--text-muted)' };
+function UrgencyBadge({ urgency }: { urgency: string }) {
+  const map: Record<string, { bg: string; label: string }> = {
+    critical: { bg: '#ef4444', label: 'Critical' },
+    high:     { bg: 'var(--solar-orange)', label: 'High' },
+    normal:   { bg: 'var(--solar-cyan)', label: 'Normal' },
+    low:      { bg: 'var(--text-muted)', label: 'Low' },
+    fyi:      { bg: '#8b5cf6', label: 'FYI' },
+  };
+  const s = map[String(urgency || '').toLowerCase()] || map.normal;
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', height: 18, padding: '0 7px', borderRadius: 99, background: s.bg + '22', color: s.bg, fontSize: 10, fontWeight: 800, letterSpacing: 0.4 }}>
+      {s.label}
+    </span>
+  );
 }
 
-interface Toast { id: number; msg: string; type: 'ok' | 'err'; }
-
-function useToast() {
-  const [toasts, setToasts] = useState<Toast[]>([]);
-  const add = useCallback((msg: string, type: 'ok' | 'err' = 'ok') => {
-    const id = Date.now() + Math.floor(Math.random() * 1000);
-    setToasts(p => [...p, { id, msg, type }]);
-    window.setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 3400);
-  }, []);
-  const remove = useCallback((id: number) => {
-    setToasts((p) => p.filter((t) => t.id !== id));
-  }, []);
-  return { toasts, add, remove };
-}
-
-function folderTitle(folder: Folder) {
-  if (folder === 'inbox') return 'Inbox';
-  if (folder === 'starred') return 'Starred';
-  if (folder === 'archived') return 'Archived';
-  if (folder === 'sent') return 'Sent';
-  return 'Templates';
-}
-
-const MAIL_SIDEBAR_W_KEY = 'iam_mail_sidebar_w';
-const MAIL_DETAIL_W_KEY = 'iam_mail_detail_w';
-const MAIL_SIDEBAR_MIN = 160;
-const MAIL_SIDEBAR_MAX = 360;
-const MAIL_DETAIL_MIN = 280;
-const MAIL_DETAIL_MAX = 720;
-const MAIL_RESIZE_HANDLE_W = 6;
-
-function clampMailPanel(n: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, Math.round(n)));
-}
-
-function readStoredMailWidth(key: string, fallback: number, min: number, max: number) {
-  if (typeof window === 'undefined') return fallback;
-  try {
-    const v = Number(localStorage.getItem(key));
-    if (Number.isFinite(v)) return clampMailPanel(v, min, max);
-  } catch {
-    /* ignore */
-  }
-  return fallback;
-}
-
-const styles = {
-  outer: {
-    display: 'flex',
-    height: '100%',
-    overflow: 'hidden',
-    background: 'var(--bg-app)',
-    color: 'var(--text-main)',
-    fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif',
-  } as React.CSSProperties,
-  sidebar: {
-    flexShrink: 0,
-    background: 'var(--bg-panel)',
-    borderRight: 'none',
-    display: 'flex',
-    flexDirection: 'column',
-    minHeight: 0,
-  } as React.CSSProperties,
-  center: {
-    flex: 1,
-    minWidth: 200,
-    borderRight: 'none',
-    display: 'flex',
-    flexDirection: 'column',
-    minHeight: 0,
-  } as React.CSSProperties,
-  detail: {
-    flexShrink: 0,
-    display: 'flex',
-    flexDirection: 'column',
-    minHeight: 0,
-    background: 'var(--bg-app)',
-  } as React.CSSProperties,
-  resizeHandle: {
-    flexShrink: 0,
-    width: MAIL_RESIZE_HANDLE_W,
-    cursor: 'col-resize',
-    touchAction: 'none',
-    position: 'relative',
-    zIndex: 2,
-    background: 'transparent',
-  } as React.CSSProperties,
-};
+// ─── Main component ───────────────────────────────────────────────────────────
 
 export function MailPage() {
+  // Panels
+  const [sidebarW, setSidebarW] = useState(() => {
+    try { return Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, Number(localStorage.getItem('mail_sidebar_w') || 220))); } catch { return 220; }
+  });
+  const [detailW, setDetailW] = useState(() => {
+    try { return Math.min(DETAIL_MAX, Math.max(DETAIL_MIN, Number(localStorage.getItem('mail_detail_w') || 460))); } catch { return 460; }
+  });
+  const resizingRef = useRef<{ panel: 'sidebar' | 'detail'; startX: number; startW: number } | null>(null);
+
+  // Accounts
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [activeAccount, setActiveAccount] = useState<string>('all');
+
+  // Email state
   const [folder, setFolder] = useState<Folder>('inbox');
   const [emails, setEmails] = useState<Email[]>([]);
-  const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
-  const [emailDetail, setEmailDetail] = useState<EmailDetail | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [stats, setStats] = useState<{ total: number; unread: number; starred: number; categories: Array<{ category: string; count: number }> }>(
-    { total: 0, unread: 0, starred: 0, categories: [] },
-  );
-  const [senders, setSenders] = useState<Sender[]>([]);
-  const [templates, setTemplates] = useState<Template[]>([]);
+  const [loadingList, setLoadingList] = useState(false);
+  const [selected, setSelected] = useState<Email | null>(null);
+  const [detail, setDetail] = useState<EmailDetail | null>(null);
+  const [loadingDetail, setLoadingDetail] = useState(false);
   const [search, setSearch] = useState('');
-  const [composeOpen, setComposeOpen] = useState(false);
-  const [gmailConnected, setGmailConnected] = useState<boolean | null>(null);
-  const [gmailAccount, setGmailAccount] = useState<string | null>(null);
-  const [composing, setComposing] = useState<ComposeState>({
-    from: '',
-    to: '',
-    subject: '',
-    body: '',
-    template_id: '',
-    reply_to: '',
+  const [stats, setStats] = useState({ total: 0, unread: 0, starred: 0 });
+
+  // Compose
+  const [composing, setComposing] = useState(false);
+  const [compose, setCompose] = useState<ComposeState>({
+    from: '', to: '', subject: '', body: '', template_id: '', reply_to: '', in_reply_to: '', thread_id: '',
   });
+  const [senders, setSenders] = useState<{ id: string; address: string; label?: string }[]>([]);
   const [sending, setSending] = useState(false);
-  const [sendError, setSendError] = useState<string | null>(null);
-  const [filterCategory, setFilterCategory] = useState<string | null>(null);
-  const [threadOpen, setThreadOpen] = useState(false);
-  const [sidebarWidth, setSidebarWidth] = useState(() => readStoredMailWidth(MAIL_SIDEBAR_W_KEY, 220, MAIL_SIDEBAR_MIN, MAIL_SIDEBAR_MAX));
-  const [detailWidth, setDetailWidth] = useState(() => readStoredMailWidth(MAIL_DETAIL_W_KEY, 440, MAIL_DETAIL_MIN, MAIL_DETAIL_MAX));
-  const { toasts, add: toast, remove: removeToast } = useToast();
+  const [sendResult, setSendResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
-  const detailAbortRef = useRef<AbortController | null>(null);
-  const listAbortRef = useRef<AbortController | null>(null);
+  // Agent Sam AI
+  const [agentOpen, setAgentOpen] = useState(false);
+  const [agent, setAgent] = useState<AgentResult>({ loading: false, action: '', result: null, error: null, model: '', agent_name: '' });
 
-  const startPanelResize = useCallback((edge: 'sidebar' | 'detail', e: React.PointerEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    const target = e.currentTarget;
-    const pointerId = e.pointerId;
+  // ── Load accounts (Gmail status + Resend senders) ──────────────────────────
+  const loadAccounts = useCallback(async () => {
+    const accs: Account[] = [];
     try {
-      target.setPointerCapture(pointerId);
-    } catch {
-      /* ignore */
-    }
-    document.body.classList.add('is-resizing');
-    const startX = e.clientX;
-    const startSidebar = sidebarWidth;
-    const startDetail = detailWidth;
-    let done = false;
-
-    const finish = () => {
-      if (done) return;
-      done = true;
-      document.body.classList.remove('is-resizing');
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-      window.removeEventListener('pointercancel', onUp);
-      try {
-        target.releasePointerCapture(pointerId);
-      } catch {
-        /* ignore */
-      }
-    };
-
-    const onMove = (ev: PointerEvent) => {
-      if (ev.pointerId !== pointerId) return;
-      const dx = ev.clientX - startX;
-      if (edge === 'sidebar') {
-        const next = clampMailPanel(startSidebar + dx, MAIL_SIDEBAR_MIN, MAIL_SIDEBAR_MAX);
-        setSidebarWidth(next);
-        try {
-          localStorage.setItem(MAIL_SIDEBAR_W_KEY, String(next));
-        } catch {
-          /* ignore */
+      const gmailRes = await fetch('/api/mail/gmail/status', { credentials: 'same-origin' });
+      if (gmailRes.ok) {
+        const gd = await gmailRes.json();
+        if (gd.connected && gd.account) {
+          accs.push({ id: 'gmail', label: 'Gmail', address: gd.account, provider: 'gmail', connected: true });
+        } else {
+          accs.push({ id: 'gmail', label: 'Gmail', address: '', provider: 'gmail', connected: false });
         }
-        return;
       }
-      const next = clampMailPanel(startDetail - dx, MAIL_DETAIL_MIN, MAIL_DETAIL_MAX);
-      setDetailWidth(next);
-      try {
-        localStorage.setItem(MAIL_DETAIL_W_KEY, String(next));
-      } catch {
-        /* ignore */
+    } catch { /* skip */ }
+    try {
+      const sRes = await fetch('/api/mail/senders', { credentials: 'same-origin' });
+      if (sRes.ok) {
+        const sd = await sRes.json();
+        setSenders(sd.senders || []);
+        for (const s of sd.senders || []) {
+          if (s.purpose !== 'gmail') {
+            accs.push({ id: s.id, label: s.label || 'Resend', address: s.address, provider: 'resend', connected: true });
+          }
+        }
       }
-    };
-
-    const onUp = (ev: PointerEvent) => {
-      if (ev.pointerId !== pointerId) return;
-      finish();
-    };
-
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
-    window.addEventListener('pointercancel', onUp);
-  }, [sidebarWidth, detailWidth]);
-
-  const categories = useMemo(() => {
-    const rows = Array.isArray(stats.categories) ? stats.categories : [];
-    const cleaned = rows
-      .filter((r) => r && typeof (r as any).count !== 'undefined')
-      .map((r) => ({ category: String((r as any).category || '').trim(), count: Number((r as any).count || 0) }))
-      .filter((r) => r.category);
-    return cleaned.sort((a, b) => b.count - a.count);
-  }, [stats.categories]);
-
-  const filteredEmails = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    const cat = filterCategory ? String(filterCategory).toLowerCase() : null;
-    let list = emails;
-    if (cat) list = list.filter((e) => String(e.category || '').toLowerCase() === cat);
-    if (!q) return list;
-    return list.filter((e) => {
-      const f = String(e.from_address || '').toLowerCase();
-      const s = String(e.subject || '').toLowerCase();
-      return f.includes(q) || s.includes(q);
-    });
-  }, [emails, search, filterCategory]);
-
-  const setFolderAndReset = useCallback((f: Folder) => {
-    setFolder(f);
-    setPage(1);
-    setSearch('');
-    setFilterCategory(null);
-    setSelectedEmail(null);
-    setEmailDetail(null);
-    setThreadOpen(false);
+    } catch { /* skip */ }
+    setAccounts(accs);
+    if (accs.length === 0) {
+      setAccounts([{ id: 'platform', label: 'Platform', address: '', provider: 'platform', connected: true }]);
+    }
   }, []);
+
+  // ── Load emails ────────────────────────────────────────────────────────────
+  const loadEmails = useCallback(async () => {
+    setLoadingList(true);
+    try {
+      const endpoint = folder === 'sent' ? '/api/mail/sent' : `/api/mail/${folder}`;
+      const res = await fetch(endpoint, { credentials: 'same-origin' });
+      if (!res.ok) throw new Error(`${res.status}`);
+      const data = await res.json();
+      const list: Email[] = data.emails || [];
+      setEmails(list);
+      setStats(s => ({ ...s, total: data.total ?? list.length, unread: data.unread_count ?? s.unread }));
+    } catch { setEmails([]); }
+    finally { setLoadingList(false); }
+  }, [folder]);
 
   const loadStats = useCallback(async () => {
     try {
-      const r = await fetch('/api/mail/stats', { credentials: 'same-origin' });
-      const d = await r.json().catch(() => null);
-      if (r.ok && d) {
-        setStats({
-          total: Number(d.total || 0),
-          unread: Number(d.unread || 0),
-          starred: Number(d.starred || 0),
-          categories: Array.isArray(d.categories) ? d.categories : [],
-        });
-      }
-    } catch {
-      /* ignore */
-    }
+      const res = await fetch('/api/mail/stats', { credentials: 'same-origin' });
+      if (res.ok) { const d = await res.json(); setStats({ total: d.total, unread: d.unread, starred: d.starred }); }
+    } catch { /* skip */ }
   }, []);
 
-  const loadSenders = useCallback(async () => {
+  useEffect(() => { loadAccounts(); }, [loadAccounts]);
+  useEffect(() => { loadEmails(); loadStats(); setSelected(null); setDetail(null); }, [folder]);
+
+  // ── Load email detail ──────────────────────────────────────────────────────
+  const openEmail = useCallback(async (email: Email) => {
+    setSelected(email);
+    setDetail(null);
+    setAgent(a => ({ ...a, result: null, error: null }));
+    setLoadingDetail(true);
     try {
-      const r = await fetch('/api/mail/senders', { credentials: 'same-origin' });
-      const d = await r.json().catch(() => null);
-      if (r.ok && d && Array.isArray(d.senders)) {
-        const list = d.senders as Sender[];
-        setSenders(list);
-        setComposing((p) => (p.from ? p : { ...p, from: list?.[0]?.address || '' }));
-      }
-    } catch {
-      /* ignore */
-    }
+      const res = await fetch(`/api/mail/email/${encodeURIComponent(email.id)}`, { credentials: 'same-origin' });
+      if (!res.ok) throw new Error(`${res.status}`);
+      const d = await res.json();
+      setDetail(d);
+      // Mark read locally
+      if (!email.is_read) setEmails(prev => prev.map(e => e.id === email.id ? { ...e, is_read: 1 } : e));
+    } catch { /* show error in detail */ }
+    finally { setLoadingDetail(false); }
   }, []);
 
-  const loadTemplates = useCallback(async () => {
-    try {
-      const r = await fetch('/api/mail/templates', { credentials: 'same-origin' });
-      const d = await r.json().catch(() => null);
-      if (r.ok && d && Array.isArray(d.templates)) {
-        setTemplates(d.templates as Template[]);
-      }
-    } catch {
-      /* ignore */
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadSenders();
-    void loadTemplates();
-    void loadStats();
-    (async () => {
-      try {
-        const r = await fetch('/api/mail/gmail/status', { credentials: 'same-origin' });
-        const d = await r.json().catch(() => null);
-        if (r.ok && d) {
-          setGmailConnected(!!d.connected);
-          setGmailAccount(d.account ? String(d.account) : null);
-        } else {
-          setGmailConnected(false);
-          setGmailAccount(null);
-        }
-      } catch {
-        setGmailConnected(false);
-        setGmailAccount(null);
-      }
-    })();
-  }, [loadSenders, loadTemplates, loadStats]);
-
-  const loadFolder = useCallback(async () => {
-    if (listAbortRef.current) listAbortRef.current.abort();
-    const ac = new AbortController();
-    listAbortRef.current = ac;
-
-    setLoading(true);
-    setSendError(null);
-    try {
-      const qs = new URLSearchParams();
-      if (page > 1) qs.set('page', String(page));
-      if (folder === 'inbox' && filterCategory) qs.set('category', filterCategory);
-      if (folder === 'inbox' && filterCategory == null && search.trim() && false) {
-        // client side search only (no server query param)
-      }
-
-      let endpoint = '/api/mail/inbox';
-      if (folder === 'starred') endpoint = '/api/mail/starred';
-      if (folder === 'archived') endpoint = '/api/mail/archived';
-      if (folder === 'sent') endpoint = '/api/mail/sent';
-      if (folder === 'templates') endpoint = '/api/mail/templates';
-
-      const url = qs.toString() ? `${endpoint}?${qs}` : endpoint;
-      const r = await fetch(url, { credentials: 'same-origin', signal: ac.signal });
-      const d = await r.json().catch(() => null);
-      if (!r.ok) throw new Error((d && d.error) ? String(d.error) : `Request failed (${r.status})`);
-
-      if (folder === 'templates') {
-        const tpls: Template[] = Array.isArray(d?.templates) ? d.templates : [];
-        setTemplates(tpls);
-        setEmails([]);
-        setTotal(tpls.length);
-        setUnreadCount(0);
-      } else if (folder === 'sent') {
-        const rows = Array.isArray(d?.emails) ? d.emails : [];
-        // Map sent logs into Email shape for list rendering.
-        const mapped: Email[] = rows.map((x: any) => ({
-          id: String(x.id || ''),
-          from_address: String(x.from_address || ''),
-          to_address: String(x.to_address || ''),
-          subject: String(x.subject || ''),
-          date_received: String(x.created_at || ''),
-          is_read: 1,
-          is_starred: 0,
-          is_archived: 0,
-          category: String(x.status || 'sent'),
-          has_attachments: 0,
-        })).filter((e: Email) => e.id);
-        setEmails(mapped);
-        setTotal(mapped.length);
-        setUnreadCount(0);
-      } else {
-        setEmails(Array.isArray(d?.emails) ? d.emails : []);
-        setTotal(Number(d?.total || 0));
-        if (folder === 'inbox') setUnreadCount(Number(d?.unread_count || 0));
-      }
-
-      void loadStats();
-    } catch (e: any) {
-      if (String(e?.name || '') === 'AbortError') return;
-      toast(String(e?.message || 'Failed to load mail'), 'err');
-      setEmails([]);
-      setTotal(0);
-    } finally {
-      setLoading(false);
-    }
-  }, [folder, page, filterCategory, toast, loadStats, search]);
-
-  useEffect(() => {
-    void loadFolder();
-    return () => {
-      if (listAbortRef.current) listAbortRef.current.abort();
-    };
-  }, [loadFolder]);
-
-  useEffect(() => {
-    if (!selectedEmail) {
-      setEmailDetail(null);
-      setThreadOpen(false);
-      return;
-    }
-
-    if (folder === 'templates') {
-      setEmailDetail(null);
-      setThreadOpen(false);
-      return;
-    }
-
-    if (detailAbortRef.current) detailAbortRef.current.abort();
-    const ac = new AbortController();
-    detailAbortRef.current = ac;
-
-    setDetailLoading(true);
-    setSendError(null);
-    (async () => {
-      try {
-        const r = await fetch(`/api/mail/email/${encodeURIComponent(selectedEmail.id)}`, { credentials: 'same-origin', signal: ac.signal });
-        const d = await r.json().catch(() => null);
-        if (!r.ok) throw new Error((d && d.error) ? String(d.error) : `Request failed (${r.status})`);
-        setEmailDetail(d as EmailDetail);
-        setEmails((prev) => prev.map((e) => (e.id === selectedEmail.id ? { ...e, is_read: 1 } : e)));
-      } catch (e: any) {
-        if (String(e?.name || '') === 'AbortError') return;
-        toast(String(e?.message || 'Failed to load email'), 'err');
-        setEmailDetail(null);
-      } finally {
-        setDetailLoading(false);
-      }
-    })();
-
-    return () => {
-      if (detailAbortRef.current) detailAbortRef.current.abort();
-    };
-  }, [selectedEmail, folder, toast]);
-
-  const reload = useCallback(() => {
-    void loadFolder();
-    if (selectedEmail && folder !== 'templates') {
-      setSelectedEmail((p) => (p ? { ...p } : p));
-    }
-  }, [loadFolder, selectedEmail, folder]);
-
-  const toggleStar = useCallback(async (email: Email) => {
-    const next = email.is_starred ? 0 : 1;
-    setEmails((prev) => prev.map((e) => (e.id === email.id ? { ...e, is_starred: next } : e)));
-    try {
-      const r = await fetch(`/api/mail/email/${encodeURIComponent(email.id)}`, {
-        method: 'PATCH',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ is_starred: next }),
-      });
-      if (!r.ok) {
-        const d = await r.json().catch(() => ({}));
-        throw new Error(String((d as any)?.error || 'Failed to update'));
-      }
-      void loadStats();
-    } catch (e: any) {
-      setEmails((prev) => prev.map((e) => (e.id === email.id ? { ...e, is_starred: email.is_starred } : e)));
-      toast(String(e?.message || 'Failed to update star'), 'err');
-    }
-  }, [toast, loadStats]);
+  // ── CRUD ops ───────────────────────────────────────────────────────────────
+  const patchEmail = useCallback(async (id: string, patch: Partial<Email>) => {
+    setEmails(prev => prev.map(e => e.id === id ? { ...e, ...patch } : e));
+    if (selected?.id === id) setSelected(s => s ? { ...s, ...patch } : s);
+    await fetch(`/api/mail/email/${encodeURIComponent(id)}`, {
+      method: 'PATCH', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    }).catch(() => {});
+  }, [selected]);
 
   const archiveEmail = useCallback(async (id: string) => {
-    const prev = emails;
-    setEmails((p) => p.filter((e) => e.id !== id));
-    if (selectedEmail?.id === id) {
-      setSelectedEmail(null);
-      setEmailDetail(null);
-    }
-    try {
-      const r = await fetch(`/api/mail/email/${encodeURIComponent(id)}`, {
-        method: 'PATCH',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ is_archived: 1 }),
-      });
-      if (!r.ok) throw new Error('Failed to archive');
-      void loadStats();
-      if (folder === 'inbox') setUnreadCount((c) => Math.max(0, c - 1));
-    } catch (e: any) {
-      setEmails(prev);
-      toast(String(e?.message || 'Failed to archive'), 'err');
-    }
-  }, [emails, selectedEmail, toast, folder, loadStats]);
+    await patchEmail(id, { is_archived: 1 });
+    if (selected?.id === id) { setSelected(null); setDetail(null); }
+  }, [patchEmail, selected]);
 
   const deleteEmail = useCallback(async (id: string) => {
-    const prev = emails;
-    setEmails((p) => p.filter((e) => e.id !== id));
-    if (selectedEmail?.id === id) {
-      setSelectedEmail(null);
-      setEmailDetail(null);
-    }
-    try {
-      const r = await fetch(`/api/mail/email/${encodeURIComponent(id)}`, { method: 'DELETE', credentials: 'same-origin' });
-      if (!r.ok) throw new Error('Failed to delete');
-      void loadStats();
-    } catch (e: any) {
-      setEmails(prev);
-      toast(String(e?.message || 'Failed to delete'), 'err');
-    }
-  }, [emails, selectedEmail, toast, loadStats]);
+    await fetch(`/api/mail/email/${encodeURIComponent(id)}`, { method: 'DELETE', credentials: 'same-origin' }).catch(() => {});
+    setEmails(prev => prev.filter(e => e.id !== id));
+    if (selected?.id === id) { setSelected(null); setDetail(null); }
+  }, [selected]);
 
-  const openCompose = useCallback((seed?: Partial<ComposeState>) => {
-    setSendError(null);
-    setComposeOpen(true);
-    setComposing((p) => ({
-      from: p.from || senders?.[0]?.address || '',
-      to: '',
-      subject: '',
-      body: '',
-      template_id: '',
-      reply_to: '',
-      ...p,
-      ...seed,
-    }));
-  }, [senders]);
+  const toggleStar = useCallback((email: Email) => {
+    patchEmail(email.id, { is_starred: email.is_starred ? 0 : 1 });
+  }, [patchEmail]);
 
-  const openReply = useCallback(() => {
-    if (!emailDetail?.email) return;
-    const em = emailDetail.email;
-    openCompose({
-      to: String(em.from_address || ''),
-      subject: `Re: ${String(em.subject || '').trim()}`,
-      reply_to: (emailDetail as any)?.email?.message_id ? String((emailDetail as any).email.message_id) : (composing.reply_to || ''),
-    });
-  }, [emailDetail, openCompose, composing.reply_to]);
-
-  const openForward = useCallback(() => {
-    if (!emailDetail?.email) return;
-    const em = emailDetail.email;
-    openCompose({
-      subject: `Fwd: ${String(em.subject || '').trim()}`,
-      body: emailDetail.body ? `\n\n--- Forwarded message ---\nFrom: ${em.from_address}\nTo: ${em.to_address}\nSubject: ${em.subject}\n\n${emailDetail.body}` : '',
-    });
-  }, [emailDetail, openCompose]);
-
-  const applyTemplateToCompose = useCallback(async (templateId: string) => {
-    setComposing((p) => ({ ...p, template_id: templateId }));
-    if (!templateId) return;
-
-    // We don't have a template detail endpoint; use /api/mail/send with template_id later.
-    const tpl = templates.find((t) => t.id === templateId);
-    if (tpl?.subject && !composing.subject.trim()) {
-      setComposing((p) => ({ ...p, subject: String(tpl.subject || '').trim() }));
-    }
-  }, [templates, composing.subject]);
-
-  const saveDraft = useCallback(async () => {
-    setSending(true);
-    setSendError(null);
-    try {
-      const r = await fetch('/api/mail/draft', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          from: composing.from,
-          to: composing.to,
-          subject: composing.subject,
-          html: composing.body,
-          text: composing.body,
-        }),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(String((d as any)?.error || 'Draft save failed'));
-      toast('Draft saved', 'ok');
-      setComposeOpen(false);
-      setComposing((p) => ({ ...p, to: '', subject: '', body: '', template_id: '', reply_to: '' }));
-      setFolder('sent');
-      setSelectedEmail(null);
-      setEmailDetail(null);
-      void loadFolder();
-    } catch (e: any) {
-      const msg = String(e?.message || 'Draft save failed');
-      setSendError(msg);
-      toast(msg, 'err');
-    } finally {
-      setSending(false);
-    }
-  }, [composing, toast, loadFolder]);
-
+  // ── Send ───────────────────────────────────────────────────────────────────
   const sendEmail = useCallback(async () => {
-    setSending(true);
-    setSendError(null);
+    if (!compose.to || !compose.subject) { setSendResult({ ok: false, msg: 'To and Subject required' }); return; }
+    setSending(true); setSendResult(null);
     try {
-      const r = await fetch('/api/mail/send', {
-        method: 'POST',
-        credentials: 'same-origin',
+      const provider = compose.from.includes('@gmail') || compose.from.includes('gmail') ? 'gmail' : 'resend';
+      const res = await fetch('/api/mail/send', {
+        method: 'POST', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          from: composing.from,
-          to: composing.to,
-          subject: composing.subject,
-          html: composing.body,
-          text: composing.body,
-          template_id: composing.template_id || undefined,
-          vars: {},
-          reply_to: composing.reply_to || undefined,
+          provider,
+          from: compose.from || undefined,
+          to: compose.to,
+          subject: compose.subject,
+          html: compose.body.includes('<') ? compose.body : `<p>${compose.body.replace(/\n/g, '<br>')}</p>`,
+          text: compose.body,
+          in_reply_to: compose.in_reply_to || undefined,
+          thread_id: compose.thread_id || undefined,
         }),
       });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(String((d as any)?.error || 'Send failed'));
-      toast('Email sent', 'ok');
-      setComposeOpen(false);
-      setComposing((p) => ({ ...p, to: '', subject: '', body: '', template_id: '', reply_to: '' }));
-      setFolder('sent');
-      setSelectedEmail(null);
-      setEmailDetail(null);
-      void loadFolder();
-    } catch (e: any) {
-      const msg = String(e?.message || 'Send failed');
-      setSendError(msg);
-      toast(msg, 'err');
-    } finally {
-      setSending(false);
+      const d = await res.json();
+      if (!res.ok || !d.ok) throw new Error(d.error || 'Send failed');
+      setSendResult({ ok: true, msg: `Sent via ${d.provider || provider}` });
+      setTimeout(() => { setComposing(false); setSendResult(null); setCompose(c => ({ ...c, to: '', subject: '', body: '', in_reply_to: '', thread_id: '' })); }, 1800);
+    } catch (e: unknown) {
+      setSendResult({ ok: false, msg: String((e as Error).message || e) });
     }
-  }, [composing, toast, loadFolder]);
+    setSending(false);
+  }, [compose]);
 
-  const ComposeButtonIcon = Mail;
+  // ── Draft reply shortcut ───────────────────────────────────────────────────
+  const startReply = useCallback((email: Email, d: EmailDetail | null) => {
+    const meta = d?.email?.metadata as Record<string, string> | undefined;
+    setCompose(c => ({
+      ...c,
+      to: email.from_address,
+      subject: email.subject.startsWith('Re:') ? email.subject : `Re: ${email.subject}`,
+      body: '',
+      in_reply_to: meta?.message_id || '',
+      thread_id: meta?.thread_id || '',
+    }));
+    setComposing(true);
+  }, []);
 
+  // ── Agent Sam ──────────────────────────────────────────────────────────────
+  const callAgent = useCallback(async (action: string, instruction?: string) => {
+    if (!selected && action !== 'triage_inbox') return;
+    setAgent({ loading: true, action, result: null, error: null, model: '', agent_name: '' });
+    try {
+      const body: Record<string, unknown> = { action };
+      if (instruction) body.instruction = instruction;
+      if (action === 'triage_inbox') {
+        body.emails = emails.slice(0, 30).map(e => ({
+          id: e.id, subject: e.subject,
+          from: e.from_address, preview: e.subject,
+          date: e.date_received, is_read: e.is_read,
+        }));
+      } else {
+        body.email = selected;
+        body.thread = detail?.thread || [];
+        if (detail?.body) body.email = { ...selected, body_preview: detail.body.slice(0, 3000) };
+      }
+      const res = await fetch('/api/mail/agent', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const d = await res.json();
+      if (!res.ok || !d.ok) throw new Error(d.error || 'Agent error');
+      setAgent({ loading: false, action, result: d.result, error: null, model: d.model, agent_name: d.agent_name });
+    } catch (e: unknown) {
+      setAgent(a => ({ ...a, loading: false, error: String((e as Error).message || e) }));
+    }
+  }, [selected, detail, emails]);
+
+  // ── Copy drafted body to compose ──────────────────────────────────────────
+  const useAgentDraft = useCallback(() => {
+    if (!agent.result) return;
+    const r = agent.result as Record<string, string>;
+    setCompose(c => ({
+      ...c,
+      subject: r.subject || c.subject,
+      body: r.body_text || r.body_html || c.body,
+    }));
+    setComposing(true);
+  }, [agent.result]);
+
+  // ── Panel resize ───────────────────────────────────────────────────────────
+  const startResize = useCallback((panel: 'sidebar' | 'detail', e: React.PointerEvent) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    resizingRef.current = { panel, startX: e.clientX, startW: panel === 'sidebar' ? sidebarW : detailW };
+  }, [sidebarW, detailW]);
+
+  useEffect(() => {
+    const move = (e: PointerEvent) => {
+      const r = resizingRef.current;
+      if (!r) return;
+      const dx = e.clientX - r.startX;
+      if (r.panel === 'sidebar') {
+        const w = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, r.startW + dx));
+        setSidebarW(w);
+        try { localStorage.setItem('mail_sidebar_w', String(w)); } catch {}
+      } else {
+        const w = Math.min(DETAIL_MAX, Math.max(DETAIL_MIN, r.startW - dx));
+        setDetailW(w);
+        try { localStorage.setItem('mail_detail_w', String(w)); } catch {}
+      }
+    };
+    const up = () => { resizingRef.current = null; };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    return () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+  }, []);
+
+  // ── Filtered email list ────────────────────────────────────────────────────
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    return q ? emails.filter(e =>
+      e.from_address.toLowerCase().includes(q) ||
+      e.subject.toLowerCase().includes(q) ||
+      (e.to_address || '').toLowerCase().includes(q)
+    ) : emails;
+  }, [emails, search]);
+
+  const FOLDERS: { id: Folder; label: string; icon: React.ReactNode }[] = [
+    { id: 'inbox', label: 'Inbox', icon: <Inbox size={14} /> },
+    { id: 'starred', label: 'Starred', icon: <Star size={14} /> },
+    { id: 'sent', label: 'Sent', icon: <Send size={14} /> },
+    { id: 'archived', label: 'Archived', icon: <Archive size={14} /> },
+  ];
+
+  // ─── Render ────────────────────────────────────────────────────────────────
   return (
-    <div style={styles.outer}>
-      {/* LEFT SIDEBAR */}
-      <div style={{ ...styles.sidebar, width: sidebarWidth }}>
-        <div style={{ padding: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <button
-            type="button"
-            onClick={() => openCompose()}
-            style={{
-              flex: 1,
-              height: 38,
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 8,
-              border: '1px solid rgba(0,0,0,0)',
-              borderRadius: 10,
-              cursor: 'pointer',
-              background: 'var(--solar-cyan)',
-              color: '#fff',
-              fontWeight: 700,
-              fontSize: 12,
-              letterSpacing: 0.3,
-            }}
-          >
-            <ComposeButtonIcon size={16} strokeWidth={1.75} />
-            Compose
-          </button>
-          <button
-            type="button"
-            title="Refresh"
-            onClick={reload}
-            style={{
-              width: 38,
-              height: 38,
-              borderRadius: 10,
-              border: '1px solid var(--border-subtle)',
-              background: 'transparent',
-              cursor: 'pointer',
-              color: 'var(--text-muted)',
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <RefreshCw size={16} strokeWidth={1.75} />
-          </button>
-        </div>
+    <div style={{ display: 'flex', height: '100%', minHeight: 0, background: 'var(--bg-app)', color: 'var(--text-main)', fontFamily: 'var(--font-sans)', overflow: 'hidden', userSelect: 'none' }}>
 
-        <div style={{ padding: '6px 0', flex: '1 1 auto', overflowY: 'auto' }}>
-          {([
-            { key: 'inbox', label: 'Inbox', icon: Inbox },
-            { key: 'starred', label: 'Starred', icon: Star },
-            { key: 'archived', label: 'Archived', icon: Archive },
-            { key: 'sent', label: 'Sent', icon: Send },
-            { key: 'templates', label: 'Templates', icon: Clock },
-          ] as Array<{ key: Folder; label: string; icon: any }>).map((item) => {
-            const active = folder === item.key;
-            const Icon = item.icon;
-            return (
-              <div
-                key={item.key}
-                onClick={() => setFolderAndReset(item.key)}
-                style={{
-                  padding: '10px 16px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 10,
-                  borderLeft: active ? '3px solid var(--solar-cyan)' : '3px solid transparent',
-                  background: active ? 'var(--bg-hover)' : 'transparent',
-                  color: active ? 'var(--solar-cyan)' : 'var(--text-muted)',
-                  userSelect: 'none',
-                }}
-                onMouseEnter={(e) => { if (!active) (e.currentTarget as HTMLDivElement).style.background = 'var(--bg-hover)'; }}
-                onMouseLeave={(e) => { if (!active) (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
-              >
-                <Icon size={16} strokeWidth={1.75} />
-                <div style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: active ? 700 : 600 }}>
-                  {item.label}
-                </div>
-                {item.key === 'inbox' && unreadCount > 0 && (
-                  <div
-                    style={{
-                      fontSize: 10,
-                      fontWeight: 800,
-                      background: 'rgba(0,255,255,0.15)',
-                      color: 'var(--solar-cyan)',
-                      padding: '2px 8px',
-                      borderRadius: 999,
-                      border: '1px solid var(--border-subtle)',
-                    }}
-                  >
-                    {unreadCount}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+      {/* ── LEFT SIDEBAR ────────────────────────────────────────────────── */}
+      <div style={{ width: sidebarW, minWidth: SIDEBAR_MIN, flexShrink: 0, display: 'flex', flexDirection: 'column', borderRight: '1px solid var(--border-subtle)', background: 'var(--bg-sidebar, var(--bg-elevated))', overflow: 'hidden' }}>
 
-        <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border-subtle)', color: 'var(--text-muted)', fontSize: 11, display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div>{stats.total} total · {stats.unread} unread</div>
-          {gmailConnected === false && (
-            <a
-              href="/api/mail/gmail/start"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                height: 32,
-                borderRadius: 10,
-                border: '1px solid var(--border-subtle)',
-                background: 'var(--bg-elevated)',
-                color: 'var(--text-main)',
-                fontWeight: 800,
-                fontSize: 11,
-                textDecoration: 'none',
-              }}
-            >
-              Connect Gmail
-            </a>
-          )}
-          {gmailConnected === true && gmailAccount && (
-            <div style={{ fontSize: 10, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              Gmail: <span style={{ color: 'var(--text-main)', fontWeight: 800 }}>{gmailAccount}</span>
+        {/* Header */}
+        <div style={{ padding: '14px 14px 10px', borderBottom: '1px solid var(--border-subtle)', flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+            <span style={{ fontSize: 13, fontWeight: 800, letterSpacing: 0.1 }}>Mail</span>
+            <div style={{ display: 'flex', gap: 4 }}>
+              <Btn onClick={() => { loadEmails(); loadStats(); }} title="Refresh" small><RefreshCw size={13} /></Btn>
+              <Btn onClick={() => { setComposing(true); setCompose(c => ({ ...c, to: '', subject: '', body: '' })); }} title="Compose" small><Plus size={13} />Compose</Btn>
             </div>
-          )}
-        </div>
-      </div>
-
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize mail folders panel"
-        title="Drag to resize folders panel"
-        style={styles.resizeHandle}
-        onPointerDown={(e) => startPanelResize('sidebar', e)}
-      >
-        <span
-          aria-hidden
-          style={{
-            pointerEvents: 'none',
-            position: 'absolute',
-            inset: '0 2px',
-            borderLeft: '1px solid var(--border-subtle)',
-          }}
-        />
-      </div>
-
-      {/* CENTER LIST */}
-      <div style={styles.center}>
-        <div
-          style={{
-            height: 48,
-            flexShrink: 0,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            padding: '0 12px 0 16px',
-            borderBottom: '1px solid var(--border-subtle)',
-            background: 'var(--bg-app)',
-          }}
-        >
-          <div style={{ fontSize: 13, fontWeight: 800, letterSpacing: 0.2 }}>
-            {folderTitle(folder)}
           </div>
 
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div style={{ position: 'relative', width: 240, maxWidth: '42vw' }}>
-              <Search size={14} strokeWidth={1.75} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search from/subject…"
-                style={{
-                  width: '100%',
-                  height: 32,
-                  padding: '0 10px 0 32px',
-                  background: 'var(--bg-elevated)',
-                  border: '1px solid var(--border-subtle)',
-                  borderRadius: 10,
-                  color: 'var(--text-main)',
-                  outline: 'none',
-                  fontSize: 12,
-                }}
-              />
-            </div>
-            <button
-              type="button"
-              title="Compose"
-              onClick={() => openCompose()}
-              style={{
-                width: 32,
-                height: 32,
-                borderRadius: 10,
-                border: '1px solid var(--border-subtle)',
-                background: 'var(--bg-elevated)',
-                cursor: 'pointer',
-                color: 'var(--text-muted)',
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <Plus size={16} strokeWidth={1.75} />
+          {/* Account switcher */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <button type="button" onClick={() => setActiveAccount('all')} style={{ display: 'flex', alignItems: 'center', gap: 8, height: 28, padding: '0 8px', borderRadius: 7, border: 'none', background: activeAccount === 'all' ? 'var(--bg-hover)' : 'transparent', color: 'var(--text-main)', fontSize: 11, fontWeight: activeAccount === 'all' ? 800 : 500, cursor: 'pointer', textAlign: 'left', width: '100%' }}>
+              <Mail size={12} style={{ color: 'var(--solar-cyan)', flexShrink: 0 }} />All accounts
             </button>
-          </div>
-        </div>
-
-        {categories.length > 0 && folder === 'inbox' && (
-          <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--text-muted)', fontSize: 11 }}>
-              <Filter size={14} strokeWidth={1.75} />
-              Category
-            </div>
-            <button
-              type="button"
-              onClick={() => setFilterCategory(null)}
-              style={{
-                fontSize: 10,
-                padding: '2px 8px',
-                borderRadius: 999,
-                border: '1px solid var(--border-subtle)',
-                background: filterCategory == null ? 'var(--bg-hover)' : 'var(--bg-elevated)',
-                color: filterCategory == null ? 'var(--solar-cyan)' : 'var(--text-muted)',
-                cursor: 'pointer',
-                fontWeight: 700,
-              }}
-            >
-              All
-            </button>
-            {categories.slice(0, 8).map((c) => (
-              <button
-                key={c.category}
-                type="button"
-                onClick={() => setFilterCategory(c.category)}
-                style={{
-                  fontSize: 10,
-                  padding: '2px 8px',
-                  borderRadius: 999,
-                  border: '1px solid var(--border-subtle)',
-                  background: String(filterCategory || '').toLowerCase() === c.category.toLowerCase() ? 'var(--bg-hover)' : 'var(--bg-elevated)',
-                  color: String(filterCategory || '').toLowerCase() === c.category.toLowerCase() ? 'var(--solar-cyan)' : 'var(--text-muted)',
-                  cursor: 'pointer',
-                  fontWeight: 700,
-                }}
-              >
-                {c.category} · {c.count}
+            {accounts.map(acc => (
+              <button key={acc.id} type="button" onClick={() => setActiveAccount(acc.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, height: 28, padding: '0 8px', borderRadius: 7, border: 'none', background: activeAccount === acc.id ? 'var(--bg-hover)' : 'transparent', color: acc.connected ? 'var(--text-main)' : 'var(--text-muted)', fontSize: 11, fontWeight: activeAccount === acc.id ? 800 : 400, cursor: 'pointer', textAlign: 'left', width: '100%', overflow: 'hidden' }}>
+                <span style={{ width: 8, height: 8, borderRadius: 99, background: acc.connected ? 'var(--solar-cyan)' : 'var(--text-muted)', flexShrink: 0 }} />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                  {acc.label}{acc.address ? ` · ${acc.address.split('@')[0]}` : ''}
+                </span>
               </button>
             ))}
+            {!accounts.some(a => a.provider === 'gmail' && a.connected) && (
+              <a href="/api/mail/gmail/start" style={{ display: 'flex', alignItems: 'center', gap: 6, height: 26, padding: '0 8px', borderRadius: 7, background: 'var(--bg-hover)', color: 'var(--solar-cyan)', fontSize: 10, fontWeight: 700, textDecoration: 'none', marginTop: 2 }}>
+                <Plus size={11} />Connect Gmail
+              </a>
+            )}
           </div>
-        )}
-
-        <div style={{ flex: '1 1 auto', overflowY: 'auto' }}>
-          {loading ? (
-            <div style={{ padding: 16 }}>
-              {Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} style={{ padding: '12px 16px', border: '1px solid var(--border-subtle)', borderRadius: 12, background: 'var(--bg-elevated)', marginBottom: 10 }}>
-                  <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                    <div style={{ width: 40, height: 40, borderRadius: 999, background: 'var(--bg-hover)' }} />
-                    <div style={{ flex: 1 }}>
-                      <div style={{ height: 10, width: '60%', background: 'var(--bg-hover)', borderRadius: 999, marginBottom: 8 }} />
-                      <div style={{ height: 10, width: '80%', background: 'var(--bg-hover)', borderRadius: 999 }} />
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : folder === 'templates' ? (
-            <div style={{ padding: 16 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                <div style={{ fontWeight: 800, fontSize: 12, color: 'var(--text-main)' }}>Templates</div>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{templates.length} active</div>
-              </div>
-              {templates.length === 0 ? (
-                <div style={{ padding: 24, border: '1px solid var(--border-subtle)', borderRadius: 12, textAlign: 'center', color: 'var(--text-muted)' }}>
-                  <Clock size={22} strokeWidth={1.6} style={{ opacity: 0.8 }} />
-                  <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: 'var(--text-main)' }}>No templates</div>
-                  <div style={{ marginTop: 6, fontSize: 11 }}>Create templates in the backend to use them here.</div>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {templates
-                    .filter((t) => {
-                      const q = search.trim().toLowerCase();
-                      if (!q) return true;
-                      return String(t.name || '').toLowerCase().includes(q) || String(t.category || '').toLowerCase().includes(q);
-                    })
-                    .map((t) => (
-                      <button
-                        key={t.id}
-                        type="button"
-                        onClick={() => openCompose({ template_id: t.id })}
-                        style={{
-                          textAlign: 'left',
-                          border: '1px solid var(--border-subtle)',
-                          background: 'var(--bg-elevated)',
-                          borderRadius: 12,
-                          padding: 12,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <Tag size={16} strokeWidth={1.7} style={{ color: 'var(--text-muted)' }} />
-                          <div style={{ fontWeight: 800, fontSize: 12, color: 'var(--text-main)' }}>{t.name}</div>
-                          <div style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--text-muted)' }}>{t.category || 'general'}</div>
-                        </div>
-                        {t.subject && (
-                          <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)' }}>
-                            Subject: <span style={{ color: 'var(--text-main)' }}>{t.subject}</span>
-                          </div>
-                        )}
-                        <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)' }}>
-                          Click to compose with this template
-                        </div>
-                      </button>
-                    ))}
-                </div>
-              )}
-            </div>
-          ) : filteredEmails.length === 0 ? (
-            <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
-              <div style={{ textAlign: 'center', padding: 16 }}>
-                <Mail size={28} strokeWidth={1.6} style={{ opacity: 0.7 }} />
-                <div style={{ marginTop: 10, fontSize: 13, fontWeight: 700, color: 'var(--text-main)' }}>No emails</div>
-                <div style={{ marginTop: 6, fontSize: 11 }}>Try switching folders or clearing filters.</div>
-              </div>
-            </div>
-          ) : (
-            <div>
-              {filteredEmails.map((email) => {
-                const selected = selectedEmail?.id === email.id;
-                const unread = !email.is_read;
-                return (
-                  <div
-                    key={email.id}
-                    onClick={() => {
-                      setSelectedEmail(email);
-                      setThreadOpen(false);
-                    }}
-                    style={{
-                      padding: '12px 16px',
-                      borderBottom: '1px solid var(--border-subtle)',
-                      cursor: 'pointer',
-                      background: selected ? 'var(--bg-hover)' : unread ? 'var(--bg-elevated)' : 'var(--bg-app)',
-                      borderLeft: selected ? '3px solid var(--solar-cyan)' : '3px solid transparent',
-                      display: 'flex',
-                      gap: 12,
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: 40,
-                        height: 40,
-                        borderRadius: 999,
-                        background: avatarColor(email.from_address),
-                        color: '#001018',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontWeight: 900,
-                        letterSpacing: 0.4,
-                        flexShrink: 0,
-                      }}
-                      title={email.from_address}
-                    >
-                      {initials(email.from_address)}
-                    </div>
-
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <div
-                          style={{
-                            fontSize: 12,
-                            fontWeight: unread ? 800 : 600,
-                            color: 'var(--text-main)',
-                            minWidth: 0,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {email.from_address || '—'}
-                        </div>
-                        <div style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>
-                          {fmtListDate(email.date_received)}
-                        </div>
-                      </div>
-
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4 }}>
-                        <div
-                          style={{
-                            fontSize: 12,
-                            fontWeight: unread ? 800 : 600,
-                            color: 'var(--text-main)',
-                            minWidth: 0,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {email.subject || '(no subject)'}
-                        </div>
-                        {!!email.category && (
-                          <div
-                            style={{
-                              marginLeft: 'auto',
-                              fontSize: 10,
-                              padding: '2px 7px',
-                              borderRadius: 999,
-                              border: '1px solid var(--border-subtle)',
-                              ...categoryBadgeStyle(email.category),
-                              flexShrink: 0,
-                              fontWeight: 800,
-                              textTransform: 'lowercase',
-                            }}
-                          >
-                            {email.category}
-                          </div>
-                        )}
-                      </div>
-
-                      {email.has_attachments ? (
-                        <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-muted)' }}>
-                          <Paperclip size={14} strokeWidth={1.75} />
-                          Attachments
-                        </div>
-                      ) : null}
-                    </div>
-
-                    <button
-                      type="button"
-                      title={email.is_starred ? 'Unstar' : 'Star'}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void toggleStar(email);
-                      }}
-                      style={{
-                        width: 32,
-                        height: 32,
-                        borderRadius: 10,
-                        border: '1px solid var(--border-subtle)',
-                        background: 'transparent',
-                        cursor: 'pointer',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        color: email.is_starred ? 'var(--solar-yellow)' : 'var(--text-muted)',
-                        flexShrink: 0,
-                      }}
-                    >
-                      <Star size={16} strokeWidth={1.75} fill={email.is_starred ? 'var(--solar-yellow)' : 'none'} />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
         </div>
 
-        {total > 50 && folder !== 'sent' && folder !== 'templates' && (
-          <div style={{ height: 40, flexShrink: 0, borderTop: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
-            <button
-              type="button"
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page <= 1}
-              style={{
-                height: 28,
-                padding: '0 10px',
-                borderRadius: 10,
-                border: '1px solid var(--border-subtle)',
-                background: 'var(--bg-elevated)',
-                color: page <= 1 ? 'var(--text-muted)' : 'var(--text-main)',
-                cursor: page <= 1 ? 'not-allowed' : 'pointer',
-                fontSize: 11,
-                fontWeight: 700,
-              }}
-            >
-              Previous
+        {/* Folders */}
+        <div style={{ padding: '8px 8px 4px', flexShrink: 0 }}>
+          {FOLDERS.map(f => (
+            <button key={f.id} type="button" onClick={() => setFolder(f.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', height: 32, padding: '0 8px', borderRadius: 7, border: 'none', background: folder === f.id ? 'var(--bg-hover)' : 'transparent', color: folder === f.id ? 'var(--text-main)' : 'var(--text-muted)', fontSize: 12, fontWeight: folder === f.id ? 800 : 400, cursor: 'pointer', textAlign: 'left' }}>
+              {f.icon}
+              <span style={{ flex: 1 }}>{f.label}</span>
+              {f.id === 'inbox' && stats.unread > 0 && (
+                <span style={{ fontSize: 10, fontWeight: 800, background: 'var(--solar-cyan)', color: '#000', borderRadius: 99, padding: '1px 6px' }}>{stats.unread}</span>
+              )}
             </button>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-              Page {page} of {Math.max(1, Math.ceil(total / 50))}
-            </div>
-            <button
-              type="button"
-              onClick={() => setPage((p) => p + 1)}
-              disabled={page >= Math.ceil(total / 50)}
-              style={{
-                height: 28,
-                padding: '0 10px',
-                borderRadius: 10,
-                border: '1px solid var(--border-subtle)',
-                background: 'var(--bg-elevated)',
-                color: page >= Math.ceil(total / 50) ? 'var(--text-muted)' : 'var(--text-main)',
-                cursor: page >= Math.ceil(total / 50) ? 'not-allowed' : 'pointer',
-                fontSize: 11,
-                fontWeight: 700,
-              }}
-            >
-              Next
-            </button>
-          </div>
-        )}
+          ))}
+        </div>
+
+        {/* Stats footer */}
+        <div style={{ marginTop: 'auto', padding: '10px 14px', borderTop: '1px solid var(--border-subtle)', fontSize: 10, color: 'var(--text-muted)' }}>
+          {stats.total} total · {stats.unread} unread · {stats.starred} starred
+        </div>
       </div>
 
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize reading pane"
-        title="Drag to resize reading pane"
-        style={styles.resizeHandle}
-        onPointerDown={(e) => startPanelResize('detail', e)}
-      >
-        <span
-          aria-hidden
-          style={{
-            pointerEvents: 'none',
-            position: 'absolute',
-            inset: '0 2px',
-            borderLeft: '1px solid var(--border-subtle)',
-          }}
-        />
+      {/* Sidebar resize handle */}
+      <div onPointerDown={e => startResize('sidebar', e)} style={{ width: 5, flexShrink: 0, cursor: 'col-resize', background: 'transparent', borderRight: '1px solid var(--border-subtle)' }} />
+
+      {/* ── CENTER LIST ─────────────────────────────────────────────────── */}
+      <div style={{ flex: 1, minWidth: 200, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+
+        {/* Toolbar */}
+        <div style={{ height: 48, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px', borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-app)' }}>
+          <span style={{ fontSize: 13, fontWeight: 800, letterSpacing: 0.1, textTransform: 'capitalize' }}>{folder}</span>
+          <div style={{ flex: 1, position: 'relative', maxWidth: 280 }}>
+            <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…" style={{ width: '100%', height: 30, padding: '0 9px 0 28px', background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', borderRadius: 8, color: 'var(--text-main)', fontSize: 12, outline: 'none' }} />
+          </div>
+          <Btn onClick={() => callAgent('triage_inbox')} title="AI triage inbox" small><Sparkles size={12} />Triage</Btn>
+          {loadingList && <RefreshCw size={13} style={{ color: 'var(--text-muted)', animation: 'spin 0.8s linear infinite' }} />}
+        </div>
+
+        {/* Email list */}
+        <div style={{ flex: 1, overflowY: 'auto' }}>
+          {filtered.length === 0 && !loadingList && (
+            <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>No messages</div>
+          )}
+          {filtered.map(email => (
+            <div key={email.id} onClick={() => openEmail(email)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderBottom: '1px solid var(--border-subtle)', cursor: 'pointer', background: selected?.id === email.id ? 'var(--bg-hover)' : 'transparent', transition: 'background 0.1s', userSelect: 'none' }}
+              onMouseEnter={e => { if (selected?.id !== email.id) (e.currentTarget as HTMLElement).style.background = 'var(--bg-hover)'; }}
+              onMouseLeave={e => { if (selected?.id !== email.id) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}>
+              {/* Avatar */}
+              <div style={{ width: 34, height: 34, borderRadius: 99, background: avatarColor(email.from_address), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800, color: '#000', flexShrink: 0 }}>
+                {initials(email.from_address)}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                  <span style={{ fontSize: 12, fontWeight: email.is_read ? 500 : 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{email.from_address.split('<')[0].trim() || email.from_address}</span>
+                  <span style={{ fontSize: 10, color: 'var(--text-muted)', flexShrink: 0 }}>{fmtDate(email.date_received)}</span>
+                </div>
+                <div style={{ fontSize: 11, fontWeight: email.is_read ? 400 : 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: email.is_read ? 'var(--text-muted)' : 'var(--text-main)', marginBottom: 2 }}>{email.subject || '(no subject)'}</div>
+                <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                  {!email.is_read && <span style={{ width: 6, height: 6, borderRadius: 99, background: 'var(--solar-cyan)' }} />}
+                  {email.is_starred === 1 && <Star size={10} style={{ color: 'var(--solar-yellow)', fill: 'var(--solar-yellow)' }} />}
+                  {email.has_attachments === 1 && <Paperclip size={10} style={{ color: 'var(--text-muted)' }} />}
+                  {email.category && <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 99, background: 'var(--bg-elevated)', color: 'var(--text-muted)', border: '1px solid var(--border-subtle)' }}>{email.category}</span>}
+                </div>
+              </div>
+              {/* Row actions */}
+              <div style={{ display: 'flex', gap: 3, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+                <button type="button" title="Star" onClick={() => toggleStar(email)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: email.is_starred ? 'var(--solar-yellow)' : 'var(--text-muted)', padding: 3, borderRadius: 5 }}>
+                  <Star size={13} style={{ fill: email.is_starred ? 'var(--solar-yellow)' : 'none' }} />
+                </button>
+                <button type="button" title="Archive" onClick={() => archiveEmail(email.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 3, borderRadius: 5 }}>
+                  <Archive size={13} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
-      {/* RIGHT DETAIL */}
-      <div style={{ ...styles.detail, width: detailWidth }}>
-        {!selectedEmail ? (
-          <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ textAlign: 'center', padding: 16, color: 'var(--text-muted)' }}>
-              <Mail size={32} strokeWidth={1.6} style={{ opacity: 0.75 }} />
-              <div style={{ marginTop: 10, fontSize: 13, fontWeight: 800, color: 'var(--text-main)' }}>Select an email to read</div>
-              <div style={{ marginTop: 6, fontSize: 11 }}>Choose a message from the list.</div>
-            </div>
-          </div>
-        ) : (
-          <>
-            <div
-              style={{
-                height: 48,
-                flexShrink: 0,
-                borderBottom: '1px solid var(--border-subtle)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: '0 10px',
-                background: 'var(--bg-app)',
-              }}
-            >
-              <button
-                type="button"
-                title="Back"
-                onClick={() => setSelectedEmail(null)}
-                style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 10,
-                  border: '1px solid var(--border-subtle)',
-                  background: 'transparent',
-                  cursor: 'pointer',
-                  color: 'var(--text-muted)',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <ChevronLeft size={16} strokeWidth={1.75} />
-              </button>
+      {/* ── DETAIL PANEL ───────────────────────────────────────────────── */}
+      {selected && (
+        <>
+          {/* Detail resize handle */}
+          <div onPointerDown={e => startResize('detail', e)} style={{ width: 5, flexShrink: 0, cursor: 'col-resize', background: 'transparent', borderLeft: '1px solid var(--border-subtle)' }} />
 
-              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <button
-                  type="button"
-                  title="Reply"
-                  onClick={openReply}
-                  style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: 10,
-                    border: '1px solid var(--border-subtle)',
-                    background: 'transparent',
-                    cursor: 'pointer',
-                    color: 'var(--text-muted)',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <Reply size={16} strokeWidth={1.75} />
-                </button>
-                <button
-                  type="button"
-                  title="Forward"
-                  onClick={openForward}
-                  style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: 10,
-                    border: '1px solid var(--border-subtle)',
-                    background: 'transparent',
-                    cursor: 'pointer',
-                    color: 'var(--text-muted)',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <Forward size={16} strokeWidth={1.75} />
-                </button>
-                <button
-                  type="button"
-                  title={selectedEmail.is_starred ? 'Unstar' : 'Star'}
-                  onClick={() => void toggleStar(selectedEmail)}
-                  style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: 10,
-                    border: '1px solid var(--border-subtle)',
-                    background: 'transparent',
-                    cursor: 'pointer',
-                    color: selectedEmail.is_starred ? 'var(--solar-yellow)' : 'var(--text-muted)',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <Star size={16} strokeWidth={1.75} fill={selectedEmail.is_starred ? 'var(--solar-yellow)' : 'none'} />
-                </button>
-                <button
-                  type="button"
-                  title="Archive"
-                  onClick={() => void archiveEmail(selectedEmail.id)}
-                  style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: 10,
-                    border: '1px solid var(--border-subtle)',
-                    background: 'transparent',
-                    cursor: 'pointer',
-                    color: 'var(--text-muted)',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <Archive size={16} strokeWidth={1.75} />
-                </button>
-                <button
-                  type="button"
-                  title="Delete"
-                  onClick={() => void deleteEmail(selectedEmail.id)}
-                  style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: 10,
-                    border: '1px solid var(--border-subtle)',
-                    background: 'transparent',
-                    cursor: 'pointer',
-                    color: 'var(--text-muted)',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <Trash2 size={16} strokeWidth={1.75} />
-                </button>
-              </div>
+          <div style={{ width: detailW, flexShrink: 0, display: 'flex', flexDirection: 'column', borderLeft: '1px solid var(--border-subtle)', overflow: 'hidden', background: 'var(--bg-app)' }}>
+
+            {/* Detail header */}
+            <div style={{ height: 48, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6, padding: '0 12px', borderBottom: '1px solid var(--border-subtle)' }}>
+              <button type="button" onClick={() => { setSelected(null); setDetail(null); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 4, borderRadius: 6 }}><ChevronLeft size={16} /></button>
+              <div style={{ flex: 1 }} />
+              <Btn onClick={() => startReply(selected, detail)} small><Reply size={12} />Reply</Btn>
+              <Btn onClick={() => { setCompose(c => ({ ...c, to: '', subject: `Fwd: ${selected.subject}`, body: detail?.body ? `\n\n--- Forwarded ---\n${detail.body}` : '' })); setComposing(true); }} small><Forward size={12} />Forward</Btn>
+              <Btn onClick={() => toggleStar(selected)} small active={selected.is_starred === 1}><Star size={12} style={{ fill: selected.is_starred ? 'var(--solar-yellow)' : 'none', color: selected.is_starred ? 'var(--solar-yellow)' : undefined }} /></Btn>
+              <Btn onClick={() => archiveEmail(selected.id)} small><Archive size={12} /></Btn>
+              <Btn onClick={() => deleteEmail(selected.id)} small danger><Trash2 size={12} /></Btn>
+              <Btn onClick={() => { setAgentOpen(o => !o); }} small active={agentOpen}><Sparkles size={12} />AI</Btn>
             </div>
 
-            <div style={{ padding: 16, borderBottom: '1px solid var(--border-subtle)' }}>
-              <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-main)', marginBottom: 10 }}>
-                {selectedEmail.subject || '(no subject)'}
-              </div>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                  From: <span style={{ color: 'var(--text-main)', fontWeight: 700 }}>{selectedEmail.from_address || '—'}</span>
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                  To: <span style={{ color: 'var(--text-main)', fontWeight: 700 }}>{selectedEmail.to_address || '—'}</span>
+            <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+              {/* Subject */}
+              <div style={{ padding: '16px 18px 10px' }}>
+                <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 8, lineHeight: 1.35 }}>{selected.subject || '(no subject)'}</div>
+                <div style={{ display: 'flex', gap: 12, alignItems: 'center', fontSize: 11, color: 'var(--text-muted)' }}>
+                  <span style={{ fontWeight: 700, color: 'var(--text-main)' }}>{selected.from_address}</span>
+                  <span>→ {selected.to_address || 'me'}</span>
+                  <span style={{ marginLeft: 'auto' }}>{fmtDate(selected.date_received)}</span>
                 </div>
               </div>
-              <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)' }}>
-                {selectedEmail.date_received ? new Date(selectedEmail.date_received).toLocaleString() : '—'}
-              </div>
 
-              {!!selectedEmail.category && (
-                <div
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    marginTop: 10,
-                    fontSize: 10,
-                    padding: '2px 8px',
-                    borderRadius: 999,
-                    border: '1px solid var(--border-subtle)',
-                    ...categoryBadgeStyle(selectedEmail.category),
-                    fontWeight: 900,
-                    textTransform: 'lowercase',
-                  }}
-                >
-                  <Tag size={14} strokeWidth={1.75} />
-                  {selectedEmail.category}
-                </div>
-              )}
-
-              {(emailDetail?.attachments?.length || 0) > 0 && (
-                <div style={{ marginTop: 12, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  {emailDetail!.attachments.map((a) => (
-                    <div
-                      key={a.id}
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 6,
-                        padding: '6px 10px',
-                        borderRadius: 999,
-                        border: '1px solid var(--border-subtle)',
-                        background: 'var(--bg-elevated)',
-                        color: 'var(--text-main)',
-                        fontSize: 11,
-                      }}
-                      title={`${a.content_type} · ${fmtSize(a.size)}`}
-                    >
-                      <Paperclip size={14} strokeWidth={1.75} style={{ color: 'var(--text-muted)' }} />
-                      <span style={{ fontWeight: 800 }}>{a.filename}</span>
-                      <span style={{ color: 'var(--text-muted)' }}>{fmtSize(a.size)}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {!!(emailDetail?.thread?.length) && (
-              <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border-subtle)' }}>
-                <button
-                  type="button"
-                  onClick={() => setThreadOpen((v) => !v)}
-                  style={{
-                    width: '100%',
-                    textAlign: 'left',
-                    border: '1px solid var(--border-subtle)',
-                    background: 'var(--bg-elevated)',
-                    borderRadius: 12,
-                    padding: '10px 12px',
-                    cursor: 'pointer',
-                    color: 'var(--text-main)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 10,
-                  }}
-                >
-                  <Circle size={14} strokeWidth={1.75} style={{ color: threadOpen ? 'var(--solar-cyan)' : 'var(--text-muted)' }} />
-                  <div style={{ fontSize: 12, fontWeight: 900 }}>Thread ({emailDetail.thread.length} messages)</div>
-                  <div style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-muted)' }}>
-                    {threadOpen ? 'Hide' : 'Show'}
+              {/* Agent Sam AI panel */}
+              {agentOpen && (
+                <div style={{ margin: '0 14px 10px', borderRadius: 10, border: '1px solid var(--border-subtle)', background: 'var(--bg-elevated)', overflow: 'hidden' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderBottom: '1px solid var(--border-subtle)', background: 'rgba(0,255,200,0.06)' }}>
+                    <Bot size={14} style={{ color: 'var(--solar-cyan)' }} />
+                    <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--solar-cyan)' }}>Agent Sam</span>
+                    {agent.agent_name && <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>· {agent.agent_name}</span>}
+                    {agent.model && <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 99, background: 'var(--bg-app)', color: 'var(--text-muted)', border: '1px solid var(--border-subtle)', marginLeft: 'auto' }}>{agent.model.split('/').pop()}</span>}
                   </div>
-                </button>
-
-                {threadOpen && (
-                  <div style={{ marginTop: 10, border: '1px solid var(--border-subtle)', borderRadius: 12, overflow: 'hidden' }}>
-                    {emailDetail.thread.map((t) => (
-                      <div
-                        key={t.id}
-                        onClick={() => setSelectedEmail(t)}
-                        style={{
-                          padding: '10px 12px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 10,
-                          cursor: 'pointer',
-                          background: 'var(--bg-app)',
-                          borderBottom: '1px solid var(--border-subtle)',
-                        }}
-                      >
-                        {t.is_read ? (
-                          <CheckCircle size={16} strokeWidth={1.7} style={{ color: 'var(--text-muted)' }} />
-                        ) : (
-                          <Circle size={16} strokeWidth={1.7} style={{ color: 'var(--solar-cyan)' }} />
-                        )}
-                        <div style={{ minWidth: 0, flex: 1 }}>
-                          <div style={{ fontSize: 12, fontWeight: t.is_read ? 700 : 900, color: 'var(--text-main)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {t.from_address || '—'}
-                          </div>
-                          <div style={{ fontSize: 11, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {t.subject || '(no subject)'}
-                          </div>
-                        </div>
-                        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{fmtListDate(t.date_received)}</div>
-                      </div>
+                  <div style={{ padding: '10px 14px', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {['summarize', 'classify', 'draft_reply'].map(act => (
+                      <Btn key={act} onClick={() => callAgent(act)} small active={agent.action === act && !agent.loading}>
+                        {act === 'summarize' && <><Sparkles size={11} />Summarize</>}
+                        {act === 'classify' && <><Tag size={11} />Classify</>}
+                        {act === 'draft_reply' && <><Zap size={11} />Draft Reply</>}
+                      </Btn>
                     ))}
                   </div>
-                )}
-              </div>
-            )}
-
-            <div style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto', padding: 16 }}>
-              {detailLoading ? (
-                <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
-                  <RefreshCw size={18} strokeWidth={1.75} style={{ marginRight: 10 }} />
-                  Loading…
-                </div>
-              ) : emailDetail?.body ? (
-                isLikelyHtml(emailDetail.body) ? (
-                  <iframe
-                    title="email-body"
-                    srcDoc={emailDetail.body}
-                    sandbox="allow-same-origin"
-                    style={{
-                      width: '100%',
-                      height: '100%',
-                      border: 'none',
-                      background: '#fff',
-                      borderRadius: 8,
-                    }}
-                  />
-                ) : (
-                  <pre
-                    style={{
-                      whiteSpace: 'pre-wrap',
-                      fontFamily: 'inherit',
-                      fontSize: 13,
-                      lineHeight: 1.45,
-                      color: 'var(--text-main)',
-                      margin: 0,
-                    }}
-                  >
-                    {emailDetail.body}
-                  </pre>
-                )
-              ) : (
-                <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-                  Email body not available
+                  {agent.loading && (
+                    <div style={{ padding: '10px 14px', color: 'var(--text-muted)', fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <RefreshCw size={13} style={{ animation: 'spin 0.8s linear infinite' }} />Thinking…
+                    </div>
+                  )}
+                  {agent.error && (
+                    <div style={{ padding: '10px 14px', color: '#ef4444', fontSize: 12, display: 'flex', gap: 6 }}>
+                      <AlertTriangle size={13} />{agent.error}
+                    </div>
+                  )}
+                  {agent.result && !agent.loading && (() => {
+                    const r = agent.result as Record<string, unknown>;
+                    return (
+                      <div style={{ padding: '10px 14px', fontSize: 12, lineHeight: 1.6 }}>
+                        {r.summary && <p style={{ margin: '0 0 8px', color: 'var(--text-main)' }}>{String(r.summary)}</p>}
+                        {r.urgency && <div style={{ marginBottom: 6, display: 'flex', gap: 6, alignItems: 'center' }}><span style={{ color: 'var(--text-muted)', fontSize: 11 }}>Urgency:</span><UrgencyBadge urgency={String(r.urgency)} /></div>}
+                        {r.type && <div style={{ marginBottom: 6, fontSize: 11 }}><span style={{ color: 'var(--text-muted)' }}>Type: </span><span style={{ fontWeight: 700 }}>{String(r.type)}</span></div>}
+                        {Array.isArray(r.action_items) && r.action_items.length > 0 && (
+                          <div style={{ marginBottom: 8 }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 4 }}>Action items</div>
+                            <ul style={{ margin: 0, padding: '0 0 0 16px' }}>
+                              {(r.action_items as string[]).map((a, i) => <li key={i} style={{ marginBottom: 2 }}>{a}</li>)}
+                            </ul>
+                          </div>
+                        )}
+                        {(r.body_text || r.subject) && (
+                          <div style={{ marginTop: 8, padding: 10, background: 'var(--bg-app)', borderRadius: 8, border: '1px solid var(--border-subtle)' }}>
+                            {r.subject && <div style={{ fontWeight: 800, marginBottom: 4 }}>Subject: {String(r.subject)}</div>}
+                            <div style={{ whiteSpace: 'pre-wrap', color: 'var(--text-muted)' }}>{String(r.body_text || '')}</div>
+                            <Btn onClick={useAgentDraft} small><CheckCircle size={11} />Use this draft</Btn>
+                          </div>
+                        )}
+                        {r.raw && <div style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'pre-wrap' }}>{String(r.raw).slice(0, 600)}</div>}
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
-            </div>
-          </>
-        )}
-      </div>
 
-      {/* COMPOSE MODAL */}
-      {composeOpen && (
-        <>
-          <button
-            type="button"
-            aria-label="Close compose"
-            onClick={() => { if (!sending) setComposeOpen(false); }}
-            style={{
-              position: 'fixed',
-              inset: 0,
-              background: 'transparent',
-              backdropFilter: 'none',
-              zIndex: 500,
-              border: 'none',
-              cursor: sending ? 'not-allowed' : 'pointer',
-            }}
-          />
-          <div
-            style={{
-              position: 'fixed',
-              bottom: 0,
-              right: 24,
-              width: 560,
-              maxWidth: 'calc(100vw - 32px)',
-              maxHeight: '80vh',
-              background: 'var(--bg-elevated)',
-              border: '1px solid var(--border-subtle)',
-              borderRadius: '12px 12px 0 0',
-              boxShadow: '0 -8px 32px rgba(0,0,0,0.4)',
-              zIndex: 501,
-              display: 'flex',
-              flexDirection: 'column',
-              overflow: 'hidden',
-            }}
-          >
-            <div style={{ height: 48, display: 'flex', alignItems: 'center', padding: '0 12px', borderBottom: '1px solid var(--border-subtle)' }}>
-              <div style={{ fontSize: 12, fontWeight: 900, color: 'var(--text-main)' }}>
-                New Message
-              </div>
-              <button
-                type="button"
-                title="Close"
-                onClick={() => { if (!sending) setComposeOpen(false); }}
-                style={{
-                  marginLeft: 'auto',
-                  width: 32,
-                  height: 32,
-                  borderRadius: 10,
-                  border: '1px solid var(--border-subtle)',
-                  background: 'transparent',
-                  cursor: sending ? 'not-allowed' : 'pointer',
-                  color: 'var(--text-muted)',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <X size={16} strokeWidth={1.75} />
-              </button>
-            </div>
+              {/* Body */}
+              {loadingDetail && (
+                <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', fontSize: 12 }}>Loading…</div>
+              )}
+              {detail && (
+                <div style={{ padding: '0 18px 18px', flex: 1 }}>
+                  {detail.body ? (
+                    isHtml(detail.body) ? (
+                      <iframe srcDoc={detail.body} sandbox="allow-same-origin" style={{ width: '100%', minHeight: 400, border: 'none', background: '#fff', borderRadius: 8 }} title="email-body" />
+                    ) : (
+                      <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 13, lineHeight: 1.7, color: 'var(--text-main)', margin: 0 }}>{detail.body}</pre>
+                    )
+                  ) : (
+                    <div style={{ color: 'var(--text-muted)', fontSize: 12, padding: '12px 0' }}>No body content</div>
+                  )}
 
-            <div style={{ padding: '0 16px' }}>
-              {([
-                {
-                  label: 'From',
-                  render: (
-                    <input
-                      value={composing.from}
-                      onChange={(e) => setComposing((p) => ({ ...p, from: e.target.value }))}
-                      style={{
-                        width: '100%',
-                        height: 40,
-                        background: 'transparent',
-                        border: 'none',
-                        color: 'var(--text-main)',
-                        outline: 'none',
-                        fontSize: 13,
-                      }}
-                    />
-                  ),
-                },
-                {
-                  label: 'To',
-                  render: (
-                    <input
-                      value={composing.to}
-                      onChange={(e) => setComposing((p) => ({ ...p, to: e.target.value }))}
-                      placeholder="Recipients..."
-                      style={{
-                        width: '100%',
-                        height: 40,
-                        background: 'transparent',
-                        border: 'none',
-                        color: 'var(--text-main)',
-                        outline: 'none',
-                        fontSize: 13,
-                      }}
-                    />
-                  ),
-                },
-                {
-                  label: 'Subject',
-                  render: (
-                    <input
-                      value={composing.subject}
-                      onChange={(e) => setComposing((p) => ({ ...p, subject: e.target.value }))}
-                      placeholder="Subject..."
-                      style={{
-                        width: '100%',
-                        height: 40,
-                        background: 'transparent',
-                        border: 'none',
-                        color: 'var(--text-main)',
-                        outline: 'none',
-                        fontSize: 13,
-                      }}
-                    />
-                  ),
-                },
-                {
-                  label: 'Template',
-                  render: (
-                    <select
-                      value={composing.template_id}
-                      onChange={(e) => void applyTemplateToCompose(e.target.value)}
-                      style={{
-                        width: '100%',
-                        height: 40,
-                        background: 'transparent',
-                        border: 'none',
-                        color: 'var(--text-main)',
-                        outline: 'none',
-                        fontSize: 13,
-                      }}
-                    >
-                      <option value="">—</option>
-                      {templates.map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.category ? `${t.category} · ${t.name}` : t.name}
-                        </option>
+                  {/* Attachments */}
+                  {detail.attachments.length > 0 && (
+                    <div style={{ marginTop: 16 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6 }}>Attachments ({detail.attachments.length})</div>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        {detail.attachments.map(att => (
+                          <div key={att.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: 'var(--bg-elevated)', borderRadius: 8, border: '1px solid var(--border-subtle)', fontSize: 11 }}>
+                            <Paperclip size={11} />
+                            <span>{att.filename}</span>
+                            <span style={{ color: 'var(--text-muted)' }}>{fmtSize(att.size)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Thread */}
+                  {detail.thread.length > 1 && (
+                    <div style={{ marginTop: 16 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6 }}>Thread ({detail.thread.length})</div>
+                      {detail.thread.filter(t => t.id !== selected.id).map(t => (
+                        <div key={t.id} style={{ padding: '8px 10px', background: 'var(--bg-elevated)', borderRadius: 8, border: '1px solid var(--border-subtle)', marginBottom: 6, fontSize: 11 }}>
+                          <div style={{ fontWeight: 700, marginBottom: 2 }}>{t.from_address}</div>
+                          <div style={{ color: 'var(--text-muted)' }}>{t.subject} · {fmtDate(t.date_received)}</div>
+                        </div>
                       ))}
-                    </select>
-                  ),
-                },
-              ] as Array<{ label: string; render: React.ReactNode }>).map((row, idx) => (
-                <div
-                  key={row.label}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 10,
-                    borderBottom: idx === 3 ? 'none' : '1px solid var(--border-subtle)',
-                    minHeight: 44,
-                  }}
-                >
-                  <div style={{ width: 60, textAlign: 'right', color: 'var(--text-muted)', fontSize: 12 }}>
-                    {row.label}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    {row.render}
-                  </div>
+                    </div>
+                  )}
                 </div>
-              ))}
-            </div>
-
-            <textarea
-              value={composing.body}
-              onChange={(e) => setComposing((p) => ({ ...p, body: e.target.value }))}
-              placeholder="Write your message…"
-              style={{
-                flex: '1 1 auto',
-                minHeight: 200,
-                padding: 16,
-                border: 'none',
-                background: 'transparent',
-                resize: 'none',
-                color: 'var(--text-main)',
-                fontSize: 13,
-                fontFamily: 'inherit',
-                outline: 'none',
-              }}
-            />
-
-            <div style={{ height: 48, borderTop: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', padding: '0 12px', gap: 10 }}>
-              <button
-                type="button"
-                onClick={() => { if (!sending) setComposeOpen(false); }}
-                style={{
-                  height: 32,
-                  padding: '0 10px',
-                  borderRadius: 10,
-                  border: '1px solid var(--border-subtle)',
-                  background: 'transparent',
-                  color: 'var(--text-muted)',
-                  cursor: sending ? 'not-allowed' : 'pointer',
-                  fontWeight: 800,
-                  fontSize: 11,
-                }}
-              >
-                Discard
-              </button>
-
-              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
-                {sendError && (
-                  <div style={{ fontSize: 11, color: 'var(--solar-red)', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {sendError}
-                  </div>
-                )}
-                <button
-                  type="button"
-                  onClick={() => void saveDraft()}
-                  disabled={sending}
-                  style={{
-                    height: 32,
-                    padding: '0 10px',
-                    borderRadius: 10,
-                    border: '1px solid var(--border-subtle)',
-                    background: 'var(--bg-panel)',
-                    color: sending ? 'var(--text-muted)' : 'var(--text-main)',
-                    cursor: sending ? 'not-allowed' : 'pointer',
-                    fontWeight: 900,
-                    fontSize: 11,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 8,
-                  }}
-                >
-                  <Archive size={14} strokeWidth={1.75} style={{ color: 'var(--text-muted)' }} />
-                  Save Draft
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void sendEmail()}
-                  disabled={sending}
-                  style={{
-                    height: 32,
-                    padding: '0 12px',
-                    borderRadius: 10,
-                    border: '1px solid rgba(0,0,0,0)',
-                    background: 'var(--solar-cyan)',
-                    color: '#fff',
-                    cursor: sending ? 'not-allowed' : 'pointer',
-                    fontWeight: 900,
-                    fontSize: 11,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    opacity: sending ? 0.7 : 1,
-                  }}
-                >
-                  {sending ? <RefreshCw size={14} strokeWidth={1.75} /> : <Send size={14} strokeWidth={1.75} />}
-                  Send
-                </button>
-              </div>
+              )}
             </div>
           </div>
         </>
       )}
 
-      {/* TOASTS */}
-      {toasts.length > 0 && (
-        <div style={{ position: 'fixed', right: 16, bottom: 16, zIndex: 650, display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {toasts.slice(-4).map((t) => (
-            <div
-              key={t.id}
-              style={{
-                border: '1px solid var(--border-subtle)',
-                background: 'var(--bg-panel)',
-                color: 'var(--text-main)',
-                borderRadius: 12,
-                padding: '10px 12px',
-                boxShadow: '0 14px 38px rgba(0,0,0,0.35)',
-                minWidth: 240,
-                maxWidth: 360,
-                fontSize: 12,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-              }}
-            >
-              {t.type === 'ok' ? (
-                <CheckCircle size={16} strokeWidth={1.75} style={{ color: 'var(--solar-cyan)' }} />
-              ) : (
-                <Circle size={16} strokeWidth={1.75} style={{ color: 'var(--solar-red)' }} />
-              )}
-              <div style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.msg}</div>
-              <button
-                type="button"
-                onClick={() => {
-                  removeToast(t.id);
-                }}
-                style={{
-                  marginLeft: 'auto',
-                  width: 28,
-                  height: 28,
-                  borderRadius: 10,
-                  border: '1px solid var(--border-subtle)',
-                  background: 'transparent',
-                  cursor: 'pointer',
-                  color: 'var(--text-muted)',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-                title="Dismiss"
-              >
-                <X size={14} strokeWidth={1.75} />
-              </button>
+      {/* ── COMPOSE MODAL ──────────────────────────────────────────────── */}
+      {composing && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end', padding: 24, pointerEvents: 'none' }}>
+          <div style={{ width: 520, background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', borderRadius: 14, boxShadow: '0 8px 40px rgba(0,0,0,0.5)', overflow: 'hidden', pointerEvents: 'all', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid var(--border-subtle)', background: 'rgba(0,255,200,0.04)' }}>
+              <span style={{ fontSize: 13, fontWeight: 800, flex: 1 }}>New Message</span>
+              <button type="button" onClick={() => setComposing(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={16} /></button>
             </div>
-          ))}
+            <div style={{ padding: '10px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {/* From */}
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <span style={{ fontSize: 11, color: 'var(--text-muted)', width: 48, flexShrink: 0 }}>From</span>
+                <select value={compose.from} onChange={e => setCompose(c => ({ ...c, from: e.target.value }))} style={{ flex: 1, height: 28, background: 'var(--bg-app)', border: '1px solid var(--border-subtle)', borderRadius: 7, color: 'var(--text-main)', fontSize: 12, padding: '0 8px' }}>
+                  <option value="">Platform default</option>
+                  {senders.map(s => <option key={s.id} value={s.address}>{s.label ? `${s.label} <${s.address}>` : s.address}</option>)}
+                </select>
+              </div>
+              {/* To */}
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <span style={{ fontSize: 11, color: 'var(--text-muted)', width: 48, flexShrink: 0 }}>To</span>
+                <input value={compose.to} onChange={e => setCompose(c => ({ ...c, to: e.target.value }))} placeholder="recipient@example.com" style={{ flex: 1, height: 28, background: 'var(--bg-app)', border: '1px solid var(--border-subtle)', borderRadius: 7, color: 'var(--text-main)', fontSize: 12, padding: '0 8px', outline: 'none' }} />
+              </div>
+              {/* Subject */}
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <span style={{ fontSize: 11, color: 'var(--text-muted)', width: 48, flexShrink: 0 }}>Subject</span>
+                <input value={compose.subject} onChange={e => setCompose(c => ({ ...c, subject: e.target.value }))} placeholder="Subject" style={{ flex: 1, height: 28, background: 'var(--bg-app)', border: '1px solid var(--border-subtle)', borderRadius: 7, color: 'var(--text-main)', fontSize: 12, padding: '0 8px', outline: 'none' }} />
+              </div>
+              {/* Body */}
+              <textarea value={compose.body} onChange={e => setCompose(c => ({ ...c, body: e.target.value }))} placeholder="Write your message…" rows={10} style={{ width: '100%', boxSizing: 'border-box', background: 'var(--bg-app)', border: '1px solid var(--border-subtle)', borderRadius: 7, color: 'var(--text-main)', fontSize: 12, padding: '10px', resize: 'vertical', outline: 'none', fontFamily: 'var(--font-sans)', lineHeight: 1.6 }} />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderTop: '1px solid var(--border-subtle)' }}>
+              {sendResult && (
+                <span style={{ fontSize: 11, color: sendResult.ok ? 'var(--solar-cyan)' : '#ef4444', flex: 1 }}>
+                  {sendResult.ok ? <CheckCircle size={11} style={{ display: 'inline', marginRight: 4 }} /> : <AlertTriangle size={11} style={{ display: 'inline', marginRight: 4 }} />}
+                  {sendResult.msg}
+                </span>
+              )}
+              <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+                <Btn onClick={() => setComposing(false)} small>Cancel</Btn>
+                <Btn onClick={sendEmail} small active>{sending ? 'Sending…' : <><Send size={12} />Send</>}</Btn>
+              </div>
+            </div>
+          </div>
         </div>
       )}
+
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        * { box-sizing: border-box; }
+      `}</style>
     </div>
   );
 }
 
+export default MailPage;

@@ -930,6 +930,7 @@ export const DesignStudioPage: React.FC = () => {
           generating={cad.isGenerating}
           progressPct={cad.polledJob?.progress_pct ?? cad.polledJob?.progress ?? 0}
           activeProgressPct={cad.polledJob?.progress_pct ?? cad.polledJob?.progress ?? 0}
+          activeJobId={cad.activeJobId}
           statusLabel={entryStatusLabel}
           error={
             meshyPromptTooLong

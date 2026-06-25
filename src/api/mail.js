@@ -1214,6 +1214,111 @@ export async function handleMailApi(request, url, env, ctx) {
       return jsonResponse({ ok: true });
     }
 
+
+    // POST /api/mail/agent  -- Agent Sam AI assist (summarize / triage / draft / sweep)
+    // Body: { action, email?, emails?, thread?, instruction? }
+    if (method === 'POST' && p === '/api/mail/agent') {
+      const body = await readJsonBody(request);
+      if (!body || typeof body !== 'object') return jsonResponse({ error: 'Invalid body' }, 400);
+
+      const action = String(body.action || 'summarize').trim();
+
+      // D1-driven slug map -- update agentsam_subagent_profile.default_model_id to swap model, no deploy
+      const slugMap = {
+        summarize: 'mail_triage', classify: 'mail_triage', triage_inbox: 'mail_triage',
+        sweep: 'mail_sweep',
+        draft_reply: 'mail_compose', draft_new: 'mail_compose',
+      };
+      const slug = slugMap[action] || 'mail_triage';
+
+      let profile = null;
+      try {
+        profile = await env.DB.prepare(
+          `SELECT slug, display_name, default_model_id, instructions_markdown
+           FROM agentsam_subagent_profile WHERE slug = ? AND is_active = 1 LIMIT 1`
+        ).bind(slug).first();
+      } catch { /* non-fatal */ }
+
+      // Resolve google_model_id from catalog
+      let googleModelId = 'models/gemini-3.5-flash';
+      if (profile?.default_model_id) {
+        try {
+          const cat = await env.DB.prepare(
+            `SELECT google_model_id FROM agentsam_model_catalog WHERE model_key = ? AND is_active = 1 LIMIT 1`
+          ).bind(profile.default_model_id).first();
+          if (cat?.google_model_id) googleModelId = String(cat.google_model_id);
+        } catch { /* keep fallback */ }
+      }
+
+      const apiKey =
+        (env?.GEMINI_API_KEY && String(env.GEMINI_API_KEY).trim()) ||
+        (env?.GOOGLE_AI_API_KEY && String(env.GOOGLE_AI_API_KEY).trim()) ||
+        (env?.GOOGLE_API_KEY && String(env.GOOGLE_API_KEY).trim()) || '';
+      if (!apiKey) return jsonResponse({ error: 'Google AI API key not configured' }, 503);
+
+      const systemPrompt = profile?.instructions_markdown || '# Mail Agent\nProcess the provided email data. Return structured JSON.';
+
+      let userContent = '';
+      if (action === 'triage_inbox' || action === 'sweep') {
+        const emails = Array.isArray(body.emails) ? body.emails : [];
+        userContent = `Action: ${action}\nEmails (${emails.length}):\n${JSON.stringify(emails.slice(0, 50))}`;
+      } else if (action === 'draft_reply' || action === 'draft_new') {
+        const email = body.email || {};
+        const thread = Array.isArray(body.thread) ? body.thread : [];
+        const instruction = String(body.instruction || '').slice(0, 2000);
+        userContent = `Action: ${action}\nInstruction: ${instruction || 'Draft a professional reply.'}\nEmail: ${JSON.stringify(email)}\nThread (${thread.length} messages): ${JSON.stringify(thread)}`;
+      } else {
+        const email = body.email || {};
+        const thread = Array.isArray(body.thread) ? body.thread : [];
+        const instruction = String(body.instruction || '').slice(0, 1000);
+        userContent = `Action: ${action}\n${instruction ? `Instruction: ${instruction}\n` : ''}Email: ${JSON.stringify(email)}\nThread (${thread.length} messages): ${JSON.stringify(thread)}`;
+      }
+
+      try {
+        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/${googleModelId}:generateContent?key=${apiKey}`;
+        const geminiRes = await fetch(geminiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            system_instruction: { parts: [{ text: systemPrompt }] },
+            contents: [{ role: 'user', parts: [{ text: userContent }] }],
+            generationConfig: {
+              temperature: (action === 'draft_reply' || action === 'draft_new') ? 0.4 : 0.1,
+              maxOutputTokens: (action === 'triage_inbox' || action === 'sweep') ? 2048 : 4096,
+              responseMimeType: 'application/json',
+            },
+          }),
+        });
+        const geminiData = await geminiRes.json().catch(() => null);
+        if (!geminiRes.ok) {
+          const errMsg = geminiData?.error?.message || `Gemini ${geminiRes.status}`;
+          console.warn('[mail/agent] gemini error', geminiRes.status, errMsg);
+          return jsonResponse({ error: errMsg, model: googleModelId }, 502);
+        }
+        let rawText = '';
+        for (const c of geminiData?.candidates || []) {
+          for (const p of c?.content?.parts || []) {
+            if (typeof p?.text === 'string') rawText += p.text;
+          }
+        }
+        let parsed = null;
+        try {
+          const cleaned = rawText.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
+          parsed = JSON.parse(cleaned);
+        } catch { parsed = { raw: rawText }; }
+
+        return jsonResponse({
+          ok: true, action, result: parsed,
+          model: googleModelId,
+          agent_slug: slug,
+          agent_name: profile?.display_name || 'Mail Agent',
+        });
+      } catch (e) {
+        console.error('[mail/agent]', e?.message ?? e);
+        return jsonResponse({ error: String(e?.message || e) }, 500);
+      }
+    }
+
     return jsonResponse({ error: 'Mail route not found', path: url.pathname }, 404);
   } catch (e) {
     return jsonResponse({ error: String(e?.message || e) }, 500);

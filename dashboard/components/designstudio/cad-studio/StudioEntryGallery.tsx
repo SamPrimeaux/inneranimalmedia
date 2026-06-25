@@ -1,12 +1,13 @@
 /**
- * Compact stock + in-progress gallery on the Design Studio entry screen.
- * Posters only — no GLB preview loads.
+ * Compact in-progress jobs + optional asset library on the Design Studio entry screen.
+ * Assets load lazily via folder-bookmark toggle (no stock grid on initial paint).
  */
 import React, { useMemo, useState } from 'react';
 import { Loader2, X } from 'lucide-react';
-import { useStudioGallery } from './useStudioGallery';
+import { useStudioGallery, resolveGalleryCadJobId } from './useStudioGallery';
 import type { GalleryItem } from './cadStudioTypes';
 import { GlbAssetThumb } from './editors/GlbAssetThumb';
+import { FolderBookmarkIcon } from './FolderBookmarkIcon';
 
 export type StudioEntryGalleryProps = {
   onSpawnStock?: (name: string, url: string, scale: number) => void;
@@ -14,6 +15,7 @@ export type StudioEntryGalleryProps = {
   generating?: boolean;
   activeJobLabel?: string;
   activeProgressPct?: number;
+  activeJobId?: string | null;
 };
 
 function GalleryCard({
@@ -29,10 +31,13 @@ function GalleryCard({
 }) {
   const disabled = item.pending || !item.url;
   const pct = item.progressPct != null ? Math.min(100, Math.max(0, item.progressPct)) : 0;
-  const canCancel = item.pending && (item.cadJobId || item.externalTaskId);
+  const cadJobId = resolveGalleryCadJobId(item);
+  const canCancel = Boolean(item.pending && (cadJobId || item.externalTaskId));
+  const statusLabel =
+    String(item.status || '').toLowerCase() === 'script_ready' ? 'Script ready' : null;
 
   return (
-    <div className={`studio-entry__gallery-card-wrap${item.pending ? ' studio-entry__gallery-card-wrap--pending' : ''}`}>
+    <div className="studio-entry__gallery-card-wrap">
       <button
         type="button"
         className={`studio-entry__gallery-card${item.pending ? ' studio-entry__gallery-card--pending' : ''}`}
@@ -46,7 +51,9 @@ function GalleryCard({
           <GlbAssetThumb url={item.url} thumbnail={item.thumbnail} alt={item.name} />
           {item.pending ? (
             <span className="studio-entry__gallery-pending" aria-hidden>
-              {pct > 0 ? (
+              {statusLabel ? (
+                <span className="studio-entry__gallery-status">{statusLabel}</span>
+              ) : pct > 0 ? (
                 <span className="studio-entry__gallery-pct">{pct}%</span>
               ) : (
                 <Loader2 size={16} className="studio-entry__spin" />
@@ -64,6 +71,7 @@ function GalleryCard({
           title="Cancel job"
           disabled={cancelling}
           onClick={(e) => {
+            e.preventDefault();
             e.stopPropagation();
             void onCancel?.(item);
           }}
@@ -81,36 +89,34 @@ export function StudioEntryGallery({
   generating,
   activeJobLabel,
   activeProgressPct,
+  activeJobId,
 }: StudioEntryGalleryProps) {
-  const gallery = useStudioGallery();
+  const gallery = useStudioGallery({ mode: 'entry', autoFetch: true });
+  const [libraryOpen, setLibraryOpen] = useState(false);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
 
   const stockItems = useMemo(
-    () => gallery.items.filter((i) => i.source === 'stock'),
+    () => gallery.items.filter((i) => i.source === 'stock' || i.source === 'mine'),
     [gallery.items],
   );
 
   const pendingItems = useMemo(
-    () => gallery.items.filter((i) => i.pending && i.source !== 'stock'),
+    () => gallery.items.filter((i) => i.pending && i.source !== 'stock' && i.source !== 'mine'),
     [gallery.items],
   );
 
   const showGenerating =
     generating &&
-    !pendingItems.some((i) => i.pending) &&
-    activeJobLabel;
+    Boolean(activeJobLabel) &&
+    !pendingItems.some((i) => resolveGalleryCadJobId(i) === activeJobId);
 
-  if (gallery.loading && stockItems.length === 0 && pendingItems.length === 0) {
-    return (
-      <div className="studio-entry__gallery">
-        <p className="studio-entry__gallery-hint">Loading library…</p>
-      </div>
-    );
-  }
-
-  if (!gallery.loading && stockItems.length === 0 && pendingItems.length === 0 && !showGenerating) {
-    return null;
-  }
+  const toggleLibrary = () => {
+    setLibraryOpen((open) => {
+      const next = !open;
+      if (next && !gallery.assetsLoaded) void gallery.refreshAssets();
+      return next;
+    });
+  };
 
   const handleSpawn = (item: GalleryItem) => {
     if (!item.url) return;
@@ -121,7 +127,8 @@ export function StudioEntryGallery({
     setCancellingId(item.id);
     try {
       await gallery.dismissPending(item);
-      if (item.cadJobId) onCancelJob?.(item.cadJobId);
+      const cadJobId = resolveGalleryCadJobId(item);
+      if (cadJobId) onCancelJob?.(cadJobId);
     } catch (e) {
       console.warn('[StudioEntryGallery] cancel failed', e);
     } finally {
@@ -129,9 +136,11 @@ export function StudioEntryGallery({
     }
   };
 
+  const hasCreating = pendingItems.length > 0 || showGenerating;
+
   return (
-    <div className="studio-entry__gallery" aria-label="Asset library preview">
-      {pendingItems.length > 0 || showGenerating ? (
+    <div className="studio-entry__gallery" aria-label="Design Studio jobs and assets">
+      {hasCreating ? (
         <div className="studio-entry__gallery-section">
           <p className="studio-entry__gallery-label">Creating</p>
           <div className="studio-entry__gallery-grid">
@@ -144,34 +153,63 @@ export function StudioEntryGallery({
               />
             ))}
             {showGenerating ? (
-              <div className="studio-entry__gallery-card studio-entry__gallery-card--pending studio-entry__gallery-card--static">
-                <div className="studio-entry__gallery-thumb">
-                  <span className="cad-assets__thumb-placeholder">
-                    <Loader2 size={18} className="studio-entry__spin" />
-                  </span>
-                  {activeProgressPct != null && activeProgressPct > 0 ? (
-                    <span className="studio-entry__gallery-pending">
-                      <span className="studio-entry__gallery-pct">
-                        {Math.min(100, activeProgressPct)}%
-                      </span>
+              <div className="studio-entry__gallery-card-wrap">
+                <div className="studio-entry__gallery-card studio-entry__gallery-card--pending studio-entry__gallery-card--static">
+                  <div className="studio-entry__gallery-thumb">
+                    <span className="cad-assets__thumb-placeholder">
+                      <Loader2 size={18} className="studio-entry__spin" />
                     </span>
-                  ) : null}
+                    {activeProgressPct != null && activeProgressPct > 0 ? (
+                      <span className="studio-entry__gallery-pending">
+                        <span className="studio-entry__gallery-pct">
+                          {Math.min(100, activeProgressPct)}%
+                        </span>
+                      </span>
+                    ) : null}
+                  </div>
+                  <span className="studio-entry__gallery-name">{activeJobLabel}</span>
                 </div>
-                <span className="studio-entry__gallery-name">{activeJobLabel}</span>
               </div>
             ) : null}
           </div>
         </div>
       ) : null}
 
-      {stockItems.length > 0 ? (
-        <div className="studio-entry__gallery-section">
+      <div className="studio-entry__library-toggle-row">
+        <button
+          type="button"
+          className={`studio-entry__library-toggle${libraryOpen ? ' studio-entry__library-toggle--open' : ''}`}
+          onClick={toggleLibrary}
+          aria-expanded={libraryOpen}
+          aria-controls="studio-entry-asset-library"
+        >
+          <FolderBookmarkIcon size={20} stroke="currentColor" />
+          <span>{libraryOpen ? 'Hide asset library' : 'Browse asset library'}</span>
+          {gallery.assetsLoading ? (
+            <Loader2 size={14} className="studio-entry__spin" aria-hidden />
+          ) : null}
+        </button>
+      </div>
+
+      {libraryOpen ? (
+        <div
+          id="studio-entry-asset-library"
+          className="studio-entry__gallery-section studio-entry__gallery-section--library"
+        >
           <p className="studio-entry__gallery-label">Stock library</p>
-          <div className="studio-entry__gallery-grid">
-            {stockItems.map((item) => (
-              <GalleryCard key={item.id} item={item} onSpawn={handleSpawn} />
-            ))}
-          </div>
+          {gallery.assetsLoading && stockItems.length === 0 ? (
+            <p className="studio-entry__gallery-hint">Loading assets…</p>
+          ) : null}
+          {!gallery.assetsLoading && stockItems.length === 0 ? (
+            <p className="studio-entry__gallery-hint">No stock assets found.</p>
+          ) : null}
+          {stockItems.length > 0 ? (
+            <div className="studio-entry__gallery-grid">
+              {stockItems.map((item) => (
+                <GalleryCard key={item.id} item={item} onSpawn={handleSpawn} />
+              ))}
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>

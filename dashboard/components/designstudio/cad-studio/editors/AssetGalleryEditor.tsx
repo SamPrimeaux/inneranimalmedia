@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { useStudioGallery } from '../useStudioGallery';
+import { useStudioGallery, resolveGalleryCadJobId } from '../useStudioGallery';
 import type { GalleryItem } from '../cadStudioTypes';
 import { GlbAssetThumb } from './GlbAssetThumb';
 import {
@@ -23,7 +23,7 @@ const FILTER_ICONS: { key: SourceFilter; Icon: React.ElementType; label: string 
 ];
 
 export function AssetGalleryEditor({ onSpawn, onUpload, variant = 'panel' }: AssetGalleryEditorProps) {
-  const gallery = useStudioGallery();
+  const gallery = useStudioGallery({ mode: 'full', autoFetch: true });
   const fileRef = useRef<HTMLInputElement>(null);
   const [multiSelect, setMultiSelect] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -176,7 +176,7 @@ export function AssetGalleryEditor({ onSpawn, onUpload, variant = 'panel' }: Ass
                     <span className="cad-assets__source">{item.source}</span>
                   </div>
                 </button>
-                {item.pending && (item.cadJobId || item.externalTaskId) ? (
+                {item.pending && (resolveGalleryCadJobId(item) || item.externalTaskId) ? (
                   <button
                     type="button"
                     className="cad-assets__cancel"

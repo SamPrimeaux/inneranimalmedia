@@ -22,6 +22,7 @@ export type StudioEntryScreenProps = {
   onSpawnStock?: (name: string, url: string, scale: number) => void;
   onCancelJob?: (cadJobId: string) => void;
   activeProgressPct?: number;
+  activeJobId?: string | null;
 };
 
 export function StudioEntryScreen({
@@ -38,6 +39,7 @@ export function StudioEntryScreen({
   onSpawnStock,
   onCancelJob,
   activeProgressPct,
+  activeJobId,
 }: StudioEntryScreenProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const busy = generating || mode === 'loading-studio';
@@ -130,6 +132,7 @@ export function StudioEntryScreen({
           generating={generating}
           activeJobLabel={statusLabel}
           activeProgressPct={activeProgressPct ?? progressPct}
+          activeJobId={activeJobId}
         />
       </div>
     </div>

@@ -80,7 +80,7 @@ export const SHELL_PRODUCTS: ShellProduct[] = [
     home: '/dashboard/collaborate',
     items: [
       { id: 'calendar', label: 'Calendar', path: '/dashboard/collaborate', match: 'exact' },
-      { id: 'mail', label: 'Mail', path: '/dashboard/mail', match: 'exact' },
+      { id: 'mail', label: 'Mail', path: '/dashboard/mail', match: 'prefix' },
       { id: 'meet', label: 'Meet', path: '/dashboard/meet', match: 'prefix' },
       { id: 'learn', label: 'Learn', path: '/dashboard/learn', match: 'exact' },
     ],
