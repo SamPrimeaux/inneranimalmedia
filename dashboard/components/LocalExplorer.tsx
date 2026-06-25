@@ -1460,7 +1460,7 @@ export const LocalExplorer: React.FC<{
                     <span className="text-[11px] font-bold tracking-wide uppercase text-[var(--text-muted)] group-hover:text-white transition-colors">GitHub Sync</span>
                 </div>
                 {expandedSections.github && (
-                    <div className="min-h-[200px] max-h-[min(45vh,380px)] flex flex-col overflow-hidden border-t border-[var(--border-subtle)]/30 mx-1 mb-1 rounded border border-[var(--border-subtle)]/40">
+                    <div className="min-h-[200px] max-h-[min(45vh,380px)] max-phone:max-h-none max-phone:flex-1 flex flex-col overflow-hidden border-t border-[var(--border-subtle)]/30 mx-1 mb-1 rounded border border-[var(--border-subtle)]/40">
                         <GitHubExplorer workspace_id={workspace_id} onOpenInEditor={onOpenInEditor} />
                     </div>
                 )}
