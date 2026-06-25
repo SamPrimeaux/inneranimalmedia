@@ -47,15 +47,9 @@ import type { AgentSamGeneratorKey } from '../../../utils/agentSamGenerators';
 import './cad-studio.css';
 import { InspectorPanel } from './InspectorPanel';
 import { StudioLoadingScreen } from './StudioLoadingScreen';
+import { DEFAULT_STUDIO_SCENE_ENV, type EntityMaterialPatch, type StudioSceneEnvPatch } from './studioEnvironment';
 
-const DEFAULT_SCENE_ENV_CONFIG = {
-  ambientIntensity: 1.5,
-  castShadows: true,
-  fogDensity: 0,
-  sunHeight: 45,
-  sunPower: 3,
-  exposure: 1.5,
-} as const;
+const DEFAULT_SCENE_ENV_CONFIG = DEFAULT_STUDIO_SCENE_ENV;
 
 export type CadStudioShellProps = {
   engineContainerRef: React.RefObject<HTMLDivElement | null>;
@@ -104,6 +98,11 @@ export type CadStudioShellProps = {
   onToggleOrtho?: (ortho: boolean) => void;
   onEntityPositionChange?: (id: string, pos: { x?: number; y?: number; z?: number }) => void;
   onEntityScaleChange?: (id: string, scale: number) => void;
+  onUpdateSceneEnvironment?: (patch: StudioSceneEnvPatch) => void;
+  onApplyEntityMaterial?: (id: string, patch: EntityMaterialPatch) => void;
+  onPatchEntityDimensions?: (id: string, dims: { w?: number; h?: number; d?: number }) => void;
+  onRunBlenderJob?: (prompt: string) => void | Promise<void>;
+  getEntityMeshStats?: (id: string) => MeshStats;
   onFrameAll?: () => void;
   onViewportZoom?: (factor: number) => void;
   onViewportPanMode?: (active: boolean) => void;
@@ -171,6 +170,11 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
   onToggleOrtho,
   onEntityPositionChange,
   onEntityScaleChange,
+  onUpdateSceneEnvironment,
+  onApplyEntityMaterial,
+  onPatchEntityDimensions,
+  onRunBlenderJob,
+  getEntityMeshStats,
   onFrameAll,
   onViewportZoom,
   onViewportPanMode,
@@ -249,7 +253,43 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
 
   const activeJob = cad.polledJob || cad.activeJob;
   const selectedEntity = entities.find((e) => e.id === selectedId) ?? null;
-  const meshStats = useMemo(() => computeMeshStats(selectedEntity), [selectedEntity]);
+  const meshStats = useMemo(() => {
+    if (selectedId && getEntityMeshStats) return getEntityMeshStats(selectedId);
+    return computeMeshStats(selectedEntity);
+  }, [selectedId, selectedEntity, getEntityMeshStats]);
+
+  useEffect(() => {
+    if (!engineReady) return;
+    onUpdateSceneEnvironment?.({ ...DEFAULT_STUDIO_SCENE_ENV, fogEnabled: false });
+  }, [engineReady, onUpdateSceneEnvironment]);
+
+  const handleSceneEnvChange = useCallback(
+    (patch: StudioSceneEnvPatch) => {
+      setSceneEnvConfig((prev) => ({ ...prev, ...patch }));
+      const scenePatch: { ambientIntensity?: number; castShadows?: boolean } = {};
+      if (patch.ambientIntensity !== undefined) scenePatch.ambientIntensity = patch.ambientIntensity;
+      if (patch.castShadows !== undefined) scenePatch.castShadows = patch.castShadows;
+      if (Object.keys(scenePatch).length > 0) onUpdateSceneConfig?.(scenePatch);
+      onUpdateSceneEnvironment?.(patch);
+    },
+    [onUpdateSceneConfig, onUpdateSceneEnvironment],
+  );
+
+  const handleRunBlenderJob = useCallback(
+    async (prompt: string) => {
+      if (onRunBlenderJob) {
+        await onRunBlenderJob(prompt);
+        return;
+      }
+      try {
+        await cad.runBlenderScriptGenerate(prompt);
+        protocol.toast('CAD job', 'Submitted to runner — GLB spawns when complete.');
+      } catch (e) {
+        protocol.toast('CAD job failed', e instanceof Error ? e.message : String(e));
+      }
+    },
+    [cad, onRunBlenderJob, protocol],
+  );
 
   const lastSubmittedJobRef = useRef<string | null>(null);
   useEffect(() => {
@@ -693,6 +733,9 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
       }}
       sceneConfig={sceneConfig}
       onSceneConfigChange={onUpdateSceneConfig}
+      onApplyMaterial={onApplyEntityMaterial}
+      onRunBlenderJob={handleRunBlenderJob}
+      onSetBackground={onSetBackground}
     />
   );
 
@@ -1107,9 +1150,9 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
           />
         </div>
         <ViewportActionBar
-          onTexture={() => openOperatorDraft('generateObject', { prompt: 'Apply texture to selected object', workspace: ui.workspace, selectedObjectId: selectedId, sceneId: currentSceneId })}
-          onRemesh={() => openOperatorDraft('generateBlender', { prompt: 'Remesh selected object with voxel remesh, resolution 0.02', workspace: ui.workspace, selectedObjectId: selectedId, sceneId: currentSceneId })}
-          onUnwrapUV={() => openOperatorDraft('generateBlender', { prompt: 'Smart UV unwrap selected object', workspace: ui.workspace, selectedObjectId: selectedId, sceneId: currentSceneId })}
+          onTexture={() => void handleRunBlenderJob('Apply PBR texture to selected object')}
+          onRemesh={() => void handleRunBlenderJob('Remesh selected object with voxel remesh, resolution 0.02')}
+          onUnwrapUV={() => void handleRunBlenderJob('Smart UV unwrap selected object')}
           onRig={() => { if (animLibVisible) closeAnimLib(); else openAnimLib(); }}
           rigActive={animLibVisible}
           onDownload={onDownloadLatestGlb}
@@ -1120,14 +1163,20 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
           open={adjustOpen}
           onClose={() => setAdjustOpen(false)}
           selectedEntity={selectedEntity ?? null}
+          selectedEntityId={selectedId}
           sceneConfig={sceneEnvConfig}
-          onSceneConfigChange={(patch) => setSceneEnvConfig(prev => ({ ...prev, ...patch }))}
-          onRunBlenderOp={(prompt) => {
-            openOperatorDraft('generateBlender', {
-              prompt, workspace: ui.workspace,
-              selectedObjectId: selectedId, sceneId: currentSceneId,
-            });
+          onSceneConfigChange={handleSceneEnvChange}
+          onSetBackground={onSetBackground}
+          onSnapView={onSnapView}
+          onToggleOrtho={(ortho) => {
+            setOrthoMode(ortho);
+            onToggleOrtho?.(ortho);
           }}
+          orthoMode={orthoMode}
+          onApplyMaterial={onApplyEntityMaterial}
+          onPatchDimensions={onPatchEntityDimensions}
+          onRunBlenderJob={handleRunBlenderJob}
+          meshStats={meshStats}
         />
         <AssetLibraryFlyout open={libraryOpen} onClose={() => setLibraryOpen(false)}>
           <AssetGalleryEditor
@@ -1155,14 +1204,9 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
           onEntityNameChange={onEntityRename}
           onEntityPositionChange={onEntityPositionChange}
           onEntityScaleChange={onEntityScaleChange}
-          onRunBlenderOp={(prompt) =>
-            openOperatorDraft('generateBlender', {
-              prompt,
-              workspace: ui.workspace,
-              selectedObjectId: selectedId,
-              sceneId: currentSceneId,
-            })
-          }
+          onApplyMaterial={onApplyEntityMaterial}
+          onRunBlenderJob={handleRunBlenderJob}
+          meshStats={meshStats}
         />
       </div>
 

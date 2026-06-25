@@ -1,7 +1,7 @@
 import type { WorkspaceId, WorkspaceLayout } from './cadStudioTypes';
 
 const ANIM_LIB_COL = 'minmax(220px, 300px)';
-const RIGHT_COL = 'minmax(260px, 320px)';
+const RIGHT_COL = '260px';
 const VIEW_COL = 'minmax(0, 1fr)';
 const TIMELINE_ROW = 'minmax(72px, 120px)';
 

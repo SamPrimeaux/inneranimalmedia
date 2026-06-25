@@ -679,7 +679,9 @@
 .cad-editor--assets {
   border-left: 1px solid #090a0b;
   min-height: 0;
-  flex: 1;
+  width: 260px;
+  max-width: 260px;
+  flex: 0 0 260px;
   display: flex;
   flex-direction: column;
 }
@@ -1591,7 +1593,9 @@
   flex-direction: column;
   min-height: 0;
   min-width: 0;
-  width: 100%;
+  width: 260px;
+  max-width: 260px;
+  flex: 0 0 260px;
   background: var(--cs-bg-2);
   border-left: 1px solid var(--cs-line-0);
 }
@@ -2525,6 +2529,7 @@
 .adj__chip-grid { display: flex; flex-wrap: wrap; gap: 3px; }
 .adj__chip { padding: 3px 7px; border-radius: 4px; border: 1px solid var(--cs-line-1); background: var(--cs-bg-2); color: var(--cs-text-1); font-size: 10px; cursor: pointer; transition: all 0.1s; }
 .adj__chip:hover { background: var(--dashboard-accent,#6366f1); color: #fff; border-color: transparent; }
+.adj__chip--active { background: var(--dashboard-accent,#6366f1); color: #fff; border-color: transparent; }
 .adj__field { display: flex; align-items: center; gap: 6px; }
 .adj__select { flex:1; padding:3px 5px; border-radius:4px; border:1px solid var(--cs-line-1); background:var(--cs-bg-2); color:var(--cs-text-0); font-size:11px; }
 .adj__number { width:56px; padding:3px 5px; border-radius:4px; border:1px solid var(--cs-line-1); background:var(--cs-bg-0); color:var(--cs-text-0); font-size:11px; text-align:right; }
@@ -2748,7 +2753,9 @@
    260px docked right panel — full height, flex sibling of layout-wrap
    ═══════════════════════════════════════════════════════════════════════════ */
 .ip__panel {
-  width: clamp(200px, 22vw, 280px);
+  width: 260px;
+  min-width: 260px;
+  max-width: 260px;
   height: 100%;
   background: var(--cs-bg-1);
   border-left: 1px solid var(--cs-line-0);
@@ -2756,10 +2763,6 @@
   flex-direction: column;
   flex-shrink: 0;
   overflow: hidden;
-  /* user-resizable via drag handle injected by CSS */
-  resize: horizontal;
-  min-width: 180px;
-  max-width: 340px;
 }
 /* Scrollable inner content */
 .ip__body,

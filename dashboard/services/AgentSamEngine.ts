@@ -49,6 +49,7 @@ export class AgentSamEngine {
   
   private ambientLight: THREE.AmbientLight;
   private sunLight: THREE.DirectionalLight;
+  private hemiLight: THREE.HemisphereLight;
 
   private world: CANNON.World;
   private entities: Map<string, { 
@@ -287,6 +288,7 @@ export class AgentSamEngine {
     // Hemisphere light adds an excellent sky-to-ground gradient contrast
     const hemiLight = new THREE.HemisphereLight(0xddeeff, 0x222233, 1.0);
     hemiLight.position.set(0, 50, 0);
+    this.hemiLight = hemiLight;
     this.scene.add(hemiLight);
 
     this.sunLight = new THREE.DirectionalLight(0xffffff, 1.2);
@@ -1104,11 +1106,157 @@ export class AgentSamEngine {
     }
   }
 
-  public setFog(enabled: boolean) {
+  public setFog(enabled: boolean, density = 0.015) {
     const bg = this.scene.background instanceof THREE.Color
       ? '#' + this.scene.background.getHexString()
       : '#0f111a';
-    this.scene.fog = enabled ? new THREE.FogExp2(new THREE.Color(bg).getHex(), 0.015) : null;
+    this.scene.fog = enabled ? new THREE.FogExp2(new THREE.Color(bg).getHex(), density) : null;
+  }
+
+  public setFogDensity(density: number) {
+    if (this.scene.fog instanceof THREE.FogExp2) {
+      this.scene.fog.density = Math.max(0, density);
+    } else if (density > 0) {
+      this.setFog(true, density);
+    }
+  }
+
+  public updateSceneEnvironment(patch: {
+    ambientIntensity?: number;
+    sunColor?: string;
+    castShadows?: boolean;
+    exposure?: number;
+    sunPower?: number;
+    sunHeight?: number;
+    fogDensity?: number;
+    fogEnabled?: boolean;
+  }) {
+    if (patch.ambientIntensity !== undefined) {
+      this.ambientLight.intensity = patch.ambientIntensity;
+    }
+    if (patch.sunColor !== undefined) {
+      this.sunLight.color.set(patch.sunColor);
+    }
+    if (patch.castShadows !== undefined) {
+      this.sunLight.castShadow = patch.castShadows;
+    }
+    if (patch.exposure !== undefined) {
+      this.renderer.toneMappingExposure = Math.max(0.05, patch.exposure);
+    }
+    if (patch.sunPower !== undefined) {
+      this.sunLight.intensity = Math.max(0, patch.sunPower);
+    }
+    if (patch.sunHeight !== undefined) {
+      const rad = THREE.MathUtils.degToRad(patch.sunHeight);
+      const dist = 55;
+      this.sunLight.position.set(Math.cos(rad) * dist * 0.6, Math.sin(rad) * dist + 12, -22);
+    }
+    if (patch.fogEnabled !== undefined) {
+      const density =
+        patch.fogDensity ??
+        (this.scene.fog instanceof THREE.FogExp2 ? this.scene.fog.density : 0.015);
+      this.setFog(patch.fogEnabled, density);
+    } else if (patch.fogDensity !== undefined) {
+      this.setFogDensity(patch.fogDensity);
+    }
+  }
+
+  public applyEntityMaterial(
+    id: string,
+    patch: {
+      color?: string;
+      roughness?: number;
+      metalness?: number;
+      opacity?: number;
+      wireframe?: boolean;
+      emissive?: boolean;
+    },
+  ) {
+    const ent = this.entities.get(id);
+    if (!ent) return;
+    const root = ent.model || ent.mesh;
+    if (!root) return;
+    root.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const raw of materials) {
+        if (!raw || !('color' in raw)) continue;
+        const mat = raw as THREE.MeshStandardMaterial;
+        if (patch.color !== undefined) mat.color.set(patch.color);
+        if (patch.roughness !== undefined) mat.roughness = patch.roughness;
+        if (patch.metalness !== undefined) mat.metalness = patch.metalness;
+        if (patch.opacity !== undefined) {
+          mat.opacity = patch.opacity;
+          mat.transparent = patch.opacity < 0.999;
+        }
+        if (patch.wireframe !== undefined) mat.wireframe = patch.wireframe;
+        if (patch.emissive !== undefined) {
+          if (patch.emissive) {
+            mat.emissive.copy(mat.color);
+            mat.emissiveIntensity = 1.2;
+          } else {
+            mat.emissive.setHex(0x000000);
+            mat.emissiveIntensity = 0;
+          }
+        }
+        mat.needsUpdate = true;
+      }
+    });
+  }
+
+  public getEntityMeshStats(id: string): { verts: number; edges: number; faces: number; tris: number } {
+    const ent = this.entities.get(id);
+    if (!ent) return { verts: 0, edges: 0, faces: 0, tris: 0 };
+    if (ent.data.voxels?.length) {
+      const v = ent.data.voxels.length;
+      return { verts: v * 8, edges: v * 12, faces: v * 6, tris: v * 12 };
+    }
+    const root = ent.model || ent.mesh;
+    if (!root) return { verts: 0, edges: 0, faces: 0, tris: 0 };
+    let verts = 0;
+    let tris = 0;
+    root.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      if (!mesh.isMesh || !mesh.geometry) return;
+      const geo = mesh.geometry;
+      const pos = geo.attributes.position;
+      if (pos) verts += pos.count;
+      if (geo.index) tris += geo.index.count / 3;
+      else if (pos) tris += pos.count / 3;
+    });
+    const faces = Math.round(tris);
+    return { verts, edges: faces * 2, faces, tris: Math.round(tris) };
+  }
+
+  public patchEntityDimensions(id: string, dims: { w?: number; h?: number; d?: number }) {
+    const ent = this.entities.get(id);
+    if (!ent) return;
+    const visual = ent.model || ent.mesh;
+    if (!visual) return;
+
+    type BaseSize = { x: number; y: number; z: number };
+    if (!visual.userData.baseSize) {
+      const saved = visual.scale.clone();
+      visual.scale.set(1, 1, 1);
+      const box = new THREE.Box3().setFromObject(visual);
+      const size = new THREE.Vector3();
+      box.getSize(size);
+      visual.userData.baseSize = {
+        x: Math.max(size.x, 0.001),
+        y: Math.max(size.y, 0.001),
+        z: Math.max(size.z, 0.001),
+      } satisfies BaseSize;
+      visual.scale.copy(saved);
+    }
+
+    const base = visual.userData.baseSize as BaseSize;
+    visual.scale.set(
+      dims.w !== undefined ? dims.w / base.x : visual.scale.x,
+      dims.h !== undefined ? dims.h / base.y : visual.scale.y,
+      dims.d !== undefined ? dims.d / base.z : visual.scale.z,
+    );
+    ent.data.scale = (visual.scale.x + visual.scale.y + visual.scale.z) / 3;
   }
 
   public setGridVisible(visible: boolean) {

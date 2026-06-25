@@ -5,6 +5,9 @@
  */
 import React, { useCallback, useState } from 'react';
 import type { GameEntity, SceneConfig } from '../../../../types';
+import type { EntityMaterialPatch, StudioSceneEnvPatch } from './studioEnvironment';
+import { STUDIO_CANVAS_PRESETS } from './studioEnvironment';
+import type { MeshStats } from './cadStudioTypes';
 
 export type InspectorPanelProps = {
   open: boolean;
@@ -21,7 +24,9 @@ export type InspectorPanelProps = {
   onEntityNameChange?: (id: string, name: string) => void;
   onEntityPositionChange?: (id: string, pos: { x?: number; y?: number; z?: number }) => void;
   onEntityScaleChange?: (id: string, scale: number) => void;
-  onRunBlenderOp?: (prompt: string) => void;
+  onApplyMaterial?: (id: string, patch: EntityMaterialPatch) => void;
+  onRunBlenderJob?: (prompt: string) => void | Promise<void>;
+  meshStats?: MeshStats;
 };
 
 /* ── Primitives ─────────────────────────────────────────────────────────── */
@@ -80,13 +85,7 @@ function NumInput({ value, step = 0.01, onChange }: { value: number; step?: numb
 
 /* ── Scene Inspector ────────────────────────────────────────────────────── */
 
-const ENV_PRESETS = [
-  { label: 'Studio', bg: '#1a1c21' },
-  { label: 'Void', bg: '#000000' },
-  { label: 'Day', bg: '#c8d8f0' },
-  { label: 'Dusk', bg: '#1a0f2e' },
-  { label: 'Space', bg: '#050810' },
-];
+const ENV_PRESETS = STUDIO_CANVAS_PRESETS;
 
 const VIEW_FACES = ['top', 'front', 'right', 'left', 'back', 'bottom'] as const;
 
@@ -170,17 +169,23 @@ function SceneInspector(props: Omit<InspectorPanelProps, 'open' | 'onClose' | 's
 
 const MODIFIERS = ['Subdivision', 'Solidify', 'Bevel', 'Array', 'Mirror', 'Boolean', 'Decimate', 'Screw'];
 
-function ObjectInspector({ entity, onEntityNameChange, onEntityPositionChange, onEntityScaleChange, onRunBlenderOp }: {
+function ObjectInspector({ entity, onEntityNameChange, onEntityPositionChange, onEntityScaleChange, onApplyMaterial, onRunBlenderJob, meshStats }: {
   entity: GameEntity;
   onEntityNameChange?: (id: string, name: string) => void;
   onEntityPositionChange?: (id: string, pos: { x?: number; y?: number; z?: number }) => void;
   onEntityScaleChange?: (id: string, scale: number) => void;
-  onRunBlenderOp?: (prompt: string) => void;
+  onApplyMaterial?: (id: string, patch: EntityMaterialPatch) => void;
+  onRunBlenderJob?: (prompt: string) => void | Promise<void>;
+  meshStats?: MeshStats;
 }) {
   const pos = entity.position ?? { x: 0, y: 0, z: 0 };
   const scale = entity.scale ?? 1;
-  const verts = entity.voxels ? entity.voxels.length * 8 : entity.modelUrl ? 1200 : 24;
-  const tris  = entity.voxels ? entity.voxels.length * 12 : entity.modelUrl ? 1600 : 24;
+  const stats = meshStats ?? { verts: 0, edges: 0, faces: 0, tris: 0 };
+  const [matColor, setMatColor] = React.useState('#8a8a8a');
+  const [roughness, setRoughness] = React.useState(0.5);
+  const [metalness, setMetalness] = React.useState(0);
+
+  const applyMat = (patch: EntityMaterialPatch) => onApplyMaterial?.(entity.id, patch);
 
   return (
     <>
@@ -223,13 +228,13 @@ function ObjectInspector({ entity, onEntityNameChange, onEntityPositionChange, o
       <div className="ip__section">
         <SectionHead label="MESH" />
         <div className="ip__stats">
-          <span><b>{verts}</b> V</span>
-          <span><b>{tris}</b> T</span>
+          <span><b>{stats.verts}</b> V</span>
+          <span><b>{stats.tris}</b> T</span>
           {entity.voxels && <span><b>{entity.voxels.length}</b> vox</span>}
         </div>
         <div className="ip__chip-grid" style={{ marginTop: 6 }}>
           {['Remesh', 'UV Unwrap', 'Clean Mesh'].map((op) => (
-            <button key={op} type="button" className="ip__chip" onClick={() => onRunBlenderOp?.(`${op} the selected object`)}>{op}</button>
+            <button key={op} type="button" className="ip__chip" onClick={() => void onRunBlenderJob?.(`${op} the selected object`)}>{op}</button>
           ))}
         </div>
       </div>
@@ -244,10 +249,13 @@ function ObjectInspector({ entity, onEntityNameChange, onEntityPositionChange, o
           </select>
         </Row>
         <Row label="Base color">
-          <input type="color" className="ip__color" defaultValue="#8a8a8a" />
+          <input type="color" className="ip__color" value={matColor}
+            onChange={(e) => { setMatColor(e.target.value); applyMat({ color: e.target.value }); }} />
         </Row>
-        <SliderRow label="Roughness" value={0.5} min={0} max={1} step={0.01} onChange={() => {}} />
-        <SliderRow label="Metalness" value={0.0} min={0} max={1} step={0.01} onChange={() => {}} />
+        <SliderRow label="Roughness" value={roughness} min={0} max={1} step={0.01}
+          onChange={(v) => { setRoughness(v); applyMat({ roughness: v }); }} />
+        <SliderRow label="Metalness" value={metalness} min={0} max={1} step={0.01}
+          onChange={(v) => { setMetalness(v); applyMat({ metalness: v }); }} />
       </div>
 
       <div className="ip__section">
@@ -255,7 +263,7 @@ function ObjectInspector({ entity, onEntityNameChange, onEntityPositionChange, o
         <div className="ip__chip-grid">
           {MODIFIERS.map((mod) => (
             <button key={mod} type="button" className="ip__chip"
-              onClick={() => onRunBlenderOp?.(`Apply ${mod} modifier to the selected object`)}>
+              onClick={() => void onRunBlenderJob?.(`Apply ${mod} modifier to the selected object`)}>
               {mod}
             </button>
           ))}
@@ -267,7 +275,7 @@ function ObjectInspector({ entity, onEntityNameChange, onEntityPositionChange, o
 
 /* ── Panel Shell ─────────────────────────────────────────────────────────── */
 
-export function InspectorPanel({ open, onClose, sceneConfig, onSceneConfigChange, onSetBackground, onSetFog, onSetGridVisible, onSnapView, onToggleOrtho, orthoMode = false, selectedEntity = null, onEntityNameChange, onEntityPositionChange, onEntityScaleChange, onRunBlenderOp }: InspectorPanelProps) {
+export function InspectorPanel({ open, onClose, sceneConfig, onSceneConfigChange, onSetBackground, onSetFog, onSetGridVisible, onSnapView, onToggleOrtho, orthoMode = false, selectedEntity = null, onEntityNameChange, onEntityPositionChange, onEntityScaleChange, onApplyMaterial, onRunBlenderJob, meshStats }: InspectorPanelProps) {
   if (!open) return null;
   const hasSelection = selectedEntity != null;
 
@@ -324,7 +332,9 @@ export function InspectorPanel({ open, onClose, sceneConfig, onSceneConfigChange
             onEntityNameChange={onEntityNameChange}
             onEntityPositionChange={onEntityPositionChange}
             onEntityScaleChange={onEntityScaleChange}
-            onRunBlenderOp={onRunBlenderOp}
+            onApplyMaterial={onApplyMaterial}
+            onRunBlenderJob={onRunBlenderJob}
+            meshStats={meshStats}
           />
         ) : (
           <SceneInspector

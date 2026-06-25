@@ -887,6 +887,23 @@ export const DesignStudioPage: React.FC = () => {
         onToggleOrtho={(ortho) => { if (isAgentSamEngine(engineRef.current)) engineRef.current.toggleOrtho(ortho); }}
         onEntityPositionChange={(id, pos) => { if (isAgentSamEngine(engineRef.current)) engineRef.current.patchEntityPosition(id, pos); }}
         onEntityScaleChange={(id, scale) => { if (isAgentSamEngine(engineRef.current)) engineRef.current.patchEntityScale(id, scale); }}
+        onUpdateSceneEnvironment={(patch) => {
+          if (isAgentSamEngine(engineRef.current)) engineRef.current.updateSceneEnvironment(patch);
+        }}
+        onApplyEntityMaterial={(id, patch) => {
+          if (isAgentSamEngine(engineRef.current)) engineRef.current.applyEntityMaterial(id, patch);
+        }}
+        onPatchEntityDimensions={(id, dims) => {
+          if (isAgentSamEngine(engineRef.current)) engineRef.current.patchEntityDimensions(id, dims);
+        }}
+        onRunBlenderJob={async (prompt) => {
+          await cad.runBlenderScriptGenerate(prompt);
+        }}
+        getEntityMeshStats={(id) =>
+          isAgentSamEngine(engineRef.current)
+            ? engineRef.current.getEntityMeshStats(id)
+            : { verts: 0, edges: 0, faces: 0, tris: 0 }
+        }
         onFrameAll={handleFrameAll}
         onViewportZoom={handleViewportZoom}
         onViewportPanMode={handleViewportPanMode}

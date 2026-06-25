@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import type { CadJobRow } from '../../api';
 import { cadExportLinks, downloadCadAsset } from '../../cadExportFormats';
 import type { GameEntity } from '../../../../types';
 import type { PropertiesTabId } from '../cadStudioTypes';
 import type { useCadStudioProtocol } from '../useCadStudioProtocol';
+import type { EntityMaterialPatch } from '../studioEnvironment';
 
 const TAB_DEFS: { id: PropertiesTabId; label: string; icon: string }[] = [
   { id: 'object', label: 'Object', icon: 'O' },
@@ -33,6 +34,9 @@ export type PropertiesEditorProps = {
   onRenderSettingsChange?: (patch: { samples?: number; bounces?: number }) => void;
   sceneConfig?: { ambientIntensity?: number; castShadows?: boolean };
   onSceneConfigChange?: (patch: { ambientIntensity?: number; castShadows?: boolean }) => void;
+  onApplyMaterial?: (id: string, patch: EntityMaterialPatch) => void;
+  onRunBlenderJob?: (prompt: string) => void | Promise<void>;
+  onSetBackground?: (hex: string) => void;
 };
 
 function Accordion({ title, children }: { title: string; children: React.ReactNode }) {
@@ -61,7 +65,18 @@ export function PropertiesEditor({
   onRenderSettingsChange,
   sceneConfig,
   onSceneConfigChange,
+  onApplyMaterial,
+  onRunBlenderJob,
+  onSetBackground,
 }: PropertiesEditorProps) {
+  const [matColor, setMatColor] = useState('#8a8a8a');
+  const [roughness, setRoughness] = useState(0.45);
+  const [metalness, setMetalness] = useState(0.1);
+  const [bgColor, setBgColor] = useState('#111214');
+
+  const applyMat = (patch: EntityMaterialPatch) => {
+    if (selectedEntity && onApplyMaterial) onApplyMaterial(selectedEntity.id, patch);
+  };
   const renderTab = () => {
     switch (propertiesTab) {
       case 'object':
@@ -123,29 +138,90 @@ export function PropertiesEditor({
           <p className="cad-editor__hint">Select an object in the outliner.</p>
         );
       case 'modifiers':
-        return (
+        return selectedEntity ? (
           <Accordion title="Modifiers">
-            <p className="cad-editor__hint">Add modifiers via Operator Search → ChatAssistant (Blender runner).</p>
-            <button
-              type="button"
-              className="cad-studio__btn"
-              onClick={() => protocol.toast('Modifiers', 'Use Cmd+K → Generate Blender Script for modifier stack ops.')}
-            >
-              Add Modifier via Agent
-            </button>
+            <div className="ip__chip-grid" style={{ marginTop: 4 }}>
+              {['Subdivision', 'Solidify', 'Bevel', 'Mirror', 'Decimate'].map((mod) => (
+                <button
+                  key={mod}
+                  type="button"
+                  className="cad-studio__btn"
+                  style={{ fontSize: 10, padding: '4px 8px' }}
+                  onClick={() => void onRunBlenderJob?.(`Apply ${mod} modifier to selected object`)}
+                >
+                  {mod}
+                </button>
+              ))}
+            </div>
           </Accordion>
+        ) : (
+          <p className="cad-editor__hint">Select an object in the outliner.</p>
         );
       case 'material':
-        return (
+        return selectedEntity ? (
           <Accordion title="Material">
             <div className="cad-studio__field-grid two">
               <span className="cad-studio__field-label">Surface</span>
-              <select className="cad-studio__field-input" defaultValue="principled">
+              <select
+                className="cad-studio__field-input"
+                defaultValue="principled"
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === 'emission') applyMat({ emissive: true });
+                  else if (v === 'wireframe') applyMat({ wireframe: true });
+                  else applyMat({ emissive: false, wireframe: false });
+                }}
+              >
                 <option value="principled">Principled BSDF</option>
                 <option value="emission">Emission</option>
+                <option value="wireframe">Wireframe</option>
               </select>
             </div>
+            <div className="cad-studio__field-grid two">
+              <span className="cad-studio__field-label">Base color</span>
+              <input
+                type="color"
+                className="cad-studio__field-input"
+                value={matColor}
+                onChange={(e) => {
+                  setMatColor(e.target.value);
+                  applyMat({ color: e.target.value });
+                }}
+              />
+            </div>
+            <div className="cad-studio__field-grid two">
+              <span className="cad-studio__field-label">Roughness</span>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={roughness}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  setRoughness(v);
+                  applyMat({ roughness: v });
+                }}
+              />
+            </div>
+            <div className="cad-studio__field-grid two">
+              <span className="cad-studio__field-label">Metalness</span>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={metalness}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  setMetalness(v);
+                  applyMat({ metalness: v });
+                }}
+              />
+            </div>
           </Accordion>
+        ) : (
+          <p className="cad-editor__hint">Select an object in the outliner.</p>
         );
       case 'render':
         return (
@@ -176,6 +252,18 @@ export function PropertiesEditor({
       case 'world':
         return (
           <Accordion title="World">
+            <div className="cad-studio__field-grid two">
+              <span className="cad-studio__field-label">Background</span>
+              <input
+                type="color"
+                className="cad-studio__field-input"
+                value={bgColor}
+                onChange={(e) => {
+                  setBgColor(e.target.value);
+                  onSetBackground?.(e.target.value);
+                }}
+              />
+            </div>
             <div className="cad-studio__field-grid two">
               <span className="cad-studio__field-label">Ambient</span>
               <input
