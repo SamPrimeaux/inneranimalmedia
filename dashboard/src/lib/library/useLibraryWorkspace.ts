@@ -65,6 +65,7 @@ export function useLibraryWorkspace() {
 
   const activeRail = filters.rail;
   const pageTitle = useMemo(() => {
+    if (activeRail === 'projects') return RAIL_TITLES.projects;
     if (activeRail === 'drive') {
       if (driveView === 'shared-drives' && !sharedDriveId) return DRIVE_VIEW_TITLES['shared-drives'];
       if (driveView === 'shared-with-me') {

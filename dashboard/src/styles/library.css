@@ -1834,3 +1834,302 @@
     display: none;
   }
 }
+
+/* ── Projects surface (Drive-style) ───────────────────────────────────────── */
+
+.artifacts-drive-shell .drive-main--projects {
+  background: #fff;
+}
+
+.artifacts-drive-shell .lib-projects-surface {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 20px 24px 32px;
+}
+
+.artifacts-drive-shell .lib-projects-head {
+  margin-bottom: 16px;
+}
+
+.artifacts-drive-shell .lib-projects-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.artifacts-drive-shell .lib-projects-title-row h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 500;
+}
+
+.artifacts-drive-shell .lib-projects-create-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 0 18px;
+  height: 40px;
+  border-radius: 999px;
+  border: 1px solid #dadce0;
+  background: #fff;
+  color: #1a73e8;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.artifacts-drive-shell .lib-projects-create-btn:hover {
+  background: #f6fafe;
+  border-color: #c2d7f2;
+}
+
+.artifacts-drive-shell .lib-projects-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.artifacts-drive-shell .lib-projects-search {
+  flex: 1;
+  max-width: 320px;
+  height: 36px;
+  border: 1px solid #dadce0;
+  border-radius: 8px;
+  padding: 0 12px;
+  font: inherit;
+}
+
+.artifacts-drive-shell .lib-projects-table-wrap {
+  border-top: 1px solid #e8eaed;
+}
+
+.artifacts-drive-shell .lib-projects-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.artifacts-drive-shell .lib-projects-table th {
+  text-align: left;
+  color: #5f6368;
+  font-weight: 500;
+  padding: 10px 12px;
+  border-bottom: 1px solid #e8eaed;
+}
+
+.artifacts-drive-shell .lib-projects-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #f1f3f4;
+  vertical-align: middle;
+}
+
+.artifacts-drive-shell .lib-projects-sort {
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+
+.artifacts-drive-shell .lib-projects-name-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  border: none;
+  background: none;
+  font: inherit;
+  color: #202124;
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.artifacts-drive-shell .lib-projects-name-btn:hover {
+  color: #1a73e8;
+}
+
+.artifacts-drive-shell .lib-project-folder-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  background: #e8f0fe;
+  color: #1a73e8;
+}
+
+.artifacts-drive-shell .lib-projects-owner {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.artifacts-drive-shell .lib-projects-owner-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: #fce8b2;
+  color: #3c4043;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.artifacts-drive-shell .lib-project-muted {
+  color: #5f6368;
+  font-size: 12px;
+  margin: 0;
+}
+
+.artifacts-drive-shell .lib-project-detail {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.artifacts-drive-shell .lib-project-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e8eaed;
+}
+
+.artifacts-drive-shell .lib-project-detail-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.artifacts-drive-shell .lib-project-detail-title h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.artifacts-drive-shell .lib-project-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.artifacts-drive-shell .lib-project-detail-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  overflow: hidden;
+}
+
+.artifacts-drive-shell .lib-project-detail-side {
+  border-right: 1px solid #e8eaed;
+  padding: 16px;
+  overflow: auto;
+}
+
+.artifacts-drive-shell .lib-project-detail-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+
+.artifacts-drive-shell .lib-project-detail-tabs button {
+  text-align: left;
+  border: none;
+  background: none;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font: inherit;
+  cursor: pointer;
+  color: #3c4043;
+}
+
+.artifacts-drive-shell .lib-project-detail-tabs button.active {
+  background: #e8f0fe;
+  color: #1a73e8;
+  font-weight: 500;
+}
+
+.artifacts-drive-shell .lib-project-detail-main {
+  padding: 24px;
+  overflow: auto;
+}
+
+.artifacts-drive-shell .lib-project-detail-main h3 {
+  margin: 0 0 8px;
+  font-size: 28px;
+  font-weight: 400;
+}
+
+.artifacts-drive-shell .lib-project-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.artifacts-drive-shell .lib-project-meta-grid span {
+  display: block;
+  font-size: 11px;
+  color: #5f6368;
+}
+
+.artifacts-drive-shell .lib-project-meta-grid strong {
+  font-size: 14px;
+}
+
+.artifacts-drive-shell .lib-project-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 16px;
+}
+
+.artifacts-drive-shell .lib-project-tags span {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #f1f3f4;
+  font-size: 11px;
+}
+
+.artifacts-drive-shell .lib-project-sources-empty {
+  text-align: center;
+  padding: 24px 12px;
+}
+
+.artifacts-drive-shell .lib-project-sources-illustration {
+  width: 120px;
+  height: 80px;
+  margin: 0 auto 12px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #e8f5e9, #fff9c4);
+}
+
+.artifacts-drive-shell .lib-project-source-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.artifacts-drive-shell .lib-project-source-list li {
+  padding: 8px 0;
+  border-bottom: 1px solid #f1f3f4;
+}
+
+.artifacts-drive-shell .lib-project-kanban-wrap {
+  min-height: 420px;
+}
+
+@media (max-width: 900px) {
+  .artifacts-drive-shell .lib-project-detail-body {
+    grid-template-columns: 1fr;
+  }
+}

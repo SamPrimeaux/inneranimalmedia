@@ -14,6 +14,7 @@ import {
   uploadDriveFiles,
 } from '../../lib/library/driveOpsApi';
 import { LibraryConnectMenu } from './LibraryConnectMenu';
+import { LibraryProjectsSurface } from './LibraryProjectsSurface';
 import { LibraryFileDriveActions } from './LibraryFileDriveActions';
 import { LibraryListView } from './LibraryListView';
 import { LibrarySideRail } from './LibrarySideRail';
@@ -33,8 +34,8 @@ const NEW_MENU_ITEMS = [
 
 const NAV_ITEMS = [
   { key: 'home', label: 'Home', icon: 'home' },
-  { key: 'activity', label: 'Activity', icon: 'activity' },
-  { key: 'projects', label: 'My artifacts', icon: 'projects' },
+  { key: 'projects', label: 'Projects', icon: 'projectFolder' },
+  { key: 'artifacts', label: 'My artifacts', icon: 'artifacts' },
   { key: 'workspaces', label: 'R2 Storage', icon: 'workspaces' },
   { key: 'my-drive', label: 'Google Drive', icon: 'drive' },
   { key: 'shared', label: 'Shared drives', icon: 'shared' },
@@ -52,6 +53,18 @@ function NavIcon({ name }: { name: string }) {
       <>
         <path d="M18 8a6 6 0 1 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" />
         <path d="M10 21h4" />
+      </>
+    ),
+    projectFolder: (
+      <>
+        <path d="M3 7h7l2 2h9v10H3z" />
+        <path d="M12 11v4M10 13h4" />
+      </>
+    ),
+    artifacts: (
+      <>
+        <path d="M4 5h16v14H4z" />
+        <path d="M8 9h8M8 13h5" />
       </>
     ),
     projects: (
@@ -111,7 +124,7 @@ function railForNavKey(key: string): string | undefined {
 
 export function ArtifactsDriveShell() {
   const ws = useLibraryWorkspace();
-  const [, setSearchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -131,6 +144,8 @@ export function ArtifactsDriveShell() {
 
   const canManageSharedDrives = hasDriveManageScope(ws.driveStatus);
   const showSharedDriveTools = ws.driveView === 'shared-drives' || ws.driveView === 'shared-drive';
+  const isProjectsView = ws.filters.rail === 'projects';
+  const projectIdParam = searchParams.get('project');
   const activeSharedDriveId = ws.sharedDriveId || ws.driveFolderStack[0]?.id || null;
   const activeSharedDriveName =
     ws.driveFolderStack[0]?.name ||
@@ -187,6 +202,26 @@ export function ArtifactsDriveShell() {
       if (toastTimer.current) window.clearTimeout(toastTimer.current);
     };
   }, []);
+
+  useEffect(() => {
+    const view = searchParams.get('view');
+    if (view === 'projects' && ws.filters.rail !== 'projects') {
+      ws.setNavKey('projects');
+    }
+  }, [searchParams, ws]);
+
+  const handleProjectChange = useCallback(
+    (projectId: string | null) => {
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        if (projectId) next.set('project', projectId);
+        else next.delete('project');
+        next.set('view', 'projects');
+        return next;
+      });
+    },
+    [setSearchParams],
+  );
 
   const handleContextMenu = (e: MouseEvent, item: LibraryItem) => {
     e.preventDefault();
@@ -393,6 +428,14 @@ export function ArtifactsDriveShell() {
                       else ws.setNavKey(item.key);
                       return;
                     }
+                    if (item.key === 'projects') {
+                      setSearchParams((prev) => {
+                        const next = new URLSearchParams(prev);
+                        next.set('view', 'projects');
+                        next.delete('project');
+                        return next;
+                      });
+                    }
                     if (rail) ws.setNavKey(item.key);
                     else showToast(`${item.label} — coming soon`);
                   }}
@@ -413,7 +456,15 @@ export function ArtifactsDriveShell() {
           </nav>
         </aside>
 
-        <main className="drive-main">
+        <main className={`drive-main${isProjectsView ? ' drive-main--projects' : ''}`}>
+          {isProjectsView ? (
+            <LibraryProjectsSurface
+              onToast={showToast}
+              initialProjectId={projectIdParam}
+              onProjectChange={handleProjectChange}
+            />
+          ) : (
+            <>
           <div className="main-head">
             <div className="title">
               {ws.canNavigateUp ? (
@@ -657,6 +708,8 @@ export function ArtifactsDriveShell() {
               </>
             )}
           </section>
+            </>
+          )}
         </main>
 
         <LibrarySideRail onPanelChange={setRailPanelOpen} />

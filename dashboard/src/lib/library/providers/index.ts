@@ -14,6 +14,7 @@ export const LIBRARY_PROVIDERS: Record<LibrarySource, LibraryProvider> = {
 const RAIL_SOURCES: Partial<Record<LibraryRail, LibrarySource[]>> = {
   all: ['artifacts', 'drive', 'r2', 'local'],
   artifacts: ['artifacts'],
+  projects: [],
   drive: ['drive'],
   r2: ['r2'],
   local: ['local'],

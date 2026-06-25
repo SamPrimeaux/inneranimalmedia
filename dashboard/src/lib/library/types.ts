@@ -7,6 +7,7 @@ export type DriveView = 'my-drive' | 'shared-with-me' | 'shared-drives' | 'share
 export type LibraryRail =
   | 'all'
   | 'artifacts'
+  | 'projects'
   | 'drive'
   | 'r2'
   | 'local'
@@ -85,6 +86,7 @@ export interface LibraryProvider {
 export const RAIL_TITLES: Record<LibraryRail, string> = {
   all: 'All files',
   artifacts: 'My artifacts',
+  projects: 'Projects',
   drive: 'Google Drive',
   r2: 'R2 Storage',
   local: 'Local folder',
@@ -95,7 +97,8 @@ export const RAIL_TITLES: Record<LibraryRail, string> = {
 
 export const NAV_RAIL_MAP: Record<string, LibraryRail> = {
   home: 'all',
-  projects: 'artifacts',
+  artifacts: 'artifacts',
+  projects: 'projects',
   workspaces: 'r2',
   'my-drive': 'drive',
   shared: 'drive',

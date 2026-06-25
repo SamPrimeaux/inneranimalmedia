@@ -5,7 +5,7 @@
 */
 
 import React, { useEffect, useRef, useState, useCallback, useMemo, Suspense, lazy } from 'react';
-import { useLocation, Routes, Route, Navigate, useNavigate } from "react-router-dom";
+import { useLocation, Routes, Route, Navigate, useNavigate, useParams } from "react-router-dom";
 import { ChatAssistant } from './components/ChatAssistant';
 import { WorkspaceDashboard } from './components/WorkspaceDashboard';
 import { WorkspaceDashboardV2 } from './components/WorkspaceDashboardV2';
@@ -130,7 +130,14 @@ import { MobileNavHamburger } from './components/shell/MobileNavHamburger';
 import { mobileNavBackLabel } from './components/shell/mobileNavBackLabel';
 import { Files, Search, GitBranch, Settings, PanelLeftClose, PanelRightClose, Terminal as TermIcon, Layers, Monitor, Bug, Github, Database, FolderOpen, FolderCode, Globe, PenTool, Cloud, X as XIcon, Eye, MessageSquare, MoreHorizontal, ChevronLeft, Link2, HardDrive, Package, History, FileCode2, Rocket } from 'lucide-react';
 import { SetiFileIcon } from './src/components/SetiFileIcon';
-const ProjectManagement = lazy(() => import('./pages/projects/ProjectManagement'));
+
+function ProjectsLegacyRedirect() {
+  const { projectId } = useParams();
+  const dest = projectId
+    ? `/dashboard/artifacts?view=projects&project=${encodeURIComponent(projectId)}`
+    : '/dashboard/artifacts?view=projects';
+  return <Navigate to={dest} replace />;
+}
 
 /** Route-level code splitting: heavy dashboard pages load on demand; shell + /dashboard/agent stay eager. */
 const OverviewPage = lazy(() => import('./components/overview'));
@@ -4140,7 +4147,8 @@ const App: React.FC = () => {
                       />
                       <Route path="/dashboard/library" element={<Navigate to="/dashboard/artifacts" replace />} />
                       <Route path="/dashboard/artifacts" element={<LibraryPage />} />
-                      <Route path="/dashboard/projects" element={<ProjectManagement />} />
+                      <Route path="/dashboard/projects" element={<Navigate to="/dashboard/artifacts?view=projects" replace />} />
+                      <Route path="/dashboard/projects/:projectId" element={<ProjectsLegacyRedirect />} />
                       <Route path="/dashboard/tasks" element={<TasksPage />} />
                       <Route path="/dashboard/chats" element={<ChatsPage />} />
                       <Route path="/dashboard/launch-desk" element={<Navigate to="/dashboard/collaborate" replace />} />
