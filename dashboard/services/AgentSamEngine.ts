@@ -70,6 +70,7 @@ export class AgentSamEngine {
 
   private raycaster = new THREE.Raycaster();
   private mouse = new THREE.Vector2();
+  private gridHelper: THREE.GridHelper | null = null;
   private drawingPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   private startPoint: THREE.Vector3 | null = null;
   private previewMesh: THREE.InstancedMesh | null = null;
@@ -336,6 +337,7 @@ export class AgentSamEngine {
   private setupGrid() {
     const grid = new THREE.GridHelper(100, 100, 0x666688, 0x222233);
     grid.position.y = -0.01;
+    this.gridHelper = grid;
     
     // Add a stronger origin axis lines
     const axesHelper = new THREE.AxesHelper(5);
@@ -343,6 +345,23 @@ export class AgentSamEngine {
     this.scene.add(axesHelper);
     
     this.scene.add(grid);
+  }
+
+  /** Raycast targets for CAD voxel/paint — grid + voxel meshes only (never deep GLB hierarchies). */
+  private getCadRaycastTargets(voxelOnly = false): THREE.Object3D[] {
+    const targets: THREE.Object3D[] = [];
+    if (!voxelOnly && this.gridHelper) targets.push(this.gridHelper);
+    for (const ent of this.entities.values()) {
+      if (ent.mesh) targets.push(ent.mesh);
+    }
+    return targets;
+  }
+
+  private raycastCadSurfaces(voxelOnly = false): THREE.Intersection[] {
+    this.raycaster.setFromCamera(this.mouse, this.camera);
+    const targets = this.getCadRaycastTargets(voxelOnly);
+    if (targets.length === 0) return [];
+    return this.raycaster.intersectObjects(targets, false);
   }
 
   public setCADTool(tool: CADTool) {
@@ -492,8 +511,7 @@ export class AgentSamEngine {
   }
 
   private getBuildPoint(): THREE.Vector3 | null {
-    this.raycaster.setFromCamera(this.mouse, this.camera);
-    const intersects = this.raycaster.intersectObjects(this.scene.children, true);
+    const intersects = this.raycastCadSurfaces();
     if (intersects.length > 0) {
         const intersect = intersects[0];
         const point = intersect.point.clone();
@@ -502,6 +520,10 @@ export class AgentSamEngine {
         
         point.add(normal.multiplyScalar(0.5));
         return new THREE.Vector3(Math.round(point.x), Math.round(point.y), Math.round(point.z));
+    }
+    const planeHit = this.getMousePoint();
+    if (planeHit) {
+      return new THREE.Vector3(Math.round(planeHit.x), Math.round(planeHit.y), Math.round(planeHit.z));
     }
     return null;
   }
@@ -523,8 +545,7 @@ export class AgentSamEngine {
   }
 
   private paintAtMouse() {
-    this.raycaster.setFromCamera(this.mouse, this.camera);
-    const intersects = this.raycaster.intersectObjects(this.scene.children, true);
+    const intersects = this.raycastCadSurfaces(true);
     if (intersects.length === 0) return;
     const mesh = intersects[0].object as THREE.Mesh;
     if (mesh.isMesh) {
@@ -805,6 +826,7 @@ export class AgentSamEngine {
         if (entity.type === 'piece' || entity.behavior.type === 'chess_piece') {
           return;
         }
+        throw err;
       }
     } else if (entity.voxels) {
       if (entity.type === 'piece' || entity.behavior.type === 'chess_piece') {

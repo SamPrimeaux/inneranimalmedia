@@ -75,7 +75,7 @@ export const DesignStudioPage: React.FC = () => {
   const engineRef = useRef<StudioEngine | null>(null);
   const pageRootRef = useRef<HTMLDivElement>(null);
   const pendingConsumedRef = useRef(false);
-  const pendingEntrySpawnRef = useRef<{ name: string; url: string; scale: number } | null>(null);
+  const pendingSpawnRef = useRef<{ name: string; url: string; scale: number } | null>(null);
   const lastSpawnedJobRef = useRef<string | null>(null);
 
   const [studioPhase, setStudioPhase] = useState<'entry' | 'studio'>('entry');
@@ -358,34 +358,43 @@ export const DesignStudioPage: React.FC = () => {
     });
   }, []);
 
-  const handleSpawnModel = useCallback((name: string, url: string, scale: number) => {
-    if (!isAgentSamEngine(engineRef.current)) return;
-    const normalized = normalizeGlbUrl(url) ?? url;
-    if (!normalized) {
-      console.warn('[DesignStudio] spawn: could not resolve URL for', name, url);
-      return;
-    }
-    void engineRef.current
-      .spawnEntity({
-        id: `asset_${Date.now()}`,
-        name,
-        type: 'prop',
-        modelUrl: normalized,
-        scale,
-        position: { x: 0, y: 1, z: 0 },
-        behavior: { type: 'static' },
-      })
-      .then(() => {
+  const handleSpawnModel = useCallback(
+    async (name: string, url: string, scale: number): Promise<boolean> => {
+      const normalized = normalizeGlbUrl(url) ?? url;
+      if (!normalized) {
+        console.warn('[DesignStudio] spawn: could not resolve URL for', name, url);
+        return false;
+      }
+      if (!isAgentSamEngine(engineRef.current)) {
+        pendingSpawnRef.current = { name, url: normalized, scale };
+        setStudioPhase('studio');
+        return true;
+      }
+      try {
+        await engineRef.current.spawnEntity({
+          id: `asset_${Date.now()}`,
+          name,
+          type: 'prop',
+          modelUrl: normalized,
+          scale,
+          position: { x: 0, y: 1, z: 0 },
+          behavior: { type: 'static' },
+        });
         requestAnimationFrame(() => engineRef.current?.frameCameraOnObject());
-      })
-      .catch((err) => console.warn('[DesignStudio] spawn failed', err));
-  }, []);
+        return true;
+      } catch (err) {
+        console.warn('[DesignStudio] spawn failed', name, normalized, err);
+        return false;
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
-    if (!engineReady || !isAgentSamEngine(engineRef.current) || !pendingEntrySpawnRef.current) return;
-    const pending = pendingEntrySpawnRef.current;
-    pendingEntrySpawnRef.current = null;
-    handleSpawnModel(pending.name, pending.url, pending.scale);
+    if (!engineReady || !isAgentSamEngine(engineRef.current) || !pendingSpawnRef.current) return;
+    const pending = pendingSpawnRef.current;
+    pendingSpawnRef.current = null;
+    void handleSpawnModel(pending.name, pending.url, pending.scale);
   }, [engineReady, handleSpawnModel]);
 
   const handleSpawnProcedural = useCallback((key: AgentSamGeneratorKey) => {
@@ -438,7 +447,7 @@ export const DesignStudioPage: React.FC = () => {
   const handleImportGlbFile = useCallback(
     (file: File) => {
       const url = URL.createObjectURL(file);
-      handleSpawnModel(file.name.replace(/\.glb$/i, ''), url, 1);
+      void handleSpawnModel(file.name.replace(/\.glb$/i, ''), url, 1);
     },
     [handleSpawnModel],
   );
@@ -447,7 +456,10 @@ export const DesignStudioPage: React.FC = () => {
     (e: React.DragEvent) => {
       e.preventDefault();
       const glb = Array.from(e.dataTransfer.files).find((f) => f.name.toLowerCase().endsWith('.glb'));
-      if (glb) handleImportGlbFile(glb);
+      if (glb) {
+        setStudioPhase('studio');
+        handleImportGlbFile(glb);
+      }
     },
     [handleImportGlbFile],
   );
@@ -768,15 +780,16 @@ export const DesignStudioPage: React.FC = () => {
     }
   }, [meshyPrompt, cad]);
 
-  const handleEntrySpawnStock = useCallback((name: string, url: string, scale: number) => {
-    pendingEntrySpawnRef.current = { name, url, scale };
-    setStudioPhase('studio');
-  }, []);
+  const handleEntrySpawnStock = useCallback(
+    (name: string, url: string, scale: number) => {
+      void handleSpawnModel(name, url, scale);
+    },
+    [handleSpawnModel],
+  );
 
   const handleEntryImportGlb = useCallback(
     (file: File) => {
-      setStudioPhase('studio');
-      void handleImportGlbFile(file);
+      handleImportGlbFile(file);
     },
     [handleImportGlbFile],
   );

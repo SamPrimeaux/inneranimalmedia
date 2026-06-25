@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { normalizeGlbUrl } from '../../../lib/glbAssets';
 import type { GalleryItem } from './cadStudioTypes';
 
 type AssetRow = {
@@ -94,7 +95,7 @@ export function useStudioGallery() {
           ? (data as { results: AssetRow[] }).results
           : [];
         for (const row of rows) {
-          const url = normalizeUrl(row.public_url);
+          const url = normalizeGlbUrl(normalizeUrl(row.public_url));
           if (!url) continue;
           merged.push({
             id: String(row.id || url),
@@ -115,7 +116,7 @@ export function useStudioGallery() {
         const data = await jobsRes.json();
         const rows = Array.isArray(data?.jobs) ? data.jobs : [];
         for (const row of rows as JobRow[]) {
-          const url = normalizeUrl(row.public_url || row.result_url);
+          const url = normalizeGlbUrl(normalizeUrl(row.public_url || row.result_url));
           const st = String(row.status || '').toLowerCase();
           const terminal = isTerminalJobStatus(st);
           if (!url && !isActiveJobStatus(st)) continue;
@@ -140,7 +141,7 @@ export function useStudioGallery() {
         const data = await meshyRes.json();
         const rows = Array.isArray(data?.tasks) ? data.tasks : Array.isArray(data?.results) ? data.results : [];
         for (const row of rows as MeshyTaskRow[]) {
-          const url = normalizeUrl(row.public_url || row.model_urls?.glb);
+          const url = normalizeGlbUrl(normalizeUrl(row.public_url || row.model_urls?.glb));
           const st = String(row.status || '').toLowerCase();
           const terminal = isTerminalJobStatus(st);
           if (!url && !isActiveJobStatus(st)) continue;

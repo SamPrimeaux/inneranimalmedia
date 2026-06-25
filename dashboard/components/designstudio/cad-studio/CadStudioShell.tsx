@@ -87,7 +87,7 @@ export type CadStudioShellProps = {
   onUpdateGenConfig?: (c: Partial<GenerationConfig>) => void;
   sceneConfig?: SceneConfig;
   onUpdateSceneConfig?: (c: Partial<SceneConfig>) => void;
-  onSpawnModel?: (name: string, url: string, scale: number) => void;
+  onSpawnModel?: (name: string, url: string, scale: number) => boolean | Promise<boolean>;
   onSpawnProcedural?: (key: AgentSamGeneratorKey) => void;
   onAddCustomAsset?: (name: string, url: string) => void | Promise<void>;
   onRemoveCustomAsset?: (id: string) => void | Promise<void>;
@@ -495,11 +495,17 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
 
   const handleSpawnGalleryItem = useCallback(
     (item: GalleryItem) => {
-      onSpawnModel?.(item.name, item.url, item.scale ?? 1);
-      protocol.addEvent('asset.spawn', `Spawned ${item.name}`, { url: item.url });
-      onFrameAll?.();
-      protocol.toast('Asset added', `${item.name} placed in viewport`);
-      setLibraryOpen(false);
+      void (async () => {
+        const ok = (await onSpawnModel?.(item.name, item.url, item.scale ?? 1)) ?? false;
+        if (!ok) {
+          protocol.toast('Could not add asset', `Failed to load ${item.name}. Check the browser console.`);
+          return;
+        }
+        protocol.addEvent('asset.spawn', `Spawned ${item.name}`, { url: item.url });
+        onFrameAll?.();
+        protocol.toast('Asset added', `${item.name} placed in viewport`);
+        setLibraryOpen(false);
+      })();
     },
     [onSpawnModel, protocol, onFrameAll],
   );
@@ -1022,7 +1028,6 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
         activeTool={ui.viewTool as ViewTool}
         onToolChange={(t) => {
           patchUi({ viewTool: t as ViewTool });
-          if (isAgentSamEngine(engineRef.current)) engineRef.current.setCADTool(t as never);
         }}
         animateOpen={animLibVisible}
         onToggleAnimate={() => { if (animLibVisible) closeAnimLib(); else openAnimLib(); }}

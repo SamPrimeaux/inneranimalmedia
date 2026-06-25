@@ -6,6 +6,21 @@ export const STOCK_POSTER_R2_PREFIX = 'glb/posters';
 
 export const STOCK_POSTER_SOURCES = [
   {
+    id: 'asset_iam_footer_glb',
+    label: 'IAM Footer',
+    glbUrl: 'https://inneranimalmedia.com/assets/glb/inneranimalmediafooterglb.glb',
+  },
+  {
+    id: 'ds_stock_kinetic_symmetry',
+    label: 'Kinetic Symmetry',
+    glbUrl: 'https://inneranimalmedia.com/assets/glb/Kinetic_Symmetry_0831084700_generate%20(1).glb',
+  },
+  {
+    id: 'ds_stock_meshy_jet',
+    label: 'Meshy Jet',
+    glbUrl: 'https://inneranimalmedia.com/assets/glb/Meshy_AI_Jet_in_Flight_0104205113_texture.glb',
+  },
+  {
     id: 'ds_stock_astronaut_rig',
     label: 'Astronaut',
     glbPath: 'public/assets/glb/astronaut/astronaut_rig_animations_opt.glb',
