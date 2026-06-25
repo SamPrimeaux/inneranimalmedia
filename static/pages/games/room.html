@@ -3,25 +3,24 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>MeauxChess</title>
-  <meta name="description" content="Live 3D chess room — real-time multiplayer on Cloudflare Durable Objects.">
+  <title>MeauxChess · MeauxGames</title>
+  <meta name="description" content="Live 3D baroque chess on MeauxGames — real-time multiplayer on Inner Animal Media.">
   <meta property="og:title" content="MeauxChess">
-  <meta property="og:description" content="Join a live 3D chess room on Inner Animal Media.">
+  <meta property="og:description" content="Play baroque 3D chess on MeauxGames.">
   <meta property="og:type" content="website">
-  <meta property="og:image" content="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/1b7ecfe9-550c-4ef7-966c-9e1972e29800/hero">
+  <meta property="og:image" content="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/d23ebddd-24ad-4b40-7cd6-0fe759f1f100/medium">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:image" content="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/1b7ecfe9-550c-4ef7-966c-9e1972e29800/hero">
+  <meta name="twitter:image" content="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/d23ebddd-24ad-4b40-7cd6-0fe759f1f100/medium">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bar: rgba(10, 10, 15, 0.94);
-      --border: rgba(255, 255, 255, 0.08);
+      --gold: #c9a84c;
+      --gold-dim: rgba(201, 168, 76, 0.35);
+      --cream: #f0e6d0;
       --text: #eef2ff;
       --muted: #8b95a8;
-      --teal: #00ffcc;
       --amber: #e8821a;
-      --green: #22ff88;
-      --red: #ff4444;
+      --border: rgba(201, 168, 76, 0.18);
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { height: 100%; overflow: hidden; }
@@ -43,29 +42,28 @@
       display: grid;
       grid-template-columns: 1fr auto 1fr;
       align-items: center;
-      gap: 0.5rem;
-      padding: 0.55rem 0.75rem;
-      padding-bottom: 1.5rem;
+      gap: 0.65rem;
+      padding: 0.65rem 1rem 1.75rem;
       background: linear-gradient(180deg,
-        rgba(14, 9, 5, 0.95) 0%,
-        rgba(14, 9, 5, 0.0) 100%);
-      border-bottom: none;
-      backdrop-filter: none;
+        rgba(8, 5, 3, 0.96) 0%,
+        rgba(8, 5, 3, 0.55) 55%,
+        rgba(8, 5, 3, 0) 100%);
     }
     .player-card {
       display: flex;
       align-items: center;
-      gap: 0.55rem;
-      padding: 0.35rem 0.5rem;
+      gap: 0.65rem;
+      padding: 0.4rem 0.55rem;
       border-radius: 0.65rem;
       background: transparent;
-      border: none;
-      transition: background 0.2s, border-color 0.2s;
+      border: 1px solid transparent;
+      transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+      pointer-events: auto;
     }
     .player-card.active-turn {
-      background: rgba(201, 168, 76, 0.08);
-      border: 1px solid rgba(201, 168, 76, 0.3);
-      border-radius: 0.5rem;
+      background: rgba(201, 168, 76, 0.1);
+      border-color: var(--gold-dim);
+      box-shadow: 0 0 24px rgba(201, 168, 76, 0.08);
     }
     .player-card.right {
       flex-direction: row-reverse;
@@ -73,21 +71,25 @@
       text-align: right;
     }
     .avatar {
-      width: 44px;
-      height: 44px;
+      width: 52px;
+      height: 52px;
       border-radius: 50%;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 0.65rem;
+      font-size: 0.72rem;
       font-weight: 700;
       flex-shrink: 0;
       overflow: hidden;
     }
     .avatar.avatar-squircle {
+      width: 52px;
+      height: 52px;
       border-radius: 22%;
       padding: 0;
-      border-width: 2px;
+      background: rgba(8, 5, 3, 0.85);
+      border: 2px solid var(--gold-dim);
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
     }
     .avatar-img {
       width: 100%;
@@ -95,19 +97,22 @@
       object-fit: cover;
       display: block;
     }
+    .avatar-fallback {
+      display: block;
+    }
     .avatar.white {
-      background: rgba(204, 255, 238, 0.12);
-      border: 1px solid rgba(204, 255, 238, 0.35);
+      background: rgba(204, 255, 238, 0.1);
+      border: 2px solid rgba(204, 255, 238, 0.28);
       color: #ccffee;
     }
     .avatar.black {
-      background: rgba(232, 130, 26, 0.12);
-      border: 1px solid rgba(232, 130, 26, 0.4);
+      background: rgba(232, 130, 26, 0.1);
+      border: 2px solid rgba(232, 130, 26, 0.35);
       color: var(--amber);
     }
     .player-info { min-width: 0; }
-    .player-name { font-size: 0.82rem; font-weight: 600; line-height: 1.2; }
-    .player-sub { font-size: 0.62rem; color: var(--muted); margin-top: 0.1rem; }
+    .player-name { font-size: 0.86rem; font-weight: 700; line-height: 1.2; color: var(--cream); }
+    .player-sub { font-size: 0.62rem; color: var(--muted); margin-top: 0.12rem; }
     .captures {
       display: flex;
       flex-wrap: wrap;
@@ -118,19 +123,19 @@
     .captures svg { display: block; opacity: 0.92; }
     .brand-logo {
       display: block;
-      width: min(168px, 42vw);
+      width: min(220px, 52vw);
       height: auto;
-      margin: 0 auto 0.35rem;
-      filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.45));
+      margin: 0 auto 0.45rem;
+      filter: drop-shadow(0 3px 12px rgba(0, 0, 0, 0.55));
     }
     .timer {
       font-family: 'JetBrains Mono', ui-monospace, monospace;
-      font-size: 1.05rem;
+      font-size: 1.08rem;
       font-weight: 500;
       color: var(--muted);
-      min-width: 3.2rem;
+      min-width: 3.4rem;
     }
-    .timer.running { color: #c9a84c; }
+    .timer.running { color: var(--gold); }
     .timer.running.low {
       color: #c0392b;
       animation: timer-pulse 0.8s ease-in-out infinite;
@@ -139,17 +144,18 @@
       0%, 100% { opacity: 1; }
       50% { opacity: 0.55; }
     }
-    .center-col { text-align: center; justify-self: center; }
+    .center-col { text-align: center; justify-self: center; pointer-events: none; }
     .turn-pill {
       display: inline-flex;
       align-items: center;
       gap: 0.35rem;
       font-size: 0.68rem;
       font-weight: 600;
-      padding: 0.3rem 0.65rem;
+      padding: 0.32rem 0.75rem;
       border-radius: 999px;
-      background: rgba(255, 255, 255, 0.05);
+      background: rgba(20, 8, 3, 0.72);
       border: 1px solid var(--border);
+      color: #b8a882;
     }
     .turn-dot { width: 7px; height: 7px; border-radius: 50%; }
     .dot-white { background: #ccffee; }
@@ -159,34 +165,38 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 0.5rem;
-      padding-top: 0.15rem;
+      gap: 0.55rem;
+      padding-top: 0.2rem;
       pointer-events: auto;
     }
     .room-meta {
       font-family: 'JetBrains Mono', monospace;
-      font-size: 0.6rem;
+      font-size: 0.58rem;
       color: var(--muted);
+      letter-spacing: 0.04em;
     }
     .btn {
       border: 1px solid var(--border);
-      background: rgba(255, 255, 255, 0.04);
-      color: var(--text);
+      background: rgba(20, 8, 3, 0.82);
+      color: #b8a882;
       border-radius: 0.45rem;
-      padding: 0.35rem 0.65rem;
+      padding: 0.38rem 0.72rem;
       font-size: 0.68rem;
       font-weight: 600;
       cursor: pointer;
       text-decoration: none;
+      transition: border-color 0.15s, color 0.15s;
     }
+    .btn:hover { border-color: var(--gold); color: var(--gold); }
     .btn-resign { color: #f87171; border-color: rgba(248, 113, 113, 0.35); }
+    .btn-resign:hover { color: #fca5a5; border-color: rgba(248, 113, 113, 0.55); }
     .game-stage {
       position: fixed;
       inset: 0;
       z-index: 0;
-      background: radial-gradient(ellipse 85% 65% at 50% 42%, #1c1410 0%, #08080c 78%);
+      background: radial-gradient(ellipse 90% 70% at 50% 38%, #120a06 0%, #050302 72%);
     }
-    #viewport { position: absolute; inset: 0; touch-action: manipulation; z-index: 1; }
+    #viewport { position: absolute; inset: 0; touch-action: manipulation; z-index: 1; cursor: pointer; }
     #loading-overlay {
       position: absolute;
       inset: 0;
@@ -194,26 +204,31 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 0.75rem;
+      gap: 1rem;
       background:
-        linear-gradient(rgba(8, 8, 12, 0.92), rgba(8, 8, 12, 0.96)),
-        radial-gradient(ellipse 80% 60% at 50% 40%, rgba(201, 168, 76, 0.08), transparent 70%);
+        radial-gradient(ellipse 70% 55% at 50% 42%, rgba(201, 168, 76, 0.07), transparent 68%),
+        linear-gradient(rgba(5, 3, 2, 0.94), rgba(5, 3, 2, 0.98));
       z-index: 10;
-      transition: opacity 0.4s;
+      transition: opacity 0.45s;
     }
     #loading-overlay.hidden { opacity: 0; pointer-events: none; }
-    .load-label { font-size: 0.78rem; color: var(--muted); margin-bottom: 0.75rem; }
+    .load-label {
+      font-size: 0.76rem;
+      color: #b8a882;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
     .load-track {
-      width: min(240px, 60vw);
+      width: min(260px, 62vw);
       height: 4px;
-      background: rgba(255, 255, 255, 0.08);
+      background: rgba(201, 168, 76, 0.12);
       border-radius: 999px;
       overflow: hidden;
     }
     #load-progress {
       height: 100%;
       width: 0%;
-      background: linear-gradient(90deg, var(--teal), var(--amber));
+      background: linear-gradient(90deg, #8b6914, var(--gold), #f0e6d0);
       transition: width 0.2s;
     }
     .status-bar {
@@ -223,24 +238,23 @@
       transform: translateX(-50%);
       z-index: 10;
       pointer-events: none;
-      background: rgba(20, 8, 3, 0.85);
-      border: 1px solid rgba(201, 168, 76, 0.3);
+      background: rgba(20, 8, 3, 0.88);
+      border: 1px solid var(--gold-dim);
       border-radius: 999px;
-      padding: 0.4rem 1.2rem;
-      font-size: 0.7rem;
+      padding: 0.45rem 1.35rem;
+      font-size: 0.72rem;
       color: #b8a882;
       white-space: nowrap;
       text-align: center;
+      box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
     }
     @media (max-width: 480px) {
-      .game-header {
-        grid-template-columns: 1fr;
-        gap: 0.35rem;
-      }
+      .game-header { grid-template-columns: 1fr; gap: 0.4rem; padding-bottom: 1.25rem; }
       .player-card.right { justify-self: stretch; flex-direction: row; text-align: left; }
       .center-col { order: -1; }
-      .avatar { width: 28px; height: 28px; font-size: 0.58rem; }
+      .avatar, .avatar.avatar-squircle { width: 44px; height: 44px; }
       .timer { font-size: 0.95rem; }
+      .brand-logo { width: min(180px, 70vw); }
     }
   </style>
 </head>
@@ -261,8 +275,8 @@
         class="brand-logo"
         src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/d23ebddd-24ad-4b40-7cd6-0fe759f1f100/medium"
         alt="MeauxGames"
-        width="168"
-        height="48"
+        width="220"
+        height="64"
       />
       <div class="turn-pill" id="turn-pill"><span class="turn-dot dot-white"></span> White to move</div>
     </div>
@@ -271,19 +285,19 @@
       <span class="timer" id="timer-black">10:00</span>
       <div class="player-info">
         <div class="player-name" id="name-black">Agent Sam</div>
-        <div class="player-sub" id="sub-black">Orange</div>
+        <div class="player-sub" id="sub-black">Orange · Computer</div>
         <div class="captures" id="captures-black" aria-label="Pieces opponent captured"></div>
       </div>
-      <div class="avatar black" id="avatar-black">
+      <div class="avatar black avatar-squircle" id="avatar-black">
         <img
           class="avatar-img"
           id="avatar-black-img"
-          src=""
-          alt=""
-          width="44"
-          height="44"
-          hidden
+          src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/b5557284-485e-4305-2c5a-49c6acf99a00/thumbnail"
+          alt="Agent Sam"
+          width="52"
+          height="52"
         />
+        <span class="avatar-fallback" id="avatar-black-fallback" hidden>AS</span>
       </div>
     </div>
 
@@ -301,8 +315,8 @@
         class="brand-logo"
         src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/d23ebddd-24ad-4b40-7cd6-0fe759f1f100/medium"
         alt="MeauxGames"
-        width="168"
-        height="48"
+        width="220"
+        height="64"
       />
       <p class="load-label">Loading baroque board &amp; pieces…</p>
       <div class="load-track"><div id="load-progress"></div></div>

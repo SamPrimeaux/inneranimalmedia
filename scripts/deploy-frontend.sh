@@ -132,6 +132,9 @@ R2_SYNC_END=$(date +%s)
 R2_SYNC_MS=$(( (R2_SYNC_END - R2_SYNC_START) * 1000 ))
 echo "→ R2 sync complete (${PREFIX}/)"
 
+echo "→ Upload public games shells (pages/games/*.html)…"
+bash "$REPO_ROOT/scripts/upload-games-pages.sh"
+
 # Manifest-diff prune: delete keys from previous deploy not in current dist (replaces cron prune + D1 reconcile)
 if command -v node >/dev/null 2>&1; then
   echo "→ R2 manifest-diff reconcile (stale chunk cleanup under ${PREFIX}/)"

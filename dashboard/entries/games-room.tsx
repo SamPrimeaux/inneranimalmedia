@@ -5,6 +5,8 @@ import { ChessViewport } from '../lib/ChessViewport';
 import { pickAgentSamMove, tryMove } from '../lib/chessEngine';
 import { capturedPieceSvg } from '../lib/chessPieceIcons';
 
+const MEAUXGAMES_LOGO_URL =
+  'https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/d23ebddd-24ad-4b40-7cd6-0fe759f1f100/medium';
 const AGENTSAM_AVATAR_URL =
   'https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/b5557284-485e-4305-2c5a-49c6acf99a00/thumbnail';
 
@@ -47,6 +49,29 @@ function appendCaptureIcon(capturedBy: 'white' | 'black', piece: string, pieceCo
   rail.appendChild(span);
 }
 
+function applyBranding(vsAgentsam: boolean): void {
+  document.querySelectorAll<HTMLImageElement>('.brand-logo').forEach((img) => {
+    img.src = MEAUXGAMES_LOGO_URL;
+    img.alt = 'MeauxGames';
+  });
+
+  const avBlack = document.getElementById('avatar-black');
+  const avBlackImg = document.getElementById('avatar-black-img') as HTMLImageElement | null;
+  const avBlackFallback = document.getElementById('avatar-black-fallback');
+
+  if (vsAgentsam && avBlack && avBlackImg) {
+    avBlackImg.src = AGENTSAM_AVATAR_URL;
+    avBlackImg.alt = 'Agent Sam';
+    avBlackImg.hidden = false;
+    avBlack.classList.add('avatar-squircle');
+    if (avBlackFallback) avBlackFallback.hidden = true;
+  } else if (avBlack && avBlackImg) {
+    avBlackImg.hidden = true;
+    avBlack.classList.remove('avatar-squircle');
+    if (avBlackFallback) avBlackFallback.hidden = false;
+  }
+}
+
 function boot() {
   const roomId = getRoomId();
   const params = new URLSearchParams(location.search);
@@ -54,6 +79,8 @@ function boot() {
   const opponentLabel = vsAgentsam
     ? 'Agent Sam'
     : decodeURIComponent(params.get('opponent') || '').trim() || 'Opponent';
+
+  applyBranding(vsAgentsam);
 
   setText('room-id-short', truncateRoom(roomId));
   if (!roomId) {
@@ -137,21 +164,13 @@ function boot() {
     }
 
     const avWhite = document.getElementById('avatar-white');
-    const avBlack = document.getElementById('avatar-black');
-    const avBlackImg = document.getElementById('avatar-black-img') as HTMLImageElement | null;
+    const avBlackFallback = document.getElementById('avatar-black-fallback');
     if (avWhite) avWhite.textContent = youAreWhite ? initials('You') : 'W';
-    if (avBlack) {
-      if (vsAgentsam && avBlackImg) {
-        avBlack.textContent = '';
-        avBlackImg.hidden = false;
-        avBlackImg.src = AGENTSAM_AVATAR_URL;
-        avBlackImg.alt = 'Agent Sam';
-        avBlack.classList.add('avatar-squircle');
-      } else {
-        if (avBlackImg) avBlackImg.hidden = true;
-        avBlack.classList.remove('avatar-squircle');
-        avBlack.textContent = youAreBlack ? initials('You') : initials(opponentLabel);
-      }
+    if (vsAgentsam) {
+      applyBranding(true);
+    } else if (avBlackFallback) {
+      avBlackFallback.textContent = youAreBlack ? initials('You') : initials(opponentLabel);
+      applyBranding(false);
     }
   };
 
