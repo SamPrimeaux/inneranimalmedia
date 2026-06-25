@@ -1,9 +1,6 @@
 -- Collaborate calendar parity: booking pages, working hours, event metadata.
--- Apply via deploy:full D1 migration ledger.
+-- Note: all_day, timezone, recurrence_rule already exist on prod calendar_events.
 
-ALTER TABLE calendar_events ADD COLUMN all_day INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE calendar_events ADD COLUMN timezone TEXT;
-ALTER TABLE calendar_events ADD COLUMN recurrence_rule TEXT;
 ALTER TABLE calendar_events ADD COLUMN calendar_source TEXT DEFAULT 'primary';
 ALTER TABLE calendar_events ADD COLUMN guest_permissions_json TEXT;
 
@@ -37,7 +34,6 @@ CREATE TABLE IF NOT EXISTS calendar_working_hours (
   UNIQUE(workspace_id, user_id)
 );
 
--- Default booking page for Inner Animal Media workspace owner
 INSERT OR IGNORE INTO calendar_booking_pages (
   id, workspace_id, tenant_id, user_id, slug, title, duration_min, description, is_active
 ) VALUES (
