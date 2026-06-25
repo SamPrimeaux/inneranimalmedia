@@ -7,7 +7,7 @@
 
 const LOCAL_TARGET_TYPES = ['user_hosted_tunnel'];
 const CLOUD_TARGET_TYPES = ['platform_vm', 'remote'];
-const AUTO_TARGET_TYPES = [...LOCAL_TARGET_TYPES, ...CLOUD_TARGET_TYPES];
+const AUTO_TARGET_TYPES = [...LOCAL_TARGET_TYPES, 'sandbox', ...CLOUD_TARGET_TYPES];
 
 const TERMINAL_CONN_SELECT = `
   id, ws_url, auth_token_secret_name, connection_type, ollama_url,
@@ -125,13 +125,20 @@ async function listScopedConnections(db, q) {
  * @param {Record<string, unknown>[]} rows
  * @param {'auto'|'user_hosted_tunnel'|'platform_vm'|'sandbox'} mode
  */
+function autoTargetTypeRank(targetType) {
+  const tt = String(targetType || '').trim();
+  if (isLocalTerminalTargetType(tt)) return 0;
+  if (tt === 'sandbox') return 1;
+  return 2;
+}
+
 function orderConnectionsForMode(rows, mode) {
   const list = [...rows];
   if (mode === 'auto') {
     list.sort((a, b) => {
-      const aLocal = isLocalTerminalTargetType(a.target_type) ? 0 : 1;
-      const bLocal = isLocalTerminalTargetType(b.target_type) ? 0 : 1;
-      if (aLocal !== bLocal) return aLocal - bLocal;
+      const ar = autoTargetTypeRank(a.target_type);
+      const br = autoTargetTypeRank(b.target_type);
+      if (ar !== br) return ar - br;
       const ap = Number(a.target_priority) || 999;
       const bp = Number(b.target_priority) || 999;
       if (ap !== bp) return ap - bp;
@@ -215,7 +222,22 @@ export async function selectHealthyTerminalConnection(db, opts = {}) {
   }
 
   if (mode === 'auto') {
-    const cloud = ordered.find((r) => !isLocalTerminalTargetType(r.target_type) && r.ws_url);
+    const sandbox = ordered.find((r) => String(r.target_type || '').trim() === 'sandbox' && r.ws_url);
+    if (sandbox) {
+      return {
+        connection: sandbox,
+        error: 'lane_unhealthy_fallback',
+        resolution: 'health_sandbox_forced_unhealthy',
+        lane: 'gcp_sandbox',
+        health: { probes },
+      };
+    }
+    const cloud = ordered.find(
+      (r) =>
+        !isLocalTerminalTargetType(r.target_type) &&
+        String(r.target_type || '').trim() !== 'sandbox' &&
+        r.ws_url,
+    );
     if (cloud) {
       return {
         connection: cloud,
