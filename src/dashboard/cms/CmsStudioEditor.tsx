@@ -10,7 +10,7 @@ const ExcalidrawView = lazy(() =>
   })),
 );
 
-const STUDIO_BASE = '/static/dashboard/app/cms/designstudiocmslite.html';
+const STUDIO_BASE = '/static/dashboard/app/cms/cms-studio-shell.html';
 
 const DASHBOARD_THEME_KEYS = [
   '--bg-canvas',

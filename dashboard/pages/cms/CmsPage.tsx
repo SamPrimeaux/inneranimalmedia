@@ -205,3 +205,7 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
     </div>
   );
 }
+
+// NOTE: iam-cms-navigate postMessage handler is registered in CmsStudioEditor
+// via window.addEventListener('message', ...) — no additional wiring needed here.
+// The parent cmsNavigate callback is already passed to CmsRoot as onNavigate.

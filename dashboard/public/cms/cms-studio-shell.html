@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CMS Studio · Inner Animal Media</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg:#0a0c0f;--bg1:#10141a;--bg2:#161c24;--bg3:#1d2530;
+    --border:rgba(255,255,255,0.07);--border-hi:rgba(255,255,255,0.13);
+    --text:#e2e8f0;--muted:#64748b;--faint:#374151;
+    --blue:#3b82f6;--blue-d:#1d4ed8;--green:#22c55e;--orange:#f97316;--red:#ef4444;
+    font-size:13px;
+  }
+  html,body,#app{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:Inter,system-ui,sans-serif}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script>
+/* Pull theme vars from parent frame */
+(function(){
+  try{
+    const p=window.parent?.document?.documentElement;
+    if(!p||p===document.documentElement)return;
+    const cs=window.parent.getComputedStyle(p);
+    const keys=['--bg-canvas','--bg-app','--bg-panel','--bg-hover','--bg-elevated',
+      '--border-subtle','--border-focus','--text-main','--text-muted','--text-heading',
+      '--solar-cyan','--solar-orange','--solar-green','--solar-blue','--solar-red',
+      '--dashboard-panel','--dashboard-canvas','--dashboard-border'];
+    const root=document.documentElement;
+    for(const k of keys){const v=cs.getPropertyValue(k).trim();if(v)root.style.setProperty(k,v);}
+    const slug=p.getAttribute('data-theme');
+    if(slug)root.setAttribute('data-theme',slug);
+  }catch(_){}
+})();
+window.addEventListener('message',function(e){
+  if(e.origin!==window.location.origin)return;
+  const d=e.data;
+  if(!d||d.type!=='iam-cms-theme')return;
+  try{
+    const root=document.documentElement;
+    if(d.slug)root.setAttribute('data-theme',d.slug);
+    if(d.vars&&typeof d.vars==='object'){
+      for(const[k,v]of Object.entries(d.vars)){if(v)root.style.setProperty(k,v);}
+    }
+  }catch(_){}
+});
+</script>
+<script type="text/babel" data-presets="react" src="/static/dashboard/app/cms/cms-editor-core.js"></script>
+</body>
+</html>
