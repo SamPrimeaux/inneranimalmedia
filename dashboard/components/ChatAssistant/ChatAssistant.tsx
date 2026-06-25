@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 
+import './chat-composer-glass.css';
 import React, { useState, useEffect, useRef, useLayoutEffect, useCallback, useMemo } from 'react';
 import { PHONE_MQ } from '../../lib/breakpoints';
 import { useEditor } from '../../src/EditorContext';
@@ -3230,11 +3231,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
         {composerVisible && (
         <div
-          className={`${composerFlexOrder} flex-shrink-0 w-full min-w-0 max-w-full px-3 pt-2 bg-[var(--dashboard-panel)] space-y-2 ${
-            mobileAgentHomeMode
-              ? 'border-b border-[var(--dashboard-border)]'
-              : 'border-t border-[var(--dashboard-border)]'
-          }`}
+          className={`${composerFlexOrder} iam-chat-composer-shell flex-shrink-0 w-full min-w-0 max-w-full px-3 pt-2 space-y-2`}
           style={{
             paddingBottom: isNarrow && !mobileAgentHomeMode
               ? MOBILE_CHAT_COMPOSER_BOTTOM_PAD
@@ -3330,10 +3327,10 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           />
 
           <div
-            className={`flex flex-col bg-[var(--scene-bg)] border rounded-xl transition-all shadow-inner overflow-visible ${
+            className={`iam-chat-composer-glass flex flex-col rounded-xl transition-all overflow-visible ${
               composerDragging
                 ? 'border-[var(--solar-cyan)]/70 ring-1 ring-[var(--solar-cyan)]/35'
-                : 'border-[var(--dashboard-border)] focus-within:border-[var(--solar-cyan)]/80 focus-within:ring-2 focus-within:ring-[var(--solar-cyan)]/20 focus-within:shadow-[0_0_12px_color-mix(in_srgb,var(--solar-cyan)_18%,transparent)]'
+                : 'focus-within:border-[var(--solar-cyan)]/80 focus-within:ring-2 focus-within:ring-[var(--solar-cyan)]/20'
             }`}
             onDragEnter={(e) => {
               e.preventDefault();

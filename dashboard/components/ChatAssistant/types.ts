@@ -355,7 +355,7 @@ export const CHAT_ATTACH_MAX_TOTAL_BYTES = 90 * 1024 * 1024;
  * Chat panel is max-phone:fixed z-[45], so the composer must pad above that stack or it sits underneath.
  */
 export const MOBILE_CHAT_COMPOSER_BOTTOM_PAD =
-  'calc(56px + 1.5rem + env(safe-area-inset-bottom, 0px) + 24px)';
+  'calc(1.5rem + env(safe-area-inset-bottom, 0px) + 12px)';
 
 /** Mobile: keep composer short so flex-1 message list does not jump on every keystroke; scroll inside textarea instead. */
 export const COMPOSER_TEXTAREA_MAX_PX_NARROW = 104;

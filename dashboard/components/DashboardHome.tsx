@@ -1,5 +1,32 @@
 import { useNavigate } from 'react-router-dom';
+import {
+  Bot,
+  Box,
+  FolderOpen,
+  Database,
+  LayoutTemplate,
+  Github,
+  Cloud,
+  Sparkles,
+  Plus,
+  ArrowRight,
+  type LucideIcon,
+} from 'lucide-react';
+import { IAM_AGENT_CHAT_COMPOSE } from '../agentChatConstants';
 import './DashboardHome.css';
+
+type HomeIconId =
+  | 'agent'
+  | 'cube'
+  | 'folder'
+  | 'chat'
+  | 'studio'
+  | 'database'
+  | 'cms'
+  | 'drive'
+  | 'github'
+  | 'cloud'
+  | 'supabase';
 
 type HomeAction = {
   id: string;
@@ -8,7 +35,7 @@ type HomeAction = {
   label: string;
   path: string;
   tone: 'blue' | 'dark' | 'purple';
-  glyph: string;
+  icon: HomeIconId;
 };
 
 type ToolCard = {
@@ -17,7 +44,7 @@ type ToolCard = {
   cta: string;
   path: string;
   tone: 'blue' | 'purple' | 'green' | 'orange' | 'dark';
-  glyph: string;
+  icon: HomeIconId;
 };
 
 type ConnectCard = {
@@ -25,6 +52,7 @@ type ConnectCard = {
   title: string;
   path: string;
   tone: 'red' | 'dark' | 'blue' | 'green';
+  icon: HomeIconId;
 };
 
 type ProjectCard = {
@@ -35,6 +63,25 @@ type ProjectCard = {
   path: string;
 };
 
+const HOME_ICONS: Record<HomeIconId, LucideIcon> = {
+  agent: Bot,
+  cube: Box,
+  folder: FolderOpen,
+  chat: Sparkles,
+  studio: Box,
+  database: Database,
+  cms: LayoutTemplate,
+  drive: Cloud,
+  github: Github,
+  cloud: Cloud,
+  supabase: Database,
+};
+
+function HomeIcon({ id, size = 20 }: { id: HomeIconId; size?: number }) {
+  const Icon = HOME_ICONS[id];
+  return <Icon size={size} strokeWidth={1.75} aria-hidden />;
+}
+
 const FEATURED_ACTIONS: HomeAction[] = [
   {
     id: 'resume-agent',
@@ -43,7 +90,7 @@ const FEATURED_ACTIONS: HomeAction[] = [
     label: 'Open',
     path: '/dashboard/agent',
     tone: 'blue',
-    glyph: 'AS',
+    icon: 'agent',
   },
   {
     id: 'new-surface',
@@ -52,7 +99,7 @@ const FEATURED_ACTIONS: HomeAction[] = [
     label: 'Build',
     path: '/dashboard/designstudio',
     tone: 'dark',
-    glyph: '3D',
+    icon: 'cube',
   },
   {
     id: 'files',
@@ -61,22 +108,22 @@ const FEATURED_ACTIONS: HomeAction[] = [
     label: 'View',
     path: '/dashboard/artifacts',
     tone: 'purple',
-    glyph: 'DR',
+    icon: 'folder',
   },
 ];
 
 const QUICK_STARTS: ToolCard[] = [
-  { id: 'agent', title: 'Agent Sam', cta: 'Chat', path: '/dashboard/agent', tone: 'blue', glyph: 'AI' },
-  { id: 'studio', title: 'Design Studio', cta: 'Build', path: '/dashboard/designstudio', tone: 'purple', glyph: '3D' },
-  { id: 'database', title: 'Database', cta: 'Inspect', path: '/dashboard/database', tone: 'green', glyph: 'DB' },
-  { id: 'cms', title: 'CMS Suite', cta: 'Edit', path: '/dashboard/cms', tone: 'orange', glyph: 'CMS' },
+  { id: 'agent', title: 'Agent Sam', cta: 'Chat', path: '/dashboard/agent', tone: 'blue', icon: 'chat' },
+  { id: 'studio', title: 'Design Studio', cta: 'Build', path: '/dashboard/designstudio', tone: 'purple', icon: 'studio' },
+  { id: 'database', title: 'Database', cta: 'Inspect', path: '/dashboard/database', tone: 'green', icon: 'database' },
+  { id: 'cms', title: 'CMS Suite', cta: 'Edit', path: '/dashboard/cms', tone: 'orange', icon: 'cms' },
 ];
 
 const CONNECT_CARDS: ConnectCard[] = [
-  { id: 'drive', title: 'Google Drive', path: '/dashboard/settings/integrations', tone: 'red' },
-  { id: 'github', title: 'GitHub Repo', path: '/dashboard/settings/integrations', tone: 'dark' },
-  { id: 'cloudflare', title: 'Cloudflare', path: '/dashboard/settings/integrations', tone: 'blue' },
-  { id: 'supabase', title: 'Supabase', path: '/dashboard/settings/integrations', tone: 'green' },
+  { id: 'drive', title: 'Google Drive', path: '/dashboard/settings/integrations', tone: 'red', icon: 'drive' },
+  { id: 'github', title: 'GitHub Repo', path: '/dashboard/settings/integrations', tone: 'dark', icon: 'github' },
+  { id: 'cloudflare', title: 'Cloudflare', path: '/dashboard/settings/integrations', tone: 'blue', icon: 'cloud' },
+  { id: 'supabase', title: 'Supabase', path: '/dashboard/settings/integrations', tone: 'green', icon: 'supabase' },
 ];
 
 const RECENT_PROJECTS: ProjectCard[] = [
@@ -85,166 +132,131 @@ const RECENT_PROJECTS: ProjectCard[] = [
   { id: 'meaux', title: 'Meauxbility Rebrand', updated: 'Updated 1d ago', tone: 'green', path: '/dashboard/artifacts?view=projects' },
 ];
 
-function SparkIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path d="m12 3 1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2L12 3Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function PlusIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function ArrowIcon() {
-  return (
-    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
+function openAgentComposer() {
+  window.dispatchEvent(
+    new CustomEvent(IAM_AGENT_CHAT_COMPOSE, {
+      detail: { message: '', send: false, ensureAgentPanel: true },
+    }),
   );
 }
 
 export function DashboardHome() {
   const navigate = useNavigate();
 
-  const sendPrompt = () => {
-    window.dispatchEvent(
-      new CustomEvent('iam-agent-external-send', {
-        detail: { message: 'Help me decide what to work on next in this workspace.' },
-      }),
-    );
-  };
-
   return (
     <main className="iam-home" aria-label="Dashboard home">
       <section className="iam-home-shell">
-        <div className="iam-home-main">
-          <section className="iam-home-hero" aria-labelledby="home-title">
-            <p className="iam-home-eyebrow">Ready when you are.</p>
-            <h1 id="home-title">
-              What are we building, <span>Sam?</span>
-            </h1>
-            <p>
-              Start from the composer, or tap a card to launch the right workflow with context already attached.
-            </p>
-          </section>
+        <section className="iam-home-hero" aria-labelledby="home-title">
+          <p className="iam-home-eyebrow">Ready when you are.</p>
+          <h1 id="home-title">
+            What are we building, <span>Sam?</span>
+          </h1>
+          <p>
+            Pick a workflow below, or open Agent Sam from the panel to start with full context.
+          </p>
+          <button type="button" className="iam-hero-agent-cta" onClick={openAgentComposer}>
+            <Sparkles size={16} strokeWidth={1.75} aria-hidden />
+            Ask Agent Sam
+            <ArrowRight size={16} strokeWidth={1.75} aria-hidden />
+          </button>
+        </section>
 
-          <section className="iam-home-lane" aria-label="Suggested actions">
-            {FEATURED_ACTIONS.map((action, index) => (
+        <section className="iam-home-lane" aria-label="Suggested actions">
+          {FEATURED_ACTIONS.map((action, index) => (
+            <button
+              key={action.id}
+              type="button"
+              className={`iam-feature-card iam-feature-card--${action.tone} ${index === 0 ? 'is-featured' : ''}`}
+              onClick={() => navigate(action.path)}
+            >
+              <span className="iam-feature-glyph" aria-hidden>
+                <HomeIcon id={action.icon} size={22} />
+              </span>
+              <span className="iam-feature-copy">
+                <strong>{action.title}</strong>
+                <small>{action.body}</small>
+              </span>
+              <span className="iam-feature-cta">{action.label}</span>
+            </button>
+          ))}
+        </section>
+
+        <section className="iam-home-section" aria-labelledby="quick-starts-title">
+          <div className="iam-section-head">
+            <div>
+              <h2 id="quick-starts-title">Quick starts</h2>
+              <p>Tap the thing you want to do.</p>
+            </div>
+            <button type="button" onClick={() => navigate('/dashboard/agent')}>See all</button>
+          </div>
+          <div className="iam-tool-grid">
+            {QUICK_STARTS.map((tool) => (
+              <article key={tool.id} className="iam-tool-card">
+                <div>
+                  <span className={`iam-tool-glyph iam-tool-glyph--${tool.tone}`} aria-hidden>
+                    <HomeIcon id={tool.icon} size={22} />
+                  </span>
+                  <h3>{tool.title}</h3>
+                </div>
+                <button type="button" onClick={() => navigate(tool.path)}>{tool.cta}</button>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="iam-home-section" aria-labelledby="connect-context-title">
+          <div className="iam-section-head">
+            <div>
+              <h2 id="connect-context-title">Connect context</h2>
+              <p>Make future chats smarter.</p>
+            </div>
+            <button type="button" onClick={() => navigate('/dashboard/settings/integrations')}>See all</button>
+          </div>
+          <div className="iam-connect-grid">
+            {CONNECT_CARDS.map((item) => (
               <button
-                key={action.id}
+                key={item.id}
                 type="button"
-                className={`iam-feature-card iam-feature-card--${action.tone} ${index === 0 ? 'is-featured' : ''}`}
-                onClick={() => navigate(action.path)}
+                className={`iam-connect-card iam-connect-card--${item.tone}`}
+                onClick={() => navigate(item.path)}
               >
-                <span className="iam-feature-glyph">{action.glyph}</span>
-                <span className="iam-feature-copy">
-                  <strong>{action.title}</strong>
-                  <small>{action.body}</small>
+                <span className="iam-connect-icon" aria-hidden>
+                  <HomeIcon id={item.icon} size={18} />
                 </span>
-                <span className="iam-feature-cta">{action.label}</span>
+                <strong>{item.title}</strong>
+                <span className="iam-connect-plus" aria-hidden><Plus size={18} strokeWidth={2} /></span>
               </button>
             ))}
-          </section>
+          </div>
+        </section>
 
-          <section className="iam-home-section" aria-labelledby="quick-starts-title">
-            <div className="iam-section-head">
-              <div>
-                <h2 id="quick-starts-title">Quick starts</h2>
-                <p>Tap the thing you want to do.</p>
-              </div>
-              <button type="button" onClick={() => navigate('/dashboard/agent')}>See all</button>
+        <section className="iam-home-section" aria-labelledby="recent-title">
+          <div className="iam-section-head">
+            <div>
+              <h2 id="recent-title">Recent projects</h2>
             </div>
-            <div className="iam-tool-grid">
-              {QUICK_STARTS.map((tool) => (
-                <article key={tool.id} className="iam-tool-card">
-                  <div>
-                    <span className={`iam-tool-glyph iam-tool-glyph--${tool.tone}`}>{tool.glyph}</span>
-                    <h3>{tool.title}</h3>
-                  </div>
-                  <button type="button" onClick={() => navigate(tool.path)}>{tool.cta}</button>
-                </article>
-              ))}
-            </div>
-          </section>
-
-          <section className="iam-home-section" aria-labelledby="connect-context-title">
-            <div className="iam-section-head">
-              <div>
-                <h2 id="connect-context-title">Connect context</h2>
-                <p>Make future chats smarter.</p>
-              </div>
-              <button type="button" onClick={() => navigate('/dashboard/settings/integrations')}>See all</button>
-            </div>
-            <div className="iam-connect-grid">
-              {CONNECT_CARDS.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  className={`iam-connect-card iam-connect-card--${item.tone}`}
-                  onClick={() => navigate(item.path)}
-                >
-                  <strong>{item.title}</strong>
-                  <span><PlusIcon /></span>
-                </button>
-              ))}
-            </div>
-          </section>
-
-          <section className="iam-home-section" aria-labelledby="recent-title">
-            <div className="iam-section-head">
-              <div>
-                <h2 id="recent-title">Recent projects</h2>
-              </div>
-              <button type="button" onClick={() => navigate('/dashboard/artifacts?view=projects')}>View all</button>
-            </div>
-            <div className="iam-project-lane">
-              {RECENT_PROJECTS.map((project) => (
-                <button
-                  key={project.id}
-                  type="button"
-                  className={`iam-project-card iam-project-card--${project.tone}`}
-                  onClick={() => navigate(project.path)}
-                >
-                  <span />
-                  <strong>{project.title}</strong>
-                  <small>{project.updated}</small>
-                </button>
-              ))}
-              <button type="button" className="iam-project-card iam-project-card--new" onClick={() => navigate('/dashboard/projects')}>
-                <span><PlusIcon /></span>
-                <strong>New project</strong>
-                <small>Create a fresh workspace</small>
+            <button type="button" onClick={() => navigate('/dashboard/artifacts?view=projects')}>View all</button>
+          </div>
+          <div className="iam-project-lane">
+            {RECENT_PROJECTS.map((project) => (
+              <button
+                key={project.id}
+                type="button"
+                className={`iam-project-card iam-project-card--${project.tone}`}
+                onClick={() => navigate(project.path)}
+              >
+                <span />
+                <strong>{project.title}</strong>
+                <small>{project.updated}</small>
               </button>
-            </div>
-          </section>
-        </div>
-
-        <aside className="iam-home-side" aria-label="Workspace activity">
-          <section className="iam-activity-card">
-            <div className="iam-side-head">
-              <h2>Activity</h2>
-              <button type="button">View</button>
-            </div>
-            <div className="iam-activity-list">
-              <div><span className="ok" /><strong>Render complete</strong><small>Companions scene</small></div>
-              <div><span className="info" /><strong>Drive synced</strong><small>12 files indexed</small></div>
-              <div><span className="purple" /><strong>Email drafted</strong><small>Client update</small></div>
-              <div><span className="warn" /><strong>Workflow ready</strong><small>Deploy checklist</small></div>
-            </div>
-          </section>
-        </aside>
-      </section>
-
-      <section className="iam-home-composer" aria-label="Message Agent Sam">
-        <button type="button" className="iam-composer-icon" aria-label="Attach context"><PlusIcon /></button>
-        <button type="button" className="iam-composer-input" onClick={sendPrompt}>Message Agent Sam…</button>
-        <button type="button" className="iam-composer-send" aria-label="Send prompt" onClick={sendPrompt}><ArrowIcon /></button>
+            ))}
+            <button type="button" className="iam-project-card iam-project-card--new" onClick={() => navigate('/dashboard/projects')}>
+              <span><Plus size={22} strokeWidth={1.75} aria-hidden /></span>
+              <strong>New project</strong>
+              <small>Create a fresh workspace</small>
+            </button>
+          </div>
+        </section>
       </section>
     </main>
   );

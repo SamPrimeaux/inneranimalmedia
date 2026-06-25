@@ -1323,19 +1323,58 @@
 }
 
 @media (max-width: 760px) {
+  .artifacts-drive-shell {
+    --bg: var(--dashboard-canvas, #07111d);
+    --panel: var(--dashboard-panel, #0f172a);
+    --panel-2: color-mix(in srgb, var(--dashboard-panel, #0f172a) 88%, #1e293b);
+    --panel-3: color-mix(in srgb, var(--dashboard-panel, #0f172a) 82%, #334155);
+    --ink: var(--text-main, #e8eaf0);
+    --muted: var(--text-muted, rgba(232, 234, 240, 0.62));
+    --soft: color-mix(in srgb, var(--text-muted, rgba(232, 234, 240, 0.62)) 80%, transparent);
+    --border: var(--dashboard-border, rgba(148, 163, 184, 0.16));
+    --border-2: color-mix(in srgb, var(--dashboard-border, rgba(148, 163, 184, 0.16)) 140%, #475569);
+    --blue: var(--solar-cyan, #38d9ff);
+    --blue-soft: color-mix(in srgb, var(--solar-cyan, #38d9ff) 18%, transparent);
+    --blue-hover: color-mix(in srgb, var(--solar-cyan, #38d9ff) 12%, transparent);
+    --shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
+    --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.36);
+  }
+
   .artifacts-drive-shell .drive-app {
     grid-template-columns: 1fr;
-    grid-template-rows: 64px 1fr;
+    grid-template-rows: 52px 1fr;
   }
 
   .artifacts-drive-shell .topbar {
     grid-column: 1;
-    grid-template-columns: auto 1fr auto;
-    padding: 8px 10px;
+    grid-template-columns: 1fr auto;
+    padding: 6px 10px;
+    background: color-mix(in srgb, var(--dashboard-panel, #0f172a) 92%, transparent);
+    border-bottom: 1px solid var(--border);
   }
 
   .artifacts-drive-shell .brand {
-    font-size: 0;
+    display: none;
+  }
+
+  .artifacts-drive-shell .search {
+    height: 40px;
+    background: color-mix(in srgb, var(--dashboard-panel, #0f172a) 70%, #1e293b);
+    color: var(--muted);
+    border: 1px solid var(--border);
+  }
+
+  .artifacts-drive-shell .search:focus-within {
+    background: color-mix(in srgb, var(--dashboard-panel, #0f172a) 88%, #1e293b);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--solar-cyan, #38d9ff) 28%, transparent);
+  }
+
+  .artifacts-drive-shell .search input {
+    color: var(--ink);
+  }
+
+  .artifacts-drive-shell .top-actions .user-pill {
+    display: none;
   }
 
   .artifacts-drive-shell .drive-side {
@@ -1346,6 +1385,11 @@
     grid-column: 1;
     grid-row: 2;
     border-radius: 0;
+    background: var(--bg);
+  }
+
+  .artifacts-drive-shell .drive-main--projects {
+    background: var(--bg);
   }
 
   .artifacts-drive-shell .main-head {
@@ -1354,15 +1398,19 @@
 
   .artifacts-drive-shell .title {
     font-size: 21px;
+    color: var(--ink);
   }
 
   .artifacts-drive-shell .notice {
     margin: 0 14px 12px;
+    background: color-mix(in srgb, var(--solar-orange, #f97316) 12%, transparent);
+    border-color: color-mix(in srgb, var(--solar-orange, #f97316) 35%, transparent);
+    color: var(--ink);
   }
 
   .artifacts-drive-shell .notice p,
   .artifacts-drive-shell .notice .upgrade {
-    display: none;
+    display: block;
   }
 
   .artifacts-drive-shell .filters {
@@ -1383,12 +1431,76 @@
   }
 
   .artifacts-drive-shell .drawer {
-    top: 64px;
+    top: 52px;
     width: min(360px, 100vw);
   }
 
   .artifacts-drive-shell .lib-rail-panel {
     width: min(360px, calc(100vw - 58px));
+  }
+
+  .artifacts-drive-shell .lib-list-head-row,
+  .artifacts-drive-shell .lib-list-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    padding: 0 6px;
+    min-height: 48px;
+  }
+
+  .artifacts-drive-shell .lib-list-col--owner,
+  .artifacts-drive-shell .lib-list-col--size,
+  .artifacts-drive-shell .lib-list-col--modified {
+    display: none;
+  }
+
+  .artifacts-drive-shell .lib-list-col--source {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    opacity: 0.75;
+  }
+
+  .artifacts-drive-shell .lib-projects-surface {
+    padding: 16px 14px 28px;
+  }
+
+  .artifacts-drive-shell .lib-projects-title-row h1 {
+    color: var(--ink);
+  }
+
+  .artifacts-drive-shell .lib-projects-create-btn {
+    background: color-mix(in srgb, var(--dashboard-panel, #0f172a) 80%, transparent);
+    border-color: var(--border);
+    color: var(--blue);
+  }
+
+  .artifacts-drive-shell .lib-projects-search {
+    max-width: none;
+    background: color-mix(in srgb, var(--dashboard-panel, #0f172a) 70%, #1e293b);
+    border-color: var(--border);
+    color: var(--ink);
+  }
+
+  .artifacts-drive-shell .lib-projects-table-wrap {
+    border-top-color: var(--border);
+  }
+
+  .artifacts-drive-shell .lib-projects-table th {
+    color: var(--muted);
+    border-bottom-color: var(--border);
+  }
+
+  .artifacts-drive-shell .lib-projects-table td {
+    border-bottom-color: color-mix(in srgb, var(--border) 60%, transparent);
+    color: var(--ink);
+  }
+
+  .artifacts-drive-shell .lib-projects-name-btn {
+    color: var(--ink);
+  }
+
+  .artifacts-drive-shell .lib-projects-toolbar {
+    flex-wrap: wrap;
   }
 }
 
