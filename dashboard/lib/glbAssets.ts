@@ -1,7 +1,54 @@
 /**
- * Canonical chess piece GLB URLs on R2 — no Worker proxy, no transforms.
+ * Canonical chess GLB URLs — Baroque set on R2 custom domain assets.inneranimalmedia.com
+ * R2 keys: glb/chess/baroque/*.glb → https://assets.inneranimalmedia.com/glb/chess/baroque/*
  */
-export const CHESS_PIECES_BASE = 'https://assets.inneranimalmedia.com/chess-pieces';
+export const CHESS_ASSETS_ORIGIN = 'https://assets.inneranimalmedia.com';
+export const CHESS_BAROQUE_R2_PREFIX = 'glb/chess/baroque';
+
+export const CHESS_BAROQUE_BASE = `${CHESS_ASSETS_ORIGIN}/${CHESS_BAROQUE_R2_PREFIX}`;
+
+export const CHESS_BOARD_URL = `${CHESS_BAROQUE_BASE}/baroque_board_opt.glb`;
+
+export const CHESS_BAROQUE_PIECES = {
+  king: {
+    white: `${CHESS_BAROQUE_BASE}/baroque_king_white_opt.glb`,
+    black: `${CHESS_BAROQUE_BASE}/baroque_king_black_opt.glb`,
+  },
+  queen: {
+    white: `${CHESS_BAROQUE_BASE}/baroque_queen_white_opt.glb`,
+    black: `${CHESS_BAROQUE_BASE}/baroque_queen_black_opt.glb`,
+  },
+  bishop: {
+    white: `${CHESS_BAROQUE_BASE}/baroque_bishop_white_opt.glb`,
+    black: `${CHESS_BAROQUE_BASE}/baroque_bishop_black_opt.glb`,
+  },
+  knight: {
+    white: `${CHESS_BAROQUE_BASE}/baroque_knight_white_opt.glb`,
+    black: `${CHESS_BAROQUE_BASE}/baroque_knight_black_opt.glb`,
+  },
+  rook: {
+    white: `${CHESS_BAROQUE_BASE}/baroque_rook_white_opt.glb`,
+    black: `${CHESS_BAROQUE_BASE}/baroque_rook_black_opt.glb`,
+  },
+  pawn: {
+    white: `${CHESS_BAROQUE_BASE}/baroque_pawn_white_opt.glb`,
+    black: `${CHESS_BAROQUE_BASE}/baroque_pawn_black_opt.glb`,
+  },
+} as const;
+
+export type ChessPieceType = keyof typeof CHESS_BAROQUE_PIECES;
+
+/** @deprecated Use CHESS_BAROQUE_PIECES — kept for imports that expect white-only map */
+export const CHESS_PIECES_BASE = CHESS_BAROQUE_BASE;
+
+export const CHESS_PIECE_URLS = {
+  king: CHESS_BAROQUE_PIECES.king.white,
+  queen: CHESS_BAROQUE_PIECES.queen.white,
+  bishop: CHESS_BAROQUE_PIECES.bishop.white,
+  knight: CHESS_BAROQUE_PIECES.knight.white,
+  rook: CHESS_BAROQUE_PIECES.rook.white,
+  pawn: CHESS_BAROQUE_PIECES.pawn.white,
+} as const;
 
 /** Curated runtime astronaut rig — 5 clips, meshopt (~4.69 MB). R2 is canonical in prod. */
 export const ASTRONAUT_GLB_BASE = '/assets/glb/astronaut';
@@ -12,24 +59,13 @@ export const ASTRONAUT_ANIMATION_CLIPS = ['walking', 'running', 'boxing', 'climb
 
 export type AstronautAnimationClip = (typeof ASTRONAUT_ANIMATION_CLIPS)[number];
 
-export const CHESS_PIECE_URLS = {
-  king: `${CHESS_PIECES_BASE}/chess_king_white_opt.glb`,
-  queen: `${CHESS_PIECES_BASE}/chess_queen_white_opt.glb`,
-  bishop: `${CHESS_PIECES_BASE}/chess_bishop_white_opt.glb`,
-  knight: `${CHESS_PIECES_BASE}/chess_knight_white_opt.glb`,
-  rook: `${CHESS_PIECES_BASE}/chess_rook_white_opt.glb`,
-  pawn: `${CHESS_PIECES_BASE}/chess_pawn_white_opt.glb`,
-} as const;
-
-export type ChessPieceType = keyof typeof CHESS_PIECE_URLS;
-
-/** Same white mesh URL for both sides — glass/amber applied at runtime. */
-export function chessPieceGlbPath(_color: 'white' | 'black', piece: string): string {
+export function chessPieceGlbPath(color: 'white' | 'black', piece: string): string {
   const p = String(piece || 'pawn')
     .trim()
     .toLowerCase()
     .replace(/[^a-z]/g, '') as ChessPieceType;
-  return CHESS_PIECE_URLS[p in CHESS_PIECE_URLS ? p : 'pawn'];
+  const key = p in CHESS_BAROQUE_PIECES ? p : 'pawn';
+  return CHESS_BAROQUE_PIECES[key][color];
 }
 
 /** @deprecated Use chessPieceGlbPath — alias kept for ChessViewport imports. */

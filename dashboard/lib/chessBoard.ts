@@ -1,9 +1,37 @@
 /**
- * Procedural chess board — runtime Three.js (no board GLB).
+ * Procedural chess board — runtime Three.js (fallback when no board GLB).
  */
 import * as THREE from 'three';
 
-export const BOARD_SURFACE_Y = 0.05;
+let boardSurfaceY = 0.05;
+
+export function getBoardSurfaceY(): number {
+  return boardSurfaceY;
+}
+
+export function setBoardSurfaceY(y: number): void {
+  boardSurfaceY = Number.isFinite(y) ? y : boardSurfaceY;
+}
+
+/** @deprecated use getBoardSurfaceY() */
+export const BOARD_SURFACE_Y = boardSurfaceY;
+
+export function createChessPickLayer(): THREE.Group {
+  const board = new THREE.Group();
+  board.name = 'chess_pick_layer';
+  const squares: THREE.Mesh[] = [];
+  const mat = new THREE.MeshBasicMaterial({ visible: false, depthWrite: false });
+  for (let row = 0; row < 8; row++) {
+    for (let col = 0; col < 8; col++) {
+      const square = new THREE.Mesh(new THREE.BoxGeometry(1, 0.04, 1), mat);
+      square.position.set(col - 3.5, boardSurfaceY, row - 3.5);
+      board.add(square);
+      squares.push(square);
+    }
+  }
+  board.userData.squareMeshes = squares;
+  return board;
+}
 
 export function createChessBoard(): THREE.Group {
   const board = new THREE.Group();

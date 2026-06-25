@@ -3,7 +3,15 @@
  */
 import * as THREE from 'three';
 import { createChessGltfLoader, ensureMeshoptDecoderReady } from './gltfLoader';
-import { BOARD_SURFACE_Y, boardPointToSquare, createChessBoard, squareToBoardXZ } from './chessBoard';
+import {
+  createChessBoard,
+  createChessPickLayer,
+  getBoardSurfaceY,
+  setBoardSurfaceY,
+  squareToBoardXZ,
+  boardPointToSquare,
+} from './chessBoard';
+import { CHESS_BOARD_URL } from './glbAssets';
 import {
   applyAuthoredChessPieceMaterials,
   applyChessPieceMaterials,
@@ -117,8 +125,8 @@ export class ChessViewport {
     fill.position.set(-6, 5, -5);
     this.scene.add(fill);
 
-    this.boardGroup = createChessBoard();
-    this.squareMeshes = (this.boardGroup.userData.squareMeshes as THREE.Mesh[]) || [];
+    this.boardGroup = new THREE.Group();
+    this.boardGroup.name = 'chess_board_root';
     this.scene.add(this.boardGroup);
     this.scene.add(this.overlayGroup);
     this.scene.add(this.captureGroup);
@@ -226,16 +234,34 @@ export class ChessViewport {
     await ensureMeshoptDecoderReady();
     this.pieceRegistry = await loadChessPieceRegistry();
 
-    const urls = [...new Set(PIECE_TYPES.map((piece) => this.pieceRegistry!.urlFor('white', piece)))];
+    const pieceUrls = new Set<string>();
+    for (const piece of PIECE_TYPES) {
+      pieceUrls.add(this.pieceRegistry!.urlFor('white', piece));
+      pieceUrls.add(this.pieceRegistry!.urlFor('black', piece));
+    }
+
+    const boardUrl = this.pieceRegistry.boardUrl || CHESS_BOARD_URL;
+    const jobs: Array<{ kind: 'board' | 'piece'; url: string }> = [
+      { kind: 'board', url: boardUrl },
+      ...[...pieceUrls].map((url) => ({ kind: 'piece' as const, url })),
+    ];
+
     let loaded = 0;
-    const total = urls.length || PIECE_TYPES.length;
+    const total = jobs.length;
 
     await Promise.all(
-      urls.map(async (url) => {
+      jobs.map(async (job) => {
         try {
-          await this.loadPieceTemplateWithTimeout(url, 8000);
+          if (job.kind === 'board') {
+            await this.loadBoardModel(job.url);
+          } else {
+            await this.loadPieceTemplateWithTimeout(job.url, 20000);
+          }
         } catch (err) {
-          console.error(`[ChessViewport] preload failed ${url}`, err);
+          console.error(`[ChessViewport] preload failed ${job.url}`, err);
+          if (job.kind === 'board') {
+            this.fallbackProceduralBoard();
+          }
         } finally {
           loaded += 1;
           onLoading?.(loaded / total);
@@ -246,6 +272,48 @@ export class ChessViewport {
     this.ready = true;
     this.fitCameraToViewport();
     onReady?.();
+  }
+
+  private fallbackProceduralBoard(): void {
+    while (this.boardGroup.children.length) this.boardGroup.remove(this.boardGroup.children[0]);
+    const procedural = createChessBoard();
+    this.squareMeshes = (procedural.userData.squareMeshes as THREE.Mesh[]) || [];
+    this.boardGroup.add(procedural);
+  }
+
+  private async loadBoardModel(url: string): Promise<void> {
+    const gltf = await this.loader.loadAsync(url);
+    const model = gltf.scene.clone(true);
+    const box = new THREE.Box3().setFromObject(model);
+    const size = box.getSize(new THREE.Vector3());
+    const center = new THREE.Vector3();
+    box.getCenter(center);
+    model.position.sub(center);
+
+    const span = Math.max(size.x, size.z, 0.001);
+    const scale = 8.4 / span;
+    model.scale.setScalar(scale);
+
+    const fitted = new THREE.Box3().setFromObject(model);
+    fitted.getCenter(center);
+    model.position.sub(center);
+    fitted.setFromObject(model);
+    setBoardSurfaceY(fitted.max.y + 0.02);
+
+    model.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (mesh.isMesh) {
+        mesh.receiveShadow = true;
+        mesh.castShadow = true;
+      }
+    });
+
+    while (this.boardGroup.children.length) this.boardGroup.remove(this.boardGroup.children[0]);
+    this.boardGroup.add(model);
+
+    const pick = createChessPickLayer();
+    this.squareMeshes = (pick.userData.squareMeshes as THREE.Mesh[]) || [];
+    this.scene.add(pick);
   }
 
   private pieceScaleTarget(piece: string): number {
@@ -303,7 +371,15 @@ export class ChessViewport {
     return clone;
   }
 
-  private applyPieceMaterials(mesh: THREE.Group, color: 'white' | 'black'): void {
+  private applyPieceMaterials(mesh: THREE.Group, color: 'white' | 'black', piece: string): void {
+    const entry = this.pieceRegistry?.pieces[piece];
+    if (this.pieceRegistry?.preserveMaterials && entry && !entry.shared_mesh) {
+      mesh.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (m.isMesh) m.castShadow = true;
+      });
+      return;
+    }
     if (this.pieceRegistry?.preserveMaterials) {
       applyAuthoredChessPieceMaterials(mesh, color);
       return;
@@ -333,7 +409,7 @@ export class ChessViewport {
     const url = this.pieceRegistry.urlFor(color, piece);
     const template = await this.loadPieceTemplate(url, piece);
     const mesh = template.clone(true);
-    this.applyPieceMaterials(mesh, color);
+    this.applyPieceMaterials(mesh, color, piece);
     const pos = squareToPosition(square);
     if (!pos) return;
     mesh.position.set(pos.x, pos.y, pos.z);
@@ -351,14 +427,14 @@ export class ChessViewport {
     const url = this.pieceRegistry.urlFor(color, piece);
     const template = await this.loadPieceTemplate(url, piece);
     const mesh = template.clone(true);
-    this.applyPieceMaterials(mesh, color);
+    this.applyPieceMaterials(mesh, color, piece);
     this.fadePieceMaterials(mesh, 0.6);
     mesh.scale.multiplyScalar(0.25);
 
     const count = capturedBy === 'white' ? this.whiteCaptureCount++ : this.blackCaptureCount++;
     const x = capturedBy === 'white' ? -5.8 : 5.8;
     const z = -3 + (count % 6) * 0.55;
-    const y = BOARD_SURFACE_Y + Math.floor(count / 6) * 0.2;
+    const y = getBoardSurfaceY() + Math.floor(count / 6) * 0.2;
     mesh.position.set(x, y, z);
     this.captureGroup.add(mesh);
   }

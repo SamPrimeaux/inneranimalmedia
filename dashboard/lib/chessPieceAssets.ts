@@ -1,7 +1,7 @@
 /**
  * Load chess piece URLs from GET /api/games/pieces (cms_assets + v1 side GLBs).
  */
-import { chessPieceGlbPath, normalizeGlbUrl, type ChessPieceType } from './glbAssets';
+import { CHESS_BOARD_URL, chessPieceGlbPath, normalizeGlbUrl, type ChessPieceType } from './glbAssets';
 
 export type PieceUrlEntry = {
   white_url: string;
@@ -11,6 +11,7 @@ export type PieceUrlEntry = {
 
 export type ChessPieceRegistry = {
   preserveMaterials: boolean;
+  boardUrl: string | null;
   source: string;
   pieces: Record<string, PieceUrlEntry>;
   urlFor(color: 'white' | 'black', piece: string): string;
@@ -33,7 +34,8 @@ function fallbackRegistry(): ChessPieceRegistry {
     pieces[piece] = { white_url: url, black_url: url, shared_mesh: true };
   }
   return {
-    preserveMaterials: false,
+    preserveMaterials: true,
+    boardUrl: CHESS_BOARD_URL,
     source: 'legacy_hardcoded',
     pieces,
     urlFor(color, piece) {
@@ -65,6 +67,7 @@ export async function loadChessPieceRegistry(force = false): Promise<ChessPieceR
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = (await res.json()) as {
         preserve_materials?: boolean;
+        board_url?: string | null;
         source?: string;
         pieces?: Record<string, Partial<PieceUrlEntry>>;
       };
@@ -76,8 +79,10 @@ export async function loadChessPieceRegistry(force = false): Promise<ChessPieceR
       }
 
       const preserveMaterials = Boolean(data.preserve_materials);
+      const boardUrl = data.board_url ? normalizeGlbUrl(data.board_url) : null;
       const registry: ChessPieceRegistry = {
         preserveMaterials,
+        boardUrl,
         source: data.source || 'api',
         pieces,
         urlFor(color, piece) {

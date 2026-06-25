@@ -47,7 +47,13 @@ export const createChessGltfLoader = createPlatformGltfLoader;
 function normalizeAssetUrl(url: string): string {
   const trimmed = String(url ?? '').trim();
   if (!trimmed) return '';
-  if (trimmed.includes('assets.inneranimalmedia.com/chess-pieces/')) return trimmed;
+  // Chess GLBs load direct from R2 custom domain (immutable CDN, meshopt-friendly).
+  if (
+    trimmed.includes('assets.inneranimalmedia.com/chess-pieces/') ||
+    trimmed.includes('assets.inneranimalmedia.com/glb/chess/')
+  ) {
+    return trimmed;
+  }
   return normalizeGlbUrl(trimmed) || trimmed;
 }
 

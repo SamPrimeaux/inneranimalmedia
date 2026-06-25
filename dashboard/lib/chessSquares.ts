@@ -1,5 +1,5 @@
 /** Algebraic square ↔ board coords (8×8 centered at ±3.5). */
-import { BOARD_SURFACE_Y } from './chessBoard';
+import { getBoardSurfaceY } from './chessBoard';
 
 const FILES = 'abcdefgh';
 
@@ -9,7 +9,7 @@ export function squareToPosition(square: string): { x: number; y: number; z: num
   const file = FILES.indexOf(s[0]);
   const rank = parseInt(s[1], 10);
   if (file < 0 || rank < 1 || rank > 8) return null;
-  return { x: file - 3.5, y: BOARD_SURFACE_Y, z: rank - 4.5 };
+  return { x: file - 3.5, y: getBoardSurfaceY(), z: rank - 4.5 };
 }
 
 export function positionToSquare(x: number, z: number): string | null {

@@ -1,0 +1,23 @@
+{
+  "set": "baroque",
+  "optimized_at": "2026-06-25",
+  "pipeline": "gltf-transform optimize --compress meshopt --texture-compress webp",
+  "r2_prefix": "glb/chess/baroque",
+  "cdn_base": "https://assets.inneranimalmedia.com/glb/chess/baroque",
+  "worker_base": "/assets/glb/chess/baroque",
+  "assets": [
+    "baroque_board_opt.glb",
+    "baroque_king_white_opt.glb",
+    "baroque_king_black_opt.glb",
+    "baroque_queen_white_opt.glb",
+    "baroque_queen_black_opt.glb",
+    "baroque_bishop_white_opt.glb",
+    "baroque_bishop_black_opt.glb",
+    "baroque_knight_white_opt.glb",
+    "baroque_knight_black_opt.glb",
+    "baroque_rook_white_opt.glb",
+    "baroque_rook_black_opt.glb",
+    "baroque_pawn_white_opt.glb",
+    "baroque_pawn_black_opt.glb"
+  ]
+}
