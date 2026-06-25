@@ -11,6 +11,7 @@ import {
   Trash2,
   FilePlus,
   Search,
+  PanelLeftClose,
 } from 'lucide-react';
 import type { ActiveFile } from '../types';
 import { SetiFileIcon } from '../src/components/SetiFileIcon';
@@ -43,13 +44,22 @@ function repoListErrorKind(status: number): RepoListErrorKind {
   return 'other';
 }
 
+function requestMobileActivitySheetExpand(vh?: number) {
+  if (typeof window === 'undefined') return;
+  if (!window.matchMedia('(max-width: 430px)').matches) return;
+  window.dispatchEvent(
+    new CustomEvent('iam-mobile-activity-sheet-expand', { detail: { vh } }),
+  );
+}
+
 
 export const GitHubExplorer: React.FC<{
   onOpenInEditor?: (file: ActiveFile) => void;
   expandRepoFullName?: string | null;
   onExpandRepoConsumed?: () => void;
   workspace_id?: string | null;
-}> = ({ onOpenInEditor, expandRepoFullName, onExpandRepoConsumed, workspace_id = null }) => {
+  onClose?: () => void;
+}> = ({ onOpenInEditor, expandRepoFullName, onExpandRepoConsumed, workspace_id = null, onClose }) => {
   const { workspaceId: ctxWorkspaceId, persistGithubRepo } = useWorkspace();
   const effectiveWorkspaceId = (workspace_id?.trim() || ctxWorkspaceId || '').trim() || null;
   const [isAuthenticated, setIsAuthenticated] = useState(true);
@@ -312,12 +322,14 @@ export const GitHubExplorer: React.FC<{
       return;
     }
     setExpandedRepo(fullName);
+    requestMobileActivitySheetExpand(58);
     setPathByRepo((p) => ({ ...p, [fullName]: '' }));
     void loadContents(fullName, '', defaultBranchFor(fullName));
     if (effectiveWorkspaceId) void persistGithubRepo(fullName, effectiveWorkspaceId);
   };
 
   const enterDir = (fullName: string, path: string) => {
+    requestMobileActivitySheetExpand(72);
     setPathByRepo((p) => ({ ...p, [fullName]: path }));
     void loadContents(fullName, path, defaultBranchFor(fullName));
   };
@@ -499,28 +511,43 @@ export const GitHubExplorer: React.FC<{
     <div className="w-full h-full bg-[var(--bg-panel)] flex flex-col text-[var(--text-main)] overflow-hidden min-h-0">
       <div className="px-3 py-2 border-b border-[var(--border-subtle)] flex flex-col gap-2 shrink-0">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Github size={14} />
-            <span className="text-[11px] font-bold tracking-widest uppercase">Repositories</span>
+          <div className="flex items-center gap-2 min-w-0">
+            <Github size={14} className="shrink-0" />
+            <span className="text-[11px] font-bold tracking-widest uppercase truncate">Repositories</span>
           </div>
-          <button
-            type="button"
-            onClick={() => void fetchRepos()}
-            disabled={isLoading}
-            className="p-1 hover:bg-[var(--bg-hover)] rounded disabled:opacity-50"
-            title="Refresh"
-          >
-            <RefreshCw size={12} className={isLoading ? 'animate-spin' : ''} />
-          </button>
+          <div className="flex items-center gap-0.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => void fetchRepos()}
+              disabled={isLoading}
+              className="p-1.5 hover:bg-[var(--bg-hover)] rounded disabled:opacity-50"
+              title="Refresh"
+              aria-label="Refresh repositories"
+            >
+              <RefreshCw size={12} className={isLoading ? 'animate-spin' : ''} />
+            </button>
+            {onClose ? (
+              <button
+                type="button"
+                className="p-1.5 rounded text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)] transition-colors"
+                title="Close repositories"
+                aria-label="Close repositories"
+                onClick={onClose}
+              >
+                <PanelLeftClose size={14} strokeWidth={1.75} />
+              </button>
+            ) : null}
+          </div>
         </div>
-        <div className="flex items-center gap-1 rounded border border-[var(--border-subtle)]/50 px-2 py-1">
+        <div className="flex items-center gap-1 rounded border border-[var(--border-subtle)]/50 px-2 py-1.5">
           <Search size={12} className="text-[var(--text-muted)] shrink-0" />
           <input
             type="search"
             value={repoFilter}
             onChange={(e) => setRepoFilter(e.target.value)}
+            onFocus={() => requestMobileActivitySheetExpand(75)}
             placeholder="Filter repos…"
-            className="w-full bg-transparent text-[11px] outline-none placeholder:text-[var(--text-muted)]"
+            className="w-full bg-transparent text-[11px] outline-none placeholder:text-[var(--text-muted)] min-h-[28px]"
           />
         </div>
         {loadError && (

@@ -321,21 +321,21 @@ const EDITOR_PREVIEW_SPLIT_MIN = 20;
 const EDITOR_PREVIEW_SPLIT_MAX = 80;
 const DEFAULT_EDITOR_PREVIEW_SPLIT_PCT = 50;
 const EDITOR_PREVIEW_PANEL_MIN_PX = 220;
-const LS_MOBILE_ACTIVITY_PANEL_VW = 'iam_mobile_activity_panel_vw';
-const MOBILE_ACTIVITY_PANEL_MIN_VW = 32;
-const MOBILE_ACTIVITY_PANEL_MAX_VW = 85;
-const MOBILE_ACTIVITY_PANEL_DEFAULT_VW = 50;
+const LS_MOBILE_ACTIVITY_PANEL_VH = 'iam_mobile_activity_panel_vh';
+const MOBILE_ACTIVITY_PANEL_MIN_VH = 28;
+const MOBILE_ACTIVITY_PANEL_MAX_VH = 75;
+const MOBILE_ACTIVITY_PANEL_DEFAULT_VH = 35;
 
-function readMobileActivityPanelVw(): number {
+function readMobileActivityPanelVh(): number {
   try {
-    const n = Number(sessionStorage.getItem(LS_MOBILE_ACTIVITY_PANEL_VW));
-    if (Number.isFinite(n) && n >= MOBILE_ACTIVITY_PANEL_MIN_VW && n <= MOBILE_ACTIVITY_PANEL_MAX_VW) {
+    const n = Number(sessionStorage.getItem(LS_MOBILE_ACTIVITY_PANEL_VH));
+    if (Number.isFinite(n) && n >= MOBILE_ACTIVITY_PANEL_MIN_VH && n <= MOBILE_ACTIVITY_PANEL_MAX_VH) {
       return Math.round(n * 10) / 10;
     }
   } catch {
     /* ignore */
   }
-  return MOBILE_ACTIVITY_PANEL_DEFAULT_VW;
+  return MOBILE_ACTIVITY_PANEL_DEFAULT_VH;
 }
 
 function readActivityPanelW(): number {
@@ -1462,8 +1462,8 @@ const App: React.FC = () => {
   // Dynamic Layout & Lifted State
   // Resizable panels using pointer events
   const [sidebarW, setSidebarW] = useState(readActivityPanelW);
-  const [mobileActivityPanelVw, setMobileActivityPanelVw] = useState(readMobileActivityPanelVw);
-  const mobileActivityPanelVwRef = useRef(mobileActivityPanelVw);
+  const [mobileActivityPanelVh, setMobileActivityPanelVh] = useState(readMobileActivityPanelVh);
+  const mobileActivityPanelVhRef = useRef(mobileActivityPanelVh);
   const [agentW, setAgentW] = useState(360);
 
   const shellLayoutRef = useRef({
@@ -1651,15 +1651,33 @@ const App: React.FC = () => {
   }, [editorPreviewEditorPct]);
 
   useEffect(() => {
-    mobileActivityPanelVwRef.current = mobileActivityPanelVw;
-  }, [mobileActivityPanelVw]);
+    mobileActivityPanelVhRef.current = mobileActivityPanelVh;
+  }, [mobileActivityPanelVh]);
 
-  const beginMobileActivityPanelResize = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+  useEffect(() => {
+    const onExpandSheet = (e: Event) => {
+      const detail = (e as CustomEvent<{ vh?: number }>).detail;
+      const target = Number(detail?.vh);
+      const next = Number.isFinite(target)
+        ? Math.min(MOBILE_ACTIVITY_PANEL_MAX_VH, Math.max(MOBILE_ACTIVITY_PANEL_MIN_VH, target))
+        : MOBILE_ACTIVITY_PANEL_MAX_VH;
+      setMobileActivityPanelVh(next);
+      try {
+        sessionStorage.setItem(LS_MOBILE_ACTIVITY_PANEL_VH, String(next));
+      } catch {
+        /* ignore */
+      }
+    };
+    window.addEventListener('iam-mobile-activity-sheet-expand', onExpandSheet as EventListener);
+    return () => window.removeEventListener('iam-mobile-activity-sheet-expand', onExpandSheet as EventListener);
+  }, []);
+
+  const beginMobileActivitySheetResize = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
     const el = e.currentTarget;
     const pointerId = e.pointerId;
-    const startX = e.clientX;
-    const startVw = mobileActivityPanelVwRef.current;
+    const startY = e.clientY;
+    const startVh = mobileActivityPanelVhRef.current;
     try {
       el.setPointerCapture(pointerId);
     } catch {
@@ -1669,21 +1687,21 @@ const App: React.FC = () => {
 
     const onMove = (pe: PointerEvent) => {
       if (pe.pointerId !== pointerId) return;
-      const vw = window.innerWidth || 390;
-      const deltaVw = ((pe.clientX - startX) / vw) * 100;
+      const vh = window.innerHeight || 800;
+      const deltaVh = ((startY - pe.clientY) / vh) * 100;
       const next = Math.min(
-        MOBILE_ACTIVITY_PANEL_MAX_VW,
-        Math.max(MOBILE_ACTIVITY_PANEL_MIN_VW, startVw + deltaVw),
+        MOBILE_ACTIVITY_PANEL_MAX_VH,
+        Math.max(MOBILE_ACTIVITY_PANEL_MIN_VH, startVh + deltaVh),
       );
-      setMobileActivityPanelVw(Math.round(next * 10) / 10);
+      setMobileActivityPanelVh(Math.round(next * 10) / 10);
     };
 
     const endDrag = () => {
       document.body.classList.remove('is-resizing');
       try {
         sessionStorage.setItem(
-          LS_MOBILE_ACTIVITY_PANEL_VW,
-          String(mobileActivityPanelVwRef.current),
+          LS_MOBILE_ACTIVITY_PANEL_VH,
+          String(mobileActivityPanelVhRef.current),
         );
       } catch {
         /* ignore */
@@ -3998,24 +4016,45 @@ const App: React.FC = () => {
           )}
 
           <div className="flex flex-1 min-w-0 overflow-hidden">
+          {activeActivity && isNarrowViewport ? (
+            <button
+              type="button"
+              className="iam-mobile-activity-scrim max-phone:block hidden"
+              onClick={() => setActiveActivity(null)}
+              aria-label="Close panel"
+            />
+          ) : null}
           <div 
               className={`transition-all duration-75 shrink-0 bg-[var(--dashboard-panel)] flex flex-col z-40 overflow-hidden shadow-2xl tablet-up:shadow-none hover:border-[var(--solar-cyan)] relative group
               ${
                 activeActivity
-                  ? 'tablet-up:relative tablet-up:left-0 border-r border-[var(--dashboard-border)] opacity-100 pointer-events-auto max-phone:iam-mobile-activity-panel'
-                  : 'border-none opacity-0 pointer-events-none max-phone:iam-mobile-activity-panel'
+                  ? 'tablet-up:relative tablet-up:left-0 border-r border-[var(--dashboard-border)] opacity-100 pointer-events-auto max-phone:iam-mobile-activity-sheet'
+                  : 'border-none opacity-0 pointer-events-none max-phone:iam-mobile-activity-sheet'
               }`}
               data-open={activeActivity ? 'true' : 'false'}
               style={
                 isNarrowViewport
                   ? activeActivity
-                    ? { width: `${mobileActivityPanelVw}vw` }
+                    ? {
+                        width: 0,
+                        ['--iam-mobile-activity-vh' as string]: `${mobileActivityPanelVh}dvh`,
+                      }
                     : { width: 0 }
                   : { width: activeActivity ? sidebarW : 0 }
               }
               {...(narrowNeedsBack && !!activeActivity ? mobileEdgeSwipeHandlers : {})}
           >
-              <div className="w-full h-full flex flex-col relative">
+              <div className="w-full h-full flex flex-col relative max-phone:iam-mobile-activity-sheet-body">
+                  {isNarrowViewport && activeActivity ? (
+                    <div
+                      role="separator"
+                      aria-orientation="horizontal"
+                      aria-label="Resize panel height"
+                      title="Drag to resize panel"
+                      className="iam-mobile-activity-sheet-handle max-phone:flex hidden"
+                      onPointerDown={beginMobileActivitySheetResize}
+                    />
+                  ) : null}
                   {location.pathname === '/dashboard/meet' && meetCtxValue ? (
                       <MeetProvider value={meetCtxValue}>
                         <MeetShellPanel />
@@ -4043,6 +4082,7 @@ const App: React.FC = () => {
                           expandRepoFullName={githubExpandRepo}
                           onExpandRepoConsumed={consumeGithubExpandRepo}
                           onOpenInEditor={openInEditorFromExplorer}
+                          onClose={() => setActiveActivity(null)}
                         />
                       </Suspense>
                   ) : activeActivity === 'drive' ? (
@@ -4098,18 +4138,7 @@ const App: React.FC = () => {
               />
             </div>
           )}
-          {/* Mobile activity drawer edge — drag width (32–85vw, default 50) */}
-          {activeActivity && isNarrowViewport && (
-            <div
-              role="separator"
-              aria-orientation="vertical"
-              aria-label="Resize explorer panel"
-              title="Drag to resize explorer"
-              className="iam-mobile-activity-resizer hidden max-phone:block"
-              style={{ left: `${mobileActivityPanelVw}vw` }}
-              onPointerDown={beginMobileActivityPanelResize}
-            />
-          )}
+          {/* Mobile activity sheet — vertical drag on handle inside panel (28–75vh, default 35) */}
 
           {/* 4. MAIN EDITOR AREA */}
           <main 
@@ -4408,6 +4437,10 @@ const App: React.FC = () => {
                             }}
                             onConnectWorkspace={() => setWorkspaceLauncherOpen(true)}
                             onGithubSync={() => {
+                              if (isNarrowViewport) {
+                                openGitHubFromChat();
+                                return;
+                              }
                               setSearchInitialQuery('clone ');
                               setSearchOpen(true);
                             }}
