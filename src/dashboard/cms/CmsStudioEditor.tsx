@@ -50,13 +50,31 @@ export function CmsStudioEditor({
   panel = 'pages',
   workspaceId = '',
   workspaceLabel = null,
+  publicDomain = null,
+  onNavigatePath,
 }: {
   projectSlug: string | null | undefined;
   pageId?: string | null;
   panel?: string;
   workspaceId?: string;
   workspaceLabel?: string | null;
+  publicDomain?: string | null;
+  onNavigatePath?: (path: string, opts?: { replace?: boolean }) => void;
 }) {
+  const navigatePath = useCallback(
+    (path: string, opts?: { replace?: boolean }) => {
+      if (onNavigatePath) {
+        onNavigatePath(path, opts);
+        return;
+      }
+      if (opts?.replace) {
+        window.history.replaceState(null, '', path);
+      } else {
+        window.history.pushState(null, '', path);
+      }
+    },
+    [onNavigatePath],
+  );
   const [sketchOpen, setSketchOpen] = useState(false);
   const iframeRef = useRef(null);
 
@@ -65,15 +83,16 @@ export function CmsStudioEditor({
     const q = new URLSearchParams();
     q.set('project', projectSlug);
     if (pageId) q.set('page', pageId);
-    if (panel === 'themeEditor') {
+    if (panel === 'themeEditor' || panel === 'theme-editor') {
       q.set('view', 'themeEditor');
     } else if (panel && panel !== 'pages') {
       q.set('panel', panel);
     }
     if (workspaceId) q.set('workspace_id', workspaceId);
     if (workspaceLabel) q.set('workspace_label', workspaceLabel);
+    if (publicDomain) q.set('public_domain', publicDomain);
     return `${STUDIO_BASE}?${q.toString()}`;
-  }, [projectSlug, pageId, panel, workspaceId, workspaceLabel]);
+  }, [projectSlug, pageId, panel, workspaceId, workspaceLabel, publicDomain]);
 
   const postThemeToIframe = useCallback(() => {
     const win = iframeRef.current?.contentWindow;
@@ -123,7 +142,11 @@ export function CmsStudioEditor({
         }),
       );
     }
-  }, [projectSlug, pageId, workspaceId]);
+
+    if (data.type === 'iam-cms-navigate' && data.detail?.path) {
+      navigatePath(String(data.detail.path), { replace: data.detail.replace === true });
+    }
+  }, [projectSlug, pageId, workspaceId, navigatePath]);
 
   useEffect(() => {
     window.addEventListener('message', onMessage);

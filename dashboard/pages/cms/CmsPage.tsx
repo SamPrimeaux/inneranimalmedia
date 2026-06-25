@@ -10,6 +10,26 @@ const CmsRoot = lazy(() =>
   })),
 );
 
+const CmsStudioEditor = lazy(() =>
+  import('../../../src/dashboard/cms/CmsStudioEditor').then((m) => ({
+    default: m.CmsStudioEditor,
+  })),
+);
+
+function StudioShellFallback() {
+  return (
+    <div className="flex flex-1 flex-col min-h-0 bg-[#0d1117]">
+      <div className="h-11 border-b border-white/10 bg-[#161b22] flex items-center px-4 gap-3">
+        <div className="h-3 w-24 rounded bg-white/10 animate-pulse" />
+        <div className="flex-1" />
+        <div className="h-7 w-16 rounded bg-white/10 animate-pulse" />
+        <div className="h-7 w-20 rounded bg-blue-600/40 animate-pulse" />
+      </div>
+      <div className="flex flex-1 items-center justify-center text-xs text-slate-500">Opening editor…</div>
+    </div>
+  );
+}
+
 type CmsPageProps = {
   workspaceId?: string;
 };
@@ -98,10 +118,14 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
               ? 'imports'
               : 'pages';
 
+  const isStudioEditorRoute = parsed.view === 'theme-editor' || Boolean(parsed.pageId);
+  const studioProjectSlug = context?.project_slug || effectiveSiteSlug || null;
+
   const needsSitePick =
     parsed.view !== 'sites' &&
     !loading &&
     !context?.project_slug &&
+    !effectiveSiteSlug &&
     (context?.sites?.length || 0) !== 1;
 
   const siteCount = context?.sites?.length || 0;
@@ -170,11 +194,24 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
           apiProfile={context.api_profile}
         />
       ) : null}
-      {!needsSitePick && !isClientWorker ? (
+      {!needsSitePick && !isClientWorker && isStudioEditorRoute && studioProjectSlug ? (
+        <Suspense fallback={<StudioShellFallback />}>
+          <CmsStudioEditor
+            projectSlug={studioProjectSlug}
+            pageId={parsed.pageId}
+            panel={parsed.view === 'theme-editor' ? 'theme-editor' : 'pages'}
+            workspaceId={workspaceId || context?.workspace_id || ''}
+            workspaceLabel={context?.ui_label || context?.workspace_name || null}
+            publicDomain={context?.public_domain || null}
+            onNavigatePath={cmsNavigatePath}
+          />
+        </Suspense>
+      ) : null}
+      {!needsSitePick && !isClientWorker && !isStudioEditorRoute ? (
         <Suspense
           fallback={
             <div className="flex flex-1 items-center justify-center text-sm text-[var(--text-muted)]">
-              Loading CMS Suite…
+              Loading…
             </div>
           }
         >
@@ -191,7 +228,7 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
               void load();
             }}
             view={viewForRoot}
-            projectSlug={context?.project_slug || null}
+            projectSlug={context?.project_slug || effectiveSiteSlug}
             pageId={parsed.pageId}
             studioPanel={parsed.panel}
             addToPageId={searchParams.get('add_to_page')}

@@ -27,7 +27,42 @@ function readCtx() {
     project: p.get('project') || 'inneranimalmedia',
     pageId: p.get('page') || '',
     workspaceId: p.get('workspace_id') || '',
+    publicDomain: p.get('public_domain') || '',
+    view: p.get('view') || '',
   };
+}
+
+const STOREFRONT_APEX = {
+  inneranimalmedia: 'inneranimalmedia.com',
+  fuelnfreetime: 'fuelnfreetime.com',
+  meauxbility: 'meauxbility.org',
+  newiberiachurchofchrist: 'newiberiachurchofchrist.com',
+  nicoc: 'newiberiachurchofchrist.com',
+};
+
+function pagePath(page) {
+  const route = String(page?.route_path || '').trim();
+  if (route) return route.startsWith('/') ? route : `/${route}`;
+  const slug = String(page?.slug || '').trim();
+  if (!slug || slug === 'home') return '/';
+  return `/${slug}`;
+}
+
+function pageToUrl(page, boot = bootstrap) {
+  if (!page) return null;
+  const ctx = readCtx();
+  const path = pagePath(page);
+  const domain =
+    boot?.tenant?.domain ||
+    ctx.publicDomain ||
+    STOREFRONT_APEX[ctx.project] ||
+    STOREFRONT_APEX[boot?.project_slug];
+  if (domain) {
+    const host = String(domain).replace(/^https?:\/\//, '').replace(/\/$/, '');
+    return `https://${host}${path}`;
+  }
+  const project = ctx.project || boot?.project_slug || 'inneranimalmedia';
+  return `https://${project}.meauxbility.workers.dev${path}`;
 }
 
 function postParent(type, detail = {}) {
@@ -356,6 +391,7 @@ function CmsEditor() {
   const [htmlType, setHtmlType]   = useState('custom');
   const [htmlPos, setHtmlPos]     = useState('end');
   const [previewing, setPrev]     = useState(false);
+  const [draftPreview, setDraftPreview] = useState(false);
 
   const iframeRef = useRef(null);
 
@@ -372,6 +408,10 @@ function CmsEditor() {
           ? pg.find(p => p.id === ctx.pageId)
           : pg.find(p => p.is_homepage) || pg[0];
         if (first) loadPage(first, data);
+        if (ctx.view === 'themeEditor') {
+          setRailMode('theme');
+          setRpTab('theme');
+        }
       })
       .catch(e => showToast('Failed to load: ' + e.message, 'err'))
       .finally(() => setBooting(false));
@@ -382,23 +422,59 @@ function CmsEditor() {
     setActiveSection(null);
     setDirty({});
     setPrev(false);
+    setDraftPreview(false);
     const secs = ((boot?.sections_by_page || {})[page.id] || [])
       .slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
     setSections(secs);
-    // reload iframe
     const frame = iframeRef.current;
     if (frame) {
       frame.removeAttribute('srcdoc');
       const url = pageToUrl(page, boot);
       if (url) frame.src = url;
     }
+    const ctx = readCtx();
+    if (page?.id && ctx.project) {
+      postParent('iam-cms-navigate', {
+        path: `/dashboard/cms/pages/${encodeURIComponent(page.id)}?site=${encodeURIComponent(ctx.project)}`,
+        replace: true,
+      });
+    }
   }
 
-  function pageToUrl(page, boot = bootstrap) {
-    if (!page) return null;
-    const host = boot?.public_domain || `${ctx.project}.com`;
-    const slug = page.slug || '';
-    return (!slug || slug === 'home') ? `https://${host}/` : `https://${host}/${slug}`;
+  async function refreshDraftPreview(page = activePage) {
+    if (!page) return;
+    const frame = iframeRef.current;
+    if (!frame) return;
+    try {
+      const data = await api(
+        `/api/cms/pages/${encodeURIComponent(page.id)}?draft=1&project_slug=${encodeURIComponent(ctx.project)}`,
+      );
+      if (data.preview_html) {
+        frame.removeAttribute('src');
+        frame.srcdoc = data.preview_html;
+        setDraftPreview(true);
+        setPrev(false);
+        return;
+      }
+      if (data.content_url) {
+        frame.removeAttribute('srcdoc');
+        frame.src = data.content_url;
+        setDraftPreview(true);
+        setPrev(false);
+      }
+    } catch (e) {
+      showToast('Draft preview failed: ' + e.message, 'err');
+    }
+  }
+
+  function showLiveSite(page = activePage) {
+    const frame = iframeRef.current;
+    if (!frame || !page) return;
+    frame.removeAttribute('srcdoc');
+    setDraftPreview(false);
+    setPrev(false);
+    const url = pageToUrl(page);
+    if (url) frame.src = url;
   }
 
   /* ── drag reorder ── */
@@ -417,10 +493,11 @@ function CmsEditor() {
     setSections(prev => prev.map(s => s.id === sec.id ? updated : s));
     if (activeSection?.id === sec.id) setActiveSection(updated);
     try {
-      await api(`/api/cms/sections/${encodeURIComponent(sec.id)}`, {
-        method: 'PUT', body: { is_visible: updated.is_visible },
+      await api(`/api/cms/sections/${encodeURIComponent(sec.id)}/visibility`, {
+        method: 'POST', body: { is_visible: updated.is_visible ? 1 : 0 },
       });
       showToast(updated.is_visible ? 'Section visible' : 'Section hidden');
+      await refreshDraftPreview();
     } catch (_) { showToast('Failed', 'err'); }
   }
 
@@ -439,6 +516,7 @@ function CmsEditor() {
       setSections(prev => prev.map(s => s.id === activeSection.id ? upd : s));
       setDirty({});
       showToast('Saved · ' + activeSection.section_name, 'ok');
+      await refreshDraftPreview();
     } catch (e) { showToast('Save failed: ' + e.message, 'err'); }
     finally { setSaving(false); }
   }
@@ -450,7 +528,10 @@ function CmsEditor() {
     try {
       await api(`/api/cms/pages/${encodeURIComponent(activePage.id)}/publish`, { method: 'POST' });
       showToast('Published · ' + activePage.title, 'ok');
-      postParent('iam-cms-navigate', { path: `/dashboard/cms/pages?site=${ctx.project}` });
+      showLiveSite(activePage);
+      const data = await api(`/api/cms/bootstrap?project_slug=${encodeURIComponent(ctx.project)}`);
+      setBootstrap(data);
+      setPages(data.pages || []);
     } catch (e) { showToast('Publish failed: ' + e.message, 'err'); }
     finally { setPub(false); }
   }
@@ -468,14 +549,9 @@ function CmsEditor() {
 
   function clearPreview() {
     setPrev(false);
-    const frame = iframeRef.current;
-    if (!frame) return;
-    frame.removeAttribute('srcdoc');
-    const url = pageToUrl(activePage);
-    if (url) frame.src = url;
+    showLiveSite(activePage);
   }
 
-  /* ── publish inject ── */
   async function publishHtmlSection() {
     if (!htmlCode.trim() || !htmlName.trim()) { showToast('Name + HTML required', 'err'); return; }
     if (!activePage) { showToast('Select a page first', 'err'); return; }
@@ -515,11 +591,11 @@ function CmsEditor() {
 
   /* ── iframe src effect ── */
   useEffect(() => {
-    if (previewing) return;
+    if (previewing || draftPreview) return;
     const frame = iframeRef.current;
     if (!frame || !liveUrl) return;
     frame.src = liveUrl;
-  }, [liveUrl, previewing]);
+  }, [liveUrl, previewing, draftPreview]);
 
   /* ── RENDER ── */
   return (
@@ -534,7 +610,7 @@ function CmsEditor() {
           <div style={{ width: 48, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }} />
           <div style={{ width: 240, padding: '0 12px', display: 'flex', alignItems: 'center', gap: 6, borderRight: '1px solid rgba(255,255,255,.06)', flexShrink: 0 }}>
             <span className="topbar-page-label">{activePage?.title || 'CMS Studio'}</span>
-            {activePage && <span className="topbar-draft">Draft</span>}
+            {activePage && <span className="topbar-draft">{draftPreview ? 'Draft preview' : 'Editing'}</span>}
           </div>
 
           {/* center: viewport toggle */}
@@ -553,6 +629,16 @@ function CmsEditor() {
           <div className="topbar-right">
             {previewing && (
               <button className="btn btn-sm" onClick={clearPreview}>← Live site</button>
+            )}
+            {!previewing && activePage && (
+              draftPreview ? (
+                <button className="btn btn-sm" onClick={() => showLiveSite(activePage)}>View live</button>
+              ) : (
+                <button className="btn btn-sm" onClick={() => refreshDraftPreview()}>Draft preview</button>
+              )
+            )}
+            {liveUrl && (
+              <a className="btn btn-sm" href={liveUrl} target="_blank" rel="noopener noreferrer">Open site</a>
             )}
             <button className="btn btn-sm" onClick={() => { setRpTab('html'); }}>+ HTML</button>
             <button
