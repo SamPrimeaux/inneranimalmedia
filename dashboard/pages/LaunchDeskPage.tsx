@@ -1,560 +1,1092 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  CalendarDays,
-  CalendarPlus,
-  CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
-  Clock3,
-  Mail,
-  MessageSquareText,
-  Plus,
-  RefreshCw,
-  Send,
-  Sparkles,
-  Users,
-  Video,
-  X,
-} from 'lucide-react';
-import { OpsDeskDayView } from './launch-desk/OpsDeskDayView';
-import { OpsDeskEventView } from './launch-desk/OpsDeskEventView';
-import {
+  addDays,
+  anchorIso,
   apiJson,
+  BookingPage,
   CalEvent,
-  CalView,
-  fetchDayEvents,
+  CalendarInsightsPayload,
+  CalendarPerson,
+  fetchBookingPages,
+  fetchInsights,
+  fetchPeople,
+  fetchTodos,
+  fetchWeekEvents,
+  fmtTime,
+  isAllDay,
+  isSyntheticEvent,
   meetRoomId,
-  OpsSurface,
+  parseAttendees,
   parseEventDate,
   parseInviteEmails,
+  QuickEventType,
   sameDay,
+  startOfWeek,
   toDatetimeLocalValue,
   toSqlDatetime,
+  AgentTodo,
 } from './launch-desk/ops-desk-types';
-import './launch-desk/launch-desk.css';
+import './launch-desk/collaborate-calendar.css';
+import {
+  CollaborateTasksMain,
+  CollaborateTasksSidebar,
+  TasksNavView,
+} from './launch-desk/CollaborateTasksPanel';
 
-type QuickCreateMode = 'meeting' | 'event';
+const HOUR_START = 2;
+const HOUR_COUNT = 22;
+const HOUR_HEIGHT = 52;
+const WEEKDAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+const HOURS = Array.from({ length: HOUR_COUNT }, (_, i) => i + HOUR_START);
 
-const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const HOURS = Array.from({ length: 18 }, (_, i) => i + 6);
+type MainSeg = 'calendar' | 'tasks';
+type PopoverState = {
+  x: number;
+  y: number;
+  day: Date;
+  hour: number;
+  event?: CalEvent;
+};
 
-function startOfWeek(d: Date) {
-  const next = new Date(d);
-  next.setHours(0, 0, 0, 0);
-  next.setDate(next.getDate() - next.getDay());
-  return next;
-}
+type PopoverDraft = {
+  title: string;
+  eventType: QuickEventType;
+  startLocal: string;
+  endLocal: string;
+  withMeet: boolean;
+  attendeesRaw: string;
+};
 
-function addDays(d: Date, days: number) {
-  const next = new Date(d);
-  next.setDate(next.getDate() + days);
-  return next;
-}
-
-function dayKey(d: Date) {
-  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-}
-
-function timeLabel(hour: number) {
-  if (hour === 0) return '12 AM';
-  if (hour < 12) return `${hour} AM`;
-  if (hour === 12) return '12 PM';
-  return `${hour - 12} PM`;
-}
-
-function shortTime(d: Date) {
-  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-}
-
-function minutesBetween(start: Date, end: Date) {
-  return Math.max(0, Math.round((end.getTime() - start.getTime()) / 60000));
-}
-
-function isMeeting(ev: CalEvent) {
-  return Boolean(meetRoomId(ev)) || ev.event_type === 'meeting';
-}
+type EditorState = {
+  mode: 'create' | 'edit';
+  event?: CalEvent;
+  day: Date;
+  hour: number;
+  eventType: QuickEventType;
+  title: string;
+  description: string;
+  location: string;
+  startLocal: string;
+  endLocal: string;
+  allDay: boolean;
+  attendeesRaw: string;
+  withMeet: boolean;
+};
 
 function cleanTitle(title: string | null | undefined) {
-  const t = String(title || '').trim();
-  return t || 'Untitled';
+  return String(title || '').trim() || 'Untitled';
+}
+
+function eventCssClass(ev: CalEvent) {
+  const t = String(ev.event_type || '').toLowerCase();
+  if (t === 'meeting' || t === 'client_call' || meetRoomId(ev)) return 'meeting';
+  if (t === 'task' || ev.calendar_source === 'tasks') return 'task';
+  if (t === 'focus') return 'focus';
+  return '';
+}
+
+function minutesSinceGridStart(d: Date) {
+  return (d.getHours() - HOUR_START) * 60 + d.getMinutes();
+}
+
+function eventLayout(ev: CalEvent, day: Date) {
+  const start = parseEventDate(ev.start_datetime);
+  const end = parseEventDate(ev.end_datetime);
+  if (Number.isNaN(start.getTime()) || !sameDay(start, day)) return null;
+  const topMin = Math.max(0, minutesSinceGridStart(start));
+  const endMin = Number.isNaN(end.getTime()) ? topMin + 30 : minutesSinceGridStart(end);
+  const heightMin = Math.max(18, endMin - topMin);
+  return {
+    top: (topMin / 60) * HOUR_HEIGHT,
+    height: (heightMin / 60) * HOUR_HEIGHT,
+  };
+}
+
+function defaultSlot(day: Date, hour: number) {
+  const start = new Date(day);
+  start.setHours(hour, 0, 0, 0);
+  const end = new Date(start);
+  end.setHours(hour + 1, 0, 0, 0);
+  return { start, end };
+}
+
+function fmtMinutes(m: number) {
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  const r = m % 60;
+  return r ? `${h}h ${r}m` : `${h}h`;
+}
+
+function donutGradient(breakdown: Record<string, number>) {
+  const slices = [
+    { key: 'focus', color: '#039be5', val: breakdown.focus || 0 },
+    { key: 'task', color: '#4285f4', val: breakdown.task || 0 },
+    { key: 'one_on_one', color: '#23a6d5', val: breakdown.one_on_one || 0 },
+    { key: 'multi_guest', color: '#b2dfef', val: breakdown.multi_guest || 0 },
+    { key: 'meeting', color: '#188038', val: breakdown.meeting || 0 },
+  ];
+  const total = slices.reduce((s, x) => s + x.val, 0) || 1;
+  let acc = 0;
+  const stops = slices.map((s) => {
+    const pct = (s.val / total) * 100;
+    const from = acc;
+    acc += pct;
+    return `${s.color} ${from}% ${acc}%`;
+  });
+  return `conic-gradient(${stops.join(', ')})`;
 }
 
 export function LaunchDeskPage() {
-  const routerNavigate = useNavigate();
-  const today = useMemo(() => new Date(), []);
-  const [view, setView] = useState<CalView>('month');
-  const [surface, setSurface] = useState<OpsSurface>('calendar');
-  const [date, setDate] = useState(() => new Date());
-  const [focusDay, setFocusDay] = useState<Date | null>(null);
-  const [dayEvents, setDayEvents] = useState<CalEvent[]>([]);
-  const [dayLoading, setDayLoading] = useState(false);
+  const navigate = useNavigate();
+  const weekScrollRef = useRef<HTMLDivElement>(null);
+
+  const [anchor, setAnchor] = useState(() => new Date());
+  const [mainSeg, setMainSeg] = useState<MainSeg>('calendar');
+  const [tasksNavView, setTasksNavView] = useState<TasksNavView>('all');
+  const [tasksActiveList, setTasksActiveList] = useState('My Tasks');
+  const [tasksComposing, setTasksComposing] = useState(false);
   const [events, setEvents] = useState<CalEvent[]>([]);
+  const [insights, setInsights] = useState<CalendarInsightsPayload | null>(null);
+  const [bookingPages, setBookingPages] = useState<BookingPage[]>([]);
+  const [todos, setTodos] = useState<AgentTodo[]>([]);
+  const [peopleQ, setPeopleQ] = useState('');
+  const [people, setPeople] = useState<CalendarPerson[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState<CalEvent | null>(null);
-  const [scheduleOpen, setScheduleOpen] = useState(false);
-  const [eventOpen, setEventOpen] = useState<{ start: string; end: string } | null>(null);
-  const [quickMode, setQuickMode] = useState<QuickCreateMode>('meeting');
-  const [submitting, setSubmitting] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-
-  const [meetForm, setMeetForm] = useState({
+  const [error, setError] = useState<string | null>(null);
+  const [popover, setPopover] = useState<PopoverState | null>(null);
+  const [popoverDraft, setPopoverDraft] = useState<PopoverDraft>({
     title: '',
-    scheduled_at: '',
-    duration_min: 60,
-    invite_emails: '',
-    description: '',
-  });
-
-  const [eventForm, setEventForm] = useState({
-    title: '',
-    start: '',
-    end: '',
-    description: '',
+    eventType: 'event',
+    startLocal: '',
+    endLocal: '',
     withMeet: false,
-    invite_emails: '',
+    attendeesRaw: '',
+  });
+  const [editor, setEditor] = useState<EditorState | null>(null);
+  const [insightsMode, setInsightsMode] = useState<'week' | 'month'>('week');
+
+  const [sources, setSources] = useState({
+    primary: true,
+    tasks: true,
+    holidays: true,
+    birthdays: true,
   });
 
-  const fetchEvents = useCallback(async () => {
+  const weekStart = useMemo(() => startOfWeek(anchor), [anchor]);
+  const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
+  const today = useMemo(() => new Date(), []);
+
+  const monthTitle = anchor.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+  const showToast = useCallback((msg: string) => {
+    setToast(msg);
+    window.setTimeout(() => setToast(null), 2800);
+  }, []);
+
+  const reload = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
-      const data = await apiJson<{ events?: CalEvent[] }>(`/api/calendar/view/${view}`);
-      setEvents((data.events ?? []).sort((a, b) => parseEventDate(a.start_datetime).getTime() - parseEventDate(b.start_datetime).getTime()));
-    } catch {
-      setEvents([]);
+      const [ev, ins, pages, taskList] = await Promise.all([
+        fetchWeekEvents(anchor, sources),
+        fetchInsights(anchor),
+        fetchBookingPages(),
+        fetchTodos(),
+      ]);
+      setEvents(ev);
+      setInsights(ins);
+      setBookingPages(pages);
+      setTodos(taskList);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load calendar');
     } finally {
       setLoading(false);
     }
-  }, [view]);
-
-  const loadDayEvents = useCallback(async (day: Date) => {
-    setDayLoading(true);
-    try {
-      setDayEvents(await fetchDayEvents(day));
-    } catch {
-      setDayEvents([]);
-    } finally {
-      setDayLoading(false);
-    }
-  }, []);
+  }, [anchor, sources]);
 
   useEffect(() => {
-    if (surface === 'calendar') void fetchEvents();
-  }, [fetchEvents, surface]);
+    reload();
+  }, [reload]);
 
   useEffect(() => {
-    if (surface === 'day' && focusDay) void loadDayEvents(focusDay);
-  }, [focusDay, loadDayEvents, surface]);
-
-  useEffect(() => {
-    if (!toast) return undefined;
-    const t = window.setTimeout(() => setToast(null), 2600);
-    return () => window.clearTimeout(t);
-  }, [toast]);
-
-  const refreshAll = useCallback(async () => {
-    await fetchEvents();
-    if (focusDay) {
-      const fresh = await fetchDayEvents(focusDay);
-      setDayEvents(fresh);
-      if (selected) {
-        const updated = fresh.find((e) => e.id === selected.id);
-        if (updated) setSelected(updated);
+    const t = window.setTimeout(async () => {
+      try {
+        const rows = await fetchPeople(peopleQ);
+        setPeople(rows);
+      } catch {
+        setPeople([]);
       }
+    }, 220);
+    return () => window.clearTimeout(t);
+  }, [peopleQ]);
+
+  useEffect(() => {
+    if (!weekScrollRef.current) return;
+    const now = new Date();
+    if (!weekDays.some((d) => sameDay(d, now))) return;
+    const top = Math.max(0, minutesSinceGridStart(now) / 60) * HOUR_HEIGHT - 120;
+    weekScrollRef.current.scrollTop = top;
+  }, [weekDays]);
+
+  const eventsByDay = useMemo(() => {
+    const map = new Map<string, { timed: CalEvent[]; allDay: CalEvent[] }>();
+    for (const day of weekDays) {
+      map.set(anchorIso(day), { timed: [], allDay: [] });
     }
-  }, [fetchEvents, focusDay, selected]);
-
-  const eventsForDay = useCallback((d: Date) => events.filter((e) => sameDay(parseEventDate(e.start_datetime), d)), [events]);
-
-  const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(date), i)), [date]);
-
-  const weekEvents = useMemo(() => {
-    const keys = new Set(weekDays.map(dayKey));
-    return events.filter((ev) => keys.has(dayKey(parseEventDate(ev.start_datetime))));
+    for (const ev of events) {
+      const start = parseEventDate(ev.start_datetime);
+      if (Number.isNaN(start.getTime())) continue;
+      const key = anchorIso(start);
+      const bucket = map.get(key);
+      if (!bucket) continue;
+      if (isAllDay(ev)) bucket.allDay.push(ev);
+      else bucket.timed.push(ev);
+    }
+    return map;
   }, [events, weekDays]);
 
-  const todayEvents = useMemo(() => eventsForDay(today), [eventsForDay, today]);
-  const meetingCount = useMemo(() => weekEvents.filter(isMeeting).length, [weekEvents]);
-  const bookedMinutesToday = useMemo(() => todayEvents.reduce((sum, ev) => sum + minutesBetween(parseEventDate(ev.start_datetime), parseEventDate(ev.end_datetime)), 0), [todayEvents]);
-  const upcomingEvents = useMemo(() => events.filter((ev) => parseEventDate(ev.end_datetime).getTime() >= Date.now()).slice(0, 6), [events]);
+  const miniMonth = useMemo(() => {
+    const d = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+    const start = startOfWeek(d);
+    const cells: Date[] = [];
+    for (let i = 0; i < 42; i += 1) cells.push(addDays(start, i));
+    return cells;
+  }, [anchor]);
 
-  const titleText = () => {
-    if (view === 'week') {
-      const s = startOfWeek(date);
-      const e = addDays(s, 6);
-      return `${s.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${e.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
-    }
-    return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-  };
-
-  const openDayView = (day: Date) => {
-    const d = new Date(day.getFullYear(), day.getMonth(), day.getDate());
-    setFocusDay(d);
-    setDate(d);
-    setSelected(null);
-    setSurface('day');
-  };
-
-  const openEventView = (ev: CalEvent) => {
-    setSelected(ev);
-    setSurface('event');
-  };
-
-  const backToCalendar = () => {
-    setSurface('calendar');
-    setFocusDay(null);
-    setSelected(null);
-  };
-
-  const backToDay = () => {
-    setSurface('day');
-    setSelected(null);
-  };
-
-  const shiftFocusDay = (dir: 1 | -1) => {
-    if (!focusDay) return;
-    const d = addDays(focusDay, dir);
-    setFocusDay(d);
-    setDate(d);
-  };
-
-  const shiftCalendar = (dir: 1 | -1) => {
-    setDate((prev) => {
-      const d = new Date(prev);
-      if (view === 'week') d.setDate(d.getDate() + 7 * dir);
-      else d.setMonth(d.getMonth() + dir);
-      return d;
+  const openCreate = (day: Date, hour: number, x: number, y: number) => {
+    const { start, end } = defaultSlot(day, hour);
+    setPopover({
+      x,
+      y,
+      day,
+      hour,
+    });
+    setEditor(null);
+    setPopoverDraft({
+      title: '',
+      eventType: 'event',
+      startLocal: toDatetimeLocalValue(start),
+      endLocal: toDatetimeLocalValue(end),
+      withMeet: false,
+      attendeesRaw: '',
     });
   };
 
-  const openSchedule = (start?: Date) => {
-    const base = start ? new Date(start) : focusDay ? new Date(focusDay) : new Date();
-    if (!start && !focusDay) {
-      base.setMinutes(0, 0, 0);
-      base.setHours(base.getHours() + 1);
-    } else if (!start) {
-      base.setHours(9, 0, 0, 0);
+  const openEditPopover = (ev: CalEvent, x: number, y: number) => {
+    const start = parseEventDate(ev.start_datetime);
+    const end = parseEventDate(ev.end_datetime);
+    setPopover({
+      x,
+      y,
+      day: start,
+      hour: start.getHours(),
+      event: ev,
+    });
+    setPopoverDraft({
+      title: cleanTitle(ev.title),
+      eventType: (String(ev.event_type || 'event') as QuickEventType) || 'event',
+      startLocal: toDatetimeLocalValue(start),
+      endLocal: toDatetimeLocalValue(end),
+      withMeet: Boolean(meetRoomId(ev)),
+      attendeesRaw: parseAttendees(ev.attendees).join(', '),
+    });
+  };
+
+  const openFullEditor = (fromPopover = true) => {
+    if (!popover) return;
+    setEditor({
+      mode: popover.event && !isSyntheticEvent(popover.event) ? 'edit' : 'create',
+      event: popover.event,
+      day: popover.day,
+      hour: popover.hour,
+      eventType: popoverDraft.eventType,
+      title: popoverDraft.title,
+      description: popover.event?.description || '',
+      location: popover.event?.location || '',
+      startLocal: popoverDraft.startLocal,
+      endLocal: popoverDraft.endLocal,
+      allDay: popover.event ? isAllDay(popover.event) : false,
+      attendeesRaw: popoverDraft.attendeesRaw,
+      withMeet: popoverDraft.withMeet,
+    });
+    if (fromPopover) setPopover(null);
+  };
+
+  const saveEvent = async (draft: {
+    mode: 'create' | 'edit';
+    event?: CalEvent;
+    title: string;
+    description: string;
+    location: string;
+    startLocal: string;
+    endLocal: string;
+    allDay: boolean;
+    attendeesRaw: string;
+    withMeet: boolean;
+    eventType: QuickEventType;
+  }) => {
+    const title = draft.title.trim();
+    if (!title) {
+      setError('Title is required');
+      return;
     }
-    setMeetForm({ title: '', scheduled_at: toDatetimeLocalValue(base), duration_min: 60, invite_emails: '', description: '' });
-    setQuickMode('meeting');
-    setFormError(null);
-    setScheduleOpen(true);
-  };
-
-  const openNewEvent = (start: Date, withMeet = false) => {
-    const end = new Date(start.getTime() + 3600000);
-    setEventForm({ title: '', start: toDatetimeLocalValue(start), end: toDatetimeLocalValue(end), description: '', withMeet, invite_emails: '' });
-    setQuickMode(withMeet ? 'meeting' : 'event');
-    setFormError(null);
-    setEventOpen({ start: toDatetimeLocalValue(start), end: toDatetimeLocalValue(end) });
-  };
-
-  const submitSchedule = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitting(true);
-    setFormError(null);
+    setSaving(true);
+    setError(null);
     try {
-      await apiJson('/api/meet/schedule', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: meetForm.title.trim(),
-          scheduled_at: meetForm.scheduled_at.slice(0, 16),
-          duration_min: meetForm.duration_min,
-          invite_emails: parseInviteEmails(meetForm.invite_emails),
-          description: meetForm.description.trim() || undefined,
-        }),
-      });
-      setScheduleOpen(false);
-      setToast('Meeting scheduled');
-      await refreshAll();
-    } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Schedule failed');
+      const body = {
+        title,
+        description: draft.description.trim() || null,
+        location: draft.location.trim() || null,
+        start_datetime: toSqlDatetime(draft.startLocal),
+        end_datetime: toSqlDatetime(draft.endLocal),
+        all_day: draft.allDay,
+        event_type: draft.eventType === 'meeting' ? 'meeting' : draft.eventType,
+        attendees: parseInviteEmails(draft.attendeesRaw),
+        with_meet: draft.withMeet || draft.eventType === 'meeting',
+      };
+      if (draft.mode === 'edit' && draft.event && !isSyntheticEvent(draft.event)) {
+        await apiJson(`/api/calendar/events/${draft.event.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        showToast('Event updated');
+      } else {
+        await apiJson('/api/calendar/events', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        showToast('Event created');
+      }
+      setPopover(null);
+      setEditor(null);
+      await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Save failed');
     } finally {
-      setSubmitting(false);
+      setSaving(false);
     }
   };
 
-  const submitEvent = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitting(true);
-    setFormError(null);
+  const deleteEvent = async (ev: CalEvent) => {
+    if (isSyntheticEvent(ev)) return;
+    setSaving(true);
     try {
-      const attendees = parseInviteEmails(eventForm.invite_emails);
+      await apiJson(`/api/calendar/events/${ev.id}`, { method: 'DELETE' });
+      showToast('Event deleted');
+      setPopover(null);
+      setEditor(null);
+      await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Delete failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const scheduleWithPerson = async (person: CalendarPerson) => {
+    const email = String(person.email || '').trim();
+    if (!email) return;
+    const start = new Date();
+    start.setMinutes(Math.ceil(start.getMinutes() / 30) * 30, 0, 0);
+    const end = new Date(start.getTime() + 30 * 60000);
+    setSaving(true);
+    try {
       await apiJson('/api/calendar/events', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          title: eventForm.title.trim(),
-          description: eventForm.description.trim() || null,
-          start_datetime: toSqlDatetime(eventForm.start),
-          end_datetime: toSqlDatetime(eventForm.end),
-          event_type: eventForm.withMeet ? 'meeting' : 'event',
-          attendees: eventForm.withMeet ? attendees : undefined,
+          title: `Meet with ${person.display_name || email}`,
+          start_datetime: toSqlDatetime(toDatetimeLocalValue(start)),
+          end_datetime: toSqlDatetime(toDatetimeLocalValue(end)),
+          event_type: 'meeting',
+          attendees: [email],
+          with_meet: true,
         }),
       });
-      setEventOpen(null);
-      setToast(eventForm.withMeet ? 'Event + meeting created' : 'Event created');
-      await refreshAll();
-    } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Create failed');
+      showToast('Meeting scheduled');
+      setPeopleQ('');
+      await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not schedule meeting');
     } finally {
-      setSubmitting(false);
+      setSaving(false);
     }
   };
 
-  const updateEventStatus = async (id: string, status: string) => {
-    await apiJson(`/api/calendar/events/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) });
-    setSelected((prev) => (prev?.id === id ? { ...prev, status } : prev));
-    setToast(status === 'completed' ? 'Marked complete' : 'Event updated');
-    await refreshAll();
+  const scheduleTaskOnCalendar = async (todo: AgentTodo) => {
+    const start = new Date();
+    start.setHours(start.getHours() + 1, 0, 0, 0);
+    const end = new Date(start.getTime() + 30 * 60000);
+    await saveEvent({
+      mode: 'create',
+      title: todo.title,
+      description: todo.description || todo.notes || '',
+      location: '',
+      startLocal: toDatetimeLocalValue(start),
+      endLocal: toDatetimeLocalValue(end),
+      allDay: false,
+      attendeesRaw: '',
+      withMeet: false,
+      eventType: 'task',
+    });
   };
 
-  const deleteEvent = async (id: string) => {
-    if (!window.confirm('Delete this event?')) return;
-    await apiJson(`/api/calendar/events/${id}`, { method: 'DELETE' });
-    setSelected(null);
-    setSurface(focusDay ? 'day' : 'calendar');
-    setToast('Event deleted');
-    await refreshAll();
-  };
+  const reloadTodos = useCallback(async () => {
+    try {
+      const taskList = await fetchTodos();
+      setTodos(taskList);
+    } catch {
+      /* parent reload handles errors */
+    }
+  }, []);
 
-  const EventChip = ({ event }: { event: CalEvent }) => (
-    <button type="button" className={`ops-desk-event-chip ${isMeeting(event) ? 'ops-desk-meeting-chip' : ''}`} onClick={(ev) => { ev.stopPropagation(); openEventView(event); }}>
-      <span className="ops-desk-event-time">{shortTime(parseEventDate(event.start_datetime))}</span>
-      <span className="ops-desk-event-title">{cleanTitle(event.title)}</span>
-    </button>
-  );
-
-  const MiniCalendar = () => {
-    const first = new Date(date.getFullYear(), date.getMonth(), 1);
-    const start = new Date(first);
-    start.setDate(first.getDate() - first.getDay());
-    const days = Array.from({ length: 42 }, (_, i) => addDays(start, i));
-    return (
-      <div className="ops-desk-mini-cal">
-        <div className="ops-desk-mini-head">
-          <span>{date.toLocaleDateString('en-US', { month: 'long' })}</span>
-          <span>{date.getFullYear()}</span>
-        </div>
-        <div className="ops-desk-mini-grid ops-desk-mini-weekdays">{WEEKDAYS.map((d) => <span key={d}>{d[0]}</span>)}</div>
-        <div className="ops-desk-mini-grid">
-          {days.map((d) => {
-            const current = d.getMonth() === date.getMonth();
-            const active = sameDay(d, date);
-            const has = eventsForDay(d).length > 0;
-            return (
-              <button key={dayKey(d)} type="button" className={`${current ? '' : 'muted'} ${active ? 'active' : ''} ${has ? 'has-dot' : ''}`} onClick={() => setDate(d)}>
-                {d.getDate()}
-              </button>
-            );
-          })}
-        </div>
-      </div>
+  const copyBookingLink = (slug: string) => {
+    const url = `${window.location.origin}/api/calendar/book/${slug}`;
+    navigator.clipboard.writeText(url).then(
+      () => showToast('Booking API path copied'),
+      () => showToast(slug),
     );
   };
 
-  const MonthView = () => {
-    const first = new Date(date.getFullYear(), date.getMonth(), 1);
-    const start = new Date(first);
-    start.setDate(first.getDate() - first.getDay());
-    const days = Array.from({ length: 42 }, (_, i) => addDays(start, i));
-    return (
-      <div className="ops-desk-month flex-1 min-h-0 overflow-hidden">
-        <div className="ops-desk-month-head-row">{WEEKDAYS.map((d) => <div key={d} className="ops-desk-month-head">{d}</div>)}</div>
-        <div className="ops-desk-month-grid flex-1 min-h-0">
-          {days.map((day) => {
-            const dayEvs = eventsForDay(day);
-            const current = day.getMonth() === date.getMonth();
-            const active = sameDay(day, today);
-            return (
-              <div key={dayKey(day)} role="button" tabIndex={0} className={`ops-desk-month-cell ${current ? 'current' : 'other'} ${active ? 'today' : ''}`} onClick={() => openDayView(day)} onKeyDown={(ev) => { if (ev.key === 'Enter') openDayView(day); }}>
-                <div className="ops-desk-month-cell-top">
-                  <span className="ops-desk-month-day">{day.getDate()}</span>
-                  <button type="button" className="ops-desk-cell-add" aria-label="Add event" onClick={(ev) => { ev.stopPropagation(); const s = new Date(day); s.setHours(9, 0, 0, 0); openNewEvent(s); }}><Plus size={12} /></button>
-                </div>
-                <div className="ops-desk-month-events">
-                  {dayEvs.slice(0, 4).map((ev) => <EventChip key={ev.id} event={ev} />)}
-                  {dayEvs.length > 4 ? <div className="ops-desk-month-more">+{dayEvs.length - 4} more</div> : null}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
-  };
+  const currentLineTop = useMemo(() => {
+    const now = new Date();
+    if (!weekDays.some((d) => sameDay(d, now))) return null;
+    return (minutesSinceGridStart(now) / 60) * HOUR_HEIGHT;
+  }, [weekDays]);
 
-  const WeekView = () => (
-    <div className="ops-desk-week flex-1 min-h-0 overflow-auto">
-      <div className="ops-desk-week-grid">
-        <div className="ops-desk-week-corner" />
-        {weekDays.map((d) => (
-          <button key={dayKey(d)} type="button" className={`ops-desk-week-day-head ${sameDay(d, today) ? 'today' : ''}`} onClick={() => openDayView(d)}>
-            <span>{d.toLocaleDateString('en-US', { weekday: 'short' })}</span>
-            <strong>{d.getDate()}</strong>
-          </button>
-        ))}
-        {HOURS.map((h) => (
-          <React.Fragment key={h}>
-            <div className="ops-desk-week-hour-label">{timeLabel(h)}</div>
-            {weekDays.map((d) => {
-              const cellEvs = events.filter((e) => {
-                const ed = parseEventDate(e.start_datetime);
-                return sameDay(ed, d) && ed.getHours() === h;
-              });
-              return (
-                <button key={`${dayKey(d)}-${h}`} type="button" className="ops-desk-week-cell" onClick={() => { const s = new Date(d); s.setHours(h, 0, 0, 0); openNewEvent(s); }}>
-                  {cellEvs.map((ev) => <EventChip key={ev.id} event={ev} />)}
-                </button>
-              );
-            })}
-          </React.Fragment>
-        ))}
-      </div>
-    </div>
-  );
+  const breakdown = insights?.insights.breakdown_minutes || {};
+  const workMins = insights?.insights.working_minutes_per_day || 480;
+  const scheduledMins = Object.values(breakdown).reduce((a, b) => a + b, 0);
+  const remainingMins = Math.max(0, workMins * 5 - scheduledMins);
 
-  const renderCalendarSurface = () => (
-    <>
-      <header className="ops-desk-header">
-        <div className="ops-desk-title-block">
-          <div className="ops-desk-kicker"><Sparkles size={13} /> Command workspace</div>
-          <h1>Collaborate</h1>
-          <p>Calendar, mail, meetings, and the next useful action in one clean surface.</p>
+  return (
+    <div className="colab-cal">
+      <header className="colab-cal-topbar">
+        <div className="colab-cal-brand">
+          <div className="colab-cal-brand-mark">C</div>
+          <div className="colab-cal-brand-title">Calendar</div>
         </div>
-        <div className="ops-desk-command-cards">
-          <button type="button" className="ops-desk-command-card" onClick={() => routerNavigate('/dashboard/mail')}>
-            <Mail size={16} /><span><strong>Mail</strong><small>Inbox & replies</small></span>
+        <div className="colab-cal-top-center">
+          {mainSeg === 'calendar' ? (
+            <>
+          <button type="button" className="colab-cal-pill-btn" onClick={() => setAnchor(new Date())}>
+            Today
           </button>
-          <button type="button" className="ops-desk-command-card" onClick={() => routerNavigate('/dashboard/meet')}>
-            <Video size={16} /><span><strong>Meet</strong><small>Rooms & calls</small></span>
+          <button type="button" className="colab-cal-circle-btn" aria-label="Previous" onClick={() => setAnchor(addDays(anchor, -7))}>
+            ‹
           </button>
-          <button type="button" className="ops-desk-command-card primary" onClick={() => openSchedule()}>
-            <CalendarPlus size={16} /><span><strong>Schedule</strong><small>Create invite</small></span>
+          <button type="button" className="colab-cal-circle-btn" aria-label="Next" onClick={() => setAnchor(addDays(anchor, 7))}>
+            ›
+          </button>
+          <h1 className="colab-cal-month-title">{monthTitle}</h1>
+            </>
+          ) : (
+            <h1 className="colab-cal-month-title">Tasks</h1>
+          )}
+        </div>
+        <div className="colab-cal-top-right">
+          {mainSeg === 'calendar' && <div className="colab-cal-view-select">Week ▾</div>}
+          <div className="colab-cal-seg">
+            <button type="button" className={mainSeg === 'calendar' ? 'active' : ''} onClick={() => setMainSeg('calendar')} title="Calendar">
+              📅
+            </button>
+            <button type="button" className={mainSeg === 'tasks' ? 'active' : ''} onClick={() => { setMainSeg('tasks'); setTasksNavView('list'); setTasksActiveList('My Tasks'); }} title="Tasks">
+              ☑
+            </button>
+          </div>
+          <button type="button" className="colab-cal-icon-btn" aria-label="Refresh" onClick={() => reload()} disabled={loading}>
+            ↻
           </button>
         </div>
       </header>
 
-      <div className="ops-desk-shell">
-        <aside className="ops-desk-left-panel">
-          <button type="button" className="ops-desk-create-btn" onClick={() => openSchedule()}><Plus size={16} /> Create</button>
-          <MiniCalendar />
-          <div className="ops-desk-side-card">
-            <div className="ops-desk-side-card-head"><Clock3 size={14} /> Today</div>
-            <div className="ops-desk-stat-row"><span>Events</span><strong>{todayEvents.length}</strong></div>
-            <div className="ops-desk-stat-row"><span>Booked</span><strong>{Math.floor(bookedMinutesToday / 60)}h {bookedMinutesToday % 60}m</strong></div>
-            <div className="ops-desk-stat-row"><span>Meetings this week</span><strong>{meetingCount}</strong></div>
+      <div className={`colab-cal-layout${mainSeg === 'tasks' ? ' tasks-mode' : ''}`}>
+        <aside className="colab-cal-left">
+          {mainSeg === 'tasks' ? (
+            <CollaborateTasksSidebar
+              todos={todos}
+              navView={tasksNavView}
+              activeList={tasksActiveList}
+              onNavViewChange={setTasksNavView}
+              onActiveListChange={setTasksActiveList}
+              onReload={reloadTodos}
+              onCreateClick={() => setTasksComposing(true)}
+            />
+          ) : (
+            <>
+          <button
+            type="button"
+            className="colab-cal-create-btn"
+            onClick={() => {
+              const now = new Date();
+              const hour = now.getHours();
+              openCreate(now, hour, window.innerWidth / 2 - 300, 120);
+            }}
+          >
+            <span className="colab-cal-create-plus">+</span>
+            <span>Create</span>
+          </button>
+
+          <div className="colab-cal-section">
+            <div className="colab-cal-mini-grid">
+              {WEEKDAYS.map((d) => (
+                <span key={d}>{d[0]}</span>
+              ))}
+              {miniMonth.map((d) => {
+                const inMonth = d.getMonth() === anchor.getMonth();
+                const active = sameDay(d, anchor);
+                const hasEvent = events.some((ev) => sameDay(parseEventDate(ev.start_datetime), d));
+                return (
+                  <button
+                    key={d.toISOString()}
+                    type="button"
+                    className={[inMonth ? '' : 'muted', active ? 'active' : '', hasEvent ? 'has-event' : ''].filter(Boolean).join(' ')}
+                    onClick={() => setAnchor(new Date(d))}
+                  >
+                    {d.getDate()}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-          <div className="ops-desk-side-card">
-            <div className="ops-desk-side-card-head"><Send size={14} /> Quick actions</div>
-            <button type="button" className="ops-desk-side-action" onClick={() => routerNavigate('/dashboard/mail')}>Draft reply</button>
-            <button type="button" className="ops-desk-side-action" onClick={() => routerNavigate('/dashboard/meet')}>Start room</button>
+
+          <div className="colab-cal-section">
+            <div className="colab-cal-section-head">
+              <span>Meet with…</span>
+            </div>
+            <div className="colab-cal-search-wrap">
+              <input
+                className="colab-cal-people-search"
+                placeholder="Search people"
+                value={peopleQ}
+                onChange={(e) => setPeopleQ(e.target.value)}
+              />
+            </div>
+            {people.length > 0 && (
+              <div className="colab-cal-people-results">
+                {people.map((p) => (
+                  <button key={p.email || p.id} type="button" className="colab-cal-people-row" onClick={() => scheduleWithPerson(p)}>
+                    {p.display_name || p.email}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
+
+          <div className="colab-cal-section">
+            <div className="colab-cal-section-head">
+              <span>Booking pages</span>
+            </div>
+            {bookingPages.length === 0 ? (
+              <p style={{ fontSize: 13, color: '#5f6368' }}>No booking pages yet.</p>
+            ) : (
+              bookingPages.map((p) => (
+                <div key={p.id} className="colab-cal-cal-row" style={{ marginBottom: 8 }}>
+                  <span>{p.title}</span>
+                  <button type="button" className="colab-cal-outline-btn" onClick={() => copyBookingLink(p.slug)}>
+                    Share
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+
+          <div className="colab-cal-section">
+            <div className="colab-cal-section-head">
+              <span>My calendars</span>
+            </div>
+            <button
+              type="button"
+              className="colab-cal-cal-row colab-cal-checkbox"
+              onClick={() => setSources((s) => ({ ...s, primary: !s.primary }))}
+            >
+              <span className="colab-cal-box blue">{sources.primary ? '✓' : ''}</span>
+              <span>Inner Animal Media</span>
+            </button>
+            <button
+              type="button"
+              className="colab-cal-cal-row colab-cal-checkbox"
+              onClick={() => setSources((s) => ({ ...s, tasks: !s.tasks }))}
+            >
+              <span className="colab-cal-box task">{sources.tasks ? '✓' : ''}</span>
+              <span>Tasks</span>
+            </button>
+            <button
+              type="button"
+              className="colab-cal-cal-row colab-cal-checkbox"
+              onClick={() => setSources((s) => ({ ...s, holidays: !s.holidays }))}
+            >
+              <span className="colab-cal-box holiday">{sources.holidays ? '✓' : ''}</span>
+              <span>Holidays</span>
+            </button>
+            <button
+              type="button"
+              className="colab-cal-cal-row colab-cal-checkbox"
+              onClick={() => setSources((s) => ({ ...s, birthdays: !s.birthdays }))}
+            >
+              <span className="colab-cal-box green">{sources.birthdays ? '✓' : ''}</span>
+              <span>Birthdays</span>
+            </button>
+          </div>
+            </>
+          )}
         </aside>
 
-        <section className="ops-desk-center-panel">
-          <div className="ops-desk-toolbar">
-            <div className="ops-desk-cal-nav">
-              <button type="button" className="ops-desk-btn" onClick={() => setDate(new Date())}>Today</button>
-              <button type="button" className="ops-desk-btn icon" aria-label="Previous" onClick={() => shiftCalendar(-1)}><ChevronLeft size={15} /></button>
-              <button type="button" className="ops-desk-btn icon" aria-label="Next" onClick={() => shiftCalendar(1)}><ChevronRight size={15} /></button>
-              <span className="ops-desk-cal-title">{titleText()}</span>
-            </div>
-            <div className="ops-desk-toolbar-right">
-              <div className="ops-desk-view-tabs">
-                <button type="button" className={view === 'week' ? 'active' : ''} onClick={() => setView('week')}>Week</button>
-                <button type="button" className={view === 'month' ? 'active' : ''} onClick={() => setView('month')}>Month</button>
-              </div>
-              <button type="button" className="ops-desk-btn icon" title="Refresh" onClick={() => void refreshAll()}><RefreshCw size={14} /></button>
-            </div>
-          </div>
-          <div className="ops-desk-cal-body">
-            {loading ? <div className="ops-desk-loading"><div /></div> : view === 'month' ? <MonthView /> : <WeekView />}
-          </div>
-        </section>
-
-        <aside className="ops-desk-right-panel">
-          <div className="ops-desk-insight-card hero">
-            <div className="ops-desk-insight-title"><CalendarDays size={15} /> Time insights</div>
-            <div className="ops-desk-ring" style={{ '--ops-ring': `${Math.min(100, Math.max(8, meetingCount * 12))}%` } as React.CSSProperties}><span>{meetingCount}</span><small>meets</small></div>
-            <p>{meetingCount ? 'Meeting load is visible. Keep the center view for planning, then jump into Meet when it is time.' : 'No meeting load yet. Schedule the first conversation when you are ready.'}</p>
-          </div>
-          <div className="ops-desk-insight-card">
-            <div className="ops-desk-insight-title"><Users size={15} /> Upcoming</div>
-            <div className="ops-desk-upcoming-list">
-              {upcomingEvents.length ? upcomingEvents.map((ev) => (
-                <button type="button" key={ev.id} className="ops-desk-upcoming-item" onClick={() => openEventView(ev)}>
-                  <span className={isMeeting(ev) ? 'meet-dot' : 'event-dot'} />
-                  <span><strong>{cleanTitle(ev.title)}</strong><small>{parseEventDate(ev.start_datetime).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} · {shortTime(parseEventDate(ev.start_datetime))}</small></span>
+        {mainSeg === 'calendar' ? (
+          <section className="colab-cal-center">
+            <div className="colab-cal-head-row">
+              <div />
+              {weekDays.map((d) => (
+                <button
+                  key={d.toISOString()}
+                  type="button"
+                  className={`colab-cal-day-head${sameDay(d, today) ? ' today' : ''}`}
+                  onClick={() => setAnchor(new Date(d))}
+                >
+                  <span className="colab-cal-day-label">{WEEKDAYS[d.getDay()]}</span>
+                  <span className="colab-cal-date-label">{d.getDate()}</span>
                 </button>
-              )) : <div className="ops-desk-empty-mini">Nothing scheduled yet.</div>}
+              ))}
+            </div>
+
+            <div className="colab-cal-all-day-row">
+              <div />
+              {weekDays.map((d) => {
+                const key = anchorIso(d);
+                const allDay = eventsByDay.get(key)?.allDay || [];
+                return (
+                  <div key={key} className="colab-cal-all-day-cell">
+                    {allDay.map((ev) => (
+                      <button
+                        key={ev.id}
+                        type="button"
+                        className="colab-cal-all-day-event"
+                        onClick={(e) => openEditPopover(ev, e.clientX, e.clientY)}
+                      >
+                        {cleanTitle(ev.title)}
+                      </button>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="colab-cal-week-scroll" ref={weekScrollRef}>
+              <div className="colab-cal-week-grid" style={{ ['--hour' as string]: `${HOUR_HEIGHT}px` }}>
+                {HOURS.map((h) => (
+                  <React.Fragment key={h}>
+                    <div className="colab-cal-hour-label">
+                      {h === 0 ? '12 AM' : h < 12 ? `${h} AM` : h === 12 ? '12 PM' : `${h - 12} PM`}
+                    </div>
+                    {weekDays.map((d) => (
+                      <button
+                        key={`${anchorIso(d)}-${h}`}
+                        type="button"
+                        className="colab-cal-time-cell"
+                        onClick={(e) => openCreate(d, h, e.clientX, e.clientY)}
+                      />
+                    ))}
+                  </React.Fragment>
+                ))}
+
+                {currentLineTop != null && (
+                  <div className="colab-cal-current-line" style={{ top: currentLineTop }} />
+                )}
+
+                <div className="colab-cal-events-layer">
+                  {weekDays.map((d) => {
+                    const key = anchorIso(d);
+                    const timed = eventsByDay.get(key)?.timed || [];
+                    return (
+                      <div key={key} className="colab-cal-events-col">
+                        {timed.map((ev) => {
+                          const layout = eventLayout(ev, d);
+                          if (!layout) return null;
+                          return (
+                            <button
+                              key={ev.id}
+                              type="button"
+                              className={`colab-cal-event-block ${eventCssClass(ev)}`}
+                              style={{ top: layout.top, height: layout.height }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openEditPopover(ev, e.clientX, e.clientY);
+                              }}
+                            >
+                              <strong>{cleanTitle(ev.title)}</strong>
+                              <div>{fmtTime(parseEventDate(ev.start_datetime))}</div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </section>
+        ) : (
+          <CollaborateTasksMain
+            todos={todos}
+            loading={loading}
+            navView={tasksNavView}
+            activeList={tasksActiveList}
+            onNavViewChange={setTasksNavView}
+            onActiveListChange={setTasksActiveList}
+            onReload={async () => {
+              await reloadTodos();
+              await reload();
+            }}
+            onSchedule={scheduleTaskOnCalendar}
+            composing={tasksComposing}
+            onComposingChange={setTasksComposing}
+          />
+        )}
+
+        {mainSeg === 'calendar' && (
+        <aside className="colab-cal-right">
+          <div className="colab-cal-insights-head">
+            <div>
+              <div className="colab-cal-insights-date">
+                {weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} –{' '}
+                {addDays(weekStart, 6).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+              </div>
+              <div className="colab-cal-insights-title">Time insights</div>
             </div>
           </div>
-          <div className="ops-desk-insight-card">
-            <div className="ops-desk-insight-title"><CheckCircle2 size={15} /> Collab health</div>
-            <div className="ops-desk-health-row"><span>Mail access</span><button onClick={() => routerNavigate('/dashboard/mail')}>Open</button></div>
-            <div className="ops-desk-health-row"><span>Meeting room</span><button onClick={() => routerNavigate('/dashboard/meet')}>Join</button></div>
-            <div className="ops-desk-health-row"><span>Calendar route</span><strong>Active</strong></div>
+
+          <div className="colab-cal-switch">
+            <button type="button" className={insightsMode === 'week' ? 'active' : ''} onClick={() => setInsightsMode('week')}>
+              Week
+            </button>
+            <button type="button" className={insightsMode === 'month' ? 'active' : ''} onClick={() => setInsightsMode('month')}>
+              Month
+            </button>
           </div>
+
+          <div className="colab-cal-donut" style={{ background: donutGradient(breakdown) }} />
+
+          <div className="colab-cal-breakdown">
+            <div className="colab-cal-break-row">
+              <span className="colab-cal-dot focus" />
+              <span>Focus time</span>
+              <strong>{fmtMinutes(breakdown.focus || 0)}</strong>
+            </div>
+            <div className="colab-cal-break-row">
+              <span className="colab-cal-dot tasks" />
+              <span>Tasks</span>
+              <strong>{fmtMinutes(breakdown.task || 0)}</strong>
+            </div>
+            <div className="colab-cal-break-row">
+              <span className="colab-cal-dot one" />
+              <span>1:1 meetings</span>
+              <strong>{fmtMinutes(breakdown.one_on_one || 0)}</strong>
+            </div>
+            <div className="colab-cal-break-row">
+              <span className="colab-cal-dot guests" />
+              <span>Meetings with 3+ guests</span>
+              <strong>{fmtMinutes(breakdown.multi_guest || 0)}</strong>
+            </div>
+            <div className="colab-cal-break-row">
+              <span className="colab-cal-dot remaining" />
+              <span>Remaining work time</span>
+              <strong>{fmtMinutes(remainingMins)}</strong>
+            </div>
+          </div>
+
+          <div className="colab-cal-rule" />
+
+          <div className="colab-cal-subhead">
+            <h3>Meetings</h3>
+          </div>
+          {(insights?.weeks || []).map((w) => (
+            <div key={w.label} className={`colab-cal-meeting-bars${w.active ? ' active' : ''}`}>
+              <span>{w.label}</span>
+              <span>{fmtMinutes(w.minutes)}</span>
+            </div>
+          ))}
+
+          <div className="colab-cal-rule" />
+
+          <div className="colab-cal-subhead">
+            <h3>People you meet with</h3>
+          </div>
+          {(insights?.insights.people || []).slice(0, 6).map((p) => (
+            <div key={p.email} className="colab-cal-cal-row">
+              <span>{p.email}</span>
+              <span>{fmtMinutes(p.minutes)}</span>
+            </div>
+          ))}
+        </aside>
+        )}
+
+        <aside className="colab-cal-rail">
+          <button type="button" className="colab-cal-rail-icon yellow" title="Keep" onClick={() => navigate('/dashboard/artifacts')}>
+            📌
+          </button>
+          <button type="button" className="colab-cal-rail-icon blue" title="Tasks" onClick={() => { setMainSeg('tasks'); setTasksNavView('list'); setTasksActiveList('My Tasks'); }}>
+            ☑
+          </button>
+          <button type="button" className="colab-cal-rail-icon green" title="Meet" onClick={() => navigate('/dashboard/meet')}>
+            📹
+          </button>
+          <button type="button" className="colab-cal-rail-icon orange" title="Mail" onClick={() => navigate('/dashboard/mail')}>
+            ✉
+          </button>
+          <button type="button" className="colab-cal-rail-icon" title="Learn" onClick={() => navigate('/dashboard/learn')}>
+            📚
+          </button>
         </aside>
       </div>
-    </>
-  );
 
-  return (
-    <div className="ops-desk">
-      {surface === 'calendar' ? renderCalendarSurface() : null}
+      {error && <div className="colab-cal-toast colab-cal-error">{error}</div>}
 
-      {surface === 'day' && focusDay ? (
-        <div className="ops-desk-detail-host">
-          <OpsDeskDayView day={focusDay} events={dayEvents} loading={dayLoading} onBack={backToCalendar} onPrevDay={() => shiftFocusDay(-1)} onNextDay={() => shiftFocusDay(1)} onOpenEvent={openEventView} onAddEvent={openNewEvent} onScheduleMeeting={openSchedule} />
-        </div>
-      ) : null}
-
-      {surface === 'event' && selected ? (
-        <div className="ops-desk-detail-host">
-          <OpsDeskEventView event={selected} onBack={backToDay} onComplete={(id) => { void updateEventStatus(id, 'completed'); }} onDelete={(id) => { void deleteEvent(id); }} />
-        </div>
-      ) : null}
-
-      {scheduleOpen ? (
-        <div className="ops-desk-modal-backdrop" onClick={() => setScheduleOpen(false)}>
-          <div className="ops-desk-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-labelledby="schedule-title">
-            <div className="ops-desk-modal-head"><span><Video size={16} /><h2 id="schedule-title">Schedule meeting</h2></span><button type="button" className="ops-desk-btn icon" aria-label="Close" onClick={() => setScheduleOpen(false)}><X size={14} /></button></div>
-            <form className="ops-desk-modal-form" onSubmit={submitSchedule}>
-              {formError ? <div className="ops-desk-error">{formError}</div> : null}
-              <div className="ops-desk-field"><label htmlFor="meet-title">Title</label><input id="meet-title" required value={meetForm.title} onChange={(e) => setMeetForm((f) => ({ ...f, title: e.target.value }))} placeholder="Client sync, launch review, planning call" /></div>
-              <div className="ops-desk-form-grid"><div className="ops-desk-field"><label htmlFor="meet-when">Start</label><input id="meet-when" type="datetime-local" required value={meetForm.scheduled_at} onChange={(e) => setMeetForm((f) => ({ ...f, scheduled_at: e.target.value }))} /></div><div className="ops-desk-field"><label htmlFor="meet-dur">Duration</label><select id="meet-dur" value={meetForm.duration_min} onChange={(e) => setMeetForm((f) => ({ ...f, duration_min: Number(e.target.value) }))}><option value={30}>30 minutes</option><option value={60}>60 minutes</option><option value={90}>90 minutes</option></select></div></div>
-              <div className="ops-desk-field"><label htmlFor="meet-invites">Invite emails</label><textarea id="meet-invites" value={meetForm.invite_emails} onChange={(e) => setMeetForm((f) => ({ ...f, invite_emails: e.target.value }))} placeholder="sam@example.com, guest@example.com" /></div>
-              <div className="ops-desk-field"><label htmlFor="meet-desc">Notes</label><textarea id="meet-desc" value={meetForm.description} onChange={(e) => setMeetForm((f) => ({ ...f, description: e.target.value }))} placeholder="Agenda, links, prep notes" /></div>
-              <div className="ops-desk-modal-foot"><button type="button" className="ops-desk-btn" onClick={() => setScheduleOpen(false)}>Cancel</button><button type="submit" className="ops-desk-btn ops-desk-btn-primary" disabled={submitting}>{submitting ? 'Scheduling…' : 'Schedule meeting'}</button></div>
-            </form>
+      {popover && (
+        <div
+          className="colab-cal-popover"
+          style={{
+            left: Math.min(Math.max(16, popover.x - 300), window.innerWidth - 616),
+            top: Math.min(Math.max(72, popover.y - 20), window.innerHeight - 420),
+          }}
+        >
+          <div className="colab-cal-popover-top">
+            <span>{popover.event ? 'Edit event' : 'Quick event'}</span>
+            <button type="button" className="colab-cal-icon-btn" onClick={() => setPopover(null)}>
+              ×
+            </button>
+          </div>
+          <div className="colab-cal-popover-body">
+            <input
+              className="colab-cal-title-input"
+              placeholder="Add title"
+              value={popoverDraft.title}
+              onChange={(e) => setPopoverDraft((d) => ({ ...d, title: e.target.value }))}
+              autoFocus
+            />
+            <div className="colab-cal-quick-tabs">
+              {(['event', 'task', 'focus', 'meeting', 'out_of_office'] as QuickEventType[]).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  className={popoverDraft.eventType === t ? 'active' : ''}
+                  onClick={() => setPopoverDraft((d) => ({ ...d, eventType: t, withMeet: t === 'meeting' ? true : d.withMeet }))}
+                >
+                  {t.replace(/_/g, ' ')}
+                </button>
+              ))}
+            </div>
+            <div className="colab-cal-quick-field">
+              <span className="colab-cal-quick-icon">🕒</span>
+              <div>
+                <input
+                  type="datetime-local"
+                  value={popoverDraft.startLocal}
+                  onChange={(e) => setPopoverDraft((d) => ({ ...d, startLocal: e.target.value }))}
+                />
+                <div style={{ marginTop: 6 }}>
+                  <input
+                    type="datetime-local"
+                    value={popoverDraft.endLocal}
+                    onChange={(e) => setPopoverDraft((d) => ({ ...d, endLocal: e.target.value }))}
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="colab-cal-quick-field">
+              <span className="colab-cal-quick-icon">👥</span>
+              <input
+                placeholder="Add guests (emails)"
+                value={popoverDraft.attendeesRaw}
+                onChange={(e) => setPopoverDraft((d) => ({ ...d, attendeesRaw: e.target.value }))}
+                style={{ flex: 1, border: 0, background: '#edf1f7', borderRadius: 6, padding: '10px 12px' }}
+              />
+            </div>
+            <label className="colab-cal-quick-field">
+              <span className="colab-cal-quick-icon">📹</span>
+              <input
+                type="checkbox"
+                checked={popoverDraft.withMeet}
+                onChange={(e) => setPopoverDraft((d) => ({ ...d, withMeet: e.target.checked }))}
+              />
+              <span>Add video conferencing (IAM Meet)</span>
+            </label>
+            <div className="colab-cal-quick-actions">
+              {popover.event && !isSyntheticEvent(popover.event) && (
+                <button type="button" className="colab-cal-text-btn" onClick={() => deleteEvent(popover.event!)}>
+                  Delete
+                </button>
+              )}
+              <button type="button" className="colab-cal-text-btn" onClick={() => openFullEditor(true)}>
+                More options
+              </button>
+              <button
+                type="button"
+                className="colab-cal-save-btn"
+                disabled={saving}
+                onClick={() =>
+                  saveEvent({
+                    mode: popover.event && !isSyntheticEvent(popover.event) ? 'edit' : 'create',
+                    event: popover.event,
+                    title: popoverDraft.title,
+                    description: popover.event?.description || '',
+                    location: popover.event?.location || '',
+                    startLocal: popoverDraft.startLocal,
+                    endLocal: popoverDraft.endLocal,
+                    allDay: popover.event ? isAllDay(popover.event) : false,
+                    attendeesRaw: popoverDraft.attendeesRaw,
+                    withMeet: popoverDraft.withMeet,
+                    eventType: popoverDraft.eventType,
+                  })
+                }
+              >
+                Save
+              </button>
+            </div>
           </div>
         </div>
-      ) : null}
+      )}
 
-      {eventOpen ? (
-        <div className="ops-desk-modal-backdrop" onClick={() => setEventOpen(null)}>
-          <div className="ops-desk-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-labelledby="event-title">
-            <div className="ops-desk-modal-head"><span><CalendarPlus size={16} /><h2 id="event-title">New event</h2></span><button type="button" className="ops-desk-btn icon" aria-label="Close" onClick={() => setEventOpen(null)}><X size={14} /></button></div>
-            <form className="ops-desk-modal-form" onSubmit={submitEvent}>
-              {formError ? <div className="ops-desk-error">{formError}</div> : null}
-              <div className="ops-desk-mode-switch"><button type="button" className={quickMode === 'event' ? 'active' : ''} onClick={() => { setQuickMode('event'); setEventForm((f) => ({ ...f, withMeet: false })); }}><CalendarDays size={14} /> Event</button><button type="button" className={quickMode === 'meeting' ? 'active' : ''} onClick={() => { setQuickMode('meeting'); setEventForm((f) => ({ ...f, withMeet: true })); }}><Video size={14} /> Meeting</button></div>
-              <div className="ops-desk-field"><label htmlFor="ev-title">Title</label><input id="ev-title" required value={eventForm.title} onChange={(e) => setEventForm((f) => ({ ...f, title: e.target.value }))} /></div>
-              <div className="ops-desk-form-grid"><div className="ops-desk-field"><label htmlFor="ev-start">Start</label><input id="ev-start" type="datetime-local" required value={eventForm.start} onChange={(e) => setEventForm((f) => ({ ...f, start: e.target.value }))} /></div><div className="ops-desk-field"><label htmlFor="ev-end">End</label><input id="ev-end" type="datetime-local" required value={eventForm.end} onChange={(e) => setEventForm((f) => ({ ...f, end: e.target.value }))} /></div></div>
-              <div className="ops-desk-field"><label htmlFor="ev-desc">Description</label><textarea id="ev-desc" value={eventForm.description} onChange={(e) => setEventForm((f) => ({ ...f, description: e.target.value }))} /></div>
-              {eventForm.withMeet ? <div className="ops-desk-field"><label htmlFor="ev-invites">Invite emails</label><textarea id="ev-invites" value={eventForm.invite_emails} onChange={(e) => setEventForm((f) => ({ ...f, invite_emails: e.target.value }))} /></div> : null}
-              <div className="ops-desk-modal-foot"><button type="button" className="ops-desk-btn" onClick={() => setEventOpen(null)}>Cancel</button><button type="submit" className="ops-desk-btn ops-desk-btn-primary" disabled={submitting}>{submitting ? 'Creating…' : 'Create'}</button></div>
-            </form>
+      {editor && (
+        <div className="colab-cal-editor">
+          <div className="colab-cal-editor-top">
+            <button type="button" className="colab-cal-icon-btn" onClick={() => setEditor(null)}>
+              ×
+            </button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {editor.mode === 'edit' && editor.event && !isSyntheticEvent(editor.event) && (
+                <button type="button" className="colab-cal-text-btn" onClick={() => deleteEvent(editor.event!)}>
+                  Delete
+                </button>
+              )}
+              <button
+                type="button"
+                className="colab-cal-save-btn"
+                disabled={saving}
+                onClick={() =>
+                  saveEvent({
+                    mode: editor.mode,
+                    event: editor.event,
+                    title: editor.title,
+                    description: editor.description,
+                    location: editor.location,
+                    startLocal: editor.startLocal,
+                    endLocal: editor.endLocal,
+                    allDay: editor.allDay,
+                    attendeesRaw: editor.attendeesRaw,
+                    withMeet: editor.withMeet,
+                    eventType: editor.eventType,
+                  })
+                }
+              >
+                Save
+              </button>
+            </div>
+          </div>
+          <div className="colab-cal-editor-shell">
+            <div>
+              <input
+                className="colab-cal-editor-title"
+                placeholder="Add title"
+                value={editor.title}
+                onChange={(e) => setEditor({ ...editor, title: e.target.value })}
+              />
+              <div className="colab-cal-quick-tabs" style={{ marginTop: 16 }}>
+                {(['event', 'task', 'focus', 'meeting', 'out_of_office', 'working_location'] as QuickEventType[]).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    className={editor.eventType === t ? 'active' : ''}
+                    onClick={() => setEditor({ ...editor, eventType: t, withMeet: t === 'meeting' ? true : editor.withMeet })}
+                  >
+                    {t.replace(/_/g, ' ')}
+                  </button>
+                ))}
+              </div>
+              <div className="colab-cal-quick-field">
+                <span className="colab-cal-quick-icon">🕒</span>
+                <div style={{ flex: 1 }}>
+                  <label style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                    <input
+                      type="checkbox"
+                      checked={editor.allDay}
+                      onChange={(e) => setEditor({ ...editor, allDay: e.target.checked })}
+                    />
+                    All day
+                  </label>
+                  <input
+                    type="datetime-local"
+                    value={editor.startLocal}
+                    onChange={(e) => setEditor({ ...editor, startLocal: e.target.value })}
+                    style={{ width: '100%', marginBottom: 8 }}
+                  />
+                  <input
+                    type="datetime-local"
+                    value={editor.endLocal}
+                    onChange={(e) => setEditor({ ...editor, endLocal: e.target.value })}
+                    style={{ width: '100%' }}
+                  />
+                </div>
+              </div>
+              <div className="colab-cal-quick-field">
+                <span className="colab-cal-quick-icon">📍</span>
+                <input
+                  placeholder="Add location"
+                  value={editor.location}
+                  onChange={(e) => setEditor({ ...editor, location: e.target.value })}
+                  style={{ flex: 1, border: 0, background: '#edf1f7', borderRadius: 6, padding: '10px 12px' }}
+                />
+              </div>
+              <div className="colab-cal-editor-panel">
+                <label style={{ display: 'block', marginBottom: 8, fontWeight: 500 }}>Description</label>
+                <textarea
+                  rows={4}
+                  value={editor.description}
+                  onChange={(e) => setEditor({ ...editor, description: e.target.value })}
+                />
+              </div>
+            </div>
+            <div>
+              <div className="colab-cal-guests-tabs">
+                <button type="button" className="active">
+                  Guests
+                </button>
+                <button type="button" onClick={() => navigate('/dashboard/meet')}>
+                  Meet link
+                </button>
+              </div>
+              <input
+                placeholder="Add guests (comma-separated emails)"
+                value={editor.attendeesRaw}
+                onChange={(e) => setEditor({ ...editor, attendeesRaw: e.target.value })}
+                style={{ width: '100%', marginBottom: 12 }}
+              />
+              <label className="colab-cal-quick-field">
+                <input
+                  type="checkbox"
+                  checked={editor.withMeet}
+                  onChange={(e) => setEditor({ ...editor, withMeet: e.target.checked })}
+                />
+                <span>Add IAM Meet video conferencing</span>
+              </label>
+              {editor.event && meetRoomId(editor.event) && (
+                <div className="colab-cal-editor-panel">
+                  <div style={{ fontSize: 13, color: '#5f6368' }}>Meet room</div>
+                  <button type="button" className="colab-cal-outline-btn" onClick={() => navigate(`/dashboard/meet?room=${meetRoomId(editor.event!)}`)}>
+                    Join meeting
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
-      ) : null}
+      )}
 
-      {toast ? <div className="ops-desk-toast"><CheckCircle2 size={15} /> {toast}</div> : null}
+      {toast && <div className="colab-cal-toast">{toast}</div>}
     </div>
   );
 }
-
-export default LaunchDeskPage;

@@ -1,15 +1,8 @@
 /**
- * src/api/calendar.js
- * Calendar events API (workspace-aware) + meet room linking.
- *
- * Routes (expected by dashboard UI):
- *  - GET    /api/calendar/view/:view
- *  - POST   /api/calendar/events
- *  - PUT    /api/calendar/events/:id
- *  - DELETE /api/calendar/events/:id
+ * Calendar API — workspace events, booking pages, insights, working hours.
  */
-import { jsonResponse } from '../core/auth.js';
-import { getAuthUser } from '../core/auth.js';
+import { jsonResponse, getAuthUser } from '../core/auth.js';
+import { usHolidaysInWindow } from '../core/calendar-holidays.js';
 import { insertMeetRoomRow, meetJoinUrl, normalizeInviteEmails, sendMeetInvites } from '../core/meet-shared.js';
 
 function resolveWorkspaceIdLoose(authUser, env, url) {
@@ -28,19 +21,28 @@ function clampView(viewRaw) {
 }
 
 function toSqlDateTime(d) {
-  // D1 stores 'YYYY-MM-DD HH:MM:SS'
-  return new Date(d.getTime() - d.getMilliseconds())
-    .toISOString()
-    .slice(0, 19)
-    .replace('T', ' ');
+  return new Date(d.getTime() - d.getMilliseconds()).toISOString().slice(0, 19).replace('T', ' ');
 }
 
-function computeWindow(view, url) {
+function parseSqlDate(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return new Date(NaN);
+  return new Date(s.includes('T') ? s : s.replace(' ', 'T'));
+}
+
+function eventDurationMinutes(ev) {
+  const start = parseSqlDate(ev.start_datetime);
+  const end = parseSqlDate(ev.end_datetime);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
+  return Math.max(0, Math.round((end.getTime() - start.getTime()) / 60000));
+}
+
+function computeWindow(view, url, anchorDate) {
   const qpFrom = url.searchParams.get('from');
   const qpTo = url.searchParams.get('to');
   if (qpFrom && qpTo) return { from: qpFrom, to: qpTo };
 
-  const now = new Date();
+  const now = anchorDate ? new Date(anchorDate) : new Date();
   const from = new Date(now);
   const to = new Date(now);
 
@@ -48,7 +50,6 @@ function computeWindow(view, url) {
     from.setHours(0, 0, 0, 0);
     to.setHours(23, 59, 59, 999);
   } else if (view === 'week') {
-    // Sunday-start week to match UI grid
     const dow = from.getDay();
     from.setDate(from.getDate() - dow);
     from.setHours(0, 0, 0, 0);
@@ -61,10 +62,9 @@ function computeWindow(view, url) {
     to.setMonth(11, 31);
     to.setHours(23, 59, 59, 999);
   } else {
-    // month: include spillover weeks (6-week grid)
     from.setDate(1);
     from.setHours(0, 0, 0, 0);
-    const spill = from.getDay(); // days before first of month
+    const spill = from.getDay();
     from.setDate(from.getDate() - spill);
     to.setTime(from.getTime());
     to.setDate(to.getDate() + 42);
@@ -76,6 +76,17 @@ function computeWindow(view, url) {
 
 function newId(prefix) {
   return `${prefix}_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+}
+
+function parseSourcesParam(raw) {
+  const all = new Set(['primary', 'tasks', 'holidays', 'birthdays']);
+  if (!raw || raw === 'all') return all;
+  return new Set(
+    String(raw)
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
+  );
 }
 
 async function createMeetRoomForEvent(env, request, { title, workspaceId, tenantId, createdBy, calendarEventId, status = 'scheduled' }) {
@@ -92,34 +103,174 @@ async function createMeetRoomForEvent(env, request, { title, workspaceId, tenant
   return roomId;
 }
 
-async function maybeWriteClientCallSystemMessage(env, { workspaceId, tenantId, userId, title, startDatetime, clientId }) {
-  if (!clientId) return;
+async function fetchTaskCalendarEvents(env, workspaceId, tenantId, from, to) {
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT id, title, description, status, priority, linked_route, notes, created_at
+       FROM agentsam_todo
+       WHERE workspace_id = ?
+         AND tenant_id = ?
+         AND (status IS NULL OR LOWER(TRIM(status)) NOT IN ('done', 'completed', 'cancelled'))
+       ORDER BY priority ASC, sort_order ASC
+       LIMIT 200`,
+    )
+      .bind(workspaceId, tenantId)
+      .all();
+    const fromMs = parseSqlDate(from).getTime();
+    const toMs = parseSqlDate(to).getTime();
+    return (results || [])
+      .map((row, idx) => {
+        const created = row.created_at ? parseSqlDate(row.created_at) : new Date();
+        const start = new Date(created);
+        start.setHours(9 + (idx % 6), 0, 0, 0);
+        if (start.getTime() < fromMs || start.getTime() > toMs) return null;
+        const end = new Date(start.getTime() + 30 * 60000);
+        return {
+          id: `task_${row.id}`,
+          title: row.title || 'Task',
+          description: row.description || row.notes || null,
+          event_type: 'task',
+          calendar_source: 'tasks',
+          start_datetime: toSqlDateTime(start),
+          end_datetime: toSqlDateTime(end),
+          color: '#4285f4',
+          status: row.status || 'open',
+          all_day: 0,
+        };
+      })
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
 
-  // Best-effort: if a client->channel mapping exists, write a system message.
+async function fetchBirthdayEvents(env, workspaceId) {
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT display_name, email FROM workspace_members
+       WHERE workspace_id = ? AND COALESCE(is_active, 1) = 1`,
+    )
+      .bind(workspaceId)
+      .all();
+    const year = new Date().getFullYear();
+    return (results || []).map((m, i) => {
+      const day = (i % 28) + 1;
+      const month = (i % 12) + 1;
+      const key = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      return {
+        id: `bday_${m.email || i}`,
+        title: `${m.display_name || m.email || 'Member'} birthday`,
+        event_type: 'birthday',
+        calendar_source: 'birthdays',
+        all_day: 1,
+        start_datetime: `${key} 00:00:00`,
+        end_datetime: `${key} 23:59:59`,
+        color: '#33a852',
+        status: 'scheduled',
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
+function computeInsights(events, workingHours) {
+  const byType = {
+    focus: 0,
+    task: 0,
+    one_on_one: 0,
+    multi_guest: 0,
+    need_response: 0,
+    meeting: 0,
+    event: 0,
+    other: 0,
+  };
+  const people = new Map();
+
+  for (const ev of events) {
+    if (ev.calendar_source === 'holidays') continue;
+    const mins = eventDurationMinutes(ev);
+    const type = String(ev.event_type || 'event').toLowerCase();
+    if (type === 'focus') byType.focus += mins;
+    else if (type === 'task') byType.task += mins;
+    else if (type === 'meeting' || type === 'client_call') byType.meeting += mins;
+    else if (type === 'event') byType.event += mins;
+    else byType.other += mins;
+
+    let attendees = [];
+    try {
+      attendees = ev.attendees ? (typeof ev.attendees === 'string' ? JSON.parse(ev.attendees) : ev.attendees) : [];
+    } catch {
+      attendees = [];
+    }
+    if (Array.isArray(attendees)) {
+      if (attendees.length === 1) byType.one_on_one += mins;
+      if (attendees.length >= 3) byType.multi_guest += mins;
+      for (const email of attendees) {
+        const key = String(email).toLowerCase();
+        people.set(key, (people.get(key) || 0) + mins);
+      }
+    }
+  }
+
+  const workMins =
+    workingHours?.start_minutes != null && workingHours?.end_minutes != null
+      ? Math.max(0, Number(workingHours.end_minutes) - Number(workingHours.start_minutes))
+      : 480;
+
+  return {
+    breakdown_minutes: byType,
+    meeting_minutes: byType.meeting + byType.one_on_one + byType.multi_guest,
+    people: [...people.entries()]
+      .map(([email, minutes]) => ({ email, minutes }))
+      .sort((a, b) => b.minutes - a.minutes)
+      .slice(0, 12),
+    working_minutes_per_day: workMins,
+  };
+}
+
+async function getWorkingHours(env, workspaceId, userId) {
   try {
     const row = await env.DB.prepare(
-      `SELECT channel_id FROM clients WHERE id = ? LIMIT 1`
-    ).bind(String(clientId)).first();
-    const channelId = row?.channel_id ?? null;
-    if (!channelId) return;
-
-    await env.DB.prepare(
-      `INSERT INTO messages
-        (id, channel_id, workspace_id, tenant_id, user_id, content, content_type, metadata_json, created_at, updated_at)
-       VALUES
-        (?,  ?,         ?,           ?,         ?,       ?,       'system',     ?,             unixepoch(), unixepoch())`
-    ).bind(
-      newId('msg'),
-      channelId,
-      workspaceId,
-      tenantId,
-      userId,
-      `Client call scheduled: ${String(title || '').slice(0, 180)} at ${String(startDatetime || '').slice(0, 32)}`,
-      JSON.stringify({ source: 'calendar', event_type: 'client_call' })
-    ).run();
+      `SELECT timezone, start_minutes, end_minutes, work_days_json
+       FROM calendar_working_hours WHERE workspace_id = ? AND user_id = ? LIMIT 1`,
+    )
+      .bind(workspaceId, userId)
+      .first();
+    if (row) return row;
   } catch {
-    // ignore if schema differs
+    /* table may not exist yet */
   }
+  return {
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Chicago',
+    start_minutes: 540,
+    end_minutes: 1020,
+    work_days_json: '[1,2,3,4,5]',
+  };
+}
+
+async function upsertWorkingHours(env, workspaceId, userId, body) {
+  const id = `cwh_${workspaceId}_${userId}`.slice(0, 64);
+  const timezone = String(body.timezone || 'America/Chicago').slice(0, 64);
+  const start_minutes = Number(body.start_minutes ?? 540);
+  const end_minutes = Number(body.end_minutes ?? 1020);
+  const work_days_json =
+    typeof body.work_days_json === 'string'
+      ? body.work_days_json
+      : JSON.stringify(body.work_days_json || [1, 2, 3, 4, 5]);
+  await env.DB.prepare(
+    `INSERT INTO calendar_working_hours (id, workspace_id, user_id, timezone, start_minutes, end_minutes, work_days_json, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+     ON CONFLICT(workspace_id, user_id) DO UPDATE SET
+       timezone = excluded.timezone,
+       start_minutes = excluded.start_minutes,
+       end_minutes = excluded.end_minutes,
+       work_days_json = excluded.work_days_json,
+       updated_at = datetime('now')`,
+  )
+    .bind(id, workspaceId, userId, timezone, start_minutes, end_minutes, work_days_json)
+    .run();
+  return getWorkingHours(env, workspaceId, userId);
 }
 
 export async function handleCalendarApi(request, url, env, ctx) {
@@ -132,37 +283,231 @@ export async function handleCalendarApi(request, url, env, ctx) {
   if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
 
   const workspaceId = resolveWorkspaceIdLoose(authUser, env, url);
-  const tenantId = authUser?.tenant_id != null && String(authUser.tenant_id).trim() !== '' ? String(authUser.tenant_id).trim() : null;
+  const tenantId =
+    authUser?.tenant_id != null && String(authUser.tenant_id).trim() !== ''
+      ? String(authUser.tenant_id).trim()
+      : null;
   const userId = String(authUser?.id || authUser?.user_id || authUser?.email || '').trim();
-  if (!workspaceId) return jsonResponse({ events: [] }, 200);
+
+  if (!workspaceId && parts[0] !== 'book') {
+    return jsonResponse({ events: [] }, 200);
+  }
 
   // GET /api/calendar/view/:view
   if (parts[0] === 'view' && method === 'GET') {
     const view = clampView(parts[1] || 'month');
-    const { from, to } = computeWindow(view, url);
+    const anchor = url.searchParams.get('anchor');
+    const { from, to } = computeWindow(view, url, anchor);
+    const sources = parseSourcesParam(url.searchParams.get('sources'));
 
-    const rows = await env.DB.prepare(
-      `SELECT
-         ce.*,
-         mr.id     AS room_id,
-         mr.status AS room_status,
-         mr.cf_app_id,
-         mr.ended_at AS room_ended_at
-       FROM calendar_events ce
-       LEFT JOIN meet_rooms mr ON mr.id = ce.meet_room_id
-       WHERE ce.workspace_id = ?
-         AND ce.start_datetime >= ?
-         AND ce.start_datetime <= ?
-       ORDER BY ce.start_datetime ASC`
-    ).bind(workspaceId, from, to).all();
+    let events = [];
+    if (sources.has('primary')) {
+      const { results } = await env.DB.prepare(
+        `SELECT ce.*, mr.id AS room_id, mr.status AS room_status
+         FROM calendar_events ce
+         LEFT JOIN meet_rooms mr ON mr.id = ce.meet_room_id
+         WHERE ce.workspace_id = ?
+           AND ce.start_datetime >= ?
+           AND ce.start_datetime <= ?
+           AND (ce.calendar_source IS NULL OR ce.calendar_source = 'primary' OR ce.calendar_source = '')
+         ORDER BY ce.start_datetime ASC`,
+      )
+        .bind(workspaceId, from, to)
+        .all();
+      events = events.concat(results || []);
+    }
 
-    return jsonResponse({ events: rows.results || [], window: { from, to }, view }, 200);
+    if (sources.has('tasks') && tenantId) {
+      events = events.concat(await fetchTaskCalendarEvents(env, workspaceId, tenantId, from, to));
+    }
+    if (sources.has('holidays')) {
+      events = events.concat(usHolidaysInWindow(from, to));
+    }
+    if (sources.has('birthdays')) {
+      events = events.concat(await fetchBirthdayEvents(env, workspaceId));
+    }
+
+    return jsonResponse({ events, window: { from, to }, view }, 200);
+  }
+
+  // GET /api/calendar/insights
+  if (parts[0] === 'insights' && method === 'GET') {
+    const anchor = url.searchParams.get('anchor');
+    const { from, to } = computeWindow('week', url, anchor);
+    const viewUrl = new URL(url);
+    viewUrl.searchParams.set('from', from);
+    viewUrl.searchParams.set('to', to);
+    const sources = parseSourcesParam('primary,tasks');
+    let events = [];
+    if (sources.has('primary')) {
+      const { results } = await env.DB.prepare(
+        `SELECT * FROM calendar_events
+         WHERE workspace_id = ? AND start_datetime >= ? AND start_datetime <= ?
+         ORDER BY start_datetime ASC`,
+      )
+        .bind(workspaceId, from, to)
+        .all();
+      events = results || [];
+    }
+    if (tenantId) {
+      events = events.concat(await fetchTaskCalendarEvents(env, workspaceId, tenantId, from, to));
+    }
+    const workingHours = await getWorkingHours(env, workspaceId, userId);
+    const insights = computeInsights(events, workingHours);
+
+    const weeks = [];
+    const anchorDate = anchor ? new Date(anchor) : new Date();
+    for (let i = -2; i <= 2; i += 1) {
+      const wStart = new Date(anchorDate);
+      wStart.setDate(wStart.getDate() - wStart.getDay() + i * 7);
+      wStart.setHours(0, 0, 0, 0);
+      const wEnd = new Date(wStart);
+      wEnd.setDate(wEnd.getDate() + 7);
+      const wFrom = toSqlDateTime(wStart);
+      const wTo = toSqlDateTime(wEnd);
+      const { results } = await env.DB.prepare(
+        `SELECT start_datetime, end_datetime, event_type FROM calendar_events
+         WHERE workspace_id = ? AND start_datetime >= ? AND start_datetime < ?`,
+      )
+        .bind(workspaceId, wFrom, wTo)
+        .all();
+      const mins = (results || []).reduce((sum, ev) => sum + eventDurationMinutes(ev), 0);
+      weeks.push({
+        label: `${wStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${new Date(wEnd.getTime() - 86400000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`,
+        minutes: mins,
+        active: i === 0,
+      });
+    }
+
+    return jsonResponse({ window: { from, to }, insights, weeks, working_hours: workingHours }, 200);
+  }
+
+  // GET /api/calendar/people?q=
+  if (parts[0] === 'people' && method === 'GET') {
+    const q = String(url.searchParams.get('q') || '').trim().toLowerCase();
+    const { results } = await env.DB.prepare(
+      `SELECT id, display_name, email, role, user_id
+       FROM workspace_members
+       WHERE workspace_id = ? AND COALESCE(is_active, 1) = 1
+       ORDER BY display_name ASC, email ASC`,
+    )
+      .bind(workspaceId)
+      .all();
+    const filtered = (results || []).filter((m) => {
+      if (!q) return true;
+      return (
+        String(m.display_name || '').toLowerCase().includes(q) ||
+        String(m.email || '').toLowerCase().includes(q)
+      );
+    });
+    return jsonResponse({ people: filtered.slice(0, 20) }, 200);
+  }
+
+  // GET|PUT /api/calendar/preferences
+  if (parts[0] === 'preferences') {
+    if (method === 'GET') {
+      const wh = await getWorkingHours(env, workspaceId, userId);
+      return jsonResponse({ working_hours: wh, timezone: wh.timezone }, 200);
+    }
+    if (method === 'PUT') {
+      const body = await request.json().catch(() => ({}));
+      const wh = await upsertWorkingHours(env, workspaceId, userId, body.working_hours || body);
+      return jsonResponse({ working_hours: wh }, 200);
+    }
+  }
+
+  // GET|POST /api/calendar/booking-pages
+  if (parts[0] === 'booking-pages' && !parts[1]) {
+    if (method === 'GET') {
+      const { results } = await env.DB.prepare(
+        `SELECT id, slug, title, duration_min, description, location, is_active, created_at
+         FROM calendar_booking_pages WHERE workspace_id = ? ORDER BY title ASC`,
+      )
+        .bind(workspaceId)
+        .all();
+      return jsonResponse({ pages: results || [] }, 200);
+    }
+    if (method === 'POST') {
+      const body = await request.json().catch(() => ({}));
+      const title = String(body.title || '').trim().slice(0, 200);
+      const slug = String(body.slug || title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')).slice(0, 80);
+      const duration_min = Number(body.duration_min || 30);
+      if (!title || !slug) return jsonResponse({ error: 'title and slug required' }, 400);
+      const id = newId('cbp');
+      await env.DB.prepare(
+        `INSERT INTO calendar_booking_pages (id, workspace_id, tenant_id, user_id, slug, title, duration_min, description, location, is_active)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+      )
+        .bind(
+          id,
+          workspaceId,
+          tenantId,
+          userId,
+          slug,
+          title,
+          duration_min,
+          body.description || null,
+          body.location || null,
+        )
+        .run();
+      return jsonResponse({ success: true, id, slug }, 201);
+    }
+  }
+
+  // POST /api/calendar/book/:slug — public book flow (auth required)
+  if (parts[0] === 'book' && parts[1] && method === 'POST') {
+    const slug = String(parts[1]).trim();
+    const body = await request.json().catch(() => ({}));
+    const page = await env.DB.prepare(
+      `SELECT * FROM calendar_booking_pages WHERE workspace_id = ? AND slug = ? AND is_active = 1 LIMIT 1`,
+    )
+      .bind(workspaceId, slug)
+      .first();
+    if (!page) return jsonResponse({ error: 'Booking page not found' }, 404);
+    const start_datetime = String(body.start_datetime || '').trim();
+    if (!start_datetime) return jsonResponse({ error: 'start_datetime required' }, 400);
+    const start = parseSqlDate(start_datetime);
+    const end = new Date(start.getTime() + Number(page.duration_min || 30) * 60000);
+    const title = `${page.title} · ${authUser.email || userId}`;
+    const id = newId('cev');
+    await env.DB.prepare(
+      `INSERT INTO calendar_events
+        (id, tenant_id, workspace_id, event_type, title, description, location,
+         start_datetime, end_datetime, status, attendees, created_by, calendar_source, created_at, updated_at)
+       VALUES (?, ?, ?, 'meeting', ?, ?, ?, ?, ?, 'scheduled', ?, ?, 'primary', datetime('now'), datetime('now'))`,
+    )
+      .bind(
+        id,
+        tenantId,
+        workspaceId,
+        title,
+        page.description,
+        page.location,
+        toSqlDateTime(start),
+        toSqlDateTime(end),
+        JSON.stringify([authUser.email].filter(Boolean)),
+        page.user_id || userId,
+      )
+      .run();
+    const meetRoomId = await createMeetRoomForEvent(env, request, {
+      title,
+      workspaceId,
+      tenantId,
+      createdBy: page.user_id || userId,
+      calendarEventId: id,
+    });
+    await env.DB.prepare(`UPDATE calendar_events SET meet_room_id = ? WHERE id = ?`).bind(meetRoomId, id).run();
+    return jsonResponse({
+      success: true,
+      id,
+      meet_room_id: meetRoomId,
+      join_url: meetJoinUrl(env, meetRoomId, request),
+    }, 201);
   }
 
   // POST /api/calendar/events
   if (parts[0] === 'events' && !parts[1] && method === 'POST') {
     const body = await request.json().catch(() => ({}));
-
     const title = String(body?.title || '').trim().slice(0, 200);
     const description = body?.description != null ? String(body.description).slice(0, 4000) : null;
     const location = body?.location != null ? String(body.location).slice(0, 400) : null;
@@ -171,40 +516,60 @@ export async function handleCalendarApi(request, url, env, ctx) {
     const status = body?.status != null ? String(body.status).trim().slice(0, 40) : 'scheduled';
     const event_type = body?.event_type != null ? String(body.event_type).trim().slice(0, 40) : 'event';
     const color = body?.color != null ? String(body.color).trim().slice(0, 20) : null;
-    const attendeesJson = body?.attendees != null
-      ? (typeof body.attendees === 'string' ? body.attendees : JSON.stringify(body.attendees))
-      : null;
+    const all_day = body?.all_day === true || body?.all_day === 1 ? 1 : 0;
+    const timezone = body?.timezone != null ? String(body.timezone).slice(0, 64) : null;
+    const recurrence_rule = body?.recurrence_rule != null ? String(body.recurrence_rule).slice(0, 200) : null;
+    const calendar_source = body?.calendar_source != null ? String(body.calendar_source).slice(0, 40) : 'primary';
+    const guest_permissions_json =
+      body?.guest_permissions != null
+        ? JSON.stringify(body.guest_permissions)
+        : body?.guest_permissions_json != null
+          ? typeof body.guest_permissions_json === 'string'
+            ? body.guest_permissions_json
+            : JSON.stringify(body.guest_permissions_json)
+          : null;
+    const attendeesJson =
+      body?.attendees != null
+        ? typeof body.attendees === 'string'
+          ? body.attendees
+          : JSON.stringify(body.attendees)
+        : null;
 
     if (!title || !start_datetime || !end_datetime) {
       return jsonResponse({ success: false, error: 'title, start_datetime, end_datetime required' }, 400);
     }
 
     const id = newId('cev');
-
     await env.DB.prepare(
       `INSERT INTO calendar_events
         (id, tenant_id, workspace_id, event_type, title, description, location,
-         start_datetime, end_datetime, color, status, attendees, created_by, created_at, updated_at)
-       VALUES
-        (?,  ?,         ?,           ?,         ?,     ?,           ?,
-         ?,            ?,            ?,     ?,      ?,         ?,          datetime('now'), datetime('now'))`
-    ).bind(
-      id,
-      tenantId,
-      workspaceId,
-      event_type,
-      title,
-      description,
-      location,
-      start_datetime,
-      end_datetime,
-      color,
-      status,
-      attendeesJson,
-      userId
-    ).run();
+         start_datetime, end_datetime, color, status, attendees, created_by,
+         all_day, timezone, recurrence_rule, calendar_source, guest_permissions_json,
+         created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+    )
+      .bind(
+        id,
+        tenantId,
+        workspaceId,
+        event_type,
+        title,
+        description,
+        location,
+        start_datetime,
+        end_datetime,
+        color,
+        status,
+        attendeesJson,
+        userId,
+        all_day,
+        timezone,
+        recurrence_rule,
+        calendar_source,
+        guest_permissions_json,
+      )
+      .run();
 
-    let meetRoomId = null;
     let attendeeList = [];
     try {
       if (Array.isArray(body?.attendees)) attendeeList = body.attendees;
@@ -213,21 +578,23 @@ export async function handleCalendarApi(request, url, env, ctx) {
       attendeeList = [];
     }
     const attendees = normalizeInviteEmails(attendeeList);
+    const withMeet =
+      body?.with_meet === true ||
+      event_type === 'meeting' ||
+      event_type === 'client_call' ||
+      body?.add_meet === true;
 
-    if (event_type === 'client_call' || event_type === 'meeting') {
+    let meetRoomId = null;
+    if (withMeet) {
       meetRoomId = await createMeetRoomForEvent(env, request, {
         title,
         workspaceId,
         tenantId,
         createdBy: userId,
         calendarEventId: id,
-        status: 'scheduled',
       });
-      await env.DB.prepare(`UPDATE calendar_events SET meet_room_id = ? WHERE id = ?`)
-        .bind(meetRoomId, id).run();
-
-      if (event_type === 'meeting' && attendees.length > 0) {
-        const joinUrl = meetJoinUrl(env, meetRoomId, request);
+      await env.DB.prepare(`UPDATE calendar_events SET meet_room_id = ? WHERE id = ?`).bind(meetRoomId, id).run();
+      if (attendees.length > 0) {
         await sendMeetInvites(env, {
           roomId: meetRoomId,
           emails: attendees,
@@ -237,44 +604,108 @@ export async function handleCalendarApi(request, url, env, ctx) {
           calendarEventId: id,
           meetingName: title,
           inviterLabel: authUser?.email || userId,
-          link: joinUrl,
+          link: meetJoinUrl(env, meetRoomId, request),
           scheduledLabel: `${start_datetime} → ${end_datetime}`,
           description,
         }).catch(() => {});
       }
-
-      if (event_type === 'client_call') {
-        await maybeWriteClientCallSystemMessage(env, {
-          workspaceId,
-          tenantId,
-          userId,
-          title,
-          startDatetime: start_datetime,
-          clientId: body?.client_id ?? null,
-        });
-      }
     }
 
-    return jsonResponse({ success: true, id, meet_room_id: meetRoomId, join_url: meetRoomId ? meetJoinUrl(env, meetRoomId, request) : null }, 200);
+    return jsonResponse({
+      success: true,
+      id,
+      meet_room_id: meetRoomId,
+      join_url: meetRoomId ? meetJoinUrl(env, meetRoomId, request) : null,
+    }, 200);
+  }
+
+  // GET /api/calendar/events/:id
+  if (parts[0] === 'events' && parts[1] && !parts[2] && method === 'GET') {
+    const id = String(parts[1]).trim();
+    const row = await env.DB.prepare(
+      `SELECT ce.*, mr.id AS room_id FROM calendar_events ce
+       LEFT JOIN meet_rooms mr ON mr.id = ce.meet_room_id
+       WHERE ce.id = ? AND ce.workspace_id = ? LIMIT 1`,
+    )
+      .bind(id, workspaceId)
+      .first();
+    if (!row) return jsonResponse({ error: 'Not found' }, 404);
+    return jsonResponse({ event: row }, 200);
   }
 
   // PUT /api/calendar/events/:id
   if (parts[0] === 'events' && parts[1] && method === 'PUT') {
     const id = String(parts[1] || '').trim();
     const body = await request.json().catch(() => ({}));
+    const existing = await env.DB.prepare(
+      `SELECT id FROM calendar_events WHERE id = ? AND workspace_id = ? LIMIT 1`,
+    )
+      .bind(id, workspaceId)
+      .first();
+    if (!existing) return jsonResponse({ error: 'Not found' }, 404);
 
-    const status = body?.status != null ? String(body.status).trim().slice(0, 40) : null;
-    const completed_at = body?.completed_at != null ? String(body.completed_at).trim() : null;
+    const fields = [];
+    const binds = [];
 
-    if (!status && !completed_at) return jsonResponse({ success: false, error: 'No fields to update' }, 400);
+    const setField = (col, val) => {
+      if (val !== undefined) {
+        fields.push(`${col} = ?`);
+        binds.push(val);
+      }
+    };
 
+    setField('title', body.title != null ? String(body.title).trim().slice(0, 200) : undefined);
+    setField('description', body.description != null ? String(body.description).slice(0, 4000) : undefined);
+    setField('location', body.location != null ? String(body.location).slice(0, 400) : undefined);
+    setField('start_datetime', body.start_datetime != null ? String(body.start_datetime).trim() : undefined);
+    setField('end_datetime', body.end_datetime != null ? String(body.end_datetime).trim() : undefined);
+    setField('status', body.status != null ? String(body.status).trim().slice(0, 40) : undefined);
+    setField('completed_at', body.completed_at != null ? String(body.completed_at).trim() : undefined);
+    setField('event_type', body.event_type != null ? String(body.event_type).trim().slice(0, 40) : undefined);
+    setField('color', body.color != null ? String(body.color).slice(0, 20) : undefined);
+    setField('all_day', body.all_day != null ? (body.all_day ? 1 : 0) : undefined);
+    setField('timezone', body.timezone != null ? String(body.timezone).slice(0, 64) : undefined);
+    setField('recurrence_rule', body.recurrence_rule != null ? String(body.recurrence_rule).slice(0, 200) : undefined);
+    if (body.attendees != null) {
+      setField(
+        'attendees',
+        typeof body.attendees === 'string' ? body.attendees : JSON.stringify(body.attendees),
+      );
+    }
+    if (body.guest_permissions != null || body.guest_permissions_json != null) {
+      setField(
+        'guest_permissions_json',
+        body.guest_permissions_json != null
+          ? typeof body.guest_permissions_json === 'string'
+            ? body.guest_permissions_json
+            : JSON.stringify(body.guest_permissions_json)
+          : JSON.stringify(body.guest_permissions),
+      );
+    }
+
+    if (!fields.length) return jsonResponse({ success: false, error: 'No fields to update' }, 400);
+
+    fields.push("updated_at = datetime('now')");
+    binds.push(id, workspaceId);
     await env.DB.prepare(
-      `UPDATE calendar_events
-         SET status = COALESCE(?, status),
-             completed_at = COALESCE(?, completed_at),
-             updated_at = datetime('now')
-       WHERE id = ? AND workspace_id = ?`
-    ).bind(status, completed_at, id, workspaceId).run();
+      `UPDATE calendar_events SET ${fields.join(', ')} WHERE id = ? AND workspace_id = ?`,
+    )
+      .bind(...binds)
+      .run();
+
+    if (body.with_meet === true) {
+      const ev = await env.DB.prepare(`SELECT * FROM calendar_events WHERE id = ?`).bind(id).first();
+      if (ev && !ev.meet_room_id) {
+        const meetRoomId = await createMeetRoomForEvent(env, request, {
+          title: ev.title,
+          workspaceId,
+          tenantId,
+          createdBy: userId,
+          calendarEventId: id,
+        });
+        await env.DB.prepare(`UPDATE calendar_events SET meet_room_id = ? WHERE id = ?`).bind(meetRoomId, id).run();
+      }
+    }
 
     return jsonResponse({ success: true }, 200);
   }
@@ -282,12 +713,11 @@ export async function handleCalendarApi(request, url, env, ctx) {
   // DELETE /api/calendar/events/:id
   if (parts[0] === 'events' && parts[1] && method === 'DELETE') {
     const id = String(parts[1] || '').trim();
-    await env.DB.prepare(
-      `DELETE FROM calendar_events WHERE id = ? AND workspace_id = ?`
-    ).bind(id, workspaceId).run();
+    await env.DB.prepare(`DELETE FROM calendar_events WHERE id = ? AND workspace_id = ?`)
+      .bind(id, workspaceId)
+      .run();
     return jsonResponse({ success: true }, 200);
   }
 
   return jsonResponse({ error: 'Not found' }, 404);
 }
-

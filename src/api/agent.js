@@ -1878,6 +1878,108 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
     }
   }
 
+  // PATCH /api/agent/todo/:id — update task fields
+  const todoIdPatchMatch = path.match(/^\/api\/agent\/todo\/([^/]+)$/);
+  if (todoIdPatchMatch && method === 'PATCH') {
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    const scope = await resolveAgentDataScope(env, authUser, request, {});
+    if (!scope.tenantId || !scope.workspaceId) return jsonResponse({ error: 'Tenant/workspace required' }, 403);
+    const todoId = String(todoIdPatchMatch[1]).trim();
+    const body = await request.json().catch(() => ({}));
+    const existing = await env.DB.prepare(
+      `SELECT * FROM agentsam_todo WHERE id = ? AND tenant_id = ? AND workspace_id = ? LIMIT 1`,
+    )
+      .bind(todoId, scope.tenantId, scope.workspaceId)
+      .first();
+    if (!existing) return jsonResponse({ error: 'Not found' }, 404);
+
+    const fields = [];
+    const binds = [];
+    const set = (col, val) => {
+      if (val !== undefined) {
+        fields.push(`${col} = ?`);
+        binds.push(val);
+      }
+    };
+
+    set('title', body.title != null ? String(body.title).trim().slice(0, 500) : undefined);
+    set('description', body.description != null ? String(body.description).slice(0, 4000) : undefined);
+    set('notes', body.notes != null ? String(body.notes).slice(0, 4000) : undefined);
+    set('due_date', body.due_date != null ? String(body.due_date).trim().slice(0, 40) : undefined);
+    set('category', body.category != null ? String(body.category).trim().slice(0, 120) : undefined);
+    set('status', body.status != null ? String(body.status).trim().slice(0, 40) : undefined);
+    if (body.status === 'done') {
+      set('execution_status', 'done');
+      set('completed_at', new Date().toISOString().slice(0, 19).replace('T', ' '));
+    } else if (body.status != null && body.status !== 'done') {
+      set('execution_status', body.execution_status != null ? String(body.execution_status) : 'queued');
+    }
+    if (body.starred != null) {
+      let tags = [];
+      try {
+        tags = JSON.parse(existing.tags || '[]');
+        if (!Array.isArray(tags)) tags = [];
+      } catch {
+        tags = [];
+      }
+      tags = tags.filter((t) => t !== 'starred');
+      if (body.starred) tags.push('starred');
+      set('tags', JSON.stringify(tags));
+    } else if (body.tags != null) {
+      set('tags', typeof body.tags === 'string' ? body.tags : JSON.stringify(body.tags));
+    }
+
+    if (!fields.length) return jsonResponse({ error: 'No fields to update' }, 400);
+    fields.push("updated_at = datetime('now')");
+    binds.push(todoId, scope.tenantId, scope.workspaceId);
+    await env.DB.prepare(
+      `UPDATE agentsam_todo SET ${fields.join(', ')} WHERE id = ? AND tenant_id = ? AND workspace_id = ?`,
+    )
+      .bind(...binds)
+      .run();
+    const todo = await env.DB.prepare(`SELECT * FROM agentsam_todo WHERE id = ?`).bind(todoId).first();
+    return jsonResponse({ ok: true, todo }, 200);
+  }
+
+  // POST /api/agent/todo — create task
+  if (path === '/api/agent/todo' && method === 'POST') {
+    const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
+    if (!authUser) return jsonResponse({ error: 'Unauthorized' }, 401);
+    if (!env.DB) return jsonResponse({ error: 'DB not configured' }, 503);
+    const scope = await resolveAgentDataScope(env, authUser, request, {});
+    if (!scope.tenantId || !scope.workspaceId) return jsonResponse({ error: 'Tenant/workspace required' }, 403);
+    const body = await request.json().catch(() => ({}));
+    const title = String(body.title || '').trim().slice(0, 500);
+    if (!title) return jsonResponse({ error: 'title required' }, 400);
+    const id = `todo_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
+    const userId = String(authUser.id || authUser.user_id || authUser.email || 'user').slice(0, 64);
+    const category = String(body.category || 'My Tasks').trim().slice(0, 120) || 'My Tasks';
+    const tags = body.starred ? JSON.stringify(['starred']) : JSON.stringify(body.tags || []);
+    await env.DB.prepare(
+      `INSERT INTO agentsam_todo (
+        id, tenant_id, workspace_id, title, description, status, priority, category, tags,
+        due_date, notes, created_by, sort_order, task_type, execution_status, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, 'open', 'medium', ?, ?, ?, ?, ?, 50, 'execute', 'queued', datetime('now'), datetime('now'))`,
+    )
+      .bind(
+        id,
+        scope.tenantId,
+        scope.workspaceId,
+        title,
+        body.description != null ? String(body.description).slice(0, 4000) : null,
+        category,
+        tags,
+        body.due_date != null ? String(body.due_date).trim().slice(0, 40) : null,
+        body.notes != null ? String(body.notes).slice(0, 4000) : null,
+        userId,
+      )
+      .run();
+    const todo = await env.DB.prepare(`SELECT * FROM agentsam_todo WHERE id = ?`).bind(id).first();
+    return jsonResponse({ ok: true, todo }, 201);
+  }
+
   // GET /api/agent/todo — multi-tenant agentsam_todo
   if (path === '/api/agent/todo' && method === 'GET') {
     const authUser = await authUserFromRequest(request, env, ra.authCtx, ra.authUser ?? null);
@@ -1891,7 +1993,7 @@ export async function handleAgentApi(request, url, env, ctx, routeAuth = null) {
         `SELECT * FROM agentsam_todo
          WHERE tenant_id = ? AND workspace_id = ?
            AND (status IS NULL OR LOWER(TRIM(status)) != 'done')
-         ORDER BY priority ASC`,
+         ORDER BY sort_order ASC, created_at DESC`,
       )
         .bind(scope.tenantId, scope.workspaceId)
         .all();
