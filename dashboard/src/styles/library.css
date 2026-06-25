@@ -88,10 +88,27 @@
 }
 
 .artifacts-drive-shell .drive-mark {
-  width: 34px;
-  height: 30px;
+  width: 52px;
+  height: 52px;
   display: grid;
   place-items: center;
+  flex-shrink: 0;
+}
+
+.artifacts-drive-shell .drive-app-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 11px;
+  object-fit: cover;
+  box-shadow:
+    0 1px 2px rgba(60, 64, 67, 0.16),
+    0 4px 12px rgba(60, 64, 67, 0.1);
+}
+
+.artifacts-drive-shell .brand .label {
+  font-size: 22px;
+  font-weight: 400;
+  letter-spacing: -0.02em;
 }
 
 .artifacts-drive-shell .drive-tri {
@@ -161,6 +178,29 @@
 
 .artifacts-drive-shell .lib-connect-wrap {
   position: relative;
+}
+
+.artifacts-drive-shell .lib-connect-pill {
+  border: 1px solid #1a73e8;
+  background: #e8f0fe;
+  color: #174ea6;
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.artifacts-drive-shell .lib-connect-pill:hover {
+  background: #d2e3fc;
+}
+
+.artifacts-drive-shell .lib-connect-help {
+  margin: 0;
+  padding: 0 10px 8px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #5f6368;
 }
 
 .artifacts-drive-shell .lib-connect-gear.active {

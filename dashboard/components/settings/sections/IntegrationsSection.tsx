@@ -120,7 +120,12 @@ export function IntegrationsSection({
   }, [catalog, catFilter]);
 
   const onConnectOAuth = useCallback((slug: string) => {
-    window.location.href = `/api/integrations/${encodeURIComponent(slug)}/connect`;
+    const normalized = slug.toLowerCase().replace(/_/g, '-');
+    const returnTo =
+      normalized === 'google-drive'
+        ? '/dashboard/artifacts?connect=drive'
+        : '/dashboard/settings/integrations';
+    window.location.href = `/api/integrations/${encodeURIComponent(slug)}/connect?return_to=${encodeURIComponent(returnTo)}`;
   }, []);
 
   const onConnectApiKey = useCallback(async (slug: string, apiKey: string) => {

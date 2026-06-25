@@ -21,6 +21,7 @@ import { LibrarySideRail } from './LibrarySideRail';
 import { SharedDriveManagePanel } from './SharedDriveManagePanel';
 import { LibraryFileIcon, LibraryThumb, sourceLabel } from './LibraryThumb';
 import { NAV_DRIVE_VIEW, NAV_RAIL_MAP } from '../../lib/library/types';
+import { LIBRARY_APP_ICON_THUMB_URL, LIBRARY_APP_ICON_URL, LIBRARY_BRAND_TITLE } from '../../lib/library/brand';
 import '../../styles/library.css';
 
 const CONTEXT_ACTIONS = ['Open', 'Share', 'Rename', 'Download', 'Move to trash'] as const;
@@ -33,6 +34,7 @@ const NEW_MENU_ITEMS = [
 ] as const;
 
 const NAV_ITEMS = [
+  { key: 'connections', label: 'Connections', icon: 'connections' },
   { key: 'home', label: 'Home', icon: 'home' },
   { key: 'projects', label: 'Projects', icon: 'projectFolder' },
   { key: 'artifacts', label: 'My artifacts', icon: 'artifacts' },
@@ -100,6 +102,12 @@ function NavIcon({ name }: { name: string }) {
       </>
     ),
     storage: <path d="M4 15a4 4 0 0 0 4 4h9a5 5 0 0 0 1-9.9A7 7 0 0 0 5.8 7.6 4.5 4.5 0 0 0 4 15Z" />,
+    connections: (
+      <>
+        <path d="M10 13a5 5 0 0 1 7.54-.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+        <path d="M14 11a5 5 0 0 0-7.54.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+      </>
+    ),
   };
   return (
     <svg className="drive-icon" viewBox="0 0 24 24" aria-hidden>
@@ -130,6 +138,7 @@ export function ArtifactsDriveShell() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [newMenuOpen, setNewMenuOpen] = useState(false);
   const [noticeVisible, setNoticeVisible] = useState(true);
+  const [connectMenuOpen, setConnectMenuOpen] = useState(false);
   const [selected, setSelected] = useState<LibraryItem | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: LibraryItem } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -203,12 +212,28 @@ export function ArtifactsDriveShell() {
     };
   }, []);
 
+  const viewParam = searchParams.get('view');
+  const connectParam = searchParams.get('connect');
+  const activeRail = ws.filters.rail;
+
   useEffect(() => {
-    const view = searchParams.get('view');
-    if (view === 'projects' && ws.filters.rail !== 'projects') {
+    if (connectParam !== 'drive') return;
+    setConnectMenuOpen(true);
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('connect');
+        return next;
+      },
+      { replace: true },
+    );
+  }, [connectParam, setSearchParams]);
+
+  useEffect(() => {
+    if (viewParam === 'projects' && activeRail !== 'projects') {
       ws.setNavKey('projects');
     }
-  }, [searchParams, ws]);
+  }, [viewParam, activeRail, ws.setNavKey]);
 
   const handleProjectChange = useCallback(
     (projectId: string | null) => {
@@ -221,6 +246,27 @@ export function ArtifactsDriveShell() {
       });
     },
     [setSearchParams],
+  );
+
+  const syncLibraryNav = useCallback(
+    (navKey: string) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (navKey === 'projects') {
+            next.set('view', 'projects');
+            next.delete('project');
+          } else {
+            next.delete('view');
+            next.delete('project');
+          }
+          return next;
+        },
+        { replace: true },
+      );
+      ws.setNavKey(navKey);
+    },
+    [setSearchParams, ws.setNavKey],
   );
 
   const handleContextMenu = (e: MouseEvent, item: LibraryItem) => {
@@ -245,7 +291,12 @@ export function ArtifactsDriveShell() {
   );
 
   const driveNeedsConnect =
-    ws.filters.rail === 'drive' && ws.driveConnected === false && !ws.loading;
+    ws.driveConnected === false &&
+    !ws.loading &&
+    (ws.filters.rail === 'drive' ||
+      ws.filters.rail === 'starred' ||
+      ws.filters.rail === 'trash' ||
+      ws.filters.rail === 'recent');
   const primaryError = ws.errors[0];
 
   const handleCreateSharedDrive = async () => {
@@ -347,9 +398,16 @@ export function ArtifactsDriveShell() {
               </svg>
             </button>
             <span className="drive-mark">
-              <span className="drive-tri" />
+              <img
+                className="drive-app-icon"
+                src={LIBRARY_APP_ICON_URL}
+                alt=""
+                width={52}
+                height={52}
+                decoding="async"
+              />
             </span>
-            <span className="label">Library</span>
+            <span className="label">{LIBRARY_BRAND_TITLE}</span>
           </div>
 
           <label className="search">
@@ -372,6 +430,15 @@ export function ArtifactsDriveShell() {
           <div />
 
           <div className="top-actions">
+            {!ws.driveConnected && !ws.loading ? (
+              <button
+                type="button"
+                className="lib-connect-pill"
+                onClick={() => setConnectMenuOpen(true)}
+              >
+                Connect Drive
+              </button>
+            ) : null}
             <LibraryConnectMenu
               driveStatus={ws.driveStatus}
               localFolderName={ws.localFolderName}
@@ -380,6 +447,8 @@ export function ArtifactsDriveShell() {
               onConnectLocal={ws.connectLocalFolder}
               onRefreshStatus={ws.refreshDriveStatus}
               onToast={showToast}
+              open={connectMenuOpen}
+              onOpenChange={setConnectMenuOpen}
             />
             <button type="button" className="icon-btn" title="Refresh" onClick={() => void ws.refresh()}>
               <svg className="drive-icon" viewBox="0 0 24 24">
@@ -412,10 +481,13 @@ export function ArtifactsDriveShell() {
             {NAV_ITEMS.map((item) => {
               const rail = railForNavKey(item.key);
               const expectedDriveView = NAV_DRIVE_VIEW[item.key];
-              const active = rail
-                ? ws.filters.rail === rail &&
-                  (rail !== 'drive' || !expectedDriveView || ws.driveView === expectedDriveView)
-                : false;
+              const active =
+                item.key === 'connections'
+                  ? connectMenuOpen
+                  : rail
+                    ? ws.filters.rail === rail &&
+                      (rail !== 'drive' || !expectedDriveView || ws.driveView === expectedDriveView)
+                    : false;
               return (
                 <button
                   key={item.key}
@@ -423,21 +495,24 @@ export function ArtifactsDriveShell() {
                   className={`nav-item${active ? ' active' : ''}`}
                   onClick={(e) => {
                     e.stopPropagation();
+                    if (item.key === 'connections') {
+                      setConnectMenuOpen(true);
+                      return;
+                    }
                     if (item.key === 'computers') {
                       if (!ws.localFolderName) void ws.connectLocalFolder();
-                      else ws.setNavKey(item.key);
+                      else syncLibraryNav(item.key);
                       return;
                     }
                     if (item.key === 'projects') {
-                      setSearchParams((prev) => {
-                        const next = new URLSearchParams(prev);
-                        next.set('view', 'projects');
-                        next.delete('project');
-                        return next;
-                      });
+                      syncLibraryNav('projects');
+                      return;
                     }
-                    if (rail) ws.setNavKey(item.key);
-                    else showToast(`${item.label} — coming soon`);
+                    if (rail) {
+                      syncLibraryNav(item.key);
+                      return;
+                    }
+                    showToast(`${item.label} — coming soon`);
                   }}
                 >
                   <NavIcon name={item.icon} />
