@@ -153,9 +153,41 @@
       flex: 1;
       min-height: 0;
       position: relative;
-      background: radial-gradient(ellipse 90% 70% at 50% 45%, #1a1a2e 0%, #0a0a0f 72%);
+      background: radial-gradient(ellipse 85% 65% at 50% 42%, #1c1410 0%, #08080c 78%);
     }
     #viewport { position: absolute; inset: 0; touch-action: manipulation; }
+    .camera-bar {
+      position: absolute;
+      left: 50%;
+      bottom: 0.85rem;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 0.35rem;
+      padding: 0.35rem;
+      border-radius: 999px;
+      background: rgba(10, 10, 15, 0.82);
+      border: 1px solid var(--border);
+      backdrop-filter: blur(10px);
+      z-index: 5;
+    }
+    .cam-btn {
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--muted);
+      font-size: 0.62rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      padding: 0.35rem 0.55rem;
+      border-radius: 999px;
+      cursor: pointer;
+    }
+    .cam-btn:hover { color: var(--text); background: rgba(255,255,255,0.06); }
+    .cam-btn.active {
+      color: #051018;
+      background: linear-gradient(135deg, var(--teal), #00c9a7);
+      border-color: rgba(0, 255, 204, 0.35);
+    }
     #loading-overlay {
       position: absolute;
       inset: 0;
@@ -241,8 +273,9 @@
 
   <div class="game-stage">
     <div id="viewport" aria-label="3D chess board"></div>
+    <div class="camera-bar" id="camera-bar" aria-label="Camera angle"></div>
     <div id="loading-overlay">
-      <p class="load-label">Loading pieces…</p>
+      <p class="load-label">Loading baroque board &amp; pieces…</p>
       <div class="load-track"><div id="load-progress"></div></div>
     </div>
   </div>

@@ -1,7 +1,7 @@
 /**
- * Public 3D chess room — SparkChess-style HUD + locked camera viewport.
+ * Public 3D chess room — baroque board, table environment, camera presets.
  */
-import { ChessViewport } from '../lib/ChessViewport';
+import { ChessViewport, CHESS_CAMERA_PRESETS, type ChessCameraPreset } from '../lib/ChessViewport';
 import { pickAgentSamMove, tryMove } from '../lib/chessEngine';
 import { capturedPieceSvg } from '../lib/chessPieceIcons';
 
@@ -285,6 +285,23 @@ function boot() {
   document.getElementById('resign-btn')?.addEventListener('click', () => {
     if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'resign' }));
   });
+
+  const cameraBar = document.getElementById('camera-bar');
+  if (cameraBar) {
+    for (const { id, label } of CHESS_CAMERA_PRESETS) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `cam-btn${id === 'classic' ? ' active' : ''}`;
+      btn.textContent = label;
+      btn.dataset.preset = id;
+      btn.addEventListener('click', () => {
+        viewport.setCameraPreset(id as ChessCameraPreset);
+        cameraBar.querySelectorAll('.cam-btn').forEach((el) => el.classList.remove('active'));
+        btn.classList.add('active');
+      });
+      cameraBar.appendChild(btn);
+    }
+  }
 
   updateTurnPill();
   updateTimers();

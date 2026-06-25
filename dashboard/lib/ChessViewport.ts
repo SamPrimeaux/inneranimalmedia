@@ -11,7 +11,17 @@ import {
   squareToBoardXZ,
   boardPointToSquare,
 } from './chessBoard';
-import { CHESS_BOARD_URL } from './glbAssets';
+import { CHESS_BOARD_URL, CHESS_BAROQUE_PIECES, chessPieceGlbPath } from './glbAssets';
+import {
+  applyChessCameraPreset,
+  type ChessCameraPreset,
+  CHESS_CAMERA_PRESETS,
+} from './chessCamera';
+import {
+  captureTraySlot,
+  createChessRoomEnvironment,
+  type ChessRoomEnvironment,
+} from './chessRoomEnvironment';
 import {
   applyAuthoredChessPieceMaterials,
   applyChessPieceMaterials,
@@ -28,13 +38,16 @@ import { parseFenPlacement, squareToPosition } from './chessSquares';
 
 const PIECE_TYPES = ['king', 'queen', 'bishop', 'knight', 'rook', 'pawn'] as const;
 const PIECE_HEIGHT: Record<string, number> = {
-  pawn: 0.55,
-  king: 0.8,
-  queen: 0.8,
-  rook: 0.78,
-  bishop: 0.78,
-  knight: 0.78,
+  pawn: 0.62,
+  king: 0.92,
+  queen: 0.9,
+  rook: 0.82,
+  bishop: 0.86,
+  knight: 0.86,
 };
+
+export type { ChessCameraPreset };
+export { CHESS_CAMERA_PRESETS };
 
 type PieceRecord = {
   mesh: THREE.Group;
@@ -64,7 +77,11 @@ export class ChessViewport {
   private pieceRegistry: ChessPieceRegistry | null = null;
   private pieces = new Map<string, PieceRecord>();
   private boardGroup: THREE.Group;
+  private pickGroup: THREE.Group;
   private squareMeshes: THREE.Mesh[] = [];
+  private roomEnv: ChessRoomEnvironment | null = null;
+  private boardPlaySpan = 8.4;
+  private currentPreset: ChessCameraPreset = 'classic';
   private overlayGroup = new THREE.Group();
   private captureGroup = new THREE.Group();
   private selectedSquare: string | null = null;
@@ -98,32 +115,43 @@ export class ChessViewport {
     const h = Math.max(320, this.container.clientHeight || 480);
 
     this.scene = new THREE.Scene();
-    this.scene.background = null;
+    this.scene.background = new THREE.Color(0x08080c);
 
     this.camera = new THREE.PerspectiveCamera(38, w / h, 0.1, 200);
-    this.lockCamera();
 
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(w, h);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.05;
+    this.renderer.toneMappingExposure = 1.12;
     this.container.appendChild(this.renderer.domElement);
 
     setupChessEnvironment(this.renderer, this.scene);
 
-    const ambient = new THREE.AmbientLight(0xffffff, 0.38);
+    const ambient = new THREE.AmbientLight(0xfff5e8, 0.42);
     this.scene.add(ambient);
-    const sun = new THREE.DirectionalLight(0xffffff, 1.15);
-    sun.position.set(5, 12, 7);
+    const sun = new THREE.DirectionalLight(0xfff8ee, 1.35);
+    sun.position.set(6, 14, 8);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(1024, 1024);
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.camera.near = 0.5;
+    sun.shadow.camera.far = 40;
+    sun.shadow.camera.left = -14;
+    sun.shadow.camera.right = 14;
+    sun.shadow.camera.top = 14;
+    sun.shadow.camera.bottom = -14;
     this.scene.add(sun);
-    const fill = new THREE.DirectionalLight(0xaaccff, 0.3);
-    fill.position.set(-6, 5, -5);
+    const fill = new THREE.DirectionalLight(0xb8c8ff, 0.28);
+    fill.position.set(-8, 6, -6);
     this.scene.add(fill);
+    const rim = new THREE.DirectionalLight(0xffd4a0, 0.22);
+    rim.position.set(0, 4, -10);
+    this.scene.add(rim);
+
+    this.pickGroup = new THREE.Group();
+    this.scene.add(this.pickGroup);
 
     this.boardGroup = new THREE.Group();
     this.boardGroup.name = 'chess_board_root';
@@ -146,6 +174,15 @@ export class ChessViewport {
 
   public setTurn(turn: 'white' | 'black') {
     this.turn = turn;
+  }
+
+  public setCameraPreset(preset: ChessCameraPreset): void {
+    this.currentPreset = preset;
+    applyChessCameraPreset(this.camera, preset, this.boardPlaySpan + 2);
+  }
+
+  public getCameraPreset(): ChessCameraPreset {
+    return this.currentPreset;
   }
 
   public setFen(fen: string) {
@@ -204,26 +241,12 @@ export class ChessViewport {
     this.container.innerHTML = '';
   }
 
-  private lockCamera(): void {
-    this.camera.position.set(0, 8, 10);
-    this.camera.lookAt(0, 0, 0);
-  }
-
   private fitCameraToViewport(): void {
     const w = Math.max(320, this.container.clientWidth || 640);
     const h = Math.max(320, this.container.clientHeight || 480);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
-    this.lockCamera();
-    const fovRad = (this.camera.fov * Math.PI) / 180;
-    const boardSpan = 10.5;
-    const fill = 0.8;
-    const distForHeight = boardSpan / 2 / Math.tan(fovRad / 2) / fill;
-    const distForWidth = boardSpan / 2 / (Math.tan(fovRad / 2) * this.camera.aspect) / fill;
-    const dist = Math.max(distForHeight, distForWidth) * 0.95;
-    const base = new THREE.Vector3(0, 8, 10).normalize();
-    this.camera.position.copy(base.multiplyScalar(dist));
-    this.camera.lookAt(0, 0, 0);
+    applyChessCameraPreset(this.camera, this.currentPreset, this.boardPlaySpan + 2);
   }
 
   private async waitReady(): Promise<void> {
@@ -232,53 +255,78 @@ export class ChessViewport {
 
   private async preloadPieces(onLoading?: (p: number) => void, onReady?: () => void): Promise<void> {
     await ensureMeshoptDecoderReady();
-    this.pieceRegistry = await loadChessPieceRegistry();
+    this.pieceRegistry = await loadChessPieceRegistry(true);
+
+    const boardUrl = this.pieceRegistry.boardUrl || CHESS_BOARD_URL;
+    onLoading?.(0.08);
+    await this.loadBoardWithRetry(boardUrl, 3);
+    onLoading?.(0.22);
+
+    if (this.roomEnv) this.scene.remove(this.roomEnv.root);
+    this.roomEnv = createChessRoomEnvironment(getBoardSurfaceY());
+    this.scene.add(this.roomEnv.root);
 
     const pieceUrls = new Set<string>();
     for (const piece of PIECE_TYPES) {
-      pieceUrls.add(this.pieceRegistry!.urlFor('white', piece));
-      pieceUrls.add(this.pieceRegistry!.urlFor('black', piece));
+      pieceUrls.add(this.pieceRegistry.urlFor('white', piece) || chessPieceGlbPath('white', piece));
+      pieceUrls.add(this.pieceRegistry.urlFor('black', piece) || chessPieceGlbPath('black', piece));
     }
 
-    const boardUrl = this.pieceRegistry.boardUrl || CHESS_BOARD_URL;
-    const jobs: Array<{ kind: 'board' | 'piece'; url: string }> = [
-      { kind: 'board', url: boardUrl },
-      ...[...pieceUrls].map((url) => ({ kind: 'piece' as const, url })),
-    ];
-
-    let loaded = 0;
-    const total = jobs.length;
-
-    await Promise.all(
-      jobs.map(async (job) => {
-        try {
-          if (job.kind === 'board') {
-            await this.loadBoardModel(job.url);
-          } else {
-            await this.loadPieceTemplateWithTimeout(job.url, 20000);
-          }
-        } catch (err) {
-          console.error(`[ChessViewport] preload failed ${job.url}`, err);
-          if (job.kind === 'board') {
-            this.fallbackProceduralBoard();
-          }
-        } finally {
-          loaded += 1;
-          onLoading?.(loaded / total);
-        }
-      }),
-    );
+    const urls = [...pieceUrls];
+    for (let i = 0; i < urls.length; i++) {
+      await this.loadPieceTemplateWithRetry(urls[i], 3, 45000);
+      onLoading?.(0.22 + (0.78 * (i + 1)) / urls.length);
+    }
 
     this.ready = true;
-    this.fitCameraToViewport();
+    this.setCameraPreset('classic');
     onReady?.();
+  }
+
+  private async loadBoardWithRetry(url: string, attempts: number): Promise<void> {
+    let lastErr: unknown;
+    for (let i = 0; i < attempts; i++) {
+      try {
+        await this.loadBoardModel(url);
+        return;
+      } catch (err) {
+        lastErr = err;
+        console.warn(`[ChessViewport] board load attempt ${i + 1}/${attempts}`, err);
+        await new Promise((r) => setTimeout(r, 400 * (i + 1)));
+      }
+    }
+    console.error('[ChessViewport] baroque board failed, using procedural fallback', lastErr);
+    this.fallbackProceduralBoard();
+  }
+
+  private async loadPieceTemplateWithRetry(url: string, attempts: number, ms: number): Promise<THREE.Group> {
+    let lastErr: unknown;
+    for (let i = 0; i < attempts; i++) {
+      try {
+        return await this.loadPieceTemplateWithTimeout(url, ms);
+      } catch (err) {
+        lastErr = err;
+        console.warn(`[ChessViewport] piece load attempt ${i + 1}/${attempts} ${url}`, err);
+        await new Promise((r) => setTimeout(r, 300 * (i + 1)));
+      }
+    }
+    throw lastErr;
   }
 
   private fallbackProceduralBoard(): void {
     while (this.boardGroup.children.length) this.boardGroup.remove(this.boardGroup.children[0]);
     const procedural = createChessBoard();
-    this.squareMeshes = (procedural.userData.squareMeshes as THREE.Mesh[]) || [];
+    this.boardPlaySpan = 8.4;
+    setBoardSurfaceY(0.05);
     this.boardGroup.add(procedural);
+    this.refreshPickLayer();
+  }
+
+  private refreshPickLayer(): void {
+    while (this.pickGroup.children.length) this.pickGroup.remove(this.pickGroup.children[0]);
+    const pick = createChessPickLayer();
+    this.squareMeshes = (pick.userData.squareMeshes as THREE.Mesh[]) || [];
+    this.pickGroup.add(pick);
   }
 
   private async loadBoardModel(url: string): Promise<void> {
@@ -291,14 +339,15 @@ export class ChessViewport {
     model.position.sub(center);
 
     const span = Math.max(size.x, size.z, 0.001);
-    const scale = 8.4 / span;
+    this.boardPlaySpan = 8.4;
+    const scale = this.boardPlaySpan / span;
     model.scale.setScalar(scale);
 
     const fitted = new THREE.Box3().setFromObject(model);
     fitted.getCenter(center);
     model.position.sub(center);
     fitted.setFromObject(model);
-    setBoardSurfaceY(fitted.max.y + 0.02);
+    setBoardSurfaceY(fitted.max.y + 0.015);
 
     model.traverse((o) => {
       const mesh = o as THREE.Mesh;
@@ -310,14 +359,13 @@ export class ChessViewport {
 
     while (this.boardGroup.children.length) this.boardGroup.remove(this.boardGroup.children[0]);
     this.boardGroup.add(model);
-
-    const pick = createChessPickLayer();
-    this.squareMeshes = (pick.userData.squareMeshes as THREE.Mesh[]) || [];
-    this.scene.add(pick);
+    this.refreshPickLayer();
   }
 
-  private pieceScaleTarget(piece: string): number {
-    return PIECE_HEIGHT[piece] ?? 0.78;
+  private pieceScaleTarget(piece: string, baseHeight: number): number {
+    const square = this.boardPlaySpan / 8;
+    const target = square * (PIECE_HEIGHT[piece] ?? 0.86);
+    return target / Math.max(baseHeight, 0.001);
   }
 
   private loadPieceTemplateWithTimeout(url: string, ms: number): Promise<THREE.Group> {
@@ -366,8 +414,7 @@ export class ChessViewport {
     const base = await this.loadPieceBase(url);
     const clone = base.clone(true);
     const baseHeight = Number(base.userData.baseHeight) || 1;
-    const scale = this.pieceScaleTarget(piece) / baseHeight;
-    clone.scale.setScalar(scale);
+    clone.scale.setScalar(this.pieceScaleTarget(piece, baseHeight));
     return clone;
   }
 
@@ -406,7 +453,9 @@ export class ChessViewport {
 
   private async spawnPiece(square: string, color: 'white' | 'black', piece: string): Promise<void> {
     if (!this.pieceRegistry) this.pieceRegistry = await loadChessPieceRegistry();
-    const url = this.pieceRegistry.urlFor(color, piece);
+    const url =
+      this.pieceRegistry.urlFor(color, piece) ||
+      chessPieceGlbPath(color, piece as keyof typeof CHESS_BAROQUE_PIECES);
     const template = await this.loadPieceTemplate(url, piece);
     const mesh = template.clone(true);
     this.applyPieceMaterials(mesh, color, piece);
@@ -414,6 +463,10 @@ export class ChessViewport {
     if (!pos) return;
     mesh.position.set(pos.x, pos.y, pos.z);
     mesh.userData = { square, color, piece };
+    mesh.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh) m.castShadow = true;
+    });
     this.scene.add(mesh);
     this.pieces.set(square, { mesh, square, color, piece });
   }
@@ -424,18 +477,18 @@ export class ChessViewport {
     color: 'white' | 'black',
   ): Promise<void> {
     if (!this.pieceRegistry) this.pieceRegistry = await loadChessPieceRegistry();
-    const url = this.pieceRegistry.urlFor(color, piece);
+    const url =
+      this.pieceRegistry.urlFor(color, piece) ||
+      chessPieceGlbPath(color, piece as keyof typeof CHESS_BAROQUE_PIECES);
     const template = await this.loadPieceTemplate(url, piece);
     const mesh = template.clone(true);
     this.applyPieceMaterials(mesh, color, piece);
-    this.fadePieceMaterials(mesh, 0.6);
-    mesh.scale.multiplyScalar(0.25);
 
     const count = capturedBy === 'white' ? this.whiteCaptureCount++ : this.blackCaptureCount++;
-    const x = capturedBy === 'white' ? -5.8 : 5.8;
-    const z = -3 + (count % 6) * 0.55;
-    const y = getBoardSurfaceY() + Math.floor(count / 6) * 0.2;
-    mesh.position.set(x, y, z);
+    const slot = captureTraySlot(capturedBy, count, getBoardSurfaceY());
+    mesh.scale.multiplyScalar(0.36);
+    mesh.rotation.y = capturedBy === 'white' ? 0.35 : -0.35;
+    mesh.position.copy(slot);
     this.captureGroup.add(mesh);
   }
 
