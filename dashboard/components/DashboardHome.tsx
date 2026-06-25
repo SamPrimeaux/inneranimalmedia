@@ -1,3 +1,4 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Bot,
@@ -10,9 +11,18 @@ import {
   Sparkles,
   Plus,
   ArrowRight,
+  Pencil,
+  X,
   type LucideIcon,
 } from 'lucide-react';
 import { IAM_AGENT_CHAT_COMPOSE } from '../agentChatConstants';
+import { fetchProjectsOverview, type OverviewProject } from '../api/projects';
+import {
+  fetchDashboardHomeTiles,
+  saveDashboardHomeTiles,
+  type DashboardHomeTile,
+} from '../api/home';
+import { useWorkspace } from '../src/context/WorkspaceContext';
 import './DashboardHome.css';
 
 type HomeIconId =
@@ -38,29 +48,12 @@ type HomeAction = {
   icon: HomeIconId;
 };
 
-type ToolCard = {
-  id: string;
-  title: string;
-  cta: string;
-  path: string;
-  tone: 'blue' | 'purple' | 'green' | 'orange' | 'dark';
-  icon: HomeIconId;
-};
-
 type ConnectCard = {
   id: string;
   title: string;
   path: string;
   tone: 'red' | 'dark' | 'blue' | 'green';
   icon: HomeIconId;
-};
-
-type ProjectCard = {
-  id: string;
-  title: string;
-  updated: string;
-  tone: 'violet' | 'blue' | 'green';
-  path: string;
 };
 
 const HOME_ICONS: Record<HomeIconId, LucideIcon> = {
@@ -77,10 +70,48 @@ const HOME_ICONS: Record<HomeIconId, LucideIcon> = {
   supabase: Database,
 };
 
-function HomeIcon({ id, size = 20 }: { id: HomeIconId; size?: number }) {
-  const Icon = HOME_ICONS[id];
-  return <Icon size={size} strokeWidth={1.75} aria-hidden />;
-}
+const FALLBACK_QUICK_TILES: DashboardHomeTile[] = [
+  {
+    id: 'fallback_agent',
+    tile_key: 'agent_sam',
+    title: 'Agent Sam',
+    cta_label: 'Chat',
+    path: '/dashboard/agent',
+    image_url: 'https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/b5557284-485e-4305-2c5a-49c6acf99a00/public',
+    sort_order: 10,
+    is_enabled: true,
+  },
+  {
+    id: 'fallback_studio',
+    tile_key: 'design_studio',
+    title: 'Design Studio',
+    cta_label: 'Build',
+    path: '/dashboard/designstudio',
+    image_url: 'https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/b5557284-485e-4305-2c5a-49c6acf99a00/public',
+    sort_order: 20,
+    is_enabled: true,
+  },
+  {
+    id: 'fallback_database',
+    tile_key: 'database',
+    title: 'Database',
+    cta_label: 'Inspect',
+    path: '/dashboard/database',
+    image_url: 'https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/c2eec95d-98c4-48ed-0394-45ae2f632300/public',
+    sort_order: 30,
+    is_enabled: true,
+  },
+  {
+    id: 'fallback_cms',
+    tile_key: 'cms_suite',
+    title: 'CMS Suite',
+    cta_label: 'Edit',
+    path: '/dashboard/cms',
+    image_url: 'https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/b1d0bd36-0f88-4301-4e68-7e8d5e255b00/public',
+    sort_order: 40,
+    is_enabled: true,
+  },
+];
 
 const FEATURED_ACTIONS: HomeAction[] = [
   {
@@ -112,13 +143,6 @@ const FEATURED_ACTIONS: HomeAction[] = [
   },
 ];
 
-const QUICK_STARTS: ToolCard[] = [
-  { id: 'agent', title: 'Agent Sam', cta: 'Chat', path: '/dashboard/agent', tone: 'blue', icon: 'chat' },
-  { id: 'studio', title: 'Design Studio', cta: 'Build', path: '/dashboard/designstudio', tone: 'purple', icon: 'studio' },
-  { id: 'database', title: 'Database', cta: 'Inspect', path: '/dashboard/database', tone: 'green', icon: 'database' },
-  { id: 'cms', title: 'CMS Suite', cta: 'Edit', path: '/dashboard/cms', tone: 'orange', icon: 'cms' },
-];
-
 const CONNECT_CARDS: ConnectCard[] = [
   { id: 'drive', title: 'Google Drive', path: '/dashboard/settings/integrations', tone: 'red', icon: 'drive' },
   { id: 'github', title: 'GitHub Repo', path: '/dashboard/settings/integrations', tone: 'dark', icon: 'github' },
@@ -126,11 +150,29 @@ const CONNECT_CARDS: ConnectCard[] = [
   { id: 'supabase', title: 'Supabase', path: '/dashboard/settings/integrations', tone: 'green', icon: 'supabase' },
 ];
 
-const RECENT_PROJECTS: ProjectCard[] = [
-  { id: 'cpas', title: 'Companions of Caddo', updated: 'Updated 2h ago', tone: 'violet', path: '/dashboard/artifacts?view=projects' },
-  { id: 'iam', title: 'InnerAnimal Website', updated: 'Updated 5h ago', tone: 'blue', path: '/dashboard/artifacts?view=projects' },
-  { id: 'meaux', title: 'Meauxbility Rebrand', updated: 'Updated 1d ago', tone: 'green', path: '/dashboard/artifacts?view=projects' },
-];
+function HomeIcon({ id, size = 20 }: { id: HomeIconId; size?: number }) {
+  const Icon = HOME_ICONS[id];
+  return <Icon size={size} strokeWidth={1.75} aria-hidden />;
+}
+
+function cfImageVariants(url: string | null | undefined) {
+  const raw = (url || '').trim();
+  if (!raw) return { src: '', srcSet: undefined as string | undefined };
+  if (!raw.includes('imagedelivery.net')) return { src: raw, srcSet: undefined };
+  const publicUrl = raw.replace(/\/(small|thumbnail|avatar|hero)$/, '/public');
+  const smallUrl = publicUrl.replace(/\/public$/, '/small');
+  return { src: publicUrl, srcSet: `${smallUrl} 1x, ${publicUrl} 2x` };
+}
+
+function projectHref(project: OverviewProject) {
+  return `/dashboard/artifacts?view=projects&project=${encodeURIComponent(project.id)}`;
+}
+
+function projectUpdatedLabel(project: OverviewProject) {
+  if (project.lastDeploy && project.lastDeploy !== '—') return `Updated ${project.lastDeploy}`;
+  if (project.dueDate && project.dueDate !== '—') return `Due ${project.dueDate}`;
+  return 'Recently active';
+}
 
 function openAgentComposer() {
   window.dispatchEvent(
@@ -142,6 +184,72 @@ function openAgentComposer() {
 
 export function DashboardHome() {
   const navigate = useNavigate();
+  const { workspaceId } = useWorkspace();
+  const [quickTiles, setQuickTiles] = useState<DashboardHomeTile[]>(FALLBACK_QUICK_TILES);
+  const [recentProjects, setRecentProjects] = useState<OverviewProject[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(true);
+  const [customizeOpen, setCustomizeOpen] = useState(false);
+  const [editTiles, setEditTiles] = useState<DashboardHomeTile[]>([]);
+  const [saveBusy, setSaveBusy] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const res = await fetchDashboardHomeTiles(workspaceId);
+      if (cancelled) return;
+      if (res.ok && res.tiles?.length) setQuickTiles(res.tiles);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setProjectsLoading(true);
+    void (async () => {
+      const data = await fetchProjectsOverview(workspaceId);
+      if (cancelled) return;
+      const rows = data.ok ? data.projects || [] : [];
+      const sorted = [...rows].sort((a, b) => {
+        const pa = Number(a.priority_num) || 0;
+        const pb = Number(b.priority_num) || 0;
+        if (pb !== pa) return pb - pa;
+        return a.name.localeCompare(b.name);
+      });
+      setRecentProjects(sorted.slice(0, 4));
+      setProjectsLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId]);
+
+  const openCustomize = useCallback(() => {
+    setEditTiles(quickTiles.map((t) => ({ ...t })));
+    setSaveError(null);
+    setCustomizeOpen(true);
+  }, [quickTiles]);
+
+  const saveCustomize = useCallback(async () => {
+    if (!workspaceId?.trim()) return;
+    setSaveBusy(true);
+    setSaveError(null);
+    const res = await saveDashboardHomeTiles(workspaceId, editTiles);
+    setSaveBusy(false);
+    if (!res.ok) {
+      setSaveError(res.error || 'Save failed');
+      return;
+    }
+    if (res.tiles?.length) setQuickTiles(res.tiles);
+    setCustomizeOpen(false);
+  }, [workspaceId, editTiles]);
+
+  const quickGrid = useMemo(
+    () => quickTiles.filter((t) => t.is_enabled).sort((a, b) => a.sort_order - b.sort_order),
+    [quickTiles],
+  );
 
   return (
     <main className="iam-home" aria-label="Dashboard home">
@@ -185,22 +293,45 @@ export function DashboardHome() {
           <div className="iam-section-head">
             <div>
               <h2 id="quick-starts-title">Quick starts</h2>
-              <p>Tap the thing you want to do.</p>
+              <p>Full-card app tiles — workspace customizable.</p>
             </div>
-            <button type="button" onClick={() => navigate('/dashboard/agent')}>See all</button>
+            <div className="iam-section-actions">
+              <button type="button" className="iam-section-icon-btn" onClick={openCustomize} title="Customize tiles">
+                <Pencil size={14} strokeWidth={1.75} aria-hidden />
+                <span>Customize</span>
+              </button>
+              <button type="button" onClick={() => navigate('/dashboard/agent')}>See all</button>
+            </div>
           </div>
-          <div className="iam-tool-grid">
-            {QUICK_STARTS.map((tool) => (
-              <article key={tool.id} className="iam-tool-card">
-                <div>
-                  <span className={`iam-tool-glyph iam-tool-glyph--${tool.tone}`} aria-hidden>
-                    <HomeIcon id={tool.icon} size={22} />
-                  </span>
-                  <h3>{tool.title}</h3>
-                </div>
-                <button type="button" onClick={() => navigate(tool.path)}>{tool.cta}</button>
-              </article>
-            ))}
+          <div className="iam-quick-image-grid">
+            {quickGrid.map((tile) => {
+              const img = cfImageVariants(tile.image_url);
+              return (
+                <article key={tile.id || tile.tile_key} className="iam-quick-image-card">
+                  <button
+                    type="button"
+                    className="iam-quick-image-hit"
+                    onClick={() => navigate(tile.path)}
+                    aria-label={`${tile.title} — ${tile.cta_label}`}
+                  >
+                    {img.src ? (
+                      <img
+                        className="iam-quick-image-art"
+                        src={img.src}
+                        srcSet={img.srcSet}
+                        alt=""
+                        loading="lazy"
+                        decoding="async"
+                      />
+                    ) : (
+                      <div className="iam-quick-image-fallback" aria-hidden />
+                    )}
+                    <span className="iam-quick-image-cta">{tile.cta_label}</span>
+                  </button>
+                  <p className="iam-quick-image-label">{tile.title}</p>
+                </article>
+              );
+            })}
           </div>
         </section>
 
@@ -234,22 +365,36 @@ export function DashboardHome() {
           <div className="iam-section-head">
             <div>
               <h2 id="recent-title">Recent projects</h2>
+              <p>Your workspace — not shared across tenants.</p>
             </div>
             <button type="button" onClick={() => navigate('/dashboard/artifacts?view=projects')}>View all</button>
           </div>
           <div className="iam-project-lane">
-            {RECENT_PROJECTS.map((project) => (
-              <button
-                key={project.id}
-                type="button"
-                className={`iam-project-card iam-project-card--${project.tone}`}
-                onClick={() => navigate(project.path)}
-              >
-                <span />
-                <strong>{project.title}</strong>
-                <small>{project.updated}</small>
-              </button>
-            ))}
+            {projectsLoading ? (
+              <div className="iam-project-loading">Loading projects…</div>
+            ) : recentProjects.length === 0 ? (
+              <div className="iam-project-loading">No projects yet — create one to see it here.</div>
+            ) : (
+              recentProjects.map((project) => {
+                const cover = cfImageVariants(project.cover_image_url);
+                return (
+                  <button
+                    key={project.id}
+                    type="button"
+                    className="iam-project-card iam-project-card--dynamic"
+                    onClick={() => navigate(projectHref(project))}
+                  >
+                    <span className="iam-project-cover">
+                      {cover.src ? (
+                        <img src={cover.src} srcSet={cover.srcSet} alt="" loading="lazy" decoding="async" />
+                      ) : null}
+                    </span>
+                    <strong>{project.name}</strong>
+                    <small>{projectUpdatedLabel(project)}</small>
+                  </button>
+                );
+              })
+            )}
             <button type="button" className="iam-project-card iam-project-card--new" onClick={() => navigate('/dashboard/projects')}>
               <span><Plus size={22} strokeWidth={1.75} aria-hidden /></span>
               <strong>New project</strong>
@@ -258,6 +403,66 @@ export function DashboardHome() {
           </div>
         </section>
       </section>
+
+      {customizeOpen ? (
+        <div className="iam-home-customize-scrim" role="presentation" onClick={() => setCustomizeOpen(false)}>
+          <div
+            className="iam-home-customize-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="customize-home-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <header className="iam-home-customize-head">
+              <h2 id="customize-home-title">Customize quick starts</h2>
+              <button type="button" className="iam-section-icon-btn" onClick={() => setCustomizeOpen(false)} aria-label="Close">
+                <X size={16} />
+              </button>
+            </header>
+            <p className="iam-home-customize-note">Image URLs are stored per workspace. Use Cloudflare Images / imagedelivery links.</p>
+            <div className="iam-home-customize-list">
+              {editTiles.map((tile, idx) => (
+                <div key={tile.tile_key} className="iam-home-customize-row">
+                  <label>
+                    <span>{tile.title}</span>
+                    <input
+                      type="url"
+                      value={tile.image_url || ''}
+                      placeholder="https://imagedelivery.net/…/public"
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setEditTiles((prev) =>
+                          prev.map((row, i) => (i === idx ? { ...row, image_url: v } : row)),
+                        );
+                      }}
+                    />
+                  </label>
+                  <label>
+                    <span>Link path</span>
+                    <input
+                      type="text"
+                      value={tile.path}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setEditTiles((prev) =>
+                          prev.map((row, i) => (i === idx ? { ...row, path: v } : row)),
+                        );
+                      }}
+                    />
+                  </label>
+                </div>
+              ))}
+            </div>
+            {saveError ? <p className="iam-home-customize-error">{saveError}</p> : null}
+            <footer className="iam-home-customize-foot">
+              <button type="button" onClick={() => setCustomizeOpen(false)}>Cancel</button>
+              <button type="button" className="iam-home-customize-save" disabled={saveBusy} onClick={() => void saveCustomize()}>
+                {saveBusy ? 'Saving…' : 'Save workspace tiles'}
+              </button>
+            </footer>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

@@ -29,8 +29,10 @@
   background: transparent !important;
 }
 
-.iam-chat-composer-glass.shadow-inner {
-  box-shadow: none;
+.iam-chat-composer-glass textarea,
+.iam-chat-composer-glass input {
+  user-select: text !important;
+  -webkit-user-select: text !important;
 }
 
 @media (max-width: 430px) {

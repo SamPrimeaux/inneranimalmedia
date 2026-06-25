@@ -1200,6 +1200,34 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     syncPickers(v, el.selectionStart);
   };
 
+  const handleComposerPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const cd = e.clipboardData;
+    if (!cd) return;
+    const fileItems: File[] = [];
+    for (const item of cd.items) {
+      if (item.kind === 'file') {
+        const f = item.getAsFile();
+        if (f) fileItems.push(f);
+      }
+    }
+    if (fileItems.length) {
+      e.preventDefault();
+      const dt = new DataTransfer();
+      fileItems.forEach((f) => dt.items.add(f));
+      addFilesFromList(dt.files, fileItems.every((f) => f.type.startsWith('image/')));
+      return;
+    }
+    const text = cd.getData('text/plain');
+    if (!text) return;
+    const el = e.currentTarget;
+    const start = el.selectionStart ?? input.length;
+    const end = el.selectionEnd ?? input.length;
+    e.preventDefault();
+    const next = input.slice(0, start) + text + input.slice(end);
+    const caret = start + text.length;
+    insertAtCursor(next, caret, caret);
+  };
+
   const addFilesFromList = (list: FileList | null, asImage: boolean) => {
     if (!list?.length) return;
     Array.from(list).forEach((file) => {
@@ -3385,6 +3413,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                 ref={textareaRef}
                 value={input}
                 onChange={handleInputChange}
+                onPaste={handleComposerPaste}
                 onKeyDown={onKeyDown}
                 onSelect={(ev) => syncPickers(ev.currentTarget.value, ev.currentTarget.selectionStart)}
                 onClick={(ev) => syncPickers(ev.currentTarget.value, ev.currentTarget.selectionStart)}
