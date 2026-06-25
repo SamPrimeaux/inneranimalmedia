@@ -5,8 +5,6 @@ import { ChessViewport } from '../lib/ChessViewport';
 import { pickAgentSamMove, tryMove } from '../lib/chessEngine';
 import { capturedPieceSvg } from '../lib/chessPieceIcons';
 
-const MEAUXGAMES_LOGO_URL =
-  'https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/d23ebddd-24ad-4b40-7cd6-0fe759f1f100/medium';
 const AGENTSAM_AVATAR_URL =
   'https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/b5557284-485e-4305-2c5a-49c6acf99a00/thumbnail';
 
@@ -50,11 +48,6 @@ function appendCaptureIcon(capturedBy: 'white' | 'black', piece: string, pieceCo
 }
 
 function applyBranding(vsAgentsam: boolean): void {
-  document.querySelectorAll<HTMLImageElement>('.brand-logo').forEach((img) => {
-    img.src = MEAUXGAMES_LOGO_URL;
-    img.alt = 'MeauxGames';
-  });
-
   const avBlack = document.getElementById('avatar-black');
   const avBlackImg = document.getElementById('avatar-black-img') as HTMLImageElement | null;
   const avBlackFallback = document.getElementById('avatar-black-fallback');

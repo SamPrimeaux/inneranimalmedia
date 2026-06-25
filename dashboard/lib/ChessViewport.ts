@@ -654,17 +654,9 @@ export class ChessViewport {
     return boardPointToSquare(p.x, p.z);
   }
 
+  /** Pick-layer only — never raycast baroque piece GLBs (deep meshes overflow the stack). */
   private pickSquareFromPointer(): string | null {
-    const fromBoard = this.pickSquareFromRay();
-    if (fromBoard) return fromBoard;
-
-    const pieceMeshes: THREE.Object3D[] = [];
-    for (const rec of this.pieces.values()) pieceMeshes.push(rec.mesh);
-    const pieceHits = this.raycaster.intersectObjects(pieceMeshes, true);
-    if (pieceHits.length === 0) return null;
-    let obj: THREE.Object3D | null = pieceHits[0].object;
-    while (obj && !obj.userData?.square) obj = obj.parent;
-    return (obj?.userData?.square as string | undefined) ?? null;
+    return this.pickSquareFromRay();
   }
 
   private onPointerMove = (ev: PointerEvent): void => {
@@ -673,7 +665,7 @@ export class ChessViewport {
     this.pointer.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
     this.pointer.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
     this.raycaster.setFromCamera(this.pointer, this.camera);
-    this.setHoverSquare(this.pickSquareFromPointer());
+    this.setHoverSquare(this.pickSquareFromRay());
   };
 
   private onPointerDown = (ev: PointerEvent): void => {
