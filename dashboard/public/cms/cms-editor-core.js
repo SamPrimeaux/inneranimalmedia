@@ -1,30 +1,17 @@
-/* CMS Editor Core — Inner Animal Media
-   Three-column Shopify-style editor:
-   LEFT: page nav + draggable section tree
-   CENTER: live site iframe with viewport switcher
-   RIGHT: contextual panel (section meta | HTML inject | page info)
-*/
+/* ═══════════════════════════════════════════════════════════
+   CMS Editor Core v2 — Inner Animal Media
+   Layout: [icon-rail 48px] [sidebar 240px] [iframe flex] [panel 300px]
+   Matches: Shopify theme editor reference screenshots exactly
+═══════════════════════════════════════════════════════════ */
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
-/* ── helpers ───────────────────────────────────────────── */
-function readCtx() {
-  const p = new URLSearchParams(location.search);
-  return {
-    project: p.get('project') || '',
-    pageId: p.get('page') || '',
-    workspaceId: p.get('workspace_id') || '',
-    workspaceLabel: p.get('workspace_label') || '',
-    panel: p.get('panel') || 'pages',
-  };
-}
-
+/* ── API ──────────────────────────────────────────────────── */
 async function api(path, opts = {}) {
   const res = await fetch(path, {
     credentials: 'include',
     headers: opts.body instanceof FormData ? {} : { 'Content-Type': 'application/json' },
     ...opts,
-    body: opts.body instanceof FormData
-      ? opts.body
+    body: opts.body instanceof FormData ? opts.body
       : opts.body ? JSON.stringify(opts.body) : undefined,
   });
   if (!res.ok) {
@@ -34,737 +21,848 @@ async function api(path, opts = {}) {
   return res.json();
 }
 
-function postParent(type, detail = {}) {
-  try { window.parent.postMessage({ type, detail }, window.location.origin); } catch (_) {}
+function readCtx() {
+  const p = new URLSearchParams(location.search);
+  return {
+    project: p.get('project') || 'inneranimalmedia',
+    pageId: p.get('page') || '',
+    workspaceId: p.get('workspace_id') || '',
+  };
 }
 
-function toast(msg, kind = 'ok') {
-  const el = document.getElementById('iam-toast');
+function postParent(type, detail = {}) {
+  try { window.parent.postMessage({ type, detail }, '*'); } catch (_) {}
+}
+
+let _toastTimer;
+function showToast(msg, type = 'ok') {
+  const el = document.getElementById('cms-toast');
   if (!el) return;
   el.textContent = msg;
-  el.className = `iam-toast show ${kind}`;
-  clearTimeout(el._t);
-  el._t = setTimeout(() => el.className = 'iam-toast', 2600);
-}
-
-function slugToUrl(project, slug) {
-  if (!project) return null;
-  const base = `https://${project}.com`;
-  if (!slug || slug === 'home') return base + '/';
-  return `${base}/${slug}`;
+  el.className = 'cms-toast show ' + type;
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => { el.className = 'cms-toast'; }, 2800);
 }
 
 const VIEWPORTS = [
-  { id: 'desktop', label: 'Desktop', width: 1280, icon: '⬜' },
-  { id: 'tablet',  label: 'Tablet',  width: 768,  icon: '▭' },
-  { id: 'mobile',  label: 'Mobile',  width: 390,  icon: '▯' },
+  { id: 'desktop', w: null,  label: 'Desktop' },
+  { id: 'tablet',  w: 768,   label: 'Tablet'  },
+  { id: 'mobile',  w: 390,   label: 'Mobile'  },
 ];
 
-const TYPE_ICONS = {
-  hero: '⬛', services: '◎', work: '▤', faq: '?', cta: '→',
-  overview: '◱', portfolio_gallery: '▤', 'case-study': '◻',
-  statement: '✦', contact_path: '◉', collaborate: '◯',
-  service: '◎', closing: '⬤', default: '▫',
+const SECTION_TYPE_COLORS = {
+  hero: '#60a5fa', services: '#fb923c', work: '#a78bfa',
+  faq: '#34d399', cta: '#f472b6', overview: '#a78bfa',
+  portfolio_gallery: '#a78bfa', statement: '#60a5fa',
+  contact_path: '#818cf8', service: '#60a5fa', closing: '#f472b6',
+  default: '#64748b',
 };
 
-/* ── drag-reorder hook ─────────────────────────────────── */
-function useDragReorder(items, onReorder) {
-  const dragIdx = useRef(null);
-  const dragOver = useRef(null);
-
-  const handlers = (idx) => ({
+/* ── DRAG REORDER ─────────────────────────────────────────── */
+function useDrag(list, onDrop) {
+  const from = useRef(null);
+  const over = useRef(null);
+  return (i) => ({
     draggable: true,
-    onDragStart: (e) => { dragIdx.current = idx; e.dataTransfer.effectAllowed = 'move'; },
-    onDragOver: (e) => { e.preventDefault(); dragOver.current = idx; },
+    onDragStart: () => { from.current = i; },
+    onDragEnter: () => { over.current = i; },
+    onDragOver: (e) => e.preventDefault(),
     onDrop: (e) => {
       e.preventDefault();
-      if (dragIdx.current === null || dragIdx.current === dragOver.current) return;
-      const next = [...items];
-      const [moved] = next.splice(dragIdx.current, 1);
-      next.splice(dragOver.current, 0, moved);
-      dragIdx.current = null;
-      dragOver.current = null;
-      onReorder(next);
+      if (from.current === null || from.current === over.current) return;
+      const next = [...list];
+      const [m] = next.splice(from.current, 1);
+      next.splice(over.current, 0, m);
+      from.current = null; over.current = null;
+      onDrop(next);
     },
-    onDragEnd: () => { dragIdx.current = null; dragOver.current = null; },
+    onDragEnd: () => { from.current = null; over.current = null; },
   });
-
-  return handlers;
 }
 
-/* ── CSS ───────────────────────────────────────────────── */
-const CSS = `
+/* ══════════════════════════════════════════════════════════════
+   STYLES
+══════════════════════════════════════════════════════════════ */
+const STYLES = `
 *{box-sizing:border-box;margin:0;padding:0}
-:root{
-  --bg:#0a0c0f;--bg1:#10141a;--bg2:#161c24;--bg3:#1d2530;
-  --border:rgba(255,255,255,0.07);--border-hi:rgba(255,255,255,0.13);
-  --text:#e2e8f0;--muted:#64748b;--faint:#374151;
-  --blue:#3b82f6;--green:#22c55e;--orange:#f97316;--red:#ef4444;
-}
-body{background:var(--bg);color:var(--text);font-family:Inter,system-ui,sans-serif;font-size:13px;height:100vh;overflow:hidden}
+html,body,#app{height:100%;overflow:hidden;background:#0d1117;color:#e2e8f0;font-family:Inter,-apple-system,sans-serif;font-size:13px}
 button,input,select,textarea{font:inherit;color:inherit}
-input,select,textarea{background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text);outline:none;padding:6px 10px}
-input:focus,select:focus,textarea:focus{border-color:rgba(59,130,246,.5)}
 
-/* layout */
-.shell{display:grid;grid-template-columns:240px 1fr 320px;height:100vh;overflow:hidden}
+/* ── SHELL ── */
+.shell{display:grid;grid-template-columns:48px 240px 1fr 300px;grid-template-rows:44px 1fr;height:100vh;overflow:hidden}
 
-/* topbar */
-.topbar{height:44px;background:var(--bg1);border-bottom:1px solid var(--border);
-  display:flex;align-items:center;padding:0 14px;gap:10px;grid-column:1/-1;position:sticky;top:0;z-index:50}
-.topbar-logo{font-weight:700;font-size:13px;letter-spacing:-.01em;margin-right:4px}
-.topbar-dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 4px rgba(34,197,94,.15);flex-shrink:0}
-.topbar-sep{width:1px;height:18px;background:var(--border);margin:0 4px}
-.page-select{height:28px;border-radius:7px;font-size:12px;min-width:140px;cursor:pointer}
-.vp-toggle{display:flex;gap:2px;background:var(--bg2);border-radius:7px;padding:2px;border:1px solid var(--border)}
-.vp-btn{padding:3px 9px;border-radius:5px;border:none;background:none;color:var(--muted);font-size:11px;cursor:pointer;transition:all .1s}
-.vp-btn.active{background:var(--bg3);color:var(--text)}
-.topbar-right{margin-left:auto;display:flex;gap:7px;align-items:center}
-.btn{height:30px;padding:0 12px;border-radius:7px;border:1px solid var(--border);background:var(--bg2);color:var(--text);cursor:pointer;font-size:12px;font-weight:500;display:inline-flex;align-items:center;gap:6px;transition:background .12s}
-.btn:hover{background:var(--bg3)}
-.btn.primary{background:var(--blue);border-color:var(--blue);color:#fff}
-.btn.primary:hover{background:#2563eb}
+/* ── TOPBAR ── */
+.topbar{grid-column:1/-1;height:44px;background:#161b22;border-bottom:1px solid rgba(255,255,255,.08);
+  display:flex;align-items:center;padding:0 16px 0 0;gap:0;z-index:20;flex-shrink:0}
+.topbar-page-label{font-size:12px;font-weight:600;color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px}
+.topbar-draft{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:4px;
+  font-size:11px;font-weight:700;background:rgba(251,191,36,.12);color:#fbbf24;margin-left:8px}
+.topbar-mid{flex:1;display:flex;align-items:center;justify-content:center;gap:0}
+.vp-group{display:flex;background:#0d1117;border:1px solid rgba(255,255,255,.1);border-radius:6px;overflow:hidden}
+.vp-btn{padding:5px 10px;border:none;background:none;color:#64748b;font-size:11px;font-weight:600;cursor:pointer;transition:all .1s;display:flex;align-items:center;gap:4px}
+.vp-btn.active{background:#1f2937;color:#e2e8f0}
+.vp-btn svg{width:13px;height:13px;flex-shrink:0}
+.topbar-right{display:flex;align-items:center;gap:8px;margin-left:auto;padding-right:2px}
+.btn{height:30px;padding:0 12px;border-radius:6px;border:1px solid rgba(255,255,255,.1);background:#1f2937;
+  color:#e2e8f0;cursor:pointer;font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:5px;white-space:nowrap;transition:background .12s}
+.btn:hover{background:#374151}
+.btn.pub{background:#2563eb;border-color:#2563eb;color:#fff}
+.btn.pub:hover{background:#1d4ed8}
 .btn:disabled{opacity:.4;cursor:not-allowed}
-.btn-sm{height:26px;padding:0 9px;font-size:11px}
+.btn-sm{height:26px;padding:0 10px;font-size:11px;border-radius:5px}
 
-/* sidebar */
-.sidebar{background:var(--bg1);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;min-height:0}
-.sidebar-head{padding:10px 12px 8px;border-bottom:1px solid var(--border);flex-shrink:0}
-.sidebar-label{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px}
-.section-list{flex:1;overflow-y:auto;padding:6px 0}
-.section-row{display:flex;align-items:center;gap:8px;padding:6px 12px;cursor:pointer;border-radius:0;transition:background .1s;position:relative;user-select:none}
-.section-row:hover{background:var(--bg2)}
-.section-row.active{background:rgba(59,130,246,.12)}
-.section-row.active::before{content:'';position:absolute;left:0;top:4px;bottom:4px;width:2px;background:var(--blue);border-radius:0 2px 2px 0}
-.drag-handle{color:var(--faint);cursor:grab;font-size:12px;flex-shrink:0}
-.drag-handle:active{cursor:grabbing}
-.section-icon{width:22px;height:22px;border-radius:5px;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:10px;flex-shrink:0;color:var(--muted)}
-.section-name{flex:1;font-size:12px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.section-type{font-size:10px;color:var(--muted)}
-.eye-btn{width:22px;height:22px;border:none;background:none;color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;border-radius:4px;flex-shrink:0;font-size:12px}
-.eye-btn:hover{color:var(--text);background:var(--bg3)}
-.hidden-row{opacity:.45}
-.add-section-btn{display:flex;align-items:center;gap:7px;padding:8px 12px;margin:4px 8px;border-radius:7px;border:1px dashed var(--border);background:none;color:var(--muted);cursor:pointer;font-size:12px;transition:all .12s}
-.add-section-btn:hover{border-color:var(--border-hi);color:var(--text);background:var(--bg2)}
+/* ── ICON RAIL (leftmost column) ── */
+.icon-rail{grid-column:1;grid-row:2;background:#161b22;border-right:1px solid rgba(255,255,255,.06);
+  display:flex;flex-direction:column;align-items:center;padding:8px 0;gap:2px;overflow:hidden}
+.rail-btn{width:36px;height:36px;border-radius:8px;border:none;background:none;cursor:pointer;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  color:#475569;transition:all .14s;position:relative}
+.rail-btn:hover{background:rgba(255,255,255,.06);color:#94a3b8}
+.rail-btn.active{background:rgba(37,99,235,.18);color:#60a5fa}
+.rail-btn svg{width:18px;height:18px;flex-shrink:0}
+.rail-btn .rail-label{font-size:8px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;line-height:1}
+.rail-spacer{flex:1}
+.rail-divider{width:24px;height:1px;background:rgba(255,255,255,.06);margin:4px 0}
 
-/* canvas */
-.canvas{background:#1a1a2e;display:flex;flex-direction:column;overflow:hidden;min-height:0}
-.canvas-chrome{height:32px;background:var(--bg1);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 12px;gap:8px;flex-shrink:0}
-.chrome-dot{width:8px;height:8px;border-radius:50%;background:var(--bg3)}
-.chrome-url{flex:1;font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.canvas-body{flex:1;overflow:hidden;display:flex;align-items:flex-start;justify-content:center;padding:16px}
-.frame-wrap{background:#fff;border-radius:4px;overflow:hidden;transition:width .2s;max-height:100%;position:relative;box-shadow:0 20px 60px rgba(0,0,0,.5)}
-.site-frame{width:100%;height:100%;border:none;display:block;min-height:600px}
-.canvas-empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:var(--muted);font-size:13px}
-.canvas-empty-icon{font-size:32px;opacity:.3}
+/* ── SIDEBAR ── */
+.sidebar{grid-column:2;grid-row:2;background:#161b22;border-right:1px solid rgba(255,255,255,.06);
+  display:flex;flex-direction:column;overflow:hidden}
 
-/* panel */
-.panel{background:var(--bg1);border-left:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;min-height:0}
-.panel-tabs{display:flex;border-bottom:1px solid var(--border);flex-shrink:0}
-.panel-tab{flex:1;padding:10px 8px;font-size:11px;font-weight:600;color:var(--muted);border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;letter-spacing:.02em;transition:all .1s;text-align:center}
-.panel-tab.active{color:var(--text);border-bottom-color:var(--blue)}
-.panel-body{flex:1;overflow-y:auto;padding:14px}
-.panel-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:200px;gap:8px;color:var(--muted);text-align:center;padding:20px}
-.panel-empty-icon{font-size:24px;opacity:.3}
+/* sidebar header with page selector */
+.sb-head{padding:0;border-bottom:1px solid rgba(255,255,255,.06);flex-shrink:0}
+.sb-page-selector{width:100%;padding:10px 12px 8px}
+.sb-page-label{font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.07em;margin-bottom:5px}
+.sb-page-select{width:100%;height:30px;background:#0d1117;border:1px solid rgba(255,255,255,.1);border-radius:6px;
+  color:#e2e8f0;font-size:12px;padding:0 8px;cursor:pointer;outline:none}
+.sb-page-select:focus{border-color:rgba(96,165,250,.5)}
 
-/* fields */
+/* group label */
+.sb-group{padding:8px 12px 4px;font-size:10px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.08em}
+
+/* section row */
+.sec-list{flex:1;overflow-y:auto;padding-bottom:8px}
+.sec-row{display:flex;align-items:center;gap:7px;padding:5px 8px 5px 10px;cursor:pointer;
+  position:relative;transition:background .1s;border-left:2px solid transparent;user-select:none}
+.sec-row:hover{background:rgba(255,255,255,.04)}
+.sec-row.active{background:rgba(37,99,235,.1);border-left-color:#2563eb}
+.sec-row.hidden{opacity:.4}
+.drag-grip{color:#1e293b;cursor:grab;flex-shrink:0;font-size:14px;line-height:1;padding:0 2px}
+.drag-grip:hover{color:#475569}
+.sec-icon{width:20px;height:20px;border-radius:4px;display:flex;align-items:center;justify-content:center;
+  font-size:9px;font-weight:900;flex-shrink:0;background:rgba(255,255,255,.05)}
+.sec-info{flex:1;min-width:0}
+.sec-name{font-size:12px;color:#cbd5e1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.3}
+.sec-type{font-size:10px;color:#475569;line-height:1.2}
+.eye-btn{width:20px;height:20px;border:none;background:none;cursor:pointer;color:#374151;
+  display:flex;align-items:center;justify-content:center;border-radius:3px;flex-shrink:0;font-size:12px;padding:0}
+.eye-btn:hover{color:#94a3b8;background:rgba(255,255,255,.07)}
+
+/* add section */
+.add-sec-btn{display:flex;align-items:center;gap:8px;padding:8px 12px;margin:4px 8px;border-radius:7px;
+  border:1px dashed rgba(255,255,255,.1);background:none;color:#475569;cursor:pointer;font-size:12px;transition:all .12s}
+.add-sec-btn:hover{border-color:rgba(255,255,255,.2);color:#94a3b8}
+
+/* ── CANVAS ── */
+.canvas{grid-column:3;grid-row:2;background:#0a0a0f;display:flex;flex-direction:column;overflow:hidden;position:relative}
+.canvas-bar{height:36px;background:#161b22;border-bottom:1px solid rgba(255,255,255,.06);
+  display:flex;align-items:center;padding:0 12px;gap:8px;flex-shrink:0}
+.canvas-dots{display:flex;gap:5px}
+.canvas-dot{width:10px;height:10px;border-radius:50%;background:rgba(255,255,255,.1)}
+.canvas-url{flex:1;font-size:11px;color:#475569;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center}
+.canvas-url a{color:#475569;text-decoration:none}
+.canvas-url a:hover{color:#94a3b8}
+.canvas-stage{flex:1;overflow:auto;display:flex;align-items:flex-start;justify-content:center;padding:16px}
+.frame-shell{background:#fff;border-radius:6px;overflow:hidden;box-shadow:0 25px 80px rgba(0,0,0,.7);
+  transition:width .25s ease;flex-shrink:0;position:relative}
+.frame-highlight{position:absolute;inset:0;pointer-events:none;border:2px solid #2563eb;z-index:10;border-radius:6px;
+  opacity:0;transition:opacity .2s}
+.frame-highlight.show{opacity:1}
+.site-iframe{width:100%;border:none;display:block;background:#fff}
+.canvas-empty-state{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:14px;color:#374151;text-align:center}
+.ces-icon{font-size:36px;opacity:.3}
+.ces-text{font-size:13px}
+
+/* ── RIGHT PANEL ── */
+.rpanel{grid-column:4;grid-row:2;background:#161b22;border-left:1px solid rgba(255,255,255,.06);
+  display:flex;flex-direction:column;overflow:hidden}
+.rp-tabs{display:flex;border-bottom:1px solid rgba(255,255,255,.06);flex-shrink:0}
+.rp-tab{flex:1;padding:10px 6px;font-size:11px;font-weight:700;color:#475569;border:none;background:none;
+  cursor:pointer;border-bottom:2px solid transparent;letter-spacing:.03em;text-transform:uppercase;transition:all .1s}
+.rp-tab.active{color:#e2e8f0;border-bottom-color:#2563eb}
+.rp-body{flex:1;overflow-y:auto;padding:14px}
+.rp-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:10px;color:#374151;text-align:center;padding:30px 16px;height:180px}
+.rp-empty-icon{font-size:22px;opacity:.35}
+
+/* ── FIELDS ── */
 .field{margin-bottom:14px}
-.field-label{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:5px}
-.field input,.field textarea,.field select{width:100%}
-.field textarea{resize:vertical;min-height:60px;line-height:1.5}
-.field-hint{font-size:10px;color:var(--faint);margin-top:3px}
-.section-meta-head{display:flex;align-items:center;gap:8px;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--border)}
-.type-badge{font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;background:var(--bg3);color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
-.divider{height:1px;background:var(--border);margin:14px 0}
-.toggle-row{display:flex;justify-content:space-between;align-items:center}
-.toggle{width:32px;height:18px;border-radius:9px;background:var(--bg3);border:1px solid var(--border);position:relative;cursor:pointer;transition:background .2s}
-.toggle.on{background:var(--blue);border-color:var(--blue)}
-.toggle::after{content:'';position:absolute;left:2px;top:2px;width:12px;height:12px;border-radius:50%;background:#fff;transition:left .2s}
+.field-label{display:block;font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.07em;margin-bottom:5px}
+.field input,.field textarea,.field select{width:100%;background:#0d1117;border:1px solid rgba(255,255,255,.1);
+  border-radius:6px;color:#e2e8f0;padding:7px 10px;outline:none;line-height:1.45}
+.field input:focus,.field textarea:focus{border-color:rgba(96,165,250,.4)}
+.field textarea{resize:vertical;min-height:62px}
+.sec-meta-head{padding-bottom:12px;margin-bottom:14px;border-bottom:1px solid rgba(255,255,255,.06)}
+.sec-meta-name{font-size:14px;font-weight:700;color:#e2e8f0;margin-bottom:2px}
+.sec-meta-type{font-size:11px;color:#475569}
+.type-chip{display:inline-flex;align-items:center;gap:5px;padding:2px 7px;border-radius:4px;
+  font-size:10px;font-weight:700;background:rgba(255,255,255,.06);color:#64748b}
+
+.vis-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;padding:8px 10px;
+  background:rgba(255,255,255,.03);border-radius:6px;border:1px solid rgba(255,255,255,.06)}
+.vis-label{font-size:12px;color:#94a3b8}
+.toggle{width:32px;height:18px;border-radius:9px;background:#1e293b;border:1px solid rgba(255,255,255,.1);
+  position:relative;cursor:pointer;transition:background .18s;flex-shrink:0}
+.toggle.on{background:#2563eb;border-color:#2563eb}
+.toggle::after{content:'';position:absolute;left:2px;top:2px;width:12px;height:12px;
+  border-radius:50%;background:#fff;transition:left .18s;box-shadow:0 1px 3px rgba(0,0,0,.3)}
 .toggle.on::after{left:16px}
-.btn-row{display:flex;gap:7px;margin-top:14px}
-.btn-danger{color:var(--red);border-color:rgba(239,68,68,.25);background:rgba(239,68,68,.08)}
-.btn-danger:hover{background:rgba(239,68,68,.15)}
-.btn-green{color:var(--green);border-color:rgba(34,197,94,.25);background:rgba(34,197,94,.08)}
-.btn-green:hover{background:rgba(34,197,94,.15)}
 
-/* HTML inject panel */
-.inject-area{background:var(--bg2);border:1px solid var(--border);border-radius:7px;overflow:hidden;margin-bottom:12px}
-.inject-area textarea{width:100%;min-height:220px;background:none;border:none;padding:10px;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.6;color:#a5f3fc;resize:vertical}
-.inject-meta{font-size:10px;color:var(--muted);padding:6px 10px;border-top:1px solid var(--border);background:var(--bg3);display:flex;justify-content:space-between}
-.section-name-input{width:100%;margin-bottom:8px}
-.section-type-select{width:100%;margin-bottom:8px}
-.position-select{width:100%;margin-bottom:12px}
-.preview-note{font-size:11px;color:var(--muted);padding:8px 10px;background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.15);border-radius:6px;margin-bottom:10px}
+.divider{height:1px;background:rgba(255,255,255,.06);margin:14px 0}
+.btn-row{display:flex;gap:7px}
+.btn-save{background:#2563eb;border-color:#2563eb;color:#fff;flex:1;justify-content:center}
+.btn-save:hover{background:#1d4ed8}
+.btn-save:disabled{opacity:.4}
+.btn-del{color:#f87171;border-color:rgba(248,113,113,.2);background:rgba(248,113,113,.06);width:100%;justify-content:center;margin-top:6px}
+.btn-del:hover{background:rgba(248,113,113,.12)}
+.btn-revert{color:#94a3b8}
 
-/* meta panel */
-.meta-row{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--border)}
-.meta-key{font-size:11px;color:var(--muted)}
-.meta-val{font-size:11px;color:var(--text);font-family:monospace}
-.status-badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;text-transform:uppercase}
-.status-published{background:rgba(34,197,94,.15);color:var(--green)}
-.status-draft{background:rgba(249,115,22,.15);color:var(--orange)}
-.status-archived{background:var(--bg3);color:var(--muted)}
-.live-link{color:var(--blue);font-size:12px;text-decoration:none}
+/* bullets */
+.bullet-row{display:flex;gap:5px;margin-bottom:5px}
+.bullet-row input{flex:1}
+.bullet-del{width:26px;height:32px;border:1px solid rgba(248,113,113,.2);border-radius:5px;
+  background:rgba(248,113,113,.06);color:#f87171;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0}
+.add-bullet{width:100%;padding:5px;border:1px dashed rgba(255,255,255,.08);border-radius:5px;
+  background:none;color:#475569;cursor:pointer;font-size:11px;transition:all .1s;margin-top:4px}
+.add-bullet:hover{border-color:rgba(255,255,255,.18);color:#94a3b8}
+
+/* HTML inject */
+.inject-code{background:#0d1117;border:1px solid rgba(255,255,255,.1);border-radius:7px;overflow:hidden;margin-bottom:10px}
+.inject-code textarea{width:100%;min-height:200px;background:none;border:none;padding:10px;
+  font-family:'JetBrains Mono','Fira Code',monospace;font-size:11px;line-height:1.65;color:#67e8f9;resize:vertical;outline:none}
+.inject-footer{display:flex;justify-content:space-between;padding:5px 9px;background:rgba(255,255,255,.03);
+  border-top:1px solid rgba(255,255,255,.06);font-size:10px;color:#374151}
+.preview-notice{padding:8px 10px;background:rgba(37,99,235,.08);border:1px solid rgba(37,99,235,.2);
+  border-radius:6px;font-size:11px;color:#93c5fd;margin-bottom:10px}
+
+/* page meta */
+.meta-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;
+  border-bottom:1px solid rgba(255,255,255,.05)}
+.meta-key{font-size:11px;color:#475569}
+.meta-val{font-size:11px;color:#94a3b8;font-family:monospace;text-align:right;max-width:160px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.status-pill{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700}
+.status-published{background:rgba(34,197,94,.12);color:#4ade80}
+.status-draft{background:rgba(251,191,36,.1);color:#fbbf24}
+.status-archived{background:rgba(255,255,255,.05);color:#64748b}
+.live-link{color:#60a5fa;font-size:12px;text-decoration:none;display:block;margin-top:4px}
 .live-link:hover{text-decoration:underline}
 
-/* activity */
-.activity-item{display:flex;gap:9px;padding:8px 0;border-bottom:1px solid var(--border)}
-.activity-dot{width:7px;height:7px;border-radius:50%;background:var(--faint);flex-shrink:0;margin-top:4px}
-.activity-dot.edit{background:var(--blue)}
-.activity-dot.pub{background:var(--green)}
-.act-action{font-size:11px;color:var(--muted)}
-.act-time{font-size:10px;color:var(--faint);margin-top:2px}
+/* theme settings panel */
+.theme-section{margin-bottom:16px}
+.theme-section-head{font-size:11px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.06em;
+  margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.theme-section-head::after{content:'';flex:1;height:1px;background:rgba(255,255,255,.06)}
+.color-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin-bottom:8px}
+.color-swatch{width:100%;aspect-ratio:1;border-radius:5px;border:2px solid transparent;cursor:pointer;transition:transform .1s}
+.color-swatch:hover{transform:scale(1.1)}
+.color-swatch.active{border-color:#fff}
+
+/* activity log */
+.act-item{display:flex;gap:9px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.04)}
+.act-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;margin-top:4px}
+.act-dot.edit{background:#3b82f6}
+.act-dot.pub{background:#22c55e}
+.act-dot.default{background:#374151}
+.act-text{font-size:11px;color:#64748b;line-height:1.45}
+.act-time{font-size:10px;color:#374151;margin-top:2px}
 
 /* toast */
-.iam-toast{position:fixed;bottom:20px;right:20px;background:var(--bg2);border:1px solid var(--border-hi);border-radius:8px;padding:9px 14px;font-size:12px;color:var(--text);opacity:0;transform:translateY(6px);transition:all .2s;pointer-events:none;z-index:9999;max-width:280px}
-.iam-toast.show{opacity:1;transform:translateY(0)}
-.iam-toast.err{border-color:rgba(239,68,68,.4)}
-.iam-toast.ok{border-color:rgba(34,197,94,.3)}
+.cms-toast{position:fixed;bottom:18px;right:18px;background:#1e293b;border:1px solid rgba(255,255,255,.12);
+  border-radius:8px;padding:10px 14px;font-size:12px;color:#e2e8f0;opacity:0;transform:translateY(6px);
+  transition:all .2s;pointer-events:none;z-index:9999;max-width:260px;box-shadow:0 10px 30px rgba(0,0,0,.4)}
+.cms-toast.show{opacity:1;transform:translateY(0)}
+.cms-toast.err{border-color:rgba(248,113,113,.3);color:#fca5a5}
+.cms-toast.ok{border-color:rgba(34,197,94,.25);color:#86efac}
 
 /* scrollbar */
-::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar{width:4px;height:4px}
 ::-webkit-scrollbar-track{background:transparent}
-::-webkit-scrollbar-thumb{background:var(--bg3);border-radius:2px}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,.08);border-radius:2px}
 
-/* saving spinner */
+/* spin */
 @keyframes spin{to{transform:rotate(360deg)}}
-.spin{display:inline-block;animation:spin .7s linear infinite}
+.spin{display:inline-block;animation:spin .7s linear infinite;margin-right:4px}
+
+/* highlight pulse on section click */
+@keyframes pulse-border{0%,100%{opacity:1}50%{opacity:.5}}
 `;
 
-function injectCSS(css) {
-  const id = 'iam-cms-editor-styles';
+function injectStyles() {
+  const id = 'cms-editor-v2';
   if (document.getElementById(id)) return;
   const s = document.createElement('style');
-  s.id = id;
-  s.textContent = css;
+  s.id = id; s.textContent = STYLES;
   document.head.appendChild(s);
 }
 
-/* ══════════════════════════════════════════════════════════
-   MAIN APP
-══════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════
+   SVG ICONS
+══════════════════════════════════════════════════════════════ */
+const I = {
+  back: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>,
+  sections: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>,
+  theme: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>,
+  desktop: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>,
+  tablet: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="12" y1="18" x2="12" y2="18"/></svg>,
+  mobile: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12" y2="18"/></svg>,
+  eye: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
+  eyeOff: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>,
+  link: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>,
+};
+
+/* ══════════════════════════════════════════════════════════════
+   ROOT COMPONENT
+══════════════════════════════════════════════════════════════ */
 function CmsEditor() {
-  injectCSS(CSS);
-
+  injectStyles();
   const ctx = readCtx();
-  const [bootstrap, setBootstrap] = useState(null);
-  const [loadingBoot, setLoadingBoot] = useState(false);
+
+  /* ── state ── */
+  const [bootstrap, setBootstrap]   = useState(null);
+  const [booting, setBooting]       = useState(false);
+  const [pages, setPages]           = useState([]);
   const [activePage, setActivePage] = useState(null);
-  const [sections, setSections] = useState([]);
+  const [sections, setSections]     = useState([]);
   const [activeSection, setActiveSection] = useState(null);
-  const [viewport, setViewport] = useState('desktop');
-  const [panelTab, setPanelTab] = useState('section'); // section | inject | meta
-  const [saving, setSaving] = useState(false);
-  const [publishing, setPublishing] = useState(false);
 
-  // HTML inject state
-  const [injectHtml, setInjectHtml] = useState('');
-  const [injectName, setInjectName] = useState('');
-  const [injectType, setInjectType] = useState('custom');
-  const [injectPosition, setInjectPosition] = useState('end');
-  const [injectPreviewing, setInjectPreviewing] = useState(false);
+  // Rail: which side-panel mode
+  const [railMode, setRailMode] = useState('sections'); // sections | theme
 
-  // Section dirty tracking
-  const [dirtyData, setDirtyData] = useState({});
+  // Right panel tab
+  const [rpTab, setRpTab] = useState('edit'); // edit | html | page
+
+  // Viewport
+  const [vp, setVp] = useState('desktop');
+
+  // Dirty fields for section editing
+  const [dirty, setDirty]     = useState({});
+  const [saving, setSaving]   = useState(false);
+  const [publishing, setPub]  = useState(false);
+
+  // HTML inject
+  const [htmlCode, setHtmlCode]   = useState('');
+  const [htmlName, setHtmlName]   = useState('');
+  const [htmlType, setHtmlType]   = useState('custom');
+  const [htmlPos, setHtmlPos]     = useState('end');
+  const [previewing, setPrev]     = useState(false);
 
   const iframeRef = useRef(null);
 
-  /* load bootstrap */
+  /* ── bootstrap ── */
   useEffect(() => {
     if (!ctx.project) return;
-    setLoadingBoot(true);
+    setBooting(true);
     api(`/api/cms/bootstrap?project_slug=${encodeURIComponent(ctx.project)}`)
-      .then((data) => {
+      .then(data => {
         setBootstrap(data);
-        const pages = data.pages || [];
-        const preferred = ctx.pageId
-          ? pages.find((p) => p.id === ctx.pageId)
-          : pages.find((p) => p.is_homepage) || pages[0];
-        if (preferred) selectPage(preferred, data);
+        const pg = data.pages || [];
+        setPages(pg);
+        const first = ctx.pageId
+          ? pg.find(p => p.id === ctx.pageId)
+          : pg.find(p => p.is_homepage) || pg[0];
+        if (first) loadPage(first, data);
       })
-      .catch((e) => { toast('Bootstrap failed: ' + e.message, 'err'); })
-      .finally(() => setLoadingBoot(false));
-  }, [ctx.project]);
+      .catch(e => showToast('Failed to load: ' + e.message, 'err'))
+      .finally(() => setBooting(false));
+  }, []);
 
-  function selectPage(page, boot = bootstrap) {
+  function loadPage(page, boot = bootstrap) {
     setActivePage(page);
     setActiveSection(null);
-    setDirtyData({});
-    const s = (boot?.sections_by_page?.[page.id] || [])
-      .slice()
-      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-    setSections(s);
-    setInjectPreviewing(false);
+    setDirty({});
+    setPrev(false);
+    const secs = ((boot?.sections_by_page || {})[page.id] || [])
+      .slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+    setSections(secs);
+    // reload iframe
+    const frame = iframeRef.current;
+    if (frame) {
+      frame.removeAttribute('srcdoc');
+      const url = pageToUrl(page, boot);
+      if (url) frame.src = url;
+    }
   }
 
-  /* drag reorder */
-  const dragHandlers = useDragReorder(sections, async (next) => {
+  function pageToUrl(page, boot = bootstrap) {
+    if (!page) return null;
+    const host = boot?.public_domain || `${ctx.project}.com`;
+    const slug = page.slug || '';
+    return (!slug || slug === 'home') ? `https://${host}/` : `https://${host}/${slug}`;
+  }
+
+  /* ── drag reorder ── */
+  const dragH = useDrag(sections, async next => {
     setSections(next);
     const order = next.map((s, i) => ({ id: s.id, sort_order: (i + 1) * 10 }));
     try {
       await api('/api/cms/sections/reorder', { method: 'POST', body: { page_id: activePage?.id, order } });
-      toast('Order saved');
-    } catch (e) {
-      toast('Reorder failed: ' + e.message, 'err');
-    }
+      showToast('Order saved');
+    } catch (e) { showToast('Reorder failed', 'err'); }
   });
 
-  /* toggle visibility */
-  async function toggleVisibility(sec) {
+  /* ── visibility toggle ── */
+  async function toggleVis(sec) {
     const updated = { ...sec, is_visible: sec.is_visible ? 0 : 1 };
-    setSections((prev) => prev.map((s) => s.id === sec.id ? updated : s));
+    setSections(prev => prev.map(s => s.id === sec.id ? updated : s));
     if (activeSection?.id === sec.id) setActiveSection(updated);
     try {
       await api(`/api/cms/sections/${encodeURIComponent(sec.id)}`, {
-        method: 'PUT',
-        body: { is_visible: updated.is_visible },
+        method: 'PUT', body: { is_visible: updated.is_visible },
       });
-      toast(updated.is_visible ? 'Section shown' : 'Section hidden');
-    } catch (e) {
-      toast('Visibility update failed', 'err');
-    }
+      showToast(updated.is_visible ? 'Section visible' : 'Section hidden');
+    } catch (_) { showToast('Failed', 'err'); }
   }
 
-  /* save section data */
+  /* ── save section ── */
   async function saveSection() {
-    if (!activeSection || !Object.keys(dirtyData).length) return;
+    if (!activeSection || !Object.keys(dirty).length) return;
     setSaving(true);
     try {
-      const currentData = typeof activeSection.section_data === 'string'
-        ? JSON.parse(activeSection.section_data || '{}')
-        : (activeSection.section_data || {});
-      const merged = { ...currentData, ...dirtyData };
+      const base = secData(activeSection);
+      const merged = { ...base, ...dirty };
       await api(`/api/cms/sections/${encodeURIComponent(activeSection.id)}`, {
-        method: 'PUT',
-        body: { section_data: merged },
+        method: 'PUT', body: { section_data: merged },
       });
-      const updated = { ...activeSection, section_data: merged };
-      setActiveSection(updated);
-      setSections((prev) => prev.map((s) => s.id === activeSection.id ? updated : s));
-      setDirtyData({});
-      toast('Saved · ' + activeSection.section_name);
-    } catch (e) {
-      toast('Save failed: ' + e.message, 'err');
-    } finally {
-      setSaving(false);
-    }
+      const upd = { ...activeSection, section_data: merged };
+      setActiveSection(upd);
+      setSections(prev => prev.map(s => s.id === activeSection.id ? upd : s));
+      setDirty({});
+      showToast('Saved · ' + activeSection.section_name, 'ok');
+    } catch (e) { showToast('Save failed: ' + e.message, 'err'); }
+    finally { setSaving(false); }
   }
 
-  /* publish page */
+  /* ── publish ── */
   async function publishPage() {
     if (!activePage) return;
-    setPublishing(true);
+    setPub(true);
     try {
       await api(`/api/cms/pages/${encodeURIComponent(activePage.id)}/publish`, { method: 'POST' });
-      toast('Published · ' + activePage.title, 'ok');
+      showToast('Published · ' + activePage.title, 'ok');
       postParent('iam-cms-navigate', { path: `/dashboard/cms/pages?site=${ctx.project}` });
-    } catch (e) {
-      toast('Publish failed: ' + e.message, 'err');
-    } finally {
-      setPublishing(false);
-    }
+    } catch (e) { showToast('Publish failed: ' + e.message, 'err'); }
+    finally { setPub(false); }
   }
 
-  /* preview HTML inject in iframe via srcdoc */
-  function previewInject() {
-    if (!injectHtml.trim()) { toast('Paste HTML first', 'err'); return; }
+  /* ── HTML inject preview ── */
+  function previewHtml() {
+    if (!htmlCode.trim()) { showToast('Paste HTML first', 'err'); return; }
     const frame = iframeRef.current;
     if (!frame) return;
     frame.removeAttribute('src');
-    frame.srcdoc = injectHtml;
-    setInjectPreviewing(true);
-    toast('Preview loaded · check all viewports');
+    frame.srcdoc = htmlCode;
+    setPrev(true);
+    showToast('Preview loaded — check all 3 viewports');
   }
 
-  function clearInjectPreview() {
+  function clearPreview() {
+    setPrev(false);
     const frame = iframeRef.current;
     if (!frame) return;
     frame.removeAttribute('srcdoc');
-    if (activePage) {
-      const url = pageUrl(activePage);
-      if (url) frame.src = url;
-    }
-    setInjectPreviewing(false);
+    const url = pageToUrl(activePage);
+    if (url) frame.src = url;
   }
 
-  /* publish injected HTML section */
-  async function publishInjectedSection() {
-    if (!injectHtml.trim() || !injectName.trim()) {
-      toast('Name and HTML required', 'err'); return;
-    }
-    if (!activePage) { toast('Select a page first', 'err'); return; }
+  /* ── publish inject ── */
+  async function publishHtmlSection() {
+    if (!htmlCode.trim() || !htmlName.trim()) { showToast('Name + HTML required', 'err'); return; }
+    if (!activePage) { showToast('Select a page first', 'err'); return; }
     setSaving(true);
     try {
-      // 1. Upload HTML to R2 via CMS API
-      const r2Res = await api('/api/cms/sections/upload-html', {
+      const r2 = await api('/api/cms/sections/upload-html', {
         method: 'POST',
-        body: {
-          page_id: activePage.id,
-          section_name: injectName,
-          section_type: injectType,
-          html: injectHtml,
-          project_slug: ctx.project,
-        },
+        body: { page_id: activePage.id, section_name: htmlName, section_type: htmlType, html: htmlCode, project_slug: ctx.project },
       });
-      // 2. Create section row in D1 (r2_key stored as metadata, not the HTML)
-      const newSection = await api('/api/cms/sections', {
+      const sec = await api('/api/cms/sections', {
         method: 'POST',
         body: {
-          page_id: activePage.id,
-          section_type: injectType,
-          section_name: injectName,
-          sort_order: injectPosition === 'end'
-            ? (sections.length + 1) * 10
-            : 10,
+          page_id: activePage.id, section_type: htmlType, section_name: htmlName,
+          sort_order: htmlPos === 'end' ? (sections.length + 1) * 10 : 5,
           is_visible: 1,
-          section_data: {
-            r2_key: r2Res.r2_key,
-            public_url: r2Res.public_url,
-            html_source: 'injected',
-          },
+          section_data: { r2_key: r2.r2_key, public_url: r2.public_url, html_source: 'injected' },
         },
       });
-      setSections((prev) => {
-        const next = injectPosition === 'end' ? [...prev, newSection] : [newSection, ...prev];
-        return next;
-      });
-      setInjectHtml('');
-      setInjectName('');
-      clearInjectPreview();
-      toast('Section published to R2 + D1 · ' + injectName, 'ok');
-    } catch (e) {
-      toast('Publish failed: ' + e.message, 'err');
-    } finally {
-      setSaving(false);
-    }
+      setSections(prev => htmlPos === 'end' ? [...prev, sec] : [sec, ...prev]);
+      setHtmlCode(''); setHtmlName('');
+      clearPreview();
+      showToast('Section published → R2 + D1', 'ok');
+    } catch (e) { showToast('Publish failed: ' + e.message, 'err'); }
+    finally { setSaving(false); }
   }
 
-  function pageUrl(page) {
-    if (!page) return null;
-    const slug = page.slug || '';
-    const host = bootstrap?.public_domain || `${ctx.project}.com`;
-    return slug === 'home' || !slug
-      ? `https://${host}/`
-      : `https://${host}/${slug}`;
+  /* ── helpers ── */
+  function secData(sec) {
+    if (!sec) return {};
+    const d = sec.section_data;
+    if (typeof d === 'string') { try { return JSON.parse(d); } catch { return {}; } }
+    return d || {};
   }
 
-  /* current iframe URL */
-  const iframeSrc = useMemo(() => {
-    if (injectPreviewing) return null;
-    return activePage ? pageUrl(activePage) : null;
-  }, [activePage, injectPreviewing, bootstrap]);
+  const liveUrl = activePage ? pageToUrl(activePage) : null;
+  const vpDef = VIEWPORTS.find(v => v.id === vp) || VIEWPORTS[0];
 
+  /* ── iframe src effect ── */
   useEffect(() => {
+    if (previewing) return;
     const frame = iframeRef.current;
-    if (!frame || injectPreviewing) return;
-    if (iframeSrc) frame.src = iframeSrc;
-  }, [iframeSrc, injectPreviewing]);
-
-  const vp = VIEWPORTS.find((v) => v.id === viewport) || VIEWPORTS[0];
-  const pages = bootstrap?.pages || [];
+    if (!frame || !liveUrl) return;
+    frame.src = liveUrl;
+  }, [liveUrl, previewing]);
 
   /* ── RENDER ── */
   return (
     <>
-      {/* toast mount */}
-      <div id="iam-toast" className="iam-toast" />
+      <div id="cms-toast" className="cms-toast" />
 
-      <div style={{ display: 'grid', gridTemplateRows: '44px 1fr', height: '100vh', overflow: 'hidden' }}>
+      <div className="shell">
 
-        {/* TOPBAR */}
-        <div className="topbar" style={{ gridColumn: '1/-1' }}>
-          <div className="topbar-dot" />
-          <span className="topbar-logo">CMS Studio</span>
-          <div className="topbar-sep" />
-
-          {/* page picker */}
-          <select
-            className="page-select"
-            value={activePage?.id || ''}
-            onChange={(e) => {
-              const p = pages.find((pg) => pg.id === e.target.value);
-              if (p) selectPage(p);
-            }}
-          >
-            {!activePage && <option value="">Select page…</option>}
-            {pages.map((p) => (
-              <option key={p.id} value={p.id}>{p.title || p.slug}</option>
-            ))}
-          </select>
-
-          <div className="topbar-sep" />
-
-          {/* viewport toggle */}
-          <div className="vp-toggle">
-            {VIEWPORTS.map((v) => (
-              <button
-                key={v.id}
-                className={`vp-btn ${viewport === v.id ? 'active' : ''}`}
-                onClick={() => setViewport(v.id)}
-                title={v.label}
-              >
-                {v.icon} {v.label}
-              </button>
-            ))}
+        {/* ═══ TOPBAR ═══ */}
+        <div className="topbar">
+          {/* left: page title + draft badge */}
+          <div style={{ width: 48, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }} />
+          <div style={{ width: 240, padding: '0 12px', display: 'flex', alignItems: 'center', gap: 6, borderRight: '1px solid rgba(255,255,255,.06)', flexShrink: 0 }}>
+            <span className="topbar-page-label">{activePage?.title || 'CMS Studio'}</span>
+            {activePage && <span className="topbar-draft">Draft</span>}
           </div>
 
+          {/* center: viewport toggle */}
+          <div className="topbar-mid">
+            <div className="vp-group">
+              {VIEWPORTS.map(v => (
+                <button key={v.id} className={`vp-btn ${vp === v.id ? 'active' : ''}`} onClick={() => setVp(v.id)}>
+                  {v.id === 'desktop' ? I.desktop : v.id === 'tablet' ? I.tablet : I.mobile}
+                  {v.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* right: actions */}
           <div className="topbar-right">
-            {injectPreviewing && (
-              <button className="btn btn-sm" onClick={clearInjectPreview}>← Live site</button>
+            {previewing && (
+              <button className="btn btn-sm" onClick={clearPreview}>← Live site</button>
             )}
+            <button className="btn btn-sm" onClick={() => { setRpTab('html'); }}>+ HTML</button>
             <button
-              className="btn btn-sm"
-              onClick={() => { setPanelTab('inject'); }}
-            >
-              + Inject HTML
-            </button>
-            <button
-              className="btn btn-sm primary"
+              className="btn btn-sm pub"
               onClick={publishPage}
               disabled={!activePage || publishing}
             >
-              {publishing ? <span className="spin">⟳</span> : null}
-              {publishing ? ' Publishing…' : 'Publish'}
+              {publishing && <span className="spin">⟳</span>}
+              {publishing ? 'Publishing…' : 'Publish'}
             </button>
           </div>
         </div>
 
-        {/* BODY: 3 columns */}
-        <div className="shell" style={{ gridRow: 2 }}>
+        {/* ═══ ICON RAIL ═══ */}
+        <div className="icon-rail">
+          {/* Back to dashboard */}
+          <button
+            className="rail-btn"
+            title="Back to dashboard"
+            onClick={() => postParent('iam-cms-navigate', { path: '/dashboard/cms' })}
+          >
+            {I.back}
+            <span className="rail-label">Back</span>
+          </button>
 
-          {/* ── LEFT SIDEBAR ── */}
-          <div className="sidebar">
-            <div className="sidebar-head">
-              <div className="sidebar-label">
-                {activePage ? activePage.title : 'Sections'}
-                {loadingBoot && <span style={{ marginLeft: 6, color: 'var(--faint)' }}>loading…</span>}
-              </div>
+          <div className="rail-divider" />
+
+          {/* Sections */}
+          <button
+            className={`rail-btn ${railMode === 'sections' ? 'active' : ''}`}
+            title="Sections"
+            onClick={() => setRailMode('sections')}
+          >
+            {I.sections}
+            <span className="rail-label">Sections</span>
+          </button>
+
+          {/* Theme */}
+          <button
+            className={`rail-btn ${railMode === 'theme' ? 'active' : ''}`}
+            title="Theme settings"
+            onClick={() => { setRailMode('theme'); setRpTab('theme'); }}
+          >
+            {I.theme}
+            <span className="rail-label">Theme</span>
+          </button>
+
+          <div className="rail-spacer" />
+        </div>
+
+        {/* ═══ SIDEBAR ═══ */}
+        <div className="sidebar">
+          <div className="sb-head">
+            <div className="sb-page-selector">
+              <div className="sb-page-label">Page</div>
+              <select
+                className="sb-page-select"
+                value={activePage?.id || ''}
+                onChange={e => {
+                  const p = pages.find(pg => pg.id === e.target.value);
+                  if (p) loadPage(p);
+                }}
+              >
+                {!activePage && <option value="">Choose page…</option>}
+                {pages.map(p => (
+                  <option key={p.id} value={p.id}>{p.title || p.slug}</option>
+                ))}
+              </select>
             </div>
+          </div>
 
-            <div className="section-list">
-              {sections.map((sec, idx) => (
-                <div
-                  key={sec.id}
-                  className={`section-row ${activeSection?.id === sec.id ? 'active' : ''} ${!sec.is_visible ? 'hidden-row' : ''}`}
-                  onClick={() => { setActiveSection(sec); setPanelTab('section'); }}
-                  {...dragHandlers(idx)}
-                >
-                  <span className="drag-handle" title="Drag to reorder">⋮⋮</span>
-                  <div className="section-icon">{TYPE_ICONS[sec.section_type] || TYPE_ICONS.default}</div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="section-name">{sec.section_name}</div>
-                    <div className="section-type">{sec.section_type}</div>
+          {railMode === 'sections' ? (
+            <>
+              {/* Header group */}
+              {sections.length > 0 && <div className="sb-group">Template</div>}
+
+              <div className="sec-list">
+                {booting && (
+                  <div style={{ padding: '16px 12px', color: '#374151', fontSize: 12 }}>
+                    <span className="spin">⟳</span> Loading…
                   </div>
-                  <button
-                    className="eye-btn"
-                    title={sec.is_visible ? 'Hide' : 'Show'}
-                    onClick={(e) => { e.stopPropagation(); toggleVisibility(sec); }}
-                  >
-                    {sec.is_visible ? '◉' : '◯'}
-                  </button>
+                )}
+                {sections.map((sec, idx) => {
+                  const color = SECTION_TYPE_COLORS[sec.section_type] || SECTION_TYPE_COLORS.default;
+                  const isActive = activeSection?.id === sec.id;
+                  return (
+                    <div
+                      key={sec.id}
+                      className={`sec-row ${isActive ? 'active' : ''} ${!sec.is_visible ? 'hidden' : ''}`}
+                      onClick={() => { setActiveSection(sec); setRpTab('edit'); setDirty({}); }}
+                      {...dragH(idx)}
+                    >
+                      <span className="drag-grip">⋮⋮</span>
+                      <div className="sec-icon" style={{ color, background: color + '18' }}>
+                        {(sec.section_type || 'S').slice(0, 2).toUpperCase()}
+                      </div>
+                      <div className="sec-info">
+                        <div className="sec-name">{sec.section_name}</div>
+                        <div className="sec-type">{sec.section_type}</div>
+                      </div>
+                      <button
+                        className="eye-btn"
+                        title={sec.is_visible ? 'Hide' : 'Show'}
+                        onClick={e => { e.stopPropagation(); toggleVis(sec); }}
+                      >
+                        {sec.is_visible ? I.eye : I.eyeOff}
+                      </button>
+                    </div>
+                  );
+                })}
+                {!sections.length && !booting && (
+                  <div style={{ padding: '14px 12px', color: '#374151', fontSize: 12 }}>
+                    No sections yet
+                  </div>
+                )}
+              </div>
+
+              <button className="add-sec-btn" onClick={() => setRpTab('html')}>
+                <span style={{ fontSize: 16, lineHeight: 1 }}>+</span>
+                Add section
+              </button>
+            </>
+          ) : (
+            /* Theme mode: show theme settings tree */
+            <div className="sec-list" style={{ padding: '8px 0' }}>
+              <div className="sb-group">Global settings</div>
+              {['Logo', 'Colors', 'Typography', 'Layout', 'Animations', 'Buttons', 'Inputs'].map(s => (
+                <div
+                  key={s}
+                  className="sec-row"
+                  onClick={() => { setRpTab('theme'); }}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <div className="sec-info" style={{ paddingLeft: 4 }}>
+                    <div className="sec-name">{s}</div>
+                  </div>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#374151" strokeWidth="2"><path d="M9 18l6-6-6-6"/></svg>
                 </div>
               ))}
-              {!sections.length && !loadingBoot && (
-                <div style={{ padding: '16px 12px', color: 'var(--muted)', fontSize: 12 }}>
-                  No sections yet
-                </div>
-              )}
             </div>
+          )}
+        </div>
 
-            <button
-              className="add-section-btn"
-              onClick={() => setPanelTab('inject')}
-            >
-              <span style={{ fontSize: 16 }}>+</span> Add section
-            </button>
+        {/* ═══ CANVAS ═══ */}
+        <div className="canvas">
+          <div className="canvas-bar">
+            <div className="canvas-dots">
+              <div className="canvas-dot" />
+              <div className="canvas-dot" />
+              <div className="canvas-dot" />
+            </div>
+            <div className="canvas-url">
+              {previewing
+                ? '⚡ HTML Preview'
+                : liveUrl
+                  ? <a href={liveUrl} target="_blank" rel="noopener noreferrer">{liveUrl} {I.link}</a>
+                  : 'No page selected'}
+            </div>
           </div>
 
-          {/* ── CENTER CANVAS ── */}
-          <div className="canvas">
-            <div className="canvas-chrome">
-              <div className="chrome-dot" />
-              <div className="chrome-dot" />
-              <div className="chrome-dot" />
-              <div className="chrome-url">
-                {injectPreviewing
-                  ? '⚡ HTML preview — not a live URL'
-                  : (iframeSrc || (activePage ? pageUrl(activePage) : 'No page selected'))}
+          <div className="canvas-stage">
+            {activePage || previewing ? (
+              <div
+                className="frame-shell"
+                style={{
+                  width: vpDef.w ? Math.min(vpDef.w, window.innerWidth - 600) : '100%',
+                  height: 'calc(100vh - 44px - 36px - 32px)',
+                  maxWidth: '100%',
+                }}
+              >
+                <iframe
+                  ref={iframeRef}
+                  className="site-iframe"
+                  title="CMS Preview"
+                  style={{ height: '100%' }}
+                  sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                />
+                {/* active section highlight overlay */}
+                <div className={`frame-highlight ${activeSection ? 'show' : ''}`} />
               </div>
-              {iframeSrc && !injectPreviewing && (
-                <a
-                  href={iframeSrc}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ color: 'var(--muted)', fontSize: 11, textDecoration: 'none', marginLeft: 6 }}
-                >
-                  ↗
-                </a>
-              )}
-            </div>
+            ) : (
+              <div className="canvas-empty-state">
+                <div className="ces-icon">◱</div>
+                <div className="ces-text">Select a page to preview</div>
+              </div>
+            )}
+          </div>
+        </div>
 
-            <div className="canvas-body">
-              {activePage || injectPreviewing ? (
-                <div
-                  className="frame-wrap"
-                  style={{
-                    width: vp.width,
-                    height: 'calc(100vh - 44px - 32px - 32px)',
-                    maxWidth: '100%',
-                  }}
-                >
-                  <iframe
-                    ref={iframeRef}
-                    className="site-frame"
-                    title="CMS Preview"
-                    sandbox="allow-scripts allow-same-origin allow-forms"
-                  />
-                </div>
-              ) : (
-                <div className="canvas-empty">
-                  <div className="canvas-empty-icon">◱</div>
-                  <div>Select a page to preview</div>
-                </div>
-              )}
-            </div>
+        {/* ═══ RIGHT PANEL ═══ */}
+        <div className="rpanel">
+          <div className="rp-tabs">
+            <button className={`rp-tab ${rpTab === 'edit' ? 'active' : ''}`} onClick={() => setRpTab('edit')}>Edit</button>
+            <button className={`rp-tab ${rpTab === 'html' ? 'active' : ''}`} onClick={() => setRpTab('html')}>HTML</button>
+            <button className={`rp-tab ${rpTab === 'page' ? 'active' : ''}`} onClick={() => setRpTab('page')}>Page</button>
+            <button className={`rp-tab ${rpTab === 'theme' ? 'active' : ''}`} onClick={() => setRpTab('theme')}>Theme</button>
           </div>
 
-          {/* ── RIGHT PANEL ── */}
-          <div className="panel">
-            <div className="panel-tabs">
-              <button
-                className={`panel-tab ${panelTab === 'section' ? 'active' : ''}`}
-                onClick={() => setPanelTab('section')}
-              >Edit</button>
-              <button
-                className={`panel-tab ${panelTab === 'inject' ? 'active' : ''}`}
-                onClick={() => setPanelTab('inject')}
-              >HTML</button>
-              <button
-                className={`panel-tab ${panelTab === 'meta' ? 'active' : ''}`}
-                onClick={() => setPanelTab('meta')}
-              >Page</button>
-            </div>
-
-            <div className="panel-body">
-              {panelTab === 'section' && <SectionPanel
+          <div className="rp-body">
+            {rpTab === 'edit' && (
+              <EditPanel
                 section={activeSection}
-                dirtyData={dirtyData}
-                setDirtyData={setDirtyData}
+                data={{ ...secData(activeSection), ...dirty }}
+                onChange={(k, v) => setDirty(prev => ({ ...prev, [k]: v }))}
+                dirty={dirty}
                 onSave={saveSection}
                 saving={saving}
-                onDelete={async (sec) => {
-                  if (!confirm('Delete this section?')) return;
+                onRevert={() => setDirty({})}
+                onToggle={() => activeSection && toggleVis(activeSection)}
+                onDelete={async () => {
+                  if (!activeSection || !confirm('Delete section?')) return;
                   try {
-                    await api(`/api/cms/sections/${encodeURIComponent(sec.id)}`, { method: 'DELETE' });
-                    setSections((prev) => prev.filter((s) => s.id !== sec.id));
+                    await api(`/api/cms/sections/${encodeURIComponent(activeSection.id)}`, { method: 'DELETE' });
+                    setSections(prev => prev.filter(s => s.id !== activeSection.id));
                     setActiveSection(null);
-                    toast('Section deleted');
-                  } catch (e) { toast('Delete failed: ' + e.message, 'err'); }
+                    showToast('Deleted');
+                  } catch (e) { showToast('Delete failed', 'err'); }
                 }}
-              />}
-              {panelTab === 'inject' && <InjectPanel
-                html={injectHtml}
-                setHtml={setInjectHtml}
-                name={injectName}
-                setName={setInjectName}
-                type={injectType}
-                setType={setInjectType}
-                position={injectPosition}
-                setPosition={setInjectPosition}
-                previewing={injectPreviewing}
-                onPreview={previewInject}
-                onClearPreview={clearInjectPreview}
-                onPublish={publishInjectedSection}
+              />
+            )}
+            {rpTab === 'html' && (
+              <HtmlPanel
+                code={htmlCode} setCode={setHtmlCode}
+                name={htmlName} setName={setHtmlName}
+                type={htmlType} setType={setHtmlType}
+                pos={htmlPos} setPos={setHtmlPos}
+                previewing={previewing}
+                onPreview={previewHtml}
+                onClearPreview={clearPreview}
+                onPublish={publishHtmlSection}
                 saving={saving}
-              />}
-              {panelTab === 'meta' && <MetaPanel
-                page={activePage}
-                sections={sections}
-                project={ctx.project}
-                pageUrl={iframeSrc}
-                bootstrap={bootstrap}
-              />}
-            </div>
+              />
+            )}
+            {rpTab === 'page' && (
+              <PagePanel page={activePage} sections={sections} url={liveUrl} />
+            )}
+            {rpTab === 'theme' && (
+              <ThemePanel bootstrap={bootstrap} project={ctx.project} />
+            )}
           </div>
-
         </div>
+
       </div>
     </>
   );
 }
 
-/* ── Section Edit Panel ─────────────────────────────────── */
-function SectionPanel({ section, dirtyData, setDirtyData, onSave, saving, onDelete }) {
+/* ══════════════════════════════════════════════════════════════
+   EDIT PANEL
+══════════════════════════════════════════════════════════════ */
+const FIELD_MAP = [
+  ['headline',             'Headline',            'input'],
+  ['title',                'Title',               'input'],
+  ['heading',              'Heading',             'input'],
+  ['eyebrow',              'Eyebrow',             'input'],
+  ['subheadline',          'Subheadline',         'textarea'],
+  ['sub',                  'Subtext',             'textarea'],
+  ['body',                 'Body copy',           'textarea'],
+  ['copy',                 'Copy',                'textarea'],
+  ['email',                'Email',               'input'],
+  ['cta_label',            'CTA label',           'input'],
+  ['cta_href',             'CTA link',            'input'],
+  ['secondary_cta_label',  'Secondary CTA label', 'input'],
+  ['secondary_cta_href',   'Secondary CTA link',  'input'],
+];
+
+function EditPanel({ section, data, onChange, dirty, onSave, saving, onRevert, onToggle, onDelete }) {
   if (!section) return (
-    <div className="panel-empty">
-      <div className="panel-empty-icon">✦</div>
-      <div>Select a section to edit</div>
+    <div className="rp-empty">
+      <div className="rp-empty-icon">✦</div>
+      <div style={{ fontSize: 12, color: '#374151' }}>Click a section in the sidebar to edit it</div>
     </div>
   );
 
-  const data = useMemo(() => {
-    const base = typeof section.section_data === 'string'
-      ? JSON.parse(section.section_data || '{}')
-      : (section.section_data || {});
-    return { ...base, ...dirtyData };
-  }, [section, dirtyData]);
-
-  function set(key, val) {
-    setDirtyData((prev) => ({ ...prev, [key]: val }));
-  }
-
-  const EDITABLE_FIELDS = [
-    ['headline', 'Headline', 'input'],
-    ['title', 'Title', 'input'],
-    ['heading', 'Heading', 'input'],
-    ['subheadline', 'Subheadline', 'textarea'],
-    ['sub', 'Subtext', 'textarea'],
-    ['body', 'Body copy', 'textarea'],
-    ['copy', 'Copy', 'textarea'],
-    ['eyebrow', 'Eyebrow', 'input'],
-    ['email', 'Email', 'input'],
-    ['cta_label', 'CTA label', 'input'],
-    ['cta_href', 'CTA link', 'input'],
-    ['secondary_cta_label', 'Secondary CTA label', 'input'],
-    ['secondary_cta_href', 'Secondary CTA link', 'input'],
-  ];
-
-  const shownFields = EDITABLE_FIELDS.filter(([key]) => data[key] !== undefined);
+  const shown = FIELD_MAP.filter(([k]) => data[k] !== undefined);
 
   return (
     <div>
-      <div className="section-meta-head">
-        <div>
-          <div style={{ fontWeight: 600, fontSize: 13 }}>{section.section_name}</div>
-          <div style={{ color: 'var(--muted)', fontSize: 11, marginTop: 2 }}>{section.section_type}</div>
+      <div className="sec-meta-head">
+        <div className="sec-meta-name">{section.section_name}</div>
+        <div className="sec-meta-type">
+          <span className="type-chip">{section.section_type}</span>
         </div>
       </div>
 
-      {!shownFields.length && (
-        <div style={{ color: 'var(--muted)', fontSize: 12, marginBottom: 14 }}>
-          No editable fields detected. Raw JSON available below.
+      {/* visibility */}
+      <div className="vis-row">
+        <span className="vis-label">{section.is_visible ? 'Visible' : 'Hidden'}</span>
+        <div
+          className={`toggle ${section.is_visible ? 'on' : ''}`}
+          onClick={onToggle}
+        />
+      </div>
+
+      {!shown.length && (
+        <div style={{ color: '#374151', fontSize: 12, marginBottom: 14 }}>
+          No text fields detected. Use Raw JSON below.
         </div>
       )}
 
-      {shownFields.map(([key, label, type]) => {
+      {shown.map(([key, label, type]) => {
         let val = data[key];
-        if (typeof val === 'object' && val !== null) val = val.text || JSON.stringify(val);
+        if (val && typeof val === 'object') val = val.text || JSON.stringify(val);
         return (
           <div className="field" key={key}>
             <label className="field-label">{label}</label>
-            {type === 'textarea' ? (
-              <textarea
-                value={val || ''}
-                rows={3}
-                onChange={(e) => set(key, e.target.value)}
-              />
-            ) : (
-              <input
-                type="text"
-                value={val || ''}
-                onChange={(e) => set(key, e.target.value)}
-              />
-            )}
+            {type === 'textarea'
+              ? <textarea rows={3} value={val || ''} onChange={e => onChange(key, e.target.value)} />
+              : <input type="text" value={val || ''} onChange={e => onChange(key, e.target.value)} />
+            }
           </div>
         );
       })}
@@ -773,45 +871,54 @@ function SectionPanel({ section, dirtyData, setDirtyData, onSave, saving, onDele
       {Array.isArray(data.bullets) && (
         <BulletsEditor
           bullets={data.bullets}
-          onChange={(b) => set('bullets', b)}
+          onChange={b => onChange('bullets', b)}
         />
       )}
 
-      {/* raw JSON fallback */}
-      <details style={{ marginTop: 14 }}>
-        <summary style={{ fontSize: 11, color: 'var(--muted)', cursor: 'pointer', marginBottom: 6 }}>
-          Raw section_data
-        </summary>
+      {/* feature cards */}
+      {Array.isArray(data.feature_cards) && (
+        <div className="field">
+          <label className="field-label">Feature cards</label>
+          {data.feature_cards.map((card, i) => (
+            <div key={i} style={{ background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.06)', borderRadius: 6, padding: 10, marginBottom: 6 }}>
+              <div style={{ fontSize: 10, color: '#475569', marginBottom: 6 }}>Card {i + 1} · {card.key}</div>
+              <input type="text" value={card.title || ''} placeholder="Title" style={{ width: '100%', background: '#0d1117', border: '1px solid rgba(255,255,255,.1)', borderRadius: 5, color: '#e2e8f0', padding: '5px 8px', marginBottom: 4 }}
+                onChange={e => {
+                  const cards = [...data.feature_cards];
+                  cards[i] = { ...cards[i], title: e.target.value };
+                  onChange('feature_cards', cards);
+                }} />
+              <textarea rows={2} value={card.description || ''} placeholder="Description" style={{ width: '100%', background: '#0d1117', border: '1px solid rgba(255,255,255,.1)', borderRadius: 5, color: '#e2e8f0', padding: '5px 8px', resize: 'vertical' }}
+                onChange={e => {
+                  const cards = [...data.feature_cards];
+                  cards[i] = { ...cards[i], description: e.target.value };
+                  onChange('feature_cards', cards);
+                }} />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* raw JSON toggle */}
+      <details style={{ marginTop: 12 }}>
+        <summary style={{ fontSize: 11, color: '#374151', cursor: 'pointer', userSelect: 'none' }}>Raw JSON</summary>
         <textarea
-          style={{ width: '100%', minHeight: 100, fontFamily: 'monospace', fontSize: 10 }}
+          style={{ width: '100%', minHeight: 90, marginTop: 6, background: '#0d1117', border: '1px solid rgba(255,255,255,.08)', borderRadius: 5, color: '#67e8f9', padding: 8, fontFamily: 'monospace', fontSize: 10, resize: 'vertical' }}
           value={JSON.stringify(data, null, 2)}
-          onChange={(e) => {
-            try {
-              const parsed = JSON.parse(e.target.value);
-              setDirtyData(parsed);
-            } catch (_) {}
-          }}
+          onChange={e => { try { const p = JSON.parse(e.target.value); Object.entries(p).forEach(([k, v]) => onChange(k, v)); } catch (_) {} }}
         />
       </details>
 
       <div className="divider" />
+
       <div className="btn-row">
-        <button
-          className="btn btn-sm primary"
-          onClick={onSave}
-          disabled={saving || !Object.keys(dirtyData).length}
-        >
-          {saving ? <span className="spin">⟳</span> : null}
-          {saving ? ' Saving…' : 'Save changes'}
+        <button className="btn btn-save" onClick={onSave} disabled={saving || !Object.keys(dirty).length}>
+          {saving && <span className="spin">⟳</span>}
+          {saving ? 'Saving…' : 'Save'}
         </button>
-        <button className="btn btn-sm" onClick={() => setDirtyData({})}>Revert</button>
+        <button className="btn btn-revert btn-sm" onClick={onRevert}>Revert</button>
       </div>
-      <div className="btn-row" style={{ marginTop: 8 }}>
-        <button className="btn btn-sm btn-danger" style={{ width: '100%', justifyContent: 'center' }}
-          onClick={() => onDelete(section)}>
-          Delete section
-        </button>
-      </div>
+      <button className="btn btn-del" onClick={onDelete}>Delete section</button>
     </div>
   );
 }
@@ -821,60 +928,35 @@ function BulletsEditor({ bullets, onChange }) {
     <div className="field">
       <label className="field-label">Bullets</label>
       {bullets.map((b, i) => (
-        <div key={i} style={{ display: 'flex', gap: 5, marginBottom: 5 }}>
-          <input
-            type="text"
-            value={b}
-            style={{ flex: 1 }}
-            onChange={(e) => {
-              const next = [...bullets];
-              next[i] = e.target.value;
-              onChange(next);
-            }}
-          />
-          <button
-            className="btn btn-sm btn-danger"
-            onClick={() => onChange(bullets.filter((_, j) => j !== i))}
-          >✕</button>
+        <div className="bullet-row" key={i}>
+          <input type="text" value={b}
+            onChange={e => { const n = [...bullets]; n[i] = e.target.value; onChange(n); }} />
+          <button className="bullet-del" onClick={() => onChange(bullets.filter((_, j) => j !== i))}>✕</button>
         </div>
       ))}
-      <button
-        className="btn btn-sm"
-        style={{ marginTop: 4, width: '100%', justifyContent: 'center' }}
-        onClick={() => onChange([...bullets, ''])}
-      >
-        + Add bullet
-      </button>
+      <button className="add-bullet" onClick={() => onChange([...bullets, ''])}>+ Add bullet</button>
     </div>
   );
 }
 
-/* ── HTML Inject Panel ──────────────────────────────────── */
-function InjectPanel({ html, setHtml, name, setName, type, setType, position, setPosition,
+/* ══════════════════════════════════════════════════════════════
+   HTML INJECT PANEL
+══════════════════════════════════════════════════════════════ */
+function HtmlPanel({ code, setCode, name, setName, type, setType, pos, setPos,
   previewing, onPreview, onClearPreview, onPublish, saving }) {
-
-  const charCount = html.length;
-
   return (
     <div>
-      <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10 }}>Inject HTML section</div>
+      <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 12 }}>Inject HTML section</div>
 
       <div className="field">
         <label className="field-label">Section name</label>
-        <input
-          type="text"
-          className="section-name-input"
-          placeholder="e.g. hero-dark-v2"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
+        <input type="text" value={name} placeholder="e.g. hero-redesign" onChange={e => setName(e.target.value)} />
       </div>
 
       <div className="field">
-        <label className="field-label">Section type</label>
-        <select className="section-type-select" value={type} onChange={(e) => setType(e.target.value)}>
-          {['hero','services','work','faq','cta','overview','portfolio_gallery','case-study',
-            'statement','contact_path','collaborate','service','closing','custom'].map((t) => (
+        <label className="field-label">Type</label>
+        <select value={type} onChange={e => setType(e.target.value)}>
+          {['hero','services','work','faq','cta','overview','case-study','statement','contact_path','service','closing','custom'].map(t => (
             <option key={t} value={t}>{t}</option>
           ))}
         </select>
@@ -882,73 +964,70 @@ function InjectPanel({ html, setHtml, name, setName, type, setType, position, se
 
       <div className="field">
         <label className="field-label">Position</label>
-        <select className="position-select" value={position} onChange={(e) => setPosition(e.target.value)}>
+        <select value={pos} onChange={e => setPos(e.target.value)}>
           <option value="end">End of page</option>
           <option value="start">Start of page</option>
         </select>
       </div>
 
-      <div className="inject-area">
+      <label style={{ display: 'block', fontSize: 10, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 5 }}>HTML</label>
+      <div className="inject-code">
         <textarea
+          value={code}
+          onChange={e => setCode(e.target.value)}
           placeholder="<!-- Paste your HTML here -->"
-          value={html}
-          onChange={(e) => setHtml(e.target.value)}
           spellCheck={false}
         />
-        <div className="inject-meta">
-          <span>{charCount.toLocaleString()} chars</span>
-          <span>{html.split('\n').length} lines</span>
+        <div className="inject-footer">
+          <span>{code.length.toLocaleString()} chars</span>
+          <span>{code.split('\n').length} lines</span>
         </div>
       </div>
 
       {previewing && (
-        <div className="preview-note">
-          ⚡ Previewing in canvas — check Desktop, Tablet, and Mobile viewports above.
+        <div className="preview-notice">
+          ⚡ Previewing in canvas — toggle Desktop / Tablet / Mobile above
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: 7, flexDirection: 'column' }}>
-        <div style={{ display: 'flex', gap: 7 }}>
-          {!previewing ? (
-            <button className="btn btn-sm" style={{ flex: 1, justifyContent: 'center' }} onClick={onPreview}>
-              Preview in canvas
-            </button>
-          ) : (
-            <button className="btn btn-sm" style={{ flex: 1, justifyContent: 'center' }} onClick={onClearPreview}>
-              ← Back to live
-            </button>
-          )}
-        </div>
-        <button
-          className="btn btn-sm primary"
-          style={{ width: '100%', justifyContent: 'center' }}
-          onClick={onPublish}
-          disabled={saving || !html.trim() || !name.trim()}
-        >
-          {saving ? <span className="spin">⟳</span> : null}
-          {saving ? ' Publishing…' : 'Publish section → R2 + D1'}
-        </button>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+        {!previewing
+          ? <button className="btn" style={{ flex: 1, justifyContent: 'center' }} onClick={onPreview}>Preview in canvas</button>
+          : <button className="btn" style={{ flex: 1, justifyContent: 'center' }} onClick={onClearPreview}>← Live site</button>
+        }
       </div>
 
-      <div className="divider" style={{ marginTop: 12 }} />
-      <div style={{ fontSize: 10, color: 'var(--muted)', lineHeight: 1.6 }}>
-        HTML uploads to R2 at <code>cms/sections/{'{page}'}/{'{name}'}/</code>.
-        D1 stores metadata only — no HTML in the database.
+      <button
+        className="btn pub"
+        style={{ width: '100%', justifyContent: 'center' }}
+        onClick={onPublish}
+        disabled={saving || !code.trim() || !name.trim()}
+      >
+        {saving && <span className="spin">⟳</span>}
+        {saving ? 'Publishing…' : 'Publish → R2 + D1'}
+      </button>
+
+      <div className="divider" />
+      <div style={{ fontSize: 10, color: '#374151', lineHeight: 1.65 }}>
+        HTML is stored in R2 at <code style={{ color: '#67e8f9' }}>cms/sections/{'{page}'}/{'{name}'}/</code>.<br />
+        D1 stores only metadata — no HTML in the database.
       </div>
     </div>
   );
 }
 
-/* ── Meta / Page Info Panel ─────────────────────────────── */
-function MetaPanel({ page, sections, project, pageUrl, bootstrap }) {
+/* ══════════════════════════════════════════════════════════════
+   PAGE INFO PANEL
+══════════════════════════════════════════════════════════════ */
+function PagePanel({ page, sections, url }) {
   if (!page) return (
-    <div className="panel-empty">
-      <div className="panel-empty-icon">◱</div>
-      <div>Select a page to view info</div>
+    <div className="rp-empty">
+      <div className="rp-empty-icon">◱</div>
+      <div style={{ fontSize: 12, color: '#374151' }}>Select a page</div>
     </div>
   );
 
-  const visibleCount = sections.filter((s) => s.is_visible).length;
+  const vis = sections.filter(s => s.is_visible).length;
   const statusClass = page.status === 'published' ? 'status-published'
     : page.status === 'draft' ? 'status-draft' : 'status-archived';
 
@@ -956,74 +1035,89 @@ function MetaPanel({ page, sections, project, pageUrl, bootstrap }) {
     if (!ts) return '—';
     const n = Number(ts);
     const d = Number.isFinite(n) && n > 1e8 ? new Date(n * 1000) : new Date(ts);
-    if (isNaN(d.getTime())) return String(ts);
-    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-      + ' at '
-      + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    return isNaN(d.getTime()) ? String(ts)
+      : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' at ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
   }
 
   return (
     <div>
-      <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 12 }}>{page.title}</div>
+      <div style={{ fontWeight: 700, fontSize: 14, color: '#e2e8f0', marginBottom: 12 }}>{page.title}</div>
+      <div className="meta-row"><span className="meta-key">Status</span><span className={`status-pill ${statusClass}`}>{page.status}</span></div>
+      <div className="meta-row"><span className="meta-key">Slug</span><span className="meta-val">/{page.slug}</span></div>
+      <div className="meta-row"><span className="meta-key">Type</span><span className="meta-val">{page.page_type || '—'}</span></div>
+      <div className="meta-row"><span className="meta-key">Sections</span><span className="meta-val">{sections.length} total · {vis} visible</span></div>
+      <div className="meta-row"><span className="meta-key">Last edited</span><span className="meta-val">{fmt(page.updated_at)}</span></div>
+      <div className="meta-row"><span className="meta-key">Page ID</span><span className="meta-val" style={{ fontSize: 10 }}>{page.id}</span></div>
 
-      <div className="meta-row">
-        <span className="meta-key">Status</span>
-        <span className={`status-badge ${statusClass}`}>{page.status}</span>
-      </div>
-      <div className="meta-row">
-        <span className="meta-key">Page ID</span>
-        <span className="meta-val" style={{ fontSize: 10 }}>{page.id}</span>
-      </div>
-      <div className="meta-row">
-        <span className="meta-key">Slug</span>
-        <span className="meta-val">/{page.slug}</span>
-      </div>
-      <div className="meta-row">
-        <span className="meta-key">Type</span>
-        <span className="meta-val">{page.page_type || '—'}</span>
-      </div>
-      <div className="meta-row">
-        <span className="meta-key">Sections</span>
-        <span className="meta-val">{sections.length} total · {visibleCount} visible</span>
-      </div>
-      <div className="meta-row">
-        <span className="meta-key">Last edited</span>
-        <span className="meta-val" style={{ fontSize: 11 }}>{fmt(page.updated_at)}</span>
-      </div>
-      <div className="meta-row">
-        <span className="meta-key">Tenant</span>
-        <span className="meta-val" style={{ fontSize: 10 }}>tenant_sam_primeaux</span>
-      </div>
-
-      <div className="divider" />
-      {pageUrl && (
+      {url && (
         <>
-          <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 5 }}>LIVE URL</div>
-          <a href={pageUrl} target="_blank" rel="noopener noreferrer" className="live-link">
-            {pageUrl} ↗
-          </a>
           <div className="divider" />
+          <div style={{ fontSize: 10, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 5 }}>Live URL</div>
+          <a href={url} target="_blank" rel="noopener noreferrer" className="live-link">{url} ↗</a>
         </>
       )}
-
-      <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 8, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em' }}>
-        Activity
-      </div>
-      {[
-        { type: 'pub', action: 'Published · ' + (page.title || ''), time: fmt(page.updated_at) },
-        { type: 'edit', action: 'Edited sections', time: 'Recent' },
-      ].map((a, i) => (
-        <div className="activity-item" key={i}>
-          <div className={`activity-dot ${a.type}`} />
-          <div>
-            <div className="act-action">{a.action}</div>
-            <div className="act-time">{a.time}</div>
-          </div>
-        </div>
-      ))}
     </div>
   );
 }
 
-/* ── Mount ──────────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════
+   THEME SETTINGS PANEL
+══════════════════════════════════════════════════════════════ */
+function ThemePanel({ bootstrap, project }) {
+  const theme = bootstrap?.active_theme || {};
+  const [accentColor, setAccent] = useState(theme.accent || '#3b82f6');
+
+  const PALETTE = ['#3b82f6','#8b5cf6','#ec4899','#ef4444','#f97316','#22c55e','#14b8a6','#0ea5e9','#a3a3a3','#1a1a1a'];
+
+  return (
+    <div>
+      <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 14 }}>Theme settings</div>
+
+      <div className="theme-section">
+        <div className="theme-section-head">Colors</div>
+        <div style={{ fontSize: 11, color: '#475569', marginBottom: 8 }}>Accent color</div>
+        <div className="color-grid">
+          {PALETTE.map(c => (
+            <div
+              key={c}
+              className={`color-swatch ${accentColor === c ? 'active' : ''}`}
+              style={{ background: c, borderColor: accentColor === c ? '#fff' : 'transparent' }}
+              onClick={() => setAccent(c)}
+            />
+          ))}
+        </div>
+        <div className="field">
+          <label className="field-label">Custom hex</label>
+          <input type="text" value={accentColor} onChange={e => setAccent(e.target.value)} />
+        </div>
+      </div>
+
+      <div className="theme-section">
+        <div className="theme-section-head">Active theme</div>
+        {theme.name && (
+          <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>{theme.name}</div>
+        )}
+        {theme.slug && (
+          <div style={{ fontSize: 10, color: '#475569', fontFamily: 'monospace' }}>{theme.slug}</div>
+        )}
+      </div>
+
+      <div className="divider" />
+      <button
+        className="btn pub"
+        style={{ width: '100%', justifyContent: 'center' }}
+        onClick={async () => {
+          try {
+            await api('/api/cms/themes/activate', { method: 'POST', body: { slug: theme.slug, accent: accentColor } });
+            showToast('Theme settings saved', 'ok');
+          } catch (e) { showToast('Save failed: ' + e.message, 'err'); }
+        }}
+      >
+        Save theme settings
+      </button>
+    </div>
+  );
+}
+
+/* ── mount ── */
 ReactDOM.createRoot(document.getElementById('app')).render(<CmsEditor />);
