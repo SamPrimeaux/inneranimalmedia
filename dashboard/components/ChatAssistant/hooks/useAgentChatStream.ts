@@ -6,7 +6,7 @@
  */
 
 import type React from 'react';
-import { LS_AGENT_CHAT_CONVERSATION_ID } from '../../../agentChatConstants';
+import { LS_AGENT_CHAT_CONVERSATION_ID, IAM_AGENT_RUN_CONTEXT, IAM_DESIGNSTUDIO_CAD_JOB } from '../../../agentChatConstants';
 import {
   resolveToolApprovalPreview,
 } from '../toolApprovalCopy';
@@ -45,6 +45,25 @@ function sseSpineRunId(d: { agent_run_id?: unknown; run_id?: unknown }): string 
   if (typeof d.agent_run_id === 'string' && d.agent_run_id.trim()) return d.agent_run_id.trim();
   if (typeof d.run_id === 'string' && d.run_id.trim()) return d.run_id.trim();
   return '';
+}
+
+function extractCadJobIdFromToolOutput(toolName: string, outputPreview?: string | null): string | null {
+  if (!outputPreview?.trim()) return null;
+  const cadTool =
+    /^(meshyai_|designstudio_|cad_)/i.test(toolName) ||
+    /openscad|blender|freecad|meshy/i.test(toolName);
+  if (!cadTool) return null;
+  try {
+    const parsed = JSON.parse(outputPreview) as Record<string, unknown>;
+    const id = parsed.job_id ?? parsed.cad_job_id;
+    if (typeof id === 'string' && id.trim()) return id.trim();
+  } catch {
+    const quoted = outputPreview.match(/"job_id"\s*:\s*"([^"]+)"/i);
+    if (quoted?.[1]?.trim()) return quoted[1].trim();
+    const cadj = outputPreview.match(/\bcadj_[a-f0-9]{8,}\b/i);
+    if (cadj?.[0]) return cadj[0];
+  }
+  return null;
 }
 
 function extForStreamOutput(lang: string): string {
@@ -665,6 +684,11 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
                 : '';
           onAgentRunContext?.(spineRunId || null);
           activeAgentRunId = spineRunId || null;
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent(IAM_AGENT_RUN_CONTEXT, { detail: { id: spineRunId || null } }),
+            );
+          }
           patchIamAgentStreamDebug({
             context_event_at: Date.now(),
             context: { ...ctx },
@@ -2162,6 +2186,18 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
               summaryLines.join(' · ') ||
               (d.error ? String(d.error).slice(0, 120) : undefined),
           });
+          if (doneOk && typeof window !== 'undefined') {
+            const rawToolOutput =
+              typeof d.output_preview === 'string'
+                ? d.output_preview
+                : outputPreview || lastActiveToolOutputChunk;
+            const cadJobId = extractCadJobIdFromToolOutput(doneToolName, rawToolOutput);
+            if (cadJobId) {
+              window.dispatchEvent(
+                new CustomEvent(IAM_DESIGNSTUDIO_CAD_JOB, { detail: { job_id: cadJobId } }),
+              );
+            }
+          }
           if (
             d.status !== 'error' &&
             d.tool_name === 'excalidraw_plan_map_create' &&

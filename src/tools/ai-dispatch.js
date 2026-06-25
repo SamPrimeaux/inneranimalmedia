@@ -24,6 +24,48 @@ import { handlers as githubWorkerHandlers } from './builtin/github-worker.js';
 import { handlers as memoryHandlers, MEMORY_TOOL_SCHEMAS } from './memory.js';
 
 
+/** Merge agent session/run scope from tool loop context into Meshy/CAD tool params. */
+function mergeMeshyRunContext(params, runContext) {
+    const base = params && typeof params === 'object' ? { ...params } : {};
+    if (!runContext || typeof runContext !== 'object') return base;
+    const resolved =
+        runContext.resolvedContext && typeof runContext.resolvedContext === 'object'
+            ? runContext.resolvedContext
+            : {};
+    const sessionId =
+        base.session_id ??
+        base.conversation_id ??
+        base.conversationId ??
+        runContext.sessionId ??
+        runContext.session_id ??
+        runContext.conversation_id ??
+        runContext.conversationId ??
+        resolved.session_id ??
+        null;
+    return {
+        ...base,
+        session_id: sessionId,
+        conversation_id:
+            base.conversation_id ??
+            base.conversationId ??
+            runContext.conversation_id ??
+            runContext.conversationId ??
+            sessionId,
+        agent_run_id:
+            base.agent_run_id ??
+            base.agentRunId ??
+            runContext.agent_run_id ??
+            runContext.agentRunId ??
+            null,
+        scene_snapshot_id:
+            base.scene_snapshot_id ??
+            base.scene_id ??
+            runContext.scene_snapshot_id ??
+            null,
+        blueprint_id: base.blueprint_id ?? runContext.blueprint_id ?? null,
+    };
+}
+
 /** Merge agent/workflow run ids from tool loop context into browser tool params. */
 function mergeBrowserRunContext(params, runContext) {
     const base = params && typeof params === 'object' ? { ...params } : {};
@@ -138,7 +180,12 @@ export async function runBuiltinTool(env, toolName, params, runContext = {}) {
         case toolName.startsWith('voxel_'):
         case toolName.startsWith('meshyai_'):
         case toolName.startsWith('imgx_'):
-            return await mediaHandlers[toolName]?.(params, env, runContext);
+            {
+                const mediaParams = toolName.startsWith('meshyai_')
+                    ? mergeMeshyRunContext(params, runContext)
+                    : params;
+                return await mediaHandlers[toolName]?.(mediaParams, env, runContext);
+            }
 
         case toolName === 'moviemode_render':
         case toolName === 'moviemode_export':

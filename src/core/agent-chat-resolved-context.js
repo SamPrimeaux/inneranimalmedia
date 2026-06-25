@@ -74,6 +74,14 @@ export function mergeResolvedContextIntoRunContext(runContext, resolved) {
     rc.workSessionId = resolved.work_session_id;
     rc.work_session_id = resolved.work_session_id;
   }
+  if (!rc.sessionId && !rc.session_id && resolved.session_id) {
+    rc.sessionId = resolved.session_id;
+    rc.session_id = resolved.session_id;
+  }
+  if (!rc.conversationId && !rc.conversation_id && resolved.session_id) {
+    rc.conversationId = resolved.session_id;
+    rc.conversation_id = resolved.session_id;
+  }
   if (!rc.resolvedContext) rc.resolvedContext = resolved;
   return rc;
 }

@@ -221,6 +221,27 @@ export async function recordCadJobFailureTodo(env, job, error) {
   return todoId;
 }
 
+/** Resolve agent run that created a CAD job (tool log output contains job_id). */
+async function lookupAgentRunIdForCadJob(env, jobId) {
+  const id = String(jobId || '').trim();
+  if (!id || !env?.DB) return null;
+  try {
+    const needle = `%"job_id":"${id}"%`;
+    const row = await env.DB.prepare(
+      `SELECT agent_run_id FROM agentsam_tool_call_log
+       WHERE agent_run_id IS NOT NULL AND trim(agent_run_id) != ''
+         AND (output_json LIKE ? OR output_summary LIKE ?)
+       ORDER BY created_at DESC LIMIT 1`,
+    )
+      .bind(needle, `%${id}%`)
+      .first();
+    const runId = row?.agent_run_id != null ? String(row.agent_run_id).trim() : '';
+    return runId || null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Complete a CAD job from runner or Meshy poll.
  * @param {any} env
@@ -309,9 +330,15 @@ export async function finalizeCadJobComplete(env, ctx, body) {
   });
 
   if (publicUrl) {
+    const agentRunId =
+      body.agent_run_id != null && String(body.agent_run_id).trim()
+        ? String(body.agent_run_id).trim()
+        : await lookupAgentRunIdForCadJob(env, jobId);
     await emitAgentSessionDesignStudioEvent(env, job.session_id, {
       type: 'cad_glb_ready',
       job_id: jobId,
+      agent_run_id: agentRunId,
+      session_id: job.session_id ?? null,
       url: publicUrl,
       public_url: publicUrl,
       r2_key: r2Key || null,

@@ -41,6 +41,11 @@ export function useDesignStudioCad(opts: UseDesignStudioCadOpts = {}) {
   const [error, setError] = useState<string | null>(null);
   const [meshyStub, setMeshyStub] = useState(false);
   const sseRef = useRef<EventSource | null>(null);
+  const activeJobIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    activeJobIdRef.current = activeJobId;
+  }, [activeJobId]);
 
   const activeBlueprint = blueprints.find((b) => String(b.id) === activeBlueprintId) ?? null;
   const activeJob = jobs.find((j) => j.id === activeJobId) ?? null;
@@ -546,7 +551,12 @@ export function useDesignStudioCad(opts: UseDesignStudioCadOpts = {}) {
           const payload = JSON.parse(ev.data);
           const envelope = payload?.envelope ?? payload;
           if (envelope?.type === 'cad_glb_ready') {
+            const evtRunId =
+              typeof envelope.agent_run_id === 'string' ? envelope.agent_run_id.trim() : '';
+            if (evtRunId && evtRunId !== runId) return;
             const jobId = envelope.job_id ? String(envelope.job_id) : null;
+            const trackedJobId = activeJobIdRef.current;
+            if (jobId && trackedJobId && jobId !== trackedJobId) return;
             const publicUrl = envelope.public_url || envelope.url;
             if (jobId) setActiveJobId(jobId);
             handleJobDone({
@@ -554,6 +564,8 @@ export function useDesignStudioCad(opts: UseDesignStudioCadOpts = {}) {
               engine: envelope.engine || 'cad',
               status: 'done',
               public_url: publicUrl,
+              result_url: publicUrl,
+              r2_key: envelope.r2_key ?? null,
             });
           }
         } catch {

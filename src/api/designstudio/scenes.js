@@ -201,6 +201,9 @@ export async function handleDesignStudioScenesApi(request, url, env) {
       const now = Math.floor(Date.now() / 1000);
       const publicUrl = scenePublicUrl(request, r2Key);
       const projectType = trim(body.project_type) || 'SANDBOX';
+      const cadJobId = body.cad_job_id != null ? trim(body.cad_job_id) || null : null;
+      const glbR2Key = body.glb_r2_key != null ? trim(body.glb_r2_key) || null : null;
+      const requestedSceneId = trim(body.scene_id || body.id);
 
       const putDenied = await putEntitiesR2(env, r2Key, entities, actor.authUser);
       if (putDenied instanceof Response) return putDenied;
@@ -216,18 +219,32 @@ export async function handleDesignStudioScenesApi(request, url, env) {
         sceneId = String(existing.id);
         await env.DB.prepare(
           `UPDATE ${TABLE}
-           SET entity_count = ?, r2_key = ?, public_url = ?, project_type = ?, updated_at = ?
+           SET entity_count = ?, r2_key = ?, public_url = ?, project_type = ?, updated_at = ?,
+               cad_job_id = COALESCE(?, cad_job_id),
+               glb_r2_key = COALESCE(?, glb_r2_key)
            WHERE id = ? AND user_id = ? AND workspace_id = ?`,
         )
-          .bind(entityCount, r2Key, publicUrl, projectType, now, sceneId, actor.userId, actor.workspaceId)
+          .bind(
+            entityCount,
+            r2Key,
+            publicUrl,
+            projectType,
+            now,
+            cadJobId,
+            glbR2Key,
+            sceneId,
+            actor.userId,
+            actor.workspaceId,
+          )
           .run();
       } else {
-        sceneId = newSceneId();
+        sceneId = requestedSceneId || newSceneId();
         await env.DB.prepare(
           `INSERT INTO ${TABLE}
              (id, workspace_id, user_id, tenant_id, name, project_type, entity_count,
-              r2_key, r2_bucket, public_url, is_autosave, version, created_at, updated_at)
-           VALUES (?, ?, ?, ?, 'Autosave', ?, ?, ?, ?, ?, 1, 1, ?, ?)`,
+              r2_key, r2_bucket, public_url, is_autosave, version, created_at, updated_at,
+              cad_job_id, glb_r2_key)
+           VALUES (?, ?, ?, ?, 'Autosave', ?, ?, ?, ?, ?, 1, 1, ?, ?, ?, ?)`,
         )
           .bind(
             sceneId,
@@ -241,6 +258,8 @@ export async function handleDesignStudioScenesApi(request, url, env) {
             publicUrl,
             now,
             now,
+            cadJobId,
+            glbR2Key,
           )
           .run();
       }
@@ -253,6 +272,8 @@ export async function handleDesignStudioScenesApi(request, url, env) {
           public_url: publicUrl,
           entity_count: entityCount,
           is_autosave: true,
+          cad_job_id: cadJobId,
+          glb_r2_key: glbR2Key,
         },
       });
     } catch (e) {

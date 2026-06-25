@@ -31,6 +31,32 @@ async function invokeMediaOp(env, endpoint, method = 'POST', body = null) {
  * @param {Record<string, unknown>} params
  * @param {Record<string, unknown>} runContext
  */
+function meshyScopeFields(params, runContext = {}) {
+    const session = params?.session && typeof params.session === 'object' ? params.session : {};
+    const resolved =
+        runContext.resolvedContext && typeof runContext.resolvedContext === 'object'
+            ? runContext.resolvedContext
+            : {};
+    const sessionId = String(
+        params.session_id ??
+            params.conversation_id ??
+            runContext.sessionId ??
+            runContext.session_id ??
+            runContext.conversation_id ??
+            runContext.conversationId ??
+            resolved.session_id ??
+            session.session_id ??
+            '',
+    ).trim();
+    return {
+        session_id: sessionId || undefined,
+        scene_snapshot_id: String(
+            params.scene_snapshot_id ?? params.scene_id ?? runContext.scene_snapshot_id ?? '',
+        ).trim() || undefined,
+        blueprint_id: String(params.blueprint_id ?? runContext.blueprint_id ?? '').trim() || undefined,
+    };
+}
+
 function meshyToolAuth(params, runContext = {}) {
     const session = params?.session && typeof params.session === 'object' ? params.session : {};
     const resolved =
@@ -141,12 +167,13 @@ export const handlers = {
     async meshyai_text_to_3d(params, env, runContext = {}) {
         const auth = meshyToolAuth(params, runContext);
         if (!auth.userId) return { error: 'user_id required for meshyai_text_to_3d' };
+        const scope = meshyScopeFields(params, runContext);
         return meshyGenerateInProcess(env, null, auth, {
             prompt: params.prompt ?? params.description,
             mode: 'text',
-            session_id: params.session_id ?? params.conversation_id,
-            scene_snapshot_id: params.scene_snapshot_id ?? params.scene_id,
-            blueprint_id: params.blueprint_id,
+            session_id: scope.session_id,
+            scene_snapshot_id: scope.scene_snapshot_id,
+            blueprint_id: scope.blueprint_id,
             auto_refine: params.auto_refine,
             ai_model: params.ai_model,
             art_style: params.art_style,
@@ -156,15 +183,16 @@ export const handlers = {
     async meshyai_image_to_3d(params, env, runContext = {}) {
         const auth = meshyToolAuth(params, runContext);
         if (!auth.userId) return { error: 'user_id required for meshyai_image_to_3d' };
+        const scope = meshyScopeFields(params, runContext);
         return meshyImageTo3dInProcess(env, null, auth, {
             image_url: params.image_url ?? params.imageUrl,
             input_task_id: params.input_task_id ?? params.inputTaskId,
             prompt: params.prompt,
             texture_prompt: params.texture_prompt ?? params.texturePrompt,
             texture_image_url: params.texture_image_url ?? params.textureImageUrl,
-            session_id: params.session_id ?? params.conversation_id,
-            scene_snapshot_id: params.scene_snapshot_id ?? params.scene_id,
-            blueprint_id: params.blueprint_id,
+            session_id: scope.session_id,
+            scene_snapshot_id: scope.scene_snapshot_id,
+            blueprint_id: scope.blueprint_id,
             model_type: params.model_type,
             ai_model: params.ai_model,
             should_texture: params.should_texture,
@@ -201,14 +229,15 @@ export const handlers = {
         if (!inputTaskId && !modelUrl) {
             return { error: 'input_task_id or model_url required' };
         }
+        const scope = meshyScopeFields(params, runContext);
         return meshyRiggingInProcess(env, null, auth, {
             input_task_id: inputTaskId || undefined,
             model_url: modelUrl || undefined,
             height_meters: params.height_meters,
             texture_image_url: params.texture_image_url ?? params.textureImageUrl,
-            session_id: params.session_id ?? params.conversation_id,
-            scene_snapshot_id: params.scene_snapshot_id ?? params.scene_id,
-            blueprint_id: params.blueprint_id,
+            session_id: scope.session_id,
+            scene_snapshot_id: scope.scene_snapshot_id,
+            blueprint_id: scope.blueprint_id,
         });
     },
     async meshyai_retexture(params, env, runContext = {}) {
@@ -226,6 +255,7 @@ export const handlers = {
         if (!textStyle && !imageStyle) {
             return { error: 'text_style_prompt or image_style_url required' };
         }
+        const scope = meshyScopeFields(params, runContext);
         return meshyRetextureInProcess(env, null, auth, {
             input_task_id: inputTaskId || undefined,
             model_url: modelUrl || undefined,
@@ -238,9 +268,9 @@ export const handlers = {
             remove_lighting: params.remove_lighting,
             target_formats: params.target_formats,
             alpha_thumbnail: params.alpha_thumbnail,
-            session_id: params.session_id ?? params.conversation_id,
-            scene_snapshot_id: params.scene_snapshot_id ?? params.scene_id,
-            blueprint_id: params.blueprint_id,
+            session_id: scope.session_id,
+            scene_snapshot_id: scope.scene_snapshot_id,
+            blueprint_id: scope.blueprint_id,
         });
     },
     async meshyai_print_multi_color(params, env, runContext = {}) {
@@ -251,14 +281,15 @@ export const handlers = {
         if (!inputTaskId && !modelUrl) {
             return { error: 'input_task_id or model_url required' };
         }
+        const scope = meshyScopeFields(params, runContext);
         return meshyPrintMultiColorInProcess(env, null, auth, {
             input_task_id: inputTaskId || undefined,
             model_url: modelUrl || undefined,
             max_colors: params.max_colors ?? params.maxColors,
             max_depth: params.max_depth ?? params.maxDepth,
-            session_id: params.session_id ?? params.conversation_id,
-            scene_snapshot_id: params.scene_snapshot_id ?? params.scene_id,
-            blueprint_id: params.blueprint_id,
+            session_id: scope.session_id,
+            scene_snapshot_id: scope.scene_snapshot_id,
+            blueprint_id: scope.blueprint_id,
         });
     },
     async meshyai_animation(params, env, runContext = {}) {
@@ -269,13 +300,14 @@ export const handlers = {
         if (!rigTaskId || !Number.isFinite(actionId)) {
             return { error: 'rig_task_id and action_id required' };
         }
+        const scope = meshyScopeFields(params, runContext);
         return meshyAnimationInProcess(env, null, auth, {
             rig_task_id: rigTaskId,
             action_id: actionId,
             post_process: params.post_process ?? undefined,
-            session_id: params.session_id ?? params.conversation_id,
-            scene_snapshot_id: params.scene_snapshot_id ?? params.scene_id,
-            blueprint_id: params.blueprint_id,
+            session_id: scope.session_id,
+            scene_snapshot_id: scope.scene_snapshot_id,
+            blueprint_id: scope.blueprint_id,
         });
     },
 

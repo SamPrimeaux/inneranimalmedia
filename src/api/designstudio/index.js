@@ -345,7 +345,7 @@ export async function handleDesignStudioApi(request, url, env, _ctx) {
       if (!env.DB) return jsonResponse({ error: 'Database not configured' }, 503);
       const runId = eventsMatch[1];
       const tenantId = await resolveTenantId(env, authUser);
-      const run = await env.DB.prepare(
+      let run = await env.DB.prepare(
         `SELECT r.id, r.session_id
          FROM ${WORKFLOW_RUNS} r
          INNER JOIN ${WORKSPACE_TABLE} w ON w.id = r.workspace_id
@@ -354,6 +354,19 @@ export async function handleDesignStudioApi(request, url, env, _ctx) {
       )
         .bind(runId, tenantId)
         .first();
+      if (!run) {
+        const userId = authUser.id != null ? String(authUser.id).trim() : '';
+        if (userId) {
+          run = await env.DB.prepare(
+            `SELECT id, conversation_id AS session_id
+             FROM agentsam_agent_run
+             WHERE id = ? AND user_id = ? AND tenant_id = ?
+             LIMIT 1`,
+          )
+            .bind(runId, userId, tenantId)
+            .first();
+        }
+      }
       if (!run) {
         return jsonResponse({ error: 'Not found' }, 404);
       }

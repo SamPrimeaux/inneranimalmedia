@@ -4,6 +4,12 @@ export const LS_AGENT_CHAT_CONVERSATION_ID = 'iam-agent-chat-conversation-id';
 /** Window event: detail.id string selects thread; null clears (new chat). */
 export const IAM_AGENT_CHAT_CONVERSATION_CHANGE = 'iam-agent-chat-conversation-change';
 
+/** Window event: detail.id is active agent/workflow run id; null clears. */
+export const IAM_AGENT_RUN_CONTEXT = 'iam-agent-run-context';
+
+/** Window event: detail.job_id — CAD/Meshy job created from Agent Sam tools. */
+export const IAM_DESIGNSTUDIO_CAD_JOB = 'iam-designstudio-cad-job';
+
 /** Labeled quickstart / smoketest batches — trains Thompson on ws_inneranimalmedia. */
 export const QUICKSTART_BATCH_LABEL = 'anthropic_smoketest_quickstart';
 

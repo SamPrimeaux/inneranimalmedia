@@ -3,6 +3,12 @@
  */
 import React, { useCallback, useEffect, useRef, useState, lazy, Suspense } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import {
+  IAM_AGENT_CHAT_CONVERSATION_CHANGE,
+  IAM_AGENT_RUN_CONTEXT,
+  IAM_DESIGNSTUDIO_CAD_JOB,
+  LS_AGENT_CHAT_CONVERSATION_ID,
+} from '../agentChatConstants';
 import { normalizeGlbUrl } from '../lib/glbAssets';
 import { useDesignStudioCad } from './designstudio/hooks/useDesignStudioCad';
 import { spawnGlbInEngine } from './designstudio/spawnGlb';
@@ -121,13 +127,65 @@ export const DesignStudioPage: React.FC = () => {
   const [computeHealth, setComputeHealth] = useState<
     'ready' | 'running' | 'degraded' | 'unavailable' | 'unknown'
   >('unknown');
+  const [agentSessionId, setAgentSessionId] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    return localStorage.getItem(LS_AGENT_CHAT_CONVERSATION_ID)?.trim() || null;
+  });
+  const [agentRunId, setAgentRunId] = useState<string | null>(null);
+
+  const persistSceneAutosave = useCallback(
+    async (link?: { cadJobId?: string | null; glbR2Key?: string | null }) => {
+      if (!isAgentSamEngine(engineRef.current)) return;
+      const entities = engineRef.current.exportEntities();
+      if (!entities.length) return;
+      const wsId =
+        (typeof window !== 'undefined' &&
+          (window as Window & { __IAM_WORKSPACE_ID__?: string }).__IAM_WORKSPACE_ID__) ||
+        '';
+      const cadJobId = link?.cadJobId ?? linkedCadJobId ?? null;
+      const glbKey = link?.glbR2Key ?? linkedGlbR2Key ?? null;
+      try {
+        const res = await fetch('/api/designstudio/scenes/autosave', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            project_type: ACTIVE_PROJECT,
+            entities,
+            cad_job_id: cadJobId,
+            glb_r2_key: glbKey,
+            scene_id: currentSceneId || undefined,
+            ...(wsId && wsId !== 'global' ? { workspace_id: wsId } : {}),
+          }),
+        });
+        if (!res.ok) return;
+        const data = (await res.json().catch(() => ({}))) as {
+          scene?: { id?: string; cad_job_id?: string; glb_r2_key?: string };
+        };
+        const scene = data.scene;
+        if (scene?.id) setCurrentSceneId(scene.id);
+        if (scene?.cad_job_id) setLinkedCadJobId(String(scene.cad_job_id));
+        if (scene?.glb_r2_key) setLinkedGlbR2Key(String(scene.glb_r2_key));
+      } catch (e) {
+        console.warn('[DesignStudio] autosave failed', e);
+      }
+    },
+    [linkedCadJobId, linkedGlbR2Key, currentSceneId],
+  );
 
   const deployJobToScene = useCallback(async (job: CadJobRow, opts?: { auto?: boolean }) => {
     const url = job.public_url || job.result_url;
     if (!url) return false;
     const name = job.prompt?.slice(0, 40) || `${job.engine} export`;
-    const ok = await spawnGlbInEngine(isAgentSamEngine(engineRef.current) ? engineRef.current : null, {
-      url,
+    const normalizedUrl = normalizeGlbUrl(url) ?? url;
+    if (!isAgentSamEngine(engineRef.current)) {
+      if (opts?.auto) {
+        pendingSpawnRef.current = { name, url: normalizedUrl, scale: 1 };
+      }
+      return false;
+    }
+    const ok = await spawnGlbInEngine(engineRef.current, {
+      url: normalizedUrl,
       name,
     });
     if (ok) {
@@ -140,21 +198,78 @@ export const DesignStudioPage: React.FC = () => {
         requestAnimationFrame(() => engineRef.current?.frameCameraOnObject());
       }
       if (opts?.auto) console.info('[DesignStudio] auto-spawned GLB', job.id);
+      if (opts?.auto) {
+        void persistSceneAutosave({
+          cadJobId: job.id,
+          glbR2Key:
+            job.r2_key && !String(job.r2_key).startsWith('b64:') ? String(job.r2_key) : null,
+        });
+      }
     }
     return ok;
-  }, []);
+  }, [persistSceneAutosave]);
 
   const cad = useDesignStudioCad({
-    sessionId: null,
+    sessionId: agentSessionId,
     sceneId: currentSceneId,
     onPromptUsed: setMeshyPrompt,
     onJobDone: (job) => {
       void refreshUserAssets();
-      if (job.status === 'done' && job.public_url && lastSpawnedJobRef.current !== job.id) {
+      const status = String(job.status || '').toLowerCase();
+      const hasUrl = Boolean(job.public_url || job.result_url);
+      if (
+        (status === 'done' || status === 'complete') &&
+        hasUrl &&
+        lastSpawnedJobRef.current !== job.id
+      ) {
         void deployJobToScene(job, { auto: true });
       }
     },
   });
+
+  useEffect(() => {
+    const onConv = (e: Event) => {
+      const raw = (e as CustomEvent<{ id?: string | null }>).detail?.id;
+      if (raw === null || raw === undefined) {
+        setAgentSessionId(null);
+        return;
+      }
+      if (typeof raw === 'string' && raw.trim()) {
+        setAgentSessionId(raw.trim());
+      }
+    };
+    window.addEventListener(IAM_AGENT_CHAT_CONVERSATION_CHANGE, onConv);
+    return () => window.removeEventListener(IAM_AGENT_CHAT_CONVERSATION_CHANGE, onConv);
+  }, []);
+
+  useEffect(() => {
+    const onRun = (e: Event) => {
+      const raw = (e as CustomEvent<{ id?: string | null }>).detail?.id;
+      setAgentRunId(typeof raw === 'string' && raw.trim() ? raw.trim() : null);
+    };
+    window.addEventListener(IAM_AGENT_RUN_CONTEXT, onRun);
+    return () => window.removeEventListener(IAM_AGENT_RUN_CONTEXT, onRun);
+  }, []);
+
+  useEffect(() => {
+    const onCadJob = (e: Event) => {
+      const jobId = (e as CustomEvent<{ job_id?: string }>).detail?.job_id?.trim();
+      if (jobId) {
+        setStudioPhase('studio');
+        cad.setActiveJobId(jobId);
+      }
+    };
+    window.addEventListener(IAM_DESIGNSTUDIO_CAD_JOB, onCadJob);
+    return () => window.removeEventListener(IAM_DESIGNSTUDIO_CAD_JOB, onCadJob);
+  }, [cad.setActiveJobId]);
+
+  useEffect(() => {
+    if (studioPhase !== 'studio') return;
+    const sessionId = agentSessionId?.trim();
+    const runId = agentRunId?.trim();
+    if (!sessionId || !runId) return;
+    cad.subscribeRunEvents(runId, sessionId);
+  }, [studioPhase, agentSessionId, agentRunId, cad.subscribeRunEvents]);
 
   const refreshSceneList = useCallback(() => {
     fetch('/api/designstudio/scenes', { credentials: 'include' })
@@ -215,7 +330,8 @@ export const DesignStudioPage: React.FC = () => {
       sceneId: currentSceneId,
       blueprintId: cad.activeBlueprintId,
       cadJobId: cad.activeJobId || linkedCadJobId,
-      sessionId: null,
+      sessionId: agentSessionId,
+      runId: agentRunId,
       computeStatus: cad.isGenerating ? 'running' : computeHealth,
     });
   }, [
@@ -224,6 +340,8 @@ export const DesignStudioPage: React.FC = () => {
     cad.activeJobId,
     cad.isGenerating,
     linkedCadJobId,
+    agentSessionId,
+    agentRunId,
     computeHealth,
     setStudioContext,
   ]);
@@ -596,26 +714,10 @@ export const DesignStudioPage: React.FC = () => {
   useEffect(() => {
     if (!engineReady || !isAgentSamEngine(engineRef.current)) return;
     const tick = window.setInterval(() => {
-      const engine = isAgentSamEngine(engineRef.current) ? engineRef.current : null;
-      const entities = engine?.exportEntities();
-      if (!entities?.length) return;
-      const wsId =
-        (typeof window !== 'undefined' &&
-          (window as Window & { __IAM_WORKSPACE_ID__?: string }).__IAM_WORKSPACE_ID__) ||
-        '';
-      void fetch('/api/designstudio/scenes/autosave', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          project_type: ACTIVE_PROJECT,
-          entities,
-          ...(wsId && wsId !== 'global' ? { workspace_id: wsId } : {}),
-        }),
-      }).catch(() => {});
+      void persistSceneAutosave();
     }, 60_000);
     return () => window.clearInterval(tick);
-  }, [engineReady]);
+  }, [engineReady, persistSceneAutosave]);
 
   useEffect(() => {
     if (!engineReady) return;

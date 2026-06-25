@@ -493,9 +493,17 @@ export class AgentChatSqlV1 extends DurableObject {
                        AND (
                          COALESCE(json_extract(envelope_json, '$.payload.workflow_run_id'), '') = ?
                          OR COALESCE(json_extract(envelope_json, '$.workflow_run_id'), '') = ?
+                         OR (
+                           COALESCE(json_extract(envelope_json, '$.type'), '') = 'cad_glb_ready'
+                           AND (
+                             COALESCE(json_extract(envelope_json, '$.agent_run_id'), '') = ?
+                             OR COALESCE(json_extract(envelope_json, '$.agent_run_id'), '') = ''
+                           )
+                         )
                        )
                      ORDER BY id ASC LIMIT 50`,
                     lastId,
+                    runId,
                     runId,
                     runId,
                   ),
@@ -510,10 +518,17 @@ export class AgentChatSqlV1 extends DurableObject {
                 batch = raw.filter((row) => {
                   try {
                     const o = JSON.parse(row.envelope_json);
-                    return (
+                    if (
                       String(o?.payload?.workflow_run_id || '') === runId ||
                       String(o?.workflow_run_id || '') === runId
-                    );
+                    ) {
+                      return true;
+                    }
+                    if (String(o?.type || '') === 'cad_glb_ready') {
+                      const evtRun = String(o?.agent_run_id || '').trim();
+                      return !evtRun || evtRun === runId;
+                    }
+                    return false;
                   } catch {
                     return false;
                   }
