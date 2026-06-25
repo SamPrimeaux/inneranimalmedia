@@ -1,4 +1,5 @@
-import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useMemo, useState, type ReactNode } from 'react';
+import { InlineCadJobProgressLive } from '@/components/designstudio/shared/InlineCadJobProgressLive';
 import type { CadJobPhase } from '@/components/designstudio/shared/cadJobPhase';
 import type { ModePresenceIconKey } from '@/features/mode-presence/agentModePresenceMap';
 import '@/components/designstudio/cad-studio/cad-studio.css';
@@ -9,6 +10,21 @@ const InlineJobProgress = lazy(() =>
   })),
 );
 
+function isCadLiveTemplate(meta: Record<string, unknown>): boolean {
+  const slug = String(meta.slug || '').toLowerCase();
+  const title = String(meta.title || '').toLowerCase();
+  if (meta.live_source === 'agentsam_cad_jobs') return true;
+  if (slug.includes('terminal') || slug.includes('inline-terminal')) return true;
+  if (slug.includes('meshy') || slug.includes('inline-meshy')) return true;
+  if (title.includes('terminal cad') || title.includes('openscad')) return true;
+  return false;
+}
+
+function preferTerminalEngine(meta: Record<string, unknown>): boolean {
+  const slug = String(meta.slug || '').toLowerCase();
+  return slug.includes('terminal') || slug.includes('openscad');
+}
+
 type DemoStep = {
   iconKey: ModePresenceIconKey;
   label: string;
@@ -17,142 +33,80 @@ type DemoStep = {
   status: CadJobPhase['status'];
 };
 
-const DEFAULT_MESHY_STEPS: DemoStep[] = [
-  {
-    iconKey: 'agent-spark',
-    label: 'Creating your model',
-    detail: 'Building mesh from prompt',
-    progress: 18,
-    status: 'creating',
-  },
-  {
-    iconKey: 'path',
-    label: 'Sculpting geometry',
-    detail: 'Refining surface topology',
-    progress: 42,
-    status: 'creating',
-  },
-  {
-    iconKey: 'pixel',
-    label: 'Applying textures',
-    detail: 'Refining surface and materials',
-    progress: 68,
-    status: 'creating',
-  },
-  {
-    iconKey: 'files',
-    label: 'Saving to library',
-    detail: 'Uploading asset to storage',
-    progress: 88,
-    status: 'uploading',
-  },
-  {
-    iconKey: 'done-bloom',
-    label: 'Model ready',
-    detail: 'Asset is in your library',
-    progress: 100,
-    status: 'complete',
-  },
-];
-
-const TERMINAL_STEPS: DemoStep[] = [
-  {
-    iconKey: 'agent-spark',
-    label: 'Starting CAD runner',
-    detail: 'OpenSCAD job queued',
-    progress: 22,
-    status: 'creating',
-  },
-  {
-    iconKey: 'terminal',
-    label: 'Running OpenSCAD',
-    detail: 'Generating mesh from script',
-    progress: 55,
-    status: 'creating',
-  },
-  {
-    iconKey: 'files',
-    label: 'Saving to library',
-    detail: 'Uploading GLB to storage',
-    progress: 82,
-    status: 'uploading',
-  },
-  {
-    iconKey: 'done-bloom',
-    label: 'Model ready',
-    detail: 'Asset is in your library',
-    progress: 100,
-    status: 'complete',
-  },
-];
-
-function stepsFromMeta(meta: Record<string, unknown>): DemoStep[] {
-  const slug = String(meta.slug || '').toLowerCase();
-  if (slug.includes('terminal') || String(meta.title || '').toLowerCase().includes('terminal')) {
-    return TERMINAL_STEPS;
-  }
-  if (slug.includes('offline') || meta.icon === 'error-signal' || meta.presence_state === 'offline') {
-    return [
-      {
-        iconKey: 'error-signal',
-        label: 'Network paused',
-        detail: 'Agent Sam will resume when you reconnect',
-        progress: 0,
-        status: 'failed',
-      },
-    ];
-  }
-  const phases = meta.phases;
-  if (Array.isArray(phases) && phases.length) {
-    const labels = [
-      'Creating your model',
-      'Sculpting geometry',
-      'Applying textures',
-      'Saving to library',
-      'Model ready',
-    ];
-    const details = [
-      'Building mesh from prompt',
-      'Refining surface topology',
-      'Refining surface and materials',
-      'Uploading asset to storage',
-      'Asset is in your library',
-    ];
-    return phases.map((icon, i) => {
-      const iconKey = String(icon) as ModePresenceIconKey;
-      const isLast = i === phases.length - 1;
-      const isError = iconKey === 'error-signal';
-      return {
-        iconKey,
-        label: isError ? 'Generation stopped' : labels[i] || 'Working…',
-        detail: isError ? 'Job failed before completing' : details[i] || '',
-        progress: isLast && !isError ? 100 : Math.min(92, 12 + i * 18),
-        status: isError ? 'failed' : isLast ? 'complete' : i >= phases.length - 2 ? 'uploading' : 'creating',
-      } satisfies DemoStep;
-    });
-  }
-  return DEFAULT_MESHY_STEPS;
-}
-
 export function TemplateInlineDemo({
   meta,
   compact = false,
+  manual = false,
+  jobId = null,
+  live = true,
 }: {
   meta: Record<string, unknown>;
   compact?: boolean;
+  manual?: boolean;
+  jobId?: string | null;
+  /** When true, CAD templates poll agentsam_cad_jobs instead of static demo steps. */
+  live?: boolean;
 }): ReactNode {
-  const steps = useMemo(() => stepsFromMeta(meta), [meta]);
+  const slug = String(meta.slug || '').toLowerCase();
+
+  if (slug.includes('offline') || meta.icon === 'error-signal' || meta.presence_state === 'offline') {
+    const step: DemoStep = {
+      iconKey: 'error-signal',
+      label: 'Network paused',
+      detail: 'Agent Sam will resume when you reconnect',
+      progress: 0,
+      status: 'failed',
+    };
+    const phase: CadJobPhase = {
+      iconKey: step.iconKey,
+      label: step.label,
+      detail: step.detail,
+      progress: step.progress,
+      status: step.status,
+    };
+    return (
+      <div className="pt-inline-demo">
+        <Suspense fallback={<div className="pt-inline-demo__loading">Loading…</div>}>
+          <InlineJobProgress phase={phase} compact={compact} />
+        </Suspense>
+      </div>
+    );
+  }
+
+  if (live && isCadLiveTemplate(meta)) {
+    return (
+      <div className="pt-inline-demo pt-inline-demo--live">
+        <InlineCadJobProgressLive
+          jobId={jobId}
+          autoSelect={!jobId}
+          preferTerminal={preferTerminalEngine(meta)}
+          compact={compact}
+          pollRealtime
+        />
+        {!jobId ? (
+          <p className="pt-inline-demo__hint">
+            Live — polling <code>agentsam_cad_jobs.progress_pct</code> every ~1.2s
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+
+  return <StaticTemplateDemo meta={meta} compact={compact} manual={manual} />;
+}
+
+function StaticTemplateDemo({
+  meta,
+  compact,
+  manual,
+}: {
+  meta: Record<string, unknown>;
+  compact: boolean;
+  manual: boolean;
+}) {
+  const steps = useMemo(() => staticStepsFromMeta(meta), [meta]);
   const [idx, setIdx] = useState(0);
-
-  useEffect(() => {
-    if (steps.length <= 1) return undefined;
-    const timer = window.setInterval(() => {
-      setIdx((current) => (current + 1) % steps.length);
-    }, 2400);
-    return () => window.clearInterval(timer);
-  }, [steps.length]);
-
-  const step = steps[idx];
+  const step = steps[Math.min(idx, steps.length - 1)];
   const phase: CadJobPhase = {
     iconKey: step.iconKey,
     label: step.label,
@@ -166,9 +120,43 @@ export function TemplateInlineDemo({
       <Suspense fallback={<div className="pt-inline-demo__loading">Loading component preview…</div>}>
         <InlineJobProgress phase={phase} compact={compact} />
       </Suspense>
-      {steps.length > 1 ? (
-        <p className="pt-inline-demo__hint">Live demo — cycles through pipeline phases</p>
+      {manual && steps.length > 1 ? (
+        <label className="pt-inline-demo__phase-control">
+          <span className="pt-inline-demo__hint">
+            Static preview · phase {idx + 1} / {steps.length}
+          </span>
+          <input
+            type="range"
+            min={0}
+            max={steps.length - 1}
+            step={1}
+            value={idx}
+            onChange={(e) => setIdx(Number(e.target.value))}
+          />
+        </label>
       ) : null}
     </div>
   );
+}
+
+function staticStepsFromMeta(meta: Record<string, unknown>): DemoStep[] {
+  const phases = meta.phases;
+  if (Array.isArray(phases) && phases.length) {
+    return phases.map((icon, i) => ({
+      iconKey: String(icon) as ModePresenceIconKey,
+      label: 'Preview phase',
+      detail: String(icon),
+      progress: Math.min(100, 10 + i * 20),
+      status: (i === phases.length - 1 ? 'complete' : 'creating') as CadJobPhase['status'],
+    }));
+  }
+  return [
+    {
+      iconKey: 'agent-spark',
+      label: 'Preview',
+      detail: 'Static component preview',
+      progress: 40,
+      status: 'creating',
+    },
+  ];
 }

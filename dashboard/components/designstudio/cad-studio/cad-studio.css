@@ -976,6 +976,21 @@
   transform: translateX(-100%);
   animation: inline-job-shimmer 1.45s linear infinite;
 }
+.inline-job-progress__track--indeterminate {
+  position: relative;
+}
+.inline-job-progress__fill--indeterminate {
+  width: 38% !important;
+  animation: inline-job-indeterminate 1.35s ease-in-out infinite;
+}
+@keyframes inline-job-indeterminate {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
+}
 .inline-job-progress--compact {
   padding: 10px 12px;
   border-radius: 14px;
@@ -985,7 +1000,80 @@
   gap: 10px;
 }
 .inline-job-progress--compact .inline-job-progress__label {
+  font-size: 12px;
+}
+
+/* Live CAD job poll (template library + chat embeds) */
+.inline-cad-live {
+  width: min(420px, 100%);
+}
+.inline-cad-live--idle {
+  padding: 16px;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  text-align: center;
+}
+.inline-cad-live__hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--cs-text-muted, #9295a6);
+}
+.inline-cad-live__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 0 2px;
+}
+.inline-cad-live__job {
+  font-family: var(--cs-mono, ui-monospace, monospace);
+  font-size: 10px;
+  color: var(--cs-text-muted, #9295a6);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.inline-cad-live__live {
+  flex-shrink: 0;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #b8ff38;
+  animation: inline-cad-live-pulse 1.4s ease-in-out infinite;
+}
+.inline-cad-live__picker {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+.inline-cad-live__picker-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--cs-text-muted, #9295a6);
+}
+.inline-cad-live__select {
+  width: 100%;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.25);
+  color: #e8eaef;
   font-size: 11px;
+  padding: 0 8px;
+}
+@keyframes inline-cad-live-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 @keyframes inline-job-shimmer {
   to { transform: translateX(100%); }

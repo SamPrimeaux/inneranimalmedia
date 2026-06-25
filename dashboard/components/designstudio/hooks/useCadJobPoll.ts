@@ -7,11 +7,15 @@ function backoffMs(attempt: number): number {
   return Math.min(1000 * 2 ** attempt, 15_000);
 }
 
+const REALTIME_POLL_MS = 1200;
+
 export function useCadJobPoll(
   jobId: string | null,
   options?: {
     enabled?: boolean;
     engine?: string;
+    /** Fixed ~1.2s polling while job is active (UI progress bars). Default false uses exponential backoff. */
+    realtime?: boolean;
     onDone?: (job: CadJobRow) => void;
     onFailed?: (job: CadJobRow) => void;
   },
@@ -85,11 +89,11 @@ export function useCadJobPoll(
         }
         return;
       }
-      const delay = backoffMs(attemptRef.current++);
+      const delay = options?.realtime ? REALTIME_POLL_MS : backoffMs(attemptRef.current++);
       timerRef.current = window.setTimeout(() => void pollOnce(), delay);
     } catch (e) {
       console.warn('[useCadJobPoll]', e);
-      const delay = backoffMs(attemptRef.current++);
+      const delay = options?.realtime ? REALTIME_POLL_MS : backoffMs(attemptRef.current++);
       timerRef.current = window.setTimeout(() => void pollOnce(), delay);
     }
   }, [jobId, options, clearTimer]);

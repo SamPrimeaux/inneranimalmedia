@@ -17,11 +17,11 @@ import {
   resolveToolTraceBlocks,
   resolveSqlResultTable,
 } from '../../../lib/toolTracePreview';
+import { isCadToolName } from '../../../lib/cadToolTrace';
 import { ToolTraceCodeBlock } from './ToolTraceCodeBlock';
 import { ToolTraceSqlTable } from './ToolTraceSqlTable';
+import { ToolTraceCadLivePanel } from './ToolTraceCadLivePanel';
 import './toolTraceTimeline.css';
-
-const TOOL_TRACE_ICON_PX = 24;
 
 export type ToolTraceRowProps = {
   row: AgentToolTraceRow;
@@ -30,6 +30,7 @@ export type ToolTraceRowProps = {
   compact?: boolean;
   onDismiss?: () => void;
   onOpenInEditor?: (file: { name: string; content: string }) => void;
+  onCadJobTerminal?: (rowId: string) => void;
 };
 
 export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({
@@ -38,10 +39,12 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({
   defaultExpanded = false,
   onDismiss,
   onOpenInEditor,
+  onCadJobTerminal,
 }) => {
   const failed = row.status === 'error';
   const running = row.status === 'running';
-  const [open, setOpen] = useState(defaultExpanded);
+  const cadLive = Boolean(row.cadJobLive && row.cadJobId);
+  const [open, setOpen] = useState(defaultExpanded || cadLive);
   const [debugOpen, setDebugOpen] = useState(false);
 
   const tracePresence = useMemo(
@@ -59,7 +62,7 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({
   const { command, request, result } = useMemo(() => resolveToolTraceBlocks(row), [row]);
   const sqlTable = useMemo(() => resolveSqlResultTable(row), [row]);
   const metaLabel = resolveToolTraceMetaLabel(row, command);
-  const cardStatus = failed ? 'error' : running ? 'working' : 'done';
+  const cardStatus = failed ? 'error' : running || cadLive ? 'working' : 'done';
   const debugMeta = useMemo(() => extractToolTraceDebugMeta(row), [row]);
 
   const durationLabel =
@@ -69,7 +72,8 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({
         : `${(row.durationMs / 1000).toFixed(1)}s`
       : '';
 
-  const hasExpandable = running || Boolean(request || sqlTable || result || failed);
+  const hasExpandable =
+    running || cadLive || Boolean(request || sqlTable || result || failed);
 
   const toggle = useCallback(() => {
     if (hasExpandable) setOpen((v) => !v);
@@ -85,20 +89,25 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({
           aria-expanded={open}
           disabled={!hasExpandable}
         >
-          <span
-            className={`tool-trace-status-dot${running ? ' tool-trace-status-dot--running' : ''}`}
-            data-status={row.status}
-            aria-hidden
+          <ChatPresenceIcon
+            mode={mode}
+            state={tracePresence.presenceState}
+            iconKey={tracePresence.iconKey}
+            size={16}
+            cardStatus={cardStatus}
+            className="tool-trace-collapsed-icon shrink-0"
           />
-          <span className={`tool-trace-title truncate${running ? ' tool-trace-title--shimmer' : ''}`}>
+          <span className={`tool-trace-title truncate${running || cadLive ? ' tool-trace-title--shimmer' : ''}`}>
             {title}
-            {durationLabel ? <span className="ml-1.5 opacity-60 font-normal">{durationLabel}</span> : null}
           </span>
+          {!running && durationLabel ? (
+            <span className="tool-trace-duration shrink-0">{durationLabel}</span>
+          ) : null}
           {hasExpandable ? (
             <span className={`tool-trace-chevron${open ? ' tool-trace-chevron--open' : ''}`} aria-hidden />
           ) : null}
         </button>
-        {onDismiss && !running ? (
+        {onDismiss && !running && !cadLive ? (
           <button
             type="button"
             className="shrink-0 ml-1 text-[10px] text-[var(--dashboard-muted)] hover:text-[var(--solar-cyan)] self-start mt-1"
@@ -111,19 +120,15 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({
 
       {open && hasExpandable ? (
         <div className="tool-trace-expand">
-          <div className="tool-trace-expand-header">
-            <ChatPresenceIcon
-              mode={mode}
-              state={tracePresence.presenceState}
-              iconKey={tracePresence.iconKey}
-              size={TOOL_TRACE_ICON_PX}
-              cardStatus={cardStatus}
+          {metaLabel ? <div className="tool-trace-meta tool-trace-meta--expand">{metaLabel}</div> : null}
+
+          {cadLive && row.cadJobId ? (
+            <ToolTraceCadLivePanel
+              jobId={row.cadJobId}
+              engineHint={isCadToolName(row.toolName) && /meshy/i.test(row.toolName) ? 'meshy' : undefined}
+              onTerminal={() => onCadJobTerminal?.(row.id)}
             />
-            <div className="min-w-0 flex-1">
-              <div className="tool-trace-expand-title">{title}</div>
-              <div className="tool-trace-meta">{metaLabel}</div>
-            </div>
-          </div>
+          ) : null}
 
           {request ? (
             <ToolTraceCodeBlock
@@ -150,7 +155,7 @@ export const ToolTraceRow: React.FC<ToolTraceRowProps> = ({
               onOpenInEditor={onOpenInEditor}
               editorFilename={monacoHandoffFilename(row, 'result', result.lang)}
             />
-          ) : running ? (
+          ) : running && !cadLive ? (
             <div className="tool-trace-code-block">
               <span className="tool-trace-code-block__label">Result</span>
               <div className="tool-trace-code-viewport tool-trace-code-viewport--idle">

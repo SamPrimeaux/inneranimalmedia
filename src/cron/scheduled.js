@@ -13,6 +13,7 @@ import { runFirstOfMonthJobs } from './jobs/first-of-month.js';
 import { scheduleSixAmRagJobs } from './jobs/rag-six-am.js';
 import { writeDailySnapshot } from './jobs/write-daily-snapshot.js';
 import { runThirtyMinuteJobs, runHourlyRoutingJobs } from './jobs/thirty-minute-cron.js';
+import { runMeshyCadReconcileJobs } from './jobs/meshy-cad-reconcile-cron.js';
 import { runWebhookPayloadPurgeCron } from './jobs/webhook-payload-purge.js';
 import { compactAgentsamToolCallLogToStats, rollupOtlpTracesDaily } from '../core/memory.js';
 import { rollupWorkerAnalytics } from '../core/worker-analytics-rollup.js';
@@ -107,6 +108,14 @@ export async function handleScheduled(event, env, ctx) {
   console.log('[Cron] Execution starting:', cron);
 
   switch (cron) {
+    case '*/1 * * * *':
+      ctx.waitUntil(
+        runMeshyCadReconcileJobs(env, ctx).catch((e) =>
+          console.warn('[cron] meshy_cad_reconcile', e?.message ?? e),
+        ),
+      );
+      break;
+
     case '*/30 * * * *':
       await runThirtyMinuteJobs(env, ctx);
       break;

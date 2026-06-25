@@ -35,6 +35,10 @@ export type AgentToolTraceRow = {
   connectionResolution?: string;
   connectionId?: string;
   execHost?: string;
+  /** D1 agentsam_cad_jobs.id when a CAD/Meshy tool returns async work. */
+  cadJobId?: string;
+  /** Keep row live + polling until the CAD job reaches a terminal D1 status. */
+  cadJobLive?: boolean;
 };
 
 export type ArtifactChipListProps = {

@@ -70,6 +70,32 @@ import {
   TOOL_OUTPUT_SSE_MAX,
 } from './agent-tool-loader.js';
 
+/** @param {string} toolName @param {string} toolOutput */
+function cadToolSseExtrasFromOutput(toolName, toolOutput) {
+  const n = String(toolName || '').toLowerCase();
+  if (!/^(meshyai_|designstudio_|cad_)/.test(n) && !/meshy|openscad|blender|freecad/.test(n)) {
+    return {};
+  }
+  try {
+    const p = JSON.parse(String(toolOutput || '{}'));
+    const jobId = p.job_id ?? p.cad_job_id;
+    if (!jobId) return {};
+    const st = String(p.status || '').toLowerCase();
+    const pendingPolish = p.pending_polish === true;
+    const pct = Number(p.progress_pct ?? p.progress);
+    const inFlight =
+      pendingPolish ||
+      ['pending', 'running', 'queued', 'accepted'].includes(st) ||
+      (Number.isFinite(pct) && pct > 0 && pct < 100);
+    return {
+      job_id: String(jobId),
+      cad_job_live: inFlight,
+    };
+  } catch {
+    return {};
+  }
+}
+
 export async function runAgentToolLoop(env, ctx, emit, params) {
   const {
     request,
@@ -1357,6 +1383,12 @@ export async function runAgentToolLoop(env, ctx, emit, params) {
           }
         } catch (_) {
           /* ignore */
+        }
+      }
+      if (!execErr) {
+        const cadExtras = cadToolSseExtrasFromOutput(call.name, toolOutput);
+        if (cadExtras.job_id) {
+          toolDoneExtra = { ...toolDoneExtra, ...cadExtras };
         }
       }
       if (call.name === 'search_web') {

@@ -9,6 +9,8 @@ export type CadJobPhase = {
   detail: string;
   progress: number;
   status: InlineJobStatus;
+  /** Shimmer bar instead of a frozen percent (Meshy GLB polish at ~92%). */
+  indeterminate?: boolean;
 };
 
 function parseTextureData(raw: unknown): Record<string, unknown> {
@@ -33,10 +35,9 @@ export function resolveCadJobPhase(job: CadJobRow | null | undefined): CadJobPha
 
   const status = String(job.status || '').toLowerCase();
   const pctRaw = Number(job.progress_pct);
-  const pct =
-    Number.isFinite(pctRaw) && pctRaw > 0
-      ? Math.max(0, Math.min(100, Math.round(pctRaw)))
-      : PHASE_SOFT[status] ?? 12;
+  const pct = Number.isFinite(pctRaw)
+    ? Math.max(0, Math.min(100, Math.round(pctRaw)))
+    : PHASE_SOFT[status] ?? 12;
   const engine = String(job.engine || '').toLowerCase();
   const td = parseTextureData(job.texture_data);
   const err = String(job.error || '').trim();
@@ -77,10 +78,11 @@ export function resolveCadJobPhase(job: CadJobRow | null | undefined): CadJobPha
     if (td.glb_optimize_pending === true) {
       return {
         iconKey: 'skeleton-plan',
-        label: 'Optimizing mesh',
-        detail: 'Compressing GLB for the viewport',
+        label: 'Meshy polish stage',
+        detail: 'Typically 1–3 minutes — compressing GLB for the viewport',
         progress: pct,
         status: 'uploading',
+        indeterminate: true,
       };
     }
     if (pct >= 88 || (job.r2_key && !String(job.r2_key).startsWith('b64:'))) {

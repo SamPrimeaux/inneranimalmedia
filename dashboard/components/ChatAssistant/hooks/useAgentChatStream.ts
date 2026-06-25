@@ -22,6 +22,12 @@ import type {
 } from '../types';
 import type { AgentToolTraceRow } from '../execution/types';
 import {
+  patchTraceRowCadJob,
+  preserveLiveCadTraceRows,
+  resolveCadJobIdFromSse,
+  cadJobOutputLooksInFlight,
+} from '../../../lib/cadToolTrace';
+import {
   formatToolTraceInput,
   formatToolTraceOutput,
   parseToolTraceReceiptMeta,
@@ -45,25 +51,6 @@ function sseSpineRunId(d: { agent_run_id?: unknown; run_id?: unknown }): string 
   if (typeof d.agent_run_id === 'string' && d.agent_run_id.trim()) return d.agent_run_id.trim();
   if (typeof d.run_id === 'string' && d.run_id.trim()) return d.run_id.trim();
   return '';
-}
-
-function extractCadJobIdFromToolOutput(toolName: string, outputPreview?: string | null): string | null {
-  if (!outputPreview?.trim()) return null;
-  const cadTool =
-    /^(meshyai_|designstudio_|cad_)/i.test(toolName) ||
-    /openscad|blender|freecad|meshy/i.test(toolName);
-  if (!cadTool) return null;
-  try {
-    const parsed = JSON.parse(outputPreview) as Record<string, unknown>;
-    const id = parsed.job_id ?? parsed.cad_job_id;
-    if (typeof id === 'string' && id.trim()) return id.trim();
-  } catch {
-    const quoted = outputPreview.match(/"job_id"\s*:\s*"([^"]+)"/i);
-    if (quoted?.[1]?.trim()) return quoted[1].trim();
-    const cadj = outputPreview.match(/\bcadj_[a-f0-9]{8,}\b/i);
-    if (cadj?.[0]) return cadj[0];
-  }
-  return null;
 }
 
 function extForStreamOutput(lang: string): string {
@@ -496,7 +483,7 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
 
   if (!mergeIntoLastAssistant) {
     activeToolTraceId = null;
-    setToolTraceRows?.([]);
+    setToolTraceRows?.((prev) => preserveLiveCadTraceRows(prev));
     setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
   }
   assistantContent = assistantStreamBuf;
@@ -813,19 +800,6 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
         if (evType === 'tool_blocked') {
           const d = data as { tool_name?: string; node_key?: string };
           onThinkingEvent?.({ type: 'tool_blocked', tool_name: d.tool_name || d.node_key || '' });
-          continue;
-        }
-        if (evType === 'workflow_step') {
-          const d = data as { node_key?: string; tool_name?: string; ok?: boolean; output_preview?: string };
-          onThinkingEvent?.({ type: 'workflow_step', tool_name: d.node_key || d.tool_name || '', ok: d.ok !== false, output_preview: d.output_preview });
-          continue;
-        }
-        if (evType === 'workflow_complete') {
-          onThinkingEvent?.({ type: 'workflow_complete' });
-          continue;
-        }
-        if (evType === 'workflow_error') {
-          onThinkingEvent?.({ type: 'workflow_error' });
           continue;
         }
         if (evType === 'approval_required') {
@@ -1588,7 +1562,31 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
               type: 'workflow_step',
               tool_name: nk,
               ok: w.ok !== false,
+              output_preview:
+                typeof (w as { output_preview?: string }).output_preview === 'string'
+                  ? (w as { output_preview: string }).output_preview
+                  : undefined,
             });
+          }
+          const wfPreview =
+            typeof (w as { output_preview?: string }).output_preview === 'string'
+              ? (w as { output_preview: string }).output_preview
+              : null;
+          const wfJobId = resolveCadJobIdFromSse(nk, {
+            job_id: (w as { job_id?: string }).job_id,
+            cad_job_id: (w as { cad_job_id?: string }).cad_job_id,
+            output_preview: wfPreview,
+          });
+          if (wfJobId && nk) {
+            setToolTraceRows?.((prev) =>
+              prev.map((r) => {
+                if (r.id !== activeToolTraceId && r.toolName !== nk) return r;
+                return patchTraceRowCadJob(r, nk, {
+                  jobId: wfJobId,
+                  outputPreview: wfPreview,
+                });
+              }),
+            );
           }
           setWorkflowLedger((prev) => ({
             ...prev,
@@ -2108,17 +2106,34 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             lastBrowserScreenshotOutputChunk = d.chunk;
           }
           lastActiveToolOutputChunk = d.chunk;
+          const chunkToolName =
+            typeof (d as { tool_name?: string }).tool_name === 'string'
+              ? (d as { tool_name: string }).tool_name
+              : '';
+          const chunkJobId = chunkToolName
+            ? resolveCadJobIdFromSse(chunkToolName, { chunk: d.chunk })
+            : null;
           setToolTraceRows?.((prev) => {
+            const patchRow = (r: AgentToolTraceRow) => {
+              if (!chunkToolName) return r;
+              if (r.id !== activeToolTraceId && r.toolName !== chunkToolName) return r;
+              return patchTraceRowCadJob(r, chunkToolName, {
+                jobId: chunkJobId,
+                outputPreview: d.chunk,
+              });
+            };
             if (activeToolTraceId) {
               return prev.map((r) =>
-                r.id === activeToolTraceId ? { ...r, lines: [...r.lines, d.chunk] } : r,
+                r.id === activeToolTraceId
+                  ? { ...patchRow(r), lines: [...r.lines, d.chunk] }
+                  : r,
               );
             }
             if (!prev.length) return prev;
             const last = prev[prev.length - 1];
             if (last.status === 'running') {
               return prev.map((r, i) =>
-                i === prev.length - 1 ? { ...r, lines: [...r.lines, d.chunk] } : r,
+                i === prev.length - 1 ? { ...patchRow(r), lines: [...r.lines, d.chunk] } : r,
               );
             }
             return prev;
@@ -2139,6 +2154,9 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             artifact_type?: string;
             artifact_id?: string;
             public_url?: string | null;
+            job_id?: string;
+            cad_job_id?: string;
+            cad_job_live?: boolean;
           };
           const doneToolName = String(d.tool_name || d.node_key || '');
           const doneOk =
@@ -2186,12 +2204,20 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
               summaryLines.join(' · ') ||
               (d.error ? String(d.error).slice(0, 120) : undefined),
           });
+          const rawToolOutput =
+            typeof d.output_preview === 'string'
+              ? d.output_preview
+              : outputPreview || lastActiveToolOutputChunk;
+          const cadJobId = resolveCadJobIdFromSse(doneToolName, {
+            job_id: d.job_id,
+            cad_job_id: d.cad_job_id,
+            output_preview: rawToolOutput,
+            chunk: lastActiveToolOutputChunk,
+          });
+          const cadJobLive =
+            d.cad_job_live === true ||
+            (cadJobId != null && cadJobOutputLooksInFlight(doneToolName, rawToolOutput));
           if (doneOk && typeof window !== 'undefined') {
-            const rawToolOutput =
-              typeof d.output_preview === 'string'
-                ? d.output_preview
-                : outputPreview || lastActiveToolOutputChunk;
-            const cadJobId = extractCadJobIdFromToolOutput(doneToolName, rawToolOutput);
             if (cadJobId) {
               window.dispatchEvent(
                 new CustomEvent(IAM_DESIGNSTUDIO_CAD_JOB, { detail: { job_id: cadJobId } }),
@@ -2275,29 +2301,42 @@ export async function consumeAgentChatSseBody(ctx: ConsumeAgentChatSseContext): 
             if (!closedRowId || !prev.some((r) => r.id === closedRowId)) return prev;
             return prev.map((r) =>
               r.id === closedRowId
-                ? {
-                    ...r,
-                    status: d.status === 'error' || !doneOk ? 'error' : 'done',
-                    durationMs: d.duration_ms,
-                    sqlRows: parsedSqlRows ?? undefined,
-                    isSql:
-                      r.isSql ||
-                      /d1|sql|query/i.test(doneToolName),
-                    integrationLabel: integrationLabel ?? r.integrationLabel,
-                    connectionResolution:
-                      receiptMeta?.connectionResolution ?? r.connectionResolution,
-                    connectionId: receiptMeta?.connectionId ?? r.connectionId,
-                    execHost: receiptMeta?.execHost ?? r.execHost,
-                    lines:
-                      d.status === 'error' && d.error
-                        ? [...summaryLines, String(d.error).slice(0, 4000)]
-                        : summaryLines.length
-                          ? summaryLines
-                          : r.lines,
-                    detailsJson: r.detailsJson,
-                    outputDetailsJson: outputDetailsJson ?? r.outputDetailsJson,
-                    smokeDebug: smokeDebug ?? r.smokeDebug,
-                  }
+                ? patchTraceRowCadJob(
+                    {
+                      ...r,
+                      status:
+                        d.status === 'error' || !doneOk
+                          ? 'error'
+                          : cadJobLive
+                            ? 'running'
+                            : 'done',
+                      durationMs: d.duration_ms,
+                      sqlRows: parsedSqlRows ?? undefined,
+                      isSql:
+                        r.isSql ||
+                        /d1|sql|query/i.test(doneToolName),
+                      integrationLabel: integrationLabel ?? r.integrationLabel,
+                      connectionResolution:
+                        receiptMeta?.connectionResolution ?? r.connectionResolution,
+                      connectionId: receiptMeta?.connectionId ?? r.connectionId,
+                      execHost: receiptMeta?.execHost ?? r.execHost,
+                      lines:
+                        d.status === 'error' && d.error
+                          ? [...summaryLines, String(d.error).slice(0, 4000)]
+                          : summaryLines.length
+                            ? summaryLines
+                            : r.lines,
+                      detailsJson: r.detailsJson,
+                      outputDetailsJson: outputDetailsJson ?? r.outputDetailsJson,
+                      smokeDebug: smokeDebug ?? r.smokeDebug,
+                    },
+                    doneToolName,
+                    {
+                      jobId: cadJobId,
+                      outputPreview: rawToolOutput,
+                      cadJobLive: cadJobLive,
+                    },
+                  )
                 : r,
             );
           });

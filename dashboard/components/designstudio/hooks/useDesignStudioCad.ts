@@ -103,6 +103,7 @@ export function useDesignStudioCad(opts: UseDesignStudioCadOpts = {}) {
   const { job: polledJob, polling } = useCadJobPoll(activeJobId, {
     enabled: !!activeJobId,
     engine: activeJob?.engine,
+    realtime: true,
     onDone: handleJobDone,
     onFailed: handleJobDone,
   });

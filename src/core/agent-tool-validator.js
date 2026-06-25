@@ -21,6 +21,7 @@ import {
   auditToolDecision,
 } from './agent-approval-gate.js';
 import { CODEMODE_TOOL_NAME } from './codemode-constants.js';
+import { insertAgentRunExecutionStep } from './agent-run-routing.js';
 
 const TERM_WRITE_TOOLS = new Set(['terminal_run', 'terminal_execute', 'run_command', 'bash']);
 

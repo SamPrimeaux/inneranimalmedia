@@ -25,6 +25,7 @@ import { AgentCodeFencePreview } from './AgentCodeFencePreview';
 import { AgentCodeDiffPreview } from './AgentCodeDiffPreview';
 import type { WorkflowLedgerState } from '../types';
 import type { AgentToolTraceRow } from '../execution/types';
+import { preserveLiveCadTraceRows, traceRowCadJobLive } from '../../../lib/cadToolTrace';
 import { ExecutionTimeline } from '../execution/ExecutionTimeline';
 import { prepareAssistantMessageWithToolTrace } from '../../../lib/stripToolTraceMessageContent';
 import { AgentPresenceInline } from '../../../features/mode-presence/AgentPresenceInline';
@@ -622,8 +623,21 @@ export const AgentMessageList: React.FC<AgentMessageListProps> = ({
                               onFileSelect({ name: file.name, content: file.content, originalContent: file.content })
                           : undefined
                       }
-                      onDismissRow={(id) => setToolTraceRows((prev) => prev.filter((r) => r.id !== id))}
-                      onClear={() => setToolTraceRows([])}
+                      onDismissRow={(id) =>
+                        setToolTraceRows((prev) =>
+                          prev.filter((r) => r.id !== id || traceRowCadJobLive(r)),
+                        )
+                      }
+                      onClear={() => setToolTraceRows((prev) => preserveLiveCadTraceRows(prev))}
+                      onCadJobTerminal={(rowId) =>
+                        setToolTraceRows((prev) =>
+                          prev.map((r) =>
+                            r.id === rowId
+                              ? { ...r, status: 'done' as const, cadJobLive: false }
+                              : r,
+                          ),
+                        )
+                      }
                     />
                   ) : null}
                   {msg.planQuestionsBatch && !msg.planQuestionsBatch.submitted ? (

@@ -244,6 +244,14 @@ async function callJobComplete(payload) {
   }
 }
 
+async function patchProgress(jobId, pct) {
+  await runD1Exec(
+    REPO_ROOT,
+    `UPDATE agentsam_cad_jobs SET progress_pct = ${Math.max(0, Math.min(100, Number(pct) || 0))}, updated_at = unixepoch()
+     WHERE id = '${sqlEscape(jobId)}'`,
+  );
+}
+
 async function processJob(job) {
   const started = Date.now();
   const tmpDir = mkdtempSync(join(tmpdir(), 'cadj-'));
@@ -253,15 +261,21 @@ async function processJob(job) {
     const script = decodeScript(job.r2_key);
     if (!script) throw new Error('missing_script_payload');
 
+    await patchProgress(job.id, 12);
+
     if (engine === 'openscad') {
       const scadPath = join(tmpDir, 'model.scad');
       const stlPath = join(tmpDir, 'model.stl');
       writeFileSync(scadPath, script, 'utf8');
+      await patchProgress(job.id, 28);
       runOpenscadPipeline(tmpDir, scadPath, stlPath, glbPath);
+      await patchProgress(job.id, 58);
     } else if (engine === 'blender') {
       const pyPath = join(tmpDir, 'script.py');
       writeFileSync(pyPath, script, 'utf8');
+      await patchProgress(job.id, 28);
       runBlenderPipeline(tmpDir, pyPath, glbPath);
+      await patchProgress(job.id, 58);
     } else if (engine === 'freecad') {
       const pyPath = join(tmpDir, 'script.py');
       const logPath = join(tmpDir, 'freecad.log');
@@ -288,9 +302,11 @@ async function processJob(job) {
       throw new Error(`unsupported_engine:${engine}`);
     }
 
+    await patchProgress(job.id, 72);
     optimizeGlbInPlace(glbPath);
 
     const r2Key = buildR2Key(job);
+    await patchProgress(job.id, 84);
     uploadGlb(glbPath, r2Key);
     const publicUrl = `/assets/${r2Key}`;
     const sizeBytes = statSync(glbPath).size;

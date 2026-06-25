@@ -1,6 +1,7 @@
 import { useEffect, type ReactNode } from 'react';
 import { StorefrontPreview } from './StorefrontPreview';
 import { TemplateInlineDemo } from './TemplateInlineDemo';
+import { TemplateLiveControls } from './TemplateLiveControls';
 import {
   isHtmlTemplate,
   isInlineComponentTemplate,
@@ -12,6 +13,9 @@ import {
 export type TemplatePreviewModalProps = {
   template: CmsTemplateRow | null;
   onClose: () => void;
+  liveValues?: Record<string, number>;
+  onLiveChange?: (key: string, value: number) => void;
+  onLiveReset?: () => void;
 };
 
 function previewHost(url: string): string {
@@ -22,7 +26,13 @@ function previewHost(url: string): string {
   }
 }
 
-export function TemplatePreviewModal({ template, onClose }: TemplatePreviewModalProps): ReactNode {
+export function TemplatePreviewModal({
+  template,
+  onClose,
+  liveValues,
+  onLiveChange,
+  onLiveReset,
+}: TemplatePreviewModalProps): ReactNode {
   useEffect(() => {
     if (!template) return undefined;
     const onKey = (e: KeyboardEvent) => {
@@ -38,6 +48,10 @@ export function TemplatePreviewModal({ template, onClose }: TemplatePreviewModal
   const previewUrl = resolveTemplatePreviewUrl(template, meta);
   const showHtml = previewUrl && isHtmlTemplate(template);
   const showInline = isInlineComponentTemplate(template) && !showHtml;
+  const cssStyle =
+    liveValues && Object.keys(liveValues).length
+      ? (Object.fromEntries(Object.entries(liveValues).map(([k, v]) => [k, String(v)])) as React.CSSProperties)
+      : undefined;
 
   return (
     <div className="pt-modal-overlay" role="presentation" onClick={onClose}>
@@ -69,33 +83,46 @@ export function TemplatePreviewModal({ template, onClose }: TemplatePreviewModal
         </header>
 
         <div className="pt-modal-body">
-          {showHtml ? (
-            <StorefrontPreview
-              url={previewUrl!}
-              variant="desktop"
-              title={previewHost(previewUrl!)}
-              className="pt-template-modal-frame"
-            />
-          ) : null}
+          <div style={{ display: 'grid', gridTemplateColumns: onLiveChange && liveValues ? 'minmax(0,1fr) 280px' : '1fr', gap: 18 }}>
+            <div style={cssStyle}>
+              {showHtml ? (
+                <StorefrontPreview
+                  url={previewUrl!}
+                  variant="desktop"
+                  title={previewHost(previewUrl!)}
+                  className="pt-template-modal-frame"
+                />
+              ) : null}
 
-          {showInline ? (
-            <div className="pt-template-modal-inline">
-              {meta.description ? <p className="pt-copy">{String(meta.description)}</p> : null}
-              <TemplateInlineDemo meta={{ ...meta, slug: template.slug ?? meta.slug }} />
-              {meta.component ? (
-                <p className="pt-inline-demo__meta">
-                  Component: <code>{String(meta.component)}</code>
-                </p>
+              {showInline ? (
+                <div className="pt-template-modal-inline">
+                  {meta.description ? <p className="pt-copy">{String(meta.description)}</p> : null}
+                  <TemplateInlineDemo meta={{ ...meta, slug: template.slug ?? meta.slug }} manual />
+                  {meta.component ? (
+                    <p className="pt-inline-demo__meta">
+                      Component: <code>{String(meta.component)}</code>
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {!showHtml && !showInline ? (
+                <div className="pt-template-modal-empty">
+                  <p>No live preview is configured for this template yet.</p>
+                  {meta.description ? <p className="pt-copy">{String(meta.description)}</p> : null}
+                </div>
               ) : null}
             </div>
-          ) : null}
 
-          {!showHtml && !showInline ? (
-            <div className="pt-template-modal-empty">
-              <p>No live preview is configured for this template yet.</p>
-              {meta.description ? <p className="pt-copy">{String(meta.description)}</p> : null}
-            </div>
-          ) : null}
+            {onLiveChange && liveValues ? (
+              <TemplateLiveControls
+                template={template}
+                values={liveValues}
+                onChange={onLiveChange}
+                onReset={onLiveReset}
+              />
+            ) : null}
+          </div>
         </div>
       </div>
     </div>

@@ -20,6 +20,8 @@ import {
 import type { AgentMode } from '../types';
 import { AgentPresenceInline } from '../../../features/mode-presence/AgentPresenceInline';
 import { AgentPresenceCard } from '../../../features/mode-presence/AgentPresenceCard';
+import { SmoothProgressBar } from '../../shared/SmoothProgressBar';
+import '../../shared/smoothProgress.css';
 import { resolveWorkflowRunPresence } from './workflowRunPresence';
 
 function sseSpineRunId(d: { agent_run_id?: unknown; run_id?: unknown }): string {
@@ -88,14 +90,28 @@ export function WorkflowRunPresenceBanner({
   };
   const view = resolveWorkflowRunPresence(runState, mode);
   if (!view) return null;
+
+  const pct =
+    ledger.stepsTotal != null && ledger.stepsTotal > 0
+      ? Math.min(100, (ledger.stepsCompleted / ledger.stepsTotal) * 100)
+      : null;
+  const indeterminate = pct === 0 && !ledger.lastError;
+
   return (
-    <AgentPresenceInline
-      mode={mode}
-      state={view.state}
-      title={view.title}
-      meta={view.meta}
-      size="sm"
-    />
+    <div className="min-w-0 space-y-2">
+      <AgentPresenceInline
+        mode={mode}
+        state={view.state}
+        title={view.title}
+        meta={view.meta}
+        size="sm"
+      />
+      {ledger.stepsTotal != null && ledger.stepsTotal > 0 ? (
+        <div className="pl-10 pr-1">
+          <SmoothProgressBar value={pct} indeterminate={indeterminate} showLabel height={3} />
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -289,17 +305,16 @@ export const WorkflowRunCard: React.FC<WorkflowRunCardProps> = ({
       {/* Progress bar */}
       {stepsTotal > 0 && (
         <div className="px-3 pt-2 pb-1">
-          <div className="flex items-center justify-between mb-1">
+          <SmoothProgressBar
+            value={pct}
+            indeterminate={stepsCompleted === 0 && status === 'running'}
+            showLabel
+            height={3}
+          />
+          <div className="flex items-center justify-between mt-1">
             <span className="text-[9px] text-[var(--dashboard-muted)]">
               {stepsCompleted} / {stepsTotal} steps
             </span>
-            <span className="text-[9px] text-[var(--dashboard-muted)]">{pct}%</span>
-          </div>
-          <div className="h-1 w-full rounded-full bg-[var(--dashboard-border)] overflow-hidden">
-            <div
-              className="h-full rounded-full bg-[var(--solar-cyan)] transition-all duration-500"
-              style={{ width: `${pct}%` }}
-            />
           </div>
         </div>
       )}

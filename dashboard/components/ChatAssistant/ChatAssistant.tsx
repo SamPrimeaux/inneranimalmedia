@@ -7,6 +7,7 @@
 import './chat-composer-glass.css';
 import React, { useState, useEffect, useRef, useLayoutEffect, useCallback, useMemo } from 'react';
 import { PHONE_MQ } from '../../lib/breakpoints';
+import { preserveLiveCadTraceRows } from '../../lib/cadToolTrace';
 import { useEditor } from '../../src/EditorContext';
 import { createPortal } from 'react-dom';
 import {
@@ -2255,7 +2256,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     setIsLoading(true);
     setMentionOpen(false);
     setSlashOpen(false);
-    setToolTraceRows([]);
+    setToolTraceRows((prev) => preserveLiveCadTraceRows(prev));
     setPythonDraftHint(null);
 
     const attachContextFiles: Array<{ name: string; content: string }> = [];

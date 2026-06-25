@@ -56,11 +56,11 @@ export async function runMcpZoneSandboxCommand(env, request, opts) {
 
   const zoneSlug = normalizeMcpZoneSlug(opts.zoneSlug);
   const config = opts.config && typeof opts.config === 'object' ? opts.config : {};
+  const useCallerWs = config.use_caller_workspace === true;
   const zoneWs =
-    opts.zoneSlug != null
+    !useCallerWs && opts.zoneSlug != null
       ? resolveMcpZoneWorkspaceId(normalizeMcpZoneSlug(opts.zoneSlug), String(opts.tenantId || ''))
       : null;
-  const useCallerWs = config.use_caller_workspace === true && !zoneWs;
   const execWorkspaceId = useCallerWs
     ? String(opts.workspaceId || '').trim()
     : zoneWs || String(config.sandbox_workspace_id || opts.workspaceId || '').trim();
