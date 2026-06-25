@@ -92,3 +92,81 @@ export async function patchKanbanTask(
   if (!r.ok) return { ok: false, error: j.error || `HTTP ${r.status}` };
   return j;
 }
+
+export type TaskActivityEntry = {
+  id: string;
+  task_id: string;
+  tenant_id: string;
+  user_id?: string | null;
+  action: string;
+  changes_json?: string | null;
+  created_at: number;
+};
+
+export type TaskComment = {
+  id: string;
+  task_id: string;
+  tenant_id: string;
+  user_id: string;
+  content: string;
+  metadata_json?: string | null;
+  created_at: number;
+  updated_at: number;
+};
+
+export type TaskAttachment = {
+  id: string;
+  task_id: string;
+  file_name: string;
+  file_key: string;
+  file_size?: number | null;
+  content_type?: string | null;
+  created_at?: string | null;
+  url?: string;
+};
+
+export async function fetchTaskActivity(taskId: string): Promise<{ ok: boolean; activity?: TaskActivityEntry[]; error?: string }> {
+  const r = await fetch(`/api/kanban/tasks/${encodeURIComponent(taskId)}/activity`, { credentials: "same-origin" });
+  const j = (await r.json()) as { ok: boolean; activity?: TaskActivityEntry[]; error?: string };
+  if (!r.ok) return { ok: false, error: j.error || `HTTP ${r.status}` };
+  return j;
+}
+
+export async function fetchTaskComments(taskId: string): Promise<{ ok: boolean; comments?: TaskComment[]; error?: string }> {
+  const r = await fetch(`/api/kanban/tasks/${encodeURIComponent(taskId)}/comments`, { credentials: "same-origin" });
+  const j = (await r.json()) as { ok: boolean; comments?: TaskComment[]; error?: string };
+  if (!r.ok) return { ok: false, error: j.error || `HTTP ${r.status}` };
+  return j;
+}
+
+export async function postTaskComment(taskId: string, content: string): Promise<{ ok: boolean; comment?: TaskComment; error?: string }> {
+  const r = await fetch(`/api/kanban/tasks/${encodeURIComponent(taskId)}/comments`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content }),
+  });
+  const j = (await r.json()) as { ok: boolean; comment?: TaskComment; error?: string };
+  if (!r.ok) return { ok: false, error: j.error || `HTTP ${r.status}` };
+  return j;
+}
+
+export async function fetchTaskAttachments(taskId: string): Promise<{ ok: boolean; attachments?: TaskAttachment[]; error?: string }> {
+  const r = await fetch(`/api/kanban/tasks/${encodeURIComponent(taskId)}/attachments`, { credentials: "same-origin" });
+  const j = (await r.json()) as { ok: boolean; attachments?: TaskAttachment[]; error?: string };
+  if (!r.ok) return { ok: false, error: j.error || `HTTP ${r.status}` };
+  return j;
+}
+
+export async function uploadTaskAttachment(taskId: string, file: File): Promise<{ ok: boolean; attachment?: TaskAttachment; error?: string }> {
+  const fd = new FormData();
+  fd.append("file", file);
+  const r = await fetch(`/api/kanban/tasks/${encodeURIComponent(taskId)}/attachments`, {
+    method: "POST",
+    credentials: "same-origin",
+    body: fd,
+  });
+  const j = (await r.json()) as { ok: boolean; attachment?: TaskAttachment; error?: string };
+  if (!r.ok) return { ok: false, error: j.error || `HTTP ${r.status}` };
+  return j;
+}

@@ -69,6 +69,47 @@ async function assertBoardAccess(db, boardId, tenantIds, workspaceId) {
   return !!row;
 }
 
+function resolveUserId(authUser) {
+  const id = authUser?.id ?? authUser?.user_id ?? authUser?.userId ?? null;
+  return id != null && String(id).trim() ? String(id).trim() : null;
+}
+
+function attachmentDownloadUrl(requestUrl, fileKey) {
+  const origin = new URL(requestUrl).origin;
+  return `${origin}/api/r2/buckets/inneranimalmedia/object/${encodeURIComponent(fileKey)}`;
+}
+
+async function assertTaskAccess(db, taskId, tenantIds, workspaceId) {
+  if (!tenantIds?.length) return null;
+  return db
+    .prepare(
+      `SELECT kt.id, kt.tenant_id, kt.board_id, kt.column_id, kt.title, kt.description,
+              kt.priority, kt.assignee_id, kt.position, kt.completed_at, kt.updated_at
+       FROM kanban_tasks kt
+       INNER JOIN kanban_boards kb ON kb.id = kt.board_id
+       WHERE kt.id = ?
+         AND kt.tenant_id IN (${inClausePlaceholders(tenantIds.length)})
+         AND (kb.workspace_id = ? OR kb.workspace_id IS NULL OR kb.workspace_id = '')
+       LIMIT 1`,
+    )
+    .bind(taskId, ...tenantIds, workspaceId)
+    .first();
+}
+
+async function logTaskActivity(db, { taskId, tenantId, userId, action, changes }) {
+  const id = `ta_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+  const now = Math.floor(Date.now() / 1000);
+  const changesJson =
+    changes != null && typeof changes === 'object' ? JSON.stringify(changes) : changes != null ? String(changes) : null;
+  await db
+    .prepare(
+      `INSERT INTO task_activity (id, task_id, tenant_id, user_id, action, changes_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(id, taskId, tenantId, userId || null, action, changesJson, now)
+    .run();
+}
+
 function mapTaskRow(row) {
   if (!row) return null;
   return {
@@ -248,24 +289,16 @@ async function handleTaskPatch(request, env, authUser, taskId) {
   if (!tenantIds.length) return jsonResponse({ ok: false, error: 'tenant_required' }, 403);
   if (!workspaceId) return jsonResponse({ ok: false, error: 'workspace_required' }, 403);
 
-  const row = await env.DB.prepare(
-    `SELECT kt.id, kt.board_id, kt.column_id
-     FROM kanban_tasks kt
-     INNER JOIN kanban_boards kb ON kb.id = kt.board_id
-     WHERE kt.id = ?
-       AND kt.tenant_id IN (${inClausePlaceholders(tenantIds.length)})
-       AND (kb.workspace_id = ? OR kb.workspace_id IS NULL OR kb.workspace_id = '')
-     LIMIT 1`,
-  )
-    .bind(taskId, ...tenantIds, workspaceId)
-    .first();
-
+  const row = await assertTaskAccess(env.DB, taskId, tenantIds, workspaceId);
   if (!row) return jsonResponse({ ok: false, error: 'not_found' }, 404);
 
   const body = await request.json().catch(() => ({}));
   const updates = [];
   const binds = [];
+  const activityLogs = [];
   const isCollab = tenantIds.length > 1;
+  const userId = resolveUserId(authUser);
+  const tenantId = String(row.tenant_id);
 
   if (body.column_id != null) {
     const columnId = String(body.column_id).trim();
@@ -279,25 +312,60 @@ async function handleTaskPatch(request, env, authUser, taskId) {
           .bind(columnId, row.board_id, tenantIds[0])
           .first();
     if (!col) return jsonResponse({ ok: false, error: 'invalid_column' }, 400);
+    if (String(row.column_id || '') !== columnId) {
+      activityLogs.push({
+        action: 'status_changed',
+        changes: { field: 'column_id', from: row.column_id, to: columnId },
+      });
+    }
     updates.push('column_id = ?');
     binds.push(columnId);
   }
 
   if (body.position != null) {
+    const position = Number(body.position) || 0;
+    if (Number(row.position) !== position) {
+      activityLogs.push({
+        action: 'updated',
+        changes: { field: 'position', from: row.position, to: position },
+      });
+    }
     updates.push('position = ?');
-    binds.push(Number(body.position) || 0);
+    binds.push(position);
   }
 
   if (body.status === 'complete' || body.completed === true) {
+    if (!row.completed_at) {
+      activityLogs.push({ action: 'status_changed', changes: { field: 'completed_at', from: null, to: 'set' } });
+    }
     updates.push('completed_at = ?');
     binds.push(Math.floor(Date.now() / 1000));
   } else if (body.completed === false || body.status === 'open') {
+    if (row.completed_at) {
+      activityLogs.push({ action: 'status_changed', changes: { field: 'completed_at', from: row.completed_at, to: null } });
+    }
     updates.push('completed_at = NULL');
   }
 
   if (body.title != null) {
+    const title = String(body.title).trim();
+    if (String(row.title || '') !== title) {
+      activityLogs.push({ action: 'updated', changes: { field: 'title', from: row.title, to: title } });
+    }
     updates.push('title = ?');
-    binds.push(String(body.title).trim());
+    binds.push(title);
+  }
+
+  if (body.assignee_id != null) {
+    const assigneeId = String(body.assignee_id).trim() || null;
+    if (String(row.assignee_id || '') !== String(assigneeId || '')) {
+      activityLogs.push({
+        action: 'assigned',
+        changes: { field: 'assignee_id', from: row.assignee_id, to: assigneeId },
+      });
+    }
+    updates.push('assignee_id = ?');
+    binds.push(assigneeId);
   }
 
   if (!updates.length) return jsonResponse({ ok: false, error: 'no_updates' }, 400);
@@ -306,6 +374,16 @@ async function handleTaskPatch(request, env, authUser, taskId) {
   binds.push(taskId);
 
   await env.DB.prepare(`UPDATE kanban_tasks SET ${updates.join(', ')} WHERE id = ?`).bind(...binds).run();
+
+  for (const entry of activityLogs) {
+    await logTaskActivity(env.DB, {
+      taskId,
+      tenantId,
+      userId,
+      action: entry.action,
+      changes: entry.changes,
+    });
+  }
 
   const next = await env.DB.prepare(
     `SELECT kt.*, kb.project_id
@@ -317,6 +395,198 @@ async function handleTaskPatch(request, env, authUser, taskId) {
     .first();
 
   return jsonResponse({ ok: true, task: mapTaskRow(next) });
+}
+
+async function handleTaskActivityList(request, env, authUser, taskId) {
+  const workspaceId = resolveWorkspaceId(authUser, env, new URL(request.url));
+  const tenantIds = await resolveKanbanTenantScope(env.DB, authUser, env, workspaceId);
+  if (!tenantIds.length) return jsonResponse({ ok: false, error: 'tenant_required' }, 403);
+  if (!workspaceId) return jsonResponse({ ok: false, error: 'workspace_required' }, 403);
+
+  const row = await assertTaskAccess(env.DB, taskId, tenantIds, workspaceId);
+  if (!row) return jsonResponse({ ok: false, error: 'not_found' }, 404);
+
+  const { results } = await env.DB.prepare(
+    `SELECT id, task_id, tenant_id, user_id, action, changes_json, created_at
+     FROM task_activity
+     WHERE task_id = ? AND tenant_id = ?
+     ORDER BY created_at DESC
+     LIMIT 100`,
+  )
+    .bind(taskId, String(row.tenant_id))
+    .all();
+
+  return jsonResponse({ ok: true, activity: results || [] });
+}
+
+async function handleTaskCommentsList(request, env, authUser, taskId) {
+  const workspaceId = resolveWorkspaceId(authUser, env, new URL(request.url));
+  const tenantIds = await resolveKanbanTenantScope(env.DB, authUser, env, workspaceId);
+  if (!tenantIds.length) return jsonResponse({ ok: false, error: 'tenant_required' }, 403);
+  if (!workspaceId) return jsonResponse({ ok: false, error: 'workspace_required' }, 403);
+
+  const row = await assertTaskAccess(env.DB, taskId, tenantIds, workspaceId);
+  if (!row) return jsonResponse({ ok: false, error: 'not_found' }, 404);
+
+  const { results } = await env.DB.prepare(
+    `SELECT id, task_id, tenant_id, user_id, content, metadata_json, created_at, updated_at
+     FROM task_comments
+     WHERE task_id = ? AND tenant_id = ?
+     ORDER BY created_at ASC
+     LIMIT 200`,
+  )
+    .bind(taskId, String(row.tenant_id))
+    .all();
+
+  return jsonResponse({ ok: true, comments: results || [] });
+}
+
+async function handleTaskCommentPost(request, env, authUser, taskId) {
+  const workspaceId = resolveWorkspaceId(authUser, env, new URL(request.url));
+  const tenantIds = await resolveKanbanTenantScope(env.DB, authUser, env, workspaceId);
+  if (!tenantIds.length) return jsonResponse({ ok: false, error: 'tenant_required' }, 403);
+  if (!workspaceId) return jsonResponse({ ok: false, error: 'workspace_required' }, 403);
+
+  const row = await assertTaskAccess(env.DB, taskId, tenantIds, workspaceId);
+  if (!row) return jsonResponse({ ok: false, error: 'not_found' }, 404);
+
+  const userId = resolveUserId(authUser);
+  if (!userId) return jsonResponse({ ok: false, error: 'user_required' }, 403);
+
+  const body = await request.json().catch(() => ({}));
+  const content = String(body.content || '').trim();
+  if (!content) return jsonResponse({ ok: false, error: 'content_required' }, 400);
+
+  const tenantId = String(row.tenant_id);
+  const now = Math.floor(Date.now() / 1000);
+  const id = `tc_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+
+  await env.DB.prepare(
+    `INSERT INTO task_comments (id, task_id, tenant_id, user_id, content, metadata_json, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, '{}', ?, ?)`,
+  )
+    .bind(id, taskId, tenantId, userId, content, now, now)
+    .run();
+
+  await logTaskActivity(env.DB, {
+    taskId,
+    tenantId,
+    userId,
+    action: 'commented',
+    changes: { comment_id: id },
+  });
+
+  return jsonResponse({
+    ok: true,
+    comment: {
+      id,
+      task_id: taskId,
+      tenant_id: tenantId,
+      user_id: userId,
+      content,
+      metadata_json: '{}',
+      created_at: now,
+      updated_at: now,
+    },
+  });
+}
+
+async function handleTaskAttachmentsList(request, env, authUser, taskId) {
+  const workspaceId = resolveWorkspaceId(authUser, env, new URL(request.url));
+  const tenantIds = await resolveKanbanTenantScope(env.DB, authUser, env, workspaceId);
+  if (!tenantIds.length) return jsonResponse({ ok: false, error: 'tenant_required' }, 403);
+  if (!workspaceId) return jsonResponse({ ok: false, error: 'workspace_required' }, 403);
+
+  const row = await assertTaskAccess(env.DB, taskId, tenantIds, workspaceId);
+  if (!row) return jsonResponse({ ok: false, error: 'not_found' }, 404);
+
+  const { results } = await env.DB.prepare(
+    `SELECT id, task_id, file_name, file_key, file_size, content_type, created_at
+     FROM task_attachments
+     WHERE task_id = ?
+     ORDER BY created_at DESC
+     LIMIT 100`,
+  )
+    .bind(taskId)
+    .all();
+
+  const attachments = (results || []).map((a) => ({
+    ...a,
+    url: attachmentDownloadUrl(request.url, String(a.file_key)),
+  }));
+
+  return jsonResponse({ ok: true, attachments });
+}
+
+async function handleTaskAttachmentPost(request, env, authUser, taskId) {
+  const workspaceId = resolveWorkspaceId(authUser, env, new URL(request.url));
+  const tenantIds = await resolveKanbanTenantScope(env.DB, authUser, env, workspaceId);
+  if (!tenantIds.length) return jsonResponse({ ok: false, error: 'tenant_required' }, 403);
+  if (!workspaceId) return jsonResponse({ ok: false, error: 'workspace_required' }, 403);
+
+  const row = await assertTaskAccess(env.DB, taskId, tenantIds, workspaceId);
+  if (!row) return jsonResponse({ ok: false, error: 'not_found' }, 404);
+
+  const bucket = env.ASSETS;
+  if (!bucket?.put) return jsonResponse({ ok: false, error: 'storage_not_configured' }, 503);
+
+  const userId = resolveUserId(authUser);
+  const tenantId = String(row.tenant_id);
+  const contentTypeHeader = request.headers.get('content-type') || '';
+
+  let fileName = 'file';
+  let contentType = 'application/octet-stream';
+  let bytes;
+
+  if (contentTypeHeader.includes('multipart/form-data')) {
+    const form = await request.formData();
+    const file = form.get('file');
+    if (!(file instanceof File)) return jsonResponse({ ok: false, error: 'file_required' }, 400);
+    fileName = file.name || fileName;
+    contentType = file.type || contentType;
+    bytes = await file.arrayBuffer();
+  } else {
+    bytes = await request.arrayBuffer();
+    if (!bytes?.byteLength) return jsonResponse({ ok: false, error: 'file_required' }, 400);
+    const url = new URL(request.url);
+    fileName = url.searchParams.get('file_name') || fileName;
+    contentType = request.headers.get('content-type') || contentType;
+  }
+
+  const safeName = String(fileName).replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 120);
+  const fileKey = `tasks/${tenantId}/${taskId}/${crypto.randomUUID().slice(0, 8)}-${safeName}`;
+
+  await bucket.put(fileKey, bytes, { httpMetadata: { contentType } });
+
+  const id = `tatt_${crypto.randomUUID().replace(/-/g, '').slice(0, 14)}`;
+  await env.DB.prepare(
+    `INSERT INTO task_attachments (id, task_id, file_name, file_key, file_size, content_type, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`,
+  )
+    .bind(id, taskId, fileName, fileKey, bytes.byteLength, contentType)
+    .run();
+
+  if (userId) {
+    await logTaskActivity(env.DB, {
+      taskId,
+      tenantId,
+      userId,
+      action: 'updated',
+      changes: { field: 'attachment', file_name: fileName, file_key: fileKey },
+    });
+  }
+
+  const attachment = {
+    id,
+    task_id: taskId,
+    file_name: fileName,
+    file_key: fileKey,
+    file_size: bytes.byteLength,
+    content_type: contentType,
+    url: attachmentDownloadUrl(request.url, fileKey),
+  };
+
+  return jsonResponse({ ok: true, attachment });
 }
 
 export async function handleKanbanApi(request, url, env) {
@@ -336,6 +606,27 @@ export async function handleKanbanApi(request, url, env) {
 
   if (pathLower === '/api/kanban/tasks' && method === 'GET') {
     return handleTasksList(url, env, authUser);
+  }
+
+  const taskSubMatch = pathLower.match(/^\/api\/kanban\/tasks\/([^/]+)\/(activity|comments|attachments)$/);
+  if (taskSubMatch) {
+    const subId = taskSubMatch[1];
+    const subResource = taskSubMatch[2];
+    if (subResource === 'activity' && method === 'GET') {
+      return handleTaskActivityList(request, env, authUser, subId);
+    }
+    if (subResource === 'comments' && method === 'GET') {
+      return handleTaskCommentsList(request, env, authUser, subId);
+    }
+    if (subResource === 'comments' && method === 'POST') {
+      return handleTaskCommentPost(request, env, authUser, subId);
+    }
+    if (subResource === 'attachments' && method === 'GET') {
+      return handleTaskAttachmentsList(request, env, authUser, subId);
+    }
+    if (subResource === 'attachments' && method === 'POST') {
+      return handleTaskAttachmentPost(request, env, authUser, subId);
+    }
   }
 
   const taskMatch = pathLower.match(/^\/api\/kanban\/tasks\/([^/]+)$/);
