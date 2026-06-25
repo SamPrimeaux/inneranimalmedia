@@ -7,6 +7,7 @@ import { createSharedDrive, hasDriveManageScope } from '../../lib/library/shared
 import {
   createDriveFolder,
   deleteDriveFilePermanent,
+  emptyDriveTrash,
   renameDriveFile,
   restoreDriveFile,
   trashDriveFile,
@@ -432,12 +433,10 @@ export function ArtifactsDriveShell() {
                   className="lib-connect-action danger shared-drive-toolbar-btn"
                   onClick={() => {
                     if (!window.confirm('Empty Drive trash permanently?')) return;
-                    void import('../../lib/library/driveOpsApi').then(({ emptyDriveTrash }) =>
-                      emptyDriveTrash().then((out) => {
-                        showToast(out.ok ? 'Trash emptied' : out.error || 'Empty trash failed');
-                        if (out.ok) void ws.refresh();
-                      }),
-                    );
+                    void emptyDriveTrash().then((out) => {
+                      showToast(out.ok ? 'Trash emptied' : out.error || 'Empty trash failed');
+                      if (out.ok) void ws.refresh();
+                    });
                   }}
                 >
                   Empty trash
