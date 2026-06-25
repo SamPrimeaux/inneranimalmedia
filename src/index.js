@@ -26,6 +26,7 @@ import { hydrateContactPageHtml } from './core/cms-contact-hydrate.js';
 import { hydrateGamesPageHtml } from './core/cms-games-hydrate.js';
 import { hydrateWorkPageHtml } from './core/cms-work-hydrate.js';
 import { hydrateWorkDetailPageHtml } from './core/cms-work-detail-hydrate.js';
+import { assetPassthroughCacheControl } from './core/asset-passthrough-cache.js';
 import { resolveIdentity } from './core/identity.js';
 import { generateMcpToken } from './core/mcp-auth.js';
 import {
@@ -562,6 +563,8 @@ export default {
           key.toLowerCase().endsWith('.gltf') ? 'model/gltf+json' :
           null;
 
+        const cacheControl = assetPassthroughCacheControl(key);
+
         const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS' };
         if (request.method === 'OPTIONS') {
           return new Response(null, { status: 204, headers: cors });
@@ -569,7 +572,7 @@ export default {
         return new Response(obj.body, {
           headers: {
             'Content-Type': obj.httpMetadata?.contentType || inferred || 'application/octet-stream',
-            'Cache-Control': 'public, max-age=3600',
+            'Cache-Control': cacheControl,
             ...cors,
           },
         });

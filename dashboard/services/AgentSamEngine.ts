@@ -9,7 +9,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { AppState, GameEntity, ProjectType, SceneConfig, CADTool, VoxelData, CADPlane, ArtStyle } from '../types';
 import { chessPieceGlbPath, normalizeGlbUrl } from '../lib/glbAssets';
-import { createPlatformGltfLoader, ensureMeshoptDecoderReady } from '../lib/gltfLoader';
+import { createPlatformGltfLoader, cloneGltfScene, loadCachedGltf } from '../lib/gltfLoader';
 import { AgentSamSceneConfig } from '../utils/agentSamConstants';
 import {
   AgentSamGenerators,
@@ -762,7 +762,7 @@ export class AgentSamEngine {
     if (entity.modelUrl) {
       try {
         const gltf = await this.loadModel(entity.modelUrl);
-        const model = gltf.scene.clone();
+        const model = cloneGltfScene(gltf);
         
         // Correct normalization: Align bottom center of model to local origin
         const box = new THREE.Box3().setFromObject(model);
@@ -900,20 +900,9 @@ export class AgentSamEngine {
     return url.includes('assets.inneranimalmedia.com/chess-pieces/');
   }
 
-  private async loadModel(url: string): Promise<any> {
-    await ensureMeshoptDecoderReady();
+  private async loadModel(url: string): Promise<import('three/addons/loaders/GLTFLoader.js').GLTF> {
     const src = this.isCanonicalChessPieceUrl(url) ? url : normalizeGlbUrl(url);
-    return new Promise((resolve, reject) => {
-      this.gltfLoader.load(
-        src,
-        resolve,
-        undefined,
-        (err) => {
-          console.error(`Failed to load chess piece GLB: ${src}`, err);
-          reject(err);
-        },
-      );
-    });
+    return loadCachedGltf(this.gltfLoader, src);
   }
 
   /** Serializable entity list for scene_snapshots / R2. */

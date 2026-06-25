@@ -21,12 +21,34 @@ export type StudioStockAsset = {
   scale: number;
   iconKey: string | null;
   tags: string | null;
+  /** Poster/thumbnail only — never use model url for card preview */
+  thumbnailUrl: string | null;
 };
+
+function normalizeThumbnailUrl(input: string | null | undefined): string | null {
+  const s = String(input ?? '').trim();
+  if (!s) return null;
+  if (s.startsWith('/')) return s;
+  try {
+    const base =
+      typeof window !== 'undefined' && window.location?.origin
+        ? window.location.origin
+        : 'https://inneranimalmedia.com';
+    const u = new URL(s, base);
+    if (u.hostname.includes('inneranimalmedia.com') && u.pathname.startsWith('/assets/')) {
+      return u.pathname;
+    }
+    return u.href;
+  } catch {
+    return s;
+  }
+}
 
 function parseStudioAssetApiRow(row: {
   id?: string;
   label?: string;
   public_url?: string;
+  thumbnail_url?: string | null;
   icon?: string | null;
   scale?: number;
   tags?: string | null;
@@ -39,7 +61,8 @@ function parseStudioAssetApiRow(row: {
     typeof row.scale === 'number' && Number.isFinite(row.scale) && row.scale > 0 ? row.scale : 1;
   const iconKey = row.icon != null && String(row.icon).trim() ? String(row.icon).trim() : null;
   const tags = row.tags != null && String(row.tags).trim() ? String(row.tags).trim() : null;
-  return { id, name, url, scale, iconKey, tags };
+  const thumbnailUrl = normalizeThumbnailUrl(row.thumbnail_url);
+  return { id, name, url, scale, iconKey, tags, thumbnailUrl };
 }
 
 function studioAssetIcon(iconKey: string | null): React.ReactNode {
@@ -149,8 +172,20 @@ export function AssetLibrary({
       onClick={() => onSpawnModel(asset.name, asset.url, asset.scale)}
       className="flex items-center gap-3 p-2 rounded-xl bg-[var(--bg-panel)] border border-[var(--border-subtle)] hover:bg-[var(--bg-hover)] text-[10px] font-bold uppercase text-left"
     >
-      <span className="text-emerald-400">{studioAssetIcon(asset.iconKey)}</span>
-      {asset.name}
+      {asset.thumbnailUrl ? (
+        <img
+          src={asset.thumbnailUrl}
+          alt=""
+          width={28}
+          height={28}
+          loading="lazy"
+          decoding="async"
+          className="w-7 h-7 rounded-md object-cover shrink-0 bg-[var(--bg-hover)]"
+        />
+      ) : (
+        <span className="text-emerald-400 shrink-0">{studioAssetIcon(asset.iconKey)}</span>
+      )}
+      <span className="truncate">{asset.name}</span>
     </button>
   );
 
