@@ -78,7 +78,7 @@ Designed as a **First-Class Citizen**:
 - R2 prefix: `/static/dashboard/app/`
 - Worker: `wrangler.production.toml` → `inneranimalmedia.com`
 
-There is **no sandbox deploy lane** in this repo. See `docs/dashboard/README.md`.
+There is **no sandbox deploy lane** in this repo. See `docs/dashboard/COMPONENTS_LIVE_VS_LEGACY.md` for SPA route map.
 
 ### Prompting Strategy (Environment Bindings)
 When instructing future agents, use the following placeholder syntax:

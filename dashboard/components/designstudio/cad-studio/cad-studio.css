@@ -3688,11 +3688,6 @@
   100% { transform: scaleX(0) translateX(200%); }
 }
 
-/* Nuke stale bottom tab nav — deployed d7f46134 */
-@media (max-width: 430px) {
-  nav[aria-label="Primary"] { display: none !important; }
-}
-
 /* On mobile, right-rail editor columns are suppressed — InspectorPanel is the bottom sheet */
 @media (max-width: 480px) {
   .cad-studio__layout-cell--outliner,

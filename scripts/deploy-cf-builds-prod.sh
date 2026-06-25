@@ -3,13 +3,12 @@
 #   bash scripts/deploy-cf-builds-prod.sh
 #
 # Trigger: push to branch `main` (CF Workers Builds production trigger).
-# Flow: wrangler deploy -c wrangler.jsonc → D1 health/deploy rows → Vite build in agent-dashboard/
-#       → sync dist/* to R2 bucket inneranimalmedia with keys dashboard/app/<basename>
-#       → upload dist/index.html as dashboard/app/agent.html → post-upload prune under dashboard/app/assets/
-#       → deploy manifest JSON + prune old manifests (keep last 10).
-# R2: BUCKET=inneranimalmedia, prefix dashboard/app (DASHBOARD binding points at this bucket).
+# Flow: wrangler deploy -c wrangler.production.toml → Vite build in dashboard/
+#       → sync dashboard/dist to R2 static/dashboard/app/ (see scripts/deploy-frontend.sh).
+#       → PWA assets under static/dashboard/ (sw.js, manifest, etc.) → post-deploy hooks.
+# R2: BUCKET=inneranimalmedia, canonical prefix static/dashboard/app (Vite base in dashboard/vite.config.ts).
 #
-# Do not confuse with removed sandbox scripts. Production: npm run deploy:full or this CF Builds hook.
+# Prefer npm run deploy:full for operator deploys. This script is the CF Workers Builds hook.
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

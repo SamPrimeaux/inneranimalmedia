@@ -15,5 +15,5 @@ python3 scripts/maintenance/fix_deploy_pipeline.py --apply
 
 ## Docs
 
-- Production checklist: `docs/DEPLOY-CHECKLIST.md` (references this folder).
+- Production deploy: `npm run deploy:full` and `docs/DEPLOY_AND_AGENT_GUIDE.md`.
 - Deploy env / agent guide: `docs/DEPLOY_AND_AGENT_GUIDE.md`.
