@@ -37,6 +37,7 @@ export type ShellProduct = {
 };
 
 export const SHELL_CORE_NAV: ShellCoreItem[] = [
+  { id: 'home', kind: 'route', label: 'Home', path: '/dashboard/home', match: 'exact' },
   { id: 'new-chat', kind: 'action', label: 'New chat', action: 'new-chat' },
   { id: 'chats', kind: 'action', label: 'Chats', action: 'open-chats' },
   { id: 'projects', kind: 'route', label: 'Projects', path: '/dashboard/projects', match: 'exact' },

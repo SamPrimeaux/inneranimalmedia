@@ -134,6 +134,7 @@ const ProjectManagement = lazy(() => import('./pages/projects/ProjectManagement'
 
 /** Route-level code splitting: heavy dashboard pages load on demand; shell + /dashboard/agent stay eager. */
 const OverviewPage = lazy(() => import('./components/overview'));
+const DashboardHome = lazy(() => import('./components/DashboardHome').then((m) => ({ default: m.DashboardHome })));
 const FinanceDashboard = lazy(() => import('./components/finance'));
 const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage').then((m) => ({ default: m.AnalyticsPage })));
 const RedirectHealthToAnalytics = lazy(() =>
@@ -4127,6 +4128,7 @@ const App: React.FC = () => {
                     <div className="flex flex-1 flex-col min-h-0 min-w-0">
                     <Routes>
                       <Route path="/dashboard/calendar" element={<Navigate to="/dashboard/collaborate" replace />} />
+                      <Route path="/dashboard/home" element={<DashboardHome />} />
                       <Route path="/dashboard/overview" element={<OverviewPage />} />
                       <Route
                         path="/dashboard/finance"
