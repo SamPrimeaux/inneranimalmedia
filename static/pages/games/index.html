@@ -44,7 +44,7 @@
     body {
       background: #020617;
       color: #E2E8F0;
-      padding-top: var(--header-h);
+      padding-top: 0;
     }
     .chess-hero-cover-wrap {
       aspect-ratio: 16 / 9;
@@ -113,43 +113,100 @@
 </head>
 <body class="iam-public-page route-games" data-footer-theme="dark">
   <main>
-    <!-- Section 1: Interactive systems hero (light) -->
+    <!-- Section 1: Hero — full bleed cinematic dark -->
     <section
-      class="py-24 md:py-32 bg-white"
+      id="cms-games-sec-hero"
       data-cms-section="interactive_systems"
       data-cms-type="hero"
-      data-section-theme="light"
-      id="cms-games-sec-hero"
+      data-section-theme="dark"
+      style="position:relative;width:100%;min-height:min(92vh,860px);display:flex;flex-direction:column;justify-content:flex-end;overflow:hidden;background:#05030a;"
     >
-      <div class="w-full max-w-screen-xl-tight px-6 mx-auto">
-        <div class="text-center mb-16 md:mb-24">
-          <h1 class="text-4xl md:text-5xl font-bold text-brand-navy mb-4" id="cms-games-hero-headline">Interactive systems</h1>
-          <p class="text-brand-muted text-lg md:text-xl" id="cms-games-hero-subheadline">MeauxGame engine preview.</p>
+      <!-- Full-bleed hero image -->
+      <picture style="position:absolute;inset:0;width:100%;height:100%;">
+        <source media="(max-width:768px)" srcset="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/1b7ecfe9-550c-4ef7-966c-9e1972e29800/public">
+        <source srcset="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/1b7ecfe9-550c-4ef7-966c-9e1972e29800/hero">
+        <img
+          id="cms-games-hero-img"
+          src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/1b7ecfe9-550c-4ef7-966c-9e1972e29800/hero"
+          alt="MeauxChess baroque 3D board"
+          width="1920" height="1080"
+          loading="eager" decoding="async"
+          style="width:100%;height:100%;object-fit:cover;object-position:center 30%;display:block;"
+        >
+      </picture>
+
+      <!-- Gradient layers: top fade to dark (for nav), bottom scoop for copy -->
+      <div style="position:absolute;inset:0;pointer-events:none;
+        background:
+          linear-gradient(180deg, rgba(5,3,10,0.72) 0%, rgba(5,3,10,0.0) 28%),
+          linear-gradient(0deg,   rgba(5,3,10,1.00) 0%, rgba(5,3,10,0.85) 18%, rgba(5,3,10,0.35) 42%, rgba(5,3,10,0.0) 64%);
+      "></div>
+
+      <!-- Copy block -->
+      <div style="position:relative;z-index:2;width:100%;max-width:1280px;margin:0 auto;padding:clamp(2.5rem,6vw,5rem) clamp(1.25rem,4vw,3rem) clamp(3rem,7vw,6rem);">
+
+        <!-- Eyebrow -->
+        <p style="display:inline-flex;align-items:center;gap:0.5rem;font-size:0.72rem;font-weight:800;letter-spacing:0.2em;text-transform:uppercase;color:#c9a84c;margin:0 0 1.1rem;" id="cms-games-hero-eyebrow">
+          <span style="display:block;width:28px;height:1px;background:#c9a84c;"></span>
+          MeauxGames · Engine Preview
+        </p>
+
+        <!-- Headline -->
+        <h1
+          id="cms-games-hero-headline"
+          style="font-size:clamp(2.6rem,6vw,5.2rem);font-weight:800;line-height:0.96;letter-spacing:-0.04em;color:#f0e6d0;margin:0 0 1.2rem;max-width:720px;"
+        >
+          The board is set.<br>
+          <span style="color:#c9a84c;">Make your move.</span>
+        </h1>
+
+        <!-- Sub -->
+        <p
+          id="cms-games-hero-subheadline"
+          style="font-size:clamp(1rem,1.8vw,1.22rem);color:rgba(240,230,208,0.68);max-width:520px;line-height:1.55;margin:0 0 2.2rem;"
+        >
+          Baroque 3D chess with live multiplayer, private rooms, and an AI opponent — running entirely on Cloudflare's edge.
+        </p>
+
+        <!-- CTA row -->
+        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:0.85rem;">
+          <button
+            type="button"
+            data-open-play-modal
+            id="cms-games-cta"
+            style="display:inline-flex;align-items:center;gap:0.55rem;padding:0.85rem 1.75rem;border-radius:999px;background:linear-gradient(135deg,#c9a84c,#f0d98a,#c9a84c);background-size:200%;color:#0d0900;font-size:0.9rem;font-weight:800;letter-spacing:0.01em;border:none;cursor:pointer;box-shadow:0 0 32px rgba(201,168,76,0.35);transition:box-shadow 0.2s,background-position 0.35s;"
+            onmouseover="this.style.boxShadow='0 0 48px rgba(201,168,76,0.55)';this.style.backgroundPosition='right';"
+            onmouseout="this.style.boxShadow='0 0 32px rgba(201,168,76,0.35)';this.style.backgroundPosition='left';"
+          >
+            Play Now
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 4l5 4-5 4V4z" fill="currentColor"/></svg>
+          </button>
+          <a
+            href="#cms-games-sec-live"
+            style="display:inline-flex;align-items:center;gap:0.45rem;padding:0.85rem 1.4rem;border-radius:999px;border:1px solid rgba(201,168,76,0.3);color:rgba(240,230,208,0.78);font-size:0.86rem;font-weight:600;text-decoration:none;background:rgba(0,0,0,0.3);backdrop-filter:blur(8px);transition:border-color 0.2s,color 0.2s;"
+            onmouseover="this.style.borderColor='rgba(201,168,76,0.65)';this.style.color='#f0e6d0';"
+            onmouseout="this.style.borderColor='rgba(201,168,76,0.3)';this.style.color='rgba(240,230,208,0.78)';"
+          >
+            See all games
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3 7h8M8 4l3 3-3 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </a>
         </div>
 
-        <div class="relative w-full bg-brand-dark rounded-[32px] overflow-hidden shadow-2xl chess-hero-cover-wrap">
-          <picture class="absolute inset-0 w-full h-full flex items-center justify-center">
-            <source id="cms-games-hero-mobile-src" media="(max-width: 768px)" srcset="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/1b7ecfe9-550c-4ef7-966c-9e1972e29800/public">
-            <source id="cms-games-hero-desktop-src" srcset="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/1b7ecfe9-550c-4ef7-966c-9e1972e29800/hero">
-            <img
-              id="cms-games-hero-img"
-              class="chess-hero-cover"
-              src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/1b7ecfe9-550c-4ef7-966c-9e1972e29800/hero"
-              alt="MeauxChess — 3D multiplayer chess"
-              width="1920"
-              height="1080"
-              loading="eager"
-              decoding="async"
-            >
-          </picture>
-          <div class="absolute inset-0 bg-gradient-to-t from-brand-dark/85 via-brand-dark/15 to-transparent pointer-events-none"></div>
-          <div class="absolute bottom-8 md:bottom-10 left-8 md:left-10 text-white z-10">
-            <h2 class="text-xl md:text-2xl font-bold mb-2" id="cms-games-overlay-title">3D Multiplayer Chess</h2>
-            <p class="text-gray-400 text-sm" id="cms-games-overlay-subtitle">Powered by WebSockets &amp; Durable Objects</p>
-            <button type="button" class="mt-4 inline-flex items-center gap-2 text-brand-blue font-bold hover:text-white transition-colors" id="cms-games-cta" data-open-play-modal>
-              Play Full Game
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
-            </button>
+        <!-- Quick stats -->
+        <div style="display:flex;flex-wrap:wrap;gap:1.5rem;margin-top:2.8rem;">
+          <div style="display:flex;flex-direction:column;gap:0.18rem;">
+            <span style="font-size:1.35rem;font-weight:800;color:#c9a84c;line-height:1;">3D</span>
+            <span style="font-size:0.65rem;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:rgba(240,230,208,0.45);">Baroque engine</span>
+          </div>
+          <div style="width:1px;background:rgba(201,168,76,0.18);"></div>
+          <div style="display:flex;flex-direction:column;gap:0.18rem;">
+            <span style="font-size:1.35rem;font-weight:800;color:#c9a84c;line-height:1;">Live</span>
+            <span style="font-size:0.65rem;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:rgba(240,230,208,0.45);">Multiplayer rooms</span>
+          </div>
+          <div style="width:1px;background:rgba(201,168,76,0.18);"></div>
+          <div style="display:flex;flex-direction:column;gap:0.18rem;">
+            <span style="font-size:1.35rem;font-weight:800;color:#c9a84c;line-height:1;">Edge</span>
+            <span style="font-size:0.65rem;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:rgba(240,230,208,0.45);">Cloudflare DO + WS</span>
           </div>
         </div>
       </div>
