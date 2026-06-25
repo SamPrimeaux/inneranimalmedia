@@ -11,6 +11,28 @@ import { handleGithubReposList } from '../integrations/github.js';
 import { resolveIntegrationUserId } from '../core/integration-user-id.js';
 import { recordWorkerAnalyticsError } from './telemetry.js';
 import { handleIntegrationsConnectRoutes } from './integrations/connect.js';
+import {
+    addSharedDrivePermissionV3,
+    createSharedDriveV3,
+    deleteSharedDriveV3,
+    exportDriveFileV3,
+    fetchDriveFileTextV3,
+    getDriveAboutV3,
+    getDriveFileV3,
+    getSharedDriveV3,
+    hideSharedDriveV3,
+    isGoogleAppsMime,
+    listDriveFilesV3,
+    listSharedDrivePermissionsV3,
+    listSharedDrivesV3,
+    removeSharedDrivePermissionV3,
+    resolveDriveTokenForUser,
+    searchDriveFilesV3,
+    unhideSharedDriveV3,
+    updateSharedDriveV3,
+} from '../integrations/gdrive-v3.js';
+import { resolveGoogleAppsExportMime } from '../integrations/drive-mime.js';
+import { handleGdriveV3ExtendedRoutes } from './gdrive-v3-routes.js';
 
 const REGISTRY_SEED = [
     ['int_github', 'github', 'GitHub', 'source_control', 'oauth2', 'disconnected', 10, null],
@@ -107,7 +129,7 @@ export async function handleIntegrationsRequest(request, envArg, ctxArg, authUse
         return handleResendWebhook(request, env, ctx, pathLower);
     }
 
-    if (!pathLower.startsWith('/api/integrations')) return null;
+    if (!pathLower.startsWith('/api/integrations') && !pathLower.startsWith('/api/gdrive')) return null;
 
     const authUser =
       providedAuthUser ||
@@ -795,38 +817,293 @@ async function handleLegacyStatus(env, authUser) {
 async function handleLegacyProviderBrowser(request, env, authUser, url, pathLower, method) {
     const userId = (await resolveIntegrationUserId(env, authUser)) || integrationUserId(authUser);
     const githubAccount = url.searchParams.get('account') || '';
-    if (method === 'GET' && pathLower === '/api/integrations/gdrive/files') {
-        const folderId = url.searchParams.get('folderId') || 'root';
-        const tokenRow = await getIntegrationToken(env, userId, 'google_drive', '');
-        if (!tokenRow) return jsonResponse({ error: 'not_connected' }, 400);
-        const gdToken = await resolveOAuthAccessToken(env, tokenRow);
-        if (!gdToken) return jsonResponse({ error: 'Google Drive token unavailable — please reconnect' }, 401);
-        const driveUrl = new URL('https://www.googleapis.com/drive/v3/files');
-        driveUrl.searchParams.set('q', `'${folderId}' in parents and trashed=false`);
-        driveUrl.searchParams.set('fields', 'files(id,name,mimeType,size,modifiedTime)');
-        driveUrl.searchParams.set('orderBy', 'name');
-        const res = await fetch(driveUrl.toString(), { headers: { Authorization: `Bearer ${gdToken}` } });
-        return jsonResponse(await res.json(), res.ok ? 200 : res.status);
+
+    async function driveAuth() {
+        return resolveDriveTokenForUser(env, userId, getIntegrationToken, resolveOAuthAccessToken);
     }
+
+    if (method === 'GET' && pathLower === '/api/integrations/gdrive/access-token') {
+        const auth = await driveAuth();
+        if (!auth.ok) {
+            return jsonResponse({ error: auth.error }, auth.status || 400);
+        }
+        return jsonResponse({
+            access_token: auth.token,
+            apiVersion: 3,
+        });
+    }
+
+    if (method === 'GET' && pathLower === '/api/integrations/gdrive/status') {
+        const auth = await driveAuth();
+        if (!auth.ok) {
+            return jsonResponse(
+                { connected: false, error: auth.error },
+                auth.status === 401 ? 401 : 400,
+            );
+        }
+        const about = await getDriveAboutV3(auth.token);
+        const row = auth.tokenRow || {};
+        return jsonResponse({
+            connected: true,
+            email: about.about?.user?.emailAddress || row.account_email || null,
+            displayName: about.about?.user?.displayName || row.account_display || null,
+            scope: row.scope || null,
+            storage: about.about?.storageQuota || null,
+            exportFormats: about.about?.exportFormats || null,
+            apiVersion: 3,
+            service: 'googleapis.com/drive/v3',
+        });
+    }
+
+    if (method === 'GET' && pathLower === '/api/integrations/gdrive/drives') {
+        const auth = await driveAuth();
+        if (!auth.ok) return jsonResponse({ error: auth.error }, auth.status || 400);
+        const out = await listSharedDrivesV3(auth.token, { q: url.searchParams.get('q') || undefined });
+        if (!out.ok) return jsonResponse({ error: out.error, files: [] }, 502);
+        return jsonResponse({ files: out.files, drives: out.drives, apiVersion: 3 });
+    }
+
+    const driveIdMatch = pathLower.match(/^\/api\/integrations\/gdrive\/drives\/([^/]+)(?:\/(.+))?$/);
+    if (driveIdMatch) {
+        const driveId = decodeURIComponent(driveIdMatch[1] || '');
+        const sub = driveIdMatch[2] || '';
+        const auth = await driveAuth();
+        if (!auth.ok) return jsonResponse({ error: auth.error }, auth.status || 400);
+
+        if (method === 'GET' && !sub) {
+            const out = await getSharedDriveV3(auth.token, driveId);
+            return jsonResponse(out.ok ? { drive: out.drive, apiVersion: 3 } : { error: out.error }, out.ok ? 200 : 502);
+        }
+
+        if (method === 'PATCH' && !sub) {
+            let body = {};
+            try {
+                body = await request.json();
+            } catch {
+                return jsonResponse({ error: 'Invalid JSON body' }, 400);
+            }
+            const out = await updateSharedDriveV3(auth.token, driveId, body);
+            return jsonResponse(out.ok ? { drive: out.drive, apiVersion: 3 } : { error: out.error }, out.ok ? 200 : 502);
+        }
+
+        if (method === 'DELETE' && !sub) {
+            const out = await deleteSharedDriveV3(auth.token, driveId);
+            return jsonResponse(out.ok ? { ok: true, apiVersion: 3 } : { error: out.error }, out.ok ? 200 : 502);
+        }
+
+        if (method === 'POST' && sub === 'hide') {
+            const out = await hideSharedDriveV3(auth.token, driveId);
+            return jsonResponse(out.ok ? { drive: out.drive, apiVersion: 3 } : { error: out.error }, out.ok ? 200 : 502);
+        }
+
+        if (method === 'POST' && sub === 'unhide') {
+            const out = await unhideSharedDriveV3(auth.token, driveId);
+            return jsonResponse(out.ok ? { drive: out.drive, apiVersion: 3 } : { error: out.error }, out.ok ? 200 : 502);
+        }
+
+        if (sub === 'permissions') {
+            if (method === 'GET') {
+                const out = await listSharedDrivePermissionsV3(auth.token, driveId);
+                return jsonResponse(
+                    out.ok ? { permissions: out.permissions, apiVersion: 3 } : { error: out.error },
+                    out.ok ? 200 : 502,
+                );
+            }
+            if (method === 'POST') {
+                let body = {};
+                try {
+                    body = await request.json();
+                } catch {
+                    return jsonResponse({ error: 'Invalid JSON body' }, 400);
+                }
+                const out = await addSharedDrivePermissionV3(auth.token, driveId, body);
+                return jsonResponse(
+                    out.ok ? { permission: out.permission, apiVersion: 3 } : { error: out.error },
+                    out.ok ? 200 : 502,
+                );
+            }
+        }
+
+        const permMatch = sub.match(/^permissions\/([^/]+)$/);
+        if (permMatch && method === 'DELETE') {
+            const permissionId = decodeURIComponent(permMatch[1]);
+            const out = await removeSharedDrivePermissionV3(auth.token, driveId, permissionId);
+            return jsonResponse(out.ok ? { ok: true, apiVersion: 3 } : { error: out.error }, out.ok ? 200 : 502);
+        }
+    }
+
+    if (method === 'POST' && pathLower === '/api/integrations/gdrive/drives') {
+        const auth = await driveAuth();
+        if (!auth.ok) return jsonResponse({ error: auth.error }, auth.status || 400);
+        let body = {};
+        try {
+            body = await request.json();
+        } catch {
+            return jsonResponse({ error: 'Invalid JSON body' }, 400);
+        }
+        const out = await createSharedDriveV3(auth.token, body);
+        return jsonResponse(out.ok ? { drive: out.drive, apiVersion: 3 } : { error: out.error }, out.ok ? 200 : 502);
+    }
+
+    if (method === 'GET' && pathLower === '/api/integrations/gdrive/search') {
+        const q = url.searchParams.get('q') || '';
+        const auth = await driveAuth();
+        if (!auth.ok) return jsonResponse({ error: auth.error }, auth.status || 400);
+        const out = await searchDriveFilesV3(auth.token, q);
+        if (!out.ok) return jsonResponse({ error: out.error, files: [] }, 502);
+        return jsonResponse({ files: out.files, apiVersion: 3 });
+    }
+
+    if (method === 'GET' && pathLower === '/api/integrations/gdrive/files') {
+        const view = url.searchParams.get('view') || 'my-drive';
+        const folderId = url.searchParams.get('folderId') || 'root';
+        const driveId = url.searchParams.get('driveId') || '';
+        const auth = await driveAuth();
+        if (!auth.ok) return jsonResponse({ error: auth.error }, auth.status || 400);
+
+        if (view === 'shared-drives' && (!folderId || folderId === 'root')) {
+            const out = await listSharedDrivesV3(auth.token);
+            if (!out.ok) return jsonResponse({ error: out.error, files: [] }, 502);
+            return jsonResponse({ files: out.files, apiVersion: 3 });
+        }
+
+        const listView = view === 'shared-drives' ? 'shared-drive' : view;
+        const out = await listDriveFilesV3(auth.token, {
+            view: listView,
+            folderId,
+            driveId,
+        });
+        if (!out.ok) return jsonResponse({ error: out.error, files: [] }, 502);
+        return jsonResponse({ files: out.files, apiVersion: 3 });
+    }
+
     if (method === 'GET' && pathLower === '/api/integrations/gdrive/file') {
         const fileId = url.searchParams.get('fileId');
-        const tokenRow = await getIntegrationToken(env, userId, 'google_drive', '');
-        if (!tokenRow) return jsonResponse({ error: 'not_connected' }, 400);
-        const gdToken = await resolveOAuthAccessToken(env, tokenRow);
-        if (!gdToken) return jsonResponse({ error: 'Google Drive token unavailable — please reconnect' }, 401);
-        const res = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`, { headers: { Authorization: `Bearer ${gdToken}` } });
-        return jsonResponse({ content: await res.text() }, res.ok ? 200 : res.status);
+        const auth = await driveAuth();
+        if (!auth.ok) return jsonResponse({ error: auth.error }, auth.status || 400);
+        const out = await fetchDriveFileTextV3(auth.token, fileId);
+        if (!out.ok) return jsonResponse({ error: out.error || 'fetch_failed' }, 502);
+        return jsonResponse({ content: out.content, name: out.file?.name, mimeType: out.file?.mimeType });
     }
+
+    if (method === 'GET' && pathLower === '/api/integrations/gdrive/export') {
+        const fileId = url.searchParams.get('fileId');
+        const format = url.searchParams.get('format') || url.searchParams.get('mimeType') || '';
+        const auth = await driveAuth();
+        if (!auth.ok) return jsonResponse({ error: auth.error }, auth.status || 400);
+        if (!fileId) return jsonResponse({ error: 'fileId required' }, 400);
+
+        const metaOut = await getDriveFileV3(auth.token, fileId, 'id,name,mimeType');
+        if (!metaOut.ok) return jsonResponse({ error: metaOut.error || 'File not found' }, 502);
+        const sourceMime = String(metaOut.file?.mimeType || '');
+        if (!isGoogleAppsMime(sourceMime)) {
+            return jsonResponse({ error: 'Export only applies to Google Workspace files' }, 400);
+        }
+
+        const exportMime = resolveGoogleAppsExportMime(sourceMime, format || undefined);
+        const out = await exportDriveFileV3(auth.token, fileId, exportMime);
+        if (!out.ok) return jsonResponse({ error: out.error || 'Export failed' }, out.status || 502);
+
+        const baseName = String(metaOut.file?.name || 'export').replace(/[\\/:*?"<>|]+/g, '_');
+        const filename = `${baseName}.${out.extension || 'bin'}`;
+        return new Response(out.body, {
+            headers: {
+                'Content-Type': out.contentType || exportMime,
+                'Content-Disposition': `attachment; filename="${filename}"`,
+                'Access-Control-Allow-Origin': '*',
+                'Cache-Control': 'private, max-age=60',
+            },
+        });
+    }
+
     if (method === 'GET' && pathLower === '/api/integrations/gdrive/raw') {
         const fileId = url.searchParams.get('fileId');
-        const tokenRow = await getIntegrationToken(env, userId, 'google_drive', '');
-        if (!tokenRow) return jsonResponse({ error: 'not_connected' }, 400);
-        const gdToken = await resolveOAuthAccessToken(env, tokenRow);
-        if (!gdToken) return jsonResponse({ error: 'Google Drive token unavailable — please reconnect' }, 401);
-        const res = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`, { headers: { Authorization: `Bearer ${gdToken}` } });
+        const auth = await driveAuth();
+        if (!auth.ok) return jsonResponse({ error: auth.error }, auth.status || 400);
+        if (!fileId) return jsonResponse({ error: 'fileId required' }, 400);
+
+        const metaOut = await getDriveFileV3(auth.token, fileId, 'id,name,mimeType');
+        if (!metaOut.ok) return jsonResponse({ error: metaOut.error || 'Not found' }, 502);
+        const sourceMime = String(metaOut.file?.mimeType || '');
+
+        if (isGoogleAppsMime(sourceMime)) {
+            const format = url.searchParams.get('format') || '';
+            const exportMime = resolveGoogleAppsExportMime(sourceMime, format || undefined);
+            const out = await exportDriveFileV3(auth.token, fileId, exportMime);
+            if (!out.ok) return jsonResponse({ error: out.error || 'Export failed' }, out.status || 502);
+            return new Response(out.body, {
+                headers: {
+                    'Content-Type': out.contentType || exportMime,
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Headers': 'Range',
+                    'Access-Control-Expose-Headers': 'Cache-Control, Content-Encoding, Content-Range',
+                    'Cache-Control': 'private, max-age=60',
+                },
+            });
+        }
+
+        const rawUrl = new URL(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}`);
+        rawUrl.searchParams.set('alt', 'media');
+        rawUrl.searchParams.set('supportsAllDrives', 'true');
+        const res = await fetch(rawUrl.toString(), { headers: { Authorization: `Bearer ${auth.token}` } });
         if (!res.ok) return jsonResponse({ error: res.statusText || 'Not found' }, res.status);
-        return new Response(res.body, { headers: { 'Content-Type': res.headers.get('Content-Type') || 'application/octet-stream', 'Access-Control-Allow-Origin': '*' } });
+        const headers = new Headers({
+            'Content-Type': res.headers.get('Content-Type') || 'application/octet-stream',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Headers': 'Range',
+            'Access-Control-Expose-Headers': 'Cache-Control, Content-Encoding, Content-Range',
+        });
+        const contentRange = res.headers.get('Content-Range');
+        if (contentRange) headers.set('Content-Range', contentRange);
+        const acceptRanges = res.headers.get('Accept-Ranges');
+        if (acceptRanges) headers.set('Accept-Ranges', acceptRanges);
+        return new Response(res.body, { headers });
     }
+
+    if (method === 'POST' && pathLower === '/api/gdrive/list') {
+        let body = {};
+        try {
+            body = await request.json();
+        } catch {
+            return jsonResponse({ error: 'Invalid JSON body' }, 400);
+        }
+        const auth = await driveAuth();
+        if (!auth.ok) return jsonResponse({ error: auth.error }, auth.status || 400);
+        const view = body.view || 'my-drive';
+        if (view === 'shared-drives' && (!body.folderId || body.folderId === 'root')) {
+            const out = await listSharedDrivesV3(auth.token);
+            return jsonResponse(out.ok ? { files: out.files, drives: out.drives } : { error: out.error }, out.ok ? 200 : 502);
+        }
+        const listView = view === 'shared-drives' ? 'shared-drive' : view;
+        const out = await listDriveFilesV3(auth.token, {
+            view: listView,
+            folderId: body.folderId || 'root',
+            driveId: body.driveId || '',
+        });
+        return jsonResponse(out.ok ? { files: out.files } : { error: out.error }, out.ok ? 200 : 502);
+    }
+
+    if (method === 'POST' && pathLower === '/api/gdrive/fetch') {
+        let body = {};
+        try {
+            body = await request.json();
+        } catch {
+            return jsonResponse({ error: 'Invalid JSON body' }, 400);
+        }
+        const fileId = body.fileId || body.id;
+        if (!fileId) return jsonResponse({ error: 'fileId required' }, 400);
+        const auth = await driveAuth();
+        if (!auth.ok) return jsonResponse({ error: auth.error }, auth.status || 400);
+        const out = await fetchDriveFileTextV3(auth.token, fileId);
+        return jsonResponse(
+            out.ok ? { content: out.content, file: out.file } : { error: out.error },
+            out.ok ? 200 : 502,
+        );
+    }
+
+    const extended = await handleGdriveV3ExtendedRoutes(request, pathLower, method, url, driveAuth);
+    if (extended) return extended;
+
     if (method === 'GET' && pathLower === '/api/integrations/github/repos') {
         return handleGithubReposList(request, env, authUser, url);
     }

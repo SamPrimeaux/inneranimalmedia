@@ -37,7 +37,11 @@ export function mapArtifactRecord(a: ArtifactRecord): LibraryItem {
   };
 }
 
-export function mapDriveFile(file: DriveApiFile): LibraryItem {
+export function mapDriveFile(
+  file: DriveApiFile,
+  driveView?: string,
+  activeSharedDriveId?: string | null,
+): LibraryItem {
   const folder = isDriveFolder(file);
   const isImage =
     (file.mimeType || '').startsWith('image/') ||
@@ -45,6 +49,9 @@ export function mapDriveFile(file: DriveApiFile): LibraryItem {
   const previewUrl =
     file.thumbnailLink ||
     (isImage ? `/api/integrations/gdrive/raw?fileId=${encodeURIComponent(file.id)}` : undefined);
+
+  const isSharedDriveRoot =
+    driveView === 'shared-drives' && folder && !!file.driveId && file.id === file.driveId;
 
   return {
     id: `drive:${file.id}`,
@@ -60,7 +67,14 @@ export function mapDriveFile(file: DriveApiFile): LibraryItem {
     modifiedLabel: formatModifiedLabel(file.modifiedTime),
     size: file.size ? Number(file.size) : undefined,
     ownerName: file.owners?.[0]?.displayName ?? file.owners?.[0]?.emailAddress,
-    metadata: { driveFileId: file.id },
+    starred: file.starred,
+    trashed: file.trashed,
+    metadata: {
+      driveFileId: file.id,
+      driveId: file.driveId ?? activeSharedDriveId ?? undefined,
+      isSharedDriveRoot,
+      driveView,
+    },
   };
 }
 

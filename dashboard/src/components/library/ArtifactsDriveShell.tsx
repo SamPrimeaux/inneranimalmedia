@@ -2,10 +2,23 @@ import { useCallback, useEffect, useRef, useState, type MouseEvent } from 'react
 import { useSearchParams } from 'react-router-dom';
 import { useLibraryWorkspace } from '../../lib/library/useLibraryWorkspace';
 import type { LibraryItem, SourceFilter } from '../../lib/library/types';
-import { NAV_RAIL_MAP } from '../../lib/library/types';
+import { openDriveShareDialog } from '../../lib/library/googleDriveWidgets';
+import { createSharedDrive, hasDriveManageScope } from '../../lib/library/sharedDriveApi';
+import {
+  createDriveFolder,
+  deleteDriveFilePermanent,
+  renameDriveFile,
+  restoreDriveFile,
+  trashDriveFile,
+  uploadDriveFiles,
+} from '../../lib/library/driveOpsApi';
+import { LibraryConnectMenu } from './LibraryConnectMenu';
+import { LibraryFileDriveActions } from './LibraryFileDriveActions';
 import { LibraryListView } from './LibraryListView';
 import { LibrarySideRail } from './LibrarySideRail';
+import { SharedDriveManagePanel } from './SharedDriveManagePanel';
 import { LibraryFileIcon, LibraryThumb, sourceLabel } from './LibraryThumb';
+import { NAV_DRIVE_VIEW, NAV_RAIL_MAP } from '../../lib/library/types';
 import '../../styles/library.css';
 
 const CONTEXT_ACTIONS = ['Open', 'Share', 'Rename', 'Download', 'Move to trash'] as const;
@@ -108,7 +121,20 @@ export function ArtifactsDriveShell() {
   const [toast, setToast] = useState<string | null>(null);
   const [sourceFilterOpen, setSourceFilterOpen] = useState(false);
   const [railPanelOpen, setRailPanelOpen] = useState(false);
+  const [manageDriveOpen, setManageDriveOpen] = useState(false);
+  const [createDriveOpen, setCreateDriveOpen] = useState(false);
+  const [newDriveName, setNewDriveName] = useState('');
+  const [createDriveBusy, setCreateDriveBusy] = useState(false);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
   const toastTimer = useRef<number | null>(null);
+
+  const canManageSharedDrives = hasDriveManageScope(ws.driveStatus);
+  const showSharedDriveTools = ws.driveView === 'shared-drives' || ws.driveView === 'shared-drive';
+  const activeSharedDriveId = ws.sharedDriveId || ws.driveFolderStack[0]?.id || null;
+  const activeSharedDriveName =
+    ws.driveFolderStack[0]?.name ||
+    ws.items.find((i) => i.metadata?.isSharedDriveRoot && i.nativeId === activeSharedDriveId)?.name ||
+    ws.pageTitle;
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -182,12 +208,101 @@ export function ArtifactsDriveShell() {
     [openFileDetails, ws],
   );
 
-  const driveNeedsConnect = ws.filters.rail === 'drive' && ws.driveConnected === false;
+  const driveNeedsConnect =
+    ws.filters.rail === 'drive' && ws.driveConnected === false && !ws.loading;
   const primaryError = ws.errors[0];
 
+  const handleCreateSharedDrive = async () => {
+    const name = newDriveName.trim();
+    if (!name) return;
+    if (!canManageSharedDrives) {
+      ws.connectDriveForManage();
+      return;
+    }
+    setCreateDriveBusy(true);
+    try {
+      const out = await createSharedDrive(name);
+      if (!out.ok) {
+        showToast(out.error || 'Could not create shared drive');
+        return;
+      }
+      showToast(`Created "${out.drive?.name || name}"`);
+      setCreateDriveOpen(false);
+      setNewDriveName('');
+      await ws.refresh();
+    } finally {
+      setCreateDriveBusy(false);
+    }
+  };
+
+  const currentDriveParentId = () => {
+    if (ws.driveFolderStack.length) return ws.driveFolderStack[ws.driveFolderStack.length - 1]?.id;
+    if (ws.sharedDriveId) return ws.sharedDriveId;
+    return 'root';
+  };
+
+  const handleUploadFiles = async (files: FileList | null) => {
+    if (!files?.length) return;
+    if (!ws.driveConnected) {
+      ws.connectDrive();
+      return;
+    }
+    const out = await uploadDriveFiles(files, currentDriveParentId());
+    if (!out.ok) showToast(out.error || 'Upload failed');
+    else showToast(`Uploaded ${out.uploaded} file(s)`);
+    await ws.refresh();
+  };
+
+  const handleDriveContextAction = async (action: string, item: LibraryItem) => {
+    if (item.source !== 'drive') {
+      showToast(`${action} — Drive files only`);
+      return;
+    }
+    const fileId = item.nativeId;
+    if (action === 'Rename') {
+      const next = window.prompt('New name', item.name);
+      if (!next?.trim() || next.trim() === item.name) return;
+      const out = await renameDriveFile(fileId, next.trim());
+      showToast(out.ok ? 'Renamed' : out.error || 'Rename failed');
+      if (out.ok) await ws.refresh();
+      return;
+    }
+    if (action === 'Move to trash') {
+      if (!window.confirm(`Move "${item.name}" to trash?`)) return;
+      const out = await trashDriveFile(fileId);
+      showToast(out.ok ? 'Moved to trash' : out.error || 'Trash failed');
+      if (out.ok) await ws.refresh();
+      return;
+    }
+    if (action === 'Restore') {
+      const out = await restoreDriveFile(fileId);
+      showToast(out.ok ? 'Restored' : out.error || 'Restore failed');
+      if (out.ok) await ws.refresh();
+      return;
+    }
+    if (action === 'Delete forever') {
+      if (!window.confirm(`Permanently delete "${item.name}"?`)) return;
+      const out = await deleteDriveFilePermanent(fileId);
+      showToast(out.ok ? 'Deleted permanently' : out.error || 'Delete failed');
+      if (out.ok) await ws.refresh();
+    }
+  };
+
   return (
-    <div className={`artifacts-drive-shell flex-1 min-h-0 min-w-0${railPanelOpen ? ' has-rail-panel' : ''}`}>
+    <div
+      className={`artifacts-drive-shell flex-1 min-h-0 min-w-0${railPanelOpen ? ' has-rail-panel' : ''}${manageDriveOpen ? ' has-shared-drive-panel' : ''}`}
+    >
       <div className="drive-app">
+        <input
+          ref={uploadInputRef}
+          type="file"
+          multiple
+          hidden
+          onChange={(e) => {
+            void handleUploadFiles(e.target.files);
+            e.target.value = '';
+          }}
+        />
         <header className="topbar">
           <div className="brand">
             <button type="button" className="hamb" aria-label="Main menu">
@@ -221,6 +336,15 @@ export function ArtifactsDriveShell() {
           <div />
 
           <div className="top-actions">
+            <LibraryConnectMenu
+              driveStatus={ws.driveStatus}
+              localFolderName={ws.localFolderName}
+              onConnectDrive={ws.connectDrive}
+              onDisconnectDrive={ws.disconnectDrive}
+              onConnectLocal={ws.connectLocalFolder}
+              onRefreshStatus={ws.refreshDriveStatus}
+              onToast={showToast}
+            />
             <button type="button" className="icon-btn" title="Refresh" onClick={() => void ws.refresh()}>
               <svg className="drive-icon" viewBox="0 0 24 24">
                 <path d="M4 4v6h6M20 20v-6h-6" />
@@ -251,7 +375,11 @@ export function ArtifactsDriveShell() {
           <nav className="nav">
             {NAV_ITEMS.map((item) => {
               const rail = railForNavKey(item.key);
-              const active = rail ? ws.filters.rail === rail : false;
+              const expectedDriveView = NAV_DRIVE_VIEW[item.key];
+              const active = rail
+                ? ws.filters.rail === rail &&
+                  (rail !== 'drive' || !expectedDriveView || ws.driveView === expectedDriveView)
+                : false;
               return (
                 <button
                   key={item.key}
@@ -298,6 +426,52 @@ export function ArtifactsDriveShell() {
               </svg>
             </div>
             <div className="view-tools">
+              {ws.driveView === 'trash' && ws.driveConnected ? (
+                <button
+                  type="button"
+                  className="lib-connect-action danger shared-drive-toolbar-btn"
+                  onClick={() => {
+                    if (!window.confirm('Empty Drive trash permanently?')) return;
+                    void import('../../lib/library/driveOpsApi').then(({ emptyDriveTrash }) =>
+                      emptyDriveTrash().then((out) => {
+                        showToast(out.ok ? 'Trash emptied' : out.error || 'Empty trash failed');
+                        if (out.ok) void ws.refresh();
+                      }),
+                    );
+                  }}
+                >
+                  Empty trash
+                </button>
+              ) : null}
+              {showSharedDriveTools && ws.driveConnected ? (
+                <>
+                  {ws.driveView === 'shared-drives' ? (
+                    <button
+                      type="button"
+                      className="lib-connect-action primary shared-drive-toolbar-btn"
+                      onClick={() => {
+                        if (!canManageSharedDrives) {
+                          ws.connectDriveForManage();
+                          showToast('Reconnect Drive with manage access to create shared drives');
+                          return;
+                        }
+                        setCreateDriveOpen(true);
+                      }}
+                    >
+                      New shared drive
+                    </button>
+                  ) : null}
+                  {ws.driveView === 'shared-drive' && activeSharedDriveId ? (
+                    <button
+                      type="button"
+                      className="lib-connect-action shared-drive-toolbar-btn"
+                      onClick={() => setManageDriveOpen(true)}
+                    >
+                      Manage
+                    </button>
+                  ) : null}
+                </>
+              ) : null}
               <div className="segmented">
                 <button
                   type="button"
@@ -526,13 +700,70 @@ export function ArtifactsDriveShell() {
                   </div>
                 ) : null}
               </div>
-              <button type="button" className="upgrade" style={{ marginTop: 16, width: '100%' }} onClick={() => openSelected(selected)}>
+              <LibraryFileDriveActions
+                item={selected}
+                driveConnected={!!ws.driveConnected}
+                onToast={showToast}
+              />
+              <button type="button" className="upgrade" style={{ marginTop: 12, width: '100%' }} onClick={() => openSelected(selected)}>
                 Open
               </button>
             </>
           ) : null}
         </div>
       </aside>
+
+      {manageDriveOpen && activeSharedDriveId ? (
+        <SharedDriveManagePanel
+          driveId={activeSharedDriveId}
+          driveName={activeSharedDriveName}
+          driveStatus={ws.driveStatus}
+          onClose={() => setManageDriveOpen(false)}
+          onUpdated={() => void ws.refresh()}
+          onDeleted={() => {
+            setManageDriveOpen(false);
+            ws.setNavKey('shared');
+            void ws.refresh();
+          }}
+          onToast={showToast}
+        />
+      ) : null}
+
+      {createDriveOpen ? (
+        <div className="shared-drive-modal-backdrop" onClick={() => setCreateDriveOpen(false)}>
+          <div className="shared-drive-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Create shared drive</h3>
+            <p className="shared-drive-hint">Uses Google Drive API v3 with an idempotent request ID.</p>
+            <label className="shared-drive-label" htmlFor="new-sd-name">
+              Drive name
+            </label>
+            <input
+              id="new-sd-name"
+              className="shared-drive-input"
+              value={newDriveName}
+              onChange={(e) => setNewDriveName(e.target.value)}
+              placeholder="Project Resources"
+              disabled={createDriveBusy}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void handleCreateSharedDrive();
+              }}
+            />
+            <div className="shared-drive-modal-actions">
+              <button type="button" className="lib-connect-action muted" onClick={() => setCreateDriveOpen(false)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="lib-connect-action primary"
+                disabled={createDriveBusy || !newDriveName.trim()}
+                onClick={() => void handleCreateSharedDrive()}
+              >
+                {createDriveBusy ? 'Creating…' : 'Create'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div className={`new-menu${newMenuOpen ? ' open' : ''}`} onClick={(e) => e.stopPropagation()}>
         {NEW_MENU_ITEMS.map((label) => (
@@ -542,7 +773,21 @@ export function ArtifactsDriveShell() {
             className="menu-item"
             onClick={() => {
               setNewMenuOpen(false);
-              showToast(`${label} — wire upload next`);
+              if (label === 'File upload') {
+                uploadInputRef.current?.click();
+                return;
+              }
+              if (label === 'New folder') {
+                void (async () => {
+                  const name = window.prompt('Folder name');
+                  if (!name?.trim()) return;
+                  const out = await createDriveFolder(name.trim(), currentDriveParentId());
+                  showToast(out.ok ? 'Folder created' : out.error || 'Create folder failed');
+                  if (out.ok) await ws.refresh();
+                })();
+                return;
+              }
+              showToast(`${label} — coming soon`);
             }}
           >
             {label}
@@ -556,7 +801,10 @@ export function ArtifactsDriveShell() {
           style={{ left: contextMenu.x, top: contextMenu.y }}
           onClick={(e) => e.stopPropagation()}
         >
-          {CONTEXT_ACTIONS.map((action) => (
+          {CONTEXT_ACTIONS.concat(ws.driveView === 'trash' ? (['Restore', 'Delete forever'] as const) : [])
+            .filter((action, idx, arr) => arr.indexOf(action) === idx)
+            .filter((action) => !(ws.driveView === 'trash' && action === 'Move to trash'))
+            .map((action) => (
             <button
               key={action}
               type="button"
@@ -566,7 +814,16 @@ export function ArtifactsDriveShell() {
                 setContextMenu(null);
                 if (action === 'Open') openSelected(item);
                 else if (action === 'Download' && item.rawUrl) window.open(item.rawUrl, '_blank');
-                else showToast(action);
+                else if (action === 'Share' && item.source === 'drive' && item.kind === 'file') {
+                  void openDriveShareDialog(item.nativeId).catch((e) =>
+                    showToast(e instanceof Error ? e.message : 'Share failed'),
+                  );
+                } else if (
+                  item.source === 'drive' &&
+                  ['Rename', 'Move to trash', 'Restore', 'Delete forever'].includes(action)
+                ) {
+                  void handleDriveContextAction(action, item);
+                } else showToast(action);
               }}
             >
               {action}

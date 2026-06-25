@@ -229,6 +229,7 @@ export async function dispatchProductionDomainRoutes(rc) {
 
   if (
     pathLower.startsWith('/api/integrations') ||
+    pathLower.startsWith('/api/gdrive') ||
     pathLower === '/api/webhooks/resend' ||
     pathLower === '/api/email/inbound'
   ) {

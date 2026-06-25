@@ -23,8 +23,8 @@ const RAIL_SOURCES: Partial<Record<LibraryRail, LibrarySource[]>> = {
 };
 
 function filterByRail(items: LibraryListResult['items'], rail: LibraryRail) {
-  if (rail === 'starred') return items.filter((i) => i.starred);
-  if (rail === 'trash') return items.filter((i) => i.trashed);
+  if (rail === 'starred') return items.filter((i) => i.source === 'drive' || i.starred);
+  if (rail === 'trash') return items.filter((i) => i.source === 'drive' || i.trashed);
   if (rail === 'recent') {
     return [...items].sort((a, b) => {
       const ta = a.modifiedAt ? Date.parse(a.modifiedAt) : 0;

@@ -264,7 +264,12 @@ async function touchUserIntegrationsDisconnected(DB, userEmail, slug) {
  */
 export async function handleIntegrationsConnectRoutes(request, env, ctx, authUser, url, pathLower, method) {
   const origin = url.origin;
-  const returnTo = encodeURIComponent('/dashboard/settings/integrations');
+  const returnToRaw = url.searchParams.get('return_to') || '';
+  const safeReturn =
+    returnToRaw.startsWith('/dashboard/') && !returnToRaw.startsWith('//') && !returnToRaw.includes(':')
+      ? returnToRaw
+      : '/dashboard/settings/integrations';
+  const returnTo = encodeURIComponent(safeReturn);
 
   const connectMatch = pathLower.match(/^\/api\/integrations\/([^/]+)\/connect$/);
   if (connectMatch) {
@@ -304,8 +309,12 @@ export async function handleIntegrationsConnectRoutes(request, env, ctx, authUse
       let extra = '';
       const authType = String(cat?.auth_type || '').toLowerCase();
       if (cat && (authType === 'oauth' || authType === 'oauth_or_key')) {
-        const available = parseJsonArr(cat.oauth_scopes_available);
+        let available = parseJsonArr(cat.oauth_scopes_available);
         const defaults = parseJsonArr(cat.oauth_scopes_default);
+        if (slugNorm === 'google_drive') {
+          const manageScope = 'https://www.googleapis.com/auth/drive';
+          if (!available.includes(manageScope)) available = [...available, manageScope];
+        }
         const requested = collectScopesFromUrl(url);
         const v = validateScopesAgainstCatalog(requested, defaults, available);
         if (!v.ok) return jsonResponse({ error: v.error || 'Invalid scopes' }, 400);

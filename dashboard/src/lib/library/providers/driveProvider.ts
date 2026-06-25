@@ -1,5 +1,9 @@
 import { mapDriveFile, sortLibraryItems } from '../mappers';
-import { fetchDriveListing, fetchGoogleIntegrationReady, searchDriveFiles } from '../libraryApi';
+import {
+  fetchDriveListing,
+  fetchGoogleIntegrationReady,
+  searchDriveFiles,
+} from '../libraryApi';
 import type { LibraryListResult, LibraryProvider } from '../types';
 
 export const driveProvider: LibraryProvider = {
@@ -15,18 +19,25 @@ export const driveProvider: LibraryProvider = {
       };
     }
 
+    const driveView =
+      params.rail === 'trash' ? 'trash' : params.rail === 'starred' ? 'starred' : params.driveView;
+
     const q = params.query?.trim();
-    if (q && q.length >= 2) {
+    if (q && q.length >= 2 && params.rail !== 'trash' && params.rail !== 'starred') {
       const search = await searchDriveFiles(q, params.signal);
       if (!search.ok) return { items: [], driveConnected: true, error: search.error };
       return {
-        items: sortLibraryItems(search.files.map(mapDriveFile)),
+        items: sortLibraryItems(search.files.map((f) => mapDriveFile(f, driveView))),
         driveConnected: true,
       };
     }
 
-    const folderId = params.driveFolderId || 'root';
-    const listing = await fetchDriveListing(folderId, params.signal);
+    const listing = await fetchDriveListing({
+      view: driveView,
+      folderId: params.driveFolderId,
+      sharedDriveId: params.sharedDriveId,
+      signal: params.signal,
+    });
     if (listing.unauthorized) {
       return {
         items: [],
@@ -38,7 +49,9 @@ export const driveProvider: LibraryProvider = {
       return { items: [], driveConnected: true, error: listing.error };
     }
     return {
-      items: sortLibraryItems(listing.files.map(mapDriveFile)),
+      items: sortLibraryItems(
+        listing.files.map((f) => mapDriveFile(f, params.driveView, params.sharedDriveId)),
+      ),
       driveConnected: true,
     };
   },

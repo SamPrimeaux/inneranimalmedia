@@ -194,7 +194,7 @@ async function loginGoogleOAuthStart(_request, url, env) {
   const state = crypto.randomUUID();
   const redirectUri = googleLoginOAuthRedirectUri(url);
   const scope = connectDrive
-    ? 'openid email profile https://www.googleapis.com/auth/drive.file'
+    ? 'openid email profile https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file'
     : 'openid email profile';
   const statePayload = JSON.stringify({
     redirectUri,
@@ -380,6 +380,7 @@ function googleAuthUrl(env, state, oauthScopeString) {
     (oauthScopeString && String(oauthScopeString).trim())
       ? String(oauthScopeString).trim()
       : [
+          'https://www.googleapis.com/auth/drive.readonly',
           'https://www.googleapis.com/auth/drive.file',
           'https://www.googleapis.com/auth/userinfo.email',
           'https://www.googleapis.com/auth/userinfo.profile',
@@ -1595,7 +1596,7 @@ export async function handleOAuthApi(request, env, ctx) {
 
     await kvDeleteIntegrationOAuthState(env, provider, state);
     const absReturn = returnTo.startsWith('http') ? returnTo : new URL(request.url).origin + returnTo;
-    if (provider === 'google' && absReturn.includes('/dashboard/agent')) {
+    if (provider === 'google' && (absReturn.includes('/dashboard/agent') || absReturn.includes('/dashboard/artifacts'))) {
       return new Response(oauthPopupCompleteHtml('google'), {
         headers: { 'Content-Type': 'text/html; charset=utf-8' },
       });

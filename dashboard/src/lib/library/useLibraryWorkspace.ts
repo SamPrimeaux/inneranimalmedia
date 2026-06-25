@@ -3,16 +3,41 @@ import { useSearchParams } from 'react-router-dom';
 import { r2ParentPrefix } from './formatLibrary';
 import {
   connectGoogleDrive,
+  connectGoogleDriveForManage,
+  disconnectGoogleDrive,
+  fetchDriveConnectionStatus,
   fetchR2BucketNames,
   fetchR2StorageLabel,
+  type DriveConnectionStatus,
 } from './libraryApi';
 import {
   loadPersistedLocalDirectoryHandle,
   pickLocalDirectoryHandle,
 } from './localHandleStore';
 import { listLibrarySources } from './providers';
-import type { LibraryDisplayKind, LibraryFilters, LibraryItem, LibraryRail, SourceFilter } from './types';
-import { DEFAULT_LIBRARY_FILTERS, NAV_RAIL_MAP, RAIL_TITLES } from './types';
+import type {
+  DriveView,
+  LibraryDisplayKind,
+  LibraryFilters,
+  LibraryItem,
+  LibraryRail,
+  SourceFilter,
+} from './types';
+import {
+  DEFAULT_LIBRARY_FILTERS,
+  NAV_DRIVE_VIEW,
+  NAV_RAIL_MAP,
+  RAIL_TITLES,
+} from './types';
+
+const DRIVE_VIEW_TITLES: Record<DriveView, string> = {
+  'my-drive': 'Google Drive',
+  'shared-with-me': 'Shared with me',
+  'shared-drives': 'Shared drives',
+  'shared-drive': 'Shared drive',
+  trash: 'Trash',
+  starred: 'Starred',
+};
 
 export function useLibraryWorkspace() {
   const [searchParams] = useSearchParams();
@@ -23,8 +48,11 @@ export function useLibraryWorkspace() {
   const [loading, setLoading] = useState(true);
   const [errors, setErrors] = useState<string[]>([]);
   const [driveConnected, setDriveConnected] = useState<boolean | undefined>(undefined);
+  const [driveStatus, setDriveStatus] = useState<DriveConnectionStatus | null>(null);
+  const [driveView, setDriveView] = useState<DriveView>('my-drive');
   const [driveFolderId, setDriveFolderId] = useState('root');
   const [driveFolderStack, setDriveFolderStack] = useState<{ id: string; name: string }[]>([]);
+  const [sharedDriveId, setSharedDriveId] = useState<string | null>(null);
   const [r2Bucket, setR2Bucket] = useState('');
   const [r2Prefix, setR2Prefix] = useState('');
   const [r2Buckets, setR2Buckets] = useState<string[]>([]);
@@ -37,8 +65,24 @@ export function useLibraryWorkspace() {
 
   const activeRail = filters.rail;
   const pageTitle = useMemo(() => {
-    if (activeRail === 'drive' && driveFolderStack.length) {
-      return driveFolderStack[driveFolderStack.length - 1]?.name ?? RAIL_TITLES.drive;
+    if (activeRail === 'drive') {
+      if (driveView === 'shared-drives' && !sharedDriveId) return DRIVE_VIEW_TITLES['shared-drives'];
+      if (driveView === 'shared-with-me') {
+        if (driveFolderStack.length) {
+          return driveFolderStack[driveFolderStack.length - 1]?.name ?? DRIVE_VIEW_TITLES['shared-with-me'];
+        }
+        return DRIVE_VIEW_TITLES['shared-with-me'];
+      }
+      if (driveView === 'shared-drive' || sharedDriveId) {
+        if (driveFolderStack.length) {
+          return driveFolderStack[driveFolderStack.length - 1]?.name ?? DRIVE_VIEW_TITLES['shared-drive'];
+        }
+        return DRIVE_VIEW_TITLES['shared-drive'];
+      }
+      if (driveFolderStack.length) {
+        return driveFolderStack[driveFolderStack.length - 1]?.name ?? RAIL_TITLES.drive;
+      }
+      return RAIL_TITLES.drive;
     }
     if (activeRail === 'r2' && r2Prefix) {
       const parts = r2Prefix.replace(/\/$/, '').split('/');
@@ -49,7 +93,14 @@ export function useLibraryWorkspace() {
       return parts[parts.length - 1] || localFolderName || RAIL_TITLES.local;
     }
     return RAIL_TITLES[activeRail];
-  }, [activeRail, driveFolderStack, r2Prefix, localPath, localFolderName]);
+  }, [activeRail, driveView, driveFolderStack, sharedDriveId, r2Prefix, localPath, localFolderName]);
+
+  const refreshDriveStatus = useCallback(async () => {
+    const st = await fetchDriveConnectionStatus();
+    setDriveStatus(st);
+    setDriveConnected(st.connected);
+    return st;
+  }, []);
 
   const refresh = useCallback(async () => {
     const seq = ++loadSeq.current;
@@ -58,12 +109,15 @@ export function useLibraryWorkspace() {
     const controller = new AbortController();
 
     try {
+      await refreshDriveStatus();
       const { items: nextItems, errors: nextErrors, driveConnected: dc } = await listLibrarySources({
         rail: filters.rail,
         query: filters.query,
         sessionId: sessionId || undefined,
         signal: controller.signal,
         driveFolderId,
+        driveView,
+        sharedDriveId,
         r2Bucket,
         r2Prefix,
         localDirHandle,
@@ -87,10 +141,13 @@ export function useLibraryWorkspace() {
     filters.query,
     sessionId,
     driveFolderId,
+    driveView,
+    sharedDriveId,
     r2Bucket,
     r2Prefix,
     localDirHandle,
     localPath,
+    refreshDriveStatus,
   ]);
 
   useEffect(() => {
@@ -133,20 +190,48 @@ export function useLibraryWorkspace() {
     return () => window.removeEventListener('message', handler);
   }, [refresh]);
 
-  const setRail = useCallback((rail: LibraryRail) => {
-    setFilters((f) => ({ ...f, rail, source: rail === 'all' ? 'all' : rail }));
+  const resetDriveNav = useCallback((view: DriveView) => {
+    setDriveView(view);
     setDriveFolderId('root');
     setDriveFolderStack([]);
+    setSharedDriveId(null);
+  }, []);
+
+  const setRail = useCallback((rail: LibraryRail) => {
+    setFilters((f) => ({ ...f, rail, source: rail === 'all' ? 'all' : rail }));
+    if (rail === 'drive') {
+      resetDriveNav('my-drive');
+    } else {
+      setDriveFolderId('root');
+      setDriveFolderStack([]);
+      setSharedDriveId(null);
+    }
     setR2Prefix('');
     setLocalPath('');
-  }, []);
+  }, [resetDriveNav]);
 
   const setNavKey = useCallback(
     (navKey: string) => {
       const rail = NAV_RAIL_MAP[navKey];
-      if (rail) setRail(rail);
+      const nextDriveView = NAV_DRIVE_VIEW[navKey];
+      if (rail) {
+        setFilters((f) => ({ ...f, rail, source: rail === 'all' ? 'all' : rail }));
+        if (rail === 'drive' && nextDriveView) {
+          resetDriveNav(nextDriveView);
+        } else if (rail === 'trash' || rail === 'starred') {
+          setDriveView(nextDriveView || (rail === 'trash' ? 'trash' : 'starred'));
+          setDriveFolderId('root');
+          setDriveFolderStack([]);
+          setSharedDriveId(null);
+          setFilters((f) => ({ ...f, source: 'drive' }));
+        } else if (rail !== 'drive') {
+          setR2Prefix('');
+          setLocalPath('');
+        }
+        return;
+      }
     },
-    [setRail],
+    [resetDriveNav],
   );
 
   const setQuery = useCallback((query: string) => {
@@ -165,8 +250,17 @@ export function useLibraryWorkspace() {
     (item: LibraryItem) => {
       if (item.kind !== 'folder') return;
       if (item.source === 'drive') {
-        setDriveFolderId(item.nativeId);
-        setDriveFolderStack((s) => [...s, { id: item.nativeId, name: item.name }]);
+        const isSharedDriveRoot = !!item.metadata?.isSharedDriveRoot;
+        const driveId = String(item.metadata?.driveId ?? item.nativeId);
+        if (isSharedDriveRoot || driveView === 'shared-drives') {
+          setDriveView('shared-drive');
+          setSharedDriveId(driveId);
+          setDriveFolderId(driveId);
+          setDriveFolderStack([{ id: driveId, name: item.name }]);
+        } else {
+          setDriveFolderId(item.nativeId);
+          setDriveFolderStack((s) => [...s, { id: item.nativeId, name: item.name }]);
+        }
         setFilters((f) => ({ ...f, rail: 'drive', source: 'drive' }));
         return;
       }
@@ -182,14 +276,25 @@ export function useLibraryWorkspace() {
         setFilters((f) => ({ ...f, rail: 'local', source: 'local' }));
       }
     },
-    [r2Bucket],
+    [driveView, r2Bucket],
   );
 
   const navigateUp = useCallback(() => {
-    if (activeRail === 'drive' && driveFolderStack.length) {
-      const next = driveFolderStack.slice(0, -1);
-      setDriveFolderStack(next);
-      setDriveFolderId(next[next.length - 1]?.id ?? 'root');
+    if (activeRail === 'drive') {
+      if (driveFolderStack.length > 1) {
+        const next = driveFolderStack.slice(0, -1);
+        setDriveFolderStack(next);
+        setDriveFolderId(next[next.length - 1]?.id ?? 'root');
+        return;
+      }
+      if (driveView === 'shared-drive' || sharedDriveId) {
+        resetDriveNav('shared-drives');
+        return;
+      }
+      if (driveFolderStack.length === 1) {
+        setDriveFolderStack([]);
+        setDriveFolderId('root');
+      }
       return;
     }
     if (activeRail === 'r2' && r2Prefix) {
@@ -201,11 +306,23 @@ export function useLibraryWorkspace() {
       parts.pop();
       setLocalPath(parts.join('/'));
     }
-  }, [activeRail, driveFolderStack, r2Prefix, localPath]);
+  }, [activeRail, driveFolderStack, driveView, sharedDriveId, r2Prefix, localPath, resetDriveNav]);
 
   const connectDrive = useCallback(() => {
     connectGoogleDrive('/dashboard/artifacts');
   }, []);
+
+  const connectDriveForManage = useCallback(() => {
+    connectGoogleDriveForManage('/dashboard/artifacts');
+  }, []);
+
+  const disconnectDrive = useCallback(async () => {
+    const out = await disconnectGoogleDrive();
+    if (out.ok) {
+      await refresh();
+    }
+    return out;
+  }, [refresh]);
 
   const connectLocalFolder = useCallback(async () => {
     const handle = await pickLocalDirectoryHandle();
@@ -239,7 +356,8 @@ export function useLibraryWorkspace() {
   );
 
   const canNavigateUp =
-    (activeRail === 'drive' && driveFolderStack.length > 0) ||
+    (activeRail === 'drive' &&
+      (driveFolderStack.length > 0 || driveView === 'shared-drive' || !!sharedDriveId)) ||
     (activeRail === 'r2' && !!r2Prefix) ||
     (activeRail === 'local' && !!localPath);
 
@@ -252,6 +370,9 @@ export function useLibraryWorkspace() {
     loading,
     errors,
     driveConnected,
+    driveStatus,
+    driveView,
+    sharedDriveId,
     driveFolderStack,
     r2Bucket,
     r2Buckets,
@@ -268,7 +389,10 @@ export function useLibraryWorkspace() {
     navigateIntoFolder,
     navigateUp,
     connectDrive,
+    connectDriveForManage,
+    disconnectDrive,
     connectLocalFolder,
     refresh,
+    refreshDriveStatus,
   };
 }

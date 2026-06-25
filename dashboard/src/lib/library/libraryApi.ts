@@ -1,5 +1,6 @@
 import { pickR2DisplayBuckets, type R2BucketsApiResponse } from '../r2Buckets';
 import { partitionR2Listing, type R2ObjectRow } from '../r2Listing';
+import type { DriveView } from './types';
 
 export type DriveApiFile = {
   id: string;
@@ -9,7 +10,20 @@ export type DriveApiFile = {
   webViewLink?: string;
   modifiedTime?: string;
   size?: string;
+  driveId?: string;
+  shared?: boolean;
+  starred?: boolean;
+  trashed?: boolean;
   owners?: Array<{ displayName?: string; emailAddress?: string }>;
+};
+
+export type DriveConnectionStatus = {
+  connected: boolean;
+  email?: string | null;
+  displayName?: string | null;
+  scope?: string | null;
+  apiVersion?: number;
+  error?: string;
 };
 
 const DRIVE_FOLDER_MIME = 'application/vnd.google-apps.folder';
@@ -20,25 +34,60 @@ export function isDriveFolder(file: Pick<DriveApiFile, 'mimeType'>) {
 
 export async function fetchGoogleIntegrationReady(signal?: AbortSignal): Promise<boolean> {
   try {
-    const st = await fetch('/api/integrations/status', { credentials: 'same-origin', signal });
-    const status = st.ok ? await st.json().catch(() => ({})) : {};
-    return !(st.ok && status && status.google === false);
+    const st = await fetchDriveConnectionStatus(signal);
+    return st.connected;
   } catch {
     return false;
   }
 }
 
+export async function fetchDriveConnectionStatus(signal?: AbortSignal): Promise<DriveConnectionStatus> {
+  try {
+    const res = await fetch('/api/integrations/gdrive/status', { credentials: 'same-origin', signal });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 400 || res.status === 401) {
+      return { connected: false, error: typeof data.error === 'string' ? data.error : 'not_connected' };
+    }
+    if (!res.ok) {
+      return { connected: false, error: `Drive status failed (${res.status})` };
+    }
+    return {
+      connected: true,
+      email: data.email ?? null,
+      displayName: data.displayName ?? null,
+      scope: data.scope ?? null,
+      apiVersion: data.apiVersion ?? 3,
+    };
+  } catch (e) {
+    return {
+      connected: false,
+      error: e instanceof Error ? e.message : 'Drive status failed',
+    };
+  }
+}
+
 export async function fetchDriveListing(
-  folderId: string,
-  signal?: AbortSignal,
+  opts: {
+    view: DriveView;
+    folderId: string;
+    sharedDriveId?: string | null;
+    signal?: AbortSignal;
+  },
 ): Promise<{ ok: boolean; files: DriveApiFile[]; error?: string; unauthorized?: boolean }> {
   try {
-    const res = await fetch(
-      `/api/integrations/gdrive/files?folderId=${encodeURIComponent(folderId)}`,
-      { credentials: 'same-origin', signal },
-    );
+    const qs = new URLSearchParams({
+      view: opts.view,
+      folderId: opts.folderId || 'root',
+    });
+    if (opts.sharedDriveId) qs.set('driveId', opts.sharedDriveId);
+    const res = await fetch(`/api/integrations/gdrive/files?${qs}`, {
+      credentials: 'same-origin',
+      signal: opts.signal,
+    });
     if (res.status === 401 || res.status === 400) {
-      return { ok: false, files: [], unauthorized: true, error: 'Google Drive not connected' };
+      const data = await res.json().catch(() => ({}));
+      const err = typeof data.error === 'string' ? data.error : 'Google Drive not connected';
+      return { ok: false, files: [], unauthorized: true, error: err };
     }
     if (!res.ok) {
       return { ok: false, files: [], error: `Drive list failed (${res.status})` };
@@ -64,7 +113,7 @@ export async function searchDriveFiles(
   const escaped = raw.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
   const driveQ = `name contains '${escaped}' and trashed=false`;
   try {
-    const res = await fetch(`/api/drive/search?q=${encodeURIComponent(driveQ)}`, {
+    const res = await fetch(`/api/integrations/gdrive/search?q=${encodeURIComponent(driveQ)}`, {
       credentials: 'same-origin',
       signal,
     });
@@ -83,6 +132,22 @@ export async function searchDriveFiles(
       files: [],
       error: e instanceof Error ? e.message : 'Drive search failed',
     };
+  }
+}
+
+export async function disconnectGoogleDrive(): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch('/api/integrations/google-drive/disconnect', {
+      method: 'POST',
+      credentials: 'same-origin',
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { ok: false, error: typeof data.error === 'string' ? data.error : 'Disconnect failed' };
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Disconnect failed' };
   }
 }
 
@@ -165,9 +230,25 @@ export async function fetchR2StorageLabel(bucket: string, signal?: AbortSignal):
   }
 }
 
+const GOOGLE_DRIVE_READONLY_SCOPE = 'https://www.googleapis.com/auth/drive.readonly';
+const GOOGLE_DRIVE_MANAGE_SCOPE = 'https://www.googleapis.com/auth/drive';
+
 export function connectGoogleDrive(returnTo = '/dashboard/artifacts') {
   window.open(
-    `/api/oauth/google/start?connectDrive=1&return_to=${encodeURIComponent(returnTo)}`,
+    `/api/integrations/google-drive/connect?return_to=${encodeURIComponent(returnTo)}`,
+    'google_oauth',
+    'width=600,height=700,scrollbars=yes',
+  );
+}
+
+/** Reconnect with readonly + full drive scope for shared drive create/manage. */
+export function connectGoogleDriveForManage(returnTo = '/dashboard/artifacts') {
+  const params = new URLSearchParams({
+    return_to: returnTo,
+    scope: [GOOGLE_DRIVE_READONLY_SCOPE, GOOGLE_DRIVE_MANAGE_SCOPE].join(' '),
+  });
+  window.open(
+    `/api/integrations/google-drive/connect?${params.toString()}`,
     'google_oauth',
     'width=600,height=700,scrollbars=yes',
   );

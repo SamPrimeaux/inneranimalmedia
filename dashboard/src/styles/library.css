@@ -159,6 +159,328 @@
   background: #edf2fa;
 }
 
+.artifacts-drive-shell .lib-connect-wrap {
+  position: relative;
+}
+
+.artifacts-drive-shell .lib-connect-gear.active {
+  background: #d3e3fd;
+  color: #174ea6;
+}
+
+.artifacts-drive-shell .lib-connect-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 280px;
+  background: #fff;
+  border: 1px solid #dadce0;
+  border-radius: 12px;
+  box-shadow: 0 8px 28px rgba(60, 64, 67, 0.18);
+  padding: 8px;
+  z-index: 40;
+}
+
+.artifacts-drive-shell .lib-connect-menu-head {
+  padding: 8px 10px 10px;
+  border-bottom: 1px solid #edf2fa;
+  margin-bottom: 4px;
+}
+
+.artifacts-drive-shell .lib-connect-menu-head strong {
+  display: block;
+  font-size: 14px;
+  color: #202124;
+}
+
+.artifacts-drive-shell .lib-connect-menu-head span {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: #5f6368;
+}
+
+.artifacts-drive-shell .lib-connect-section {
+  padding: 6px 0;
+  border-bottom: 1px solid #edf2fa;
+}
+
+.artifacts-drive-shell .lib-connect-section:last-of-type {
+  border-bottom: 0;
+}
+
+.artifacts-drive-shell .lib-connect-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px 4px;
+  color: #5f6368;
+}
+
+.artifacts-drive-shell .lib-connect-row-body {
+  min-width: 0;
+  flex: 1;
+}
+
+.artifacts-drive-shell .lib-connect-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: #202124;
+}
+
+.artifacts-drive-shell .lib-connect-status {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: #80868b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artifacts-drive-shell .lib-connect-status.on {
+  color: #188038;
+}
+
+.artifacts-drive-shell .lib-connect-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% - 8px);
+  margin: 2px 4px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #3c4043;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.artifacts-drive-shell .lib-connect-action:hover {
+  background: #edf2fa;
+}
+
+.artifacts-drive-shell .lib-connect-action.primary {
+  color: #1a73e8;
+  font-weight: 500;
+}
+
+.artifacts-drive-shell .lib-connect-action.danger {
+  color: #c5221f;
+}
+
+.artifacts-drive-shell .lib-connect-action.muted {
+  color: #5f6368;
+}
+
+.artifacts-drive-shell .lib-connect-action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.artifacts-drive-shell .lib-drive-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.artifacts-drive-shell .lib-drive-workspace-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #e8f0fe;
+  color: #1967d2;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.artifacts-drive-shell .lib-save-to-drive-host {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.artifacts-drive-shell .lib-drive-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid #dadce0;
+  background: #fff;
+  color: #3c4043;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.artifacts-drive-shell .lib-drive-action:hover:not(:disabled) {
+  background: #edf2fa;
+}
+
+.artifacts-drive-shell .lib-drive-action:disabled,
+.artifacts-drive-shell .lib-drive-action--muted {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.artifacts-drive-shell .shared-drive-toolbar-btn {
+  height: 36px;
+  padding: 0 14px;
+  font-size: 13px;
+}
+
+.artifacts-drive-shell .shared-drive-panel {
+  position: fixed;
+  top: 64px;
+  right: 0;
+  bottom: 0;
+  width: min(420px, 100vw);
+  background: #fff;
+  border-left: 1px solid #dadce0;
+  box-shadow: -8px 0 24px rgba(60, 64, 67, 0.12);
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+}
+
+.artifacts-drive-shell.has-shared-drive-panel .drawer.open {
+  right: min(420px, 100vw);
+}
+
+.artifacts-drive-shell .shared-drive-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 18px;
+  border-bottom: 1px solid #e8eaed;
+}
+
+.artifacts-drive-shell .shared-drive-panel-body {
+  flex: 1;
+  overflow: auto;
+  padding: 16px 18px 24px;
+}
+
+.artifacts-drive-shell .shared-drive-section {
+  margin-bottom: 20px;
+}
+
+.artifacts-drive-shell .shared-drive-section h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.artifacts-drive-shell .shared-drive-label {
+  display: block;
+  font-size: 12px;
+  color: #5f6368;
+  margin-bottom: 6px;
+}
+
+.artifacts-drive-shell .shared-drive-input,
+.artifacts-drive-shell .shared-drive-select {
+  width: 100%;
+  border: 1px solid #dadce0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font: inherit;
+  background: #fff;
+}
+
+.artifacts-drive-shell .shared-drive-row {
+  display: flex;
+  gap: 8px;
+}
+
+.artifacts-drive-shell .shared-drive-row .shared-drive-input {
+  flex: 1;
+}
+
+.artifacts-drive-shell .shared-drive-hint {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #5f6368;
+}
+
+.artifacts-drive-shell .shared-drive-members {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+}
+
+.artifacts-drive-shell .shared-drive-member {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid #f1f3f4;
+}
+
+.artifacts-drive-shell .shared-drive-member strong {
+  display: block;
+  font-size: 13px;
+}
+
+.artifacts-drive-shell .shared-drive-member span,
+.artifacts-drive-shell .shared-drive-member em {
+  display: block;
+  font-size: 11px;
+  color: #5f6368;
+  font-style: normal;
+}
+
+.artifacts-drive-shell .shared-drive-add-member {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.artifacts-drive-shell .shared-drive-danger-zone {
+  padding-top: 8px;
+  border-top: 1px solid #f1f3f4;
+}
+
+.artifacts-drive-shell .shared-drive-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(32, 33, 36, 0.45);
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+
+.artifacts-drive-shell .shared-drive-modal {
+  width: min(420px, 100%);
+  background: #fff;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 16px 48px rgba(60, 64, 67, 0.24);
+}
+
+.artifacts-drive-shell .shared-drive-modal h3 {
+  margin: 0 0 8px;
+}
+
+.artifacts-drive-shell .shared-drive-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
 .artifacts-drive-shell .user-pill {
   width: 44px;
   height: 44px;

@@ -1,4 +1,8 @@
 import { detectFileKind } from '../fileKind';
+import {
+  GOOGLE_APPS_MIME,
+  isGoogleAppsMime,
+} from './driveMimeTypes';
 import type { LibraryDisplayKind } from './types';
 
 export function inferDisplayKind(input: {
@@ -8,6 +12,12 @@ export function inferDisplayKind(input: {
   isFolder?: boolean;
 }): LibraryDisplayKind {
   if (input.isFolder) return 'folder';
+
+  const mime = String(input.mimeType || '');
+  if (mime === GOOGLE_APPS_MIME.FOLDER) return 'folder';
+  if (mime === GOOGLE_APPS_MIME.SPREADSHEET) return 'spark';
+  if (mime === GOOGLE_APPS_MIME.PRESENTATION) return 'pdf';
+  if (isGoogleAppsMime(mime)) return 'doc';
 
   const artifactType = String(input.artifactType || '').toLowerCase();
   const name = input.name || '';

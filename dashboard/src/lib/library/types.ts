@@ -2,6 +2,8 @@ import type { ArtifactRecord } from '../../../api/artifacts';
 
 export type LibrarySource = 'artifacts' | 'drive' | 'r2' | 'local';
 
+export type DriveView = 'my-drive' | 'shared-with-me' | 'shared-drives' | 'shared-drive' | 'trash' | 'starred';
+
 export type LibraryRail =
   | 'all'
   | 'artifacts'
@@ -60,6 +62,8 @@ export interface ListLibraryParams {
   sessionId?: string;
   signal?: AbortSignal;
   driveFolderId: string;
+  driveView: DriveView;
+  sharedDriveId: string | null;
   r2Bucket: string;
   r2Prefix: string;
   localDirHandle: FileSystemDirectoryHandle | null;
@@ -94,8 +98,18 @@ export const NAV_RAIL_MAP: Record<string, LibraryRail> = {
   projects: 'artifacts',
   workspaces: 'r2',
   'my-drive': 'drive',
+  shared: 'drive',
+  'shared-with-me': 'drive',
   computers: 'local',
   recent: 'recent',
   starred: 'starred',
   trash: 'trash',
+};
+
+export const NAV_DRIVE_VIEW: Record<string, DriveView> = {
+  'my-drive': 'my-drive',
+  shared: 'shared-drives',
+  'shared-with-me': 'shared-with-me',
+  trash: 'trash',
+  starred: 'starred',
 };
