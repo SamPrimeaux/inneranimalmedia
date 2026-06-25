@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 
+import './chat-composer-glass.css';
 import React, { useState, useEffect, useRef, useLayoutEffect, useCallback, useMemo } from 'react';
 import { PHONE_MQ } from '../../lib/breakpoints';
 import { useEditor } from '../../src/EditorContext';
@@ -1197,6 +1198,34 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     const maxPx = isNarrow ? COMPOSER_TEXTAREA_MAX_PX_NARROW : COMPOSER_TEXTAREA_MAX_PX_WIDE;
     syncComposerTextareaHeight(el, maxPx);
     syncPickers(v, el.selectionStart);
+  };
+
+  const handleComposerPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const cd = e.clipboardData;
+    if (!cd) return;
+    const fileItems: File[] = [];
+    for (const item of cd.items) {
+      if (item.kind === 'file') {
+        const f = item.getAsFile();
+        if (f) fileItems.push(f);
+      }
+    }
+    if (fileItems.length) {
+      e.preventDefault();
+      const dt = new DataTransfer();
+      fileItems.forEach((f) => dt.items.add(f));
+      addFilesFromList(dt.files, fileItems.every((f) => f.type.startsWith('image/')));
+      return;
+    }
+    const text = cd.getData('text/plain');
+    if (!text) return;
+    const el = e.currentTarget;
+    const start = el.selectionStart ?? input.length;
+    const end = el.selectionEnd ?? input.length;
+    e.preventDefault();
+    const next = input.slice(0, start) + text + input.slice(end);
+    const caret = start + text.length;
+    insertAtCursor(next, caret, caret);
   };
 
   const addFilesFromList = (list: FileList | null, asImage: boolean) => {
@@ -3230,11 +3259,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
 
         {composerVisible && (
         <div
-          className={`${composerFlexOrder} flex-shrink-0 w-full min-w-0 max-w-full px-3 pt-2 bg-[var(--dashboard-panel)] space-y-2 ${
-            mobileAgentHomeMode
-              ? 'border-b border-[var(--dashboard-border)]'
-              : 'border-t border-[var(--dashboard-border)]'
-          }`}
+          className={`${composerFlexOrder} iam-chat-composer-shell flex-shrink-0 w-full min-w-0 max-w-full px-3 pt-2 space-y-2`}
           style={{
             paddingBottom: isNarrow && !mobileAgentHomeMode
               ? MOBILE_CHAT_COMPOSER_BOTTOM_PAD
@@ -3330,10 +3355,10 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           />
 
           <div
-            className={`flex flex-col bg-[var(--scene-bg)] border rounded-xl transition-all shadow-inner overflow-visible ${
+            className={`iam-chat-composer-glass flex flex-col rounded-xl transition-all overflow-visible ${
               composerDragging
                 ? 'border-[var(--solar-cyan)]/70 ring-1 ring-[var(--solar-cyan)]/35'
-                : 'border-[var(--dashboard-border)] focus-within:border-[var(--solar-cyan)]/80 focus-within:ring-2 focus-within:ring-[var(--solar-cyan)]/20 focus-within:shadow-[0_0_12px_color-mix(in_srgb,var(--solar-cyan)_18%,transparent)]'
+                : 'focus-within:border-[var(--solar-cyan)]/80 focus-within:ring-2 focus-within:ring-[var(--solar-cyan)]/20'
             }`}
             onDragEnter={(e) => {
               e.preventDefault();
@@ -3388,6 +3413,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
                 ref={textareaRef}
                 value={input}
                 onChange={handleInputChange}
+                onPaste={handleComposerPaste}
                 onKeyDown={onKeyDown}
                 onSelect={(ev) => syncPickers(ev.currentTarget.value, ev.currentTarget.selectionStart)}
                 onClick={(ev) => syncPickers(ev.currentTarget.value, ev.currentTarget.selectionStart)}

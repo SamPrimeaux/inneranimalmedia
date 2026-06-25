@@ -33,6 +33,7 @@ import { handleHubApi } from '../api/hub.js';
 import { handleOverviewApi } from '../api/overview.js';
 import { handleClientConfig } from '../api/config.js';
 import { handleDashboardApi } from '../api/dashboard.js';
+import { handleDashboardHomeApi } from '../api/dashboard-home.js';
 import { handleMailApi } from '../api/mail.js';
 import { handleEmailApi } from '../api/email.js';
 import { handleContactApi } from '../api/contact.js';
@@ -254,6 +255,11 @@ export async function dispatchProductionDomainRoutes(rc) {
 
   if (pathLower === '/api/dashboard/status-bundle' && request.method === 'GET') {
     return handleStatusBundle(request, url, env, ctx);
+  }
+  if (pathLower.startsWith('/api/dashboard/home')) {
+    if (!authUser) return jsonResponse({ error: 'Unauthorized', code: 'SESSION_MISSING' }, 401);
+    const homeRes = await handleDashboardHomeApi(request, env, authUser, pathLower, methodUpper);
+    if (homeRes) return homeRes;
   }
   if (pathLower.startsWith('/api/agent/intake')) {
     return handleIntakeApi(request, url, env, ctx);

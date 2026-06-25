@@ -13,6 +13,38 @@ function safeJsonArray(text, fallback = []) {
   }
 }
 
+function parseMetadataObject(raw) {
+  if (raw == null || raw === '') return {};
+  if (typeof raw === 'object') return raw;
+  try {
+    const o = JSON.parse(String(raw));
+    return typeof o === 'object' && o !== null ? o : {};
+  } catch {
+    return {};
+  }
+}
+
+function extractCoverImageUrl(row, meta = {}) {
+  const candidates = [
+    meta.cover_image_url,
+    meta.cover_url,
+    meta.hero_image_url,
+    meta.card_image_url,
+  ];
+  for (const c of candidates) {
+    const u = c != null ? String(c).trim() : '';
+    if (u) return u;
+  }
+  const tags = safeJsonArray(row?.tags_json, []);
+  for (const t of tags) {
+    if (typeof t === 'string' && t.startsWith('cover:')) {
+      const u = t.slice(6).trim();
+      if (u) return u;
+    }
+  }
+  return null;
+}
+
 function slugifyBase(name) {
   return String(name || 'project')
     .toLowerCase()
@@ -243,6 +275,8 @@ async function handleOverview(request, url, env, authUser) {
     return jsonResponse({ ok: false, error: String(e.message || e) }, 500);
   }
 
+  const wpCoverByProjectId = new Map();
+
   if (workspaceId) {
     try {
       const { results: wpRows } = await env.DB.prepare(
@@ -256,14 +290,16 @@ async function handleOverview(request, url, env, authUser) {
       const existingIds = new Set(projectRows.map((r) => String(r.id)));
       for (const wp of wpRows || []) {
         let linkedId = null;
+        const meta = parseMetadataObject(wp.metadata_json);
         try {
-          const meta =
-            typeof wp.metadata_json === 'string'
-              ? JSON.parse(wp.metadata_json || '{}')
-              : wp.metadata_json || {};
           linkedId = meta.projects_table_id ? String(meta.projects_table_id) : null;
         } catch {
           linkedId = null;
+        }
+        const cover = extractCoverImageUrl(null, meta);
+        if (cover) {
+          if (linkedId) wpCoverByProjectId.set(linkedId, cover);
+          wpCoverByProjectId.set(String(wp.id), cover);
         }
         if (linkedId && existingIds.has(linkedId)) continue;
         if (linkedId) {
@@ -444,6 +480,7 @@ async function handleOverview(request, url, env, authUser) {
       tags,
       workspace_id: p.workspace_id || null,
       tenant_id: p.tenant_id || null,
+      cover_image_url: wpCoverByProjectId.get(id) || extractCoverImageUrl(p, null),
     };
   });
 
