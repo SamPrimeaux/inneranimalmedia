@@ -256,12 +256,25 @@
       .timer { font-size: 0.95rem; }
       .brand-logo { width: min(180px, 70vw); }
     }
+    .avatar-squircle.white {
+      background: rgba(240, 230, 208, 0.10);
+      border: 2px solid rgba(240, 230, 208, 0.28);
+      color: var(--cream);
+    }
+    .avatar-initials {
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      color: inherit;
+    }
   </style>
 </head>
 <body>
   <header class="game-header">
     <div class="player-card active-turn" id="card-white">
-      <div class="avatar white" id="avatar-white">W</div>
+      <div class="avatar avatar-squircle white" id="avatar-white">
+        <span class="avatar-initials" id="avatar-white-initials">YO</span>
+      </div>
       <div class="player-info">
         <div class="player-name" id="name-white">You</div>
         <div class="player-sub" id="sub-white">You are white</div>

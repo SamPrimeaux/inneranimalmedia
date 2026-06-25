@@ -118,7 +118,8 @@ export class ChessViewport {
     const h = Math.max(320, this.container.clientHeight || 480);
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x08080c);
+    this.scene.background = new THREE.Color(0x060402);
+    this.scene.fog = new THREE.FogExp2(0x060402, 0.022);
 
     this.camera = new THREE.PerspectiveCamera(38, w / h, 0.1, 200);
 
@@ -128,30 +129,42 @@ export class ChessViewport {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.12;
+    this.renderer.toneMappingExposure = 1.28;
     this.container.appendChild(this.renderer.domElement);
 
     setupChessEnvironment(this.renderer, this.scene);
 
-    const ambient = new THREE.AmbientLight(0xfff5e8, 0.42);
-    this.scene.add(ambient);
-    const sun = new THREE.DirectionalLight(0xfff8ee, 1.35);
-    sun.position.set(6, 14, 8);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
-    sun.shadow.camera.near = 0.5;
-    sun.shadow.camera.far = 40;
-    sun.shadow.camera.left = -14;
-    sun.shadow.camera.right = 14;
-    sun.shadow.camera.top = 14;
-    sun.shadow.camera.bottom = -14;
-    this.scene.add(sun);
-    const fill = new THREE.DirectionalLight(0xb8c8ff, 0.28);
-    fill.position.set(-8, 6, -6);
-    this.scene.add(fill);
-    const rim = new THREE.DirectionalLight(0xffd4a0, 0.22);
-    rim.position.set(0, 4, -10);
-    this.scene.add(rim);
+    // Warm overhead key — main illumination
+    const keyLight = new THREE.DirectionalLight(0xfff8e8, 1.55);
+    keyLight.position.set(5, 18, 9);
+    keyLight.castShadow = true;
+    keyLight.shadow.mapSize.set(2048, 2048);
+    keyLight.shadow.camera.near = 0.5;
+    keyLight.shadow.camera.far = 55;
+    keyLight.shadow.camera.left = -13;
+    keyLight.shadow.camera.right = 13;
+    keyLight.shadow.camera.top = 13;
+    keyLight.shadow.camera.bottom = -13;
+    keyLight.shadow.bias = -0.0008;
+    this.scene.add(keyLight);
+
+    // Cool blue rim — depth from behind
+    const rimLight = new THREE.DirectionalLight(0x7799cc, 0.20);
+    rimLight.position.set(-10, 6, -9);
+    this.scene.add(rimLight);
+
+    // Warm fill toward camera — illuminates piece fronts
+    const fillLight = new THREE.PointLight(0xffaa44, 0.75, 22);
+    fillLight.position.set(5, 9, 12);
+    this.scene.add(fillLight);
+
+    // Dim warm ambient — no pure black shadows
+    const ambientLight = new THREE.AmbientLight(0xffe8c8, 0.22);
+    this.scene.add(ambientLight);
+
+    // Hemisphere ground bounce
+    const hemiLight = new THREE.HemisphereLight(0xffd070, 0x1a0800, 0.16);
+    this.scene.add(hemiLight);
 
     this.pickGroup = new THREE.Group();
     this.scene.add(this.pickGroup);
@@ -364,7 +377,46 @@ export class ChessViewport {
     model.position.set(-center2.x, -box2.min.y, -center2.z);
 
     const box3 = new THREE.Box3().setFromObject(model);
-    const surfaceY = box3.max.y * 0.72;
+
+    // Cast 5 rays straight down to find actual playing surface
+    const measureRaycaster = new THREE.Raycaster();
+    const allMeshes: THREE.Mesh[] = [];
+    model.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh) allMeshes.push(o as THREE.Mesh);
+    });
+
+    const origins = [
+      new THREE.Vector3( 0.0, 20, 0.0),
+      new THREE.Vector3(-2.0, 20,-2.0),
+      new THREE.Vector3( 2.0, 20,-2.0),
+      new THREE.Vector3(-2.0, 20, 2.0),
+      new THREE.Vector3( 2.0, 20, 2.0),
+    ];
+
+    const totalH = box3.max.y;
+    const samples: number[] = [];
+    for (const origin of origins) {
+      measureRaycaster.set(origin, new THREE.Vector3(0, -1, 0));
+      const hits = measureRaycaster.intersectObjects(allMeshes, false);
+      for (const h of hits) {
+        const y = h.point.y;
+        // Playing surface is between 20% and 90% of total board height
+        if (y > totalH * 0.20 && y < totalH * 0.90) {
+          samples.push(y);
+          break;
+        }
+      }
+    }
+
+    let surfaceY: number;
+    if (samples.length >= 2) {
+      surfaceY = samples.reduce((a, b) => a + b, 0) / samples.length;
+      console.log('[ChessBoard] ray surfaceY:', surfaceY, 'from', samples.length, 'samples:', samples);
+    } else {
+      surfaceY = totalH * 0.52;
+      console.warn('[ChessBoard] ray miss — fallback surfaceY:', surfaceY, 'totalH:', totalH);
+    }
+
     this.boardPlaySpan = 8.0;
     setBoardSurfaceY(surfaceY);
     console.log('[ChessBoard] GLB size:', size, 'scale:', scale, 'surfaceY:', surfaceY);

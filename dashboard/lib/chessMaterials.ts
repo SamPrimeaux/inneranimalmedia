@@ -60,29 +60,25 @@ export function applyChessPieceMaterials(root: THREE.Object3D, color: 'white' | 
   });
 }
 
-/** Keep Design Studio GLB materials; clone per mesh so instances do not share state. */
-export function applyAuthoredChessPieceMaterials(root: THREE.Object3D, color: 'white' | 'black'): void {
+/** Baroque GLBs have authored materials baked in — white pieces are ivory
+ * marble, black pieces are obsidian. Do not tint or override.
+ * Just ensure castShadow and envMapIntensity are set.
+ */
+export function applyAuthoredChessPieceMaterials(
+  root: THREE.Object3D,
+  color: 'white' | 'black'
+): void {
   root.traverse((o) => {
     const mesh = o as THREE.Mesh;
     if (!mesh.isMesh || !mesh.material) return;
-
-    const src = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-    const next = src.map((mat) => {
-      const cloned = mat.clone();
-      if (color === 'black' && 'color' in cloned) {
-        const std = cloned as THREE.MeshStandardMaterial;
-        std.color.multiply(new THREE.Color(0.55, 0.28, 0.08));
-        if ('emissive' in std) {
-          std.emissive = new THREE.Color(0.35, 0.12, 0.02);
-          std.emissiveIntensity = Math.max(std.emissiveIntensity ?? 0, 0.15);
-        }
-        std.metalness = Math.min(std.metalness ?? 0, 0.35);
-        std.roughness = Math.max(std.roughness ?? 0.5, 0.35);
-      }
-      return cloned;
-    });
-    mesh.material = next.length === 1 ? next[0] : next;
     mesh.castShadow = true;
+    mesh.receiveShadow = false;
+    const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    for (const mat of mats) {
+      if ('envMapIntensity' in mat) {
+        (mat as THREE.MeshStandardMaterial).envMapIntensity = 0.85;
+      }
+    }
   });
 }
 

@@ -13,10 +13,9 @@ export function createChessRoomEnvironment(boardSurfaceY = 0.05): ChessRoomEnvir
 
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(48, 48),
-    new THREE.MeshStandardMaterial({
-      color: 0x050302,
-      roughness: 1,
-      metalness: 0,
+    new THREE.ShadowMaterial({
+      opacity: 0.38,
+      transparent: true,
     }),
   );
   floor.rotation.x = -Math.PI / 2;
