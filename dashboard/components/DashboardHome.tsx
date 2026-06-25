@@ -1,320 +1,253 @@
-/**
- * DashboardHome — /dashboard/home
- *
- * Design intent: clean macOS-launcher feel. Big greeting, project cards with
- * thumbnail art, activity feed sidebar, icon quick-access grid.
- * No stat walls. No tables. Easy to revise section by section.
- *
- * Modularity guide
- * ─────────────────
- * Each named section (GREETING, SEARCH, CREATE, PROJECTS, QUICK, ACTIVITY) is
- * a self-contained block with a clear comment header. To swap a section, delete
- * its block and drop in a new component. Data lives in the DATA LAYER at the top.
- *
- * To connect real data:
- *   - Replace MOCK_PROJECTS with a useFetch('/api/designstudio/scenes') call
- *   - Replace MOCK_ACTIVITY with an SSE or poll of /api/agent/runs
- *   - Replace MOCK_QUICK with whatever nav targets you want at that moment
- */
-
-import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import './DashboardHome.css';
 
-// ─── DATA LAYER ───────────────────────────────────────────────────────────────
-// Swap these for real API responses; shapes are intentionally flat.
+type HomeAction = {
+  id: string;
+  title: string;
+  body: string;
+  label: string;
+  path: string;
+  tone: 'blue' | 'dark' | 'purple';
+  glyph: string;
+};
 
-const MOCK_PROJECTS = [
-  { id: 'cpas',  name: 'Companions of Caddo', thumb: '/assets/projects/cpas-thumb.jpg',  updated: '2h ago',  members: 1 },
-  { id: 'iam',   name: 'Inner Animal Website', thumb: '/assets/projects/iam-thumb.jpg',   updated: '5h ago',  members: 2 },
-  { id: 'meaux', name: 'Meauxbility Rebrand',  thumb: '/assets/projects/meaux-thumb.jpg', updated: '1d ago',  members: 2 },
+type ToolCard = {
+  id: string;
+  title: string;
+  cta: string;
+  path: string;
+  tone: 'blue' | 'purple' | 'green' | 'orange' | 'dark';
+  glyph: string;
+};
+
+type ConnectCard = {
+  id: string;
+  title: string;
+  path: string;
+  tone: 'red' | 'dark' | 'blue' | 'green';
+};
+
+type ProjectCard = {
+  id: string;
+  title: string;
+  updated: string;
+  tone: 'violet' | 'blue' | 'green';
+  path: string;
+};
+
+const FEATURED_ACTIONS: HomeAction[] = [
+  {
+    id: 'resume-agent',
+    title: 'Resume latest build session',
+    body: 'Continue the most recent repo, design, or deployment task.',
+    label: 'Open',
+    path: '/dashboard/agent',
+    tone: 'blue',
+    glyph: 'AS',
+  },
+  {
+    id: 'new-surface',
+    title: 'Create a new visual surface',
+    body: 'Start Design Studio with brand, UI, image, or model direction.',
+    label: 'Build',
+    path: '/dashboard/designstudio',
+    tone: 'dark',
+    glyph: '3D',
+  },
+  {
+    id: 'files',
+    title: 'Find files and artifacts',
+    body: 'Open Drive, R2, generated files, previews, and uploads.',
+    label: 'View',
+    path: '/dashboard/artifacts',
+    tone: 'purple',
+    glyph: 'DR',
+  },
 ];
 
-const MOCK_ACTIVITY = [
-  { color: '#22c55e', title: 'Render complete',    sub: 'Companions Scene', ts: 'Just now' },
-  { color: '#3b82f6', title: 'Model exported',     sub: 'Panther_v2.glb',   ts: '1m ago'   },
-  { color: '#a855f7', title: 'Email sent',          sub: 'Client Update',    ts: '15m ago'  },
-  { color: '#f59e0b', title: 'Workflow finished',   sub: 'Daily Backup',     ts: '1h ago'   },
+const QUICK_STARTS: ToolCard[] = [
+  { id: 'agent', title: 'Agent Sam', cta: 'Chat', path: '/dashboard/agent', tone: 'blue', glyph: 'AI' },
+  { id: 'studio', title: 'Design Studio', cta: 'Build', path: '/dashboard/designstudio', tone: 'purple', glyph: '3D' },
+  { id: 'database', title: 'Database', cta: 'Inspect', path: '/dashboard/database', tone: 'green', glyph: 'DB' },
+  { id: 'cms', title: 'CMS Suite', cta: 'Edit', path: '/dashboard/cms', tone: 'orange', glyph: 'CMS' },
 ];
 
-const MOCK_QUICK = [
-  { id: 'studio', label: 'Studio',     sub: 'Design, model, animate', bg: '#4f46e5', path: '/dashboard/designstudio',
-    icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="8" height="8" rx="1.5" stroke="#fff" strokeWidth="1.6"/><rect x="13" y="3" width="8" height="8" rx="1.5" stroke="#fff" strokeWidth="1.6"/><rect x="3" y="13" width="8" height="8" rx="1.5" stroke="#fff" strokeWidth="1.6"/><rect x="13" y="13" width="8" height="8" rx="1.5" stroke="#fff" strokeWidth="1.6"/></svg> },
-  { id: 'agent',  label: 'Agent',      sub: 'Chat, plan, execute',    bg: '#16a34a', path: '/dashboard/agent',
-    icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><rect x="5" y="8" width="14" height="11" rx="3" stroke="#fff" strokeWidth="1.6"/><path d="M12 4v4M9 13h.01M15 13h.01" stroke="#fff" strokeWidth="1.8" strokeLinecap="round"/></svg> },
-  { id: 'ops',    label: 'Operations', sub: 'Email, DB, deploy',      bg: '#0ea5e9', path: '/dashboard/collaborate',
-    icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M4 6h16M4 12h10M4 18h7" stroke="#fff" strokeWidth="1.8" strokeLinecap="round"/><circle cx="19" cy="17" r="3" stroke="#fff" strokeWidth="1.6"/></svg> },
-  { id: 'files',  label: 'Files',      sub: 'Your assets & docs',     bg: '#ea580c', path: '/dashboard/artifacts',
-    icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M3 7a2 2 0 012-2h4.586a1 1 0 01.707.293l2.414 2.414A1 1 0 0013.414 8H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" stroke="#fff" strokeWidth="1.6"/></svg> },
+const CONNECT_CARDS: ConnectCard[] = [
+  { id: 'drive', title: 'Google Drive', path: '/dashboard/settings/integrations', tone: 'red' },
+  { id: 'github', title: 'GitHub Repo', path: '/dashboard/settings/integrations', tone: 'dark' },
+  { id: 'cloudflare', title: 'Cloudflare', path: '/dashboard/settings/integrations', tone: 'blue' },
+  { id: 'supabase', title: 'Supabase', path: '/dashboard/settings/integrations', tone: 'green' },
 ];
 
-const CREATE_ACTIONS = [
-  { label: 'New Project',    color: '#3b82f6', path: '/dashboard/projects',
-    icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M3 7a2 2 0 012-2h4.586a1 1 0 01.707.293l2.414 2.414A1 1 0 0013.414 8H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" stroke="currentColor" strokeWidth="1.6"/><path d="M12 11v6M9 14h6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/></svg> },
-  { label: 'New Design',     color: '#a855f7', path: '/dashboard/designstudio',
-    icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4z" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/></svg> },
-  { label: 'New Agent Chat', color: '#22c55e', path: '/dashboard/chats',
-    icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round"/></svg> },
-  { label: 'New Workflow',   color: '#f59e0b', path: '/dashboard/workflows',
-    icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round"/></svg> },
-  { label: 'Import',         color: '#6366f1', path: '/dashboard/artifacts',
-    icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 3v13M7 11l5 5 5-5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/><path d="M5 21h14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/></svg> },
+const RECENT_PROJECTS: ProjectCard[] = [
+  { id: 'cpas', title: 'Companions of Caddo', updated: 'Updated 2h ago', tone: 'violet', path: '/dashboard/artifacts?view=projects' },
+  { id: 'iam', title: 'InnerAnimal Website', updated: 'Updated 5h ago', tone: 'blue', path: '/dashboard/artifacts?view=projects' },
+  { id: 'meaux', title: 'Meauxbility Rebrand', updated: 'Updated 1d ago', tone: 'green', path: '/dashboard/artifacts?view=projects' },
 ];
 
-// ─── SMALL ATOMS ─────────────────────────────────────────────────────────────
-
-function PeopleCount({ n }: { n: number }) {
+function SparkIcon() {
   return (
-    <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'rgba(255,255,255,.38)', fontSize: 12 }}>
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-        <circle cx="9" cy="7" r="3" stroke="currentColor" strokeWidth="1.6"/>
-        <path d="M3 20c0-3 2.7-5 6-5s6 2 6 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
-        <circle cx="17" cy="7" r="2.2" stroke="currentColor" strokeWidth="1.4"/>
-        <path d="M21 20c0-2.5-1.8-4-4-4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-      </svg>
-      {n}
-    </span>
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="m12 3 1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2L12 3Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+    </svg>
   );
 }
 
-// ─── MAIN COMPONENT ──────────────────────────────────────────────────────────
+function PlusIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function ArrowIcon() {
+  return (
+    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
 
 export function DashboardHome() {
   const navigate = useNavigate();
-  const [search, setSearch] = useState('');
 
-  const hour = new Date().getHours();
-  const tod = hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening';
+  const sendPrompt = () => {
+    window.dispatchEvent(
+      new CustomEvent('iam-agent-external-send', {
+        detail: { message: 'Help me decide what to work on next in this workspace.' },
+      }),
+    );
+  };
 
   return (
-    <div style={{
-      flex: 1, minHeight: 0, overflowY: 'auto',
-      background: 'var(--bg-app, #111214)',
-      fontFamily: 'var(--font-sans, system-ui, sans-serif)',
-      color: 'var(--text-main, #e8eaf0)',
-    }}>
-      <div style={{ maxWidth: 1040, margin: '0 auto', padding: '36px 32px 80px' }}>
-
-        {/* ── GREETING ─────────────────────────────────────────────────── */}
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 28 }}>
-          <div>
-            <h1 style={{ margin: 0, fontSize: 32, fontWeight: 700, letterSpacing: '-0.5px', lineHeight: 1.15 }}>
-              Good {tod},{' '}
-              <span style={{ color: '#04a9fb' }}>Sam.</span>
+    <main className="iam-home" aria-label="Dashboard home">
+      <section className="iam-home-shell">
+        <div className="iam-home-main">
+          <section className="iam-home-hero" aria-labelledby="home-title">
+            <p className="iam-home-eyebrow">Ready when you are.</p>
+            <h1 id="home-title">
+              What are we building, <span>Sam?</span>
             </h1>
-            <p style={{ margin: '6px 0 0', fontSize: 14, color: 'rgba(255,255,255,.38)', fontWeight: 400 }}>
-              What do you want to create today?
+            <p>
+              Start from the composer, or tap a card to launch the right workflow with context already attached.
             </p>
-          </div>
-          {/* Top-right icon buttons — swap freely */}
-          <div style={{ display: 'flex', gap: 8, paddingTop: 4 }}>
-            {([
-              <path key="bell" d="M6 9a6 6 0 0112 0c0 5 2 6 2 6H4s2-1 2-6zM10 19a2 2 0 004 0" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>,
-              <><circle key="c" cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5"/><path d="M12 8v4M12 16h.01" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></>,
-              <rect key="gr" x="3" y="3" width="18" height="18" rx="4" stroke="currentColor" strokeWidth="1.5"/>,
-            ] as React.ReactNode[]).map((icon, i) => (
-              <button key={i} style={{
-                width: 36, height: 36, border: '1px solid rgba(255,255,255,.1)',
-                borderRadius: 9, background: 'rgba(255,255,255,.05)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                cursor: 'pointer', color: 'rgba(255,255,255,.45)',
-              }}>
-                <svg width="17" height="17" viewBox="0 0 24 24" fill="none">{icon}</svg>
-              </button>
-            ))}
-          </div>
-        </div>
+          </section>
 
-        {/* ── SEARCH ───────────────────────────────────────────────────── */}
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 10,
-          background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.09)',
-          borderRadius: 10, padding: '10px 14px', marginBottom: 28,
-        }}>
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
-            <circle cx="11" cy="11" r="7" stroke="rgba(255,255,255,.3)" strokeWidth="1.8"/>
-            <path d="m20 20-3.2-3.2" stroke="rgba(255,255,255,.3)" strokeWidth="1.8" strokeLinecap="round"/>
-          </svg>
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search anything..."
-            style={{
-              flex: 1, border: 'none', outline: 'none',
-              background: 'transparent', color: 'var(--text-main, #e8eaf0)',
-              fontSize: 14, fontFamily: 'inherit',
-            }}
-          />
-          <kbd style={{
-            fontSize: 11, color: 'rgba(255,255,255,.28)',
-            background: 'rgba(255,255,255,.08)', borderRadius: 5,
-            padding: '2px 7px', fontFamily: 'inherit',
-          }}>⌘ K</kbd>
-        </div>
-
-        {/* ── CREATE NEW ───────────────────────────────────────────────── */}
-        <div style={{ marginBottom: 36 }}>
-          <p style={{ margin: '0 0 12px', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,.38)', letterSpacing: '.5px', textTransform: 'uppercase' }}>
-            Create new
-          </p>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {CREATE_ACTIONS.map((a) => (
+          <section className="iam-home-lane" aria-label="Suggested actions">
+            {FEATURED_ACTIONS.map((action, index) => (
               <button
-                key={a.label}
-                onClick={() => navigate(a.path)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 7,
-                  padding: '8px 15px', borderRadius: 9,
-                  border: '1px solid rgba(255,255,255,.1)', background: 'rgba(255,255,255,.05)',
-                  cursor: 'pointer', color: a.color, fontFamily: 'inherit', fontSize: 13, fontWeight: 600,
-                  transition: 'background .15s, border-color .15s',
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,.09)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,.17)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,.05)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,.1)'; }}
+                key={action.id}
+                type="button"
+                className={`iam-feature-card iam-feature-card--${action.tone} ${index === 0 ? 'is-featured' : ''}`}
+                onClick={() => navigate(action.path)}
               >
-                {a.icon}{a.label}
+                <span className="iam-feature-glyph">{action.glyph}</span>
+                <span className="iam-feature-copy">
+                  <strong>{action.title}</strong>
+                  <small>{action.body}</small>
+                </span>
+                <span className="iam-feature-cta">{action.label}</span>
               </button>
             ))}
-          </div>
-        </div>
+          </section>
 
-        {/* ── 2-COLUMN: PROJECTS + ACTIVITY ────────────────────────────── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 272px', gap: 28, alignItems: 'start' }}>
+          <section className="iam-home-section" aria-labelledby="quick-starts-title">
+            <div className="iam-section-head">
+              <div>
+                <h2 id="quick-starts-title">Quick starts</h2>
+                <p>Tap the thing you want to do.</p>
+              </div>
+              <button type="button" onClick={() => navigate('/dashboard/agent')}>See all</button>
+            </div>
+            <div className="iam-tool-grid">
+              {QUICK_STARTS.map((tool) => (
+                <article key={tool.id} className="iam-tool-card">
+                  <div>
+                    <span className={`iam-tool-glyph iam-tool-glyph--${tool.tone}`}>{tool.glyph}</span>
+                    <h3>{tool.title}</h3>
+                  </div>
+                  <button type="button" onClick={() => navigate(tool.path)}>{tool.cta}</button>
+                </article>
+              ))}
+            </div>
+          </section>
 
-          {/* Left column */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 36 }}>
-
-            {/* ── RECENT PROJECTS ────────────────────────────────────── */}
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-                <span style={{ fontSize: 15, fontWeight: 600 }}>Recent projects</span>
+          <section className="iam-home-section" aria-labelledby="connect-context-title">
+            <div className="iam-section-head">
+              <div>
+                <h2 id="connect-context-title">Connect context</h2>
+                <p>Make future chats smarter.</p>
+              </div>
+              <button type="button" onClick={() => navigate('/dashboard/settings/integrations')}>See all</button>
+            </div>
+            <div className="iam-connect-grid">
+              {CONNECT_CARDS.map((item) => (
                 <button
-                  onClick={() => navigate('/dashboard/projects')}
-                  style={{ fontSize: 13, color: 'rgba(255,255,255,.38)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
+                  key={item.id}
+                  type="button"
+                  className={`iam-connect-card iam-connect-card--${item.tone}`}
+                  onClick={() => navigate(item.path)}
                 >
-                  View all
+                  <strong>{item.title}</strong>
+                  <span><PlusIcon /></span>
                 </button>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>
-                {MOCK_PROJECTS.map((p) => (
-                  <div
-                    key={p.id}
-                    style={{
-                      borderRadius: 10, overflow: 'hidden', cursor: 'pointer',
-                      background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.08)',
-                      transition: 'border-color .15s',
-                    }}
-                    onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'rgba(255,255,255,.18)')}
-                    onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'rgba(255,255,255,.08)')}
-                  >
-                    {/* Thumb — falls back to gradient when image 404s */}
-                    <div style={{
-                      height: 92,
-                      background: `url(${p.thumb}) center/cover no-repeat, linear-gradient(135deg,#1c1e2a,#252838)`,
-                    }} />
-                    <div style={{ padding: '10px 11px 12px' }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 5 }}>
-                        {p.name}
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <span style={{ fontSize: 11, color: 'rgba(255,255,255,.3)' }}>Updated {p.updated}</span>
-                        <PeopleCount n={p.members} />
-                      </div>
-                    </div>
-                  </div>
-                ))}
+              ))}
+            </div>
+          </section>
 
-                {/* New project tile */}
-                <div
-                  onClick={() => navigate('/dashboard/projects')}
-                  style={{
-                    borderRadius: 10, border: '1.5px dashed rgba(255,255,255,.12)',
-                    display: 'flex', flexDirection: 'column', alignItems: 'center',
-                    justifyContent: 'center', gap: 6, cursor: 'pointer', minHeight: 148,
-                    color: 'rgba(255,255,255,.28)', transition: 'border-color .15s, color .15s',
-                  }}
-                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'rgba(255,255,255,.25)'; e.currentTarget.style.color = 'rgba(255,255,255,.5)'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'rgba(255,255,255,.12)'; e.currentTarget.style.color = 'rgba(255,255,255,.28)'; }}
+          <section className="iam-home-section" aria-labelledby="recent-title">
+            <div className="iam-section-head">
+              <div>
+                <h2 id="recent-title">Recent projects</h2>
+              </div>
+              <button type="button" onClick={() => navigate('/dashboard/artifacts?view=projects')}>View all</button>
+            </div>
+            <div className="iam-project-lane">
+              {RECENT_PROJECTS.map((project) => (
+                <button
+                  key={project.id}
+                  type="button"
+                  className={`iam-project-card iam-project-card--${project.tone}`}
+                  onClick={() => navigate(project.path)}
                 >
-                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-                    <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
-                  </svg>
-                  <span style={{ fontSize: 12, fontWeight: 600 }}>New project</span>
-                </div>
-              </div>
-            </div>
-
-            {/* ── QUICK ACCESS ───────────────────────────────────────── */}
-            <div>
-              <span style={{ fontSize: 15, fontWeight: 600, display: 'block', marginBottom: 14 }}>Quick access</span>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 10 }}>
-                {MOCK_QUICK.map((q) => (
-                  <div
-                    key={q.id}
-                    onClick={() => navigate(q.path)}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 13,
-                      padding: '14px 16px', borderRadius: 10,
-                      background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.08)',
-                      cursor: 'pointer', transition: 'background .15s, border-color .15s',
-                    }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,.09)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,.15)'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,.05)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,.08)'; }}
-                  >
-                    <div style={{ width: 38, height: 38, borderRadius: 9, background: q.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                      {q.icon}
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 700 }}>{q.label}</div>
-                      <div style={{ fontSize: 12, color: 'rgba(255,255,255,.35)', marginTop: 2 }}>{q.sub}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* ── ACTIVITY ───────────────────────────────────────────────── */}
-          <div style={{
-            background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)',
-            borderRadius: 12, overflow: 'hidden',
-          }}>
-            <div style={{ padding: '15px 18px 12px', borderBottom: '1px solid rgba(255,255,255,.07)' }}>
-              <span style={{ fontSize: 14, fontWeight: 600 }}>Activity</span>
-            </div>
-            {MOCK_ACTIVITY.map((a, i) => (
-              <div key={i} style={{
-                display: 'flex', alignItems: 'flex-start', gap: 11,
-                padding: '13px 18px',
-                borderBottom: i < MOCK_ACTIVITY.length - 1 ? '1px solid rgba(255,255,255,.05)' : 'none',
-              }}>
-                <div style={{
-                  width: 8, height: 8, borderRadius: '50%', background: a.color,
-                  flexShrink: 0, marginTop: 4, boxShadow: `0 0 6px ${a.color}88`,
-                }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600 }}>{a.title}</div>
-                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,.35)', marginTop: 2 }}>{a.sub}</div>
-                </div>
-                <div style={{ fontSize: 11, color: 'rgba(255,255,255,.25)', flexShrink: 0, paddingTop: 2 }}>{a.ts}</div>
-              </div>
-            ))}
-            <div style={{ padding: '12px 18px', borderTop: '1px solid rgba(255,255,255,.07)' }}>
-              <button style={{
-                display: 'flex', alignItems: 'center', gap: 7,
-                fontSize: 13, color: 'rgba(255,255,255,.38)',
-                background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600,
-              }}>
-                View all activity
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                  <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5"/>
-                  <path d="M10 8l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                </svg>
+                  <span />
+                  <strong>{project.title}</strong>
+                  <small>{project.updated}</small>
+                </button>
+              ))}
+              <button type="button" className="iam-project-card iam-project-card--new" onClick={() => navigate('/dashboard/projects')}>
+                <span><PlusIcon /></span>
+                <strong>New project</strong>
+                <small>Create a fresh workspace</small>
               </button>
             </div>
-          </div>
-
+          </section>
         </div>
-      </div>
-    </div>
+
+        <aside className="iam-home-side" aria-label="Workspace activity">
+          <section className="iam-activity-card">
+            <div className="iam-side-head">
+              <h2>Activity</h2>
+              <button type="button">View</button>
+            </div>
+            <div className="iam-activity-list">
+              <div><span className="ok" /><strong>Render complete</strong><small>Companions scene</small></div>
+              <div><span className="info" /><strong>Drive synced</strong><small>12 files indexed</small></div>
+              <div><span className="purple" /><strong>Email drafted</strong><small>Client update</small></div>
+              <div><span className="warn" /><strong>Workflow ready</strong><small>Deploy checklist</small></div>
+            </div>
+          </section>
+        </aside>
+      </section>
+
+      <section className="iam-home-composer" aria-label="Message Agent Sam">
+        <button type="button" className="iam-composer-icon" aria-label="Attach context"><PlusIcon /></button>
+        <button type="button" className="iam-composer-input" onClick={sendPrompt}>Message Agent Sam…</button>
+        <button type="button" className="iam-composer-send" aria-label="Send prompt" onClick={sendPrompt}><ArrowIcon /></button>
+      </section>
+    </main>
   );
 }
+
+export default DashboardHome;
