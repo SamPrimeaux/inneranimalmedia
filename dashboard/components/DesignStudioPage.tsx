@@ -77,6 +77,8 @@ export const DesignStudioPage: React.FC = () => {
   const pendingConsumedRef = useRef(false);
   const pendingSpawnRef = useRef<{ name: string; url: string; scale: number } | null>(null);
   const lastSpawnedJobRef = useRef<string | null>(null);
+  // Phase 1A: bootstrapDoneRef moved to top-level so engine cleanup can reset it
+  const bootstrapDoneRef = useRef(false);
 
   const [studioPhase, setStudioPhase] = useState<'entry' | 'studio'>('entry');
   const [meshyPrompt, setMeshyPrompt] = useState('');
@@ -298,6 +300,8 @@ export const DesignStudioPage: React.FC = () => {
       cancelled = true;
       window.removeEventListener('resize', handleResize);
       setEngineReady(false);
+      // Phase 1A: reset bootstrap state so re-entering studio starts clean
+      bootstrapDoneRef.current = false;
       engine?.cleanup();
       engineRef.current = null;
       container.innerHTML = '';
@@ -371,8 +375,9 @@ export const DesignStudioPage: React.FC = () => {
         return true;
       }
       try {
+        const entityId = `asset_${Date.now()}`;
         await engineRef.current.spawnEntity({
-          id: `asset_${Date.now()}`,
+          id: entityId,
           name,
           type: 'prop',
           modelUrl: normalized,
@@ -380,6 +385,8 @@ export const DesignStudioPage: React.FC = () => {
           position: { x: 0, y: 1, z: 0 },
           behavior: { type: 'static' },
         });
+        // Phase 1C: select spawned entity and frame camera on it
+        setSelectedEntityId(entityId);
         requestAnimationFrame(() => engineRef.current?.frameCameraOnObject());
         return true;
       } catch (err) {
@@ -390,12 +397,48 @@ export const DesignStudioPage: React.FC = () => {
     [],
   );
 
+  // Phase 1A: coordinated pending-spawn effect — fires after engineReady.
+  // Consumes pendingSpawnRef and resolves the GLB before bootstrap can run.
   useEffect(() => {
-    if (!engineReady || !isAgentSamEngine(engineRef.current) || !pendingSpawnRef.current) return;
+    if (!engineReady || !isAgentSamEngine(engineRef.current)) return;
     const pending = pendingSpawnRef.current;
+    if (!pending) return;
     pendingSpawnRef.current = null;
-    void handleSpawnModel(pending.name, pending.url, pending.scale);
+
+    void (async () => {
+      const ok = await handleSpawnModel(pending.name, pending.url, pending.scale);
+      if (!ok) {
+        console.warn('[DesignStudio] pending spawn failed, scene is empty');
+      }
+      // Bootstrap intentionally skipped — user arrived with a GLB intent.
+    })();
   }, [engineReady, handleSpawnModel]);
+
+  // Phase 1A + 1B: bootstrap effect — only runs when no pending spawn exists.
+  // Phase 1B: no Cube.001 spawn. Empty grid is the correct empty-scene default.
+  useEffect(() => {
+    if (!engineReady || !isAgentSamEngine(engineRef.current)) return;
+    // Guard: skip if a spawn is pending (race condition prevention)
+    if (pendingSpawnRef.current) return;
+    if (bootstrapDoneRef.current) return;
+
+    // Guard: skip if user navigated here with a pendingGlb intent
+    const hasPendingGlb = !!(location.state as PendingGlbState | null)?.pendingGlb;
+    if (hasPendingGlb) return;
+
+    const engine = engineRef.current;
+    const existing = engine.exportEntities();
+    if (existing.length > 0) {
+      bootstrapDoneRef.current = true;
+      engine.frameCameraOnObject();
+      return;
+    }
+
+    // Phase 1B: empty scene — no default Cube.001.
+    // User will add content via stock click, import, or generate.
+    bootstrapDoneRef.current = true;
+    console.info('[DesignStudio] bootstrap: empty scene ready');
+  }, [engineReady, location.state]);
 
   const handleSpawnProcedural = useCallback((key: AgentSamGeneratorKey) => {
     if (!isAgentSamEngine(engineRef.current)) return;
@@ -695,52 +738,6 @@ export const DesignStudioPage: React.FC = () => {
       engineRef.current.resetViewportCamera();
     }
   }, []);
-
-  const bootstrapDoneRef = useRef(false);
-  useEffect(() => {
-    if (!engineReady || !isAgentSamEngine(engineRef.current)) return;
-
-    const tryBootstrap = async () => {
-      if (bootstrapDoneRef.current) return;
-      const engine = engineRef.current;
-      if (!isAgentSamEngine(engine)) return;
-
-      const existing = engine.exportEntities();
-      if (existing.length > 0) {
-        bootstrapDoneRef.current = true;
-        engine.frameCameraOnObject();
-        return;
-      }
-
-      const voxels: GameEntity['voxels'] = [];
-      for (let x = -1; x <= 1; x++) {
-        for (let y = 0; y <= 2; y++) {
-          for (let z = -1; z <= 1; z++) {
-            voxels.push({ x, y, z, color: 0xaeb5bd });
-          }
-        }
-      }
-      const id = `cube_bootstrap`;
-      try {
-        await engine.spawnEntity({
-          id,
-          name: 'Cube.001',
-          type: 'prop',
-          voxels,
-          scale: 1,
-          position: { x: 0, y: 1.5, z: 0 },
-          behavior: { type: 'static' },
-        });
-        bootstrapDoneRef.current = true;
-        setSelectedEntityId(id);
-        requestAnimationFrame(() => engine.frameCameraOnObject());
-      } catch (err) {
-        console.warn('[DesignStudio] bootstrap failed', err);
-      }
-    };
-
-    void tryBootstrap();
-  }, [engineReady]);
 
   const handleEntityRename = useCallback(
     async (id: string, name: string) => {
