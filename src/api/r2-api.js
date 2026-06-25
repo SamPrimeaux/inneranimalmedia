@@ -55,6 +55,7 @@ const DASHBOARD_MEDIA_KEY_PREFIXES = [
   'moviemode/',
   'cms/themes/',
   'cms/pages/',
+  'cms/sections/',
   'workspaces/',
 ];
 

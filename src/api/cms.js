@@ -89,6 +89,32 @@ function cmsSnapshotKey(workspaceId, projectId, slug, ts) {
   return `cms/${workspaceId}/${projectId}/${slug}/snapshots/${ts}.html`;
 }
 
+function cmsPathSegment(value, fallback = 'section') {
+  return (
+    String(value || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]+/g, '-')
+      .replace(/^-+|-+$/g, '') || fallback
+  );
+}
+
+async function cmsContentSha256(input) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(input ?? '')));
+  return Array.from(new Uint8Array(buf))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function cmsSectionHtmlKey(pageSlug, sectionName, hash) {
+  return `cms/sections/${cmsPathSegment(pageSlug, 'page')}/${cmsPathSegment(sectionName)}/${hash}.html`;
+}
+
+function cmsR2PublicObjectUrl(request, bucket, key) {
+  const origin = new URL(request.url).origin;
+  return `${origin}/api/r2/buckets/${encodeURIComponent(bucket)}/object/${encodeURIComponent(key)}`;
+}
+
 /** @param {import('../core/auth.js').AuthUser} authUser @param {Request} request */
 function cmsMutationMeta(authUser, request) {
   const routeKey = request.headers.get('x-iam-route-key') || request.headers.get('X-IAM-Route-Key') || '';
@@ -2103,6 +2129,50 @@ export async function handleCmsApi(request, url, env, ctx) {
         page: { id: pageId, slug: pageSlug, route_path: routePath },
         r2_draft_key: draftKey,
       });
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
+  if (path === '/api/cms/sections/upload-html' && method === 'POST') {
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: 'invalid JSON' }, 400);
+    }
+    const pageId = String(body.page_id || '').trim();
+    const sectionName = String(body.section_name || '').trim();
+    const html = body.html != null ? String(body.html) : '';
+    const projectSlug = String(body.project_slug || '').trim();
+    if (!pageId || !sectionName) {
+      return jsonResponse({ error: 'page_id and section_name required' }, 400);
+    }
+    if (!html.trim()) return jsonResponse({ error: 'html required' }, 400);
+    try {
+      const page = await fetchCmsPageInScope(env, pageId, cmsScope, projectSlug || null);
+      if (!page) return jsonResponse({ error: 'Page not found' }, 404);
+      if (projectSlug && !cmsScope.allowedSlugs.has(projectSlug)) {
+        return jsonResponse({ error: 'CMS_SITE_NOT_ALLOWED', project_slug: projectSlug }, 403);
+      }
+      const pageSlug = String(page.slug || page.route_path || pageId).replace(/^\//, '');
+      const hash = await cmsContentSha256(html);
+      const r2Key = cmsSectionHtmlKey(pageSlug, sectionName, hash);
+      const r2Bucket = CMS_DEFAULT_R2_BUCKET;
+      const r2Binding = getCmsR2Binding(env, r2Bucket);
+      if (!r2Binding) return jsonResponse({ error: 'R2 storage unavailable' }, 503);
+      const contentBuffer = new TextEncoder().encode(html);
+      await r2Binding.put(r2Key, contentBuffer, {
+        httpMetadata: { contentType: 'text/html; charset=utf-8' },
+      });
+      const publicUrl =
+        (await presignR2GetObjectUrl(env, r2Bucket, r2Key)) ||
+        cmsR2PublicObjectUrl(request, r2Bucket, r2Key);
+      const ps = projectSlug || page.project_slug || page.project_id || null;
+      if (env.SESSION_CACHE && ps) {
+        ctx.waitUntil(env.SESSION_CACHE.delete(cmsBootstrapKey(workspaceId, ps)).catch(() => {}));
+      }
+      return jsonResponse({ r2_key: r2Key, public_url: publicUrl });
     } catch (e) {
       return jsonResponse({ error: e.message }, 500);
     }

@@ -83,6 +83,8 @@ export async function canAccessMediaObjectKey(env, authUser, key) {
 
   if (k.startsWith('captures/theme-debug/')) return isSuperadmin(authUser);
 
+  if (k.startsWith('cms/')) return !!authUser?.id;
+
   return false;
 }
 
