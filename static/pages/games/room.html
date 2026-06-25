@@ -256,9 +256,11 @@
       .timer { font-size: 0.95rem; }
       .brand-logo { width: min(180px, 70vw); }
     }
+    /* You card — iOS icon squircle */
     .avatar-squircle.white {
-      background: rgba(240, 230, 208, 0.10);
-      border: 2px solid rgba(240, 230, 208, 0.28);
+      background: transparent;
+      border: none;
+      padding: 0;
       color: var(--cream);
     }
     .avatar-initials {
@@ -267,13 +269,80 @@
       letter-spacing: 0.04em;
       color: inherit;
     }
+    /* Agent Sam card — icon only, no border */
+    .avatar.black.avatar-squircle {
+      background: transparent;
+      border: none;
+      box-shadow: none;
+    }
+    /* Agent Sam name below icon */
+    .agent-sam-col {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.2rem;
+      flex-shrink: 0;
+    }
+    .agent-sam-label {
+      font-size: 0.58rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    /* Back breadcrumb */
+    .back-btn {
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+      font-size: 0.65rem;
+      font-weight: 600;
+      color: var(--muted);
+      text-decoration: none;
+      padding: 0.25rem 0.5rem;
+      border-radius: 0.4rem;
+      transition: color 0.15s, background 0.15s;
+      pointer-events: auto;
+    }
+    .back-btn:hover { color: var(--cream); background: rgba(255,255,255,0.05); }
+    .back-btn svg { flex-shrink: 0; }
+    /* Logo — no background bleed */
+    .brand-logo {
+      background: transparent;
+    }
+    .brand-logo-header {
+      display: block;
+      width: min(200px, 44vw);
+      height: auto;
+      margin: 0 auto 0.45rem;
+    }
+    .brand-logo-loading {
+      display: block;
+      width: min(260px, 56vw);
+      height: auto;
+      border-radius: 0.5rem;
+      overflow: hidden;
+    }
   </style>
 </head>
 <body>
   <header class="game-header">
     <div class="player-card active-turn" id="card-white">
+      <a class="back-btn" href="/games" aria-label="Back to lobby">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M9 11L5 7L9 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Lobby
+      </a>
       <div class="avatar avatar-squircle white" id="avatar-white">
-        <span class="avatar-initials" id="avatar-white-initials">YO</span>
+        <img
+          class="avatar-img"
+          src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/e5327954-d123-4a7a-2138-589146758b00/avatar"
+          alt="You"
+          width="52"
+          height="52"
+        />
       </div>
       <div class="player-info">
         <div class="player-name" id="name-white">You</div>
@@ -285,38 +354,39 @@
 
     <div class="center-col">
       <img
-        class="brand-logo"
-        src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/d23ebddd-24ad-4b40-7cd6-0fe759f1f100/medium"
+        class="brand-logo brand-logo-header"
+        src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/c91fe649-a19a-4183-08a8-b05883aafe00/public"
         alt="MeauxGames"
-        width="220"
-        height="64"
+        width="200"
+        height="58"
       />
       <div class="turn-pill" id="turn-pill"><span class="turn-dot dot-white"></span> White to move</div>
     </div>
 
     <div class="player-card right" id="card-black">
       <span class="timer" id="timer-black">10:00</span>
-      <div class="player-info">
+      <div class="player-info" style="text-align:right;">
         <div class="player-name" id="name-black">Agent Sam</div>
-        <div class="player-sub" id="sub-black">Orange · Computer</div>
         <div class="captures" id="captures-black" aria-label="Pieces opponent captured"></div>
       </div>
-      <div class="avatar black avatar-squircle" id="avatar-black">
-        <img
-          class="avatar-img"
-          id="avatar-black-img"
-          src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/b5557284-485e-4305-2c5a-49c6acf99a00/thumbnail"
-          alt="Agent Sam"
-          width="52"
-          height="52"
-        />
-        <span class="avatar-fallback" id="avatar-black-fallback" hidden>AS</span>
+      <div class="agent-sam-col">
+        <div class="avatar black avatar-squircle" id="avatar-black">
+          <img
+            class="avatar-img"
+            id="avatar-black-img"
+            src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/b5557284-485e-4305-2c5a-49c6acf99a00/thumbnail"
+            alt="Agent Sam"
+            width="52"
+            height="52"
+          />
+          <span class="avatar-fallback" id="avatar-black-fallback" hidden>AS</span>
+        </div>
+        <span class="agent-sam-label">Agent Sam</span>
       </div>
     </div>
 
     <div class="header-actions">
       <span class="room-meta" id="room-id-short">…</span>
-      <a class="btn" href="/games">Lobby</a>
       <button type="button" class="btn btn-resign" id="resign-btn">Resign</button>
     </div>
   </header>
@@ -325,11 +395,11 @@
     <div id="viewport" aria-label="3D chess board"></div>
     <div id="loading-overlay">
       <img
-        class="brand-logo"
-        src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/d23ebddd-24ad-4b40-7cd6-0fe759f1f100/medium"
+        class="brand-logo brand-logo-loading"
+        src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/c91fe649-a19a-4183-08a8-b05883aafe00/public"
         alt="MeauxGames"
-        width="220"
-        height="64"
+        width="260"
+        height="76"
       />
       <p class="load-label">Loading baroque board &amp; pieces…</p>
       <div class="load-track"><div id="load-progress"></div></div>
