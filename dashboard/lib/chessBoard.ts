@@ -16,6 +16,15 @@ export function setBoardSurfaceY(y: number): void {
 /** @deprecated use getBoardSurfaceY() */
 export const BOARD_SURFACE_Y = boardSurfaceY;
 
+/** Rank 1 near player (+Z), rank 8 toward far side (-Z). */
+export function rankToZ(rank: number): number {
+  return 4.5 - rank;
+}
+
+export function zToRank(z: number): number {
+  return Math.round(4.5 - z);
+}
+
 export function createChessPickLayer(): THREE.Group {
   const board = new THREE.Group();
   board.name = 'chess_pick_layer';
@@ -26,10 +35,13 @@ export function createChessPickLayer(): THREE.Group {
     depthTest: false,
     side: THREE.DoubleSide,
   });
+  const files = 'abcdefgh';
   for (let row = 0; row < 8; row++) {
+    const rank = row + 1;
     for (let col = 0; col < 8; col++) {
       const square = new THREE.Mesh(new THREE.BoxGeometry(1, 0.04, 1), mat);
-      square.position.set(col - 3.5, 0, row - 3.5);
+      square.position.set(col - 3.5, 0, rankToZ(rank));
+      square.userData = { square: `${files[col]}${rank}` };
       board.add(square);
       squares.push(square);
     }
@@ -65,11 +77,12 @@ export function createChessBoard(): THREE.Group {
 
   const squares: THREE.Mesh[] = [];
   for (let row = 0; row < 8; row++) {
+    const rank = row + 1;
     for (let col = 0; col < 8; col++) {
       const geo = new THREE.BoxGeometry(1, 0.1, 1);
       const mat = (row + col) % 2 === 0 ? lightMaterial : darkMaterial;
       const square = new THREE.Mesh(geo, mat);
-      square.position.set(col - 3.5, 0, row - 3.5);
+      square.position.set(col - 3.5, 0, rankToZ(rank));
       square.receiveShadow = true;
       square.userData = { squareCol: col, squareRow: row, isBoardSquare: true };
       board.add(square);
@@ -107,7 +120,7 @@ function addBoardCoordinates(board: THREE.Group): void {
     board.add(makeCoordLabel(files[col], col - 3.5, -4.55));
   }
   for (let row = 0; row < 8; row++) {
-    board.add(makeCoordLabel(String(row + 1), -4.55, row - 3.5));
+    board.add(makeCoordLabel(String(row + 1), -4.55, rankToZ(row + 1)));
   }
 }
 
@@ -135,9 +148,9 @@ function makeCoordLabel(text: string, x: number, z: number): THREE.Sprite {
 export function boardPointToSquare(x: number, z: number): string | null {
   const files = 'abcdefgh';
   const col = Math.round(x + 3.5);
-  const row = Math.round(z + 3.5);
-  if (col < 0 || col > 7 || row < 0 || row > 7) return null;
-  return `${files[col]}${row + 1}`;
+  const rank = zToRank(z);
+  if (col < 0 || col > 7 || rank < 1 || rank > 8) return null;
+  return `${files[col]}${rank}`;
 }
 
 export function squareToBoardXZ(square: string): { x: number; z: number } | null {
@@ -145,7 +158,7 @@ export function squareToBoardXZ(square: string): { x: number; z: number } | null
   const s = String(square || '').trim().toLowerCase();
   if (s.length !== 2) return null;
   const col = files.indexOf(s[0]);
-  const row = parseInt(s[1], 10) - 1;
-  if (col < 0 || row < 0 || row > 7) return null;
-  return { x: col - 3.5, z: row - 3.5 };
+  const rank = parseInt(s[1], 10);
+  if (col < 0 || rank < 1 || rank > 8) return null;
+  return { x: col - 3.5, z: rankToZ(rank) };
 }

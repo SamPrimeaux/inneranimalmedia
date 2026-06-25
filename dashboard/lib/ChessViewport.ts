@@ -83,7 +83,7 @@ export class ChessViewport {
   private squareMeshes: THREE.Mesh[] = [];
   private roomEnv: ChessRoomEnvironment | null = null;
   private boardPlaySpan = 8.0;
-  private currentPreset: ChessCameraPreset = 'classic';
+  private currentPreset: ChessCameraPreset = 'player';
   private overlayGroup = new THREE.Group();
   private captureGroup = new THREE.Group();
   private selectedSquare: string | null = null;
@@ -282,7 +282,7 @@ export class ChessViewport {
     }
 
     this.ready = true;
-    this.setCameraPreset('classic');
+    this.setCameraPreset('player');
     this.debugVerifyCoords();
     onReady?.();
   }
@@ -595,8 +595,24 @@ export class ChessViewport {
   private pickSquareFromRay(): string | null {
     const boardHits = this.raycaster.intersectObjects(this.squareMeshes, false);
     if (boardHits.length === 0) return null;
+    const hit = boardHits[0].object as THREE.Mesh;
+    const tagged = hit.userData?.square as string | undefined;
+    if (tagged) return tagged;
     const p = boardHits[0].point;
     return boardPointToSquare(p.x, p.z);
+  }
+
+  private pickSquareFromPointer(): string | null {
+    const fromBoard = this.pickSquareFromRay();
+    if (fromBoard) return fromBoard;
+
+    const pieceMeshes: THREE.Object3D[] = [];
+    for (const rec of this.pieces.values()) pieceMeshes.push(rec.mesh);
+    const pieceHits = this.raycaster.intersectObjects(pieceMeshes, true);
+    if (pieceHits.length === 0) return null;
+    let obj: THREE.Object3D | null = pieceHits[0].object;
+    while (obj && !obj.userData?.square) obj = obj.parent;
+    return (obj?.userData?.square as string | undefined) ?? null;
   }
 
   private onPointerMove = (ev: PointerEvent): void => {
@@ -605,7 +621,7 @@ export class ChessViewport {
     this.pointer.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
     this.pointer.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
     this.raycaster.setFromCamera(this.pointer, this.camera);
-    this.setHoverSquare(this.pickSquareFromRay());
+    this.setHoverSquare(this.pickSquareFromPointer());
   };
 
   private onPointerDown = (ev: PointerEvent): void => {
@@ -615,15 +631,12 @@ export class ChessViewport {
     this.pointer.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
     this.raycaster.setFromCamera(this.pointer, this.camera);
 
-    const pieceMeshes: THREE.Object3D[] = [];
-    for (const rec of this.pieces.values()) pieceMeshes.push(rec.mesh);
-    const pieceHits = this.raycaster.intersectObjects(pieceMeshes, true);
-    if (pieceHits.length > 0) {
-      let obj: THREE.Object3D | null = pieceHits[0].object;
-      while (obj && !obj.userData?.square) obj = obj.parent;
-      const square = obj?.userData?.square as string | undefined;
-      const color = obj?.userData?.color as 'white' | 'black' | undefined;
-      if (!square || !color) return;
+    const clickedSquare = this.pickSquareFromPointer();
+    if (!clickedSquare) return;
+
+    const rec = this.pieces.get(clickedSquare);
+    if (rec) {
+      const { square, color } = rec;
 
       if (this.selectedSquare && square !== this.selectedSquare) {
         const targets = legalMoveTargets(this.fen, this.selectedSquare);
@@ -649,10 +662,14 @@ export class ChessViewport {
     }
 
     if (!this.selectedSquare) return;
-    const to = this.pickSquareFromRay();
-    if (!to) return;
+    const to = clickedSquare;
     const from = this.selectedSquare;
     if (from === to) {
+      this.clearSelectionOverlays();
+      return;
+    }
+    const targets = legalMoveTargets(this.fen, from);
+    if (!targets.includes(to)) {
       this.clearSelectionOverlays();
       return;
     }

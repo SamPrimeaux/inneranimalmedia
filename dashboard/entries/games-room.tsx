@@ -1,9 +1,12 @@
 /**
- * Public 3D chess room — baroque board, table environment, camera presets.
+ * Public 3D chess room — baroque board, locked player camera, Agent Sam practice.
  */
-import { ChessViewport, CHESS_CAMERA_PRESETS, type ChessCameraPreset } from '../lib/ChessViewport';
+import { ChessViewport } from '../lib/ChessViewport';
 import { pickAgentSamMove, tryMove } from '../lib/chessEngine';
 import { capturedPieceSvg } from '../lib/chessPieceIcons';
+
+const AGENTSAM_AVATAR_URL =
+  'https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/b5557284-485e-4305-2c5a-49c6acf99a00/thumbnail';
 
 function getRoomId(): string {
   return (location.pathname.match(/\/games\/(room_[^/]+)/i) || [])[1] || '';
@@ -135,9 +138,20 @@ function boot() {
 
     const avWhite = document.getElementById('avatar-white');
     const avBlack = document.getElementById('avatar-black');
+    const avBlackImg = document.getElementById('avatar-black-img') as HTMLImageElement | null;
     if (avWhite) avWhite.textContent = youAreWhite ? initials('You') : 'W';
     if (avBlack) {
-      avBlack.textContent = youAreBlack ? initials('You') : vsAgentsam ? 'AS' : initials(opponentLabel);
+      if (vsAgentsam && avBlackImg) {
+        avBlack.textContent = '';
+        avBlackImg.hidden = false;
+        avBlackImg.src = AGENTSAM_AVATAR_URL;
+        avBlackImg.alt = 'Agent Sam';
+        avBlack.classList.add('avatar-squircle');
+      } else {
+        if (avBlackImg) avBlackImg.hidden = true;
+        avBlack.classList.remove('avatar-squircle');
+        avBlack.textContent = youAreBlack ? initials('You') : initials(opponentLabel);
+      }
     }
   };
 
@@ -285,23 +299,6 @@ function boot() {
   document.getElementById('resign-btn')?.addEventListener('click', () => {
     if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'resign' }));
   });
-
-  const cameraBar = document.getElementById('camera-bar');
-  if (cameraBar) {
-    for (const { id, label } of CHESS_CAMERA_PRESETS) {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = `cam-btn${id === 'classic' ? ' active' : ''}`;
-      btn.textContent = label;
-      btn.dataset.preset = id;
-      btn.addEventListener('click', () => {
-        viewport.setCameraPreset(id as ChessCameraPreset);
-        cameraBar.querySelectorAll('.cam-btn').forEach((el) => el.classList.remove('active'));
-        btn.classList.add('active');
-      });
-      cameraBar.appendChild(btn);
-    }
-  }
 
   updateTurnPill();
   updateTimers();

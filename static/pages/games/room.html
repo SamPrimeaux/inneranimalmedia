@@ -39,6 +39,7 @@
       left: 0;
       right: 0;
       z-index: 10;
+      pointer-events: none;
       display: grid;
       grid-template-columns: 1fr auto 1fr;
       align-items: center;
@@ -72,8 +73,8 @@
       text-align: right;
     }
     .avatar {
-      width: 32px;
-      height: 32px;
+      width: 44px;
+      height: 44px;
       border-radius: 50%;
       display: flex;
       align-items: center;
@@ -81,6 +82,18 @@
       font-size: 0.65rem;
       font-weight: 700;
       flex-shrink: 0;
+      overflow: hidden;
+    }
+    .avatar.avatar-squircle {
+      border-radius: 22%;
+      padding: 0;
+      border-width: 2px;
+    }
+    .avatar-img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
     }
     .avatar.white {
       background: rgba(204, 255, 238, 0.12);
@@ -103,13 +116,12 @@
       min-height: 18px;
     }
     .captures svg { display: block; opacity: 0.92; }
-    .brand-mark {
-      font-family: Georgia, 'Times New Roman', serif;
-      font-size: 0.65rem;
-      font-weight: 800;
-      letter-spacing: 0.35em;
-      color: #c9a84c;
-      margin-bottom: 0.2rem;
+    .brand-logo {
+      display: block;
+      width: min(168px, 42vw);
+      height: auto;
+      margin: 0 auto 0.35rem;
+      filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.45));
     }
     .timer {
       font-family: 'JetBrains Mono', ui-monospace, monospace;
@@ -149,6 +161,7 @@
       justify-content: center;
       gap: 0.5rem;
       padding-top: 0.15rem;
+      pointer-events: auto;
     }
     .room-meta {
       font-family: 'JetBrains Mono', monospace;
@@ -173,43 +186,7 @@
       z-index: 0;
       background: radial-gradient(ellipse 85% 65% at 50% 42%, #1c1410 0%, #08080c 78%);
     }
-    #viewport { position: absolute; inset: 0; touch-action: manipulation; }
-    .camera-bar {
-      position: fixed;
-      bottom: 3.5rem;
-      left: 50%;
-      transform: translateX(-50%);
-      z-index: 10;
-      display: flex;
-      gap: 0.5rem;
-      padding: 0;
-      border-radius: 0;
-      background: transparent;
-      border: none;
-      backdrop-filter: none;
-    }
-    .cam-btn {
-      border: 1px solid rgba(201, 168, 76, 0.25);
-      background: rgba(20, 8, 3, 0.82);
-      color: #b8a882;
-      font-size: 0.65rem;
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      padding: 0.35rem 0.7rem;
-      border-radius: 0.4rem;
-      cursor: pointer;
-      transition: all 0.15s;
-    }
-    .cam-btn:hover {
-      color: #c9a84c;
-      border-color: rgba(201, 168, 76, 0.45);
-    }
-    .cam-btn.active {
-      border-color: #c9a84c;
-      color: #c9a84c;
-      background: rgba(201, 168, 76, 0.12);
-    }
+    #viewport { position: absolute; inset: 0; touch-action: manipulation; z-index: 1; }
     #loading-overlay {
       position: absolute;
       inset: 0;
@@ -217,9 +194,10 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
+      gap: 0.75rem;
       background:
-        linear-gradient(rgba(8, 8, 12, 0.88), rgba(8, 8, 12, 0.92)),
-        url('https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/1b7ecfe9-550c-4ef7-966c-9e1972e29800/hero') center / contain no-repeat;
+        linear-gradient(rgba(8, 8, 12, 0.92), rgba(8, 8, 12, 0.96)),
+        radial-gradient(ellipse 80% 60% at 50% 40%, rgba(201, 168, 76, 0.08), transparent 70%);
       z-index: 10;
       transition: opacity 0.4s;
     }
@@ -244,6 +222,7 @@
       left: 50%;
       transform: translateX(-50%);
       z-index: 10;
+      pointer-events: none;
       background: rgba(20, 8, 3, 0.85);
       border: 1px solid rgba(201, 168, 76, 0.3);
       border-radius: 999px;
@@ -278,7 +257,13 @@
     </div>
 
     <div class="center-col">
-      <div class="brand-mark">MEAUXCHESS</div>
+      <img
+        class="brand-logo"
+        src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/d23ebddd-24ad-4b40-7cd6-0fe759f1f100/medium"
+        alt="MeauxGames"
+        width="168"
+        height="48"
+      />
       <div class="turn-pill" id="turn-pill"><span class="turn-dot dot-white"></span> White to move</div>
     </div>
 
@@ -289,7 +274,17 @@
         <div class="player-sub" id="sub-black">Orange</div>
         <div class="captures" id="captures-black" aria-label="Pieces opponent captured"></div>
       </div>
-      <div class="avatar black" id="avatar-black">O</div>
+      <div class="avatar black" id="avatar-black">
+        <img
+          class="avatar-img"
+          id="avatar-black-img"
+          src=""
+          alt=""
+          width="44"
+          height="44"
+          hidden
+        />
+      </div>
     </div>
 
     <div class="header-actions">
@@ -301,8 +296,14 @@
 
   <div class="game-stage">
     <div id="viewport" aria-label="3D chess board"></div>
-    <div class="camera-bar" id="camera-bar" aria-label="Camera angle"></div>
     <div id="loading-overlay">
+      <img
+        class="brand-logo"
+        src="https://imagedelivery.net/g7wf09fCONpnidkRnR_5vw/d23ebddd-24ad-4b40-7cd6-0fe759f1f100/medium"
+        alt="MeauxGames"
+        width="168"
+        height="48"
+      />
       <p class="load-label">Loading baroque board &amp; pieces…</p>
       <div class="load-track"><div id="load-progress"></div></div>
     </div>
