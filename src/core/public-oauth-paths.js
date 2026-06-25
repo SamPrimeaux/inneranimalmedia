@@ -103,10 +103,13 @@ export const PUBLIC_OAUTH_PATHS = [
   '/manifest.webmanifest',
   '/sw.js',
   '/push-handler.js',
+  '/sw-agent-cache.js',
   '/offline.html',
   '/static/dashboard/manifest.webmanifest',
   '/static/dashboard/app/manifest.webmanifest',
   '/static/dashboard/sw.js',
+  '/static/dashboard/push-handler.js',
+  '/static/dashboard/sw-agent-cache.js',
   '/static/dashboard/app/pwa',
 ];
 

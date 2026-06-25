@@ -197,6 +197,7 @@ publish_pwa_asset() {
 }
 publish_pwa_asset "sw.js" "application/javascript;charset=UTF-8"
 publish_pwa_asset "push-handler.js" "application/javascript;charset=UTF-8"
+publish_pwa_asset "sw-agent-cache.js" "application/javascript;charset=UTF-8"
 publish_pwa_asset "manifest.webmanifest" "application/manifest+json;charset=UTF-8"
 publish_pwa_asset "offline.html" "text/html;charset=UTF-8"
 

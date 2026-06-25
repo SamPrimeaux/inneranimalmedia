@@ -7,9 +7,9 @@ import {
   ChevronDown,
   ChevronRight,
   Clapperboard,
+  MonitorCloud,
   Code2,
   FolderKanban,
-  Layers,
   MessageSquare,
   Palette,
   PanelLeft,
@@ -65,11 +65,11 @@ const HomeIcon: FC<{ size?: number }> = ({ size = 18 }) => (
 const CoreIcon: FC<{ id: string; size?: number }> = ({ id, size = 18 }) => {
   const props = { size, strokeWidth: 1, className: 'shrink-0' };
   if (id === 'home') return <HomeIcon size={size} />;
+  if (id === 'work') return <MonitorCloud {...props} />;
   if (id === 'new-chat') return <Plus {...props} />;
   if (id === 'chats') return <MessageSquare {...props} />;
   if (id === 'projects') return <FolderKanban {...props} />;
-  if (id === 'artifacts') return <Layers {...props} />;
-  return <Layers {...props} />;
+  return <MonitorCloud {...props} />;
 };
 
 export function DashboardSidebar({
@@ -174,7 +174,16 @@ export function DashboardSidebar({
               </button>
             );
           }
-          const active = isCoreRouteActive(location.pathname, item.path, item.match ?? 'exact');
+          const active =
+            item.kind === 'route' && item.id === 'work'
+              ? isCoreRouteActive(location.pathname, item.path, item.match ?? 'exact') &&
+                !location.search.includes('view=projects')
+              : item.kind === 'route' && item.id === 'projects'
+                ? location.pathname.startsWith('/dashboard/artifacts') &&
+                  location.search.includes('view=projects')
+                : item.kind === 'route'
+                  ? isCoreRouteActive(location.pathname, item.path, item.match ?? 'exact')
+                  : false;
           return (
             <button
               key={item.id}

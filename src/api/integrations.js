@@ -963,7 +963,13 @@ async function handleLegacyProviderBrowser(request, env, authUser, url, pathLowe
 
         if (view === 'shared-drives' && (!folderId || folderId === 'root')) {
             const out = await listSharedDrivesV3(auth.token);
-            if (!out.ok) return jsonResponse({ error: out.error, files: [] }, 502);
+            if (!out.ok) {
+                const status = out.status === 403 || out.status === 401 ? out.status : 502;
+                return jsonResponse(
+                    { error: out.error, files: [], needsReconnect: status === 403 },
+                    status,
+                );
+            }
             return jsonResponse({ files: out.files, apiVersion: 3 });
         }
 

@@ -1059,6 +1059,10 @@ export default {
               key: 'static/dashboard/push-handler.js',
               contentType: 'application/javascript; charset=utf-8',
             },
+            '/sw-agent-cache.js': {
+              key: 'static/dashboard/sw-agent-cache.js',
+              contentType: 'application/javascript; charset=utf-8',
+            },
             '/manifest.webmanifest': {
               key: 'static/dashboard/manifest.webmanifest',
               contentType: 'application/manifest+json; charset=utf-8',
@@ -1072,7 +1076,9 @@ export default {
               const h = new Headers({
                 'Content-Type': pwaAsset.contentType,
                 'Cache-Control':
-                  pathLower === '/sw.js' || pathLower === '/push-handler.js'
+                  pathLower === '/sw.js' ||
+                  pathLower === '/push-handler.js' ||
+                  pathLower === '/sw-agent-cache.js'
                     ? 'no-cache'
                     : 'public, max-age=3600',
               });

@@ -216,7 +216,11 @@ export function useLibraryWorkspace() {
       const rail = NAV_RAIL_MAP[navKey];
       const nextDriveView = NAV_DRIVE_VIEW[navKey];
       if (rail) {
-        setFilters((f) => ({ ...f, rail, source: rail === 'all' ? 'all' : rail }));
+        setFilters((f) => ({
+          ...f,
+          rail,
+          source: rail === 'all' || rail === 'projects' ? 'all' : rail,
+        }));
         if (rail === 'drive' && nextDriveView) {
           resetDriveNav(nextDriveView);
         } else if (rail === 'trash' || rail === 'starred') {

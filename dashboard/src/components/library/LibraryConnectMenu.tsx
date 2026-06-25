@@ -18,6 +18,8 @@ type Props = {
   onConnectLocal: () => void | Promise<void>;
   onRefreshStatus: () => Promise<DriveConnectionStatus>;
   onToast: (msg: string) => void;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 };
 
 export function LibraryConnectMenu({
@@ -28,9 +30,20 @@ export function LibraryConnectMenu({
   onConnectLocal,
   onRefreshStatus,
   onToast,
+  open: openProp,
+  onOpenChange,
 }: Props) {
   const navigate = useNavigate();
-  const [open, setOpen] = useState(false);
+  const [openInternal, setOpenInternal] = useState(false);
+  const open = openProp ?? openInternal;
+  const setOpen = useCallback(
+    (next: boolean | ((v: boolean) => boolean)) => {
+      const value = typeof next === 'function' ? next(open) : next;
+      if (onOpenChange) onOpenChange(value);
+      else setOpenInternal(value);
+    },
+    [onOpenChange, open],
+  );
   const [busy, setBusy] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
 
@@ -87,8 +100,12 @@ export function LibraryConnectMenu({
         <div className="lib-connect-menu" role="menu" onClick={(e) => e.stopPropagation()}>
           <div className="lib-connect-menu-head">
             <strong>Connections</strong>
-            <span>Per-user OAuth · Drive API v3</span>
+            <span>Sign in with Google — no GCP console setup on your end</span>
           </div>
+
+          <p className="lib-connect-help">
+            OAuth is configured platform-wide. Connect your Google account here to browse Drive in Library.
+          </p>
 
           <div className="lib-connect-section">
             <div className="lib-connect-row">

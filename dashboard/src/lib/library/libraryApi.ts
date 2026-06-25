@@ -84,13 +84,21 @@ export async function fetchDriveListing(
       credentials: 'same-origin',
       signal: opts.signal,
     });
-    if (res.status === 401 || res.status === 400) {
-      const data = await res.json().catch(() => ({}));
-      const err = typeof data.error === 'string' ? data.error : 'Google Drive not connected';
-      return { ok: false, files: [], unauthorized: true, error: err };
-    }
     if (!res.ok) {
-      return { ok: false, files: [], error: `Drive list failed (${res.status})` };
+      const data = await res.json().catch(() => ({}));
+      const err =
+        typeof data.error === 'string'
+          ? data.error
+          : `Drive list failed (${res.status})`;
+      const unauthorized = res.status === 401 || res.status === 400;
+      const needsReconnect = res.status === 403 || data.needsReconnect === true;
+      return {
+        ok: false,
+        files: [],
+        unauthorized,
+        needsReconnect,
+        error: needsReconnect ? `${err} — reconnect Drive with full access` : err,
+      };
     }
     const data = await res.json();
     const files = Array.isArray(data.files) ? (data.files as DriveApiFile[]) : [];

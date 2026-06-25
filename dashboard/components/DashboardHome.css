@@ -550,7 +550,7 @@
 
   .iam-home-shell {
     width: 100%;
-    padding: 22px 16px 130px;
+    padding: 22px 16px calc(150px + env(safe-area-inset-bottom, 0px) + var(--terminal-drawer-h, 0px));
   }
 
   .iam-home-hero {
@@ -625,11 +625,20 @@
 
   .iam-home-composer {
     position: fixed;
-    bottom: calc(12px + var(--terminal-drawer-h, 0px));
+    bottom: calc(
+      12px + 1.5rem + env(safe-area-inset-bottom, 0px) + var(--terminal-drawer-h, 0px)
+    );
     width: calc(100% - 24px);
     margin: 0 12px;
     min-height: 64px;
     border-radius: 23px;
+    z-index: 40;
+  }
+
+  .iam-composer-icon,
+  .iam-composer-send {
+    width: 44px;
+    height: 44px;
   }
 }
 
