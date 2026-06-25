@@ -99,6 +99,9 @@ export type GalleryItem = {
   pending?: boolean;
   status?: string;
   progressPct?: number;
+  cadJobId?: string;
+  externalTaskId?: string;
+  taskType?: string;
 };
 
 export type CadStudioUiState = {

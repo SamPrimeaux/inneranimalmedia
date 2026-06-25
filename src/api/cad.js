@@ -18,6 +18,12 @@ import {
 import { handleCadMeshyApi } from './cad-meshy.js';
 import { resolveModelForTask } from '../core/resolveModel.js';
 import { dispatchComplete } from '../core/provider.js';
+import { deleteMeshyTask } from '../core/meshy-api.js';
+import {
+  isMeshyAuthMissing,
+  meshyKeySourceFromJob,
+  resolveMeshyAuth,
+} from '../core/meshy-api-key.js';
 
 const OPENSCAD_BIN = '/opt/homebrew/bin/openscad';
 const CAD_SCRIPT_TASK_TYPE = 'designstudio_cad_script';
@@ -92,6 +98,69 @@ function encodeCadScriptPayload(script) {
   const raw = String(script || '');
   if (!raw) return '';
   return raw.length > 4000 ? 'b64:' + btoa(unescape(encodeURIComponent(raw))) : raw;
+}
+
+const TERMINAL_CAD_JOB_STATUSES = new Set([
+  'done',
+  'complete',
+  'completed',
+  'failed',
+  'cancelled',
+  'script_ready',
+]);
+
+/**
+ * Cancel an in-flight CAD job (Meshy task delete when applicable).
+ * @param {any} env
+ * @param {{ id: string, tenant_id?: string | null }} authUser
+ * @param {string} jobId
+ */
+async function cancelCadJobForUser(env, authUser, jobId) {
+  if (!env?.DB) throw new Error('Database not configured');
+  const id = String(jobId || '').trim();
+  if (!id) throw new Error('job_id required');
+
+  const job = await env.DB.prepare(
+    `SELECT * FROM agentsam_cad_jobs WHERE id = ? AND user_id = ? LIMIT 1`,
+  )
+    .bind(id, authUser.id)
+    .first();
+  if (!job) return { error: 'Job not found', status: 404 };
+
+  const st = String(job.status || '').toLowerCase();
+  if (TERMINAL_CAD_JOB_STATUSES.has(st)) {
+    return { ok: true, job_id: id, status: st, already_terminal: true };
+  }
+
+  if (String(job.engine || '') === 'meshy' && job.external_task_id) {
+    try {
+      const meshyAuth = await resolveMeshyAuth(
+        env,
+        { userId: authUser.id, tenant_id: authUser.tenant_id ?? null },
+        { keySource: meshyKeySourceFromJob(job) },
+      );
+      if (!isMeshyAuthMissing(meshyAuth)) {
+        const taskType = String(job.task_type || job.mode || 'text-to-3d').trim() || 'text-to-3d';
+        await deleteMeshyTask(env, taskType, String(job.external_task_id), meshyAuth);
+      }
+    } catch (e) {
+      console.warn('[cancelCadJob] meshy delete failed:', e?.message ?? e);
+    }
+  }
+
+  await env.DB.prepare(
+    `UPDATE agentsam_cad_jobs SET
+       status = 'cancelled',
+       error = COALESCE(NULLIF(trim(error), ''), 'cancelled_by_user'),
+       progress_pct = COALESCE(progress_pct, 0),
+       finished_at = unixepoch(),
+       updated_at = unixepoch()
+     WHERE id = ? AND user_id = ?`,
+  )
+    .bind(id, authUser.id)
+    .run();
+
+  return { ok: true, job_id: id, status: 'cancelled' };
 }
 
 /**
@@ -575,6 +644,34 @@ export async function handleCadApi(request, url, env, ctx) {
     }
 
     const jobOneMatch = url.pathname.match(/^\/api\/cad\/jobs\/([^/]+)$/i);
+    const jobCancelMatch = url.pathname.match(/^\/api\/cad\/jobs\/([^/]+)\/cancel$/i);
+
+    if (jobCancelMatch && (method === 'POST' || method === 'DELETE')) {
+      const reqCtx = await resolveRequestContext(request, env);
+      if (reqCtx.error) return jsonResponse({ error: 'Unauthorized' }, 401);
+      const authUser = { id: reqCtx.userId, tenant_id: reqCtx.tenantId };
+      try {
+        const out = await cancelCadJobForUser(env, authUser, jobCancelMatch[1]);
+        if (out.error) return jsonResponse({ error: out.error }, out.status || 404);
+        return jsonResponse(out);
+      } catch (e) {
+        return jsonResponse({ error: String(e?.message || e) }, 500);
+      }
+    }
+
+    if (jobOneMatch && method === 'DELETE') {
+      const reqCtx = await resolveRequestContext(request, env);
+      if (reqCtx.error) return jsonResponse({ error: 'Unauthorized' }, 401);
+      const authUser = { id: reqCtx.userId, tenant_id: reqCtx.tenantId };
+      try {
+        const out = await cancelCadJobForUser(env, authUser, jobOneMatch[1]);
+        if (out.error) return jsonResponse({ error: out.error }, out.status || 404);
+        return jsonResponse(out);
+      } catch (e) {
+        return jsonResponse({ error: String(e?.message || e) }, 500);
+      }
+    }
+
     if (jobOneMatch && method === 'GET') {
       const reqCtx = await resolveRequestContext(request, env);
       if (reqCtx.error) return jsonResponse({ error: 'Unauthorized' }, 401);

@@ -20,6 +20,7 @@ export type StudioEntryScreenProps = {
   /** Full studio bundle is loading after user chose to enter. */
   mode?: 'idle' | 'generating' | 'loading-studio';
   onSpawnStock?: (name: string, url: string, scale: number) => void;
+  onCancelJob?: (cadJobId: string) => void;
   activeProgressPct?: number;
 };
 
@@ -35,6 +36,7 @@ export function StudioEntryScreen({
   error,
   mode = 'idle',
   onSpawnStock,
+  onCancelJob,
   activeProgressPct,
 }: StudioEntryScreenProps) {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -124,6 +126,7 @@ export function StudioEntryScreen({
 
         <StudioEntryGallery
           onSpawnStock={onSpawnStock}
+          onCancelJob={onCancelJob}
           generating={generating}
           activeJobLabel={statusLabel}
           activeProgressPct={activeProgressPct ?? progressPct}

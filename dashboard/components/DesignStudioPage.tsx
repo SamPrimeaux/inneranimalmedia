@@ -893,6 +893,13 @@ export const DesignStudioPage: React.FC = () => {
     [handleImportGlbFile],
   );
 
+  const handleCancelCadJob = useCallback(
+    (cadJobId: string) => {
+      void cad.cancelActiveJob(cadJobId);
+    },
+    [cad.cancelActiveJob],
+  );
+
   const entryMode: 'idle' | 'generating' | 'loading-studio' =
     studioPhase === 'studio' && !engineReady ? 'loading-studio' : cad.isGenerating ? 'generating' : 'idle';
 
@@ -919,6 +926,7 @@ export const DesignStudioPage: React.FC = () => {
           onOpenStudio={openFullStudio}
           onImportGlb={handleEntryImportGlb}
           onSpawnStock={handleEntrySpawnStock}
+          onCancelJob={handleCancelCadJob}
           generating={cad.isGenerating}
           progressPct={cad.polledJob?.progress_pct ?? cad.polledJob?.progress ?? 0}
           activeProgressPct={cad.polledJob?.progress_pct ?? cad.polledJob?.progress ?? 0}

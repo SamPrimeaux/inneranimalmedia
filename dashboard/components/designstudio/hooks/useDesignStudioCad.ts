@@ -4,6 +4,7 @@ import {
   executeCadJob,
   fetchBlueprints,
   fetchCadJobs,
+  cancelCadJob,
   generateMeshy,
   meshyRigging,
   meshyRetexture,
@@ -580,6 +581,27 @@ export function useDesignStudioCad(opts: UseDesignStudioCadOpts = {}) {
     [handleJobDone],
   );
 
+  const cancelActiveJob = useCallback(
+    async (jobId?: string) => {
+      const id = jobId || activeJobId;
+      if (!id) return null;
+      setError(null);
+      try {
+        const result = await cancelCadJob(id);
+        setJobs((prev) =>
+          prev.map((j) => (j.id === id ? { ...j, status: 'cancelled' } : j)),
+        );
+        if (activeJobId === id) setActiveJobId(null);
+        await refreshJobs();
+        return result;
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+        throw e;
+      }
+    },
+    [activeJobId, refreshJobs],
+  );
+
   useEffect(() => () => sseRef.current?.close(), []);
 
   return {
@@ -614,5 +636,6 @@ export function useDesignStudioCad(opts: UseDesignStudioCadOpts = {}) {
     runMeshyPreview,
     runMeshyRefine,
     subscribeRunEvents,
+    cancelActiveJob,
   };
 }

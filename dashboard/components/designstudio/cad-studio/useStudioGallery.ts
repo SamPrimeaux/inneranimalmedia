@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { normalizeGlbUrl } from '../../../lib/glbAssets';
+import { cancelCadJob, deleteMeshyCadTask } from '../api';
 import type { GalleryItem } from './cadStudioTypes';
 
 type AssetRow = {
@@ -53,6 +54,7 @@ function isTerminalJobStatus(status?: string | null): boolean {
 
 function isActiveJobStatus(status?: string | null): boolean {
   const st = String(status || '').toLowerCase();
+  if (st === 'cancelled' || st === 'failed' || st === 'canceled') return false;
   return st === 'pending' || st === 'queued' || st === 'running' || st === 'processing' || st === 'in_progress';
 }
 
@@ -118,10 +120,12 @@ export function useStudioGallery() {
         for (const row of rows as JobRow[]) {
           const url = normalizeGlbUrl(normalizeUrl(row.public_url || row.result_url));
           const st = String(row.status || '').toLowerCase();
+          if (st === 'cancelled' || st === 'canceled') continue;
           const terminal = isTerminalJobStatus(st);
           if (!url && !isActiveJobStatus(st)) continue;
           merged.push({
             id: `job_${row.id}`,
+            cadJobId: row.id,
             name: row.prompt?.slice(0, 48) || `${row.engine || 'CAD'} export`,
             url: url || '',
             thumbnail: row.thumbnail_url,
@@ -143,10 +147,14 @@ export function useStudioGallery() {
         for (const row of rows as MeshyTaskRow[]) {
           const url = normalizeGlbUrl(normalizeUrl(row.public_url || row.model_urls?.glb));
           const st = String(row.status || '').toLowerCase();
+          if (st === 'cancelled' || st === 'canceled') continue;
           const terminal = isTerminalJobStatus(st);
           if (!url && !isActiveJobStatus(st)) continue;
+          const taskId = String(row.task_id || row.id || '').trim();
           merged.push({
-            id: `meshy_${row.task_id || row.id || url || st}`,
+            id: `meshy_${taskId || url || st}`,
+            externalTaskId: taskId || undefined,
+            taskType: 'text-to-3d',
             name: row.prompt?.slice(0, 48) || 'Meshy task',
             url: url || '',
             thumbnail: meshyThumbnail(row),
@@ -174,6 +182,18 @@ export function useStudioGallery() {
     }
   }, []);
 
+  const dismissPending = useCallback(async (item: GalleryItem) => {
+    if (item.cadJobId) {
+      await cancelCadJob(item.cadJobId);
+    } else if (item.externalTaskId) {
+      await deleteMeshyCadTask(item.externalTaskId, item.taskType || 'text-to-3d');
+    } else {
+      return;
+    }
+    setItems((prev) => prev.filter((i) => i.id !== item.id));
+    void refresh();
+  }, [refresh]);
+
   useEffect(() => {
     void refresh();
   }, [refresh]);
@@ -197,5 +217,6 @@ export function useStudioGallery() {
     sourceFilter,
     setSourceFilter,
     refresh,
+    dismissPending,
   };
 }

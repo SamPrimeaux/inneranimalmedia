@@ -488,6 +488,37 @@
 
 .cad-assets__card:hover { border-color: var(--cs-blue); }
 
+.cad-assets__card-wrap {
+  position: relative;
+}
+
+.cad-assets__cancel {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(15, 17, 20, 0.9);
+  color: #f87171;
+  cursor: pointer;
+}
+
+.cad-assets__cancel:hover:not(:disabled) {
+  background: rgba(127, 29, 29, 0.95);
+  color: #fff;
+}
+
+.cad-assets__cancel:disabled {
+  opacity: 0.45;
+  cursor: wait;
+}
+
 .cad-assets__thumb {
   aspect-ratio: 1;
   background: #111;
@@ -3335,6 +3366,43 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
   gap: 0.5rem;
+}
+
+.studio-entry__gallery-card-wrap {
+  position: relative;
+}
+
+.studio-entry__gallery-card-wrap--pending .studio-entry__gallery-card {
+  padding-right: 0;
+}
+
+.studio-entry__gallery-cancel {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(15, 17, 20, 0.85);
+  color: #f87171;
+  cursor: pointer;
+  opacity: 0.85;
+}
+
+.studio-entry__gallery-cancel:hover:not(:disabled) {
+  opacity: 1;
+  background: rgba(127, 29, 29, 0.9);
+  color: #fff;
+}
+
+.studio-entry__gallery-cancel:disabled {
+  opacity: 0.4;
+  cursor: wait;
 }
 
 .studio-entry__gallery-card {

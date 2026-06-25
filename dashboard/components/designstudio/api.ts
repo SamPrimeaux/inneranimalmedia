@@ -95,6 +95,18 @@ export async function fetchCadJob(jobId: string): Promise<CadJobRow> {
   return data.job;
 }
 
+export async function cancelCadJob(jobId: string): Promise<{ ok: boolean; job_id: string; status: string }> {
+  return jsonFetch(`/api/cad/jobs/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' });
+}
+
+export async function deleteMeshyCadTask(
+  taskId: string,
+  taskType = 'text-to-3d',
+): Promise<{ ok: boolean; task_id: string }> {
+  const q = taskType ? `?type=${encodeURIComponent(taskType)}` : '';
+  return jsonFetch(`/api/cad/meshy/task/${encodeURIComponent(taskId)}${q}`, { method: 'DELETE' });
+}
+
 export async function generateOpenScad(body: {
   prompt: string;
   session_id?: string;

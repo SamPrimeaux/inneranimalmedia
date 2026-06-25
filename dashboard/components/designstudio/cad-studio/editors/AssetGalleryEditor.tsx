@@ -3,7 +3,7 @@ import { useStudioGallery } from '../useStudioGallery';
 import type { GalleryItem } from '../cadStudioTypes';
 import { GlbAssetThumb } from './GlbAssetThumb';
 import {
-  LayoutGrid, Box, FileStack, Zap, Funnel, SquareMousePointer, Upload, RefreshCw,
+  LayoutGrid, Box, FileStack, Zap, Funnel, SquareMousePointer, Upload, RefreshCw, X,
 } from 'lucide-react';
 
 export type AssetGalleryEditorProps = {
@@ -27,6 +27,7 @@ export function AssetGalleryEditor({ onSpawn, onUpload, variant = 'panel' }: Ass
   const fileRef = useRef<HTMLInputElement>(null);
   const [multiSelect, setMultiSelect] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
 
   const toggleItem = (id: string) => {
     setSelected(prev => {
@@ -142,36 +143,56 @@ export function AssetGalleryEditor({ onSpawn, onUpload, variant = 'panel' }: Ass
             const isSelected = selected.has(item.id);
             const spawnable = !item.pending && item.url;
             return (
-              <button
+              <div
                 key={item.id}
-                type="button"
-                className={`cad-assets__card${isSelected ? ' selected' : ''}${item.pending ? ' cad-assets__card--pending' : ''}`}
-                onClick={() => {
-                  if (!spawnable) return;
-                  if (multiSelect) toggleItem(item.id);
-                  else onSpawn(item);
-                }}
-                disabled={!spawnable && !multiSelect}
-                title={item.name}
+                className={`cad-assets__card-wrap${item.pending ? ' cad-assets__card-wrap--pending' : ''}`}
               >
-                {multiSelect && spawnable && (
-                  <span className={`cad-assets__check${isSelected ? ' checked' : ''}`} aria-hidden />
-                )}
-                <div className="cad-assets__thumb">
-                  <GlbAssetThumb url={item.url} thumbnail={item.thumbnail} alt={item.name} />
-                  {item.pending ? (
-                    <span className="cad-assets__pending-overlay" aria-hidden>
-                      {item.progressPct != null && item.progressPct > 0
-                        ? `${Math.min(100, item.progressPct)}%`
-                        : item.status || '…'}
-                    </span>
-                  ) : null}
-                </div>
-                <div className="cad-assets__meta">
-                  <span className="cad-assets__name">{item.name}</span>
-                  <span className="cad-assets__source">{item.source}</span>
-                </div>
-              </button>
+                <button
+                  type="button"
+                  className={`cad-assets__card${isSelected ? ' selected' : ''}${item.pending ? ' cad-assets__card--pending' : ''}`}
+                  onClick={() => {
+                    if (!spawnable) return;
+                    if (multiSelect) toggleItem(item.id);
+                    else onSpawn(item);
+                  }}
+                  disabled={!spawnable && !multiSelect}
+                  title={item.name}
+                >
+                  {multiSelect && spawnable && (
+                    <span className={`cad-assets__check${isSelected ? ' checked' : ''}`} aria-hidden />
+                  )}
+                  <div className="cad-assets__thumb">
+                    <GlbAssetThumb url={item.url} thumbnail={item.thumbnail} alt={item.name} />
+                    {item.pending ? (
+                      <span className="cad-assets__pending-overlay" aria-hidden>
+                        {item.progressPct != null && item.progressPct > 0
+                          ? `${Math.min(100, item.progressPct)}%`
+                          : item.status || '…'}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="cad-assets__meta">
+                    <span className="cad-assets__name">{item.name}</span>
+                    <span className="cad-assets__source">{item.source}</span>
+                  </div>
+                </button>
+                {item.pending && (item.cadJobId || item.externalTaskId) ? (
+                  <button
+                    type="button"
+                    className="cad-assets__cancel"
+                    aria-label={`Cancel ${item.name}`}
+                    title="Cancel job"
+                    disabled={cancellingId === item.id}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setCancellingId(item.id);
+                      void gallery.dismissPending(item).finally(() => setCancellingId(null));
+                    }}
+                  >
+                    <X size={12} />
+                  </button>
+                ) : null}
+              </div>
             );
           })}
         </div>
