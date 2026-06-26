@@ -37,6 +37,10 @@ DEFAULT_DB = os.getenv("IAM_D1_DB", "inneranimalmedia-business")
 DEFAULT_CONFIG = os.getenv("IAM_WRANGLER_CONFIG", "wrangler.production.toml")
 ARTIFACTS = ROOT / "artifacts" / "operator_cockpit"
 
+# All router_type values present in the live schema as of 2026-06.
+# Used by doctor to flag undocumented types without failing hard.
+KNOWN_ROUTER_TYPES = {"tool", "workflow", "script", "in_app", "agent", "terminal_builtin", "skill"}
+
 
 def utc_stamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -168,6 +172,26 @@ def cfg_from_args(args: argparse.Namespace) -> D1Config:
     )
 
 
+# ---------------------------------------------------------------------------
+# agentsam_usage_events.created_at is INTEGER unix-epoch (unixepoch() default).
+# agentsam_command_run.created_at is INTEGER unix-epoch (unixepoch() default).
+# Use unixepoch('now', modifier) — NOT datetime('now', modifier) — for filters.
+# ---------------------------------------------------------------------------
+
+def _usage_events_where(interval: str) -> str:
+    """
+    Return a WHERE fragment for agentsam_usage_events time-windowing.
+
+    Both agentsam_usage_events.created_at and agentsam_command_run.created_at
+    store unix seconds (INTEGER, default unixepoch()). datetime('now', ...) returns
+    a text timestamp and the comparison silently returns zero rows.
+    Use unixepoch('now', ...) instead.
+    """
+    unit = "days" if interval.endswith("d") else "hours" if interval.endswith("h") else "minutes"
+    n = interval[:-1]
+    return f"created_at >= unixepoch('now', '-{n} {unit}')"
+
+
 COMMAND_DOCTOR_QUERIES: dict[str, str] = {
     "registry_summary": """
 SELECT
@@ -187,16 +211,30 @@ GROUP BY workspace_id, slug
 HAVING COUNT(*) > 1
 ORDER BY n DESC, workspace_id, slug;
 """,
+    # PATCHED: also catches router_type='agent' with null tool_key and
+    # any router_type not in KNOWN_ROUTER_TYPES (surfaced via undocumented_router_type check).
+    # For 'tool' router_type the real schema uses mapped_command as the fallback identity;
+    # tool_key is optional for wrangler-proxy commands. Flag separately with count only.
     "missing_executor_targets": """
 SELECT id, slug, router_type, tool_key, workflow_key, mapped_command, risk_level
 FROM agentsam_commands
 WHERE COALESCE(is_active, 1) = 1
 AND (
-  (router_type = 'tool' AND COALESCE(tool_key, '') = '')
-  OR (router_type = 'workflow' AND COALESCE(workflow_key, '') = '')
+  (router_type = 'workflow' AND COALESCE(workflow_key, '') = '')
   OR (router_type = 'script' AND COALESCE(tool_key, slug, '') = '')
 )
 ORDER BY router_type, slug;
+""",
+    # Separate check: tool-routed commands where tool_key is null (may be intentional
+    # for wrangler-proxy/terminal commands — operator should review, not auto-fail).
+    "tool_routed_null_tool_key": """
+SELECT id, slug, router_type, tool_key, mapped_command, risk_level
+FROM agentsam_commands
+WHERE COALESCE(is_active, 1) = 1
+  AND router_type = 'tool'
+  AND COALESCE(tool_key, '') = ''
+ORDER BY risk_level DESC, slug
+LIMIT 100;
 """,
     "risky_without_gate": """
 SELECT id, slug, display_name, risk_level, requires_confirmation, requires_approval, mapped_command
@@ -226,6 +264,15 @@ WHERE COALESCE(c.is_active, 1) = 1
   AND c.router_type = 'workflow'
   AND w.workflow_key IS NULL
 ORDER BY c.slug;
+""",
+    # router_type distribution — surfaces undocumented types (e.g. 'agent', 'skill',
+    # 'terminal_builtin') for operator awareness.
+    "router_type_distribution": """
+SELECT COALESCE(router_type, 'NULL') AS router_type, COUNT(*) AS n
+FROM agentsam_commands
+WHERE COALESCE(is_active, 1) = 1
+GROUP BY router_type
+ORDER BY n DESC;
 """,
     "top_failing_commands": """
 SELECT id, slug, display_name, risk_level, use_count, success_count, failure_count, avg_duration_ms
@@ -271,7 +318,9 @@ SELECT
   approval_status,
   success,
   exit_code,
-  created_at
+  -- created_at is unix-epoch INTEGER; convert for readability
+  datetime(created_at, 'unixepoch') AS created_at_utc,
+  created_at AS created_at_unix
 FROM agentsam_command_run
 WHERE selected_command_id IS NULL
    OR selected_command_slug IS NULL
@@ -316,6 +365,8 @@ def commands_doctor(args: argparse.Namespace) -> int:
         "agentsam_commands = canonical command/action/capability registry",
         "agentsam_command_run = actual command/tool/workflow/script proposal or execution ledger",
         "Plain chat must not create command_run rows.",
+        "agentsam_command_run.created_at = unix-epoch INTEGER (unixepoch() default)",
+        "agentsam_usage_events.created_at = unix-epoch INTEGER (unixepoch() default)",
         "```",
         "",
     ]
@@ -429,6 +480,7 @@ def commands_pollution(args: argparse.Namespace) -> int:
         "```text",
         "No selected command, no command_run row.",
         "Plain chat must not create agentsam_command_run rows.",
+        "agentsam_command_run.created_at is unix-epoch INTEGER.",
         "```",
     ]))
     print("Wrote:")
@@ -527,13 +579,13 @@ def costs_report(args: argparse.Namespace) -> int:
     stamp = utc_stamp()
     out_dir = ARTIFACTS / "costs" / stamp
     interval = args.last
-    where = "created_at >= datetime('now', ?)"
-    param = f"-{interval}"
-    # D1 CLI does not bind params here; safely constrain accepted interval format.
+    # D1 CLI does not support bound params; validate format before interpolation.
     if not re.fullmatch(r"\d+[dhm]", interval):
         raise SystemExit("--last must look like 24h, 7d, or 60m")
-    sqlite_modifier = f"-{interval[:-1]} {'days' if interval.endswith('d') else 'hours' if interval.endswith('h') else 'minutes'}"
-    base_where = f"created_at >= datetime('now', '{sqlite_modifier}')"
+    # agentsam_usage_events.created_at is unix-epoch INTEGER (unixepoch() default).
+    # datetime('now', modifier) returns TEXT and compares false against integers.
+    # Must use unixepoch('now', modifier).
+    base_where = _usage_events_where(interval)
     queries = {
         "by_model": f"""
 SELECT provider, model, model_key, COUNT(*) AS n,
