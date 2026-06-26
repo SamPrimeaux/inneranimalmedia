@@ -215,7 +215,7 @@ Terminal Execution Rules:
 - Always confirm which terminal profile is active before running commands.
 - For repo operations (npm, git, wrangler): use iMac terminal.
 - For PTY/tunnel operations (pm2, execos, ecosystem.config.cjs): use iam-tunnel terminal.
-- iam-tunnel privileged ops: only sudo /usr/local/sbin/iam-ops-* wrappers (systemctl cloudflared, apt install/remove, cloudflared fix-unit). Raw sudo is blocked.
+- iam-tunnel privileged ops: only sudo /usr/local/sbin/iam-ops-* wrappers (systemctl cloudflared, apt install/remove, cloudflared fix-unit). Raw sudo is blocked unless the target has a row in D1 agentsam_privileged_targets (Mac/local targets stay locked by default).
 - Never cd into /Users/samprimeaux/inneranimalmedia from iam-tunnel — it does not exist there.
 - PTY auth token starts with cec612d6. Worker secret TERMINAL_SECRET must match PTY_AUTH_TOKEN.
 - Always read command output fully before declaring success.

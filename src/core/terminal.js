@@ -14,6 +14,11 @@ import { resolvePtyTenantIdForUser, buildPtySessionWorkingDir } from './pty-work
 import { notifySam } from './notifications';
 import { resolveUserPtyToken, USER_PTY_TOKEN_SENTINEL } from './user-secrets.js';
 import { selectHealthyTerminalConnection } from './terminal-connection-health.js';
+import {
+  checkSudoPermission,
+  formatTerminalExec403,
+  resolvePrivilegedTargetLookupId,
+} from './agentsam-privileged-targets.js';
 
 /**
  * Deterministic SHA-256 for `terminal_sessions.auth_token_hash` (never store raw session secrets in D1).
@@ -1235,10 +1240,70 @@ async function writeTerminalHistory(env, request, sessionId, commandText, output
 }
 
 /**
+ * Resolve terminal_connections.id for sudo policy lookup.
+ * @param {any} env
+ * @param {Request|null} request
+ * @param {object|null} executionCtx
+ * @returns {Promise<string|null>}
+ */
+export async function resolveTerminalExecTargetId(env, request, executionCtx = null) {
+  const ctx = executionCtx || {};
+  const explicit =
+    ctx.target_id != null && String(ctx.target_id).trim() !== ''
+      ? String(ctx.target_id).trim()
+      : ctx.ssh_target_id != null && String(ctx.ssh_target_id).trim() !== ''
+        ? String(ctx.ssh_target_id).trim()
+        : null;
+  if (explicit) return explicit;
+  if (!env?.DB || !request) return null;
+  try {
+    const authUser = await getAuthUser(request, env);
+    if (!authUser?.id) return null;
+    const tw = await resolveTerminalWorkspaceId(env, request, ctx.workspace_id);
+    if (tw.error || !tw.workspaceId) return null;
+    const userId = String(authUser.id).trim();
+    const workspaceId = String(tw.workspaceId).trim();
+    let tenantId = await resolvePtyTenantIdForUser(env, authUser, userId);
+    tenantId = tenantId != null ? String(tenantId).trim() : '';
+    const sel = await getSelectedTerminalConnection(env.DB, {
+      userId,
+      workspaceId,
+      tenantId: tenantId || null,
+      connectionId: null,
+      targetType: ctx.target_type || null,
+      healthAware: true,
+    });
+    return sel?.connection?.id ? String(sel.connection.id).trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * @param {any} env
+ * @param {string|null} targetId
+ * @param {string} command
+ * @returns {Promise<{ blocked: false } | { blocked: true, payload: object }>}
+ */
+export async function assertTerminalSudoAllowed(env, targetId, command) {
+  const lookupId = await resolvePrivilegedTargetLookupId(env?.DB, targetId);
+  const check = await checkSudoPermission(env, lookupId || targetId, command);
+  if (check.allowed) return { blocked: false };
+  return { blocked: true, payload: formatTerminalExec403(check) };
+}
+
+/**
  * Primary Execution Orchestrator.
  */
 export async function runTerminalCommand(env, request, command, sessionId = null, executionCtx = null) {
   const cmd = typeof command === 'string' ? command.trim() : '';
+  const execTargetId = await resolveTerminalExecTargetId(env, request, executionCtx || {});
+  const sudoGate = await assertTerminalSudoAllowed(env, execTargetId, cmd);
+  if (sudoGate.blocked) {
+    const msg = sudoGate.payload?.detail?.stderr || 'IAM Security: blocked';
+    throw new Error(msg);
+  }
+
   const mode = String(executionCtx?.execution_mode || 'pty').toLowerCase();
   const controlTry = await runTerminalCommandViaControlPlane(env, request, cmd, mode, executionCtx || {});
   if (controlTry.ok) {

@@ -24,6 +24,11 @@ import {
   mintSessionToken,
   sha256HexUtf8,
 } from "../core/terminal.js";
+import {
+  checkSudoPermission,
+  formatTerminalExec403,
+  resolvePrivilegedTargetLookupId,
+} from "../core/agentsam-privileged-targets.js";
 
 // ACTIVE PATH: AGENT_SESSION DO terminal coordination for /api/agent/terminal/ws.
 const TERMINAL_WS_TAG = "terminal";
@@ -760,6 +765,31 @@ export class AgentChatSqlV1 extends DurableObject {
     }
 
     const command = String(body?.command || "").trim();
+
+    if (command) {
+      let effectiveTargetId =
+        targetId ||
+        String(this.requestedConnectionId || "").trim() ||
+        String(this.selectedTerminalConnection?.id || "").trim() ||
+        null;
+      if (!effectiveTargetId && this.env?.DB) {
+        try {
+          const sel = await getSelectedTerminalConnection(this.env.DB, {
+            userId: String(this.ptSessionUserId || "").trim(),
+            workspaceId,
+            tenantId: String(this.ptSessionTenantId || "").trim() || null,
+            connectionId: targetId,
+            healthAware: true,
+          });
+          effectiveTargetId = sel?.connection?.id ? String(sel.connection.id).trim() : null;
+        } catch (_) {}
+      }
+      const lookupId = await resolvePrivilegedTargetLookupId(this.env?.DB, effectiveTargetId);
+      const sudoCheck = await checkSudoPermission(this.env, lookupId || effectiveTargetId, command);
+      if (!sudoCheck.allowed) {
+        return Response.json(formatTerminalExec403(sudoCheck), { status: 403 });
+      }
+    }
 
     try {
       let result;
