@@ -44,7 +44,6 @@ import {
   IAM_OPEN_COMMAND_PALETTE,
   IAM_GIT_SYNC_PUBLISH,
   IAM_OPEN_GIT_REPO_MENU,
-  IAM_OPEN_CONNECTION_MENU,
   IAM_TERMINAL_CONNECT,
   IAM_TERMINAL_SETUP_WIZARD,
   IAM_TERMINAL_CONFIGURE,
@@ -52,7 +51,7 @@ import {
   type OpenCommandPaletteDetail,
 } from './src/lib/openCommandPalette';
 import { GitRepoBranchMenuPanel } from './components/GitRepoBranchDropdown';
-import { ConnectionMenuPanel, type ConnectionMenuAction } from './components/ConnectionMenuPanel';
+import { type ConnectionMenuAction } from './components/ConnectionMenuPanel';
 import { createPortal } from 'react-dom';
 import { WorkspaceLauncher } from './components/WorkspaceLauncher';
 import type { XTermShellHandle, ShellTab } from './components/XTermShell';
@@ -102,7 +101,7 @@ import {
   type AgentWorkspaceContextPacket,
   type DevServerState,
 } from './src/ideWorkspace';
-import { parseCmsRoute } from './pages/cms/cmsRoute';
+import { isCmsEditorFullscreenRoute, parseCmsRoute } from './pages/cms/cmsRoute';
 import { useCmsWorkspaceContext } from './hooks/useCmsWorkspaceContext';
 import { useEditor } from './src/EditorContext';
 import { useWorkspace } from './src/context/WorkspaceContext';
@@ -463,6 +462,10 @@ const App: React.FC = () => {
     if (!isCmsRoute) return null;
     return parseCmsRoute(location.pathname, new URLSearchParams(location.search));
   }, [isCmsRoute, location.pathname, location.search]);
+  const isCmsFullscreen = isCmsEditorFullscreenRoute(
+    location.pathname,
+    new URLSearchParams(location.search),
+  );
 
   const { context: cmsWorkspaceContext } = useCmsWorkspaceContext({
     workspaceId: authWorkspaceId,
@@ -662,7 +665,6 @@ const App: React.FC = () => {
   const [searchInitialFacets, setSearchInitialFacets] = useState<string[]>([]);
   const [searchInitialQuery, setSearchInitialQuery] = useState('');
   const [gitRepoMenuOpen, setGitRepoMenuOpen] = useState(false);
-  const [connectionMenuOpen, setConnectionMenuOpen] = useState(false);
   const onUnifiedSearchOpenChange = useCallback((next: boolean) => {
     setSearchOpen(next);
     if (!next) {
@@ -682,15 +684,6 @@ const App: React.FC = () => {
     };
     window.addEventListener(IAM_OPEN_COMMAND_PALETTE, onPalette as EventListener);
     return () => window.removeEventListener(IAM_OPEN_COMMAND_PALETTE, onPalette as EventListener);
-  }, []);
-
-  useEffect(() => {
-    const onConnectionMenu = () => {
-      setGitRepoMenuOpen(false);
-      setConnectionMenuOpen(true);
-    };
-    window.addEventListener(IAM_OPEN_CONNECTION_MENU, onConnectionMenu);
-    return () => window.removeEventListener(IAM_OPEN_CONNECTION_MENU, onConnectionMenu);
   }, []);
 
   const handleConnectionMenuAction = useCallback(
@@ -733,6 +726,7 @@ const App: React.FC = () => {
     },
     [navigate],
   );
+
   /** Desktop: Draw / Search / History (Addendum A). */
   const [topChromeMoreOpen, setTopChromeMoreOpen] = useState(false);
   const topChromeMoreRef = useRef<HTMLDivElement>(null);
@@ -749,7 +743,6 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const onGitRepoMenu = () => {
-      setConnectionMenuOpen(false);
       if (isNarrowViewport) setGitRepoMenuOpen(true);
     };
     window.addEventListener(IAM_OPEN_GIT_REPO_MENU, onGitRepoMenu);
@@ -3698,15 +3691,16 @@ const App: React.FC = () => {
   return (
     <DesignStudioProvider>
     <div className="w-full h-[100dvh] bg-[var(--dashboard-canvas)] overflow-hidden text-[var(--dashboard-text)] font-sans flex flex-col">
-      <OfflineReconnectBanner />
-      <PwaUpdateBanner />
-      <InstallCoach />
+      {!isCmsFullscreen ? <OfflineReconnectBanner /> : null}
+      {!isCmsFullscreen ? <PwaUpdateBanner /> : null}
+      {!isCmsFullscreen ? <InstallCoach /> : null}
       <div
         className="iam-agent-browser-live-vignette"
         data-active={agentBrowserPresenceActive ? 'true' : 'false'}
         aria-hidden="true"
       />
-      {/* 1. TOP WINDOW BAR + mobile hamburger (sticky ≤430px) */}
+      {/* 1. TOP WINDOW BAR + mobile hamburger (sticky ≤430px) — hidden in fullscreen CMS editor */}
+      {!isCmsFullscreen ? (
       <header className="shrink-0 z-[110] max-phone:sticky max-phone:top-0 bg-[var(--dashboard-topbar)] text-[var(--dashboard-topbar-text)] [&_.text-\\[var\\(--text-muted\\)\\]]:text-[var(--text-nav-muted,var(--dashboard-muted))] [&_.text-\\[var\\(--text-main\\)\\]]:text-[var(--dashboard-topbar-text)]">
       <div className="h-10 border-b border-[var(--dashboard-border)] flex items-center justify-between px-3 overflow-visible relative">
           <div className="flex items-center gap-1 pl-1 shrink-0 min-w-0">
@@ -3749,6 +3743,7 @@ const App: React.FC = () => {
                 initialFacets={searchInitialFacets}
                 initialQuery={searchInitialQuery}
                 onInitialQueryConsumed={() => setSearchInitialQuery('')}
+                onConnectionMenuAction={handleConnectionMenuAction}
               />
           </div>
 
@@ -3777,6 +3772,7 @@ const App: React.FC = () => {
                   initialFacets={searchInitialFacets}
                   initialQuery={searchInitialQuery}
                   onInitialQueryConsumed={() => setSearchInitialQuery('')}
+                  onConnectionMenuAction={handleConnectionMenuAction}
                 />
               </div>
 
@@ -3867,8 +3863,10 @@ const App: React.FC = () => {
           </div>
       </div>
       </header>
+      ) : null}
 
       {/* MobileNavDrawer — hamburger button moved into topbar left cluster */}
+      {!isCmsFullscreen ? (
       <MobileNavShell
         open={mobileNavOpen}
         onToggle={() => setMobileNavOpen((v) => !v)}
@@ -3889,8 +3887,9 @@ const App: React.FC = () => {
         }
         workspaceSubtitle={gitBranch?.trim() ? gitBranch.trim() : undefined}
       />
+      ) : null}
 
-      {securityShieldAlert && !securityBannerDismissed && (
+      {securityShieldAlert && !securityBannerDismissed && !isCmsFullscreen && (
         <SecurityShieldBanner
           message={securityShieldAlert.message}
           detailsUrl={securityShieldAlert.details_url}
@@ -3900,9 +3899,10 @@ const App: React.FC = () => {
         />
       )}
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className={`flex flex-1 overflow-hidden ${isCmsFullscreen ? 'min-h-0 h-full' : ''}`}>
           {/* 2. ACTIVITY BAR (Extreme Left) — hidden ≤430px; use bottom tab bar + More */}
           {/* Activity bar: icon rail (width toggled via ☰ — localStorage iam_sidebar_expanded) */}
+          {!isCmsFullscreen ? (
           <div
             className="hidden tablet-up:flex flex-col h-full min-h-0 py-3 gap-1 px-1 bg-[var(--dashboard-sidebar)] text-[var(--dashboard-sidebar-text,var(--dashboard-text))] border-r border-[var(--dashboard-border)] shrink-0 z-50 overflow-x-hidden overflow-y-auto transition-[width] duration-200 ease-in-out [&_.text-\\[var\\(--text-muted\\)\\]]:text-[var(--dashboard-sidebar-muted,var(--dashboard-muted))] [&_.text-\\[var\\(--text-main\\)\\]]:text-[var(--dashboard-sidebar-text,var(--dashboard-text))]"
             style={{ width: sidebarRailExpanded ? 200 : 48 }}
@@ -3922,9 +3922,10 @@ const App: React.FC = () => {
                 workspaceSubtitle={gitBranch?.trim() ? gitBranch.trim() : undefined}
               />
           </div>
+          ) : null}
 
           {/* Optional Left Agent Panel */}
-          {agentPosition === 'left' && (
+          {!isCmsFullscreen && agentPosition === 'left' && (
               <>
                 <div 
                     className={`bg-[var(--dashboard-panel)] flex flex-col shrink-0 transition-opacity relative group z-30 opacity-100 max-phone:fixed max-phone:inset-0 max-phone:z-[45] max-phone:w-full max-phone:max-w-none max-phone:shrink ${
@@ -4142,7 +4143,7 @@ const App: React.FC = () => {
 
           {/* 4. MAIN EDITOR AREA */}
           <main 
-              className={`flex-1 flex flex-col min-w-0 min-h-0 bg-[var(--dashboard-canvas)] relative max-phone:overflow-x-hidden ${narrowBlocksCenter ? 'max-phone:hidden' : ''}`}
+              className={`flex-1 flex flex-col min-w-0 min-h-0 bg-[var(--dashboard-canvas)] relative max-phone:overflow-x-hidden ${narrowBlocksCenter && !isCmsFullscreen ? 'max-phone:hidden' : ''} ${isCmsFullscreen ? 'fixed inset-0 z-[120] w-full h-full max-w-none' : ''}`}
               onDrop={handleMainFileDrop}
               onDragOver={handleMainDragOver}
           >
@@ -4693,7 +4694,7 @@ const App: React.FC = () => {
           </div>
 
           {/* 6. Optional Right Agent Panel */}
-          {agentPosition === 'right' && (
+          {!isCmsFullscreen && agentPosition === 'right' && (
               <>
                 {/* Agent Grab Bar */}
                 <div
@@ -4895,45 +4896,34 @@ const App: React.FC = () => {
       ) : null}
 
       {typeof document !== 'undefined' &&
-        ((gitRepoMenuOpen && isNarrowViewport) || connectionMenuOpen) &&
+        gitRepoMenuOpen &&
+        isNarrowViewport &&
         createPortal(
           <>
             <div
               className="fixed inset-0 z-[198]"
               aria-hidden
-              onMouseDown={() => {
-                setGitRepoMenuOpen(false);
-                setConnectionMenuOpen(false);
-              }}
+              onMouseDown={() => setGitRepoMenuOpen(false)}
             />
             <div className="fixed z-[199] left-1/2 -translate-x-1/2 top-12 w-[min(320px,calc(100vw-24px))]">
-              {gitRepoMenuOpen && isNarrowViewport ? (
-                <GitRepoBranchMenuPanel
-                  open={gitRepoMenuOpen}
-                  onClose={() => setGitRepoMenuOpen(false)}
-                  variant="floating"
-                  activeWorkspaceId={authWorkspaceId}
-                  currentBranch={gitBranch}
-                  workspaceRepoHint={activeWorkspaceRow?.github_repo ?? null}
-                  onBranchSelect={handleStatusBarBranchSelect}
-                  onOpenCommandPalette={openCommandPalette}
-                  onGitBranchClick={() => {
-                    setActiveActivity('git');
-                    if (!isAgentShellPath(location.pathname)) navigate(AGENT_HOME_PATH);
-                  }}
-                  onWorkspacePickerClick={() => {
-                    setGitRepoMenuOpen(false);
-                    setWorkspaceLauncherOpen(true);
-                  }}
-                />
-              ) : (
-                <ConnectionMenuPanel
-                  open={connectionMenuOpen}
-                  onClose={() => setConnectionMenuOpen(false)}
-                  variant="floating"
-                  onAction={handleConnectionMenuAction}
-                />
-              )}
+              <GitRepoBranchMenuPanel
+                open={gitRepoMenuOpen}
+                onClose={() => setGitRepoMenuOpen(false)}
+                variant="floating"
+                activeWorkspaceId={authWorkspaceId}
+                currentBranch={gitBranch}
+                workspaceRepoHint={activeWorkspaceRow?.github_repo ?? null}
+                onBranchSelect={handleStatusBarBranchSelect}
+                onOpenCommandPalette={openCommandPalette}
+                onGitBranchClick={() => {
+                  setActiveActivity('git');
+                  if (!isAgentShellPath(location.pathname)) navigate(AGENT_HOME_PATH);
+                }}
+                onWorkspacePickerClick={() => {
+                  setGitRepoMenuOpen(false);
+                  setWorkspaceLauncherOpen(true);
+                }}
+              />
             </div>
           </>,
           document.body,
