@@ -1,14 +1,14 @@
 import React from 'react';
 
-/** Uniform shell dropdown width — repo/branch and connection menus share this. */
-export const SHELL_DROPDOWN_WIDTH_PX = 320;
-export const SHELL_DROPDOWN_MAX_HEIGHT = 'min(380px, 55vh)';
+/** Uniform shell dropdown width — repo/branch, connection, and search menus share this. */
+export const SHELL_DROPDOWN_WIDTH_PX = 380;
+export const SHELL_DROPDOWN_MAX_HEIGHT = 'min(420px, 60vh)';
 
 type ShellDropdownPanelProps = {
   title?: React.ReactNode;
   children: React.ReactNode;
   footer?: React.ReactNode;
-  /** `floating` = App portal; `anchored` = absolute under trigger */
+  /** `floating` = App portal; `anchored` = absolute under trigger, flush, no gap */
   variant?: 'floating' | 'anchored';
   className?: string;
   role?: string;
@@ -24,30 +24,43 @@ export function ShellDropdownPanel({
   role = 'dialog',
   'aria-label': ariaLabel,
 }: ShellDropdownPanelProps) {
-  const position =
-    variant === 'anchored'
-      ? 'absolute top-full left-0 mt-1 z-[70]'
-      : '';
+  const position = variant === 'anchored' ? 'absolute top-full left-0 z-[70]' : '';
 
   return (
     <div
       role={role}
       aria-label={ariaLabel}
-      className={`iam-shell-dropdown flex flex-col overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-elevated)] shadow-xl ${position} ${className}`}
+      className={`iam-shell-dropdown flex flex-col overflow-hidden rounded-xl shadow-2xl ${position} ${className}`}
       style={{
         width: SHELL_DROPDOWN_WIDTH_PX,
         maxWidth: '92vw',
         maxHeight: SHELL_DROPDOWN_MAX_HEIGHT,
+        // Flush attach: zero offset from trigger, panel reads as one continuous surface.
+        marginTop: variant === 'anchored' ? 0 : undefined,
+        // Frosted glass: translucent dark fill + blur, not an opaque card.
+        background: 'rgba(12, 19, 26, 0.82)',
+        backdropFilter: 'blur(16px) saturate(140%)',
+        WebkitBackdropFilter: 'blur(16px) saturate(140%)',
+        border: '1px solid rgba(255, 255, 255, 0.08)',
       }}
     >
       {title != null ? (
-        <div className="iam-shell-dropdown__header shrink-0 border-b border-[var(--border-subtle)] px-3 py-2 text-[0.6875rem] font-semibold text-[var(--text-main)] truncate font-[var(--font-sans)]">
+        <div
+          className="iam-shell-dropdown__header shrink-0 px-3.5 py-2.5 text-[0.75rem] font-semibold text-[var(--text-main)] truncate font-[var(--font-sans)]"
+          style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}
+        >
           {title}
         </div>
       ) : null}
       <div className="iam-shell-dropdown__body flex flex-col flex-1 min-h-0 overflow-hidden">{children}</div>
       {footer != null ? (
-        <div className="iam-shell-dropdown__footer shrink-0 border-t border-[var(--border-subtle)] bg-[var(--bg-app)]/40">
+        <div
+          className="iam-shell-dropdown__footer shrink-0"
+          style={{
+            borderTop: '1px solid rgba(255,255,255,0.06)',
+            background: 'rgba(0,0,0,0.18)',
+          }}
+        >
           {footer}
         </div>
       ) : null}
@@ -56,36 +69,57 @@ export function ShellDropdownPanel({
 }
 
 type ShellDropdownRowProps = {
+  /** Optional leading icon node (file-type glyph, branch icon, etc). */
+  icon?: React.ReactNode;
   label: string;
+  /** Secondary line under the label — path, commit message, etc. */
   hint?: string;
+  /** Right-aligned muted meta text — "recently opened", "3 months ago", etc. */
+  meta?: string;
   badge?: string;
+  active?: boolean;
   onClick?: () => void;
   disabled?: boolean;
 };
 
-export function ShellDropdownRow({ label, hint, badge, onClick, disabled }: ShellDropdownRowProps) {
+export function ShellDropdownRow({
+  icon,
+  label,
+  hint,
+  meta,
+  badge,
+  active = false,
+  onClick,
+  disabled,
+}: ShellDropdownRowProps) {
   return (
     <button
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className="iam-shell-dropdown__row w-full text-left px-3 py-2 hover:bg-[var(--bg-hover)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors border-b border-[var(--border-subtle)]/30 last:border-b-0"
+      className={`iam-shell-dropdown__row w-full text-left px-3.5 py-2 flex items-center gap-2.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+        active ? 'bg-[#2d5a7a]/90' : 'hover:bg-white/[0.06]'
+      }`}
     >
-      <span className="flex items-start justify-between gap-2">
-        <span className="min-w-0">
-          <span className="block text-[0.6875rem] text-[var(--text-main)] font-[var(--font-sans)]">{label}</span>
+      {icon ? <span className="shrink-0 w-4 h-4 flex items-center justify-center text-[11px]">{icon}</span> : null}
+      <span className="min-w-0 flex-1">
+        <span className="flex items-baseline gap-2">
+          <span className="text-[0.75rem] text-[var(--text-main)] font-medium truncate font-[var(--font-sans)]">
+            {label}
+          </span>
           {hint ? (
-            <span className="block text-[10px] text-[var(--text-muted)] truncate mt-0.5 font-[var(--font-sans)]">
-              {hint}
-            </span>
+            <span className="text-[10.5px] text-[var(--text-muted)] truncate font-[var(--font-sans)]">{hint}</span>
           ) : null}
         </span>
-        {badge ? (
-          <span className="shrink-0 text-[0.5625rem] font-semibold text-[var(--text-muted)] uppercase tracking-wide">
-            {badge}
-          </span>
-        ) : null}
       </span>
+      {meta ? (
+        <span className="shrink-0 text-[10.5px] text-[var(--text-muted)] font-[var(--font-sans)]">{meta}</span>
+      ) : null}
+      {badge ? (
+        <span className="shrink-0 text-[0.5625rem] font-semibold text-[var(--text-muted)] uppercase tracking-wide">
+          {badge}
+        </span>
+      ) : null}
     </button>
   );
 }
@@ -103,9 +137,27 @@ export function ShellDropdownLinkRow({
     <a
       href={href}
       onClick={() => onNavigate?.()}
-      className="iam-shell-dropdown__row block w-full text-left px-3 py-2 text-[0.6875rem] text-[var(--solar-cyan)] hover:bg-[var(--bg-hover)] font-[var(--font-sans)]"
+      className="iam-shell-dropdown__row block w-full text-left px-3.5 py-2 text-[0.75rem] text-[var(--solar-cyan)] hover:bg-white/[0.06] font-[var(--font-sans)]"
     >
       {label}
     </a>
+  );
+}
+
+/** Thin section divider — barely-visible hairline, matches the reference UI's command/result split. */
+export function ShellDropdownDivider() {
+  return <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }} />;
+}
+
+/** Keyboard-hint footer strip — "↑↓ to navigate · ↵ to select" */
+export function ShellDropdownKeyHint() {
+  return (
+    <div
+      className="px-3.5 py-1.5 text-[10px] text-[var(--text-muted)] flex items-center gap-3 font-[var(--font-sans)]"
+      style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}
+    >
+      <span>↑↓ to navigate</span>
+      <span>↵ to select</span>
+    </div>
   );
 }

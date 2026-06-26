@@ -1345,11 +1345,17 @@ export const UnifiedSearchBar: React.FC<{
 
       {open && (
           <div
-            className="nav-dropdown rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] shadow-2xl overflow-hidden flex flex-col max-h-[min(70vh,520px)]"
+            className="nav-dropdown iam-shell-dropdown rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[min(70vh,520px)]"
             role="dialog"
             aria-label="Command palette"
+            style={{
+              background: 'rgba(12, 19, 26, 0.82)',
+              backdropFilter: 'blur(16px) saturate(140%)',
+              WebkitBackdropFilter: 'blur(16px) saturate(140%)',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+            }}
           >
-            <div className="px-3 py-2.5 border-b border-[var(--border-subtle)] space-y-2">
+            <div className="px-3.5 py-2.5 space-y-2" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
               <div className="flex items-center gap-2">
                 <Search size={16} className="text-[var(--text-muted)] shrink-0" />
                 <input
@@ -1396,7 +1402,7 @@ export const UnifiedSearchBar: React.FC<{
               {displaySections.map((section) => (
                 <div key={section.key}>
                   {section.label ? (
-                    <div className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+                    <div className="px-3.5 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)] font-[var(--font-sans)]">
                       {section.label}
                     </div>
                   ) : null}
@@ -1412,8 +1418,8 @@ export const UnifiedSearchBar: React.FC<{
                         type="button"
                         onClick={() => applyItem(item, q.trim())}
                         onMouseEnter={() => setActive(i)}
-                        className={`w-full text-left px-3 py-2 border-b border-[var(--border-subtle)]/50 transition-colors flex items-center gap-2.5 group ${
-                          selected ? 'bg-[var(--bg-hover)]' : 'hover:bg-[var(--bg-hover)]/70'
+                        className={`w-full text-left px-3.5 py-2 transition-colors flex items-center gap-2.5 group ${
+                          selected ? 'bg-[#2d5a7a]/90' : 'hover:bg-white/[0.06]'
                         }`}
                       >
                         {item.category === 'file' ? (
@@ -1462,8 +1468,11 @@ export const UnifiedSearchBar: React.FC<{
               ))}
             </div>
 
-            <div className="px-3 py-2 border-t border-[var(--border-subtle)] flex items-center gap-3 text-[10px] text-[var(--text-muted)]">
-              <span>↑ ↓ to navigate</span>
+            <div
+              className="px-3.5 py-1.5 text-[10px] text-[var(--text-muted)] flex items-center gap-3 font-[var(--font-sans)]"
+              style={{ borderTop: '1px solid rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.18)' }}
+            >
+              <span>↑↓ to navigate</span>
               <span>↵ to select</span>
             </div>
           </div>

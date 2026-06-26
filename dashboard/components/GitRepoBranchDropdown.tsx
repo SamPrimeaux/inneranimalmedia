@@ -2,7 +2,12 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { GitBranch, ChevronDown } from 'lucide-react';
 import type { OpenCommandPaletteDetail } from '../src/lib/openCommandPalette';
 import { useWorkspace } from '../src/context/WorkspaceContext';
-import { ShellDropdownPanel } from './ShellDropdownPanel';
+import {
+  ShellDropdownPanel,
+  ShellDropdownRow,
+  ShellDropdownDivider,
+  ShellDropdownKeyHint,
+} from './ShellDropdownPanel';
 import './StatusBar.css';
 
 export type GitBranchRow = {
@@ -243,38 +248,36 @@ export function GitRepoBranchMenuPanel({
         </>
       }
     >
-      <div className="px-3 py-2 border-b border-[var(--border-subtle)] shrink-0 space-y-1">
-        <button
-          type="button"
-          className="w-full text-left text-[0.6875rem] text-[var(--text-main)] hover:text-[var(--solar-cyan)] font-[var(--font-sans)]"
+      <div className="shrink-0">
+        <ShellDropdownRow
+          icon={<span className="text-[var(--solar-cyan)]">+</span>}
+          label="Create new branch…"
           onClick={() => {
             onClose();
             openPalette({ chip: 'commands', query: 'branch', facets: ['commands'] });
           }}
-        >
-          Create new branch…
-        </button>
-        <button
-          type="button"
-          className="w-full text-left text-[0.6875rem] text-[var(--text-main)] hover:text-[var(--solar-cyan)] font-[var(--font-sans)]"
+        />
+        <ShellDropdownRow
+          icon={<span className="text-[var(--solar-cyan)]">⇪</span>}
+          label="Deploy from command palette…"
           onClick={() => {
             onClose();
             openPalette({ chip: 'commands', query: 'deploy', facets: ['deploy'] });
           }}
-        >
-          Deploy from command palette…
-        </button>
+        />
       </div>
-      <div className="px-3 py-2 border-b border-[var(--border-subtle)] shrink-0">
+      <ShellDropdownDivider />
+      <div className="px-3.5 py-2 shrink-0">
         <input
           type="text"
           value={branchMenuFilter}
           onChange={(e) => setBranchMenuFilter(e.target.value)}
           placeholder="Filter branches…"
-          className="w-full bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded px-2 py-1 text-[0.6875rem] text-[var(--text-main)] outline-none focus:border-[var(--solar-cyan)]/50 font-[var(--font-sans)]"
+          className="w-full bg-transparent text-[0.75rem] text-[var(--text-main)] placeholder:text-[var(--text-muted)] outline-none font-[var(--font-sans)]"
           autoFocus
         />
       </div>
+      <ShellDropdownKeyHint />
       <div className="py-1 overflow-y-auto flex-1 min-h-0">
         {branchLoading && (
           <div className="flex items-center justify-center px-3 py-6 text-[var(--text-muted)]">
@@ -351,51 +354,29 @@ export function GitRepoBranchMenuPanel({
             const isCurrent =
               branchData != null && b.ref === (branchData.current || currentBranch);
             const shortSha = b.sha ? String(b.sha).slice(0, 7) : '';
+            const metaParts = [shortSha, b.date_relative].filter(Boolean);
             return (
-              <button
+              <ShellDropdownRow
                 key={b.ref}
-                type="button"
+                active={isCurrent}
+                icon={
+                  isCurrent ? (
+                    <svg width="9" height="9" viewBox="0 0 9 9" aria-hidden className="text-[var(--solar-cyan)]">
+                      <circle cx="4.5" cy="4.5" r="3.5" fill="currentColor" />
+                    </svg>
+                  ) : (
+                    <span className="block w-2.5 h-2.5 rounded-full border border-[var(--border-subtle)]" />
+                  )
+                }
+                label={b.ref}
+                hint={b.subject || undefined}
+                meta={metaParts.join(' · ') || undefined}
+                badge={b.protected ? 'protected' : undefined}
                 onClick={() => {
                   onBranchSelect?.(b.ref);
                   onClose();
                 }}
-                className={`w-full text-left px-3 py-1.5 text-[0.6875rem] hover:bg-[var(--bg-hover)] flex items-start gap-2 font-[var(--font-sans)] border-b border-[var(--border-subtle)]/30 last:border-b-0 ${
-                  isCurrent ? 'bg-[var(--bg-hover)]/60' : ''
-                }`}
-              >
-                {isCurrent ? (
-                  <svg
-                    width="11"
-                    height="11"
-                    viewBox="0 0 11 11"
-                    aria-hidden
-                    className="shrink-0 text-[var(--solar-cyan)] mt-0.5"
-                  >
-                    <circle cx="5.5" cy="5.5" r="4" fill="currentColor" />
-                  </svg>
-                ) : (
-                  <span className="w-[11px] shrink-0 inline-block mt-0.5" />
-                )}
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-2">
-                    <span className="font-medium truncate text-[var(--text-main)]">{b.ref}</span>
-                    {shortSha ? (
-                      <span className="font-[var(--font-sans)] text-[10px] text-[var(--text-muted)] shrink-0">
-                        {shortSha}
-                      </span>
-                    ) : null}
-                    {b.protected ? (
-                      <span className="iam-branch-protected text-[9px] shrink-0">protected</span>
-                    ) : null}
-                  </span>
-                  {b.subject ? (
-                    <span className="block text-[10px] text-[var(--text-muted)] truncate mt-0.5">
-                      {b.subject}
-                      {b.date_relative ? ` · ${b.date_relative}` : ''}
-                    </span>
-                  ) : null}
-                </span>
-              </button>
+              />
             );
           })}
       </div>
