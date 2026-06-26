@@ -2,20 +2,30 @@
 <html lang="en" data-theme="">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
 <title>AgentSam CMS · Inner Animal Media</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
   :root{
-    --bg:#0a0c0f;--bg1:#10141a;--bg2:#161c24;--bg3:#1d2530;
-    --border:rgba(255,255,255,0.07);--border-hi:rgba(255,255,255,0.13);
-    --text:#e2e8f0;--muted:#64748b;--faint:#374151;
-    --blue:#3b82f6;--blue-d:#1d4ed8;--green:#22c55e;--orange:#f97316;--red:#ef4444;
+    --bg:#F9F7F2;--bg1:#faf8f4;--bg2:#fff;--bg3:#f5f2eb;
+    --border:rgba(43,39,31,.1);--border-hi:rgba(43,39,31,.16);
+    --text:#1a1a1a;--muted:#64748b;--faint:#94a3b8;
+    --blue:#3b82f6;--blue-d:#1d4ed8;--green:#0d9488;--orange:#f97316;--red:#ef4444;
     font-size:13px;
   }
-  html,body,#app{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:Inter,system-ui,sans-serif}
+  html,body,#app{
+    height:100%;
+    height:100dvh;
+    height:-webkit-fill-available;
+    overflow:hidden;
+    background:var(--bg);
+    color:var(--text);
+    font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    -webkit-tap-highlight-color:transparent;
+  }
   html.theme-editor-light,html.theme-editor-light body,html.theme-editor-light #app{background:#F9F7F2;color:#1a1a1a}
   .agentsam-cms-loading{display:flex;align-items:center;justify-content:center;height:100%;color:#786f62;font-size:13px;gap:10px}
   .agentsam-cms-loading::before{content:'';width:16px;height:16px;border:2px solid #e8e4dc;border-top-color:#1e6a6f;border-radius:50%;animation:agentsam-spin .7s linear infinite}

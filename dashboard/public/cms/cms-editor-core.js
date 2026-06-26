@@ -67,12 +67,21 @@ function pageToUrl(page, boot = null) {
     ctx.publicDomain ||
     STOREFRONT_APEX[ctx.project] ||
     STOREFRONT_APEX[boot?.project_slug];
+  let base;
   if (domain) {
     const host = String(domain).replace(/^https?:\/\//, '').replace(/\/$/, '');
-    return `https://${host}${path}`;
+    base = `https://${host}${path}`;
+  } else {
+    const project = ctx.project || boot?.project_slug || 'inneranimalmedia';
+    base = `https://${project}.meauxbility.workers.dev${path}`;
   }
-  const project = ctx.project || boot?.project_slug || 'inneranimalmedia';
-  return `https://${project}.meauxbility.workers.dev${path}`;
+  try {
+    const url = new URL(base);
+    url.searchParams.set('cms', '1');
+    return url.toString();
+  } catch {
+    return `${base}${base.includes('?') ? '&' : '?'}cms=1`;
+  }
 }
 
 function postParent(type, detail = {}) {
@@ -130,7 +139,8 @@ function useDrag(list, onDrop) {
 ══════════════════════════════════════════════════════════════ */
 const STYLES = `
 *{box-sizing:border-box;margin:0;padding:0}
-html,body,#app{height:100%;overflow:hidden;background:#0d1117;color:#e2e8f0;font-family:Inter,-apple-system,sans-serif;font-size:13px}
+  html,body,#app{height:100%;overflow:hidden;background:#F9F7F2;color:#1a1a1a;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+  html,body,#app{height:100dvh;height:-webkit-fill-available}
 button,input,select,textarea{font:inherit;color:inherit}
 
 /* ── SHELL ── */
@@ -344,66 +354,126 @@ button,input,select,textarea{font:inherit;color:inherit}
 `;
 
 const THEME_STUDIO_STYLES = `
-html,body,#app{background:#F9F7F2;color:#1a1a1a}
-.shell.theme-studio{display:grid;grid-template-columns:280px 1fr 340px;grid-template-rows:52px 1fr;height:100vh;font-family:Inter,-apple-system,sans-serif;font-size:13px;color:#1a1a1a}
+html,body,#app{background:#F9F7F2;color:#1a1a1a;height:100dvh;height:-webkit-fill-available}
+.shell.theme-studio{
+  display:grid;
+  grid-template-columns:minmax(240px,280px) minmax(0,1fr) minmax(280px,340px);
+  grid-template-rows:auto minmax(0,1fr);
+  height:100dvh;
+  height:-webkit-fill-available;
+  max-height:100dvh;
+  overflow:hidden;
+  font-family:Inter,-apple-system,BlinkMacSystemFont,sans-serif;
+  font-size:13px;
+  color:#1a1a1a;
+  background:#F9F7F2;
+}
 .shell.theme-studio .icon-rail{display:none}
-.shell.theme-studio .sidebar{grid-column:1;grid-row:2;background:#fff;border-right:1px solid #e8e4dc}
-.shell.theme-studio .canvas{grid-column:2;grid-row:2;background:#F9F7F2}
-.shell.theme-studio .rpanel{grid-column:3;grid-row:2;background:#fff;border-left:1px solid #e8e4dc}
-.shell.theme-studio .topbar{grid-column:1/-1;height:64px;background:rgba(251,248,241,.96);border-bottom:1px solid rgba(43,39,31,.12);padding:0 18px;gap:18px;backdrop-filter:blur(18px);box-shadow:0 1px 0 rgba(255,255,255,.72) inset}
-.ts-brand{display:flex;align-items:center;gap:10px;min-width:0;flex-shrink:0}
-.ts-logo{width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#0d9488,#115e59);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;letter-spacing:-.04em}
-.ts-brand-name{font-size:14px;font-weight:700;color:#111;white-space:nowrap}
-.ts-nav-icons{display:flex;align-items:center;gap:4px;margin-left:4px}
-.ts-icon-btn{width:32px;height:32px;border:none;background:transparent;border-radius:8px;color:#64748b;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .12s,color .12s}
-.ts-icon-btn:hover{background:#f1ede6;color:#334155}
-.ts-icon-btn svg{width:16px;height:16px}
-.ts-page-select{height:34px;min-width:180px;border:1px solid #e8e4dc;border-radius:8px;background:#fff;color:#111;padding:0 32px 0 12px;font-size:13px;font-weight:600;cursor:pointer;outline:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center}
+.shell.theme-studio .sidebar{grid-column:1;grid-row:2;background:#fff;border-right:1px solid #e8e4dc;min-width:0;min-height:0}
+.shell.theme-studio .canvas{grid-column:2;grid-row:2;background:#F9F7F2;min-width:0;min-height:0}
+.shell.theme-studio .rpanel{grid-column:3;grid-row:2;background:#fff;border-left:1px solid #e8e4dc;min-width:0;min-height:0}
+.shell.theme-studio .topbar{
+  grid-column:1/-1;
+  min-height:52px;
+  display:flex;
+  align-items:center;
+  background:rgba(251,248,241,.98);
+  border-bottom:1px solid rgba(43,39,31,.1);
+  padding:8px 14px;
+  gap:10px;
+  backdrop-filter:blur(18px);
+  -webkit-backdrop-filter:blur(18px);
+  box-shadow:0 1px 0 rgba(255,255,255,.72) inset;
+  flex-wrap:nowrap;
+}
+.ts-brand{display:flex;align-items:center;gap:8px;min-width:0;flex-shrink:0;max-width:38vw}
+.ts-logo{width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#0d9488,#115e59);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;letter-spacing:-.04em;flex-shrink:0}
+.ts-brand-name{font-size:14px;font-weight:700;color:#111;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ts-nav-icons{display:flex;align-items:center;gap:2px;margin-left:2px;flex-shrink:0}
+.ts-icon-btn{width:36px;height:36px;min-width:36px;min-height:36px;border:none;background:transparent;border-radius:10px;color:#64748b;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .12s,color .12s}
+.ts-icon-btn:hover,.ts-icon-btn:active{background:#f1ede6;color:#334155}
+.ts-icon-btn svg{width:18px;height:18px}
+.ts-page-select{height:36px;min-width:180px;border:1px solid #e8e4dc;border-radius:10px;background:#fff;color:#111;padding:0 32px 0 12px;font-size:13px;font-weight:600;cursor:pointer;outline:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center}
 .ts-page-select:focus{border-color:#0d9488;box-shadow:0 0 0 3px rgba(13,148,136,.12)}
-.ts-topbar-center{flex:1;display:flex;align-items:center;justify-content:center;min-width:0}
-.ts-topbar-right{display:flex;align-items:center;gap:8px;margin-left:auto;flex-shrink:0}
-.shell.theme-studio .vp-group{background:#f5f2eb;border:1px solid #e8e4dc;border-radius:8px}
-.shell.theme-studio .vp-btn{color:#64748b;padding:6px 12px;font-size:12px}
+.ts-page-picker{position:relative;min-width:0;width:100%;max-width:min(420px,100%)}
+.ts-page-picker-btn{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;height:40px;border:1px solid #e8e4dc;border-radius:12px;background:#fff;color:#111;padding:0 14px;font-size:13px;font-weight:600;cursor:pointer;outline:none;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+.ts-page-picker-btn:hover,.ts-page-picker-btn:active{border-color:#d6d0c4;background:#faf8f4}
+.ts-page-picker-btn svg{width:14px;height:14px;color:#64748b;flex-shrink:0}
+.ts-page-picker-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left}
+.ts-page-picker-menu{position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);width:min(360px,calc(100vw - 24px));max-height:min(420px,58dvh);background:#fff;border:1px solid #e8e4dc;border-radius:14px;box-shadow:0 16px 40px rgba(0,0,0,.12);z-index:300;display:flex;flex-direction:column;overflow:hidden}
+.ts-page-picker-search{height:42px;border:none;border-bottom:1px solid #f0ebe3;padding:0 14px;font-size:16px;outline:none;background:#faf8f4;border-radius:0}
+.ts-page-picker-search:focus{background:#fff}
+.ts-page-picker-list{overflow-y:auto;padding:6px;-webkit-overflow-scrolling:touch}
+.ts-page-picker-item{display:flex;align-items:flex-start;gap:8px;width:100%;border:none;background:transparent;text-align:left;padding:12px;border-radius:10px;cursor:pointer;color:#111;min-height:44px}
+.ts-page-picker-item:hover,.ts-page-picker-item:active{background:#faf8f4}
+.ts-page-picker-item.active{background:#eff6ff}
+.ts-page-check{width:18px;height:18px;color:#2563eb;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
+.ts-page-check svg{width:14px;height:14px}
+.ts-page-picker-item-text{display:flex;flex-direction:column;gap:2px;min-width:0}
+.ts-page-picker-item-title{font-size:14px;font-weight:600;line-height:1.3}
+.ts-page-picker-item-path{font-size:11px;color:#64748b}
+.ts-page-picker-empty{padding:14px 12px;color:#94a3b8;font-size:12px}
+.ts-topbar-center{flex:1;display:flex;align-items:center;justify-content:center;min-width:0;padding:0 4px}
+.ts-topbar-right{display:flex;align-items:center;gap:6px;margin-left:auto;flex-shrink:0}
+.ts-topbar-actions-compact{display:none;align-items:center;gap:4px}
+.shell.theme-studio .vp-group{background:#f5f2eb;border:1px solid #e8e4dc;border-radius:10px;flex-shrink:0}
+.shell.theme-studio .vp-btn{color:#64748b;padding:8px 12px;font-size:12px;min-width:44px;min-height:36px}
 .shell.theme-studio .vp-btn.active{background:#fff;color:#111;box-shadow:0 1px 2px rgba(0,0,0,.06)}
-.shell.theme-studio .btn{height:34px;background:#fff;border:1px solid #e8e4dc;color:#334155;border-radius:8px;font-weight:600}
-.shell.theme-studio .btn:hover{background:#faf8f4}
+.shell.theme-studio .btn{height:36px;min-height:36px;padding:0 14px;background:#fff;border:1px solid #e8e4dc;color:#334155;border-radius:10px;font-weight:600;font-size:12px}
+.shell.theme-studio .btn:hover,.shell.theme-studio .btn:active{background:#faf8f4}
 .shell.theme-studio .btn.pub,.shell.theme-studio .btn-save{background:#0d9488;border-color:#0d9488;color:#fff}
-.shell.theme-studio .btn.pub:hover,.shell.theme-studio .btn-save:hover{background:#0f766e}
+.shell.theme-studio .btn.pub:hover,.shell.theme-studio .btn.pub:active,.shell.theme-studio .btn-save:hover{background:#0f766e}
 .ts-sections-head{display:flex;align-items:center;justify-content:space-between;padding:14px 14px 10px;border-bottom:1px solid #f0ebe3;flex-shrink:0}
 .ts-sections-title{font-size:13px;font-weight:700;color:#111}
 .ts-sections-actions{display:flex;gap:4px}
 .ts-search-wrap{padding:10px 12px 6px;flex-shrink:0}
-.ts-search{width:100%;height:34px;border:1px solid #e8e4dc;border-radius:8px;background:#faf8f4;padding:0 10px 0 32px;font-size:12px;color:#111;outline:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='M21 21l-4.35-4.35'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:10px center}
+.ts-search{width:100%;height:40px;border:1px solid #e8e4dc;border-radius:10px;background:#faf8f4;padding:0 10px 0 32px;font-size:16px;color:#111;outline:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='M21 21l-4.35-4.35'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:10px center}
 .ts-search:focus{border-color:#0d9488;background-color:#fff}
-.shell.theme-studio .sec-list{padding:6px 8px 12px}
-.shell.theme-studio .sec-row{border-left:none;border-radius:10px;padding:8px 10px;margin-bottom:2px;border:1px solid transparent}
-.shell.theme-studio .sec-row:hover{background:#faf8f4}
+.shell.theme-studio .sec-list{padding:6px 8px 12px;-webkit-overflow-scrolling:touch}
+.shell.theme-studio .sec-row{border-left:none;border-radius:10px;padding:10px;margin-bottom:2px;border:1px solid transparent;min-height:44px}
+.shell.theme-studio .sec-row:hover,.shell.theme-studio .sec-row:active{background:#faf8f4}
 .shell.theme-studio .sec-row.active{background:#eff6ff;border-color:#3b82f6;box-shadow:0 0 0 1px rgba(59,130,246,.15)}
 .shell.theme-studio .sec-row.active .sec-name{color:#1e40af;font-weight:600}
 .shell.theme-studio .sec-name{color:#111;font-size:13px}
 .shell.theme-studio .sec-type{color:#64748b;font-size:11px}
 .shell.theme-studio .drag-grip{color:#cbd5e1}
 .shell.theme-studio .sec-icon{background:#f5f2eb;border:1px solid #ebe6de}
-.shell.theme-studio .eye-btn{color:#94a3b8}
-.shell.theme-studio .add-sec-btn{margin:4px 12px 12px;border-color:#d6d0c4;color:#64748b;background:#faf8f4;border-radius:10px}
+.shell.theme-studio .eye-btn{color:#94a3b8;min-width:36px;min-height:36px}
+.shell.theme-studio .add-sec-btn{margin:4px 12px 12px;border-color:#d6d0c4;color:#64748b;background:#faf8f4;border-radius:10px;min-height:44px}
 .shell.theme-studio .add-sec-btn:hover{border-color:#0d9488;color:#0d9488;background:#f0fdfa}
 .ts-sections-hint{padding:0 14px 12px;font-size:11px;color:#94a3b8}
 .shell.theme-studio .canvas-bar{display:none}
-.shell.theme-studio .canvas-stage{padding:24px;background:#F9F7F2;align-items:flex-start}
-.shell.theme-studio .frame-shell{border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,.08),0 1px 3px rgba(0,0,0,.04);border:1px solid #e8e4dc;height:calc(100vh - 52px - 48px)!important;max-height:none}
+.shell.theme-studio .canvas-stage{padding:12px;background:#F9F7F2;align-items:stretch;justify-content:center;height:100%;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column;flex:1}
+.shell.theme-studio .frame-shell{
+  border-radius:12px;
+  box-shadow:0 4px 24px rgba(0,0,0,.08),0 1px 3px rgba(0,0,0,.04);
+  border:1px solid #e8e4dc;
+  width:100%;
+  max-width:100%;
+  height:100%;
+  min-height:240px;
+  flex:1 1 auto;
+  position:relative;
+  overflow:hidden;
+  background:#fff;
+}
+.shell.theme-studio.vp-desktop .frame-shell{max-width:100%}
+.shell.theme-studio.vp-tablet .frame-shell{max-width:768px;margin:0 auto}
+.shell.theme-studio.vp-mobile .frame-shell{max-width:390px;margin:0 auto}
 .shell.theme-studio .frame-highlight{border:2px solid #3b82f6;border-radius:12px;opacity:0}
 .shell.theme-studio .frame-highlight.show{opacity:1}
+.site-iframe{width:100%;height:100%;min-height:200px;border:none;display:block;background:#fff}
 .ts-frame-label{position:absolute;top:-1px;left:12px;transform:translateY(-50%);background:#3b82f6;color:#fff;font-size:11px;font-weight:700;padding:3px 10px;border-radius:6px;z-index:12;pointer-events:none}
 .ts-frame-actions{position:absolute;top:12px;right:12px;display:flex;gap:6px;z-index:12}
-.ts-frame-act{width:32px;height:32px;border-radius:8px;border:1px solid #e8e4dc;background:#fff;color:#475569;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,.08)}
-.ts-frame-act:hover{background:#f8fafc;color:#111}
+.ts-frame-act{width:36px;height:36px;border-radius:10px;border:1px solid #e8e4dc;background:#fff;color:#475569;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,.08)}
+.ts-frame-act:hover,.ts-frame-act:active{background:#f8fafc;color:#111}
 .ts-frame-act.danger{color:#dc2626;border-color:#fecaca}
-.shell.theme-studio .rp-tabs{border-bottom:1px solid #f0ebe3;background:#fff}
-.shell.theme-studio .rp-tab{color:#64748b;font-size:12px;font-weight:600;text-transform:none;letter-spacing:0;padding:12px 8px}
+.shell.theme-studio .rp-tabs{border-bottom:1px solid #f0ebe3;background:#fff;flex-shrink:0}
+.shell.theme-studio .rp-tab{color:#64748b;font-size:12px;font-weight:600;text-transform:none;letter-spacing:0;padding:12px 8px;min-height:44px}
 .shell.theme-studio .rp-tab.active{color:#111;border-bottom-color:#0d9488}
-.shell.theme-studio .rp-body{padding:16px}
+.shell.theme-studio .rp-body{padding:16px;-webkit-overflow-scrolling:touch}
 .shell.theme-studio .field-label{color:#64748b;font-size:11px;font-weight:600;text-transform:none;letter-spacing:0;margin-bottom:6px}
-.shell.theme-studio .field input,.shell.theme-studio .field textarea,.shell.theme-studio .field select{background:#fff;border:1px solid #e8e4dc;border-radius:8px;color:#111;padding:9px 11px}
+.shell.theme-studio .field input,.shell.theme-studio .field textarea,.shell.theme-studio .field select{background:#fff;border:1px solid #e8e4dc;border-radius:10px;color:#111;padding:10px 12px;font-size:16px}
 .shell.theme-studio .field input:focus,.shell.theme-studio .field textarea:focus{border-color:#0d9488;box-shadow:0 0 0 3px rgba(13,148,136,.1)}
 .shell.theme-studio .sec-meta-head{border-bottom-color:#f0ebe3;padding-bottom:14px;margin-bottom:16px}
 .shell.theme-studio .sec-meta-name{font-size:15px;font-weight:700;color:#111}
@@ -417,23 +487,119 @@ html,body,#app{background:#F9F7F2;color:#1a1a1a}
 .ts-field-row .field{flex:1;margin-bottom:14px}
 .ts-color-swatch{width:36px;height:36px;border-radius:8px;border:1px solid #e8e4dc;cursor:pointer;flex-shrink:0;padding:0;background:#fff;overflow:hidden}
 .ts-color-swatch input{width:150%;height:150%;border:none;padding:0;margin:-25%;cursor:pointer}
-.ts-richbar{display:flex;align-items:center;gap:4px;padding:6px 8px;border:1px solid #e8e4dc;border-bottom:none;border-radius:8px 8px 0 0;background:#faf8f4}
-.ts-richbtn{width:28px;height:28px;border:none;background:transparent;border-radius:6px;color:#64748b;cursor:pointer;font-size:12px;font-weight:700}
+.ts-richbar{display:flex;align-items:center;gap:4px;padding:6px 8px;border:1px solid #e8e4dc;border-bottom:none;border-radius:10px 10px 0 0;background:#faf8f4}
+.ts-richbtn{width:32px;height:32px;border:none;background:transparent;border-radius:8px;color:#64748b;cursor:pointer;font-size:12px;font-weight:700}
 .ts-richbtn:hover{background:#f1ede6;color:#111}
-.ts-richarea{border-radius:0 0 8px 8px;border-top:none;min-height:88px;width:100%;background:#fff;border:1px solid #e8e4dc;color:#111;padding:9px 11px;resize:vertical;outline:none;line-height:1.45}
+.ts-richarea{border-radius:0 0 10px 10px;border-top:none;min-height:88px;width:100%;background:#fff;border:1px solid #e8e4dc;color:#111;padding:10px 12px;font-size:16px;resize:vertical;outline:none;line-height:1.45}
 .ts-richarea:focus{border-color:#0d9488;box-shadow:0 0 0 3px rgba(13,148,136,.1)}
 .ts-layout-block{margin-top:8px;padding-top:16px;border-top:1px solid #f0ebe3}
 .ts-layout-label{font-size:12px;font-weight:700;color:#111;margin-bottom:10px}
 .ts-align-row{display:flex;gap:6px}
-.ts-align-btn{width:36px;height:36px;border:1px solid #e8e4dc;border-radius:8px;background:#fff;color:#64748b;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.ts-align-btn{width:40px;height:40px;border:1px solid #e8e4dc;border-radius:10px;background:#fff;color:#64748b;cursor:pointer;display:flex;align-items:center;justify-content:center}
 .ts-align-btn.active{background:#eff6ff;border-color:#3b82f6;color:#1d4ed8}
 .shell.theme-studio .vis-row{background:#faf8f4;border-color:#ebe6de}
 .shell.theme-studio .vis-label{color:#475569}
 .shell.theme-studio .toggle{background:#e2e8f0;border-color:#cbd5e1}
 .shell.theme-studio .toggle.on{background:#0d9488;border-color:#0d9488}
 .shell.theme-studio .rp-empty{color:#94a3b8}
-.shell.theme-studio .cms-toast{background:#111;border-color:#333;color:#fff;box-shadow:0 8px 24px rgba(0,0,0,.15)}
+.shell.theme-studio .cms-toast{background:#111;border-color:#333;color:#fff;box-shadow:0 8px 24px rgba(0,0,0,.15);bottom:calc(18px + env(safe-area-inset-bottom,0px))}
 .shell.theme-studio ::-webkit-scrollbar-thumb{background:rgba(0,0,0,.12)}
+.ts-sheet-backdrop{position:fixed;inset:0;background:rgba(24,22,17,.28);z-index:40;opacity:0;pointer-events:none;transition:opacity .28s ease}
+.ts-sheet-backdrop.show{opacity:1;pointer-events:auto}
+.ts-sheet-grab{width:36px;height:4px;border-radius:99px;background:#d6d0c4;margin:8px auto 4px;flex-shrink:0}
+.ts-mobile-dock{
+  display:none;
+  grid-column:1/-1;
+  align-items:stretch;
+  justify-content:space-around;
+  gap:4px;
+  padding:6px 10px calc(6px + env(safe-area-inset-bottom,0px));
+  background:rgba(251,248,241,.98);
+  border-top:1px solid rgba(43,39,31,.1);
+  backdrop-filter:blur(18px);
+  -webkit-backdrop-filter:blur(18px);
+  z-index:30;
+}
+.ts-dock-btn{
+  flex:1;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:3px;
+  min-height:48px;
+  border:none;
+  background:transparent;
+  color:#786f62;
+  border-radius:12px;
+  cursor:pointer;
+  font-size:10px;
+  font-weight:600;
+  letter-spacing:.01em;
+  padding:4px 6px;
+}
+.ts-dock-btn svg{width:20px;height:20px}
+.ts-dock-btn.active{background:#fff;color:#0d9488;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.ts-dock-btn:active{transform:scale(.98)}
+
+@media (max-width:767px){
+  .shell.theme-studio{
+    grid-template-columns:1fr;
+    grid-template-rows:auto minmax(0,1fr) auto;
+  }
+  .shell.theme-studio .topbar{
+    padding:max(8px,env(safe-area-inset-top,0px)) 10px 8px;
+    gap:8px;
+    align-items:center;
+    flex-wrap:wrap;
+  }
+  .ts-brand{max-width:none;flex:0 0 auto}
+  .ts-brand-name{display:none}
+  .ts-topbar-center{order:3;flex:1 1 100%;padding:0}
+  .ts-topbar-right.ts-topbar-actions-full{display:none!important}
+  .ts-topbar-actions-compact{display:flex!important}
+  .shell.theme-studio .sidebar,
+  .shell.theme-studio .rpanel{
+    position:fixed;
+    left:0;right:0;bottom:0;
+    z-index:50;
+    width:100%;
+    max-width:100%;
+    max-height:min(82dvh,calc(100dvh - env(safe-area-inset-top,0px) - 56px));
+    border-radius:18px 18px 0 0;
+    box-shadow:0 -12px 40px rgba(0,0,0,.14);
+    transform:translate3d(0,105%,0);
+    transition:transform .34s cubic-bezier(.32,.72,0,1);
+    grid-column:1!important;
+    grid-row:auto!important;
+    border-left:none;
+    border-right:none;
+    padding-bottom:env(safe-area-inset-bottom,0px);
+  }
+  .shell.theme-studio.mobile-panel-sections .sidebar{transform:translate3d(0,0,0)}
+  .shell.theme-studio.mobile-panel-inspector .rpanel{transform:translate3d(0,0,0)}
+  .shell.theme-studio .canvas{grid-column:1;grid-row:2}
+  .shell.theme-studio .canvas-stage{padding:8px}
+  .shell.theme-studio.vp-mobile .frame-shell,
+  .shell.theme-studio.vp-desktop .frame-shell,
+  .shell.theme-studio.vp-tablet .frame-shell{
+    max-width:100%;
+    width:100%;
+    min-height:0;
+    height:100%;
+    border-radius:10px;
+  }
+  .ts-mobile-dock{display:flex}
+  .ts-page-picker-menu{
+    position:fixed;
+    left:12px;right:12px;top:auto;bottom:calc(64px + env(safe-area-inset-bottom,0px));
+    transform:none;
+    width:auto;
+    max-height:min(52dvh,420px);
+  }
+  .shell.theme-studio .rp-body{padding:12px 14px calc(12px + env(safe-area-inset-bottom,0px))}
+  .ts-frame-actions{top:auto;bottom:12px;right:12px}
+}
 `;
 
 const SECTION_BLURBS = {
@@ -486,7 +652,161 @@ const I = {
   pencil: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>,
   trash: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>,
   more: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>,
+  chevronDown: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6"/></svg>,
+  check: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>,
+  sliders: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>,
 };
+
+function useIsMobile(breakpoint = 767) {
+  const query = `(max-width: ${breakpoint}px)`;
+  const [mobile, setMobile] = useState(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return false;
+    return window.matchMedia(query).matches;
+  });
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return undefined;
+    const mq = window.matchMedia(query);
+    const onChange = () => setMobile(mq.matches);
+    onChange();
+    if (mq.addEventListener) mq.addEventListener('change', onChange);
+    else mq.addListener(onChange);
+    return () => {
+      if (mq.removeEventListener) mq.removeEventListener('change', onChange);
+      else mq.removeListener(onChange);
+    };
+  }, [query]);
+  return mobile;
+}
+
+function dedupePages(pages) {
+  const seen = new Set();
+  const list = [];
+  for (const page of pages || []) {
+    if (!page?.id || seen.has(page.id)) continue;
+    seen.add(page.id);
+    list.push(page);
+  }
+  return list.sort((a, b) => {
+    if (a.is_homepage && !b.is_homepage) return -1;
+    if (!a.is_homepage && b.is_homepage) return 1;
+    const ao = Number(a.sort_order) || 0;
+    const bo = Number(b.sort_order) || 0;
+    if (ao !== bo) return ao - bo;
+    return String(a.title || a.route_path || a.slug || '').localeCompare(String(b.title || b.route_path || b.slug || ''));
+  });
+}
+
+function scrollPreviewToSection(iframeRef, sectionName) {
+  const frame = iframeRef.current;
+  const raw = String(sectionName || '').trim();
+  if (!frame || !raw) return;
+  const run = () => {
+    try {
+      const doc = frame.contentDocument;
+      if (!doc) return;
+      const keys = [raw, raw.replace(/_/g, '-'), raw.replace(/-/g, '_')];
+      let el = null;
+      for (const key of keys) {
+        el = doc.querySelector(`[data-cms-section="${key}"]`) || doc.getElementById(key);
+        if (el) break;
+      }
+      if (!el) return;
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      doc.querySelectorAll('.iam-cms-section-focus').forEach(node => node.classList.remove('iam-cms-section-focus'));
+      el.classList.add('iam-cms-section-focus');
+      window.setTimeout(() => el.classList.remove('iam-cms-section-focus'), 1800);
+    } catch (_) {}
+  };
+  try {
+    if (frame.contentDocument?.readyState === 'complete') run();
+    else frame.addEventListener('load', run, { once: true });
+  } catch (_) {}
+}
+
+function PagePicker({ pages, activePage, onSelect }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const wrapRef = useRef(null);
+  const sortedPages = useMemo(() => dedupePages(pages), [pages]);
+  const filteredPages = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return sortedPages;
+    return sortedPages.filter(page =>
+      String(page.title || '').toLowerCase().includes(q) ||
+      String(page.slug || '').toLowerCase().includes(q) ||
+      String(page.route_path || '').toLowerCase().includes(q),
+    );
+  }, [sortedPages, query]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDocClick = (event) => {
+      if (wrapRef.current && !wrapRef.current.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [open]);
+
+  const label = activePage?.title || activePage?.slug || 'Choose page…';
+
+  return (
+    <div className="ts-page-picker" ref={wrapRef}>
+      <button
+        type="button"
+        className="ts-page-picker-btn"
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        onClick={() => setOpen(v => !v)}
+      >
+        <span className="ts-page-picker-label">{label}</span>
+        {I.chevronDown}
+      </button>
+      {open ? (
+        <div className="ts-page-picker-menu" role="listbox" aria-label="Pages">
+          <input
+            type="search"
+            className="ts-page-picker-search"
+            placeholder="Search pages…"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            autoFocus
+          />
+          <div className="ts-page-picker-list">
+            {filteredPages.map(page => (
+              <button
+                key={page.id}
+                type="button"
+                role="option"
+                aria-selected={activePage?.id === page.id}
+                className={`ts-page-picker-item ${activePage?.id === page.id ? 'active' : ''}`}
+                onClick={() => {
+                  onSelect(page);
+                  setOpen(false);
+                  setQuery('');
+                }}
+              >
+                {activePage?.id === page.id ? (
+                  <span className="ts-page-check">{I.check}</span>
+                ) : (
+                  <span className="ts-page-check" aria-hidden="true" />
+                )}
+                <span className="ts-page-picker-item-text">
+                  <span className="ts-page-picker-item-title">{page.title || page.slug || 'Untitled page'}</span>
+                  {page.route_path ? (
+                    <span className="ts-page-picker-item-path">{page.route_path}</span>
+                  ) : null}
+                </span>
+              </button>
+            ))}
+            {!filteredPages.length ? (
+              <div className="ts-page-picker-empty">No matching pages</div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 /* ══════════════════════════════════════════════════════════════
    ROOT COMPONENT
@@ -526,8 +846,33 @@ function CmsEditor() {
   const [previewing, setPrev]     = useState(false);
   const [draftPreview, setDraftPreview] = useState(false);
   const [sectionQuery, setSectionQuery] = useState('');
+  const [mobilePanel, setMobilePanel] = useState('canvas'); // canvas | sections | inspector
 
+  const isMobile = useIsMobile();
   const iframeRef = useRef(null);
+
+  const closeMobilePanel = useCallback(() => setMobilePanel('canvas'), []);
+  const openMobileSections = useCallback(() => {
+    setMobilePanel(prev => (prev === 'sections' ? 'canvas' : 'sections'));
+  }, []);
+  const openMobileInspector = useCallback(() => {
+    setMobilePanel(prev => (prev === 'inspector' ? 'canvas' : 'inspector'));
+  }, []);
+
+  useEffect(() => {
+    if (!isMobile) setMobilePanel('canvas');
+  }, [isMobile]);
+
+  useEffect(() => {
+    if (isMobile && isThemeStudio) setVp('mobile');
+  }, [isMobile, isThemeStudio]);
+
+  useEffect(() => {
+    if (!isMobile || mobilePanel === 'canvas') return undefined;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, [isMobile, mobilePanel]);
 
   /* ── bootstrap ── */
   useEffect(() => {
@@ -742,12 +1087,34 @@ function CmsEditor() {
     frame.src = liveUrl;
   }, [liveUrl, previewing, draftPreview]);
 
+  useEffect(() => {
+    if (!activeSection?.section_name) return;
+    scrollPreviewToSection(iframeRef, activeSection.section_name);
+  }, [activeSection?.id, activeSection?.section_name, liveUrl, draftPreview, previewing]);
+
   /* ── RENDER ── */
+  const shellClass = [
+    'shell',
+    isThemeStudio ? 'theme-studio' : '',
+    isThemeStudio ? `vp-${vp}` : '',
+    isMobile && isThemeStudio ? 'mobile' : '',
+    isMobile && isThemeStudio && mobilePanel !== 'canvas' ? `mobile-panel-${mobilePanel}` : '',
+  ].filter(Boolean).join(' ');
+
   return (
     <>
       <div id="cms-toast" className="cms-toast" />
 
-      <div className={`shell${isThemeStudio ? ' theme-studio' : ''}`}>
+      {isMobile && isThemeStudio && mobilePanel !== 'canvas' ? (
+        <button
+          type="button"
+          className={`ts-sheet-backdrop show`}
+          aria-label="Close panel"
+          onClick={closeMobilePanel}
+        />
+      ) : null}
+
+      <div className={shellClass}>
 
         {/* ═══ TOPBAR ═══ */}
         {isThemeStudio ? (
@@ -756,10 +1123,10 @@ function CmsEditor() {
               <div className="ts-logo">{brandInitials}</div>
               <span className="ts-brand-name">{brandName}</span>
               <div className="ts-nav-icons">
-                <button type="button" className="ts-icon-btn" title="Back to CMS" onClick={() => postParent('iam-cms-navigate', { path: `/dashboard/cms/pages?site=${encodeURIComponent(ctx.project)}` })}>
+                <button type="button" className="ts-icon-btn" title="Exit editor" onClick={() => postParent('iam-cms-exit', {})}>
                   {I.back}
                 </button>
-                <button type="button" className="ts-icon-btn" title="All pages" onClick={() => postParent('iam-cms-navigate', { path: `/dashboard/cms/pages?site=${encodeURIComponent(ctx.project)}` })}>
+                <button type="button" className="ts-icon-btn" title="CMS sites" onClick={() => postParent('iam-cms-navigate', { path: `/dashboard/cms?site=${encodeURIComponent(ctx.project)}` })}>
                   {I.grid}
                 </button>
                 <button type="button" className="ts-icon-btn" title="Theme settings" onClick={() => setRpTab('design')}>
@@ -769,22 +1136,14 @@ function CmsEditor() {
             </div>
 
             <div className="ts-topbar-center">
-              <select
-                className="ts-page-select"
-                value={activePage?.id || ''}
-                onChange={e => {
-                  const p = pages.find(pg => pg.id === e.target.value);
-                  if (p) loadPage(p);
-                }}
-              >
-                {!activePage && <option value="">Choose page…</option>}
-                {pages.map(p => (
-                  <option key={p.id} value={p.id}>{p.title || p.slug || 'Untitled page'}</option>
-                ))}
-              </select>
+              <PagePicker
+                pages={pages}
+                activePage={activePage}
+                onSelect={loadPage}
+              />
             </div>
 
-            <div className="ts-topbar-right">
+            <div className="ts-topbar-right ts-topbar-actions-full">
               <div className="vp-group">
                 {themeViewports.map(v => (
                   <button key={v.id} type="button" className={`vp-btn ${vp === v.id ? 'active' : ''}`} onClick={() => setVp(v.id)} title={v.label}>
@@ -810,6 +1169,26 @@ function CmsEditor() {
                 disabled={!activePage || publishing}
               >
                 {publishing ? 'Publishing…' : 'Publish'}
+              </button>
+            </div>
+            <div className="ts-topbar-right ts-topbar-actions-compact">
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={saveSection}
+                disabled={saving || !activeSection || !Object.keys(dirty).length}
+                title="Save section"
+              >
+                {saving ? '…' : 'Save'}
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm pub"
+                onClick={publishPage}
+                disabled={!activePage || publishing}
+                title="Publish page"
+              >
+                {publishing ? '…' : 'Publish'}
               </button>
             </div>
           </div>
@@ -903,6 +1282,7 @@ function CmsEditor() {
 
         {/* ═══ SIDEBAR ═══ */}
         <div className="sidebar">
+          {isThemeStudio && isMobile ? <div className="ts-sheet-grab" aria-hidden="true" /> : null}
           {isThemeStudio ? (
             <>
               <div className="ts-sections-head">
@@ -936,7 +1316,16 @@ function CmsEditor() {
                     <div
                       key={sec.id}
                       className={`sec-row ${isActive ? 'active' : ''} ${!sec.is_visible ? 'hidden' : ''}`}
-                      onClick={() => { setActiveSection(sec); setRpTab('edit'); setDirty({}); }}
+                      onClick={() => {
+                        setActiveSection(sec);
+                        setRpTab('edit');
+                        setDirty({});
+                        scrollPreviewToSection(iframeRef, sec.section_name);
+                        if (isMobile) {
+                          setMobilePanel('canvas');
+                          if (isThemeStudio) setTimeout(() => setMobilePanel('inspector'), 120);
+                        }
+                      }}
                       {...dragH(realIdx >= 0 ? realIdx : idx)}
                     >
                       <span className="drag-grip">⋮⋮</span>
@@ -1004,7 +1393,16 @@ function CmsEditor() {
                     <div
                       key={sec.id}
                       className={`sec-row ${isActive ? 'active' : ''} ${!sec.is_visible ? 'hidden' : ''}`}
-                      onClick={() => { setActiveSection(sec); setRpTab('edit'); setDirty({}); }}
+                      onClick={() => {
+                        setActiveSection(sec);
+                        setRpTab('edit');
+                        setDirty({});
+                        scrollPreviewToSection(iframeRef, sec.section_name);
+                        if (isMobile) {
+                          setMobilePanel('canvas');
+                          if (isThemeStudio) setTimeout(() => setMobilePanel('inspector'), 120);
+                        }
+                      }}
                       {...dragH(idx)}
                     >
                       <span className="drag-grip">⋮⋮</span>
@@ -1081,11 +1479,11 @@ function CmsEditor() {
             {activePage || previewing ? (
               <div
                 className="frame-shell"
-                style={{
-                  width: vpDef.w ? Math.min(vpDef.w, window.innerWidth - (isThemeStudio ? 640 : 600)) : '100%',
-                  height: isThemeStudio ? undefined : 'calc(100vh - 44px - 36px - 32px)',
+                style={!isThemeStudio ? {
+                  width: vpDef.w ? Math.min(vpDef.w, window.innerWidth - 600) : '100%',
+                  height: 'calc(100dvh - 44px - 36px - 32px)',
                   maxWidth: '100%',
-                }}
+                } : undefined}
               >
                 <iframe
                   ref={iframeRef}
@@ -1132,6 +1530,7 @@ function CmsEditor() {
 
         {/* ═══ RIGHT PANEL ═══ */}
         <div className="rpanel">
+          {isThemeStudio && isMobile ? <div className="ts-sheet-grab" aria-hidden="true" /> : null}
           <div className="rp-tabs">
             {isThemeStudio ? (
               <>
@@ -1256,6 +1655,35 @@ function CmsEditor() {
             )}
           </div>
         </div>
+
+        {isThemeStudio && isMobile ? (
+          <nav className="ts-mobile-dock" aria-label="Editor panels">
+            <button
+              type="button"
+              className={`ts-dock-btn ${mobilePanel === 'sections' ? 'active' : ''}`}
+              onClick={openMobileSections}
+            >
+              {I.sections}
+              <span>Sections</span>
+            </button>
+            <button
+              type="button"
+              className={`ts-dock-btn ${mobilePanel === 'canvas' ? 'active' : ''}`}
+              onClick={closeMobilePanel}
+            >
+              {I.eye}
+              <span>Preview</span>
+            </button>
+            <button
+              type="button"
+              className={`ts-dock-btn ${mobilePanel === 'inspector' ? 'active' : ''}`}
+              onClick={openMobileInspector}
+            >
+              {I.sliders}
+              <span>Content</span>
+            </button>
+          </nav>
+        ) : null}
 
       </div>
     </>

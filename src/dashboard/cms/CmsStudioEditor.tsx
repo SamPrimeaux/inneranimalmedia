@@ -154,6 +154,10 @@ export function CmsStudioEditor({
       navigatePath(String(data.detail.path), { replace: data.detail.replace === true });
     }
 
+    if (data.type === 'iam-cms-exit') {
+      navigatePath('/dashboard/home');
+    }
+
     if (data.type === 'iam-cms-open-agent') {
       window.dispatchEvent(
         new CustomEvent('iam:agent-chat-compose', {
@@ -201,7 +205,7 @@ export function CmsStudioEditor({
             height: '100%',
             border: 0,
             minHeight: 0,
-            background: isAgentSamCmsShell ? '#f6f1e7' : 'var(--dashboard-canvas, var(--bg-canvas, #00212b))',
+            background: isAgentSamCmsShell ? '#F9F7F2' : 'var(--dashboard-canvas, var(--bg-canvas, #00212b))',
           }}
           allow="clipboard-read; clipboard-write"
         />

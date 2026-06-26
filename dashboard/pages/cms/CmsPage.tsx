@@ -137,7 +137,7 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
   const siteCount = context?.sites?.length || 0;
 
   return (
-    <div className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden bg-[#f6f1e7] iam-agentsam-cms-host">
+    <div className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden bg-[#F9F7F2] iam-agentsam-cms-host h-full">
       {needsSitePick ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center">
           <h2 className="text-lg font-semibold text-[var(--text-heading)]">Choose a CMS site</h2>

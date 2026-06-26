@@ -397,6 +397,7 @@ export default {
       }
       if (!assetHtmlKey && /^\/work\/[a-z0-9-]+$/i.test(pathLower) && env.DB && env.ASSETS) {
         const detailRoute = pathLower;
+        const isCmsEmbed = url.searchParams.get('cms') === '1';
         const cmsBundle = await loadPublishedCmsSectionsByRoute(env.DB, detailRoute);
         if (cmsBundle.page?.page_type === 'case_study') {
           const shellKey = cmsBundle.page.r2_key || 'pages/work/detail.html';
@@ -417,10 +418,19 @@ export default {
             const pageTitle = cmsBundle.page.title || 'Portfolio Details';
             htmlText = htmlText.replace(/<title>[^<]*<\/title>/i, `<title>${pageTitle} | Inner Animal Media</title>`);
             return new HTMLRewriter()
+              .on('head', {
+                element(el) {
+                  if (!isCmsEmbed) return;
+                  el.append(
+                    '<style>[data-cms-section]{scroll-margin-top:24px}[data-cms-section].iam-cms-section-focus{outline:2px solid #3b82f6;outline-offset:2px;transition:outline-color .2s}</style>',
+                    { html: true },
+                  );
+                },
+              })
               .on('body', {
                 element(el) {
-                  if (headerHtml) el.prepend(headerHtml, { html: true });
-                  if (footerHtml) el.append(footerHtml, { html: true });
+                  if (!isCmsEmbed && headerHtml) el.prepend(headerHtml, { html: true });
+                  if (!isCmsEmbed && footerHtml) el.append(footerHtml, { html: true });
                 },
               })
               .transform(
@@ -465,6 +475,7 @@ export default {
         let obj = null;
         if (env.ASSETS) obj = await env.ASSETS.get(assetHtmlKey);
         if (!obj) return new Response('Not found', { status: 404 });
+        const isCmsEmbed = url.searchParams.get('cms') === '1';
         const fromMeta = obj.httpMetadata?.contentType;
         const k = assetHtmlKey.toLowerCase();
         // R2 often has no customMetadata, or text/plain on HTML — browsers then show source as plain text.
@@ -493,6 +504,7 @@ export default {
         const footerHtml = footerObj ? await footerObj.text() : '';
         // Auth shells ship their own nav; chess rooms are fullscreen — no marketing chrome.
         const skipShellInject =
+          isCmsEmbed ||
           (typeof assetHtmlKey === 'string' && assetHtmlKey.startsWith('pages/auth/')) ||
           assetHtmlKey === 'pages/games/room.html';
         let pageBody = obj.body;
@@ -533,6 +545,15 @@ export default {
           pageBody = htmlText;
         }
         return new HTMLRewriter()
+          .on('head', {
+            element(el) {
+              if (!isCmsEmbed) return;
+              el.append(
+                '<style>[data-cms-section]{scroll-margin-top:24px}[data-cms-section].iam-cms-section-focus{outline:2px solid #3b82f6;outline-offset:2px;transition:outline-color .2s}</style>',
+                { html: true },
+              );
+            },
+          })
           .on('body', {
             element(el) {
               if (!skipShellInject && headerHtml) el.prepend(headerHtml, { html: true });

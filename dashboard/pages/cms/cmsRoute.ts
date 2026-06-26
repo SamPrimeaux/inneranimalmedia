@@ -71,6 +71,14 @@ export function buildCmsPath(opts: {
   return `/dashboard/cms/pages${siteQs}`;
 }
 
+/** Site-scoped CMS editor routes (pages, theme editor, etc.) — not the sites hub. */
+export function isCmsEditorFullscreenRoute(
+  pathname: string,
+  searchParams: URLSearchParams,
+): boolean {
+  return parseCmsRoute(pathname, searchParams).view !== 'sites';
+}
+
 export function parseCmsRoute(pathname: string, searchParams: URLSearchParams): ParsedCmsRoute {
   const parts = pathname.split('/').filter(Boolean);
   const cmsIdx = parts.indexOf('cms');
