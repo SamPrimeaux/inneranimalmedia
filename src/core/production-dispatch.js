@@ -402,6 +402,11 @@ export async function dispatchProductionDomainRoutes(rc) {
     return handleCronSelfTest(request, env, ctx);
   }
 
+  if (pathLower === '/api/internal/exec-identity-alert' && methodUpper === 'POST') {
+    const { handleExecIdentityAlert } = await import('../api/internal-exec-identity-alert.js');
+    return handleExecIdentityAlert(request, env, ctx);
+  }
+
   if (pathLower === '/api/internal/code-index/run' && methodUpper === 'POST') {
     const { handleCodeIndexRun } = await import('../api/code-index-run.js');
     return handleCodeIndexRun(request, env, ctx);
