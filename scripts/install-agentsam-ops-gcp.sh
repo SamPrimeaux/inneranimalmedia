@@ -51,11 +51,11 @@ if [[ ! -f "$INSTALL_SCRIPT" ]]; then
 fi
 
 REMOTE_CMD="set -euo pipefail
-if [[ -d \"\$HOME/ExecOS/deploy/gcp/install-agentsam-ops.sh\" ]]; then
+if [[ -f \"\$HOME/ExecOS/deploy/gcp/install-agentsam-ops.sh\" ]]; then
   cd \"\$HOME/ExecOS\"
   git pull --ff-only 2>/dev/null || true
   bash deploy/gcp/install-agentsam-ops.sh ${REMOTE_ARGS[*]:-}
-elif [[ -d \"\$HOME/iam-pty/deploy/gcp/install-agentsam-ops.sh\" ]]; then
+elif [[ -f \"\$HOME/iam-pty/deploy/gcp/install-agentsam-ops.sh\" ]]; then
   cd \"\$HOME/iam-pty\"
   git pull --ff-only 2>/dev/null || true
   bash deploy/gcp/install-agentsam-ops.sh ${REMOTE_ARGS[*]:-}
