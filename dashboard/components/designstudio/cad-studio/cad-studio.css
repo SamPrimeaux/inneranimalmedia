@@ -2878,9 +2878,9 @@
    260px docked right panel — full height, flex sibling of layout-wrap
    ═══════════════════════════════════════════════════════════════════════════ */
 .ip__panel {
-  width: 260px;
-  min-width: 260px;
-  max-width: 260px;
+  width: 280px;
+  min-width: 280px;
+  max-width: 280px;
   height: 100%;
   background: var(--cs-bg-1);
   border-left: 1px solid var(--cs-line-0);
@@ -2888,6 +2888,41 @@
   flex-direction: column;
   flex-shrink: 0;
   overflow: hidden;
+}
+
+.ip__tabs {
+  display: flex;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--cs-line-0);
+  background: var(--cs-bg-2);
+}
+
+.ip__tab {
+  flex: 1;
+  padding: 7px 4px;
+  border: none;
+  background: transparent;
+  color: var(--cs-text-2);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.ip__tab:hover:not(:disabled) {
+  color: var(--cs-text-0);
+}
+
+.ip__tab.active {
+  color: var(--dashboard-accent, var(--cs-accent, #6366f1));
+  border-bottom-color: var(--dashboard-accent, var(--cs-accent, #6366f1));
+}
+
+.ip__tab:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 /* Scrollable inner content */
 .ip__body,
@@ -2901,15 +2936,59 @@
   overscroll-behavior: contain;
 }
 
+/* ── Slide-up drawers on mobile — viewport always stays visible above ── */
+@media (max-width: 480px) {
+  .cad-studio__slide-drawer {
+    position: fixed !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    top: auto !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    height: var(--ip-mobile-height, min(52vh, calc(100dvh - 128px))) !important;
+    max-height: min(52vh, calc(100dvh - 128px)) !important;
+    border-left: none !important;
+    border-right: none !important;
+    border-top: 1px solid var(--cs-line-0);
+    border-radius: 14px 14px 0 0;
+    z-index: 60;
+    box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.45);
+  }
+
+  .cad-asset-library__backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    background: rgba(0, 0, 0, 0.12);
+    pointer-events: auto;
+  }
+
+  .cad-asset-library.cad-studio__slide-drawer {
+    animation: lib-slide-up 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  @keyframes lib-slide-up {
+    from { transform: translateY(100%); opacity: 0.6; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+
+  .cl__panel.cad-studio__slide-drawer {
+    border-right: none;
+  }
+}
+
 /* Mobile: bottom sheet drawer */
 @media (max-width: 480px) {
-  .ip__panel {
+  .ip__panel.cad-studio__slide-drawer {
     position: fixed;
     left: 0;
     right: 0;
     bottom: 0;
     width: 100%;
-    height: var(--ip-mobile-height, 42vh);
+    height: var(--ip-mobile-height, min(52vh, calc(100dvh - 128px)));
+    max-height: min(52vh, calc(100dvh - 128px));
     border-left: none;
     border-top: 1px solid var(--cs-line-0);
     border-radius: 14px 14px 0 0;

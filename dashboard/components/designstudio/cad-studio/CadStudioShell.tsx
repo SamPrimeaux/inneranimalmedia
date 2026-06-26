@@ -16,18 +16,14 @@ import {
   DEFAULT_MESHY_SETTINGS,
   buildMeshyPreviewBody,
 } from '../creation-station/meshyTypes';
-import { AdjustPanel } from './AdjustPanel';
 import { WorkspaceLayoutEngine } from './WorkspaceLayoutEngine';
 import { StatusBar } from './StatusBar';
 import { OperatorSearchModal, GenerateCadModal } from './OperatorModals';
 import { Viewport3DEditor, SecondaryViewportEditor, ScriptEditor, NodeEditor, MovieClipEditor, GraphEditor, SequencerEditor, ScopesEditor, ColorBalanceEditor, GreaseLayersEditor, TimelineEditor } from './editors/Viewport3DEditor';
-import { OutlinerEditor } from './editors/OutlinerEditor';
 import { AssetGalleryEditor } from './editors/AssetGalleryEditor';
 import { ViewportActionBar } from './ViewportActionBar';
-import { PropertiesEditor } from './editors/PropertiesEditor';
 import { CreationPanelEditor } from './editors/CreationPanelEditor';
 import { CreativeToolDock, openOperatorDraft } from './CreativeToolDock';
-import { RightPanelTabs } from './RightPanelTabs';
 import { AssetLibraryFlyout } from './AssetLibraryFlyout';
 import { AnimationLibraryPanel, type AnimationClip } from './AnimationLibraryPanel';
 import { useVerticalResize } from './useVerticalResize';
@@ -45,7 +41,7 @@ import { useDesignStudioContext } from '../DesignStudioContext';
 import type { CustomAsset, GenerationConfig, SceneConfig, GameEntity } from '../../../types';
 import type { AgentSamGeneratorKey } from '../../../utils/agentSamGenerators';
 import './cad-studio.css';
-import { InspectorPanel } from './InspectorPanel';
+import { InspectorPanel, type InspectorTab } from './InspectorPanel';
 import { StudioLoadingScreen } from './StudioLoadingScreen';
 import { DEFAULT_STUDIO_SCENE_ENV, type EntityMaterialPatch, type StudioSceneEnvPatch } from './studioEnvironment';
 
@@ -201,7 +197,8 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
   const [operatorInitialId, setOperatorInitialId] = useState<string | undefined>();
   const [generateOpen, setGenerateOpen] = useState(false);
   const [creationOpen, setCreationOpen] = useState(false);
-  const [adjustOpen, setAdjustOpen] = useState(false);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [inspectorTab, setInspectorTab] = useState<InspectorTab>('scene');
   const [orthoMode, setOrthoMode] = useState(false);
   const [sceneEnvConfig, setSceneEnvConfig] = useState(() => ({ ...DEFAULT_SCENE_ENV_CONFIG }));
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
@@ -317,21 +314,27 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
   const [selectedAnimationActionId, setSelectedAnimationActionId] = useState<number | null>(null);
   const [addedAnimationIds, setAddedAnimationIds] = useState<number[]>([]);
 
-  const rightPanelVisible =
-    ui.panelVisibility.outliner || ui.panelVisibility.properties || ui.panelVisibility.assets;
-
   const animLibVisible = ui.panelVisibility.animationLibrary;
 
+  /** Grid-embedded outliner/properties replaced by unified InspectorPanel flyout. */
   const layoutPanelVisibility = useMemo(
     () => ({
       ...ui.panelVisibility,
-      // Asset flyout overlays the workspace — collapse right rail while open.
-      outliner: libraryOpen ? false : ui.panelVisibility.outliner,
-      properties: libraryOpen ? false : ui.panelVisibility.properties,
+      outliner: false,
+      properties: false,
       assets: false,
     }),
-    [ui.panelVisibility, libraryOpen],
+    [ui.panelVisibility],
   );
+
+  const openInspector = useCallback((tab: InspectorTab = 'scene') => {
+    setInspectorTab(tab);
+    setInspectorOpen(true);
+  }, []);
+
+  const closeInspector = useCallback(() => {
+    setInspectorOpen(false);
+  }, []);
 
   const closeAnimLib = useCallback(() => {
     patchUi({
@@ -346,28 +349,14 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
   }, [patchUi, ui.panelVisibility]);
 
   const closeRightPanel = useCallback(() => {
-    patchUi({
-      panelVisibility: {
-        ...ui.panelVisibility,
-        outliner: false,
-        properties: false,
-        assets: false,
-      },
-    });
-  }, [patchUi, ui.panelVisibility]);
+    closeInspector();
+  }, [closeInspector]);
 
   const openRightPanel = useCallback(
     (tab: 'outliner' | 'properties' = 'outliner') => {
-      patchUi({
-        rightPanelTab: tab,
-        panelVisibility: {
-          ...ui.panelVisibility,
-          outliner: tab === 'outliner',
-          properties: tab === 'properties',
-        },
-      });
+      openInspector(tab === 'outliner' ? 'outliner' : selectedId ? 'object' : 'scene');
     },
-    [patchUi, ui.panelVisibility],
+    [openInspector, selectedId],
   );
 
   useEffect(() => {
@@ -378,13 +367,14 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       setLibraryOpen(false);
-      closeRightPanel();
+      closeInspector();
+      setCreationOpen(false);
       closeAnimLib();
       setActiveDockDomain(null);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [closeRightPanel, closeAnimLib]);
+  }, [closeInspector, closeAnimLib]);
 
   useEffect(() => {
     let cancelled = false;
@@ -702,49 +692,9 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
   const progressPct = activeJob?.progress_pct ?? 0;
   const progressLabel = `${activeJob?.engine || 'CAD'} · ${activeJob?.status || 'running'}${progressPct > 0 ? ` · ${progressPct}%` : ''}`;
 
-  const outlinerPanel = (
-    <OutlinerEditor
-      embedded
-      entities={entities}
-      selectedId={selectedId}
-      onSelect={onSelectEntity}
-      artifacts={protocol.artifacts}
-    />
-  );
-
-  const propertiesPanel = (
-    <PropertiesEditor
-      selectedEntity={selectedEntity}
-      propertiesTab={ui.propertiesTab}
-      onTabChange={(tab) => patchUi({ propertiesTab: tab })}
-      sceneName={sceneName}
-      onSceneNameChange={onSceneNameChange}
-      onEntityNameChange={onEntityRename}
-      onTransformChange={onEntityTransform}
-      protocol={protocol}
-      activeJob={activeJob}
-      onDeployJob={onDeployJob}
-      onDownloadLatestGlb={onDownloadLatestGlb}
-      renderSamples={renderSamples}
-      renderBounces={renderBounces}
-      onRenderSettingsChange={(p) => {
-        if (p.samples != null) setRenderSamples(p.samples);
-        if (p.bounces != null) setRenderBounces(p.bounces);
-      }}
-      sceneConfig={sceneConfig}
-      onSceneConfigChange={onUpdateSceneConfig}
-      onApplyMaterial={onApplyEntityMaterial}
-      onRunBlenderJob={handleRunBlenderJob}
-      onSetBackground={onSetBackground}
-    />
-  );
-
   const assetsPanel = (
     <AssetGalleryEditor onSpawn={handleSpawnGalleryItem} onUpload={onImportGlb} />
   );
-
-  const rightPanel =
-    ui.rightPanelTab === 'properties' ? propertiesPanel : outlinerPanel;
 
   const splash = splashOpen ? (
     <div className="cad-studio__splash">
@@ -863,24 +813,7 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
         onClose={closeAnimLib}
       />
     ),
-    rightTabs: (
-      <RightPanelTabs
-        active={ui.rightPanelTab}
-        onChange={(tab) =>
-          patchUi({
-            rightPanelTab: tab,
-            panelVisibility: {
-              ...ui.panelVisibility,
-              outliner: tab === 'outliner',
-              properties: tab === 'properties',
-            },
-          })
-        }
-        onClose={closeRightPanel}
-      >
-        {rightPanel}
-      </RightPanelTabs>
-    ),
+    rightTabs: undefined,
     viewport: viewportPrimary,
     viewportSecondary: (
       <SecondaryViewportEditor
@@ -901,8 +834,8 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
         }
       />
     ),
-    outliner: ui.panelVisibility.outliner ? outlinerPanel : undefined,
-    properties: ui.panelVisibility.properties ? propertiesPanel : undefined,
+    outliner: undefined,
+    properties: undefined,
     assets: undefined,
     timeline: timelinePanel,
     nodes: (
@@ -1076,15 +1009,15 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
         onToggleAnimate={() => { if (animLibVisible) closeAnimLib(); else openAnimLib(); }}
         planOpen={false}
         onTogglePlan={() => protocol.toast('Plan', '2D floor plan mode coming — routes to Excalidraw canvas.')}
-        adjustOpen={adjustOpen}
-        onToggleAdjust={() => setAdjustOpen(v => !v)}
-        propertiesOpen={rightPanelVisible}
+        adjustOpen={inspectorOpen && inspectorTab === 'scene'}
+        onToggleAdjust={() => {
+          if (inspectorOpen && inspectorTab === 'scene') closeInspector();
+          else openInspector('scene');
+        }}
+        propertiesOpen={inspectorOpen}
         onToggleProperties={() => {
-          if (rightPanelVisible) {
-            patchUi({ panelVisibility: { ...ui.panelVisibility, outliner: false, properties: false } });
-          } else {
-            openRightPanel('properties');
-          }
+          if (inspectorOpen) closeInspector();
+          else openInspector(selectedId ? 'object' : 'scene');
         }}
         creationOpen={creationOpen}
         onToggleCreation={() => setCreationOpen(v => !v)}
@@ -1159,25 +1092,6 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
           onAdvanced={() => openOperator()}
           hasSelection={!!selectedId}
         />
-        <AdjustPanel
-          open={adjustOpen}
-          onClose={() => setAdjustOpen(false)}
-          selectedEntity={selectedEntity ?? null}
-          selectedEntityId={selectedId}
-          sceneConfig={sceneEnvConfig}
-          onSceneConfigChange={handleSceneEnvChange}
-          onSetBackground={onSetBackground}
-          onSnapView={onSnapView}
-          onToggleOrtho={(ortho) => {
-            setOrthoMode(ortho);
-            onToggleOrtho?.(ortho);
-          }}
-          orthoMode={orthoMode}
-          onApplyMaterial={onApplyEntityMaterial}
-          onPatchDimensions={onPatchEntityDimensions}
-          onRunBlenderJob={handleRunBlenderJob}
-          meshStats={meshStats}
-        />
         <AssetLibraryFlyout open={libraryOpen} onClose={() => setLibraryOpen(false)}>
           <AssetGalleryEditor
             variant="library"
@@ -1185,14 +1099,22 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
             onUpload={onImportGlb}
           />
         </AssetLibraryFlyout>
-{/* anim lib reopen removed — use Animate button in toolbar */}
         <InspectorPanel
-          open={rightPanelVisible}
-          onClose={closeRightPanel}
+          open={inspectorOpen}
+          onClose={closeInspector}
+          tab={inspectorTab}
+          onTabChange={setInspectorTab}
+          entities={entities}
+          selectedId={selectedId}
+          onSelectEntity={onSelectEntity}
+          artifacts={protocol.artifacts}
+          sceneName={sceneName}
+          onSceneNameChange={onSceneNameChange}
           sceneConfig={sceneConfig}
+          sceneEnvConfig={sceneEnvConfig}
           onSceneConfigChange={onUpdateSceneConfig}
+          onSceneEnvChange={handleSceneEnvChange}
           onSetBackground={onSetBackground}
-          onSetFog={onSetFog}
           onSetGridVisible={onSetGridVisible}
           onSnapView={onSnapView}
           onToggleOrtho={(ortho) => {
@@ -1205,6 +1127,7 @@ export const CadStudioShell: React.FC<CadStudioShellProps> = ({
           onEntityPositionChange={onEntityPositionChange}
           onEntityScaleChange={onEntityScaleChange}
           onApplyMaterial={onApplyEntityMaterial}
+          onPatchDimensions={onPatchEntityDimensions}
           onRunBlenderJob={handleRunBlenderJob}
           meshStats={meshStats}
         />

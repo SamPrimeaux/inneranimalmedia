@@ -14,7 +14,7 @@ export function AssetLibraryFlyout({ open, onClose, children }: AssetLibraryFlyo
     <>
       {open && <button type="button" className="cad-asset-library__backdrop" aria-label="Close library" onClick={onClose} />}
       <aside
-        className="cad-asset-library"
+        className="cad-asset-library cad-studio__slide-drawer"
         aria-label="Asset library"
         style={{ display: open ? undefined : 'none' }}
       >

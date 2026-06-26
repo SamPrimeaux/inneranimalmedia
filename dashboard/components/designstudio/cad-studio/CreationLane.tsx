@@ -507,7 +507,7 @@ export function CreationLane({
   if (!open) return null;
 
   return (
-    <aside className="cl__panel">
+    <aside className="cl__panel cad-studio__slide-drawer">
       <div className="cl__tabs">
         {(['model', 'build', 'scene'] as const).map(t => (
           <button
