@@ -16,6 +16,7 @@
     font-size:13px;
   }
   html,body,#app{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:Inter,system-ui,sans-serif}
+  html.theme-editor-light,html.theme-editor-light body,html.theme-editor-light #app{background:#F9F7F2;color:#1a1a1a}
 </style>
 </head>
 <body>
@@ -24,6 +25,14 @@
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script>
+(function(){
+  try {
+    const p = new URLSearchParams(location.search);
+    if (p.get('view') === 'themeEditor') {
+      document.documentElement.classList.add('theme-editor-light');
+    }
+  } catch (_) {}
+})();
 /* Pull theme vars from parent frame */
 (function(){
   try{

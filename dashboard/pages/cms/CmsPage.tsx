@@ -16,16 +16,16 @@ const CmsStudioEditor = lazy(() =>
   })),
 );
 
-function StudioShellFallback() {
+function StudioShellFallback({ themeEditor = false }: { themeEditor?: boolean }) {
   return (
-    <div className="flex flex-1 flex-col min-h-0 bg-[#0d1117]">
-      <div className="h-11 border-b border-white/10 bg-[#161b22] flex items-center px-4 gap-3">
-        <div className="h-3 w-24 rounded bg-white/10 animate-pulse" />
+    <div className={`flex flex-1 flex-col min-h-0 ${themeEditor ? 'bg-[#F9F7F2]' : 'bg-[#0d1117]'}`}>
+      <div className={`h-11 border-b flex items-center px-4 gap-3 ${themeEditor ? 'border-[#e8e4dc] bg-white' : 'border-white/10 bg-[#161b22]'}`}>
+        <div className={`h-3 w-24 rounded animate-pulse ${themeEditor ? 'bg-black/10' : 'bg-white/10'}`} />
         <div className="flex-1" />
-        <div className="h-7 w-16 rounded bg-white/10 animate-pulse" />
-        <div className="h-7 w-20 rounded bg-blue-600/40 animate-pulse" />
+        <div className={`h-7 w-16 rounded animate-pulse ${themeEditor ? 'bg-black/10' : 'bg-white/10'}`} />
+        <div className={`h-7 w-20 rounded animate-pulse ${themeEditor ? 'bg-teal-600/30' : 'bg-blue-600/40'}`} />
       </div>
-      <div className="flex flex-1 items-center justify-center text-xs text-slate-500">Opening editor…</div>
+      <div className={`flex flex-1 items-center justify-center text-xs ${themeEditor ? 'text-stone-500' : 'text-slate-500'}`}>Opening editor…</div>
     </div>
   );
 }
@@ -195,7 +195,7 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
         />
       ) : null}
       {!needsSitePick && !isClientWorker && isStudioEditorRoute && studioProjectSlug ? (
-        <Suspense fallback={<StudioShellFallback />}>
+        <Suspense fallback={<StudioShellFallback themeEditor={parsed.view === 'theme-editor'} />}>
           <CmsStudioEditor
             projectSlug={studioProjectSlug}
             pageId={parsed.pageId}

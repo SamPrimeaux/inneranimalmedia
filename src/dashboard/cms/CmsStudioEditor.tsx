@@ -78,6 +78,8 @@ export function CmsStudioEditor({
   const [sketchOpen, setSketchOpen] = useState(false);
   const iframeRef = useRef(null);
 
+  const isThemeEditor = panel === 'themeEditor' || panel === 'theme-editor';
+
   const src = useMemo(() => {
     if (!projectSlug) return null;
     const q = new URLSearchParams();
@@ -182,7 +184,7 @@ export function CmsStudioEditor({
             height: '100%',
             border: 0,
             minHeight: 0,
-            background: 'var(--dashboard-canvas, var(--bg-canvas, #00212b))',
+            background: isThemeEditor ? '#F9F7F2' : 'var(--dashboard-canvas, var(--bg-canvas, #00212b))',
           }}
           allow="clipboard-read; clipboard-write"
         />

@@ -333,12 +333,127 @@ button,input,select,textarea{font:inherit;color:inherit}
 @keyframes pulse-border{0%,100%{opacity:1}50%{opacity:.5}}
 `;
 
-function injectStyles() {
+const THEME_STUDIO_STYLES = `
+html,body,#app{background:#F9F7F2;color:#1a1a1a}
+.shell.theme-studio{display:grid;grid-template-columns:280px 1fr 340px;grid-template-rows:52px 1fr;height:100vh;font-family:Inter,-apple-system,sans-serif;font-size:13px;color:#1a1a1a}
+.shell.theme-studio .icon-rail{display:none}
+.shell.theme-studio .sidebar{grid-column:1;grid-row:2;background:#fff;border-right:1px solid #e8e4dc}
+.shell.theme-studio .canvas{grid-column:2;grid-row:2;background:#F9F7F2}
+.shell.theme-studio .rpanel{grid-column:3;grid-row:2;background:#fff;border-left:1px solid #e8e4dc}
+.shell.theme-studio .topbar{grid-column:1/-1;height:52px;background:#fff;border-bottom:1px solid #e8e4dc;padding:0 16px;gap:12px}
+.ts-brand{display:flex;align-items:center;gap:10px;min-width:0;flex-shrink:0}
+.ts-logo{width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#0d9488,#115e59);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;letter-spacing:-.04em}
+.ts-brand-name{font-size:14px;font-weight:700;color:#111;white-space:nowrap}
+.ts-nav-icons{display:flex;align-items:center;gap:4px;margin-left:4px}
+.ts-icon-btn{width:32px;height:32px;border:none;background:transparent;border-radius:8px;color:#64748b;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .12s,color .12s}
+.ts-icon-btn:hover{background:#f1ede6;color:#334155}
+.ts-icon-btn svg{width:16px;height:16px}
+.ts-page-select{height:34px;min-width:180px;border:1px solid #e8e4dc;border-radius:8px;background:#fff;color:#111;padding:0 32px 0 12px;font-size:13px;font-weight:600;cursor:pointer;outline:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center}
+.ts-page-select:focus{border-color:#0d9488;box-shadow:0 0 0 3px rgba(13,148,136,.12)}
+.ts-topbar-center{flex:1;display:flex;align-items:center;justify-content:center;min-width:0}
+.ts-topbar-right{display:flex;align-items:center;gap:8px;margin-left:auto;flex-shrink:0}
+.shell.theme-studio .vp-group{background:#f5f2eb;border:1px solid #e8e4dc;border-radius:8px}
+.shell.theme-studio .vp-btn{color:#64748b;padding:6px 12px;font-size:12px}
+.shell.theme-studio .vp-btn.active{background:#fff;color:#111;box-shadow:0 1px 2px rgba(0,0,0,.06)}
+.shell.theme-studio .btn{height:34px;background:#fff;border:1px solid #e8e4dc;color:#334155;border-radius:8px;font-weight:600}
+.shell.theme-studio .btn:hover{background:#faf8f4}
+.shell.theme-studio .btn.pub,.shell.theme-studio .btn-save{background:#0d9488;border-color:#0d9488;color:#fff}
+.shell.theme-studio .btn.pub:hover,.shell.theme-studio .btn-save:hover{background:#0f766e}
+.ts-sections-head{display:flex;align-items:center;justify-content:space-between;padding:14px 14px 10px;border-bottom:1px solid #f0ebe3;flex-shrink:0}
+.ts-sections-title{font-size:13px;font-weight:700;color:#111}
+.ts-sections-actions{display:flex;gap:4px}
+.ts-search-wrap{padding:10px 12px 6px;flex-shrink:0}
+.ts-search{width:100%;height:34px;border:1px solid #e8e4dc;border-radius:8px;background:#faf8f4;padding:0 10px 0 32px;font-size:12px;color:#111;outline:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='M21 21l-4.35-4.35'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:10px center}
+.ts-search:focus{border-color:#0d9488;background-color:#fff}
+.shell.theme-studio .sec-list{padding:6px 8px 12px}
+.shell.theme-studio .sec-row{border-left:none;border-radius:10px;padding:8px 10px;margin-bottom:2px;border:1px solid transparent}
+.shell.theme-studio .sec-row:hover{background:#faf8f4}
+.shell.theme-studio .sec-row.active{background:#eff6ff;border-color:#3b82f6;box-shadow:0 0 0 1px rgba(59,130,246,.15)}
+.shell.theme-studio .sec-row.active .sec-name{color:#1e40af;font-weight:600}
+.shell.theme-studio .sec-name{color:#111;font-size:13px}
+.shell.theme-studio .sec-type{color:#64748b;font-size:11px}
+.shell.theme-studio .drag-grip{color:#cbd5e1}
+.shell.theme-studio .sec-icon{background:#f5f2eb;border:1px solid #ebe6de}
+.shell.theme-studio .eye-btn{color:#94a3b8}
+.shell.theme-studio .add-sec-btn{margin:4px 12px 12px;border-color:#d6d0c4;color:#64748b;background:#faf8f4;border-radius:10px}
+.shell.theme-studio .add-sec-btn:hover{border-color:#0d9488;color:#0d9488;background:#f0fdfa}
+.ts-sections-hint{padding:0 14px 12px;font-size:11px;color:#94a3b8}
+.shell.theme-studio .canvas-bar{display:none}
+.shell.theme-studio .canvas-stage{padding:24px;background:#F9F7F2;align-items:flex-start}
+.shell.theme-studio .frame-shell{border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,.08),0 1px 3px rgba(0,0,0,.04);border:1px solid #e8e4dc;height:calc(100vh - 52px - 48px)!important;max-height:none}
+.shell.theme-studio .frame-highlight{border:2px solid #3b82f6;border-radius:12px;opacity:0}
+.shell.theme-studio .frame-highlight.show{opacity:1}
+.ts-frame-label{position:absolute;top:-1px;left:12px;transform:translateY(-50%);background:#3b82f6;color:#fff;font-size:11px;font-weight:700;padding:3px 10px;border-radius:6px;z-index:12;pointer-events:none}
+.ts-frame-actions{position:absolute;top:12px;right:12px;display:flex;gap:6px;z-index:12}
+.ts-frame-act{width:32px;height:32px;border-radius:8px;border:1px solid #e8e4dc;background:#fff;color:#475569;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,.08)}
+.ts-frame-act:hover{background:#f8fafc;color:#111}
+.ts-frame-act.danger{color:#dc2626;border-color:#fecaca}
+.shell.theme-studio .rp-tabs{border-bottom:1px solid #f0ebe3;background:#fff}
+.shell.theme-studio .rp-tab{color:#64748b;font-size:12px;font-weight:600;text-transform:none;letter-spacing:0;padding:12px 8px}
+.shell.theme-studio .rp-tab.active{color:#111;border-bottom-color:#0d9488}
+.shell.theme-studio .rp-body{padding:16px}
+.shell.theme-studio .field-label{color:#64748b;font-size:11px;font-weight:600;text-transform:none;letter-spacing:0;margin-bottom:6px}
+.shell.theme-studio .field input,.shell.theme-studio .field textarea,.shell.theme-studio .field select{background:#fff;border:1px solid #e8e4dc;border-radius:8px;color:#111;padding:9px 11px}
+.shell.theme-studio .field input:focus,.shell.theme-studio .field textarea:focus{border-color:#0d9488;box-shadow:0 0 0 3px rgba(13,148,136,.1)}
+.shell.theme-studio .sec-meta-head{border-bottom-color:#f0ebe3;padding-bottom:14px;margin-bottom:16px}
+.shell.theme-studio .sec-meta-name{font-size:15px;font-weight:700;color:#111}
+.shell.theme-studio .sec-meta-type{color:#64748b}
+.shell.theme-studio .type-chip{background:#f5f2eb;color:#64748b;border:1px solid #ebe6de}
+.ts-panel-head{display:flex;align-items:flex-start;gap:10px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid #f0ebe3}
+.ts-panel-icon{width:36px;height:36px;border-radius:10px;background:#f5f2eb;border:1px solid #ebe6de;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:#0d9488;flex-shrink:0}
+.ts-panel-title{font-size:14px;font-weight:700;color:#111;line-height:1.2}
+.ts-panel-sub{font-size:12px;color:#64748b;margin-top:2px}
+.ts-field-row{display:flex;gap:8px;align-items:flex-start}
+.ts-field-row .field{flex:1;margin-bottom:14px}
+.ts-color-swatch{width:36px;height:36px;border-radius:8px;border:1px solid #e8e4dc;cursor:pointer;flex-shrink:0;padding:0;background:#fff;overflow:hidden}
+.ts-color-swatch input{width:150%;height:150%;border:none;padding:0;margin:-25%;cursor:pointer}
+.ts-richbar{display:flex;align-items:center;gap:4px;padding:6px 8px;border:1px solid #e8e4dc;border-bottom:none;border-radius:8px 8px 0 0;background:#faf8f4}
+.ts-richbtn{width:28px;height:28px;border:none;background:transparent;border-radius:6px;color:#64748b;cursor:pointer;font-size:12px;font-weight:700}
+.ts-richbtn:hover{background:#f1ede6;color:#111}
+.ts-richarea{border-radius:0 0 8px 8px;border-top:none;min-height:88px;width:100%;background:#fff;border:1px solid #e8e4dc;color:#111;padding:9px 11px;resize:vertical;outline:none;line-height:1.45}
+.ts-richarea:focus{border-color:#0d9488;box-shadow:0 0 0 3px rgba(13,148,136,.1)}
+.ts-layout-block{margin-top:8px;padding-top:16px;border-top:1px solid #f0ebe3}
+.ts-layout-label{font-size:12px;font-weight:700;color:#111;margin-bottom:10px}
+.ts-align-row{display:flex;gap:6px}
+.ts-align-btn{width:36px;height:36px;border:1px solid #e8e4dc;border-radius:8px;background:#fff;color:#64748b;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.ts-align-btn.active{background:#eff6ff;border-color:#3b82f6;color:#1d4ed8}
+.shell.theme-studio .vis-row{background:#faf8f4;border-color:#ebe6de}
+.shell.theme-studio .vis-label{color:#475569}
+.shell.theme-studio .toggle{background:#e2e8f0;border-color:#cbd5e1}
+.shell.theme-studio .toggle.on{background:#0d9488;border-color:#0d9488}
+.shell.theme-studio .rp-empty{color:#94a3b8}
+.shell.theme-studio .cms-toast{background:#111;border-color:#333;color:#fff;box-shadow:0 8px 24px rgba(0,0,0,.15)}
+.shell.theme-studio ::-webkit-scrollbar-thumb{background:rgba(0,0,0,.12)}
+`;
+
+const SECTION_BLURBS = {
+  header: 'Site navigation',
+  hero: 'Intro section',
+  services: 'Services grid',
+  work: 'Selected work',
+  portfolio_gallery: 'Portfolio showcase',
+  journal: 'Blog / journal',
+  about: 'About block',
+  footer: 'Site footer',
+  faq: 'Questions',
+  cta: 'Call to action',
+  overview: 'Overview',
+  statement: 'Statement',
+  contact_path: 'Contact',
+  service: 'Service detail',
+  closing: 'Closing section',
+  custom: 'Custom section',
+};
+
+function injectStyles(themeStudio) {
   const id = 'cms-editor-v2';
-  if (document.getElementById(id)) return;
-  const s = document.createElement('style');
-  s.id = id; s.textContent = STYLES;
-  document.head.appendChild(s);
+  let s = document.getElementById(id);
+  if (!s) {
+    s = document.createElement('style');
+    s.id = id;
+    document.head.appendChild(s);
+  }
+  s.textContent = STYLES + (themeStudio ? THEME_STUDIO_STYLES : '');
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -354,14 +469,22 @@ const I = {
   eye: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
   eyeOff: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>,
   link: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>,
+  grid: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>,
+  settings: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>,
+  search: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>,
+  plus: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14"/></svg>,
+  pencil: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>,
+  trash: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>,
+  more: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>,
 };
 
 /* ══════════════════════════════════════════════════════════════
    ROOT COMPONENT
 ══════════════════════════════════════════════════════════════ */
 function CmsEditor() {
-  injectStyles();
   const ctx = readCtx();
+  const isThemeStudio = ctx.view === 'themeEditor';
+  injectStyles(isThemeStudio);
 
   /* ── state ── */
   const [bootstrap, setBootstrap]   = useState(null);
@@ -392,6 +515,7 @@ function CmsEditor() {
   const [htmlPos, setHtmlPos]     = useState('end');
   const [previewing, setPrev]     = useState(false);
   const [draftPreview, setDraftPreview] = useState(false);
+  const [sectionQuery, setSectionQuery] = useState('');
 
   const iframeRef = useRef(null);
 
@@ -409,8 +533,8 @@ function CmsEditor() {
           : pg.find(p => p.is_homepage) || pg[0];
         if (first) loadPage(first, data);
         if (ctx.view === 'themeEditor') {
-          setRailMode('theme');
-          setRpTab('theme');
+          setRailMode('sections');
+          setRpTab('edit');
         }
       })
       .catch(e => showToast('Failed to load: ' + e.message, 'err'))
@@ -588,6 +712,17 @@ function CmsEditor() {
 
   const liveUrl = activePage ? pageToUrl(activePage) : null;
   const vpDef = VIEWPORTS.find(v => v.id === vp) || VIEWPORTS[0];
+  const brandName = bootstrap?.tenant?.name || bootstrap?.project_name || 'Inner Animal';
+  const brandInitials = brandName.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase() || 'IA';
+  const sectionQueryNorm = sectionQuery.trim().toLowerCase();
+  const visibleSections = useMemo(() => {
+    if (!sectionQueryNorm) return sections;
+    return sections.filter(sec =>
+      String(sec.section_name || '').toLowerCase().includes(sectionQueryNorm) ||
+      String(sec.section_type || '').toLowerCase().includes(sectionQueryNorm),
+    );
+  }, [sections, sectionQueryNorm]);
+  const themeViewports = isThemeStudio ? VIEWPORTS.filter(v => v.id === 'desktop' || v.id === 'mobile') : VIEWPORTS;
 
   /* ── iframe src effect ── */
   useEffect(() => {
@@ -602,9 +737,73 @@ function CmsEditor() {
     <>
       <div id="cms-toast" className="cms-toast" />
 
-      <div className="shell">
+      <div className={`shell${isThemeStudio ? ' theme-studio' : ''}`}>
 
         {/* ═══ TOPBAR ═══ */}
+        {isThemeStudio ? (
+          <div className="topbar">
+            <div className="ts-brand">
+              <div className="ts-logo">{brandInitials}</div>
+              <span className="ts-brand-name">{brandName}</span>
+              <div className="ts-nav-icons">
+                <button type="button" className="ts-icon-btn" title="Back to CMS" onClick={() => postParent('iam-cms-navigate', { path: `/dashboard/cms/pages?site=${encodeURIComponent(ctx.project)}` })}>
+                  {I.back}
+                </button>
+                <button type="button" className="ts-icon-btn" title="All pages" onClick={() => postParent('iam-cms-navigate', { path: `/dashboard/cms/pages?site=${encodeURIComponent(ctx.project)}` })}>
+                  {I.grid}
+                </button>
+                <button type="button" className="ts-icon-btn" title="Theme settings" onClick={() => setRpTab('design')}>
+                  {I.settings}
+                </button>
+              </div>
+            </div>
+
+            <div className="ts-topbar-center">
+              <select
+                className="ts-page-select"
+                value={activePage?.id || ''}
+                onChange={e => {
+                  const p = pages.find(pg => pg.id === e.target.value);
+                  if (p) loadPage(p);
+                }}
+              >
+                {!activePage && <option value="">Choose page…</option>}
+                {pages.map(p => (
+                  <option key={p.id} value={p.id}>{p.title || p.slug || 'Untitled page'}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="ts-topbar-right">
+              <div className="vp-group">
+                {themeViewports.map(v => (
+                  <button key={v.id} type="button" className={`vp-btn ${vp === v.id ? 'active' : ''}`} onClick={() => setVp(v.id)} title={v.label}>
+                    {v.id === 'desktop' ? I.desktop : I.mobile}
+                  </button>
+                ))}
+              </div>
+              <button type="button" className="btn btn-sm ts-icon-btn" title="Preview" onClick={() => (draftPreview ? showLiveSite(activePage) : refreshDraftPreview())}>
+                {I.eye}
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={saveSection}
+                disabled={saving || !activeSection || !Object.keys(dirty).length}
+              >
+                {saving ? 'Saving…' : 'Save'}
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm pub"
+                onClick={publishPage}
+                disabled={!activePage || publishing}
+              >
+                {publishing ? 'Publishing…' : 'Publish'}
+              </button>
+            </div>
+          </div>
+        ) : (
         <div className="topbar">
           {/* left: page title + draft badge */}
           <div style={{ width: 48, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }} />
@@ -651,8 +850,10 @@ function CmsEditor() {
             </button>
           </div>
         </div>
+        )}
 
         {/* ═══ ICON RAIL ═══ */}
+        {!isThemeStudio && (
         <div className="icon-rail">
           {/* Back to dashboard */}
           <button
@@ -688,9 +889,74 @@ function CmsEditor() {
 
           <div className="rail-spacer" />
         </div>
+        )}
 
         {/* ═══ SIDEBAR ═══ */}
         <div className="sidebar">
+          {isThemeStudio ? (
+            <>
+              <div className="ts-sections-head">
+                <span className="ts-sections-title">Sections</span>
+                <div className="ts-sections-actions">
+                  <button type="button" className="ts-icon-btn" title="Search sections">{I.search}</button>
+                  <button type="button" className="ts-icon-btn" title="Add section" onClick={() => setRpTab('advanced')}>{I.plus}</button>
+                </div>
+              </div>
+              <div className="ts-search-wrap">
+                <input
+                  type="search"
+                  className="ts-search"
+                  placeholder="Search sections…"
+                  value={sectionQuery}
+                  onChange={e => setSectionQuery(e.target.value)}
+                />
+              </div>
+              <div className="sec-list">
+                {booting && (
+                  <div style={{ padding: '16px 12px', color: '#94a3b8', fontSize: 12 }}>
+                    <span className="spin">⟳</span> Loading…
+                  </div>
+                )}
+                {visibleSections.map((sec, idx) => {
+                  const realIdx = sections.findIndex(s => s.id === sec.id);
+                  const color = SECTION_TYPE_COLORS[sec.section_type] || SECTION_TYPE_COLORS.default;
+                  const isActive = activeSection?.id === sec.id;
+                  const blurb = SECTION_BLURBS[sec.section_type] || sec.section_type || 'Section';
+                  return (
+                    <div
+                      key={sec.id}
+                      className={`sec-row ${isActive ? 'active' : ''} ${!sec.is_visible ? 'hidden' : ''}`}
+                      onClick={() => { setActiveSection(sec); setRpTab('edit'); setDirty({}); }}
+                      {...dragH(realIdx >= 0 ? realIdx : idx)}
+                    >
+                      <span className="drag-grip">⋮⋮</span>
+                      <div className="sec-icon" style={{ color, background: color + '18' }}>
+                        {(sec.section_type || 'S').slice(0, 2).toUpperCase()}
+                      </div>
+                      <div className="sec-info">
+                        <div className="sec-name">{sec.section_name}</div>
+                        <div className="sec-type">{blurb}</div>
+                      </div>
+                      <button type="button" className="eye-btn" title="More" onClick={e => e.stopPropagation()}>
+                        {I.more}
+                      </button>
+                    </div>
+                  );
+                })}
+                {!visibleSections.length && !booting && (
+                  <div style={{ padding: '14px 12px', color: '#94a3b8', fontSize: 12 }}>
+                    {sectionQueryNorm ? 'No matching sections' : 'No sections yet'}
+                  </div>
+                )}
+              </div>
+              <button type="button" className="add-sec-btn" onClick={() => setRpTab('advanced')}>
+                <span style={{ fontSize: 16, lineHeight: 1 }}>+</span>
+                Add section
+              </button>
+              <div className="ts-sections-hint">Drag sections to reorder.</div>
+            </>
+          ) : (
+          <>
           <div className="sb-head">
             <div className="sb-page-selector">
               <div className="sb-page-label">Page</div>
@@ -780,6 +1046,8 @@ function CmsEditor() {
               ))}
             </div>
           )}
+          </>
+          )}
         </div>
 
         {/* ═══ CANVAS ═══ */}
@@ -804,8 +1072,8 @@ function CmsEditor() {
               <div
                 className="frame-shell"
                 style={{
-                  width: vpDef.w ? Math.min(vpDef.w, window.innerWidth - 600) : '100%',
-                  height: 'calc(100vh - 44px - 36px - 32px)',
+                  width: vpDef.w ? Math.min(vpDef.w, window.innerWidth - (isThemeStudio ? 640 : 600)) : '100%',
+                  height: isThemeStudio ? undefined : 'calc(100vh - 44px - 36px - 32px)',
                   maxWidth: '100%',
                 }}
               >
@@ -816,8 +1084,32 @@ function CmsEditor() {
                   style={{ height: '100%' }}
                   sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
                 />
-                {/* active section highlight overlay */}
-                <div className={`frame-highlight ${activeSection ? 'show' : ''}`} />
+                <div className={`frame-highlight ${activeSection ? 'show' : ''}`}>
+                  {isThemeStudio && activeSection ? (
+                    <>
+                      <span className="ts-frame-label">{activeSection.section_name}</span>
+                      <div className="ts-frame-actions">
+                        <button type="button" className="ts-frame-act" title="Edit section" onClick={() => setRpTab('edit')}>{I.pencil}</button>
+                        <button
+                          type="button"
+                          className="ts-frame-act danger"
+                          title="Delete section"
+                          onClick={async () => {
+                            if (!confirm('Delete section?')) return;
+                            try {
+                              await api(`/api/cms/sections/${encodeURIComponent(activeSection.id)}`, { method: 'DELETE' });
+                              setSections(prev => prev.filter(s => s.id !== activeSection.id));
+                              setActiveSection(null);
+                              showToast('Deleted');
+                            } catch (e) { showToast('Delete failed', 'err'); }
+                          }}
+                        >
+                          {I.trash}
+                        </button>
+                      </div>
+                    </>
+                  ) : null}
+                </div>
               </div>
             ) : (
               <div className="canvas-empty-state">
@@ -831,14 +1123,36 @@ function CmsEditor() {
         {/* ═══ RIGHT PANEL ═══ */}
         <div className="rpanel">
           <div className="rp-tabs">
-            <button className={`rp-tab ${rpTab === 'edit' ? 'active' : ''}`} onClick={() => setRpTab('edit')}>Edit</button>
-            <button className={`rp-tab ${rpTab === 'html' ? 'active' : ''}`} onClick={() => setRpTab('html')}>HTML</button>
-            <button className={`rp-tab ${rpTab === 'page' ? 'active' : ''}`} onClick={() => setRpTab('page')}>Page</button>
-            <button className={`rp-tab ${rpTab === 'theme' ? 'active' : ''}`} onClick={() => setRpTab('theme')}>Theme</button>
+            {isThemeStudio ? (
+              <>
+                <button type="button" className={`rp-tab ${rpTab === 'edit' ? 'active' : ''}`} onClick={() => setRpTab('edit')}>Content</button>
+                <button type="button" className={`rp-tab ${rpTab === 'design' ? 'active' : ''}`} onClick={() => setRpTab('design')}>Design</button>
+                <button type="button" className={`rp-tab ${rpTab === 'advanced' ? 'active' : ''}`} onClick={() => setRpTab('advanced')}>Advanced</button>
+              </>
+            ) : (
+              <>
+                <button className={`rp-tab ${rpTab === 'edit' ? 'active' : ''}`} onClick={() => setRpTab('edit')}>Edit</button>
+                <button className={`rp-tab ${rpTab === 'html' ? 'active' : ''}`} onClick={() => setRpTab('html')}>HTML</button>
+                <button className={`rp-tab ${rpTab === 'page' ? 'active' : ''}`} onClick={() => setRpTab('page')}>Page</button>
+                <button className={`rp-tab ${rpTab === 'theme' ? 'active' : ''}`} onClick={() => setRpTab('theme')}>Theme</button>
+              </>
+            )}
           </div>
 
           <div className="rp-body">
             {rpTab === 'edit' && (
+              isThemeStudio ? (
+                <ThemeStudioContentPanel
+                  section={activeSection}
+                  data={{ ...secData(activeSection), ...dirty }}
+                  onChange={(k, v) => setDirty(prev => ({ ...prev, [k]: v }))}
+                  dirty={dirty}
+                  onSave={saveSection}
+                  saving={saving}
+                  onRevert={() => setDirty({})}
+                  onToggle={() => activeSection && toggleVis(activeSection)}
+                />
+              ) : (
               <EditPanel
                 section={activeSection}
                 data={{ ...secData(activeSection), ...dirty }}
@@ -858,8 +1172,60 @@ function CmsEditor() {
                   } catch (e) { showToast('Delete failed', 'err'); }
                 }}
               />
+              )
             )}
-            {rpTab === 'html' && (
+            {isThemeStudio && rpTab === 'design' && (
+              <>
+                <ThemeStudioDesignPanel
+                  section={activeSection}
+                  data={{ ...secData(activeSection), ...dirty }}
+                  onChange={(k, v) => setDirty(prev => ({ ...prev, [k]: v }))}
+                  onSave={saveSection}
+                  saving={saving}
+                  dirty={dirty}
+                />
+                <div className="divider" />
+                <ThemePanel bootstrap={bootstrap} project={ctx.project} />
+              </>
+            )}
+            {isThemeStudio && rpTab === 'advanced' && (
+              <>
+                <PagePanel page={activePage} sections={sections} url={liveUrl} />
+                <div className="divider" />
+                <HtmlPanel
+                  code={htmlCode} setCode={setHtmlCode}
+                  name={htmlName} setName={setHtmlName}
+                  type={htmlType} setType={setHtmlType}
+                  pos={htmlPos} setPos={setHtmlPos}
+                  previewing={previewing}
+                  onPreview={previewHtml}
+                  onClearPreview={clearPreview}
+                  onPublish={publishHtmlSection}
+                  saving={saving}
+                />
+                {activeSection ? (
+                  <>
+                    <div className="divider" />
+                    <button
+                      type="button"
+                      className="btn btn-del"
+                      onClick={async () => {
+                        if (!confirm('Delete section?')) return;
+                        try {
+                          await api(`/api/cms/sections/${encodeURIComponent(activeSection.id)}`, { method: 'DELETE' });
+                          setSections(prev => prev.filter(s => s.id !== activeSection.id));
+                          setActiveSection(null);
+                          showToast('Deleted');
+                        } catch (e) { showToast('Delete failed', 'err'); }
+                      }}
+                    >
+                      Delete section
+                    </button>
+                  </>
+                ) : null}
+              </>
+            )}
+            {!isThemeStudio && rpTab === 'html' && (
               <HtmlPanel
                 code={htmlCode} setCode={setHtmlCode}
                 name={htmlName} setName={setHtmlName}
@@ -872,10 +1238,10 @@ function CmsEditor() {
                 saving={saving}
               />
             )}
-            {rpTab === 'page' && (
+            {!isThemeStudio && rpTab === 'page' && (
               <PagePanel page={activePage} sections={sections} url={liveUrl} />
             )}
-            {rpTab === 'theme' && (
+            {!isThemeStudio && rpTab === 'theme' && (
               <ThemePanel bootstrap={bootstrap} project={ctx.project} />
             )}
           </div>
@@ -883,6 +1249,236 @@ function CmsEditor() {
 
       </div>
     </>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════
+   THEME STUDIO PANELS (light layout)
+══════════════════════════════════════════════════════════════ */
+function ThemeStudioPanelHead({ section }) {
+  if (!section) return null;
+  const blurb = SECTION_BLURBS[section.section_type] || section.section_type || 'Section';
+  const initials = (section.section_type || 'S').slice(0, 2).toUpperCase();
+  return (
+    <div className="ts-panel-head">
+      <div className="ts-panel-icon">{initials}</div>
+      <div>
+        <div className="ts-panel-title">{section.section_name}</div>
+        <div className="ts-panel-sub">{blurb}</div>
+      </div>
+    </div>
+  );
+}
+
+function ThemeField({ label, value, onChange, type = 'input', colorValue = null, onColorChange = null }) {
+  const field = type === 'textarea' ? (
+    <>
+      <div className="ts-richbar">
+        <button type="button" className="ts-richbtn">B</button>
+        <button type="button" className="ts-richbtn"><em>I</em></button>
+        <button type="button" className="ts-richbtn">Link</button>
+      </div>
+      <textarea className="ts-richarea" rows={3} value={value || ''} onChange={e => onChange(e.target.value)} />
+    </>
+  ) : (
+    <input type="text" value={value || ''} onChange={e => onChange(e.target.value)} />
+  );
+  return (
+    <div className="field">
+      <label className="field-label">{label}</label>
+      {onColorChange ? (
+        <div className="ts-field-row">
+          <div style={{ flex: 1 }}>{field}</div>
+          <label className="ts-color-swatch" title="Color">
+            <input type="color" value={colorValue || '#111111'} onChange={e => onColorChange(e.target.value)} />
+          </label>
+        </div>
+      ) : field}
+    </div>
+  );
+}
+
+function ThemeStudioContentPanel({ section, data, onChange, dirty, onSave, saving, onRevert, onToggle }) {
+  if (!section) return (
+    <div className="rp-empty">
+      <div className="rp-empty-icon">✦</div>
+      <div style={{ fontSize: 12 }}>Select a section to edit its content</div>
+    </div>
+  );
+
+  const headingVal = data.heading ?? data.headline ?? data.title ?? '';
+  const descVal = data.description ?? data.subheadline ?? data.sub ?? data.body ?? data.copy ?? '';
+  const ctaLabel = data.cta_label ?? data.primary_button_label ?? data.button_label ?? '';
+  const ctaHref = data.cta_href ?? data.primary_button_link ?? data.button_href ?? data.button_link ?? '';
+  const highlight = data.highlight_words ?? data.highlight ?? '';
+  const align = data.content_alignment ?? data.alignment ?? 'left';
+  const spacing = data.vertical_spacing ?? data.spacing ?? 'large';
+
+  const setIfPresent = (keys, val) => {
+    for (const k of keys) {
+      if (data[k] !== undefined || keys[0] === k) { onChange(k, val); return; }
+    }
+    onChange(keys[0], val);
+  };
+
+  return (
+    <div>
+      <ThemeStudioPanelHead section={section} />
+
+      <div className="vis-row">
+        <span className="vis-label">{section.is_visible ? 'Visible on page' : 'Hidden from page'}</span>
+        <div className={`toggle ${section.is_visible ? 'on' : ''}`} onClick={onToggle} role="button" tabIndex={0} />
+      </div>
+
+      {(data.eyebrow !== undefined || section.section_type === 'hero') && (
+        <ThemeField
+          label="Eyebrow"
+          value={data.eyebrow || ''}
+          onChange={v => onChange('eyebrow', v)}
+          colorValue={data.eyebrow_color || '#64748b'}
+          onColorChange={v => onChange('eyebrow_color', v)}
+        />
+      )}
+
+      {(headingVal !== '' || data.heading !== undefined || data.headline !== undefined || data.title !== undefined || section.section_type === 'hero') && (
+        <ThemeField
+          label="Heading"
+          type="textarea"
+          value={headingVal}
+          onChange={v => setIfPresent(['heading', 'headline', 'title'], v)}
+          colorValue={data.heading_color || data.title_color || '#111111'}
+          onColorChange={v => onChange('heading_color', v)}
+        />
+      )}
+
+      {(highlight !== '' || data.highlight_words !== undefined || data.highlight !== undefined || section.section_type === 'hero') && (
+        <ThemeField
+          label="Highlight words"
+          value={highlight}
+          onChange={v => setIfPresent(['highlight_words', 'highlight'], v)}
+          colorValue={data.highlight_color || '#0d9488'}
+          onColorChange={v => onChange('highlight_color', v)}
+        />
+      )}
+
+      {(descVal !== '' || data.description !== undefined || data.subheadline !== undefined || data.body !== undefined || section.section_type === 'hero') && (
+        <ThemeField
+          label="Description"
+          type="textarea"
+          value={descVal}
+          onChange={v => setIfPresent(['description', 'subheadline', 'sub', 'body', 'copy'], v)}
+        />
+      )}
+
+      {(ctaLabel !== '' || data.cta_label !== undefined || section.section_type === 'hero') && (
+        <div style={{ marginBottom: 14 }}>
+          <label className="field-label">Primary button</label>
+          <div className="field" style={{ marginBottom: 8 }}>
+            <label className="field-label" style={{ fontSize: 10, textTransform: 'uppercase' }}>Label</label>
+            <input type="text" value={ctaLabel} onChange={e => setIfPresent(['cta_label', 'primary_button_label', 'button_label'], e.target.value)} />
+          </div>
+          <div className="field" style={{ marginBottom: 0 }}>
+            <label className="field-label" style={{ fontSize: 10, textTransform: 'uppercase' }}>Link</label>
+            <input type="text" value={ctaHref} onChange={e => setIfPresent(['cta_href', 'primary_button_link', 'button_href', 'button_link'], e.target.value)} />
+          </div>
+        </div>
+      )}
+
+      {FIELD_MAP.filter(([k]) => !['headline','title','heading','eyebrow','subheadline','sub','body','copy','cta_label','cta_href','secondary_cta_label','secondary_cta_href'].includes(k) && data[k] !== undefined).map(([key, label, type]) => {
+        let val = data[key];
+        if (val && typeof val === 'object') val = val.text || JSON.stringify(val);
+        return (
+          <div className="field" key={key}>
+            <label className="field-label">{label}</label>
+            {type === 'textarea'
+              ? <textarea rows={3} value={val || ''} onChange={e => onChange(key, e.target.value)} />
+              : <input type="text" value={val || ''} onChange={e => onChange(key, e.target.value)} />
+            }
+          </div>
+        );
+      })}
+
+      {Array.isArray(data.bullets) && (
+        <BulletsEditor bullets={data.bullets} onChange={b => onChange('bullets', b)} />
+      )}
+
+      <div className="ts-layout-block">
+        <div className="ts-layout-label">Layout</div>
+        <div className="field">
+          <label className="field-label">Content alignment</label>
+          <div className="ts-align-row">
+            {['left', 'center', 'right'].map(id => (
+              <button
+                key={id}
+                type="button"
+                className={`ts-align-btn ${align === id ? 'active' : ''}`}
+                onClick={() => setIfPresent(['content_alignment', 'alignment'], id)}
+                title={id}
+              >
+                {id === 'left' ? '←' : id === 'center' ? '↔' : '→'}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="field">
+          <label className="field-label">Vertical spacing</label>
+          <select value={spacing} onChange={e => setIfPresent(['vertical_spacing', 'spacing'], e.target.value)}>
+            <option value="compact">Compact</option>
+            <option value="default">Default</option>
+            <option value="large">Large</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="divider" />
+      <div className="btn-row">
+        <button type="button" className="btn btn-save" onClick={onSave} disabled={saving || !Object.keys(dirty).length}>
+          {saving ? 'Saving…' : 'Save changes'}
+        </button>
+        <button type="button" className="btn btn-revert btn-sm" onClick={onRevert}>Revert</button>
+      </div>
+    </div>
+  );
+}
+
+function ThemeStudioDesignPanel({ section, data, onChange, onSave, saving, dirty }) {
+  if (!section) return (
+    <div className="rp-empty">
+      <div className="rp-empty-icon">◑</div>
+      <div style={{ fontSize: 12 }}>Select a section for design options</div>
+    </div>
+  );
+
+  return (
+    <div>
+      <ThemeStudioPanelHead section={section} />
+      <div className="field">
+        <label className="field-label">Background color</label>
+        <div className="ts-field-row">
+          <input type="text" value={data.background_color || data.bg_color || ''} placeholder="#F9F7F2" onChange={e => onChange('background_color', e.target.value)} />
+          <label className="ts-color-swatch"><input type="color" value={data.background_color || '#f9f7f2'} onChange={e => onChange('background_color', e.target.value)} /></label>
+        </div>
+      </div>
+      <div className="field">
+        <label className="field-label">Text color</label>
+        <div className="ts-field-row">
+          <input type="text" value={data.text_color || ''} placeholder="#1a1a1a" onChange={e => onChange('text_color', e.target.value)} />
+          <label className="ts-color-swatch"><input type="color" value={data.text_color || '#1a1a1a'} onChange={e => onChange('text_color', e.target.value)} /></label>
+        </div>
+      </div>
+      <div className="field">
+        <label className="field-label">Accent color</label>
+        <div className="ts-field-row">
+          <input type="text" value={data.accent_color || ''} placeholder="#0d9488" onChange={e => onChange('accent_color', e.target.value)} />
+          <label className="ts-color-swatch"><input type="color" value={data.accent_color || '#0d9488'} onChange={e => onChange('accent_color', e.target.value)} /></label>
+        </div>
+      </div>
+      <div className="btn-row">
+        <button type="button" className="btn btn-save" onClick={onSave} disabled={saving || !Object.keys(dirty).length}>
+          {saving ? 'Saving…' : 'Save design'}
+        </button>
+      </div>
+    </div>
   );
 }
 
