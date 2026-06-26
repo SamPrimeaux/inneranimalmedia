@@ -88,9 +88,10 @@ export async function fetchArtifacts(params: {
   session_id?: string;
   signal?: AbortSignal;
 }): Promise<ArtifactListResponse> {
-  const r = await fetch(`/api/agent/artifacts${qs(params)}`, {
+  const { signal, ...query } = params;
+  const r = await fetch(`/api/agent/artifacts${qs(query)}`, {
     credentials: 'same-origin',
-    signal: params.signal,
+    signal,
   });
   return (await r.json()) as ArtifactListResponse;
 }

@@ -205,7 +205,6 @@ export async function runHourlyRoutingJobs(env, ctx) {
   ctx.waitUntil(rollupAgentsamModelRoutingMemory(env).catch(e => console.warn('[cron/hourly] rollupRoutingMemory', e?.message)));
   ctx.waitUntil(enforceTaskSlosFromRoutingMemory(env).catch(e => console.warn('[cron/hourly] enforceSlos', e?.message)));
   ctx.waitUntil(enforceEvalSlosPauseArms(env, { lookbackDays: 7 }).catch(e => console.warn('[cron/hourly] enforceEvalSlos', e?.message)));
-  ctx.waitUntil((env).catch(e => console.warn('[cron/hourly] syncPause', e?.message)));
   // routing_analytics_rollups disabled — duplicated execution_performance rollup with 0 writes.
   ctx.waitUntil(processQueues(env).catch((e) => console.warn('[cron/hourly] agent_request_queue_drain', e?.message)));
   ctx.waitUntil(scanErrorLogThresholds(env).catch(e => console.warn('[cron/hourly] errorLogThresholds', e?.message)));
