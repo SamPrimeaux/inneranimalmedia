@@ -1055,6 +1055,10 @@ export default {
 
           const pwaRootAssets = {
             '/sw.js': { key: 'static/dashboard/sw.js', contentType: 'application/javascript; charset=utf-8' },
+            '/workbox-dff6aff8.js': {
+              key: 'static/dashboard/workbox-dff6aff8.js',
+              contentType: 'application/javascript; charset=utf-8',
+            },
             '/push-handler.js': {
               key: 'static/dashboard/push-handler.js',
               contentType: 'application/javascript; charset=utf-8',

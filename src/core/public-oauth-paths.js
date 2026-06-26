@@ -96,6 +96,9 @@ export const PUBLIC_OAUTH_PATHS = [
   '/static/dashboard/app/glbAssets.js',
   '/static/dashboard/app/vendor-three.js',
 
+  // AgentSam CMS editor shell (iframe UI; CMS APIs remain session-gated)
+  '/static/dashboard/app/cms',
+
   // MovieMode globe proxy (main worker → moviemode-service)
   '/globe',
 
