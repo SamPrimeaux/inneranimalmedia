@@ -51,32 +51,29 @@ if [[ ! -f "$INSTALL_SCRIPT" ]]; then
 fi
 
 REMOTE_CMD="set -euo pipefail
-if [[ -f \"\$HOME/ExecOS/deploy/gcp/install-agentsam-ops.sh\" ]]; then
-  cd \"\$HOME/ExecOS\"
-  git pull --ff-only 2>/dev/null || true
-  bash deploy/gcp/install-agentsam-ops.sh ${REMOTE_ARGS[*]:-}
-elif [[ -f \"\$HOME/iam-pty/deploy/gcp/install-agentsam-ops.sh\" ]]; then
-  cd \"\$HOME/iam-pty\"
-  git pull --ff-only 2>/dev/null || true
-  bash deploy/gcp/install-agentsam-ops.sh ${REMOTE_ARGS[*]:-}
-else
-  echo '✗ ExecOS runtime not found on VM — run bootstrap.sh first' >&2
-  exit 1
-fi
+sudo bash /tmp/execos-deploy/gcp/install-agentsam-ops.sh ${REMOTE_ARGS[*]:-}
+sudo bash /tmp/execos-deploy/gcp/install-agentsam-ssh-identity.sh
+sudo install -m 644 /tmp/execos-deploy/server.js /home/samprimeaux/ExecOS/server.js 2>/dev/null || true
+sudo chown agentsam:agentsam /home/samprimeaux/ExecOS/server.js 2>/dev/null || true
+sudo -u agentsam bash -lc 'cd /home/samprimeaux/ExecOS && pm2 restart execos --update-env && pm2 save'
 "
 
 if (( DRY_RUN )); then
-  echo "[dry-run] would ssh ${GCP_VM_NAME} and run install-agentsam-ops.sh ${REMOTE_ARGS[*]:-}"
+  echo "[dry-run] would scp to /tmp/execos-deploy on ${GCP_VM_NAME} and run install scripts"
   exit 0
 fi
 
-echo "→ Sync ExecOS deploy assets to ${GCP_VM_NAME}"
-gcloud compute scp --recurse "${EXECOS_HOME}/deploy/gcp" \
-  "${GCP_VM_NAME}:~/ExecOS/deploy/" \
+echo "→ Sync ExecOS deploy assets to ${GCP_VM_NAME} (via /tmp — ExecOS may be owned by agentsam)"
+gcloud compute ssh "$GCP_VM_NAME" \
   --project="$GCP_PROJECT" \
-  --zone="$GCP_ZONE_VAL" 2>/dev/null || \
+  --zone="$GCP_ZONE_VAL" \
+  --command='rm -rf /tmp/execos-deploy && mkdir -p /tmp/execos-deploy'
 gcloud compute scp --recurse "${EXECOS_HOME}/deploy/gcp" \
-  "${GCP_VM_NAME}:~/iam-pty/deploy/" \
+  "${GCP_VM_NAME}:/tmp/execos-deploy/" \
+  --project="$GCP_PROJECT" \
+  --zone="$GCP_ZONE_VAL"
+gcloud compute scp "${EXECOS_HOME}/server.js" \
+  "${GCP_VM_NAME}:/tmp/execos-deploy/server.js" \
   --project="$GCP_PROJECT" \
   --zone="$GCP_ZONE_VAL"
 
@@ -88,7 +85,6 @@ gcloud compute ssh "$GCP_VM_NAME" \
 
 echo ""
 echo "✓ AgentSam ops layer installed on iam-tunnel."
-echo "  Re-deploy ExecOS server.js (git pull + pm2 restart) to pick up scoped sudo allow-list."
 echo ""
-echo "→ SSH service identity (store private key in Worker secret AGENTSAM_IAM_TUNNEL_SSH_KEY):"
-echo "   gcloud compute ssh iam-tunnel --command='bash ~/ExecOS/deploy/gcp/install-agentsam-ssh-identity.sh --print-private-key'"
+echo "→ Store SSH private key in Worker secret AGENTSAM_IAM_TUNNEL_SSH_KEY:"
+echo "   gcloud compute ssh ${GCP_VM_NAME} --command='sudo cat /var/lib/agentsam/.ssh/agentsam_tunnel_ed25519'"
