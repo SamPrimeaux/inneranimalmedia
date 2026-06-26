@@ -24,12 +24,16 @@ function parseMetadataObject(raw) {
   }
 }
 
-function extractCoverImageUrl(row, meta = {}) {
+function extractCoverImageUrl(row, meta) {
+  const m =
+    meta != null && typeof meta === 'object'
+      ? meta
+      : parseMetadataObject(row?.metadata_json);
   const candidates = [
-    meta.cover_image_url,
-    meta.cover_url,
-    meta.hero_image_url,
-    meta.card_image_url,
+    m.cover_image_url,
+    m.cover_url,
+    m.hero_image_url,
+    m.card_image_url,
   ];
   for (const c of candidates) {
     const u = c != null ? String(c).trim() : '';
@@ -256,6 +260,7 @@ function computeHealth({ passRate, blockedCount, openIssueCount, estDate, status
 }
 
 async function handleOverview(request, url, env, authUser) {
+  try {
   const tenantId = authUser.tenant_id ? String(authUser.tenant_id) : null;
   let workspaceId =
     url.searchParams.get('workspace_id') ||
@@ -480,7 +485,7 @@ async function handleOverview(request, url, env, authUser) {
       tags,
       workspace_id: p.workspace_id || null,
       tenant_id: p.tenant_id || null,
-      cover_image_url: wpCoverByProjectId.get(id) || extractCoverImageUrl(p, null),
+      cover_image_url: wpCoverByProjectId.get(id) || extractCoverImageUrl(p, parseMetadataObject(p?.metadata_json)),
     };
   });
 
@@ -654,6 +659,10 @@ async function handleOverview(request, url, env, authUser) {
     priority_tasks,
     updated_at: new Date().toISOString(),
   });
+  } catch (e) {
+    console.warn('[projects/overview]', e?.message ?? e);
+    return jsonResponse({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500);
+  }
 }
 
 async function handleList(env, authUser, url) {

@@ -249,6 +249,14 @@ export function LibraryProjectsSurface({ onToast, initialProjectId, onProjectCha
   }, [workspaceId, workspaceLoading, refresh]);
 
   useEffect(() => {
+    if (!workspaceLoading || overview) return;
+    const t = window.setTimeout(() => {
+      if (!overview) void refresh();
+    }, 4000);
+    return () => window.clearTimeout(t);
+  }, [workspaceLoading, overview, refresh]);
+
+  useEffect(() => {
     if (initialProjectId) setSelectedId(initialProjectId);
   }, [initialProjectId]);
 
