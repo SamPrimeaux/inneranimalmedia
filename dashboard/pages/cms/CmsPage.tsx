@@ -118,7 +118,10 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
               ? 'imports'
               : 'pages';
 
-  const isStudioEditorRoute = parsed.view === 'theme-editor' || Boolean(parsed.pageId);
+  // Theme/page editing should always use our native Atelier editor shell.
+  // Client-worker embedding stays available for non-editor client portals, but it should not hijack
+  // /dashboard/cms/theme-editor or a concrete /dashboard/cms/pages/:pageId edit route.
+  const useNativeStudioEditor = parsed.view === 'theme-editor' || Boolean(parsed.pageId);
   const studioProjectSlug = context?.project_slug || effectiveSiteSlug || null;
 
   const needsSitePick =
@@ -183,7 +186,7 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
           </div>
         </div>
       ) : null}
-      {!needsSitePick && isClientWorker && context?.project_slug ? (
+      {!needsSitePick && isClientWorker && !useNativeStudioEditor && context?.project_slug ? (
         <ClientWorkerCmsStudio
           workspaceId={workspaceId}
           projectSlug={context.project_slug}
@@ -194,7 +197,7 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
           apiProfile={context.api_profile}
         />
       ) : null}
-      {!needsSitePick && !isClientWorker && isStudioEditorRoute && studioProjectSlug ? (
+      {!needsSitePick && useNativeStudioEditor && studioProjectSlug ? (
         <Suspense fallback={<StudioShellFallback themeEditor={parsed.view === 'theme-editor'} />}>
           <CmsStudioEditor
             projectSlug={studioProjectSlug}
@@ -207,7 +210,7 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
           />
         </Suspense>
       ) : null}
-      {!needsSitePick && !isClientWorker && !isStudioEditorRoute ? (
+      {!needsSitePick && !isClientWorker && !useNativeStudioEditor ? (
         <Suspense
           fallback={
             <div className="flex flex-1 items-center justify-center text-sm text-[var(--text-muted)]">
