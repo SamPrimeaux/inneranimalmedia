@@ -106,20 +106,47 @@ samp.font-mono {
   height: auto !important;
 }
 
+:root {
+  /* Cursor quick-input-widget defaults: 600px wide, ~440px list */
+  --shell-dropdown-width: 600px;
+  --shell-dropdown-list-max-height: 440px;
+  --shell-dropdown-max-height: min(520px, 70vh);
+  --shell-dropdown-radius: 6px;
+  --dashboard-topbar-height: 2.5rem;
+}
+
 .nav-search-container {
   position: relative;
   z-index: 120;
+  width: var(--shell-dropdown-width);
+  max-width: min(var(--shell-dropdown-width), calc(100vw - 1.5rem));
 }
 
-/* Anchored under top-bar search — not a fullscreen modal */
+/* One-panel command palette — dropdown matches trigger width exactly */
 .nav-dropdown {
   position: absolute;
-  top: calc(100% + 6px);
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(520px, calc(100vw - 1.5rem));
-  max-width: 520px;
+  top: 100%;
+  left: 0;
+  right: 0;
+  width: 100%;
+  max-height: var(--shell-dropdown-max-height);
   z-index: 121;
+  border-top: none;
+  border-radius: 0 0 var(--shell-dropdown-radius) var(--shell-dropdown-radius);
+}
+
+.nav-search-container[data-palette-open='true'] .nav-search-trigger {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  border-bottom-color: transparent;
+}
+
+.nav-search-container[data-palette-open='true'] .nav-dropdown {
+  margin-top: -1px;
+}
+
+.nav-dropdown__results {
+  max-height: var(--shell-dropdown-list-max-height);
 }
 
 /* Mobile top bar: icon trigger + ~60vw centered palette */
@@ -129,8 +156,8 @@ samp.font-mono {
 }
 
 .iam-nav-search--mobile .nav-dropdown {
-  width: clamp(17.5rem, 60vw, 22.5rem);
-  max-width: min(60vw, calc(100vw - 2rem));
+  width: var(--shell-dropdown-width);
+  max-width: min(var(--shell-dropdown-width), calc(100vw - 1.5rem));
 }
 
 .iam-nav-search--toolbar .nav-dropdown {

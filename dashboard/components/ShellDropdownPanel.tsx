@@ -1,8 +1,10 @@
 import React from 'react';
 
-/** Uniform shell dropdown width — repo/branch, connection, and search menus share this. */
-export const SHELL_DROPDOWN_WIDTH_PX = 380;
-export const SHELL_DROPDOWN_MAX_HEIGHT = 'min(420px, 60vh)';
+/** Uniform shell dropdown width — matches Cursor quick-input-widget (600px). */
+export const SHELL_DROPDOWN_WIDTH_PX = 600;
+export const SHELL_DROPDOWN_LIST_MAX_HEIGHT_PX = 440;
+export const SHELL_DROPDOWN_MAX_HEIGHT = 'min(520px, 70vh)';
+export const SHELL_DROPDOWN_RADIUS_PX = 6;
 
 type ShellDropdownPanelProps = {
   title?: React.ReactNode;
@@ -25,16 +27,20 @@ export function ShellDropdownPanel({
   'aria-label': ariaLabel,
 }: ShellDropdownPanelProps) {
   const position = variant === 'anchored' ? 'absolute top-full left-0 z-[70]' : '';
+  const radius =
+    variant === 'anchored'
+      ? 'rounded-b-[var(--shell-dropdown-radius,6px)] rounded-t-none'
+      : 'rounded-[var(--shell-dropdown-radius,6px)]';
 
   return (
     <div
       role={role}
       aria-label={ariaLabel}
-      className={`iam-shell-dropdown flex flex-col overflow-hidden rounded-xl shadow-2xl ${position} ${className}`}
+      className={`iam-shell-dropdown flex flex-col overflow-hidden shadow-2xl ${radius} ${position} ${className}`}
       style={{
-        width: SHELL_DROPDOWN_WIDTH_PX,
-        maxWidth: '92vw',
-        maxHeight: SHELL_DROPDOWN_MAX_HEIGHT,
+        width: 'var(--shell-dropdown-width, 600px)',
+        maxWidth: 'min(var(--shell-dropdown-width, 600px), 92vw)',
+        maxHeight: 'var(--shell-dropdown-max-height, min(520px, 70vh))',
         // Flush attach: zero offset from trigger, panel reads as one continuous surface.
         marginTop: variant === 'anchored' ? 0 : undefined,
         // Frosted glass: translucent dark fill + blur, not an opaque card.

@@ -17,6 +17,7 @@ export type ConnectionMenuPanelProps = {
   onClose: () => void;
   onAction: (action: ConnectionMenuAction) => void;
   variant?: 'floating' | 'anchored';
+  className?: string;
 };
 
 type Row = {
@@ -45,6 +46,7 @@ export function ConnectionMenuPanel({
   onClose,
   onAction,
   variant = 'floating',
+  className = '',
 }: ConnectionMenuPanelProps) {
   const [filter, setFilter] = useState('');
   const [active, setActive] = useState(0);
@@ -96,6 +98,7 @@ export function ConnectionMenuPanel({
   return (
     <ShellDropdownPanel
       variant={variant}
+      className={className}
       title="Select a connection option"
       aria-label="Terminal connection options"
       footer={

@@ -56,6 +56,7 @@ export type GitRepoBranchMenuPanelProps = {
   onWorkspacePickerClick?: () => void;
   /** `floating` = App portal; `dropdown` = anchored under nav trigger */
   variant?: 'dropdown' | 'floating';
+  className?: string;
 };
 
 export function GitRepoBranchMenuPanel({
@@ -69,6 +70,7 @@ export function GitRepoBranchMenuPanel({
   onGitBranchClick,
   onWorkspacePickerClick,
   variant = 'dropdown',
+  className = '',
 }: GitRepoBranchMenuPanelProps) {
   const [branchData, setBranchData] = useState<{
     current: string;
@@ -219,6 +221,7 @@ export function GitRepoBranchMenuPanel({
   return (
     <ShellDropdownPanel
       variant={shellVariant}
+      className={className}
       aria-label="Repository and branches"
       title={branchLoading ? 'Loading…' : branchData?.repo || workspaceRepoHint || 'Repository'}
       footer={

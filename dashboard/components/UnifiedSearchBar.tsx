@@ -36,6 +36,7 @@ import {
 } from '../src/lib/databaseStudioRoute';
 import { ConnectionMenuPanel, type ConnectionMenuAction } from './ConnectionMenuPanel';
 import { GitRepoBranchMenuPanel, GitRepoBranchNavTrigger } from './GitRepoBranchDropdown';
+import { SHELL_DROPDOWN_WIDTH_PX } from './ShellDropdownPanel';
 import { filterDeployPaletteRows } from '../src/lib/deployPaletteItems';
 import { IAM_GIT_SYNC_PUBLISH, IAM_OPEN_CONNECTION_MENU, IAM_OPEN_GIT_REPO_MENU } from '../src/lib/openCommandPalette';
 import type { OpenCommandPaletteDetail } from '../src/lib/openCommandPalette';
@@ -535,6 +536,7 @@ export const UnifiedSearchBar: React.FC<{
   const [connectionMenuOpen, setConnectionMenuOpen] = useState(false);
   const [gitMenuOpen, setGitMenuOpen] = useState(false);
   const connectionMenuRef = useRef<HTMLDivElement>(null);
+  const gitMenuRef = useRef<HTMLDivElement>(null);
 
   const { mode, term } = useMemo(() => parseQueryMode(q), [q]);
 
@@ -1020,6 +1022,7 @@ export const UnifiedSearchBar: React.FC<{
       const t = e.target as Node;
       if (paletteRef.current?.contains(t)) return;
       if (connectionMenuRef.current?.contains(t)) return;
+      if (gitMenuRef.current?.contains(t)) return;
       setGitMenuOpen(false);
       setConnectionMenuOpen(false);
     };
@@ -1268,8 +1271,9 @@ export const UnifiedSearchBar: React.FC<{
   return (
     <div
       ref={paletteRef}
-      className={`nav-search-container min-w-0 ${mobileCompact ? `iam-nav-search--mobile${mobileToolbar ? ' iam-nav-search--toolbar' : ''}` : 'w-full max-w-lg'}`}
+      className={`nav-search-container min-w-0 ${mobileCompact ? `iam-nav-search--mobile${mobileToolbar ? ' iam-nav-search--toolbar' : ''}` : ''}`}
       data-mobile-compact={mobileCompact ? 'true' : undefined}
+      data-palette-open={open && !mobileCompact ? 'true' : undefined}
     >
       {mobileCompact ? (
         <button
@@ -1295,10 +1299,10 @@ export const UnifiedSearchBar: React.FC<{
           <Search size={mobileToolbar ? 15 : 18} strokeWidth={1.75} aria-hidden />
         </button>
       ) : (
-      <div className="flex items-stretch w-full rounded-md border border-[var(--border-subtle)] bg-[var(--bg-app)] hover:border-[var(--solar-cyan)]/40 transition-colors overflow-visible">
+      <div className="nav-search-trigger flex items-stretch w-full rounded-md border border-[var(--border-subtle)] bg-[var(--bg-app)] hover:border-[var(--solar-cyan)]/40 transition-colors overflow-visible">
         {!hideWorkspaceSegment ? (
         <div className="flex items-stretch shrink-0 border-r border-[var(--border-subtle)]">
-          <div className="relative shrink-0 max-w-[45%] border-r border-[var(--border-subtle)]">
+          <div className="relative shrink-0 max-w-[45%] border-r border-[var(--border-subtle)]" ref={gitMenuRef}>
             <GitRepoBranchNavTrigger
               workspaceLabel={workspaceLabel}
               gitBranch={gitBranch}
@@ -1309,6 +1313,26 @@ export const UnifiedSearchBar: React.FC<{
                 closePalette();
               }}
             />
+            {gitMenuOpen ? (
+              <GitRepoBranchMenuPanel
+                open={gitMenuOpen}
+                onClose={() => setGitMenuOpen(false)}
+                variant="anchored"
+                activeWorkspaceId={activeWorkspaceId}
+                currentBranch={gitBranch}
+                workspaceRepoHint={workspaceRepoHint}
+                onBranchSelect={onGitBranchSelect}
+                onOpenCommandPalette={onOpenCommandPalette}
+                onGitBranchClick={() => {
+                  setGitMenuOpen(false);
+                  onGitBranchPanelClick?.();
+                }}
+                onWorkspacePickerClick={() => {
+                  setGitMenuOpen(false);
+                  onWorkspacePickerClick?.();
+                }}
+              />
+            ) : null}
           </div>
           <div className="relative shrink-0" ref={connectionMenuRef}>
             <button
@@ -1325,6 +1349,14 @@ export const UnifiedSearchBar: React.FC<{
             >
               <Router size={12} className="text-[var(--solar-cyan)]" strokeWidth={1.25} />
             </button>
+            {connectionMenuOpen ? (
+              <ConnectionMenuPanel
+                open={connectionMenuOpen}
+                onClose={() => setConnectionMenuOpen(false)}
+                onAction={(action) => onConnectionMenuAction?.(action)}
+                variant="anchored"
+              />
+            ) : null}
           </div>
         </div>
         ) : null}
@@ -1345,7 +1377,7 @@ export const UnifiedSearchBar: React.FC<{
 
       {open && (
           <div
-            className="nav-dropdown iam-shell-dropdown rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[min(70vh,520px)]"
+            className="nav-dropdown iam-shell-dropdown shadow-2xl overflow-hidden flex flex-col"
             role="dialog"
             aria-label="Command palette"
             style={{
@@ -1394,7 +1426,7 @@ export const UnifiedSearchBar: React.FC<{
               </div>
             </div>
 
-            <div className="flex-1 min-h-0 overflow-y-auto chat-hide-scroll">
+            <div className="nav-dropdown__results flex-1 min-h-0 overflow-y-auto chat-hide-scroll">
               {flatList.length === 0 && !loading ? (
                 <div className="px-3 py-6 text-center text-[12px] text-[var(--text-muted)]">No results</div>
               ) : null}
@@ -1485,49 +1517,49 @@ export const UnifiedSearchBar: React.FC<{
       ) : null}
 
       {shellDropdownHost &&
+        hideWorkspaceSegment &&
         (gitMenuOpen || connectionMenuOpen) &&
         typeof document !== 'undefined' &&
         createPortal(
-          <>
-            <div
-              className="fixed inset-0 z-[198]"
-              aria-hidden
-              onMouseDown={() => {
-                setGitMenuOpen(false);
-                setConnectionMenuOpen(false);
-              }}
-            />
-            <div className="fixed z-[199] left-1/2 -translate-x-1/2 top-12 w-[min(320px,calc(100vw-24px))]">
-              {gitMenuOpen ? (
-                <GitRepoBranchMenuPanel
-                  open={gitMenuOpen}
-                  onClose={() => setGitMenuOpen(false)}
-                  variant="floating"
-                  activeWorkspaceId={activeWorkspaceId}
-                  currentBranch={gitBranch}
-                  workspaceRepoHint={workspaceRepoHint}
-                  onBranchSelect={onGitBranchSelect}
-                  onOpenCommandPalette={onOpenCommandPalette}
-                  onGitBranchClick={() => {
-                    setGitMenuOpen(false);
-                    onGitBranchPanelClick?.();
-                  }}
-                  onWorkspacePickerClick={() => {
-                    setGitMenuOpen(false);
-                    onWorkspacePickerClick?.();
-                  }}
-                />
-              ) : null}
-              {connectionMenuOpen ? (
-                <ConnectionMenuPanel
-                  open={connectionMenuOpen}
-                  onClose={() => setConnectionMenuOpen(false)}
-                  onAction={(action) => onConnectionMenuAction?.(action)}
-                  variant="floating"
-                />
-              ) : null}
-            </div>
-          </>,
+          <div
+            className="fixed z-[199] left-1/2 -translate-x-1/2 rounded-b-[var(--shell-dropdown-radius,6px)] overflow-hidden shadow-2xl"
+            style={{
+              top: 'var(--dashboard-topbar-height, 2.5rem)',
+              width: SHELL_DROPDOWN_WIDTH_PX,
+              maxWidth: 'min(600px, calc(100vw - 1.5rem))',
+            }}
+          >
+            {gitMenuOpen ? (
+              <GitRepoBranchMenuPanel
+                open={gitMenuOpen}
+                onClose={() => setGitMenuOpen(false)}
+                variant="floating"
+                className="rounded-t-none rounded-b-[var(--shell-dropdown-radius,6px)] w-full"
+                activeWorkspaceId={activeWorkspaceId}
+                currentBranch={gitBranch}
+                workspaceRepoHint={workspaceRepoHint}
+                onBranchSelect={onGitBranchSelect}
+                onOpenCommandPalette={onOpenCommandPalette}
+                onGitBranchClick={() => {
+                  setGitMenuOpen(false);
+                  onGitBranchPanelClick?.();
+                }}
+                onWorkspacePickerClick={() => {
+                  setGitMenuOpen(false);
+                  onWorkspacePickerClick?.();
+                }}
+              />
+            ) : null}
+            {connectionMenuOpen ? (
+              <ConnectionMenuPanel
+                open={connectionMenuOpen}
+                onClose={() => setConnectionMenuOpen(false)}
+                onAction={(action) => onConnectionMenuAction?.(action)}
+                variant="floating"
+                className="rounded-t-none rounded-b-[var(--shell-dropdown-radius,6px)] w-full"
+              />
+            ) : null}
+          </div>,
           document.body,
         )}
     </div>
