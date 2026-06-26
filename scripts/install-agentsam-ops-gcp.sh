@@ -89,3 +89,6 @@ gcloud compute ssh "$GCP_VM_NAME" \
 echo ""
 echo "✓ AgentSam ops layer installed on iam-tunnel."
 echo "  Re-deploy ExecOS server.js (git pull + pm2 restart) to pick up scoped sudo allow-list."
+echo ""
+echo "→ SSH service identity (store private key in Worker secret AGENTSAM_IAM_TUNNEL_SSH_KEY):"
+echo "   gcloud compute ssh iam-tunnel --command='bash ~/ExecOS/deploy/gcp/install-agentsam-ssh-identity.sh --print-private-key'"

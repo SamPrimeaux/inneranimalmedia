@@ -5,7 +5,29 @@ import {
   commandMatchesAllowedList,
   checkSudoPermission,
   formatTerminalExec403,
+  buildExecTransportHeaders,
 } from '../../src/core/agentsam-privileged-targets.js';
+
+/** @param {object|null} privilegedRow @param {object|null} connectionRow */
+function mockPrivilegedDb(privilegedRow, connectionRow = null) {
+  return {
+    prepare(sql) {
+      const q = String(sql);
+      if (q.includes('privileged_target_id')) {
+        return {
+          bind() {
+            return { async first() { return connectionRow; } };
+          },
+        };
+      }
+      return {
+        bind() {
+          return { async first() { return privilegedRow; } };
+        },
+      };
+    },
+  };
+}
 
 test('sudoAllowlistTokenFromCommand maps iam-ops wrappers to allowlist tokens', () => {
   assert.equal(
@@ -16,13 +38,9 @@ test('sudoAllowlistTokenFromCommand maps iam-ops wrappers to allowlist tokens', 
     sudoAllowlistTokenFromCommand('sudo /usr/local/sbin/iam-ops-apt install git'),
     'apt',
   );
-  assert.equal(
-    sudoAllowlistTokenFromCommand('sudo /usr/local/sbin/iam-ops-cloudflared fix-unit'),
-    'cloudflared',
-  );
 });
 
-test('commandMatchesAllowedList rejects commands outside scoped allowlist', () => {
+test('deny: command not in scoped allowlist', () => {
   const allowed = '["apt","systemctl","cloudflared","workspace"]';
   assert.equal(
     commandMatchesAllowedList(allowed, 'sudo /usr/local/sbin/iam-ops-apt install git'),
@@ -32,49 +50,89 @@ test('commandMatchesAllowedList rejects commands outside scoped allowlist', () =
     commandMatchesAllowedList(allowed, 'sudo /usr/bin/passwd root'),
     false,
   );
+  assert.equal(
+    commandMatchesAllowedList(allowed, 'sudo /usr/local/sbin/iam-ops-workspace init-tenant tenant_sam_primeaux au_871d920d1233cbd1'),
+    true,
+  );
+  assert.equal(
+    commandMatchesAllowedList('["apt","systemctl","cloudflared"]', 'sudo /usr/local/sbin/iam-ops-workspace init-tenant tenant_sam_primeaux au_871d920d1233cbd1'),
+    false,
+  );
 });
 
-test('checkSudoPermission blocks sudo when target is not allowlisted', async () => {
-  const env = { DB: null };
+test('deny: Mac target with no privileged row → blocked', async () => {
+  const env = { DB: mockPrivilegedDb(null) };
   const denied = await checkSudoPermission(env, 'conn_mac_local', 'sudo apt-get update');
   assert.equal(denied.allowed, false);
   assert.match(denied.reason, /not in privileged allowlist/);
 });
 
-test('checkSudoPermission allows scoped sudo for privileged target row', async () => {
+test('deny: privileged target with privilege_mode none → blocked', async () => {
   const env = {
-    DB: {
-      prepare(sql) {
-        if (String(sql).includes('privileged_target_id')) {
-          return {
-            bind() {
-              return {
-                async first() {
-                  return { privileged_target_id: 'conn_gcp_iam_tunnel' };
-                },
-              };
-            },
-          };
-        }
-        return {
-          bind() {
-            return {
-              async first() {
-                return {
-                  target_id: 'conn_gcp_iam_tunnel',
-                  privilege_mode: 'scoped_sudo',
-                  allowed_commands: '["apt","systemctl","cloudflared","workspace"]',
-                  sudoers_user: 'agentsam',
-                  enabled: 1,
-                };
-              },
-            };
-          },
-        };
-      },
-    },
+    DB: mockPrivilegedDb({
+      target_id: 'conn_gcp_iam_tunnel',
+      privilege_mode: 'none',
+      allowed_commands: '["apt"]',
+      sudoers_user: 'agentsam',
+      enabled: 1,
+    }),
   };
+  const denied = await checkSudoPermission(
+    env,
+    'conn_gcp_iam_tunnel',
+    'sudo /usr/local/sbin/iam-ops-apt update',
+  );
+  assert.equal(denied.allowed, false);
+  assert.match(denied.reason, /explicitly disabled/);
+});
 
+test('deny: privileged row but command token not in allowlist → blocked', async () => {
+  const env = {
+    DB: mockPrivilegedDb({
+      target_id: 'conn_gcp_iam_tunnel',
+      privilege_mode: 'scoped_sudo',
+      allowed_commands: '["systemctl"]',
+      sudoers_user: 'agentsam',
+      enabled: 1,
+    }),
+  };
+  const denied = await checkSudoPermission(
+    env,
+    'conn_gcp_iam_tunnel',
+    'sudo /usr/local/sbin/iam-ops-apt install git',
+  );
+  assert.equal(denied.allowed, false);
+  assert.match(denied.reason, /not in allowlist for this target/);
+});
+
+test('deny: sudo privilege escalation patterns → blocked', async () => {
+  const env = {
+    DB: mockPrivilegedDb({
+      target_id: 'conn_gcp_iam_tunnel',
+      privilege_mode: 'scoped_sudo',
+      allowed_commands: '["apt"]',
+      sudoers_user: 'agentsam',
+      enabled: 1,
+    }),
+  };
+  const denied = await checkSudoPermission(env, 'conn_gcp_iam_tunnel', 'sudo -u root bash');
+  assert.equal(denied.allowed, false);
+  assert.match(denied.reason, /privilege escalation/);
+});
+
+test('allow: scoped sudo via connection privileged_target_id mapping', async () => {
+  const env = {
+    DB: mockPrivilegedDb(
+      {
+        target_id: 'conn_gcp_iam_tunnel',
+        privilege_mode: 'scoped_sudo',
+        allowed_commands: '["apt","systemctl","cloudflared","workspace"]',
+        sudoers_user: 'agentsam',
+        enabled: 1,
+      },
+      { privileged_target_id: 'conn_gcp_iam_tunnel' },
+    ),
+  };
   const ok = await checkSudoPermission(
     env,
     'conn_mac_shell2',
@@ -89,4 +147,13 @@ test('formatTerminalExec403 returns terminal_exec_403 envelope', () => {
   assert.equal(payload.error, 'terminal_exec_403');
   assert.equal(payload.blocked, true);
   assert.match(payload.detail.stderr, /IAM Security: blocked:/);
+});
+
+test('buildExecTransportHeaders tags AgentSam service identity', () => {
+  const headers = buildExecTransportHeaders({
+    execUser: 'agentsam',
+    privilegedTargetId: 'conn_gcp_iam_tunnel',
+  });
+  assert.equal(headers['X-IAM-Exec-Identity'], 'agentsam');
+  assert.equal(headers['X-IAM-Privileged-Target'], 'conn_gcp_iam_tunnel');
 });

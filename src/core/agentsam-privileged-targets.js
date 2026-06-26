@@ -178,3 +178,41 @@ export function formatTerminalExec403(check) {
     detail: { stderr: `IAM Security: blocked: ${check.reason}` },
   };
 }
+
+/**
+ * Resolve on-box exec identity for audit + transport headers (distinct from auth_users).
+ * @param {import('@cloudflare/workers-types').D1Database|null|undefined} db
+ * @param {Record<string, unknown>|null|undefined} connection
+ * @param {object|null|undefined} privilegedTarget
+ * @returns {Promise<{ execUser: string|null, sshIdentitySecret: string|null, privilegedTargetId: string|null }>}
+ */
+export async function resolveTerminalExecIdentity(db, connection, privilegedTarget = null) {
+  const conn = connection && typeof connection === 'object' ? connection : null;
+  let privilegedTargetId =
+    conn?.privileged_target_id != null ? String(conn.privileged_target_id).trim() : '';
+  if (!privilegedTargetId && conn?.id) {
+    privilegedTargetId = await resolvePrivilegedTargetLookupId(db, String(conn.id));
+  }
+  const target = privilegedTarget || (privilegedTargetId ? await loadPrivilegedTarget(db, privilegedTargetId) : null);
+  const execUser =
+    (conn?.remote_exec_user != null ? String(conn.remote_exec_user).trim() : '') ||
+    (target?.sudoers_user != null ? String(target.sudoers_user).trim() : '') ||
+    null;
+  const sshIdentitySecret =
+    conn?.ssh_identity_secret_name != null ? String(conn.ssh_identity_secret_name).trim() : null;
+  return {
+    execUser,
+    sshIdentitySecret,
+    privilegedTargetId: privilegedTargetId || (target?.target_id != null ? String(target.target_id) : null),
+  };
+}
+
+/** @param {{ execUser?: string|null, privilegedTargetId?: string|null }} identity */
+export function buildExecTransportHeaders(identity = {}) {
+  const headers = { 'Content-Type': 'application/json' };
+  const execUser = identity.execUser != null ? String(identity.execUser).trim() : '';
+  if (execUser) headers['X-IAM-Exec-Identity'] = execUser;
+  const pt = identity.privilegedTargetId != null ? String(identity.privilegedTargetId).trim() : '';
+  if (pt) headers['X-IAM-Privileged-Target'] = pt;
+  return headers;
+}

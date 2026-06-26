@@ -28,6 +28,8 @@ import {
   checkSudoPermission,
   formatTerminalExec403,
   resolvePrivilegedTargetLookupId,
+  resolveTerminalExecIdentity,
+  buildExecTransportHeaders,
 } from "../core/agentsam-privileged-targets.js";
 
 // ACTIVE PATH: AGENT_SESSION DO terminal coordination for /api/agent/terminal/ws.
@@ -812,6 +814,8 @@ export class AgentChatSqlV1 extends DurableObject {
         exit_code: result?.exit_code ?? null,
         tool_name: result?.tool_name ?? null,
         target_id: result?.target_id ?? null,
+        exec_identity: result?.exec_identity ?? null,
+        privileged_target_id: result?.privileged_target_id ?? null,
         error: result?.error ?? null,
       });
     } catch (e) {
@@ -1222,33 +1226,6 @@ export class AgentChatSqlV1 extends DurableObject {
   }
 
   async executePtyCommand(command) {
-    const targetType = String(this.selectedTargetType || "platform_vm").trim();
-    const usePtyService = targetType === "platform_vm" && !!this.env?.PTY_SERVICE;
-    if (usePtyService) {
-      try {
-        const res = await this.env.PTY_SERVICE.fetch(
-          new Request("http://localhost:3099/exec", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(this._ptyExecPayload(command)),
-          }),
-        );
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          return { error: String(data?.error || `PTY command failed (${res.status})`) };
-        }
-        const stdout = typeof data?.stdout === "string" ? data.stdout : "";
-        const stderr = typeof data?.stderr === "string" ? data.stderr : "";
-        const output = `${stdout}${stderr ? `\n${stderr}` : ""}`.trim() || "(no output)";
-        void this.recordExecTerminalHistory(command, output, data?.exit_code ?? 0);
-        return { output, exit_code: data?.exit_code ?? 0 };
-      } catch (e) {
-        return { error: e?.message || "PTY VPC exec failed" };
-      }
-    }
-
-    let execBase = String(this.env?.TERMINAL_WS_URL || "").trim();
-    let dbTok = null;
     const execUid = String(this.ptSessionUserId || "").trim();
     const execWid = String(this.workspaceId || "").trim();
     const execTarget = String(this.selectedTargetType || this.requestedTargetType || '').trim() || null;
@@ -1267,6 +1244,42 @@ export class AgentChatSqlV1 extends DurableObject {
         conn = sel.connection;
       } catch (_) {}
     }
+    const execIdentity = await resolveTerminalExecIdentity(this.env?.DB, conn);
+    const execHeaders = buildExecTransportHeaders(execIdentity);
+    const execPayload = this._ptyExecPayload(command);
+
+    const targetType = String(this.selectedTargetType || "platform_vm").trim();
+    const usePtyService = targetType === "platform_vm" && !!this.env?.PTY_SERVICE;
+    if (usePtyService) {
+      try {
+        const res = await this.env.PTY_SERVICE.fetch(
+          new Request("http://localhost:3099/exec", {
+            method: "POST",
+            headers: execHeaders,
+            body: JSON.stringify(execPayload),
+          }),
+        );
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          return { error: String(data?.error || `PTY command failed (${res.status})`) };
+        }
+        const stdout = typeof data?.stdout === "string" ? data.stdout : "";
+        const stderr = typeof data?.stderr === "string" ? data.stderr : "";
+        const output = `${stdout}${stderr ? `\n${stderr}` : ""}`.trim() || "(no output)";
+        void this.recordExecTerminalHistory(command, output, data?.exit_code ?? 0);
+        return {
+          output,
+          exit_code: data?.exit_code ?? 0,
+          exec_identity: execIdentity.execUser,
+          privileged_target_id: execIdentity.privilegedTargetId,
+        };
+      } catch (e) {
+        return { error: e?.message || "PTY VPC exec failed" };
+      }
+    }
+
+    let execBase = String(this.env?.TERMINAL_WS_URL || "").trim();
+    let dbTok = null;
     if (execTarget === "user_hosted_tunnel" || execTarget === "sandbox") {
       execBase = conn?.ws_url?.trim() || "";
       if (!execBase) {
@@ -1303,10 +1316,10 @@ export class AgentChatSqlV1 extends DurableObject {
       const res = await fetch(execUrl, {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
+          ...execHeaders,
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(this._ptyExecPayload(command)),
+        body: JSON.stringify(execPayload),
       });
       lastStatus = res.status;
       if (res.status === 401 && i < tokens.length - 1) continue;
@@ -1318,7 +1331,12 @@ export class AgentChatSqlV1 extends DurableObject {
       const stderr = typeof data?.stderr === "string" ? data.stderr : "";
       const output = `${stdout}${stderr ? `\n${stderr}` : ""}`.trim() || "(no output)";
       void this.recordExecTerminalHistory(command, output, data?.exit_code ?? 0);
-      return { output, exit_code: data?.exit_code ?? 0 };
+      return {
+        output,
+        exit_code: data?.exit_code ?? 0,
+        exec_identity: execIdentity.execUser,
+        privileged_target_id: execIdentity.privilegedTargetId,
+      };
     }
 
     return { error: `PTY command unauthorized (${lastStatus})` };
