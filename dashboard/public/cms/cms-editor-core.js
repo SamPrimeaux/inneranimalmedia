@@ -29,7 +29,17 @@ function readCtx() {
     workspaceId: p.get('workspace_id') || '',
     publicDomain: p.get('public_domain') || '',
     view: p.get('view') || '',
+    panel: p.get('panel') || 'pages',
   };
+}
+
+function cmsDashboardPath(project, segment, pageId = null) {
+  const site = encodeURIComponent(project || 'inneranimalmedia');
+  const base = `/dashboard/cms/${segment}?site=${site}`;
+  if (pageId && segment === 'pages') {
+    return `/dashboard/cms/pages/${encodeURIComponent(pageId)}?site=${site}`;
+  }
+  return base;
 }
 
 const STOREFRONT_APEX = {
@@ -340,7 +350,7 @@ html,body,#app{background:#F9F7F2;color:#1a1a1a}
 .shell.theme-studio .sidebar{grid-column:1;grid-row:2;background:#fff;border-right:1px solid #e8e4dc}
 .shell.theme-studio .canvas{grid-column:2;grid-row:2;background:#F9F7F2}
 .shell.theme-studio .rpanel{grid-column:3;grid-row:2;background:#fff;border-left:1px solid #e8e4dc}
-.shell.theme-studio .topbar{grid-column:1/-1;height:52px;background:#fff;border-bottom:1px solid #e8e4dc;padding:0 16px;gap:12px}
+.shell.theme-studio .topbar{grid-column:1/-1;height:64px;background:rgba(251,248,241,.96);border-bottom:1px solid rgba(43,39,31,.12);padding:0 18px;gap:18px;backdrop-filter:blur(18px);box-shadow:0 1px 0 rgba(255,255,255,.72) inset}
 .ts-brand{display:flex;align-items:center;gap:10px;min-width:0;flex-shrink:0}
 .ts-logo{width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#0d9488,#115e59);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;letter-spacing:-.04em}
 .ts-brand-name{font-size:14px;font-weight:700;color:#111;white-space:nowrap}

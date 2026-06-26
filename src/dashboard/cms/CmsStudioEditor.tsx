@@ -48,6 +48,7 @@ export function CmsStudioEditor({
   projectSlug,
   pageId = null,
   panel = 'pages',
+  agentSamCmsShell = false,
   workspaceId = '',
   workspaceLabel = null,
   publicDomain = null,
@@ -56,6 +57,8 @@ export function CmsStudioEditor({
   projectSlug: string | null | undefined;
   pageId?: string | null;
   panel?: string;
+  /** When true, loads the AgentSam CMS three-column editor shell for all CMS panels. */
+  agentSamCmsShell?: boolean;
   workspaceId?: string;
   workspaceLabel?: string | null;
   publicDomain?: string | null;
@@ -78,15 +81,17 @@ export function CmsStudioEditor({
   const [sketchOpen, setSketchOpen] = useState(false);
   const iframeRef = useRef(null);
 
-  const isThemeEditor = panel === 'themeEditor' || panel === 'theme-editor';
+  const isAgentSamCmsShell =
+    agentSamCmsShell || panel === 'themeEditor' || panel === 'theme-editor';
 
   const src = useMemo(() => {
     if (!projectSlug) return null;
     const q = new URLSearchParams();
     q.set('project', projectSlug);
     if (pageId) q.set('page', pageId);
-    if (panel === 'themeEditor' || panel === 'theme-editor') {
+    if (isAgentSamCmsShell) {
       q.set('view', 'themeEditor');
+      if (panel && panel !== 'pages') q.set('panel', panel);
     } else if (panel && panel !== 'pages') {
       q.set('panel', panel);
     }
@@ -94,7 +99,7 @@ export function CmsStudioEditor({
     if (workspaceLabel) q.set('workspace_label', workspaceLabel);
     if (publicDomain) q.set('public_domain', publicDomain);
     return `${STUDIO_BASE}?${q.toString()}`;
-  }, [projectSlug, pageId, panel, workspaceId, workspaceLabel, publicDomain]);
+  }, [projectSlug, pageId, panel, isAgentSamCmsShell, workspaceId, workspaceLabel, publicDomain]);
 
   const postThemeToIframe = useCallback(() => {
     const win = iframeRef.current?.contentWindow;
@@ -148,6 +153,18 @@ export function CmsStudioEditor({
     if (data.type === 'iam-cms-navigate' && data.detail?.path) {
       navigatePath(String(data.detail.path), { replace: data.detail.replace === true });
     }
+
+    if (data.type === 'iam-cms-open-agent') {
+      window.dispatchEvent(
+        new CustomEvent('iam:agent-chat-compose', {
+          detail: {
+            message: data.detail?.message || '',
+            send: false,
+            ensureAgentPanel: true,
+          },
+        }),
+      );
+    }
   }, [projectSlug, pageId, workspaceId, navigatePath]);
 
   useEffect(() => {
@@ -184,7 +201,7 @@ export function CmsStudioEditor({
             height: '100%',
             border: 0,
             minHeight: 0,
-            background: isThemeEditor ? '#F9F7F2' : 'var(--dashboard-canvas, var(--bg-canvas, #00212b))',
+            background: isAgentSamCmsShell ? '#f6f1e7' : 'var(--dashboard-canvas, var(--bg-canvas, #00212b))',
           }}
           allow="clipboard-read; clipboard-write"
         />

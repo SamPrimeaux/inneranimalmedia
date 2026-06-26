@@ -118,8 +118,14 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
               ? 'imports'
               : 'pages';
 
-  const isStudioEditorRoute = parsed.view === 'theme-editor' || Boolean(parsed.pageId);
+  /** All site-scoped CMS routes use the AgentSam CMS live editor shell (iframe). */
+  const isStudioEditorRoute =
+    parsed.view !== 'sites' && Boolean(context?.project_slug || effectiveSiteSlug);
   const studioProjectSlug = context?.project_slug || effectiveSiteSlug || null;
+  const studioPanel =
+    parsed.view === 'theme-editor'
+      ? 'theme-editor'
+      : parsed.panel || 'pages';
 
   const needsSitePick =
     parsed.view !== 'sites' &&
@@ -131,7 +137,7 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
   const siteCount = context?.sites?.length || 0;
 
   return (
-    <div className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden bg-[var(--dashboard-canvas)]">
+    <div className="flex flex-1 flex-col min-h-0 min-w-0 overflow-hidden bg-[#f6f1e7] iam-agentsam-cms-host">
       {needsSitePick ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center">
           <h2 className="text-lg font-semibold text-[var(--text-heading)]">Choose a CMS site</h2>
@@ -195,11 +201,12 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
         />
       ) : null}
       {!needsSitePick && !isClientWorker && isStudioEditorRoute && studioProjectSlug ? (
-        <Suspense fallback={<StudioShellFallback themeEditor={parsed.view === 'theme-editor'} />}>
+        <Suspense fallback={<StudioShellFallback themeEditor />}>
           <CmsStudioEditor
             projectSlug={studioProjectSlug}
             pageId={parsed.pageId}
-            panel={parsed.view === 'theme-editor' ? 'theme-editor' : 'pages'}
+            panel={studioPanel}
+            agentSamCmsShell
             workspaceId={workspaceId || context?.workspace_id || ''}
             workspaceLabel={context?.ui_label || context?.workspace_name || null}
             publicDomain={context?.public_domain || null}
@@ -207,7 +214,7 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
           />
         </Suspense>
       ) : null}
-      {!needsSitePick && !isClientWorker && !isStudioEditorRoute ? (
+      {!needsSitePick && !isClientWorker && parsed.view === 'sites' ? (
         <Suspense
           fallback={
             <div className="flex flex-1 items-center justify-center text-sm text-[var(--text-muted)]">
