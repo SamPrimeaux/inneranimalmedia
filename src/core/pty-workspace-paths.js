@@ -237,7 +237,11 @@ export async function execOnPtyHost(env, { command, cwd = null, timeout_ms = 120
       const res = await env.PTY_SERVICE.fetch(
         new Request(execUrl, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'X-IAM-Exec-Identity': 'agentsam',
+            'X-IAM-Privileged-Target': 'conn_gcp_iam_tunnel',
+          },
           body: JSON.stringify(payload),
         }),
       );

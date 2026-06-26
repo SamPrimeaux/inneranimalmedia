@@ -43,16 +43,13 @@ import { resolveWorkspaceContextLabel } from './src/workspaceContextLabel';
 import {
   IAM_OPEN_COMMAND_PALETTE,
   IAM_GIT_SYNC_PUBLISH,
-  IAM_OPEN_GIT_REPO_MENU,
   IAM_TERMINAL_CONNECT,
   IAM_TERMINAL_SETUP_WIZARD,
   IAM_TERMINAL_CONFIGURE,
   openCommandPalette,
   type OpenCommandPaletteDetail,
 } from './src/lib/openCommandPalette';
-import { GitRepoBranchMenuPanel } from './components/GitRepoBranchDropdown';
 import { type ConnectionMenuAction } from './components/ConnectionMenuPanel';
-import { createPortal } from 'react-dom';
 import { WorkspaceLauncher } from './components/WorkspaceLauncher';
 import type { XTermShellHandle, ShellTab } from './components/XTermShell';
 import { SecurityShieldBanner } from './components/SecurityShieldBanner';
@@ -664,7 +661,6 @@ const App: React.FC = () => {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchInitialFacets, setSearchInitialFacets] = useState<string[]>([]);
   const [searchInitialQuery, setSearchInitialQuery] = useState('');
-  const [gitRepoMenuOpen, setGitRepoMenuOpen] = useState(false);
   const onUnifiedSearchOpenChange = useCallback((next: boolean) => {
     setSearchOpen(next);
     if (!next) {
@@ -740,14 +736,6 @@ const App: React.FC = () => {
   const mobileSwipeStartRef = useRef<{ x: number; y: number } | null>(null);
   /** Mobile chat repo drawer: expand this repo when opening the GitHub / Deploy panel. */
   const [githubExpandRepo, setGithubExpandRepo] = useState<string | null>(null);
-
-  useEffect(() => {
-    const onGitRepoMenu = () => {
-      if (isNarrowViewport) setGitRepoMenuOpen(true);
-    };
-    window.addEventListener(IAM_OPEN_GIT_REPO_MENU, onGitRepoMenu);
-    return () => window.removeEventListener(IAM_OPEN_GIT_REPO_MENU, onGitRepoMenu);
-  }, [isNarrowViewport]);
 
   useEffect(() => {
     const onBrowserPresence = (e: Event) => {
@@ -3743,6 +3731,7 @@ const App: React.FC = () => {
                 initialFacets={searchInitialFacets}
                 initialQuery={searchInitialQuery}
                 onInitialQueryConsumed={() => setSearchInitialQuery('')}
+                shellDropdownHost={!isNarrowViewport}
                 onConnectionMenuAction={handleConnectionMenuAction}
               />
           </div>
@@ -3772,6 +3761,7 @@ const App: React.FC = () => {
                   initialFacets={searchInitialFacets}
                   initialQuery={searchInitialQuery}
                   onInitialQueryConsumed={() => setSearchInitialQuery('')}
+                  shellDropdownHost={isNarrowViewport}
                   onConnectionMenuAction={handleConnectionMenuAction}
                 />
               </div>
@@ -4894,40 +4884,6 @@ const App: React.FC = () => {
         }}
       />
       ) : null}
-
-      {typeof document !== 'undefined' &&
-        gitRepoMenuOpen &&
-        isNarrowViewport &&
-        createPortal(
-          <>
-            <div
-              className="fixed inset-0 z-[198]"
-              aria-hidden
-              onMouseDown={() => setGitRepoMenuOpen(false)}
-            />
-            <div className="fixed z-[199] left-1/2 -translate-x-1/2 top-12 w-[min(320px,calc(100vw-24px))]">
-              <GitRepoBranchMenuPanel
-                open={gitRepoMenuOpen}
-                onClose={() => setGitRepoMenuOpen(false)}
-                variant="floating"
-                activeWorkspaceId={authWorkspaceId}
-                currentBranch={gitBranch}
-                workspaceRepoHint={activeWorkspaceRow?.github_repo ?? null}
-                onBranchSelect={handleStatusBarBranchSelect}
-                onOpenCommandPalette={openCommandPalette}
-                onGitBranchClick={() => {
-                  setActiveActivity('git');
-                  if (!isAgentShellPath(location.pathname)) navigate(AGENT_HOME_PATH);
-                }}
-                onWorkspacePickerClick={() => {
-                  setGitRepoMenuOpen(false);
-                  setWorkspaceLauncherOpen(true);
-                }}
-              />
-            </div>
-          </>,
-          document.body,
-        )}
 
       {isWorkspaceLauncherOpen && (
         <WorkspaceLauncher
