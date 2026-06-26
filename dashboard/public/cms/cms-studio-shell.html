@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CMS Studio · Inner Animal Media</title>
+<title>AgentSam CMS · Inner Animal Media</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -17,13 +17,16 @@
   }
   html,body,#app{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:Inter,system-ui,sans-serif}
   html.theme-editor-light,html.theme-editor-light body,html.theme-editor-light #app{background:#F9F7F2;color:#1a1a1a}
+  .agentsam-cms-loading{display:flex;align-items:center;justify-content:center;height:100%;color:#786f62;font-size:13px;gap:10px}
+  .agentsam-cms-loading::before{content:'';width:16px;height:16px;border:2px solid #e8e4dc;border-top-color:#1e6a6f;border-radius:50%;animation:agentsam-spin .7s linear infinite}
+  @keyframes agentsam-spin{to{transform:rotate(360deg)}}
 </style>
 </head>
 <body>
-<div id="app"></div>
-<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-<script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<div id="app"><div class="agentsam-cms-loading">Loading AgentSam CMS…</div></div>
+<script src="/static/dashboard/app/cms/vendor/react.production.min.js"></script>
+<script src="/static/dashboard/app/cms/vendor/react-dom.production.min.js"></script>
+<script src="/static/dashboard/app/cms/vendor/babel.min.js"></script>
 <script>
 (function(){
   try {
@@ -33,7 +36,6 @@
     }
   } catch (_) {}
 })();
-/* Pull theme vars from parent frame */
 (function(){
   try{
     const p=window.parent?.document?.documentElement;
@@ -73,16 +75,18 @@ window.addEventListener('message',function(e){
       + '<p style="color:#786f62;font-size:12px;margin:12px 0 0">Try a hard refresh (Cmd+Shift+R) or sign in again.</p></div>';
   };
   try {
+    if (!window.React || !window.ReactDOM || !window.Babel) {
+      throw new Error('Editor runtime missing (React/Babel).');
+    }
     const res = await fetch('/static/dashboard/app/cms/cms-editor-core.js', { credentials: 'same-origin', cache: 'no-store' });
     if (!res.ok) throw new Error('Editor bundle HTTP ' + res.status);
     const code = await res.text();
     if (code.includes('SESSION_MISSING') || code.trimStart().startsWith('{')) {
       throw new Error('Editor bundle was not JavaScript (auth or routing issue).');
     }
+    const compiled = window.Babel.transform(code, { presets: ['react'] }).code;
     const s = document.createElement('script');
-    s.type = 'text/babel';
-    s.setAttribute('data-presets', 'react');
-    s.textContent = code;
+    s.textContent = compiled;
     document.body.appendChild(s);
   } catch (e) {
     console.error('[AgentSam CMS]', e);

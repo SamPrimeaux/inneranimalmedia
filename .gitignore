@@ -35,6 +35,7 @@ tmp/
 
 # generated dashboard build
 dashboard/dist/
+dashboard/public/cms/vendor/*.js
 
 # old nested / reference repos - do not commit
 inneranimalmedia-agentsam-dashboard/

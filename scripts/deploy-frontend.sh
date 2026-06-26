@@ -68,6 +68,7 @@ ensure_iam_npm_deps || {
   exit 1
 }
 rm -rf "$REPO_ROOT/$DIST"
+bash "$REPO_ROOT/scripts/copy-cms-vendor.sh"
 # Vite client reads VITE_*; map from .env.cloudflare SUPABASE_* when VITE_* unset
 export VITE_SUPABASE_URL="${VITE_SUPABASE_URL:-${SUPABASE_URL:-}}"
 export VITE_SUPABASE_ANON_KEY="${VITE_SUPABASE_ANON_KEY:-${SUPABASE_ANON_KEY:-}}"
