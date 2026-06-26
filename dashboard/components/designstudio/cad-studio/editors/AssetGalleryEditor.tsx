@@ -38,7 +38,9 @@ export function AssetGalleryEditor({ onSpawn, onUpload, variant = 'panel' }: Ass
   };
 
   return (
-    <section className="cad-editor cad-editor--assets">
+    <section
+      className={`cad-editor cad-editor--assets${variant === 'library' ? ' cad-editor--assets-library' : ''}`}
+    >
       {/* ── Head: search + upload ── */}
       <div className="cad-studio__panel-head cad-assets__head">
         <input

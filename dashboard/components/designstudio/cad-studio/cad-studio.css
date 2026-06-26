@@ -1853,9 +1853,15 @@
   flex-direction: column;
 }
 
-.cad-asset-library__body .cad-editor--assets {
+.cad-asset-library__body .cad-editor--assets,
+.cad-editor--assets-library {
+  /* Side-rail rule uses flex: 0 0 260px (width in row layout). In the library flyout
+     the parent is a column — that same rule capped height at 260px and left a dead zone. */
+  flex: 1 1 auto;
   height: 100%;
   min-height: 0;
+  width: 100%;
+  max-width: none;
   border-left: none;
 }
 
