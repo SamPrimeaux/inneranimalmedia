@@ -58,7 +58,7 @@ function pagePath(page) {
   return `/${slug}`;
 }
 
-function pageToUrl(page, boot = bootstrap) {
+function pageToUrl(page, boot = null) {
   if (!page) return null;
   const ctx = readCtx();
   const path = pagePath(page);
@@ -607,7 +607,7 @@ function CmsEditor() {
     frame.removeAttribute('srcdoc');
     setDraftPreview(false);
     setPrev(false);
-    const url = pageToUrl(page);
+    const url = pageToUrl(page, bootstrap);
     if (url) frame.src = url;
   }
 
@@ -720,7 +720,7 @@ function CmsEditor() {
     return d || {};
   }
 
-  const liveUrl = activePage ? pageToUrl(activePage) : null;
+  const liveUrl = activePage ? pageToUrl(activePage, bootstrap) : null;
   const vpDef = VIEWPORTS.find(v => v.id === vp) || VIEWPORTS[0];
   const brandName = bootstrap?.tenant?.name || bootstrap?.project_name || 'Inner Animal';
   const brandInitials = brandName.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase() || 'IA';
