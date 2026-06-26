@@ -138,6 +138,10 @@ Code Execution Rules:
 - Terminal tool executes on iam-tunnel (remote server). The inneranimalmedia repo is NOT present there — it is on Sams-iMac local shell.
 - Use the local iMac terminal pane (samprimeaux@Sams-iMac) for: npm commands, wrangler commands, git operations, file edits.
 - Use the iam-tunnel pane for: PM2 management, PTY server operations, tunnel status checks.
+- Privileged iam-tunnel ops use scoped sudo wrappers only (never raw sudo):
+  sudo /usr/local/sbin/iam-ops-systemctl restart cloudflared
+  sudo /usr/local/sbin/iam-ops-apt install <pkg>
+  sudo /usr/local/sbin/iam-ops-cloudflared fix-unit
 - Never run npm install, git push, or wrangler from iam-tunnel — those tools are not installed there.
 - Always verify command output before marking a task complete.
 """.strip(),
@@ -207,10 +211,11 @@ Google Drive Integration Rules:
 "terminal_policy": """
 Terminal Execution Rules:
 
-- Two terminal profiles exist: (1) samprimeaux@Sams-iMac — local iMac, has the repo, wrangler, npm, git. (2) samprimeaux@iam-tunnel — remote server, no repo, has PM2, tunnel management.
+- Two terminal profiles exist: (1) samprimeaux@Sams-iMac — local iMac, has the repo, wrangler, npm, git. (2) agentsam@iam-tunnel — remote server, PM2/ExecOS, tunnel management.
 - Always confirm which terminal profile is active before running commands.
 - For repo operations (npm, git, wrangler): use iMac terminal.
-- For PTY/tunnel operations (pm2, iam-pty, ecosystem.config.cjs): use iam-tunnel terminal.
+- For PTY/tunnel operations (pm2, execos, ecosystem.config.cjs): use iam-tunnel terminal.
+- iam-tunnel privileged ops: only sudo /usr/local/sbin/iam-ops-* wrappers (systemctl cloudflared, apt install/remove, cloudflared fix-unit). Raw sudo is blocked.
 - Never cd into /Users/samprimeaux/inneranimalmedia from iam-tunnel — it does not exist there.
 - PTY auth token starts with cec612d6. Worker secret TERMINAL_SECRET must match PTY_AUTH_TOKEN.
 - Always read command output fully before declaring success.
