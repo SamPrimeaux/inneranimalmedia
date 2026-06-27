@@ -232,6 +232,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   routeQuickActions = [],
   atmosphericHomeMode = false,
   composerPortalTarget = null,
+  messagesPortalTarget = null,
 }) => {
   const { sessionUserId, workspaceId: ctxWorkspaceId, workspaces, persistGithubRepo } = useWorkspace();
   const effectiveWsId = (workspaceId || ctxWorkspaceId || '').trim() || null;
@@ -2733,6 +2734,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     !isNarrow || (mobileHubTab === 'agents' && mobileThreadTab === 'chat');
   const composerFlexOrder = mobileAgentHomeMode ? 'order-3' : 'order-5';
   const composerPortaled = Boolean(atmosphericHomeMode && composerPortalTarget && !isNarrow);
+  const messagesPortaled = Boolean(
+    atmosphericHomeMode && messagesPortalTarget && !isNarrow && messagesVisible && !showEmptyThreadPlaceholder,
+  );
   const composerPlaceholder = composerPortaled
     ? 'Tell Agent Sam what to do'
     : mobileAgentHomeMode
@@ -2846,19 +2850,6 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     [modelPickerGroups, defaultModelKey, selectedModelKey],
   );
 
-  const composerShellRef = useRef<HTMLDivElement>(null);
-  const composerSidebarAnchorRef = useRef<HTMLDivElement>(null);
-
-  useLayoutEffect(() => {
-    const shell = composerShellRef.current;
-    if (!shell || !composerVisible) return;
-    const target =
-      composerPortaled && composerPortalTarget
-        ? composerPortalTarget
-        : composerSidebarAnchorRef.current;
-    if (target) target.appendChild(shell);
-  }, [composerVisible, composerPortaled, composerPortalTarget]);
-
   return (
     <>
       <div
@@ -2966,7 +2957,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         )}
 
         {/* AgentPresenceLogo: built but unwired — chat header has no stable avatar slot without layout churn. */}
-        {!isNarrow && (
+        {!isNarrow && !atmosphericHomeMode && (
           <div className="flex-shrink-0 flex items-start gap-2.5 px-3 py-2 border-b border-[var(--dashboard-border)]">
             <div className="flex-1 min-w-0 flex flex-col gap-1">
               <div className="flex items-center gap-2 min-w-0">
@@ -3016,7 +3007,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           </div>
         )}
 
-        {!isNarrow && onAgentChatShellNewTab && agentChatShellTabs && agentChatShellTabs.length > 0 && (
+        {!isNarrow && !atmosphericHomeMode && onAgentChatShellNewTab && agentChatShellTabs && agentChatShellTabs.length > 0 && (
           <div className="flex-shrink-0 flex items-center gap-1 px-2 py-1 border-b border-[var(--dashboard-border)] bg-[var(--dashboard-panel)]/60 overflow-x-auto chat-hide-scroll [scrollbar-width:none]">
             {agentChatShellTabs.map((tab) => (
               <button
@@ -3099,7 +3090,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           </div>
         )}
 
-        {messagesVisible && (
+        {messagesVisible && (() => {
+          const block = (
           <>
           {(() => {
             if (showEmptyThreadPlaceholder || !pythonDraftHint || !/\.py$/i.test(pythonDraftHint)) return null;
@@ -3149,7 +3141,18 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             onDenyPendingTool={() => void handleDenyPendingTool()}
           />
           </>
-        )}
+          );
+          if (messagesPortaled && messagesPortalTarget && typeof document !== 'undefined') {
+            return createPortal(
+              <div className="agent-home-messages-portal flex flex-col flex-1 min-h-0 overflow-hidden w-full">
+                {block}
+              </div>,
+              messagesPortalTarget,
+            );
+          }
+          if (messagesPortaled) return null;
+          return block;
+        })()}
 
         {mobileAgentHomeMode ? (
           <div className="order-4 flex flex-col flex-1 min-h-0 overflow-hidden min-w-0">
@@ -3279,18 +3282,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           </div>
         ) : null}
 
-        {composerVisible && (
-          <div
-            ref={composerSidebarAnchorRef}
-            className={composerFlexOrder}
-            style={{ display: composerPortaled ? 'none' : undefined }}
-            aria-hidden={composerPortaled}
-          />
-        )}
-
-        {composerVisible && (
+        {composerVisible && (() => {
+          const shell = (
         <div
-          ref={composerShellRef}
           className={`${composerFlexOrder} iam-chat-composer-shell flex-shrink-0 w-full min-w-0 max-w-full px-3 pt-2 space-y-2`}
           style={{
             paddingBottom: isNarrow && !mobileAgentHomeMode
@@ -3573,7 +3567,12 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             </button>
           )}
         </div>
-        )}
+          );
+          if (composerPortaled && composerPortalTarget && typeof document !== 'undefined') {
+            return createPortal(shell, composerPortalTarget);
+          }
+          return shell;
+        })()}
 
         </div>
 

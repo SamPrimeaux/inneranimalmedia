@@ -300,6 +300,8 @@ export interface ChatAssistantProps {
   /** Desktop /dashboard/agent home: portal frosted composer into center host. */
   atmosphericHomeMode?: boolean;
   composerPortalTarget?: HTMLElement | null;
+  /** Desktop /dashboard/agent home: portal message thread above center composer. */
+  messagesPortalTarget?: HTMLElement | null;
 }
 
 export type StagedAttachment = {

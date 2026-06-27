@@ -12,7 +12,9 @@ import './AgentHome.css';
 
 interface AgentHomeProps {
   displayName?: string | null;
+  showHero?: boolean;
   onComposerHost?: (el: HTMLDivElement | null) => void;
+  onMessagesHost?: (el: HTMLDivElement | null) => void;
   onModeSelect: (mode: AgentModeId) => void;
 }
 
@@ -20,7 +22,13 @@ interface AgentHomeProps {
  * Bare `/dashboard/agent` — scene + greeting + mode pills + composer portal host.
  * Composer UI is portaled from ChatAssistant (iam-chat-composer-glass).
  */
-export function AgentHome({ displayName, onComposerHost, onModeSelect }: AgentHomeProps) {
+export function AgentHome({
+  displayName,
+  showHero = true,
+  onComposerHost,
+  onMessagesHost,
+  onModeSelect,
+}: AgentHomeProps) {
   const navigate = useNavigate();
   const dayPart = useAgentDayPart();
   const [scene, setScene] = useState<AgentHomeSceneConfig>(DEFAULT_AGENT_HOME_SCENE);
@@ -86,9 +94,16 @@ export function AgentHome({ displayName, onComposerHost, onModeSelect }: AgentHo
     <div className="agent-home">
       <AgentHomeScene config={displayScene} paused={tabHidden} />
 
-      <main className="agent-home__center">
+      <main className={`agent-home__center${showHero ? '' : ' agent-home__center--chat'}`}>
         <div className="agent-home__stack" onPointerEnter={handleModeHover}>
-          <AgentHomeHero name={name} dayPart={dayPart} onModeSelect={handlePillSelect} />
+          {showHero ? (
+            <AgentHomeHero name={name} dayPart={dayPart} onModeSelect={handlePillSelect} />
+          ) : null}
+          <div
+            ref={onMessagesHost}
+            className="agent-home__messages-host"
+            aria-label="Agent Sam conversation"
+          />
           <div
             ref={onComposerHost}
             className="agent-home__composer-host"

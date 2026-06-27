@@ -468,6 +468,7 @@ const App: React.FC = () => {
     [location.pathname, location.search],
   );
   const [agentHomeComposerHost, setAgentHomeComposerHost] = useState<HTMLDivElement | null>(null);
+  const [agentHomeMessagesHost, setAgentHomeMessagesHost] = useState<HTMLDivElement | null>(null);
   const isAgentHomeAtmospheric = useMemo(
     () => isAgentAtmosphericHome(location.pathname, location.search),
     [location.pathname, location.search],
@@ -785,8 +786,12 @@ const App: React.FC = () => {
     }
   }, [agentPosition, isNarrowViewport]);
 
+  const agentHomeAtmosphericChat = useMemo(
+    () => isAgentHomeAtmospheric && !isNarrowViewport && agentPosition === 'off',
+    [isAgentHomeAtmospheric, isNarrowViewport, agentPosition],
+  );
+
   useEffect(() => {
-    logDashboardThemeDebug();
   }, [location.search]);
 
   const [agentsamChatPolicy, setAgentsamChatPolicy] = useState<Record<string, unknown> | null>(null);
@@ -1769,6 +1774,11 @@ const App: React.FC = () => {
     );
   }, [messagesByTabId, activeAgentChatTabId, workspaceDisplayLine]);
 
+  const agentHomeShowHero = useMemo(
+    () => !chatMessages.some((m) => m.role === 'user'),
+    [chatMessages],
+  );
+
   const setChatMessages = useCallback(
     (updater: React.SetStateAction<{ role: 'user' | 'assistant'; content: string }[]>) => {
       setMessagesByTabId((prev) => {
@@ -1806,11 +1816,12 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const ensurePanel = () => {
+      if (isAgentHomeAtmospheric && !isNarrowViewport) return;
       setAgentPosition((p) => (p === 'off' ? 'right' : p));
     };
     window.addEventListener(IAM_AGENT_ENSURE_PANEL, ensurePanel);
     return () => window.removeEventListener(IAM_AGENT_ENSURE_PANEL, ensurePanel);
-  }, []);
+  }, [isAgentHomeAtmospheric, isNarrowViewport]);
 
   useEffect(() => {
     const onResumeChat = (e: Event) => {
@@ -1818,7 +1829,9 @@ const App: React.FC = () => {
       const id = detail?.id?.trim();
       if (!id) return;
       navigate(AGENT_HOME_PATH);
-      setAgentPosition((p) => (p === 'off' ? 'right' : p));
+      if (!(isAgentHomeAtmospheric && !isNarrowViewport)) {
+        setAgentPosition((p) => (p === 'off' ? 'right' : p));
+      }
       setActiveTab('Workspace');
       setOpenTabs((prev) => (prev.includes('Workspace') ? prev : [...prev, 'Workspace']));
       openAgentConversation({
@@ -1829,7 +1842,7 @@ const App: React.FC = () => {
     };
     window.addEventListener(IAM_AGENT_RESUME_CHAT, onResumeChat);
     return () => window.removeEventListener(IAM_AGENT_RESUME_CHAT, onResumeChat);
-  }, [navigate]);
+  }, [navigate, isAgentHomeAtmospheric, isNarrowViewport]);
 
   useEffect(() => {
     const onConv = (e: Event) => {
@@ -2049,6 +2062,11 @@ const App: React.FC = () => {
         dispatchNewThreadMessage(normalized);
       };
 
+      if (isAgentHomeAtmospheric && !isNarrowViewport) {
+        openPanelAndSend();
+        return;
+      }
+
       if (agentPosition === 'off') {
         pendingNewThreadMessageRef.current = normalized;
         setAgentPosition('right');
@@ -2056,7 +2074,7 @@ const App: React.FC = () => {
       }
       openPanelAndSend();
     },
-    [agentPosition, createNewAgentChatTab, dispatchNewThreadMessage],
+    [agentPosition, createNewAgentChatTab, dispatchNewThreadMessage, isAgentHomeAtmospheric, isNarrowViewport],
   );
 
   useEffect(() => {
@@ -2084,13 +2102,14 @@ const App: React.FC = () => {
       const detail = (e as CustomEvent<AgentChatComposeDetail>).detail;
       if (!detail?.message) return;
       if (detail.ensureAgentPanel === false) return;
+      if (isAgentHomeAtmospheric && !isNarrowViewport) return;
       if (agentPosition !== 'off') return;
       pendingAgentChatComposeRef.current = detail;
       setAgentPosition('right');
     };
     window.addEventListener(IAM_AGENT_CHAT_COMPOSE, onComposeRequest);
     return () => window.removeEventListener(IAM_AGENT_CHAT_COMPOSE, onComposeRequest);
-  }, [agentPosition]);
+  }, [agentPosition, isAgentHomeAtmospheric, isNarrowViewport]);
 
   useEffect(() => {
     const pending = pendingAgentChatComposeRef.current;
@@ -2101,8 +2120,8 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (!isAgentHomeAtmospheric || isNarrowViewport) return;
-    if (agentPosition === 'off') setAgentPosition('right');
-  }, [isAgentHomeAtmospheric, isNarrowViewport, agentPosition]);
+    setAgentPosition('off');
+  }, [isAgentHomeAtmospheric, isNarrowViewport]);
 
   const openAgentQuickstart = useCallback(() => {
     navigate(AGENT_QUICKSTART_PATH);
@@ -2131,10 +2150,9 @@ const App: React.FC = () => {
       };
       if (mode === 'code') return;
       const prefix = MODE_PREFIX[mode];
-      dispatchAgentChatCompose({ message: prefix, ensureAgentPanel: true });
-      if (agentPosition === 'off') setAgentPosition('right');
+      dispatchAgentChatCompose({ message: prefix, ensureAgentPanel: false });
     },
-    [agentPosition, dispatchAgentChatCompose],
+    [dispatchAgentChatCompose],
   );
 
   const beginExamplesPrompt = useCallback(
@@ -2298,7 +2316,16 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!isAgentEditorPath(location.pathname)) return;
     focusCodeEditorFromChat();
+    setActiveActivity('files');
   }, [location.pathname, focusCodeEditorFromChat]);
+
+  useEffect(() => {
+    if (!isAgentEditorPath(location.pathname)) return;
+    if (activeFile) return;
+    const recent = workspaceDashboardRecentFiles[0];
+    if (!recent) return;
+    void openRecentEntry(recent);
+  }, [location.pathname, activeFile, workspaceDashboardRecentFiles, openRecentEntry]);
 
   const openInEditorFromExplorer = useCallback(
     (file: ActiveFile) => {
@@ -3970,7 +3997,7 @@ const App: React.FC = () => {
           ) : null}
 
           {/* Optional Left Agent Panel */}
-          {!isCmsFullscreen && agentPosition === 'left' && (
+          {!isCmsFullscreen && agentPosition === 'left' && !agentHomeAtmosphericChat && (
               <>
                 <div 
                     className={`bg-[var(--dashboard-panel)] flex flex-col shrink-0 transition-opacity relative group z-30 opacity-100 max-phone:fixed max-phone:inset-0 max-phone:z-[45] max-phone:w-full max-phone:max-w-none max-phone:shrink ${
@@ -4040,8 +4067,9 @@ const App: React.FC = () => {
                         dashboardRouteKey={routeAgentMeta.route_key}
                         dashboardRouteLabel={routeAgentMeta.context_label}
                         routeQuickActions={routeAgentMeta.quickActions}
-                        atmosphericHomeMode={isAgentHomeAtmospheric && !isNarrowViewport}
+                        atmosphericHomeMode={agentHomeAtmosphericChat}
                         composerPortalTarget={agentHomeComposerHost}
+                        messagesPortalTarget={agentHomeMessagesHost}
                         />
                     </div>
                 </div>
@@ -4478,7 +4506,9 @@ const App: React.FC = () => {
                       <div className="absolute inset-0 z-10">
                           <AgentHome
                             displayName={workspaceDisplayName}
+                            showHero={agentHomeShowHero}
                             onComposerHost={setAgentHomeComposerHost}
+                            onMessagesHost={setAgentHomeMessagesHost}
                             onModeSelect={handleAgentHomeModeSelect}
                           />
                       </div>
@@ -4749,7 +4779,7 @@ const App: React.FC = () => {
           </div>
 
           {/* 6. Optional Right Agent Panel */}
-          {!isCmsFullscreen && agentPosition === 'right' && (
+          {!isCmsFullscreen && agentPosition === 'right' && !agentHomeAtmosphericChat && (
               <>
                 {/* Agent Grab Bar */}
                 <div
@@ -4833,12 +4863,79 @@ const App: React.FC = () => {
                         dashboardRouteKey={routeAgentMeta.route_key}
                         dashboardRouteLabel={routeAgentMeta.context_label}
                         routeQuickActions={routeAgentMeta.quickActions}
-                        atmosphericHomeMode={isAgentHomeAtmospheric && !isNarrowViewport}
+                        atmosphericHomeMode={agentHomeAtmosphericChat}
                         composerPortalTarget={agentHomeComposerHost}
+                        messagesPortalTarget={agentHomeMessagesHost}
                         />
                     </div>
                 </div>
               </>
+          )}
+
+          {!isCmsFullscreen && agentHomeAtmosphericChat && (
+              <div
+                className="fixed overflow-hidden pointer-events-none opacity-0"
+                style={{ left: -9999, top: 0, width: 420, height: '100%' }}
+                aria-hidden
+              >
+                <ChatAssistantWithStudioContext
+                  fallbackProject={activeProject}
+                  activeFileContent={activeFile?.content}
+                  activeFileName={activeFile?.name}
+                  activeFile={activeFile}
+                  editorCursorLine={cursorPos.line}
+                  editorCursorColumn={cursorPos.col}
+                  agentsamPolicy={agentsamChatPolicy}
+                  workspaceId={authWorkspaceId}
+                  defaultSubagentSlug={isDesignStudioRoute ? 'cadcreator' : undefined}
+                  messages={chatMessages}
+                  setMessages={setChatMessages}
+                  onOpenChatHistory={shellOpenChatHistory}
+                  onFileSelect={openInMonacoFromChat}
+                  onGlbFileSelect={(file) => {
+                    const glbUrl = URL.createObjectURL(file);
+                    setGlbViewerUrl((prev) => {
+                      if (prev.startsWith('blob:')) URL.revokeObjectURL(prev);
+                      return glbUrl;
+                    });
+                    setGlbViewerFilename(file.name);
+                    navigate('/dashboard/designstudio', {
+                      state: { pendingGlb: { url: glbUrl, name: file.name.replace(/\.glb$/i, '') } },
+                    });
+                  }}
+                  onRunInTerminal={runInTerminal}
+                  onR2FileUpdated={handleR2FileUpdatedFromAgent}
+                  onBrowserNavigate={handleBrowserNavigateFromAgent}
+                  onOpenGitHubIntegration={openGitHubFromChat}
+                  onMobileOpenDashboard={openDashboardFromChat}
+                  onOpenQuickstart={openAgentQuickstart}
+                  onOpenCodeTab={focusCodeEditorFromChat}
+                  onLoadingChange={setAgentIsStreaming}
+                  onApprovalRequired={setActiveCommandRunId}
+                  agentRunId={activeCommandRunId}
+                  syncedHostConversationId={activeAgentConversationId}
+                  agentChatShellTabs={agentChatTabs.map((t) => ({ id: t.id, title: t.title }))}
+                  activeAgentChatShellTabId={activeAgentChatTabId}
+                  onAgentChatShellTabSelect={selectAgentChatTab}
+                  onAgentChatShellNewTab={createNewAgentChatTab}
+                  onAgentRunContext={setActiveAgentRunId}
+                  activeWorkbenchTab={
+                    isMovieModeRoute ? 'moviemode' : isCmsRoute ? 'cms' : activeTab === 'cms' ? 'cms' : isDrawRoute ? 'draw' : activeTab
+                  }
+                  browserUrl={browserUrl}
+                  openFilePaths={agentWorkbenchOpenFiles}
+                  activePlanId={activePlanIdForChat}
+                  onActivePlanChange={handleActivePlanChange}
+                  cmsContext={cmsWorkbenchContext}
+                  hostWorkspaceContext={agentWorkspaceContext}
+                  dashboardRouteKey={routeAgentMeta.route_key}
+                  dashboardRouteLabel={routeAgentMeta.context_label}
+                  routeQuickActions={routeAgentMeta.quickActions}
+                  atmosphericHomeMode
+                  composerPortalTarget={agentHomeComposerHost}
+                  messagesPortalTarget={agentHomeMessagesHost}
+                />
+              </div>
           )}
       </div>
       {/* 8. STATUS BAR (FOOTER) */}
