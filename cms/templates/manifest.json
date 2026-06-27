@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "bucket": "cms",
+  "public_origin": "https://cms.inneranimalmedia.com",
+  "default_template_id": "tpl_blank_canvas_v1",
+  "templates": [
+    {
+      "id": "tpl_blank_canvas_v1",
+      "slug": "blank-canvas",
+      "name": "Blank canvas",
+      "description": "Empty page — build from scratch",
+      "template_type": "page_shell",
+      "category": "Starter",
+      "r2_key": "templates/blank-canvas/index.html",
+      "is_default": true,
+      "sections": [
+        {
+          "section_type": "custom",
+          "section_name": "main-content",
+          "sort_order": 10
+        }
+      ]
+    },
+    {
+      "id": "tpl_starter_page_v1",
+      "slug": "starter-page",
+      "name": "Starter page",
+      "description": "Hero + services + CTA scaffold",
+      "template_type": "page_shell",
+      "category": "Starter",
+      "r2_key": "templates/starter-page/index.html",
+      "is_default": false,
+      "sections": [
+        { "section_type": "hero", "section_name": "main-hero", "sort_order": 10 },
+        { "section_type": "services", "section_name": "capabilities", "sort_order": 20 },
+        { "section_type": "cta", "section_name": "closing-cta", "sort_order": 30 }
+      ]
+    }
+  ]
+}

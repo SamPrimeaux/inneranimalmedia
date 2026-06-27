@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "bucket": "cms",
+  "public_origin": "https://cms.inneranimalmedia.com",
+  "runtime_contract_key": "instructions/RUNTIME_CONTRACT.md",
+  "templates_manifest_key": "templates/manifest.json",
+  "skill_playbook_r2": "inneranimalmedia-autorag/skills/cms_edit/SKILL.md",
+  "skill_id": "skill_iam_cms_edit",
+  "route_key": "cms_edit",
+  "files": [
+    {
+      "path": "instructions/RUNTIME_CONTRACT.md",
+      "kind": "contract",
+      "description": "Agent runtime contract — mandatory loop and planes"
+    },
+    {
+      "path": "instructions/database-schema.md",
+      "kind": "schema",
+      "description": "D1 CMS tables and relationships"
+    },
+    {
+      "path": "instructions/agent-tools.md",
+      "kind": "tools",
+      "description": "Agent Sam CMS tool catalog"
+    },
+    {
+      "path": "instructions/python-pipeline.md",
+      "kind": "pipeline",
+      "description": "iam-cms-pipeline Python worker tools"
+    },
+    {
+      "path": "instructions/liquid-remaster.md",
+      "kind": "liquid",
+      "description": "Shopify theme import and Liquid → HTML remaster"
+    },
+    {
+      "path": "instructions/r2-key-conventions.md",
+      "kind": "storage",
+      "description": "R2 key layout for pages, sections, imports"
+    },
+    {
+      "path": "instructions/scripts.md",
+      "kind": "ops",
+      "description": "Upload, verify, and audit scripts"
+    }
+  ]
+}
