@@ -1,6 +1,7 @@
 /**
  * CMS Studio — iframe workspace + Excalidraw sketch overlay.
  * Inherits cms_themes from parent shell; quick-start actions route to ChatAssistant.
+ * Production loads the dedicated studio lane (studio.inneranimalmedia.com).
  */
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -10,7 +11,8 @@ const ExcalidrawView = lazy(() =>
   })),
 );
 
-const STUDIO_BASE = '/static/dashboard/app/cms/cms-studio-shell.html';
+const DEFAULT_STUDIO_ORIGIN = 'https://studio.inneranimalmedia.com';
+const LEGACY_STUDIO_SHELL = '/static/dashboard/app/cms/cms-studio-shell.html';
 
 const DASHBOARD_THEME_KEYS = [
   '--bg-canvas',
@@ -33,10 +35,45 @@ const DASHBOARD_THEME_KEYS = [
   '--dashboard-border',
 ];
 
+function isLocalDevHost(hostname: string) {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname.endsWith('.local');
+}
+
+function resolveStudioBase(studioUrl?: string | null): { base: string; origin: string } {
+  if (studioUrl) {
+    try {
+      const u = new URL(studioUrl, window.location.origin);
+      const origin = u.origin;
+      const base =
+        u.pathname && u.pathname !== '/'
+          ? `${origin}${u.pathname.replace(/\/$/, '')}`
+          : `${origin}/editor`;
+      return { base, origin };
+    } catch {
+      /* fall through */
+    }
+  }
+  if (typeof window !== 'undefined' && isLocalDevHost(window.location.hostname)) {
+    return { base: LEGACY_STUDIO_SHELL, origin: window.location.origin };
+  }
+  return { base: `${DEFAULT_STUDIO_ORIGIN}/editor`, origin: DEFAULT_STUDIO_ORIGIN };
+}
+
+function isAllowedPostMessageOrigin(origin: string, studioOrigin: string) {
+  if (!origin) return false;
+  if (origin === studioOrigin || origin === window.location.origin) return true;
+  try {
+    const host = new URL(origin).hostname.toLowerCase();
+    return host === 'inneranimalmedia.com' || host.endsWith('.inneranimalmedia.com');
+  } catch {
+    return false;
+  }
+}
+
 function collectDashboardThemeVars() {
   const root = document.documentElement;
   const cs = getComputedStyle(root);
-  const vars = {};
+  const vars: Record<string, string> = {};
   for (const key of DASHBOARD_THEME_KEYS) {
     const v = cs.getPropertyValue(key).trim();
     if (v) vars[key] = v;
@@ -52,6 +89,7 @@ export function CmsStudioEditor({
   workspaceId = '',
   workspaceLabel = null,
   publicDomain = null,
+  studioUrl = null,
   onNavigatePath,
 }: {
   projectSlug: string | null | undefined;
@@ -62,6 +100,7 @@ export function CmsStudioEditor({
   workspaceId?: string;
   workspaceLabel?: string | null;
   publicDomain?: string | null;
+  studioUrl?: string | null;
   onNavigatePath?: (path: string, opts?: { replace?: boolean }) => void;
 }) {
   const navigatePath = useCallback(
@@ -79,10 +118,15 @@ export function CmsStudioEditor({
     [onNavigatePath],
   );
   const [sketchOpen, setSketchOpen] = useState(false);
-  const iframeRef = useRef(null);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
   const isAgentSamCmsShell =
     agentSamCmsShell || panel === 'themeEditor' || panel === 'theme-editor';
+
+  const { base: studioBase, origin: studioOrigin } = useMemo(
+    () => resolveStudioBase(studioUrl),
+    [studioUrl],
+  );
 
   const src = useMemo(() => {
     if (!projectSlug) return null;
@@ -98,8 +142,22 @@ export function CmsStudioEditor({
     if (workspaceId) q.set('workspace_id', workspaceId);
     if (workspaceLabel) q.set('workspace_label', workspaceLabel);
     if (publicDomain) q.set('public_domain', publicDomain);
-    return `${STUDIO_BASE}?${q.toString()}`;
-  }, [projectSlug, pageId, panel, isAgentSamCmsShell, workspaceId, workspaceLabel, publicDomain]);
+    if (studioOrigin !== window.location.origin) {
+      q.set('parent_origin', window.location.origin);
+    }
+    const join = studioBase.includes('?') ? '&' : '?';
+    return `${studioBase}${join}${q.toString()}`;
+  }, [
+    projectSlug,
+    pageId,
+    panel,
+    isAgentSamCmsShell,
+    workspaceId,
+    workspaceLabel,
+    publicDomain,
+    studioBase,
+    studioOrigin,
+  ]);
 
   const postThemeToIframe = useCallback(() => {
     const win = iframeRef.current?.contentWindow;
@@ -107,69 +165,72 @@ export function CmsStudioEditor({
     const slug = document.documentElement.getAttribute('data-theme') || '';
     win.postMessage(
       { type: 'iam-cms-theme', slug, vars: collectDashboardThemeVars() },
-      window.location.origin,
+      studioOrigin,
     );
-  }, []);
+  }, [studioOrigin]);
 
-  const onMessage = useCallback((event) => {
-    if (event.origin !== window.location.origin) return;
-    const data = event.data;
-    if (!data || typeof data !== 'object') return;
+  const onMessage = useCallback(
+    (event: MessageEvent) => {
+      if (!isAllowedPostMessageOrigin(event.origin, studioOrigin)) return;
+      const data = event.data;
+      if (!data || typeof data !== 'object') return;
 
-    if (data.type === 'iam-primetech-sketch') setSketchOpen(true);
-    if (data.type === 'iam-primetech-sketch-close') setSketchOpen(false);
+      if (data.type === 'iam-primetech-sketch') setSketchOpen(true);
+      if (data.type === 'iam-primetech-sketch-close') setSketchOpen(false);
 
-    if (data.type === 'iam-agent-chat-compose' && data.detail?.message) {
-      window.dispatchEvent(
-        new CustomEvent('iam:agent-chat-compose', {
-          detail: {
-            message: data.detail.message,
-            send: data.detail.send === true,
-            ensureAgentPanel: data.detail.ensureAgentPanel !== false,
-          },
-        }),
-      );
-    }
+      if (data.type === 'iam-agent-chat-compose' && data.detail?.message) {
+        window.dispatchEvent(
+          new CustomEvent('iam:agent-chat-compose', {
+            detail: {
+              message: data.detail.message,
+              send: data.detail.send === true,
+              ensureAgentPanel: data.detail.ensureAgentPanel !== false,
+            },
+          }),
+        );
+      }
 
-    if (data.type === 'iam-agent-chat-new-thread' && data.detail?.message) {
-      window.dispatchEvent(
-        new CustomEvent('iam-agent-chat-new-thread', {
-          detail: {
-            message: data.detail.message,
-            task_type: data.detail.task_type,
-            route_key: data.detail.route_key,
-            ensureAgentPanel: data.detail.ensureAgentPanel !== false,
-            force_plan_mode: data.detail.force_plan_mode === true,
-            project_slug: data.detail.project_slug || projectSlug,
-            page_id: data.detail.page_id || pageId,
-            workspace_id: data.detail.workspace_id || workspaceId,
-            bootstrap_cache_key: data.detail.bootstrap_cache_key || null,
-            collab_room: data.detail.collab_room || (pageId ? `cms:${pageId}` : null),
-          },
-        }),
-      );
-    }
+      if (data.type === 'iam-agent-chat-new-thread' && data.detail?.message) {
+        window.dispatchEvent(
+          new CustomEvent('iam-agent-chat-new-thread', {
+            detail: {
+              message: data.detail.message,
+              task_type: data.detail.task_type,
+              route_key: data.detail.route_key,
+              ensureAgentPanel: data.detail.ensureAgentPanel !== false,
+              force_plan_mode: data.detail.force_plan_mode === true,
+              project_slug: data.detail.project_slug || projectSlug,
+              page_id: data.detail.page_id || pageId,
+              workspace_id: data.detail.workspace_id || workspaceId,
+              bootstrap_cache_key: data.detail.bootstrap_cache_key || null,
+              collab_room: data.detail.collab_room || (pageId ? `cms:${pageId}` : null),
+            },
+          }),
+        );
+      }
 
-    if (data.type === 'iam-cms-navigate' && data.detail?.path) {
-      navigatePath(String(data.detail.path), { replace: data.detail.replace === true });
-    }
+      if (data.type === 'iam-cms-navigate' && data.detail?.path) {
+        navigatePath(String(data.detail.path), { replace: data.detail.replace === true });
+      }
 
-    if (data.type === 'iam-cms-exit') {
-      navigatePath('/dashboard/home');
-    }
+      if (data.type === 'iam-cms-exit') {
+        navigatePath('/dashboard/home');
+      }
 
-    if (data.type === 'iam-cms-open-agent') {
-      window.dispatchEvent(
-        new CustomEvent('iam:agent-chat-compose', {
-          detail: {
-            message: data.detail?.message || '',
-            send: false,
-            ensureAgentPanel: true,
-          },
-        }),
-      );
-    }
-  }, [projectSlug, pageId, workspaceId, navigatePath]);
+      if (data.type === 'iam-cms-open-agent') {
+        window.dispatchEvent(
+          new CustomEvent('iam:agent-chat-compose', {
+            detail: {
+              message: data.detail?.message || '',
+              send: false,
+              ensureAgentPanel: true,
+            },
+          }),
+        );
+      }
+    },
+    [projectSlug, pageId, workspaceId, navigatePath, studioOrigin],
+  );
 
   useEffect(() => {
     window.addEventListener('message', onMessage);

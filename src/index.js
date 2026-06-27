@@ -22,9 +22,15 @@ import {
   isAutomationApiPath,
 } from './core/public-oauth-paths.js';
 import { loadPublishedCmsSectionsByRoute } from './core/cms-public-page.js';
-import { hydrateContactPageHtml } from './core/cms-contact-hydrate.js';
-import { hydrateGamesPageHtml } from './core/cms-games-hydrate.js';
-import { hydrateWorkPageHtml } from './core/cms-work-hydrate.js';
+import {
+  parseCmsUrlPreviewMode,
+  loadCmsSectionsForRoute,
+} from './core/cms-preview-route.js';
+import {
+  cmsStaticShellKeyForRoute,
+  hydrateCmsRoutePageHtml,
+  normalizeCmsRoutePath,
+} from './core/cms-page-hydrate-dispatch.js';
 import { hydrateWorkDetailPageHtml } from './core/cms-work-detail-hydrate.js';
 import { assetPassthroughCacheControl } from './core/asset-passthrough-cache.js';
 import { resolveIdentity } from './core/identity.js';
@@ -70,6 +76,11 @@ import { resolveGitHubToken } from './core/github-token.js';
 import { handleSitemapPage, handleSitemapXml } from './public-pages/sitemap-route.js';
 import { handleQualityReportRoute } from './public-pages/quality-report-route.js';
 import { wrapEnvKvBinding } from './core/kv-storage-policy.js';
+import {
+  dispatchCmsStudioLane,
+  isCmsStudioAuthShellPath,
+  isCmsStudioHost,
+} from './core/cms-studio-lane.js';
 
 function getMimeType(key) {
   if (key.endsWith('.js'))    return 'application/javascript';
@@ -441,6 +452,66 @@ export default {
           }
         }
       }
+      // Dynamic CMS pages registered in D1 (route_path → R2 HTML shell)
+      if (!assetHtmlKey && env.DB && env.ASSETS) {
+        const previewCtx = parseCmsUrlPreviewMode(url);
+        const cmsRoute = normalizeCmsRoutePath(pathLower);
+        const staticShell = cmsStaticShellKeyForRoute(cmsRoute);
+        if (!staticShell) {
+          const bundle = await loadCmsSectionsForRoute(env, cmsRoute, {
+            previewMode: previewCtx.previewMode,
+            userId: authContextToLegacyUser(peekRequestAuth(request))?.id || null,
+            pageId: previewCtx.pageId,
+          });
+          if (bundle.page?.r2_key) {
+            const r2Key =
+              previewCtx.previewMode === 'draft' && bundle.page.r2_key.includes('/published.html')
+                ? bundle.page.r2_key.replace('/published.html', '/draft.html')
+                : String(bundle.page.r2_key);
+            const obj = await env.ASSETS.get(r2Key).catch(() => null);
+            const publishedObj = obj || (await env.ASSETS.get(String(bundle.page.r2_key)).catch(() => null));
+            if (publishedObj) {
+              let htmlText = await publishedObj.text();
+              try {
+                htmlText = await hydrateCmsRoutePageHtml(
+                  htmlText,
+                  cmsRoute,
+                  bundle.sections,
+                  env.ASSETS,
+                );
+              } catch (e) {
+                console.warn('[cms-dynamic] hydrate failed:', e?.message);
+              }
+              const isCmsEmbed = previewCtx.cmsEmbed;
+              const cacheControl =
+                previewCtx.previewMode === 'draft'
+                  ? 'private, no-store, max-age=0'
+                  : 'public, max-age=300';
+              return new HTMLRewriter()
+                .on('head', {
+                  element(el) {
+                    if (previewCtx.previewMode === 'draft') {
+                      el.append(
+                        '<meta name="cms-preview-mode" content="draft">',
+                        { html: true },
+                      );
+                    }
+                    if (!isCmsEmbed) return;
+                    el.append(
+                      '<style>[data-cms-section]{scroll-margin-top:24px}[data-cms-section].iam-cms-section-focus{outline:2px solid #3b82f6;outline-offset:2px;transition:outline-color .2s}</style>',
+                      { html: true },
+                    );
+                  },
+                })
+                .transform(
+                  new Response(htmlText, {
+                    headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': cacheControl },
+                  }),
+                );
+            }
+          }
+        }
+      }
       // CMS marketing pages: /marketing/{slug} → published R2 HTML (fullscreen, no shell inject)
       if (!assetHtmlKey && pathLower.startsWith('/marketing/') && env.DB && env.ASSETS) {
         const marketingSlug = pathLower.slice('/marketing/'.length).replace(/\/$/, '');
@@ -475,7 +546,8 @@ export default {
         let obj = null;
         if (env.ASSETS) obj = await env.ASSETS.get(assetHtmlKey);
         if (!obj) return new Response('Not found', { status: 404 });
-        const isCmsEmbed = url.searchParams.get('cms') === '1';
+        const previewCtx = parseCmsUrlPreviewMode(url);
+        const isCmsEmbed = previewCtx.cmsEmbed;
         const fromMeta = obj.httpMetadata?.contentType;
         const k = assetHtmlKey.toLowerCase();
         // R2 often has no customMetadata, or text/plain on HTML — browsers then show source as plain text.
@@ -508,45 +580,45 @@ export default {
           (typeof assetHtmlKey === 'string' && assetHtmlKey.startsWith('pages/auth/')) ||
           assetHtmlKey === 'pages/games/room.html';
         let pageBody = obj.body;
-        if (assetHtmlKey === 'pages/contact/index.html') {
+        const CMS_ASSET_ROUTES = {
+          'pages/home/index.html': '/',
+          'pages/contact/index.html': '/contact',
+          'pages/games/index.html': '/games',
+          'pages/work/index.html': '/work',
+          'pages/about/index.html': '/about',
+          'pages/services/index.html': '/services',
+          'pages/pricing/index.html': '/pricing',
+        };
+        const cmsRoute = CMS_ASSET_ROUTES[assetHtmlKey];
+        if (cmsRoute && env.DB && env.ASSETS) {
           let htmlText = await obj.text();
-          if (env.DB) {
-            try {
-              const cmsBundle = await loadPublishedCmsSectionsByRoute(env.DB, '/contact');
-              htmlText = hydrateContactPageHtml(htmlText, cmsBundle.sections);
-            } catch (e) {
-              console.warn('[contact] cms hydrate failed (serving static shell):', e?.message);
-            }
+          try {
+            const bundle = await loadCmsSectionsForRoute(env, cmsRoute, {
+              previewMode: previewCtx.previewMode,
+              userId: authContextToLegacyUser(peekRequestAuth(request))?.id || null,
+              pageId: previewCtx.pageId,
+            });
+            htmlText = await hydrateCmsRoutePageHtml(
+              htmlText,
+              cmsRoute,
+              bundle.sections,
+              env.ASSETS,
+            );
+          } catch (e) {
+            console.warn(`[cms/${cmsRoute}] hydrate failed (serving static shell):`, e?.message);
           }
           pageBody = htmlText;
         }
-        if (assetHtmlKey === 'pages/games/index.html') {
-          let htmlText = await obj.text();
-          if (env.DB) {
-            try {
-              const cmsBundle = await loadPublishedCmsSectionsByRoute(env.DB, '/games');
-              htmlText = hydrateGamesPageHtml(htmlText, cmsBundle.sections);
-            } catch (e) {
-              console.warn('[games] cms hydrate failed (serving static shell):', e?.message);
-            }
-          }
-          pageBody = htmlText;
-        }
-        if (assetHtmlKey === 'pages/work/index.html') {
-          let htmlText = await obj.text();
-          if (env.DB) {
-            try {
-              const cmsBundle = await loadPublishedCmsSectionsByRoute(env.DB, '/work');
-              htmlText = hydrateWorkPageHtml(htmlText, cmsBundle.sections);
-            } catch (e) {
-              console.warn('[work] cms hydrate failed (serving static shell):', e?.message);
-            }
-          }
-          pageBody = htmlText;
-        }
+        const cacheControl =
+          previewCtx.previewMode === 'draft'
+            ? 'private, no-store, max-age=0'
+            : 'public, max-age=300';
         return new HTMLRewriter()
           .on('head', {
             element(el) {
+              if (previewCtx.previewMode === 'draft') {
+                el.append('<meta name="cms-preview-mode" content="draft">', { html: true });
+              }
               if (!isCmsEmbed) return;
               el.append(
                 '<style>[data-cms-section]{scroll-margin-top:24px}[data-cms-section].iam-cms-section-focus{outline:2px solid #3b82f6;outline-offset:2px;transition:outline-color .2s}</style>',
@@ -561,7 +633,7 @@ export default {
             }
           })
           .transform(new Response(pageBody, {
-            headers: { 'Content-Type': contentType, 'Cache-Control': 'public, max-age=300' },
+            headers: { 'Content-Type': contentType, 'Cache-Control': cacheControl },
           }));
       }
 
@@ -1040,6 +1112,26 @@ export default {
         }
       }
 
+      if (isCmsStudioHost(url.hostname)) {
+        const studioShell =
+          isCmsStudioAuthShellPath(pathLower) &&
+          !pathLower.startsWith('/static/dashboard/app/cms/cms-studio-shell.html');
+        if (studioShell && !authUser) {
+          const loginUrl = `https://inneranimalmedia.com/auth/login?next=${encodeURIComponent(`${url.origin}${url.pathname}${url.search || ''}`)}`;
+          return withSessionHealing(Response.redirect(loginUrl, 302));
+        }
+        const studioRes = await dispatchCmsStudioLane({
+          request,
+          url,
+          env,
+          methodUpper,
+          pathLower,
+          getMimeType,
+          withSessionHealing,
+        });
+        if (studioRes != null) return studioRes;
+      }
+
       // 3. Domain dispatch — single source: src/core/production-dispatch.js (re-exported from router.js).
       // Includes /api/integrations/* (e.g. GET /api/integrations/github/repos via handleIntegrationsRequest).
       const domainRes = await dispatchProductionDomainRoutes({
@@ -1160,11 +1252,18 @@ export default {
         const wantsHtml = accept.includes('text/html');
         if (
           wantsHtml &&
-          (isDashboardSpaShellPath(pathLower) || pathLower === '/dashboard' || pathLower === '/dashboard/')
+          (isDashboardSpaShellPath(pathLower) ||
+            pathLower === '/dashboard' ||
+            pathLower === '/dashboard/' ||
+            (isCmsStudioHost(url.hostname) && isCmsStudioAuthShellPath(pathLower)))
         ) {
-          const next = encodeURIComponent(`${path}${url.search || ''}`);
+          const nextTarget = `${url.origin}${path}${url.search || ''}`;
+          const loginOrigin = isCmsStudioHost(url.hostname)
+            ? 'https://inneranimalmedia.com'
+            : url.origin;
+          const next = encodeURIComponent(nextTarget);
           return withSessionHealing(
-            Response.redirect(`${url.origin}/auth/login?next=${next}`, 302),
+            Response.redirect(`${loginOrigin}/auth/login?next=${next}`, 302),
           );
         }
         const status = e.status || 401;

@@ -71,6 +71,8 @@ import {
 import { resolveActiveCmsThemeRow } from '../core/cms-theme-resolve.js';
 import { resolveCmsSiteConfig } from '../core/cms-site-config.js';
 import { mintCmsEmbedSession, proxyCmsBridgeRequest } from '../core/cms-client-bridge.js';
+import { renderCmsSectionTreeHtmlWithInjections } from '../core/cms-injected-sections.js';
+import { buildCmsPageUrls } from '../core/cms-preview-route.js';
 
 export const CMS_DEFAULT_R2_BUCKET = 'inneranimalmedia';
 
@@ -367,6 +369,30 @@ export async function handleCmsApi(request, url, env, ctx) {
     }
   }
 
+  const pagePreviewUrlsMatch = path.match(/^\/api\/cms\/pages\/([^/]+)\/preview-urls$/);
+  if (pagePreviewUrlsMatch && method === 'GET') {
+    const pageId = pagePreviewUrlsMatch[1];
+    try {
+      const page = await fetchCmsPageInScope(env, pageId, cmsScope);
+      if (!page) return jsonResponse({ error: 'Page not found' }, 404);
+      const tenantRow = await env.DB.prepare(
+        `SELECT domain FROM cms_tenants WHERE slug = ? LIMIT 1`,
+      )
+        .bind(String(page.project_slug || page.project_id || '').trim())
+        .first()
+        .catch(() => null);
+      return jsonResponse({
+        page_id: pageId,
+        ...buildCmsPageUrls(page, {
+          domain: tenantRow?.domain || null,
+          projectSlug: page.project_slug || page.project_id || null,
+        }),
+      });
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
   /**
    * GET /api/cms/pages/:id
    * Return metadata + presigned R2 URL for content.
@@ -452,7 +478,14 @@ export async function handleCmsApi(request, url, env, ctx) {
           }
         }
       }
-      const preview_html = renderCmsSectionTreeHtml(sections, componentsBySection);
+      const r2BindingPreview = getCmsR2Binding(env, bucket);
+      const preview_html = r2BindingPreview
+        ? await renderCmsSectionTreeHtmlWithInjections(
+            sections,
+            componentsBySection,
+            r2BindingPreview,
+          )
+        : renderCmsSectionTreeHtml(sections, componentsBySection);
 
       let draftContentUrl = null;
       if (useDraft) {
@@ -461,9 +494,13 @@ export async function handleCmsApi(request, url, env, ctx) {
       }
 
       const routePath = String(page.route_path || `/${page.slug || ''}`).trim() || '/';
+      const previewUrls = buildCmsPageUrls(page, {
+        domain: tenantRow?.domain || null,
+        projectSlug: page.project_slug || page.project_id || null,
+      });
       const liveUrl = tenantRow?.domain
         ? `https://${tenantRow.domain}${routePath.startsWith('/') ? routePath : `/${routePath}`}`
-        : null;
+        : previewUrls.live_url;
 
       return jsonResponse({
         page,
@@ -471,6 +508,7 @@ export async function handleCmsApi(request, url, env, ctx) {
         preview_html,
         preview_mode: useDraft ? 'draft' : 'published',
         live_url: liveUrl,
+        preview_urls: previewUrls,
         r2_key: useDraft ? cmsPageKey(workspaceId, page.project_id, page.slug, 'draft') : publishedKey,
         sections,
         components_by_section: componentsBySection,
@@ -591,7 +629,7 @@ export async function handleCmsApi(request, url, env, ctx) {
    */
   if (path === '/api/cms/pages' && method === 'POST') {
     const body = await request.json();
-    const { project_id, slug, title, content, content_type = 'text/html' } = body;
+    const { project_id, slug, title, content, content_type = 'text/html', route_path } = body;
 
     if (!project_id || !slug || !title) {
       return jsonResponse({ error: 'project_id, slug, and title are required' }, 400);
@@ -600,8 +638,19 @@ export async function handleCmsApi(request, url, env, ctx) {
       return jsonResponse({ error: 'CMS_SITE_NOT_ALLOWED', project_id }, 403);
     }
 
+    const normalizedRoute =
+      String(route_path || `/${slug}`).trim().startsWith('/')
+        ? String(route_path || `/${slug}`).trim()
+        : `/${String(route_path || slug).trim()}`;
+    const pageType = String(body.page_type || 'custom').trim() || 'custom';
+    const pageStatus = String(body.status || 'draft').trim() === 'published' ? 'published' : 'draft';
+    const r2Variant = pageStatus === 'published' ? 'published' : 'draft';
+    const seoTitle = String(body.seo_title || title || '').trim();
+    const metaDescription = String(body.meta_description || `${title} — ${project_id}`).trim();
+    const initialSections = Array.isArray(body.sections) ? body.sections : [];
+
     const r2Bucket = CMS_DEFAULT_R2_BUCKET;
-    const r2Key = cmsPageKey(workspaceId, project_id, slug, 'published');
+    const r2Key = cmsPageKey(workspaceId, project_id, slug, r2Variant);
     const r2Binding = getCmsR2Binding(env, r2Bucket);
 
     if (!r2Binding) return jsonResponse({ error: 'R2 storage unavailable' }, 503);
@@ -616,22 +665,78 @@ export async function handleCmsApi(request, url, env, ctx) {
       // 2. Insert to D1
       const pageId = crypto.randomUUID();
       const now = Math.floor(Date.now() / 1000);
-      
+
       await env.DB.prepare(`
         INSERT INTO cms_pages (
-          id, project_id, project_slug, slug, title, status, route_path,
+          id, project_id, project_slug, slug, title, status, route_path, path, page_type,
           tenant_id, workspace_id, person_uuid, created_by, updated_by,
           r2_key, r2_bucket, content_type, content_size_bytes,
+          seo_title, meta_description,
           created_at, updated_at, published_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).bind(
-        pageId, project_id, project_id, slug, title, 'published', `/${slug}`,
+        pageId, project_id, project_id, slug, title, pageStatus, normalizedRoute, normalizedRoute, pageType,
         tenantId, workspaceId, personUuid, authUser.id, authUser.id,
         r2Key, r2Bucket, content_type, contentBuffer.byteLength,
-        now, now, now
+        seoTitle, metaDescription,
+        now, now, pageStatus === 'published' ? now : null,
       ).run();
 
-      return jsonResponse({ success: true, id: pageId, r2_key: r2Key });
+      const createdSections = [];
+      for (let i = 0; i < initialSections.length; i++) {
+        const sec = initialSections[i] || {};
+        const sectionId =
+          String(sec.id || '').trim() ||
+          `sec_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+        const sectionType = String(sec.section_type || sec.type || 'custom').trim();
+        const sectionName = String(sec.section_name || sec.name || sectionType).trim();
+        const sectionData =
+          typeof sec.section_data === 'string'
+            ? sec.section_data
+            : JSON.stringify(sec.section_data || sec.data || {});
+        const sortOrder = Number(sec.sort_order ?? (i + 1) * 10);
+        await env.DB.prepare(
+          `INSERT INTO cms_page_sections
+           (id, page_id, section_type, section_name, section_data, sort_order, is_visible, css_classes, custom_css, created_at_unix)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+          .bind(
+            sectionId,
+            pageId,
+            sectionType,
+            sectionName,
+            sectionData,
+            sortOrder,
+            sec.is_visible === 0 || sec.is_visible === false ? 0 : 1,
+            sec.css_classes || '',
+            sec.custom_css || '',
+            now,
+          )
+          .run();
+        createdSections.push({
+          id: sectionId,
+          page_id: pageId,
+          section_type: sectionType,
+          section_name: sectionName,
+          sort_order: sortOrder,
+          is_visible: sec.is_visible === 0 ? 0 : 1,
+        });
+      }
+
+      invalidateCmsBootstrap(env, ctx, workspaceId, project_id);
+
+      return jsonResponse({
+        success: true,
+        id: pageId,
+        r2_key: r2Key,
+        route_path: normalizedRoute,
+        status: pageStatus,
+        sections: createdSections,
+        preview_urls: buildCmsPageUrls(
+          { id: pageId, slug, route_path: normalizedRoute, project_slug: project_id },
+          { projectSlug: project_id },
+        ),
+      });
     } catch (e) {
       return jsonResponse({ error: e.message }, 500);
     }
@@ -656,12 +761,27 @@ export async function handleCmsApi(request, url, env, ctx) {
         if (!page) return jsonResponse({ error: 'Page not found' }, 404);
         const updates = [];
         const binds = [];
-        const allowed = ['title', 'seo_title', 'meta_description', 'robots', 'page_type', 'sort_order'];
+        const allowed = ['title', 'seo_title', 'meta_description', 'robots', 'page_type', 'sort_order', 'route_path', 'slug'];
         for (const k of allowed) {
           if (k in body) {
             updates.push(`${k} = ?`);
-            binds.push(body[k]);
+            if (k === 'route_path') {
+              const rp = String(body.route_path || '').trim();
+              binds.push(rp.startsWith('/') ? rp : `/${rp}`);
+            } else if (k === 'slug') {
+              binds.push(String(body.slug || '').replace(/^\//, ''));
+            } else {
+              binds.push(body[k]);
+            }
           }
+        }
+        if ('route_path' in body || 'slug' in body) {
+          const routePath = String(
+            body.route_path ?? page.route_path ?? (body.slug ? `/${body.slug}` : ''),
+          ).trim();
+          const normalizedRoute = routePath.startsWith('/') ? routePath : `/${routePath}`;
+          updates.push('path = ?');
+          binds.push(normalizedRoute || '/');
         }
         if (!updates.length) return jsonResponse({ error: 'No valid fields to update' }, 400);
         updates.push(`updated_at = ?`, `updated_by = ?`);
@@ -671,7 +791,19 @@ export async function handleCmsApi(request, url, env, ctx) {
         )
           .bind(...binds)
           .run();
-        return jsonResponse({ success: true, id: pageId });
+        const projectSlug = String(page.project_slug || page.project_id || '').trim();
+        if (projectSlug) invalidateCmsBootstrap(env, ctx, workspaceId, projectSlug);
+        const updated = await env.DB.prepare(`SELECT * FROM cms_pages WHERE id = ? LIMIT 1`)
+          .bind(pageId)
+          .first();
+        return jsonResponse({
+          success: true,
+          id: pageId,
+          page: updated,
+          preview_urls: buildCmsPageUrls(updated || page, {
+            projectSlug,
+          }),
+        });
       } catch (e) {
         return jsonResponse({ error: e.message }, 500);
       }
@@ -747,6 +879,20 @@ export async function handleCmsApi(request, url, env, ctx) {
       if (!page) return jsonResponse({ error: 'Page not found' }, 404);
 
       projectSlug = String(page.project_slug || page.project_id || '').trim();
+      if (!String(page.seo_title || '').trim() && String(page.title || '').trim()) {
+        await env.DB.prepare(`UPDATE cms_pages SET seo_title = ? WHERE id = ?`)
+          .bind(String(page.title).trim(), pageId)
+          .run();
+        page.seo_title = page.title;
+      }
+      if (!String(page.meta_description || '').trim()) {
+        const autoDesc = `${String(page.title || page.slug || 'Page').trim()} — ${projectSlug || 'site'}`;
+        await env.DB.prepare(`UPDATE cms_pages SET meta_description = ? WHERE id = ?`)
+          .bind(autoDesc, pageId)
+          .run();
+        page.meta_description = autoDesc;
+      }
+
       const r2BucketPre = page.r2_bucket || CMS_DEFAULT_R2_BUCKET;
       const draftKeyPre = cmsPageKey(workspaceId, page.project_id, page.slug, 'draft');
       const r2BindingPre = getCmsR2Binding(env, r2BucketPre);
@@ -979,18 +1125,60 @@ export async function handleCmsApi(request, url, env, ctx) {
       return jsonResponse({ error: 'Invalid JSON body' }, 400);
     }
     const sectionData = body.section_data ?? body.sectionData;
-    if (sectionData == null) return jsonResponse({ error: 'section_data is required' }, 400);
-    const payload =
-      typeof sectionData === 'string' ? sectionData : JSON.stringify(sectionData);
+    const hasSectionData = sectionData != null;
+    const metaFields = ['section_name', 'section_type', 'sort_order', 'is_visible', 'css_classes', 'custom_css'];
+    const hasMeta = metaFields.some((k) => k in body);
+    if (!hasSectionData && !hasMeta) {
+      return jsonResponse({ error: 'section_data or section metadata required' }, 400);
+    }
     try {
       const scoped = await fetchCmsSectionInScope(env, sectionId, cmsScope);
       if (!scoped) return jsonResponse({ error: 'Section not found' }, 404);
       const row = scoped.section;
-      await env.DB.prepare(
-        `UPDATE cms_page_sections SET section_data = ?, updated_at = datetime('now') WHERE id = ?`,
+      if (hasSectionData) {
+        const payload =
+          typeof sectionData === 'string' ? sectionData : JSON.stringify(sectionData);
+        await env.DB.prepare(
+          `UPDATE cms_page_sections SET section_data = ?, updated_at = datetime('now') WHERE id = ?`,
+        )
+          .bind(payload, sectionId)
+          .run();
+      }
+      if (hasMeta) {
+        const metaUpdates = [];
+        const metaBinds = [];
+        if ('section_name' in body) {
+          metaUpdates.push('section_name = ?');
+          metaBinds.push(String(body.section_name || '').trim());
+        }
+        if ('section_type' in body) {
+          metaUpdates.push('section_type = ?');
+          metaBinds.push(String(body.section_type || '').trim());
+        }
+        if ('sort_order' in body) {
+          metaUpdates.push('sort_order = ?');
+          metaBinds.push(Number(body.sort_order));
+        }
+        if ('is_visible' in body) {
+          metaUpdates.push('is_visible = ?');
+          metaBinds.push(body.is_visible === true || body.is_visible === 1 ? 1 : 0);
+        }
+        if (metaUpdates.length) {
+          metaUpdates.push(`updated_at = datetime('now')`);
+          await env.DB.prepare(
+            `UPDATE cms_page_sections SET ${metaUpdates.join(', ')} WHERE id = ?`,
+          )
+            .bind(...metaBinds, sectionId)
+            .run();
+        }
+      }
+
+      const updatedRow = await env.DB.prepare(
+        `SELECT id, page_id, section_type, section_name, section_data, sort_order, is_visible, updated_at
+         FROM cms_page_sections WHERE id = ? LIMIT 1`,
       )
-        .bind(payload, sectionId)
-        .run();
+        .bind(sectionId)
+        .first();
 
       const page = await env.DB.prepare(
         `SELECT id, project_slug, project_id, slug, r2_bucket, content_type FROM cms_pages WHERE id = ? LIMIT 1`,
@@ -1003,7 +1191,7 @@ export async function handleCmsApi(request, url, env, ctx) {
       if (body.agent_applied === true) meta.agentApplied = true;
 
       const parsed =
-        typeof sectionData === 'string'
+        hasSectionData && typeof sectionData === 'string'
           ? (() => {
               try {
                 return JSON.parse(sectionData);
@@ -1011,7 +1199,17 @@ export async function handleCmsApi(request, url, env, ctx) {
                 return { raw: sectionData };
               }
             })()
-          : sectionData;
+          : hasSectionData
+            ? sectionData
+            : (() => {
+                try {
+                  return typeof updatedRow?.section_data === 'string'
+                    ? JSON.parse(updatedRow.section_data)
+                    : updatedRow?.section_data || {};
+                } catch {
+                  return {};
+                }
+              })();
       const draftPayload = {
         sections: { [sectionId]: parsed },
         page_id: row.page_id,
@@ -1074,7 +1272,54 @@ export async function handleCmsApi(request, url, env, ctx) {
       }
       if (projectSlug) invalidateCmsBootstrap(env, ctx, workspaceId, projectSlug);
 
-      return jsonResponse({ success: true, id: sectionId });
+      return jsonResponse({
+        success: true,
+        id: sectionId,
+        section: {
+          ...updatedRow,
+          section_data: parsed,
+        },
+      });
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
+  /**
+   * DELETE /api/cms/sections/:id
+   * Remove a page section (hard delete; R2 artifacts retained for audit).
+   */
+  if (sectionIdMatch && method === 'DELETE') {
+    const sectionId = sectionIdMatch[1];
+    try {
+      const scoped = await fetchCmsSectionInScope(env, sectionId, cmsScope);
+      if (!scoped) return jsonResponse({ error: 'Section not found' }, 404);
+      const row = scoped.section;
+      const page = await env.DB.prepare(
+        `SELECT id, project_slug, project_id FROM cms_pages WHERE id = ? LIMIT 1`,
+      )
+        .bind(row.page_id)
+        .first()
+        .catch(() => null);
+      await env.DB.prepare(`DELETE FROM cms_page_sections WHERE id = ?`).bind(sectionId).run();
+      await env.DB.prepare(
+        `DELETE FROM cms_section_components WHERE section_id = ?`,
+      )
+        .bind(sectionId)
+        .run()
+        .catch(() => {});
+      ctx.waitUntil(
+        logCmsActivity(env, {
+          tenantId,
+          userId: authUser.id,
+          action: 'section_delete',
+          resourceType: 'section',
+          resourceId: sectionId,
+        }),
+      );
+      const projectSlug = String(page?.project_slug || page?.project_id || '').trim();
+      if (projectSlug) invalidateCmsBootstrap(env, ctx, workspaceId, projectSlug);
+      return jsonResponse({ success: true, id: sectionId, deleted: true });
     } catch (e) {
       return jsonResponse({ error: e.message }, 500);
     }
@@ -2134,6 +2379,153 @@ export async function handleCmsApi(request, url, env, ctx) {
     }
   }
 
+  if (path === '/api/cms/sections/save-injected' && method === 'POST') {
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: 'invalid JSON' }, 400);
+    }
+    const pageId = String(body.page_id || '').trim();
+    const sectionName = String(body.section_name || '').trim();
+    const sectionType = String(body.section_type || body.sectionType || 'custom').trim();
+    const html = body.html != null ? String(body.html) : '';
+    const projectSlug = String(body.project_slug || body.projectSlug || '').trim();
+    const explicitSectionId = String(body.section_id || body.sectionId || '').trim();
+    const position = String(body.position || 'end').trim();
+    if (!pageId || !sectionName) {
+      return jsonResponse({ error: 'page_id and section_name required' }, 400);
+    }
+    if (!html.trim()) return jsonResponse({ error: 'html required' }, 400);
+    if (html.length > 512_000) {
+      return jsonResponse({ error: 'html exceeds 512KB limit' }, 413);
+    }
+    try {
+      const page = await fetchCmsPageInScope(env, pageId, cmsScope, projectSlug || null);
+      if (!page) return jsonResponse({ error: 'Page not found' }, 404);
+      if (projectSlug && !cmsScope.allowedSlugs.has(projectSlug)) {
+        return jsonResponse({ error: 'CMS_SITE_NOT_ALLOWED', project_slug: projectSlug }, 403);
+      }
+      const pageSlug = String(page.slug || page.route_path || pageId).replace(/^\//, '') || 'page';
+      const hash = await cmsContentSha256(html);
+      const r2Key = cmsSectionHtmlKey(pageSlug, sectionName, hash);
+      const r2Bucket = CMS_DEFAULT_R2_BUCKET;
+      const r2Binding = getCmsR2Binding(env, r2Bucket);
+      if (!r2Binding) return jsonResponse({ error: 'R2 storage unavailable' }, 503);
+      await r2Binding.put(r2Key, new TextEncoder().encode(html), {
+        httpMetadata: { contentType: 'text/html; charset=utf-8' },
+      });
+      const publicUrl =
+        (await presignR2GetObjectUrl(env, r2Bucket, r2Key)) ||
+        cmsR2PublicObjectUrl(request, r2Bucket, r2Key);
+      const sectionData = {
+        r2_key: r2Key,
+        public_url: publicUrl,
+        html_source: 'injected',
+        inject_position: position,
+        content_sha256: hash,
+        updated_at: Math.floor(Date.now() / 1000),
+      };
+      const payload = JSON.stringify(sectionData);
+
+      let sectionId = explicitSectionId;
+      let existing = null;
+      if (sectionId) {
+        existing = await env.DB.prepare(
+          `SELECT id, page_id, section_type, section_name, section_data, sort_order, is_visible
+           FROM cms_page_sections WHERE id = ? AND page_id = ? LIMIT 1`,
+        )
+          .bind(sectionId, pageId)
+          .first()
+          .catch(() => null);
+      }
+      if (!existing) {
+        existing = await env.DB.prepare(
+          `SELECT id, page_id, section_type, section_name, section_data, sort_order, is_visible
+           FROM cms_page_sections WHERE page_id = ? AND section_name = ? LIMIT 1`,
+        )
+          .bind(pageId, sectionName)
+          .first()
+          .catch(() => null);
+      }
+
+      if (existing?.id) {
+        sectionId = String(existing.id);
+        await env.DB.prepare(
+          `UPDATE cms_page_sections
+           SET section_data = ?, section_type = ?, updated_at = datetime('now')
+           WHERE id = ?`,
+        )
+          .bind(payload, sectionType, sectionId)
+          .run();
+        ctx.waitUntil(
+          logCmsActivity(env, {
+            tenantId,
+            userId: authUser.id,
+            action: 'section_inject_update',
+            resourceType: 'section',
+            resourceId: sectionId,
+            details: { r2_key: r2Key, section_name: sectionName },
+          }),
+        );
+      } else {
+        sectionId = sectionId || `sec_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+        const sortOrder =
+          typeof body.sort_order === 'number'
+            ? body.sort_order
+            : position === 'start'
+              ? 5
+              : Number(body.sort_order ?? 50);
+        await env.DB.prepare(
+          `INSERT INTO cms_page_sections
+           (id, page_id, section_type, section_name, section_data, sort_order, is_visible, created_at_unix)
+           VALUES (?, ?, ?, ?, ?, ?, 1, ?)`,
+        )
+          .bind(
+            sectionId,
+            pageId,
+            sectionType,
+            sectionName,
+            payload,
+            sortOrder,
+            Math.floor(Date.now() / 1000),
+          )
+          .run();
+        ctx.waitUntil(
+          logCmsActivity(env, {
+            tenantId,
+            userId: authUser.id,
+            action: 'section_inject_create',
+            resourceType: 'section',
+            resourceId: sectionId,
+            details: { r2_key: r2Key, section_name: sectionName },
+          }),
+        );
+      }
+
+      const section = await env.DB.prepare(
+        `SELECT id, page_id, section_type, section_name, section_data, sort_order, is_visible, updated_at
+         FROM cms_page_sections WHERE id = ? LIMIT 1`,
+      )
+        .bind(sectionId)
+        .first();
+      const ps = projectSlug || page.project_slug || page.project_id || null;
+      if (ps) invalidateCmsBootstrap(env, ctx, workspaceId, ps);
+      return jsonResponse({
+        success: true,
+        section: {
+          ...section,
+          section_data: sectionData,
+        },
+        r2_key: r2Key,
+        public_url: publicUrl,
+        created: !existing?.id,
+      });
+    } catch (e) {
+      return jsonResponse({ error: e.message }, 500);
+    }
+  }
+
   if (path === '/api/cms/sections/upload-html' && method === 'POST') {
     let body = {};
     try {
@@ -2223,13 +2615,32 @@ export async function handleCmsApi(request, url, env, ctx) {
         )
         .run()
         .catch(() => {});
-      const ps = url.searchParams.get('project_slug');
-      if (env.SESSION_CACHE && ps) {
-        ctx.waitUntil(
-          env.SESSION_CACHE.delete(`cms:bootstrap:${workspaceId}:${ps}`).catch(() => {}),
-        );
+      const ps = String(
+        url.searchParams.get('project_slug') || page.project_slug || page.project_id || '',
+      ).trim();
+      if (ps) invalidateCmsBootstrap(env, ctx, workspaceId, ps);
+      const section = await env.DB.prepare(
+        `SELECT id, page_id, section_type, section_name, section_data, sort_order, is_visible, updated_at
+         FROM cms_page_sections WHERE id = ? LIMIT 1`,
+      )
+        .bind(sectionId)
+        .first();
+      let parsedData = section_data || {};
+      if (typeof parsedData === 'string') {
+        try {
+          parsedData = JSON.parse(parsedData);
+        } catch {
+          parsedData = {};
+        }
       }
-      return jsonResponse({ success: true, id: sectionId });
+      return jsonResponse({
+        success: true,
+        id: sectionId,
+        section: {
+          ...section,
+          section_data: parsedData,
+        },
+      });
     } catch (e) {
       return jsonResponse({ error: e.message }, 500);
     }

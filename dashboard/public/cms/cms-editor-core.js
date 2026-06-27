@@ -58,7 +58,8 @@ function pagePath(page) {
   return `/${slug}`;
 }
 
-function pageToUrl(page, boot = null) {
+/** @param {'live'|'embed'|'preview-draft'|'preview-published'} mode */
+function pageToUrl(page, boot = null, mode = 'embed') {
   if (!page) return null;
   const ctx = readCtx();
   const path = pagePath(page);
@@ -77,9 +78,22 @@ function pageToUrl(page, boot = null) {
   }
   try {
     const url = new URL(base);
-    url.searchParams.set('cms', '1');
+    if (mode === 'embed') url.searchParams.set('cms', '1');
+    if (mode === 'preview-draft') {
+      url.searchParams.set('preview', 'draft');
+      url.searchParams.set('cms', '1');
+      if (page.id) url.searchParams.set('page_id', page.id);
+    }
+    if (mode === 'preview-published') {
+      url.searchParams.set('preview', 'published');
+      url.searchParams.set('cms', '1');
+    }
     return url.toString();
   } catch {
+    if (mode === 'preview-draft') {
+      return `${base}?preview=draft&cms=1&page_id=${encodeURIComponent(page.id || '')}`;
+    }
+    if (mode === 'preview-published') return `${base}?preview=published&cms=1`;
     return `${base}${base.includes('?') ? '&' : '?'}cms=1`;
   }
 }
@@ -111,6 +125,80 @@ const SECTION_TYPE_COLORS = {
   contact_path: '#818cf8', service: '#60a5fa', closing: '#f472b6',
   default: '#64748b',
 };
+
+const BLANK_PAGE_HTML = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>New Page</title><style>*{box-sizing:border-box;margin:0}body{font-family:Inter,system-ui,sans-serif;background:#0a0a0f;color:#e2e8f0;min-height:100vh}.cms-canvas{padding:80px 24px;text-align:center;min-height:70vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px}.cms-canvas h1{font-size:clamp(1.75rem,4vw,2.75rem);font-weight:700;letter-spacing:-.02em}.cms-canvas p{color:#64748b;max-width:440px;line-height:1.65}</style></head><body><section data-cms-section="main-content" class="cms-canvas"><h1>Clean canvas</h1><p>Add sections from the CMS wizard. This page is yours — start fresh.</p></section></body></html>`;
+
+const STARTER_PAGE_HTML = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Starter Page</title><style>*{box-sizing:border-box;margin:0}body{font-family:Inter,system-ui,sans-serif;background:#0a0a0f;color:#e2e8f0}section{padding:72px 24px;max-width:960px;margin:0 auto}.hero{text-align:center;padding-top:96px;padding-bottom:96px}.hero h1{font-size:clamp(2rem,5vw,3rem);margin-bottom:16px}.hero p{color:#94a3b8;max-width:520px;margin:0 auto 24px;line-height:1.6}.cta{display:inline-block;padding:12px 24px;background:#2563eb;color:#fff;border-radius:8px;text-decoration:none;font-weight:600}</style></head><body><section data-cms-section="main-hero" class="hero"><h1>Your headline here</h1><p>Starter template — edit content in the Content tab.</p><a class="cta" href="#">Get started</a></section><!-- cms-inject:capabilities --><!-- cms-inject:closing-cta --></body></html>`;
+
+const PAGE_TEMPLATES = {
+  blank: {
+    id: 'blank',
+    label: 'Blank canvas',
+    desc: 'Empty page — build from scratch',
+    html: BLANK_PAGE_HTML,
+    sections: [],
+  },
+  starter: {
+    id: 'starter',
+    label: 'Starter page',
+    desc: 'Hero + services + CTA scaffold',
+    html: STARTER_PAGE_HTML,
+    sections: [
+      { section_type: 'hero', section_name: 'main-hero', section_data: { headline: 'Your headline here', subheadline: 'Starter template — edit in Content tab.', cta_label: 'Get started', cta_href: '#' }, sort_order: 10 },
+      { section_type: 'services', section_name: 'capabilities', section_data: { headline: 'What we do', bullets: ['Capability one', 'Capability two', 'Capability three'] }, sort_order: 20 },
+      { section_type: 'cta', section_name: 'closing-cta', section_data: { headline: 'Ready to begin?', cta_label: 'Contact us', cta_href: '/contact' }, sort_order: 30 },
+    ],
+  },
+};
+
+const SECTION_TEMPLATES = [
+  { id: 'hero', label: 'Hero', type: 'hero', name: 'main-hero', data: { eyebrow: 'Welcome', headline: 'Your headline', subheadline: 'Supporting copy goes here.', cta_label: 'Get started', cta_href: '#' } },
+  { id: 'services', label: 'Services grid', type: 'services', name: 'capabilities', data: { headline: 'Services', bullets: ['Service one', 'Service two', 'Service three'] } },
+  { id: 'faq', label: 'FAQ', type: 'faq', name: 'faq', data: { headline: 'Questions', bullets: ['Question one?', 'Question two?'] } },
+  { id: 'cta', label: 'Call to action', type: 'cta', name: 'closing-cta', data: { headline: 'Ready?', cta_label: 'Contact us', cta_href: '/contact' } },
+  { id: 'custom', label: 'Content block', type: 'custom', name: 'content-block', data: { headline: 'Content block', body: 'Edit in the Content tab.' } },
+];
+
+function sectionInjectHtml(tpl) {
+  const d = tpl.data || {};
+  const h = d.headline || d.title || tpl.name;
+  const body = d.subheadline || d.body || d.description || '';
+  return `<section data-cms-section="${tpl.name}" style="padding:64px 24px;text-align:center;background:#0d1117;color:#e2e8f0"><h2 style="font-size:1.75rem;margin-bottom:12px">${h}</h2><p style="color:#94a3b8;max-width:520px;margin:0 auto;line-height:1.6">${body}</p></section>`;
+}
+
+const WIZARD_STYLES = `
+.wizard-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:500;display:flex;align-items:center;justify-content:center;padding:16px}
+.wizard-modal{background:#fff;border-radius:16px;width:min(520px,100%);max-height:min(90vh,680px);overflow:hidden;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,.25);color:#1a1a1a}
+.wizard-head{padding:20px 22px 12px;border-bottom:1px solid #e8e4dc;display:flex;align-items:center;justify-content:space-between}
+.wizard-head h2{font-size:17px;font-weight:700;margin:0}
+.wizard-close{background:none;border:none;font-size:20px;cursor:pointer;color:#64748b;padding:4px 8px;border-radius:6px}
+.wizard-close:hover{background:#f1f5f9}
+.wizard-body{padding:16px 22px 22px;overflow-y:auto;flex:1}
+.wizard-step-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#64748b;margin-bottom:12px}
+.wizard-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px}
+.wizard-card{border:1px solid #e8e4dc;border-radius:10px;padding:14px;cursor:pointer;background:#faf9f7;transition:all .12s;text-align:left}
+.wizard-card:hover{border-color:#2563eb;background:#eff6ff}
+.wizard-card.active{border-color:#2563eb;background:#eff6ff;box-shadow:0 0 0 2px rgba(37,99,235,.2)}
+.wizard-card-title{font-size:13px;font-weight:700;margin-bottom:4px}
+.wizard-card-desc{font-size:11px;color:#64748b;line-height:1.45}
+.wizard-field{margin-bottom:12px}
+.wizard-field label{display:block;font-size:11px;font-weight:700;color:#475569;margin-bottom:5px;text-transform:uppercase;letter-spacing:.04em}
+.wizard-field input,.wizard-field select{width:100%;padding:9px 11px;border:1px solid #e8e4dc;border-radius:8px;font-size:13px;background:#fff}
+.wizard-actions{display:flex;gap:8px;margin-top:16px}
+.wizard-actions .btn{flex:1;justify-content:center;height:36px}
+.wizard-menu-item{display:flex;align-items:center;gap:12px;width:100%;padding:14px;border:1px solid #e8e4dc;border-radius:10px;background:#fff;cursor:pointer;text-align:left;margin-bottom:8px;transition:background .12s}
+.wizard-menu-item:hover{background:#f8fafc;border-color:#cbd5e1}
+.wizard-menu-icon{width:40px;height:40px;border-radius:10px;background:#eff6ff;color:#2563eb;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+.wizard-menu-text strong{display:block;font-size:13px;margin-bottom:2px}
+.wizard-menu-text span{font-size:11px;color:#64748b}
+.canvas-welcome{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;min-height:320px;padding:32px;text-align:center;background:linear-gradient(180deg,#0d1117 0%,#161b22 100%);color:#e2e8f0}
+.canvas-welcome h2{font-size:1.35rem;margin-bottom:8px;font-weight:700}
+.canvas-welcome p{color:#64748b;font-size:13px;max-width:360px;line-height:1.6;margin-bottom:20px}
+.canvas-welcome .btn.pub{background:#2563eb;border-color:#2563eb}
+.picker-footer{border-top:1px solid #e8e4dc;padding:8px;display:flex;flex-direction:column;gap:4px;background:#faf9f7}
+.picker-action{display:flex;align-items:center;gap:8px;width:100%;padding:10px 12px;border:none;background:none;cursor:pointer;border-radius:8px;font-size:12px;font-weight:600;color:#2563eb;text-align:left}
+.picker-action:hover{background:#eff6ff}
+`;
 
 /* ── DRAG REORDER ─────────────────────────────────────────── */
 function useDrag(list, onDrop) {
@@ -629,7 +717,7 @@ function injectStyles(themeStudio) {
     s.id = id;
     document.head.appendChild(s);
   }
-  s.textContent = STYLES + (themeStudio ? THEME_STUDIO_STYLES : '');
+  s.textContent = STYLES + WIZARD_STYLES + (themeStudio ? THEME_STUDIO_STYLES : '');
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -655,6 +743,9 @@ const I = {
   chevronDown: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6"/></svg>,
   check: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>,
   sliders: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>,
+  undo: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6.69 3L3 13"/></svg>,
+  page: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>,
+  block: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>,
 };
 
 function useIsMobile(breakpoint = 767) {
@@ -723,7 +814,151 @@ function scrollPreviewToSection(iframeRef, sectionName) {
   } catch (_) {}
 }
 
-function PagePicker({ pages, activePage, onSelect }) {
+function CanvasWelcome({ onOpenWizard }) {
+  return (
+    <div className="canvas-welcome">
+      <div style={{ fontSize: 40, marginBottom: 8, opacity: .5 }}>◱</div>
+      <h2>Start from a clean canvas</h2>
+      <p>Create a new page with a blank canvas or starter template. Your existing marketing pages stay untouched until you open them from the dropdown.</p>
+      <button type="button" className="btn pub" onClick={() => onOpenWizard('page')}>+ Create page</button>
+      <button type="button" className="btn" style={{ marginTop: 8 }} onClick={() => onOpenWizard('menu')}>Browse templates</button>
+    </div>
+  );
+}
+
+function CmsWizard({ open, step, onClose, onStep, project, activePage, onCreatePage, onCreateSection, busy }) {
+  const [pageTitle, setPageTitle] = useState('');
+  const [pageSlug, setPageSlug] = useState('');
+  const [pageRoute, setPageRoute] = useState('');
+  const [pageTemplate, setPageTemplate] = useState('blank');
+  const [sectionTpl, setSectionTpl] = useState(SECTION_TEMPLATES[0]?.id || 'hero');
+  const [sectionName, setSectionName] = useState('');
+  const [injectHtml, setInjectHtml] = useState(true);
+
+  useEffect(() => {
+    if (!open) return;
+    setPageTitle('');
+    setPageSlug('');
+    setPageRoute('');
+    setPageTemplate('blank');
+    setSectionTpl('hero');
+    setSectionName('');
+    setInjectHtml(true);
+  }, [open, step]);
+
+  useEffect(() => {
+    const tpl = SECTION_TEMPLATES.find(t => t.id === sectionTpl);
+    if (tpl && !sectionName) setSectionName(tpl.name);
+  }, [sectionTpl, sectionName]);
+
+  if (!open) return null;
+
+  const tpl = PAGE_TEMPLATES[pageTemplate] || PAGE_TEMPLATES.blank;
+  const secTpl = SECTION_TEMPLATES.find(t => t.id === sectionTpl) || SECTION_TEMPLATES[0];
+
+  return (
+    <div className="wizard-backdrop" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="wizard-modal" role="dialog" aria-label="CMS wizard">
+        <div className="wizard-head">
+          <h2>{step === 'menu' ? 'Create' : step === 'page' ? 'New page' : 'New section'}</h2>
+          <button type="button" className="wizard-close" onClick={onClose} aria-label="Close">×</button>
+        </div>
+        <div className="wizard-body">
+          {step === 'menu' && (
+            <>
+              <div className="wizard-step-label">What would you like to add?</div>
+              <button type="button" className="wizard-menu-item" onClick={() => onStep('page')}>
+                <div className="wizard-menu-icon">{I.page}</div>
+                <div className="wizard-menu-text"><strong>Add page</strong><span>Blank canvas or starter template</span></div>
+              </button>
+              <button type="button" className="wizard-menu-item" onClick={() => onStep('section')} disabled={!activePage}>
+                <div className="wizard-menu-icon">{I.block}</div>
+                <div className="wizard-menu-text"><strong>Add section</strong><span>{activePage ? `On ${activePage.title}` : 'Select a page first'}</span></div>
+              </button>
+            </>
+          )}
+
+          {step === 'page' && (
+            <>
+              <div className="wizard-step-label">Choose a template</div>
+              <div className="wizard-grid">
+                {Object.values(PAGE_TEMPLATES).map(t => (
+                  <button key={t.id} type="button" className={`wizard-card ${pageTemplate === t.id ? 'active' : ''}`} onClick={() => setPageTemplate(t.id)}>
+                    <div className="wizard-card-title">{t.label}</div>
+                    <div className="wizard-card-desc">{t.desc}</div>
+                  </button>
+                ))}
+              </div>
+              <div className="wizard-field">
+                <label>Page title</label>
+                <input type="text" value={pageTitle} placeholder="My new page" onChange={e => {
+                  setPageTitle(e.target.value);
+                  if (!pageSlug) setPageSlug(e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''));
+                  if (!pageRoute) setPageRoute('/' + (e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'page'));
+                }} />
+              </div>
+              <div className="wizard-field">
+                <label>Slug</label>
+                <input type="text" value={pageSlug} placeholder="my-new-page" onChange={e => { setPageSlug(e.target.value); setPageRoute('/' + e.target.value.replace(/^\//, '')); }} />
+              </div>
+              <div className="wizard-field">
+                <label>Route path</label>
+                <input type="text" value={pageRoute} placeholder="/my-new-page" onChange={e => setPageRoute(e.target.value)} />
+              </div>
+              <div className="wizard-actions">
+                <button type="button" className="btn" onClick={() => onStep('menu')}>Back</button>
+                <button type="button" className="btn pub" disabled={busy || !pageTitle.trim() || !pageSlug.trim()} onClick={() => onCreatePage({
+                  title: pageTitle.trim(),
+                  slug: pageSlug.trim().replace(/^\//, ''),
+                  route_path: pageRoute.trim().startsWith('/') ? pageRoute.trim() : `/${pageRoute.trim()}`,
+                  template: tpl,
+                })}>
+                  {busy ? 'Creating…' : 'Create page'}
+                </button>
+              </div>
+            </>
+          )}
+
+          {step === 'section' && (
+            <>
+              <div className="wizard-step-label">Section template</div>
+              <div className="wizard-grid">
+                {SECTION_TEMPLATES.map(t => (
+                  <button key={t.id} type="button" className={`wizard-card ${sectionTpl === t.id ? 'active' : ''}`} onClick={() => { setSectionTpl(t.id); setSectionName(t.name); }}>
+                    <div className="wizard-card-title">{t.label}</div>
+                    <div className="wizard-card-desc">{t.type}</div>
+                  </button>
+                ))}
+              </div>
+              <div className="wizard-field">
+                <label>Section name</label>
+                <input type="text" value={sectionName} placeholder="main-hero" onChange={e => setSectionName(e.target.value)} />
+              </div>
+              <div className="wizard-field">
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, textTransform: 'none', fontWeight: 500 }}>
+                  <input type="checkbox" checked={injectHtml} onChange={e => setInjectHtml(e.target.checked)} />
+                  Also inject HTML preview block to R2
+                </label>
+              </div>
+              <div className="wizard-actions">
+                <button type="button" className="btn" onClick={() => onStep('menu')}>Back</button>
+                <button type="button" className="btn pub" disabled={busy || !sectionName.trim() || !activePage} onClick={() => onCreateSection({
+                  template: secTpl,
+                  section_name: sectionName.trim(),
+                  injectHtml,
+                })}>
+                  {busy ? 'Adding…' : 'Add section'}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PagePicker({ pages, activePage, onSelect, onOpenWizard }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const wrapRef = useRef(null);
@@ -802,6 +1037,10 @@ function PagePicker({ pages, activePage, onSelect }) {
               <div className="ts-page-picker-empty">No matching pages</div>
             ) : null}
           </div>
+          <div className="picker-footer">
+            <button type="button" className="picker-action" onClick={() => { setOpen(false); onOpenWizard?.('page'); }}>{I.page} Add page</button>
+            <button type="button" className="picker-action" onClick={() => { setOpen(false); onOpenWizard?.('section'); }}>{I.plus} Add section</button>
+          </div>
         </div>
       ) : null}
     </div>
@@ -845,8 +1084,14 @@ function CmsEditor() {
   const [htmlPos, setHtmlPos]     = useState('end');
   const [previewing, setPrev]     = useState(false);
   const [draftPreview, setDraftPreview] = useState(false);
+  const [previewUrls, setPreviewUrls] = useState(null);
   const [sectionQuery, setSectionQuery] = useState('');
-  const [mobilePanel, setMobilePanel] = useState('canvas'); // canvas | sections | inspector
+  const [mobilePanel, setMobilePanel] = useState('canvas');
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [wizardStep, setWizardStep] = useState('menu');
+  const [wizardBusy, setWizardBusy] = useState(false);
+  const [undoStack, setUndoStack] = useState([]);
+  const [lastRollback, setLastRollback] = useState(null);
 
   const isMobile = useIsMobile();
   const iframeRef = useRef(null);
@@ -883,10 +1128,14 @@ function CmsEditor() {
         setBootstrap(data);
         const pg = data.pages || [];
         setPages(pg);
-        const first = ctx.pageId
-          ? pg.find(p => p.id === ctx.pageId)
-          : pg.find(p => p.is_homepage) || pg[0];
-        if (first) loadPage(first, data);
+        const forceWizard = new URLSearchParams(location.search).get('wizard') === '1';
+        const first = !forceWizard && ctx.pageId ? pg.find(p => p.id === ctx.pageId) : null;
+        if (first) {
+          loadPage(first, data);
+        } else if ((!ctx.pageId || forceWizard) && isThemeStudio) {
+          setWizardOpen(true);
+          setWizardStep('menu');
+        }
         if (ctx.view === 'themeEditor') {
           setRailMode('sections');
           setRpTab('edit');
@@ -896,25 +1145,185 @@ function CmsEditor() {
       .finally(() => setBooting(false));
   }, []);
 
+  const pushUndo = useCallback((entry) => {
+    setUndoStack(prev => [...prev.slice(-29), { ...entry, at: Date.now() }]);
+  }, []);
+
+  async function reloadBootstrap(pageId = activePage?.id) {
+    const data = await api(`/api/cms/bootstrap?project_slug=${encodeURIComponent(ctx.project)}`);
+    setBootstrap(data);
+    setPages(data.pages || []);
+    if (pageId) {
+      const pg = (data.pages || []).find(p => p.id === pageId);
+      if (pg) {
+        const secs = ((data.sections_by_page || {})[pageId] || [])
+          .slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+        setSections(secs);
+        setActivePage(pg);
+      }
+    }
+    return data;
+  }
+
+  async function wizardCreatePage({ title, slug, route_path, template }) {
+    setWizardBusy(true);
+    try {
+      const res = await api('/api/cms/pages', {
+        method: 'POST',
+        body: {
+          project_id: ctx.project,
+          slug,
+          title,
+          route_path,
+          status: 'draft',
+          content: template.html,
+          sections: template.sections || [],
+        },
+      });
+      pushUndo({ kind: 'page_create', pageId: res.id });
+      const data = await reloadBootstrap(res.id);
+      const page = (data.pages || []).find(p => p.id === res.id) || { id: res.id, title, slug, route_path, status: 'draft' };
+      loadPage(page, data);
+      setWizardOpen(false);
+      setWizardStep('menu');
+      setRpTab('edit');
+      showToast('Page created · ' + title, 'ok');
+      await refreshDraftPreview(page);
+    } catch (e) {
+      showToast('Create page failed: ' + e.message, 'err');
+    } finally {
+      setWizardBusy(false);
+    }
+  }
+
+  async function wizardCreateSection({ template, section_name, injectHtml: doInject }) {
+    if (!activePage) { showToast('Select a page first', 'err'); return; }
+    setWizardBusy(true);
+    try {
+      let sec;
+      if (doInject) {
+        const html = sectionInjectHtml({ ...template, name: section_name });
+        const result = await api('/api/cms/sections/save-injected', {
+          method: 'POST',
+          body: {
+            page_id: activePage.id,
+            section_type: template.type,
+            section_name,
+            html,
+            position: 'end',
+            sort_order: (sections.length + 1) * 10,
+            project_slug: ctx.project,
+          },
+        });
+        sec = result.section;
+      } else {
+        const result = await api('/api/cms/sections', {
+          method: 'POST',
+          body: {
+            page_id: activePage.id,
+            section_type: template.type,
+            section_name,
+            sort_order: (sections.length + 1) * 10,
+            section_data: template.data,
+          },
+        });
+        sec = result.section || { id: result.id, section_name, section_type: template.type, section_data: template.data, is_visible: 1 };
+      }
+      pushUndo({ kind: 'section_create', sectionId: sec.id, pageId: activePage.id });
+      setSections(prev => [...prev, sec]);
+      setActiveSection(sec);
+      setDirty({});
+      setRpTab('edit');
+      setWizardOpen(false);
+      setWizardStep('menu');
+      showToast('Section added · ' + section_name, 'ok');
+      await refreshDraftPreview();
+    } catch (e) {
+      showToast('Add section failed: ' + e.message, 'err');
+    } finally {
+      setWizardBusy(false);
+    }
+  }
+
+  async function undoLast() {
+    const entry = undoStack[undoStack.length - 1];
+    if (!entry) { showToast('Nothing to undo', 'err'); return; }
+    try {
+      if (entry.kind === 'section_data') {
+        await api(`/api/cms/sections/${encodeURIComponent(entry.sectionId)}`, {
+          method: 'PUT', body: { section_data: entry.before },
+        });
+        const upd = { ...entry.sectionSnapshot, section_data: entry.before };
+        setSections(prev => prev.map(s => s.id === entry.sectionId ? upd : s));
+        if (activeSection?.id === entry.sectionId) setActiveSection(upd);
+        setDirty({});
+      } else if (entry.kind === 'section_create') {
+        await api(`/api/cms/sections/${encodeURIComponent(entry.sectionId)}`, { method: 'DELETE' });
+        setSections(prev => prev.filter(s => s.id !== entry.sectionId));
+        if (activeSection?.id === entry.sectionId) setActiveSection(null);
+      } else if (entry.kind === 'section_delete') {
+        const s = entry.section;
+        const res = await api('/api/cms/sections', {
+          method: 'POST',
+          body: {
+            page_id: entry.pageId,
+            section_type: s.section_type,
+            section_name: s.section_name,
+            sort_order: s.sort_order,
+            section_data: typeof s.section_data === 'string' ? JSON.parse(s.section_data) : s.section_data,
+          },
+        });
+        const restored = res.section || { ...s, id: res.id };
+        setSections(prev => [...prev, restored].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)));
+      } else if (entry.kind === 'publish' && entry.rollback_id) {
+        await api('/api/cms/rollback', {
+          method: 'POST',
+          body: { rollback_id: entry.rollback_id, page_id: entry.page_id },
+        });
+        await reloadBootstrap(entry.page_id);
+        showLiveSite(activePage);
+      } else if (entry.kind === 'page_create') {
+        showToast('Page create undo not supported — delete page from Advanced tab', 'err');
+        return;
+      }
+      setUndoStack(prev => prev.slice(0, -1));
+      showToast('Undone', 'ok');
+      await refreshDraftPreview();
+    } catch (e) {
+      showToast('Undo failed: ' + e.message, 'err');
+    }
+  }
+
+  function openWizard(step = 'menu') {
+    setWizardStep(step === 'section' && !activePage ? 'menu' : step);
+    setWizardOpen(true);
+  }
+
   function loadPage(page, boot = bootstrap) {
     setActivePage(page);
     setActiveSection(null);
     setDirty({});
     setPrev(false);
     setDraftPreview(false);
+    setPreviewUrls(null);
     const secs = ((boot?.sections_by_page || {})[page.id] || [])
       .slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
     setSections(secs);
+    api(`/api/cms/pages/${encodeURIComponent(page.id)}/preview-urls?project_slug=${encodeURIComponent(ctx.project)}`)
+      .then(urls => setPreviewUrls(urls))
+      .catch(() => setPreviewUrls(null));
     const frame = iframeRef.current;
     if (frame) {
-      frame.removeAttribute('srcdoc');
-      const url = pageToUrl(page, boot);
-      if (url) frame.src = url;
+      const url = pageToUrl(page, boot, 'embed');
+      if (url) {
+        frame.removeAttribute('srcdoc');
+        frame.src = url;
+      }
     }
-    const ctx = readCtx();
-    if (page?.id && ctx.project) {
+    const navCtx = readCtx();
+    if (page?.id && navCtx.project) {
       postParent('iam-cms-navigate', {
-        path: `/dashboard/cms/pages/${encodeURIComponent(page.id)}?site=${encodeURIComponent(ctx.project)}`,
+        path: `/dashboard/cms/pages/${encodeURIComponent(page.id)}?site=${encodeURIComponent(navCtx.project)}`,
         replace: true,
       });
     }
@@ -924,6 +1333,17 @@ function CmsEditor() {
     if (!page) return;
     const frame = iframeRef.current;
     if (!frame) return;
+    const previewUrl =
+      previewUrls?.preview_draft_url ||
+      pageToUrl(page, bootstrap, 'preview-draft');
+    if (previewUrl) {
+      frame.removeAttribute('srcdoc');
+      frame.src = previewUrl;
+      setDraftPreview(true);
+      setPrev(false);
+      showToast('Draft preview · real route');
+      return;
+    }
     try {
       const data = await api(
         `/api/cms/pages/${encodeURIComponent(page.id)}?draft=1&project_slug=${encodeURIComponent(ctx.project)}`,
@@ -952,8 +1372,54 @@ function CmsEditor() {
     frame.removeAttribute('srcdoc');
     setDraftPreview(false);
     setPrev(false);
-    const url = pageToUrl(page, bootstrap);
+    const url = pageToUrl(page, bootstrap, draftPreview ? 'embed' : 'embed');
     if (url) frame.src = url;
+  }
+
+  async function savePageMeta(fields) {
+    if (!activePage) return;
+    setSaving(true);
+    try {
+      const res = await api(`/api/cms/pages/${encodeURIComponent(activePage.id)}`, {
+        method: 'PUT',
+        body: fields,
+      });
+      const updated = res.page || { ...activePage, ...fields };
+      setActivePage(updated);
+      setPages(prev => prev.map(p => p.id === updated.id ? { ...p, ...updated } : p));
+      if (res.preview_urls) setPreviewUrls(res.preview_urls);
+      showToast('Page route saved', 'ok');
+    } catch (e) {
+      showToast('Route save failed: ' + e.message, 'err');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveSectionMeta(sectionId, fields) {
+    setSaving(true);
+    try {
+      const res = await api(`/api/cms/sections/${encodeURIComponent(sectionId)}`, {
+        method: 'PUT',
+        body: fields,
+      });
+      const sec = res.section;
+      if (sec) {
+        setSections(prev => prev.map(s => s.id === sec.id ? sec : s));
+        if (activeSection?.id === sec.id) setActiveSection(sec);
+      }
+      showToast('Section updated', 'ok');
+      if (draftPreview) await refreshDraftPreview();
+      else {
+        const frame = iframeRef.current;
+        const url = pageToUrl(activePage, bootstrap, 'embed');
+        if (frame && url) { frame.src = url; }
+      }
+    } catch (e) {
+      showToast('Section update failed: ' + e.message, 'err');
+    } finally {
+      setSaving(false);
+    }
   }
 
   /* ── drag reorder ── */
@@ -987,6 +1453,13 @@ function CmsEditor() {
     try {
       const base = secData(activeSection);
       const merged = { ...base, ...dirty };
+      pushUndo({
+        kind: 'section_data',
+        sectionId: activeSection.id,
+        before: base,
+        after: merged,
+        sectionSnapshot: activeSection,
+      });
       await api(`/api/cms/sections/${encodeURIComponent(activeSection.id)}`, {
         method: 'PUT', body: { section_data: merged },
       });
@@ -995,7 +1468,11 @@ function CmsEditor() {
       setSections(prev => prev.map(s => s.id === activeSection.id ? upd : s));
       setDirty({});
       showToast('Saved · ' + activeSection.section_name, 'ok');
-      await refreshDraftPreview();
+      if (draftPreview) await refreshDraftPreview();
+      else {
+        const frame = iframeRef.current;
+        if (frame && liveUrl) { frame.removeAttribute('srcdoc'); frame.src = liveUrl; }
+      }
     } catch (e) { showToast('Save failed: ' + e.message, 'err'); }
     finally { setSaving(false); }
   }
@@ -1003,16 +1480,46 @@ function CmsEditor() {
   /* ── publish ── */
   async function publishPage() {
     if (!activePage) return;
+    if (Object.keys(dirty).length && activeSection) {
+      await saveSection();
+    }
     setPub(true);
     try {
+      let snap = null;
+      try {
+        snap = await api(`/api/cms/pages/${encodeURIComponent(activePage.id)}/snapshot`, { method: 'POST' });
+        setLastRollback(snap.id);
+      } catch (_) {}
+      if (snap?.id) {
+        pushUndo({ kind: 'publish', rollback_id: snap.id, page_id: activePage.id });
+      }
       await api(`/api/cms/pages/${encodeURIComponent(activePage.id)}/publish`, { method: 'POST' });
       showToast('Published · ' + activePage.title, 'ok');
       showLiveSite(activePage);
-      const data = await api(`/api/cms/bootstrap?project_slug=${encodeURIComponent(ctx.project)}`);
-      setBootstrap(data);
-      setPages(data.pages || []);
-    } catch (e) { showToast('Publish failed: ' + e.message, 'err'); }
+      const data = await reloadBootstrap(activePage.id);
+      const pg = (data.pages || []).find(p => p.id === activePage.id);
+      if (pg) setActivePage(pg);
+    } catch (e) {
+      const msg = String(e.message || 'Publish failed');
+      showToast(msg.includes('publish_gate') ? 'Publish blocked — check SEO fields in Advanced' : 'Publish failed: ' + msg, 'err');
+    }
     finally { setPub(false); }
+  }
+
+  async function deleteSection(sec) {
+    if (!sec || !confirm('Delete section "' + sec.section_name + '"?')) return;
+    try {
+      pushUndo({
+        kind: 'section_delete',
+        pageId: activePage?.id,
+        section: { ...sec, section_data: secData(sec) },
+      });
+      await api(`/api/cms/sections/${encodeURIComponent(sec.id)}`, { method: 'DELETE' });
+      setSections(prev => prev.filter(s => s.id !== sec.id));
+      if (activeSection?.id === sec.id) setActiveSection(null);
+      showToast('Section deleted');
+      await refreshDraftPreview();
+    } catch (e) { showToast('Delete failed', 'err'); }
   }
 
   /* ── HTML inject preview ── */
@@ -1036,23 +1543,31 @@ function CmsEditor() {
     if (!activePage) { showToast('Select a page first', 'err'); return; }
     setSaving(true);
     try {
-      const r2 = await api('/api/cms/sections/upload-html', {
-        method: 'POST',
-        body: { page_id: activePage.id, section_name: htmlName, section_type: htmlType, html: htmlCode, project_slug: ctx.project },
-      });
-      const sec = await api('/api/cms/sections', {
+      const existing = sections.find(s => String(s.section_name || '').trim() === htmlName.trim());
+      const result = await api('/api/cms/sections/save-injected', {
         method: 'POST',
         body: {
-          page_id: activePage.id, section_type: htmlType, section_name: htmlName,
+          page_id: activePage.id,
+          section_id: existing?.id || undefined,
+          section_type: htmlType,
+          section_name: htmlName,
+          html: htmlCode,
+          position: htmlPos,
           sort_order: htmlPos === 'end' ? (sections.length + 1) * 10 : 5,
-          is_visible: 1,
-          section_data: { r2_key: r2.r2_key, public_url: r2.public_url, html_source: 'injected' },
+          project_slug: ctx.project,
         },
       });
-      setSections(prev => htmlPos === 'end' ? [...prev, sec] : [sec, ...prev]);
+      const sec = result.section || { id: result.id, section_name: htmlName, section_type: htmlType, section_data: { r2_key: result.r2_key, public_url: result.public_url, html_source: 'injected' }, sort_order: htmlPos === 'end' ? (sections.length + 1) * 10 : 5, is_visible: 1 };
+      setSections(prev => {
+        const idx = prev.findIndex(s => s.id === sec.id);
+        if (idx >= 0) return prev.map(s => s.id === sec.id ? sec : s);
+        return htmlPos === 'end' ? [...prev, sec] : [sec, ...prev];
+      });
+      if (activeSection?.id === sec.id) setActiveSection(sec);
       setHtmlCode(''); setHtmlName('');
       clearPreview();
-      showToast('Section published → R2 + D1', 'ok');
+      showToast(result.created ? 'Section published → R2 + D1' : 'Section updated → R2 + D1', 'ok');
+      await refreshDraftPreview();
     } catch (e) { showToast('Publish failed: ' + e.message, 'err'); }
     finally { setSaving(false); }
   }
@@ -1065,7 +1580,12 @@ function CmsEditor() {
     return d || {};
   }
 
-  const liveUrl = activePage ? pageToUrl(activePage, bootstrap) : null;
+  const liveUrl = activePage
+    ? (previewUrls?.embed_url || pageToUrl(activePage, bootstrap, 'embed'))
+    : null;
+  const draftPreviewUrl = activePage
+    ? (previewUrls?.preview_draft_url || pageToUrl(activePage, bootstrap, 'preview-draft'))
+    : null;
   const vpDef = VIEWPORTS.find(v => v.id === vp) || VIEWPORTS[0];
   const brandName = bootstrap?.tenant?.name || bootstrap?.project_name || 'Inner Animal';
   const brandInitials = brandName.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase() || 'IA';
@@ -1140,10 +1660,13 @@ function CmsEditor() {
                 pages={pages}
                 activePage={activePage}
                 onSelect={loadPage}
+                onOpenWizard={openWizard}
               />
             </div>
 
             <div className="ts-topbar-right ts-topbar-actions-full">
+              <button type="button" className="btn btn-sm ts-icon-btn" title="Add" onClick={() => openWizard('menu')}>{I.plus}</button>
+              <button type="button" className="btn btn-sm ts-icon-btn" title="Undo" disabled={!undoStack.length} onClick={undoLast}>{I.undo}</button>
               <div className="vp-group">
                 {themeViewports.map(v => (
                   <button key={v.id} type="button" className={`vp-btn ${vp === v.id ? 'active' : ''}`} onClick={() => setVp(v.id)} title={v.label}>
@@ -1172,6 +1695,7 @@ function CmsEditor() {
               </button>
             </div>
             <div className="ts-topbar-right ts-topbar-actions-compact">
+              <button type="button" className="btn btn-sm ts-icon-btn" title="Undo" disabled={!undoStack.length} onClick={undoLast}>{I.undo}</button>
               <button
                 type="button"
                 className="btn btn-sm"
@@ -1289,7 +1813,7 @@ function CmsEditor() {
                 <span className="ts-sections-title">Sections</span>
                 <div className="ts-sections-actions">
                   <button type="button" className="ts-icon-btn" title="Search sections">{I.search}</button>
-                  <button type="button" className="ts-icon-btn" title="Add section" onClick={() => setRpTab('advanced')}>{I.plus}</button>
+                  <button type="button" className="ts-icon-btn" title="Add section" onClick={() => openWizard('section')}>{I.plus}</button>
                 </div>
               </div>
               <div className="ts-search-wrap">
@@ -1348,7 +1872,7 @@ function CmsEditor() {
                   </div>
                 )}
               </div>
-              <button type="button" className="add-sec-btn" onClick={() => setRpTab('advanced')}>
+              <button type="button" className="add-sec-btn" onClick={() => openWizard('section')}>
                 <span style={{ fontSize: 16, lineHeight: 1 }}>+</span>
                 Add section
               </button>
@@ -1502,15 +2026,7 @@ function CmsEditor() {
                           type="button"
                           className="ts-frame-act danger"
                           title="Delete section"
-                          onClick={async () => {
-                            if (!confirm('Delete section?')) return;
-                            try {
-                              await api(`/api/cms/sections/${encodeURIComponent(activeSection.id)}`, { method: 'DELETE' });
-                              setSections(prev => prev.filter(s => s.id !== activeSection.id));
-                              setActiveSection(null);
-                              showToast('Deleted');
-                            } catch (e) { showToast('Delete failed', 'err'); }
-                          }}
+                          onClick={() => deleteSection(activeSection)}
                         >
                           {I.trash}
                         </button>
@@ -1520,10 +2036,14 @@ function CmsEditor() {
                 </div>
               </div>
             ) : (
+              isThemeStudio ? (
+                <CanvasWelcome onOpenWizard={openWizard} />
+              ) : (
               <div className="canvas-empty-state">
                 <div className="ces-icon">◱</div>
                 <div className="ces-text">Select a page to preview</div>
               </div>
+              )
             )}
           </div>
         </div>
@@ -1560,6 +2080,8 @@ function CmsEditor() {
                   saving={saving}
                   onRevert={() => setDirty({})}
                   onToggle={() => activeSection && toggleVis(activeSection)}
+                  onSaveMeta={saveSectionMeta}
+                  onDelete={() => activeSection && deleteSection(activeSection)}
                 />
               ) : (
               <EditPanel
@@ -1571,15 +2093,8 @@ function CmsEditor() {
                 saving={saving}
                 onRevert={() => setDirty({})}
                 onToggle={() => activeSection && toggleVis(activeSection)}
-                onDelete={async () => {
-                  if (!activeSection || !confirm('Delete section?')) return;
-                  try {
-                    await api(`/api/cms/sections/${encodeURIComponent(activeSection.id)}`, { method: 'DELETE' });
-                    setSections(prev => prev.filter(s => s.id !== activeSection.id));
-                    setActiveSection(null);
-                    showToast('Deleted');
-                  } catch (e) { showToast('Delete failed', 'err'); }
-                }}
+                onSaveMeta={saveSectionMeta}
+                onDelete={() => activeSection && deleteSection(activeSection)}
               />
               )
             )}
@@ -1592,6 +2107,7 @@ function CmsEditor() {
                   onSave={saveSection}
                   saving={saving}
                   dirty={dirty}
+                  onRevert={() => setDirty({})}
                 />
                 <div className="divider" />
                 <ThemePanel bootstrap={bootstrap} project={ctx.project} />
@@ -1599,7 +2115,14 @@ function CmsEditor() {
             )}
             {isThemeStudio && rpTab === 'advanced' && (
               <>
-                <PagePanel page={activePage} sections={sections} url={liveUrl} />
+                <PagePanel
+                  page={activePage}
+                  sections={sections}
+                  url={liveUrl}
+                  previewUrls={previewUrls}
+                  onSaveRoute={savePageMeta}
+                  saving={saving}
+                />
                 <div className="divider" />
                 <HtmlPanel
                   code={htmlCode} setCode={setHtmlCode}
@@ -1618,15 +2141,7 @@ function CmsEditor() {
                     <button
                       type="button"
                       className="btn btn-del"
-                      onClick={async () => {
-                        if (!confirm('Delete section?')) return;
-                        try {
-                          await api(`/api/cms/sections/${encodeURIComponent(activeSection.id)}`, { method: 'DELETE' });
-                          setSections(prev => prev.filter(s => s.id !== activeSection.id));
-                          setActiveSection(null);
-                          showToast('Deleted');
-                        } catch (e) { showToast('Delete failed', 'err'); }
-                      }}
+                      onClick={() => deleteSection(activeSection)}
                     >
                       Delete section
                     </button>
@@ -1648,7 +2163,14 @@ function CmsEditor() {
               />
             )}
             {!isThemeStudio && rpTab === 'page' && (
-              <PagePanel page={activePage} sections={sections} url={liveUrl} />
+              <PagePanel
+                page={activePage}
+                sections={sections}
+                url={liveUrl}
+                previewUrls={previewUrls}
+                onSaveRoute={savePageMeta}
+                saving={saving}
+              />
             )}
             {!isThemeStudio && rpTab === 'theme' && (
               <ThemePanel bootstrap={bootstrap} project={ctx.project} />
@@ -1686,6 +2208,18 @@ function CmsEditor() {
         ) : null}
 
       </div>
+
+      <CmsWizard
+        open={wizardOpen}
+        step={wizardStep}
+        onClose={() => { setWizardOpen(false); setWizardStep('menu'); }}
+        onStep={setWizardStep}
+        project={ctx.project}
+        activePage={activePage}
+        onCreatePage={wizardCreatePage}
+        onCreateSection={wizardCreateSection}
+        busy={wizardBusy}
+      />
     </>
   );
 }
@@ -1736,7 +2270,14 @@ function ThemeField({ label, value, onChange, type = 'input', colorValue = null,
   );
 }
 
-function ThemeStudioContentPanel({ section, data, onChange, dirty, onSave, saving, onRevert, onToggle }) {
+function ThemeStudioContentPanel({ section, data, onChange, dirty, onSave, saving, onRevert, onToggle, onSaveMeta, onDelete }) {
+  const [secName, setSecName] = useState('');
+  const [secType, setSecType] = useState('');
+  useEffect(() => {
+    setSecName(section?.section_name || '');
+    setSecType(section?.section_type || '');
+  }, [section?.id, section?.section_name, section?.section_type]);
+
   if (!section) return (
     <div className="rp-empty">
       <div className="rp-empty-icon">✦</div>
@@ -1762,6 +2303,21 @@ function ThemeStudioContentPanel({ section, data, onChange, dirty, onSave, savin
   return (
     <div>
       <ThemeStudioPanelHead section={section} />
+
+      <div className="field" style={{ marginBottom: 8 }}>
+        <label className="field-label">Section name</label>
+        <input type="text" value={secName} onChange={e => setSecName(e.target.value)} />
+      </div>
+      <div className="field" style={{ marginBottom: 8 }}>
+        <label className="field-label">Section type</label>
+        <input type="text" value={secType} onChange={e => setSecType(e.target.value)} />
+      </div>
+      {(secName !== section.section_name || secType !== section.section_type) && onSaveMeta && (
+        <button type="button" className="btn btn-sm" style={{ width: '100%', marginBottom: 12, justifyContent: 'center' }} disabled={saving}
+          onClick={() => onSaveMeta(section.id, { section_name: secName.trim(), section_type: secType.trim() })}>
+          Save name / type
+        </button>
+      )}
 
       <div className="vis-row">
         <span className="vis-label">{section.is_visible ? 'Visible on page' : 'Hidden from page'}</span>
@@ -1875,11 +2431,14 @@ function ThemeStudioContentPanel({ section, data, onChange, dirty, onSave, savin
         </button>
         <button type="button" className="btn btn-revert btn-sm" onClick={onRevert}>Revert</button>
       </div>
+      {onDelete && (
+        <button type="button" className="btn btn-del" style={{ marginTop: 8 }} onClick={onDelete}>Delete section</button>
+      )}
     </div>
   );
 }
 
-function ThemeStudioDesignPanel({ section, data, onChange, onSave, saving, dirty }) {
+function ThemeStudioDesignPanel({ section, data, onChange, onSave, saving, dirty, onRevert }) {
   if (!section) return (
     <div className="rp-empty">
       <div className="rp-empty-icon">◑</div>
@@ -1915,6 +2474,7 @@ function ThemeStudioDesignPanel({ section, data, onChange, onSave, saving, dirty
         <button type="button" className="btn btn-save" onClick={onSave} disabled={saving || !Object.keys(dirty).length}>
           {saving ? 'Saving…' : 'Save design'}
         </button>
+        <button type="button" className="btn btn-revert btn-sm" onClick={onRevert} disabled={!Object.keys(dirty).length}>Revert</button>
       </div>
     </div>
   );
@@ -1939,7 +2499,14 @@ const FIELD_MAP = [
   ['secondary_cta_href',   'Secondary CTA link',  'input'],
 ];
 
-function EditPanel({ section, data, onChange, dirty, onSave, saving, onRevert, onToggle, onDelete }) {
+function EditPanel({ section, data, onChange, dirty, onSave, saving, onRevert, onToggle, onDelete, onSaveMeta }) {
+  const [secName, setSecName] = useState('');
+  const [secType, setSecType] = useState('');
+  useEffect(() => {
+    setSecName(section?.section_name || '');
+    setSecType(section?.section_type || '');
+  }, [section?.id, section?.section_name, section?.section_type]);
+
   if (!section) return (
     <div className="rp-empty">
       <div className="rp-empty-icon">✦</div>
@@ -1952,9 +2519,40 @@ function EditPanel({ section, data, onChange, dirty, onSave, saving, onRevert, o
   return (
     <div>
       <div className="sec-meta-head">
-        <div className="sec-meta-name">{section.section_name}</div>
+        <div className="field" style={{ marginBottom: 8 }}>
+          <label className="field-label">Section name</label>
+          <input
+            type="text"
+            value={secName}
+            onChange={e => setSecName(e.target.value)}
+            placeholder="e.g. agent_sam_platform_services"
+          />
+        </div>
+        <div className="field" style={{ marginBottom: 8 }}>
+          <label className="field-label">Section type</label>
+          <input
+            type="text"
+            value={secType}
+            onChange={e => setSecType(e.target.value)}
+            placeholder="e.g. custom"
+          />
+        </div>
+        {(secName !== section.section_name || secType !== section.section_type) && onSaveMeta && (
+          <button
+            className="btn btn-sm"
+            style={{ marginBottom: 10, width: '100%', justifyContent: 'center' }}
+            disabled={saving}
+            onClick={() => onSaveMeta(section.id, {
+              section_name: secName.trim(),
+              section_type: secType.trim(),
+            })}
+          >
+            Save name / type
+          </button>
+        )}
         <div className="sec-meta-type">
           <span className="type-chip">{section.section_type}</span>
+          <span style={{ fontSize: 10, color: '#475569', marginLeft: 6 }}>{section.id}</span>
         </div>
       </div>
 
@@ -2139,7 +2737,14 @@ function HtmlPanel({ code, setCode, name, setName, type, setType, pos, setPos,
 /* ══════════════════════════════════════════════════════════════
    PAGE INFO PANEL
 ══════════════════════════════════════════════════════════════ */
-function PagePanel({ page, sections, url }) {
+function PagePanel({ page, sections, url, previewUrls, onSaveRoute, saving }) {
+  const [routePath, setRoutePath] = useState('');
+  const [slug, setSlug] = useState('');
+  useEffect(() => {
+    setRoutePath(page?.route_path || pagePath(page));
+    setSlug(page?.slug || '');
+  }, [page?.id, page?.route_path, page?.slug]);
+
   if (!page) return (
     <div className="rp-empty">
       <div className="rp-empty-icon">◱</div>
@@ -2163,7 +2768,24 @@ function PagePanel({ page, sections, url }) {
     <div>
       <div style={{ fontWeight: 700, fontSize: 14, color: '#e2e8f0', marginBottom: 12 }}>{page.title}</div>
       <div className="meta-row"><span className="meta-key">Status</span><span className={`status-pill ${statusClass}`}>{page.status}</span></div>
-      <div className="meta-row"><span className="meta-key">Slug</span><span className="meta-val">/{page.slug}</span></div>
+      <div className="field" style={{ marginTop: 8 }}>
+        <label className="field-label">Route path</label>
+        <input type="text" value={routePath} onChange={e => setRoutePath(e.target.value)} placeholder="/ or /marketing/my-page" />
+      </div>
+      <div className="field">
+        <label className="field-label">Slug</label>
+        <input type="text" value={slug} onChange={e => setSlug(e.target.value)} placeholder="home" />
+      </div>
+      {(routePath !== (page.route_path || pagePath(page)) || slug !== (page.slug || '')) && onSaveRoute && (
+        <button
+          className="btn btn-sm btn-save"
+          style={{ width: '100%', justifyContent: 'center', marginBottom: 10 }}
+          disabled={saving}
+          onClick={() => onSaveRoute({ route_path: routePath.trim(), slug: slug.trim() })}
+        >
+          Save route
+        </button>
+      )}
       <div className="meta-row"><span className="meta-key">Type</span><span className="meta-val">{page.page_type || '—'}</span></div>
       <div className="meta-row"><span className="meta-key">Sections</span><span className="meta-val">{sections.length} total · {vis} visible</span></div>
       <div className="meta-row"><span className="meta-key">Last edited</span><span className="meta-val">{fmt(page.updated_at)}</span></div>
@@ -2172,8 +2794,13 @@ function PagePanel({ page, sections, url }) {
       {url && (
         <>
           <div className="divider" />
-          <div style={{ fontSize: 10, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 5 }}>Live URL</div>
-          <a href={url} target="_blank" rel="noopener noreferrer" className="live-link">{url} ↗</a>
+          <div style={{ fontSize: 10, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 5 }}>Preview URLs</div>
+          <div style={{ fontSize: 10, color: '#64748b', marginBottom: 4 }}>Live (published)</div>
+          <a href={previewUrls?.live_url || url.replace(/\?.*$/, '')} target="_blank" rel="noopener noreferrer" className="live-link">{previewUrls?.live_url || url.replace(/\?.*$/, '')} ↗</a>
+          <div style={{ fontSize: 10, color: '#64748b', margin: '8px 0 4px' }}>Draft preview (?preview=draft)</div>
+          <a href={previewUrls?.preview_draft_url || url} target="_blank" rel="noopener noreferrer" className="live-link">{previewUrls?.preview_draft_url || url} ↗</a>
+          <div style={{ fontSize: 10, color: '#64748b', margin: '8px 0 4px' }}>Editor embed (?cms=1)</div>
+          <a href={previewUrls?.embed_url || url} target="_blank" rel="noopener noreferrer" className="live-link">{previewUrls?.embed_url || url} ↗</a>
         </>
       )}
     </div>

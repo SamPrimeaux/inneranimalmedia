@@ -62,7 +62,10 @@
   }catch(_){}
 })();
 window.addEventListener('message',function(e){
-  if(e.origin!==window.location.origin)return;
+  const parentOrigin=(function(){try{return new URLSearchParams(location.search).get('parent_origin')||'';}catch(_){return '';}})();
+  const allowed=[window.location.origin];
+  if(parentOrigin)allowed.push(parentOrigin);
+  if(!allowed.includes(e.origin))return;
   const d=e.data;
   if(!d||d.type!=='iam-cms-theme')return;
   try{

@@ -44,6 +44,10 @@ zone_name = "inneranimalmedia.com"
 pattern = "webhooks.inneranimalmedia.com/*"
 zone_name = "inneranimalmedia.com"
 
+[[routes]]
+pattern = "studio.inneranimalmedia.com/*"
+zone_name = "inneranimalmedia.com"
+
 [ai]
 binding = "AI"
 

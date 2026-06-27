@@ -29,6 +29,10 @@
 		{
 			"pattern": "webhooks.inneranimalmedia.com/*",
 			"zone_name": "inneranimalmedia.com"
+		},
+		{
+			"pattern": "studio.inneranimalmedia.com/*",
+			"zone_name": "inneranimalmedia.com"
 		}
 	],
 	"ai": {

@@ -4,6 +4,7 @@
  */
 import { getAgentsamWorkspace, parseWorkspaceMetadata } from './agentsam-workspace.js';
 import { hasRegisteredCmsSiteContext } from './cms-workspace-resolve.js';
+import { resolvePlatformCmsStudioUrl } from './cms-studio-lane.js';
 
 function trim(v) {
   return v == null ? '' : String(v).trim();
@@ -98,7 +99,11 @@ export async function resolveCmsSiteConfig(env, workspaceId, projectSlug = null)
 
   const workerBaseUrl = resolveWorkerBaseUrl(meta, wsRow);
   const studioPath = resolveStudioPath(apiProfile, meta);
-  const studioUrl = workerBaseUrl && isClientWorker ? `${workerBaseUrl}${studioPath}` : null;
+  const studioUrl = isClientWorker
+    ? workerBaseUrl
+      ? `${workerBaseUrl}${studioPath}`
+      : null
+    : resolvePlatformCmsStudioUrl(meta);
   const bridgeSupported = isClientWorker && Boolean(workerBaseUrl);
 
   let publicDomain = trim(meta.public_domain) || null;

@@ -210,6 +210,7 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
             workspaceId={workspaceId || context?.workspace_id || ''}
             workspaceLabel={context?.ui_label || context?.workspace_name || null}
             publicDomain={context?.public_domain || null}
+            studioUrl={context?.studio_url || null}
             onNavigatePath={cmsNavigatePath}
           />
         </Suspense>
