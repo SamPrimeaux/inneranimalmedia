@@ -186,6 +186,9 @@ class AgentsamDagWorkflow(WorkflowEntrypoint):
 
 class Default(WorkerEntrypoint):
     async def fetch(self, request):
+        return await self.on_fetch(request)
+
+    async def on_fetch(self, request):
         url = urlparse(request.url)
         path = url.path.rstrip("/") or "/"
         method = request.method.upper()

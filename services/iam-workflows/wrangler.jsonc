@@ -5,12 +5,6 @@
   "compatibility_date": "2025-08-01",
   "compatibility_flags": ["python_workers", "python_workflows"],
   "workers_dev": true,
-  "routes": [
-    {
-      "pattern": "workflows.inneranimalmedia.com/*",
-      "zone_name": "inneranimalmedia.com"
-    }
-  ],
   "vars": {
     "ENVIRONMENT": "production",
     "PLATFORM_ORIGIN": "https://inneranimalmedia.com"

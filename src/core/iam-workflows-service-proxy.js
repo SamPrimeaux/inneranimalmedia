@@ -2,7 +2,7 @@
  * Service binding proxy → iam-workflows (Python Workflows orchestrator).
  */
 
-export const IAM_WORKFLOWS_ORIGIN = 'https://workflows.inneranimalmedia.com';
+export const IAM_WORKFLOWS_ORIGIN = 'https://iam-workflows.meauxbility.workers.dev';
 
 /**
  * @param {any} env
