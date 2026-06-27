@@ -40,6 +40,12 @@ function isLocalDevHost(hostname: string) {
 }
 
 function resolveStudioBase(studioUrl?: string | null): { base: string; origin: string } {
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname.toLowerCase();
+    if (host === 'inneranimalmedia.com' || host === 'www.inneranimalmedia.com') {
+      return { base: `${window.location.origin}/studio/editor`, origin: window.location.origin };
+    }
+  }
   if (studioUrl) {
     try {
       const u = new URL(studioUrl, window.location.origin);

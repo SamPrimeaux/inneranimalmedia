@@ -16,11 +16,39 @@ export function isCmsStudioHost(hostname) {
 }
 
 /**
+ * Path alias on the primary domain until studio DNS is live.
+ * @param {string} pathLower
+ */
+export function isCmsStudioPathAlias(pathLower) {
+  return (
+    pathLower === '/studio' ||
+    pathLower === '/studio/' ||
+    pathLower === '/studio/editor' ||
+    pathLower === '/studio/pages' ||
+    pathLower.startsWith('/studio/pages/') ||
+    pathLower === '/studio/theme-editor'
+  );
+}
+
+/**
+ * @param {URL} url
+ */
+export function normalizeCmsStudioUrl(url) {
+  if (!isCmsStudioPathAlias(url.pathname.toLowerCase())) return url;
+  const next = new URL(url.toString());
+  const rest = next.pathname.replace(/^\/studio\/?/, '/');
+  next.pathname = rest.startsWith('/') ? rest : `/${rest}`;
+  if (next.pathname === '/') next.pathname = '/editor';
+  return next;
+}
+
+/**
  * @param {string} pathLower
  * @returns {boolean}
  */
 export function isCmsStudioAuthShellPath(pathLower) {
   if (!pathLower || pathLower.startsWith('/api/') || pathLower.startsWith('/auth/')) return false;
+  if (isCmsStudioPathAlias(pathLower)) return true;
   if (pathLower === '/editor' || pathLower === '/pages' || pathLower === '/theme-editor') return true;
   if (pathLower.startsWith('/pages/')) return true;
   if (pathLower === CMS_SHELL_R2_KEY.replace(/^static\/dashboard\/app\//, '/static/dashboard/app/')) return true;
@@ -45,8 +73,9 @@ export function isCmsStudioStaticAssetPath(pathLower) {
  * @param {URL} url
  */
 export function buildCmsStudioShellSearch(url) {
-  const q = new URLSearchParams(url.searchParams);
-  const path = url.pathname.replace(/\/+$/, '') || '/';
+  const normalized = normalizeCmsStudioUrl(url);
+  const q = new URLSearchParams(normalized.searchParams);
+  const path = normalized.pathname.replace(/\/+$/, '') || '/';
 
   if (path === '/theme-editor') {
     q.set('view', 'themeEditor');
@@ -124,7 +153,11 @@ async function loadCmsStudioShellHtml(env) {
  */
 export async function dispatchCmsStudioLane(opts) {
   const { request, url, env, methodUpper, pathLower, getMimeType, withSessionHealing } = opts;
-  if (!isCmsStudioHost(url.hostname)) return null;
+  const onStudioHost = isCmsStudioHost(url.hostname);
+  const onStudioPath = isCmsStudioPathAlias(pathLower);
+  if (!onStudioHost && !onStudioPath) return null;
+
+  const studioUrl = onStudioPath ? normalizeCmsStudioUrl(url) : url;
 
   if (methodUpper !== 'GET' && methodUpper !== 'HEAD') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), {
@@ -140,17 +173,19 @@ export async function dispatchCmsStudioLane(opts) {
     if (assetRes) return assetRes;
   }
 
-  if (pathLower === '/' || pathLower === '') {
-    const dest = new URL(url.toString());
-    dest.pathname = '/editor';
+  const pathForRoute = studioUrl.pathname.toLowerCase();
+
+  if (pathForRoute === '/' || pathForRoute === '') {
+    const dest = new URL(studioUrl.toString());
+    dest.pathname = onStudioPath ? '/studio/editor' : '/editor';
     return Response.redirect(dest.toString(), 302);
   }
 
   if (
-    pathLower === '/editor' ||
-    pathLower === '/pages' ||
-    pathLower.startsWith('/pages/') ||
-    pathLower === '/theme-editor' ||
+    pathForRoute === '/editor' ||
+    pathForRoute === '/pages' ||
+    pathForRoute.startsWith('/pages/') ||
+    pathForRoute === '/theme-editor' ||
     pathLower === '/static/dashboard/app/cms/cms-studio-shell.html'
   ) {
     const shellHtml = await loadCmsStudioShellHtml(env);
@@ -161,8 +196,9 @@ export async function dispatchCmsStudioLane(opts) {
       });
     }
 
-    const q = buildCmsStudioShellSearch(url);
-    const canonical = `${url.origin}/editor?${q.toString()}`;
+    const q = buildCmsStudioShellSearch(studioUrl);
+    const shellPath = onStudioPath ? '/studio/editor' : '/editor';
+    const canonical = `${url.origin}${shellPath}?${q.toString()}`;
     const headers = new Headers({
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'private, no-store, max-age=0, must-revalidate',
@@ -178,7 +214,7 @@ export async function dispatchCmsStudioLane(opts) {
   }
 
   const dest = new URL(url.toString());
-  dest.pathname = '/editor';
+  dest.pathname = onStudioPath ? '/studio/editor' : '/editor';
   return Response.redirect(dest.toString(), 302);
 }
 
@@ -189,5 +225,5 @@ export async function dispatchCmsStudioLane(opts) {
 export function resolvePlatformCmsStudioUrl(meta) {
   const fromMeta = String(meta?.studio_url || meta?.cms_studio_url || '').trim();
   if (fromMeta) return fromMeta.replace(/\/$/, '');
-  return `https://${CMS_STUDIO_HOST}/editor`;
+  return `https://inneranimalmedia.com/studio/editor`;
 }

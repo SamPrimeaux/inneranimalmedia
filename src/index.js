@@ -80,6 +80,7 @@ import {
   dispatchCmsStudioLane,
   isCmsStudioAuthShellPath,
   isCmsStudioHost,
+  isCmsStudioPathAlias,
 } from './core/cms-studio-lane.js';
 
 function getMimeType(key) {
@@ -1112,7 +1113,7 @@ export default {
         }
       }
 
-      if (isCmsStudioHost(url.hostname)) {
+      if (isCmsStudioHost(url.hostname) || isCmsStudioPathAlias(pathLower)) {
         const studioShell =
           isCmsStudioAuthShellPath(pathLower) &&
           !pathLower.startsWith('/static/dashboard/app/cms/cms-studio-shell.html');
@@ -1255,7 +1256,8 @@ export default {
           (isDashboardSpaShellPath(pathLower) ||
             pathLower === '/dashboard' ||
             pathLower === '/dashboard/' ||
-            (isCmsStudioHost(url.hostname) && isCmsStudioAuthShellPath(pathLower)))
+            (isCmsStudioHost(url.hostname) && isCmsStudioAuthShellPath(pathLower)) ||
+            isCmsStudioPathAlias(pathLower))
         ) {
           const nextTarget = `${url.origin}${path}${url.search || ''}`;
           const loginOrigin = isCmsStudioHost(url.hostname)
