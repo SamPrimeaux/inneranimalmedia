@@ -3,7 +3,7 @@
   "rules": [
     {
       "description": "IAM Cache Reserve: bypass dynamic API, dashboard shell, MCP, SW",
-      "expression": "(starts_with(http.request.uri.path, \"/api/\")) or (starts_with(http.request.uri.path, \"/dashboard\")) or (http.request.uri.path eq \"/sw.js\") or (http.request.uri.path eq \"/push-handler.js\") or (starts_with(http.request.uri.path, \"/mcp\")) or (http.host eq \"mcp.inneranimalmedia.com\") or (http.host eq \"autorag.inneranimalmedia.com\")",
+      "expression": "(starts_with(http.request.uri.path, \"/api/\")) or (starts_with(http.request.uri.path, \"/dashboard\")) or (http.request.uri.path eq \"/sw.js\") or (http.request.uri.path eq \"/push-handler.js\") or (http.request.uri.path eq \"/sw-agent-cache.js\") or (starts_with(http.request.uri.path, \"/mcp\")) or (http.host eq \"mcp.inneranimalmedia.com\") or (http.host eq \"autorag.inneranimalmedia.com\")",
       "action": "set_cache_settings",
       "action_parameters": {
         "cache": false
