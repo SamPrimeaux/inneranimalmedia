@@ -269,7 +269,7 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
       ) : null}
       {wizardOpen ? (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-xl h-[min(80vh,820px)] rounded-2xl overflow-hidden shadow-2xl bg-[var(--surface-0,#fff)]">
+          <div className="w-full max-w-xl h-[min(80vh,820px)] rounded-2xl overflow-hidden shadow-2xl bg-[#fafaf7] ring-1 ring-stone-300/80">
             <SiteDeployWizard
               workspaceId={workspaceId || context?.workspace_id || ''}
               onClose={() => setWizardOpen(false)}

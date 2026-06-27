@@ -28,6 +28,7 @@ import {
   Sparkles,
   type LucideIcon,
 } from 'lucide-react';
+import './SiteDeployWizard.css';
 
 interface ImportZipState {
   file: File | null;
@@ -103,17 +104,18 @@ function Prog({ cur }: { cur: number }) {
             style={{
               background: i < cur ? 'var(--fill-accent)' : i === cur ? 'var(--bg-accent)' : 'var(--surface-2)',
               border: `1.5px solid ${i <= cur ? 'var(--border-accent)' : 'var(--border)'}`,
-              color: i < cur ? 'white' : i === cur ? 'var(--text-accent)' : 'var(--text-muted)',
+              color: i < cur ? 'white' : i === cur ? 'var(--fill-accent)' : 'var(--text-secondary)',
             }}
           >
             {i < cur ? <Check size={14} strokeWidth={2.5} aria-hidden /> : i + 1}
           </div>
-          <div
-            className="text-[11px] mt-1.5 text-center whitespace-nowrap"
-            style={{ color: i === cur ? 'var(--text-accent)' : i < cur ? 'var(--text-secondary)' : 'var(--text-muted)' }}
+          <span
+            className={`text-[11px] mt-1.5 text-center whitespace-nowrap sw-step-label ${
+              i === cur ? 'sw-step-label--current' : i < cur ? 'sw-step-label--done' : 'sw-step-label--pending'
+            }`}
           >
             {label}
-          </div>
+          </span>
         </div>
       ))}
     </div>
@@ -123,7 +125,7 @@ function Prog({ cur }: { cur: number }) {
 function Head({ title, desc }: { title: string; desc: string }) {
   return (
     <div className="mb-6">
-      <h2 className="text-[18px] font-medium mb-1" style={{ color: 'var(--text-primary)' }}>
+      <h2 className="text-[18px] font-semibold mb-1.5" style={{ color: 'var(--text-primary)' }}>
         {title}
       </h2>
       <p className="text-[14px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
@@ -150,11 +152,7 @@ function Card({
     <button
       type="button"
       onClick={onClick}
-      className="w-full text-left rounded-xl p-4 mb-2.5 cursor-pointer transition-colors"
-      style={{
-        background: 'var(--surface-2)',
-        border: sel ? '1.5px solid var(--border-accent)' : '0.5px solid var(--border)',
-      }}
+      className={`w-full text-left rounded-xl p-4 mb-2.5 cursor-pointer sw-card ${sel ? 'sw-card--selected' : ''}`}
     >
       <div className="flex items-start gap-3">
         <div
@@ -279,10 +277,10 @@ function ZipDropZone({
           setDragOver(false);
         }}
         onDrop={onDrop}
-        className="flex flex-col items-center justify-center rounded-xl cursor-pointer transition-colors"
+        className={`flex flex-col items-center justify-center rounded-xl cursor-pointer transition-colors sw-dropzone ${
+          dragOver ? 'sw-dropzone--active' : ''
+        }`}
         style={{
-          border: dragOver ? '1.5px dashed var(--border-accent)' : '1.5px dashed var(--border-strong)',
-          background: dragOver ? 'var(--bg-accent)' : 'var(--surface-1)',
           padding: compact ? '1rem 1.25rem' : '1.25rem 1.5rem',
           minHeight: compact ? 88 : 112,
         }}
@@ -290,13 +288,13 @@ function ZipDropZone({
         <Upload
           size={compact ? 18 : 22}
           strokeWidth={2}
-          style={{ color: dragOver ? 'var(--text-accent)' : 'var(--text-muted)', marginBottom: 8 }}
+          style={{ color: dragOver ? 'var(--fill-accent)' : 'var(--text-muted)', marginBottom: 8 }}
           aria-hidden
         />
-        <span className="text-[13px] font-medium text-center" style={{ color: 'var(--text-primary)' }}>
+        <span className="text-[13px] font-semibold text-center" style={{ color: 'var(--text-primary)' }}>
           Drop theme .zip here
         </span>
-        <span className="text-[12px] mt-1 text-center" style={{ color: 'var(--text-muted)' }}>
+        <span className="text-[12px] mt-1 text-center font-medium" style={{ color: 'var(--text-secondary)' }}>
           or tap to browse · max {ZIP_MAX_MB} MB
         </span>
       </label>
@@ -323,12 +321,12 @@ function ZipDropZone({
 function Fld({ label, hint, children }: { label: React.ReactNode; hint?: string; children: React.ReactNode }) {
   return (
     <div className="mb-4">
-      <label className="block text-[13px] font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+      <label className="block text-[13px] font-semibold mb-1.5" style={{ color: 'var(--text-secondary)' }}>
         {label}
       </label>
       {children}
       {hint ? (
-        <div className="text-[12px] mt-1" style={{ color: 'var(--text-muted)' }}>
+        <div className="text-[12px] mt-1.5" style={{ color: 'var(--text-muted)' }}>
           {hint}
         </div>
       ) : null}
@@ -351,8 +349,8 @@ function Inp({
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
-      className="w-full px-3 py-2 text-[14px] rounded-[var(--radius)] outline-none"
-      style={{ border: '0.5px solid var(--border)', background: 'var(--surface-2)', color: 'var(--text-primary)' }}
+      className="w-full px-3 py-2.5 text-[14px] rounded-[var(--radius)] outline-none"
+      style={{ border: '1px solid var(--border-strong)', background: 'var(--surface-1)', color: 'var(--text-primary)' }}
       onFocus={(e) => {
         e.target.style.borderColor = 'var(--border-accent)';
       }}
@@ -393,10 +391,10 @@ function Tog({ on, onClick, label, sub }: { on: boolean; onClick: () => void; la
 
 function Div({ label }: { label: string }) {
   return (
-    <div className="flex items-center gap-2 my-3 text-[12px]" style={{ color: 'var(--text-muted)' }}>
-      <span style={{ flex: 1, height: '0.5px', background: 'var(--border)', display: 'block' }} />
+    <div className="flex items-center gap-2 my-3 sw-divider">
+      <span style={{ flex: 1, height: '1px', background: 'var(--border)', display: 'block' }} />
       {label}
-      <span style={{ flex: 1, height: '0.5px', background: 'var(--border)', display: 'block' }} />
+      <span style={{ flex: 1, height: '1px', background: 'var(--border)', display: 'block' }} />
     </div>
   );
 }
@@ -843,7 +841,7 @@ function S5({ s, goTo }: { s: WState; goTo: (i: number) => void }) {
   return (
     <>
       <Head title="Review your setup" desc="Everything looks good below. Tap any row to go back and edit." />
-      <div className="rounded-xl px-5" style={{ background: 'var(--surface-2)', border: '0.5px solid var(--border)' }}>
+      <div className="rounded-xl px-5 sw-panel" style={{ background: 'var(--surface-1)', border: '1px solid var(--border)' }}>
         {rows.map(([label, value, step], i) => (
           <div
             key={label}
@@ -1161,12 +1159,12 @@ export function SiteDeployWizard({ workspaceId, onClose, onDeployed }: SiteDeplo
   const isDone = s.deploy.status === 'done';
 
   return (
-    <div className="flex flex-col h-full min-h-0" style={{ background: 'var(--surface-0)', fontFamily: 'var(--font-sans)' }}>
+    <div className="flex flex-col h-full min-h-0 site-deploy-wizard" style={{ background: 'var(--surface-0)', fontFamily: 'var(--font-sans)' }}>
       <div
         className="flex items-center justify-between px-6 py-4 shrink-0"
-        style={{ borderBottom: '0.5px solid var(--border)', background: 'var(--surface-2)' }}
+        style={{ borderBottom: '1px solid var(--border)', background: 'var(--surface-1)' }}
       >
-        <h1 className="text-[16px] font-medium" style={{ color: 'var(--text-primary)' }}>
+        <h1 className="text-[16px] font-semibold" style={{ color: 'var(--text-primary)' }}>
           Deploy a new site
         </h1>
         {onClose ? (
@@ -1194,13 +1192,13 @@ export function SiteDeployWizard({ workspaceId, onClose, onDeployed }: SiteDeplo
       {!isDone ? (
         <div
           className="flex items-center justify-between px-6 py-4 shrink-0"
-          style={{ borderTop: '0.5px solid var(--border)', background: 'var(--surface-2)' }}
+          style={{ borderTop: '1px solid var(--border)', background: 'var(--surface-1)' }}
         >
           {cur > 0 && !isLast ? (
             <button
               type="button"
               onClick={() => goTo(cur - 1)}
-              className="px-4 py-2 text-[14px] font-medium"
+              className="px-4 py-2 text-[14px] font-semibold"
               style={{ border: 'none', background: 'transparent', color: 'var(--text-secondary)' }}
             >
               Back
