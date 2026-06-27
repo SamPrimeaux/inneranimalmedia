@@ -1,17 +1,24 @@
 /**
  * GET/PUT /api/agent/scene — user/workspace agent home background config.
+ * Theme defaults live in cms_themes.components_json.agent_home (see agent-home-scene-cms.js).
  * @see dashboard/types/agentHomeScene.ts
  */
 
 import { jsonResponse } from '../core/responses.js';
 import { authUserFromRequest, resolveRequestContext } from '../core/auth.js';
+import {
+  DEFAULT_AGENT_HOME_CMS,
+  mergeAgentHomeCms,
+  parseAgentHomeFromComponentsJson,
+  sanitizeAgentHomeCms,
+} from '../core/agent-home-scene-cms.js';
+import {
+  fallbackSystemTenantId,
+  resolveActiveCmsThemeRow,
+  resolveTenantIdForCmsThemeOps,
+} from '../core/cms-theme-resolve.js';
 
-const DEFAULT_SCENE = {
-  version: 1,
-  layers: [{ type: 'preset', id: 'auto-time' }],
-  atmosphere: { vignette: 0.35, grain: 0.04, glowAccent: 'var(--accent-cyan)' },
-  ui: { greetingStyle: 'serif', glassOpacity: 0.18 },
-};
+const DEFAULT_SCENE = { ...DEFAULT_AGENT_HOME_CMS };
 
 const PRESET_IDS = new Set([
   'auto-time',
@@ -167,20 +174,42 @@ export async function handleAgentHomeSceneApi(request, env, routeAuth = null) {
   const workspaceId = String(reqCtx.workspaceId || '').trim();
 
   if (method === 'GET') {
-    const { row, source } = await readSceneRow(env, userId, workspaceId);
-    if (!row?.scene_json) {
-      return jsonResponse({ ok: true, source: 'default', scene: DEFAULT_SCENE });
+    const tenantId =
+      (await resolveTenantIdForCmsThemeOps(env, authUser, workspaceId)) ||
+      fallbackSystemTenantId(env);
+    const themeResolved = await resolveActiveCmsThemeRow(env, {
+      tenantId,
+      authUser,
+      workspaceId,
+      projectId: null,
+    });
+    const themeCms = parseAgentHomeFromComponentsJson(themeResolved.row?.components_json);
+
+    const { row, source: rowSource } = await readSceneRow(env, userId, workspaceId);
+    if (row?.scene_json) {
+      try {
+        const parsedRaw = JSON.parse(String(row.scene_json));
+        const userCms = sanitizeAgentHomeCms(parsedRaw) || sanitizeAgentHomeScene(parsedRaw);
+        if (userCms) {
+          return jsonResponse({
+            ok: true,
+            source: rowSource,
+            cms: userCms,
+            theme_slug: themeResolved.row?.slug || null,
+          });
+        }
+      } catch {
+        /* fall through */
+      }
     }
-    try {
-      const parsed = sanitizeAgentHomeScene(JSON.parse(String(row.scene_json)));
-      return jsonResponse({
-        ok: true,
-        source,
-        scene: parsed || DEFAULT_SCENE,
-      });
-    } catch {
-      return jsonResponse({ ok: true, source: 'default', scene: DEFAULT_SCENE });
-    }
+
+    return jsonResponse({
+      ok: true,
+      source: themeResolved.row ? 'theme' : 'default',
+      cms: themeCms,
+      theme_slug: themeResolved.row?.slug || null,
+      resolved_from: themeResolved.resolved_from || null,
+    });
   }
 
   if (method === 'PUT') {
@@ -190,7 +219,7 @@ export async function handleAgentHomeSceneApi(request, env, routeAuth = null) {
     } catch {
       return jsonResponse({ error: 'invalid_json' }, 400);
     }
-    const scene = sanitizeAgentHomeScene(body.scene);
+    const scene = sanitizeAgentHomeCms(body.scene) || sanitizeAgentHomeScene(body.scene);
     if (!scene) return jsonResponse({ error: 'invalid_scene' }, 400);
 
     const scopeWs = body.workspaceScoped === true ? workspaceId : '';
@@ -209,7 +238,7 @@ export async function handleAgentHomeSceneApi(request, env, routeAuth = null) {
       .run();
 
     const source = scopeWs ? 'workspace' : 'user';
-    return jsonResponse({ ok: true, source, scene });
+    return jsonResponse({ ok: true, source, cms: scene });
   }
 
   return jsonResponse({ error: 'method_not_allowed' }, 405);

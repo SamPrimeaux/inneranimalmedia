@@ -518,6 +518,7 @@ export async function broadcastWorkspaceThemeCollab(env, workspaceId, payload) {
     monaco_theme: payload.monaco_theme ?? null,
     monaco_bg: payload.monaco_bg ?? null,
     monaco_theme_data: payload.monaco_theme_data ?? null,
+    agent_home: payload.agent_home ?? null,
   });
   try {
     await stub.fetch(new Request("https://internal/broadcast", { method: "POST", body: text }));

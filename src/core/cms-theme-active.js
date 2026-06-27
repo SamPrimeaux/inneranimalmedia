@@ -10,6 +10,8 @@
  * `POST /api/themes/apply`) loads `theme.json` from the ASSETS bucket and backfills D1 so clients receive `data`.
  */
 
+import { parseAgentHomeFromComponentsJson } from "./agent-home-scene-cms.js";
+
 /** @param {unknown} raw */
 export function parseCmsThemeConfig(raw) {
   if (raw == null) return {};
@@ -351,5 +353,6 @@ export function buildActiveThemeApiPayload(row) {
     monaco_theme_data: monacoThemeDataStr,
   };
   if (cfg.terminal && typeof cfg.terminal === "object") out.terminal = cfg.terminal;
+  out.agent_home = parseAgentHomeFromComponentsJson(row.components_json);
   return out;
 }

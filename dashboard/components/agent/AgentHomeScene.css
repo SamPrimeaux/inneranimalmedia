@@ -2,7 +2,7 @@
   position: absolute;
   inset: 0;
   overflow: hidden;
-  background: var(--agent-bg-deep);
+  background: var(--agent-bg-deep, #050b12);
   z-index: 0;
 }
 
@@ -17,231 +17,26 @@
   object-fit: cover;
 }
 
-/* Sky: was a 3-stop gradient between near-black tones (read as flat black
-   on screen). Now a wider value range with a warm glow seeded from the
-   moon's corner, plus a soft haze band, so there's visible depth without
-   needing a photographic asset yet. */
-.agent-scene__preset--moonlit-sea {
-  background:
-    radial-gradient(
-      ellipse 70% 55% at 88% 6%,
-      rgba(167, 219, 230, 0.16) 0%,
-      rgba(167, 219, 230, 0.05) 35%,
-      transparent 65%
-    ),
-    linear-gradient(
-      180deg,
-      #0a1c2c 0%,
-      #0e2c3c 38%,
-      #123848 62%,
-      #0a2530 80%,
-      #050d14 100%
-    );
+.agent-scene__image {
+  background-size: cover;
+  background-position: center;
 }
 
-.agent-scene__haze {
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(ellipse 120% 30% at 50% 28%, rgba(200, 235, 240, 0.05) 0%, transparent 70%),
-    radial-gradient(ellipse 90% 20% at 30% 55%, rgba(200, 235, 240, 0.035) 0%, transparent 70%);
-  mix-blend-mode: screen;
-}
-
-.agent-scene__moon {
-  position: absolute;
-  top: 7%;
-  right: 8%;
-  width: 9vw;
-  height: 9vw;
-  max-width: 140px;
-  max-height: 140px;
-  min-width: 72px;
-  min-height: 72px;
-  border-radius: 50%;
-  background: radial-gradient(
-    circle at 33% 30%,
-    #ffffff 0%,
-    #eaf6f9 22%,
-    #cfe9ee 48%,
-    #9cc8d2 75%,
-    #6fa6b3 100%
-  );
-  box-shadow:
-    0 0 30px 6px rgba(207, 238, 244, 0.35),
-    0 0 80px 24px rgba(167, 219, 230, 0.18);
-}
-
-.agent-scene__moon-halo {
-  position: absolute;
-  top: -10%;
-  right: -10%;
-  width: 85%;
-  height: 90%;
-  background: radial-gradient(
-    circle at 72% 18%,
-    rgba(167, 219, 230, 0.32) 0%,
-    rgba(167, 219, 230, 0.12) 40%,
-    transparent 70%
-  );
-  filter: blur(18px);
-}
-
-/* Water: was two near-invisible alpha-0.05/0.18 layers. Now a visible
-   moon-path column (the literal reflection a viewer expects under a moon
-   over water) plus brighter ripple lines. */
-.agent-scene__water {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 42%;
-  background:
-    linear-gradient(
-      180deg,
-      rgba(167, 219, 230, 0.22) 0%,
-      rgba(167, 219, 230, 0.06) 100%
-    ),
-    radial-gradient(
-      ellipse 22% 100% at 80% 0%,
-      rgba(220, 242, 246, 0.5) 0%,
-      rgba(167, 219, 230, 0.16) 35%,
-      transparent 70%
-    ),
-    repeating-linear-gradient(
-      94deg,
-      transparent 0px,
-      rgba(210, 240, 245, 0.1) 2px,
-      transparent 5px,
-      transparent 18px
-    );
-  background-blend-mode: screen, screen, normal;
-}
-
-.agent-scene__water--animated {
-  animation: agent-water-shimmer 16s linear infinite;
-}
-
-@keyframes agent-water-shimmer {
-  0% {
-    background-position: 0 0, 0 0, 0 0;
-  }
-  100% {
-    background-position: 0 0, 0 0, 80px 0;
-  }
-}
-
-.agent-scene__preset--aurora {
-  background: linear-gradient(160deg, var(--agent-bg-deep), var(--agent-teal));
+.agent-scene__gradient {
+  pointer-events: none;
 }
 
 .agent-scene__preset--minimal-dark {
-  background: var(--agent-bg-deep);
+  background: var(--agent-bg-deep, #050b12);
 }
 
-/* ── Time-of-day presets (auto-time → local hour) ── */
-
-.agent-scene__preset--dawn {
-  background: linear-gradient(
-    180deg,
-    #0a1420 0%,
-    #1a2840 38%,
-    #3d4a5c 62%,
-    #6a7d8f 100%
-  );
-}
-
-.agent-scene__preset--dawn .agent-scene__sun {
-  top: 22%;
-  right: 18%;
-  opacity: 0.75;
-  background: radial-gradient(circle at 35% 32%, #fff4e8 0%, #ffb88a 55%, transparent 100%);
-}
-
-.agent-scene__preset--day {
-  background: linear-gradient(
-    180deg,
-    #0c1a2e 0%,
-    #14304a 42%,
-    #1a4a62 72%,
-    #0d2733 100%
-  );
-}
-
-.agent-scene__preset--day .agent-scene__sun {
-  top: 10%;
-  right: 12%;
-  opacity: 0.95;
-  background: radial-gradient(circle at 35% 32%, #fffef5 0%, #d4eef5 55%, transparent 100%);
-}
-
-.agent-scene__preset--dusk {
-  background: linear-gradient(
-    180deg,
-    #120a18 0%,
-    #2a1830 40%,
-    #4a2840 68%,
-    #0a1826 100%
-  );
-}
-
-.agent-scene__preset--dusk .agent-scene__sun {
-  top: 28%;
-  right: 10%;
-  opacity: 0.65;
-  background: radial-gradient(circle at 35% 32%, #ffe8d0 0%, #e8a070 50%, transparent 100%);
-}
-
-.agent-scene__sun {
-  position: absolute;
-  width: 9vw;
-  height: 9vw;
-  max-width: 130px;
-  max-height: 130px;
-  min-width: 64px;
-  min-height: 64px;
-  border-radius: 50%;
-}
-
-.agent-scene__sun-halo {
-  position: absolute;
-  top: 0;
-  right: 0;
-  width: 70%;
-  height: 75%;
-  filter: blur(8px);
-  background: radial-gradient(
-    circle at 78% 12%,
-    var(--agent-accent-faint) 0%,
-    transparent 60%
-  );
-}
-
-.agent-scene__preset--day .agent-scene__sun-halo {
-  background: radial-gradient(
-    circle at 72% 14%,
-    rgba(255, 240, 200, 0.22) 0%,
-    transparent 58%
-  );
-}
-
-.agent-scene__preset--dawn .agent-scene__sun-halo,
-.agent-scene__preset--dusk .agent-scene__sun-halo {
-  background: radial-gradient(
-    circle at 75% 18%,
-    rgba(255, 180, 120, 0.2) 0%,
-    transparent 60%
-  );
-}
-
-/* Vignette pulled back — frames edges only so gradient/water values read. */
 .agent-scene__vignette {
   position: absolute;
   inset: 0;
   background: radial-gradient(
-    ellipse 100% 90% at 50% 40%,
-    transparent 55%,
-    rgba(0, 0, 0, 0.45) 100%
+    ellipse 100% 90% at 50% 42%,
+    transparent 52%,
+    rgba(0, 0, 0, calc(var(--agent-vignette, 0.38) * 1.15)) 100%
   );
   pointer-events: none;
 }
@@ -251,6 +46,7 @@
   inset: 0;
   pointer-events: none;
   mix-blend-mode: overlay;
+  opacity: var(--agent-grain, 0.035);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
@@ -260,7 +56,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .agent-scene__water--animated {
-    animation: none;
+  .agent-scene__video {
+    display: none;
   }
 }

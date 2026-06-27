@@ -45,7 +45,8 @@ export function themeMonacoBgStorageKey(workspaceId: string | null | undefined):
   return w ? `inneranimalmedia_theme_monaco_bg:${w}` : INNERANIMALMEDIA_LS_THEME_MONACO_BG;
 }
 
-const LEGACY_MCAD_CSS = 'mcad_theme_css';
+import type { AgentHomeCmsConfig } from '../types/agentHomeScene';
+import { applyAgentHomeCmsToDocument, dispatchAgentHomeScenePreview } from '../lib/agentHomeSceneResolve';
 const LEGACY_MCAD_SLUG = 'mcad_theme_slug';
 const LEGACY_MCAD_IS_DARK = 'mcad_theme_is_dark';
 
@@ -68,6 +69,7 @@ export type CmsActiveThemePayload = {
   /** From `cms_themes.monaco_theme_data` (full `IStandaloneThemeData` JSON string). */
   monaco_theme_data?: string | null;
   data?: Record<string, string>;
+  agent_home?: import('../types/agentHomeScene').AgentHomeCmsConfig | null;
 };
 
 /**
@@ -299,6 +301,10 @@ export function applyCmsThemeToDocument(payload: CmsActiveThemePayload): boolean
     }
   }
   syncMonacoHtmlDataAttributes(payload);
+  if (payload.agent_home && payload.agent_home.version === 1) {
+    applyAgentHomeCmsToDocument(payload.agent_home as AgentHomeCmsConfig);
+    dispatchAgentHomeScenePreview(payload.agent_home as AgentHomeCmsConfig);
+  }
   markDashboardThemeApplied(payload.slug ?? null);
   logDashboardThemeDebug();
   return applied;

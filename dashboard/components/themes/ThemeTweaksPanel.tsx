@@ -14,6 +14,13 @@ import {
   type ThemeTweakFields,
   updatePayloadFromFields,
 } from './themeTweaksModel';
+import {
+  agentHomeFieldsFromTheme,
+  agentHomePayloadFromFields,
+  applyAgentHomeFieldsLive,
+  DEFAULT_AGENT_HOME_TWEAK_FIELDS,
+  type AgentHomeTweakFields,
+} from './agentHomeSceneTweaksModel';
 
 export type ThemeTweaksPanelProps = {
   workspaceId?: string | null;
@@ -71,6 +78,9 @@ export function ThemeTweaksPanel({
   const [fields, setFields] = useState<ThemeTweakFields>(() =>
     createMode ? { ...DEFAULT_TWEAK_FIELDS } : fieldsFromTheme(theme),
   );
+  const [agentFields, setAgentFields] = useState<AgentHomeTweakFields>(() =>
+    createMode ? { ...DEFAULT_AGENT_HOME_TWEAK_FIELDS } : agentHomeFieldsFromTheme(theme),
+  );
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [imagePickerOpen, setImagePickerOpen] = useState(false);
@@ -80,23 +90,26 @@ export function ThemeTweaksPanel({
   useEffect(() => {
     if (createMode) {
       setFields({ ...DEFAULT_TWEAK_FIELDS, slug: `theme-${Date.now().toString(36).slice(-6)}` });
+      setAgentFields({ ...DEFAULT_AGENT_HOME_TWEAK_FIELDS });
     } else if (workspaceId?.trim() && themeDraftKey) {
       const draft = readThemeDraftForWorkspace(workspaceId, themeDraftKey);
       setFields(draft ?? fieldsFromTheme(theme));
     } else {
       setFields(fieldsFromTheme(theme));
+      setAgentFields(agentHomeFieldsFromTheme(theme));
     }
     setMsg(null);
   }, [theme, createMode, workspaceId, themeDraftKey]);
 
   useEffect(() => {
     applyFieldsLive(fields);
+    applyAgentHomeFieldsLive(agentFields);
     if (!workspaceId?.trim() || !themeDraftKey) return;
     const timer = window.setTimeout(() => {
       cacheThemeDraftForWorkspace(workspaceId, fields, themeDraftKey);
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [fields, workspaceId, themeDraftKey]);
+  }, [fields, agentFields, workspaceId, themeDraftKey]);
 
   const previewModel = useMemo(
     () => ({
@@ -135,12 +148,14 @@ export function ThemeTweaksPanel({
           ? {
               workspace_id: workspaceId.trim(),
               ...updatePayloadFromFields(fields, { create: true }),
+              ...agentHomePayloadFromFields(agentFields),
               apply_to_workspace: applyAfter,
             }
           : {
               workspace_id: workspaceId.trim(),
               theme_id: theme?.id,
               ...updatePayloadFromFields(fields, { theme_id: theme?.id }),
+              ...agentHomePayloadFromFields(agentFields),
               apply_to_workspace: applyAfter,
               preview_live: applyAfter,
             };
@@ -175,7 +190,7 @@ export function ThemeTweaksPanel({
         setBusy(false);
       }
     },
-    [workspaceId, fields, createMode, theme?.id, themeDraftKey, onSaved],
+    [workspaceId, fields, agentFields, createMode, theme?.id, themeDraftKey, onSaved],
   );
 
   const remove = useCallback(async () => {
@@ -315,6 +330,80 @@ export function ThemeTweaksPanel({
               />
               <Field label="Border" value={fields.border} onChange={(v) => patchField('border', v)} type="color" />
               <Field label="Monaco bg" value={fields.monacoBg} onChange={(v) => patchField('monacoBg', v)} type="color" />
+            </div>
+          </section>
+
+          <section className="space-y-3">
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-[var(--text-muted)]">
+              Agent home backdrop
+            </span>
+            <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
+              Time-of-day gradients for <code className="text-[var(--solar-cyan)]">/dashboard/agent</code>.
+              Optional image URLs override each period (Cloudflare Images). Live preview updates the agent home if it is open.
+            </p>
+            <div className="grid grid-cols-3 gap-3">
+              <label className="grid gap-1 text-[11px]">
+                <span className="text-[var(--text-muted)] uppercase tracking-wide">Vignette %</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={agentFields.agentVignette}
+                  onChange={(e) =>
+                    setAgentFields((p) => ({ ...p, agentVignette: Number(e.target.value) }))
+                  }
+                  className="w-full"
+                />
+              </label>
+              <label className="grid gap-1 text-[11px]">
+                <span className="text-[var(--text-muted)] uppercase tracking-wide">Grain</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={0.5}
+                  value={agentFields.agentGrain}
+                  onChange={(e) =>
+                    setAgentFields((p) => ({ ...p, agentGrain: Number(e.target.value) }))
+                  }
+                  className="w-full"
+                />
+              </label>
+              <label className="grid gap-1 text-[11px]">
+                <span className="text-[var(--text-muted)] uppercase tracking-wide">Glass %</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={agentFields.agentGlassOpacity}
+                  onChange={(e) =>
+                    setAgentFields((p) => ({ ...p, agentGlassOpacity: Number(e.target.value) }))
+                  }
+                  className="w-full"
+                />
+              </label>
+            </div>
+            <div className="grid grid-cols-1 gap-2">
+              {(
+                [
+                  ['Dawn image URL', 'agentBackdropDawn'],
+                  ['Day image URL', 'agentBackdropDay'],
+                  ['Dusk image URL', 'agentBackdropDusk'],
+                  ['Night image URL', 'agentBackdropNight'],
+                  ['Minimal dark URL', 'agentBackdropMinimal'],
+                ] as const
+              ).map(([label, key]) => (
+                <label key={key} className="grid gap-1 text-[11px]">
+                  <span className="text-[var(--text-muted)] uppercase tracking-wide">{label}</span>
+                  <input
+                    type="url"
+                    value={agentFields[key]}
+                    onChange={(e) => setAgentFields((p) => ({ ...p, [key]: e.target.value }))}
+                    placeholder="Leave empty for built-in gradient"
+                    className="w-full rounded-md border border-[var(--dashboard-border)] bg-[var(--dashboard-canvas)] px-2 py-1.5 text-[11px] font-mono text-[var(--text-main)]"
+                  />
+                </label>
+              ))}
             </div>
           </section>
 

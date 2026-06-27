@@ -2,10 +2,14 @@ import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AgentHomeScene } from './AgentHomeScene';
 import { AgentHomeHero } from './AgentHomeHero';
-import type { AgentHomeSceneConfig, AgentModeId } from '../../types/agentHomeScene';
-import { DEFAULT_AGENT_HOME_SCENE, AGENT_MODE_PILLS } from '../../types/agentHomeScene';
+import type { AgentHomeCmsConfig, AgentModeId } from '../../types/agentHomeScene';
+import { DEFAULT_AGENT_HOME_CMS, AGENT_MODE_PILLS } from '../../types/agentHomeScene';
 import { applyDayPartToScene, greetingNameFromDisplay } from '../../lib/agentDayPart';
 import { useAgentDayPart } from '../../src/hooks/useAgentDayPart';
+import {
+  applyAgentHomeCmsToDocument,
+  IAM_AGENT_HOME_SCENE_CHANGED,
+} from '../../lib/agentHomeSceneResolve';
 import { warmAgentChunksForTab } from '../../src/pwa/warmAgentChunks';
 import '../../styles/agent-home-tokens.css';
 import './AgentHome.css';
@@ -19,25 +23,59 @@ interface AgentHomeProps {
 }
 
 /**
- * Bare `/dashboard/agent` — scene + greeting + mode pills + composer portal host.
- * Composer UI is portaled from ChatAssistant (iam-chat-composer-glass).
+ * Bare `/dashboard/agent` — CMS-backed scene + greeting + mode pills + composer portal host.
  */
-export function AgentHome({
-  displayName,
-  showHero = true,
-  onComposerHost,
-  onMessagesHost,
-  onModeSelect,
-}: AgentHomeProps) {
+export function AgentHome({ displayName, onComposerHost, onMessagesHost, showHero = true, onModeSelect }: AgentHomeProps) {
   const navigate = useNavigate();
   const dayPart = useAgentDayPart();
-  const [scene, setScene] = useState<AgentHomeSceneConfig>(DEFAULT_AGENT_HOME_SCENE);
-  const [sceneSource, setSceneSource] = useState<'default' | 'user' | 'workspace'>('default');
+  const [cms, setCms] = useState<AgentHomeCmsConfig>(DEFAULT_AGENT_HOME_CMS);
+  const [sceneSource, setSceneSource] = useState<'default' | 'user' | 'workspace' | 'theme'>('default');
   const [tabHidden, setTabHidden] = useState(
     typeof document !== 'undefined' ? document.hidden : false,
   );
 
   const name = greetingNameFromDisplay(displayName);
+
+  const loadScene = useCallback(async () => {
+    try {
+      const res = await fetch('/api/agent/scene', { credentials: 'same-origin' });
+      if (!res.ok) return;
+      const data = (await res.json()) as {
+        cms?: AgentHomeCmsConfig;
+        source?: 'default' | 'user' | 'workspace' | 'theme';
+      };
+      if (data.cms?.version === 1) {
+        setCms(data.cms);
+        applyAgentHomeCmsToDocument(data.cms);
+      }
+      if (data.source) setSceneSource(data.source);
+    } catch {
+      /* keep default */
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadScene();
+  }, [loadScene]);
+
+  useEffect(() => {
+    const onThemeApplied = () => {
+      void loadScene();
+    };
+    const onScenePreview = (e: Event) => {
+      const detail = (e as CustomEvent<{ cms?: AgentHomeCmsConfig }>).detail;
+      if (detail?.cms?.version === 1) {
+        setCms(detail.cms);
+        applyAgentHomeCmsToDocument(detail.cms);
+      }
+    };
+    window.addEventListener('iam:cms-theme-applied', onThemeApplied);
+    window.addEventListener(IAM_AGENT_HOME_SCENE_CHANGED, onScenePreview);
+    return () => {
+      window.removeEventListener('iam:cms-theme-applied', onThemeApplied);
+      window.removeEventListener(IAM_AGENT_HOME_SCENE_CHANGED, onScenePreview);
+    };
+  }, [loadScene]);
 
   useEffect(() => {
     const handler = () => setTabHidden(document.hidden);
@@ -45,31 +83,9 @@ export function AgentHome({
     return () => document.removeEventListener('visibilitychange', handler);
   }, []);
 
-  useEffect(() => {
-    let active = true;
-    fetch('/api/agent/scene', { credentials: 'same-origin' })
-      .then((res) => (res.ok ? res.json() : null))
-      .then(
-        (data: {
-          scene?: AgentHomeSceneConfig;
-          source?: 'default' | 'user' | 'workspace';
-        } | null) => {
-          if (!active || !data?.scene || data.scene.version !== 1) return;
-          setScene(data.scene);
-          if (data.source) setSceneSource(data.source);
-        },
-      )
-      .catch(() => {
-        /* keep default */
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
-
   const displayScene = useMemo(
-    () => applyDayPartToScene(scene, dayPart, sceneSource),
-    [scene, dayPart, sceneSource],
+    () => applyDayPartToScene(cms, dayPart, sceneSource === 'theme' ? 'default' : sceneSource),
+    [cms, dayPart, sceneSource],
   );
 
   const handlePillSelect = useCallback(

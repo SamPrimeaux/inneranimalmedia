@@ -6,56 +6,34 @@ import './AgentHomeScene.css';
 
 interface AgentHomeSceneProps {
   config?: AgentHomeSceneConfig;
-  /** Pause all motion/webgl — pass `document.hidden` or route !== '/agent' */
   paused?: boolean;
 }
 
-/**
- * Renders the moonlit-sea (or custom) background behind the hero.
- * Zero-WebGL by default: the 'preset' and 'gradient' layer types are pure
- * CSS. 'webgl' layers are dynamically imported and only touched if a user
- * has actually picked one in the scene editor — see Phase 1 of the backend
- * brief for where presets get persisted.
- */
+/** CMS-resolved gradient/image layers — no CSS orb presets. */
 export function AgentHomeScene({ config, paused }: AgentHomeSceneProps) {
   const scene = config ?? DEFAULT_AGENT_HOME_SCENE;
   const reducedMotion = usePrefersReducedMotion();
+  const vignette = scene.atmosphere?.vignette ?? 0.38;
+  const grain = scene.atmosphere?.grain ?? 0.035;
 
   return (
     <div className="agent-scene" aria-hidden="true">
       {scene.layers.map((layer, i) => (
-        <SceneLayerView
-          key={i}
-          layer={layer}
-          paused={paused || reducedMotion}
-        />
+        <SceneLayerView key={i} layer={layer} paused={paused || reducedMotion} />
       ))}
-      <div
-        className="agent-scene__vignette"
-        style={{
-          opacity: scene.atmosphere?.vignette ?? 0.35,
-        }}
-      />
-      {!reducedMotion && (
-        <div
-          className="agent-scene__grain"
-          style={{ opacity: scene.atmosphere?.grain ?? 0.04 }}
-        />
-      )}
+      <div className="agent-scene__vignette" style={{ opacity: vignette }} />
+      {!reducedMotion ? <div className="agent-scene__grain" style={{ opacity: grain }} /> : null}
     </div>
   );
 }
 
-function SceneLayerView({
-  layer,
-  paused,
-}: {
-  layer: SceneLayer;
-  paused?: boolean;
-}) {
+function SceneLayerView({ layer, paused }: { layer: SceneLayer; paused?: boolean }) {
   switch (layer.type) {
     case 'preset':
-      return <PresetLayer id={layer.id} animated={!paused} />;
+      if (layer.id === 'minimal-dark') {
+        return <div className="agent-scene__preset agent-scene__preset--minimal-dark" />;
+      }
+      return null;
     case 'gradient':
       return (
         <div
@@ -93,68 +71,10 @@ function SceneLayerView({
   }
 }
 
-/** Pure-CSS built-in scenes. No canvas, no WebGL — this is what 95% of users see. */
-function PresetLayer({ id, animated }: { id: string; animated: boolean }) {
-  if (id === 'moonlit-sea' || id === 'night') {
-    return (
-      <div className="agent-scene__preset agent-scene__preset--moonlit-sea">
-        <div className="agent-scene__haze" />
-        <div className="agent-scene__moon" />
-        <div className="agent-scene__moon-halo" />
-        <div
-          className={
-            animated
-              ? 'agent-scene__water agent-scene__water--animated'
-              : 'agent-scene__water'
-          }
-        />
-      </div>
-    );
-  }
-  if (id === 'dawn') {
-    return (
-      <div className="agent-scene__preset agent-scene__preset--dawn">
-        <div className="agent-scene__sun-halo" />
-        <div className="agent-scene__sun" />
-      </div>
-    );
-  }
-  if (id === 'day') {
-    return (
-      <div className="agent-scene__preset agent-scene__preset--day">
-        <div className="agent-scene__sun-halo" />
-        <div className="agent-scene__sun" />
-      </div>
-    );
-  }
-  if (id === 'dusk') {
-    return (
-      <div className="agent-scene__preset agent-scene__preset--dusk">
-        <div className="agent-scene__sun-halo" />
-        <div className="agent-scene__sun" />
-        <div
-          className={
-            animated
-              ? 'agent-scene__water agent-scene__water--animated'
-              : 'agent-scene__water'
-          }
-        />
-      </div>
-    );
-  }
-  if (id === 'aurora') {
-    return <div className="agent-scene__preset agent-scene__preset--aurora" />;
-  }
-  return <div className="agent-scene__preset agent-scene__preset--minimal-dark" />;
-}
-
-/** WebGL presets are opt-in only — each preset is its own lazy chunk. */
 const WEBGL_PRESET_LOADERS: Record<
   string,
   () => Promise<{ default: ComponentType<{ params: Record<string, number>; paused?: boolean }> }>
-> = {
-  // Register presets here, e.g. 'particles': () => import('../scenes/webgl/particles.tsx'),
-};
+> = {};
 
 function LazyWebglLayer({
   presetId,
@@ -165,7 +85,6 @@ function LazyWebglLayer({
   params: Record<string, number>;
   paused?: boolean;
 }) {
-  const containerRef = useRef<HTMLDivElement>(null);
   const [Comp, setComp] = useState<ComponentType<{ params: Record<string, number>; paused?: boolean }> | null>(null);
 
   useEffect(() => {
@@ -189,11 +108,7 @@ function LazyWebglLayer({
     };
   }, [presetId]);
 
-  return (
-    <div ref={containerRef} className="agent-scene__webgl">
-      {Comp ? <Comp params={params} paused={paused} /> : null}
-    </div>
-  );
+  return <div className="agent-scene__webgl">{Comp ? <Comp params={params} paused={paused} /> : null}</div>;
 }
 
 function usePrefersReducedMotion() {

@@ -2,6 +2,7 @@
  * Merge theme tweak payloads into cms_themes row columns (config + sidecars).
  */
 import { parseCmsThemeConfig, mergeAgentDashboardIdeTokens, variablesFromCmsThemeConfig } from './cms-theme-active.js';
+import { mergeAgentHomeCms } from './agent-home-scene-cms.js';
 import {
   buildConfigFromPalette,
   buildMonacoThemeDataJson,
@@ -90,6 +91,12 @@ export function buildThemeRowUpdateFromBody(row, body) {
     slug,
   });
 
+  const existingComponents = parseJsonSafe(row?.components_json, {});
+  const nextComponents = { ...existingComponents };
+  if (body.agent_home && typeof body.agent_home === 'object') {
+    nextComponents.agent_home = mergeAgentHomeCms(existingComponents.agent_home, body.agent_home);
+  }
+
   const sidecars = buildThemeSidecarJson({
     palette: {
       canvas: palette.canvas,
@@ -100,6 +107,7 @@ export function buildThemeRowUpdateFromBody(row, body) {
       accentSoft: palette.primaryHover,
     },
     css_vars: cfgObj.cssVars,
+    components: nextComponents,
     ...(body.tokens && typeof body.tokens === 'object' ? body.tokens : {}),
   });
 

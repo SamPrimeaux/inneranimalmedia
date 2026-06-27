@@ -874,6 +874,10 @@ const App: React.FC = () => {
               msg.monaco_theme_data != null && typeof msg.monaco_theme_data === 'string'
                 ? msg.monaco_theme_data
                 : undefined,
+            agent_home:
+              msg.agent_home && typeof msg.agent_home === 'object' && !Array.isArray(msg.agent_home)
+                ? (msg.agent_home as import('./types/agentHomeScene').AgentHomeCmsConfig)
+                : undefined,
             workspace_id: wsId,
             theme_channel: 'live',
           });
