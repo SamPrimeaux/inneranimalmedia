@@ -138,7 +138,6 @@ export function CmsStudioEditor({
     if (!projectSlug) return null;
     const q = new URLSearchParams();
     q.set('project', projectSlug);
-    if (pageId) q.set('page', pageId);
     if (isAgentSamCmsShell) {
       q.set('view', 'themeEditor');
       if (panel && panel !== 'pages') q.set('panel', panel);
@@ -155,7 +154,6 @@ export function CmsStudioEditor({
     return `${studioBase}${join}${q.toString()}`;
   }, [
     projectSlug,
-    pageId,
     panel,
     isAgentSamCmsShell,
     workspaceId,
@@ -164,6 +162,12 @@ export function CmsStudioEditor({
     studioBase,
     studioOrigin,
   ]);
+
+  useEffect(() => {
+    const win = iframeRef.current?.contentWindow;
+    if (!win || !pageId) return;
+    win.postMessage({ type: 'iam-cms-set-page', detail: { pageId } }, studioOrigin);
+  }, [pageId, studioOrigin]);
 
   const postThemeToIframe = useCallback(() => {
     const win = iframeRef.current?.contentWindow;
@@ -252,7 +256,13 @@ export function CmsStudioEditor({
 
   const onIframeLoad = useCallback(() => {
     postThemeToIframe();
-  }, [postThemeToIframe]);
+    if (pageId) {
+      const win = iframeRef.current?.contentWindow;
+      if (win) {
+        win.postMessage({ type: 'iam-cms-set-page', detail: { pageId } }, studioOrigin);
+      }
+    }
+  }, [postThemeToIframe, pageId, studioOrigin]);
 
   return (
     <div

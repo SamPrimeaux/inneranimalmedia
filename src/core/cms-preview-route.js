@@ -115,7 +115,12 @@ export async function loadCmsSectionsForRoute(env, routePath, opts = {}) {
   const previewMode = opts.previewMode || null;
   const userId = String(opts.userId || '').trim() || null;
   const explicitPageId = String(opts.pageId || '').trim() || null;
-  const includeDraft = previewMode === 'draft';
+  const cmsEmbed = opts.cmsEmbed === true;
+  let effectivePreview = previewMode;
+  if (!effectivePreview && cmsEmbed && userId) {
+    effectivePreview = 'draft';
+  }
+  const includeDraft = effectivePreview === 'draft';
 
   let bundle;
   if (explicitPageId && env?.DB) {
@@ -159,9 +164,9 @@ export async function loadCmsSectionsForRoute(env, routePath, opts = {}) {
   }
 
   let sections = bundle.sections || [];
-  let effectiveMode = previewMode === 'draft' ? 'draft' : 'published';
+  let effectiveMode = effectivePreview === 'draft' ? 'draft' : 'published';
 
-  if (previewMode === 'draft' && userId) {
+  if (effectivePreview === 'draft' && userId) {
     let draftData = null;
     const kvDraft = await getCmsDraftCache(env, bundle.page.id, userId).catch(() => null);
     draftData = kvDraft?.draft_data || null;
@@ -181,7 +186,7 @@ export async function loadCmsSectionsForRoute(env, routePath, opts = {}) {
       }
     }
     sections = mergeCmsDraftSections(sections, draftData);
-  } else if (previewMode === 'draft' && !userId) {
+  } else if (effectivePreview === 'draft' && !userId) {
     effectiveMode = 'published';
   }
 

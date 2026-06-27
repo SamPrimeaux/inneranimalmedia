@@ -78,7 +78,14 @@ function pageToUrl(page, boot = null, mode = 'embed') {
   }
   try {
     const url = new URL(base);
-    if (mode === 'embed') url.searchParams.set('cms', '1');
+    const isDraft = String(page?.status || '').toLowerCase() === 'draft';
+    if (mode === 'embed') {
+      url.searchParams.set('cms', '1');
+      if (isDraft) {
+        url.searchParams.set('preview', 'draft');
+        if (page.id) url.searchParams.set('page_id', page.id);
+      }
+    }
     if (mode === 'preview-draft') {
       url.searchParams.set('preview', 'draft');
       url.searchParams.set('cms', '1');
@@ -128,6 +135,19 @@ const SECTION_TYPE_COLORS = {
 
 const BLANK_PAGE_HTML = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>New Page</title><style>*{box-sizing:border-box;margin:0}body{font-family:Inter,system-ui,sans-serif;background:#0a0a0f;color:#e2e8f0;min-height:100vh}.cms-canvas{padding:80px 24px;text-align:center;min-height:70vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px}.cms-canvas h1{font-size:clamp(1.75rem,4vw,2.75rem);font-weight:700;letter-spacing:-.02em}.cms-canvas p{color:#64748b;max-width:440px;line-height:1.65}</style></head><body><section data-cms-section="main-content" class="cms-canvas"><h1>Clean canvas</h1><p>Add sections from the CMS wizard. This page is yours — start fresh.</p></section></body></html>`;
 
+const BLANK_PAGE_SECTIONS = [
+  {
+    section_type: 'custom',
+    section_name: 'main-content',
+    section_data: {
+      headline: 'Clean canvas',
+      body: 'Add sections from the CMS wizard. This page is yours — start fresh.',
+      html_source: 'template',
+    },
+    sort_order: 10,
+  },
+];
+
 const STARTER_PAGE_HTML = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Starter Page</title><style>*{box-sizing:border-box;margin:0}body{font-family:Inter,system-ui,sans-serif;background:#0a0a0f;color:#e2e8f0}section{padding:72px 24px;max-width:960px;margin:0 auto}.hero{text-align:center;padding-top:96px;padding-bottom:96px}.hero h1{font-size:clamp(2rem,5vw,3rem);margin-bottom:16px}.hero p{color:#94a3b8;max-width:520px;margin:0 auto 24px;line-height:1.6}.cta{display:inline-block;padding:12px 24px;background:#2563eb;color:#fff;border-radius:8px;text-decoration:none;font-weight:600}</style></head><body><section data-cms-section="main-hero" class="hero"><h1>Your headline here</h1><p>Starter template — edit content in the Content tab.</p><a class="cta" href="#">Get started</a></section><!-- cms-inject:capabilities --><!-- cms-inject:closing-cta --></body></html>`;
 
 const PAGE_TEMPLATES = {
@@ -136,7 +156,7 @@ const PAGE_TEMPLATES = {
     label: 'Blank canvas',
     desc: 'Empty page — build from scratch',
     html: BLANK_PAGE_HTML,
-    sections: [],
+    sections: BLANK_PAGE_SECTIONS,
   },
   starter: {
     id: 'starter',
@@ -1131,10 +1151,13 @@ function CmsEditor() {
         const forceWizard = new URLSearchParams(location.search).get('wizard') === '1';
         const first = !forceWizard && ctx.pageId ? pg.find(p => p.id === ctx.pageId) : null;
         if (first) {
-          loadPage(first, data);
+          loadPage(first, data, { syncParent: false });
         } else if ((!ctx.pageId || forceWizard) && isThemeStudio) {
-          setWizardOpen(true);
-          setWizardStep('menu');
+          const embedded = Boolean(new URLSearchParams(location.search).get('parent_origin'));
+          if (!embedded || forceWizard) {
+            setWizardOpen(true);
+            setWizardStep('menu');
+          }
         }
         if (ctx.view === 'themeEditor') {
           setRailMode('sections');
@@ -1143,7 +1166,7 @@ function CmsEditor() {
       })
       .catch(e => showToast('Failed to load: ' + e.message, 'err'))
       .finally(() => setBooting(false));
-  }, []);
+  }, [ctx.project, ctx.pageId]);
 
   const pushUndo = useCallback((entry) => {
     setUndoStack(prev => [...prev.slice(-29), { ...entry, at: Date.now() }]);
@@ -1182,13 +1205,29 @@ function CmsEditor() {
       });
       pushUndo({ kind: 'page_create', pageId: res.id });
       const data = await reloadBootstrap(res.id);
-      const page = (data.pages || []).find(p => p.id === res.id) || { id: res.id, title, slug, route_path, status: 'draft' };
-      loadPage(page, data);
+      const page = (data.pages || []).find(p => p.id === res.id) || {
+        id: res.id,
+        title,
+        slug,
+        route_path,
+        status: 'draft',
+      };
+      if (res.preview_urls) setPreviewUrls(res.preview_urls);
       setWizardOpen(false);
       setWizardStep('menu');
       setRpTab('edit');
+      loadPage(page, data, { syncParent: true });
+      const secs = ((data.sections_by_page || {})[page.id] || [])
+        .slice()
+        .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+      if (secs.length) {
+        setActiveSection(secs[0]);
+        setMobilePanel('inspector');
+      } else {
+        setWizardOpen(true);
+        setWizardStep('section');
+      }
       showToast('Page created · ' + title, 'ok');
-      await refreshDraftPreview(page);
     } catch (e) {
       showToast('Create page failed: ' + e.message, 'err');
     } finally {
@@ -1299,7 +1338,8 @@ function CmsEditor() {
     setWizardOpen(true);
   }
 
-  function loadPage(page, boot = bootstrap) {
+  function loadPage(page, boot = bootstrap, opts = {}) {
+    const syncParent = opts.syncParent !== false;
     setActivePage(page);
     setActiveSection(null);
     setDirty({});
@@ -1318,16 +1358,48 @@ function CmsEditor() {
       if (url) {
         frame.removeAttribute('srcdoc');
         frame.src = url;
+      } else if (opts.fallbackHtml) {
+        frame.removeAttribute('src');
+        frame.srcdoc = opts.fallbackHtml;
       }
     }
     const navCtx = readCtx();
-    if (page?.id && navCtx.project) {
+    if (syncParent && page?.id && navCtx.project) {
       postParent('iam-cms-navigate', {
         path: `/dashboard/cms/pages/${encodeURIComponent(page.id)}?site=${encodeURIComponent(navCtx.project)}`,
         replace: true,
       });
     }
   }
+
+  useEffect(() => {
+    function onHostMessage(e) {
+      const parentOrigin = (() => {
+        try {
+          return new URLSearchParams(location.search).get('parent_origin') || '';
+        } catch {
+          return '';
+        }
+      })();
+      const allowed = [window.location.origin];
+      if (parentOrigin) allowed.push(parentOrigin);
+      if (!allowed.includes(e.origin)) return;
+      const data = e.data;
+      if (!data || data.type !== 'iam-cms-set-page' || !data.detail?.pageId) return;
+      const targetId = String(data.detail.pageId);
+      const pg = pages.find(p => p.id === targetId);
+      if (pg) {
+        loadPage(pg, bootstrap, { syncParent: false });
+        return;
+      }
+      reloadBootstrap(targetId).then(nextData => {
+        const next = (nextData.pages || []).find(p => p.id === targetId);
+        if (next) loadPage(next, nextData, { syncParent: false });
+      }).catch(() => {});
+    }
+    window.addEventListener('message', onHostMessage);
+    return () => window.removeEventListener('message', onHostMessage);
+  }, [pages, bootstrap]);
 
   async function refreshDraftPreview(page = activePage) {
     if (!page) return;

@@ -461,6 +461,7 @@ export default {
         if (!staticShell) {
           const bundle = await loadCmsSectionsForRoute(env, cmsRoute, {
             previewMode: previewCtx.previewMode,
+            cmsEmbed: previewCtx.cmsEmbed,
             userId: authContextToLegacyUser(peekRequestAuth(request))?.id || null,
             pageId: previewCtx.pageId,
           });
