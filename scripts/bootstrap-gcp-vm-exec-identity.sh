@@ -96,9 +96,19 @@ if [[ -f "\${EXECOS_HOME}/.env.cloudflare" ]]; then
     echo "EXECOS_DEFAULT_CWD=\${SAM_REPO}" | sudo tee -a "\${EXECOS_HOME}/.env.cloudflare" >/dev/null
 fi
 
-RUNTIME_USER="\$(sudo -u \${AGENTSAM_USER} pm2 jlist 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d[0][\"pm2_env\"][\"username\"] if d else \"\")' 2>/dev/null || true)"
-echo "PM2 exec user: \${RUNTIME_USER:-unknown}"
-sudo -u \${AGENTSAM_USER} pm2 logs execos --lines 3 --nostream 2>/dev/null || true
+RUNTIME_USER="$(ps -o user= -p "$(sudo -u ${AGENTSAM_USER} pm2 jlist 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d[0][\"pm2_env\"][\"pm_pid\"] if d else \"\")' 2>/dev/null || echo "")" 2>/dev/null | tr -d ' ' || true)"
+echo "PM2 process owner: \${RUNTIME_USER:-unknown}"
+sudo -u \${AGENTSAM_USER} pm2 list 2>/dev/null || true
+KEY=\$(grep -E '^EXECOS_KEY=' "\${EXECOS_HOME}/.env.cloudflare" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" || true)
+if [[ -n "\$KEY" ]]; then
+  echo "→ /run whoami probe"
+  curl -sf -m 10 -X POST http://127.0.0.1:3099/run \
+    -H "X-ExecOS-Key: \${KEY}" \
+    -H "Content-Type: application/json" \
+    -d "{\"command\":\"whoami && pwd\",\"cwd\":\"\${SAM_REPO}\"}" | head -c 300 || true
+  echo ""
+fi
+systemctl is-enabled pm2-agentsam.service pm2-samprimeaux.service 2>/dev/null || true
 curl -sf -m 8 https://terminal.inneranimalmedia.com/health | head -c 400 || true
 echo ""
 echo "EXECOS_IDENTITY_OK: agentsam"
