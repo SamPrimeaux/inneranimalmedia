@@ -114,6 +114,7 @@ function SitesView({
   sitesError = '',
   onNavigatePath,
   onRetry,
+  onOpenDeployWizard,
 }: {
   sites?: CmsSiteRow[];
   primaryProjectSlug?: string | null;
@@ -123,6 +124,7 @@ function SitesView({
   sitesError?: string;
   onNavigatePath: (path: string) => void;
   onRetry?: () => void;
+  onOpenDeployWizard?: () => void;
 }) {
   const rows = sites || [];
   const featured = rows.find((s) => s.slug === primaryProjectSlug)
@@ -164,7 +166,13 @@ function SitesView({
           title="Sites"
           actions={
             <>
-              <button type="button" className="pt-btn" onClick={() => onNavigatePath(buildPath('imports', featured?.slug || null))}>Import site</button>
+              <button
+                type="button"
+                className="pt-btn"
+                onClick={() => (onOpenDeployWizard ? onOpenDeployWizard() : onNavigatePath(buildPath('imports', featured?.slug || null)))}
+              >
+                Import site
+              </button>
               {featured ? (
                 <button type="button" className="pt-btn" onClick={() => onNavigatePath(buildPath('online-store', featured.slug))}>Online store</button>
               ) : null}
@@ -204,7 +212,16 @@ function SitesView({
                 </aside>
               </section>
             ) : (
-              <div className="pt-card" style={{ padding: 24, color: 'var(--muted)' }}>No CMS sites are registered for this workspace yet.</div>
+              <div className="pt-card" style={{ padding: 24, color: 'var(--muted)' }}>
+                No CMS sites are registered for this workspace yet.
+                {onOpenDeployWizard ? (
+                  <div style={{ marginTop: 16 }}>
+                    <button type="button" className="pt-btn primary" onClick={onOpenDeployWizard}>
+                      Deploy a new site
+                    </button>
+                  </div>
+                ) : null}
+              </div>
             )}
             {otherSites.length ? (
               <>
@@ -461,6 +478,7 @@ export function PrimeTechCmsLite({
   loadingProject = false,
   projectError = '',
   onNavigatePath = () => {},
+  onOpenDeployWizard,
 }: PrimeTechCmsLiteProps) {
   useStyle();
   if (loadingProject && view !== 'sites') return <div className="pt-cms-lite"><Loading label="Loading…" /></div>;
@@ -477,6 +495,7 @@ export function PrimeTechCmsLite({
           sitesError={sitesError}
           onNavigatePath={onNavigatePath}
           onRetry={onRetrySites}
+          onOpenDeployWizard={onOpenDeployWizard}
         />
       ) : null}
       {view === 'online-store' ? (

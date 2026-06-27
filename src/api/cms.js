@@ -41,6 +41,7 @@ import {
   touchCmsLiveEditSession,
 } from '../core/cms-live-edit-session.js';
 import { upsertCmsSiteProjectContext } from '../core/cms-project-context.js';
+import { provisionCmsProject } from '../core/cms-project-provision.js';
 import { emitInnerAnimalProEvent } from '../core/inneranimalpro-stream.js';
 import {
   cmsPublishGateErrorResponse,
@@ -248,6 +249,39 @@ export async function handleCmsApi(request, url, env, ctx) {
         sites = await listCmsSitesForScope(env, { tenantId: authTenantId, workspaceId });
       } catch (_) {}
       return jsonResponse({ error: e.message, sites }, 500);
+    }
+  }
+
+  if (path === '/api/cms/projects/create' && method === 'POST') {
+    let body = {};
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: 'invalid JSON' }, 400);
+    }
+    const reqWorkspaceId = String(body.workspace_id || workspaceId || '').trim();
+    if (reqWorkspaceId && reqWorkspaceId !== workspaceId) {
+      return jsonResponse({ error: 'WORKSPACE_MISMATCH' }, 403);
+    }
+    try {
+      const result = await provisionCmsProject(env, ctx, {
+        tenantId,
+        workspaceId,
+        userId: authUser.id,
+        personUuid: personUuid,
+        authUser,
+        request,
+        payload: body,
+      });
+      if (!result.ok) {
+        return jsonResponse(
+          { ok: false, error: result.error, project_slug: result.project_slug || null },
+          result.status || 400,
+        );
+      }
+      return jsonResponse(result);
+    } catch (e) {
+      return jsonResponse({ ok: false, error: e.message }, 500);
     }
   }
 

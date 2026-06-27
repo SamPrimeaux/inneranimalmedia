@@ -1,7 +1,8 @@
-import React, { Suspense, lazy, useCallback, useEffect, useMemo } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useCmsWorkspaceContext } from '../../hooks/useCmsWorkspaceContext';
 import { buildCmsPath, parseCmsRoute, readStoredCmsProjectSlug, type CmsView } from './cmsRoute';
+import { SiteDeployWizard } from './SiteDeployWizard';
 import ClientWorkerCmsStudio from './ClientWorkerCmsStudio';
 
 const CmsRoot = lazy(() =>
@@ -38,6 +39,7 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const [wizardOpen, setWizardOpen] = useState(false);
 
   const parsed = useMemo(
     () => parseCmsRoute(location.pathname, searchParams),
@@ -55,6 +57,23 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
     siteSlug: effectiveSiteSlug,
     enabled: true,
   });
+
+  const handleDeployed = useCallback(
+    (slug: string) => {
+      setWizardOpen(false);
+      void persistSite(slug).then(() => {
+        navigate(
+          buildCmsPath({
+            panel: 'pages',
+            siteSlug: slug,
+          }),
+          { replace: true },
+        );
+        void load();
+      });
+    },
+    [load, navigate, persistSite],
+  );
 
   const isClientWorker = context?.cms_hosting === 'client_worker';
 
@@ -244,8 +263,20 @@ export default function CmsPage({ workspaceId }: CmsPageProps) {
             projectError={error}
             onNavigate={cmsNavigate}
             onNavigatePath={cmsNavigatePath}
+            onOpenDeployWizard={() => setWizardOpen(true)}
           />
         </Suspense>
+      ) : null}
+      {wizardOpen ? (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-xl h-[min(80vh,820px)] rounded-2xl overflow-hidden shadow-2xl bg-[var(--surface-0,#fff)]">
+            <SiteDeployWizard
+              workspaceId={workspaceId || context?.workspace_id || ''}
+              onClose={() => setWizardOpen(false)}
+              onDeployed={handleDeployed}
+            />
+          </div>
+        </div>
       ) : null}
     </div>
   );
