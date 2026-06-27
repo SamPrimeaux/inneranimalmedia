@@ -226,6 +226,10 @@ queue = "74b3155b36334b69852411c083d50322"
 binding = "WAE"
 dataset = "inneranimalmedia"
 
+[[pipelines]]
+binding = "INNERANIMALPRO_STREAM"
+pipeline = "7907f409b0d444b9a09c901fbdf05f1f"
+
 # Plaintext vars — keep aligned with Cloudflare dashboard (see docs/platform/worker-env-production-2026-06.md).
 # Secrets are dashboard-only; never commit values.
 [vars]

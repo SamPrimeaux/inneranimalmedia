@@ -9,6 +9,7 @@ import {
 } from '../../core/cms-theme-archive.js';
 
 import { CMS_DEFAULT_R2_BUCKET, getCmsR2Binding } from '../../core/cms-r2-binding.js';
+import { emitInnerAnimalProEvent } from '../../core/inneranimalpro-stream.js';
 
 /** @param {any} env @param {string} bucketName */
 function getR2(env, bucketName) {
@@ -183,6 +184,11 @@ export async function handleCmsLiquidImportQueueJob(env, body) {
         .catch(() => {});
     }
 
+    emitInnerAnimalProEvent(env, {
+      userId: importRow?.created_by || null,
+      eventName: `liquid_import_complete:${importId || conversionId}:sections=${liquidSections.length}`,
+    });
+
     return {
       ok: true,
       import_id: importId || null,
@@ -195,6 +201,10 @@ export async function handleCmsLiquidImportQueueJob(env, body) {
   } catch (e) {
     const err = String(e?.message || e);
     await markJobFailed(env, { importId, conversionId, err });
+    emitInnerAnimalProEvent(env, {
+      userId: importRow?.created_by || null,
+      eventName: `liquid_import_failed:${importId || conversionId}:${err.slice(0, 120)}`,
+    });
     return { ok: false, error: err };
   }
 }

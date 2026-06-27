@@ -236,6 +236,12 @@
 			"dataset": "inneranimalmedia"
 		}
 	],
+	"pipelines": [
+		{
+			"binding": "INNERANIMALPRO_STREAM",
+			"pipeline": "7907f409b0d444b9a09c901fbdf05f1f"
+		}
+	],
 	"vars": {
 		"CLOUDFLARE_ACCOUNT_ID": "ede6590ac0d2fb7daf155b35653457b2",
 		"CLOUDFLARE_IMAGES_ACCOUNT_HASH": "g7wf09fCONpnidkRnR_5vw",

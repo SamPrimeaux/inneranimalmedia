@@ -41,6 +41,7 @@ import {
   touchCmsLiveEditSession,
 } from '../core/cms-live-edit-session.js';
 import { upsertCmsSiteProjectContext } from '../core/cms-project-context.js';
+import { emitInnerAnimalProEvent } from '../core/inneranimalpro-stream.js';
 import {
   cmsPublishGateErrorResponse,
   runCmsPromotionGate,
@@ -1047,6 +1048,14 @@ export async function handleCmsApi(request, url, env, ctx) {
           resourceType: 'page',
           resourceId: pageId,
         }),
+      );
+      emitInnerAnimalProEvent(
+        env,
+        {
+          userId: authUser.id,
+          eventName: `cms_publish:${pageId}:${projectSlug || page.slug || 'page'}`,
+        },
+        ctx,
       );
       await clearCmsDraftHotCache(env, pageId, authUser.id);
 
@@ -2848,6 +2857,14 @@ export async function handleCmsApi(request, url, env, ctx) {
           }).catch(() => {}),
         );
       }
+      emitInnerAnimalProEvent(
+        env,
+        {
+          userId: authUser.id,
+          eventName: `liquid_import_queued:${importId}:${importName}`,
+        },
+        ctx,
+      );
       return jsonResponse({
         success: true,
         id: importId,
