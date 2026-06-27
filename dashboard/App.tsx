@@ -2313,20 +2313,6 @@ const App: React.FC = () => {
     }
   }, [revealMainWorkspaceIfNarrow, isNarrowViewport, openTab]);
 
-  useEffect(() => {
-    if (!isAgentEditorPath(location.pathname)) return;
-    focusCodeEditorFromChat();
-    setActiveActivity('files');
-  }, [location.pathname, focusCodeEditorFromChat]);
-
-  useEffect(() => {
-    if (!isAgentEditorPath(location.pathname)) return;
-    if (activeFile) return;
-    const recent = workspaceDashboardRecentFiles[0];
-    if (!recent) return;
-    void openRecentEntry(recent);
-  }, [location.pathname, activeFile, workspaceDashboardRecentFiles, openRecentEntry]);
-
   const openInEditorFromExplorer = useCallback(
     (file: ActiveFile) => {
       openFile(prepareActiveFileForEditor(file));
@@ -2585,6 +2571,20 @@ const App: React.FC = () => {
     },
     [revealMainWorkspaceIfNarrow],
   );
+
+  useEffect(() => {
+    if (!isAgentEditorPath(location.pathname)) return;
+    focusCodeEditorFromChat();
+    setActiveActivity('files');
+  }, [location.pathname, focusCodeEditorFromChat]);
+
+  useEffect(() => {
+    if (!isAgentEditorPath(location.pathname)) return;
+    if (activeFile) return;
+    const recent = workspaceDashboardRecentFiles[0];
+    if (!recent) return;
+    void openRecentEntry(recent);
+  }, [location.pathname, activeFile, workspaceDashboardRecentFiles, openRecentEntry]);
 
   useEffect(() => {
     const onRun = (e: Event) => {
