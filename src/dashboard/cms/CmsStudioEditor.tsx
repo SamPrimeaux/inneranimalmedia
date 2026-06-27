@@ -147,7 +147,7 @@ export function CmsStudioEditor({
     if (workspaceId) q.set('workspace_id', workspaceId);
     if (workspaceLabel) q.set('workspace_label', workspaceLabel);
     if (publicDomain) q.set('public_domain', publicDomain);
-    if (studioOrigin !== window.location.origin) {
+    if (typeof window !== 'undefined' && window.parent !== window) {
       q.set('parent_origin', window.location.origin);
     }
     const join = studioBase.includes('?') ? '&' : '?';

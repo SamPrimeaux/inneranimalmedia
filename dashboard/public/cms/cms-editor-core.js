@@ -1153,7 +1153,9 @@ function CmsEditor() {
         if (first) {
           loadPage(first, data, { syncParent: false });
         } else if ((!ctx.pageId || forceWizard) && isThemeStudio) {
-          const embedded = Boolean(new URLSearchParams(location.search).get('parent_origin'));
+          const embedded =
+            window.parent !== window ||
+            Boolean(new URLSearchParams(location.search).get('parent_origin'));
           if (!embedded || forceWizard) {
             setWizardOpen(true);
             setWizardStep('menu');
